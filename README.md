@@ -206,7 +206,9 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
   light on a textured surface, and a [day/night cycle](docs/day-night-cycle.md)
   the whole bake follows.
 - **Surfaces** — [emissive materials](docs/emissive-materials.md),
-  [sphere-mapped chrome](docs/reflective-materials.md), Mirror objects,
+  [sphere-mapped chrome](docs/reflective-materials.md) that mirrors the whole town
+  as [boxes](docs/reflective-materials.md#static-scenery-in-the-probe-11610) over a
+  [cheap coloured ground](docs/reflective-materials.md#the-ground-stand-in-11610), Mirror objects,
   [VU0-raytraced mirrors](docs/raytraced-reflections.md),
   [live texture feeds](docs/texture-feeds.md) and [portals with visible lamp effects](docs/portals.md).
 - **Particles** — a [particle library](docs/particles.md): effects made once,

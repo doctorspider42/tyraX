@@ -149,7 +149,10 @@ repaired. The HUD shows damage when relevant.
 Headlights project pools onto the ground; lamp glow follows the authored lamp
 materials. Skid marks and tyre smoke respond to slip. The Effects tab accepts
 built-in effects, materials, or a particle-library smoke effect. **Body shine**
-uses a reflection texture or the sky; translucent glass needs a useful
+uses a reflection texture or the sky (with the city as boxes when *Reflect static
+scenery as boxes* is on, and a flat-colour ground that costs ~2 ms less a turning
+frame on the open road with *Reflect the ground as flat colour* -
+docs/reflective-materials.md); translucent glass needs a useful
 interior. **Speed feel** adds authored shake, blur, camera widening and nitrous
 flames as speed rises. The Driver tab controls the speedometer and HUD scale.
 

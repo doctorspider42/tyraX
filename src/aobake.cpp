@@ -129,8 +129,8 @@ bool animatedModelPath(const std::string& p) {
 // Returns false for shapes that have no volume worth approximating (markers,
 // lights, decals, mirrors, portals, animated models). Shared by the occluder
 // and the emissive-light collection - both need the exact same solid.
-static bool objectShape(const SceneObject& o, int index,
-                        const ModelAabbFn& modelAabb, Occluder& out) {
+bool objectShape(const SceneObject& o, int index, const ModelAabbFn& modelAabb,
+                 Occluder& out) {
     if (o.collisionMode == 3) return false;
     {
         float cLocal[3] = {0, 0, 0};  // shape center in object-local units

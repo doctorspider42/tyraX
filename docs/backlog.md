@@ -71,6 +71,29 @@ switch with the day/night script, so simply marking them static changes the
 scene's behavior; caching stable data or authored two-state lighting needs
 its own image and hardware gates.
 
+## The reflection probe: what is left after the ground stand-in (2026-09-30)
+
+*Reflect the ground as flat colour* (docs/reflective-materials.md, "The ground
+stand-in") took the open-road capture from 5.5 to 2.0 ms of probe EE. What
+remains, in order of size:
+
+- The stand-in grid itself is still ~1 ms of a capture over no ground at all,
+  mostly the middle bag the eye stands in, which is always clipped. A smaller
+  near block (or dropping the cells behind the eye before they are built)
+  would attack exactly that part. Re-measure indoors, where the split already
+  cost more than it saved once.
+- It is ~10% darker than the real ground on the paint: no lightmap or AO pass.
+  Folding the scene's mean baked light into the host map would close that
+  without any runtime cost.
+- It is not on by default. Nothing measured argues against that any more; the
+  decision is the look, so it wants a real-console look at a driven car first.
+
+The scenery boxes themselves (*Reflect static scenery as boxes*) cost 1.2-1.65
+ms of a capture, mostly EE clipping of big boxes near the eye. Worth trying
+after the ground: drop a box's faces that point away from the probe (half the
+triangles, and the clipped ones are mostly the near box's back faces), or cap
+the near boxes at the probe's near distance.
+
 ## Occlusion culling: make the visibility pass cheaper
 
 The unmerged `ee-occlusion` rewrite hides 23/48 draw units in a dense district

@@ -46,6 +46,7 @@
 #include "prefab.hpp"
 #include "procrt.hpp"
 #include "project.hpp"
+#include "reflscenery.hpp"  // which static objects the reflection probe boxes
 #include "savebake.hpp"
 #include "scrollsim.hpp"
 #include "shadowbake.hpp"  // the baked shadow-decal cache (docs/shadows.md)
@@ -24868,7 +24869,7 @@ void TerrainGame::renderScene() {
       if (nd2 > 1.0F && (envNearest <= 1.0F || nd2 < envNearest * envNearest))
         envNearest = sqrtf(nd2);
     }
-    envColorKey = ck;
+{{REFL_SCENERY_KEY}}    envColorKey = ck;
     envContentKey = nk;
     if (sharedEnvBasisValid && sharedEnvColorKey == ck &&
         sharedEnvContentKey == nk) {
@@ -24947,11 +24948,7 @@ void TerrainGame::renderScene() {
     // 10-15 ms of every capturing frame on a physical PS2 while the camera
     // turned (a turn captures every second frame), and a chunk 100 units away
     // is a few pixels at the horizon of this 128-pixel target.
-    g_groundDrawRadius = REFLECTION_GROUND_RADIUS;
-    renderTerrain();
-    renderRoadChunks();
-    g_groundDrawRadius = 0.0F;
-    // "Show in reflections" objects render into the map too - base passes
+{{REFL_GROUND_CAPTURE}}    // "Show in reflections" objects render into the map too - base passes
     // only (no env pass inside the env pass), depth-tested against the
     // target's dedicated z-buffer so they occlude each other correctly.
     for (int ri = 0; ri < (int)runtimeObjects.size(); ++ri) {
@@ -24982,7 +24979,7 @@ void TerrainGame::renderScene() {
         for (GeoPart& part : objectGeometry[ri].parts)
           if (part.bag && !part.lodHidden) stapip.core.render(part.bag.get());
     }
-    core.renderer3D.popEnvView(CameraInfo3D(&cameraPosition, &cameraLookAt, &cameraUp));
+{{REFL_SCENERY_CAPTURE}}    core.renderer3D.popEnvView(CameraInfo3D(&cameraPosition, &cameraLookAt, &cameraUp));
     core.envMap.end();
     // Store the basis that produced this exact texture, after end() has
     // completed the target update. The target's camera is level by design.
@@ -32127,6 +32124,344 @@ static std::string floatLit(float v, int precision = 6) {
     return s + "F";
 }
 
+// Static scenery in the reflection probe (docs/reflective-materials.md,
+// "Static scenery in the probe"): the boxes reflscenery::collect picks for
+// every scene, one flat table in scene_data.hpp. Emitted only while the
+// setting is on, so a project with it off regenerates byte for byte.
+static std::string reflSceneryTable(const Project& p) {
+    if (!p.settings.reflectionScenery) return "";
+    std::ostringstream rows;
+    int n = 0;
+    for (size_t si = 0; si < p.scenes.size(); ++si)
+        for (const reflscenery::Box& b : reflscenery::collect(p, p.scenes[si])) {
+            rows << "  {" << si << ", " << b.layer << ", {";
+            for (int k = 0; k < 3; ++k) rows << (k ? ", " : "") << floatLit(b.center[k]);
+            rows << "}, {";
+            for (int a = 0; a < 3; ++a)
+                for (int k = 0; k < 3; ++k)
+                    rows << (a || k ? ", " : "") << floatLit(b.axis[a][k]);
+            rows << "}, {" << (int)b.rgb[0] << ", " << (int)b.rgb[1] << ", "
+                 << (int)b.rgb[2] << "}},  // object " << b.object << "\n";
+            ++n;
+        }
+    std::ostringstream out;
+    out << "// Static scenery drawn into the shared reflection probe as boxes\n"
+           "// (docs/reflective-materials.md, \"Static scenery in the probe\").\n"
+           "// ax = the box's three local axes in world space, each scaled by\n"
+           "// its half extent; rgb = albedo, lit in the game with shadeOf().\n"
+           "struct ReflSceneryBox {\n"
+           "  short scene, layer;  // layer -1 = always resident\n"
+           "  float c[3];\n"
+           "  float ax[9];\n"
+           "  unsigned char rgb[3];\n"
+           "};\n"
+        << "constexpr int REFL_SCENERY_COUNT = " << n << ";\n"
+        << "constexpr ReflSceneryBox REFL_SCENERY[" << (n > 0 ? n : 1) << "] = {\n"
+        << (n > 0 ? rows.str()
+                  : std::string("  {-1, -1, {0, 0, 0}, {0, 0, 0, 0, 0, 0, 0, 0, 0}, "
+                                "{0, 0, 0}},\n"))
+        << "};\n\n";
+    return out.str();
+}
+
+// The ground stand-in's colours (docs/reflective-materials.md, "The ground
+// stand-in"): per scene a reflscenery::kGroundGrid^2 albedo map over the
+// terrain's extents, the roads already painted in. Emitted only while the
+// switch is on.
+static std::string reflGroundTable(const Project& p) {
+    if (!p.settings.reflectionGroundProxy) return "";
+    std::ostringstream out;
+    const int g = reflscenery::kGroundGrid;
+    std::vector<reflscenery::Ground> grounds;
+    for (const SceneData& sc : p.scenes) grounds.push_back(reflscenery::ground(p, sc));
+    out << "// The reflection probe's ground stand-in (docs/reflective-materials.md,\n"
+           "// \"The ground stand-in\"): terrain + road albedo map per scene.\n"
+        << "constexpr int REFL_GROUND_GRID = " << g << ";\n";
+    for (size_t si = 0; si < grounds.size(); ++si) {
+        if (!grounds[si].ok) continue;
+        out << "constexpr unsigned char REFL_GROUND_" << si << "[" << g * g * 3 << "] = {";
+        for (size_t i = 0; i < grounds[si].rgb.size(); ++i)
+            out << (i % 24 == 0 ? "\n    " : "") << (int)grounds[si].rgb[i] << ",";
+        out << "\n};\n";
+    }
+    out << "inline const unsigned char* REFL_GROUND_TABLES[" << grounds.size() << "] = {";
+    for (size_t si = 0; si < grounds.size(); ++si)
+        out << (si ? ", " : "")
+            << (grounds[si].ok ? "REFL_GROUND_" + std::to_string(si) : std::string("nullptr"));
+    out << "};\n"
+        << "constexpr float REFL_GROUND_EXTS[" << grounds.size() << "][4] = {";
+    for (size_t si = 0; si < grounds.size(); ++si)
+        out << (si ? ", " : "") << "{" << floatLit(grounds[si].minX) << ", "
+            << floatLit(grounds[si].minZ) << ", " << floatLit(grounds[si].sizeX) << ", "
+            << floatLit(grounds[si].sizeZ) << "}";
+    out << "};\n\n";
+    return out.str();
+}
+
+// The capture's ground: the real chunks, or the stand-in grid.
+static std::string reflGroundCapture(const Project& p) {
+    if (!p.settings.reflectionGroundProxy)
+        return R"REFL(    g_groundDrawRadius = REFLECTION_GROUND_RADIUS;
+    renderTerrain();
+    renderRoadChunks();
+    g_groundDrawRadius = 0.0F;
+)REFL";
+    return R"REFL(    // The ground stand-in (REFL_GROUND_*; docs/reflective-materials.md, "The
+    // ground stand-in"): a 21x21 height-following grid around the eye in the
+    // colours of the host's albedo map (terrain layers with the roads painted
+    // in), instead of the resident terrain and road chunks. Snapped to its own
+    // cells so it does not swim, and rebuilt only when the eye crosses one
+    // (envMap.begin() drained PATH1). It is THREE BY THREE bags with the eye in
+    // the middle one: a single bag's box always straddles the probe's frustum
+    // and sent every triangle through the EE clipper, while 4x4 paid more in
+    // per-bag cost than it saved indoors (docs/reflective-materials.md has
+    // the PS2 numbers). Split, the blocks behind the eye are culled whole.
+    if (TERRAIN_ENABLED && REFL_GROUND_TABLES[currentScene]) {
+      constexpr int kGroundCells = 21, kGroundBlock = 7;
+      constexpr int kGroundBlocks = kGroundCells / kGroundBlock;
+      static std::unique_ptr<GeoPart> groundParts[kGroundBlocks * kGroundBlocks];
+      static int groundCx = 0x7fffffff, groundCz = 0x7fffffff;
+      static unsigned int groundGeneration = ~0u;
+      // Its cost does not grow with its size, so it reaches at least 64
+      // units whatever the ground radius says - the radius exists to bound
+      // the REAL chunks, and past it the probe would show the clear colour.
+      const float groundRadius =
+          REFLECTION_GROUND_RADIUS > 64.0F ? REFLECTION_GROUND_RADIUS : 64.0F;
+      const float groundCell = 2.0F * groundRadius / (float)kGroundCells;
+      const int gcx = (int)floorf(probeEye.x / groundCell);
+      const int gcz = (int)floorf(probeEye.z / groundCell);
+      if (gcx != groundCx || gcz != groundCz || groundGeneration != sceneGeneration) {
+        groundCx = gcx;
+        groundCz = gcz;
+        groundGeneration = sceneGeneration;
+        constexpr int kSide = kGroundCells + 1;
+        static Vec4 gpos[kSide * kSide];
+        static Color gcol[kSide * kSide];
+        const V3 sh = shadeOf({0.0F, 1.0F, 0.0F});
+        const unsigned char* map = REFL_GROUND_TABLES[currentScene];
+        const float* ext = REFL_GROUND_EXTS[currentScene];
+        const float x0 = (float)(gcx - kGroundCells / 2) * groundCell;
+        const float z0 = (float)(gcz - kGroundCells / 2) * groundCell;
+        for (int j = 0; j < kSide; ++j)
+          for (int i = 0; i < kSide; ++i) {
+            const float x = x0 + (float)i * groundCell;
+            const float z = z0 + (float)j * groundCell;
+            int gx = (int)((x - ext[0]) / ext[2] * (float)REFL_GROUND_GRID);
+            int gz = (int)((z - ext[1]) / ext[3] * (float)REFL_GROUND_GRID);
+            gx = gx < 0 ? 0 : (gx >= REFL_GROUND_GRID ? REFL_GROUND_GRID - 1 : gx);
+            gz = gz < 0 ? 0 : (gz >= REFL_GROUND_GRID ? REFL_GROUND_GRID - 1 : gz);
+            const unsigned char* rgb = map + ((size_t)gz * REFL_GROUND_GRID + gx) * 3;
+            gpos[j * kSide + i].set(x, terrainHeightAt(x, z), z, 1.0F);
+            gcol[j * kSide + i] = Color(rgb[0] * sh.x, rgb[1] * sh.y, rgb[2] * sh.z, 128.0F);
+          }
+        for (int bj = 0; bj < kGroundBlocks; ++bj)
+          for (int bi = 0; bi < kGroundBlocks; ++bi) {
+            auto p = std::make_unique<GeoPart>();
+            for (int j = bj * kGroundBlock; j < (bj + 1) * kGroundBlock; ++j)
+              for (int i = bi * kGroundBlock; i < (bi + 1) * kGroundBlock; ++i) {
+                const int a = j * kSide + i, b = a + 1, c = a + kSide, d = c + 1;
+                const int tri[6] = {a, b, c, b, d, c};
+                for (int t : tri) {
+                  p->vertices.push_back(gpos[t]);
+                  p->colors.push_back(gcol[t]);
+                }
+              }
+            p->infoBag = std::make_unique<StaPipInfoBag>();
+            p->infoBag->model = &model;
+            p->infoBag->shadingType = TyraShadingGouraud;
+            p->infoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
+            p->infoBag->fullClipChecks = true;
+            p->colorBag = std::make_unique<StaPipColorBag>();
+            p->bag = std::make_unique<StaPipBag>();
+            p->bag->info = p->infoBag.get();
+            p->bag->color = p->colorBag.get();
+            p->bag->texture = nullptr;
+            p->bag->lighting = nullptr;
+            p->colors.bind(p->colorBag);
+            p->vertices.bind(p->bag);
+            p->bag->count = (u32)p->vertices.size();
+            p->bag->bboxVersion = ++g_bboxStamp;
+            groundParts[bj * kGroundBlocks + bi] = std::move(p);
+          }
+      }
+      for (auto& gp : groundParts)
+        if (gp && gp->bag) stapip.core.render(gp->bag.get());
+    }
+)REFL";
+}
+
+// The reuse gate's half of it: which layers are resident (a streamed layer's
+// boxes appear and vanish with it) and the nearest box, which is what camera
+// travel shifts in the target.
+static std::string reflSceneryKey(const Project& p) {
+    if (!p.settings.reflectionScenery) return "";
+    return R"REFL(    // Static scenery boxes (REFL_SCENERY): the layers they need, and the
+    // nearest one - it is what camera travel moves in the target.
+    for (int bi = 0; bi < REFL_SCENERY_COUNT; ++bi) {
+      const ReflSceneryBox& b = REFL_SCENERY[bi];
+      if (b.scene != currentScene) continue;
+      const bool resident = b.layer < 0 || layerOn(b.layer);
+      mixByte(nk, resident ? 1u : 0u);
+      if (!resident) continue;
+      const float bx = b.c[0] - cameraPosition.x;
+      const float by = b.c[1] - cameraPosition.y;
+      const float bz = b.c[2] - cameraPosition.z;
+      float r2 = 0.0F;
+      for (int k = 0; k < 9; ++k) r2 += b.ax[k] * b.ax[k];
+      const float d = sqrtf(bx * bx + by * by + bz * bz) - sqrtf(r2);
+      if (d > 1.0F && (envNearest <= 1.0F || d < envNearest)) envNearest = d;
+    }
+)REFL";
+}
+
+// The capture's half: one untextured bag per 48-unit cell and layer, built on
+// the scene's first capture and lit with shadeOf() like every baked object.
+static std::string reflSceneryCapture(const Project& p) {
+    if (!p.settings.reflectionScenery) return "";
+    return R"REFL(    // Static scenery as boxes (REFL_SCENERY; docs/reflective-materials.md,
+    // "Static scenery in the probe"): one bag per 96-unit cell and layer,
+    // built on the scene's first capture. A cell whose box is outside the
+    // probe's frustum is skipped before StaPip sees it (a bag costs a packet
+    // flush and its bounds even when every package is rejected). A box the
+    // probe eye stands in, or within a unit of, is left out - the target
+    // would be its inside - and a cell is rebuilt only when that set changes.
+    // envMap.begin() drained PATH1, so a replaced bag has nothing in flight.
+    {
+      struct SceneryCell {
+        int layer = -1, cx = 0, cz = 0;
+        std::vector<int> boxes;
+        std::vector<unsigned char> skipped;
+        std::unique_ptr<GeoPart> part;
+        Tyra::CoreBBox box;  // every box of the cell, world space
+      };
+      static std::vector<SceneryCell> sceneryCells;
+      static unsigned int sceneryGeneration = ~0u;
+      static std::vector<unsigned char> sceneryScratch;
+      if (sceneryGeneration != sceneGeneration) {
+        sceneryGeneration = sceneGeneration;
+        sceneryCells.clear();
+        for (int bi = 0; bi < REFL_SCENERY_COUNT; ++bi) {
+          const ReflSceneryBox& b = REFL_SCENERY[bi];
+          if (b.scene != currentScene) continue;
+          const int cx = (int)floorf(b.c[0] / 96.0F);
+          const int cz = (int)floorf(b.c[2] / 96.0F);
+          int found = -1;
+          for (int ci = 0; ci < (int)sceneryCells.size(); ++ci)
+            if (sceneryCells[ci].layer == b.layer && sceneryCells[ci].cx == cx &&
+                sceneryCells[ci].cz == cz) {
+              found = ci;
+              break;
+            }
+          if (found < 0) {
+            sceneryCells.emplace_back();
+            found = (int)sceneryCells.size() - 1;
+            sceneryCells[found].layer = b.layer;
+            sceneryCells[found].cx = cx;
+            sceneryCells[found].cz = cz;
+          }
+          sceneryCells[found].boxes.push_back(bi);
+        }
+        for (SceneryCell& cell : sceneryCells) {
+          Vec4 lo(1e30F, 1e30F, 1e30F, 1.0F), hi(-1e30F, -1e30F, -1e30F, 1.0F);
+          for (int bi : cell.boxes) {
+            const ReflSceneryBox& b = REFL_SCENERY[bi];
+            for (int k = 0; k < 3; ++k) {
+              const float e = fabsf(b.ax[k]) + fabsf(b.ax[3 + k]) + fabsf(b.ax[6 + k]);
+              const float mn = b.c[k] - e, mx = b.c[k] + e;
+              if (k == 0) { lo.x = fminf(lo.x, mn); hi.x = fmaxf(hi.x, mx); }
+              if (k == 1) { lo.y = fminf(lo.y, mn); hi.y = fmaxf(hi.y, mx); }
+              if (k == 2) { lo.z = fminf(lo.z, mn); hi.z = fmaxf(hi.z, mx); }
+            }
+          }
+          const Vec4 corners[2] = {lo, hi};
+          cell.box = Tyra::CoreBBox(corners, 2);
+        }
+      }
+      const Plane* sceneryPlanes =
+          engine->renderer.core.renderer3D.frustumPlanes.getAll();
+      // Corner i of a box: bit 0/1/2 = the + side of axis 0/1/2. Faces in
+      // axis order, + then -, as corner quads.
+      static const unsigned char kSceneryFace[6][4] = {
+          {1, 3, 7, 5}, {0, 4, 6, 2}, {2, 6, 7, 3},
+          {0, 1, 5, 4}, {4, 5, 7, 6}, {0, 2, 3, 1}};
+      for (SceneryCell& cell : sceneryCells) {
+        if (cell.layer >= 0 && !layerOn(cell.layer)) continue;
+        if (cell.box.frustumCheckAABB(sceneryPlanes) ==
+            CoreBBoxFrustum::OUTSIDE_FRUSTUM)
+          continue;
+        sceneryScratch.assign(cell.boxes.size(), 0);
+        bool anyDrawn = false;
+        for (size_t k = 0; k < cell.boxes.size(); ++k) {
+          const ReflSceneryBox& b = REFL_SCENERY[cell.boxes[k]];
+          const float d[3] = {probeEye.x - b.c[0], probeEye.y - b.c[1],
+                              probeEye.z - b.c[2]};
+          bool inside = true;
+          for (int a = 0; a < 3 && inside; ++a) {
+            const float* ax = b.ax + a * 3;
+            const float len = sqrtf(ax[0] * ax[0] + ax[1] * ax[1] + ax[2] * ax[2]);
+            if (len < 1e-6F) continue;
+            const float proj = (d[0] * ax[0] + d[1] * ax[1] + d[2] * ax[2]) / len;
+            if (fabsf(proj) > len + 1.0F) inside = false;
+          }
+          sceneryScratch[k] = inside ? 1 : 0;
+          if (!inside) anyDrawn = true;
+        }
+        if (!anyDrawn) continue;
+        if (!cell.part || sceneryScratch != cell.skipped) {
+          cell.skipped = sceneryScratch;
+          auto p = std::make_unique<GeoPart>();
+          for (size_t k = 0; k < cell.boxes.size(); ++k) {
+            if (cell.skipped[k]) continue;
+            const ReflSceneryBox& b = REFL_SCENERY[cell.boxes[k]];
+            Vec4 corner[8];
+            for (int i = 0; i < 8; ++i) {
+              const float s0 = (i & 1) ? 1.0F : -1.0F;
+              const float s1 = (i & 2) ? 1.0F : -1.0F;
+              const float s2 = (i & 4) ? 1.0F : -1.0F;
+              corner[i].set(b.c[0] + s0 * b.ax[0] + s1 * b.ax[3] + s2 * b.ax[6],
+                            b.c[1] + s0 * b.ax[1] + s1 * b.ax[4] + s2 * b.ax[7],
+                            b.c[2] + s0 * b.ax[2] + s1 * b.ax[5] + s2 * b.ax[8],
+                            1.0F);
+            }
+            for (int f = 0; f < 6; ++f) {
+              const float* ax = b.ax + (f / 2) * 3;
+              const float sg = (f & 1) ? -1.0F : 1.0F;
+              const float len = sqrtf(ax[0] * ax[0] + ax[1] * ax[1] + ax[2] * ax[2]);
+              const float inv = len > 1e-6F ? sg / len : 0.0F;
+              const V3 sh = shadeOf({ax[0] * inv, ax[1] * inv, ax[2] * inv});
+              const Color col(b.rgb[0] * sh.x, b.rgb[1] * sh.y, b.rgb[2] * sh.z,
+                              128.0F);
+              const unsigned char* q = kSceneryFace[f];
+              const unsigned char tri[6] = {q[0], q[1], q[2], q[0], q[2], q[3]};
+              for (unsigned char c : tri) {
+                p->vertices.push_back(corner[c]);
+                p->colors.push_back(col);
+              }
+            }
+          }
+          p->infoBag = std::make_unique<StaPipInfoBag>();
+          p->infoBag->model = &model;
+          p->infoBag->shadingType = TyraShadingGouraud;
+          p->infoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
+          p->infoBag->fullClipChecks = true;
+          p->colorBag = std::make_unique<StaPipColorBag>();
+          p->bag = std::make_unique<StaPipBag>();
+          p->bag->info = p->infoBag.get();
+          p->bag->color = p->colorBag.get();
+          p->bag->texture = nullptr;
+          p->bag->lighting = nullptr;
+          p->colors.bind(p->colorBag);
+          p->vertices.bind(p->bag);
+          p->bag->count = (u32)p->vertices.size();
+          p->bag->bboxVersion = ++g_bboxStamp;
+          cell.part = std::move(p);
+        }
+        if (cell.part && cell.part->bag) stapip.core.render(cell.part->bag.get());
+      }
+    }
+)REFL";
+}
+
 // Absolute path to the in-tree Tyra engine (editor repo, vendor/tyra), with
 // forward slashes - bind-mounted into the build container by docker-compose.
 static std::string engineSourceDir() {
@@ -36186,6 +36521,8 @@ extern bool g_flashOn;
            "  }\n"
            "  return false;\n"
            "}\n";
+    out << reflSceneryTable(p);
+    out << reflGroundTable(p);
     out << R"(// Frames per `seconds` of wall-clock time (>= 1), for frame-counter timers.
 // Uses the MEASURED frame time, not the nominal vsync rate: with vsync
 // disabled the loop free-runs way past 50 FPS and a nominal-rate count would
@@ -43758,6 +44095,9 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
                        : "true");
     s = replaceAll(s, "{{VEHICLE_SHINE_SELECT}}",
                    projectHasVehicles(p) ? "selectVehicleShine();" : "");
+    s = replaceAll(s, "{{REFL_SCENERY_KEY}}", reflSceneryKey(p));
+    s = replaceAll(s, "{{REFL_SCENERY_CAPTURE}}", reflSceneryCapture(p));
+    s = replaceAll(s, "{{REFL_GROUND_CAPTURE}}", reflGroundCapture(p));
     // A vehicle body's tier is the vehicle's own (hysteresis, and the traffic
     // distance for cars nobody drives - vehicleLodTier), and its far tier
     // may hide the glass part.

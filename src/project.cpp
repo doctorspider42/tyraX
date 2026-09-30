@@ -1843,6 +1843,11 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
                  ? "    \"reflectionGroundRadius\": " +
                        fmtFloat(p.settings.reflectionGroundRadius) + ",\n"
                  : std::string())
+         << (p.settings.reflectionGroundProxy
+                 ? "    \"reflectionGroundProxy\": true,\n"
+                 : "")
+         << (p.settings.reflectionScenery ? "    \"reflectionScenery\": true,\n"
+                                          : "")
          << (p.settings.flashShadowVolumes
                  ? "    \"flashShadowVolumes\": true,\n"
                  : "")
@@ -6393,6 +6398,10 @@ static void readSettingsSection(const json::Value& root, Project& out) {
             st.reflectionGroundRadius = (float)v->numberOr(0.0);
             if (st.reflectionGroundRadius < 0.0f) st.reflectionGroundRadius = 0.0f;
         }
+        if (const auto* v = s->find("reflectionScenery"))
+            st.reflectionScenery = v->boolOr(false);
+        if (const auto* v = s->find("reflectionGroundProxy"))
+            st.reflectionGroundProxy = v->boolOr(false);
         if (const auto* v = s->find("flashShadowVolumes"))
             st.flashShadowVolumes = v->boolOr(false);
         if (const auto* v = s->find("spotShadowVolumes"))

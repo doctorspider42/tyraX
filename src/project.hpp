@@ -2047,6 +2047,19 @@ struct ProjectSettings {
     // Distant chunks are a few pixels at the horizon there. 0 = every
     // resident chunk, which is what the probe always did.
     float reflectionGroundRadius = 0.0f;  // world units, 0 = no limit
+    // Shared reflection probe: draw every static object of the scene into it
+    // as one untextured box in its material's average colour
+    // (docs/reflective-materials.md, "Static scenery in the probe";
+    // reflscenery.cpp decides which objects). Objects with "Show in
+    // reflections" keep their own path. Off (the default) = only those. On
+    // costs 1.2-1.7 ms of every capturing frame on the Motor District (PS2).
+    bool reflectionScenery = false;
+    // Shared reflection probe: draw the ground as a coarse height-following
+    // grid in the terrain's painted colours and the roads' mean colour
+    // (docs/reflective-materials.md, "The ground stand-in") instead of the
+    // resident terrain and road chunks - which were 4.65 ms of every capture
+    // on the Motor District's outer road (PS2). Off = the real chunks.
+    bool reflectionGroundProxy = false;
     // The flashlight's shadow technique (docs/flashlight.md, "The shadow").
     // false = silhouette slots: the caster's mesh silhouette from the torch,
     // sampled on a ground patch and painted on the wall behind - mesh-accurate
@@ -2518,6 +2531,8 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.terrainLodDistance == b.terrainLodDistance &&
            a.reflectionReuseBudget == b.reflectionReuseBudget &&
            a.reflectionGroundRadius == b.reflectionGroundRadius &&
+           a.reflectionScenery == b.reflectionScenery &&
+           a.reflectionGroundProxy == b.reflectionGroundProxy &&
            a.flashShadowVolumes == b.flashShadowVolumes &&
            a.shadowVolumesDebug == b.shadowVolumesDebug &&
            a.spotShadowVolumes == b.spotShadowVolumes &&

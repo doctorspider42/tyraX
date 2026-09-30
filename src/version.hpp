@@ -5495,8 +5495,15 @@
 // flicker, an unfurl/fade-in and taller quads (game and viewport twins).
 // Particles face the camera a pass DRAWS with (cutscene override, shake,
 // split half) - they used to face the player's camera during cutscenes.
+// 1.161.0 - Static scenery in the reflection probe: one Rendering preference
+// draws every static object into the shared @sky probe as a box in its
+// material's average colour, merged into one bag per 96-unit cell and layer
+// (src/reflscenery.cpp picks the objects, codegen emits REFL_SCENERY). A
+// second one swaps the probe's terrain and road chunks for a 21x21 grid in a
+// host-baked albedo map (REFL_GROUND_*): -2 ms a turning frame on the Motor
+// District's open road on a PS2.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 160
+#define TYRAX_VERSION_MINOR 161
 // 1.160.0: editor Play boots the selected scene for one run, vehicle exit
 // clears the chassis, and the vehicle release docs and example are pared down.
 // No project-format change.
@@ -6003,7 +6010,13 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // v86: vehicle powerFade and optional engineHighCurve, additive.
 // v87: damageVisual, damageMechanical, damagePerfCurve and optional
 // engineHighEnabled. Missing values preserve the prior behavior; additive.
-inline constexpr int kFormatVersion = 87;
+// v88 (docs/reflective-materials.md, "Static scenery in the probe"):
+// ProjectSettings::reflectionScenery, written only when true. Missing = off,
+// i.e. only "Show in reflections" objects reach the probe as before. Also
+// ProjectSettings::reflectionGroundProxy ("The ground stand-in"), written only
+// when true; missing = the real terrain and road chunks. Additive; no
+// migration step.
+inline constexpr int kFormatVersion = 88;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

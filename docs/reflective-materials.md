@@ -92,6 +92,12 @@ map (within ~1.9× its bounding radius): it would swamp the whole reflection —
 typically as the inspected surface's own dark self-reflection, which read as
 ugly patches up close. It fades back in as you step away.
 
+**The whole town at once:** *Project > Preferences > Rendering > Reflect static
+scenery as boxes* draws every static object into the map without marking
+anything - see "Static scenery in the probe" below. *Reflect the ground as flat
+colour* swaps the probe's terrain and road chunks for a cheap coloured grid -
+"The ground stand-in".
+
 ## How the PS2 side works
 
 - `LeanObjLoader` parses `refl` (texture + strength) alongside `Kd`/`map_Kd`.
@@ -287,6 +293,143 @@ horizon. FRAMETIME `work`, ordinary frame, same sweep:
 At 20 the paint loses only the faint grass streaks near its horizon line.
 Objects with *Show in reflections* are not affected by the radius. 0 keeps the
 old behaviour, and a project without the key loads as 0 (format v62).
+
+## Static scenery in the probe (1.161.0)
+
+*Project > Preferences > Rendering > Reflect static scenery as boxes* puts every
+static object of the scene into the shared probe as **one untextured box**: the
+object's own oriented bounds, coloured with the average of its material (Kd x
+the texture's mean colour, weighted by triangle count over a model's parts) and
+lit with the same `shadeOf()` every static object is baked with. It is one
+switch for the reflection-proxy idea: nothing has to be marked, and the paint
+of a car mirrors where the buildings are and roughly what colour they are.
+The main view, collision and picking keep the real objects.
+
+Which objects get a box is decided on the host (`src/reflscenery.cpp`), and
+*Properties* prints the verdict under *Show in reflections* ("In reflections:
+drawn as a box", "can move at runtime", "too small"...):
+
+- solid primitives (box, sphere, cylinder, cone, plane, save point) and static
+  `.obj` models, whose longest half extent is at least 0.6 units - a bench is
+  a sub-texel dot in a 128-pixel target, a lamp post is not;
+- **not** anything that can move or appear at runtime (the
+  `objectRuntimeMovable` test: physics, pickable, usable, save-state, scripts,
+  flow graphs, anything a graph or a sequence names, vehicles, scroller belt
+  members) - the table is baked, so a box would stay where the object was;
+- **not** animated models, invisible walls, markers, lights, decals, mirrors,
+  portals and areas;
+- **not** procedural chunks (`procgen-*.obj`): a chunk merges every instance of
+  one asset in a grid cell, so its box would be a block over the whole cell;
+- **not** objects with *Show in reflections* - those keep their own path (full
+  model or *Reflection box proxy*), so authored hero props and anything the
+  scene switches on and off (the district's night windows) stay exact.
+
+A streaming layer only decides whether an object EXISTS, so layered objects do
+get a box and the game draws a layer's boxes only while that layer is
+resident.
+
+**What the game does with it.** Codegen emits the boxes as `REFL_SCENERY` in
+`inc/scene_data.hpp` (only while the switch is on, so a project with it off
+regenerates byte for byte). On the first capture of a scene the probe groups
+them into one bag per 96-unit cell and layer - 36 vertices a box, one submit a
+cell instead of one per object - and a cell whose box lies outside the probe's
+frustum is skipped before StaPip sees it. A box the probe's eye stands in, or within a
+unit of, is left out (the whole target would be its inside: the garage you
+drive out of); a cell is rebuilt only when that set changes, right after
+`envMap.begin()` has drained PATH1. The reuse budget sees the boxes too: the
+nearest one is what camera travel shifts in the target, and a layer streaming
+in or out invalidates the capture.
+
+The switch is off by default, in new projects too, because it is not free (see
+below); format v88 writes it only when on. It costs nothing in a project
+without a `<dynamic - live sky>` material, where no probe runs. Not covered: the
+reflected-ray probe mode (*Reflection probe: aim along the reflected ray*)
+draws only marked objects, and the editor viewport shows the sky only, as for
+every dynamic reflection.
+
+### What a capture costs, measured on a PS2
+
+Physical PS2, `examples/vehicle-playground` as a `benchmark-district.py`
+fixture (quiet-debug, parked camera, traffic parked), **reuse budget 0** so the
+probe captures on every cadence beat - every second frame, which is what a
+turning camera does. One ELF per fixture with a boot-time mode that removes one
+part of the capture. The number is the median EE `work` of a frame that
+captured minus one that did not; 240 frames per pose per boot, two boots per
+mode, round-to-round spread of the mean at most 0.015 ms. Texture uploads were
+**0.00 per frame in every mode**: the probe's textures are the main view's and
+stay resident, so the cost is geometry and submission, not texture traffic.
+
+| pose | whole capture | sky only | ground (terrain + roads, radius 20) | marked objects | scenery boxes |
+|---|---:|---:|---:|---:|---:|
+| garage day | 1.37 ms | 0.41 | 0.77 | 0.20 | +1.40 |
+| garage night | 2.60 | 0.90 | 0.87 | 0.92 | +1.65 |
+| outer road day | 5.57 | 0.87 | **4.65** | 0.14 | +1.18 |
+| outer road night | 5.70 | 0.90 | **4.65** | 0.23 | +1.30 |
+
+"Marked objects" are the district's 14 *Reflection box proxy* buildings plus the
+night windows; "scenery boxes" is this switch on top of that with the 14
+buildings unmarked (189 boxes in that scene). Averaged over a turn (half the
+frames capture) the switch adds **0.33-0.57 ms a frame**, and nothing while the
+camera is parked (the reuse budget then skips the capture altogether). Most of
+it is `dispatch`, not triangles (~700 extra a capture): big boxes close to the
+eye cross the probe's 110-degree frustum and go through the EE clipper, and
+growing the cells from 48 to 96 units plus the frustum skip bought only ~0.1
+ms. **The ground is what the probe spends in the open:** 4.65 ms of every
+capture on the outer road is the resident terrain and road chunks within 20
+units - which is what the ground stand-in below replaces.
+
+## The ground stand-in (1.161.0)
+
+*Project > Preferences > Rendering > Reflect the ground as flat colour*
+(`reflectionGroundProxy`, format v88, written only when on) draws the probe's
+ground as a **coarse, untextured, height-following grid** instead of the
+resident terrain and road chunks. The paint needs the ground's colour and where
+its horizon is, not its triangles - in a 128-pixel sphere map the grass and the
+asphalt are a few blurred bands either way.
+
+- **The colours are baked on the host** (`reflscenery::ground`): a 64x64
+  albedo map over the terrain's extents - the base material's Kd x texture
+  mean, blended with the painted layers by their splat weights - with every
+  road painted over it in its surface's mean colour, weighted by how much of a
+  texel its ribbon covers (4x4 samples). Codegen emits it as `REFL_GROUND_<n>`
+  (12 KB a scene) in `inc/scene_data.hpp`, only while the switch is on; a
+  project with it off regenerates byte for byte.
+- **The game** builds a 21x21-cell grid around the probe's eye, at least 64
+  units out (or the *Reflection ground radius*, if larger: the radius bounds
+  the real chunks, and past it the probe would show the clear colour), heights
+  from `terrainHeightAt`, colours from the map lit with `shadeOf()`. The grid
+  snaps to its own cells so it does not swim, and it is rebuilt only when the
+  eye crosses one - with nothing but the map and the heightmap to read, not the
+  road triangle search.
+- It is **three by three bags** with the eye in the middle one. One bag's
+  bounding box always straddles the probe's frustum, so every triangle went
+  through the EE clipper; sixteen bags culled better outdoors but paid more in
+  per-bag cost than they saved indoors.
+
+Measured the same way as the table above (one ELF per variant, two boots per
+mode, rounds within 0.02 ms, a third boot of the old fixture to rule out
+drift). The probe's own EE time on a capturing frame, and the mean frame over a
+turn (every second frame captures):
+
+| pose | probe: real ground | probe: stand-in | probe: no ground | frame: real | frame: stand-in |
+|---|---:|---:|---:|---:|---:|
+| garage day | 1.82 ms | 1.79 | 1.09 | 10.81 ms | 10.63 |
+| garage night | 2.52 | 2.60 | 1.83 | 13.88 | 13.76 |
+| outer road day | 5.52 | **1.99** | 0.96 | 10.79 | **8.82** |
+| outer road night | 5.63 | **2.13** | 1.04 | 11.78 | **9.79** |
+
+So **-2 ms a frame on the open road while turning**, and a wash in the garage,
+where the real ground within 20 units was already small. The variants that lost:
+one bag was best indoors (frame 10.43 / 13.46) and worst outdoors (9.14 /
+10.05); 4x4 bags the reverse (10.74 / 13.82 and 8.79 / 9.79). Frames that do
+not capture got ~0.15-0.2 ms cheaper too.
+
+What it changes in the picture (PCSX2, the same chase frame on and off): only
+the paint, and there the ground reads about 10% darker on the trunk - the
+stand-in has no lightmap or AO pass, only `shadeOf()`. The road in the main view
+and the stand-in's road colour agree. Not covered: the reflected-ray probe mode,
+which draws its own subset, and a scene without terrain (no grid - the probe
+then draws no ground at all, as before).
 
 ## The reuse budget (1.106.0)
 

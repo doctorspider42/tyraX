@@ -42,6 +42,7 @@
 #include "impostorbake.hpp"
 #include "modelproxy.hpp"
 #include "pngquant.hpp"
+#include "reflscenery.hpp"
 #include "uvunwrap.hpp"
 #include "stochtile.hpp"
 #include "scrollsim.hpp"
@@ -1297,6 +1298,23 @@ void App::drawPropertiesWindow() {
                 "Mark the few props that sell the effect - each one costs a\n"
                 "second small render per frame. Editor preview shows the sky\n"
                 "only; check reflections in the game.");
+        // Project > Preferences > Rendering > Reflect static scenery as boxes:
+        // what that switch does with THIS object. The verdict walks the scene's
+        // runtime references, so it is recomputed only when the model changes.
+        if (project_.settings.reflectionScenery && !o.reflected) {
+            static uint64_t verdictSerial = ~0ull;
+            static int verdictIndex = -1, verdictScene = -1;
+            static reflscenery::Verdict verdict = reflscenery::Verdict::NotSolid;
+            if (verdictSerial != modelEditSerial_ || verdictIndex != selectedObject_ ||
+                verdictScene != project_.activeScene) {
+                verdictSerial = modelEditSerial_;
+                verdictIndex = selectedObject_;
+                verdictScene = project_.activeScene;
+                verdict = reflscenery::verdictFor(project_, project_.active(),
+                                                  selectedObject_);
+            }
+            ImGui::TextDisabled("In reflections: %s", reflscenery::verdictText(verdict));
+        }
 
         // THE RUNTIME shadow, distinct from the baked ambient-occlusion
         // "Cast shadow" below - and a choice per object rather than a

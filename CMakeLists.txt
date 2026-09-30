@@ -294,6 +294,7 @@ add_executable(tyrax-editor
     src/procgen.cpp
     src/procbake.cpp
     src/procrt.cpp
+    src/reflscenery.cpp
     src/decalproj.cpp
     src/dronegen.cpp
     src/droneui.cpp

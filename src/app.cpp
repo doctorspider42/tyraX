@@ -15945,6 +15945,20 @@ void App::drawPreferencesWindow() {
         "ground under the car in the paint and drops the rest.\n"
         "0 = every resident chunk (the old behaviour).");
 
+    ImGui::Checkbox("Reflect static scenery as boxes",
+                    &prefSettings_.reflectionScenery);
+    prefHelp(
+        "Every static object is drawn into the shared reflection probe as\n"
+        "one box in its material's average colour, merged into a few bags.\n"
+        "Objects with Show in reflections keep their own look.");
+
+    ImGui::Checkbox("Reflect the ground as flat colour",
+                    &prefSettings_.reflectionGroundProxy);
+    prefHelp(
+        "The probe draws a coarse grid in the terrain's painted colours and\n"
+        "the roads' mean colour instead of the real ground chunks, out to\n"
+        "the ground radius or 64 units, whichever is larger.");
+
     ImGui::Checkbox("Static object batching", &prefSettings_.staticBatching);
     prefHelp(
         "Merges non-moving primitives and compact imported-model parts\n"
