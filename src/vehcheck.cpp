@@ -861,6 +861,35 @@ void handling() {
             "a handbrake flick rotates the car into a drift");
     verdict(firstDrop < 0.5f * s.grip / 50.0f,
             "grip returns gradually after the handbrake, the drift does not snap");
+
+    // Handbrake HELD from top speed with a flick and no throttle (1.162.2):
+    // the locked wheels are sliding friction on the whole ground velocity, so
+    // the car comes to rest. It used to skate on - forward speed was scrubbed
+    // but a car turned sideways kept its velocity as slip against half the
+    // handbrake grip (the handbrake counted against its own friction circle),
+    // over a hundred units on the default tuning.
+    st = {};
+    st.pos[1] = s.rideHeight;
+    st.speed = s.topSpeed;
+    in = {};
+    in.handbrake = true;
+    in.steer = 1.0f;
+    in.throttle = 1.0f;  // the natural way to hold it: gas and handbrake together
+    float slid = 0.0f;
+    float slideTime = 0.0f;
+    for (int i = 0; i < 50 * 20; ++i) {
+        if (i == 15) in.steer = 0.0f;  // a flick, then hands off
+        const float x0 = st.pos[0], z0 = st.pos[2];
+        step(s, in, 1.0f / 50.0f, flat, st);
+        slid += std::sqrt((st.pos[0] - x0) * (st.pos[0] - x0) +
+                          (st.pos[2] - z0) * (st.pos[2] - z0));
+        slideTime += 1.0f / 50.0f;
+        if (std::sqrt(st.speed * st.speed + st.lateral * st.lateral) < 0.3f) break;
+    }
+    std::printf("  handbrake held from %.1f u/s: rests after %.1f units, %.2f s\n",
+                s.topSpeed, slid, slideTime);
+    verdict(slid < 60.0f && slideTime < 6.0f,
+            "a held handbrake slides the car to a stop, not across the map");
 }
 
 // Off-road grip (1.136.0): the same drive on the road, on the grass, and

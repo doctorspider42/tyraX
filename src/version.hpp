@@ -5504,6 +5504,8 @@
 // District's open road on a PS2.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 162
+// 1.162.2: a held handbrake stops the car - the throttle drives nothing while
+// it is held and the slide scrubs the whole ground velocity.
 // 1.162.1: baked shadows start at the wall (per-column start), reach a
 // model's own plinth and land on roads; shadow cache v6.
 // 1.162.0: painted skies - an equirectangular panorama on the sky dome, per
@@ -5552,7 +5554,7 @@
 // existing unlit VU1 path; conservative local bounds, custom stages unchanged.
 // 1.150.1: prepare driveable vehicle HUD fonts during scene loading; plain
 // runtime text no longer loads the icon sheet before drawing an actual icon.
-#define TYRAX_VERSION_PATCH 1
+#define TYRAX_VERSION_PATCH 2
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

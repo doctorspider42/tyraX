@@ -38738,6 +38738,7 @@ static constexpr float kVehSpinGain = 0.8F;
 static constexpr float kVehSpinDamp = 5.0F;
 static constexpr float kVehHandbrakeYaw = 30.0F;
 static constexpr float kVehHandbrakeYawCap = 1.0F;
+static constexpr float kVehHandbrakeSlide = 0.4F;
 static constexpr float kVehFrictionShare = 0.5F;
 static float vehClamp(float v, float lo, float hi) {
   return v < lo ? lo : (v > hi ? hi : v);
@@ -41152,7 +41153,7 @@ void TerrainGame::updateVehicles(float dt) {
         const float d = s.brakeDecel * inBrake * dt;
         if (v.speed > 0.0F) { v.speed -= d; if (v.speed < 0.0F) v.speed = 0.0F; }
         else { v.speed += d; if (v.speed > 0.0F) v.speed = 0.0F; }
-      } else if (inThrottle > 0.01F) {
+      } else if (inThrottle > 0.01F && !inHand) {
         // Above the cap the throttle only stops adding; drag takes the excess
         // (vehiclesim twin: a clamp here dropped ~4 u/s in one frame).
         const float cap = s.topSpeed * topMul;
@@ -41160,7 +41161,7 @@ void TerrainGame::updateVehicles(float dt) {
           v.speed += sAccel * accelMul * inThrottle * powerMul * dt;
           if (v.speed > cap) v.speed = cap;
         }
-      } else if (inThrottle < -0.01F) {
+      } else if (inThrottle < -0.01F && !inHand) {
         v.speed += sAccel * inThrottle * dt;
         if (v.speed < -s.reverseTopSpeed) v.speed = -s.reverseTopSpeed;
       } else {
@@ -41171,10 +41172,17 @@ void TerrainGame::updateVehicles(float dt) {
       // The handbrake also SLOWS the car (0.4x the brake, the host twin's
       // number) - it used to only swap the grip here, making it a drift
       // button that never scrubbed any speed on the console.
+      // The locked wheels drive nothing (the throttle branches above skip
+      // while it is held) and slide against the WHOLE ground velocity - the
+      // vehiclesim twin, kVehHandbrakeSlide (1.162.2).
       if (inHand) {
-        const float d = s.brakeDecel * 0.4F * dt;
-        if (v.speed > 0.0F) { v.speed -= d; if (v.speed < 0.0F) v.speed = 0.0F; }
-        else { v.speed += d; if (v.speed > 0.0F) v.speed = 0.0F; }
+        const float g = sqrtf(v.speed * v.speed + v.lateral * v.lateral);
+        if (g > 1e-4F) {
+          float k = (g - s.brakeDecel * kVehHandbrakeSlide * dt) / g;
+          if (k < 0.0F) k = 0.0F;
+          v.speed *= k;
+          v.lateral *= k;
+        }
       }
       v.speed -= s.gravity * sinf(v.pitch * kDeg) * dt;
       // Rolling resistance of loose ground (vehiclesim twin).
@@ -41203,9 +41211,8 @@ void TerrainGame::updateVehicles(float dt) {
     if (v.grounded) {
       if (inBrake > 0.01F)
         longUse = s.brakeDecel * inBrake;
-      else if (inThrottle > 0.01F && v.speed < s.topSpeed * topMul)
+      else if (inThrottle > 0.01F && !inHand && v.speed < s.topSpeed * topMul)
         longUse = sAccel * accelMul * powerMul * inThrottle;
-      if (inHand) longUse += s.brakeDecel * 0.4F;
     }
     const float useFrac =
         vehClamp(longUse / (blendGrip > 0.01F ? blendGrip : 0.01F), 0.0F, 1.0F);
