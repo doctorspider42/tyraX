@@ -116,6 +116,8 @@ All three cars inherit the supplied recordings from Global defaults: `res/sfx/en
 
 The CC96, Rally 04, Tristar and Strata results later in this README are historical measurements. Their old GLBs and definitions are available in Git history; historical authoring scripts may require that earlier fixture.
 
+Vehicle Editor > Damage can disable visible dents, broken parts, lamps and smoke separately from the effect damage has on speed and acceleration. Partial loss curve sets when that power loss arrives. Vehicle Editor > Sounds can turn the high-rev loop off without discarding its sample or pitch settings; the idle loop then covers the full rev range.
+
 ## Paint colours
 
 All three vehicle definitions include a grayscale paint mask in `res/textures/`.

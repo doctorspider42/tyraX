@@ -5496,7 +5496,9 @@
 // Particles face the camera a pass DRAWS with (cutscene override, shake,
 // split half) - they used to face the player's camera during cutscenes.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 158
+#define TYRAX_VERSION_MINOR 159
+// 1.159.0: independent cosmetic/mechanical vehicle damage, a tunable partial
+// power-loss curve and a per-vehicle high-rev sound switch. Format v87.
 // 1.158.0: speed-dependent vehicle power fade, separate high-rev sound onset
 // and pitch range, and a live preview of both curves. Format v86.
 // 1.157.0 is the first combined vehicles + procedural build; format v85.
@@ -5996,7 +5998,9 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // Both branches used v82/v83 independently; v85 unifies the two schemas.
 // Explicit vehicle inheritance flags keep earlier branch projects readable.
 // v86: vehicle powerFade and optional engineHighCurve, additive.
-inline constexpr int kFormatVersion = 86;
+// v87: damageVisual, damageMechanical, damagePerfCurve and optional
+// engineHighEnabled. Missing values preserve the prior behavior; additive.
+inline constexpr int kFormatVersion = 87;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

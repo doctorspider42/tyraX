@@ -2103,7 +2103,8 @@ std::string bakeProject(Project& p,
         opt.fastWheel = v.fastWheel;
         opt.fastWheelTriBudget = v.fastWheelTriBudget;
         opt.glassSplit = v.glassOpacity < 1.0f;
-        opt.loosePieces = v.drive.damage > 0.0f && v.drive.damageLoose > 0.0f;
+        opt.loosePieces = v.drive.damage > 0.0f && v.drive.damageVisual > 0.5f &&
+                          v.drive.damageLoose > 0.0f;
         if (!v.farModel.empty()) opt.farModel = p.filePath(v.farModel);
         Result r;
         std::string err;

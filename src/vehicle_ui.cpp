@@ -55,7 +55,8 @@ std::string bakeKey(const VehicleDef& v) {
     std::snprintf(buf, sizeof(buf), "|%d|%d|%d|%.3f|%d|%d|%d|", v.bodyTriBudget,
                   v.wheelTriBudget, v.mergeUntextured ? 1 : 0, v.bodyShine,
                   v.fastWheelTriBudget, v.glassOpacity < 1.0f ? 1 : 0,
-                  v.drive.damage > 0.0f && v.drive.damageLoose > 0.0f ? 1 : 0);
+                  v.drive.damage > 0.0f && v.drive.damageVisual > 0.5f &&
+                      v.drive.damageLoose > 0.0f ? 1 : 0);
     char paint[96];
     std::snprintf(paint, sizeof(paint), "|%d|%.4f|%.4f|%.4f|",
                   v.paintEnabled ? 1 : 0, v.paintColor[0], v.paintColor[1],
@@ -148,7 +149,8 @@ void App::vehicleRefreshBake(int index, bool force) {
     opt.fastWheel = v.fastWheel;
     opt.fastWheelTriBudget = v.fastWheelTriBudget;
     opt.glassSplit = v.glassOpacity < 1.0f;
-    opt.loosePieces = v.drive.damage > 0.0f && v.drive.damageLoose > 0.0f;
+    opt.loosePieces = v.drive.damage > 0.0f && v.drive.damageVisual > 0.5f &&
+                      v.drive.damageLoose > 0.0f;
     if (!v.farModel.empty()) opt.farModel = project_.filePath(v.farModel);
     // The palette is baked into the merged part's texture field, so the name
     // here has to be the path the game will actually open. Everything the bake
@@ -253,6 +255,7 @@ void App::vehicleTick() {
 }
 
 void App::vehicleDamagePreviewHit(const VehicleDef& v, const vehiclesim::Impact& im) {
+    if (v.drive.damageVisual <= 0.5f) return;
     auto it = vehicleBakes_.find(v.id);
     if (it == vehicleBakes_.end() || !it->second.ok) return;
     const vehbake::Result& r = it->second.result;
@@ -698,7 +701,8 @@ void App::drawVehiclePreview(const VehicleDef& tuning, int index) {
         (tuning.drive.redlineRpm - tuning.drive.idleRpm));
     ImGui::Checkbox("Listen to engine", &vehiclePreviewSound_);
     if (!vehicleEnginePreview_) vehicleEnginePreview_ = std::make_unique<audiopreview::EngineLoop>();
-    const std::string audioKey = project_.dir + "|" + tuning.engineSound + "|" + tuning.engineHighSound;
+    const std::string audibleHigh = tuning.engineHighEnabled ? tuning.engineHighSound : "";
+    const std::string audioKey = project_.dir + "|" + tuning.engineSound + "|" + audibleHigh;
     if (vehiclePreviewSound_) {
         const float highStart = std::clamp(tuning.engineHighStart, 0.0f, 0.95f);
         const float highMix = std::clamp((vehiclePreviewRevs_ - highStart) /
@@ -712,7 +716,7 @@ void App::drawVehiclePreview(const VehicleDef& tuning, int index) {
             const auto full = [&](const std::string& path) {
                 return path.empty() ? std::string() : (std::filesystem::path(project_.dir) / path).string();
             };
-            if (vehicleEnginePreview_->start(full(tuning.engineSound), full(tuning.engineHighSound)))
+            if (vehicleEnginePreview_->start(full(tuning.engineSound), full(audibleHigh)))
                 vehicleAudioKey_ = audioKey;
             else vehiclePreviewSound_ = false;
         }
@@ -861,6 +865,17 @@ void App::drawVehicleWindow() {
     auto specControl = [&](const vehiclesim::SpecField& f) {
         if (global && vehicleGeometryKey(f.key)) return;
         ImGui::PushID(f.key);
+        if (std::strcmp(f.key, "damageVisual") == 0 ||
+            std::strcmp(f.key, "damageMechanical") == 0) {
+            bool enabled = *f.value > 0.5f;
+            if (ImGui::Checkbox(f.label, &enabled)) {
+                *f.value = enabled ? 1.0f : 0.0f;
+                if (std::strcmp(f.key, "damageVisual") == 0) vehicleDamagePreviewReset();
+            }
+            if (f.tip && f.tip[0]) vehicleHelp(f.tip);
+            ImGui::PopID();
+            return;
+        }
         if (std::strcmp(f.key, "nosCapacity") == 0) {
             bool enabled = *f.value > 0.001f;
             if (ImGui::Checkbox("Has nitrous", &enabled))
@@ -1083,6 +1098,7 @@ void App::drawVehicleWindow() {
                                 vehDmgPreviewDamage_ * 100.0f,
                                 vehiclesim::damagePerformance(v.drive, vehDmgPreviewDamage_) *
                                     100.0f,
+                                v.drive.damageVisual > 0.5f &&
                                 vehDmgPreviewDamage_ >= v.drive.damageSmoke
                                     ? "   engine smokes" : "");
                 else
@@ -1254,6 +1270,7 @@ void App::drawVehicleWindow() {
                        "A second engine loop the base one CROSSFADES with as\n"
                        "the revs rise - the era's two-sample engine. Its pitch\n"
                        "has its own range. Any imported WAV is looped by the build.");
+            ImGui::Checkbox("Enable high-rev loop", &v.engineHighEnabled);
             if (!v.engineHighSound.empty()) {
                 ImGui::SetNextItemWidth(scaled(220));
                 ImGui::SliderFloat("High-rev starts at", &v.engineHighStart, 0.0f, 0.95f, "%.2f of rev range");

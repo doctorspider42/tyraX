@@ -518,6 +518,10 @@ std::vector<SpecField> specFields(DriveSpec& s) {
         {"damage", &s.damage, 0.0f, 4.0f, "Damage strength",
          "How much a crash hurts: dent depth and damage per hit. 0 = the car "
          "cannot be damaged."},
+        {"damageVisual", &s.damageVisual, 0.0f, 1.0f, "Visual damage",
+         "Show dents, broken parts and lamps, impact dust and engine smoke."},
+        {"damageMechanical", &s.damageMechanical, 0.0f, 1.0f, "Performance damage",
+         "Reduce performance with damage and stop a fully wrecked vehicle."},
         {"damageThreshold", &s.damageThreshold, 0.0f, 30.0f, "Ignore hits below",
          "Speed change (units/s) a collision must cause before it dents. Wall "
          "scrapes stay below it."},
@@ -525,9 +529,11 @@ std::vector<SpecField> specFields(DriveSpec& s) {
          "No vertex moves further than this from its original place."},
         {"damageRadius", &s.damageRadius, 0.2f, 4.0f, "Dent radius",
          "How far one impact spreads over the body."},
-        {"damagePerfLoss", &s.damagePerfLoss, 0.0f, 1.0f, "Wrecked power loss",
-         "Share of acceleration and top speed lost as damage rises. At full "
-         "damage every vehicle stops driving until repaired."},
+        {"damagePerfLoss", &s.damagePerfLoss, 0.0f, 1.0f, "Damage power loss",
+         "Maximum share of acceleration and top speed lost before a full wreck. "
+         "A full wreck stops only when performance damage is enabled."},
+        {"damagePerfCurve", &s.damagePerfCurve, 0.25f, 4.0f, "Partial loss curve",
+         "1 is linear; below 1 loses power earlier, above 1 keeps power until later damage."},
         {"damageSmoke", &s.damageSmoke, 0.0f, 1.0f, "Smoke from damage",
          "Damage level at which the engine starts to smoke (black when wrecked)."},
         // The Vehicle Editor shows every "lamp*" key on its Effects tab.
@@ -663,7 +669,8 @@ void pedals(float speed, float gas, float brakeReverse, DriveInput& in) {
 bool impactFromDelta(const DriveSpec& s, float yawDeg, float dvx, float dvz,
                      const float bmin[3], const float bmax[3], float scale,
                      Impact& out, float* damageAdd) {
-    if (s.damage <= 0.0f) return false;
+    if (s.damage <= 0.0f ||
+        (s.damageVisual <= 0.5f && s.damageMechanical <= 0.5f)) return false;
     const float dv = std::sqrt(dvx * dvx + dvz * dvz);
     const float over = dv - std::max(s.damageThreshold, 0.0f);
     if (over <= 0.0f || dv < 1e-4f) return false;
@@ -689,7 +696,8 @@ bool impactFromDelta(const DriveSpec& s, float yawDeg, float dvx, float dvz,
     out.dir[1] = 0.0f;
     out.dir[2] = nz;
     const float k = std::min(over / 12.0f, 1.0f);
-    out.depth = std::min(s.damage * over * 0.025f, s.damageMaxDent) * sc;
+    out.depth = s.damageVisual > 0.5f
+                    ? std::min(s.damage * over * 0.025f, s.damageMaxDent) * sc : 0.0f;
     out.radius = std::max(s.damageRadius, 0.05f) * sc * (0.65f + 0.35f * k);
     if (damageAdd) *damageAdd = s.damage * over / 50.0f;
     return true;
@@ -743,8 +751,10 @@ int applyDent(const Impact& im, float maxDent, const float* rest, int restStride
 }
 
 float damagePerformance(const DriveSpec& s, float damage) {
+    if (s.damageMechanical <= 0.5f) return 1.0f;
     if (damage >= 0.999f) return 0.0f;
-    return 1.0f - clampf(s.damagePerfLoss, 0.0f, 1.0f) * clampf(damage, 0.0f, 1.0f);
+    return 1.0f - clampf(s.damagePerfLoss, 0.0f, 1.0f) *
+        std::pow(clampf(damage, 0.0f, 1.0f), clampf(s.damagePerfCurve, 0.25f, 4.0f));
 }
 
 float speedFeel(const DriveSpec& s, float speed) {
@@ -1158,7 +1168,8 @@ void step(const DriveSpec& specIn, const DriveInput& in, float dt,
         // the tank with the car stationary (measured on the console - nos10 fell
         // 7 to 5 at spd10 0), which is a way to lose a resource without ever
         // seeing it do anything.
-        if (state.damage < 0.999f && in.nos && state.nos > 0.0f && state.grounded && !shifting &&
+        if ((spec.damageMechanical <= 0.5f || state.damage < 0.999f) &&
+            in.nos && state.nos > 0.0f && state.grounded && !shifting &&
             in.throttle > 0.01f) {
             state.nosActive = true;
             state.nos = std::max(0.0f, state.nos - dt / spec.nosCapacity);
@@ -1178,9 +1189,9 @@ void step(const DriveSpec& specIn, const DriveInput& in, float dt,
 
     // --- longitudinal -------------------------------------------------------
     if (state.grounded) {
-        const float throttle = shifting || state.damage >= 0.999f
+        const float throttle = shifting || (spec.damageMechanical > 0.5f && state.damage >= 0.999f)
                                    ? 0.0f : clampf(in.throttle, -1.0f, 1.0f);
-        const float brake = state.damage >= 0.999f
+        const float brake = spec.damageMechanical > 0.5f && state.damage >= 0.999f
                                 ? 1.0f : clampf(in.brake, 0.0f, 1.0f);
         if (brake > 0.01f) {
             state.speed = approach(state.speed, 0.0f, spec.brakeDecel * brake * dt);
@@ -1492,7 +1503,8 @@ void step(const DriveSpec& specIn, const DriveInput& in, float dt,
         }
         // Damage: what the wall did to the velocity is the hit (the runtime
         // reads the same difference after walls, bodies and other cars).
-        if (spec.damage > 0.0f) {
+        if (spec.damage > 0.0f &&
+            (spec.damageVisual > 0.5f || spec.damageMechanical > 0.5f)) {
             // In the frame the wall pass LEFT the car in: a redirect turns the
             // body, and speed/lateral are expressed along the new heading.
             const float fc = std::cos(state.yaw * kDeg2Rad), fs = std::sin(state.yaw * kDeg2Rad);

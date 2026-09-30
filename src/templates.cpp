@@ -34047,7 +34047,7 @@ static std::string sceneDataContent(const Project& p, const std::string& ns) {
                     return -1;
                 };
                 const int snd = sndSlot(v->engineSound);
-                const int sndHigh = sndSlot(v->engineHighSound);
+                const int sndHigh = v->engineHighEnabled ? sndSlot(v->engineHighSound) : -1;
                 const int sndScr = sndSlot(v->screechSound);
                 const int sndShift = sndSlot(v->shiftSound);
                 const auto vol100 = [](float f) {
@@ -39193,11 +39193,12 @@ void TerrainGame::updateVehicleDamage(float dt) {
     VehicleRt& v = vehicles_[vi];
     if (!v.active || v.def < 0) continue;
     const VehicleDefData& s = VEHICLE_DEFS[v.def];
-    if (s.damage <= 0.0F) continue;
+    if (s.damage <= 0.0F ||
+        (s.damageVisual <= 0.5F && s.damageMechanical <= 0.5F)) continue;
     const float SC = v.scale;
     const float cy = cosf(v.yaw * kDeg), sy = sinf(v.yaw * kDeg);
     // A rebuild may have baked the dents away - put them back.
-    if (v.dentCount > 0) vehicleDamageCapture(vi);
+    if (s.damageVisual > 0.5F && v.dentCount > 0) vehicleDamageCapture(vi);
 
     // --- the hit ---------------------------------------------------------
     const float nvx = v.speed * sy + v.lateral * cy;
@@ -39217,6 +39218,8 @@ void TerrainGame::updateVehicleDamage(float dt) {
     if (over > 0.0F && dv > 1e-4F) {
       v.damage += s.damage * over / 50.0F;
       if (v.damage > 1.0F) v.damage = 1.0F;
+      // Mechanical damage keeps accumulating even on a pristine-looking car.
+      if (s.damageVisual <= 0.5F) { v.dmgSmokeAcc = 0.0F; continue; }
       // Bounds: the captured body, or - before the first capture - the
       // handling geometry, which is where the body roughly is.
       const bool have = vehicleDamageCapture(vi);
@@ -39364,6 +39367,7 @@ void TerrainGame::updateVehicleDamage(float dt) {
     // --- the engine smokes ----------------------------------------------
     // From the bonnet, faster and darker as the damage grows; a wreck pours
     // black. Only near the camera, like the tyre smoke.
+    if (s.damageVisual <= 0.5F) { v.dmgSmokeAcc = 0.0F; continue; }
     const float thr = vehClamp(s.damageSmoke, 0.0F, 1.0F);
     if (v.damage > thr && v.damage > 0.001F) {
       const float sdx = v.pos[0] - cameraPosition.x, sdz = v.pos[2] - cameraPosition.z;
@@ -39917,7 +39921,7 @@ void TerrainGame::updateVehicles(float dt) {
         r = r * 0.65F + r * r * r * 0.35F;
         inSteer = inSteer < 0.0F ? -r : r;
       }
-    } else if (v.wpCount > 0 && v.damage < 0.999F) {
+    } else if (v.wpCount > 0 && (s.damageMechanical <= 0.5F || v.damage < 0.999F)) {
       // AI DRIVER (docs/vehicles.md): fills the IDENTICAL four numbers the
       // pad fills - the whole reason DriveInput is a struct and not a pad
       // read. Pure pursuit of the current baked waypoint: steer from the
@@ -40621,7 +40625,7 @@ void TerrainGame::updateVehicles(float dt) {
     if (shifting) inThrottle = 0.0F;
     // A wreck may still coast or be pushed, but its driver (human or AI)
     // cannot propel it in either direction. Repair restores the controls.
-    if (v.damage >= 0.999F) {
+    if (s.damageMechanical > 0.5F && v.damage >= 0.999F) {
       inThrottle = 0.0F;
       inBrake = 1.0F;
       inNos = 0;
@@ -40652,8 +40656,11 @@ void TerrainGame::updateVehicles(float dt) {
       if (!v.nosActive && v.nosFx < 0.01F) v.nosFx = 0.0F;
     }
     // A damaged car has less of both (vehiclesim::damagePerformance).
-    const float perf = 1.0F - vehClamp(s.damagePerfLoss, 0.0F, 1.0F) *
-                                  vehClamp(v.damage, 0.0F, 1.0F);
+    const float perf = s.damageMechanical <= 0.5F ? 1.0F
+        : (v.damage >= 0.999F ? 0.0F
+           : 1.0F - vehClamp(s.damagePerfLoss, 0.0F, 1.0F) *
+             powf(vehClamp(v.damage, 0.0F, 1.0F),
+                  vehClamp(s.damagePerfCurve, 0.25F, 4.0F)));
     const float accelMul = vehGearTorqueMul(s, v.gear < 0 ? 0 : v.gear) *
                            (v.nosActive ? 1.0F + (s.nosBoost > 0.0F ? s.nosBoost : 0.0F)
                                         : 1.0F) * perf;
@@ -42094,9 +42101,10 @@ void TerrainGame::renderVehicleHud() {
     drawFontText(engine, s.hudFont, buf, W * 0.865F, H * 0.885F, H * 0.038F, sx);
   }
   // Damage, only on a car that CAN be damaged and only once it is.
-  if (s.damage > 0.0F && v.damage > 0.005F) {
+  if (s.damage > 0.0F && (s.damageVisual > 0.5F || s.damageMechanical > 0.5F) &&
+      v.damage > 0.005F) {
     const int pct = (int)(v.damage * 100.0F + 0.5F);
-    snprintf(buf, sizeof(buf), pct >= 100 ? "WRECKED" : "DMG %d", pct);
+    snprintf(buf, sizeof(buf), pct >= 100 && s.damageMechanical > 0.5F ? "WRECKED" : "DMG %d", pct);
     drawFontText(engine, s.hudFont, buf, W * 0.865F, H * 0.925F, H * 0.038F, sx);
   }
 }

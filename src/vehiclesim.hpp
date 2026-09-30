@@ -214,10 +214,13 @@ struct DriveSpec {
     // scale 1 and multiplied by the instance's scale, like the rest of the
     // spec's geometry.
     float damage = 0.0f;              // 0 = indestructible, 1 = default, 3 = tin can
+    float damageVisual = 1.0f;        // 0 = no dents, broken parts/lamps or smoke
+    float damageMechanical = 1.0f;    // 0 = no performance loss or wreck immobilisation
     float damageThreshold = 5.0f;     // impact speed change (u/s) that does nothing
     float damageMaxDent = 0.35f;      // no vertex ever moves further than this
     float damageRadius = 1.1f;        // how wide one dent reaches
     float damagePerfLoss = 0.45f;     // fraction of accel/top speed lost when wrecked
+    float damagePerfCurve = 1.0f;     // exponent for partial-damage power loss
     float damageSmoke = 0.5f;         // damage level from which the engine smokes
     // Loose panels and glass (docs/vehicles.md, "Loose panels and glass"): a
     // multiplier on how easily the bonnet, boot and doors come off and the

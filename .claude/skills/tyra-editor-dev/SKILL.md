@@ -2407,8 +2407,18 @@ and allocates texture storage before filling it (AMD driver workaround).
 
 ## Vehicle damage (1.138.0)
 
-docs/vehicles.md, "Damage". Three rules. (1) A hit is the velocity change the
-frame's collision stages imposed (`VehicleRt::dmgPreV` is taken at the loop top
+docs/vehicles.md, "Damage". `damageVisual` gates dents, loose pieces, broken
+lamps, damage dust and engine smoke while the meter still accumulates if
+mechanical damage is enabled. With both switches off, skip impact tracking.
+`damageMechanical` gates power loss and wreck immobilisation, including AI and
+nitrous. `damagePerfCurve` shapes partial loss; keep
+`vehiclesim::damagePerformance` and the generated runtime formula aligned.
+The high-rev enabled switch retains the authored sample and curve but codegen
+emits a silent high slot, and host audition must use only idle. These fields
+join normal tuning inheritance and format.
+
+Three rules. (1) A hit is the velocity change the frame's collision stages
+imposed (`VehicleRt::dmgPreV` is taken at the loop top
 for sleepers and again right after the drive integrates); a new contact path
 dents for free as long as it runs before `updateVehicleDamage`, which is called
 after the car-vs-car pass - never write a speed change that is not a collision
@@ -2422,7 +2432,7 @@ anything else that bumps `baseStamp` without rebuilding would be captured as
 the undamaged pose. (3) Dents write the matrix-path LOCAL vertices through
 `BagArray::span` and must bump `baseStamp`/`bboxVersion` (the package boxes
 move); they skip the lamp and glass colours (renderVehicleGlow owns the lamp
-colours every frame - `lampBroken` is how damage speaks to it). The six
+colours every frame - `lampBroken` is how damage speaks to it). The
 "damage*" DriveSpec keys are shown on the Damage tab and skipped by the Driving
 tab by that prefix, so a new damage tunable must keep it.
 

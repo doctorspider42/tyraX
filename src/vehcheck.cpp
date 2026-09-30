@@ -668,6 +668,24 @@ void damage() {
         in.nos = false;
         for (int i = 0; i < 50; ++i) step(s, in, 1.0f / 50.0f, flat, wreck);
         verdict(wreck.speed > 1.0f, "a repaired wreck drives again");
+        DriveSpec cosmetic = s;
+        cosmetic.damageMechanical = 0.0f;
+        DriveState full;
+        full.pos[1] = cosmetic.rideHeight;
+        full.damage = 1.0f;
+        in.nos = true;
+        cosmetic.nosCapacity = 4.0f;
+        for (int i = 0; i < 100; ++i)
+            step(cosmetic, in, 1.0f / 50.0f, flat, full);
+        verdict(damagePerformance(cosmetic, 1.0f) == 1.0f &&
+                    full.speed > 1.0f && full.nosActive,
+                "visual-only wreck keeps throttle and nitrous");
+        DriveSpec early = s, late = s;
+        early.damagePerfCurve = 0.5f;
+        late.damagePerfCurve = 2.0f;
+        verdict(damagePerformance(early, 0.5f) < damagePerformance(s, 0.5f) &&
+                    damagePerformance(s, 0.5f) < damagePerformance(late, 0.5f),
+                "partial-loss curve moves power loss earlier or later");
     }
 
     // The dent: a front hit, applied three times over a grid of rest vertices
@@ -679,6 +697,19 @@ void damage() {
         Impact im;
         float add = 0.0f;
         const bool ok = impactFromDelta(s, 0.0f, 0.0f, -20.0f, bmin, bmax, 1.0f, im, &add);
+        DriveSpec invisible = s;
+        invisible.damageVisual = 0.0f;
+        Impact hidden;
+        float hiddenAdd = 0.0f;
+        verdict(impactFromDelta(invisible, 0.0f, 0.0f, -20.0f, bmin, bmax,
+                                1.0f, hidden, &hiddenAdd) &&
+                    hidden.depth == 0.0f && hiddenAdd > 0.0f &&
+                    damagePerformance(invisible, 0.5f) < 1.0f,
+                "mechanical-only hit loses power without denting");
+        invisible.damageMechanical = 0.0f;
+        verdict(!impactFromDelta(invisible, 0.0f, 0.0f, -20.0f, bmin, bmax,
+                                 1.0f, hidden, &hiddenAdd),
+                "both damage switches off ignore impacts");
         verdict(ok && im.dir[2] > 0.99f && std::fabs(im.point[2] - 2.0f) < 1e-3f,
                 "a push backwards dents the FRONT of the body");
         std::vector<float> rest, pos;

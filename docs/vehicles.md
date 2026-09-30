@@ -831,7 +831,9 @@ Vehicle Editor's **Sounds** tab; every one silent until authored):
 - **High-rev loop** (`engineHighSound`, any imported WAV): the era's two-sample
   engine. `engineHighStart` chooses where it begins fading in, as a fraction of
   the idle-to-redline RPM range. `engineHighPitchStart` and
-  `engineHighPitchEnd` set its own playback-rate curve. The idle sample follows
+  `engineHighPitchEnd` set its own playback-rate curve. **Enable high-rev loop**
+  can mute this recording while keeping its selection and settings; the idle
+  sample then plays alone through the full rev range. The idle sample follows
   its separate idle-to-redline pitch curve from the moment the car starts.
   Volumes quantise to 8 steps and write on change, the pitch discipline's
   twin: a steady cruise is zero RPCs.
@@ -1025,7 +1027,9 @@ in the editor but require this conversion for the game. See
 A looping sample whose **SPU2 pitch register** follows the engine speed. Set it in
 *Vehicle Editor > Sounds*: an idle loop, a pitch multiplier at idle and one at the
 redline, and a volume. A high-rev recording adds its own start threshold and
-pitch endpoints. Live audition uses the same two curves and crossfade.
+pitch endpoints. Its checkbox can disable that recording without clearing it.
+Live audition uses the same two curves and crossfade, or just the idle loop
+when high rev is disabled.
 
 **The loop lives in the encoded sample, not in the play call.** Choose any
 imported WAV for idle, high revs or tyre squeal. Both native and Docker builds
@@ -1175,30 +1179,38 @@ disabled"* and the paint silently stays matte.
 
 ### Damage
 
-![Test hits on the CC96 in the Vehicle Editor's Damage tab](img/vehicle-damage-dents.png)
+![Independent visual and performance damage controls for the Ravager in Vehicle Editor](img/vehicle-damage-dents.png)
 
-A crash leaves a mark. Each definition has a **Damage** tab (*Tools > Vehicle
-Editor*) with six tunables - they are ordinary drive-spec fields, so they save,
+A crash can leave a mark or reduce performance. Each definition has a **Damage** tab (*Tools > Vehicle
+Editor*) with independent visual and performance controls. The numeric settings are ordinary drive-spec fields, so they save,
 undo and reach the console through `vehiclesim::specFields` like the rest:
 
 | Field | What it does |
 |---|---|
 | Damage strength | 0 = the car cannot be hurt (the default for every definition saved before damage existed); a new definition starts at 1 |
+| Visual damage | off: collisions can still raise the damage level for performance loss, but make no dents, detach no parts, break no lamps and spawn no damage dust or engine smoke |
+| Performance damage | off: damage does not reduce acceleration or top speed, disable nitrous or immobilize a fully damaged vehicle |
 | Ignore hits below | speed change, units/s, a collision must cause before it dents - wall scrapes stay below it |
 | Deepest dent | no vertex ever moves further than this from where it was modelled |
 | Dent radius | how far one impact spreads over the body |
-| Wrecked power loss | share of acceleration and top speed lost as damage rises; at 100% damage every vehicle is immobilized regardless of this value |
+| Damage power loss | maximum share of acceleration and top speed lost before a full wreck, when performance damage is enabled |
+| Partial loss curve | 1 = linear; below 1 loses power earlier, above 1 preserves power until later damage. A full wreck still stops the vehicle when performance damage is enabled |
 | Smoke from damage | damage level from which the bonnet smokes; black once wrecked |
 
-**What a hit does.** The body's own vertices are pushed in where it was struck,
+**What a hit does.** With either damage switch enabled, the level rises after a qualifying impact.
+With visual damage enabled, the body's own vertices are pushed in where it was struck,
 with a per-vertex jitter so a panel buckles instead of pressing flat; the paint
 darkens with the dent's depth; a hard end-on hit smashes that end's lamps (dark,
-no headlight pool, no tail glow); the damage level rises, costing power; past the
+no headlight pool, no tail glow); with performance damage enabled, that level
+costs power; past the
 smoke threshold the engine smokes, and a burst of dust marks every hit. The HUD
-(when on) shows `DMG n` / `WRECKED`. At `WRECKED`, the driver and AI cannot
+(when on) shows `DMG n` / `WRECKED`. With performance damage enabled, at `WRECKED` the driver and AI cannot
 accelerate forward or reverse or use nitrous; the brakes bring the car to rest,
 while collisions can still push it. The **Repair Vehicle** flow node restores
-drive controls along with the body.
+drive controls along with the body. With performance damage disabled, the HUD
+shows `DMG 100` and the car keeps driving. Both switches are per definition and
+participate in global defaults and per-field overrides.
+With both switches off, impacts do not raise the damage meter.
 
 **Detection needs no contact code.** The runtime remembers each car's world
 velocity at the start of the frame's collision stages and compares it with what

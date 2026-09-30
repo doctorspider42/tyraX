@@ -3115,6 +3115,7 @@ static void writeVehicleArray(std::ostream& json, const std::vector<VehicleDef>&
         if (!v.engineHighSound.empty())
             json << ", \"engineHighSound\": \"" << jsonEscape(v.engineHighSound)
                  << "\"";
+        if (!v.engineHighEnabled) json << ", \"engineHighEnabled\": false";
         if (v.engineHighStart != 0.55f || v.engineHighPitchStart != 0.85f ||
             v.engineHighPitchEnd != 1.7f)
             json << ", \"engineHighCurve\": [" << fmtFloat(v.engineHighStart)
@@ -3271,6 +3272,8 @@ static void readVehicleArray(const json::Value& root, std::vector<VehicleDef>& d
             v.engineSound = x->stringOr("");
         if (const json::Value* x = e.find("engineHighSound"))
             v.engineHighSound = x->stringOr("");
+        if (const json::Value* x = e.find("engineHighEnabled"))
+            v.engineHighEnabled = x->boolOr(true);
         if (const json::Value* x = e.find("engineHighCurve"))
             if (x->type == json::Value::Type::Array && x->arr.size() >= 3) {
                 v.engineHighStart = (float)x->arr[0].numberOr(v.engineHighStart);

@@ -1368,6 +1368,7 @@ struct VehicleDef {
     // on the engine speed - the era's two-sample engine - both riding the
     // same authored pitch curve.
     std::string engineHighSound;
+    bool engineHighEnabled = true;   // false keeps the selection but plays only idle
     float engineHighStart = 0.55f; // fraction of idle-to-redline range where crossfade starts
     float engineHighPitchStart = 0.85f;
     float engineHighPitchEnd = 1.7f;
@@ -1429,6 +1430,7 @@ inline bool operator==(const VehicleDef& a, const VehicleDef& b) {
         a.enginePitchRedline != b.enginePitchRedline ||
         a.engineVolume != b.engineVolume || a.showHud != b.showHud ||
         a.engineHighSound != b.engineHighSound ||
+        a.engineHighEnabled != b.engineHighEnabled ||
         a.engineHighStart != b.engineHighStart ||
         a.engineHighPitchStart != b.engineHighPitchStart ||
         a.engineHighPitchEnd != b.engineHighPitchEnd ||
@@ -1507,6 +1509,7 @@ inline void visitVehicleTuning(VehicleDef& v, const VehicleDef& defaults, Fn fn)
     VEH_TUNING("driver", hudSpeedScale);
     VEH_TUNING("sounds", engineSound);
     VEH_TUNING("sounds", engineHighSound);
+    VEH_TUNING("sounds", engineHighEnabled);
     VEH_TUNING("sounds", engineHighStart);
     VEH_TUNING("sounds", engineHighPitchStart);
     VEH_TUNING("sounds", engineHighPitchEnd);
