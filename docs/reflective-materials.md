@@ -259,6 +259,14 @@ MODULATE + constant-FIX look this page describes. The engine hook it rides is
 `StaPipTextureBag::textureFunction` - per-bag TFX, safe on a shared texture
 because TEX0 is re-emitted per bag.
 
+**The env bag is Gouraud-shaded** (1.161.2). It used to be flat, a leftover
+from plain chrome, whose colours are all white and look the same either way.
+Under flat shading the GS paints a whole triangle with ONE corner's colour, so
+the per-vertex fresnel and specular above gave every triangle of a smoothly
+normalled body its own brightness - the body read as folded cardboard however
+many triangles it had. The editor's PS2-shading preview always interpolated
+these values, which is why the facets showed only on the console.
+
 The paint colours are a pure function of the normal, so the pass evaluates
 each DISTINCT normal once and scatters (1.125.0): the CC96 body's 4212 env
 vertices carry 2106 distinct normals. The map is built once per normal array

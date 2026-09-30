@@ -5504,6 +5504,8 @@
 // District's open road on a PS2.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 161
+// 1.161.2: vehicle paint no longer shows its triangles on the console - the
+// env/paint bag was flat-shaded, so each triangle took one corner's fresnel.
 // 1.161.1: the viewport sky no longer turns pink with PS2 shading on - the
 // PS2-shading program kept the previous frame's paint-pass uniforms.
 // 1.160.0: editor Play boots the selected scene for one run, vehicle exit
@@ -5546,7 +5548,7 @@
 // existing unlit VU1 path; conservative local bounds, custom stages unchanged.
 // 1.150.1: prepare driveable vehicle HUD fonts during scene loading; plain
 // runtime text no longer loads the icon sheet before drawing an actual icon.
-#define TYRAX_VERSION_PATCH 1
+#define TYRAX_VERSION_PATCH 2
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

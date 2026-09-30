@@ -20634,7 +20634,13 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
                             Color(128.0F, 128.0F, 128.0F, 128.0F));
       if (!part.envBag) {
         part.envInfoBag = std::make_unique<StaPipInfoBag>();
-        part.envInfoBag->shadingType = TyraShadingFlat;
+        // GOURAUD, not flat: the vehicle paint pass writes a per-vertex
+        // fresnel factor into RGB and its specular into A (renderEnvPass),
+        // and a flat triangle takes ONE corner's value - every triangle of a
+        // smoothly-normalled body then came out a different brightness, the
+        // "folded cardboard" facets. Plain chrome is all-white, where the two
+        // modes draw the same; the GS pays nothing for the interpolation.
+        part.envInfoBag->shadingType = TyraShadingGouraud;
         part.envInfoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
         part.envInfoBag->fullClipChecks = true;
         // Coplanar with the base pass: standard GEQUAL test. (TestOnly's
