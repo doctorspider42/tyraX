@@ -5504,6 +5504,8 @@
 // District's open road on a PS2.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 162
+// 1.162.1: baked shadows start at the wall (per-column start), reach a
+// model's own plinth and land on roads; shadow cache v6.
 // 1.162.0: painted skies - an equirectangular panorama on the sky dome, per
 // ambience preset, baked into a 256x128 8-bit crop (docs/sky-texture.md).
 // 1.161.2: vehicle paint no longer shows its triangles on the console - the
@@ -5550,7 +5552,7 @@
 // existing unlit VU1 path; conservative local bounds, custom stages unchanged.
 // 1.150.1: prepare driveable vehicle HUD fonts during scene loading; plain
 // runtime text no longer loads the icon sheet before drawing an actual icon.
-#define TYRAX_VERSION_PATCH 0
+#define TYRAX_VERSION_PATCH 1
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

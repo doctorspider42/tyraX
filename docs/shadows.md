@@ -512,6 +512,33 @@ to fix it is the reflex, and it buys nothing.
 So: reach for **Softness** when a caster's detail is disappearing, and for
 **Shadow detail** when a large shadow looks blocky.
 
+### The shadow starts at the wall, on the road too (1.162.1)
+
+Three fixes found on the Motor District, where every building's shadow read
+as a dark box floating a metre beside it:
+
+- **Each tile column starts past the caster in that column**, not past the
+  caster's whole depth along the light. The old start was deeper than the
+  building over most of the tile, so the strip of ground at the foot of the
+  shaded wall never made it into the tile. The workshop's tile went from 23
+  shaded texels to 82.
+- **A model's own plinth receives its shadow.** The district's buildings carry
+  their pavement slab in the same model, and a caster never received its own
+  shadow. Now its near-horizontal, upward faces within 1 unit of its lowest
+  point are split into 1-unit pieces, and a piece is kept only where the caster
+  itself blocks the sun. The slab by the shaded wall darkens; the roof, the
+  sunward walls and a tree's canopy do not.
+- **Roads are receivers** ([decalproj](../src/decalproj.hpp),
+  `Receivers::roads`). The asphalt sits 0.12 above the terrain, so a shadow
+  on the ground under it was hidden. The full-width ribbon and the fitted
+  junction patches now receive, tessellated exactly as the viewport draws
+  them. Crossing overlays and spills do not. Authored projecting decals get
+  roads too. A road edit stales the bake of a scene that has roads; a scene
+  without one keeps its signature.
+
+The cache version moved to 6, so every existing bake reads stale until it is
+re-baked.
+
 ### A caster that is too big
 
 The 512-triangle cap is about what the shadow **lands on**, not about how

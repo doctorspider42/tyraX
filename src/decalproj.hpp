@@ -43,6 +43,11 @@ struct Receivers {
     // candidate object, before its geometry is read.
     std::function<bool(const SceneObject&)> accept;
     bool terrain = true;
+    // The drawn asphalt of every Road object (`accept` filters those too) plus
+    // the fitted junction patches - the surfaces the viewport and the game
+    // draw, 0.12 above the terrain. Without them a decal lands on the ground
+    // UNDER the road and the asphalt covers it (docs/shadows.md).
+    bool roads = true;
 };
 
 // Projects `decal` onto the receivers of scene `s` in project `p`: terrain plus
