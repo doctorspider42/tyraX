@@ -150,6 +150,14 @@ the console's per-vertex Fresnel factor and HIGHLIGHT2 white specular to the
 same baked palette and sky reflection. It no longer drops those two terms and
 shows a silver preview for paint that becomes purple in the generated game.
 
+The two variants are separate GL programs, so each keeps its **own** uniform
+state, and the sky dome - the first draw of the scene pass - sets only its
+matrix, tint and `uLit`. The scene pass therefore clears the texture, alpha,
+emission, reflection and paint uniforms before it (1.161.1). Without that the
+PS2-shading program kept the previous frame's last draw, typically a car's
+paint pass, and the sky came out pink; the per-pixel program never showed it
+because the previews reset its state every frame.
+
 **Baked lightmaps stay per pixel in both modes.** The GI cache's terrain map
 and primitive atlas are textures on the console, read per pixel by two extra
 passes, so the viewport samples them in the fragment stage whatever the

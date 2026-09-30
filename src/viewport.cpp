@@ -5477,6 +5477,17 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
     glUniform1f(uOpacity_, 1.0f);
     glUniform1i(uFoliageImpostor_, 0);
     glUniform1i(uPs2Flat_, 0);  // Gouraud until a flat draw says otherwise
+    // The sky below sets only its matrix, tint and uLit, so every other uniform
+    // it reads must start the frame clean. Each program keeps its OWN uniform
+    // state: the previews reset the per-pixel one, but nothing reset the
+    // PS2-shading one, whose last draw of the previous frame is typically a
+    // car's paint pass - its texture, emission and reflection leaked into the
+    // sky and turned it pink.
+    glUniform1i(uUseTex_, 0);
+    glUniform1i(uAlpha_, 0);
+    glUniform3f(uEmissive_, 0.0f, 0.0f, 0.0f);
+    glUniform1i(uReflOn_, 0);
+    glUniform1i(uPaintFx_, 0);
 
     // Sky dome: centered on the camera (an "infinite" sky) and scaled well
     // past the scene but inside the far plane, drawn first with no depth so
