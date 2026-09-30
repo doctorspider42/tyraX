@@ -138,6 +138,15 @@ void RendererCore::setDisplayOutput(const DisplayMode& mode,
   const bool wsChanged = settings.getWidescreen() != widescreen;
   if (!modeChanged && !wsChanged) return;
 
+  // Modified by TyraX: Hybrid's two-buffer present leaves its PATH3 copy
+  // in flight. Drain both paths before a mode change resets the GS and moves
+  // the permanent buffers; resetting while that copy runs can wedge GIF DMA.
+  if (modeChanged) {
+    path3Fence();
+    sync.align2D();
+    if (path1.isVU1Configured()) sync.align3D();
+  }
+
   settings.setDisplayMode(mode);
   settings.setWidescreen(widescreen);
 

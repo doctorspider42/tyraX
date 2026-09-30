@@ -86,8 +86,8 @@ bool factProfileDirty() {
   return false;
 }
 
-// Scene "main": graph of "ravager-1" (object 132)
-class FlowGraphScript_0_132 : public Script {
+// Scene "main": graph of "ravager-1" (object 131)
+class FlowGraphScript_0_131 : public Script {
  public:
   void update(ScriptContext& ctx) override {
     if (ctx.scene != 0) return;
@@ -104,23 +104,23 @@ class FlowGraphScript_0_132 : public Script {
     if (livedbg::forced(0)) {  // Live Debugger: fired from the editor
       livedbg::hit(0);
       livedbg::hit(1);
-      ctx.vehicleRequest = 132;
+      ctx.vehicleRequest = 131;
     }
     if (!started) {
       started = true;
       livedbg::hit(0);
       livedbg::hit(1);
-      ctx.vehicleRequest = 132;
+      ctx.vehicleRequest = 131;
     }
     if (livedbg::forced(2)) {  // Live Debugger: fired from the editor
       livedbg::hit(2);
       livedbg::hit(3);
-      ctx.vehicleRepair = 132;
+      ctx.vehicleRepair = 131;
     }
     if (ctx.engine->pad.getClicked().Select) {
       livedbg::hit(2);
       livedbg::hit(3);
-      ctx.vehicleRepair = 132;
+      ctx.vehicleRepair = 131;
     }
   }
 
@@ -174,5 +174,5 @@ void flowDbgReadVar(int index, float* out3) {
 
 }  // namespace Vehicle_playground
 
-TYRA_SCRIPT(Vehicle_playground::FlowGraphScript_0_132);
+TYRA_SCRIPT(Vehicle_playground::FlowGraphScript_0_131);
 TYRA_SCRIPT(Vehicle_playground::FlowGraphScript_1_132);

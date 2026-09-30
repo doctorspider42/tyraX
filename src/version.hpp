@@ -5497,18 +5497,27 @@
 // split half) - they used to face the player's camera during cutscenes.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 157
+// 1.157.0 is the first combined vehicles + procedural build; format v85.
 // 1.157.0: normalize sound effects to mono PCM16/22050 at import and build;
 // Convert fixes stereo/extended-header WAVs, and build copies preserve sources.
 // 1.156.0: vehicle sound pickers accept every imported WAV; native/Docker
 // builds encode continuous vehicle roles as loops. Headlights move to Effects.
 // 1.155.1: Vehicle Editor belongs to Tools' Assets group; all tool groups
 // keep their entries alphabetical.
-// 1.155.0: automatic per-field vehicle defaults and section resets; tyre-safe
-// wheel simplification and authored playground motion-blur wheels. Format 83.
+// 1.155.0 (vehicles branch): automatic per-field vehicle defaults and section
+// resets; tyre-safe wheel simplification and authored motion-blur wheels.
 // 1.154.0: live vehicle/wheel preview, engine audition, guided Cost controls,
 // reflection texture picker and compact import/help UX.
 // 1.153.0: global vehicle tuning with local overrides, explicit nitrous
-// enable control, and final chase/far camera collision. Project format 82.
+// enable control, and final chase/far camera collision.
+// 1.156.0: frozen procedural volumes retain their baked output until unfrozen.
+// 1.155.1: procedural output labels align beside their right-hand pins.
+// 1.155.0: placement road modes include origin-on-road path scattering and
+// an optional road target; old roads=0/1 retain ignore/avoid semantics.
+// 1.154.0: host placement filter skips road footprints, rejects model overlaps
+// with a spatial hash and keeps complete transformed bounds on painted terrain.
+// 1.153.0: Hybrid triple buffering keeps one PSMCT32 draw target and queues
+// finished copies through two PSMCT16 display targets; depth stays PSMZ32.
 // 1.152.0: direct material editing, searchable cached asset list, selective
 // material refresh and cached PNG metadata; upright box front/back UVs.
 // 1.151.2: bound junction clearance against actual road triangles; adaptive
@@ -5980,11 +5989,11 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // migration step.
 // v81 (docs/vehicles.md, "Paint colour"): optional vehicle paintColor and
 // paintMask. Missing keys preserve the source model. Additive; no migration.
-// v82: project vehicleDefaults and per-definition inheritDefaults/tuningOverrides.
-// Missing inheritance keeps every existing vehicle local; no migration needed.
-// v83: automatic per-field tuning overrides; legacy local/section tuning is
-// migrated without changing values. New cars inherit defaults immediately.
-inline constexpr int kFormatVersion = 83;
+// v82-v83 on vehicles introduced global defaults and per-field overrides.
+// v82-v84 on the procedural branch added placement options and frozen graphs.
+// Both branches used v82/v83 independently; v85 unifies the two schemas.
+// Explicit vehicle inheritance flags keep earlier branch projects readable.
+inline constexpr int kFormatVersion = 85;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

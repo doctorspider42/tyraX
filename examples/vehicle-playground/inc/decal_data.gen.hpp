@@ -9,6 +9,6 @@
 namespace {
 struct BakedDecal { const float* verts; int vertCount; };
 
-static const BakedDecal* const SCENE_DECAL_TABLES[] = {nullptr, nullptr};
-static const int SCENE_DECAL_COUNTS[] = {0, 0};
+static const BakedDecal* const SCENE_DECAL_TABLES[] = {nullptr, nullptr, nullptr};
+static const int SCENE_DECAL_COUNTS[] = {0, 0, 0};
 }

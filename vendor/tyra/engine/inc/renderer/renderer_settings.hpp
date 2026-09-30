@@ -51,13 +51,15 @@ enum class DisplayMode { Interlaced, Progressive480p, HiDef1080i, InterlacedFiel
  *
  * Hybrid (TyraX fork): the scene, post fx and 2D all draw into ONE PSMCT32
  * buffer over a 32-bit z, so every blend and every z test is full precision;
- * after the vsync a single blit copies it, dithered, into ONE PSMCT16 buffer,
+ * with two buffers, after vsync a single blit copies it into ONE PSMCT16 buffer,
  * and that is what the display scans. The copy is what the TV sees, so the GS
  * can start drawing the next frame into the 32-bit buffer at once - the same
  * overlap two display buffers give - while the pair costs a 32-bit buffer plus
  * half of one instead of two (512 KB back at 512x512). No previous 32-bit frame
  * exists to read, so motion blur, the upscaler's temporal pass and frame
- * extrapolation do not run in this mode, and triple buffering is not offered.
+ * extrapolation do not run in this mode. Triple buffering adds a second
+ * PSMCT16 display buffer: one is scanned out, one queues the finished copy,
+ * while the same PSMCT32 buffer renders the next frame.
  */
 enum class ColorDepth { Bits32, Bits16, Hybrid };
 
@@ -95,7 +97,7 @@ struct RendererOptions {
   /** Triple buffering (docs/frame-pacing.md): a third full display buffer,
    * presented from a vblank handler instead of stalling the EE on vsync.
    * The most expensive option in this struct - and the cheapest to afford
-   * at ColorDepth::Bits16, where a display buffer is half the size. */
+   * at ColorDepth::Bits16 or Hybrid, whose display buffer is half the size. */
   bool tripleBuffering = false;
 };
 
@@ -188,7 +190,7 @@ class RendererSettings {
    * RendererCoreGS allocates buffers - it decides how many frame buffers the
    * permanent VRAM region holds, and the third one is not cheap (a full
    * display buffer: 229 376 words at 512x448x32, half that in
-   * InterlacedField). Off by default, and the engine falls back to two
+   * InterlacedField or with Bits16/Hybrid output). Off by default, and the engine falls back to two
    * buffers when the third does not fit.
    */
   const bool& getTripleBuffering() const { return tripleBuffering; }
@@ -197,9 +199,9 @@ class RendererSettings {
   /** Frame buffers the renderer wants: 3 with triple buffering on, else 2.
    * What it actually GOT is RendererCoreGS::getFrameBufferCount(). */
   unsigned int getFrameBufferCount() const {
-    // Modified by TyraX: Hybrid has one draw and one display buffer and no
-    // rotation between them, so there is no third buffer to ask for.
-    return tripleBuffering && !isHybridOutput() ? 3u : 2u;
+    // Modified by TyraX: Hybrid's third buffer is another 16-bit display
+    // target; its 32-bit draw target remains at index 0.
+    return tripleBuffering ? 3u : 2u;
   }
   /** Height of the physical frame/z buffers - half the logical height when
    * field rendering, the logical height otherwise (TyraX fork). Everything

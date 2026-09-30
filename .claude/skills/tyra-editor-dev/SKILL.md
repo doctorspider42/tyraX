@@ -1010,6 +1010,23 @@ same generated TU (`inputApplyKeyboardMouse`), so keys rebind too. The raw
 `OnButton` flow node stays raw on purpose; `OnAction` is the configurable one.
 
 **A project preference a SCENE can override** → one `bool` on `SceneOverrides` (+ its `operator==`, or undo drops it), a branch in `project::resolvedSettings`, and - the part that is easy to get wrong - a serializer that writes the flag and the scene-local values **only when the override is on**. `writeSceneVisuals` emits every other category whether it is active or not, so following that pattern would add a key to every existing project's `.tyra` and break `--resave` byte-identity; the neural upscaler's `"upscaler"` / `"blss"` pair is the worked example (see also the shot plan, where a default plan writes nothing at all). Everything downstream then reads `resolvedSettings` and never the raw field.
+The BLSS colour-target reserve uses `RendererCoreGS::setLowResTargetScale`,
+separately from pinned Z and active scene raster. `configure()` sets it before
+`needsBufferRealloc()`: a mixed project must recheck triple-buffer headroom
+even when Z never shrinks. Preserve the reserve across native-scene video-mode
+switches; `setScene()` must not change it.
+
+GS headroom uses whole page rows: 64x32 at 32 bits, 64x64 at 16 bits,
+including the Z format. A 512x224 CT16 target costs 256 KiB, not 224 KiB;
+rounding a total pixel count to 2048 words is not the allocator's layout.
+
+**Hybrid triple buffering** (1.153.0): `project::tripleBufferingFit` charges
+one PSMCT32 draw target plus two PSMCT16 display targets, with a PSMZ32 scene
+z buffer. The engine rotates only display slots 1/2 and fences the finished
+copy before queueing it; slot 0 remains the draw target. The existing project
+flag and generated option are reused, so no format migration or template edit
+is needed. Temporal history and extrapolation remain unavailable.
+
 **Two settings whose ANSWER lives in the engine** (docs/frame-pacing.md,
 docs/frame-extrapolation.md). `tripleBuffering` is the pattern worth copying:
 the engine can REFUSE it - a third display buffer that would starve post fx, the
@@ -2902,8 +2919,9 @@ procedural bake hashes and GI caches (including derived prelit freshness).
 
 Project::vehicleDefaults is a singleton in Section::Vehicles, serialized with
 writeVehicleArray/readVehicleArray. VehicleDef::inheritDefaults is true for new
-definitions; pre-83 local files normalize to field overrides without changing
-tuning. `visitVehicleTuning` is the shared registry for all tunable fields and
+definitions; pre-v85 files without an explicit inheritance flag stay local, while
+vehicles-branch files with an explicit flag retain it. Both branches reused
+v82/v83, so v85 is their unified format; normalization preserves tuning. `visitVehicleTuning` is the shared registry for all tunable fields and
 section ownership. `tuningOverrides` contains individual field keys; historical
 group keys expand during resolution. UI controls edit directly. Diff against
 the resolved pre-frame definition creates only the changed keys. Section Use
@@ -2941,3 +2959,35 @@ headers in BOTH backends. Decode the actual ADPCM and compare the waveform to
 the converted WAV: header checks alone missed adpenc's corrupt stereo reader
 (`fread(wave+i, 2, ...)` advances by one byte). Music conversion stays stereo
 unless its own mono option is chosen.
+
+## Procedural placement validation (1.154.0)
+
+`FilterPlacement` lives in the procgraph registry and host procgen evaluator;
+its generic nums/strs serialize through the existing graph maps (format 83).
+Use actual mesh bounds transformed at all eight corners, and index every XZ
+cell a bound covers. Road rejection uses roadgen's full-width spline triangles,
+not the road object's unit box. Material containment bounds visible coverage
+across every intersected splat cell; checking only the centre or corners misses
+paint islands. Merge species before the final collision filter; exclude all
+baked chunks to avoid bake-order dependence. Keep the node out of procrt's
+supported list. bakeHash must include road points, width and sample spacing.
+
+Road modes (1.155.0): keep the roads key values 0=Ignore, 1=Avoid, 2=Only;
+old boolean graphs retain their meaning. Only constrains the origin in XZ,
+not the model footprint, and does not snap height/heading. roadtarget is an
+optional object name; never fall back to all roads when it is missing.
+
+## Frozen procedural bakes (1.156.0)
+
+ProcGraph::frozen is optional JSON (format v84), defaults off and participates
+in model equality/history/session sync. procbake::setFrozen bakes a stale layout
+before freezing; bakeAll skips frozen volumes even when forced, anyStale ignores
+them and bakeVolume refuses them. Unfreeze restores normal hash-based updates.
+The flag is deliberately absent from bakeHash: toggling it alone changes no
+geometry. updateProcPreview skips evaluation and passes frozen volume ids to
+Viewport::ScatterPreview::frozenSources; the viewport draws their saved chunk
+objects through the ordinary model path. Show preview still controls visibility.
+Graph edits are staged until unfreezing; explicit bake/clear, instance editing
+and runtime mode changes are disabled while frozen. clearVolume still supports
+volume deletion. Never implement freeze only in the UI: headless builds and
+reopening must preserve the same saved geometry.

@@ -49,9 +49,15 @@ Report estimate(const Project& p, const SceneObject& volume,
 Report bakeVolume(Project& p, SceneData& s, const std::string& volumeId,
                   procgen::Cache* cache = nullptr);
 
+// Freeze a current bake (baking first if stale), or resume automatic updates.
+// Runtime volumes cannot freeze. Frozen volumes reject explicit rebakes too.
+Report setFrozen(Project& p, SceneData& s, const std::string& volumeId,
+                 bool frozen, procgen::Cache* cache = nullptr);
+
 // Every Scatter volume in every scene. With `force` false only volumes whose
 // bakedHash no longer matches procgen::bakeHash are re-baked (so an ordinary
-// build is free when nothing procedural changed). Mutates the project: callers
+// build is free when nothing procedural changed). Frozen volumes are skipped
+// even with force=true. Mutates the project: callers
 // in the editor must follow with commitChange(), headless ones with save().
 Report bakeAll(Project& p, bool force);
 

@@ -187,8 +187,8 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
 - **[Materials and texture painting](docs/material-painting.md)** — searchable library, direct object material editing, `.mtl`
   authoring, a layer stack painted onto your own mesh, UV unwrap/validator, and
   [raytraced map bakes](docs/material-baking.md) with smart masks.
-- **Generators** — [procedural scatter graphs](docs/procedural-generation.md)
-  baked to chunk meshes or [run on the EE](docs/procedural-runtime.md),
+- **Generators** — [procedural scatter graphs](docs/procedural-generation.md) with road avoidance or path scattering, material footprints and model overlap checks,
+  baked to chunk meshes with a reversible freeze or [run on the EE](docs/procedural-runtime.md),
   [prefabs](docs/prefabs.md), the [Tree Generator](docs/tree-generator.md),
   [GPU/CPU impostors with 4/8/16 views plus one-material hull proxies](docs/impostors.md) and
   the [Drone Generator](docs/drone-generator.md) for ambient music.
@@ -297,7 +297,8 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
 - **[GS VRAM residency](docs/gs-vram.md)** — the frame buffers can be **16-bit**
   (with the GS's ordered dithering to keep skies from banding), which roughly
   doubles the texture budget, or **hybrid** (draw 32-bit, show a dithered 16-bit
-  copy: half a buffer back, no banding in the blends); a texture is charged the GS blocks it really
+  copy: half a buffer back, no banding in the blends, with optional
+  [triple buffering](docs/frame-pacing.md#hybrid-triple-buffering)); a texture is charged the GS blocks it really
   spans instead of a flat pad; and the env-map and camera-feed render targets
   are reserved only for the projects that read them.
 - **[VU1 clipping and the guard band](docs/vu1-clipping.md)** — geometry that
@@ -415,7 +416,7 @@ wait for their polish pass.
 | [upscaler-lab](examples/upscaler-lab) | The fill-bound scene built to make the neural upscaler sweat. It wins: 1.63× on real hardware |
 | [video-modes](examples/video-modes) | 480i / 480p / 1080i and 4:3 / 16:9, switched at runtime — with keep-or-revert |
 | [vu-lab](examples/vu-lab) | Six props on five VU1 paths — capture a draw off the console, replay it on the host |
-| [vehicle-playground](examples/vehicle-playground) | Motor District: seven roads, CC0 city scenery, three driveable car models, menu-selectable day/night and live paint reflections |
+| [vehicle-playground](examples/vehicle-playground) | Motor District: seven roads, CC0 city scenery, three driveable car models, day/night and live paint reflections; painted procedural district with road and overlap checks |
 
 ## CLI
 

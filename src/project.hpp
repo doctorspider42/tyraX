@@ -1722,7 +1722,7 @@ struct ProjectSettings {
     // dithered blit per frame copies it into ONE 16-bit display buffer - full
     // precision blending with half a buffer back (ColorDepth::Hybrid in the
     // engine; no motion blur, no upscaler temporal pass, no frame
-    // extrapolation, no triple buffering in that mode).
+    // extrapolation; triple buffering adds a second 16-bit display buffer).
     std::string colorDepth = "32bit";  // "32bit" | "16bit" | "hybrid"
 
     // GS ordered dithering (the DTHE + DIMX registers). The GS only dithers
@@ -1742,7 +1742,8 @@ struct ProjectSettings {
     // its field by a little is shown one field late rather than halving the
     // rate. Costs a THIRD full display buffer of GS VRAM - 0.875 MB of the
     // ~1.08 MB texture heap at 512x448x32, half that in interlaced-field -
-    // so it is off by default and the engine falls back to two buffers when
+    // Hybrid adds a 16-bit display target (0.4375 MB at 512x448).
+    // It is off by default and the engine falls back to two buffers when
     // it does not fit. Decided at engine init; no runtime switch.
     bool tripleBuffering = false;
 

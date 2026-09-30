@@ -176,6 +176,25 @@ path that needs no GUI dialog.
 
 ## Format history
 
+Format 85 combines two branches that independently used v82 and v83. The
+vehicles branch added global tuning defaults and per-field overrides; the
+procedural branch added placement rules and, at v84, frozen procedural graphs.
+The merged editor reads both sets of optional fields and writes their unified
+schema as v85. A vehicle without an explicit `inheritDefaults` flag in a
+pre-v85 file stays local, while an explicit flag from the vehicles branch is
+honored. No value-changing migration is needed.
+
+Format 83 (editor 1.155.0) adds `FilterPlacement.nums.roads=2` for Only on roads
+and optional `strs.roadtarget`. Existing roads=0/1 retain Ignore/Avoid behavior;
+no migration is needed. The format gate keeps old editors from interpreting
+Only as the former Skip roads boolean. See [procedural generation](procedural-generation.md).
+
+Format 82 (editor 1.154.0) adds the `FilterPlacement` procedural node with
+road, model-overlap and full-footprint terrain-material checks. Parameters
+use the existing generic node maps; no migration is needed. The version gate
+prevents older editors from opening graphs whose placement semantics they
+cannot evaluate.
+
 **The per-version record is the comment block above `kFormatVersion` in
 `src/version.hpp`** — one entry per landing, saying what the version added and
 why it did or did not need a step. Read it there; rule 5 above is why it is the

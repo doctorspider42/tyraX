@@ -4132,3 +4132,55 @@ headers in BOTH backends. Decode the actual ADPCM and compare the waveform to
 the converted WAV: header checks alone missed adpenc's corrupt stereo reader
 (`fread(wave+i, 2, ...)` advances by one byte). Music conversion stays stereo
 unless its own mono option is chosen.
+
+## Hybrid triple-buffer acceptance (1.153.0)
+
+Use a frozen-camera scratch project with solid geometry and HUD. Boot hybrid
+double/triple variants in the software renderer; compare the finished scene
+captures and inspect GS dumps for CT32 draw at slot 0, CT16 copies to slots
+1/2, DTHE on only during copies, and PSMZ32 depth. Check fresh frame progress
+and absence of alternating black frames. Exercise limiter on/off, field mode,
+a BLSS layout rebuild and a mode with insufficient headroom. In a mixed
+project, use a scratch global script with `ctx.requestDisplayMode` to switch
+field/full PAL at the normal pre-frame boundary, including while BLSS is
+scene-disabled; check 3/2 buffer grants and fresh captures after both switches.
+Regular 32-bit
+triple buffering must still rotate all three draw targets. Verify the
+Preferences checkbox can be enabled in Hybrid and persists after reopening.
+Space repeated `--capture-frame` CLI calls by more than one second: their
+command sequence is wall-clock seconds, so two calls in the same second are
+seen as the same command. A PCSX2 run establishes correctness, not hardware
+frame-pacing performance.
+
+## Procedural placement validation (1.154.0)
+
+Use a host harness to compare the spatial hash with an independent all-pairs
+AABB rejection oracle, including rotated/off-centre assets, differently sized
+models, clearance, cell boundaries and the giant-bound overflow. Check painted
+islands inside a footprint, upper-layer occlusion, absent terrain, spline bends,
+closed roads and road width/point edits invalidating bakeHash. Repeat evaluation
+and baking, and verify serialization and the runtime capability rejection.
+Drive Validate Placement's checkboxes and material picker through --ui-script.
+Use vehicle-playground's procedural scene for refresh-gen and a game boot;
+benchmark many candidates only in the host filter, not as a PS2 timing claim.
+
+For road path filtering (1.155.0), compare origins against an independent
+point-in-triangle oracle over straight, curved and closed road ribbons. Check
+legacy roads=0/1, both road targets, no roads and missing/non-road targets;
+Only must ignore canopy width but retain independent collision/material checks.
+
+Procedural parameter combos now register their scoped labels for UI scripts.
+Open Roads/Road/Material by name and assert the popup options; no coordinate
+workaround is needed for these node controls.
+
+## Frozen procedural bake acceptance (1.156.0)
+
+Freeze a stale/unbaked scratch volume, then move roads, edit terrain/materials,
+seed and graph parameters. Compare generated object JSON and mesh hashes before
+and after both ordinary and forced bakeAll and refresh-gen. Save/reload and
+repeat; anyStale must ignore it and explicit bakeVolume must refuse. Unfreeze,
+assert staleness and rebake; output must change. Verify missing frozen defaults
+off and equality notices the flag. Runtime freezing must fail without mutation.
+Drive Frozen with --ui-script, save/reopen, inspect the checkbox and disabled
+bake/clear/mode/instance controls. Capture the viewport too: frozen chunks must
+remain visible without live instances, and Show preview must hide them.

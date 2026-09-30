@@ -6142,9 +6142,13 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
             const SceneObject& o = objects[oi];
             // Baked scatter chunks are build output of the graph the preview
             // below draws live from the same deterministic evaluation - drawing
-            // both would double every instance. A Scatter volume itself is an
-            // authoring region: a wire box, never geometry.
-            if (!o.procSource.empty()) continue;
+            // both would double every instance. Frozen volumes instead draw
+            // these saved chunks. A Scatter volume itself is an authoring
+            // region: a wire box, never geometry.
+            if (!o.procSource.empty() &&
+                std::find(scatter_.frozenSources.begin(), scatter_.frozenSources.end(),
+                          o.procSource) == scatter_.frozenSources.end())
+                continue;
             if (o.collisionMode == 3) {
                 if (!asLines)
                     draw(collisionCube_, GL_LINES, mul(viewProj, modelMatrix(o)),

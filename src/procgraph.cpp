@@ -420,6 +420,39 @@ const std::vector<ProcNodeType>& procNodeTypes() {
                  "This is how a path stays walkable and how props stop growing "
                  "through the house."},
 
+        {.key = "FilterPlacement",
+         .title = "Validate Placement",
+         .category = "Filters",
+         .ins = {{.label = "points", .type = ProcType::Points}},
+         .outs = {{.label = "points", .type = ProcType::Points}},
+         .params = {
+             {.key = "roads", .label = "Roads", .kind = PK::Enum, .def = 1,
+              .lo = 0, .hi = 2, .choices = "Ignore roads|Avoid roads|Only on roads",
+              .tip = "Ignore = unrestricted. Avoid = reject full footprints touching roads. Only = keep model origins on road ribbons, including soft edges; does not snap height or heading."},
+             {.key = "roadtarget", .label = "Road", .kind = PK::ObjectName,
+              .emptyLabel = "(every road)",
+              .tip = "Optional road object name. Empty checks every road; selecting a non-road or missing name produces a warning."},
+             {.key = "collisions", .label = "Avoid model overlap", .kind = PK::Bool, .def = 1,
+              .tip = "Reject overlaps with earlier accepted instances. Use after Merge to check different species together."},
+             {.key = "scene", .label = "Avoid scene models", .kind = PK::Bool, .def = 1,
+              .tip = "Also check placed models and solid primitives. Baked procedural chunks are excluded."},
+             {.key = "clearance", .label = "Clearance", .kind = PK::Float,
+              .def = 0, .lo = 0, .hi = 64,
+              .tip = "Extra space in world units around each candidate."},
+             {.key = "material", .label = "Restrict terrain material", .kind = PK::Bool,
+              .tip = "Require the entire conservative XZ footprint to stay on the selected visible terrain material."},
+             {.key = "layer", .label = "Material", .kind = PK::TerrainLayer, .def = -1,
+              .tip = "Allowed painted layer, or the base material."},
+             {.key = "coverage", .label = "Min coverage", .kind = PK::Float,
+              .def = 0.95f, .lo = 0.01f, .hi = 1,
+              .tip = "Minimum visible material coverage throughout the footprint. 1 requires fully painted ground."}},
+         .desc = "Build-time placement check using transformed model bounds and a spatial hash. "
+                 "Put after Pick Asset and Vary, before Output. Ignores roads, omits road overlaps or "
+                 "keeps origins on a selected road ribbon. Also checks model "
+                 "collisions and footprints crossing painted material borders. Conservative "
+                 "world AABBs include rotation and scale; missing assets and prefabs are rejected. "
+                 "Merge branches before a final overlap check to prevent trees and buildings intersecting."},
+
         {.key = "Merge",
          .title = "Merge Points",
          .category = "Filters",

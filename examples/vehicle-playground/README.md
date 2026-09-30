@@ -12,7 +12,7 @@ Historical software-renderer captures (before the efficient-wheel variants): [Tr
 [Rally 04](preview/rally.png). Night mode: [street](preview/night.png) and
 [pause-menu selection](preview/night-menu.png).
 
-## Two scenes
+## Three scenes
 
 `main` is the district described below and the measurement reference.
 `dense` is the same district with **107 more buildings** lining the streets
@@ -20,6 +20,60 @@ Historical software-renderer captures (before the efficient-wheel variants): [Tr
 prop, 240 objects in all), for occlusion and city-density work. The game
 starts in `main`; set the project's start scene to 1 to boot `dense`. The two
 scenes keep separate object copies, so editing one does not touch the other.
+
+`procedural` (index 2) demonstrates painted scatter placement using this
+project's existing urban OBJ assets. Select that scene in the editor and open
+the Procedural layout; select **Painted district scatter**. Its two branches
+place workshops/lofts/towers on fully painted concrete and park trees on the
+grass base. Each branch checks its full transformed model footprint against
+the material and all seven roads, with one unit of clearance. Buildings keep
+the same 0-degree heading: their Vary Transform has Yaw range, Tilt jitter and
+Align to normal at 0. The tree branch retains random yaw. Merge gives
+buildings priority, then a final **Validate Placement** rejects overlaps across
+both species. The graph is baked into ordinary chunk meshes for the game.
+Gameplay chunk collision is off: a box around an entire merged chunk could
+block roads between its members. Placement overlap detection remains on.
+Set start scene to 2 to boot it; `main` remains the default reference.
+When a layout is ready, check **Frozen** in the Procedural window to preserve
+its current bake through road/terrain edits and future builds. Uncheck it to
+resume live generation; staged graph edits then apply too.
+The saved scene uses seed 508781842 and an adjusted ring-road seam: its bake
+contains 70 buildings and 144 trees (23,428 triangles in 102 chunks). Its graph
+node positions and editor layout preserve the latest authored arrangement.
+The seed-42 authoring-script fixture produces 66 buildings and 157 trees
+(25,316 triangles in 96 chunks). Trees use the original district's 5x park-tree and 7x pine scale.
+The full host graph takes about 13 ms in the editor's Release build;
+this is generation time, not a PS2 frame-time measurement.
+
+![Painted procedural district in PCSX2](preview/procedural.png)
+
+The saved variant passes object/mesh-reference and TMDL-completeness checks,
+and Release `--refresh-gen` succeeds. The seed-42 fixture was verified with a
+host all-pairs oracle, zero-rotation checks for all 66 buildings,
+graph serialization/determinism checks,
+repeated baking, scripted editor checkbox toggles, a native PS2 debug build,
+and PCSX2 boot, camera turn, walking and GS frame capture. The smaller final
+fixture rendered beyond 1,000 frames; an earlier 80,812-triangle fixture
+stopped during its first frame. That is a budget warning, not an identified
+engine fault or a hardware performance claim. Keep density and triangle/memory
+budgets in view when scaling up.
+
+Run `python authoring/make-procedural-scene.py` to restore the authored demo,
+then `tyrax-editor --refresh-gen <projectDir>` to regenerate the chunks and
+game data. This replaces only this demo's authored scene, paint and objects.
+See [the placement recipe](../../docs/procedural-generation.md) for the flags,
+conservative bounds and difference between placement checks and game collision.
+
+To use a road as a scatter path, change a branch's **Roads** to **Only on roads**
+and choose a **Road** (or leave **(every road)**). Disable its terrain-material
+restriction if the path should ignore the paint underneath. This keeps model
+origins on the road ribbon; model overlap and scene-model avoidance are still
+independent switches. **Avoid roads** retains the original demo behavior.
+The road-only check used a scratch copy with one branch: Surface density 1,
+`pallet.obj` at scale 2, Only on roads targeting Ring road, material restriction
+off and 0.5 clearance. It produced 100 markers / 16,800 triangles in 15 chunks.
+Serialization, repeat evaluation/bake and UI selection passed; a native debug
+build ran beyond 2,400 frames in PCSX2 with camera turn, walking and GS capture.
 
 ## The district
 
