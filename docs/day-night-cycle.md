@@ -76,6 +76,10 @@ look like a flat texture pasted behind it.
 The star seed and density are project settings. Changing them changes the field
 but adds no runtime asset files.
 
+A [painted sky](sky-texture.md) follows the cycle as a tint: shown as
+painted at the authored hour, darkened toward night. Its painted sun does not
+move.
+
 ## Static or live
 
 With **Let the clock run** off, the chosen hour is baked and stays fixed. This

@@ -2849,6 +2849,9 @@ void App::drawViewportWindow() {
                     viewport_.setFog(a.fogEnabled && showFog_, a.fogColor, a.fogStart, a.fogEnd);
                 }
                 viewport_.setAmbientOcclusion(a.aoEnabled, a.aoStrength, a.aoRadius);
+                viewport_.setSkyTexture(
+                    a.skyTexture.empty() ? std::string() : project_.filePath(a.skyTexture),
+                    a.skyTextureYaw);
                 ambiencePreviewPushed_ = true;
                 // With the runtime half on, the console also applies a drift
                 // grade every frame (docs/day-night-cycle.md). The slider is how
@@ -11642,6 +11645,49 @@ void App::drawAmbiencePresets(bool& changed) {
         ImGui::SetTooltip("How much of the sky the zenith color fills.\n"
                           "0.5 = linear; higher spreads the zenith color down\n"
                           "toward the horizon, lower keeps it near the top.");
+    // Painted sky (docs/sky-texture.md): an equirectangular panorama copied
+    // into res/sky/ (a folder that never ships - only its baked crop does).
+    if (ImGui::Button(a.skyTexture.empty() ? "Sky texture (PNG)..."
+                                           : "Replace sky texture...")) {
+        const std::string src = pickPngFile();
+        if (!src.empty()) {
+            const std::filesystem::path srcPath(src);
+            const std::string fileName = sanitizeAssetName(srcPath.filename().string());
+            const std::filesystem::path destDir =
+                std::filesystem::path(project_.dir) / "res" / "sky";
+            std::error_code ec;
+            std::filesystem::create_directories(destDir, ec);
+            if (std::filesystem::absolute(srcPath, ec) !=
+                std::filesystem::absolute(destDir / fileName, ec))
+                std::filesystem::copy_file(
+                    srcPath, destDir / fileName,
+                    std::filesystem::copy_options::overwrite_existing, ec);
+            if (!ec) {
+                a.skyTexture = "res/sky/" + fileName;
+                changed = true;
+            } else {
+                statusMessage_ = "Sky texture import failed: " + ec.message();
+            }
+        }
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("A 360-degree equirectangular panorama. The build keeps\n"
+                          "its upper part as a 256x128 texture; the colors above\n"
+                          "then only tint it (darker at night).");
+    if (!a.skyTexture.empty()) {
+        ImGui::SameLine();
+        if (ImGui::Button("Remove##skytex")) {
+            a.skyTexture.clear();
+            changed = true;
+        }
+        ImGui::TextDisabled("%s", a.skyTexture.c_str());
+        ImGui::SliderFloat("Sky rotation", &a.skyTextureYaw, -180.0f, 180.0f,
+                           "%.0f deg");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Turns the panorama around you - line its sun up\n"
+                              "with the scene's light direction.");
+    }
     ImGui::EndDisabled();
 
     ImGui::SeparatorText("Lighting");
@@ -14762,6 +14808,9 @@ void App::applyProjectToViewport() {
     // layers = the plain single-material terrain above).
     rebakeSplatPreview();
     viewport_.setSky(rs.skyColor, rs.skyTopColor, rs.skyDome, rs.zenithSize);
+    viewport_.setSkyTexture(
+        rs.skyTexture.empty() ? std::string() : project_.filePath(rs.skyTexture),
+        rs.skyTextureYaw);
     viewport_.setUsableHighlight(rs.highlightUsable, rs.highlightColor);
     viewport_.setLighting(rs.lightDir, rs.ambient, rs.diffuse, rs.lightColor, rs.brightness);
     viewport_.setAmbientOcclusion(rs.aoEnabled, rs.aoStrength, rs.aoRadius);

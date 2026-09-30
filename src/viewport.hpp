@@ -182,6 +182,8 @@ public:
     // horizon + zenith colors; gradient=false renders a flat horizon color
     void setSky(const float* horizonRgb, const float* topRgb, bool gradient,
                 float zenithSize = 0.5f);
+    // "" = the gradient alone. absPath is the res/ panorama (docs/sky-texture.md).
+    void setSkyTexture(const std::string& absPath, float yawDeg);
 
     // Day/night cycle sky bodies (docs/day-night-cycle.md). The editor's twin of
     // the generated game's renderSkyBodies: two camera-facing quads on the sky
@@ -851,6 +853,12 @@ private:
     bool skyGradient_ = true;
     float skyZenithSize_ = 0.5f;  // gradient bias, see setSky / the dome build
     Mesh skyQuad_;
+    // Painted sky (docs/sky-texture.md): the SAME crop texbake ships
+    // (skytex::crop), uploaded once per panorama. Shown at the authored hour -
+    // the console's day/night tint is not previewed.
+    std::string skyTexAbs_, skyTexLoaded_;
+    float skyTexYaw_ = 0.0f;
+    uint32_t skyTexGl_ = 0;
     // Day/night cycle discs: one shared unit quad, oriented per body by a
     // billboard model matrix (see drawSkyBodies).
     SkyBodies skyBodies_;

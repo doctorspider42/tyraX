@@ -204,7 +204,7 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
   automatic per-model self-AO multiplied into each model's own texture, for no
   extra VRAM — [pre-lit models](docs/prelit-models.md) for per-pixel static
   light on a textured surface, and a [day/night cycle](docs/day-night-cycle.md)
-  the whole bake follows.
+  the whole bake follows, under a [painted sky](docs/sky-texture.md) if you want one.
 - **Surfaces** — [emissive materials](docs/emissive-materials.md),
   [sphere-mapped chrome](docs/reflective-materials.md) that mirrors the whole town
   as [boxes](docs/reflective-materials.md#static-scenery-in-the-probe-11610) over a

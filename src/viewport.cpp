@@ -22,6 +22,7 @@
 #include "primmesh.hpp"
 #include "roadgen.hpp"
 #include "scrollsim.hpp"
+#include "skytex.hpp"
 #include <stb_image.h>
 
 // ---------------------------------------------------------------------------
@@ -1829,6 +1830,9 @@ void Viewport::shutdown() {
     clearLmMeshes();
     destroyMesh(skyQuad_);
     destroyMesh(skyBodyQuad_);
+    if (skyTexGl_) glDeleteTextures(1, &skyTexGl_);
+    skyTexGl_ = 0;
+    skyTexLoaded_.clear();
     for (Mesh& m : starMesh_) destroyMesh(m);
     for (uint32_t& t : skySpriteTex_)
         if (t) glDeleteTextures(1, &t);
@@ -5042,6 +5046,13 @@ void Viewport::setSky(const float* horizonRgb, const float* topRgb, bool gradien
     skyQuadDirty_ = true;
 }
 
+void Viewport::setSkyTexture(const std::string& absPath, float yawDeg) {
+    if (absPath == skyTexAbs_ && yawDeg == skyTexYaw_) return;
+    skyTexAbs_ = absPath;
+    skyTexYaw_ = yawDeg;
+    skyQuadDirty_ = true;
+}
+
 void Viewport::setSkyBodyTexture(int which, int w, int h,
                                  const unsigned char* rgba) {
     if (w < 1 || h < 1 || !rgba) return;
@@ -5413,6 +5424,26 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
     if (skyGradient_ && skyQuadDirty_) {
         skyQuadDirty_ = false;
         destroyMesh(skyQuad_);
+        if (skyTexAbs_ != skyTexLoaded_) {
+            skyTexLoaded_ = skyTexAbs_;
+            if (skyTexGl_) glDeleteTextures(1, &skyTexGl_);
+            skyTexGl_ = 0;
+            std::string err;
+            const std::vector<unsigned char> px =
+                skyTexAbs_.empty() ? std::vector<unsigned char>()
+                                   : skytex::crop(skyTexAbs_, err);
+            if (!px.empty()) {
+                glGenTextures(1, &skyTexGl_);
+                glBindTexture(GL_TEXTURE_2D, skyTexGl_);
+                // Never the one-call glTexImage2D with data (gl_loader.h).
+                glUploadTexRgba(skytex::kWidth, skytex::kHeight, px.data());
+                // After the upload: REPEAT round the horizon, CLAMP downwards -
+                // the console's setWrapSettings(Repeat, Clamp).
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+            }
+        }
+        const bool painted = skyTexGl_ != 0;
         std::vector<float> q;
         const int stacks = 12, slices = 24;
         // Zenith-size bias: pow(t, exp), exp = (1-size)/size. size 0.5 => exp 1
@@ -5423,6 +5454,13 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
             const float lon = 2.0f * kPi * slice / slices;
             const float t = std::pow((float)stack / stacks, zExp);
             const float r = std::cos(lat);
+            if (painted) {
+                float u = 0.0f, v = 0.0f;
+                skytex::domeUv(lon, lat, skyTexYaw_, u, v);
+                pushVertexColor(q, r * std::cos(lon), std::sin(lat), r * std::sin(lon),
+                                1.0f, 1.0f, 1.0f, u, v);
+                return;
+            }
             pushVertexColor(q, r * std::cos(lon), std::sin(lat), r * std::sin(lon),
                             sky_[0] + (skyTop_[0] - sky_[0]) * t,
                             sky_[1] + (skyTop_[1] - sky_[1]) * t,
@@ -5501,8 +5539,14 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         glUniformMatrix4fv(uMvp_, 1, GL_FALSE, skyMvp.m);
         glUniform3f(uTint_, 1.0f, 1.0f, 1.0f);
         glUniform1i(uLit_, 0);
+        if (skyTexGl_) {
+            glUniform1i(uUseTex_, 1);
+            glActiveTexture(GL_TEXTURE0);
+            glBindTexture(GL_TEXTURE_2D, skyTexGl_);
+        }
         glBindVertexArray(skyQuad_.vao);
         glDrawArrays(GL_TRIANGLES, 0, skyQuad_.vertexCount);
+        glUniform1i(uUseTex_, 0);
         glEnable(GL_DEPTH_TEST);
     }
     // Day/night cycle sun and moon, on the dome and with depth off for the same

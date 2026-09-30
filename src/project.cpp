@@ -1269,6 +1269,10 @@ static void writeSceneVisuals(std::ostream& j, const SceneData& sc) {
       << fmtFloat(s.brightness) << " }, \"sky\": { \"color\": " << fmtVec3(s.skyColor)
       << ", \"topColor\": " << fmtVec3(s.skyTopColor) << ", \"dome\": "
       << (s.skyDome ? "true" : "false") << ", \"zenithSize\": " << fmtFloat(s.zenithSize)
+      << (s.skyTexture.empty() ? std::string()
+                               : ", \"texture\": \"" + jsonEscape(s.skyTexture) + "\"")
+      << (s.skyTextureYaw != 0.0f ? ", \"textureYaw\": " + fmtFloat(s.skyTextureYaw)
+                                  : std::string())
       << " }, \"clipping\": \"" << s.clipping
       << "\", \"terrainMaterial\": \"" << s.terrainMaterial
       << "\", \"postfx\": { \"bloom\": " << fmtFloat(s.bloom)
@@ -1338,6 +1342,9 @@ static void readSceneVisuals(const json::Value& js, SceneData& sc) {
                 if (const auto* v = sk->find("dome")) s.skyDome = v->boolOr(true);
                 if (const auto* v = sk->find("zenithSize"))
                     s.zenithSize = (float)v->numberOr(0.5);
+                if (const auto* v = sk->find("texture")) s.skyTexture = v->stringOr("");
+                if (const auto* v = sk->find("textureYaw"))
+                    s.skyTextureYaw = (float)v->numberOr(0.0);
             }
             if (const auto* v = st->find("clipping")) {
                 // "vu1" (default) = precise per-package classification +
@@ -1510,6 +1517,8 @@ ProjectSettings resolvedSettings(const Project& p, const SceneData& s) {
         for (int i = 0; i < 3; ++i) r.skyColor[i] = o.skyColor[i], r.skyTopColor[i] = o.skyTopColor[i];
         r.skyDome = o.skyDome;
         r.zenithSize = o.zenithSize;
+        r.skyTexture = o.skyTexture;
+        r.skyTextureYaw = o.skyTextureYaw;
     }
     if (s.overrides.clipping) r.clipping = o.clipping;
     if (s.overrides.terrainMat) r.terrainMaterial = o.terrainMaterial;
@@ -1564,6 +1573,8 @@ ProjectSettings resolvedSettings(const Project& p, const SceneData& s) {
         }
         r.skyDome = a.skyDome;
         r.zenithSize = a.zenithSize;
+        r.skyTexture = a.skyTexture;
+        r.skyTextureYaw = a.skyTextureYaw;
         r.ambient = a.ambient;
         r.diffuse = a.diffuse;
         r.brightness = a.brightness;
@@ -1862,6 +1873,12 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
          << "    \"skyTopColor\": " << fmtVec3(p.settings.skyTopColor) << ",\n"
          << "    \"skyDome\": " << (p.settings.skyDome ? "true" : "false") << ",\n"
          << "    \"zenithSize\": " << fmtFloat(p.settings.zenithSize) << ",\n"
+         << (p.settings.skyTexture.empty()
+                 ? std::string()
+                 : "    \"skyTexture\": \"" + jsonEscape(p.settings.skyTexture) + "\",\n")
+         << (p.settings.skyTextureYaw != 0.0f
+                 ? "    \"skyTextureYaw\": " + fmtFloat(p.settings.skyTextureYaw) + ",\n"
+                 : std::string())
          << "    \"eyeHeight\": " << fmtFloat(p.settings.eyeHeight) << ",\n"
          << "    \"walkSpeed\": " << fmtFloat(p.settings.walkSpeed) << ",\n"
          // Written only when set (0 = the walk speed is the top speed), so a
@@ -2418,6 +2435,12 @@ static void writeAmbienceSection(std::ostream& json, const Project& p) {
              << ", \"skyTopColor\": " << fmtVec3(a.skyTopColor)
              << ", \"skyDome\": " << (a.skyDome ? "true" : "false")
              << ", \"zenithSize\": " << fmtFloat(a.zenithSize)
+             << (a.skyTexture.empty()
+                     ? std::string()
+                     : ", \"skyTexture\": \"" + jsonEscape(a.skyTexture) + "\"")
+             << (a.skyTextureYaw != 0.0f
+                     ? ", \"skyTextureYaw\": " + fmtFloat(a.skyTextureYaw)
+                     : std::string())
              << ", \"lightDir\": " << fmtVec3(a.lightDir)
              << ", \"ambient\": " << fmtFloat(a.ambient)
              << ", \"diffuse\": " << fmtFloat(a.diffuse)
@@ -6413,6 +6436,9 @@ static void readSettingsSection(const json::Value& root, Project& out) {
         if (const auto* v = s->find("skyDome"))
             st.skyDome = v->type == json::Value::Type::Bool && v->boolean;
         if (const auto* v = s->find("zenithSize")) st.zenithSize = (float)v->numberOr(0.5);
+        if (const auto* v = s->find("skyTexture")) st.skyTexture = v->stringOr("");
+        if (const auto* v = s->find("skyTextureYaw"))
+            st.skyTextureYaw = (float)v->numberOr(0.0);
         if (const auto* v = s->find("eyeHeight")) st.eyeHeight = (float)v->numberOr(1.8);
         if (const auto* v = s->find("walkSpeed")) st.walkSpeed = (float)v->numberOr(0.1);
         if (const auto* v = s->find("runSpeed")) st.runSpeed = (float)v->numberOr(0.0);
@@ -7122,6 +7148,9 @@ static void readAmbienceSection(const json::Value& root, Project& out) {
             readVec3(ja.find("skyTopColor"), a.skyTopColor);
             if (const auto* v = ja.find("skyDome")) a.skyDome = v->boolOr(true);
             if (const auto* v = ja.find("zenithSize")) a.zenithSize = (float)v->numberOr(0.5);
+            if (const auto* v = ja.find("skyTexture")) a.skyTexture = v->stringOr("");
+            if (const auto* v = ja.find("skyTextureYaw"))
+                a.skyTextureYaw = (float)v->numberOr(0.0);
             readVec3(ja.find("lightDir"), a.lightDir);
             if (const auto* v = ja.find("ambient")) a.ambient = (float)v->numberOr(0.55);
             if (const auto* v = ja.find("diffuse")) a.diffuse = (float)v->numberOr(0.45);

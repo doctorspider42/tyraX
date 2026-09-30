@@ -5503,7 +5503,9 @@
 // host-baked albedo map (REFL_GROUND_*): -2 ms a turning frame on the Motor
 // District's open road on a PS2.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 161
+#define TYRAX_VERSION_MINOR 162
+// 1.162.0: painted skies - an equirectangular panorama on the sky dome, per
+// ambience preset, baked into a 256x128 8-bit crop (docs/sky-texture.md).
 // 1.161.2: vehicle paint no longer shows its triangles on the console - the
 // env/paint bag was flat-shaded, so each triangle took one corner's fresnel.
 // 1.161.1: the viewport sky no longer turns pink with PS2 shading on - the
@@ -5548,7 +5550,7 @@
 // existing unlit VU1 path; conservative local bounds, custom stages unchanged.
 // 1.150.1: prepare driveable vehicle HUD fonts during scene loading; plain
 // runtime text no longer loads the icon sheet before drawing an actual icon.
-#define TYRAX_VERSION_PATCH 2
+#define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
@@ -6020,7 +6022,11 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // ProjectSettings::reflectionGroundProxy ("The ground stand-in"), written only
 // when true; missing = the real terrain and road chunks. Additive; no
 // migration step.
-inline constexpr int kFormatVersion = 88;
+// v89 (docs/sky-texture.md): skyTexture + skyTextureYaw on ProjectSettings,
+// on a scene's sky override ("texture"/"textureYaw") and on each ambience
+// preset, each written only when set. Missing = the gradient sky as before.
+// Additive; no migration step.
+inline constexpr int kFormatVersion = 89;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects
