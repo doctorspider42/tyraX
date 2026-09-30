@@ -45,3 +45,8 @@ never silently shipped.
 Standard FPP template: left stick walks, right stick looks, X jumps. Walk into
 the alcove and back out to feel the probe grid work on the player's
 surroundings.
+
+Generated object values live in `src/gen/scene_objects.gen.cpp`;
+`inc/scene_data.hpp` keeps stable declarations. Counts and object IDs live in
+the same data file, so ordinary moves, color edits, additions and removals can
+rebuild it alone. Changes to features or derived tables can still rebuild consumers.

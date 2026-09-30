@@ -1,5 +1,8 @@
 #pragma once
 
+// 1.161.3: compile authored scene object values in one generated TU, avoiding
+// full-game recompilation after ordinary moves/additions/removals. Visibility
+// proxies, counts and identity hashes follow the same split. No format change.
 // 1.161.2: track real native build outputs, share path-independent toolchain
 // identities and match embedded IRX ABI flags without changing their payloads.
 // Editor and project-format versioning. Two independent numbers:
@@ -5548,7 +5551,7 @@
 // existing unlit VU1 path; conservative local bounds, custom stages unchanged.
 // 1.150.1: prepare driveable vehicle HUD fonts during scene loading; plain
 // runtime text no longer loads the icon sheet before drawing an actual icon.
-#define TYRAX_VERSION_PATCH 2
+#define TYRAX_VERSION_PATCH 3
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

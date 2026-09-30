@@ -158,15 +158,72 @@ paths. These are local iteration measurements, excluding code generation/baking
 and cold setup, not clean-build or runtime FPS claims. The resulting game booted
 in a private PCSX2 instance; IRX binary payloads stayed identical and script
 addr2line locations retained the authored Windows path.
-Moving Pica by 0.25 units and refreshing generated sources still rebuilt 11
-translation units and took 103 s in the WSL cache. `scripts/script.hpp` includes
-the full `scene_data.hpp`, coupling authored scripts and helpers to scene-table
-changes. Splitting runtime types from generated scene tables is separate work;
-the WSL cache does not remove the compiler cost of that dependency fan-out.
+
+### Compiling scene values once
+
+`inc/scene_data.hpp` declares authored object arrays;
+`src/gen/scene_objects.gen.cpp` defines their values once, including empty-scene
+placeholders and baked scroller clones, plus object counts, identity hashes and
+conservative visibility proxy data.
+Ordinary object additions/removals and transform/color edits can now recompile
+just that small data source and relink, leaving the large `terrain_game.cpp` and
+authored scripts cached. Read access, array sizes, object layout and indices
+stay the same. Arrays/counts are `extern const`, so custom code that previously
+used their values in constant expressions must switch to runtime reads. Object
+and ID arrays have unsized declarations; use `SCENE_OBJECT_COUNTS[scene]` for
+lengths instead of `sizeof` or `std::size`. Visibility proxy arrays/counts are
+also runtime constants; `OCCLUSION_CULLING` remains a compile-time feature gate.
+The new source is automatically refreshed in existing projects, including
+projects with user-owned game/script headers.
+
+Scene-count edits, feature changes, changed derived tables, and lighting or
+asset bakes may still change headers and compile their consumers. This improves
+data iteration across object types, not every possible scene edit or cold setup.
+
+
+Warmed Windows/WSL debug measurements on `vehicle-playground`: moving Pica by
+0.25 units took 90.2/92.2 s with the previous generator (11 compiled sources),
+versus 11.4/11.2 s after moving object data out of headers. With counts, identity
+and visibility proxies also separated, moving an ordinary physics box took
+10.0 s, adding a default static box 10.2 s and removing it 10.5 s. Each compiled
+only `scene_objects.gen.cpp` and left all `inc/` headers byte-identical. Before
+separating visibility proxies, that same static-box addition still took 91.6 s
+and compiled the game source even with culling disabled. Timings include native
+setup checks and input/output sync, excluding generation/baking and cold setup.
+The resulting game booted in PCSX2; a four-scene orbit fixture with empty scenes,
+a custom table reader and enabled culling also linked successfully.
+
+### Remaining compiler bottleneck
+
+The generated FPP game source has 30,400 lines. In an isolated GCC 15.2
+`-ftime-report` probe, its `-g -O3` compilation took 85.6 s wall time at 99% CPU
+(about one logical core), with 91% of reported compiler-pass time in optimization
+and code generation and 5% in parsing. The backend already uses `make -j24` on
+this machine: once only this TU remains, other cores cannot shorten that work.
+A follow-up `-O3` probe took 81.9 s; exploratory `-O2` probes took 68.5/68.5 s.
+These are diagnostic compiler runs, not hardware FPS validation or a reason to
+change the default optimization level. `-O3` remains unchanged. See GCC's
+[profiling options](https://gcc.gnu.org/onlinedocs/gcc/Developer-Options.html) and
+[optimization levels](https://gcc.gnu.org/onlinedocs/gcc/Optimize-Options.html).
+
+Changing the active day/night ambience's ambient keys still changed
+`scene_data.hpp`; toggling Project > Show Memory changed `terrain_config.hpp`.
+Generation took about 4.5-4.8 s for those scratch probes, while either header
+change invalidates the large game TU. Editing unused inherited lighting values
+correctly produced no source change. Bigger baked-light/asset changes can have
+additional costs; these probes did not benchmark those bakes.
+
+The next structural step is splitting independently compilable game subsystems
+(rendering, physics, scene loading) and separating remaining runtime setting
+values from compile-time feature/layout decisions. That can expose real
+parallelism while narrowing invalidation. Precompiled headers target the small
+parsing share; a compiler fork is a much larger project than reducing the TU's
+work. Any split or optimization-level change needs PS2 runtime validation to
+price lost inlining or altered code generation, not only a faster host build.
 
 To measure iteration, copy an example outside the tracked project, build it
 once to warm the cache, then time a second `--build`. Also test a one-file script
-edit, a scene edit, and an engine edit separately: generated scene tables can
+edit, a scene edit, and an engine edit separately: feature and derived-table edits can
 invalidate the large `terrain_game.cpp`, which still needs a full compiler pass.
 Compare repeated alternating runs; exclude installation and cold-cache builds
 from incremental timings.

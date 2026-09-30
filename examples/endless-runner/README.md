@@ -73,3 +73,8 @@ way to see how much of a runner's frame time is the world moving.
 Full guide: [docs/endless-scroller.md](../../docs/endless-scroller.md), and
 [docs/procedural-generation.md](../../docs/procedural-generation.md) for the
 volumes that made the scenery.
+
+Generated object values live in `src/gen/scene_objects.gen.cpp`;
+`inc/scene_data.hpp` keeps stable declarations. Counts and object IDs live in
+the same data file, so ordinary moves, color edits, additions and removals can
+rebuild it alone. Changes to features or derived tables can still rebuild consumers.

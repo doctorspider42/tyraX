@@ -50,3 +50,8 @@ shade). PS2-only — the editor viewport shows the base material.
 The two sibling examples: [raytraced-mirror](../raytraced-mirror) (the VU0
 raytracer on its own) and [probe-aim](../probe-aim) (the reflected-ray
 env-map probe).
+
+Generated object values live in `src/gen/scene_objects.gen.cpp`;
+`inc/scene_data.hpp` keeps stable declarations. Counts and object IDs live in
+the same data file, so ordinary moves, color edits, additions and removals can
+rebuild it alone. Changes to features or derived tables can still rebuild consumers.

@@ -45,3 +45,8 @@ second segment (e.g. a wider "cavern" ring) so the tunnel alternates, or drive
 **Set Scroller Speed** from the flow graph to accelerate as the game ramps up.
 
 Full guide: [docs/endless-scroller.md](../../docs/endless-scroller.md).
+
+Generated object values live in `src/gen/scene_objects.gen.cpp`;
+`inc/scene_data.hpp` keeps stable declarations. Counts and object IDs live in
+the same data file, so ordinary moves, color edits, additions and removals can
+rebuild it alone. Changes to features or derived tables can still rebuild consumers.

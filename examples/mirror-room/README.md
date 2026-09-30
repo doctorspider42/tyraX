@@ -43,3 +43,8 @@ objects drawn on the other side.
 
 The terrain needs no entry on the list: it extends behind the wall, so it
 doubles as the mirror room's floor for free.
+
+Generated object values live in `src/gen/scene_objects.gen.cpp`;
+`inc/scene_data.hpp` keeps stable declarations. Counts and object IDs live in
+the same data file, so ordinary moves, color edits, additions and removals can
+rebuild it alone. Changes to features or derived tables can still rebuild consumers.

@@ -52,3 +52,8 @@ blob shadows in *Project > Preferences > Shadows*, flare and god rays in
 *Tools > UI Editor* (per-scene overridable in *Scene > Post effects*), the
 flashlight on the Player object. The crystal's pulse is the only logic, and
 it is a flow graph.
+
+Generated object values live in `src/gen/scene_objects.gen.cpp`;
+`inc/scene_data.hpp` keeps stable declarations. Counts and object IDs live in
+the same data file, so ordinary moves, color edits, additions and removals can
+rebuild it alone. Changes to features or derived tables can still rebuild consumers.

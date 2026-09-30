@@ -122,3 +122,8 @@ then build the chain outward. The five assets (`res/models/pine.obj`,
 `rock.obj`, `pillar.obj`, `post.obj`, `crystal.obj`, 8 to 72 triangles each,
 sharing one `props.mtl`) are deliberately tiny and untextured so the example
 is about the graphs, not the art.
+
+Generated object values live in `src/gen/scene_objects.gen.cpp`;
+`inc/scene_data.hpp` keeps stable declarations. Counts and object IDs live in
+the same data file, so ordinary moves, color edits, additions and removals can
+rebuild it alone. Changes to features or derived tables can still rebuild consumers.

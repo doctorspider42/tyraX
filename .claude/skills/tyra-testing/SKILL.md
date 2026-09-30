@@ -4064,3 +4064,17 @@ off and equality notices the flag. Runtime freezing must fail without mutation.
 Drive Frozen with --ui-script, save/reopen, inspect the checkbox and disabled
 bake/clear/mode/instance controls. Capture the viewport too: frozen chunks must
 remain visible without live instances, and Show preview must hide them.
+
+## Scene object data iteration regression
+
+After warming a scratch native game, move an authored object and refresh
+generation. Compare the header and script timestamps: for a value-only move,
+`scene_objects.gen.cpp` should be the only compiled source when other bakes
+stay unchanged. Also test ordinary object additions/removals (which should keep the header
+stable), scene-count changes, color edits, empty scenes,
+baked scroller clones, both camera templates and a custom script that reads
+`SCENE_OBJECT_TABLES`. Check old/new initializer rows for exact equivalence and
+boot the resulting game. Test culling both enabled and disabled: static-box
+additions must update its proxy data without changing the declaration header.
+Feature and other derived-table edits may rebuild more. Profile a remaining
+large compile with GCC `-ftime-report` before assuming parsing/I/O is its cost.

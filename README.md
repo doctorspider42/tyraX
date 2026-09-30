@@ -10,7 +10,9 @@ graph — then press one key and a PS2 runs your world. PCSX2, or a real console
 over ethernet.
 
 Under the hood TyraX writes the game as ordinary C++ against the engine and
-compiles it with a native PS2DEV + OpenVCL toolchain. Both halves live in this repo —
+compiles it with a native PS2DEV + OpenVCL toolchain. Scene object values compile
+once for fast object iteration ([details](docs/native-toolchain.md)).
+Both halves live in this repo —
 the editor and the engine (`vendor/tyra/engine`) — and the generated sources
 are yours to take over, file by file, whenever you want them.
 

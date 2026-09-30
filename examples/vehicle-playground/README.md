@@ -62,3 +62,8 @@ For model import, driving controls, damage and sounds, see the
 
 The shipped [third-party notices](THIRD-PARTY-NOTICES.txt) list the engine and
 assets used by this project. Keep them with redistributed builds.
+
+Generated object values live in `src/gen/scene_objects.gen.cpp`;
+`inc/scene_data.hpp` keeps stable declarations. Counts and object IDs live in
+the same data file, so ordinary moves, color edits, additions and removals can
+rebuild it alone. Changes to features or derived tables can still rebuild consumers.

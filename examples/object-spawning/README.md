@@ -45,3 +45,8 @@ See [docs/animated-models.md](../../docs/animated-models.md) for the skeletal
 model. The spawn nodes themselves are documented where they live: hover
 **Spawn Object** / **Despawn Object** in the flow-graph palette for the pin
 tips.
+
+Generated object values live in `src/gen/scene_objects.gen.cpp`;
+`inc/scene_data.hpp` keeps stable declarations. Counts and object IDs live in
+the same data file, so ordinary moves, color edits, additions and removals can
+rebuild it alone. Changes to features or derived tables can still rebuild consumers.

@@ -5,18 +5,15 @@ namespace Physics_playground {
 struct OcclusionProxyBox { float mn[3], mx[3]; };
 struct OcclusionProxyObject { int scene, object, first, count; };
 constexpr bool OCCLUSION_CULLING = false;
-static const OcclusionProxyBox OCCLUSION_BOXES[] = {
-  {{0,0,0},{0,0,0}},
-};
-static const OcclusionProxyObject OCCLUSION_OBJECTS[] = {
-  {-1,-1,0,0},
-};
-constexpr int OCCLUSION_OBJECT_COUNT = 0;
-static const int OCCLUSION_SCENE_OFFSETS[] = {0,38};
-static const unsigned char OCCLUSION_CAN_CULL[] = {1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1};
-static const unsigned char OCCLUSION_IS_OCCLUDER[] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
+extern const OcclusionProxyBox OCCLUSION_BOXES[];
+extern const OcclusionProxyObject OCCLUSION_OBJECTS[];
+extern const int OCCLUSION_OBJECT_COUNT;
+extern const int OCCLUSION_SCENE_OFFSETS[];
+extern const unsigned char OCCLUSION_CAN_CULL[];
+extern const unsigned char OCCLUSION_IS_OCCLUDER[];
+constexpr int OCCLUSION_SCENE_OFFSET_COUNT = 2;
 inline int occlusionObjectIndex(int scene,int object){
-  if(scene<0 || scene+1>=(int)(sizeof(OCCLUSION_SCENE_OFFSETS)/sizeof(int))) return -1;
+  if(scene<0 || scene+1>=OCCLUSION_SCENE_OFFSET_COUNT) return -1;
   const int i=OCCLUSION_SCENE_OFFSETS[scene]+object;
   return object>=0 && i<OCCLUSION_SCENE_OFFSETS[scene+1] ? i : -1;
 }

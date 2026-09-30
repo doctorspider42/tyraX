@@ -46,3 +46,8 @@ One AI state per object: the Chase **replaces** the Patrol, so after giving
 up the guard just stands there. To make it resume, wire the classic loop —
 `On Player Seen` bool output → `NOT` → `On Condition` → `Delay` →
 `Patrol Waypoints` — everything stays in the graph.
+
+Generated object values live in `src/gen/scene_objects.gen.cpp`;
+`inc/scene_data.hpp` keeps stable declarations. Counts and object IDs live in
+the same data file, so ordinary moves, color edits, additions and removals can
+rebuild it alone. Changes to features or derived tables can still rebuild consumers.

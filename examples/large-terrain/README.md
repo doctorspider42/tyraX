@@ -39,3 +39,8 @@ visible (top-left). Walk with the left stick, look with the right.
   it renders fine on real hardware.
 - [docs/animated-models.md](../../docs/animated-models.md) covers the
   skeletal models and their LOD chain.
+
+Generated object values live in `src/gen/scene_objects.gen.cpp`;
+`inc/scene_data.hpp` keeps stable declarations. Counts and object IDs live in
+the same data file, so ordinary moves, color edits, additions and removals can
+rebuild it alone. Changes to features or derived tables can still rebuild consumers.

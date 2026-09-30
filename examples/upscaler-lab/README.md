@@ -660,3 +660,8 @@ animated model (`project.hpp:890`, `isAnimatedModelPath`), so a building shipped
 as one would go down the skeletal pipeline, pay per-frame EE pose work for
 something that never moves, and — until animated models were added to the corpus
 walk — be invisible to BLSS training. The buildings are `.obj` for that reason.
+
+Generated object values live in `src/gen/scene_objects.gen.cpp`;
+`inc/scene_data.hpp` keeps stable declarations. Counts and object IDs live in
+the same data file, so ordinary moves, color edits, additions and removals can
+rebuild it alone. Changes to features or derived tables can still rebuild consumers.

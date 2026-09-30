@@ -336,3 +336,8 @@ The 1.80 integration merges native-build support, editor comments, animated HUD
 and RGB SH lighting from main. Windows Release compilation, Docker-fallback
 PS2 build, PCSX2 arrival view, live render-cost capture and the VU numeric oracle
 passed after conflict resolution. Post-merge console performance is unmeasured.
+
+Generated object values live in `src/gen/scene_objects.gen.cpp`;
+`inc/scene_data.hpp` keeps stable declarations. Counts and object IDs live in
+the same data file, so ordinary moves, color edits, additions and removals can
+rebuild it alone. Changes to features or derived tables can still rebuild consumers.

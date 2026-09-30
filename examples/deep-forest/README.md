@@ -62,3 +62,8 @@ hexagonal tiers. Tiers rather than one cone because the props' shading is baked
 per vertex, so a stepped silhouette is what gives it shape. `rock.obj` and
 `props.mtl` come from the [procedural](../procedural) example. The heightmap is
 generated value noise with a flat clearing at the spawn.
+
+Generated object values live in `src/gen/scene_objects.gen.cpp`;
+`inc/scene_data.hpp` keeps stable declarations. Counts and object IDs live in
+the same data file, so ordinary moves, color edits, additions and removals can
+rebuild it alone. Changes to features or derived tables can still rebuild consumers.

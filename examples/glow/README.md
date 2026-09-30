@@ -150,3 +150,8 @@ dominated by ordinary geometry, not the glow.
   the floor and the light, in one click.
 - Raise **Spread** to 1.0 in the UI Editor: at some point the corona stops
   reading as glow and starts reading as haze. That's the knob's honest limit.
+
+Generated object values live in `src/gen/scene_objects.gen.cpp`;
+`inc/scene_data.hpp` keeps stable declarations. Counts and object IDs live in
+the same data file, so ordinary moves, color edits, additions and removals can
+rebuild it alone. Changes to features or derived tables can still rebuild consumers.

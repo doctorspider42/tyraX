@@ -52,3 +52,8 @@ put ten in a scene and it will crawl. The env map contains sky + listed
 objects, not the terrain, so ground-facing reflections show the horizon
 color, and a 110° probe cannot cover the full reflected hemisphere at
 grazing angles.
+
+Generated object values live in `src/gen/scene_objects.gen.cpp`;
+`inc/scene_data.hpp` keeps stable declarations. Counts and object IDs live in
+the same data file, so ordinary moves, color edits, additions and removals can
+rebuild it alone. Changes to features or derived tables can still rebuild consumers.

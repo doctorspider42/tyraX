@@ -5,24 +5,15 @@ namespace Particle_lab {
 struct OcclusionProxyBox { float mn[3], mx[3]; };
 struct OcclusionProxyObject { int scene, object, first, count; };
 constexpr bool OCCLUSION_CULLING = false;
-static const OcclusionProxyBox OCCLUSION_BOXES[] = {
-  {{-0.46F,-0.46F,-0.46F},{0.46F,0.46F,0.46F}},
-  {{-0.46F,-0.46F,-0.46F},{0.46F,0.46F,0.46F}},
-  {{-0.46F,-0.46F,-0.46F},{0.46F,0.46F,0.46F}},
-  {{-0.46F,-0.46F,-0.46F},{0.46F,0.46F,0.46F}},
-};
-static const OcclusionProxyObject OCCLUSION_OBJECTS[] = {
-  {0,5,0,1},
-  {0,6,1,1},
-  {0,7,2,1},
-  {0,8,3,1},
-};
-constexpr int OCCLUSION_OBJECT_COUNT = 4;
-static const int OCCLUSION_SCENE_OFFSETS[] = {0,9};
-static const unsigned char OCCLUSION_CAN_CULL[] = {1,1,1,1,1,1,1,1,1};
-static const unsigned char OCCLUSION_IS_OCCLUDER[] = {0,0,0,0,0,1,1,1,1};
+extern const OcclusionProxyBox OCCLUSION_BOXES[];
+extern const OcclusionProxyObject OCCLUSION_OBJECTS[];
+extern const int OCCLUSION_OBJECT_COUNT;
+extern const int OCCLUSION_SCENE_OFFSETS[];
+extern const unsigned char OCCLUSION_CAN_CULL[];
+extern const unsigned char OCCLUSION_IS_OCCLUDER[];
+constexpr int OCCLUSION_SCENE_OFFSET_COUNT = 2;
 inline int occlusionObjectIndex(int scene,int object){
-  if(scene<0 || scene+1>=(int)(sizeof(OCCLUSION_SCENE_OFFSETS)/sizeof(int))) return -1;
+  if(scene<0 || scene+1>=OCCLUSION_SCENE_OFFSET_COUNT) return -1;
   const int i=OCCLUSION_SCENE_OFFSETS[scene]+object;
   return object>=0 && i<OCCLUSION_SCENE_OFFSETS[scene+1] ? i : -1;
 }

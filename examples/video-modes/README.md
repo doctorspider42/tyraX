@@ -89,3 +89,8 @@ blind.
   works on any cable/TV; expect a slightly softer static picture (each field
   is a half-height image) and judge the motion smoothness on a real CRT —
   PCSX2's deinterlacing hides most of the difference.
+
+Generated object values live in `src/gen/scene_objects.gen.cpp`;
+`inc/scene_data.hpp` keeps stable declarations. Counts and object IDs live in
+the same data file, so ordinary moves, color edits, additions and removals can
+rebuild it alone. Changes to features or derived tables can still rebuild consumers.

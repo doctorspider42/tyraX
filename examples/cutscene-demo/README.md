@@ -76,3 +76,8 @@ The shot list (one sequence, "The Reveal"):
 Everything compiles into `src/gen/sequences.gen.cpp` (keyframe tables +
 the director script + the bars/fade compositor) on every build — open the file
 to see what the editor generates from the timeline.
+
+Generated object values live in `src/gen/scene_objects.gen.cpp`;
+`inc/scene_data.hpp` keeps stable declarations. Counts and object IDs live in
+the same data file, so ordinary moves, color edits, additions and removals can
+rebuild it alone. Changes to features or derived tables can still rebuild consumers.

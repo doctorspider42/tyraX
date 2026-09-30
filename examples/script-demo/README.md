@@ -57,3 +57,8 @@ new projects use ships an object-script version of this same interaction.
   and sculpt the terrain (*Sculpt (T)* in the viewport).
 - Attach an object script (*Properties > Scripts > New script...*) to see the
   Unity-style flavor side by side with the global script here.
+
+Generated object values live in `src/gen/scene_objects.gen.cpp`;
+`inc/scene_data.hpp` keeps stable declarations. Counts and object IDs live in
+the same data file, so ordinary moves, color edits, additions and removals can
+rebuild it alone. Changes to features or derived tables can still rebuild consumers.

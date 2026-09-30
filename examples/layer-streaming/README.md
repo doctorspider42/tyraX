@@ -48,3 +48,8 @@ unrelated to layers.)
 
 Buildings reset when they stream back in — position, colors, visibility
 return to what was authored in the editor, like GTA3 interiors.
+
+Generated object values live in `src/gen/scene_objects.gen.cpp`;
+`inc/scene_data.hpp` keeps stable declarations. Counts and object IDs live in
+the same data file, so ordinary moves, color edits, additions and removals can
+rebuild it alone. Changes to features or derived tables can still rebuild consumers.

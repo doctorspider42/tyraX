@@ -77,3 +77,8 @@ project's `inc/scripts/flow_nodes.hpp` (an inline node needs no extra file).
 
 `inc/scripts/flow_nodes.hpp` here is **owned** (its editor marker line was
 removed), so the editor keeps the hand-written function on every build.
+
+Generated object values live in `src/gen/scene_objects.gen.cpp`;
+`inc/scene_data.hpp` keeps stable declarations. Counts and object IDs live in
+the same data file, so ordinary moves, color edits, additions and removals can
+rebuild it alone. Changes to features or derived tables can still rebuild consumers.

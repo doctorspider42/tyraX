@@ -76,3 +76,8 @@ Every cell gets the same room shape, so the outer shell has doorways to nowhere
 — hence the black sky. A sealed cube would need an edge-room prefab and a filter
 that places it, which is a graph, not a feature: `Filter by Attribute` on the
 grid's own coordinates would do it.
+
+Generated object values live in `src/gen/scene_objects.gen.cpp`;
+`inc/scene_data.hpp` keeps stable declarations. Counts and object IDs live in
+the same data file, so ordinary moves, color edits, additions and removals can
+rebuild it alone. Changes to features or derived tables can still rebuild consumers.

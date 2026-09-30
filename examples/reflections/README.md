@@ -44,3 +44,8 @@ refl -type sphere -mm 0 0.9 -rounded @sky      # dynamic
 ```
 
 Full guide: [docs/reflective-materials.md](../../docs/reflective-materials.md).
+
+Generated object values live in `src/gen/scene_objects.gen.cpp`;
+`inc/scene_data.hpp` keeps stable declarations. Counts and object IDs live in
+the same data file, so ordinary moves, color edits, additions and removals can
+rebuild it alone. Changes to features or derived tables can still rebuild consumers.

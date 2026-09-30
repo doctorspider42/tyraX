@@ -105,3 +105,8 @@ all work — against one unchanging sample.
 `res/sfx/knock.wav` is a synthesised percussive knock (22 kHz mono, 0.18 s),
 generated for this example and in the public domain. A short transient is the
 right test signal: a reverb tail is only legible after a sound that *stops*.
+
+Generated object values live in `src/gen/scene_objects.gen.cpp`;
+`inc/scene_data.hpp` keeps stable declarations. Counts and object IDs live in
+the same data file, so ordinary moves, color edits, additions and removals can
+rebuild it alone. Changes to features or derived tables can still rebuild consumers.

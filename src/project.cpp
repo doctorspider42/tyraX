@@ -8769,6 +8769,9 @@ std::string refreshGenerated(const Project& p) {
             // directory". Exactly the live_pad.gen.cpp mistake noted below.
             f.relativePath == "inc\\bag_array.gen.hpp" ||
             f.relativePath == "inc\\scene_data.hpp" ||
+            // Object table definitions accompany the declarations even in
+            // projects created before the data was moved out of the header.
+            f.relativePath == "src\\gen\\scene_objects.gen.cpp" ||
             f.relativePath == ".vscode\\c_cpp_properties.json" ||
             f.relativePath == "src\\gen\\flow_graph.gen.cpp" ||
             f.relativePath == "src\\gen\\live_link.gen.cpp" ||

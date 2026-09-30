@@ -80,3 +80,8 @@ kit wall tiles merged into ONE .obj each — deliberately: the torch lights the
 nearest three solids in its cone, so a wall must be one object to light as one
 wall. The sheds and the gobo are project-made. The heightmap is generated
 value noise with a flat clearing at the spawn.
+
+Generated object values live in `src/gen/scene_objects.gen.cpp`;
+`inc/scene_data.hpp` keeps stable declarations. Counts and object IDs live in
+the same data file, so ordinary moves, color edits, additions and removals can
+rebuild it alone. Changes to features or derived tables can still rebuild consumers.

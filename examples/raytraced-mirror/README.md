@@ -65,3 +65,8 @@ image (and a live camera view) onto ordinary surfaces, and
 - Move a ball in the editor and rebuild — reflections read live positions,
   so anything that moves at runtime (physics, flow graphs) moves in the
   glass too.
+
+Generated object values live in `src/gen/scene_objects.gen.cpp`;
+`inc/scene_data.hpp` keeps stable declarations. Counts and object IDs live in
+the same data file, so ordinary moves, color edits, additions and removals can
+rebuild it alone. Changes to features or derived tables can still rebuild consumers.

@@ -52,3 +52,8 @@ Port 2) to try both halves alone at one desk.
   budget). The project keeps *Mesh LOD distance 4* for the avatars and relies
   on **static batching** (on by default since PR #120) to fold the
   pillars/wall/step into shared bags.
+
+Generated object values live in `src/gen/scene_objects.gen.cpp`;
+`inc/scene_data.hpp` keeps stable declarations. Counts and object IDs live in
+the same data file, so ordinary moves, color edits, additions and removals can
+rebuild it alone. Changes to features or derived tables can still rebuild consumers.

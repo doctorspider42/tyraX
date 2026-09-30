@@ -91,3 +91,8 @@ are what you actually stand on.
   the same graph, written to disc as ordinary chunk meshes. You lose the fresh
   world per run and the block collision; you gain a scene that costs the
   console nothing at load.
+
+Generated object values live in `src/gen/scene_objects.gen.cpp`;
+`inc/scene_data.hpp` keeps stable declarations. Counts and object IDs live in
+the same data file, so ordinary moves, color edits, additions and removals can
+rebuild it alone. Changes to features or derived tables can still rebuild consumers.
