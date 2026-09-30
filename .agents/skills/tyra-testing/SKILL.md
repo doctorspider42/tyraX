@@ -157,6 +157,24 @@ are real source files, so a half-finished clone reports as missing rather than
 sneaking through — delete the directory and re-run setup when the guard says a
 probe is still absent after a fetch.
 
+## Native incremental build regression
+
+On Windows compare TYRAX_NATIVE_DIRECT=1 with the default WSL filesystem
+cache, warming each separately. Verify bin/ returns to the authored project,
+a Windows-written runtime channel survives, and DWARF paths map to authored
+sources. Use a private PCSX2 capture slot to boot the resulting ELF.
+
+
+Use a scratch copy of `examples/vehicle-playground`. Warm the native build, then
+repeat `--build`: no compile/link/archive commands and unchanged ELF/archive
+mtimes. Change one script source, then one scene value, and inspect which objects
+rebuilt. Touch the engine archive to verify another project's engine rebuild
+relinks the game without recompiling it. Change a Makefile to verify flags
+invalidate objects. A failed engine compile must fail again on retry until fixed.
+For IRX ABI changes compare objcopy binary payloads and check the link has no
+abicalls mismatch warnings. Toolchain identities must match for byte-identical
+source trees at different absolute paths. Exclude setup/cold builds from timings.
+
 ## Layer 1 — headless CLI (no GUI needed)
 
 (`build\tyrax-editor.exe` on Windows, `build/tyrax-editor` on Linux — written

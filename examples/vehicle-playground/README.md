@@ -4,6 +4,14 @@ A playable PS2 district for TyraX vehicles. Open `vehicle-playground.tyra` in
 TyraX and build the project. The main scene starts in the Ravager; press
 **Square** to get out and enter the nearby Pica Turbo or Strix V12.
 
+For native build timing, use a scratch copy of this example and warm the cache
+with one build before timing unchanged, script-only and scene-edit iterations.
+Unchanged builds keep the ELF timestamp; scene-table edits can still recompile
+the large generated `terrain_game.cpp`. See [native builds](../../docs/native-toolchain.md#incremental-builds).
+On a warmed Windows/WSL debug build, a one-script comment edit measured 50.5 s
+with the old Windows-path build and 12.8 s with the WSL cache; unchanged native
+builds measured 6.7-7.6 s. This excludes editor generation/baking and cold setup.
+
 ![Motor District running in PCSX2](preview/district.png)
 
 ## What's in the project

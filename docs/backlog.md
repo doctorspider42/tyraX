@@ -4,6 +4,18 @@ This is only unfinished work that still has a clear payoff and a testable end.
 Finished investigations belong in commit history; reusable facts belong in the
 relevant guide or developer skill.
 
+## Separate runtime types from generated scene tables
+
+After the native Makefile and WSL-cache improvements, moving Pica by 0.25 units
+in a scratch `vehicle-playground` still rebuilt 11 translation units and took
+103 s. `inc/scripts/script.hpp` includes the entire `scene_data.hpp` for its
+runtime object types, propagating table edits into authored scripts and helpers.
+Generate a stable runtime type header separately and include scene tables only
+where they are used. Verify object/scene-count changes, custom scripts, all
+generated node families, both game templates and a PCSX2 boot; require a moved
+vehicle to stop recompiling unrelated authored scripts. Preserve PS2 runtime
+performance and record warmed iteration timings against the current pipeline.
+
 ## Bring the night garage chase view back under the PAL frame budget
 
 The [2026-09-28 continuous vehicle-entry capture](../examples/vehicle-playground/authoring/night-entry-hardware-2026-09-28/README.md)

@@ -437,7 +437,8 @@ directly. Engine sources from `vendor/tyra` are checksum-synced into a shared
 cache and rebuilt only when they or the toolchain identity change, so projects
 from one editor installation share one `libtyra`. PCSX2 is launched on the ELF.
 
-Every step is incremental, code generation included: a generated file whose content
+Every step is incremental, code generation included: unchanged games skip linking,
+and identical checkouts share the native toolchain install. A generated file whose content
 did not change is not rewritten, so a build with nothing to do finishes in seconds.
 **Build > Rebuild** drops the objects and the compiled engine when
 an incremental build cannot see what went wrong; *Clean* also wipes `bin\`.

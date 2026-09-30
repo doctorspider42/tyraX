@@ -103,6 +103,74 @@ OpenVCL, vclpp and bin2s trees as the native backend and runs the OpenVCL tests,
 so fallback does not mean a second compiler implementation. The inherited
 `docker/Dockerfile` remains solely as the Sony-vcl A/B reference.
 
+## Incremental builds
+
+On Windows, native builds mirror the installed toolchain and generated project
+into the WSL distribution's Linux filesystem under `~/.cache/tyrax/native/`.
+Engine and project cache names hash their original absolute paths, keeping
+different checkouts and projects isolated. The authored Windows project and
+public toolchain install remain in their usual locations. A successful build
+copies `bin/` back; debugger source paths point to the authored checkout.
+
+This avoids thousands of dependency checks and large-object linker reads across
+the Windows/WSL filesystem boundary. The toolchain mirror excludes installation
+archives and refreshes only when its identity changes. Project inputs sync before
+every build, including deletions, while cached `obj/` and `bin/` survive. Runtime
+channels written on Windows are preserved during output sync. The first mirror
+costs disk space and a cold engine/game build; later builds reuse it.
+
+Linux projects already on a Linux filesystem build directly. For an A/B on
+Windows, set `$env:TYRAX_NATIVE_DIRECT = '1'` before building to use the original
+Windows paths; remove the environment variable to restore WSL caching. Rebuild
+clears both the WSL intermediates and Windows project outputs. Removing the WSL
+cache also starts a cold build, without changing authored sources.
+
+The shared Makefile tracks the actual `bin/<name>.elf` and `bin/libtyra.a`
+outputs. A build with unchanged sources and resources neither recompiles nor
+relinks them. The game depends on the cached engine archive, so an engine rebuild
+from another project also triggers the required relink. The engine is checked
+by make on every native build, including retries after a failed compilation.
+
+Changes to either Makefile invalidate compiled objects (compiler flags and
+include paths can change there). The native backend copies the base Makefile
+only when its content changes, preserving incremental builds. Resource copying
+uses rsync and handles an empty resource directory without warnings. Engine
+archives use the shared archive rule instead of overriding the ELF rule.
+Embedded IRX data objects carry the EE compiler's CPIC ABI flag, eliminating
+`linking abicalls files with non-abicalls files` warnings without changing their
+binary payloads. Compiler warnings from generated C++ remain visible.
+
+Toolchain identity hashes source contents and relative file names. Identical
+source trees in different checkouts share the installed toolchain; their engine
+caches remain separate. Updating from the older absolute-path identity causes
+one toolchain rebuild and cache invalidation. Editing the compiler sources or
+setup script still intentionally invalidates the install.
+Each project's objects carry their own toolchain stamp too, so an already
+updated shared engine cannot hide stale game objects in a different project.
+
+Measured on Windows/WSL with a warmed `vehicle-playground` debug build: a
+comment edit in one authored script took 50.5 s with the old Makefile on Windows
+paths and 12.8 s with the WSL cache. Both compiled exactly one source; the latter
+also includes provisioning checks, input sync and output sync. Unchanged cached
+native builds took 6.7-7.6 s. The old Makefile's unnecessary link alone took about
+70 s in a separate warmed run; the fixed Makefile skipped it in 6.1 s on Windows
+paths. These are local iteration measurements, excluding code generation/baking
+and cold setup, not clean-build or runtime FPS claims. The resulting game booted
+in a private PCSX2 instance; IRX binary payloads stayed identical and script
+addr2line locations retained the authored Windows path.
+Moving Pica by 0.25 units and refreshing generated sources still rebuilt 11
+translation units and took 103 s in the WSL cache. `scripts/script.hpp` includes
+the full `scene_data.hpp`, coupling authored scripts and helpers to scene-table
+changes. Splitting runtime types from generated scene tables is separate work;
+the WSL cache does not remove the compiler cost of that dependency fan-out.
+
+To measure iteration, copy an example outside the tracked project, build it
+once to warm the cache, then time a second `--build`. Also test a one-file script
+edit, a scene edit, and an engine edit separately: generated scene tables can
+invalidate the large `terrain_game.cpp`, which still needs a full compiler pass.
+Compare repeated alternating runs; exclude installation and cold-cache builds
+from incremental timings.
+
 ![Native build backend selected in Editor Preferences](img/native-build-backend.png)
 
 ### Coming back from the Docker fallback

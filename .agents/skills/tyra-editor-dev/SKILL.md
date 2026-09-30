@@ -1852,6 +1852,16 @@ rebases a relative argument below the ELF directory, duplicating a path such as
 this project's emulator when the project itself was opened through a relative
 CLI path.
 
+Native incremental compilation is shared by `native-build.sh` and its Windows
+bridge. Preserve unchanged base Makefile timestamps: objects depend on compiler
+flags there. The shared engine/game rules track real `bin/` outputs and the game
+depends on `libtyra.a`; native engine make runs even on retries. Toolchain source
+identity uses relative names so identical worktrees do not rebuild OpenVCL.
+Windows builds mirror inputs/toolchains under ~/.cache/tyrax/native in WSL and
+copy bin/ back on success; Linux builds stay direct. Keep debug prefix maps
+pointed at authored sources and preserve Windows runtime channels during sync.
+See docs/native-toolchain.md, Incremental builds.
+
 ### 4c. Platform parity: the files that exist twice
 The native PS2 toolchain has its own deliberate pair too:
 `tools/toolchain/prepare-host.ps1` is only the Windows-to-WSL bridge, while
