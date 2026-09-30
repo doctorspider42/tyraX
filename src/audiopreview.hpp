@@ -60,7 +60,7 @@ class EngineLoop {
     EngineLoop();
     ~EngineLoop();
     bool start(const std::string& idle, const std::string& high);
-    void update(float pitch, float revs, float volume);
+    void update(float idlePitch, float highPitch, float highMix, float volume);
     void stop();
     const std::string& error() const;
  private:

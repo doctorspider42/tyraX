@@ -3115,6 +3115,11 @@ static void writeVehicleArray(std::ostream& json, const std::vector<VehicleDef>&
         if (!v.engineHighSound.empty())
             json << ", \"engineHighSound\": \"" << jsonEscape(v.engineHighSound)
                  << "\"";
+        if (v.engineHighStart != 0.55f || v.engineHighPitchStart != 0.85f ||
+            v.engineHighPitchEnd != 1.7f)
+            json << ", \"engineHighCurve\": [" << fmtFloat(v.engineHighStart)
+                 << ", " << fmtFloat(v.engineHighPitchStart) << ", "
+                 << fmtFloat(v.engineHighPitchEnd) << "]";
         if (!v.screechSound.empty() || v.screechVolume != 80.0f)
             json << ", \"screechSound\": \"" << jsonEscape(v.screechSound)
                  << "\", \"screechVolume\": " << fmtFloat(v.screechVolume);
@@ -3266,6 +3271,12 @@ static void readVehicleArray(const json::Value& root, std::vector<VehicleDef>& d
             v.engineSound = x->stringOr("");
         if (const json::Value* x = e.find("engineHighSound"))
             v.engineHighSound = x->stringOr("");
+        if (const json::Value* x = e.find("engineHighCurve"))
+            if (x->type == json::Value::Type::Array && x->arr.size() >= 3) {
+                v.engineHighStart = (float)x->arr[0].numberOr(v.engineHighStart);
+                v.engineHighPitchStart = (float)x->arr[1].numberOr(v.engineHighPitchStart);
+                v.engineHighPitchEnd = (float)x->arr[2].numberOr(v.engineHighPitchEnd);
+            }
         if (const json::Value* x = e.find("screechSound"))
             v.screechSound = x->stringOr("");
         if (const json::Value* x = e.find("screechVolume"))

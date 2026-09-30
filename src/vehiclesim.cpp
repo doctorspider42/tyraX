@@ -435,6 +435,8 @@ std::vector<SpecField> specFields(DriveSpec& s) {
         {"topSpeed", &s.topSpeed, 1.0f, 80.0f, "Top speed", "Units per second, forward."},
         {"reverseTopSpeed", &s.reverseTopSpeed, 0.5f, 30.0f, "Reverse top speed", ""},
         {"accel", &s.accel, 0.5f, 40.0f, "Acceleration", "Units per second squared at full throttle."},
+        {"powerFade", &s.powerFade, 0.0f, 0.95f, "High-speed power fade",
+         "Share of acceleration lost near top speed. Nitro raises the speed ceiling and restores pull."},
         {"brakeDecel", &s.brakeDecel, 1.0f, 60.0f, "Braking", "Units per second squared."},
         {"engineBraking", &s.engineBraking, 0.0f, 20.0f, "Engine braking",
          "How fast it slows with no throttle and no brake."},
@@ -585,7 +587,11 @@ float gearTorqueMul(const DriveSpec& s, int gear) {
 
 float rpmFor(const DriveSpec& s, float wheelSpeed, int gear) {
     const float top = gearTopSpeed(s, gear);
-    const float f = clampf(std::fabs(wheelSpeed) / std::max(top, 0.001f), 0.0f, 1.0f);
+    // The final gear can keep turning above its ordinary redline when nitrous
+    // raises the speed cap. Earlier gears still shift at their usual point.
+    const float limit = s.nosCapacity > 0.001f && gear == gearCount(s) - 1
+                            ? std::max(s.nosTopSpeed, 1.0f) : 1.0f;
+    const float f = clampf(std::fabs(wheelSpeed) / std::max(top, 0.001f), 0.0f, limit);
     const float idle = std::max(s.idleRpm, 0.0f);
     const float red = std::max(s.redlineRpm, idle + 1.0f);
     return idle + (red - idle) * f;
@@ -1166,6 +1172,9 @@ void step(const DriveSpec& specIn, const DriveInput& in, float dt,
                            (state.nosActive ? 1.0f + std::max(spec.nosBoost, 0.0f) : 1.0f) *
                            perf;
     const float topMul = (state.nosActive ? std::max(spec.nosTopSpeed, 1.0f) : 1.0f) * perf;
+    const float driveSpeedFrac = clampf(state.speed / std::max(spec.topSpeed, 0.001f), 0.0f, 1.0f);
+    const float powerMul = 1.0f - clampf(spec.powerFade, 0.0f, 0.95f) *
+        driveSpeedFrac * driveSpeedFrac * (state.nosActive ? 0.35f : 1.0f);
 
     // --- longitudinal -------------------------------------------------------
     if (state.grounded) {
@@ -1181,7 +1190,7 @@ void step(const DriveSpec& specIn, const DriveInput& in, float dt,
             // nitrous ran out (and on every downhill), with a nose-dip to match.
             const float cap = spec.topSpeed * topMul;
             if (state.speed < cap)
-                state.speed = std::min(state.speed + spec.accel * accelMul * throttle * dt, cap);
+                state.speed = std::min(state.speed + spec.accel * accelMul * throttle * powerMul * dt, cap);
         } else if (throttle < -0.01f) {
             state.speed = std::max(state.speed + spec.accel * throttle * dt,
                                    -spec.reverseTopSpeed);
@@ -1223,7 +1232,7 @@ void step(const DriveSpec& specIn, const DriveInput& in, float dt,
         if (br > 0.01f)
             longUse = spec.brakeDecel * br;
         else if (th > 0.01f && state.speed < spec.topSpeed * topMul)
-            longUse = spec.accel * accelMul * th;
+            longUse = spec.accel * accelMul * powerMul * th;
         if (in.handbrake) longUse += spec.brakeDecel * 0.4f;
     }
     const float useFrac = clampf(longUse / std::max(blendGrip, 0.01f), 0.0f, 1.0f);
@@ -1534,7 +1543,7 @@ void step(const DriveSpec& specIn, const DriveInput& in, float dt,
     // against grip 26) while one on nitrous does.
     float demand = std::fabs(state.speed);
     if (state.grounded && !shifting && in.throttle > 0.01f && in.brake < 0.01f) {
-        const float drive = spec.accel * accelMul * clampf(in.throttle, 0.0f, 1.0f);
+        const float drive = spec.accel * accelMul * powerMul * clampf(in.throttle, 0.0f, 1.0f);
         demand += 0.5f * std::max(0.0f, drive - spec.grip);
     }
     // A sliding tyre is turning faster than the road under it.

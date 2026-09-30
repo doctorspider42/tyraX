@@ -5496,7 +5496,9 @@
 // Particles face the camera a pass DRAWS with (cutscene override, shake,
 // split half) - they used to face the player's camera during cutscenes.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 157
+#define TYRAX_VERSION_MINOR 158
+// 1.158.0: speed-dependent vehicle power fade, separate high-rev sound onset
+// and pitch range, and a live preview of both curves. Format v86.
 // 1.157.0 is the first combined vehicles + procedural build; format v85.
 // 1.157.0: normalize sound effects to mono PCM16/22050 at import and build;
 // Convert fixes stereo/extended-header WAVs, and build copies preserve sources.
@@ -5993,7 +5995,8 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // v82-v84 on the procedural branch added placement options and frozen graphs.
 // Both branches used v82/v83 independently; v85 unifies the two schemas.
 // Explicit vehicle inheritance flags keep earlier branch projects readable.
-inline constexpr int kFormatVersion = 85;
+// v86: vehicle powerFade and optional engineHighCurve, additive.
+inline constexpr int kFormatVersion = 86;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

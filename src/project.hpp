@@ -1368,6 +1368,9 @@ struct VehicleDef {
     // on the engine speed - the era's two-sample engine - both riding the
     // same authored pitch curve.
     std::string engineHighSound;
+    float engineHighStart = 0.55f; // fraction of idle-to-redline range where crossfade starts
+    float engineHighPitchStart = 0.85f;
+    float engineHighPitchEnd = 1.7f;
     // Tyre squeal: a loop whose volume rides DriveState::slip - the same one
     // number the smoke and the telemetry already read, so they can never
     // disagree about when a tyre lets go. "" = no squeal.
@@ -1426,6 +1429,9 @@ inline bool operator==(const VehicleDef& a, const VehicleDef& b) {
         a.enginePitchRedline != b.enginePitchRedline ||
         a.engineVolume != b.engineVolume || a.showHud != b.showHud ||
         a.engineHighSound != b.engineHighSound ||
+        a.engineHighStart != b.engineHighStart ||
+        a.engineHighPitchStart != b.engineHighPitchStart ||
+        a.engineHighPitchEnd != b.engineHighPitchEnd ||
         a.screechSound != b.screechSound || a.shiftSound != b.shiftSound ||
         a.screechVolume != b.screechVolume || a.shiftVolume != b.shiftVolume ||
         a.headlights != b.headlights ||
@@ -1501,6 +1507,9 @@ inline void visitVehicleTuning(VehicleDef& v, const VehicleDef& defaults, Fn fn)
     VEH_TUNING("driver", hudSpeedScale);
     VEH_TUNING("sounds", engineSound);
     VEH_TUNING("sounds", engineHighSound);
+    VEH_TUNING("sounds", engineHighStart);
+    VEH_TUNING("sounds", engineHighPitchStart);
+    VEH_TUNING("sounds", engineHighPitchEnd);
     VEH_TUNING("sounds", screechSound);
     VEH_TUNING("sounds", shiftSound);
     VEH_TUNING("sounds", enginePitchIdle);

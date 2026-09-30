@@ -700,8 +700,14 @@ void App::drawVehiclePreview(const VehicleDef& tuning, int index) {
     if (!vehicleEnginePreview_) vehicleEnginePreview_ = std::make_unique<audiopreview::EngineLoop>();
     const std::string audioKey = project_.dir + "|" + tuning.engineSound + "|" + tuning.engineHighSound;
     if (vehiclePreviewSound_) {
+        const float highStart = std::clamp(tuning.engineHighStart, 0.0f, 0.95f);
+        const float highMix = std::clamp((vehiclePreviewRevs_ - highStart) /
+            (1.0f - highStart), 0.0f, 1.0f);
         vehicleEnginePreview_->update(tuning.enginePitchIdle + vehiclePreviewRevs_ *
-            (tuning.enginePitchRedline - tuning.enginePitchIdle), vehiclePreviewRevs_, tuning.engineVolume);
+            (tuning.enginePitchRedline - tuning.enginePitchIdle),
+            tuning.engineHighPitchStart + highMix *
+            (tuning.engineHighPitchEnd - tuning.engineHighPitchStart),
+            highMix, tuning.engineVolume);
         if (vehicleAudioKey_ != audioKey) {
             const auto full = [&](const std::string& path) {
                 return path.empty() ? std::string() : (std::filesystem::path(project_.dir) / path).string();
@@ -1246,8 +1252,17 @@ void App::drawVehicleWindow() {
             ImGui::Separator();
             loopPicker("High-rev loop", "vehsndhigh", v.engineHighSound,
                        "A second engine loop the base one CROSSFADES with as\n"
-                       "the revs rise - the era's two-sample engine. Both ride\n"
-                       "the same authored pitch curve. Any imported WAV is looped by the build.");
+                       "the revs rise - the era's two-sample engine. Its pitch\n"
+                       "has its own range. Any imported WAV is looped by the build.");
+            if (!v.engineHighSound.empty()) {
+                ImGui::SetNextItemWidth(scaled(220));
+                ImGui::SliderFloat("High-rev starts at", &v.engineHighStart, 0.0f, 0.95f, "%.2f of rev range");
+                vehicleHelp("The high-rev recording fades in from this point to redline.");
+                ImGui::SetNextItemWidth(scaled(220));
+                ImGui::SliderFloat("High-rev pitch at start", &v.engineHighPitchStart, 0.25f, 4.0f, "%.2fx");
+                ImGui::SetNextItemWidth(scaled(220));
+                ImGui::SliderFloat("High-rev pitch at redline", &v.engineHighPitchEnd, 0.25f, 4.0f, "%.2fx");
+            }
             ImGui::Separator();
             loopPicker("Tyre squeal loop", "vehsndscr", v.screechSound,
                        "Volume rides the tyre slip - the same number the smoke\n"

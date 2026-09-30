@@ -18247,34 +18247,6 @@ void TerrainGame::renderVehicleGlow() {
         ++glowCount_;
       }
     }
-    if (v.backfireT > 0.0F && glowCount_ < kVehGlowMax) {
-      const float k = v.backfireT / 0.09F;
-      const float bx = v.pos[0] - sy * (hz + (s.bodyOverhang + 0.24F) * SC);
-      const float bz = v.pos[2] - cy * (hz + (s.bodyOverhang + 0.24F) * SC);
-      const float by = v.pos[1] - 0.02F;
-      const float hw = 0.22F * SC * (0.6F + 0.4F * k), hh = 0.18F * SC;
-      const float rx = cy * hw, rz = -sy * hw;
-      auto g = glowVerts_.span(glowCount_ * 6, 6);
-      auto c = glowCols_.span(glowCount_ * 6, 6);
-      g[0].set(bx - rx, by - hh, bz - rz, 1.0F);
-      g[1].set(bx + rx, by - hh, bz + rz, 1.0F);
-      g[2].set(bx + rx, by + hh, bz + rz, 1.0F);
-      g[3] = g[0];
-      g[4] = g[2];
-      g[5].set(bx - rx, by + hh, bz - rz, 1.0F);
-      const Tyra::Color fire(240.0F, 130.0F, 30.0F, 120.0F * k);
-      for (int j = 0; j < 6; ++j) c[j] = fire;
-      ++glowCount_;
-      if (glowCount_ < kVehGlowMax) {
-        auto g2 = glowVerts_.span(glowCount_ * 6, 6);
-        auto c2 = glowCols_.span(glowCount_ * 6, 6);
-        for (int j = 0; j < 6; ++j) {
-          g2[j] = g[5 - j];
-          c2[j] = fire;
-        }
-        ++glowCount_;
-      }
-    }
   }
   if (headlightCount_ > 0) {
     if (!headlightBag_) {
@@ -18393,7 +18365,11 @@ static float vehGearTorqueMul(const VehicleDefData& s, int gear) {
 static float vehRpmFor(const VehicleDefData& s, float wheelSpeed, int gear) {
   const float top = vehGearTopSpeed(s, gear);
   const float a = wheelSpeed < 0.0F ? -wheelSpeed : wheelSpeed;
-  const float f = vehClamp(a / (top > 0.001F ? top : 0.001F), 0.0F, 1.0F);
+  // Twin of vehiclesim::rpmFor: nitrous can over-rev the final gear.
+  const float limit = s.nosCapacity > 0.001F && gear == vehGearCount(s) - 1 &&
+                              s.nosTopSpeed > 1.0F
+                          ? s.nosTopSpeed : 1.0F;
+  const float f = vehClamp(a / (top > 0.001F ? top : 0.001F), 0.0F, limit);
   const float idle = s.idleRpm > 0.0F ? s.idleRpm : 0.0F;
   const float red = s.redlineRpm > idle + 1.0F ? s.redlineRpm : idle + 1.0F;
   return idle + (red - idle) * f;
@@ -19028,7 +19004,7 @@ void TerrainGame::applyVehicleEnvLimits() {
 
 
 void TerrainGame::renderVehicleLampGlow() {
-  if ((VEHICLE_LAMP_GLOW_COUNT <= 0 && !VEHICLE_NOS_FLAME_USED) || !beamCoronaTex) return;
+  if (VEHICLE_DEF_COUNT <= 0 || !beamCoronaTex) return;
   const float kDeg = 0.017453293F;
   // The nitrous flame's flicker clock (real seconds, frozen with the game).
   static float flameClock = 0.0F;
@@ -19070,7 +19046,8 @@ void TerrainGame::renderVehicleLampGlow() {
       // "Speed feel"): the same soft corona, so it costs no submit of its own.
       const bool flame = VEHICLE_NOS_FLAME_USED && v.nosFx > 0.01F && s.feelFlame > 0.0F &&
                          s.nosCapacity > 0.001F;
-      if (!front && !rearOn && !flame) continue;
+      const bool backfire = v.backfireT > 0.0F;
+      if (!front && !rearOn && !flame && !backfire) continue;
       // The body's frame: the matrix-path object matrix (pitch and roll in),
       // else the heading alone for the frames before the promotion.
       float bx[3], by[3], bz[3], bo[3];
@@ -19147,6 +19124,45 @@ void TerrainGame::renderVehicleLampGlow() {
           for (int j = 0; j < 6; ++j) gv[j] = q[j], gs[j] = st[j], gc[j] = col;
         }
         ++quads;
+      }
+      if (backfire && quads + 2 <= kVehLampGlowMax) {
+        // An upshift gets two short, soft coronas at the exhaust. The old
+        // untextured vertical quad showed its hard orange rectangle below the
+        // bumper, especially when a handbrake slide exposed a gear change.
+        const bool measured = s.lampRear[3] > 0.0F;
+        const float bodyRear = -(0.5F * s.wheelBase + s.bodyOverhang);
+        const float rearFace = measured && s.lampRear[2] < bodyRear
+                                   ? s.lampRear[2] : bodyRear;
+        const float strength = vehClamp(v.backfireT / 0.09F, 0.0F, 1.0F) * distFade;
+        for (int layer = 0; layer < 2; ++layer) {
+          const float z = rearFace - (layer == 0 ? 0.12F : 0.32F);
+          const float h = (layer == 0 ? 0.18F : 0.28F) * SC * strength;
+          float c[3];
+          for (int a = 0; a < 3; ++a)
+            c[a] = bo[a] + (by[a] * 0.12F + bz[a] * z) * SC;
+          const float ax = rx * h, az = rz * h;
+          const float vx = ux * h, vy = uy * h, vz = uz * h;
+          const Vec4 q[6] = {
+              Vec4(c[0]-ax-vx, c[1]-vy, c[2]-az-vz, 1.0F),
+              Vec4(c[0]+ax-vx, c[1]-vy, c[2]+az-vz, 1.0F),
+              Vec4(c[0]+ax+vx, c[1]+vy, c[2]+az+vz, 1.0F),
+              Vec4(c[0]-ax-vx, c[1]-vy, c[2]-az-vz, 1.0F),
+              Vec4(c[0]+ax+vx, c[1]+vy, c[2]+az+vz, 1.0F),
+              Vec4(c[0]-ax+vx, c[1]+vy, c[2]-az+vz, 1.0F)};
+          const Vec4 st[6] = {Vec4(0,1,1,0), Vec4(1,1,1,0), Vec4(1,0,1,0),
+                              Vec4(0,1,1,0), Vec4(1,0,1,0), Vec4(0,0,1,0)};
+          const Tyra::Color col = layer == 0
+              ? Tyra::Color(180.0F * strength, 120.0F * strength,
+                            65.0F * strength, 128.0F)
+              : Tyra::Color(150.0F * strength, 55.0F * strength,
+                            15.0F * strength, 128.0F);
+          auto gv = lampGlowVerts_.span((size_t)quads * 6, 6);
+          auto gs = lampGlowSts_.span((size_t)quads * 6, 6);
+          auto gc = lampGlowCols_.span((size_t)quads * 6, 6);
+          for (int j = 0; j < 6; ++j) gv[j] = q[j], gs[j] = st[j], gc[j] = col;
+          ++quads;
+        }
+        lampGlowWrote = true;
       }
       if (!flame) continue;
       // Two pipes under the rear bumper, each a burst of three camera-facing
@@ -20707,6 +20723,9 @@ void TerrainGame::updateVehicles(float dt) {
                            (v.nosActive ? 1.0F + (s.nosBoost > 0.0F ? s.nosBoost : 0.0F)
                                         : 1.0F) * perf;
     const float topMul = (v.nosActive && s.nosTopSpeed > 1.0F ? s.nosTopSpeed : 1.0F) * perf;
+    const float speedFrac = vehClamp(v.speed / (s.topSpeed > 0.001F ? s.topSpeed : 0.001F), 0.0F, 1.0F);
+    const float powerMul = 1.0F - vehClamp(s.powerFade, 0.0F, 0.95F) * speedFrac * speedFrac *
+                                  (v.nosActive ? 0.35F : 1.0F);
 
     // Longitudinal
     if (v.grounded) {
@@ -20719,7 +20738,7 @@ void TerrainGame::updateVehicles(float dt) {
         // (vehiclesim twin: a clamp here dropped ~4 u/s in one frame).
         const float cap = s.topSpeed * topMul;
         if (v.speed < cap) {
-          v.speed += sAccel * accelMul * inThrottle * dt;
+          v.speed += sAccel * accelMul * inThrottle * powerMul * dt;
           if (v.speed > cap) v.speed = cap;
         }
       } else if (inThrottle < -0.01F) {
@@ -20766,7 +20785,7 @@ void TerrainGame::updateVehicles(float dt) {
       if (inBrake > 0.01F)
         longUse = s.brakeDecel * inBrake;
       else if (inThrottle > 0.01F && v.speed < s.topSpeed * topMul)
-        longUse = sAccel * accelMul * inThrottle;
+        longUse = sAccel * accelMul * powerMul * inThrottle;
       if (inHand) longUse += s.brakeDecel * 0.4F;
     }
     const float useFrac =
@@ -21155,7 +21174,7 @@ void TerrainGame::updateVehicles(float dt) {
     {
       float demand = v.speed < 0.0F ? -v.speed : v.speed;
       if (v.grounded && !shifting && inThrottle > 0.01F && inBrake < 0.01F) {
-        const float drive = sAccel * accelMul * vehClamp(inThrottle, 0.0F, 1.0F);
+        const float drive = sAccel * accelMul * powerMul * vehClamp(inThrottle, 0.0F, 1.0F);
         const float excess = drive - sGrip;
         if (excess > 0.0F) demand += 0.5F * excess;
       }
@@ -21194,15 +21213,18 @@ void TerrainGame::updateVehicles(float dt) {
     }
 
     VEH_LAP(4);
+    // This clock belongs to the gear change, not to tyre smoke. When it was
+    // inside the slip branch, releasing the handbrake froze a visible burst.
+    if (v.gear > v.fxPrevGear && v.fxPrevGear >= 0) v.backfireT = 0.09F;
+    v.fxPrevGear = v.gear;
+    if (v.backfireT > 0.0F) {
+      v.backfireT -= dt;
+      if (v.backfireT < 0.0F) v.backfireT = 0.0F;
+    }
     // Tyre smoke: the slip number feeds a puff rate at the REAR anchors -
     // burnouts, handbrake slides and wall grinds all smoke, because they all
     // ARE slip. The pool is a ring; a spawn overwrites the oldest puff.
     if (v.grounded && v.slip > 0.35F) {
-      // Backfire: an upshift pops the exhaust for a tenth of a second -
-      // the shift sound's visual twin, drawn by the glow bag.
-      if (v.gear > v.fxPrevGear && v.fxPrevGear >= 0) v.backfireT = 0.09F;
-      v.fxPrevGear = v.gear;
-      if (v.backfireT > 0.0F) v.backfireT -= dt;
       const float sdx = v.pos[0] - cameraPosition.x;
       const float sdz = v.pos[2] - cameraPosition.z;
       if (sdx * sdx + sdz * sdz > 70.0F * 70.0F) {
@@ -21764,7 +21786,11 @@ void TerrainGame::updateVehicleEngineSound(VehicleRt& v, const VehicleDefData& s
   const float red = s.redlineRpm > idle + 1.0F ? s.redlineRpm : idle + 1.0F;
   float f = (v.rpm - idle) / (red - idle);
   if (f < 0.0F) f = 0.0F;
-  if (f > 1.0F) f = 1.0F;
+  // The final gear can over-rev up to the nitrous speed multiplier. Keep the
+  // note climbing there; only the two-sample volume crossfade stops at 1.
+  const float pitchLimit = s.nosCapacity > 0.001F && s.nosTopSpeed > 1.0F
+                               ? s.nosTopSpeed : 1.0F;
+  if (f > pitchLimit) f = pitchLimit;
   const float mul = s.enginePitchIdle +
                     (s.enginePitchRedline - s.enginePitchIdle) * f;
   const u16 natural = Tyra::AudioAdpcm::naturalPitch(sndSamples[s.engineSnd]);
@@ -21800,7 +21826,11 @@ void TerrainGame::updateVehicleEngineSound(VehicleRt& v, const VehicleDefData& s
       engine->audio.adpcm.setVolume(0, (s8)ch2);
     }
     const u16 nat2 = Tyra::AudioAdpcm::naturalPitch(sndSamples[s.engineHighSnd]);
-    int reg2 = (int)((float)nat2 * mul);
+    const float start = vehClamp(s.engineHighStart, 0.0F, 0.95F);
+    const float mix = vehClamp((f - start) / (1.0F - start), 0.0F, 1.0F);
+    const float highMul = s.engineHighPitchStart +
+                          (s.engineHighPitchEnd - s.engineHighPitchStart) * mix;
+    int reg2 = (int)((float)nat2 * highMul);
     if (reg2 < 0x80) reg2 = 0x80;
     if (reg2 > 0x3FFF) reg2 = 0x3FFF;
     reg2 &= ~31;
@@ -21808,8 +21838,8 @@ void TerrainGame::updateVehicleEngineSound(VehicleRt& v, const VehicleDefData& s
       v.enginePitchRegHigh = reg2;
       engine->audio.adpcm.setPitch((s8)ch2, (u16)reg2);
     }
-    int volLow = (int)((float)s.engineVolume * (1.0F - f * 0.85F));
-    int volHigh = (int)((float)s.engineVolume * f);
+    int volLow = (int)((float)s.engineVolume * (1.0F - mix * 0.85F));
+    int volHigh = (int)((float)s.engineVolume * mix);
     volLow &= ~7;
     volHigh &= ~7;
     if (volLow != v.engineVolRegLow) {

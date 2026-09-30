@@ -238,7 +238,7 @@ constexpr int START_SCENE = 0;
 
 // scene "main"
 constexpr SceneObjectData SCENE_0_OBJECTS[135] = {
-    {6, {-2.3F, 0.0F, -18.0F}, {0.0F, 100.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.15F, 0.9F, 0.9F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0, 0.0F, 0, 0, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}, -1, 0.0F, false, 8, 0, 1, 12.0F},  // player-1
+    {6, {-2.3F, 0.0F, -80.1311F}, {-180.0F, 80.0F, -180.0F}, {1.0F, 1.0F, 1.0F}, {0.15F, 0.9F, 0.9F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0, 0.0F, 0, 0, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}, -1, 0.0F, false, 8, 0, 1, 12.0F},  // player-1
     {0, {-152.0F, 2.0F, 0.0F}, {0.0F, 0.0F, 0.0F}, {1.5F, 4.0F, 304.0F}, {0.62F, 0.63F, 0.66F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0, 0.0F, 0, 0, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, 0, -1, 1, {0.0F, 0.0F, 0.0F, 0.0F}, -1, 0.0F, false, 8, 0, 1, 12.0F},  // wall-1
     {0, {152.0F, 2.0F, 0.0F}, {0.0F, 0.0F, 0.0F}, {1.5F, 4.0F, 304.0F}, {0.62F, 0.63F, 0.66F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0, 0.0F, 0, 0, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, 0, -1, 1, {0.0F, 0.0F, 0.0F, 0.0F}, -1, 0.0F, false, 8, 0, 1, 12.0F},  // wall-2
     {0, {0.0F, 2.0F, -152.0F}, {0.0F, 0.0F, 0.0F}, {304.0F, 4.0F, 1.5F}, {0.62F, 0.63F, 0.66F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0, 0.0F, 0, 0, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, 0, -1, 1, {0.0F, 0.0F, 0.0F, 0.0F}, -1, 0.0F, false, 8, 0, 1, 12.0F},  // wall-3
@@ -800,6 +800,7 @@ struct VehicleDefData {
   float topSpeed;
   float reverseTopSpeed;
   float accel;
+  float powerFade;
   float brakeDecel;
   float engineBraking;
   float drag;
@@ -851,6 +852,7 @@ struct VehicleDefData {
   // Engine note: a SND_PATHS slot (-1 = silent) and the pitch
   // multipliers at idle and at the redline.
   int engineSnd; float enginePitchIdle; float enginePitchRedline;
+  float engineHighStart; float engineHighPitchStart; float engineHighPitchEnd;
   int engineVolume;
   // The sound pack: a HIGH-rev loop crossfaded with the one
   // above (-1 = single-sample), a tyre squeal riding slip, a
@@ -890,9 +892,9 @@ struct VehicleInstData { int scene; int object; int def; int driveable;
                          int wpFirst; int wpCount; };
 constexpr int VEHICLE_DEF_COUNT = 3;
 constexpr VehicleDefData VEHICLE_DEFS[3] = {
-    {113, 114, "vehicles/veh-ravager000001-shadow.png", 2.732F, 1.435F, 1.26F, 0.316F, 30.0F, 6.0F, 12.5F, 18.0F, 3.0F, 0.0016F, 32.0F, 12.0F, 220.0F, 300.0F, 22.0F, 5.0F, 0.6F, 0.8F, 2.5F, 24.0F, 0.316F, 0.22F, 8.0F, 0.5F, 14.0F, 0.35F, 4.0F, 1.35F, 800.0F, 7200.0F, 0.95F, 0.48F, 0.1F, 0.35F, 4.0F, 0.8F, 1.18F, 0.18F, 45.0F, 1.0F, 5.0F, 0.35F, 1.1F, 0.45F, 0.5F, 1.0F, 1.0F, 0.55F, 1.0F, 0.4F, 6.0F, 10.0F, 1.0F, 6.5F, 2.2F, 12.0F, {-1.4F, 0.0F, 0.0F}, 7, 1.0F, 1.62F, 70, 8, 9, 3, 80, 80, 1, {0.736F, 0.409381F, -2.55944F, 0.368F}, {0.73232F, 0.317381F, 2.15924F, 0.36616F}, 0, 24, 0, 3.6F, 119, "", "", 1, 57.6F, 2, 2, 48.0F, 12.0F},  // Ravager
-    {115, 116, "vehicles/veh-pica00000001-shadow.png", 2.245F, 1.306F, 0.7F, 0.262F, 27.0F, 6.0F, 12.0F, 18.0F, 3.0F, 0.0016F, 36.0F, 14.0F, 240.0F, 300.0F, 24.0F, 5.0F, 0.7F, 0.85F, 2.0F, 24.0F, 0.262F, 0.2F, 9.0F, 0.5F, 10.0F, 0.32F, 5.0F, 1.28F, 900.0F, 7400.0F, 0.95F, 0.48F, 0.1F, 0.35F, 4.0F, 0.8F, 1.18F, 0.18F, 45.0F, 1.0F, 5.0F, 0.35F, 1.1F, 0.45F, 0.5F, 1.0F, 1.0F, 0.55F, 1.0F, 0.4F, 6.0F, 10.0F, 1.0F, 6.5F, 2.2F, 12.0F, {-1.4F, 0.0F, 0.0F}, 7, 1.0F, 1.62F, 70, 8, 9, 3, 80, 80, 1, {0.6762F, 0.4002F, -1.74524F, 0.3381F}, {0.6394F, 0.3726F, 1.66704F, 0.3197F}, 0, 12, 0, 3.6F, 120, "", "", 1, 76.8F, 2, 2, 48.0F, 12.0F},  // Pica Turbo
-    {117, 118, "vehicles/veh-strix0000001-shadow.png", 2.447F, 1.49F, 0.97F, 0.302F, 34.0F, 6.0F, 14.0F, 18.0F, 3.0F, 0.0016F, 30.0F, 11.0F, 220.0F, 300.0F, 28.0F, 6.0F, 0.55F, 0.7F, 3.5F, 24.0F, 0.302F, 0.16F, 10.0F, 0.5F, 15.0F, 0.2F, 5.0F, 1.3F, 950.0F, 7800.0F, 0.95F, 0.48F, 0.1F, 0.35F, 4.0F, 0.8F, 1.18F, 0.18F, 45.0F, 1.0F, 5.0F, 0.35F, 1.1F, 0.45F, 0.5F, 1.0F, 1.0F, 0.55F, 1.0F, 0.4F, 6.0F, 10.0F, 1.0F, 6.5F, 2.2F, 12.0F, {-1.4F, 0.0F, 0.0F}, 7, 1.0F, 1.62F, 70, 8, 9, 3, 80, 80, 1, {0.74704F, 0.354182F, -2.09484F, 0.37352F}, {0.7452F, 0.181682F, 2.01664F, 0.3726F}, 0, 96, 0, 3.6F, 121, "", "", 1, 57.6F, 2, 2, 48.0F, 12.0F},  // Strix V12
+    {113, 114, "vehicles/veh-ravager000001-shadow.png", 2.732F, 1.435F, 1.26F, 0.316F, 30.0F, 6.0F, 8.5F, 0.95F, 18.0F, 3.0F, 0.0016F, 32.0F, 12.0F, 220.0F, 300.0F, 22.0F, 5.0F, 0.6F, 0.8F, 2.5F, 24.0F, 0.316F, 0.22F, 8.0F, 0.5F, 14.0F, 0.35F, 4.0F, 1.35F, 800.0F, 7200.0F, 0.95F, 0.48F, 0.1F, 0.35F, 4.0F, 0.8F, 1.18F, 0.18F, 45.0F, 1.0F, 5.0F, 0.35F, 1.1F, 0.45F, 0.5F, 1.0F, 1.0F, 0.55F, 1.0F, 0.4F, 6.0F, 10.0F, 1.0F, 6.5F, 2.2F, 12.0F, {-1.4F, 0.0F, 0.0F}, 0, 0.82F, 1.19F, 0.6F, 0.8F, 1.55F, 70, 1, 2, 3, 80, 80, 1, {0.736F, 0.409381F, -2.55944F, 0.368F}, {0.73232F, 0.317381F, 2.15924F, 0.36616F}, 0, 24, 0, 3.6F, 119, "", "", 1, 57.6F, 2, 2, 48.0F, 12.0F},  // Ravager
+    {115, 116, "vehicles/veh-pica00000001-shadow.png", 2.245F, 1.306F, 0.7F, 0.262F, 27.0F, 6.0F, 9.0F, 0.95F, 18.0F, 3.0F, 0.0016F, 36.0F, 14.0F, 240.0F, 300.0F, 24.0F, 5.0F, 0.7F, 0.85F, 2.0F, 24.0F, 0.262F, 0.2F, 9.0F, 0.5F, 10.0F, 0.32F, 5.0F, 1.28F, 900.0F, 7400.0F, 0.95F, 0.48F, 0.1F, 0.35F, 4.0F, 0.8F, 1.18F, 0.18F, 45.0F, 1.0F, 5.0F, 0.35F, 1.1F, 0.45F, 0.5F, 1.0F, 1.0F, 0.55F, 1.0F, 0.4F, 6.0F, 10.0F, 1.0F, 6.5F, 2.2F, 12.0F, {-1.4F, 0.0F, 0.0F}, 0, 0.82F, 1.62F, 0.6F, 0.8F, 1.55F, 70, 1, 2, 3, 80, 80, 1, {0.6762F, 0.4002F, -1.74524F, 0.3381F}, {0.6394F, 0.3726F, 1.66704F, 0.3197F}, 0, 12, 0, 3.6F, 120, "", "", 1, 76.8F, 2, 2, 48.0F, 12.0F},  // Pica Turbo
+    {117, 118, "vehicles/veh-strix0000001-shadow.png", 2.447F, 1.49F, 0.97F, 0.302F, 34.0F, 6.0F, 10.5F, 0.95F, 18.0F, 3.0F, 0.0016F, 30.0F, 11.0F, 220.0F, 300.0F, 28.0F, 6.0F, 0.55F, 0.7F, 3.5F, 24.0F, 0.302F, 0.16F, 10.0F, 0.5F, 15.0F, 0.2F, 5.0F, 1.3F, 950.0F, 7800.0F, 0.95F, 0.48F, 0.1F, 0.35F, 4.0F, 0.8F, 1.18F, 0.18F, 45.0F, 1.0F, 5.0F, 0.35F, 1.1F, 0.45F, 0.5F, 1.0F, 1.0F, 0.55F, 1.0F, 0.4F, 6.0F, 10.0F, 1.0F, 6.5F, 2.2F, 12.0F, {-1.4F, 0.0F, 0.0F}, 0, 0.82F, 1.62F, 0.6F, 0.8F, 1.55F, 70, 1, 2, 3, 80, 80, 1, {0.74704F, 0.354182F, -2.09484F, 0.37352F}, {0.7452F, 0.181682F, 2.01664F, 0.3726F}, 0, 96, 0, 3.6F, 121, "", "", 1, 57.6F, 2, 2, 48.0F, 12.0F},  // Strix V12
 };
 constexpr int VEHICLE_BLUR_MAX_FIX = 115;
 constexpr int VEHICLE_NOS_FLAME_USED = 1;
@@ -3070,8 +3072,8 @@ constexpr int PORTAL_VIEW_OBJECTS[1] = {-1};
 // owner by MirrorData/CamFeedData/PortalData::firstCand.
 constexpr int CATCH_CANDIDATES[1] = {-1};
 
-constexpr int SND_COUNT = 10;
-inline const char* SND_PATHS[10] = {"sfx/engine-loop.adpcm", "sfx/engine-high-loop.adpcm", "sfx/screech-loop.adpcm", "sfx/gear-shift.adpcm", "sfx/engine-idle-loop.adpcm", "sfx/tanweraman-car-throttle-static-337873.adpcm", "sfx/magiaz-car-brake3-325523.adpcm", "sfx/engine_idle.adpcm", "sfx/engine_high.adpcm", "sfx/tires_screech.adpcm"};
+constexpr int SND_COUNT = 4;
+inline const char* SND_PATHS[4] = {"sfx/engine_idle.adpcm", "sfx/engine_high.adpcm", "sfx/tires_screech.adpcm", "sfx/gear-shift.adpcm"};
 
 constexpr int PLAYER_INDEXES[SCENE_COUNT] = {0, 0, 0};
 constexpr int PLAYER_MODES[SCENE_COUNT] = {0, 0, 0};

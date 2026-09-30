@@ -658,14 +658,13 @@ were composed in.
 
 ### The gearbox is presentation until you ask it not to be
 
-A car has five gears, an engine speed and a redline. **All of it is DERIVED from
-the speed the model above already produces** — the gear is resolved from how fast
-the car is going and feeds nothing back — which is the decision the whole feature
-rests on: `accel` means exactly what it meant before the gearbox existed, so
-every vehicle authored without one accelerates identically with one. Checked
-rather than asserted: a harness reproduces the pre-powertrain arithmetic
-independently and reads a worst-case difference of **0.000000000** over 14 s of
-full throttle.
+A car has five gears, an engine speed and a redline. RPM is derived from wheel
+speed; the selected gear, shift cut and torque setting affect the drive. A
+`powerFade` setting (0 to 0.95, default 0.95) progressively reduces acceleration
+as the car approaches its ordinary top speed. This gives the final gear a long
+pull and makes redline require room. Nitro raises the speed ceiling and reduces
+the fade to 35% of its normal strength while active. Set `powerFade` to zero
+to recover the earlier constant-acceleration response.
 
 What that buys for free is everything that needs to *know* the engine speed — the
 engine sound's pitch, a tacho, and the shift the player hears.
@@ -674,6 +673,12 @@ The ratios are **geometric**, because that is what a real gearbox is: the top ge
 reaches `topSpeed` and each one below it reaches that divided by `gearSpread`. At
 the defaults (5 gears, spread 1.52, top speed 22) that is 4.12 / 6.26 / 9.52 /
 14.47 / 22.00.
+
+In the final gear, wheel speed above ordinary `topSpeed` keeps raising the
+derived RPM, up to `nosTopSpeed` times the redline. This lets nitrous increase
+the engine note as the car passes its usual maximum speed. Lower gears still
+stop at redline for their normal shift points; the engine sample crossfade
+stays fully on the high-rev recording above redline.
 
 Two knobs let the gearbox bite, and **both default to off**:
 
@@ -726,8 +731,10 @@ nothing when idle:
   fifth consumer), fading over six seconds - see *Skid marks and smoke*
   below. Colors-only decay: `bboxVersion` bumps only when a segment SPAWNS.
   One alpha-over submit per definition, skipped when empty.
-- **Backfire**: an upshift pops a vertical additive quad at the exhaust for
-  a tenth of a second — the shift sound's visual twin.
+- **Backfire**: an upshift pops a pair of soft, textured coronas at the exhaust
+  for a tenth of a second — the shift sound's visual twin. Its timer runs on
+  every vehicle update, even after tyre slip ends; tying it to the skid-smoke
+  branch used to freeze a hard orange rectangle beneath the rear bumper.
 - **Lamps can BE body mesh** — the one thing the engine asks of the model:
   name your lamp materials. Lamp-material geometry is split out of the
   palette merge into ONE extra part, `lamps` — the rear lamps' corners
@@ -773,8 +780,9 @@ nothing when idle:
   On the physical-PS2 vehicle-playground capture used for this change, four
   consecutive cached-lattice samples measured 1.17-1.21 ms, versus 2.48-2.51
   ms for the uncached control at the same parked start view.
-- Headlights have their **own textured submit**. Tail lamps and backfire remain
-  in the untextured glow bag, so the gobo cannot stamp itself onto either.
+- Headlights have their **own textured submit**. Tail lamps remain in the
+    untextured glow bag; backfire shares the soft corona batch with lamp halos
+    and nitrous flames, so it cannot show a solid rectangular quad.
   Rendering is capped at eight vehicle pools per frame; traffic beyond that
   keeps its emissive lamp mesh but cannot turn fill rate into a wood chipper.
   Both bags use precise frustum culling and full clip checks.
@@ -821,8 +829,10 @@ Past the base loop, three optional companions (all per definition, in the
 Vehicle Editor's **Sounds** tab; every one silent until authored):
 
 - **High-rev loop** (`engineHighSound`, any imported WAV): the era's two-sample
-  engine — the base loop fades out toward the redline as this fades in, both
-  riding the same authored pitch curve against their own natural rates.
+  engine. `engineHighStart` chooses where it begins fading in, as a fraction of
+  the idle-to-redline RPM range. `engineHighPitchStart` and
+  `engineHighPitchEnd` set its own playback-rate curve. The idle sample follows
+  its separate idle-to-redline pitch curve from the moment the car starts.
   Volumes quantise to 8 steps and write on change, the pitch discipline's
   twin: a steady cruise is zero RPCs.
 - **Tyre squeal** (`screechSound`, any imported WAV): volume rides
@@ -1014,7 +1024,8 @@ in the editor but require this conversion for the game. See
 
 A looping sample whose **SPU2 pitch register** follows the engine speed. Set it in
 *Vehicle Editor > Sounds*: an idle loop, a pitch multiplier at idle and one at the
-redline, and a volume.
+redline, and a volume. A high-rev recording adds its own start threshold and
+pitch endpoints. Live audition uses the same two curves and crossfade.
 
 **The loop lives in the encoded sample, not in the play call.** Choose any
 imported WAV for idle, high revs or tyre squeal. Both native and Docker builds
@@ -1909,9 +1920,9 @@ with no code of its own.
 
 **Live preview** draws the same baked body and wheel meshes shipped to the game, independently of placed instances. Drag its image to orbit, scroll to zoom, and use **Reset view** to reframe. **Steering** honours the per-wheel Steered flags. **Spin wheels** animates at **Speed** in km/h; the fast-wheel mesh switches at the authored rad/s threshold and returns below 80% of it, like the runtime. Damage-tab test hits and Repair also update this preview. The preview does not move scene entities or save its controls. Global defaults previews the first car's geometry with global tuning.
 
-**Engine audition** is separate from wheel speed: **Revs** moves from idle to redline and **Listen to engine** plays the selected idle/high loops at the authored pitch and volume. It uses the runtime's two-sample gain curves (idle retains 15% at redline), through host float audio rather than PS2 ADPCM. Editing sound choices restarts the samples; changing revs, pitch or volume updates playback live. Closing/collapsing the window, switching cars/projects or exiting stops audition. Missing files and unavailable output devices show an inline error.
+**Engine audition** is separate from wheel speed: **Revs** moves from idle to redline and **Listen to engine** plays the selected idle/high loops at their separate authored pitches and volume. It uses the runtime's high-rev onset and two-sample gain curves (idle retains 15% at redline), through host float audio rather than PS2 ADPCM. Editing sound choices restarts the samples; changing revs, pitch or volume updates playback live. Closing/collapsing the window, switching cars/projects or exiting stops audition. Missing files and unavailable output devices show an inline error.
 
-Record engine loops at steady RPM, without acceleration ramps or gear changes; the game supplies pitch changes. Use a clean idle and a sustained higher-RPM recording, trim each to a seamless loop, then import as 16-bit PCM WAV. Every project sound is selectable; continuous vehicle roles are looped automatically during the build. A short mono loop saves SPU2 sample RAM. Match recording conditions and balance the two samples by listening across the entire Revs slider; the current runtime applies the same pitch curve to both recordings.
+Record engine loops at steady RPM, without acceleration ramps or gear changes; the game supplies pitch changes. Use a clean idle and a sustained higher-RPM recording, trim each to a seamless loop, then import as 16-bit PCM WAV. Every project sound is selectable; continuous vehicle roles are looped automatically during the build. A short mono loop saves SPU2 sample RAM. Match recording conditions and balance the two samples by listening across the entire Revs slider; the two recordings have independent pitch curves.
 
 ![Vehicle Editor with independent vehicle and engine preview](img/vehicle-live-preview.png)
 
@@ -2443,8 +2454,8 @@ A GS dump taken at 28.9 u/s with `fw 1` renders the frame intact at 50 FPS.
 **`tyrax-editor --vehicle-check`** runs the drive model's property tests -
 host-only, no project, no Docker, exit 0 when every property holds - so a CI
 job or a pre-commit hook can gate on the sim. Fifteen assertions, each one a
-failure that actually happened: the pre-powertrain regression (a default spec
-must be bit-for-bit the old model), gear-ratio geometry, the anti-hunt under
+failure that actually happened: the pre-powertrain regression (with power fade
+explicitly disabled, the old arithmetic remains bit-for-bit), gear-ratio geometry, the anti-hunt under
 contradictory thresholds, the wall grind and the head-on (including the
 phantom grind-in-place), weight-transfer bounds and `leanAmount 0`, and the
 hill kickdown with its landing margin. What it cannot check is twin parity

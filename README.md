@@ -242,7 +242,7 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
   grip or winner),
   projected onto the terrain in both the editor and game, plus imported,
   budgeted cars with wheel suspension, gears, drifting, AI drivers, a
-  tyre-safe automatic and authored "fast wheel" models that swap at speed and an authored low-poly
+  tyre-safe automatic, high-speed power fade with nitrous recovery, separate idle/high-rev sound curves, authored "fast wheel" models that swap at speed and an authored low-poly
   far/traffic model per car, and [crash damage](docs/vehicles.md#damage) -
   dented bodies, smashed lamps and windows, bonnets and doors torn off,
   engine smoke, lost power - and [speed feel](docs/vehicles.md#speed-feel)

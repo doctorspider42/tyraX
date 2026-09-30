@@ -128,6 +128,7 @@ struct DriveSpec {
     float topSpeed = 22.0f;         // units/s forward
     float reverseTopSpeed = 6.0f;
     float accel = 9.0f;             // units/s^2 at full throttle
+    float powerFade = 0.95f;       // share of drive lost near ordinary top speed
     float brakeDecel = 18.0f;
     float engineBraking = 3.0f;     // deceleration with no throttle and no brake
     float drag = 0.0016f;           // quadratic, units/s^2 per (units/s)^2

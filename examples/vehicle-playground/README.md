@@ -112,7 +112,7 @@ build ran beyond 2,400 frames in PCSX2 with camera turn, walking and GS capture.
   Pica Turbo, the Ravager you start in, and the Strix V12. `dense` places the
   Ravager alone on the same spot as a separate performance fixture. The vehicle library contains only these three definitions. Each keeps its full model and authored far companion; unused legacy vehicle models have been removed from res/models. Urban scenery stays unchanged.
 
-All three cars inherit the supplied recordings from Global defaults: `res/sfx/engine_idle.wav` for idle, `res/sfx/engine_high.wav` for high revs and `res/sfx/tires_screech.wav` for tyre squeal. They were imported as mono 16-bit PCM at 22050 Hz; the originals in Downloads were left untouched. Idle pitch is 1x. Vehicle sound pickers accept any imported WAV; continuous engine/tyre roles are encoded as loops automatically, and builds normalize a copy of older/hand-dropped samples too. Headlights is in Effects. Use Vehicle Editor's Live preview to check wheel placement, steering, the fast-wheel swap and engine sound before building. The previously supplied `freesound_community-engine-47745.mp3` conversion is still available as `engine-idle-loop.wav`.
+All three cars inherit the supplied recordings from Global defaults: `res/sfx/engine_idle.wav` for idle, `res/sfx/engine_high.wav` for high revs and `res/sfx/tires_screech.wav` for tyre squeal. `res/sfx/gear-shift.wav` is the fourth and only other sound in this map; unused legacy engine and brake samples were removed. The recordings are mono 16-bit PCM at 22050 Hz; the originals in Downloads were left untouched. Idle playback begins at 0.82x and pitches upward when pulling away; the high-rev recording starts fading in at 60% of the idle-to-redline range and rises from 0.8x to 1.55x. The new high-speed power fade makes full throttle take a longer straight to reach the final-gear redline; nitrous restores much of the pull. Vehicle sound pickers accept any imported WAV; continuous engine/tyre roles are encoded as loops automatically, and builds normalize a copy of older/hand-dropped samples too. Headlights is in Effects. Use Vehicle Editor's Live preview to check wheel placement, steering, the fast-wheel swap and engine sound before building.
 
 The CC96, Rally 04, Tristar and Strata results later in this README are historical measurements. Their old GLBs and definitions are available in Git history; historical authoring scripts may require that earlier fixture.
 
@@ -1009,11 +1009,11 @@ switching. This smoke test is separate from the frozen FPS measurements.
 - **Kenney** — Retro Urban Kit 2.0, CC0. Included source OBJ/MTL files, textures
   and `res/models/urban/LICENSE.txt`; building kitbashes are adaptations.
 - **TyraX contributors** — Ravager, Pica and Strix models, district layout, sign, asphalt and ground textures, preparation scripts and synthesized vehicle sounds.
-- **MagiaZ** — [Car brake3](https://pixabay.com/pl/sound-effects/filmy-i-efekty-specjalne-car-brake3-325523/), Pixabay; adapted vehicle samples: `tires_screech.wav` and `magiaz-car-brake3-325523.wav`.
-- **Eponn (Freesound), shared by freesound_community** — [Engine](https://pixabay.com/pl/sound-effects/filmy-i-efekty-specjalne-engine-47745/), Pixabay; adapted vehicle samples: `engine_idle.wav` and `engine-idle-loop.wav`.
-- **TanwerAman** — [Car Throttle Static](https://pixabay.com/pl/sound-effects/filmy-i-efekty-specjalne-car-throttle-static-337873/), Pixabay; adapted vehicle samples: `engine_high.wav` and `tanweraman-car-throttle-static-337873.wav`.
+- **MagiaZ** — [Car brake3](https://pixabay.com/pl/sound-effects/filmy-i-efekty-specjalne-car-brake3-325523/), Pixabay; adapted vehicle sample: `tires_screech.wav`.
+- **Eponn (Freesound), shared by freesound_community** — [Engine](https://pixabay.com/pl/sound-effects/filmy-i-efekty-specjalne-engine-47745/), Pixabay; adapted vehicle sample: `engine_idle.wav`.
+- **TanwerAman** — [Car Throttle Static](https://pixabay.com/pl/sound-effects/filmy-i-efekty-specjalne-car-throttle-static-337873/), Pixabay; adapted vehicle sample: `engine_high.wav`.
 
-The vehicle recordings are available under the [Pixabay Content License](https://pixabay.com/service/license-summary/). Project WAVs are adapted to mono PCM16/22050; preparation of the earlier idle loop is recorded in `res/sfx/engine-idle-source.txt`.
+The vehicle recordings are available under the [Pixabay Content License](https://pixabay.com/service/license-summary/). Project WAVs are adapted to mono PCM16/22050.
 
 The shipped `THIRD-PARTY-NOTICES.txt` lists the current assets. Earlier CC96, GGBotNet and designersoup assets and their original notices remain in Git history alongside the historical measurements below.
 

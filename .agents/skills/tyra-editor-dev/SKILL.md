@@ -2462,8 +2462,17 @@ talks to the frame loop through two prolog globals: `g_vehShake`, applied after
 the Camera Shake node's shake, and `g_vehBlurFix`, a floor under
 `g_motionBlurBase`. Both game templates carry the two consumers, so edit them
 as a pair. The nitrous flame is extra quads in `renderVehicleLampGlow`
-(`VEHICLE_NOS_FLAME_USED`), which is why `projectUsesBeams` also returns true
-for a car with nitrous.
+(`VEHICLE_NOS_FLAME_USED`). An upshift's backfire uses that textured corona
+batch too: `projectUsesBeams` must keep the texture for every vehicle project,
+and `backfireT` must tick outside the skid-smoke branch or a handbrake slide
+can leave the flash frozen. `vehiclesim::rpmFor` and generated `vehRpmFor` are
+twins: in final gear they allow RPM up to `nosTopSpeed` times redline, while
+the sound's high-rev crossfade remains capped at full volume.
+`DriveSpec::powerFade` and the generated longitudinal step must apply the same
+speed-squared fade, including nitrous relief. The high-rev sound has its own
+onset and pitch endpoints in VehicleDef; keep project serialization, tuning
+inheritance, generated VehicleDefData and host audition in step. The idle loop
+must pitch from launch, while the second loop fades in only above its onset.
 
 ## Vehicle bank and suspension invariants
 

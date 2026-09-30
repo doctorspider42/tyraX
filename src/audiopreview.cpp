@@ -103,16 +103,17 @@ struct EngineLoop::Impl {
     Device device;
     std::vector<float> idle, high;
     double lowPos = 0, highPos = 0;
-    std::atomic<float> pitch{1}, revs{0}, volume{0.7f};
+    std::atomic<float> idlePitch{1}, highPitch{1}, highMix{0}, volume{0.7f};
     std::string error;
 };
 EngineLoop::EngineLoop() : d_(new Impl) {}
 EngineLoop::~EngineLoop() { stop(); }
 void EngineLoop::stop() { d_->device.stop(); }
 const std::string& EngineLoop::error() const { return d_->error; }
-void EngineLoop::update(float pitch, float revs, float volume) {
-    d_->pitch.store(std::clamp(pitch, 0.05f, 4.0f));
-    d_->revs.store(std::clamp(revs, 0.0f, 1.0f));
+void EngineLoop::update(float idlePitch, float highPitch, float highMix, float volume) {
+    d_->idlePitch.store(std::clamp(idlePitch, 0.05f, 4.0f));
+    d_->highPitch.store(std::clamp(highPitch, 0.05f, 4.0f));
+    d_->highMix.store(std::clamp(highMix, 0.0f, 1.0f));
     d_->volume.store(std::clamp(volume / 100.0f, 0.0f, 1.0f));
 }
 bool EngineLoop::start(const std::string& idle, const std::string& high) {
@@ -137,7 +138,8 @@ bool EngineLoop::start(const std::string& idle, const std::string& high) {
     if (!load(idle, d_->idle) || !load(high, d_->high)) return false;
     if (d_->idle.empty()) { d_->error = "Choose an idle loop in Sounds."; return false; }
     const bool ok = d_->device.start(44100, [d = d_.get()](float* out, int count) {
-        const float step = d->pitch.load(), f = d->revs.load(), gain = d->volume.load();
+        const float lowStep = d->idlePitch.load(), highStep = d->highPitch.load();
+        const float f = d->highMix.load(), gain = d->volume.load();
         auto sample = [](const std::vector<float>& pcm, double pos, int ch) {
             if (pcm.empty()) return 0.0f;
             const size_t n = pcm.size() / 2, a = (size_t)pos % n, b = (a + 1) % n;
@@ -149,8 +151,8 @@ bool EngineLoop::start(const std::string& idle, const std::string& high) {
             for (int ch = 0; ch < 2; ++ch)
                 out[i * 2 + ch] = std::clamp(sample(d->idle, d->lowPos, ch) * lowGain +
                     sample(d->high, d->highPos, ch) * gain * f, -1.0f, 1.0f);
-            d->lowPos = std::fmod(d->lowPos + step, (double)d->idle.size() / 2);
-            if (!d->high.empty()) d->highPos = std::fmod(d->highPos + step, (double)d->high.size() / 2);
+            d->lowPos = std::fmod(d->lowPos + lowStep, (double)d->idle.size() / 2);
+            if (!d->high.empty()) d->highPos = std::fmod(d->highPos + highStep, (double)d->high.size() / 2);
         }
     });
     if (!ok) d_->error = d_->device.error();

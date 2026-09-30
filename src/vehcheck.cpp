@@ -61,15 +61,30 @@ void gearGeometry() {
             "gearTorque multipliers have geometric mean 1 (character, not power)");
     verdict(gearTorqueMul(s, 0) == 1.0f && gearTorqueMul(s, gearCount(s) - 1) == 1.0f,
             "gearTorque 0 is the identity in every gear");
+    s.nosTopSpeed = 1.18f;
+    s.nosCapacity = 4.0f;
+    const int topGear = gearCount(s) - 1;
+    verdict(rpmFor(s, s.topSpeed * 1.10f, topGear) > s.redlineRpm &&
+                rpmFor(s, s.topSpeed * 1.18f, topGear) >
+                    rpmFor(s, s.topSpeed * 1.10f, topGear),
+            "nitrous speed past V max continues raising final-gear RPM");
+    verdict(rpmFor(s, s.topSpeed * 1.5f, topGear) <=
+                s.redlineRpm * s.nosTopSpeed + 0.01f &&
+                rpmFor(s, s.topSpeed, topGear - 1) <= s.redlineRpm,
+            "over-rev is bounded and lower gears retain their shift point");
+    s.nosCapacity = 0.0f;
+    verdict(rpmFor(s, s.topSpeed * 1.1f, topGear) <= s.redlineRpm,
+            "a car without nitrous keeps the ordinary redline cap");
 }
 
-// 2. THE REGRESSION PROPERTY: a default spec accelerates exactly as the
+// 2. THE REGRESSION PROPERTY: with power fade disabled, a spec accelerates as the
 //    pre-powertrain model did - accel capped at topSpeed minus quadratic
 //    drag, reproduced here independently. This is what "the gearbox is
 //    derived, not simulated" MEANS, stated as arithmetic.
 void preGearboxRegression() {
     std::printf("-- pre-powertrain regression --\n");
     DriveSpec s;
+    s.powerFade = 0.0f; // keep the historical arithmetic as an explicit control
     DriveState st;
     st.pos[1] = s.rideHeight;
     DriveInput in;
@@ -83,7 +98,32 @@ void preGearboxRegression() {
         worst = std::max(worst, std::fabs(ref - st.speed));
     }
     std::printf("  worst |speed - reference| = %.9f\n", worst);
-    verdict(worst < 1e-4f, "default spec is bit-for-bit the pre-gearbox model");
+    verdict(worst < 1e-4f, "powerFade 0 is bit-for-bit the pre-gearbox model");
+}
+
+void powerFadeResponse() {
+    std::printf("-- high-speed power fade --\n");
+    DriveSpec old, faded, boosted;
+    old.powerFade = 0.0f;
+    boosted.nosCapacity = 20.0f;
+    boosted.nosBoost = 0.8f;
+    DriveState a, b, c;
+    a.pos[1] = old.rideHeight;
+    b.pos[1] = faded.rideHeight;
+    c.pos[1] = boosted.rideHeight;
+    DriveInput normal, nos;
+    normal.throttle = nos.throttle = 1.0f;
+    nos.nos = true;
+    for (int i = 0; i < 300; ++i) {
+        step(old, normal, 1.0f / 50.0f, flat, a);
+        step(faded, normal, 1.0f / 50.0f, flat, b);
+        step(boosted, nos, 1.0f / 50.0f, flat, c);
+    }
+    std::printf("  6 s speeds: old %.2f, faded %.2f, nitrous %.2f\n",
+                a.speed, b.speed, c.speed);
+    verdict(b.speed < a.speed - 0.5f && b.speed < faded.topSpeed * 0.98f,
+            "ordinary drive needs a long straight to approach redline");
+    verdict(c.speed > b.speed + 2.0f, "nitrous restores high-speed pull");
 }
 
 // 3. The gearbox cannot hunt, even with contradictory authored thresholds -
@@ -1178,6 +1218,7 @@ int run() {
     std::printf("vehicle-check: vehiclesim property tests\n");
     gearGeometry();
     preGearboxRegression();
+    powerFadeResponse();
     noHunting();
     walls();
     lean();
