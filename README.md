@@ -11,7 +11,8 @@ over ethernet.
 
 Under the hood TyraX writes the game as ordinary C++ against the engine and
 compiles it with a native PS2DEV + OpenVCL toolchain. Scene object values compile
-once for fast object iteration ([details](docs/native-toolchain.md)).
+once for fast object iteration; game subsystems compile in parallel with an
+automatic CPU job count ([details](docs/native-toolchain.md#parallel-game-compilation)).
 Both halves live in this repo —
 the editor and the engine (`vendor/tyra/engine`) — and the generated sources
 are yours to take over, file by file, whenever you want them.

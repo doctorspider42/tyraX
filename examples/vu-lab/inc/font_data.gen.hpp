@@ -23,9 +23,9 @@ struct FontData {
   const FontGlyph* glyphs;
 };
 
-constexpr int FONT_FIRST_CHAR = 32;
-constexpr int FONT_CHAR_COUNT = 95;
-constexpr int FONT_COUNT = 1;
+inline constexpr int FONT_FIRST_CHAR = 32;
+inline constexpr int FONT_CHAR_COUNT = 95;
+inline constexpr int FONT_COUNT = 1;
 
 inline const FontGlyph FONT_GLYPHS_0[FONT_CHAR_COUNT] = {
     {0, 0, 0, 0, 0, 13, 5},
@@ -136,8 +136,8 @@ struct DynTextData {
   float size;   // glyph height in pixels
 };
 
-constexpr int DYN_TEXT_COUNT = 1;
-constexpr int DYN_TEXT_LEN = 64;  // per-slot string buffer
+inline constexpr int DYN_TEXT_COUNT = 1;
+inline constexpr int DYN_TEXT_LEN = 64;  // per-slot string buffer
 inline const DynTextData DYN_TEXTS[DYN_TEXT_COUNT > 0 ? DYN_TEXT_COUNT : 1] = {
     {0, 0.5F, 0.08F, 16.0F},  // scene 0, object 5, node 9
 };

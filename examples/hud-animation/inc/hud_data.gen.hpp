@@ -14,7 +14,7 @@ struct HudImageData {
   int visible;       // 1 = shown when the game starts
 };
 
-constexpr int HUD_COUNT = 0;
+inline constexpr int HUD_COUNT = 0;
 inline const HudImageData HUD_IMAGES[HUD_COUNT > 0 ? HUD_COUNT : 1] = {
     {"", 0, 0, 0, 0, 0, 1, 0, 0, 0, 1},
 };
@@ -24,20 +24,20 @@ inline const HudImageData HUD_IMAGES[HUD_COUNT > 0 ? HUD_COUNT : 1] = {
 // index, so lower-index sprites get it and higher ones draw crisp on
 // top. -1 = at end of frame, over everything including menus. Bloom
 // carries color grading; film grain is placed independently.
-constexpr int HUD_BLOOM_LAYER = -1;
-constexpr int HUD_GRAIN_LAYER = -1;
+inline constexpr int HUD_BLOOM_LAYER = -1;
+inline constexpr int HUD_GRAIN_LAYER = -1;
 
 // The USE prompt sprite (shown while looking at a usable object)
-constexpr const char* USE_PROMPT_PATH = "hud/use-text.png";
-constexpr float USE_PROMPT_X = 0.5F;  // normalized, center anchor
-constexpr float USE_PROMPT_Y = 0.755714F;
-constexpr float USE_PROMPT_W = 128.0F;  // on-screen pixels
-constexpr float USE_PROMPT_H = 32.0F;
+inline constexpr const char* USE_PROMPT_PATH = "hud/use-text.png";
+inline constexpr float USE_PROMPT_X = 0.5F;  // normalized, center anchor
+inline constexpr float USE_PROMPT_Y = 0.755714F;
+inline constexpr float USE_PROMPT_W = 128.0F;  // on-screen pixels
+inline constexpr float USE_PROMPT_H = 32.0F;
 // The "PICK UP" variant, shown instead for pickable objects
 // (same screen position as USE; its own text/image and size)
-constexpr const char* PICK_PROMPT_PATH = "hud/pick-text.png";
-constexpr float PICK_PROMPT_W = 128.0F;
-constexpr float PICK_PROMPT_H = 32.0F;
+inline constexpr const char* PICK_PROMPT_PATH = "hud/pick-text.png";
+inline constexpr float PICK_PROMPT_W = 128.0F;
+inline constexpr float PICK_PROMPT_H = 32.0F;
 
 // Live glyph slots in the prompt sprites: the baked text leaves a
 // hole per {{action}} token and the game blits the CURRENT binding's
@@ -50,11 +50,11 @@ struct PromptIconSlot {
   short x, y;     // top-left inside the prompt sprite, pixels
   short size;     // glyph box side, pixels
 };
-constexpr int USE_PROMPT_ICON_COUNT = 1;
+inline constexpr int USE_PROMPT_ICON_COUNT = 1;
 inline const PromptIconSlot USE_PROMPT_ICONS[USE_PROMPT_ICON_COUNT > 0 ? USE_PROMPT_ICON_COUNT : 1] = {
     {6, 32, 2, 20},  // use
 };
-constexpr int PICK_PROMPT_ICON_COUNT = 1;
+inline constexpr int PICK_PROMPT_ICON_COUNT = 1;
 inline const PromptIconSlot PICK_PROMPT_ICONS[PICK_PROMPT_ICON_COUNT > 0 ? PICK_PROMPT_ICON_COUNT : 1] = {
     {6, 10, 2, 20},  // use
 };
@@ -70,7 +70,7 @@ struct HudTextData {
   float transSec;
 };
 
-constexpr int HUD_TEXT_COUNT = 2;
+inline constexpr int HUD_TEXT_COUNT = 2;
 inline const HudTextData HUD_TEXTS[HUD_TEXT_COUNT > 0 ? HUD_TEXT_COUNT : 1] = {
     {"hud/text-animated-hud.png", 0.5F, 0.16F, 256, 64, 1, 4, 1.8F, 0.08F, 6, 0.3F},  // ANIMATED HUD
     {"hud/text-controls.png", 0.5F, 0.91F, 512, 32, 1, 1, 2.4F, 0.2F, 0, 0.25F},  // controls
@@ -99,7 +99,7 @@ struct HudBarData {
   int visible;           // 1 = shown when the game starts
 };
 
-constexpr int HUD_BAR_COUNT = 3;
+inline constexpr int HUD_BAR_COUNT = 3;
 inline const HudBarData HUD_BARS[HUD_BAR_COUNT > 0 ? HUD_BAR_COUNT : 1] = {
     {0, 0.24F, 0.08F, 190.0F, 16.0F, {15.36F, 5.12F, 5.12F}, {117.76F, 20.48F, 15.36F}, {128.0F, 99.84F, 25.6F}, 1, 0, 0.28F, 0.3F, 5, 4.0F, 0, 0.0F, 100.0F, 100.0F, "", "", 64.0F, 64.0F, 0, 1.0F, 4.0F, 2, 0.35F, 1},  // health
     {0, 0.76F, 0.08F, 150.0F, 10.0F, {3.84F, 11.52F, 15.36F}, {15.36F, 92.16F, 117.76F}, {74.24F, 115.2F, 128.0F}, 0, 1, 0.18F, 0.0F, 5, 4.0F, -1, 0.0F, 100.0F, 85.0F, "", "", 64.0F, 64.0F, 2, 1.7F, 2.0F, 3, 0.35F, 1},  // stamina
@@ -108,8 +108,8 @@ inline const HudBarData HUD_BARS[HUD_BAR_COUNT > 0 ? HUD_BAR_COUNT : 1] = {
 
 // Every HUD element in one index space (the Set HUD Element Visible /
 // Play HUD Effect nodes): images, then texts, then bars.
-constexpr int HUD_ELEM_TEXT0 = HUD_COUNT;
-constexpr int HUD_ELEM_BAR0 = HUD_COUNT + HUD_TEXT_COUNT;
-constexpr int HUD_ELEM_COUNT = HUD_COUNT + HUD_TEXT_COUNT + HUD_BAR_COUNT;
+inline constexpr int HUD_ELEM_TEXT0 = HUD_COUNT;
+inline constexpr int HUD_ELEM_BAR0 = HUD_COUNT + HUD_TEXT_COUNT;
+inline constexpr int HUD_ELEM_COUNT = HUD_COUNT + HUD_TEXT_COUNT + HUD_BAR_COUNT;
 
 }  // namespace Hud_animation

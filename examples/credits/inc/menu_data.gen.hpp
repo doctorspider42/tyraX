@@ -112,15 +112,15 @@ struct MenuData {
   float bgScrollX, bgScrollY, bgSeconds;
 };
 
-constexpr int MENU_COUNT = 2;
+inline constexpr int MENU_COUNT = 2;
 
 // menu "title"
-constexpr MenuEntryData MENU_0_ENTRIES[2] = {
+inline constexpr MenuEntryData MENU_0_ENTRIES[2] = {
     {0, -1, 0.0F, 0, -1, 0, -1, nullptr, -1, -1, -1, -1, 1},  // START
     {11, 0, 0.0F, 0, -1, 0, -1, nullptr, -1, -1, -1, -1, 1},  // CREDITS
 };
 // menu "save"
-constexpr MenuEntryData MENU_1_ENTRIES[1] = {
+inline constexpr MenuEntryData MENU_1_ENTRIES[1] = {
     {0, -1, 0.0F, 0, -1, 0, -1, nullptr, -1, -1, -1, -1, 1},
 };
 
@@ -129,16 +129,16 @@ inline const MenuData MENUS[MENU_COUNT > 0 ? MENU_COUNT : 1] = {
     {"menus/save.png", 256, 256, 138, 44, 24, 0, MENU_1_ENTRIES, 0, 1, 0.5F, 0.45F, "", 0, 0, 0, 0, 0, "", 0, 0, 0, "", 0, 3, "", 0, 0, 0, 0, 0, 32.0F, 1, "", 0.0F, 1, 0, 0.0F, 0.0F, 0.0F, 0.0F, 1, 0.0F, 1, 0, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 255, 255, 255, 0, "", 0, 0, 0, 0, 0, 0.0F, 0.0F, 1.0F},  // save
 };
 
-constexpr int TITLE_MENU = 0;
+inline constexpr int TITLE_MENU = 0;
 // The Start button opens/closes this menu in-game (-1 = none)
-constexpr int PAUSE_MENU = -1;
+inline constexpr int PAUSE_MENU = -1;
 // True when any menu carries an "apply video mode" row (action
 // 9): display-mode rows then only stage a selection and that row
 // commits it; without one they switch on change (the classic
 // behavior).
-constexpr bool MENU_HAS_APPLY_VIDEO = false;
+inline constexpr bool MENU_HAS_APPLY_VIDEO = false;
 
-constexpr int MENU_EVENT_COUNT = 0;
+inline constexpr int MENU_EVENT_COUNT = 0;
 // Names of the "Flow event" entry actions (menuEvent indexes this)
 inline const char* MENU_EVENTS[MENU_EVENT_COUNT > 0 ? MENU_EVENT_COUNT : 1] = {""};
 

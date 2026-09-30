@@ -24,6 +24,15 @@ description: >
 > is in git history, and `docs/backlog.md` has the recipe. New work records
 > itself in its commit message and PR body instead.
 
+Generated-game split verification: build both FPP and orbit fixtures with the
+native backend, boot them in a private PCSX2 instance, and inspect scene/menu/
+vehicle state. Syntax-check historical example subsystems with the PS2 compiler.
+Check that mutable helper symbols/cache guards have one final linked instance;
+check marker-owned upgrade, owned legacy preservation and owned split refresh.
+Time active ambience keys and a real project preference, separately from
+ordinary object moves/additions and no-op builds. Jobs use host-visible logical
+CPU counts; never describe the measured `-j24` as a fixed project setting.
+
 There is **no committed test suite** (no CTest, no test/ dir). Verification is
 layered: compile → codegen inspection → PCSX2 boot → visual/log/audio checks.
 Use the cheapest layer that actually exercises your change, and be honest in

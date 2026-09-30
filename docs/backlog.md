@@ -4,23 +4,20 @@ This is only unfinished work that still has a clear payoff and a testable end.
 Finished investigations belong in commit history; reusable facts belong in the
 relevant guide or developer skill.
 
-## Split the large generated game TU and remaining runtime settings
+## Separate remaining runtime settings from compilation decisions
 
-Object values, counts, identity hashes and visibility proxies now compile in
-one data TU. Moves and ordinary additions/removals in `vehicle-playground` take
-about 10-11 s, but active ambience and project feature changes can still
-invalidate the 30,400-line `terrain_game.cpp`. GCC profiling puts 90-91% of
-reported pass time in optimization/code generation; the one-core compile takes
-82-86 s even though native make already uses 24 jobs. See
-[native build measurements](native-toolchain.md#remaining-compiler-bottleneck).
+Game methods now compile in six parallel units with shared inline helpers/state.
+Object values, counts, identity hashes and visibility proxies compile in one
+separate data unit. Ordinary object iteration takes about 10-11 s; active
+ambience and project preference changes take about 38-45 s on the measured
+Windows/WSL fixture, because they still invalidate shared headers. See
+[native build measurements](native-toolchain.md#parallel-game-compilation).
 
-Separate rendering, physics and scene loading through explicit shared runtime
-interfaces, preserve user-owned sources and avoid repeating large private
-helper/state definitions per TU. Move remaining runtime setting tables out of
-headers while retaining compile-time feature gates and ABI/layout sizes. Compare
-ambience edits, feature toggles and clean builds; verify both game templates and
-PS2 performance before accepting lost inlining or changing `-O3`. `-O2` showed
-a smaller compile cost in exploratory probes but has no hardware FPS validation.
+Move ordinary runtime setting tables out of headers while retaining compile-time
+feature gates and ABI/layout sizes. Compare ambience edits, feature toggles and
+clean builds. Verify PS2 hardware performance before accepting optimization-level
+changes; `-O3` remains the default. The subsystem split was boot-checked in PCSX2,
+which is not a substitute for a hardware performance comparison.
 
 ## Bring the night garage chase view back under the PAL frame budget
 

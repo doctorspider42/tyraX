@@ -8772,6 +8772,12 @@ std::string refreshGenerated(const Project& p) {
             // Object table definitions accompany the declarations even in
             // projects created before the data was moved out of the header.
             f.relativePath == "src\\gen\\scene_objects.gen.cpp" ||
+            f.relativePath == "inc\\game_runtime.gen.hpp" ||
+            f.relativePath == "src\\gen\\game_scene.gen.cpp" ||
+            f.relativePath == "src\\gen\\game_lighting.gen.cpp" ||
+            f.relativePath == "src\\gen\\game_collision.gen.cpp" ||
+            f.relativePath == "src\\gen\\game_vehicles.gen.cpp" ||
+            f.relativePath == "src\\gen\\game_physics.gen.cpp" ||
             f.relativePath == ".vscode\\c_cpp_properties.json" ||
             f.relativePath == "src\\gen\\flow_graph.gen.cpp" ||
             f.relativePath == "src\\gen\\live_link.gen.cpp" ||
@@ -8937,6 +8943,19 @@ std::string refreshGenerated(const Project& p) {
 
         if (write) {
             if (auto err = writeFile(path, f.content); !err.empty()) return err;
+        }
+    }
+
+    // Returning to a user-owned legacy monolith must not leave generated
+    // member definitions behind: Makefile.base discovers every source file.
+    for (const char* part : {"scene", "lighting", "collision", "vehicles", "physics"}) {
+        const std::string relative = std::string("src\\gen\\game_") + part + ".gen.cpp";
+        const bool present = std::any_of(generated.begin(), generated.end(),
+            [&](const templates::File& f) { return f.relativePath == relative; });
+        if (!present) {
+            std::error_code ec;
+            fs::remove(fs::path(p.dir) / templates::nativePath(relative), ec);
+            if (ec) return "Cannot remove stale runtime source: " + ec.message();
         }
     }
 

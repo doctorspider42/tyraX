@@ -6,7 +6,7 @@
 namespace Night_walk {
 
 // scene "main"
-constexpr float HM_0_HEIGHTS[263169] = {
+inline constexpr float HM_0_HEIGHTS[263169] = {
     19.56F,19.5F,19.45F,19.39F,19.33F,19.29F,19.25F,19.21F,19.16F,19.11F,19.05F,18.98F,
     18.88F,18.75F,18.61F,18.46F,18.33F,18.23F,18.12F,18.01F,17.9F,17.8F,17.71F,17.65F,
     17.67F,17.73F,17.8F,17.85F,17.85F,17.8F,17.71F,17.62F,17.56F,17.56F,17.66F,17.91F,
@@ -21940,12 +21940,12 @@ constexpr float HM_0_HEIGHTS[263169] = {
     11.99F,12.16F,12.19F,12.13F,11.98F,11.8F,11.6F,11.44F,11.37F,
 };
 
-constexpr int HM_WS[SCENE_COUNT] = {513};
-constexpr int HM_DS[SCENE_COUNT] = {513};
-constexpr float HM_ORIGIN_XS[SCENE_COUNT] = {-1024.0F};
-constexpr float HM_ORIGIN_ZS[SCENE_COUNT] = {-1024.0F};
-constexpr float HM_STEP_XS[SCENE_COUNT] = {4.0F};
-constexpr float HM_STEP_ZS[SCENE_COUNT] = {4.0F};
+inline constexpr int HM_WS[SCENE_COUNT] = {513};
+inline constexpr int HM_DS[SCENE_COUNT] = {513};
+inline constexpr float HM_ORIGIN_XS[SCENE_COUNT] = {-1024.0F};
+inline constexpr float HM_ORIGIN_ZS[SCENE_COUNT] = {-1024.0F};
+inline constexpr float HM_STEP_XS[SCENE_COUNT] = {4.0F};
+inline constexpr float HM_STEP_ZS[SCENE_COUNT] = {4.0F};
 inline const float* TERRAIN_HEIGHTS_TABLES[SCENE_COUNT] = {HM_0_HEIGHTS};
 
 inline const unsigned char* TERRAIN_SPLAT_TABLES[SCENE_COUNT] = {nullptr};

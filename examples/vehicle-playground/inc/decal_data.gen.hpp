@@ -6,9 +6,11 @@
 // per scene, indexed by object index. Empty entry = not a projecting
 // decal (the flat quad is used instead).
 
-namespace {
+namespace decal_data_gen_hpp_detail {
 struct BakedDecal { const float* verts; int vertCount; };
 
-static const BakedDecal* const SCENE_DECAL_TABLES[] = {nullptr, nullptr, nullptr};
-static const int SCENE_DECAL_COUNTS[] = {0, 0, 0};
+inline const BakedDecal* const SCENE_DECAL_TABLES[] = {nullptr, nullptr, nullptr};
+inline const int SCENE_DECAL_COUNTS[] = {0, 0, 0};
 }
+
+using namespace decal_data_gen_hpp_detail;

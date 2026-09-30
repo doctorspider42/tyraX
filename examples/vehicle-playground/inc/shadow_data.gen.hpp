@@ -8,7 +8,7 @@
 // always resident; `tint` is the colour a fully shadowed texel
 // blends toward, and it is the page's own RGB.
 
-namespace {
+namespace shadow_data_gen_hpp_detail {
 struct BakedShadowDraw {
   const float* verts;
   int vertCount;
@@ -16,10 +16,12 @@ struct BakedShadowDraw {
   int layer;
 };
 
-static const BakedShadowDraw* const SCENE_SHADOW_TABLES[] = {nullptr, nullptr, nullptr};
-static const int SCENE_SHADOW_COUNTS[] = {0, 0, 0};
-constexpr bool SHADOW_DECALS_USED = false;
+inline const BakedShadowDraw* const SCENE_SHADOW_TABLES[] = {nullptr, nullptr, nullptr};
+inline const int SCENE_SHADOW_COUNTS[] = {0, 0, 0};
+inline constexpr bool SHADOW_DECALS_USED = false;
 }  // namespace
 
 #define SCENE_SHADOWS SCENE_SHADOW_TABLES[g_activeScene]
 #define SCENE_SHADOW_COUNT SCENE_SHADOW_COUNTS[g_activeScene]
+
+using namespace shadow_data_gen_hpp_detail;

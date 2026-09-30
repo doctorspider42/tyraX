@@ -6,7 +6,7 @@
 // axes in world space; sphere = 1 reads half[0] as the radius;
 // objIndex = scene-table index (an object never occludes itself).
 
-namespace {
+namespace ao_data_gen_hpp_detail {
 struct AoOccData {
   float pos[3];
   float ax[3], ay[3], az[3];
@@ -15,12 +15,12 @@ struct AoOccData {
   int objIndex;
 };
 
-static const AoOccData S0_AO_OCC[1] = {
+inline const AoOccData S0_AO_OCC[1] = {
     {{0.0F, 0.15F, 0.0F}, {1.0F, 0.0F, 0.0F}, {0.0F, 1.0F, 0.0F}, {0.0F, 0.0F, 1.0F}, {13.0F, 0.15F, 13.0F}, 0, 7},
 };
 
-static const AoOccData* const SCENE_AO_OCC_TABLES[] = {S0_AO_OCC};
-static const int SCENE_AO_OCC_COUNTS[] = {1};
+inline const AoOccData* const SCENE_AO_OCC_TABLES[] = {S0_AO_OCC};
+inline const int SCENE_AO_OCC_COUNTS[] = {1};
 
 struct EmisLightData {
   float pos[3];
@@ -33,25 +33,25 @@ struct EmisLightData {
 };
 
 
-static const EmisLightData* const SCENE_EMIS_TABLES[] = {nullptr};
-static const int SCENE_EMIS_COUNTS[] = {0};
+inline const EmisLightData* const SCENE_EMIS_TABLES[] = {nullptr};
+inline const int SCENE_EMIS_COUNTS[] = {0};
 
 struct AoAtlasRect {
   float u0, v0, du, dv;
 };
-static const AoAtlasRect S0_AO_RECTS[6] = {{0.826172F, 0.00585938F, 0.00390625F, 0.570312F}, {0.841797F, 0.00585938F, 0.00390625F, 0.570312F}, {0.00585938F, 0.826172F, 0.152344F, 0.152344F}, {0.00585938F, 0.00585938F, 0.808594F, 0.808594F}, {0.169922F, 0.826172F, 0.570312F, 0.00390625F}, {0.00585938F, 0.990234F, 0.570312F, 0.00390625F}};
-static const int S0_AO_FIRST[25] = {-1, -1, -1, -1, -1, -1, -1, 0, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
-static const unsigned char S0_AO_LIT[25] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
-static const AoAtlasRect* const SCENE_AO_ATLAS_RECTS_T[] = {S0_AO_RECTS};
-static const int* const SCENE_AO_ATLAS_FIRSTS_T[] = {S0_AO_FIRST};
-static const unsigned char* const SCENE_AO_ATLAS_LITS_T[] = {S0_AO_LIT};
-static const char* const SCENE_AO_ATLAS_PATHS[] = {"aoatlas/scene0.png"};
-static const char* const SCENE_AO_MAP_PATHS[] = {"aomap/scene0.png"};
-static const unsigned char SCENE_AO_MAP_OCCS[] = {1};
-static const unsigned char SCENE_AO_MAP_LITS[] = {0};
-static const unsigned char SCENE_AO_ATLAS_GIS[] = {0};
-static const unsigned char SCENE_AO_MAP_GIS[] = {0};
-static const unsigned char SCENE_AO_MAP_GILUMS[] = {0};
+inline const AoAtlasRect S0_AO_RECTS[6] = {{0.826172F, 0.00585938F, 0.00390625F, 0.570312F}, {0.841797F, 0.00585938F, 0.00390625F, 0.570312F}, {0.00585938F, 0.826172F, 0.152344F, 0.152344F}, {0.00585938F, 0.00585938F, 0.808594F, 0.808594F}, {0.169922F, 0.826172F, 0.570312F, 0.00390625F}, {0.00585938F, 0.990234F, 0.570312F, 0.00390625F}};
+inline const int S0_AO_FIRST[25] = {-1, -1, -1, -1, -1, -1, -1, 0, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
+inline const unsigned char S0_AO_LIT[25] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0};
+inline const AoAtlasRect* const SCENE_AO_ATLAS_RECTS_T[] = {S0_AO_RECTS};
+inline const int* const SCENE_AO_ATLAS_FIRSTS_T[] = {S0_AO_FIRST};
+inline const unsigned char* const SCENE_AO_ATLAS_LITS_T[] = {S0_AO_LIT};
+inline const char* const SCENE_AO_ATLAS_PATHS[] = {"aoatlas/scene0.png"};
+inline const char* const SCENE_AO_MAP_PATHS[] = {"aomap/scene0.png"};
+inline const unsigned char SCENE_AO_MAP_OCCS[] = {1};
+inline const unsigned char SCENE_AO_MAP_LITS[] = {0};
+inline const unsigned char SCENE_AO_ATLAS_GIS[] = {0};
+inline const unsigned char SCENE_AO_MAP_GIS[] = {0};
+inline const unsigned char SCENE_AO_MAP_GILUMS[] = {0};
 }  // namespace
 
 #define SCENE_AO_OCC SCENE_AO_OCC_TABLES[g_activeScene]
@@ -68,3 +68,5 @@ static const unsigned char SCENE_AO_MAP_GILUMS[] = {0};
 #define SCENE_AO_ATLAS_GI SCENE_AO_ATLAS_GIS[g_activeScene]
 #define SCENE_AO_MAP_GI SCENE_AO_MAP_GIS[g_activeScene]
 #define SCENE_AO_MAP_GILUM SCENE_AO_MAP_GILUMS[g_activeScene]
+
+using namespace ao_data_gen_hpp_detail;

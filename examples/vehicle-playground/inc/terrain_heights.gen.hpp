@@ -6,7 +6,7 @@
 namespace Vehicle_playground {
 
 // scene "main"
-constexpr float HM_0_HEIGHTS[6561] = {
+inline constexpr float HM_0_HEIGHTS[6561] = {
     0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,
     0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,
     0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,
@@ -556,7 +556,7 @@ constexpr float HM_0_HEIGHTS[6561] = {
     0.84649F,0.56014F,0.31727F,0.14461F,0.06117F,0.07614F,0.18787F,0.38405F,0.6431F,
 };
 // scene "dense"
-constexpr float HM_1_HEIGHTS[6561] = {
+inline constexpr float HM_1_HEIGHTS[6561] = {
     0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,
     0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,
     0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,
@@ -1106,7 +1106,7 @@ constexpr float HM_1_HEIGHTS[6561] = {
     0.84649F,0.56014F,0.31727F,0.14461F,0.06117F,0.07614F,0.18787F,0.38405F,0.6431F,
 };
 // scene "procedural"
-constexpr float HM_2_HEIGHTS[6561] = {
+inline constexpr float HM_2_HEIGHTS[6561] = {
     0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,
     0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,
     0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,
@@ -1656,15 +1656,15 @@ constexpr float HM_2_HEIGHTS[6561] = {
     0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,
 };
 
-constexpr int HM_WS[SCENE_COUNT] = {81, 81, 81};
-constexpr int HM_DS[SCENE_COUNT] = {81, 81, 81};
-constexpr float HM_ORIGIN_XS[SCENE_COUNT] = {-160.0F, -160.0F, -160.0F};
-constexpr float HM_ORIGIN_ZS[SCENE_COUNT] = {-160.0F, -160.0F, -160.0F};
-constexpr float HM_STEP_XS[SCENE_COUNT] = {4.0F, 4.0F, 4.0F};
-constexpr float HM_STEP_ZS[SCENE_COUNT] = {4.0F, 4.0F, 4.0F};
+inline constexpr int HM_WS[SCENE_COUNT] = {81, 81, 81};
+inline constexpr int HM_DS[SCENE_COUNT] = {81, 81, 81};
+inline constexpr float HM_ORIGIN_XS[SCENE_COUNT] = {-160.0F, -160.0F, -160.0F};
+inline constexpr float HM_ORIGIN_ZS[SCENE_COUNT] = {-160.0F, -160.0F, -160.0F};
+inline constexpr float HM_STEP_XS[SCENE_COUNT] = {4.0F, 4.0F, 4.0F};
+inline constexpr float HM_STEP_ZS[SCENE_COUNT] = {4.0F, 4.0F, 4.0F};
 inline const float* TERRAIN_HEIGHTS_TABLES[SCENE_COUNT] = {HM_0_HEIGHTS, HM_1_HEIGHTS, HM_2_HEIGHTS};
 
-constexpr unsigned char SPLAT_2_WEIGHTS[6561] = {
+inline constexpr unsigned char SPLAT_2_WEIGHTS[6561] = {
     0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
     0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,
     0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,

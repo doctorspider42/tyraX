@@ -6,7 +6,7 @@
 namespace Large_terrain {
 
 // scene "main"
-constexpr float HM_0_HEIGHTS[263169] = {
+inline constexpr float HM_0_HEIGHTS[263169] = {
     0.707F,0.608F,0.523F,0.454F,0.403F,0.369F,0.354F,0.354F,0.367F,0.391F,0.422F,0.456F,
     0.488F,0.515F,0.533F,0.537F,0.526F,0.496F,0.446F,0.376F,0.285F,0.176F,0.049F,-0.091F,
     -0.241F,-0.397F,-0.555F,-0.709F,-0.855F,-0.987F,-1.103F,-1.198F,-1.27F,-1.316F,-1.336F,-1.328F,
@@ -21940,12 +21940,12 @@ constexpr float HM_0_HEIGHTS[263169] = {
     -0.769F,-1.137F,-1.483F,-1.792F,-2.054F,-2.259F,-2.4F,-2.473F,-2.476F,
 };
 
-constexpr int HM_WS[SCENE_COUNT] = {513};
-constexpr int HM_DS[SCENE_COUNT] = {513};
-constexpr float HM_ORIGIN_XS[SCENE_COUNT] = {-1024.0F};
-constexpr float HM_ORIGIN_ZS[SCENE_COUNT] = {-1024.0F};
-constexpr float HM_STEP_XS[SCENE_COUNT] = {4.0F};
-constexpr float HM_STEP_ZS[SCENE_COUNT] = {4.0F};
+inline constexpr int HM_WS[SCENE_COUNT] = {513};
+inline constexpr int HM_DS[SCENE_COUNT] = {513};
+inline constexpr float HM_ORIGIN_XS[SCENE_COUNT] = {-1024.0F};
+inline constexpr float HM_ORIGIN_ZS[SCENE_COUNT] = {-1024.0F};
+inline constexpr float HM_STEP_XS[SCENE_COUNT] = {4.0F};
+inline constexpr float HM_STEP_ZS[SCENE_COUNT] = {4.0F};
 inline const float* TERRAIN_HEIGHTS_TABLES[SCENE_COUNT] = {HM_0_HEIGHTS};
 
 inline const unsigned char* TERRAIN_SPLAT_TABLES[SCENE_COUNT] = {nullptr};

@@ -33,6 +33,12 @@ player position, save values, audio...).
   instead of `sizeof` or `std::size`. Counts and object ID values also live in
   the generated data source.
 
+Generated game methods also live in `src/gen/game_*.gen.cpp`, with shared
+inline helpers/state in `inc/game_runtime.gen.hpp`; both are editor-owned.
+`src/terrain_game.cpp` remains user-ownable for startup/loop/camera edits.
+Keep its shared-header include when taking ownership of a split main.
+A legacy user-owned monolith remains supported without generated subsystem files.
+
 ## 2. Custom flow-graph nodes (`.flownode`)
 
 A text file in `flow-nodes/<name>.flownode` adds a new node to the Flow Graph

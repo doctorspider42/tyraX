@@ -193,38 +193,75 @@ setup checks and input/output sync, excluding generation/baking and cold setup.
 The resulting game booted in PCSX2; a four-scene orbit fixture with empty scenes,
 a custom table reader and enabled culling also linked successfully.
 
-### Remaining compiler bottleneck
+### Parallel game compilation
 
-The generated FPP game source has 30,400 lines. In an isolated GCC 15.2
-`-ftime-report` probe, its `-g -O3` compilation took 85.6 s wall time at 99% CPU
-(about one logical core), with 91% of reported compiler-pass time in optimization
-and code generation and 5% in parsing. The backend already uses `make -j24` on
-this machine: once only this TU remains, other cores cannot shorten that work.
-A follow-up `-O3` probe took 81.9 s; exploratory `-O2` probes took 68.5/68.5 s.
-These are diagnostic compiler runs, not hardware FPS validation or a reason to
-change the default optimization level. `-O3` remains unchanged. See GCC's
+The previous generated FPP implementation had 30,400 lines in one compilation
+unit. GCC 15.2 `-g -O3` probes took 85.6/81.9 s at about one core, with 90-91%
+of reported pass time in optimization/code generation and 5% in parsing. More
+make jobs could not split that single compiler process. Exploratory `-O2`
+probes took 68.5/68.5 s; the default remains `-O3`.
+
+The implementation now has six compilation units:
+
+| File | Responsibility |
+|---|---|
+| `src/terrain_game.cpp` | Startup, frame loop, camera and exported globals; user-ownable |
+| `src/gen/game_scene.gen.cpp` | Scene loading, animation, audio, menus and HUD |
+| `src/gen/game_lighting.gen.cpp` | Lights, shadows and text rendering |
+| `src/gen/game_collision.gen.cpp` | Collision, visibility and procedural geometry |
+| `src/gen/game_vehicles.gen.cpp` | Vehicles, roads and spawned objects |
+| `src/gen/game_physics.gen.cpp` | Rigid bodies, scene views, terrain and player rendering |
+
+`inc/game_runtime.gen.hpp` holds shared helpers/types and C++17 inline state.
+Named helper namespaces and inline variables keep caches, counters and loading
+state unique across units. Generated header tables have shared identities too:
+an inline pointer table must not refer to different private arrays in each unit.
+Small shared helpers remain available for inlining; calls between member methods
+in different source files no longer have the old whole-unit inlining opportunity.
+Do not claim a hardware frame-rate improvement from host build timings.
+
+On the warmed Windows/WSL `vehicle-playground` fixture, two active day/night
+ambient-key changes took 40.9/45.2 s to build and two Project > Show Memory
+toggles took 38.2/39.9 s. Generation/baking took another 4.4-4.9 s and is excluded
+from those native timings. Both edits still change headers and compile their
+consumers, but the game units now compile in parallel. Object-only iteration
+continues to use the separate data unit. Installation, engine rebuilds and
+large asset/light bakes are separate costs.
+
+Both FPP `vehicle-playground` and a four-scene orbit fixture (empty scenes,
+custom table reader, culling enabled) built with the native backend and booted
+in private PCSX2 instances. All 264 historical example game units passed PS2
+syntax checks; 1,113 existing header/type table bodies were unchanged apart from
+linkage/namespace qualifiers. Ownership checks preserved custom mains and
+removed stale shards when returning to a legacy monolith. Linked light-cache
+symbols have one instance. After the split, ordinary physics-box move,
+static-box addition and removal took 10.5/9.2/9.0 s, with unchanged headers and
+only `scene_objects.gen.cpp` compiled. The terrain layer selection scratch array
+is initialized explicitly, avoiding GCC's conditional uninitialized warning.
+
+Native make chooses its job count with `getconf _NPROCESSORS_ONLN` on the
+execution host. This returned 24 on the measured PC; fewer visible logical CPUs
+produce fewer jobs automatically, including CPUs constrained by WSL settings.
+
+The generator's implementation templates live in `src/game_templates.inc`,
+included by `templates.cpp`; there is no runtime parser splitting arbitrary
+C++. Existing marker-owned monoliths upgrade on refresh. A legacy monolith
+whose owner removed the marker remains intact and receives no subsystem sources.
+A user-owned modern main keeps the `game_runtime.gen.hpp` include and continues
+to receive generated helpers/subsystems. Returning to an owned legacy monolith
+removes stale generated subsystem sources to avoid duplicate definitions.
+Generated subsystem files and the shared helper header are always editor-owned.
+
+Remaining improvements include moving ordinary runtime settings out of headers
+while retaining compile-time feature/layout decisions. Precompiled headers target
+the small parsing share; compiler forks need their own evidence. See GCC's
 [profiling options](https://gcc.gnu.org/onlinedocs/gcc/Developer-Options.html) and
 [optimization levels](https://gcc.gnu.org/onlinedocs/gcc/Optimize-Options.html).
-
-Changing the active day/night ambience's ambient keys still changed
-`scene_data.hpp`; toggling Project > Show Memory changed `terrain_config.hpp`.
-Generation took about 4.5-4.8 s for those scratch probes, while either header
-change invalidates the large game TU. Editing unused inherited lighting values
-correctly produced no source change. Bigger baked-light/asset changes can have
-additional costs; these probes did not benchmark those bakes.
-
-The next structural step is splitting independently compilable game subsystems
-(rendering, physics, scene loading) and separating remaining runtime setting
-values from compile-time feature/layout decisions. That can expose real
-parallelism while narrowing invalidation. Precompiled headers target the small
-parsing share; a compiler fork is a much larger project than reducing the TU's
-work. Any split or optimization-level change needs PS2 runtime validation to
-price lost inlining or altered code generation, not only a faster host build.
 
 To measure iteration, copy an example outside the tracked project, build it
 once to warm the cache, then time a second `--build`. Also test a one-file script
 edit, a scene edit, and an engine edit separately: feature and derived-table edits can
-invalidate the large `terrain_game.cpp`, which still needs a full compiler pass.
+invalidate all six game units, which compile in parallel.
 Compare repeated alternating runs; exclude installation and cold-cache builds
 from incremental timings.
 

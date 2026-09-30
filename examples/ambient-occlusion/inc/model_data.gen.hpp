@@ -3,7 +3,7 @@
 
 namespace Ambient_occlusion {
 
-constexpr int MODEL_COUNT = 7;
+inline constexpr int MODEL_COUNT = 7;
 inline const char* MODEL_PATHS[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {
     "models/Wall_Plaster_Straight.tmdl",
     "models/Wall_Plaster_Door_Round.tmdl",
@@ -37,15 +37,15 @@ inline const char* MODEL_SOURCES[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {
     "res/models/Prop_Crate.obj",
     "res/models/Prop_WoodenFence_Single.obj",
 };
-constexpr bool MODEL_NEEDS_COLLIDER[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {false, false, false, false, false, false, false};
+inline constexpr bool MODEL_NEEDS_COLLIDER[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {false, false, false, false, false, false, false};
 
-constexpr int ANIM_MODEL_COUNT = 0;
+inline constexpr int ANIM_MODEL_COUNT = 0;
 inline const char* ANIM_MODEL_PATHS[ANIM_MODEL_COUNT > 0 ? ANIM_MODEL_COUNT : 1] = {
     "",
 };
 
 // .mtl libraries assigned to primitives (first material = surface)
-constexpr int MATERIAL_COUNT = 3;
+inline constexpr int MATERIAL_COUNT = 3;
 inline const char* MATERIAL_PATHS[MATERIAL_COUNT > 0 ? MATERIAL_COUNT : 1] = {
     "materials/terrace.mtl",
     "materials/wall.mtl",
@@ -53,6 +53,6 @@ inline const char* MATERIAL_PATHS[MATERIAL_COUNT > 0 ? MATERIAL_COUNT : 1] = {
 };
 
 // texture atlas summary, logged at scene boot ("" = no atlas)
-constexpr const char* TEXTURE_ATLAS_INFO = "";
+inline constexpr const char* TEXTURE_ATLAS_INFO = "";
 
 }  // namespace Ambient_occlusion
