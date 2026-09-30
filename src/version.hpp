@@ -1,5 +1,7 @@
 #pragma once
 
+// 1.161.5: report buffered OpenVCL assembly output failures instead of
+// silently succeeding with missing/truncated output. No format change.
 // 1.161.4: compile generated game subsystems in parallel with shared inline
 // helpers/state and preserve owned legacy/modern mains. No format change.
 // 1.161.3: compile authored scene object values in one generated TU, avoiding
@@ -5553,7 +5555,7 @@
 // existing unlit VU1 path; conservative local bounds, custom stages unchanged.
 // 1.150.1: prepare driveable vehicle HUD fonts during scene loading; plain
 // runtime text no longer loads the icon sheet before drawing an actual icon.
-#define TYRAX_VERSION_PATCH 4
+#define TYRAX_VERSION_PATCH 5
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

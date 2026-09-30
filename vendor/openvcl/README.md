@@ -51,6 +51,16 @@ GIF packet VU1 stages on a sampled flush is identical across the whole dump bar
 the microprogram entry address. Upstream's own test suite — 419 tests, 4465
 assertions — passes unmodified.
 
+## Output error handling
+
+A successful compilation also requires a successful assembly output flush.
+File streams can buffer an entire small program and fail only at flush time;
+OpenVCL now reports `Could not write output` and exits unsuccessfully for those
+errors instead of returning success with truncated/missing assembly. This also
+checks stdout, which the native Makefile redirects into a VSM file. Successful
+assembly text and scheduling choices are unchanged. The CLI regression uses
+Linux `/dev/full`, which opens successfully and then rejects writes.
+
 ## The twenty-one options
 
 Every one is off by default and each was added to close a measured gap, in this

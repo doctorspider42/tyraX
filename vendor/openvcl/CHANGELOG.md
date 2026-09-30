@@ -1,5 +1,10 @@
 ## Unreleased
 
+- Compiled assembly output is explicitly flushed and checked before reporting
+  success. Buffered file/stdout write failures (for example ENOSPC) now emit
+  `Could not write output` and produce a nonzero exit status. A Linux `/dev/full`
+  CLI regression verifies the case where opening succeeds but flushing fails.
+
 - The CMake build is now genuinely out-of-source: the executable stays in the
   build directory and integration tests resolve that target directly. The old
   LoopCS register regression now asserts the actual safety property — a reused

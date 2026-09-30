@@ -2468,6 +2468,16 @@ bool Parser::writeOutputStream( std::ostream& stream )
 	else
 		m_codeGenerator.write( stream );
 
+	// File streams can buffer the entire program: an ENOSPC or failed stdout
+	// write may only become visible when the buffer is flushed. Do not report a
+	// successful compilation while leaving missing/truncated assembly behind.
+	stream.flush();
+	if( !stream.good() )
+	{
+		Error::Display( Error( "Could not write output" ) );
+		return false;
+	}
+
 	setState( EXIT );
 
 	return true;

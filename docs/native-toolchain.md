@@ -267,6 +267,23 @@ from incremental timings.
 
 ![Native build backend selected in Editor Preferences](img/native-build-backend.png)
 
+### OpenVCL output failure audit
+
+OpenVCL's assembly writer previously returned success without checking buffered
+output errors. A valid minimal program compiled to Linux `/dev/full` returned
+0 despite the rejected write. The writer now flushes the stream, checks its
+state, emits `Could not write output` and returns failure. This covers both
+`-o <file>` and stdout redirected by native make. It is a correctness fix,
+not a compile-speed claim; optimization/scheduling flags stay unchanged.
+
+The CLI regression failed before the fix and passed afterwards. The complete
+OpenVCL suite passed (420 tests, 4,469 assertions). All 32 cached native engine
+VU programs emitted byte-identical assembly with the production scheduling flags;
+file output and redirected stdout both fail correctly on `/dev/full`. The editor
+also built in Windows Release. Installing the updated compiler
+changes the toolchain fingerprint, so the next native build refreshes its
+compiler/engine cache once before returning to ordinary warmed iteration.
+
 ### Coming back from the Docker fallback
 
 The container writes into the project through a bind mount **as root**, and on

@@ -268,3 +268,27 @@ TEST_CASE("CLI: schedule JSON dump honors generic software-pipeline rewrites")
     CHECK(contains(r.stdout_data, "\"first\": \"loop_lid:\""));
     CHECK(contains(r.stdout_data, "\"first\": \"div[branch_delay]\""));
 }
+
+#ifdef __linux__
+TEST_CASE("CLI: an output write failure reports failure, including buffered writes")
+{
+    // /dev/full opens successfully, then rejects writes with ENOSPC. The small
+    // program fits in the file stream's buffer, so checking insertion alone
+    // misses the error until the buffer is explicitly flushed.
+    const std::string input =
+        "\t.init_vf_all\n"
+        "\t.init_vi_all\n"
+        "\t.name ioTest\n"
+        "\t--enter\n"
+        "\t--endenter\n"
+        "\tnop\n"
+        "\t--exit\n"
+        "\t--endexit\n";
+    std::vector<std::string> args;
+    args.push_back("-o");
+    args.push_back("/dev/full");
+    ::test::RunResult r = ::test::run_openvcl(args, input);
+    CHECK(r.exit_code != 0);
+    CHECK(contains(r.stderr_data, "Could not write output"));
+}
+#endif
