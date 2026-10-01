@@ -539,6 +539,25 @@ as a dark box floating a metre beside it:
 The cache version moved to 6, so every existing bake reads stale until it is
 re-baked.
 
+**The plinth's own shadow was a set of triangles (1.163.2).** On the Motor
+District towers, the shadow on the plinth ended in hard 1-unit diagonals,
+running along the pieces' edges rather than along the building's shadow. Two
+causes:
+
+- **The tile column walked through the plinth too.** So the texel landed on
+  the ground *under* the plinth. That ground is always fully shaded, because
+  the plinth covers it, so every plinth piece carried one flat dark value. The
+  walk now stops at the caster's own floor face (upward, within 1 unit of its
+  lowest point) and receives there, traced with the sun cone like any other
+  receiver. The plinth gets its real soft shadow.
+- **The piece filter tested one ray at one point:** the piece's centre,
+  straight at the sun. Now a piece is kept if any of seven points (corners,
+  edge midpoints, centre) sees any of nine directions across the sun disk
+  blocked, so the penumbra is no longer cut off.
+
+On Motor District's main scene that is 932 decal triangles instead of 713,
+13 KB more ELF. The cache version moved to 7.
+
 ### Ground shadow maps
 
 *Ambience Editor > Baked lighting > Ground shadows* (1.163.0). Off by default.

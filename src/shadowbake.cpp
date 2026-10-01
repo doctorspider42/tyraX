@@ -26,7 +26,7 @@ constexpr uint32_t kCacheMagic = 0x4448534Du;  // "MSHD"
 // Bumped whenever the bake's OUTPUT changes shape or value. It rides in the
 // signature, so a bump stales every cache without anything else having to
 // know.
-constexpr uint32_t kCacheVersion = 6;  // 6: per-column start, roads, own plinth
+constexpr uint32_t kCacheVersion = 7;  // 7: own plinth is a tile receiver
 
 constexpr float kPi = 3.14159265358979f;
 // How far past the caster's own extent the receiver search starts. The common
@@ -536,6 +536,25 @@ Bake bakeScene(const Project& p, int sceneIndex, const std::atomic<bool>* cancel
         casterTree.tn.assign(casterTree.tv.size(), 0.0f);
         bvh::build(casterTree);
         if (casterTree.empty()) continue;
+        // The caster's lowest point: its own floor faces (a plinth, a
+        // pavement slab) sit within kSelfFloor of it.
+        float casterFloorY = 1e30f;
+        for (size_t k = 1; k < casterTree.tv.size(); k += 3)
+            casterFloorY = std::min(casterFloorY, casterTree.tv[k]);
+        // Is caster triangle `tri` one of those floor faces, facing the sun?
+        const auto isOwnFloor = [&](int tri) {
+            if (tri < 0) return false;
+            const float* v = &casterTree.tv[(size_t)tri * 9];
+            const V3 e0{v[3] - v[0], v[4] - v[1], v[5] - v[2]};
+            const V3 e1{v[6] - v[0], v[7] - v[1], v[8] - v[2]};
+            V3 n = cross(e0, e1);
+            const float nl = std::sqrt(n.x * n.x + n.y * n.y + n.z * n.z);
+            if (nl <= 0.0f) return false;
+            n = n * (1.0f / nl);
+            if (n.y < 0.0f) n = n * -1.0f;  // winding-independent: up is up
+            if (n.y < 0.8f) return false;
+            return std::max(v[1], std::max(v[4], v[7])) <= casterFloorY + kSelfFloor;
+        };
 
         // The frame the projection will actually sample the tile in - read
         // back from decalproj rather than assumed, so a gimbal-locked Euler
@@ -583,23 +602,42 @@ Bake bakeScene(const Project& p, int sceneIndex, const std::atomic<bool>* cancel
                                  axZ * (0.5f * c.scale[2]);
                     const V3 down = axZ * -1.0f;
                     const float dir[3] = {down.x, down.y, down.z};
+                    //
+                    // Except at the caster's OWN floor (a plinth, a slab):
+                    // that is where the column stops and receives. Walking
+                    // through it too put the texel on the ground UNDER the
+                    // plinth - always fully shaded, by the plinth - so the
+                    // plinth's pieces (below) all carried one flat dark value
+                    // and the only shape the shadow had there was which piece
+                    // survived: hard 1 m triangles instead of the penumbra.
                     float from = 0.0f;
+                    bool onOwnFloor = false;
+                    float floorT = 0.0f;
                     for (int k = 0; k < 32; ++k) {
                         const V3 at = o + down * from;
                         const float at3[3] = {at.x, at.y, at.z};
                         bvh::Hit hc;
                         if (!bvh::trace(casterTree, at3, dir, c.scale[2] - from, true, hc))
                             break;
+                        if (isOwnFloor(hc.tri)) {
+                            onOwnFloor = true;
+                            floorT = from + hc.t;
+                            break;
+                        }
                         from += hc.t + kExitBias;
                     }
-                    const float span = c.scale[2] - from;
-                    if (span <= 0.0f) continue;
-                    const V3 start = o + down * from;
-                    const float from3[3] = {start.x, start.y, start.z};
                     bvh::Hit h;
-                    if (!bvh::trace(scene.tree, from3, dir, span, true, h))
-                        continue;
-                    h.t += from;  // from the sun-side face, as the fade reads it
+                    if (onOwnFloor) {
+                        h.t = floorT;
+                    } else {
+                        const float span = c.scale[2] - from;
+                        if (span <= 0.0f) continue;
+                        const V3 start = o + down * from;
+                        const float from3[3] = {start.x, start.y, start.z};
+                        if (!bvh::trace(scene.tree, from3, dir, span, true, h))
+                            continue;
+                        h.t += from;  // from the sun-side face, as the fade reads it
+                    }
                     const V3 hit = o + down * h.t;
 
                     // How much of the sun this receiver point can see, through
@@ -775,15 +813,31 @@ Bake bakeScene(const Project& p, int sceneIndex, const std::atomic<bool>* cancel
             self.accept = [&](const SceneObject& o) { return o.id == src.id; };
             const decalproj::DecalMesh sm = decalproj::project(p, sc, proj, self);
             struct P5 { float v[5]; };
+            // A piece is kept if ANY of its corners, edge midpoints or centre
+            // sees ANY part of the sun disk blocked by the caster. The tile
+            // carries the real (soft) value now; this only decides which
+            // pieces are worth triangles. Testing the centre against the sun's
+            // centre alone cut the penumbra off along the pieces' own edges.
+            std::vector<V3> disk;
+            coneDirections(axZ, sunHalf, 8, 0x9e3779b9u, disk);
+            disk.push_back(axZ);
             const auto occluded = [&](const P5& a, const P5& b, const P5& q) {
-                const V3 m{(a.v[0] + b.v[0] + q.v[0]) / 3.0f,
-                           (a.v[1] + b.v[1] + q.v[1]) / 3.0f,
-                           (a.v[2] + b.v[2] + q.v[2]) / 3.0f};
-                const V3 o = m + axZ * kSunBias;
-                const float ro[3] = {o.x, o.y, o.z};
-                const float rd[3] = {axZ.x, axZ.y, axZ.z};
-                bvh::Hit hc;
-                return bvh::trace(casterTree, ro, rd, 1e5f, true, hc);
+                V3 pts[7];
+                const V3 A{a.v[0], a.v[1], a.v[2]}, B{b.v[0], b.v[1], b.v[2]},
+                    Q{q.v[0], q.v[1], q.v[2]};
+                pts[0] = A, pts[1] = B, pts[2] = Q;
+                pts[3] = (A + B) * 0.5f, pts[4] = (B + Q) * 0.5f, pts[5] = (Q + A) * 0.5f;
+                pts[6] = (A + B + Q) * (1.0f / 3.0f);
+                for (const V3& m : pts) {
+                    const V3 o = m + axZ * kSunBias;
+                    const float ro[3] = {o.x, o.y, o.z};
+                    for (const V3& d : disk) {
+                        const float rd[3] = {d.x, d.y, d.z};
+                        bvh::Hit hc;
+                        if (bvh::trace(casterTree, ro, rd, 1e5f, true, hc)) return true;
+                    }
+                }
+                return false;
             };
             const auto mid = [](const P5& a, const P5& b) {
                 P5 r;

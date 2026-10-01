@@ -5516,6 +5516,9 @@
 // District's open road on a PS2.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 163
+// 1.163.2: a caster's own plinth takes its real soft shadow - the tile column
+// stops at the caster's floor face, and plinth pieces are kept on any blocked
+// sun-disk ray; the hard 1 m triangles are gone. Shadow cache v7.
 // 1.163.1: ground shadow maps draw only the cells they shade (a baked row
 // mask per chunk) - Terrain 2.42 -> 1.73 ms on a PS2 at the garage pose.
 // 1.163.0: ground shadow maps - with Baked lighting > Ground shadows on, the
@@ -5571,7 +5574,7 @@
 // existing unlit VU1 path; conservative local bounds, custom stages unchanged.
 // 1.150.1: prepare driveable vehicle HUD fonts during scene loading; plain
 // runtime text no longer loads the icon sheet before drawing an actual icon.
-#define TYRAX_VERSION_PATCH 1
+#define TYRAX_VERSION_PATCH 2
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
