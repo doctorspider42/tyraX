@@ -5515,13 +5515,23 @@
 // host-baked albedo map (REFL_GROUND_*): -2 ms a turning frame on the Motor
 // District's open road on a PS2.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 166
-// 1.166.3: PS2 shading applies the terrain's AO per pixel (the console's
-// map pass) - per corner it printed dark flat cells round every object.
-// 1.166.2: RendererCore::endFrame drains the VIF1 queue - a frame with no 2D
-// left its last StaPip chains unstarted until the next frame's clear, so
-// baked shadow decals and blob shadows drew under the next frame's terrain
-// (examples/baked-shadows showed none). Engine only; no format change.
+#define TYRAX_VERSION_MINOR 167
+// 1.167.1: merged with this side's 1.166.1-1.166.3. The Docker fallback
+// (Sony's vcl) builds the engine again - the TC clip image loads its GIF tag
+// constants per buffer, output bit-identical. RendererCore::endFrame drains
+// the VIF1 queue - a frame with no 2D left its last StaPip chains unstarted
+// until the next frame's clear, so baked shadow decals and blob shadows drew
+// under the next frame's terrain. PS2 shading applies the terrain's AO per
+// pixel - per corner it printed dark flat cells round every object.
+// 1.167.0: exhaust pipes marked in the model - an empty named "exhaust" at
+// each opening (any number, up to six), arrow pointing out of the pipe. The
+// nitrous flame, the shift backfire and a new constant exhaust smoke
+// (Effects > Exhaust smoke, format v93) come out of them; a model without
+// markers keeps the old guessed pipes under the rear bumper.
+// 1.166.1: merged with the GI line-ending fix shipped on this side as 1.164.2 -
+// the GI, pre-lit and model-AO signatures ignore line endings in asset files
+// (GI cache v8, lit sig v2, model AO v2) and --bake-status reports every
+// cache's freshness without baking.
 // 1.166.0: a model's own collision box (Properties > Own collision box, "Fit
 // to post"; format v92) - a street lamp collides as its post, not the box
 // around its arm. Mesh-mode collision rejects far objects before any work:
@@ -5531,6 +5541,9 @@
 // bounces off it (revLimiter depth, revLimiterRate bounces/s; format v91). A
 // car's bumper hop is divided by the body's mass like the rest of its push,
 // so a heavy body no longer tips and spins as if it weighed nothing.
+// 1.164.2: the GI, pre-lit and model-AO signatures ignore line endings in
+// asset files (GI cache v8, lit sig v2, model AO v2); the four GI examples are
+// re-baked; --bake-status reports every cache's freshness without baking.
 // 1.164.1: the shadow bake is 13x faster on Motor District (13.3 s -> 1.0 s):
 // decalproj caches parsed models and road triangles; --bake-shadows prints a
 // per-stage time split.
@@ -5597,10 +5610,7 @@
 // existing unlit VU1 path; conservative local bounds, custom stages unchanged.
 // 1.150.1: prepare driveable vehicle HUD fonts during scene loading; plain
 // runtime text no longer loads the icon sheet before drawing an actual icon.
-// 1.166.1: the Docker fallback (Sony's vcl) builds the engine again - the TC
-// clip image loads its GIF tag constants per buffer (no opt table in
-// sharedDirMode since the TD path joined it); output bit-identical.
-#define TYRAX_VERSION_PATCH 3
+#define TYRAX_VERSION_PATCH 1
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
@@ -6085,7 +6095,12 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // v92 (docs/collision-boxes.md, "A smaller box"): Project::modelCollision,
 // a per-model collision box keyed by asset path, written only when set.
 // Missing = the mesh bounds as before. Additive; no migration step.
-inline constexpr int kFormatVersion = 92;
+// v93 (docs/vehicles.md, "Exhaust pipes"): a definition's bake-measured
+// "exhausts" (written only when non-empty) and drive-spec key exhaustSmoke,
+// written with the rest of the spec. Missing = no markers (the guessed pipes)
+// and smoke 1, i.e. an older car smokes too - it is presentation. Additive;
+// no migration step.
+inline constexpr int kFormatVersion = 93;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

@@ -670,9 +670,10 @@ void TerrainGame::updateVehicleSmoke(float dt) {
       // Textured puffs read smaller than a flat quad (the texture's alpha
       // falls off before the corners): start small, billow out. A library
       // effect brings its own start and end size.
-      const float size = look.effect ? look.size0 + (1.0F - t) * (look.size1 - look.size0)
-                         : fx.smokeTex ? (0.22F + (1.0F - t) * 1.45F)
-                                       : (0.30F + (1.0F - t) * 0.95F);
+      const float size = (look.effect ? look.size0 + (1.0F - t) * (look.size1 - look.size0)
+                          : fx.smokeTex ? (0.22F + (1.0F - t) * 1.45F)
+                                        : (0.30F + (1.0F - t) * 0.95F)) *
+                         (fx.smokeScale[i] > 0.0F ? fx.smokeScale[i] : 1.0F);
       const float age = fx.smokeMaxLife[i] - fx.smokeLife[i];
       const float ang = (float)i * 2.4F + (i & 1 ? 1.1F : -1.1F) * age;
       const float ca = cosf(ang), sa = sinf(ang);
@@ -682,7 +683,7 @@ void TerrainGame::updateVehicleSmoke(float dt) {
       // Fade in over the first tenth (no pop at birth), out quadratically.
       const float in = (1.0F - t) < 0.1F ? (1.0F - t) * 10.0F : 1.0F;
       const float peak = look.effect ? look.alpha : (fx.smokeTex ? 84.0F : 88.0F);
-      const float a = peak * t * t * in;
+      const float a = peak * t * t * in * (fx.smokeFade[i] > 0.0F ? fx.smokeFade[i] : 1.0F);
       // Additive pools carry the fade in the colour - the GS never reads
       // alpha there.
       const float kc = fx.smokeAdditive ? a * (1.0F / 128.0F) : 1.0F;
@@ -1505,8 +1506,7 @@ void TerrainGame::vehicleDetachPiece(int vi, int row, const float* dent) {
       const float cdx = wc[0] - cameraPosition.x, cdz = wc[2] - cameraPosition.z;
       if (cdx * cdx + cdz * cdz < 70.0F * 70.0F)
         for (int b = 0; b < 10; ++b) {
-          const int sl = fx->smokeNext;
-          fx->smokeNext = (fx->smokeNext + 1) % kVehSmokeMax;
+          const int sl = fx->takeSmoke();
           const float a = (float)b * 2.39996F;
           fx->smokePos[sl].set(wc[0], wc[1], wc[2], 1.0F);
           const float ox = dent[3] * cy + dent[4] * sy, oz = -dent[3] * sy + dent[4] * cy;
@@ -1934,6 +1934,85 @@ void TerrainGame::applyVehicleEnvLimits() {
 }
 
 
+int TerrainGame::vehicleExhausts(const VehicleRt& v, float out[kVehExhaustMax][6],
+                                 bool& marked) const {
+  int n = 0;
+  for (int r = 0; r < VEHICLE_EXHAUST_COUNT && n < kVehExhaustMax; ++r) {
+    const VehicleExhaust& e = VEHICLE_EXHAUSTS[r];
+    if (e.def != v.def) continue;
+    for (int a = 0; a < 3; ++a) out[n][a] = e.p[a], out[n][3 + a] = e.d[a];
+    ++n;
+  }
+  marked = n > 0;
+  if (marked) return n;
+  // No markers: the guess the flame always made - two pipes a quarter of the
+  // track apart, just outside whichever of the measured tail lamps and the
+  // drive proxy's overhang puts the rear face further back.
+  const VehicleDefData& s = VEHICLE_DEFS[v.def];
+  const bool measured = s.lampRear[3] > 0.0F;
+  const float bodyRear = -(0.5F * s.wheelBase + s.bodyOverhang);
+  const float rearFace = measured && s.lampRear[2] < bodyRear ? s.lampRear[2] : bodyRear;
+  for (int side = -1; side <= 1; side += 2) {
+    out[n][0] = 0.26F * s.track * (float)side;
+    out[n][1] = measured ? s.lampRear[1] * 0.45F : 0.08F;
+    out[n][2] = rearFace - 0.08F;
+    out[n][3] = 0.0F, out[n][4] = 0.0F, out[n][5] = -1.0F;
+    ++n;
+  }
+  return n;
+}
+
+// The exhaust's own smoke: a thin grey puff out of every pipe while the
+// engine runs, thicker on the throttle - into the tyre-smoke pool, so it adds
+// no submit. Only cars someone drives (the player or an AI route), and only
+// near the camera, because the pool is shared by every car of the definition.
+void TerrainGame::updateVehicleExhaustSmoke(int vi, float dt, float throttle) {
+  VehicleRt& v = vehicles_[vi];
+  const VehicleDefData& s = VEHICLE_DEFS[v.def];
+  const bool running = vi == vehicleDriver_ || v.wpCount > 0;
+  const float dx = v.pos[0] - cameraPosition.x, dz = v.pos[2] - cameraPosition.z;
+  if (!running || s.exhaustSmoke <= 0.0F || dx * dx + dz * dz > 35.0F * 35.0F) {
+    v.exhaustAcc = 0.0F;
+    return;
+  }
+  VehFx* fx = vehFxFor(v.def);
+  if (!fx) return;
+  float pipes[kVehExhaustMax][6];
+  bool marked = false;
+  const int n = vehicleExhausts(v, pipes, marked);
+  if (n <= 0) return;
+  const float th = vehClamp(throttle, 0.0F, 1.0F);
+  // Puffs per second per pipe: a lazy idle, more on the throttle.
+  v.exhaustAcc += (2.0F + 5.0F * th) * dt * (float)n;
+  if (v.exhaustAcc < 1.0F) return;
+  const float kDeg = 0.017453293F;
+  const float cy = cosf(v.yaw * kDeg), sy = sinf(v.yaw * kDeg);
+  const float SC = v.scale;
+  const float density = vehClamp(s.exhaustSmoke, 0.0F, 3.0F);
+  while (v.exhaustAcc >= 1.0F) {
+    v.exhaustAcc -= 1.0F;
+    const float* q = pipes[v.exhaustNext % n];
+    v.exhaustNext = (v.exhaustNext + 1) % 64;
+    // Body -> world on the heading; the body's pitch and roll are a few
+    // degrees, which a puff that drifts off at once cannot show.
+    const float wx = q[0] * cy + q[2] * sy, wz = -q[0] * sy + q[2] * cy;
+    const float dwx = q[3] * cy + q[5] * sy, dwz = -q[3] * sy + q[5] * cy;
+    const int k = fx->takeSmoke();
+    fx->smokePos[k].set(v.pos[0] + (wx + dwx * 0.06F) * SC, v.pos[1] + (q[1] + q[4] * 0.06F) * SC,
+                        v.pos[2] + (wz + dwz * 0.06F) * SC, 1.0F);
+    // Blown out of the pipe, then left behind in the air the car drives
+    // through - which is what makes a moving car's smoke trail it.
+    const float jet = 0.9F + 1.2F * th;
+    fx->smokeVel[k].set(dwx * jet + sy * v.speed * 0.15F, q[4] * jet + 0.25F,
+                        dwz * jet + cy * v.speed * 0.15F, 0.0F);
+    fx->smokeMaxLife[k] = 0.55F + 0.35F * th;
+    fx->smokeLife[k] = fx->smokeMaxLife[k];
+    fx->smokeShade[k] = 0.8F;
+    fx->smokeScale[k] = 0.55F + 0.2F * th;
+    fx->smokeFade[k] = vehClamp((0.6F + 0.4F * th) * density, 0.0F, 1.0F);
+  }
+}
+
 void TerrainGame::renderVehicleLampGlow() {
   if (VEHICLE_DEF_COUNT <= 0 || !beamCoronaTex) return;
   const float kDeg = 0.017453293F;
@@ -2056,95 +2135,93 @@ void TerrainGame::renderVehicleLampGlow() {
         }
         ++quads;
       }
-      if (backfire && quads + 2 <= kVehLampGlowMax) {
+      // The exhaust pipes (docs/vehicles.md, "Exhaust pipes"): the model's
+      // markers, else two guessed under the rear bumper.
+      float pipes[kVehExhaustMax][6];
+      bool marked = false;
+      const int pipeCount = (backfire || flame) ? vehicleExhausts(v, pipes, marked) : 0;
+      // One camera-facing corona quad centred on c, half sizes hw x hh.
+      auto corona = [&](const float* c, float hw, float hh, const Tyra::Color& col) {
+        const float ax = rx * hw, az = rz * hw;
+        const float vx = ux * hh, vy = uy * hh, vz = uz * hh;
+        const Vec4 q[6] = {
+            Vec4(c[0] - ax - vx, c[1] - vy, c[2] - az - vz, 1.0F),
+            Vec4(c[0] + ax - vx, c[1] - vy, c[2] + az - vz, 1.0F),
+            Vec4(c[0] + ax + vx, c[1] + vy, c[2] + az + vz, 1.0F),
+            Vec4(c[0] - ax - vx, c[1] - vy, c[2] - az - vz, 1.0F),
+            Vec4(c[0] + ax + vx, c[1] + vy, c[2] + az + vz, 1.0F),
+            Vec4(c[0] - ax + vx, c[1] + vy, c[2] - az + vz, 1.0F)};
+        const Vec4 st[6] = {Vec4(0, 1, 1, 0), Vec4(1, 1, 1, 0), Vec4(1, 0, 1, 0),
+                            Vec4(0, 1, 1, 0), Vec4(1, 0, 1, 0), Vec4(0, 0, 1, 0)};
+        auto gv = lampGlowVerts_.span((size_t)quads * 6, 6);
+        auto gs = lampGlowSts_.span((size_t)quads * 6, 6);
+        auto gc = lampGlowCols_.span((size_t)quads * 6, 6);
+        for (int j = 0; j < 6; ++j) gv[j] = q[j], gs[j] = st[j], gc[j] = col;
+        ++quads;
+      };
+      // A point `along` body units out of pipe p, in world space.
+      auto atPipe = [&](const float* p, float along, float* c) {
+        for (int a = 0; a < 3; ++a)
+          c[a] = bo[a] + (bx[a] * (p[0] + p[3] * along) + by[a] * (p[1] + p[4] * along) +
+                          bz[a] * (p[2] + p[5] * along)) * SC;
+      };
+      if (backfire) {
         // An upshift gets two short, soft coronas at the exhaust. The old
         // untextured vertical quad showed its hard orange rectangle below the
         // bumper, especially when a handbrake slide exposed a gear change.
-        const bool measured = s.lampRear[3] > 0.0F;
-        const float bodyRear = -(0.5F * s.wheelBase + s.bodyOverhang);
-        const float rearFace = measured && s.lampRear[2] < bodyRear
-                                   ? s.lampRear[2] : bodyRear;
         const float strength = vehClamp(v.backfireT / 0.09F, 0.0F, 1.0F) * distFade;
-        for (int layer = 0; layer < 2; ++layer) {
-          const float z = rearFace - (layer == 0 ? 0.12F : 0.32F);
-          const float h = (layer == 0 ? 0.18F : 0.28F) * SC * strength;
-          float c[3];
-          for (int a = 0; a < 3; ++a)
-            c[a] = bo[a] + (by[a] * 0.12F + bz[a] * z) * SC;
-          const float ax = rx * h, az = rz * h;
-          const float vx = ux * h, vy = uy * h, vz = uz * h;
-          const Vec4 q[6] = {
-              Vec4(c[0]-ax-vx, c[1]-vy, c[2]-az-vz, 1.0F),
-              Vec4(c[0]+ax-vx, c[1]-vy, c[2]+az-vz, 1.0F),
-              Vec4(c[0]+ax+vx, c[1]+vy, c[2]+az+vz, 1.0F),
-              Vec4(c[0]-ax-vx, c[1]-vy, c[2]-az-vz, 1.0F),
-              Vec4(c[0]+ax+vx, c[1]+vy, c[2]+az+vz, 1.0F),
-              Vec4(c[0]-ax+vx, c[1]+vy, c[2]-az+vz, 1.0F)};
-          const Vec4 st[6] = {Vec4(0,1,1,0), Vec4(1,1,1,0), Vec4(1,0,1,0),
-                              Vec4(0,1,1,0), Vec4(1,0,1,0), Vec4(0,0,1,0)};
-          const Tyra::Color col = layer == 0
-              ? Tyra::Color(180.0F * strength, 120.0F * strength,
-                            65.0F * strength, 128.0F)
-              : Tyra::Color(150.0F * strength, 55.0F * strength,
-                            15.0F * strength, 128.0F);
-          auto gv = lampGlowVerts_.span((size_t)quads * 6, 6);
-          auto gs = lampGlowSts_.span((size_t)quads * 6, 6);
-          auto gc = lampGlowCols_.span((size_t)quads * 6, 6);
-          for (int j = 0; j < 6; ++j) gv[j] = q[j], gs[j] = st[j], gc[j] = col;
-          ++quads;
+        const Tyra::Color hot(180.0F * strength, 120.0F * strength, 65.0F * strength, 128.0F);
+        const Tyra::Color outer(150.0F * strength, 55.0F * strength, 15.0F * strength, 128.0F);
+        if (marked) {
+          // Out of every marked pipe, a little smaller each.
+          for (int pi = 0; pi < pipeCount && quads + 2 <= kVehLampGlowMax; ++pi)
+            for (int layer = 0; layer < 2; ++layer) {
+              float c[3];
+              atPipe(pipes[pi], layer == 0 ? 0.04F : 0.22F, c);
+              const float h = (layer == 0 ? 0.14F : 0.22F) * SC * strength;
+              corona(c, h, h, layer == 0 ? hot : outer);
+            }
+        } else if (quads + 2 <= kVehLampGlowMax) {
+          // No markers: one pop on the centre line, behind the rear face.
+          const float bodyRear = -(0.5F * s.wheelBase + s.bodyOverhang);
+          const float rearFace = s.lampRear[3] > 0.0F && s.lampRear[2] < bodyRear
+                                     ? s.lampRear[2] : bodyRear;
+          for (int layer = 0; layer < 2; ++layer) {
+            const float z = rearFace - (layer == 0 ? 0.12F : 0.32F);
+            const float h = (layer == 0 ? 0.18F : 0.28F) * SC * strength;
+            float c[3];
+            for (int a = 0; a < 3; ++a) c[a] = bo[a] + (by[a] * 0.12F + bz[a] * z) * SC;
+            corona(c, h, h, layer == 0 ? hot : outer);
+          }
         }
         lampGlowWrote = true;
       }
       if (!flame) continue;
-      // Two pipes under the rear bumper, each a burst of three camera-facing
-      // coronas: a hot blue-white core, a wider blue glow round it and an
-      // orange lick further back. Their sizes flicker on two incommensurate
-      // sines so no two frames match - with the motion blur on top, that
-      // reads as a flame rather than three sprites.
-      const bool measured = s.lampRear[3] > 0.0F;
-      // The lamp can sit IN the rear panel, and bodyOverhang is only a drive
-      // proxy. Start outside whichever puts the rear face further back.
-      const float bodyRear = -(0.5F * s.wheelBase + s.bodyOverhang);
-      const float rearFace = measured && s.lampRear[2] < bodyRear
-                                 ? s.lampRear[2] : bodyRear;
-      const float pz = rearFace - 0.08F;
-      const float py = measured ? s.lampRear[1] * 0.45F : 0.08F;
-      const float px = 0.26F * s.track;
+      // Every pipe a burst of three camera-facing coronas along its way out:
+      // a hot blue-white core, a wider blue glow round it and an orange lick
+      // further out. Their sizes flicker on two incommensurate sines so no
+      // two frames match - with the motion blur on top, that reads as a
+      // flame rather than three sprites.
       const float I = vehClamp(s.feelFlame, 0.0F, 2.0F) * v.nosFx * distFade;
-      for (int side = -1; side <= 1 && quads + 3 <= kVehLampGlowMax; side += 2) {
-        const float ph = (float)(vi * 3 + side) * 1.7F;
+      for (int pi = 0; pi < pipeCount && quads + 3 <= kVehLampGlowMax; ++pi) {
+        const float ph = (float)(vi * 3 + pi * 2 - 1) * 1.7F;
         const float fl = 0.80F + 0.14F * sinf(flameClock * 41.0F + ph) +
                          0.10F * sinf(flameClock * 67.0F + ph * 2.3F);
         for (int layer = 0; layer < 3; ++layer) {
-          // back = how far behind the pipe, hs = half size, both in body units.
+          // back = how far out of the pipe, hs = half size, both in body units.
           const float back = layer == 2 ? 0.55F * fl : (layer == 1 ? 0.16F : 0.03F);
           const float hs = (layer == 0 ? 0.17F : (layer == 1 ? 0.36F : 0.26F)) * fl *
                            (0.55F + 0.45F * v.nosFx);
           float c[3];
-          for (int a = 0; a < 3; ++a)
-            c[a] = bo[a] + (bx[a] * px * (float)side + by[a] * py + bz[a] * (pz - back)) * SC;
+          atPipe(pipes[pi], back, c);
           // A lamp halo needs a camera pull; a flame does not. Pulling it
           // toward a side/rear camera detached its core from the pipe and
           // could move it across the body plane.
-          const float hw = hs * SC, hh = hs * SC * (layer == 2 ? 0.8F : 1.0F);
           Tyra::Color col;
           if (layer == 0) col = Tyra::Color(150.0F * I, 175.0F * I, 255.0F * I, 128.0F);
           else if (layer == 1) col = Tyra::Color(40.0F * I, 70.0F * I, 200.0F * I, 128.0F);
           else col = Tyra::Color(170.0F * I, 70.0F * I, 25.0F * I, 128.0F);
-          const float ax = rx * hw, az = rz * hw;
-          const float vx = ux * hh, vy = uy * hh, vz = uz * hh;
-          const Vec4 p0(c[0] - ax - vx, c[1] - vy, c[2] - az - vz, 1.0F);
-          const Vec4 p1(c[0] + ax - vx, c[1] - vy, c[2] + az - vz, 1.0F);
-          const Vec4 p2(c[0] + ax + vx, c[1] + vy, c[2] + az + vz, 1.0F);
-          const Vec4 p3(c[0] - ax + vx, c[1] + vy, c[2] - az + vz, 1.0F);
-          const Vec4 q[6] = {p0, p1, p2, p0, p2, p3};
-          const Vec4 st[6] = {Vec4(0, 1, 1, 0), Vec4(1, 1, 1, 0), Vec4(1, 0, 1, 0),
-                              Vec4(0, 1, 1, 0), Vec4(1, 0, 1, 0), Vec4(0, 0, 1, 0)};
-          auto gv = lampGlowVerts_.span((size_t)quads * 6, 6);
-          auto gs = lampGlowSts_.span((size_t)quads * 6, 6);
-          auto gc = lampGlowCols_.span((size_t)quads * 6, 6);
-          for (int j = 0; j < 6; ++j) gv[j] = q[j], gs[j] = st[j], gc[j] = col;
-          ++quads;
+          corona(c, hs * SC, hs * SC * (layer == 2 ? 0.8F : 1.0F), col);
         }
       }
     }
@@ -2344,8 +2421,7 @@ void TerrainGame::updateVehicleDamage(float dt) {
         if (fx && cdx * cdx + cdz * cdz < 70.0F * 70.0F) {
           const int burst = 3 + (int)(k * 5.0F);
           for (int b = 0; b < burst; ++b) {
-            const int sl = fx->smokeNext;
-            fx->smokeNext = (fx->smokeNext + 1) % kVehSmokeMax;
+            const int sl = fx->takeSmoke();
             const float jit = (float)(b - burst / 2) * 0.35F;
             fx->smokePos[sl].set(wx - wnz * jit * 0.3F * SC, v.pos[1] + dent[1],
                                  wz + wnx * jit * 0.3F * SC, 1.0F);
@@ -2377,8 +2453,7 @@ void TerrainGame::updateVehicleDamage(float dt) {
                                   : 0.35F * s.wheelBase * SC;
         while (v.dmgSmokeAcc >= 1.0F) {
           v.dmgSmokeAcc -= 1.0F;
-          const int sl = fx->smokeNext;
-          fx->smokeNext = (fx->smokeNext + 1) % kVehSmokeMax;
+          const int sl = fx->takeSmoke();
           const float jx = ((float)(sl % 5) - 2.0F) * 0.08F * SC;
           fx->smokePos[sl].set(v.pos[0] + jx * cy + lz * sy, v.pos[1] + ly,
                                v.pos[2] - jx * sy + lz * cy, 1.0F);
@@ -4199,8 +4274,7 @@ void TerrainGame::updateVehicles(float dt) {
         side ^= 1;
         VehFx* fx = vehFxFor(v.def);
         if (!fx) break;
-        const int k = fx->smokeNext;
-        fx->smokeNext = (fx->smokeNext + 1) % kVehSmokeMax;
+        const int k = fx->takeSmoke();
         fx->smokePos[k].set(v.pos[0] + lx2 * cy2 - hz2 * sy2,
                          // high enough that a new puff's lower half is not
                          // buried in the road it rolls off
@@ -4220,6 +4294,7 @@ void TerrainGame::updateVehicles(float dt) {
     } else {
       v.smokeAcc = 0.0F;
     }
+    updateVehicleExhaustSmoke(vi, dt, fabsf(inThrottle));
 
     // The wheels turn at the WHEEL speed, not the car's, so a burnout spins
     // them faster than the ground is moving.

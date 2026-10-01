@@ -4,6 +4,7 @@
 #include "particletex.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -1670,6 +1671,54 @@ bool build(const std::string& modelPath, const Options& opt, Result& out,
             out.notes.push_back(b);
         }
     }
+    // EXHAUST MARKERS (docs/vehicles.md, "Exhaust pipes"): a node with no
+    // geometry whose name starts with "exhaust" is a pipe's opening. The flame
+    // leaves along a Blender empty's arrow (local +Z, the Single Arrow
+    // display). Which NODE axis that is depends on the exporter: the glTF one
+    // converts every object's frame to Y-up, so the arrow is the node's +Y;
+    // the FBX one keeps the object's own axes (only the root is converted,
+    // and ufbx's ADJUST_TRANSFORMS leaves local frames alone), so it is +Z -
+    // measured both ways on one empty. An arrow left pointing straight up is
+    // an empty nobody rotated, so it means "out of the back"; a real upright
+    // stack tilts a degree off vertical.
+    {
+        std::string ext = std::filesystem::path(modelPath).extension().string();
+        for (char& ch : ext) ch = (char)std::tolower((unsigned char)ch);
+        const bool fbxAxes = ext == ".fbx";
+        int dropped = 0;
+        for (size_t i = 0; i < nodes.size() && i < g.size(); ++i) {
+            if (nodes[i].vertexCount > 0) continue;
+            std::string lower = sk.nodes[i].name;
+            for (char& ch : lower) ch = (char)std::tolower((unsigned char)ch);
+            if (lower.rfind("exhaust", 0) != 0) continue;
+            if ((int)out.exhausts.size() >= kMaxExhausts) {
+                ++dropped;
+                continue;
+            }
+            const float origin[3] = {0.0f, 0.0f, 0.0f};
+            const float axis[3] = {0.0f, fbxAxes ? 0.0f : 1.0f, fbxAxes ? 1.0f : 0.0f};
+            float wp[3], wd[3];
+            g[i].point(origin, wp);
+            g[i].dir(axis, wd);
+            std::array<float, 6> e{};
+            canon.point(wp, &e[0]);
+            canon.dir(wd, &e[3]);
+            for (int a = 0; a < 3; ++a) e[(size_t)a] -= bodyOrigin[a];
+            const float len = std::sqrt(e[3] * e[3] + e[4] * e[4] + e[5] * e[5]);
+            if (len > 1e-6f)
+                for (int a = 3; a < 6; ++a) e[(size_t)a] /= len;
+            if (len <= 1e-6f || e[4] > 0.9999f) e[3] = 0.0f, e[4] = 0.0f, e[5] = -1.0f;
+            out.exhausts.push_back(e);
+        }
+        char b[128];
+        if (out.exhausts.empty())
+            std::snprintf(b, sizeof(b), "Exhaust: no \"exhaust\" markers - the flame and smoke "
+                                        "use two guessed pipes under the rear bumper.");
+        else
+            std::snprintf(b, sizeof(b), "Exhaust: %zu pipe(s) marked%s.", out.exhausts.size(),
+                          dropped ? " (markers past the sixth ignored)" : "");
+        out.notes.push_back(b);
+    }
     out.bodyParts = (int)out.body.parts.size();
     out.wheelParts = (int)out.wheel.parts.size();
     out.bodyTris = modelTris(out.body);
@@ -1970,6 +2019,8 @@ bool adoptMeasured(VehicleDef& v, const Result& r) {
     v.envLimits = r.envLimits;
     if (v.lampGlows != r.lampGlows) changed = true;
     v.lampGlows = r.lampGlows;
+    if (v.exhausts != r.exhausts) changed = true;
+    v.exhausts = r.exhausts;
     // THE WHEEL RADIUS IS THE DRAWN WHEEL'S (docs/vehicles.md, "Wheels on the
     // road surface"). Both twins put a hub one wheelRadius above its ground
     // and the body rideHeight above the plane, so a definition whose radius

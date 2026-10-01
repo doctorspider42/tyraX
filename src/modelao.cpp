@@ -13,7 +13,7 @@
 #include "matbake.hpp"
 #include "objparser.hpp"
 #include "pngquant.hpp"
-#include "wire.hpp"  // hashFile - the CONTENT hash the signature is built on
+#include "wire.hpp"  // hashFileEolAgnostic - the CONTENT hash the signature is built on
 
 namespace fs = std::filesystem;
 
@@ -23,7 +23,7 @@ namespace {
 // Bump when anything about the produced pixels changes (the mesh input, the
 // bake parameters this module pins, the map encoding). Every cached map goes
 // stale at once, which is the point.
-constexpr uint64_t kCacheVersion = 1;
+constexpr uint64_t kCacheVersion = 2;  // 2: EOL-agnostic asset hashes
 
 // The AO map's own resolution, derived from the texture it multiplies into and
 // clamped: below 64 the occlusion under an eave is a single texel, above 256 a
@@ -223,7 +223,9 @@ uint64_t signature(const Project& p, const Target& t, const Params& prm) {
 
     auto mixFile = [&](const fs::path& file) {
         uint64_t fh = 0, fsz = 0;
-        if (wire::hashFile(file.string(), fh, fsz)) {
+        // Line-ending agnostic: a CRLF checkout of the same .obj/.mtl is the
+        // same mesh and must find the same map (the gibake/shadowbake rule).
+        if (wire::hashFileEolAgnostic(file.string(), fh, fsz)) {
             mix64(h, fh);
             mix64(h, fsz);
         }

@@ -323,6 +323,37 @@ re-bake. Worth doing after any merge that touched the scene, and worth reading
 before believing a screenshot: the difference between "GI is subtle here" and
 "GI is off" is not reliably visible by eye.
 
+Or ask the cache directly. `--bake-status` is read-only: it bakes nothing and
+regenerates nothing. It prints one line per scene, `fresh`, `STALE` (with the
+cached and live signatures), `absent (or an older cache version)` or `off`,
+and the same for baked shadows, pre-lit objects and model AO maps. It exits 3
+when anything is stale.
+
+```bash
+tyrax-editor --bake-status <projectDir>
+```
+
+**Line endings do not stale a cache (1.164.2).** The signature hashes the
+CONTENT of every file the bake reads, and the caches are checked in. A `.obj`
+or `.mtl` is text: a checkout that has it with CRLF endings has different bytes
+from one with LF. Files checked out before the repo pinned `eol=lf` keep their
+CRLF until they next change. On such a machine the raw-byte hash made a fresh
+cache read as stale, so the scene shipped the fallback with no error. Files
+are now hashed with every CRLF counted as LF (`wire::hashFileEolAgnostic`, the
+fix [baked shadows](shadows.md) got in 1.163.4), and the cache version moved
+to 8. Checked on a copy of `examples/showcase` with its 219 `.obj`/`.mtl`
+files rewritten to CRLF: `--bake-status` reads `STALE` with raw hashing and
+`fresh` with the new one. The v8 re-bake of the four examples has the same
+payload bytes as a v7 bake of the same inputs; only the version and the
+signature moved.
+
+**A cache version bump stales every checked-in cache.** `read()` refuses a
+file of another version, so it reads as absent. Re-bake every example that
+ships one (`git ls-files examples | grep res-baked`) in the same commit. Cache
+v7 landed without that re-bake. From then until 1.164.2, `gi-showcase`,
+`global-illumination`, `probe-lighting` and `showcase` built with the pre-GI
+fallback.
+
 ---
 
 ## Quality knobs

@@ -990,8 +990,10 @@ The result was no shadows in the editor and none in the game, with no error.
 Model files are now hashed with every CRLF counted as LF
 (`wire::hashFileEolAgnostic`), and the cache version moved to 8. Reproduced
 by converting the example's models to CRLF: the old build showed no shadows
-and the new one did. The GI, lit and model-AO signatures still hash raw
-bytes, so the same trap applies to them.
+and the new one did. The GI, pre-lit and model-AO signatures got the same fix
+in 1.164.2 ([global-illumination.md](global-illumination.md), "Line endings do
+not stale a cache"), and `--bake-status <projectDir>` now reads this cache's
+freshness without baking.
 
 
 `ProjectSettings::spotShadowVolumes` (`"spotShadowVolumes"` in the manifest's

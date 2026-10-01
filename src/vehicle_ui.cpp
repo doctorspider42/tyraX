@@ -1024,6 +1024,7 @@ void App::drawVehicleWindow() {
                 if (std::strncmp(f.key, "damage", 6) == 0) continue;  // Damage tab
                 if (std::strncmp(f.key, "lamp", 4) == 0) continue;    // Effects tab
                 if (std::strncmp(f.key, "feel", 4) == 0) continue;    // Effects tab
+                if (std::strncmp(f.key, "exhaust", 7) == 0) continue; // Effects tab
                 const char* group = nullptr;
                 if (!global && std::strcmp(f.key, "wheelBase") == 0) group = "Wheel placement";
                 if (std::strcmp(f.key, "topSpeed") == 0) group = "Power and speed";
@@ -1455,6 +1456,27 @@ void App::drawVehicleWindow() {
                 if (v.drive.nosCapacity <= 0.001f)
                     ImGui::TextDisabled("No nitrous (Driving > Nitrous seconds): "
                                         "the FOV kick and flame never fire.");
+            }
+            // Exhaust: where the nitrous flame, the shift backfire and the
+            // smoke come out - the model's "exhaust" empties.
+            ImGui::SeparatorText("Exhaust");
+            {
+                const std::vector<vehiclesim::SpecField> fields =
+                    vehiclesim::specFields(v.drive);
+                for (const vehiclesim::SpecField& f : fields) {
+                    if (std::strncmp(f.key, "exhaust", 7) != 0) continue;
+                    specControl(f);
+                }
+                if (!global) {
+                    if (v.exhausts.empty())
+                        ImGui::TextDisabled("No exhaust markers: two guessed pipes");
+                    else
+                        ImGui::Text("%zu exhaust pipe(s) marked on this body", v.exhausts.size());
+                    vehicleHelp(
+                        "Add an empty named \"exhaust\" (exhaust.001, ...) at each\n"
+                        "pipe's opening, its arrow pointing out of the pipe.\n"
+                        "Without one the effects use two pipes under the rear bumper.");
+                }
             }
             ImGui::EndTabItem();
         }

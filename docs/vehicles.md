@@ -182,6 +182,27 @@ flames as speed rises. The Driver tab controls the speedometer and HUD scale.
 
 ![Skid marks and tyre smoke](img/vehicle-skids-smoke.png)
 
+### Exhaust pipes
+
+The nitrous flame, the blue-orange pop on every upshift and a thin, constant
+exhaust smoke come out of the model's **exhaust markers**: geometry-free nodes
+(Blender empties) whose name starts with `exhaust` - `exhaust`, `exhaust.001`,
+`Exhaust_L` all count, up to six per car. Put each at a pipe's opening; the
+flame and smoke leave along the empty's arrow (Blender's *Single Arrow*, local
++Z), so rotate it to point out of the pipe. An empty left unrotated points
+straight up, which the import reads as "out of the back"; tilt a real upright
+stack a degree off vertical. Both `.glb` and `.fbx` work - the two exporters
+store that arrow on different node axes and the bake reads each correctly. The
+[Blender tutorial](blender-vehicle-modeling.md#4-mark-the-exhaust-pipes) shows
+the steps.
+
+A model with no markers keeps the old behaviour: two pipes guessed a quarter of
+the track apart under the rear bumper, and one centred pop per upshift. The
+Effects tab says which one a car has. **Exhaust smoke** (Effects > Exhaust)
+scales the smoke, 0 switches it off; it puffs only from cars that are driven
+(by the player or an AI route) within about 35 units of the camera, thicker on
+the throttle, and shares the tyre-smoke pool, so it costs no draw submission.
+
 ## Build and verify
 
 The editor bakes the imported model, paint, wheels and optional far tier, then

@@ -567,6 +567,10 @@ std::vector<SpecField> specFields(DriveSpec& s) {
          "Extra degrees of view while the nitrous burns - the rush of the boost."},
         {"feelFlame", &s.feelFlame, 0.0f, 2.0f, "Nitrous flame",
          "Brightness of the flame out of the exhaust while boosting. 0 = none."},
+        // Every "exhaust*" key is on the Effects tab as well.
+        {"exhaustSmoke", &s.exhaustSmoke, 0.0f, 3.0f, "Exhaust smoke",
+         "Thin smoke out of the exhaust pipes while the engine runs, thicker on "
+         "the throttle. 0 = none."},
     };
 }
 

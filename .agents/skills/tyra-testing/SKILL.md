@@ -196,6 +196,7 @@ TYRAX --resave <projectDir>          # load + save, no Docker
 TYRAX --migrate <projectDir>         # backup + apply format migrations
 TYRAX --refresh-gen <projectDir>     # regen sources, no Docker
 TYRAX --bake-gi <projectDir>         # bake global illumination, no Docker
+TYRAX --bake-status <projectDir>     # read-only: is every bake cache fresh? exit 3 = stale
 TYRAX --bake-model-ao <projectDir> [--texbake]   # per-model self-AO, no Docker
 TYRAX --bake-prelit <projectDir> [sceneName]     # re-bake STALE pre-lit objects
 TYRAX --dump <projectDir>            # JSON project summary
@@ -407,6 +408,16 @@ mtime before trusting a run from there.
   second build that says `fresh` for all of them; and it prints per scene how long it took plus
   the atlas/terrain/probe dimensions, which is the fastest sanity check that
   it saw any geometry at all (`atlas 0` means no eligible receivers).
+- `--bake-status <dir>` answers "is the cache fresh?" WITHOUT baking or
+  writing anything: one line per scene for GI and baked shadows (`fresh` /
+  `STALE` with the cache and live signatures / `absent (or an older cache
+  version)` / `off`), one per stamped pre-lit object and one per model-AO map,
+  then `bake status: fresh|STALE`; exit 0 or 3. Use it after any change to a
+  bake signature or cache version, on every example that checks a cache in
+  (`git ls-files examples | grep res-baked`). `absent` on a checked-in cache
+  means the format version moved without a re-bake. The line-ending recipe
+  (1.164.2): copy the example out of the tree, rewrite its `.obj`/`.mtl` to
+  CRLF, and it must still read `fresh`.
 - `--bake-model-ao` bakes every eligible `.obj` model's OWN ambient occlusion
   (docs/ambient-occlusion.md, "Model AO") into `.res-baked/modelao/` and prints
   one line per (model, texture) pair - `baked` / `fresh` / `skipped ... :

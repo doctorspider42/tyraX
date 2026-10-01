@@ -334,7 +334,11 @@ texture) pair, never shipped. The signature is a **content** hash — the `.obj`
 bytes, every `.mtl` it resolves, the texture's *dimensions*, the ray/distance
 knobs and the module version — following the same rule
 [GI](global-illumination.md) uses: never mtimes, because a checkout or a copy
-is not an edit.
+is not an edit. Nor line endings (1.164.2, cache version 2): the `.obj` and
+`.mtl` are hashed with every CRLF counted as LF, so a checkout whose model
+files still have CRLF finds the same map as an LF one. `--bake-status
+<projectDir>` lists each map as `fresh` or `absent or stale` without baking
+anything.
 
 Deliberately **not** in it: the texture's **pixels**. AO is a function of
 geometry and UVs alone, so repainting a texture does not throw the bake away.

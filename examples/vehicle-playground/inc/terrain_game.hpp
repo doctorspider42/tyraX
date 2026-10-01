@@ -991,6 +991,8 @@ class TerrainGame : public Tyra::Game {
     float skidV[2] = {0.0F, 0.0F};
     int skidOn[2] = {0, 0};
     float backfireT = 0.0F;
+    float exhaustAcc = 0.0F;   // fractional exhaust-smoke puffs owed
+    int exhaustNext = 0;       // which pipe puffs next
     int fxPrevGear = 0;
     // Lights: -1 = take the definition's default on first update, else the
     // driver's DpadUp toggle. brakeOn flares the tail lamps regardless -
@@ -1124,6 +1126,13 @@ class TerrainGame : public Tyra::Game {
   int vehicleDentApply(int vi, const float* dent);
   void updateVehicleDamage(float dt);
   void applyVehicleEnvLimits();
+  // The EXHAUST PIPES (docs/vehicles.md, "Exhaust pipes"): the model's marked
+  // openings, or two guessed under the rear bumper when it marks none. Body
+  // units, canonical frame: {x, y, z, dx, dy, dz} per pipe. Returns the count
+  // and says through `marked` which of the two it is.
+  enum { kVehExhaustMax = 6 };
+  int vehicleExhausts(const VehicleRt& v, float out[kVehExhaustMax][6], bool& marked) const;
+  void updateVehicleExhaustSmoke(int vi, float dt, float throttle);
   // The LAMP GLOW (docs/vehicles.md, "Lamp glow"): a camera-facing corona
   // billboard over every measured lamp of every car, shaped to that lamp,
   // brightness in the vertex colours - ONE additive submit for all of them,
@@ -1273,7 +1282,18 @@ class TerrainGame : public Tyra::Game {
     // Per-puff brightness on the pool's tint: 1 = tyre smoke, below it the
     // engine smoke of a damaged car (black once it is wrecked).
     float smokeShade[kVehSmokeMax] = {};
+    // Per-puff size and opacity multipliers: 1 for every puff but the exhaust's
+    // thin smoke. takeSmoke() resets both, so a recycled slot never inherits.
+    float smokeScale[kVehSmokeMax] = {};
+    float smokeFade[kVehSmokeMax] = {};
     int smokeNext = 0;
+    int takeSmoke() {
+      const int k = smokeNext;
+      smokeNext = (smokeNext + 1) % kVehSmokeMax;
+      smokeScale[k] = 1.0F;
+      smokeFade[k] = 1.0F;
+      return k;
+    }
     int smokeAlive = 0;
     std::unique_ptr<Tyra::StaPipBag> smokeBag;
     std::unique_ptr<Tyra::StaPipInfoBag> smokeInfoBag;

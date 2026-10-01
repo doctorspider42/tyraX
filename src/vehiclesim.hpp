@@ -254,6 +254,11 @@ struct DriveSpec {
     float feelFov = 6.0f;      // degrees wider at top speed
     float feelNosFov = 10.0f;  // degrees wider on top of that while boosting
     float feelFlame = 1.0f;    // nitrous exhaust flame brightness
+
+    // A thin smoke out of every exhaust pipe while the engine runs (docs/
+    // vehicles.md, "Exhaust pipes"), thicker on the throttle. Puffs in the
+    // tyre-smoke pool, so it costs no submit of its own. 0 = none.
+    float exhaustSmoke = 1.0f;
 };
 
 // One tunable of a DriveSpec, with everything a serializer or a widget needs.
