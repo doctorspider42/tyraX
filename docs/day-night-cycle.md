@@ -76,6 +76,10 @@ look like a flat texture pasted behind it.
 The star seed and density are project settings. Changing them changes the field
 but adds no runtime asset files.
 
+A [painted sky](sky-texture.md) follows the cycle as a tint: shown as
+painted at the authored hour, darkened toward night. Its painted sun does not
+move.
+
 ## Static or live
 
 With **Let the clock run** off, the chosen hour is baked and stays fixed. This
@@ -114,3 +118,13 @@ available cache; it does not run those desktop raytracers automatically.
 - Preview sunrise and sunset in motion; static noon/night shots will not expose
   a bad handover.
 - Use the runtime example as a reference before building a custom track.
+
+## A fixed mood selected in a game menu
+
+[Motor District](../examples/vehicle-playground) uses a pause-menu toggle backed
+by a save value. Its project-owned `district_mood.cpp` pins the generated
+`daynight::g_hour` to noon or midnight before rendering and switches eight live
+spotlights plus emissive dressing on resume. This exercises the existing hybrid
+cycle without duplicating scene geometry; it is not a Set Ambience sky-only
+swap or a replacement for separate GI bakes. The script also reapplies the
+light/visibility state on scene-generation changes.

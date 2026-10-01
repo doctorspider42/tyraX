@@ -47,8 +47,21 @@ enum class DisplayMode { Interlaced, Progressive480p, HiDef1080i, InterlacedFiel
  * doubles. The price is 32 levels per channel instead of 256, i.e. banding
  * in gradients, skies and post-fx blur, which is what the GS's ordered
  * dither exists to break up (RendererOptions::dither).
- * Values are serialized in projects - append only. */
-enum class ColorDepth { Bits32, Bits16 };
+ * Values are serialized in projects - append only.
+ *
+ * Hybrid (TyraX fork): the scene, post fx and 2D all draw into ONE PSMCT32
+ * buffer over a 32-bit z, so every blend and every z test is full precision;
+ * with two buffers, after vsync a single blit copies it into ONE PSMCT16 buffer,
+ * and that is what the display scans. The copy is what the TV sees, so the GS
+ * can start drawing the next frame into the 32-bit buffer at once - the same
+ * overlap two display buffers give - while the pair costs a 32-bit buffer plus
+ * half of one instead of two (512 KB back at 512x512). No previous 32-bit frame
+ * exists to read, so motion blur, the upscaler's temporal pass and frame
+ * extrapolation do not run in this mode. Triple buffering adds a second
+ * PSMCT16 display buffer: one is scanned out, one queues the finished copy,
+ * while the same PSMCT32 buffer renders the next frame.
+ */
+enum class ColorDepth { Bits32, Bits16, Hybrid };
 
 /**
  * Everything the renderer needs to know at init time (TyraX fork). It used
@@ -84,7 +97,7 @@ struct RendererOptions {
   /** Triple buffering (docs/frame-pacing.md): a third full display buffer,
    * presented from a vblank handler instead of stalling the EE on vsync.
    * The most expensive option in this struct - and the cheapest to afford
-   * at ColorDepth::Bits16, where a display buffer is half the size. */
+   * at ColorDepth::Bits16 or Hybrid, whose display buffer is half the size. */
   bool tripleBuffering = false;
 };
 
@@ -123,6 +136,13 @@ class RendererSettings {
   bool isDitherActive() const {
     return dither && colorDepth == ColorDepth::Bits16;
   }
+  /** Hybrid colour depth (TyraX fork, see ColorDepth): a 32-bit draw buffer
+   * presented through one dithered blit into a 16-bit display buffer. */
+  bool isHybridOutput() const { return colorDepth == ColorDepth::Hybrid; }
+  /** Whether that present blit dithers. DTHE stays OFF for everything drawn
+   * into the 32-bit buffer (isDitherActive() is false in Hybrid) and is armed
+   * only for the blit, whose destination is the 16-bit display buffer. */
+  bool isHybridDitherActive() const { return dither && isHybridOutput(); }
   /** The GS pixel storage mode of the frame buffers (TyraX fork): the
    * one place that maps colour depth onto a PSM. Everything that writes a
    * FRAME register for the screen - the drawing environment, the post-fx
@@ -170,7 +190,7 @@ class RendererSettings {
    * RendererCoreGS allocates buffers - it decides how many frame buffers the
    * permanent VRAM region holds, and the third one is not cheap (a full
    * display buffer: 229 376 words at 512x448x32, half that in
-   * InterlacedField). Off by default, and the engine falls back to two
+   * InterlacedField or with Bits16/Hybrid output). Off by default, and the engine falls back to two
    * buffers when the third does not fit.
    */
   const bool& getTripleBuffering() const { return tripleBuffering; }
@@ -178,7 +198,11 @@ class RendererSettings {
 
   /** Frame buffers the renderer wants: 3 with triple buffering on, else 2.
    * What it actually GOT is RendererCoreGS::getFrameBufferCount(). */
-  unsigned int getFrameBufferCount() const { return tripleBuffering ? 3u : 2u; }
+  unsigned int getFrameBufferCount() const {
+    // Modified by TyraX: Hybrid's third buffer is another 16-bit display
+    // target; its 32-bit draw target remains at index 0.
+    return tripleBuffering ? 3u : 2u;
+  }
   /** Height of the physical frame/z buffers - half the logical height when
    * field rendering, the logical height otherwise (TyraX fork). Everything
    * that sizes or addresses the framebuffer (allocation, XYOFFSET/SCISSOR,

@@ -14,6 +14,7 @@
 #include <thread>
 #include <vector>
 
+#include "particletex.hpp"
 #include "aichat.hpp"
 #include "aigen.hpp"
 #include "aisupport.hpp"
@@ -35,6 +36,8 @@
 #include "input.hpp"  // kPadButtonNames - the recordings' bit order
 #include "livereplay.hpp"
 #include "uiscript.hpp"
+#include "vehbake.hpp"
+#include "vehcheck.hpp"
 #include "vucap.hpp"
 #include "vuasm.hpp"
 #include "vugen.hpp"
@@ -45,7 +48,9 @@
 #include "platform.hpp"
 #include "procbake.hpp"
 #include "project.hpp"
+#include "roadgen.hpp"
 #include "shadowbake.hpp"
+#include "staticbatch.hpp"
 #include "texatlas.hpp"
 #include "runner.hpp"
 
@@ -700,6 +705,184 @@ static int atlasReportFromCli(int argc, char** argv) {
     return 0;
 }
 
+// tyrax-editor.exe --road-crossings <projectDir> [sceneIndex]
+// Every road crossing the build will make and what it does there
+// (docs/roads.md, "Junction overrides") - roadgen::planCrossings, the same
+// call the codegen makes, printed per scene: the pair, the position, the
+// result, the override that matched it, the decals, and every ORPHANED
+// override. Exits 1 when any override is orphaned, so a script can gate on it.
+static int roadCrossingsFromCli(int argc, char** argv) {
+    if (argc < 3) {
+        std::fprintf(stderr,
+                     "usage: tyrax-editor --road-crossings <projectDir> [sceneIndex]\n");
+        return 2;
+    }
+    Project p;
+    if (std::string err = project::load(p, argv[2]); !err.empty()) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
+    const int only = argc > 3 ? std::atoi(argv[3]) : -1;
+    int orphans = 0;
+    for (size_t si = 0; si < p.scenes.size(); ++si) {
+        if (only >= 0 && (int)si != only) continue;
+        const SceneData& sc = p.scenes[si];
+        std::vector<int> idx;
+        const std::vector<roadgen::CrossingRoad> roads =
+            project::crossingRoads(sc.objects, &idx);
+        const roadgen::CrossingPlan plan = roadgen::planCrossings(roads, sc.roadJunctions);
+        std::printf("=== scene %zu: %s - %zu roads, %zu crossings, %zu overrides ===\n",
+                    si, sc.name.c_str(), roads.size(), plan.crossings.size(),
+                    sc.roadJunctions.size());
+        auto name = [&](int r) { return sc.objects[(size_t)idx[(size_t)r]].name; };
+        for (size_t ci = 0; ci < plan.crossings.size(); ++ci) {
+            const roadgen::Crossing& c = plan.crossings[ci];
+            std::string what;
+            char buf[160];
+            if (c.kind == roadgen::kCrossPatch) {
+                std::snprintf(buf, sizeof(buf), "patch %s grip %.2f%s",
+                              c.material.empty() ? "(untextured)" : c.material.c_str(),
+                              c.grip, c.patchDuplicate ? " (merged)" : "");
+                what = buf;
+            } else if (c.kind == roadgen::kCrossThrough) {
+                what = name(c.winner) + " runs through";
+                if (c.overlay) {
+                    std::snprintf(buf, sizeof(buf), " (overlay, grip %.2f)", c.overlayGrip);
+                    what += buf;
+                }
+            } else {
+                what = "overlap";
+            }
+            std::printf("[road] crossing %zu: %s x %s at %.2f,%.2f: %s%s\n", ci,
+                        name(c.a).c_str(), name(c.b).c_str(), c.shape.x, c.shape.z,
+                        what.c_str(), c.override >= 0 ? "  [override]" : "");
+        }
+        int nOverlay = 0, nSpill = 0, verts = 0;
+        for (const roadgen::CrossingDecal& d : plan.decals) {
+            (d.overlay ? nOverlay : nSpill)++;
+            verts += (int)d.verts.size();
+        }
+        std::printf("[road] decals: %d overlay(s), %d spill(s), %d vertices\n", nOverlay,
+                    nSpill, verts);
+        for (size_t oi = 0; oi < sc.roadJunctions.size(); ++oi) {
+            if (plan.overrideCrossing[oi] >= 0) continue;
+            const roadgen::JunctionOverride& j = sc.roadJunctions[oi];
+            std::printf("[road] ORPHANED override %zu: %s x %s near %.2f,%.2f\n", oi,
+                        j.roadA.c_str(), j.roadB.c_str(), j.x, j.z);
+        }
+        orphans += plan.orphans;
+    }
+    return orphans > 0 ? 1 : 0;
+}
+
+// tyrax-editor.exe --batch-report <projectDir> [sceneIndex]
+// How the static objects batch, and WHY each one that does not, does not
+// (docs/static-batching.md). The headless twin of Tools > Static Batches.
+//
+// It exists for the reason --atlas-report does: the generated game already
+// prints the two TOTALS at scene load ("Static batching: eligible 87, solo
+// 22"), and a total is not something anybody can act on. Naming the objects
+// is what turns it into a decision - the 1.98.0 census, where 111 of 142
+// objects were batchable shapes and 27 carried the flag because one
+// build-time rule rejected every imported model, is exactly the shape of
+// answer this prints in one command.
+static int batchReportFromCli(int argc, char** argv) {
+    if (argc < 3) {
+        std::fprintf(
+            stderr,
+            "usage: tyrax-editor --batch-report <projectDir> [sceneIndex]\n");
+        return 2;
+    }
+    Project p;
+    if (std::string err = project::load(p, argv[2]); !err.empty()) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
+    const int only = argc > 3 ? std::atoi(argv[3]) : -1;
+    std::vector<std::string> warnings;
+    const staticbatch::Inputs in = staticbatch::diskInputs(p, &warnings);
+
+    int totalBatches = 0, totalEligible = 0, totalBatched = 0;
+    for (size_t si = 0; si < p.scenes.size(); ++si) {
+        if (only >= 0 && (int)si != only) continue;
+        const SceneData& sc = p.scenes[si];
+        const staticbatch::Result r = staticbatch::compute(p, sc, in, {});
+        totalBatches += (int)r.batches.size();
+        totalEligible += r.eligible;
+        totalBatched += r.batched;
+        std::printf("\n=== scene %zu: %s ===\n", si, sc.name.c_str());
+        std::printf("map %.0f, base cell %.0f, %d of %zu objects eligible, "
+                    "%d batched into %zu batches\n",
+                    r.mapW, r.baseCellW, r.eligible, sc.objects.size(),
+                    r.batched, r.batches.size());
+
+        for (size_t bi = 0; bi < r.batches.size(); ++bi) {
+            const staticbatch::Batch& b = r.batches[bi];
+            const float ddSpan =
+                std::max({b.ddMax[0] - b.ddMin[0], b.ddMax[1] - b.ddMin[1],
+                          b.ddMax[2] - b.ddMin[2]});
+            std::printf(
+                "\nbatch %-3zu %-34s cell %.0f at %d,%d  draw %.0f  %zu members\n",
+                bi, b.texture.empty() ? "(no texture)" : b.texture.c_str(),
+                b.cellW, b.cellX, b.cellZ, b.drawDistance, b.members.size());
+            // Packages are the unit the EE pays for, so the comparison that
+            // decides whether a batch is worth having is printed on its own
+            // line rather than left to arithmetic.
+            std::printf("          VU1 packages %d batched vs %d solo",
+                        b.packages, b.soloPackages);
+            if (b.soloPackages > b.packages)
+                std::printf("  (saves %d)", b.soloPackages - b.packages);
+            else if (b.packages > b.soloPackages)
+                std::printf("  (COSTS %d)", b.packages - b.soloPackages);
+            std::printf("\n");
+            // The merged box is the thing that caused a real regression: a
+            // batch passes the frustum and the draw-distance test as a unit,
+            // so its spread is what can keep culled geometry on screen.
+            std::printf("          merged box %.1f x %.1f x %.1f, "
+                        "member-centre spread %.1f\n",
+                        b.geomMax[0] - b.geomMin[0], b.geomMax[1] - b.geomMin[1],
+                        b.geomMax[2] - b.geomMin[2], ddSpan);
+            if (b.lamp >= 0 && b.lamp < (int)sc.objects.size())
+                std::printf("          lit by %s\n",
+                            sc.objects[b.lamp].name.c_str());
+            for (const staticbatch::Member& m : b.members)
+                std::printf("            %-34s%s\n",
+                            sc.objects[m.object].name.c_str(),
+                            m.part >= 0
+                                ? ("  part " + std::to_string(m.part)).c_str()
+                                : "");
+        }
+
+        // The half that earns its keep.
+        std::printf("\nnot batched:\n");
+        int shown = 0;
+        for (size_t oi = 0; oi < sc.objects.size(); ++oi) {
+            const staticbatch::Reason rr = r.objects[oi].reason;
+            if (rr == staticbatch::Reason::Batched) continue;
+            // A marker that could never carry geometry is noise here, not a
+            // finding - the question is which SHAPES are missing out.
+            if (rr == staticbatch::Reason::NotABatchableShape) continue;
+            std::printf("    %-34s %-8s %s\n", sc.objects[oi].name.c_str(),
+                        staticbatch::reasonStage(rr),
+                        staticbatch::reasonLabel(rr));
+            ++shown;
+        }
+        if (!shown) std::printf("    (every batchable shape is in a batch)\n");
+    }
+
+    if (!warnings.empty()) {
+        std::printf("\nwarnings:\n");
+        for (const std::string& w : warnings)
+            std::printf("    %s\n", w.c_str());
+    }
+    // Machine-readable tail, the --blss-coverage convention: a number a
+    // script can diff across two arms without parsing the prose above.
+    std::printf("\n[batch] eligible=%d batched=%d solo=%d batches=%d\n",
+                totalEligible, totalBatched, totalEligible - totalBatched,
+                totalBatches);
+    return 0;
+}
+
 // tyrax-editor.exe --dump <projectDir>
 // One-screen JSON summary of the project: scenes, objects, assets, names every
 // flow-graph parameter can reference.
@@ -857,6 +1040,13 @@ static int refreshGenFromCli(int argc, char** argv) {
     // volume is stale, so this command can rewrite the manifest too.
     if (refuseUnmigrated(p)) return 1;
     bakeProcedural(p);
+    // The vehicle bake is a codegen INPUT (the lamp part index and its ranges
+    // ride from the bake into the definition and from there into
+    // scene_data.hpp), unlike texbake, which stays a build-only step here.
+    if (std::string err = vehbake::bakeProject(
+            p, [](const std::string& l) { std::printf("%s\n", l.c_str()); });
+        !err.empty())
+        std::fprintf(stderr, "warning: %s\n", err.c_str());
     if (std::string err = project::refreshGenerated(p); !err.empty()) {
         std::fprintf(stderr, "error: %s\n", err.c_str());
         return 1;
@@ -1134,6 +1324,98 @@ static int bakeModelAoFromCli(int argc, char** argv) {
     return failed ? 1 : 0;
 }
 
+// tyrax-editor --bake-status <projectDir>
+//
+// Is every bake cache still FRESH? Read-only: it bakes nothing, writes nothing
+// and does not refresh the generated files. One line per cache - the GI and
+// baked-shadow cache of each scene, the pre-lit objects and the model AO maps -
+// reading `fresh`, `stale`, `absent` or `off`. Exit 0 when nothing that exists
+// is stale, 3 when something is.
+//
+// It exists because a stale cache is SILENT by design (the scene falls back to
+// the pre-GI lighting, or to no baked shadows) and the only other readouts were
+// the Ambience Editor's table and a re-bake that takes minutes. It is how the
+// line-ending fix of 1.164.2 was checked: a copy of an example with its .obj and
+// .mtl files converted to CRLF must still read `fresh` (docs/global-
+// illumination.md, "Line endings do not stale a cache").
+static int bakeStatusFromCli(int argc, char** argv) {
+    if (argc < 3) {
+        std::fprintf(stderr, "usage: tyrax-editor --bake-status <projectDir>\n");
+        return 2;
+    }
+    Project p;
+    if (std::string err = project::load(p, argv[2]); !err.empty()) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
+    int stale = 0;
+    const gibake::Settings gst = gibake::settingsOf(p.settings);
+    const shadowbake::Options sopt = shadowbake::optionsOf(p.settings);
+    for (int si = 0; si < (int)p.scenes.size(); ++si) {
+        const SceneData& sc = p.scenes[si];
+        // GI. read() refuses a cache of another format version, so "absent"
+        // covers both "never baked" and "baked by an older cache version".
+        if (!p.settings.giEnabled) {
+            std::printf("gi       %s: off\n", sc.name.c_str());
+        } else {
+            gibake::Bake b;
+            if (!gibake::read(gibake::cachePath(p, si), b)) {
+                std::printf("gi       %s: absent (or an older cache version)\n",
+                            sc.name.c_str());
+            } else {
+                const uint64_t live = gibake::signature(p, sc, gst);
+                const bool ok = b.signature == live;
+                if (!ok) ++stale;
+                std::printf("gi       %s: %s (cache %016llx, live %016llx)\n",
+                            sc.name.c_str(), ok ? "fresh" : "STALE",
+                            (unsigned long long)b.signature,
+                            (unsigned long long)live);
+            }
+        }
+        // Baked shadows, the same way.
+        if (!p.settings.bakedShadows) {
+            std::printf("shadows  %s: off\n", sc.name.c_str());
+        } else {
+            shadowbake::Bake b;
+            if (!shadowbake::read(shadowbake::cachePath(p, si), b)) {
+                std::printf("shadows  %s: absent (or an older cache version)\n",
+                            sc.name.c_str());
+            } else {
+                const uint64_t live = shadowbake::signature(p, sc, sopt);
+                const bool ok = b.signature == live;
+                if (!ok) ++stale;
+                std::printf("shadows  %s: %s (cache %016llx, live %016llx)\n",
+                            sc.name.c_str(), ok ? "fresh" : "STALE",
+                            (unsigned long long)b.signature,
+                            (unsigned long long)live);
+            }
+        }
+        // Pre-lit objects: only the ones a bake stamped carry a signature.
+        // The CLI defaults, as --bake-prelit uses (docs/prelit-models.md).
+        const litbake::Params lprm;
+        const std::vector<char> fl = litbake::freshFlags(p, sc, lprm);
+        for (int oi = 0; oi < (int)sc.objects.size(); ++oi) {
+            const SceneObject& o = sc.objects[oi];
+            if (!o.prelit || !o.prelitSig) continue;
+            if (!fl[oi]) ++stale;
+            std::printf("prelit   %s / %s: %s\n", sc.name.c_str(), o.name.c_str(),
+                        fl[oi] ? "fresh" : "STALE");
+        }
+    }
+    // Model AO: the signature is in the file name, so "fresh" is "a map with
+    // this name exists". Not checked in anywhere - a missing map is baked by the
+    // next build - so absent is reported but does not fail the check.
+    const modelao::Params aprm = modelao::paramsOf(p.settings);
+    for (const modelao::Target& t : modelao::plan(p, aprm).targets) {
+        if (!modelao::resolveFor(p, t.modelRel, aprm)) continue;
+        std::printf("modelao  %s : %s: %s\n", t.modelRel.c_str(),
+                    t.textureRel.c_str(),
+                    modelao::fresh(p, t, aprm) ? "fresh" : "absent or stale");
+    }
+    std::printf("bake status: %s\n", stale ? "STALE" : "fresh");
+    return stale ? 3 : 0;
+}
+
 // Bakes global illumination for every scene (docs/global-illumination.md) into
 // .res-baked/gi/, then refreshes the generated files so the probe table and
 // the lightmap flags follow immediately. The GUI's Tools > Global
@@ -1205,6 +1487,60 @@ static int bakeGiFromCli(int argc, char** argv) {
     return 0;
 }
 
+// tyrax-editor --bake-particles <projectDir>
+//
+// The headless twin of the Particle Editor's texture generation
+// (docs/particles.md): every library effect with a procedural recipe is
+// re-baked into res/materials/particles, its material path and full-colour
+// pin are set, linked emitters are re-synced, and the project is saved and
+// regenerated. Unchanged recipes write nothing (byte-compared), so a second
+// run is the check that the bake is deterministic.
+static int bakeParticlesFromCli(int argc, char** argv) {
+    if (argc < 3) {
+        std::fprintf(stderr, "usage: tyrax-editor --bake-particles <projectDir>\n");
+        return 2;
+    }
+    Project p;
+    if (std::string err = project::load(p, argv[2]); !err.empty()) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
+    if (refuseUnmigrated(p)) return 1;
+    int baked = 0;
+    for (ParticleEffect& fx : p.particleEffects) {
+        std::string err;
+        const int n = particletex::bakeEffect(p, fx, &err);
+        if (n < 0) {
+            std::fprintf(stderr, "error: %s: %s\n", fx.name.c_str(), err.c_str());
+            return 1;
+        }
+        for (int li = 0; li <= (int)fx.layers.size(); ++li) {
+            const ParticleLayer& L =
+                li == 0 ? static_cast<const ParticleLayer&>(fx) : fx.layers[(size_t)li - 1];
+            std::printf("particles: %s / %s - %s\n", fx.name.c_str(),
+                        li == 0 ? "Main" : L.label.c_str(),
+                        L.texGen.kind == 0
+                            ? (L.materialPath.empty() ? "no texture" : L.materialPath.c_str())
+                            : (std::to_string(L.texGen.size) + "x" + std::to_string(L.texGen.size) +
+                               " x " + std::to_string(std::max(1, L.texGen.frames)) +
+                               " frame(s) -> " + L.materialPath).c_str());
+        }
+        baked += n;
+    }
+    project::applyParticleEffects(p);
+    if (std::string err = project::save(p); !err.empty()) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
+    if (std::string err = project::refreshGenerated(p); !err.empty()) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
+    std::printf("particles: %d texture(s) baked, %zu effect(s)\n", baked,
+                p.particleEffects.size());
+    return 0;
+}
+
 // tyrax-editor --bake-shadows <projectDir>
 //
 // The headless twin of the Baked lighting tab's shadow Bake buttons
@@ -1265,6 +1601,14 @@ static int bakeShadowsFromCli(int argc, char** argv) {
         // is not where you think it is".
         std::printf("  sun %.3f %.3f %.3f\n", pl.sunDir[0], pl.sunDir[1],
                     pl.sunDir[2]);
+        // Where the wall clock went - the numbers any "bake it on the GPU"
+        // decision has to start from (docs/shadows.md, "What the bake costs").
+        const shadowbake::Bake::Timings& tm = b.timings;
+        std::printf("  time: signature %.2f plan %.2f scene %.2f gi %.2f | per "
+                    "caster: tree %.2f tile %.2f project %.2f filter %.2f self "
+                    "%.2f other %.2f | ground %.2f\n",
+                    tm.signature, tm.plan, tm.scene, tm.giLoad, tm.casterTree,
+                    tm.tile, tm.project, tm.filter, tm.self, tm.other, tm.ground);
         if (!pl.warning.empty()) std::printf("  note: %s\n", pl.warning.c_str());
         for (const shadowbake::Refusal& r : pl.refused)
             std::printf("  refused %s: %s\n", r.name.c_str(), r.why.c_str());
@@ -2284,7 +2628,7 @@ static int uiScriptFromCli(int argc, char** argv) {
             "usage: tyrax-editor --ui-script [projectDir] \"<script>\" [more...]\n"
             "       tyrax-editor --ui-script [projectDir] --file <script.ui>\n"
             "\n"
-            "script: click|rightclick|hover|doubleclick|expect|expect-not <target>\n"
+            "script: click|shiftclick|rightclick|hover|doubleclick|expect|expect-not <target>\n"
             "        hold <target> [seconds] | drag <target> <dx> <dy>\n"
             "        key <chord> | text <string> | wait <s> | frames <n>\n"
             "        shot <file.png> | dump | log <text> | quit\n"
@@ -3439,8 +3783,27 @@ static int vuCheckVu0(const std::string& engine) {
  * microcode image ends up in the ELF - `--vu-emit` writes it, the linker obeys
  * it, and nothing downstream can tell that two wrappers named the same image on
  * purpose from a generator that forgot they were supposed to. */
-static std::vector<std::string> wrapperImages(const std::string& text) {
+static std::vector<std::string> wrapperImages(const std::string& raw) {
     std::vector<std::string> out;
+    // A measured-only experiment's image sits in an `#if TYRA_VU1_EXP_...`
+    // branch with the shipping image under `#else`
+    // (stapip_vu1_experiments.hpp). Only the shipping one is the wrapper's
+    // image as far as this check is concerned: skip the experiment branch.
+    std::string text;
+    {
+        size_t pos = 0;
+        while (true) {
+            const size_t at = raw.find("#if TYRA_VU1_EXP_", pos);
+            if (at == std::string::npos) {
+                text += raw.substr(pos);
+                break;
+            }
+            text += raw.substr(pos, at - pos);
+            const size_t els = raw.find("#else", at);
+            if (els == std::string::npos) break;
+            pos = els;
+        }
+    }
     const std::string tail = "_CodeStart";
     size_t at = 0;
     while ((at = text.find(tail, at)) != std::string::npos) {
@@ -3588,12 +3951,14 @@ static int vuCheckFromCli(int argc, char** argv) {
     }
     std::printf("\n");
 
-    // The built-in C/D and TC/TCE clip pairs now share one resident image per
-    // ABI-compatible pair. The ordinary checks above exercise variant zero;
-    // compare variant one directly with the old specialised peer as well.
+    // The built-in clip classes share resident images: C carries D, TC
+    // carries TCE and TD. The ordinary checks above exercise variant zero;
+    // compare each peer path directly with the old specialised program too.
+    // TD is selected by VU1_OPTIONS_ADDR.x < 0 on top of .y > 0 (a TD bag is
+    // a lighting bag, which is what sets .y), hence the second lane.
     std::printf("-- shared clip images, peer paths --\n");
     auto checkSharedClip = [&](const char* sharedStem, const char* peerStem,
-                               const char* label) {
+                               const char* label, int colorLane = 0) {
         const std::vector<vugen::Desc> descs = vugen::allDescs();
         const vugen::Desc* peer = nullptr;
         for (const vugen::Desc& d : descs)
@@ -3620,6 +3985,7 @@ static int vuCheckFromCli(int argc, char** argv) {
         }
         vugen::Desc staged = *peer;
         staged.runtimeClipVariant = 1;
+        staged.runtimeColorLane = colorLane;
         const vugen::Equivalence eq = vugen::equivalence(
             shared, specialised, staged, 60, 0x5A4ECA11u);
         std::printf("  %-16s %-9s %d trials, up to %d vertices\n", label,
@@ -3633,7 +3999,90 @@ static int vuCheckFromCli(int argc, char** argv) {
     };
     checkSharedClip("stapip_clip_c_vu1", "stapip_clip_d_vu1", "Clip C/D");
     checkSharedClip("stapip_clip_tc_vu1", "stapip_clip_tce_vu1", "Clip TC/TCE");
+    checkSharedClip("stapip_clip_tc_vu1", "stapip_clip_td_vu1", "Clip TC/TD", -1);
     std::printf("\n");
+
+    // The measured-only experiment images (stapip_vu1_experiments.hpp). Each
+    // is compared with the SHIPPING image it would replace, on the input the
+    // EE would hand it: (b) and (c) are NOT bit-identical, and
+    // print the difference they actually make so the tolerance is a
+    // measurement rather than a promise. A toggle that is off links none of
+    // these, so a failure here is a broken experiment, never a broken game -
+    // but it still fails the check: an A/B arm built from it would measure a
+    // program that draws something else.
+    std::printf("-- measured-only experiments (stapip_vu1_experiments.hpp) --\n");
+    auto checkExperiment = [&](const char* label, const char* dir,
+                               const char* shipStem, const char* expStem,
+                               vugen::Desc d, vugen::ExperimentInput input,
+                               int colorTol, double relTol, double absTol = 0.0) {
+        const fs::path root = fs::path(engine) / "src" / "renderer" / "3d" /
+                              "pipeline" / "static" / "core" / "programs" / dir;
+        vuasm::Options opt;
+        opt.includeRoot = engine;
+        vuir::Program ship, exp;
+        std::string err;
+        if (!vuasm::parseFile((root / (std::string(shipStem) + ".vclpp")).string(), opt, ship, err) ||
+            !vuasm::parseFile((root / (std::string(expStem) + ".vclpp")).string(), opt, exp, err)) {
+            std::printf("  %-22s FAILED: %s\n", label, err.c_str());
+            ++mismatches;
+            return;
+        }
+        const vugen::Tolerance t = vugen::experimentEquivalence(
+            ship, exp, d, input, 400, 0xE4B0A11Du, colorTol, relTol, absTol);
+        const bool exact = t.within && t.maxColorDelta == 0 && t.maxFloatRel == 0.0;
+        std::printf("  %-22s %-9s %d trials  colour max |d| %d (%d words), "
+                    "ST max rel %.2e abs %.2e   %d -> %d instr\n",
+                    label, !t.within ? "OUTSIDE" : exact ? "IDENTICAL" : "WITHIN",
+                    t.trials, t.maxColorDelta, t.colorWordsDiffering,
+                    t.maxFloatRel, t.maxFloatAbs, (int)ship.code.size(), (int)exp.code.size());
+        if (!t.within) {
+            ++mismatches;
+            if (!t.error.empty()) std::printf("      %s\n", t.error.c_str());
+            if (!t.detail.empty()) std::printf("      %s\n", t.detail.c_str());
+        } else if (input == vugen::ExperimentInput::Same && !exact) {
+            ++mismatches;
+        }
+    };
+    using XI = vugen::ExperimentInput;
+    // (b) light matrix folded on the EE. Colour words may move by rounding;
+    // positions, ST, fog and the tag block may not move at all.
+    const int kFoldColorTol = 2;
+    checkExperiment("(b) cull_d fold", "cull", "stapip_cull_d_vu1", "stapip_cull_d_fold_vu1",
+                    vugen::descCullDirLights(), XI::FoldedLights, kFoldColorTol, 0.0);
+    checkExperiment("(b) cull_td fold", "cull", "stapip_cull_td_vu1", "stapip_cull_td_fold_vu1",
+                    vugen::descCullTextureDirLights(), XI::FoldedLights, kFoldColorTol, 0.0);
+    checkExperiment("(b) as_is_d fold", "as_is", "stapip_as_is_d_vu1", "stapip_as_is_d_fold_vu1",
+                    vugen::descAsIsDirLights(), XI::FoldedLights, kFoldColorTol, 0.0);
+    checkExperiment("(b) as_is_td fold", "as_is", "stapip_as_is_td_vu1", "stapip_as_is_td_fold_vu1",
+                    vugen::descAsIsTextureDirLights(), XI::FoldedLights, kFoldColorTol, 0.0);
+    {
+        // The shared clip images: the lit peer path folds, and the others -
+        // which an unlit bag reaches with an unfolded upload - must not move.
+        vugen::Desc cd = vugen::descClipDirLights();
+        cd.runtimeClipVariant = 1;
+        checkExperiment("(b) clip C, D path", "clip", "stapip_clip_c_vu1", "stapip_clip_c_fold_vu1",
+                        cd, XI::FoldedLights, kFoldColorTol, 0.0);
+        checkExperiment("(b) clip C, C path", "clip", "stapip_clip_c_vu1", "stapip_clip_c_fold_vu1",
+                        vugen::descClipColor(), XI::Same, 0, 0.0);
+        vugen::Desc td = vugen::descClipTextureDirLights();
+        td.runtimeClipVariant = 1;
+        td.runtimeColorLane = -1;
+        checkExperiment("(b) clip TC, TD path", "clip", "stapip_clip_tc_vu1", "stapip_clip_tc_fold_vu1",
+                        td, XI::FoldedLights, kFoldColorTol, 0.0);
+        checkExperiment("(b) clip TC, TC path", "clip", "stapip_clip_tc_vu1", "stapip_clip_tc_fold_vu1",
+                        vugen::descClipTextureColor(), XI::Same, 0, 0.0);
+        vugen::Desc te = vugen::descClipTextureEnv();
+        te.runtimeClipVariant = 1;
+        checkExperiment("(b) clip TC, TCE path", "clip", "stapip_clip_tc_vu1", "stapip_clip_tc_fold_vu1",
+                        te, XI::Same, 0, 0.0);
+    }
+    // (c) env normals normalized once on the EE: the ST may move by the
+    // difference between VU1's rsqrt and the EE's 1/sqrtf.
+    checkExperiment("(c) cull_tce envn", "cull", "stapip_cull_tce_vu1", "stapip_cull_tce_envn_vu1",
+                    vugen::descCullTextureEnv(), XI::UnitEnvNormals, 0, 1e-4, 1e-6);
+    std::printf("  (IDENTICAL = bit for bit; WITHIN = only colour words by <= %d or ST\n"
+                "   by <= 1e-4 relative or 1e-6 absolute moved, every other GS word exact.)\n\n",
+                kFoldColorTol);
 
     // 3. The emitted SOURCE must behave like the IR it came from.
     //
@@ -3773,7 +4222,8 @@ static int vuCheckFromCli(int argc, char** argv) {
     }
     std::printf("  (ALIAS = no image of its own, and no .vclpp of its own in the "
                 "ELF: the peer's\n   body carries this program's path and "
-                "VU1_OPTIONS_ADDR.y picks it per mesh.)\n\n");
+                "VU1_OPTIONS_ADDR picks it per mesh:\n   .y > 0 for D and "
+                "TCE, .y > 0 with .x < 0 for TD.)\n\n");
 
     // 4. The micro-memory budget - per PHYSICAL image and per clipping MODE.
     //
@@ -3853,11 +4303,14 @@ static int vuCheckFromCli(int argc, char** argv) {
                     b.program.name.c_str(), pr.peak, vugen::kVfRegisters,
                     pr.names, pr.fits() ? "" : "   TIGHT");
     }
-    std::printf("  (an ESTIMATE, and it over-states: it ignores control flow "
-                "and cannot split a\n   live range the way vcl does. These ten "
-                "all compile, which is the calibration -\n   known-good at <= "
-                "27, measured to still compile at 32, measured to FAIL at "
-                "36.)\n\n");
+    std::printf("  (an ESTIMATE: it ignores control flow and cannot split a\n"
+                "   live range the way vcl does. Calibration - known-good at <= "
+                "27, measured to\n   still compile at 32, measured to FAIL at "
+                "36. It can also UNDER-state: a\n   constant loaded before the "
+                "batch loop and last read at its head counts as\n   dead inside "
+                "it - clip_tc read 30 here while Sony's vcl refused it. Only\n"
+                "   assembling under BOTH vcl and openvcl proves a program "
+                "fits.)\n\n");
 
     // 5. The authoring layer: every stage, both directions.
     const int stageFails = vuCheckStages(engine);
@@ -4302,6 +4755,10 @@ int main(int argc, char** argv) {
 
     if (argc > 1 && std::strcmp(argv[1], "--vu-check") == 0)
         return vuCheckFromCli(argc, argv);
+    // The drive model's property tests (docs/vehicles.md) - host-only, no
+    // project, no Docker, so a CI job or a pre-commit hook can gate on it.
+    if (argc > 1 && std::strcmp(argv[1], "--vehicle-check") == 0)
+        return vehcheck::run();
     if (argc > 1 && std::strcmp(argv[1], "--vu-emit") == 0)
         return vuEmitFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--vu-list") == 0)
@@ -4339,6 +4796,10 @@ int main(int argc, char** argv) {
     if (argc > 1 && std::strcmp(argv[1], "--dump") == 0) return dumpFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--atlas-report") == 0)
         return atlasReportFromCli(argc, argv);
+    if (argc > 1 && std::strcmp(argv[1], "--batch-report") == 0)
+        return batchReportFromCli(argc, argv);
+    if (argc > 1 && std::strcmp(argv[1], "--road-crossings") == 0)
+        return roadCrossingsFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--dump-graph") == 0)
         return dumpGraphFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--apply-graph") == 0)
@@ -4351,8 +4812,12 @@ int main(int argc, char** argv) {
         return bakePrelitFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--bake-gi") == 0)
         return bakeGiFromCli(argc, argv);
+    if (argc > 1 && std::strcmp(argv[1], "--bake-status") == 0)
+        return bakeStatusFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--bake-shadows") == 0)
         return bakeShadowsFromCli(argc, argv);
+    if (argc > 1 && std::strcmp(argv[1], "--bake-particles") == 0)
+        return bakeParticlesFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--gi-gpu-check") == 0)
         return giGpuCheckFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--bake-model-ao") == 0)
@@ -4423,6 +4888,8 @@ int main(int argc, char** argv) {
             "  --refresh-gen <projectDir>\n"
             "  --bake-gi <projectDir>                  bake global "
             "illumination + light probes\n"
+            "  --bake-status <projectDir>              is every bake cache "
+            "fresh? read-only; exit 3 = stale\n"
             "  --bake-model-ao <projectDir> [--texbake]\n"
             "                                          bake every model "
             "asset's own AO into its texture\n"
@@ -4482,6 +4949,16 @@ int main(int argc, char** argv) {
             "ask the GS for, against the\n"
             "                                          measured break-even: the "
             "speed half of 'turn it on?'\n"
+            "  --road-crossings <projectDir> [sceneIndex]\n"
+            "                                          every road crossing and what "
+            "it does; exit 1 on an\n"
+            "                                          orphaned junction override "
+            "(docs/roads.md)\n"
+            "  --batch-report <projectDir> [sceneIndex]\n"
+            "                                          how the static objects "
+            "batch, and why each one that\n"
+            "                                          does not "
+            "(docs/static-batching.md)\n"
             "AI-agent tools (docs/ai-tools.md):\n"
             "  --dump <projectDir>\n"
             "  --list-nodes <projectDir>\n"

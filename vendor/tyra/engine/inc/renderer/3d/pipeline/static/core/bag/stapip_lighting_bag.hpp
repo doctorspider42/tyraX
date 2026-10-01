@@ -26,6 +26,10 @@ class StaPipLightingBag {
   /** Mandatory. Lighting normals per vertex. */
   Vec4* normals;
 
+  /** Optional (TyraX addition). Stamp word for `normals`' CONTENTS - see
+   * `StaPipBag::contentVersion`. nullptr = no tracking. */
+  const u32* contentVersion;
+
   /** Mandatory. Directional lights */
   PipelineDirLightsBag* dirLights;
 };

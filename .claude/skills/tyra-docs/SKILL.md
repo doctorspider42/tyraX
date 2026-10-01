@@ -66,6 +66,8 @@ whatever the change affected.
   - `tyra-testing` — how to build/run/verify (new CLI flags, new verification
     steps, new asset-bake behavior).
   - `tyra-pr` — the PR workflow or a new conflict hot spot.
+  - `tyra-vehicle-modeling` — the vehicle import's rules, the Blender
+    authoring script (`make-ravager.py`) or what a vehicle model must satisfy.
   - this skill (`tyra-docs`) — if the set of docs or the rule itself changes.
 
   **`.agents/skills/` is the Codex twin of this directory and moves with it, in

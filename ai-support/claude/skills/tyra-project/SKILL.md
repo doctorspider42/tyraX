@@ -47,6 +47,7 @@ build. Two kinds of files coexist here:
 | `bin/livedbg.bin`, `bin/livedbg.cmd` | Live Debugger channel while a debug build runs (game -> editor telemetry, editor -> game commands) | No - runtime files |
 | `bin/frame.tga` | The last frame the game photographed of ITSELF, on request (Debugger > Screen). A 32-bit TGA of the console's own frame buffer, deleted at every launch | No - runtime file |
 | `screenshots/` | Those captures kept as PNGs, one per capture, named by the clock. Yours to keep or delete | No - git-ignored |
+| `logs/` | One `ps2-<date>-<time>-<ms>.log` per Run on PS2 session: the console's log, flushed line by line, bounded by Preferences (last N lines, last K sessions) | No - git-ignored |
 | `run.sh`, `run.ps1`, `windows-pcsx2.ps1` | Launch the built game in PCSX2 (`run.sh` on Linux/macOS, the `.ps1` pair on Windows) | Rarely |
 
 **Ownership markers.** The first line of a generated file tells you its rule:
@@ -75,6 +76,7 @@ tyrax-editor binary lives.)
 | `--ai-graph <projectDir> <object> <prompt\|file> [scene] [...]` | Generate a flow graph with an AI backend (see tyra-flowgraph) |
 | `--refresh-gen <projectDir>` | Regenerate the game sources from the data, without building (fast codegen check, no Docker) |
 | `--bake-gi <projectDir>` | Bake global illumination + light probes into `.res-baked/gi/` (explicit, never part of a build - a build only READS the cache, so a scene edit falls the lighting back to the classic ambient/directional until you re-bake) |
+| `--bake-particles <projectDir>` | Re-bake every particle-library effect's procedural texture into `res/materials/particles/` (docs/particles.md), re-sync linked emitters, save and regenerate. Writes nothing for an unchanged recipe |
 | `--bake-shadows <projectDir>` | Bake the static shadow decals into `.res-baked/shadow/` (explicit, like `--bake-gi` - a build only READS the cache). Prints draws, atlas pages, triangles, VRAM and ELF bytes per scene, plus every caster that asked for a shadow and could not have one, by name. Seconds, not minutes |
 | `--bake-model-ao <projectDir> [--texbake]` | Bake every eligible `.obj` model's own ambient occlusion into `.res-baked/modelao/` and report what was skipped and why. A build does this itself; the verb is how you see it without Docker. `--texbake` also runs the texture bake, i.e. the multiply into `.res-baked` |
 | `--bake-prelit <projectDir> [sceneName]` | Re-bake every object marked to ship pre-lit whose baked texture no longer matches the scene (it moved, or the light did), then save + regenerate. Prints `baked` / `fresh` per object; a second run bakes nothing. Never part of a build - a pre-lit bake is explicit |

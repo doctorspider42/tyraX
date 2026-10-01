@@ -59,6 +59,7 @@ split point of `Window/Label` is tried, longest window prefix first.
 | Command | What it does |
 |---|---|
 | `click <target> [dx,dy]` | hover, press, release — over three frames, like a real cursor; the optional offset moves off the target's centre |
+| `shiftclick <target> [dx,dy]` | click with Shift held through the press; useful for deleting road markers |
 | `rightclick <target>` | the context-menu button, same three frames - how a right-click menu is reached at all |
 | `doubleclick <target>` | two clicks inside ImGui's double-click time |
 | `hold <target> [seconds]` | press and keep it down (default 0.5 s) |
@@ -80,6 +81,11 @@ That is what makes menus scriptable: a popup only exists a frame after the click
 that opened it, and `click "Remote Pad"` simply waits for it to appear. A step
 that times out fails the run and prints **what was on screen instead** — the
 expensive part of UI automation is otherwise a blank "not found".
+
+Procedural node parameter combos announce their labels explicitly, including
+controls inside each node's ID scope. Use `click "Roads"`, `click "Road"` or
+`click "Material"`, then click the named popup choice. With repeated labels,
+the first submitted matching node is selected; use a focused graph fixture.
 
 ## Start with `dump`
 

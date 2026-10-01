@@ -23,6 +23,10 @@ void StaPipProgramsRepository::setOverride(const StaPipProgramName& name,
                                            StaPipVU1Program* program) {
   const int slot = static_cast<int>(name);
   if (slot < 0 || slot >= kOverrideSlots) return;
+  if (overrides[slot] == nullptr && program != nullptr)
+    ++overrideCount;
+  else if (overrides[slot] != nullptr && program == nullptr)
+    --overrideCount;
   overrides[slot] = program;
 }
 
@@ -84,6 +88,12 @@ StaPipVU1Program* StaPipProgramsRepository::getProgram(
       TYRA_TRAP("Unknown VU1 program name");
       return &cullTextureDirLights;
   }
+}
+
+bool StaPipProgramsRepository::hasOverride(
+    const StaPipProgramName& name) const {
+  const int slot = static_cast<int>(name);
+  return slot >= 0 && slot < kOverrideSlots && overrides[slot] != nullptr;
 }
 
 }  // namespace Tyra

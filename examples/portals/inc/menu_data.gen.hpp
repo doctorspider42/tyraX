@@ -112,33 +112,33 @@ struct MenuData {
   float bgScrollX, bgScrollY, bgSeconds;
 };
 
-constexpr int MENU_COUNT = 5;
+inline constexpr int MENU_COUNT = 5;
 
 // menu "options-audio"
-constexpr MenuEntryData MENU_0_ENTRIES[2] = {
+inline constexpr MenuEntryData MENU_0_ENTRIES[2] = {
     {8, 0, 0.0F, 5, 0, 1, -1, nullptr, -1, -1, -1, -1, 1},  // MUSIC
     {8, 1, 0.0F, 5, 5, 2, -1, nullptr, -1, -1, -1, -1, 1},  // SOUND
 };
 // menu "options-controls"
-constexpr MenuEntryData MENU_1_ENTRIES[2] = {
+inline constexpr MenuEntryData MENU_1_ENTRIES[2] = {
     {8, 2, 0.0F, 5, 0, 3, -1, nullptr, -1, -1, -1, -1, 1},  // DEADZONE
     {8, 3, 0.0F, 3, 5, 4, -1, nullptr, -1, -1, -1, -1, 1},  // AIM CURVE
 };
 // menu "options-display"
-constexpr int MENU_2_E0_MODES[5] = {0, 1, 2, 3, 4};
-constexpr MenuEntryData MENU_2_ENTRIES[2] = {
+inline constexpr int MENU_2_E0_MODES[5] = {0, 1, 2, 3, 4};
+inline constexpr MenuEntryData MENU_2_ENTRIES[2] = {
     {8, 4, 0.0F, 5, 0, 5, -1, MENU_2_E0_MODES, -1, -1, -1, -1, 1},  // DISPLAY
     {7, 5, 0.0F, 2, 5, 6, -1, nullptr, -1, -1, -1, -1, 1},  // ASPECT
 };
 // menu "options"
-constexpr MenuEntryData MENU_3_ENTRIES[4] = {
+inline constexpr MenuEntryData MENU_3_ENTRIES[4] = {
     {3, 0, 0.0F, 0, -1, 0, -1, nullptr, -1, -1, -1, -1, 1},  // AUDIO
     {3, 1, 0.0F, 0, -1, 0, -1, nullptr, -1, -1, -1, -1, 1},  // CONTROLS
     {3, 2, 0.0F, 0, -1, 0, -1, nullptr, -1, -1, -1, -1, 1},  // DISPLAY
     {0, -1, 0.0F, 0, -1, 0, -1, nullptr, -1, -1, -1, -1, 1},  // CLOSE
 };
 // menu "save"
-constexpr MenuEntryData MENU_4_ENTRIES[1] = {
+inline constexpr MenuEntryData MENU_4_ENTRIES[1] = {
     {0, -1, 0.0F, 0, -1, 0, -1, nullptr, -1, -1, -1, -1, 1},
 };
 
@@ -150,16 +150,20 @@ inline const MenuData MENUS[MENU_COUNT > 0 ? MENU_COUNT : 1] = {
     {"menus/save.png", 256, 256, 138, 44, 24, 0, MENU_4_ENTRIES, 0, 1, 0.5F, 0.45F, "", 0, 0, 0, 0, 0, "", 0, 0, 0, "", 0, 3, "", 0, 0, 0, 0, 0, 32.0F, 1, "", 0.0F, 1, 0, 0.0F, 0.0F, 0.0F, 0.0F, 1, 0.0F, 1, 0, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 255, 255, 255, 0, "", 0, 0, 0, 0, 0, 0.0F, 0.0F, 1.0F},  // save
 };
 
-constexpr int TITLE_MENU = -1;
+inline constexpr int TITLE_MENU = -1;
 // The Start button opens/closes this menu in-game (-1 = none)
-constexpr int PAUSE_MENU = 3;
+inline constexpr int PAUSE_MENU = 3;
+// The "skip the cutscene?" confirmation screen (-1 = none, and a
+// cutscene set to ask first then skips on the spot instead of
+// swallowing the press - docs/cutscenes.md)
+inline constexpr int SKIP_MENU = -1;
 // True when any menu carries an "apply video mode" row (action
 // 9): display-mode rows then only stage a selection and that row
 // commits it; without one they switch on change (the classic
 // behavior).
-constexpr bool MENU_HAS_APPLY_VIDEO = false;
+inline constexpr bool MENU_HAS_APPLY_VIDEO = false;
 
-constexpr int MENU_EVENT_COUNT = 0;
+inline constexpr int MENU_EVENT_COUNT = 0;
 // Names of the "Flow event" entry actions (menuEvent indexes this)
 inline const char* MENU_EVENTS[MENU_EVENT_COUNT > 0 ? MENU_EVENT_COUNT : 1] = {""};
 

@@ -1,15 +1,18 @@
 #include "shadowbake.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <map>
 #include <utility>
 
 #include "bakepar.hpp"
+#include "roadgen.hpp"  // the rendered terrain height (ground maps)
 #include "bvh.hpp"
 #include "decalproj.hpp"
 #include "gibake.hpp"
@@ -24,7 +27,7 @@ constexpr uint32_t kCacheMagic = 0x4448534Du;  // "MSHD"
 // Bumped whenever the bake's OUTPUT changes shape or value. It rides in the
 // signature, so a bump stales every cache without anything else having to
 // know.
-constexpr uint32_t kCacheVersion = 5;  // 5: search past the fade; sane no-limit
+constexpr uint32_t kCacheVersion = 8;  // 8: EOL-agnostic asset hashes
 
 constexpr float kPi = 3.14159265358979f;
 // How far past the caster's own extent the receiver search starts. The common
@@ -35,6 +38,15 @@ constexpr float kPi = 3.14159265358979f;
 constexpr float kCasterClearance = 0.01f;
 // Lifts a shadow-ray origin off the surface it starts on.
 constexpr float kRayBias = 0.002f;
+// How far past a caster surface a tile column resumes its search: clear of
+// the surface it just crossed, far short of anything that could receive.
+constexpr float kExitBias = 0.01f;
+// Longest edge of a piece of the caster's own surface in its shadow test.
+// A metre: a plinth strip resolves at the tile's own blur, a roof costs nothing.
+constexpr float kSelfPiece = 1.0f;
+// How high above its lowest point a caster's own surface may be and still
+// receive its shadow: a plinth or a pavement slab, not a canopy or a roof.
+constexpr float kSelfFloor = 1.0f;
 
 // The lift used when asking "can this receiver point see the sun". Twenty-five
 // times kRayBias, because this ray leaves along the LIGHT rather than along the
@@ -168,6 +180,9 @@ Options optionsOf(const ProjectSettings& s) {
     o.sunAngleDeg = s.bakedShadowSunAngle;
     o.strength = s.bakedShadowStrength;
     o.maxLength = s.bakedShadowMaxLength;
+    o.groundRes = (s.bakedShadowGround == 64 || s.bakedShadowGround == 128)
+                      ? s.bakedShadowGround
+                      : 0;
     return o;
 }
 
@@ -178,9 +193,18 @@ int Bake::triangles() const {
 }
 
 int Bake::vramWords() const {
-    // kPageSize^2 RGBA32 = one whole page-aligned block per image
-    // (docs/gs-vram.md): 256x256x4 bytes = 65536 words.
-    return (int)pages.size() * kPageSize * kPageSize;
+    // Ground maps: 4-bit texels (8 per word) plus a 16-entry CLUT each,
+    // rounded the way the allocator rounds a block (64 words).
+    int g = 0;
+    for (const GroundMap& m : ground) {
+        (void)m;
+        const int words = groundRes * groundRes / 8 + 16;
+        g += (words + 63) / 64 * 64;
+    }
+    // Pages are 4-bit since the ground maps landed (docs/shadows.md): 8
+    // texels a word plus their CLUT.
+    const int page = (kPageSize * kPageSize / 8 + 16 + 63) / 64 * 64;
+    return (int)pages.size() * page + g;
 }
 
 // --- the plan ----------------------------------------------------------------
@@ -189,6 +213,8 @@ std::string quickRefusal(const SceneObject& o) {
     // Everything that can move invalidates a bake the moment it does, and the
     // bake cannot tell afterwards. Say so by name rather than baking a shadow
     // that will be in the wrong place.
+    if (o.type == PrimitiveType::Vehicle)
+        return "it is a vehicle - use a blob or projected silhouette that follows it";
     if (o.physics) return "it is a physics body - a baked shadow cannot follow it";
     if (o.pickable) return "it can be carried - a baked shadow would stay behind";
     if (o.saveState)
@@ -383,15 +409,24 @@ void coneDirections(V3 axis, float half, int count, uint32_t seed,
 Bake bakeScene(const Project& p, int sceneIndex, const std::atomic<bool>* cancel,
                const ProgressFn& progress) {
     Bake out;
+    auto last = std::chrono::steady_clock::now();
+    const auto lap = [&](double& acc) {
+        const auto now = std::chrono::steady_clock::now();
+        acc += std::chrono::duration<double>(now - last).count();
+        last = now;
+    };
+    Bake::Timings& T = out.timings;
     if (sceneIndex < 0 || sceneIndex >= (int)p.scenes.size()) return out;
     const SceneData& sc = p.scenes[sceneIndex];
     const Options opt = optionsOf(p.settings);
     out.signature = signature(p, sc, opt);
+    lap(T.signature);
     out.tileRes = opt.tileRes;
     out.valid = true;
     if (!p.settings.bakedShadows) return out;
 
     const Plan pl = plan(p, sc, opt);
+    lap(T.plan);
     if (pl.empty()) return out;
 
     // THE TILE IS A MULTIPLY, NOT A WASH. The GS blend is Cs*a + Cd*(1-a), so a
@@ -428,6 +463,7 @@ Bake bakeScene(const Project& p, int sceneIndex, const std::atomic<bool>* cancel
     // and reusing it is what stops the shadow landing on a surface the GI bake
     // does not believe in.
     const gibake::Scene scene = gibake::build(p, sc, gibake::settingsOf(p.settings));
+    lap(T.scene);
     if (scene.empty()) return out;
 
     // Which receivers the projection may land on. Three exclusions, and each
@@ -435,6 +471,7 @@ Bake bakeScene(const Project& p, int sceneIndex, const std::atomic<bool>* cancel
     // decodes a cache file, and asking it per caster would make the bake's
     // cost quadratic in nothing useful.
     const gibake::Bake gi = gibake::load(p, sceneIndex);
+    lap(T.giLoad);
     const auto lightmapped = [&](const SceneObject& o) {
         // With a fresh GI bake the sun's shadow is already in the lightmap of
         // every UNTEXTURED primitive - a decal on top of one darkens the same
@@ -506,11 +543,32 @@ Bake bakeScene(const Project& p, int sceneIndex, const std::atomic<bool>* cancel
         // standing near each other would each bake the other's shadow into
         // their own tile, and the two projections overlapping would darken the
         // ground twice.
+        lap(T.other);
         bvh::Tree casterTree;
         if (!decalproj::objectTriangles(p, src, casterTree.tv)) continue;
         casterTree.tn.assign(casterTree.tv.size(), 0.0f);
         bvh::build(casterTree);
+        lap(T.casterTree);
         if (casterTree.empty()) continue;
+        // The caster's lowest point: its own floor faces (a plinth, a
+        // pavement slab) sit within kSelfFloor of it.
+        float casterFloorY = 1e30f;
+        for (size_t k = 1; k < casterTree.tv.size(); k += 3)
+            casterFloorY = std::min(casterFloorY, casterTree.tv[k]);
+        // Is caster triangle `tri` one of those floor faces, facing the sun?
+        const auto isOwnFloor = [&](int tri) {
+            if (tri < 0) return false;
+            const float* v = &casterTree.tv[(size_t)tri * 9];
+            const V3 e0{v[3] - v[0], v[4] - v[1], v[5] - v[2]};
+            const V3 e1{v[6] - v[0], v[7] - v[1], v[8] - v[2]};
+            V3 n = cross(e0, e1);
+            const float nl = std::sqrt(n.x * n.x + n.y * n.y + n.z * n.z);
+            if (nl <= 0.0f) return false;
+            n = n * (1.0f / nl);
+            if (n.y < 0.0f) n = n * -1.0f;  // winding-independent: up is up
+            if (n.y < 0.8f) return false;
+            return std::max(v[1], std::max(v[4], v[7])) <= casterFloorY + kSelfFloor;
+        };
 
         // The frame the projection will actually sample the tile in - read
         // back from decalproj rather than assumed, so a gimbal-locked Euler
@@ -542,22 +600,59 @@ Bake bakeScene(const Project& p, int sceneIndex, const std::atomic<bool>* cancel
                     const float s = (col + 0.5f) / res;
                     const float lx = 0.5f - s;  // u runs with local -X
 
-                    // Down the light from the projector's sun-side face,
-                    // starting past the caster's own extent.
+                    // Down the light from the projector's sun-side face, to
+                    // the first receiver PAST THE CASTER IN THIS COLUMN: the
+                    // column is walked through every caster surface it
+                    // crosses and the search starts at the last exit. It
+                    // used to start past the caster's WHOLE extent along the
+                    // light (casterDepth), which is deeper than the caster is
+                    // over most columns - so the strip of ground at the foot
+                    // of the shaded wall was never in the tile, and every
+                    // shadow started a metre or more away from its building
+                    // and read as a dark box floating next to it. A column
+                    // that never meets the caster starts at the top.
                     const V3 o = pos + axX * (lx * c.scale[0]) +
                                  axY * (ly * c.scale[1]) +
                                  axZ * (0.5f * c.scale[2]);
                     const V3 down = axZ * -1.0f;
-                    const float from = c.casterDepth;
-                    const float span = c.scale[2] - from;
-                    if (span <= 0.0f) continue;
-                    const V3 start = o + down * from;
                     const float dir[3] = {down.x, down.y, down.z};
-                    const float from3[3] = {start.x, start.y, start.z};
+                    //
+                    // Except at the caster's OWN floor (a plinth, a slab):
+                    // that is where the column stops and receives. Walking
+                    // through it too put the texel on the ground UNDER the
+                    // plinth - always fully shaded, by the plinth - so the
+                    // plinth's pieces (below) all carried one flat dark value
+                    // and the only shape the shadow had there was which piece
+                    // survived: hard 1 m triangles instead of the penumbra.
+                    float from = 0.0f;
+                    bool onOwnFloor = false;
+                    float floorT = 0.0f;
+                    for (int k = 0; k < 32; ++k) {
+                        const V3 at = o + down * from;
+                        const float at3[3] = {at.x, at.y, at.z};
+                        bvh::Hit hc;
+                        if (!bvh::trace(casterTree, at3, dir, c.scale[2] - from, true, hc))
+                            break;
+                        if (isOwnFloor(hc.tri)) {
+                            onOwnFloor = true;
+                            floorT = from + hc.t;
+                            break;
+                        }
+                        from += hc.t + kExitBias;
+                    }
                     bvh::Hit h;
-                    if (!bvh::trace(scene.tree, from3, dir, span, true, h))
-                        continue;
-                    const V3 hit = start + down * h.t;
+                    if (onOwnFloor) {
+                        h.t = floorT;
+                    } else {
+                        const float span = c.scale[2] - from;
+                        if (span <= 0.0f) continue;
+                        const V3 start = o + down * from;
+                        const float from3[3] = {start.x, start.y, start.z};
+                        if (!bvh::trace(scene.tree, from3, dir, span, true, h))
+                            continue;
+                        h.t += from;  // from the sun-side face, as the fade reads it
+                    }
+                    const V3 hit = o + down * h.t;
 
                     // How much of the sun this receiver point can see, through
                     // the caster alone. The cone is around the projector's own
@@ -593,9 +688,11 @@ Bake bakeScene(const Project& p, int sceneIndex, const std::atomic<bool>* cancel
                     // of map.
                     const float fadeFrom = c.fadeReach * kReachFadeFrom;
                     const float fadeTo = c.fadeReach * kSearchBeyond;
+                    // Measured from where this column left the caster.
+                    const float reachT = std::max(0.0f, h.t - from);
                     float fade = 1.0f;
-                    if (h.t > fadeFrom)
-                        fade = 1.0f - (h.t - fadeFrom) / (fadeTo - fadeFrom);
+                    if (reachT > fadeFrom)
+                        fade = 1.0f - (reachT - fadeFrom) / (fadeTo - fadeFrom);
                     fade = fade < 0.0f ? 0.0f : (fade > 1.0f ? 1.0f : fade);
                     const float a = 255.0f * opt.strength * fade *
                                     (float)blocked / (float)opt.samples;
@@ -604,6 +701,7 @@ Bake bakeScene(const Project& p, int sceneIndex, const std::atomic<bool>* cancel
                 }
             }
         });
+        lap(T.tile);
         if (cancel && cancel->load()) return out;
 
         // An entirely empty tile means the caster throws nothing anybody can
@@ -620,15 +718,20 @@ Bake bakeScene(const Project& p, int sceneIndex, const std::atomic<bool>* cancel
         // --- the projection ------------------------------------------------
         decalproj::Receivers rx;
         rx.accept = [&](const SceneObject& o) {
-            if (o.id == src.id) return false;  // never onto the caster itself
+            // Not onto the caster here: its own surfaces go through the
+            // occlusion-checked pass below (a roof sits in the same columns as
+            // the ground its shadow darkens).
+            if (o.id == src.id) return false;
             // A shadow belongs to its caster's layer, so a receiver in another
             // one would keep a shadow after the thing that throws it streamed
             // out - or lose the floor from under a shadow that stayed.
             if (!o.layer.empty() && o.layer != c.layer) return false;
             return !lightmapped(o);
         };
-        rx.terrain = terrainFree;
+        // With ground maps the terrain's shadow comes from its own pass.
+        rx.terrain = terrainFree && opt.groundRes == 0;
         decalproj::DecalMesh mesh = decalproj::project(p, sc, proj, rx);
+        lap(T.project);
         if (mesh.verts.empty()) continue;
 
         // Drop the triangles that fall on FULLY LIT texels. decalproj emits
@@ -708,6 +811,112 @@ Bake bakeScene(const Project& p, int sceneIndex, const std::atomic<bool>* cancel
             }
             mesh.verts.swap(kept);
         }
+        lap(T.filter);
+
+        // The caster's OWN ground-level surfaces that it shades: a model that
+        // carries its plinth or pavement (every Motor District building does).
+        // Only near-horizontal, upward faces within kSelfFloor of the caster's
+        // lowest point take part - a tree's canopy shades itself everywhere
+        // and would cost a thousand triangles to say what its own texture
+        // already shows. A tile column cannot tell a roof from the slab below
+        // the same column, so the caster's triangles are split into pieces no longer than
+        // kSelfPiece and a piece is kept only where the caster itself blocks
+        // the sun from it - the slab at the foot of the shaded wall stays, the
+        // roof and the sunward walls go.
+        {
+            decalproj::Receivers self;
+            self.terrain = false;
+            self.roads = false;
+            self.accept = [&](const SceneObject& o) { return o.id == src.id; };
+            const decalproj::DecalMesh sm = decalproj::project(p, sc, proj, self);
+            struct P5 { float v[5]; };
+            // A piece is kept if ANY of its corners, edge midpoints or centre
+            // sees ANY part of the sun disk blocked by the caster. The tile
+            // carries the real (soft) value now; this only decides which
+            // pieces are worth triangles. Testing the centre against the sun's
+            // centre alone cut the penumbra off along the pieces' own edges.
+            std::vector<V3> disk;
+            coneDirections(axZ, sunHalf, 8, 0x9e3779b9u, disk);
+            disk.push_back(axZ);
+            const auto occluded = [&](const P5& a, const P5& b, const P5& q) {
+                V3 pts[7];
+                const V3 A{a.v[0], a.v[1], a.v[2]}, B{b.v[0], b.v[1], b.v[2]},
+                    Q{q.v[0], q.v[1], q.v[2]};
+                pts[0] = A, pts[1] = B, pts[2] = Q;
+                pts[3] = (A + B) * 0.5f, pts[4] = (B + Q) * 0.5f, pts[5] = (Q + A) * 0.5f;
+                pts[6] = (A + B + Q) * (1.0f / 3.0f);
+                for (const V3& m : pts) {
+                    const V3 o = m + axZ * kSunBias;
+                    const float ro[3] = {o.x, o.y, o.z};
+                    for (const V3& d : disk) {
+                        const float rd[3] = {d.x, d.y, d.z};
+                        bvh::Hit hc;
+                        if (bvh::trace(casterTree, ro, rd, 1e5f, true, hc)) return true;
+                    }
+                }
+                return false;
+            };
+            const auto mid = [](const P5& a, const P5& b) {
+                P5 r;
+                for (int k = 0; k < 5; ++k) r.v[k] = 0.5f * (a.v[k] + b.v[k]);
+                return r;
+            };
+            const auto len2 = [](const P5& a, const P5& b) {
+                const float dx = a.v[0] - b.v[0], dy = a.v[1] - b.v[1],
+                            dz = a.v[2] - b.v[2];
+                return dx * dx + dy * dy + dz * dz;
+            };
+            std::function<void(const P5&, const P5&, const P5&, int)> piece =
+                [&](const P5& a, const P5& b, const P5& q, int depth) {
+                    const float l01 = len2(a, b), l12 = len2(b, q), l20 = len2(q, a);
+                    const float lm = std::max(l01, std::max(l12, l20));
+                    if (lm > kSelfPiece * kSelfPiece && depth < 8) {
+                        // Split the longest edge - it halves the piece and
+                        // keeps them from turning into slivers.
+                        if (lm == l01) {
+                            const P5 m = mid(a, b);
+                            piece(a, m, q, depth + 1);
+                            piece(m, b, q, depth + 1);
+                        } else if (lm == l12) {
+                            const P5 m = mid(b, q);
+                            piece(a, b, m, depth + 1);
+                            piece(a, m, q, depth + 1);
+                        } else {
+                            const P5 m = mid(q, a);
+                            piece(a, b, m, depth + 1);
+                            piece(m, b, q, depth + 1);
+                        }
+                        return;
+                    }
+                    if (!occluded(a, b, q)) return;
+                    for (const P5* v : {&a, &b, &q})
+                        mesh.verts.insert(mesh.verts.end(), v->v, v->v + 5);
+                };
+            float floorY = 1e30f;
+            for (size_t k = 1; k < casterTree.tv.size(); k += 3)
+                floorY = std::min(floorY, casterTree.tv[k]);
+            for (size_t t = 0; t + 14 < sm.verts.size(); t += 15) {
+                const V3 e0{sm.verts[t + 5] - sm.verts[t], sm.verts[t + 6] - sm.verts[t + 1],
+                            sm.verts[t + 7] - sm.verts[t + 2]};
+                const V3 e1{sm.verts[t + 10] - sm.verts[t], sm.verts[t + 11] - sm.verts[t + 1],
+                            sm.verts[t + 12] - sm.verts[t + 2]};
+                const float nx = e0.y * e1.z - e0.z * e1.y, ny = e0.z * e1.x - e0.x * e1.z,
+                            nz = e0.x * e1.y - e0.y * e1.x;
+                const float nl2 = nx * nx + ny * ny + nz * nz;
+                if (nl2 <= 0.0f || std::fabs(ny) < 0.8f * std::sqrt(nl2)) continue;
+                if (std::max(sm.verts[t + 1], std::max(sm.verts[t + 6], sm.verts[t + 11])) >
+                    floorY + kSelfFloor)
+                    continue;
+                P5 a, b, q;
+                for (int k = 0; k < 5; ++k) {
+                    a.v[k] = sm.verts[t + k];
+                    b.v[k] = sm.verts[t + 5 + k];
+                    q.v[k] = sm.verts[t + 10 + k];
+                }
+                piece(a, b, q, 0);
+            }
+        }
+        lap(T.self);
         if (mesh.verts.empty()) continue;
         const int tris = (int)(mesh.verts.size() / 15);
         if (mesh.truncated || tris > kMaxTrisPerCaster) {
@@ -786,8 +995,89 @@ Bake bakeScene(const Project& p, int sceneIndex, const std::atomic<bool>* cancel
                   return a.layer != b.layer ? a.layer < b.layer : a.page < b.page;
               });
 
+    // --- ground shadow maps --------------------------------------------------
+    // (docs/shadows.md, "Ground shadow maps") One mask per terrain chunk,
+    // traced from each texel's point ON THE GROUND toward the sun against all
+    // casters at once. No tile, no projector, no triangles: the receiver is
+    // the chunk itself, drawn once more with this as its texture, so the whole
+    // texture is shadow where there is shadow - against the decal atlas's 12%.
+    lap(T.other);
+    if (opt.groundRes > 0 && terrainFree && sc.hmW >= 2 && sc.hmD >= 2 &&
+        (int)sc.heights.size() == sc.hmW * sc.hmD) {
+        out.groundRes = opt.groundRes;
+        bvh::Tree all;
+        for (const Caster& c : pl.casters)
+            decalproj::objectTriangles(p, sc.objects[c.object], all.tv);
+        all.tn.assign(all.tv.size(), 0.0f);
+        bvh::build(all);
+        const float W = (float)sc.terrain.width, D = (float)sc.terrain.depth;
+        const int cellsX = sc.hmW - 1, cellsZ = sc.hmD - 1;
+        const float stepX = W / (float)cellsX, stepZ = D / (float)cellsZ;
+        const int chunksX = (cellsX + kGroundChunkCells - 1) / kGroundChunkCells;
+        const int chunksZ = (cellsZ + kGroundChunkCells - 1) / kGroundChunkCells;
+        const float chunkW = stepX * kGroundChunkCells, chunkD = stepZ * kGroundChunkCells;
+        const V3 sun{pl.sunDir[0], pl.sunDir[1], pl.sunDir[2]};
+        const int res = opt.groundRes;
+        for (int cz = 0; cz < chunksZ && !all.empty(); ++cz)
+            for (int cx = 0; cx < chunksX; ++cx) {
+                if (cancel && cancel->load()) return out;
+                const float x0 = -W * 0.5f + cx * chunkW, z0 = -D * 0.5f + cz * chunkD;
+                GroundMap gm;
+                gm.cx = cx, gm.cz = cz;
+                gm.alpha.assign((size_t)res * res, 0);
+                bakepar::parallelFor(res, cancel, [&](int lo, int hi) {
+                    std::vector<V3> dirs;
+                    for (int row = lo; row < hi; ++row)
+                        for (int col = 0; col < res; ++col) {
+                            const float x = x0 + (col + 0.5f) / res * chunkW;
+                            const float z = z0 + (row + 0.5f) / res * chunkD;
+                            const float y = roadgen::terrainHeight(
+                                sc.heights, sc.hmW, sc.hmD, W, D, x, z);
+                            const V3 at{x, y + kSunBias, z};
+                            const float ro[3] = {at.x, at.y, at.z};
+                            coneDirections(sun, sunHalf, opt.samples,
+                                           texelSeed(100000 + cz * chunksX + cx, col, row),
+                                           dirs);
+                            int blocked = 0;
+                            for (const V3& d : dirs) {
+                                const float rd[3] = {d.x, d.y, d.z};
+                                bvh::Hit sh;
+                                if (bvh::trace(all, ro, rd, 1e5f, true, sh)) ++blocked;
+                            }
+                            if (!blocked) continue;
+                            const float a = 255.0f * opt.strength * (float)blocked /
+                                            (float)opt.samples;
+                            gm.alpha[(size_t)row * res + col] = (uint8_t)(a + 0.5f);
+                        }
+                });
+                bool any = false;
+                for (uint8_t a : gm.alpha)
+                    if (a) { any = true; break; }
+                if (any) out.ground.push_back(std::move(gm));
+            }
+    }
+
+    lap(T.ground);
     if (progress) progress(1.0f);
     return out;
+}
+
+std::vector<uint16_t> groundCellMask(const GroundMap& m, int res) {
+    const int C = kGroundChunkCells;
+    std::vector<uint16_t> rows(C, 0);
+    if (res <= 0 || (int)m.alpha.size() != res * res) return rows;
+    for (int y = 0; y < res; ++y)
+        for (int x = 0; x < res; ++x) {
+            if (!m.alpha[(size_t)y * res + x]) continue;
+            // The texel's footprint, one texel wider each side.
+            const int c0 = std::max(0, (x - 1) * C / res);
+            const int c1 = std::min(C - 1, (x + 1) * C / res);
+            const int r0 = std::max(0, (y - 1) * C / res);
+            const int r1 = std::min(C - 1, (y + 1) * C / res);
+            for (int r = r0; r <= r1; ++r)
+                for (int cc = c0; cc <= c1; ++cc) rows[r] |= (uint16_t)(1u << cc);
+        }
+    return rows;
 }
 
 // --- signature + cache -------------------------------------------------------
@@ -807,6 +1097,13 @@ uint64_t signature(const Project& p, const SceneData& sc, const Options& opt) {
     mixF(h, opt.maxLength);
     mix64(h, (uint64_t)opt.samples);
     mix64(h, p.settings.bakedShadows ? 1 : 0);
+    // Mixed only when on, so every bake without ground maps keeps the
+    // signature it had.
+    if (opt.groundRes > 0) {
+        mix64(h, 0x47524f554e444d50ull);  // "GROUNDMP"
+        mix64(h, (uint64_t)opt.groundRes);
+        mix64(h, (uint64_t)kGroundChunkCells);
+    }
     // A fresh GI bake takes receivers OUT of the projection, so which one is
     // in force is part of what this bake is.
     mix64(h, p.settings.giEnabled ? 1 : 0);
@@ -822,7 +1119,10 @@ uint64_t signature(const Project& p, const SceneData& sc, const Options& opt) {
         if (rel.empty() || !seen.emplace(rel, 1).second) return;
         mixS(h, rel);
         uint64_t fh = 0, fsz = 0;
-        if (wire::hashFile((fs::path(p.dir) / rel).string(), fh, fsz)) {
+        // Line-ending agnostic: a .obj checked out with CRLF is the same
+        // model, and the raw-byte hash made the checked-in cache read as stale
+        // on such a checkout - no shadows at all, no error.
+        if (wire::hashFileEolAgnostic((fs::path(p.dir) / rel).string(), fh, fsz)) {
             mix64(h, fh);
             mix64(h, fsz);
         }
@@ -871,6 +1171,32 @@ uint64_t signature(const Project& p, const SceneData& sc, const Options& opt) {
         mixS(h, o.materialPath);
         mixFile(o.modelPath);
     }
+    // Roads receive too (decalproj::Receivers::roads), so their shape and the
+    // junction overrides move where a shadow lands. Mixed only when the scene
+    // HAS a road: a scene without one keeps the signature it always had, and
+    // with it a checked-in cache that is still exactly right.
+    bool anyRoad = false;
+    for (const SceneObject& o : sc.objects) {
+        if (o.type != PrimitiveType::Road) continue;
+        if (!anyRoad) mix64(h, 0x524f414452435655ULL);  // "roads receive", v1
+        anyRoad = true;
+        mixS(h, o.id);
+        mixS(h, o.layer);
+        mix64(h, (uint64_t)o.roadPoints.size());
+        for (float v : o.roadPoints) mixF(h, v);
+        mixF(h, o.roadWidth);
+        mixF(h, o.roadSampleStep);
+        mix64(h, (uint64_t)(int64_t)o.roadRank);
+        mixS(h, o.roadIntersectionTexture);
+    }
+    if (anyRoad)
+        for (const roadgen::JunctionOverride& j : sc.roadJunctions) {
+            mixS(h, j.roadA);
+            mixS(h, j.roadB);
+            mixF(h, j.x);
+            mixF(h, j.z);
+            mix64(h, (uint64_t)(int64_t)j.winner);
+        }
     return h;
 }
 
@@ -945,6 +1271,15 @@ bool write(const std::string& path, const Bake& b) {
         wr(f, (int32_t)g.casters);
         wrVec(f, g.verts);
     }
+    // Ground maps, appended so a cache written before they existed still
+    // reads (as "none").
+    wr(f, (int32_t)b.groundRes);
+    wr(f, (uint32_t)b.ground.size());
+    for (const GroundMap& m : b.ground) {
+        wr(f, (int32_t)m.cx);
+        wr(f, (int32_t)m.cz);
+        wrVec(f, m.alpha);
+    }
     return (bool)f;
 }
 
@@ -974,6 +1309,18 @@ bool read(const std::string& path, Bake& b) {
         g.casters = v32;
         if (!rdVec(f, g.verts)) return false;
     }
+    if (rd(f, v32)) {
+        b.groundRes = v32;
+        if (!rd(f, n) || n > 4096u) return false;
+        b.ground.assign(n, GroundMap());
+        for (GroundMap& m : b.ground) {
+            if (!rd(f, v32)) return false;
+            m.cx = v32;
+            if (!rd(f, v32)) return false;
+            m.cz = v32;
+            if (!rdVec(f, m.alpha)) return false;
+        }
+    }
     b.valid = true;
     return true;
 }
@@ -986,6 +1333,21 @@ Bake load(const Project& p, int sceneIndex) {
     if (b.signature != signature(p, p.scenes[sceneIndex], optionsOf(p.settings)))
         return Bake();
     return b;
+}
+
+Bake loadAny(const Project& p, int sceneIndex) {
+    Bake b;
+    if (sceneIndex < 0 || sceneIndex >= (int)p.scenes.size()) return b;
+    if (!p.settings.bakedShadows) return b;
+    if (!read(cachePath(p, sceneIndex), b)) return Bake();
+    return b;
+}
+
+bool isFresh(const Project& p, int sceneIndex) {
+    if (sceneIndex < 0 || sceneIndex >= (int)p.scenes.size()) return false;
+    Bake b;
+    return read(cachePath(p, sceneIndex), b) &&
+           b.signature == signature(p, p.scenes[sceneIndex], optionsOf(p.settings));
 }
 
 StaleReport bakeStale(const Project& p,

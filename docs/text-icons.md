@@ -140,7 +140,9 @@ very differently:
   `res/hud/icons.png`, with the rects in `inc/icon_data.gen.hpp`. The generated
   game blits a sub-rect per icon (`resolveIconToken`/`drawFontText`), and the
   sheet reaches GS VRAM **only the first time a text actually draws an icon** —
-  a project that uses no placeholders never pays for it.
+  plain speed/gear/NOS strings do not load it. Unknown tokens remain literal
+  text and do not request the sheet either. A project that draws no icons
+  never pays for this asset.
 
 Both sides derive their geometry from the same `iconAtlasLayout`, and the two
 advance formulas are twins (`iconAdvance` in menubake.cpp, `iconAdvanceFor` in

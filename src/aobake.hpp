@@ -53,6 +53,13 @@ using ModelAabbFn =
 std::vector<Occluder> collectOccluders(const std::vector<SceneObject>& objects,
                                        const ModelAabbFn& modelAabb);
 
+// The analytic box/sphere collectOccluders uses for ONE object, whatever its
+// castShadow says - the reflection scenery (reflscenery.cpp) wants the same
+// solid. False for markers, lights, decals, mirrors, portals, invisible walls
+// and animated models.
+bool objectShape(const SceneObject& o, int index, const ModelAabbFn& modelAabb,
+                 Occluder& out);
+
 // One emissive light source: an object whose material both glows (Ke) and
 // declares a reach ("# tyra-glow-light" - Material Editor > Glow > Lights up
 // surroundings). docs/emissive-materials.md. Geometrically identical to an

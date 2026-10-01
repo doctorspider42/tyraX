@@ -1407,9 +1407,23 @@ void App::drawShadowBakeSection() {
             changed = true;
         }
     }
-    prefHelp("Texels per shadow. A page is 256x256 and costs 256 KB of the "
+    prefHelp("Texels per shadow. A page is 256x256 and costs 32 KB of the "
              "~1 MB texture budget whatever is on it, so this is really a "
              "choice of how many shadows one page holds.");
+    {
+        const int sizes[] = {0, 64, 128};
+        const char* labels[] = {"Off (decals on the ground)", "64 px per chunk",
+                                "128 px per chunk"};
+        int sel = st.bakedShadowGround == 64 ? 1 : (st.bakedShadowGround == 128 ? 2 : 0);
+        ImGui::SetNextItemWidth(scaled(180.0f));
+        if (ImGui::Combo("Ground shadows", &sel, labels, 3)) {
+            st.bakedShadowGround = sizes[sel];
+            changed = true;
+        }
+    }
+    prefHelp("Every caster's shadow on the terrain as one 4-bit map per\n"
+             "terrain chunk - sharp and cheap in VRAM - instead of decals.\n"
+             "Decals still land on walls, slabs and models.");
     ImGui::SetNextItemWidth(scaled(180.0f));
     if (ImGui::SliderFloat("Softness", &st.bakedShadowSunAngle, 0.5f, 8.0f,
                            "%.1f deg"))
@@ -1561,14 +1575,15 @@ void App::drawShadowBakeSection() {
         }
     }
     ImGui::BeginDisabled(!st.bakedShadows);
-    if (ImGui::Checkbox("Re-bake stale scenes before every build##shadow",
+    if (ImGui::Checkbox("Re-bake automatically (while editing and before every build)##shadow",
                         &st.bakedShadowAutoBake))
         commitChange();
     ImGui::EndDisabled();
-    prefHelp("Seconds, not minutes - this bake traces a couple of dozen rays "
-             "per texel against ONE caster's triangles, so it is the cheapest "
-             "of the three switches on this tab. Only stale scenes are "
-             "touched.");
+    prefHelp("Any edit to a caster or anything a shadow lands on makes the\n"
+             "scene's bake stale, and a stale bake draws nothing. With this on,\n"
+             "the active scene re-bakes in the background a second after your\n"
+             "last edit (the old shadows stay on screen meanwhile), and every\n"
+             "stale scene re-bakes before a build. A bake takes seconds.");
     if (totalCasters == 0 && st.bakedShadows)
         ImGui::TextDisabled(
             "Nothing casts one yet: pick Baked in Properties > Dynamic shadow.");

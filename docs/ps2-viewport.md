@@ -145,12 +145,37 @@ way the game's bags do. One formula, two evaluation sites: the lighting
 functions live in a single GLSL chunk shared by both paths, so they cannot
 drift.
 
+Vehicle paint follows the same rule. In PS2-shading mode the editor now applies
+the console's per-vertex Fresnel factor and HIGHLIGHT2 white specular to the
+same baked palette and sky reflection. It no longer drops those two terms and
+shows a silver preview for paint that becomes purple in the generated game.
+
+The two variants are separate GL programs, so each keeps its **own** uniform
+state, and the sky dome - the first draw of the scene pass - sets only its
+matrix, tint and `uLit`. The scene pass therefore clears the texture, alpha,
+emission, reflection and paint uniforms before it (1.161.1). Without that the
+PS2-shading program kept the previous frame's last draw, typically a car's
+paint pass, and the sky came out pink; the per-pixel program never showed it
+because the previews reset its state every frame.
+
 **Baked lightmaps stay per pixel in both modes.** The GI cache's terrain map
 and primitive atlas are textures on the console, read per pixel by two extra
 passes, so the viewport samples them in the fragment stage whatever the
 shading mode (`uLmMode` / `lmApply`, docs/global-illumination.md) — the
 geometry stage only zeroes the base for those draws, the way the console
 draws them black and puts the light back per pixel.
+
+**So does the terrain's ambient occlusion** (1.166.3). On the console it is the
+baked terrain map's alpha-over pass (`terrainMapOcc`), per pixel, and never
+part of a chunk's flat colour. PS2 shading used to evaluate it per corner like
+the objects' AO, and flat shading then took the provoking corner's occlusion
+across the whole cell: a checkerboard of dark cells around every object
+(`examples/baked-shadows`, round the plinth and the posts), which the game never
+showed. The terrain draw now sets `uAoPerPixel`. `litShade` skips the term at
+the corners, and the fragment stage applies the same `aoOcclusion` per pixel,
+with the normal taken from the screen-space derivatives. Objects keep
+per-vertex AO, as the generated `pushVert` does. Measured on that example: the
+per-pixel mode is pixel-identical before and after the change.
 
 **Dynamic lights change formula, not just evaluation site.** The editor's
 per-pixel preview draws a dynamic point light with an N·L term and a

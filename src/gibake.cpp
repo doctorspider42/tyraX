@@ -18,7 +18,7 @@
 #include "gigpu.hpp"
 #include "objparser.hpp"
 #include "primmesh.hpp"
-#include "wire.hpp"   // fnv1a64/hashFile - the bake signature hashes CONTENT
+#include "wire.hpp"   // hashFileEolAgnostic - the bake signature hashes CONTENT
 
 namespace fs = std::filesystem;
 
@@ -28,7 +28,7 @@ namespace {
 
 constexpr float kPi = 3.14159265358979f;
 constexpr uint32_t kCacheMagic = 0x49475854u;  // "TXGI"
-constexpr uint32_t kCacheVersion = 6;  // ground grid follows object footprints
+constexpr uint32_t kCacheVersion = 8;  // 8: EOL-agnostic asset hashes; 7: upright box UVs
 
 // Rotation order X, then Y, then Z - the twin of templates.cpp rotated(),
 // aobake's and the viewport's model matrix. Keep in sync.
@@ -1102,7 +1102,12 @@ uint64_t signature(const Project& p, const SceneData& sc, const Settings& st) {
         if (rel.empty() || !seen.emplace(rel, 1).second) return;
         mixS(h, rel);
         uint64_t fh = 0, fsz = 0;
-        if (wire::hashFile((fs::path(p.dir) / rel).string(), fh, fsz)) {
+        // Line-ending agnostic (the shadowbake rule): a .obj or .mtl checked
+        // out with CRLF is the same asset, and the raw-byte hash made the
+        // checked-in cache read as stale on such a checkout - the scene then
+        // ships the pre-GI fallback, with no error. Binary files (textures)
+        // hash the same on every checkout either way.
+        if (wire::hashFileEolAgnostic((fs::path(p.dir) / rel).string(), fh, fsz)) {
             mix64(h, fh);
             mix64(h, fsz);
         }

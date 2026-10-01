@@ -7,22 +7,22 @@ namespace Procedural {
 // number, one-of-several) shares one float array, positions get
 // their own. A COMPUTED fact has no slot at all - it is an
 // expression folded into whoever reads it.
-constexpr int FACT_NUM_COUNT = 0;
-constexpr int FACT_POS_COUNT = 0;
-constexpr int FACT_SAVE_MAX = 1;
-constexpr int FACT_PROFILE_MAX = 1;
-constexpr int FACT_SAVE_COUNT = 0;
-constexpr int FACT_PROFILE_COUNT = 0;
-constexpr int FACT_RULE_COUNT = 0;
+inline constexpr int FACT_NUM_COUNT = 0;
+inline constexpr int FACT_POS_COUNT = 0;
+inline constexpr int FACT_SAVE_MAX = 1;
+inline constexpr int FACT_PROFILE_MAX = 1;
+inline constexpr int FACT_SAVE_COUNT = 0;
+inline constexpr int FACT_PROFILE_COUNT = 0;
+inline constexpr int FACT_RULE_COUNT = 0;
 // The rule engine re-runs until nothing changes, bounded by this:
 // 'until nothing changes' is otherwise a hang with no way to
 // break in on a console.
-constexpr int FACT_RULE_PASSES = 8;
+inline constexpr int FACT_RULE_PASSES = 8;
 
-constexpr float FACT_NUM_DEFAULT[1] = {0.0F};
-constexpr unsigned char FACT_NUM_SCENE[1] = {0};
-constexpr float FACT_POS_DEFAULT[1][3] = {{0.0F, 0.0F, 0.0F}};
-constexpr unsigned char FACT_POS_SCENE[1] = {0};
+inline constexpr float FACT_NUM_DEFAULT[1] = {0.0F};
+inline constexpr unsigned char FACT_NUM_SCENE[1] = {0};
+inline constexpr float FACT_POS_DEFAULT[1][3] = {{0.0F, 0.0F, 0.0F}};
+inline constexpr unsigned char FACT_POS_SCENE[1] = {0};
 
 // The fact store, and every door into it. Defined in
 // src/gen/flow_graph.gen.cpp.

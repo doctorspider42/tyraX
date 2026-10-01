@@ -59,6 +59,11 @@ moves on screen — the world when the camera turns, and a moving object when it
 does not. That is the honest limit of the technique: it cannot blur one object
 and leave the rest sharp.
 
+A driven vehicle can raise the amount for as long as it goes fast: its
+[speed feel](vehicles.md#speed-feel) sets a **floor** under the authored blur
+(the frame blends the larger of the two), so a scene with no blur of its own
+blurs only while a car is near its top speed or on nitrous.
+
 ## Where it sits in the screen stack
 
 Like bloom and grain, motion blur is an entry in the *UI Editor*'s screen stack

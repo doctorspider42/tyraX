@@ -55,7 +55,7 @@ climb.)
 
 The very first scene is covered too. Boot order: the engine's **Tyra logo**
 (held ~2 seconds) → any **boot splash screens** (below) → the loading screen
-while the **start scene** loads → the scene. The first load is deferred into
+while the **chosen boot scene** loads → the scene. The first load is deferred into
 the game loop on purpose — a frame presented from `init()`, before the main
 loop, isn't vsync-paced and would flash by, leaving the boot loading screen
 invisible. (The ~2s logo hold is the engine's `banner.show()` re-rendering the
@@ -81,7 +81,7 @@ like everything above, so each shows for its full (vsync-paced) duration.
 
 ## The start scene
 
-Which scene the game boots into is a project setting: **Scene > Preferences >
+The packaged game's default boot scene is a project setting: **Scene > Preferences >
 Startup > "Boot into this scene"**, ticked on the scene you want. New projects
 boot the first scene, and the *Project* panel marks the start scene with
 **(start)**.
@@ -91,10 +91,11 @@ start, so the checkbox is disabled on the scene that holds it and you tick a
 different one instead. Scene Preferences edits the **active** scene, so switch
 to the scene first.
 
-It reaches the game as `START_SCENE` in `inc/scene_data.hpp` — the only
-argument the boot `loadScene()` takes, so a wrong value cannot desynchronize
-anything, and nothing else about a scene (ambience, cycle, loading screen)
-changes by *being* the start scene.
+It reaches the game as `START_SCENE` in `inc/scene_data.hpp`. **Play** in the
+editor, including Play without build, boots the currently selected scene for
+that run in PCSX2 or on PS2. The runner supplies a one-shot `bin/launch.scene`
+marker; it does not change the saved default. CLI launches and exported games
+use the project default.
 
 It is also kept honest automatically: deleting a scene shifts the index so it
 still points at the same scene (deleting the start scene falls back to the
@@ -102,18 +103,7 @@ first), and an out-of-range value — a hand-edited `.tyra`, a collaboration pee
 with a different scene list — folds back to the first scene on load rather than
 booting into nothing.
 
-Two more things follow it, because the boot path used to assume scene 0 in
-places that are not a scene load:
-
-- **The player starts on the start scene's own spawn point.** A Player object
-  is placed by the scene load itself, but the built-in FPP player (a scene with
-  a *spawn point* marker and no Player object) was positioned before the boot
-  load, from scene 0 — booting scene 3 put the player on scene 0's coordinates.
-  Measured on the console: a spawn at (25, 25) placed the player at (0, 0)
-  before the fix, (25, 25) after. In a real level those borrowed coordinates
-  can be inside a wall or off the map.
-- **The loading screen shown at boot is the start scene's**, not the first
-  scene's — which matters once scenes name different screens.
+The player uses the chosen scene's spawn point and that scene's loading screen.
 
 ## Assigning a screen
 

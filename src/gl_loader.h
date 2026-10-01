@@ -98,6 +98,7 @@ typedef ptrdiff_t GLintptr;
     X(void, Viewport, GLint, GLint, GLsizei, GLsizei) \
     X(void, DepthFunc, GLenum) \
     X(void, DepthMask, GLboolean) \
+    X(void, ColorMask, GLboolean, GLboolean, GLboolean, GLboolean) \
     X(void, LineWidth, GLfloat) \
     X(void, BlendFunc, GLenum, GLenum) \
     X(void, PolygonOffset, GLfloat, GLfloat) \

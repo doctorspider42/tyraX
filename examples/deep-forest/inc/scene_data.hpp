@@ -19,6 +19,8 @@ struct SceneObjectData {
              //    instances are baked to static chunk meshes)
              // 19=scroller (endless belt marker; invisible - drives
              //    baked clone objects via SCROLLERS/SCROLLER_CLONES)
+             // 20=comment (an editor-only note: no geometry, no
+             //    collision, and its text never leaves the editor)
   float position[3];
   float rotation[3];  // degrees
   float scale[3];
@@ -68,15 +70,26 @@ struct SceneObjectData {
   float lightFlicker; // dynamic lights: 0 steady .. 1 full wobble
   int lightSpot;     // dynamic lights: 1 = cone down local -Y
   float lightSpotAngle; // spot lights: cone half-angle, degrees
+  int lightShadowVolumes; // spot lights: does this one carve
+                     // shadow volumes? 0 = follow the project
+                     // (SPOT_SHADOW_VOLUMES), 1 = off, 2 = on.
+                     // Only one spot casts per frame - the count
+                     // band is one buffer (docs/shadows.md)
   int lightBeam;     // point lights: 0 none, 1 glow corona,
                      // 2 corona + cone shaft (additive, at the source)
   int saveState;  // 1 = position/color/visibility persisted in saves
-  int collision;  // 0 = box (models: mesh AABB), 1 = mesh, 2 = none
+  int collision;  // 0 = box, 1 = mesh, 2 = none, 3 = invisible Box
   float drawDistance;  // not drawn farther than this from the camera;
                        // 0 = unlimited (collision/logic always run)
   int reflected;  // 1 = rendered into the dynamic ("@sky") env map
+  int reflectionProxy; // 1 = one-material box in env maps only
   int projShadow; // 1 = live projected silhouette shadow (the
                   // per-object AO 'castShadow' is baked, not here)
+  int shadowMode; // which DYNAMIC shadow this object casts:
+                  // 0 = follow the project (a blob if BLOB_SHADOWS
+                  // is on and the object is one of the moving
+                  // things that get one, a projected silhouette if
+                  // projShadow), 1 = none, 2 = blob, 3 = projected
   int dynLit;     // 1 = lit by the LIT VU1 program from the probe
                   // grid every frame instead of baked vertex colors
                   // (docs/global-illumination.md)
@@ -101,8 +114,8 @@ struct SceneObjectData {
   int layer;      // streaming layer (SCENE_LAYER_* tables), -1 = none:
                   // always resident, never streamed out
   int batchStatic; // 1 = may merge into a combined static batch bag
-                   // (build-time verdict: non-moving primitive with
-                   // no physics/logic/graph refs/save-state/layer)
+                   // (build-time verdict: non-moving primitive or
+                   // compact model with no special runtime path)
   float vuParams[4]; // the four numbers this mesh hands to the
                    // project's own VU1 microprogram, if it has one
                    // (docs/vu-authoring.md). All zero = no effect,
@@ -110,6 +123,13 @@ struct SceneObjectData {
                    // bit-identically to the untouched program.
                    // Uploaded per BAG, so batched objects share one
                    // set - one bag is one sendObjectData.
+  int impostorModel = -1; // optional far representation, original owns collision
+  float impostorDistance = 0.0F; // disabled at zero
+  bool impostorBillboard = false; // ordered view parts
+  int impostorViews = 8; // 4, 8 or 16 baked captures
+  int emitAdditive = 0; // emitters: 1 = additive blending (fire)
+  int emitFrames = 1;   // flipbook frames: MATERIAL_PATHS material..+N-1
+  float emitFps = 0.0F; // flipbook frames per second
 };
 
 // An Area object's box (type 17): the unit cube under
@@ -213,91 +233,24 @@ inline bool areaHoldsObject(const AreaBasis& b,
          r * r;
 }
 
-constexpr int SCENE_COUNT = 1;
-constexpr int START_SCENE = 0;
+inline constexpr int SCENE_COUNT = 1;
+inline constexpr int START_SCENE = 0;
 
-// scene "main"
-constexpr SceneObjectData SCENE_0_OBJECTS[74] = {
-    {6, {0.0F, 0.0F, 0.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.15F, 0.9F, 0.9F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // player-1
-    {18, {0.0F, 20.0F, 0.0F}, {0.0F, 0.0F, 0.0F}, {560.0F, 160.0F, 560.0F}, {0.4F, 0.72F, 0.5F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 2, 0.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // pines
-    {5, {-262.5F, 0.0F, -262.5F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 0, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 2, 210.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, 70.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // pines#pine-xm3zm3
-    {5, {-262.5F, 0.0F, -157.5F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 2, 210.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, 70.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // pines#pine-xm3zm2
-    {5, {-262.5F, 0.0F, -52.5F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 2, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 2, 210.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, 70.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // pines#pine-xm3zm1
-    {5, {-262.5F, 0.0F, 52.5F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 3, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 2, 210.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, 70.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // pines#pine-xm3z0
-    {5, {-262.5F, 0.0F, 157.5F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 4, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 2, 210.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, 70.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // pines#pine-xm3z1
-    {5, {-262.5F, 0.0F, 262.5F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 5, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 2, 210.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, 70.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // pines#pine-xm3z2
-    {5, {-157.5F, 0.0F, -262.5F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 6, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 2, 210.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, 70.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // pines#pine-xm2zm3
-    {5, {-157.5F, 0.0F, -157.5F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 7, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 2, 210.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, 70.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // pines#pine-xm2zm2
-    {5, {-157.5F, 0.0F, -52.5F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 8, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 2, 210.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, 70.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // pines#pine-xm2zm1
-    {5, {-157.5F, 0.0F, 52.5F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 9, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 2, 210.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, 70.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // pines#pine-xm2z0
-    {5, {-157.5F, 0.0F, 157.5F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 10, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 2, 210.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, 70.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // pines#pine-xm2z1
-    {5, {-157.5F, 0.0F, 262.5F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 11, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 2, 210.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, 70.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // pines#pine-xm2z2
-    {5, {-52.5F, 0.0F, -262.5F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 12, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 2, 210.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, 70.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // pines#pine-xm1zm3
-    {5, {-52.5F, 0.0F, -157.5F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 13, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 2, 210.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, 70.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // pines#pine-xm1zm2
-    {5, {-52.5F, 0.0F, -52.5F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 14, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 2, 210.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, 70.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // pines#pine-xm1zm1
-    {5, {-52.5F, 0.0F, 52.5F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 15, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 2, 210.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, 70.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // pines#pine-xm1z0
-    {5, {-52.5F, 0.0F, 157.5F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 16, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 2, 210.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, 70.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // pines#pine-xm1z1
-    {5, {-52.5F, 0.0F, 262.5F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 17, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 2, 210.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, 70.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // pines#pine-xm1z2
-    {5, {52.5F, 0.0F, -262.5F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 18, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 2, 210.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, 70.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // pines#pine-x0zm3
-    {5, {52.5F, 0.0F, -157.5F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 19, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 2, 210.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, 70.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // pines#pine-x0zm2
-    {5, {52.5F, 0.0F, -52.5F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 20, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 2, 210.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, 70.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // pines#pine-x0zm1
-    {5, {52.5F, 0.0F, 52.5F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 21, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 2, 210.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, 70.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // pines#pine-x0z0
-    {5, {52.5F, 0.0F, 157.5F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 22, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 2, 210.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, 70.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // pines#pine-x0z1
-    {5, {52.5F, 0.0F, 262.5F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 23, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 2, 210.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, 70.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // pines#pine-x0z2
-    {5, {157.5F, 0.0F, -262.5F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 24, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 2, 210.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, 70.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // pines#pine-x1zm3
-    {5, {157.5F, 0.0F, -157.5F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 25, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 2, 210.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, 70.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // pines#pine-x1zm2
-    {5, {157.5F, 0.0F, -52.5F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 26, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 2, 210.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, 70.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // pines#pine-x1zm1
-    {5, {157.5F, 0.0F, 52.5F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 27, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 2, 210.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, 70.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // pines#pine-x1z0
-    {5, {157.5F, 0.0F, 157.5F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 28, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 2, 210.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, 70.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // pines#pine-x1z1
-    {5, {157.5F, 0.0F, 262.5F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 29, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 2, 210.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, 70.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // pines#pine-x1z2
-    {5, {262.5F, 0.0F, -262.5F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 30, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 2, 210.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, 70.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // pines#pine-x2zm3
-    {5, {262.5F, 0.0F, -157.5F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 31, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 2, 210.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, 70.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // pines#pine-x2zm2
-    {5, {262.5F, 0.0F, -52.5F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 32, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 2, 210.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, 70.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // pines#pine-x2zm1
-    {5, {262.5F, 0.0F, 52.5F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 33, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 2, 210.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, 70.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // pines#pine-x2z0
-    {5, {262.5F, 0.0F, 157.5F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 34, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 2, 210.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, 70.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // pines#pine-x2z1
-    {5, {262.5F, 0.0F, 262.5F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 35, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 2, 210.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, 70.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // pines#pine-x2z2
-    {5, {-262.5F, 0.0F, -262.5F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 36, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 2, 210.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, 70.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // pines#rock-xm3zm3
-    {5, {-262.5F, 0.0F, -157.5F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 37, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 2, 210.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, 70.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // pines#rock-xm3zm2
-    {5, {-262.5F, 0.0F, -52.5F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 38, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 2, 210.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, 70.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // pines#rock-xm3zm1
-    {5, {-262.5F, 0.0F, 52.5F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 39, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 2, 210.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, 70.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // pines#rock-xm3z0
-    {5, {-262.5F, 0.0F, 157.5F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 40, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 2, 210.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, 70.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // pines#rock-xm3z1
-    {5, {-262.5F, 0.0F, 262.5F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 41, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 2, 210.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, 70.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // pines#rock-xm3z2
-    {5, {-157.5F, 0.0F, -262.5F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 42, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 2, 210.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, 70.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // pines#rock-xm2zm3
-    {5, {-157.5F, 0.0F, -157.5F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 43, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 2, 210.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, 70.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // pines#rock-xm2zm2
-    {5, {-157.5F, 0.0F, -52.5F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 44, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 2, 210.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, 70.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // pines#rock-xm2zm1
-    {5, {-157.5F, 0.0F, 52.5F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 45, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 2, 210.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, 70.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // pines#rock-xm2z0
-    {5, {-157.5F, 0.0F, 157.5F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 46, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 2, 210.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, 70.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // pines#rock-xm2z1
-    {5, {-157.5F, 0.0F, 262.5F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 47, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 2, 210.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, 70.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // pines#rock-xm2z2
-    {5, {-52.5F, 0.0F, -262.5F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 48, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 2, 210.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, 70.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // pines#rock-xm1zm3
-    {5, {-52.5F, 0.0F, -157.5F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 49, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 2, 210.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, 70.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // pines#rock-xm1zm2
-    {5, {-52.5F, 0.0F, -52.5F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 50, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 2, 210.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, 70.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // pines#rock-xm1zm1
-    {5, {-52.5F, 0.0F, 52.5F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 51, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 2, 210.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, 70.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // pines#rock-xm1z0
-    {5, {-52.5F, 0.0F, 157.5F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 52, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 2, 210.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, 70.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // pines#rock-xm1z1
-    {5, {-52.5F, 0.0F, 262.5F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 53, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 2, 210.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, 70.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // pines#rock-xm1z2
-    {5, {52.5F, 0.0F, -262.5F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 54, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 2, 210.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, 70.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // pines#rock-x0zm3
-    {5, {52.5F, 0.0F, -157.5F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 55, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 2, 210.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, 70.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // pines#rock-x0zm2
-    {5, {52.5F, 0.0F, -52.5F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 56, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 2, 210.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, 70.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // pines#rock-x0zm1
-    {5, {52.5F, 0.0F, 52.5F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 57, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 2, 210.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, 70.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // pines#rock-x0z0
-    {5, {52.5F, 0.0F, 157.5F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 58, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 2, 210.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, 70.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // pines#rock-x0z1
-    {5, {52.5F, 0.0F, 262.5F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 59, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 2, 210.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, 70.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // pines#rock-x0z2
-    {5, {157.5F, 0.0F, -262.5F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 60, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 2, 210.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, 70.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // pines#rock-x1zm3
-    {5, {157.5F, 0.0F, -157.5F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 61, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 2, 210.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, 70.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // pines#rock-x1zm2
-    {5, {157.5F, 0.0F, -52.5F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 62, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 2, 210.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, 70.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // pines#rock-x1zm1
-    {5, {157.5F, 0.0F, 52.5F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 63, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 2, 210.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, 70.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // pines#rock-x1z0
-    {5, {157.5F, 0.0F, 157.5F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 64, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 2, 210.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, 70.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // pines#rock-x1z1
-    {5, {157.5F, 0.0F, 262.5F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 65, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 2, 210.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, 70.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // pines#rock-x1z2
-    {5, {262.5F, 0.0F, -262.5F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 66, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 2, 210.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, 70.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // pines#rock-x2zm3
-    {5, {262.5F, 0.0F, -157.5F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 67, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 2, 210.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, 70.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // pines#rock-x2zm2
-    {5, {262.5F, 0.0F, -52.5F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 68, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 2, 210.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, 70.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // pines#rock-x2zm1
-    {5, {262.5F, 0.0F, 52.5F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 69, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 2, 210.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, 70.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // pines#rock-x2z0
-    {5, {262.5F, 0.0F, 157.5F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 70, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 2, 210.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, 70.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // pines#rock-x2z1
-    {5, {262.5F, 0.0F, 262.5F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 71, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 2, 210.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, 70.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // pines#rock-x2z2
-};
+extern const SceneObjectData SCENE_0_OBJECTS[];
 
-constexpr int SCENE_OBJECT_COUNTS[SCENE_COUNT] = {74};
+extern const int SCENE_OBJECT_COUNTS[SCENE_COUNT];
 inline const SceneObjectData* SCENE_OBJECT_TABLES[SCENE_COUNT] = {SCENE_0_OBJECTS};
 
-constexpr unsigned long long SCENE_0_OBJECT_ID_HASHES[74] = {0xf63c023d3cd45ba9ULL, 0x42da4e8a1070b9a3ULL, 0x51dbba63d862456bULL, 0xe3126843fb282c4cULL, 0x72fd707553fe99c8ULL, 0x5106fc584b4c5fadULL, 0x9caaec4899f794d2ULL, 0x4a9f0d55982bb7a4ULL, 0xc78d5704c50db53dULL, 0xfec9f46ed32277a7ULL, 0x79b46eb31fcf07efULL, 0xc39bfacfa8a7861cULL, 0x7ece38485de48ad5ULL, 0x9ab567fc3b200ea8ULL, 0xee5400452e9430e8ULL, 0x1d976d6bde12f536ULL, 0xb3b2608348ec261cULL, 0x87acf27a7c4db4a7ULL, 0xc6184c8ae2c76448ULL, 0x6ec3d326780a414aULL, 0xa0cf1f388b8b431cULL, 0x86cccb206c999b89ULL, 0x79195f7a4f7626ffULL, 0xbbf009fc26691b0dULL, 0xdbeb025ad8431969ULL, 0x781f8c67a30cd56bULL, 0x0c4a20b95a459aadULL, 0x50f43946636a9f94ULL, 0x91ead2d744626c2aULL, 0x76fa2d729a9f2643ULL, 0xbee646b8e2f135daULL, 0xdfa76487389f4211ULL, 0xeb9866dacfc86f68ULL, 0x220eb94882f5e601ULL, 0x8e5def73c302c417ULL, 0x255ba67871f372bbULL, 0xc93683e7972fa0d8ULL, 0x00db3c16c7d0eb6cULL, 0x6ad06a1ca542d594ULL, 0xf4cdd66408f937c1ULL, 0x5e42144f0ef2452eULL, 0x0aca2b8b2e53aad4ULL, 0x45c39cbe4aa6de8cULL, 0x82b940b9c6c30616ULL, 0xe8cab4cd581da7a1ULL, 0xc73282bfcf585ecbULL, 0x89d19f0349acee54ULL, 0x5bdd4ceecf58f490ULL, 0xc428de14c6bce1a1ULL, 0xcd1bbd730db2db6eULL, 0x637f531343d02962ULL, 0xda7e778863a5d4a7ULL, 0xfba985c4cfd483a9ULL, 0x9273efeb9880f6caULL, 0x0103332d36becba5ULL, 0xb76f1596aeb7b8c8ULL, 0x032d7b27c2c9fed6ULL, 0x7472fb9542147310ULL, 0x93dbc9751a31e310ULL, 0x4439f94f38df9df4ULL, 0x2fa9081ebd25c7a1ULL, 0xea7729e8ed6cbc79ULL, 0xb7a7389f08671f6dULL, 0x4e0b85ffa19273c8ULL, 0xed7825ce15080a36ULL, 0x83cd5836736189fbULL, 0xdaf316903b63157dULL, 0xc6065f9cc25e48adULL, 0x912b6fe6c02067f7ULL, 0x95fcc0c2e0f7d13bULL, 0x0f534cdbafb49aebULL, 0x31ddbcb3f8bc0b50ULL, 0x896c502bd5091050ULL, 0x36eebde05b8ee04fULL};
+struct EmitterLayerData { int scene; int object; float offset[3]; float area[3]; };
+inline constexpr int EMITTER_LAYER_COUNT = 0;
+inline constexpr EmitterLayerData EMITTER_LAYERS[1] = {
+    {-1, -1, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}}
+};
+inline constexpr SceneObjectData EMITTER_LAYER_OBJECTS[1] = {
+    {0, {0.0F, 0.5F, 0.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0, 0.0F, 0, 0, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}, -1, 0.0F, false, 8, 0, 1, 12.0F},
+};
+
+extern const unsigned long long SCENE_0_OBJECT_ID_HASHES[];
 inline const unsigned long long* SCENE_OBJECT_ID_TABLES[SCENE_COUNT] = {SCENE_0_OBJECT_ID_HASHES};
 
 // Endless scrollers (type 19). SCROLLERS holds per-belt state;
@@ -323,24 +276,24 @@ struct ScrollerClone {
   float yawVary; float offsetVary; float scaleVary;
 };
 struct ScrollerHidden { int scene; int object; };
-constexpr int SCROLLER_COUNT = 0;
-constexpr ScrollerData SCROLLERS[1] = {
+inline constexpr int SCROLLER_COUNT = 0;
+inline constexpr ScrollerData SCROLLERS[1] = {
     {0, -1, {0,0,1}, {1,0,0}, 0.0F, 0.0F, 0.0F, 1.0F, 0, 1, 1}
 };
-constexpr int SCROLLER_CLONE_COUNT = 0;
-constexpr ScrollerClone SCROLLER_CLONES[1] = {
+inline constexpr int SCROLLER_CLONE_COUNT = 0;
+inline constexpr ScrollerClone SCROLLER_CLONES[1] = {
     {0, -1, 0, 0.0F, 1.0F, {0,0,0}, 0.0F, {1,1,1}, 0, 0U, 1.0F, 0, 0, 0U, 0.0F, 0.0F, 0.0F}
 };
-constexpr int SCROLLER_HIDDEN_COUNT = 0;
-constexpr ScrollerHidden SCROLLER_HIDDEN[1] = {{0, -1}};
+inline constexpr int SCROLLER_HIDDEN_COUNT = 0;
+inline constexpr ScrollerHidden SCROLLER_HIDDEN[1] = {{0, -1}};
 
-constexpr int SCENE_LAYER_COUNTS[SCENE_COUNT] = {0};
-constexpr int SCENE_MAX_LAYERS = 1;
-constexpr bool SCENE_LAYER_STARTS[SCENE_COUNT][SCENE_MAX_LAYERS] = {{true}};
-constexpr float SCENE_LAYER_STREAM_XS[SCENE_COUNT][SCENE_MAX_LAYERS] = {{0.0F}};
-constexpr float SCENE_LAYER_STREAM_ZS[SCENE_COUNT][SCENE_MAX_LAYERS] = {{0.0F}};
-constexpr float SCENE_LAYER_STREAM_RADII[SCENE_COUNT][SCENE_MAX_LAYERS] = {{0.0F}};
-constexpr int SCENE_LAYER_STREAM_AREAS[SCENE_COUNT][SCENE_MAX_LAYERS] = {{-1}};
+inline constexpr int SCENE_LAYER_COUNTS[SCENE_COUNT] = {0};
+inline constexpr int SCENE_MAX_LAYERS = 1;
+inline constexpr bool SCENE_LAYER_STARTS[SCENE_COUNT][SCENE_MAX_LAYERS] = {{true}};
+inline constexpr float SCENE_LAYER_STREAM_XS[SCENE_COUNT][SCENE_MAX_LAYERS] = {{0.0F}};
+inline constexpr float SCENE_LAYER_STREAM_ZS[SCENE_COUNT][SCENE_MAX_LAYERS] = {{0.0F}};
+inline constexpr float SCENE_LAYER_STREAM_RADII[SCENE_COUNT][SCENE_MAX_LAYERS] = {{0.0F}};
+inline constexpr int SCENE_LAYER_STREAM_AREAS[SCENE_COUNT][SCENE_MAX_LAYERS] = {{-1}};
 
 // Mirrors (type 15): each entry re-draws its target objects
 // reflected across the mirror plane (renderMirrors in the game
@@ -358,11 +311,11 @@ struct MirrorData {
   int firstCand;      // first entry in CATCH_CANDIDATES
   int candCount;
 };
-constexpr int MIRROR_COUNT = 0;
-constexpr MirrorData MIRRORS[1] = {
+inline constexpr int MIRROR_COUNT = 0;
+inline constexpr MirrorData MIRRORS[1] = {
     {0, -1, 0.0F, 0, 0, 0, 0, 64, -1, 0, 0}
 };
-constexpr int MIRROR_TARGETS[1] = {-1};
+inline constexpr int MIRROR_TARGETS[1] = {-1};
 
 // A room for the sound effects. While the player stands inside
 // the area, the SPU2's reverb unit runs `preset` at `amount`.
@@ -380,9 +333,9 @@ struct ReverbZoneData {
   int feedback;  // 0..127, echo/delay presets only
   int priority;  // overlapping zones: the highest wins
 };
-constexpr int REVERB_ZONE_COUNT = 0;
-constexpr bool REVERB_HAS_NODE = false;
-constexpr ReverbZoneData REVERB_ZONES[1] = {
+inline constexpr int REVERB_ZONE_COUNT = 0;
+inline constexpr bool REVERB_HAS_NODE = false;
+inline constexpr ReverbZoneData REVERB_ZONES[1] = {
     {0, -1, 0, 0, 0, 0, 0}
 };
 
@@ -398,11 +351,11 @@ struct RtProxyData {
   int firstFloat;  // offset into RT_PROXY_VERTS
   int triCount;
 };
-constexpr int RT_PROXY_COUNT = 0;
-constexpr RtProxyData RT_PROXIES[1] = {
+inline constexpr int RT_PROXY_COUNT = 0;
+inline constexpr RtProxyData RT_PROXIES[1] = {
     {0, -1, -1, 0, 0, 0}
 };
-constexpr float RT_PROXY_VERTS[1] = {
+inline constexpr float RT_PROXY_VERTS[1] = {
   0.0F
 };
 // Animated-model proxies: fixed VERTEX indices (3 per
@@ -419,11 +372,11 @@ struct RtAnimProxyData {
   int firstIdx;   // offset into RT_ANIM_PROXY_TRIS (3/tri)
   int triCount;
 };
-constexpr int RT_ANIM_PROXY_COUNT = 0;
-constexpr RtAnimProxyData RT_ANIM_PROXIES[1] = {
+inline constexpr int RT_ANIM_PROXY_COUNT = 0;
+inline constexpr RtAnimProxyData RT_ANIM_PROXIES[1] = {
     {0, -1, -1, 0, 0, 0}
 };
-constexpr int RT_ANIM_PROXY_TRIS[1] = {
+inline constexpr int RT_ANIM_PROXY_TRIS[1] = {
   0
 };
 
@@ -439,11 +392,11 @@ struct CamFeedData {
   int firstCand;    // first entry in CATCH_CANDIDATES
   int candCount;
 };
-constexpr int CAM_FEED_COUNT = 0;
-constexpr CamFeedData CAM_FEEDS[1] = {
+inline constexpr int CAM_FEED_COUNT = 0;
+inline constexpr CamFeedData CAM_FEEDS[1] = {
     {0, -1, 60.0F, 1, 0, 0, -1, 0, 0}
 };
-constexpr int CAM_FEED_VIEWS[1] = {-1};
+inline constexpr int CAM_FEED_VIEWS[1] = {-1};
 // Surfaces showing a live feed: kind 0 = the scene's camera
 // feed, kind 1 = a raytraced mirror's traced image (src =
 // the mirror's scene-table index).
@@ -453,8 +406,8 @@ struct ObjectFeedData {
   int kind;
   int src;
 };
-constexpr int OBJECT_FEED_COUNT = 0;
-constexpr ObjectFeedData OBJECT_FEEDS[1] = {
+inline constexpr int OBJECT_FEED_COUNT = 0;
+inline constexpr ObjectFeedData OBJECT_FEEDS[1] = {
     {0, -1, 0, -1}
 };
 
@@ -477,183 +430,196 @@ struct PortalData {
   int firstCand;        // first entry in CATCH_CANDIDATES
   int candCount;
 };
-constexpr int PORTAL_COUNT = 0;
-constexpr PortalData PORTALS[1] = {
+inline constexpr int PORTAL_COUNT = 0;
+inline constexpr PortalData PORTALS[1] = {
     {0, -1, -1, 0, 0, 0, 0, 0, -1, 0, 0}
 };
-constexpr int PORTAL_VIEW_OBJECTS[1] = {-1};
+inline constexpr int PORTAL_VIEW_OBJECTS[1] = {-1};
 
 // Objects a live catch area re-tests every frame (collectLiveCaught
 // in the game cpp). Indices are scene-table indices, sliced per
 // owner by MirrorData/CamFeedData/PortalData::firstCand.
-constexpr int CATCH_CANDIDATES[1] = {-1};
+inline constexpr int CATCH_CANDIDATES[1] = {-1};
 
-constexpr int SND_COUNT = 0;
+inline constexpr int SND_COUNT = 0;
 inline const char* SND_PATHS[1] = {""};
 
-constexpr int PLAYER_INDEXES[SCENE_COUNT] = {0};
-constexpr int PLAYER_MODES[SCENE_COUNT] = {0};
-constexpr float PLAYER_WALK_SPEEDS[SCENE_COUNT] = {0.55F};
-constexpr float PLAYER_RUN_SPEEDS[SCENE_COUNT] = {1.1F};
-constexpr float PLAYER_SPRINT_SPEEDS[SCENE_COUNT] = {1.98F};
-constexpr float PLAYER_LOOK_SPEEDS[SCENE_COUNT] = {1.0F};
-constexpr float PLAYER_EYE_HEIGHTS[SCENE_COUNT] = {1.8F};
-constexpr float PLAYER_JUMP_SPEEDS[SCENE_COUNT] = {4.5F};
-constexpr bool PLAYER_CAN_JUMPS[SCENE_COUNT] = {true};
-constexpr float PLAYER_RUN_THRESHOLDS[SCENE_COUNT] = {0.55F};
-constexpr float PLAYER_CAM_DISTS[SCENE_COUNT] = {6.0F};
-constexpr float PLAYER_CAM_HEIGHTS[SCENE_COUNT] = {1.6F};
-constexpr float PLAYER_CAM_SHOULDERS[SCENE_COUNT] = {0.0F};
-constexpr float PLAYER_TURN_RATES[SCENE_COUNT] = {0.25F};
-constexpr int PLAYER_CAM_STYLES[SCENE_COUNT] = {0};
-constexpr float PLAYER_CAM_PITCHES[SCENE_COUNT] = {0.959931F};
-constexpr float PLAYER_CAM_YAWS[SCENE_COUNT] = {0.785398F};
-constexpr bool PLAYER_CAM_YAW_ROTATES[SCENE_COUNT] = {false};
-constexpr const char* PLAYER_IDLE_CLIPS[SCENE_COUNT] = {""};
-constexpr const char* PLAYER_WALK_CLIPS[SCENE_COUNT] = {""};
-constexpr const char* PLAYER_RUN_CLIPS[SCENE_COUNT] = {""};
-constexpr const char* PLAYER_SPRINT_CLIPS[SCENE_COUNT] = {""};
-constexpr const char* PLAYER_JUMP_CLIPS[SCENE_COUNT] = {""};
-constexpr const char* PLAYER_BACK_CLIPS[SCENE_COUNT] = {""};
-constexpr const char* PLAYER_STRAFE_L_CLIPS[SCENE_COUNT] = {""};
-constexpr const char* PLAYER_STRAFE_R_CLIPS[SCENE_COUNT] = {""};
-constexpr bool PLAYER_FACE_CAMERAS[SCENE_COUNT] = {false};
-constexpr int PLAYER2_INDEXES[SCENE_COUNT] = {-1};
-constexpr int PLAYER2_MODES[SCENE_COUNT] = {0};
-constexpr float PLAYER2_WALK_SPEEDS[SCENE_COUNT] = {0.1F};
-constexpr float PLAYER2_RUN_SPEEDS[SCENE_COUNT] = {0.1F};
-constexpr float PLAYER2_SPRINT_SPEEDS[SCENE_COUNT] = {0.18F};
-constexpr float PLAYER2_LOOK_SPEEDS[SCENE_COUNT] = {1.0F};
-constexpr float PLAYER2_EYE_HEIGHTS[SCENE_COUNT] = {1.8F};
-constexpr float PLAYER2_JUMP_SPEEDS[SCENE_COUNT] = {4.5F};
-constexpr bool PLAYER2_CAN_JUMPS[SCENE_COUNT] = {true};
-constexpr float PLAYER2_RUN_THRESHOLDS[SCENE_COUNT] = {0.55F};
-constexpr float PLAYER2_CAM_DISTS[SCENE_COUNT] = {6.0F};
-constexpr float PLAYER2_CAM_HEIGHTS[SCENE_COUNT] = {1.6F};
-constexpr float PLAYER2_CAM_SHOULDERS[SCENE_COUNT] = {0.0F};
-constexpr float PLAYER2_TURN_RATES[SCENE_COUNT] = {0.25F};
-constexpr int PLAYER2_CAM_STYLES[SCENE_COUNT] = {0};
-constexpr float PLAYER2_CAM_PITCHES[SCENE_COUNT] = {0.959931F};
-constexpr float PLAYER2_CAM_YAWS[SCENE_COUNT] = {0.785398F};
-constexpr bool PLAYER2_CAM_YAW_ROTATES[SCENE_COUNT] = {false};
-constexpr const char* PLAYER2_IDLE_CLIPS[SCENE_COUNT] = {""};
-constexpr const char* PLAYER2_WALK_CLIPS[SCENE_COUNT] = {""};
-constexpr const char* PLAYER2_RUN_CLIPS[SCENE_COUNT] = {""};
-constexpr const char* PLAYER2_SPRINT_CLIPS[SCENE_COUNT] = {""};
-constexpr const char* PLAYER2_JUMP_CLIPS[SCENE_COUNT] = {""};
-constexpr const char* PLAYER2_BACK_CLIPS[SCENE_COUNT] = {""};
-constexpr const char* PLAYER2_STRAFE_L_CLIPS[SCENE_COUNT] = {""};
-constexpr const char* PLAYER2_STRAFE_R_CLIPS[SCENE_COUNT] = {""};
-constexpr bool PLAYER2_FACE_CAMERAS[SCENE_COUNT] = {false};
+inline constexpr int PLAYER_INDEXES[SCENE_COUNT] = {0};
+inline constexpr int PLAYER_MODES[SCENE_COUNT] = {0};
+inline constexpr float PLAYER_WALK_SPEEDS[SCENE_COUNT] = {0.55F};
+inline constexpr float PLAYER_RUN_SPEEDS[SCENE_COUNT] = {1.1F};
+inline constexpr float PLAYER_SPRINT_SPEEDS[SCENE_COUNT] = {1.98F};
+inline constexpr float PLAYER_LOOK_SPEEDS[SCENE_COUNT] = {1.0F};
+inline constexpr float PLAYER_EYE_HEIGHTS[SCENE_COUNT] = {1.8F};
+inline constexpr float PLAYER_JUMP_SPEEDS[SCENE_COUNT] = {4.5F};
+inline constexpr bool PLAYER_CAN_JUMPS[SCENE_COUNT] = {true};
+inline constexpr float PLAYER_RUN_THRESHOLDS[SCENE_COUNT] = {0.55F};
+inline constexpr float PLAYER_CAM_DISTS[SCENE_COUNT] = {6.0F};
+inline constexpr float PLAYER_CAM_HEIGHTS[SCENE_COUNT] = {1.6F};
+inline constexpr float PLAYER_CAM_SHOULDERS[SCENE_COUNT] = {0.0F};
+inline constexpr float PLAYER_TURN_RATES[SCENE_COUNT] = {0.25F};
+inline constexpr int PLAYER_CAM_STYLES[SCENE_COUNT] = {0};
+inline constexpr float PLAYER_CAM_PITCHES[SCENE_COUNT] = {0.959931F};
+inline constexpr float PLAYER_CAM_YAWS[SCENE_COUNT] = {0.785398F};
+inline constexpr bool PLAYER_CAM_YAW_ROTATES[SCENE_COUNT] = {false};
+inline constexpr const char* PLAYER_IDLE_CLIPS[SCENE_COUNT] = {""};
+inline constexpr const char* PLAYER_WALK_CLIPS[SCENE_COUNT] = {""};
+inline constexpr const char* PLAYER_RUN_CLIPS[SCENE_COUNT] = {""};
+inline constexpr const char* PLAYER_SPRINT_CLIPS[SCENE_COUNT] = {""};
+inline constexpr const char* PLAYER_JUMP_CLIPS[SCENE_COUNT] = {""};
+inline constexpr const char* PLAYER_BACK_CLIPS[SCENE_COUNT] = {""};
+inline constexpr const char* PLAYER_STRAFE_L_CLIPS[SCENE_COUNT] = {""};
+inline constexpr const char* PLAYER_STRAFE_R_CLIPS[SCENE_COUNT] = {""};
+inline constexpr bool PLAYER_FACE_CAMERAS[SCENE_COUNT] = {false};
+inline constexpr int PLAYER2_INDEXES[SCENE_COUNT] = {-1};
+inline constexpr int PLAYER2_MODES[SCENE_COUNT] = {0};
+inline constexpr float PLAYER2_WALK_SPEEDS[SCENE_COUNT] = {0.1F};
+inline constexpr float PLAYER2_RUN_SPEEDS[SCENE_COUNT] = {0.1F};
+inline constexpr float PLAYER2_SPRINT_SPEEDS[SCENE_COUNT] = {0.18F};
+inline constexpr float PLAYER2_LOOK_SPEEDS[SCENE_COUNT] = {1.0F};
+inline constexpr float PLAYER2_EYE_HEIGHTS[SCENE_COUNT] = {1.8F};
+inline constexpr float PLAYER2_JUMP_SPEEDS[SCENE_COUNT] = {4.5F};
+inline constexpr bool PLAYER2_CAN_JUMPS[SCENE_COUNT] = {true};
+inline constexpr float PLAYER2_RUN_THRESHOLDS[SCENE_COUNT] = {0.55F};
+inline constexpr float PLAYER2_CAM_DISTS[SCENE_COUNT] = {6.0F};
+inline constexpr float PLAYER2_CAM_HEIGHTS[SCENE_COUNT] = {1.6F};
+inline constexpr float PLAYER2_CAM_SHOULDERS[SCENE_COUNT] = {0.0F};
+inline constexpr float PLAYER2_TURN_RATES[SCENE_COUNT] = {0.25F};
+inline constexpr int PLAYER2_CAM_STYLES[SCENE_COUNT] = {0};
+inline constexpr float PLAYER2_CAM_PITCHES[SCENE_COUNT] = {0.959931F};
+inline constexpr float PLAYER2_CAM_YAWS[SCENE_COUNT] = {0.785398F};
+inline constexpr bool PLAYER2_CAM_YAW_ROTATES[SCENE_COUNT] = {false};
+inline constexpr const char* PLAYER2_IDLE_CLIPS[SCENE_COUNT] = {""};
+inline constexpr const char* PLAYER2_WALK_CLIPS[SCENE_COUNT] = {""};
+inline constexpr const char* PLAYER2_RUN_CLIPS[SCENE_COUNT] = {""};
+inline constexpr const char* PLAYER2_SPRINT_CLIPS[SCENE_COUNT] = {""};
+inline constexpr const char* PLAYER2_JUMP_CLIPS[SCENE_COUNT] = {""};
+inline constexpr const char* PLAYER2_BACK_CLIPS[SCENE_COUNT] = {""};
+inline constexpr const char* PLAYER2_STRAFE_L_CLIPS[SCENE_COUNT] = {""};
+inline constexpr const char* PLAYER2_STRAFE_R_CLIPS[SCENE_COUNT] = {""};
+inline constexpr bool PLAYER2_FACE_CAMERAS[SCENE_COUNT] = {false};
 
-constexpr float TERRAIN_WIDTHS[SCENE_COUNT] = {2048.0F};
-constexpr float TERRAIN_DEPTHS[SCENE_COUNT] = {2048.0F};
-constexpr float TERRAIN_VOID_Y = -1000000.0F;
-constexpr bool TERRAIN_ENABLEDS[SCENE_COUNT] = {true};
-constexpr float SCENE_LIGHT_XS[SCENE_COUNT] = {-0.349773F};
-constexpr float SCENE_LIGHT_YS[SCENE_COUNT] = {0.779494F};
-constexpr float SCENE_LIGHT_ZS[SCENE_COUNT] = {0.519662F};
-constexpr float SCENE_AMBIENTS[SCENE_COUNT] = {0.4F};
-constexpr float SCENE_DIFFUSES[SCENE_COUNT] = {0.55F};
-constexpr float SCENE_LIGHT_COL_RS[SCENE_COUNT] = {1.0F};
-constexpr float SCENE_LIGHT_COL_GS[SCENE_COUNT] = {0.96F};
-constexpr float SCENE_LIGHT_COL_BS[SCENE_COUNT] = {0.86F};
-constexpr float SCENE_BRIGHTNESSES[SCENE_COUNT] = {1.0F};
-constexpr float SCENE_SUN_XS[SCENE_COUNT] = {0.0F};
-constexpr float SCENE_SUN_YS[SCENE_COUNT] = {1.0F};
-constexpr float SCENE_SUN_ZS[SCENE_COUNT] = {0.0F};
-constexpr float SCENE_MOON_XS[SCENE_COUNT] = {0.0F};
-constexpr float SCENE_MOON_YS[SCENE_COUNT] = {1.0F};
-constexpr float SCENE_MOON_ZS[SCENE_COUNT] = {0.0F};
-constexpr float SCENE_SUN_RS[SCENE_COUNT] = {0.0F};
-constexpr float SCENE_MOON_RS[SCENE_COUNT] = {0.0F};
-constexpr bool DAYCYCLE_RUNTIMES[SCENE_COUNT] = {false};
-constexpr bool DAYCYCLE_GRADES[SCENE_COUNT] = {false};
-constexpr float DAYCYCLE_STARTS[SCENE_COUNT] = {12.0F};
-constexpr float DAYCYCLE_BAKEDS[SCENE_COUNT] = {12.0F};
-constexpr float DAYCYCLE_DAYLENS[SCENE_COUNT] = {240.0F};
-constexpr float DAYCYCLE_SUN_AZS[SCENE_COUNT] = {90.0F};
-constexpr float DAYCYCLE_SUN_TILTS[SCENE_COUNT] = {25.0F};
-constexpr float DAYCYCLE_SUNRISES[SCENE_COUNT] = {6.0F};
-constexpr float DAYCYCLE_SUNSETS[SCENE_COUNT] = {18.0F};
-constexpr float DAYCYCLE_MOON_AZS[SCENE_COUNT] = {90.0F};
-constexpr float DAYCYCLE_MOON_TILTS[SCENE_COUNT] = {35.0F};
-constexpr float DAYCYCLE_MOON_OFFS[SCENE_COUNT] = {12.0F};
-constexpr float DAYCYCLE_SUN_RADS[SCENE_COUNT] = {0.0F};
-constexpr float DAYCYCLE_MOON_RADS[SCENE_COUNT] = {0.0F};
-constexpr float DAYCYCLE_MOON_ALPHAS[SCENE_COUNT] = {1.0F};
-constexpr float DAYCYCLE_TWINKLES[SCENE_COUNT] = {0.0F};
+inline constexpr float TERRAIN_WIDTHS[SCENE_COUNT] = {2048.0F};
+inline constexpr float TERRAIN_DEPTHS[SCENE_COUNT] = {2048.0F};
+inline constexpr float TERRAIN_VOID_Y = -1000000.0F;
+inline constexpr bool TERRAIN_ENABLEDS[SCENE_COUNT] = {true};
+inline constexpr float SCENE_LIGHT_XS[SCENE_COUNT] = {-0.349773F};
+inline constexpr float SCENE_LIGHT_YS[SCENE_COUNT] = {0.779494F};
+inline constexpr float SCENE_LIGHT_ZS[SCENE_COUNT] = {0.519662F};
+inline constexpr float SCENE_AMBIENTS[SCENE_COUNT] = {0.4F};
+inline constexpr float SCENE_DIFFUSES[SCENE_COUNT] = {0.55F};
+inline constexpr float SCENE_LIGHT_COL_RS[SCENE_COUNT] = {1.0F};
+inline constexpr float SCENE_LIGHT_COL_GS[SCENE_COUNT] = {0.96F};
+inline constexpr float SCENE_LIGHT_COL_BS[SCENE_COUNT] = {0.86F};
+inline constexpr float SCENE_BRIGHTNESSES[SCENE_COUNT] = {1.0F};
+inline constexpr float SCENE_SUN_XS[SCENE_COUNT] = {0.0F};
+inline constexpr float SCENE_SUN_YS[SCENE_COUNT] = {1.0F};
+inline constexpr float SCENE_SUN_ZS[SCENE_COUNT] = {0.0F};
+inline constexpr float SCENE_MOON_XS[SCENE_COUNT] = {0.0F};
+inline constexpr float SCENE_MOON_YS[SCENE_COUNT] = {1.0F};
+inline constexpr float SCENE_MOON_ZS[SCENE_COUNT] = {0.0F};
+inline constexpr float SCENE_SUN_RS[SCENE_COUNT] = {0.0F};
+inline constexpr float SCENE_MOON_RS[SCENE_COUNT] = {0.0F};
+inline constexpr bool DAYCYCLE_RUNTIMES[SCENE_COUNT] = {false};
+inline constexpr bool DAYCYCLE_GRADES[SCENE_COUNT] = {false};
+inline constexpr float DAYCYCLE_STARTS[SCENE_COUNT] = {12.0F};
+inline constexpr float DAYCYCLE_BAKEDS[SCENE_COUNT] = {12.0F};
+inline constexpr float DAYCYCLE_DAYLENS[SCENE_COUNT] = {240.0F};
+inline constexpr float DAYCYCLE_SUN_AZS[SCENE_COUNT] = {90.0F};
+inline constexpr float DAYCYCLE_SUN_TILTS[SCENE_COUNT] = {25.0F};
+inline constexpr float DAYCYCLE_SUNRISES[SCENE_COUNT] = {6.0F};
+inline constexpr float DAYCYCLE_SUNSETS[SCENE_COUNT] = {18.0F};
+inline constexpr float DAYCYCLE_MOON_AZS[SCENE_COUNT] = {90.0F};
+inline constexpr float DAYCYCLE_MOON_TILTS[SCENE_COUNT] = {35.0F};
+inline constexpr float DAYCYCLE_MOON_OFFS[SCENE_COUNT] = {12.0F};
+inline constexpr float DAYCYCLE_SUN_RADS[SCENE_COUNT] = {0.0F};
+inline constexpr float DAYCYCLE_MOON_RADS[SCENE_COUNT] = {0.0F};
+inline constexpr float DAYCYCLE_MOON_ALPHAS[SCENE_COUNT] = {1.0F};
+inline constexpr float DAYCYCLE_TWINKLES[SCENE_COUNT] = {0.0F};
 struct DayKeyData { float hour; float sky[3], top[3], lit[3], fog[3]; float amb, dif, bright, stars; };
-constexpr int DAY_KEY_TOTAL = 0;
-constexpr DayKeyData DAY_KEYS[1] = {{0,{0,0,0},{0,0,0},{0,0,0},{0,0,0},0,0,0,0}};
-constexpr int DAYCYCLE_KEY_FIRSTS[SCENE_COUNT] = {0};
-constexpr int DAYCYCLE_KEY_COUNTS[SCENE_COUNT] = {0};
-constexpr float SCENE_STARS_BRIGHTS[SCENE_COUNT] = {0.0F};
-constexpr float SCENE_STARS_TWINKLES[SCENE_COUNT] = {0.0F};
-constexpr float SCENE_MOON_ALPHAS[SCENE_COUNT] = {1.0F};
-constexpr float SCENE_MOON_ROLLS[SCENE_COUNT] = {0.0F};
-constexpr bool SCENE_AO_ENABLEDS[SCENE_COUNT] = {false};
-constexpr float SCENE_AO_STRENGTHS[SCENE_COUNT] = {0.55F};
-constexpr float SCENE_AO_RADII[SCENE_COUNT] = {2.5F};
-constexpr bool CLIP_PRECISES[SCENE_COUNT] = {true};
-constexpr bool CLIP_VU1S[SCENE_COUNT] = {true};
-constexpr float SKY_RS[SCENE_COUNT] = {127.5F};
-constexpr float SKY_GS[SCENE_COUNT] = {168.3F};
-constexpr float SKY_BS[SCENE_COUNT] = {219.3F};
-constexpr bool SKY_DOMES[SCENE_COUNT] = {true};
-constexpr float SKY_ZENITH_EXPS[SCENE_COUNT] = {1.0F};
-constexpr float SKY_TOP_RS[SCENE_COUNT] = {45.9F};
-constexpr float SKY_TOP_GS[SCENE_COUNT] = {96.9F};
-constexpr float SKY_TOP_BS[SCENE_COUNT] = {178.5F};
-constexpr int POSTFX_BLOOMS[SCENE_COUNT] = {0};
-constexpr int POSTFX_BLOOM_CUTS[SCENE_COUNT] = {0};
-constexpr int POSTFX_BLOOM_SPREADS[SCENE_COUNT] = {1};
-constexpr int POSTFX_GRAINS[SCENE_COUNT] = {0};
-constexpr int POSTFX_FLARES[SCENE_COUNT] = {0};
-constexpr int POSTFX_GODRAYS_ARR[SCENE_COUNT] = {0};
-constexpr int FLARE_USED = 0;
-constexpr int BEAMS_USED = 0;
-constexpr int FLASHLIGHT_USED = 0;
-constexpr int DAYCYCLE_USED = 0;
-constexpr int STAR_COUNT = 0;
+inline constexpr int DAY_KEY_TOTAL = 0;
+inline constexpr DayKeyData DAY_KEYS[1] = {{0,{0,0,0},{0,0,0},{0,0,0},{0,0,0},0,0,0,0}};
+inline constexpr int DAYCYCLE_KEY_FIRSTS[SCENE_COUNT] = {0};
+inline constexpr int DAYCYCLE_KEY_COUNTS[SCENE_COUNT] = {0};
+inline constexpr float SCENE_STARS_BRIGHTS[SCENE_COUNT] = {0.0F};
+inline constexpr float SCENE_STARS_TWINKLES[SCENE_COUNT] = {0.0F};
+inline constexpr float SCENE_MOON_ALPHAS[SCENE_COUNT] = {1.0F};
+inline constexpr float SCENE_MOON_ROLLS[SCENE_COUNT] = {0.0F};
+inline constexpr bool SCENE_AO_ENABLEDS[SCENE_COUNT] = {false};
+inline constexpr float SCENE_AO_STRENGTHS[SCENE_COUNT] = {0.55F};
+inline constexpr float SCENE_AO_RADII[SCENE_COUNT] = {2.5F};
+inline constexpr bool CLIP_PRECISES[SCENE_COUNT] = {true};
+inline constexpr bool CLIP_VU1S[SCENE_COUNT] = {true};
+inline constexpr float SKY_RS[SCENE_COUNT] = {127.5F};
+inline constexpr float SKY_GS[SCENE_COUNT] = {168.3F};
+inline constexpr float SKY_BS[SCENE_COUNT] = {219.3F};
+inline constexpr bool SKY_DOMES[SCENE_COUNT] = {true};
+inline constexpr float SKY_ZENITH_EXPS[SCENE_COUNT] = {1.0F};
+inline constexpr float SKY_TOP_RS[SCENE_COUNT] = {45.9F};
+inline constexpr float SKY_TOP_GS[SCENE_COUNT] = {96.9F};
+inline constexpr float SKY_TOP_BS[SCENE_COUNT] = {178.5F};
+inline constexpr int POSTFX_BLOOMS[SCENE_COUNT] = {0};
+inline constexpr int POSTFX_BLOOM_CUTS[SCENE_COUNT] = {0};
+inline constexpr int POSTFX_BLOOM_SPREADS[SCENE_COUNT] = {1};
+inline constexpr int POSTFX_GRAINS[SCENE_COUNT] = {0};
+inline constexpr int POSTFX_MOTIONBLURS[SCENE_COUNT] = {0};
+inline constexpr int POSTFX_FLARES[SCENE_COUNT] = {0};
+// Clear motion-blur history once after the camera settles. The
+// authored blur returns on the next frame, even if it stays parked.
+inline constexpr int POSTFX_MOTIONBLUR_IDLE_CLEAR = 1;
+inline constexpr int POSTFX_GODRAYS_ARR[SCENE_COUNT] = {0};
+inline constexpr int FLARE_USED = 0;
+inline constexpr int BEAMS_USED = 0;
+inline constexpr int FLASHLIGHT_USED = 0;
+inline constexpr int VEHICLE_HEADLIGHTS_USED = 0;
+inline constexpr int DAYCYCLE_USED = 0;
+inline constexpr int STAR_COUNT = 0;
 struct StarData { float x, y, z, size; unsigned char r, g, b, tier; };
-constexpr StarData STARS[1] = {{0,0,0,0,0,0,0,0}};
-constexpr int STAR_TIERS = 3;
-constexpr int BLOB_SHADOWS = 0;
-constexpr int PROJ_SHADOWS_USED = 0;
-constexpr int POSTFX_DOFS[SCENE_COUNT] = {0};
-constexpr float POSTFX_DOF_FOCUSES[SCENE_COUNT] = {20.0F};
-constexpr float POSTFX_DOF_RANGES[SCENE_COUNT] = {15.0F};
-constexpr bool FOG_ENABLEDS[SCENE_COUNT] = {true};
-constexpr float FOG_RS[SCENE_COUNT] = {158.1F};
-constexpr float FOG_GS[SCENE_COUNT] = {173.4F};
-constexpr float FOG_BS[SCENE_COUNT] = {198.9F};
-constexpr float FOG_STARTS[SCENE_COUNT] = {100.0F};
-constexpr float FOG_ENDS[SCENE_COUNT] = {290.0F};
-constexpr bool FLASHLIGHT_ENABLEDS[SCENE_COUNT] = {false};
-constexpr float FLASHLIGHT_RS[SCENE_COUNT] = {96.0F};
-constexpr float FLASHLIGHT_GS[SCENE_COUNT] = {96.0F};
-constexpr float FLASHLIGHT_BS[SCENE_COUNT] = {79.36F};
-constexpr float FLASHLIGHT_RANGES[SCENE_COUNT] = {30.0F};
-constexpr float FLASHLIGHT_ANGLES[SCENE_COUNT] = {20.0F};
-constexpr const char* FLASHLIGHT_TEXS[SCENE_COUNT] = {""};
-constexpr bool HIGHLIGHT_USABLES[SCENE_COUNT] = {false};
-constexpr float HIGHLIGHT_DISTANCES[SCENE_COUNT] = {6.0F};
-constexpr float HIGHLIGHT_RS[SCENE_COUNT] = {255.0F};
-constexpr float HIGHLIGHT_GS[SCENE_COUNT] = {216.75F};
-constexpr float HIGHLIGHT_BS[SCENE_COUNT] = {38.25F};
-constexpr float HIGHLIGHT_WIDTHS[SCENE_COUNT] = {0.35F};
-constexpr int HIGHLIGHT_STEPS_S[SCENE_COUNT] = {4};
-constexpr float HIGHLIGHT_OPACITIES[SCENE_COUNT] = {0.56F};
-constexpr bool HIGHLIGHT_OVERLAYS[SCENE_COUNT] = {false};
+inline constexpr StarData STARS[1] = {{0,0,0,0,0,0,0,0}};
+inline constexpr int STAR_TIERS = 3;
+inline constexpr int BLOB_SHADOWS = 0;
+inline constexpr float PROJ_SHADOW_DISTANCE = 50.0F;
+inline constexpr int BLOB_SHADOWS_USED = 0;
+inline constexpr int BLSS_ADAPTIVE = 0;
+#define BLSS_SCENE_ON 0
+#define BLSS_SCENE_NET 0
+inline constexpr int PROJ_SHADOWS_USED = 0;
+inline constexpr bool SPOT_SHADOW_VOLUMES_USED = false;
+inline constexpr int POSTFX_DOFS[SCENE_COUNT] = {0};
+inline constexpr float POSTFX_DOF_FOCUSES[SCENE_COUNT] = {20.0F};
+inline constexpr float POSTFX_DOF_RANGES[SCENE_COUNT] = {15.0F};
+inline constexpr bool FOG_ENABLEDS[SCENE_COUNT] = {true};
+inline constexpr float FOG_RS[SCENE_COUNT] = {158.1F};
+inline constexpr float FOG_GS[SCENE_COUNT] = {173.4F};
+inline constexpr float FOG_BS[SCENE_COUNT] = {198.9F};
+inline constexpr float FOG_STARTS[SCENE_COUNT] = {100.0F};
+inline constexpr float FOG_ENDS[SCENE_COUNT] = {290.0F};
+inline constexpr bool FLASHLIGHT_ENABLEDS[SCENE_COUNT] = {false};
+inline constexpr float FLASHLIGHT_RS[SCENE_COUNT] = {96.0F};
+inline constexpr float FLASHLIGHT_GS[SCENE_COUNT] = {96.0F};
+inline constexpr float FLASHLIGHT_BS[SCENE_COUNT] = {79.36F};
+inline constexpr float FLASHLIGHT_RANGES[SCENE_COUNT] = {30.0F};
+inline constexpr float FLASHLIGHT_ANGLES[SCENE_COUNT] = {20.0F};
+inline constexpr float FLASHLIGHT_OFF_RIGHTS[SCENE_COUNT] = {0.0F};
+inline constexpr float FLASHLIGHT_OFF_DOWNS[SCENE_COUNT] = {0.0F};
+inline constexpr const char* FLASHLIGHT_TEXS[SCENE_COUNT] = {""};
+inline constexpr bool HIGHLIGHT_USABLES[SCENE_COUNT] = {false};
+inline constexpr float HIGHLIGHT_DISTANCES[SCENE_COUNT] = {6.0F};
+inline constexpr float HIGHLIGHT_RS[SCENE_COUNT] = {255.0F};
+inline constexpr float HIGHLIGHT_GS[SCENE_COUNT] = {216.75F};
+inline constexpr float HIGHLIGHT_BS[SCENE_COUNT] = {38.25F};
+inline constexpr float HIGHLIGHT_WIDTHS[SCENE_COUNT] = {0.35F};
+inline constexpr int HIGHLIGHT_STEPS_S[SCENE_COUNT] = {4};
+inline constexpr float HIGHLIGHT_OPACITIES[SCENE_COUNT] = {0.56F};
+inline constexpr bool HIGHLIGHT_OVERLAYS[SCENE_COUNT] = {false};
 
-constexpr int GRADING_COUNT = 0;
+inline constexpr int GRADING_COUNT = 0;
 inline const char* GRADING_NAMES[GRADING_COUNT > 0 ? GRADING_COUNT : 1] = {""};
-constexpr unsigned char GRADING_GAINS[GRADING_COUNT > 0 ? GRADING_COUNT : 1][3] = {{0, 0, 0}};
-constexpr short GRADING_LIFTS[GRADING_COUNT > 0 ? GRADING_COUNT : 1][3] = {{0, 0, 0}};
-constexpr unsigned char GRADING_MIX_COLORS[GRADING_COUNT > 0 ? GRADING_COUNT : 1][3] = {{0, 0, 0}};
-constexpr unsigned char GRADING_MIX_AMTS[GRADING_COUNT > 0 ? GRADING_COUNT : 1] = {0};
-constexpr int GRADING_DEFAULT = -1;
+inline constexpr unsigned char GRADING_GAINS[GRADING_COUNT > 0 ? GRADING_COUNT : 1][3] = {{0, 0, 0}};
+inline constexpr short GRADING_LIFTS[GRADING_COUNT > 0 ? GRADING_COUNT : 1][3] = {{0, 0, 0}};
+inline constexpr unsigned char GRADING_MIX_COLORS[GRADING_COUNT > 0 ? GRADING_COUNT : 1][3] = {{0, 0, 0}};
+inline constexpr unsigned char GRADING_MIX_AMTS[GRADING_COUNT > 0 ? GRADING_COUNT : 1] = {0};
+inline constexpr int GRADING_DEFAULT = -1;
 
 // Template so this header stays engine-include-free; instantiated
 // where Tyra::Engine is complete. index -1 (or any out of range)
@@ -667,17 +633,17 @@ inline void applySceneGrading(TEngine* engine, int index) {
 }
 
 // Commit Checkpoint slot modes decided at runtime (-1 = no request)
-constexpr int SAVE_COMMIT_AUTOSAVE = -2;
-constexpr int SAVE_COMMIT_NEXT = -3;
+inline constexpr int SAVE_COMMIT_AUTOSAVE = -2;
+inline constexpr int SAVE_COMMIT_NEXT = -3;
 
-constexpr int SAVE_VALUE_COUNT = 0;
+inline constexpr int SAVE_VALUE_COUNT = 0;
 inline const char* SAVE_VALUE_NAMES[SAVE_VALUE_COUNT > 0 ? SAVE_VALUE_COUNT : 1] = {""};
-constexpr float SAVE_VALUE_DEFAULTS[SAVE_VALUE_COUNT > 0 ? SAVE_VALUE_COUNT : 1] = {0.0F};
-constexpr int SAVE_TEXT_COUNT = 0;
-constexpr int SAVE_TEXT_LEN = 32;  // incl. the terminating NUL
+inline constexpr float SAVE_VALUE_DEFAULTS[SAVE_VALUE_COUNT > 0 ? SAVE_VALUE_COUNT : 1] = {0.0F};
+inline constexpr int SAVE_TEXT_COUNT = 0;
+inline constexpr int SAVE_TEXT_LEN = 32;  // incl. the terminating NUL
 inline const char* SAVE_TEXT_NAMES[SAVE_TEXT_COUNT > 0 ? SAVE_TEXT_COUNT : 1] = {""};
 inline const char* SAVE_TEXT_DEFAULTS[SAVE_TEXT_COUNT > 0 ? SAVE_TEXT_COUNT : 1] = {""};
-constexpr int SAVE_OBJECT_MAX = 1;
+inline constexpr int SAVE_OBJECT_MAX = 1;
 
 }  // namespace Deep_forest
 
@@ -850,6 +816,7 @@ inline int everyFrames(float seconds) {
 #define POSTFX_BLOOM_CUT POSTFX_BLOOM_CUTS[g_activeScene]
 #define POSTFX_BLOOM_SPREAD POSTFX_BLOOM_SPREADS[g_activeScene]
 #define POSTFX_GRAIN POSTFX_GRAINS[g_activeScene]
+#define POSTFX_MOTIONBLUR POSTFX_MOTIONBLURS[g_activeScene]
 #define POSTFX_DOF POSTFX_DOFS[g_activeScene]
 #define POSTFX_DOF_FOCUS POSTFX_DOF_FOCUSES[g_activeScene]
 #define POSTFX_DOF_RANGE POSTFX_DOF_RANGES[g_activeScene]
@@ -865,6 +832,8 @@ inline int everyFrames(float seconds) {
 #define FLASHLIGHT_B FLASHLIGHT_BS[g_activeScene]
 #define FLASHLIGHT_RANGE FLASHLIGHT_RANGES[g_activeScene]
 #define FLASHLIGHT_ANGLE FLASHLIGHT_ANGLES[g_activeScene]
+#define FLASHLIGHT_OFF_RIGHT FLASHLIGHT_OFF_RIGHTS[g_activeScene]
+#define FLASHLIGHT_OFF_DOWN FLASHLIGHT_OFF_DOWNS[g_activeScene]
 #define FLASHLIGHT_TEX FLASHLIGHT_TEXS[g_activeScene]
 #define HIGHLIGHT_USABLE HIGHLIGHT_USABLES[g_activeScene]
 #define HIGHLIGHT_DISTANCE HIGHLIGHT_DISTANCES[g_activeScene]

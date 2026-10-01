@@ -150,6 +150,62 @@ working choice meanwhile: it applies the committed `vendor/tyra/audsrv/bin/`
 artifacts to an image that does not carry the fork, and skips when the image
 already does.
 
+## Sony's vcl is a build target too
+
+Since the native PS2DEV + openvcl build became the default (#221), nothing builds
+with Sony's `vcl` unless someone asks for `--docker` - and so for five days nothing
+noticed that it could not. 51396a98 (the VU1 audit) put clip TD's lit path on the TC
+clip image; from then on **every** Docker-fallback build died in the engine:
+
+```
+ERROR: no opt table.. something failed making table .. for sharedDirMode!
+ERROR: failed to convert all uta linear->raw
+make: *** [../Makefile.base:181: obj/.../clip/stapip_clip_tc_vu1.o] Error 255
+```
+
+(`stapip_clip_tc_fold_vu1`, the measured-only experiment image derived from it,
+failed the same way.) The parent commit's five clip programs all assembled under
+Sony's `vcl`; the 30 other engine programs still did.
+
+**Cause: VF register pressure that only openvcl could absorb.** TC's image holds the
+clipper's working set *plus* every per-mesh constant pinned for the whole program -
+including the five GIF-tag-block registers (`gifSetTag`, `testsTag`, `lodGifTag`,
+`texBufferClutGifTag`, `alphaGifTag`) that are read once per buffer. The TD path
+adds three light colours and the ambient: 33 live in `sharedDirMode` against the
+31 allocatable. openvcl fits it because `--sink-loads*` moves those five preamble
+loads down into the buffer header on its own; Sony's allocator cannot.
+`--vu-check`'s pressure estimate read 30 and said nothing - it is a linear scan and
+does not see the batch loop's back edge (docs/vu-authoring.md).
+
+**Fix: write the program the way openvcl was already scheduling it.** The TC clip
+image now loads those five constants in the per-buffer header, right before the tag
+block stores them (`tagsPerBuffer` in `src/vugen.cpp`, the hand edit in
+`stapip_clip_tc_vu1.vclpp` and its `_fold` image). The values are the same: the EE
+writes those addresses only in `sendObjectData`, behind a FLUSHE, and every bag
+starts with an MSCAL, so every buffer of a bag reads what the preamble used to.
+`--vu-check` proved it bit for bit in both orders (new description against the old
+file, then against the edited one), and a falsified twin (one wrong tag address)
+fails it.
+
+| `nm` words | Sony `vcl` before | Sony `vcl` after | openvcl before | openvcl after |
+|---|---:|---:|---:|---:|
+| `stapip_clip_tc_vu1` | **refused** | 372 | 372 | 372 |
+| `stapip_clip_tc_fold_vu1` | **refused** | 364 | 364 | 364 |
+| VU1-clipping resident set (+ billboards) | - | 1698 + 202 = 1900 | 1904 | 1904 |
+
+The ceiling is 2042. openvcl's output differs only in register numbering (it had
+already sunk the loads), so the native build's frame cannot move; a Docker build and
+a native build of `examples/texture-atlas` (crates cut by the top and side edges,
+the clip TC/TD paths) captured with `--capture-frame` are pixel-identical outside
+the MEM/VRAM overlay.
+
+**How to keep it that way:** after ANY `.vclpp` edit, assemble the engine under
+both. The cheap check, no game build: run `vclpp` + `vcl` + `dvp-as` over every
+`src/**/*.vclpp` inside `tyrax-toolchain:local` (cwd = the engine dir, its includes
+are relative to it), and the same loop through the native toolchain's `vcl`
+wrapper (openvcl) in WSL - about two minutes for Sony's, seconds for openvcl. Or
+build one small project both ways (`--build <dir>` and `--build <dir> --docker`).
+
 ## Why the toolchain was inherited, and what changed
 
 > **Resolved.** Everything in this section was true until openvcl became good
@@ -519,6 +575,16 @@ branch must not read what the candidate writes - it used to see the new value):
 | SCE `vcl` | 2042 |
 | ceiling | 2042 |
 | **spare** | **2** |
+
+**That table is a snapshot of ONE release and it is no longer the headroom.** It
+was taken when ten distinct images were uploaded; the shared clip images landed
+afterwards (`clip_c` hosts `clip_d`, `clip_tc` hosts `clip_tce`), so the resident
+set is **eight** images and measured **1684 of 2042** at 1.93.0 and **1862** at
+1.94.0 — 180 words to spare, not two. Anyone designing around micro memory
+should run the `nm` recipe below on their own tree rather than quote a number off
+this page, and should not use `--vu-check`'s budget line either: its upper bound
+is pessimistic by construction (it cannot know how VCL will pair instructions)
+and currently reads `1102..2201 of 2042` for a set the real build clears by 180.
 
 **The budget arithmetic, because everyone re-derives it wrong once.** The ceiling is
 not a constant: `Path1::createProgramsCache` asserts against

@@ -23,6 +23,45 @@ if [ "$CACHE_ROOT" = / ] || [ "$CACHE_ROOT" = "$HOME" ]; then
 fi
 
 "$HERE/setup.sh" "$PS2DEV_ROOT"
+PROJECT_HOST=
+NATIVE_DEBUG_FLAGS=
+# DrvFS is particularly expensive for make's dependency stats and the EE
+# linker's large objects. Keep the public Windows install/project paths, but
+# compile their mirrors on WSL's Linux filesystem. Linux builds need no mirror.
+# The override is useful for A/B timings and distributions without disk space.
+if command -v wslpath >/dev/null 2>&1 && [[ "$PROJECT" == /mnt/* ]] \
+   && [ "${TYRAX_NATIVE_DIRECT:-0}" != 1 ]; then
+  PROJECT_HOST=$PROJECT
+  host_toolchain=$PS2DEV_ROOT
+  stage_root="$HOME/.cache/tyrax/native"
+  path_key() { printf '%s' "$1" | sha256sum | cut -c1-24; }
+  PS2DEV_ROOT="$stage_root/toolchains/$(path_key "$host_toolchain")"
+  CACHE_ROOT="$stage_root/engines/$(path_key "$CACHE_ROOT")"
+  PROJECT="$stage_root/projects/$(path_key "$PROJECT_HOST")"
+  mkdir -p "$PS2DEV_ROOT" "$CACHE_ROOT" "$PROJECT"
+  if ! cmp -s "$host_toolchain/.tyrax-toolchain" "$PS2DEV_ROOT/.tyrax-toolchain"; then
+    echo "[editor] Mirroring the toolchain into the WSL filesystem (once per toolchain update)..."
+    rsync -rlt --delete --exclude=/.sources/ --exclude=/.tyrax-toolchain \
+      "$host_toolchain/" "$PS2DEV_ROOT/"
+    cp "$host_toolchain/.tyrax-toolchain" "$PS2DEV_ROOT/.tyrax-toolchain"
+  fi
+  echo "[editor] Using WSL filesystem build cache..."
+  # --delete only touches the hashed mirror, never the authored project. obj/
+  # and bin/ are owned by make, while the editor owns all incoming sources.
+  rsync -rlt --delete --exclude=/obj/ --exclude=/bin/ --exclude=/.git/ \
+    --exclude=/.res-baked/gi/ --exclude=/.res-baked/shadow/ \
+    "$PROJECT_HOST/" "$PROJECT/"
+  # Retain the authored ignore file even when make later cleans the mirror.
+  if [ -f "$PROJECT_HOST/bin/.gitignore" ]; then
+    mkdir -p "$PROJECT/bin"
+    cp "$PROJECT_HOST/bin/.gitignore" "$PROJECT/bin/.gitignore"
+  fi
+  # Debugger source locations refer to the authored checkout, not its mirror.
+  printf -v NATIVE_DEBUG_FLAGS '%q ' \
+    "-fdebug-prefix-map=$PROJECT=$PROJECT_HOST" \
+    "-fdebug-prefix-map=$CACHE_ROOT/tyra/engine=$ENGINE_SOURCE/engine" \
+    "-fdebug-prefix-map=$PS2DEV_ROOT=$host_toolchain"
+fi
 export PS2DEV="$PS2DEV_ROOT"
 export PS2SDK="$PS2DEV_ROOT/ps2sdk"
 export PATH="$PS2DEV_ROOT/bin:$PS2DEV_ROOT/ee/bin:$PS2DEV_ROOT/iop/bin:$PS2DEV_ROOT/dvp/bin:$PS2SDK/bin:$PATH"
@@ -80,16 +119,33 @@ if [ ! -f "$ENGINE_TOOLCHAIN_MARKER" ] \
   cp "$TOOLCHAIN_MARKER" "$ENGINE_TOOLCHAIN_MARKER"
 fi
 
+# Every project needs its own identity: another game's build may already have
+# updated the shared engine stamp while this game's objects are still old.
+GAME_TOOLCHAIN_MARKER="$PROJECT/obj/.tyrax-toolchain"
+if ! cmp -s "$TOOLCHAIN_MARKER" "$GAME_TOOLCHAIN_MARKER"; then
+  echo "[editor] Game toolchain changed - rebuilding game objects..."
+  drop_dirs "$PROJECT/obj" "$PROJECT/bin"
+  mkdir -p "$PROJECT/obj"
+  cp "$TOOLCHAIN_MARKER" "$GAME_TOOLCHAIN_MARKER"
+fi
+
 if [ "$REBUILD" = 1 ]; then
   echo "[editor] Rebuild: dropping native game and engine objects..."
   drop_dirs "$PROJECT/obj" "$PROJECT/bin" "$ENGINE/obj" "$ENGINE/bin"
+  if [ -n "$PROJECT_HOST" ]; then
+    drop_dirs "$PROJECT_HOST/obj" "$PROJECT_HOST/bin"
+  fi
 fi
 
 SYNC_LOG="$CACHE_ROOT/engine-sync.txt"
 mkdir -p "$CACHE_ROOT"
 rsync -rlci --delete --exclude=obj --exclude=bin \
-  "$ENGINE_SOURCE/engine/" "$ENGINE/" | grep -v '^.d' > "$SYNC_LOG" || true
-cp "$ENGINE_SOURCE/Makefile.base" "$ENGINE_ROOT/Makefile.base"
+  "$ENGINE_SOURCE/engine/" "$ENGINE/" > "$SYNC_LOG"
+# Empty output is normal; a failed source sync must still stop the build.
+sed -i '/^.d/d' "$SYNC_LOG"
+if ! cmp -s "$ENGINE_SOURCE/Makefile.base" "$ENGINE_ROOT/Makefile.base"; then
+  cp "$ENGINE_SOURCE/Makefile.base" "$ENGINE_ROOT/Makefile.base"
+fi
 
 if [ -s "$SYNC_LOG" ] || [ ! -f "$ENGINE/bin/libtyra.a" ]; then
   echo "[editor] Engine sources changed - rebuilding libtyra..."
@@ -98,9 +154,13 @@ if [ -s "$SYNC_LOG" ] || [ ! -f "$ENGINE/bin/libtyra.a" ]; then
     find "$ENGINE/obj" -type f \( -name '*_vu1.o' -o -name '*_vu1.o.vcl' \
       -o -name '*_vu1.o.vsm' \) -delete 2>/dev/null || true
   fi
-  rm -f "$ENGINE/bin/libtyra.a" "$PROJECT/bin/"'*.elf'
-  make -C "$ENGINE" -j"$(getconf _NPROCESSORS_ONLN)"
+  # Also drop removed archive members when a source disappears from SOURCES.
+  rm -f "$ENGINE/bin/libtyra.a"
 fi
+# Always ask make: a failed compile can leave synced sources beside stale
+# objects, and a changed Makefile must invalidate the old compiler flags.
+# An unchanged engine is a cheap no-op now that its archive target is real.
+make -C "$ENGINE" -j"$(getconf _NPROCESSORS_ONLN)" NATIVE_DEBUG_FLAGS="$NATIVE_DEBUG_FLAGS"
 
 # Project-authored VU programs are host C++, just as in the Docker backend.
 if find "$PROJECT/src/vu" "$PROJECT/src/vu0" -maxdepth 1 -name '*.cpp' \
@@ -125,17 +185,42 @@ for sym in "$PROJECT/bin/"*.elf.sym; do
   [ ! -e "$sym" ] || [ -w "$sym" ] || rm -f "$sym"
 done
 make -C "$PROJECT" -j"$(getconf _NPROCESSORS_ONLN)" \
-  ENGINEDIR="$ENGINE" TYRA_MAKEFILE="$ENGINE_ROOT/Makefile.base"
+  ENGINEDIR="$ENGINE" TYRA_MAKEFILE="$ENGINE_ROOT/Makefile.base" \
+  NATIVE_DEBUG_FLAGS="$NATIVE_DEBUG_FLAGS"
 
 # Sound effects: the make resources phase copied the WAV sources into bin/;
 # convert only stale targets, then remove source and orphaned copies.
 while IFS= read -r -d '' wav; do
   rel=${wav#"$PROJECT/res/"}
   out="$PROJECT/bin/${rel%.wav}.adpcm"
+  input="$PROJECT/.res-baked/$rel"
+  [ -f "$input" ] || { echo "[editor] Missing normalized sound: $rel" >&2; exit 1; }
   mkdir -p "$(dirname "$out")"
-  if [ ! -e "$out" ] || [ "$wav" -nt "$out" ]; then
-    echo "[editor] adpenc ${wav#"$PROJECT/"}"
-    adpenc "$wav" "$out"
+  loop=0
+  case "$wav" in *-loop.wav) loop=1;; esac
+  if [ -f "$PROJECT/inc/vehicle_sound_loops.gen.txt" ] &&
+     grep -Fqx -- "res/$rel" "$PROJECT/inc/vehicle_sound_loops.gen.txt"; then
+    loop=1
+  fi
+  stale=0
+  if [ ! -e "$out" ] || [ "$input" -nt "$out" ]; then
+    stale=1
+  else
+    # Loop intent can change without changing the source WAV's timestamp.
+    # Offset 6 is adpenc's loop byte; check both loop and one-shot transitions.
+    loop_byte=$(od -An -tu1 -j6 -N1 "$out" 2>/dev/null | tr -d '[:space:]') || loop_byte=invalid
+    channels=$(od -An -tu1 -j5 -N1 "$out" 2>/dev/null | tr -d '[:space:]') || channels=invalid
+    [ "$channels" = 1 ] || stale=1
+    [ "$loop_byte" = "$loop" ] || stale=1
+  fi
+  if [ "$stale" = 1 ]; then
+    if [ "$loop" = 1 ]; then
+      echo "[editor] adpenc -L ${wav#"$PROJECT/"}"
+      adpenc -L "$input" "$out"
+    else
+      echo "[editor] adpenc ${wav#"$PROJECT/"}"
+      adpenc "$input" "$out"
+    fi
   fi
 done < <(find "$PROJECT/res/sfx" -maxdepth 3 -type f -name '*.wav' -print0 2>/dev/null)
 find "$PROJECT/bin/sfx" -maxdepth 3 -type f -name '*.wav' -delete 2>/dev/null || true
@@ -144,4 +229,17 @@ while IFS= read -r -d '' out; do
   [ -e "$PROJECT/res/${rel%.adpcm}.wav" ] || rm -f "$out"
 done < <(find "$PROJECT/bin/sfx" -maxdepth 3 -type f -name '*.adpcm' -print0 2>/dev/null)
 
+# Rebuild drops obj/, including its identity; restore it after a successful build.
+cp "$TOOLCHAIN_MARKER" "$GAME_TOOLCHAIN_MARKER"
+if [ -n "$PROJECT_HOST" ]; then
+  # Keep Windows-side runtime channels (Live Link/debugger/launch markers) and
+  # timestamps intact. Only new or changed generated outputs travel back.
+  rsync -rlt "$PROJECT/bin/" "$PROJECT_HOST/bin/"
+  # The codec removed orphaned sounds and WAVs in the mirror; propagate those
+  # deletions in the generated sound directory, without deleting runtime files.
+  if [ -d "$PROJECT/bin/sfx" ]; then
+    rsync -rlt --delete "$PROJECT/bin/sfx/" "$PROJECT_HOST/bin/sfx/"
+  fi
+  PROJECT=$PROJECT_HOST
+fi
 echo "[editor] Native build complete: $PROJECT/bin"

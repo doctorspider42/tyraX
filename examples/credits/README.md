@@ -68,3 +68,13 @@ tyrax-editor.exe --pad <this folder> "press l1"                           # the 
 - The report line under the preview reads e.g. `3/16 pages | 33 s | ~216 KB
   VRAM` — pages are textures, and the GS pins every one it draws, which is why
   a roll has a page budget at all (see [docs/credits.md](../../docs/credits.md)).
+
+Generated object values live in `src/gen/scene_objects.gen.cpp`;
+`inc/scene_data.hpp` keeps stable declarations. Counts and object IDs live in
+the same data file, so ordinary moves, color edits, additions and removals can
+rebuild it alone. Changes to features or derived tables can still rebuild consumers.
+
+Generated game methods are split between `src/terrain_game.cpp` and the
+`src/gen/game_*.gen.cpp` subsystems, with shared inline helpers/state in
+`inc/game_runtime.gen.hpp`. Header changes can compile these units in parallel.
+The main file remains user-ownable; generated subsystem files refresh on build.

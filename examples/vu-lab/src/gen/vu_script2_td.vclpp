@@ -33,12 +33,13 @@
     lq.xyz     lightColors[0], 15(vi00)
     lq.xyz     lightColors[1], 16(vi00)
     lq.xyz     lightColors[2], 17(vi00)
-    lq.xyz     ambientColor, 18(vi00)
+    lq         ambientColor, 18(vi00)
     lq         lodGifTag, 9(vi00)  ; VU1_LOD_ADDR
     lq         testsTag, 10(vi00)  ; VU1_Z_TESTS_ADDR
     lq         texBufferClutGifTag, 11(vi00)  ; VU1_CLUT_ADDR
     lq         alphaGifTag, 21(vi00)  ; VU1_ALPHA_ADDR - per-mesh GS blend equation, in-band
     lq         fogParams, 8(vi00)  ; VU1_OPTIONS_ADDR.zw = GS hardware fog
+    add.x      fogParams, vf00, fogParams[z]  ; fog scale into .x (CalculateTyraFog)
     iaddiu     adcMask, vi00, 16384  ; MakeTyraAdcMask: 0x8000 in two 15-bit adds
     iadd       adcMask, adcMask, adcMask
     lq         vuParams, 15(vi00)  ; VU1_CUSTOM_PARAMS_ADDR - the mesh's four numbers (the lights-colour area; a bag carrying these has no lighting)
@@ -50,11 +51,14 @@ begin:
     lq.xyz     scale, 0(buffer)  ; LoadTyraBufferTags
     lq         primTag, 1(buffer)
     iaddiu     vertexData, buffer, 2  ; VU1_STAPIP_VERT_DATA_ADDR
-    ilw.w      vertexCount, 0(buffer)
+    ilw.w      stateFlag, 0(buffer)
+    iaddiu     countMask, vi00, 1023
+    iand       vertexCount, stateFlag, countMask  ; strip the packed material-state flag
     iadd       stqData, vertexData, vertexCount
     iadd       normalData, stqData, vertexCount
     iadd       kickAddress, normalData, vertexCount
     iadd       destAddress, normalData, vertexCount
+    ibgez      stateFlag, reuseMaterialState
     sq         gifSetTag, 0(destAddress)  ; GIF tag block
     sq         testsTag, 1(destAddress)
     sq         gifSetTag, 2(destAddress)
@@ -65,6 +69,11 @@ begin:
     sq         alphaGifTag, 7(destAddress)
     sq         primTag, 8(destAddress)
     iaddiu     destAddress, destAddress, 9
+    b          materialStateReady
+reuseMaterialState:
+    sq         primTag, 0(destAddress)
+    iaddiu     destAddress, destAddress, 1
+materialStateReady:
     iadd       vertexCounter, buffer, vertexCount
 vertexLoop:
     lq         vertex1, 0(vertexData)  ; W carries the clip-space distance (fog)
@@ -88,8 +97,7 @@ vertexLoop:
     madda      acc, mvp[1], vertex1[y]
     madda      acc, mvp[2], vertex1[z]
     madd       vertex1, mvp[3], vertex1[w]
-    add.x      fogAccum, vf00, vertex1[w]  ; CalculateTyraFog
-    mul.x      fogAccum, fogAccum, fogParams[z]
+    mul.x      fogAccum, fogParams, vertex1[w]  ; CalculateTyraFog
     add.x      fogAccum, fogAccum, fogParams[w]
     loi        255
     mini.x     fogAccum, fogAccum, i
@@ -119,11 +127,14 @@ vertexLoop:
     madda.xyz  acc, lightDirections[1], normal1[y]
     madd.xyz   outputColor1, lightDirections[2], normal1[z]
     mini.xyz   outputColor1, outputColor1, vf00[w]
-    max.xyz    outputColor1, outputColor1, vf00[x]
+    max.xyz    outputColor1, outputColor1, ambientColor[w]
     mula.xyz   acc, lightColors[0], outputColor1[x]
     madda.xyz  acc, lightColors[1], outputColor1[y]
     madda.xyz  acc, lightColors[2], outputColor1[z]
     madd.xyz   outputColor1, ambientColor, vf00[w]
+    loi        255
+    mini.xyz   outputColor1, outputColor1, i
+    max.xyz    outputColor1, outputColor1, vf00[x]
     loi        128
     add.w      outputColor1, vf00, i
     loi        255  ; FixColor: clamp to 0..255
@@ -134,8 +145,7 @@ vertexLoop:
     madda      acc, mvp[1], vertex2[y]
     madda      acc, mvp[2], vertex2[z]
     madd       vertex2, mvp[3], vertex2[w]
-    add.x      fogAccum, vf00, vertex2[w]  ; CalculateTyraFog
-    mul.x      fogAccum, fogAccum, fogParams[z]
+    mul.x      fogAccum, fogParams, vertex2[w]  ; CalculateTyraFog
     add.x      fogAccum, fogAccum, fogParams[w]
     loi        255
     mini.x     fogAccum, fogAccum, i
@@ -165,11 +175,14 @@ vertexLoop:
     madda.xyz  acc, lightDirections[1], normal2[y]
     madd.xyz   outputColor2, lightDirections[2], normal2[z]
     mini.xyz   outputColor2, outputColor2, vf00[w]
-    max.xyz    outputColor2, outputColor2, vf00[x]
+    max.xyz    outputColor2, outputColor2, ambientColor[w]
     mula.xyz   acc, lightColors[0], outputColor2[x]
     madda.xyz  acc, lightColors[1], outputColor2[y]
     madda.xyz  acc, lightColors[2], outputColor2[z]
     madd.xyz   outputColor2, ambientColor, vf00[w]
+    loi        255
+    mini.xyz   outputColor2, outputColor2, i
+    max.xyz    outputColor2, outputColor2, vf00[x]
     loi        128
     add.w      outputColor2, vf00, i
     loi        255  ; FixColor: clamp to 0..255
@@ -180,8 +193,7 @@ vertexLoop:
     madda      acc, mvp[1], vertex3[y]
     madda      acc, mvp[2], vertex3[z]
     madd       vertex3, mvp[3], vertex3[w]
-    add.x      fogAccum, vf00, vertex3[w]  ; CalculateTyraFog
-    mul.x      fogAccum, fogAccum, fogParams[z]
+    mul.x      fogAccum, fogParams, vertex3[w]  ; CalculateTyraFog
     add.x      fogAccum, fogAccum, fogParams[w]
     loi        255
     mini.x     fogAccum, fogAccum, i
@@ -211,11 +223,14 @@ vertexLoop:
     madda.xyz  acc, lightDirections[1], normal3[y]
     madd.xyz   outputColor3, lightDirections[2], normal3[z]
     mini.xyz   outputColor3, outputColor3, vf00[w]
-    max.xyz    outputColor3, outputColor3, vf00[x]
+    max.xyz    outputColor3, outputColor3, ambientColor[w]
     mula.xyz   acc, lightColors[0], outputColor3[x]
     madda.xyz  acc, lightColors[1], outputColor3[y]
     madda.xyz  acc, lightColors[2], outputColor3[z]
     madd.xyz   outputColor3, ambientColor, vf00[w]
+    loi        255
+    mini.xyz   outputColor3, outputColor3, i
+    max.xyz    outputColor3, outputColor3, vf00[x]
     loi        128
     add.w      outputColor3, vf00, i
     loi        255  ; FixColor: clamp to 0..255

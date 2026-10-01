@@ -101,6 +101,45 @@ bool hashFile(const std::string& path, uint64_t& outHash, uint64_t& outSize) {
     return true;
 }
 
+bool hashFileEolAgnostic(const std::string& path, uint64_t& outHash,
+                         uint64_t& outSize) {
+    std::ifstream f(path, std::ios::binary);
+    if (!f) return false;
+    uint64_t h = kFnvSeed;
+    uint64_t size = 0;
+    bool pendingCr = false;  // a '\r' that ended the previous block
+    char buf[64 * 1024];
+    std::string out;
+    out.reserve(sizeof(buf) + 1);
+    while (f.read(buf, sizeof(buf)) || f.gcount() > 0) {
+        const size_t n = (size_t)f.gcount();
+        out.clear();
+        for (size_t i = 0; i < n; ++i) {
+            const char c = buf[i];
+            if (pendingCr) {
+                pendingCr = false;
+                if (c != '\n') out.push_back('\r');  // a lone CR stays
+            }
+            if (c == '\r') {
+                pendingCr = true;
+                continue;
+            }
+            out.push_back(c);
+        }
+        h = fnv1a64(out.data(), out.size(), h);
+        size += out.size();
+        if (!f) break;
+    }
+    if (f.bad()) return false;
+    if (pendingCr) {
+        h = fnv1a64("\r", 1, h);
+        size += 1;
+    }
+    outHash = h;
+    outSize = size;
+    return true;
+}
+
 // --- Frame codec ---------------------------------------------------------------
 
 static void putU32(std::string& out, uint32_t v) {

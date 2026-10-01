@@ -32,8 +32,10 @@ fi
 bash "$HERE/prepare-host.sh" --check
 
 tree_hash() {
-  find "$1" -type f ! -name openvcl ! -path '*/build/*' -print0 \
-    | sort -z | xargs -0 sha256sum | sha256sum | awk '{print $1}'
+  # Hash relative names: identical sources in two worktrees are one toolchain.
+  # Absolute names made switching checkouts reinstall OpenVCL and purge objects.
+  (cd "$1" && find . -type f ! -name openvcl ! -path '*/build/*' -print0 \
+    | sort -z | xargs -0 sha256sum | sha256sum | awk '{print $1}')
 }
 OPENVCL_TREE_SHA=$(tree_hash "$REPO/vendor/openvcl")
 VCLPP_TREE_SHA=$(tree_hash "$REPO/vendor/vclpp")

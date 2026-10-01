@@ -56,7 +56,7 @@ static std::string orderFiles(const Project& p, std::vector<OrderedFile>& out,
         if (rel.empty() || fs::path(rel).filename().string().front() == '.') continue;
         if (fs::path(rel).extension() == ".iso") continue;
         // runtime artifacts of previous host runs - never ship them
-        if (rel == "log.txt" || rel == "ps2link.run") continue;
+        if (rel == "log.txt" || rel == "ps2link.run" || rel == "launch.scene") continue;
         // Devkit runtime files + the unstripped symbol copy: work artifacts of
         // a debug session, never disc content (docs/devkit.md).
         if (rel == "livedbg.bin" || rel == "livedbg.cmd" ||

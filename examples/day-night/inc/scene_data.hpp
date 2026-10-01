@@ -19,6 +19,8 @@ struct SceneObjectData {
              //    instances are baked to static chunk meshes)
              // 19=scroller (endless belt marker; invisible - drives
              //    baked clone objects via SCROLLERS/SCROLLER_CLONES)
+             // 20=comment (an editor-only note: no geometry, no
+             //    collision, and its text never leaves the editor)
   float position[3];
   float rotation[3];  // degrees
   float scale[3];
@@ -68,15 +70,26 @@ struct SceneObjectData {
   float lightFlicker; // dynamic lights: 0 steady .. 1 full wobble
   int lightSpot;     // dynamic lights: 1 = cone down local -Y
   float lightSpotAngle; // spot lights: cone half-angle, degrees
+  int lightShadowVolumes; // spot lights: does this one carve
+                     // shadow volumes? 0 = follow the project
+                     // (SPOT_SHADOW_VOLUMES), 1 = off, 2 = on.
+                     // Only one spot casts per frame - the count
+                     // band is one buffer (docs/shadows.md)
   int lightBeam;     // point lights: 0 none, 1 glow corona,
                      // 2 corona + cone shaft (additive, at the source)
   int saveState;  // 1 = position/color/visibility persisted in saves
-  int collision;  // 0 = box (models: mesh AABB), 1 = mesh, 2 = none
+  int collision;  // 0 = box, 1 = mesh, 2 = none, 3 = invisible Box
   float drawDistance;  // not drawn farther than this from the camera;
                        // 0 = unlimited (collision/logic always run)
   int reflected;  // 1 = rendered into the dynamic ("@sky") env map
+  int reflectionProxy; // 1 = one-material box in env maps only
   int projShadow; // 1 = live projected silhouette shadow (the
                   // per-object AO 'castShadow' is baked, not here)
+  int shadowMode; // which DYNAMIC shadow this object casts:
+                  // 0 = follow the project (a blob if BLOB_SHADOWS
+                  // is on and the object is one of the moving
+                  // things that get one, a projected silhouette if
+                  // projShadow), 1 = none, 2 = blob, 3 = projected
   int dynLit;     // 1 = lit by the LIT VU1 program from the probe
                   // grid every frame instead of baked vertex colors
                   // (docs/global-illumination.md)
@@ -101,8 +114,8 @@ struct SceneObjectData {
   int layer;      // streaming layer (SCENE_LAYER_* tables), -1 = none:
                   // always resident, never streamed out
   int batchStatic; // 1 = may merge into a combined static batch bag
-                   // (build-time verdict: non-moving primitive with
-                   // no physics/logic/graph refs/save-state/layer)
+                   // (build-time verdict: non-moving primitive or
+                   // compact model with no special runtime path)
   float vuParams[4]; // the four numbers this mesh hands to the
                    // project's own VU1 microprogram, if it has one
                    // (docs/vu-authoring.md). All zero = no effect,
@@ -110,6 +123,13 @@ struct SceneObjectData {
                    // bit-identically to the untouched program.
                    // Uploaded per BAG, so batched objects share one
                    // set - one bag is one sendObjectData.
+  int impostorModel = -1; // optional far representation, original owns collision
+  float impostorDistance = 0.0F; // disabled at zero
+  bool impostorBillboard = false; // ordered view parts
+  int impostorViews = 8; // 4, 8 or 16 baked captures
+  int emitAdditive = 0; // emitters: 1 = additive blending (fire)
+  int emitFrames = 1;   // flipbook frames: MATERIAL_PATHS material..+N-1
+  float emitFps = 0.0F; // flipbook frames per second
 };
 
 // An Area object's box (type 17): the unit cube under
@@ -213,93 +233,32 @@ inline bool areaHoldsObject(const AreaBasis& b,
          r * r;
 }
 
-constexpr int SCENE_COUNT = 5;
-constexpr int START_SCENE = 4;
+inline constexpr int SCENE_COUNT = 5;
+inline constexpr int START_SCENE = 4;
 
-// scene "dawn"
-constexpr SceneObjectData SCENE_0_OBJECTS[12] = {
-    {6, {0.0F, 0.0F, -20.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.15F, 0.9F, 0.9F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // player
-    {0, {-14.0F, 1.0F, 6.0F}, {0.0F, 0.0F, 0.0F}, {1.1F, 2.0F, 1.1F}, {0.82F, 0.79F, 0.72F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 1, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // pillar-1
-    {0, {-7.0F, 1.8F, 6.0F}, {0.0F, 0.0F, 0.0F}, {0.9F, 3.6F, 0.9F}, {0.82F, 0.79F, 0.72F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 1, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // pillar-2
-    {0, {0.0F, 3.25F, 6.0F}, {0.0F, 0.0F, 0.0F}, {0.7F, 6.5F, 0.7F}, {0.82F, 0.79F, 0.72F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 1, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // pillar-3
-    {0, {7.0F, 1.8F, 6.0F}, {0.0F, 0.0F, 0.0F}, {0.9F, 3.6F, 0.9F}, {0.82F, 0.79F, 0.72F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 1, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // pillar-4
-    {0, {14.0F, 1.0F, 6.0F}, {0.0F, 0.0F, 0.0F}, {1.1F, 2.0F, 1.1F}, {0.82F, 0.79F, 0.72F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 1, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // pillar-5
-    {1, {-20.0F, 1.6F, 0.0F}, {0.0F, 0.0F, 0.0F}, {1.6F, 1.6F, 1.6F}, {0.88F, 0.86F, 0.8F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 1, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // ball
-    {2, {20.0F, 1.5F, 0.0F}, {0.0F, 0.0F, 0.0F}, {1.5F, 3.0F, 1.5F}, {0.8F, 0.82F, 0.86F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 1, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // drum
-    {0, {0.0F, 1.4F, 20.0F}, {0.0F, 0.0F, 0.0F}, {44.0F, 2.8F, 1.0F}, {0.7F, 0.7F, 0.74F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 1, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // wall
-    {0, {-4.0F, 2.2F, -8.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 4.4F, 1.0F}, {0.76F, 0.74F, 0.7F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 1, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // arch-left
-    {0, {4.0F, 2.2F, -8.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 4.4F, 1.0F}, {0.76F, 0.74F, 0.7F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 1, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // arch-right
-    {0, {0.0F, 4.8F, -8.0F}, {0.0F, 0.0F, 0.0F}, {9.0F, 0.8F, 1.0F}, {0.76F, 0.74F, 0.7F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 1, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // arch-top
-};
-// scene "noon"
-constexpr SceneObjectData SCENE_1_OBJECTS[12] = {
-    {6, {0.0F, 0.0F, -20.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.15F, 0.9F, 0.9F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // player
-    {0, {-14.0F, 1.0F, 6.0F}, {0.0F, 0.0F, 0.0F}, {1.1F, 2.0F, 1.1F}, {0.82F, 0.79F, 0.72F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 1, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // pillar-1
-    {0, {-7.0F, 1.8F, 6.0F}, {0.0F, 0.0F, 0.0F}, {0.9F, 3.6F, 0.9F}, {0.82F, 0.79F, 0.72F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 1, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // pillar-2
-    {0, {0.0F, 3.25F, 6.0F}, {0.0F, 0.0F, 0.0F}, {0.7F, 6.5F, 0.7F}, {0.82F, 0.79F, 0.72F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 1, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // pillar-3
-    {0, {7.0F, 1.8F, 6.0F}, {0.0F, 0.0F, 0.0F}, {0.9F, 3.6F, 0.9F}, {0.82F, 0.79F, 0.72F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 1, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // pillar-4
-    {0, {14.0F, 1.0F, 6.0F}, {0.0F, 0.0F, 0.0F}, {1.1F, 2.0F, 1.1F}, {0.82F, 0.79F, 0.72F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 1, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // pillar-5
-    {1, {-20.0F, 1.6F, 0.0F}, {0.0F, 0.0F, 0.0F}, {1.6F, 1.6F, 1.6F}, {0.88F, 0.86F, 0.8F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 1, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // ball
-    {2, {20.0F, 1.5F, 0.0F}, {0.0F, 0.0F, 0.0F}, {1.5F, 3.0F, 1.5F}, {0.8F, 0.82F, 0.86F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 1, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // drum
-    {0, {0.0F, 1.4F, 20.0F}, {0.0F, 0.0F, 0.0F}, {44.0F, 2.8F, 1.0F}, {0.7F, 0.7F, 0.74F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 1, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // wall
-    {0, {-4.0F, 2.2F, -8.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 4.4F, 1.0F}, {0.76F, 0.74F, 0.7F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 1, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // arch-left
-    {0, {4.0F, 2.2F, -8.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 4.4F, 1.0F}, {0.76F, 0.74F, 0.7F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 1, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // arch-right
-    {0, {0.0F, 4.8F, -8.0F}, {0.0F, 0.0F, 0.0F}, {9.0F, 0.8F, 1.0F}, {0.76F, 0.74F, 0.7F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 1, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // arch-top
-};
-// scene "dusk"
-constexpr SceneObjectData SCENE_2_OBJECTS[12] = {
-    {6, {0.0F, 0.0F, -20.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.15F, 0.9F, 0.9F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // player
-    {0, {-14.0F, 1.0F, 6.0F}, {0.0F, 0.0F, 0.0F}, {1.1F, 2.0F, 1.1F}, {0.82F, 0.79F, 0.72F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 1, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // pillar-1
-    {0, {-7.0F, 1.8F, 6.0F}, {0.0F, 0.0F, 0.0F}, {0.9F, 3.6F, 0.9F}, {0.82F, 0.79F, 0.72F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 1, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // pillar-2
-    {0, {0.0F, 3.25F, 6.0F}, {0.0F, 0.0F, 0.0F}, {0.7F, 6.5F, 0.7F}, {0.82F, 0.79F, 0.72F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 1, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // pillar-3
-    {0, {7.0F, 1.8F, 6.0F}, {0.0F, 0.0F, 0.0F}, {0.9F, 3.6F, 0.9F}, {0.82F, 0.79F, 0.72F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 1, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // pillar-4
-    {0, {14.0F, 1.0F, 6.0F}, {0.0F, 0.0F, 0.0F}, {1.1F, 2.0F, 1.1F}, {0.82F, 0.79F, 0.72F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 1, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // pillar-5
-    {1, {-20.0F, 1.6F, 0.0F}, {0.0F, 0.0F, 0.0F}, {1.6F, 1.6F, 1.6F}, {0.88F, 0.86F, 0.8F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 1, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // ball
-    {2, {20.0F, 1.5F, 0.0F}, {0.0F, 0.0F, 0.0F}, {1.5F, 3.0F, 1.5F}, {0.8F, 0.82F, 0.86F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 1, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // drum
-    {0, {0.0F, 1.4F, 20.0F}, {0.0F, 0.0F, 0.0F}, {44.0F, 2.8F, 1.0F}, {0.7F, 0.7F, 0.74F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 1, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // wall
-    {0, {-4.0F, 2.2F, -8.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 4.4F, 1.0F}, {0.76F, 0.74F, 0.7F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 1, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // arch-left
-    {0, {4.0F, 2.2F, -8.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 4.4F, 1.0F}, {0.76F, 0.74F, 0.7F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 1, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // arch-right
-    {0, {0.0F, 4.8F, -8.0F}, {0.0F, 0.0F, 0.0F}, {9.0F, 0.8F, 1.0F}, {0.76F, 0.74F, 0.7F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 1, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // arch-top
-};
-// scene "night"
-constexpr SceneObjectData SCENE_3_OBJECTS[12] = {
-    {6, {0.0F, 0.0F, -20.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.15F, 0.9F, 0.9F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // player
-    {0, {-14.0F, 1.0F, 6.0F}, {0.0F, 0.0F, 0.0F}, {1.1F, 2.0F, 1.1F}, {0.82F, 0.79F, 0.72F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 1, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // pillar-1
-    {0, {-7.0F, 1.8F, 6.0F}, {0.0F, 0.0F, 0.0F}, {0.9F, 3.6F, 0.9F}, {0.82F, 0.79F, 0.72F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 1, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // pillar-2
-    {0, {0.0F, 3.25F, 6.0F}, {0.0F, 0.0F, 0.0F}, {0.7F, 6.5F, 0.7F}, {0.82F, 0.79F, 0.72F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 1, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // pillar-3
-    {0, {7.0F, 1.8F, 6.0F}, {0.0F, 0.0F, 0.0F}, {0.9F, 3.6F, 0.9F}, {0.82F, 0.79F, 0.72F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 1, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // pillar-4
-    {0, {14.0F, 1.0F, 6.0F}, {0.0F, 0.0F, 0.0F}, {1.1F, 2.0F, 1.1F}, {0.82F, 0.79F, 0.72F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 1, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // pillar-5
-    {1, {-20.0F, 1.6F, 0.0F}, {0.0F, 0.0F, 0.0F}, {1.6F, 1.6F, 1.6F}, {0.88F, 0.86F, 0.8F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 1, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // ball
-    {2, {20.0F, 1.5F, 0.0F}, {0.0F, 0.0F, 0.0F}, {1.5F, 3.0F, 1.5F}, {0.8F, 0.82F, 0.86F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 1, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // drum
-    {0, {0.0F, 1.4F, 20.0F}, {0.0F, 0.0F, 0.0F}, {44.0F, 2.8F, 1.0F}, {0.7F, 0.7F, 0.74F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 1, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // wall
-    {0, {-4.0F, 2.2F, -8.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 4.4F, 1.0F}, {0.76F, 0.74F, 0.7F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 1, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // arch-left
-    {0, {4.0F, 2.2F, -8.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 4.4F, 1.0F}, {0.76F, 0.74F, 0.7F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 1, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // arch-right
-    {0, {0.0F, 4.8F, -8.0F}, {0.0F, 0.0F, 0.0F}, {9.0F, 0.8F, 1.0F}, {0.76F, 0.74F, 0.7F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 1, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // arch-top
-};
-// scene "live"
-constexpr SceneObjectData SCENE_4_OBJECTS[12] = {
-    {6, {0.0F, 0.0F, -20.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.15F, 0.9F, 0.9F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // player
-    {0, {-14.0F, 1.0F, 6.0F}, {0.0F, 0.0F, 0.0F}, {1.1F, 2.0F, 1.1F}, {0.82F, 0.79F, 0.72F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 1, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // pillar-1
-    {0, {-7.0F, 1.8F, 6.0F}, {0.0F, 0.0F, 0.0F}, {0.9F, 3.6F, 0.9F}, {0.82F, 0.79F, 0.72F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 1, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // pillar-2
-    {0, {0.0F, 3.25F, 6.0F}, {0.0F, 0.0F, 0.0F}, {0.7F, 6.5F, 0.7F}, {0.82F, 0.79F, 0.72F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 1, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // pillar-3
-    {0, {7.0F, 1.8F, 6.0F}, {0.0F, 0.0F, 0.0F}, {0.9F, 3.6F, 0.9F}, {0.82F, 0.79F, 0.72F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 1, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // pillar-4
-    {0, {14.0F, 1.0F, 6.0F}, {0.0F, 0.0F, 0.0F}, {1.1F, 2.0F, 1.1F}, {0.82F, 0.79F, 0.72F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 1, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // pillar-5
-    {1, {-20.0F, 1.6F, 0.0F}, {0.0F, 0.0F, 0.0F}, {1.6F, 1.6F, 1.6F}, {0.88F, 0.86F, 0.8F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 1, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // ball
-    {2, {20.0F, 1.5F, 0.0F}, {0.0F, 0.0F, 0.0F}, {1.5F, 3.0F, 1.5F}, {0.8F, 0.82F, 0.86F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 1, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // drum
-    {0, {0.0F, 1.4F, 20.0F}, {0.0F, 0.0F, 0.0F}, {44.0F, 2.8F, 1.0F}, {0.7F, 0.7F, 0.74F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 1, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // wall
-    {0, {-4.0F, 2.2F, -8.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 4.4F, 1.0F}, {0.76F, 0.74F, 0.7F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 1, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // arch-left
-    {0, {4.0F, 2.2F, -8.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 4.4F, 1.0F}, {0.76F, 0.74F, 0.7F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 1, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // arch-right
-    {0, {0.0F, 4.8F, -8.0F}, {0.0F, 0.0F, 0.0F}, {9.0F, 0.8F, 1.0F}, {0.76F, 0.74F, 0.7F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0.0F, 0, 1, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}},  // arch-top
-};
+extern const SceneObjectData SCENE_0_OBJECTS[];
+extern const SceneObjectData SCENE_1_OBJECTS[];
+extern const SceneObjectData SCENE_2_OBJECTS[];
+extern const SceneObjectData SCENE_3_OBJECTS[];
+extern const SceneObjectData SCENE_4_OBJECTS[];
 
-constexpr int SCENE_OBJECT_COUNTS[SCENE_COUNT] = {12, 12, 12, 12, 12};
+extern const int SCENE_OBJECT_COUNTS[SCENE_COUNT];
 inline const SceneObjectData* SCENE_OBJECT_TABLES[SCENE_COUNT] = {SCENE_0_OBJECTS, SCENE_1_OBJECTS, SCENE_2_OBJECTS, SCENE_3_OBJECTS, SCENE_4_OBJECTS};
 
-constexpr unsigned long long SCENE_0_OBJECT_ID_HASHES[12] = {0x255ba0c7667a859eULL, 0x051cb32eba1b96cbULL, 0xf5b1b947e4b1e259ULL, 0xdefd781b47b3da07ULL, 0x37b3af35e53e4dbfULL, 0xcab8e55a1f473144ULL, 0x7e5c100a14d6e2f2ULL, 0xa5131b4e0c007b76ULL, 0xdf3c34e572108d84ULL, 0x3b13a95ad27ec7c3ULL, 0x7de24205f9a0750cULL, 0x9c3823904239433aULL};
-constexpr unsigned long long SCENE_1_OBJECT_ID_HASHES[12] = {0x1466ac1370fe81edULL, 0xc1d5627b5a4df7c2ULL, 0xc8ef5c6e4314d952ULL, 0x53d9056e3db7341cULL, 0xa8ce3c8b3771c917ULL, 0x893afe70b75e114aULL, 0x8953fc4695a460deULL, 0xeeaf9e977d854570ULL, 0x1485027776e2e2f3ULL, 0xe4ac202fd53497a6ULL, 0x546352d8bbde41b9ULL, 0x528c5c2ec5420965ULL};
-constexpr unsigned long long SCENE_2_OBJECT_ID_HASHES[12] = {0x582a85e429daf4b3ULL, 0x20dc98e05e9a453bULL, 0x623e30a3a2213a3fULL, 0xbb6d4d0bb5dafb32ULL, 0x1fd872ba4f8eec01ULL, 0x24ccb2c3381fb6c2ULL, 0xeaf0266410187b0dULL, 0x6c4cb2a80c0cfcf2ULL, 0xe14b4c51ddf1efa8ULL, 0x572dbedea4a25f5aULL, 0x5ed6e3205ce8acbdULL, 0xa24ef0b12a81ecadULL};
-constexpr unsigned long long SCENE_3_OBJECT_ID_HASHES[12] = {0xdb9f027147ab74d6ULL, 0x781c03d43a0cb9bfULL, 0x19db00c08d9b92deULL, 0x0b638c8c88ae0625ULL, 0xd35f99abd969329aULL, 0xebda32d0e1e07e33ULL, 0xcb8e367ac418d1dcULL, 0xa9b77a40b9c0f18aULL, 0x74827ee8fbeb5a74ULL, 0x1498ec4e8560c990ULL, 0xf3d8c101b4977edbULL, 0x6ed5596798ad8006ULL};
-constexpr unsigned long long SCENE_4_OBJECT_ID_HASHES[12] = {0xbf716991ac55a276ULL, 0xb2fedfbf77a8dc52ULL, 0x0ef8961d5bb1e4deULL, 0x6b0175b8f1901dbeULL, 0x5c29f93c9a86a8bfULL, 0x2919db6389a30b1eULL, 0x4ac27124ee1dfb7cULL, 0x7fe86761ecab0c74ULL, 0xda27cb0e2bfd82f8ULL, 0xf28ca569c242ed7aULL, 0x20dde7cd505e4fd3ULL, 0x7fa63357332d416aULL};
+struct EmitterLayerData { int scene; int object; float offset[3]; float area[3]; };
+inline constexpr int EMITTER_LAYER_COUNT = 0;
+inline constexpr EmitterLayerData EMITTER_LAYERS[1] = {
+    {-1, -1, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}}
+};
+inline constexpr SceneObjectData EMITTER_LAYER_OBJECTS[1] = {
+    {0, {0.0F, 0.5F, 0.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0, 0.0F, 0, 0, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}, -1, 0.0F, false, 8, 0, 1, 12.0F},
+};
+
+extern const unsigned long long SCENE_0_OBJECT_ID_HASHES[];
+extern const unsigned long long SCENE_1_OBJECT_ID_HASHES[];
+extern const unsigned long long SCENE_2_OBJECT_ID_HASHES[];
+extern const unsigned long long SCENE_3_OBJECT_ID_HASHES[];
+extern const unsigned long long SCENE_4_OBJECT_ID_HASHES[];
 inline const unsigned long long* SCENE_OBJECT_ID_TABLES[SCENE_COUNT] = {SCENE_0_OBJECT_ID_HASHES, SCENE_1_OBJECT_ID_HASHES, SCENE_2_OBJECT_ID_HASHES, SCENE_3_OBJECT_ID_HASHES, SCENE_4_OBJECT_ID_HASHES};
 
 // Endless scrollers (type 19). SCROLLERS holds per-belt state;
@@ -325,24 +284,24 @@ struct ScrollerClone {
   float yawVary; float offsetVary; float scaleVary;
 };
 struct ScrollerHidden { int scene; int object; };
-constexpr int SCROLLER_COUNT = 0;
-constexpr ScrollerData SCROLLERS[1] = {
+inline constexpr int SCROLLER_COUNT = 0;
+inline constexpr ScrollerData SCROLLERS[1] = {
     {0, -1, {0,0,1}, {1,0,0}, 0.0F, 0.0F, 0.0F, 1.0F, 0, 1, 1}
 };
-constexpr int SCROLLER_CLONE_COUNT = 0;
-constexpr ScrollerClone SCROLLER_CLONES[1] = {
+inline constexpr int SCROLLER_CLONE_COUNT = 0;
+inline constexpr ScrollerClone SCROLLER_CLONES[1] = {
     {0, -1, 0, 0.0F, 1.0F, {0,0,0}, 0.0F, {1,1,1}, 0, 0U, 1.0F, 0, 0, 0U, 0.0F, 0.0F, 0.0F}
 };
-constexpr int SCROLLER_HIDDEN_COUNT = 0;
-constexpr ScrollerHidden SCROLLER_HIDDEN[1] = {{0, -1}};
+inline constexpr int SCROLLER_HIDDEN_COUNT = 0;
+inline constexpr ScrollerHidden SCROLLER_HIDDEN[1] = {{0, -1}};
 
-constexpr int SCENE_LAYER_COUNTS[SCENE_COUNT] = {0, 0, 0, 0, 0};
-constexpr int SCENE_MAX_LAYERS = 1;
-constexpr bool SCENE_LAYER_STARTS[SCENE_COUNT][SCENE_MAX_LAYERS] = {{true}, {true}, {true}, {true}, {true}};
-constexpr float SCENE_LAYER_STREAM_XS[SCENE_COUNT][SCENE_MAX_LAYERS] = {{0.0F}, {0.0F}, {0.0F}, {0.0F}, {0.0F}};
-constexpr float SCENE_LAYER_STREAM_ZS[SCENE_COUNT][SCENE_MAX_LAYERS] = {{0.0F}, {0.0F}, {0.0F}, {0.0F}, {0.0F}};
-constexpr float SCENE_LAYER_STREAM_RADII[SCENE_COUNT][SCENE_MAX_LAYERS] = {{0.0F}, {0.0F}, {0.0F}, {0.0F}, {0.0F}};
-constexpr int SCENE_LAYER_STREAM_AREAS[SCENE_COUNT][SCENE_MAX_LAYERS] = {{-1}, {-1}, {-1}, {-1}, {-1}};
+inline constexpr int SCENE_LAYER_COUNTS[SCENE_COUNT] = {0, 0, 0, 0, 0};
+inline constexpr int SCENE_MAX_LAYERS = 1;
+inline constexpr bool SCENE_LAYER_STARTS[SCENE_COUNT][SCENE_MAX_LAYERS] = {{true}, {true}, {true}, {true}, {true}};
+inline constexpr float SCENE_LAYER_STREAM_XS[SCENE_COUNT][SCENE_MAX_LAYERS] = {{0.0F}, {0.0F}, {0.0F}, {0.0F}, {0.0F}};
+inline constexpr float SCENE_LAYER_STREAM_ZS[SCENE_COUNT][SCENE_MAX_LAYERS] = {{0.0F}, {0.0F}, {0.0F}, {0.0F}, {0.0F}};
+inline constexpr float SCENE_LAYER_STREAM_RADII[SCENE_COUNT][SCENE_MAX_LAYERS] = {{0.0F}, {0.0F}, {0.0F}, {0.0F}, {0.0F}};
+inline constexpr int SCENE_LAYER_STREAM_AREAS[SCENE_COUNT][SCENE_MAX_LAYERS] = {{-1}, {-1}, {-1}, {-1}, {-1}};
 
 // Mirrors (type 15): each entry re-draws its target objects
 // reflected across the mirror plane (renderMirrors in the game
@@ -360,11 +319,11 @@ struct MirrorData {
   int firstCand;      // first entry in CATCH_CANDIDATES
   int candCount;
 };
-constexpr int MIRROR_COUNT = 0;
-constexpr MirrorData MIRRORS[1] = {
+inline constexpr int MIRROR_COUNT = 0;
+inline constexpr MirrorData MIRRORS[1] = {
     {0, -1, 0.0F, 0, 0, 0, 0, 64, -1, 0, 0}
 };
-constexpr int MIRROR_TARGETS[1] = {-1};
+inline constexpr int MIRROR_TARGETS[1] = {-1};
 
 // A room for the sound effects. While the player stands inside
 // the area, the SPU2's reverb unit runs `preset` at `amount`.
@@ -382,9 +341,9 @@ struct ReverbZoneData {
   int feedback;  // 0..127, echo/delay presets only
   int priority;  // overlapping zones: the highest wins
 };
-constexpr int REVERB_ZONE_COUNT = 0;
-constexpr bool REVERB_HAS_NODE = false;
-constexpr ReverbZoneData REVERB_ZONES[1] = {
+inline constexpr int REVERB_ZONE_COUNT = 0;
+inline constexpr bool REVERB_HAS_NODE = false;
+inline constexpr ReverbZoneData REVERB_ZONES[1] = {
     {0, -1, 0, 0, 0, 0, 0}
 };
 
@@ -400,11 +359,11 @@ struct RtProxyData {
   int firstFloat;  // offset into RT_PROXY_VERTS
   int triCount;
 };
-constexpr int RT_PROXY_COUNT = 0;
-constexpr RtProxyData RT_PROXIES[1] = {
+inline constexpr int RT_PROXY_COUNT = 0;
+inline constexpr RtProxyData RT_PROXIES[1] = {
     {0, -1, -1, 0, 0, 0}
 };
-constexpr float RT_PROXY_VERTS[1] = {
+inline constexpr float RT_PROXY_VERTS[1] = {
   0.0F
 };
 // Animated-model proxies: fixed VERTEX indices (3 per
@@ -421,11 +380,11 @@ struct RtAnimProxyData {
   int firstIdx;   // offset into RT_ANIM_PROXY_TRIS (3/tri)
   int triCount;
 };
-constexpr int RT_ANIM_PROXY_COUNT = 0;
-constexpr RtAnimProxyData RT_ANIM_PROXIES[1] = {
+inline constexpr int RT_ANIM_PROXY_COUNT = 0;
+inline constexpr RtAnimProxyData RT_ANIM_PROXIES[1] = {
     {0, -1, -1, 0, 0, 0}
 };
-constexpr int RT_ANIM_PROXY_TRIS[1] = {
+inline constexpr int RT_ANIM_PROXY_TRIS[1] = {
   0
 };
 
@@ -441,11 +400,11 @@ struct CamFeedData {
   int firstCand;    // first entry in CATCH_CANDIDATES
   int candCount;
 };
-constexpr int CAM_FEED_COUNT = 0;
-constexpr CamFeedData CAM_FEEDS[1] = {
+inline constexpr int CAM_FEED_COUNT = 0;
+inline constexpr CamFeedData CAM_FEEDS[1] = {
     {0, -1, 60.0F, 1, 0, 0, -1, 0, 0}
 };
-constexpr int CAM_FEED_VIEWS[1] = {-1};
+inline constexpr int CAM_FEED_VIEWS[1] = {-1};
 // Surfaces showing a live feed: kind 0 = the scene's camera
 // feed, kind 1 = a raytraced mirror's traced image (src =
 // the mirror's scene-table index).
@@ -455,8 +414,8 @@ struct ObjectFeedData {
   int kind;
   int src;
 };
-constexpr int OBJECT_FEED_COUNT = 0;
-constexpr ObjectFeedData OBJECT_FEEDS[1] = {
+inline constexpr int OBJECT_FEED_COUNT = 0;
+inline constexpr ObjectFeedData OBJECT_FEEDS[1] = {
     {0, -1, 0, -1}
 };
 
@@ -479,115 +438,115 @@ struct PortalData {
   int firstCand;        // first entry in CATCH_CANDIDATES
   int candCount;
 };
-constexpr int PORTAL_COUNT = 0;
-constexpr PortalData PORTALS[1] = {
+inline constexpr int PORTAL_COUNT = 0;
+inline constexpr PortalData PORTALS[1] = {
     {0, -1, -1, 0, 0, 0, 0, 0, -1, 0, 0}
 };
-constexpr int PORTAL_VIEW_OBJECTS[1] = {-1};
+inline constexpr int PORTAL_VIEW_OBJECTS[1] = {-1};
 
 // Objects a live catch area re-tests every frame (collectLiveCaught
 // in the game cpp). Indices are scene-table indices, sliced per
 // owner by MirrorData/CamFeedData/PortalData::firstCand.
-constexpr int CATCH_CANDIDATES[1] = {-1};
+inline constexpr int CATCH_CANDIDATES[1] = {-1};
 
-constexpr int SND_COUNT = 0;
+inline constexpr int SND_COUNT = 0;
 inline const char* SND_PATHS[1] = {""};
 
-constexpr int PLAYER_INDEXES[SCENE_COUNT] = {0, 0, 0, 0, 0};
-constexpr int PLAYER_MODES[SCENE_COUNT] = {0, 0, 0, 0, 0};
-constexpr float PLAYER_WALK_SPEEDS[SCENE_COUNT] = {0.14F, 0.14F, 0.14F, 0.14F, 0.14F};
-constexpr float PLAYER_RUN_SPEEDS[SCENE_COUNT] = {0.14F, 0.14F, 0.14F, 0.14F, 0.14F};
-constexpr float PLAYER_SPRINT_SPEEDS[SCENE_COUNT] = {0.252F, 0.252F, 0.252F, 0.252F, 0.252F};
-constexpr float PLAYER_LOOK_SPEEDS[SCENE_COUNT] = {1.0F, 1.0F, 1.0F, 1.0F, 1.0F};
-constexpr float PLAYER_EYE_HEIGHTS[SCENE_COUNT] = {1.8F, 1.8F, 1.8F, 1.8F, 1.8F};
-constexpr float PLAYER_JUMP_SPEEDS[SCENE_COUNT] = {4.5F, 4.5F, 4.5F, 4.5F, 4.5F};
-constexpr bool PLAYER_CAN_JUMPS[SCENE_COUNT] = {true, true, true, true, true};
-constexpr float PLAYER_RUN_THRESHOLDS[SCENE_COUNT] = {0.55F, 0.55F, 0.55F, 0.55F, 0.55F};
-constexpr float PLAYER_CAM_DISTS[SCENE_COUNT] = {6.0F, 6.0F, 6.0F, 6.0F, 6.0F};
-constexpr float PLAYER_CAM_HEIGHTS[SCENE_COUNT] = {1.6F, 1.6F, 1.6F, 1.6F, 1.6F};
-constexpr float PLAYER_CAM_SHOULDERS[SCENE_COUNT] = {0.0F, 0.0F, 0.0F, 0.0F, 0.0F};
-constexpr float PLAYER_TURN_RATES[SCENE_COUNT] = {0.25F, 0.25F, 0.25F, 0.25F, 0.25F};
-constexpr int PLAYER_CAM_STYLES[SCENE_COUNT] = {0, 0, 0, 0, 0};
-constexpr float PLAYER_CAM_PITCHES[SCENE_COUNT] = {0.959931F, 0.959931F, 0.959931F, 0.959931F, 0.959931F};
-constexpr float PLAYER_CAM_YAWS[SCENE_COUNT] = {0.785398F, 0.785398F, 0.785398F, 0.785398F, 0.785398F};
-constexpr bool PLAYER_CAM_YAW_ROTATES[SCENE_COUNT] = {false, false, false, false, false};
-constexpr const char* PLAYER_IDLE_CLIPS[SCENE_COUNT] = {"", "", "", "", ""};
-constexpr const char* PLAYER_WALK_CLIPS[SCENE_COUNT] = {"", "", "", "", ""};
-constexpr const char* PLAYER_RUN_CLIPS[SCENE_COUNT] = {"", "", "", "", ""};
-constexpr const char* PLAYER_SPRINT_CLIPS[SCENE_COUNT] = {"", "", "", "", ""};
-constexpr const char* PLAYER_JUMP_CLIPS[SCENE_COUNT] = {"", "", "", "", ""};
-constexpr const char* PLAYER_BACK_CLIPS[SCENE_COUNT] = {"", "", "", "", ""};
-constexpr const char* PLAYER_STRAFE_L_CLIPS[SCENE_COUNT] = {"", "", "", "", ""};
-constexpr const char* PLAYER_STRAFE_R_CLIPS[SCENE_COUNT] = {"", "", "", "", ""};
-constexpr bool PLAYER_FACE_CAMERAS[SCENE_COUNT] = {false, false, false, false, false};
-constexpr int PLAYER2_INDEXES[SCENE_COUNT] = {-1, -1, -1, -1, -1};
-constexpr int PLAYER2_MODES[SCENE_COUNT] = {0, 0, 0, 0, 0};
-constexpr float PLAYER2_WALK_SPEEDS[SCENE_COUNT] = {0.1F, 0.1F, 0.1F, 0.1F, 0.1F};
-constexpr float PLAYER2_RUN_SPEEDS[SCENE_COUNT] = {0.1F, 0.1F, 0.1F, 0.1F, 0.1F};
-constexpr float PLAYER2_SPRINT_SPEEDS[SCENE_COUNT] = {0.18F, 0.18F, 0.18F, 0.18F, 0.18F};
-constexpr float PLAYER2_LOOK_SPEEDS[SCENE_COUNT] = {1.0F, 1.0F, 1.0F, 1.0F, 1.0F};
-constexpr float PLAYER2_EYE_HEIGHTS[SCENE_COUNT] = {1.8F, 1.8F, 1.8F, 1.8F, 1.8F};
-constexpr float PLAYER2_JUMP_SPEEDS[SCENE_COUNT] = {4.5F, 4.5F, 4.5F, 4.5F, 4.5F};
-constexpr bool PLAYER2_CAN_JUMPS[SCENE_COUNT] = {true, true, true, true, true};
-constexpr float PLAYER2_RUN_THRESHOLDS[SCENE_COUNT] = {0.55F, 0.55F, 0.55F, 0.55F, 0.55F};
-constexpr float PLAYER2_CAM_DISTS[SCENE_COUNT] = {6.0F, 6.0F, 6.0F, 6.0F, 6.0F};
-constexpr float PLAYER2_CAM_HEIGHTS[SCENE_COUNT] = {1.6F, 1.6F, 1.6F, 1.6F, 1.6F};
-constexpr float PLAYER2_CAM_SHOULDERS[SCENE_COUNT] = {0.0F, 0.0F, 0.0F, 0.0F, 0.0F};
-constexpr float PLAYER2_TURN_RATES[SCENE_COUNT] = {0.25F, 0.25F, 0.25F, 0.25F, 0.25F};
-constexpr int PLAYER2_CAM_STYLES[SCENE_COUNT] = {0, 0, 0, 0, 0};
-constexpr float PLAYER2_CAM_PITCHES[SCENE_COUNT] = {0.959931F, 0.959931F, 0.959931F, 0.959931F, 0.959931F};
-constexpr float PLAYER2_CAM_YAWS[SCENE_COUNT] = {0.785398F, 0.785398F, 0.785398F, 0.785398F, 0.785398F};
-constexpr bool PLAYER2_CAM_YAW_ROTATES[SCENE_COUNT] = {false, false, false, false, false};
-constexpr const char* PLAYER2_IDLE_CLIPS[SCENE_COUNT] = {"", "", "", "", ""};
-constexpr const char* PLAYER2_WALK_CLIPS[SCENE_COUNT] = {"", "", "", "", ""};
-constexpr const char* PLAYER2_RUN_CLIPS[SCENE_COUNT] = {"", "", "", "", ""};
-constexpr const char* PLAYER2_SPRINT_CLIPS[SCENE_COUNT] = {"", "", "", "", ""};
-constexpr const char* PLAYER2_JUMP_CLIPS[SCENE_COUNT] = {"", "", "", "", ""};
-constexpr const char* PLAYER2_BACK_CLIPS[SCENE_COUNT] = {"", "", "", "", ""};
-constexpr const char* PLAYER2_STRAFE_L_CLIPS[SCENE_COUNT] = {"", "", "", "", ""};
-constexpr const char* PLAYER2_STRAFE_R_CLIPS[SCENE_COUNT] = {"", "", "", "", ""};
-constexpr bool PLAYER2_FACE_CAMERAS[SCENE_COUNT] = {false, false, false, false, false};
+inline constexpr int PLAYER_INDEXES[SCENE_COUNT] = {0, 0, 0, 0, 0};
+inline constexpr int PLAYER_MODES[SCENE_COUNT] = {0, 0, 0, 0, 0};
+inline constexpr float PLAYER_WALK_SPEEDS[SCENE_COUNT] = {0.14F, 0.14F, 0.14F, 0.14F, 0.14F};
+inline constexpr float PLAYER_RUN_SPEEDS[SCENE_COUNT] = {0.14F, 0.14F, 0.14F, 0.14F, 0.14F};
+inline constexpr float PLAYER_SPRINT_SPEEDS[SCENE_COUNT] = {0.252F, 0.252F, 0.252F, 0.252F, 0.252F};
+inline constexpr float PLAYER_LOOK_SPEEDS[SCENE_COUNT] = {1.0F, 1.0F, 1.0F, 1.0F, 1.0F};
+inline constexpr float PLAYER_EYE_HEIGHTS[SCENE_COUNT] = {1.8F, 1.8F, 1.8F, 1.8F, 1.8F};
+inline constexpr float PLAYER_JUMP_SPEEDS[SCENE_COUNT] = {4.5F, 4.5F, 4.5F, 4.5F, 4.5F};
+inline constexpr bool PLAYER_CAN_JUMPS[SCENE_COUNT] = {true, true, true, true, true};
+inline constexpr float PLAYER_RUN_THRESHOLDS[SCENE_COUNT] = {0.55F, 0.55F, 0.55F, 0.55F, 0.55F};
+inline constexpr float PLAYER_CAM_DISTS[SCENE_COUNT] = {6.0F, 6.0F, 6.0F, 6.0F, 6.0F};
+inline constexpr float PLAYER_CAM_HEIGHTS[SCENE_COUNT] = {1.6F, 1.6F, 1.6F, 1.6F, 1.6F};
+inline constexpr float PLAYER_CAM_SHOULDERS[SCENE_COUNT] = {0.0F, 0.0F, 0.0F, 0.0F, 0.0F};
+inline constexpr float PLAYER_TURN_RATES[SCENE_COUNT] = {0.25F, 0.25F, 0.25F, 0.25F, 0.25F};
+inline constexpr int PLAYER_CAM_STYLES[SCENE_COUNT] = {0, 0, 0, 0, 0};
+inline constexpr float PLAYER_CAM_PITCHES[SCENE_COUNT] = {0.959931F, 0.959931F, 0.959931F, 0.959931F, 0.959931F};
+inline constexpr float PLAYER_CAM_YAWS[SCENE_COUNT] = {0.785398F, 0.785398F, 0.785398F, 0.785398F, 0.785398F};
+inline constexpr bool PLAYER_CAM_YAW_ROTATES[SCENE_COUNT] = {false, false, false, false, false};
+inline constexpr const char* PLAYER_IDLE_CLIPS[SCENE_COUNT] = {"", "", "", "", ""};
+inline constexpr const char* PLAYER_WALK_CLIPS[SCENE_COUNT] = {"", "", "", "", ""};
+inline constexpr const char* PLAYER_RUN_CLIPS[SCENE_COUNT] = {"", "", "", "", ""};
+inline constexpr const char* PLAYER_SPRINT_CLIPS[SCENE_COUNT] = {"", "", "", "", ""};
+inline constexpr const char* PLAYER_JUMP_CLIPS[SCENE_COUNT] = {"", "", "", "", ""};
+inline constexpr const char* PLAYER_BACK_CLIPS[SCENE_COUNT] = {"", "", "", "", ""};
+inline constexpr const char* PLAYER_STRAFE_L_CLIPS[SCENE_COUNT] = {"", "", "", "", ""};
+inline constexpr const char* PLAYER_STRAFE_R_CLIPS[SCENE_COUNT] = {"", "", "", "", ""};
+inline constexpr bool PLAYER_FACE_CAMERAS[SCENE_COUNT] = {false, false, false, false, false};
+inline constexpr int PLAYER2_INDEXES[SCENE_COUNT] = {-1, -1, -1, -1, -1};
+inline constexpr int PLAYER2_MODES[SCENE_COUNT] = {0, 0, 0, 0, 0};
+inline constexpr float PLAYER2_WALK_SPEEDS[SCENE_COUNT] = {0.1F, 0.1F, 0.1F, 0.1F, 0.1F};
+inline constexpr float PLAYER2_RUN_SPEEDS[SCENE_COUNT] = {0.1F, 0.1F, 0.1F, 0.1F, 0.1F};
+inline constexpr float PLAYER2_SPRINT_SPEEDS[SCENE_COUNT] = {0.18F, 0.18F, 0.18F, 0.18F, 0.18F};
+inline constexpr float PLAYER2_LOOK_SPEEDS[SCENE_COUNT] = {1.0F, 1.0F, 1.0F, 1.0F, 1.0F};
+inline constexpr float PLAYER2_EYE_HEIGHTS[SCENE_COUNT] = {1.8F, 1.8F, 1.8F, 1.8F, 1.8F};
+inline constexpr float PLAYER2_JUMP_SPEEDS[SCENE_COUNT] = {4.5F, 4.5F, 4.5F, 4.5F, 4.5F};
+inline constexpr bool PLAYER2_CAN_JUMPS[SCENE_COUNT] = {true, true, true, true, true};
+inline constexpr float PLAYER2_RUN_THRESHOLDS[SCENE_COUNT] = {0.55F, 0.55F, 0.55F, 0.55F, 0.55F};
+inline constexpr float PLAYER2_CAM_DISTS[SCENE_COUNT] = {6.0F, 6.0F, 6.0F, 6.0F, 6.0F};
+inline constexpr float PLAYER2_CAM_HEIGHTS[SCENE_COUNT] = {1.6F, 1.6F, 1.6F, 1.6F, 1.6F};
+inline constexpr float PLAYER2_CAM_SHOULDERS[SCENE_COUNT] = {0.0F, 0.0F, 0.0F, 0.0F, 0.0F};
+inline constexpr float PLAYER2_TURN_RATES[SCENE_COUNT] = {0.25F, 0.25F, 0.25F, 0.25F, 0.25F};
+inline constexpr int PLAYER2_CAM_STYLES[SCENE_COUNT] = {0, 0, 0, 0, 0};
+inline constexpr float PLAYER2_CAM_PITCHES[SCENE_COUNT] = {0.959931F, 0.959931F, 0.959931F, 0.959931F, 0.959931F};
+inline constexpr float PLAYER2_CAM_YAWS[SCENE_COUNT] = {0.785398F, 0.785398F, 0.785398F, 0.785398F, 0.785398F};
+inline constexpr bool PLAYER2_CAM_YAW_ROTATES[SCENE_COUNT] = {false, false, false, false, false};
+inline constexpr const char* PLAYER2_IDLE_CLIPS[SCENE_COUNT] = {"", "", "", "", ""};
+inline constexpr const char* PLAYER2_WALK_CLIPS[SCENE_COUNT] = {"", "", "", "", ""};
+inline constexpr const char* PLAYER2_RUN_CLIPS[SCENE_COUNT] = {"", "", "", "", ""};
+inline constexpr const char* PLAYER2_SPRINT_CLIPS[SCENE_COUNT] = {"", "", "", "", ""};
+inline constexpr const char* PLAYER2_JUMP_CLIPS[SCENE_COUNT] = {"", "", "", "", ""};
+inline constexpr const char* PLAYER2_BACK_CLIPS[SCENE_COUNT] = {"", "", "", "", ""};
+inline constexpr const char* PLAYER2_STRAFE_L_CLIPS[SCENE_COUNT] = {"", "", "", "", ""};
+inline constexpr const char* PLAYER2_STRAFE_R_CLIPS[SCENE_COUNT] = {"", "", "", "", ""};
+inline constexpr bool PLAYER2_FACE_CAMERAS[SCENE_COUNT] = {false, false, false, false, false};
 
-constexpr float TERRAIN_WIDTHS[SCENE_COUNT] = {96.0F, 96.0F, 96.0F, 96.0F, 96.0F};
-constexpr float TERRAIN_DEPTHS[SCENE_COUNT] = {96.0F, 96.0F, 96.0F, 96.0F, 96.0F};
-constexpr float TERRAIN_VOID_Y = -1000000.0F;
-constexpr bool TERRAIN_ENABLEDS[SCENE_COUNT] = {true, true, true, true, true};
-constexpr float SCENE_LIGHT_XS[SCENE_COUNT] = {0.958421F, 0.181919F, -0.886235F, 0.280316F, 0.578707F};
-constexpr float SCENE_LIGHT_YS[SCENE_COUNT] = {0.262272F, 0.881205F, 0.262272F, 0.750136F, 0.468545F};
-constexpr float SCENE_LIGHT_ZS[SCENE_COUNT] = {0.112436F, -0.436329F, -0.381838F, -0.598932F, 0.667506F};
-constexpr float SCENE_AMBIENTS[SCENE_COUNT] = {0.384706F, 0.55F, 0.361818F, 0.15F, 0.55F};
-constexpr float SCENE_DIFFUSES[SCENE_COUNT] = {0.493529F, 0.45F, 0.511364F, 0.3F, 0.45F};
-constexpr float SCENE_LIGHT_COL_RS[SCENE_COUNT] = {1.0F, 1.0F, 1.0F, 0.42F, 1.0F};
-constexpr float SCENE_LIGHT_COL_GS[SCENE_COUNT] = {0.787059F, 0.98F, 0.667273F, 0.52F, 0.98F};
-constexpr float SCENE_LIGHT_COL_BS[SCENE_COUNT] = {0.6F, 0.93F, 0.451818F, 0.9F, 0.93F};
-constexpr float SCENE_BRIGHTNESSES[SCENE_COUNT] = {0.976471F, 1.0F, 0.970455F, 0.9F, 1.0F};
-constexpr float SCENE_SUN_XS[SCENE_COUNT] = {0.958421F, 0.181919F, -0.886235F, -0.552274F, 0.578707F};
-constexpr float SCENE_SUN_YS[SCENE_COUNT] = {0.262272F, 0.881205F, 0.262272F, -0.783956F, 0.468545F};
-constexpr float SCENE_SUN_ZS[SCENE_COUNT] = {0.112436F, -0.436329F, -0.381838F, 0.28356F, 0.667506F};
-constexpr float SCENE_MOON_XS[SCENE_COUNT] = {-0.920811F, 0.0784753F, 0.975827F, 0.280316F, -0.585807F};
-constexpr float SCENE_MOON_YS[SCENE_COUNT] = {-0.15757F, -0.827105F, -0.15757F, 0.750136F, -0.437349F};
-constexpr float SCENE_MOON_ZS[SCENE_COUNT] = {0.356762F, 0.556542F, -0.15144F, -0.598932F, -0.682317F};
-constexpr float SCENE_SUN_RS[SCENE_COUNT] = {0.0349208F, 0.0349208F, 0.0349208F, 0.0F, 0.0349208F};
-constexpr float SCENE_MOON_RS[SCENE_COUNT] = {0.0524078F, 0.0F, 0.0524078F, 0.0524078F, 0.0F};
-constexpr bool DAYCYCLE_RUNTIMES[SCENE_COUNT] = {false, false, false, false, true};
-constexpr bool DAYCYCLE_GRADES[SCENE_COUNT] = {false, false, false, false, true};
-constexpr float DAYCYCLE_STARTS[SCENE_COUNT] = {7.2F, 12.0F, 17.3F, 22.5F, 17.0F};
-constexpr float DAYCYCLE_BAKEDS[SCENE_COUNT] = {7.2F, 12.0F, 17.3F, 22.5F, 12.0F};
-constexpr float DAYCYCLE_DAYLENS[SCENE_COUNT] = {120.0F, 120.0F, 120.0F, 120.0F, 24.0F};
-constexpr float DAYCYCLE_SUN_AZS[SCENE_COUNT] = {75.0F, 75.0F, 75.0F, 75.0F, 315.0F};
-constexpr float DAYCYCLE_SUN_TILTS[SCENE_COUNT] = {28.0F, 28.0F, 28.0F, 28.0F, 62.0F};
-constexpr float DAYCYCLE_SUNRISES[SCENE_COUNT] = {6.0F, 6.0F, 6.0F, 6.0F, 6.0F};
-constexpr float DAYCYCLE_SUNSETS[SCENE_COUNT] = {18.5F, 18.5F, 18.5F, 18.5F, 18.5F};
-constexpr float DAYCYCLE_MOON_AZS[SCENE_COUNT] = {105.0F, 105.0F, 105.0F, 105.0F, 315.0F};
-constexpr float DAYCYCLE_MOON_TILTS[SCENE_COUNT] = {34.0F, 34.0F, 34.0F, 34.0F, 64.0F};
-constexpr float DAYCYCLE_MOON_OFFS[SCENE_COUNT] = {12.0F, 12.0F, 12.0F, 12.0F, 12.0F};
-constexpr float DAYCYCLE_SUN_RADS[SCENE_COUNT] = {0.0349208F, 0.0349208F, 0.0349208F, 0.0349208F, 0.0349208F};
-constexpr float DAYCYCLE_MOON_RADS[SCENE_COUNT] = {0.0524078F, 0.0524078F, 0.0524078F, 0.0524078F, 0.0524078F};
-constexpr float DAYCYCLE_MOON_ALPHAS[SCENE_COUNT] = {1.0F, 1.0F, 1.0F, 1.0F, 0.85F};
-constexpr float DAYCYCLE_TWINKLES[SCENE_COUNT] = {0.45F, 0.45F, 0.45F, 0.45F, 0.45F};
+inline constexpr float TERRAIN_WIDTHS[SCENE_COUNT] = {96.0F, 96.0F, 96.0F, 96.0F, 96.0F};
+inline constexpr float TERRAIN_DEPTHS[SCENE_COUNT] = {96.0F, 96.0F, 96.0F, 96.0F, 96.0F};
+inline constexpr float TERRAIN_VOID_Y = -1000000.0F;
+inline constexpr bool TERRAIN_ENABLEDS[SCENE_COUNT] = {true, true, true, true, true};
+inline constexpr float SCENE_LIGHT_XS[SCENE_COUNT] = {0.958421F, 0.181919F, -0.886235F, 0.280316F, 0.578707F};
+inline constexpr float SCENE_LIGHT_YS[SCENE_COUNT] = {0.262272F, 0.881205F, 0.262272F, 0.750136F, 0.468545F};
+inline constexpr float SCENE_LIGHT_ZS[SCENE_COUNT] = {0.112436F, -0.436329F, -0.381838F, -0.598932F, 0.667506F};
+inline constexpr float SCENE_AMBIENTS[SCENE_COUNT] = {0.384706F, 0.55F, 0.361818F, 0.15F, 0.55F};
+inline constexpr float SCENE_DIFFUSES[SCENE_COUNT] = {0.493529F, 0.45F, 0.511364F, 0.3F, 0.45F};
+inline constexpr float SCENE_LIGHT_COL_RS[SCENE_COUNT] = {1.0F, 1.0F, 1.0F, 0.42F, 1.0F};
+inline constexpr float SCENE_LIGHT_COL_GS[SCENE_COUNT] = {0.787059F, 0.98F, 0.667273F, 0.52F, 0.98F};
+inline constexpr float SCENE_LIGHT_COL_BS[SCENE_COUNT] = {0.6F, 0.93F, 0.451818F, 0.9F, 0.93F};
+inline constexpr float SCENE_BRIGHTNESSES[SCENE_COUNT] = {0.976471F, 1.0F, 0.970455F, 0.9F, 1.0F};
+inline constexpr float SCENE_SUN_XS[SCENE_COUNT] = {0.958421F, 0.181919F, -0.886235F, -0.552274F, 0.578707F};
+inline constexpr float SCENE_SUN_YS[SCENE_COUNT] = {0.262272F, 0.881205F, 0.262272F, -0.783956F, 0.468545F};
+inline constexpr float SCENE_SUN_ZS[SCENE_COUNT] = {0.112436F, -0.436329F, -0.381838F, 0.28356F, 0.667506F};
+inline constexpr float SCENE_MOON_XS[SCENE_COUNT] = {-0.920811F, 0.0784753F, 0.975827F, 0.280316F, -0.585807F};
+inline constexpr float SCENE_MOON_YS[SCENE_COUNT] = {-0.15757F, -0.827105F, -0.15757F, 0.750136F, -0.437349F};
+inline constexpr float SCENE_MOON_ZS[SCENE_COUNT] = {0.356762F, 0.556542F, -0.15144F, -0.598932F, -0.682317F};
+inline constexpr float SCENE_SUN_RS[SCENE_COUNT] = {0.0349208F, 0.0349208F, 0.0349208F, 0.0F, 0.0349208F};
+inline constexpr float SCENE_MOON_RS[SCENE_COUNT] = {0.0524078F, 0.0F, 0.0524078F, 0.0524078F, 0.0F};
+inline constexpr bool DAYCYCLE_RUNTIMES[SCENE_COUNT] = {false, false, false, false, true};
+inline constexpr bool DAYCYCLE_GRADES[SCENE_COUNT] = {false, false, false, false, true};
+inline constexpr float DAYCYCLE_STARTS[SCENE_COUNT] = {7.2F, 12.0F, 17.3F, 22.5F, 17.0F};
+inline constexpr float DAYCYCLE_BAKEDS[SCENE_COUNT] = {7.2F, 12.0F, 17.3F, 22.5F, 12.0F};
+inline constexpr float DAYCYCLE_DAYLENS[SCENE_COUNT] = {120.0F, 120.0F, 120.0F, 120.0F, 24.0F};
+inline constexpr float DAYCYCLE_SUN_AZS[SCENE_COUNT] = {75.0F, 75.0F, 75.0F, 75.0F, 315.0F};
+inline constexpr float DAYCYCLE_SUN_TILTS[SCENE_COUNT] = {28.0F, 28.0F, 28.0F, 28.0F, 62.0F};
+inline constexpr float DAYCYCLE_SUNRISES[SCENE_COUNT] = {6.0F, 6.0F, 6.0F, 6.0F, 6.0F};
+inline constexpr float DAYCYCLE_SUNSETS[SCENE_COUNT] = {18.5F, 18.5F, 18.5F, 18.5F, 18.5F};
+inline constexpr float DAYCYCLE_MOON_AZS[SCENE_COUNT] = {105.0F, 105.0F, 105.0F, 105.0F, 315.0F};
+inline constexpr float DAYCYCLE_MOON_TILTS[SCENE_COUNT] = {34.0F, 34.0F, 34.0F, 34.0F, 64.0F};
+inline constexpr float DAYCYCLE_MOON_OFFS[SCENE_COUNT] = {12.0F, 12.0F, 12.0F, 12.0F, 12.0F};
+inline constexpr float DAYCYCLE_SUN_RADS[SCENE_COUNT] = {0.0349208F, 0.0349208F, 0.0349208F, 0.0349208F, 0.0349208F};
+inline constexpr float DAYCYCLE_MOON_RADS[SCENE_COUNT] = {0.0524078F, 0.0524078F, 0.0524078F, 0.0524078F, 0.0524078F};
+inline constexpr float DAYCYCLE_MOON_ALPHAS[SCENE_COUNT] = {1.0F, 1.0F, 1.0F, 1.0F, 0.85F};
+inline constexpr float DAYCYCLE_TWINKLES[SCENE_COUNT] = {0.45F, 0.45F, 0.45F, 0.45F, 0.45F};
 struct DayKeyData { float hour; float sky[3], top[3], lit[3], fog[3]; float amb, dif, bright, stars; };
-constexpr int DAY_KEY_TOTAL = 9;
-constexpr DayKeyData DAY_KEYS[9] = {
+inline constexpr int DAY_KEY_TOTAL = 9;
+inline constexpr DayKeyData DAY_KEYS[9] = {
     {0.0F,{0.035F,0.045F,0.11F},{0.008F,0.012F,0.045F},{0.42F,0.52F,0.9F},{0.035F,0.045F,0.1F},0.15F,0.3F,0.9F,1.0F},
     {4.5F,{0.045F,0.055F,0.13F},{0.01F,0.015F,0.05F},{0.42F,0.52F,0.9F},{0.045F,0.055F,0.12F},0.15F,0.3F,0.9F,1.0F},
     {6.3F,{0.92F,0.5F,0.3F},{0.22F,0.3F,0.58F},{1.0F,0.66F,0.42F},{0.74F,0.5F,0.4F},0.3F,0.52F,0.95F,0.2F},
@@ -597,38 +556,43 @@ constexpr DayKeyData DAY_KEYS[9] = {
     {18.2F,{0.97F,0.4F,0.18F},{0.2F,0.2F,0.48F},{1.0F,0.52F,0.28F},{0.8F,0.4F,0.26F},0.28F,0.54F,0.95F,0.22F},
     {19.6F,{0.2F,0.16F,0.28F},{0.03F,0.05F,0.15F},{0.6F,0.56F,0.82F},{0.18F,0.15F,0.24F},0.2F,0.32F,0.92F,0.8F},
     {21.5F,{0.04F,0.05F,0.12F},{0.008F,0.012F,0.045F},{0.42F,0.52F,0.9F},{0.04F,0.05F,0.11F},0.15F,0.3F,0.9F,1.0F}};
-constexpr int DAYCYCLE_KEY_FIRSTS[SCENE_COUNT] = {0, 0, 0, 0, 0};
-constexpr int DAYCYCLE_KEY_COUNTS[SCENE_COUNT] = {9, 9, 9, 9, 9};
-constexpr float SCENE_STARS_BRIGHTS[SCENE_COUNT] = {0.0941177F, 0.0F, 0.13F, 1.0F, 0.0F};
-constexpr float SCENE_STARS_TWINKLES[SCENE_COUNT] = {0.45F, 0.45F, 0.45F, 0.45F, 0.45F};
-constexpr float SCENE_MOON_ALPHAS[SCENE_COUNT] = {1.0F, 1.0F, 1.0F, 1.0F, 0.85F};
-constexpr float SCENE_MOON_ROLLS[SCENE_COUNT] = {0.26945F, 0.582894F, 0.248501F, -0.37631F, 1.69196F};
-constexpr bool SCENE_AO_ENABLEDS[SCENE_COUNT] = {true, true, true, true, true};
-constexpr float SCENE_AO_STRENGTHS[SCENE_COUNT] = {0.6F, 0.6F, 0.6F, 0.6F, 0.6F};
-constexpr float SCENE_AO_RADII[SCENE_COUNT] = {3.0F, 3.0F, 3.0F, 3.0F, 3.0F};
-constexpr bool CLIP_PRECISES[SCENE_COUNT] = {true, true, true, true, true};
-constexpr bool CLIP_VU1S[SCENE_COUNT] = {true, true, true, true, true};
-constexpr float SKY_RS[SCENE_COUNT] = {175.2F, 68.85F, 192.061F, 9.69F, 68.85F};
-constexpr float SKY_GS[SCENE_COUNT] = {146.4F, 142.8F, 120.777F, 12.24F, 142.8F};
-constexpr float SKY_BS[SCENE_COUNT] = {146.7F, 204.0F, 106.405F, 29.58F, 204.0F};
-constexpr bool SKY_DOMES[SCENE_COUNT] = {true, true, true, true, true};
-constexpr float SKY_ZENITH_EXPS[SCENE_COUNT] = {1.22222F, 1.22222F, 1.22222F, 1.22222F, 1.22222F};
-constexpr float SKY_TOP_RS[SCENE_COUNT] = {42.6F, 20.4F, 41.6114F, 2.04F, 20.4F};
-constexpr float SKY_TOP_GS[SCENE_COUNT] = {81.9F, 76.5F, 61.4318F, 3.06F, 76.5F};
-constexpr float SKY_TOP_BS[SCENE_COUNT] = {161.4F, 168.3F, 138.048F, 11.475F, 168.3F};
-constexpr int POSTFX_BLOOMS[SCENE_COUNT] = {58, 58, 58, 58, 58};
-constexpr int POSTFX_BLOOM_CUTS[SCENE_COUNT] = {158, 158, 158, 158, 158};
-constexpr int POSTFX_BLOOM_SPREADS[SCENE_COUNT] = {2, 2, 2, 2, 2};
-constexpr int POSTFX_GRAINS[SCENE_COUNT] = {0, 0, 0, 0, 0};
-constexpr int POSTFX_FLARES[SCENE_COUNT] = {70, 70, 70, 70, 70};
-constexpr int POSTFX_GODRAYS_ARR[SCENE_COUNT] = {45, 45, 45, 45, 45};
-constexpr int FLARE_USED = 1;
-constexpr int BEAMS_USED = 0;
-constexpr int FLASHLIGHT_USED = 0;
-constexpr int DAYCYCLE_USED = 1;
-constexpr int STAR_COUNT = 520;
+inline constexpr int DAYCYCLE_KEY_FIRSTS[SCENE_COUNT] = {0, 0, 0, 0, 0};
+inline constexpr int DAYCYCLE_KEY_COUNTS[SCENE_COUNT] = {9, 9, 9, 9, 9};
+inline constexpr float SCENE_STARS_BRIGHTS[SCENE_COUNT] = {0.0941177F, 0.0F, 0.13F, 1.0F, 0.0F};
+inline constexpr float SCENE_STARS_TWINKLES[SCENE_COUNT] = {0.45F, 0.45F, 0.45F, 0.45F, 0.45F};
+inline constexpr float SCENE_MOON_ALPHAS[SCENE_COUNT] = {1.0F, 1.0F, 1.0F, 1.0F, 0.85F};
+inline constexpr float SCENE_MOON_ROLLS[SCENE_COUNT] = {0.26945F, 0.582894F, 0.248501F, -0.37631F, 1.69196F};
+inline constexpr bool SCENE_AO_ENABLEDS[SCENE_COUNT] = {true, true, true, true, true};
+inline constexpr float SCENE_AO_STRENGTHS[SCENE_COUNT] = {0.6F, 0.6F, 0.6F, 0.6F, 0.6F};
+inline constexpr float SCENE_AO_RADII[SCENE_COUNT] = {3.0F, 3.0F, 3.0F, 3.0F, 3.0F};
+inline constexpr bool CLIP_PRECISES[SCENE_COUNT] = {true, true, true, true, true};
+inline constexpr bool CLIP_VU1S[SCENE_COUNT] = {true, true, true, true, true};
+inline constexpr float SKY_RS[SCENE_COUNT] = {175.2F, 68.85F, 192.061F, 9.69F, 68.85F};
+inline constexpr float SKY_GS[SCENE_COUNT] = {146.4F, 142.8F, 120.777F, 12.24F, 142.8F};
+inline constexpr float SKY_BS[SCENE_COUNT] = {146.7F, 204.0F, 106.405F, 29.58F, 204.0F};
+inline constexpr bool SKY_DOMES[SCENE_COUNT] = {true, true, true, true, true};
+inline constexpr float SKY_ZENITH_EXPS[SCENE_COUNT] = {1.22222F, 1.22222F, 1.22222F, 1.22222F, 1.22222F};
+inline constexpr float SKY_TOP_RS[SCENE_COUNT] = {42.6F, 20.4F, 41.6114F, 2.04F, 20.4F};
+inline constexpr float SKY_TOP_GS[SCENE_COUNT] = {81.9F, 76.5F, 61.4318F, 3.06F, 76.5F};
+inline constexpr float SKY_TOP_BS[SCENE_COUNT] = {161.4F, 168.3F, 138.048F, 11.475F, 168.3F};
+inline constexpr int POSTFX_BLOOMS[SCENE_COUNT] = {58, 58, 58, 58, 58};
+inline constexpr int POSTFX_BLOOM_CUTS[SCENE_COUNT] = {158, 158, 158, 158, 158};
+inline constexpr int POSTFX_BLOOM_SPREADS[SCENE_COUNT] = {2, 2, 2, 2, 2};
+inline constexpr int POSTFX_GRAINS[SCENE_COUNT] = {0, 0, 0, 0, 0};
+inline constexpr int POSTFX_MOTIONBLURS[SCENE_COUNT] = {0, 0, 0, 0, 0};
+inline constexpr int POSTFX_FLARES[SCENE_COUNT] = {70, 70, 70, 70, 70};
+// Clear motion-blur history once after the camera settles. The
+// authored blur returns on the next frame, even if it stays parked.
+inline constexpr int POSTFX_MOTIONBLUR_IDLE_CLEAR = 1;
+inline constexpr int POSTFX_GODRAYS_ARR[SCENE_COUNT] = {45, 45, 45, 45, 45};
+inline constexpr int FLARE_USED = 1;
+inline constexpr int BEAMS_USED = 0;
+inline constexpr int FLASHLIGHT_USED = 0;
+inline constexpr int VEHICLE_HEADLIGHTS_USED = 0;
+inline constexpr int DAYCYCLE_USED = 1;
+inline constexpr int STAR_COUNT = 520;
 struct StarData { float x, y, z, size; unsigned char r, g, b, tier; };
-constexpr StarData STARS[520] = {
+inline constexpr StarData STARS[520] = {
     {0.833655F,-0.452458F,0.316705F,0.00408454F,36,39,46,2},{-0.531816F,0.733274F,-0.423652F,0.0069808F,111,92,76,1},{0.962997F,0.145423F,-0.226913F,0.00431729F,42,46,54,2},{0.505401F,0.366621F,-0.781127F,0.00459553F,53,56,63,2},
     {-0.467249F,0.342001F,-0.8153F,0.00462396F,63,55,49,2},{0.945234F,0.153234F,-0.288188F,0.00410367F,44,44,47,2},{0.217512F,-0.720149F,0.658843F,0.0120663F,174,141,113,0},{0.93991F,-0.160236F,0.301485F,0.0155404F,156,172,207,0},
     {-0.265545F,-0.468946F,0.842363F,0.00948007F,112,123,146,1},{-0.647625F,0.464741F,-0.603819F,0.00651362F,98,98,104,1},{-0.961436F,-0.129109F,0.242842F,0.00586293F,92,63,39,1},{-0.917331F,-0.204785F,-0.341418F,0.0041169F,43,44,47,2},
@@ -641,7 +605,7 @@ constexpr StarData STARS[520] = {
     {0.760168F,-0.310958F,0.570482F,0.0102684F,120,131,155,1},{-0.520195F,-0.43907F,0.73254F,0.00513334F,76,51,28,2},{0.0658157F,-0.468422F,0.88105F,0.00890076F,123,127,139,1},{-0.407622F,0.824619F,-0.392234F,0.00446001F,59,48,39,2},
     {0.591604F,0.566539F,0.573619F,0.00408444F,36,39,46,2},{0.0762795F,0.607686F,-0.790506F,0.00408839F,36,39,46,2},{0.696056F,-0.443916F,0.564309F,0.00448571F,46,50,59,2},{0.395722F,-0.392202F,0.830411F,0.00408708F,36,39,46,2},
     {-0.297438F,-0.462001F,0.835515F,0.00417053F,49,39,30,2},{-0.798413F,0.191604F,-0.57081F,0.00409256F,46,36,28,2},{-0.521092F,-0.394729F,0.756738F,0.0191401F,217,220,236,0},{-0.598446F,0.39214F,-0.698633F,0.0135074F,189,132,83,0},
-    {0.62776F,0.773536F,0.0869443F,0.00791842F,102,109,125,1},{0.961005F,-0.126113F,0.246101F,0.00408444F,46,32,20,2},{-0.189391F,0.106659F,0.976092F,0.00408649F,36,39,46,2},{0.450572F,-0.426908F,0.78405F,0.00442979F,45,49,58,2},
+    {0.62776F,0.773536F,0.0869443F,0.00791842F,102,109,125,1},{0.961005F,-0.126113F,0.246101F,0.00408444F,46,32,20,2},{-0.189391F,0.106659F,0.976092F,0.00408649F,36,39,46,2},{0.450573F,-0.426908F,0.78405F,0.00442979F,45,49,58,2},
     {0.465477F,0.384985F,-0.796943F,0.00408444F,46,41,36,2},{0.465816F,-0.68288F,0.562753F,0.00537118F,71,74,82,2},{0.904636F,-0.327265F,-0.273005F,0.00408444F,46,33,23,2},{0.565148F,-0.737435F,-0.369862F,0.00408444F,36,39,46,2},
     {0.0770315F,-0.606381F,0.791435F,0.00432087F,42,46,54,2},{0.794786F,-0.347761F,0.497371F,0.00424451F,52,46,41,2},{0.405957F,-0.910049F,0.0837307F,0.00410975F,47,46,44,2},{0.559736F,-0.385846F,0.733361F,0.00418144F,44,45,50,2},
     {-0.319508F,0.444864F,-0.836667F,0.00865242F,102,113,135,1},{-0.439051F,-0.604096F,0.665058F,0.00408558F,39,41,46,2},{0.70428F,0.455518F,-0.544511F,0.00411194F,40,42,47,2},{0.645139F,0.384368F,-0.660346F,0.00409481F,37,40,46,2},
@@ -760,42 +724,50 @@ constexpr StarData STARS[520] = {
     {0.988835F,-0.147867F,0.0184755F,0.00414601F,38,41,48,2},{-0.0965904F,0.993474F,0.0606567F,0.00422102F,51,35,22,2},{-0.562787F,-0.662473F,-0.494369F,0.00467809F,65,48,34,2},{0.175841F,-0.460154F,0.870252F,0.00408775F,42,42,46,2},
     {-0.535608F,-0.34671F,0.770011F,0.00812253F,96,107,128,1},{0.832712F,-0.277931F,0.478899F,0.00505483F,63,66,74,2},{-0.94595F,0.315677F,0.0743429F,0.0183919F,204,210,230,0},{0.55673F,-0.576043F,0.59852F,0.00408833F,46,46,45,2},
 };
-constexpr int STAR_TIERS = 3;
-constexpr int BLOB_SHADOWS = 1;
-constexpr int PROJ_SHADOWS_USED = 1;
-constexpr int POSTFX_DOFS[SCENE_COUNT] = {0, 0, 0, 0, 0};
-constexpr float POSTFX_DOF_FOCUSES[SCENE_COUNT] = {20.0F, 20.0F, 20.0F, 20.0F, 20.0F};
-constexpr float POSTFX_DOF_RANGES[SCENE_COUNT] = {15.0F, 15.0F, 15.0F, 15.0F, 15.0F};
-constexpr bool FOG_ENABLEDS[SCENE_COUNT] = {true, true, true, true, true};
-constexpr float FOG_RS[SCENE_COUNT] = {169.8F, 132.6F, 183.136F, 9.69F, 132.6F};
-constexpr float FOG_GS[SCENE_COUNT] = {135.6F, 132.6F, 116.605F, 12.24F, 132.6F};
-constexpr float FOG_BS[SCENE_COUNT] = {123.6F, 142.8F, 93.4228F, 27.03F, 142.8F};
-constexpr float FOG_STARTS[SCENE_COUNT] = {34.0F, 34.0F, 34.0F, 34.0F, 34.0F};
-constexpr float FOG_ENDS[SCENE_COUNT] = {150.0F, 150.0F, 150.0F, 150.0F, 150.0F};
-constexpr bool FLASHLIGHT_ENABLEDS[SCENE_COUNT] = {false, false, false, false, false};
-constexpr float FLASHLIGHT_RS[SCENE_COUNT] = {96.0F, 96.0F, 96.0F, 96.0F, 96.0F};
-constexpr float FLASHLIGHT_GS[SCENE_COUNT] = {96.0F, 96.0F, 96.0F, 96.0F, 96.0F};
-constexpr float FLASHLIGHT_BS[SCENE_COUNT] = {79.36F, 79.36F, 79.36F, 79.36F, 79.36F};
-constexpr float FLASHLIGHT_RANGES[SCENE_COUNT] = {30.0F, 30.0F, 30.0F, 30.0F, 30.0F};
-constexpr float FLASHLIGHT_ANGLES[SCENE_COUNT] = {20.0F, 20.0F, 20.0F, 20.0F, 20.0F};
-constexpr const char* FLASHLIGHT_TEXS[SCENE_COUNT] = {"", "", "", "", ""};
-constexpr bool HIGHLIGHT_USABLES[SCENE_COUNT] = {false, false, false, false, false};
-constexpr float HIGHLIGHT_DISTANCES[SCENE_COUNT] = {6.0F, 6.0F, 6.0F, 6.0F, 6.0F};
-constexpr float HIGHLIGHT_RS[SCENE_COUNT] = {255.0F, 255.0F, 255.0F, 255.0F, 255.0F};
-constexpr float HIGHLIGHT_GS[SCENE_COUNT] = {216.75F, 216.75F, 216.75F, 216.75F, 216.75F};
-constexpr float HIGHLIGHT_BS[SCENE_COUNT] = {38.25F, 38.25F, 38.25F, 38.25F, 38.25F};
-constexpr float HIGHLIGHT_WIDTHS[SCENE_COUNT] = {0.35F, 0.35F, 0.35F, 0.35F, 0.35F};
-constexpr int HIGHLIGHT_STEPS_S[SCENE_COUNT] = {4, 4, 4, 4, 4};
-constexpr float HIGHLIGHT_OPACITIES[SCENE_COUNT] = {0.56F, 0.56F, 0.56F, 0.56F, 0.56F};
-constexpr bool HIGHLIGHT_OVERLAYS[SCENE_COUNT] = {false, false, false, false, false};
+inline constexpr int STAR_TIERS = 3;
+inline constexpr int BLOB_SHADOWS = 1;
+inline constexpr float PROJ_SHADOW_DISTANCE = 50.0F;
+inline constexpr int BLOB_SHADOWS_USED = 1;
+inline constexpr int BLSS_ADAPTIVE = 0;
+#define BLSS_SCENE_ON 0
+#define BLSS_SCENE_NET 0
+inline constexpr int PROJ_SHADOWS_USED = 1;
+inline constexpr bool SPOT_SHADOW_VOLUMES_USED = false;
+inline constexpr int POSTFX_DOFS[SCENE_COUNT] = {0, 0, 0, 0, 0};
+inline constexpr float POSTFX_DOF_FOCUSES[SCENE_COUNT] = {20.0F, 20.0F, 20.0F, 20.0F, 20.0F};
+inline constexpr float POSTFX_DOF_RANGES[SCENE_COUNT] = {15.0F, 15.0F, 15.0F, 15.0F, 15.0F};
+inline constexpr bool FOG_ENABLEDS[SCENE_COUNT] = {true, true, true, true, true};
+inline constexpr float FOG_RS[SCENE_COUNT] = {169.8F, 132.6F, 183.136F, 9.69F, 132.6F};
+inline constexpr float FOG_GS[SCENE_COUNT] = {135.6F, 132.6F, 116.605F, 12.24F, 132.6F};
+inline constexpr float FOG_BS[SCENE_COUNT] = {123.6F, 142.8F, 93.4228F, 27.03F, 142.8F};
+inline constexpr float FOG_STARTS[SCENE_COUNT] = {34.0F, 34.0F, 34.0F, 34.0F, 34.0F};
+inline constexpr float FOG_ENDS[SCENE_COUNT] = {150.0F, 150.0F, 150.0F, 150.0F, 150.0F};
+inline constexpr bool FLASHLIGHT_ENABLEDS[SCENE_COUNT] = {false, false, false, false, false};
+inline constexpr float FLASHLIGHT_RS[SCENE_COUNT] = {96.0F, 96.0F, 96.0F, 96.0F, 96.0F};
+inline constexpr float FLASHLIGHT_GS[SCENE_COUNT] = {96.0F, 96.0F, 96.0F, 96.0F, 96.0F};
+inline constexpr float FLASHLIGHT_BS[SCENE_COUNT] = {79.36F, 79.36F, 79.36F, 79.36F, 79.36F};
+inline constexpr float FLASHLIGHT_RANGES[SCENE_COUNT] = {30.0F, 30.0F, 30.0F, 30.0F, 30.0F};
+inline constexpr float FLASHLIGHT_ANGLES[SCENE_COUNT] = {20.0F, 20.0F, 20.0F, 20.0F, 20.0F};
+inline constexpr float FLASHLIGHT_OFF_RIGHTS[SCENE_COUNT] = {0.0F, 0.0F, 0.0F, 0.0F, 0.0F};
+inline constexpr float FLASHLIGHT_OFF_DOWNS[SCENE_COUNT] = {0.0F, 0.0F, 0.0F, 0.0F, 0.0F};
+inline constexpr const char* FLASHLIGHT_TEXS[SCENE_COUNT] = {"", "", "", "", ""};
+inline constexpr bool HIGHLIGHT_USABLES[SCENE_COUNT] = {false, false, false, false, false};
+inline constexpr float HIGHLIGHT_DISTANCES[SCENE_COUNT] = {6.0F, 6.0F, 6.0F, 6.0F, 6.0F};
+inline constexpr float HIGHLIGHT_RS[SCENE_COUNT] = {255.0F, 255.0F, 255.0F, 255.0F, 255.0F};
+inline constexpr float HIGHLIGHT_GS[SCENE_COUNT] = {216.75F, 216.75F, 216.75F, 216.75F, 216.75F};
+inline constexpr float HIGHLIGHT_BS[SCENE_COUNT] = {38.25F, 38.25F, 38.25F, 38.25F, 38.25F};
+inline constexpr float HIGHLIGHT_WIDTHS[SCENE_COUNT] = {0.35F, 0.35F, 0.35F, 0.35F, 0.35F};
+inline constexpr int HIGHLIGHT_STEPS_S[SCENE_COUNT] = {4, 4, 4, 4, 4};
+inline constexpr float HIGHLIGHT_OPACITIES[SCENE_COUNT] = {0.56F, 0.56F, 0.56F, 0.56F, 0.56F};
+inline constexpr bool HIGHLIGHT_OVERLAYS[SCENE_COUNT] = {false, false, false, false, false};
 
-constexpr int GRADING_COUNT = 0;
+inline constexpr int GRADING_COUNT = 0;
 inline const char* GRADING_NAMES[GRADING_COUNT > 0 ? GRADING_COUNT : 1] = {""};
-constexpr unsigned char GRADING_GAINS[GRADING_COUNT > 0 ? GRADING_COUNT : 1][3] = {{0, 0, 0}};
-constexpr short GRADING_LIFTS[GRADING_COUNT > 0 ? GRADING_COUNT : 1][3] = {{0, 0, 0}};
-constexpr unsigned char GRADING_MIX_COLORS[GRADING_COUNT > 0 ? GRADING_COUNT : 1][3] = {{0, 0, 0}};
-constexpr unsigned char GRADING_MIX_AMTS[GRADING_COUNT > 0 ? GRADING_COUNT : 1] = {0};
-constexpr int GRADING_DEFAULT = -1;
+inline constexpr unsigned char GRADING_GAINS[GRADING_COUNT > 0 ? GRADING_COUNT : 1][3] = {{0, 0, 0}};
+inline constexpr short GRADING_LIFTS[GRADING_COUNT > 0 ? GRADING_COUNT : 1][3] = {{0, 0, 0}};
+inline constexpr unsigned char GRADING_MIX_COLORS[GRADING_COUNT > 0 ? GRADING_COUNT : 1][3] = {{0, 0, 0}};
+inline constexpr unsigned char GRADING_MIX_AMTS[GRADING_COUNT > 0 ? GRADING_COUNT : 1] = {0};
+inline constexpr int GRADING_DEFAULT = -1;
 
 // Template so this header stays engine-include-free; instantiated
 // where Tyra::Engine is complete. index -1 (or any out of range)
@@ -809,17 +781,17 @@ inline void applySceneGrading(TEngine* engine, int index) {
 }
 
 // Commit Checkpoint slot modes decided at runtime (-1 = no request)
-constexpr int SAVE_COMMIT_AUTOSAVE = -2;
-constexpr int SAVE_COMMIT_NEXT = -3;
+inline constexpr int SAVE_COMMIT_AUTOSAVE = -2;
+inline constexpr int SAVE_COMMIT_NEXT = -3;
 
-constexpr int SAVE_VALUE_COUNT = 0;
+inline constexpr int SAVE_VALUE_COUNT = 0;
 inline const char* SAVE_VALUE_NAMES[SAVE_VALUE_COUNT > 0 ? SAVE_VALUE_COUNT : 1] = {""};
-constexpr float SAVE_VALUE_DEFAULTS[SAVE_VALUE_COUNT > 0 ? SAVE_VALUE_COUNT : 1] = {0.0F};
-constexpr int SAVE_TEXT_COUNT = 0;
-constexpr int SAVE_TEXT_LEN = 32;  // incl. the terminating NUL
+inline constexpr float SAVE_VALUE_DEFAULTS[SAVE_VALUE_COUNT > 0 ? SAVE_VALUE_COUNT : 1] = {0.0F};
+inline constexpr int SAVE_TEXT_COUNT = 0;
+inline constexpr int SAVE_TEXT_LEN = 32;  // incl. the terminating NUL
 inline const char* SAVE_TEXT_NAMES[SAVE_TEXT_COUNT > 0 ? SAVE_TEXT_COUNT : 1] = {""};
 inline const char* SAVE_TEXT_DEFAULTS[SAVE_TEXT_COUNT > 0 ? SAVE_TEXT_COUNT : 1] = {""};
-constexpr int SAVE_OBJECT_MAX = 1;
+inline constexpr int SAVE_OBJECT_MAX = 1;
 
 }  // namespace Day_night
 
@@ -992,6 +964,7 @@ inline int everyFrames(float seconds) {
 #define POSTFX_BLOOM_CUT POSTFX_BLOOM_CUTS[g_activeScene]
 #define POSTFX_BLOOM_SPREAD POSTFX_BLOOM_SPREADS[g_activeScene]
 #define POSTFX_GRAIN POSTFX_GRAINS[g_activeScene]
+#define POSTFX_MOTIONBLUR POSTFX_MOTIONBLURS[g_activeScene]
 #define POSTFX_DOF POSTFX_DOFS[g_activeScene]
 #define POSTFX_DOF_FOCUS POSTFX_DOF_FOCUSES[g_activeScene]
 #define POSTFX_DOF_RANGE POSTFX_DOF_RANGES[g_activeScene]
@@ -1007,6 +980,8 @@ inline int everyFrames(float seconds) {
 #define FLASHLIGHT_B FLASHLIGHT_BS[g_activeScene]
 #define FLASHLIGHT_RANGE FLASHLIGHT_RANGES[g_activeScene]
 #define FLASHLIGHT_ANGLE FLASHLIGHT_ANGLES[g_activeScene]
+#define FLASHLIGHT_OFF_RIGHT FLASHLIGHT_OFF_RIGHTS[g_activeScene]
+#define FLASHLIGHT_OFF_DOWN FLASHLIGHT_OFF_DOWNS[g_activeScene]
 #define FLASHLIGHT_TEX FLASHLIGHT_TEXS[g_activeScene]
 #define HIGHLIGHT_USABLE HIGHLIGHT_USABLES[g_activeScene]
 #define HIGHLIGHT_DISTANCE HIGHLIGHT_DISTANCES[g_activeScene]

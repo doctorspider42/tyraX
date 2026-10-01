@@ -20,7 +20,7 @@ it down one of three paths:
 |---|---|---|---|
 | `OUTSIDE_FRUSTUM` | dropped on the EE | — | nothing |
 | `IN_FRUSTUM` | **cull** | `stapip_cull_*` | DMA by reference, one kick |
-| `PARTIALLY_IN_FRUSTUM` | **clip** | `stapip_clip_*` | split into thirds, memcpy per stream, one kick each |
+| `PARTIALLY_IN_FRUSTUM` | **clip** | `stapip_clip_*` | split into sixths, memcpy per stream, one kick each |
 
 The cull programs transform, light and project, and mark a triangle that fails
 their `clipw` judgement as **not drawn** by setting its ADC bit. They never cut
@@ -29,11 +29,54 @@ planes on VU1, then fan-triangulate whatever polygon comes out and patch the
 prim giftag's NLOOP with the vertex count they actually produced.
 
 The clip route is the expensive one, and not mainly because of the cut. A
-crossing package is split into **thirds** so the scratch polygon fits, which
-triples the number of DMA chains and VU1 kicks; each third is filled with
+crossing package is split into **sixths** (`StaPipCore::clipDivisor`; the EE
+clipper uses thirds) so the whole worst-case fan-out fits, which multiplies the
+number of DMA chains and VU1 kicks; each subpackage is filled with
 `StaPipQBuffer::fillByCopy1By3`, a `memcpy` of the positions, STs, colours and
 normals, where the cull route hands VU1 a **pointer** and lets the DMA
 controller read the vertex array in place.
+
+## Why the split is a sixth: the clip buffer budget
+
+`clipDivisor` is not a taste. A clip package and everything it fans out into
+have to fit in **one VU1 double-buffer half**, 460 quadwords, and nothing in
+the microprogram clamps the fan-out at runtime — an overrun is silent
+corruption, and it is the one thing PCSX2 cannot show you, so the bound is
+arithmetic or it is nothing.
+
+For a package of `N` input vertices the half holds, in this order (read off
+`stapip_clip_tc_vu1.vclpp`; the other four clip images are the same shape):
+
+| | quadwords |
+| --- | --- |
+| buffer tags (scale + prim giftag) | 2 |
+| the uploaded streams | `uploaded * N` |
+| the GIF tag block at `destAddress` | 7 untextured, 9 textured |
+| the emitted vertices | `7 * N * outQw` |
+
+**The 7 is exact, not a safety factor.** Sutherland–Hodgman on a convex polygon
+gains at most one vertex per plane; the plane loop runs exactly six times
+(`planePtr` stops at `VU1_CLIP_PLANES_ADDR + 12`), so a triangle reaches at
+most 9 vertices and fan-triangulates to at most **7 output triangles**, 21
+output vertices. The scratch polygons hold ten vertices, which is headroom over
+that bound rather than a reachable state.
+
+`uploaded` and `outQw` are **not** the constructor's `elementsPerVertex` and
+`reglistCount`. Those two are `getMaxVertCount`'s sizing budget, and the
+`d`/`td` classes spend part of it on an uploaded normal stream rather than on
+output registers — `clip_d` is budgeted at `2 + 3` but really uploads two
+streams and stores two quadwords per emitted vertex. Using the constructor pair
+here over-states those classes by enough to report a false overrun.
+
+At the shipping configuration the tightest reachable class keeps **91
+quadwords**. The margins per class, and the arithmetic above as runnable code,
+are in `examples/vehicle-playground/authoring/package-ceiling-75-2026-09-16` —
+**re-run it after any change to `getMaxVertCount`, `clipPackageSize`,
+`clipDivisor` or a clip image's buffer layout.** That harness is why the
+divisor is 6: raising the package ceiling from 72 to 75 also raises
+`clipPackageSize`, and at a divisor of 5 the untextured single-colour class
+landed on 459 of 460 quadwords — provably fitting, with one quadword to spare,
+which is not a margin anybody should ship on a path they cannot test.
 
 ## The guard band
 
@@ -106,6 +149,36 @@ B below submits about **7 % more triangles in 54 % fewer packages** — the cost
 this pipeline is per package (a DMA chain, a kick, a copy), not per triangle, and
 the extra triangles land off-screen where the scissor discards them during
 rasterisation.
+
+### Whole bags inside the guard band (1.124.2)
+
+The same question asked one level up. A bag whose whole box is
+`PARTIALLY_IN_FRUSTUM` used to take the per-package route even when every
+package of it was going to come out "inside the view" or "guard-band only" -
+i.e. cull whole, by pointer - or "off-screen, drop". `StaPipCore::render` now
+tests the bag's MAIN box against the same eight planes first; an all-clear
+promotes the bag to `IN_FRUSTUM` and it takes the direct route (whole-bag baked
+replay included) instead of the packager, per-package classification and
+qbuffer fills. `TYRA_STAPIP_GUARD_BAND_BAGS` (top of stapip_core.cpp, default 1)
+switches it; telemetry counts the promoted bags as `bagsGuardBandDirect`, and
+their packages as `cull`, not `guard`.
+
+The trade is the package-level one again, one level up: packages wholly off
+screen but inside the band are no longer dropped on the EE - VU1 transforms
+them and the scissor discards them. Physical PS2, Motor District, the car
+parked at the 25 FPS spot (0, -74), same view in both arms:
+
+| | per-package route | whole bag direct |
+|---|---:|---:|
+| bags promoted | 0 | 36 (5 objects, the rest road/terrain chunks) |
+| packages | 429 | 479 |
+| capture: dispatch / packet build | 8.144 / 0.701 | 7.496 / 0.408 |
+| capture: VU1 wait | 2.202 | 3.144 |
+| **FRAMETIME `work`, ordinary frame** | **20.02** | **19.19** |
+
+The serialized capture shows the VU1 wait eating most of the EE saving; the
+ordinary frame does not, because there VU1 works while the EE builds the next
+bag. Quote the FRAMETIME row. The two frames differ only in the HUD digits.
 
 ## What it measured
 
@@ -182,8 +255,9 @@ arms are not looking at the same scene.
 From the same GDC talk, evaluated against this pipeline and **not** adopted:
 
 - **Rejecting degenerate triangles before the cut.** Real meshes produce few of
-  them and micro memory is the scarce resource here — the clip program set sits
-  at 1676 of 2042 slots.
+  them and micro memory is the scarce resource here — the VU1-clipping set sits
+  at 1698 of 2042 words (plus the 206-word billboard pair) since the 2026-09-26
+  audit, see below.
 - **Per-triangle plane masks.** The talk reuses each vertex's clip codes to pick
   the planes to cut against. Here the mask is already per *package*, and the
   `clipw` flags cannot be reused for it: they describe `±w`, while the planes
@@ -314,6 +388,155 @@ production set pixel-identically to Sony's for 24 of 24 frames - so that
 distance is not a hardware hazard and the patch was not kept. The lesson for
 the next hardware-only bug: measure a **rate**, on a **parked
 pose**, and bisect with **barriers** before reading microcode.
+
+## The resident set after the VU1 audit (2026-09-26)
+
+A read-through of the microcode found three things worth taking, all measured
+with `nm` on the built objects (`C:\tyra-vq\vu_budget.sh <engine cache>`,
+words = `(CodeEnd - CodeStart) / 8`, rounded to even the way the uploader does):
+
+| program | before | after | why |
+|---|---:|---:|---|
+| `clip_c` (C/D image) | 346 | 346 | fog one-multiply + one ceiling fewer; VCL packed it into the same words |
+| `clip_tc` (TC/TCE/**TD** image) | 324 | 372 | carries TD's lighting path now |
+| `clip_td` | 230 | **not linked** | an alias of the TC image |
+| `cull_c` | 246 | 226 | no single-colour branch in the two loops, fog one-multiply |
+| `cull_tc` | 328 | 306 | the same, three loops |
+| `cull_tce` | 154 | 150 | the same, one loop |
+| `cull_d` | 152 | 142 | FixColor reduced to `ftoi0` (the light macro clamps), fog |
+| `cull_td` | 164 | 156 | the same |
+| **VU1-clipping set** | **1944** | **1698** | |
+| `as_is` five (EE-clipper set) | 558 | 528 | fog, and the lit pair's double clamp |
+| **EE-clipper set** | **1602** | **1508** | |
+| billboards (`billboard_c` + `_t`) | 206, swapped in | 206, **resident** | 1698 + 206 = 1904 of 2042 |
+
+On the physical PS2 (1.146.0) the four district benchmark poses got faster by
+0.38-0.50 ms of `work` each. Of that, 0.13-0.22 is VU1 time the EE no longer
+waits for (`vif_wait`) and 0.18-0.25 is `dispatch`. See docs/backlog.md, "VU1
+audit: what is left".
+
+**Clip TD rides the TC image.** Its three streams are vertices, ST and normals,
+and the normals sit exactly where TC keeps colours; the scratch polygon is TC's
+`[pos, stq, colour]` at stride 3, and the plane, edge, fan and emit code were
+the same instructions. So TC's image grew a third per-corner path, entered from
+the env branch (a TD bag also sets `VU1_OPTIONS_ADDR.y > 0`, it is a lighting
+bag) when `.x < 0` - the single-colour lane, which the EE sets to -1 for a
+resident TD bag and which every other reader only ever tests `> 0`. The light
+matrix and directions are the env-basis and spot registers the preamble already
+holds (same addresses); only the colours and ambient load per triangle. (The
+"VF peak stayed at 30 of 31" this paragraph used to claim was `--vu-check`'s
+estimate, and the estimate was wrong - see below.) The TC colour path pays nothing; TCE and TD
+pay two instructions. `--vu-check` runs the TC image's TD path against the
+unlinked `stapip_clip_td_vu1.vclpp` (`Clip TC/TD`), and was falsified before
+being trusted: flipping the selector branch, or feeding one corner's normal to
+the next, fails it on the first trial.
+
+**What that estimate missed: Sony's `vcl` could not allocate it.** By hand count the
+TD path had 33 VF registers live in `sharedDirMode`, and the Docker fallback (Sony's
+`vcl`) died there with `no opt table` on every project, while openvcl - the default
+build - quietly sank five preamble loads and fitted. The TC image now loads its GIF
+tag block's five constants once per buffer, where the block is stored, instead of
+pinning them for the whole program (`tagsPerBuffer` in `src/vugen.cpp`). Output is
+bit-identical (`--vu-check`) and the size is unchanged - 372 words under either
+assembler. The full story and the both-assemblers check:
+docs/toolchain-image.md, "Sony's vcl is a build target too".
+
+**The billboards are resident.** `setProgramsCache` sizes the class set the way
+`Path1::createProgramsCache` will pack it and appends the billboard pair when
+the total stays under the draw-finish helper - every built-in configuration
+now. Before, the district swapped the whole set per billboard/non-billboard
+transition: two VIF1 drains and a ~15.5 KB MPG upload each time. The swap
+remains, as the fallback for a set a project's own looks have grown past the
+ceiling; the boot log names the case and `--profile-frame`'s
+`Program_swaps_count` counts swaps.
+
+**Every microcode change here is output-preserving, and proven so the hard way**:
+the descriptions were changed first and `--vu-check` run against the OLD
+handwritten files (IDENTICAL), then the handwritten files were edited and it was
+run again (IDENTICAL). That order caught the one trap: the cull loops built a
+single-colour corner as `vf00 + singleColor`, which adds 1.0 to the alpha, so
+the replicated copies at `VU1_SINGLE_COLOR_COPIES_ADDR` keep the `+ vf00`.
+What these do to CYCLES is unmeasured: removing a loop-head branch and a copy
+per vertex should only help, but the only arbiter is a console run
+(the measured follow-ups below).
+
+## Measured VU1 follow-ups (2026-09-27, 1.149.0)
+
+Three follow-ups of the audit that a simulator cannot judge, because what they
+trade is cycles and none of them removes enough words to matter. Each surviving
+winner is a
+compile-time toggle in `inc/renderer/3d/pipeline/static/core/stapip_vu1_experiments.hpp`.
+The winning (b) and (c) paths now default to 1. The slower (a) path was removed.
+`vclpp` has no `#if`, so a toggle
+selects a whole alternative program IMAGE: the experiment's `.vclpp` is
+assembled with everything else (`*_fold_vu1`, `*_envn_vu1`) and
+the wrapper picks its symbols under `#if TYRA_VU1_EXP_...`; with a toggle off
+the unused image stays out of the ELF, like the unlinked clip references.
+The image files are DERIVED from the original ones by a fixed
+rewrite (they say so in their header) - re-derive after editing the original.
+
+| toggle | what changes | VU1 cost | output |
+|---|---|---|---|
+| (b) `TYRA_VU1_EXP_EE_LIGHT_FOLD` | every static lit program (`cull_d/td`, `as_is_d/td`, the D path of clip C and the TD path of clip TC): the EE uploads the light directions already multiplied by the light matrix (`F_i = D0*M_i.x + D1*M_i.y + D2*M_i.z`, nine multiplies a bag) and skips the matrix upload; `CalculateTyraDirectionalLightsFolded` loses three instructions a vertex | nm words `cull_d` 142 -> 130, `cull_td` 156 -> 144, `as_is_d` 116 -> 104, `as_is_td` 128 -> 114, clip C 346 -> 338, clip TC 372 -> 364 | colour within 1 LSB |
+| (c) `TYRA_VU1_EXP_ENV_NORMALIZED` | `cull_tce`: `StaPipCore::render` normalizes an env bag's normal array in place once (pointer + count + bboxVersion + contentVersion, 32-entry table) and the program drops the rsqrt normalize (`CalculateTyraEnvStqUnit`) | nm words 150 -> 126 | ST within 2e-9 absolute |
+
+`as_is_tce` keeps its normalize under (c) - the EE clipper lerps normals, which
+shortens them - and so does the TC clip image's env path (same unit array; one
+toggle, one image). A project override of a lit program keeps the unfolded
+upload under (b): `litProgramOverridden()`.
+
+**The tolerance is measured, not promised.** `--vu-check` prints a
+"measured-only experiments" section that runs each experiment image against the
+shipping image it replaces, over 400 randomized trials, on the input the EE
+would hand EACH of them (for (b) the host folds with round-to-nearest, as the EE
+does, and poisons the matrix slots with FLT_MAX so an image that still read them
+would fail; for (c) the host normalizes the normal stream). Every GS word must
+match exactly except colour words (both <= 255, tolerated 2 LSB) and float words
+(ST, tolerated 1e-4 relative or 1e-6 absolute). Measured on the first run: (a)
+IDENTICAL everywhere; (b) ONE colour word off by 1 in 400 `cull_d` trials,
+everything else identical, the unlit paths of both clip images identical;
+(c) ST max absolute 2.1e-9 (relative 1.2e-3, but only on an ST near zero where
+the dot products cancel). Before (a)'s identity could mean anything the harness
+had to grow: every cull trial kept all corners inside the clip volume, so the ADC
+bit was 0 in every trial and a corrupted ADC table passed. Every fourth cull
+corner now spreads to +-80, past w = 60 - z; the same corruption fails at trial 0.
+
+**PCSX2 pixel A/B, all four arms** (debug builds of the augmented fixture,
+two or more captures per pose, HUD text excluded): garage day and outer road
+day are pixel-IDENTICAL to base for (a), (b) and (c) - the lit wobblers and
+the chrome boxes included - and the two night poses differ only within the
+base arm's own capture-to-capture noise. The pixel check earned its keep: the
+first cut of (b) skipped the light-COLOUR upload together with the matrix, and
+every lit mesh drew black. `--vu-check` could not see it - it stages VU1 memory
+itself - which is why an EE-side change needs a frame, not only a simulator.
+
+Each image also logs once when it runs - `VU1 experiment (b): first folded light
+upload`, `VU1 experiment (c): normalized N env normals` - because a scene that
+draws no lit mesh never takes (b)'s path and an arm that measures zero must be
+told apart from one that measured nothing. **The Motor District is such a
+scene**: it has no dynamically lit and no reflective mesh, and a plain-district
+boot of arms b and c printed neither line. The console fixture is therefore the
+district AUGMENTED for every arm, base included (`C:\tyra-vq\vux-augment.py`:
+sixteen paused animated wobblers in front of the benchmark cameras - an animated
+model always renders with a lighting bag, while a static `model` marked
+dynamicLighting is lit only when the scene has GI probes, which the district has
+not - and every 2nd box chrome with a static sphere map),
+so its numbers are not comparable with earlier district series. The arms and the one-command console
+series are in `C:\tyra-vq\vux-build.sh` / `vux-ab.sh` (local test artifacts).
+
+**Physical PS2 verdict, two boots per arm (augmented Motor District):**
+
+| change | garage day | garage night | outer day | outer night |
+|---|---:|---:|---:|---:|
+| (a) 255 register + ADC table, rejected | +0.19..+0.20 ms | +0.12..+0.14 ms | +0.12..+0.14 ms | +0.11..+0.12 ms |
+| (b) folded light directions, shipped | -0.24..-0.25 ms | -0.23..-0.24 ms | ~0 ms | +0.01..+0.04 ms |
+| (c) normalized env normals, shipped | -0.14 ms | -0.14..-0.16 ms | -0.02 ms | -0.04..-0.06 ms |
+
+The table compares median `work` with both base boots. The original and
+candidate ELFs had different hashes, and (b)/(c) logged that their modified
+paths ran. The (a) images, macros and wrapper switches were removed. The
+(b)/(c) switches remain for regression A/B builds; their defaults are enabled.
+The project format remains 80.
 
 ## See also
 

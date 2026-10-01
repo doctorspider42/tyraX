@@ -110,7 +110,13 @@ that could change what it produces:
 
 A row reads **pre-lit** (green) while the stored signature still matches, and
 **stale** (amber) the moment it does not. Content hashes, never modification
-times: a `git clone` or a file copy is not an edit.
+times: a `git clone` or a file copy is not an edit. Nor line endings
+(1.164.2): text files are hashed with every CRLF counted as LF, so a checkout
+whose `.obj`/`.mtl` still have CRLF does not stale an object baked on an LF
+one. That change moved the signature version to 2, so an object stamped by an
+earlier editor reads stale once; `--bake-prelit` re-bakes it.
+`--bake-status <projectDir>` lists every stamped object as `fresh` or `STALE`
+without baking anything.
 
 Two deliberate holes, both to stop a re-bake storm. The signature is computed
 over the scene **as authored** — every pre-lit override normalized back to its

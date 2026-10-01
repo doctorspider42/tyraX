@@ -87,6 +87,11 @@
 // Cull/as_is/billboard buffers keep the original raw count ABI.
 #define VU1_STAPIP_COUNT_MASK 0x03FF
 #define VU1_STAPIP_CLIP_MASK_SHIFT 10
+// TyraX: supported non-clip textured programs use the otherwise-unused sign
+// bit to tell VU1 whether this package must emit the per-material GS state.
+// The count itself remains in bits 0-9; clip programs keep all six high bits
+// for their plane mask.
+#define VU1_STAPIP_EMIT_STATE_FLAG 0x8000
 
 // Modified by TyraX: VU1 clipping scratch at the top of VU1 data memory
 // (1024 qwords total). The double buffer is capped at VU1_STAPIP_DBUFFER_END
@@ -100,3 +105,9 @@
 #define VU1_CLIP_PLANES_ADDR 944
 #define VU1_CLIP_POLY_A_ADDR 956
 #define VU1_CLIP_POLY_B_ADDR 986
+// Modified by TyraX: 1016..1018 hold three copies of the single colour,
+// written by the cull programs once per batch so their vertex loops read
+// colours through one pointer in both modes (stride 0 here, 3 over the
+// colour array). Like the clip scratch it is transient per program run.
+// 1019..1023 are still free. A literal, like the rest (see above).
+#define VU1_SINGLE_COLOR_COPIES_ADDR 1016

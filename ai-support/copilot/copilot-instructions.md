@@ -77,6 +77,7 @@ The editor executable on this machine: `{TYRAX_EXE}`
   `flow_graph.gen.cpp`)
 - `--build <projectDir> [--run] [--docker]` - full native build (+ PCSX2 launch); `--docker` selects fallback
 - `--bake-gi <projectDir>` - bake global illumination + light probes
+- `--bake-particles <projectDir>` - re-bake the particle library's generated textures (docs/particles.md)
 - `--bake-shadows <projectDir>` - bake the static shadow decals (docs/shadows.md)
   (explicit; a build only reads the cache in `.res-baked/gi/`, so editing
   a scene falls its lighting back to classic shading until you re-bake)

@@ -46,6 +46,12 @@ The **role** ties an action to built-in engine behavior. The generated
 | Menu confirm / back / Pause menu / Alternate | the menus and the 3-slot save menu (were Cross / Triangle / Start / Circle) |
 | Menu up / down / left / right | menu navigation (was the d-pad) |
 | Move forward / back / left / right | the left-stick deflection a keyboard asks for (was hardcoded WASD) |
+| `veh-throttle` | vehicles: accelerate while held (the analog stick still drives too — an axis is not an action) |
+| `veh-brake` | vehicles: brake while held |
+| `veh-handbrake` | vehicles: the drift button |
+| `veh-nitrous` | vehicles: nitrous while held, while the tank lasts |
+| `veh-camera` | vehicles: cycle chase → bumper → far |
+| `veh-rearview` | vehicles: hold for the look-back mirror |
 
 An action with **no** role is a *custom* action: nothing built-in reads it, but
 the *On Action* flow trigger does. That is how you add "crouch" or "horn"

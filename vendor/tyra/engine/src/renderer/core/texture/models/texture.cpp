@@ -6,6 +6,7 @@
 # Copyright 2022, tyra - https://github.com/h4570/tyra
 # Licensed under Apache License 2.0
 # Sandro Sobczyński <sandro.sobczynski@gmail.com>
+# Modified by TyraX: link changes bump Texture::linkGeneration.
 */
 
 #include <iomanip>
@@ -18,6 +19,8 @@
 #include "renderer/core/texture/models/texture.hpp"
 
 namespace Tyra {
+
+u32 Texture::linkGeneration = 1;
 
 namespace TyraTexture {
 u32 textureCounter = 1;
@@ -62,6 +65,7 @@ Texture::Texture(TextureBuilderData* t_data) {
 Texture::~Texture() {
   TyraTexture::deletedIDs.push_back(id);
   if (links.size() > 0) links.clear();
+  ++linkGeneration;  // a cached pointer to this texture must not survive it
   if (core) delete core;
   if (clut) delete clut;
 }
@@ -82,6 +86,7 @@ const u8 Texture::isLinkedWith(const u32& t_id) const {
 
 void Texture::removeLinkByIndex(const u32& t_index) {
   links.erase(links.begin() + t_index);
+  ++linkGeneration;
 }
 
 void Texture::removeLinkById(const u32& t_id) {
@@ -192,6 +197,7 @@ void Texture::addLink(const u32& t_id) {
   TextureLink link;
   link.id = t_id;
   links.push_back(link);
+  ++linkGeneration;
 }
 
 void Texture::print() const {

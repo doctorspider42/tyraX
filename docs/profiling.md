@@ -8,6 +8,44 @@ next divisor (50 → 25 FPS), and it is nearly always the EE, not the GS, that
 ran out of time. Finding *which* EE phase overran is the whole game. This doc
 describes the built-in profiler and the deeper manual technique behind it.
 
+## Static packet structure profile
+
+`TYRA_FRAME_PROFILE=1` also enables an exact structural walk of every completed
+static-pipeline DMA/VIF chain. The generated game attributes the stream to sky,
+terrain, static batches, roads, procedural geometry, objects or effects and
+prints one `FTPKT` row per active producer every 50 frames. The row contains
+DMA tags and payload QW, 128-byte REF alignment, VIF command counts, derived
+GIFtags, A+D state writes, GS payload QW and XGKICKs. `bad=0` is the validity
+gate: a non-zero value means the closed decoder met an unknown or truncated
+command and the structural totals for that row must not be trusted.
+`reuse` counts packages that inherited TEST/TEX1/TEX0/ALPHA from package zero
+of the same material bag. It is a 50-frame total like the other fields. The
+derived `gif`, `ad` and `gqw` values already include that saving; do not subtract
+`reuse` from them a second time.
+
+Capture a physical-console run without losing ps2link output, then summarize
+the four frozen benchmark poses:
+
+```powershell
+ps2client -h 192.168.100.150 execee host:bin/game.elf 2>&1 |
+  Tee-Object packet-console.log
+python examples/vehicle-playground/authoring/summarize-packet-profile.py `
+  packet-console.log -o packet-summary.csv
+```
+
+The logged values are totals over the 50-frame reporting window; the script
+converts them to per-frame medians and discards benchmark transition margins.
+The GIF/GS values are derived from the selected resident VU1 program and its
+package vertex count, while DMA and VIF values are read from the exact chain
+sent to VIF1. Whole-bag retained-stream replay is included. This is a structure
+instrument, not a timing optimization: it parses payload words on the EE, so
+compare timings only between equally instrumented builds. Both the parser and
+counters compile out when the profile is disabled.
+
+The 2026-09-22 physical-console capture and the rejected 128-byte allocator A/B
+are stored with the Motor District example under
+`authoring/packet-structure-2026-09-22/`.
+
 The worked example throughout is the usable-object highlight: it looked like a
 cheap effect but dropped the showcase to 25 FPS. The full write-up is in the
 retired `PROGRESS.md` (the usable-highlight rounds) — see [Backlog](backlog.md)
@@ -40,6 +78,19 @@ divide tick deltas by 294912 for milliseconds.
 
 This is enough to answer "is the highlight/particles/scene the problem?". For a
 finer breakdown you drop to the manual technique.
+
+### Shared reflection-probe attribution
+
+**Render cost** captures add `Reflections_shared_probe` when a classic shared
+`@sky` environment target is refreshed. It covers only the 128 x 128 target
+bracket (clear, sky, sky bodies, resident terrain, road chunks and objects
+marked **Show in reflections**), not the reflective material passes that remain
+nested in their ordinary
+`Object` rows. It appears only on the cadence frame that actually refreshes
+the target; compare repeated captures from the same frozen camera and report
+both the capture and non-capture frame. The serialized render-cost request
+drains the pipeline, so it is attribution evidence rather than an ordinary FPS
+sample.
 
 ### Cross-material transform reuse (1.86.2)
 
@@ -143,6 +194,105 @@ ambiguous: median `Total` 6.468 -> 3.281 ms (-49.3%) and object work
 VU1 wait stayed effectively flat at 0.567 -> 0.542 ms. A 512x512 GS capture
 showed all 30 numbered boxes with their correct atlas regions. Both arms were
 below the PAL frame budget, so ordinary gameplay remained refresh-capped.
+
+### Draw distance stopped disqualifying a batch (1.98.0)
+
+Before changing anything, the Motor District's own population was counted, and
+it did not say what it was expected to say. Of 142 authored objects, 111 are
+batchable shapes and exactly **27 carried `batchStatic = 1`** - every one a
+primitive box (walls, asphalt aprons, pavements, one sign). **Not one of the
+70 imported models was eligible.** The census, read off the committed
+`inc/scene_data.hpp` rather than inferred:
+
+| rejected by | objects |
+| --- | ---: |
+| not a batchable shape (road, area, light, vehicle, player) | 31 |
+| `reflected` (env-map re-submit) | 18 |
+| **`drawDistance != 0`** | **60** |
+| `physics` | 6 |
+| eligible (`batchStatic = 1`) | 27 |
+
+All 70 models carry `drawDistance = 145`; 60 of them reach that row, the other
+10 having already been taken by `reflected` or `physics`. **`dynamicLighting`
+rejected nothing at all** - no object in the scene sets it, which is the same
+fact the `cull_td` probe in
+[vu1-and-dma-cache-cost.md](vu1-and-dma-cache-cost.md) reported as a +0.000 ms
+null result. The ~61% of colour-program triangles that pick a dynamic light do
+so through `StaPipCore::render`'s **runtime** per-bag pick
+(`wantsLightPick = !bag->lighting && info->dynLightPick`), which is a different
+mechanism from the authored `dynamicLighting` flag and never touches batching
+eligibility.
+
+With the cut-off moved onto the batch
+([model-pipeline.md](model-pipeline.md), "Draw distance on a batch"),
+`batchStatic = 1` goes from **27 objects to 87** - the 60 the `drawDistance`
+row had been taking, read back out of a regenerated `scene_data.hpp`. The
+game's own scene-load line, read from `bin/log.txt` with each arm running in
+PCSX2, says what survived singleton-dropping:
+
+| arm | `Static batching:` |
+| --- | --- |
+| before | **18 objects in 8 batches** |
+| after | **65 objects in 48 batches** |
+
+Keying on the reaching lamp as well (see "A batch gets ONE dynamic light" in
+[model-pipeline.md](model-pipeline.md)) costs a little of that: without it the
+same scene reads **71 objects in 49 batches**, because six objects that the
+lamp key separates then fall into singleton groups and are dropped back to the
+solo path. Six solo bags is the price of not shading a lit prop from its
+neighbour's lamp, and it is worth paying.
+
+### What it actually costs, measured
+
+Three arms, one fixture, one knob each, PCSX2 software renderer with the
+camera pinned by the district benchmark sampler; counters are the game's own
+`FTCLIP` line out of `bin/log.txt`, per 50-frame window (`verts` is per
+frame). Each arm's captures repeat **byte-identically** in the day pose, so
+these are not noise:
+
+| garage day | before | + batching | + strips kept |
+| --- | ---: | ---: | ---: |
+| cull packages | 41 175 | 41 825 | **40 925** (−0.6%) |
+| strip packages | 25 925 | 22 025 | **25 675** |
+| vertices/frame | 54 930 | 56 754 | **55 602** (+1.2%) |
+| packet flushes | 5 900 | 6 000 | 6 000 (+1.7%) |
+| VIF1 wait ms | 0.20 | 0.20 | 0.22 |
+
+| garage night | before | + batching | + strips kept |
+| --- | ---: | ---: | ---: |
+| cull packages | 43 600 | 44 250 | **43 350** (−0.6%) |
+| vertices/frame | 56 952 | 58 776 | **57 624** (+1.2%) |
+| packet flushes | 7 025 | 7 125 | 7 125 (+1.4%) |
+
+**The honest reading: this does not pay on these two poses.** Keeping the
+strips recovers nearly all of the naive version's loss and takes cull
+packages slightly below the baseline, but **packet flushes — bags — go UP by
+two per frame** (118 → 120 day, 140 → 142 night) and vertices by 1.2%. 65
+objects merged into 48 batches is fewer bags in total, and yet more bags are
+*submitted*: a batch's bounds are the union of its members, so it passes the
+frustum where its members individually would not. In a view down a street,
+where most props are off-screen, that trade is a loss.
+
+This is the widened-bounds effect the cross-district experiment found,
+arriving at a smaller scale inside the existing 80-unit cell. The cell was
+not changed here, and a finer one is the obvious next lever — but it has to
+be measured, not assumed, because it also makes more singleton groups.
+
+**And here is the projection that got it wrong, kept because the way it was
+wrong is the lesson.** Counting the authored scene statically — how many
+groups, how many parts in each — predicted this:
+
+| pose | bags before | bags after | triangles |
+| --- | ---: | ---: | ---: |
+| garage (eye 0,4,-32) | 202 | 147 (−27%) | +360 (+1.6%) |
+| outer road (eye 4,9,102) | 145 | 108 (−26%) | +1340 (+8.8%) |
+
+The measured answer for the garage pose is **+1.7% bags, not −27%**. The
+projection counted the batches that exist; the console pays for the bags it
+**submits**, and a merged bag with union bounds is submitted in frames where
+none of its members would have been. A static group count cannot see frustum
+culling, so it cannot predict this sign, let alone its size. Measure bags with
+`flush`, never by counting groups.
 
 ## The three frame rate counters, and which one to believe
 
@@ -255,7 +405,21 @@ const float swapWaitMs = sample.programSetWaitTicks / 294912.0F;
 `TYRA_FRAME_PROFILE` the generated game enables the counters at init, drains
 them **every frame** (`takeTelemetry` clears as it reads, so a skipped frame is
 a lost frame) and prints the `FTCLIP` line below beside `FRAMETIME`. Nothing
-outside that `#if` switches them on.
+outside that `#if` switches them on - except `--profile-frame`, whose cost CSV
+sums the same counters over the one frame it captures: `Program_swap_wait_included`
+(ms) and `Program_swaps_count`, the number of billboard/resident program-set
+swaps. Both read 0 whenever the billboard programs fit in the resident set,
+which is every built-in configuration since the clip TD merge
+([vu1-clipping.md](vu1-clipping.md), "The resident set after the VU1 audit").
+
+**The three timing brackets do not cover the whole of `StaPipCore::render`,** and
+that is worth knowing before any of them is compared with a frame-level number.
+The function's head — the fog decision, the frustum-culling read and thirteen
+`TYRA_ASSERT`s that a release game really does execute — and its tail sit
+outside all three. `TYRA_STAPIP_ATTRIB` (default **0**) brackets the whole
+function, splits `prepare` six ways and picks up the GIF wait that lived inside
+no bracket at all; see
+[render-submission-attribution.md](render-submission-attribution.md).
 
 `takeTelemetry()` returns the accumulated interval and clears every counter.
 `activePlanePopcount[0..6]` is a histogram for clip-routed packages. With VU1
@@ -347,8 +511,21 @@ that there is a second, finer instrument in the engine —
 
 ```c
 #define TYRA_FRAME_PROFILE 1        // the counters + the FRAMETIME line
+#define TYRA_FRAME_PROFILE 2        // ... or FRAMETIME ALONE (see below)
 #define TYRA_FRAME_PROFILE_CALIB 1  // ... and the destructive GS fill sweep
 ```
+
+**Level 2 is the one that times the frame a player gets.** Level 1 switches on
+the static pipeline's telemetry (`FTCLIP`) and the packet-structure walker
+(`FTPKT`), and the walker parses every DMA tag and VIF code of every packet
+sent, every frame. That is not transparent: on a physical PS2 at a parked Motor
+District vantage the HUD's SCENE row read **13.21 ms uninstrumented, 17.70 ms at
+level 1 and 13.04 ms at level 2**, and in PCSX2 `work` read 20.54 ms at level 1
+against 8.12 ms at level 2 - most of what level 1 "measured" was itself. So
+level 1 answers what a frame is MADE of and deltas between two level-1 arms stay
+valid; an absolute `work` must come off level 2. The check that a level-2 run
+really is transparent is free and belongs in every report: its HUD SCENE must
+match an uninstrumented boot of the same pose.
 
 Both default to **0**, and at 0 neither `libtyra.a` nor the generated game
 carries a single instruction of any of it — the whole file is inside the
@@ -485,16 +662,31 @@ FRAMETIME n=50 f=1200 work=17.42/16.98/21.30 submit=11.20 drain=2.11 blss=3.02/0
 - `work` — mean / median / p95 milliseconds. `submit` = `work − drain`.
 - `blss` — mean `begin` / `end` / `composite`; `comp` — the composite split into
   EE (inference + packet build) / GS (raster). All zero when BLSS is off.
-- `over20` — frames in the window past the 20 ms PAL budget.
+- `over20` — frames in the window whose WORK is past the 20 ms PAL budget.
 - `cam` — camera heading, the independent confirmation that frame `f` of run A
   really was looking where frame `f` of run B was.
+- `pre` / `stall` / `period` / `miss` (appended 2026-09-23, after `cam` so
+  every older prefix is unchanged) — the rest of the frame. `work` starts at
+  `beginFrame()`, and a game does a lot before it calls that: `pre` is the
+  previous present's end to `beginFrame()` (the engine's pad/info update and
+  every line of `loop()` ahead of the render), `stall` is the present itself
+  (vsync wait + flip), `period` is present-to-present, and `miss` counts frames
+  whose period took a second field. **`pre + work + stall` must come to
+  `period`** - on the console it closes to ~0.2 ms, which is the rig checking
+  itself. Not meaningful with frame extrapolation on.
+
+  Why they exist: with only `work`, a day frame read **17.4 ms with 0 of 50
+  frames over budget while the HUD said 38.5 FPS** - three frames in ten still
+  missing their field, in a term nothing timed. `miss` against `over20` is the
+  discriminator: `over20` high means the render is too slow, `miss` high with
+  `over20` low means something OUTSIDE the render is.
 
 A second line comes off the same window — the static pipeline's ROUTING, which
 is what usually explains a `work` figure that moved without any BLSS number
 moving (docs/vu1-clipping.md):
 
 ```
-FTCLIP f=1200 cull=3451/110733 clip=1501/9409 guard=2094/68672 out=10416 flush=519 vuwait=0.01
+FTCLIP f=1200 cull=3451/110733 clip=1501/9409 guard=2094/68672 out=10416 flush=519 strip=0 sexp=0 verts=8214 vuwait=0.01
 ```
 
 - `cull` / `clip` / `guard` — `packages/triangles` over the window. `guard` is
@@ -502,10 +694,22 @@ FTCLIP f=1200 cull=3451/110733 clip=1501/9409 guard=2094/68672 out=10416 flush=5
   inside the VU1 guard band, i.e. what the clipper no longer sees.
 - `out` — packages dropped on the EE; `flush` — qbuffer flushes; `vuwait` — ms
   the EE spent waiting on VIF1/VU1.
+- `strip` — packages submitted as a TRIANGLE STRIP rather than a list
+  (model-pipeline.md, "Triangle strips"), a subset of `cull`. `sexp` — stripped
+  packages the clipper forced back into a triangle list on the EE, which is the
+  cost side of that change.
+- **`verts` — vertices handed to a VU1 buffer per FRAME** (every other count on
+  this line is a window total). This is the number every EE term in the static
+  pipeline scales with, so it is the one to quote when two builds of one view
+  are compared; `flush` counts BAGS rather than packages, so it barely moves
+  when the vertex count does.
 
 Counts, never milliseconds: `work` above is the milliseconds and this line says
 why it moved. In an A/B the two arms' `cull + clip` totals must stay comparable,
-or the arms are not looking at the same scene.
+or the arms are not looking at the same scene — **except across a topology
+change**, where they cannot: a strip run of 75 vertices reports 73 triangles
+including the degenerate joins and padding, against a list package's 25 real
+ones. Compare `verts` there, not the triangle halves.
 
 Every 512 frames it also dumps the raw per-frame `work` ticks as `FTRAW <first>
 <64 hex values>` × 8 lines — same I/O cost, 512× the data, and the only way to
@@ -1760,6 +1964,12 @@ check the contact sheet against what your fixture is supposed to look like.
 - [VU1 clipping and the guard band](vu1-clipping.md) — the cull/clip routing,
   the guard band the GS scissor finishes, and the measured cost of clipping
   what did not need it.
+- [Attributing render submission](render-submission-attribution.md) — the
+  opt-in counters that close the gap between the static pipeline's three
+  telemetry brackets and the whole `beginFrame`..`endFrame` block. **Read it
+  before subtracting one from the other**: they are not the same quantity, and
+  the "unmeasured pipeline overhead" that difference was read as is mostly the
+  post-process passes, the HUD and the generated game's own renderScene.
 
 ## On-demand render cost (1.80)
 
@@ -1801,6 +2011,8 @@ It waits up to 45 seconds for `bin/rendercost.txt` with the matching request
 sequence. The command uses spare bit 7 of the existing debugger protocol;
 regular snapshots and the project format are unchanged. The result is a
 versioned `TXRP 1` header, bounded timing rows and an `END` sequence echo.
+Stage names are whitespace-free protocol tokens (for example `Shadow_decals`);
+a space in a generated stage name makes the reader reject the entire report.
 
 ![Render-cost capture with a retained baseline](img/debugger-render-cost.png)
 
@@ -1830,3 +2042,183 @@ inspection found no missing geometry. These are PCSX2 comparisons, not GS
 claims. A physical-console run was attempted, but that console remained in a
 `freepad: DMA Busy` shutdown state and its ps2link file channel did not recover
 after the remote reset, so no hardware number was accepted from that session.
+
+### What the whole frame looked like, 2026-09-23
+
+Motor District, parked street vantage, physical PS2, level 2, six windows per
+row. The devkit-off arm is the same ELF with Remote Pad and Live Debugger
+compiled out.
+
+| | `pre` | `work` | `stall` | `period` | `miss` |
+|---|---:|---:|---:|---:|---:|
+| day, debug profile | 1.6 | 17.8 | 6.8 | 26.3 | 15/50 |
+| day, devkit off | **0.9** | 17.0 | 2.6 | **20.4** | **0-1/50** |
+| night, debug profile | 3.4 | 21.2 | 15.7 | 40.4 | 50/50 |
+
+**The day frame of the shipped scene already holds 50 FPS here.** Every one of
+the debug build's day misses was the devkit's `host:` polling over ps2link:
+Remote Pad reads `livepad.bin` every 4th frame there (12.5 per 50) and Live
+Debugger polls every 25th (2-4 per 50), both inside `loop()` ahead of
+`beginFrame()` - 14.5 to 16.5 network round trips per 50 frames against 14-16
+measured misses. Take a frame-rate claim off a debug build over ps2link and it
+is a claim about the devkit.
+
+The night frame is not the devkit: its render alone is 21.2 ms, over the field
+before anything else runs, so every frame waits a second field. It needs about
+4.6 ms of `pre + work` to lock 50, and `pre` itself doubles at night (1.6 to
+3.4 ms) - a night-only term in the update, unexplored.
+
+**The same devkit polling is the prime suspect for the console wedging on a
+software reset.** From 2026-09-22 evening most `reset` + `execee` cycles of a
+debug build ended with `freepad: DMA Busy` on the next boot and needed a power
+cycle; the devkit-off build came back clean from two consecutive resets. The
+polling code itself is months old, so this is evidence about the mechanism,
+not an explanation of why it became frequent - see the session notes.
+
+### Where a solo object's time goes (2026-09-23)
+
+The capture also splits the pipeline telemetry at the Objects phase:
+`takeTelemetry()` clears as it reads, so one take before the object loop and
+one after it give an exclusive Objects-only bill, and the frame-wide
+`*_included` rows are the sum of all three takes, unchanged in meaning. The
+extra rows are `Objects_bounds/prepare/dispatch/DMA_submit/packet_build/
+VU1_wait_included`, and two counts printed in the ms column as whole numbers:
+`Objects_packages_count` and `Objects_flushes_count`. With
+`TYRA_STAPIP_ATTRIB 1` (engine `stapip_attrib.hpp`) every attribution counter
+follows as `Objects_attrib_<name>`.
+
+Motor District, authored start pose, physical PS2, 77 objects tested, 46 bags
+drawn in 53 packages and 13 packet flushes:
+
+| | ms | per drawn bag |
+|---|---:|---:|
+| Objects phase (serialized by the capture) | 4.745 | |
+| - the capture's own drains (~0.015 ms per row) | ~1.16 | |
+| **inside `stapip.core.render()`** | **1.793** | **39 us** |
+| of which bounds (package sizing, transform cache, bbox, frustum) | 0.813 | 17.7 us |
+| of which dispatch | 0.462 | 10.0 us |
+| of which prepare (object header 0.217) | 0.411 | 8.9 us |
+| of which DMA submit | 0.245 | 5.3 us |
+| ~~game-side per-object code, outside `render()`~~ | ~~~1.8~~ | **wrong - see below** |
+
+Texture bind, light selection and program choice together are ~3 us per bag -
+not where the time is. **The ~1.8 ms "game-side" row was a subtraction, and it
+was wrong.** Timed directly (next section) the game's own loop is 0.36 ms; the
+rest sat inside the `Object` rows, which hold more than `render()`'s counters
+do - the companion passes, the flush and, above all, the GS drawing the object,
+because each row ends in a drain. Never attribute a remainder: time the thing.
+The `bdSize` attribution counter (7 us per bag
+for three assignments) is mostly the cost of the nested COP0 reads around it -
+dense attribution inflates short code, so do not optimize off it.
+
+### The game side of the object loop (2026-09-23)
+
+The capture now laps the solo-object loop itself - bare COUNT reads, no
+drains, so the laps add up to the loop - as `Loop_*_included` rows, with
+`Loop_*_count` rows saying how many objects reached each stage. Each object
+that reaches the pipeline also gets its own bill: `Obj_main_ee` and
+`Obj_companion_ee` (EE time of the base bag and of its lightmap/emission/env
+bags), `Obj_bounds/prepare/dispatch/DMA_submit/VU1_wait`, and package counts
+`Obj_cull/guard/clip/outside/vertices/flush_count`; under `TYRA_STAPIP_ATTRIB`
+also `Obj_gif_wait`, `Obj_prep_texture`, `Obj_ds_render`, `Obj_ds_flush` and
+`Obj_render_total`. The editor hides the `Obj_` rows unless *Per-object
+pipeline detail* is ticked; they give way first when a big scene nears the
+row cap.
+
+Motor District start pose, physical PS2, three captures, medians:
+
+| loop stage | ms | objects past it |
+|---|---:|---:|
+| impostor decision | 0.086 | 92 tested |
+| geometry (rebuild / matrix refresh) | 0.055 | 0 rebuilds, 4 matrix |
+| draw distance | 0.029 | 86 |
+| coarse box | 0.079 | 77 |
+| occlusion | 0.005 | 77 |
+| billboard / split band | 0.014 | |
+| mesh LOD | 0.084 | |
+| rest before `render()` | 0.003 | 77 entered the pipeline |
+| **the whole game side** | **0.36** | |
+
+**Read an `Object` row as EE plus GS.** It ends in a drain, so it includes the
+GS rasterising that object: the 44 x 36 m asphalt apron under the camera is the
+dearest row at 0.36 ms with 0.18 ms of EE. The ordinary frame is EE-bound here
+(`drain` 0.02 ms) and the GS overlaps, so `Obj_main_ee` is the column that
+predicts the frame. Two things stood out in it:
+
+- **64 of the 77 objects that entered the pipeline drew nothing** - every
+  package outside - for 0.55 ms of EE, 0.43 of it bounds: ~17 us per
+  off-screen bag, paid again for each companion bag. The coarse box that could
+  have rejected them for ~2 us was reserved for models of three or more parts.
+- Bags with guard-band packages take the generic package route
+  (`Obj_ds_render` + `Obj_ds_flush`, ~0.07 ms an object) where a fully visible
+  bag takes the direct one (~0.012 ms). Fixed in 1.124.2 - docs/vu1-clipping.md,
+  "Whole bags inside the guard band". The GIF wait inside `sendPacket` measured 0 - no texture re-uploads
+  (no VRAMSTAT eviction line either).
+
+**The coarse box for every object (1.124.1)**, same pose, the one change
+between the two ELFs:
+
+| | before | after |
+|---|---:|---:|
+| `Obj_outside_count` (packages classified off-screen) | 216 | **0** |
+| `Obj_cull` / `Obj_guard` / `Obj_vertices` | 42 / 11 / 1932 | 42 / 11 / 1932 |
+| Objects bounds, capture | 0.673 | 0.245 |
+| game-side coarse lap | 0.056 | 0.182 |
+| **FRAMETIME `work`, level 2, ordinary frame** | **14.20** | **13.80** |
+
+Everything drawn is identical to the vertex and the frame lost 0.40 ms (2.9%).
+Both arms were stable to +-0.03 ms over six 50-frame windows; a rerun of the
+"after" build by mistake read 13.79, which is the repeatability.
+
+### An A/B needs the SAME view - check `Loop_past_coarse_count` (2026-09-23)
+
+The first guard-band A/B compared a capture that saw 40 objects past the coarse
+test with one that saw 61, from the same car at the same spot: the pad's right
+stick rested slightly off centre on one boot, and the car's glance camera read
+it through a hardcoded 0.15 threshold instead of the project deadzone (fixed in
+1.124.2 - it now uses `stickAxis` with `g_deadzoneR`, and Motor District's
+right deadzone is 0.3). The difference looked like a regression of +2.7 ms in
+Objects. **Before comparing two arms, compare `Loop_past_draw_count` and
+`Loop_past_coarse_count`; if they differ the arms are not looking at the same
+thing.** Also: `Objects_packages_count` summed guard into cull until 1.124.2
+(`packagesGuardBand` is a subset of `packagesCull`), so the "53 packages" of
+the start-pose table above were 42.
+
+### The update half of `pre` - FTUPD (2026-09-23)
+
+With `TYRA_FRAME_PROFILE` on, the FPP game loop laps its update and prints an
+`FTUPD` line after every `FRAMETIME` line - the window's mean ms per section:
+`in` (input, the devkit's ticks, menus, the Live Debugger), `player` (player
+update and use target), `scripts`, `stream` (layer streaming), `phys` (object
+physics and spinners), `veh` (every vehicle, AI drivers included), `portal`
+(portals and the carried object), `part`, `sound` (emitters and reverb) and
+`rest`. Bare COUNT reads, so level 2 stays transparent; `pre` is these plus the
+gap after the previous present.
+
+Its first reading answered "where is the missing millisecond" at the Motor
+District 25 FPS spot, car parked at (0, -74), physical PS2:
+
+| | debug build, devkit on | devkit off |
+|---|---:|---:|
+| `in` | 1.63-2.39 | **0.011** |
+| `phys` / `veh` / everything else | 0.30 / 0.54 / 0.13 | 0.30 / 0.51 / 0.12 |
+| `pre` | 2.65-3.43 | **1.01** |
+| `work` | 18.98 | **18.26** |
+| `period`, missed fields | 34-36 ms, 35-38 of 50 | **20.4 ms, 1-2 of 50** |
+
+**The spot holds 50 FPS in the player's build.** What a debug build shows there
+is the devkit: Remote Pad and the Live Debugger polling the host over ps2link
+put ~1.7 ms into `pre` and ~0.7 ms into `work`. The headroom left is ~0.7 ms.
+
+### More FRAMETIME companions: FTOCC, FTPHYS, FTVEH (1.125.2)
+
+Printed with `FTUPD` when `TYRA_FRAME_PROFILE` is on, all window means in ms:
+
+- `FTOCC` - the occlusion buffer: `clear`, `hull` (corner projection and hull),
+  `raster`, `erode`, `test`, plus `builds`/`tests`/`boxes` per frame,
+  `recompute` (occluder corner caches rebuilt) and `proj`/`objfrustum`.
+- `FTPHYS` - `updateObjectPhysics` alone and the awake bodies per frame. It
+  found 0.51 ms spent with zero awake bodies in the dense scene: both passes
+  walked every object to find the six with physics set, pass 2 once per body.
+  They now walk an index list of the bodies (0.51 -> 0.013 ms).
+- `FTVEH` - the per-car update by stage (docs/vehicles.md, "What a car costs").

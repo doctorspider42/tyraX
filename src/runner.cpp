@@ -1,4 +1,5 @@
 #include "runner.hpp"
+#include "sessionlog.hpp"
 
 #include "devsession.hpp"
 #include "isoexport.hpp"
@@ -8,6 +9,7 @@
 #include "shadowbake.hpp"  // the baked-shadow cache: warn on a stale one
 #include "templates.hpp"
 #include "texbake.hpp"
+#include "vehbake.hpp"
 #include "wavconvert.hpp"
 
 #include <cstdlib>
@@ -29,6 +31,18 @@ std::vector<std::string> emulatorProcessNames(const std::string& exe) {
             names.push_back(base);
     }
     return names;
+}
+
+// PCSX2 resolves a relative -elf argument from the ELF's own parent directory,
+// not from the editor's cwd. Passing examples/foo/bin/foo.elf therefore turns
+// into examples/foo/bin/examples/foo/bin/foo.elf and the emulator opens a black
+// window without ever starting the game. Keep the spelling native for PCSX2,
+// but make it absolute before it reaches either the launcher or process matcher.
+std::string absoluteNativePath(const std::string& path) {
+    std::error_code ec;
+    fs::path absolute = fs::absolute(fs::path(path), ec);
+    if (ec) absolute = fs::path(path);
+    return absolute.lexically_normal().make_preferred().string();
 }
 
 // Every object built by the VU chain (vclpp -> vcl -> dvp-as), for the two cases
@@ -187,28 +201,33 @@ void Runner::appendLine(const std::string& line) {
     log_ += '\n';
 }
 
-void Runner::buildAndRun(const Project& p, bool runEmulator, bool rebuild) {
+void Runner::buildAndRun(const Project& p, bool runEmulator, bool rebuild,
+                         int launchScene) {
     if (busy()) return;
     join();
     cancelRequested_ = false;
     state_ = State::Running;
-    thread_ = std::thread(&Runner::worker, this, p, true, runEmulator, false, rebuild);
+    thread_ = std::thread(&Runner::worker, this, p, true, runEmulator, false, rebuild,
+                          launchScene);
 }
 
-void Runner::runEmulatorOnly(const Project& p) {
+void Runner::runEmulatorOnly(const Project& p, int launchScene) {
     if (busy()) return;
     join();
     cancelRequested_ = false;
     state_ = State::Running;
-    thread_ = std::thread(&Runner::worker, this, p, false, true, false, false);
+    thread_ = std::thread(&Runner::worker, this, p, false, true, false, false,
+                          launchScene);
 }
 
-void Runner::buildAndRunPs2(const Project& p, bool build, bool rebuild) {
+void Runner::buildAndRunPs2(const Project& p, bool build, bool rebuild,
+                            int launchScene) {
     if (busy()) return;
     join();
     cancelRequested_ = false;
     state_ = State::Running;
-    thread_ = std::thread(&Runner::worker, this, p, build, true, true, rebuild);
+    thread_ = std::thread(&Runner::worker, this, p, build, true, true, rebuild,
+                          launchScene);
 }
 
 void Runner::clean(const Project& p) {
@@ -544,9 +563,10 @@ bool Runner::launchPCSX2(const Project& p) {
         return false;
     }
     lastEmulator_ = exe;
+    const std::string elfPath = absoluteNativePath(p.elfPath());
     std::error_code ec;
-    if (!fs::exists(p.elfPath(), ec)) {
-        appendLine("[editor] ELF not found: " + p.elfPath() + " - build the project first.");
+    if (!fs::exists(elfPath, ec)) {
+        appendLine("[editor] ELF not found: " + elfPath + " - build the project first.");
         return false;
     }
 
@@ -559,10 +579,10 @@ bool Runner::launchPCSX2(const Project& p) {
     // a home directory plus a deep project tree passes 145 far sooner than
     // C:\Users\<name>\TyraProjects\<project> does.
     constexpr size_t kMaxElfPathChars = 145;
-    if (p.elfPath().size() > kMaxElfPathChars) {
+    if (elfPath.size() > kMaxElfPathChars) {
         appendLine("[editor] WARNING: the ELF path is " +
-                   std::to_string(p.elfPath().size()) + " characters (" +
-                   p.elfPath() +
+                   std::to_string(elfPath.size()) + " characters (" +
+                   elfPath +
                    ") - PCSX2 will load it and then fail to start the game. Move "
                    "the project somewhere shorter (at most " +
                    std::to_string(kMaxElfPathChars) + " characters up to and "
@@ -647,11 +667,11 @@ bool Runner::launchPCSX2(const Project& p) {
     }
 
     appendLine("[editor] Launching PCSX2: " + exe);
-    // (The ELF path is native-separator already: Project::filePath() applies
-    // make_preferred, which is what PCSX2 needs - it refuses a boot ELF whose
-    // path mixes separators.)
+    // PCSX2 needs a native, absolute path here. A relative path is re-based on
+    // the ELF's parent by its host loader and silently points at a duplicate,
+    // non-existent path (black screen, no game log).
     if (!platform::Process::startDetached(platform::shellArg(exe) + " -elf " +
-                                          platform::shellArg(p.elfPath()))) {
+                                          platform::shellArg(elfPath))) {
         appendLine("[editor] Failed to launch PCSX2.");
         return false;
     }
@@ -790,15 +810,18 @@ bool Runner::claimPs2Channel(const Project& p) {
 // project stay apart. An instance whose command line cannot be read is left
 // alone and counted: guessing wrong is the failure this replaced.
 void Runner::killEmulatorsFor(const Project& p, const std::string& exe) {
-    int unreadable = 0;
+    const std::string elfPath = absoluteNativePath(p.elfPath());
+    int unreadable = 0, others = 0;
     for (const std::string& name : emulatorProcessNames(exe)) {
         for (const platform::RunningProcess& proc : platform::processesNamed(name)) {
             if (proc.commandLine.empty()) {
                 unreadable++;
                 continue;
             }
-            if (!platform::commandLineNamesPath(proc.commandLine, p.elfPath()))
+            if (!platform::commandLineNamesPath(proc.commandLine, elfPath)) {
+                others++;
                 continue;
+            }
             appendLine("[editor] Closing the PCSX2 instance running this project "
                        "(pid " + std::to_string(proc.pid) + ").");
             platform::killProcess(proc.pid);
@@ -808,6 +831,18 @@ void Runner::killEmulatorsFor(const Project& p, const std::string& exe) {
         appendLine("[editor] Left " + std::to_string(unreadable) +
                    " other PCSX2 process(es) alone - their command line could "
                    "not be read, so there is no telling whose they are.");
+    // Named rather than silent: an emulator launched by hand on this very
+    // project under a spelling the matcher does not recognise (a quoted or
+    // relative -elf) survives here and then interleaves its writes into the
+    // same bin/log.txt and polls the same livepad.bin as the fresh one - which
+    // cost an hour of "the pad is dead / the car is not at spawn" before
+    // `ps aux` named it. This line is what names it first.
+    if (others > 0)
+        appendLine("[editor] " + std::to_string(others) +
+                   " other PCSX2 instance(s) are running on a different ELF - "
+                   "left alone. If one of them is really THIS project, launched "
+                   "by hand, close it: two games on one bin/ share one log and "
+                   "one pad.");
 }
 
 // Resets ps2link, and reports whatever the console says while it happens -
@@ -1053,17 +1088,31 @@ bool Runner::deployToPs2(const Project& p) {
     }
     ps2Lines_ = 0;
 
+    // The session log (sessionlog.hpp): the same lines, on disk, bounded, so a
+    // crash - of the game or of this editor - or an unwatched run still leaves
+    // a record in <project>/logs/. Owned by the pump thread's lambda, so it
+    // closes when the session's output ends, not when the next deploy starts.
+    auto sessionLog = std::make_shared<sessionlog::File>();
+    if (sessionLog->open((fs::path(p.dir) / "logs").string(), "ps2",
+                         p.consoleLogLines, p.consoleLogFiles)) {
+        sessionLog->write("[editor] Run on PS2: " + p.name + " -> " + p.ps2LinkIp +
+                          " (" + cmd + ")");
+        appendLine("[editor] Console log: " + sessionLog->path());
+    }
+
     // Pump ps2client's output - including the console's printf/TYRA log
     // arriving over UDP 18194 - into the Output panel for the session's
     // lifetime. Reads block until the process dies and the pipe breaks. The
     // thread holds its own shared_ptr so the Process cannot be destroyed out
     // from under a blocked read by killPs2Client().
-    ps2Pump_ = std::thread([this, proc] {
+    ps2Pump_ = std::thread([this, proc, sessionLog] {
         std::string line;
         while (proc->readLine(line)) {
             appendLine("[ps2] " + line);
+            sessionLog->write(line);
             ps2Lines_++;
         }
+        sessionLog->write("[editor] ps2client exited - end of session.");
     });
 
     // ps2link commands are UDP fire-and-forget: against a dead IP both reset
@@ -1081,11 +1130,20 @@ bool Runner::deployToPs2(const Project& p) {
             return false;
         }
         if (waited >= 15000) {
-            appendLine("[editor] No response from " + p.ps2LinkIp + " within 15s - is "
-                       "the PS2 on and running PS2LINK.ELF? (Check the IP in Edit > "
-                       "Preferences and the firewall/port rules for ps2client.)");
-            killPs2Client();
-            return false;
+            // execee is fire-and-forget UDP. A console may have accepted it
+            // even when its tty reply is filtered or lost; killing this
+            // process then removes the host: filesystem from a game that is
+            // already running, leaving placeholder textures and no models or
+            // audio. Keep the server alive and report the uncertainty. Stop on
+            // PS2 remains the explicit way to clean up a genuinely dead IP.
+            appendLine("[editor] WARNING: no console log from " + p.ps2LinkIp +
+                       " within 15s. Keeping ps2client alive because the PS2 may "
+                       "already be running and needs it for host: assets. If the "
+                       "game did not start, use Stop on PS2 and check the IP and "
+                       "inbound UDP 18194 firewall rule.");
+            appendLine("[editor] PS2 launch status is unconfirmed; file server is "
+                       "still running.");
+            return true;
         }
         platform::sleepMs(250);
     }
@@ -1094,7 +1152,8 @@ bool Runner::deployToPs2(const Project& p) {
     return true;
 }
 
-void Runner::worker(Project p, bool build, bool run, bool ps2, bool rebuild) {
+void Runner::worker(Project p, bool build, bool run, bool ps2, bool rebuild,
+                    int launchScene) {
     bool ok = true;
     // exec() reads this to export TYRAX_IMAGE for the compose commands. Latched
     // here rather than passed down: every compose call site would otherwise have
@@ -1119,6 +1178,18 @@ void Runner::worker(Project p, bool build, bool run, bool ps2, bool rebuild) {
             return;
         }
 
+        // Vehicle bake: the .glb/.fbx of every definition -> body + wheel
+        // .tmdl + colour palette in .res-baked/vehicles/ (docs/vehicles.md).
+        // BEFORE the refresh below, because the bake hands measurements back
+        // to the definitions (the lamp part and its ranges,
+        // vehbake::adoptMeasured) that scene_data.hpp then bakes in - it used
+        // to run after, and a headless build emitted -1 for a car whose lamp
+        // part the same build had just written. Before texbake too, because
+        // texbake owns the .res-baked sweep.
+        if (auto err = vehbake::bakeProject(
+                p, [this](const std::string& l) { appendLine(l); });
+            !err.empty())
+            appendLine("[editor] Warning: " + err);
         // Baked shadow decals: a STALE cache emits nothing at all, so a scene
         // that asked for shadows would ship without them and without a word -
         // which reads as the feature being broken rather than as a bake being
@@ -1180,6 +1251,16 @@ void Runner::worker(Project p, bool build, bool run, bool ps2, bool rebuild) {
             !err.empty())
             appendLine("[editor] Warning: texture bake failed: " + err);
 
+        // Both encoders consume the normalized mirror. Stereo ADPCM cannot
+        // play through audsrv's single-voice API, even if editor audition works.
+        if (auto err = wavconvert::bakeSounds(
+                p.dir, [this](const std::string& l) { appendLine(l); }); !err.empty()) {
+            appendLine("[editor] Sound conversion failed: " + err);
+            appendLine("[editor] === Build FAILED ===");
+            state_ = State::Failed;
+            return;
+        }
+
         if (p.buildBackend != "docker") {
 #ifdef _WIN32
             const std::string script = findTool("toolchain/native-build.ps1");
@@ -1208,33 +1289,28 @@ void Runner::worker(Project p, bool build, bool run, bool ps2, bool rebuild) {
                 const fs::path cache = config / "native-build" /
                                        templates::engineVolumeName();
                 const fs::path toolchain = config / "toolchain" / "ps2dev";
-                // ABSOLUTE, and that is not decoration: exec() runs the script
-                // with the project as its working directory, so a RELATIVE
-                // p.dir (what `--build examples/baked-shadows` from the repo
-                // root gives) is then resolved a second time from inside
-                // itself - `cd: examples/baked-shadows: No such file or
-                // directory`, from a path that plainly exists. Every other
-                // argument here is already absolute.
-                std::error_code absEc;
-                fs::path projectDir = fs::absolute(p.dir, absEc);
-                if (absEc) projectDir = p.dir;
+                // The helper changes into the project before handing paths to
+                // WSL/bash. A relative project argument would therefore be
+                // appended to itself (examples/x/examples/x). Resolve it once
+                // here and use the same directory as argument and child cwd.
+                const std::string projectDir = absoluteNativePath(p.dir);
 #ifdef _WIN32
                 std::string cmd = "powershell.exe -NoProfile -ExecutionPolicy Bypass -File " +
                                   platform::shellArg(script) + " -Project " +
-                                  platform::shellArg(projectDir.string()) + " -Engine " +
+                                  platform::shellArg(projectDir) + " -Engine " +
                                   platform::shellArg(engineSource.string()) + " -Cache " +
                                   platform::shellArg(cache.string()) + " -Toolchain " +
                                   platform::shellArg(toolchain.string());
                 if (rebuild) cmd += " -Rebuild";
 #else
                 std::string cmd = "bash " + platform::shellArg(script) + " " +
-                                  platform::shellArg(projectDir.string()) + " " +
+                                  platform::shellArg(projectDir) + " " +
                                   platform::shellArg(engineSource.string()) + " " +
                                   platform::shellArg(cache.string()) + " " +
                                   platform::shellArg(toolchain.string()) +
                                   (rebuild ? " 1" : " 0");
 #endif
-                ok = exec(cmd, p.dir) == 0;
+                ok = exec(cmd, projectDir) == 0;
                 if (!ok)
                     appendLine("[editor] Native build failed. Fix the error above, or "
                                "select Docker fallback in Edit > Preferences.");
@@ -1648,15 +1724,50 @@ void Runner::worker(Project p, bool build, bool run, bool ps2, bool rebuild) {
         // CONTAINER's shell - without it /bin/sh empties them on the host.)
         // Globs cover two levels of sfx subfolders (res/sfx/steps/wood.wav);
         // an unmatched glob stays a literal word, which the -e test skips.
+        //
+        // A WAV whose name ends in `-loop.wav` is encoded with adpenc's `-L`,
+        // which sets the SPU2 block loop flags so the voice REPEATS instead of
+        // ending (docs/sound.md, "Looping samples"). That is the only way to
+        // hold a continuous sound - an engine note, a siren - on this hardware:
+        // the loop is a property of the ENCODED sample and not of the play
+        // call, so nothing at runtime can turn a one-shot into a loop. The
+        // encoder also reads inc/vehicle_sound_loops.gen.txt for ordinary
+        // WAVs chosen for idle/high-rev/tyre loops. Both native and Docker
+        // compare header byte 6 in both directions, so adding/removing a
+        // continuous role invalidates an otherwise fresh encoded cache.
+        // NO QUOTES OF ANY KIND may appear in this fragment. The block comment
+        // above already says double quotes cannot survive the cmd.exe /S +
+        // docker.exe argv unquoting - the first version of the loop-byte test
+        // used them anyway and every Windows build died with the shell's
+        // *Syntax error: end of file unexpected*: the quotes were stripped on
+        // the way in and the -c string stopped PARSING, so no build with a
+        // sound in it could succeed on that platform while Linux passed
+        // cleanly. Hence: x$L = x-L instead of [ -n "$L" ], and a case
+        // pattern over od's raw (space-padded) output instead of tr -d " " -
+        // case words are not field-split, so *1 matches however od pads, and
+        // the only values our own encoder writes are 0 and 1.
         if (ok) {
             ok = exec(dc + platform::shellArg(
                           "cd /src && IFS= && for f in res/sfx/*.wav "
                            "res/sfx/*/*.wav res/sfx/*/*/*.wav; do "
                            "[ -e $f ] || continue; "
                            "o=${f%.wav}.adpcm && o=bin/${o#res/} && "
+                           "w=.res-baked/${f#res/}; "
+                           "[ -e $w ] || exit 1; "
                            "mkdir -p $(dirname $o); "
-                           "if [ ! $o -nt $f ]; then "
-                           "echo [editor] adpenc $f && adpenc $f $o || exit 1; "
+                           "L= && case $f in *-loop.wav) L=-L;; esac; "
+                           "if [ -f inc/vehicle_sound_loops.gen.txt ] && "
+                           "grep -Fqx -e $f inc/vehicle_sound_loops.gen.txt; then L=-L; fi; "
+                           "R=0; if [ -e $o ]; then "
+                           "C=$(od -An -tu1 -j5 -N1 $o); "
+                           "B=$(od -An -tu1 -j6 -N1 $o); "
+                           "if [ x$L = x-L ]; then "
+                           "case $B in *1) R=0;; *) R=1;; esac; "
+                           "else case $B in *0) R=0;; *) R=1;; esac; fi; "
+                           "case $C in *1) ;; *) R=1;; esac; fi; "
+                           "if [ ! $o -nt $w ] || [ $R = 1 ]; then "
+                           "echo [editor] adpenc $L $f && "
+                           "adpenc $L $w $o || exit 1; "
                           "fi; done"),
                       p.dir) == 0;
             if (!ok) appendLine("[editor] Sound conversion (adpenc) failed.");
@@ -1797,7 +1908,30 @@ void Runner::worker(Project p, bool build, bool run, bool ps2, bool rebuild) {
                                       : "[editor] === Build FAILED ===");
     }
 
-    if (ok && run && !cancelRequested_) ok = ps2 ? deployToPs2(p) : launchPCSX2(p);
+    if (ok && run && !cancelRequested_) {
+        // A Play request selects the editor's current scene for this boot only.
+        // The marker is consumed by the game; the project's startup scene and
+        // exported ELF remain unchanged. Remove a stale marker for CLI runs.
+        const fs::path marker = fs::path(p.dir) / "bin" / "launch.scene";
+        std::error_code ec;
+        fs::remove(marker, ec);
+        if (ec) {
+            appendLine("[editor] Cannot clear the previous Play scene: " + ec.message());
+            ok = false;
+        }
+        if (ok && launchScene >= 0 && launchScene < (int)p.scenes.size()) {
+            std::ofstream out(marker, std::ios::trunc);
+            out << launchScene << '\n';
+            out.close();
+            if (!out) {
+                appendLine("[editor] Cannot set the Play scene: " + marker.string());
+                ok = false;
+            } else {
+                appendLine("[editor] Play scene: " + p.scenes[launchScene].name);
+            }
+        }
+        if (ok) ok = ps2 ? deployToPs2(p) : launchPCSX2(p);
+    }
 
     state_ = (ok && !cancelRequested_) ? State::Success : State::Failed;
 }

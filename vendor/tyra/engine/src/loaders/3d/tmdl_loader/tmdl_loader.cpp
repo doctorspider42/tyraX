@@ -79,6 +79,40 @@ bool readMesh(Reader& in, std::vector<float>* verts, std::vector<u8>* ao) {
   return aoCount == 0 || in.bytes(ao->data(), aoCount);
 }
 
+/**
+ * The version-4 strip twin of readMesh. Same shape, but an EMPTY mesh is legal
+ * (a part that did not strip smaller than its list writes 0) and the count is
+ * NOT required to be a multiple of 3 as a whole - only each run is, and the
+ * run length is the part's own stripRun. A strip of N vertices is N-2
+ * triangles, so 3 is the minimum that draws anything.
+ */
+bool readStrip(Reader& in, u32 stripRun, std::vector<float>* verts,
+               std::vector<u8>* ao) {
+  u32 count = 0;
+  if (!in.u32le(&count)) return false;
+  verts->clear();
+  ao->clear();
+  if (count == 0) {
+    u32 aoCount = 0;
+    return in.u32le(&aoCount) && aoCount == 0;
+  }
+  if (count < 3 || count > kMaxVertices) return false;
+  // Every run but the last is exactly stripRun vertices and the last one is a
+  // multiple of 3 - the two invariants StaPipCore's package slicing and the
+  // VU1 vertex loops depend on. Checked here rather than trusted, because the
+  // failure mode of a bad run length is geometry spliced across a package
+  // boundary rather than a crash.
+  if (stripRun == 0 || stripRun % 3 != 0) return false;
+  if (count % 3 != 0) return false;
+  verts->resize((size_t)count * 8);
+  if (!in.bytes(verts->data(), (size_t)count * 8 * sizeof(float))) return false;
+  u32 aoCount = 0;
+  if (!in.u32le(&aoCount)) return false;
+  if (aoCount != 0 && aoCount != count) return false;
+  ao->resize(aoCount);
+  return aoCount == 0 || in.bytes(ao->data(), aoCount);
+}
+
 }  // namespace
 
 std::unique_ptr<LeanObjMesh> TmdlLoader::load(const std::string& relativePath) {
@@ -93,7 +127,7 @@ std::unique_ptr<LeanObjMesh> TmdlLoader::load(const std::string& relativePath) {
   u32 version = 0, partCount = 0;
   auto mesh = std::make_unique<LeanObjMesh>();
   if (!in.bytes(magic, 4) || memcmp(magic, "TMDL", 4) != 0 ||
-      !in.u32le(&version) || version < 1 || version > 3) {
+      !in.u32le(&version) || version < 1 || version > 4) {
     TYRA_WARN("TmdlLoader: bad header in ", relativePath.c_str());
     return nullptr;
   }
@@ -138,6 +172,31 @@ std::unique_ptr<LeanObjMesh> TmdlLoader::load(const std::string& relativePath) {
         TYRA_WARN("TmdlLoader: malformed lod in ", relativePath.c_str());
         return nullptr;
       }
+    }
+    // Triangle strips (version 4). A v3 file has none and every part renders
+    // as the triangle list it always was.
+    if (version >= 4) {
+      if (!in.u32le(&mat.stripRun)) {
+        TYRA_WARN("TmdlLoader: malformed strip header in ",
+                  relativePath.c_str());
+        return nullptr;
+      }
+      if (!readStrip(in, mat.stripRun, &mat.stripVertices,
+                     &mat.stripVertexAo)) {
+        TYRA_WARN("TmdlLoader: malformed strip in ", relativePath.c_str());
+        return nullptr;
+      }
+      for (u32 l = 0; l < lodCount; l++) {
+        if (!readStrip(in, mat.stripRun, &mat.lods[l].stripVertices,
+                       &mat.lods[l].stripVertexAo)) {
+          TYRA_WARN("TmdlLoader: malformed lod strip in ",
+                    relativePath.c_str());
+          return nullptr;
+        }
+      }
+      // A run length with nothing to run over is meaningless; normalise it so
+      // a consumer can test either field.
+      if (mat.stripVertices.empty()) mat.stripRun = 0;
     }
   }
   // Shadow proxy (version 3). A v2 file ends here and casts from its full

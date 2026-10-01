@@ -45,15 +45,20 @@ struct Options {
                                // alpha, so 0 really means no shadow)
     float maxLength = 4.0f;    // shadow reach in caster heights; 0 = no limit
     int samples = 24;          // shadow rays per texel across the sun disk
+    int groundRes = 0;         // ground shadow map texels per chunk side, 0 = off
 };
+
+// The terrain chunk edge in heightmap cells - the generated game's
+// TERRAIN_CHUNK_CELLS (templates.cpp). A ground map covers exactly one chunk,
+// so the two must agree.
+constexpr int kGroundChunkCells = 16;
 Options optionsOf(const ProjectSettings& s);
 
-// One page edge, in texels. 256 is the same ceiling the scene lightmaps sit
-// at and for the same reason: the tiles ship as RGBA32 (the engine's
-// palettized alpha path loses a gradient - texbake.cpp says where that was
-// measured), so one page is 256 KB, i.e. 23% of the 32-bit GS texture heap
-// (docs/gs-vram.md). A project that wants more shadows buys another page and
-// is told what it costs, rather than silently getting a blurrier one.
+// One page edge, in texels. A page ships 4-bit since 1.163.0 - one tint at
+// sixteen alpha levels, written by hand (texbake.cpp) - so it is 32 KB of GS
+// VRAM, 3% of the 32-bit texture heap (docs/gs-vram.md); it was RGBA32 and
+// 256 KB before. A project that wants more shadows buys another page and is
+// told what it costs, rather than silently getting a blurrier one.
 constexpr int kPageSize = 256;
 
 // Triangles one caster's projection may emit. decalproj's own cap is 4096,
@@ -143,6 +148,20 @@ struct Group {
     int casters = 0;
 };
 
+// One terrain chunk's ground shadow (docs/shadows.md, "Ground shadow maps"):
+// groundRes^2 alpha texels over the chunk's square, row-major from its -X/-Z
+// corner, traced from the GROUND against every caster at once. Chunks no
+// shadow touches are left out.
+struct GroundMap {
+    int cx = 0, cz = 0;
+    std::vector<uint8_t> alpha;
+};
+
+// Which cells of a ground map's chunk the game draws: row r, bit x set = cell
+// (x, r) holds a non-zero texel, or one within a texel of its edge (the
+// bilinear filter reaches that far). kGroundChunkCells rows.
+std::vector<uint16_t> groundCellMask(const GroundMap& m, int res);
+
 struct Bake {
     bool valid = false;
     uint64_t signature = 0;
@@ -161,9 +180,18 @@ struct Bake {
     // Reported, never silently applied: casters whose projection hit
     // kMaxTrisPerCaster, and casters that did not fit in kMaxPages.
     std::vector<Refusal> truncated;
+    int groundRes = 0;
+    std::vector<GroundMap> ground;
     int triangles() const;
     // GS words the pages occupy, for the panel's budget line.
     int vramWords() const;
+    // Where the bake's wall clock went, in seconds (not cached; --bake-shadows
+    // prints it). A caster that bails out early charges the rest of its
+    // iteration to `other`.
+    struct Timings {
+        double signature = 0, plan = 0, scene = 0, giLoad = 0, casterTree = 0,
+               tile = 0, project = 0, filter = 0, self = 0, ground = 0, other = 0;
+    } timings;
     // Bytes the merged meshes add to the ELF (60 per triangle).
     int elfBytes() const { return triangles() * 60; }
 };
@@ -201,6 +229,12 @@ bool read(const std::string& path, Bake& b);
 // to no baked shadows at all, the way a stale GI cache drops it back to the
 // pre-GI lighting.
 Bake load(const Project& p, int sceneIndex);
+// The cache as it is on disk, fresh or not - for the editor's preview while a
+// background re-bake catches up with an edit. Never for codegen: a stale bake
+// draws shadows where the casters no longer are.
+Bake loadAny(const Project& p, int sceneIndex);
+// Whether the scene's cache matches the project as it is now.
+bool isFresh(const Project& p, int sceneIndex);
 
 // Re-bake every scene whose cache is absent or stale; leave the fresh ones
 // alone and say so. Two callers, one loop: the pre-build step of `--build` and

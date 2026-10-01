@@ -386,6 +386,28 @@ every texture, every model and every devkit channel file is read from your PC
 over the network while the game runs. Its output — including the console's
 `printf`/`TYRA_LOG` — is pumped into the *Output* panel as `[ps2]` lines.
 
+### The session log
+
+The Output panel is memory. Close the editor, lose it to a crash, or just not
+look, and what the game said is gone. So every session also writes the same
+lines to **`<project>/logs/ps2-<date>-<time>-<ms>.log`**. The first line names
+the project, the IP and the command, the last one says the session ended, and
+the path is printed in the Output panel as `[editor] Console log: ...`.
+
+- **Crash-safe.** Each line is flushed as it arrives, so the file is current up
+  to the last line the console sent, whoever dies first.
+- **Bounded, in lines, not time.** A file keeps the last *Console log lines*
+  lines (Edit > Preferences > Real PS2, default 20 000). It is rewritten down to
+  that many each time it reaches twice as many, so the END of a session, which
+  is what a crash leaves, is always there. 0 turns the file off.
+- **Bounded, in files.** At most *Console logs kept* sessions (default 10) stay
+  in `logs/`; starting a session deletes the oldest beyond that.
+- **Not project data.** Both limits live in `editor.ini`, like the console's IP.
+  `logs/` is git-ignored, and the next build adds the rule to an older
+  project's `.gitignore`.
+
+The headless `--run-ps2` path writes the same file with the default limits.
+
 > **Keep the editor open while the game runs.** Closing it kills `ps2client`,
 > and the game loses `host:` mid-session: the devkit files freeze exactly where
 > they were while the console happily keeps running. The cure is a redeploy, not
@@ -444,8 +466,14 @@ Ports, if a firewall is in the way:
 | UDP 18194 | console → PC | the console's `printf` output (udptty) — this is what the `[ps2]` lines are |
 
 Because the commands are fire-and-forget, a dead or wrong IP makes `reset` and
-`execee` both "succeed". The editor therefore treats **the first log line** as
-the liveness signal and gives up after 15 s.
+`execee` both "succeed". The first log line confirms that the console launched,
+but silence is not proof that it did not: the command may have reached the PS2
+while its tty reply was filtered or lost. After 15 seconds the editor therefore
+reports an **unconfirmed launch and keeps `ps2client` alive**. Killing it here
+would remove the `host:` filesystem from a game that may already be running,
+which produces placeholder textures, missing models and silent audio. If the
+console genuinely did not start, use **Stop on PS2** to clear the retained file
+server before retrying.
 
 ## 5. Debug it
 
@@ -545,7 +573,7 @@ one (a wedge still answers ARP and usually ping).
 | What you see | What it means |
 |---|---|
 | `[editor] Could not reach ps2link at <ip>` | `ps2client reset` failed outright — wrong IP, console not booted into ps2link, cable/link down. |
-| `[editor] No response from <ip> within 15s` | The commands went out and nothing came back. Check the IP against the console's `Net config:` line, then the PC firewall (inbound **UDP 18194** for `ps2client` — without it the game may actually be running with its log going nowhere). |
+| `[editor] WARNING: no console log from <ip> within 15s` | The launch is unconfirmed, but the editor deliberately keeps `ps2client` alive so a game that did start retains its assets. If nothing started, use **Stop on PS2**, check the IP against the console's `Net config:` line, then check inbound **UDP 18194** for `ps2client`. |
 | Boot screen says "Welcome to ps2link" | Stock ps2link. Rebuild from `tools/ps2link/` and reflash. |
 | Boot banner is below `r6` | r1 = keyboard/mouse only; r2 = plus the hang fixes; r3 = plus the SPU2 silencing, but Stop still wedges the console; r4 = Stop kills the game reliably; r5 = no stdio on any error path. **Stop only survives from r6.** Reflash. |
 | Stop leaves the console frozen on the game | Fixed in r4. On a pre-r4 build the reset either never reached the console or killed the game and took ps2link down with it; only a power cycle recovered. |

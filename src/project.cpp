@@ -48,7 +48,9 @@ const char* primitiveTypeName(PrimitiveType t) {
         case PrimitiveType::Portal: return "portal";
         case PrimitiveType::Area: return "area";
         case PrimitiveType::Scatter: return "scatter";
+        case PrimitiveType::Road: return "road";
         case PrimitiveType::Scroller: return "scroller";
+        case PrimitiveType::Vehicle: return "vehicle";
         case PrimitiveType::Comment: return "comment";
     }
     return "box";
@@ -72,8 +74,10 @@ static PrimitiveType primitiveTypeFromName(const std::string& s) {
     if (s == "mirror") return PrimitiveType::Mirror;
     if (s == "portal") return PrimitiveType::Portal;
     if (s == "area") return PrimitiveType::Area;
+    if (s == "road") return PrimitiveType::Road;
     if (s == "scatter") return PrimitiveType::Scatter;
     if (s == "scroller") return PrimitiveType::Scroller;
+    if (s == "vehicle") return PrimitiveType::Vehicle;
     if (s == "comment") return PrimitiveType::Comment;
     return PrimitiveType::Box;
 }
@@ -106,6 +110,12 @@ std::vector<int> Project::atlasFontIndices() const {
     // Without this its atlas would be missing and the rows would be blank.
     for (const GameMenu& m : menus)
         if (m.saveMenu) want(m.font);
+    // A vehicle's driver readout is runtime text - the speed is only known
+    // while the game runs - so its font needs an atlas too. Without this the
+    // HUD would draw nothing at all, which reads as a broken feature rather
+    // than as a missing asset (docs/vehicles.md).
+    for (const VehicleDef& v : vehicles)
+        if (v.showHud) want(v.hudFont);
     std::sort(out.begin(), out.end());
     return out;
 }
@@ -147,7 +157,14 @@ TripleBufferFit tripleBufferingFit(const Project& p, const ProjectSettings& s,
     // buffers is the safe direction, and the engine's own constants would
     // have to move with it.)
     const int kNeed = 98304 + 65536;
-    auto pageUp = [&](int w) { return ((w + kPage - 1) / kPage) * kPage; };
+    // Whole GS pages, not a page-rounded pixel count. PSMCT32/PSMZ32
+    // pages are 64x32; PSMCT16/PSMZ16 pages are 64x64. In particular a
+    // 512x224 CT16 display occupies 512x256 pixels' worth of VRAM.
+    // Keep equal to RendererCoreGSVRam::getSize(..., GRAPH_ALIGN_PAGE).
+    auto bufferSizeWords = [&](int width, int height, bool bits16) {
+        const int pageH = bits16 ? 64 : 32;
+        return ((width + 63) / 64) * ((height + pageH - 1) / pageH) * kPage;
+    };
 
     // THE MODE IS A PARAMETER, because the boot mode is not the only mode the
     // game runs in. `supportedModes` declares the scan modes a player can
@@ -164,7 +181,8 @@ TripleBufferFit tripleBufferingFit(const Project& p, const ProjectSettings& s,
     // question, since 16-bit colour makes a third buffer cost what two used
     // to. Keep in step with RendererCoreGS::allocateVramBuffers.
     const bool halfDepth = s.colorDepth == "16bit";
-    const int bufferWords = pageUp(halfDepth ? (w * h + 1) / 2 : w * h);
+    const bool hybrid = s.colorDepth == "hybrid";
+    const int bufferWords = bufferSizeWords(w, h, halfDepth);
 
     // THE UPSCALER IS A PER-SCENE SETTING, so `s.blssEnabled` is the project
     // DEFAULT and almost never the question (docs/neural-upscaler.md, "Per
@@ -182,7 +200,8 @@ TripleBufferFit tripleBufferingFit(const Project& p, const ProjectSettings& s,
     // used to read the project default alone and promised a third buffer such
     // a project cannot have.
     const bool zShrinks = u.any && !u.mixed;
-    const int zWords = pageUp(zShrinks ? (w / sx) * (h / sy) : w * h);
+    const int zWords = bufferSizeWords(zShrinks ? w / sx : w,
+                                     zShrinks ? h / sy : h, halfDepth);
 
     // The low-res colour target, which exists whenever the upscaler is on
     // ANYWHERE (configure() is given the widest configuration the run takes).
@@ -192,8 +211,7 @@ TripleBufferFit tripleBufferingFit(const Project& p, const ProjectSettings& s,
     int lowWords = 0;
     if (u.any) {
         const int lowBufW = -64 & ((w / sx) + 63);  // 64-aligned, as BLSS sizes it
-        const int lowPixels = lowBufW * (h / sy);
-        lowWords = pageUp(halfDepth ? (lowPixels + 1) / 2 : lowPixels);
+        lowWords = bufferSizeWords(lowBufW, h / sy, halfDepth);
     }
 
     // The flashlight shadow volumes' COUNT target (docs/flashlight.md "The
@@ -210,7 +228,7 @@ TripleBufferFit tripleBufferingFit(const Project& p, const ProjectSettings& s,
     // this must not charge it twice.
     int countWords = 0;
     if (s.flashShadowVolumes || s.spotShadowVolumes)
-        countWords = pageUp((w * h + 1) / 2);
+        countWords = bufferSizeWords(w, h, true);
 
     TripleBufferFit f;
     f.bufferWords = bufferWords;
@@ -219,6 +237,19 @@ TripleBufferFit tripleBufferingFit(const Project& p, const ProjectSettings& s,
                   (2 * bufferWords + zWords + lowWords + countWords) -
                   bufferWords;
     f.fits = f.leftWords >= kNeed;
+    // Hybrid: one 32-bit draw buffer plus two 16-bit display buffers when
+    // triple buffering fits. leftWords + bufferWords is
+    // still "what the permanent region leaves", the number textureHeapEstimate
+    // reads. Keep in step with RendererCoreGS::allocateVramBuffers.
+    if (hybrid) {
+        const int displayWords = bufferSizeWords(w, h, true);
+        f.bufferWords = displayWords;
+        f.leftWords = kVramWords -
+                      (bufferWords + displayWords + zWords + lowWords +
+                       countWords) -
+                      displayWords;
+        f.fits = f.leftWords >= kNeed;
+    }
     f.mode = d.key;
     return f;
 }
@@ -480,6 +511,7 @@ std::string procGraphJson(const ProcGraph& g) {
     std::string json = "{ \"seed\": " + std::to_string((long long)g.seed) +
                        ", \"nextId\": " + std::to_string(g.nextId);
     if (g.bakedHash) json += ", \"baked\": \"" + hex64(g.bakedHash) + "\"";
+    if (g.frozen) json += ", \"frozen\": true";
     // Runtime mode (docs/procedural-runtime.md). Omitted while off, so every
     // project authored before it round-trips byte-identically.
     if (g.runtime) {
@@ -563,6 +595,7 @@ static void readProcGraph(const json::Value& jg, ProcGraph& g) {
     if (const auto* v = jg.find("nextId")) g.nextId = (int)v->numberOr(1);
     if (const auto* v = jg.find("baked")) g.bakedHash = parseHex64(v->stringOr(""));
     if (const auto* v = jg.find("runtime")) g.runtime = v->boolOr(false);
+    if (const auto* v = jg.find("frozen")) g.frozen = !g.runtime && v->boolOr(false);
     if (const auto* v = jg.find("runAtStart")) g.runAtStart = v->boolOr(true);
     if (const auto* v = jg.find("seedMode")) g.seedMode = (int)v->numberOr(0);
     if (const auto* nodes = jg.find("nodes");
@@ -738,8 +771,15 @@ std::string objectJson(const SceneObject& o) {
         (o.drawDistance > 0.0f
              ? ", \"drawDistance\": " + fmtFloat(o.drawDistance)
              : "") +
+        // Manual static-batch opt-out; default (false) stays implicit, which
+        // is what keeps every project that never touches it resaving byte for
+        // byte after this field was added.
+        (o.batchExclude ? std::string(", \"batchExclude\": true") : "") +
+        (o.occluderExclude ? std::string(", \"occluderExclude\": true") : "") +
+        (!o.occlusionCull ? std::string(", \"occlusionCull\": false") : "") +
         // rendered into the dynamic env map; default (false) stays implicit
         (o.reflected ? std::string(", \"reflected\": true") : "") +
+        (o.reflectionProxy ? std::string(", \"reflectionProxy\": true") : "") +
         (!o.castShadow ? std::string(", \"castShadow\": false") : "") +
         (!o.bakedLighting ? std::string(", \"bakedLighting\": false") : "") +
         (o.dynamicLighting ? std::string(", \"dynamicLighting\": true") : "") +
@@ -760,6 +800,14 @@ std::string objectJson(const SceneObject& o) {
         // is what every file written before this key meant, so it stays out
         (o.shadowMode != 0
              ? ", \"shadowMode\": " + std::to_string(o.shadowMode)
+             : "") +
+        (o.blobShadowTexture.empty()
+             ? ""
+             : ", \"blobShadowTexture\": \"" +
+                   jsonEscape(o.blobShadowTexture) + "\"") +
+        (o.blobShadowSize[0] > 0.0f && o.blobShadowSize[1] > 0.0f
+             ? ", \"blobShadowSize\": [" + fmtFloat(o.blobShadowSize[0]) +
+                   ", " + fmtFloat(o.blobShadowSize[1]) + "]"
              : "") +
         (o.modelPath.empty() ? "" : ", \"model\": \"" + jsonEscape(o.modelPath) + "\"") +
         (o.materialPath.empty() ? ""
@@ -872,6 +920,14 @@ std::string objectJson(const SceneObject& o) {
                     ", \"opacity\": " + fmtFloat(o.emitterOpacity) +
                     ", \"dieOnGround\": " + (o.emitterDieOnGround ? "true" : "false");
         }
+        // Both omitted at their default, so an emitter authored before the
+        // particle library resaves byte for byte.
+        if (o.emitterAdditive) json += ", \"additive\": true";
+        if (!o.particleEffect.empty())
+            json += ", \"effect\": \"" + jsonEscape(o.particleEffect) + "\"";
+        if (o.emitterFrames > 1)
+            json += ", \"frames\": " + std::to_string(o.emitterFrames) +
+                    ", \"fps\": " + fmtFloat(o.emitterFps);
         json += " }";
     }
     if (o.type == PrimitiveType::SoundEmitter) {
@@ -950,6 +1006,13 @@ std::string objectJson(const SceneObject& o) {
             json += (i ? ", \"" : "\"") + o.portalObjects[i] + "\"";
         json += "] }";
     }
+    if (o.type == PrimitiveType::Vehicle) {
+        json += ", \"vehicle\": { \"def\": \"" + jsonEscape(o.vehicleDef) +
+                "\", \"driveable\": " + (o.vehicleDriveable ? "true" : "false");
+        if (!o.vehicleRoute.empty())
+            json += ", \"route\": \"" + jsonEscape(o.vehicleRoute) + "\"";
+        json += " }";
+    }
     if (o.type == PrimitiveType::Scroller) {
         json += ", \"scroller\": { \"speed\": " + fmtFloat(o.scrollSpeed) +
                 ", \"ahead\": " + fmtFloat(o.scrollAhead) +
@@ -1012,7 +1075,37 @@ std::string objectJson(const SceneObject& o) {
         json += "]";
     }
     if (!o.flowGraph.empty()) json += ", \"flowGraph\": " + flowGraphJson(o.flowGraph);
-    if (!o.procGraph.empty()) json += ", \"procGraph\": " + procGraphJson(o.procGraph);
+    if (!o.procGraph.empty() || o.procGraph.frozen || o.procGraph.bakedHash)
+        json += ", \"procGraph\": " + procGraphJson(o.procGraph);
+    if (!o.roadPoints.empty()) {
+        json += ", \"roadPoints\": [";
+        for (size_t k = 0; k < o.roadPoints.size(); ++k)
+            json += (k ? ", " : "") + fmtFloat(o.roadPoints[k]);
+        json += "], \"roadWidth\": " + fmtFloat(o.roadWidth);
+        if (o.roadSampleStep != 1.0f)
+            json += ", \"roadSampleStep\": " + fmtFloat(o.roadSampleStep);
+        if (o.roadGrip != 1.0f)
+            json += ", \"roadGrip\": " + fmtFloat(o.roadGrip);
+        if (o.roadRank != 1)
+            json += ", \"roadRank\": " + std::to_string(o.roadRank);
+        if (o.roadSpill != 1.5f)
+            json += ", \"roadSpill\": " + fmtFloat(o.roadSpill);
+        if (o.roadEdgeFade != 0.0f)
+            json += ", \"roadEdgeFade\": " + fmtFloat(o.roadEdgeFade);
+        bool anyLift = false;
+        for (float h : o.roadHeights) anyLift |= h != 0.0f;
+        if (anyLift) {
+            json += ", \"roadHeights\": [";
+            for (size_t k = 0; k < o.roadHeights.size(); ++k)
+                json += (k ? ", " : "") + fmtFloat(o.roadHeights[k]);
+            json += "]";
+        }
+        if (!o.roadTexture.empty())
+            json += ", \"roadTexture\": \"" + jsonEscape(o.roadTexture) + "\"";
+        if (!o.roadIntersectionTexture.empty())
+            json += ", \"roadIntersectionTexture\": \"" +
+                    jsonEscape(o.roadIntersectionTexture) + "\"";
+    }
     if (!o.procSource.empty())
         json += ", \"procSource\": \"" + jsonEscape(o.procSource) + "\"";
     if (!o.editorGroup.empty())
@@ -1083,6 +1176,50 @@ static void readLayersArray(const json::Value& arr, std::vector<SceneLayer>& lay
     }
 }
 
+// "roadJunctions": [ ... ] - a scene's per-junction road overrides
+// (docs/roads.md, "Junction overrides"; format v79). Omitted when empty, and
+// each field omitted at its Auto value, so a scene without one resaves byte
+// for byte. Shared by the project file and the history file.
+static void writeRoadJunctionsArray(std::ostream& json,
+                                    const std::vector<roadgen::JunctionOverride>& js) {
+    json << "[";
+    for (size_t i = 0; i < js.size(); ++i) {
+        const roadgen::JunctionOverride& j = js[i];
+        json << (i ? ", " : "") << "{ \"roadA\": \"" << jsonEscape(j.roadA)
+             << "\", \"roadB\": \"" << jsonEscape(j.roadB) << "\", \"x\": "
+             << fmtFloat(j.x) << ", \"z\": " << fmtFloat(j.z);
+        if (j.winner != roadgen::kWinnerAuto) json << ", \"winner\": " << j.winner;
+        if (!j.material.empty())
+            json << ", \"material\": \"" << jsonEscape(j.material) << "\"";
+        if (j.grip > 0.0f) json << ", \"grip\": " << fmtFloat(j.grip);
+        json << " }";
+    }
+    json << "]";
+}
+
+static void readRoadJunctionsArray(const json::Value& arr,
+                                   std::vector<roadgen::JunctionOverride>& out) {
+    out.clear();
+    if (arr.type != json::Value::Type::Array) return;
+    for (const auto& jj : arr.arr) {
+        roadgen::JunctionOverride j;
+        if (const auto* v = jj.find("roadA")) j.roadA = v->stringOr("");
+        if (const auto* v = jj.find("roadB")) j.roadB = v->stringOr("");
+        if (const auto* v = jj.find("x")) j.x = (float)v->numberOr(0.0);
+        if (const auto* v = jj.find("z")) j.z = (float)v->numberOr(0.0);
+        if (const auto* v = jj.find("winner")) j.winner = (int)v->numberOr(0.0);
+        if (j.winner < roadgen::kWinnerAuto || j.winner > roadgen::kWinnerRoadB)
+            j.winner = roadgen::kWinnerAuto;
+        if (const auto* v = jj.find("material")) j.material = v->stringOr("");
+        if (const auto* v = jj.find("grip")) {
+            j.grip = (float)v->numberOr(0.0);
+            if (j.grip <= 0.0f) j.grip = 0.0f;
+            else j.grip = std::clamp(j.grip, 0.1f, 1.5f);
+        }
+        if (!j.roadA.empty() && !j.roadB.empty()) out.push_back(j);
+    }
+}
+
 // Paintable terrain layers (docs/terrain-painting.md). The per-texel splat
 // weights live in the terrain-<scene>.splat sidecar; only the layer list (a
 // name + .mtl material each) travels in the project / history JSON.
@@ -1094,6 +1231,7 @@ static void writeTerrainLayersArray(std::ostream& json,
              << "\", \"material\": \"" << layers[i].material << "\", \"scale\": "
              << fmtFloat(layers[i].scale);
         if (layers[i].stochastic) json << ", \"stochastic\": true";
+        if (layers[i].grip != 1.0f) json << ", \"grip\": " << fmtFloat(layers[i].grip);
         json << " }";
     }
     json << "]";
@@ -1110,6 +1248,11 @@ static void readTerrainLayersArray(const json::Value& arr,
         if (const auto* v = jl.find("scale")) l.scale = (float)v->numberOr(1.0);
         if (l.scale <= 0.0f) l.scale = 1.0f;
         if (const auto* v = jl.find("stochastic")) l.stochastic = v->boolOr(false);
+        if (const auto* v = jl.find("grip")) {
+            l.grip = (float)v->numberOr(1.0);
+            if (l.grip < 0.1f) l.grip = 0.1f;
+            if (l.grip > 1.5f) l.grip = 1.5f;
+        }
         layers.push_back(l);
     }
 }
@@ -1126,6 +1269,10 @@ static void writeSceneVisuals(std::ostream& j, const SceneData& sc) {
       << fmtFloat(s.brightness) << " }, \"sky\": { \"color\": " << fmtVec3(s.skyColor)
       << ", \"topColor\": " << fmtVec3(s.skyTopColor) << ", \"dome\": "
       << (s.skyDome ? "true" : "false") << ", \"zenithSize\": " << fmtFloat(s.zenithSize)
+      << (s.skyTexture.empty() ? std::string()
+                               : ", \"texture\": \"" + jsonEscape(s.skyTexture) + "\"")
+      << (s.skyTextureYaw != 0.0f ? ", \"textureYaw\": " + fmtFloat(s.skyTextureYaw)
+                                  : std::string())
       << " }, \"clipping\": \"" << s.clipping
       << "\", \"terrainMaterial\": \"" << s.terrainMaterial
       << "\", \"postfx\": { \"bloom\": " << fmtFloat(s.bloom)
@@ -1195,6 +1342,9 @@ static void readSceneVisuals(const json::Value& js, SceneData& sc) {
                 if (const auto* v = sk->find("dome")) s.skyDome = v->boolOr(true);
                 if (const auto* v = sk->find("zenithSize"))
                     s.zenithSize = (float)v->numberOr(0.5);
+                if (const auto* v = sk->find("texture")) s.skyTexture = v->stringOr("");
+                if (const auto* v = sk->find("textureYaw"))
+                    s.skyTextureYaw = (float)v->numberOr(0.0);
             }
             if (const auto* v = st->find("clipping")) {
                 // "vu1" (default) = precise per-package classification +
@@ -1367,6 +1517,8 @@ ProjectSettings resolvedSettings(const Project& p, const SceneData& s) {
         for (int i = 0; i < 3; ++i) r.skyColor[i] = o.skyColor[i], r.skyTopColor[i] = o.skyTopColor[i];
         r.skyDome = o.skyDome;
         r.zenithSize = o.zenithSize;
+        r.skyTexture = o.skyTexture;
+        r.skyTextureYaw = o.skyTextureYaw;
     }
     if (s.overrides.clipping) r.clipping = o.clipping;
     if (s.overrides.terrainMat) r.terrainMaterial = o.terrainMaterial;
@@ -1421,6 +1573,8 @@ ProjectSettings resolvedSettings(const Project& p, const SceneData& s) {
         }
         r.skyDome = a.skyDome;
         r.zenithSize = a.zenithSize;
+        r.skyTexture = a.skyTexture;
+        r.skyTextureYaw = a.skyTextureYaw;
         r.ambient = a.ambient;
         r.diffuse = a.diffuse;
         r.brightness = a.brightness;
@@ -1532,6 +1686,50 @@ TerrainMaterial resolveTerrainMaterial(const Project& p, const std::string& matR
     return out;
 }
 
+std::string resolveRoadTexture(const std::string& projectDir,
+                               const std::string& surfaceRel) {
+    if (surfaceRel.empty()) return {};
+    std::string ext = fs::path(surfaceRel).extension().string();
+    for (char& c : ext) c = (char)std::tolower((unsigned char)c);
+    if (ext == ".mtl") {
+        std::vector<objparser::MtlMaterial> mats;
+        if (!objparser::loadMtl((fs::path(projectDir) / surfaceRel).string(), mats) ||
+            mats.empty() || mats.front().texture.empty())
+            return {};
+        return (fs::path(surfaceRel).parent_path() / mats.front().texture)
+            .lexically_normal()
+            .generic_string();
+    }
+    return surfaceRel;
+}
+
+std::string resolveRoadTexture(const Project& p, const std::string& surfaceRel) {
+    return resolveRoadTexture(p.dir, surfaceRel);
+}
+
+std::vector<roadgen::CrossingRoad> crossingRoads(const std::vector<SceneObject>& objects,
+                                                 std::vector<int>* objectIndex) {
+    std::vector<roadgen::CrossingRoad> out;
+    if (objectIndex) objectIndex->clear();
+    for (size_t i = 0; i < objects.size(); ++i) {
+        const SceneObject& o = objects[i];
+        if (o.type != PrimitiveType::Road || o.roadPoints.size() < 4) continue;
+        roadgen::CrossingRoad r;
+        r.id = o.id;
+        r.points = o.roadPoints;
+        r.width = o.roadWidth;
+        r.sampleStep = o.roadSampleStep;
+        r.grip = o.roadGrip;
+        r.spill = o.roadSpill;
+        r.edgeFade = o.roadEdgeFade;
+        r.rank = o.roadRank;
+        r.intersection = o.roadIntersectionTexture;
+        out.push_back(std::move(r));
+        if (objectIndex) objectIndex->push_back((int)i);
+    }
+    return out;
+}
+
 // --- Manifest section writers -------------------------------------------------
 // Each writes its group of top-level .tyra keys WITHOUT the leading ",\n  "
 // separator (the composers below add it), preserving the exact historical byte
@@ -1558,8 +1756,8 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
          << (p.settings.palFullHeight ? "    \"palFullHeight\": true,\n" : "")
          // Written only when set away from the default, so an existing
          // project's manifest does not gain two keys just by being resaved.
-         << (p.settings.colorDepth == "16bit"
-                 ? "    \"colorDepth\": \"16bit\",\n"
+         << (p.settings.colorDepth != "32bit"
+                 ? "    \"colorDepth\": \"" + p.settings.colorDepth + "\",\n"
                  : "")
          << (p.settings.dither ? "" : "    \"dither\": false,\n")
          << (p.settings.tripleBuffering ? "    \"tripleBuffering\": true,\n" : "")
@@ -1591,6 +1789,11 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
          << (p.settings.showCollision ? "true" : "false") << ",\n"
          << "    \"liveLink\": " << (p.settings.liveLink ? "true" : "false")
          << ",\n"
+         << "    \"liveLinkPollFrames\": " << p.settings.liveLinkPollFrames << ",\n"
+         << "    \"liveLogicPollFrames\": " << p.settings.liveLogicPollFrames << ",\n"
+         << "    \"liveDebugPollFrames\": " << p.settings.liveDebugPollFrames << ",\n"
+         << "    \"liveDebugSnapshotFrames\": " << p.settings.liveDebugSnapshotFrames << ",\n"
+         << "    \"timeMachineFrames\": " << p.settings.timeMachineFrames << ",\n"
          << "    \"liveDebug\": " << (p.settings.liveDebug ? "true" : "false")
          << ",\n"
          << "    \"eeCrashHandler\": "
@@ -1619,6 +1822,19 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
          << "    \"animPlayFps\": " << fmtFloat(p.settings.animPlayFps) << ",\n"
          << "    \"staticBatching\": "
          << (p.settings.staticBatching ? "true" : "false") << ",\n"
+         // Written only when not the default, so a project that never
+         // sets it resaves byte for byte (format v64).
+         << (p.settings.interleavePasses != "auto"
+                 ? "    \"interleavePasses\": \"" +
+                       p.settings.interleavePasses + "\",\n"
+                 : std::string())
+         // Also written only when not the default (format v66).
+         << (p.settings.vehicleShineBudget != 2
+                 ? "    \"vehicleShineBudget\": " +
+                       std::to_string(p.settings.vehicleShineBudget) + ",\n"
+                 : std::string())
+         << "    \"occlusionCulling\": "
+         << (p.settings.occlusionCulling ? "true" : "false") << ",\n"
          << "    \"envProbeReflected\": "
          << (p.settings.envProbeReflected ? "true" : "false") << ",\n"
          << "    \"navCellSize\": " << fmtFloat(p.settings.navCellSize) << ",\n"
@@ -1632,6 +1848,17 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
          << ",\n"
          << "    \"terrainLodDistance\": "
          << fmtFloat(p.settings.terrainLodDistance) << ",\n"
+         << "    \"reflectionReuseBudget\": "
+         << fmtFloat(p.settings.reflectionReuseBudget) << ",\n"
+         << (p.settings.reflectionGroundRadius > 0.0f
+                 ? "    \"reflectionGroundRadius\": " +
+                       fmtFloat(p.settings.reflectionGroundRadius) + ",\n"
+                 : std::string())
+         << (p.settings.reflectionGroundProxy
+                 ? "    \"reflectionGroundProxy\": true,\n"
+                 : "")
+         << (p.settings.reflectionScenery ? "    \"reflectionScenery\": true,\n"
+                                          : "")
          << (p.settings.flashShadowVolumes
                  ? "    \"flashShadowVolumes\": true,\n"
                  : "")
@@ -1646,6 +1873,12 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
          << "    \"skyTopColor\": " << fmtVec3(p.settings.skyTopColor) << ",\n"
          << "    \"skyDome\": " << (p.settings.skyDome ? "true" : "false") << ",\n"
          << "    \"zenithSize\": " << fmtFloat(p.settings.zenithSize) << ",\n"
+         << (p.settings.skyTexture.empty()
+                 ? std::string()
+                 : "    \"skyTexture\": \"" + jsonEscape(p.settings.skyTexture) + "\",\n")
+         << (p.settings.skyTextureYaw != 0.0f
+                 ? "    \"skyTextureYaw\": " + fmtFloat(p.settings.skyTextureYaw) + ",\n"
+                 : std::string())
          << "    \"eyeHeight\": " << fmtFloat(p.settings.eyeHeight) << ",\n"
          << "    \"walkSpeed\": " << fmtFloat(p.settings.walkSpeed) << ",\n"
          // Written only when set (0 = the walk speed is the top speed), so a
@@ -1732,6 +1965,10 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
          << (p.settings.bakedShadowAutoBake
                  ? "    \"bakedShadowAutoBake\": true,\n"
                  : "")
+         << (p.settings.bakedShadowGround != 0
+                 ? "    \"bakedShadowGround\": " +
+                       std::to_string(p.settings.bakedShadowGround) + ",\n"
+                 : "")
          << "    \"terrainMaterial\": \"" << p.settings.terrainMaterial << "\",\n"
          << "    \"bloom\": " << fmtFloat(p.settings.bloom) << ",\n"
          << "    \"bloomThreshold\": " << fmtFloat(p.settings.bloomThreshold)
@@ -1813,6 +2050,10 @@ static void writeScenesTable(std::ostream& json, const Project& p) {
         if (!sc.terrainLayers.empty()) {
             json << ",\n      \"terrainLayers\": ";
             writeTerrainLayersArray(json, sc.terrainLayers);
+        }
+        if (!sc.roadJunctions.empty()) {
+            json << ",\n      \"roadJunctions\": ";
+            writeRoadJunctionsArray(json, sc.roadJunctions);
         }
         if (sc.terrainBaseStochastic)
             json << ",\n      \"terrainBaseStochastic\": true";
@@ -2135,6 +2376,22 @@ static void writeModelUnitsSection(std::ostream& json, const Project& p) {
     json << " }";
 }
 
+// Conditional: no model with its own collision box = no key, so an untouched
+// project's .tyra does not change shape. [mnx, mny, mnz, mxx, mxy, mxz].
+static void writeModelCollisionSection(std::ostream& json, const Project& p) {
+    if (p.modelCollision.empty()) return;
+    json << "\"modelCollision\": {";
+    bool first = true;
+    for (const auto& [asset, b] : p.modelCollision) {
+        json << (first ? " " : ", ") << "\"" << jsonEscape(asset) << "\": ["
+             << fmtFloat(b.mn[0]) << ", " << fmtFloat(b.mn[1]) << ", "
+             << fmtFloat(b.mn[2]) << ", " << fmtFloat(b.mx[0]) << ", "
+             << fmtFloat(b.mx[1]) << ", " << fmtFloat(b.mx[2]) << "]";
+        first = false;
+    }
+    json << " }";
+}
+
 static void writeSaveDataSection(std::ostream& json, const Project& p) {
     json << "\"saveValues\": [";
     for (size_t i = 0; i < p.saveValues.size(); ++i)
@@ -2198,6 +2455,12 @@ static void writeAmbienceSection(std::ostream& json, const Project& p) {
              << ", \"skyTopColor\": " << fmtVec3(a.skyTopColor)
              << ", \"skyDome\": " << (a.skyDome ? "true" : "false")
              << ", \"zenithSize\": " << fmtFloat(a.zenithSize)
+             << (a.skyTexture.empty()
+                     ? std::string()
+                     : ", \"skyTexture\": \"" + jsonEscape(a.skyTexture) + "\"")
+             << (a.skyTextureYaw != 0.0f
+                     ? ", \"skyTextureYaw\": " + fmtFloat(a.skyTextureYaw)
+                     : std::string())
              << ", \"lightDir\": " << fmtVec3(a.lightDir)
              << ", \"ambient\": " << fmtFloat(a.ambient)
              << ", \"diffuse\": " << fmtFloat(a.diffuse)
@@ -2559,12 +2822,12 @@ static void writeMenusSection(std::ostream& json, const Project& p) {
 // whose .tyra lost the key would silently fall back to the seeded defaults
 // instead of the user's bindings.
 static void writeInputSection(std::ostream& json, const Project& p) {
-    // Role -> stable json name. Index = InputAction::Role.
-    static const char* kRoles[] = {
-        "",        "jump",      "use",       "throw",     "sprint",
-        "fly-up",  "fly-down",  "confirm",   "back",      "menu",
-        "alt",     "menu-up",   "menu-down", "menu-left", "menu-right",
-        "move-forward", "move-back", "move-left", "move-right"};
+    // The role's json name comes from inputRoleName - the READER's own table -
+    // never from a local copy. The writer used to carry its own 19-entry
+    // array, and the first enum growth past it (the six vehicle roles) walked
+    // off the end: kRoles[19] was a garbage pointer, the file got a raw
+    // control character inside an unterminated string, and every project
+    // with a vehicle action saved as MALFORMED. One table, both directions.
     json << "\"input\": {\n    \"activePreset\": " << p.input.activePreset
          << ",\n    \"allowRebind\": "
          << (p.input.allowRebind ? "true" : "false") << ",\n    \"actions\": [";
@@ -2574,7 +2837,7 @@ static void writeInputSection(std::ostream& json, const Project& p) {
         json << (i ? ",\n      " : "\n      ") << "{ \"name\": \""
              << jsonEscape(a.name) << "\", \"label\": \"" << jsonEscape(a.label)
              << "\"";
-        if (r != 0) json << ", \"role\": \"" << kRoles[r] << "\"";
+        if (r != 0) json << ", \"role\": \"" << inputRoleName(r) << "\"";
         if (!a.rebindable) json << ", \"rebindable\": false";
         json << " }";
     }
@@ -2700,6 +2963,496 @@ static void readPrefabsSection(const json::Value& root, Project& out) {
         for (SceneObject& o : pf.objects) o.id.clear();
         out.prefabs.push_back(std::move(pf));
     }
+}
+
+// The particle library (Tools > Particle Editor, docs/particles.md).
+// Conditional like the prefabs: a project with no effects writes nothing.
+static std::string particleF3(const float* c) {
+    return "[" + fmtFloat(c[0]) + ", " + fmtFloat(c[1]) + ", " + fmtFloat(c[2]) + "]";
+}
+
+// One layer's fields (the main layer's are the effect object's own).
+static void writeParticleLayer(std::ostream& json, const ParticleLayer& e, bool extra) {
+    if (extra)
+        json << "\"label\": \"" << jsonEscape(e.label) << "\", \"offset\": "
+             << particleF3(e.offset) << ", \"area\": " << particleF3(e.area) << ", ";
+    json << "\"kind\": " << e.kind << ", \"count\": " << e.count
+         << ", \"size\": " << fmtFloat(e.size) << ", \"color\": " << particleF3(e.color)
+         << ", \"speed\": " << fmtFloat(e.speed) << ", \"spread\": " << fmtFloat(e.spread)
+         << ", \"gravity\": " << fmtFloat(e.gravity) << ", \"weight\": " << fmtFloat(e.weight)
+         << ", \"life\": " << fmtFloat(e.life) << ", \"grow\": " << fmtFloat(e.grow)
+         << ", \"opacity\": " << fmtFloat(e.opacity)
+         << ", \"dieOnGround\": " << (e.dieOnGround ? "true" : "false")
+         << ", \"additive\": " << (e.additive ? "true" : "false");
+    if (!e.materialPath.empty())
+        json << ", \"material\": \"" << jsonEscape(e.materialPath) << "\"";
+    if (e.texGen.kind != 0) {
+        const ParticleTexGen& g = e.texGen;
+        json << ", \"texGen\": { \"kind\": " << g.kind << ", \"size\": " << g.size
+             << ", \"seed\": " << g.seed << ", \"softness\": " << fmtFloat(g.softness)
+             << ", \"detail\": " << fmtFloat(g.detail) << ", \"scale\": " << fmtFloat(g.scale)
+             << ", \"turbulence\": " << fmtFloat(g.turbulence)
+             << ", \"heat\": " << fmtFloat(g.heat) << ", \"color\": " << particleF3(g.color);
+        if (g.frames > 1)
+            json << ", \"frames\": " << g.frames << ", \"fps\": " << fmtFloat(g.fps);
+        json << " }";
+    }
+}
+
+// The particle library (Tools > Particle Editor, docs/particles.md).
+// Conditional like the prefabs: a project with no effects writes nothing.
+static void writeParticlesSection(std::ostream& json, const Project& p) {
+    if (p.particleEffects.empty()) return;
+    json << "\"particleEffects\": [";
+    for (size_t i = 0; i < p.particleEffects.size(); ++i) {
+        const ParticleEffect& e = p.particleEffects[i];
+        json << (i ? ",\n    " : "\n    ") << "{ \"id\": \"" << jsonEscape(e.id)
+             << "\", \"name\": \"" << jsonEscape(e.name) << "\", ";
+        writeParticleLayer(json, e, false);
+        if (!e.layers.empty()) {
+            json << ", \"layers\": [";
+            for (size_t k = 0; k < e.layers.size(); ++k) {
+                json << (k ? ",\n      " : "\n      ") << "{ ";
+                writeParticleLayer(json, e.layers[k], true);
+                json << " }";
+            }
+            json << "\n    ]";
+        }
+        json << " }";
+    }
+    json << "\n  ]";
+}
+
+static void readParticleLayer(const json::Value& e, ParticleLayer& fx) {
+    auto rd3 = [](const json::Value* v, float* c) {
+        if (!v || v->type != json::Value::Type::Array) return;
+        for (size_t k = 0; k < 3 && k < v->arr.size(); ++k)
+            c[k] = (float)v->arr[k].numberOr(c[k]);
+    };
+    auto num = [](const json::Value& o, const char* key, float def) {
+        const json::Value* v = o.find(key);
+        return v ? (float)v->numberOr(def) : def;
+    };
+    if (const json::Value* v = e.find("label")) fx.label = v->stringOr("");
+    rd3(e.find("offset"), fx.offset);
+    rd3(e.find("area"), fx.area);
+    fx.kind = (int)num(e, "kind", 1);
+    if (fx.kind < 0 || fx.kind > 5) fx.kind = 1;
+    fx.count = (int)num(e, "count", 24);
+    fx.count = fx.count < 1 ? 1 : (fx.count > 256 ? 256 : fx.count);
+    fx.size = num(e, "size", 0.5f);
+    rd3(e.find("color"), fx.color);
+    fx.speed = num(e, "speed", 3.0f);
+    fx.spread = num(e, "spread", 20.0f);
+    fx.gravity = num(e, "gravity", 9.8f);
+    fx.weight = std::max(0.05f, num(e, "weight", 1.0f));
+    fx.life = std::max(0.1f, num(e, "life", 1.5f));
+    fx.grow = num(e, "grow", 1.0f);
+    fx.opacity = std::min(1.0f, std::max(0.0f, num(e, "opacity", 0.6f)));
+    if (const json::Value* v = e.find("dieOnGround")) fx.dieOnGround = v->boolOr(false);
+    if (const json::Value* v = e.find("additive")) fx.additive = v->boolOr(false);
+    if (const json::Value* v = e.find("material")) fx.materialPath = v->stringOr("");
+    if (const json::Value* g = e.find("texGen")) {
+        ParticleTexGen& t = fx.texGen;
+        t.kind = (int)num(*g, "kind", 0);
+        if (t.kind < 0 || t.kind > 3) t.kind = 0;
+        t.size = (int)num(*g, "size", 64);
+        if (t.size != 32 && t.size != 64 && t.size != 128) t.size = 64;
+        t.seed = (int)num(*g, "seed", 1);
+        t.softness = num(*g, "softness", t.softness);
+        t.detail = num(*g, "detail", t.detail);
+        t.scale = num(*g, "scale", t.scale);
+        t.turbulence = num(*g, "turbulence", t.turbulence);
+        t.heat = num(*g, "heat", t.heat);
+        rd3(g->find("color"), t.color);
+        t.frames = (int)num(*g, "frames", 1);
+        if (t.frames != 2 && t.frames != 4 && t.frames != 8) t.frames = 1;
+        t.fps = std::min(60.0f, std::max(1.0f, num(*g, "fps", 12.0f)));
+    }
+}
+
+static void readParticlesSection(const json::Value& root, Project& out) {
+    out.particleEffects.clear();
+    const json::Value* arr = root.find("particleEffects");
+    if (!arr || arr->type != json::Value::Type::Array) return;
+    for (const json::Value& e : arr->arr) {
+        ParticleEffect fx;
+        if (const json::Value* v = e.find("id")) fx.id = v->stringOr("");
+        if (const json::Value* v = e.find("name")) fx.name = v->stringOr("");
+        if (fx.name.empty()) continue;
+        if (fx.id.empty()) fx.id = project::newObjectId();
+        readParticleLayer(e, fx);
+        fx.label.clear();
+        for (int k = 0; k < 3; ++k) fx.offset[k] = 0.0f, fx.area[k] = 1.0f;
+        if (const json::Value* ls = e.find("layers"))
+            if (ls->type == json::Value::Type::Array)
+                for (const json::Value& le : ls->arr) {
+                    ParticleLayer L;
+                    readParticleLayer(le, L);
+                    fx.layers.push_back(std::move(L));
+                }
+        out.particleEffects.push_back(std::move(fx));
+    }
+}
+
+// Vehicle definitions (Tools > Vehicle Editor, docs/vehicles.md). Conditional:
+// a project with no vehicles emits nothing, so every existing .tyra resaves
+// byte for byte.
+//
+// The drive spec goes out through vehiclesim::specFields, which is the ONE list
+// of what a spec contains - so a tunable added there is saved and loaded by
+// existing here, and cannot be the field somebody forgot to write.
+static void writeVehicleArray(std::ostream& json, const std::vector<VehicleDef>& defs,
+                              const char* key) {
+    json << "\"" << key << "\": [";
+    for (size_t i = 0; i < defs.size(); ++i) {
+        const VehicleDef& v = defs[i];
+        json << (i ? ",\n    " : "\n    ") << "{ \"id\": \"" << jsonEscape(v.id)
+             << "\", \"name\": \"" << jsonEscape(v.name) << "\"";
+        if (!v.notes.empty()) json << ", \"notes\": \"" << jsonEscape(v.notes) << "\"";
+        json << ", \"inheritDefaults\": " << (v.inheritDefaults ? "true" : "false");
+        if (!v.tuningOverrides.empty()) {
+            json << ", \"tuningOverrides\": [";
+            for (size_t k = 0; k < v.tuningOverrides.size(); ++k)
+                json << (k ? ", " : "") << "\"" << jsonEscape(v.tuningOverrides[k]) << "\"";
+            json << "]";
+        }
+        if (!v.modelPath.empty())
+            json << ", \"model\": \"" << jsonEscape(v.modelPath) << "\"";
+        json << ", \"bodyTris\": " << v.bodyTriBudget
+             << ", \"wheelTris\": " << v.wheelTriBudget;
+        if (!v.mergeUntextured) json << ", \"merge\": false";
+        if (v.paintEnabled) {
+            json << ", \"paintColor\": [" << fmtFloat(v.paintColor[0]) << ", "
+                 << fmtFloat(v.paintColor[1]) << ", " << fmtFloat(v.paintColor[2]) << "]";
+        }
+        if (!v.paintMask.empty())
+            json << ", \"paintMask\": \"" << jsonEscape(v.paintMask) << "\"";
+        if (v.bodyShine != 0.0f)
+            json << ", \"bodyShine\": " << fmtFloat(v.bodyShine);
+        if (!v.bodyReflMap.empty())
+            json << ", \"bodyReflMap\": \"" << jsonEscape(v.bodyReflMap) << "\"";
+        if (v.flipFront) json << ", \"flipFront\": true";
+        json << ", \"cam\": [" << fmtFloat(v.camDist) << ", " << fmtFloat(v.camHeight)
+             << ", " << fmtFloat(v.camPitch) << "]";
+        json << ", \"exit\": [" << fmtFloat(v.exitOffset[0]) << ", "
+             << fmtFloat(v.exitOffset[1]) << ", " << fmtFloat(v.exitOffset[2]) << "]";
+        // The engine note. Conditional on there BEING one, so a definition with
+        // no sound resaves exactly as it did before the feature existed.
+        // Written when the switch is on OR any value differs from its
+        // default: unticking "Show a HUD" and saving used to silently reset
+        // an authored hudSpeedScale to 3.6 on the next load, because the
+        // whole block was gated on the switch alone. An untouched definition
+        // still writes nothing.
+        if (v.showHud || !v.hudFont.empty() || v.hudSpeedScale != 3.6f)
+            json << ", \"hud\": " << (v.showHud ? "true" : "false")
+                 << ", \"hudFont\": \"" << jsonEscape(v.hudFont)
+                 << "\", \"hudSpeedScale\": " << fmtFloat(v.hudSpeedScale);
+        const bool engineTuned = v.enginePitchIdle != 0.75f ||
+                                 v.enginePitchRedline != 2.4f ||
+                                 v.engineVolume != 70.0f;
+        if (!v.engineSound.empty() || engineTuned) {
+            if (!v.engineSound.empty())
+                json << ", \"engineSound\": \"" << jsonEscape(v.engineSound) << "\"";
+            json << ", \"enginePitch\": [" << fmtFloat(v.enginePitchIdle) << ", "
+                 << fmtFloat(v.enginePitchRedline) << "], \"engineVolume\": "
+                 << fmtFloat(v.engineVolume);
+        }
+        // The sound pack, each key only when authored - an untouched
+        // definition still writes nothing (the byte-identity rule).
+        if (!v.engineHighSound.empty())
+            json << ", \"engineHighSound\": \"" << jsonEscape(v.engineHighSound)
+                 << "\"";
+        if (!v.engineHighEnabled) json << ", \"engineHighEnabled\": false";
+        if (v.engineHighStart != 0.55f || v.engineHighPitchStart != 0.85f ||
+            v.engineHighPitchEnd != 1.7f)
+            json << ", \"engineHighCurve\": [" << fmtFloat(v.engineHighStart)
+                 << ", " << fmtFloat(v.engineHighPitchStart) << ", "
+                 << fmtFloat(v.engineHighPitchEnd) << "]";
+        if (!v.screechSound.empty() || v.screechVolume != 80.0f)
+            json << ", \"screechSound\": \"" << jsonEscape(v.screechSound)
+                 << "\", \"screechVolume\": " << fmtFloat(v.screechVolume);
+        if (!v.shiftSound.empty() || v.shiftVolume != 80.0f)
+            json << ", \"shiftSound\": \"" << jsonEscape(v.shiftSound)
+                 << "\", \"shiftVolume\": " << fmtFloat(v.shiftVolume);
+        if (v.headlights) json << ", \"headlights\": true";
+        if (!v.skidMaterial.empty())
+            json << ", \"skidMaterial\": \"" << jsonEscape(v.skidMaterial) << "\"";
+        if (!v.smokeMaterial.empty())
+            json << ", \"smokeMaterial\": \"" << jsonEscape(v.smokeMaterial) << "\"";
+        if (!v.smokeEffect.empty())
+            json << ", \"smokeEffect\": \"" << jsonEscape(v.smokeEffect) << "\"";
+        if (v.farDistance != 40.0f)
+            json << ", \"farDistance\": " << fmtFloat(v.farDistance);
+        if (!v.farModel.empty())
+            json << ", \"farModel\": \"" << jsonEscape(v.farModel) << "\"";
+        if (v.trafficDistance != 0.0f)
+            json << ", \"trafficDistance\": " << fmtFloat(v.trafficDistance);
+        if (v.farPart >= 0)
+            json << ", \"farPart\": " << v.farPart << ", \"farHideMask\": " << v.farHideMask;
+        if (!v.pieces.empty()) {
+            json << ", \"pieces\": [";
+            for (size_t k = 0; k < v.pieces.size(); ++k)
+                json << (k ? ", " : "") << "[" << v.pieces[k].part << ", "
+                     << v.pieces[k].kind << ", " << v.pieces[k].first << ", "
+                     << v.pieces[k].count << "]";
+            json << "]";
+        }
+        if (!v.lampGlows.empty()) {
+            json << ", \"lampGlows\": [";
+            for (size_t k = 0; k < v.lampGlows.size(); ++k) {
+                json << (k ? ", " : "") << "[";
+                for (int a = 0; a < 7; ++a)
+                    json << (a ? ", " : "") << fmtFloat(v.lampGlows[k][(size_t)a]);
+                json << "]";
+            }
+            json << "]";
+        }
+        if (!v.exhausts.empty()) {
+            json << ", \"exhausts\": [";
+            for (size_t k = 0; k < v.exhausts.size(); ++k) {
+                json << (k ? ", " : "") << "[";
+                for (int a = 0; a < 6; ++a)
+                    json << (a ? ", " : "") << fmtFloat(v.exhausts[k][(size_t)a]);
+                json << "]";
+            }
+            json << "]";
+        }
+        if (!v.envLimits.empty()) {
+            json << ", \"envLimits\": [";
+            for (size_t k = 0; k < v.envLimits.size(); ++k)
+                json << (k ? ", " : "") << "[" << v.envLimits[k].first << ", "
+                     << v.envLimits[k].second << "]";
+            json << "]";
+        }
+        if (!v.fastWheel.empty())
+            json << ", \"fastWheel\": \"" << jsonEscape(v.fastWheel)
+                 << "\", \"fastWheelTris\": " << v.fastWheelTriBudget;
+        if (v.lampRear[3] > 0.0f)
+            json << ", \"lampRear\": [" << fmtFloat(v.lampRear[0]) << ", "
+                 << fmtFloat(v.lampRear[1]) << ", " << fmtFloat(v.lampRear[2])
+                 << ", " << fmtFloat(v.lampRear[3]) << "]";
+        if (v.lampPart >= 0)
+            json << ", \"lampPart\": " << v.lampPart
+                 << ", \"lampRearVerts\": " << v.lampRearVerts;
+        if (v.glassOpacity < 1.0f)
+            json << ", \"glassOpacity\": " << fmtFloat(v.glassOpacity);
+        if (v.glassPart >= 0) json << ", \"glassPart\": " << v.glassPart;
+        if (v.lampFront[3] > 0.0f)
+            json << ", \"lampFront\": [" << fmtFloat(v.lampFront[0]) << ", "
+                 << fmtFloat(v.lampFront[1]) << ", " << fmtFloat(v.lampFront[2])
+                 << ", " << fmtFloat(v.lampFront[3]) << "]";
+        if (!v.wheels.empty()) {
+            json << ", \"wheels\": [";
+            for (size_t k = 0; k < v.wheels.size(); ++k)
+                json << (k ? ", " : "") << "{ \"node\": \"" << jsonEscape(v.wheels[k].node)
+                     << "\", \"steered\": " << (v.wheels[k].steered ? "true" : "false")
+                     << ", \"driven\": " << (v.wheels[k].driven ? "true" : "false") << " }";
+            json << "]";
+        }
+        vehiclesim::DriveSpec spec = v.drive;
+        json << ", \"drive\": {";
+        const std::vector<vehiclesim::SpecField> fields = vehiclesim::specFields(spec);
+        for (size_t k = 0; k < fields.size(); ++k)
+            json << (k ? ", " : "") << "\"" << fields[k].key << "\": "
+                 << fmtFloat(*fields[k].value);
+        json << " } }";
+    }
+    json << "\n  ]";
+}
+
+static void writeVehiclesSection(std::ostream& json, const Project& p) {
+    bool defaults = p.vehicleDefaults != defaultVehicleTuning();
+    for (const auto& v : p.vehicles) defaults |= v.inheritDefaults;
+    if (p.vehicles.empty() && !defaults) return;
+    writeVehicleArray(json, p.vehicles, "vehicles");
+    if (defaults) {
+        json << ",\n  ";
+        writeVehicleArray(json, {p.vehicleDefaults}, "vehicleDefaults");
+    }
+}
+
+static void readVehicleArray(const json::Value& root, std::vector<VehicleDef>& defs,
+                             const char* key) {
+    defs.clear();
+    const json::Value* arr = root.find(key);
+    if (!arr || arr->type != json::Value::Type::Array) return;
+    const bool global = std::string(key) == "vehicleDefaults";
+    for (const json::Value& e : arr->arr) {
+        VehicleDef v = global ? defaultVehicleTuning() : VehicleDef{};
+        const auto* stamp = root.find("formatVersion");
+        if (!global && (!stamp || stamp->numberOr(0) < 85)) v.inheritDefaults = false;
+        if (const json::Value* x = e.find("id")) v.id = x->stringOr("");
+        if (const json::Value* x = e.find("name")) v.name = x->stringOr("");
+        if (const json::Value* x = e.find("notes")) v.notes = x->stringOr("");
+        if (const json::Value* x = e.find("inheritDefaults"))
+            v.inheritDefaults = x->boolOr(false);
+        if (const json::Value* x = e.find("tuningOverrides");
+            x && x->type == json::Value::Type::Array)
+            for (const auto& k : x->arr)
+                if (k.type == json::Value::Type::String) v.tuningOverrides.push_back(k.str);
+        if (const json::Value* x = e.find("model")) v.modelPath = x->stringOr("");
+        if (v.name.empty()) continue;
+        if (v.id.empty() && !global) v.id = project::newObjectId();
+        if (const json::Value* x = e.find("bodyTris")) v.bodyTriBudget = (int)x->numberOr(2400);
+        if (const json::Value* x = e.find("wheelTris")) v.wheelTriBudget = (int)x->numberOr(700);
+        if (const json::Value* x = e.find("merge")) v.mergeUntextured = x->boolOr(true);
+        if (const json::Value* x = e.find("paintColor"))
+            if (x->type == json::Value::Type::Array && x->arr.size() >= 3) {
+                v.paintEnabled = true;
+                for (int a = 0; a < 3; ++a) {
+                    const float c = (float)x->arr[(size_t)a].numberOr(1.0);
+                    v.paintColor[a] = c < 0.0f ? 0.0f : (c > 1.0f ? 1.0f : c);
+                }
+            }
+        if (const json::Value* x = e.find("paintMask"))
+            v.paintMask = x->stringOr("");
+        if (const json::Value* x = e.find("bodyShine"))
+            v.bodyShine = (float)x->numberOr(0.0);
+        if (const json::Value* x = e.find("bodyReflMap"))
+            v.bodyReflMap = x->stringOr("");
+        if (const json::Value* x = e.find("flipFront")) v.flipFront = x->boolOr(false);
+        if (const json::Value* x = e.find("cam"))
+            if (x->type == json::Value::Type::Array && x->arr.size() >= 3) {
+                v.camDist = (float)x->arr[0].numberOr(v.camDist);
+                v.camHeight = (float)x->arr[1].numberOr(v.camHeight);
+                v.camPitch = (float)x->arr[2].numberOr(v.camPitch);
+            }
+        if (const json::Value* x = e.find("exit"))
+            if (x->type == json::Value::Type::Array && x->arr.size() >= 3)
+                for (int a = 0; a < 3; ++a)
+                    v.exitOffset[a] = (float)x->arr[a].numberOr(v.exitOffset[a]);
+        if (const json::Value* x = e.find("hud")) v.showHud = x->boolOr(false);
+        if (const json::Value* x = e.find("hudFont")) v.hudFont = x->stringOr("");
+        if (const json::Value* x = e.find("hudSpeedScale"))
+            v.hudSpeedScale = (float)x->numberOr(v.hudSpeedScale);
+        if (const json::Value* x = e.find("engineSound"))
+            v.engineSound = x->stringOr("");
+        if (const json::Value* x = e.find("engineHighSound"))
+            v.engineHighSound = x->stringOr("");
+        if (const json::Value* x = e.find("engineHighEnabled"))
+            v.engineHighEnabled = x->boolOr(true);
+        if (const json::Value* x = e.find("engineHighCurve"))
+            if (x->type == json::Value::Type::Array && x->arr.size() >= 3) {
+                v.engineHighStart = (float)x->arr[0].numberOr(v.engineHighStart);
+                v.engineHighPitchStart = (float)x->arr[1].numberOr(v.engineHighPitchStart);
+                v.engineHighPitchEnd = (float)x->arr[2].numberOr(v.engineHighPitchEnd);
+            }
+        if (const json::Value* x = e.find("screechSound"))
+            v.screechSound = x->stringOr("");
+        if (const json::Value* x = e.find("screechVolume"))
+            v.screechVolume = (float)x->numberOr(80.0);
+        if (const json::Value* x = e.find("shiftSound"))
+            v.shiftSound = x->stringOr("");
+        if (const json::Value* x = e.find("shiftVolume"))
+            v.shiftVolume = (float)x->numberOr(80.0);
+        if (const json::Value* x = e.find("headlights"))
+            v.headlights = x->boolOr(false);
+        if (const json::Value* x = e.find("skidMaterial"))
+            v.skidMaterial = x->stringOr("");
+        if (const json::Value* x = e.find("smokeMaterial"))
+            v.smokeMaterial = x->stringOr("");
+        if (const json::Value* x = e.find("smokeEffect"))
+            v.smokeEffect = x->stringOr("");
+        if (const json::Value* x = e.find("farDistance"))
+            v.farDistance = (float)x->numberOr(v.farDistance);
+        if (const json::Value* x = e.find("farModel")) v.farModel = x->stringOr("");
+        if (const json::Value* x = e.find("trafficDistance"))
+            v.trafficDistance = (float)x->numberOr(0.0);
+        if (const json::Value* x = e.find("farPart"))
+            v.farPart = (int)x->numberOr(-1.0);
+        if (const json::Value* x = e.find("farHideMask"))
+            v.farHideMask = (int)x->numberOr(0.0);
+        if (const json::Value* ps = e.find("pieces");
+            ps && ps->type == json::Value::Type::Array)
+            for (const json::Value& q : ps->arr) {
+                if (q.type != json::Value::Type::Array || q.arr.size() < 4) continue;
+                vehiclesim::Piece pc;
+                pc.part = (int)q.arr[0].numberOr(-1.0);
+                pc.kind = (int)q.arr[1].numberOr(0.0);
+                pc.first = (int)q.arr[2].numberOr(0.0);
+                pc.count = (int)q.arr[3].numberOr(0.0);
+                if (pc.part >= 0 && pc.kind > 0 && pc.count > 0) v.pieces.push_back(pc);
+            }
+        if (const json::Value* lg = e.find("lampGlows");
+            lg && lg->type == json::Value::Type::Array)
+            for (const json::Value& q : lg->arr)
+                if (q.type == json::Value::Type::Array && q.arr.size() >= 7) {
+                    std::array<float, 7> g{};
+                    for (int a = 0; a < 7; ++a) g[(size_t)a] = (float)q.arr[(size_t)a].numberOr(0.0);
+                    v.lampGlows.push_back(g);
+                }
+        if (const json::Value* ex = e.find("exhausts");
+            ex && ex->type == json::Value::Type::Array)
+            for (const json::Value& q : ex->arr)
+                if (q.type == json::Value::Type::Array && q.arr.size() >= 6) {
+                    std::array<float, 6> x{};
+                    for (int a = 0; a < 6; ++a) x[(size_t)a] = (float)q.arr[(size_t)a].numberOr(0.0);
+                    v.exhausts.push_back(x);
+                }
+        if (const json::Value* el = e.find("envLimits");
+            el && el->type == json::Value::Type::Array)
+            for (const json::Value& q : el->arr)
+                if (q.type == json::Value::Type::Array && q.arr.size() >= 2)
+                    v.envLimits.push_back({(int)q.arr[0].numberOr(-1.0),
+                                           (int)q.arr[1].numberOr(0.0)});
+        if (const json::Value* x = e.find("fastWheel")) v.fastWheel = x->stringOr("");
+        if (const json::Value* x = e.find("fastWheelTris"))
+            v.fastWheelTriBudget = (int)x->numberOr(120);
+        if (const json::Value* x = e.find("lampRear"))
+            if (x->type == json::Value::Type::Array && x->arr.size() == 4)
+                for (int k = 0; k < 4; ++k)
+                    v.lampRear[k] = (float)x->arr[(size_t)k].numberOr(0.0);
+        if (const json::Value* x = e.find("lampPart"))
+            v.lampPart = (int)x->numberOr(-1.0);
+        if (const json::Value* x = e.find("lampRearVerts"))
+            v.lampRearVerts = (int)x->numberOr(0.0);
+        if (const json::Value* x = e.find("glassOpacity")) {
+            const float o = (float)x->numberOr(1.0);
+            v.glassOpacity = o < 0.05f ? 0.05f : (o > 1.0f ? 1.0f : o);
+        }
+        if (const json::Value* x = e.find("glassPart"))
+            v.glassPart = (int)x->numberOr(-1.0);
+        if (const json::Value* x = e.find("lampFront"))
+            if (x->type == json::Value::Type::Array && x->arr.size() == 4)
+                for (int k = 0; k < 4; ++k)
+                    v.lampFront[k] = (float)x->arr[(size_t)k].numberOr(0.0);
+        if (const json::Value* x = e.find("enginePitch"))
+            if (x->type == json::Value::Type::Array && x->arr.size() >= 2) {
+                v.enginePitchIdle = (float)x->arr[0].numberOr(v.enginePitchIdle);
+                v.enginePitchRedline = (float)x->arr[1].numberOr(v.enginePitchRedline);
+            }
+        if (const json::Value* x = e.find("engineVolume"))
+            v.engineVolume = (float)x->numberOr(v.engineVolume);
+        if (const json::Value* ws = e.find("wheels"))
+            if (ws->type == json::Value::Type::Array)
+                for (const json::Value& w : ws->arr) {
+                    VehicleWheel vw;
+                    if (const json::Value* x = w.find("node")) vw.node = x->stringOr("");
+                    if (const json::Value* x = w.find("steered")) vw.steered = x->boolOr(false);
+                    if (const json::Value* x = w.find("driven")) vw.driven = x->boolOr(false);
+                    if (!vw.node.empty()) v.wheels.push_back(std::move(vw));
+                }
+        if (const json::Value* d = e.find("drive")) {
+            const std::vector<vehiclesim::SpecField> fields = vehiclesim::specFields(v.drive);
+            for (const vehiclesim::SpecField& f : fields)
+                if (const json::Value* x = d->find(f.key))
+                    *f.value = (float)x->numberOr(*f.value);
+        }
+        defs.push_back(std::move(v));
+    }
+}
+
+static void readVehiclesSection(const json::Value& root, Project& out) {
+    readVehicleArray(root, out.vehicles, "vehicles");
+    std::vector<VehicleDef> defaults;
+    readVehicleArray(root, defaults, "vehicleDefaults");
+    out.vehicleDefaults = defaults.empty() ? defaultVehicleTuning() : defaults.front();
+    // The defaults are a singleton, not a collaborative collection identity.
+    out.vehicleDefaults.id.clear();
+    out.vehicleDefaults.inheritDefaults = false;
+    out.vehicleDefaults.tuningOverrides.clear();
+    project::applyVehicleDefaults(out);
 }
 
 // Non-destructive clip edits (Tools > Animation Editor). Conditional: an
@@ -3313,6 +4066,8 @@ static std::string sectionBody(const Project& p, Section s) {
         case Section::ModelLods: writeModelLodsSection(ss, p); break;
         case Section::ModelAo: writeModelAoSection(ss, p); break;
         case Section::Atlas: writeAtlasSection(ss, p); break;
+        case Section::Particles: writeParticlesSection(ss, p); break;
+        case Section::ModelCollision: writeModelCollisionSection(ss, p); break;
         case Section::SaveData: writeSaveDataSection(ss, p); break;
         case Section::Gradings: writeGradingsSection(ss, p); break;
         case Section::Ambience: writeAmbienceSection(ss, p); break;
@@ -3326,6 +4081,7 @@ static std::string sectionBody(const Project& p, Section s) {
         case Section::ModelUnits: writeModelUnitsSection(ss, p); break;
         case Section::Input: writeInputSection(ss, p); break;
         case Section::Prefabs: writePrefabsSection(ss, p); break;
+        case Section::Vehicles: writeVehiclesSection(ss, p); break;
         case Section::VuPrograms: writeVuSection(ss, p); break;
         case Section::Facts: writeFactsSection(ss, p); break;
         case Section::BlssShots: writeBlssShotsSection(ss, p); break;
@@ -3355,9 +4111,13 @@ const char* sectionName(Section s) {
         case Section::ModelUnits: return "modelUnits";
         case Section::Input: return "input";
         case Section::Prefabs: return "prefabs";
+        case Section::Vehicles: return "vehicles";
         case Section::VuPrograms: return "vu";
         case Section::Facts: return "facts";
         case Section::BlssShots: return "blssShots";
+        case Section::Atlas: return "atlas";
+        case Section::Particles: return "particles";
+        case Section::ModelCollision: return "modelCollision";
         case Section::Count: break;  // not a section
     }
     return "unknown";
@@ -3464,6 +4224,163 @@ void ensureProjectId(Project& p) {
     // Same id shape as objects (16 hex chars of 64-bit randomness); projects
     // and objects never share a namespace, so reusing the generator is fine.
     if (p.projectId.empty()) p.projectId = newObjectId();
+}
+
+const ParticleEffect* findParticleEffect(const Project& p, const std::string& name) {
+    if (name.empty()) return nullptr;
+    for (const ParticleEffect& e : p.particleEffects)
+        if (e.name == name) return &e;
+    return nullptr;
+}
+
+void applyParticleEffect(const ParticleEffect& fx, SceneObject& o) {
+    applyParticleLayer(fx, o);
+}
+
+std::vector<SceneObject> emitterLayerObjects(const Project& p, const SceneObject& o) {
+    std::vector<SceneObject> out;
+    if (o.type != PrimitiveType::Emitter) return out;
+    const ParticleEffect* fx = findParticleEffect(p, o.particleEffect);
+    if (!fx) return out;
+    for (const ParticleLayer& L : fx->layers) {
+        SceneObject c = o;
+        c.id.clear();
+        c.particleEffect.clear();
+        c.name = o.name + "#" + (L.label.empty() ? std::string("layer") : L.label);
+        applyParticleLayer(L, c);
+        for (int k = 0; k < 3; ++k) {
+            c.position[k] = o.position[k] + L.offset[k];
+            c.scale[k] = o.scale[k] * L.area[k];
+        }
+        out.push_back(std::move(c));
+    }
+    return out;
+}
+
+std::string particleLayerStem(const ParticleEffect& fx, int layer) {
+    if (layer <= 0 || layer > (int)fx.layers.size()) return fx.name;
+    const std::string& l = fx.layers[(size_t)layer - 1].label;
+    return fx.name + " " + (l.empty() ? "layer " + std::to_string(layer) : l);
+}
+
+void applyParticleLayer(const ParticleLayer& fx, SceneObject& o) {
+    o.emitterKind = fx.kind;
+    o.emitterCount = fx.count;
+    o.emitterSize = fx.size;
+    for (int k = 0; k < 3; ++k) o.color[k] = fx.color[k];
+    o.emitterSpeed = fx.speed;
+    o.emitterSpread = fx.spread;
+    o.emitterGravity = fx.gravity;
+    o.emitterWeight = fx.weight;
+    o.emitterLife = fx.life;
+    o.emitterGrow = fx.grow;
+    o.emitterOpacity = fx.opacity;
+    o.emitterDieOnGround = fx.dieOnGround;
+    o.emitterAdditive = fx.additive;
+    o.materialPath = fx.materialPath;
+    o.emitterFrames = fx.texGen.kind != 0 ? fx.texGen.frames : 1;
+    o.emitterFps = fx.texGen.fps;
+}
+
+void applyVehicleDefaults(Project& p) {
+    const VehicleDef& d = p.vehicleDefaults;
+    for (auto& v : p.vehicles) {
+        const bool legacyLocal = !v.inheritDefaults;
+        // Expand the old section checkboxes once, preserving their explicit
+        // choices. Fully local legacy cars keep every non-default value.
+        visitVehicleTuning(v, d, [&](const std::string& key, const char* section,
+                                     auto& value, const auto& base) {
+            const bool oldSection = (std::string(section) == "sounds" ||
+                std::string(section) == "driver") && vehicleTuningOverride(v, section);
+            const bool oldEffects = std::string(section) == "effects" &&
+                (key == "skidMaterial" || key == "smokeMaterial" || key == "smokeEffect") &&
+                vehicleTuningOverride(v, "effects");
+            if ((legacyLocal && value != base) || oldSection || oldEffects ||
+                (key == "headlights" && vehicleTuningOverride(v, "sounds")))
+                if (!vehicleTuningOverride(v, key)) v.tuningOverrides.push_back(key);
+            if (!vehicleTuningOverride(v, key)) value = base;
+        });
+        auto& keys = v.tuningOverrides;
+        keys.erase(std::remove_if(keys.begin(), keys.end(), [](const std::string& key) {
+            return key == "sounds" || key == "driver" || key == "effects";
+        }), keys.end());
+        v.inheritDefaults = true;
+    }
+}
+
+bool applyParticleEffects(Project& p) {
+    if (p.particleEffects.empty()) return false;
+    bool changed = false;
+    auto visit = [&](SceneObject& o) {
+        if (o.type != PrimitiveType::Emitter || o.particleEffect.empty()) return;
+        const ParticleEffect* fx = findParticleEffect(p, o.particleEffect);
+        if (!fx) return;  // stale name: keep the last copied look
+        const SceneObject before = o;
+        applyParticleEffect(*fx, o);
+        if (!(before == o)) changed = true;
+    };
+    for (SceneData& sc : p.scenes)
+        for (SceneObject& o : sc.objects) visit(o);
+    for (Prefab& pf : p.prefabs)
+        for (SceneObject& o : pf.objects) visit(o);
+    return changed;
+}
+
+ParticleEffect particlePreset(int kind) {
+    ParticleEffect fx;
+    fx.kind = kind < 0 || kind > 5 ? 5 : kind;
+    switch (fx.kind) {
+        case 0:  // fire: a glowing column, additive, a flame texture
+            fx.name = "Fire";
+            fx.count = 32, fx.size = 0.6f, fx.additive = true;
+            fx.color[0] = 1.0f, fx.color[1] = 0.85f, fx.color[2] = 0.6f;
+            fx.texGen.kind = 2;
+            fx.texGen.frames = 4, fx.texGen.fps = 12.0f;
+            break;
+        case 1:  // smoke: slow grey puffs
+            fx.name = "Smoke";
+            fx.count = 24, fx.size = 0.7f;
+            fx.color[0] = fx.color[1] = fx.color[2] = 0.75f;
+            fx.texGen.kind = 1;
+            break;
+        case 2:
+            fx.name = "Fog";
+            fx.count = 16, fx.size = 2.5f, fx.opacity = 0.35f;
+            fx.texGen.kind = 1, fx.texGen.softness = 0.9f, fx.texGen.detail = 0.3f;
+            break;
+        case 3:
+            fx.name = "Sparks";
+            fx.count = 40, fx.size = 0.12f, fx.additive = true;
+            fx.color[0] = 1.0f, fx.color[1] = 0.8f, fx.color[2] = 0.4f;
+            fx.texGen.kind = 3;
+            break;
+        case 4:
+            fx.name = "Rain";
+            fx.count = 128, fx.size = 0.15f;
+            fx.color[0] = 0.7f, fx.color[1] = 0.8f, fx.color[2] = 1.0f;
+            break;
+        default:  // custom: a buoyant plume to start from
+            fx.name = "Custom";
+            fx.count = 32, fx.size = 0.5f, fx.speed = 1.5f, fx.spread = 25.0f;
+            fx.gravity = -1.0f, fx.weight = 0.5f, fx.life = 2.0f, fx.grow = 2.5f;
+            fx.opacity = 0.5f;
+            fx.texGen.kind = 1;
+            break;
+    }
+    return fx;
+}
+
+void renameParticleEffectRefs(Project& p, const std::string& from, const std::string& to) {
+    if (from.empty()) return;
+    for (SceneData& sc : p.scenes)
+        for (SceneObject& o : sc.objects)
+            if (o.particleEffect == from) o.particleEffect = to;
+    for (Prefab& pf : p.prefabs)
+        for (SceneObject& o : pf.objects)
+            if (o.particleEffect == from) o.particleEffect = to;
+    for (VehicleDef& v : p.vehicles)
+        if (v.smokeEffect == from) v.smokeEffect = to;
+    if (p.vehicleDefaults.smokeEffect == from) p.vehicleDefaults.smokeEffect = to;
 }
 
 void ensureFactIds(Project& p) {
@@ -3658,6 +4575,12 @@ const char* inputRoleName(int role) {
         case InputAction::RoleMoveBack: return "move-back";
         case InputAction::RoleMoveLeft: return "move-left";
         case InputAction::RoleMoveRight: return "move-right";
+        case InputAction::RoleVehThrottle: return "veh-throttle";
+        case InputAction::RoleVehBrake: return "veh-brake";
+        case InputAction::RoleVehHandbrake: return "veh-handbrake";
+        case InputAction::RoleVehNitrous: return "veh-nitrous";
+        case InputAction::RoleVehCamera: return "veh-camera";
+        case InputAction::RoleVehRearView: return "veh-rearview";
         default: return "";
     }
 }
@@ -3877,6 +4800,16 @@ void ensureInputActions(Project& p) {
         {InputAction::RoleMenuDown, "Menu down", "DpadDown", 0x51, 0, false},
         {InputAction::RoleMenuLeft, "Menu left", "DpadLeft", 0x50, 0, false},
         {InputAction::RoleMenuRight, "Menu right", "DpadRight", 0x4F, 0, false},
+        // The driver's seat, defaults matching what the runtime hardcoded
+        // before these existed (docs/vehicles.md). Keyboard defaults follow
+        // the walker's WSAD hand position; the two sets never fire in the
+        // same frame - driving gates the walker.
+        {InputAction::RoleVehThrottle, "Vehicle throttle", "R2", 0x1A, 0, true},
+        {InputAction::RoleVehBrake, "Vehicle brake", "L2", 0x16, 0, true},
+        {InputAction::RoleVehHandbrake, "Vehicle handbrake", "Circle", 0x2C, 0, true},
+        {InputAction::RoleVehNitrous, "Vehicle nitrous", "Cross", 0xE1, 0, true},
+        {InputAction::RoleVehCamera, "Vehicle camera", "Triangle", 0x06, 0, true},
+        {InputAction::RoleVehRearView, "Vehicle rear view", "R3", 0x15, 0, true},
     };
 
     if (p.input.presets.empty()) p.input.presets.push_back(InputPreset{});
@@ -4267,6 +5200,8 @@ bool applyScenesLayout(Project& p, const std::string& body) {
         SceneData sc;
         if (const auto* v = js.find("name")) sc.name = v->stringOr("scene");
         if (const auto* ls = js.find("layers")) readLayersArray(*ls, sc.layers);
+        if (const auto* rj = js.find("roadJunctions"))
+            readRoadJunctionsArray(*rj, sc.roadJunctions);
         if (const auto* tl = js.find("terrainLayers"))
             readTerrainLayersArray(*tl, sc.terrainLayers);
         if (const auto* v = js.find("terrainBaseStochastic"))
@@ -4767,6 +5702,8 @@ std::set<std::string> runtimeRefNames(const Project& p,
 
 bool objectRuntimeMovable(const SceneObject& o,
                           const std::set<std::string>& refs) {
+    // A vehicle is the most movable thing in a scene - somebody drives it.
+    if (o.type == PrimitiveType::Vehicle) return true;
     if (o.physics) return true;    // gravity, bounces, gets pushed
     if (o.pickable) return true;   // carried in front of the camera, thrown
     if (o.usable) return true;     // the highlight defers and re-submits it
@@ -4851,7 +5788,15 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
             o.drawDistance = (float)v->numberOr(0.0);
             if (o.drawDistance < 0.0f) o.drawDistance = 0.0f;
         }
+        if (const auto* v = jo.find("batchExclude"))
+            o.batchExclude = v->boolOr(false);
+        if (const auto* v = jo.find("occluderExclude"))
+            o.occluderExclude = v->boolOr(false);
+        if (const auto* v = jo.find("occlusionCull"))
+            o.occlusionCull = v->boolOr(true);
         if (const auto* v = jo.find("reflected")) o.reflected = v->boolOr(false);
+        if (const auto* v = jo.find("reflectionProxy"))
+            o.reflectionProxy = v->boolOr(false);
         if (const auto* v = jo.find("castShadow")) o.castShadow = v->boolOr(true);
         if (const auto* v = jo.find("bakedLighting"))
             o.bakedLighting = v->boolOr(true);
@@ -4868,6 +5813,13 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
         if (const auto* v = jo.find("shadowMode")) {
             const int m = (int)v->numberOr(0);
             if (m >= 0 && m <= 4) o.shadowMode = m;
+        }
+        if (const auto* v = jo.find("blobShadowTexture"))
+            o.blobShadowTexture = v->stringOr("");
+        if (const auto* v = jo.find("blobShadowSize");
+            v && v->type == json::Value::Type::Array && v->arr.size() >= 2) {
+            o.blobShadowSize[0] = std::max(0.0f, (float)v->arr[0].numberOr(0));
+            o.blobShadowSize[1] = std::max(0.0f, (float)v->arr[1].numberOr(0));
         }
         if (const auto* v = jo.find("model")) o.modelPath = v->stringOr("");
         if (const auto* v = jo.find("impostor")) o.impostorPath = v->stringOr("");
@@ -5003,6 +5955,13 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
             if (o.emitterOpacity > 1.0f) o.emitterOpacity = 1.0f;
             if (const auto* v = em->find("dieOnGround"))
                 o.emitterDieOnGround = v->type == json::Value::Type::Bool && v->boolean;
+            if (const auto* v = em->find("additive"))
+                o.emitterAdditive = v->type == json::Value::Type::Bool && v->boolean;
+            if (const auto* v = em->find("effect")) o.particleEffect = v->stringOr("");
+            if (const auto* v = em->find("frames")) o.emitterFrames = (int)v->numberOr(1);
+            if (o.emitterFrames != 2 && o.emitterFrames != 4 && o.emitterFrames != 8)
+                o.emitterFrames = 1;
+            if (const auto* v = em->find("fps")) o.emitterFps = (float)v->numberOr(12);
         }
         if (const auto* sn = jo.find("sound")) {
             if (const auto* v = sn->find("path")) o.soundPath = v->stringOr("");
@@ -5107,6 +6066,11 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
                         o.mirrorObjects.push_back(s.str);
             }
         }
+        if (const auto* vh = jo.find("vehicle")) {
+            if (const auto* v = vh->find("def")) o.vehicleDef = v->stringOr("");
+            if (const auto* v = vh->find("driveable")) o.vehicleDriveable = v->boolOr(true);
+            if (const auto* v = vh->find("route")) o.vehicleRoute = v->stringOr("");
+        }
         if (const auto* sr = jo.find("scroller")) {
             if (const auto* v = sr->find("speed")) o.scrollSpeed = (float)v->numberOr(6.0);
             if (const auto* v = sr->find("ahead")) o.scrollAhead = (float)v->numberOr(40.0);
@@ -5209,6 +6173,49 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
         }
         if (const auto* fg = jo.find("flowGraph")) readFlowGraph(*fg, o.flowGraph);
         if (const auto* pg = jo.find("procGraph")) readProcGraph(*pg, o.procGraph);
+        if (const auto* rp = jo.find("roadPoints")) {
+            o.roadPoints.clear();
+            if (rp->type == json::Value::Type::Array)
+                for (const json::Value& v : rp->arr)
+                    o.roadPoints.push_back((float)v.numberOr(0.0));
+        }
+        if (const auto* rw = jo.find("roadWidth"))
+            o.roadWidth = (float)rw->numberOr(6.0);
+        if (const auto* rs = jo.find("roadSampleStep")) {
+            o.roadSampleStep = (float)rs->numberOr(1.0);
+            if (o.roadSampleStep < 1.0f) o.roadSampleStep = 1.0f;
+            if (o.roadSampleStep > 2.0f) o.roadSampleStep = 2.0f;
+        }
+        if (const auto* rg = jo.find("roadGrip")) {
+            o.roadGrip = (float)rg->numberOr(1.0);
+            if (o.roadGrip < 0.1f) o.roadGrip = 0.1f;
+            if (o.roadGrip > 1.5f) o.roadGrip = 1.5f;
+        }
+        if (const auto* rr = jo.find("roadRank")) {
+            o.roadRank = (int)rr->numberOr(1.0);
+            if (o.roadRank < 0) o.roadRank = 0;
+            if (o.roadRank > 2) o.roadRank = 2;
+        }
+        if (const auto* rs2 = jo.find("roadSpill")) {
+            o.roadSpill = (float)rs2->numberOr(1.5);
+            if (o.roadSpill < 0.0f) o.roadSpill = 0.0f;
+            if (o.roadSpill > 8.0f) o.roadSpill = 8.0f;
+        }
+        if (const auto* ref = jo.find("roadEdgeFade")) {
+            o.roadEdgeFade = (float)ref->numberOr(0.0);
+            if (o.roadEdgeFade < 0.0f) o.roadEdgeFade = 0.0f;
+            if (o.roadEdgeFade > 4.0f) o.roadEdgeFade = 4.0f;
+        }
+        if (const auto* rh = jo.find("roadHeights")) {
+            o.roadHeights.clear();
+            if (rh->type == json::Value::Type::Array)
+                for (const json::Value& v : rh->arr)
+                    o.roadHeights.push_back((float)v.numberOr(0.0));
+        }
+        if (const auto* rt = jo.find("roadTexture"))
+            o.roadTexture = rt->stringOr("");
+        if (const auto* rt = jo.find("roadIntersectionTexture"))
+            o.roadIntersectionTexture = rt->stringOr("");
         if (const auto* v = jo.find("procSource")) o.procSource = v->stringOr("");
         if (const auto* v = jo.find("editorGroup"))
             o.editorGroup = v->stringOr("");
@@ -5298,8 +6305,10 @@ static void readSettingsSection(const json::Value& root, Project& out) {
         // Framebuffer colour depth + GS dithering (docs/gs-vram.md). Absent
         // in every project written before they existed, and the defaults are
         // exactly what those projects already did.
-        if (const auto* v = s->find("colorDepth"))
-            st.colorDepth = v->stringOr("32bit") == "16bit" ? "16bit" : "32bit";
+        if (const auto* v = s->find("colorDepth")) {
+            const std::string d = v->stringOr("32bit");
+            st.colorDepth = (d == "16bit" || d == "hybrid") ? d : "32bit";
+        }
         if (const auto* v = s->find("dither")) st.dither = v->boolOr(true);
         if (const auto* v = s->find("tripleBuffering"))
             st.tripleBuffering = v->boolOr(false);
@@ -5331,6 +6340,17 @@ static void readSettingsSection(const json::Value& root, Project& out) {
         if (const auto* v = s->find("showCollision"))
             st.showCollision = v->boolOr(false);
         if (const auto* v = s->find("liveLink")) st.liveLink = v->boolOr(true);
+        if (const auto* v = s->find("liveLinkPollFrames"))
+            st.liveLinkPollFrames = (int)std::clamp(v->numberOr(0), 0.0, 120.0);
+        if (const auto* v = s->find("liveLogicPollFrames"))
+            st.liveLogicPollFrames = (int)std::clamp(v->numberOr(0), 0.0, 120.0);
+        if (const auto* v = s->find("liveDebugPollFrames"))
+            st.liveDebugPollFrames = (int)std::clamp(v->numberOr(0), 0.0, 120.0);
+        if (const auto* v = s->find("liveDebugSnapshotFrames"))
+            st.liveDebugSnapshotFrames = (int)std::clamp(v->numberOr(0), 0.0, 120.0);
+        if (const auto* v = s->find("timeMachineFrames"))
+            st.timeMachineFrames = (int)std::clamp(v->numberOr(0), 0.0, 120.0);
+
         if (const auto* v = s->find("liveDebug")) st.liveDebug = v->boolOr(true);
         if (const auto* v = s->find("liveLogic")) st.liveLogic = v->boolOr(true);
         if (const auto* v = s->find("timeMachine"))
@@ -5383,6 +6403,18 @@ static void readSettingsSection(const json::Value& root, Project& out) {
         if (st.animPlayFps > 240.0f) st.animPlayFps = 240.0f;
         if (const auto* v = s->find("staticBatching"))
             st.staticBatching = v->boolOr(true);
+        if (const auto* v = s->find("interleavePasses")) {
+            st.interleavePasses = v->stringOr("auto");
+            if (st.interleavePasses != "off" && st.interleavePasses != "always")
+                st.interleavePasses = "auto";
+        }
+        if (const auto* v = s->find("vehicleShineBudget")) {
+            st.vehicleShineBudget = (int)v->numberOr(2);
+            if (st.vehicleShineBudget < 0) st.vehicleShineBudget = 0;
+            if (st.vehicleShineBudget > 16) st.vehicleShineBudget = 16;
+        }
+        if (const auto* v = s->find("occlusionCulling"))
+            st.occlusionCulling = v->boolOr(false);
         if (const auto* v = s->find("envProbeReflected"))
             st.envProbeReflected = v->boolOr(false);
         if (const auto* v = s->find("navCellSize")) {
@@ -5416,6 +6448,23 @@ static void readSettingsSection(const json::Value& root, Project& out) {
             st.terrainLodDistance = (float)v->numberOr(0.0);
             if (st.terrainLodDistance < 0.0f) st.terrainLodDistance = 0.0f;
         }
+        // A project written before v55 has no key and keeps the default 1.0
+        // pixel, which is sub-pixel on the 128-pixel target: the reuse is
+        // enabled for old projects deliberately, because at that budget it
+        // cannot change what they draw. 0 restores the pre-1.106 behaviour.
+        if (const auto* v = s->find("reflectionReuseBudget")) {
+            st.reflectionReuseBudget = (float)v->numberOr(1.0);
+            if (st.reflectionReuseBudget < 0.0f)
+                st.reflectionReuseBudget = 0.0f;
+        }
+        if (const auto* v = s->find("reflectionGroundRadius")) {
+            st.reflectionGroundRadius = (float)v->numberOr(0.0);
+            if (st.reflectionGroundRadius < 0.0f) st.reflectionGroundRadius = 0.0f;
+        }
+        if (const auto* v = s->find("reflectionScenery"))
+            st.reflectionScenery = v->boolOr(false);
+        if (const auto* v = s->find("reflectionGroundProxy"))
+            st.reflectionGroundProxy = v->boolOr(false);
         if (const auto* v = s->find("flashShadowVolumes"))
             st.flashShadowVolumes = v->boolOr(false);
         if (const auto* v = s->find("spotShadowVolumes"))
@@ -5427,6 +6476,9 @@ static void readSettingsSection(const json::Value& root, Project& out) {
         if (const auto* v = s->find("skyDome"))
             st.skyDome = v->type == json::Value::Type::Bool && v->boolean;
         if (const auto* v = s->find("zenithSize")) st.zenithSize = (float)v->numberOr(0.5);
+        if (const auto* v = s->find("skyTexture")) st.skyTexture = v->stringOr("");
+        if (const auto* v = s->find("skyTextureYaw"))
+            st.skyTextureYaw = (float)v->numberOr(0.0);
         if (const auto* v = s->find("eyeHeight")) st.eyeHeight = (float)v->numberOr(1.8);
         if (const auto* v = s->find("walkSpeed")) st.walkSpeed = (float)v->numberOr(0.1);
         if (const auto* v = s->find("runSpeed")) st.runSpeed = (float)v->numberOr(0.0);
@@ -5540,6 +6592,10 @@ static void readSettingsSection(const json::Value& root, Project& out) {
         }
         if (const auto* v = s->find("bakedShadowAutoBake"))
             st.bakedShadowAutoBake = v->boolOr(false);
+        if (const auto* v = s->find("bakedShadowGround")) {
+            const int g = (int)v->numberOr(0);
+            st.bakedShadowGround = (g == 64 || g == 128) ? g : 0;
+        }
         if (const auto* v = s->find("bloom")) {  // 0..2 (see the scene reader)
             const float b = (float)v->numberOr(0.0);
             st.bloom = b < 0.0f ? 0.0f : (b > 2.0f ? 2.0f : b);
@@ -6136,6 +7192,9 @@ static void readAmbienceSection(const json::Value& root, Project& out) {
             readVec3(ja.find("skyTopColor"), a.skyTopColor);
             if (const auto* v = ja.find("skyDome")) a.skyDome = v->boolOr(true);
             if (const auto* v = ja.find("zenithSize")) a.zenithSize = (float)v->numberOr(0.5);
+            if (const auto* v = ja.find("skyTexture")) a.skyTexture = v->stringOr("");
+            if (const auto* v = ja.find("skyTextureYaw"))
+                a.skyTextureYaw = (float)v->numberOr(0.0);
             readVec3(ja.find("lightDir"), a.lightDir);
             if (const auto* v = ja.find("ambient")) a.ambient = (float)v->numberOr(0.55);
             if (const auto* v = ja.find("diffuse")) a.diffuse = (float)v->numberOr(0.45);
@@ -6759,6 +7818,22 @@ static void readModelUnitsSection(const json::Value& root, Project& out) {
     }
 }
 
+static void readModelCollisionSection(const json::Value& root, Project& out) {
+    out.modelCollision.clear();
+    const auto* obj = root.find("modelCollision");
+    if (!obj || obj->type != json::Value::Type::Object) return;
+    for (const auto& [asset, v] : obj->obj) {
+        if (v.type != json::Value::Type::Array || v.arr.size() != 6) continue;
+        ModelCollisionBox b;
+        for (int k = 0; k < 3; ++k) {
+            b.mn[k] = (float)v.arr[(size_t)k].numberOr(0.0);
+            b.mx[k] = (float)v.arr[(size_t)k + 3].numberOr(0.0);
+            if (b.mn[k] > b.mx[k]) std::swap(b.mn[k], b.mx[k]);
+        }
+        out.modelCollision[asset] = b;
+    }
+}
+
 bool applySectionJson(Project& p, Section s, const std::string& body) {
     json::Value root;
     if (!json::parse(body, root) || root.type != json::Value::Type::Object)
@@ -6771,6 +7846,8 @@ bool applySectionJson(Project& p, Section s, const std::string& body) {
         case Section::ModelLods: readModelLodsSection(root, p); break;
         case Section::ModelAo: readModelAoSection(root, p); break;
         case Section::Atlas: readAtlasSection(root, p); break;
+        case Section::Particles: readParticlesSection(root, p); break;
+        case Section::ModelCollision: readModelCollisionSection(root, p); break;
         case Section::SaveData: readSaveDataSection(root, p); break;
         case Section::Gradings: readGradingsSection(root, p); break;
         case Section::Ambience: readAmbienceSection(root, p); break;
@@ -6789,6 +7866,7 @@ bool applySectionJson(Project& p, Section s, const std::string& body) {
             ensureInputActions(p);
             break;
         case Section::Prefabs: readPrefabsSection(root, p); break;
+        case Section::Vehicles: readVehiclesSection(root, p); break;
         case Section::VuPrograms: readVuSection(root, p); break;
         // A peer's catalog arrives whole; a fact that reached them without an
         // id (hand-edited .tyra, an older editor) must get one here or the
@@ -6894,6 +7972,8 @@ std::string load(Project& out, const std::string& projectDir) {
             SceneData sc;
             if (const auto* v = js.find("name")) sc.name = v->stringOr("scene");
             if (const auto* ls = js.find("layers")) readLayersArray(*ls, sc.layers);
+            if (const auto* rj = js.find("roadJunctions"))
+                readRoadJunctionsArray(*rj, sc.roadJunctions);
             if (const auto* tl = js.find("terrainLayers"))
                 readTerrainLayersArray(*tl, sc.terrainLayers);
             if (const auto* v = js.find("terrainBaseStochastic"))
@@ -6932,9 +8012,11 @@ std::string load(Project& out, const std::string& projectDir) {
 
     readTexQualitySection(root, out);
     readAtlasSection(root, out);
+    readParticlesSection(root, out);
     readModelLodsSection(root, out);
     readModelAoSection(root, out);
     readModelUnitsSection(root, out);
+    readModelCollisionSection(root, out);
 
     readSaveDataSection(root, out);
 
@@ -6954,6 +8036,7 @@ std::string load(Project& out, const std::string& projectDir) {
     readAnimImportsSection(root, out);
 
     readPrefabsSection(root, out);
+    readVehiclesSection(root, out);
     readVuSection(root, out);
     readFactsSection(root, out);
     // A fact's id is what a player's save file is keyed by, so a
@@ -7071,6 +8154,10 @@ std::string load(Project& out, const std::string& projectDir) {
     // reference resolves to, so the list must never be empty.
     if (out.fonts.empty()) out.fonts.push_back(GameFont{});
 
+    // A linked emitter's own fields are a COPY of its library effect; the
+    // file may carry an older copy (a hand edit, a merge of the effect alone).
+    applyParticleEffects(out);
+
     return "";
 }
 
@@ -7101,6 +8188,10 @@ std::string saveHistory(const Project& p, const History& h) {
             if (!sc.terrainLayers.empty()) {
                 json << ", \"terrainLayers\": ";
                 writeTerrainLayersArray(json, sc.terrainLayers);
+            }
+            if (!sc.roadJunctions.empty()) {
+                json << ", \"roadJunctions\": ";
+                writeRoadJunctionsArray(json, sc.roadJunctions);
             }
             if (sc.terrainBaseStochastic)
                 json << ", \"terrainBaseStochastic\": true";
@@ -7143,6 +8234,8 @@ std::string loadHistory(const Project& p, History& h) {
                 SceneData sc;
                 if (const auto* v = js.find("name")) sc.name = v->stringOr("scene");
                 if (const auto* ls = js.find("layers")) readLayersArray(*ls, sc.layers);
+                if (const auto* rj = js.find("roadJunctions"))
+                    readRoadJunctionsArray(*rj, sc.roadJunctions);
                 if (const auto* tl = js.find("terrainLayers"))
                     readTerrainLayersArray(*tl, sc.terrainLayers);
                 if (const auto* v = js.find("terrainBaseStochastic"))
@@ -7236,11 +8329,22 @@ uint64_t liveLinkRecipeHash(const SceneObject& o) {
                   (o.pickable ? 32 : 0) | (o.pickThrow ? 64 : 0) |
                   (o.decalProject ? 8 : 0) | (o.projShadow ? 128 : 0));
     fnvMix(h, (uint64_t)o.shadowMode);
+    fnvMixS(h, o.blobShadowTexture);
+    fnvMixF(h, o.blobShadowSize[0]);
+    fnvMixF(h, o.blobShadowSize[1]);
     fnvMix(h, (uint64_t)o.collisionMode);
     fnvMixS(h, o.layer);
     fnvMix(h, (uint64_t)o.primDetail);
     fnvMix(h, o.primRings ? 1 : 0);
     fnvMixF(h, o.drawDistance);
+    // Build-time baked: it decides this object's batchStatic column, and the
+    // batch list is built once at scene load. Live Link cannot re-group a
+    // running game, so toggling it has to read as "rebuild" rather than
+    // silently showing a grouping the ELF does not have.
+    fnvMix(h, o.batchExclude ? 1 : 0);
+    fnvMix(h, o.occluderExclude ? 1 : 0);
+    fnvMix(h, o.occlusionCull ? 1 : 0);
+    fnvMix(h, o.reflectionProxy ? 1 : 0);
     fnvMixS(h, o.impostorPath);
     fnvMixF(h, o.impostorDistance);
     fnvMix(h, o.impostorBillboard ? 1 : 0);
@@ -7441,6 +8545,14 @@ uint64_t liveLinkContextHash(const Project& p) {
             fnvMixF(h, l.streamX), fnvMixF(h, l.streamZ);
             fnvMixF(h, l.streamRadius);
             fnvMixS(h, l.streamArea);  // baked as the zone's area object index
+        }
+        // Road crossings are baked at build (ROAD_JUNCTIONS / ROAD_SPILLS), so
+        // a junction override cannot reach a running game - it reads as
+        // "rebuild" (docs/roads.md, "Junction overrides").
+        for (const roadgen::JunctionOverride& j : sc.roadJunctions) {
+            fnvMixS(h, j.roadA), fnvMixS(h, j.roadB);
+            fnvMixF(h, j.x), fnvMixF(h, j.z);
+            fnvMix(h, (uint64_t)j.winner), fnvMixS(h, j.material), fnvMixF(h, j.grip);
         }
         // Scrollers bake their belt layout (clone objects + SCROLLERS tables)
         // from their segments AND the current transforms of the member objects
@@ -7738,7 +8850,25 @@ std::string refreshGenerated(const Project& p) {
             f.relativePath == "docker-compose.yml" ||
             f.relativePath == "src\\main.cpp" ||
             f.relativePath == "inc\\terrain_config.hpp" ||
+            // BagArray, the owning array type for everything a StaPipBag draws
+            // from (docs/bag-content-version.md). Both game headers include it
+            // unconditionally and the generated terrain_game.cpp is written in
+            // terms of it, so a project scaffolded before it existed - i.e.
+            // every project already on disk, and every performance fixture,
+            // which is how this was caught - regenerates code that needs it and
+            // then fails to compile with "bag_array.gen.hpp: No such file or
+            // directory". Exactly the live_pad.gen.cpp mistake noted below.
+            f.relativePath == "inc\\bag_array.gen.hpp" ||
             f.relativePath == "inc\\scene_data.hpp" ||
+            // Object table definitions accompany the declarations even in
+            // projects created before the data was moved out of the header.
+            f.relativePath == "src\\gen\\scene_objects.gen.cpp" ||
+            f.relativePath == "inc\\game_runtime.gen.hpp" ||
+            f.relativePath == "src\\gen\\game_scene.gen.cpp" ||
+            f.relativePath == "src\\gen\\game_lighting.gen.cpp" ||
+            f.relativePath == "src\\gen\\game_collision.gen.cpp" ||
+            f.relativePath == "src\\gen\\game_vehicles.gen.cpp" ||
+            f.relativePath == "src\\gen\\game_physics.gen.cpp" ||
             f.relativePath == ".vscode\\c_cpp_properties.json" ||
             f.relativePath == "src\\gen\\flow_graph.gen.cpp" ||
             f.relativePath == "src\\gen\\live_link.gen.cpp" ||
@@ -7791,6 +8921,7 @@ std::string refreshGenerated(const Project& p) {
             // creation. A generated file that reaches only `project::create`
             // is the live_pad.gen.cpp mistake, and it is silent.
             f.relativePath == "inc\\shadow_data.gen.hpp" ||
+            f.relativePath == "inc\\occlusion_data.gen.hpp" ||
             f.relativePath == "inc\\ao_data.gen.hpp" ||
             // The trained BLSS network (docs/neural-upscaler.md). Only ever IN
             // `generated` while the upscaler is enabled - but when it is there
@@ -7804,6 +8935,7 @@ std::string refreshGenerated(const Project& p) {
             // deletes it when it stops, which is the half that matters - a
             // stale refusal would block a build that is fine.
             f.relativePath == "src\\gen\\blss_interlock.gen.cpp" ||
+            f.relativePath == "inc\\vehicle_sound_loops.gen.txt" ||
             f.relativePath == "inc\\daynight.gen.hpp" ||
             f.relativePath == "inc\\probe_data.gen.hpp" ||
             f.relativePath == "inc\\prefab_data.gen.hpp" ||
@@ -7905,6 +9037,19 @@ std::string refreshGenerated(const Project& p) {
         }
     }
 
+    // Returning to a user-owned legacy monolith must not leave generated
+    // member definitions behind: Makefile.base discovers every source file.
+    for (const char* part : {"scene", "lighting", "collision", "vehicles", "physics"}) {
+        const std::string relative = std::string("src\\gen\\game_") + part + ".gen.cpp";
+        const bool present = std::any_of(generated.begin(), generated.end(),
+            [&](const templates::File& f) { return f.relativePath == relative; });
+        if (!present) {
+            std::error_code ec;
+            fs::remove(fs::path(p.dir) / templates::nativePath(relative), ec);
+            if (ec) return "Cannot remove stale runtime source: " + ec.message();
+        }
+    }
+
     // Migration: the project's own .gitignore is write-once (above), so a
     // project made before format migrations existed never learned to ignore
     // `_backup/` - and `--migrate` writes exactly that directory, a full copy
@@ -7941,6 +9086,16 @@ std::string refreshGenerated(const Project& p) {
                     "\n# Pictures the running game took of itself, kept by the "
                     "Debugger's Screen tab\n# (docs/devkit.md). Yours to look "
                     "at and to throw away.\nscreenshots/\n";
+                grew = true;
+            }
+            // The console session logs (docs/ps2link-setup.md, "The session
+            // log"): one file per Run on PS2, written by this machine only.
+            if (text.find("logs/") == std::string::npos) {
+                if (!text.empty() && text.back() != '\n') text += '\n';
+                text +=
+                    "\n# The console session logs Run on PS2 writes "
+                    "(docs/ps2link-setup.md, \"The\n# session log\"). A record "
+                    "of this machine's runs, bounded by Preferences.\nlogs/\n";
                 grew = true;
             }
             // And the input recorder's working files (docs/input-replay.md).
@@ -8048,6 +9203,18 @@ std::string refreshGenerated(const Project& p) {
             std::error_code ec;
             fs::remove(fs::path(p.dir) / "src" / "gen" / "blss_interlock.gen.cpp",
                        ec);
+        }
+    }
+
+    // Removing the last ordinary WAV from continuous vehicle roles must
+    // remove loop intent too, so the encoder can restore its one-shot cache.
+    {
+        bool wanted = false;
+        for (const auto& f : generated)
+            wanted |= f.relativePath == "inc\\vehicle_sound_loops.gen.txt";
+        if (!wanted) {
+            std::error_code ec;
+            fs::remove(fs::path(p.dir) / "inc" / "vehicle_sound_loops.gen.txt", ec);
         }
     }
 
@@ -8317,13 +9484,14 @@ std::string refreshGenerated(const Project& p) {
         }
     }
 
-    // The camera flashlight's gobo (docs/flashlight.md): the pool patch under
+    // The camera flashlight/vehicle headlight gobo (docs/flashlight.md): the pool patch under
     // the beam takes its STs from the light's own frustum, so this image IS the
     // shape of the light. Gated exactly like the sprites above -
-    // FLASHLIGHT_USED in scene_data.hpp reads the same predicate, and a project
-    // with no flashlight pays no GS VRAM for it. Written through writeFile so
+    // the generated use gates read the same predicates, and a project with
+    // neither effect pays no GS VRAM for it. Written through writeFile so
     // an unchanged bake keeps its mtime and the build stays incremental.
     if (templates::projectUsesFlashlight(p) ||
+        templates::projectUsesVehicleHeadlights(p) ||
         templates::projectUsesSpotVolumes(p)) {
         std::vector<unsigned char> png;
         if (!menubake::bakeFlashGoboPNG(png))

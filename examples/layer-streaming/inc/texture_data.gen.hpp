@@ -3,24 +3,26 @@
 
 namespace Layer_streaming {
 
-constexpr int TEXTURE_COUNT = 0;
+inline constexpr int TEXTURE_COUNT = 0;
 inline const char* TEXTURE_PATHS[TEXTURE_COUNT > 0 ? TEXTURE_COUNT : 1] = {
     "",
 };
 
-constexpr int TERRAIN_TEXTURES[1] = {-1};
-constexpr float TERRAIN_TILE_US[1] = {1.0F};
-constexpr float TERRAIN_TILE_VS[1] = {1.0F};
-constexpr bool TERRAIN_HAS_MATERIALS[1] = {false};
-constexpr float TERRAIN_TINTS[1][3] = {{1.0F, 1.0F, 1.0F}};
-constexpr float TERRAIN_TINT_VARIATIONS[1] = {0.0F};
-constexpr float TERRAIN_TINT_SCALES[1] = {24.0F};
+inline constexpr int TERRAIN_TEXTURES[1] = {-1};
+inline constexpr float TERRAIN_TILE_US[1] = {1.0F};
+inline constexpr float TERRAIN_TILE_VS[1] = {1.0F};
+inline constexpr bool TERRAIN_HAS_MATERIALS[1] = {false};
+inline constexpr float TERRAIN_TINTS[1][3] = {{1.0F, 1.0F, 1.0F}};
+inline constexpr float TERRAIN_TINT_VARIATIONS[1] = {0.0F};
+inline constexpr float TERRAIN_TINT_SCALES[1] = {24.0F};
 
-constexpr int TERRAIN_LAYER_COUNTS[1] = {0};
-constexpr int TERRAIN_MAX_LAYERS = 1;
-constexpr int TERRAIN_LAYER_TEXTURES[1][1] = {};
-constexpr float TERRAIN_LAYER_TILE_US[1][1] = {};
-constexpr float TERRAIN_LAYER_TILE_VS[1][1] = {};
-constexpr float TERRAIN_LAYER_TINTS[1][1][3] = {};
+inline constexpr int TERRAIN_LAYER_COUNTS[1] = {0};
+inline constexpr int TERRAIN_MAX_LAYERS = 1;
+inline constexpr int TERRAIN_LAYER_TEXTURES[1][1] = {};
+inline constexpr float TERRAIN_LAYER_TILE_US[1][1] = {};
+inline constexpr float TERRAIN_LAYER_TILE_VS[1][1] = {};
+inline constexpr float TERRAIN_LAYER_TINTS[1][1][3] = {};
+inline constexpr float TERRAIN_LAYER_GRIPS[1][1] = {{1.0F}};
+inline constexpr bool TERRAIN_LAYER_GRIP_ANY = false;
 
 }  // namespace Layer_streaming

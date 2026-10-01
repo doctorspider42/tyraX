@@ -33,12 +33,14 @@
 
     ResetClipFlags{ }
     MatrixLoad{ mvp, VU1_MVP_MATRIX_ADDR, vi00 }
-    LoadTyraSingleColor{ singleColor, singleColorEnabled, VU1_SINGLE_COLOR_ADDR, VU1_OPTIONS_ADDR }
+    ; Modified by TyraX: only the flag here - the colour itself is loaded
+    ; per batch, where it is replicated (setDestAddr).
+    ilw.x   singleColorEnabled, VU1_OPTIONS_ADDR(vi00)
     ; Modified by TyraX: GS hardware fog (packed XYZF2)
     LoadTyraFogParams{ fogParams, VU1_OPTIONS_ADDR }
     MakeTyraAdcMask{ adcMask }
     ; Modified by TyraX: spot light (flashlight)
-    LoadTyraSpotLight{ spotPos, spotDirV, spotColV, VU1_LIGHTS_DIRS_ADDR }
+    LoadTyraSpotLight{ spotPos, spotDirV, spotColV, spotEnabled, VU1_LIGHTS_DIRS_ADDR, VU1_OPTIONS_ADDR }
 
     ; Modified by TyraX: the GIF-tag registers are loaded INSIDE the batch loop
     ; (below, next to the store that is their only reader) rather than here.
@@ -55,42 +57,73 @@ begin:
     LoadTyraBufferTags{ scale, primTag, buffer }
 
     iaddiu  vertexData,         buffer,         VU1_STAPIP_VERT_DATA_ADDR
-    ilw.w   vertexCount,        0(buffer)
+    ; Modified by TyraX: bit 15 asks this package to establish material state.
+    ; Consecutive packages in one bag reuse the GS registers and emit only
+    ; their primitive tag. Keeping every tag one-loop avoids the physical-GS
+    ; hang seen with the superficially cheaper multi-loop A+D experiment.
+    ilw.w   stateFlag,          0(buffer)
+    iadd    vertexCount,        stateFlag,      vi00
+    iaddiu  countMask,          vi00,            VU1_STAPIP_COUNT_MASK
+    iand    vertexCount,        vertexCount,     countMask
     iadd    stqData,            vertexData,     vertexCount
     iadd    colorData,          stqData,        vertexCount
     iblez   singleColorEnabled, setDestAddrMultiColor
     iadd    kickAddress,        stqData,        vertexCount
+    ; Modified by TyraX: one colour, three copies at
+    ; VU1_SINGLE_COLOR_COPIES_ADDR and a stride-0 colour pointer, so the
+    ; vertex loops below load their colours the same way in both modes
+    ; instead of branching on the flag at the top of every body.
+    lq      singleColor,        VU1_SINGLE_COLOR_ADDR(vi00)
+    ; the loop used to build each corner as vf00 + singleColor, which
+    ; adds vf00.w = 1.0 to the alpha - kept, so the output is bit-identical
+    add     singleColor,        vf00,           singleColor
+    sq      singleColor,        VU1_SINGLE_COLOR_COPIES_ADDR(vi00)
+    sq      singleColor,        VU1_SINGLE_COLOR_COPIES_ADDR+1(vi00)
+    sq      singleColor,        VU1_SINGLE_COLOR_COPIES_ADDR+2(vi00)
+    iaddiu  colorData,          vi00,           VU1_SINGLE_COLOR_COPIES_ADDR
+    iaddiu  colorStride,        vi00,           0
     b       setDestAddr
 setDestAddrMultiColor:
     iadd    kickAddress,        colorData,      vertexCount
+    iaddiu  colorStride,        vi00,           3
 setDestAddr:
     iaddiu  destAddress,        kickAddress,    0
 
+    ibgez   stateFlag,          reuseMaterialState
     ; Modified by TyraX: loaded here, not above `begin:` - see the note there.
     LoadTyraStaticData{ gifSetTag }
     LoadTyraTagsTexture{ lodGifTag, testsTag, texBufferClutGifTag, VU1_LOD_ADDR, VU1_Z_TESTS_ADDR, VU1_CLUT_ADDR }
     ; Modified by TyraX: per-mesh GS blend equation, in-band
     LoadTyraAlphaTag{ alphaGifTag, VU1_ALPHA_ADDR }
     StoreTyraGifTagsTextureAlpha{ gifSetTag, lodGifTag, texBufferClutGifTag, alphaGifTag, primTag, testsTag, destAddress }
+    b       materialStateReady
+reuseMaterialState:
+    sq      primTag,            0(destAddress)
+    iaddiu  destAddress,        destAddress,     1
+materialStateReady:
 
     ;--- Loop
     iadd vertexCounter, buffer, vertexCount
+    ; Modified by TyraX: the spot-light gate, ONE branch per batch.
+    ; CalculateTyraSpotLight is 21 upper-pipe operations a vertex and most
+    ; meshes have no dynamic light at all - see LoadTyraSpotLight in
+    ; tyra_macros.i for what selects this. It is two whole loops rather than a
+    ; branch inside one because a branch is a scheduling barrier: gating inside
+    ; the loop stops the assembler interleaving the spot with the transform,
+    ; fog and store chains, which measured +11 cycles a triangle on a mesh that
+    ; IS lit - the heaviest poses in a night scene are exactly the ones where
+    ; every mesh picks a light. The loop below is the original body, untouched,
+    ; so the lit path cannot regress; the unlit twin after it is the same body
+    ; with the three spot calls removed.
+    ibgez   spotEnabled,    unlitSelect
 vertexLoop:
 
-        iblez  singleColorEnabled, multiColor
-        ;--- Load vertices single color
-        add      color1,    vf00,   singleColor
-        add      color2,    vf00,   singleColor
-        add      color3,    vf00,   singleColor
-        b processing
-
-multiColor:
-        ;--- Load vertices colors
+        ;--- Load vertices colors (a single colour reads three copies,
+        ;--- stride 0 - see setDestAddr)
         lq      color1,   (colorData)
         lq      color2,   1(colorData)
         lq      color3,   2(colorData)
-        
-processing:
+
         ;--- Load vertex1
         lq      vertex1,  (vertexData)
         lq      stq1,     (stqData)
@@ -152,12 +185,171 @@ processing:
 
         iaddiu  vertexData,     vertexData,     3                         
         iaddiu  stqData,        stqData,        3  
-        iaddiu  colorData,      colorData,      3  
+        iadd    colorData,      colorData,      colorStride
         iaddiu  destAddress,    destAddress,    9
 
         ;--- Fix loop
         iaddi   vertexCounter,  vertexCounter,  -3  ; decrement the loop counter 
         ibne    vertexCounter,  buffer, vertexLoop  ; and repeat if needed
+    b       vertexLoopsDone
+
+unlitSelect:
+    ; Modified by TyraX: the fog gate, ONE branch per batch, the spot gate's
+    ; shape. A mesh whose fog coefficient is the constant 255 (fog off, or its
+    ; whole box nearer than the fog start - StaPipCore::render decides) gets
+    ; fog scale 0 in VU1_OPTIONS_ADDR.z, and the loop after the unlit one
+    ; stores that constant instead of computing it: CalculateTyraFog is 6
+    ; upper-pipe operations a vertex. The output is bit-identical - scale 0 and
+    ; offset 255 give F = ftoi4(255) = 0xFF0 in the unlit loop too. ilw reads
+    ; the float's LOW 16 bits; the EE keeps a real scale's low half non-zero.
+    ilw.z   fogScaleBits,   VU1_OPTIONS_ADDR(vi00)
+    ibeq    fogScaleBits,   vi00,   noFogSetup
+unlitVertexLoop:
+
+        ;--- Load vertices colors (a single colour reads three copies,
+        ;--- stride 0 - see setDestAddr)
+        lq      color1,   (colorData)
+        lq      color2,   1(colorData)
+        lq      color3,   2(colorData)
+
+        ;--- Load vertex1
+        lq      vertex1,  (vertexData)
+        lq      stq1,     (stqData)
+
+        ;--- Load vertex2
+        lq      vertex2,  1(vertexData)
+        lq      stq2,     1(stqData)
+
+        ;--- Load vertex3
+        lq      vertex3,  2(vertexData)
+        lq      stq3,     2(stqData)
+
+        ;--- Calculate vertex1
+        MatrixMultiplyVertex{ vertex1, mvp, vertex1 }
+        CalculateTyraFog{ fogInt, vertex1, fogParams }
+        PerformTyraFogClipCheck{ vertex1, destAddress, XYZ2_STORE_OFFSET, fogInt, adcMask }
+        VertexPersCorr{ vertex1, vertex1 }
+        ScaleVertexToGSFormat{ scale, vertex1 }
+        PerformTexturePerspectiveCorrection{ outputStq1, stq1 }
+        FixColor{ color1 }
+
+        ;--- Calculate vertex2
+        MatrixMultiplyVertex{ vertex2, mvp, vertex2 }
+        CalculateTyraFog{ fogInt, vertex2, fogParams }
+        PerformTyraFogClipCheck{ vertex2, destAddress, XYZ2_STORE_OFFSET+3, fogInt, adcMask }
+        VertexPersCorr{ vertex2, vertex2 }
+        ScaleVertexToGSFormat{ scale, vertex2 }
+        PerformTexturePerspectiveCorrection{ outputStq2, stq2 }
+        FixColor{ color2 }
+
+        ;--- Calculate vertex3
+        MatrixMultiplyVertex{ vertex3, mvp, vertex3 }
+        CalculateTyraFog{ fogInt, vertex3, fogParams }
+        PerformTyraFogClipCheck{ vertex3, destAddress, XYZ2_STORE_OFFSET+6, fogInt, adcMask }
+        VertexPersCorr{ vertex3, vertex3 }
+        ScaleVertexToGSFormat{ scale, vertex3 }
+        PerformTexturePerspectiveCorrection{ outputStq3, stq3 }
+        FixColor{ color3 }
+
+        ;--- Store vertex1 
+        sq      outputStq1,     STQ_STORE_OFFSET(destAddress)
+        sq      color1,         RGBA_STORE_OFFSET(destAddress)
+        sq.xyz  vertex1,        XYZ2_STORE_OFFSET(destAddress)
+
+        ;--- Store vertex2
+        sq      outputStq2,     STQ_STORE_OFFSET+3(destAddress)
+        sq      color2,         RGBA_STORE_OFFSET+3(destAddress)
+        sq.xyz  vertex2,        XYZ2_STORE_OFFSET+3(destAddress)
+
+        ;--- Store vertex3
+        sq      outputStq3,     STQ_STORE_OFFSET+6(destAddress)
+        sq      color3,         RGBA_STORE_OFFSET+6(destAddress)
+        sq.xyz  vertex3,        XYZ2_STORE_OFFSET+6(destAddress)
+
+        ;-------------------------------
+
+        iaddiu  vertexData,     vertexData,     3                         
+        iaddiu  stqData,        stqData,        3  
+        iadd    colorData,      colorData,      colorStride
+        iaddiu  destAddress,    destAddress,    9
+
+        ;--- Fix loop
+        iaddi   vertexCounter,  vertexCounter,  -3  ; decrement the loop counter 
+        ibne    vertexCounter,  buffer, unlitVertexLoop  ; and repeat if needed
+    b       vertexLoopsDone
+
+noFogSetup:
+    iaddiu  fogConstInt,    vi00,   0xFF0
+noFogVertexLoop:
+
+        ;--- Load vertices colors (a single colour reads three copies,
+        ;--- stride 0 - see setDestAddr)
+        lq      color1,   (colorData)
+        lq      color2,   1(colorData)
+        lq      color3,   2(colorData)
+
+        ;--- Load vertex1
+        lq      vertex1,  (vertexData)
+        lq      stq1,     (stqData)
+
+        ;--- Load vertex2
+        lq      vertex2,  1(vertexData)
+        lq      stq2,     1(stqData)
+
+        ;--- Load vertex3
+        lq      vertex3,  2(vertexData)
+        lq      stq3,     2(stqData)
+
+        ;--- Calculate vertex1
+        MatrixMultiplyVertex{ vertex1, mvp, vertex1 }
+        PerformTyraFogClipCheck{ vertex1, destAddress, XYZ2_STORE_OFFSET, fogConstInt, adcMask }
+        VertexPersCorr{ vertex1, vertex1 }
+        ScaleVertexToGSFormat{ scale, vertex1 }
+        PerformTexturePerspectiveCorrection{ outputStq1, stq1 }
+        FixColor{ color1 }
+
+        ;--- Calculate vertex2
+        MatrixMultiplyVertex{ vertex2, mvp, vertex2 }
+        PerformTyraFogClipCheck{ vertex2, destAddress, XYZ2_STORE_OFFSET+3, fogConstInt, adcMask }
+        VertexPersCorr{ vertex2, vertex2 }
+        ScaleVertexToGSFormat{ scale, vertex2 }
+        PerformTexturePerspectiveCorrection{ outputStq2, stq2 }
+        FixColor{ color2 }
+
+        ;--- Calculate vertex3
+        MatrixMultiplyVertex{ vertex3, mvp, vertex3 }
+        PerformTyraFogClipCheck{ vertex3, destAddress, XYZ2_STORE_OFFSET+6, fogConstInt, adcMask }
+        VertexPersCorr{ vertex3, vertex3 }
+        ScaleVertexToGSFormat{ scale, vertex3 }
+        PerformTexturePerspectiveCorrection{ outputStq3, stq3 }
+        FixColor{ color3 }
+
+        ;--- Store vertex1 
+        sq      outputStq1,     STQ_STORE_OFFSET(destAddress)
+        sq      color1,         RGBA_STORE_OFFSET(destAddress)
+        sq.xyz  vertex1,        XYZ2_STORE_OFFSET(destAddress)
+
+        ;--- Store vertex2
+        sq      outputStq2,     STQ_STORE_OFFSET+3(destAddress)
+        sq      color2,         RGBA_STORE_OFFSET+3(destAddress)
+        sq.xyz  vertex2,        XYZ2_STORE_OFFSET+3(destAddress)
+
+        ;--- Store vertex3
+        sq      outputStq3,     STQ_STORE_OFFSET+6(destAddress)
+        sq      color3,         RGBA_STORE_OFFSET+6(destAddress)
+        sq.xyz  vertex3,        XYZ2_STORE_OFFSET+6(destAddress)
+
+        ;-------------------------------
+
+        iaddiu  vertexData,     vertexData,     3                         
+        iaddiu  stqData,        stqData,        3  
+        iadd    colorData,      colorData,      colorStride
+        iaddiu  destAddress,    destAddress,    9
+
+        ;--- Fix loop
+        iaddi   vertexCounter,  vertexCounter,  -3  ; decrement the loop counter 
+        ibne    vertexCounter,  buffer, noFogVertexLoop  ; and repeat if needed
+vertexLoopsDone:
 
     xgkick kickAddress ; dispatch to the GS rasterizer.
 

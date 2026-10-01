@@ -912,6 +912,66 @@ void revealInFileManager(const std::string& path) {
 #endif
 }
 
+bool copyImageToClipboard(const unsigned char* rgba, int width, int height,
+                          const std::string& pngPath) {
+    if (!rgba || width <= 0 || height <= 0) return false;
+#ifdef _WIN32
+    const size_t pixels = (size_t)width * (size_t)height * 4;
+    const size_t bytes = sizeof(BITMAPV5HEADER) + pixels;
+    HGLOBAL memory = GlobalAlloc(GMEM_MOVEABLE, bytes);
+    if (!memory) return false;
+    unsigned char* dst = static_cast<unsigned char*>(GlobalLock(memory));
+    if (!dst) {
+        GlobalFree(memory);
+        return false;
+    }
+    BITMAPV5HEADER* head = reinterpret_cast<BITMAPV5HEADER*>(dst);
+    std::memset(head, 0, sizeof(*head));
+    head->bV5Size = sizeof(*head);
+    head->bV5Width = width;
+    head->bV5Height = -height;  // top-down, like the decoded debugger pixels
+    head->bV5Planes = 1;
+    head->bV5BitCount = 32;
+    head->bV5Compression = BI_BITFIELDS;
+    head->bV5SizeImage = (DWORD)pixels;
+    head->bV5RedMask = 0x00FF0000;
+    head->bV5GreenMask = 0x0000FF00;
+    head->bV5BlueMask = 0x000000FF;
+    head->bV5AlphaMask = 0xFF000000;
+    unsigned char* bgra = dst + sizeof(*head);
+    for (size_t i = 0; i < pixels; i += 4) {
+        bgra[i + 0] = rgba[i + 2];
+        bgra[i + 1] = rgba[i + 1];
+        bgra[i + 2] = rgba[i + 0];
+        bgra[i + 3] = rgba[i + 3];
+    }
+    GlobalUnlock(memory);
+    if (!OpenClipboard(g_dialogOwner)) {
+        GlobalFree(memory);
+        return false;
+    }
+    EmptyClipboard();
+    const bool ok = SetClipboardData(CF_DIBV5, memory) != nullptr;
+    CloseClipboard();
+    if (!ok) GlobalFree(memory);  // ownership transfers only on success
+    return ok;
+#else
+    if (pngPath.empty()) return false;
+    std::error_code ec;
+    if (!fs::is_regular_file(pngPath, ec)) return false;
+    if (commandExists("wl-copy")) {
+        Process::startDetached("wl-copy --type image/png < " + shQuote(pngPath));
+        return true;
+    }
+    if (commandExists("xclip")) {
+        Process::startDetached("xclip -selection clipboard -t image/png -i " +
+                               shQuote(pngPath));
+        return true;
+    }
+    return false;
+#endif
+}
+
 void installDesktopEntry(const std::string& appId, const std::string& appName,
                          const std::string& comment, const unsigned char* iconPng,
                          std::size_t iconPngSize) {

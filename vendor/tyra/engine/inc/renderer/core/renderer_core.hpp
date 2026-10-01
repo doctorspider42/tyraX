@@ -324,6 +324,29 @@ class RendererCore : public RendererCore2dBounds {
   }
 
   /**
+   * Modified by TyraX: the same stall time as a running total that nobody
+   * resets (it wraps with the COP0 count), for a second reader. The
+   * interleaved-passes tuner (docs/interleaved-passes.md) takes differences
+   * of it, so it can price a whole loop without stealing takeStallTicks()
+   * from the frame extrapolation gate or the profiling rig.
+   */
+  u32 getStallTotal() const { return stallTotal; }
+
+  /**
+   * Modified by TyraX: whether beginFrame()/endFrame() sleep 0.5 ms each
+   * (Threading::switchThread). Off by default: the game thread runs at 0x40,
+   * below the audio threads and ps2link's command thread, which preempt it
+   * on their own, so the two sleeps were 1.03-1.07 ms of every frame of
+   * nothing (measured on a PS2). The generated game turns it on while the
+   * editor's Live Debugger is attached: with its snapshot writes to host:
+   * and music streaming over ps2link, a frame loop with no sleep hung the
+   * console (SIF stuck) about a minute in, 2 of 2 runs, while the sleeping
+   * one ran clean - mechanism not found (docs/backlog.md).
+   */
+  void setFrameYield(bool on) { frameYield = on; }
+  bool getFrameYield() const { return frameYield; }
+
+  /**
    * Modified by TyraX: the screen rectangle everything drawn through the 2D
    * path touched last frame, in display pixels; empty (x1 < x0) when nothing
    * did. The frame warp keeps this region UNWARPED, because the HUD is pixels
@@ -374,6 +397,8 @@ class RendererCore : public RendererCore2dBounds {
   bool hasPresentedFrame = false;
   // Modified by TyraX: see getLastFrameWorkTicks / get2dBounds.
   u32 stallAccum = 0;
+  u32 stallTotal = 0;
+  bool frameYield = false;
   int hud2dX0 = 1 << 20, hud2dY0 = 1 << 20, hud2dX1 = -1, hud2dY1 = -1;
   // Which post fx passes already ran this frame (RendererCorePostFx::Pass
   // bits) - endFrame composites the rest. postFxDrained: the PATH1 barrier

@@ -7,6 +7,30 @@ number, and a small one. This page is what that number is, who spends it, and
 what happens when a game asks for one more sound than the chip has left. For
 the reverb those sounds are heard through, see [reverb.md](reverb.md).
 
+## WAV conversion for effects
+
+![Convert fixes existing stereo WAV effects](img/sound-wav-convert.png)
+
+**Project > Sounds** converts imported effects to **mono, 16-bit integer PCM,
+22050 Hz**, including stereo, 24/32-bit PCM and float WAVs. Existing files that
+need conversion show a **Convert** button; it rewrites the project copy in
+`res/sfx`. The original file selected in the import dialog stays untouched.
+
+Every game build also prepares a compatible copy in `.res-baked/sfx`, so WAVs
+dropped into the folder by hand and previously imported stereo clips work
+without reimporting. Native and Docker encode this normalized copy with
+`adpenc`; `res/sfx` stays unchanged by the build. Unsupported or damaged WAVs
+stop the build with the filename and conversion error instead of shipping noise.
+No additional per-track setting is needed: all effects use the same voice format.
+Music has its own streaming conversion controls and can remain stereo.
+
+The editor's engine audition decodes the source WAV, so successful audition alone
+does not prove the encoded game sample works. In particular, `adpenc` accepts
+stereo but its stereo reader overlaps two-byte samples in a byte buffer; audsrv
+also starts a sample on a single SPU2 voice rather than two stereo voices.
+Downmixing before encoding avoids both problems. Cached ADPCM files with a
+stereo header are re-encoded even when their timestamps appear current.
+
 ## The budget
 
 The SPU2 has 48 ADPCM voices, 24 per core. A core is also a **reverb bus**
@@ -89,6 +113,40 @@ waveform the old sample was — a transient masks it, a sustained quiet sample
 may not — and it is a property of the hardware, not of the code: measure it in
 your own game rather than assuming either answer.
 
+## Looping samples
+
+**A WAV under `res/sfx` whose name ends in `-loop.wav` is encoded with
+`adpenc -L`**. An ordinary WAV selected as a vehicle's idle, high-rev or tyre
+squeal sound is also encoded as a loop. Vehicle sound pickers show every
+imported project WAV; filenames need no special suffix. Gear shift and other
+unmarked sounds remain one-shots.
+
+The native backend and Docker encoder consume the optional
+`inc/vehicle_sound_loops.gen.txt` generated from resolved vehicle tuning.
+It contains deduplicated project-relative paths for continuous samples without
+the legacy suffix. Refresh rewrites it or removes it when the last role goes
+away. Encoders check ADPCM header byte 6 against desired loop mode even when
+source timestamps are unchanged, handling both one-shot-to-loop and the reverse.
+
+Loop flags belong to the **encoded sample**, not the play call. Silence a
+looping voice by setting its volume to zero. Every use of the same sample
+shares its loop mode; use a separate file when a one-shot version is needed.
+Loop preparation sets hardware flags; it does not trim, crossfade or repair a
+recording's seam. Prepare a seamless source recording before importing.
+
+**Pitch.** `AudioAdpcm::setPitch(channel, reg)` retunes a playing voice
+(`SD_VPARAM_PITCH`). `reg` is relative to the sample's **own** encoded rate, which
+audsrv reports and which is *not* `0x1000` — a 22 kHz sample reports 1881, because
+the SPU2's reference is 48 kHz. Use `AudioAdpcm::naturalPitch(sample)` and
+multiply. The register is 14 bits and saturates at `0x3FFF`; above that it wraps
+to a much lower pitch, which sounds like the note dropping an octave rather than
+like a clamp, so `setPitch` clamps for you.
+
+It costs a **blocking IOP RPC** per write (`sceSdSetParam` → `SifCallRpc` with no
+callback), so write it only when the value actually changes. Vehicle engine sound
+(docs/vehicles.md) quantises the register to 32 steps for exactly this reason: at
+a steady cruise that is no calls at all.
+
 ## What it costs
 
 The ranking is plain arithmetic over the scene's emitters — no calls into the
@@ -137,6 +195,49 @@ authored with an interval **under its sample length** (a quarter second
 restarts the loop inaudibly), and *Range* is worth setting to where the sound
 is meant to be heard, because an emitter outside it costs nothing at all.
 
+### Music stutters over ps2link
+
+Streamed music can play unevenly when the game runs from the PC over ps2link
+(Run on PS2). A beat drags and then catches up, there is the odd pop, and it
+gets worse while the PC is busy. **That is the dev network, not the game:**
+from a disc the same song plays evenly.
+
+Measured on a physical PS2 (2026-09-25) with a 44.1 kHz stereo song. audsrv's
+ring on the IOP holds ten 512-sample feeds, about 9.4 KB or 107 ms here, and
+asks the EE for more once a chunk of it is free.
+
+| song source | free in the ring when the EE refills it | EE waiting for audsrv's call | gap between refills |
+|---|---:|---:|---:|
+| streamed from the PC over ps2link | up to 73% (~28 ms left) | 60-80 ms | 53-98 ms, uneven |
+| the same song read into RAM first | ~10% | ~0 ms | 53-54 ms, steady |
+
+The song's `fread`s go over TCP, and the TCP stack runs on the IOP, the same
+37 MHz CPU as audsrv. Every read therefore delays audsrv's call to the EE, and
+the ring runs down to its last feeds. The Live Debugger's per-frame polling
+kept running in the RAM test and did not hurt: it is the song's own 16 KB
+reads that do it.
+
+A debug build says so in the log, at most once per 5 s:
+
+    ==WARN: Music ring ran low 12 time(s) in 5 s - the song is starving. ...
+
+It fires when a refill finds the ring over 70% empty. A healthy stream never
+gets there, because the refill comes at a chunk of room, about half the ring.
+
+Two things were tried and made it worse:
+- **Smaller chunks (1 KB)** meant more audsrv round trips on an IOP that was
+  already short of time. The song played in slow motion.
+- **One chunk per pass of the audio thread** capped the feed at 66 KB/s
+  against the song's 88 KB/s.
+
+Neither shipped. Nor did a third attempt, on the ps2link side. Its `host:`
+file server thread runs at IOP priority 10, far above audsrv's playback
+thread at 39, and moving it to 40 changed nothing: 9-15 low-ring warnings
+per 5 s, the same as before. The time goes to the TCP/IP stack's own
+threads (ps2ip, smap, netman), which are prebuilt IRX modules with their
+own priorities. For a clean listen during development, test from a disc
+image, or keep the PC quiet while the game runs.
+
 ## When something is not heard
 
 | Symptom | Cause |
@@ -144,6 +245,7 @@ is meant to be heard, because an emitter outside it costs nothing at all.
 | An emitter near the player is silent while distant ones play | It lost the ranking — check *Priority* on the ones that are playing. |
 | An emitter fires the instant you walk into range | The intended reset of its interval; shorten the interval if you want it sooner. |
 | The scene runs at 25 FPS while music plays and an emitter is in earshot | Fixed 2026-08 — the music stream no longer blocks audsrv for everyone else. If you see it again, you are on an engine build from before that; see *Emitters and streaming music* above. |
+| Music drags, stutters or pops while running over ps2link, and the log says "Music ring ran low" | The music streams from the PC and the IOP is busy with the network. From a disc it plays evenly. See *Music stutters over ps2link*. |
 | A Play Sound node does nothing, sometimes | Its priority is not above anything currently playing, so it is being dropped. Raise it, or pin it a channel. |
 | A pinned sound stopped layering over itself | That is the fix — pinning cuts off, as the parameter always claimed. Use auto if you want copies to overlap. |
 | Nothing plays at all, on hardware, but PCSX2 is fine | Not this page. See the EE cache write-back in the `tyra-engine-dev` skill's audio section. |

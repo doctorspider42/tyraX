@@ -50,12 +50,15 @@ std::vector<float> unitBox(int detail) {
                 const float s0 = (float)i / n, s1 = (float)(i + 1) / n;
                 const float t0 = (float)j / n, t1 = (float)(j + 1) / n;
                 const V3 a = P(s0, t0), b = P(s1, t0), c = P(s1, t1), d = P(s0, t1);
-                pushRaw(v, a, nrm, s0, t0);
-                pushRaw(v, b, nrm, s1, t0);
-                pushRaw(v, c, nrm, s1, t1);
-                pushRaw(v, a, nrm, s0, t0);
-                pushRaw(v, c, nrm, s1, t1);
-                pushRaw(v, d, nrm, s0, t1);
+                // PNG rows run top to bottom; signs on front/back stay upright.
+                const float v0 = nrm.z != 0 ? 1.0f - t0 : t0;
+                const float v1 = nrm.z != 0 ? 1.0f - t1 : t1;
+                pushRaw(v, a, nrm, s0, v0);
+                pushRaw(v, b, nrm, s1, v0);
+                pushRaw(v, c, nrm, s1, v1);
+                pushRaw(v, a, nrm, s0, v0);
+                pushRaw(v, c, nrm, s1, v1);
+                pushRaw(v, d, nrm, s0, v1);
             }
     };
     face({h, -h, -h}, {0, H, 0}, {0, 0, H}, {1, 0, 0});    // +X

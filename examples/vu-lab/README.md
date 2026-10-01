@@ -276,15 +276,28 @@ example died on the engine's own assert:
 
 With VU1 clipping on, the ten resident programs are five `cull` plus five
 `clip`, and the clip family is big - close enough to the 2042-slot ceiling that
-a custom program of any size pushes it over. vu-lab draws one lit ball and no
-textured-lit mesh, so codegen boots the glue at 27 (`g_resident = 27u` in
-`src/gen/vu_programs.gen.cpp`) and the dropped `td` class pays for the stages;
-CIRCLE narrows it further to `setResidentClasses(25)` - colour, textured,
+a custom program of any size pushes it over. That run's fix was a boot mask of
+27 that dropped the `td` class. Codegen no longer emits one: since the clip TD
+program shares the TC image, the engine keeps all five classes resident
+(`src/gen/vu_programs.gen.cpp` asks the engine and keeps no copy of the mask).
+CIRCLE still narrows the set to `setResidentClasses(25)` - colour, textured,
 matcap - for as long as the Wobble is on (`kWobbleClasses`,
 `src/scripts/vu_look_switch.cpp`). *Tools > VU Programs > Micro
 memory* is where that bar lives, and it reads the ENGINE's own `.vclpp` files -
 budgeting against the generator's descriptions alone is what let this ship green
 and assert on the console.
+
+**The textured-lit class is claimed by the cheap programs only.** Cell shading
+and Wobble leave `kLitTextured` out (`src/vu/cell_shading.cpp`,
+`src/vu/wobble.cpp`). This scene has no textured-lit mesh, so nothing can show
+a Wobble pass that moves and another that does not. And under openvcl, the
+native build's VU assembler, those two programs do not fit that class:
+`openvcl: Register allocation ran out of registers` on `vu_script0_td` and
+`vu_script3_td` (openvcl needs a couple more registers than Sony `vcl` on the
+generated set, docs/toolchain-image.md, "A second corpus"). Vertex snap is
+three instructions and still claims every class. A project that draws
+textured-lit meshes has to keep a displacement on `kAll` and find the register
+somewhere else.
 
 **Two stages per program is not an arbitrary demo size.** A third one on the
 colour program does not build: VCL runs out of VF registers and dies with `no
@@ -396,3 +409,13 @@ geometry packet in memory picked the EE's own PRIM tag at `buffer+1` followed by
 the vertex array read as GS vertices — the input compared against itself. The
 comparison now runs at the address the candidate program actually kicked, and
 anything overlapping what the chain uploaded is discarded.
+
+Generated object values live in `src/gen/scene_objects.gen.cpp`;
+`inc/scene_data.hpp` keeps stable declarations. Counts and object IDs live in
+the same data file, so ordinary moves, color edits, additions and removals can
+rebuild it alone. Changes to features or derived tables can still rebuild consumers.
+
+Generated game methods are split between `src/terrain_game.cpp` and the
+`src/gen/game_*.gen.cpp` subsystems, with shared inline helpers/state in
+`inc/game_runtime.gen.hpp`. Header changes can compile these units in parallel.
+The main file remains user-ownable; generated subsystem files refresh on build.

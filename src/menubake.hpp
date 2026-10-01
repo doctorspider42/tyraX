@@ -213,7 +213,8 @@ std::string flareFileName(int kind);
 // units directly under the player's eye, and it is the thing being looked AT.
 // Costs ~6% of the ~1.08 MB texture heap (docs/gs-vram.md), so refreshGenerated
 // bakes it - and scene_data.hpp's FLASHLIGHT_USED gates the load - only for
-// projects that can actually show a flashlight (templates::projectUsesFlashlight).
+// projects that can show a flashlight or projected vehicle headlights
+// (templates::projectUsesFlashlight/projectUsesVehicleHeadlights).
 //
 // The profile fades to black well before the border (kGoboEdge below), because
 // the projected STs are clamped on the EE and a lit edge texel would smear

@@ -25,6 +25,10 @@ namespace Tyra {
 struct LeanObjLod {
   std::vector<float> vertices;  // flat triangle list, 8 floats per vertex
   std::vector<u8> vertexAo;     // empty, or one byte per vertex
+  // The triangle-STRIP twin of `vertices` (.tmdl version 4+). See
+  // LeanObjMaterial::stripVertices; empty = render the list.
+  std::vector<float> stripVertices;
+  std::vector<u8> stripVertexAo;
 };
 
 /**
@@ -62,6 +66,25 @@ struct LeanObjMaterial {
   // TmdlLoader - the build bakes them into the .tmdl when the project's mesh
   // LOD distance is on.
   std::vector<LeanObjLod> lods;
+  // Added by TyraX (.tmdl version 4+): the same surface as a TRIANGLE STRIP,
+  // 8 floats per vertex like `vertices`, chopped into independent runs of
+  // `stripRun` vertices. The GS takes one vertex per triangle after the first
+  // two, so this is roughly a third of the vertices - and since every EE cost
+  // in the static pipeline scales with the VU1 package count, which scales
+  // with the vertex count, it is an EE saving first (see StaPipBag::stripped).
+  //
+  // It is a SECOND copy of the geometry, not a replacement: `vertices` is
+  // what per-triangle consumers walk (colliders, shadow volumes, decal
+  // projection), and only the render bag wants the strip. Empty, or
+  // stripRun == 0, means this part did not strip smaller than its list - a
+  // mesh with no shared corners never does - and the caller renders the list.
+  //
+  // A consumer that uses it owes StaPipBag::stripped = true AND
+  // StaPipBag::packageSize = stripRun: every run but the last is exactly
+  // stripRun vertices, and the packages have to land on those boundaries.
+  std::vector<float> stripVertices;
+  std::vector<u8> stripVertexAo;
+  u32 stripRun = 0;
 };
 
 struct LeanObjMesh {

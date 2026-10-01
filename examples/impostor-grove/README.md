@@ -104,3 +104,13 @@ Waystone. In Properties select **Capture views**, leave **Impostor** on and
 click **Bake impostor** to rebake one model; Tree Generator has the matching
 controls. The status identifies GPU or CPU fallback. The reproducible asset
 helper below uses the CPU reference and emits the same capture counts.
+
+Generated object values live in `src/gen/scene_objects.gen.cpp`;
+`inc/scene_data.hpp` keeps stable declarations. Counts and object IDs live in
+the same data file, so ordinary moves, color edits, additions and removals can
+rebuild it alone. Changes to features or derived tables can still rebuild consumers.
+
+Generated game methods are split between `src/terrain_game.cpp` and the
+`src/gen/game_*.gen.cpp` subsystems, with shared inline helpers/state in
+`inc/game_runtime.gen.hpp`. Header changes can compile these units in parallel.
+The main file remains user-ownable; generated subsystem files refresh on build.

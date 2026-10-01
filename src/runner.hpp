@@ -26,15 +26,17 @@ public:
     // is recreated, the game objects and the compiled engine (VU1 microprograms
     // included) are deleted, and everything is compiled from source. For when a
     // build misbehaves in a way an incremental build cannot see.
-    void buildAndRun(const Project& p, bool runEmulator, bool rebuild = false);
-    void runEmulatorOnly(const Project& p);
+    void buildAndRun(const Project& p, bool runEmulator, bool rebuild = false,
+                     int launchScene = -1);
+    void runEmulatorOnly(const Project& p, int launchScene = -1);
     // Network deploy to a PS2 running ps2link at p.ps2LinkIp: reset ps2link,
     // then `ps2client execee host:<name>.elf -ps2link` with cwd = bin/, so the
     // game boots on the console with assets served from this PC. The ps2client
     // process stays alive as the host: file server (killed on the next deploy
     // or editor exit - the game on the console dies with it) and its output,
     // including the console's printf log, streams into the Output panel.
-    void buildAndRunPs2(const Project& p, bool build, bool rebuild = false);
+    void buildAndRunPs2(const Project& p, bool build, bool rebuild = false,
+                        int launchScene = -1);
     // Stops the game running on the console: kills the ps2client file server
     // and resets ps2link, so the PS2 reboots back into its listening state.
     void stopPs2(const Project& p);
@@ -133,7 +135,8 @@ private:
     bool claimPs2Channel(const Project& p);
     // Closes the PCSX2 instances booting this project's ELF, and only those.
     void killEmulatorsFor(const Project& p, const std::string& exe);
-    void worker(Project p, bool build, bool run, bool ps2, bool rebuild);
+    void worker(Project p, bool build, bool run, bool ps2, bool rebuild,
+                int launchScene);
     void join();
 
     std::thread thread_;

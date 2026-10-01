@@ -1,7 +1,7 @@
 {
   "name": "layer-streaming",
-  "formatVersion": 23,
-  "editorVersion": "1.31.1",
+  "formatVersion": 92,
+  "editorVersion": "1.166.0",
   "template": "fpp",
   "projectId": "8932db255705074c",
   "settings": {
@@ -17,11 +17,17 @@
     "showAreas": false,
     "showCollision": false,
     "liveLink": true,
+    "liveLinkPollFrames": 0,
+    "liveLogicPollFrames": 0,
+    "liveDebugPollFrames": 0,
+    "liveDebugSnapshotFrames": 0,
+    "timeMachineFrames": 0,
     "liveDebug": true,
     "eeCrashHandler": false,
     "liveLogic": true,
     "timeMachine": true,
     "remotePad": true,
+    "inputRecorder": false,
     "keyboardMouse": false,
     "keyboardMousePs2Link": false,
     "disableVsync": false,
@@ -31,6 +37,7 @@
     "animSourceFps": 24,
     "animPlayFps": 24,
     "staticBatching": true,
+    "occlusionCulling": false,
     "envProbeReflected": false,
     "navCellSize": 1,
     "navMaxSlope": 40,
@@ -38,6 +45,8 @@
     "unitsPerMeter": 1,
     "terrainDetail": 32,
     "terrainViewDistance": 0,
+    "terrainLodDistance": 0,
+    "reflectionReuseBudget": 1,
     "skyColor": [0.25, 0.55, 0.78],
     "skyTopColor": [0.08, 0.3, 0.65],
     "skyDome": true,
@@ -80,6 +89,7 @@
     "bloomThreshold": 0,
     "bloomSpread": 0,
     "grain": 0,
+    "motionBlur": 0,
     "dofAmount": 0,
     "dofFocus": 20,
     "dofRange": 15,
@@ -109,7 +119,7 @@
   "scenes": [
     { "name": "main",
       "terrain": { "width": 64, "depth": 64 },
-      "settings": { "lighting": { "dir": [0.37, 0.82, 0.44], "ambient": 0.55, "diffuse": 0.45, "color": [1, 1, 1], "brightness": 1 }, "sky": { "color": [0.25, 0.55, 0.78], "topColor": [0.08, 0.3, 0.65], "dome": true, "zenithSize": 0.5 }, "clipping": "vu1", "terrainMaterial": "", "postfx": { "bloom": 0, "bloomThreshold": 0, "bloomSpread": 0, "grain": 0, "dofAmount": 0, "dofFocus": 20, "dofRange": 15, "flare": 0, "godRays": 0 }, "fog": { "enabled": false, "color": [0.5, 0.5, 0.55], "start": 15, "end": 120 }, "highlight": { "usable": false, "distance": 6, "color": [1, 0.85, 0.15], "width": 0.35, "steps": 4, "opacity": 0.56, "overlay": false } }, "overrides": { "lighting": false, "sky": false, "clipping": false, "terrainMat": false, "postFx": false, "fog": false, "highlight": false },
+      "settings": { "lighting": { "dir": [0.37, 0.82, 0.44], "ambient": 0.55, "diffuse": 0.45, "color": [1, 1, 1], "brightness": 1 }, "sky": { "color": [0.25, 0.55, 0.78], "topColor": [0.08, 0.3, 0.65], "dome": true, "zenithSize": 0.5 }, "clipping": "vu1", "terrainMaterial": "", "postfx": { "bloom": 0, "bloomThreshold": 0, "bloomSpread": 0, "grain": 0, "motionBlur": 0, "dofAmount": 0, "dofFocus": 20, "dofRange": 15, "flare": 0, "godRays": 0 }, "fog": { "enabled": false, "color": [0.5, 0.5, 0.55], "start": 15, "end": 120 }, "highlight": { "usable": false, "distance": 6, "color": [1, 0.85, 0.15], "width": 0.35, "steps": 4, "opacity": 0.56, "overlay": false } }, "overrides": { "lighting": false, "sky": false, "clipping": false, "terrainMat": false, "postFx": false, "fog": false, "highlight": false },
       "layers": [{ "name": "building-a" }, { "name": "building-b", "startLoaded": false }],
       "objects": ["13d8987f0843def9", "bfb9da98a885b378", "c6005aa20b81bb74", "3cf4c5a425bc6afe", "a040323719545a88", "681db01302b4394f", "6ebbb22bdd1215e8", "97b1791432c7c2c0", "2b747f71587cf48b", "e3fd1bfdfae99dcb", "ece99c40b16a3b7b", "3e3096f69e9785f1", "b799761606889755", "a43f21a1ea764d6e", "190c99019ba2e608", "a882923bffddd56a", "695d321d57fbda57", "b27cbc586d44e8cb", "61ede10e24d3de72", "569d3c724e567725", "7773a53d938000ac", "fb81dbcb6ef34efb", "01de5097c617273d", "b80e7220770c1a66", "2e44e1e216149b50"] }
   ],
@@ -143,6 +153,7 @@
   ],
   "hudBloomLayer": -1,
   "hudGrainLayer": -1,
+  "hudMotionBlurLayer": 0,
   "music": [],
   "sounds": [],
   "saveValues": [],
@@ -201,7 +212,13 @@
       { "name": "menu-up", "label": "Menu up", "role": "menu-up", "rebindable": false },
       { "name": "menu-down", "label": "Menu down", "role": "menu-down", "rebindable": false },
       { "name": "menu-left", "label": "Menu left", "role": "menu-left", "rebindable": false },
-      { "name": "menu-right", "label": "Menu right", "role": "menu-right", "rebindable": false }
+      { "name": "menu-right", "label": "Menu right", "role": "menu-right", "rebindable": false },
+      { "name": "veh-throttle", "label": "Vehicle throttle", "role": "veh-throttle" },
+      { "name": "veh-brake", "label": "Vehicle brake", "role": "veh-brake" },
+      { "name": "veh-handbrake", "label": "Vehicle handbrake", "role": "veh-handbrake" },
+      { "name": "veh-nitrous", "label": "Vehicle nitrous", "role": "veh-nitrous" },
+      { "name": "veh-camera", "label": "Vehicle camera", "role": "veh-camera" },
+      { "name": "veh-rearview", "label": "Vehicle rear view", "role": "veh-rearview" }
     ],
     "presets": [
       { "name": "Default", "bindings": [
@@ -222,11 +239,17 @@
           { "action": "menu-up", "pad": "DpadUp", "key": 82 },
           { "action": "menu-down", "pad": "DpadDown", "key": 81 },
           { "action": "menu-left", "pad": "DpadLeft", "key": 80 },
-          { "action": "menu-right", "pad": "DpadRight", "key": 79 }
+          { "action": "menu-right", "pad": "DpadRight", "key": 79 },
+          { "action": "veh-throttle", "pad": "R2", "key": 26 },
+          { "action": "veh-brake", "pad": "L2", "key": 22 },
+          { "action": "veh-handbrake", "pad": "Circle", "key": 44 },
+          { "action": "veh-nitrous", "pad": "Cross", "key": 225 },
+          { "action": "veh-camera", "pad": "Triangle", "key": 6 },
+          { "action": "veh-rearview", "pad": "R3", "key": 21 }
         ] }
     ]
   },
-  "editor": { "selectedObject": -1, "gizmo": 0, "gizmoSpace": 0, "viewMode": 0, "viewProjection": 0, "breakpoints": [] },
+  "editor": { "selectedObject": -1, "gizmo": 0, "gizmoSpace": 0, "viewMode": 0, "viewProjection": 0, "showFog": true, "cam": [0.8, 0.6, 90, 0, 0, 0], "breakpoints": [] },
   "activeLayout": 0,
   "layouts": [
     { "name": "Default", "recipe": 0, "open": [], "ini": "[Window][Project]\nPos=0,19\nSize=460,640\nCollapsed=0\nDockId=0x00000003,0\nLastUsed=20260711\n\n[Window][Properties]\nPos=0,661\nSize=460,356\nCollapsed=0\nDockId=0x00000004,0\nLastUsed=20260711\n\n[Window][Output]\nPos=462,753\nSize=1458,264\nCollapsed=0\nDockId=0x00000006,0\nLastUsed=20260711\n\n[Window][Debug]\nPos=462,753\nSize=1458,264\nCollapsed=0\nDockId=0x00000006,1\nLastUsed=20260711\n\n[Window][Flow Graph]\nPos=462,19\nSize=1458,732\nCollapsed=0\nDockId=0x00000005,1\nLastUsed=20260711\n\n[Window][Viewport]\nPos=462,19\nSize=1458,732\nCollapsed=0\nDockId=0x00000005,0\nLastUsed=20260711\n\n[Window][WindowOverViewport_11111111]\nPos=0,19\nSize=1920,998\nCollapsed=0\nLastUsed=20260711\n\n[Window][Debug##Default]\nPos=60,60\nSize=400,400\nCollapsed=0\nLastUsed=20260711\n\n[Window][Project Preferences]\nPos=696,12\nSize=527,992\nCollapsed=0\nLastUsed=20260711\n\n[Window][New Project]\nPos=780,381\nSize=527,254\nCollapsed=0\nLastUsed=20260711\n\n[Docking][Data]\nDockSpace     ID=0x08BD597D Window=0x1BBC0F80 Pos=0,19 Size=1920,998 Split=X\n  DockNode    ID=0x00000001 Parent=0x08BD597D SizeRef=460,1017 Split=Y\n    DockNode  ID=0x00000003 Parent=0x00000001 SizeRef=460,640 Selected=0x9C21DE82\n    DockNode  ID=0x00000004 Parent=0x00000001 SizeRef=460,356 Selected=0x8C72BEA8\n  DockNode    ID=0x00000002 Parent=0x08BD597D SizeRef=1458,1017 Split=Y\n    DockNode  ID=0x00000005 Parent=0x00000002 SizeRef=1458,751 CentralNode=1 Selected=0xC450F867\n    DockNode  ID=0x00000006 Parent=0x00000002 SizeRef=1458,264 Selected=0x6BCC3585\n\n" },

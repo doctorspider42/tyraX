@@ -1082,6 +1082,31 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
          .idIn = true, .idOut = true, .posIn = true,
          .desc = "Moves the player to a point instantly. A linked position "
                  "overrides the object's."},
+        // Requests carried out by the game's vehicle update (a graph cannot
+        // call the game - ScriptContext::vehicleRequest). docs/vehicles.md,
+        // "From a flow graph".
+        {.key = "EnterVehicle", .title = "Enter Vehicle",
+         .category = "Player", .strKind = FlowParamKind::ObjectName,
+         .strTip = "The Vehicle object to put the player in. Empty = this "
+                   "graph's own object.",
+         .idIn = true,
+         .desc = "Seats the player in a vehicle at once, from anywhere - no "
+                 "walking up, no USE press, and the Driveable flag is not "
+                 "asked. Already driving another car = out of that one first. "
+                 "On Start -> Enter Vehicle starts a scene behind the wheel."},
+        {.key = "ExitVehicle", .title = "Exit Vehicle",
+         .category = "Player",
+         .desc = "Puts the player out at the driver's door, exactly as the USE "
+                 "button does. Nothing happens on foot."},
+        {.key = "RepairVehicle", .title = "Repair Vehicle",
+         .category = "Player", .strKind = FlowParamKind::ObjectName,
+         .strTip = "The Vehicle object to repair. Empty, or anything that is "
+                   "not a vehicle = the car the player is driving (nothing "
+                   "happens on foot).",
+         .idIn = true,
+         .desc = "Puts a damaged vehicle right: dents out, smoke gone, full "
+                 "power back (docs/vehicles.md, \"Damage\"). A garage is an "
+                 "Area with On Enter -> Repair Vehicle."},
         // The hit object is a runtime reference (-1 = none) - actions fed it
         // are guarded like Spawn Object clones.
         {.key = "Raycast", .title = "Raycast", .category = "Player",

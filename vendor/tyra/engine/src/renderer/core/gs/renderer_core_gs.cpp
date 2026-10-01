@@ -6,9 +6,11 @@
 # Copyright 2022, tyra - https://github.com/h4570/tyra
 # Licensed under Apache License 2.0
 # Sandro Sobczyński <sandro.sobczynski@gmail.com>
+# Modified by TyraX: GIF-channel sends pass path3Fence() first.
 */
 
 #include <dma.h>
+#include "renderer/core/paths/path3/path3_fence.hpp"
 #include <tamtypes.h>
 #include <draw.h>
 #include <graph.h>
@@ -93,6 +95,7 @@ RendererCoreGS::~RendererCoreGS() {
   removeVblankHandler();  // Modified by TyraX: before the object dies
   if (flipPacket) {
     packet2_free(flipPacket);
+    if (hybridPacket) packet2_free(hybridPacket);
   }
   if (zTestPacket) {
     packet2_free(zTestPacket);
@@ -112,6 +115,9 @@ void RendererCoreGS::init(RendererSettings* t_settings) {
   // Modified by TyraX: 8 qwords - the InterlacedField mode appends a
   // per-field XYOFFSET write to the flip packet.
   flipPacket = packet2_create(8, P2_TYPE_UNCACHED_ACCL, P2_MODE_NORMAL, 0);
+  // Modified by TyraX: Hybrid colour depth's present blit - 11 setup rows, four
+  // per 32-pixel column (16 columns at 512 wide), then the raster restore.
+  hybridPacket = packet2_create(128, P2_TYPE_NORMAL, P2_MODE_NORMAL, 0);
   zTestPacket = packet2_create(8, P2_TYPE_NORMAL, P2_MODE_NORMAL, 0);
   alphaPacket = packet2_create(4, P2_TYPE_NORMAL, P2_MODE_NORMAL, 0);
   wrapPacket = packet2_create(4, P2_TYPE_NORMAL, P2_MODE_NORMAL, 0);
@@ -152,8 +158,7 @@ void RendererCoreGS::allocateVramBuffers() {
   // Modified by TyraX: PSMCT32 or PSMCT16 per the project's colour depth.
   // At 16bpp the pair of frame buffers halves - 458 KB -> 229 KB at
   // 512x448 - and the whole saving lands in the texture heap. The z buffer
-  // below is deliberately NOT halved with it: a 16-bit z at this near/far
-  // ratio z-fights badly, and it is a separate decision.
+  // below follows the draw format to preserve GS page geometry.
   frameBuffers[0].psm = settings->getFrameBufferPsm();
   frameBuffers[0].address = vram.allocateBuffer(
       frameBuffers[0].width, frameBuffers[0].height, frameBuffers[0].psm);
@@ -161,7 +166,11 @@ void RendererCoreGS::allocateVramBuffers() {
   frameBuffers[1].width = frameBuffers[0].width;
   frameBuffers[1].height = frameBuffers[0].height;
   frameBuffers[1].mask = frameBuffers[0].mask;
-  frameBuffers[1].psm = frameBuffers[0].psm;
+  // Modified by TyraX: in the Hybrid colour depth the second buffer is the
+  // DISPLAY buffer, never drawn into - PSMCT16, half the words of the 32-bit
+  // draw buffer beside it. That half is the mode's VRAM saving.
+  frameBuffers[1].psm =
+      settings->isHybridOutput() ? GS_PSM_16 : frameBuffers[0].psm;
   frameBuffers[1].address = vram.allocateBuffer(
       frameBuffers[1].width, frameBuffers[1].height, frameBuffers[1].psm);
 
@@ -245,11 +254,16 @@ void RendererCoreGS::allocateVramBuffers() {
   // projected-shadow slots a game may claim later, ~20 480) plus a texture
   // heap worth having.
   bufferCount = 2;
+  layoutLowResScaleX = lowResTargetScaleX;
+  layoutLowResScaleY = lowResTargetScaleY;
   if (settings->getFrameBufferCount() >= 3) {
+    // Modified by TyraX: Hybrid adds a DISPLAY target (PSMCT16), not a
+    // second 32-bit draw target. Charge the format we actually allocate.
+    const framebuffer_t& third = frameBuffers[1];
     const int bufferWords = static_cast<int>(
-        vram.getSizeInMB(static_cast<int>(frameBuffers[0].width),
-                         static_cast<int>(frameBuffers[0].height),
-                         frameBuffers[0].psm, GRAPH_ALIGN_PAGE) *
+        vram.getSizeInMB(static_cast<int>(third.width),
+                         static_cast<int>(third.height),
+                         third.psm, GRAPH_ALIGN_PAGE) *
             kWordsPerMB +
         0.5F);
     // Modified by TyraX: the neural upscaler's low-res colour target is NOT in
@@ -261,11 +275,11 @@ void RendererCoreGS::allocateVramBuffers() {
     // At 512x448 with the 1x2 raster that is 114 688 words, which is the
     // difference between a 576 KB texture heap and a 128 KB one.
     int blssWords = 0;
-    if (settings->getRasterScaleX() != 1 || settings->getRasterScaleY() != 1) {
+    if (lowResTargetScaleX != 1 || lowResTargetScaleY != 1) {
       const int lowW = static_cast<int>(settings->getWidth()) /
-                       settings->getRasterScaleX();
+                       lowResTargetScaleX;
       const int lowH = static_cast<int>(settings->getRenderHeightF()) /
-                       settings->getRasterScaleY();
+                       lowResTargetScaleY;
       const int lowBufW = -64 & (lowW + 63);  // as RendererCoreBlss sizes it
       blssWords = static_cast<int>(
           vram.getSizeInMB(lowBufW, lowH, settings->getFrameBufferPsm(),
@@ -289,7 +303,7 @@ void RendererCoreGS::allocateVramBuffers() {
           "The interlaced-field display mode halves every buffer and has "
           "room. The buffer count is also in the GS buffers line above.");
     } else {
-      frameBuffers[2] = frameBuffers[0];
+      frameBuffers[2] = third;
       frameBuffers[2].address = vram.allocateBuffer(
           frameBuffers[2].width, frameBuffers[2].height, frameBuffers[2].psm);
       if (frameBuffers[2].address >= 0) bufferCount = 3;
@@ -318,8 +332,8 @@ void RendererCoreGS::allocateVramBuffers() {
   // The clamp above it is the same hole from the other side: a rebuild may come
   // back with FEWER buffers than the one before it (setDisplayOutput to a mode
   // with no room), which leaves `context` naming a buffer that no longer exists.
-  if (context >= bufferCount) context = 0;
-  displayedBuffer = (context + 1) % bufferCount;
+  if (settings->isHybridOutput() || context >= bufferCount) context = 0;
+  displayedBuffer = settings->isHybridOutput() ? 1 : (context + 1) % bufferCount;
   lastRealBuffer = displayedBuffer;
   // Modified by TyraX: nothing has been RENDERED into that buffer yet - the
   // layout has just been (re)built and the VRAM holds whatever was there.
@@ -364,7 +378,9 @@ bool RendererCoreGS::needsBufferRealloc() const {
   // every scene that switches the upscaler on or off.
   const int wantX = zPinScaleX > 0 ? zPinScaleX : settings->getRasterScaleX();
   const int wantY = zPinScaleY > 0 ? zPinScaleY : settings->getRasterScaleY();
-  return zRasterScaleX != wantX || zRasterScaleY != wantY;
+  return zRasterScaleX != wantX || zRasterScaleY != wantY ||
+         layoutLowResScaleX != lowResTargetScaleX ||
+         layoutLowResScaleY != lowResTargetScaleY;
 }
 
 // Modified by TyraX (BLSS): the same VRAM reset reinit() does, minus the video
@@ -590,6 +606,7 @@ void RendererCoreGS::setFogColor(const u8& r, const u8& g, const u8& b) {
   q++;
   packet2_update(packet2, q);
   dma_channel_wait(DMA_CHANNEL_GIF, 0);
+  path3Fence();  // Modified by TyraX: path3_fence.hpp
   dma_channel_send_packet2(packet2, DMA_CHANNEL_GIF, true);
   dma_channel_wait(DMA_CHANNEL_GIF, 0);
   packet2_free(packet2);
@@ -604,6 +621,7 @@ void RendererCoreGS::setAlpha(const u64& alpha) {
   q++;
   packet2_update(alphaPacket, q);
   dma_channel_wait(DMA_CHANNEL_GIF, 0);
+  path3Fence();  // Modified by TyraX: path3_fence.hpp
   dma_channel_send_packet2(alphaPacket, DMA_CHANNEL_GIF, true);
   dma_channel_wait(DMA_CHANNEL_GIF, 0);
 }
@@ -617,6 +635,7 @@ const texwrap_t& RendererCoreGS::repeatWrap() {
 }
 
 void RendererCoreGS::setTextureWrap(const texwrap_t& wrap) {
+  currentWrap = wrap;  // Modified by TyraX: see currentTextureWrap()
   packet2_reset(wrapPacket, false);
   qword_t* q = wrapPacket->base;
   PACK_GIFTAG(q, GIF_SET_TAG(1, 1, 0, 0, GIF_FLG_PACKED, 1), GIF_REG_AD);
@@ -628,6 +647,7 @@ void RendererCoreGS::setTextureWrap(const texwrap_t& wrap) {
   q++;
   packet2_update(wrapPacket, q);
   dma_channel_wait(DMA_CHANNEL_GIF, 0);
+  path3Fence();  // Modified by TyraX: path3_fence.hpp
   dma_channel_send_packet2(wrapPacket, DMA_CHANNEL_GIF, true);
   dma_channel_wait(DMA_CHANNEL_GIF, 0);
 }
@@ -638,6 +658,7 @@ void RendererCoreGS::enableZTests() {
                  draw_enable_tests(zTestPacket->base, 0, &zBuffer));
   packet2_update(zTestPacket, draw_finish(zTestPacket->next));
   dma_channel_wait(DMA_CHANNEL_GIF, 0);
+  path3Fence();  // Modified by TyraX: path3_fence.hpp
   dma_channel_send_packet2(zTestPacket, DMA_CHANNEL_GIF, true);
 }
 
@@ -702,6 +723,7 @@ void RendererCoreGS::initDrawingEnvironment() {
                               screenCenter -
                                   (settings->getRenderHeightF() / 2.0F)));
   packet2_update(packet2, draw_finish(packet2->next));
+  path3Fence();  // Modified by TyraX: path3_fence.hpp
   dma_channel_send_packet2(packet2, DMA_CHANNEL_GIF, true);
   dma_channel_wait(DMA_CHANNEL_GIF, 0);
   packet2_free(packet2);
@@ -813,6 +835,106 @@ qword_t* RendererCoreGS::setXYOffset(qword_t* q, const int& drawContext,
   return q;
 }
 
+// Modified by TyraX: the Hybrid colour depth's present (see ColorDepth).
+//
+// One PATH3 packet: with two buffers run after vsync; with three copy into
+// the unscanned display target before queueing it. Sample the 32-bit draw
+// buffer as a texture (decal, nearest, region
+// clamp so the pow2 TW/TH never reaches past the buffer) and draw it into the
+// 16-bit display buffer as 32-pixel columns - a column is one texture page
+// wide, which keeps the texture cache on one page at a time. DTHE is armed for
+// the copy only: the GS dithers a 16-bit DESTINATION, and must not dither the
+// 32-bit draw buffer at all (real hardware leaves that unspecified). The
+// matrix itself is the hand-packed DIMX initDrawingEnvironment already wrote.
+//
+// Deliberately NO draw_finish: draw_wait_finish consumes the FINISH bit, so a
+// FINISH nobody waits for here would make the NEXT wait (align3D, a bracket)
+// return at once - an unfenced barrier. The GS is in-order, so the next frame's
+// clear cannot start before the copy has read the buffer anyway.
+void RendererCoreGS::emitHybridPresent(u8 target) {
+  const int w = static_cast<int>(frameBuffers[0].width);
+  const int h = static_cast<int>(frameBuffers[0].height);
+  int tw = 0, th = 0;
+  while ((1 << tw) < w) ++tw;
+  while ((1 << th) < h) ++th;
+  constexpr int kColumn = 32;
+  const int columns = (w + kColumn - 1) / kColumn;
+
+  packet2_reset(hybridPacket, false);
+  qword_t* q = hybridPacket->next;
+  // NLOOP counts every A+D row below: 11 setup rows (TEXFLUSH, TEX0, TEX1,
+  // CLAMP, FRAME, ZBUF, TEST, SCISSOR, XYOFFSET, DTHE, PRIM) plus 4 per column.
+  // An undercount stalls the GIF forever.
+  PACK_GIFTAG(q, GIF_SET_TAG(11 + columns * 4, 0, 0, 0, GIF_FLG_PACKED, 1),
+              GIF_REG_AD);
+  q++;
+  PACK_GIFTAG(q, GS_SET_TEXFLUSH(0), GS_REG_TEXFLUSH);
+  q++;
+  PACK_GIFTAG(q,
+              GS_SET_TEX0(static_cast<int>(frameBuffers[0].address) >> 6,
+                          w >> 6, GS_PSM_32, tw, th, 1, 1 /* decal */, 0, 0, 0,
+                          0, 0),
+              GS_REG_TEX0_1);
+  q++;
+  PACK_GIFTAG(q, GS_SET_TEX1(1, 0, 0, 0, 0, 0, 0), GS_REG_TEX1_1);
+  q++;
+  PACK_GIFTAG(q, GS_SET_CLAMP(2, 2, 0, w - 1, 0, h - 1), GS_REG_CLAMP_1);
+  q++;
+  PACK_GIFTAG(q,
+              GS_SET_FRAME(static_cast<int>(frameBuffers[target].address) >> 11,
+                           w >> 6, GS_PSM_16, 0),
+              GS_REG_FRAME_1);
+  q++;
+  PACK_GIFTAG(q,
+              GS_SET_ZBUF(static_cast<int>(zBuffer.address) >> 11,
+                          static_cast<int>(zBuffer.zsm), 1),
+              GS_REG_ZBUF_1);
+  q++;
+  // No alpha test, z test ALWAYS (and ZBUF masked above): a plain copy.
+  PACK_GIFTAG(q, GS_SET_TEST(0, 0, 0, 0, 0, 0, 1, 1), GS_REG_TEST_1);
+  q++;
+  PACK_GIFTAG(q, GS_SET_SCISSOR(0, w - 1, 0, h - 1), GS_REG_SCISSOR_1);
+  q++;
+  PACK_GIFTAG(q, GS_SET_XYOFFSET(2048 << 4, 2048 << 4), GS_REG_XYOFFSET_1);
+  q++;
+  PACK_GIFTAG(q, GS_SET_DTHE(settings->isHybridDitherActive() ? 1 : 0),
+              GS_REG_DTHE);
+  q++;
+  PACK_GIFTAG(q, GS_SET_PRIM(6 /* sprite */, 0, 1, 0, 0, 0, 1 /* uv */, 0, 0),
+              GS_REG_PRIM);
+  q++;
+  for (int c = 0; c < columns; ++c) {
+    const int x0 = c * kColumn;
+    const int x1 = x0 + kColumn < w ? x0 + kColumn : w;
+    // 1:1 texels: UVs at texel centres (+0.5 texel) at both ends.
+    PACK_GIFTAG(q, GS_SET_UV(x0 * 16 + 8, 8), GS_REG_UV);
+    q++;
+    PACK_GIFTAG(q, GS_SET_XYZ((2048 + x0) << 4, 2048 << 4, 0), GS_REG_XYZ2);
+    q++;
+    PACK_GIFTAG(q, GS_SET_UV(x1 * 16 + 8, h * 16 + 8), GS_REG_UV);
+    q++;
+    PACK_GIFTAG(q, GS_SET_XYZ((2048 + x1) << 4, (2048 + h) << 4, 0),
+                GS_REG_XYZ2);
+    q++;
+  }
+  // Back to the 32-bit draw buffer: FRAME, SCISSOR, XYOFFSET (with the
+  // per-field bias), TEST and ZBUF through the one shared restore, then DTHE
+  // off again. CLAMP is left for Path3::clearScreen, which re-asserts REPEAT
+  // at the start of every frame before any 3D draws (the REPEAT contract).
+  q = emitRasterRestore(q, true);
+  // Modified by TyraX: close PATH3 here. Leaving EOP clear keeps GIF on
+  // this path until another PATH3 packet arrives, starving a PATH1 FINISH
+  // at a between-frame mode switch after double-buffer hybrid presentation.
+  PACK_GIFTAG(q, GIF_SET_TAG(1, 1, 0, 0, GIF_FLG_PACKED, 1), GIF_REG_AD);
+  q++;
+  PACK_GIFTAG(q, GS_SET_DTHE(0), GS_REG_DTHE);
+  q++;
+  packet2_update(hybridPacket, q);
+  dma_channel_wait(DMA_CHANNEL_GIF, 0);
+  path3Fence();  // Modified by TyraX: path3_fence.hpp
+  dma_channel_send_packet2(hybridPacket, DMA_CHANNEL_GIF, true);
+}
+
 // Modified by TyraX: the FRAME switch, shared by both flip paths.
 void RendererCoreGS::emitDrawTargetSwitch(u8 target) {
   packet2_update(flipPacket,
@@ -838,6 +960,7 @@ void RendererCoreGS::emitDrawTargetSwitch(u8 target) {
 
   packet2_update(flipPacket, draw_finish(flipPacket->next));
   dma_channel_wait(DMA_CHANNEL_GIF, 0);
+  path3Fence();  // Modified by TyraX: path3_fence.hpp
   dma_channel_send_packet2(flipPacket, DMA_CHANNEL_GIF, true);
   draw_wait_finish();
 }
@@ -854,6 +977,50 @@ void RendererCoreGS::flipBuffers(bool throttle, bool synthetic) {
   // --- Two buffers: the stock path, unchanged. RendererCore::endFrame has
   // already waited for vsync, so presenting here lands in the vertical blank
   // and the EE owns the other buffer the moment this returns.
+  // --- Hybrid colour depth (TyraX): the draw target never rotates. The frame
+  // was drawn into is copied, dithered, into the 16-bit buffer the display
+  // scans, and the next frame draws into the same 32-bit buffer. With three
+  // buffers only the two 16-bit display targets rotate through the queue.
+  // No frame is ever marked "real": there is no previous 32-bit frame left to
+  // read, and hasRealFrame() is how motion blur knows to stay off.
+  if (settings->isHybridOutput()) {
+    context = 0;
+    if (bufferCount >= 3) {
+      // Modified by TyraX: only display slots 1 and 2 rotate. While a
+      // frame is pending neither can be overwritten; the EE has already
+      // rendered the next frame into slot 0 before reaching this wait.
+      if (throttle) {
+        while (pendingBuffer >= 0) graph_wait_vsync();
+      } else {
+        // Unlimited rendering replaces an unshown copy. Withdraw it with
+        // interrupts masked so the handler cannot latch it while we reuse
+        // its storage. Once pending is -1, displayedBuffer is stable.
+        DIntr();
+        pendingBuffer = -1;
+        EIntr();
+      }
+      const u8 target = static_cast<u8>(3 - displayedBuffer);
+      emitHybridPresent(target);
+      // The copy and raster restore must both finish BEFORE the interrupt
+      // may present target or the next frame may clear the 32-bit source.
+      // This FINISH has a matching wait (unlike the two-buffer blit).
+      emitDrawTargetSwitch(0);
+      pendingBuffer = target;
+    } else {
+      emitHybridPresent(1);
+      presentFrameBuffer(1);
+      displayedBuffer = 1;
+    }
+    // "The last thing the scene drew" stays the 32-bit draw buffer, which
+    // still holds the finished frame until the next clear - that is what the
+    // frame capture photographs (without the output's dither). Pointing it at
+    // the 16-bit display buffer froze PCSX2 inside ps2_screenshot's download
+    // of that buffer. hasRealFrame() stays false, so motion blur never samples
+    // it, and BLSS refuses it as a history in this mode.
+    lastRealBuffer = 0;
+    return;
+  }
+
   if (bufferCount < 3) {
     presentFrameBuffer(context);  // Modified by TyraX (DTV modes)
     if (!synthetic) {  // Modified by TyraX

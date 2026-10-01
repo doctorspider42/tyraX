@@ -1,6 +1,8 @@
 #pragma once
 
 #include <functional>
+#include <map>
+#include <string>
 #include <vector>
 
 #include "aobake.hpp"  // ModelAabbFn - the same model-bounds callback
@@ -29,7 +31,11 @@ struct Aabb {
 // missing falls back to the unit box, so placement still does something
 // sensible). Never fails - every object type has a placeable extent, markers
 // included; whether it is something to rest ON is isSupport()'s question.
-Aabb worldAabb(const SceneObject& o, const aobake::ModelAabbFn& modelAabb);
+// `boxes` (Project::modelCollision) swaps a model's mesh bounds for its own
+// collision box - pass it where the answer is "what collides" (the test
+// drive's walls), leave it out where it is "what is there" (resting objects).
+Aabb worldAabb(const SceneObject& o, const aobake::ModelAabbFn& modelAabb,
+               const std::map<std::string, ModelCollisionBox>* boxes = nullptr);
 
 // True when an object is solid enough to stack on: the geometry primitives,
 // save points and models, with collision left on (collisionMode 2 = "none"
@@ -67,8 +73,12 @@ bool collides(const SceneObject& o);
 // The box for one object. Filled for anything, whether or not it collides -
 // the caller decides what to do with a marker (the editor overlay skips them,
 // which is what `collides` is for).
+// `boxes` is Project::modelCollision: a static model in box mode with an
+// entry there collides as that box instead of its mesh bounds (the generated
+// game's MODEL_COLL_BOX, docs/collision-boxes.md "A smaller box").
 CollisionBox collisionBox(const SceneObject& o,
-                          const aobake::ModelAabbFn& modelAabb);
+                          const aobake::ModelAabbFn& modelAabb,
+                          const std::map<std::string, ModelCollisionBox>* boxes = nullptr);
 
 // Terrain height sampler (the viewport's bilinear one - the same function the
 // game samples the heightmap with).

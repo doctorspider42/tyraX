@@ -53,7 +53,7 @@ const int RP_MAX_KEYS = 16;
 const int RP_MAX_CHUNK = 32768;
 const int RP_CHUNK_FRAMES = 64;
 const int RP_CHUNK_FRAMES_PS2LINK = 256;
-const rpu64 RP_LAYOUT = 2454039692096264333ull;
+const rpu64 RP_LAYOUT = 7885041822984323029ull;
 
 const unsigned char RP_REC_FRAME = 0x01;
 const unsigned char RP_REC_SEED = 0x02;
@@ -651,7 +651,7 @@ void boot() {
   put32(h + 20, (unsigned int)chunkFrames);
   put32(h + 24, (unsigned int)(RP_LAYOUT & 0xFFFFFFFFull));
   put32(h + 28, (unsigned int)(RP_LAYOUT >> 32));
-  put32(h + 32, 46U);
+  put32(h + 32, 92U);
   put32(h + 36, (unsigned int)0);
   {
     const char* nm = "showcase";

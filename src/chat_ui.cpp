@@ -1337,7 +1337,8 @@ std::string App::runChatTool(aichat::ToolCall& c) {
         // The channel's age BEFORE the launch: what makes "the game reported"
         // mean this run rather than a file left over from the last one.
         chatGameMark_ = chatGameSignal();
-        runner_.buildAndRun(projectForBuild(), run);
+        runner_.buildAndRun(projectForBuild(), run, false,
+                            run ? project_.activeScene : -1);
         chatBuildWasRun_ = run;
         chatBuildWaiting_ = true;  // the loop parks until it settles
         statusMessage_ = "AI: building";

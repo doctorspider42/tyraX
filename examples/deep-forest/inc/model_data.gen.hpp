@@ -3,7 +3,7 @@
 
 namespace Deep_forest {
 
-constexpr int MODEL_COUNT = 72;
+inline constexpr int MODEL_COUNT = 72;
 inline const char* MODEL_PATHS[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {
     "models/procgen-5c17a90e-pine-xm3zm3.tmdl",
     "models/procgen-5c17a90e-pine-xm3zm2.tmdl",
@@ -232,20 +232,42 @@ inline const char* MODEL_SOURCES[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {
     "res/models/procgen-5c17a90e-rock-x2z1.obj",
     "res/models/procgen-5c17a90e-rock-x2z2.obj",
 };
-constexpr bool MODEL_NEEDS_COLLIDER[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false};
+inline constexpr bool MODEL_NEEDS_COLLIDER[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false};
 
-constexpr int ANIM_MODEL_COUNT = 0;
+inline constexpr int ANIM_MODEL_COUNT = 0;
 inline const char* ANIM_MODEL_PATHS[ANIM_MODEL_COUNT > 0 ? ANIM_MODEL_COUNT : 1] = {
     "",
 };
 
 // .mtl libraries assigned to primitives (first material = surface)
-constexpr int MATERIAL_COUNT = 0;
+inline constexpr int MATERIAL_COUNT = 0;
 inline const char* MATERIAL_PATHS[MATERIAL_COUNT > 0 ? MATERIAL_COUNT : 1] = {
     "",
 };
 
 // texture atlas summary, logged at scene boot ("" = no atlas)
-constexpr const char* TEXTURE_ATLAS_INFO = "";
+inline constexpr const char* TEXTURE_ATLAS_INFO = "";
+
+// Rigid-body shapes (docs/physics.md): convex hulls in mesh-local
+// units with their solid mass properties at unit density - volume,
+// centre of mass and the second moment about it (xx yy zz xy xz yz).
+// The game scales them per object and derives the inertia tensor.
+inline constexpr int PHYS_MAX_HULL_VERTS = 24;
+inline constexpr int PHYS_MAX_HULL_PLANES = 44;
+struct PhysHullData {
+  short verts, planes;  // counts
+  int vert0, plane0;    // first entry in the tables below
+  float volume, com[3], cov[6];
+};
+inline constexpr int PHYS_HULL_COUNT = 0;
+inline const PhysHullData PHYS_HULLS[PHYS_HULL_COUNT > 0 ? PHYS_HULL_COUNT : 1] = {
+    {0, 0, 0, 0, 0.0F, {0.0F, 0.0F, 0.0F}, {0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F}},
+};
+inline const float PHYS_HULL_VERTS[1] = {0.0F};
+inline const float PHYS_HULL_PLANES[1] = {0.0F};
+// PHYS_HULLS slot per MODEL_PATHS slot (-1 = collide as the mesh box)
+inline const short MODEL_PHYS_HULL[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
+// unit box, cylinder, cone, plane
+inline const short PHYS_PRIM_HULL[4] = {-1, -1, -1, -1};
 
 }  // namespace Deep_forest

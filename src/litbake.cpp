@@ -11,7 +11,7 @@
 
 #include "modelao.hpp"  // the model's own baked AO, folded into the albedo
 #include "objparser.hpp"
-#include "wire.hpp"  // hashFile - CONTENT hashes for the signature, never mtimes
+#include "wire.hpp"  // hashFileEolAgnostic - CONTENT hashes for the signature, never mtimes
 
 #define STB_IMAGE_IMPLEMENTATION_ALREADY
 #include "stb_image.h"
@@ -89,7 +89,7 @@ struct SourceTex {
 // Bumped when a change here would make an existing prelitSig mean something
 // else - it is what forces every object to read stale rather than silently
 // keeping a texture baked by different code.
-constexpr uint64_t kSigVersion = 1;
+constexpr uint64_t kSigVersion = 2;  // 2: EOL-agnostic asset hashes
 
 void mix64(uint64_t& h, uint64_t v) {
     h ^= v + 0x9e3779b97f4a7c15ull + (h << 6) + (h >> 2);
@@ -186,7 +186,9 @@ uint64_t signature(const Project& p, const SceneData& sc, int objectIndex,
 
     auto mixFile = [&](const fs::path& file) {
         uint64_t fh = 0, fsz = 0;
-        if (wire::hashFile(file.string(), fh, fsz)) {
+        // Line-ending agnostic: a CRLF checkout of the same .obj/.mtl must not
+        // stale a prelitSig stamped on an LF one (the gibake/shadowbake rule).
+        if (wire::hashFileEolAgnostic(file.string(), fh, fsz)) {
             mix64(h, fh);
             mix64(h, fsz);
         }

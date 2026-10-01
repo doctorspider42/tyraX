@@ -301,6 +301,7 @@ void App::scanAssetTree() {
 }
 
 void App::assetsChanged() {
+    materialAssetScanTime_ = -1.0;
     modelInfoCache_.clear();
     glbInfoCache_.clear();
     wavIssueCache_.clear();
@@ -341,8 +342,15 @@ void App::rebuildAssetUsage() {
             const std::string where = sn + " / " + o.name;
             if (!o.modelPath.empty()) note(o.modelPath, 0, where + " (model)", si, oi);
             if (!o.impostorPath.empty()) note(o.impostorPath, 0, where + " (impostor)", si, oi);
+            if (!o.blobShadowTexture.empty())
+                note(o.blobShadowTexture, 0, where + " (blob shadow)", si, oi);
             if (!o.materialPath.empty())
                 note(o.materialPath, 0, where + " (material)", si, oi);
+            if (!o.roadTexture.empty())
+                note(o.roadTexture, 2, where + " (road surface)", si, oi);
+            if (!o.roadIntersectionTexture.empty())
+                note(o.roadIntersectionTexture, 2,
+                     where + " (intersection surface)", si, oi);
             if (!o.soundPath.empty()) note(o.soundPath, 0, where + " (sound)", si, oi);
             for (const FlowNode& n : o.flowGraph.nodes) {
                 const FlowNodeType* t = flowNodeType(n.type);
@@ -357,9 +365,20 @@ void App::rebuildAssetUsage() {
         for (const TerrainLayer& l : scene.terrainLayers)
             if (!l.material.empty())
                 note(l.material, 2, sn + " terrain layer \"" + l.name + "\"");
+        for (const roadgen::JunctionOverride& j : scene.roadJunctions)
+            if (!j.material.empty()) note(j.material, 2, sn + " road junction patch");
     }
     if (!project_.settings.terrainMaterial.empty())
         note(project_.settings.terrainMaterial, 2, "project terrain material");
+    // Painted skies (docs/sky-texture.md) - edited on the presets.
+    for (const SceneData& scene : project_.scenes)
+        if (!scene.settings.skyTexture.empty())
+            note(scene.settings.skyTexture, 2, scene.name + " sky texture");
+    if (!project_.settings.skyTexture.empty())
+        note(project_.settings.skyTexture, 2, "project sky texture");
+    for (const AmbiencePreset& a : project_.ambiencePresets)
+        if (!a.skyTexture.empty())
+            note(a.skyTexture, 2, "ambience \"" + a.name + "\" sky texture");
 
     // Prefab members are real references: the asset ships because a prefab
     // uses it, whether or not any scene has an instance placed today. No
@@ -370,10 +389,49 @@ void App::rebuildAssetUsage() {
             const std::string where = "prefab \"" + pf.name + "\" / " + o.name;
             if (!o.modelPath.empty()) note(o.modelPath, 0, where + " (model)");
             if (!o.impostorPath.empty()) note(o.impostorPath, 0, where + " (impostor)");
+            if (!o.blobShadowTexture.empty())
+                note(o.blobShadowTexture, 0, where + " (blob shadow)");
             if (!o.materialPath.empty())
                 note(o.materialPath, 0, where + " (material)");
+            if (!o.roadTexture.empty())
+                note(o.roadTexture, 2, where + " (road surface)");
+            if (!o.roadIntersectionTexture.empty())
+                note(o.roadIntersectionTexture, 2,
+                     where + " (intersection surface)");
             if (!o.soundPath.empty()) note(o.soundPath, 0, where + " (sound)");
         }
+
+    // A vehicle definition's model is a real reference for the same reason a
+    // prefab member's is: it ships because the definition names it, whether or
+    // not any scene has an instance placed today.
+    // A particle-library effect's texture ships because an emitter or a car's
+    // smoke names the effect (docs/particles.md) - count it as the library's.
+    for (const ParticleEffect& fx : project_.particleEffects)
+        if (!fx.materialPath.empty())
+            note(fx.materialPath, 2, "particle effect \"" + fx.name + "\"");
+    for (const VehicleDef& v : project_.vehicles) {
+        if (!v.modelPath.empty())
+            note(v.modelPath, 0, "vehicle \"" + v.name + "\" (model)");
+        if (!v.farModel.empty())
+            note(v.farModel, 0, "vehicle \"" + v.name + "\" (far model)");
+        if (!v.engineSound.empty())
+            note(v.engineSound, 2, "vehicle \"" + v.name + "\" (engine sound)");
+        if (!v.engineHighSound.empty())
+            note(v.engineHighSound, 2, "vehicle \"" + v.name + "\" (engine high)");
+        if (!v.screechSound.empty())
+            note(v.screechSound, 2, "vehicle \"" + v.name + "\" (tyre squeal)");
+        if (!v.shiftSound.empty())
+            note(v.shiftSound, 2, "vehicle \"" + v.name + "\" (gear shift)");
+        if (!v.bodyReflMap.empty())
+            note(v.bodyReflMap, 2, "vehicle \"" + v.name + "\" (reflection map)");
+        if (!v.paintMask.empty())
+            note(v.paintMask, 2, "vehicle \"" + v.name + "\" (paint mask)");
+    }
+    const VehicleDef& defaults = project_.vehicleDefaults;
+    for (const auto* path : {&defaults.engineSound, &defaults.engineHighSound,
+                             &defaults.screechSound, &defaults.shiftSound,
+                             &defaults.skidMaterial, &defaults.smokeMaterial})
+        if (!path->empty()) note(*path, 2, "vehicle global defaults");
 
     auto noteHud = [&](const HudImage& h, const std::string& where) {
         if (!h.imagePath.empty()) note(h.imagePath, 2, where);
@@ -608,11 +666,21 @@ int App::retargetAssetPath(const std::string& from, const std::string& to) {
             ++hits;
         }
     };
+    auto swapBlob = [&](SceneObject& object) {
+        if (object.blobShadowTexture != from) return;
+        object.blobShadowTexture = to;
+        if (to.empty())
+            object.blobShadowSize[0] = object.blobShadowSize[1] = 0.0f;
+        ++hits;
+    };
     for (SceneData& scene : project_.scenes) {
         for (SceneObject& o : scene.objects) {
             swap(o.modelPath);
             swap(o.impostorPath);
+            swapBlob(o);
             swap(o.materialPath);
+            swap(o.roadTexture);
+            swap(o.roadIntersectionTexture);
             // The material a Revert would put back (docs/prelit-models.md): a
             // stored asset path like any other, so renaming that .mtl must
             // follow it or Revert points a pre-lit object at a file that has
@@ -629,18 +697,47 @@ int App::retargetAssetPath(const std::string& from, const std::string& to) {
         }
         swap(scene.settings.terrainMaterial);
         for (TerrainLayer& l : scene.terrainLayers) swap(l.material);
+        for (roadgen::JunctionOverride& j : scene.roadJunctions) swap(j.material);
     }
     swap(project_.settings.terrainMaterial);
+    swap(project_.settings.skyTexture);
+    for (SceneData& scene : project_.scenes) swap(scene.settings.skyTexture);
+    for (AmbiencePreset& a : project_.ambiencePresets) swap(a.skyTexture);
 
     // Prefab members store the same three asset paths a scene object does.
     for (Prefab& pf : project_.prefabs)
         for (SceneObject& o : pf.objects) {
             swap(o.modelPath);
             swap(o.impostorPath);
+            swapBlob(o);
             swap(o.materialPath);
+            swap(o.roadTexture);
+            swap(o.roadIntersectionTexture);
             swap(o.prelitSource);
             swap(o.soundPath);
         }
+
+    // A vehicle definition names the one .glb/.fbx its body and wheels are
+    // baked out of, and the WAV its engine note loops (docs/vehicles.md).
+    for (ParticleEffect& fx : project_.particleEffects) swap(fx.materialPath);
+    for (VehicleDef& v : project_.vehicles) {
+        swap(v.modelPath);
+        swap(v.farModel);
+        swap(v.engineSound);
+        swap(v.engineHighSound);
+        swap(v.screechSound);
+        swap(v.shiftSound);
+        swap(v.bodyReflMap);
+        swap(v.paintMask);
+    }
+    VehicleDef& defaults = project_.vehicleDefaults;
+    swap(defaults.engineSound);
+    swap(defaults.engineHighSound);
+    swap(defaults.screechSound);
+    swap(defaults.shiftSound);
+    swap(defaults.skidMaterial);
+    swap(defaults.smokeMaterial);
+    project::applyVehicleDefaults(project_);
 
     for (HudImage& h : project_.hud) swap(h.imagePath);
     swap(project_.usePrompt.imagePath);
@@ -694,6 +791,15 @@ int App::retargetAssetPath(const std::string& from, const std::string& to) {
         const int value = it->second;
         project_.modelAoMode.erase(it);
         if (!to.empty()) project_.modelAoMode[to] = value;
+        ++hits;
+    }
+    // The model's own collision box (docs/collision-boxes.md) - the same kind
+    // of asset-keyed setting, so it travels with the file too.
+    if (auto it = project_.modelCollision.find(from);
+        it != project_.modelCollision.end()) {
+        const ModelCollisionBox value = it->second;
+        project_.modelCollision.erase(it);
+        if (!to.empty()) project_.modelCollision[to] = value;
         ++hits;
     }
     if (auto it = project_.modelLods.find(from); it != project_.modelLods.end()) {

@@ -96,6 +96,10 @@ std::string dumpText();
  * A no-op while collection is off. */
 void markLastItemChecked(bool checked);
 
+/** Name an already submitted item by id. BeginCombo omits ItemInfo; callers
+ * inside PushID scopes must provide its label for scripts to find it. */
+void nameItem(uint32_t id, const char* label);
+
 // ------------------------------------------------------------------ script ---
 
 struct Step {
@@ -128,6 +132,7 @@ struct Step {
     Kind kind = Click;
     std::string arg;
     float dx = 0, dy = 0;
+    bool shiftClick = false;
     double seconds = 0;
     int n = 0;
     std::string source;  // the line it came from, for the log

@@ -21,6 +21,20 @@
  * The engine is compiled once per checkout into a shared Docker volume and
  * reused by every project, so this cannot be a per-project setting the way
  * DEBUG_SHOW_PROFILER is - it is a source-level switch on purpose.
+ *
+ * TWO LEVELS (2026-09-23). 1 is the whole rig: FRAMETIME, the static
+ * pipeline's telemetry (FTCLIP), and the packet-structure walker (FTPKT,
+ * TYRA_STAPIP_PACKET_PROFILE). 2 is FRAMETIME ALONE - tFrameWork and the
+ * fairness drain, with the pipeline's telemetry left off and the walker
+ * compiled out.
+ *
+ * Level 2 exists because level 1 is not transparent enough to time a shipped
+ * frame. Measured on a physical PS2 at a parked Motor District vantage, the
+ * HUD's SCENE row read 13.21 ms uninstrumented and 17.70 ms at level 1: the
+ * walker parses every DMA tag and VIF code of every packet sent, every frame,
+ * and that pushed a frame whose work straddled 20 ms clean over it. So level 1
+ * answers "what is the frame MADE of" and level 2 answers "how long does the
+ * frame the player gets take". Do not quote an absolute `work` off level 1.
  */
 #ifndef TYRA_FRAME_PROFILE
 #define TYRA_FRAME_PROFILE 0
@@ -163,6 +177,31 @@ extern u32 tBlssPacket;
  * adds to it, endFrame() subtracts it from tFrameWork and clears it.
  */
 extern u32 tExcluded;
+
+/**
+ * THE TWO TERMS tFrameWork CANNOT SEE (added 2026-09-23), so that a FRAMETIME
+ * line accounts for the whole frame the player gets instead of the render
+ * block alone. tFrameWork starts at beginFrame(), and a game's loop() does a
+ * great deal before it calls that - on the Motor District ~430 lines of
+ * scripts, physics, vehicles and cameras - so on a physical PS2 a day frame
+ * measured work=17.4 ms with 0 of 50 frames over budget while the HUD read
+ * 38.5 FPS, i.e. ~30% of frames still missing the 20 ms field. The miss was in
+ * the term nobody was timing.
+ *
+ * tPre    - the previous present's end to this beginFrame(): the engine's
+ *           info/pad update and every line of the game's loop() that runs
+ *           before it calls beginFrame.
+ * tStall  - the present itself: the vsync wait plus the flip.
+ * tPeriod - present-end to present-end, the true frame period.
+ *
+ * pre + work + stall ~= period is the rig checking itself (as window means:
+ * the game samples these from inside the next frame, so a single sample mixes
+ * two frames). Not meaningful with frame extrapolation on - a synthetic present
+ * sits between two real ones and is not stamped here.
+ */
+extern u32 tPre;
+extern u32 tStall;
+extern u32 tPeriod;
 
 /**
  * THE CALIBRATION GATE. Draws `k` full-screen textured, alpha-blended sprites
