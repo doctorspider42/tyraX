@@ -4,6 +4,10 @@ A playable PS2 district for TyraX vehicles. Open `vehicle-playground.tyra` in
 TyraX and build the project. The main scene starts in the Ravager; press
 **Square** to get out and enter the nearby Pica Turbo or Strix V12.
 
+The current seated start is the primary [TyraX2 hardware control](../../docs/tyrax2.md).
+`tools/tyrax2-fixture.py` makes isolated day/night copies with host polling off;
+keep the authored camera, video mode and quality when comparing frame times.
+
 For native build timing, use a scratch copy of this example and warm the cache
 with one build before timing unchanged, script-only and scene-edit iterations.
 Unchanged builds keep the ELF timestamp; scene-table edits can still recompile

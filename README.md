@@ -301,6 +301,7 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
 - [Attributing render submission](docs/render-submission-attribution.md): opt-in counters that account for the whole `beginFrame`..`endFrame` block, not just the static pipeline, down to a zero residual.
 - [Not re-baking wheels that did not move](docs/wheel-rebake-skip.md): the vehicle wheel batch skips a rig whose inputs did not change, and keeps its `bboxVersion` when the vertices are byte-identical.
 - A [physical PS2 timeline](docs/hardware-profiler.md) in the editor and HTML/Perfetto, with EE scopes, DMA waits and pipeline-state snapshots.
+- [TyraX2 renderer diagnostics](docs/tyrax2.md): opt-in DMA/VIF chain validation and reproducible seated-start hardware controls.
 - [On-demand render costs](docs/profiling.md#on-demand-render-cost-178): debugger phase/object timings, sortable by name, cost or delta, with baseline comparison and CSV export on PCSX2 and PS2.
 - The [VU framework](docs/vu-framework.md): describe a microprogram in C++,
   generate both sides of it and run it in a host simulator with no PS2 —

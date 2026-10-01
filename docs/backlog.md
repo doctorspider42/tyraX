@@ -298,6 +298,9 @@ recovered 0.50-0.72 ms of hardware `work`. What it did not do, ranked:
   (about 2.5-3.5 ms in the garage), not its work, so the EE's own computation
   comes first. The design, what it would require, its risks and a staged order
   are written down in "A frame-pipelined engine (TyraX2)" on the same page.
+  **Foundation work started 2026-10-01:** [TyraX2](tyrax2.md) establishes an
+  opt-in pre-submit chain guard and reproducible current seated-start fixtures.
+  Frame-owned arenas, ordered auxiliary passes and N/N-1 execution remain open.
   Still true from the capture: the reference title builds that chain in SPR
   and moves it to RAM by DMA (no write-back), and its per-object cost is about
   16 qwords plus a `CALL` into a prebaked block.

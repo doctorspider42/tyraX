@@ -7,6 +7,10 @@
 #include "renderer/core/paths/path1/vif1_queue.hpp"
 #include <kernel.h>
 #include <dma.h>
+#if TYRA_VIF1_CHAIN_CHECK
+#include <stdio.h>
+#include "debug/debug.hpp"
+#endif
 
 namespace Tyra {
 
@@ -177,7 +181,37 @@ void Vif1Queue::releaseHeld() {
 }
 #endif
 
-u32 Vif1Queue::submit(const void* chain) {
+#if TYRA_VIF1_CHAIN_CHECK
+static const uint32_t* resolveChainRef(uint32_t address, uint32_t qwords,
+                                       void*) {
+  // Only ordinary EE RAM is supported here; no MMIO or scratchpad reads.
+  if (address < 0x1000 || address >= 0x02000000 ||
+      qwords > (0x02000000 - address) / 16) return nullptr;
+  return reinterpret_cast<const uint32_t*>(address);
+}
+#endif
+
+u32 Vif1Queue::submit(const void* chain, u32 qwords) {
+#if TYRA_VIF1_CHAIN_CHECK
+  const auto check = Vif1ChainCheck::validate(chain, qwords, resolveChainRef);
+  if (!check) {
+    // Keep the guard effective even when NDEBUG removes TYRA_ASSERT.
+    printf("VIFCHECK rejected error=%u tag=%lu cmd=%lu pending=%lu\n",
+           static_cast<unsigned>(check.error), static_cast<unsigned long>(check.tag),
+           static_cast<unsigned long>(check.command),
+           static_cast<unsigned long>(check.pending));
+    fflush(stdout);
+    SleepThread();
+    return 0;
+  }
+  static u32 checked = 0;
+  if (++checked == 1 || checked % 4096 == 0) {
+    printf("VIFCHECK accepted chains=%lu\n", static_cast<unsigned long>(checked));
+    fflush(stdout);
+  }
+#else
+  (void)qwords;
+#endif
   closeOpenChain();
 #if TYRA_VIF1_QUEUE_HOLD
   {

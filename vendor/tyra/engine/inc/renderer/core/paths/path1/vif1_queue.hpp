@@ -6,6 +6,7 @@
 #pragma once
 
 #include <tamtypes.h>
+#include "renderer/core/paths/path1/vif1_chain_check.hpp"
 
 /**
  * TYRA_VIF1_QUEUE: 1 = the static pipeline hands finished packets to Vif1Queue
@@ -101,7 +102,8 @@ class Vif1Queue {
    * reads (FlushCache, as the stock send does); with it, the queue does that
    * itself before the chain starts. Returns the sequence number for waitFor().
    */
-  static u32 submit(const void* chain);
+  // qwords includes the terminator; mandatory in a chain-check build.
+  static u32 submit(const void* chain, u32 qwords = 0);
 
   /** Blocks until the chain with this sequence number has been transferred. */
   static void waitFor(u32 sequence);

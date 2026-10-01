@@ -440,7 +440,7 @@ void RendererCore2D::closeChain() {
 #if !TYRA_VIF1_QUEUE_LAZY_FLUSH
   FlushCache(0);
 #endif
-  lastSeq = Vif1Queue::submit(chains[chainSide]);
+  lastSeq = Vif1Queue::submit(chains[chainSide], chainQw + 1);
   chainSeq[chainSide] = lastSeq;
   chainSide ^= 1;
 }

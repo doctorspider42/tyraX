@@ -2901,7 +2901,8 @@ void StaPipQBufferRenderer::sendPacket() {
 #if !TYRA_VIF1_QUEUE_LAZY_FLUSH
     FlushCache(0);
 #endif
-    packetSequence[context] = Vif1Queue::submit(currentPacket->base);
+    packetSequence[context] = Vif1Queue::submit(
+        currentPacket->base, packet2_get_qw_count(currentPacket));
 #else
     dma_channel_send_packet2(currentPacket, DMA_CHANNEL_VIF1, true);
 #endif

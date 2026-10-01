@@ -359,3 +359,8 @@ Developer design docs (internals, not user guides):
 ## Editor viewport performance
 
 [Editor viewport performance](editor-performance.md) explains conservative offscreen model rejection and how to compare navigation costs without changing visual quality.
+
+## TyraX2 renderer foundations
+
+[TyraX2](tyrax2.md) tracks the staged frame-pipeline migration, the opt-in
+pre-submit DMA/VIF guard and isolated current Motor District day/night fixtures.

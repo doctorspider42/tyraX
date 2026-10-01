@@ -4098,3 +4098,22 @@ boot the resulting game. Test culling both enabled and disabled: static-box
 additions must update its proxy data without changing the declaration header.
 Feature and other derived-table edits may rebuild more. Profile a remaining
 large compile with GCC `-ftime-report` before assuming parsing/I/O is its cost.
+
+
+## TyraX2 foundations (2026-10-01)
+
+See docs/tyrax2.md before changing cross-frame submission ownership.
+TYRA_VIF1_CHAIN_CHECK is an opt-in correctness guard in Vif1Queue::submit;
+StaPip and HUD callers pass full chain extents including END. It validates
+linear TTE chains and VIF lengths before submission, with bounded EE RAM
+reference resolution. It does not prove allocation lifetime, cache coherency,
+GIF semantics or pixels. NEXT/CALL/RET, REFS and scratchpad references are
+unsupported. Non-default inherited STCYCL state needs an explicit decoder
+contract. Keep the guard OFF for timing; accepted/rejected VIFCHECK output is
+correctness evidence only. tools/verify-vif1-chain.cpp exercises malformed
+input on a host. tools/tyrax2-fixture.py creates isolated current Motor District
+seated-start day/night fixtures with plain/timing/check/hold engine modes.
+Refresh and build the returned game against its copied engine, keep one host
+server, and use the resident-IOP marker. Preserve the authored video mode:
+NTSC's 16.667 ms budget is not FRAMETIME's fixed over20 threshold.
+Frame arenas and N/N-1 execution are still future stages, not shipped behavior.
