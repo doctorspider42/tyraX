@@ -1446,6 +1446,17 @@ pose + `--capture-frame` x30 against one reference). The `as_is_*` family and
 the EE clipper deserve the same pass - the EE clipper was catastrophically
 broken by the same race and has never been looked at on hardware since.
 
+### Keep Sony's vcl building the engine without a human remembering to
+
+The Docker fallback was broken for five days (docs/toolchain-image.md, "Sony's vcl
+is a build target too") because the default build never runs Sony's `vcl`. Two
+pieces would catch the next one: make `vugen::vfPressure` extend a live range
+across a backward branch (today a preamble constant last read in the per-buffer
+header counts as dead inside the batch loop, so the TC clip image read 30 while
+Sony refused it - recalibrate the table in docs/vu-authoring.md afterwards), and a
+scripted both-assemblers pass over the engine's `.vclpp` set that a VU change runs
+before it is called done.
+
 ### Judge openvcl against the ps2gl fixtures
 
 Twelve of upstream's own `test/fixtures` are real third-party VU code and no

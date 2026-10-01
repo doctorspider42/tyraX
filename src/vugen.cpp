@@ -1947,15 +1947,30 @@ void loadDirLights(Vu& b, Program& prog, Constants& k) {
     loadInto(prog, k.ambient, b.izero(), kLightsColorsAddr + 3, MALL);
 }
 
+/** The GIF tag block's five constants are loaded where the block is STORED,
+ * once per buffer, instead of being pinned in VF registers for the whole
+ * program. Only TC's shared clip image does this: it carries the TC, TCE and
+ * TD paths at once, and the TD path's light colours + ambient on top of
+ * everything the clipper keeps live put 33 VF registers live in
+ * `sharedDirMode` against VU1's 31. openvcl fits that by scheduling; Sony's
+ * vcl does not ("no opt table .. something failed making table .. for
+ * sharedDirMode"), so the Docker fallback could not build the engine at all.
+ * Reloading is output-identical: the EE writes these addresses only in
+ * sendObjectData, behind a FLUSHE, and every bag starts with an MSCAL - so
+ * every buffer of a bag reads exactly what the preamble used to read. */
+bool tagsPerBuffer(const Desc& d) { return d.clip && d.sharedClipTexDir; }
+
 /** Everything that runs once per BUFFER before the first vertex is touched. */
 void emitPreamble(Vu& b, Program& prog, const Desc& d, Constants& k,
                   bool singleColorPerBuffer = false) {
     const bool colorStream = !d.dirLights;
+    const bool tagsLate = tagsPerBuffer(d);
     // The families that judge a vertex against the frustum on VU1 start from a
     // cleared clip-flag shift register.
     if (d.cull || d.clip) b.resetClipFlags();
     k.gifSetTag = b.named("gifSetTag");
-    loadK(prog, k.gifSetTag, kSetGifTagAddr, MALL, "VU1_SET_GIFTAG_ADDR");
+    if (!tagsLate)
+        loadK(prog, k.gifSetTag, kSetGifTagAddr, MALL, "VU1_SET_GIFTAG_ADDR");
 
     // as_is is fed NDC by the EE clipper; cull and clip transform on VU1.
     if (d.cull || d.clip) {
@@ -1988,16 +2003,16 @@ void emitPreamble(Vu& b, Program& prog, const Desc& d, Constants& k,
     }
 
     k.lodGifTag = b.named("lodGifTag");
-    loadK(prog, k.lodGifTag, kLodAddr, MALL, "VU1_LOD_ADDR");
     k.testsTag = b.named("testsTag");
-    loadK(prog, k.testsTag, kZTestsAddr, MALL, "VU1_Z_TESTS_ADDR");
-    if (d.texture) {
-        k.clutTag = b.named("texBufferClutGifTag");
-        loadK(prog, k.clutTag, kClutAddr, MALL, "VU1_CLUT_ADDR");
-    }
+    if (d.texture) k.clutTag = b.named("texBufferClutGifTag");
     k.alphaTag = b.named("alphaGifTag");
-    loadK(prog, k.alphaTag, kAlphaAddr, MALL,
-          "VU1_ALPHA_ADDR - per-mesh GS blend equation, in-band");
+    if (!tagsLate) {
+        loadK(prog, k.lodGifTag, kLodAddr, MALL, "VU1_LOD_ADDR");
+        loadK(prog, k.testsTag, kZTestsAddr, MALL, "VU1_Z_TESTS_ADDR");
+        if (d.texture) loadK(prog, k.clutTag, kClutAddr, MALL, "VU1_CLUT_ADDR");
+        loadK(prog, k.alphaTag, kAlphaAddr, MALL,
+              "VU1_ALPHA_ADDR - per-mesh GS blend equation, in-band");
+    }
     k.fogParams = b.named("fogParams");
     loadK(prog, k.fogParams, kOptionsAddr, MALL,
           "VU1_OPTIONS_ADDR.zw = GS hardware fog");
@@ -2132,6 +2147,16 @@ BufferHeader emitBufferHeader(Vu& b, Program& prog,
  * `destAddress` advanced past it. */
 void emitTagBlock(Vu& b, Program& prog, const Desc& d, const Constants& k,
                   Val primTag, IVal destAddress) {
+    if (tagsPerBuffer(d)) {
+        // Live only from here to the stores below - see tagsPerBuffer.
+        loadK(prog, k.gifSetTag, kSetGifTagAddr, MALL,
+              "VU1_SET_GIFTAG_ADDR - per buffer (Sony vcl's VF budget)");
+        loadK(prog, k.lodGifTag, kLodAddr, MALL, "VU1_LOD_ADDR");
+        loadK(prog, k.testsTag, kZTestsAddr, MALL, "VU1_Z_TESTS_ADDR");
+        if (d.texture) loadK(prog, k.clutTag, kClutAddr, MALL, "VU1_CLUT_ADDR");
+        loadK(prog, k.alphaTag, kAlphaAddr, MALL,
+              "VU1_ALPHA_ADDR - per-mesh GS blend equation, in-band");
+    }
     int q = 0;
     b.sq(k.gifSetTag, destAddress, q++);
     prog.code.back().comment = "GIF tag block";
