@@ -1189,7 +1189,9 @@ class TerrainGame : public Tyra::Game {
     BagArray<Tyra::Vec4> aoSts;
     BagArray<Tyra::Color> aoCols;
     // Ground shadow map pass (docs/shadows.md, "Ground shadow maps"): the
-    // chunk drawn once more with its own 4-bit shadow mask, alpha-over.
+    // chunk's SHADED cells drawn once more with its own 4-bit shadow mask,
+    // alpha-over.
+    BagArray<Tyra::Vec4> gsVerts;
     BagArray<Tyra::Vec4> gsSts;
     BagArray<Tyra::Color> gsCols;
     std::unique_ptr<Tyra::StaPipBag> gsBag;
@@ -3038,7 +3040,9 @@ class TerrainGame : public Tyra::Game {
     BagArray<Tyra::Vec4> aoSts;
     BagArray<Tyra::Color> aoCols;
     // Ground shadow map pass (docs/shadows.md, "Ground shadow maps"): the
-    // chunk drawn once more with its own 4-bit shadow mask, alpha-over.
+    // chunk's SHADED cells drawn once more with its own 4-bit shadow mask,
+    // alpha-over.
+    BagArray<Tyra::Vec4> gsVerts;
     BagArray<Tyra::Vec4> gsSts;
     BagArray<Tyra::Color> gsCols;
     std::unique_ptr<Tyra::StaPipBag> gsBag;
@@ -28986,15 +28990,24 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
   }
 
   // Ground shadow map pass (docs/shadows.md, "Ground shadow maps"): this
-  // chunk's own mask, STs over the chunk's square, white vertex colours so the
-  // mask's RGB (the shadow tint) and alpha go through untouched - the decals'
-  // alpha-over, with the chunk itself as the receiver.
+  // chunk's own mask over ONLY the cells it shades (the baked row masks), STs
+  // over the chunk's square, white vertex colours so the mask's RGB (the
+  // shadow tint) and alpha go through untouched - the decals' alpha-over.
+  // Drawing the whole chunk again measured +1.0 ms on a PS2 for ~9% of it in
+  // shadow. The cells are the chunk's own quads at its LOD stride with the
+  // same diagonal and the same edge-snapped heights, lifted like a decal: a
+  // separate array may take a different clip route than ch.vertices, and an
+  // exactly coplanar pass on a different route z-fights.
   {
     std::string want;
+    const unsigned short* gsRows = nullptr;
 #ifdef GROUND_SHADOWS_ON
-    if (SCENE_GROUND && layerInfoBag) {
-      const int gi = ch.cz * SCENE_GROUND_CHUNKS_X + ch.cx;
-      if (ch.cx < SCENE_GROUND_CHUNKS_X && SCENE_GROUND[gi])
+    if (SCENE_GROUND && layerInfoBag && ch.cx < SCENE_GROUND_CHUNKS_X) {
+      gsRows = SCENE_GROUND +
+               (ch.cz * SCENE_GROUND_CHUNKS_X + ch.cx) * TERRAIN_CHUNK_CELLS;
+      bool any = false;
+      for (int r = 0; r < TERRAIN_CHUNK_CELLS; ++r) any = any || gsRows[r];
+      if (any)
         want = "gshadow/s" + std::to_string(g_activeScene) + "_" +
                std::to_string(ch.cx) + "_" + std::to_string(ch.cz) + ".png";
     }
@@ -29008,16 +29021,42 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
       if (ch.gsTexBag.texture)
         ch.gsTexBag.texture->setWrapSettings(Tyra::Clamp, Tyra::Clamp);
     }
-    if (ch.gsTexBag.texture && !want.empty()) {
-      const float ox = startX + (float)(ch.cx * TERRAIN_CHUNK_CELLS) * stepX;
-      const float oz = startZ + (float)(ch.cz * TERRAIN_CHUNK_CELLS) * stepZ;
+    ch.gsVerts.clear();
+    ch.gsSts.clear();
+    if (ch.gsTexBag.texture && gsRows) {
+      const float ox = startX + (float)gx0 * stepX;
+      const float oz = startZ + (float)gz0 * stepZ;
       const float iw = 1.0F / ((float)TERRAIN_CHUNK_CELLS * stepX);
       const float id = 1.0F / ((float)TERRAIN_CHUNK_CELLS * stepZ);
-      ch.gsSts.clear();
-      ch.gsSts.reserve(ch.vertices.size());
-      for (const Vec4& v : ch.vertices)
-        ch.gsSts.push_back(Vec4((v.x - ox) * iw, (v.z - oz) * id, 1.0F, 0.0F));
-      ch.gsCols.assign(ch.vertices.size(), Color(128.0F, 128.0F, 128.0F, 128.0F));
+      const float kLift = 0.02F;  // decalproj's offset, a hair more
+      // Is any cell of the quad [x, xN) x [z, zN) shaded?
+      auto shadedQuad = [&](int x, int xN, int z, int zN) {
+        unsigned bits = 0;
+        for (int c = x - gx0; c < xN - gx0; ++c) bits |= 1U << c;
+        for (int r = z - gz0; r < zN - gz0; ++r)
+          if (gsRows[r] & bits) return true;
+        return false;
+      };
+      for (int z = gz0; z < gz1; z += lod)
+        for (int x = gx0; x < gx1; x += lod) {
+          const int xN = x + lod > gx1 ? gx1 : x + lod;
+          const int zN = z + lod > gz1 ? gz1 : z + lod;
+          if (!shadedQuad(x, xN, z, zN)) continue;
+          const float x0 = startX + x * stepX, x1 = startX + xN * stepX;
+          const float z0 = startZ + z * stepZ, z1 = startZ + zN * stepZ;
+          const float h00 = hAtE(x, z) + kLift, h10 = hAtE(xN, z) + kLift;
+          const float h01 = hAtE(x, zN) + kLift, h11 = hAtE(xN, zN) + kLift;
+          const Vec4 q[6] = {Vec4(x0, h00, z0, 1.0F), Vec4(x1, h10, z0, 1.0F),
+                             Vec4(x0, h01, z1, 1.0F), Vec4(x1, h10, z0, 1.0F),
+                             Vec4(x1, h11, z1, 1.0F), Vec4(x0, h01, z1, 1.0F)};
+          for (const Vec4& v : q) {
+            ch.gsVerts.push_back(v);
+            ch.gsSts.push_back(Vec4((v.x - ox) * iw, (v.z - oz) * id, 1.0F, 0.0F));
+          }
+        }
+    }
+    if (!ch.gsVerts.empty()) {
+      ch.gsCols.assign(ch.gsVerts.size(), Color(128.0F, 128.0F, 128.0F, 128.0F));
       if (!ch.gsBag) {
         ch.gsColorBag = std::make_unique<StaPipColorBag>();
         ch.gsBag = std::make_unique<StaPipBag>();
@@ -29026,8 +29065,8 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
       ch.gsBag->info = layerInfoBag.get();
       ch.gsCols.bind(ch.gsColorBag);
       ch.gsBag->color = ch.gsColorBag.get();
-      ch.vertices.bind(ch.gsBag);
-      ch.gsBag->count = static_cast<u32>(ch.vertices.size());
+      ch.gsVerts.bind(ch.gsBag);
+      ch.gsBag->count = static_cast<u32>(ch.gsVerts.size());
       ch.gsSts.bind(&ch.gsTexBag);
       ch.gsBag->texture = &ch.gsTexBag;
       ch.gsBag->bboxVersion = ch.bag->bboxVersion;
@@ -29047,7 +29086,6 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
       pins.push_back(lp.bag.get());
     pins.push_back(ch.aoBag.get());
     pins.push_back(ch.emisBag.get());
-    pins.push_back(ch.gsBag.get());
     // Stripped: the packages ARE the baked runs, so the size is PINNED to the
     // run rather than derived, and every pass over this array splits it at
     // the same boundaries - which is the property that keeps the base pass
@@ -33050,16 +33088,25 @@ static std::string shadowDataHeader(const Project& p) {
                 const int cz = (sc.hmD - 1 + shadowbake::kGroundChunkCells - 1) /
                                shadowbake::kGroundChunkCells;
                 chunksX[si] = cx;
-                std::vector<int> has((size_t)cx * cz, 0);
+                // One 16-bit mask per cell ROW of every chunk: bit x set =
+                // cell (x, row) has shadow in it, so the game draws only those
+                // cells (on Motor District ~9% of a chunk). A chunk with no map
+                // is sixteen zeros.
+                const int C = shadowbake::kGroundChunkCells;
+                std::vector<unsigned> rows((size_t)cx * cz * C, 0);
                 for (const shadowbake::GroundMap& m : gb[si].ground)
-                    if (m.cx >= 0 && m.cx < cx && m.cz >= 0 && m.cz < cz)
-                        has[(size_t)m.cz * cx + m.cx] = 1;
-                out << "static const unsigned char S" << si << "_GROUND[" << has.size()
+                    if (m.cx >= 0 && m.cx < cx && m.cz >= 0 && m.cz < cz) {
+                        const std::vector<uint16_t> mk =
+                            shadowbake::groundCellMask(m, gb[si].groundRes);
+                        for (int r = 0; r < C; ++r)
+                            rows[((size_t)m.cz * cx + m.cx) * C + r] = mk[r];
+                    }
+                out << "static const unsigned short S" << si << "_GROUND[" << rows.size()
                     << "] = {";
-                for (size_t k = 0; k < has.size(); ++k) out << (k ? "," : "") << has[k];
+                for (size_t k = 0; k < rows.size(); ++k) out << (k ? "," : "") << rows[k];
                 out << "};\n";
             }
-            out << "static const unsigned char* const SCENE_GROUND_TABLES[] = {";
+            out << "static const unsigned short* const SCENE_GROUND_TABLES[] = {";
             for (int si = 0; si < sceneCount; ++si)
                 out << (si ? ", " : "")
                     << (chunksX[si] ? "S" + std::to_string(si) + "_GROUND"

@@ -558,8 +558,8 @@ casters that shade the same ground darken it once, not twice.
 | --- | --- | --- |
 | Texel size, Motor District (64 u chunk) | ~0.25–1 u, depending on the caster's size | 0.5 u everywhere |
 | VRAM | the atlas pages | ~8 KB per chunk a shadow touches (18 of 25 there: ~150 KB) |
-| ELF | 60 B per projected terrain triangle | one flag per chunk |
-| Draw | the projected triangles | the chunk once more, alpha-over |
+| ELF | 60 B per projected terrain triangle | 32 B per chunk (a cell mask) |
+| Draw | the projected triangles | the chunk's shaded cells once more, alpha-over |
 
 The map is **4-bit**: the shadow tint at sixteen alpha levels, written straight
 into a palette PNG with a 4×4 ordered dither. The
@@ -569,21 +569,32 @@ merging alpha levels, not the loader. The decal atlas pages use the same ramp
 since 1.163.0, which took a page from 256 KB to 32 KB.
 
 The pass draws after the terrain's lightmap/AO pass and before its emissive
-light, so the sun's shadow darkens sunlit ground, not lamplight. It goes over
-the chunk's own vertex array and is pinned to the same package boundaries as
-the other passes, because passes over one array that split it differently
-z-fight.
+light, so the sun's shadow darkens sunlit ground, not lamplight. It draws
+**only the cells the shadow touches**. The bake writes one 16-bit mask per
+cell row of each chunk (a cell counts if it, or the texel just beyond its edge,
+has any shadow). The game rebuilds those cells from the chunk's own quads: the
+same LOD stride, the same diagonal and the same edge-snapped heights, lifted
+0.02 u like a decal. The lift is needed because the cells are a separate vertex
+array. That array can take a different clip route than the chunk, and an
+exactly coplanar pass on a different route z-fights.
 The texture uses Clamp wrap, so a chunk edge never samples the opposite edge.
 Fully lit texels are exactly alpha 0, and the GS alpha test drops them.
 
-**Cost, measured so far only in PCSX2** (garage pose, 128 px):
-- VRAM readout: 3.01 MB, vs 3.09 MB with decals.
-- `SCENE` time: 3.17 ms, vs 2.71 ms. That is the whole chunk drawn again for
-  every chunk that has a map.
+**Cost on a physical PS2** (Motor District, garage pose, 128 px, frozen camera,
+`--profile-frame`, ms):
 
-Drawing only the shaded cells is the obvious next step. It needs its own run
-split, which is the thing the pin above protects. A real-PS2 number is still
-owed.
+| | Decals only | Ground maps, whole chunk | Ground maps, shaded cells |
+| --- | ---: | ---: | ---: |
+| Total | 9.64 | 10.23 | **9.49** |
+| Terrain | 1.33 | 2.42 | 1.73 |
+| Shadow_decals | 0.98 | 0.55 | 0.56 |
+
+Drawing whole chunks again cost +1.0 ms for a pass that was about 9 % shadow
+(24 of 256 cells per chunk on average). With only the shaded cells, the
+ground pass costs +0.40 ms and takes 0.42 ms off the decals, so the frame
+comes out slightly cheaper. What is left of the +0.40 ms is mostly
+per-bag cost: one bag per chunk that has a map. The VRAM cost goes the other
+way: 148 KB of maps on top of the 32 KB decal page. The ELF is 141 KB smaller.
 
 On disk: `bakedShadowGround` in the manifest's settings (format **v90**,
 written only when non-zero). The maps come from the same

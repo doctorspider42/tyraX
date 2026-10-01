@@ -988,6 +988,24 @@ Bake bakeScene(const Project& p, int sceneIndex, const std::atomic<bool>* cancel
     return out;
 }
 
+std::vector<uint16_t> groundCellMask(const GroundMap& m, int res) {
+    const int C = kGroundChunkCells;
+    std::vector<uint16_t> rows(C, 0);
+    if (res <= 0 || (int)m.alpha.size() != res * res) return rows;
+    for (int y = 0; y < res; ++y)
+        for (int x = 0; x < res; ++x) {
+            if (!m.alpha[(size_t)y * res + x]) continue;
+            // The texel's footprint, one texel wider each side.
+            const int c0 = std::max(0, (x - 1) * C / res);
+            const int c1 = std::min(C - 1, (x + 1) * C / res);
+            const int r0 = std::max(0, (y - 1) * C / res);
+            const int r1 = std::min(C - 1, (y + 1) * C / res);
+            for (int r = r0; r <= r1; ++r)
+                for (int cc = c0; cc <= c1; ++cc) rows[r] |= (uint16_t)(1u << cc);
+        }
+    return rows;
+}
+
 // --- signature + cache -------------------------------------------------------
 
 uint64_t signature(const Project& p, const SceneData& sc, const Options& opt) {

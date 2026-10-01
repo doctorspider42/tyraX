@@ -157,6 +157,11 @@ struct GroundMap {
     std::vector<uint8_t> alpha;
 };
 
+// Which cells of a ground map's chunk the game draws: row r, bit x set = cell
+// (x, r) holds a non-zero texel, or one within a texel of its edge (the
+// bilinear filter reaches that far). kGroundChunkCells rows.
+std::vector<uint16_t> groundCellMask(const GroundMap& m, int res);
+
 struct Bake {
     bool valid = false;
     uint64_t signature = 0;
