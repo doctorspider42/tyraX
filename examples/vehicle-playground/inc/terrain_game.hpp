@@ -944,6 +944,10 @@ class TerrainGame : public Tyra::Game {
     int gear = 0;              // 0-based forward gear, -1 in reverse
     float rpm = 800.0F;
     float shiftTimer = 0.0F;   // seconds left of the throttle cut
+    // The rev limiter (vehRevLimiterStep): the bounce's phase and the dip it
+    // takes off rpm this frame, 0..1. The note plays rpm minus the dip.
+    float limiterPhase = 0.0F;
+    float limiterDip = 0.0F;
     float wheelSpeed = 0.0F;   // driven wheels' surface speed (> speed = spin)
     float nos = 1.0F;          // tank, 0..1 - starts full
     int nosActive = 0;

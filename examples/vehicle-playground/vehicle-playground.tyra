@@ -1,7 +1,7 @@
 {
   "name": "vehicle-playground",
   "formatVersion": 90,
-  "editorVersion": "1.163.1",
+  "editorVersion": "1.163.4",
   "template": "fpp",
   "projectId": "99089f551e395d01",
   "settings": {
@@ -88,6 +88,7 @@
     "giProbeHeight": 2,
     "giProbeLevels": 4,
     "modelAo": true,
+    "prelitAutoBake": true,
     "bakedShadows": true,
     "bakedShadowAutoBake": true,
     "bakedShadowGround": 128,
@@ -288,10 +289,10 @@
   "particleEffects": [
     { "id": "fx00rallydust001", "name": "Rally dust", "kind": 5, "count": 24, "size": 0.366667, "color": [0.86, 0.76, 0.6], "speed": 1, "spread": 30, "gravity": -1, "weight": 0.5, "life": 1.5, "grow": 7.59091, "opacity": 0.597188, "dieOnGround": false, "additive": false, "material": "res/materials/particles/rally-dust.mtl", "texGen": { "kind": 1, "size": 64, "seed": 9, "softness": 0.85, "detail": 0.4, "scale": 0.9, "turbulence": 0.5, "heat": 0.5, "color": [1, 1, 1], "frames": 2, "fps": 6 } }
   ],
-  "editor": { "selectedObject": 131, "gizmo": 0, "gizmoSpace": 0, "viewMode": 0, "viewProjection": 0, "showFog": false, "cam": [-1.57, 0.3, 12.8514, 0, 0.5, -74.3035], "breakpoints": [] },
+  "editor": { "selectedObject": 111, "gizmo": 0, "gizmoSpace": 0, "viewMode": 0, "viewProjection": 0, "showFog": false, "cam": [-4.55, 0.48, 117.451, 41.7332, -29.4333, -21.585], "breakpoints": [] },
   "activeLayout": 0,
   "layouts": [
-    { "name": "Default", "recipe": 0, "open": ["debugger"], "ini": "[Window][Project]\nPos=0,23\nSize=444,994\nCollapsed=0\nDockId=0x00000001,0\nLastUsed=20260930\n\n[Window][Properties]\nPos=1415,23\nSize=505,994\nCollapsed=0\nDockId=0x00000004,0\nLastUsed=20260930\n\n[Window][Debugger]\nPos=1415,23\nSize=505,994\nCollapsed=0\nDockId=0x00000004,1\nLastUsed=20260930\n\n[Window][Output]\nPos=446,779\nSize=967,238\nCollapsed=0\nDockId=0x00000006,0\nLastUsed=20260930\n\n[Window][Debug]\nPos=446,779\nSize=967,238\nCollapsed=0\nDockId=0x00000006,1\nLastUsed=20260930\n\n[Window][Flow Graph]\nPos=446,23\nSize=967,754\nCollapsed=0\nDockId=0x00000005,1\nLastUsed=20260930\n\n[Window][Viewport]\nPos=446,23\nSize=967,754\nCollapsed=0\nDockId=0x00000005,0\nLastUsed=20260930\n\n[Window][WindowOverViewport_11111111]\nPos=0,23\nSize=1920,994\nCollapsed=0\nLastUsed=20260930\n\n[Window][Debug##Default]\nPos=60,60\nSize=400,400\nCollapsed=0\nLastUsed=20260930\n\n[Window][##MainMenuBar]\nPos=0,0\nSize=1920,23\nCollapsed=0\nLastUsed=20260930\n\n[Window][Vehicle Editor]\nPos=387,227\nSize=1120,560\nCollapsed=0\nLastUsed=20260930\n\n[Window][Scene Preferences]\nPos=680,61\nSize=560,894\nCollapsed=0\nLastUsed=20260920\n\n[Window][Project Preferences]\nPos=926,119\nSize=720,860\nCollapsed=0\nLastUsed=20260930\n\n[Window][Material Editor]\nPos=830,200\nSize=1020,600\nCollapsed=0\nLastUsed=20260928\n\n[Window][Unsaved Changes]\nPos=838,465\nSize=240,87\nCollapsed=0\nLastUsed=20260928\n\n[Table][0x8E37EF50,3]\nLastUsed=20260920\n\n[Docking][Data]\nDockSpace       ID=0x08BD597D Window=0x1BBC0F80 Pos=0,23 Size=1920,994 Split=X\n  DockNode      ID=0x00000001 Parent=0x08BD597D SizeRef=444,915 Selected=0x9C21DE82\n  DockNode      ID=0x00000002 Parent=0x08BD597D SizeRef=1407,915 Split=X\n    DockNode    ID=0x00000003 Parent=0x00000002 SizeRef=967,915 Split=Y\n      DockNode  ID=0x00000005 Parent=0x00000003 SizeRef=1039,675 CentralNode=1 Selected=0xC450F867\n      DockNode  ID=0x00000006 Parent=0x00000003 SizeRef=1039,238 Selected=0x6BCC3585\n    DockNode    ID=0x00000004 Parent=0x00000002 SizeRef=505,915 Selected=0x3571D65E\n\n" },
+    { "name": "Default", "recipe": 0, "open": ["ambience", "debugger"], "ini": "[Window][Project]\nPos=0,23\nSize=444,986\nCollapsed=0\nDockId=0x00000001,0\nLastUsed=20261001\n\n[Window][Properties]\nPos=1415,23\nSize=505,986\nCollapsed=0\nDockId=0x00000004,0\nLastUsed=20261001\n\n[Window][Debugger]\nPos=1415,23\nSize=505,986\nCollapsed=0\nDockId=0x00000004,1\nLastUsed=20261001\n\n[Window][Output]\nPos=446,771\nSize=967,238\nCollapsed=0\nDockId=0x00000006,0\nLastUsed=20261001\n\n[Window][Debug]\nPos=446,771\nSize=967,238\nCollapsed=0\nDockId=0x00000006,1\nLastUsed=20261001\n\n[Window][Flow Graph]\nPos=446,23\nSize=967,746\nCollapsed=0\nDockId=0x00000005,1\nLastUsed=20261001\n\n[Window][Viewport]\nPos=446,23\nSize=967,746\nCollapsed=0\nDockId=0x00000005,0\nLastUsed=20261001\n\n[Window][WindowOverViewport_11111111]\nPos=0,23\nSize=1920,986\nCollapsed=0\nLastUsed=20261001\n\n[Window][Debug##Default]\nPos=60,60\nSize=400,400\nCollapsed=0\nLastUsed=20261001\n\n[Window][##MainMenuBar]\nSize=1920,23\nCollapsed=0\nLastUsed=20260930\n\n[Window][Vehicle Editor]\nPos=387,227\nSize=1120,560\nCollapsed=0\nLastUsed=20260930\n\n[Window][Scene Preferences]\nPos=680,61\nSize=560,894\nCollapsed=0\nLastUsed=20260920\n\n[Window][Project Preferences]\nPos=926,119\nSize=720,860\nCollapsed=0\nLastUsed=20260930\n\n[Window][Material Editor]\nPos=830,200\nSize=1020,600\nCollapsed=0\nLastUsed=20260928\n\n[Window][Unsaved Changes]\nPos=838,465\nSize=240,87\nCollapsed=0\nLastUsed=20260928\n\n[Window][Ambience Editor]\nPos=60,60\nSize=747,728\nCollapsed=0\nLastUsed=20261001\n\n[Table][0x8E37EF50,3]\nLastUsed=20260920\n\n[Docking][Data]\nDockSpace       ID=0x08BD597D Window=0x1BBC0F80 Pos=0,23 Size=1920,986 Split=X\n  DockNode      ID=0x00000001 Parent=0x08BD597D SizeRef=444,915 Selected=0x9C21DE82\n  DockNode      ID=0x00000002 Parent=0x08BD597D SizeRef=1407,915 Split=X\n    DockNode    ID=0x00000003 Parent=0x00000002 SizeRef=967,915 Split=Y\n      DockNode  ID=0x00000005 Parent=0x00000003 SizeRef=1039,675 CentralNode=1 Selected=0xC450F867\n      DockNode  ID=0x00000006 Parent=0x00000003 SizeRef=1039,238 Selected=0x6BCC3585\n    DockNode    ID=0x00000004 Parent=0x00000002 SizeRef=505,915 Selected=0x3571D65E\n\n" },
     { "name": "Director", "recipe": 1, "open": ["cutscene"], "ini": "" },
     { "name": "Material Designer", "recipe": 2, "open": ["material"], "ini": "" },
     { "name": "Debugger", "recipe": 3, "open": ["debugger"], "ini": "" },
