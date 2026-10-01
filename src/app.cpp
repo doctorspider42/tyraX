@@ -2525,7 +2525,7 @@ void App::updateShadowDecals() {
     Viewport::ShadowPreview pv;
     pv.version = ++shadowPreviewVersion_;
     const shadowbake::Bake b = shadowbake::load(project_, project_.activeScene);
-    if (b.valid && !b.groups.empty()) {
+    if (b.valid && (!b.groups.empty() || !b.ground.empty())) {
         pv.pageSize = shadowbake::kPageSize;
         // The pages as the console samples them: the bake's own tint in RGB,
         // its alpha in A. Expanded here rather than stored that way, for the
@@ -2546,6 +2546,70 @@ void App::updateShadowDecals() {
             d.verts = g.verts;
             d.page = g.page;
             pv.draws.push_back(std::move(d));
+        }
+        // Ground shadow maps (docs/shadows.md, "Ground shadow maps"): packed
+        // into extra preview pages and drawn over the cells the game draws
+        // them on - the same cell masks, the same chunk-square STs and the
+        // same quad diagonal, lifted a little more than the game's 0.02 for
+        // the GL depth buffer.
+        const SceneData& sc = project_.scenes[project_.activeScene];
+        const int res = b.groundRes;
+        if (!b.ground.empty() && res > 0 && res <= pv.pageSize && sc.hmW >= 2 &&
+            sc.hmD >= 2 && (int)sc.heights.size() == sc.hmW * sc.hmD) {
+            const int C = shadowbake::kGroundChunkCells;
+            const int per = pv.pageSize / res;
+            const int cellsX = sc.hmW - 1, cellsZ = sc.hmD - 1;
+            const float W = (float)sc.terrain.width, D = (float)sc.terrain.depth;
+            const float stepX = W / (float)cellsX, stepZ = D / (float)cellsZ;
+            const float lift = 0.05f;
+            const auto hAt = [&](int ix, int iz) {
+                return sc.heights[(size_t)iz * sc.hmW + ix] + lift;
+            };
+            int slot = 0, page = -1;
+            for (const shadowbake::GroundMap& gm : b.ground) {
+                if ((int)gm.alpha.size() != res * res) continue;
+                if (slot % (per * per) == 0) {
+                    pv.pages.emplace_back((size_t)pv.pageSize * pv.pageSize * 4, 0);
+                    page = (int)pv.pages.size() - 1;
+                }
+                const int sl = slot++ % (per * per);
+                const int ox = (sl % per) * res, oy = (sl / per) * res;
+                std::vector<unsigned char>& px = pv.pages[(size_t)page];
+                for (int y = 0; y < res; ++y)
+                    for (int x = 0; x < res; ++x) {
+                        unsigned char* t =
+                            &px[((size_t)(oy + y) * pv.pageSize + ox + x) * 4];
+                        t[0] = b.tint[0], t[1] = b.tint[1], t[2] = b.tint[2];
+                        t[3] = gm.alpha[(size_t)y * res + x];
+                    }
+                // Half a texel in from the slot's edge: the filter must not
+                // reach the neighbouring slot.
+                const float ps = (float)pv.pageSize;
+                const float u0 = (ox + 0.5f) / ps, v0 = (oy + 0.5f) / ps;
+                const float du = (res - 1.0f) / ps, dv = (res - 1.0f) / ps;
+                const std::vector<uint16_t> rows = shadowbake::groundCellMask(gm, res);
+                const int gx0 = gm.cx * C, gz0 = gm.cz * C;
+                Viewport::ShadowPreview::Draw d;
+                d.page = page;
+                for (int r = 0; r < C && gz0 + r < cellsZ; ++r)
+                    for (int c = 0; c < C && gx0 + c < cellsX; ++c) {
+                        if (!(rows[r] & (1u << c))) continue;
+                        const int x = gx0 + c, z = gz0 + r;
+                        const float x0 = -W * 0.5f + x * stepX, x1 = x0 + stepX;
+                        const float z0 = -D * 0.5f + z * stepZ, z1 = z0 + stepZ;
+                        const float u_0 = u0 + du * (float)c / C, u_1 = u0 + du * (float)(c + 1) / C;
+                        const float v_0 = v0 + dv * (float)r / C, v_1 = v0 + dv * (float)(r + 1) / C;
+                        const float q[6][5] = {
+                            {x0, hAt(x, z), z0, u_0, v_0},
+                            {x1, hAt(x + 1, z), z0, u_1, v_0},
+                            {x0, hAt(x, z + 1), z1, u_0, v_1},
+                            {x1, hAt(x + 1, z), z0, u_1, v_0},
+                            {x1, hAt(x + 1, z + 1), z1, u_1, v_1},
+                            {x0, hAt(x, z + 1), z1, u_0, v_1}};
+                        for (const auto& v : q) d.verts.insert(d.verts.end(), v, v + 5);
+                    }
+                if (!d.verts.empty()) pv.draws.push_back(std::move(d));
+            }
         }
     }
     viewport_.setShadowDecals(pv);

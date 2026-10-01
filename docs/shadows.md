@@ -597,6 +597,10 @@ same LOD stride, the same diagonal and the same edge-snapped heights, lifted
 array. That array can take a different clip route than the chunk, and an
 exactly coplanar pass on a different route z-fights.
 The texture uses Clamp wrap, so a chunk edge never samples the opposite edge.
+The editor viewport previews the maps the same way (1.163.3): it packs them
+into extra preview pages and draws them over the same masked cells. Before
+that, the viewport showed only the decals, and with ground maps on the
+terrain looked unshadowed in the editor.
 Fully lit texels are exactly alpha 0, and the GS alpha test drops them.
 
 **Cost on a physical PS2** (Motor District, garage pose, 128 px, frozen camera,
