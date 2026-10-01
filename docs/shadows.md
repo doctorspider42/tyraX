@@ -688,6 +688,22 @@ its blotchy 32 px pattern. 128 px would be eight pages, 402 KB, which this
 scene cannot afford. Motor District now ships ground maps at 128 px and decals
 at 64 px.
 
+**A second PS2 pose, wider (2026-10-01, 1.164.1):** above Tower block 03,
+looking along the street, with both variants at 64 px decal detail.
+
+| | Decals only | Ground maps 128 + decals |
+| --- | ---: | ---: |
+| Total | 14.33 | **13.78** |
+| Terrain | 1.64 | 2.39 |
+| Shadow_decals | 2.10 | 0.76 |
+| Decal triangles / pages | 3851 / 4 | 932 / 2 |
+
+The wider the view, the more terrain decal triangles the decal-only variant
+has to clip, so here the ground maps save 0.55 ms instead of 0.15 ms. The
+same console frames also confirm the plinth fix (1.163.2): the shadow on the
+tower's plinth follows the building, without the 1-unit triangles.
+
+
 On disk: `bakedShadowGround` in the manifest's settings (format **v90**,
 written only when non-zero). The maps come from the same
 `.res-baked/shadow/scene<N>.shadow` cache, which gains an optional tail, so an
