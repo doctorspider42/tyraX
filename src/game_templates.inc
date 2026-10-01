@@ -10050,6 +10050,19 @@ void TerrainGame::loadScene(int sceneIndex) {
       dayNightTopR = skyTopR, dayNightTopG = skyTopG, dayNightTopB = skyTopB;
       scriptCtx.skyColor = Color(skyHorizonR, skyHorizonG, skyHorizonB);
     }
+#ifdef SKY_TEXTURES_ON
+    // The painted sky swaps like the lightmaps: release the last scene's
+    // crop, take this one's. REPEAT across (the panorama closes on itself),
+    // CLAMP down (its bottom row is below the dome's lowest ring).
+    if (!skyTexPath.empty()) releaseTexture(skyTexPath);
+    skyTexPath.clear();
+    skyTex = nullptr;
+    if (SKY_TEXTURE_PATH[0]) {
+      skyTexPath = SKY_TEXTURE_PATH;
+      skyTex = acquireTexture(skyTexPath);
+      if (skyTex) skyTex->setWrapSettings(Tyra::Repeat, Tyra::Clamp);
+    }
+#endif
     buildSkyDome();
     buildStarField();
   }
@@ -18628,7 +18641,15 @@ void TerrainGame::buildSkyDome() {
   if (radius < 60.0F) radius = 60.0F;
   if (radius > 450.0F) radius = 450.0F;
 
-  const int stacks = 6, slices = 14;
+  // A painted sky (docs/sky-texture.md) wants more segments than a gradient:
+  // the panorama's UVs are linear in longitude and latitude, the dome's faces
+  // are flat chords, and 14 slices bend a straight cloud edge visibly.
+#ifdef SKY_TEXTURES_ON
+  const bool textured = skyTex != nullptr;
+#else
+  const bool textured = false;
+#endif
+  const int stacks = textured ? 8 : 6, slices = textured ? 24 : 14;
   // The zenith comes from skyTop*, seeded to the baked SKY_TOP_* and moved by
   // the runtime cycle - so one dome build serves both.
   if (skyTopR < 0.0F) skyTopR = SKY_TOP_R, skyTopG = SKY_TOP_G, skyTopB = SKY_TOP_B;
@@ -18637,20 +18658,49 @@ void TerrainGame::buildSkyDome() {
                  skyHorizonG + (skyTopG - skyHorizonG) * t,
                  skyHorizonB + (skyTopB - skyHorizonB) * t, 128.0F);
   };
-  auto domeVert = [&](int stack, int slice) {
+  // On a painted sky the gradient only TINTS: the ratio of the live colour to
+  // the one the scene was authored with (128 = the panorama as painted), so
+  // the authored hour shows the image untouched while the day/night cycle and
+  // Set Sky Color still darken or warm it.
+  auto tintAt = [&](float t) {
+    const Color live = skyAt(t);
+    auto ratio = [](float cur, float ref) {
+      const float r = ref > 1.0F ? cur / ref : 1.0F;
+      const float c = r * 128.0F;
+      return c > 255.0F ? 255.0F : (c < 0.0F ? 0.0F : c);
+    };
+    return Color(ratio(live.r, SKY_R + (SKY_TOP_R - SKY_R) * t),
+                 ratio(live.g, SKY_G + (SKY_TOP_G - SKY_G) * t),
+                 ratio(live.b, SKY_B + (SKY_TOP_B - SKY_B) * t), 128.0F);
+  };
+  auto latOf = [&](int stack) {
     // Start slightly below the horizon so the seam is never visible
-    const float lat = -0.06F + (PI * 0.5F + 0.06F) * stack / stacks;
+    return -0.06F + (PI * 0.5F + 0.06F) * stack / stacks;
+  };
+  auto domeVert = [&](int stack, int slice) {
+    const float lat = latOf(stack);
     const float lon = 2.0F * PI * slice / slices;
     return Vec4(radius * cosf(lat) * cosf(lon), radius * sinf(lat),
                 radius * cosf(lat) * sinf(lon), 1.0F);
   };
+#ifdef SKY_TEXTURES_ON
+  // Twin of skytex::domeUv (src/skytex.hpp) and the viewport's sky mesh.
+  auto domeSt = [&](int stack, int slice) {
+    const float u = (float)slice / slices + SKY_TEXTURE_YAW / 360.0F;
+    const float v = (0.5F - latOf(stack) / PI) / SKY_TEXTURE_VMAX;
+    return Vec4(u, v, 1.0F, 0.0F);
+  };
+#endif
 
   skyDome.vertices.clear();
   skyDome.colors.clear();
+  skyDome.sts.clear();
   for (int st = 0; st < stacks; ++st) {
     // Zenith-size bias: pow(elevation fraction, SKY_ZENITH_EXP). exp 1 = linear.
     const float t0 = powf((float)st / stacks, SKY_ZENITH_EXP),
                 t1 = powf((float)(st + 1) / stacks, SKY_ZENITH_EXP);
+    const Color c0 = textured ? tintAt(t0) : skyAt(t0);
+    const Color c1 = textured ? tintAt(t1) : skyAt(t1);
     for (int sl = 0; sl < slices; ++sl) {
       const Vec4 v00 = domeVert(st, sl), v01 = domeVert(st, sl + 1);
       const Vec4 v10 = domeVert(st + 1, sl), v11 = domeVert(st + 1, sl + 1);
@@ -18660,12 +18710,25 @@ void TerrainGame::buildSkyDome() {
       skyDome.vertices.push_back(v00);
       skyDome.vertices.push_back(v11);
       skyDome.vertices.push_back(v01);
-      skyDome.colors.push_back(skyAt(t0));
-      skyDome.colors.push_back(skyAt(t1));
-      skyDome.colors.push_back(skyAt(t1));
-      skyDome.colors.push_back(skyAt(t0));
-      skyDome.colors.push_back(skyAt(t1));
-      skyDome.colors.push_back(skyAt(t0));
+      skyDome.colors.push_back(c0);
+      skyDome.colors.push_back(c1);
+      skyDome.colors.push_back(c1);
+      skyDome.colors.push_back(c0);
+      skyDome.colors.push_back(c1);
+      skyDome.colors.push_back(c0);
+#ifdef SKY_TEXTURES_ON
+      if (textured) {
+        // Per QUAD corner, not per shared vertex: slice `slices` is u = 1,
+        // not 0, which is what keeps the seam from smearing the whole image
+        // across one column of triangles.
+        skyDome.sts.push_back(domeSt(st, sl));
+        skyDome.sts.push_back(domeSt(st + 1, sl));
+        skyDome.sts.push_back(domeSt(st + 1, sl + 1));
+        skyDome.sts.push_back(domeSt(st, sl));
+        skyDome.sts.push_back(domeSt(st + 1, sl + 1));
+        skyDome.sts.push_back(domeSt(st, sl + 1));
+      }
+#endif
     }
   }
 
@@ -18699,6 +18762,14 @@ void TerrainGame::buildSkyDome() {
   skyDome.vertices.bind(skyDome.bag);
   skyDome.bag->count = static_cast<u32>(skyDome.vertices.size());
   skyDome.bag->texture = nullptr;
+#ifdef SKY_TEXTURES_ON
+  if (textured) {
+    skyDome.texBag = std::make_unique<StaPipTextureBag>();
+    skyDome.texBag->texture = skyTex;
+    skyDome.sts.bind(skyDome.texBag);
+    skyDome.bag->texture = skyDome.texBag.get();
+  }
+#endif
   skyDome.bag->lighting = nullptr;
   skyDome.bag->bboxVersion = ++g_bboxStamp;  // dome rebuilds on retint
 }
@@ -19183,7 +19254,13 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
                             Color(128.0F, 128.0F, 128.0F, 128.0F));
       if (!part.envBag) {
         part.envInfoBag = std::make_unique<StaPipInfoBag>();
-        part.envInfoBag->shadingType = TyraShadingFlat;
+        // GOURAUD, not flat: the vehicle paint pass writes a per-vertex
+        // fresnel factor into RGB and its specular into A (renderEnvPass),
+        // and a flat triangle takes ONE corner's value - every triangle of a
+        // smoothly-normalled body then came out a different brightness, the
+        // "folded cardboard" facets. Plain chrome is all-white, where the two
+        // modes draw the same; the GS pays nothing for the interpolation.
+        part.envInfoBag->shadingType = TyraShadingGouraud;
         part.envInfoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
         part.envInfoBag->fullClipChecks = true;
         // Coplanar with the base pass: standard GEQUAL test. (TestOnly's

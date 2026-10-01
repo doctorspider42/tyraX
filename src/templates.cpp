@@ -50,6 +50,7 @@
 #include "savebake.hpp"
 #include "scrollsim.hpp"
 #include "shadowbake.hpp"  // the baked shadow-decal cache (docs/shadows.md)
+#include "skytex.hpp"      // the painted sky crop (docs/sky-texture.md)
 #include "stochtile.hpp"
 #include "texatlas.hpp"
 #include "vehbake.hpp"
@@ -1893,6 +1894,9 @@ class TerrainGame : public Tyra::Game {
   // (1.142.0; the host twin is Viewport::terrainLayerGrip).
   float terrainGripAt(float x, float z) const;
   GeoPart skyDome;
+  // The painted sky's crop (docs/sky-texture.md), swapped per scene.
+  Tyra::Texture* skyTex = nullptr;
+  std::string skyTexPath;
   // Re-centered on the camera every frame (renderScene) so a large map can
   // never let the player walk (or climb) out from under the sky. The dome
   // geometry stays static; only this translation matrix moves - one matrix
@@ -3731,6 +3735,9 @@ class TerrainGame : public Tyra::Game {
   // (1.142.0; the host twin is Viewport::terrainLayerGrip).
   float terrainGripAt(float x, float z) const;
   GeoPart skyDome;
+  // The painted sky's crop (docs/sky-texture.md), swapped per scene.
+  Tyra::Texture* skyTex = nullptr;
+  std::string skyTexPath;
   // Re-centered on the camera every frame (renderScene) so a large map can
   // never let the player walk (or climb) out from under the sky. The dome
   // geometry stays static; only this translation matrix moves - one matrix
@@ -4772,7 +4779,7 @@ class TerrainGame : public Tyra::Game {
 }  // namespace {{NAME_UPPER_NS}}
 )";
 
-// Game .cpp is composed as: PROLOG + <template>_HEAD + SCENE + <template>_TAIL + FOOTER
+// Shared runtime helpers, user-ownable main, and parallel game subsystems.
 
 
 #include "game_templates.inc"
@@ -10399,6 +10406,32 @@ static std::string sceneDataContent(const Project& p, const std::string& ns,
     sceneFloats("SKY_TOP_RS", [&](int si) { return floatLit(rs[si].skyTopColor[0] * 255.0f); });
     sceneFloats("SKY_TOP_GS", [&](int si) { return floatLit(rs[si].skyTopColor[1] * 255.0f); });
     sceneFloats("SKY_TOP_BS", [&](int si) { return floatLit(rs[si].skyTopColor[2] * 255.0f); });
+    // Painted sky (docs/sky-texture.md): texbake's crop per scene. Emitted
+    // only when some scene has one, so every other project regenerates byte
+    // for byte; the dome builder is compiled against SKY_TEXTURES_ON.
+    {
+        std::vector<char> sky(sceneCount, 0);
+        bool anySky = false;
+        for (int si = 0; si < sceneCount; ++si) {
+            sky[si] = rs[si].skyDome && !rs[si].skyTexture.empty() &&
+                      skytex::usable(p.filePath(rs[si].skyTexture));
+            anySky = anySky || sky[si];
+        }
+        if (anySky) {
+            out << "#define SKY_TEXTURES_ON 1\n"
+                << "constexpr float SKY_TEXTURE_VMAX = " << floatLit(skytex::kVMax) << ";\n"
+                << "static const char* const SKY_TEXTURE_PATHS[SCENE_COUNT] = {";
+            for (int si = 0; si < sceneCount; ++si)
+                out << (si ? ", " : "")
+                    << (sky[si] ? "\"sky/scene" + std::to_string(si) + ".png\""
+                                : std::string("\"\""));
+            out << "};\n";
+            sceneFloats("SKY_TEXTURE_YAWS",
+                        [&](int si) { return floatLit(rs[si].skyTextureYaw); });
+            out << "#define SKY_TEXTURE_PATH SKY_TEXTURE_PATHS[g_activeScene]\n"
+                   "#define SKY_TEXTURE_YAW SKY_TEXTURE_YAWS[g_activeScene]\n";
+        }
+    }
     // Bloom re-adds the blur as Cd + Cs*FIX/128, and FIX is a whole byte - so
     // unlike the other 0..1 effects it can go to 2x (255) for a hotter glow.
     sceneInts("POSTFX_BLOOMS", [&](int si) {
@@ -12935,6 +12968,7 @@ static constexpr float kVehSpinGain = 0.8F;
 static constexpr float kVehSpinDamp = 5.0F;
 static constexpr float kVehHandbrakeYaw = 30.0F;
 static constexpr float kVehHandbrakeYawCap = 1.0F;
+static constexpr float kVehHandbrakeSlide = 0.4F;
 static constexpr float kVehFrictionShare = 0.5F;
 static float vehClamp(float v, float lo, float hi) {
   return v < lo ? lo : (v > hi ? hi : v);
@@ -15349,7 +15383,7 @@ void TerrainGame::updateVehicles(float dt) {
         const float d = s.brakeDecel * inBrake * dt;
         if (v.speed > 0.0F) { v.speed -= d; if (v.speed < 0.0F) v.speed = 0.0F; }
         else { v.speed += d; if (v.speed > 0.0F) v.speed = 0.0F; }
-      } else if (inThrottle > 0.01F) {
+      } else if (inThrottle > 0.01F && !inHand) {
         // Above the cap the throttle only stops adding; drag takes the excess
         // (vehiclesim twin: a clamp here dropped ~4 u/s in one frame).
         const float cap = s.topSpeed * topMul;
@@ -15357,7 +15391,7 @@ void TerrainGame::updateVehicles(float dt) {
           v.speed += sAccel * accelMul * inThrottle * powerMul * dt;
           if (v.speed > cap) v.speed = cap;
         }
-      } else if (inThrottle < -0.01F) {
+      } else if (inThrottle < -0.01F && !inHand) {
         v.speed += sAccel * inThrottle * dt;
         if (v.speed < -s.reverseTopSpeed) v.speed = -s.reverseTopSpeed;
       } else {
@@ -15368,10 +15402,17 @@ void TerrainGame::updateVehicles(float dt) {
       // The handbrake also SLOWS the car (0.4x the brake, the host twin's
       // number) - it used to only swap the grip here, making it a drift
       // button that never scrubbed any speed on the console.
+      // The locked wheels drive nothing (the throttle branches above skip
+      // while it is held) and slide against the WHOLE ground velocity - the
+      // vehiclesim twin, kVehHandbrakeSlide (1.162.2).
       if (inHand) {
-        const float d = s.brakeDecel * 0.4F * dt;
-        if (v.speed > 0.0F) { v.speed -= d; if (v.speed < 0.0F) v.speed = 0.0F; }
-        else { v.speed += d; if (v.speed > 0.0F) v.speed = 0.0F; }
+        const float g = sqrtf(v.speed * v.speed + v.lateral * v.lateral);
+        if (g > 1e-4F) {
+          float k = (g - s.brakeDecel * kVehHandbrakeSlide * dt) / g;
+          if (k < 0.0F) k = 0.0F;
+          v.speed *= k;
+          v.lateral *= k;
+        }
       }
       v.speed -= s.gravity * sinf(v.pitch * kDeg) * dt;
       // Rolling resistance of loose ground (vehiclesim twin).
@@ -15400,9 +15441,8 @@ void TerrainGame::updateVehicles(float dt) {
     if (v.grounded) {
       if (inBrake > 0.01F)
         longUse = s.brakeDecel * inBrake;
-      else if (inThrottle > 0.01F && v.speed < s.topSpeed * topMul)
+      else if (inThrottle > 0.01F && !inHand && v.speed < s.topSpeed * topMul)
         longUse = sAccel * accelMul * powerMul * inThrottle;
-      if (inHand) longUse += s.brakeDecel * 0.4F;
     }
     const float useFrac =
         vehClamp(longUse / (blendGrip > 0.01F ? blendGrip : 0.01F), 0.0F, 1.0F);

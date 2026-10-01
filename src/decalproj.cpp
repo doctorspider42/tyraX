@@ -6,6 +6,7 @@
 
 #include "objparser.hpp"
 #include "primmesh.hpp"
+#include "roadgen.hpp"
 
 namespace decalproj {
 namespace {
@@ -211,6 +212,62 @@ void addTerrainReceiver(std::vector<Tri>& out, const SceneData& s, const Aabb& b
         }
 }
 
+// The roads as receivers: each road's full-width ribbon (core and faded edge
+// bands draw at the same height) and the fitted junction patches, tessellated
+// exactly as Viewport::syncRoadDraws does - the same roadgen calls over the
+// same render-grid terrain height - so a decal sits on the asphalt the player
+// sees. Overlays and spills at crossings are not included.
+void addRoadReceivers(std::vector<Tri>& out, const SceneData& s, const Aabb& box,
+                      const std::function<bool(const SceneObject&)>& accept) {
+    const float w = (float)s.terrain.width, d = (float)s.terrain.depth;
+    const bool grid = s.terrain.enabled && s.hmW >= 2 && s.hmD >= 2 &&
+                      (int)s.heights.size() == s.hmW * s.hmD;
+    const roadgen::HeightFn ground = [&](float x, float z) {
+        return grid ? roadgen::terrainHeight(s.heights, s.hmW, s.hmD, w, d, x, z)
+                    : 0.0f;
+    };
+    auto push = [&](const roadgen::Vertex& a, const roadgen::Vertex& b,
+                    const roadgen::Vertex& c) {
+        Tri t;
+        t.p[0] = {a.x, a.y, a.z};
+        t.p[1] = {b.x, b.y, b.z};
+        t.p[2] = {c.x, c.y, c.z};
+        Aabb tb;
+        for (const V3& v : t.p) tb.add(v);
+        if (!tb.overlaps(box)) return;
+        t.n = normalize(cross(t.p[1] - t.p[0], t.p[2] - t.p[0]));
+        // Up-facing, like the terrain: the facing test keeps what a floor
+        // decal projects onto, whichever way the ribbon happened to wind.
+        if (t.n.y < 0.0f) {
+            std::swap(t.p[1], t.p[2]);
+            t.n = {-t.n.x, -t.n.y, -t.n.z};
+        }
+        out.push_back(t);
+    };
+    std::vector<roadgen::Vertex> all;
+    for (const SceneObject& o : s.objects) {
+        if (o.type != PrimitiveType::Road || o.roadPoints.size() < 4) continue;
+        if (accept && !accept(o)) continue;
+        const float lift = roadgen::rankLift(o.roadRank);
+        std::vector<roadgen::Vertex> tris;
+        roadgen::tessellate(o.roadPoints, o.roadWidth,
+                            [&](float x, float z) { return ground(x, z) + lift; },
+                            tris, {}, o.roadSampleStep);
+        for (size_t i = 0; i + 2 < tris.size(); i += 3) push(tris[i], tris[i + 1], tris[i + 2]);
+        all.insert(all.end(), tris.begin(), tris.end());
+    }
+    const std::vector<roadgen::CrossingRoad> cr = project::crossingRoads(s.objects);
+    if (cr.size() < 2 || all.empty()) return;
+    const roadgen::CrossingPlan plan = roadgen::planCrossings(cr, s.roadJunctions);
+    for (const roadgen::Crossing& c : plan.crossings) {
+        if (c.kind != roadgen::kCrossPatch || c.patchDuplicate) continue;
+        std::vector<roadgen::Vertex> patch;
+        roadgen::tessellateJunctionSurface(c.shape, all, ground, c.lift, patch);
+        for (size_t i = 0; i + 2 < patch.size(); i += 3)
+            push(patch[i], patch[i + 1], patch[i + 2]);
+    }
+}
+
 // Sutherland-Hodgman clip of a convex polygon (local space) against one axis
 // half-space. axis 0/1/2 = x/y/z; keepPositive true keeps coord <= +0.5, false
 // keeps coord >= -0.5.
@@ -279,6 +336,7 @@ DecalMesh project(const Project& p, const SceneData& s, const SceneObject& decal
     // Gather receiver triangles overlapping the projector box.
     std::vector<Tri> tris;
     if (rx.terrain) addTerrainReceiver(tris, s, box);
+    if (rx.roads) addRoadReceivers(tris, s, box, rx.accept);
     for (const SceneObject& o : s.objects) {
         if (&o == &decal || o.id == decal.id) continue;
         if (!isReceiverType(o.type)) continue;

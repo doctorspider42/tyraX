@@ -23,6 +23,9 @@ constexpr float kHandbrakeYaw = 30.0f;
 // (not the handbrake grip's): with kHandbrakeYaw on top, loose enough to
 // rotate into a drift, tight enough not to swap ends.
 constexpr float kHandbrakeYawCap = 1.0f;
+// The handbrake's sliding friction, as a share of brakeDecel, on the whole
+// ground velocity (1.162.2). Keep in sync with kVehHandbrakeSlide.
+constexpr float kHandbrakeSlide = 0.4f;
 // The friction circle, softened: a longitudinal demand equal to the grip
 // costs this share of the lateral grip. Keep in sync with kVehFrictionShare.
 constexpr float kFrictionShare = 0.5f;
@@ -1189,7 +1192,12 @@ void step(const DriveSpec& specIn, const DriveInput& in, float dt,
 
     // --- longitudinal -------------------------------------------------------
     if (state.grounded) {
-        const float throttle = shifting || (spec.damageMechanical > 0.5f && state.damage >= 0.999f)
+        // The handbrake locks the driven wheels: while it is held the
+        // throttle drives nothing (1.162.2). It used to keep pushing - gas
+        // plus handbrake out-accelerated the handbrake's own braking and the
+        // car skated on for hundreds of units on a slip the tyres barely held.
+        const float throttle = shifting || in.handbrake ||
+                                       (spec.damageMechanical > 0.5f && state.damage >= 0.999f)
                                    ? 0.0f : clampf(in.throttle, -1.0f, 1.0f);
         const float brake = spec.damageMechanical > 0.5f && state.damage >= 0.999f
                                 ? 1.0f : clampf(in.brake, 0.0f, 1.0f);
@@ -1208,8 +1216,17 @@ void step(const DriveSpec& specIn, const DriveInput& in, float dt,
         } else {
             state.speed = approach(state.speed, 0.0f, spec.engineBraking * dt);
         }
-        if (in.handbrake)
-            state.speed = approach(state.speed, 0.0f, spec.brakeDecel * 0.4f * dt);
+        // ...and the locked wheels are SLIDING friction: it opposes the whole
+        // ground velocity, forward and sideways alike. Scrubbing the forward
+        // part alone let a car that had turned sideways keep its speed as slip.
+        if (in.handbrake) {
+            const float g = std::sqrt(state.speed * state.speed + state.lateral * state.lateral);
+            if (g > 1e-4f) {
+                const float k = std::max(0.0f, g - spec.brakeDecel * kHandbrakeSlide * dt) / g;
+                state.speed *= k;
+                state.lateral *= k;
+            }
+        }
 
         // Gravity along the slope. Steeper ground both pulls the car down it
         // and costs grip - which is what stops a vehicle climbing a cliff.
@@ -1239,12 +1256,14 @@ void step(const DriveSpec& specIn, const DriveInput& in, float dt,
     float longUse = 0.0f;
     if (state.grounded) {
         const float br = clampf(in.brake, 0.0f, 1.0f);
-        const float th = shifting ? 0.0f : clampf(in.throttle, 0.0f, 1.0f);
+        const float th = shifting || in.handbrake ? 0.0f : clampf(in.throttle, 0.0f, 1.0f);
         if (br > 0.01f)
             longUse = spec.brakeDecel * br;
         else if (th > 0.01f && state.speed < spec.topSpeed * topMul)
             longUse = spec.accel * accelMul * powerMul * th;
-        if (in.handbrake) longUse += spec.brakeDecel * 0.4f;
+        // Not the handbrake: its braking IS the sliding tyres, not a demand
+        // that competes with them - counted here it halved the handbrake grip
+        // (1.162.2).
     }
     const float useFrac = clampf(longUse / std::max(blendGrip, 0.01f), 0.0f, 1.0f);
     const float effGrip = blendGrip * (1.0f - kFrictionShare * useFrac * useFrac);

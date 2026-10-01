@@ -2100,6 +2100,12 @@ struct ProjectSettings {
     float skyColor[3] = {0.25f, 0.55f, 0.78f};   // horizon / clear color
     float skyTopColor[3] = {0.08f, 0.3f, 0.65f};  // zenith (gradient dome)
     bool skyDome = true;  // render a gradient sky dome (vs flat clear color)
+    // A painted sky on the dome (docs/sky-texture.md): a res/ equirectangular
+    // panorama, "" = the gradient alone. The build crops its upper part into a
+    // 256x128 texture; the gradient colours then only TINT it (neutral at the
+    // authored hour). skyTextureYaw turns it about the vertical axis, degrees.
+    std::string skyTexture;
+    float skyTextureYaw = 0.0f;
     // How much of the dome the zenith color fills. 0.5 = linear (color scales
     // linearly with elevation); higher = zenith reaches lower toward the
     // horizon (bigger zenith cap); lower = zenith stays near the top. Both the
@@ -2461,7 +2467,7 @@ struct ProjectSettings {
     bool highlightOverlay = false;
 };
 
-static_assert(sizeof(ProjectSettings) == 816,
+static_assert(sizeof(ProjectSettings) == 856,
               "ProjectSettings changed size - a field was added or removed. "
               "Add it to operator== below as well, or its Preferences widget "
               "will silently do nothing; then update this number.");
@@ -2538,6 +2544,7 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.spotShadowVolumes == b.spotShadowVolumes &&
            eq3(a.skyColor, b.skyColor) && eq3(a.skyTopColor, b.skyTopColor) &&
            a.skyDome == b.skyDome && a.zenithSize == b.zenithSize &&
+           a.skyTexture == b.skyTexture && a.skyTextureYaw == b.skyTextureYaw &&
            a.eyeHeight == b.eyeHeight &&
            a.walkSpeed == b.walkSpeed && a.runSpeed == b.runSpeed &&
            a.lookSpeed == b.lookSpeed &&

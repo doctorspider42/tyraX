@@ -303,6 +303,7 @@ add_executable(tyrax-editor
     src/savebake.cpp
     src/scrollsim.cpp
     src/shadowbake.cpp
+    src/skytex.cpp
     src/screenfx.cpp
     src/session.cpp
     src/starfield.cpp

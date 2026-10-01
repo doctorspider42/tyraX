@@ -79,6 +79,14 @@ control its presentation and power interruption. Wheelspin raises RPM without
 raising road speed. Vehicles can drift under handbrake grip and slide against
 walls rather than stopping on a glancing contact.
 
+A held handbrake locks the driven wheels: the throttle drives nothing while
+it is held, and the car slides against its whole ground velocity at 0.4x
+*Brake decel*. From top speed on the default tuning it rests in about 20
+units, gas or no gas. A flick (pull, steer, release, throttle) still throws
+the rear out into a drift. Before 1.162.2 gas plus handbrake out-accelerated
+the handbrake and the car skated on for hundreds of units (`--vehicle-check`
+now pins this).
+
 | Default control | Action |
 |---|---|
 | Square / Use | Enter or exit |

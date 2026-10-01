@@ -111,6 +111,8 @@ for people building games with it. Internals live in code comments, the git log
   console pays nothing.
 - [Day / night cycle](day-night-cycle.md) — the time-of-day slider the whole
   bake follows, sun and moon arcs, the runtime clock.
+- [Painted sky](sky-texture.md) — a 360-degree panorama on the sky dome, tinted
+  by the day/night cycle and reflected in car paint.
 - [Motion blur](motion-blur.md) — the previous frame smeared over this one, for
   one full-screen blend and no VRAM; what the amount means, why it belongs under
   the HUD, and the Set Motion Blur node.

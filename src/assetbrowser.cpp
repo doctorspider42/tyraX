@@ -370,6 +370,15 @@ void App::rebuildAssetUsage() {
     }
     if (!project_.settings.terrainMaterial.empty())
         note(project_.settings.terrainMaterial, 2, "project terrain material");
+    // Painted skies (docs/sky-texture.md) - edited on the presets.
+    for (const SceneData& scene : project_.scenes)
+        if (!scene.settings.skyTexture.empty())
+            note(scene.settings.skyTexture, 2, scene.name + " sky texture");
+    if (!project_.settings.skyTexture.empty())
+        note(project_.settings.skyTexture, 2, "project sky texture");
+    for (const AmbiencePreset& a : project_.ambiencePresets)
+        if (!a.skyTexture.empty())
+            note(a.skyTexture, 2, "ambience \"" + a.name + "\" sky texture");
 
     // Prefab members are real references: the asset ships because a prefab
     // uses it, whether or not any scene has an instance placed today. No
@@ -691,6 +700,9 @@ int App::retargetAssetPath(const std::string& from, const std::string& to) {
         for (roadgen::JunctionOverride& j : scene.roadJunctions) swap(j.material);
     }
     swap(project_.settings.terrainMaterial);
+    swap(project_.settings.skyTexture);
+    for (SceneData& scene : project_.scenes) swap(scene.settings.skyTexture);
+    for (AmbiencePreset& a : project_.ambiencePresets) swap(a.skyTexture);
 
     // Prefab members store the same three asset paths a scene object does.
     for (Prefab& pf : project_.prefabs)

@@ -109,6 +109,28 @@ after the ground: drop a box's faces that point away from the probe (half the
 triangles, and the clipped ones are mostly the near box's back faces), or cap
 the near boxes at the probe's near distance.
 
+**A rear-facing probe view, priced (2026-09-30).** The probe looks only
+forward, so a car's tail reflects the horizon AHEAD of it and never the road
+markings behind it - Burnout 3 renders three 128x128 views for that reason
+(docs/reflective-materials.md). Measured with a second, reversed capture after
+the normal one (same sky, ground and marked objects; the one-ELF mode fixture,
+reuse budget 0, two boots per mode on a physical PS2), mean frame while
+turning:
+
+| pose | real ground | + rear view | ground stand-in | + rear view |
+|---|---:|---:|---:|---:|
+| garage day | 10.67 ms | 11.62 | 10.65 | 11.47 |
+| garage night | 13.68 | 15.18 | 13.68 | 15.03 |
+| outer road day | 10.64 | 13.79 | 8.87 | 9.85 |
+| outer road night | 11.63 | 15.10 | 9.82 | 11.18 |
+
+So a rear view is affordable only on top of the ground stand-in (+0.8 to
++1.4 ms a turning frame, nothing parked), and that is before the second
+target and the warp that would merge two views into one map. It would also
+still not show lane markings: the stand-in's ground map is 5 units a texel.
+A cheaper route to that one detail is to paint a road band into the lower part
+of the forward map from `roadSurfaceAt` under the car.
+
 ## Occlusion culling: make the visibility pass cheaper
 
 The unmerged `ee-occlusion` rewrite hides 23/48 draw units in a dense district

@@ -18,6 +18,7 @@
 #include "objparser.hpp"
 #include "pngquant.hpp"
 #include "shadowbake.hpp"  // baked shadow decals - the atlas pages
+#include "skytex.hpp"      // the painted sky's crop (docs/sky-texture.md)
 #include "stochtile.hpp"
 #include "texatlas.hpp"  // shared texture atlas plan (docs/texture-atlasing.md)
 
@@ -321,6 +322,9 @@ std::string bake(const Project& p,
         // generated; the game only ever streams the WAV.
         if (lowerExt(rel) == ".drone") return true;
         const std::string top = rel.begin()->generic_string();
+        // res/sky/ holds the painted skies' SOURCE panoramas; the game loads
+        // only the crop baked into .res-baked/sky/ (docs/sky-texture.md).
+        if (top == "sky") return true;
         if (top == "fonts") {
             const std::string ext = lowerExt(rel);
             return ext == ".ttf" || ext == ".otf";
@@ -576,7 +580,7 @@ std::string bake(const Project& p,
         const std::string top0 = rel.begin()->generic_string();
         if (top0 == "stoch" || top0 == "aomap" || top0 == "aoatlas" ||
             top0 == "gi" || top0 == "modelao" || top0 == "vehicles" ||
-            top0 == "shadow" || top0 == "shadowatlas")
+            top0 == "shadow" || top0 == "shadowatlas" || top0 == "sky")
             continue;
         // atlas pages have no res/ source; the atlas block below removes the
         // ones the current plan no longer produces
@@ -791,6 +795,26 @@ std::string bake(const Project& p,
         if (aoTexCount)
             log("[editor] Ambient occlusion: baked " + std::to_string(aoTexCount) +
                 " AO texture(s)");
+    }
+
+    // The painted skies (docs/sky-texture.md): one crop per scene whose
+    // resolved sky names a panorama, always 8-bit whatever the project's
+    // texture default - a 16-colour sky bands into stripes. Regenerated
+    // wholesale like the lightmaps; codegen asks skySceneBaked() the same
+    // question, so a panorama that cannot be read drops both sides together.
+    fs::remove_all(baked / "sky", ec);
+    for (size_t si = 0; si < p.scenes.size(); ++si) {
+        const ProjectSettings srs = project::resolvedSettings(p, p.scenes[si]);
+        if (!srs.skyDome || srs.skyTexture.empty()) continue;
+        std::string err;
+        const std::vector<unsigned char> px =
+            skytex::crop(p.filePath(srs.skyTexture), err);
+        const fs::path dst = baked / "sky" / ("scene" + std::to_string(si) + ".png");
+        fs::create_directories(dst.parent_path(), ec);
+        if (px.empty() || !pngquant::quantizeRGBA(dst.string(), px.data(),
+                                                  skytex::kWidth, skytex::kHeight,
+                                                  256, err))
+            log("[editor] sky texture: " + srs.skyTexture + ": " + err);
     }
 
     // Baked shadow decals (docs/shadows.md): the atlas pages, written from the

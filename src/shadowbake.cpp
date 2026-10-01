@@ -6,6 +6,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <map>
 #include <utility>
 
@@ -24,7 +25,7 @@ constexpr uint32_t kCacheMagic = 0x4448534Du;  // "MSHD"
 // Bumped whenever the bake's OUTPUT changes shape or value. It rides in the
 // signature, so a bump stales every cache without anything else having to
 // know.
-constexpr uint32_t kCacheVersion = 5;  // 5: search past the fade; sane no-limit
+constexpr uint32_t kCacheVersion = 6;  // 6: per-column start, roads, own plinth
 
 constexpr float kPi = 3.14159265358979f;
 // How far past the caster's own extent the receiver search starts. The common
@@ -35,6 +36,15 @@ constexpr float kPi = 3.14159265358979f;
 constexpr float kCasterClearance = 0.01f;
 // Lifts a shadow-ray origin off the surface it starts on.
 constexpr float kRayBias = 0.002f;
+// How far past a caster surface a tile column resumes its search: clear of
+// the surface it just crossed, far short of anything that could receive.
+constexpr float kExitBias = 0.01f;
+// Longest edge of a piece of the caster's own surface in its shadow test.
+// A metre: a plinth strip resolves at the tile's own blur, a roof costs nothing.
+constexpr float kSelfPiece = 1.0f;
+// How high above its lowest point a caster's own surface may be and still
+// receive its shadow: a plinth or a pavement slab, not a canopy or a roof.
+constexpr float kSelfFloor = 1.0f;
 
 // The lift used when asking "can this receiver point see the sun". Twenty-five
 // times kRayBias, because this ray leaves along the LIGHT rather than along the
@@ -544,22 +554,40 @@ Bake bakeScene(const Project& p, int sceneIndex, const std::atomic<bool>* cancel
                     const float s = (col + 0.5f) / res;
                     const float lx = 0.5f - s;  // u runs with local -X
 
-                    // Down the light from the projector's sun-side face,
-                    // starting past the caster's own extent.
+                    // Down the light from the projector's sun-side face, to
+                    // the first receiver PAST THE CASTER IN THIS COLUMN: the
+                    // column is walked through every caster surface it
+                    // crosses and the search starts at the last exit. It
+                    // used to start past the caster's WHOLE extent along the
+                    // light (casterDepth), which is deeper than the caster is
+                    // over most columns - so the strip of ground at the foot
+                    // of the shaded wall was never in the tile, and every
+                    // shadow started a metre or more away from its building
+                    // and read as a dark box floating next to it. A column
+                    // that never meets the caster starts at the top.
                     const V3 o = pos + axX * (lx * c.scale[0]) +
                                  axY * (ly * c.scale[1]) +
                                  axZ * (0.5f * c.scale[2]);
                     const V3 down = axZ * -1.0f;
-                    const float from = c.casterDepth;
+                    const float dir[3] = {down.x, down.y, down.z};
+                    float from = 0.0f;
+                    for (int k = 0; k < 32; ++k) {
+                        const V3 at = o + down * from;
+                        const float at3[3] = {at.x, at.y, at.z};
+                        bvh::Hit hc;
+                        if (!bvh::trace(casterTree, at3, dir, c.scale[2] - from, true, hc))
+                            break;
+                        from += hc.t + kExitBias;
+                    }
                     const float span = c.scale[2] - from;
                     if (span <= 0.0f) continue;
                     const V3 start = o + down * from;
-                    const float dir[3] = {down.x, down.y, down.z};
                     const float from3[3] = {start.x, start.y, start.z};
                     bvh::Hit h;
                     if (!bvh::trace(scene.tree, from3, dir, span, true, h))
                         continue;
-                    const V3 hit = start + down * h.t;
+                    h.t += from;  // from the sun-side face, as the fade reads it
+                    const V3 hit = o + down * h.t;
 
                     // How much of the sun this receiver point can see, through
                     // the caster alone. The cone is around the projector's own
@@ -595,9 +623,11 @@ Bake bakeScene(const Project& p, int sceneIndex, const std::atomic<bool>* cancel
                     // of map.
                     const float fadeFrom = c.fadeReach * kReachFadeFrom;
                     const float fadeTo = c.fadeReach * kSearchBeyond;
+                    // Measured from where this column left the caster.
+                    const float reachT = std::max(0.0f, h.t - from);
                     float fade = 1.0f;
-                    if (h.t > fadeFrom)
-                        fade = 1.0f - (h.t - fadeFrom) / (fadeTo - fadeFrom);
+                    if (reachT > fadeFrom)
+                        fade = 1.0f - (reachT - fadeFrom) / (fadeTo - fadeFrom);
                     fade = fade < 0.0f ? 0.0f : (fade > 1.0f ? 1.0f : fade);
                     const float a = 255.0f * opt.strength * fade *
                                     (float)blocked / (float)opt.samples;
@@ -622,7 +652,10 @@ Bake bakeScene(const Project& p, int sceneIndex, const std::atomic<bool>* cancel
         // --- the projection ------------------------------------------------
         decalproj::Receivers rx;
         rx.accept = [&](const SceneObject& o) {
-            if (o.id == src.id) return false;  // never onto the caster itself
+            // Not onto the caster here: its own surfaces go through the
+            // occlusion-checked pass below (a roof sits in the same columns as
+            // the ground its shadow darkens).
+            if (o.id == src.id) return false;
             // A shadow belongs to its caster's layer, so a receiver in another
             // one would keep a shadow after the thing that throws it streamed
             // out - or lose the floor from under a shadow that stayed.
@@ -709,6 +742,94 @@ Bake bakeScene(const Project& p, int sceneIndex, const std::atomic<bool>* cancel
                             mesh.verts.begin() + (long)(t + 15));
             }
             mesh.verts.swap(kept);
+        }
+
+        // The caster's OWN ground-level surfaces that it shades: a model that
+        // carries its plinth or pavement (every Motor District building does).
+        // Only near-horizontal, upward faces within kSelfFloor of the caster's
+        // lowest point take part - a tree's canopy shades itself everywhere
+        // and would cost a thousand triangles to say what its own texture
+        // already shows. A tile column cannot tell a roof from the slab below
+        // the same column, so the caster's triangles are split into pieces no longer than
+        // kSelfPiece and a piece is kept only where the caster itself blocks
+        // the sun from it - the slab at the foot of the shaded wall stays, the
+        // roof and the sunward walls go.
+        {
+            decalproj::Receivers self;
+            self.terrain = false;
+            self.roads = false;
+            self.accept = [&](const SceneObject& o) { return o.id == src.id; };
+            const decalproj::DecalMesh sm = decalproj::project(p, sc, proj, self);
+            struct P5 { float v[5]; };
+            const auto occluded = [&](const P5& a, const P5& b, const P5& q) {
+                const V3 m{(a.v[0] + b.v[0] + q.v[0]) / 3.0f,
+                           (a.v[1] + b.v[1] + q.v[1]) / 3.0f,
+                           (a.v[2] + b.v[2] + q.v[2]) / 3.0f};
+                const V3 o = m + axZ * kSunBias;
+                const float ro[3] = {o.x, o.y, o.z};
+                const float rd[3] = {axZ.x, axZ.y, axZ.z};
+                bvh::Hit hc;
+                return bvh::trace(casterTree, ro, rd, 1e5f, true, hc);
+            };
+            const auto mid = [](const P5& a, const P5& b) {
+                P5 r;
+                for (int k = 0; k < 5; ++k) r.v[k] = 0.5f * (a.v[k] + b.v[k]);
+                return r;
+            };
+            const auto len2 = [](const P5& a, const P5& b) {
+                const float dx = a.v[0] - b.v[0], dy = a.v[1] - b.v[1],
+                            dz = a.v[2] - b.v[2];
+                return dx * dx + dy * dy + dz * dz;
+            };
+            std::function<void(const P5&, const P5&, const P5&, int)> piece =
+                [&](const P5& a, const P5& b, const P5& q, int depth) {
+                    const float l01 = len2(a, b), l12 = len2(b, q), l20 = len2(q, a);
+                    const float lm = std::max(l01, std::max(l12, l20));
+                    if (lm > kSelfPiece * kSelfPiece && depth < 8) {
+                        // Split the longest edge - it halves the piece and
+                        // keeps them from turning into slivers.
+                        if (lm == l01) {
+                            const P5 m = mid(a, b);
+                            piece(a, m, q, depth + 1);
+                            piece(m, b, q, depth + 1);
+                        } else if (lm == l12) {
+                            const P5 m = mid(b, q);
+                            piece(a, b, m, depth + 1);
+                            piece(a, m, q, depth + 1);
+                        } else {
+                            const P5 m = mid(q, a);
+                            piece(a, b, m, depth + 1);
+                            piece(m, b, q, depth + 1);
+                        }
+                        return;
+                    }
+                    if (!occluded(a, b, q)) return;
+                    for (const P5* v : {&a, &b, &q})
+                        mesh.verts.insert(mesh.verts.end(), v->v, v->v + 5);
+                };
+            float floorY = 1e30f;
+            for (size_t k = 1; k < casterTree.tv.size(); k += 3)
+                floorY = std::min(floorY, casterTree.tv[k]);
+            for (size_t t = 0; t + 14 < sm.verts.size(); t += 15) {
+                const V3 e0{sm.verts[t + 5] - sm.verts[t], sm.verts[t + 6] - sm.verts[t + 1],
+                            sm.verts[t + 7] - sm.verts[t + 2]};
+                const V3 e1{sm.verts[t + 10] - sm.verts[t], sm.verts[t + 11] - sm.verts[t + 1],
+                            sm.verts[t + 12] - sm.verts[t + 2]};
+                const float nx = e0.y * e1.z - e0.z * e1.y, ny = e0.z * e1.x - e0.x * e1.z,
+                            nz = e0.x * e1.y - e0.y * e1.x;
+                const float nl2 = nx * nx + ny * ny + nz * nz;
+                if (nl2 <= 0.0f || std::fabs(ny) < 0.8f * std::sqrt(nl2)) continue;
+                if (std::max(sm.verts[t + 1], std::max(sm.verts[t + 6], sm.verts[t + 11])) >
+                    floorY + kSelfFloor)
+                    continue;
+                P5 a, b, q;
+                for (int k = 0; k < 5; ++k) {
+                    a.v[k] = sm.verts[t + k];
+                    b.v[k] = sm.verts[t + 5 + k];
+                    q.v[k] = sm.verts[t + 10 + k];
+                }
+                piece(a, b, q, 0);
+            }
         }
         if (mesh.verts.empty()) continue;
         const int tris = (int)(mesh.verts.size() / 15);
@@ -873,6 +994,32 @@ uint64_t signature(const Project& p, const SceneData& sc, const Options& opt) {
         mixS(h, o.materialPath);
         mixFile(o.modelPath);
     }
+    // Roads receive too (decalproj::Receivers::roads), so their shape and the
+    // junction overrides move where a shadow lands. Mixed only when the scene
+    // HAS a road: a scene without one keeps the signature it always had, and
+    // with it a checked-in cache that is still exactly right.
+    bool anyRoad = false;
+    for (const SceneObject& o : sc.objects) {
+        if (o.type != PrimitiveType::Road) continue;
+        if (!anyRoad) mix64(h, 0x524f414452435655ULL);  // "roads receive", v1
+        anyRoad = true;
+        mixS(h, o.id);
+        mixS(h, o.layer);
+        mix64(h, (uint64_t)o.roadPoints.size());
+        for (float v : o.roadPoints) mixF(h, v);
+        mixF(h, o.roadWidth);
+        mixF(h, o.roadSampleStep);
+        mix64(h, (uint64_t)(int64_t)o.roadRank);
+        mixS(h, o.roadIntersectionTexture);
+    }
+    if (anyRoad)
+        for (const roadgen::JunctionOverride& j : sc.roadJunctions) {
+            mixS(h, j.roadA);
+            mixS(h, j.roadB);
+            mixF(h, j.x);
+            mixF(h, j.z);
+            mix64(h, (uint64_t)(int64_t)j.winner);
+        }
     return h;
 }
 

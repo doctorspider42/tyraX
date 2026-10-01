@@ -252,6 +252,12 @@ to receive generated helpers/subsystems. Returning to an owned legacy monolith
 removes stale generated subsystem sources to avoid duplicate definitions.
 Generated subsystem files and the shared helper header are always editor-owned.
 
+The split also supports the format-v89 painted sky: `game_scene.gen.cpp` owns
+texture acquisition and `game_collision.gen.cpp` builds the textured dome.
+Refresh generated files after merging template changes; updating only the
+user-ownable main cannot update those implementations. Vehicle handbrake logic
+continues to live in the generated vehicle implementation header.
+
 Remaining improvements include moving ordinary runtime settings out of headers
 while retaining compile-time feature/layout decisions. Precompiled headers target
 the small parsing share; compiler forks need their own evidence. See GCC's
