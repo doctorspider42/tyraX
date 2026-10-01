@@ -88,6 +88,16 @@ class TerrainGame : public Tyra::Game {
     //   emisCols: the terrain's own base tint -> the map's RGB, added.
     BagArray<Tyra::Vec4> aoSts;
     BagArray<Tyra::Color> aoCols;
+    // Ground shadow map pass (docs/shadows.md, "Ground shadow maps"): the
+    // chunk's SHADED cells drawn once more with its own 4-bit shadow mask,
+    // alpha-over.
+    BagArray<Tyra::Vec4> gsVerts;
+    BagArray<Tyra::Vec4> gsSts;
+    BagArray<Tyra::Color> gsCols;
+    std::unique_ptr<Tyra::StaPipBag> gsBag;
+    std::unique_ptr<Tyra::StaPipColorBag> gsColorBag;
+    Tyra::StaPipTextureBag gsTexBag;
+    std::string gsTexPath;
     std::unique_ptr<Tyra::StaPipBag> aoBag;
     std::unique_ptr<Tyra::StaPipColorBag> aoColorBag;
     Tyra::StaPipTextureBag aoTexBag;
@@ -794,6 +804,9 @@ class TerrainGame : public Tyra::Game {
   // (1.142.0; the host twin is Viewport::terrainLayerGrip).
   float terrainGripAt(float x, float z) const;
   GeoPart skyDome;
+  // The painted sky's crop (docs/sky-texture.md), swapped per scene.
+  Tyra::Texture* skyTex = nullptr;
+  std::string skyTexPath;
   // Re-centered on the camera every frame (renderScene) so a large map can
   // never let the player walk (or climb) out from under the sky. The dome
   // geometry stays static; only this translation matrix moves - one matrix

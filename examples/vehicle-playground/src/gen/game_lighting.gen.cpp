@@ -2,6 +2,18 @@
 #include "game_runtime.gen.hpp"
 
 namespace Vehicle_playground {
+static const char* objectBlobTextureFor(int scene, int object, float* sx, float* sz) {
+  *sx = 0.0F; *sz = 0.0F;
+  return nullptr;
+}
+
+
+
+
+// Visible light beams (Point Light > Beam): per-scene setup. One additive
+// corona billboard (textured, flare-corona.png - shape in RGB, additive
+// bags ignore texture alpha) and, for kind 2, an untextured cone shaft
+// whose vertex colors fade to black at the bottom rim.
 void TerrainGame::setupLightBeams() {
   lightBeams.clear();
   for (int i = 0; i < SCENE_OBJECT_COUNT; ++i) {
@@ -77,6 +89,13 @@ void TerrainGame::setupLightBeams() {
   beamBatchCall = 0;
 }
 
+
+
+// The batch slot for this call of updateAndRenderLightBeams (see BeamBatch).
+// Same states as the per-beam bags it replaces - TestOnly z, full clip
+// checks, additive - with the FIX pinned at 128 because the brightness now
+// lives in the vertex colours. Capacity for every beam at once, so a call's
+// push_backs never move the arrays between the bind and the submit.
 TerrainGame::BeamBatch& TerrainGame::beamBatchForCall() {
   if (beamBatchCall >= (int)beamBatches.size()) {
     beamBatches.push_back(std::make_unique<BeamBatch>());
@@ -119,6 +138,11 @@ TerrainGame::BeamBatch& TerrainGame::beamBatchForCall() {
   return *beamBatches[beamBatchCall++];
 }
 
+
+
+// Ground pools of the dynamic lights: per-scene setup. One 4x4 additive
+// terrain patch per dynamic light, textured with the corona sprite (shape
+// in RGB - additive bags ignore texture alpha), tinted by the light color.
 void TerrainGame::setupLightPools() {
   lightPools.clear();
   // Which spot holds the volume slot is per-scene state - the object indices
@@ -387,6 +411,11 @@ void TerrainGame::setupLightPools() {
   }
 }
 
+
+
+// Per frame: drop each dynamic light's pool onto the terrain under it
+// (terrain-conforming corners), tint by the light color and breathe with
+// its level (flicker / Set Light / hidden) through the additive FIX.
 bool TerrainGame::buildPoolPatch(LightPool& b, float cx, float cz, float r,
                                  float lift) {
   if (b.patchValid && b.patchCx == cx && b.patchCz == cz && b.patchR == r &&
@@ -421,10 +450,14 @@ bool TerrainGame::buildPoolPatch(LightPool& b, float cx, float cz, float r,
   return true;
 }
 
+
+
 void TerrainGame::poolBatchAdd(const LightPool& b, float fix) {
   poolBatch_.members.push_back(&b);
   poolBatch_.memberFix.push_back(fix);
 }
+
+
 
 void TerrainGame::poolBatchFlush() {
   PoolBatch& pb = poolBatch_;
@@ -492,6 +525,8 @@ void TerrainGame::poolBatchFlush() {
   pb.members.clear();
   pb.memberFix.clear();
 }
+
+
 
 void TerrainGame::updateAndRenderLightPools() {
   if (lightPools.empty()) return;
@@ -2148,6 +2183,22 @@ void TerrainGame::updateAndRenderLightPools() {
   poolBatchFlush();
 }
 
+
+
+// Blob shadows: per-scene setup. A caster is anything that visibly moves -
+// the third-person avatar, animated models, physics objects. (Runtime
+// spawn-pool clones cast none - authored objects only.)
+// Baked shadow decals - the "Baked" dynamic-shadow mode, docs/shadows.md.
+// Everything here was
+// decided on the host: which surfaces the shadow lands on, where its triangles
+// are, which atlas cell each one samples. The console builds one bag per
+// merged group and then only submits it.
+//
+// The whole point of the merge is the submit count - a PS2 static submit costs
+// ~1 ms of fixed EE time whatever it contains (docs/prefabs.md), so sixteen
+// shadows as sixteen bags would be most of a PAL frame. They are one bag
+// because they share one atlas page, and they can share one page because the
+// host folded each tile's rect into the UVs at bake time.
 void TerrainGame::setupShadowDecals() {
   // Release the previous scene's pages before taking this one's, exactly as
   // the lightmap swap above does - two scenes' atlases resident at once is a
@@ -2219,6 +2270,13 @@ void TerrainGame::setupShadowDecals() {
   }
 }
 
+
+
+// Per frame: one submit per resident group. There is no distance test and no
+// per-caster culling here on purpose - the engine classifies each VU1 package
+// against the frustum on its own bounding box, and the host sorted the merged
+// triangles into world cells precisely so those boxes are small. A shadow off
+// screen costs the classify and nothing else.
 void TerrainGame::renderShadowDecals() {
   if (shadowDraws.empty()) return;
   for (ShadowDraw& d : shadowDraws) {
@@ -2229,6 +2287,14 @@ void TerrainGame::renderShadowDecals() {
     stapip.core.render(d.bag.get());
   }
 }
+
+
+
+/* static const char* objectBlobTextureFor(int scene, int object, float* sx, float* sz) {
+  *sx = 0.0F; *sz = 0.0F;
+  return nullptr;
+}
+ */
 
 void TerrainGame::setupBlobShadows() {
   for (BlobShadow& b : blobShadows)
@@ -2323,6 +2389,12 @@ void TerrainGame::setupBlobShadows() {
   }
 }
 
+
+
+// Per frame: drop each caster's compact grid onto the ground under it (16
+// shared sample positions conform it to slopes and road edges), fade with the
+// caster's height above the
+// ground, alpha-blend (the glow texture's alpha is the soft edge).
 void TerrainGame::updateAndRenderBlobShadows() {
   if (blobShadows.empty()) return;
   for (BlobShadow& b : blobShadows) {
@@ -2484,6 +2556,13 @@ void TerrainGame::updateAndRenderBlobShadows() {
   }
 }
 
+
+
+// Projected silhouette shadows: per-scene setup. The engine's shadow-map
+// slots were allocated at boot (PROJ_SHADOWS_USED); each in-use slot gets a
+// terrain-conforming receiver patch bound to that slot's VRAM-resident
+// silhouette texture. Casters are authored objects with "Cast shadow" - the
+// nearest `slots` of them render each frame.
 void TerrainGame::setupProjShadows() {
   projShadows.clear();
   projCasters.clear();
@@ -2597,6 +2676,8 @@ void TerrainGame::setupProjShadows() {
   }
 }
 
+
+
 void TerrainGame::projCollectReceivers(float cx, float cz, float reach,
                                        float yMax) {
   g_projRecv.clear();
@@ -2644,6 +2725,25 @@ void TerrainGame::projCollectReceivers(float cx, float cz, float reach,
     if (g_projRecv.size() >= 24) break;  // a patch never needs more
   }
 }
+
+
+
+/** Solid boxes the flashlight's beam can land on, WALLS included.
+ *
+ * projCollectReceivers answers "what could this stand on", so it drops anything
+ * whose top is above the caster - which is every wall in the level. A beam does
+ * not care: shine it at a wall and the light belongs on the wall. This collects
+ * the same objects, with no height test, and projWallHit intersects them
+ * exactly rather than marching the column the ground path uses (a column would
+ * put the light on top of the wall).
+ *
+ * ORIENTED boxes, not axis-aligned ones. Everything else in this file that asks
+ * "what is under here" works on the AABB with rotation ignored, because it is
+ * asking about a FOOTPRINT and a footprint has no facing. A wall's facing is the
+ * entire question here: on an AABB, a wall turned 30 degrees to the world would
+ * take its light on a face that is not where the wall is. So the ray goes into
+ * the box's own frame (areaBasis - the same rotated basis an Area uses), the
+ * slab test happens there, and the patch is built there too. */
 
 void TerrainGame::projCollectBoxes(float cx, float cz, float reach) {
   g_projBoxes.clear();
@@ -2700,6 +2800,8 @@ void TerrainGame::projCollectBoxes(float cx, float cz, float reach) {
     if (g_projBoxes.size() >= 24) break;
   }
 }
+
+
 
 bool TerrainGame::projWallHit(const Vec4& from, float dx, float dy, float dz,
                               float maxT, float& outT, int& outAxis,
@@ -2758,6 +2860,40 @@ bool TerrainGame::projWallHit(const Vec4& from, float dx, float dy, float dz,
   return found;
 }
 
+
+
+/** Takes one object off the camera spot, and puts the previous one back.
+ *
+ * The per-vertex cone lights a box face from its four corners with no N.L, so a
+ * big flat receiver comes up EVENLY - and once the projected pool lands on that
+ * same face, the pool reads as a hotspot on an already-lit wall instead of as
+ * the only light on it. The wall is the one surface where the pool can do the
+ * whole job, so the cone gets out of its way, exactly as the terrain's does.
+ *
+ * The flag lives in the object's own info bags rather than at the submission
+ * sites - there are eleven of those (portals, mirrors, the through-views, the
+ * main pass) and a flag applied per site would be forgotten at one of them.
+ * It therefore takes effect on the NEXT frame, since the pool is drawn after
+ * the objects: 20 ms of cone on a wall you have just swept onto, which is not
+ * a thing anyone can see. Only the receiver's OWN spot is dropped, so the
+ * torch keeps lighting everything else in the beam. */
+/** Every big flat BOX in the beam's reach gives up the per-vertex cone, not
+ * merely the one the beam happens to be touching.
+ *
+ * Doing it for the hit alone left the other half of the report standing: a wall
+ * off to the side, inside the cone but not aimed at, still lit up as "a few
+ * bright triangles" - and then those triangles vanished the instant the beam
+ * came onto it and the pool took over. Two pops for the price of one.
+ *
+ * A wall never wants that term, whether or not the beam is centred on it. So the
+ * rule is a property of the OBJECT, not of the aim: a box primitive whose
+ * largest face is more than about 1.4 units across is lit by the pool when the
+ * pool is there and by the moon when it is not.
+ *
+ * BOXES ONLY, and that restriction is load-bearing: a model's bounding box says
+ * nothing about how its surface is tessellated, and a baked scatter chunk has an
+ * enormous one - a whole grouping cell of trees - so a size test would strip the
+ * cone from the entire forest. */
 void TerrainGame::updateFlashSpotOff() {
   static std::vector<int> want;
   want.clear();
@@ -2783,6 +2919,8 @@ void TerrainGame::updateFlashSpotOff() {
   flashSpotOffList.assign(want.begin(), want.end());
   for (int w : want) setFlashSpotOff(w, false);
 }
+
+
 
 void TerrainGame::setFlashSpotOff(int obj, bool spot) {
   // A STATICALLY BATCHED receiver does not draw from its own bags at all - its
@@ -2834,6 +2972,16 @@ void TerrainGame::setFlashSpotOff(int obj, bool spot) {
   apply(obj, spot);
 }
 
+
+
+// The carving spot light's receivers skip THAT lamp in the per-vertex slot
+// (PipelineInfoBag::dynLightSkipSlot): their light from it is drawn by the
+// receiver pass, projected per pixel with the volumes carved out, and the
+// slot adding it a second time would light the wall twice - with the shadow
+// darkening only the projected half. slot = -1 hands the lamp back. The
+// lone-batch rule is setFlashSpotOff's: a batch shared with other objects is
+// left alone, because one lamp's pass must not unlight everything batched
+// beside its receiver.
 void TerrainGame::setDynLightSkip(int obj, int slot) {
   if (obj < 0 || obj >= (int)objectGeometry.size()) return;
   for (GeoPart& part : objectGeometry[obj].parts)
@@ -2868,6 +3016,8 @@ void TerrainGame::setDynLightSkip(int obj, int slot) {
   }
 }
 
+
+
 float TerrainGame::projSurfaceAt(float x, float z) {
   float best = groundSurfaceAt(x, z);
   for (const ProjRecv& r : g_projRecv) {
@@ -2877,6 +3027,8 @@ float TerrainGame::projSurfaceAt(float x, float z) {
   }
   return best;
 }
+
+
 
 void TerrainGame::renderProjShadows() {
   if (projShadows.empty()) return;
@@ -3923,6 +4075,12 @@ void TerrainGame::renderProjShadows() {
   }
 }
 
+
+
+// Per frame: billboard the coronas at the lights' runtime positions,
+// follow each light's level (flicker / Set Light / hidden object) through
+// the additive FIX value, submit. Runs at the end of renderScene so the
+// finished z-buffer occludes the beams behind walls.
 void TerrainGame::updateAndRenderLightBeams(const Vec4* viewEye,
                                           const Vec4* viewAt, int portal) {
   if (lightBeams.empty() || !beamCoronaTex) return;
@@ -4186,6 +4344,11 @@ void TerrainGame::updateAndRenderLightBeams(const Vec4* viewEye,
   }
 }
 
+
+
+// Runtime texts: same request/timer protocol as the baked ones, but the string
+// lives in dynTextBuf (refreshed every frame by the owning flow-graph script
+// while the slot is on) and is drawn glyph by glyph from the font's atlas.
 void TerrainGame::updateAndRenderDynTexts() {
   for (int i = 0; i < DYN_TEXT_COUNT; ++i) {
     if (scriptCtx.dynTextRequest[i] >= 0) {
