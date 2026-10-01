@@ -11,6 +11,9 @@ bool g_playerLocked = false;
 float g_camShake = 0.0F;
 float g_camShakeT = 0.0F;
 float g_camShakeClock = 0.0F;
+float g_vehShake = 0.0F;
+float g_vehShakeClock = 0.0F;
+int g_vehBlurFix = 0;
 bool g_flashEnabled = false;
 bool g_flashOn = true;
 bool g_particlesOn = true;
@@ -35,6 +38,8 @@ int g_menuWideOpt = -1;
 int g_defaultDispMode = 0;
 namespace Particle_lab {
 unsigned int g_contentStamp = 0;
+  // namespace
+
 TerrainGame::TerrainGame(Engine* t_engine)
     : engine(t_engine),
       playerX(0.0F),
@@ -45,7 +50,11 @@ TerrainGame::TerrainGame(Engine* t_engine)
       playerVelY(0.0F),
       model(M4x4::Identity) {}
 
+
+
 TerrainGame::~TerrainGame() {}
+
+
 
 void TerrainGame::init() {
   // Configurable buttons/keys (Tools > Input Map): hand the input runtime the
@@ -208,6 +217,8 @@ void TerrainGame::init() {
         engine->audio.adpcm.load(FileUtils::fromCwd(SND_PATHS[i])));
 }
 
+
+
 void TerrainGame::loop() {
   const u32 traceUpdateStart = Tyra::HardwareTrace::active ? Tyra::HardwareTrace::ticks() : 0;
   beamBatchCall = 0;  // the light-beam batch slots start over (see BeamBatch)
@@ -246,7 +257,7 @@ void TerrainGame::loop() {
 
   // Boot sequence (the engine holds the Tyra logo ~2s before this):
   //   phase 0 - boot splash images, each shown for its duration (in order),
-  //   phase 1 - load START_SCENE behind the loading screen (when enabled).
+  //   phase 1 - load the selected boot scene behind the loading screen.
   // Everything runs from the loop, not init(): a frame presented from init()
   // (before the main loop) isn't vsync-paced and flashes by, so the boot
   // visuals were invisible; from the loop they pace normally.
@@ -269,7 +280,7 @@ void TerrainGame::loop() {
       }
       bootPhase = 1;
       if (LOADING_SCREEN) {
-        loadingTarget = START_SCENE;
+        loadingTarget = editorBootScene();
         loadingFrames = loadingTotal = everyFrames(0.7F);
       }
     }
@@ -281,7 +292,7 @@ void TerrainGame::loop() {
       } else {
         if (loadingFrames > 0) {
           const bool preLoad = loadingFrames > loadingTotal - 5;
-          loadingscreen::renderFrame(engine, START_SCENE, preLoad ? 0.0F : 1.0F);
+          loadingscreen::renderFrame(engine, editorBootScene(), preLoad ? 0.0F : 1.0F);
           --loadingFrames;
           if (loadingFrames == loadingTotal - 5) {
             bootFirstScene();
@@ -649,6 +660,21 @@ void TerrainGame::loop() {
       g_camShake = 0.0F;
     }
   }
+  // The driven car's speed shake, on top of any flow-node shake: faster and
+  // mostly vertical - the road through the suspension, not a handheld sway.
+  // A cutscene camera is left alone.
+  if (g_vehShake > 0.0F && !scriptCtx.cameraOverride) {
+    g_vehShakeClock += g_frameDt;
+    const float t = g_vehShakeClock;
+    const float a = g_vehShake;
+    const Vec4 off(a * (0.30F * sinf(t * 29.3F) + 0.20F * sinf(t * 13.1F + 0.7F)),
+                   a * (0.55F * sinf(t * 37.9F + 1.3F) + 0.45F * sinf(t * 17.7F)),
+                   a * 0.15F * sinf(t * 23.3F + 2.1F));
+    cameraPosition = cameraPosition + off;
+    // The aim moves less than the eye: a touch of angular jitter too.
+    cameraLookAt = cameraLookAt + Vec4(off.x * 0.6F, off.y * 0.6F, off.z * 0.6F);
+  }
+
   // Cutscene "Hide player": drop the third-person avatar for this frame
   // (applied after scripts so the sequence player's flag wins).
   if (PLAYER_INDEX >= 0 && PLAYER_MODE == 2)
@@ -820,7 +846,11 @@ void TerrainGame::loop() {
           g_mbIdleFlushed = true;
         }
       }
-      const int mb = flush ? 0 : g_motionBlurBase;
+      // The driven car's speed blur is a FLOOR under the authored amount,
+      // never a replacement: a scene that already blurs more keeps its own.
+      const int mbWant = g_vehBlurFix > g_motionBlurBase ? g_vehBlurFix
+                                                         : g_motionBlurBase;
+      const int mb = flush ? 0 : mbWant;
       engine->renderer.core.postFx.setMotionBlur((unsigned char)mb);
       g_mbPrevEye[0] = cameraPosition.x;
       g_mbPrevEye[1] = cameraPosition.y;
@@ -907,6 +937,13 @@ void TerrainGame::loop() {
   if (FRAME_EXTRAPOLATION && extrapolationWorthIt()) presentExtrapolatedFrame();
 }
 
+
+
+// Adaptive plain BLSS (docs/neural-upscaler.md). The timer is the previous
+// whole loop, including presentation: on a double-buffered PS2 it therefore
+// sees the thing the player sees - one missed field becomes a 2x step. Four
+// misses engage reduced rendering; 150 full-rate reduced frames buy a brief
+// native probe. No VRAM moves: configure() reserved both rasters at boot.
 void TerrainGame::updateAdaptiveResolution() {
   if (!BLSS_ADAPTIVE) return;
   if (adaptiveScene != g_activeScene) {
@@ -955,6 +992,24 @@ void TerrainGame::updateAdaptiveResolution() {
   }
 }
 
+
+
+// Modified by TyraX (docs/frame-extrapolation.md): is a synthesised frame worth
+// it THIS frame?
+//
+// Presenting twice per loop lets the display take at most one frame per field,
+// so the world is capped at half the field rate. That is free only while the
+// frame's WORK already overruns a field - the loop is then waiting out a second
+// field anyway and the warp fits in the idle part. Below that the extra present
+// forces a second field and halves the world: measured on examples/showcase,
+// 44.7 Hz of real frames down to 25.
+//
+// The hysteresis is not decoration. Switching the extra present on and off
+// changes the very rate this reads from, so a single threshold oscillates: the
+// gate opens, the world halves, the work per frame looks the same but the loop
+// is now two fields, and any measure taken from the LOOP would slam it shut
+// again. Reading WORK (engine-side, stalls excluded) avoids that feedback, and
+// the margins plus the run length absorb what is left.
 bool TerrainGame::extrapolationWorthIt() {
   // The Set Frame Extrapolation flow node, latched: 0 off, 1 gated, 2 forced.
   // A cutscene that WANTS the synthesised frames - the camera is doing the
@@ -1024,6 +1079,13 @@ bool TerrainGame::extrapolationWorthIt() {
   return extrapolating;
 }
 
+
+
+// Modified by TyraX: the extrapolated frame. There is no newer pad reading at
+// this point in the loop, so the best available estimate of where the camera
+// will be when this frame is scanned out is the motion it just made, carried
+// HALF a step further - the warped frame is displayed one field later, and one
+// field is half a loop period once the world is running at half the field rate.
 void TerrainGame::presentExtrapolatedFrame() {
   auto& rcore = engine->renderer.core;
   rcore.warp.setPlaneDistance(FRAME_EXTRAPOLATION_PLANE);
@@ -1085,6 +1147,8 @@ void TerrainGame::presentExtrapolatedFrame() {
   warpPrev = cur;
   warpPrevValid = true;
 }
+
+
 
 void TerrainGame::buildScene() {
   // Asset tables start empty: loadScene(0) below loads what the first
@@ -1609,8 +1673,14 @@ void TerrainGame::buildScene() {
   // its load is vsync-paced behind the loading screen after the logo hold.
 }
 
+
+
+// Loads the chosen boot scene and runs the scripts' init() once - the boot equivalent of a
+// scene switch. Deferred out of init()/buildScene() into the loop's boot
+// sequence so the load runs at vsync pace (a visible loading-screen progress
+// bar) instead of flashing by before the first presented frame.
 void TerrainGame::bootFirstScene() {
-  loadScene(START_SCENE);
+  loadScene(editorBootScene());
   scriptCtx.engine = engine;
   scriptCtx.objects = runtimeObjects.data();
   scriptCtx.objectCount = (int)runtimeObjects.size();
@@ -1620,6 +1690,12 @@ void TerrainGame::bootFirstScene() {
   for (Script* script : getScripts()) script->init(scriptCtx);
 }
 
+
+
+// Shared texture cache: one engine texture per path, reference-counted so
+// layers/models sharing a PNG neither load it twice nor free it while the
+// other still draws with it. A missing file caches a null entry - the part
+// degrades to its Kd color instead of an assert.
 Texture* TerrainGame::acquireTexture(const std::string& path) {
   auto it = texCache.find(path);
   if (it == texCache.end()) {
@@ -1642,6 +1718,8 @@ Texture* TerrainGame::acquireTexture(const std::string& path) {
   return it->second.tex;
 }
 
+
+
 void TerrainGame::releaseTexture(const std::string& path) {
   auto it = texCache.find(path);
   if (it == texCache.end()) return;
@@ -1652,6 +1730,15 @@ void TerrainGame::releaseTexture(const std::string& path) {
   texCache.erase(it);
 }
 
+
+
+// Loads one static model: the baked binary .tmdl (TmdlLoader - materials,
+// atlas UV rects, flat normals and texture paths all resolved at build time,
+// so this is a read plus a memcpy) or, for a path that is not a .tmdl, an
+// ASCII .obj through LeanObjLoader. Geometry is split per material, map_Kd
+// textures go through the texture cache, plus the real mesh AABB for box
+// collision and a CollisionMesh where some scene object collides in mesh
+// mode. Called on demand by the layer streaming.
 void TerrainGame::loadModelAsset(int i) {
   if (i < 0 || i >= MODEL_COUNT || modelLoaded[i]) return;
   modelLoaded[i] = 1;  // missing/unparseable stays empty but counts as tried
@@ -1691,6 +1778,8 @@ void TerrainGame::loadModelAsset(int i) {
     for (auto& lod : mat.lods) {
       part.lodVerts.push_back(std::vector<float>());
       part.lodVerts.back().swap(lod.vertices);
+      part.lodStripVerts.push_back(std::vector<float>());
+      if (part.stripRun != 0) part.lodStripVerts.back().swap(lod.stripVertices);
     }
     part.kd[0] = mat.kd[0];
     part.kd[1] = mat.kd[1];
@@ -1730,6 +1819,11 @@ void TerrainGame::loadModelAsset(int i) {
   }
 }
 
+
+
+// Frees a model's geometry, collider and texture references. Only called
+// when no object of a resident layer uses the model - every GeoPart drawing
+// it was dropped by deactivateObject() beforehand.
 void TerrainGame::freeModelAsset(int i) {
   if (i < 0 || i >= MODEL_COUNT || !modelLoaded[i]) return;
   GameModel& gm = gameModels[i];
@@ -1740,6 +1834,11 @@ void TerrainGame::freeModelAsset(int i) {
   modelLoaded[i] = 0;
 }
 
+
+
+// Primitive materials: each MATERIAL_PATHS entry is a .mtl whose FIRST
+// material becomes the surface of the primitives it is assigned to
+// (Kd color + optional map_Kd texture, resolved relative to the .mtl).
 void TerrainGame::loadMaterialAsset(int i) {
   if (i < 0 || i >= MATERIAL_COUNT || materialLoaded[i]) return;
   materialLoaded[i] = 1;
@@ -1775,6 +1874,8 @@ void TerrainGame::loadMaterialAsset(int i) {
   gmat.reflRounded = mat.reflRounded;
 }
 
+
+
 void TerrainGame::freeMaterialAsset(int i) {
   if (i < 0 || i >= MATERIAL_COUNT || !materialLoaded[i]) return;
   GameMaterial& gmat = gameMaterials[i];
@@ -1785,6 +1886,12 @@ void TerrainGame::freeMaterialAsset(int i) {
   materialLoaded[i] = 0;
 }
 
+
+
+// Animated models: .glb files serialized by the editor into .tskl skeletal
+// files (TsklLoader). The model data is shared; every scene object gets a
+// SkelInstance (own playback state + skinned output mesh). Textures ship as
+// PNGs next to the .tskl and link to each instance's materials by id.
 void TerrainGame::loadAnimModelAsset(int i) {
   if (i < 0 || i >= ANIM_MODEL_COUNT || animModelLoaded[i]) return;
   animModelLoaded[i] = 1;
@@ -1821,6 +1928,11 @@ void TerrainGame::loadAnimModelAsset(int i) {
   gam.src = std::move(model);
 }
 
+
+
+// Frees the shared skeletal model + its textures. Every SkelInstance
+// sampling it is already gone - deactivateObject() resets them before the
+// residency pass frees assets.
 void TerrainGame::freeAnimModelAsset(int i) {
   if (i < 0 || i >= ANIM_MODEL_COUNT || !animModelLoaded[i]) return;
   GameAnimModel& gam = gameAnimModels[i];
@@ -1829,11 +1941,16 @@ void TerrainGame::freeAnimModelAsset(int i) {
   animModelLoaded[i] = 0;
 }
 
+
+
+// Scene (terrain) textures from texture_data.gen.hpp, through the cache.
 void TerrainGame::loadSceneTexture(int i) {
   if (i < 0 || i >= TEXTURE_COUNT || sceneTexLoaded[i]) return;
   sceneTexLoaded[i] = 1;
   loadedTextures[i] = acquireTexture(TEXTURE_PATHS[i]);
 }
+
+
 
 void TerrainGame::freeSceneTexture(int i) {
   if (i < 0 || i >= TEXTURE_COUNT || !sceneTexLoaded[i]) return;
@@ -1842,12 +1959,22 @@ void TerrainGame::freeSceneTexture(int i) {
   sceneTexLoaded[i] = 0;
 }
 
+
+
+// Desired residency of an object's layer (-1 = no layer = always resident).
 bool TerrainGame::layerOn(int layer) const {
   if (layer < 0) return true;
   if (layer >= (int)layerTarget.size()) return true;
   return layerTarget[layer] != 0;
 }
 
+
+
+// Recomputes which assets the active scene needs under the current layer
+// targets: frees loaded-but-unneeded ones immediately (cheap), rebuilds the
+// stream queue with the needed-but-missing ones. loadScene() drains the
+// queue synchronously behind the loading screen; updateLayerStreaming()
+// drains it one asset per frame during gameplay.
 void TerrainGame::applyLayerResidency() {
   std::vector<unsigned char> modelNeed(gameModels.size(), 0);
   std::vector<unsigned char> materialNeed(gameMaterials.size(), 0);
@@ -1947,6 +2074,8 @@ void TerrainGame::applyLayerResidency() {
     if (animNeed[i] && !animModelLoaded[i]) streamQueue.push_back((2 << 16) | i);
 }
 
+
+
 void TerrainGame::processOneStreamJob() {
   if (streamQueue.empty()) return;
   const int job = streamQueue.front();
@@ -1991,6 +2120,11 @@ void TerrainGame::processOneStreamJob() {
   }
 }
 
+
+
+// Brings a streamed-in object back with fresh runtime state from the scene
+// data - like a scene load, a re-entered GTA3 interior resets the same way.
+// Geometry rebuilds lazily through the dirty flag.
 void TerrainGame::activateObject(int i) {
   RuntimeObject& o = runtimeObjects[i];
   o = RuntimeObject();
@@ -2001,6 +2135,11 @@ void TerrainGame::activateObject(int i) {
   setupAnimObject(i);
 }
 
+
+
+// Streams an object out: everything it owns on the heap (vertex copies,
+// bags, skeletal instance, hull) is released. The constexpr scene data
+// stays, so activateObject() can rebuild it exactly.
 void TerrainGame::deactivateObject(int i) {
   runtimeObjects[i].active = false;
   runtimeObjects[i].visible = false;
@@ -2008,6 +2147,16 @@ void TerrainGame::deactivateObject(int i) {
   objectGeometry[i] = ObjectGeometry();
 }
 
+
+
+// --- Dynamic spawning (Spawn Object / Despawn Object flow nodes) ------------
+// Clones an authored scene object into a free pool slot past
+// SCENE_OBJECT_COUNT and returns its runtimeObjects index (-1 = pool full or
+// bad template). The template itself is untouched. The clone keeps the
+// template's layer, so unloading that layer despawns it too; its assets are
+// pinned by applyLayerResidency while it lives, and a clone spawned before
+// its model streamed in re-arms its geometry when the asset lands
+// (processOneStreamJob).
 int TerrainGame::spawnObjectAt(int templateIndex, float x, float y, float z,
                                float yaw) {
   if (templateIndex < 0 || templateIndex >= SCENE_OBJECT_COUNT) return -1;
@@ -2038,6 +2187,10 @@ int TerrainGame::spawnObjectAt(int templateIndex, float x, float y, float z,
   return slot;
 }
 
+
+
+// Despawns a spawned clone immediately (its slot recycles). On an authored
+// object it only deactivates - the layer streaming can bring those back.
 void TerrainGame::despawnObjectAt(int index) {
   if (index < 0 || index >= (int)runtimeObjects.size()) return;
   if (!runtimeObjects[index].active) return;
@@ -2047,6 +2200,12 @@ void TerrainGame::despawnObjectAt(int index) {
   if (emitter) buildParticles();
 }
 
+
+
+// Once per frame: applies the scripts' Load/Unload Layer requests, frees
+// unloading layers immediately, streams missing assets in ONE per frame and
+// then trickle-activates the loaded layer's objects a few per frame - the
+// cost is spread out so a corridor walk masks the whole load, GTA3 style.
 void TerrainGame::updateLayerStreaming() {
   const int lc = (int)layerTarget.size();
   if (lc == 0) return;
@@ -2185,6 +2344,8 @@ void TerrainGame::updateLayerStreaming() {
   }
   if (completed) buildParticles();  // pools for the streamed-in emitters
 }
+
+
 
 void TerrainGame::updatePlayer() {
   const auto& leftJoy = engine->pad.getLeftJoyPad();

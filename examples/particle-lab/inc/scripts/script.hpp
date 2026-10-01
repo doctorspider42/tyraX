@@ -147,6 +147,9 @@ struct ScriptContext {
   // sentinels. The game's vehicle update carries it out and clears it; a
   // project without vehicles never reads it.
   int vehicleRequest = VEHICLE_REQUEST_NONE;
+  // The Repair Vehicle node: the vehicle object to put right, or
+  // VEHICLE_REQUEST_EXIT for "the one the player is driving".
+  int vehicleRepair = VEHICLE_REQUEST_NONE;
 
   // Index of the usable object the player pressed BTN_USE on this frame
   // (-1 = none). Drives the flow graph "On Used" trigger.

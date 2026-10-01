@@ -45,3 +45,7 @@ bin/replay.arm
 bin/replay.out
 bin/replay.stop
 bin/replay.st
+
+# The console session logs Run on PS2 writes (docs/ps2link-setup.md, "The
+# session log"). A record of this machine's runs, bounded by Preferences.
+logs/

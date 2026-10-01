@@ -88,6 +88,16 @@ class TerrainGame : public Tyra::Game {
     //   emisCols: the terrain's own base tint -> the map's RGB, added.
     BagArray<Tyra::Vec4> aoSts;
     BagArray<Tyra::Color> aoCols;
+    // Ground shadow map pass (docs/shadows.md, "Ground shadow maps"): the
+    // chunk's SHADED cells drawn once more with its own 4-bit shadow mask,
+    // alpha-over.
+    BagArray<Tyra::Vec4> gsVerts;
+    BagArray<Tyra::Vec4> gsSts;
+    BagArray<Tyra::Color> gsCols;
+    std::unique_ptr<Tyra::StaPipBag> gsBag;
+    std::unique_ptr<Tyra::StaPipColorBag> gsColorBag;
+    Tyra::StaPipTextureBag gsTexBag;
+    std::string gsTexPath;
     std::unique_ptr<Tyra::StaPipBag> aoBag;
     std::unique_ptr<Tyra::StaPipColorBag> aoColorBag;
     Tyra::StaPipTextureBag aoTexBag;
@@ -182,6 +192,10 @@ class TerrainGame : public Tyra::Game {
     // Drawn at the frame's translucent tail instead of the object pass (a
     // vehicle's see-through glass - renderVehicleGlass sets it).
     bool translucent = false;
+    // Not drawn at all while its object shows a far tier: the glass of a
+    // vehicle whose AUTHORED far model paints its windows into the texture
+    // (VehicleDefData::farHideMask, set by vehicleLodHide).
+    bool lodHidden = false;
     BagArray<Tyra::Vec4> vertices;
     BagArray<Tyra::Color> colors;
     BagArray<Tyra::Vec4> sts;  // texture coordinates
@@ -400,6 +414,10 @@ class TerrainGame : public Tyra::Game {
     // empty unless the project's mesh LOD distance is on. Shared by every
     // instance - each object bakes its own shaded copy on demand.
     std::vector<std::vector<float>> lodVerts;
+    // The strip twin of each tier (empty = draw that tier's list). Only an
+    // AUTHORED vehicle far tier has one (vehbake): a decimated tier's normals
+    // are recomputed per face, so none of its corners weld.
+    std::vector<std::vector<float>> lodStripVerts;
     // The TRIANGLE-STRIP twin of `verts`, baked into the .tmdl (version 4+,
     // docs/model-pipeline.md). Same 8-float layout, strip order, chopped into
     // independent runs of `stripRun` vertices - roughly a third of the
@@ -611,6 +629,7 @@ class TerrainGame : public Tyra::Game {
   // above, because that one is shared with the static batcher, whose members
   // are flat-shaded by design.
   std::unique_ptr<Tyra::StaPipInfoBag> procSmoothInfoBag;
+  std::unique_ptr<Tyra::StaPipInfoBag> roadBlendInfoBag;  // road spills
   // The same settings with the camera spot switched off, for a batch that holds
   // nothing but the flashlight's current receiver (setFlashSpotOff). A batch is
   // one bag for many objects, so this is only ever swapped in for a batch of
@@ -645,6 +664,17 @@ class TerrainGame : public Tyra::Game {
     // model part or an .mtl. Owner is -3 for these, so a scene revisit can
     // clear and rebuild them without touching merged geometry.
     Tyra::Texture* roadTex = nullptr;
+    // A road chunk's tyre grip (1.137.0, RoadDefRt::grip): what
+    // roadSurfaceAt reports for its triangles.
+    float roadGrip = 1.0F;
+    // A road SPILL chunk (1.143.0): drawn blended, its colours' alpha is the
+    // fade, and its grip blends from roadGripBase (the road under it) to
+    // roadGrip by that alpha.
+    bool roadBlend = false;
+    float roadGripBase = 1.0F;
+    // A road's soft-EDGE band (1.144.0): drawn blended, its colours' alpha is
+    // the fade, and roadSurfaceAt reports that alpha as the tyre's cover.
+    bool roadEdge = false;
     // Triangle strips (docs/model-pipeline.md): non-zero when this chunk's
     // vertices are baked strip RUNS of that length rather than a triangle
     // list. procFinishChunks pins StaPipBag::packageSize to it and sets
@@ -752,7 +782,10 @@ class TerrainGame : public Tyra::Game {
   // stall (vsync / display buffer), taken from one interleaveBegin to the next.
   bool ilHaveMark = false, ilMarkActive = false;
   u32 ilMark = 0, ilStallMark = 0;
-  float roadSurfaceAt(float x, float z) const;
+  // `grip`, when given, receives the answering road's grip (1 when none);
+  // `cover` how much of the road is there (1, or a soft edge's fade).
+  float roadSurfaceAt(float x, float z, float* grip = nullptr,
+                      float* cover = nullptr) const;
   void buildRoadHeightIndex() const;
   // The pre-grid exhaustive walk, defined only under TYRA_ROAD_INDEX_VERIFY
   // (see roadSurfaceAt) - it is the oracle that gate compares against.
@@ -767,7 +800,13 @@ class TerrainGame : public Tyra::Game {
   mutable int roadIdxN = 0;
   mutable bool roadIdxDirty = true;
   float groundSurfaceAt(float x, float z) const;
+  // The painted terrain layers' tyre grip at (x, z), 1 without any
+  // (1.142.0; the host twin is Viewport::terrainLayerGrip).
+  float terrainGripAt(float x, float z) const;
   GeoPart skyDome;
+  // The painted sky's crop (docs/sky-texture.md), swapped per scene.
+  Tyra::Texture* skyTex = nullptr;
+  std::string skyTexPath;
   // Re-centered on the camera every frame (renderScene) so a large map can
   // never let the player walk (or climb) out from under the sky. The dome
   // geometry stays static; only this translation matrix moves - one matrix
@@ -1283,9 +1322,14 @@ class TerrainGame : public Tyra::Game {
     std::unique_ptr<Tyra::StaPipColorBag> colorBag;
     std::unique_ptr<Tyra::StaPipTextureBag> texBag;
     std::unique_ptr<Tyra::StaPipBillboardBag> billboardBag;
+    float animTime = 0.0F;  // flipbook clock (docs/particles.md)
+    // -1 = the emitter's own particles; >= 0 = an EMITTER_LAYERS row (an
+    // extra layer of the emitter's library effect).
+    int layer = -1;
   };
   std::vector<ParticleSystem> particles;
   void buildParticles();
+  void buildParticleSystem(int objectIndex, int layer);  // layer -1 = own
   void updateParticles();
 
   // Sound emitters (type 8): distance-attenuated one-shots on channels 16-23
@@ -1554,6 +1598,14 @@ class TerrainGame : public Tyra::Game {
     // not run again merely because its brightness flickered.
     bool patchValid = false;
     float patchCx = 0.0F, patchCz = 0.0F, patchR = 0.0F, patchLift = 0.0F;
+    // A scene SPOT's landing and projective STQ, keyed on the light's pose,
+    // reach and cone (position, rotation, lightRadius, lightSpotAngle): a
+    // lamp that has not moved keeps both, so its cone is not marched to the
+    // ground again and its STQ array keeps its content stamp - the bag
+    // replays its baked stream instead of re-staging every frame.
+    float spotKey[8] = {};
+    bool spotKeyValid = false;
+    float spotHit = -1.0F;
     // The flashlight's SECOND patch, for the wall its beam is touching. Both
     // are drawn every frame and the depth buffer decides where each shows,
     // because a beam sweeping from the floor up a wall really does light both
@@ -1602,6 +1654,25 @@ class TerrainGame : public Tyra::Game {
     std::unique_ptr<Tyra::StaPipBag> bag;
   };
   std::vector<LightPool> lightPools;
+  // Scene spot pools that are not carving a shadow this frame, drawn as ONE
+  // bag (docs/flashlight.md, "One bag for the still pools"): their verts and
+  // STQs copied end to end, each lamp's colour times its FIX in the vertex
+  // colours, FIX 128 for the batch. Rewritten only when a member or one of
+  // its source stamps changes, so a still district replays it baked.
+  struct PoolBatch {
+    BagArray<Tyra::Vec4> verts, sts;
+    BagArray<Tyra::Color> colors;
+    Tyra::M4x4 mat;
+    std::unique_ptr<Tyra::StaPipInfoBag> info;
+    std::unique_ptr<Tyra::StaPipColorBag> colorBag;
+    std::unique_ptr<Tyra::StaPipTextureBag> texBag;
+    std::unique_ptr<Tyra::StaPipBag> bag;
+    std::vector<const LightPool*> members;
+    std::vector<float> memberFix;
+    std::vector<unsigned int> key, lastKey;
+  } poolBatch_;
+  void poolBatchAdd(const LightPool& b, float fix);
+  void poolBatchFlush();
   // Optional custom sprite for the flashlight's pool (Player > Flashlight >
   // Pool texture). Cached by path - a scene switch must not re-add the same
   // texture to the repository.
@@ -1632,6 +1703,13 @@ class TerrainGame : public Tyra::Game {
     BagArray<Tyra::Vec4> verts, sts;
     Tyra::Color color;
     Tyra::M4x4 mat;
+    // The caster's transform the patch was last built for (position,
+    // rotation, scale). A caster that has not moved keeps its patch, its
+    // content stamp and its bboxVersion, so the bag stays baked - see
+    // updateAndRenderBlobShadows. `keyHidden`: that build faded to nothing.
+    float key[9] = {};
+    bool keyValid = false, keyHidden = false;
+    Tyra::Vec4 cullMin, cullMax;  // the footprint box that build was culled by
     std::unique_ptr<Tyra::StaPipInfoBag> info;
     std::unique_ptr<Tyra::StaPipColorBag> colorBag;
     std::unique_ptr<Tyra::StaPipTextureBag> texBag;

@@ -35,6 +35,28 @@ inline const char* MATERIAL_PATHS[MATERIAL_COUNT > 0 ? MATERIAL_COUNT : 1] = {
 };
 
 // texture atlas summary, logged at scene boot ("" = no atlas)
-inline constexpr const char* TEXTURE_ATLAS_INFO = "Texture atlas: 3 textures in 2 page(s)";
+inline constexpr const char* TEXTURE_ATLAS_INFO = "Texture atlas: 2 textures in 1 page(s)";
+
+// Rigid-body shapes (docs/physics.md): convex hulls in mesh-local
+// units with their solid mass properties at unit density - volume,
+// centre of mass and the second moment about it (xx yy zz xy xz yz).
+// The game scales them per object and derives the inertia tensor.
+inline constexpr int PHYS_MAX_HULL_VERTS = 24;
+inline constexpr int PHYS_MAX_HULL_PLANES = 44;
+struct PhysHullData {
+  short verts, planes;  // counts
+  int vert0, plane0;    // first entry in the tables below
+  float volume, com[3], cov[6];
+};
+inline constexpr int PHYS_HULL_COUNT = 0;
+inline const PhysHullData PHYS_HULLS[PHYS_HULL_COUNT > 0 ? PHYS_HULL_COUNT : 1] = {
+    {0, 0, 0, 0, 0.0F, {0.0F, 0.0F, 0.0F}, {0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F}},
+};
+inline const float PHYS_HULL_VERTS[1] = {0.0F};
+inline const float PHYS_HULL_PLANES[1] = {0.0F};
+// PHYS_HULLS slot per MODEL_PATHS slot (-1 = collide as the mesh box)
+inline const short MODEL_PHYS_HULL[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {-1};
+// unit box, cylinder, cone, plane
+inline const short PHYS_PRIM_HULL[4] = {-1, -1, -1, -1};
 
 }  // namespace Material_lab

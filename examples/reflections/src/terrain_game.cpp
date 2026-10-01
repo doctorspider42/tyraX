@@ -11,12 +11,23 @@ bool g_playerLocked = false;
 float g_camShake = 0.0F;
 float g_camShakeT = 0.0F;
 float g_camShakeClock = 0.0F;
+float g_vehShake = 0.0F;
+float g_vehShakeClock = 0.0F;
+int g_vehBlurFix = 0;
 bool g_flashEnabled = false;
 bool g_flashOn = true;
 bool g_particlesOn = true;
 int g_flareAmount = 0;
+int g_motionBlurBase = 0;
+float g_mbPrevEye[3] = {0.0F, 0.0F, 0.0F};
+float g_mbPrevFwd[3] = {0.0F, 0.0F, 1.0F};
+bool g_mbHavePrev = false;
+float g_mbIdleTime = 0.0F;
+bool g_mbIdleFlushed = false;
+bool g_mbFlushNext = true;
 float g_deadzoneL = 0.2F;
 float g_deadzoneR = 0.2F;
+float g_groundDrawRadius = 0.0F;
 int g_stickCurveL = 0;
 int g_stickCurveR = 0;
 float g_stickExpL = 2.0F;
@@ -26,6 +37,8 @@ int g_menuDispOpt = -1;
 int g_menuWideOpt = -1;
 int g_defaultDispMode = 0;
 namespace Reflections {
+unsigned int g_contentStamp = 0;
+  // namespace
 
 TerrainGame::TerrainGame(Engine* t_engine)
     : engine(t_engine),
@@ -37,7 +50,11 @@ TerrainGame::TerrainGame(Engine* t_engine)
       playerVelY(0.0F),
       model(M4x4::Identity) {}
 
+
+
 TerrainGame::~TerrainGame() {}
+
+
 
 void TerrainGame::init() {
   // Configurable buttons/keys (Tools > Input Map): hand the input runtime the
@@ -78,10 +95,12 @@ void TerrainGame::init() {
   // Hidden "clipping": "vu1" mode: frustum-crossing packages are clipped by
   // the VU1 clip programs instead of the EE clipper (must follow setRenderer).
   stapip.core.setVU1Clipping(CLIP_VU1);
-#if TYRA_FRAME_PROFILE
+#if TYRA_FRAME_PROFILE == 1
   // The frame-timing rig's FTCLIP line - the static pipeline's routing
   // counters (docs/vu1-clipping.md). Opt-in because the counters cost COP0
-  // reads; nothing outside this #if enables them.
+  // reads; nothing outside this #if enables them. LEVEL 1 ONLY: level 2
+  // times the frame the player gets, and it cannot do that with the
+  // pipeline's telemetry switched on (debug/frame_profile.hpp).
   ftrig::core = &stapip.core;
   stapip.core.setTelemetryEnabled(true);
 #endif
@@ -98,6 +117,13 @@ void TerrainGame::init() {
   engine->renderer.core.postFx.setBloomThreshold(POSTFX_BLOOM_CUT);
   engine->renderer.core.postFx.setBloomSpread(POSTFX_BLOOM_SPREAD);
   engine->renderer.core.postFx.setGrain(POSTFX_GRAIN);
+  g_motionBlurBase = POSTFX_MOTIONBLUR;
+  engine->renderer.core.postFx.setMotionBlur(POSTFX_MOTIONBLUR);
+  // Start with no full-screen history; the first real frame stays sharp.
+  g_mbHavePrev = false;
+  g_mbIdleTime = 0.0F;
+  g_mbIdleFlushed = false;
+  g_mbFlushNext = true;
   engine->renderer.core.postFx.setGodRays(POSTFX_GODRAYS);
   g_flareAmount = POSTFX_FLARE;
   engine->renderer.core.postFx.setDepthOfField(POSTFX_DOF_FOCUS,
@@ -132,9 +158,9 @@ void TerrainGame::init() {
       break;
     }
   }
-  // Feet on the ground - or at the spawn point's own height in a scene with no
-  // terrain, where there is no ground to stand on (docs/terrain.md).
-  playerY = TERRAIN_ENABLED ? terrainHeightAt(playerX, playerZ) : spawnY;
+  // The authored height may stand on a platform above the heightfield.
+  // Clamp only upward to terrain; gravity settles onto model colliders.
+  playerY = TERRAIN_ENABLED ? fmaxf(spawnY, terrainHeightAt(playerX, playerZ)) : spawnY;
 
   updatePlayer();
   buildScene();
@@ -191,7 +217,24 @@ void TerrainGame::init() {
         engine->audio.adpcm.load(FileUtils::fromCwd(SND_PATHS[i])));
 }
 
+
+
 void TerrainGame::loop() {
+  const u32 traceUpdateStart = Tyra::HardwareTrace::active ? Tyra::HardwareTrace::ticks() : 0;
+  beamBatchCall = 0;  // the light-beam batch slots start over (see BeamBatch)
+#if TYRA_FRAME_PROFILE
+  // FTUPD (docs/profiling.md, "The update half of pre"): lap i adds the time
+  // since the previous mark to ftrig::updLap[i].
+  u32 updT = Tyra::FrameProfile::ticks();
+#define UPD_LAP(i)                                          \
+  do {                                                      \
+    const u32 updNow = Tyra::FrameProfile::ticks();         \
+    ftrig::updLap[i] += updNow - updT;                      \
+    updT = updNow;                                          \
+  } while (0)
+#else
+#define UPD_LAP(i) ((void)0)
+#endif
   updateFrameClock();  // real dt: frame drops slow the picture, not the game
 #ifdef TYRAX_KBD_MOUSE
   // USB keyboard/mouse (controls.hpp): fold onto the pad before anything
@@ -214,7 +257,7 @@ void TerrainGame::loop() {
 
   // Boot sequence (the engine holds the Tyra logo ~2s before this):
   //   phase 0 - boot splash images, each shown for its duration (in order),
-  //   phase 1 - load START_SCENE behind the loading screen (when enabled).
+  //   phase 1 - load the selected boot scene behind the loading screen.
   // Everything runs from the loop, not init(): a frame presented from init()
   // (before the main loop) isn't vsync-paced and flashes by, so the boot
   // visuals were invisible; from the loop they pace normally.
@@ -237,7 +280,7 @@ void TerrainGame::loop() {
       }
       bootPhase = 1;
       if (LOADING_SCREEN) {
-        loadingTarget = START_SCENE;
+        loadingTarget = editorBootScene();
         loadingFrames = loadingTotal = everyFrames(0.7F);
       }
     }
@@ -249,7 +292,7 @@ void TerrainGame::loop() {
       } else {
         if (loadingFrames > 0) {
           const bool preLoad = loadingFrames > loadingTotal - 5;
-          loadingscreen::renderFrame(engine, START_SCENE, preLoad ? 0.0F : 1.0F);
+          loadingscreen::renderFrame(engine, editorBootScene(), preLoad ? 0.0F : 1.0F);
           --loadingFrames;
           if (loadingFrames == loadingTotal - 5) {
             bootFirstScene();
@@ -289,6 +332,10 @@ void TerrainGame::loop() {
   // being presented, so you can still look at what you stopped. All of this
   // compiles to nothing when the debugger is off.
   livedbg::tickFromLoop(scriptCtx);
+  // The renderer's two 0.5 ms frame sleeps only while the editor's Live
+  // Debugger is attached (RendererCore::setFrameYield): -1.05 ms a frame
+  // everywhere else, measured on a PS2.
+  engine->renderer.core.setFrameYield(livedbg::attached());
   const bool dbgHalted = livedbg::halted();
   const bool menuActive = saveMenuActive || gameMenuPausing || dbgHalted;
   // An open menu owns the pad even when it doesn't pause the world (overlay
@@ -324,10 +371,12 @@ void TerrainGame::loop() {
   if (MULTIPLAYER_MODE != 0 && P2_JOIN_ON_START && !menuOwnsPad &&
       !playerTwoActive && pad2.getClicked().Start)
     setPlayerTwoActive(true);
+  UPD_LAP(0);
   if (!menuOwnsPad) {
     if (!updatePlayerEntity()) updatePlayer();
     updateUseTarget();
   }
+  UPD_LAP(1);
 
   scriptCtx.playerPosition = cameraPosition;
   scriptCtx.playerVelY = players[0].velY;
@@ -354,6 +403,7 @@ void TerrainGame::loop() {
   if (!menuActive || scriptCtx.menuEvent >= 0)
     for (Script* script : getScripts()) script->update(scriptCtx);
   engine->renderer.setClearScreenColor(scriptCtx.skyColor);
+  UPD_LAP(2);
 
   // Scene switch requested by the flow graph / scripts. The built-in FPP
   // player respawns at the new scene's spawn point.
@@ -399,14 +449,15 @@ void TerrainGame::loop() {
         break;
       }
     }
-    // The spawn point's own height in a scene with no terrain - see initScene.
-    playerY = TERRAIN_ENABLED ? terrainHeightAt(playerX, playerZ) : spawnY;
+    // Preserve authored platform height, with terrain as a lower bound.
+    playerY = TERRAIN_ENABLED ? fmaxf(spawnY, terrainHeightAt(playerX, playerZ)) : spawnY;
     playerVelY = 0.0F;
   }
 
   // Streaming layers: Load/Unload Layer requests, one asset load per frame,
   // trickle activation of freshly resident layers.
   updateLayerStreaming();
+  UPD_LAP(3);
 
   // Flow graph / script teleport request: move the Player entity when the
   // scene has one, the built-in FPP player otherwise. Teleports P1; an
@@ -440,11 +491,20 @@ void TerrainGame::loop() {
     }
   }
 
+#if TYRA_FRAME_PROFILE
+  { const u32 phT = Tyra::FrameProfile::ticks();
+    if (!menuActive) updateObjectPhysics();
+    ftrig::physOnly += Tyra::FrameProfile::ticks() - phT; }
+#else
   if (!menuActive) updateObjectPhysics();
+#endif
   // Scripted rotation, right after the physics integration: both write
   // data.rotation, and a spinner that is ALSO a body must see the tumble's
   // value rather than fight it.
   if (!menuActive) updateSpinners();
+  UPD_LAP(4);
+
+  UPD_LAP(5);
   // Portal surfaces: carry the player / physics objects that crossed a
   // linked portal through to its target. After the physics step so object
   // crossings see this frame's motion; on a player hop the camera is
@@ -465,9 +525,12 @@ void TerrainGame::loop() {
   // otherwise it holds one frame at the departure side and blinks as it
   // crosses (owner).
   if (!menuOwnsPad) updateCarriedObject();
+  UPD_LAP(6);
   updateParticles();
+  UPD_LAP(7);
   updateSoundEmitters();
   updateReverb();
+  UPD_LAP(8);
 
   // Camera flashlight (Player object > Flashlight). The Set Flashlight flow
   // node drives the master (scriptCtx.flashlight: 0 off / 1 on / -1 = leave);
@@ -482,7 +545,8 @@ void TerrainGame::loop() {
     g_playerLocked = scriptCtx.lockInput == 0;
     scriptCtx.lockInput = -1;
   }
-  // Runtime graphics switches (Set Fog / Bloom / Grain / Particles flow nodes).
+  // Runtime graphics switches (Set Fog / Bloom / Grain / Motion Blur /
+  // Particles flow nodes).
   if (scriptCtx.fog >= 0) {
     if (scriptCtx.fog)
       engine->renderer.core.setFog(Color(FOG_R, FOG_G, FOG_B), FOG_START, FOG_END);
@@ -497,6 +561,11 @@ void TerrainGame::loop() {
   if (scriptCtx.grain >= 0) {
     engine->renderer.core.postFx.setGrain(scriptCtx.grain);
     scriptCtx.grain = -1;
+  }
+  if (scriptCtx.motionBlur >= 0) {
+    // The BASE - the idle flush may override the renderer for one frame only.
+    g_motionBlurBase = scriptCtx.motionBlur;
+    scriptCtx.motionBlur = -1;
   }
   if (scriptCtx.flare >= 0) {
     g_flareAmount = scriptCtx.flare;
@@ -591,6 +660,21 @@ void TerrainGame::loop() {
       g_camShake = 0.0F;
     }
   }
+  // The driven car's speed shake, on top of any flow-node shake: faster and
+  // mostly vertical - the road through the suspension, not a handheld sway.
+  // A cutscene camera is left alone.
+  if (g_vehShake > 0.0F && !scriptCtx.cameraOverride) {
+    g_vehShakeClock += g_frameDt;
+    const float t = g_vehShakeClock;
+    const float a = g_vehShake;
+    const Vec4 off(a * (0.30F * sinf(t * 29.3F) + 0.20F * sinf(t * 13.1F + 0.7F)),
+                   a * (0.55F * sinf(t * 37.9F + 1.3F) + 0.45F * sinf(t * 17.7F)),
+                   a * 0.15F * sinf(t * 23.3F + 2.1F));
+    cameraPosition = cameraPosition + off;
+    // The aim moves less than the eye: a touch of angular jitter too.
+    cameraLookAt = cameraLookAt + Vec4(off.x * 0.6F, off.y * 0.6F, off.z * 0.6F);
+  }
+
   // Cutscene "Hide player": drop the third-person avatar for this frame
   // (applied after scripts so the sequence player's flag wins).
   if (PLAYER_INDEX >= 0 && PLAYER_MODE == 2)
@@ -632,9 +716,20 @@ void TerrainGame::loop() {
     // as a bag of bright shards. A wide, gentle ramp spreads the same change
     // over enough geometry that the interpolation stops being visible. It costs
     // a fuzzier beam edge, which is what a torch beam has anyway.
+    // The cone comes from where the torch is HELD, like the pool and the
+    // shadows - one light, one origin, or the fill would disagree with the
+    // beam it is filling in.
+    const float sdl = sqrtf(flashDir.x * flashDir.x + flashDir.y * flashDir.y +
+                            flashDir.z * flashDir.z);
+    const Vec4 spotPos =
+        sdl < 0.0001F
+            ? cameraPosition
+            : flashHeldOrigin(cameraPosition, flashDir.x / sdl,
+                              flashDir.y / sdl, flashDir.z / sdl,
+                              FLASHLIGHT_OFF_RIGHT, FLASHLIGHT_OFF_DOWN);
     engine->renderer.core.setSpotLight(
         Color(FLASHLIGHT_R * 0.7F, FLASHLIGHT_G * 0.7F, FLASHLIGHT_B * 0.7F),
-        cameraPosition, flashDir, FLASHLIGHT_RANGE, FLASHLIGHT_ANGLE, 1.3F);
+        spotPos, flashDir, FLASHLIGHT_RANGE, FLASHLIGHT_ANGLE, 1.3F);
   } else {
     engine->renderer.core.disableSpotLight();
   }
@@ -657,6 +752,9 @@ void TerrainGame::loop() {
     if (vuprog::ENABLED) vuprog::setTime(stapip.core, g_vuClock);
     if (vuscript::COUNT > 0) stapip.core.setVuTime(g_vuClock);
   }
+  UPD_LAP(9);
+#undef UPD_LAP
+  if (Tyra::HardwareTrace::active) Tyra::HardwareTrace::record("Update", traceUpdateStart, Tyra::HardwareTrace::ticks());
   engine->renderer.beginFrame(CameraInfo3D(&cameraPosition, &cameraLookAt, &cameraUp));
   {
     engine->renderer.renderer3D.usePipeline(stapip);
@@ -700,28 +798,108 @@ void TerrainGame::loop() {
     // DoF pass (a crosshair HUD showed through the blur as a box).
     // Sun state first (god-rays zoom center + flare fade), then the depth
     // of field + god-rays composite, then the flare sprites on top of both.
+    // Optional one-shot history clear after the camera settles
+    // (docs/motion-blur.md). This is deliberately NOT "blur only in motion":
+    // one unblended frame flushes the quantized 16-bit ghost, then the authored
+    // amount comes back even while the camera stays parked, so moving scene
+      // objects still blur. Measure velocity per SECOND, not displacement per
+      // frame: on hardware a 30 fps frame used to make the same pad drift look
+      // twice as fast as it did in PCSX2 at 60 fps, so the flush never fired.
+    {
+      float fx = cameraLookAt.x - cameraPosition.x;
+      float fy = cameraLookAt.y - cameraPosition.y;
+      float fz = cameraLookAt.z - cameraPosition.z;
+      const float fl = sqrtf(fx * fx + fy * fy + fz * fz);
+      if (fl > 0.0001F) { fx /= fl; fy /= fl; fz /= fl; }
+      bool moving = false;
+      if (g_mbHavePrev) {
+        const float dx = cameraPosition.x - g_mbPrevEye[0];
+        const float dy = cameraPosition.y - g_mbPrevEye[1];
+        const float dz = cameraPosition.z - g_mbPrevEye[2];
+        const float moved = sqrtf(dx * dx + dy * dy + dz * dz);
+        float dot = fx * g_mbPrevFwd[0] + fy * g_mbPrevFwd[1] + fz * g_mbPrevFwd[2];
+        if (dot > 1.0F) dot = 1.0F;
+        if (dot < -1.0F) dot = -1.0F;
+        const float dt = g_frameDt > 0.0001F ? g_frameDt : 0.0001F;
+        const float turnRate = sqrtf(2.0F * (1.0F - dot)) / dt;
+        const float moveRate = moved / dt;
+        // Intentional motion, not sub-deadzone hardware noise. Once this has
+        // armed a settle, a slow-moving camera still loses only ONE history
+        // frame; authored blur comes straight back on the following frame.
+        moving = turnRate >= 0.35F || moveRate >= 0.5F;
+      }
+      bool flush = g_mbFlushNext;
+      if (flush) {
+        g_mbIdleTime = 0.12F;
+        g_mbIdleFlushed = true;
+      }
+      g_mbFlushNext = false;
+      if (POSTFX_MOTIONBLUR_IDLE_CLEAR && g_mbHavePrev) {
+        if (moving) {
+          g_mbIdleTime = 0.0F;
+          g_mbIdleFlushed = false;
+        } else if (g_mbIdleTime < 0.12F) {
+          g_mbIdleTime += g_frameDt;
+        }
+        if (!g_mbIdleFlushed && g_mbIdleTime >= 0.12F) {
+          flush = true;
+          g_mbIdleFlushed = true;
+        }
+      }
+      // The driven car's speed blur is a FLOOR under the authored amount,
+      // never a replacement: a scene that already blurs more keeps its own.
+      const int mbWant = g_vehBlurFix > g_motionBlurBase ? g_vehBlurFix
+                                                         : g_motionBlurBase;
+      const int mb = flush ? 0 : mbWant;
+      engine->renderer.core.postFx.setMotionBlur((unsigned char)mb);
+      g_mbPrevEye[0] = cameraPosition.x;
+      g_mbPrevEye[1] = cameraPosition.y;
+      g_mbPrevEye[2] = cameraPosition.z;
+      g_mbPrevFwd[0] = fx;
+      g_mbPrevFwd[1] = fy;
+      g_mbPrevFwd[2] = fz;
+      g_mbHavePrev = true;
+    }
     updateSunFx();
     engine->renderer.core.applyPostFx(Tyra::RendererCorePostFx::PassDof |
                                       Tyra::RendererCorePostFx::PassGodRays);
     renderFlare();
     // Full-screen effects can sit inside the HUD stack (Tools > UI Editor):
-    // bloom (with color grading) and film grain composite at independent
-    // points, so sprites drawn afterwards stay crisp on top of them. -1 = the
-    // pass applies at endFrame, over everything (menus included).
+    // bloom (with color grading), film grain and motion blur composite at
+    // independent points, so sprites drawn afterwards stay crisp on top of
+    // them. -1 = the pass applies at endFrame, over everything (menus
+    // included).
+    // Animated HUD: pose every element for this frame first (loops,
+    // transitions, effects, bar easing - docs/hud-animation.md).
+    updateHudMotion();
     for (int i = 0; i < (int)hudSprites.size(); ++i) {
+      // Motion blur first when several effects share a slot: the trail is
+      // the SCENE smearing, so this frame's own glow and grain go on top.
+      if (i == HUD_MOTION_BLUR_LAYER)
+        engine->renderer.core.applyPostFx(
+            Tyra::RendererCorePostFx::PassMotionBlur);
       if (i == HUD_BLOOM_LAYER)
         engine->renderer.core.applyPostFx(
             Tyra::RendererCorePostFx::PassBloom |
             Tyra::RendererCorePostFx::PassGrading);
       if (i == HUD_GRAIN_LAYER)
         engine->renderer.core.applyPostFx(Tyra::RendererCorePostFx::PassGrain);
-      if (scriptCtx.hudVisible)
+      if (scriptCtx.hudVisible && !scriptCtx.hudSuppressed &&
+          hudElemDrawn[i])
         engine->renderer.renderer2D.render(hudSprites[i]);
     }
+    // Live bars sit above the stack, under the prompts and texts.
+    if (scriptCtx.hudVisible && !scriptCtx.hudSuppressed) renderHudBars();
     // Custom screen effects placed at the top of the stack (layer -1): drawn
     // over the whole HUD stack, under the USE prompt / texts / pause menus.
-    if (useTargetIndex >= 0) {
-      const bool pick = runtimeObjects[useTargetIndex].data.pickable;
+    // A "Hide HUD" cutscene also takes the USE prompt off. updateUseTarget
+    // already refuses to pick a target under it; this second gate is what
+    // covers the frame the flag goes UP, because that scan ran before the
+    // sequence player did (docs/cutscenes.md).
+    if ((useTargetIndex >= 0) &&
+        !scriptCtx.hudSuppressed) {
+      const bool pick =
+          useTargetIndex >= 0 && runtimeObjects[useTargetIndex].data.pickable;
       const Sprite& prompt = pick ? pickPromptSprite : usePromptSprite;
       engine->renderer.renderer2D.render(prompt);
       // The prompt's button glyphs are NOT in that sprite: the bake left a
@@ -759,6 +937,79 @@ void TerrainGame::loop() {
   if (FRAME_EXTRAPOLATION && extrapolationWorthIt()) presentExtrapolatedFrame();
 }
 
+
+
+// Adaptive plain BLSS (docs/neural-upscaler.md). The timer is the previous
+// whole loop, including presentation: on a double-buffered PS2 it therefore
+// sees the thing the player sees - one missed field becomes a 2x step. Four
+// misses engage reduced rendering; 150 full-rate reduced frames buy a brief
+// native probe. No VRAM moves: configure() reserved both rasters at boot.
+void TerrainGame::updateAdaptiveResolution() {
+  if (!BLSS_ADAPTIVE) return;
+  if (adaptiveScene != g_activeScene) {
+    adaptiveScene = g_activeScene;
+    adaptiveWarmup = 30;
+    adaptiveSlowRun = adaptiveFastRun = 0;
+    adaptiveReduced = false;
+    engine->renderer.core.blss.setScene(false, false);
+    return;
+  }
+  if (!BLSS_SCENE_ON) {
+    if (adaptiveReduced) engine->renderer.core.blss.setScene(false, false);
+    adaptiveReduced = false;
+    return;
+  }
+  if (adaptiveWarmup > 0) {
+    --adaptiveWarmup;
+    return;
+  }
+  const float refresh = engine->renderer.core.getSettings().getRefreshRate();
+  if (refresh < 1.0F) return;
+  const float field = 1.0F / refresh;
+  if (!adaptiveReduced) {
+    adaptiveFastRun = 0;
+    if (g_frameDt > field * 1.35F) {
+      if (++adaptiveSlowRun < 4) return;
+      adaptiveReduced = true;
+      adaptiveSlowRun = 0;
+      engine->renderer.core.blss.setScene(true, false);
+      TYRA_LOG("Adaptive resolution: REDUCED after sustained missed fields");
+    } else {
+      adaptiveSlowRun = 0;
+    }
+    return;
+  }
+  adaptiveSlowRun = 0;
+  if (g_frameDt <= field * 1.10F) {
+    if (++adaptiveFastRun < 150) return;
+    adaptiveReduced = false;
+    adaptiveFastRun = 0;
+    adaptiveWarmup = 8;
+    engine->renderer.core.blss.setScene(false, false);
+    TYRA_LOG("Adaptive resolution: NATIVE probe after sustained headroom");
+  } else {
+    adaptiveFastRun = 0;
+  }
+}
+
+
+
+// Modified by TyraX (docs/frame-extrapolation.md): is a synthesised frame worth
+// it THIS frame?
+//
+// Presenting twice per loop lets the display take at most one frame per field,
+// so the world is capped at half the field rate. That is free only while the
+// frame's WORK already overruns a field - the loop is then waiting out a second
+// field anyway and the warp fits in the idle part. Below that the extra present
+// forces a second field and halves the world: measured on examples/showcase,
+// 44.7 Hz of real frames down to 25.
+//
+// The hysteresis is not decoration. Switching the extra present on and off
+// changes the very rate this reads from, so a single threshold oscillates: the
+// gate opens, the world halves, the work per frame looks the same but the loop
+// is now two fields, and any measure taken from the LOOP would slam it shut
+// again. Reading WORK (engine-side, stalls excluded) avoids that feedback, and
+// the margins plus the run length absorb what is left.
 bool TerrainGame::extrapolationWorthIt() {
   // The Set Frame Extrapolation flow node, latched: 0 off, 1 gated, 2 forced.
   // A cutscene that WANTS the synthesised frames - the camera is doing the
@@ -828,6 +1079,13 @@ bool TerrainGame::extrapolationWorthIt() {
   return extrapolating;
 }
 
+
+
+// Modified by TyraX: the extrapolated frame. There is no newer pad reading at
+// this point in the loop, so the best available estimate of where the camera
+// will be when this frame is scanned out is the motion it just made, carried
+// HALF a step further - the warped frame is displayed one field later, and one
+// field is half a loop period once the world is running at half the field rate.
 void TerrainGame::presentExtrapolatedFrame() {
   auto& rcore = engine->renderer.core;
   rcore.warp.setPlaneDistance(FRAME_EXTRAPOLATION_PLANE);
@@ -889,6 +1147,8 @@ void TerrainGame::presentExtrapolatedFrame() {
   warpPrev = cur;
   warpPrevValid = true;
 }
+
+
 
 void TerrainGame::buildScene() {
   // Asset tables start empty: loadScene(0) below loads what the first
@@ -1240,6 +1500,80 @@ void TerrainGame::buildScene() {
     scriptCtx.textRequest = hudTextReq.data();
     scriptCtx.textDuration = hudTextDur.data();
     scriptCtx.textCount = HUD_TEXT_COUNT;
+
+    // Animated HUD (docs/hud-animation.md): one slot per element - images,
+    // texts, bars - for the show/hide transition and the one-shot effects.
+    // An element that starts visible starts fully shown (no transition plays
+    // on boot); one that starts hidden sits at 0 until a node shows it.
+    {
+      const int ne = HUD_ELEM_COUNT > 0 ? HUD_ELEM_COUNT : 1;
+      hudElemOn.assign(ne, 0);
+      hudElemTrans.assign(ne, 0.0F);
+      hudElemDrawn.assign(ne, 0);
+      hudElemReq.assign(ne, -1);
+      hudElemFxReq.assign(ne, 0);
+      hudElemFxSecReq.assign(ne, 0.0F);
+      hudElemFx.assign(ne, 0);
+      hudElemFxT.assign(ne, 0.0F);
+      hudElemFxDur.assign(ne, 0.0F);
+      for (int i = 0; i < HUD_COUNT; ++i) {
+        hudElemOn[i] = (unsigned char)HUD_IMAGES[i].visible;
+        hudElemTrans[i] = HUD_IMAGES[i].visible ? 1.0F : 0.0F;
+      }
+      for (int i = 0; i < HUD_TEXT_COUNT; ++i)
+        hudElemTrans[HUD_ELEM_TEXT0 + i] = HUD_TEXTS[i].visible ? 1.0F : 0.0F;
+      for (int i = 0; i < HUD_BAR_COUNT; ++i) {
+        hudElemOn[HUD_ELEM_BAR0 + i] = (unsigned char)HUD_BARS[i].visible;
+        hudElemTrans[HUD_ELEM_BAR0 + i] = HUD_BARS[i].visible ? 1.0F : 0.0F;
+      }
+      scriptCtx.hudElemRequest = hudElemReq.data();
+      scriptCtx.hudElemEffect = hudElemFxReq.data();
+      scriptCtx.hudElemEffectSec = hudElemFxSecReq.data();
+      scriptCtx.hudElemCount = HUD_ELEM_COUNT;
+
+      const int nb = HUD_BAR_COUNT > 0 ? HUD_BAR_COUNT : 1;
+      hudBarValue.assign(nb, 0.0F);
+      hudBarSet.assign(nb, -1);
+      hudBarShown.assign(nb, 0.0F);
+      hudBarGhost.assign(nb, 0.0F);
+      hudBarHold.assign(nb, 0.0F);
+      hudBarFillSprites.clear();
+      hudBarFrameSprites.clear();
+      hudBarFillSprites.resize(nb);
+      hudBarFrameSprites.resize(nb);
+      hudBarFillTexW.assign(nb, 0);
+      hudBarFillTexH.assign(nb, 0);
+      auto& repo = engine->renderer.getTextureRepository();
+      hudBarQuad.mode = SpriteMode::MODE_STRETCH;
+      if (HUD_BAR_COUNT > 0)
+        repo.add(FileUtils::fromCwd("hud/loading-white.png"))->addLink(hudBarQuad.id);
+      for (int i = 0; i < HUD_BAR_COUNT; ++i) {
+        const HudBarData& d = HUD_BARS[i];
+        hudBarValue[i] = d.startV;
+        const float span = d.maxV - d.minV;
+        float f = span > 0.0F ? (d.startV - d.minV) / span : 0.0F;
+        f = f < 0.0F ? 0.0F : f > 1.0F ? 1.0F : f;
+        hudBarShown[i] = hudBarGhost[i] = f;
+        if (d.fillPath[0] != '\0') {
+          // MODE_REPEAT samples [offset, offset+size] texels, which is what
+          // lets the fill be CROPPED to the fraction instead of squashed.
+          Sprite& fs = hudBarFillSprites[i];
+          fs.mode = SpriteMode::MODE_REPEAT;
+          auto* t = repo.add(FileUtils::fromCwd(d.fillPath));
+          t->addLink(fs.id);
+          hudBarFillTexW[i] = t->getWidth();
+          hudBarFillTexH[i] = t->getHeight();
+        }
+        if (d.framePath[0] != '\0') {
+          Sprite& fr = hudBarFrameSprites[i];
+          fr.mode = SpriteMode::MODE_STRETCH;
+          repo.add(FileUtils::fromCwd(d.framePath))->addLink(fr.id);
+        }
+      }
+      scriptCtx.hudBarValue = hudBarValue.data();
+      scriptCtx.hudBarSet = hudBarSet.data();
+      scriptCtx.hudBarCount = HUD_BAR_COUNT;
+    }
     // Sun lens flare ghost sprites. FLARE_USED gates the load - the PNGs are
     // baked into res/hud only for flare-using projects (see refreshGenerated).
     if (FLARE_USED) {
@@ -1260,15 +1594,20 @@ void TerrainGame::buildScene() {
     if (BEAMS_USED || STAR_COUNT > 0)
       beamCoronaTex = engine->renderer.getTextureRepository().add(
           FileUtils::fromCwd("hud/flare-corona.png"));
-    // The camera flashlight's gobo (docs/flashlight.md): the pool patch takes
+    // The camera flashlight/vehicle headlight gobo (docs/flashlight.md): the pool patch takes
     // its STs from the light's own frustum, so this 128x128 IS the shape of the
-    // beam. FLASHLIGHT_USED matches the refreshGenerated predicate that bakes
-    // it, so a project with no flashlight pays no VRAM for it.
-    if (FLASHLIGHT_USED)
+    // beam. A SCENE spot light's pool is projected through the same image, and
+    // a carved shadow needs a pool to carve - so a project with no flashlight
+    // but with a shadow-casting spot loads it too (docs/shadows.md). The two
+    // gates match the refreshGenerated predicates that bake it, so a project
+    // with neither pays no VRAM for it.
+    if (FLASHLIGHT_USED || VEHICLE_HEADLIGHTS_USED || SPOT_SHADOW_VOLUMES_USED)
       flashGoboTex = engine->renderer.getTextureRepository().add(
           FileUtils::fromCwd("hud/flashlight-gobo.png"));
-    // Blob shadows: the glow sprite doubles as the shadow's alpha mask.
-    if (BLOB_SHADOWS)
+    // Blob shadows: the glow sprite doubles as the shadow's alpha mask. The
+    // gate is BLOB_SHADOWS_USED, not the preference - one object asking for a
+    // blob is enough to need the sprite (docs/shadows.md).
+    if (BLOB_SHADOWS_USED)
       blobShadowTex = engine->renderer.getTextureRepository().add(
           FileUtils::fromCwd("hud/flare-glow.png"));
     // Day/night cycle sky bodies. DAYCYCLE_USED matches the refreshGenerated
@@ -1288,6 +1627,18 @@ void TerrainGame::buildScene() {
     // Projected shadows: allocate the engine's shadow-map VRAM before any
     // texture upload can claim that region (lazy - only shadow projects pay).
     if (PROJ_SHADOWS_USED) engine->renderer.core.shadowMap.allocate();
+    // Shadow volumes: the counting target, same discipline. Refusal is
+    // graceful - the volumes fall back to the convex 1-bit path. ONE band
+    // serves the torch and the frame's active spot light alike, so either
+    // user asking is enough and neither allocates a second one.
+    if ((FLASH_SHADOW_VOLUMES && FLASHLIGHT_USED) || SPOT_SHADOW_VOLUMES_USED)
+      engine->renderer.core.alphaMask.allocateCount();
+    // Hidden console diagnostic: draw the count band's texels on screen
+    // instead of the mask (project.hpp shadowVolumesDebug == 3).
+    engine->renderer.core.alphaMask.debugShowCount =
+        SHADOW_VOLUMES_DEBUG == 3 ? 1 : SHADOW_VOLUMES_DEBUG == 5 ? 2
+                                  : SHADOW_VOLUMES_DEBUG == 6 ? 3
+                                  : SHADOW_VOLUMES_DEBUG == 9 ? 4 : 0;
 
     // Runtime texts (font_data.gen.hpp). Buffers only - no texture is touched
     // here: a font atlas reaches the repository (and VRAM) on the first frame
@@ -1322,8 +1673,14 @@ void TerrainGame::buildScene() {
   // its load is vsync-paced behind the loading screen after the logo hold.
 }
 
+
+
+// Loads the chosen boot scene and runs the scripts' init() once - the boot equivalent of a
+// scene switch. Deferred out of init()/buildScene() into the loop's boot
+// sequence so the load runs at vsync pace (a visible loading-screen progress
+// bar) instead of flashing by before the first presented frame.
 void TerrainGame::bootFirstScene() {
-  loadScene(START_SCENE);
+  loadScene(editorBootScene());
   scriptCtx.engine = engine;
   scriptCtx.objects = runtimeObjects.data();
   scriptCtx.objectCount = (int)runtimeObjects.size();
@@ -1333,6 +1690,12 @@ void TerrainGame::bootFirstScene() {
   for (Script* script : getScripts()) script->init(scriptCtx);
 }
 
+
+
+// Shared texture cache: one engine texture per path, reference-counted so
+// layers/models sharing a PNG neither load it twice nor free it while the
+// other still draws with it. A missing file caches a null entry - the part
+// degrades to its Kd color instead of an assert.
 Texture* TerrainGame::acquireTexture(const std::string& path) {
   auto it = texCache.find(path);
   if (it == texCache.end()) {
@@ -1355,6 +1718,8 @@ Texture* TerrainGame::acquireTexture(const std::string& path) {
   return it->second.tex;
 }
 
+
+
 void TerrainGame::releaseTexture(const std::string& path) {
   auto it = texCache.find(path);
   if (it == texCache.end()) return;
@@ -1365,6 +1730,15 @@ void TerrainGame::releaseTexture(const std::string& path) {
   texCache.erase(it);
 }
 
+
+
+// Loads one static model: the baked binary .tmdl (TmdlLoader - materials,
+// atlas UV rects, flat normals and texture paths all resolved at build time,
+// so this is a read plus a memcpy) or, for a path that is not a .tmdl, an
+// ASCII .obj through LeanObjLoader. Geometry is split per material, map_Kd
+// textures go through the texture cache, plus the real mesh AABB for box
+// collision and a CollisionMesh where some scene object collides in mesh
+// mode. Called on demand by the layer streaming.
 void TerrainGame::loadModelAsset(int i) {
   if (i < 0 || i >= MODEL_COUNT || modelLoaded[i]) return;
   modelLoaded[i] = 1;  // missing/unparseable stays empty but counts as tried
@@ -1380,6 +1754,7 @@ void TerrainGame::loadModelAsset(int i) {
     gm.mn[k] = mesh->min[k];
     gm.mx[k] = mesh->max[k];
   }
+  gm.shadowVerts.swap(mesh->shadowVertices);  // .tmdl v3 proxy (empty = none)
   // A .tmdl stores cwd-relative texture paths; an .obj's map_Kd names resolve
   // relative to the file that defined them (the override .mtl when one is
   // assigned, the model otherwise).
@@ -1393,10 +1768,18 @@ void TerrainGame::loadModelAsset(int i) {
     GameModelPart part;
     part.verts.swap(mat.vertices);
     part.vertexAo.swap(mat.vertexAo);  // baked AO sidecar (empty = none)
+    // Triangle strips (.tmdl v4). An .obj never has one, and a part that did
+    // not strip smaller than its list leaves stripRun at 0 and renders as the
+    // list it always was.
+    part.stripVerts.swap(mat.stripVertices);
+    part.stripVertexAo.swap(mat.stripVertexAo);
+    part.stripRun = part.stripVerts.empty() ? 0u : mat.stripRun;
     // Distance tiers (a .tmdl baked with mesh LOD on; never from an .obj)
     for (auto& lod : mat.lods) {
       part.lodVerts.push_back(std::vector<float>());
       part.lodVerts.back().swap(lod.vertices);
+      part.lodStripVerts.push_back(std::vector<float>());
+      if (part.stripRun != 0) part.lodStripVerts.back().swap(lod.stripVertices);
     }
     part.kd[0] = mat.kd[0];
     part.kd[1] = mat.kd[1];
@@ -1436,6 +1819,11 @@ void TerrainGame::loadModelAsset(int i) {
   }
 }
 
+
+
+// Frees a model's geometry, collider and texture references. Only called
+// when no object of a resident layer uses the model - every GeoPart drawing
+// it was dropped by deactivateObject() beforehand.
 void TerrainGame::freeModelAsset(int i) {
   if (i < 0 || i >= MODEL_COUNT || !modelLoaded[i]) return;
   GameModel& gm = gameModels[i];
@@ -1446,6 +1834,11 @@ void TerrainGame::freeModelAsset(int i) {
   modelLoaded[i] = 0;
 }
 
+
+
+// Primitive materials: each MATERIAL_PATHS entry is a .mtl whose FIRST
+// material becomes the surface of the primitives it is assigned to
+// (Kd color + optional map_Kd texture, resolved relative to the .mtl).
 void TerrainGame::loadMaterialAsset(int i) {
   if (i < 0 || i >= MATERIAL_COUNT || materialLoaded[i]) return;
   materialLoaded[i] = 1;
@@ -1481,6 +1874,8 @@ void TerrainGame::loadMaterialAsset(int i) {
   gmat.reflRounded = mat.reflRounded;
 }
 
+
+
 void TerrainGame::freeMaterialAsset(int i) {
   if (i < 0 || i >= MATERIAL_COUNT || !materialLoaded[i]) return;
   GameMaterial& gmat = gameMaterials[i];
@@ -1491,6 +1886,12 @@ void TerrainGame::freeMaterialAsset(int i) {
   materialLoaded[i] = 0;
 }
 
+
+
+// Animated models: .glb files serialized by the editor into .tskl skeletal
+// files (TsklLoader). The model data is shared; every scene object gets a
+// SkelInstance (own playback state + skinned output mesh). Textures ship as
+// PNGs next to the .tskl and link to each instance's materials by id.
 void TerrainGame::loadAnimModelAsset(int i) {
   if (i < 0 || i >= ANIM_MODEL_COUNT || animModelLoaded[i]) return;
   animModelLoaded[i] = 1;
@@ -1527,6 +1928,11 @@ void TerrainGame::loadAnimModelAsset(int i) {
   gam.src = std::move(model);
 }
 
+
+
+// Frees the shared skeletal model + its textures. Every SkelInstance
+// sampling it is already gone - deactivateObject() resets them before the
+// residency pass frees assets.
 void TerrainGame::freeAnimModelAsset(int i) {
   if (i < 0 || i >= ANIM_MODEL_COUNT || !animModelLoaded[i]) return;
   GameAnimModel& gam = gameAnimModels[i];
@@ -1535,11 +1941,16 @@ void TerrainGame::freeAnimModelAsset(int i) {
   animModelLoaded[i] = 0;
 }
 
+
+
+// Scene (terrain) textures from texture_data.gen.hpp, through the cache.
 void TerrainGame::loadSceneTexture(int i) {
   if (i < 0 || i >= TEXTURE_COUNT || sceneTexLoaded[i]) return;
   sceneTexLoaded[i] = 1;
   loadedTextures[i] = acquireTexture(TEXTURE_PATHS[i]);
 }
+
+
 
 void TerrainGame::freeSceneTexture(int i) {
   if (i < 0 || i >= TEXTURE_COUNT || !sceneTexLoaded[i]) return;
@@ -1548,12 +1959,22 @@ void TerrainGame::freeSceneTexture(int i) {
   sceneTexLoaded[i] = 0;
 }
 
+
+
+// Desired residency of an object's layer (-1 = no layer = always resident).
 bool TerrainGame::layerOn(int layer) const {
   if (layer < 0) return true;
   if (layer >= (int)layerTarget.size()) return true;
   return layerTarget[layer] != 0;
 }
 
+
+
+// Recomputes which assets the active scene needs under the current layer
+// targets: frees loaded-but-unneeded ones immediately (cheap), rebuilds the
+// stream queue with the needed-but-missing ones. loadScene() drains the
+// queue synchronously behind the loading screen; updateLayerStreaming()
+// drains it one asset per frame during gameplay.
 void TerrainGame::applyLayerResidency() {
   std::vector<unsigned char> modelNeed(gameModels.size(), 0);
   std::vector<unsigned char> materialNeed(gameMaterials.size(), 0);
@@ -1563,8 +1984,11 @@ void TerrainGame::applyLayerResidency() {
     const SceneObjectData& d = SCENE_OBJECTS[i];
     if (!layerOn(d.layer)) continue;
     if (d.model >= 0 && d.model < (int)modelNeed.size()) modelNeed[d.model] = 1;
-    if (d.material >= 0 && d.material < (int)materialNeed.size())
-      materialNeed[d.material] = 1;
+    if (d.impostorDistance > 0 && d.impostorModel >= 0 &&
+        d.impostorModel < (int)modelNeed.size()) modelNeed[d.impostorModel] = 1;
+    for (int f = 0; f < (d.emitFrames > 1 ? d.emitFrames : 1); ++f)
+      if (d.material >= 0 && d.material + f < (int)materialNeed.size())
+        materialNeed[d.material + f] = 1;
     if (d.animModel >= 0 && d.animModel < (int)animNeed.size())
       animNeed[d.animModel] = 1;
   }
@@ -1576,8 +2000,11 @@ void TerrainGame::applyLayerResidency() {
     if (!runtimeObjects[i].active) continue;
     const SceneObjectData& d = runtimeObjects[i].data;
     if (d.model >= 0 && d.model < (int)modelNeed.size()) modelNeed[d.model] = 1;
-    if (d.material >= 0 && d.material < (int)materialNeed.size())
-      materialNeed[d.material] = 1;
+    if (d.impostorDistance > 0 && d.impostorModel >= 0 &&
+        d.impostorModel < (int)modelNeed.size()) modelNeed[d.impostorModel] = 1;
+    for (int f = 0; f < (d.emitFrames > 1 ? d.emitFrames : 1); ++f)
+      if (d.material >= 0 && d.material + f < (int)materialNeed.size())
+        materialNeed[d.material + f] = 1;
     if (d.animModel >= 0 && d.animModel < (int)animNeed.size())
       animNeed[d.animModel] = 1;
   }
@@ -1600,11 +2027,24 @@ void TerrainGame::applyLayerResidency() {
     for (int m = 0; m < PREFAB_COUNTS[pf]; ++m) {
       const SceneObjectData& d = PREFAB_MEMBERS[PREFAB_FIRST[pf] + m];
       if (d.model >= 0 && d.model < (int)modelNeed.size()) modelNeed[d.model] = 1;
-      if (d.material >= 0 && d.material < (int)materialNeed.size())
-        materialNeed[d.material] = 1;
+      if (d.impostorDistance > 0 && d.impostorModel >= 0 &&
+          d.impostorModel < (int)modelNeed.size()) modelNeed[d.impostorModel] = 1;
+      for (int f = 0; f < (d.emitFrames > 1 ? d.emitFrames : 1); ++f)
+        if (d.material >= 0 && d.material + f < (int)materialNeed.size())
+          materialNeed[d.material + f] = 1;
       if (d.animModel >= 0 && d.animModel < (int)animNeed.size())
         animNeed[d.animModel] = 1;
     }
+  }
+  // Extra particle layers name materials no scene row does (docs/particles.md).
+  for (int k = 0; k < EMITTER_LAYER_COUNT; ++k) {
+    if (EMITTER_LAYERS[k].scene != currentScene) continue;
+    const int eo = EMITTER_LAYERS[k].object;
+    if (eo < 0 || eo >= SCENE_OBJECT_COUNT || !layerOn(SCENE_OBJECTS[eo].layer)) continue;
+    const SceneObjectData& d = EMITTER_LAYER_OBJECTS[k];
+    for (int f = 0; f < (d.emitFrames > 1 ? d.emitFrames : 1); ++f)
+      if (d.material >= 0 && d.material + f < (int)materialNeed.size())
+        materialNeed[d.material + f] = 1;
   }
   if (TERRAIN_TEXTURE >= 0 && TERRAIN_TEXTURE < (int)texNeed.size())
     texNeed[TERRAIN_TEXTURE] = 1;
@@ -1633,6 +2073,8 @@ void TerrainGame::applyLayerResidency() {
   for (int i = 0; i < (int)animNeed.size(); ++i)
     if (animNeed[i] && !animModelLoaded[i]) streamQueue.push_back((2 << 16) | i);
 }
+
+
 
 void TerrainGame::processOneStreamJob() {
   if (streamQueue.empty()) return;
@@ -1678,6 +2120,11 @@ void TerrainGame::processOneStreamJob() {
   }
 }
 
+
+
+// Brings a streamed-in object back with fresh runtime state from the scene
+// data - like a scene load, a re-entered GTA3 interior resets the same way.
+// Geometry rebuilds lazily through the dirty flag.
 void TerrainGame::activateObject(int i) {
   RuntimeObject& o = runtimeObjects[i];
   o = RuntimeObject();
@@ -1688,6 +2135,11 @@ void TerrainGame::activateObject(int i) {
   setupAnimObject(i);
 }
 
+
+
+// Streams an object out: everything it owns on the heap (vertex copies,
+// bags, skeletal instance, hull) is released. The constexpr scene data
+// stays, so activateObject() can rebuild it exactly.
 void TerrainGame::deactivateObject(int i) {
   runtimeObjects[i].active = false;
   runtimeObjects[i].visible = false;
@@ -1695,6 +2147,16 @@ void TerrainGame::deactivateObject(int i) {
   objectGeometry[i] = ObjectGeometry();
 }
 
+
+
+// --- Dynamic spawning (Spawn Object / Despawn Object flow nodes) ------------
+// Clones an authored scene object into a free pool slot past
+// SCENE_OBJECT_COUNT and returns its runtimeObjects index (-1 = pool full or
+// bad template). The template itself is untouched. The clone keeps the
+// template's layer, so unloading that layer despawns it too; its assets are
+// pinned by applyLayerResidency while it lives, and a clone spawned before
+// its model streamed in re-arms its geometry when the asset lands
+// (processOneStreamJob).
 int TerrainGame::spawnObjectAt(int templateIndex, float x, float y, float z,
                                float yaw) {
   if (templateIndex < 0 || templateIndex >= SCENE_OBJECT_COUNT) return -1;
@@ -1725,6 +2187,10 @@ int TerrainGame::spawnObjectAt(int templateIndex, float x, float y, float z,
   return slot;
 }
 
+
+
+// Despawns a spawned clone immediately (its slot recycles). On an authored
+// object it only deactivates - the layer streaming can bring those back.
 void TerrainGame::despawnObjectAt(int index) {
   if (index < 0 || index >= (int)runtimeObjects.size()) return;
   if (!runtimeObjects[index].active) return;
@@ -1734,6 +2200,12 @@ void TerrainGame::despawnObjectAt(int index) {
   if (emitter) buildParticles();
 }
 
+
+
+// Once per frame: applies the scripts' Load/Unload Layer requests, frees
+// unloading layers immediately, streams missing assets in ONE per frame and
+// then trickle-activates the loaded layer's objects a few per frame - the
+// cost is spread out so a corridor walk masks the whole load, GTA3 style.
 void TerrainGame::updateLayerStreaming() {
   const int lc = (int)layerTarget.size();
   if (lc == 0) return;
@@ -1873,6 +2345,8 @@ void TerrainGame::updateLayerStreaming() {
   if (completed) buildParticles();  // pools for the streamed-in emitters
 }
 
+
+
 void TerrainGame::updatePlayer() {
   const auto& leftJoy = engine->pad.getLeftJoyPad();
   const auto& rightJoy = engine->pad.getRightJoyPad();
@@ -1952,8 +2426,8 @@ void TerrainGame::updatePlayer() {
   collidePlayer(playerX, playerZ, &nextX, &nextZ, playerY, EYE_HEIGHT, &ground,
                 &ceiling);
   // whisker reads portalPassOn (carry through a portal) - reset after it
-  applyCarryWhisker(&nextX, &nextZ, playerY + EYE_HEIGHT, yaw, playerY,
-                    EYE_HEIGHT);
+  applyCarryWhisker(playerX, playerZ, &nextX, &nextZ, playerY + EYE_HEIGHT,
+                    yaw, playerY, EYE_HEIGHT);
   portalPassOn = false;
   playerX = nextX;
   playerZ = nextZ;

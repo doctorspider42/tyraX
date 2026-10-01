@@ -19,6 +19,8 @@ struct SceneObjectData {
              //    instances are baked to static chunk meshes)
              // 19=scroller (endless belt marker; invisible - drives
              //    baked clone objects via SCROLLERS/SCROLLER_CLONES)
+             // 20=comment (an editor-only note: no geometry, no
+             //    collision, and its text never leaves the editor)
   float position[3];
   float rotation[3];  // degrees
   float scale[3];
@@ -68,15 +70,26 @@ struct SceneObjectData {
   float lightFlicker; // dynamic lights: 0 steady .. 1 full wobble
   int lightSpot;     // dynamic lights: 1 = cone down local -Y
   float lightSpotAngle; // spot lights: cone half-angle, degrees
+  int lightShadowVolumes; // spot lights: does this one carve
+                     // shadow volumes? 0 = follow the project
+                     // (SPOT_SHADOW_VOLUMES), 1 = off, 2 = on.
+                     // Only one spot casts per frame - the count
+                     // band is one buffer (docs/shadows.md)
   int lightBeam;     // point lights: 0 none, 1 glow corona,
                      // 2 corona + cone shaft (additive, at the source)
   int saveState;  // 1 = position/color/visibility persisted in saves
-  int collision;  // 0 = box (models: mesh AABB), 1 = mesh, 2 = none
+  int collision;  // 0 = box, 1 = mesh, 2 = none, 3 = invisible Box
   float drawDistance;  // not drawn farther than this from the camera;
                        // 0 = unlimited (collision/logic always run)
   int reflected;  // 1 = rendered into the dynamic ("@sky") env map
+  int reflectionProxy; // 1 = one-material box in env maps only
   int projShadow; // 1 = live projected silhouette shadow (the
                   // per-object AO 'castShadow' is baked, not here)
+  int shadowMode; // which DYNAMIC shadow this object casts:
+                  // 0 = follow the project (a blob if BLOB_SHADOWS
+                  // is on and the object is one of the moving
+                  // things that get one, a projected silhouette if
+                  // projShadow), 1 = none, 2 = blob, 3 = projected
   int dynLit;     // 1 = lit by the LIT VU1 program from the probe
                   // grid every frame instead of baked vertex colors
                   // (docs/global-illumination.md)
@@ -101,8 +114,8 @@ struct SceneObjectData {
   int layer;      // streaming layer (SCENE_LAYER_* tables), -1 = none:
                   // always resident, never streamed out
   int batchStatic; // 1 = may merge into a combined static batch bag
-                   // (build-time verdict: non-moving primitive with
-                   // no physics/logic/graph refs/save-state/layer)
+                   // (build-time verdict: non-moving primitive or
+                   // compact model with no special runtime path)
   float vuParams[4]; // the four numbers this mesh hands to the
                    // project's own VU1 microprogram, if it has one
                    // (docs/vu-authoring.md). All zero = no effect,
@@ -110,6 +123,13 @@ struct SceneObjectData {
                    // bit-identically to the untouched program.
                    // Uploaded per BAG, so batched objects share one
                    // set - one bag is one sendObjectData.
+  int impostorModel = -1; // optional far representation, original owns collision
+  float impostorDistance = 0.0F; // disabled at zero
+  bool impostorBillboard = false; // ordered view parts
+  int impostorViews = 8; // 4, 8 or 16 baked captures
+  int emitAdditive = 0; // emitters: 1 = additive blending (fire)
+  int emitFrames = 1;   // flipbook frames: MATERIAL_PATHS material..+N-1
+  float emitFps = 0.0F; // flipbook frames per second
 };
 
 // An Area object's box (type 17): the unit cube under
@@ -224,6 +244,15 @@ extern const SceneObjectData SCENE_4_OBJECTS[];
 
 extern const int SCENE_OBJECT_COUNTS[SCENE_COUNT];
 inline const SceneObjectData* SCENE_OBJECT_TABLES[SCENE_COUNT] = {SCENE_0_OBJECTS, SCENE_1_OBJECTS, SCENE_2_OBJECTS, SCENE_3_OBJECTS, SCENE_4_OBJECTS};
+
+struct EmitterLayerData { int scene; int object; float offset[3]; float area[3]; };
+inline constexpr int EMITTER_LAYER_COUNT = 0;
+inline constexpr EmitterLayerData EMITTER_LAYERS[1] = {
+    {-1, -1, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}}
+};
+inline constexpr SceneObjectData EMITTER_LAYER_OBJECTS[1] = {
+    {0, {0.0F, 0.5F, 0.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0, 0.0F, 0, 0, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}, -1, 0.0F, false, 8, 0, 1, 12.0F},
+};
 
 extern const unsigned long long SCENE_0_OBJECT_ID_HASHES[];
 extern const unsigned long long SCENE_1_OBJECT_ID_HASHES[];
@@ -550,11 +579,16 @@ inline constexpr int POSTFX_BLOOMS[SCENE_COUNT] = {58, 58, 58, 58, 58};
 inline constexpr int POSTFX_BLOOM_CUTS[SCENE_COUNT] = {158, 158, 158, 158, 158};
 inline constexpr int POSTFX_BLOOM_SPREADS[SCENE_COUNT] = {2, 2, 2, 2, 2};
 inline constexpr int POSTFX_GRAINS[SCENE_COUNT] = {0, 0, 0, 0, 0};
+inline constexpr int POSTFX_MOTIONBLURS[SCENE_COUNT] = {0, 0, 0, 0, 0};
 inline constexpr int POSTFX_FLARES[SCENE_COUNT] = {70, 70, 70, 70, 70};
+// Clear motion-blur history once after the camera settles. The
+// authored blur returns on the next frame, even if it stays parked.
+inline constexpr int POSTFX_MOTIONBLUR_IDLE_CLEAR = 1;
 inline constexpr int POSTFX_GODRAYS_ARR[SCENE_COUNT] = {45, 45, 45, 45, 45};
 inline constexpr int FLARE_USED = 1;
 inline constexpr int BEAMS_USED = 0;
 inline constexpr int FLASHLIGHT_USED = 0;
+inline constexpr int VEHICLE_HEADLIGHTS_USED = 0;
 inline constexpr int DAYCYCLE_USED = 1;
 inline constexpr int STAR_COUNT = 520;
 struct StarData { float x, y, z, size; unsigned char r, g, b, tier; };
@@ -571,7 +605,7 @@ inline constexpr StarData STARS[520] = {
     {0.760168F,-0.310958F,0.570482F,0.0102684F,120,131,155,1},{-0.520195F,-0.43907F,0.73254F,0.00513334F,76,51,28,2},{0.0658157F,-0.468422F,0.88105F,0.00890076F,123,127,139,1},{-0.407622F,0.824619F,-0.392234F,0.00446001F,59,48,39,2},
     {0.591604F,0.566539F,0.573619F,0.00408444F,36,39,46,2},{0.0762795F,0.607686F,-0.790506F,0.00408839F,36,39,46,2},{0.696056F,-0.443916F,0.564309F,0.00448571F,46,50,59,2},{0.395722F,-0.392202F,0.830411F,0.00408708F,36,39,46,2},
     {-0.297438F,-0.462001F,0.835515F,0.00417053F,49,39,30,2},{-0.798413F,0.191604F,-0.57081F,0.00409256F,46,36,28,2},{-0.521092F,-0.394729F,0.756738F,0.0191401F,217,220,236,0},{-0.598446F,0.39214F,-0.698633F,0.0135074F,189,132,83,0},
-    {0.62776F,0.773536F,0.0869443F,0.00791842F,102,109,125,1},{0.961005F,-0.126113F,0.246101F,0.00408444F,46,32,20,2},{-0.189391F,0.106659F,0.976092F,0.00408649F,36,39,46,2},{0.450572F,-0.426908F,0.78405F,0.00442979F,45,49,58,2},
+    {0.62776F,0.773536F,0.0869443F,0.00791842F,102,109,125,1},{0.961005F,-0.126113F,0.246101F,0.00408444F,46,32,20,2},{-0.189391F,0.106659F,0.976092F,0.00408649F,36,39,46,2},{0.450573F,-0.426908F,0.78405F,0.00442979F,45,49,58,2},
     {0.465477F,0.384985F,-0.796943F,0.00408444F,46,41,36,2},{0.465816F,-0.68288F,0.562753F,0.00537118F,71,74,82,2},{0.904636F,-0.327265F,-0.273005F,0.00408444F,46,33,23,2},{0.565148F,-0.737435F,-0.369862F,0.00408444F,36,39,46,2},
     {0.0770315F,-0.606381F,0.791435F,0.00432087F,42,46,54,2},{0.794786F,-0.347761F,0.497371F,0.00424451F,52,46,41,2},{0.405957F,-0.910049F,0.0837307F,0.00410975F,47,46,44,2},{0.559736F,-0.385846F,0.733361F,0.00418144F,44,45,50,2},
     {-0.319508F,0.444864F,-0.836667F,0.00865242F,102,113,135,1},{-0.439051F,-0.604096F,0.665058F,0.00408558F,39,41,46,2},{0.70428F,0.455518F,-0.544511F,0.00411194F,40,42,47,2},{0.645139F,0.384368F,-0.660346F,0.00409481F,37,40,46,2},
@@ -692,7 +726,13 @@ inline constexpr StarData STARS[520] = {
 };
 inline constexpr int STAR_TIERS = 3;
 inline constexpr int BLOB_SHADOWS = 1;
+inline constexpr float PROJ_SHADOW_DISTANCE = 50.0F;
+inline constexpr int BLOB_SHADOWS_USED = 1;
+inline constexpr int BLSS_ADAPTIVE = 0;
+#define BLSS_SCENE_ON 0
+#define BLSS_SCENE_NET 0
 inline constexpr int PROJ_SHADOWS_USED = 1;
+inline constexpr bool SPOT_SHADOW_VOLUMES_USED = false;
 inline constexpr int POSTFX_DOFS[SCENE_COUNT] = {0, 0, 0, 0, 0};
 inline constexpr float POSTFX_DOF_FOCUSES[SCENE_COUNT] = {20.0F, 20.0F, 20.0F, 20.0F, 20.0F};
 inline constexpr float POSTFX_DOF_RANGES[SCENE_COUNT] = {15.0F, 15.0F, 15.0F, 15.0F, 15.0F};
@@ -708,6 +748,8 @@ inline constexpr float FLASHLIGHT_GS[SCENE_COUNT] = {96.0F, 96.0F, 96.0F, 96.0F,
 inline constexpr float FLASHLIGHT_BS[SCENE_COUNT] = {79.36F, 79.36F, 79.36F, 79.36F, 79.36F};
 inline constexpr float FLASHLIGHT_RANGES[SCENE_COUNT] = {30.0F, 30.0F, 30.0F, 30.0F, 30.0F};
 inline constexpr float FLASHLIGHT_ANGLES[SCENE_COUNT] = {20.0F, 20.0F, 20.0F, 20.0F, 20.0F};
+inline constexpr float FLASHLIGHT_OFF_RIGHTS[SCENE_COUNT] = {0.0F, 0.0F, 0.0F, 0.0F, 0.0F};
+inline constexpr float FLASHLIGHT_OFF_DOWNS[SCENE_COUNT] = {0.0F, 0.0F, 0.0F, 0.0F, 0.0F};
 inline constexpr const char* FLASHLIGHT_TEXS[SCENE_COUNT] = {"", "", "", "", ""};
 inline constexpr bool HIGHLIGHT_USABLES[SCENE_COUNT] = {false, false, false, false, false};
 inline constexpr float HIGHLIGHT_DISTANCES[SCENE_COUNT] = {6.0F, 6.0F, 6.0F, 6.0F, 6.0F};
@@ -922,6 +964,7 @@ inline int everyFrames(float seconds) {
 #define POSTFX_BLOOM_CUT POSTFX_BLOOM_CUTS[g_activeScene]
 #define POSTFX_BLOOM_SPREAD POSTFX_BLOOM_SPREADS[g_activeScene]
 #define POSTFX_GRAIN POSTFX_GRAINS[g_activeScene]
+#define POSTFX_MOTIONBLUR POSTFX_MOTIONBLURS[g_activeScene]
 #define POSTFX_DOF POSTFX_DOFS[g_activeScene]
 #define POSTFX_DOF_FOCUS POSTFX_DOF_FOCUSES[g_activeScene]
 #define POSTFX_DOF_RANGE POSTFX_DOF_RANGES[g_activeScene]
@@ -937,6 +980,8 @@ inline int everyFrames(float seconds) {
 #define FLASHLIGHT_B FLASHLIGHT_BS[g_activeScene]
 #define FLASHLIGHT_RANGE FLASHLIGHT_RANGES[g_activeScene]
 #define FLASHLIGHT_ANGLE FLASHLIGHT_ANGLES[g_activeScene]
+#define FLASHLIGHT_OFF_RIGHT FLASHLIGHT_OFF_RIGHTS[g_activeScene]
+#define FLASHLIGHT_OFF_DOWN FLASHLIGHT_OFF_DOWNS[g_activeScene]
 #define FLASHLIGHT_TEX FLASHLIGHT_TEXS[g_activeScene]
 #define HIGHLIGHT_USABLE HIGHLIGHT_USABLES[g_activeScene]
 #define HIGHLIGHT_DISTANCE HIGHLIGHT_DISTANCES[g_activeScene]

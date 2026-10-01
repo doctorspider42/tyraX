@@ -2,6 +2,8 @@
 #include "game_runtime.gen.hpp"
 
 namespace Particle_lab {
+  // namespace
+
 void TerrainGame::physBuildShape(int index, PhysBody& b) {
   const RuntimeObject& o = runtimeObjects[index];
   const SceneObjectData& d = o.data;
@@ -127,6 +129,8 @@ void TerrainGame::physBuildShape(int index, PhysBody& b) {
   }
 }
 
+
+
 int TerrainGame::physBodyFor(int index) {
   if (physBodiesScene != currentScene) {
     physBodies.clear();
@@ -180,6 +184,8 @@ int TerrainGame::physBodyFor(int index) {
   return physSlotOf[index];
 }
 
+
+
 void TerrainGame::physPushAt(int index, float px, float py, float pz,
                              float dvx, float dvy, float dvz) {
   RuntimeObject& o = runtimeObjects[index];
@@ -209,6 +215,8 @@ void TerrainGame::physPushAt(int index, float px, float py, float pz,
     b.lastSpin[k] = o.spin[k];
   }
 }
+
+
 
 void TerrainGame::updateObjectPhysics() {
   // GRAVITY is units/s^2; velocities are per-frame displacements.
@@ -996,6 +1004,8 @@ void TerrainGame::updateObjectPhysics() {
   }
 }
 
+
+
 void TerrainGame::pushPhysicsBodies(float prevX, float prevZ, float nextX,
                                     float nextZ, float feetY,
                                     float eyeHeight) {
@@ -1047,6 +1057,8 @@ void TerrainGame::pushPhysicsBodies(float prevX, float prevZ, float nextX,
   }
 }
 
+
+
 void TerrainGame::renderScene() {
   Tyra::HardwareTrace::Scope traceScene("Scene");
   // Debug profiler: scene phase = sky + terrain + objects + anim (+ the
@@ -1081,6 +1093,7 @@ void TerrainGame::renderScene() {
     u32 dispatchTicks = 0;
     u32 vu1WaitTicks = 0;
     u32 programSetWaitTicks = 0;
+    u32 programSetSwaps = 0;
     u32 packagesCull = 0;
     u32 packagesClip = 0;
     u32 packagesGuardBand = 0;
@@ -1121,6 +1134,7 @@ void TerrainGame::renderScene() {
     d.dispatchTicks += t.dispatchTicks;
     d.vu1WaitTicks += t.vu1WaitTicks;
     d.programSetWaitTicks += t.programSetWaitTicks;
+    d.programSetSwaps += t.programSetSwaps;
     d.packagesCull += t.packagesCull;
     d.packagesClip += t.packagesClip;
     d.packagesGuardBand += t.packagesGuardBand;
@@ -1455,7 +1469,7 @@ void TerrainGame::renderScene() {
         renderReflectionProxy(ri);
       else
         for (GeoPart& part : objectGeometry[ri].parts)
-          if (part.bag) stapip.core.render(part.bag.get());
+          if (part.bag && !part.lodHidden) stapip.core.render(part.bag.get());
     }
     core.renderer3D.popEnvView(CameraInfo3D(&cameraPosition, &cameraLookAt, &cameraUp));
     core.envMap.end();
@@ -1689,12 +1703,17 @@ void TerrainGame::renderScene() {
       // Four 1/128 steps are deliberate hysteresis. Camera suspension/bob can
       // hover on either side of a rounded bucket while the apparent view is
       // unchanged; waiting for a real angular move prevents alternating
-      // rebuild/replay frames at rest.
+      // rebuild/replay frames at rest. A car nobody drives waits for a
+      // larger move the further away it is, and shares one rebuild a frame
+      // with the others (vehiclePaintGate, docs/vehicles.md "Per-car EE
+      // cuts").
+      int maxDelta = 0;
       for (int k = 0; k < 6; ++k) {
         int delta = (int)part.envPaintKey[k] - (int)key[k];
         if (delta < 0) delta = -delta;
-        if (delta >= 4) paintChanged = true;
+        if (delta > maxDelta) maxDelta = delta;
       }
+      if (!paintChanged && maxDelta >= 4) paintChanged = true;
       if (paintChanged) {
         for (int k = 0; k < 6; ++k) part.envPaintKey[k] = key[k];
         part.envPaintLod = (signed char)part.shownLod;
@@ -1791,7 +1810,7 @@ void TerrainGame::renderScene() {
   };
   // Once a frame, before anything is submitted: the clock every time-varying
   // script reads. One quadword, and only when the project has a script at all.
-
+  
   int hlList[8];
   float hlListD2[8];
   int hlCount = 0;
@@ -1951,8 +1970,10 @@ void TerrainGame::renderScene() {
         const float m2 = lodDist * lodDist;
         tier = d2 > m2 * 4.0F ? 2 : (d2 > m2 ? 1 : 0);
       }
+      
       for (int pi = 0; pi < (int)objectGeometry[i].parts.size(); ++pi)
         applyGeoLod(i, pi, tier);
+      
     }
     lap(lpLod);
     // mirrors draw after the scene (copies first, then the blended glass -
@@ -2011,7 +2032,7 @@ void TerrainGame::renderScene() {
     const u32 costObjectStart=costStart();
     u32 lpMain = 0, lpCompanion = 0;
     for (GeoPart& part : objectGeometry[i].parts)
-      if (part.bag && !part.translucent) {
+      if (part.bag && !part.translucent && !part.lodHidden) {
         const u32 lpA = lp ? profTicks() : 0;
         stapip.core.render(part.bag.get());
         const u32 lpB = lp ? profTicks() : 0;
@@ -2163,7 +2184,7 @@ void TerrainGame::renderScene() {
       // scene, not highlight overhead.
       const u32 pb = DEBUG_SHOW_PROFILER ? profTicks() : 0;
       for (GeoPart& part : objectGeometry[i].parts)
-        if (part.bag) {
+        if (part.bag && !part.lodHidden) {
           stapip.core.render(part.bag.get());
           renderEnvPass(i, objectGeometry[i], part);
         }
@@ -2220,6 +2241,9 @@ void TerrainGame::renderScene() {
     costRows.push_back({-1,"Dispatch_included",pipeCost.dispatchTicks});
     costRows.push_back({-1,"VU1_wait_included",pipeCost.vu1WaitTicks});
     costRows.push_back({-1,"Program_swap_wait_included",pipeCost.programSetWaitTicks});
+    // How many billboard/resident program-set swaps the frame paid for - 0
+    // whenever the billboard programs fit in the resident set.
+    costRows.push_back({-1,"Program_swaps_count",pipeCost.programSetSwaps*294912U});
     costRows.push_back({-1,"Guard_band_bags_count",pipeCost.bagsGuardBandDirect*294912U});
     costRows.push_back({-1,"Packages_count",(pipeCost.packagesCull+pipeCost.packagesClip)*294912U});
     // packagesGuardBand is a SUBSET of packagesCull, so it is never added in.
@@ -2276,6 +2300,19 @@ void TerrainGame::renderScene() {
 
 }
 
+
+
+// Live catch areas (docs/areas.md): the objects an area holds RIGHT NOW,
+// collected into liveCaught for the caller to submit on top of its fixed
+// target list. Only the owner's build-time candidate slice is walked -
+// everything that can move; whatever the volume holds that CANNOT move is
+// already in the fixed list, so a static room adds nothing to test here. The
+// area's rotated basis is built once, so a candidate costs three dot products
+// and a compare, and the area's own live transform is what is tested: move
+// the area and the volume moves with it.
+//
+// Runtime spawns are scanned separately: they exist nowhere in the scene
+// table, so no build-time list can name them.
 void TerrainGame::collectLiveCaught(int areaIndex, int firstCand,
                                     int candCount) {
   liveCaught.clear();
@@ -2297,6 +2334,19 @@ void TerrainGame::collectLiveCaught(int areaIndex, int firstCand,
   }
 }
 
+
+
+// Mirror objects (type 15): the PS2-era mirror. Every listed target is
+// submitted a SECOND time under a reflection matrix about the glass plane -
+// VU1 re-transforms the target's live vertex arrays (the same trick as the
+// highlight shells re-submitting under hullMat), so the EE never touches a
+// vertex and moving or animated targets reflect their current frame for
+// free. The copies are real geometry on the far side of the plane: build
+// the mirror into a wall (or give it a backing) so only the glass reveals
+// them. Winding flips under a reflection, but the GS draws both faces, so
+// no triangle reordering is needed. Draw order: copies first (plain
+// z-tested scene geometry), then the tinted glass quad alpha-blends over
+// them; highlight shells and particles still sort on top afterwards.
 void TerrainGame::renderMirrors() {
   for (int mi = 0; mi < MIRROR_COUNT; ++mi) {
     const MirrorData& mir = MIRRORS[mi];
@@ -2363,10 +2413,19 @@ void TerrainGame::renderMirrors() {
     // the glass quad itself, alpha-blended over the copies (its vertex
     // alpha carries the opacity - see rebuildObjectGeometry case 15)
     for (GeoPart& part : objectGeometry[mir.object].parts)
-      if (part.bag) stapip.core.render(part.bag.get());
+      if (part.bag && !part.lodHidden) stapip.core.render(part.bag.get());
   }
 }
 
+
+
+// One reflected copy: re-submit the target's live bags under mirrorMat.
+// Static parts hold world-space vertices (the reflection maps world to
+// world); animated parts hold model-space vertices under animMat, so the
+// copy composes reflection * animMat. The swapped-in matrix pointer is
+// consumed during render() (packets are built synchronously - the highlight
+// shells rewrite hullMat between submits on the same fact), so restoring it
+// right after the call is safe.
 void TerrainGame::renderMirroredObject(int index) {
   if (index < 0 || index >= (int)runtimeObjects.size()) return;
   RuntimeObject& o = runtimeObjects[index];
@@ -2396,6 +2455,15 @@ void TerrainGame::renderMirroredObject(int index) {
   }
 }
 
+
+
+// Raytraced mirrors (VU0 PoC): one rtSize^2 RGBA32 texture per flagged
+// mirror (MirrorData::rtSize - the authored 32/64/128 resolution),
+// ray-traced and re-uploaded every frame (renderRtMirror). The Texture
+// owns its pixel buffer (TextureData frees it on delete); the GS
+// allocation is released before delete so scene switches don't leak
+// VRAM. Rebuilt by loadScene BEFORE the lazy geometry rebuild, which binds
+// the texture to the glass quad (rebuildObjectGeometry case 15).
 void TerrainGame::freeRtMirrors() {
   for (RtMirror& r : rtMirrors) {
     if (!r.texture) continue;
@@ -2404,6 +2472,8 @@ void TerrainGame::freeRtMirrors() {
   }
   rtMirrors.clear();
 }
+
+
 
 void TerrainGame::buildRtMirrors() {
   freeRtMirrors();
@@ -2432,6 +2502,18 @@ void TerrainGame::buildRtMirrors() {
   }
 }
 
+
+
+// Raytraced mirror (experimental PoC): true per-pixel ray tracing on a VU0
+// MICROPROGRAM. Every listed target reflects as a bounding-sphere proxy
+// (color = the object's tint) against the scene's sky gradient - authors
+// place real floor/wall objects in the target list instead of a synthetic
+// ground (the engine kernel's optional checker plane stays off). The EE
+// mirrors the camera across the glass plane (the point-wise Householder of
+// the matrix renderMirrors builds), the VU0 kernel traces
+// normalize(P - mirroredEye) per texel, and the traced image re-uploads
+// over PATH3 into the glass quad's texture. Loose with the shapes, honest
+// with the rays.
 void TerrainGame::renderRtMirror(const MirrorData& mir) {
   RtMirror* rm = nullptr;
   for (RtMirror& r : rtMirrors)
@@ -2673,9 +2755,19 @@ void TerrainGame::renderRtMirror(const MirrorData& mir) {
   // The glass quad, textured with the traced reflection (drawn opaque
   // full-bright white - see rebuildObjectGeometry case 15).
   for (GeoPart& part : objectGeometry[mir.object].parts)
-    if (part.bag) stapip.core.render(part.bag.get());
+    if (part.bag && !part.lodHidden) stapip.core.render(part.bag.get());
 }
 
+
+
+// Camera texture feed (CCTV): render the scene's feed camera view into the
+// engine's camFeed VRAM target - the envMap bracket with the camera's own
+// pose and baked FOV. Runs before any main-frame 3D (the raster redirect
+// is global GS state) and never inside a split half (end() restores a
+// full-screen raster). Content = sky dome (+ terrain) + the explicit view
+// list, the Mirror philosophy: the second-render cost stays visible to the
+// author. Animated targets show their LAST skinned pose (skinning runs
+// later in the frame), exactly like mirrors and portals.
 void TerrainGame::renderCameraFeed() {
   if (splitPassActive) return;
   int fi = -1;
@@ -2726,6 +2818,9 @@ void TerrainGame::renderCameraFeed() {
   core.camFeed.end();
 }
 
+
+
+// One object inside the feed's env view, drawn from its live bags.
 void TerrainGame::renderFeedObject(int index) {
   if (index < 0 || index >= (int)runtimeObjects.size()) return;
   RuntimeObject& ro = runtimeObjects[index];
@@ -2736,12 +2831,26 @@ void TerrainGame::renderFeedObject(int index) {
   ObjectGeometry& og = objectGeometry[index];
   if (og.matrixMode) updateObjMat(index);
   for (GeoPart& part : og.parts)
-    if (part.bag) stapip.core.render(part.bag.get());
+    if (part.bag && !part.lodHidden) stapip.core.render(part.bag.get());
   if (og.animInfoBag && !og.animParts.empty())
     for (ObjectGeometry::AnimPart& ap : og.animParts)
       if (ap.bag && ap.bag->count > 0) stapip.core.render(ap.bag.get());
 }
 
+
+
+// Reflected-probe mode (ENV_PROBE_REFLECTED): one probe render PER
+// reflective object, right before it draws. The aim is anchored to the
+// OBJECT, not the crosshair: the eye->center ray is reflected at the
+// surface (analytic normal - OBB face for boxes/planes with live
+// rotation, else the sphere normal, which for the exact eye->center ray
+// simply looks back at the player). That pose depends only on positions,
+// never on where the camera POINTS - reflections stay put when the player
+// looks around (the crosshair-anchored first cut decayed to the classic
+// aim whenever the object left the screen center), and it is continuous
+// per object, so NO smoothing is needed at all. Every object gets its own
+// fresh map every frame; cost is one full probe render (PATH1 drain +
+// 128^2 sky + reflected list) PER OBJECT PER FRAME - author responsibly.
 void TerrainGame::renderObjectProbe(int index) {
   auto& core = engine->renderer.core;
   RuntimeObject& o = runtimeObjects[index];
@@ -2862,12 +2971,32 @@ void TerrainGame::renderObjectProbe(int index) {
       renderReflectionProxy(ri);
     else
       for (GeoPart& part : objectGeometry[ri].parts)
-        if (part.bag) stapip.core.render(part.bag.get());
+        if (part.bag && !part.lodHidden) stapip.core.render(part.bag.get());
   }
   core.renderer3D.popEnvView(CameraInfo3D(&cameraPosition, &cameraLookAt, &cameraUp));
   core.envMap.end();
 }
 
+
+
+// Portal objects (type 16): a PS2-honest take on the seamless portal. The
+// through-view is a real second render - the player camera mapped through
+// the pair (so it is always in sync with the player's), drawn into the
+// engine's 128x128 portal VRAM target through the normal VU1 static
+// pipeline (transform/clip on VU1, camera math on the VU0-macro Vec4/M4x4
+// ops). The surface then samples that target with SCREEN-LOCKED UVs: since
+// the virtual camera shares the main camera's fov/aspect, the destination
+// appears in the target exactly where the portal quad sits on screen, so
+// sampling at the fragment's own screen position yields correct
+// parallax - no reprojection per pixel, just one textured fan. Budget: ONE
+// portal view per frame (the nearest linked portal the camera faces);
+// every other portal shows its tinted quad. The teleport (updatePortals)
+// uses the same mapping, so what you see through the surface is exactly
+// where you arrive.
+
+// The player camera mapped through the portal pair: world -> source local
+// frame -> 180 deg flip about local Y (walk INTO the front, come OUT of the
+// target's front) -> target frame -> world.
 bool TerrainGame::portalCamera(int pi, Vec4* outEye, Vec4* outAt) {
   const PortalData& p = PORTALS[pi];
   if (p.target < 0 || p.target >= (int)runtimeObjects.size()) return false;
@@ -2900,6 +3029,22 @@ bool TerrainGame::portalCamera(int pi, Vec4* outEye, Vec4* outAt) {
   return true;
 }
 
+
+
+// Render the through-view of the best on-screen portal IN-PLACE: full-res
+// into the real framebuffer, right after the frame clear and before any
+// main-scene 3D. The GS has no stencil, so the shaped opening is carved
+// with the z-buffer instead (RendererCore::portalViewBegin/End): the
+// destination view renders scissored to the quad's screen bbox, then the
+// bbox depths are re-farred, the quad interior is capped at the surface
+// depth (walls in front still occlude the view, the wall behind loses) and
+// the spilled ring outside the opening is repainted with the clear color.
+// The main scene then draws around it and the opening survives - crisp,
+// no texture resample, no seam. Content = sky dome + terrain (portal's
+// showTerrain flag) plus the explicit view-object list - the Mirror
+// philosophy: the second-render cost is always visible to the author.
+// Animated targets re-use their last skinned pose (skinning runs later in
+// the frame).
 void TerrainGame::renderPortalView() {
   if ((int)portalLiveFlags.size() != PORTAL_COUNT)
     portalLiveFlags.assign(PORTAL_COUNT ? PORTAL_COUNT : 1, 0);
@@ -2963,6 +3108,10 @@ void TerrainGame::renderPortalView() {
   }
 }
 
+
+
+// One in-place through-view. Returns true when the opening was actually
+// carved (the quad survived the frustum clip and its bbox is on screen).
 bool TerrainGame::renderOnePortalView(int pi) {
   Vec4 eye, at;
   if (!portalCamera(pi, &eye, &at)) return false;
@@ -3355,7 +3504,7 @@ bool TerrainGame::renderOnePortalView(int pi) {
     // list feeds each of its parts into StaPip.
     if (coarseObjectOutside(ti)) return;
     for (GeoPart& part : g.parts) {
-      if (!part.bag) continue;
+      if (!part.bag || part.lodHidden) continue;
       if (clipsExit) renderExitClipped(part);
       else stapip.core.render(part.bag.get());
     }
@@ -3444,6 +3593,11 @@ bool TerrainGame::renderOnePortalView(int pi) {
   return true;
 }
 
+
+
+// Blend the tinted quads of every portal EXCEPT the live ones over the
+// finished scene (a live portal's opening already shows the through-view
+// carved by renderPortalView - a tint over it would wash the image).
 void TerrainGame::renderPortals() {
   if (PORTAL_COUNT == 0) return;
   for (int pi = 0; pi < PORTAL_COUNT; ++pi) {
@@ -3456,10 +3610,21 @@ void TerrainGame::renderPortals() {
     if (!m.active || !m.visible) continue;
     if (beyondDrawDistance(m.data, cameraPosition)) continue;
     for (GeoPart& part : objectGeometry[p.object].parts)
-      if (part.bag) stapip.core.render(part.bag.get());
+      if (part.bag && !part.lodHidden) stapip.core.render(part.bag.get());
   }
 }
 
+
+
+// Floor-portal swallowing (owner's suggestion): while a body touches a
+// linked floor portal (front normal pointing up), it stops colliding with
+// the TERRAIN - the ground clamp would otherwise rest it on the terrain
+// before it can reach the crossing plane, so a portal lying on the ground
+// could never swallow anything. Restricted to floor portals (wall/ceiling
+// surfaces never need it) and to the portal's rectangle footprint; the
+// zone spans a little above the plane (the approach) and below it (the
+// straddle while the crossing probe travels) - the teleport fires long
+// before the body leaves the zone downward.
 bool TerrainGame::portalSwallowZone(const RuntimeObject& m, float hx, float hy,
                                     float x, float y, float z) {
   const V3 azS = rotated({0.0F, 0.0F, 1.0F}, m.data.rotation);
@@ -3476,6 +3641,11 @@ bool TerrainGame::portalSwallowZone(const RuntimeObject& m, float hx, float hy,
          ly < hy;
 }
 
+
+
+// Both endpoints of this frame's motion, plus the point where the segment
+// pierces the portal plane - exact for a vertical fall, which is the only
+// motion fast enough (PHYS_MAX_SPEED) to tunnel the zone's 2-unit height.
 bool TerrainGame::portalSwallowSwept(const RuntimeObject& m, float hx,
                                      float hy, const Vec4& a, const Vec4& b) {
   if (portalSwallowZone(m, hx, hy, b.x, b.y, b.z) ||
@@ -3495,6 +3665,15 @@ bool TerrainGame::portalSwallowSwept(const RuntimeObject& m, float hx,
                            a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t);
 }
 
+
+
+// The linked, object-teleporting portal whose opening the motion segment
+// a->b pierces front-to-back (authored rectangle + the crossing slack), or
+// -1. Shared by the thrown-object flight and the physics pass-through.
+// The owner's crossing rule: whatever a portal SHOWS can also go through
+// it. teleportObjects and viewAll open it to every rigid body, a view-list
+// member is eligible by being visible, and the player-released body
+// (thrownFreeIndex) crosses like the player regardless.
 bool TerrainGame::portalCanCross(const PortalData& p, int oi) {
   if (p.teleportObjects || p.viewAll) return true;
   if (oi >= 0 && oi == thrownFreeIndex) return true;
@@ -3505,6 +3684,8 @@ bool TerrainGame::portalCanCross(const PortalData& p, int oi) {
     if (PORTAL_VIEW_OBJECTS[p.firstView + v] == oi) return true;
   return portalLiveHolds(p, oi);
 }
+
+
 
 bool TerrainGame::portalShowsObject(int pi, int oi) {
   const PortalData& p = PORTALS[pi];
@@ -3517,6 +3698,11 @@ bool TerrainGame::portalShowsObject(int pi, int oi) {
   return portalLiveHolds(p, oi);
 }
 
+
+
+// A single object against a portal's live catch area - the per-object twin of
+// collectLiveCaught, so "shown through" and "may cross" stay one rule. Called
+// per body per portal, so it exits before the trig on the common no-area case.
 bool TerrainGame::portalLiveHolds(const PortalData& p, int oi) {
   if (p.liveArea < 0 || oi < 0 || oi >= (int)runtimeObjects.size())
     return false;
@@ -3524,6 +3710,8 @@ bool TerrainGame::portalLiveHolds(const PortalData& p, int oi) {
   if (!area.active) return false;
   return areaHoldsObject(areaBasis(area.data), runtimeObjects[oi].data);
 }
+
+
 
 void TerrainGame::portalMapPoint(int pi, float& x, float& y, float& z) {
   const PortalData& p = PORTALS[pi];
@@ -3548,6 +3736,24 @@ void TerrainGame::portalMapPoint(int pi, float& x, float& y, float& z) {
   z = dst.data.position[2] + dxA.z * lx + dyA.z * ly + dzA.z * lz;
 }
 
+
+
+// The portal doorway rule, in the one place every caller reads it from.
+// It is only ever consulted while a body's motion actually pierces a
+// linked, crossable opening, which is what keeps it narrow: it opens the
+// geometry the opening was cut into, and nothing else.
+//
+// Two obstacles qualify, and a scene needs both tests. (a) The box is
+// wholly BEHIND the plane - a mounting wall modelled as its own object,
+// standing entirely on the far side. (b) The box CONTAINS the pierce point
+// - one merged mesh holding the back wall, the side walls, the door jambs
+// AND the roof reaches in FRONT of the plane too, so it can never satisfy
+// (a) while its world box seals the authored opening.
+//
+// The box is objectCollisionBox + boxRotate, i.e. the real mesh bounds with
+// their off-origin centre and model heading. Reading 0.5 * scale describes
+// a unit primitive and says nothing at all about an imported model - the
+// same correction renderOnePortalView already carries for the exit plane.
 bool TerrainGame::portalDoorwayOpens(const RuntimeObject& obstacle,
                                      const float* plane,
                                      const float* pierce) const {
@@ -3579,6 +3785,8 @@ bool TerrainGame::portalDoorwayOpens(const RuntimeObject& obstacle,
          lz > -b.half[2] - pad && lz < b.half[2] + pad;
 }
 
+
+
 bool TerrainGame::armSweepPass(const float* a, const float* b) {
   sweepPassOn = false;
   if (PORTAL_COUNT == 0) return false;
@@ -3600,6 +3808,8 @@ bool TerrainGame::armSweepPass(const float* a, const float* b) {
   sweepPassOn = true;
   return true;
 }
+
+
 
 int TerrainGame::portalCarryAim(const float* a, const float* b, int forObj) {
   for (int pi = 0; pi < PORTAL_COUNT; ++pi) {
@@ -3645,6 +3855,12 @@ int TerrainGame::portalCarryAim(const float* a, const float* b, int forObj) {
   return -1;
 }
 
+
+
+// Hop a thrown object through the pair: position and the FULL velocity
+// vector mapped by the same flip-about-local-Y isometry updatePortals
+// applies to the player/physics bodies, so a sideways throw exits the
+// target with the matching sideways motion and the crossing is continuous.
 bool TerrainGame::portalCarryCrossing(const float* a, float* pos, float* vel) {
   // Thrown-arc objects are player-released - any linked portal carries them
   const int pi = portalCarryAim(a, pos, -1);
@@ -3681,6 +3897,8 @@ bool TerrainGame::portalCarryCrossing(const float* a, float* pos, float* vel) {
   return true;
 }
 
+
+
 bool TerrainGame::portalSwallowsPlayer(float x, float feetY, float z) {
   if (PORTAL_COUNT == 0) return false;
   for (int pi = 0; pi < PORTAL_COUNT; ++pi) {
@@ -3702,6 +3920,15 @@ bool TerrainGame::portalSwallowsPlayer(float x, float feetY, float z) {
   return false;
 }
 
+
+
+// Publishes the plane of the linked portal whose opening the walker's body
+// column currently sits in (any orientation - wall doorways included; feet
+// and waist probed like the crossing test). collidePlayer then ignores
+// objects fully behind that plane: the mounting wall opens up, geometry in
+// front of or poking through the surface still collides. Off when the
+// column is outside every opening - the same wall blocks normally beside
+// its portal.
 void TerrainGame::updatePortalPass(float x, float feetY, float z) {
   portalPassOn = false;
   if (PORTAL_COUNT == 0) return;
@@ -3758,6 +3985,22 @@ void TerrainGame::updatePortalPass(float x, float feetY, float z) {
   }
 }
 
+
+
+// Portal crossings. The player probes with TWO segments: a "waist" point
+// (feet + up to 1 unit, capped by eyeH - door-sized wall surfaces trigger
+// naturally, a noclip camera probes its own position) and the FEET (so
+// jumping/dropping into a floor portal triggers even while the waist stays
+// above the plane); physics objects test their center. A crossing = the
+// probe segment pierced the front (+Z) face inside the rectangle this
+// frame. Position, view direction and vertical velocity map through the
+// pair exactly like portalCamera, with NO exit offset - the isometry
+// carries the overshoot past the target plane, so the hop is continuous
+// (an offset read as a one-frame camera pop on hardware). The walkers keep
+// no horizontal velocity state, so a tilted pair carries only the vertical
+// component (yaw-rotated pairs, the common teleporter, lose nothing).
+// Returns true when the player teleported (the frame camera is rebuilt here
+// so no frame ever renders from the departure side).
 bool TerrainGame::updatePortals(float prevX, float prevY, float prevZ,
                                 float* px, float* py, float* pz, float* pyaw,
                                 float* ppitch, float* pvelY, float eyeH) {
@@ -3977,6 +4220,10 @@ bool TerrainGame::updatePortals(float prevX, float prevY, float prevZ,
   return playerTeleported;
 }
 
+
+
+// True when the usable object sits inside the highlight distance (same
+// reference point as the USE interaction) and has anything to draw.
 bool TerrainGame::highlightInReach(int index) const {
   const RuntimeObject& o = runtimeObjects[index];
   const ObjectGeometry& g = objectGeometry[index];
@@ -3999,6 +4246,26 @@ bool TerrainGame::highlightInReach(int index) const {
   return dx * dx + dy * dy + dz * dz <= reach * reach;
 }
 
+
+
+// Usable-object highlight (Project > Preferences): a soft colored rim around
+// the object silhouette. HIGHLIGHT_STEPS concentric copies of the object,
+// grown around its center with fading alpha, drawn after the scene with
+// z-test but no z-write (PipelineZTest_TestOnly). Each shell is additionally
+// pushed away from the camera by a uniform scale around the eye point - that
+// keeps its screen silhouette identical but places it behind the object's
+// own depth, so the z-buffer rejects the interior and only the rim survives,
+// correctly occluded by anything nearer. Proximity uses the same reference
+// point as the USE interaction (the camera / player eye).
+//
+// Both the grow (scale about the object center) and the pushback (scale
+// about the eye) are uniform point scales, so each shell collapses into ONE
+// scale+translation model matrix over the object's own vertex arrays - VU1
+// applies it during transform and the EE never touches a vertex. (The first
+// version grew and terrain-clamped every vertex of every shell on the EE
+// each frame plus a full bbox recompute; with the default 4 steps a
+// few-thousand-vert usable model near the player cost milliseconds of
+// EE time - the frame is EE-bound, so it fell to the next vsync divisor.)
 void TerrainGame::renderHighlightHull(int index) {
   const RuntimeObject& o = runtimeObjects[index];
   ObjectGeometry& g = objectGeometry[index];
@@ -4135,6 +4402,24 @@ void TerrainGame::renderHighlightHull(int index) {
   // the main pass) and leaves these shells on top.
 }
 
+
+
+// Builds the shells' low-detail stand-in (world-space positions only).
+// Primitives regenerate through their own builders with the subdivision
+// forced down - a subdivided box/plane has the same silhouette at detail 1,
+// and a curved primitive at 12 segments is within a couple of percent of
+// its full-detail silhouette, invisible under the soft rim. Models have no
+// cheaper source, so their parts are concatenated as-is (one submit per
+// shell instead of one per part).
+// The shell pass a project's own VU program can ask for: every visible object
+// drawn once more from its low-detail proxy, as a flat-colour bag whose
+// per-vertex colours carry the outward direction. The PROGRAM grows it - this
+// only supplies the copy, the depth pushback and the width.
+//
+// Growing on VU1 rather than by scaling the matrix is the whole point: a scale
+// about the centre moves a far vertex further than a near one, so the line
+// fattens at the ends of anything long, while a step along the vertex normal
+// is the same length everywhere.
 void TerrainGame::renderOutlineShells() {
   if (!vuscript::shellActive()) return;
   const float wScreen = vuscript::shellWidth();
@@ -4241,6 +4526,8 @@ void TerrainGame::renderOutlineShells() {
   stapip.core.setVuParams(0.0F, 0.0F, 0.0F, 0.0F);
 }
 
+
+
 void TerrainGame::buildHighlightProxy(int index) {
   const RuntimeObject& o = runtimeObjects[index];
   ObjectGeometry& g = objectGeometry[index];
@@ -4344,6 +4631,13 @@ void TerrainGame::buildHighlightProxy(int index) {
   if (!g.hullProxyVerts.empty()) g.hullProxyStamp = ++g_bboxStamp;
 }
 
+
+
+// The terrain-hugging glow ring around a grounded usable object's base: one
+// annulus band per shell with the shell's growth radius and alpha, following
+// the terrain height at every ring point. World-space and camera-independent,
+// so it's built once and redrawn from cache until rebuildObjectGeometry
+// invalidates it (move/resize) or a scene switch recreates the geometry.
 void TerrainGame::buildHighlightApron(int index, float half) {
   const RuntimeObject& o = runtimeObjects[index];
   ObjectGeometry& g = objectGeometry[index];
@@ -4396,7 +4690,28 @@ void TerrainGame::buildHighlightApron(int index, float half) {
   g.apronStamp = ++g_bboxStamp;
 }
 
+
+
+// --- Terrain chunks ---------------------------------------------------------
+// The heightmap grid is cut into TERRAIN_CHUNK_CELLS x TERRAIN_CHUNK_CELLS
+// tiles, one StaPip bag each: whole off-screen tiles are rejected EE-side by
+// the engine's bag-bbox frustum check, and with TERRAIN_VIEW_DISTANCE > 0
+// only the tiles around the view focus are kept in memory at all - mesh RAM
+// stays constant no matter how large the map is. Gameplay never depends on
+// the mesh (terrainHeightAt samples TERRAIN_HEIGHTS), so a not-yet-streamed
+// far chunk is a purely visual gap - pair the view distance with fog.
+
+// Sizes the slot pool for the active scene and marks every chunk unbuilt.
+// The pool never reallocates afterwards: chunk bags point into their own
+// slot's vectors, so slots must not move while chunks are alive.
 void TerrainGame::resetTerrainChunks() {
+  // Ground shadow maps are acquired per chunk; give them back before the
+  // chunks go (a scene change or a resize of the pool).
+  for (TerrainChunk& c : terrainChunks)
+    if (!c.gsTexPath.empty()) {
+      releaseTexture(c.gsTexPath);
+      c.gsTexPath.clear();
+    }
   // A scene with no terrain (docs/terrain.md) builds no chunks at all, which is
   // what makes renderTerrain and the streaming pass no-ops: every loop over
   // them runs zero times.
@@ -4431,6 +4746,18 @@ void TerrainGame::resetTerrainChunks() {
   terrainChunkSlot.assign(total, -1);
 }
 
+
+
+// Distance detail (docs/terrain-lod.md). Two bands, then the floor: full grid
+// inside TERRAIN_LOD_DISTANCE, every 2nd sample out to 2.2x it, every 4th
+// beyond. 2.2 rather than 2 so the middle band is wide enough to be crossed
+// rather than straddled - the whole point of a band is that walking through it
+// rebuilds a ring once.
+//
+// The distance is measured to the chunk's CENTRE, from whichever focus is
+// nearest (split screen has two), and both are snapped by the caller. A chunk
+// asks this about its neighbours as well as itself, so the answer must depend on
+// nothing but the arguments and that snapped state - never on what is resident.
 int TerrainGame::terrainLodStep(int cx, int cz) const {
   if (TERRAIN_LOD_DISTANCE <= 0.0F || terrainLodFocusCount <= 0) return 1;
   if (cx < 0 || cz < 0 || cx >= terrainChunksX || cz >= terrainChunksZ) return 1;
@@ -4455,6 +4782,11 @@ int TerrainGame::terrainLodStep(int cx, int cz) const {
   return 4;
 }
 
+
+
+// Fills a pool slot with the mesh of chunk (cx, cz): the same vertex layout,
+// checker colors and baked shading the old whole-map build used - a chunk
+// streamed in later is pixel-identical to one built at scene load.
 void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
   TerrainChunk& ch = terrainChunks[slot];
   if (ch.cx >= 0)  // recycling: unmap the chunk this slot held
@@ -5083,6 +5415,92 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
     ch.emisBag.reset();
   }
 
+  // Ground shadow map pass (docs/shadows.md, "Ground shadow maps"): this
+  // chunk's own mask over ONLY the cells it shades (the baked row masks), STs
+  // over the chunk's square, white vertex colours so the mask's RGB (the
+  // shadow tint) and alpha go through untouched - the decals' alpha-over.
+  // Drawing the whole chunk again measured +1.0 ms on a PS2 for ~9% of it in
+  // shadow. The cells are the chunk's own quads at its LOD stride with the
+  // same diagonal and the same edge-snapped heights, lifted like a decal: a
+  // separate array may take a different clip route than ch.vertices, and an
+  // exactly coplanar pass on a different route z-fights.
+  {
+    std::string want;
+    const unsigned short* gsRows = nullptr;
+#ifdef GROUND_SHADOWS_ON
+    if (SCENE_GROUND && layerInfoBag && ch.cx < SCENE_GROUND_CHUNKS_X) {
+      gsRows = SCENE_GROUND +
+               (ch.cz * SCENE_GROUND_CHUNKS_X + ch.cx) * TERRAIN_CHUNK_CELLS;
+      bool any = false;
+      for (int r = 0; r < TERRAIN_CHUNK_CELLS; ++r) any = any || gsRows[r];
+      if (any)
+        want = "gshadow/s" + std::to_string(g_activeScene) + "_" +
+               std::to_string(ch.cx) + "_" + std::to_string(ch.cz) + ".png";
+    }
+#endif
+    if (want != ch.gsTexPath) {
+      if (!ch.gsTexPath.empty()) releaseTexture(ch.gsTexPath);
+      ch.gsTexPath = want;
+      ch.gsTexBag.texture = want.empty() ? nullptr : acquireTexture(want);
+      // Clamp: a mask's edge texel must not bilinear-wrap into the opposite
+      // edge of the same chunk.
+      if (ch.gsTexBag.texture)
+        ch.gsTexBag.texture->setWrapSettings(Tyra::Clamp, Tyra::Clamp);
+    }
+    ch.gsVerts.clear();
+    ch.gsSts.clear();
+    if (ch.gsTexBag.texture && gsRows) {
+      const float ox = startX + (float)gx0 * stepX;
+      const float oz = startZ + (float)gz0 * stepZ;
+      const float iw = 1.0F / ((float)TERRAIN_CHUNK_CELLS * stepX);
+      const float id = 1.0F / ((float)TERRAIN_CHUNK_CELLS * stepZ);
+      const float kLift = 0.02F;  // decalproj's offset, a hair more
+      // Is any cell of the quad [x, xN) x [z, zN) shaded?
+      auto shadedQuad = [&](int x, int xN, int z, int zN) {
+        unsigned bits = 0;
+        for (int c = x - gx0; c < xN - gx0; ++c) bits |= 1U << c;
+        for (int r = z - gz0; r < zN - gz0; ++r)
+          if (gsRows[r] & bits) return true;
+        return false;
+      };
+      for (int z = gz0; z < gz1; z += lod)
+        for (int x = gx0; x < gx1; x += lod) {
+          const int xN = x + lod > gx1 ? gx1 : x + lod;
+          const int zN = z + lod > gz1 ? gz1 : z + lod;
+          if (!shadedQuad(x, xN, z, zN)) continue;
+          const float x0 = startX + x * stepX, x1 = startX + xN * stepX;
+          const float z0 = startZ + z * stepZ, z1 = startZ + zN * stepZ;
+          const float h00 = hAtE(x, z) + kLift, h10 = hAtE(xN, z) + kLift;
+          const float h01 = hAtE(x, zN) + kLift, h11 = hAtE(xN, zN) + kLift;
+          const Vec4 q[6] = {Vec4(x0, h00, z0, 1.0F), Vec4(x1, h10, z0, 1.0F),
+                             Vec4(x0, h01, z1, 1.0F), Vec4(x1, h10, z0, 1.0F),
+                             Vec4(x1, h11, z1, 1.0F), Vec4(x0, h01, z1, 1.0F)};
+          for (const Vec4& v : q) {
+            ch.gsVerts.push_back(v);
+            ch.gsSts.push_back(Vec4((v.x - ox) * iw, (v.z - oz) * id, 1.0F, 0.0F));
+          }
+        }
+    }
+    if (!ch.gsVerts.empty()) {
+      ch.gsCols.assign(ch.gsVerts.size(), Color(128.0F, 128.0F, 128.0F, 128.0F));
+      if (!ch.gsBag) {
+        ch.gsColorBag = std::make_unique<StaPipColorBag>();
+        ch.gsBag = std::make_unique<StaPipBag>();
+        ch.gsBag->lighting = nullptr;
+      }
+      ch.gsBag->info = layerInfoBag.get();
+      ch.gsCols.bind(ch.gsColorBag);
+      ch.gsBag->color = ch.gsColorBag.get();
+      ch.gsVerts.bind(ch.gsBag);
+      ch.gsBag->count = static_cast<u32>(ch.gsVerts.size());
+      ch.gsSts.bind(&ch.gsTexBag);
+      ch.gsBag->texture = &ch.gsTexBag;
+      ch.gsBag->bboxVersion = ch.bag->bboxVersion;
+    } else {
+      ch.gsBag.reset();
+    }
+  }
+
   // Every pass above draws ch.vertices, so they all have to split it the same
   // way - an untextured terrain base under textured layer/lightmap passes is
   // the exact split that makes baked shadows fight z-index with the ground.
@@ -5153,6 +5571,11 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
   }
 }
 
+
+
+// Unbuilt chunks in the current view rect (the same rect updateTerrainChunks
+// builds into). loadScene uses this as the loading-bar denominator and to
+// drive the batched terrain drain to completion.
 int TerrainGame::countPendingChunks(float focusX, float focusZ) {
   if (terrainChunksX <= 0 || terrainChunksZ <= 0 || !infoBag) return 0;
   const int cellsX = HM_W - 1;
@@ -5181,6 +5604,14 @@ int TerrainGame::countPendingChunks(float focusX, float focusZ) {
   return pending;
 }
 
+
+
+// Keeps the resident chunk set centered on the view focus. View distance off
+// (0) = the whole map stays resident (small maps - matches the old
+// behavior). Otherwise chunks outside the focus rect are freed - with one
+// tile of hysteresis so walking along a border doesn't rebuild the same ring
+// every frame - and missing ones are built nearest-first, `budget` per call
+// (loadScene passes INT_MAX to drain behind the loading screen).
 void TerrainGame::updateTerrainChunks(float focusX, float focusZ,
                                       float focus2X, float focus2Z,
                                       bool twoFoci, int budget) {
@@ -5312,6 +5743,16 @@ void TerrainGame::updateTerrainChunks(float focusX, float focusZ,
   }
 }
 
+
+
+// Two planes bounding the CENTRAL half of the full-height projection - the
+// rows a split half can actually show. The raster crop (XYOFFSET + scissor)
+// keeps the projection and the engine's frustum planes full-height, so
+// without this every half transforms ~2x the geometry it displays; anything
+// wholly outside the band skips submission instead. 0.62 instead of the
+// exact 0.5 leaves margin for the clipper's guard band - conservative,
+// never visibly wrong. Degenerate views (looking straight up/down) disable
+// the cull for the pass rather than guess.
 void TerrainGame::computeSplitBand() {
   Vec4 f = cameraLookAt - cameraPosition;
   const float fl = sqrtf(f.x * f.x + f.y * f.y + f.z * f.z);
@@ -5343,6 +5784,8 @@ void TerrainGame::computeSplitBand() {
   splitBandN[1][2] = f.z * sa + uz * ca;
 }
 
+
+
 bool TerrainGame::outsideSplitBand(const float mn[3], const float mx[3]) const {
   const float cx = 0.5F * (mn[0] + mx[0]) - splitBandP[0];
   const float cy = 0.5F * (mn[1] + mx[1]) - splitBandP[1];
@@ -5358,6 +5801,11 @@ bool TerrainGame::outsideSplitBand(const float mn[3], const float mx[3]) const {
   return false;
 }
 
+
+
+// AABB of a static object, sized like the springArm/box-collision one; a
+// rotated object falls back to its bounding-sphere cube so the test can
+// under-cull but never over-cull.
 bool TerrainGame::objectOutsideSplitBand(int i) const {
   const RuntimeObject& o = runtimeObjects[i];
   const CollisionBox b = objectCollisionBox(o);
@@ -5380,6 +5828,8 @@ bool TerrainGame::objectOutsideSplitBand(int i) const {
   const float mx[3] = {cx + ex, cy + ey, cz + ez};
   return outsideSplitBand(mn, mx);
 }
+
+
 
 void TerrainGame::renderTerrain() {
 #if TYRA_FRAME_PROFILE
@@ -5453,6 +5903,8 @@ void TerrainGame::renderTerrain() {
     // base + layers per pixel, then the baked emissive light is added on top
     // (a light pool must not be darkened by its own surroundings' occlusion).
     if (ch.aoBag && ch.aoBag->count > 0) stapip.core.render(ch.aoBag.get());
+    // The sun's shadow darkens the sunlit ground, not the lamps' light.
+    if (ch.gsBag && ch.gsBag->count > 0) stapip.core.render(ch.gsBag.get());
     if (ch.emisBag && ch.emisBag->count > 0)
       stapip.core.render(ch.emisBag.get());
   }

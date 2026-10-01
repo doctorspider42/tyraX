@@ -137,6 +137,10 @@ inline const MenuData MENUS[MENU_COUNT > 0 ? MENU_COUNT : 1] = {
 inline constexpr int TITLE_MENU = 0;
 // The Start button opens/closes this menu in-game (-1 = none)
 inline constexpr int PAUSE_MENU = 0;
+// The "skip the cutscene?" confirmation screen (-1 = none, and a
+// cutscene set to ask first then skips on the spot instead of
+// swallowing the press - docs/cutscenes.md)
+inline constexpr int SKIP_MENU = -1;
 // True when any menu carries an "apply video mode" row (action
 // 9): display-mode rows then only stage a selection and that row
 // commits it; without one they switch on change (the classic

@@ -123,6 +123,25 @@ constexpr float ANIM_LOD_DISTANCE = 24.0F;
 // the ~25% one. 0 = off (the build then bakes no LOD chains at all).
 constexpr float MESH_LOD_DISTANCE = 14.0F;
 
+// Shared reflection probe reuse (Preferences > Rendering,
+// docs/reflective-materials.md "The reuse budget"): how far the retained
+// 128x128 target may be out of date, IN PIXELS OF ITSELF, before the probe
+// re-renders. The probe already runs only every second frame and already
+// retains the basis that produced the image; this is the other half - do not
+// capture at all while nothing that feeds the capture has moved. 0 = capture
+// on every cadence beat, i.e. exactly the pre-1.106 behaviour.
+constexpr float REFLECTION_REUSE_BUDGET = 1.0F;
+// How far from the eye the shared probe redraws terrain and road chunks
+// (Preferences > Rendering, docs/reflective-materials.md "The ground in the
+// probe"). 0 = every resident chunk.
+constexpr float REFLECTION_GROUND_RADIUS = 0.0F;
+// The probe's own raster, in pixels across, and its horizontal field of view
+// in degrees - the two numbers that turn an angle into a pixel count. They
+// must match the pushEnvView call in renderScene; both are compile-time facts
+// of RendererCoreEnvMap and of that call, not settings.
+constexpr float REFLECTION_PROBE_PIXELS = 128.0F;
+constexpr float REFLECTION_PROBE_FOV_DEG = 110.0F;
+
 // Static batching (Preferences > Rendering): merge non-moving primitives and
 // compact imported-model parts sharing a texture into world-space bags -
 // each StaPip submit costs ~0.7-1.5 ms of fixed EE overhead on real
@@ -131,6 +150,19 @@ constexpr float MESH_LOD_DISTANCE = 14.0F;
 // (SceneObjectData::batchStatic); runtime edits demote that member and rebuild
 // its former batches. false = every object submits its own bag.
 constexpr bool STATIC_BATCHING = true;
+
+// Interleaved passes (Preferences > Rendering, docs/interleaved-passes.md):
+// the static batch and road bags are EE-cheap and GPU-heavy, the object loop
+// the opposite, and drawn one after the other the EE waits for VU1 in the
+// first and VU1 idles in the second. Interleaving feeds the batch and road
+// bags into the object loop instead. 0 = off, 1 = auto (the game times both
+// orders every few seconds and keeps the faster), 2 = always.
+constexpr int INTERLEAVE_PASSES = 1;
+
+// Shiny vehicles at once (Preferences > Rendering, docs/vehicles.md, "The
+// shine budget"): how many vehicles draw the body-shine pass in one view, the
+// driven one first and then the nearest. 0 = every vehicle within 35 units.
+constexpr int VEHICLE_SHINE_BUDGET = 2;
 
 // Dynamic reflection probe aim (Preferences > Rendering): false = the
 // classic GT3 level-forward aim; true = a camera ray is intersected with

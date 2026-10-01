@@ -28,6 +28,11 @@ unsigned int takeRenderCostRequest();
  */
 bool halted();
 
+/** True once the editor has attached (a valid livedbg.cmd was read). The
+ * game keeps the renderer's frame yield on while it is - see
+ * RendererCore::setFrameYield. */
+bool attached();
+
 /** True for the one frame in which the editor asked to force-fire this node
  * (Debugger > "Fire"), OR'd into the node's own trigger condition. */
 bool forced(int key);
