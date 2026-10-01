@@ -34,6 +34,9 @@ one 4-bit shadow map per terrain chunk (128 px). On roads, walls and plinths
 they come from decals (64 px per shadow). See *Ambience Editor > Baked
 lighting* and [docs/shadows.md](../../docs/shadows.md).
 
+The sky is a painted panorama (FreeStylized Skybox 131) on the ambience
+preset, tinted by the day/night cycle - see [docs/sky-texture.md](../../docs/sky-texture.md).
+
 ## Make your own vehicle
 
 Start with the [Blender vehicle tutorial](../../docs/blender-vehicle-modeling.md).

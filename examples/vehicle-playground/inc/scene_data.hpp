@@ -2699,6 +2699,12 @@ inline constexpr float SKY_ZENITH_EXPS[SCENE_COUNT] = {1.0F, 1.0F, 1.0F};
 inline constexpr float SKY_TOP_RS[SCENE_COUNT] = {30.6F, 30.6F, 30.6F};
 inline constexpr float SKY_TOP_GS[SCENE_COUNT] = {71.4F, 71.4F, 71.4F};
 inline constexpr float SKY_TOP_BS[SCENE_COUNT] = {107.1F, 107.1F, 107.1F};
+#define SKY_TEXTURES_ON 1
+inline constexpr float SKY_TEXTURE_VMAX = 0.5625F;
+inline const char* const SKY_TEXTURE_PATHS[SCENE_COUNT] = {"sky/scene0.png", "sky/scene1.png", "sky/scene2.png"};
+inline constexpr float SKY_TEXTURE_YAWS[SCENE_COUNT] = {-138.4F, -138.4F, -138.4F};
+#define SKY_TEXTURE_PATH SKY_TEXTURE_PATHS[g_activeScene]
+#define SKY_TEXTURE_YAW SKY_TEXTURE_YAWS[g_activeScene]
 inline constexpr int POSTFX_BLOOMS[SCENE_COUNT] = {15, 15, 15};
 inline constexpr int POSTFX_BLOOM_CUTS[SCENE_COUNT] = {179, 179, 179};
 inline constexpr int POSTFX_BLOOM_SPREADS[SCENE_COUNT] = {1, 1, 1};
