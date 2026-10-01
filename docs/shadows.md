@@ -796,6 +796,21 @@ surface it darkens. Baked shadows in the distance will z-fight in a 16-bit
 project, and no setting here fixes that. This applies to authored projecting
 decals too; it is simply much easier to hit when you have fifty of them.
 
+### No shadows at all in a scene without a HUD (fixed in 1.166.1)
+
+Before 1.166.1, a scene that drew no 2D (no HUD text, prompt or menu) could
+lose **every** baked shadow and blob shadow on the PS2 while the objects
+around them rendered fine. `examples/baked-shadows` showed nothing as soon as
+its terrain lightmap pass ran. The shadows were not wrong, they were LATE:
+the engine's VIF1 queue left the frame's last few draws unstarted, so they
+reached the GS after the next frame's clear and were painted over by its
+terrain. Opaque objects drawn that late still win the depth test, a shadow
+(blended, writes no depth) does not. The fix is in the engine
+(`RendererCore::endFrame` drains the queue,
+[ee-submission-rearchitecture.md](ee-submission-rearchitecture.md)). If you
+see shadows that disappear while their casters stay, and the decal data and
+atlas look right, check the draw ORDER in a GS dump before the data.
+
 ## Spot-light shadow volumes
 
 The two shadows above are about an OBJECT and the sun. This one is about a

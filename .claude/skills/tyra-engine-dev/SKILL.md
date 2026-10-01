@@ -2613,6 +2613,23 @@ must keep:
   chain is submitted by the next `Vif1Queue::submit()`/`drain()` from anyone
   (`setOpenChainCloser`), and `endFrame` fences before the vsync wait, because
   with no interrupt nothing starts a queued chain while the EE sleeps there.
+- **`endFrame` drains the 3D queue too, not only the 2D fence** (1.166.1).
+  `path3Fence()` drains only in a frame that drew a sprite, so a scene with NO
+  2D at all (no HUD, prompt or menu) left up to `kPacketCount - 1` chains
+  queued and unstarted. The next frame's first submit started them - after
+  the present, the draw-target switch and the clear had gone out on PATH3 - so
+  the frame's last bags drew into the NEXT back buffer, under its sky and
+  terrain. The backlog sustains itself (a submit starts at most one queued
+  chain and adds one), so one GS-heavy frame - the terrain lightmap pass - set
+  it for good. Opaque z-tested bags survive that (they win the z test against
+  the terrain that follows); blended no-z-write ones vanish: **baked shadow
+  decals and blob shadows invisible in examples/baked-shadows**, with every
+  byte the decal bag sent and every VU1 memory word it left identical to a good
+  frame. What found it was a PCSX2 GS dump walked per draw (pcsx2-capture.py's
+  `GsWalker`): the decal's 858 kicks sat right after the next frame's
+  `FRAME_1` write. **"Every byte matches but nothing shows" means look at WHEN
+  the GS gets it, not what.** A new frame-boundary PATH3 sender must come after
+  this drain.
 - **`TYRA_VIF1_QUEUE_HOLD` is a measurement probe, never a mode** (0): the
   queue only collects chains until the EE first waits, and `endFrame` logs the
   frame's VU1+GS time alone (`GPUHOLD us`). Run it with

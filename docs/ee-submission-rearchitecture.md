@@ -810,6 +810,18 @@ Two rules came with it, because sprites are now undrawn for a while after
   capture or flip would see the frame without them. When nothing is pending it
   is one load and a branch. `RendererCore::endFrame` fences first thing: with
   no DMAC interrupt nothing starts a queued chain during the vsync wait.
+- **...and then drains the 3D queue itself (1.166.1).** The fence is a no-op in
+  a frame that drew no sprite, and that frame used to end with up to
+  `kPacketCount - 1` StaPip chains queued but not started. They went out with
+  the next frame's first submit, behind its present, draw-target switch and
+  clear, i.e. into the next back buffer under its terrain. A submit starts at
+  most one queued chain and adds one, so the backlog never shrinks on its own:
+  one GS-heavy frame set it for the rest of the run. In
+  `examples/baked-shadows` (no HUD) that hid every baked shadow decal and blob
+  shadow from the first frame the terrain lightmap pass ran. `endFrame` now
+  calls `Vif1Queue::drain()` and waits for VIF1's FIFO, the same barrier the 2D
+  fence pays, so a frame with a HUD pays nothing new (the drain finds the queue
+  empty) and one without pays what it always should have.
 - **An open chain is submitted by whoever touches VIF1 next.**
   `Vif1Queue::setOpenChainCloser` makes the next `submit()` or `drain()`
   submit it first, so 3D drawn after 2D in the same frame still lands after it.

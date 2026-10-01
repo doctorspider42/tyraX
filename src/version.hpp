@@ -5516,6 +5516,10 @@
 // District's open road on a PS2.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 166
+// 1.166.2: RendererCore::endFrame drains the VIF1 queue - a frame with no 2D
+// left its last StaPip chains unstarted until the next frame's clear, so
+// baked shadow decals and blob shadows drew under the next frame's terrain
+// (examples/baked-shadows showed none). Engine only; no format change.
 // 1.166.0: a model's own collision box (Properties > Own collision box, "Fit
 // to post"; format v92) - a street lamp collides as its post, not the box
 // around its arm. Mesh-mode collision rejects far objects before any work:
@@ -5594,7 +5598,7 @@
 // 1.166.1: the Docker fallback (Sony's vcl) builds the engine again - the TC
 // clip image loads its GIF tag constants per buffer (no opt table in
 // sharedDirMode since the TD path joined it); output bit-identical.
-#define TYRAX_VERSION_PATCH 1
+#define TYRAX_VERSION_PATCH 2
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
