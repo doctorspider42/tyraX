@@ -3,7 +3,7 @@
 
 namespace Endless_runner {
 
-constexpr int MODEL_COUNT = 4;
+inline constexpr int MODEL_COUNT = 4;
 inline const char* MODEL_PATHS[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {
     "models/procgen-rocksr-rock-x0z0.tmdl",
     "models/procgen-rocksr-pine-x0z0.tmdl",
@@ -28,20 +28,20 @@ inline const char* MODEL_SOURCES[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {
     "res/models/procgen-rocksl-rock-xm1z0.obj",
     "res/models/procgen-rocksl-pine-xm1z0.obj",
 };
-constexpr bool MODEL_NEEDS_COLLIDER[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {false, false, false, false};
+inline constexpr bool MODEL_NEEDS_COLLIDER[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {false, false, false, false};
 
-constexpr int ANIM_MODEL_COUNT = 0;
+inline constexpr int ANIM_MODEL_COUNT = 0;
 inline const char* ANIM_MODEL_PATHS[ANIM_MODEL_COUNT > 0 ? ANIM_MODEL_COUNT : 1] = {
     "",
 };
 
 // .mtl libraries assigned to primitives (first material = surface)
-constexpr int MATERIAL_COUNT = 0;
+inline constexpr int MATERIAL_COUNT = 0;
 inline const char* MATERIAL_PATHS[MATERIAL_COUNT > 0 ? MATERIAL_COUNT : 1] = {
     "",
 };
 
 // texture atlas summary, logged at scene boot ("" = no atlas)
-constexpr const char* TEXTURE_ATLAS_INFO = "";
+inline constexpr const char* TEXTURE_ATLAS_INFO = "";
 
 }  // namespace Endless_runner

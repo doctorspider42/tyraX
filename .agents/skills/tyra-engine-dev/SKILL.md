@@ -83,12 +83,20 @@ a git checkout of the fork) — and **Build > Rebuild** (`--build --rebuild`)
 throws away the whole compiled engine, VU1 objects included, and builds it
 again from source.
 
+Native incremental builds track `bin/libtyra.a` and `bin/<name>.elf`, not missing
+root-level files. The native backend always runs engine make (retries included),
+preserves unchanged Makefile timestamps, and tracks Makefiles as object
+prerequisites. Games depend on the archive, including rebuilds by other projects.
+The shared rule archives `.a` targets; do not add an overriding engine recipe.
+Embedded IRX data is assembled with `-call_nonpic` to match PS2DEV v2 EE CPIC
+objects. Binary payloads remain unchanged; ABI mismatch warnings are not silenced.
+
 `vendor/tyra/Makefile.base` is shared by the engine build and every generated
 game, so an edit there moves both. TyraX changes in it: **`-G0`** (see below),
 single-pass dependency
 generation (`-MMD -MP`; it used to run the compiler a second time per file just
 to write the `.d`), `| directories` order-only prerequisites so `-j` cannot
-reach an absent `bin/`, `cp -ru` for the resource copy **minus `RESDIR_SKIP`**,
+reach an absent `bin/`, `rsync -ru` for the resource copy **minus `RESDIR_SKIP`**,
 and **`src/vu/` and
 `src/vu0/` excluded from `SOURCES`** - those are HOST C++ (a project's own VU1
 programs and VU0 kernels, docs/vu-authoring.md), compiled and run at build time
@@ -107,11 +115,11 @@ first (more inlined logging, more references to that bool), which is why
 **enabling `showFps` on a current project stopped linking at all** and took the
 perf-benchmark recipe with it. ps2sdk compiles its own libraries with `-G0`
 (`Defs.make`), so this is Tyra matching the SDK it links against.
-Two traps around it: **changing `Makefile.base` does NOT invalidate `libtyra.a`**
-(the Runner only rebuilds the engine when engine SOURCES changed), so a flag
+Historical traps: **the Docker backend requires a rebuild after compiler-flag changes**
+(its Runner only rebuilds the engine when engine SOURCES changed), so a flag
 change needs `--build --rebuild` or you get objects compiled both ways and the
-same error from the stale half; and the shared engine volume is **per project**,
-so fixing one project's build leaves every other project's volume stale.
+same error from the stale half. Engine volumes are shared per source checkout,
+so another checkout has an independent cache and needs its own rebuild.
 A third, fixed in 1.81.1 but worth knowing the shape of: **a failed engine
 `make` used to leave the PREVIOUS `libtyra.a` in the volume** with the new
 sources already synced beside it, so the next build's rsync saw nothing to do,

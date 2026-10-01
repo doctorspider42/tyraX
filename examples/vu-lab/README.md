@@ -396,3 +396,13 @@ geometry packet in memory picked the EE's own PRIM tag at `buffer+1` followed by
 the vertex array read as GS vertices — the input compared against itself. The
 comparison now runs at the address the candidate program actually kicked, and
 anything overlapping what the chain uploaded is discarded.
+
+Generated object values live in `src/gen/scene_objects.gen.cpp`;
+`inc/scene_data.hpp` keeps stable declarations. Counts and object IDs live in
+the same data file, so ordinary moves, color edits, additions and removals can
+rebuild it alone. Changes to features or derived tables can still rebuild consumers.
+
+Generated game methods are split between `src/terrain_game.cpp` and the
+`src/gen/game_*.gen.cpp` subsystems, with shared inline helpers/state in
+`inc/game_runtime.gen.hpp`. Header changes can compile these units in parallel.
+The main file remains user-ownable; generated subsystem files refresh on build.

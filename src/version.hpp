@@ -1,5 +1,17 @@
 #pragma once
 
+// 1.162.3: merge native build caching, scene-data separation, parallel game
+// compilation and OpenVCL output checks with painted sky/shadow/handbrake fixes.
+// Project format remains v89 from vehicles.
+// 1.161.5: report buffered OpenVCL assembly output failures instead of
+// silently succeeding with missing/truncated output. No format change.
+// 1.161.4: compile generated game subsystems in parallel with shared inline
+// helpers/state and preserve owned legacy/modern mains. No format change.
+// 1.161.3: compile authored scene object values in one generated TU, avoiding
+// full-game recompilation after ordinary moves/additions/removals. Visibility
+// proxies, counts and identity hashes follow the same split. No format change.
+// 1.161.2: track real native build outputs, share path-independent toolchain
+// identities and match embedded IRX ABI flags without changing their payloads.
 // Editor and project-format versioning. Two independent numbers:
 //
 // - The editor version (semver, for humans): every feature bumps MINOR, every

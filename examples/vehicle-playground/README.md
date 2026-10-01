@@ -4,6 +4,14 @@ A playable PS2 district for TyraX vehicles. Open `vehicle-playground.tyra` in
 TyraX and build the project. The main scene starts in the Ravager; press
 **Square** to get out and enter the nearby Pica Turbo or Strix V12.
 
+For native build timing, use a scratch copy of this example and warm the cache
+with one build before timing unchanged, script-only and scene-edit iterations.
+Unchanged builds keep the ELF timestamp; scene-table edits can still recompile
+the large generated `terrain_game.cpp`. See [native builds](../../docs/native-toolchain.md#incremental-builds).
+On a warmed Windows/WSL debug build, a one-script comment edit measured 50.5 s
+with the old Windows-path build and 12.8 s with the WSL cache; unchanged native
+builds measured 6.7-7.6 s. This excludes editor generation/baking and cold setup.
+
 ![Motor District running in PCSX2](preview/district.png)
 
 ## What's in the project
@@ -54,3 +62,13 @@ For model import, driving controls, damage and sounds, see the
 
 The shipped [third-party notices](THIRD-PARTY-NOTICES.txt) list the engine and
 assets used by this project. Keep them with redistributed builds.
+
+Generated object values live in `src/gen/scene_objects.gen.cpp`;
+`inc/scene_data.hpp` keeps stable declarations. Counts and object IDs live in
+the same data file, so ordinary moves, color edits, additions and removals can
+rebuild it alone. Changes to features or derived tables can still rebuild consumers.
+
+Generated game methods are split between `src/terrain_game.cpp` and the
+`src/gen/game_*.gen.cpp` subsystems, with shared inline helpers/state in
+`inc/game_runtime.gen.hpp`. Header changes can compile these units in parallel.
+The main file remains user-ownable; generated subsystem files refresh on build.

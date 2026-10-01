@@ -3,7 +3,7 @@
 
 namespace Physics_playground {
 
-constexpr int MODEL_COUNT = 4;
+inline constexpr int MODEL_COUNT = 4;
 inline const char* MODEL_PATHS[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {
     "models/stool.tmdl",
     "models/barrier.tmdl",
@@ -28,34 +28,34 @@ inline const char* MODEL_SOURCES[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {
     "res/models/chair.obj",
     "res/models/table.obj",
 };
-constexpr bool MODEL_NEEDS_COLLIDER[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {false, false, false, false};
+inline constexpr bool MODEL_NEEDS_COLLIDER[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {false, false, false, false};
 
-constexpr int ANIM_MODEL_COUNT = 0;
+inline constexpr int ANIM_MODEL_COUNT = 0;
 inline const char* ANIM_MODEL_PATHS[ANIM_MODEL_COUNT > 0 ? ANIM_MODEL_COUNT : 1] = {
     "",
 };
 
 // .mtl libraries assigned to primitives (first material = surface)
-constexpr int MATERIAL_COUNT = 0;
+inline constexpr int MATERIAL_COUNT = 0;
 inline const char* MATERIAL_PATHS[MATERIAL_COUNT > 0 ? MATERIAL_COUNT : 1] = {
     "",
 };
 
 // texture atlas summary, logged at scene boot ("" = no atlas)
-constexpr const char* TEXTURE_ATLAS_INFO = "";
+inline constexpr const char* TEXTURE_ATLAS_INFO = "";
 
 // Rigid-body shapes (docs/physics.md): convex hulls in mesh-local
 // units with their solid mass properties at unit density - volume,
 // centre of mass and the second moment about it (xx yy zz xy xz yz).
 // The game scales them per object and derives the inertia tensor.
-constexpr int PHYS_MAX_HULL_VERTS = 24;
-constexpr int PHYS_MAX_HULL_PLANES = 44;
+inline constexpr int PHYS_MAX_HULL_VERTS = 24;
+inline constexpr int PHYS_MAX_HULL_PLANES = 44;
 struct PhysHullData {
   short verts, planes;  // counts
   int vert0, plane0;    // first entry in the tables below
   float volume, com[3], cov[6];
 };
-constexpr int PHYS_HULL_COUNT = 8;
+inline constexpr int PHYS_HULL_COUNT = 8;
 inline const PhysHullData PHYS_HULLS[PHYS_HULL_COUNT > 0 ? PHYS_HULL_COUNT : 1] = {
     {8, 6, 0, 0, 1.0F, {0.0F, 0.0F, 0.0F}, {0.0833333F, 0.0833333F, 0.0833333F, 0.0F, 0.0F, 0.0F}},
     {24, 14, 8, 6, 0.75F, {5.13002e-09F, -1.04083e-17F, 1.93636e-09F}, {0.0447816F, 0.0625F, 0.0447816F, 5.42101e-19F, -7.52724e-10F, 1.0842e-18F}},

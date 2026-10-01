@@ -10,7 +10,10 @@ graph — then press one key and a PS2 runs your world. PCSX2, or a real console
 over ethernet.
 
 Under the hood TyraX writes the game as ordinary C++ against the engine and
-compiles it with a native PS2DEV + OpenVCL toolchain. Both halves live in this repo —
+compiles it with a native PS2DEV + OpenVCL toolchain. Scene object values compile
+once for fast object iteration; game subsystems compile in parallel with an
+automatic CPU job count ([details](docs/native-toolchain.md#parallel-game-compilation)).
+Both halves live in this repo —
 the editor and the engine (`vendor/tyra/engine`) — and the generated sources
 are yours to take over, file by file, whenever you want them.
 
@@ -437,7 +440,8 @@ directly. Engine sources from `vendor/tyra` are checksum-synced into a shared
 cache and rebuilt only when they or the toolchain identity change, so projects
 from one editor installation share one `libtyra`. PCSX2 is launched on the ELF.
 
-Every step is incremental, code generation included: a generated file whose content
+Every step is incremental, code generation included: unchanged games skip linking,
+and identical checkouts share the native toolchain install. A generated file whose content
 did not change is not rewritten, so a build with nothing to do finishes in seconds.
 **Build > Rebuild** drops the objects and the compiled engine when
 an incremental build cannot see what went wrong; *Clean* also wipes `bin\`.

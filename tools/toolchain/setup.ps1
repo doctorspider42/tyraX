@@ -1,6 +1,8 @@
 # Windows entry point for the Docker-free PS2 toolchain. PS2DEV's current
 # Windows archive still needs an MSYS environment; TyraX instead uses the same
 # pinned Linux bundle through WSL, avoiding a second subtly different toolchain.
+# setup.sh hashes relative source names so identical Windows/Linux checkouts
+# share the installed toolchain without rebuilding OpenVCL on a path change.
 [CmdletBinding()]
 param(
     [string]$Root = "$env:LOCALAPPDATA\tyra-editor\toolchain\ps2dev",

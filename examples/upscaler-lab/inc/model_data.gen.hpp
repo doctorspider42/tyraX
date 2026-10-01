@@ -3,7 +3,7 @@
 
 namespace Upscaler_lab {
 
-constexpr int MODEL_COUNT = 3;
+inline constexpr int MODEL_COUNT = 3;
 inline const char* MODEL_PATHS[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {
     "models/depot/block-west.tmdl",
     "models/depot/block-east.tmdl",
@@ -25,21 +25,21 @@ inline const char* MODEL_SOURCES[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {
     "res/models/depot/block-east.obj",
     "res/models/depot/trucks.obj",
 };
-constexpr bool MODEL_NEEDS_COLLIDER[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {false, false, false};
+inline constexpr bool MODEL_NEEDS_COLLIDER[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {false, false, false};
 
-constexpr int ANIM_MODEL_COUNT = 1;
+inline constexpr int ANIM_MODEL_COUNT = 1;
 inline const char* ANIM_MODEL_PATHS[ANIM_MODEL_COUNT > 0 ? ANIM_MODEL_COUNT : 1] = {
     "models/wobbler.tskl",
 };
 
 // .mtl libraries assigned to primitives (first material = surface)
-constexpr int MATERIAL_COUNT = 2;
+inline constexpr int MATERIAL_COUNT = 2;
 inline const char* MATERIAL_PATHS[MATERIAL_COUNT > 0 ? MATERIAL_COUNT : 1] = {
     "materials/stone.mtl",
     "materials/haze.mtl",
 };
 
 // texture atlas summary, logged at scene boot ("" = no atlas)
-constexpr const char* TEXTURE_ATLAS_INFO = "";
+inline constexpr const char* TEXTURE_ATLAS_INFO = "";
 
 }  // namespace Upscaler_lab

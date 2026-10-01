@@ -3,7 +3,7 @@
 
 namespace Baked_shadows {
 
-constexpr int MODEL_COUNT = 0;
+inline constexpr int MODEL_COUNT = 0;
 inline const char* MODEL_PATHS[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {
     "",
 };
@@ -19,21 +19,21 @@ inline const char* MODEL_MTLS[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {
 inline const char* MODEL_SOURCES[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {
     "",
 };
-constexpr bool MODEL_NEEDS_COLLIDER[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {false};
+inline constexpr bool MODEL_NEEDS_COLLIDER[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {false};
 
-constexpr int ANIM_MODEL_COUNT = 0;
+inline constexpr int ANIM_MODEL_COUNT = 0;
 inline const char* ANIM_MODEL_PATHS[ANIM_MODEL_COUNT > 0 ? ANIM_MODEL_COUNT : 1] = {
     "",
 };
 
 // .mtl libraries assigned to primitives (first material = surface)
-constexpr int MATERIAL_COUNT = 2;
+inline constexpr int MATERIAL_COUNT = 2;
 inline const char* MATERIAL_PATHS[MATERIAL_COUNT > 0 ? MATERIAL_COUNT : 1] = {
     "materials/brick.mtl",
     "materials/paving.mtl",
 };
 
 // texture atlas summary, logged at scene boot ("" = no atlas)
-constexpr const char* TEXTURE_ATLAS_INFO = "";
+inline constexpr const char* TEXTURE_ATLAS_INFO = "";
 
 }  // namespace Baked_shadows

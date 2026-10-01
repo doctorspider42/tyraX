@@ -3,7 +3,7 @@
 
 namespace Deep_forest {
 
-constexpr int MODEL_COUNT = 72;
+inline constexpr int MODEL_COUNT = 72;
 inline const char* MODEL_PATHS[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {
     "models/procgen-5c17a90e-pine-xm3zm3.tmdl",
     "models/procgen-5c17a90e-pine-xm3zm2.tmdl",
@@ -232,20 +232,20 @@ inline const char* MODEL_SOURCES[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {
     "res/models/procgen-5c17a90e-rock-x2z1.obj",
     "res/models/procgen-5c17a90e-rock-x2z2.obj",
 };
-constexpr bool MODEL_NEEDS_COLLIDER[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false};
+inline constexpr bool MODEL_NEEDS_COLLIDER[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false, false};
 
-constexpr int ANIM_MODEL_COUNT = 0;
+inline constexpr int ANIM_MODEL_COUNT = 0;
 inline const char* ANIM_MODEL_PATHS[ANIM_MODEL_COUNT > 0 ? ANIM_MODEL_COUNT : 1] = {
     "",
 };
 
 // .mtl libraries assigned to primitives (first material = surface)
-constexpr int MATERIAL_COUNT = 0;
+inline constexpr int MATERIAL_COUNT = 0;
 inline const char* MATERIAL_PATHS[MATERIAL_COUNT > 0 ? MATERIAL_COUNT : 1] = {
     "",
 };
 
 // texture atlas summary, logged at scene boot ("" = no atlas)
-constexpr const char* TEXTURE_ATLAS_INFO = "";
+inline constexpr const char* TEXTURE_ATLAS_INFO = "";
 
 }  // namespace Deep_forest

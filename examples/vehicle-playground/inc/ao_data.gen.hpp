@@ -6,7 +6,7 @@
 // axes in world space; sphere = 1 reads half[0] as the radius;
 // objIndex = scene-table index (an object never occludes itself).
 
-namespace {
+namespace ao_data_gen_hpp_detail {
 struct AoOccData {
   float pos[3];
   float ax[3], ay[3], az[3];
@@ -16,8 +16,8 @@ struct AoOccData {
 };
 
 
-static const AoOccData* const SCENE_AO_OCC_TABLES[] = {nullptr, nullptr, nullptr};
-static const int SCENE_AO_OCC_COUNTS[] = {0, 0, 0};
+inline const AoOccData* const SCENE_AO_OCC_TABLES[] = {nullptr, nullptr, nullptr};
+inline const int SCENE_AO_OCC_COUNTS[] = {0, 0, 0};
 
 struct EmisLightData {
   float pos[3];
@@ -30,22 +30,22 @@ struct EmisLightData {
 };
 
 
-static const EmisLightData* const SCENE_EMIS_TABLES[] = {nullptr, nullptr, nullptr};
-static const int SCENE_EMIS_COUNTS[] = {0, 0, 0};
+inline const EmisLightData* const SCENE_EMIS_TABLES[] = {nullptr, nullptr, nullptr};
+inline const int SCENE_EMIS_COUNTS[] = {0, 0, 0};
 
 struct AoAtlasRect {
   float u0, v0, du, dv;
 };
-static const AoAtlasRect* const SCENE_AO_ATLAS_RECTS_T[] = {nullptr, nullptr, nullptr};
-static const int* const SCENE_AO_ATLAS_FIRSTS_T[] = {nullptr, nullptr, nullptr};
-static const unsigned char* const SCENE_AO_ATLAS_LITS_T[] = {nullptr, nullptr, nullptr};
-static const char* const SCENE_AO_ATLAS_PATHS[] = {"", "", ""};
-static const char* const SCENE_AO_MAP_PATHS[] = {"", "", ""};
-static const unsigned char SCENE_AO_MAP_OCCS[] = {0, 0, 0};
-static const unsigned char SCENE_AO_MAP_LITS[] = {0, 0, 0};
-static const unsigned char SCENE_AO_ATLAS_GIS[] = {0, 0, 0};
-static const unsigned char SCENE_AO_MAP_GIS[] = {0, 0, 0};
-static const unsigned char SCENE_AO_MAP_GILUMS[] = {0, 0, 0};
+inline const AoAtlasRect* const SCENE_AO_ATLAS_RECTS_T[] = {nullptr, nullptr, nullptr};
+inline const int* const SCENE_AO_ATLAS_FIRSTS_T[] = {nullptr, nullptr, nullptr};
+inline const unsigned char* const SCENE_AO_ATLAS_LITS_T[] = {nullptr, nullptr, nullptr};
+inline const char* const SCENE_AO_ATLAS_PATHS[] = {"", "", ""};
+inline const char* const SCENE_AO_MAP_PATHS[] = {"", "", ""};
+inline const unsigned char SCENE_AO_MAP_OCCS[] = {0, 0, 0};
+inline const unsigned char SCENE_AO_MAP_LITS[] = {0, 0, 0};
+inline const unsigned char SCENE_AO_ATLAS_GIS[] = {0, 0, 0};
+inline const unsigned char SCENE_AO_MAP_GIS[] = {0, 0, 0};
+inline const unsigned char SCENE_AO_MAP_GILUMS[] = {0, 0, 0};
 }  // namespace
 
 #define SCENE_AO_OCC SCENE_AO_OCC_TABLES[g_activeScene]
@@ -62,3 +62,5 @@ static const unsigned char SCENE_AO_MAP_GILUMS[] = {0, 0, 0};
 #define SCENE_AO_ATLAS_GI SCENE_AO_ATLAS_GIS[g_activeScene]
 #define SCENE_AO_MAP_GI SCENE_AO_MAP_GIS[g_activeScene]
 #define SCENE_AO_MAP_GILUM SCENE_AO_MAP_GILUMS[g_activeScene]
+
+using namespace ao_data_gen_hpp_detail;

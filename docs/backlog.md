@@ -4,6 +4,21 @@ This is only unfinished work that still has a clear payoff and a testable end.
 Finished investigations belong in commit history; reusable facts belong in the
 relevant guide or developer skill.
 
+## Separate remaining runtime settings from compilation decisions
+
+Game methods now compile in six parallel units with shared inline helpers/state.
+Object values, counts, identity hashes and visibility proxies compile in one
+separate data unit. Ordinary object iteration takes about 10-11 s; active
+ambience and project preference changes take about 38-45 s on the measured
+Windows/WSL fixture, because they still invalidate shared headers. See
+[native build measurements](native-toolchain.md#parallel-game-compilation).
+
+Move ordinary runtime setting tables out of headers while retaining compile-time
+feature gates and ABI/layout sizes. Compare ambience edits, feature toggles and
+clean builds. Verify PS2 hardware performance before accepting optimization-level
+changes; `-O3` remains the default. The subsystem split was boot-checked in PCSX2,
+which is not a substitute for a hardware performance comparison.
+
 ## Bring the night garage chase view back under the PAL frame budget
 
 The [2026-09-28 continuous vehicle-entry capture](../examples/vehicle-playground/authoring/night-entry-hardware-2026-09-28/README.md)

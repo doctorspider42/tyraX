@@ -6,15 +6,15 @@
 namespace Probe_lighting {
 
 // scene "Courtyard and coloured room"
-constexpr float HM_0_HEIGHTS[4] = {0, 0, 0, 0
+inline constexpr float HM_0_HEIGHTS[4] = {0, 0, 0, 0
 };
 
-constexpr int HM_WS[SCENE_COUNT] = {2};
-constexpr int HM_DS[SCENE_COUNT] = {2};
-constexpr float HM_ORIGIN_XS[SCENE_COUNT] = {-16.0F};
-constexpr float HM_ORIGIN_ZS[SCENE_COUNT] = {-20.0F};
-constexpr float HM_STEP_XS[SCENE_COUNT] = {32.0F};
-constexpr float HM_STEP_ZS[SCENE_COUNT] = {40.0F};
+inline constexpr int HM_WS[SCENE_COUNT] = {2};
+inline constexpr int HM_DS[SCENE_COUNT] = {2};
+inline constexpr float HM_ORIGIN_XS[SCENE_COUNT] = {-16.0F};
+inline constexpr float HM_ORIGIN_ZS[SCENE_COUNT] = {-20.0F};
+inline constexpr float HM_STEP_XS[SCENE_COUNT] = {32.0F};
+inline constexpr float HM_STEP_ZS[SCENE_COUNT] = {40.0F};
 inline const float* TERRAIN_HEIGHTS_TABLES[SCENE_COUNT] = {HM_0_HEIGHTS};
 
 inline const unsigned char* TERRAIN_SPLAT_TABLES[SCENE_COUNT] = {nullptr};

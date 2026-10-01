@@ -24,6 +24,15 @@ description: >
 > is in git history, and `docs/backlog.md` has the recipe. New work records
 > itself in its commit message and PR body instead.
 
+Generated-game split verification: build both FPP and orbit fixtures with the
+native backend, boot them in a private PCSX2 instance, and inspect scene/menu/
+vehicle state. Syntax-check historical example subsystems with the PS2 compiler.
+Check that mutable helper symbols/cache guards have one final linked instance;
+check marker-owned upgrade, owned legacy preservation and owned split refresh.
+Time active ambience keys and a real project preference, separately from
+ordinary object moves/additions and no-op builds. Jobs use host-visible logical
+CPU counts; never describe the measured `-j24` as a fixed project setting.
+
 There is **no committed test suite** (no CTest, no test/ dir). Verification is
 layered: compile → codegen inspection → PCSX2 boot → visual/log/audio checks.
 Use the cheapest layer that actually exercises your change, and be honest in
@@ -156,6 +165,24 @@ added a dependency: the merge brings the CMake reference, not the clone. Probes
 are real source files, so a half-finished clone reports as missing rather than
 sneaking through — delete the directory and re-run setup when the guard says a
 probe is still absent after a fetch.
+
+## Native incremental build regression
+
+On Windows compare TYRAX_NATIVE_DIRECT=1 with the default WSL filesystem
+cache, warming each separately. Verify bin/ returns to the authored project,
+a Windows-written runtime channel survives, and DWARF paths map to authored
+sources. Use a private PCSX2 capture slot to boot the resulting ELF.
+
+
+Use a scratch copy of `examples/vehicle-playground`. Warm the native build, then
+repeat `--build`: no compile/link/archive commands and unchanged ELF/archive
+mtimes. Change one script source, then one scene value, and inspect which objects
+rebuilt. Touch the engine archive to verify another project's engine rebuild
+relinks the game without recompiling it. Change a Makefile to verify flags
+invalidate objects. A failed engine compile must fail again on retry until fixed.
+For IRX ABI changes compare objcopy binary payloads and check the link has no
+abicalls mismatch warnings. Toolchain identities must match for byte-identical
+source trees at different absolute paths. Exclude setup/cold builds from timings.
 
 ## Layer 1 — headless CLI (no GUI needed)
 
@@ -4046,3 +4073,17 @@ off and equality notices the flag. Runtime freezing must fail without mutation.
 Drive Frozen with --ui-script, save/reopen, inspect the checkbox and disabled
 bake/clear/mode/instance controls. Capture the viewport too: frozen chunks must
 remain visible without live instances, and Show preview must hide them.
+
+## Scene object data iteration regression
+
+After warming a scratch native game, move an authored object and refresh
+generation. Compare the header and script timestamps: for a value-only move,
+`scene_objects.gen.cpp` should be the only compiled source when other bakes
+stay unchanged. Also test ordinary object additions/removals (which should keep the header
+stable), scene-count changes, color edits, empty scenes,
+baked scroller clones, both camera templates and a custom script that reads
+`SCENE_OBJECT_TABLES`. Check old/new initializer rows for exact equivalence and
+boot the resulting game. Test culling both enabled and disabled: static-box
+additions must update its proxy data without changing the declaration header.
+Feature and other derived-table edits may rebuild more. Profile a remaining
+large compile with GCC `-ftime-report` before assuming parsing/I/O is its cost.

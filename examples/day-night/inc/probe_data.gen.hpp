@@ -8,7 +8,7 @@
 // zero instead of dragging a wall's interior into the room.
 // Probes are indexed x + dim[0] * (y + dim[1] * z).
 
-namespace {
+namespace probe_data_gen_hpp_detail {
 struct GiProbeGridData {
   float origin[3];
   float step[3];
@@ -19,7 +19,9 @@ struct GiProbeGridData {
 };
 
 
-static const GiProbeGridData* const SCENE_PROBE_GRIDS[] = {nullptr, nullptr, nullptr, nullptr, nullptr};
+inline const GiProbeGridData* const SCENE_PROBE_GRIDS[] = {nullptr, nullptr, nullptr, nullptr, nullptr};
 }  // namespace
 
 #define SCENE_PROBES SCENE_PROBE_GRIDS[g_activeScene]
+
+using namespace probe_data_gen_hpp_detail;
