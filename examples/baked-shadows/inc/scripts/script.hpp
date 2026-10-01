@@ -25,7 +25,9 @@ struct RuntimeObject {
   // asleep and skips simulation entirely.
   float velocityY = 0.0F;  // vertical velocity (kept first: legacy scripts)
   float velocityX = 0.0F, velocityZ = 0.0F;
-  float spin[3] = {0.0F, 0.0F, 0.0F};  // angular velocity, degrees/frame
+  // Angular velocity about the WORLD axes, degrees/frame. The rigid-body
+  // sim keeps its own copy and re-reads this one whenever a script changed it.
+  float spin[3] = {0.0F, 0.0F, 0.0F};
   // Scripted continuous rotation (the Spin Object flow node), degrees per
   // SECOND - authored units, so it is frame-rate independent and readable.
   // Integrated by TerrainGame::updateSpinners(), which also puts the object on
@@ -33,9 +35,9 @@ struct RuntimeObject {
   // refresh per frame instead of a world-space vertex re-bake. Independent of
   // `spin` above: physics owns that one, this one survives sleep and settle.
   float spinRate[3] = {0.0F, 0.0F, 0.0F};
-  // Settle-flatten targets, latched once per settle so the chosen face
-  // never flips mid-ease. 1e9 = unlatched; [1] additionally means "yaw
-  // stays" when the roll lands on an even 90deg step.
+  // Unused since bodies became real rigid bodies (they settle onto a face by
+  // themselves). Kept so scripts and the time machine's capture layout that
+  // name it still compile and line up.
   float flatTgt[3] = {1e9F, 1e9F, 1e9F};
   short restFrames = 0;                // sleep counter; write 0 to wake
   bool dirty = true;
@@ -78,6 +80,11 @@ struct RuntimeObject {
 inline bool physAsleep(const RuntimeObject& o) {
   return o.restFrames >= PHYS_ASLEEP;
 }
+
+// ScriptContext::vehicleRequest's two sentinels. An object index is >= 0, so
+// neither can collide with a real request.
+constexpr int VEHICLE_REQUEST_NONE = -1;
+constexpr int VEHICLE_REQUEST_EXIT = -2;
 
 /** Everything a script can see and touch each frame. */
 struct ScriptContext {
@@ -134,6 +141,15 @@ struct ScriptContext {
   bool teleport = false;
   Tyra::Vec4 teleportPos;
   float teleportYaw = 0.0F;
+
+  // The Enter Vehicle / Exit Vehicle flow nodes (docs/vehicles.md): the
+  // object index of the vehicle to seat the player in, or one of the two
+  // sentinels. The game's vehicle update carries it out and clears it; a
+  // project without vehicles never reads it.
+  int vehicleRequest = VEHICLE_REQUEST_NONE;
+  // The Repair Vehicle node: the vehicle object to put right, or
+  // VEHICLE_REQUEST_EXIT for "the one the player is driving".
+  int vehicleRepair = VEHICLE_REQUEST_NONE;
 
   // Index of the usable object the player pressed BTN_USE on this frame
   // (-1 = none). Drives the flow graph "On Used" trigger.
@@ -232,13 +248,17 @@ struct ScriptContext {
   float shakeAmp = -1.0F;
   float shakeSec = 0.0F;
 
-  // Runtime graphics switches (Set Fog / Set Bloom / Set Grain / Set Particles
-  // / Set Lens Flare / Set God Rays flow nodes). fog / particles: -1 = leave,
-  // 0 = off, 1 = on. bloom / grain / flare / godRays: -1 = leave, else a
-  // 0..128 fixed-point amount. The game applies and resets.
+  // Runtime graphics switches (Set Fog / Set Bloom / Set Grain / Set Motion
+  // Blur / Set Particles / Set Lens Flare / Set God Rays flow nodes). fog /
+  // particles: -1 = leave, 0 = off, 1 = on. bloom / grain / motionBlur /
+  // flare / godRays: -1 = leave, else a 0..128 fixed-point amount. The game
+  // applies and resets.
   int fog = -1;
   int bloom = -1;
   int grain = -1;
+  // Motion blur (Set Motion Blur flow node): -1 = leave, else a 0..128 weight
+  // for the previous frame (0 = off). The game applies and resets it.
+  int motionBlur = -1;
   int particles = -1;
   int flare = -1;
   int godRays = -1;
