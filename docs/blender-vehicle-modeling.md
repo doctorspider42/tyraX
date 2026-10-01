@@ -52,9 +52,21 @@ and decals, and gray only for blended edges. Select it as the definition's
 match exactly one texture in the model by dimensions. See
 [Changing body paint colour](vehicles.md#changing-body-paint-colour).
 
-## 4. Export one file
+## 4. Mark the exhaust pipes
 
-Select the body and four wheels, then choose **File → Export → glTF 2.0**:
+Add an **Empty** at each pipe's opening (**Add → Empty → Single Arrow**) and
+name it `exhaust`; Blender numbers the next ones `exhaust.001`, `exhaust.002`.
+The arrow is the way the nitrous flame, the upshift pop and the exhaust smoke
+leave the pipe, so rotate it to point out of the opening - for pipes at the
+back of a car whose nose is +X, **Rotation Y = -90°** points the arrow along
+-X. Put the empty exactly at the end of the pipe, not inside the tailpipe mesh.
+Any number of pipes works (up to six). An empty left unrotated points straight
+up and is read as "out of the back"; tilt a real upright stack slightly.
+Without any `exhaust` empty, TyraX guesses two pipes under the rear bumper.
+
+## 5. Export one file
+
+Select the body, the four wheels and the `exhaust` empties, then choose **File → Export → glTF 2.0**:
 **Format: glTF Binary (`.glb`)**, **Include: Selected Objects**. Keep the
 textures embedded, and put the `.glb` in your project's `res/models/`. Keep
 your `.blend` as the editable source. The vehicle definition's default body
@@ -63,11 +75,12 @@ reduce an oversized body, but inspect the resulting silhouette. A heavily
 shaded atlas may need **8-bit Texture depth** in TyraX rather than 4-bit;
 check the project's VRAM budget.
 
-## 5. Import, inspect, drive
+## 6. Import, inspect, drive
 
 Import the `.glb` into the project's assets, then select it in **Tools →
 Vehicle Editor → Model**. Check the detected four wheels, front direction,
-wheelbase, track, radius, material grouping and transparency. Fix the Blender
+wheelbase, track, radius, material grouping and transparency; the Effects
+tab's Exhaust section says how many pipes the markers gave. Fix the Blender
 source and export again when geometry or UVs are wrong. Build and drive the
 game: inspect the car from behind, the side and at distance, and spin the
 wheels. If you author a separate far model, build it in the same space and

@@ -5515,7 +5515,12 @@
 // host-baked albedo map (REFL_GROUND_*): -2 ms a turning frame on the Motor
 // District's open road on a PS2.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 166
+#define TYRAX_VERSION_MINOR 167
+// 1.167.0: exhaust pipes marked in the model - an empty named "exhaust" at
+// each opening (any number, up to six), arrow pointing out of the pipe. The
+// nitrous flame, the shift backfire and a new constant exhaust smoke
+// (Effects > Exhaust smoke, format v93) come out of them; a model without
+// markers keeps the old guessed pipes under the rear bumper.
 // 1.166.1: merged with the GI line-ending fix shipped on this side as 1.164.2 -
 // the GI, pre-lit and model-AO signatures ignore line endings in asset files
 // (GI cache v8, lit sig v2, model AO v2) and --bake-status reports every
@@ -5598,7 +5603,7 @@
 // existing unlit VU1 path; conservative local bounds, custom stages unchanged.
 // 1.150.1: prepare driveable vehicle HUD fonts during scene loading; plain
 // runtime text no longer loads the icon sheet before drawing an actual icon.
-#define TYRAX_VERSION_PATCH 1
+#define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
@@ -6083,7 +6088,12 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // v92 (docs/collision-boxes.md, "A smaller box"): Project::modelCollision,
 // a per-model collision box keyed by asset path, written only when set.
 // Missing = the mesh bounds as before. Additive; no migration step.
-inline constexpr int kFormatVersion = 92;
+// v93 (docs/vehicles.md, "Exhaust pipes"): a definition's bake-measured
+// "exhausts" (written only when non-empty) and drive-spec key exhaustSmoke,
+// written with the rest of the spec. Missing = no markers (the guessed pipes)
+// and smoke 1, i.e. an older car smokes too - it is presentation. Additive;
+// no migration step.
+inline constexpr int kFormatVersion = 93;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

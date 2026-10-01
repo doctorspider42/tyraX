@@ -141,6 +141,15 @@ only `export_format`, `use_selection`, `export_apply`, `export_yup`,
   `glass`/`window` (shiny; the glass part), `rubber`/`trim` (matte).
 - Budget: body <= the definition's bodyTris (2400 default); the bake decimates
   above it.
+- **Exhaust pipes are EMPTIES named `exhaust*`** (docs/vehicles.md, "Exhaust
+  pipes"): one per opening, Single Arrow rotated to point out of the pipe
+  (`(0, -90 deg, 0)` = -X, out of the back of a +X-forward car). The nitrous
+  flame, the upshift pop and the exhaust smoke leave there. The car scripts list
+  the openings as `EXHAUSTS` (design metres) and `carkit.place_exhausts` exports
+  them with the body; `authoring/add-exhaust-markers.py` splices the same nodes
+  into an already shipped GLB (JSON chunk only, repeatable). The glTF exporter
+  puts the arrow on the node's +Y, the FBX one on +Z - the bake knows; an
+  unrotated empty (arrow up) reads as "out of the back".
 - **Interior + see-through glass**: give the glass its own UNTEXTURED material
   and set the definition's Glass opacity < 1 (docs/vehicles.md, "See-through
   glass"); model a minimal interior (tub, seats, dash, wheel - ~100 tris,

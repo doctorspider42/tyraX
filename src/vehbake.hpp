@@ -116,6 +116,10 @@ struct Options {
 // bakeProject must not each spell it.
 std::string binReflPath(const std::string& resRel);
 
+// The most exhaust markers one definition keeps: each pipe costs the nitrous
+// flame three corona quads out of the runtime's shared lamp-glow budget.
+inline constexpr int kMaxExhausts = 6;
+
 struct Result {
     tmdl::Model body;
     tmdl::Model wheel;  // ONE wheel, hub at the origin, ready to be placed
@@ -200,6 +204,12 @@ struct Result {
     // Every lamp of the lamp part: centre xyz, half extents xyz, front (1) or
     // rear (0), canonical frame - what the lamp glow sizes each halo by.
     std::vector<std::array<float, 7>> lampGlows;
+    // Exhaust pipes MARKED in the model (docs/vehicles.md, "Exhaust pipes"):
+    // every geometry-free node whose name starts with "exhaust" - a Blender
+    // empty - as {position xyz, unit direction xyz}, canonical body frame.
+    // Empty = none marked; the runtime then guesses two pipes under the rear
+    // bumper. At most kMaxExhausts.
+    std::vector<std::array<float, 6>> exhausts;
 
     std::vector<std::string> notes;
 };

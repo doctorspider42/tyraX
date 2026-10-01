@@ -2513,6 +2513,24 @@ textured part's matte (near-black texel) triangles LAST, and
 it is re-asserted rather than set once. The editor mirrors it by splitting the
 part in `viewportBody` (vehicle_ui.cpp).
 
+## Vehicle exhaust pipes (1.167.0)
+
+docs/vehicles.md, "Exhaust pipes". `vehbake::build` reads every geometry-free
+node named `exhaust*` (case-insensitive) as {opening, direction} in the
+canonical body frame - direction = the node's +Y for glTF, +Z for FBX (the two
+exporters keep a Blender empty's arrow on different axes; measured), an exactly
+vertical arrow = an unrotated empty = straight back. `adoptMeasured` carries
+`VehicleDef::exhausts` (format v93) into `VEHICLE_EXHAUSTS`; the runtime's
+`vehicleExhausts()` is the ONE pipe list the nitrous flame, the upshift
+backfire and `updateVehicleExhaustSmoke` read, falling back to the two guessed
+rear pipes. `kVehExhaustMax` (runtime) must stay >= `vehbake::kMaxExhausts`.
+Exhaust smoke rides the tyre-smoke pool: every spawn site takes its slot with
+`VehFx::takeSmoke()`, which resets the per-puff `smokeScale`/`smokeFade` - a
+new spawn site that bumps `smokeNext` by hand inherits the last puff's size.
+The `exhaust*` spec keys are on the Effects tab (skipped by Driving, section
+"effects" in `visitVehicleTuning`). Headless refresh/build adopt the markers
+in memory only; the GUI tick (or a hand edit + `--resave`) persists them.
+
 ## Vehicle lamp glow (1.141.0)
 
 docs/vehicles.md, "Lamp glow". The lamps are measured per LAMP by the bake

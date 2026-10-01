@@ -1349,6 +1349,11 @@ struct VehicleDef {
     // The lamp glow's lamps, MEASURED by the bake (vehbake::Result::lampGlows):
     // centre xyz, half extents xyz, front 1 / rear 0. Written only when set.
     std::vector<std::array<float, 7>> lampGlows;
+    // Exhaust pipes MARKED in the model (vehbake::Result::exhausts, docs/
+    // vehicles.md "Exhaust pipes"): position xyz + unit direction xyz in the
+    // canonical body frame. Empty = the runtime's guessed rear pipes. Written
+    // only when set.
+    std::vector<std::array<float, 6>> exhausts;
 
     // The engine note (docs/vehicles.md, "Engine sound"). A path into the
     // project's own sound list, NOT an index: an index would retarget itself
@@ -1450,7 +1455,8 @@ inline bool operator==(const VehicleDef& a, const VehicleDef& b) {
         a.trafficDistance != b.trafficDistance || a.farPart != b.farPart ||
         a.farHideMask != b.farHideMask || a.fastWheel != b.fastWheel ||
         a.fastWheelTriBudget != b.fastWheelTriBudget || a.pieces != b.pieces ||
-        a.envLimits != b.envLimits || a.lampGlows != b.lampGlows)
+        a.envLimits != b.envLimits || a.lampGlows != b.lampGlows ||
+        a.exhausts != b.exhausts)
         return false;
     for (int i = 0; i < 3; ++i)
         if (a.exitOffset[i] != b.exitOffset[i]) return false;
@@ -1497,7 +1503,8 @@ inline void visitVehicleTuning(VehicleDef& v, const VehicleDef& defaults, Fn fn)
         const std::string key = fields[k].key;
         if (vehicleGeometryKey(key)) continue;
         const char* section = key.rfind("damage", 0) == 0 ? "damage" :
-            (key.rfind("lamp", 0) == 0 || key.rfind("feel", 0) == 0) ? "effects" : "driving";
+            (key.rfind("lamp", 0) == 0 || key.rfind("feel", 0) == 0 ||
+             key.rfind("exhaust", 0) == 0) ? "effects" : "driving";
         fn(key, section, *fields[k].value, *base[k].value);
     }
 #define VEH_TUNING(section, member) fn(std::string(#member), section, v.member, defaults.member)

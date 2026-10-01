@@ -838,6 +838,25 @@ def tris(o):
     return sum(len(p.vertices) - 2 for p in o.data.polygons)
 
 
+def place_exhausts(points, scale):
+    """One empty per exhaust opening, named "exhaust" (Blender numbers the
+    rest exhaust.001, ...): the vehicle import puts the nitrous flame, the
+    shift backfire and the exhaust smoke there (docs/vehicles.md, "Exhaust
+    pipes"). Single Arrow display, rotated to point out of the back (-X here,
+    the car faces +X) - the arrow is the way the flame leaves. `points` are
+    the openings in design metres; `scale` is the export scale."""
+    out = []
+    for p in points:
+        o = bpy.data.objects.new("exhaust", None)
+        o.empty_display_type = "SINGLE_ARROW"
+        o.empty_display_size = 0.25
+        o.location = (p[0] * scale, p[1] * scale, p[2] * scale)
+        o.rotation_euler = (0.0, -math.pi / 2, 0.0)
+        bpy.context.scene.collection.objects.link(o)
+        out.append(o)
+    return out
+
+
 def place_wheels(C, wheel_mesh):
     names = {(True, 1): "wheel front left", (True, -1): "wheel front right",
              (False, 1): "wheel rear left", (False, -1): "wheel rear right"}
@@ -987,7 +1006,8 @@ def main(C):
                       os.path.join(opt["preview"], f"{C.NAME}-sheet.png"), 2)
     # the glass exports opaque; the definition's Glass opacity makes it see-through
     mats["glass window"].node_tree.nodes["Principled BSDF"].inputs["Alpha"].default_value = 1.0
-    export([body] + wheels, opt["out"])
+    exhausts = place_exhausts(getattr(C, "EXHAUSTS", []), C.SCALE)
+    export([body] + wheels + exhausts, opt["out"])
     print(f"{C.NAME.upper()} wrote", os.path.abspath(opt["out"]))
 
 

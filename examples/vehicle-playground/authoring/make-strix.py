@@ -219,6 +219,10 @@ def build_trim(g):
     g.box((XR - 0.01, 0.28, 0.28), (0.06, 0.055, 0.035), uv="cell:dark", skip=("+x",))
 
 
+# The exhaust openings (the mirrored boxes' rear faces): the "exhaust" empties.
+EXHAUSTS = [(XR - 0.07, 0.28, 0.28), (XR - 0.07, -0.28, 0.28)]
+
+
 def build_lamps(g):
     xh = XF - CAPS[0][2] + 0.012
     for (y0, y1) in ((0.50, 0.645), (0.665, 0.81)):          # slim headlamps

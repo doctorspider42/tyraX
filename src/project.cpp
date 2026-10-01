@@ -3208,6 +3208,16 @@ static void writeVehicleArray(std::ostream& json, const std::vector<VehicleDef>&
             }
             json << "]";
         }
+        if (!v.exhausts.empty()) {
+            json << ", \"exhausts\": [";
+            for (size_t k = 0; k < v.exhausts.size(); ++k) {
+                json << (k ? ", " : "") << "[";
+                for (int a = 0; a < 6; ++a)
+                    json << (a ? ", " : "") << fmtFloat(v.exhausts[k][(size_t)a]);
+                json << "]";
+            }
+            json << "]";
+        }
         if (!v.envLimits.empty()) {
             json << ", \"envLimits\": [";
             for (size_t k = 0; k < v.envLimits.size(); ++k)
@@ -3371,6 +3381,14 @@ static void readVehicleArray(const json::Value& root, std::vector<VehicleDef>& d
                     std::array<float, 7> g{};
                     for (int a = 0; a < 7; ++a) g[(size_t)a] = (float)q.arr[(size_t)a].numberOr(0.0);
                     v.lampGlows.push_back(g);
+                }
+        if (const json::Value* ex = e.find("exhausts");
+            ex && ex->type == json::Value::Type::Array)
+            for (const json::Value& q : ex->arr)
+                if (q.type == json::Value::Type::Array && q.arr.size() >= 6) {
+                    std::array<float, 6> x{};
+                    for (int a = 0; a < 6; ++a) x[(size_t)a] = (float)q.arr[(size_t)a].numberOr(0.0);
+                    v.exhausts.push_back(x);
                 }
         if (const json::Value* el = e.find("envLimits");
             el && el->type == json::Value::Type::Array)

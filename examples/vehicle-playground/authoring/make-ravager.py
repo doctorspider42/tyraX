@@ -351,6 +351,10 @@ def build_trim(g):
         g.box((XR + 0.02, yy, 0.31), (0.07, 0.028, 0.022), "body paint", "cell:dark", skip=("+x",))
 
 
+# The exhaust openings (the mirrored boxes' rear faces): the "exhaust" empties.
+EXHAUSTS = [(XR - 0.05, 0.52, 0.31), (XR - 0.05, -0.52, 0.31)]
+
+
 def build_lamps(g):
     # four round headlamps in the grille (the hidden-lamp doors, opened)
     xh = XF - 0.075 + 0.012
@@ -1138,8 +1142,9 @@ def main():
         render_previews(preview, [body] + wheels)
     gm = mats["glass window"]
     gm.node_tree.nodes["Principled BSDF"].inputs["Alpha"].default_value = 1.0
+    exhausts = _kit().place_exhausts(EXHAUSTS, SCALE)
     for o in bpy.context.scene.objects:
-        o.select_set(o in [body] + wheels)
+        o.select_set(o in [body] + wheels + exhausts)
     bpy.ops.export_scene.gltf(filepath=os.path.abspath(out), export_format="GLB", use_selection=True,
                               export_apply=True, export_yup=True, export_materials="EXPORT",
                               export_image_format="AUTO")

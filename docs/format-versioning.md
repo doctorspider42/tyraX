@@ -176,6 +176,13 @@ path that needs no GUI dialog.
 
 ## Format history
 
+Format 93 (editor 1.167.0) adds a vehicle definition's bake-measured
+`"exhausts"` list (each pipe's opening and direction, written only when the
+model marks any) and the drive-spec key `exhaustSmoke`
+([vehicles.md](vehicles.md#exhaust-pipes)). Missing means no markers - the
+guessed rear pipes - and smoke 1, so an older car smokes too; it is
+presentation. Additive; no migration step.
+
 Format 85 combines two branches that independently used v82 and v83. The
 vehicles branch added global tuning defaults and per-field overrides; the
 procedural branch added placement rules and, at v84, frozen procedural graphs.

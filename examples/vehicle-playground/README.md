@@ -56,7 +56,11 @@ blender -b --factory-startup --python authoring/make-ravager.py
 blender -b --factory-startup --python authoring/make-ravager-far.py
 ```
 
-`authoring/add-fast-wheels.py` makes the optional fast-wheel variants. The
+`authoring/add-fast-wheels.py` makes the optional fast-wheel variants, and
+`authoring/add-exhaust-markers.py` writes each car's `exhaust` empties (its
+`EXHAUSTS` list) into the shipped GLB without re-exporting it - the nitrous
+flame, the upshift pop and the exhaust smoke come out of those
+([Exhaust pipes](../../docs/vehicles.md#exhaust-pipes)). The
 district and procedural scene have their own `build-district.py`,
 `make-plaza.py` and `make-procedural-scene.py` sources. Run scene authoring
 scripts on a copy when you want to replace an edited scene.
