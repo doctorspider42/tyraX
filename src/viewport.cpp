@@ -276,6 +276,7 @@ uniform int uAoCount;
 uniform int uAoSelfObj;          // scene-object index drawing now (-1 terrain)
 uniform int uAoGround;           // 1 = terrain contact term (objects only)
 uniform int uAoReceive;          // 0 = this draw receives no AO (models)
+uniform int uAoPerPixel;         // 1 = PS2 shading's terrain: AO in the fragment stage
 uniform vec4 uAoPos[32];         // xyz = center, w = 1 sphere / 0 box
 uniform vec4 uAoAx[32];          // local X axis, w = half extent x (or radius)
 uniform vec4 uAoAy[32];          // local Y axis, w = half extent y
@@ -672,7 +673,13 @@ vec3 litShade(vec3 base, vec3 wp, vec3 n) {
     // exactly what this term is.
     // With a lightmap the occlusion is its alpha channel, applied per pixel in
     // lmApply the way the console's alpha-over pass applies it.
-    if (uAoOn != 0 && uAoReceive != 0 && uLmMode == 0)
+#ifdef PS2_VERTEX
+    // PS2 shading's terrain takes it per pixel in FS_VTX_MAIN instead.
+    bool aoAtVertex = uAoPerPixel == 0;
+#else
+    bool aoAtVertex = true;  // the per-pixel program is per pixel already
+#endif
+    if (uAoOn != 0 && uAoReceive != 0 && uLmMode == 0 && aoAtVertex)
         shade *= 1.0 - uAoStrength * aoOcclusion(wp, n);
 #ifdef PS2_VERTEX
     // PS2 shading: lights land exactly the way the console lands them.
@@ -969,6 +976,16 @@ void main() {
     float a = uAlpha != 0 ? texel.a : 1.0;
     if (uAlpha != 0 && a < 0.02) discard;
     vec3 shade = uPs2Flat != 0 ? gShadeFlat : gShade;
+    // The terrain's ambient occlusion is a TEXTURE pass on the console (the
+    // baked terrain map, alpha-over, per pixel), never part of the flat chunk
+    // colour - so it is applied here, per pixel, and litShade skips it. Done
+    // per vertex it took the provoking corner's occlusion across each flat
+    // cell and printed a checkerboard of dark cells around every object.
+    if (uAoPerPixel != 0 && uAoOn != 0 && uAoReceive != 0 && uLmMode == 0) {
+        vec3 nPix = normalize(cross(dFdx(gWorld), dFdy(gWorld)));
+        if (nPix.y < 0.0) nPix = -nPix;  // the ground faces up
+        shade *= 1.0 - uAoStrength * aoOcclusion(gWorld, nPix);
+    }
     // The baked lightmaps stay per PIXEL here too: on the console they are
     // texture passes, per pixel by construction, whatever the shading mode.
     vec3 lmAdd = vec3(0.0);
@@ -1582,6 +1599,7 @@ void Viewport::querySceneLocations(uint32_t prog) {
     // Only the PS2-shading program has these; -1 elsewhere makes the
     // per-draw glUniform1i a no-op.
     uPs2Flat_ = glGetUniformLocation(prog, "uPs2Flat");
+    uAoPerPixel_ = glGetUniformLocation(prog, "uAoPerPixel");
     uFoliageImpostor_ = glGetUniformLocation(prog, "uFoliageImpostor");
     uPs2NoDyn_ = glGetUniformLocation(prog, "uPs2NoDynLight");
 }
@@ -5754,6 +5772,8 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
     // ...and whether that bag opted out of the dynamic-light pick the way
     // the terrain does (dynLightPick = false - the pool is its light).
     int ps2NoDyn = 0;
+    // ...and whether its AO is a per-pixel pass on the console (the terrain).
+    int aoPerPixel = 0;
     // Emissive floor of the NEXT draw, already multiplied by the object tint
     // (see the uEmissive comment in FS). One-shot: draw() consumes it and
     // resets to zero, so every gizmo, wire, marker and overlay that does not
@@ -5975,6 +5995,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         glUniform1i(uFoliageImpostor_, ps2Flat == 2);
         glUniform1i(uPs2Flat_, ps2Flat);    // no-op on the per-pixel program
         glUniform1i(uPs2NoDyn_, ps2NoDyn);  // no-op on the per-pixel program
+        glUniform1i(uAoPerPixel_, aoPerPixel);  // no-op on the per-pixel program
         glUniform1i(uAoSelfObj_, aoSelfObj);
         // The ground-contact term needs a ground: with the terrain removed the
         // shader would darken every object against the y = 0 plane it samples
@@ -6129,6 +6150,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         aoReceive = true;
         ps2Flat = 1;          // terrain chunks are TyraShadingFlat bags
         ps2NoDyn = 1;         // ...with dynLightPick = false: pool, not slot
+        aoPerPixel = 1;       // ...and their AO is the terrain map's pass
         // THE GROUND NEVER TAKES PROBE LIGHT, with or without a lightmap.
         //
         // The probe grid is built for objects: a few levels of samples a few
@@ -6192,6 +6214,7 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
             glUseProgram(sceneProgActive_);
         }
         ps2NoDyn = 0;  // objects keep the console's per-vertex light slot
+        aoPerPixel = 0;  // objects take AO per vertex, as pushVert does
         for (size_t oi = 0; oi < objects.size(); ++oi) {
             if (hiddenAt(oi)) continue;
             const SceneObject& o = objects[oi];

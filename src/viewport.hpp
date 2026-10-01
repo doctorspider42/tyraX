@@ -960,6 +960,7 @@ private:
     int uFoliageImpostor_ = -1;
     int uPs2Flat_ = -1;   // vtx program only: TyraShadingFlat per draw
     int uPs2NoDyn_ = -1;  // vtx program only: dynLightPick=false per draw
+    int uAoPerPixel_ = -1;  // vtx program only: terrain AO in the fragment stage
     // GL_LINES cannot pass through a triangles geometry shader, so when the
     // vtx program is active the draw helpers detour lines through program_
     // with this small location set (unlit geometry reads nothing else).
