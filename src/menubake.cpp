@@ -607,11 +607,17 @@ const std::vector<std::string>& builtinIconNames() {
     return v;
 }
 
+const std::vector<std::string>& optionalBuiltinIconNames() {
+    static const std::vector<std::string> v = {"lstick", "rstick"};
+    return v;
+}
+
 bool bakeBuiltinIconRGBA(const std::string& name, int px,
                          std::vector<unsigned char>& out) {
     if (px < 8 || px > 256) return false;
     bool known = false;
     for (const std::string& n : builtinIconNames()) known |= (n == name);
+    for (const std::string& n : optionalBuiltinIconNames()) known |= (n == name);
     if (!known) return false;
 
     out.assign((size_t)px * px * 4, 0);
@@ -674,6 +680,12 @@ bool bakeBuiltinIconRGBA(const std::string& name, int px,
             const float d = d1 < d2 ? (d1 < d3 ? d1 : d3) : (d2 < d3 ? d2 : d3);
             return d - stroke;
         }, kIconTriangle);
+    } else if (name == "lstick" || name == "rstick") {
+        // A stick reads as its thumb cap seen from above: the ring with the
+        // side's letter inside. A ring is what tells it apart from L3/R3,
+        // which are the label alone.
+        fillSdf(out, px, ring, kIconWhite);
+        drawIconLabel(out, px, name == "lstick" ? "L" : "R", 0.62f);
     } else if (name.rfind("dpad", 0) == 0) {
         fillSdf(out, px, ring, kIconWhite);
         // A solid ARROW, not a cross with a highlighted arm: the four

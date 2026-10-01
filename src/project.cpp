@@ -115,7 +115,7 @@ std::vector<int> Project::atlasFontIndices() const {
     // HUD would draw nothing at all, which reads as a broken feature rather
     // than as a missing asset (docs/vehicles.md).
     for (const VehicleDef& v : vehicles)
-        if (v.showHud) want(v.hudFont);
+        if (v.showHud || v.tutorialSeconds > 0.0f) want(v.hudFont);
     std::sort(out.begin(), out.end());
     return out;
 }
@@ -3148,6 +3148,9 @@ static void writeVehicleArray(std::ostream& json, const std::vector<VehicleDef>&
             json << ", \"hud\": " << (v.showHud ? "true" : "false")
                  << ", \"hudFont\": \"" << jsonEscape(v.hudFont)
                  << "\", \"hudSpeedScale\": " << fmtFloat(v.hudSpeedScale);
+        // Written only when on, so a car without the card resaves unchanged.
+        if (v.tutorialSeconds != 0.0f)
+            json << ", \"tutorial\": " << fmtFloat(v.tutorialSeconds);
         const bool engineTuned = v.enginePitchIdle != 0.75f ||
                                  v.enginePitchRedline != 2.4f ||
                                  v.engineVolume != 70.0f;
@@ -3326,6 +3329,9 @@ static void readVehicleArray(const json::Value& root, std::vector<VehicleDef>& d
         if (const json::Value* x = e.find("hudFont")) v.hudFont = x->stringOr("");
         if (const json::Value* x = e.find("hudSpeedScale"))
             v.hudSpeedScale = (float)x->numberOr(v.hudSpeedScale);
+        if (const json::Value* x = e.find("tutorial"))
+            v.tutorialSeconds =
+                std::clamp((float)x->numberOr(0.0), 0.0f, 60.0f);
         if (const json::Value* x = e.find("engineSound"))
             v.engineSound = x->stringOr("");
         if (const json::Value* x = e.find("engineHighSound"))
@@ -4721,6 +4727,21 @@ void ensureTextIcons(Project& p) {
         ic.path = "res/hud/" + menubake::iconFileName(name);
         p.textIcons.push_back(std::move(ic));
     }
+}
+
+bool ensureStickIcons(Project& p) {
+    bool added = false;
+    for (const std::string& name : menubake::optionalBuiltinIconNames()) {
+        bool have = false;
+        for (const TextIcon& ic : p.textIcons) have |= (ic.name == name);
+        if (have) continue;
+        TextIcon ic;
+        ic.name = name;
+        ic.path = "res/hud/" + menubake::iconFileName(name);
+        p.textIcons.push_back(std::move(ic));
+        added = true;
+    }
+    return added;
 }
 
 int saveMenuIndex(const Project& p) {

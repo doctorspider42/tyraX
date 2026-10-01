@@ -360,6 +360,12 @@ std::string atlasFileName(const std::string& fontName);
 // `{{action:jump}}` resolve to a button's icon.
 const std::vector<std::string>& builtinIconNames();
 
+// Built-in drawings that are NOT seeded into every project: the two analog
+// sticks ("lstick", "rstick"), which are not buttons and so no binding can
+// name them. Added on demand (project::ensureStickIcons) - the vehicle
+// controls card asks for them - and generated like the rest once listed.
+const std::vector<std::string>& optionalBuiltinIconNames();
+
 // Draws the built-in icon `name` at px x px into RGBA `out`. False when the
 // name is not a built-in one (a user icon has a PNG instead) or px is unusable.
 bool bakeBuiltinIconRGBA(const std::string& name, int px,

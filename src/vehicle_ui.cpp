@@ -1207,6 +1207,22 @@ void App::drawVehicleWindow() {
                     "whatever this project decided it is, so this cannot be\n"
                     "guessed: 3.6 turns metres per second into km/h.");
             }
+            bool card = v.tutorialSeconds > 0.0f;
+            if (ImGui::Checkbox("Controls card on entry", &card)) {
+                v.tutorialSeconds = card ? 8.0f : 0.0f;
+                // The card's steering rows want stick glyphs.
+                if (card) project::ensureStickIcons(project_);
+            }
+            vehicleHelp(
+                "The first time each car is entered: its controls, with the\n"
+                "buttons they are bound to now. Rows tick off as tried.");
+            if (card) {
+                if (!v.showHud) fontCombo(v.hudFont);
+                ImGui::SetNextItemWidth(scaled(220));
+                ImGui::DragFloat("Card stays", &v.tutorialSeconds, 0.1f, 1.0f, 60.0f,
+                                 "%.0f s");
+                if (v.tutorialSeconds < 1.0f) v.tutorialSeconds = 1.0f;
+            }
 
             ImGui::EndTabItem();
         }
