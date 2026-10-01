@@ -1324,6 +1324,98 @@ static int bakeModelAoFromCli(int argc, char** argv) {
     return failed ? 1 : 0;
 }
 
+// tyrax-editor --bake-status <projectDir>
+//
+// Is every bake cache still FRESH? Read-only: it bakes nothing, writes nothing
+// and does not refresh the generated files. One line per cache - the GI and
+// baked-shadow cache of each scene, the pre-lit objects and the model AO maps -
+// reading `fresh`, `stale`, `absent` or `off`. Exit 0 when nothing that exists
+// is stale, 3 when something is.
+//
+// It exists because a stale cache is SILENT by design (the scene falls back to
+// the pre-GI lighting, or to no baked shadows) and the only other readouts were
+// the Ambience Editor's table and a re-bake that takes minutes. It is how the
+// line-ending fix of 1.164.2 was checked: a copy of an example with its .obj and
+// .mtl files converted to CRLF must still read `fresh` (docs/global-
+// illumination.md, "Line endings do not stale a cache").
+static int bakeStatusFromCli(int argc, char** argv) {
+    if (argc < 3) {
+        std::fprintf(stderr, "usage: tyrax-editor --bake-status <projectDir>\n");
+        return 2;
+    }
+    Project p;
+    if (std::string err = project::load(p, argv[2]); !err.empty()) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
+    int stale = 0;
+    const gibake::Settings gst = gibake::settingsOf(p.settings);
+    const shadowbake::Options sopt = shadowbake::optionsOf(p.settings);
+    for (int si = 0; si < (int)p.scenes.size(); ++si) {
+        const SceneData& sc = p.scenes[si];
+        // GI. read() refuses a cache of another format version, so "absent"
+        // covers both "never baked" and "baked by an older cache version".
+        if (!p.settings.giEnabled) {
+            std::printf("gi       %s: off\n", sc.name.c_str());
+        } else {
+            gibake::Bake b;
+            if (!gibake::read(gibake::cachePath(p, si), b)) {
+                std::printf("gi       %s: absent (or an older cache version)\n",
+                            sc.name.c_str());
+            } else {
+                const uint64_t live = gibake::signature(p, sc, gst);
+                const bool ok = b.signature == live;
+                if (!ok) ++stale;
+                std::printf("gi       %s: %s (cache %016llx, live %016llx)\n",
+                            sc.name.c_str(), ok ? "fresh" : "STALE",
+                            (unsigned long long)b.signature,
+                            (unsigned long long)live);
+            }
+        }
+        // Baked shadows, the same way.
+        if (!p.settings.bakedShadows) {
+            std::printf("shadows  %s: off\n", sc.name.c_str());
+        } else {
+            shadowbake::Bake b;
+            if (!shadowbake::read(shadowbake::cachePath(p, si), b)) {
+                std::printf("shadows  %s: absent (or an older cache version)\n",
+                            sc.name.c_str());
+            } else {
+                const uint64_t live = shadowbake::signature(p, sc, sopt);
+                const bool ok = b.signature == live;
+                if (!ok) ++stale;
+                std::printf("shadows  %s: %s (cache %016llx, live %016llx)\n",
+                            sc.name.c_str(), ok ? "fresh" : "STALE",
+                            (unsigned long long)b.signature,
+                            (unsigned long long)live);
+            }
+        }
+        // Pre-lit objects: only the ones a bake stamped carry a signature.
+        // The CLI defaults, as --bake-prelit uses (docs/prelit-models.md).
+        const litbake::Params lprm;
+        const std::vector<char> fl = litbake::freshFlags(p, sc, lprm);
+        for (int oi = 0; oi < (int)sc.objects.size(); ++oi) {
+            const SceneObject& o = sc.objects[oi];
+            if (!o.prelit || !o.prelitSig) continue;
+            if (!fl[oi]) ++stale;
+            std::printf("prelit   %s / %s: %s\n", sc.name.c_str(), o.name.c_str(),
+                        fl[oi] ? "fresh" : "STALE");
+        }
+    }
+    // Model AO: the signature is in the file name, so "fresh" is "a map with
+    // this name exists". Not checked in anywhere - a missing map is baked by the
+    // next build - so absent is reported but does not fail the check.
+    const modelao::Params aprm = modelao::paramsOf(p.settings);
+    for (const modelao::Target& t : modelao::plan(p, aprm).targets) {
+        if (!modelao::resolveFor(p, t.modelRel, aprm)) continue;
+        std::printf("modelao  %s : %s: %s\n", t.modelRel.c_str(),
+                    t.textureRel.c_str(),
+                    modelao::fresh(p, t, aprm) ? "fresh" : "absent or stale");
+    }
+    std::printf("bake status: %s\n", stale ? "STALE" : "fresh");
+    return stale ? 3 : 0;
+}
+
 // Bakes global illumination for every scene (docs/global-illumination.md) into
 // .res-baked/gi/, then refreshes the generated files so the probe table and
 // the lightmap flags follow immediately. The GUI's Tools > Global
@@ -4717,6 +4809,8 @@ int main(int argc, char** argv) {
         return bakePrelitFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--bake-gi") == 0)
         return bakeGiFromCli(argc, argv);
+    if (argc > 1 && std::strcmp(argv[1], "--bake-status") == 0)
+        return bakeStatusFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--bake-shadows") == 0)
         return bakeShadowsFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--bake-particles") == 0)
@@ -4791,6 +4885,8 @@ int main(int argc, char** argv) {
             "  --refresh-gen <projectDir>\n"
             "  --bake-gi <projectDir>                  bake global "
             "illumination + light probes\n"
+            "  --bake-status <projectDir>              is every bake cache "
+            "fresh? read-only; exit 3 = stale\n"
             "  --bake-model-ao <projectDir> [--texbake]\n"
             "                                          bake every model "
             "asset's own AO into its texture\n"

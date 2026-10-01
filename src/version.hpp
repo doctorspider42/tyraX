@@ -5516,6 +5516,9 @@
 // District's open road on a PS2.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 164
+// 1.164.2: the GI, pre-lit and model-AO signatures ignore line endings in
+// asset files (GI cache v8, lit sig v2, model AO v2); the four GI examples are
+// re-baked; --bake-status reports every cache's freshness without baking.
 // 1.164.1: the shadow bake is 13x faster on Motor District (13.3 s -> 1.0 s):
 // decalproj caches parsed models and road triangles; --bake-shadows prints a
 // per-stage time split.
@@ -5582,7 +5585,7 @@
 // existing unlit VU1 path; conservative local bounds, custom stages unchanged.
 // 1.150.1: prepare driveable vehicle HUD fonts during scene loading; plain
 // runtime text no longer loads the icon sheet before drawing an actual icon.
-#define TYRAX_VERSION_PATCH 1
+#define TYRAX_VERSION_PATCH 2
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
