@@ -5515,7 +5515,11 @@
 // host-baked albedo map (REFL_GROUND_*): -2 ms a turning frame on the Motor
 // District's open road on a PS2.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 167
+#define TYRAX_VERSION_MINOR 168
+// 1.168.0: Use enters the car you LOOK at (in reach + under the camera aim,
+// vehicleUseTarget), not whichever is near; the prompt follows it. Exiting
+// picks the first spot clear of every collision box - a walker placed
+// inside one (a neighbouring car) could not move until it jumped.
 // 1.167.0: exhaust pipes marked in the model - an empty named "exhaust" at
 // each opening (any number, up to six), arrow pointing out of the pipe. The
 // nitrous flame, the shift backfire and a new constant exhaust smoke

@@ -6850,8 +6850,7 @@ static void writeObjectDataRow(std::ostringstream& out, const Project& p,
         // disqualifies an object from the matrix fast path (the USE highlight
         // re-submits world-space vertices), so a usable car paid a full
         // 1072-triangle rebuild on every driven frame. Enter/exit is a
-        // proximity test in updateVehicles instead - the cost is that no
-        // "press USE" prompt appears yet, and docs/vehicles.md says so.
+        // reach-and-aim test in updateVehicles instead (vehicleUseTarget).
         << ((o.usable || o.type == PrimitiveType::SavePoint) ? 1 : 0) << ", "
         << (o.pickable ? 1 : 0) << ", " << (o.pickThrow ? 1 : 0) << ", "
         << o.emitterKind << ", " << o.emitterCount << ", "
@@ -12165,6 +12164,15 @@ static std::string vehicleMembers(const Project& p) {
   float vehCamOrbit_ = 0.0F;
   float vehCamLift_ = 0.0F;
   int vehiclePrompt_ = 0;   // draw the USE prompt: on foot, near a driveable car
+  // The ONE car USE would enter this frame (-1 = none): in reach AND looked
+  // at. The prompt and the click both read it, so two cars side by side can
+  // never show one and enter the other.
+  int vehicleUseTarget() const;
+  // Would a walker standing here be stopped dead? collidePlayer freezes a
+  // walker that is already inside a collision box on both axes, so an exit
+  // spot inside a neighbouring car or wall left the player unable to move
+  // until a jump lifted their feet over the box's top.
+  bool vehExitSpotFree(float x, float z, float feetY) const;
   // Which camera the driver is looking through, cycled with Triangle.
   // 0 = chase, 1 = bumper, 2 = far. See vehicleCameraFor().
   int vehCamMode_ = 0;
@@ -14621,6 +14629,115 @@ void TerrainGame::collideVehicleCamera() {
                      pz + cosf(v.yaw * 0.0174532925F), 1.0F);
 }
 
+// The car USE enters: in reach of the walker AND under the camera's aim.
+// The aim is the camera ray across the ground (camera to look-at), so it is
+// "what the screen centre points at" in first and third person alike. A car
+// whose footprint the ray crosses wins, nearest crossing first; failing that,
+// the car closest to the aim within a 45-degree cone. Nothing in the cone =
+// no target: standing between two cars and looking away from both enters
+// neither, which is the point - proximity alone picked the wrong one.
+int TerrainGame::vehicleUseTarget() const {
+  if (vehicleDriver_ >= 0 || PLAYER_INDEX < 0) return -1;
+  const float kDeg = 3.14159265F / 180.0F;
+  float ax = cameraLookAt.x - cameraPosition.x, az = cameraLookAt.z - cameraPosition.z;
+  float al = sqrtf(ax * ax + az * az);
+  if (al < 0.0001F) {  // looking straight down/up: fall back to the walker's yaw
+    ax = sinf(players[0].yaw);
+    az = cosf(players[0].yaw);
+    al = 1.0F;
+  }
+  ax /= al;
+  az /= al;
+  const float ox = cameraPosition.x, oz = cameraPosition.z;
+  int best = -1, bestCone = -1;
+  float bestT = 1e30F, bestCos = 0.7071F;  // cos 45 deg
+  for (int vi = 0; vi < vehicleCount_; ++vi) {
+    const VehicleRt& v = vehicles_[vi];
+    if (!v.active || v.def < 0 || !v.driveable) continue;
+    const VehicleDefData& s = VEHICLE_DEFS[v.def];
+    const float SC = v.scale;
+    // ONE radius decides both the prompt and the click.
+    const float useRadius = s.wheelBase * SC * 1.2F + 2.0F;
+    const float pdx = v.pos[0] - players[0].x, pdz = v.pos[2] - players[0].z;
+    if (pdx * pdx + pdz * pdz >= useRadius * useRadius) continue;
+    // The aim ray against the car's footprint, in the car's own frame.
+    const float c = cosf(v.yaw * kDeg), sn = sinf(v.yaw * kDeg);
+    const float rx = ox - v.pos[0], rz = oz - v.pos[2];
+    const float lx = rx * c - rz * sn, lz = rx * sn + rz * c;
+    const float dx = ax * c - az * sn, dz = ax * sn + az * c;
+    const float hw = (s.track * 0.5F + s.wheelRadius * 0.6F) * SC + 0.2F;
+    const float hl = (s.wheelBase * 0.5F + s.wheelRadius * 1.4F) * SC + 0.2F;
+    float t0 = 0.0F, t1 = 1e30F;
+    bool hit = true;
+    const float o2[2] = {lx, lz}, d2[2] = {dx, dz}, h2[2] = {hw, hl};
+    for (int k = 0; k < 2 && hit; ++k) {
+      if (fabsf(d2[k]) < 1e-6F) {
+        if (o2[k] < -h2[k] || o2[k] > h2[k]) hit = false;
+      } else {
+        float ta = (-h2[k] - o2[k]) / d2[k], tb = (h2[k] - o2[k]) / d2[k];
+        if (ta > tb) { const float tt = ta; ta = tb; tb = tt; }
+        if (ta > t0) t0 = ta;
+        if (tb < t1) t1 = tb;
+        if (t0 > t1) hit = false;
+      }
+    }
+    if (hit && t0 < bestT) {
+      bestT = t0;
+      best = vi;
+    }
+    // The cone fallback measures from the camera too, so a third-person
+    // camera behind the avatar judges the angle the player sees on screen.
+    const float cx = v.pos[0] - ox, cz = v.pos[2] - oz;
+    const float cl = sqrtf(cx * cx + cz * cz);
+    const float cosA = cl > 0.0001F ? (cx * ax + cz * az) / cl : 1.0F;
+    if (cosA > bestCos) {
+      bestCos = cosA;
+      bestCone = vi;
+    }
+  }
+  return best >= 0 ? best : bestCone;
+}
+
+// Box colliders only: that is the branch of collidePlayer that freezes a
+// walker found inside (a mesh collider pushes the walker out instead), plus
+// the merged procedural boxes, which share that rule.
+bool TerrainGame::vehExitSpotFree(float x, float z, float feetY) const {
+  const float playerRadius = 0.35F;
+  const float eye = PLAYER_EYE_HEIGHT;
+  for (int oi = 0; oi < (int)runtimeObjects.size(); ++oi) {
+    const RuntimeObject& o = runtimeObjects[oi];
+    if (!o.active || !o.visible || !objectCollides(o.data)) continue;
+    if (o.data.collision == 1 && o.data.type == 5 && o.data.model >= 0 &&
+        o.data.model < (int)gameModels.size() &&
+        !gameModels[o.data.model].collider.empty())
+      continue;
+    const CollisionBox cb = objectCollisionBox(o);
+    const V3 cw = boxRotate({cb.center[0], cb.center[1], cb.center[2]}, o.data);
+    const float cx = o.data.position[0] + cw.x;
+    const float cy = o.data.position[1] + cw.y;
+    const float cz = o.data.position[2] + cw.z;
+    const float top = cy + cb.half[1], bottom = cy - cb.half[1];
+    // Low enough to step onto, or entirely overhead: not a wall.
+    if (feetY + 0.5F >= top || bottom >= feetY + eye) continue;
+    const float yaw = (o.data.rotation[1] + cb.yaw) * 3.14159265F / 180.0F;
+    const float yc = cosf(yaw), ys = sinf(yaw);
+    const float dx = x - cx, dz = z - cz;
+    const float lx = dx * yc - dz * ys, lz = dx * ys + dz * yc;
+    // A little margin over the walker's own radius, so the first step is
+    // not already grazing the wall.
+    const float hx = cb.half[0] + playerRadius + 0.1F;
+    const float hz = cb.half[2] + playerRadius + 0.1F;
+    if (lx > -hx && lx < hx && lz > -hz && lz < hz) return false;
+  }
+  for (const StaticBox& b : procColliders) {
+    if (b.mx[1] <= feetY + 0.6F || b.mn[1] >= feetY + eye) continue;
+    if (x > b.mn[0] - playerRadius && x < b.mx[0] + playerRadius &&
+        z > b.mn[2] - playerRadius && z < b.mx[2] + playerRadius)
+      return false;
+  }
+  return true;
+}
+
 void TerrainGame::updateVehicles(float dt) {
   if (dt <= 0.0F) return;
   if (dt > 0.05F) dt = 0.05F;
@@ -14645,12 +14762,38 @@ void TerrainGame::updateVehicles(float dt) {
     const float side = s.exitOffset[0] < 0.0F ? -1.0F : 1.0F;
     const float minSide = (s.track * 0.5F + s.wheelRadius) * SC + 0.65F;
     const float authoredSide = fabsf(s.exitOffset[0] * SC);
-    const float localSide = side * fmaxf(authoredSide, minSide);
+    const float doorSide = fmaxf(authoredSide, minSide);
     const float localForward = s.exitOffset[2] * SC;
-    players[0].x = v.pos[0] + localSide * ec + localForward * es;
-    players[0].z = v.pos[2] - localSide * es + localForward * ec;
-    players[0].y = fmaxf(v.pos[1] + s.exitOffset[1] * SC,
-                          terrainHeightAt(players[0].x, players[0].z));
+    const float endOut = (s.wheelBase * 0.5F + s.wheelRadius * 1.4F) * SC + 0.9F;
+    // The door first, then further out, then the other side, then behind and
+    // in front. collidePlayer stops a walker DEAD inside a collision box, so
+    // a door that opens into a neighbouring car or a wall must not be where
+    // the player lands - they could not move again until a jump lifted their
+    // feet over the box. The first spot that is clear wins; if none is, the
+    // door spot stands (the old behaviour).
+    const float cand[8][2] = {
+        {side * doorSide, localForward},          {side * (doorSide + 0.7F), localForward},
+        {-side * doorSide, localForward},         {-side * (doorSide + 0.7F), localForward},
+        {0.0F, -endOut},                          {0.0F, endOut},
+        {side * (doorSide + 1.5F), localForward}, {-side * (doorSide + 1.5F), localForward}};
+    int pick = 0;
+    float px = 0.0F, pz = 0.0F, py = 0.0F;
+    for (int k = 0; k < 8; ++k) {
+      const float cx = v.pos[0] + cand[k][0] * ec + cand[k][1] * es;
+      const float cz = v.pos[2] - cand[k][0] * es + cand[k][1] * ec;
+      const float cy = fmaxf(v.pos[1] + s.exitOffset[1] * SC, terrainHeightAt(cx, cz));
+      if (k == 0) { px = cx; pz = cz; py = cy; }
+      if (vehExitSpotFree(cx, cz, cy)) {
+        pick = k;
+        px = cx; pz = cz; py = cy;
+        break;
+      }
+      pick = -1;
+    }
+    players[0].x = px;
+    players[0].z = pz;
+    players[0].y = py;
+    TYRA_LOG("VEH exit spot ", pick);
     const float travelX = v.speed * es + v.lateral * ec;
     const float travelZ = v.speed * ec - v.lateral * es;
     players[0].yaw = travelX * travelX + travelZ * travelZ > 0.25F
@@ -14705,6 +14848,8 @@ void TerrainGame::updateVehicles(float dt) {
   // same frame keeps the first one's list instead of re-walking every object.
   if (!(TYRA_VEH_SUBSTEP_REUSE && vehSubStepRepeat_)) buildVehicleColliders();
   if ((int)vehGather_.size() < vehicleCount_) vehGather_.resize((size_t)vehicleCount_);
+  // Taken once, before any car can change vehicleDriver_ this frame.
+  const int useTarget = vehicleUseTarget();
   for (int vi = 0; vi < vehicleCount_; ++vi) {
     VehicleRt& v = vehicles_[vi];
     if (!v.active || v.def < 0) continue;
@@ -14729,40 +14874,23 @@ void TerrainGame::updateVehicles(float dt) {
       v.dmgPreV[1] = v.speed * cy0 - v.lateral * sy0;
       if (v.dmgCool > 0.0F) v.dmgCool -= dt;
     }
-    // ONE radius decides both the prompt and the click - two formulas here
-    // would show a prompt for a car you cannot enter, or the reverse.
-    const float useRadius = s.wheelBase * SC * 1.2F + 2.0F;
-    if (vehicleDriver_ < 0 && v.driveable && PLAYER_INDEX >= 0) {
-      const float pdx = players[0].x - v.pos[0];
-      const float pdz = players[0].z - v.pos[2];
-      if (pdx * pdx + pdz * pdz < useRadius * useRadius) vehiclePrompt_ = 1;
-    }
+    // ONE target decides both the prompt and the click (vehicleUseTarget):
+    // in reach AND looked at - two formulas here would show a prompt for a
+    // car you cannot enter, or enter the neighbour of the one you meant.
+    if (vi == useTarget) vehiclePrompt_ = 1;
 
-    // Enter and exit, by PROXIMITY - not through the usable machinery, which
-    // costs the matrix fast path (see the scene-row emitter). The price is
-    // that no "press USE" prompt appears yet.
+    // Enter and exit - not through the usable machinery, which costs the
+    // matrix fast path (see the scene-row emitter).
     if (!useHandled && !vehSubStepRepeat_ && PLAYER_INDEX >= 0 &&
         inputClicked(engine->pad, IA_ROLE_USE)) {
-      {
-        const float ddx0 = players[0].x - v.pos[0];
-        const float ddz0 = players[0].z - v.pos[2];
-        const float er0 = s.wheelBase * SC * 1.2F + 1.5F;
-        TYRA_LOG("VEH use-click d2x10 ", (int)((ddx0 * ddx0 + ddz0 * ddz0) * 10.0F),
-                 " er2x10 ", (int)(er0 * er0 * 10.0F), " drv ", vehicleDriver_,
-                 " drb ", v.driveable, " sc10 ", (int)(SC * 10.0F));
-      }
       if (vi == vehicleDriver_) {
         exitAtDoor(vi);
         useHandled = 1;
-      } else if (vehicleDriver_ < 0 && v.driveable) {
-        const float ddx = players[0].x - v.pos[0];
-        const float ddz = players[0].z - v.pos[2];
-        if (ddx * ddx + ddz * ddz < useRadius * useRadius) {
-          vehicleDriver_ = vi;
-          vehCamYaw_ = v.yaw;
-          useHandled = 1;
-          TYRA_LOG("VEH enter ", vi);
-        }
+      } else if (vi == useTarget) {
+        vehicleDriver_ = vi;
+        vehCamYaw_ = v.yaw;
+        useHandled = 1;
+        TYRA_LOG("VEH enter ", vi);
       }
     }
 
@@ -17683,7 +17811,7 @@ static std::string vehicleHudCall(const Project& p) {
 }
 
 static std::string vehicleUseCall(const Project& p) {
-    // Nothing: enter/exit moved into updateVehicles as a proximity test, since
+    // Nothing: enter/exit moved into updateVehicles (vehicleUseTarget), since
     // riding the usable machinery cost the matrix fast path (see the row
     // emitter). The placeholder stays so growing this back needs no template
     // edit.

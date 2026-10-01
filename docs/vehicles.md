@@ -1,8 +1,8 @@
 # Vehicles
 
 Create a vehicle definition in **Tools > Vehicle Editor**, assign an imported
-model, then place instances in scenes. Walk up to a driveable vehicle and press
-**Use** to enter; press it again to exit. The same definition can serve many
+model, then place instances in scenes. Walk up to a driveable vehicle, look at
+it and press **Use** to enter; press it again to exit. The same definition can serve many
 placed cars. [The Blender tutorial](blender-vehicle-modeling.md) covers making
 and exporting a model from scratch. [Motor District](../examples/vehicle-playground/README.md)
 is a playable example with three editable Blender cars.
@@ -120,8 +120,20 @@ Throttle and brake read DualShock 2 pressure; digital sources use full input.
 Actions can be rebound in the [Input Map](input-bindings.md). The Driver tab
 sets the camera rig and door-side exit offset. Exit placement automatically
 keeps the player's capsule clear of the car's side even when the authored
-offset is too close; both Use and the Exit Vehicle flow node use it. Chase and
-far cameras shorten their boom against terrain and obstacles.
+offset is too close; both Use and the Exit Vehicle flow node use it. When the
+door opens into another car or a wall, the player is placed further out, on
+the other side, behind or in front - the first spot clear of every collision
+box (a walker that starts inside a box cannot move until it jumps out). The
+log line `VEH exit spot N` names the spot taken (0 = the door, -1 = none was
+clear, so the door spot stands). Chase and far cameras shorten their boom
+against terrain and obstacles.
+
+Use enters the car you are **looking at**, not just the nearest one: it must
+be in reach (1.2x wheelbase + 2 units from the player) and under the camera's
+aim - a car whose footprint the aim crosses wins, otherwise the car closest to
+the aim within 45 degrees. The prompt follows the same choice, so with two
+cars side by side it shows only for the one Use would enter.
+`TerrainGame::vehicleUseTarget` is that one decision.
 
 ### AI drivers and flow graphs
 
