@@ -222,6 +222,12 @@ bool read(const std::string& path, Bake& b);
 // to no baked shadows at all, the way a stale GI cache drops it back to the
 // pre-GI lighting.
 Bake load(const Project& p, int sceneIndex);
+// The cache as it is on disk, fresh or not - for the editor's preview while a
+// background re-bake catches up with an edit. Never for codegen: a stale bake
+// draws shadows where the casters no longer are.
+Bake loadAny(const Project& p, int sceneIndex);
+// Whether the scene's cache matches the project as it is now.
+bool isFresh(const Project& p, int sceneIndex);
 
 // Re-bake every scene whose cache is absent or stale; leave the fresh ones
 // alone and say so. Two callers, one loop: the pre-build step of `--build` and

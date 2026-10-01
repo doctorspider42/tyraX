@@ -1575,14 +1575,15 @@ void App::drawShadowBakeSection() {
         }
     }
     ImGui::BeginDisabled(!st.bakedShadows);
-    if (ImGui::Checkbox("Re-bake stale scenes before every build##shadow",
+    if (ImGui::Checkbox("Re-bake automatically (while editing and before every build)##shadow",
                         &st.bakedShadowAutoBake))
         commitChange();
     ImGui::EndDisabled();
-    prefHelp("Seconds, not minutes - this bake traces a couple of dozen rays "
-             "per texel against ONE caster's triangles, so it is the cheapest "
-             "of the three switches on this tab. Only stale scenes are "
-             "touched.");
+    prefHelp("Any edit to a caster or anything a shadow lands on makes the\n"
+             "scene's bake stale, and a stale bake draws nothing. With this on,\n"
+             "the active scene re-bakes in the background a second after your\n"
+             "last edit (the old shadows stay on screen meanwhile), and every\n"
+             "stale scene re-bakes before a build. A bake takes seconds.");
     if (totalCasters == 0 && st.bakedShadows)
         ImGui::TextDisabled(
             "Nothing casts one yet: pick Baked in Properties > Dynamic shadow.");

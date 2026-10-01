@@ -366,7 +366,29 @@ settings, the heightmap, and the transform and model bytes of every object that
 camera or the player's spawn cannot move a shadow, so moving one does not stale
 the bake. Move a caster or the wall it falls on and the scene reads **stale**;
 the cache is checked into git on purpose, like the GI one, so a clone keeps its
-shadows. **Re-bake stale scenes before every build** does it for you.
+shadows. **Re-bake automatically (while editing and before every build)** does
+it for you.
+
+**Re-baked while you edit (1.164.0).** The signature covers every caster and
+receiver at once, so moving ONE object made the whole scene's bake stale. A
+stale bake draws nothing, so every shadow in the scene disappeared until
+someone pressed Bake. With the automatic switch on:
+
+- The editor re-bakes the active scene in the background, one second after the
+  last edit (a gizmo drag is many edits, so it waits for them to settle).
+- An edit during an automatic bake cancels it, because that bake is already
+  out of date. A bake you started yourself is left to finish.
+- Meanwhile the viewport keeps the previous bake on screen
+  (`shadowbake::loadAny`). A moved caster's shadow trails it for a few seconds
+  instead of every shadow blinking out.
+- Codegen still reads only a fresh bake (`shadowbake::load`). The game never
+  gets shadows where the casters no longer are; the build's pre-bake covers
+  every stale scene.
+- With the switch off, the editor behaves as before: a stale bake shows
+  nothing, matching what the game would get.
+
+Motor District's main scene takes about 14 s to bake on the CPU, so expect
+that long a lag after an edit there.
 
 **A stale bake ships nothing, and the build says so.** There is no partial
 answer here — an out-of-date cache is not read at all — so a scene with casters

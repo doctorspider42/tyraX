@@ -1315,6 +1315,21 @@ Bake load(const Project& p, int sceneIndex) {
     return b;
 }
 
+Bake loadAny(const Project& p, int sceneIndex) {
+    Bake b;
+    if (sceneIndex < 0 || sceneIndex >= (int)p.scenes.size()) return b;
+    if (!p.settings.bakedShadows) return b;
+    if (!read(cachePath(p, sceneIndex), b)) return Bake();
+    return b;
+}
+
+bool isFresh(const Project& p, int sceneIndex) {
+    if (sceneIndex < 0 || sceneIndex >= (int)p.scenes.size()) return false;
+    Bake b;
+    return read(cachePath(p, sceneIndex), b) &&
+           b.signature == signature(p, p.scenes[sceneIndex], optionsOf(p.settings));
+}
+
 StaleReport bakeStale(const Project& p,
                       const std::function<void(const std::string&)>& log) {
     StaleReport rep;

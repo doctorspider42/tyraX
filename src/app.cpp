@@ -2519,12 +2519,20 @@ void App::updateShadowDecals() {
     mix(modelEditSerial_);
     mix(project_.settings.bakedShadows ? 1u : 0u);
     mix(shadowBaker_.version());
+    mix(project_.settings.bakedShadowAutoBake ? 1u : 0u);
     if (key == shadowPreviewKey_) return;
     shadowPreviewKey_ = key;
 
     Viewport::ShadowPreview pv;
     pv.version = ++shadowPreviewVersion_;
-    const shadowbake::Bake b = shadowbake::load(project_, project_.activeScene);
+    // With the background re-bake on, the last bake stays on screen until the
+    // new one lands - a moved caster's shadow trails it for a few seconds
+    // instead of every shadow in the scene blinking out. Without it, a stale
+    // bake shows nothing, exactly as the game would get nothing.
+    const shadowbake::Bake b =
+        project_.settings.bakedShadowAutoBake
+            ? shadowbake::loadAny(project_, project_.activeScene)
+            : shadowbake::load(project_, project_.activeScene);
     if (b.valid && (!b.groups.empty() || !b.ground.empty())) {
         pv.pageSize = shadowbake::kPageSize;
         // The pages as the console samples them: the bake's own tint in RGB,
@@ -2622,6 +2630,37 @@ void App::updateShadowDecals() {
 // Editor has to land whether or not that tab is still open when it ends.
 void App::shadowBakerPoll() {
     if (!hasProject_) return;
+    // Re-baked while you edit (docs/shadows.md): any edit makes the WHOLE
+    // scene's cache stale - the signature covers every caster and receiver -
+    // and a stale cache draws nothing, so one moved crate used to take every
+    // shadow in the scene with it until someone pressed Bake. With the
+    // auto-bake switch on, wait for the edits to settle (a gizmo drag is many
+    // edits), then re-bake the active scene in the background. The other
+    // scenes are left to the build's pre-bake.
+    {
+        const ProjectSettings& st = project_.settings;
+        const bool autoOn = st.bakedShadows && st.bakedShadowAutoBake;
+        const uint64_t key = modelEditSerial_ * 31u + (uint64_t)project_.activeScene;
+        if (!shadowBaker_.running()) shadowAutoRunning_ = false;
+        if (key != shadowAutoKey_) {
+            shadowAutoKey_ = key;
+            shadowAutoEditTime_ = ImGui::GetTime();
+            shadowAutoPending_ = autoOn;
+            // Baking a scene the next edit already invalidated is wasted time.
+            if (shadowAutoRunning_) {
+                shadowBaker_.cancel();
+                shadowAutoRunning_ = false;
+            }
+        }
+        if (autoOn && shadowAutoPending_ && !shadowBaker_.running() &&
+            ImGui::GetTime() - shadowAutoEditTime_ > 1.0) {
+            shadowAutoPending_ = false;
+            if (!shadowbake::isFresh(project_, project_.activeScene)) {
+                shadowBaker_.start(project_, {project_.activeScene});
+                shadowAutoRunning_ = true;
+            }
+        }
+    }
     const uint64_t v = shadowBaker_.version();
     if (v == shadowBakeVersion_) return;
     shadowBakeVersion_ = v;

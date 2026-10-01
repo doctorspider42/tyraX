@@ -2214,6 +2214,14 @@ private:
     // changed it, and the version the viewport rebuilds its GL meshes on.
     uint64_t shadowPreviewKey_ = 0;
     uint64_t shadowPreviewVersion_ = 0;
+    // Background re-bake (docs/shadows.md, "Re-baked while you edit"): with
+    // the auto-bake switch on, the active scene re-bakes itself a moment after
+    // the last edit. Keyed on (scene, modelEditSerial_); an edit during an
+    // AUTO bake cancels it - a manual one is left to finish.
+    uint64_t shadowAutoKey_ = ~0ull;
+    double shadowAutoEditTime_ = 0.0;
+    bool shadowAutoPending_ = false;
+    bool shadowAutoRunning_ = false;
     // Pre-lit models (docs/prelit-models.md): the scene's light baked into ONE
     // object's texture, from the button in Properties. Async because the bounce
     // solve is the expensive half; the result is applied on the UI thread, so
