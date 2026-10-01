@@ -2550,3 +2550,16 @@ implemented. The bounded same-range classification reuse trial was rejected: no
 convincing submission-time gain on physical PS2. Larger submission scheduling
 changes remain open; do not treat this as a shipped engine speedup. See
 [hardware profiler results](hardware-profiler-results.md).
+
+## Baked decals print onto receivers in front of the caster
+
+`shadowbake`'s per-triangle depth filter (`litPastCaster`, docs/shadows.md,
+"Print through a wall") keeps a receiver triangle whenever a sample point sees
+the sun, so a receiver on the SUNWARD side of the caster keeps the tile's ink.
+A caster sunk into another object (a post 0.8 units into a plinth) printed its
+buried silhouette on the plinth's lit face. The example was fixed in the scene;
+the bake fix is to split projected triangles into pieces (like the caster's own
+floor pass, `kSelfPiece`) and drop a piece whose points all have the caster
+BEHIND them along the light (a trace away from the sun hits the caster) and
+none has it toward the sun. Verify on a copy of examples/baked-shadows with
+post-5 back at y = 1.
