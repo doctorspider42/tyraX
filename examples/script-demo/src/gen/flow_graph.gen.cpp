@@ -97,7 +97,7 @@ class FlowGraphScript_0_0 : public Script {
     frame++;
     if (!started) {
       started = true;
-      ctx.skyColor = Tyra::Color(0.0F, 0.0F, 0.0F);
+      ctx.skyColor = Tyra::Color(140.25F, 191.25F, 242.25F);
     }
   }
 

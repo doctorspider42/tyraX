@@ -1451,6 +1451,17 @@ can. Calibration, all measured rather than reasoned:
 | 35 | a two-stage colour program — fine |
 | **36** | a four-stage colour program — `no opt table`, build dead |
 
+**It can also under-state, and that one is not academic.** Because the scan is
+linear, a per-mesh constant loaded in the preamble and last read in the
+per-buffer header (the GIF tag block) looks dead for the rest of the program -
+but the batch loop branches back to that header, so on the real machine it is
+live everywhere. The TC clip image read **30** here while it carried the TD path,
+and Sony's `vcl` refused it (`no opt table .. for sharedDirMode`, 33 live by hand
+count); openvcl only fitted it by sinking those loads into the header itself. So
+a number under the cliff is evidence, not proof: for any VU change, assemble the
+`.vclpp` under BOTH assemblers (docs/toolchain-image.md, "Sony's vcl is a build
+target too").
+
 The cliff is sharp, and it is close. **A cull-family program starts around 23**
 (the MVP matrix, the spot light's seven scratch registers, three vertices, three
 colours), so a stage list has roughly a dozen registers to spend. The sine is

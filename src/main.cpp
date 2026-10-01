@@ -4303,11 +4303,14 @@ static int vuCheckFromCli(int argc, char** argv) {
                     b.program.name.c_str(), pr.peak, vugen::kVfRegisters,
                     pr.names, pr.fits() ? "" : "   TIGHT");
     }
-    std::printf("  (an ESTIMATE, and it over-states: it ignores control flow "
-                "and cannot split a\n   live range the way vcl does. These ten "
-                "all compile, which is the calibration -\n   known-good at <= "
-                "27, measured to still compile at 32, measured to FAIL at "
-                "36.)\n\n");
+    std::printf("  (an ESTIMATE: it ignores control flow and cannot split a\n"
+                "   live range the way vcl does. Calibration - known-good at <= "
+                "27, measured to\n   still compile at 32, measured to FAIL at "
+                "36. It can also UNDER-state: a\n   constant loaded before the "
+                "batch loop and last read at its head counts as\n   dead inside "
+                "it - clip_tc read 30 here while Sony's vcl refused it. Only\n"
+                "   assembling under BOTH vcl and openvcl proves a program "
+                "fits.)\n\n");
 
     // 5. The authoring layer: every stage, both directions.
     const int stageFails = vuCheckStages(engine);

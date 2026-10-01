@@ -20,16 +20,11 @@
 #vuprog StaPipVU1ClipTC
 
     fcset      0x000000  ; ResetClipFlags
-    lq         gifSetTag, 19(vi00)  ; VU1_SET_GIFTAG_ADDR
     lq         mvp[0], 0(vi00)  ; MatrixLoad - VU1_MVP_MATRIX_ADDR
     lq         mvp[1], 1(vi00)
     lq         mvp[2], 2(vi00)
     lq         mvp[3], 3(vi00)
     lq         singleColor, 7(vi00)  ; VU1_SINGLE_COLOR_ADDR
-    lq         lodGifTag, 9(vi00)  ; VU1_LOD_ADDR
-    lq         testsTag, 10(vi00)  ; VU1_Z_TESTS_ADDR
-    lq         texBufferClutGifTag, 11(vi00)  ; VU1_CLUT_ADDR
-    lq         alphaGifTag, 21(vi00)  ; VU1_ALPHA_ADDR - per-mesh GS blend equation, in-band
     lq         fogParams, 8(vi00)  ; VU1_OPTIONS_ADDR.zw = GS hardware fog
     add.x      fogParams, vf00, fogParams[z]  ; fog scale into .x (CalculateTyraFog)
     lq         spotPos, 12(vi00)  ; LoadTyraSpotLight - reuses the dir-lights slots, free in the colour programs
@@ -57,6 +52,18 @@ begin:
 setDestAddrMultiColor:
     iadd       destAddress, colorData, vertexCount
 setDestAddr:
+    ; Modified by TyraX: the tag block's five constants load HERE, once per
+    ; buffer, instead of staying pinned in VF registers for the whole
+    ; program. With the TD path on this image, sharedDirMode had 33 live
+    ; against VU1's 31 and Sony's vcl refused it ("no opt table"); openvcl
+    ; only fitted it by sinking loads. Same values: the EE writes these
+    ; addresses only in sendObjectData, behind a FLUSHE, before the MSCAL.
+    ; See tagsPerBuffer in src/vugen.cpp.
+    lq         gifSetTag, 19(vi00)  ; VU1_SET_GIFTAG_ADDR - per buffer (Sony vcl's VF budget)
+    lq         lodGifTag, 9(vi00)  ; VU1_LOD_ADDR
+    lq         testsTag, 10(vi00)  ; VU1_Z_TESTS_ADDR
+    lq         texBufferClutGifTag, 11(vi00)  ; VU1_CLUT_ADDR
+    lq         alphaGifTag, 21(vi00)  ; VU1_ALPHA_ADDR - per-mesh GS blend equation, in-band
     sq         gifSetTag, 0(destAddress)  ; GIF tag block
     sq         testsTag, 1(destAddress)
     sq         gifSetTag, 2(destAddress)

@@ -36,8 +36,8 @@ const OcclusionProxyObject OCCLUSION_OBJECTS[] = {
   {0,7,2,1},
   {0,8,3,1},
 };
+const int OCCLUSION_OBJECT_COUNT = 4;
 const int OCCLUSION_SCENE_OFFSETS[] = {0,9};
 const unsigned char OCCLUSION_CAN_CULL[] = {1,1,1,1,1,1,1,1,1};
 const unsigned char OCCLUSION_IS_OCCLUDER[] = {0,0,0,0,0,1,1,1,1};
-const int OCCLUSION_OBJECT_COUNT = 4;
 }  // namespace Particle_lab

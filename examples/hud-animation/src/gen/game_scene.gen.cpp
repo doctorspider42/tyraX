@@ -2,6 +2,8 @@
 #include "game_runtime.gen.hpp"
 
 namespace Hud_animation {
+
+
 int TerrainGame::resolveClipIndex(int objectIndex, const char* clipName) const {
   if (objectIndex < 0 || objectIndex >= (int)runtimeObjects.size()) return -1;
   const RuntimeObject& o = runtimeObjects[objectIndex];
@@ -15,6 +17,10 @@ int TerrainGame::resolveClipIndex(int objectIndex, const char* clipName) const {
   return -1;
 }
 
+
+
+// Creates this object's skeletal instance and resets its playback state
+// to the object's authored defaults. Called for every object on scene load.
 void TerrainGame::setupAnimObject(int index) {
   RuntimeObject& o = runtimeObjects[index];
   ObjectGeometry& g = objectGeometry[index];
@@ -113,6 +119,47 @@ void TerrainGame::setupAnimObject(int index) {
   o.animFade = 0.0F;
 }
 
+
+
+// The animated-models pass of the scene render. Real-hardware numbers drove
+// this shape (PCSX2's fast EE hides all of it): each visible 1092-vert
+// instance costs ~0.9 ms pose+skin plus ~1 ms submit on the EE, and the old
+// code paid it for every instance every frame - 7 spiders saturated the
+// 20 ms PAL budget on their own and halved the frame rate to 25.
+// Three measures keep the pass inside the budget:
+//  - instances whose conservative all-clips AABB is outside the frustum
+//    skip pose/skin/submit entirely (playback still advances, so
+//    animFinished and re-entry poses stay honest);
+//  - instances striking the identical pose (same clip advanced in lockstep,
+//    the ambient-prop / enemy-pack case) share one skinned mesh - the
+//    nearest one skins, the rest re-point their bags at its arrays;
+//  - with ANIM_LOD_DISTANCE set (Preferences > Rendering), far instances
+//    refresh their pose every 2nd frame and every 4th beyond twice the
+//    distance, staggered per object; playback time is unaffected and a
+//    just-(re)appeared instance always skins immediately;
+//  - with MESH_LOD_DISTANCE set, far instances render the decimated
+//    variants baked into the .tskl (~50% verts, ~25% beyond twice the
+//    distance) - less skinning, packing, clipping and VU1 per instance;
+//  - the skinned arrays render through the SAME static pipeline as the rest
+//    of the scene: one submission per vertex (DynPip uploads every vertex
+//    twice for its from/to lerp), no VU1 program swap mid-frame, and the
+//    EE clipper handles screen-edge crossers like all other geometry.
+// In-view instances draw nearest-first: the front-to-back order lets the GS
+// z-reject overdraw and makes each pose group's mesh owner its closest
+// on-screen member (the LOD refresh rate follows the closest copy).
+// One directional light matches the baked static lighting; baked point
+// lights cannot follow animated meshes, but DYNAMIC lights (+ the
+// flashlight) are sampled once per model per frame into the ambient term
+// (see the dynLightAt pickup below) - a character walking into a torch's
+// pool of light brightens with it.
+/** Dynamic lighting (docs/global-illumination.md) - the opt-in per-object twin
+ * of what animated models have always done. One probe sample at the object's
+ * centre per frame, split the way a single VU1 light slot forces: L0 into the
+ * ambient term, L1 reconstructed along the sun direction into the one
+ * directional slot. dynLightAt goes in too, because the engine hands a LIT bag
+ * no dynamic-light slot (StaPipCore::render) - without folding it in by hand,
+ * an object that opted into dynamic lighting would be the one thing in the
+ * scene the flashlight cannot touch. */
 void TerrainGame::updateDynLitObjects() {
   if (!SCENE_PROBES) return;
   // The shared light DIRECTIONS - the anim path sets these too, but it bails
@@ -137,6 +184,15 @@ void TerrainGame::updateDynLitObjects() {
   }
 }
 
+
+
+// The light colors for ONE dyn-lit object, read from the probe grid at its
+// position. Split out of the per-frame pass because geometry is also rebuilt
+// from INSIDE the render loop (renderObjects re-runs a dirty object), i.e.
+// after this frame's updateDynLitObjects has already been and gone: a bag
+// wired there would draw once with the zero-initialized litColors - black for
+// a frame on every rebuild, which is every Live Link edit, not just the load.
+// rebuildObjectGeometry therefore calls this the moment it wires a lit bag.
 void TerrainGame::fillDynLitColors(int i) {
   if (!SCENE_PROBES) return;
   if (i < 0 || i >= (int)runtimeObjects.size()) return;
@@ -188,6 +244,8 @@ void TerrainGame::fillDynLitColors(int i) {
     }
   }
 }
+
+
 
 void TerrainGame::updateAndRenderAnimObjects() {
   if (gameAnimModels.empty()) return;
@@ -460,6 +518,16 @@ void TerrainGame::updateAndRenderAnimObjects() {
   }
 }
 
+
+
+// Shared player-vs-scene collision (both walkers). Box mode reproduces the
+// classic behavior (XZ box + stand-on-top + step up 0.5), with models sized
+// by their real mesh AABB instead of the unit scale box. Mesh mode collides
+// with the model's triangles in object-local space: a downward ray finds the
+// walkable ground (ramps/stairs work) and steep faces push the player out
+// like walls. Rotation is honored in mesh mode and ignored in box mode.
+// ceiling collects the lowest surface overhead (box undersides, mesh hits of
+// an upward ray) so the walkers can clamp jumps below it.
 void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
                                 float* nextZ, float feetY, float eyeHeight,
                                 float* ground, float* ceiling) {
@@ -473,29 +541,19 @@ void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
     // block nothing - one list, shared with the camera sweep (objectCollides).
     if (!o.active || !o.visible || !objectCollides(o.data)) continue;
     // Portal pass-through (updatePortalPass): while the walker stands in a
-    // linked portal's opening, objects fully behind that portal's plane
-    // stop colliding - the mounting wall becomes a doorway. Exact OBB
-    // extent along the plane normal, same math as the view dead zone.
-    if (portalPassOn) {
-      const V3 pax = rotated({1.0F, 0.0F, 0.0F}, o.data.rotation);
-      const V3 pay = rotated({0.0F, 1.0F, 0.0F}, o.data.rotation);
-      const V3 paz = rotated({0.0F, 0.0F, 1.0F}, o.data.rotation);
-      const float r =
-          fabsf(portalPassPlane[0] * pax.x + portalPassPlane[1] * pax.y +
-                portalPassPlane[2] * pax.z) *
-              0.5F * o.data.scale[0] +
-          fabsf(portalPassPlane[0] * pay.x + portalPassPlane[1] * pay.y +
-                portalPassPlane[2] * pay.z) *
-              0.5F * o.data.scale[1] +
-          fabsf(portalPassPlane[0] * paz.x + portalPassPlane[1] * paz.y +
-                portalPassPlane[2] * paz.z) *
-              0.5F * o.data.scale[2];
-      const float sd = portalPassPlane[0] * o.data.position[0] +
-                       portalPassPlane[1] * o.data.position[1] +
-                       portalPassPlane[2] * o.data.position[2] -
-                       portalPassPlane[3];
-      if (sd < -r + 0.1F) continue;
-    }
+    // linked portal's opening, the geometry that opening is cut into stops
+    // colliding - the mounting wall becomes a doorway. One rule, shared
+    // with the camera/carry sweep and the physics pass.
+    // A WALL portal's doorway opens the WALLS only. The floor the opening is
+    // cut into keeps carrying the walker - a merged cellar mesh holds its own
+    // floor, and a terrace slab's top face holds the pierce point - so
+    // skipping the whole object made the arrival side of every doorway a
+    // hole to fall through (showcase: walk through the gate, drop under the
+    // map). A FLOOR portal (plane facing up or down) still opens all of it:
+    // falling through it IS the crossing.
+    const bool doorway =
+        portalPassOn && portalDoorwayOpens(o, portalPassPlane, portalPassPoint);
+    if (doorway && fabsf(portalPassPlane[1]) >= 0.5F) continue;
 
     const GameModel* gm = nullptr;
     if (o.data.type == 5 && o.data.model >= 0 &&
@@ -507,6 +565,28 @@ void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
       const float sx = o.data.scale[0] > 0.0001F ? o.data.scale[0] : 0.0001F;
       const float sy = o.data.scale[1] > 0.0001F ? o.data.scale[1] : 0.0001F;
       const float sz = o.data.scale[2] > 0.0001F ? o.data.scale[2] : 0.0001F;
+      // Far away, out before any of the work below (two rotations per query,
+      // three queries): the mesh fits in a sphere about the object's origin
+      // whatever its rotation, and every query here is a vertical ray or a
+      // sphere at the player - so a player further off horizontally than
+      // that sphere plus its own reach cannot touch a triangle. This used to
+      // be paid by every mesh-mode object in the scene, every frame.
+      {
+        const float* cmn = gm->collider.aabbMin();
+        const float* cmx = gm->collider.aabbMax();
+        const float s3[3] = {sx, sy, sz};
+        float r2 = 0.0F;
+        for (int k = 0; k < 3; ++k) {
+          const float e = (fabsf(cmn[k]) > fabsf(cmx[k]) ? fabsf(cmn[k]) : fabsf(cmx[k])) * s3[k];
+          r2 += e * e;
+        }
+        const float mvx = *nextX - prevX, mvz = *nextZ - prevZ;
+        const float reach = sqrtf(r2) + playerRadius + 0.6F * (sx > sz ? sx : sz) +
+                            sqrtf(mvx * mvx + mvz * mvz);
+        const float dx = *nextX - o.data.position[0];
+        const float dz = *nextZ - o.data.position[2];
+        if (dx * dx + dz * dz > reach * reach) continue;
+      }
       auto toLocal = [&](float wx, float wy, float wz) {
         V3 p = {wx - o.data.position[0], wy - o.data.position[1],
                 wz - o.data.position[2]};
@@ -535,7 +615,8 @@ void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
       // there and sucked fast walkers inside the mesh.
       const V3 pc = toLocal(prevX, feetY + eyeHeight * 0.5F, prevZ);
       const Vec4 prevLocal(pc.x, pc.y, pc.z, 1.0F);
-      if (gm->collider.resolveSphere(&center, playerRadius / sAvg, 0.7F,
+      if (!doorway &&
+          gm->collider.resolveSphere(&center, playerRadius / sAvg, 0.7F,
                                      Vec4(upL.x, upL.y, upL.z, 0.0F),
                                      &prevLocal)) {
         const V3 w = toWorld({center.x, center.y, center.z});
@@ -567,7 +648,7 @@ void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
           toLocal(*nextX, feetY + eyeHeight + EYE_CLEARANCE + 1.0F, *nextZ);
       V3 cd = {cq.x - co.x, cq.y - co.y, cq.z - co.z};
       const float cl = sqrtf(cd.x * cd.x + cd.y * cd.y + cd.z * cd.z);
-      if (cl > 0.0001F) {
+      if (!doorway && cl > 0.0001F) {
         cd.x /= cl, cd.y /= cl, cd.z /= cl;
         float t;
         if (gm->collider.raycast(Vec4(co.x, co.y, co.z, 1.0F),
@@ -642,6 +723,8 @@ void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
     if (feetY + 0.5F >= top) {
       // low enough to walk onto - candidate floor
       if (top > *ground) *ground = top;
+    } else if (doorway) {
+      // the opened wall: its sides and underside are the doorway
     } else if (bottom >= feetY + eyeHeight) {
       // box entirely above the head - overhead surface for the jump clamp
       if (bottom < *ceiling) *ceiling = bottom;
@@ -742,6 +825,14 @@ void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
   }
 }
 
+ // last quantized depth written
+
+// Switches the runtime state to a scene from scene_data.hpp and settles the
+// asset residency for it: everything the scene's start-resident layers need
+// loads synchronously here (the switch hides behind the loading screen),
+// assets no resident layer uses any more - the previous scene's included -
+// are freed. Runtime objects are rebuilt; vectors and per-object bags are
+// reused/freed here, nothing leaks.
 void TerrainGame::loadScene(int sceneIndex) {
   if (sceneIndex < 0 || sceneIndex >= SCENE_COUNT) return;
   currentScene = sceneIndex;
@@ -791,6 +882,9 @@ void TerrainGame::loadScene(int sceneIndex) {
     aoAtlasTexPath = SCENE_AO_ATLAS_PATH;
     aoAtlasTexture = acquireTexture(aoAtlasTexPath);
   }
+  // Baked shadow decals: their atlas pages swap here for the same reason the
+  // lightmaps do, and the geometry comes with them (docs/shadows.md).
+  setupShadowDecals();
 
   // Size the terrain chunk pool for this scene's grid up front (independent
   // of the streamed assets below) so the loading bar's denominator can count
@@ -920,6 +1014,19 @@ void TerrainGame::loadScene(int sceneIndex) {
       dayNightTopR = skyTopR, dayNightTopG = skyTopG, dayNightTopB = skyTopB;
       scriptCtx.skyColor = Color(skyHorizonR, skyHorizonG, skyHorizonB);
     }
+#ifdef SKY_TEXTURES_ON
+    // The painted sky swaps like the lightmaps: release the last scene's
+    // crop, take this one's. REPEAT across (the panorama closes on itself),
+    // CLAMP down (its bottom row is below the dome's lowest ring).
+    if (!skyTexPath.empty()) releaseTexture(skyTexPath);
+    skyTexPath.clear();
+    skyTex = nullptr;
+    if (SKY_TEXTURE_PATH[0]) {
+      skyTexPath = SKY_TEXTURE_PATH;
+      skyTex = acquireTexture(skyTexPath);
+      if (skyTex) skyTex->setWrapSettings(Tyra::Repeat, Tyra::Clamp);
+    }
+#endif
     buildSkyDome();
     buildStarField();
   }
@@ -933,6 +1040,13 @@ void TerrainGame::loadScene(int sceneIndex) {
   engine->renderer.core.postFx.setBloomThreshold(POSTFX_BLOOM_CUT);
   engine->renderer.core.postFx.setBloomSpread(POSTFX_BLOOM_SPREAD);
   engine->renderer.core.postFx.setGrain(POSTFX_GRAIN);
+  g_motionBlurBase = POSTFX_MOTIONBLUR;
+  engine->renderer.core.postFx.setMotionBlur(POSTFX_MOTIONBLUR);
+  // Never carry the previous scene's full-screen history across a load.
+  g_mbHavePrev = false;
+  g_mbIdleTime = 0.0F;
+  g_mbIdleFlushed = false;
+  g_mbFlushNext = true;
   engine->renderer.core.postFx.setGodRays(POSTFX_GODRAYS);
   g_flareAmount = POSTFX_FLARE;
   engine->renderer.core.postFx.setDepthOfField(POSTFX_DOF_FOCUS,
@@ -987,8 +1101,15 @@ void TerrainGame::loadScene(int sceneIndex) {
   // Animated models: fresh per-object mesh instances + playback defaults
   for (int i = 0; i < SCENE_OBJECT_COUNT; ++i)
     if (runtimeObjects[i].active) setupAnimObject(i);
+  // Vehicles seed AFTER the runtime objects: setupVehicles reads each
+  // instance's authored transform out of runtimeObjects[..].data, and placed
+  // before this loop it read zeros - the sim started every car at the world
+  // origin at scale 1 while the body rendered at its authored place, which is
+  // "the wheels drove off without the car" seen from another angle. Caught by
+  // the VEH use-click telemetry printing car=0,0 for a car authored at 0,-8.
 
-  // Static batching: group the batchStatic-flagged objects (material x
+
+  // Static batching: group the batchStatic-flagged objects (texture x
   // coarse world cell). The always-resident assets - materials included -
   // streamed in above, so the reflective-material opt-out can decide here;
   // the batches themselves bake lazily on the first renderScene.
@@ -1013,6 +1134,12 @@ void TerrainGame::loadScene(int sceneIndex) {
       lsPump(8);
     }
   }
+
+  // Roads AFTER the procedural build: that block clears procChunks (nothing
+  // generated survives a scene switch), and the first placement of this call
+  // sat ten lines above it - five road chunks built and wiped before the
+  // first frame, a road only the boot log ever saw.
+
 
   // Raytraced mirrors (VU0 PoC): create this scene's reflection textures
   // before the lazy geometry rebuild binds them to the glass quads.
@@ -1048,13 +1175,13 @@ void TerrainGame::loadScene(int sceneIndex) {
     if (P.objIndex < 0) continue;
     P.x = SCENE_OBJECTS[P.objIndex].position[0];
     P.z = SCENE_OBJECTS[P.objIndex].position[2];
-    // Feet on the ground - unless the player flies, or the scene HAS no ground
-    // (docs/terrain.md), in which case the authored height is the only sensible
-    // start: the void answer would drop the player a million units below the
-    // world before the first frame's collision could catch them.
+    // Respect authored platforms/rooms above the heightfield. Starting every
+    // walker on terrain put a raised-floor scene's player below its colliders.
+    // Keep the terrain as a lower bound; normal gravity finds the actual floor.
     P.y = (PP_MODE(pi) == 1 || !TERRAIN_ENABLED)
               ? SCENE_OBJECTS[P.objIndex].position[1]
-              : terrainHeightAt(P.x, P.z);
+              : fmaxf(SCENE_OBJECTS[P.objIndex].position[1],
+                      terrainHeightAt(P.x, P.z));
     // Heading AND elevation from the authored rotation, read the way every
     // other object's is: the player's local forward (+Z, the axis
     // sin(yaw)/cos(yaw) walks along) through rotated(). Reading rotation[1]
@@ -1180,6 +1307,15 @@ void TerrainGame::loadScene(int sceneIndex) {
   }
 }
 
+
+
+// --- Sound emitters ----------------------------------------------------
+// Volume falls off linearly with the distance to the player; the sound is
+// panned left/right by the emitter's position relative to where the camera
+// faces (positional stereo). Interval 0 retriggers every frame: tryPlay() is
+// skipped while the channel is still busy, so the sample loops seamlessly.
+// sndOnPlayer emitters skip all of that: full volume, centered - they play
+// "on the player" wherever they are (dialogs, narration). Hiding it mutes.
 void TerrainGame::updateSoundEmitters() {
   if (sndSamples.empty()) return;
   // Paused (a menu, or the Live Debugger halting the game): stop RETRIGGERING.
@@ -1307,6 +1443,13 @@ void TerrainGame::updateSoundEmitters() {
   }
 }
 
+
+
+// --- Reverb zones -----------------------------------------------------
+// docs/reverb.md. The SPU2 has ONE reverb unit and audsrv puts every sound
+// effect on its core, so "which room am I in" is a single global decision
+// made here once per frame. The cost is a few dot products plus, at most, one
+// IOP RPC - the mixing itself is the sound chip's, not the EE's.
 void TerrainGame::updateReverb() {
   // Compile-time: a project with no reverb zone and no Set Reverb node still
   // has this function, but the whole body folds away to nothing.
@@ -1407,15 +1550,34 @@ void TerrainGame::updateReverb() {
   }
 }
 
+
+
 void TerrainGame::buildParticles() {
   particles.clear();
   for (int i = 0; i < (int)runtimeObjects.size(); ++i) {
     if (runtimeObjects[i].data.type != 7) continue;
     if (!runtimeObjects[i].active) continue;  // emitter streamed out - no pool
+    buildParticleSystem(i, -1);
+    // The library effect's extra layers (docs/particles.md): authored objects
+    // only - a spawned clone's index is not the one the table was keyed by.
+    if (i < SCENE_OBJECT_COUNT)
+      for (int k = 0; k < EMITTER_LAYER_COUNT; ++k)
+        if (EMITTER_LAYERS[k].scene == currentScene && EMITTER_LAYERS[k].object == i)
+          buildParticleSystem(i, k);
+  }
+}
+
+
+
+void TerrainGame::buildParticleSystem(int i, int layer) {
+  {
+    const SceneObjectData& src =
+        layer >= 0 ? EMITTER_LAYER_OBJECTS[layer] : runtimeObjects[i].data;
     ParticleSystem ps;
     ps.objectIndex = i;
-    ps.rng = 12345u + (unsigned int)i * 7919u;
-    int n = runtimeObjects[i].data.emitCount;  // data copy: spawn slots too
+    ps.layer = layer;
+    ps.rng = 12345u + (unsigned int)i * 7919u + (unsigned int)(layer + 1) * 104729u;
+    int n = src.emitCount;  // data copy: spawn slots too
     if (n < 1) n = 1;
     if (n > 256) n = 256;
     ps.pos.assign(n, Vec4(0.0F, 0.0F, 0.0F, 1.0F));
@@ -1434,14 +1596,14 @@ void TerrainGame::buildParticles() {
     ps.infoBag->frustumCulling = PipelineInfoBagFrustumCulling_None;
     ps.infoBag->fullClipChecks = false;
     ps.colorBag = std::make_unique<StaPipColorBag>();
-    ps.colorBag->many = ps.cols.data();
+    ps.cols.bind(ps.colorBag);
     ps.billboardBag = std::make_unique<StaPipBillboardBag>();
     ps.bag = std::make_unique<StaPipBag>();
     ps.bag->info = ps.infoBag.get();
     ps.bag->color = ps.colorBag.get();
     ps.bag->lighting = nullptr;
     ps.bag->billboard = ps.billboardBag.get();
-    ps.bag->vertices = ps.pos.data();
+    ps.pos.bind(ps.bag);
     ps.bag->count = 0;
     // The texture bag is mandatory for billboard bags - its coordinates
     // channel carries the per-particle basis weights. Textured particles:
@@ -1449,14 +1611,22 @@ void TerrainGame::buildParticles() {
     // emitter color is the tint); corner UVs are fixed in the VU1 program.
     ps.texBag = std::make_unique<StaPipTextureBag>();
     ps.texBag->texture = nullptr;
-    ps.texBag->coordinates = ps.params.data();
-    const int mi = runtimeObjects[i].data.material;  // data copy: spawn slots too
+    ps.params.bind(ps.texBag);
+    const int mi = src.material;  // data copy: spawn slots too
     if (mi >= 0 && mi < (int)gameMaterials.size() && gameMaterials[mi].texture)
       ps.texBag->texture = gameMaterials[mi].texture;
     ps.bag->texture = ps.texBag.get();
+    // Depth-tested but never writing depth - the tyre smoke's rule: a
+    // translucent puff that wrote Z carved a soft-edged texture's whole quad
+    // out of every puff drawn after it (docs/particles.md). Additive emitters
+    // (fire, sparks) add light on top: Cs * FIX + Cd.
+    ps.infoBag->zTestType = PipelineZTest_TestOnly;
+    if (src.emitAdditive) ps.infoBag->additiveBlendFix = 128;
     particles.push_back(std::move(ps));
   }
 }
+
+
 
 void TerrainGame::updateParticles() {
   if (particles.empty() || !g_particlesOn) return;  // Set Particles switch
@@ -1483,9 +1653,34 @@ void TerrainGame::updateParticles() {
       ps.bag->count = 0;  // Hide Object turns the emitter off
       continue;
     }
-    const SceneObjectData& d = o.data;
+    // An extra layer wears its EMITTER_LAYERS row, placed and turned by the
+    // live emitter (so moving or hiding the emitter moves or hides them all).
+    SceneObjectData layerData;
+    if (ps.layer >= 0) {
+      layerData = EMITTER_LAYER_OBJECTS[ps.layer];
+      const EmitterLayerData& L = EMITTER_LAYERS[ps.layer];
+      for (int a = 0; a < 3; ++a) {
+        layerData.position[a] = o.data.position[a] + L.offset[a];
+        layerData.rotation[a] = o.data.rotation[a];
+        layerData.scale[a] = o.data.scale[a] * L.area[a];
+      }
+      layerData.emitEnabled = o.data.emitEnabled;
+      layerData.emitFollow = o.data.emitFollow;
+    }
+    const SceneObjectData& d = ps.layer >= 0 ? layerData : o.data;
     const int kind = d.emitKind;
     const int n = (int)ps.life.size();
+
+    // Flipbook (docs/particles.md): frames live at material .. material+N-1,
+    // and animating is swapping the ONE bag's texture pointer - no extra
+    // submit, no per-particle work.
+    ps.animTime += dt;  // the flipbook's clock and the fire's sway/flicker
+    if (d.emitFrames > 1 && d.material >= 0) {
+      const int f = (int)(ps.animTime * d.emitFps) % d.emitFrames;
+      const int mi = d.material + f;
+      if (mi < (int)gameMaterials.size() && gameMaterials[mi].texture)
+        ps.texBag->texture = gameMaterials[mi].texture;
+    }
 
     // Per-emitter billboard basis for the VU1 expansion. Rain streaks hang
     // from world-up (vertical quads); everything else faces the camera
@@ -1503,6 +1698,18 @@ void TerrainGame::updateParticles() {
       bx += cameraPosition.x;
       by += cameraPosition.y;
       bz += cameraPosition.z;
+    }
+    // Automatic overdraw budget: simulation remains exact, but while the
+    // adaptive raster is paying back a missed field, distant emitters submit
+    // half their quads. Player-following rain/fog stays full density because
+    // it surrounds the camera and the reduction would be immediately visible.
+    int drawN = n;
+    if (adaptiveReduced && !d.emitFollow) {
+      const float pdx = bx - cameraPosition.x;
+      const float pdy = by - cameraPosition.y;
+      const float pdz = bz - cameraPosition.z;
+      if (pdx * pdx + pdy * pdy + pdz * pdz > 144.0F)
+        drawN = (n + 1) / 2;
     }
 
     // Custom kind: emission direction = the object's +Y axis rotated by the
@@ -1523,6 +1730,15 @@ void TerrainGame::updateParticles() {
              edir.x * et1.y - edir.y * et1.x};
     }
 
+    // Fire (docs/particles.md, "The fire motion"): the whole flame sways and
+    // flickers together - once per emitter per frame, not per particle. Keep
+    // in sync with drawEmitterPreviews.
+    const float fT = ps.animTime;
+    const float fireSwayX = kind == 0 ? 0.35F * sinf(fT * 1.7F) + 0.15F * sinf(fT * 4.3F) : 0.0F;
+    const float fireSwayZ = kind == 0 ? 0.25F * sinf(fT * 1.3F + 1.0F) : 0.0F;
+    const float fireFlicker =
+        kind == 0 ? 0.8F + 0.2F * sinf(fT * 13.7F) * sinf(fT * 5.9F + 0.7F) : 1.0F;
+
     for (int i = 0; i < n; ++i) {
       ps.life[i] -= dt;
       if (ps.life[i] <= 0.0F) {
@@ -1530,9 +1746,12 @@ void TerrainGame::updateParticles() {
         const float sx = bx + (r1 - 0.5F) * d.scale[0];
         const float sz = bz + (r3 - 0.5F) * d.scale[2];
         ps.pos[i] = Vec4(sx, by, sz, 1.0F);
-        if (kind == 0) {  // fire: rises and flickers
-          ps.vel[i] = Vec4((r1 - 0.5F) * 0.8F, 1.2F + r2 * 1.2F, (r3 - 0.5F) * 0.8F, 0.0F);
-          ps.maxLife[i] = 0.5F + r2 * 0.6F;
+        if (kind == 0) {  // fire: a centre-weighted base, slow start - buoyancy does the rest
+          const float r4 = prand(ps.rng);
+          ps.pos[i].x = bx + (r1 + r4 - 1.0F) * 0.5F * d.scale[0];
+          ps.pos[i].z = bz + (r3 + r2 - 1.0F) * 0.5F * d.scale[2];
+          ps.vel[i] = Vec4((r1 - 0.5F) * 0.3F, 0.6F + r2 * 0.6F, (r3 - 0.5F) * 0.3F, 0.0F);
+          ps.maxLife[i] = 0.55F + r2 * 0.5F;
         } else if (kind == 1) {  // smoke: slow rise with drift
           ps.vel[i] = Vec4((r1 - 0.5F) * 0.5F, 0.5F + r2 * 0.5F, (r3 - 0.5F) * 0.5F, 0.0F);
           ps.maxLife[i] = 2.0F + r2 * 1.5F;
@@ -1568,6 +1787,17 @@ void TerrainGame::updateParticles() {
         ps.life[i] = ps.maxLife[i] * (0.05F + 0.95F * prand(ps.rng));  // stagger
       }
       if (kind == 3) ps.vel[i].y -= 6.0F * dt;
+      if (kind == 0) {
+        // Hot gas ACCELERATES upward, and the column pulls in on itself, so
+        // the tongues stretch and taper into a point; the sway grows with
+        // height, as it does on a real flame.
+        ps.vel[i].y += 2.6F * dt;
+        ps.vel[i].x += (bx - ps.pos[i].x) * 2.2F * dt;
+        ps.vel[i].z += (bz - ps.pos[i].z) * 2.2F * dt;
+        const float h = ps.pos[i].y - by;
+        ps.pos[i].x += fireSwayX * h * dt;
+        ps.pos[i].z += fireSwayZ * h * dt;
+      }
       if (kind == 5) {
         // gravity + air drag ~ 1/weight: applied after the pull, so heavy
         // particles keep falling while light ones reach a slow terminal
@@ -1596,8 +1826,13 @@ void TerrainGame::updateParticles() {
       float alpha;
       float cr = d.color[0] * 128.0F, cg = d.color[1] * 128.0F, cb = d.color[2] * 128.0F;
       if (kind == 0) {
-        size *= 0.5F + 0.8F * t;
-        alpha = 90.0F * t;
+        // unfurls quickly at birth, then narrows toward the tip; fades IN
+        // (no pop at the base) and the whole fire flickers
+        const float age = 1.0F - t;
+        const float unfurl = age < 0.15F ? 0.45F + age * (0.55F / 0.15F) : 1.0F;
+        size *= unfurl * (0.35F + 0.75F * t);
+        alpha = 96.0F * (age < 0.1F ? age * 10.0F : 1.0F) * (0.35F + 0.65F * t) *
+                fireFlicker;
         cg *= 0.35F + 0.65F * t;  // orange cools to red as it dies
         cb *= 0.25F * t;
       } else if (kind == 1) {
@@ -1638,19 +1873,53 @@ void TerrainGame::updateParticles() {
         m11 = ca * size;
       }
       if (sizeUp > 0.0F) m11 = sizeUp;  // rain: thin width, streak height
+      if (kind == 0) m11 *= 1.45F;      // flames are taller than wide
+      // The camera basis above is (screen-LEFT, screen-DOWN) - the world is
+      // viewed down +Z with +X on the left - so a quad built on it is turned
+      // 180 degrees and a texture shows upside down (a symmetric puff hid it
+      // for years; a flame did not). Negating the weights turns it back in
+      // EVERY pass, the portal and split views included, which rebuild the
+      // basis but never these. Rain hangs from world-up and is left alone.
+      // Every other particle is also mirrored on odd slots - free variety
+      // for one texture. Keep in sync with drawEmitterPreviews.
+      if (kind != 4) {
+        const float mir = (i & 1) && kind != 2 ? -1.0F : 1.0F;
+        m00 = -m00 * mir, m01 = -m01 * mir, m10 = -m10, m11 = -m11;
+      }
       ps.params[i] = Vec4(m00, m01, m10, m11);
+      // Additive (docs/particles.md): the GS adds Cs * FIX and never reads
+      // alpha, so the fade has to ride the colour - keep in sync with the
+      // viewport preview (drawEmitterPreviews).
+      if (d.emitAdditive) {
+        const float k = alpha * (1.0F / 128.0F);
+        cr *= k, cg *= k, cb *= k;
+      }
       ps.cols[i] = Color(cr, cg, cb, alpha);
     }
-    ps.bag->count = (u32)n;
+    ps.bag->count = (u32)drawN;
   }
 }
 
+
+// Picks the nearest usable object the camera is close to and looking at
+// (thresholds in controls.hpp). BTN_USE on it -> scriptCtx.usedObject for
+// one frame, which fires the flow graph "On Used" trigger.
 void TerrainGame::updateUseTarget() {
   useTargetIndex = -1;
   scriptCtx.usedObject = -1;
   // Hands full: BTN_USE means "drop" (updateCarriedObject), so no use
   // targeting - and no prompt - while carrying.
   if (carryIndex >= 0) return;
+  // A "Hide HUD" cutscene suppresses the whole interaction, not just its
+  // prompt. Note this test runs from the PLAYER's camera and BEFORE the
+  // cutscene override is applied further down, so a cutscene changes nothing
+  // about it by itself: a player left standing in front of a usable prop -
+  // usually the one whose On Used started the cutscene - keeps the prompt on
+  // screen over the cinematic and can press it again. Tied to that flag and not
+  // to "a cutscene is playing", because a cutscene that animates something
+  // while the player keeps the camera must keep USE working
+  // (docs/cutscenes.md).
+  if (scriptCtx.hudSuppressed) return;
 
   Vec4 dir = cameraLookAt - cameraPosition;
   const float dirLen = sqrtf(dir.x * dir.x + dir.y * dir.y + dir.z * dir.z);
@@ -1664,7 +1933,7 @@ void TerrainGame::updateUseTarget() {
     if (o.data.type == 4 || o.data.type == 6 || o.data.type == 7 ||
         o.data.type == 8 || o.data.type == 9 || o.data.type == 11 ||
         o.data.type == 14 || o.data.type == 17 || o.data.type == 18 ||
-        o.data.type == 19)
+        o.data.type == 19 || o.data.type == 20)
       continue;
 
     const float dx = o.data.position[0] - cameraPosition.x;
@@ -1691,6 +1960,7 @@ void TerrainGame::updateUseTarget() {
     // up on the same press (a grab sound wired in the graph, for instance).
     if (runtimeObjects[useTargetIndex].data.usable)
       scriptCtx.usedObject = useTargetIndex;
+
     if (runtimeObjects[useTargetIndex].data.pickable) {
       carryIndex = useTargetIndex;
       carryGrabbed = true;  // don't read this same press as "drop"
@@ -1706,6 +1976,15 @@ void TerrainGame::updateUseTarget() {
       const float gy = g.data.position[1] - cameraPosition.y;
       const float gz = g.data.position[2] - cameraPosition.z;
       carryDist = sqrtf(gx * gx + gy * gy + gz * gz);
+      // Logged for the same reason the portal hops are: a report like "I
+      // picked it up and something threw me across the room" can only be
+      // read off a log if the grab is IN that log, next to the hop. The
+      // player position rides along - it is the frame's other half.
+      TYRA_LOG("Pick: grabbed ", carryIndex, " at ", g.data.position[0], " ",
+               g.data.position[1], " ", g.data.position[2], ", eye ",
+               cameraPosition.x, " ", cameraPosition.y, " ",
+               cameraPosition.z);
+      inputreplay::note(inputreplay::EV_GRAB, carryIndex, -1);
     }
   }
 
@@ -1716,6 +1995,11 @@ void TerrainGame::updateUseTarget() {
     scriptCtx.openSaveMenu = true;
 }
 
+
+
+// Largest half extent of an object's collision box (mesh/anim AABB when the
+// object has one, else the unit scale box) - the sweep radius that keeps the
+// whole object clear of walls while carried or in flight.
 float TerrainGame::objectHalfExtent(const RuntimeObject& o) const {
   float ex = 0.5F * o.data.scale[0], ey = 0.5F * o.data.scale[1],
         ez = 0.5F * o.data.scale[2];
@@ -1740,8 +2024,19 @@ float TerrainGame::objectHalfExtent(const RuntimeObject& o) const {
   return r;
 }
 
-void TerrainGame::applyCarryWhisker(float* nextX, float* nextZ, float probeY,
-                                    float yaw, float feetY, float eyeHeight) {
+
+
+// Carry whisker: the third-person spring arm's pre-block, turned around.
+// The spring arm pulls the CAMERA in when the boom sweep hits a wall; here
+// the same sweep pushes the WALKER back when the carried object no longer
+// fits in front of the face - so pressing "face first" against a wall while
+// carrying is simply blocked, instead of the object being parked inside the
+// wall. Called by every walker after collidePlayer, on the carrying player
+// only. The probe is horizontal (yaw only): with the look pitch in it, the
+// terrain underfoot would read as a wall whenever the player looks down.
+void TerrainGame::applyCarryWhisker(float prevX, float prevZ, float* nextX,
+                                    float* nextZ, float probeY, float yaw,
+                                    float feetY, float eyeHeight) {
   if (carryIndex < 0) return;
   const RuntimeObject& o = runtimeObjects[carryIndex];
   if (!o.active || !o.visible) return;
@@ -1762,6 +2057,9 @@ void TerrainGame::applyCarryWhisker(float* nextX, float* nextZ, float probeY,
     sweepPassPlane[1] = portalPassPlane[1];
     sweepPassPlane[2] = portalPassPlane[2];
     sweepPassPlane[3] = portalPassPlane[3];
+    sweepPassPoint[0] = portalPassPoint[0];
+    sweepPassPoint[1] = portalPassPoint[1];
+    sweepPassPoint[2] = portalPassPoint[2];
     sweepPassOn = true;
   } else {
     const float reach = need + r + 0.1F;
@@ -1773,9 +2071,26 @@ void TerrainGame::applyCarryWhisker(float* nextX, float* nextZ, float probeY,
       sweepSphere(*nextX, probeY, *nextZ, hx, 0.0F, hz, need, r, carryIndex);
   sweepPassOn = false;
   if (d < need) {
+    // The whisker BLOCKS a step, it does not shove: never take back more
+    // than the step that was actually taken. Without this cap the pushback
+    // is `need` (0.55 + the object's radius) EVERY frame the probe starts
+    // inside something, whatever the player does - and a sweep that begins
+    // inside geometry returns 0, which is what a room modelled as one
+    // collision mesh does to a probe standing in it. Grabbing a weight in
+    // the showcase's cellar therefore slid the walker 0.75 of a unit per
+    // frame, 45 a second, with the stick centred, until it was pinned in a
+    // corner: "some unknown force moves the player", owner's portal-ball
+    // recording, frames 391-407 and again at 712. Standing still now takes
+    // back nothing, and walking face-first into a wall with a crate still
+    // stops exactly where it always did.
+    float back = need - d;
+    const float stepX = *nextX - prevX, stepZ = *nextZ - prevZ;
+    const float step = sqrtf(stepX * stepX + stepZ * stepZ);
+    if (back > step) back = step;
+    if (back <= 0.0F) return;
     const float px = *nextX, pz = *nextZ;
-    *nextX -= hx * (need - d);
-    *nextZ -= hz * (need - d);
+    *nextX -= hx * back;
+    *nextZ -= hz * back;
     // The pushback is a displacement collidePlayer never saw - unswept it
     // shoves the walker clean through whatever stands at their back (owner
     // repro: carry + reverse into a wall = teleported behind it). Re-run
@@ -1785,6 +2100,15 @@ void TerrainGame::applyCarryWhisker(float* nextX, float* nextZ, float probeY,
   }
 }
 
+
+
+// Carried + thrown pickable objects. The carried one rides PICK_CARRY_DIST in
+// front of the face, swept against the world each frame so it can neither be
+// pushed through a wall nor parked behind one - blocked reach just brings it
+// closer. It keeps colliding with the world (the sweep) but not with its
+// carrier (collidePlayer/springArm skip it), so it cannot wedge the player.
+// BTN_USE drops it in place - already a swept, legal spot - and BTN_THROW
+// launches it when the object allows that.
 void TerrainGame::updateCarriedObject() {
   // In-flight object: only objects WITHOUT a rigid body reach this path -
   // a thrown physics object is handed straight to updateObjectPhysics
@@ -1845,6 +2169,8 @@ void TerrainGame::updateCarriedObject() {
           hopped = true;
           if (thrownIndex < (int)portalHopCool.size())
             portalHopCool[thrownIndex] = 6;
+          if (thrownIndex < (int)portalLastCrossed.size())
+            portalLastCrossed[thrownIndex] = portalLastHop;
         }
       }
       // Ground rest matches updateObjectPhysics, so the handoff is
@@ -1898,6 +2224,8 @@ void TerrainGame::updateCarriedObject() {
   // Despawned or hidden mid-carry (flow graph): the hands just open, and the
   // body wakes so it resumes falling if it is shown again mid-air.
   if (!o.active || !o.visible) {
+    TYRA_LOG("Pick: lost ", carryIndex, " mid-carry - despawned or hidden");
+    inputreplay::note(inputreplay::EV_CARRY_LOST, carryIndex, -1);
     releaseCarried(o, 0.0F, 0.0F, 0.0F);
     carryIndex = -1;
     carryPortalPi = -1;
@@ -2036,6 +2364,10 @@ void TerrainGame::updateCarriedObject() {
   if (carryGrabbed) {
     carryGrabbed = false;  // the press that grabbed it is not a drop
   } else if (inputClicked(engine->pad, IA_ROLE_USE)) {
+    TYRA_LOG("Pick: dropped ", carryIndex, " at ", o.data.position[0], " ",
+             o.data.position[1], " ", o.data.position[2], ", eye ",
+             cameraPosition.x, " ", cameraPosition.y, " ", cameraPosition.z);
+    inputreplay::note(inputreplay::EV_DROP, carryIndex, -1);
     releaseCarried(runtimeObjects[carryIndex], 0.0F, 0.0F, 0.0F);
     carryIndex = -1;
     carryPortalPi = -1;
@@ -2046,6 +2378,10 @@ void TerrainGame::updateCarriedObject() {
     const float vx = dir.x * PICK_THROW_SPEED * g_frameDt;
     const float vy = dir.y * PICK_THROW_SPEED * g_frameDt;
     const float vz = dir.z * PICK_THROW_SPEED * g_frameDt;
+    TYRA_LOG("Pick: threw ", idx, " at ", o.data.position[0], " ",
+             o.data.position[1], " ", o.data.position[2], ", v ", vx, " ", vy,
+             " ", vz);
+    inputreplay::note(inputreplay::EV_THROW, idx, -1);
     if (!releaseCarried(runtimeObjects[idx], vx, vy, vz)) {
       // No rigid body to hand off to: fly the hand-rolled arc instead.
       thrownIndex = idx;
@@ -2056,6 +2392,16 @@ void TerrainGame::updateCarriedObject() {
   }
 }
 
+
+
+// Hands a released object back to whatever moves it. A rigid body (Physics
+// on) simply takes the velocity and WAKES: the sim sleeps settled bodies
+// (physAsleep, per-object physSleep countdown) and skips them entirely, and an object
+// picked up off the ground is asleep by definition - without this it would
+// hang in mid-air where it was dropped, and a throw would ignore bounce,
+// friction and tumble. Returns false for a non-physics object, which has no
+// simulation to hand off to (it stays put on a drop; a throw flies the
+// hand-rolled arc in updateCarriedObject).
 bool TerrainGame::releaseCarried(RuntimeObject& o, float vx, float vy,
                                  float vz) {
   o.dirty = true;
@@ -2070,6 +2416,12 @@ bool TerrainGame::releaseCarried(RuntimeObject& o, float vx, float vy,
   return true;
 }
 
+
+
+// --- Memory card save menu ----------------------------------------------
+// Dpad picks a slot, Cross saves, Circle loads, Triangle closes. Returns
+// true while the menu owns the pad - loop() then skips player movement,
+// the use target, scripts and object physics (a straight pause).
 bool TerrainGame::updateSaveMenu() {
   if (saveFeedbackFrames > 0) --saveFeedbackFrames;
 
@@ -2209,6 +2561,8 @@ bool TerrainGame::updateSaveMenu() {
   return true;
 }
 
+
+
 void TerrainGame::beginCardOp(int op, int slot) {
   cardOp = op;
   cardOpSlot = slot;
@@ -2216,9 +2570,13 @@ void TerrainGame::beginCardOp(int op, int slot) {
   cardBusyFrames = everyFrames(1.5F);
 }
 
+
+
 void TerrainGame::refreshSlotStates() {
   for (int i = 0; i < SAVE_SLOTS; ++i) slotUsed[i] = saveSlotUsed(i);
 }
+
+
 
 int TerrainGame::nextSaveSlot() {
   for (int i = 0; i < SAVE_SLOTS; ++i) {
@@ -2235,11 +2593,15 @@ int TerrainGame::nextSaveSlot() {
   return -1;  // every slot is the autosave slot (SAVE_SLOTS == 1)
 }
 
+
+
 int TerrainGame::resolveCommitSlot(int request) {
   if (request == SAVE_COMMIT_AUTOSAVE) return SAVE_AUTOSAVE_SLOT;  // -1 if none
   if (request == SAVE_COMMIT_NEXT) return nextSaveSlot();
   return request;
 }
+
+
 
 void TerrainGame::captureState(SaveGameData& d) {
   d = SaveGameData();
@@ -2281,11 +2643,19 @@ void TerrainGame::captureState(SaveGameData& d) {
   }
 }
 
+
+
+// What goes in the slot. With SAVE_MENU_CHECKPOINT the menu writes the last
+// checkpoint instead of the here-and-now - the "you resume from the shrine"
+// model. It falls back to a live snapshot when no checkpoint has been taken,
+// so a player who reaches the menu first can still save.
 const SaveGameData& TerrainGame::slotSource(SaveGameData& scratch) {
   if (SAVE_MENU_CHECKPOINT && checkpointValid) return checkpointData;
   captureState(scratch);
   return scratch;
 }
+
+
 
 void TerrainGame::doSave(int slot) {
   static SaveGameData d;  // the payload can be a few KB - keep it off the stack
@@ -2295,6 +2665,10 @@ void TerrainGame::doSave(int slot) {
   saveFeedbackFrames = everyFrames(1.8F);  // ~1.8 s
 }
 
+
+
+// The async twin of doSave: hand the bytes to saveWriteBegin and return. The
+// poll in updateSaveMenu finishes it and raises the feedback.
 void TerrainGame::startAsyncSave(int slot) {
   static SaveGameData d;
   if (saveWriteBusy() || cardOp >= 0) return;  // never two transfers at once
@@ -2303,6 +2677,8 @@ void TerrainGame::startAsyncSave(int slot) {
     spinnerHold = everyFrames(0.6F);
   }
 }
+
+
 
 void TerrainGame::doLoad(int slot) {
   static SaveGameData d;
@@ -2317,6 +2693,10 @@ void TerrainGame::doLoad(int slot) {
   saveFeedbackFrames = 90;
 }
 
+
+
+// Restores a payload captured by captureState - a card slot's or the RAM
+// checkpoint's. Mutates d only to NUL-terminate texts (corrupted cards).
 void TerrainGame::applyState(SaveGameData& d) {
   for (int i = 0; i < d.valueCount && i < SAVE_VALUE_COUNT; ++i)
     saveValues[i] = d.values[i];
@@ -2343,6 +2723,8 @@ void TerrainGame::applyState(SaveGameData& d) {
     applySavedObjects();
 }
 
+
+
 void TerrainGame::applySavedObjects() {
   for (const SaveObjectState& st : pendingObjState) {
     if (st.index < 0 || st.index >= (int)runtimeObjects.size()) continue;
@@ -2358,6 +2740,8 @@ void TerrainGame::applySavedObjects() {
   pendingObjState.clear();
   pendingObjScene = -1;
 }
+
+
 
 void TerrainGame::renderSaveMenu() {
   if (saveMenuOpen) {
@@ -2426,6 +2810,15 @@ void TerrainGame::renderSaveMenu() {
     engine->renderer.renderer2D.render(saveFeedbackSprites[saveFeedback - 1]);
 }
 
+
+
+// --- Game menus (menu_data.gen.hpp) ---------------------------------------
+// Panels are baked by the editor; the runtime only moves a cursor and runs
+// entry actions. Dpad picks a row, Cross selects, Triangle pops the submenu
+// stack (or closes; a title screen's root cannot be dismissed with Back).
+// The Start button opens/closes the designated pause menu (PAUSE_MENU).
+// Returns true while an open menu PAUSES gameplay - menus with the pause
+// flag off float over the running game (pad presses reach both).
 bool TerrainGame::updateGameMenu() {
   scriptCtx.menuEvent = -1;
   // A flow event queued from outside a menu row (a finished credits roll)
@@ -2440,24 +2833,49 @@ bool TerrainGame::updateGameMenu() {
   auto pausing = [&] {
     return gameMenuIndex >= 0 && MENUS[gameMenuIndex].pause != 0;
   };
+  // Opening a menu from scratch: one sequence, three callers (a queued
+  // openMenu, the pause toggle, the cutscene skip confirmation below). The
+  // grace counter is pad-garbage protection - see updateSaveMenu.
+  auto enterMenu = [&](int target) {
+    gameMenuIndex = target;
+    gameMenuCursor = 0;
+    gameMenuScroll = 0;
+    gameMenuOpenT = 0.0F;
+    gameMenuClock = 0.0F;
+    gameMenuScrollShown = 0.0F;
+    gameMenuCursorRow = -1;
+    gameMenuStackDepth = 0;
+    gameMenuGrace = 15;
+    menuRebindRow = -1;
+    useTargetIndex = -1;
+  };
 
   if (scriptCtx.openMenu >= 0) {
     const int target = scriptCtx.openMenu;
     scriptCtx.openMenu = -1;
     if (target < MENU_COUNT && !saveMenuOpen && gameMenuIndex < 0) {
-      gameMenuIndex = target;
-      gameMenuCursor = 0;
-      gameMenuScroll = 0;
-      gameMenuOpenT = 0.0F;
-      gameMenuClock = 0.0F;
-      gameMenuScrollShown = 0.0F;
-      gameMenuCursorRow = -1;
-      gameMenuStackDepth = 0;
-      gameMenuGrace = 15;  // pad-garbage grace (see updateSaveMenu)
-      menuRebindRow = -1;
-      useTargetIndex = -1;
+      enterMenu(target);
       return pausing();
     }
+  }
+
+  // A skippable cutscene OWNS the "menu" action for its duration
+  // (docs/cutscenes.md). This has to come before the pause toggle below, and
+  // that ordering is the whole fix: a project with a pause menu could never
+  // skip a cutscene, because the press opened the menu, the open menu paused
+  // the scripts, and the director - which used to test the raw Start button
+  // itself - never ran to see it. One press does one thing.
+  if (gameMenuIndex < 0 && !saveMenuOpen && sequences::skippable() &&
+      inputClicked(engine->pad, IA_ROLE_MENU)) {
+    // Ask first, when the project designated a confirmation screen. With no
+    // such menu the mode falls back to skipping on the spot: swallowing the
+    // press and doing nothing would read as a broken button.
+    if (sequences::skipMode() == 1 && SKIP_MENU >= 0 && SKIP_MENU < MENU_COUNT) {
+      enterMenu(SKIP_MENU);
+      return pausing();
+    }
+    sequences::stop();
+    return false;
   }
 
   // The "menu" action toggles the pause menu: opens it during gameplay, closes
@@ -2465,17 +2883,7 @@ bool TerrainGame::updateGameMenu() {
   if (PAUSE_MENU >= 0 && !saveMenuOpen &&
       inputClicked(engine->pad, IA_ROLE_MENU)) {
     if (gameMenuIndex < 0) {
-      gameMenuIndex = PAUSE_MENU;
-      gameMenuCursor = 0;
-      gameMenuScroll = 0;
-      gameMenuOpenT = 0.0F;
-      gameMenuClock = 0.0F;
-      gameMenuScrollShown = 0.0F;
-      gameMenuCursorRow = -1;
-      gameMenuStackDepth = 0;
-      gameMenuGrace = 15;
-      menuRebindRow = -1;
-      useTargetIndex = -1;
+      enterMenu(PAUSE_MENU);
       return pausing();
     }
     if (gameMenuIndex == PAUSE_MENU && gameMenuStackDepth == 0 &&
@@ -2682,11 +3090,26 @@ bool TerrainGame::updateGameMenu() {
           credits::play(e.param);
         }
         break;
+      case 13:  // confirm a cutscene skip: end it and close the menu. Anything
+        // that dismisses the menu instead (a Close row, "back") declines and
+        // the cutscene carries on from where it froze - so "no" needs no row
+        // action of its own (docs/cutscenes.md).
+        gameMenuIndex = -1;
+        gameMenuStackDepth = 0;
+        sequences::stop();
+        break;
     }
   }
   return pausing();
 }
 
+
+
+// Rebind rows (MenuEntry::RebindKey) -> the live bindings. Each row's save
+// value holds an INPUT_CODES index (0 = the preset's own binding), so the
+// override persists on the memory card like every other menu state and is
+// re-applied after a load. Idempotent and cheap: inputSetOverride only
+// rebuilds when the code actually changed.
 void TerrainGame::applyInputBindings() {
   for (int mi = 0; mi < MENU_COUNT; ++mi) {
     const MenuData& m = MENUS[mi];
@@ -2704,6 +3127,21 @@ void TerrainGame::applyInputBindings() {
   }
 }
 
+
+
+// Ready-made menu "option blocks" (Menu Editor > Insert option block): a
+// Toggle/Choice row bound to a built-in engine setting. Every frame we map the
+// row's option index (held in its save value) onto the setting, evenly across
+// the row's options - so the same row that persists and previews as a normal
+// stateful entry also drives the engine, with no flow graph. Volume / deadzone
+// / curve are idempotent (re-applied each frame, cheap). Display mode and
+// widescreen rebuild VRAM / arm the confirm prompt, so they fire only when the
+// option actually changes, routed through the same scriptCtx video requests
+// the Set Display Mode / Set Widescreen flow nodes use. When the project has
+// an "apply video mode" row (MENU_HAS_APPLY_VIDEO) the display row defers
+// instead: cycling it only stages a selection the APPLY row commits (case 9
+// in updateGameMenu), so the player can browse the option list without the
+// screen switching under them.
 void TerrainGame::applyMenuBindings() {
   for (int mi = 0; mi < MENU_COUNT; ++mi) {
     const MenuData& m = MENUS[mi];
@@ -2782,6 +3220,11 @@ void TerrainGame::applyMenuBindings() {
   }
 }
 
+
+
+// Keep a bound "Player count" menu row's save value (and the bind's edge
+// detector) in line with the actual player-2 state, so a pad-2 Start join
+// shows up in the menu instead of fighting it.
 void TerrainGame::syncPlayerCountMenuValue() {
   const int idx = playerTwoActive ? 1 : 0;
   menuPlayerCountPrev = idx;
@@ -2795,6 +3238,10 @@ void TerrainGame::syncPlayerCountMenuValue() {
   }
 }
 
+
+
+// True when a row is currently usable: a label/spacer never is, and a row with
+// an `enabledWhen` save value is only usable while that value is non-zero.
 bool TerrainGame::menuRowEnabled(int menu, int row) const {
   if (menu < 0 || menu >= MENU_COUNT) return false;
   const MenuData& m = MENUS[menu];
@@ -2807,6 +3254,11 @@ bool TerrainGame::menuRowEnabled(int menu, int row) const {
   return true;
 }
 
+
+
+// Moves the cursor `dir` rows, skipping headers, spacers and disabled rows, and
+// wrapping like the plain cursor always did. A menu with nothing selectable
+// leaves the cursor where it is rather than spinning.
 void TerrainGame::menuMoveCursor(int menu, int dir) {
   if (menu < 0 || menu >= MENU_COUNT) return;
   const MenuData& m = MENUS[menu];
@@ -2817,6 +3269,9 @@ void TerrainGame::menuMoveCursor(int menu, int dir) {
   }
 }
 
+
+
+// Keeps the cursor inside the visible window of a scrolling list.
 void TerrainGame::menuFollowCursor(int menu) {
   if (menu < 0 || menu >= MENU_COUNT) return;
   const MenuData& m = MENUS[menu];
@@ -2831,6 +3286,8 @@ void TerrainGame::menuFollowCursor(int menu) {
   if (gameMenuScroll > maxScroll) gameMenuScroll = maxScroll;
   if (gameMenuScroll < 0) gameMenuScroll = 0;
 }
+
+
 
 void TerrainGame::renderGameMenu() {
   // A menu that is closing still draws: its transition is the whole reason the
@@ -3149,6 +3606,12 @@ void TerrainGame::renderGameMenu() {
   }
 }
 
+
+
+// Per frame, before any HUD sprite is drawn: apply the flow nodes' requests,
+// advance every transition and effect, pose the image and text sprites, and
+// integrate the bars. Runs whether or not the HUD is visible, so a hidden
+// stack comes back where its animations would have been.
 void TerrainGame::updateHudMotion() {
   hudClock += g_frameDt;
   const auto& scr = engine->renderer.core.getSettings();
@@ -3270,6 +3733,11 @@ void TerrainGame::updateHudMotion() {
   }
 }
 
+
+
+// Draws the bars above the HUD stack: track, ghost, fill (a tinted quad, or
+// the fill image cropped to the fraction), then the frame image over all of
+// it. A quantized bar lights whole segments instead.
 void TerrainGame::renderHudBars() {
   const auto& scr = engine->renderer.core.getSettings();
   const float W = (float)scr.getWidth(), H = (float)scr.getHeight();
@@ -3354,6 +3822,13 @@ void TerrainGame::renderHudBars() {
   }
 }
 
+
+
+// On-screen texts: tick the auto-hide timers and draw what is visible. Baked
+// sprites - one 2D quad each. Requests were consumed by updateHudMotion so a
+// show/hide transition starts in the frame its flow node fires.
+// The sprite was posed by updateHudMotion (transition + loop), which is also
+// why a text still draws while hudTextOn is 0: it is on its way out.
 void TerrainGame::updateAndRenderHudTexts() {
   for (int i = 0; i < (int)hudTextSprites.size(); ++i) {
     if (hudTextOn[i] && hudTextTimer[i] > 0.0F) {
@@ -3364,11 +3839,25 @@ void TerrainGame::updateAndRenderHudTexts() {
       }
     }
     const int e = HUD_ELEM_TEXT0 + i;
-    if (e < (int)hudElemDrawn.size() && hudElemDrawn[e])
+    // A "Hide HUD" cutscene takes the baked texts with the rest of the HUD -
+    // but only the DRAWING: the auto-hide countdown above keeps running, or a
+    // text shown just before a cutscene would still be on screen after it
+    // (docs/cutscenes.md). Runtime text (Display Text) is deliberately not
+    // covered - that is where a cutscene's subtitles live.
+    if (e < (int)hudElemDrawn.size() && hudElemDrawn[e] &&
+        !scriptCtx.hudSuppressed)
       engine->renderer.renderer2D.render(hudTextSprites[i]);
   }
 }
 
+
+
+// Sun screen effects, part 1 (before the post-fx pass): projects the sun -
+// it sits infinitely far along the lighting direction, so only the DIRECTION
+// matters - feeds the god-rays pass its screen position + visibility factor,
+// and eases the lens flare's occlusion fade (one ray toward the sun: object
+// bounding spheres + a terrain march). Part 2 (renderFlare) draws the flare
+// sprites AFTER the post-fx pass so they sit on top of DoF and the rays.
 void TerrainGame::updateSunFx() {
   auto& postFx = engine->renderer.core.postFx;
   const float amount =
@@ -3547,12 +4036,30 @@ void TerrainGame::updateSunFx() {
   if (flarePreDrawn) engine->renderer.renderer2D.render(flareSprites[0]);
 }
 
+
+
+// Sun lens flare, part 2: the remaining ghost sprites (the main glow drew in
+// updateSunFx, pre-post-fx). Drawn right after the post-fx pass (DoF + god
+// rays), under the whole HUD stack.
 void TerrainGame::renderFlare() {
   if (flareAmt <= 0.0F || flareVis <= 0.01F) return;
   for (int i = flarePreDrawn ? 1 : 0; i < 4; ++i)
     engine->renderer.renderer2D.render(flareSprites[i]);
 }
 
+
+
+// The night sky (docs/day-night-cycle.md "Stars"). Builds one additive bag per
+// magnitude tier out of the generated STARS table - the same list
+// starfield::generate handed the editor, so the console's sky IS the preview's.
+//
+// Additive is the whole feature: the GS computes Cs*FIX + Cd, so a star ADDS
+// its colour to the sky behind it. That is what makes a bright star bright
+// (and gives the bloom pass something to flare) rather than a grey pixel, and
+// it is why the per-star colour lives in the Gouraud vertex colours.
+//
+// The quads are built once in WORLD space around the origin and the bag is
+// re-centred on the camera each frame like the sky dome; VU1 does the rest.
 void TerrainGame::buildStarField() {
   for (int t = 0; t < STAR_TIERS; ++t) {
     starBags[t].verts.clear();
@@ -3637,16 +4144,16 @@ void TerrainGame::buildStarField() {
     sb.info->blssProxy = false;     // a camera-centred shell, like the dome
     sb.info->additiveBlendFix = 128;
     sb.colorBag = std::make_unique<StaPipColorBag>();
-    sb.colorBag->many = sb.colors.data();
+    sb.colors.bind(sb.colorBag);
     sb.bag = std::make_unique<StaPipBag>();
     sb.bag->info = sb.info.get();
     sb.bag->color = sb.colorBag.get();
-    sb.bag->vertices = sb.verts.data();
+    sb.verts.bind(sb.bag);
     sb.bag->count = static_cast<u32>(sb.verts.size());
     if (beamCoronaTex) {
       sb.texBag = std::make_unique<StaPipTextureBag>();
       sb.texBag->texture = beamCoronaTex;
-      sb.texBag->coordinates = sb.sts.data();
+      sb.sts.bind(sb.texBag);
       sb.bag->texture = sb.texBag.get();
     } else {
       sb.bag->texture = nullptr;
@@ -3656,6 +4163,11 @@ void TerrainGame::buildStarField() {
   }
 }
 
+
+
+// Submits the field. The scene's star brightness and the twinkle both ride the
+// additive FIX, so this is three byte writes and three submits - no geometry
+// touched, whatever the time of day.
 void TerrainGame::renderStarField() {
   const bool liveSky = daynight::active(currentScene);
   const float starLevel = liveSky ? daynight::g_stars : SCENE_STARS_BRIGHT;
@@ -3687,6 +4199,14 @@ void TerrainGame::renderStarField() {
   }
 }
 
+
+
+// The runtime half of the day/night cycle (docs/day-night-cycle.md, "The
+// hybrid"). One call a frame, and everything it moves is something the frame was
+// already going to compute: the sun and moon directions, the sky gradient, the
+// fog colour, the star brightness and a colour grade. The BAKED half - vertex
+// shading, the AO lightmap, GI - stays at the hour the scene was built at,
+// which is exactly what the grade is here to paper over.
 void TerrainGame::dayNightTick() {
   if (!daynight::active(currentScene)) return;
   daynight::tick(currentScene, g_frameDt);
@@ -3743,6 +4263,18 @@ void TerrainGame::dayNightTick() {
   }
 }
 
+
+
+// Day/night cycle sky bodies (docs/day-night-cycle.md): one-time setup of the
+// sun and moon quads. Six vertices each and a fixed full-sprite ST quad; the
+// positions are written every frame by renderSkyBodies.
+//
+// The two differ in how they blend, and it is not a style choice. The sun is
+// ADDITIVE (Cs*FIX + Cd), which is what makes it read as a light source and
+// what feeds the bloom pass a bright spot to flare - so its sprite carries its
+// shape in RGB, because an additive bag never reads texture alpha. The moon is
+// an ordinary alpha-blended quad: it is a lit ROCK, and adding it to the sky
+// would make a night sky glow through it.
 void TerrainGame::setupSkyBodies() {
   if (!DAYCYCLE_USED) return;
   auto init = [](SkyBody& b, Tyra::Texture* tex, bool additive) {
@@ -3777,18 +4309,22 @@ void TerrainGame::setupSkyBodies() {
     b.colorBag->single = &b.color;
     b.texBag = std::make_unique<StaPipTextureBag>();
     b.texBag->texture = tex;
-    b.texBag->coordinates = b.sts.data();
+    b.sts.bind(b.texBag);
     b.bag = std::make_unique<StaPipBag>();
     b.bag->info = b.info.get();
     b.bag->color = b.colorBag.get();
     b.bag->texture = b.texBag.get();
-    b.bag->vertices = b.verts.data();
+    b.verts.bind(b.bag);
     b.bag->count = 6;
   };
   if (sunDiscTex) init(sunBody, sunDiscTex, true);
   if (moonDiscTex) init(moonBody, moonDiscTex, false);
 }
 
+
+
+// Places and submits the two discs. Called right after the sky dome, so they
+// are behind everything and write no depth of their own.
 void TerrainGame::renderSkyBodies(const Vec4& eye, const Vec4& look) {
   if (!DAYCYCLE_USED) return;
   // View basis: the quads are billboards, so their corners are rebuilt from

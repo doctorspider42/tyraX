@@ -22,5 +22,7 @@ inline constexpr int TERRAIN_LAYER_TEXTURES[2][1] = {};
 inline constexpr float TERRAIN_LAYER_TILE_US[2][1] = {};
 inline constexpr float TERRAIN_LAYER_TILE_VS[2][1] = {};
 inline constexpr float TERRAIN_LAYER_TINTS[2][1][3] = {};
+inline constexpr float TERRAIN_LAYER_GRIPS[2][1] = {{1.0F}, {1.0F}};
+inline constexpr bool TERRAIN_LAYER_GRIP_ANY = false;
 
 }  // namespace World_facts

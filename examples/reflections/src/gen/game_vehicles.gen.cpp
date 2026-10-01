@@ -2,12 +2,21 @@
 #include "game_runtime.gen.hpp"
 
 namespace Reflections {
-void TerrainGame::renderProcChunks() {
-  if (procChunks.empty()) return;
+
+
+
+
+
+
+void TerrainGame::renderRoadChunks() {
+#if TYRA_FRAME_PROFILE
+  stapip.core.setTelemetryProducer(Tyra::StaPipProducerRoads);
+#endif
+  // Main and reflection views need the asphalt without paying for every
+  // procedural volume and prefab in the scene. Roads own the reserved -3
+  // producer id, which also gives the profiler an honest standalone phase.
   for (ProcChunk& c : procChunks) {
-    if (!c.bag || c.bag->count == 0) continue;
-    // Per-chunk draw distance: the cheapest LOD there is, and the reason
-    // chunk size is a real authoring decision rather than a detail.
+    if (c.owner != -3 || !c.bag || c.bag->count == 0) continue;
     if (c.drawDist > 0.0F) {
       const float dx = c.centre[0] - cameraPosition.x;
       const float dy = c.centre[1] - cameraPosition.y;
@@ -15,10 +24,469 @@ void TerrainGame::renderProcChunks() {
       if (dx * dx + dy * dy + dz * dz > c.drawDist * c.drawDist) continue;
     }
     if (splitBandActive && outsideSplitBand(c.aabbMin, c.aabbMax)) continue;
-    stapip.core.render(c.bag.get());
+    if (g_groundDrawRadius > 0.0F &&
+        groundBoxDist2(c.aabbMin, c.aabbMax, cameraPosition.x, cameraPosition.y,
+                       cameraPosition.z) > g_groundDrawRadius * g_groundDrawRadius)
+      continue;
+    // Roads are long, shallow receiver surfaces, and BOTH coarse rejects were
+    // removed together in 1.122.2 after false-hidden asphalt gaps. Only one of
+    // them could have caused those: the SOFTWARE-DEPTH test is approximate by
+    // construction and stays out. The frustum test is not - it is
+    // CoreBBox::frustumCheckAABB against the chunk's own exact world box, the
+    // identical call renderProcChunks makes on every other generated chunk and
+    // renderVehicleWheels on every rig, at the same point in the frame and off
+    // the same planes, neither of which has ever dropped anything visible. A
+    // conservative box test cannot hide geometry the box contains, and
+    // procFinishChunks builds that box from these very vertices.
+    //
+    // It is worth restoring because roads had no coarse reject at all: every
+    // chunk of the district's 54 was handed to StaPip on every frame to be
+    // classified package by package, 256 rejected against 50 drawn (PCSX2
+    // per-producer inventory, garage day).
+    const Tyra::Vec4 mn(c.aabbMin[0], c.aabbMin[1], c.aabbMin[2], 1.0F);
+    const Tyra::Vec4 mx(c.aabbMax[0], c.aabbMax[1], c.aabbMax[2], 1.0F);
+    if (Tyra::CoreBBox::frustumCheckAABB(
+            engine->renderer.core.renderer3D.frustumPlanes.getAll(), mn, mx) ==
+        Tyra::CoreBBoxFrustum::OUTSIDE_FRUSTUM)
+      continue;
+    submitHeavy(c.bag.get());
   }
 }
 
+
+
+// ---------------------------------------------------------------------------
+// Interleaved passes (docs/interleaved-passes.md, INTERLEAVE_PASSES)
+// ---------------------------------------------------------------------------
+// Measured on a physical PS2 (Motor District, garage): the EE waits for VU1
+// in the static batch and road passes (0.66 + 0.89 ms a frame) and not at
+// all in the object loop, which does 2.3 ms of EE work for little GPU work.
+// Feeding the batch and road bags into the object loop overlaps the two.
+// Terrain stays where it is: it is EE-heavy outdoors, and deferring it cost
+// more than it saved there.
+
+void TerrainGame::submitHeavy(Tyra::StaPipBag* bag) {
+  if (heavyCollect)
+    heavyBags.push_back(bag);
+  else
+    stapip.core.render(bag);
+}
+
+
+
+// Feeds the deferred bags back: a share of them per drawn object, spread so
+// the last one goes out around the previous frame's last drawn object, or
+// all of them. Called inside the object loop's submission batch - measured,
+// closing the batch around each feed costs more than the feed saves.
+void TerrainGame::dripHeavy(bool all) {
+  if (!all) ++heavyDrawn;  // every drawn object, also after the blend flush
+  const size_t total = heavyBags.size();
+  if (heavyNext >= total) return;
+  size_t want = total - heavyNext;
+  if (!all) {
+    const size_t objs = heavyPrevDrawn > 0 ? (size_t)heavyPrevDrawn : 1;
+    const size_t even = (total + objs - 1) / objs;
+    if (even < want) want = even;
+  }
+  for (size_t k = 0; k < want; ++k) stapip.core.render(heavyBags[heavyNext++]);
+}
+
+
+
+// Decides this frame's order. Off and always are constants; auto probes 8
+// pairs of frames, one in each order, and keeps the order that won most of
+// them for ilHoldFrames. The two frames of a pair see nearly the same view,
+// and counting pair wins instead of summing times means one slow frame (a
+// scene load, a texture upload burst) decides one pair, not the verdict.
+//
+// What is timed is the WHOLE loop, from here to here one frame later, minus
+// the renderer's stall. Timing only the passes that move was tried first
+// and missed the cost: measured on a PS2 in open ground, interleaving costs
+// nothing inside them and +0.19 ms later, at endFrame, where the GS tail
+// that the object loop used to hide is now waited for.
+bool TerrainGame::interleaveBegin() {
+  heavyBags.clear();
+  heavyNext = 0;
+  heavyDrawn = 0;
+  if (INTERLEAVE_PASSES == 0 || splitPassActive) return false;
+  if (INTERLEAVE_PASSES == 2) return true;
+  const u32 now = profTicks();
+  const u32 stall = engine->renderer.core.getStallTotal();
+  if (ilHaveMark) {
+    const u32 period = now - ilMark;
+    const u32 stalled = stall - ilStallMark;
+    ilAccount(period > stalled ? period - stalled : 0);
+  }
+  ilHaveMark = true;
+  ilMark = now;
+  ilStallMark = stall;
+  ilMarkActive = ilProbing ? (ilFrame & 1) == 0 : ilChoice;
+  return ilMarkActive;
+}
+
+
+
+// Called once per frame for the frame that just ended, with its work.
+void TerrainGame::ilAccount(u32 work) {
+  constexpr int kProbeFrames = 16;  // 8 pairs
+  // Short on purpose: a hold that outlives the view it was measured in
+  // (measured: 250 frames carried the garage's verdict into open ground)
+  // costs more than the probe frames do.
+  constexpr int ilHoldFrames = 100;
+  ++ilFrame;
+  if (!ilProbing) {
+    if (ilFrame >= ilHoldFrames) {
+      ilProbing = true;
+      ilFrame = 0;
+      ilWins = 0;
+      ilSumOn = ilSumOff = 0;
+    }
+    return;
+  }
+  if (ilMarkActive) {
+    ilPairOn = work;
+    ilSumOn += work;
+  } else {
+    // The pair's second frame: interleaving wins it only by a clear 1%,
+    // because the plain order is the one every other measurement of this
+    // engine was taken in.
+    if ((double)ilPairOn * 1.01 < (double)work) ++ilWins;
+    ilSumOff += work;
+  }
+  if (ilFrame < kProbeFrames) return;
+  const bool on = ilWins * 2 > kProbeFrames / 2;
+  if (on != ilChoice || DEBUG_SHOW_PROFILER)
+    TYRA_LOG("INTERLEAVE auto on=",
+             (int)(ilSumOn / (kProbeFrames / 2) / 295), "us off=",
+             (int)(ilSumOff / (kProbeFrames / 2) / 295), "us -> ",
+             on ? "interleaved" : "plain", " wins=", ilWins, "/",
+             kProbeFrames / 2, " heavy=", ilLastHeavy,
+             " drawn=", heavyPrevDrawn, " blendAt=", ilLastBlendAt);
+  ilChoice = on;
+  ilProbing = false;
+  ilFrame = 0;
+}
+
+
+
+void TerrainGame::interleaveEnd() {
+  if (heavyActive) {
+    heavyPrevDrawn = heavyDrawn > 0 ? heavyDrawn : 1;
+    ilLastBlendAt = heavyBlendAt;
+    ilLastHeavy = (int)heavyBags.size();
+  }
+}
+
+
+
+// Must this object draw only after the deferred bags? Yes if any part can
+// blend with the framebuffer - vertex or material alpha, a translucent or
+// cutout texture, a blend equation - or does not write z. Everything else
+// is opaque and z-tested, so its order against the batches and roads does
+// not change a pixel. Judged per geometry build (the key below); the single
+// colour's alpha is re-read every call because scripts fade it in place.
+bool TerrainGame::objectMayBlend(int index) {
+  ObjectGeometry& g = objectGeometry[index];
+  u32 key = (u32)g.parts.size();
+  for (const GeoPart& part : g.parts) {
+    const Tyra::StaPipBag* bag = part.bag.get();
+    if (!bag) continue;
+    key = key * 31U + reinterpret_cast<u32>(bag->vertices) + (u32)bag->count;
+    if (bag->color && bag->color->contentVersion)
+      key = key * 31U + *bag->color->contentVersion;
+    if (bag->color && bag->color->single && bag->color->single->a < 127.5F)
+      return true;
+  }
+  if (g.blendState >= 0 && g.blendKey == key) return g.blendState != 0;
+  bool blend = false;
+  for (const GeoPart& part : g.parts) {
+    const Tyra::StaPipBag* bag = part.bag.get();
+    if (!bag || blend) continue;
+    const Tyra::PipelineInfoBag* info = bag->info;
+    if (info && (info->additiveBlendFix != 0 || info->subtractiveBlendFix != 0 ||
+                 info->zTestType != Tyra::PipelineZTest_Standard))
+      blend = true;
+    if (!blend && bag->color && bag->color->many)
+      for (u32 v = 0; v < (u32)bag->count && !blend; ++v)
+        blend = bag->color->many[v].a < 127.5F;
+    if (!blend && bag->texture) blend = textureMayBlend(bag->texture->texture);
+  }
+  g.blendKey = key;
+  g.blendState = blend ? 1 : 0;
+  return blend;
+}
+
+#if TYRA_ROAD_INDEX_VERIFY
+float TerrainGame::roadSurfaceScan(float x, float z) const {
+  float best = -1.0e30F;
+  auto testTriangle = [&](const Vec4& a, const Vec4& b, const Vec4& c) {
+    const float den = (b.z - c.z) * (a.x - c.x) +
+                      (c.x - b.x) * (a.z - c.z);
+    if (fabsf(den) < 0.000001F) return;
+    const float wa = ((b.z - c.z) * (x - c.x) +
+                      (c.x - b.x) * (z - c.z)) / den;
+    const float wb = ((c.z - a.z) * (x - c.x) +
+                      (a.x - c.x) * (z - c.z)) / den;
+    const float wc = 1.0F - wa - wb;
+    if (wa < -0.0001F || wb < -0.0001F || wc < -0.0001F) return;
+    const float y = wa * a.y + wb * b.y + wc * c.y;
+    if (y > best) best = y;
+  };
+  for (const ProcChunk& c : procChunks) {
+    if (c.owner != -3 || c.vertices.size() < 3) continue;
+    if (x < c.aabbMin[0] || x > c.aabbMax[0] ||
+        z < c.aabbMin[2] || z > c.aabbMax[2])
+      continue;
+    const size_t count = c.vertices.size();
+    if (c.stripRun > 0) {
+      const size_t run = (size_t)c.stripRun;
+      for (size_t first = 0; first < count; first += run) {
+        const size_t end = first + run < count ? first + run : count;
+        for (size_t i = first + 2; i < end; ++i)
+          testTriangle(c.vertices[i - 2], c.vertices[i - 1], c.vertices[i]);
+      }
+    } else {
+      for (size_t i = 0; i + 2 < count; i += 3)
+        testTriangle(c.vertices[i], c.vertices[i + 1], c.vertices[i + 2]);
+    }
+  }
+  return best;
+}
+#endif
+
+void TerrainGame::buildRoadHeightIndex() const {
+  roadIdxDirty = false;
+  roadIdxChunks = procChunks.size();
+  roadIdxStart.clear();
+  roadIdxItems.clear();
+  roadIdxN = 0;
+  float mnx = 1.0e30F, mxx = -1.0e30F, mnz = 1.0e30F, mxz = -1.0e30F;
+  bool any = false;
+  for (const ProcChunk& c : procChunks) {
+    if (c.owner != -3 || c.vertices.size() < 3) continue;
+    any = true;
+    if (c.aabbMin[0] < mnx) mnx = c.aabbMin[0];
+    if (c.aabbMax[0] > mxx) mxx = c.aabbMax[0];
+    if (c.aabbMin[2] < mnz) mnz = c.aabbMin[2];
+    if (c.aabbMax[2] > mxz) mxz = c.aabbMax[2];
+  }
+  if (!any) return;  // no roads: the query answers -1e30 with no work at all
+  float span = (mxx - mnx) > (mxz - mnz) ? (mxx - mnx) : (mxz - mnz);
+  if (span < 1.0F) span = 1.0F;
+  int n = (int)(span / 4.0F) + 1;  // ~4-unit cells, the district's own grain
+  if (n > 128) n = 128;            // and a hard ceiling on what this may cost
+  const float cell = span / (float)n;
+  roadIdxN = n;
+  roadIdxMinX = mnx;
+  roadIdxMinZ = mnz;
+  roadIdxInv = 1.0F / cell;
+  roadIdxStart.assign((size_t)n * (size_t)n + 1, 0U);
+  // Counting sort: pass 0 counts each cell, pass 1 fills it. Both passes walk
+  // the triangles exactly the way roadSurfaceAt used to, so every triangle
+  // that was reachable before is reachable now.
+  std::vector<unsigned int> cursor;
+  for (int pass = 0; pass < 2; ++pass) {
+    unsigned int ci = 0;
+    for (const ProcChunk& c : procChunks) {
+      const unsigned int chunk = ci++;
+      if (c.owner != -3 || c.vertices.size() < 3) continue;
+      if (chunk >= 1024U) continue;  // the entry packs 10 bits of chunk index
+      const size_t count = c.vertices.size();
+      if (count >= (size_t)(1U << 22)) continue;  // ...and 22 of vertex index
+      const size_t run = c.stripRun > 0 ? (size_t)c.stripRun : count;
+      const size_t step = c.stripRun > 0 ? (size_t)1 : (size_t)3;
+      for (size_t first = 0; first < count; first += run) {
+        const size_t end = first + run < count ? first + run : count;
+        for (size_t i = first + 2; i < end; i += step) {
+          const Vec4& a = c.vertices[i - 2];
+          const Vec4& b = c.vertices[i - 1];
+          const Vec4& d = c.vertices[i];
+          float x0 = a.x < b.x ? a.x : b.x;
+          if (d.x < x0) x0 = d.x;
+          float x1 = a.x > b.x ? a.x : b.x;
+          if (d.x > x1) x1 = d.x;
+          float z0 = a.z < b.z ? a.z : b.z;
+          if (d.z < z0) z0 = d.z;
+          float z1 = a.z > b.z ? a.z : b.z;
+          if (d.z > z1) z1 = d.z;
+          int ix0 = (int)((x0 - mnx) * roadIdxInv);
+          int ix1 = (int)((x1 - mnx) * roadIdxInv);
+          int iz0 = (int)((z0 - mnz) * roadIdxInv);
+          int iz1 = (int)((z1 - mnz) * roadIdxInv);
+          if (ix0 < 0) ix0 = 0;
+          if (iz0 < 0) iz0 = 0;
+          if (ix1 > n - 1) ix1 = n - 1;
+          if (iz1 > n - 1) iz1 = n - 1;
+          if (ix1 < ix0 || iz1 < iz0) continue;
+          const unsigned int entry = (chunk << 22) | (unsigned int)i;
+          for (int iz = iz0; iz <= iz1; ++iz)
+            for (int ix = ix0; ix <= ix1; ++ix) {
+              const size_t k = (size_t)iz * (size_t)n + (size_t)ix;
+              if (pass == 0)
+                ++roadIdxStart[k + 1];
+              else
+                roadIdxItems[cursor[k]++] = entry;
+            }
+        }
+      }
+    }
+    if (pass == 0) {
+      for (size_t k = 1; k < roadIdxStart.size(); ++k)
+        roadIdxStart[k] += roadIdxStart[k - 1];
+      roadIdxItems.assign((size_t)roadIdxStart.back(), 0U);
+      cursor.assign(roadIdxStart.begin(), roadIdxStart.end() - 1);
+    }
+  }
+  TYRA_LOG("ROADINDEX cells ", roadIdxN, "x", roadIdxN, " entries ",
+           (int)roadIdxItems.size());
+}
+
+
+
+float TerrainGame::roadSurfaceAt(float x, float z, float* grip,
+                                 float* cover) const {
+  float best = -1.0e30F;
+  if (grip) *grip = 1.0F;
+  if (cover) *cover = 1.0F;
+  auto testTriangle = [&](const Vec4& a, const Vec4& b, const Vec4& c,
+                          float ga, float gb, float gc, float ca, float cb,
+                          float cc) {
+    // Cheap XZ reject before the arithmetic: a cell holds every triangle whose
+    // box touches it, and most of those do not span this exact point.
+    float lo = a.x < b.x ? a.x : b.x;
+    if (c.x < lo) lo = c.x;
+    if (x < lo) return;
+    float hi = a.x > b.x ? a.x : b.x;
+    if (c.x > hi) hi = c.x;
+    if (x > hi) return;
+    lo = a.z < b.z ? a.z : b.z;
+    if (c.z < lo) lo = c.z;
+    if (z < lo) return;
+    hi = a.z > b.z ? a.z : b.z;
+    if (c.z > hi) hi = c.z;
+    if (z > hi) return;
+    const float den = (b.z - c.z) * (a.x - c.x) +
+                      (c.x - b.x) * (a.z - c.z);
+    if (fabsf(den) < 0.000001F) return;
+    const float wa = ((b.z - c.z) * (x - c.x) +
+                      (c.x - b.x) * (z - c.z)) / den;
+    const float wb = ((c.z - a.z) * (x - c.x) +
+                      (a.x - c.x) * (z - c.z)) / den;
+    const float wc = 1.0F - wa - wb;
+    // A hair of tolerance keeps adjacent triangles from exposing a numerical
+    // crack to a six-vertex light/shadow patch on their shared edge.
+    if (wa < -0.0001F || wb < -0.0001F || wc < -0.0001F) return;
+    const float y = wa * a.y + wb * b.y + wc * c.y;
+    if (y > best) {
+      best = y;
+      if (grip) *grip = wa * ga + wb * gb + wc * gc;
+      if (cover) *cover = wa * ca + wb * cb + wc * cc;
+    }
+  };
+  if (roadIdxDirty || roadIdxChunks != procChunks.size())
+    buildRoadHeightIndex();
+  if (roadIdxN <= 0) return best;
+  if (x < roadIdxMinX || z < roadIdxMinZ) return best;
+  const int ix = (int)((x - roadIdxMinX) * roadIdxInv);
+  const int iz = (int)((z - roadIdxMinZ) * roadIdxInv);
+  if (ix < 0 || iz < 0 || ix >= roadIdxN || iz >= roadIdxN) return best;
+  const size_t k = (size_t)iz * (size_t)roadIdxN + (size_t)ix;
+  for (unsigned int e = roadIdxStart[k]; e < roadIdxStart[k + 1]; ++e) {
+    const unsigned int item = roadIdxItems[e];
+    const ProcChunk& c = procChunks[(size_t)(item >> 22)];
+    const size_t i = (size_t)(item & 0x3FFFFFU);
+    float ga = c.roadGrip, gb = ga, gc = ga;
+    if (c.roadBlend) {
+      // The spill's fade blends its grip over the road under it.
+      const float k = (c.roadGrip - c.roadGripBase) * (1.0F / 128.0F);
+      ga = c.roadGripBase + k * c.colors[i - 2].a;
+      gb = c.roadGripBase + k * c.colors[i - 1].a;
+      gc = c.roadGripBase + k * c.colors[i].a;
+    }
+    float ca = 1.0F, cb = 1.0F, cc = 1.0F;
+    if (c.roadEdge) {
+      ca = c.colors[i - 2].a * (1.0F / 128.0F);
+      cb = c.colors[i - 1].a * (1.0F / 128.0F);
+      cc = c.colors[i].a * (1.0F / 128.0F);
+    }
+    testTriangle(c.vertices[i - 2], c.vertices[i - 1], c.vertices[i], ga, gb, gc,
+                 ca, cb, cc);
+  }
+#if TYRA_ROAD_INDEX_VERIFY
+  {
+    static unsigned int checked = 0, bad = 0;
+    static float worst = 0.0F;
+    const float ref = roadSurfaceScan(x, z);
+    const float d = ref > best ? ref - best : best - ref;
+    ++checked;
+    if (d > 0.0005F) {
+      if (d > worst) worst = d;
+      if (++bad == 1)
+        TYRA_LOG("ROADINDEXVERIFY first mismatch at x10 ", (int)(x * 10.0F),
+                 " z10 ", (int)(z * 10.0F), " grid x1000 ", (int)(best * 1000.0F),
+                 " scan x1000 ", (int)(ref * 1000.0F));
+    }
+    if (checked % 20000U == 0U)
+      TYRA_LOG("ROADINDEXVERIFY checked ", (int)checked, " bad ", (int)bad,
+               " worst x1000 ", (int)(worst * 1000.0F));
+  }
+#endif
+  return best;
+}
+
+
+// Terrain layer grip (1.142.0): the painted layers composited bottom-up by
+// their weights, sampled on the two drawn triangles of the cell - the order
+// and the diagonal the terrain passes render with, so the grip a tyre feels
+// is the layer the player sees under it. A handful of byte reads per tyre;
+// nothing at all when no layer has a grip.
+float TerrainGame::terrainGripAt(float x, float z) const {
+  if (!TERRAIN_LAYER_GRIP_ANY) return 1.0F;
+  const int sc = g_activeScene;
+  const int layerN = TERRAIN_LAYER_COUNT;
+  const unsigned char* w8 = TERRAIN_SPLAT_WEIGHTS;
+  if (layerN <= 0 || w8 == nullptr || !TERRAIN_ENABLEDS[sc]) return 1.0F;
+  const int hw = HM_WS[sc], hd = HM_DS[sc];
+  float gx = (x - HM_ORIGIN_XS[sc]) / HM_STEP_XS[sc];
+  float gz = (z - HM_ORIGIN_ZS[sc]) / HM_STEP_ZS[sc];
+  if (gx < 0.0F) gx = 0.0F;
+  if (gz < 0.0F) gz = 0.0F;
+  if (gx > hw - 1.001F) gx = hw - 1.001F;
+  if (gz > hd - 1.001F) gz = hd - 1.001F;
+  const int ix = (int)gx, iz = (int)gz;
+  const float fx = gx - ix, fz = gz - iz;
+  const size_t r0 = ((size_t)iz * hw + ix) * layerN;
+  const size_t r1 = ((size_t)(iz + 1) * hw + ix) * layerN;
+  float m = 1.0F;
+  for (int l = 0; l < layerN; ++l) {
+    const float s00 = w8[r0 + l], s10 = w8[r0 + layerN + l];
+    const float s01 = w8[r1 + l], s11 = w8[r1 + layerN + l];
+    const float wl = (fx + fz <= 1.0F
+                          ? s00 + fx * (s10 - s00) + fz * (s01 - s00)
+                          : s11 + (1.0F - fz) * (s10 - s11) +
+                                (1.0F - fx) * (s01 - s11)) *
+                     (1.0F / 255.0F);
+    if (wl > 0.0F) m += (TERRAIN_LAYER_GRIPS[sc][l] - m) * wl;
+  }
+  return m;
+}
+
+
+
+float TerrainGame::groundSurfaceAt(float x, float z) const {
+  const float terrain = terrainHeightAt(x, z);
+  const float road = roadSurfaceAt(x, z);
+  return road > terrain ? road : terrain;
+}
+
+
+
+// --- the block collision field ---------------------------------------------
+// A block world's ground is not the terrain heightmap, so the walker needs a
+// second source. It is one bitfield lookup: the column word says which levels
+// are solid, and the three queries below are the whole contract collidePlayer
+// needs (a floor under the feet, a ceiling over the head, and a wall in the
+// way). Everything folds away when no volume publishes a field.
 bool TerrainGame::procBlockSolid(float x, float y, float z) const {
   if (!procBlocks.active) return false;
   const int ix = (int)floorf((x - procBlocks.ox) / procBlocks.cell);
@@ -28,6 +496,8 @@ bool TerrainGame::procBlockSolid(float x, float y, float z) const {
   if (iy < 0 || iy >= 32) return false;
   return (procBlocks.col[iz * procBlocks.nx + ix] & (1u << iy)) != 0u;
 }
+
+
 
 float TerrainGame::procBlockTopAt(float x, float z, float maxY) const {
   if (!procBlocks.active) return -1e30F;
@@ -44,6 +514,8 @@ float TerrainGame::procBlockTopAt(float x, float z, float maxY) const {
   return -1e30F;
 }
 
+
+
 float TerrainGame::procBlockCeilAt(float x, float z, float minY) const {
   if (!procBlocks.active) return 1e30F;
   const int ix = (int)floorf((x - procBlocks.ox) / procBlocks.cell);
@@ -58,6 +530,8 @@ float TerrainGame::procBlockCeilAt(float x, float z, float minY) const {
   return 1e30F;
 }
 
+
+
 bool TerrainGame::procBlockBlocks(float x, float z, float y0, float y1,
                                   float r) const {
   if (!procBlocks.active) return false;
@@ -71,6 +545,9 @@ bool TerrainGame::procBlockBlocks(float x, float z, float y0, float y1,
   return false;
 }
 
+
+
+// --- generation -------------------------------------------------------------
 void TerrainGame::procClearVolume(int volume) {
   for (int i = (int)procColliders.size() - 1; i >= 0; --i)
     if (procColliders[i].owner == volume)
@@ -87,6 +564,8 @@ void TerrainGame::procClearVolume(int volume) {
       procrt::VOLUMES[volume].hasBlocks)
     procBlocks.active = false;
 }
+
+
 
 void TerrainGame::procGenerateVolume(int volume, int seed) {
   if (!procrt::ENABLED) return;
@@ -243,6 +722,9 @@ void TerrainGame::procGenerateVolume(int volume, int seed) {
   procFinishChunks();
 }
 
+
+
+// --- prefab instances -------------------------------------------------------
 int TerrainGame::spawnPrefabAt(int prefabIndex, float x, float y, float z,
                                float yaw, float scale, int mergeOwner) {
   if (PREFAB_COUNT <= 0) return -1;
@@ -315,6 +797,8 @@ int TerrainGame::spawnPrefabAt(int prefabIndex, float x, float y, float z,
   return handle;
 }
 
+
+
 void TerrainGame::despawnPrefabInstance(int handle) {
   if (handle < 0 || handle >= (int)prefabInstances.size()) return;
   PrefabInstance& inst = prefabInstances[handle];
@@ -335,6 +819,8 @@ void TerrainGame::despawnPrefabInstance(int handle) {
   applyLayerResidency();
 }
 
+
+
 void TerrainGame::despawnPrefabsNamed(int prefabIndex) {
   for (int i = 0; i < (int)prefabInstances.size(); ++i)
     if (prefabInstances[i].prefab >= 0 &&
@@ -342,6 +828,19 @@ void TerrainGame::despawnPrefabsNamed(int prefabIndex) {
       despawnPrefabInstance(i);
 }
 
+
+
+// Scripted continuous rotation (the Spin Object flow node). Kept OUT of the
+// graphs on purpose: turning a prop from a per-frame trigger means the script
+// runs, writes rotation and marks the object dirty, and renderScene then
+// re-bakes its entire world-space vertex array on the EE - every frame, for
+// every spinner. Here the integration is a handful of instructions, and the
+// object is promoted ONCE onto the per-object matrix path (local-space
+// vertices + objMat, refreshed by renderScene and applied on VU1), which is
+// what makes a permanently rotating object essentially free. Same promotion
+// the physics fast path uses, and the same trade-off: the baked shading
+// freezes at the pose it was promoted in, which is exactly right for
+// something whose orientation never stops changing anyway.
 void TerrainGame::updateSpinners() {
   const int count = (int)runtimeObjects.size();
   for (int i = 0; i < count; ++i) {

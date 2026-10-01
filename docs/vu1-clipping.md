@@ -423,12 +423,23 @@ the env branch (a TD bag also sets `VU1_OPTIONS_ADDR.y > 0`, it is a lighting
 bag) when `.x < 0` - the single-colour lane, which the EE sets to -1 for a
 resident TD bag and which every other reader only ever tests `> 0`. The light
 matrix and directions are the env-basis and spot registers the preamble already
-holds (same addresses); only the colours and ambient load per triangle, so the
-image's VF peak stayed at 30 of 31. The TC colour path pays nothing; TCE and TD
+holds (same addresses); only the colours and ambient load per triangle. (The
+"VF peak stayed at 30 of 31" this paragraph used to claim was `--vu-check`'s
+estimate, and the estimate was wrong - see below.) The TC colour path pays nothing; TCE and TD
 pay two instructions. `--vu-check` runs the TC image's TD path against the
 unlinked `stapip_clip_td_vu1.vclpp` (`Clip TC/TD`), and was falsified before
 being trusted: flipping the selector branch, or feeding one corner's normal to
 the next, fails it on the first trial.
+
+**What that estimate missed: Sony's `vcl` could not allocate it.** By hand count the
+TD path had 33 VF registers live in `sharedDirMode`, and the Docker fallback (Sony's
+`vcl`) died there with `no opt table` on every project, while openvcl - the default
+build - quietly sank five preamble loads and fitted. The TC image now loads its GIF
+tag block's five constants once per buffer, where the block is stored, instead of
+pinning them for the whole program (`tagsPerBuffer` in `src/vugen.cpp`). Output is
+bit-identical (`--vu-check`) and the size is unchanged - 372 words under either
+assembler. The full story and the both-assemblers check:
+docs/toolchain-image.md, "Sony's vcl is a build target too".
 
 **The billboards are resident.** `setProgramsCache` sizes the class set the way
 `Path1::createProgramsCache` will pack it and appends the billboard pair when

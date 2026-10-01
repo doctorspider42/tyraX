@@ -2,6 +2,11 @@
 #include "game_runtime.gen.hpp"
 
 namespace Custom_nodes {
+  // never pull closer than this to the head
+// --- the collision box -------------------------------------------------------
+// One builder for the box every collision consumer reduces an object to (the
+// walker's box mode, the camera's spring arm, the split-screen band cull and,
+// in a debug build, the wireframe overlay). Host twin: placement::collisionBox.
 bool TerrainGame::objectCollides(const SceneObjectData& d) {
   if (d.collision == 2) return false;  // "none" opts out
   switch (d.type) {
@@ -16,14 +21,18 @@ bool TerrainGame::objectCollides(const SceneObjectData& d) {
     case 9:   // point light
     case 11:  // empty
     case 13:  // decal
+    case 22:  // road - the surface is procChunks; the OBJECT is authoring only
     case 14:  // camera marker
     case 17:  // area (a volume, not a wall)
     case 18:  // procedural volume (authoring only)
     case 19:  // scroller belt marker
+    case 20:  // comment (an editor note)
       return false;
     default: return true;
   }
 }
+
+
 
 TerrainGame::CollisionBox TerrainGame::objectCollisionBox(
     const RuntimeObject& o) const {
@@ -36,6 +45,15 @@ TerrainGame::CollisionBox TerrainGame::objectCollisionBox(
     if (o.data.model >= 0 && o.data.model < (int)gameModels.size()) {
       mn = gameModels[o.data.model].mn;
       mx = gameModels[o.data.model].mx;
+#ifdef MODEL_COLL_BOX_USED
+      // The model's own, smaller box (docs/collision-boxes.md, "A smaller
+      // box") - box mode only: a mesh-mode object collides as its triangles.
+      if (o.data.collision != 1 && o.data.model < MODEL_COUNT &&
+          MODEL_COLL_BOX[o.data.model][0] > 0.5F) {
+        mn = &MODEL_COLL_BOX[o.data.model][1];
+        mx = &MODEL_COLL_BOX[o.data.model][4];
+      }
+#endif
     } else if (o.data.animModel >= 0 &&
                o.data.animModel < (int)gameAnimModels.size()) {
       const SkelModel* anim = gameAnimModels[o.data.animModel].src.get();
@@ -63,6 +81,23 @@ TerrainGame::CollisionBox TerrainGame::objectCollisionBox(
   return b;
 }
 
+
+
+// Debug "show collision boxes" (DEBUG_SHOW_COLLISION): the box every collider
+// reduces to, drawn where it actually is. The walker and the camera boom test
+// a volume nothing renders, so "why did I stop here", "why did the camera jump
+// in" and "why does that character block a doorway sideways" are questions the
+// screen cannot answer - this puts the volume on screen, in the same red the
+// editor overlay uses (View > Collision boxes), from the SAME objectCollisionBox.
+//
+// Rebuilt every frame rather than baked into each object's geometry: a box has
+// to follow a tumbling physics body and a flow-node-moved prop, and those never
+// dirty-rebuild. That is affordable because of two caps - only colliders within
+// COLLISION_BOX_RANGE of the camera, and at most COLLISION_BOX_LIMIT of them
+// (the nearest win; the rest are silently absent, which is why the range is
+// generous rather than the count) - and because an edge is a CROSS of two thin
+// quads (12 vertices) instead of a beam box (36): nothing here backface-culls,
+// so a cross reads as a solid edge from every angle at a third of the cost.
 void TerrainGame::renderCollisionBoxes() {
   if (!DEBUG_SHOW_COLLISION) return;
   const float kRange = COLLISION_BOX_RANGE;
@@ -156,7 +191,7 @@ void TerrainGame::renderCollisionBoxes() {
   if (!batchInfoBag) {
     batchInfoBag = std::make_unique<StaPipInfoBag>();
     batchInfoBag->model = &model;
-    batchInfoBag->shadingType = TyraShadingFlat;
+    batchInfoBag->shadingType = TyraShadingGouraud;
     batchInfoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
     batchInfoBag->fullClipChecks = true;
   }
@@ -168,12 +203,14 @@ void TerrainGame::renderCollisionBoxes() {
     collisionBoxBag->lighting = nullptr;
     collisionBoxBag->texture = nullptr;
   }
-  collisionBoxColorBag->many = collisionBoxCols.data();
-  collisionBoxBag->vertices = collisionBoxVerts.data();
+  collisionBoxCols.bind(collisionBoxColorBag);
+  collisionBoxVerts.bind(collisionBoxBag);
   collisionBoxBag->count = static_cast<u32>(collisionBoxVerts.size());
   collisionBoxBag->bboxVersion = ++g_bboxStamp;
   stapip.core.render(collisionBoxBag.get());
 }
+
+
 
 float TerrainGame::springArm(float px, float py, float pz, float dx, float dy,
                              float dz, float maxDist) const {
@@ -181,6 +218,8 @@ float TerrainGame::springArm(float px, float py, float pz, float dx, float dy,
   // rides right in front of the face and must never shove the camera).
   return sweepSphere(px, py, pz, dx, dy, dz, maxDist, CAM_RADIUS, carryIndex);
 }
+
+
 
 float TerrainGame::sweepSphere(float px, float py, float pz, float dx,
                                float dy, float dz, float maxDist, float radius,
@@ -202,29 +241,11 @@ float TerrainGame::sweepSphere(float px, float py, float pz, float dx,
     // Markers, lights, decals, areas, volumes, belts and "collision: none"
     // are not blockers - one list, shared with the walker (objectCollides).
     if (!objectCollides(o.data)) continue;
-    if (sweepPassOn) {
-      // Portal pass-through for a thrown object's sweep: obstacles fully
-      // behind the aimed portal's plane open up (exact OBB extent along
-      // the plane normal - collidePlayer's doorway rule).
-      const V3 pax = rotated({1.0F, 0.0F, 0.0F}, o.data.rotation);
-      const V3 pay = rotated({0.0F, 1.0F, 0.0F}, o.data.rotation);
-      const V3 paz = rotated({0.0F, 0.0F, 1.0F}, o.data.rotation);
-      const float re =
-          fabsf(sweepPassPlane[0] * pax.x + sweepPassPlane[1] * pax.y +
-                sweepPassPlane[2] * pax.z) *
-              0.5F * o.data.scale[0] +
-          fabsf(sweepPassPlane[0] * pay.x + sweepPassPlane[1] * pay.y +
-                sweepPassPlane[2] * pay.z) *
-              0.5F * o.data.scale[1] +
-          fabsf(sweepPassPlane[0] * paz.x + sweepPassPlane[1] * paz.y +
-                sweepPassPlane[2] * paz.z) *
-              0.5F * o.data.scale[2];
-      const float sd = sweepPassPlane[0] * o.data.position[0] +
-                       sweepPassPlane[1] * o.data.position[1] +
-                       sweepPassPlane[2] * o.data.position[2] -
-                       sweepPassPlane[3];
-      if (sd < -re + 0.1F) continue;
-    }
+    // Portal pass-through for a swept body (a throw, the carried object,
+    // the carry whisker): the geometry the aimed opening is cut into opens
+    // up - collidePlayer's doorway rule, same function.
+    if (sweepPassOn && portalDoorwayOpens(o, sweepPassPlane, sweepPassPoint))
+      continue;
 
     // The shared collision box, cast in the box's OWN frame - so a rotated
     // block stops the boom at its real faces instead of leaking through the
@@ -310,6 +331,11 @@ float TerrainGame::sweepSphere(float px, float py, float pz, float dx,
   return best;
 }
 
+
+
+// Dispatcher: walk P1 (and P2 while active) from their pads, then compose the
+// frame camera. Shared screen frames the pair with one camera; split screen
+// keeps each player's own view (the render pass reads players[1].camPos).
 bool TerrainGame::updatePlayerEntity() {
   if (PLAYER_INDEX < 0) return false;
 
@@ -334,6 +360,8 @@ bool TerrainGame::updatePlayerEntity() {
   }
   return true;
 }
+
+
 
 void TerrainGame::updatePlayerWalker(PlayerCtl& P, int pi, Tyra::Pad& pad) {
   const auto& leftJoy = pad.getLeftJoyPad();
@@ -456,8 +484,8 @@ void TerrainGame::updatePlayerWalker(PlayerCtl& P, int pi, Tyra::Pad& pad) {
     // The whisker reads portalPassOn to keep the mounting wall open while
     // carrying THROUGH a portal - reset it only after the whisker runs.
     if (pi == 0)  // carrying is pad-1 only (updateUseTarget)
-      applyCarryWhisker(&nextX, &nextZ, P.y + PP_CAM_HEIGHT(pi), P.yaw, P.y,
-                        PP_EYE_HEIGHT(pi));
+      applyCarryWhisker(P.x, P.z, &nextX, &nextZ, P.y + PP_CAM_HEIGHT(pi),
+                        P.yaw, P.y, PP_EYE_HEIGHT(pi));
     portalPassOn = false;
     const float movedX = nextX - P.x, movedZ = nextZ - P.z;
     P.x = nextX;
@@ -624,8 +652,8 @@ void TerrainGame::updatePlayerWalker(PlayerCtl& P, int pi, Tyra::Pad& pad) {
                 &ceiling);
   // whisker reads portalPassOn (carry through a portal) - reset after it
   if (pi == 0)  // carrying is pad-1 only (updateUseTarget)
-    applyCarryWhisker(&nextX, &nextZ, P.y + PP_EYE_HEIGHT(pi), P.yaw, P.y,
-                      PP_EYE_HEIGHT(pi));
+    applyCarryWhisker(P.x, P.z, &nextX, &nextZ, P.y + PP_EYE_HEIGHT(pi),
+                      P.yaw, P.y, PP_EYE_HEIGHT(pi));
   portalPassOn = false;
   P.x = nextX;
   P.z = nextZ;
@@ -654,6 +682,12 @@ void TerrainGame::updatePlayerWalker(PlayerCtl& P, int pi, Tyra::Pad& pad) {
                    P.z + fz * cosf(P.pitch));
 }
 
+
+
+// Shared-screen camera: orbit (P1's right stick, mirrored into both players'
+// yaw/pitch by the dispatcher) around the midpoint of the two avatars, with
+// the boom stretched by their separation so the pair stays in frame. The
+// spring arm and terrain safety net match the single-player boom.
 void TerrainGame::updateSharedCamera() {
   PlayerCtl& A = players[0];
   PlayerCtl& B = players[1];
@@ -687,6 +721,12 @@ void TerrainGame::updateSharedCamera() {
   cameraLookAt = Vec4(midX, midY, midZ);
 }
 
+
+
+// Player 2 join/leave (Start on pad 2, or a menu Toggle bound to "Player
+// count"). Guarded: joining needs a two-player mode and a second Player
+// object in the scene. Shows/hides the P2 third-person avatar and keeps the
+// bound menu row's save value in sync so both entry points agree.
 void TerrainGame::setPlayerTwoActive(bool active) {
   if (active && (MULTIPLAYER_MODE == 0 || players[1].objIndex < 0)) return;
   if (playerTwoActive == active) return;
@@ -697,6 +737,15 @@ void TerrainGame::setPlayerTwoActive(bool active) {
   syncPlayerCountMenuValue();
 }
 
+
+
+// Locomotion-driven clip selection for the third-person avatar. speedFrac is
+// the planar speed as a fraction of full walk speed. The mapping is trivial -
+// idle / walk / run by speed, jump while airborne - and the avatar's playback
+// speed tracks the real speed so the feet don't slide. The escape hatch: if a
+// non-locomotion clip is currently playing (a script or an Animation node
+// one-shot), locomotion holds off until it finishes, then resumes. This is the
+// whole "third-person for free" story: no state machine, full override.
 void TerrainGame::drivePlayerAnim(PlayerCtl& P, RuntimeObject& body,
                                   float speedFrac, bool grounded,
                                   float moveLocal, bool sprinting) {
@@ -773,6 +822,8 @@ void TerrainGame::drivePlayerAnim(PlayerCtl& P, RuntimeObject& body,
     body.animSpeed = base;
 }
 
+
+
 void TerrainGame::buildSkyDome() {
   if (!SKY_DOME) return;
 
@@ -781,7 +832,15 @@ void TerrainGame::buildSkyDome() {
   if (radius < 60.0F) radius = 60.0F;
   if (radius > 450.0F) radius = 450.0F;
 
-  const int stacks = 6, slices = 14;
+  // A painted sky (docs/sky-texture.md) wants more segments than a gradient:
+  // the panorama's UVs are linear in longitude and latitude, the dome's faces
+  // are flat chords, and 14 slices bend a straight cloud edge visibly.
+#ifdef SKY_TEXTURES_ON
+  const bool textured = skyTex != nullptr;
+#else
+  const bool textured = false;
+#endif
+  const int stacks = textured ? 8 : 6, slices = textured ? 24 : 14;
   // The zenith comes from skyTop*, seeded to the baked SKY_TOP_* and moved by
   // the runtime cycle - so one dome build serves both.
   if (skyTopR < 0.0F) skyTopR = SKY_TOP_R, skyTopG = SKY_TOP_G, skyTopB = SKY_TOP_B;
@@ -790,20 +849,49 @@ void TerrainGame::buildSkyDome() {
                  skyHorizonG + (skyTopG - skyHorizonG) * t,
                  skyHorizonB + (skyTopB - skyHorizonB) * t, 128.0F);
   };
-  auto domeVert = [&](int stack, int slice) {
+  // On a painted sky the gradient only TINTS: the ratio of the live colour to
+  // the one the scene was authored with (128 = the panorama as painted), so
+  // the authored hour shows the image untouched while the day/night cycle and
+  // Set Sky Color still darken or warm it.
+  auto tintAt = [&](float t) {
+    const Color live = skyAt(t);
+    auto ratio = [](float cur, float ref) {
+      const float r = ref > 1.0F ? cur / ref : 1.0F;
+      const float c = r * 128.0F;
+      return c > 255.0F ? 255.0F : (c < 0.0F ? 0.0F : c);
+    };
+    return Color(ratio(live.r, SKY_R + (SKY_TOP_R - SKY_R) * t),
+                 ratio(live.g, SKY_G + (SKY_TOP_G - SKY_G) * t),
+                 ratio(live.b, SKY_B + (SKY_TOP_B - SKY_B) * t), 128.0F);
+  };
+  auto latOf = [&](int stack) {
     // Start slightly below the horizon so the seam is never visible
-    const float lat = -0.06F + (PI * 0.5F + 0.06F) * stack / stacks;
+    return -0.06F + (PI * 0.5F + 0.06F) * stack / stacks;
+  };
+  auto domeVert = [&](int stack, int slice) {
+    const float lat = latOf(stack);
     const float lon = 2.0F * PI * slice / slices;
     return Vec4(radius * cosf(lat) * cosf(lon), radius * sinf(lat),
                 radius * cosf(lat) * sinf(lon), 1.0F);
   };
+#ifdef SKY_TEXTURES_ON
+  // Twin of skytex::domeUv (src/skytex.hpp) and the viewport's sky mesh.
+  auto domeSt = [&](int stack, int slice) {
+    const float u = (float)slice / slices + SKY_TEXTURE_YAW / 360.0F;
+    const float v = (0.5F - latOf(stack) / PI) / SKY_TEXTURE_VMAX;
+    return Vec4(u, v, 1.0F, 0.0F);
+  };
+#endif
 
   skyDome.vertices.clear();
   skyDome.colors.clear();
+  skyDome.sts.clear();
   for (int st = 0; st < stacks; ++st) {
     // Zenith-size bias: pow(elevation fraction, SKY_ZENITH_EXP). exp 1 = linear.
     const float t0 = powf((float)st / stacks, SKY_ZENITH_EXP),
                 t1 = powf((float)(st + 1) / stacks, SKY_ZENITH_EXP);
+    const Color c0 = textured ? tintAt(t0) : skyAt(t0);
+    const Color c1 = textured ? tintAt(t1) : skyAt(t1);
     for (int sl = 0; sl < slices; ++sl) {
       const Vec4 v00 = domeVert(st, sl), v01 = domeVert(st, sl + 1);
       const Vec4 v10 = domeVert(st + 1, sl), v11 = domeVert(st + 1, sl + 1);
@@ -813,12 +901,25 @@ void TerrainGame::buildSkyDome() {
       skyDome.vertices.push_back(v00);
       skyDome.vertices.push_back(v11);
       skyDome.vertices.push_back(v01);
-      skyDome.colors.push_back(skyAt(t0));
-      skyDome.colors.push_back(skyAt(t1));
-      skyDome.colors.push_back(skyAt(t1));
-      skyDome.colors.push_back(skyAt(t0));
-      skyDome.colors.push_back(skyAt(t1));
-      skyDome.colors.push_back(skyAt(t0));
+      skyDome.colors.push_back(c0);
+      skyDome.colors.push_back(c1);
+      skyDome.colors.push_back(c1);
+      skyDome.colors.push_back(c0);
+      skyDome.colors.push_back(c1);
+      skyDome.colors.push_back(c0);
+#ifdef SKY_TEXTURES_ON
+      if (textured) {
+        // Per QUAD corner, not per shared vertex: slice `slices` is u = 1,
+        // not 0, which is what keeps the seam from smearing the whole image
+        // across one column of triangles.
+        skyDome.sts.push_back(domeSt(st, sl));
+        skyDome.sts.push_back(domeSt(st + 1, sl));
+        skyDome.sts.push_back(domeSt(st + 1, sl + 1));
+        skyDome.sts.push_back(domeSt(st, sl));
+        skyDome.sts.push_back(domeSt(st + 1, sl + 1));
+        skyDome.sts.push_back(domeSt(st, sl + 1));
+      }
+#endif
     }
   }
 
@@ -845,18 +946,66 @@ void TerrainGame::buildSkyDome() {
   // widest proxy of an `fpp` frame was the top 106 rows of the screen.
   skyDome.infoBag->blssProxy = false;
   skyDome.colorBag = std::make_unique<StaPipColorBag>();
-  skyDome.colorBag->many = skyDome.colors.data();
+  skyDome.colors.bind(skyDome.colorBag);
   skyDome.bag = std::make_unique<StaPipBag>();
   skyDome.bag->info = skyDome.infoBag.get();
   skyDome.bag->color = skyDome.colorBag.get();
-  skyDome.bag->vertices = skyDome.vertices.data();
+  skyDome.vertices.bind(skyDome.bag);
   skyDome.bag->count = static_cast<u32>(skyDome.vertices.size());
   skyDome.bag->texture = nullptr;
+#ifdef SKY_TEXTURES_ON
+  if (textured) {
+    skyDome.texBag = std::make_unique<StaPipTextureBag>();
+    skyDome.texBag->texture = skyTex;
+    skyDome.sts.bind(skyDome.texBag);
+    skyDome.bag->texture = skyDome.texBag.get();
+  }
+#endif
   skyDome.bag->lighting = nullptr;
   skyDome.bag->bboxVersion = ++g_bboxStamp;  // dome rebuilds on retint
 }
 
-void TerrainGame::pinPackageSize(const std::vector<Tyra::StaPipBag*>& bags) {
+
+
+// Coplanar passes over ONE vertex array must split into the SAME VU1 packages.
+//
+// The engine derives a bag's package size from its VU1 program class: how many
+// verts of (position [+ ST] [+ normal] + color) fit in half a VU1 double
+// buffer. An untextured bag with per-vertex colors fits 108, a textured one 72.
+// So an object whose base pass is untextured and whose companion pass is
+// textured - a reflective sphere with no map_Kd, any primitive under the baked
+// lightmap - splits the same array at different boundaries. StaPipCore then
+// classifies each package against the frustum, and with full clip checks on, a
+// package fully inside gets its perspective divide on VU1 while a package
+// straddling a plane is clipped on the EE and drawn by an `as_is` program. Two
+// routes over the same triangle differ in the last bits of z - and at the
+// frustum edge in coverage - which is exactly what a coplanar GEQUAL test
+// cannot survive: grey dithered wedges bleeding from under a reflective object,
+// baked shadows fighting z-index with the ground they sit on.
+//
+// Pin them all to the SMALLEST size any of the passes derives. The minimum is
+// not a preference: pinning a class above its own capacity overflows its VU1
+// buffer. The base pass loses a few verts per package; that is the price.
+// (It also un-splits the frustum-bbox cache, which is keyed by package size on
+// top of the vertex pointer - the passes now share one entry instead of
+// recomputing each other's boxes every frame.)
+void TerrainGame::pinPackageSize(const std::vector<Tyra::StaPipBag*>& bags,
+                                 u32 stripRun) {
+  if (stripRun != 0) {
+    // A stripped array is already chopped into self-contained runs of exactly
+    // this many vertices, and every pass over it has to split it there - a
+    // package boundary anywhere else fuses two strips. Nothing is derived:
+    // the run is by construction no larger than any class's own capacity
+    // (minPackageSize), so StaPipCore's clamp leaves it alone.
+    for (Tyra::StaPipBag* b : bags)
+      if (b && b->count != 0) {
+        b->packageSize = stripRun;
+        b->stripped = true;
+      }
+    return;
+  }
+  for (Tyra::StaPipBag* b : bags)
+    if (b) b->stripped = false;
   u32 size = 0;
   for (Tyra::StaPipBag* b : bags) {
     if (!b || b->count == 0) continue;
@@ -869,10 +1018,32 @@ void TerrainGame::pinPackageSize(const std::vector<Tyra::StaPipBag*>& bags) {
     if (b && b->count != 0) b->packageSize = size;
 }
 
+
+
+// See the declaration. Eight combinations, one of which (lighting with
+// per-vertex colours) the engine refuses, so it is skipped.
+u32 TerrainGame::minPackageSize() {
+  static u32 cached = 0;
+  if (cached != 0) return cached;
+  for (int single = 0; single < 2; ++single)
+    for (int lit = 0; lit < 2; ++lit)
+      for (int tex = 0; tex < 2; ++tex) {
+        if (lit && !single) continue;
+        const u32 v = stapip.core.getMaxVertCountByParams(single != 0, lit != 0,
+                                                          tex != 0);
+        if (v != 0 && (cached == 0 || v < cached)) cached = v;
+      }
+  return cached;
+}
+
+
+
 void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
   RuntimeObject& o = runtimeObjects[index];
   ObjectGeometry& g = objectGeometry[index];
   o.dirty = false;
+  g.coarseBoxValid = false;
+  g.reflectionProxy.reset();
   g.matrixMode = localSpace;
   o.onMatrixPath = localSpace;  // the Script-visible mirror; see RuntimeObject
   g_bakeLocal = localSpace;
@@ -880,16 +1051,44 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
   g.apronVerts.clear();  // position/size changed - the highlight ring follows
   g.hullProxyVerts.clear();  // and the shell proxy re-bakes the transform
 
+  // Invisible walls stay active/visible for collision, but submit no geometry
+  // to any camera, portal, reflection or shadow pass.
+  if (o.data.collision == 3) {
+    g.parts.clear();
+    g.outlineVerts.clear();
+    return;
+  }
+
   // models: one draw part per MTL material; everything else fills parts[0]
   const GameModel* gm = nullptr;
   if (o.data.type == 5 && o.data.model >= 0 &&
       o.data.model < (int)gameModels.size())
     gm = &gameModels[o.data.model];
-  const int partCount = o.data.type == 5 ? (gm ? (int)gm->parts.size() : 0) : 1;
+  if (!g.impostorInitialized) {
+    g.impostorInitialized = true;
+    const float dx = o.data.position[0] - cameraPosition.x;
+    const float dy = o.data.position[1] - cameraPosition.y;
+    const float dz = o.data.position[2] - cameraPosition.z;
+    g.impostor = !localSpace && !o.data.physics && billboardTransformValid(o.data) && o.data.impostorDistance > 0 &&
+        dx*dx + dy*dy + dz*dz > o.data.impostorDistance*o.data.impostorDistance;
+  }
+  if (localSpace || !billboardTransformValid(o.data)) g.impostor = false;
+  if (g.impostor && o.data.impostorModel >= 0 &&
+      o.data.impostorModel < (int)gameModels.size() &&
+      !gameModels[o.data.impostorModel].parts.empty() &&
+      (!o.data.impostorBillboard || gameModels[o.data.impostorModel].parts.size() == (size_t)o.data.impostorViews))
+    gm = &gameModels[o.data.impostorModel];
+  else
+    g.impostor = false;
+  const bool billboard = g.impostor && o.data.impostorBillboard;
+  if (billboard) g.impostorView = billboardView(o.data, cameraPosition);
+  const SceneObjectData visualData = billboard ? billboardTransform(o.data, cameraPosition) : o.data;
+  const int partCount = billboard ? 1 : (o.data.type == 5 ? (gm ? (int)gm->parts.size() : 0) : 1);
   if ((int)g.parts.size() != partCount) g.parts.resize(partCount);
 
   for (int pi = 0; pi < partCount; ++pi) {
     GeoPart& part = g.parts[pi];
+    part.stripRun = 0;  // re-decided per rebuild, with the geometry
     part.vertices.clear();
     part.colors.clear();
     part.sts.clear();
@@ -994,24 +1193,39 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
 
   if (o.data.type == 5) {
     for (int pi = 0; pi < partCount; ++pi) {
-      const GameModelPart& src = gm->parts[pi];
+      const GameModelPart& src = gm->parts[billboard ? g.impostorView : pi];
       GeoPart& part = g.parts[pi];
       const bool textured = src.texture != nullptr;
+      // TRIANGLE STRIPS (docs/model-pipeline.md). The bake stores the strip
+      // beside the list, so the shading pass below does not care which it is
+      // walking - it is per VERTEX, not per triangle, and the strip's joins
+      // and padding are ordinary duplicated vertices. An impostor billboard
+      // keeps the list: its part is one of eight captured quads chosen per
+      // frame, and nothing about it is worth a strip.
+      const bool useStrip = !billboard && src.stripRun != 0 &&
+                            !src.stripVerts.empty() &&
+                            src.stripRun <= minPackageSize();
+      const std::vector<float>& geo = useStrip ? src.stripVerts : src.verts;
+      part.stripRun = useStrip ? src.stripRun : 0u;
       // Baked raycast self-AO from the model's .aov sidecar (LeanObjLoader);
       // parallel to the vertex array, one byte per vertex.
-      const bool hasAo = src.vertexAo.size() * 8 == src.verts.size();
+      const std::vector<unsigned char>& geoAo =
+          useStrip ? src.stripVertexAo : src.vertexAo;
+      const bool hasAo = geoAo.size() * 8 == geo.size();
       g_litNormals = dynLit ? &part.litNormals : nullptr;
       g_envNormals = src.reflTexture ? &part.envNormals : nullptr;
-      for (size_t i = 0; i + 7 < src.verts.size(); i += 8) {
-        const float* v = &src.verts[i];
-        pushVert(part.vertices, part.colors, part.sts, o.data,
-                 {v[0], v[1], v[2]}, {v[3], v[4], v[5]}, v[6], v[7], src.kd,
-                 textured, hasAo ? src.vertexAo[i / 8] : (unsigned char)255,
+      for (size_t i = 0; i + 7 < geo.size(); i += 8) {
+        const float* v = &geo[i];
+        pushVert(part.vertices, part.colors, part.sts, visualData,
+                 {v[0], v[1], v[2]}, billboard ? V3{0,1,0} : V3{v[3], v[4], v[5]}, v[6], v[7], src.kd,
+                 textured, hasAo ? geoAo[i / 8] : (unsigned char)255,
                  src.ke);
       }
     }
     g_envNormals = nullptr;
   } else {
+    // Primitives, decals and every other builder emit triangle lists.
+    for (GeoPart& part : g.parts) part.stripRun = 0;
     g_primKd = gmat ? gmat->kd : nullptr;
     g_primKe = gmat ? gmat->ke : nullptr;
     g_primTextured = gmat && gmat->texture;
@@ -1037,6 +1251,8 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
           addAreaWireframe(p0.vertices, p0.colors, p0.sts, o.data);
         break;
       case 18: break;  // scatter volume - editor authoring region only
+      case 20: break;  // comment - an editor note, invisible here
+      case 22: break;  // road - buildRoads tessellates it into procChunks
       case 12: addPlane(p0.vertices, p0.colors, p0.sts, o.data); break;
       case 13: {
         // Projecting decal: a world-space mesh conforming to the receiver
@@ -1127,7 +1343,7 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
     if (!part.bag) {
       part.infoBag = std::make_unique<StaPipInfoBag>();
       part.infoBag->model = &model;
-      part.infoBag->shadingType = TyraShadingFlat;
+      part.infoBag->shadingType = TyraShadingGouraud;
       // Objects go through frustum classification too - raw submission (None)
       // wraps the GS raster window for anything behind/off-screen. The bbox
       // cache is keyed by pointer + bboxVersion, bumped on every rebuild, so
@@ -1153,8 +1369,8 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
     // rather than at bag creation because the mode is a run-time switch.
     part.infoBag->fullClipChecks =
         !vuscript::movesGeometry() || vuprog::vu1Clipping();
-    part.colorBag->many = part.colors.data();
-    part.bag->vertices = part.vertices.data();
+    part.colors.bind(part.colorBag);
+    part.vertices.bind(part.bag);
     part.bag->count = static_cast<u32>(part.vertices.size());
     part.baseStamp = ++g_bboxStamp;         // geometry changed - fresh boxes
     part.bag->bboxVersion = part.baseStamp;
@@ -1165,7 +1381,7 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
 
     // models: the part's own map_Kd; primitives: the assigned material's
     Texture* tex =
-        o.data.type == 5 ? gm->parts[pi].texture : (gmat ? gmat->texture : nullptr);
+        o.data.type == 5 ? gm->parts[billboard ? g.impostorView : pi].texture : (gmat ? gmat->texture : nullptr);
     // Raytraced mirror: the glass samples the VU0-traced reflection image
     // (created by buildRtMirrors before this rebuild ever runs).
     if (o.data.type == 15)
@@ -1208,7 +1424,7 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
     if (tex) {
       if (!part.texBag) part.texBag = std::make_unique<StaPipTextureBag>();
       part.texBag->texture = tex;
-      part.texBag->coordinates = part.sts.data();
+      part.sts.bind(part.texBag);
       part.bag->texture = part.texBag.get();
     } else {
       part.bag->texture = nullptr;
@@ -1218,10 +1434,10 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
     // env bag reuses this part's vertex array and bboxVersion; all-white
     // "many" colors keep its VU1 program shape identical to a textured base
     // bag, so the frustum-bbox cache entry is shared, not recomputed.
-    Texture* envTex = o.data.type == 5 ? gm->parts[pi].reflTexture
+    Texture* envTex = o.data.type == 5 ? gm->parts[billboard ? g.impostorView : pi].reflTexture
                                        : (gmat ? gmat->reflTexture : nullptr);
     const float envStr = o.data.type == 5
-                             ? gm->parts[pi].reflStrength
+                             ? gm->parts[billboard ? g.impostorView : pi].reflStrength
                              : (gmat ? gmat->reflStrength : 0.0F);
     if (envTex && envStr > 0.004F &&
         part.envNormals.size() == part.vertices.size()) {
@@ -1229,8 +1445,13 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
                             Color(128.0F, 128.0F, 128.0F, 128.0F));
       if (!part.envBag) {
         part.envInfoBag = std::make_unique<StaPipInfoBag>();
-        part.envInfoBag->model = &model;
-        part.envInfoBag->shadingType = TyraShadingFlat;
+        // GOURAUD, not flat: the vehicle paint pass writes a per-vertex
+        // fresnel factor into RGB and its specular into A (renderEnvPass),
+        // and a flat triangle takes ONE corner's value - every triangle of a
+        // smoothly-normalled body then came out a different brightness, the
+        // "folded cardboard" facets. Plain chrome is all-white, where the two
+        // modes draw the same; the GS pays nothing for the interpolation.
+        part.envInfoBag->shadingType = TyraShadingGouraud;
         part.envInfoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
         part.envInfoBag->fullClipChecks = true;
         // Coplanar with the base pass: standard GEQUAL test. (TestOnly's
@@ -1247,18 +1468,25 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
         part.envBag->texture = part.envTexBag.get();
         part.envBag->lighting = nullptr;
       }
+      // The same matrix the BASE pass draws with, re-pointed on every
+      // rebuild: on the matrix path the vertices are LOCAL and VU1 applies
+      // objMat - the env bag used to keep the static `model` matrix, which
+      // rendered the whole reflection pass in local space around the world
+      // origin. Invisible, and measured as EXACTLY invisible: a bodyShine
+      // A/B read 0 changed pixels while the pass demonstrably ran.
+      part.envInfoBag->model = g.matrixMode ? &g.objMat : &model;
       // Additive equation Cv = Cs*FIX/128 + Cd; FIX 128 = full strength.
       const float fix = envStr * 128.0F + 0.5F;
       part.envInfoBag->additiveBlendFix =
           fix > 255.0F ? 255 : (fix < 1.0F ? 1 : (u8)fix);
-      part.envColorBag->many = part.envColors.data();
+      part.envColors.bind(part.envColorBag);
       part.envTexBag->texture = envTex;
       // "-rounded" materials: overwrite the captured face normals with
       // directions radiating from the part centroid - a flat face then
       // sweeps a gradient of the sphere map instead of showing one uniform
       // sample (the viewport shader mirrors this via uReflRounded).
       const bool envRounded = o.data.type == 5
-                                  ? gm->parts[pi].reflRounded
+                                  ? gm->parts[billboard ? g.impostorView : pi].reflRounded
                                   : (gmat && gmat->reflRounded);
       if (envRounded && !part.vertices.empty()) {
         const u32 nv = static_cast<u32>(part.vertices.size());
@@ -1284,9 +1512,9 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
       // The normals ride in the ST slot and the TCE programs (cull/as_is/
       // clip) compute the matcap ST from the per-mesh camera basis - zero
       // EE per-vertex work, no pipeline barriers, in both clipping modes.
-      part.envTexBag->coordinates = part.envNormals.data();
+      part.envNormals.bind(part.envTexBag);
       part.envTexBag->coordinatesAreNormals = true;
-      part.envBag->vertices = part.vertices.data();
+      part.vertices.bind(part.envBag);
       part.envBag->count = static_cast<u32>(part.vertices.size());
       part.envBag->bboxVersion = part.bag->bboxVersion;
     } else {
@@ -1319,10 +1547,10 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
         part.aoBag->texture = part.aoTexBag.get();
         part.aoBag->lighting = nullptr;
       }
-      part.aoColorBag->many = part.aoCols.data();
+      part.aoCols.bind(part.aoColorBag);
       part.aoTexBag->texture = aoAtlasTexture;
-      part.aoTexBag->coordinates = part.aoSts.data();
-      part.aoBag->vertices = part.vertices.data();
+      part.aoSts.bind(part.aoTexBag);
+      part.vertices.bind(part.aoBag);
       part.aoBag->count = static_cast<u32>(part.vertices.size());
       part.aoBag->bboxVersion = part.bag->bboxVersion;
     } else {
@@ -1343,10 +1571,10 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
         part.emisBag->texture = part.emisTexBag.get();
         part.emisBag->lighting = nullptr;
       }
-      part.emisColorBag->many = part.emisCols.data();
+      part.emisCols.bind(part.emisColorBag);
       part.emisTexBag->texture = aoAtlasTexture;
-      part.emisTexBag->coordinates = part.aoSts.data();
-      part.emisBag->vertices = part.vertices.data();
+      part.aoSts.bind(part.emisTexBag);
+      part.vertices.bind(part.emisBag);
       part.emisBag->count = static_cast<u32>(part.vertices.size());
       part.emisBag->bboxVersion = part.bag->bboxVersion;
     } else {
@@ -1361,10 +1589,10 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
       // The albedo the light colors get folded into - the same product the
       // baked path would have put in the vertex colors.
       const bool litTextured = o.data.type == 5 && gm && pi < (int)gm->parts.size()
-                                   ? gm->parts[pi].texture != nullptr
+                                   ? gm->parts[billboard ? g.impostorView : pi].texture != nullptr
                                    : (gmat && gmat->texture);
       const float* kd = o.data.type == 5 && gm && pi < (int)gm->parts.size()
-                            ? gm->parts[pi].kd
+                            ? gm->parts[billboard ? g.impostorView : pi].kd
                             : (gmat ? gmat->kd : nullptr);
       for (int k = 0; k < 3; ++k)
         part.litAlbedo[k] = o.data.color[k] * (kd ? kd[k] : 1.0F);
@@ -1379,13 +1607,13 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
       }
       part.litColorBag->single = &part.litBase;
       part.litColorBag->many = nullptr;
-      // GOURAUD, not the static path's flat. A lit bag shades per VERTEX, and
-      // flat shading takes one corner's normal for the whole triangle - on a
+      // Like the static path, a lit bag shades per VERTEX. With
+      // flat shading one corner's normal lights the whole triangle - on a
       // cylinder that lights half the segments off a normal pointing away and
       // the object comes out dark and hard-banded (it did).
       part.infoBag->shadingType = TyraShadingGouraud;
       part.litBag->lightMatrix = part.infoBag->model;
-      part.litBag->normals = part.litNormals.data();
+      part.litNormals.bind(part.litBag);
       part.litLights->setLightsManually(part.litColors, part.litDirs);
       part.litBag->dirLights = part.litLights.get();
       part.bag->color = part.litColorBag.get();
@@ -1396,7 +1624,7 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
       // renders the object black.
       needsLitSeed = true;
     } else if (part.litBag) {
-      part.infoBag->shadingType = TyraShadingFlat;
+      part.infoBag->shadingType = TyraShadingGouraud;
       part.litBag.reset();
       part.litLights.reset();
       part.litColorBag.reset();
@@ -1409,20 +1637,134 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
     // coplanar companions ONE package size. LOD tiers only re-aim the
     // pointers, never the program class, so this pin survives applyGeoLod.
     pinPackageSize({part.bag.get(), part.envBag.get(), part.aoBag.get(),
-                    part.emisBag.get()});
+                    part.emisBag.get()},
+                   part.stripRun);
   }
   g_litNormals = nullptr;
+  // Keep a single conservative AABB across all material parts. It is built
+  // alongside geometry (never per frame), then renderScene can reject a fully
+  // off-screen model before submitting every part to StaPip. LOD tiers only
+  // remove vertices, so the tier-0 box remains conservative for them too.
+  // Every object gets one, a single box included: StaPip's own classification
+  // of an off-screen bag costs ~17 us on a physical PS2 (bounds, program,
+  // transform cache) against ~1 us for this test, and it is paid again for
+  // each companion bag - lightmap, emission, env pass. Motor District start
+  // pose: 64 of the 77 objects that reached render() drew nothing, 0.43 ms of
+  // bounds (docs/profiling.md, "The game side of the object loop").
+  g.coarseBoxValid = false;
+  if (!g.parts.empty()) {
+    Vec4 coarseMin(1e30F, 1e30F, 1e30F, 1.0F);
+    Vec4 coarseMax(-1e30F, -1e30F, -1e30F, 1.0F);
+    for (const GeoPart& part : g.parts)
+      for (const Vec4& v : part.vertices) {
+        if (v.x < coarseMin.x) coarseMin.x = v.x;
+        if (v.y < coarseMin.y) coarseMin.y = v.y;
+        if (v.z < coarseMin.z) coarseMin.z = v.z;
+        if (v.x > coarseMax.x) coarseMax.x = v.x;
+        if (v.y > coarseMax.y) coarseMax.y = v.y;
+        if (v.z > coarseMax.z) coarseMax.z = v.z;
+        g.coarseBoxValid = true;
+      }
+    if (g.coarseBoxValid) {
+      Vec4 corners[2] = {coarseMin, coarseMax};
+      g.coarseBox = CoreBBox(corners, 2);
+    }
+  }
   if (needsLitSeed) fillDynLitColors(index);
 }
 
+
+
+// Draw one cheap silhouette-volume into an environment map. The target is
+// 128x128 and sphere-mapped afterwards, so material seams and facade detail
+// are usually sub-pixel there; paying one bag and one package for the object's
+// bounds is the useful approximation. Main-view geometry is untouched.
+void TerrainGame::renderReflectionProxy(int index) {
+  ObjectGeometry& g = objectGeometry[index];
+  if (!g.reflectionProxy) {
+    Vec4 mn(1e30F, 1e30F, 1e30F, 1.0F), mx(-1e30F, -1e30F, -1e30F, 1.0F);
+    bool any = false;
+    float cr=0, cg=0, cb=0, cn=0;
+    for (const GeoPart& src : g.parts) {
+      for (const Vec4& v : src.vertices) {
+        mn.x=fminf(mn.x,v.x); mn.y=fminf(mn.y,v.y); mn.z=fminf(mn.z,v.z);
+        mx.x=fmaxf(mx.x,v.x); mx.y=fmaxf(mx.y,v.y); mx.z=fmaxf(mx.z,v.z);
+        any = true;
+      }
+      for (const Color& c : src.colors) { cr+=c.r; cg+=c.g; cb+=c.b; cn+=1.0F; }
+    }
+    if (!any) return;
+    auto p = std::make_unique<GeoPart>();
+    const Vec4 v[8] = {
+      {mn.x,mn.y,mn.z,1},{mx.x,mn.y,mn.z,1},{mx.x,mx.y,mn.z,1},{mn.x,mx.y,mn.z,1},
+      {mn.x,mn.y,mx.z,1},{mx.x,mn.y,mx.z,1},{mx.x,mx.y,mx.z,1},{mn.x,mx.y,mx.z,1}};
+    static const u8 tri[36] = {0,2,1,0,3,2, 4,5,6,4,6,7,
+      0,1,5,0,5,4, 3,7,6,3,6,2, 0,4,7,0,7,3, 1,2,6,1,6,5};
+    const Color col(cn ? cr/cn : 160.0F, cn ? cg/cn : 160.0F,
+                    cn ? cb/cn : 160.0F, 128.0F);
+    for (u8 i : tri) { p->vertices.push_back(v[i]); p->colors.push_back(col); }
+    p->infoBag = std::make_unique<StaPipInfoBag>();
+    p->infoBag->model = g.matrixMode ? &g.objMat : &model;
+    p->infoBag->shadingType = TyraShadingGouraud;
+    p->infoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
+    p->infoBag->fullClipChecks = true;
+    p->colorBag = std::make_unique<StaPipColorBag>();
+    p->bag = std::make_unique<StaPipBag>();
+    p->bag->info = p->infoBag.get(); p->bag->color = p->colorBag.get();
+    p->bag->texture = nullptr; p->bag->lighting = nullptr;
+    p->colors.bind(p->colorBag); p->vertices.bind(p->bag);
+    p->bag->count = (u32)p->vertices.size();
+    p->bag->bboxVersion = ++g_bboxStamp;
+    g.reflectionProxy = std::move(p);
+  }
+  if (g.reflectionProxy->bag) stapip.core.render(g.reflectionProxy->bag.get());
+}
+
+
+
+bool TerrainGame::coarseObjectOutside(int index) const {
+  if (index < 0 || index >= (int)objectGeometry.size()) return false;
+  const ObjectGeometry& g = objectGeometry[index];
+  // An impostor billboard rewrites its six vertices every frame to face the
+  // camera, so a box baked at rebuild time does not bound it.
+  if (!g.coarseBoxValid || g.impostor || vuscript::movesGeometry())
+    return false;
+  Plane localPlanes[6];
+  const Plane* planes =
+      engine->renderer.core.renderer3D.frustumPlanes.getAll();
+  if (g.matrixMode) {
+    CoreBBox::computeObjectSpacePlanes(localPlanes, planes, g.objMat);
+    planes = localPlanes;
+  }
+  return g.coarseBox.frustumCheckAABB(planes) ==
+         CoreBBoxFrustum::OUTSIDE_FRUSTUM;
+}
+
+
+
+// Static mesh LOD (docs/model-pipeline.md). Two object kinds keep the full
+// mesh no matter how far away they are, because something else depends on the
+// exact tier-0 buffers:
+//  - physics fast-path bodies (matrixMode) bake LOCAL-space vertices with the
+//    shading frozen at the wake pose; they are also next to the player;
+//  - objects with a texture feed, whose colors are flattened and whose STs are
+//    V-flipped after the bake - state a tier bake would not reproduce.
+// Everything else is fair game: the collider and the AABB are model-level, so
+// collision, physics extents and the split-band cull never see a tier.
 bool TerrainGame::modelLodEligible(int index) const {
-  if (objectGeometry[index].matrixMode) return false;
+  // A matrix-path body tiers too: its tiers are baked LOCAL (applyGeoLod
+  // stages g_bakeLocal from matrixMode), so they stay valid under motion -
+  // which is what a vehicle's far tier needs (docs/vehicles.md). A rebuild
+  // drops every tier, so a mode change cannot leave a wrong-space one.
+  if (objectGeometry[index].impostor) return false;
   for (int fi = 0; fi < OBJECT_FEED_COUNT; ++fi)
     if (OBJECT_FEEDS[fi].scene == currentScene &&
         OBJECT_FEEDS[fi].object == index)
       return false;
   return true;
 }
+
+
 
 void TerrainGame::applyGeoLod(int index, int pi, int lod) {
   ObjectGeometry& g = objectGeometry[index];
@@ -1440,25 +1782,38 @@ void TerrainGame::applyGeoLod(int index, int pi, int lod) {
   if (lod == part.shownLod) return;
 
   if (lod == 0) {
-    part.colorBag->many = part.colors.data();
-    part.bag->vertices = part.vertices.data();
+    part.colors.bind(part.colorBag);
+    part.vertices.bind(part.bag);
     part.bag->count = static_cast<u32>(part.vertices.size());
     part.bag->bboxVersion = part.baseStamp;
-    if (part.texBag) part.texBag->coordinates = part.sts.data();
+    // Tier 0 is the only one the bake strips (docs/model-pipeline.md), so the
+    // topology flag moves with the pointer. packageSize stays pinned either
+    // way: the run length is legal for a list too, just slightly smaller.
+    part.bag->stripped = part.stripRun != 0;
+    if (part.texBag) part.sts.bind(part.texBag);
     if (part.envBag) {
-      part.envColorBag->many = part.envColors.data();
-      part.envTexBag->coordinates = part.envNormals.data();
-      part.envBag->vertices = part.vertices.data();
+      part.envColors.bind(part.envColorBag);
+      part.envNormals.bind(part.envTexBag);
+      part.vertices.bind(part.envBag);
       part.envBag->count = part.bag->count;
       part.envBag->bboxVersion = part.baseStamp;
+      part.envBag->stripped = part.bag->stripped;
     }
   } else {
     if ((int)part.lods.size() < lod) part.lods.resize(lod);
     GeoPart::Lod& tier = part.lods[lod - 1];
+    // A tier's topology: the list, unless the bake left a strip twin (an
+    // authored vehicle far tier). The flag used to stay at tier 0's value,
+    // so a stripped body drew its tier LIST as a strip - spikes across the
+    // car the moment it swapped.
+    const bool tierStrip = lod - 1 < (int)src.lodStripVerts.size() &&
+                           !src.lodStripVerts[lod - 1].empty() &&
+                           part.stripRun != 0;
     if (tier.vertices.empty()) {
       // First time this far away: shade the decimated vertex list exactly the
       // way rebuildObjectGeometry shaded tier 0 (same pushVert, same staging).
-      const std::vector<float>& sv = src.lodVerts[lod - 1];
+      const std::vector<float>& sv =
+          tierStrip ? src.lodStripVerts[lod - 1] : src.lodVerts[lod - 1];
       g_aoAtlas = false;
       g_aoSts = nullptr;
       g_aoOff = true;  // imported models get no receive/self AO
@@ -1469,7 +1824,9 @@ void TerrainGame::applyGeoLod(int index, int pi, int lod) {
       g_primKd = nullptr;
       g_primTextured = false;
       g_primUvRect = nullptr;
-      g_bakeLocal = false;  // fast-path bodies are excluded from LOD
+      // A matrix-path object bakes LOCAL tiers, exactly as its tier 0 was
+      // baked at promotion; objMat applies the motion to every tier alike.
+      g_bakeLocal = g.matrixMode;
       g_envNormals = part.envBag ? &tier.envNormals : nullptr;
       const bool textured = src.texture != nullptr;
       for (size_t k = 0; k + 7 < sv.size(); k += 8) {
@@ -1509,17 +1866,19 @@ void TerrainGame::applyGeoLod(int index, int pi, int lod) {
       }
       tier.stamp = ++g_bboxStamp;
     }
-    part.colorBag->many = tier.colors.data();
-    part.bag->vertices = tier.vertices.data();
+    tier.colors.bind(part.colorBag);
+    tier.vertices.bind(part.bag);
     part.bag->count = static_cast<u32>(tier.vertices.size());
     part.bag->bboxVersion = tier.stamp;
-    if (part.texBag) part.texBag->coordinates = tier.sts.data();
+    part.bag->stripped = tierStrip;
+    if (part.texBag) tier.sts.bind(part.texBag);
     if (part.envBag) {
-      part.envColorBag->many = tier.envColors.data();
-      part.envTexBag->coordinates = tier.envNormals.data();
-      part.envBag->vertices = tier.vertices.data();
+      tier.envColors.bind(part.envColorBag);
+      tier.envNormals.bind(part.envTexBag);
+      tier.vertices.bind(part.envBag);
       part.envBag->count = part.bag->count;
       part.envBag->bboxVersion = tier.stamp;
+      part.envBag->stripped = tierStrip;
     }
   }
   part.shownLod = lod;
@@ -1532,6 +1891,10 @@ void TerrainGame::applyGeoLod(int index, int pi, int lod) {
   g.hullProxyVerts.clear();
 }
 
+            // player shove gain (scaled 1/mass)
+
+// World-space AABB half-extents + center offset from data.position of a solid
+// object - models use their mesh AABB, exactly like collidePlayer.
 void TerrainGame::physExtents(const SceneObjectData& d, const GameModel* gm,
                               const SkelModel* anim, float* cOff, float* ext) {
   cOff[0] = cOff[1] = cOff[2] = 0.0F;
@@ -1547,6 +1910,12 @@ void TerrainGame::physExtents(const SceneObjectData& d, const GameModel* gm,
   }
 }
 
+
+
+// A moving body renders through objMat (local vertices, VU1 applies the
+// motion) unless a consumer of its vertex arrays assumes world space: the
+// usable-highlight hull/apron and reflective matcap normals both do, and
+// animated models already ride their own animMat.
 bool TerrainGame::physFastPathEligible(int index) const {
   const RuntimeObject& o = runtimeObjects[index];
   const int t = o.data.type;
@@ -1556,16 +1925,21 @@ bool TerrainGame::physFastPathEligible(int index) const {
     if (o.data.animModel >= 0) return false;
     if (o.data.model < 0 || o.data.model >= (int)gameModels.size())
       return false;
-    for (const GameModelPart& mp : gameModels[o.data.model].parts)
-      if (mp.reflTexture) return false;
-  } else if (o.data.material >= 0 &&
-             o.data.material < (int)gameMaterials.size() &&
-             gameMaterials[o.data.material].reflTexture) {
-    return false;
   }
+  // Reflective parts used to be excluded here, because their env normals
+  // were baked in WORLD space and froze the reflection at the promotion
+  // pose. The local bake captures LOCAL normals now and renderEnvPass folds
+  // the object's rotation into the env camera basis (dot(R n, e) =
+  // dot(n, R^T e)), so a mover with a refl part - a shiny car above all -
+  // keeps both the matrix path and a correct reflection.
   return true;
 }
 
+
+
+// Rotation columns come from the same rotated() the vertex bake uses, so the
+// matrix path and the bake path can never disagree on the Euler order. Scale
+// is baked into the local vertices - the basis stays unit-length.
 void TerrainGame::updateObjMat(int index) {
   const RuntimeObject& o = runtimeObjects[index];
   M4x4& m = objectGeometry[index].objMat;
@@ -1581,13 +1955,27 @@ void TerrainGame::updateObjMat(int index) {
   m.data[14] = o.data.position[2];
 }
 
+
+
+// Solid enough to block/bump a physics body (matches collidePlayer's list).
 bool TerrainGame::physObstacle(const SceneObjectData& d) {
   if (d.collision == 2) return false;
   const int t = d.type;
   return t != 4 && t != 6 && t != 7 && t != 8 && t != 9 && t != 11 &&
-         t != 13 && t != 14 && t != 17;
+         t != 13 && t != 14 && t != 17 && t != 20;
 }
 
+
+
+// ---------------------------------------------------------------------------
+// Static batching (STATIC_BATCHING): every StaPip submit costs ~0.7-1.5 ms
+// of fixed EE overhead on real hardware regardless of vertex count, so a
+// scene of many small objects pays for its object COUNT, not its geometry
+// (twice over in split screen). Eligible primitives and compact imported-model
+// parts merge into combined world-space bags instead, grouped by texture in a
+// coarse world cell. Large models remain solo: widening a batch around whole
+// districts would defeat the engine's whole-bag frustum cut, the same reason
+// terrain is chunked.
 void TerrainGame::buildStaticBatchList() {
   staticBatches.clear();
   objectBatchOf.assign(SCENE_OBJECT_COUNT, -1);
@@ -1595,7 +1983,7 @@ void TerrainGame::buildStaticBatchList() {
   if (!batchInfoBag) {
     batchInfoBag = std::make_unique<StaPipInfoBag>();
     batchInfoBag->model = &model;
-    batchInfoBag->shadingType = TyraShadingFlat;
+    batchInfoBag->shadingType = TyraShadingGouraud;
     // Same rules as the per-object bags: always classify against the
     // frustum (raw submission wraps the GS raster window) with full clip
     // checks.
@@ -1609,70 +1997,296 @@ void TerrainGame::buildStaticBatchList() {
   // the map corner (terrain is centered on the origin) for the same reason.
   const float mapW =
       TERRAIN_WIDTH > TERRAIN_DEPTH ? TERRAIN_WIDTH : TERRAIN_DEPTH;
-  const float cellW = mapW * 0.25F > 48.0F ? mapW * 0.25F : 48.0F;
-  std::vector<int> keyX, keyZ;  // per-batch cell, only needed while grouping
-  for (int i = 0; i < SCENE_OBJECT_COUNT; ++i) {
-    const SceneObjectData& d = SCENE_OBJECTS[i];
-    if (!d.batchStatic) continue;
-    // Materials of always-resident objects are loaded by now; a reflective
-    // one draws a second additive env pass per bag - keep those objects on
-    // the solo path, which already handles the env bag.
-    if (d.material >= 0 && (d.material >= (int)gameMaterials.size() ||
-                            gameMaterials[d.material].reflTexture))
-      continue;
-    const int cx = (int)floorf((d.position[0] + 0.5F * mapW) / cellW);
-    const int cz = (int)floorf((d.position[2] + 0.5F * mapW) / cellW);
+  const float baseCellW = mapW * 0.25F > 48.0F ? mapW * 0.25F : 48.0F;
+  // ...AND NEVER WIDER THAN THE DRAW DISTANCE ITS MEMBERS SHARE. A quarter of
+  // the map is a fraction of the wrong thing: it grows with the MAP, so the
+  // bigger the world the coarser the cull, which is backwards. On a 2048-unit
+  // map that is a 512-unit cell, and the batch built in it is one bag whose
+  // member-centre box renderStaticBatches tests ONCE - so a batch of props
+  // that individually vanish at 60 units stays drawn while the camera is
+  // within 60 units of a 512-unit box. Measured on examples/large-terrain:
+  // +2,015 triangles and +12 packet flushes against the same scene unbatched,
+  // which is the widened-bounds regression #269 warned about arriving through
+  // the draw-distance test rather than through the frustum.
+  //
+  // drawDistance is ALREADY a group key (every member of a batch shares one
+  // cut-off), so it is a per-group length the scene states about itself, and
+  // capping the cell with it makes the grid as coarse as the content allows
+  // instead of as coarse as the map is big. The Motor District is unchanged by
+  // construction - its batchable objects carry 145 or 0, and min(80, 145) is
+  // still 80 - while large-terrain's 1,100 cones drop from 512 to 60.
+  //
+  // 0 means unlimited and has no such length, so those groups keep the base
+  // cell. That is the remaining hole and it is deliberate: an OCCUPANCY test
+  // ("batch only when the members fill their union") was tried on paper and
+  // rejected, because it measures the wrong thing for this engine. The
+  // district's win comes precisely from merging small props that are sparse in
+  // their cell - three boxes of span 12 in an 80-unit cell fill 6.7% of it -
+  // so any ratio strict enough to catch a 512-unit cell also throws away the
+  // batches that pay. What costs is EXTENT AGAINST THE CULL DISTANCE, which is
+  // what the cap above bounds and what a fill ratio cannot see.
+  auto cellFor = [&](float drawDistance) -> float {
+    if (drawDistance <= 0.0F) return baseCellW;
+    return drawDistance < baseCellW ? drawDistance : baseCellW;
+  };
+  std::vector<int> keyX, keyZ, keyL;  // cell + lamp, only needed while grouping
+  // WHICH DYNAMIC LAMP REACHES THIS OBJECT, or -1. This is a grouping key, not
+  // a render decision, and it exists because of how the engine lights a bag:
+  // StaPipCore::render gives each bag ONE light slot, picked from that bag's
+  // world bounding sphere. Merge a lamp-lit prop with an unlit one and the
+  // merged sphere picks a single lamp for both - so the lit one can lose its
+  // highlight, or the unlit one gain one it should not have. On the Motor
+  // District at night that would have hit 7 of 49 batches (a streetlight
+  // standing under its own lamp merged with one standing under nothing,
+  // because they share a texture and a cell).
+  //
+  // Centre-vs-radius, not the engine's brightness x level x falloff score: the
+  // key only has to keep "a lamp reaches this" apart from "nothing reaches
+  // this", and every member of a lamp's group is within that lamp's radius, so
+  // the merged sphere stays in its neighbourhood. A lamp switched off (or the
+  // whole set, in daylight) makes every bag pick nothing, and members agree
+  // for that reason instead.
+  auto lampOf = [&](const SceneObjectData& d) -> int {
+    int best = -1;
+    float bestD2 = 0.0F;
+    for (size_t li = 0; li < g_dynLights.size(); ++li) {
+      const SceneObjectData& L = SCENE_OBJECTS[g_dynLights[li].objIndex];
+      if (L.lightRadius <= 0.0F) continue;
+      const float dx = L.position[0] - d.position[0];
+      const float dy = L.position[1] - d.position[1];
+      const float dz = L.position[2] - d.position[2];
+      const float d2 = dx * dx + dy * dy + dz * dz;
+      if (d2 > L.lightRadius * L.lightRadius) continue;  // no influence at all
+      if (best < 0 || d2 < bestD2) {
+        best = (int)li;
+        bestD2 = d2;
+      }
+    }
+    return best;
+  };
+  // Draw distance joins the key. A batch is ONE bag with one cut-off test, so
+  // members that disagree about the distance must not share one - otherwise
+  // the nearest member's number would silently extend every other member's.
+  // Objects that leave it at 0 group exactly as they did before.
+  auto addMember = [&](int object, int part, Texture* texture, int cx, int cz,
+                       float dd, int lamp, unsigned int stripRun) {
     int bi = -1;
     for (int b = 0; b < (int)staticBatches.size(); ++b)
-      if (staticBatches[b].material == d.material && keyX[b] == cx &&
-          keyZ[b] == cz) {
+      if (staticBatches[b].texture == texture && keyX[b] == cx &&
+          keyZ[b] == cz && staticBatches[b].drawDistance == dd &&
+          keyL[b] == lamp && staticBatches[b].stripRun == stripRun) {
         bi = b;
         break;
       }
     if (bi < 0) {
       staticBatches.emplace_back();
-      staticBatches.back().material = d.material;
+      staticBatches.back().texture = texture;
+      staticBatches.back().drawDistance = dd;
+      staticBatches.back().stripRun = stripRun;
       keyX.push_back(cx);
       keyZ.push_back(cz);
+      keyL.push_back(lamp);
       bi = (int)staticBatches.size() - 1;
     }
-    staticBatches[bi].members.push_back(i);
-    objectBatchOf[i] = (short)bi;
-    // The scene-load dirty flag is consumed by membership: the batch itself
-    // starts dirty and bakes on the first renderScene. From here on a
-    // member turning dirty means a REAL runtime mutation - the demotion
-    // check in renderStaticBatches keys on exactly that.
+    staticBatches[bi].members.push_back({object, part});
+  };
+  for (int i = 0; i < SCENE_OBJECT_COUNT; ++i) {
+    const SceneObjectData& d = SCENE_OBJECTS[i];
+    if (!d.batchStatic) continue;
+    // Vehicles, endless scrollers and any future owner of the matrix fast
+    // path move after scene load. Baking one into world-space static geometry
+    // makes the solo renderer skip it forever; a multi-part model whose parts
+    // share a texture could even form a "batch" with itself. setupVehicles()
+    // and other runtime owners set this request before this list is built.
+    if (runtimeObjects[i].wantsMatrixPath) continue;
+    // Materials of always-resident objects are loaded by now; a reflective
+    // one draws a second additive env pass per bag - keep those objects on
+    // the solo path, which already handles the env bag.
+    // One grid per draw-distance class, never coarser than that class's own
+    // cut-off. drawDistance is part of the group key, so members that land in
+    // one batch always agreed about this width - the classes have different
+    // grids and cannot merge across them.
+    const float cellW = cellFor(d.drawDistance);
+    const int cx = (int)floorf((d.position[0] + 0.5F * mapW) / cellW);
+    const int cz = (int)floorf((d.position[2] + 0.5F * mapW) / cellW);
+    const int lamp = lampOf(d);
+    if (d.type == 5) {
+      if (d.model < 0 || d.model >= (int)gameModels.size()) continue;
+      const GameModel& gm = gameModels[d.model];
+      // Position-cell grouping is only a useful spatial bound for props that
+      // are small relative to that cell. Large architecture keeps its own
+      // object/part boxes; earlier material-only grouping widened those bags
+      // enough to cost more than the removed submits.
+      const float spanX = (gm.mx[0] - gm.mn[0]) * fabsf(d.scale[0]);
+      const float spanZ = (gm.mx[2] - gm.mn[2]) * fabsf(d.scale[2]);
+      if (sqrtf(spanX * spanX + spanZ * spanZ) > 0.5F * cellW) continue;
+      bool reflective = false;
+      for (const GameModelPart& p : gm.parts)
+        if (p.reflTexture) { reflective = true; break; }
+      if (reflective || gm.parts.empty()) continue;
+      for (int pi = 0; pi < (int)gm.parts.size(); ++pi)
+        addMember(i, pi, gm.parts[pi].texture, cx, cz, d.drawDistance, lamp,
+                  gm.parts[pi].stripRun);
+    } else {
+      if (d.material >= 0 &&
+          (d.material >= (int)gameMaterials.size() ||
+           gameMaterials[d.material].reflTexture))
+        continue;
+      Texture* texture =
+          d.material >= 0 ? gameMaterials[d.material].texture : nullptr;
+      addMember(i, -1, texture, cx, cz, d.drawDistance, lamp, 0u);
+    }
+  }
+  // A model is skipped by the solo path as ONE object, so batching it is also
+  // all-or-nothing. Material parts group independently and some of their groups
+  // can be singletons; keeping only the groups that survived would draw a roof
+  // or windows from a batch, skip the whole solo model, and leave its walls
+  // missing. Prune incomplete objects, then repeat because that removal can
+  // turn another object's group into a singleton. The fixed point contains
+  // only objects whose every part has exactly one surviving batch member.
+  int partialFallback = 0;
+  for (;;) {
+    for (size_t b = 0; b < staticBatches.size();) {
+      if (staticBatches[b].members.size() < 2)
+        staticBatches.erase(staticBatches.begin() + (long)b);
+      else
+        ++b;
+    }
+    std::vector<unsigned short> memberCount(SCENE_OBJECT_COUNT, 0);
+    for (const StaticBatch& b : staticBatches)
+      for (const StaticBatchMember& m : b.members)
+        if (m.object >= 0 && m.object < SCENE_OBJECT_COUNT)
+          ++memberCount[m.object];
+    std::vector<unsigned char> incomplete(SCENE_OBJECT_COUNT, 0);
+    bool anyIncomplete = false;
+    for (int i = 0; i < SCENE_OBJECT_COUNT; ++i) {
+      if (memberCount[i] == 0) continue;
+      const SceneObjectData& d = SCENE_OBJECTS[i];
+      unsigned int expected = 1;
+      if (d.type == 5) {
+        if (d.model < 0 || d.model >= (int)gameModels.size()) expected = 0;
+        else expected = (unsigned int)gameModels[d.model].parts.size();
+      }
+      if (memberCount[i] == expected) continue;
+      incomplete[i] = 1;
+      anyIncomplete = true;
+      ++partialFallback;
+    }
+    if (!anyIncomplete) break;
+    for (StaticBatch& b : staticBatches)
+      for (size_t k = 0; k < b.members.size();) {
+        const int object = b.members[k].object;
+        if (object >= 0 && object < SCENE_OBJECT_COUNT && incomplete[object])
+          b.members.erase(b.members.begin() + (long)k);
+        else
+          ++k;
+      }
+  }
+  objectBatchOf.assign(SCENE_OBJECT_COUNT, -1);
+  for (int bi = 0; bi < (int)staticBatches.size(); ++bi)
+    for (const StaticBatchMember& m : staticBatches[bi].members) {
+      // -2 means that a multi-part model belongs to more than one batch.
+      // Yes/no callers test != -1; a helper that needs one concrete batch
+      // deliberately accepts only a non-negative index.
+      if (objectBatchOf[m.object] == -1)
+        objectBatchOf[m.object] = (short)bi;
+      else if (objectBatchOf[m.object] != bi)
+        objectBatchOf[m.object] = -2;
+    }
+  int batched = 0;
+  for (int i = 0; i < SCENE_OBJECT_COUNT; ++i) {
+    if (objectBatchOf[i] == -1) continue;
+    ++batched;
+    // The scene-load dirty flag is consumed only by real membership: the
+    // batch itself starts dirty and bakes on the first renderScene. A later
+    // dirty flag therefore means a runtime mutation and triggers demotion.
     runtimeObjects[i].dirty = false;
   }
-  int batched = 0;
+  // The batched/solo split and the widest cell any batch was allowed, so an
+  // A/B can read the grouping decision out of the game's own log instead of
+  // inferring it from triangle counts - and so two arms of a cell change say
+  // which is which. `eligible` counts the batchStatic-flagged objects, so
+  // eligible - batched is the number that stayed solo (a singleton group, a
+  // large model, or a reflective one).
+  int eligible = 0;
   for (int i = 0; i < SCENE_OBJECT_COUNT; ++i)
-    if (objectBatchOf[i] >= 0) ++batched;
+    if (SCENE_OBJECTS[i].batchStatic) ++eligible;
+  float widestCell = 0.0F;
+  for (int i = 0; i < SCENE_OBJECT_COUNT; ++i)
+    if (SCENE_OBJECTS[i].batchStatic) {
+      const float c = cellFor(SCENE_OBJECTS[i].drawDistance);
+      if (c > widestCell) widestCell = c;
+    }
   TYRA_LOG("Static batching: ", batched, " objects in ",
            (int)staticBatches.size(), " batches");
+  TYRA_LOG("Static batching: eligible ", eligible, ", solo ",
+           eligible - batched, ", base cell ", (int)baseCellW, ", widest cell ",
+           (int)widestCell);
+  TYRA_LOG("Static batching: partial models kept solo ", partialFallback);
   if (TEXTURE_ATLAS_INFO[0]) TYRA_LOG(TEXTURE_ATLAS_INFO);
 }
 
+
+
+// One batch's bake: re-run the primitive builders or imported-model part bake
+// for every shown member into the combined arrays - world-space vertices with
+// baked lighting, byte-identical to the solo path for that object. The
+// heap arrays are reused across rebuilds; the engine's frustum-bbox cache
+// is keyed by (pointer, version), so the bboxVersion bump below is what
+// keeps reused pointers from resurrecting stale boxes.
 void TerrainGame::rebuildStaticBatch(StaticBatch& b) {
   b.dirty = false;
   b.vertices.clear();
   b.colors.clear();
   b.sts.clear();
   b.shown.assign(b.members.size(), 0);
-  const GameMaterial* gmat =
-      (b.material >= 0 && b.material < (int)gameMaterials.size())
-          ? &gameMaterials[b.material]
-          : nullptr;
-  g_primKd = gmat ? gmat->kd : nullptr;
-  g_primKe = gmat ? gmat->ke : nullptr;  // batch members share one material
-  g_primTextured = gmat && gmat->texture;
   // A batched member never carries a lightmap region (the atlas keeps its
   // receivers solo), so its global illumination comes from the probe grid.
   // Staged explicitly: these are globals, and inheriting whatever the last
   // rebuildObjectGeometry left set would shade a whole batch by accident.
   g_giLightmap = false;
   g_giProbeShade = SCENE_PROBES != nullptr;
+  // Strip or list for the WHOLE batch, decided before a single vertex is
+  // emitted. It has to be all-or-nothing: the combined array carries one
+  // topology, so emitting one member's strip beside another's list would hand
+  // the strip's vertices to a triangle-list walk and draw shredded geometry.
+  // stripRun is part of the group key, so this normally just confirms what
+  // grouping already decided; the loop below is the guard for a part whose
+  // baked strip is missing or not a whole number of runs.
+  bool useStrips = b.stripRun != 0;
+  if (useStrips)
+    for (const StaticBatchMember& m : b.members) {
+      const RuntimeObject& mo = runtimeObjects[m.object];
+      if (m.part < 0 || mo.data.model < 0 ||
+          mo.data.model >= (int)gameModels.size() ||
+          m.part >= (int)gameModels[mo.data.model].parts.size()) {
+        useStrips = false;
+        break;
+      }
+      const GameModelPart& p = gameModels[mo.data.model].parts[m.part];
+      if (p.stripRun != b.stripRun || p.stripVerts.empty()) {
+        useStrips = false;
+        break;
+      }
+    }
+  // The member-centre box the draw-distance test reads. Built over EVERY
+  // member, shown or not: a hidden member needs no drawing, but letting
+  // visibility move the box would make the batch's cut-off flicker with
+  // hide/show events for no benefit. Demotion DOES change it, and demotion
+  // always goes through this function (renderStaticBatches sets stale).
   for (size_t k = 0; k < b.members.size(); ++k) {
-    RuntimeObject& o = runtimeObjects[b.members[k]];
+    const float* p = runtimeObjects[b.members[k].object].data.position;
+    for (int a = 0; a < 3; ++a) {
+      if (k == 0 || p[a] < b.ddMin[a]) b.ddMin[a] = p[a];
+      if (k == 0 || p[a] > b.ddMax[a]) b.ddMax[a] = p[a];
+    }
+  }
+  for (size_t k = 0; k < b.members.size(); ++k) {
+    const StaticBatchMember member = b.members[k];
+    RuntimeObject& o = runtimeObjects[member.object];
+    g_aoOff = false;
+    g_prelitTex = false;
+    g_giProbeShade = SCENE_PROBES != nullptr;
     // Members are never dirty here: scene load consumes the flag at
     // grouping time and renderStaticBatches demotes dirtied members before
     // calling this.
@@ -1681,29 +2295,90 @@ void TerrainGame::rebuildStaticBatch(StaticBatch& b) {
     if (!show) continue;
     // Per-MEMBER analytic-light pruning: pushVert reads the g_*Local lists,
     // which are per object, so a batch that collected them once would shade
-    // every member with the first member's neighbours. (Members are always
-    // unit primitives here - same bounding sphere as rebuildObjectGeometry.)
+    // every member with the first member's neighbours. Use the same primitive
+    // or imported-model bounding sphere as rebuildObjectGeometry.
     {
-      const int mi = b.members[k];
+      const int mi = member.object;
       const float sx = o.data.scale[0], sy = o.data.scale[1], sz = o.data.scale[2];
-      const float rad = 0.87F * sqrtf(sx * sx + sy * sy + sz * sz);
+      float rad = 0.87F * sqrtf(sx * sx + sy * sy + sz * sz);
+      if (member.part >= 0 && o.data.model >= 0 &&
+          o.data.model < (int)gameModels.size()) {
+        const GameModel& gm = gameModels[o.data.model];
+        const float ex = fmaxf(fabsf(gm.mn[0]), fabsf(gm.mx[0])) * fabsf(sx);
+        const float ey = fmaxf(fabsf(gm.mn[1]), fabsf(gm.mx[1])) * fabsf(sy);
+        const float ez = fmaxf(fabsf(gm.mn[2]), fabsf(gm.mx[2])) * fabsf(sz);
+        rad = sqrtf(ex * ex + ey * ey + ez * ez);
+      }
       const int self = mi < SCENE_OBJECT_COUNT ? mi : -1;
       aoCollectLocal(o.data.position[0], o.data.position[1], o.data.position[2],
                      rad, self);
       emisCollectLocal(o.data.position[0], o.data.position[1],
                        o.data.position[2], rad, self);
     }
-    switch (o.data.type) {
-      case 1: addSphere(b.vertices, b.colors, b.sts, o.data); break;
-      case 2: addCylinder(b.vertices, b.colors, b.sts, o.data); break;
-      case 3: addCone(b.vertices, b.colors, b.sts, o.data); break;
-      case 12: addPlane(b.vertices, b.colors, b.sts, o.data); break;
-      default: addBox(b.vertices, b.colors, b.sts, o.data); break;
+    if (member.part >= 0 && o.data.model >= 0 &&
+        o.data.model < (int)gameModels.size() &&
+        member.part < (int)gameModels[o.data.model].parts.size()) {
+      const GameModelPart& src = gameModels[o.data.model].parts[member.part];
+      const bool textured = src.texture != nullptr;
+      // Take the STRIP twin when this is a strip batch. Re-emitting the list
+      // here is what used to make batching cost more than it saved on a
+      // district of stripped models: the merged bag threw away the vertex
+      // saving the bake had already won. `useStrips` was decided for the whole
+      // batch above, so members can never disagree about topology.
+      const std::vector<float>& sv = useStrips ? src.stripVerts : src.verts;
+      const std::vector<unsigned char>& sao =
+          useStrips ? src.stripVertexAo : src.vertexAo;
+      const bool hasAo = sao.size() * 8 == sv.size();
+      g_aoOff = true;
+      g_prelitTex = o.data.prelit != 0;
+      g_giProbeShade = !g_prelitTex && SCENE_PROBES != nullptr;
+      for (size_t vi = 0; vi + 7 < sv.size(); vi += 8) {
+        const float* v = &sv[vi];
+        pushVert(b.vertices, b.colors, b.sts, o.data, {v[0], v[1], v[2]},
+                 {v[3], v[4], v[5]}, v[6], v[7], src.kd, textured,
+                 hasAo ? sao[vi / 8] : (unsigned char)255, src.ke);
+      }
+      // PAD THIS MEMBER UP TO A WHOLE RUN. A baked strip is chopped into runs
+      // of AT MOST stripRun vertices and only the runs before the last are
+      // padded out (the last one need only be a multiple of 3, meshstrip.hpp),
+      // which is fine for a solo bag - it is the end of the array - and wrong
+      // the moment another member follows it. Without this the next member
+      // would start mid-package and one package would splice two objects into
+      // a triangle. Repeating the last vertex is the same trick the baker
+      // uses: it makes degenerate triangles the GS rasterises to nothing.
+      if (useStrips && !b.vertices.empty())
+        while (b.vertices.size() % b.stripRun != 0) {
+          b.vertices.push_back(b.vertices.back());
+          b.colors.push_back(b.colors.back());
+          if (!b.sts.empty()) b.sts.push_back(b.sts.back());
+        }
+      g_aoOff = false;
+      g_prelitTex = false;
+    } else {
+      const GameMaterial* gmat =
+          (o.data.material >= 0 &&
+           o.data.material < (int)gameMaterials.size())
+              ? &gameMaterials[o.data.material]
+              : nullptr;
+      g_primKd = gmat ? gmat->kd : nullptr;
+      g_primKe = gmat ? gmat->ke : nullptr;
+      g_primTextured = gmat && gmat->texture;
+      g_primUvRect = g_primTextured ? gmat->uvRect : nullptr;
+      switch (o.data.type) {
+        case 1: addSphere(b.vertices, b.colors, b.sts, o.data); break;
+        case 2: addCylinder(b.vertices, b.colors, b.sts, o.data); break;
+        case 3: addCone(b.vertices, b.colors, b.sts, o.data); break;
+        case 12: addPlane(b.vertices, b.colors, b.sts, o.data); break;
+        default: addBox(b.vertices, b.colors, b.sts, o.data); break;
+      }
     }
   }
   g_primKd = nullptr;
   g_primKe = nullptr;
   g_primTextured = false;
+  g_primUvRect = nullptr;
+  g_aoOff = false;
+  g_prelitTex = false;
   g_giProbeShade = false;
   if (b.vertices.empty()) {
     b.bag.reset();
@@ -1717,17 +2392,26 @@ void TerrainGame::rebuildStaticBatch(StaticBatch& b) {
     b.bag->texture = nullptr;
     b.bag->lighting = nullptr;
   }
-  b.colorBag->many = b.colors.data();
-  b.bag->vertices = b.vertices.data();
+  b.colors.bind(b.colorBag);
+  b.vertices.bind(b.bag);
   b.bag->count = static_cast<u32>(b.vertices.size());
   b.bag->bboxVersion = ++g_bboxStamp;  // geometry changed - fresh boxes
-  if (gmat && gmat->texture) {
+  if (b.texture) {
     if (!b.texBag) b.texBag = std::make_unique<StaPipTextureBag>();
-    b.texBag->texture = gmat->texture;
-    b.texBag->coordinates = b.sts.data();
+    b.texBag->texture = b.texture;
+    b.sts.bind(b.texBag);
     b.bag->texture = b.texBag.get();
   } else {
     b.bag->texture = nullptr;
+  }
+  // Strip batches draw PRIM_TRIANGLE_STRIP with every package exactly one
+  // baked run, which is the same contract pinPackageSize enforces for a solo
+  // stripped bag - so no package boundary can splice two members into one
+  // triangle. A batch that had to fall back to a list for any member is
+  // pinned the ordinary derived way instead.
+  {
+    std::vector<StaPipBag*> one{b.bag.get()};
+    pinPackageSize(one, useStrips ? b.stripRun : 0u);
   }
   // World AABB for the split-screen band cull - the batch analogue of the
   // terrain chunks' build-time boxes.
@@ -1744,13 +2428,206 @@ void TerrainGame::rebuildStaticBatch(StaticBatch& b) {
   }
 }
 
+
+
+bool TerrainGame::occlusionObjectIsOccluder(int index) const {
+  return occlusionIsOccluder(currentScene,index);
+}
+
+
+
+void TerrainGame::buildOcclusionBuffer(){
+  static int reportBeat=0;
+  if(DEBUG_SHOW_PROFILER && OCCLUSION_CULLING && ++reportBeat>=120){
+    TYRA_LOG("OCC proxies=",g_occProxies," hidden=",g_occHidden,"/",g_occTested);
+    reportBeat=0;
+  }
+  g_occTested=g_occHidden=g_occProxies=0;
+  if(!OCCLUSION_CULLING)return;
+#if TYRA_FRAME_PROFILE
+  u32 occT=Tyra::FrameProfile::ticks();
+  ++ftrig::occBuilds;
+#endif
+  for(int i=0;i<OCC_W*OCC_H;++i)g_occDepth[i]=1e30F,g_occCover[i]=0;
+#if TYRA_FRAME_PROFILE
+  {const u32 n=Tyra::FrameProfile::ticks();ftrig::occLap[0]+=n-occT;occT=n;}
+#endif
+  g_occVp=engine->renderer.core.renderer3D.getViewProj();
+  const auto& scr=engine->renderer.core.getSettings();
+  g_occSx=4096.0F/scr.getRasterWidthF();
+  g_occSy=4096.0F/scr.getRasterHeightF();
+  // Every proxy box's eight world corners, cached. boxRotate evaluates Euler
+  // trig and the EE has none in hardware: three rotations per occluder per
+  // frame were most of what the buffer cost on a physical PS2. Occluders are
+  // static by construction (codegen refuses anything that moves), and the key
+  // below catches the ones a script or Live Link moves anyway.
+  struct OccCornerCache{float key[10];float mn[3],mx[3];bool valid;};
+  static std::vector<OccCornerCache> objKeys;
+  static std::vector<V3> corners;  // 8 per box, OCCLUSION_BOXES order
+  static unsigned int cornerGen=~0u;
+  if(cornerGen!=sceneGeneration||objKeys.size()!=(size_t)OCCLUSION_OBJECT_COUNT){
+    objKeys.assign((size_t)OCCLUSION_OBJECT_COUNT,OccCornerCache{});
+    int boxes=0;
+    for(int ri=0;ri<OCCLUSION_OBJECT_COUNT;++ri)
+      boxes=std::max(boxes,OCCLUSION_OBJECTS[ri].first+OCCLUSION_OBJECTS[ri].count);
+    corners.assign((size_t)boxes*8,V3{0.0F,0.0F,0.0F});
+    cornerGen=sceneGeneration;
+  }
+  for(int ri=0;ri<OCCLUSION_OBJECT_COUNT;++ri){
+    const OcclusionProxyObject& r=OCCLUSION_OBJECTS[ri];
+    if(r.scene!=currentScene||r.object<0||r.object>=(int)runtimeObjects.size())continue;
+    const RuntimeObject& o=runtimeObjects[r.object];
+    if(!o.active||!o.visible)continue;
+    const float key[10]={o.data.position[0],o.data.position[1],o.data.position[2],
+      o.data.rotation[0],o.data.rotation[1],o.data.rotation[2],
+      o.data.scale[0],o.data.scale[1],o.data.scale[2],o.data.modelYaw};
+    OccCornerCache& ck=objKeys[(size_t)ri];
+    bool same=ck.valid;
+    for(int k=0;k<10&&same;++k)same=ck.key[k]==key[k];
+    if(!same){
+#if TYRA_FRAME_PROFILE
+      ++ftrig::occRecomputes;
+#endif
+      const V3 ax=boxRotate({o.data.scale[0],0.0F,0.0F},o.data);
+      const V3 ay=boxRotate({0.0F,o.data.scale[1],0.0F},o.data);
+      const V3 az=boxRotate({0.0F,0.0F,o.data.scale[2]},o.data);
+      for(int bi=0;bi<r.count;++bi){
+        const OcclusionProxyBox& b=OCCLUSION_BOXES[r.first+bi];
+        V3* v=&corners[(size_t)(r.first+bi)*8];
+        for(int k=0;k<8;++k){
+          const float x=k&1?b.mx[0]:b.mn[0],y=k&2?b.mx[1]:b.mn[1],z=k&4?b.mx[2]:b.mn[2];
+          v[k]={o.data.position[0]+ax.x*x+ay.x*y+az.x*z,
+                o.data.position[1]+ax.y*x+ay.y*y+az.y*z,
+                o.data.position[2]+ax.z*x+ay.z*y+az.z*z};
+        }
+      }
+      for(int a=0;a<3;++a){ck.mn[a]=1e30F;ck.mx[a]=-1e30F;}
+      for(int k=0;k<r.count*8;++k){const V3& c=corners[(size_t)r.first*8+k];
+        ck.mn[0]=std::min(ck.mn[0],c.x);ck.mx[0]=std::max(ck.mx[0],c.x);
+        ck.mn[1]=std::min(ck.mn[1],c.y);ck.mx[1]=std::max(ck.mx[1],c.y);
+        ck.mn[2]=std::min(ck.mn[2],c.z);ck.mx[2]=std::max(ck.mx[2],c.z);}
+      for(int k=0;k<10;++k)ck.key[k]=key[k];
+      ck.valid=true;
+    }
+    // A whole occluder outside the view writes nothing: one six-plane box test
+    // instead of eight projections per proxy box. In a city most of them are
+    // behind or beside the camera at any moment.
+    {
+#if TYRA_FRAME_PROFILE
+      struct OccObjLap{u32 t0;~OccObjLap(){ftrig::occLap[6]+=Tyra::FrameProfile::ticks()-t0;}} occObjLap{Tyra::FrameProfile::ticks()};
+#endif
+      const Tyra::Vec4 omn(ck.mn[0],ck.mn[1],ck.mn[2],1.0F),omx(ck.mx[0],ck.mx[1],ck.mx[2],1.0F);
+      if(Tyra::CoreBBox::frustumCheckAABB(
+             engine->renderer.core.renderer3D.frustumPlanes.getAll(),omn,omx)==
+         Tyra::CoreBBoxFrustum::OUTSIDE_FRUSTUM)continue;
+    }
+#if TYRA_FRAME_PROFILE
+    ftrig::occBoxes+=(u32)r.count;
+#endif
+    for(int bi=0;bi<r.count;++bi)
+      if(occBox(&corners[(size_t)(r.first+bi)*8]))++g_occProxies;  // near/tiny rejected inside
+  }
+#if TYRA_FRAME_PROFILE
+  {const u32 n=Tyra::FrameProfile::ticks();
+   // hull = everything since the clear minus the raster time occBox charged.
+   static u64 rasterSeen=0;
+   const u64 rasterNow=ftrig::occLap[2]-rasterSeen; rasterSeen=ftrig::occLap[2];
+   ftrig::occLap[1]+=(n-occT)-(u32)rasterNow; occT=n;}
+#endif
+  // Erode coverage by one cell. Depth keeps the farthest proxy surface in a
+  // covered cell; target tests add another world-depth bias below.
+  for(int y=0;y<OCC_H;++y)for(int x=0;x<OCC_W;++x){
+    bool on=g_occCover[y*OCC_W+x]!=0;
+    for(int yy=y-1;yy<=y+1&&on;++yy)for(int xx=x-1;xx<=x+1;++xx)
+      if(xx<0||yy<0||xx>=OCC_W||yy>=OCC_H||!g_occCover[yy*OCC_W+xx]){on=false;break;}
+    g_occEroded[y*OCC_W+x]=on?1:0;
+  }
+#if TYRA_FRAME_PROFILE
+  ftrig::occLap[3]+=Tyra::FrameProfile::ticks()-occT;
+#endif
+}
+
+
+
+bool TerrainGame::occlusionHiddenAabb(const float* mn,const float* mx){
+  if(!OCCLUSION_CULLING)return false;
+  ++g_occTested;
+#if TYRA_FRAME_PROFILE
+  ++ftrig::occTests;
+  struct OccTestLap{u32 t0;~OccTestLap(){ftrig::occLap[4]+=Tyra::FrameProfile::ticks()-t0;}} occTestLap{Tyra::FrameProfile::ticks()};
+#endif
+  // Most candidates in an open view cannot possibly be fully covered. Test
+  // their centre before paying for eight corner transforms and a rectangle.
+  V3 mid{(mn[0]+mx[0])*0.5F,(mn[1]+mx[1])*0.5F,(mn[2]+mx[2])*0.5F};
+  float midX,midY,midW;
+  if(!occProject(mid,midX,midY,midW))return false;
+  const int midXi=(int)floorf(midX),midYi=(int)floorf(midY);
+  if(midXi<0||midYi<0||midXi>=OCC_W||midYi>=OCC_H||
+     !g_occEroded[midYi*OCC_W+midXi])return false;
+  float x0=1e30F,y0=1e30F,x1=-1e30F,y1=-1e30F,nearW=1e30F;
+  for(int k=0;k<8;++k){V3 p{k&1?mx[0]:mn[0],k&2?mx[1]:mn[1],k&4?mx[2]:mn[2]};
+    float x,y,w;if(!occProject(p,x,y,w))return false;
+    x0=std::min(x0,x);x1=std::max(x1,x);y0=std::min(y0,y);y1=std::max(y1,y);nearW=std::min(nearW,w);
+  }
+  int X0=(int)floorf(x0)-1,Y0=(int)floorf(y0)-1,X1=(int)ceilf(x1)+1,Y1=(int)ceilf(y1)+1;
+  if(X0<0||Y0<0||X1>=OCC_W||Y1>=OCC_H)return false;
+  for(int y=Y0;y<=Y1;++y)for(int x=X0;x<=X1;++x){const int i=y*OCC_W+x;
+    if(!g_occEroded[i]||g_occDepth[i]+0.35F>=nearW)return false;}
+  ++g_occHidden;return true;
+}
+
+
+
+bool TerrainGame::occlusionHiddenObject(int index){
+  if(!occlusionCanCull(currentScene,index)||occlusionObjectIsOccluder(index))return false;
+  if(index<0||index>=(int)runtimeObjects.size())return false;
+  const RuntimeObject& o=runtimeObjects[index];
+  // The world AABB below is three Euler rotations and eight corners - most of
+  // the ~13 us a test cost on a physical PS2 - and for everything that does
+  // not move it is the same box every frame. Cached per object, keyed on the
+  // exact inputs, so anything that moves, turns or rescales recomputes.
+  struct OccAabbCache{float key[10];float mn[3],mx[3];bool valid;};
+  static std::vector<OccAabbCache> cache;
+  static unsigned int cacheGen=~0u;
+  if(cacheGen!=sceneGeneration||cache.size()!=runtimeObjects.size()){
+    cache.assign(runtimeObjects.size(),OccAabbCache{});cacheGen=sceneGeneration;}
+  OccAabbCache& ce=cache[(size_t)index];
+  const float key[10]={o.data.position[0],o.data.position[1],o.data.position[2],
+    o.data.rotation[0],o.data.rotation[1],o.data.rotation[2],
+    o.data.scale[0],o.data.scale[1],o.data.scale[2],o.data.modelYaw};
+  bool same=ce.valid&&!o.dirty;
+  for(int k=0;k<10&&same;++k)same=ce.key[k]==key[k];
+  if(same)return occlusionHiddenAabb(ce.mn,ce.mx);
+  const CollisionBox b=objectCollisionBox(o);
+  const V3 ax=boxRotate({1.0F,0.0F,0.0F},o.data),
+           ay=boxRotate({0.0F,1.0F,0.0F},o.data),
+           az=boxRotate({0.0F,0.0F,1.0F},o.data);
+  float mn[3]={1e30F,1e30F,1e30F},mx[3]={-1e30F,-1e30F,-1e30F};
+  for(int k=0;k<8;++k){const float x=b.center[0]+(k&1?b.half[0]:-b.half[0]),
+    y=b.center[1]+(k&2?b.half[1]:-b.half[1]),z=b.center[2]+(k&4?b.half[2]:-b.half[2]);
+    const float p[3]={o.data.position[0]+ax.x*x+ay.x*y+az.x*z,
+      o.data.position[1]+ax.y*x+ay.y*y+az.y*z,
+      o.data.position[2]+ax.z*x+ay.z*y+az.z*z};
+    for(int a=0;a<3;++a){mn[a]=std::min(mn[a],p[a]);mx[a]=std::max(mx[a],p[a]);}}
+  for(int k=0;k<10;++k)ce.key[k]=key[k];
+  for(int a=0;a<3;++a){ce.mn[a]=mn[a];ce.mx[a]=mx[a];}
+  ce.valid=true;
+  return occlusionHiddenAabb(mn,mx);
+}
+
+
+
 void TerrainGame::renderStaticBatches() {
+#if TYRA_FRAME_PROFILE
+  stapip.core.setTelemetryProducer(Tyra::StaPipProducerStaticBatches);
+#endif
   for (StaticBatch& b : staticBatches) {
     bool stale = b.dirty;
     for (size_t k = 0; k < b.members.size(); ++k) {
-      const RuntimeObject& o = runtimeObjects[b.members[k]];
+      const int object = b.members[k].object;
+      const RuntimeObject& o = runtimeObjects[object];
       if (o.dirty) {
-        objectBatchOf[b.members[k]] = -1;  // demote: solo from now on
+        objectBatchOf[object] = -1;  // demote: solo from now on
         b.members.erase(b.members.begin() + (long)k);
         b.shown.erase(b.shown.begin() + (long)k);
         --k;
@@ -1763,11 +2640,51 @@ void TerrainGame::renderStaticBatches() {
     }
     if (stale) rebuildStaticBatch(b);
     if (!b.bag || b.bag->count == 0) continue;
+    // Draw distance, applied to the batch rather than to each member - the
+    // per-frame analogue of beyondDrawDistance() and deliberately NOT routed
+    // through the shown snapshot above, because a cut-off crossed while the
+    // player drives is exactly the per-frame flip that would re-bake the
+    // batch every frame and cost more than the submit it saves.
+    //
+    // The whole batch draws while the NEAREST point of the member-centre box
+    // is inside the cut-off, so a member can outlive its own distance by up
+    // to the spread of its batch (bounded by the grouping cell) but can never
+    // disappear early. Over-drawing costs GS fill; disappearing early would
+    // be a visible pop, and this frame is bag-bound, not fill-bound.
+    if (b.drawDistance > 0.0F) {
+      float d2 = 0.0F;
+      const float c[3] = {cameraPosition.x, cameraPosition.y, cameraPosition.z};
+      for (int a = 0; a < 3; ++a) {
+        const float e = c[a] < b.ddMin[a]   ? b.ddMin[a] - c[a]
+                        : c[a] > b.ddMax[a] ? c[a] - b.ddMax[a]
+                                            : 0.0F;
+        d2 += e * e;
+      }
+      if (d2 > b.drawDistance * b.drawDistance) continue;
+    }
     // Split halves: same band early-out the terrain chunks use.
     if (splitBandActive && outsideSplitBand(b.aabbMin, b.aabbMax)) continue;
-    stapip.core.render(b.bag.get());
+    // The batch is world space (identity model) and aabbMin/Max is exactly
+    // its vertex box, so this is the test StaPip's own main-bbox check would
+    // make, with the same planes and the same verdict - without entering
+    // render() for it. The road chunks do the same.
+    {
+      const Tyra::Vec4 mn(b.aabbMin[0], b.aabbMin[1], b.aabbMin[2], 1.0F);
+      const Tyra::Vec4 mx(b.aabbMax[0], b.aabbMax[1], b.aabbMax[2], 1.0F);
+      if (Tyra::CoreBBox::frustumCheckAABB(
+              engine->renderer.core.renderer3D.frustumPlanes.getAll(), mn, mx) ==
+          Tyra::CoreBBoxFrustum::OUTSIDE_FRUSTUM)
+        continue;
+    }
+    bool ownsOccluder = false;
+    for (const StaticBatchMember& m : b.members)
+      if (occlusionObjectIsOccluder(m.object)) { ownsOccluder = true; break; }
+    if (!ownsOccluder && occlusionHiddenAabb(b.aabbMin, b.aabbMax)) continue;
+    submitHeavy(b.bag.get());
   }
 }
+
+
 
 void TerrainGame::procBlockVertexAo(float x, float y, float z,
                                     unsigned char faces,
@@ -1812,6 +2729,8 @@ void TerrainGame::procBlockVertexAo(float x, float y, float z,
     }
   }
 }
+
+
 
 void TerrainGame::procAddMergedObject(int owner, int instance,
                                       const SceneObjectData& d,
@@ -1959,6 +2878,12 @@ void TerrainGame::procAddMergedObject(int owner, int instance,
   g_primUvRect = nullptr;
 }
 
+
+
+// Wires the bags of every chunk that gained vertices and computes its box.
+// Called once after a generation pass rather than per instance: a bag pointing
+// at a vector that is still growing is a dangling pointer the moment it
+// reallocates.
 void TerrainGame::procFinishChunks() {
   g_giProbeShade = false;
   // The batch info bag is shared with the static batcher, but that one is only
@@ -1966,7 +2891,7 @@ void TerrainGame::procFinishChunks() {
   if (!batchInfoBag) {
     batchInfoBag = std::make_unique<StaPipInfoBag>();
     batchInfoBag->model = &model;
-    batchInfoBag->shadingType = TyraShadingFlat;
+    batchInfoBag->shadingType = TyraShadingGouraud;
     batchInfoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
     batchInfoBag->fullClipChecks = true;
   }
@@ -1995,12 +2920,37 @@ void TerrainGame::procFinishChunks() {
     // Re-stated every pass, not only on creation: a regeneration reuses the
     // chunk, and a world whose blocks moved may have gained or lost the AO.
     c.bag->info = c.smooth ? procSmoothInfoBag.get() : batchInfoBag.get();
-    c.colorBag->many = c.colors.data();
-    c.bag->vertices = c.vertices.data();
+    if (c.roadBlend || c.roadEdge) {
+      // A spill is alpha-over by its vertex alpha (the fade) on the road
+      // under it, a soft edge on the terrain: the painted terrain layer's
+      // arrangement.
+      if (!roadBlendInfoBag) {
+        roadBlendInfoBag = std::make_unique<StaPipInfoBag>();
+        roadBlendInfoBag->model = &model;
+        roadBlendInfoBag->shadingType = TyraShadingGouraud;
+        roadBlendInfoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
+        roadBlendInfoBag->fullClipChecks = true;
+        roadBlendInfoBag->blendingEnabled = true;
+      }
+      c.bag->info = roadBlendInfoBag.get();
+    }
+    c.colors.bind(c.colorBag);
+    c.vertices.bind(c.bag);
     c.bag->count = static_cast<u32>(c.vertices.size());
+    // Triangle strips (docs/model-pipeline.md). A stripped chunk's array is
+    // already chopped into self-contained runs, so the package size is PINNED
+    // to the run rather than derived: StaPipCore slices a bag at multiples of
+    // it, and a boundary anywhere else would fuse two strips. Nothing else is
+    // derived either - the run is by construction no larger than any static
+    // class's own capacity, which is what buildRoads checks before baking it.
+    // Re-stated every pass, like the info bag above: a regeneration may have
+    // turned a chunk from one representation into the other.
+    c.bag->stripped = c.stripRun > 0;
+    c.bag->packageSize = c.stripRun > 0 ? static_cast<u32>(c.stripRun) : 0U;
     c.bag->bboxVersion = ++g_bboxStamp;
-    const Tyra::Texture* tex = nullptr;
-    if (c.model >= 0 && c.model < (int)gameModels.size() &&
+    const Tyra::Texture* tex = c.roadTex;
+    if (tex) {
+    } else if (c.model >= 0 && c.model < (int)gameModels.size() &&
         c.part < (int)gameModels[c.model].parts.size())
       tex = gameModels[c.model].parts[c.part].texture;
     else if (c.material >= 0 && c.material < (int)gameMaterials.size())
@@ -2008,7 +2958,7 @@ void TerrainGame::procFinishChunks() {
     if (tex) {
       if (!c.texBag) c.texBag = std::make_unique<StaPipTextureBag>();
       c.texBag->texture = const_cast<Tyra::Texture*>(tex);
-      c.texBag->coordinates = c.sts.data();
+      c.sts.bind(c.texBag);
       c.bag->texture = c.texBag.get();
     } else {
       c.bag->texture = nullptr;
@@ -2026,6 +2976,45 @@ void TerrainGame::procFinishChunks() {
     }
     for (int a = 0; a < 3; ++a)
       c.centre[a] = 0.5F * (c.aabbMin[a] + c.aabbMax[a]);
+  }
+}
+
+
+
+/*  */
+/*  */
+void TerrainGame::renderProcChunks() {
+#if TYRA_FRAME_PROFILE
+  stapip.core.setTelemetryProducer(Tyra::StaPipProducerProcedural);
+#endif
+  if (procChunks.empty()) return;
+  for (ProcChunk& c : procChunks) {
+    // Roads have their own phase and profiler row. Keeping them here as well
+    // used to make "Procedural" mean "mostly asphalt" and would double-draw
+    // them now that the main view calls renderRoadChunks explicitly.
+    if (c.owner == -3) continue;
+    if (!c.bag || c.bag->count == 0) continue;
+    // StaPip has its own precise clipper, but entering it for every generated
+    // road/prefab chunk still pays the bag setup and classification cost. The
+    // chunks already own world-space bounds, so reject wholly invisible ones
+    // here and leave only intersecting chunks to the pipeline's safe clipper.
+    const Tyra::Vec4 mn(c.aabbMin[0], c.aabbMin[1], c.aabbMin[2], 1.0F);
+    const Tyra::Vec4 mx(c.aabbMax[0], c.aabbMax[1], c.aabbMax[2], 1.0F);
+    if (Tyra::CoreBBox::frustumCheckAABB(
+            engine->renderer.core.renderer3D.frustumPlanes.getAll(), mn, mx) ==
+        Tyra::CoreBBoxFrustum::OUTSIDE_FRUSTUM)
+      continue;
+    // Per-chunk draw distance: the cheapest LOD there is, and the reason
+    // chunk size is a real authoring decision rather than a detail.
+    if (c.drawDist > 0.0F) {
+      const float dx = c.centre[0] - cameraPosition.x;
+      const float dy = c.centre[1] - cameraPosition.y;
+      const float dz = c.centre[2] - cameraPosition.z;
+      if (dx * dx + dy * dy + dz * dz > c.drawDist * c.drawDist) continue;
+    }
+    if (splitBandActive && outsideSplitBand(c.aabbMin, c.aabbMax)) continue;
+    if (occlusionHiddenAabb(c.aabbMin, c.aabbMax)) continue;
+    stapip.core.render(c.bag.get());
   }
 }
 }

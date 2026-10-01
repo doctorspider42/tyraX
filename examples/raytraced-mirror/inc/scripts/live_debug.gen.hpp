@@ -12,7 +12,9 @@ namespace Raytraced_mirror {
 namespace livedbg {
 
 inline void hit(int) {}
+inline unsigned int takeRenderCostRequest() { return 0; }
 inline bool halted() { return false; }
+inline bool attached() { return false; }
 inline bool forced(int) { return false; }
 inline void timer(int, int) {}
 inline void factWrite(int, float, int) {}

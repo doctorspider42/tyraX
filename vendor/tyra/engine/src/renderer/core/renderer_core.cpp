@@ -463,6 +463,35 @@ void RendererCore::endFrame() {
     }
   }
 #endif
+#if TYRA_VIF1_QUEUE
+  // Modified by TyraX: close the frame's VIF1 queue, whether or not a 2D chain
+  // did it above. path3Fence() only drains when the frame drew a sprite -
+  // waiting for the 2D chain is what proves every 3D chain queued in front of
+  // it has gone out. A frame with NO 2D (no HUD, no prompt, no menu) left the
+  // queue as it was, and without the interrupt (TYRA_VIF1_QUEUE_ISR 0) a queued
+  // chain is only STARTED by the next submit or wait: the next frame's first
+  // bag. By then this frame's present and the next frame's draw-target switch
+  // and clear have gone out on PATH3, so the frame's last chains drew into the
+  // NEXT back buffer, under its sky and terrain. The backlog sustains itself -
+  // each submit starts at most one queued chain and adds one - so a single
+  // GS-heavy frame (the terrain lightmap pass, a full-screen blend) pushed it
+  // to kPacketCount - 1 and every later frame lost its last three bags.
+  // Depth-tested opaque bags drawn early still win the z test against the
+  // terrain that follows; blended, z-write-off ones (baked shadow decals, blob
+  // shadows) vanish under it. examples/baked-shadows, docs/shadows.md.
+  //
+  // Same barrier the 2D fence pays, and nothing more: the DMA done, then the
+  // VIF FIFO empty, so the PATH3 packets below cannot win the GIF between two
+  // of the last chain's packets. No GS FINISH handshake - that remains the
+  // frame profile's fairness fence and the post-fx drain's job.
+  Vif1Queue::drain();
+  {
+    volatile u32* const vif1Stat = reinterpret_cast<volatile u32*>(0x10003C00);
+    constexpr u32 kVif1Busy = 0x1F000003;  // FQC (FIFO qwords) | VPS
+    while (*vif1Stat & kVif1Busy) {
+    }
+  }
+#endif
   // The dynamic pipeline kicks the scene on PATH1/VU1 asynchronously (double
   // buffered - sendPacket() returns while the DMA is still draining). PostFx
   // composites over the framebuffer via PATH3 and writes no z, so any scene

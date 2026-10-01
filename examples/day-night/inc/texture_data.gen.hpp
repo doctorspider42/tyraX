@@ -22,5 +22,7 @@ inline constexpr int TERRAIN_LAYER_TEXTURES[5][1] = {};
 inline constexpr float TERRAIN_LAYER_TILE_US[5][1] = {};
 inline constexpr float TERRAIN_LAYER_TILE_VS[5][1] = {};
 inline constexpr float TERRAIN_LAYER_TINTS[5][1][3] = {};
+inline constexpr float TERRAIN_LAYER_GRIPS[5][1] = {{1.0F}, {1.0F}, {1.0F}, {1.0F}, {1.0F}};
+inline constexpr bool TERRAIN_LAYER_GRIP_ANY = false;
 
 }  // namespace Day_night

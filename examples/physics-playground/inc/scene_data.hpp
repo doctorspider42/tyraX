@@ -127,6 +127,9 @@ struct SceneObjectData {
   float impostorDistance = 0.0F; // disabled at zero
   bool impostorBillboard = false; // ordered view parts
   int impostorViews = 8; // 4, 8 or 16 baked captures
+  int emitAdditive = 0; // emitters: 1 = additive blending (fire)
+  int emitFrames = 1;   // flipbook frames: MATERIAL_PATHS material..+N-1
+  float emitFps = 0.0F; // flipbook frames per second
 };
 
 // An Area object's box (type 17): the unit cube under
@@ -237,6 +240,15 @@ extern const SceneObjectData SCENE_0_OBJECTS[];
 
 extern const int SCENE_OBJECT_COUNTS[SCENE_COUNT];
 inline const SceneObjectData* SCENE_OBJECT_TABLES[SCENE_COUNT] = {SCENE_0_OBJECTS};
+
+struct EmitterLayerData { int scene; int object; float offset[3]; float area[3]; };
+inline constexpr int EMITTER_LAYER_COUNT = 0;
+inline constexpr EmitterLayerData EMITTER_LAYERS[1] = {
+    {-1, -1, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}}
+};
+inline constexpr SceneObjectData EMITTER_LAYER_OBJECTS[1] = {
+    {0, {0.0F, 0.5F, 0.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0, 0.0F, 0, 0, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}, -1, 0.0F, false, 8, 0, 1, 12.0F},
+};
 
 extern const unsigned long long SCENE_0_OBJECT_ID_HASHES[];
 inline const unsigned long long* SCENE_OBJECT_ID_TABLES[SCENE_COUNT] = {SCENE_0_OBJECT_ID_HASHES};

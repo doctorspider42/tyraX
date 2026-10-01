@@ -86,4 +86,3 @@ bool factProfileDirty() {
 // No object has a flow graph yet.
 
 }  // namespace Raytraced_mirror
-

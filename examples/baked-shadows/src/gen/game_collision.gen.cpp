@@ -45,6 +45,15 @@ TerrainGame::CollisionBox TerrainGame::objectCollisionBox(
     if (o.data.model >= 0 && o.data.model < (int)gameModels.size()) {
       mn = gameModels[o.data.model].mn;
       mx = gameModels[o.data.model].mx;
+#ifdef MODEL_COLL_BOX_USED
+      // The model's own, smaller box (docs/collision-boxes.md, "A smaller
+      // box") - box mode only: a mesh-mode object collides as its triangles.
+      if (o.data.collision != 1 && o.data.model < MODEL_COUNT &&
+          MODEL_COLL_BOX[o.data.model][0] > 0.5F) {
+        mn = &MODEL_COLL_BOX[o.data.model][1];
+        mx = &MODEL_COLL_BOX[o.data.model][4];
+      }
+#endif
     } else if (o.data.animModel >= 0 &&
                o.data.animModel < (int)gameAnimModels.size()) {
       const SkelModel* anim = gameAnimModels[o.data.animModel].src.get();

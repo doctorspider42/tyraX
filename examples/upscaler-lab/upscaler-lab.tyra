@@ -1,7 +1,7 @@
 {
   "name": "upscaler-lab",
-  "formatVersion": 23,
-  "editorVersion": "1.31.1",
+  "formatVersion": 92,
+  "editorVersion": "1.166.0",
   "template": "fpp",
   "projectId": "33ce13428982d3c6",
   "settings": {
@@ -17,11 +17,17 @@
     "showAreas": false,
     "showCollision": false,
     "liveLink": true,
+    "liveLinkPollFrames": 0,
+    "liveLogicPollFrames": 0,
+    "liveDebugPollFrames": 0,
+    "liveDebugSnapshotFrames": 0,
+    "timeMachineFrames": 0,
     "liveDebug": true,
     "eeCrashHandler": false,
     "liveLogic": true,
     "timeMachine": true,
     "remotePad": true,
+    "inputRecorder": false,
     "keyboardMouse": false,
     "keyboardMousePs2Link": true,
     "disableVsync": false,
@@ -31,6 +37,7 @@
     "animSourceFps": 24,
     "animPlayFps": 24,
     "staticBatching": true,
+    "occlusionCulling": false,
     "envProbeReflected": false,
     "navCellSize": 1,
     "navMaxSlope": 40,
@@ -38,6 +45,8 @@
     "unitsPerMeter": 1,
     "terrainDetail": 32,
     "terrainViewDistance": 0,
+    "terrainLodDistance": 0,
+    "reflectionReuseBudget": 1,
     "skyColor": [0.25, 0.55, 0.78],
     "skyTopColor": [0.08, 0.3, 0.65],
     "skyDome": true,
@@ -80,6 +89,7 @@
     "bloomThreshold": 0,
     "bloomSpread": 0,
     "grain": 0,
+    "motionBlur": 0,
     "dofAmount": 0,
     "dofFocus": 20,
     "dofRange": 15,
@@ -109,7 +119,7 @@
   "scenes": [
     { "name": "main",
       "terrain": { "width": 96, "depth": 96 },
-      "settings": { "lighting": { "dir": [0.37, 0.82, 0.44], "ambient": 0.55, "diffuse": 0.45, "color": [1, 1, 1], "brightness": 1 }, "sky": { "color": [0.25, 0.55, 0.78], "topColor": [0.08, 0.3, 0.65], "dome": true, "zenithSize": 0.5 }, "clipping": "vu1", "terrainMaterial": "res/materials/ground.mtl", "postfx": { "bloom": 0, "bloomThreshold": 0, "bloomSpread": 0, "grain": 0, "dofAmount": 0, "dofFocus": 20, "dofRange": 15, "flare": 0, "godRays": 0 }, "fog": { "enabled": true, "color": [0.58, 0.6, 0.63], "start": 28, "end": 120 }, "highlight": { "usable": false, "distance": 6, "color": [1, 0.85, 0.15], "width": 0.35, "steps": 4, "opacity": 0.56, "overlay": false } }, "overrides": { "lighting": false, "sky": false, "clipping": false, "terrainMat": false, "postFx": false, "fog": false, "highlight": false },
+      "settings": { "lighting": { "dir": [0.37, 0.82, 0.44], "ambient": 0.55, "diffuse": 0.45, "color": [1, 1, 1], "brightness": 1 }, "sky": { "color": [0.25, 0.55, 0.78], "topColor": [0.08, 0.3, 0.65], "dome": true, "zenithSize": 0.5 }, "clipping": "vu1", "terrainMaterial": "res/materials/ground.mtl", "postfx": { "bloom": 0, "bloomThreshold": 0, "bloomSpread": 0, "grain": 0, "motionBlur": 0, "dofAmount": 0, "dofFocus": 20, "dofRange": 15, "flare": 0, "godRays": 0 }, "fog": { "enabled": true, "color": [0.58, 0.6, 0.63], "start": 28, "end": 120 }, "highlight": { "usable": false, "distance": 6, "color": [1, 0.85, 0.15], "width": 0.35, "steps": 4, "opacity": 0.56, "overlay": false } }, "overrides": { "lighting": false, "sky": false, "clipping": false, "terrainMat": false, "postFx": false, "fog": false, "highlight": false },
       "objects": ["ulab-player", "ulab-block-west", "ulab-block-east", "ulab-trucks", "ulab-wall-0", "ulab-wall-1", "ulab-wall-2", "ulab-wall-3", "ulab-wall-4", "ulab-wall-5", "ulab-post-0", "ulab-post-1", "ulab-post-2", "ulab-post-3", "ulab-post-4", "ulab-post-5", "ulab-post-6", "ulab-post-7", "ulab-rail-0", "ulab-rail-1", "ulab-rail-2", "ulab-rail-3", "ulab-crate-0", "ulab-crate-1", "ulab-crate-2", "ulab-crate-3", "ulab-crate-4", "ulab-crate-5", "ulab-slab-0", "ulab-slab-1", "ulab-wobbler-0", "ulab-wobbler-1", "ulab-haze-a", "ulab-haze-d", "ulab-haze-e", "ulab-haze-f", "ulab-haze-g", "ulab-haze-h", "ulab-fire-0", "ulab-smoke-0", "ulab-fire-1", "ulab-smoke-1", "ulab-rain", "ulab-director", "ulab-ab-switch"] }
   ],
   "fonts": [
@@ -142,6 +152,7 @@
   ],
   "hudBloomLayer": -1,
   "hudGrainLayer": -1,
+  "hudMotionBlurLayer": 0,
   "music": [],
   "sounds": [],
   "textureQuality": { "res/materials/puff.png": "none" },
@@ -176,7 +187,7 @@
   "splashScreens": [],
   "credits": [],
   "sequences": [
-    { "name": "haze tour", "duration": 20, "loop": false, "cameraEnabled": true, "hidePlayer": false, "bars": 0, "skippable": true, "fadeIn": 0, "fadeOut": 0, "barsSlideIn": 0, "barsSlideOut": 0, "tracks": [], "cameraKeys": [{ "t": 0, "eye": [0, 3.2, 31], "target": [0, 2.6, 0], "fov": 60, "ease": 2 }, { "t": 4.5, "eye": [0, 2.4, 15], "target": [0, 3.2, -6], "fov": 60, "ease": 2 }, { "t": 8, "eye": [0, 5, 3], "target": [2, 5, -14], "fov": 60, "ease": 2 }, { "t": 12, "eye": [0, 5, 3], "target": [2, 5, -14], "fov": 60, "ease": 2 }, { "t": 16, "eye": [-15, 3, -1], "target": [16, 3.6, -13], "fov": 60, "ease": 2 }, { "t": 20, "eye": [-21, 8.5, 19], "target": [3, 2, -10], "fov": 60, "ease": 2 }] }
+    { "name": "haze tour", "duration": 20, "loop": false, "cameraEnabled": true, "hidePlayer": false, "hideHud": false, "bars": 0, "skippable": true, "skipMode": 0, "fadeIn": 0, "fadeOut": 0, "barsSlideIn": 0, "barsSlideOut": 0, "tracks": [], "cameraKeys": [{ "t": 0, "eye": [0, 3.2, 31], "target": [0, 2.6, 0], "fov": 60, "ease": 2 }, { "t": 4.5, "eye": [0, 2.4, 15], "target": [0, 3.2, -6], "fov": 60, "ease": 2 }, { "t": 8, "eye": [0, 5, 3], "target": [2, 5, -14], "fov": 60, "ease": 2 }, { "t": 12, "eye": [0, 5, 3], "target": [2, 5, -14], "fov": 60, "ease": 2 }, { "t": 16, "eye": [-15, 3, -1], "target": [16, 3.6, -13], "fov": 60, "ease": 2 }, { "t": 20, "eye": [-21, 8.5, 19], "target": [3, 2, -10], "fov": 60, "ease": 2 }] }
   ],
   "menus": [
     { "name": "save", "title": "SAVE GAME", "saveMenu": true, "screenPos": [0.5, 0.45], "accent": [0.47, 0.82, 1],
@@ -203,7 +214,13 @@
       { "name": "menu-up", "label": "Menu up", "role": "menu-up", "rebindable": false },
       { "name": "menu-down", "label": "Menu down", "role": "menu-down", "rebindable": false },
       { "name": "menu-left", "label": "Menu left", "role": "menu-left", "rebindable": false },
-      { "name": "menu-right", "label": "Menu right", "role": "menu-right", "rebindable": false }
+      { "name": "menu-right", "label": "Menu right", "role": "menu-right", "rebindable": false },
+      { "name": "veh-throttle", "label": "Vehicle throttle", "role": "veh-throttle" },
+      { "name": "veh-brake", "label": "Vehicle brake", "role": "veh-brake" },
+      { "name": "veh-handbrake", "label": "Vehicle handbrake", "role": "veh-handbrake" },
+      { "name": "veh-nitrous", "label": "Vehicle nitrous", "role": "veh-nitrous" },
+      { "name": "veh-camera", "label": "Vehicle camera", "role": "veh-camera" },
+      { "name": "veh-rearview", "label": "Vehicle rear view", "role": "veh-rearview" }
     ],
     "presets": [
       { "name": "Default", "bindings": [
@@ -224,11 +241,17 @@
           { "action": "menu-up", "pad": "DpadUp", "key": 82 },
           { "action": "menu-down", "pad": "DpadDown", "key": 81 },
           { "action": "menu-left", "pad": "DpadLeft", "key": 80 },
-          { "action": "menu-right", "pad": "DpadRight", "key": 79 }
+          { "action": "menu-right", "pad": "DpadRight", "key": 79 },
+          { "action": "veh-throttle", "pad": "R2", "key": 26 },
+          { "action": "veh-brake", "pad": "L2", "key": 22 },
+          { "action": "veh-handbrake", "pad": "Circle", "key": 44 },
+          { "action": "veh-nitrous", "pad": "Cross", "key": 225 },
+          { "action": "veh-camera", "pad": "Triangle", "key": 6 },
+          { "action": "veh-rearview", "pad": "R3", "key": 21 }
         ] }
     ]
   },
-  "editor": { "selectedObject": -1, "gizmo": 0, "gizmoSpace": 0, "viewMode": 0, "viewProjection": 0, "breakpoints": [] },
+  "editor": { "selectedObject": -1, "gizmo": 0, "gizmoSpace": 0, "viewMode": 0, "viewProjection": 0, "showFog": true, "cam": [0.8, 0.6, 90, 0, 0, 0], "breakpoints": [] },
   "activeLayout": 0,
   "layouts": [
     { "name": "Default", "recipe": 0, "open": [], "ini": "" },

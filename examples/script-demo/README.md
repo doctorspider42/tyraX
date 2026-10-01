@@ -32,7 +32,7 @@ scripting drive the scene.
 
 Two small pieces, one of each scripting flavor:
 
-- **A flow graph** on the spawn point: **On Start ─▶ Set Sky Color** paints the
+- **A flow graph** on the spawn point: **On Start ─▶ Set Sky Color** paints a pale-blue
   starting sky when the scene loads (author it in the *Flow Graph* tab).
 - **A global script**, [`src/scripts/example_interaction.cpp`](src/scripts/example_interaction.cpp)
   — a class deriving from `Script`, registered with `TYRA_SCRIPT(...)`. Its

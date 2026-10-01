@@ -5520,6 +5520,13 @@
 // vehicleUseTarget), not whichever is near; the prompt follows it. Exiting
 // picks the first spot clear of every collision box - a walker placed
 // inside one (a neighbouring car) could not move until it jumped.
+// 1.167.1: merged with this side's 1.166.1-1.166.3. The Docker fallback
+// (Sony's vcl) builds the engine again - the TC clip image loads its GIF tag
+// constants per buffer, output bit-identical. RendererCore::endFrame drains
+// the VIF1 queue - a frame with no 2D left its last StaPip chains unstarted
+// until the next frame's clear, so baked shadow decals and blob shadows drew
+// under the next frame's terrain. PS2 shading applies the terrain's AO per
+// pixel - per corner it printed dark flat cells round every object.
 // 1.167.0: exhaust pipes marked in the model - an empty named "exhaust" at
 // each opening (any number, up to six), arrow pointing out of the pipe. The
 // nitrous flame, the shift backfire and a new constant exhaust smoke

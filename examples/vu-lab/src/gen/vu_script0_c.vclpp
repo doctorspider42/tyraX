@@ -30,11 +30,13 @@
     lq         testsTag, 10(vi00)  ; VU1_Z_TESTS_ADDR
     lq         alphaGifTag, 21(vi00)  ; VU1_ALPHA_ADDR - per-mesh GS blend equation, in-band
     lq         fogParams, 8(vi00)  ; VU1_OPTIONS_ADDR.zw = GS hardware fog
+    add.x      fogParams, vf00, fogParams[z]  ; fog scale into .x (CalculateTyraFog)
     iaddiu     adcMask, vi00, 16384  ; MakeTyraAdcMask: 0x8000 in two 15-bit adds
     iadd       adcMask, adcMask, adcMask
     lq         spotPos, 12(vi00)  ; LoadTyraSpotLight - reuses the dir-lights slots, free in the colour programs
     lq         spotDirV, 13(vi00)
     lq         spotColV, 14(vi00)
+    ilw.y      spotEnabled, 8(vi00)  ; VU1_OPTIONS_ADDR.y < 0 = a dynamic light reaches this mesh
     lq         vuParams, 15(vi00)  ; VU1_CUSTOM_PARAMS_ADDR - the mesh's four numbers (the lights-colour area; a bag carrying these has no lighting)
     lq         vuTime, 16(vi00)  ; VU1_CUSTOM_TIME_ADDR - (time, sin time, cos time, 1.0)
     add.xyz    vuOne, vf00, vf00[w]  ; 1.0 in every field
@@ -84,6 +86,7 @@ processing:
     add.z      k0, vf00, i
     loi        0.5
     mul.w      k0, vf00, i
+    ibgez      spotEnabled, noSpot1
     sub.xyz    spotD, vertex1, spotPos  ; CalculateTyraSpotLight
     mul.xyz    spotSq, spotD, spotD
     add.x      spotDist, spotSq, spotSq[y]
@@ -105,12 +108,12 @@ processing:
     mul.x      spotC, spotC, spotA
     mul.xyz    spotD, spotColV, spotC[x]
     add.xyz    color1, color1, spotD
+noSpot1:
     mula       acc, mvp[0], vertex1[x]  ; MatrixMultiplyVertex
     madda      acc, mvp[1], vertex1[y]
     madda      acc, mvp[2], vertex1[z]
     madd       vertex1, mvp[3], vertex1[w]
-    add.x      fogAccum, vf00, vertex1[w]  ; CalculateTyraFog
-    mul.x      fogAccum, fogAccum, fogParams[z]
+    mul.x      fogAccum, fogParams, vertex1[w]  ; CalculateTyraFog
     add.x      fogAccum, fogAccum, fogParams[w]
     loi        255
     mini.x     fogAccum, fogAccum, i
@@ -139,6 +142,7 @@ processing:
     mini.xyz   color1, color1, i
     max.xyz    color1, color1, vf00[x]
     ftoi0      color1, color1
+    ibgez      spotEnabled, noSpot2
     sub.xyz    spotD, vertex2, spotPos  ; CalculateTyraSpotLight
     mul.xyz    spotSq, spotD, spotD
     add.x      spotDist, spotSq, spotSq[y]
@@ -160,12 +164,12 @@ processing:
     mul.x      spotC, spotC, spotA
     mul.xyz    spotD, spotColV, spotC[x]
     add.xyz    color2, color2, spotD
+noSpot2:
     mula       acc, mvp[0], vertex2[x]  ; MatrixMultiplyVertex
     madda      acc, mvp[1], vertex2[y]
     madda      acc, mvp[2], vertex2[z]
     madd       vertex2, mvp[3], vertex2[w]
-    add.x      fogAccum, vf00, vertex2[w]  ; CalculateTyraFog
-    mul.x      fogAccum, fogAccum, fogParams[z]
+    mul.x      fogAccum, fogParams, vertex2[w]  ; CalculateTyraFog
     add.x      fogAccum, fogAccum, fogParams[w]
     loi        255
     mini.x     fogAccum, fogAccum, i
@@ -194,6 +198,7 @@ processing:
     mini.xyz   color2, color2, i
     max.xyz    color2, color2, vf00[x]
     ftoi0      color2, color2
+    ibgez      spotEnabled, noSpot3
     sub.xyz    spotD, vertex3, spotPos  ; CalculateTyraSpotLight
     mul.xyz    spotSq, spotD, spotD
     add.x      spotDist, spotSq, spotSq[y]
@@ -215,12 +220,12 @@ processing:
     mul.x      spotC, spotC, spotA
     mul.xyz    spotD, spotColV, spotC[x]
     add.xyz    color3, color3, spotD
+noSpot3:
     mula       acc, mvp[0], vertex3[x]  ; MatrixMultiplyVertex
     madda      acc, mvp[1], vertex3[y]
     madda      acc, mvp[2], vertex3[z]
     madd       vertex3, mvp[3], vertex3[w]
-    add.x      fogAccum, vf00, vertex3[w]  ; CalculateTyraFog
-    mul.x      fogAccum, fogAccum, fogParams[z]
+    mul.x      fogAccum, fogParams, vertex3[w]  ; CalculateTyraFog
     add.x      fogAccum, fogAccum, fogParams[w]
     loi        255
     mini.x     fogAccum, fogAccum, i

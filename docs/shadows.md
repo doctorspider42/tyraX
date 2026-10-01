@@ -539,6 +539,17 @@ It is also a saving, not just a correction — on `examples/baked-shadows` it
 dropped the scene from 300 triangles to 230, because every one of those
 triangles was drawing a shadow onto ground no light reached anyway.
 
+**The mirror case is NOT handled: a receiver IN FRONT of the caster.** The test
+keeps a triangle when its point sees the sun, and a point on the sunward side
+of the caster always does. So a caster that is partly buried in another object
+prints the buried part's silhouette onto that object's sun-facing faces. Seen
+on `examples/baked-shadows`, where a post stood 0.8 units deep in the paved
+plinth: a post-shaped dark patch appeared on the plinth's lit side, below the
+post. Until the bake checks which side of the caster a receiver point is on,
+the fix is in the scene: stand casters on their surface instead of sinking
+them into it (docs/backlog.md, "Baked decals print onto receivers in front of
+the caster").
+
 ### On a real model, not a box
 
 The tile is traced against the caster's **own triangles**, so a model casts its
@@ -795,6 +806,21 @@ world units at a distance of 100. A decal sits 0.015 units in front of the
 surface it darkens. Baked shadows in the distance will z-fight in a 16-bit
 project, and no setting here fixes that. This applies to authored projecting
 decals too; it is simply much easier to hit when you have fifty of them.
+
+### No shadows at all in a scene without a HUD (fixed in 1.166.1)
+
+Before 1.166.1, a scene that drew no 2D (no HUD text, prompt or menu) could
+lose **every** baked shadow and blob shadow on the PS2 while the objects
+around them rendered fine. `examples/baked-shadows` showed nothing as soon as
+its terrain lightmap pass ran. The shadows were not wrong, they were LATE:
+the engine's VIF1 queue left the frame's last few draws unstarted, so they
+reached the GS after the next frame's clear and were painted over by its
+terrain. Opaque objects drawn that late still win the depth test, a shadow
+(blended, writes no depth) does not. The fix is in the engine
+(`RendererCore::endFrame` drains the queue,
+[ee-submission-rearchitecture.md](ee-submission-rearchitecture.md)). If you
+see shadows that disappear while their casters stay, and the decal data and
+atlas look right, check the draw ORDER in a GS dump before the data.
 
 ## Spot-light shadow volumes
 

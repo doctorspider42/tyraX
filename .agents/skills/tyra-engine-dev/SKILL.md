@@ -1565,8 +1565,11 @@ Rules the same evening paid for:
   branch, so the TC colour path pays nothing; TD and TCE pay two instructions.
   The TD path reuses the env-basis and spot registers the preamble already
   loaded from the same addresses (the light matrix and directions) and loads
-  only the light colours + ambient per triangle, so the image's VF peak did not
-  move (30 of 31). The wrapper
+  only the light colours + ambient per triangle. That still left 33 VF live in
+  `sharedDirMode` - Sony's `vcl` refused it ("no opt table") and only openvcl's
+  load sinking fitted it - so the TC image loads its five GIF-tag-block
+  constants once per buffer at the tag block (`tagsPerBuffer` in vugen) instead
+  of pinning them; see the "Sony's vcl is a build target too" pitfall. The wrapper
   objects deliberately point at the same CodeStart/CodeEnd range and
   `Path1::createProgramsCache` must alias that range to one destination instead
   of uploading it twice. If a generated override replaces one peer, it gets its
@@ -2283,6 +2286,24 @@ rounding a total pixel count to 2048 words is not the allocator's layout.
   picks it when building the image; the image records its choice in
   `/usr/local/share/tyrax/vcl-impl`. Numbers, patch and repro:
   `docs/toolchain-image.md`.
+- **Sony's vcl is a build target too - a VU edit is not done until BOTH
+  assemblers take it.** The default build is native openvcl, so the Docker
+  fallback (Sony's `vcl`) is exercised by nobody, and 51396a98 broke it for five
+  days: TC's clip image with the TD path on it had 33 VF live in `sharedDirMode`,
+  openvcl's `--sink-loads*` silently moved five preamble loads into the buffer
+  header and fitted, Sony's allocator said `no opt table .. for sharedDirMode`
+  and every `--docker` build died in the engine. `--vu-check`'s pressure line
+  read 30 and did not warn: it is a linear scan, so a constant loaded in the
+  preamble and last read in the per-buffer header looks dead inside the batch
+  loop that branches back to it - it can UNDER-state, not only over-state. The
+  fix that works for both: load per-buffer constants where they are used (the tag
+  block), not in the preamble; it costs a few lower-pipe `lq`s a BUFFER and is
+  output-identical because the EE writes those addresses only behind
+  sendObjectData's FLUSHE. Check after any `.vclpp` edit: `vclpp`+`vcl`+`dvp-as`
+  over every engine `.vclpp` in `tyrax-toolchain:local` (cwd = engine dir), the
+  same through the native toolchain's `vcl` wrapper in WSL, or one small project
+  built with and without `--docker` (docs/toolchain-image.md, "Sony's vcl is a
+  build target too").
 - **Swapping the toolchain image rebuilds NO microcode.** The engine's make keys
   off `.vclpp` timestamps, and an image swap touches neither them nor their
   checksums, so the previous build's VU objects are relinked and the change looks
@@ -2592,6 +2613,23 @@ must keep:
   chain is submitted by the next `Vif1Queue::submit()`/`drain()` from anyone
   (`setOpenChainCloser`), and `endFrame` fences before the vsync wait, because
   with no interrupt nothing starts a queued chain while the EE sleeps there.
+- **`endFrame` drains the 3D queue too, not only the 2D fence** (1.166.1).
+  `path3Fence()` drains only in a frame that drew a sprite, so a scene with NO
+  2D at all (no HUD, prompt or menu) left up to `kPacketCount - 1` chains
+  queued and unstarted. The next frame's first submit started them - after
+  the present, the draw-target switch and the clear had gone out on PATH3 - so
+  the frame's last bags drew into the NEXT back buffer, under its sky and
+  terrain. The backlog sustains itself (a submit starts at most one queued
+  chain and adds one), so one GS-heavy frame - the terrain lightmap pass - set
+  it for good. Opaque z-tested bags survive that (they win the z test against
+  the terrain that follows); blended no-z-write ones vanish: **baked shadow
+  decals and blob shadows invisible in examples/baked-shadows**, with every
+  byte the decal bag sent and every VU1 memory word it left identical to a good
+  frame. What found it was a PCSX2 GS dump walked per draw (pcsx2-capture.py's
+  `GsWalker`): the decal's 858 kicks sat right after the next frame's
+  `FRAME_1` write. **"Every byte matches but nothing shows" means look at WHEN
+  the GS gets it, not what.** A new frame-boundary PATH3 sender must come after
+  this drain.
 - **`TYRA_VIF1_QUEUE_HOLD` is a measurement probe, never a mode** (0): the
   queue only collects chains until the EE first waits, and `endFrame` logs the
   frame's VU1+GS time alone (`GPUHOLD us`). Run it with

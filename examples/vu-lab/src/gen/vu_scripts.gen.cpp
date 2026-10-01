@@ -8,9 +8,6 @@
 #include "vu_script0_d_program.hpp"
 #include "vu_script0_d_ai_program.hpp"
 #include "vu_script0_d_cl_program.hpp"
-#include "vu_script0_td_program.hpp"
-#include "vu_script0_td_ai_program.hpp"
-#include "vu_script0_td_cl_program.hpp"
 #include "vu_script0_tc_program.hpp"
 #include "vu_script0_tc_ai_program.hpp"
 #include "vu_script0_tc_cl_program.hpp"
@@ -39,8 +36,6 @@
 #include "vu_script3_c_cl_program.hpp"
 #include "vu_script3_d_program.hpp"
 #include "vu_script3_d_cl_program.hpp"
-#include "vu_script3_td_program.hpp"
-#include "vu_script3_td_cl_program.hpp"
 #include "vu_script3_tc_program.hpp"
 #include "vu_script3_tc_cl_program.hpp"
 #include "vu_script3_tce_program.hpp"
@@ -54,9 +49,6 @@ Tyra::TyraXScript0CCLVU1Program g_TyraXScript0CCLVU1Program;
 Tyra::TyraXScript0DVU1Program g_TyraXScript0DVU1Program;
 Tyra::TyraXScript0DAIVU1Program g_TyraXScript0DAIVU1Program;
 Tyra::TyraXScript0DCLVU1Program g_TyraXScript0DCLVU1Program;
-Tyra::TyraXScript0TDVU1Program g_TyraXScript0TDVU1Program;
-Tyra::TyraXScript0TDAIVU1Program g_TyraXScript0TDAIVU1Program;
-Tyra::TyraXScript0TDCLVU1Program g_TyraXScript0TDCLVU1Program;
 Tyra::TyraXScript0TCVU1Program g_TyraXScript0TCVU1Program;
 Tyra::TyraXScript0TCAIVU1Program g_TyraXScript0TCAIVU1Program;
 Tyra::TyraXScript0TCCLVU1Program g_TyraXScript0TCCLVU1Program;
@@ -85,8 +77,6 @@ Tyra::TyraXScript3CVU1Program g_TyraXScript3CVU1Program;
 Tyra::TyraXScript3CCLVU1Program g_TyraXScript3CCLVU1Program;
 Tyra::TyraXScript3DVU1Program g_TyraXScript3DVU1Program;
 Tyra::TyraXScript3DCLVU1Program g_TyraXScript3DCLVU1Program;
-Tyra::TyraXScript3TDVU1Program g_TyraXScript3TDVU1Program;
-Tyra::TyraXScript3TDCLVU1Program g_TyraXScript3TDCLVU1Program;
 Tyra::TyraXScript3TCVU1Program g_TyraXScript3TCVU1Program;
 Tyra::TyraXScript3TCCLVU1Program g_TyraXScript3TCCLVU1Program;
 Tyra::TyraXScript3TCEVU1Program g_TyraXScript3TCEVU1Program;
@@ -127,8 +117,8 @@ bool active(int s) {
 
 static void apply() {
   if (!g_core) return;
-  Tyra::StaPipProgramName slots[43];
-  Tyra::StaPipVU1Program* progs[43];
+  Tyra::StaPipProgramName slots[38];
+  Tyra::StaPipVU1Program* progs[38];
   unsigned n = 0;
   slots[n] = Tyra::StaPipCullColor;
   progs[n++] = g_on[0] ? (Tyra::StaPipVU1Program*)&g_TyraXScript0CVU1Program : g_on[1] ? (Tyra::StaPipVU1Program*)&g_TyraXScript1CVU1Program : g_on[2] ? (Tyra::StaPipVU1Program*)&g_TyraXScript2CVU1Program : g_on[3] ? (Tyra::StaPipVU1Program*)&g_TyraXScript3CVU1Program : nullptr;
@@ -142,18 +132,18 @@ static void apply() {
   progs[n++] = g_on[0] ? (Tyra::StaPipVU1Program*)&g_TyraXScript0DAIVU1Program : g_on[2] ? (Tyra::StaPipVU1Program*)&g_TyraXScript2DAIVU1Program : nullptr;
   slots[n] = Tyra::StaPipClipDirLights;
   progs[n++] = g_on[0] ? (Tyra::StaPipVU1Program*)&g_TyraXScript0DCLVU1Program : g_on[2] ? (Tyra::StaPipVU1Program*)&g_TyraXScript2DCLVU1Program : g_on[3] ? (Tyra::StaPipVU1Program*)&g_TyraXScript3DCLVU1Program : nullptr;
-  slots[n] = Tyra::StaPipCullTextureDirLights;
-  progs[n++] = g_on[0] ? (Tyra::StaPipVU1Program*)&g_TyraXScript0TDVU1Program : g_on[2] ? (Tyra::StaPipVU1Program*)&g_TyraXScript2TDVU1Program : g_on[3] ? (Tyra::StaPipVU1Program*)&g_TyraXScript3TDVU1Program : nullptr;
-  slots[n] = Tyra::StaPipAsIsTextureDirLights;
-  progs[n++] = g_on[0] ? (Tyra::StaPipVU1Program*)&g_TyraXScript0TDAIVU1Program : g_on[2] ? (Tyra::StaPipVU1Program*)&g_TyraXScript2TDAIVU1Program : nullptr;
-  slots[n] = Tyra::StaPipClipTextureDirLights;
-  progs[n++] = g_on[0] ? (Tyra::StaPipVU1Program*)&g_TyraXScript0TDCLVU1Program : g_on[2] ? (Tyra::StaPipVU1Program*)&g_TyraXScript2TDCLVU1Program : g_on[3] ? (Tyra::StaPipVU1Program*)&g_TyraXScript3TDCLVU1Program : nullptr;
   slots[n] = Tyra::StaPipCullTextureColor;
   progs[n++] = g_on[0] ? (Tyra::StaPipVU1Program*)&g_TyraXScript0TCVU1Program : g_on[1] ? (Tyra::StaPipVU1Program*)&g_TyraXScript1TCVU1Program : g_on[2] ? (Tyra::StaPipVU1Program*)&g_TyraXScript2TCVU1Program : g_on[3] ? (Tyra::StaPipVU1Program*)&g_TyraXScript3TCVU1Program : nullptr;
   slots[n] = Tyra::StaPipAsIsTextureColor;
   progs[n++] = g_on[0] ? (Tyra::StaPipVU1Program*)&g_TyraXScript0TCAIVU1Program : g_on[1] ? (Tyra::StaPipVU1Program*)&g_TyraXScript1TCAIVU1Program : g_on[2] ? (Tyra::StaPipVU1Program*)&g_TyraXScript2TCAIVU1Program : nullptr;
   slots[n] = Tyra::StaPipClipTextureColor;
   progs[n++] = g_on[0] ? (Tyra::StaPipVU1Program*)&g_TyraXScript0TCCLVU1Program : g_on[1] ? (Tyra::StaPipVU1Program*)&g_TyraXScript1TCCLVU1Program : g_on[2] ? (Tyra::StaPipVU1Program*)&g_TyraXScript2TCCLVU1Program : g_on[3] ? (Tyra::StaPipVU1Program*)&g_TyraXScript3TCCLVU1Program : nullptr;
+  slots[n] = Tyra::StaPipCullTextureDirLights;
+  progs[n++] = g_on[2] ? (Tyra::StaPipVU1Program*)&g_TyraXScript2TDVU1Program : nullptr;
+  slots[n] = Tyra::StaPipAsIsTextureDirLights;
+  progs[n++] = g_on[2] ? (Tyra::StaPipVU1Program*)&g_TyraXScript2TDAIVU1Program : nullptr;
+  slots[n] = Tyra::StaPipClipTextureDirLights;
+  progs[n++] = g_on[2] ? (Tyra::StaPipVU1Program*)&g_TyraXScript2TDCLVU1Program : nullptr;
   slots[n] = Tyra::StaPipCullTextureEnv;
   progs[n++] = g_on[2] ? (Tyra::StaPipVU1Program*)&g_TyraXScript2TCEVU1Program : g_on[3] ? (Tyra::StaPipVU1Program*)&g_TyraXScript3TCEVU1Program : nullptr;
   slots[n] = Tyra::StaPipAsIsTextureEnv;

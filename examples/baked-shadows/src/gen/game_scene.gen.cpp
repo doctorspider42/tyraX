@@ -565,6 +565,28 @@ void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
       const float sx = o.data.scale[0] > 0.0001F ? o.data.scale[0] : 0.0001F;
       const float sy = o.data.scale[1] > 0.0001F ? o.data.scale[1] : 0.0001F;
       const float sz = o.data.scale[2] > 0.0001F ? o.data.scale[2] : 0.0001F;
+      // Far away, out before any of the work below (two rotations per query,
+      // three queries): the mesh fits in a sphere about the object's origin
+      // whatever its rotation, and every query here is a vertical ray or a
+      // sphere at the player - so a player further off horizontally than
+      // that sphere plus its own reach cannot touch a triangle. This used to
+      // be paid by every mesh-mode object in the scene, every frame.
+      {
+        const float* cmn = gm->collider.aabbMin();
+        const float* cmx = gm->collider.aabbMax();
+        const float s3[3] = {sx, sy, sz};
+        float r2 = 0.0F;
+        for (int k = 0; k < 3; ++k) {
+          const float e = (fabsf(cmn[k]) > fabsf(cmx[k]) ? fabsf(cmn[k]) : fabsf(cmx[k])) * s3[k];
+          r2 += e * e;
+        }
+        const float mvx = *nextX - prevX, mvz = *nextZ - prevZ;
+        const float reach = sqrtf(r2) + playerRadius + 0.6F * (sx > sz ? sx : sz) +
+                            sqrtf(mvx * mvx + mvz * mvz);
+        const float dx = *nextX - o.data.position[0];
+        const float dz = *nextZ - o.data.position[2];
+        if (dx * dx + dz * dz > reach * reach) continue;
+      }
       auto toLocal = [&](float wx, float wy, float wz) {
         V3 p = {wx - o.data.position[0], wy - o.data.position[1],
                 wz - o.data.position[2]};

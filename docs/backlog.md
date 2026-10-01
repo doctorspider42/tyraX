@@ -1446,6 +1446,17 @@ pose + `--capture-frame` x30 against one reference). The `as_is_*` family and
 the EE clipper deserve the same pass - the EE clipper was catastrophically
 broken by the same race and has never been looked at on hardware since.
 
+### Keep Sony's vcl building the engine without a human remembering to
+
+The Docker fallback was broken for five days (docs/toolchain-image.md, "Sony's vcl
+is a build target too") because the default build never runs Sony's `vcl`. Two
+pieces would catch the next one: make `vugen::vfPressure` extend a live range
+across a backward branch (today a preamble constant last read in the per-buffer
+header counts as dead inside the batch loop, so the TC clip image read 30 while
+Sony refused it - recalibrate the table in docs/vu-authoring.md afterwards), and a
+scripted both-assemblers pass over the engine's `.vclpp` set that a VU change runs
+before it is called done.
+
 ### Judge openvcl against the ps2gl fixtures
 
 Twelve of upstream's own `test/fixtures` are real third-party VU code and no
@@ -2539,3 +2550,16 @@ implemented. The bounded same-range classification reuse trial was rejected: no
 convincing submission-time gain on physical PS2. Larger submission scheduling
 changes remain open; do not treat this as a shipped engine speedup. See
 [hardware profiler results](hardware-profiler-results.md).
+
+## Baked decals print onto receivers in front of the caster
+
+`shadowbake`'s per-triangle depth filter (`litPastCaster`, docs/shadows.md,
+"Print through a wall") keeps a receiver triangle whenever a sample point sees
+the sun, so a receiver on the SUNWARD side of the caster keeps the tile's ink.
+A caster sunk into another object (a post 0.8 units into a plinth) printed its
+buried silhouette on the plinth's lit face. The example was fixed in the scene;
+the bake fix is to split projected triangles into pieces (like the caster's own
+floor pass, `kSelfPiece`) and drop a piece whose points all have the caster
+BEHIND them along the light (a trace away from the sun hits the caster) and
+none has it toward the sun. Verify on a copy of examples/baked-shadows with
+post-5 back at y = 1.

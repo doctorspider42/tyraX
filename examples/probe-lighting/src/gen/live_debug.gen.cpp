@@ -29,6 +29,7 @@
 #include <kernel.h>  // FlushCache - the readback lands behind the data cache
 
 #include "debug/crash_handler.hpp"  // EE exception -> crash report
+#include "debug/hardware_trace.hpp"  // opt-in physical-console timeline scopes
 #include "renderer/3d/pipeline/static/core/stapip_vu_tap.hpp"  // VU1 packet tap
 #include "scripts/script.hpp"
 #include "scripts/live_debug.gen.hpp"
@@ -167,6 +168,7 @@ unsigned int ramFreeKB = 0, ramFrame = 0;
 // reading a whole frame buffer back out of GS VRAM is a ~900 KB DMA plus a
 // ~900 KB host: write, which is not something to do on a timer.
 bool frameShotWanted = false;
+unsigned int renderCostRequest = 0;
 // __attribute__((unused)): the EE crash handler is opt-in (Preferences >
 // Build), and with it off nothing references this - it sits in an anonymous
 // namespace so the compiler drops it, but it would warn on the way past.
@@ -177,6 +179,10 @@ void writeVuCapture(ScriptContext& ctx);  // both defined below
 void writeFrameCapture(ScriptContext& ctx);
 unsigned int cmdSeq = 0;  // last applied command
 unsigned int outSeq = 0;  // snapshots written
+// The first snapshot is always written as the runner's game-is-up marker.
+// After that, do not keep paying for synchronous host: writes until a valid
+// command proves an editor is actually consuming them.
+bool editorAttached = false;
 int pollCooldown = 21;  // poll phase - see docs/devkit.md
 // The FLUSH deliberately keeps phase 1 and is the one that must not be moved:
 // it is the editor's liveness signal, and delaying it delays "the game is up".
@@ -224,6 +230,7 @@ void readVar(ScriptContext& ctx, int i, float* out) {
 }
 
 void pollCommand() {
+  Tyra::HardwareTrace::Scope trace("Live_debug_poll");
   static unsigned char c[CMD_HEADER + MAX_BP * 2 + MAX_FIRE * 2 +
                         MAX_WATCH * 2 + MAX_FACT_SET * 16 + 4];
   FILE* f = fopen(Tyra::FileUtils::fromCwd("livedbg.cmd").c_str(), "rb");
@@ -258,6 +265,7 @@ void pollCommand() {
   memcpy(&foot, c + CMD_HEADER + listLen + factc * 16, 4);
   if (foot != (seq ^ FOOTER_XOR)) return;  // torn write
 
+  editorAttached = true;
   cmdSeq = seq;
   int watchc;
   memcpy(&watchc, c + 28, 4);
@@ -305,6 +313,7 @@ void pollCommand() {
   if ((flags & 32U) != 0) ramMeasureWanted = true;
   // Bit 6: photograph the last finished frame into frame.tga (one-shot).
   if ((flags & 64U) != 0) frameShotWanted = true;
+  if ((flags & 128U) != 0) renderCostRequest = seq;
   if ((flags & 8U) != 0) {
     vuCapArmed = true;
     vuCapExplicit = (flags & 16U) != 0;
@@ -320,6 +329,7 @@ void pollCommand() {
 }
 
 void flush(ScriptContext& ctx) {
+  Tyra::HardwareTrace::Scope trace("Live_debug_flush");
   unsigned char* p = snapBuf;
   ++outSeq;
   put32(p + 0, SNAP_MAGIC);
@@ -481,6 +491,7 @@ void flush(ScriptContext& ctx) {
 }
 
 void tickImpl(ScriptContext& ctx) {
+  Tyra::HardwareTrace::Scope trace("Live_debug");
   lastScene = ctx.scene;
   // The editor's manual fact overrides, re-asserted at the top of the frame so
   // the graphs and rules that run after this SEE them. Re-applied every frame
@@ -543,8 +554,9 @@ void tickImpl(ScriptContext& ctx) {
   // Over ps2link every fopen is a network round-trip, so poll sparsely there.
   // While the game is stopped the editor is waiting on us: poll fast.
   const bool ps2link = Tyra::IrxLoader::keepIopResident;
+  if (haltRequested && pollCooldown > 2) pollCooldown = 2;
   if (--pollCooldown <= 0) {
-    pollCooldown = ps2link ? 25 : (haltRequested ? 2 : 6);
+    pollCooldown = haltRequested ? 2 : (ps2link ? 25 : 6);
     pollCommand();
   }
 
@@ -596,8 +608,9 @@ void tickImpl(ScriptContext& ctx) {
 
   if (--flushCooldown <= 0 || flushNow) {
     flushCooldown = ps2link ? 25 : 6;
+    const bool shouldFlush = flushNow || editorAttached;
     flushNow = false;
-    flush(ctx);
+    if (shouldFlush) flush(ctx);
   }
   // Clear the armed-timer list only AFTER the flush: the graphs report their
   // countdowns while they run, i.e. after this pump - so at flush time the list
@@ -878,6 +891,12 @@ void writeFrameCapture(ScriptContext& ctx) {
   static unsigned int lineIn[1024] __attribute__((aligned(16)));
   static unsigned int lineOut[1024];
   unsigned int refused = 0;
+  // The Hybrid colour depth's present blit (ColorDepth::Hybrid) is a PATH3
+  // packet the flip sends WITHOUT waiting, so between frames the GS can still
+  // be copying - and the reverse-FIFO download below then hangs on it (it did,
+  // in PCSX2, every time). A PATH3 FINISH round trip proves the GS idle. In
+  // the other modes the flip already waited, and this returns at once.
+  ctx.engine->renderer.core.sync.align2D();
   for (unsigned int y = 0; y < h; ++y) {
     // Bottom row first, so the TGA needs no flip on either side.
     if (!ps2_screenshot(lineIn, fb->address / 64, 0, (h - 1U) - y, w, 1,
@@ -1021,6 +1040,12 @@ void applyFactOverrides() {
   }
 }
 
+unsigned int takeRenderCostRequest() {
+  const unsigned int result = renderCostRequest;
+  renderCostRequest = 0;
+  return result;
+}
+
 void hit(int key) {
   if (key < 0 || key >= NODES) return;
   ++hits[key];
@@ -1050,6 +1075,7 @@ void hit(int key) {
 }
 
 bool halted() { return haltedFrame; }
+bool attached() { return editorAttached; }
 
 bool forced(int key) {
   for (int i = 0; i < forcedCount; ++i)

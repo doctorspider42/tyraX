@@ -107,4 +107,3 @@ void flowTimeWrite(int index, const float* in3) {
 }
 
 }  // namespace Material_lab
-
