@@ -5521,6 +5521,8 @@
 // that car has (nitrous, lamps), with button glyphs; rows dim as they are
 // tried. Vehicle Editor > Driver > Controls card on entry (format v94). New
 // optional {{lstick}} / {{rstick}} built-in icons.
+// Also: a repaired car no longer shows full reflection until the camera
+// turns (the rebuild now invalidates the paint pass's cached view key).
 // 1.168.0: Use enters the car you LOOK at (in reach + under the camera aim,
 // vehicleUseTarget), not whichever is near; the prompt follows it. Exiting
 // picks the first spot clear of every collision box - a walker placed

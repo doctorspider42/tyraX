@@ -2586,6 +2586,11 @@ optionalBuiltinIconNames()` - drawable built-ins NOT seeded by ensureTextIcons
 (that would add two icons to every project); `project::ensureStickIcons` adds
 them when the option is ticked.
 
+A rebuild that REUSES a GeoPart (Repair Vehicle, a damage re-bake) resets
+`envColors` to the 128 placeholder, so it must also clear `envPaintValid` and
+`paintMapSrc`: the paint pass's quantised view key otherwise reads "same view"
+and the car shows full reflection (very bright) until the camera turns.
+
 ## Vehicle bank and suspension invariants
 
 `vehiclesim::bodyRotation` and the generated `vehBodyRotation` are twins:
