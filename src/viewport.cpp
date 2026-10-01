@@ -6886,7 +6886,8 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         for (size_t oi = 0; oi < objects.size(); ++oi) {
             const SceneObject& o = objects[oi];
             if (hiddenAt(oi) || !placement::collides(o)) continue;
-            const placement::CollisionBox b = placement::collisionBox(o, bounds);
+            const placement::CollisionBox b =
+                placement::collisionBox(o, bounds, modelCollision_);
             Mat4 m = scaleM(2.0f * b.half[0], 2.0f * b.half[1], 2.0f * b.half[2]);
             m = mul(translation(b.center[0], b.center[1], b.center[2]), m);
             if (b.yaw != 0.0f) m = mul(rotY(b.yaw * kPi / 180.0f), m);

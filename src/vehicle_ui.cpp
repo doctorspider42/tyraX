@@ -500,7 +500,7 @@ void App::vehicleDriveTick() {
         for (int i = 0; i < (int)all.size(); ++i) {
             if (i == vehicleDriveObj_) continue;
             if (!placement::collides(all[i])) continue;
-            solids.push_back(placement::worldAabb(all[i], aabbFn));
+            solids.push_back(placement::worldAabb(all[i], aabbFn, &project_.modelCollision));
         }
     }
     // The runtime twin's wall rules exactly (buildVehicleColliders in

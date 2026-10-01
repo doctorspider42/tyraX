@@ -2376,6 +2376,22 @@ static void writeModelUnitsSection(std::ostream& json, const Project& p) {
     json << " }";
 }
 
+// Conditional: no model with its own collision box = no key, so an untouched
+// project's .tyra does not change shape. [mnx, mny, mnz, mxx, mxy, mxz].
+static void writeModelCollisionSection(std::ostream& json, const Project& p) {
+    if (p.modelCollision.empty()) return;
+    json << "\"modelCollision\": {";
+    bool first = true;
+    for (const auto& [asset, b] : p.modelCollision) {
+        json << (first ? " " : ", ") << "\"" << jsonEscape(asset) << "\": ["
+             << fmtFloat(b.mn[0]) << ", " << fmtFloat(b.mn[1]) << ", "
+             << fmtFloat(b.mn[2]) << ", " << fmtFloat(b.mx[0]) << ", "
+             << fmtFloat(b.mx[1]) << ", " << fmtFloat(b.mx[2]) << "]";
+        first = false;
+    }
+    json << " }";
+}
+
 static void writeSaveDataSection(std::ostream& json, const Project& p) {
     json << "\"saveValues\": [";
     for (size_t i = 0; i < p.saveValues.size(); ++i)
@@ -4033,6 +4049,7 @@ static std::string sectionBody(const Project& p, Section s) {
         case Section::ModelAo: writeModelAoSection(ss, p); break;
         case Section::Atlas: writeAtlasSection(ss, p); break;
         case Section::Particles: writeParticlesSection(ss, p); break;
+        case Section::ModelCollision: writeModelCollisionSection(ss, p); break;
         case Section::SaveData: writeSaveDataSection(ss, p); break;
         case Section::Gradings: writeGradingsSection(ss, p); break;
         case Section::Ambience: writeAmbienceSection(ss, p); break;
@@ -4082,6 +4099,7 @@ const char* sectionName(Section s) {
         case Section::BlssShots: return "blssShots";
         case Section::Atlas: return "atlas";
         case Section::Particles: return "particles";
+        case Section::ModelCollision: return "modelCollision";
         case Section::Count: break;  // not a section
     }
     return "unknown";
@@ -7782,6 +7800,22 @@ static void readModelUnitsSection(const json::Value& root, Project& out) {
     }
 }
 
+static void readModelCollisionSection(const json::Value& root, Project& out) {
+    out.modelCollision.clear();
+    const auto* obj = root.find("modelCollision");
+    if (!obj || obj->type != json::Value::Type::Object) return;
+    for (const auto& [asset, v] : obj->obj) {
+        if (v.type != json::Value::Type::Array || v.arr.size() != 6) continue;
+        ModelCollisionBox b;
+        for (int k = 0; k < 3; ++k) {
+            b.mn[k] = (float)v.arr[(size_t)k].numberOr(0.0);
+            b.mx[k] = (float)v.arr[(size_t)k + 3].numberOr(0.0);
+            if (b.mn[k] > b.mx[k]) std::swap(b.mn[k], b.mx[k]);
+        }
+        out.modelCollision[asset] = b;
+    }
+}
+
 bool applySectionJson(Project& p, Section s, const std::string& body) {
     json::Value root;
     if (!json::parse(body, root) || root.type != json::Value::Type::Object)
@@ -7795,6 +7829,7 @@ bool applySectionJson(Project& p, Section s, const std::string& body) {
         case Section::ModelAo: readModelAoSection(root, p); break;
         case Section::Atlas: readAtlasSection(root, p); break;
         case Section::Particles: readParticlesSection(root, p); break;
+        case Section::ModelCollision: readModelCollisionSection(root, p); break;
         case Section::SaveData: readSaveDataSection(root, p); break;
         case Section::Gradings: readGradingsSection(root, p); break;
         case Section::Ambience: readAmbienceSection(root, p); break;
@@ -7963,6 +7998,7 @@ std::string load(Project& out, const std::string& projectDir) {
     readModelLodsSection(root, out);
     readModelAoSection(root, out);
     readModelUnitsSection(root, out);
+    readModelCollisionSection(root, out);
 
     readSaveDataSection(root, out);
 

@@ -404,7 +404,10 @@ test data presence, not the object pointer),
 `physics/CollisionMesh` (XZ-grid
 triangle collider; `raycast(..., outNormal)` also returns the hit triangle's
 mesh-local normal, which the rigid-body solver's per-corner contacts need -
-docs/physics.md) + `Ray::intersectTriangle`, a guard in `debug.cpp` so
+docs/physics.md; both queries test the mesh's own box FIRST, because the grid
+clamps an outside query onto its edge cells and would otherwise pay for every
+border triangle - keep that early-out exact: the sphere's reach is radius plus
+the 0.6 crossing band) + `Ray::intersectTriangle`, a guard in `debug.cpp` so
 TYRA_LOG never opens `cdrom0:LOG.TXT` for write (that wedged every ISO boot),
 `renderer/models/unique_id.hpp` (`generateUniqueId()`) replacing upstream's
 `rand() % 1000000` object ids (see the pitfall below), **USB keyboard/mouse

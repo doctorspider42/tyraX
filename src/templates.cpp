@@ -29160,6 +29160,33 @@ static std::string modelDataHeader(const Project& p) {
     (void)0;
     out << "};\n\n";
 
+    // Models' own collision boxes (Project::modelCollision, docs/collision-
+    // boxes.md "A smaller box"): {set, min xyz, max xyz} per slot, mesh units.
+    // Emitted only when some model HAS one - this header is included by most
+    // of a game, so a project without the feature must not change a byte -
+    // and objectCollisionBox tests the macro.
+    bool anyCollBox = false;
+    for (const auto& key : keys)
+        anyCollBox |= p.modelCollision.count(key.first) > 0;
+    if (anyCollBox) {
+        out << "#define MODEL_COLL_BOX_USED 1\n"
+               "inline const float MODEL_COLL_BOX[MODEL_COUNT][7] = {\n";
+        for (const auto& key : keys) {
+            auto it = p.modelCollision.find(key.first);
+            if (it == p.modelCollision.end()) {
+                out << "    {0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F},\n";
+                continue;
+            }
+            const ModelCollisionBox& cb = it->second;
+            out << "    {1.0F, " << floatLit(cb.mn[0]) << ", " << floatLit(cb.mn[1]) << ", "
+                << floatLit(cb.mn[2]) << ", " << floatLit(cb.mx[0]) << ", "
+                << floatLit(cb.mx[1]) << ", " << floatLit(cb.mx[2]) << "},\n";
+        }
+        for (size_t i = 0; i < vehPaths.size(); ++i)
+            out << "    {0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F},\n";
+        out << "};\n\n";
+    }
+
     // Animated models: .glb sources serialized to .tskl (skeleton, bind
     // mesh, keyframe tracks) at build time; loaded by the engine's
     // TsklLoader and skinned on the EE at runtime. A per-object .mtl override

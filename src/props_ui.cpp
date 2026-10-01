@@ -1116,6 +1116,89 @@ void App::drawPropertiesWindow() {
             if (ImGui::Combo("Collision", &o.collisionMode, modes, 3)) committed = true;
             if (o.collisionMode == 1)
                 ImGui::TextDisabled("Player walks the model's surface (ramps, stairs).");
+            if (o.collisionMode == 0 && !o.modelPath.empty()) {
+                // The MODEL's own box (docs/collision-boxes.md, "A smaller
+                // box"): one setting per asset, so every lamp made from this
+                // model shrinks together. In mesh units, before scale - the
+                // same frame as the bounds it replaces.
+                int users = 0;
+                for (const SceneData& sc : project_.scenes)
+                    for (const SceneObject& so : sc.objects)
+                        if (so.type == PrimitiveType::Model && so.modelPath == o.modelPath &&
+                            so.collisionMode == 0)
+                            ++users;
+                auto it = project_.modelCollision.find(o.modelPath);
+                bool own = it != project_.modelCollision.end();
+                char label[96];
+                std::snprintf(label, sizeof label, "Own collision box (this model, %d object%s)",
+                              users, users == 1 ? "" : "s");
+                float bmn[3] = {-0.5f, -0.5f, -0.5f}, bmx[3] = {0.5f, 0.5f, 0.5f};
+                const bool haveBounds = viewport_.modelLocalBounds(o, bmn, bmx);
+                if (ImGui::Checkbox(label, &own)) {
+                    if (own) {
+                        ModelCollisionBox b;
+                        for (int k = 0; k < 3; ++k) b.mn[k] = bmn[k], b.mx[k] = bmx[k];
+                        project_.modelCollision[o.modelPath] = b;
+                    } else {
+                        project_.modelCollision.erase(o.modelPath);
+                    }
+                    committed = true;
+                    it = project_.modelCollision.find(o.modelPath);
+                }
+                prefHelp("Replaces the mesh's bounding box as what the player, the camera, "
+                           "cars, physics bodies and navigation collide with - for a model "
+                           "whose box is much bigger than its solid part, like a street lamp "
+                           "whose arm reaches over the pavement. Shared by every object made "
+                           "from this model. View > Collision boxes shows it.");
+                if (it != project_.modelCollision.end()) {
+                    ModelCollisionBox& b = it->second;
+                    const float span = haveBounds
+                        ? std::max({bmx[0] - bmn[0], bmx[1] - bmn[1], bmx[2] - bmn[2], 0.01f})
+                        : 1.0f;
+                    const float speed = span * 0.002f;
+                    // A corner dragged past the other one stops there rather
+                    // than swapping them under the mouse.
+                    if (ImGui::DragFloat3("Box min", b.mn, speed, 0.0f, 0.0f, "%.3f"))
+                        for (int k = 0; k < 3; ++k) b.mn[k] = std::min(b.mn[k], b.mx[k]);
+                    if (ImGui::IsItemDeactivatedAfterEdit()) committed = true;
+                    if (ImGui::DragFloat3("Box max", b.mx, speed, 0.0f, 0.0f, "%.3f"))
+                        for (int k = 0; k < 3; ++k) b.mx[k] = std::max(b.mx[k], b.mn[k]);
+                    if (ImGui::IsItemDeactivatedAfterEdit()) committed = true;
+                    if (ImGui::Button("Fit to post")) {
+                        // The vertices of the lower 40% of the model give the
+                        // footprint; the height stays the whole model's. A
+                        // lamp, a sign, a tree: the post, not the arm.
+                        objparser::Model m;
+                        if (objparser::load(project_.filePath(o.modelPath), m)) {
+                            float lo = 1e30f, hi = -1e30f;
+                            for (const objparser::Submesh& sm : m.submeshes)
+                                for (size_t v = 0; v + 2 < sm.verts.size(); v += 8)
+                                    lo = std::min(lo, sm.verts[v + 1]),
+                                    hi = std::max(hi, sm.verts[v + 1]);
+                            const float cut = lo + 0.4f * (hi - lo);
+                            float fmn[2] = {1e30f, 1e30f}, fmx[2] = {-1e30f, -1e30f};
+                            for (const objparser::Submesh& sm : m.submeshes)
+                                for (size_t v = 0; v + 2 < sm.verts.size(); v += 8) {
+                                    if (sm.verts[v + 1] > cut) continue;
+                                    const float x = sm.verts[v], z = sm.verts[v + 2];
+                                    fmn[0] = std::min(fmn[0], x), fmx[0] = std::max(fmx[0], x);
+                                    fmn[1] = std::min(fmn[1], z), fmx[1] = std::max(fmx[1], z);
+                                }
+                            if (lo <= hi && fmn[0] <= fmx[0]) {
+                                b.mn[0] = fmn[0], b.mx[0] = fmx[0];
+                                b.mn[2] = fmn[1], b.mx[2] = fmx[1];
+                                b.mn[1] = lo, b.mx[1] = hi;
+                                committed = true;
+                            }
+                        }
+                    }
+                    ImGui::SameLine();
+                    if (ImGui::Button("Reset to mesh bounds")) {
+                        for (int k = 0; k < 3; ++k) b.mn[k] = bmn[k], b.mx[k] = bmx[k];
+                        committed = true;
+                    }
+                }
+            }
         } else {
             // primitives collide as their scale box or not at all
             bool solid = o.collisionMode != 2;

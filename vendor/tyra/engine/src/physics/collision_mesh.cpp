@@ -158,6 +158,32 @@ bool CollisionMesh::raycast(const Vec4& origin, const Vec4& dir, float maxDist,
                             float* outDist, float* outNormal) const {
   if (tris.empty()) return false;
 
+  // The segment against the mesh's own box first (slab test). The grid
+  // CLAMPS a query outside it to the edge cells, so a ray nowhere near the
+  // mesh used to pay for every triangle along the border - the walker casts
+  // two a frame for every mesh-mode object in the scene, near or not.
+  {
+    float t0 = 0.0F, t1 = maxDist;
+    const float o3[3] = {origin.x, origin.y, origin.z};
+    const float d3[3] = {dir.x, dir.y, dir.z};
+    for (int a = 0; a < 3; ++a) {
+      if (d3[a] > -1e-12F && d3[a] < 1e-12F) {
+        if (o3[a] < min[a] || o3[a] > max[a]) return false;
+        continue;
+      }
+      const float inv = 1.0F / d3[a];
+      float ta = (min[a] - o3[a]) * inv, tb = (max[a] - o3[a]) * inv;
+      if (ta > tb) {
+        const float t = ta;
+        ta = tb;
+        tb = t;
+      }
+      if (ta > t0) t0 = ta;
+      if (tb < t1) t1 = tb;
+      if (t0 > t1) return false;
+    }
+  }
+
   // cells overlapped by the XZ projection of the segment
   const float endX = origin.x + dir.x * maxDist;
   const float endZ = origin.z + dir.z * maxDist;
@@ -277,6 +303,16 @@ bool CollisionMesh::resolveSphere(Vec4* center, float radius, float maxNormalY,
                                   const Vec4& upLocal,
                                   const Vec4* prev) const {
   if (tris.empty()) return false;
+  // Nothing can act on a sphere further than radius + the crossing band
+  // (0.6, below) outside the mesh's box - and the grid clamps such a query
+  // to the edge cells, which then cost a closest-point test per triangle.
+  {
+    const float reach = radius + 0.6F;
+    if (center->x < min[0] - reach || center->x > max[0] + reach ||
+        center->y < min[1] - reach || center->y > max[1] + reach ||
+        center->z < min[2] - reach || center->z > max[2] + reach)
+      return false;
+  }
 
   bool moved = false;
   // two passes: the first push can slide the sphere into a neighbour face

@@ -48,8 +48,9 @@ bool footprintsOverlap(const Aabb& a, const Aabb& b) {
 
 }  // namespace
 
-Aabb worldAabb(const SceneObject& o, const aobake::ModelAabbFn& modelAabb) {
-    const CollisionBox b = collisionBox(o, modelAabb);
+Aabb worldAabb(const SceneObject& o, const aobake::ModelAabbFn& modelAabb,
+               const std::map<std::string, ModelCollisionBox>* boxes) {
+    const CollisionBox b = collisionBox(o, modelAabb, boxes);
     Aabb out;
     for (int k = 0; k < 3; ++k) out.mn[k] = 1e30f, out.mx[k] = -1e30f;
     for (int corner = 0; corner < 8; ++corner) {
@@ -92,7 +93,8 @@ bool collides(const SceneObject& o) {
 }
 
 CollisionBox collisionBox(const SceneObject& o,
-                          const aobake::ModelAabbFn& modelAabb) {
+                          const aobake::ModelAabbFn& modelAabb,
+                          const std::map<std::string, ModelCollisionBox>* boxes) {
     // The box before rotation: the unit primitive, or - for a model - the
     // MESH's own bounds, which is the whole reason this is not just the scale.
     // A model authored standing on its origin has a box sitting entirely above
@@ -106,6 +108,14 @@ CollisionBox collisionBox(const SceneObject& o,
         float mn[3], mx[3];
         if (modelAabb(o, mn, mx))
             for (int k = 0; k < 3; ++k) lmn[k] = mn[k], lmx[k] = mx[k];
+    }
+    // The model's own, smaller box. Box mode only: a mesh-mode object
+    // collides as its triangles, and its box is their reject volume.
+    if (boxes && o.type == PrimitiveType::Model && o.collisionMode == 0 &&
+        !isAnimatedModelPath(o.modelPath)) {
+        auto it = boxes->find(o.modelPath);
+        if (it != boxes->end())
+            for (int k = 0; k < 3; ++k) lmn[k] = it->second.mn[k], lmx[k] = it->second.mx[k];
     }
     CollisionBox b;
     for (int k = 0; k < 3; ++k) {

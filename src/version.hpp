@@ -5515,7 +5515,12 @@
 // host-baked albedo map (REFL_GROUND_*): -2 ms a turning frame on the Motor
 // District's open road on a PS2.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 165
+#define TYRAX_VERSION_MINOR 166
+// 1.166.0: a model's own collision box (Properties > Own collision box, "Fit
+// to post"; format v92) - a street lamp collides as its post, not the box
+// around its arm. Mesh-mode collision rejects far objects before any work:
+// CollisionMesh tests its own box first (its grid clamped a far query onto
+// the edge cells) and the walker skips a mesh it cannot reach.
 // 1.165.0: an optional rev limiter - flat out at the redline the engine note
 // bounces off it (revLimiter depth, revLimiterRate bounces/s; format v91). A
 // car's bumper hop is divided by the body's mass like the rest of its push,
@@ -6068,7 +6073,10 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // v91 (docs/vehicles.md, "Rev limiter"): drive-spec keys revLimiter and
 // revLimiterRate, written with the rest of the spec. Missing = 0 / 9, i.e.
 // no limiter as before. Additive; no migration step.
-inline constexpr int kFormatVersion = 91;
+// v92 (docs/collision-boxes.md, "A smaller box"): Project::modelCollision,
+// a per-model collision box keyed by asset path, written only when set.
+// Missing = the mesh bounds as before. Additive; no migration step.
+inline constexpr int kFormatVersion = 92;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

@@ -793,6 +793,15 @@ int App::retargetAssetPath(const std::string& from, const std::string& to) {
         if (!to.empty()) project_.modelAoMode[to] = value;
         ++hits;
     }
+    // The model's own collision box (docs/collision-boxes.md) - the same kind
+    // of asset-keyed setting, so it travels with the file too.
+    if (auto it = project_.modelCollision.find(from);
+        it != project_.modelCollision.end()) {
+        const ModelCollisionBox value = it->second;
+        project_.modelCollision.erase(it);
+        if (!to.empty()) project_.modelCollision[to] = value;
+        ++hits;
+    }
     if (auto it = project_.modelLods.find(from); it != project_.modelLods.end()) {
         const std::vector<std::string> value = it->second;
         project_.modelLods.erase(it);
