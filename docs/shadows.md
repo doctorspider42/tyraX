@@ -596,6 +596,25 @@ comes out slightly cheaper. What is left of the +0.40 ms is mostly
 per-bag cost: one bag per chunk that has a map. The VRAM cost goes the other
 way: 148 KB of maps on top of the 32 KB decal page. The ELF is 141 KB smaller.
 
+**A dead end, measured: packing the chunk maps into atlas pages.** The idea was
+one bag per page instead of one per chunk. The maps went into 512×512 4-bit
+pages, every resident chunk's cells were concatenated into the page's bag, and
+the emissive pass moved after the pages. On the same PS2 pose, Terrain came
+out at a median of ~1.9 ms against ~1.73 ms, and Total was within noise. The
+per-bag cost was never the problem. What is left is most likely GS fill for
+the blended cells, which the profiler's drains charge to Terrain: `VU1_wait` is
+~0.03 ms in every ground-map arm, against 0.25 ms with decals only. So it was
+reverted. Do not retry it to save EE time.
+
+**What the 4-bit pages buy instead is decal detail.** Motor District bakes its
+decals at 32 px per shadow, because an RGBA32 page cost 256 KB. A 4-bit page
+costs 32 KB, so 64 px (two pages) plus the ground maps comes to 213 KB. That
+is still under the single RGBA32 page the scene used to pay. On the PS2,
+Shadow_decals stayed at 0.57 ms against 0.55 ms. The shadow on a plinth lost
+its blotchy 32 px pattern. 128 px would be eight pages, 402 KB, which this
+scene cannot afford. Motor District now ships ground maps at 128 px and decals
+at 64 px.
+
 On disk: `bakedShadowGround` in the manifest's settings (format **v90**,
 written only when non-zero). The maps come from the same
 `.res-baked/shadow/scene<N>.shadow` cache, which gains an optional tail, so an

@@ -29,6 +29,11 @@ disable visual or performance damage, preview the wheels and audition the
 engine. The high-rev recording can be switched off while the idle recording
 continues to follow RPM.
 
+The buildings and props cast baked sun shadows. On the ground they come from
+one 4-bit shadow map per terrain chunk (128 px). On roads, walls and plinths
+they come from decals (64 px per shadow). See *Ambience Editor > Baked
+lighting* and [docs/shadows.md](../../docs/shadows.md).
+
 ## Make your own vehicle
 
 Start with the [Blender vehicle tutorial](../../docs/blender-vehicle-modeling.md).

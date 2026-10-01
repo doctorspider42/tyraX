@@ -1,7 +1,7 @@
 {
   "name": "vehicle-playground",
-  "formatVersion": 89,
-  "editorVersion": "1.162.0",
+  "formatVersion": 90,
+  "editorVersion": "1.163.1",
   "template": "fpp",
   "projectId": "99089f551e395d01",
   "settings": {
@@ -89,8 +89,8 @@
     "giProbeLevels": 4,
     "modelAo": true,
     "bakedShadows": true,
-    "bakedShadowRes": 32,
     "bakedShadowAutoBake": true,
+    "bakedShadowGround": 128,
     "terrainMaterial": "res/materials/district-ground.mtl",
     "bloom": 0.12,
     "bloomThreshold": 0.7,
