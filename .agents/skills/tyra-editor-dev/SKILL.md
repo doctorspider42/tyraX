@@ -2570,6 +2570,22 @@ audition subtract it. A car's bumper push into a physics body divides EVERY
 component by the body's mass, the hop included (an unscaled hop tipped a
 60-mass dumpster like a crate).
 
+## Vehicle controls card (1.169.0)
+
+docs/vehicles.md, "Controls card". `VehicleDef::tutorialSeconds` (a Driver
+tuning key, JSON `"tutorial"`, written only when non-zero) emits
+`tutorialFont`/`tutorialSecs` at the END of `VehicleDefData` - keep the empty
+`VEHICLE_DEFS` initializer in step. The card is runtime text: `kVehTut` in the
+vehicles template is the ONE row table (role, fallback pad button, label) and
+must mirror the fallback buttons `updateVehicles` reads when an `IA_ROLE_VEH_*`
+is -1; a new driving button needs a row there or the card silently omits it.
+Glyphs come from `g_inputBind` every frame (never baked), rows a car cannot use
+are filtered by `vehTutRowApplies`. `drawFontText` gained a trailing `alpha`
+(128 = the old output). The stick glyphs are `menubake::
+optionalBuiltinIconNames()` - drawable built-ins NOT seeded by ensureTextIcons
+(that would add two icons to every project); `project::ensureStickIcons` adds
+them when the option is ticked.
+
 ## Vehicle bank and suspension invariants
 
 `vehiclesim::bodyRotation` and the generated `vehBodyRotation` are twins:

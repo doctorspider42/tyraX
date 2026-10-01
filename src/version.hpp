@@ -5515,7 +5515,12 @@
 // host-baked albedo map (REFL_GROUND_*): -2 ms a turning frame on the Motor
 // District's open road on a PS2.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 168
+#define TYRAX_VERSION_MINOR 169
+// 1.169.0: the vehicle controls card - getting into a car for the first time
+// shows what to press, built at runtime from the LIVE bindings and from what
+// that car has (nitrous, lamps), with button glyphs; rows dim as they are
+// tried. Vehicle Editor > Driver > Controls card on entry (format v94). New
+// optional {{lstick}} / {{rstick}} built-in icons.
 // 1.168.0: Use enters the car you LOOK at (in reach + under the camera aim,
 // vehicleUseTarget), not whichever is near; the prompt follows it. Exiting
 // picks the first spot clear of every collision box - a walker placed
@@ -6104,7 +6109,10 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // written with the rest of the spec. Missing = no markers (the guessed pipes)
 // and smoke 1, i.e. an older car smokes too - it is presentation. Additive;
 // no migration step.
-inline constexpr int kFormatVersion = 93;
+// v94 (docs/vehicles.md, "Controls card"): a definition's "tutorial" seconds,
+// written only when non-zero. Missing = no card, as before. Additive; no
+// migration step.
+inline constexpr int kFormatVersion = 94;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

@@ -2,7 +2,9 @@
 
 A playable PS2 district for TyraX vehicles. Open `vehicle-playground.tyra` in
 TyraX and build the project. The main scene starts in the Ravager; press
-**Square** to get out and enter the nearby Pica Turbo or Strix V12.
+**Square** to get out and enter the nearby Pica Turbo or Strix V12. The first
+time you sit in each car a controls card lists its buttons with their glyphs,
+dimming each one as you try it ([Controls card](../../docs/vehicles.md#controls-card)).
 
 For native build timing, use a scratch copy of this example and warm the cache
 with one build before timing unchanged, script-only and scene-edit iterations.
