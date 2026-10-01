@@ -11,6 +11,7 @@
 #include <utility>
 
 #include "bakepar.hpp"
+#include "roadgen.hpp"  // the rendered terrain height (ground maps)
 #include "bvh.hpp"
 #include "decalproj.hpp"
 #include "gibake.hpp"
@@ -178,6 +179,9 @@ Options optionsOf(const ProjectSettings& s) {
     o.sunAngleDeg = s.bakedShadowSunAngle;
     o.strength = s.bakedShadowStrength;
     o.maxLength = s.bakedShadowMaxLength;
+    o.groundRes = (s.bakedShadowGround == 64 || s.bakedShadowGround == 128)
+                      ? s.bakedShadowGround
+                      : 0;
     return o;
 }
 
@@ -188,9 +192,18 @@ int Bake::triangles() const {
 }
 
 int Bake::vramWords() const {
-    // kPageSize^2 RGBA32 = one whole page-aligned block per image
-    // (docs/gs-vram.md): 256x256x4 bytes = 65536 words.
-    return (int)pages.size() * kPageSize * kPageSize;
+    // Ground maps: 4-bit texels (8 per word) plus a 16-entry CLUT each,
+    // rounded the way the allocator rounds a block (64 words).
+    int g = 0;
+    for (const GroundMap& m : ground) {
+        (void)m;
+        const int words = groundRes * groundRes / 8 + 16;
+        g += (words + 63) / 64 * 64;
+    }
+    // Pages are 4-bit since the ground maps landed (docs/shadows.md): 8
+    // texels a word plus their CLUT.
+    const int page = (kPageSize * kPageSize / 8 + 16 + 63) / 64 * 64;
+    return (int)pages.size() * page + g;
 }
 
 // --- the plan ----------------------------------------------------------------
@@ -662,7 +675,8 @@ Bake bakeScene(const Project& p, int sceneIndex, const std::atomic<bool>* cancel
             if (!o.layer.empty() && o.layer != c.layer) return false;
             return !lightmapped(o);
         };
-        rx.terrain = terrainFree;
+        // With ground maps the terrain's shadow comes from its own pass.
+        rx.terrain = terrainFree && opt.groundRes == 0;
         decalproj::DecalMesh mesh = decalproj::project(p, sc, proj, rx);
         if (mesh.verts.empty()) continue;
 
@@ -909,6 +923,67 @@ Bake bakeScene(const Project& p, int sceneIndex, const std::atomic<bool>* cancel
                   return a.layer != b.layer ? a.layer < b.layer : a.page < b.page;
               });
 
+    // --- ground shadow maps --------------------------------------------------
+    // (docs/shadows.md, "Ground shadow maps") One mask per terrain chunk,
+    // traced from each texel's point ON THE GROUND toward the sun against all
+    // casters at once. No tile, no projector, no triangles: the receiver is
+    // the chunk itself, drawn once more with this as its texture, so the whole
+    // texture is shadow where there is shadow - against the decal atlas's 12%.
+    if (opt.groundRes > 0 && terrainFree && sc.hmW >= 2 && sc.hmD >= 2 &&
+        (int)sc.heights.size() == sc.hmW * sc.hmD) {
+        out.groundRes = opt.groundRes;
+        bvh::Tree all;
+        for (const Caster& c : pl.casters)
+            decalproj::objectTriangles(p, sc.objects[c.object], all.tv);
+        all.tn.assign(all.tv.size(), 0.0f);
+        bvh::build(all);
+        const float W = (float)sc.terrain.width, D = (float)sc.terrain.depth;
+        const int cellsX = sc.hmW - 1, cellsZ = sc.hmD - 1;
+        const float stepX = W / (float)cellsX, stepZ = D / (float)cellsZ;
+        const int chunksX = (cellsX + kGroundChunkCells - 1) / kGroundChunkCells;
+        const int chunksZ = (cellsZ + kGroundChunkCells - 1) / kGroundChunkCells;
+        const float chunkW = stepX * kGroundChunkCells, chunkD = stepZ * kGroundChunkCells;
+        const V3 sun{pl.sunDir[0], pl.sunDir[1], pl.sunDir[2]};
+        const int res = opt.groundRes;
+        for (int cz = 0; cz < chunksZ && !all.empty(); ++cz)
+            for (int cx = 0; cx < chunksX; ++cx) {
+                if (cancel && cancel->load()) return out;
+                const float x0 = -W * 0.5f + cx * chunkW, z0 = -D * 0.5f + cz * chunkD;
+                GroundMap gm;
+                gm.cx = cx, gm.cz = cz;
+                gm.alpha.assign((size_t)res * res, 0);
+                bakepar::parallelFor(res, cancel, [&](int lo, int hi) {
+                    std::vector<V3> dirs;
+                    for (int row = lo; row < hi; ++row)
+                        for (int col = 0; col < res; ++col) {
+                            const float x = x0 + (col + 0.5f) / res * chunkW;
+                            const float z = z0 + (row + 0.5f) / res * chunkD;
+                            const float y = roadgen::terrainHeight(
+                                sc.heights, sc.hmW, sc.hmD, W, D, x, z);
+                            const V3 at{x, y + kSunBias, z};
+                            const float ro[3] = {at.x, at.y, at.z};
+                            coneDirections(sun, sunHalf, opt.samples,
+                                           texelSeed(100000 + cz * chunksX + cx, col, row),
+                                           dirs);
+                            int blocked = 0;
+                            for (const V3& d : dirs) {
+                                const float rd[3] = {d.x, d.y, d.z};
+                                bvh::Hit sh;
+                                if (bvh::trace(all, ro, rd, 1e5f, true, sh)) ++blocked;
+                            }
+                            if (!blocked) continue;
+                            const float a = 255.0f * opt.strength * (float)blocked /
+                                            (float)opt.samples;
+                            gm.alpha[(size_t)row * res + col] = (uint8_t)(a + 0.5f);
+                        }
+                });
+                bool any = false;
+                for (uint8_t a : gm.alpha)
+                    if (a) { any = true; break; }
+                if (any) out.ground.push_back(std::move(gm));
+            }
+    }
+
     if (progress) progress(1.0f);
     return out;
 }
@@ -930,6 +1005,13 @@ uint64_t signature(const Project& p, const SceneData& sc, const Options& opt) {
     mixF(h, opt.maxLength);
     mix64(h, (uint64_t)opt.samples);
     mix64(h, p.settings.bakedShadows ? 1 : 0);
+    // Mixed only when on, so every bake without ground maps keeps the
+    // signature it had.
+    if (opt.groundRes > 0) {
+        mix64(h, 0x47524f554e444d50ull);  // "GROUNDMP"
+        mix64(h, (uint64_t)opt.groundRes);
+        mix64(h, (uint64_t)kGroundChunkCells);
+    }
     // A fresh GI bake takes receivers OUT of the projection, so which one is
     // in force is part of what this bake is.
     mix64(h, p.settings.giEnabled ? 1 : 0);
@@ -1094,6 +1176,15 @@ bool write(const std::string& path, const Bake& b) {
         wr(f, (int32_t)g.casters);
         wrVec(f, g.verts);
     }
+    // Ground maps, appended so a cache written before they existed still
+    // reads (as "none").
+    wr(f, (int32_t)b.groundRes);
+    wr(f, (uint32_t)b.ground.size());
+    for (const GroundMap& m : b.ground) {
+        wr(f, (int32_t)m.cx);
+        wr(f, (int32_t)m.cz);
+        wrVec(f, m.alpha);
+    }
     return (bool)f;
 }
 
@@ -1122,6 +1213,18 @@ bool read(const std::string& path, Bake& b) {
         if (!rd(f, v32)) return false;
         g.casters = v32;
         if (!rdVec(f, g.verts)) return false;
+    }
+    if (rd(f, v32)) {
+        b.groundRes = v32;
+        if (!rd(f, n) || n > 4096u) return false;
+        b.ground.assign(n, GroundMap());
+        for (GroundMap& m : b.ground) {
+            if (!rd(f, v32)) return false;
+            m.cx = v32;
+            if (!rd(f, v32)) return false;
+            m.cz = v32;
+            if (!rdVec(f, m.alpha)) return false;
+        }
     }
     b.valid = true;
     return true;

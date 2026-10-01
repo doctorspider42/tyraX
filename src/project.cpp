@@ -1965,6 +1965,10 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
          << (p.settings.bakedShadowAutoBake
                  ? "    \"bakedShadowAutoBake\": true,\n"
                  : "")
+         << (p.settings.bakedShadowGround != 0
+                 ? "    \"bakedShadowGround\": " +
+                       std::to_string(p.settings.bakedShadowGround) + ",\n"
+                 : "")
          << "    \"terrainMaterial\": \"" << p.settings.terrainMaterial << "\",\n"
          << "    \"bloom\": " << fmtFloat(p.settings.bloom) << ",\n"
          << "    \"bloomThreshold\": " << fmtFloat(p.settings.bloomThreshold)
@@ -6552,6 +6556,10 @@ static void readSettingsSection(const json::Value& root, Project& out) {
         }
         if (const auto* v = s->find("bakedShadowAutoBake"))
             st.bakedShadowAutoBake = v->boolOr(false);
+        if (const auto* v = s->find("bakedShadowGround")) {
+            const int g = (int)v->numberOr(0);
+            st.bakedShadowGround = (g == 64 || g == 128) ? g : 0;
+        }
         if (const auto* v = s->find("bloom")) {  // 0..2 (see the scene reader)
             const float b = (float)v->numberOr(0.0);
             st.bloom = b < 0.0f ? 0.0f : (b > 2.0f ? 2.0f : b);

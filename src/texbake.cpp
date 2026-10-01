@@ -580,7 +580,8 @@ std::string bake(const Project& p,
         const std::string top0 = rel.begin()->generic_string();
         if (top0 == "stoch" || top0 == "aomap" || top0 == "aoatlas" ||
             top0 == "gi" || top0 == "modelao" || top0 == "vehicles" ||
-            top0 == "shadow" || top0 == "shadowatlas" || top0 == "sky")
+            top0 == "shadow" || top0 == "shadowatlas" || top0 == "sky" ||
+            top0 == "gshadow")
             continue;
         // atlas pages have no res/ source; the atlas block below removes the
         // ones the current plan no longer produces
@@ -823,43 +824,85 @@ std::string bake(const Project& p,
     // Regenerated wholesale like the lightmaps above, so a caster switched off
     // leaves nothing behind.
     fs::remove_all(baked / "shadowatlas", ec);
+    fs::remove_all(baked / "gshadow", ec);
     if (p.settings.bakedShadows) {
-        int shadowPages = 0;
+        int shadowPages = 0, groundMaps = 0;
         for (size_t si = 0; si < p.scenes.size(); ++si) {
             const shadowbake::Bake sb = shadowbake::load(p, (int)si);
             if (!sb.valid) continue;
+            // Every shadow image is ONE colour - the bake's tint, what a fully
+            // shadowed texel blends toward - at sixteen alpha levels: 4 bits a
+            // texel. The ramp is written by hand, never through the colour
+            // quantizer, which merges alpha levels (that, not the engine, is
+            // why these used to be RGBA32: the engine's loader keeps tRNS alpha
+            // per CLUT entry). A 256x256 atlas page is 32 KB of GS VRAM instead
+            // of 256 KB. A 4x4 ordered dither spreads the step between two
+            // levels over the texels instead of banding.
+            static const int kBayer[16] = {0, 8, 2, 10, 12, 4, 14, 6,
+                                           3, 11, 1, 9, 15, 7, 13, 5};
+            unsigned char pal[64];
+            for (int k = 0; k < 16; ++k) {
+                pal[k * 4 + 0] = sb.tint[0];
+                pal[k * 4 + 1] = sb.tint[1];
+                pal[k * 4 + 2] = sb.tint[2];
+                pal[k * 4 + 3] = (unsigned char)(k * 17);
+            }
+            const auto toRamp = [&](const std::vector<uint8_t>& alpha, int size) {
+                std::vector<unsigned char> idx((size_t)size * size, 0);
+                for (int y = 0; y < size; ++y)
+                    for (int x = 0; x < size; ++x) {
+                        const uint8_t a = alpha[(size_t)y * size + x];
+                        if (!a) continue;  // fully lit stays exactly 0: the GS
+                                           // alpha test drops it, no blend paid
+                        const float v = a / 17.0f +
+                                        (kBayer[(y & 3) * 4 + (x & 3)] + 0.5f) / 16.0f -
+                                        0.5f;
+                        int k = (int)(v + 0.5f);
+                        idx[(size_t)y * size + x] =
+                            (unsigned char)(k < 1 ? 1 : (k > 15 ? 15 : k));
+                    }
+                return idx;
+            };
             for (size_t pi = 0; pi < sb.pages.size(); ++pi) {
-                // Full RGBA32, for the reason the lightmaps are: the engine's
-                // palettized (tRNS -> CLUT) path loses a smooth alpha gradient,
-                // and a shadow is nothing but one. The RGB is the bake's single
-                // tint - the colour a fully shadowed texel blends toward - so
-                // the game's vertex colour stays plain white and the tile
-                // carries both what the shadow looks like and how much of it
-                // there is.
                 const int size = shadowbake::kPageSize;
-                std::vector<unsigned char> rgba((size_t)size * size * 4, 0);
-                for (size_t i = 0; i < sb.pages[pi].alpha.size(); ++i) {
-                    rgba[i * 4 + 0] = sb.tint[0];
-                    rgba[i * 4 + 1] = sb.tint[1];
-                    rgba[i * 4 + 2] = sb.tint[2];
-                    rgba[i * 4 + 3] = sb.pages[pi].alpha[i];
-                }
+                const std::vector<unsigned char> idx = toRamp(sb.pages[pi].alpha, size);
                 const fs::path dst =
                     baked / "shadowatlas" /
                     ("scene" + std::to_string(si) + "-" + std::to_string(pi) + ".png");
                 fs::create_directories(dst.parent_path(), ec);
                 std::string err;
-                if (pngquant::writePngRGBA(dst.string(), rgba.data(), size, size,
-                                           err))
+                if (pngquant::writeIndexed4(dst.string(), idx.data(), size, size, pal,
+                                            err))
                     ++shadowPages;
                 else
                     log("[editor] baked shadows: " + dst.filename().string() +
+                        ": " + err);
+            }
+            // Ground shadow maps (docs/shadows.md, "Ground shadow maps"): the
+            // same ramp, one map per terrain chunk - a 128^2 map is 8 KB.
+            const int gres = sb.groundRes;
+            for (const shadowbake::GroundMap& gm : sb.ground) {
+                const std::vector<unsigned char> idx = toRamp(gm.alpha, gres);
+                const fs::path dst = baked / "gshadow" /
+                                     ("s" + std::to_string(si) + "_" +
+                                      std::to_string(gm.cx) + "_" +
+                                      std::to_string(gm.cz) + ".png");
+                fs::create_directories(dst.parent_path(), ec);
+                std::string err;
+                if (pngquant::writeIndexed4(dst.string(), idx.data(), gres, gres, pal,
+                                            err))
+                    ++groundMaps;
+                else
+                    log("[editor] ground shadows: " + dst.filename().string() +
                         ": " + err);
             }
         }
         if (shadowPages)
             log("[editor] Baked shadows: " + std::to_string(shadowPages) +
                 " atlas page(s)");
+        if (groundMaps)
+            log("[editor] Ground shadows: " + std::to_string(groundMaps) +
+                " chunk map(s)");
     }
 
     // Stochastic-tiling supertiles (docs/terrain-painting.md): one

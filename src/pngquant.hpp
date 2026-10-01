@@ -54,6 +54,16 @@ std::vector<unsigned char> quantizePreviewRGBA(
     std::vector<unsigned char>* outPalette = nullptr);
 
 // Bilinear resample of an RGBA buffer to dw x dh (returns dw*dh*4 bytes).
+// A 4-bit indexed PNG from indices the caller already chose (0..15, one byte
+// per pixel, w even) and the 16-entry RGBA palette to go with them. No
+// quantization at all: for data whose palette is a fixed RAMP - the baked
+// ground shadows (docs/shadows.md) store sixteen alpha levels of one colour,
+// and a colour quantizer is exactly what would merge them. The engine's PNG
+// loader keeps tRNS alpha per entry (`a >> 1` into the CLUT), so the levels
+// reach the GS intact. False with `error` set on failure.
+bool writeIndexed4(const std::string& dstPath, const unsigned char* indices, int w,
+                   int h, const unsigned char paletteRgba[64], std::string& error);
+
 std::vector<unsigned char> resizeRGBA(const unsigned char* rgba, int sw, int sh,
                                       int dw, int dh);
 

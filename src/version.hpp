@@ -5503,7 +5503,10 @@
 // host-baked albedo map (REFL_GROUND_*): -2 ms a turning frame on the Motor
 // District's open road on a PS2.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 162
+#define TYRAX_VERSION_MINOR 163
+// 1.163.0: ground shadow maps - with Baked lighting > Ground shadows on, the
+// terrain takes every caster's baked shadow from one 4-bit map per terrain
+// chunk instead of decals; decal atlas pages are 4-bit too (256 KB -> 32 KB).
 // 1.162.2: a held handbrake stops the car - the throttle drives nothing while
 // it is held and the slide scrubs the whole ground velocity.
 // 1.162.1: baked shadows start at the wall (per-column start), reach a
@@ -5554,7 +5557,7 @@
 // existing unlit VU1 path; conservative local bounds, custom stages unchanged.
 // 1.150.1: prepare driveable vehicle HUD fonts during scene loading; plain
 // runtime text no longer loads the icon sheet before drawing an actual icon.
-#define TYRAX_VERSION_PATCH 2
+#define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
@@ -6030,7 +6033,10 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // on a scene's sky override ("texture"/"textureYaw") and on each ambience
 // preset, each written only when set. Missing = the gradient sky as before.
 // Additive; no migration step.
-inline constexpr int kFormatVersion = 89;
+// v90 (docs/shadows.md, "Ground shadow maps"): ProjectSettings::
+// bakedShadowGround (64 or 128), written only when non-zero. Missing = off,
+// i.e. decals on the terrain as before. Additive; no migration step.
+inline constexpr int kFormatVersion = 90;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

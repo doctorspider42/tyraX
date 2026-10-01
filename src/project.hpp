@@ -2296,6 +2296,12 @@ struct ProjectSettings {
     // this one costs seconds rather than minutes, so it is the cheap switch of
     // the three. Requires bakedShadows; does nothing otherwise.
     bool bakedShadowAutoBake = false;
+    // Ground shadow maps (docs/shadows.md, "Ground shadow maps"): 0 = off, the
+    // casters' decals land on the terrain as before; 64 or 128 = one 4-bit
+    // mask of that many texels per side for every terrain chunk, traced from
+    // the ground up against ALL casters and drawn as one more pass of the
+    // chunk. Then the decals skip the terrain. Written only when non-zero.
+    int bakedShadowGround = 0;
 
     // Terrain material (.mtl asset; empty = checker greens). The first
     // material's Kd tints the terrain; its map_Kd (when present) textures it,
@@ -2467,7 +2473,7 @@ struct ProjectSettings {
     bool highlightOverlay = false;
 };
 
-static_assert(sizeof(ProjectSettings) == 856,
+static_assert(sizeof(ProjectSettings) == 864,
               "ProjectSettings changed size - a field was added or removed. "
               "Add it to operator== below as well, or its Preferences widget "
               "will silently do nothing; then update this number.");
@@ -2579,6 +2585,7 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.bakedShadowStrength == b.bakedShadowStrength &&
            a.bakedShadowMaxLength == b.bakedShadowMaxLength &&
            a.bakedShadowAutoBake == b.bakedShadowAutoBake &&
+           a.bakedShadowGround == b.bakedShadowGround &&
            a.terrainMaterial == b.terrainMaterial && a.bloom == b.bloom &&
            a.bloomThreshold == b.bloomThreshold &&
            a.bloomSpread == b.bloomSpread &&

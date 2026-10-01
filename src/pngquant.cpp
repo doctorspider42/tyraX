@@ -7,6 +7,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
+#include <iterator>
 #include <vector>
 
 #include <stb_image.h>
@@ -472,6 +473,71 @@ bool quantizeRGBAToMemory(std::vector<unsigned char>& result,
 
     result.assign(out.begin(), out.end());
     return true;
+}
+
+bool writeIndexed4(const std::string& dstPath, const unsigned char* indices, int w,
+                   int h, const unsigned char paletteRgba[64], std::string& error) {
+    if (w <= 0 || h <= 0 || (w & 1)) {
+        error = "bad size for a 4-bit image";
+        return false;
+    }
+    const int rowBytes = w / 2;
+    std::vector<uint8_t> raw((size_t)(rowBytes + 1) * h);
+    for (int y = 0; y < h; ++y) {
+        uint8_t* row = raw.data() + (size_t)y * (rowBytes + 1);
+        row[0] = 0;  // no filter
+        for (int x = 0; x < w; x += 2)
+            row[1 + x / 2] = (uint8_t)(((indices[(size_t)y * w + x] & 15) << 4) |
+                                       (indices[(size_t)y * w + x + 1] & 15));
+    }
+    int deflatedLen = 0;
+    unsigned char* deflated =
+        stbi_zlib_compress(raw.data(), (int)raw.size(), &deflatedLen, 8);
+    if (!deflated) {
+        error = "deflate failed";
+        return false;
+    }
+    std::vector<uint8_t> out;
+    static const uint8_t sig[8] = {0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'};
+    out.insert(out.end(), sig, sig + 8);
+    uint8_t ihdr[13];
+    ihdr[0] = (uint8_t)(w >> 24), ihdr[1] = (uint8_t)(w >> 16);
+    ihdr[2] = (uint8_t)(w >> 8), ihdr[3] = (uint8_t)w;
+    ihdr[4] = (uint8_t)(h >> 24), ihdr[5] = (uint8_t)(h >> 16);
+    ihdr[6] = (uint8_t)(h >> 8), ihdr[7] = (uint8_t)h;
+    ihdr[8] = 4;  // bit depth
+    ihdr[9] = 3;  // palette colour type
+    ihdr[10] = ihdr[11] = ihdr[12] = 0;
+    putChunk(out, "IHDR", ihdr, sizeof(ihdr));
+    uint8_t plte[48], trns[16];
+    for (int k = 0; k < 16; ++k) {
+        plte[k * 3 + 0] = paletteRgba[k * 4 + 0];
+        plte[k * 3 + 1] = paletteRgba[k * 4 + 1];
+        plte[k * 3 + 2] = paletteRgba[k * 4 + 2];
+        trns[k] = paletteRgba[k * 4 + 3];
+    }
+    putChunk(out, "PLTE", plte, sizeof(plte));
+    putChunk(out, "tRNS", trns, sizeof(trns));
+    putChunk(out, "IDAT", deflated, (size_t)deflatedLen);
+    free(deflated);
+    putChunk(out, "IEND", nullptr, 0);
+    // Written only when the bytes differ: texbake rewrites these every build,
+    // and a fresh mtime is a fresh copy into bin/ for nothing.
+    {
+        std::ifstream in(dstPath, std::ios::binary);
+        if (in) {
+            std::vector<uint8_t> old((std::istreambuf_iterator<char>(in)),
+                                     std::istreambuf_iterator<char>());
+            if (old == out) return true;
+        }
+    }
+    std::ofstream f(dstPath, std::ios::binary | std::ios::trunc);
+    if (!f) {
+        error = "cannot write " + dstPath;
+        return false;
+    }
+    f.write(reinterpret_cast<const char*>(out.data()), (std::streamsize)out.size());
+    return (bool)f;
 }
 
 }  // namespace pngquant

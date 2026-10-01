@@ -381,7 +381,7 @@ hit first depends entirely on the project.
 
 | | What | Where it runs out |
 | --- | --- | --- |
-| **VRAM** | one 256×256 RGBA page per 16 shadows (at the default 64 px detail) | a page is 256 KB — **23 %** of the 32-bit texture heap, 13 % at 16-bit colour ([gs-vram.md](gs-vram.md)). **Each streaming layer starts a fresh page**, so two casters in different layers cost two pages even if one would have held both |
+| **VRAM** | one 256×256 4-bit page per 16 shadows (at the default 64 px detail) | a page is 32 KB — **3 %** of the 32-bit texture heap ([gs-vram.md](gs-vram.md)). It was RGBA32 and 256 KB, 23 %, before 1.163.0. **Each streaming layer starts a fresh page**, so two casters in different layers cost two pages even if one would have held both |
 | **ELF / RAM** | 60 bytes per projected triangle, in the executable | a shadow over plain terrain is tens of triangles; one over a dense model is hundreds |
 | *(and the triangles are culled)* | a receiver triangle that lands entirely on fully lit texels is dropped at bake — the projector volume is a long box down the light and most of what it contains is lit ground beside the shadow | |
 | **EE** | **one submit per page**, per streaming layer | not the limit, and that is the point — see below |
@@ -539,6 +539,60 @@ as a dark box floating a metre beside it:
 The cache version moved to 6, so every existing bake reads stale until it is
 re-baked.
 
+### Ground shadow maps
+
+*Ambience Editor > Baked lighting > Ground shadows* (1.163.0). Off by default.
+At 64 or 128 px, the **terrain** stops being a decal receiver. It gets one
+4-bit shadow map per terrain chunk instead (16×16 heightmap cells, the chunk
+the game already streams and draws). Walls, slabs, models and roads still
+receive decals.
+
+Why: a decal tile is a caster's shadow drawn into a square around it. Most of
+that square is lit ground. In Motor District only **12 %** of the atlas texels
+held any shadow, so a page paid for itself eight times over. A ground map
+is traced from the other end. For each texel on the ground, rays go toward the
+sun against *all* casters at once. Nothing is wasted around a shadow, and two
+casters that shade the same ground darken it once, not twice.
+
+| | Decals on the ground | Ground maps, 128 px |
+| --- | --- | --- |
+| Texel size, Motor District (64 u chunk) | ~0.25–1 u, depending on the caster's size | 0.5 u everywhere |
+| VRAM | the atlas pages | ~8 KB per chunk a shadow touches (18 of 25 there: ~150 KB) |
+| ELF | 60 B per projected terrain triangle | one flag per chunk |
+| Draw | the projected triangles | the chunk once more, alpha-over |
+
+The map is **4-bit**: the shadow tint at sixteen alpha levels, written straight
+into a palette PNG with a 4×4 ordered dither. The
+engine's PNG loader keeps tRNS alpha per CLUT entry. Earlier notes said
+palettized alpha "loses the gradient", but that was the colour quantizer
+merging alpha levels, not the loader. The decal atlas pages use the same ramp
+since 1.163.0, which took a page from 256 KB to 32 KB.
+
+The pass draws after the terrain's lightmap/AO pass and before its emissive
+light, so the sun's shadow darkens sunlit ground, not lamplight. It goes over
+the chunk's own vertex array and is pinned to the same package boundaries as
+the other passes, because passes over one array that split it differently
+z-fight.
+The texture uses Clamp wrap, so a chunk edge never samples the opposite edge.
+Fully lit texels are exactly alpha 0, and the GS alpha test drops them.
+
+**Cost, measured so far only in PCSX2** (garage pose, 128 px):
+- VRAM readout: 3.01 MB, vs 3.09 MB with decals.
+- `SCENE` time: 3.17 ms, vs 2.71 ms. That is the whole chunk drawn again for
+  every chunk that has a map.
+
+Drawing only the shaded cells is the obvious next step. It needs its own run
+split, which is the thing the pin above protects. A real-PS2 number is still
+owed.
+
+On disk: `bakedShadowGround` in the manifest's settings (format **v90**,
+written only when non-zero). The maps come from the same
+`.res-baked/shadow/scene<N>.shadow` cache, which gains an optional tail, so an
+older cache still reads. texbake writes them to `.res-baked/gshadow/` as
+`s<scene>_<cx>_<cz>.png`. Codegen emits `GROUND_SHADOWS_ON` and a per-scene
+chunk flag table in `shadow_data.gen.hpp`, but only when some scene has a map,
+so other projects regenerate byte for byte.
+
 ### A caster that is too big
 
 The 512-triangle cap is about what the shadow **lands on**, not about how
@@ -569,8 +623,10 @@ its own budget, or to bake the light into that receiver's own texture with
 All four are project-wide, in *Ambience Editor > Baked lighting*:
 
 - **Shadow detail** — 32 / 64 / 128 px per shadow, i.e. 64 / 16 / 4 shadows per
-  atlas page. A page costs the same 256 KB whatever is on it, so this is
+  atlas page. A page costs the same 32 KB whatever is on it, so this is
   really a choice about how many shadows share one.
+- **Ground shadows** — Off, or 64 / 128 px per terrain chunk. See
+  [Ground shadow maps](#ground-shadow-maps).
 - **Softness** — the light's angular diameter in degrees. The real sun is 0.53;
   the default 2 is softer because it reads better at this resolution and hides
   the tile's own texel count. The penumbra opens with distance from the
@@ -614,8 +670,8 @@ All four are project-wide, in *Ambience Editor > Baked lighting*:
 ### One interaction worth knowing
 
 **16-bit colour is a trap here.** It nearly doubles the texture heap
-([gs-vram.md](gs-vram.md)), which is exactly what you want when you are paying
-256 KB a page — but it also runs a 16-bit z buffer, whose depth step is ~1.5
+([gs-vram.md](gs-vram.md)), which is what you want when VRAM is short — but it
+also runs a 16-bit z buffer, whose depth step is ~1.5
 world units at a distance of 100. A decal sits 0.015 units in front of the
 surface it darkens. Baked shadows in the distance will z-fight in a 16-bit
 project, and no setting here fixes that. This applies to authored projecting
@@ -768,8 +824,8 @@ the `projShadow` flag it already understands.
 
 The baked mode's six project-wide settings (`bakedShadows`, `bakedShadowRes`,
 `bakedShadowSunAngle`, `bakedShadowStrength`, `bakedShadowMaxLength`,
-`bakedShadowAutoBake`) are v46 as well and are each written **only when they
-are not the default** — so a project that never touched the feature is
+`bakedShadowAutoBake`) are v46 as well, `bakedShadowGround` v90; each is written
+**only when it is not the default** — so a project that never touched the feature is
 byte-identical on a resave. The bake itself is not in the `.tyra` at all: it
 lives in `.res-baked/shadow/scene<N>.shadow`, and its atlas pages in
 `.res-baked/shadowatlas/`, regenerated from that cache by every build.

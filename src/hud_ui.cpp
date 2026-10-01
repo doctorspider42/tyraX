@@ -1407,9 +1407,23 @@ void App::drawShadowBakeSection() {
             changed = true;
         }
     }
-    prefHelp("Texels per shadow. A page is 256x256 and costs 256 KB of the "
+    prefHelp("Texels per shadow. A page is 256x256 and costs 32 KB of the "
              "~1 MB texture budget whatever is on it, so this is really a "
              "choice of how many shadows one page holds.");
+    {
+        const int sizes[] = {0, 64, 128};
+        const char* labels[] = {"Off (decals on the ground)", "64 px per chunk",
+                                "128 px per chunk"};
+        int sel = st.bakedShadowGround == 64 ? 1 : (st.bakedShadowGround == 128 ? 2 : 0);
+        ImGui::SetNextItemWidth(scaled(180.0f));
+        if (ImGui::Combo("Ground shadows", &sel, labels, 3)) {
+            st.bakedShadowGround = sizes[sel];
+            changed = true;
+        }
+    }
+    prefHelp("Every caster's shadow on the terrain as one 4-bit map per\n"
+             "terrain chunk - sharp and cheap in VRAM - instead of decals.\n"
+             "Decals still land on walls, slabs and models.");
     ImGui::SetNextItemWidth(scaled(180.0f));
     if (ImGui::SliderFloat("Softness", &st.bakedShadowSunAngle, 0.5f, 8.0f,
                            "%.1f deg"))

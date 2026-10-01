@@ -1188,6 +1188,14 @@ class TerrainGame : public Tyra::Game {
     //   emisCols: the terrain's own base tint -> the map's RGB, added.
     BagArray<Tyra::Vec4> aoSts;
     BagArray<Tyra::Color> aoCols;
+    // Ground shadow map pass (docs/shadows.md, "Ground shadow maps"): the
+    // chunk drawn once more with its own 4-bit shadow mask, alpha-over.
+    BagArray<Tyra::Vec4> gsSts;
+    BagArray<Tyra::Color> gsCols;
+    std::unique_ptr<Tyra::StaPipBag> gsBag;
+    std::unique_ptr<Tyra::StaPipColorBag> gsColorBag;
+    Tyra::StaPipTextureBag gsTexBag;
+    std::string gsTexPath;
     std::unique_ptr<Tyra::StaPipBag> aoBag;
     std::unique_ptr<Tyra::StaPipColorBag> aoColorBag;
     Tyra::StaPipTextureBag aoTexBag;
@@ -3029,6 +3037,14 @@ class TerrainGame : public Tyra::Game {
     //   emisCols: the terrain's own base tint -> the map's RGB, added.
     BagArray<Tyra::Vec4> aoSts;
     BagArray<Tyra::Color> aoCols;
+    // Ground shadow map pass (docs/shadows.md, "Ground shadow maps"): the
+    // chunk drawn once more with its own 4-bit shadow mask, alpha-over.
+    BagArray<Tyra::Vec4> gsSts;
+    BagArray<Tyra::Color> gsCols;
+    std::unique_ptr<Tyra::StaPipBag> gsBag;
+    std::unique_ptr<Tyra::StaPipColorBag> gsColorBag;
+    Tyra::StaPipTextureBag gsTexBag;
+    std::string gsTexPath;
     std::unique_ptr<Tyra::StaPipBag> aoBag;
     std::unique_ptr<Tyra::StaPipColorBag> aoColorBag;
     Tyra::StaPipTextureBag aoTexBag;
@@ -28233,6 +28249,13 @@ void TerrainGame::buildHighlightApron(int index, float half) {
 // The pool never reallocates afterwards: chunk bags point into their own
 // slot's vectors, so slots must not move while chunks are alive.
 void TerrainGame::resetTerrainChunks() {
+  // Ground shadow maps are acquired per chunk; give them back before the
+  // chunks go (a scene change or a resize of the pool).
+  for (TerrainChunk& c : terrainChunks)
+    if (!c.gsTexPath.empty()) {
+      releaseTexture(c.gsTexPath);
+      c.gsTexPath.clear();
+    }
   // A scene with no terrain (docs/terrain.md) builds no chunks at all, which is
   // what makes renderTerrain and the streaming pass no-ops: every loop over
   // them runs zero times.
@@ -28962,6 +28985,57 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
     ch.emisBag.reset();
   }
 
+  // Ground shadow map pass (docs/shadows.md, "Ground shadow maps"): this
+  // chunk's own mask, STs over the chunk's square, white vertex colours so the
+  // mask's RGB (the shadow tint) and alpha go through untouched - the decals'
+  // alpha-over, with the chunk itself as the receiver.
+  {
+    std::string want;
+#ifdef GROUND_SHADOWS_ON
+    if (SCENE_GROUND && layerInfoBag) {
+      const int gi = ch.cz * SCENE_GROUND_CHUNKS_X + ch.cx;
+      if (ch.cx < SCENE_GROUND_CHUNKS_X && SCENE_GROUND[gi])
+        want = "gshadow/s" + std::to_string(g_activeScene) + "_" +
+               std::to_string(ch.cx) + "_" + std::to_string(ch.cz) + ".png";
+    }
+#endif
+    if (want != ch.gsTexPath) {
+      if (!ch.gsTexPath.empty()) releaseTexture(ch.gsTexPath);
+      ch.gsTexPath = want;
+      ch.gsTexBag.texture = want.empty() ? nullptr : acquireTexture(want);
+      // Clamp: a mask's edge texel must not bilinear-wrap into the opposite
+      // edge of the same chunk.
+      if (ch.gsTexBag.texture)
+        ch.gsTexBag.texture->setWrapSettings(Tyra::Clamp, Tyra::Clamp);
+    }
+    if (ch.gsTexBag.texture && !want.empty()) {
+      const float ox = startX + (float)(ch.cx * TERRAIN_CHUNK_CELLS) * stepX;
+      const float oz = startZ + (float)(ch.cz * TERRAIN_CHUNK_CELLS) * stepZ;
+      const float iw = 1.0F / ((float)TERRAIN_CHUNK_CELLS * stepX);
+      const float id = 1.0F / ((float)TERRAIN_CHUNK_CELLS * stepZ);
+      ch.gsSts.clear();
+      ch.gsSts.reserve(ch.vertices.size());
+      for (const Vec4& v : ch.vertices)
+        ch.gsSts.push_back(Vec4((v.x - ox) * iw, (v.z - oz) * id, 1.0F, 0.0F));
+      ch.gsCols.assign(ch.vertices.size(), Color(128.0F, 128.0F, 128.0F, 128.0F));
+      if (!ch.gsBag) {
+        ch.gsColorBag = std::make_unique<StaPipColorBag>();
+        ch.gsBag = std::make_unique<StaPipBag>();
+        ch.gsBag->lighting = nullptr;
+      }
+      ch.gsBag->info = layerInfoBag.get();
+      ch.gsCols.bind(ch.gsColorBag);
+      ch.gsBag->color = ch.gsColorBag.get();
+      ch.vertices.bind(ch.gsBag);
+      ch.gsBag->count = static_cast<u32>(ch.vertices.size());
+      ch.gsSts.bind(&ch.gsTexBag);
+      ch.gsBag->texture = &ch.gsTexBag;
+      ch.gsBag->bboxVersion = ch.bag->bboxVersion;
+    } else {
+      ch.gsBag.reset();
+    }
+  }
+
   // Every pass above draws ch.vertices, so they all have to split it the same
   // way - an untextured terrain base under textured layer/lightmap passes is
   // the exact split that makes baked shadows fight z-index with the ground.
@@ -28973,6 +29047,7 @@ void TerrainGame::buildTerrainChunk(int slot, int cx, int cz) {
       pins.push_back(lp.bag.get());
     pins.push_back(ch.aoBag.get());
     pins.push_back(ch.emisBag.get());
+    pins.push_back(ch.gsBag.get());
     // Stripped: the packages ARE the baked runs, so the size is PINNED to the
     // run rather than derived, and every pass over this array splits it at
     // the same boundaries - which is the property that keeps the base pass
@@ -29352,6 +29427,8 @@ void TerrainGame::renderTerrain() {
     // base + layers per pixel, then the baked emissive light is added on top
     // (a light pool must not be darkened by its own surroundings' occlusion).
     if (ch.aoBag && ch.aoBag->count > 0) stapip.core.render(ch.aoBag.get());
+    // The sun's shadow darkens the sunlit ground, not the lamps' light.
+    if (ch.gsBag && ch.gsBag->count > 0) stapip.core.render(ch.gsBag.get());
     if (ch.emisBag && ch.emisBag->count > 0)
       stapip.core.render(ch.emisBag.get());
   }
@@ -32949,6 +33026,50 @@ static std::string shadowDataHeader(const Project& p) {
            "}  // namespace\n\n"
            "#define SCENE_SHADOWS SCENE_SHADOW_TABLES[g_activeScene]\n"
            "#define SCENE_SHADOW_COUNT SCENE_SHADOW_COUNTS[g_activeScene]\n";
+    // Ground shadow maps (docs/shadows.md, "Ground shadow maps"): which
+    // terrain chunks have one, row-major cz * chunksX + cx. The texture is
+    // gshadow/s<scene>_<cx>_<cz>.png, written by texbake from the same cache.
+    // Emitted only when some scene has a map, so every other project
+    // regenerates byte for byte.
+    {
+        std::vector<shadowbake::Bake> gb;
+        bool anyGround = false;
+        for (int si = 0; si < sceneCount; ++si) {
+            gb.push_back(shadowbake::load(p, si));
+            if (gb.back().valid && !gb.back().ground.empty()) anyGround = true;
+        }
+        if (anyGround) {
+            out << "\n#define GROUND_SHADOWS_ON 1\n";
+            std::vector<int> chunksX(sceneCount, 0);
+            for (int si = 0; si < sceneCount; ++si) {
+                const SceneData& sc = p.scenes[si];
+                if (!gb[si].valid || gb[si].ground.empty() || sc.hmW < 2 || sc.hmD < 2)
+                    continue;
+                const int cx = (sc.hmW - 1 + shadowbake::kGroundChunkCells - 1) /
+                               shadowbake::kGroundChunkCells;
+                const int cz = (sc.hmD - 1 + shadowbake::kGroundChunkCells - 1) /
+                               shadowbake::kGroundChunkCells;
+                chunksX[si] = cx;
+                std::vector<int> has((size_t)cx * cz, 0);
+                for (const shadowbake::GroundMap& m : gb[si].ground)
+                    if (m.cx >= 0 && m.cx < cx && m.cz >= 0 && m.cz < cz)
+                        has[(size_t)m.cz * cx + m.cx] = 1;
+                out << "static const unsigned char S" << si << "_GROUND[" << has.size()
+                    << "] = {";
+                for (size_t k = 0; k < has.size(); ++k) out << (k ? "," : "") << has[k];
+                out << "};\n";
+            }
+            out << "static const unsigned char* const SCENE_GROUND_TABLES[] = {";
+            for (int si = 0; si < sceneCount; ++si)
+                out << (si ? ", " : "")
+                    << (chunksX[si] ? "S" + std::to_string(si) + "_GROUND"
+                                    : std::string("nullptr"));
+            out << "};\nstatic const int SCENE_GROUND_CHUNKS_XS[] = {";
+            for (int si = 0; si < sceneCount; ++si) out << (si ? ", " : "") << chunksX[si];
+            out << "};\n#define SCENE_GROUND SCENE_GROUND_TABLES[g_activeScene]\n"
+                   "#define SCENE_GROUND_CHUNKS_X SCENE_GROUND_CHUNKS_XS[g_activeScene]\n";
+        }
+    }
     return out.str();
 }
 
