@@ -387,8 +387,8 @@ someone pressed Bake. With the automatic switch on:
 - With the switch off, the editor behaves as before: a stale bake shows
   nothing, matching what the game would get.
 
-Motor District's main scene takes about 14 s to bake on the CPU, so expect
-that long a lag after an edit there.
+Motor District's main scene takes about a second to bake (1.164.1, see
+*What the bake costs*), so a moved shadow catches up almost at once.
 
 **A stale bake ships nothing, and the build says so.** There is no partial
 answer here — an out-of-date cache is not read at all — so a scene with casters
@@ -452,6 +452,34 @@ compute backend would buy a fraction of a second in exchange for a second
 answer to "what does this caster occlude" and a GL context to create. If those
 per-scene numbers ever stop being fractions of a second, that is the decision
 to revisit; `gigpu.hpp` is the shape it would take.
+
+**When it did stop being a fraction of a second, the rays were not the reason
+(1.164.1).** Motor District's main scene took 13.3 s, which made the
+background re-bake lag badly. `--bake-shadows` now also prints where the time
+goes (`time: signature … | per caster: tree tile project filter self other |
+ground`). It showed:
+
+| | Before | After |
+| --- | ---: | ---: |
+| The rays (tiles + ground maps) | 0.35 s | 0.26 s |
+| The receiver gather in `decalproj::project` | 12.6 s | 0.66 s |
+| Whole scene | 13.3 s | **0.98 s** |
+
+`decalproj::project` runs once per caster, twice with the plinth pass. Every
+call did two expensive things:
+
+- **It re-read and re-parsed every `.obj` model in the scene from disk**, with
+  no bounding-box test first. Parsed models are now cached, keyed by path plus
+  the file's size and write time. A model whose world-space bounds miss the
+  projector is skipped whole.
+- **It re-tessellated every road and re-planned every junction.** Road
+  triangles do not depend on the projector, so they are built once per scene
+  state, keyed by a hash of everything the tessellation reads, and only clipped
+  to each projector's box.
+
+The cache files came out byte-identical before and after. So it is still the
+CPU, and the GPU question stays closed until the rays themselves cost
+something.
 
 ### What it will not do
 

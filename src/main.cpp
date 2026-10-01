@@ -1509,6 +1509,14 @@ static int bakeShadowsFromCli(int argc, char** argv) {
         // is not where you think it is".
         std::printf("  sun %.3f %.3f %.3f\n", pl.sunDir[0], pl.sunDir[1],
                     pl.sunDir[2]);
+        // Where the wall clock went - the numbers any "bake it on the GPU"
+        // decision has to start from (docs/shadows.md, "What the bake costs").
+        const shadowbake::Bake::Timings& tm = b.timings;
+        std::printf("  time: signature %.2f plan %.2f scene %.2f gi %.2f | per "
+                    "caster: tree %.2f tile %.2f project %.2f filter %.2f self "
+                    "%.2f other %.2f | ground %.2f\n",
+                    tm.signature, tm.plan, tm.scene, tm.giLoad, tm.casterTree,
+                    tm.tile, tm.project, tm.filter, tm.self, tm.other, tm.ground);
         if (!pl.warning.empty()) std::printf("  note: %s\n", pl.warning.c_str());
         for (const shadowbake::Refusal& r : pl.refused)
             std::printf("  refused %s: %s\n", r.name.c_str(), r.why.c_str());

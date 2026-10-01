@@ -1,6 +1,7 @@
 #include "shadowbake.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
@@ -408,15 +409,24 @@ void coneDirections(V3 axis, float half, int count, uint32_t seed,
 Bake bakeScene(const Project& p, int sceneIndex, const std::atomic<bool>* cancel,
                const ProgressFn& progress) {
     Bake out;
+    auto last = std::chrono::steady_clock::now();
+    const auto lap = [&](double& acc) {
+        const auto now = std::chrono::steady_clock::now();
+        acc += std::chrono::duration<double>(now - last).count();
+        last = now;
+    };
+    Bake::Timings& T = out.timings;
     if (sceneIndex < 0 || sceneIndex >= (int)p.scenes.size()) return out;
     const SceneData& sc = p.scenes[sceneIndex];
     const Options opt = optionsOf(p.settings);
     out.signature = signature(p, sc, opt);
+    lap(T.signature);
     out.tileRes = opt.tileRes;
     out.valid = true;
     if (!p.settings.bakedShadows) return out;
 
     const Plan pl = plan(p, sc, opt);
+    lap(T.plan);
     if (pl.empty()) return out;
 
     // THE TILE IS A MULTIPLY, NOT A WASH. The GS blend is Cs*a + Cd*(1-a), so a
@@ -453,6 +463,7 @@ Bake bakeScene(const Project& p, int sceneIndex, const std::atomic<bool>* cancel
     // and reusing it is what stops the shadow landing on a surface the GI bake
     // does not believe in.
     const gibake::Scene scene = gibake::build(p, sc, gibake::settingsOf(p.settings));
+    lap(T.scene);
     if (scene.empty()) return out;
 
     // Which receivers the projection may land on. Three exclusions, and each
@@ -460,6 +471,7 @@ Bake bakeScene(const Project& p, int sceneIndex, const std::atomic<bool>* cancel
     // decodes a cache file, and asking it per caster would make the bake's
     // cost quadratic in nothing useful.
     const gibake::Bake gi = gibake::load(p, sceneIndex);
+    lap(T.giLoad);
     const auto lightmapped = [&](const SceneObject& o) {
         // With a fresh GI bake the sun's shadow is already in the lightmap of
         // every UNTEXTURED primitive - a decal on top of one darkens the same
@@ -531,10 +543,12 @@ Bake bakeScene(const Project& p, int sceneIndex, const std::atomic<bool>* cancel
         // standing near each other would each bake the other's shadow into
         // their own tile, and the two projections overlapping would darken the
         // ground twice.
+        lap(T.other);
         bvh::Tree casterTree;
         if (!decalproj::objectTriangles(p, src, casterTree.tv)) continue;
         casterTree.tn.assign(casterTree.tv.size(), 0.0f);
         bvh::build(casterTree);
+        lap(T.casterTree);
         if (casterTree.empty()) continue;
         // The caster's lowest point: its own floor faces (a plinth, a
         // pavement slab) sit within kSelfFloor of it.
@@ -687,6 +701,7 @@ Bake bakeScene(const Project& p, int sceneIndex, const std::atomic<bool>* cancel
                 }
             }
         });
+        lap(T.tile);
         if (cancel && cancel->load()) return out;
 
         // An entirely empty tile means the caster throws nothing anybody can
@@ -716,6 +731,7 @@ Bake bakeScene(const Project& p, int sceneIndex, const std::atomic<bool>* cancel
         // With ground maps the terrain's shadow comes from its own pass.
         rx.terrain = terrainFree && opt.groundRes == 0;
         decalproj::DecalMesh mesh = decalproj::project(p, sc, proj, rx);
+        lap(T.project);
         if (mesh.verts.empty()) continue;
 
         // Drop the triangles that fall on FULLY LIT texels. decalproj emits
@@ -795,6 +811,7 @@ Bake bakeScene(const Project& p, int sceneIndex, const std::atomic<bool>* cancel
             }
             mesh.verts.swap(kept);
         }
+        lap(T.filter);
 
         // The caster's OWN ground-level surfaces that it shades: a model that
         // carries its plinth or pavement (every Motor District building does).
@@ -899,6 +916,7 @@ Bake bakeScene(const Project& p, int sceneIndex, const std::atomic<bool>* cancel
                 piece(a, b, q, 0);
             }
         }
+        lap(T.self);
         if (mesh.verts.empty()) continue;
         const int tris = (int)(mesh.verts.size() / 15);
         if (mesh.truncated || tris > kMaxTrisPerCaster) {
@@ -983,6 +1001,7 @@ Bake bakeScene(const Project& p, int sceneIndex, const std::atomic<bool>* cancel
     // casters at once. No tile, no projector, no triangles: the receiver is
     // the chunk itself, drawn once more with this as its texture, so the whole
     // texture is shadow where there is shadow - against the decal atlas's 12%.
+    lap(T.other);
     if (opt.groundRes > 0 && terrainFree && sc.hmW >= 2 && sc.hmD >= 2 &&
         (int)sc.heights.size() == sc.hmW * sc.hmD) {
         out.groundRes = opt.groundRes;
@@ -1038,6 +1057,7 @@ Bake bakeScene(const Project& p, int sceneIndex, const std::atomic<bool>* cancel
             }
     }
 
+    lap(T.ground);
     if (progress) progress(1.0f);
     return out;
 }

@@ -185,6 +185,13 @@ struct Bake {
     int triangles() const;
     // GS words the pages occupy, for the panel's budget line.
     int vramWords() const;
+    // Where the bake's wall clock went, in seconds (not cached; --bake-shadows
+    // prints it). A caster that bails out early charges the rest of its
+    // iteration to `other`.
+    struct Timings {
+        double signature = 0, plan = 0, scene = 0, giLoad = 0, casterTree = 0,
+               tile = 0, project = 0, filter = 0, self = 0, ground = 0, other = 0;
+    } timings;
     // Bytes the merged meshes add to the ELF (60 per triangle).
     int elfBytes() const { return triangles() * 60; }
 };
