@@ -3856,6 +3856,21 @@ struct BlssShotPlan {
     }
 };
 
+// One model's own collision box (Project::modelCollision): local min / max
+// corners in the mesh's units, the same frame as the mesh AABB it replaces.
+struct ModelCollisionBox {
+    float mn[3] = {-0.5f, 0.0f, -0.5f};
+    float mx[3] = {0.5f, 1.0f, 0.5f};
+};
+inline bool operator==(const ModelCollisionBox& a, const ModelCollisionBox& b) {
+    for (int k = 0; k < 3; ++k)
+        if (a.mn[k] != b.mn[k] || a.mx[k] != b.mx[k]) return false;
+    return true;
+}
+inline bool operator!=(const ModelCollisionBox& a, const ModelCollisionBox& b) {
+    return !(a == b);
+}
+
 struct Project {
     std::string name;
     std::string dir;  // absolute path to project root
@@ -4101,6 +4116,14 @@ struct Project {
     // asset, not a reference to one, and counting it as a use would make every
     // imported model read as used.
     std::map<std::string, int> modelAoMode;
+    // Per-model collision box (docs/collision-boxes.md, "A smaller box"),
+    // keyed by the model's asset path like modelAoMode: the box every object
+    // made from that model collides as in BOX mode, in the mesh's own units
+    // (before the object's scale) - a street lamp's post instead of the box
+    // around its arm. Absent = the mesh's own bounds, as before. Mesh-mode
+    // objects ignore it (their triangles are the shape). A setting keyed by
+    // an asset, so like modelAoMode it is not part of rebuildAssetUsage.
+    std::map<std::string, ModelCollisionBox> modelCollision;
     // Per-TEXTURE atlas control (docs/texture-atlasing.md), keyed by the
     // texture's res-relative path ("res/models/kenney/Textures/wall.png").
     // Two independent decisions, both absent by default:
@@ -4674,6 +4697,7 @@ enum class Section {
     BlssShots,       // "blssShots" (the neural upscaler's training-shot plan)
     Atlas,           // "atlasControl" (per-texture atlas keep-out / group)
     Particles,       // "particleEffects" (the particle library)
+    ModelCollision,  // "modelCollision" (per-model collision boxes)
     Count            // not a section - the enum size, see kSectionCount below
 };
 // KEEP THIS EQUAL TO THE ENUM SIZE. save() loops sections by index, so a count
@@ -4685,7 +4709,7 @@ enum class Section {
 // static_assert below is the fix that outlives the comment: Section::Count is
 // maintained by the compiler, so the next section to arrive cannot repeat this.
 enum : int { kSectionCount = (int)Section::Count };
-static_assert(kSectionCount == 25,
+static_assert(kSectionCount == 26,
               "A section was added or removed - check that everything which "
               "loops sections by index (save(), the collaboration shadow) "
               "still means what it says, then update this number.");

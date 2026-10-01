@@ -504,6 +504,12 @@ std::vector<SpecField> specFields(DriveSpec& s) {
          "How much the gear shapes acceleration. 0 pulls the same in every gear; "
          "1 is fully geared, normalised so the car's overall performance does not "
          "change."},
+        {"revLimiter", &s.revLimiter, 0.0f, 1.0f, "Rev limiter",
+         "Flat out at the redline the engine note bounces off the limiter - "
+         "the fuel cut's \"wut wut wut\". The depth of the dip; 0 = off. "
+         "Sound and tacho only, the car drives the same."},
+        {"revLimiterRate", &s.revLimiterRate, 2.0f, 20.0f, "Limiter bounces",
+         "How many times a second the limiter cuts in."},
         {"nosCapacity", &s.nosCapacity, 0.0f, 20.0f, "Nitrous seconds",
          "Seconds of full boost the tank holds. 0 means this vehicle has no "
          "nitrous at all."},
@@ -604,6 +610,33 @@ float rpmFor(const DriveSpec& s, float wheelSpeed, int gear) {
     const float idle = std::max(s.idleRpm, 0.0f);
     const float red = std::max(s.redlineRpm, idle + 1.0f);
     return idle + (red - idle) * f;
+}
+
+// Fuel cut first, then the climb back: the dip falls over the first 55% of a
+// bounce and rises over the rest, which is what reads as a limiter and not as
+// a vibrato.
+float revLimiterStep(const DriveSpec& s, float& phase, bool pinned, float dt) {
+    if (s.revLimiter <= 0.0f) {
+        phase = 0.0f;
+        return 0.0f;
+    }
+    if (phase <= 0.0f && !pinned) return 0.0f;
+    phase += clampf(s.revLimiterRate, 2.0f, 20.0f) * dt;
+    if (phase >= 1.0f) phase = pinned ? phase - std::floor(phase) : 0.0f;
+    if (phase <= 0.0f) return 0.0f;
+    return phase < 0.55f ? phase / 0.55f : (1.0f - phase) / 0.45f;
+}
+
+float revLimiterDipRpm(const DriveSpec& s) {
+    const float idle = std::max(s.idleRpm, 0.0f);
+    const float red = std::max(s.redlineRpm, idle + 1.0f);
+    return clampf(s.revLimiter, 0.0f, 1.0f) * 0.15f * (red - idle);
+}
+
+float revLimiterOnset(const DriveSpec& s) {
+    const float idle = std::max(s.idleRpm, 0.0f);
+    const float red = std::max(s.redlineRpm, idle + 1.0f);
+    return idle + 0.965f * (red - idle);
 }
 
 namespace {
@@ -1588,6 +1621,12 @@ void step(const DriveSpec& specIn, const DriveInput& in, float dt,
     state.rpm = shifting ? approach(state.rpm, spec.idleRpm, rpmRate * 2.5f)
                          : approach(state.rpm, rpmFor(spec, state.wheelSpeed, state.gear),
                                     rpmRate * 6.0f);
+    // The rev limiter: flat out with the engine at the redline, and not on
+    // the nitrous (which over-revs the final gear on purpose).
+    const bool pinned = !shifting && !state.nosActive && state.gear >= 0 &&
+                        in.throttle > 0.5f && state.rpm >= revLimiterOnset(spec);
+    state.limiterDip = revLimiterStep(spec, state.limiterPhase, pinned, dt) *
+                       revLimiterDipRpm(spec);
 
     // ONE slip number for the smoke and the screech, so the two cannot
     // disagree about when a tyre has let go.

@@ -124,6 +124,12 @@ mass, plus the spin that impulse gives at the point where it lands (hip height
 for the player, bumper height for a car). A tall stool leans and falls over; a
 low crate slides.
 
+Every part of a car's push is divided by the body's mass, the small upward
+"hop" of a fresh hit included. Before 1.165.0 the hop was not: a 60-mass
+dumpster barely slid but took the same lift as a 0.6 crate, applied at the
+bumper, so it tipped and spun as if it weighed nothing. A body of mass 1 or
+less is unchanged.
+
 ## Cost
 
 Measured in PCSX2 on `examples/physics-playground` (37 bodies), COP0 around

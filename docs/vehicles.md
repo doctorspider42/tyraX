@@ -79,6 +79,22 @@ control its presentation and power interruption. Wheelspin raises RPM without
 raising road speed. Vehicles can drift under handbrake grip and slide against
 walls rather than stopping on a glancing contact.
 
+### Rev limiter
+
+**Rev limiter** (Engine and gears, 0 = off, the default) makes a flat-out
+engine bounce off the redline: the note dips and climbs back
+**Limiter bounces** times a second, quieter in the dip, like a fuel cut. It
+engages with the throttle above half, the engine past 96.5% of the idle to
+redline range, not mid-shift and not on nitrous (nitrous over-revs the final
+gear on purpose). The 96.5% is there because drag and the power fade hold a car
+on the level at about 98% of its top speed, never 100%. The box changes up
+before the redline in every other gear, so in practice that is the final
+gear near top speed. The depth is the dip: 1 takes off
+15% of the rev range. It changes only the sound and the RPM readouts, never
+the car's speed. **Listen to engine** with **Revs** at the top of the slider
+plays it. `vehiclesim::revLimiterStep` and the runtime's
+`vehRevLimiterStep` are twins.
+
 A held handbrake locks the driven wheels: the throttle drives nothing while
 it is held, and the car slides against its whole ground velocity at 0.4x
 *Brake decel*. From top speed on the default tuning it rests in about 20

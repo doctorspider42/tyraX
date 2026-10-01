@@ -5515,7 +5515,20 @@
 // host-baked albedo map (REFL_GROUND_*): -2 ms a turning frame on the Motor
 // District's open road on a PS2.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 164
+#define TYRAX_VERSION_MINOR 166
+// 1.166.1: merged with the GI line-ending fix shipped on this side as 1.164.2 -
+// the GI, pre-lit and model-AO signatures ignore line endings in asset files
+// (GI cache v8, lit sig v2, model AO v2) and --bake-status reports every
+// cache's freshness without baking.
+// 1.166.0: a model's own collision box (Properties > Own collision box, "Fit
+// to post"; format v92) - a street lamp collides as its post, not the box
+// around its arm. Mesh-mode collision rejects far objects before any work:
+// CollisionMesh tests its own box first (its grid clamped a far query onto
+// the edge cells) and the walker skips a mesh it cannot reach.
+// 1.165.0: an optional rev limiter - flat out at the redline the engine note
+// bounces off it (revLimiter depth, revLimiterRate bounces/s; format v91). A
+// car's bumper hop is divided by the body's mass like the rest of its push,
+// so a heavy body no longer tips and spins as if it weighed nothing.
 // 1.164.2: the GI, pre-lit and model-AO signatures ignore line endings in
 // asset files (GI cache v8, lit sig v2, model AO v2); the four GI examples are
 // re-baked; --bake-status reports every cache's freshness without baking.
@@ -5585,7 +5598,7 @@
 // existing unlit VU1 path; conservative local bounds, custom stages unchanged.
 // 1.150.1: prepare driveable vehicle HUD fonts during scene loading; plain
 // runtime text no longer loads the icon sheet before drawing an actual icon.
-#define TYRAX_VERSION_PATCH 2
+#define TYRAX_VERSION_PATCH 1
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
@@ -6064,7 +6077,13 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // v90 (docs/shadows.md, "Ground shadow maps"): ProjectSettings::
 // bakedShadowGround (64 or 128), written only when non-zero. Missing = off,
 // i.e. decals on the terrain as before. Additive; no migration step.
-inline constexpr int kFormatVersion = 90;
+// v91 (docs/vehicles.md, "Rev limiter"): drive-spec keys revLimiter and
+// revLimiterRate, written with the rest of the spec. Missing = 0 / 9, i.e.
+// no limiter as before. Additive; no migration step.
+// v92 (docs/collision-boxes.md, "A smaller box"): Project::modelCollision,
+// a per-model collision box keyed by asset path, written only when set.
+// Missing = the mesh bounds as before. Additive; no migration step.
+inline constexpr int kFormatVersion = 92;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

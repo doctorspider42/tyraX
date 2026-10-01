@@ -58,7 +58,8 @@ for people building games with it. Internals live in code comments, the git log
   Editor and linked from emitters and vehicle tyre smoke, additive fire and
   sparks, and procedural smoke / flame / glow textures.
 - [Collision boxes](collision-boxes.md) — what actually stops the player, why
-  it's nowhere near the object's centre, and how to see it.
+  it's nowhere near the object's centre, how to see it, a model's own smaller
+  box (a lamp's post) and what mesh collision costs.
 - [Prefabs](prefabs.md) — reusable object groups (flow graphs included),
   stamped, scattered or spawned.
 - [Asset Browser](asset-browser.md) — a real file manager over `res/` that

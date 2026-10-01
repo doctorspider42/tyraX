@@ -65,6 +65,10 @@ public:
     }
 
     void setCollisionOverlay(bool on) { collisionOverlay_ = on; }
+    // Project::modelCollision, so the overlay draws a model's own box.
+    void setModelCollision(const std::map<std::string, ModelCollisionBox>* m) {
+        modelCollision_ = m;
+    }
     bool collisionOverlay() const { return collisionOverlay_; }
 
     // Static-batch overlay (Tools > Static Batches, View > Static batches).
@@ -816,6 +820,7 @@ private:
 
     // Nav-mesh overlay mesh (see setNavOverlay)
     bool collisionOverlay_ = false;
+    const std::map<std::string, ModelCollisionBox>* modelCollision_ = nullptr;
     std::vector<BatchOverlayBox> batchOverlay_;
     bool navOverlayOn_ = false;
     std::vector<char> scrollerGhosts_;

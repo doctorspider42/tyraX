@@ -2772,6 +2772,10 @@ void App::updateNavOverlay() {
         for (int k = 0; k < 3; ++k) { mixf(o.position[k]); mixf(o.scale[k]); }
         for (char c : o.modelPath) mix((uint8_t)c);
     }
+    for (const auto& [asset, b] : project_.modelCollision) {  // models' own boxes
+        for (char c : asset) mix((uint8_t)c);
+        for (int k = 0; k < 3; ++k) { mixf(b.mn[k]); mixf(b.mx[k]); }
+    }
     for (float h : sc.heights) mixf(h);
 
     if (sig != navOverlaySig_) {
@@ -3157,6 +3161,7 @@ void App::drawViewportWindow() {
         updateShadowDecals();
         updateNavOverlay();
         viewport_.setCollisionOverlay(showCollisionBoxes_);
+        viewport_.setModelCollision(&project_.modelCollision);
         updateBatchOverlay();
         updateProcPreview();
         // Pushed every frame rather than on change: the geometry follows the

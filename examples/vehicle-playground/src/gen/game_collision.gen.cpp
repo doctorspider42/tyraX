@@ -45,6 +45,15 @@ TerrainGame::CollisionBox TerrainGame::objectCollisionBox(
     if (o.data.model >= 0 && o.data.model < (int)gameModels.size()) {
       mn = gameModels[o.data.model].mn;
       mx = gameModels[o.data.model].mx;
+#ifdef MODEL_COLL_BOX_USED
+      // The model's own, smaller box (docs/collision-boxes.md, "A smaller
+      // box") - box mode only: a mesh-mode object collides as its triangles.
+      if (o.data.collision != 1 && o.data.model < MODEL_COUNT &&
+          MODEL_COLL_BOX[o.data.model][0] > 0.5F) {
+        mn = &MODEL_COLL_BOX[o.data.model][1];
+        mx = &MODEL_COLL_BOX[o.data.model][4];
+      }
+#endif
     } else if (o.data.animModel >= 0 &&
                o.data.animModel < (int)gameAnimModels.size()) {
       const SkelModel* anim = gameAnimModels[o.data.animModel].src.get();
@@ -3710,6 +3719,32 @@ static float vehRpmFor(const VehicleDefData& s, float wheelSpeed, int gear) {
   return idle + (red - idle) * f;
 }
 
+// The rev limiter's bounce - twin of vehiclesim::revLimiterStep /
+// revLimiterDipRpm / revLimiterOnset (src/vehiclesim.cpp). CHANGE ONE AND
+// CHANGE BOTH: the Vehicle Editor's engine audition plays the host copy.
+static float vehRevLimiterStep(const VehicleDefData& s, float& phase, int pinned,
+                               float dt) {
+  if (s.revLimiter <= 0.0F) {
+    phase = 0.0F;
+    return 0.0F;
+  }
+  if (phase <= 0.0F && !pinned) return 0.0F;
+  phase += vehClamp(s.revLimiterRate, 2.0F, 20.0F) * dt;
+  if (phase >= 1.0F) phase = pinned ? phase - floorf(phase) : 0.0F;
+  if (phase <= 0.0F) return 0.0F;
+  return phase < 0.55F ? phase / 0.55F : (1.0F - phase) / 0.45F;
+}
+static float vehRevLimiterDipRpm(const VehicleDefData& s) {
+  const float idle = s.idleRpm > 0.0F ? s.idleRpm : 0.0F;
+  const float red = s.redlineRpm > idle + 1.0F ? s.redlineRpm : idle + 1.0F;
+  return vehClamp(s.revLimiter, 0.0F, 1.0F) * 0.15F * (red - idle);
+}
+static float vehRevLimiterOnset(const VehicleDefData& s) {
+  const float idle = s.idleRpm > 0.0F ? s.idleRpm : 0.0F;
+  const float red = s.redlineRpm > idle + 1.0F ? s.redlineRpm : idle + 1.0F;
+  return idle + 0.965F * (red - idle);
+}
+
 // Held below where an up-shift LANDS, so a gearbox whose thresholds contradict
 // each other cannot change up and immediately back down for ever. Computed
 // rather than validated: a slider that misbehaves at one end of its range is
@@ -6508,7 +6543,7 @@ void TerrainGame::updateVehicles(float dt) {
         // tips the body over (a rigid body turns about its centre of mass),
         // plus the small hop that lifts it off the ground on the fresh hit.
         const float hop = (mvL > 0.05F && along < 0.25F * want && o.velocityY < 0.02F)
-                              ? 0.025F + 0.15F * mvL
+                              ? (0.025F + 0.15F * mvL) * take
                               : 0.0F;
         float bumpY = feet + 0.45F * SC;
         if (bumpY > top - 0.05F) bumpY = top - 0.05F;
@@ -6558,6 +6593,13 @@ void TerrainGame::updateVehicles(float dt) {
         v.rpm -= step;
         if (v.rpm < rpmTarget) v.rpm = rpmTarget;
       }
+      // The rev limiter: flat out at the redline, not on the nitrous (which
+      // over-revs the final gear on purpose). Presentation only.
+      v.limiterDip = vehRevLimiterStep(
+          s, v.limiterPhase,
+          !shifting && !v.nosActive && v.gear >= 0 && inThrottle > 0.5F &&
+              v.rpm >= vehRevLimiterOnset(s),
+          dt);
 
       // ONE slip number, so the smoke and the screech cannot disagree about
       // when a tyre has let go.
@@ -7132,6 +7174,7 @@ void TerrainGame::updateVehicleEngineSound(VehicleRt& v, const VehicleDefData& s
     v.enginePitchReg = 0;  // force the first pitch write
     engine->audio.adpcm.forcePlay(sndSamples[s.engineSnd], (s8)ch);
     engine->audio.adpcm.setVolume((u8)s.engineVolume, (s8)ch);
+    v.engineVolRegLow = (int)s.engineVolume;
     TYRA_LOG("VEH engine sound on channel ", ch, " snd ", s.engineSnd);
   }
 
@@ -7140,8 +7183,11 @@ void TerrainGame::updateVehicleEngineSound(VehicleRt& v, const VehicleDefData& s
   // that times the multiplier.
   const float idle = s.idleRpm;
   const float red = s.redlineRpm > idle + 1.0F ? s.redlineRpm : idle + 1.0F;
-  float f = (v.rpm - idle) / (red - idle);
+  // The rev limiter's dip comes off the pitch and, through `duck`, the
+  // volume: the fuel cut is quieter as well as lower.
+  float f = (v.rpm - v.limiterDip * vehRevLimiterDipRpm(s) - idle) / (red - idle);
   if (f < 0.0F) f = 0.0F;
+  const float duck = 1.0F - 0.5F * vehClamp(s.revLimiter, 0.0F, 1.0F) * v.limiterDip;
   // The final gear can over-rev up to the nitrous speed multiplier. Keep the
   // note climbing there; only the two-sample volume crossfade stops at 1.
   const float pitchLimit = s.nosCapacity > 0.001F && s.nosTopSpeed > 1.0F
@@ -7162,14 +7208,27 @@ void TerrainGame::updateVehicleEngineSound(VehicleRt& v, const VehicleDefData& s
     engine->audio.adpcm.setPitch((s8)v.engineCh, (u16)reg);
   }
 
+  // Single-sample mode: the limiter's duck is the only thing that moves the
+  // volume, written on change and exactly the authored volume at rest - so a
+  // car without the limiter makes the same RPCs it always did.
+  const bool twoSample = s.engineHighSnd >= 0 && s.engineHighSnd < (int)sndSamples.size() &&
+                         sndSamples[s.engineHighSnd];
+  if (!twoSample) {
+    const int vol = duck < 1.0F ? ((int)((float)s.engineVolume * duck) & ~7)
+                                : (int)s.engineVolume;
+    if (vol != v.engineVolRegLow) {
+      v.engineVolRegLow = vol;
+      engine->audio.adpcm.setVolume((u8)vol, (s8)v.engineCh);
+    }
+  }
+
   // THE TWO-SAMPLE ENGINE (docs/vehicles.md, "Engine sound"): with a HIGH-rev
   // loop authored, the two loops CROSSFADE on the same f the pitch already
   // rides - the idle sample fades out toward the redline, the high one fades
   // in, both pitched by the same authored curve against their own natural
   // rates. Volumes quantised to 8 steps and written on change, the pitch
   // discipline's twin: a steady cruise is zero RPCs.
-  if (s.engineHighSnd >= 0 && s.engineHighSnd < (int)sndSamples.size() &&
-      sndSamples[s.engineHighSnd]) {
+  if (twoSample) {
     const int ch2 = scriptCtx.reverbBusBase + 22;
     if (v.engineChHigh != ch2) {
       if (v.engineChHigh >= 0)
@@ -7194,8 +7253,8 @@ void TerrainGame::updateVehicleEngineSound(VehicleRt& v, const VehicleDefData& s
       v.enginePitchRegHigh = reg2;
       engine->audio.adpcm.setPitch((s8)ch2, (u16)reg2);
     }
-    int volLow = (int)((float)s.engineVolume * (1.0F - mix * 0.85F));
-    int volHigh = (int)((float)s.engineVolume * mix);
+    int volLow = (int)((float)s.engineVolume * (1.0F - mix * 0.85F) * duck);
+    int volHigh = (int)((float)s.engineVolume * mix * duck);
     volLow &= ~7;
     volHigh &= ~7;
     if (volLow != v.engineVolRegLow) {

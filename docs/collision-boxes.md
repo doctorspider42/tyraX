@@ -46,6 +46,45 @@ camera across its own body, at 90° to what was on screen — invisible unless
 you drew the box, which is half the reason this page and the two overlays
 exist.
 
+## A smaller box
+
+A model whose bounds are much bigger than its solid part - a street lamp
+whose arm reaches over the pavement, a sign, a tree - can have **its own
+collision box**. Select any object made from it, keep *Collision* on
+*Box*, and tick **Own collision box** in Properties. The box starts as the
+mesh bounds; **Box min** / **Box max** edit it in the mesh's own units,
+before the object's scale. **Fit to post** takes the footprint of the
+model's lower 40% and keeps its full height, so the lamp collides as its
+post. **Reset to mesh bounds** puts it back.
+
+It is a setting of the MODEL, keyed by its asset path
+(`Project::modelCollision`, `"modelCollision"` in the .tyra, format 92): every
+box-mode object made from it changes together, and renaming the file in
+the asset browser carries it along. The player, the camera boom, cars, rigid
+bodies (as an obstacle), navigation and both overlays all use it, because
+they all go through the one builder (`MODEL_COLL_BOX` in the generated
+`model_data.gen.hpp`, emitted only when some model has a box, so a project
+without one generates byte-identical headers). Mesh-mode objects ignore it -
+their triangles are the shape. Animated models do not offer it. Dropping
+objects onto others in the editor (End, paste) still rests them on the mesh
+bounds, because that is about where things visually sit.
+
+Prefer this to mesh mode for a post-like prop: a box costs one test, a
+collision mesh several queries (see below).
+
+## What mesh mode costs
+
+A collision mesh is a triangle soup in an XZ grid of up to 32 x 32 cells.
+The walker asks it three things a frame - a sphere push-out and two vertical
+rays - so a query costs the triangles under the player, not the whole mesh.
+Two rejects keep objects far from the player at nearly zero (1.166.0):
+`collidePlayer` skips a mesh whose bounding sphere about its origin, plus the
+player's reach, cannot reach the player horizontally, and `CollisionMesh`
+itself tests its own box before the grid. Before that, every mesh-mode object
+in the scene paid the full queries every frame, and the grid CLAMPED a far
+query onto its edge cells, so they cost a closest-point test per border
+triangle. Memory is 48 bytes a triangle plus the grid, once per model.
+
 ## Invisible boundary walls
 
 Use **Scene > Add > Object > Simple > Invisible wall**, or enable **Invisible wall**
