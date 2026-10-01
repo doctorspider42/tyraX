@@ -5515,7 +5515,11 @@
 // host-baked albedo map (REFL_GROUND_*): -2 ms a turning frame on the Motor
 // District's open road on a PS2.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 164
+#define TYRAX_VERSION_MINOR 165
+// 1.165.0: an optional rev limiter - flat out at the redline the engine note
+// bounces off it (revLimiter depth, revLimiterRate bounces/s; format v91). A
+// car's bumper hop is divided by the body's mass like the rest of its push,
+// so a heavy body no longer tips and spins as if it weighed nothing.
 // 1.164.1: the shadow bake is 13x faster on Motor District (13.3 s -> 1.0 s):
 // decalproj caches parsed models and road triangles; --bake-shadows prints a
 // per-stage time split.
@@ -5582,7 +5586,7 @@
 // existing unlit VU1 path; conservative local bounds, custom stages unchanged.
 // 1.150.1: prepare driveable vehicle HUD fonts during scene loading; plain
 // runtime text no longer loads the icon sheet before drawing an actual icon.
-#define TYRAX_VERSION_PATCH 1
+#define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
@@ -6061,7 +6065,10 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // v90 (docs/shadows.md, "Ground shadow maps"): ProjectSettings::
 // bakedShadowGround (64 or 128), written only when non-zero. Missing = off,
 // i.e. decals on the terrain as before. Additive; no migration step.
-inline constexpr int kFormatVersion = 90;
+// v91 (docs/vehicles.md, "Rev limiter"): drive-spec keys revLimiter and
+// revLimiterRate, written with the rest of the spec. Missing = 0 / 9, i.e.
+// no limiter as before. Additive; no migration step.
+inline constexpr int kFormatVersion = 91;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

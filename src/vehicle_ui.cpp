@@ -704,14 +704,21 @@ void App::drawVehiclePreview(const VehicleDef& tuning, int index) {
     const std::string audibleHigh = tuning.engineHighEnabled ? tuning.engineHighSound : "";
     const std::string audioKey = project_.dir + "|" + tuning.engineSound + "|" + audibleHigh;
     if (vehiclePreviewSound_) {
+        // Revs at the top of the slider bounce off the rev limiter exactly
+        // like the game's flat-out engine (vehiclesim::revLimiterStep).
+        const float range = std::max(tuning.drive.redlineRpm - tuning.drive.idleRpm, 1.0f);
+        const float rpm = tuning.drive.idleRpm + vehiclePreviewRevs_ * range;
+        const float dip = vehiclesim::revLimiterStep(tuning.drive, vehiclePreviewLimiter_,
+            rpm >= vehiclesim::revLimiterOnset(tuning.drive), ImGui::GetIO().DeltaTime);
+        const float revs = vehiclePreviewRevs_ - dip * vehiclesim::revLimiterDipRpm(tuning.drive) / range;
         const float highStart = std::clamp(tuning.engineHighStart, 0.0f, 0.95f);
-        const float highMix = std::clamp((vehiclePreviewRevs_ - highStart) /
+        const float highMix = std::clamp((revs - highStart) /
             (1.0f - highStart), 0.0f, 1.0f);
-        vehicleEnginePreview_->update(tuning.enginePitchIdle + vehiclePreviewRevs_ *
+        vehicleEnginePreview_->update(tuning.enginePitchIdle + revs *
             (tuning.enginePitchRedline - tuning.enginePitchIdle),
             tuning.engineHighPitchStart + highMix *
             (tuning.engineHighPitchEnd - tuning.engineHighPitchStart),
-            highMix, tuning.engineVolume);
+            highMix, tuning.engineVolume * (1.0f - 0.5f * std::clamp(tuning.drive.revLimiter, 0.0f, 1.0f) * dip));
         if (vehicleAudioKey_ != audioKey) {
             const auto full = [&](const std::string& path) {
                 return path.empty() ? std::string() : (std::filesystem::path(project_.dir) / path).string();
@@ -1140,7 +1147,7 @@ void App::drawVehicleWindow() {
                             st.lateral, st.steerAngle);
                 ImGui::Text("Gear %s%d   rpm %.0f   nitrous %.0f%%%s",
                             st.gear < 0 ? "R" : "", st.gear < 0 ? 1 : st.gear + 1,
-                            st.rpm, st.nos * 100.0f,
+                            st.rpm - st.limiterDip, st.nos * 100.0f,
                             st.nosActive ? "  (boosting - E)" : "  (E to boost)");
                 ImGui::Text("Pitch %.1f  roll %.1f  %s", st.pitch, st.roll,
                             st.grounded ? "on the ground" : "airborne");

@@ -153,6 +153,14 @@ struct DriveSpec {
     float shiftDownFrac = 0.50f;   // of redline; clamped so the box cannot hunt
     float shiftTime = 0.0f;        // seconds of throttle cut per shift, 0 = none
     float gearTorque = 0.0f;       // 0 = flat accel (as before), 1 = fully geared
+    // The rev limiter's bounce (docs/vehicles.md, "Rev limiter"): with the
+    // throttle held and the engine pinned at the redline, the note dips and
+    // climbs back over and over - the fuel cut you hear as "wut wut wut".
+    // `revLimiter` is the depth (0 = off, the struct default, so every
+    // vehicle authored before it sounds as it did), `revLimiterRate` the
+    // bounces per second. Presentation only: the car's speed never sees it.
+    float revLimiter = 0.0f;       // 0 = off, 1 = a dip of 15% of the rev range
+    float revLimiterRate = 9.0f;   // bounces per second
 
     // Nitrous. `nosCapacity` is SECONDS of boost and defaults to zero, which is
     // what makes a vehicle without nitrous behave exactly as it did before the
@@ -283,6 +291,17 @@ float gearTopSpeed(const DriveSpec& s, int gear);
 float gearTorqueMul(const DriveSpec& s, int gear);
 // Engine speed for a driven-wheel surface speed in a gear. Never below idle.
 float rpmFor(const DriveSpec& s, float wheelSpeed, int gear);
+// The rev limiter's bounce, one frame of it. `phase` (0..1, 0 = resting) is
+// the caller's state; `pinned` says the engine is flat out at the redline.
+// A started bounce always finishes, so letting off never cuts a dip in half.
+// Returns the dip, 0..1 - multiply by revLimiterDipRpm for the engine speed
+// it takes off. The generated runtime's vehRevLimiterStep is the twin.
+float revLimiterStep(const DriveSpec& s, float& phase, bool pinned, float dt);
+float revLimiterDipRpm(const DriveSpec& s);
+// The engine speed from which the limiter counts as hit: 96.5% of the way
+// from idle to the redline, because drag and the power fade hold a car flat
+// out on the level at about 98% of its top speed, never at 100%.
+float revLimiterOnset(const DriveSpec& s);
 
 // Everything a controller may say to a vehicle in one frame. The player
 // controller and the AI controller both fill exactly this.
@@ -324,6 +343,11 @@ struct DriveState {
     int gear = 0;
     float rpm = 800.0f;                 // engine speed, never below spec.idleRpm
     float shiftTimer = 0.0f;            // seconds left of the throttle cut
+    // The rev limiter (revLimiterStep): where in a bounce it is, and the
+    // engine speed the bounce takes off `rpm` this frame. What the engine
+    // SOUNDS at is rpm - limiterDip; rpm itself stays the smoothed speed.
+    float limiterPhase = 0.0f;
+    float limiterDip = 0.0f;
     // The DRIVEN wheels' surface speed. Equal to `speed` while the tyres hold
     // and larger while they are spinning, which is what makes the engine flare
     // on a standing start instead of rising smoothly with the car - and what

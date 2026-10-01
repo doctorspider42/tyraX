@@ -1963,6 +1963,7 @@ private:
     std::string vehiclePreviewKey_, vehicleAudioKey_, vehiclePreviewModel_;
     float vehiclePreviewSpeed_ = 0, vehiclePreviewSteer_ = 0, vehiclePreviewSpin_ = 0;
     float vehiclePreviewRevs_ = 0;
+    float vehiclePreviewLimiter_ = 0;  // rev limiter bounce phase (vehiclesim::revLimiterStep)
     bool vehiclePreviewPlay_ = false, vehiclePreviewSound_ = false;
     bool vehiclePreviewFast_ = false;
     bool vehicleBudgetEdit_ = false;

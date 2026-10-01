@@ -2543,6 +2543,14 @@ speed-squared fade, including nitrous relief. The high-rev sound has its own
 onset and pitch endpoints in VehicleDef; keep project serialization, tuning
 inheritance, generated VehicleDefData and host audition in step. The idle loop
 must pitch from launch, while the second loop fades in only above its onset.
+The rev limiter (`DriveSpec::revLimiter`/`revLimiterRate`) is another twin:
+`vehiclesim::revLimiterStep`/`revLimiterDipRpm`/`revLimiterOnset` against the
+generated `vehRevLimiter*`. It is presentation only - the dip is kept beside
+`rpm` (`limiterDip`), never subtracted from it, so the smoothed engine speed
+the gearbox reads cannot bounce; the audio, the test-drive readout and the
+audition subtract it. A car's bumper push into a physics body divides EVERY
+component by the body's mass, the hop included (an unscaled hop tipped a
+60-mass dumpster like a crate).
 
 ## Vehicle bank and suspension invariants
 
