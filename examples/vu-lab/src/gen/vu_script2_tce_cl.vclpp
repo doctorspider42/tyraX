@@ -30,6 +30,7 @@
     lq         texBufferClutGifTag, 11(vi00)  ; VU1_CLUT_ADDR
     lq         alphaGifTag, 21(vi00)  ; VU1_ALPHA_ADDR - per-mesh GS blend equation, in-band
     lq         fogParams, 8(vi00)  ; VU1_OPTIONS_ADDR.zw = GS hardware fog
+    add.x      fogParams, vf00, fogParams[z]  ; fog scale into .x (CalculateTyraFog)
     lq         envBasisX, 4(vi00)  ; LoadTyraEnvBasis - VU1_ENV_BASIS_ADDR (the lights matrix area; env bags carry no lighting)
     lq         envBasisY, 5(vi00)
     lq         envBasisZ, 6(vi00)
@@ -258,8 +259,7 @@ fanEmitLoop:
     lq         ecPos, 0(emitPtr)
     lq         ecStq, 1(emitPtr)
     lq         ecCol, 2(emitPtr)
-    add.x      ecFogF, vf00, ecPos[w]  ; CalculateTyraFog
-    mul.x      ecFogF, ecFogF, fogParams[z]
+    mul.x      ecFogF, fogParams, ecPos[w]  ; CalculateTyraFog
     add.x      ecFogF, ecFogF, fogParams[w]
     loi        255
     mini.x     ecFogF, ecFogF, i

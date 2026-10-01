@@ -22,7 +22,10 @@ struct CellShading : vu::Program {
     // Matcap stays out: posterising a reflection quantises the sky it samples,
     // which reads as a bug rather than a style.
     unsigned classes() const override {
-        return vu::kColour | vu::kTextured | vu::kLit | vu::kLitTextured;
+        // No textured-lit class: this scene has no textured-lit mesh (codegen
+        // drops that class from the resident set anyway), and with the extra
+        // live constant it does not fit openvcl's register allocator.
+        return vu::kColour | vu::kTextured | vu::kLit;
     }
 
     // Ask the game for the outline pass. The growth is NOT done here: the EE

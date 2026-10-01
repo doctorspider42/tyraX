@@ -28,11 +28,12 @@
     lq.xyz     lightColors[0], 15(vi00)
     lq.xyz     lightColors[1], 16(vi00)
     lq.xyz     lightColors[2], 17(vi00)
-    lq.xyz     ambientColor, 18(vi00)
+    lq         ambientColor, 18(vi00)
     lq         lodGifTag, 9(vi00)  ; VU1_LOD_ADDR
     lq         testsTag, 10(vi00)  ; VU1_Z_TESTS_ADDR
     lq         alphaGifTag, 21(vi00)  ; VU1_ALPHA_ADDR - per-mesh GS blend equation, in-band
     lq         fogParams, 8(vi00)  ; VU1_OPTIONS_ADDR.zw = GS hardware fog
+    add.x      fogParams, vf00, fogParams[z]  ; fog scale into .x (CalculateTyraFog)
     lq         vuParams, 15(vi00)  ; VU1_CUSTOM_PARAMS_ADDR - the mesh's four numbers (the lights-colour area; a bag carrying these has no lighting)
     lq         vuTime, 16(vi00)  ; VU1_CUSTOM_TIME_ADDR - (time, sin time, cos time, 1.0)
     add.xyz    vuOne, vf00, vf00[w]  ; 1.0 in every field
@@ -80,11 +81,14 @@ vertexLoop:
     madda.xyz  acc, lightDirections[1], normal1[y]
     madd.xyz   outputColor1, lightDirections[2], normal1[z]
     mini.xyz   outputColor1, outputColor1, vf00[w]
-    max.xyz    outputColor1, outputColor1, vf00[x]
+    max.xyz    outputColor1, outputColor1, ambientColor[w]
     mula.xyz   acc, lightColors[0], outputColor1[x]
     madda.xyz  acc, lightColors[1], outputColor1[y]
     madda.xyz  acc, lightColors[2], outputColor1[z]
     madd.xyz   outputColor1, ambientColor, vf00[w]
+    loi        255
+    mini.xyz   outputColor1, outputColor1, i
+    max.xyz    outputColor1, outputColor1, vf00[x]
     loi        128
     add.w      outputColor1, vf00, i
     mul.xyz    vuS0, outputColor1, k0[y]
@@ -108,11 +112,14 @@ vertexLoop:
     madda.xyz  acc, lightDirections[1], normal2[y]
     madd.xyz   outputColor2, lightDirections[2], normal2[z]
     mini.xyz   outputColor2, outputColor2, vf00[w]
-    max.xyz    outputColor2, outputColor2, vf00[x]
+    max.xyz    outputColor2, outputColor2, ambientColor[w]
     mula.xyz   acc, lightColors[0], outputColor2[x]
     madda.xyz  acc, lightColors[1], outputColor2[y]
     madda.xyz  acc, lightColors[2], outputColor2[z]
     madd.xyz   outputColor2, ambientColor, vf00[w]
+    loi        255
+    mini.xyz   outputColor2, outputColor2, i
+    max.xyz    outputColor2, outputColor2, vf00[x]
     loi        128
     add.w      outputColor2, vf00, i
     mul.xyz    vuS0, outputColor2, k0[y]
@@ -136,11 +143,14 @@ vertexLoop:
     madda.xyz  acc, lightDirections[1], normal3[y]
     madd.xyz   outputColor3, lightDirections[2], normal3[z]
     mini.xyz   outputColor3, outputColor3, vf00[w]
-    max.xyz    outputColor3, outputColor3, vf00[x]
+    max.xyz    outputColor3, outputColor3, ambientColor[w]
     mula.xyz   acc, lightColors[0], outputColor3[x]
     madda.xyz  acc, lightColors[1], outputColor3[y]
     madda.xyz  acc, lightColors[2], outputColor3[z]
     madd.xyz   outputColor3, ambientColor, vf00[w]
+    loi        255
+    mini.xyz   outputColor3, outputColor3, i
+    max.xyz    outputColor3, outputColor3, vf00[x]
     loi        128
     add.w      outputColor3, vf00, i
     mul.xyz    vuS0, outputColor3, k0[y]
@@ -154,8 +164,7 @@ vertexLoop:
     mini.xyz   outputColor3, outputColor3, i
     max.xyz    outputColor3, outputColor3, vf00[x]
     ftoi0      outputColor3, outputColor3
-    add.x      fogAccum, vf00, vertex1[w]  ; CalculateTyraFog
-    mul.x      fogAccum, fogAccum, fogParams[z]
+    mul.x      fogAccum, fogParams, vertex1[w]  ; CalculateTyraFog
     add.x      fogAccum, fogAccum, fogParams[w]
     loi        255
     mini.x     fogAccum, fogAccum, i
@@ -163,8 +172,7 @@ vertexLoop:
     ftoi4.x    fogAccum, fogAccum
     mtir       fogInt, fogAccum[x]
     isw.w      fogInt, 1(destAddress)
-    add.x      fogAccum, vf00, vertex2[w]  ; CalculateTyraFog
-    mul.x      fogAccum, fogAccum, fogParams[z]
+    mul.x      fogAccum, fogParams, vertex2[w]  ; CalculateTyraFog
     add.x      fogAccum, fogAccum, fogParams[w]
     loi        255
     mini.x     fogAccum, fogAccum, i
@@ -172,8 +180,7 @@ vertexLoop:
     ftoi4.x    fogAccum, fogAccum
     mtir       fogInt, fogAccum[x]
     isw.w      fogInt, 3(destAddress)
-    add.x      fogAccum, vf00, vertex3[w]  ; CalculateTyraFog
-    mul.x      fogAccum, fogAccum, fogParams[z]
+    mul.x      fogAccum, fogParams, vertex3[w]  ; CalculateTyraFog
     add.x      fogAccum, fogAccum, fogParams[w]
     loi        255
     mini.x     fogAccum, fogAccum, i

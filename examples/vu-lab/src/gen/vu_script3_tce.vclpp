@@ -31,6 +31,7 @@
     lq         texBufferClutGifTag, 11(vi00)  ; VU1_CLUT_ADDR
     lq         alphaGifTag, 21(vi00)  ; VU1_ALPHA_ADDR - per-mesh GS blend equation, in-band
     lq         fogParams, 8(vi00)  ; VU1_OPTIONS_ADDR.zw = GS hardware fog
+    add.x      fogParams, vf00, fogParams[z]  ; fog scale into .x (CalculateTyraFog)
     iaddiu     adcMask, vi00, 16384  ; MakeTyraAdcMask: 0x8000 in two 15-bit adds
     iadd       adcMask, adcMask, adcMask
     lq         envBasisX, 4(vi00)  ; LoadTyraEnvBasis - VU1_ENV_BASIS_ADDR (the lights matrix area; env bags carry no lighting)
@@ -145,8 +146,7 @@ processing:
     madda      acc, mvp[1], vertex1[y]
     madda      acc, mvp[2], vertex1[z]
     madd       vertex1, mvp[3], vertex1[w]
-    add.x      fogAccum, vf00, vertex1[w]  ; CalculateTyraFog
-    mul.x      fogAccum, fogAccum, fogParams[z]
+    mul.x      fogAccum, fogParams, vertex1[w]  ; CalculateTyraFog
     add.x      fogAccum, fogAccum, fogParams[w]
     loi        255
     mini.x     fogAccum, fogAccum, i
@@ -207,8 +207,7 @@ processing:
     madda      acc, mvp[1], vertex2[y]
     madda      acc, mvp[2], vertex2[z]
     madd       vertex2, mvp[3], vertex2[w]
-    add.x      fogAccum, vf00, vertex2[w]  ; CalculateTyraFog
-    mul.x      fogAccum, fogAccum, fogParams[z]
+    mul.x      fogAccum, fogParams, vertex2[w]  ; CalculateTyraFog
     add.x      fogAccum, fogAccum, fogParams[w]
     loi        255
     mini.x     fogAccum, fogAccum, i
@@ -269,8 +268,7 @@ processing:
     madda      acc, mvp[1], vertex3[y]
     madda      acc, mvp[2], vertex3[z]
     madd       vertex3, mvp[3], vertex3[w]
-    add.x      fogAccum, vf00, vertex3[w]  ; CalculateTyraFog
-    mul.x      fogAccum, fogAccum, fogParams[z]
+    mul.x      fogAccum, fogParams, vertex3[w]  ; CalculateTyraFog
     add.x      fogAccum, fogAccum, fogParams[w]
     loi        255
     mini.x     fogAccum, fogAccum, i
