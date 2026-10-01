@@ -29,6 +29,15 @@ uint64_t fnv1a64(const void* data, size_t len, uint64_t seed = kFnvSeed);
 // false when the file cannot be opened/read.
 bool hashFile(const std::string& path, uint64_t& outHash, uint64_t& outSize);
 
+// The same, but every CRLF counts as LF (outSize is the LF size). For bake
+// signatures that hash asset CONTENT: a .obj or .mtl checked out with CRLF on
+// one machine and LF on another is the same asset, and hashing the raw bytes
+// made a checked-in cache read as stale there - the baked shadows of
+// examples/vehicle-playground vanished on a second PC that way. Never for the
+// session/live-link sync, which must compare exact bytes.
+bool hashFileEolAgnostic(const std::string& path, uint64_t& outHash,
+                         uint64_t& outSize);
+
 // One protocol frame. `bin` uses std::string as a byte buffer (matches file
 // contents and keeps the API allocation-simple).
 struct Frame {

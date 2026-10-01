@@ -26,7 +26,7 @@ constexpr uint32_t kCacheMagic = 0x4448534Du;  // "MSHD"
 // Bumped whenever the bake's OUTPUT changes shape or value. It rides in the
 // signature, so a bump stales every cache without anything else having to
 // know.
-constexpr uint32_t kCacheVersion = 7;  // 7: own plinth is a tile receiver
+constexpr uint32_t kCacheVersion = 8;  // 8: EOL-agnostic asset hashes
 
 constexpr float kPi = 3.14159265358979f;
 // How far past the caster's own extent the receiver search starts. The common
@@ -1099,7 +1099,10 @@ uint64_t signature(const Project& p, const SceneData& sc, const Options& opt) {
         if (rel.empty() || !seen.emplace(rel, 1).second) return;
         mixS(h, rel);
         uint64_t fh = 0, fsz = 0;
-        if (wire::hashFile((fs::path(p.dir) / rel).string(), fh, fsz)) {
+        // Line-ending agnostic: a .obj checked out with CRLF is the same
+        // model, and the raw-byte hash made the checked-in cache read as stale
+        // on such a checkout - no shadows at all, no error.
+        if (wire::hashFileEolAgnostic((fs::path(p.dir) / rel).string(), fh, fsz)) {
             mix64(h, fh);
             mix64(h, fsz);
         }

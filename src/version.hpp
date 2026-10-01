@@ -5516,6 +5516,8 @@
 // District's open road on a PS2.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 163
+// 1.163.4: the baked shadow signature ignores line endings in model files
+// (a CRLF checkout read the checked-in cache as stale); shadow cache v8.
 // 1.163.3: the viewport previews ground shadow maps (it showed only decals).
 // 1.163.2: a caster's own plinth takes its real soft shadow - the tile column
 // stops at the caster's floor face, and plinth pieces are kept on any blocked
@@ -5575,7 +5577,7 @@
 // existing unlit VU1 path; conservative local bounds, custom stages unchanged.
 // 1.150.1: prepare driveable vehicle HUD fonts during scene loading; plain
 // runtime text no longer loads the icon sheet before drawing an actual icon.
-#define TYRAX_VERSION_PATCH 3
+#define TYRAX_VERSION_PATCH 4
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

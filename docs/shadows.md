@@ -888,6 +888,20 @@ read it — so the build's resource copy skips it (and `gi/`, which had always
 been copied) and the ISO export skips it too. Otherwise it would sit in `bin/`,
 which is the game's own filesystem, and be burned onto the disc.
 
+**The cache is checked in, so its signature must not depend on line endings
+(1.163.4).** The signature hashes the CONTENT of every model a caster or
+receiver uses. A `.obj` or `.mtl` is text, and a checkout that has it with
+CRLF endings has different bytes from one with LF. Files checked out before
+the repo pinned `eol=lf` keep their CRLF until they next change. On such a
+machine the checked-in cache of `examples/vehicle-playground` read as stale.
+The result was no shadows in the editor and none in the game, with no error.
+Model files are now hashed with every CRLF counted as LF
+(`wire::hashFileEolAgnostic`), and the cache version moved to 8. Reproduced
+by converting the example's models to CRLF: the old build showed no shadows
+and the new one did. The GI, lit and model-AO signatures still hash raw
+bytes, so the same trap applies to them.
+
+
 `ProjectSettings::spotShadowVolumes` (`"spotShadowVolumes"` in the manifest's
 settings, written only when true) and `SceneObject::lightShadowVolumes`
 (`"shadowVolumes"` inside a light object's `light` block, written only when it
