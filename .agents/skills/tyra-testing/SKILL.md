@@ -4309,6 +4309,19 @@ See docs/tyrax2-clip-reuse-2026-10-02.json for source and evidence limits.
 Auto interleave integration: docs/tyrax2-interleave.md proves mixed-label
 sampling under N/N-1, not nonzero bias. Private pinned 0/2 controls bypass
 selector clocks, preserve authored-off/split guards and reset stale marks on
-mode revisions. Native/emulator 13,200 frames pass with exact pinned calls;
-physical acceptance pending. Discarded pick count is zero in this emulator
-pose. Keep BLSS-shared sphere distinct from removable discarded-only work.
+mode revisions. Native/emulator/physical 13,200 frames pass with exact pinned
+calls. Physical plain/interleaved/plain work 18.281/18.028/19.200 ms has 0.919 ms
+plain spread, so repeat before accepting a gain; all arms remain about 30 Hz.
+Discarded pick count is zero in this physical stationary pose (114 retained,
+912 candidates/frame). Keep BLSS-shared sphere distinct from removable work.
+Check fresh low frame counters and boot/load markers after a client launch;
+old streaming frames alone do not prove the new ELF started. Preserve excluded
+streams and matching symbols. Census exact inputs before implementing reuse.
+
+Identical-ELF fresh pinned repeat passes 13,200 frames/windows: plain/IL/plain
+18.392/17.988/18.346 ms, saving 0.358–0.404 ms versus 0.046 ms plain spread,
+all about 30 Hz. Positive stationary order evidence, no production selector fix
+or FPS promotion. Actual animated light/sky/packet equality is not proven;
+scene reload retains clocks and hour pin precedes real-dt day/night advance.
+Private inverse count-only observer passes 100,039 host actual-source comparisons
+per macro setting; native/emulator/physical activation are separate gates.

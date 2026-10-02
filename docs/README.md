@@ -390,4 +390,4 @@ The [exclusive EE math census](tyrax2-ee-vu0.md#exclusive-ee-math-census-physica
 
 The [same-call clip-plane candidate record](tyrax2-clip-reuse-2026-10-02.json) retains exact host classification controls, native build, quiet emulator phases and a separate moving-camera/scene cycle. Physical timing observes a regression; the candidate remains private and unaccepted.
 
-[TyraX2 automatic interleave attribution](tyrax2-interleave.md) explains the confirmed mixed-label sampling interval under N/N-1, the separate pinned-order and discarded-light-selection controls, and their pending physical acceptance.
+[TyraX2 automatic interleave attribution](tyrax2-interleave.md) explains the confirmed mixed-label sampling interval under N/N-1, zero discarded picks in the stationary night pose, and two physical pinned-order boots: the repeat indicates 0.358–0.404 ms interleave benefit, with approximately 30 Hz delivery unchanged.

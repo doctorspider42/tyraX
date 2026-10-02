@@ -336,7 +336,12 @@ recovered 0.50-0.72 ms of hardware `work`. What it did not do, ranked:
   cost as one current-order sample; split/mode/scene interruptions can leave
   stale marks. Source mismatch does not establish bias or clip-regression cause.
   [Pinned controls and discarded-pick census](tyrax2-interleave.md) pass native
-  build and 13,200 emulator frames; physical controls are next. Then design/reset
+  build and 13,200 emulator/physical frames. Physical picks are all retained;
+  pinned work 18.281/18.028/19.200 ms has 0.919 ms plain-control spread and all
+  arms remain approximately 30 Hz. An identical-ELF fresh repeat measures
+  18.392/17.988/18.346 ms, a positive 0.358–0.404 ms interleave indication
+  against 0.046 ms plain spread. Full animated-input equality remains open;
+  no production selector fix is accepted. Then design/reset
   settled sampling and price normal critical-path work plus period before shipping.
 - **Remaining EE work / VU0 offload — audited, experiments open.**
   [Current physical attribution](tyrax2-ee-vu0.md) finds 2.724 ms snapshots
@@ -366,7 +371,12 @@ recovered 0.50-0.72 ms of hardware `work`. What it did not do, ranked:
   6,600 quiet emulator frames and separate movement/camera/scene cycles.
   [Candidate physical timing](tyrax2-clip-reuse-2026-10-02.json) is complete:
   18.248 /19.137 /18.411 ms, all 29.94 Hz; do not integrate the observed regression.
-  Cause remains unresolved. Measure discarded light-pick activation separately. All diagnostic arms still deliver 29.94 Hz.
+  Cause remains unresolved. Physical discarded light-pick activation is zero in
+  this stationary pose (114 retained picks, 912 candidates/frame). Next count
+  adjacent enabled affine-inverse inputs and exact picker query repeats, then
+  price key/observer overhead before a small cache. Public mutable light state
+  prevents a setters-only epoch or once-per-frame frozen picker key. All
+  diagnostic arms still deliver approximately 30 Hz.
 - **Night light-effect cost after TyraX2 — measured, optimization open.**
   A [physical one-group isolation run](tyrax2.md#night-workload-isolation-physical-ps2-2026-10-02)
   brackets seven stationary garage variants with full-night controls of
