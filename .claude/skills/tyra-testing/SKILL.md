@@ -4353,3 +4353,11 @@ windows without emulator: plain/IL/plain 17.521/17.308/17.523 ms gives about
 light/state/camera/star/sky digests agree; unsampled/pixel/query equality and
 causation of earlier drift remain open. Clock/observer/layout changes prevent
 cross-build production-gain attribution. See tyrax2-pinned-clock-2026-10-02.json.
+
+Private latency fixture now passes6421actual-header host checks and nativebuild;
+see docs/tyrax2-latency-fixture-2026-10-02.json. Shared synthetic1/trace1 build
+is software mapping only; manualSquare default is a separate build. Match
+normalProgressive480p/Bits16/two buffers/limiter/plain/noBLSS/extrapolation
+across3x1800loop blocks, warm300. Ring180224B, no per-event prints/newwaits.
+Target uint32 printf casts and compiler clock memory clobber are recorded.
+First physical mapping remains pending; no TVphotons/default promotion accepted.

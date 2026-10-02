@@ -238,9 +238,18 @@ and delay, while an external recording is required for button-to-TV-image
 latency. Do not infer a fixed millisecond penalty from N/N-1 alone.
 
 The [preparation record](tyrax2-latency-plan-2026-10-02.json) retains source hashes
-and the detailed private plan. It is read-only preparation, with no fixture
-implementation, emulator run or new physical latency result. Default promotion
-remains open after latency and broader validation.
+and the detailed original private plan. A subsequent private implementation
+passes 6,421 actual-header host checks and native compilation. It tags input/game,
+prefix, pending job, FINISH and actual displayed-buffer identity in a bounded
+event ring, retaining existing fences. The first built same-ELF off/on/off trial
+uses explicit synthetic marker toggles for unattended software mapping; manual
+Square input is a separate source-default mode. Normal progressive two-buffer
+output, plain order and observer/marker settings are matched across blocks.
+No emulator was run, as requested by the user. The
+[fixture record](tyrax2-latency-fixture-2026-10-02.json) retains exact final build,
+source/asset/ELF/symbol hashes and host limits; first physical mapping is pending.
+No button-to-TV result or default promotion follows from source/host/native gates.
+Default promotion remains open after latency and broader validation.
 
 The morning physical guarded drive reached 2,160 recorded frames and 98,304
 accepted source chains, switched to the dense scene and exercised cameras

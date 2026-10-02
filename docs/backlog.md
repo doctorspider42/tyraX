@@ -320,6 +320,10 @@ recovered 0.50-0.72 ms of hardware `work`. What it did not do, ranked:
   Physical timing and repeated transition acceptance are complete for the
   experimental runtime. **Still open:** physical input-to-display latency and
   promotion from the default-off experiment.
+  The [private latency fixture](tyrax2-latency-fixture-2026-10-02.json) passes
+  6,421 actual-header host checks and native compilation without emulator.
+  First off/on/off synthetic edge-to-display-buffer mapping is ready for PS2;
+  manual physical input/TV-image latency and promotion remain separate gates.
   The [runtime record](tyrax2-runtime-2026-10-02.json) distinguishes final results
   from historical arms. The older GPU-only sweep is not a current gain ceiling.
   Reference-title SPR staging and its approximately 16-qword-plus-CALL object
