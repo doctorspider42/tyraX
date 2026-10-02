@@ -1,6 +1,6 @@
 {
   "date": "2026-10-02",
-  "status": "Private same-ELF ring control prepared; physical reservation0/1/0 pending",
+  "status": "First same-ELF no-reservation physical control passes; reservation1 and return0 pending",
   "production_change": false,
   "elf_sha256": "a03865970ece7981c99982c098a4b1296fed79b0a4165f10c8780872318f5a2d",
   "native_build": "PASS",
@@ -62,6 +62,129 @@
     "tyrax2-timeline-ring-control/analyze-log.py": "d9c9bf2efb5312e11748ac7302ce1759323dd5e226c79c953cab44a9f6f3bad1",
     "tyrax2-timeline-ring-control/fixture.patch": "24d5b1b31ba0e242e7f34bf0e0d7c7ccbb47ceb6329187f370d1dca1f7ee94c2",
     "timeline-ring-control-strict-prephysical.elf": "a03865970ece7981c99982c098a4b1296fed79b0a4165f10c8780872318f5a2d",
-    "timeline-ring-control-strict-prephysical.elf.sym": "a1fc5748e9711237b0d2b7abc7515099d01d51f30bfb0828a851e286e1cd4ab0"
+    "timeline-ring-control-strict-prephysical.elf.sym": "a1fc5748e9711237b0d2b7abc7515099d01d51f30bfb0828a851e286e1cd4ab0",
+    "timeline-ring-mode0-physical-root-snapshot.log": "8d5ce57b1994f834d9ff05574c1afd351ae330244a28a8942195e203b0a64292",
+    "timeline-ring-mode0-physical-root-analysis.json": "1c0de5202b7446cbb8d9d9f10da90fd9dce2784048c7931c97512809c73d9cdb",
+    "timeline-ring-mode0-physical.elf": "a03865970ece7981c99982c098a4b1296fed79b0a4165f10c8780872318f5a2d",
+    "tyrax2-timeline-ring-mode0-physical-evidence/machine-evidence.json": "95799fe8eecf3ca4d3599f1d222ff5ac52c59b2efa96f06301e07834d137e8d4"
+  },
+  "physical": {
+    "mode0": {
+      "frames": 5400,
+      "accepted_samples": 384,
+      "state_digest_controls": 6,
+      "trace_active": false,
+      "ring_reserved": false,
+      "strict_analysis": "PASS",
+      "metrics_by_phase": {
+        "0": {
+          "engineTicks": {
+            "count": 128,
+            "mean_ticks": 9840069.5,
+            "median_ticks": 9840048.0,
+            "min_ticks": 8914794,
+            "max_ticks": 10764968,
+            "mean_ms": 33.36612108018663
+          },
+          "loopTicks": {
+            "count": 128,
+            "mean_ticks": 9825263.796875,
+            "median_ticks": 9829223.0,
+            "min_ticks": 8903705,
+            "max_ticks": 10744193,
+            "mean_ms": 33.315917279985214
+          },
+          "renderTicks": {
+            "count": 128,
+            "mean_ticks": 9391913.109375,
+            "median_ticks": 9419773.0,
+            "min_ticks": 8491195,
+            "max_ticks": 10352341,
+            "mean_ms": 31.84649356206258
+          },
+          "workTicks": {
+            "count": 128,
+            "mean_ticks": 5177590.09375,
+            "median_ticks": 5143877.0,
+            "min_ticks": 5072444,
+            "max_ticks": 5490699,
+            "mean_ms": 17.556390020582413
+          }
+        },
+        "1": {
+          "engineTicks": {
+            "count": 128,
+            "mean_ticks": 9840013.765625,
+            "median_ticks": 9840008.0,
+            "min_ticks": 8802716,
+            "max_ticks": 10885904,
+            "mean_ms": 33.365932093726265
+          },
+          "loopTicks": {
+            "count": 128,
+            "mean_ticks": 9825083.0625,
+            "median_ticks": 9829262.0,
+            "min_ticks": 8791739,
+            "max_ticks": 10875149,
+            "mean_ms": 33.31530443827311
+          },
+          "renderTicks": {
+            "count": 128,
+            "mean_ticks": 9393345.375,
+            "median_ticks": 9421014.0,
+            "min_ticks": 8386945,
+            "max_ticks": 10463319,
+            "mean_ms": 31.85135014851888
+          },
+          "workTicks": {
+            "count": 128,
+            "mean_ticks": 5209395.953125,
+            "median_ticks": 5174810.0,
+            "min_ticks": 5096056,
+            "max_ticks": 5638088,
+            "mean_ms": 17.664238664839004
+          }
+        },
+        "2": {
+          "engineTicks": {
+            "count": 128,
+            "mean_ticks": 9840025.25,
+            "median_ticks": 9840039.0,
+            "min_ticks": 8867832,
+            "max_ticks": 10799922,
+            "mean_ms": 33.36597103542752
+          },
+          "loopTicks": {
+            "count": 128,
+            "mean_ticks": 9828574.78125,
+            "median_ticks": 9829295.0,
+            "min_ticks": 8854829,
+            "max_ticks": 10789175,
+            "mean_ms": 33.32714430491129
+          },
+          "renderTicks": {
+            "count": 128,
+            "mean_ticks": 9393772.96875,
+            "median_ticks": 9420148.0,
+            "min_ticks": 8459665,
+            "max_ticks": 9961711,
+            "mean_ms": 31.852800051371258
+          },
+          "workTicks": {
+            "count": 128,
+            "mean_ticks": 5214642.015625,
+            "median_ticks": 5183616.0,
+            "min_ticks": 5107057,
+            "max_ticks": 5645950,
+            "mean_ms": 17.68202723397149
+          }
+        }
+      },
+      "evidence": "tyrax2-timeline-ring-mode0-physical-evidence/machine-evidence.json"
+    },
+    "mode1": "pending",
+    "mode0_return": "pending",
+    "ring_cost_accepted": false,
+    "interpretation": "Single no-ring boot baseline only. Compare matching phases of the same ELF in adjacent reservation controls; no comparison to older changed binaries as isolated hook cost."
   }
 }

@@ -427,7 +427,9 @@ recovered 0.50-0.72 ms of hardware `work`. What it did not do, ranked:
   [Same-ELF ring control](hardware-timeline-ring-control-2026-10-02.json) is
   prepared: native build and both complete 5,400-frame emulator runs pass,
   384 independent samples each with trace inactive. Declared state digests
-  match, real physics remains live. Physical boot reservation 0/1/0 is next.
+  match, real physics remains live. First physical reservation0 boot passes all
+  5,400 frames and 384 samples: work means 17.556/17.664/17.682 ms. Reservation1
+  and reservation0 return are next; no ring effect accepted from this baseline.
   seven warm samples per arm in a single boot are exploratory only. No constant
   overhead correction, VU/GS utilization or EE arithmetic-only cost is inferred.
 - **Night light-effect cost after TyraX2 — measured, optimization open.**

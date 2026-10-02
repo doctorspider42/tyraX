@@ -111,6 +111,14 @@ look normal but differ in HUD speed; emulator timings are structural validation
 only. Physical fresh-boot 0/1/0 reservation controls remain pending. This probe
 isolates a reservation configuration in one ELF, not compiler-pruned hook cost.
 
+The first physical no-reservation boot also passes: 5,400 frames, all 384
+independent samples, six matching state controls and valid accessible-address
+provenance, with no trace recording or exports. Phase work means are
+17.556390/17.664239/17.682027 ms and whole-engine means remain about 33.366 ms.
+This is a baseline only. Reservation-on and no-reservation return boots of the
+same ELF remain necessary before assigning a buffer effect; older binaries
+cannot substitute for these controls.
+
 The immutable calibration fixture still has the older generated `Scene` scope,
 which is detail-only. Its coarse renderer work therefore remains under `Game`;
 this is a coverage limit of that ELF, not evidence that the remainder is scalar
