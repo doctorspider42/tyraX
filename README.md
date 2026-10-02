@@ -102,6 +102,31 @@ own HUD.
   <sub><b>The same place in the editor</b> — the Ravager selected, its vehicle properties on the right. <code>F5</code> and it is on the console.</sub>
 </p>
 
+### More worlds
+
+Four more of the [example projects](#example-projects), booted in PCSX2 with
+only the debug overlays (FPS, memory, profiler) switched off. The Aster frame is a grab of the emulator window; the
+other three are the game's own `--capture-frame`. All are stretched to 4:3.
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/img/readme-showcase-aster.png" alt="Aster, the Tide Observatory: a tiled garden with a long turquoise pool leading to a domed observatory, cypress trees in terracotta planters, lamp posts and stone arcades, with the on-screen hint to find three brass lenses"></td>
+    <td width="50%"><img src="docs/img/readme-impostor-grove.png" alt="The impostor grove: a stone path winding through generated birch and oak trees towards a ruined stone gateway"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub><b><a href="examples/showcase">showcase</a></b> — Aster, the Tide Observatory: a playable coastal garden with a planetarium, lenses to find and a guided tour.</sub></td>
+    <td align="center"><sub><b><a href="examples/impostor-grove">impostor-grove</a></b> — generated trees that turn into two-triangle impostors with distance.</sub></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/img/readme-night-walk.png" alt="Night walk: a brick warehouse wall at night lit by a street lamp, with a green shipping container and a pallet in the yard"></td>
+    <td width="50%"><img src="docs/img/readme-gi-showcase.png" alt="The GI showcase: a white room with a red wall on the left whose colour bleeds onto the floor and a white column, and a small cat model standing on the floor"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub><b><a href="examples/night-walk">night-walk</a></b> — a dark backlot lit by lamps and the torch you carry.</sub></td>
+    <td align="center"><sub><b><a href="examples/gi-showcase">gi-showcase</a></b> — station 1 of the baked-GI tour: the white pillar and wall pick up the red wall's colour from bounced light.</sub></td>
+  </tr>
+</table>
+
 ## At a glance
 
 <table>
