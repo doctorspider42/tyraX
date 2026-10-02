@@ -1,7 +1,7 @@
 {
   "date": "2026-10-02",
   "version": "1.170.0",
-  "status": "First instrumented physical calibration passes; compiled-out physical control and repeated controls pending",
+  "status": "Instrumented and compiled-out physical runs pass; alternating boot repeats and refreshed coarse Scene calibration pending",
   "production_renderer_behavior_changed": false,
   "trace_default_compiled": 1,
   "runtime_default": "unarmed",
@@ -54,7 +54,8 @@
     "compiled_out_heap_and_binary_layout_confound": true,
     "matched_visual_clock": true,
     "input": "neutral stationary vehicle",
-    "full_pixel_or_state_identity_proven": false
+    "full_pixel_or_state_identity_proven": false,
+    "scene_scope_coverage": "Immutable V2 fixture Scene is detail-only; coarse renderer falls under Game. Production refreshed emitter Scene is explicitly coarse. New fixture binary requires new identities/controls."
   },
   "emulator_on": {
     "complete_frames": 15400,
@@ -111,7 +112,7 @@
     "observer_cost_accepted": false,
     "single_boot_exploratory_comparison_complete": true,
     "repeated_controls_complete": false,
-    "compiled_out_hardware_control": "pending",
+    "compiled_out_hardware_control": "Complete 15400-frame PS2 run; 56 valid samples,49 accepted; no trace CSV or recording",
     "frame_profile_work_means_ms": [
       17.697576613653276,
       17.913900223989334,
@@ -228,7 +229,32 @@
       }
     ],
     "cost_interpretation": "Observed FrameProfile work delta against both adjacent runtime-off controls; not an isolated instruction bill or scalar correction. Overall wall remains paced around33.36ms; detail activation transient changes pacing. States-minus-detail is not isolated MMIO cost.",
-    "evidence": "tyrax2-timeline-calibration-v2-on-physical-evidence/machine-evidence.json"
+    "evidence": "tyrax2-timeline-calibration-v2-on-physical-evidence/machine-evidence.json",
+    "compiled_out_work_means_ms": [
+      16.796231224423362,
+      16.79114496140253,
+      16.81534201001364,
+      16.869644891648065,
+      16.848843529110862,
+      16.875118195064484,
+      16.83184766012525
+    ],
+    "compiled_out_whole_engine_wall_means_ms": [
+      33.36664932493179,
+      33.3656727624318,
+      33.36376710921999,
+      33.37013801695809,
+      33.36279054671999,
+      33.366614447699654,
+      33.366564069475444
+    ],
+    "runtime_off_minus_compiled_out_work_ms": {
+      "0": 0.9013453892299133,
+      "2": 0.8868979802207342,
+      "4": 0.9262608119419653,
+      "6": 0.9662979368179556
+    },
+    "compiled_out_comparison_interpretation": "Combined configuration difference: code layout, held32768event ring versus no ring, independent boot order and inactive hooks. Not isolated dispatch overhead. One boot per ELF; require alternating repeats."
   },
   "limitations": [
     "Seven accepted warm samples per arm in one boot are exploratory; repeated matched runs are required.",
@@ -246,6 +272,13 @@
     "timeline-v2-calibration-physical-root-snapshot.log": "82dd20ce42902dc6771db3fee441f96087d3b209167aa2413c1716d47edd8963",
     "timeline-v2-calibration-physical-root-analysis.json": "12d2a33b4edc6cfae44d741e1972c990953bbc76d12fbc643dcb2030c5c3b361",
     "timeline-v2-calibration-physical.elf": "ce3d0be2801bcc0580eadac8a6412ce9aaa3fc324e435cba1162734fc605b014",
-    "tyrax2-timeline-calibration-v2-on-physical-evidence/machine-evidence.json": "7e27e092f41e5ee88e92411e4edc419b778c2ca9dc2c19cfa247996a5fa851e6"
-  }
+    "tyrax2-timeline-calibration-v2-on-physical-evidence/machine-evidence.json": "7e27e092f41e5ee88e92411e4edc419b778c2ca9dc2c19cfa247996a5fa851e6",
+    "timeline-v2-compiled-out-physical-root-snapshot.log": "035b589b47578313fb5d1d1708db16e506f3377d7a92bfd9b760e00b77002341",
+    "timeline-v2-compiled-out-physical-root-analysis.json": "d9c8234d25ea64ce7ce8dd85a259fafd4deb998a2f7f3b5be3bcf99b11661c85",
+    "timeline-v2-compiled-out-physical.elf": "4c8abd8ff53ec38092a8758e0562b7f049af1ff9873b9b2dddcb58fc67e2e5ec",
+    "tyrax2-timeline-calibration-v2-off-physical-evidence/machine-evidence.json": "b07b13a9809881f699b60cd17dd331103acda69c916d56d301ac0784c6fec92c",
+    "hardware-timeline-attribution/attribution.json": "a3bd6f3ffe1034fd09d61c76dc4e2f7f962a991d074a05a633b0cfcead7f2eb1",
+    "tyrax2-timeline-calibration-v2-off-physical-evidence/compiled-config-comparison.json": "7bcad1e26749302a3ff431329a631179c258cbdc6733abbe564fd545cae969f4"
+  },
+  "attribution": "Instrumented detailed exclusive residuals locate bag preparation, scene assembly, dispatch, bounds and repeated snapshot work; not a production cost bill."
 }

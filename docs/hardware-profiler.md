@@ -73,9 +73,29 @@ coarse, 3.123690–3.196555 ms detailed and 3.614122–3.637163 ms detailed with
 The whole-engine mean remains around 33.36 ms: added work mostly consumes pacing
 headroom, and detail activation changes individual frame pacing. Unchanged FPS
 therefore does not establish zero observer cost. Seven accepted samples per arm
-in one boot remain exploratory; compiled-out physical comparison and repeated
-matched runs are open. States-minus-detail is not an isolated register-read
+in one boot remain exploratory; repeated matched runs are open.
+States-minus-detail is not an isolated register-read
 cost, and none of these ranges is a constant correction for production timing.
+
+The separate compiled-out physical ELF also completes 15,400 frames, with
+56 valid samples and 49 accepted. No trace file or recording is generated.
+Work means at matching phase offsets 0/2/4/6 are
+16.796231/16.815342/16.848844/16.831848 ms. The preceding instrumented ELF's
+runtime-off means are 0.886898–0.966298 ms higher; whole-engine wall remains
+around 33.36 ms in both runs. This compares complete configurations: inactive
+hooks, code layout, a retained 32,768-event ring versus no ring, and independent
+boot order. It does not isolate the cost of flag checks. Alternating boot
+repeats remain required before assigning a stable configuration cost.
+
+The immutable calibration fixture still has the older generated `Scene` scope,
+which is detail-only. Its coarse renderer work therefore remains under `Game`;
+this is a coverage limit of that ELF, not evidence that the remainder is scalar
+math. The refreshed generator and examples explicitly enable coarse `Scene`.
+Changing the calibration fixture requires new binary identities and controls.
+In the instrumented detailed trace, the largest exclusive residuals are static
+bag preparation, scene assembly, dispatch and bounds. Snapshot mutable copying
+and preflight also have repeated activation. This ranking locates candidate
+paths; detailed observer cost prevents treating it as a production cost bill.
 
 [Seven physical PS2 controls and measured overhead](hardware-profiler-results.md)
 record the first full-asset Motor District diagnosis.
