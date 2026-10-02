@@ -557,10 +557,6 @@ void earClip(std::vector<DQ> p, std::vector<DQ>& tris) {
 #define TYRA_JUNCTION_TOL 0.01f
 #endif
 constexpr float kJunctionTol = TYRA_JUNCTION_TOL;
-// Where a node's painted edge line sits, as a fraction of the road width in
-// from the outline - the road texture's own edge line (district-road.png,
-// columns 5..8 of 128).
-constexpr float kEdgeLineU0 = 5.0f / 128.0f, kEdgeLineU1 = 8.0f / 128.0f;
 
 TerrainGrid terrainGridOf(int columns, int rows, float width, float depth) {
     TerrainGrid g;
@@ -1914,15 +1910,16 @@ void bakeMarkings(const CrossingPlan& plan, const std::vector<CrossingRoad>& roa
         // is a road edge or a fillet - never across a cap, where the road and
         // its painted line carry on.
         bool paintEdges = !c.shape.outlineCap.empty();
-        float meanH = 0.0f;
+        float in0 = 0.0f, in1 = 0.0f;  // the arms' own edge lines, averaged
         for (const NodeArm& a : c.armList) {
-            paintEdges &= roads[(size_t)a.road].markings > kMarkNone;
-            meanH += a.h / (float)c.armList.size();
+            const CrossingRoad& R = roads[(size_t)a.road];
+            paintEdges &= R.markings > kMarkNone && R.edgeLine;
+            in0 += R.edgeU0 * 2.0f * a.h / (float)c.armList.size();
+            in1 += R.edgeU1 * 2.0f * a.h / (float)c.armList.size();
         }
         const std::vector<float>& ring = c.shape.outline;
         const size_t pts = ring.size() / 2;
         if (paintEdges && c.shape.outlineCap.size() == pts) {
-            const float in0 = kEdgeLineU0 * 2.0f * meanH, in1 = kEdgeLineU1 * 2.0f * meanH;
             auto pt = [&](size_t k) { return P{ring[(k % pts) * 2], ring[(k % pts) * 2 + 1]}; };
             for (size_t k = 0; k < pts; ++k) {
                 if (c.shape.outlineCap[k]) continue;

@@ -4215,7 +4215,8 @@ void Viewport::syncRoadDraws(const std::vector<SceneObject>& objects) {
     // codegen's own roadgen::planCrossings over the same roads and the same
     // overrides, rebuilt when any road, the overrides or the terrain move.
     std::vector<int> objIdx;
-    const std::vector<roadgen::CrossingRoad> cr = project::crossingRoads(objects, &objIdx);
+    const std::vector<roadgen::CrossingRoad> cr =
+        project::crossingRoads(objects, &objIdx, projectDir_);
     uint64_t csig = 1469598103934665603ULL;
     mix(csig, &roadTerrainRevision_, sizeof(roadTerrainRevision_));
     for (size_t k = 0; k < cr.size(); ++k) {
@@ -4229,6 +4230,9 @@ void Viewport::syncRoadDraws(const std::vector<SceneObject>& objects) {
         mix(csig, &r.spill, sizeof(r.spill));
         mix(csig, &r.edgeFade, sizeof(r.edgeFade));
         mix(csig, &r.markings, sizeof(r.markings));
+        mix(csig, &r.edgeLine, sizeof(r.edgeLine));
+        mix(csig, &r.edgeU0, sizeof(r.edgeU0));
+        mix(csig, &r.edgeU1, sizeof(r.edgeU1));
         mix(csig, &r.rank, sizeof(r.rank));
         mix(csig, r.intersection.data(), r.intersection.size() + 1);
         mix(csig, o.roadTexture.data(), o.roadTexture.size() + 1);

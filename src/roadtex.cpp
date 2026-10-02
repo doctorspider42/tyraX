@@ -295,6 +295,25 @@ float designWidth(const RoadTexParams& p) {
     return lanes > 0 ? (float)lanes * 3.0f + 1.5f : 6.0f;
 }
 
+bool edgeLineSpan(const RoadTexParams& p, float* u0, float* u1) {
+    if (p.intersection || p.edge.style == kLineNone) return false;
+    const int n = p.size == 64 || p.size == 256 ? p.size : 128;
+    const float W = designWidth(p);
+    const std::vector<Line> lines = markingLines(p, W, W / (float)n);
+    // The edge lines are laid first, left then right; the left one's stripes
+    // are the ones left of the middle among them.
+    float lo = 1e30f, hi = -1e30f;
+    for (const Line& l : lines) {
+        if (l.c > 0.25f * W) break;
+        lo = std::min(lo, l.c - l.halfW);
+        hi = std::max(hi, l.c + l.halfW);
+    }
+    if (!(hi > lo) || !(W > 0.0f)) return false;
+    *u0 = lo / W;
+    *u1 = hi / W;
+    return true;
+}
+
 std::vector<unsigned char> generate(const RoadTexParams& p) {
     const int n = p.size == 64 || p.size == 256 ? p.size : 128;
     std::vector<unsigned char> px((size_t)n * n * 4, 255);

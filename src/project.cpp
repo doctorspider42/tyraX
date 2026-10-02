@@ -1711,7 +1711,8 @@ std::string resolveRoadTexture(const Project& p, const std::string& surfaceRel) 
 }
 
 std::vector<roadgen::CrossingRoad> crossingRoads(const std::vector<SceneObject>& objects,
-                                                 std::vector<int>* objectIndex) {
+                                                 std::vector<int>* objectIndex,
+                                                 const std::string& projectDir) {
     std::vector<roadgen::CrossingRoad> out;
     if (objectIndex) objectIndex->clear();
     for (size_t i = 0; i < objects.size(); ++i) {
@@ -1728,6 +1729,23 @@ std::vector<roadgen::CrossingRoad> crossingRoads(const std::vector<SceneObject>&
         r.rank = o.roadRank;
         r.intersection = o.roadIntersectionTexture;
         r.markings = o.roadMarkings;
+        // A generated surface knows where its edge line is (docs/road-textures.md).
+        const std::string dirPrefix = std::string(roadtex::kDir) + "/";
+        if (!projectDir.empty() && o.roadTexture.rfind(dirPrefix, 0) == 0 &&
+            o.roadTexture.size() > dirPrefix.size() + 4 &&
+            o.roadTexture.compare(o.roadTexture.size() - 4, 4, ".mtl") == 0) {
+            const std::string stem = o.roadTexture.substr(
+                dirPrefix.size(), o.roadTexture.size() - dirPrefix.size() - 4);
+            roadtex::RoadTexParams rp;
+            if (roadtex::readRecipe(projectDir, stem, &rp)) {
+                float u0 = 0.0f, u1 = 0.0f;
+                r.edgeLine = roadtex::edgeLineSpan(rp, &u0, &u1);
+                if (r.edgeLine) {
+                    r.edgeU0 = u0;
+                    r.edgeU1 = u1;
+                }
+            }
+        }
         out.push_back(std::move(r));
         if (objectIndex) objectIndex->push_back((int)i);
     }

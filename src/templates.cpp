@@ -9030,7 +9030,7 @@ static std::string sceneDataContent(const Project& p, const std::string& ns,
             for (size_t si = 0; si < p.scenes.size(); ++si) {
                 std::vector<int> objIdx;
                 const std::vector<roadgen::CrossingRoad> cr =
-                    project::crossingRoads(p.scenes[si].objects, &objIdx);
+                    project::crossingRoads(p.scenes[si].objects, &objIdx, p.dir);
                 if (cr.empty()) continue;
                 // Scene road k -> its roadRows index (rows are in scene order).
                 std::vector<int> rowOf(cr.size(), -1);

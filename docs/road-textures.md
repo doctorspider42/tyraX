@@ -75,6 +75,10 @@ The texture follows the road tessellator's mapping ([roads.md](roads.md)):
 - No line is drawn thinner than about one texel, and the two lines of a pair
   keep at least one clear texel between them, so a wide road at 64 px does not
   fade its lines to grey.
+- The edge line's position across U is what a road NODE paints its own edge
+  line at (`roadtex::edgeLineSpan`, read from the `.roadtex` recipe; see
+  [roads.md](roads.md), "Markings"), so the line carries on round a junction's
+  corners and stops where the road does.
 - Alpha is 255 everywhere except the ragged sides of a dirt track. StaPip
   discards alpha-0 texels (the GS alpha-test cutout trap), so alpha 0 is never
   written inside the road.

@@ -300,13 +300,17 @@ Every patch node is painted: untextured white geometry baked on the host by
 `ROAD_JUNCTIONS` row with `tex = -1` and its colour in the new `rgb` column. So
 it costs no texture and no VRAM, one bag per scene, and no work per frame.
 
-- **Edge lines.** The road texture's edge line (columns 5..8 of 128 across the
-  width, `kEdgeLineU0/U1`) is carried round the node along every outline
-  segment that is a road edge or a fillet, never across a cap, where the road
-  and its own painted line carry on (`Junction::outlineCap` marks those). The
-  inset is a fraction of the node's mean road width, so it matches a texture
-  that puts its edge line at the same fraction; one that puts it elsewhere will
-  show a step at the cap.
+- **Edge lines.** The road texture's edge line is carried round the node along
+  every outline segment that is a road edge or a fillet, never across a cap,
+  where the road and its own painted line carry on (`Junction::outlineCap`
+  marks those). Where it sits across the width comes from the road: a texture
+  made by the [road texture generator](road-textures.md) has a `.roadtex`
+  recipe, and `project::crossingRoads` asks it (`roadtex::edgeLineSpan`); any
+  other texture gets the Motor District's columns 5..8 of 128
+  (`CrossingRoad::edgeU0/U1`). A recipe with no edge line paints none round the
+  node. The node uses the average of its arms, so roads of different textures
+  meeting at one node show a small step at the caps. The paint is always one
+  white, solid line, whatever colour or dash the texture's edge line has.
 - **Stop lines** on the road that gives way: one ending at a node another road
   runs through (a T), or at a crossing of through roads the lower rank, then
   the narrower, then the later one. Across the incoming lane only, assuming

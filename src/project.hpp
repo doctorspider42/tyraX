@@ -4893,8 +4893,12 @@ std::string resolveRoadTexture(const Project& p, const std::string& surfaceRel);
 // in object order - the ONE conversion the codegen, the viewport, the test
 // drive and the Properties panel share. `objectIndex`, when given, receives
 // each road's index in sc.objects.
+// `projectDir`, when given, lets a road whose surface is a generated texture
+// (res/materials/roads/<stem>.mtl with its .roadtex recipe) report where that
+// texture paints its edge line, so node markings meet it.
 std::vector<roadgen::CrossingRoad> crossingRoads(
-    const std::vector<SceneObject>& objects, std::vector<int>* objectIndex = nullptr);
+    const std::vector<SceneObject>& objects, std::vector<int>* objectIndex = nullptr,
+    const std::string& projectDir = "");
 
 // Loads the single <name>.tyra project file from an existing project
 // directory (game data + editor-side state + window layout).

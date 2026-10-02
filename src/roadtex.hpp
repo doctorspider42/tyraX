@@ -82,6 +82,11 @@ float designWidth(const RoadTexParams& p);
 // RGBA8, size x size, row 0 at the top (V = 0).
 std::vector<unsigned char> generate(const RoadTexParams& p);
 
+// Where the LEFT edge line is painted, as a fraction of the width (U), the
+// whole pattern (a double counts as one): what a road node's painted edge line
+// (roadgen::bakeMarkings) lines up with. False when there is none.
+bool edgeLineSpan(const RoadTexParams& p, float* u0, float* u1);
+
 // Folder the generated materials live in (project-relative).
 inline constexpr const char* kDir = "res/materials/roads";
 

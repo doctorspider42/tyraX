@@ -351,6 +351,12 @@ struct CrossingRoad {
     int rank = 1;
     std::string intersection;  // intersection material ("" = none)
     int markings = 1;          // RoadMarkings: what this road's node arms get painted
+    // Where this road's texture paints its edge line, U across the width - so
+    // a node's painted edge line meets it. The default is the Motor District's
+    // texture (columns 5..8 of 128); a generated texture's recipe says its own
+    // (project::crossingRoads reads it). edgeLine false = the texture has none.
+    bool edgeLine = true;
+    float edgeU0 = 5.0f / 128.0f, edgeU1 = 8.0f / 128.0f;
 };
 
 // What a road's arms get painted at its nodes (1.171.0, docs/roads.md
