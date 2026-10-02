@@ -290,20 +290,23 @@ recovered 0.50-0.72 ms of hardware `work`. What it did not do, ranked:
   EE-heavy bags with it, or deferring the pool run, before a deeper queue
   (depth 8 measured worse).
 
-- **One chain for the whole scene / a frame-pipelined engine - PARKED
-  2026-09-24.** Measured first: VU1 + GS alone need 5.96 / 7.73 / 3.94 / 4.22
-  ms for the four Motor District poses, against 10-18 ms of EE `work`
-  (docs/ee-submission-rearchitecture.md, "The GPU-only frame"). The frame is
-  EE-bound about two to one. A pipeline would win only the EE's waiting
-  (about 2.5-3.5 ms in the garage), not its work, so the EE's own computation
-  comes first. The design, what it would require, its risks and a staged order
-  are written down in "A frame-pipelined engine (TyraX2)" on the same page.
-  **Foundation work started 2026-10-01:** [TyraX2](tyrax2.md) establishes an
-  opt-in pre-submit chain guard and reproducible current seated-start fixtures.
-  Frame-owned arenas, ordered auxiliary passes and N/N-1 execution remain open.
-  Still true from the capture: the reference title builds that chain in SPR
-  and moves it to RAM by DMA (no write-back), and its per-object cost is about
-  16 qwords plus a `CALL` into a prebaked block.
+- **One chain for the whole scene / a frame-pipelined engine - SHIPPED
+  experimentally in 1.169.0 (2026-10-02), off by default.**
+  [TyraX2](tyrax2.md) records one native VIF1 chain per ordinary frame, including
+  ordered uploads, state, auxiliary passes and the final FINISH. Two owned banks
+  let the EE prepare N while VU1/GS execute N-1. Preferences > Display enables
+  the saved runtime request; compatibility modes and bounded overflow use real
+  synchronous fences. Host/sanitizer checks, native/Docker builds and emulator
+  driving, scene transitions, display changes and GPU readback passed.
+  The first final physical day boot reduced full period from approximately
+  28.1 to 17.15 ms (35.6 to 58.3 Hz). **Still open:** repeat final day and night
+  hardware boots after a physical power cycle, measure input latency, and decide
+  whether to promote the switch. The second final boot hit pre-gameplay
+  `freepad: DMA Busy`; predecessor night periods remained approximately 33.4 ms.
+  The [runtime record](tyrax2-runtime-2026-10-02.json) distinguishes final results
+  from historical arms. The older GPU-only sweep is not a current gain ceiling.
+  Reference-title SPR staging and its approximately 16-qword-plus-CALL object
+  scheme remain separate future work; this implementation does not add them.
 - ~~**The 0.5 ms sleeps in `RendererCore::beginFrame`/`endFrame`**~~ **SHIPPED
   1.128.3 behind a runtime gate** (`RendererCore::setFrameYield`, off; the
   generated game turns it on only while the Live Debugger is attached):

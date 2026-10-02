@@ -48,7 +48,7 @@ def main():
               'p95_ms': ordered[math.ceil(len(values)*0.95)-1],
               'max_ms': max(values),
               'over_budget': sum(v > 1000 / args.hz for v in values),
-              'note': 'Active render work, not full period or delivered FPS.'}
+              'note': 'Renderer critical-path work excluding presentation pacing; not full period or delivered FPS.'}
     print(json.dumps(result, indent=2))
 
 

@@ -1765,6 +1765,8 @@ struct ProjectSettings {
     // It is off by default and the engine falls back to two buffers when
     // it does not fit. Decided at engine init; no runtime switch.
     bool tripleBuffering = false;
+    // TyraX2: record frame N while VIF/VU1/GS execute N-1. Opt-in EE RAM cost.
+    bool framePipeline = false;
 
     // Frame extrapolation (docs/frame-extrapolation.md): after each rendered
     // frame the game presents a SYNTHESISED one, re-drawing it under the
@@ -2513,6 +2515,7 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.colorDepth == b.colorDepth && a.dither == b.dither &&
            a.supportedModes == b.supportedModes && a.widescreen == b.widescreen &&
            a.tripleBuffering == b.tripleBuffering &&
+           a.framePipeline == b.framePipeline &&
            a.frameExtrapolation == b.frameExtrapolation &&
            a.frameExtrapolationPlane == b.frameExtrapolationPlane &&
            a.frameExtrapolationForce == b.frameExtrapolationForce &&

@@ -1,0 +1,436 @@
+{
+  "status": "experimental runtime implemented; correctness checks passed; final hardware repeat/performance qualification pending morning power cycle",
+  "version": "1.169.0",
+  "format_version": 94,
+  "default_enabled": false,
+  "extra_ee_bytes": 2359296,
+  "latency_contract": "one queued rendered frame; physical input-to-display latency not yet measured",
+  "submission_contract": "one native VIF1 chain and one final FINISH per ordinary frame; compatibility, overflow and explicit synchronization can split/drain",
+  "artifact_root": "F:\\Projects\\tyrax2-lab-20261001",
+  "source_base_commit": "e3f41d6017f17d9bc083733144f2dad4c27a8bc0",
+  "production_source_sha256": {
+    "src/app.cpp": "d09a787b64fd0645ec1157c102f711b17b61be4ac09fbe83aef9e59051f33d0e",
+    "src/game_templates.inc": "ebf0ec5aabaf4113f97506718af634ad02be0e50d85d029dbee6b87fdcec170f",
+    "src/project.cpp": "8bc667302b19f7c8f4979cfd4a1c0d32d718871970296dcc86e4df3acf8cac64",
+    "src/project.hpp": "703d2acc4e280f8190c57958027c91990b7805a90183298f1d04ec4f778158be",
+    "src/templates.cpp": "d8c97c9eef10ee72bd1e831f1cbc69404af2ab692049e0b52dc4bf7dfb0297f8",
+    "src/version.hpp": "6f4cca3e3f04db082aa77c85cae052d63f70a1298126e8ab0e67fd0c5cf4598a",
+    "tools/tyrax2-fixture.py": "cc64298c61630076c78a3fb224bafca354ecf483a4ede4e80d21fc69adec0f5f",
+    "tools/tyrax2-timing.py": "eb8500a3be8d33c60e9bf169af94460e88e7abbaea662d883090c1baa16fb792",
+    "vendor/tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.hpp": "d89fa588b2c73a86143c3e5b5ceea52c25850c0392b8b0eaba5a5ad95375f145",
+    "vendor/tyra/engine/inc/renderer/core/gs/renderer_core_gs.hpp": "f3ed4de6f8c0bb6ec6f15cbbb70d360ac156abe92edd889bb59743b35308914c",
+    "vendor/tyra/engine/inc/renderer/core/paths/path1/vif1_queue.hpp": "f283e5a1fb2acbe94582403d866f95c3e9cc247c623e3cc0329103a475fd7376",
+    "vendor/tyra/engine/inc/renderer/core/renderer_core.hpp": "736d0cba3623e87e1b566884fc0f9af6df612bf43f4e0564aa67f1c5da7ea93d",
+    "vendor/tyra/engine/src/renderer/3d/pipeline/dynamic/core/dynpip_renderer.cpp": "2b6e84a9174ae1a00033d08e47eb725e3e36ad3fe1cd3246a729b978d42189ff",
+    "vendor/tyra/engine/src/renderer/3d/pipeline/minecraft/programs/as_is/mcpip_clip.cpp": "4cbe4199b2f049e4fd069f434b3d2516cd435029654d838af673e40d051444f5",
+    "vendor/tyra/engine/src/renderer/3d/pipeline/minecraft/programs/cull/mcpip_cull.cpp": "6fa3d12cfc48a073adb71205797715e0f7f22cc86eadb18c4292d2ef7ccfd030",
+    "vendor/tyra/engine/src/renderer/3d/pipeline/minecraft/programs/mcpip_programs_manager.cpp": "30317998ec3990115923ae76d802da4bca3fbd1d63a5d6aefe68ac8fc5f4629e",
+    "vendor/tyra/engine/src/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.cpp": "597e444875e6f5d45cff7359f0430ca89f27bd77657cbb7194554c7c9baa9825",
+    "vendor/tyra/engine/src/renderer/3d/renderer_3d_utility.cpp": "0583de1d7cf60335b9c88a9f642cae24b4e48e8febfa0dd518374b8e15e90c63",
+    "vendor/tyra/engine/src/renderer/core/2d/renderer_core_2d.cpp": "c81b3f6e4f6419f467bec2790fae06aea6f17dfab767bdbaf650c5a35bb743f2",
+    "vendor/tyra/engine/src/renderer/core/alphamask/renderer_core_alpha_mask.cpp": "f0787af8865dbb990b03573e097c23a1c13d9bb5724c6a4a15d3cf5ef8f54203",
+    "vendor/tyra/engine/src/renderer/core/blss/renderer_core_blss.cpp": "e957b553464799bc221636d9883b0a4933d5ffd00f9bf7aa74c61625e9b5f1e9",
+    "vendor/tyra/engine/src/renderer/core/envmap/renderer_core_envmap.cpp": "affbff21c8a3a6af5223bd40d8750fd60c3f1f677765db3ee35fce2b654a9de5",
+    "vendor/tyra/engine/src/renderer/core/gs/renderer_core_gs.cpp": "4f214a89ee91601463c4e008edc0cae11a117638f61429661f6d8ee57db8f80c",
+    "vendor/tyra/engine/src/renderer/core/paths/path1/path1.cpp": "f88fbc21c296f543ac7b637b9b4341fd48d58564982b054613255b46b86639e6",
+    "vendor/tyra/engine/src/renderer/core/paths/path1/vif1_queue.cpp": "41c13286b8a3140b862013a21ae438d68a3edfec27dab1fde32bdbc9702a8f93",
+    "vendor/tyra/engine/src/renderer/core/paths/path3/path3.cpp": "c27669c8850656f99dca355b6bc2bbcbdb1e683a187c8c1b1e5102038b6df414",
+    "vendor/tyra/engine/src/renderer/core/postfx/renderer_core_postfx.cpp": "8b1755a6d40c756a5225e2927b83613b8a98719d233b09a4741831406b68f446",
+    "vendor/tyra/engine/src/renderer/core/renderer_core.cpp": "520c81dbc1ac36e829c9c76408a15fe987567450ddbdd8341ccb5e1cce2fbd6f",
+    "vendor/tyra/engine/src/renderer/core/renderer_core_sync.cpp": "b9cbd9ae59c79e74bb24008f1c9ced689aa77147f000c307e6a8df42b6f9c704",
+    "vendor/tyra/engine/src/renderer/core/shadowmap/renderer_core_shadow_map.cpp": "fc2e457b9e14568b0484cb3aa60b3a3c3fc7f5b4e8c0ae142b4f003b8073cd3f",
+    "vendor/tyra/engine/src/renderer/core/splitview/renderer_core_splitview.cpp": "e8a806fbd96974b345228d49de2591518108a546a4a7d1f36cc65b5874be09ed",
+    "vendor/tyra/engine/src/renderer/core/warp/renderer_core_warp.cpp": "d8597533d11a67febc28d276823c37df05ff56acb1589475419f38c9a2424db2",
+    "vendor/tyra/engine/inc/renderer/core/paths/path1/frame_chain_arena.hpp": "8d26d6f61b882897c930482f42ce64342a883691be6cf2acba06e641d526f94b",
+    "vendor/tyra/engine/inc/renderer/core/paths/path1/frame_vif_writer.hpp": "0ee77091872dca566a642212fbaad2dc19e6c7202ff73917feef6fc61211ce5d",
+    "vendor/tyra/engine/inc/renderer/core/paths/path1/frame_submission.hpp": "1da4032e5f2b737816fca4ab2168c38961a15af207e9f52ef51fe08f27663cf1",
+    "tools/verify-frame-arena.cpp": "74358291093bbaeb39a9c70e1b19d9daab635304c25da1ed77b58dd0ccb2dfbe",
+    "tools/verify-frame-writer.cpp": "802b1bc6eb7ee89e88942967ff5b3190a2f44762d7eed764fd76852c763a6ce5"
+  },
+  "builds": {
+    "windows_editor": "passed",
+    "native_ps2": "passed",
+    "docker_ps2": "passed",
+    "windows_editor_final_ui_docs": "passed"
+  },
+  "host_checks": {
+    "windows": "passed",
+    "linux_asan_ubsan": "passed",
+    "arena_cases": 1074,
+    "malformed_streams": 10000,
+    "writer_oracle_cases": 43
+  },
+  "physical_day_final": {
+    "log": "F:\\Projects\\tyrax2-lab-20261001\\pipeline-release-day-syncfix-boot1.log",
+    "first": 1100,
+    "frames": 512,
+    "hz": 60,
+    "budget_ms": 16.666666666666668,
+    "mean_ms": 13.992346041732365,
+    "median_ms": 13.907552083333332,
+    "p95_ms": 14.870452880859375,
+    "max_ms": 15.33060031467014,
+    "over_budget": 0,
+    "note": "Renderer critical-path work excluding presentation pacing; not full period or delivered FPS.",
+    "period_windows": [
+      {
+        "frame": 1100,
+        "pre_ms": 1.3,
+        "stall_ms": 1.8,
+        "period_ms": 17.35,
+        "miss": 2
+      },
+      {
+        "frame": 1150,
+        "pre_ms": 1.22,
+        "stall_ms": 1.7,
+        "period_ms": 17.02,
+        "miss": 1
+      },
+      {
+        "frame": 1200,
+        "pre_ms": 1.23,
+        "stall_ms": 1.74,
+        "period_ms": 17.02,
+        "miss": 1
+      },
+      {
+        "frame": 1250,
+        "pre_ms": 1.3,
+        "stall_ms": 1.92,
+        "period_ms": 17.35,
+        "miss": 2
+      },
+      {
+        "frame": 1300,
+        "pre_ms": 1.23,
+        "stall_ms": 1.73,
+        "period_ms": 17.02,
+        "miss": 1
+      },
+      {
+        "frame": 1350,
+        "pre_ms": 1.29,
+        "stall_ms": 1.94,
+        "period_ms": 17.35,
+        "miss": 2
+      },
+      {
+        "frame": 1400,
+        "pre_ms": 1.23,
+        "stall_ms": 1.71,
+        "period_ms": 17.02,
+        "miss": 1
+      },
+      {
+        "frame": 1450,
+        "pre_ms": 1.29,
+        "stall_ms": 1.96,
+        "period_ms": 17.35,
+        "miss": 2
+      },
+      {
+        "frame": 1500,
+        "pre_ms": 1.23,
+        "stall_ms": 1.69,
+        "period_ms": 17.02,
+        "miss": 1
+      },
+      {
+        "frame": 1550,
+        "pre_ms": 1.24,
+        "stall_ms": 1.73,
+        "period_ms": 17.02,
+        "miss": 1
+      }
+    ],
+    "mean_period_ms": 17.152,
+    "delivered_rate_from_period_hz": 58.30223880597015,
+    "elf_sha256": "9417fcdcbb0c080ff0ed6be561650d4947fdf821027f24c964a2da54fb400529",
+    "log_sha256": "a01ca3450b5dda53c806edd7d97124bc90c73425a588683ed6be625f8a831183",
+    "repeat_status": "Second boot blocked before gameplay by freepad DMA Busy; do not substitute emulator timing."
+  },
+  "physical_baseline_record": "tyrax2-baseline-2026-10-01.json",
+  "hardware_limit": "Final day one boot only. Second boot stopped before gameplay with freepad DMA Busy; no final night hardware result. User authorized emulator work overnight and physical repeats in morning.",
+  "predecessor_night": {
+    "status": "historical, before final in-chain FINISH and foreign synchronization fix",
+    "mean_work_ms_boots": [
+      18.238977,
+      18.333197
+    ],
+    "mean_period_ms_approx": 33.4,
+    "delivered_hz_approx": 30
+  },
+  "native_tail_inspection": {
+    "state": "F:\\Projects\\tyrax2-lab-20261001\\pipeline-onechain-renderers-emulator\\state1.p2s",
+    "prefix_hex": "0x540a00",
+    "tadr_hex": "0x540bb0",
+    "end_tags": 1,
+    "direct_finish_tags": 1,
+    "finish_in_final_operation": true,
+    "tags": 26
+  },
+  "emulator": {
+    "version": "2.9.93",
+    "renderer": "software",
+    "purpose": "correctness, not physical PS2 timing",
+    "guarded_drive": {
+      "frames_observed": 3360,
+      "accepted_source_chains": 233472,
+      "rejections": 0,
+      "split_frames": 4,
+      "direct_fallbacks": 0,
+      "scene_transitions": [
+        "main to dense",
+        "dense to procedural",
+        "procedural to main"
+      ],
+      "controls": "scripted gas, steering, brake, reverse, camera changes",
+      "final_view": "driven first-person camera near building",
+      "test_overlay_sha256": [
+        {
+          "path": "F:\\Projects\\tyrax2-lab-20261001\\pipeline-final-check-night\\tyra\\engine\\src\\engine.cpp",
+          "sha256": "6e206f492bbda0f922f04c98d36f053cd84c9391e7fa0f569862b11145ae8dc0"
+        },
+        {
+          "path": "F:\\Projects\\tyrax2-lab-20261001\\pipeline-final-check-night\\game\\src\\terrain_game.cpp",
+          "sha256": "fe27507adb3f3dca5c91396892e5f9b4be2f40d176d15eee4faa7ee977bc94f5"
+        }
+      ]
+    },
+    "public_live_debug_readback": {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\pipeline-public-readback.png",
+      "sha256": "91b4532a2aa7378ed437a00fc6521fab9a942fb08cf46c2e0e533a24f0a71b18"
+    },
+    "day_roi_comparison": {
+      "roi": [
+        0,
+        350,
+        1500,
+        1050
+      ],
+      "mean_abs_channel_255": [
+        0.014756190476190477,
+        0.01437047619047619,
+        0.013244761904761905
+      ],
+      "pixel_fraction_any_difference": 0.006161904761904762,
+      "note": "Warmed seated day; HUD excluded, timing/animation clocks may differ."
+    },
+    "tests": [
+      {
+        "name": "pipeline-final-drive-emulator",
+        "artifacts": [
+          {
+            "path": "F:\\Projects\\tyrax2-lab-20261001\\pipeline-final-drive-emulator\\report.txt",
+            "sha256": "687062c87c415e0dda27e42f392fdf10a550913538e72c2c434a7886213be798"
+          },
+          {
+            "path": "F:\\Projects\\tyrax2-lab-20261001\\pipeline-final-drive-emulator\\emulog.txt",
+            "sha256": "687b83295fbcced9cf7e1bb318a4a46ff31359e38727708d898d85401dfa4249"
+          },
+          {
+            "path": "F:\\Projects\\tyrax2-lab-20261001\\pipeline-final-drive-emulator\\frame.png",
+            "sha256": "0f7b0e9ab0dbe715b3a7459024133fb180d75435b7632ff8b4c1e6e52471db7b"
+          },
+          {
+            "path": "F:\\Projects\\tyrax2-lab-20261001\\pipeline-final-drive-emulator\\state1.p2s",
+            "sha256": "7c62c5c3840434a473aad04ee04abef00c3027490b60403944a348f010af7a44"
+          },
+          {
+            "path": "F:\\Projects\\tyrax2-lab-20261001\\pipeline-final-drive-emulator\\frame.gs.zst",
+            "sha256": "9711c8ff1ee46ec68e077002b8276a55da5a8ef67d34b38494bfb0a9917bbc71"
+          }
+        ]
+      },
+      {
+        "name": "pipeline-release-night-emulator",
+        "artifacts": [
+          {
+            "path": "F:\\Projects\\tyrax2-lab-20261001\\pipeline-release-night-emulator\\report.txt",
+            "sha256": "67ed02f222cde93e2d56ef4a9f5dfd7f11085ff62f2597a0768744a9f61a510a"
+          },
+          {
+            "path": "F:\\Projects\\tyrax2-lab-20261001\\pipeline-release-night-emulator\\emulog.txt",
+            "sha256": "6b1edcc2c05db113a3b58a46b987e02d30fc892aee4a1773a1d4465df9d8f1cd"
+          },
+          {
+            "path": "F:\\Projects\\tyrax2-lab-20261001\\pipeline-release-night-emulator\\frame.png",
+            "sha256": "36c6d23918844b0b4bc035a1aa7de15bcdcdefb5c9df1452f70876ed3aa41b8c"
+          },
+          {
+            "path": "F:\\Projects\\tyrax2-lab-20261001\\pipeline-release-night-emulator\\state1.p2s",
+            "sha256": "a62a055597ba46fdf7f1722c33248b02d4393f9b58a1b2efd91dd99f953c85fa"
+          },
+          {
+            "path": "F:\\Projects\\tyrax2-lab-20261001\\pipeline-release-night-emulator\\frame.gs.zst",
+            "sha256": "f8611a2be85502d040d07a6dbe69fd4dac31d638a98cd2b904e0106f72c8499b"
+          }
+        ]
+      },
+      {
+        "name": "pipeline-release-public-emulator",
+        "artifacts": [
+          {
+            "path": "F:\\Projects\\tyrax2-lab-20261001\\pipeline-release-public-emulator\\report.txt",
+            "sha256": "e5a84bf987f535353025af979944cf64b2f2d9a343c977bb0f36398753580deb"
+          },
+          {
+            "path": "F:\\Projects\\tyrax2-lab-20261001\\pipeline-release-public-emulator\\emulog.txt",
+            "sha256": "5ded3e6a5ab724a9550758cf2b934f59820f93f720522526d5f0f1d4b22d297d"
+          },
+          {
+            "path": "F:\\Projects\\tyrax2-lab-20261001\\pipeline-release-public-emulator\\frame.png",
+            "sha256": "bab395cd7bc0b3fc0ce3d0ea72adf9130629776567d31804f397218e2e1f4a1a"
+          },
+          {
+            "path": "F:\\Projects\\tyrax2-lab-20261001\\pipeline-release-public-emulator\\state1.p2s",
+            "sha256": "f6c737e339575b3ae43d14644846eb5fb4dbe7533ce7ed3eedbf27c1e496bb4d"
+          },
+          {
+            "path": "F:\\Projects\\tyrax2-lab-20261001\\pipeline-release-public-emulator\\frame.gs.zst",
+            "sha256": "8f5470d3b107aa681857d09df5a3b05ffc7fb229ce566bb740d12b53ec1c1977"
+          }
+        ]
+      },
+      {
+        "name": "pipeline-release-foreign-emulator",
+        "artifacts": [
+          {
+            "path": "F:\\Projects\\tyrax2-lab-20261001\\pipeline-release-foreign-emulator\\report.txt",
+            "sha256": "f9ed441ae6cb387e40aac517e9e5f56cedcc2966adebdb3b05c3cfc154b5dff1"
+          },
+          {
+            "path": "F:\\Projects\\tyrax2-lab-20261001\\pipeline-release-foreign-emulator\\emulog.txt",
+            "sha256": "715d4d867c74b846e0f7947842833d787ac6cc9670330aee43a6c44d8ebf928d"
+          },
+          {
+            "path": "F:\\Projects\\tyrax2-lab-20261001\\pipeline-release-foreign-emulator\\frame.png",
+            "sha256": "4bee38f6801a0fed4dd14979d56eebb4639ee118c9e27a111195ad90ee780a53"
+          },
+          {
+            "path": "F:\\Projects\\tyrax2-lab-20261001\\pipeline-release-foreign-emulator\\state1.p2s",
+            "sha256": "9b8462b62204be0334720e05f2052bdc561eb58c4de2f24f1e9f4c77252abec0"
+          },
+          {
+            "path": "F:\\Projects\\tyrax2-lab-20261001\\pipeline-release-foreign-emulator\\frame.gs.zst",
+            "sha256": "b922b52a1522638230665d4a6b83f4cd57a81da829817d5a3e22f59c767e46b9"
+          }
+        ]
+      },
+      {
+        "name": "pipeline-onechain-renderers-emulator",
+        "artifacts": [
+          {
+            "path": "F:\\Projects\\tyrax2-lab-20261001\\pipeline-onechain-renderers-emulator\\report.txt",
+            "sha256": "cb9055cf86cb077ae3ca34b95e2cdacce9be17490e2960e4276a0b2c3cf626c2"
+          },
+          {
+            "path": "F:\\Projects\\tyrax2-lab-20261001\\pipeline-onechain-renderers-emulator\\emulog.txt",
+            "sha256": "6be4b67efad697ad5fe2bd5469b2b5e2182f55c493f10d61c0804047d45a158c"
+          },
+          {
+            "path": "F:\\Projects\\tyrax2-lab-20261001\\pipeline-onechain-renderers-emulator\\frame.png",
+            "sha256": "5e901c8b538ab428044be2af23e13f2fe0e7286de2b95e6b3ade49e4b6fa0ac6"
+          },
+          {
+            "path": "F:\\Projects\\tyrax2-lab-20261001\\pipeline-onechain-renderers-emulator\\state1.p2s",
+            "sha256": "819b96a883621f198890fd76d142f30012f40710ea52d0d02d15d651f3087605"
+          },
+          {
+            "path": "F:\\Projects\\tyrax2-lab-20261001\\pipeline-onechain-renderers-emulator\\frame.gs.zst",
+            "sha256": "aa3c483bc3ef5631fe988b88ae72dc32186c40958ddff60fadec1006eecfd04a"
+          }
+        ]
+      },
+      {
+        "name": "pipeline-refusal-emulator",
+        "artifacts": [
+          {
+            "path": "F:\\Projects\\tyrax2-lab-20261001\\pipeline-refusal-emulator\\report.txt",
+            "sha256": "e0f8637b83657c76918e2b4ebc544bcdfb2443b1dcb7f9c2263dd552913cfb5c"
+          },
+          {
+            "path": "F:\\Projects\\tyrax2-lab-20261001\\pipeline-refusal-emulator\\emulog.txt",
+            "sha256": "2165580814612d97a114e68e3bfc91c809a5c63b8c2a4e57048383a11ff98143"
+          },
+          {
+            "path": "F:\\Projects\\tyrax2-lab-20261001\\pipeline-refusal-emulator\\frame.png",
+            "sha256": "58eca9a2a76675ab439183fa1733b33b7f376778d3355dbbf887cc5254c72264"
+          },
+          {
+            "path": "F:\\Projects\\tyrax2-lab-20261001\\pipeline-refusal-emulator\\state1.p2s",
+            "sha256": "462f0db8b6e68cadd91a78a6cb1f596aaa0b6895411069c2fc92ac9830a7633d"
+          },
+          {
+            "path": "F:\\Projects\\tyrax2-lab-20261001\\pipeline-refusal-emulator\\frame.gs.zst",
+            "sha256": "369d43a5a820f99532497d0d702721a2c485e02989adae9f775eb13433d6e50b"
+          }
+        ]
+      },
+      {
+        "name": "pipeline-release-day-emulator",
+        "artifacts": [
+          {
+            "path": "F:\\Projects\\tyrax2-lab-20261001\\pipeline-release-day-emulator\\report.txt",
+            "sha256": "9108074b6136ae6d7e603d21901f9e27f45b3d0d8bcd4666b9df7f39f1d10ceb"
+          },
+          {
+            "path": "F:\\Projects\\tyrax2-lab-20261001\\pipeline-release-day-emulator\\emulog.txt",
+            "sha256": "7fcce2f5569fbcb30b06bf04abc5f20fd581f61dab27f45c2cf9836ae28a4c84"
+          },
+          {
+            "path": "F:\\Projects\\tyrax2-lab-20261001\\pipeline-release-day-emulator\\frame.png",
+            "sha256": "a11f2fc240fe5d8ebf27d3150b5dd944966bf78a8fc88755b01f0af34643f3c1"
+          },
+          {
+            "path": "F:\\Projects\\tyrax2-lab-20261001\\pipeline-release-day-emulator\\state1.p2s",
+            "sha256": "db93cc34335c2c0b52cf7c4abeab08b94e9b9203e0b6bdc3f8b650a9b1d03fa3"
+          },
+          {
+            "path": "F:\\Projects\\tyrax2-lab-20261001\\pipeline-release-day-emulator\\frame.gs.zst",
+            "sha256": "a51ec5a9ebb37cb288f3adea0027eebdcbec6c4aefcf99a968642211eb103703"
+          }
+        ]
+      },
+      {
+        "name": "pipeline-off-day-emulator",
+        "artifacts": [
+          {
+            "path": "F:\\Projects\\tyrax2-lab-20261001\\pipeline-off-day-emulator\\report.txt",
+            "sha256": "0e13ebc003844918233b633f26b191280da3981990634aec43e5ff4a89700315"
+          },
+          {
+            "path": "F:\\Projects\\tyrax2-lab-20261001\\pipeline-off-day-emulator\\emulog.txt",
+            "sha256": "12659cbf63024f69c7100252d97a19bbd726aad56a558347673b0d7a67e0c25e"
+          },
+          {
+            "path": "F:\\Projects\\tyrax2-lab-20261001\\pipeline-off-day-emulator\\frame.png",
+            "sha256": "7fc541f32ebf45e3fb3659f01f520c7068c6b448cae94876c2e510690f9ea4c5"
+          },
+          {
+            "path": "F:\\Projects\\tyrax2-lab-20261001\\pipeline-off-day-emulator\\state1.p2s",
+            "sha256": "87e6f566a473bea0018088792e19a6819f1ce426494f7fb194b82208b8c811bb"
+          },
+          {
+            "path": "F:\\Projects\\tyrax2-lab-20261001\\pipeline-off-day-emulator\\frame.gs.zst",
+            "sha256": "a316c372d9c7f60bfc68ec6b15af20e3c5896917a79bf8df2e616d2f4c3e2ecd"
+          }
+        ]
+      }
+    ]
+  },
+  "remaining_hardware_checks": [
+    "Repeat two final-candidate boots each for seated day and night with original settings and host polling off",
+    "Measure input-to-display latency",
+    "Long physical driving/scene-transition soak before default-on promotion"
+  ],
+  "editor_ui": {
+    "saved_enabled_reopened": "passed",
+    "old_project_default_off": "passed",
+    "off_codegen_omits_setter": "passed",
+    "enabled_codegen_emits_setter": "passed",
+    "display_doc_fixture": "isolated showcase copy, progressive/hybrid/triple buffering, original saved layout resized for current DPI",
+    "screenshot_sha256": "70f4483c82466cfd82c12ac17723d71fc8c058a905924cdacc094c411fa936b8"
+  }
+}

@@ -1,3 +1,4 @@
+#include "renderer/core/paths/path1/frame_submission.hpp"
 #include "renderer/3d/pipeline/static/core/stapip_spot_bounds.hpp"
 /*
 # _____        ____   ___
@@ -528,6 +529,14 @@ StaPipBakedStreams::StaPipBakedStreams() {
   std::fill(indexBuckets, indexBuckets + kBucketCount, -1);
 }
 
+StaPipBakedStreams::~StaPipBakedStreams() {
+  // Teardown is a real compatibility fence; no unsubmitted reader may survive.
+  Vif1Queue::drain();
+  clear();
+  for (auto& slot : graveyard)
+    for (auto& item : slot) Vif1Queue::collectRetiredImmutableSpan(item.arena);
+}
+
 u32 StaPipBakedStreams::getBucket(const void* vertices,
                                   u32 maxVertCount) const {
   u32 hash = static_cast<u32>(reinterpret_cast<u32>(vertices)) * 0x9E3779B1U;
@@ -581,9 +590,14 @@ void StaPipBakedStreams::rebuildIndex() {
 // one frame boundary already proves the transfer finished; the second is there
 // because that count is a property of the scene and not of this class.
 void StaPipBakedStreams::retire(StaPipBakedEntry& item) {
+  // Modified by TyraX: frame snapshots may borrow this immutable VIF stream.
+  // Keep their bank leases until completion; ordinary eviction need not split
+  // the recorded frame. Poison diagnostics still require an immediate fence.
+  Vif1Queue::retireImmutableSpan(item.arena);
   const u32 qw = item.arenaQw;
   usedQwords -= qw < usedQwords ? qw : usedQwords;
 #if TYRA_STAPIP_BAKED_POISON
+  Vif1Queue::unregisterImmutableSpan(item.arena);
   // The adversarial mode: overwrite an evicted arena NOW instead of letting the
   // two-frame graveyard hide it. If any in-flight packet still names this
   // block, the next capture tears visibly instead of the defect waiting for
@@ -595,7 +609,8 @@ void StaPipBakedStreams::retire(StaPipBakedEntry& item) {
   // rather than limps.
   if (item.arena != nullptr && qw > 0) memset(item.arena, 0xDE, qw * 16);
 #endif
-  if (item.raw) graveyard[graveyardWrite].push_back(std::move(item.raw));
+  if (item.raw) graveyard[graveyardWrite].push_back(
+      {std::move(item.raw), item.arena});
   item.arena = nullptr;
   item.arenaQw = 0;
 }
@@ -604,7 +619,11 @@ void StaPipBakedStreams::onFrameEnd() {
   evictionsThisFrame = 0;
   ++frameNow;
   graveyardWrite ^= 1;
-  graveyard[graveyardWrite].clear();  // evicted two frames ago - now freed
+  auto& retired = graveyard[graveyardWrite];
+  retired.erase(std::remove_if(retired.begin(), retired.end(),
+      [](const RetiredArena& item) {
+        return Vif1Queue::collectRetiredImmutableSpan(item.arena);
+      }), retired.end()); // age alone cannot release an actual bank reader
 
   bool expired = false;
   for (auto& item : storage) {
@@ -925,7 +944,7 @@ void StaPipQBufferRenderer::allocateOnUse() {
 
 void StaPipQBufferRenderer::deallocateOnUse() {
   beforeTextureMutation();
-  Vif1Queue::drain();
+  frameWaitVif();
   rendererCore->texture.clearMutationBarrier(this);
   submissionBatchScope = false;
   submissionBatchCandidate = false;
@@ -1357,7 +1376,7 @@ void StaPipQBufferRenderer::sendObjectData(
         clipBlockQw = static_cast<u16>(qw);
         // The REF copy: rewritten only here, after every chain that could
         // still read the old one has run.
-        Vif1Queue::drain();
+        frameWaitVif();
         clipBlockVifQw = static_cast<u16>(
             chainToVifStream(clipBlock, clipBlockQw, clipBlockVif));
       }
@@ -1598,9 +1617,9 @@ void StaPipQBufferRenderer::sendStaticData() const {
   packet2_utils_vu_add_end_tag(staticDataPacket);
   { HardwareTrace::Scope trace("VIF1_DMA_wait");
     HardwareTrace::state("VIF1_WAIT_START");
-    Vif1Queue::drain();
+    frameWaitVif();
     HardwareTrace::state("VIF1_WAIT_END"); }
-  dma_channel_send_packet2(staticDataPacket, DMA_CHANNEL_VIF1, true);
+  frameSendPacket(staticDataPacket, DMA_CHANNEL_VIF1, true);
 }
 
 // Modified by TyraX: micro-memory words a program cache of these programs
@@ -1862,12 +1881,12 @@ void StaPipQBufferRenderer::setVU1Clipping(const bool& enabled) {
 void StaPipQBufferRenderer::uploadPrograms() {
   { HardwareTrace::Scope trace("VIF1_DMA_wait");
     HardwareTrace::state("VIF1_WAIT_START");
-    Vif1Queue::drain();
+    frameWaitVif();
     HardwareTrace::state("VIF1_WAIT_END"); }
-  dma_channel_send_packet2(programsPacket, DMA_CHANNEL_VIF1, true);
+  frameSendPacket(programsPacket, DMA_CHANNEL_VIF1, true);
   { HardwareTrace::Scope trace("VIF1_DMA_wait");
     HardwareTrace::state("VIF1_WAIT_START");
-    Vif1Queue::drain();
+    frameWaitVif();
     HardwareTrace::state("VIF1_WAIT_END"); }
   billboardSetActive = false;  // Modified by TyraX: main set is resident now
 }
@@ -1885,14 +1904,14 @@ void StaPipQBufferRenderer::ensureProgramSet(const bool& billboard) {
 
   { HardwareTrace::Scope trace("VIF1_DMA_wait");
     HardwareTrace::state("VIF1_WAIT_START");
-    Vif1Queue::drain();
+    frameWaitVif();
     HardwareTrace::state("VIF1_WAIT_END"); }
-  dma_channel_send_packet2(
+  frameSendPacket(
       billboard ? billboardProgramsPacket : programsPacket, DMA_CHANNEL_VIF1,
       true);
   { HardwareTrace::Scope trace("VIF1_DMA_wait");
     HardwareTrace::state("VIF1_WAIT_START");
-    Vif1Queue::drain();
+    frameWaitVif();
     HardwareTrace::state("VIF1_WAIT_END"); }
   if (telemetry != nullptr) {
     ++telemetry->programSetSwaps;
@@ -2458,6 +2477,7 @@ void StaPipQBufferRenderer::endBakedBag() {
       entry->arena = reinterpret_cast<qword_t*>(aligned);
       memcpy(entry->arena, bakeScratch.data(), qw * 16);
       entry->arenaQw = qw;
+      Vif1Queue::registerImmutableSpan(entry->arena, qw);
       entry->complete = 1;
     } else {
       entry->built = 0;  // no room today; try again when some frees up
@@ -2823,7 +2843,7 @@ void StaPipQBufferRenderer::sendPacket() {
   const u32 waitStart = telemetry != nullptr ? readTelemetryTicks() : 0;
   { HardwareTrace::Scope trace("VIF1_DMA_wait");
     HardwareTrace::state("VIF1_WAIT_START");
-    Vif1Queue::drain();
+    frameWaitVif();
     HardwareTrace::state("VIF1_WAIT_END"); }
   if (telemetry != nullptr) {
     ++telemetry->packetFlushes;
@@ -2837,7 +2857,7 @@ void StaPipQBufferRenderer::sendPacket() {
   const u32 gifWaitStart = telemetry != nullptr ? readTelemetryTicks() : 0;
 #endif
   { HardwareTrace::Scope trace("GIF_DMA_wait");
-    dma_channel_wait(DMA_CHANNEL_GIF, 0); }  // Wait for texture. Issue #182.
+    frameWaitGif(DMA_CHANNEL_GIF, 0); }  // Wait for texture. Issue #182.
 #if TYRA_STAPIP_ATTRIB
   if (telemetry != nullptr)
     telemetry->attrib.gifWaitTicks += readTelemetryTicks() - gifWaitStart;
@@ -2893,7 +2913,7 @@ void StaPipQBufferRenderer::sendPacket() {
                  " dropped(no flush)=", probeDropped);
     }
 #endif
-    dma_channel_send_packet2(currentPacket, DMA_CHANNEL_VIF1, probeFlush);
+    frameSendPacket(currentPacket, DMA_CHANNEL_VIF1, probeFlush);
     probePacketUsesPool = false;
 #elif TYRA_VIF1_QUEUE
     // The same write-back dma_channel_send_packet2 performs, then the chain
@@ -2901,10 +2921,12 @@ void StaPipQBufferRenderer::sendPacket() {
 #if !TYRA_VIF1_QUEUE_LAZY_FLUSH
     FlushCache(0);
 #endif
-    packetSequence[context] = Vif1Queue::submit(
-        currentPacket->base, packet2_get_qw_count(currentPacket));
+    bool sourceCopied = false;
+    const u32 sequence = Vif1Queue::submit(
+        currentPacket->base, packet2_get_qw_count(currentPacket), &sourceCopied);
+    packetSequence[context] = sourceCopied ? 0 : sequence;
 #else
-    dma_channel_send_packet2(currentPacket, DMA_CHANNEL_VIF1, true);
+    frameSendPacket(currentPacket, DMA_CHANNEL_VIF1, true);
 #endif
   }
   // Modified by TyraX: the packet's wrap write is on its way (setBagWrap).
@@ -2947,7 +2969,7 @@ void StaPipQBufferRenderer::sendPacket() {
     const u32 waitStart = telemetry != nullptr ? readTelemetryTicks() : 0;
     HardwareTrace::Scope trace("VIF1_DMA_wait");
     HardwareTrace::state("VIF1_WAIT_START");
-    Vif1Queue::waitFor(packetSequence[context]);
+    if (packetSequence[context]) Vif1Queue::waitFor(packetSequence[context]);
     HardwareTrace::state("VIF1_WAIT_END");
     if (telemetry != nullptr)
       telemetry->vu1WaitTicks += readTelemetryTicks() - waitStart;

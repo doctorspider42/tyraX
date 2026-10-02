@@ -12,6 +12,7 @@
 # Modified by TyraX: GIF-channel sends pass path3Fence() first.
 */
 
+#include "renderer/core/paths/path1/frame_submission.hpp"
 #include <dma.h>
 #include "renderer/core/paths/path3/path3_fence.hpp"
 #include "renderer/core/paths/path1/vif1_queue.hpp"
@@ -111,8 +112,8 @@ void RendererCoreSplitView::begin(const int& half) {
   // 3D, or pre-split geometry): the in-stream FLUSH makes the VIF wait, not
   // the EE. The channel wait below only covers the DMA queue - by the time
   // the next half's first mesh is packaged, it has drained.
-  Vif1Queue::drain();
-  dma_channel_send_packet2(beginPackets[half], DMA_CHANNEL_VIF1, true);
+  frameWaitVif();
+  frameSendPacket(beginPackets[half], DMA_CHANNEL_VIF1, true);
 }
 
 void RendererCoreSplitView::end() {
@@ -136,11 +137,11 @@ void RendererCoreSplitView::end() {
                  draw_primitive_xyoffset(endPacket->next, 0,
                                          2048.0F - (w / 2.0F),
                                          2048.0F - (h / 2.0F)));
-  packet2_update(endPacket, draw_finish(endPacket->next));
-  dma_channel_wait(DMA_CHANNEL_GIF, 0);
+  packet2_update(endPacket, frameDrawFinish(endPacket->next));
+  frameWaitGif(DMA_CHANNEL_GIF, 0);
   path3Fence();  // Modified by TyraX: path3_fence.hpp
-  dma_channel_send_packet2(endPacket, DMA_CHANNEL_GIF, true);
-  draw_wait_finish();
+  frameSendPacket(endPacket, DMA_CHANNEL_GIF, true);
+  frameWaitFinish();
 }
 
 }  // namespace Tyra

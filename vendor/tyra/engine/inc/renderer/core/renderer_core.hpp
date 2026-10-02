@@ -366,6 +366,11 @@ class RendererCore : public RendererCore2dBounds {
   }
 
   void setFrameLimit(const bool& onoff) { isFrameLimitOn = onoff; }
+  // Opt-in TyraX2; change between frames. Unsupported modes remain synchronous.
+  void setFramePipeline(bool on);
+  bool getFramePipeline() const { return framePipelineRequested; }
+  // Between-frame GPU readbacks must complete the pending job first.
+  void synchronizeFrame() { completePipelineFrame(); }
 
   /** Get screen settings */
   const RendererSettings& getSettings() const { return settings; }
@@ -389,6 +394,15 @@ class RendererCore : public RendererCore2dBounds {
   void rebuildPermanentBuffers();
   static void rebuildPermanentBuffersThunk(void* user);
   void beginFrameStamp();  // Modified by TyraX
+  void beginFrameRecording();
+  void completePipelineFrame();
+  static void completePipelineFrameThunk(void* user);
+  bool frameMeasurementActive = false;
+  bool pipelineFrameActive = false;
+  bool framePipelineRequested = false;
+  bool pipelineFramePending = false;
+  u32 pipelineSequence = 0;
+  u8 pipelineContext = 0, recordingContext = 0;
 
   bool isFrameLimitOn;
   // Modified by TyraX: has a real frame been presented yet? The warp samples

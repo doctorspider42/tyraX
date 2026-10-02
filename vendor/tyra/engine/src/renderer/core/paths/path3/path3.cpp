@@ -11,6 +11,7 @@
 # Modified by TyraX: GIF-channel sends pass path3Fence() first.
 */
 
+#include "renderer/core/paths/path1/frame_submission.hpp"
 #include <gif_tags.h>
 #include "renderer/core/paths/path3/path3_fence.hpp"
 #include <gs_gp.h>
@@ -24,7 +25,7 @@ Path3::Path3() {
   texturePacket = packet2_create(128, P2_TYPE_NORMAL, P2_MODE_CHAIN, false);
 
   packet2_chain_open_end(drawFinishPacket, 0, 0);
-  packet2_update(drawFinishPacket, draw_finish(drawFinishPacket->next));
+  packet2_update(drawFinishPacket, frameDrawFinish(drawFinishPacket->next));
   packet2_chain_close_tag(drawFinishPacket);
 }
 
@@ -43,9 +44,9 @@ void Path3::init(RendererSettings* t_settings) {
 }
 
 void Path3::sendDrawFinishTag() {
-  dma_channel_wait(DMA_CHANNEL_GIF, 0);
+  frameWaitGif(DMA_CHANNEL_GIF, 0);
   path3Fence();  // Modified by TyraX: path3_fence.hpp
-  dma_channel_send_packet2(drawFinishPacket, DMA_CHANNEL_GIF, true);
+  frameSendPacket(drawFinishPacket, DMA_CHANNEL_GIF, true);
 }
 
 void Path3::clearScreen(zbuffer_t* z, const Color& color) {
@@ -91,7 +92,7 @@ void Path3::clearScreen(zbuffer_t* z, const Color& color) {
     packet2_update(clearScreenPacket, q);
   }
   // Terminate the PATH3 stream with a data-less EOP giftag instead of
-  // upstream's draw_finish(): the EOP bit is load-bearing (without it the
+  // upstream's frameDrawFinish(): the EOP bit is load-bearing (without it the
   // GIF never releases PATH3 and PATH1/XGKICK deadlocks on the first 3D
   // frame), but the FINISH register write is a stray nobody consumes and it
   // can release RendererCoreSync::align3D()'s barrier early (the GS FINISH
@@ -103,9 +104,9 @@ void Path3::clearScreen(zbuffer_t* z, const Color& color) {
     packet2_update(clearScreenPacket, q);
   }
   packet2_chain_close_tag(clearScreenPacket);
-  dma_channel_wait(DMA_CHANNEL_GIF, 0);
+  frameWaitGif(DMA_CHANNEL_GIF, 0);
   path3Fence();  // Modified by TyraX: path3_fence.hpp
-  dma_channel_send_packet2(clearScreenPacket, DMA_CHANNEL_GIF, true);
+  frameSendPacket(clearScreenPacket, DMA_CHANNEL_GIF, true);
 }
 
 void Path3::sendTexture(const Texture* texture,
@@ -136,9 +137,9 @@ void Path3::sendTexture(const Texture* texture,
   packet2_chain_close_tag(texturePacket);
 
   packet2_update(texturePacket, draw_texture_flush(texturePacket->next));
-  dma_channel_wait(DMA_CHANNEL_GIF, 0);
+  frameWaitGif(DMA_CHANNEL_GIF, 0);
   path3Fence();  // Modified by TyraX: path3_fence.hpp
-  dma_channel_send_packet2(texturePacket, DMA_CHANNEL_GIF, true);
+  frameSendPacket(texturePacket, DMA_CHANNEL_GIF, true);
 }
 
 }  // namespace Tyra

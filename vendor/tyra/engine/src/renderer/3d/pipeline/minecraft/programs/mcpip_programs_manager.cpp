@@ -11,6 +11,7 @@
 # (renderer/core/paths/path1/vif1_queue.hpp).
 */
 
+#include "renderer/core/paths/path1/frame_submission.hpp"
 #include "renderer/3d/pipeline/minecraft/programs/mcpip_programs_manager.hpp"
 #include "renderer/core/paths/path1/vif1_queue.hpp"
 
@@ -23,7 +24,7 @@ BlockizerProgramsManager::BlockizerProgramsManager() {
 
   dma_channel_initialize(DMA_CHANNEL_VIF1, nullptr, 0);
 
-  setProgramsCache();
+  programsPacket = nullptr;
 }
 
 void BlockizerProgramsManager::allocateOnUse() {
@@ -39,12 +40,16 @@ void BlockizerProgramsManager::deallocateOnUse() {
 }
 
 BlockizerProgramsManager::~BlockizerProgramsManager() {
-  packet2_free(programsPacket);
+  if (programsPacket) packet2_free(programsPacket);
 }
 
 void BlockizerProgramsManager::init(RendererCore* core, prim_t* prim,
                                     lod_t* lod) {
   rendererCore = core;
+  // Program caching needs the bound Path1 and its draw-finish address.
+  // The constructor has no renderer yet.
+  if (programsPacket) packet2_free(programsPacket);
+  setProgramsCache();
   culler.init(core, &singleTexBlockData, prim, lod);
   clipper.init(core, &singleTexBlockData, &multiTexBlockData, prim, lod);
 }
@@ -59,9 +64,9 @@ void BlockizerProgramsManager::setProgramsCache() {
 }
 
 void BlockizerProgramsManager::uploadVU1Programs() {
-  Vif1Queue::drain();
-  dma_channel_send_packet2(programsPacket, DMA_CHANNEL_VIF1, true);
-  Vif1Queue::drain();
+  frameWaitVif();
+  frameSendPacket(programsPacket, DMA_CHANNEL_VIF1, true);
+  frameWaitVif();
   lastProgramName = UndefinedMcpipProgram;
   vu1BlockData = BlockNotUploaded;
 }
@@ -90,8 +95,8 @@ void BlockizerProgramsManager::uploadBlock(bool isMulti) {
   packet2_utils_vu_add_end_tag(staticPacket);
 
   vu1BlockData = isMulti ? BlockMultiUploaded : BlockSingleUploaded;
-  Vif1Queue::drain();
-  dma_channel_send_packet2(staticPacket, DMA_CHANNEL_VIF1, true);
+  frameWaitVif();
+  frameSendPacket(staticPacket, DMA_CHANNEL_VIF1, true);
 }
 
 void BlockizerProgramsManager::cullSpam(McpipBlock*** blockPointerArrays,
@@ -171,12 +176,12 @@ void BlockizerProgramsManager::sendPacket(McpipProgram* program) {
 
   packet2_utils_vu_add_end_tag(currentPacket);
 
-  Vif1Queue::drain();
-  dma_channel_wait(DMA_CHANNEL_GIF, 0);  // Wait for texture. Issue #182.
+  frameWaitVif();
+  frameWaitGif(DMA_CHANNEL_GIF, 0);  // Wait for texture. Issue #182.
 
   // dma_wait_fast(); // This have no impact on performance
 
-  dma_channel_send_packet2(currentPacket, DMA_CHANNEL_VIF1, true);
+  frameSendPacket(currentPacket, DMA_CHANNEL_VIF1, true);
   context = !context;
 }
 

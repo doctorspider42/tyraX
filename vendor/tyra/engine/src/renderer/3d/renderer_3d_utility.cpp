@@ -10,6 +10,7 @@
 # Modified by TyraX: GIF-channel sends pass path3Fence() first.
 */
 
+#include "renderer/core/paths/path1/frame_submission.hpp"
 #include "renderer/3d/renderer_3d_utility.hpp"
 #include "renderer/core/paths/path3/path3_fence.hpp"
 #include "debug/debug.hpp"
@@ -102,14 +103,14 @@ void Renderer3DUtility::drawLine(const Vec4& from, const Vec4& to,
   packet2_update(packet,
                  draw_prim_end(packet->next, 2, TYRA_UTILS_LINE_REGLIST));
 
-  packet2_update(packet, draw_finish(packet->next));
+  packet2_update(packet, frameDrawFinish(packet->next));
 
   packet2_chain_close_tag(packet);
 
-  dma_channel_wait(DMA_CHANNEL_GIF, 0);
+  frameWaitGif(DMA_CHANNEL_GIF, 0);
   path3Fence();  // Modified by TyraX: path3_fence.hpp
-  dma_channel_send_packet2(packet, DMA_CHANNEL_GIF, true);
-  dma_channel_wait(DMA_CHANNEL_GIF, 0);
+  frameSendPacket(packet, DMA_CHANNEL_GIF, true);
+  frameWaitGif(DMA_CHANNEL_GIF, 0);
 
   packet2_free(packet);
 }
@@ -169,14 +170,14 @@ void Renderer3DUtility::drawBBox(const CoreBBox& v, const Color& color) {
     return;
   }
 
-  packet2_update(packet, draw_finish(packet->next));
+  packet2_update(packet, frameDrawFinish(packet->next));
 
   packet2_chain_close_tag(packet);
 
-  dma_channel_wait(DMA_CHANNEL_GIF, 0);
+  frameWaitGif(DMA_CHANNEL_GIF, 0);
   path3Fence();  // Modified by TyraX: path3_fence.hpp
-  dma_channel_send_packet2(packet, DMA_CHANNEL_GIF, true);
-  dma_channel_wait(DMA_CHANNEL_GIF, 0);
+  frameSendPacket(packet, DMA_CHANNEL_GIF, true);
+  frameWaitGif(DMA_CHANNEL_GIF, 0);
 
   packet2_free(packet);
 }

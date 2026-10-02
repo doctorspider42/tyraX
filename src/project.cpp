@@ -1761,6 +1761,7 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
                  : "")
          << (p.settings.dither ? "" : "    \"dither\": false,\n")
          << (p.settings.tripleBuffering ? "    \"tripleBuffering\": true,\n" : "")
+         << (p.settings.framePipeline ? "    \"framePipeline\": true,\n" : "")
          << (p.settings.frameExtrapolation ? "    \"frameExtrapolation\": true,\n" : "")
          << (p.settings.frameExtrapolationPlane != 0.0f
                  ? "    \"frameExtrapolationPlane\": " +
@@ -6312,6 +6313,8 @@ static void readSettingsSection(const json::Value& root, Project& out) {
         if (const auto* v = s->find("dither")) st.dither = v->boolOr(true);
         if (const auto* v = s->find("tripleBuffering"))
             st.tripleBuffering = v->boolOr(false);
+        if (const auto* v = s->find("framePipeline"))
+            st.framePipeline = v->boolOr(false);
         if (const auto* v = s->find("frameExtrapolation"))
             st.frameExtrapolation = v->boolOr(false);
         if (const auto* v = s->find("frameExtrapolationPlane"))

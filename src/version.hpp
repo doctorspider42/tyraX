@@ -1,5 +1,8 @@
 #pragma once
 
+// 1.169.0: opt-in TyraX2 ordered frame recording and N/N-1 execution.
+// Format v94 adds framePipeline, absent/false preserves ordinary submission.
+
 // 1.162.3: merge native build caching, scene-data separation, parallel game
 // compilation and OpenVCL output checks with painted sky/shadow/handbrake fixes.
 // Project format remains v89 from vehicles.
@@ -5515,7 +5518,7 @@
 // host-baked albedo map (REFL_GROUND_*): -2 ms a turning frame on the Motor
 // District's open road on a PS2.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 168
+#define TYRAX_VERSION_MINOR 169
 // 1.168.0: Use enters the car you LOOK at (in reach + under the camera aim,
 // vehicleUseTarget), not whichever is near; the prompt follows it. Exiting
 // picks the first spot clear of every collision box - a walker placed
@@ -6104,7 +6107,8 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // written with the rest of the spec. Missing = no markers (the guessed pipes)
 // and smoke 1, i.e. an older car smokes too - it is presentation. Additive;
 // no migration step.
-inline constexpr int kFormatVersion = 93;
+// v94 adds the optional framePipeline project preference (default false).
+inline constexpr int kFormatVersion = 94;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

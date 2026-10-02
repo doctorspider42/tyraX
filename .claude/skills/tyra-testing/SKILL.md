@@ -4116,4 +4116,89 @@ seated-start day/night fixtures with plain/timing/check/hold engine modes.
 Refresh and build the returned game against its copied engine, keep one host
 server, and use the resident-IOP marker. Preserve the authored video mode:
 NTSC's 16.667 ms budget is not FRAMETIME's fixed over20 threshold.
-Frame arenas and N/N-1 execution are still future stages, not shipped behavior.
+Frame arenas and N/N-1 now have an experimental runtime path; see the later section.
+
+
+Experimental TyraX2 chain arena (2026-10-02): TYRA_FRAME_CHAIN_ARENA remains
+OFF by default. It snapshots packet bytes and REF arrays into a bounded 1 MiB
+allocation, preserving independent chains. Queue metadata grows without growing
+producer buffers/copy pools. sourceCopied frees only the original source; retain
+the actual DMA sequence for ordered fences (especially the HUD PATH3 fence).
+Reclaim only on completed drain. Overflow drains/retries once; oversized or
+unsupported input and allocation failure retain ordinary source waits. Test
+with tools/verify-frame-arena.cpp and separate arena-check/arena-timing fixtures;
+FRAMEARENA reports allocation/high-water/fallbacks. It is not cross-frame
+execution or an accepted performance improvement yet.
+
+R5900 arena copy uses aligned LQ/SQ quads under TYRA_FRAME_ARENA_QUAD_COPY;
+with TYRA_VIF1_CHAIN_CHECK each copied span is memcmp-verified on hardware
+before publication. Host tests exercise the memcpy fallback, not EE assembly.
+The initial 1 MiB/libc-copy night arm regressed work from ~19.92 to ~34.02 ms;
+do not ship it or infer a pipeline gain. Larger banks need explicit RAM and
+full-frame-byte accounting before choosing two-frame storage.
+
+Immutable baked VIF spans may be registered with the experimental arena to
+avoid redundant frame copies. StaPipBakedStreams::retire unregisters and waits
+for actual DMA readers before poison/destruction; two frame ticks alone are
+not a fence. A full 512-entry registry and all unregistered/mutable arrays use
+copy fallback. Validate eviction/replacement/scene teardown as well as a parked
+view before accepting pinning for cross-frame recording.
+
+Keep immutable span lookup logarithmic: the initial linear 512-slot scan
+negated pinning's avoided ~2.15 MiB/frame and measured ~33.96 ms; sorted disjoint
+ranges reached ~20.88 ms in the same warmed night window. The ~19.92 ms control
+still wins, so ownership alone is not an accepted optimization.
+
+frame_vif_writer.hpp is a native CNT/REF recorder with one END at finish,
+bounded capacity and unsubmitted rollback. tools/verify-frame-writer.cpp
+compares ordered VIF words/data with an independent oracle. It is integrated experimentally; hardware ordering and N/N-1 acceptance
+is recorded in docs/tyrax2.md. Broader scene/mode coverage remains required.
+
+Experimental TYRA_NATIVE_VIF_RECORD records owned sources as native CNT/REF
+operations with one END per ordered segment. Foreign-path barriers still
+flush; do not claim one full-frame chain or N/N-1 yet. Completion retires the
+batch's last logical source sequence, zero is reserved across wrap, and prefix
+reuse waits actual DMA. Reconstruct operations, never splice END/NEXT buffers.
+Both lazy and eager paths must write back AFTER final prefix/snapshot writes.
+
+TyraX2 ordered frame runtime (1.169.0, format v94): the optional project setting
+framePipeline defaults false and emits setFramePipeline(true) only when enabled.
+Engine support is compiled but disabled projects do not allocate frame banks.
+Ordering-only GIF/VIF waits use frame_submission.hpp; actual resource destruction,
+readback and presentation retain real completion fences. Intermediate FINISH
+commands become EOP-only while recording. Two banks each own a 1 MiB snapshot
+arena and 128 KiB native prefix; snapshot inline data becomes REF, avoiding a
+second copy. Keep logical recording target separate from the pending GPU job's
+context. Complete/present the previous job before the new prefix starts, including
+overflow, and protect the unsubmitted bank against that handshake's drain/reset.
+Field mode and active BLSS use synchronous compatibility. Warp, mode changes and
+permanent VRAM rebuilds complete pending jobs first. FRAMEPIPELINE busy-starts
+prove actual overlap; ORDEREDFRAME split counts must stop increasing in an ordinary
+warmed fixture before claiming one-chain frames. See docs/tyrax2.md for acceptance
+and honest timing limits; early work counters included presentation pacing.
+
+TyraX2 acceptance also covers deferred immutable-bank retirement, a borrowed
+oversized first transfer, mode changes with a pending job, limiter and runtime
+opt-in toggles, and between-frame synchronizeFrame readbacks. Triple buffering
+without a limiter is a synchronous compatibility case. Presentation pacing is
+excluded only while a beginFrame/endFrame measurement window is open; do not
+subtract a between-frame readback's pacing from the next recording window.
+
+The final pipeline-check/pipeline-timing fixture modes enable the public
+settings.framePipeline API after game initialization; diagnostic arena/native/
+ordered/pipeline defaults stay zero. Plain and earlier-stage fixture modes
+explicitly disable the project preference, even if the copied project enabled
+it. This keeps a baseline control from silently measuring the new pipeline.
+
+
+Final 1.169.0 acceptance is in `docs/tyrax2-runtime-2026-10-02.json`.
+Windows and Linux ASan/UBSan passed 1,074 arena cases plus 10,000 malformed
+streams and 43 writer-oracle cases. The final guarded driving fixture switched
+all three Motor District scenes, reached 3,360 frames/233,472 accepted source
+chains with zero rejection, four split frames and no direct fallback. Public
+Live Debugger readback passed with the runtime preference on. Native and Docker
+PS2 builds passed. Final physical day timing is ONE boot (17.152 ms full period,
+13.992 ms critical-path work); its repeat hit pre-gameplay freepad DMA Busy.
+Final night hardware timing and input-latency measurement remain pending a
+physical power cycle. Never substitute emulator FPS or predecessor night work
+for those checks.

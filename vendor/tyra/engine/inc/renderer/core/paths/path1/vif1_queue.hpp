@@ -6,7 +6,22 @@
 #pragma once
 
 #include <tamtypes.h>
+#include <packet2.h>
 #include "renderer/core/paths/path1/vif1_chain_check.hpp"
+#include "renderer/core/paths/path1/frame_chain_arena.hpp"
+#include "renderer/core/paths/path1/frame_vif_writer.hpp"
+
+// Experimental native recording of each ordered VIF segment. Foreign-path
+// barriers still flush segments; whole-frame ordering and N/N-1 are later.
+#ifndef TYRA_NATIVE_VIF_RECORD
+#define TYRA_NATIVE_VIF_RECORD 0
+#endif
+#ifndef TYRA_ORDERED_FRAME
+#define TYRA_ORDERED_FRAME 0
+#endif
+#ifndef TYRA_FRAME_PIPELINE
+#define TYRA_FRAME_PIPELINE 0
+#endif
 
 /**
  * TYRA_VIF1_QUEUE: 1 = the static pipeline hands finished packets to Vif1Queue
@@ -103,7 +118,10 @@ class Vif1Queue {
    * itself before the chain starts. Returns the sequence number for waitFor().
    */
   // qwords includes the terminator; mandatory in a chain-check build.
-  static u32 submit(const void* chain, u32 qwords = 0);
+  // sourceCopied only releases the original EE source. The returned sequence
+  // still fences the DMA and must be used for ordering/GS barriers.
+  static u32 submit(const void* chain, u32 qwords = 0,
+                    bool* sourceCopied = nullptr);
 
   /** Blocks until the chain with this sequence number has been transferred. */
   static void waitFor(u32 sequence);
@@ -113,6 +131,28 @@ class Vif1Queue {
 
   /** True while a chain submitted here is still owned by the DMAC. */
   static bool busy();
+
+  // Experimental arena accounting after the normal end-of-frame DMA drain.
+  static void arenaFrameEnd();
+  // Engine-owned immutable baked streams only. Unregister fences all readers
+  // before the owner can poison, replace or release the storage.
+  static bool registerImmutableSpan(const void* base, u32 qwords);
+  static void unregisterImmutableSpan(const void* base);
+  static void retireImmutableSpan(const void* base);
+  static bool immutableSpanReady(const void* base);
+  static bool collectRetiredImmutableSpan(const void* base);
+  static void flushRecording();
+  static bool recordingFrame();
+  // Foreign GPU submissions between frames complete the pending presentation.
+  static void synchronizeExternal();
+  static void beginRecordingFrame(bool pipeline = false);
+  static void endRecordingFrame();
+  static void recordBarrier();
+  static bool recordGif(const packet2_t* packet);
+  static u32 lastSequence();
+  static bool pipelineAvailable();
+  static void setRuntimePipeline(bool enabled);
+  static void setBeforeFrameSubmit(void (*callback)(void*), void* user);
 
   /**
    * A chain that is still being BUILT and has to reach VIF1 before anything
@@ -149,6 +189,7 @@ class Vif1Queue {
 
  private:
   static void start(u32 chain, u32 sequence);
+  static void enqueue(const void* chain, u32 sequence);
 };
 
 }  // namespace Tyra

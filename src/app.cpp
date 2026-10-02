@@ -15733,6 +15733,13 @@ void App::drawPreferencesWindow() {
                                 modeList(tbModes.fitting).c_str());
         }
     }
+    ImGui::Checkbox("TyraX2 frame pipeline", &prefSettings_.framePipeline);
+    prefHelp("Prepare the next frame while the GPU executes the previous one.\n"
+             "Uses about 2.25 MB of extra EE RAM and adds one queued frame\n"
+             "of input latency. Field rendering, temporal upscaling and\n"
+             "unlimited triple buffering use synchronous compatibility.\n"
+             "Memory overflow splits a frame.\n"
+             "Experimental: measure your game's frame pacing before enabling.");
     ImGui::Checkbox("Disable VSync (experimental)", &prefSettings_.disableVsync);
     prefHelp(
         "Skips the vsync wait before the buffer flip. The frame rate becomes\n"

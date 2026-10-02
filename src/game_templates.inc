@@ -4393,7 +4393,7 @@ TerrainGame::~TerrainGame() {}
 
 
 void TerrainGame::init() {
-  // Configurable buttons/keys (Tools > Input Map): hand the input runtime the
+{{FRAME_PIPELINE_SETUP}}  // Configurable buttons/keys (Tools > Input Map): hand the input runtime the
   // engine (its keyboard/mouse half needs it) and resolve the boot preset into
   // the live bindings before anything reads a button.
   inputAttach(engine);
@@ -6654,7 +6654,7 @@ TerrainGame::~TerrainGame() {}
 
 
 void TerrainGame::init() {
-  // Configurable buttons/keys (Tools > Input Map): hand the input runtime the
+{{FRAME_PIPELINE_SETUP}}  // Configurable buttons/keys (Tools > Input Map): hand the input runtime the
   // engine (its keyboard/mouse half needs it) and resolve the boot preset into
   // the live bindings before anything reads a button.
   inputAttach(engine);

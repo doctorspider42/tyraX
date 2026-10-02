@@ -360,7 +360,11 @@ Developer design docs (internals, not user guides):
 
 [Editor viewport performance](editor-performance.md) explains conservative offscreen model rejection and how to compare navigation costs without changing visual quality.
 
-## TyraX2 renderer foundations
+## TyraX2 frame pipeline
 
-[TyraX2](tyrax2.md) tracks the staged frame-pipeline migration, the opt-in
-pre-submit DMA/VIF guard and isolated current Motor District day/night fixtures.
+[TyraX2](tyrax2.md) documents the experimental opt-in ordered frame recorder,
+two owned banks for EE/GPU overlap, compatibility and overflow fences, chain
+validation, and reproducible physical-console correctness/performance controls.
+The [1.169.0 runtime acceptance record](tyrax2-runtime-2026-10-02.json) preserves
+final day hardware timing, emulator/host coverage and pending hardware repeats;
+the earlier arena record remains historical experiment evidence.

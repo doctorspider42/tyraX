@@ -3096,3 +3096,19 @@ Graph edits are staged until unfreezing; explicit bake/clear, instance editing
 and runtime mode changes are disabled while frozen. clearVolume still supports
 volume deletion. Never implement freeze only in the UI: headless builds and
 reopening must preserve the same saved geometry.
+
+TyraX2 ordered frame runtime (1.169.0, format v94): the optional project setting
+framePipeline defaults false and emits setFramePipeline(true) only when enabled.
+Engine support is compiled but disabled projects do not allocate frame banks.
+Ordering-only GIF/VIF waits use frame_submission.hpp; actual resource destruction,
+readback and presentation retain real completion fences. Intermediate FINISH
+commands become EOP-only while recording. Two banks each own a 1 MiB snapshot
+arena and 128 KiB native prefix; snapshot inline data becomes REF, avoiding a
+second copy. Keep logical recording target separate from the pending GPU job's
+context. Complete/present the previous job before the new prefix starts, including
+overflow, and protect the unsubmitted bank against that handshake's drain/reset.
+Field mode and active BLSS use synchronous compatibility. Warp, mode changes and
+permanent VRAM rebuilds complete pending jobs first. FRAMEPIPELINE busy-starts
+prove actual overlap; ORDEREDFRAME split counts must stop increasing in an ordinary
+warmed fixture before claiming one-chain frames. See docs/tyrax2.md for acceptance
+and honest timing limits; early work counters included presentation pacing.

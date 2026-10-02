@@ -9,6 +9,7 @@
 # Modified by TyraX: GIF-channel sends pass path3Fence() first.
 */
 
+#include "renderer/core/paths/path1/frame_submission.hpp"
 #include <dma.h>
 #include "renderer/core/paths/path3/path3_fence.hpp"
 #include <draw.h>
@@ -116,10 +117,10 @@ void RendererCorePostFx::uploadNoise() {
                                        noiseSize, GS_PSM_32, noiseVram,
                                        noiseSize));
   packet2_update(transfer, draw_texture_flush(transfer->next));
-  dma_channel_wait(DMA_CHANNEL_GIF, 0);
+  frameWaitGif(DMA_CHANNEL_GIF, 0);
   path3Fence();  // Modified by TyraX: path3_fence.hpp
-  dma_channel_send_packet2(transfer, DMA_CHANNEL_GIF, true);
-  dma_channel_wait(DMA_CHANNEL_GIF, 0);
+  frameSendPacket(transfer, DMA_CHANNEL_GIF, true);
+  frameWaitGif(DMA_CHANNEL_GIF, 0);
   packet2_free(transfer);
   free(pixels);
 }
@@ -301,11 +302,11 @@ void RendererCorePostFx::portalMaskBegin(int x0, int y0, int x1, int y1) {
   PACK_GIFTAG(q, GS_SET_SCISSOR(x0, x1 - 1, y0, y1 - 1), GS_REG_SCISSOR_1);
   q++;
   packet2_update(packet, q);
-  packet2_update(packet, draw_finish(packet->next));
-  dma_channel_wait(DMA_CHANNEL_GIF, 0);
+  packet2_update(packet, frameDrawFinish(packet->next));
+  frameWaitGif(DMA_CHANNEL_GIF, 0);
   path3Fence();  // Modified by TyraX: path3_fence.hpp
-  dma_channel_send_packet2(packet, DMA_CHANNEL_GIF, true);
-  draw_wait_finish();
+  frameSendPacket(packet, DMA_CHANNEL_GIF, true);
+  frameWaitFinish();
 }
 
 void RendererCorePostFx::portalMaskEnd(const float* xy, const u32* z,
@@ -399,11 +400,11 @@ void RendererCorePostFx::portalMaskEnd(const float* xy, const u32* z,
   q = gs->emitRasterRestore(q, false);
 
   packet2_update(packet, q);
-  packet2_update(packet, draw_finish(packet->next));
-  dma_channel_wait(DMA_CHANNEL_GIF, 0);
+  packet2_update(packet, frameDrawFinish(packet->next));
+  frameWaitGif(DMA_CHANNEL_GIF, 0);
   path3Fence();  // Modified by TyraX: path3_fence.hpp
-  dma_channel_send_packet2(packet, DMA_CHANNEL_GIF, true);
-  draw_wait_finish();
+  frameSendPacket(packet, DMA_CHANNEL_GIF, true);
+  frameWaitFinish();
 }
 
 qword_t* RendererCorePostFx::gradingQuads(qword_t* q, int fbVram,
@@ -783,11 +784,11 @@ void RendererCorePostFx::apply(int passes) {
                  draw_primitive_xyoffset(packet->next, 0,
                                          2048.0F - (fbW / 2.0F),
                                          2048.0F - (fbH / 2.0F)));
-  packet2_update(packet, draw_finish(packet->next));
-  dma_channel_wait(DMA_CHANNEL_GIF, 0);
+  packet2_update(packet, frameDrawFinish(packet->next));
+  frameWaitGif(DMA_CHANNEL_GIF, 0);
   path3Fence();  // Modified by TyraX: path3_fence.hpp
-  dma_channel_send_packet2(packet, DMA_CHANNEL_GIF, true);
-  draw_wait_finish();
+  frameSendPacket(packet, DMA_CHANNEL_GIF, true);
+  frameWaitFinish();
 }
 
 void RendererCorePostFx::applyCustom(CustomFxBuild build, void* user) {
@@ -850,11 +851,11 @@ void RendererCorePostFx::applyCustom(CustomFxBuild build, void* user) {
                  draw_primitive_xyoffset(packet->next, 0,
                                          2048.0F - (fbW / 2.0F),
                                          2048.0F - (fbH / 2.0F)));
-  packet2_update(packet, draw_finish(packet->next));
-  dma_channel_wait(DMA_CHANNEL_GIF, 0);
+  packet2_update(packet, frameDrawFinish(packet->next));
+  frameWaitGif(DMA_CHANNEL_GIF, 0);
   path3Fence();  // Modified by TyraX: path3_fence.hpp
-  dma_channel_send_packet2(packet, DMA_CHANNEL_GIF, true);
-  draw_wait_finish();
+  frameSendPacket(packet, DMA_CHANNEL_GIF, true);
+  frameWaitFinish();
 }
 
 }  // namespace Tyra

@@ -11,6 +11,7 @@
 # Modified by TyraX: GIF-channel sends pass path3Fence() first.
 */
 
+#include "renderer/core/paths/path1/frame_submission.hpp"
 #include <dma.h>
 #include "renderer/core/paths/path3/path3_fence.hpp"
 #include <draw.h>
@@ -391,10 +392,10 @@ void RendererCoreWarp::draw(const WarpCamera& from, const WarpCamera& to) {
   q = gs->emitRasterRestore(q, true);
 
   packet2_update(packet, q);
-  dma_channel_wait(DMA_CHANNEL_GIF, 0);
+  frameWaitGif(DMA_CHANNEL_GIF, 0);
   path3Fence();  // Modified by TyraX: path3_fence.hpp
-  dma_channel_send_packet2(packet, DMA_CHANNEL_GIF, true);
-  dma_channel_wait(DMA_CHANNEL_GIF, 0);
+  frameSendPacket(packet, DMA_CHANNEL_GIF, true);
+  frameWaitGif(DMA_CHANNEL_GIF, 0);
 }
 
 }  // namespace Tyra

@@ -19,6 +19,8 @@ tools/*
 !tools/tyrax2-fixture.py
 !tools/tyrax2-timing.py
 !tools/verify-vif1-chain.cpp
+!tools/verify-frame-arena.cpp
+!tools/verify-frame-writer.cpp
 !tools/hardware-trace.py
 !tools/hardware-probe.py
 !tools/instrument-frame-cost.py

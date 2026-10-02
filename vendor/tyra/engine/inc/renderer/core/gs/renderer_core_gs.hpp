@@ -251,6 +251,16 @@ class RendererCoreGS {
    * genuinely want this one; a raster bracket's end() wants the other.
    */
   framebuffer_t* getCurrentFrameBuffer() { return &frameBuffers[context]; }
+  // CPU recording target only; no GS write or ownership hand-off occurs here.
+  u8 getRecordingContext() const { return context; }
+  void setRecordingContext(u8 target) { context = target; }
+  u8 nextRecordingContext() const {
+    if (settings->isHybridOutput()) return 0;
+    if (bufferCount < 3) return context ^ 1;
+    const s32 queued = pendingBuffer;
+    const s32 shown = queued >= 0 ? queued : displayedBuffer;
+    return static_cast<u8>(3 - shown - context);
+  }
 
   /** Where the frame is currently being rasterised (TyraX fork): the BLSS
    * low-res target while its bracket is open, the display buffer otherwise. */

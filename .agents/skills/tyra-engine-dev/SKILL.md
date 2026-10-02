@@ -3340,7 +3340,7 @@ seated-start day/night fixtures with plain/timing/check/hold engine modes.
 Refresh and build the returned game against its copied engine, keep one host
 server, and use the resident-IOP marker. Preserve the authored video mode:
 NTSC's 16.667 ms budget is not FRAMETIME's fixed over20 threshold.
-Frame arenas and N/N-1 execution are still future stages, not shipped behavior.
+Frame arenas and N/N-1 now have an experimental runtime path; see the later section.
 
 
 DMA chain checks must ignore reserved tag bits 16-25: ps2sdk's
@@ -3349,3 +3349,98 @@ padding untouched (packet2_reset(false) retains it). The initial TyraX2 IRQ
 check also rejected those padding bits and falsely parked the night fixture
 on loading with audio still running. Mask only real controls (0x8c000000 for
 IRQ/PCE); the host regression harness keeps a valid END with dirty padding.
+
+
+Experimental TyraX2 chain arena (2026-10-02): TYRA_FRAME_CHAIN_ARENA remains
+OFF by default. It snapshots packet bytes and REF arrays into a bounded 1 MiB
+allocation, preserving independent chains. Queue metadata grows without growing
+producer buffers/copy pools. sourceCopied frees only the original source; retain
+the actual DMA sequence for ordered fences (especially the HUD PATH3 fence).
+Reclaim only on completed drain. Overflow drains/retries once; oversized or
+unsupported input and allocation failure retain ordinary source waits. Test
+with tools/verify-frame-arena.cpp and separate arena-check/arena-timing fixtures;
+FRAMEARENA reports allocation/high-water/fallbacks. It is not cross-frame
+execution or an accepted performance improvement yet.
+
+R5900 arena copy uses aligned LQ/SQ quads under TYRA_FRAME_ARENA_QUAD_COPY;
+with TYRA_VIF1_CHAIN_CHECK each copied span is memcmp-verified on hardware
+before publication. Host tests exercise the memcpy fallback, not EE assembly.
+The initial 1 MiB/libc-copy night arm regressed work from ~19.92 to ~34.02 ms;
+do not ship it or infer a pipeline gain. Larger banks need explicit RAM and
+full-frame-byte accounting before choosing two-frame storage.
+
+Immutable baked VIF spans may be registered with the experimental arena to
+avoid redundant frame copies. StaPipBakedStreams::retire unregisters and waits
+for actual DMA readers before poison/destruction; two frame ticks alone are
+not a fence. A full 512-entry registry and all unregistered/mutable arrays use
+copy fallback. Validate eviction/replacement/scene teardown as well as a parked
+view before accepting pinning for cross-frame recording.
+
+Keep immutable span lookup logarithmic: the initial linear 512-slot scan
+negated pinning's avoided ~2.15 MiB/frame and measured ~33.96 ms; sorted disjoint
+ranges reached ~20.88 ms in the same warmed night window. The ~19.92 ms control
+still wins, so ownership alone is not an accepted optimization.
+
+frame_vif_writer.hpp is a native CNT/REF recorder with one END at finish,
+bounded capacity and unsubmitted rollback. tools/verify-frame-writer.cpp
+compares ordered VIF words/data with an independent oracle. It is integrated experimentally; hardware ordering and N/N-1 acceptance
+is recorded in docs/tyrax2.md. Broader scene/mode coverage remains required.
+
+Experimental TYRA_NATIVE_VIF_RECORD records owned sources as native CNT/REF
+operations with one END per ordered segment. Foreign-path barriers still
+flush; do not claim one full-frame chain or N/N-1 yet. Completion retires the
+batch's last logical source sequence, zero is reserved across wrap, and prefix
+reuse waits actual DMA. Reconstruct operations, never splice END/NEXT buffers.
+Both lazy and eager paths must write back AFTER final prefix/snapshot writes.
+
+TyraX2 ordered frame runtime (1.169.0, format v94): the optional project setting
+framePipeline defaults false and emits setFramePipeline(true) only when enabled.
+Engine support is compiled but disabled projects do not allocate frame banks.
+Ordering-only GIF/VIF waits use frame_submission.hpp; actual resource destruction,
+readback and presentation retain real completion fences. Intermediate FINISH
+commands become EOP-only while recording. Two banks each own a 1 MiB snapshot
+arena and 128 KiB native prefix; snapshot inline data becomes REF, avoiding a
+second copy. Keep logical recording target separate from the pending GPU job's
+context. Complete/present the previous job before the new prefix starts, including
+overflow, and protect the unsubmitted bank against that handshake's drain/reset.
+Field mode and active BLSS use synchronous compatibility. Warp, mode changes and
+permanent VRAM rebuilds complete pending jobs first. FRAMEPIPELINE busy-starts
+prove actual overlap; ORDEREDFRAME split counts must stop increasing in an ordinary
+warmed fixture before claiming one-chain frames. See docs/tyrax2.md for acceptance
+and honest timing limits; early work counters included presentation pacing.
+
+TyraX2 retirement leases (2026-10-02): baked spans mark retired immediately,
+but keep storage until both actual bank readers finish. The two graveyard slots
+are collection queues, not lifetime proof; collectRetiredImmutableSpan must pass
+before freeing. Debug poisoning and immediate unregister retain real drains.
+An unsupported first transfer must complete the previous presentation even if
+there is no native prefix to flush. Protect the unsubmitted bank during callback
+fences, then wait any borrowed direct DMA before returning to its producer.
+Unlimited triple buffering joins field rendering and BLSS in synchronous
+compatibility. Between-frame GPU readbacks call synchronizeFrame().
+
+Presentation callbacks must suspend and restore path3FencePending for the
+UNSUBMITTED new HUD as well as protecting the new bank. A mid-HUD overflow
+otherwise self-deadlocks in the old job's flip, waiting on the new prefix that
+the callback is preventing from starting. The 9,000-qword DIRECT fallback
+fixture caught this even though ordinary parked frames and driving passed.
+Refused first pipeline allocation releases all partial banks transactionally.
+Minecraft's program cache requires a bound RendererCore: initialize it in
+BlockizerProgramsManager::init, not in the constructor.
+
+The runtime frame's sole final FINISH is recorded as FLUSHA/DIRECT in the native
+chain; completePipelineFrame waits its event and clears it, without issuing a
+second VIF1 helper chain. Clear the old FINISH bit only after the previous
+callback consumed it and before starting a new prefix. Overflow prefixes do
+not carry a final FINISH. Foreign transfers outside recording complete a pending
+job first (skip reentrancy while protecting the presentation callback). Borrowed
+direct fallbacks record FLUSHA, drain actual DMA AND the VIF FIFO, then send and
+wait their own DMA before allowing producer reuse.
+
+When ordinary RendererCoreSync::clear starts a new FINISH handshake outside
+recording, complete the pending pipeline job BEFORE clearing its FINISH event.
+Clearing first and only synchronizing in the later physical send loses a
+completed event and wedges loading on hardware. While recording, clear is an
+ordering-only no-op: intermediate FINISH packets are suppressed, and the old
+job still owns that bit. Test explicit foreign align2D/align3D between frames,
+not only parked draws, alongside the frame-end marker.

@@ -1,3 +1,4 @@
+// Modified by TyraX: optional ordered frame submission.
 /*
 # _____        ____   ___
 #   |     \/   ____| |___|
@@ -34,6 +35,8 @@ static u32 prevPresentEnd = 0;
 
 RendererCore::RendererCore() {
   isFrameLimitOn = true;
+  framePipelineRequested = TYRA_FRAME_PIPELINE != 0;
+  Vif1Queue::setRuntimePipeline(framePipelineRequested);
   // Modified by TyraX: bgColor was never initialised, and it is READ before
   // any game code can set it - Engine::init runs banner.show() right after
   // renderer.init(), and the logo hold clears the framebuffer with it every
@@ -44,9 +47,13 @@ RendererCore::RendererCore() {
   // nothing in the game changed to explain it. Black, deterministically.
   bgColor = Color(0.0F, 0.0F, 0.0F, 128.0F);
 }
-RendererCore::~RendererCore() {}
+RendererCore::~RendererCore() {
+  completePipelineFrame();
+  Vif1Queue::setBeforeFrameSubmit(nullptr, nullptr);
+}
 
 void RendererCore::init(const RendererOptions& options) {
+  Vif1Queue::setBeforeFrameSubmit(&RendererCore::completePipelineFrameThunk, this);
   settings.setVideoMode(options.videoMode);
   // Must precede gs.init - it sizes the frame/z buffers (TyraX fork).
   settings.setDisplayMode(options.displayMode);
@@ -111,6 +118,7 @@ void RendererCore::setClearScreenColor(const Color& color) { bgColor = color; }
 // the display geometry has not changed, and reinit()'s programDisplay() would
 // reset the GS and blank the output in the middle of a game's init().
 void RendererCore::rebuildPermanentBuffers() {
+  completePipelineFrame();
   texture.evictAll();
   gs.reallocateBuffers();
   postFx.init(&settings, &gs);
@@ -137,6 +145,7 @@ void RendererCore::setDisplayOutput(const DisplayMode& mode,
   const bool modeChanged = settings.getDisplayMode() != mode;
   const bool wsChanged = settings.getWidescreen() != widescreen;
   if (!modeChanged && !wsChanged) return;
+  completePipelineFrame();
 
   // Modified by TyraX: Hybrid's two-buffer present leaves its PATH3 copy
   // in flight. Drain both paths before a mode change resets the GS and moves
@@ -329,6 +338,8 @@ void RendererCore::beginFrame() {
                                  FrameProfile::prevPresentEnd
                            : 0;
 #endif
+  frameMeasurementActive = true;
+  beginFrameRecording();
   beginFrameStamp();
   renderer3D.update();
   drained3DFor2D = false;
@@ -346,6 +357,8 @@ void RendererCore::beginFrame(const CameraInfo3D& cameraInfo) {
                                  FrameProfile::prevPresentEnd
                            : 0;
 #endif
+  frameMeasurementActive = true;
+  beginFrameRecording();
   beginFrameStamp();
   renderer3D.update(cameraInfo);
   drained3DFor2D = false;
@@ -405,6 +418,55 @@ void RendererCore::beginFrameStamp() {
   hud2dY0 = 1 << 20;
   hud2dX1 = -1;
   hud2dY1 = -1;
+}
+
+void RendererCore::beginFrameRecording() {
+  // Field bias and temporal readbacks retain synchronous compatibility.
+  pipelineFrameActive = framePipelineRequested && !settings.isFieldRendering() &&
+                        !blss.isEnabled() &&
+                        (isFrameLimitOn || gs.getFrameBufferCount() < 3) &&
+                        Vif1Queue::pipelineAvailable();
+  if (!pipelineFrameActive) completePipelineFrame();
+  if (pipelineFrameActive && pipelineFramePending)
+    gs.setRecordingContext(gs.nextRecordingContext());
+  recordingContext = gs.getRecordingContext();
+  Vif1Queue::beginRecordingFrame(pipelineFrameActive);
+}
+
+void RendererCore::setFramePipeline(bool on) {
+  completePipelineFrame();
+  framePipelineRequested = on;
+  Vif1Queue::setRuntimePipeline(on);
+}
+
+void RendererCore::completePipelineFrameThunk(void* user) {
+  static_cast<RendererCore*>(user)->completePipelineFrame();
+}
+
+void RendererCore::completePipelineFrame() {
+  if (!pipelineFramePending) return;
+  pipelineFramePending = false; // waits must not recursively present this job
+  Vif1Queue::waitFor(pipelineSequence);
+  gs.setRecordingContext(pipelineContext);
+  // The final FLUSHA/DIRECT FINISH was recorded in this job's sole chain.
+  // Wait its GS tail, then consume the exclusive event before the next job.
+  sync.waitAndClear();
+  u32 t0, t1;
+  __asm__ volatile("mfc0 %0, $9" : "=r"(t0));
+  if (gs.getFrameBufferCount() < 3 && isFrameLimitOn) graph_wait_vsync();
+  gs.flipBuffers(isFrameLimitOn);
+  __asm__ volatile("mfc0 %0, $9" : "=r"(t1));
+  stallAccum += t1 - t0;
+  stallTotal += t1 - t0;
+  hasPresentedFrame = true;
+#if TYRA_FRAME_PROFILE
+  FrameProfile::tStall = t1 - t0;
+  if (frameMeasurementActive)
+    FrameProfile::tExcluded += t1 - t0; // pacing inside this recording window
+  FrameProfile::tPeriod = FrameProfile::prevPresentEnd ?
+                         t1 - FrameProfile::prevPresentEnd : 0;
+  FrameProfile::prevPresentEnd = t1;
+#endif
 }
 
 void RendererCore::endFrame() {
@@ -484,12 +546,14 @@ void RendererCore::endFrame() {
   // VIF FIFO empty, so the PATH3 packets below cannot win the GIF between two
   // of the last chain's packets. No GS FINISH handshake - that remains the
   // frame profile's fairness fence and the post-fx drain's job.
+  if (!Vif1Queue::recordingFrame()) {
   Vif1Queue::drain();
   {
     volatile u32* const vif1Stat = reinterpret_cast<volatile u32*>(0x10003C00);
     constexpr u32 kVif1Busy = 0x1F000003;  // FQC (FIFO qwords) | VPS
     while (*vif1Stat & kVif1Busy) {
     }
+  }
   }
 #endif
   // The dynamic pipeline kicks the scene on PATH1/VU1 asynchronously (double
@@ -514,6 +578,21 @@ void RendererCore::endFrame() {
     gs.setTextureWrap(RendererCoreGS::repeatWrap());
   }
   { HardwareTrace::Scope trace("PostFx"); applyPostFx(); }
+  Vif1Queue::endRecordingFrame();
+  if (pipelineFrameActive) {
+    pipelineContext = recordingContext;
+    pipelineSequence = Vif1Queue::lastSequence();
+    pipelineFramePending = true;
+#if TYRA_FRAME_PROFILE
+    FrameProfile::tFrameWork = FrameProfile::ticks() - FrameProfile::frameStart -
+                              FrameProfile::tExcluded;
+    FrameProfile::tExcluded = 0;
+#endif
+    texture.traceFrame();
+    Vif1Queue::arenaFrameEnd();
+    frameMeasurementActive = false;
+    return;
+  }
 #if TYRA_FRAME_PROFILE
   // THE FAIRNESS FENCE (inc/debug/frame_profile.hpp, tDrain). One guarded
   // drain, at one point, in BOTH arms - a BLSS frame is already serialised by
@@ -562,12 +641,17 @@ void RendererCore::endFrame() {
     FrameProfile::prevPresentEnd = t1;
 #endif
   }
+  frameMeasurementActive = false;
   hasPresentedFrame = true;  // Modified by TyraX: the warp has a source now
+#if TYRA_FRAME_CHAIN_ARENA || TYRA_FRAME_PIPELINE_SUPPORT
+  Vif1Queue::arenaFrameEnd();  // Modified by TyraX: experimental arena accounting
+#endif
 }
 
 // Modified by TyraX (docs/frame-extrapolation.md).
 bool RendererCore::presentWarpFrame(const WarpCamera& from,
                                     const WarpCamera& to) {
+  completePipelineFrame();
   // Nothing to warp before the first flip - the "previous" buffer is still
   // whatever the GS powered up with.
   if (!hasPresentedFrame) return false;

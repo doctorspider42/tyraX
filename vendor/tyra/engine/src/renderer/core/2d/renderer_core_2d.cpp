@@ -12,6 +12,7 @@
 # in the chain skip state the sprite before them set (TYRA_2D_CHAIN_FAST).
 */
 
+#include "renderer/core/paths/path1/frame_submission.hpp"
 #include "renderer/core/2d/renderer_core_2d.hpp"
 #include <dma.h>
 #include <draw.h>
@@ -263,7 +264,7 @@ void RendererCore2D::render(const Sprite& sprite,
                      SCREEN_CENTER - (settings->getWidth() / 2.0F),
                      SCREEN_CENTER - (settings->getRenderHeightF() / 2.0F)));
   draw_disable_blending();
-  // Upstream ended this packet with draw_finish(), which does two distinct
+  // Upstream ended this packet with frameDrawFinish(), which does two distinct
   // jobs: its giftag carries EOP=1 (terminates the PATH3 stream at the GIF -
   // without it PATH1/XGKICK starves at GIF arbitration and the GS deadlocks
   // on the first 3D frame), and it writes the FINISH register. The FINISH
@@ -286,8 +287,8 @@ void RendererCore2D::render(const Sprite& sprite,
                   restoreRepeat);
   } else {
     path3Fence();
-    dma_channel_wait(DMA_CHANNEL_GIF, 0);
-    dma_channel_send_packet2(packet, DMA_CHANNEL_GIF, true);
+    frameWaitGif(DMA_CHANNEL_GIF, 0);
+    frameSendPacket(packet, DMA_CHANNEL_GIF, true);
   }
 
   context = !context;
@@ -400,7 +401,7 @@ void RendererCore2D::appendToChain(const qword_t* data, u32 qwc,
 
 void RendererCore2D::openChain(bool restoreRepeat) {
   // The side's previous chain may still be on the channel.
-  Vif1Queue::waitFor(chainSeq[chainSide]);
+  if (chainSeq[chainSide]) Vif1Queue::waitFor(chainSeq[chainSide]);
   qword_t* q = chains[chainSide];
   writeTag(q, kDmaCnt, 0, kVifFlushA, 0);
   q++;
@@ -440,8 +441,9 @@ void RendererCore2D::closeChain() {
 #if !TYRA_VIF1_QUEUE_LAZY_FLUSH
   FlushCache(0);
 #endif
-  lastSeq = Vif1Queue::submit(chains[chainSide], chainQw + 1);
-  chainSeq[chainSide] = lastSeq;
+  bool sourceCopied = false;
+  lastSeq = Vif1Queue::submit(chains[chainSide], chainQw + 1, &sourceCopied);
+  chainSeq[chainSide] = sourceCopied ? 0 : lastSeq;
   chainSide ^= 1;
 }
 
@@ -451,6 +453,10 @@ void RendererCore2D::closeOpenChain() {
 
 void RendererCore2D::fence() {
   if (chainOpen) closeChain();
+  if (Vif1Queue::recordingFrame()) {
+    path3FencePending = false;
+    return; // subsequent DIRECT operations share this ordered VIF stream
+  }
   Vif1Queue::waitFor(lastSeq);
   // The DMAC being done is not the GIF having it: up to a FIFO of the last
   // sprite can still sit in VIF1, and a PATH3 packet sent now could win the

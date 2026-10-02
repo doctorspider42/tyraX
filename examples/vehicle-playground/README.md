@@ -5,8 +5,13 @@ TyraX and build the project. The main scene starts in the Ravager; press
 **Square** to get out and enter the nearby Pica Turbo or Strix V12.
 
 The current seated start is the primary [TyraX2 hardware control](../../docs/tyrax2.md).
-`tools/tyrax2-fixture.py` makes isolated day/night copies with host polling off;
-keep the authored camera, video mode and quality when comparing frame times.
+`tools/tyrax2-fixture.py` makes isolated day/night copies with host polling off,
+including separate public-runtime `pipeline-check` and `pipeline-timing` arms.
+Enable **Project > Preferences > Display > TyraX2 frame pipeline** and rebuild
+to try ordered single-chain rendering with EE/GPU overlap (off by default;
+about 2.25 MiB EE RAM and one queued frame of latency). Keep the authored
+camera, video mode and quality when comparing frame times. The runtime record
+separates the first final day hardware result from pending day/night repeats.
 
 For native build timing, use a scratch copy of this example and warm the cache
 with one build before timing unchanged, script-only and scene-edit iterations.

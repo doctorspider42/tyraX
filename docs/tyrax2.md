@@ -1,9 +1,17 @@
-# TyraX2 renderer foundations
+# TyraX2 frame pipeline
 
 TyraX2 is the staged migration toward preparing frame N on the EE while VU1/GS
 execute frame N-1, with explicit ownership of every submitted resource.
-The current work establishes validation and a reproducible seated Motor District
-fixture. Frame arenas and cross-frame execution are not implemented yet.
+Version 1.169.0 implements one complete VIF1 chain per ordinary frame, built
+natively and terminated once, including the final presentation FINISH.
+Texture uploads, GS state and auxiliary passes are represented in order.
+Explicit same-frame GPU reads, compatibility
+operations and bounded-memory overflow may drain through a measured fallback.
+Preferences > Display > **TyraX2 frame pipeline** enables experimental ordered
+frame recording and N/N-1 execution. It is off by default. Ordinary projects
+keep their existing queue and do not allocate frame banks. The setting is saved
+as optional `settings.framePipeline` in format v94 and generates
+`RendererCore::setFramePipeline(true)` during game initialization.
 
 ## Acceptance order
 
@@ -15,7 +23,10 @@ fixture. Frame arenas and cross-frame execution are not implemented yet.
    Establish RAM ceilings, reclaim fences and a safe overflow fallback first.
 4. Give uploads, GS state and auxiliary render targets an explicit ordered
    representation, covering static/dynamic pipelines, HUD and screen effects.
-5. Enable N/N-1 execution experimentally. Compare input latency, RAM/VRAM,
+5. Record one native ordered frame chain; do not fuse finished packet buffers
+   by removing END tags or linking them with NEXT. Validate its complete extent
+   and all referenced ownership before submission.
+6. Enable N/N-1 execution experimentally. Compare input latency, RAM/VRAM,
    pixels, frame tails and streaming/scene transitions against the controls.
 
 ## Ownership seams for the arena stage
@@ -39,6 +50,189 @@ The previous [architecture investigation](ee-submission-rearchitecture.md#a-fram
 records the hazards. Its older sweep's overlap estimate does not quantify the
 current seated start. Fresh GPU-hold results are diagnostic segment measurements,
 not ordinary frame times or an exact prediction of pipeline gain.
+
+## Experimental chain arena (2026-10-02)
+
+`TYRA_FRAME_CHAIN_ARENA=1` snapshots complete linear TTE packets and mutable/unowned
+nonempty REF payloads into a bounded 1 MiB allocation. It preserves the original
+tag structure and independent END terminators; it never joins chains with NEXT.
+Producer packet/pool buffers still number four, while queue metadata can retain
+128 independent chains. A snapshot releases the original packet and arrays for
+reuse immediately; its returned DMA sequence still guards ordered consumers.
+HUD keeps that sequence for its PATH3 fence even when its source buffer is free.
+
+Engine-owned baked VIF streams can register an immutable span. References to
+these bytes stay borrowed instead of being duplicated each frame; retirement
+marks the span unavailable for new borrows and keeps its storage until both
+bank-reader masks have cleared after actual DMA completion. Immediate unregister
+still drains before destructive debug poisoning. The bounded
+512-span table falls back to copying when full. Its hot lookup uses binary
+search over disjoint sorted ranges; a linear full-table scan regressed the
+first pinning arm despite avoiding ~2.15 MiB of duplicate data per frame. Unregistered user arrays,
+mutable copy pools and transient state retain snapshot ownership. The cache's
+historical two-frame graveyard alone is not the new lifetime guarantee.
+
+The arena is reclaimed only after `drain()` has observed actual DMA completion.
+If a snapshot will not fit, it drains previous readers and retries once. A
+single oversized/unsupported packet or allocation failure retains ordinary
+submission and source-buffer waits. Preflight checks source references and the
+entire required extent before modifying storage. This does not change GS/VRAM
+lifetimes, auxiliary-pass ordering, or presentation. It is the ownership stage,
+not N/N-1 execution or an accepted optimization.
+
+`FRAMEARENA` reports allocation, high-water bytes, overflow drains, fallback
+counts, maximum copied/borrowed bytes per frame and remaining heap KiB. The first
+1 MiB/libc-copy hardware arm was correct but regressed warmed night work to
+34.016 ms versus the 19.912–19.918 ms control. It is not accepted. A 3 MiB
+arm removes overflow drains: its first warmed night window is 33.032 ms,
+with ~2.67 MiB maximum copied bytes per frame and ~9,989 KiB free heap.
+Capacity alone recovers about 0.98 ms but leaves the copying regression. The R5900 quad-copy
+arm uses aligned LQ/SQ loads/stores; guard builds compare each actual copied
+span byte-for-byte before publishing it. Host memcpy checks alone cannot
+verify that assembly arm. The 3 MiB quad-copy timing arm reached 29.604 ms,
+still a regression. A correctness boot verified every copied span on actual
+hardware across 200,704 accepted chains without rejection or fallback;
+indexed pinning passed 565,248 hardware chains without rejection. The first indexed pinning
+window reached 20.879 ms: ~0.96 ms above the control, with unchanged authored
+pose/video/quality. It is an ownership experiment, not an accepted gain.
+[The exploratory record](tyrax2-arena-2026-10-02.json) retains the successive
+arms, hashes and known archive limits. `tools/verify-frame-arena.cpp` checks copied REF rebasing, independence
+from later source mutations, independent snapshots, bounded overflow, rollback,
+and unsafe/unsupported tags. Run it with the same host compiler/sanitizers as
+the chain validator. Use `--mode arena-check` and `--mode arena-timing` fixtures
+for separate correctness and hardware timing arms. These diagnostic switches stay off in ordinary generated games. The project
+preference is the separate experimental runtime opt-in, with no default allocation.
+
+## Native frame writer prototype
+
+`frame_vif_writer.hpp` constructs clean CNT/REF records from VIF operations,
+reserving one END that only `finish()` writes. It has explicit unsubmitted
+checkpoints/rollback and refuses unsafe references and overflow. It does not
+link prebuilt DMA buffers or patch END into NEXT. Its portable harness compares
+the emitted ordered command/data words against an independent stream oracle,
+including UNPACK, DIRECT and MPG records. `TYRA_NATIVE_VIF_RECORD=1` now routes owned queue inputs through those native
+operation records, with one END per ordered VIF segment. Existing foreign-path
+barriers still flush segments, so this is not one chain per full frame or N/N-1.
+Logical source sequence numbers are retired by the actual batch completion
+sequence, not by incrementing once per DMA. Sequence zero remains a no-fence
+sentinel across wrap. Prefix reuse waits its real reader; overflow rewinds the
+unsubmitted operation and flushes before retrying. Finalized native prefixes
+force the appropriate lazy/eager write-back after recording. The segment guard accepted over 577,000 source chains on physical PS2.
+The later ordered-frame guard ran over 6,700 frames: its 12 split frames occurred
+during cold startup, with one batch per warmed frame thereafter.
+
+## Ordered frames and overlapping execution
+
+`TYRA_ORDERED_FRAME` is a diagnostic compile-time gate; the project preference
+uses the runtime API without modifying engine headers. Engine GIF senders record
+owned DIRECT operations in the same stream as static/dynamic/Minecraft VIF
+commands, program uploads, render-target brackets, HUD and post effects. FLUSHA
+orders VU1 and GIF paths in the recorded stream. Ordering-only CPU waits become
+recorded barriers. Intermediate FINISH packets become EOP-only packets; the final
+frame-end FLUSHA/DIRECT records the sole presentation FINISH inside that same
+chain. The CPU consumes its event after DMA completion, rather than issuing a
+second VIF1 draw-finish chain. Initialization and foreign
+calls outside recording retain ordinary DMA behavior.
+
+Two bounded banks each own 1 MiB of mutable source snapshots and a 128 KiB native
+prefix. Inline snapshot payloads become REF operations into their owning bank,
+avoiding a second copy. Baked immutable streams use a sorted lease registry;
+retirement excludes new borrows and defers destruction until every bank reader
+completes. Two graveyard slots organize collection, but age alone releases nothing. A bank is reused
+only after its actual DMA sequence completes. The pending frame is completed and
+presented before the new frame starts, including an overflow prefix. During that
+handshake the unsubmitted new bank is protected from drain/reset, and its HUD
+fence latch is suspended. Otherwise presenting the old job waits for the new
+HUD prefix whose submission the callback itself blocks. The oversized DIRECT
+regression fixture reproduces this deadlock before the fix and repeatedly
+completes 9,000-qword borrowed transfers afterward.
+
+The EE records using the next frame's logical draw context while the GPU still
+owns the previous target. The presentation callback restores the previous job's
+context and hands off to the anticipated target before the new chain starts.
+Hybrid keeps its shared draw target and orders its presentation copy before the
+next clear. True field rendering, active temporal upscaling and unlimited triple buffering
+retain synchronous compatibility; warp presentation, display changes and permanent VRAM rebuilds
+complete the pending job first. Between-frame GPU readbacks call
+`renderer.core.synchronizeFrame()`; generated debugger captures already do so.
+Low-memory refusal frees any partially allocated banks and keeps the ordinary path. A direct borrowed fallback completes
+the previous presentation even when no prefix has been recorded yet, orders
+its transfer after a completed recorded FLUSHA (including the VIF FIFO), and
+waits its actual DMA before returning to a producer that may reuse the bytes.
+Overflow, unsupported sources and immediate destructive unregister can split a
+frame through a real synchronous fence. Ordinary baked-cache retirement no longer
+flushes a frame; retired immutable storage retains its bank leases. These are explicit exceptions to one chain per ordinary
+frame, not a promise that cold asset loads cannot split.
+
+A first N/N-1 hardware guard accepted 98,304 source chains; the REF-prefix guard
+accepted 204,800. Its 600-start counter recorded 576 starts with prior VIF DMA
+still busy. Software-renderer captures retain the car, lights, shadows and HUD;
+the measured scene ROI differed by less than 0.01/255 mean per channel from the
+segment control. These are predecessor measurements; the completed runtime
+acceptance and remaining hardware repeats are recorded below. The early timing
+arm retained a ~33.37 ms night period;
+its work counter mistakenly included prior presentation pacing and is archived
+as such, not as active render work or a performance win.
+
+Enabling this path costs about 2.25 MiB of EE RAM and queues one rendered frame
+of latency. Timing must report full presentation period alongside recording work,
+subtracting presentation pacing without treating the previous GPU tail as free.
+Keep the independent chain guard off in timing builds. Use `ordered-check` /
+`ordered-timing` and `pipeline-check` / `pipeline-timing` fixture modes to isolate
+ordering and overlap respectively. Physical-console timing establishes performance;
+PCSX2 establishes correctness only. The final `pipeline-*` fixtures enable
+the public project preference with diagnostic recording defaults zero; other
+fixture modes explicitly disable that preference. Initial boot remains synchronous;
+later loading synchronizes pending presentation before its GPU handshakes. Foreign GPU transfers between frames
+complete the pending presentation first; they cannot overwrite a previous
+job's programs or targets while it is still executing.
+
+## Runtime acceptance (2026-10-02)
+
+The feature ships experimentally, off by default. Enable **Project > Preferences
+> Display > TyraX2 frame pipeline**, save, and rebuild the game. The request
+survives save/reopen; `getFramePipeline()` reports the requested setting, even
+when the current display mode takes a synchronous compatibility path. This
+version does not introduce the reference title's SPR staging scheme.
+
+The [runtime record](tyrax2-runtime-2026-10-02.json) separates final-candidate
+results from predecessor experiments and includes local artifact hashes:
+
+| Physical PS2, seated day start | Baseline, two boots | Final candidate, one boot |
+| --- | --- | --- |
+| Mean render critical-path work, 512 frames | 15.707 / 15.721 ms | 13.992 ms |
+| Work above 16.667 ms | 8 / 7 of 512 | 0 of 512 |
+| Mean complete presentation period, neighboring 500-frame window | 28.061 / 28.095 ms | 17.152 ms |
+| Rate derived from that period | approximately 35.6 Hz | 58.3 Hz |
+
+Critical-path work excludes presentation pacing but includes any unhidden
+previous GPU tail; it is not pure EE computation. Full period is the performance
+result. The raw work and neighboring period windows are different sample sets.
+The final day candidate completed gameplay on hardware; its second boot stopped
+before gameplay with `freepad: DMA Busy`. No final-candidate night hardware result
+is claimed. The earlier night pipeline retained approximately 33.4 ms periods
+(approximately 30 Hz), despite reducing work. Emulator FPS is not PS2 timing.
+Repeat final day and night boots after a physical power cycle before promoting
+the switch or claiming repeatable final performance.
+
+Windows editor, native PS2 and Docker PS2 builds passed. Windows host checks and
+Linux ASan/UBSan passed 1,074 arena cases plus 10,000 malformed streams and 43
+native-writer cases against an independent ordered-word oracle. PCSX2 software
+renderer checks cover static, dynamic and Minecraft pipelines; day/night vehicle
+frames; scripted acceleration, steering, braking, reverse and camera changes;
+all three Motor District scenes; display changes including field, PAL and
+1080i; limiter and runtime toggles; allocation refusal; foreign 2D/3D handshakes;
+and oversized 9,000-qword fallback transfers. The final guarded driving/scene
+run reached 3,360 frames and 233,472 accepted source chains with no rejection,
+four split frames and zero direct fallbacks. Its final shot is from the driven
+first-person camera, rather than the parked benchmark camera.
+
+A captured native prefix contains exactly one END and one DIRECT FINISH in
+its final operation. Public generated-game Live Debugger readback also completed
+with the runtime preference enabled. The disabled preference allocated no frame
+banks; the day scene ROI comparison differed by less than 0.015/255 mean per
+channel, with small timing/animation differences. These correctness checks do
+not replace the remaining physical-console repeats or input-latency measurement.
 
 ## Pre-submit chain guard
 
@@ -165,3 +359,14 @@ gameplay with `freepad: DMA Busy`, twice including after a user-confirmed
 physical power cycle. It produced no usable GPU measurement. The pad initially
 reported ready; no root cause is established. Do not infer pipeline performance
 or classify this as a render-chain defect from the tty symptom alone.
+
+Minecraft's program cache is now initialized after binding the renderer, rather
+than dereferencing an uninitialized renderer from its constructor. This is
+required to exercise its ordered uploads and pipeline switching safely.
+
+The FINISH event is owned by the pending job until presentation consumes it.
+Ordinary `RendererCoreSync::clear()` first completes that job, then clears for
+its new handshake. During recording it preserves the old event. Synchronizing
+only at a later physical send is too late: a prior clear could lose the event,
+as the physical loading regression demonstrated. Explicit foreign 2D/3D
+handshakes are covered by the mode fixture.

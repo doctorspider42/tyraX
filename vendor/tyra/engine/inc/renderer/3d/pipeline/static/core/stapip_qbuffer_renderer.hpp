@@ -412,6 +412,7 @@ class StaPipBakedStreams {
   u32 takeChurnSkips() { const u32 v = churnSkips; churnSkips = 0; return v; }
 
   StaPipBakedStreams();
+  ~StaPipBakedStreams();
 
   void onFrameEnd();
   void clear();
@@ -526,7 +527,11 @@ class StaPipBakedStreams {
   std::vector<std::unique_ptr<StaPipBakedEntry>> storage;
   /** Arenas freed two frames from now. A baked block is named by a DMA REF, so
    * it may not be freed while the last submitted packet can still reach it. */
-  std::vector<std::unique_ptr<u8[]>> graveyard[2];
+  struct RetiredArena {
+    std::unique_ptr<u8[]> raw;
+    void* arena;
+  };
+  std::vector<RetiredArena> graveyard[2];
   u8 graveyardWrite = 0;
   int indexBuckets[kBucketCount];
   u32 usedQwords = 0;
@@ -868,7 +873,10 @@ class StaPipQBufferRenderer {
   /** Modified by TyraX: how many packet buffers rotate. 2 is the stock
    * ping-pong; with TYRA_VIF1_QUEUE it is Vif1Queue::kDepth, and
    * packetSequence records which queued chain last used each buffer so that
-   * buffer is only rewritten once VIF1 has finished reading it. */
+   * buffer is only rewritten once VIF1 has finished reading it. The optional
+   * frame arena stores zero after copying the packet and transient REFs:
+   * immutable engine-owned spans are fenced by their owner. The work buffer
+   * then has no DMA reader, while the snapshot retains its real sequence. */
   static constexpr u8 kPacketCount = TYRA_VIF1_QUEUE ? Vif1Queue::kDepth : 2;
   u32 packetSequence[kPacketCount] = {};
   StaPipVU1Program** dBufferPrograms;

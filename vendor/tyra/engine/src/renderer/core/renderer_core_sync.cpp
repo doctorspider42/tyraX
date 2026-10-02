@@ -30,6 +30,7 @@ void RendererCoreSync::init(Path3* t_path3, Path1* t_path1) {
 // drain - which let late scene triangles erase the post fx film grain. Keep
 // FINISH exclusive to send-then-wait handshakes.
 void RendererCoreSync::align3D() {
+  if (Vif1Queue::recordingFrame()) { Vif1Queue::recordBarrier(); return; }
   HardwareTrace::Scope trace("Align3D");
 #if TYRA_VIF1_QUEUE_HOLD
   // Modified by TyraX: the GPU-only frame probe - a barrier's segment closes
@@ -50,6 +51,7 @@ void RendererCoreSync::align3D() {
 }
 
 void RendererCoreSync::align2D() {
+  if (Vif1Queue::recordingFrame()) { Vif1Queue::recordBarrier(); return; }
   clear();
   sendPath3Req();
   waitAndClear();
@@ -65,7 +67,14 @@ void RendererCoreSync::addPath1Req(packet2_t* packet) {
 
 u8 RendererCoreSync::check() { return *GS_REG_CSR & 2; }
 
-void RendererCoreSync::clear() { *GS_REG_CSR |= 2; }
+void RendererCoreSync::clear() {
+  // Recorded ordering barriers emit no intermediate FINISH. Preserve the
+  // prior GPU job's event until presentation consumes it. Outside recording,
+  // complete that job BEFORE clearing for a new ordinary FINISH handshake.
+  if (Vif1Queue::recordingFrame()) return;
+  Vif1Queue::synchronizeExternal();
+  *GS_REG_CSR |= 2;
+}
 
 void RendererCoreSync::waitAndClear() {
   HardwareTrace::Scope trace("GS_FINISH_wait");

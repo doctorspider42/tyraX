@@ -13,7 +13,11 @@ def main():
     parser.add_argument('--project', type=Path)
     parser.add_argument('--engine', type=Path)
     parser.add_argument('--pose', choices=['day', 'night'], default='day')
-    parser.add_argument('--mode', choices=['plain', 'timing', 'check', 'hold'],
+    parser.add_argument('--mode', choices=['plain', 'timing', 'check', 'hold',
+                                          'arena-check', 'arena-timing',
+                                          'native-check', 'native-timing',
+                                          'ordered-check', 'ordered-timing',
+                                          'pipeline-check', 'pipeline-timing'],
                         default='timing')
     args = parser.parse_args()
     repo = Path(__file__).resolve().parent.parent
@@ -35,6 +39,7 @@ def main():
     for key in ('remotePad', 'liveDebug', 'liveLink', 'liveLogic',
                 'timeMachine', 'inputRecorder', 'showMemory'):
         model['settings'][key] = False
+    model['settings']['framePipeline'] = args.mode.startswith('pipeline-')
     mood['default'] = int(args.pose == 'night')
     destination.mkdir(parents=True)
     game = destination/'game'
@@ -51,6 +56,17 @@ def main():
     switches = {}
     if args.mode == 'timing': switches['TYRA_FRAME_PROFILE'] = 2
     if args.mode == 'check': switches['TYRA_VIF1_CHAIN_CHECK'] = 1
+    if args.mode.startswith(('arena-', 'native-', 'ordered-')):
+        switches['TYRA_FRAME_CHAIN_ARENA'] = 1
+        if args.mode.endswith('-check'): switches['TYRA_VIF1_CHAIN_CHECK'] = 1
+        else: switches['TYRA_FRAME_PROFILE'] = 2
+    if args.mode.startswith(('native-', 'ordered-')):
+        switches['TYRA_NATIVE_VIF_RECORD'] = 1
+    if args.mode.startswith(('ordered-',)): switches['TYRA_ORDERED_FRAME'] = 1
+    if args.mode.startswith('pipeline-'):
+        # Exercise the public runtime path; keep boot/loading synchronous.
+        if args.mode.endswith('-check'): switches['TYRA_VIF1_CHAIN_CHECK'] = 1
+        else: switches['TYRA_FRAME_PROFILE'] = 2
     if args.mode == 'hold':
         switches.update(TYRA_VIF1_QUEUE_HOLD=1, TYRA_VIF1_QUEUE_DEPTH=80)
     headers = {
@@ -58,9 +74,15 @@ def main():
         'TYRA_VIF1_CHAIN_CHECK': 'renderer/core/paths/path1/vif1_chain_check.hpp',
         'TYRA_VIF1_QUEUE_HOLD': 'renderer/core/paths/path1/vif1_queue.hpp',
         'TYRA_VIF1_QUEUE_DEPTH': 'renderer/core/paths/path1/vif1_queue.hpp',
+        'TYRA_FRAME_CHAIN_ARENA': 'renderer/core/paths/path1/frame_chain_arena.hpp',
+        'TYRA_NATIVE_VIF_RECORD': 'renderer/core/paths/path1/vif1_queue.hpp',
+        'TYRA_ORDERED_FRAME': 'renderer/core/paths/path1/vif1_queue.hpp',
+        'TYRA_FRAME_PIPELINE': 'renderer/core/paths/path1/vif1_queue.hpp',
     }
     defaults = {'TYRA_FRAME_PROFILE': 0, 'TYRA_VIF1_CHAIN_CHECK': 0,
-                'TYRA_VIF1_QUEUE_HOLD': 0, 'TYRA_VIF1_QUEUE_DEPTH': 4}
+                'TYRA_VIF1_QUEUE_HOLD': 0, 'TYRA_VIF1_QUEUE_DEPTH': 4,
+                'TYRA_FRAME_CHAIN_ARENA': 0, 'TYRA_NATIVE_VIF_RECORD': 0,
+                'TYRA_ORDERED_FRAME': 0, 'TYRA_FRAME_PIPELINE': 0}
     for key, value in switches.items():
         header = target/'engine/inc'/headers[key]
         source = header.read_text(encoding='utf-8-sig')
