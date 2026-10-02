@@ -1095,6 +1095,13 @@ std::string objectJson(const SceneObject& o) {
             json += ", \"roadEdgeFade\": " + fmtFloat(o.roadEdgeFade);
         if (o.roadMarkings != 1)
             json += ", \"roadMarkings\": " + std::to_string(o.roadMarkings);
+        // Kerbs (v95): written only when on, or when a size was edited, so an
+        // untouched road resaves byte-identical.
+        if (o.roadKerb) json += ", \"roadKerb\": true";
+        if (o.roadKerbHeight != 0.15f)
+            json += ", \"roadKerbHeight\": " + fmtFloat(o.roadKerbHeight);
+        if (o.roadKerbWidth != 0.25f)
+            json += ", \"roadKerbWidth\": " + fmtFloat(o.roadKerbWidth);
         bool anyLift = false;
         for (float h : o.roadHeights) anyLift |= h != 0.0f;
         if (anyLift) {
@@ -1746,6 +1753,9 @@ std::vector<roadgen::CrossingRoad> crossingRoads(const std::vector<SceneObject>&
                 }
             }
         }
+        r.kerb = o.roadKerb;
+        r.kerbHeight = o.roadKerbHeight;
+        r.kerbWidth = o.roadKerbWidth;
         out.push_back(std::move(r));
         if (objectIndex) objectIndex->push_back((int)i);
     }
@@ -6255,6 +6265,13 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
         }
         if (const auto* rmk = jo.find("roadMarkings"))
             o.roadMarkings = std::clamp((int)rmk->numberOr(1.0), 0, 2);
+        if (const auto* rk = jo.find("roadKerb"))
+            o.roadKerb = rk->boolOr(false);
+        if (const auto* rkh = jo.find("roadKerbHeight"))
+            o.roadKerbHeight =
+                std::clamp((float)rkh->numberOr(0.15), 0.02f, 0.5f);
+        if (const auto* rkw = jo.find("roadKerbWidth"))
+            o.roadKerbWidth = std::clamp((float)rkw->numberOr(0.25), 0.05f, 1.0f);
         if (const auto* rh = jo.find("roadHeights")) {
             o.roadHeights.clear();
             if (rh->type == json::Value::Type::Array)
@@ -8404,6 +8421,13 @@ uint64_t liveLinkRecipeHash(const SceneObject& o) {
     fnvMix(h, o.bakedLighting ? 1 : 0);
     fnvMix(h, o.dynamicLighting ? 1 : 0);
     fnvMix(h, o.prelit ? 1 : 0);
+    // Road kerbs are host-baked into ROAD_KERB_VERTS at build: an edit can
+    // only show after a rebuild. Mixed only when on, so a kerbless road's
+    // recipe is the one it always had.
+    if (o.type == PrimitiveType::Road && o.roadKerb) {
+        fnvMix(h, 0x4B);
+        fnvMixF(h, o.roadKerbHeight), fnvMixF(h, o.roadKerbWidth);
+    }
     // The four numbers this mesh hands the project's own VU1 microprogram.
     // They are BAKED into SCENE_OBJECTS and the live-link record carries only
     // transform + colour, so an edit of them cannot show without a rebuild -

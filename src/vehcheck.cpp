@@ -1395,6 +1395,124 @@ void roadNodes() {
     }
 }
 
+// Kerbs (docs/roads.md "Kerbs"): a kerbed T on flat ground. The kerb must stop
+// where a road enters the node patch, run around both fillets and along the
+// far side, never stand on a road (an arm cap is where the road carries on),
+// merge a straight edge to a few points, and pack into valid strip runs.
+void roadKerbs() {
+    std::printf("-- road kerbs --\n");
+    auto road = [](const char* id, std::vector<float> pts, float width, bool kerb) {
+        roadgen::CrossingRoad r;
+        r.id = id;
+        r.points = std::move(pts);
+        r.width = width;
+        r.intersection = "res/materials/x.mtl";
+        r.kerb = kerb;
+        return r;
+    };
+    const auto flat = [](float, float) { return 0.0f; };
+    auto plan = [&](const std::vector<roadgen::CrossingRoad>& r,
+                    std::vector<roadgen::KerbPiece>& pieces) {
+        const roadgen::CrossingPlan p = roadgen::planCrossings(r, {});
+        roadgen::Surface s;
+        for (const roadgen::CrossingRoad& rd : r) {
+            std::vector<roadgen::Vertex> tris;
+            roadgen::tessellate(rd.points, rd.width, flat, tris);
+            s.add(tris, rd.grip);
+        }
+        roadgen::addCrossingsToSurface(s, r, p, flat);
+        s.build();
+        pieces = roadgen::planKerbs(r, p, [&](float x, float z) { return s.at(x, z); }, flat);
+    };
+    std::vector<roadgen::KerbPiece> k;
+    plan({road("main", {-40, 0, 40, 0}, 8, true), road("stem", {0, 0, 0, 40}, 6, true)}, k);
+    int chains = 0, roadPts = 0, farPts = 0;
+    float stemMinZ = 1e30f, worstOnRoad = 1e30f;
+    bool fillet = false, farChain = false;
+    for (const roadgen::KerbPiece& p : k) {
+        if (p.node >= 0) ++chains; else roadPts += p.points();
+        for (int i = 0; i < p.points(); ++i) {
+            const float x = p.pts[(size_t)i * 5], z = p.pts[(size_t)i * 5 + 2];
+            // Margin into a road: the main is |z| < 4, the stem |x| < 3, z > 0.
+            worstOnRoad = std::min({worstOnRoad, std::fabs(z) - 4.0f,
+                                    z > 0.0f ? std::fabs(x) - 3.0f : 1e30f});
+            if (p.node < 0 && p.road == 1) stemMinZ = std::min(stemMinZ, z);
+            if (p.node < 0 && p.road == 0 && z < 0.0f) ++farPts;
+            if (p.node >= 0 && x > 3.3f && z > 4.3f && x < 12.0f && z < 12.0f) fillet = true;
+        }
+        // The far side: one line along z = -4 straight across the stem's mouth.
+        if (p.node >= 0 && p.points() >= 2) {
+            bool along = true;
+            float lo = 1e30f, hi = -1e30f;
+            for (int i = 0; i < p.points(); ++i) {
+                along &= std::fabs(p.pts[(size_t)i * 5 + 2] + 4.0f) < 0.01f;
+                lo = std::min(lo, p.pts[(size_t)i * 5]);
+                hi = std::max(hi, p.pts[(size_t)i * 5]);
+            }
+            farChain |= along && lo < -3.0f && hi > 3.0f;
+        }
+    }
+    std::printf("  T: %zu kerb lines (%d around the node), %d road-edge points (%d on the far "
+                "side, from 2 x 81 stations), stem kerb starts at z %.2f, closest to a road "
+                "%.3f\n",
+                k.size(), chains, roadPts, farPts, stemMinZ, worstOnRoad);
+    verdict(chains == 3 && fillet && farChain,
+            "the kerb runs around both fillets and along the T's far side");
+    verdict(stemMinZ > 5.0f, "the stem's own kerb stops where it enters the node patch");
+    verdict(worstOnRoad > -0.01f, "no kerb point stands on a road (none crosses an arm cap)");
+    verdict(farPts <= 14, "a straight edge merges to a point every 8 units at most");
+    // Every fillet end meets a road kerb end in one point.
+    int met = 0, ends = 0;
+    for (const roadgen::KerbPiece& c : k) {
+        if (c.node < 0) continue;
+        for (int e : {0, c.points() - 1}) {
+            ++ends;
+            const float* q = &c.pts[(size_t)e * 5];
+            bool found = false;
+            for (const roadgen::KerbPiece& r : k)
+                if (r.node < 0)
+                    for (int f : {0, r.points() - 1}) {
+                        const float* s = &r.pts[(size_t)f * 5];
+                        found |= std::hypot(q[0] - s[0], q[2] - s[2]) < 0.01f;
+                    }
+            met += found ? 1 : 0;
+        }
+    }
+    verdict(ends == 6 && met == 6, "every node kerb end meets its road's kerb end");
+    // Strip runs: whole chunks, every run of 75 a valid strip, the same
+    // triangles as the list.
+    std::vector<roadgen::KerbVertex> sv, lv;
+    std::vector<int> sizes;
+    roadgen::kerbStrips(k, sv, sizes);
+    for (const roadgen::KerbPiece& p : k) roadgen::kerbTriangles(p, lv);
+    int sum = 0, tris = 0;
+    bool mult3 = true;
+    for (int sz : sizes) {
+        sum += sz;
+        mult3 &= sz % 3 == 0;
+    }
+    auto same = [](const roadgen::KerbVertex& a, const roadgen::KerbVertex& b) {
+        return a.x == b.x && a.y == b.y && a.z == b.z;
+    };
+    for (size_t at = 0, ci = 0; ci < sizes.size(); at += (size_t)sizes[ci], ++ci)
+        for (size_t r0 = at; r0 < at + (size_t)sizes[ci]; r0 += 75) {
+            const size_t len = std::min((size_t)75, at + (size_t)sizes[ci] - r0);
+            for (size_t i = 0; i + 2 < len; ++i)
+                if (!same(sv[r0 + i], sv[r0 + i + 1]) && !same(sv[r0 + i + 1], sv[r0 + i + 2]) &&
+                    !same(sv[r0 + i], sv[r0 + i + 2]))
+                    ++tris;
+        }
+    std::printf("  strips: %zu vertices in %zu chunks, %d triangles (list %zu)\n", sv.size(),
+                sizes.size(), tris, lv.size() / 3);
+    verdict(sum == (int)sv.size() && mult3 && tris == (int)(lv.size() / 3),
+            "the strip runs hold exactly the list's triangles");
+    // A kerbless stem: the fillets lose their kerb, the far side keeps it.
+    plan({road("main", {-40, 0, 40, 0}, 8, true), road("stem", {0, 0, 0, 40}, 6, false)}, k);
+    chains = 0;
+    for (const roadgen::KerbPiece& p : k) chains += p.node >= 0 ? 1 : 0;
+    verdict(chains == 1, "a fillet keeps its kerb only when both of its roads have kerbs");
+}
+
 // The pedals: R2 gas, L2 brake-then-reverse (vehiclesim::pedals, the rule the
 // console's controller and the test drive share).
 void pedalsCheck() {
@@ -1490,6 +1608,7 @@ int run() {
     crossings();
     junctionOverrides();
     roadNodes();
+    roadKerbs();
     damage();
     pieces();
     speedFeelCurve();

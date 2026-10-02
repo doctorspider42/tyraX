@@ -30,7 +30,11 @@ builds measured 6.7-7.6 s. This excludes editor generation/baking and cold setup
   **Quarry road** leaves the north side of the ring and turns a corner into
   **Quarry spur**. Every node is painted (edge lines carried round its corners, stop
   lines where a road gives way), and **Skyline avenue** asks for zebra
-  crossings too.
+  crossings too. The
+  twelve asphalt streets have
+  [kerbs](../../docs/roads.md#kerbs-format-95), which run around every
+  junction's rounded corners. The dirt West service lane has none. They are
+  visual only: the cars drive through them.
 
   ![PCSX2, mirrored in X: the Orchard fork between the ring road and Skyline avenue, the Service ramp leaving the ring, and the Quarry corner](../../docs/img/road-nodes-district.png)
 - **dense** adds buildings for a busier drive.

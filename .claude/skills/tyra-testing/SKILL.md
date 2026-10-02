@@ -3930,6 +3930,17 @@ it took the markings out of the frustum with it. In PCSX2,
 park a frozen camera high over a scratch project with every node kind, on flat
 ground AND on rolling hills (write `terrain-<scene>.heights` yourself: `n n`
 then n*n heights, n = terrainDetail + 1), and `--capture-frame`.
+**Road kerbs** (docs/roads.md "Kerbs") have three gates. `--vehicle-check`
+"road kerbs" covers a kerbed T: the stop at the patch, the fillets, no kerb
+on a road, merging, ends that meet, and the strip runs against the list.
+`--road-crossings <dir>` prints one `[kerb]` line per road and a total, from
+the same bake the codegen does; the total must equal the game's
+`ROADKERB scene N chunks C vertices V packages P triangles T`. In PCSX2, the
+`ROADS`/`ROADSTRIP`/`ROADINDEX` lines must not move when kerbs are switched
+on: kerbs are owner -4 and stay out of all three. A kerb is a few pixels
+wide, so take a LOW frozen camera (eye 0.6-1 units) a few units from a
+fillet, and crop the shot before looking. `--bake-status` must stay `fresh`,
+because kerbs are not shadow receivers.
 The viewport and PCSX2 patch must match. `verify-road-twins.py` also exercises
 terrain folds and both Market endpoints, proves the old fan regression is
 triggered, sweeps clearance and checks nonempty runtime junction uploads. Move one spline

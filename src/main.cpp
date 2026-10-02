@@ -757,8 +757,9 @@ static int roadTextureFromCli(int argc, char** argv) {
 // Every road crossing the build will make and what it does there
 // (docs/roads.md, "Junction overrides") - roadgen::planCrossings, the same
 // call the codegen makes, printed per scene: the pair, the position, the
-// result, the override that matched it, the decals, and every ORPHANED
-// override. Exits 1 when any override is orphaned, so a script can gate on it.
+// result, the override that matched it, the decals, the kerbs per road (the
+// codegen's own bake, docs/roads.md "Kerbs") and every ORPHANED override.
+// Exits 1 when any override is orphaned, so a script can gate on it.
 static int roadCrossingsFromCli(int argc, char** argv) {
     if (argc < 3) {
         std::fprintf(stderr,
@@ -815,6 +816,72 @@ static int roadCrossingsFromCli(int argc, char** argv) {
         }
         std::printf("[road] decals: %d overlay(s), %d spill(s), %d vertices\n", nOverlay,
                     nSpill, verts);
+        // Kerbs (docs/roads.md "Kerbs"): the codegen's own bake - the same
+        // surface (rank-lifted roads + patches) and the same planKerbs - so
+        // the totals here are the ROAD_KERB tables' and the game's ROADKERB.
+        bool anyKerb = false;
+        for (const roadgen::CrossingRoad& r : roads) anyKerb |= r.kerb;
+        if (anyKerb) {
+            auto ground = [&](float x, float z) {
+                return sc.terrain.enabled
+                           ? roadgen::terrainHeight(sc.heights, sc.hmW, sc.hmD,
+                                                    (float)sc.terrain.width,
+                                                    (float)sc.terrain.depth, x, z)
+                           : -1000000.0f;
+            };
+            std::vector<roadgen::Vertex> roadTris;
+            for (const roadgen::CrossingRoad& r : roads) {
+                std::vector<roadgen::Vertex> mesh;
+                roadgen::tessellate(r.points, r.width,
+                    [&](float x, float z) { return ground(x, z) + roadgen::rankLift(r.rank); },
+                    mesh, {}, r.sampleStep);
+                roadTris.insert(roadTris.end(), mesh.begin(), mesh.end());
+            }
+            roadgen::Surface surf;
+            surf.add(roadTris);
+            for (const roadgen::Crossing& c : plan.crossings) {
+                if (c.kind != roadgen::kCrossPatch || c.patchDuplicate) continue;
+                std::vector<roadgen::Vertex> mesh;
+                roadgen::tessellateJunctionSurface(
+                    c.shape, roadTris, ground, c.lift, mesh,
+                    sc.terrain.enabled
+                        ? roadgen::terrainGridOf(sc.hmW, sc.hmD, (float)sc.terrain.width,
+                                                 (float)sc.terrain.depth)
+                        : roadgen::TerrainGrid{});
+                surf.add(mesh, c.grip);
+            }
+            surf.build();
+            const std::vector<roadgen::KerbPiece> pieces = roadgen::planKerbs(
+                roads, plan, [&](float x, float z) { return surf.at(x, z); }, ground);
+            std::vector<roadgen::KerbVertex> strip;
+            std::vector<int> sizes;
+            roadgen::kerbStrips(pieces, strip, sizes);
+            float total = 0.0f;
+            for (size_t r = 0; r < roads.size(); ++r) {
+                int lines = 0, points = 0, chains = 0;
+                float len = 0.0f;
+                for (const roadgen::KerbPiece& kp : pieces) {
+                    if (kp.road != (int)r) continue;
+                    ++lines;
+                    chains += kp.node >= 0 ? 1 : 0;
+                    points += kp.points();
+                    for (int i = 1; i < kp.points(); ++i)
+                        len += std::hypot(kp.pts[(size_t)i * 5] - kp.pts[(size_t)(i - 1) * 5],
+                                          kp.pts[(size_t)i * 5 + 2] -
+                                              kp.pts[(size_t)(i - 1) * 5 + 2]);
+                }
+                total += len;
+                if (lines > 0)
+                    std::printf("[kerb] %s: %d line(s) (%d around nodes), %.1f units, %d "
+                                "points -> %d strip vertices before joins\n",
+                                name((int)r).c_str(), lines, chains, len, points, points * 4);
+            }
+            int tris = 0;
+            for (const roadgen::KerbPiece& kp : pieces) tris += 4 * (kp.points() - 1);
+            std::printf("[kerb] total: %zu line(s), %.1f units, %d triangles, %zu strip "
+                        "vertices in %zu chunks\n",
+                        pieces.size(), total, tris, strip.size(), sizes.size());
+        }
         for (size_t oi = 0; oi < sc.roadJunctions.size(); ++oi) {
             if (plan.overrideCrossing[oi] >= 0) continue;
             const roadgen::JunctionOverride& j = sc.roadJunctions[oi];
@@ -5008,9 +5075,10 @@ int main(int argc, char** argv) {
             "                                          (docs/road-textures.md)\n"
             "  --road-crossings <projectDir> [sceneIndex]\n"
             "                                          every road crossing and what "
-            "it does; exit 1 on an\n"
-            "                                          orphaned junction override "
-            "(docs/roads.md)\n"
+            "it does, and the kerbs\n"
+            "                                          per road; exit 1 on an "
+            "orphaned junction\n"
+            "                                          override (docs/roads.md)\n"
             "  --batch-report <projectDir> [sceneIndex]\n"
             "                                          how the static objects "
             "batch, and why each one that\n"

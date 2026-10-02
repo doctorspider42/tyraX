@@ -206,6 +206,7 @@ static int vehicleBodyModel(const Project& p, const std::string& defName) {
 // project without one regenerates byte for byte. Defined next to the rest of
 // the vehicle codegen; declared here because the scene tables come first.
 static bool projectHasVehicles(const Project& p);
+static bool projectHasKerbs(const Project& p);
 
 // The VEHICLE_DEFS row index of a definition, or -1. Only definitions with a
 // model get a row, so this is NOT the Project::vehicles index.
@@ -8981,6 +8982,14 @@ static std::string sceneDataContent(const Project& p, const std::string& ns,
             std::vector<RoadRow> roadRows;
             std::vector<JunctionRow> junctionRows;
             std::vector<roadgen::Vertex> junctionVerts;
+            // Kerbs (docs/roads.md "Kerbs"): one row per chunk of strip runs.
+            struct KerbRow {
+                int scene, first, count;
+            };
+            const bool hasKerbs = projectHasKerbs(p);
+            std::vector<KerbRow> kerbRows;
+            std::vector<float> kerbVerts;  // x, y, z, shade
+            std::ostringstream kerbNotes;
             for (size_t si = 0; si < p.scenes.size(); ++si)
                 for (const SceneObject& o : p.scenes[si].objects) {
                     if (o.type != PrimitiveType::Road || o.roadPoints.size() < 4)
@@ -9059,6 +9068,9 @@ static std::string sceneDataContent(const Project& p, const std::string& ns,
                     roadTriangles.insert(roadTriangles.end(), mesh.begin(), mesh.end());
                 }
                 std::vector<roadgen::Vertex> markSurfaceTris;
+                // Kerbs stand on the drawn surface: the roads and their patches.
+                roadgen::Surface kerbSurface;
+                if (hasKerbs) kerbSurface.add(roadTriangles);
                 for (const roadgen::Crossing& c : plan.crossings) {
                     if (c.kind != roadgen::kCrossPatch || c.patchDuplicate) continue;
                     std::vector<roadgen::Vertex> mesh;
@@ -9068,6 +9080,7 @@ static std::string sceneDataContent(const Project& p, const std::string& ns,
                             ? roadgen::terrainGridOf(sc.hmW, sc.hmD, (float)sc.terrain.width,
                                                      (float)sc.terrain.depth)
                             : roadgen::TerrainGrid{});
+                    if (hasKerbs) kerbSurface.add(mesh, c.grip);
                     junctionRows.push_back(
                         {(int)si, textureIndex(project::resolveRoadTexture(p, c.material)),
                          (int)junctionVerts.size(), (int)mesh.size(), c.grip});
@@ -9091,6 +9104,28 @@ static std::string sceneDataContent(const Project& p, const std::string& ns,
                         junctionRows.push_back(row);
                         junctionVerts.insert(junctionVerts.end(), paint.begin(), paint.end());
                     }
+                }
+                // Kerbs (docs/roads.md "Kerbs"): baked here as strip runs in
+                // cell chunks; the console uploads them unchanged.
+                if (hasKerbs) {
+                    kerbSurface.build();
+                    const std::vector<roadgen::KerbPiece> pieces = roadgen::planKerbs(
+                        cr, plan,
+                        [&](float x, float z) { return kerbSurface.at(x, z); }, ground);
+                    std::vector<roadgen::KerbVertex> kv;
+                    std::vector<int> sizes;
+                    roadgen::kerbStrips(pieces, kv, sizes);
+                    int at = (int)(kerbVerts.size() / 4);
+                    for (int sz : sizes) {
+                        kerbRows.push_back({(int)si, at, sz});
+                        at += sz;
+                    }
+                    for (const roadgen::KerbVertex& v : kv)
+                        kerbVerts.insert(kerbVerts.end(), {v.x, v.y, v.z, v.shade});
+                    if (!kv.empty())
+                        kerbNotes << "// scene " << si << ": " << pieces.size()
+                                  << " kerb lines, " << kv.size() << " strip vertices in "
+                                  << sizes.size() << " chunks\n";
                 }
                 for (const roadgen::CrossingDecal& d : plan.decals) {
                     if (d.verts.empty() || rowOf[(size_t)d.road] < 0) continue;
@@ -9189,6 +9224,35 @@ static std::string sceneDataContent(const Project& p, const std::string& ns,
                     for (size_t k = 0; k < edgeVerts.size(); ++k)
                         out << (k ? ", " : "") << floatLit(edgeVerts[k]);
                     out << "};\n";
+                }
+                // Kerbs (docs/roads.md "Kerbs"): emitted only when a road has
+                // them, so every other road project stays byte-identical.
+                if (hasKerbs) {
+                    out << "// Kerbs (docs/roads.md \"Kerbs\"): host-baked triangle-strip"
+                           " runs of 75, one row per\n// chunk; x, y, z, shade per vertex."
+                           " Uploaded unchanged at scene load.\n"
+                        << kerbNotes.str()
+                        << "constexpr int ROAD_KERB_COUNT = " << kerbRows.size() << ";\n"
+                        << "constexpr float ROAD_KERB_DRAW_DISTANCE = 60.0F;\n"
+                        << "struct RoadKerbRt { int scene; int first; int count; };\n";
+                    if (kerbRows.empty()) {
+                        out << "constexpr RoadKerbRt ROAD_KERBS[1] = {};\n"
+                            << "constexpr float ROAD_KERB_VERTS[1] = {};\n";
+                    } else {
+                        out << "constexpr RoadKerbRt ROAD_KERBS[" << kerbRows.size()
+                            << "] = {\n";
+                        for (const KerbRow& kr : kerbRows)
+                            out << "    {" << kr.scene << ", " << kr.first << ", " << kr.count
+                                << "},\n";
+                        out << "};\nconstexpr float ROAD_KERB_VERTS[" << kerbVerts.size()
+                            << "] = {\n";
+                        for (size_t k = 0; k < kerbVerts.size(); k += 4)
+                            out << "    " << floatLit(kerbVerts[k], 7) << ", "
+                                << floatLit(kerbVerts[k + 1], 7) << ", "
+                                << floatLit(kerbVerts[k + 2], 7) << ", "
+                                << floatLit(kerbVerts[k + 3]) << ",\n";
+                        out << "};\n";
+                    }
                 }
                 if (roadTex.empty()) {
                     out << "constexpr const char* ROAD_TEXTURE_PATHS[1] = "
@@ -18105,6 +18169,16 @@ static bool projectHasRoads(const Project& p) {
     return false;
 }
 
+// Kerbs (docs/roads.md "Kerbs"): the same zero-cost rule one level down - no
+// kerbed road, no ROAD_KERB tables and no upload block.
+static bool projectHasKerbs(const Project& p) {
+    for (const SceneData& sc : p.scenes)
+        for (const SceneObject& o : sc.objects)
+            if (o.type == PrimitiveType::Road && o.roadKerb && o.roadPoints.size() >= 4)
+                return true;
+    return false;
+}
+
 static std::string roadsMembers(const Project& p) {
     if (!projectHasRoads(p)) return "";
     return R"(  // --- roads (docs/roads.md) ---
@@ -18121,9 +18195,63 @@ static std::string roadsSetupCall(const Project& p) {
     return "  buildRoads(sceneIndex);\n";
 }
 
+// The kerb upload, spliced into buildRoads before procFinishChunks.
+static std::string roadKerbsUpload() {
+    return R"(  // KERBS (docs/roads.md "Kerbs"): host-baked triangle-strip runs, one
+  // ROAD_KERBS row per cell-sized chunk, uploaded unchanged - the EE does no
+  // kerb geometry at all. Owner -4, not -3: renderProcChunks draws them (the
+  // frustum reject, the chunk draw distance, occlusion), and the road height
+  // index never sees them, because a kerb is visual only. Untextured: the
+  // baked shade is the vertex colour (128 = full in an untextured bag).
+  for (size_t i = procChunks.size(); i > 0; --i)
+    if (procChunks[i - 1].owner == -4)
+      procChunks.erase(procChunks.begin() + (i - 1));
+  {
+    int kerbChunks = 0, kerbVertices = 0, kerbPackages = 0, kerbTriangles = 0;
+    auto same = [](const float* a, const float* b) {
+      return a[0] == b[0] && a[1] == b[1] && a[2] == b[2];
+    };
+    for (int ki = 0; ki < ROAD_KERB_COUNT; ++ki) {
+      const RoadKerbRt& kr = ROAD_KERBS[ki];
+      if (kr.scene != scene || kr.count < 3) continue;
+      any = true;
+      procChunks.push_back(ProcChunk());
+      ProcChunk& c = procChunks.back();
+      c.owner = -4;
+      c.drawDist = ROAD_KERB_DRAW_DISTANCE;
+      c.stripRun = useStrips ? (int)stripRun : 0;
+      auto put = [&](const float* v) {
+        c.vertices.push_back(Tyra::Vec4(v[0], v[1], v[2], 1.0F));
+        const float g = v[3] * 128.0F;  // light concrete, a hair warm
+        c.colors.push_back(Tyra::Color(g, g * 0.98F, g * 0.94F, 128.0F));
+      };
+      const float* base = &ROAD_KERB_VERTS[(size_t)kr.first * 4];
+      for (int at = 0; at < kr.count; at += 75) {
+        const int len = kr.count - at < 75 ? kr.count - at : 75;
+        for (int k = 0; k + 2 < len; ++k) {
+          const float* a = base + (size_t)(at + k) * 4;
+          if (same(a, a + 4) || same(a + 4, a + 8) || same(a, a + 8)) continue;
+          ++kerbTriangles;
+          // The list control arm (TYRA_STRIP_ROADS 0): the same triangles.
+          if (!useStrips) { put(a); put(a + 4); put(a + 8); }
+        }
+      }
+      if (useStrips)
+        for (int k = 0; k < kr.count; ++k) put(base + (size_t)k * 4);
+      ++kerbChunks;
+      kerbVertices += (int)c.vertices.size();
+      kerbPackages += (int)((c.vertices.size() + 74) / 75);
+    }
+    if (kerbChunks > 0)
+      TYRA_LOG("ROADKERB scene ", scene, " chunks ", kerbChunks, " vertices ",
+               kerbVertices, " packages ", kerbPackages, " triangles ", kerbTriangles);
+  }
+)";
+}
+
 static std::string roadsImpl(const Project& p) {
     if (!projectHasRoads(p)) return "";
-    return R"(
+    std::string s = R"(
 // Roads (docs/roads.md). TWIN NOTICE: this is src/roadgen.cpp's arithmetic,
 // transcribed - CHANGE ONE AND CHANGE BOTH (the vehiclesim rule). The whole
 // road is data: at scene load the spline is sampled every 1 unit and every
@@ -18674,6 +18802,14 @@ void TerrainGame::buildRoads(int scene) {
            " packages ", roadPackages, " triangles ", roadTriangles);
 }
 )";
+    // Kerbs (docs/roads.md "Kerbs"): only a project with a kerbed road gets
+    // the upload block, so every other road project keeps its exact source.
+    if (projectHasKerbs(p)) {
+        const std::string anchor = "  if (any) procFinishChunks();";
+        const size_t at = s.find(anchor);
+        if (at != std::string::npos) s.insert(at, roadKerbsUpload());
+    }
+    return s;
 }
 
 static std::string vehicleSetupCall(const Project& p) {

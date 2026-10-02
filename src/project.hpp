@@ -925,6 +925,12 @@ struct SceneObject {
     // 0 none, 1 stop lines where this road gives way (the default), 2 stop
     // lines plus zebra crossings on every arm of its 3+-armed nodes.
     int roadMarkings = 1;
+    // Kerbs (format v95, docs/roads.md "Kerbs"): a concrete kerb along both
+    // edges, cut at road nodes and run around their fillets instead. Visual
+    // only (no collision); host-baked into ROAD_KERB_VERTS, untextured.
+    bool roadKerb = false;
+    float roadKerbHeight = 0.15f;  // 0.02..0.5 above the road surface
+    float roadKerbWidth = 0.25f;   // top width, 0.05..1
     // Road surface asset. New authoring points at a .mtl (its first map_Kd);
     // direct PNG paths remain accepted for projects authored before the
     // material picker existed. Empty = untextured grey.
@@ -1688,6 +1694,8 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.roadGrip == b.roadGrip && a.roadRank == b.roadRank &&
            a.roadSpill == b.roadSpill && a.roadEdgeFade == b.roadEdgeFade &&
            a.roadMarkings == b.roadMarkings &&
+           a.roadKerb == b.roadKerb && a.roadKerbHeight == b.roadKerbHeight &&
+           a.roadKerbWidth == b.roadKerbWidth &&
            a.roadTexture == b.roadTexture &&
            a.roadIntersectionTexture == b.roadIntersectionTexture &&
            a.vuParams[0] == b.vuParams[0] && a.vuParams[1] == b.vuParams[1] &&

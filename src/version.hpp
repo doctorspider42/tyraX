@@ -6127,9 +6127,12 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // v94 (docs/vehicles.md, "Controls card"): a definition's "tutorial" seconds,
 // written only when non-zero. Missing = no card, as before. Additive; no
 // migration step.
+// v95 (docs/roads.md, "Kerbs"): road object keys roadKerb (written only when
+// true), roadKerbHeight and roadKerbWidth (written only when not 0.15 / 0.25).
+// Missing = no kerbs, as before. Additive; no migration step.
 // v96 (docs/roads.md, "Markings"): a road's "roadMarkings" (0 none, 1 stop
 // lines, 2 + zebras), written only when not 1. Missing = stop lines. Additive;
-// no migration step. (v95 is the kerbs branch's.)
+// no migration step.
 inline constexpr int kFormatVersion = 96;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"

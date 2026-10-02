@@ -11,11 +11,16 @@ is not:
 
 - ~~Markings~~ DONE 1.171.0 (edge lines, stop lines, zebras - untextured
   paint, docs/roads.md "Markings"). Still open: dashed turn guides inside a
-  node, chevrons in a fork's gore, left-hand traffic, and taking the edge-line
-  inset from the road's own texture recipe instead of the district's ratio.
+  node, chevrons in a fork's gore, left-hand traffic, and painting the edge line
+  in the texture's own colour and dash (it is always white and solid).
 - ~~Width transitions~~ DONE 1.171.0 (docs/roads.md "Transition nodes"). Still
   open: a surface change at one width, and lane-count changes inside ONE road.
-- **Kerbs and pavements** extruded along road edges and around the fillets.
+- ~~**Kerbs**~~ along road edges and around the fillets: done (format 95,
+  docs/roads.md "Kerbs"; host-baked strips, 60-unit draw distance, visual
+  only). Still open: **pavements** (a wide raised walk behind the kerb, the
+  same sweep with a texture), **kerb collision** for the vehicles (a wheel
+  should bump up a kerb rather than pass through it), and the draw distance
+  as a project setting.
 - **Overrides for nodes of more than two roads.** `JunctionOverride` is still
   a road PAIR, and the Junction panel's Winner combo offers only `c.a`/`c.b`.
 - **A per-node corner radius** (today 1.5 x the mean half width, 1..8).

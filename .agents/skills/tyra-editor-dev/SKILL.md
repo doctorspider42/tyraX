@@ -3011,6 +3011,24 @@ any chunk, so the overlay's height reaches the spill through the row's
 the Junction section) is `src/junction_ui.cpp`; a junction is selected by
 identity (`App::junctionSel_`), not by object index.
 
+**Kerbs (format 95, docs/roads.md "Kerbs") follow the patch pattern, not the
+tessellator's.** The field chain is `SceneObject::roadKerb/roadKerbHeight/
+roadKerbWidth` (+ `operator==`), `objectJson`/`readObjectsArray` (written only
+off-default), the road section of `props_ui.cpp`, `liveLinkRecipeHash` (mixed
+only when on), `project::crossingRoads` -> `CrossingRoad::kerb*`, and the
+crossing signature in `Viewport::syncRoadDraws` (kerbs are cut at the crossings,
+so they rebuild with them, not with the per-road draw). `roadgen::planKerbs`
+decides every kerb line from the crossing plan, and the codegen bakes them
+with `kerbStrips` into `ROAD_KERBS`/`ROAD_KERB_VERTS`. Those tables and the
+upload block (`roadKerbsUpload`, spliced into `buildRoads` before
+`procFinishChunks`) exist only when `projectHasKerbs`, so a kerbless road
+project regenerates byte-identically. The chunks are owner **-4**: owner -3
+would put them into the road height index (wheels, blob shadows and light
+pools would stand on the kerb top) and into `renderRoadChunks`, which has no
+draw distance. The shadow bake's road hash (`decalproj.cpp`) leaves the kerb
+fields out on purpose: kerbs are not receivers, and adding them would mark
+every baked-shadow cache stale.
+
 ## Vehicle HUD font preparation (1.150.1)
 
 `fontGlyphSprite` in the shared generated helpers owns one persistent sprite

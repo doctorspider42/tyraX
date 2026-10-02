@@ -343,6 +343,138 @@ paint, laid onto that surface, with it. Slivers are now skipped by the proof and
 dropped by the ear clipper. `--vehicle-check` "a node patch on rolling ground
 stays on the ground" pins it on a real heightfield.
 
+## Kerbs (format 95)
+
+A road's **Kerbs** checkbox (`roadKerb`, off by default) puts a concrete kerb
+along both of its edges. **Kerb height** (`roadKerbHeight`, 0.02-0.5, default
+0.15) and **Kerb width** (`roadKerbWidth`, the flat top, 0.05-1, default 0.25)
+size it. All three are written only when they differ from the default, so an
+untouched road saves byte-identical.
+
+The profile is the cheapest one that reads as a kerb: a vertical **face** at the
+road edge, from 0.04 below the road surface up to the kerb height, and the flat
+**top** from the edge outward by the kerb width. There is no bottom and no back
+face; nobody sees them, and nothing in this engine backface-culls, so the face
+is visible from both sides anyway.
+
+Where a kerb runs (`roadgen::planKerbs`, host only):
+
+- **Along both edges of each kerbed road**, cut wherever the kerb would enter a
+  drawn junction patch or stand on another road. The cut is placed by
+  bisection and snapped onto the patch's own kerb end, so the two meet in one
+  point.
+- **Around each patch outline**, minus the arm caps (where a road carries on),
+  minus anything on a road or on another patch. Each remaining run is the kerb
+  round one fillet, round the outside of an L corner, or along the far side of
+  a T. It is kept only when the roads at **both** of its ends have kerbs.
+- Crossings without a patch (different ranks, or equal ranks without an
+  intersection material) get no ring. Each road's kerb simply stops at the
+  other road's edge.
+
+Points sit on the drawn surface. Heights are read 0.1 inside the road or patch
+through `roadgen::Surface`, so a kerb follows the rank lift and the patch fit.
+Patch outline segments are subdivided to 1 unit so the heights follow the
+patch. Then each line is merged: a point goes when the chord around it is within
+**0.02 units** of it, both sideways and in height (`kKerbTolerance`). A merged
+chord is at most 8 units long, and the normal may turn at most about 6 degrees.
+A straight street therefore costs a point every 8 units, while a bend keeps
+what it needs.
+
+The kerb has **no texture and costs no VRAM**. Shading is baked into the vertex
+colours: the top is 0.78 grey and the face 0.56, with a slightly warm tint.
+Each kerb point is four strip vertices: two for the face strip and two for the
+top strip.
+
+### How it runs
+
+The kerbs follow the junction patches' pattern: the host bakes them and the
+console only uploads them. **There is no EE twin to keep in step.** The codegen
+emits `ROAD_KERBS` (one `{scene, first, count}` row per chunk) and
+`ROAD_KERB_VERTS` (x, y, z, shade). Both are emitted only when some road has
+kerbs, so every other road project regenerates byte-identically (the upload
+block in `buildRoads` is gated the same way).
+
+- **Triangle strips** under the road chunks' run contract (`roadgen::
+  kStripRun` = 75, `roadgen::kerbStrips`). Full runs carry their last two
+  vertices over, and separate strips join through repeated vertices. A
+  chunk's last run is padded to a multiple of 3. `TYRA_STRIP_ROADS 0` expands
+  the same runs into a triangle list.
+- **Chunks of one 32-unit cell** (`kKerbCell`), cut by segment midpoint, at
+  most 1 800 vertices. A chunk's box stays about a street block wide, so the
+  frustum and the draw distance drop kerbs a block at a time.
+- **Owner -4**, not the roads' -3. `renderProcChunks` draws them, using its
+  frustum reject, chunk draw distance and occlusion test, and their cost lands
+  in the `Procedural` profiler row. The road height index never sees them.
+- **A draw distance of 60 units** (`ROAD_KERB_DRAW_DISTANCE`, the chunk's
+  `drawDist`, measured from the chunk centre). A 15 cm kerb is a few pixels at
+  that range.
+- `ROADKERB scene N chunks C vertices V packages P triangles T` in
+  `bin/log.txt` is the acceptance line. `--road-crossings <project>` prints the
+  same totals plus one line per road, from the same bake.
+
+The viewport draws the same lines from `roadgen::planKerbs` as triangle lists
+(`kerbTriangles`). They are rebuilt with the crossings, so the editor shows
+what the console builds.
+
+**Kerbs are visual only.** They are not in the road height index, so wheels,
+blob shadows and light pools ignore them, and they have no collision. They are
+also not shadow receivers: the shadow bake's road hash does not include them,
+so turning kerbs on leaves a baked-shadow cache fresh.
+
+### What they cost
+
+Measured on the Motor District main scene, with all 12 asphalt streets kerbed
+and the dirt West service lane left bare:
+
+- **Geometry**: 141 kerb lines, 3 449 units long. They make 4 636 triangles
+  as 6 558 strip vertices in 71 chunks (121 packages). That is about 1.9
+  strip vertices per unit of kerb. The Ring road alone is 50 lines, 1 485
+  units and 2 024 vertices. A straight street such as Garage boulevard is 504
+  vertices over 327 units. `--road-crossings` prints every road.
+- **Untouched**: `ROADS scene 0 chunks 80 vertices 34656`,
+  `ROADSTRIP ... packages 493 triangles 24612` and `ROADINDEX cells 66x66
+  entries 62872` read the same with kerbs on and off.
+- **PCSX2, frozen camera, interleaving pinned off, three `--profile-frame`
+  captures per arm** (emulated EE timing, so treat the numbers as rough):
+
+| pose | `Procedural` off -> on | `Total` off -> on | HUD FPS off / on |
+|---|---:|---:|---:|
+| street level beside a fillet (eye 0.8) | 0.02-0.06 -> 0.33-0.35 ms | 7.6-8.9 -> 8.1-8.9 ms | 30 / 30 |
+| raised view over the Garage x Foundry node (eye 6) | 0.02-0.03 -> 0.47-0.50 ms | 8.7-10.3 -> 9.3-9.8 ms | 28 / 28 |
+
+So the kerbs cost about **0.3-0.5 ms of EE time** where several kerb chunks are
+within draw distance. That is mostly per-chunk submit cost, because the chunks
+are small (about 92 vertices each). The frame rate did not change at either
+pose. This has not been measured on a physical PS2. If it shows up there, the
+first lever is larger chunks: a bigger `kKerbCell`, with the draw distance
+raised to match.
+
+![PCSX2 (mirrored in X): the kerb round a fillet of the Garage boulevard x Foundry link node at street level, and the same node from above with kerbs along both streets](img/road-kerbs-pcsx2.png)
+
+Kerbs and node markings together on the Motor District (PCSX2): the kerb
+round a fillet, the painted edge line inside it, a zebra beyond.
+
+![PCSX2: kerb and painted edge line round a junction fillet in the Motor District, a zebra crossing beyond](img/road-kerbs-markings-district.png)
+
+### Limits
+
+- No collision, and no surface query answers the kerb top.
+- One profile and one colour. A pavement (a wide raised walk behind the kerb)
+  is the same sweep with a wider top and a texture, and is not built.
+- The draw distance is a constant, not a project setting.
+- A ring around a patch takes the first end road's height and width. Two kerbed
+  roads with different kerb sizes meet with a step.
+- A crossing without a patch only cuts the kerbs. It does not round them.
+
+`--vehicle-check` "road kerbs" builds a kerbed T and checks that:
+- the kerb runs around both fillets and along the far side;
+- the stem's own kerb stops at the patch;
+- no kerb point stands on a road;
+- a straight edge merges to at most a point every 8 units;
+- every ring end meets its road's kerb end;
+- the strip runs hold exactly the list's triangles;
+- a fillet loses its kerb when one of its roads has none.
+
 ## Physical-PS2 texture coordinates and the strip default
 
 Roads reach VU1 as **triangle strips** by default. A temporary triangle-list

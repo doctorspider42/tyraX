@@ -4237,6 +4237,11 @@ void Viewport::syncRoadDraws(const std::vector<SceneObject>& objects) {
         mix(csig, r.intersection.data(), r.intersection.size() + 1);
         mix(csig, o.roadTexture.data(), o.roadTexture.size() + 1);
         mix(csig, o.color, sizeof(o.color));
+        // Kerbs (docs/roads.md "Kerbs") are cut at the crossings, so they
+        // rebuild with them.
+        mix(csig, &r.kerb, sizeof(r.kerb));
+        mix(csig, &r.kerbHeight, sizeof(r.kerbHeight));
+        mix(csig, &r.kerbWidth, sizeof(r.kerbWidth));
     }
     for (const roadgen::JunctionOverride& j : roadJunctions_) {
         mix(csig, j.roadA.data(), j.roadA.size() + 1);
@@ -4251,8 +4256,14 @@ void Viewport::syncRoadDraws(const std::vector<SceneObject>& objects) {
     roadCrossSig_ = csig;
     for (RoadCrossDraw& c : roadCross_) destroyMesh(c.mesh);
     roadCross_.clear();
-    if (cr.size() < 2) return;
-    const roadgen::CrossingPlan plan = roadgen::planCrossings(cr, roadJunctions_);
+    if (cr.empty()) return;
+    // One road has no crossings, but it may still have kerbs.
+    const roadgen::CrossingPlan plan = cr.size() >= 2
+                                           ? roadgen::planCrossings(cr, roadJunctions_)
+                                           : roadgen::CrossingPlan{};
+    bool anyKerb = false;
+    for (const roadgen::CrossingRoad& r : cr) anyKerb |= r.kerb;
+    roadgen::Surface kerbSurface;
     auto keyOf = [&](int road) {
         const SceneObject& o = objects[(size_t)objIdx[(size_t)road]];
         return o.id.empty() ? ("road-" + std::to_string(objIdx[(size_t)road])) : o.id;
@@ -4262,6 +4273,7 @@ void Viewport::syncRoadDraws(const std::vector<SceneObject>& objects) {
         roadTriangles.insert(roadTriangles.end(), entry.second.outline.begin(),
                              entry.second.outline.end());
     std::vector<roadgen::Vertex> paintOnTris;
+    if (anyKerb) kerbSurface.add(roadTriangles);
     for (const roadgen::Crossing& c : plan.crossings) {
         if (c.kind != roadgen::kCrossPatch || c.patchDuplicate) continue;
         const SceneObject& a = objects[(size_t)objIdx[(size_t)c.a]];
@@ -4269,6 +4281,7 @@ void Viewport::syncRoadDraws(const std::vector<SceneObject>& objects) {
         roadgen::tessellateJunctionSurface(c.shape, roadTriangles,
             [&](float x, float z) { return terrainHeight(x, z); }, c.lift, triangles,
             terrainGrid());
+        if (anyKerb) kerbSurface.add(triangles, c.grip);
         std::vector<float> iv;
         for (const roadgen::Vertex& v : triangles)
             iv.insert(iv.end(), {v.x, v.y, v.z, 1.0f, 1.0f, 1.0f, v.u, v.v});
@@ -4320,6 +4333,31 @@ void Viewport::syncRoadDraws(const std::vector<SceneObject>& objects) {
         d.owner = keyOf(dc.road);
         d.blended = true;
         roadCross_.push_back(std::move(d));
+    }
+    // Kerbs: the codegen's own roadgen::planKerbs over the same plan, drawn as
+    // triangle lists with their baked shade (the console uploads the same
+    // lines as strips). One opaque mesh per owning road, untextured.
+    if (anyKerb) {
+        kerbSurface.build();
+        const std::vector<roadgen::KerbPiece> pieces = roadgen::planKerbs(
+            cr, plan, [&](float x, float z) { return kerbSurface.at(x, z); },
+            [&](float x, float z) { return terrainHeight(x, z); });
+        std::map<int, std::vector<float>> byRoad;
+        std::vector<roadgen::KerbVertex> tris;
+        for (const roadgen::KerbPiece& kp : pieces) {
+            tris.clear();
+            roadgen::kerbTriangles(kp, tris);
+            std::vector<float>& iv = byRoad[kp.road];
+            for (const roadgen::KerbVertex& v : tris)
+                iv.insert(iv.end(), {v.x, v.y, v.z, v.shade, v.shade * 0.98f,
+                                     v.shade * 0.94f, 0.0f, 0.0f});
+        }
+        for (auto& [road, iv] : byRoad) {
+            RoadCrossDraw d;
+            d.mesh = uploadMesh(iv);
+            d.owner = keyOf(road);
+            roadCross_.push_back(std::move(d));
+        }
     }
 }
 

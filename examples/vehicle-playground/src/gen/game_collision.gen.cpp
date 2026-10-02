@@ -9100,6 +9100,55 @@ void TerrainGame::buildRoads(int scene) {
       }
     }
   }
+  // KERBS (docs/roads.md "Kerbs"): host-baked triangle-strip runs, one
+  // ROAD_KERBS row per cell-sized chunk, uploaded unchanged - the EE does no
+  // kerb geometry at all. Owner -4, not -3: renderProcChunks draws them (the
+  // frustum reject, the chunk draw distance, occlusion), and the road height
+  // index never sees them, because a kerb is visual only. Untextured: the
+  // baked shade is the vertex colour (128 = full in an untextured bag).
+  for (size_t i = procChunks.size(); i > 0; --i)
+    if (procChunks[i - 1].owner == -4)
+      procChunks.erase(procChunks.begin() + (i - 1));
+  {
+    int kerbChunks = 0, kerbVertices = 0, kerbPackages = 0, kerbTriangles = 0;
+    auto same = [](const float* a, const float* b) {
+      return a[0] == b[0] && a[1] == b[1] && a[2] == b[2];
+    };
+    for (int ki = 0; ki < ROAD_KERB_COUNT; ++ki) {
+      const RoadKerbRt& kr = ROAD_KERBS[ki];
+      if (kr.scene != scene || kr.count < 3) continue;
+      any = true;
+      procChunks.push_back(ProcChunk());
+      ProcChunk& c = procChunks.back();
+      c.owner = -4;
+      c.drawDist = ROAD_KERB_DRAW_DISTANCE;
+      c.stripRun = useStrips ? (int)stripRun : 0;
+      auto put = [&](const float* v) {
+        c.vertices.push_back(Tyra::Vec4(v[0], v[1], v[2], 1.0F));
+        const float g = v[3] * 128.0F;  // light concrete, a hair warm
+        c.colors.push_back(Tyra::Color(g, g * 0.98F, g * 0.94F, 128.0F));
+      };
+      const float* base = &ROAD_KERB_VERTS[(size_t)kr.first * 4];
+      for (int at = 0; at < kr.count; at += 75) {
+        const int len = kr.count - at < 75 ? kr.count - at : 75;
+        for (int k = 0; k + 2 < len; ++k) {
+          const float* a = base + (size_t)(at + k) * 4;
+          if (same(a, a + 4) || same(a + 4, a + 8) || same(a, a + 8)) continue;
+          ++kerbTriangles;
+          // The list control arm (TYRA_STRIP_ROADS 0): the same triangles.
+          if (!useStrips) { put(a); put(a + 4); put(a + 8); }
+        }
+      }
+      if (useStrips)
+        for (int k = 0; k < kr.count; ++k) put(base + (size_t)k * 4);
+      ++kerbChunks;
+      kerbVertices += (int)c.vertices.size();
+      kerbPackages += (int)((c.vertices.size() + 74) / 75);
+    }
+    if (kerbChunks > 0)
+      TYRA_LOG("ROADKERB scene ", scene, " chunks ", kerbChunks, " vertices ",
+               kerbVertices, " packages ", kerbPackages, " triangles ", kerbTriangles);
+  }
   if (any) procFinishChunks();
   int roadChunks = 0, roadVertices = 0, roadPackages = 0;
   // Surface triangles, counted where they are KNOWN. A stripped package
