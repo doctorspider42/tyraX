@@ -1,5 +1,5 @@
 {
-  "status": "experimental 1.169.1 runtime implemented; reproduced physical loading race fixed and repeated transitions passed; renewed ordinary timing controls pending",
+  "status": "experimental 1.169.1 runtime implemented and validated: physical day/night repeats, repeated scene transitions and reproduced loading-race correction passed; default off, physical input-to-display latency and promotion remain future work",
   "version": "1.169.1",
   "format_version": 94,
   "default_enabled": false,
@@ -653,7 +653,7 @@
         "sha256": "6e9360bac905eb70695e4e73c71139a7311f3714a220fc2f1d8781635fd03d8c"
       }
     },
-    "next_step": "Renew ordinary production day/night timing with the corrected direct-send order",
+    "next_step": "Reproduced loading-race blocker closed; physical repeats complete; input-to-display latency and promotion remain future work",
     "quiet_probe_physical": {
       "status": "FAILED: VIF1 DMA stuck during procedural load",
       "stage": "loadScene entry",
@@ -891,7 +891,7 @@
     "tools/verify-frame-writer.cpp": "802b1bc6eb7ee89e88942967ff5b3190a2f44762d7eed764fd76852c763a6ce5"
   },
   "post_dma_wait_fix_timing": {
-    "status": "same-ELF day repeat and first corrected night boot passed; final night repeat pending",
+    "status": "PASSED: two fresh physical boots per pose, same ELF within each pose, complete 512-frame work windows and neighboring period windows",
     "day": [
       {
         "log": "F:\\Projects\\tyrax2-lab-20261001\\pipeline-gif-send-day-boot1.log",
@@ -1077,8 +1077,70 @@
         "elf_sha256": "296996436d2f8b1e7718a067453ca247d442fd20703b1711b9aa8a40ccec7afe",
         "elf_path": "F:\\Projects\\tyrax2-lab-20261001\\pipeline-gif-send-night-boot1.elf",
         "period_note": "Neighboring ten 50-frame summary windows, not the exact 512 raw work samples."
+      },
+      {
+        "log": "F:\\Projects\\tyrax2-lab-20261001\\pipeline-gif-send-night-boot2-snapshot.log",
+        "first": 1100,
+        "frames": 512,
+        "hz": 60,
+        "budget_ms": 16.666666666666668,
+        "mean_ms": 18.17333573765225,
+        "median_ms": 18.194922553168404,
+        "p95_ms": 18.80987548828125,
+        "max_ms": 20.233259412977432,
+        "over_budget": 512,
+        "note": "Renderer critical-path work excluding presentation pacing; not full period or delivered FPS.",
+        "period_windows": [
+          {
+            "frame": 1100,
+            "period_ms": 33.7
+          },
+          {
+            "frame": 1150,
+            "period_ms": 33.37
+          },
+          {
+            "frame": 1200,
+            "period_ms": 33.37
+          },
+          {
+            "frame": 1250,
+            "period_ms": 33.37
+          },
+          {
+            "frame": 1300,
+            "period_ms": 33.37
+          },
+          {
+            "frame": 1350,
+            "period_ms": 33.37
+          },
+          {
+            "frame": 1400,
+            "period_ms": 33.37
+          },
+          {
+            "frame": 1450,
+            "period_ms": 33.37
+          },
+          {
+            "frame": 1500,
+            "period_ms": 33.37
+          },
+          {
+            "frame": 1550,
+            "period_ms": 33.37
+          }
+        ],
+        "mean_period_ms": 33.403,
+        "delivered_rate_from_period_hz": 29.937430769691346,
+        "log_sha256": "e050711f15422bf37e4ba6d160c207652fcb1533d959b6c8204791483f8cf331",
+        "elf_sha256": "296996436d2f8b1e7718a067453ca247d442fd20703b1711b9aa8a40ccec7afe",
+        "elf_path": "F:\\Projects\\tyrax2-lab-20261001\\pipeline-gif-send-night-boot2-snapshot.elf",
+        "period_note": "Neighboring ten 50-frame summary windows, not the exact 512 raw work samples."
       }
-    ]
+    ],
+    "final_host_server": "ps2client remains serving last night game; boot 2 uses immutable log snapshot"
   },
   "post_dma_wait_fix_builds": {
     "status": "Windows editor 1.169.1 and native PS2 stress/modes/day/night builds passed",
@@ -1104,6 +1166,11 @@
         "sha256": "001831642bb80b373a2e18dd8a12231fc80ea697ee68d5723e23ddcfc1f75a5b"
       }
     ],
-    "timing_engine_matches_tracked_production_sources": true
+    "timing_engine_matches_tracked_production_sources": true,
+    "final_embedded_docs_build": {
+      "status": "passed",
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\pipeline-gif-send-final-docs-build.log",
+      "sha256": "86cad887270b3cd884479f7a57e6d84fa29d626665ca4d5b5eeefc5ed5c96577"
+    }
   }
 }

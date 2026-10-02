@@ -4226,5 +4226,11 @@ control without watchdogs/stage prints passed 10,440 frames, 15 transitions
 PCSX2 2.9.93 again passed field/progressive/PAL/1080i, limiter and pipeline
 toggles, foreign 2D/3D handshakes and explicit synchronization. Stage stdout
 can hide a timing race: the pre-fix verbose probe passed 12,000 frames while
-the quiet probe hung. Preserve both controls and their hashes. Renew ordinary
-day/night timing after this fix; guarded driving FPS is not production timing.
+the quiet probe hung. Preserve both controls and their hashes. Final ordinary
+day/night timing passed two fresh physical boots per pose using the same ELF
+within each pose: day 13.863 / 13.865 ms work and 17.152 / 17.185 ms period
+(58.30 / 58.19 Hz), night 18.114 / 18.173 ms work and 33.403 ms period in both
+boots (29.94 Hz). Day has 0/512 over-budget work samples per boot; night has
+512/512 in each. Guarded driving FPS is not production timing. Use an immutable
+log snapshot to close measurement while keeping ps2client serving the last game.
+Physical input-to-display latency and promotion remain future acceptance work.

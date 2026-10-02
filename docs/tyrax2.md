@@ -2,7 +2,7 @@
 
 TyraX2 is the staged migration toward preparing frame N on the EE while VU1/GS
 execute frame N-1, with explicit ownership of every submitted resource.
-Version 1.169.0 implements one complete VIF1 chain per ordinary frame, built
+Version 1.169.1 implements one complete VIF1 chain per ordinary frame, built
 natively and terminated once, including the final presentation FINISH.
 Texture uploads, GS state and auxiliary passes are represented in order.
 Explicit same-frame GPU reads, compatibility
@@ -198,33 +198,34 @@ version does not introduce the reference title's SPR staging scheme.
 The [runtime record](tyrax2-runtime-2026-10-02.json) separates final-candidate
 results from predecessor experiments and includes local artifact hashes:
 
-| Physical PS2, seated day start | Baseline, two boots | Final candidate, two boots |
+| Physical PS2, seated day start | Baseline, two boots | Corrected 1.169.1, two boots |
 | --- | --- | --- |
-| Mean render critical-path work, 512 frames | 15.707 / 15.721 ms | 13.992 / 13.988 ms |
+| Mean render critical-path work, 512 frames | 15.707 / 15.721 ms | 13.863 / 13.865 ms |
 | Work above 16.667 ms | 8 / 7 of 512 | 0 / 0 of 512 |
-| Mean complete presentation period, neighboring 500-frame window | 28.061 / 28.095 ms | 17.152 / 17.152 ms |
-| Rate derived from that period | approximately 35.6 Hz | 58.3 / 58.3 Hz |
+| Mean complete presentation period, neighboring 500-frame window | 28.061 / 28.095 ms | 17.152 / 17.185 ms |
+| Rate derived from that period | approximately 35.6 Hz | 58.30 / 58.19 Hz |
 
 Critical-path work excludes presentation pacing but includes any unhidden
 previous GPU tail; it is not pure EE computation. Full period is the performance
 result. The raw work and neighboring period windows are different sample sets.
-The original final day repeat stopped before gameplay with `freepad: DMA Busy`.
-After the user's morning physical power cycle, the SAME archived day ELF repeated
-17.152 ms periods and zero over-budget work samples. The final night candidate's
-first hardware boot measured 18.234 ms critical-path work, versus baseline
-19.918 / 19.912 ms, but retained 33.403 ms periods (29.94 Hz). All 512 night work
-samples still exceeded 16.667 ms. Its second launch after a soft reset stalled
-during loading, producing no timing window; the cause remains undetermined.
-Emulator FPS is not PS2 timing. A second successful night boot and physical
-driving/scene-transition coverage remain required before broader promotion.
+Each pose's corrected repeats use the SAME archived ELF after fresh physical
+power cycles. Corrected night boots measured 18.114 / 18.173 ms critical-path
+work, versus baseline 19.918 / 19.912 ms, but both retained 33.403 ms periods
+(29.94 Hz). All 512 night work samples in each boot still exceeded 16.667 ms.
+This reduces critical-path work without raising night FPS. Emulator FPS is not
+PS2 timing. The experimental runtime's physical timing and repeated scene
+transition gates have passed; input-to-display latency measurement and broader
+promotion remain future acceptance work. The switch stays off by default.
 
 The morning physical guarded drive reached 2,160 recorded frames and 98,304
 accepted source chains, switched to the dense scene and exercised cameras
 0/1/2, then stalled while loading procedural. It had two split frames and zero
-direct fallbacks. This is a FAILED scene-transition acceptance run, despite the
-valid chains; its cause is not established. A scratch-only diagnostic build adds
-loading-stage markers and DMA/GS wait register snapshots for the next power-cycle
-run. The emulator's completed transition test does not close this hardware failure.
+direct fallbacks. This pre-fix acceptance run FAILED despite valid source chains.
+Quiet register diagnostics subsequently reproduced the direct-send ordering
+race, corrected in 1.169.1; the repeated physical controls below close that
+blocker. Preserve this failed run and earlier pre-gameplay `freepad: DMA Busy`
+launches as separate historical evidence. The emulator's completed transition
+test alone did not establish hardware acceptance.
 
 Windows editor, native PS2 and Docker PS2 builds passed. Windows host checks and
 Linux ASan/UBSan passed 1,074 arena cases plus 10,000 malformed streams and 43
@@ -243,7 +244,8 @@ its final operation. Public generated-game Live Debugger readback also completed
 with the runtime preference enabled. The disabled preference allocated no frame
 banks; the day scene ROI comparison differed by less than 0.015/255 mean per
 channel, with small timing/animation differences. These correctness checks do
-not replace the remaining physical-console repeats or input-latency measurement.
+not establish physical input-to-display latency. The completed physical
+repeats are recorded separately above.
 
 ## Pre-submit chain guard
 
@@ -387,10 +389,10 @@ after a fresh power cycle, before gameplay activated the first watchdog.
 A scratch build with startup watchdogs and loading-stage prints then completed
 12,000 frames, all three scene transitions, all three cameras and 663,552
 accepted source chains, with zero direct fallbacks or watchdog alarms. This is
-diagnostic evidence only: the prints may hide a timing race, and no production
-fix or root cause has been established. The earlier loading failures remain
-qualification blockers. A quieter scratch build retains the loading stage in
-RAM and prints registers only after prolonged waits. Its first soft-reset
+diagnostic evidence only: the prints may hide a timing race. At that stage no
+production fix or root cause had been established, and the earlier loading
+failures remained qualification blockers. A quieter scratch build retains the
+loading stage in RAM and prints registers only after prolonged waits. Its first soft-reset
 launch stopped before gameplay with `freepad: DMA Busy`; a physical power cycle
 was required. On its subsequent fresh physical boot, the quiet control hung
 during the procedural load with VIF1 DMA still active and repeatedly identical
@@ -414,5 +416,9 @@ accepted chains, zero rejection and zero direct fallback. Its 17 split frames
 include bounded loading/driving overflow; this stress result does not claim
 one chain for every exceptional frame. Mode/limiter/pipeline changes and
 foreign 2D/3D handshakes also passed again in PCSX2 2.9.93. These controls close
-the reproduced loading-race blocker. The renewed day/night timing controls
-remain pending; preserve the earlier failed attempts as historical evidence.
+the reproduced loading-race blocker. Renewed ordinary day/night timing then
+passed two fresh physical boots per pose using the same ELF within each pose;
+the table above reports the corrected results. Preserve the earlier failed
+attempts as historical evidence. The final timing log is an immutable snapshot;
+ps2client remains serving the last night game so ending measurement does not
+strand its next host-file access.

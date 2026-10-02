@@ -298,25 +298,24 @@ recovered 0.50-0.72 ms of hardware `work`. What it did not do, ranked:
   the saved runtime request; compatibility modes and bounded overflow use real
   synchronous fences. Host/sanitizer checks, native/Docker builds and emulator
   driving, scene transitions, display changes and GPU readback passed.
-  The first final physical day boot reduced full period from approximately
-  28.1 to 17.15 ms (35.6 to 58.3 Hz), repeated with the SAME ELF after the morning
-  power cycle. Final night boot 1 measured 18.234 ms work and 33.403 ms period
-  (29.94 Hz); its next soft-reset launch stalled during loading, without timing.
-  **Still open:** a second successful final night boot, physical driving/scene
-  soak, input-latency measurement, and deciding whether to promote the switch.
-  Preserve the earlier pre-gameplay `freepad: DMA Busy` and current loading
-  failure as separate evidence; the loading failure's cause is undetermined.
-  The subsequent power-cycle guarded drive also stalled while loading
-  procedural after reaching dense (2,160 frames / 98,304 valid chains).
+  Corrected 1.169.1 physical timing passed two fresh boots per pose, using
+  the SAME ELF within each pose. Day reduced full period from approximately
+  28.1 to 17.152 / 17.185 ms (35.6 to 58.30 / 58.19 Hz), with
+  13.863 / 13.865 ms critical-path work and 0/512 over-budget samples per boot.
+  Night measured 18.114 / 18.173 ms work but retained 33.403 ms periods
+  (29.94 Hz), with 512/512 samples above 16.667 ms in both boots.
+  Preserve earlier pre-gameplay `freepad: DMA Busy` launches and the pre-fix
+  procedural loading failure (2,160 frames / 98,304 valid chains) as separate
+  historical evidence.
   **Loading-race fix in 1.169.1:** the quiet physical control exposed a stuck
   VIF1 DMA. Waiting the direct DMA channel after prior hybrid presentation
   prevents a new send from overwriting the copy started by that callback.
   The corrected control passed 10,920 frames; a subsequent build without
   watchdogs or loading-stage prints passed 10,440 frames and five complete
   scene cycles (15 transitions), with 765,952 valid chains and zero fallback.
-  Renewed ordinary day/night timing repeats are still pending. Physical
-  input-to-display latency and promotion from the default-off experiment
-  remain separate open acceptance work.
+  Physical timing and repeated transition acceptance are complete for the
+  experimental runtime. **Still open:** physical input-to-display latency and
+  promotion from the default-off experiment.
   The [runtime record](tyrax2-runtime-2026-10-02.json) distinguishes final results
   from historical arms. The older GPU-only sweep is not a current gain ceiling.
   Reference-title SPR staging and its approximately 16-qword-plus-CALL object
