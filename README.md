@@ -380,7 +380,7 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
   [streaming layers](docs/streaming-layers.md),
   [world facts](docs/world-facts.md), runtime spawning and the
   [endless scroller](docs/endless-scroller.md).
-- **[Roads](docs/roads.md) and [vehicles](docs/vehicles.md)** — terrain-following streets with automatic rounded junctions, T's, forks and corners, driveable and AI cars, model and sound authoring, damage and live previews. Try [Motor District](examples/vehicle-playground/README.md) or follow the [Blender vehicle tutorial](docs/blender-vehicle-modeling.md).
+- **[Roads](docs/roads.md) and [vehicles](docs/vehicles.md)** — terrain-following streets with automatic rounded junctions, T's, forks and corners and [generated road textures](docs/road-textures.md), driveable and AI cars, model and sound authoring, damage and live previews. Try [Motor District](examples/vehicle-playground/README.md) or follow the [Blender vehicle tutorial](docs/blender-vehicle-modeling.md).
 - **[NavMesh + NPC AI](docs/navigation-ai.md)** — baked on the host, A* on the EE.
 - **[Cinematics](docs/cutscenes.md)** — the Cutscene Director, fed by keyframes
   or by a [phone-recorded 6DoF take](docs/camera-takes.md) or the

@@ -605,9 +605,11 @@ std::vector<std::string> App::assetSidecars(const std::string& rel) {
     const std::string dir = folderOf(rel);
     const std::string stem = stemOf(rel);
     // Animated-model replacement UVs (uvunwrap), the model AO sidecar, and the
-    // Drone Generator patch that produced a track (docs/drone-generator.md) -
-    // all editor-only data whose whole value is staying next to its asset.
-    for (const char* ext : {".uvs", ".aov", ".drone"}) {
+    // Drone Generator patch that produced a track (docs/drone-generator.md),
+    // the Road Texture Generator recipe of a road texture
+    // (docs/road-textures.md) - all editor-only data whose whole value is
+    // staying next to its asset.
+    for (const char* ext : {".uvs", ".aov", ".drone", ".roadtex"}) {
         const std::string cand = dir + "/" + stem + ext;
         if (fs::exists(assetAbs(cand), ec)) out.push_back(cand);
     }

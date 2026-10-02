@@ -786,6 +786,11 @@ void App::drawPropertiesWindow() {
             "one repeat per 4 units, so one small texture carries a street of\n"
             "any length. Direct PNG references from older projects still work.\n"
             "Empty = untextured grey.");
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Generate...##roadtex"))
+            openRoadTextureGenerator(o.roadTexture);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Tools > Road Texture Generator");
         if (drawRoadSurfaceCombo("Intersection material", "road-intersection",
                                  o.roadIntersectionTexture))
             committed = true;

@@ -1002,6 +1002,7 @@ void App::drawUI() {
     drawWorldFactsWindow();
     drawVuProgramsWindow();
     drawDroneGeneratorWindow();
+    drawRoadTextureWindow();
     giBakerPoll();
     shadowBakerPoll();
     modelAoPoll();
@@ -1765,6 +1766,10 @@ void App::drawMenuBar() {
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip("The particle library: effects defined once, used by\n"
                                   "emitters and vehicle tyre smoke.");
+            if (ImGui::MenuItem("Road Texture Generator...")) showRoadTexGen_ = true;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Bake road surfaces - asphalt, setts, gravel, dirt,\n"
+                                  "lane markings - into res/materials/roads.");
             if (ImGui::MenuItem("Texture Atlas...")) {
                 showTextureAtlas_ = true;
                 atlasPlanDirty_ = true;
@@ -5553,6 +5558,7 @@ bool* App::showFlagForKey(const std::string& key) {
     if (key == "facts") return &showWorldFacts_;
     if (key == "vu") return &showVuPrograms_;
     if (key == "drone") return &showDroneGenerator_;
+    if (key == "roadtex") return &showRoadTexGen_;
     if (key == "gibake") return &showGiBake_;
     if (key == "debugger") return &showDebugger_;
     if (key == "pad") return &showRemotePad_;
@@ -5593,7 +5599,9 @@ static const char* const kLayoutWindowKeys[] = {
     // Tools > Vehicle Editor (docs/vehicles.md).
     "vehicles",
     // Tools > Particle Editor (docs/particles.md).
-    "particles"};
+    "particles",
+    // Tools > Road Texture Generator (docs/road-textures.md).
+    "roadtex"};
 
 // The same keys, for the AI Assistant's open_window tool (chat_ui.cpp). Defined
 // here rather than there because kLayoutWindowKeys is private to this TU, and
@@ -9212,6 +9220,15 @@ void App::drawAddObjectMenu() {
             r.roadPoints = {r.position[0] - 12.0f, r.position[2],
                             r.position[0],         r.position[2],
                             r.position[0] + 12.0f, r.position[2]};
+            // A new project is seeded with generated road materials
+            // (docs/road-textures.md); a road dropped into one is textured
+            // and junction-ready at once instead of untextured grey.
+            std::error_code ec;
+            const std::filesystem::path dir(project_.dir);
+            if (std::filesystem::exists(dir / roadtex::kDefaultSurface, ec))
+                r.roadTexture = roadtex::kDefaultSurface;
+            if (std::filesystem::exists(dir / roadtex::kDefaultJunction, ec))
+                r.roadIntersectionTexture = roadtex::kDefaultJunction;
             commitChange();
         }
         // Linked pair of surfaces: a live view through to the target portal
