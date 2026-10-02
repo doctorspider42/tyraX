@@ -331,6 +331,13 @@ recovered 0.50-0.72 ms of hardware `work`. What it did not do, ranked:
   emulator mode4/timeout rollback pass. Optional pipeline setter/query nodes
   remain separate conveniences; requested state is not active overlap.
   See [integration audit](tyrax2.md#authoring-integration-audit-2026-10-02).
+- **Automatic interleave selection under TyraX2 — attribution gap confirmed.**
+  The old alternating scorer can label current EE plus pending previous GPU
+  cost as one current-order sample; split/mode/scene interruptions can leave
+  stale marks. Source mismatch does not establish bias or clip-regression cause.
+  [Pinned controls and discarded-pick census](tyrax2-interleave.md) pass native
+  build and 13,200 emulator frames; physical controls are next. Then design/reset
+  settled sampling and price normal critical-path work plus period before shipping.
 - **Remaining EE work / VU0 offload — audited, experiments open.**
   [Current physical attribution](tyrax2-ee-vu0.md) finds 2.724 ms snapshots
   and 0.743 ms conversion nested in 3.665 ms submission, but only about

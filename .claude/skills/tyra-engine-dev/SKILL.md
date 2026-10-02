@@ -3501,8 +3501,15 @@ helpers are included; no micro-mode utilization or production gain follows.
 Gate per-render reuse/classification and exact light-selection ordering first.
 
 Same-call clip reuse passes host/native/emulator semantics yet the physical
-control/candidate/control work is18.248/19.137/18.411 ms, all29.94 Hz.
+control/candidate/control work is 18.248/19.137/18.411 ms, all 29.94 Hz.
 Candidate remains private/rejected. Auto-interleave decision reports differ,
 without proving cause; pin paths if revisiting. Archive matching symbol ELF
 with stripped hardware ELF before a separate motion rebuild overwrites it.
 See docs/tyrax2-clip-reuse-2026-10-02.json for source and evidence limits.
+
+Auto interleave integration: docs/tyrax2-interleave.md proves mixed-label
+sampling under N/N-1, not nonzero bias. Private pinned 0/2 controls bypass
+selector clocks, preserve authored-off/split guards and reset stale marks on
+mode revisions. Native/emulator 13,200 frames pass with exact pinned calls;
+physical acceptance pending. Discarded pick count is zero in this emulator
+pose. Keep BLSS-shared sphere distinct from removable discarded-only work.

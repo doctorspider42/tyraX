@@ -1,0 +1,986 @@
+{
+  "date": "2026-10-02",
+  "production_change": false,
+  "physical_measurement": "pending",
+  "fixture": {
+    "phases": [
+      "compiled-on runtime gate off before",
+      "discarded pick census enabled",
+      "compiled-on runtime gate off restored",
+      "pinned plain before",
+      "pinned interleaved",
+      "pinned plain restored"
+    ],
+    "frames_per_phase": 2200,
+    "warm_work_start_offset": 1100,
+    "work_sample_count": 512,
+    "bucket_names": [
+      "retainedSphere",
+      "discardedSphere",
+      "sharedRetained",
+      "sharedDiscarded",
+      "blssSphere",
+      "retainedPick",
+      "discardedPick"
+    ],
+    "counter_names": [
+      "seams",
+      "retained",
+      "discarded",
+      "blss",
+      "bbox",
+      "nobbox",
+      "shared",
+      "notshared"
+    ],
+    "candidate_kinds": [
+      "retained",
+      "discarded",
+      "uncontextualized"
+    ],
+    "artifacts": {
+      "game\\src\\terrain_game.cpp": "5d890c1b53766468e54737585a7f7d358a8052976c059c4214392088eafb5cb9",
+      "tyra\\engine\\inc\\debug\\discarded_pick_probe.hpp": "6667f4ba175fa343d368354271bfa840bc24c82e969aeb5752408cee00e2ead8",
+      "tyra\\engine\\src\\debug\\discarded_pick_probe.cpp": "272a327b970b4c613c2c5e095582b204a9d15897a3686d467718dab94831ac1a",
+      "tyra\\engine\\src\\renderer\\core\\renderer_core.cpp": "7a3458ae5bbe59d6bb229f0fe19061aa317bf7a457b23d1d085b53a2614fbb20",
+      "tyra\\engine\\src\\renderer\\3d\\pipeline\\static\\core\\stapip_core.cpp": "637a07b1121027a69fa380ba71b34be224797cd515a44a645d5c0d81cb1b0e8b",
+      "tyra\\engine\\inc\\debug\\frame_profile.hpp": "41a3b054cfdb3fccbb0cc0ac5fea4ab5f9b76f7963627a1786c2327a51385b36",
+      "game\\src\\gen\\game_vehicles.gen.cpp": "6d97a4cc1a28aed59f448e78dfaeee6aabf38b91403cb9ae9513c7cc7821b2f5",
+      "game\\inc\\interleave_trial.hpp": "348d22a470e25c7050732ba413132751d352e91344b482a5c5e7f6ebee030208"
+    },
+    "frame_timing": "TYRA_FRAME_PROFILE2 restored consistently in shared header. Initial build failed at ungated ftrig reference with repo default0; old copied ELF excluded. Baseline arena-check-night engine differs from repo in exactly this header default.",
+    "orders": [
+      -1,
+      -1,
+      -1,
+      0,
+      2,
+      0
+    ],
+    "total_frames": 13200,
+    "note": "Same ELF diagnostic gate off/on/off with authoredauto, then separate matched plain/interleaved/plain control. No clip candidate. Pinned calls count at helper; no new DMA waits inside raw windows. Restore authoredauto after done outside measured windows; private gate resets stale mark on next helper entry."
+  },
+  "probe": {
+    "base_engine": "current repository vendor/tyra/engine overlaid into private copy of arena-check-night/tyra",
+    "baseline_game": "F:\\Projects\\tyrax2-lab-20261001\\arena-check-night\\game",
+    "fixture": "F:\\Projects\\tyrax2-lab-20261001\\discarded-pick-probe\\fixture",
+    "files": [
+      {
+        "path": "tyra/engine/src/renderer/3d/pipeline/static/core/stapip_core.cpp",
+        "before_sha256": "b805bf42bd72a34761764eaaa207ce7ff8d3b8862183b135091bc88e3b874932",
+        "after_sha256": "637a07b1121027a69fa380ba71b34be224797cd515a44a645d5c0d81cb1b0e8b"
+      },
+      {
+        "path": "tyra/engine/src/renderer/core/renderer_core.cpp",
+        "before_sha256": "520c81dbc1ac36e829c9c76408a15fe987567450ddbdd8341ccb5e1cce2fbd6f",
+        "after_sha256": "7a3458ae5bbe59d6bb229f0fe19061aa317bf7a457b23d1d085b53a2614fbb20"
+      }
+    ],
+    "new_files": [
+      {
+        "path": "tyra/engine/inc/debug/discarded_pick_probe.hpp",
+        "sha256": "0984cc13602c09036aab000f78fdb0cb0bbaad5b2826dfa95014e82b96309783"
+      },
+      {
+        "path": "tyra/engine/src/debug/discarded_pick_probe.cpp",
+        "sha256": "272a327b970b4c613c2c5e095582b204a9d15897a3686d467718dab94831ac1a"
+      }
+    ],
+    "macro": "TYRA_DISCARDED_PICK_PROBE=1 consistently engine and game, default0",
+    "api": "Tyra::DiscardedPickProbe::setEnabled, reset, take",
+    "activation": "unlit dynLightPick bags whose result is overwritten by !spotLit",
+    "clock": "COP0 Count once around entire sphere/pick, never per light",
+    "host_controls": {
+      "result": "PASS",
+      "exact_source_restoration": [
+        "tyra/engine/src/renderer/3d/pipeline/static/core/stapip_core.cpp",
+        "tyra/engine/src/renderer/core/renderer_core.cpp"
+      ],
+      "runs": [
+        {
+          "macro": 0,
+          "command": [
+            "g++",
+            "-std=c++17",
+            "-O2",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            "-Wno-unused-function",
+            "-Wno-unused-parameter",
+            "-DTYRA_DISCARDED_PICK_PROBE=0",
+            "-I",
+            "F:\\Projects\\tyrax2-lab-20261001\\discarded-pick-probe\\fixture\\tyra\\engine\\inc",
+            "F:\\Projects\\tyrax2-lab-20261001\\discarded-pick-probe\\host-test.cpp",
+            "-o",
+            "F:\\Projects\\tyrax2-lab-20261001\\discarded-pick-probe\\host-0.exe"
+          ],
+          "build_stdout": "",
+          "build_stderr": "",
+          "exit_code": 0,
+          "stdout": "",
+          "stderr": "",
+          "binary_sha256": "da8931f251705037435cf626516c7d8229ac22605be031e8c3f4e14d6d9d636b"
+        },
+        {
+          "macro": 1,
+          "command": [
+            "g++",
+            "-std=c++17",
+            "-O2",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            "-Wno-unused-function",
+            "-Wno-unused-parameter",
+            "-DTYRA_DISCARDED_PICK_PROBE=1",
+            "-I",
+            "F:\\Projects\\tyrax2-lab-20261001\\discarded-pick-probe\\fixture\\tyra\\engine\\inc",
+            "F:\\Projects\\tyrax2-lab-20261001\\discarded-pick-probe\\host-test.cpp",
+            "-o",
+            "F:\\Projects\\tyrax2-lab-20261001\\discarded-pick-probe\\host-1.exe"
+          ],
+          "build_stdout": "",
+          "build_stderr": "",
+          "exit_code": 0,
+          "stdout": "",
+          "stderr": "",
+          "binary_sha256": "f679af8752de11f016937c95c61bebe6eea1facc7285fe1e1c287806984d57dd"
+        }
+      ],
+      "coverage": [
+        "compiledout",
+        "runtimegateoff",
+        "all32flagcombinations",
+        "BLSS shared sphere partition",
+        "discarded/retained candidate partition",
+        "nested context restoration",
+        "uncontextualized direct calls",
+        "unsigned clockwrap",
+        "reset/take"
+      ],
+      "timing_claim": false
+    },
+    "artifact_hashes": {
+      "host-test.cpp": "a4ded66dc72bdbb2e392c2b62669e99f1c21becbdcaf69f3182c6b6166b48dab",
+      "prepare.py": "852a8075ffec6f9b9c09853277133a82155f32a3f55506dc5eabaaa9afab0ee6",
+      "probe.patch": "c9414a50b392ea23887ae019b63e86c259214bfb4913ebf2442ba2bc13dbf5a5",
+      "verify.py": "422dcca67c7ab5b0cc438f0bb0203f6d64554cb24adb731d94271e0d5561b70c"
+    }
+  },
+  "private_gate": {
+    "original_source_sha256": "373e75094c853dc099f8f21effd5901557c909a28d896c9907914743cf40902f",
+    "candidate_source_sha256": "6d97a4cc1a28aed59f448e78dfaeee6aabf38b91403cb9ae9513c7cc7821b2f5",
+    "header_sha256": "348d22a470e25c7050732ba413132751d352e91344b482a5c5e7f6ebee030208",
+    "validation": "Source inspection only; no builds/run.",
+    "mutated_files": [
+      "F:\\Projects\\tyrax2-lab-20261001\\discarded-pick-probe\\fixture\\game\\src\\gen\\game_vehicles.gen.cpp",
+      "F:\\Projects\\tyrax2-lab-20261001\\discarded-pick-probe\\fixture\\game\\inc\\interleave_trial.hpp"
+    ]
+  },
+  "source_audit": {
+    "report": "# Automatic interleave selector under ordered N/N-1\n\nRead-only audit, 2026-10-02. No production edits, build, engine cache or console operation. This finds an attribution mismatch in the selector's per-order score contract, not a proven explanation for the clip-reuse regression or a demonstrated performance fix. Hashes record actual inspected sources.\n\n## Confirmed scoring contract\n\nGenerated source `game_vehicles.gen.cpp:6017+`, generator `src/game_templates.inc:20963\u201321033`: interleaveBegin is called during scene rendering, after earlier render work and before the deferred heavy/object phase (`game_physics.gen.cpp:1559`). It clears heavyBags/Next/Drawn, returnsfalse immediately for INTERLEAVE_PASSES=0 or splitPassActive, returns true immediately for mode2(always). Only mode1(auto) reads profTicks and RendererCore::getStallTotal. At next begin, score = unsigned wall difference minus unsigned cumulative pacing stall difference, clamped0. It calls ilAccount(score) while ilMarkActive still describes the preceding chosen order, then updates mark/stall and chooses current order.\n\nThe score is point-to-point WHOLE-loop critical-path work, not just affected passes. It includes prior scene tail, endFrame, frame-update and current scene front up to the next begin. In ordinary synchronous submission the prior frame's final GS drain is in that interval, motivating this placement; moving views/current front work can still be cross-frame noise.\n\nilAccount increments ilFrame. Initial ilProbing=true; probe16 frames alternating interleaved on even ilFrame, plain on odd;8 adjacent pairs. Each interleaved sample stored in ilPairOn, next plain sample records win only when ilPairOn*1.01<plainwork. Decision is ilWins*2>8, hence at least5/8 wins. Total on/off sums only log descriptive averages, not decision condition. Chosen order held100 samples before next16-frame probe. Printed integer microseconds divide ticks by295 (coarse approximation), not exact294.912; wins use raw ticks. interleaveEnd only updates heavyPrevDrawn/lastBlendAt/lastHeavy if heavyActive, not the score.\n\n## Confirmed ordered attribution mismatch\n\nLet B_N be interleaveBegin during EE recording frameN. Auto sample attributed to orderN is interval B_N\u2192B_N+1 minus pacing. Under ordered execution:\n\n1. Remaining EE records frameN after B_N.\n2. RendererCore::endFrame calls Vif1Queue::endRecordingFrame; flushRecording calls completeBeforeSubmission (`vif1_queue.cpp:711\u2013717`).\n3. Callback completes/presents pending GPU jobN-1 (`renderer_core.cpp:446\u2013468`), then permits submittingN.\n4. EE update/front renderN+1 reaches B_N+1 and scores the interval as orderN.\n\ncompletePipelineFrame waits DMA at449 and GS FINISH at453 BEFORE reading t0 at455. Only pacing flip/vsync t0\u2192t1 enters stallTotal at460. Therefore any remaining DMA/GS completion of previous orderN-1 remains in the score taggedN. This is a source-established mix of current EE order and previous GPU order. At alternating probes, GPU job's order generally differs from the label of the EE recording being scored (except transitions/fallbacks). It does not establish nonzero residual GPU wait on every sample, inverted winner in this fixture, or the observed0.73\u20130.89ms regression mechanism. Fully hidden GPU completion would contribute zero wait; overall steady throughput score can remain useful even though per-order attribution is mixed.\n\nDo not fix this by subtracting all DMA/GS waits: that would erase exactly a GPU-order penalty the original selector intended to price. Nor simply lag ilMarkActive byone: interval still contains EE_N and front_N+1, so one label cannot describe every component. A correct auto comparison for pipelining needs settling/block measurement or an explicit ledger tagged to the GPU job and EE work; neither is implemented by this audit.\n\n## Other established state limitations\n\nsetFramePipeline requested flag is not activity: field/BLSS/unlimitedtriple compatibility uses synchronous path (`beginFrameRecording:425\u2013428`). A selector cannot choose its scoring policy from getFramePipeline alone; effective pipeline mode changes matter. Overflow/foreign destructive fallback may split/drain one recording, changing which costs are hidden, without any selector mode-change notification.\n\nNo reset of ilHaveMark/ilFrame/probe sums found in generated scene load/loop. Early return for splitPassActive or mode0/2 does not update marks; later return to auto can score multiple skipped frames/views against stale order. Scene loading/reload may similarly contaminate a pair; normally100-frame hold/warm-up eventually moves beyond it, but it is not a correctly tagged sample. Source confirms stale-sample possibility, not that it contaminated the warmed clip windows. Public custom engine/settings mutations remain separate integration contracts.\n\nThe source prints decisions on choicechange or DEBUG_SHOW_PROFILER, so report frequency is not universally decision frequency. Clipfixture profiler enabled produced repeated reports; frozen observed warm regions show5 reports each, on arm2interleaved/3plain versus off5/0 and restored4/1. These are observations from separate triage, not proof that selector bias caused regression. heavy44/drawn50/blend23 remains same; reported decision rows have no explicit frame timestamp, only nearest FRAMETIME association.\n\n## Quiet pinned controls\n\nUse existing engine-authored meanings0plain and2always-interleaved in a private fixture; these return before clocks/probe state and avoid stale auto scoring. For sameELF runtime control, a root-only forced order gate in interleaveBegin should be resolved BEFORE auto clock/state; route false/true as mode0/2 while retaining heavy clear/setup and ordinary pixel-preserving blend safeguards. Do not change road/object order heuristics, counts, alpha/depth protections or normal submission batching. Disable auto scoring throughout those arms; never silently resume stale marks. No code proposed outside this narrow selector seam.\n\nFirst establish whether plain vs interleaved matters under unchanged TyraX2: off/default code, pinnedplain / pinnedinterleaved / pinnedplain, same ELF, stationary night, warm caches after one reload perphase, independent physical boots if effectsmall. If revisiting clip candidate, compare clipoff/on/off while pinningplain in all3 phases; repeat separately with pinnedinterleaved all3 phases. Do not combine six sequential order+clip changes and label them an independent paired control without matched baselines. Archive raw work/period, same pose, frame chain/qword/copied/borrowed counts, actual chosen order and zero fallback/errors; logs should occur phase boundaries or outside raw measurement window, never perbag. No extra align3D/drain inside frame for measuring.\n\nFor block auto design after controls, use a settled run of each order rather than alternating everyframe. Exclude at least the pending-job handover plus source caching transients, collect enough samples perblock, restore reference block and compare normal critical-path work+period, with actual effective mode/scene/view changes resetting probe state. This is a plan, not a validated design: needed block length, hysteresis, moving-camera behavior and input latency must be measured, not assumed.\n\n## Integration conclusion\n\nThis is a real compatibility gap in the old auto selector's claim that each labelled score belongs to that order under N/N-1. It is not a missing mandatory flowgraph node or an engine resource-fence failure. Preserve current experimental/default-off status; price pinned controls before changing selector. No production optimization, corrected timing or FPS benefit follows from this report.\n",
+    "hashes": [
+      {
+        "path": "F:\\Projects\\tyra-editor\\src\\game_templates.inc",
+        "sha256": "ebf0ec5aabaf4113f97506718af634ad02be0e50d85d029dbee6b87fdcec170f"
+      },
+      {
+        "path": "F:\\Projects\\tyra-editor\\src\\templates.cpp",
+        "sha256": "71869aab9dc39a448d63dddbf290dc52cfecee2dd042a57bee98d75eaa1d4646"
+      },
+      {
+        "path": "F:\\Projects\\tyra-editor\\vendor\\tyra\\engine\\src\\renderer\\core\\renderer_core.cpp",
+        "sha256": "520c81dbc1ac36e829c9c76408a15fe987567450ddbdd8341ccb5e1cce2fbd6f"
+      },
+      {
+        "path": "F:\\Projects\\tyra-editor\\vendor\\tyra\\engine\\inc\\renderer\\core\\renderer_core.hpp",
+        "sha256": "736d0cba3623e87e1b566884fc0f9af6df612bf43f4e0564aa67f1c5da7ea93d"
+      },
+      {
+        "path": "F:\\Projects\\tyra-editor\\vendor\\tyra\\engine\\src\\renderer\\core\\paths\\path1\\vif1_queue.cpp",
+        "sha256": "41c13286b8a3140b862013a21ae438d68a3edfec27dab1fde32bdbc9702a8f93"
+      },
+      {
+        "path": "F:\\Projects\\tyrax2-lab-20261001\\clip-reuse-trial\\game\\src\\gen\\game_vehicles.gen.cpp",
+        "sha256": "373e75094c853dc099f8f21effd5901557c909a28d896c9907914743cf40902f"
+      },
+      {
+        "path": "F:\\Projects\\tyrax2-lab-20261001\\clip-reuse-trial\\game\\src\\gen\\game_physics.gen.cpp",
+        "sha256": "dfc2cba59807e044e1eba41d1883911117921462c44ba3209d2938c0c9050a93"
+      },
+      {
+        "path": "F:\\Projects\\tyrax2-lab-20261001\\clip-reuse-trial\\game\\inc\\scene_data.hpp",
+        "sha256": "a6b08faa745a430790d3d386208b56c0c275754e56e987dcf3038db65445b2e7"
+      }
+    ]
+  },
+  "emulator": {
+    "version": "2.9.93",
+    "done_first": 13200,
+    "order_windows": [
+      [
+        {
+          "phase": 0,
+          "f": 1100,
+          "n": 50,
+          "mode": -1,
+          "plain": 0,
+          "interleaved": 0,
+          "blocked": 0
+        },
+        {
+          "phase": 0,
+          "f": 1150,
+          "n": 50,
+          "mode": -1,
+          "plain": 0,
+          "interleaved": 0,
+          "blocked": 0
+        },
+        {
+          "phase": 0,
+          "f": 1200,
+          "n": 50,
+          "mode": -1,
+          "plain": 0,
+          "interleaved": 0,
+          "blocked": 0
+        },
+        {
+          "phase": 0,
+          "f": 1250,
+          "n": 50,
+          "mode": -1,
+          "plain": 0,
+          "interleaved": 0,
+          "blocked": 0
+        },
+        {
+          "phase": 0,
+          "f": 1300,
+          "n": 50,
+          "mode": -1,
+          "plain": 0,
+          "interleaved": 0,
+          "blocked": 0
+        },
+        {
+          "phase": 0,
+          "f": 1350,
+          "n": 50,
+          "mode": -1,
+          "plain": 0,
+          "interleaved": 0,
+          "blocked": 0
+        },
+        {
+          "phase": 0,
+          "f": 1400,
+          "n": 50,
+          "mode": -1,
+          "plain": 0,
+          "interleaved": 0,
+          "blocked": 0
+        },
+        {
+          "phase": 0,
+          "f": 1450,
+          "n": 50,
+          "mode": -1,
+          "plain": 0,
+          "interleaved": 0,
+          "blocked": 0
+        },
+        {
+          "phase": 0,
+          "f": 1500,
+          "n": 50,
+          "mode": -1,
+          "plain": 0,
+          "interleaved": 0,
+          "blocked": 0
+        },
+        {
+          "phase": 0,
+          "f": 1550,
+          "n": 50,
+          "mode": -1,
+          "plain": 0,
+          "interleaved": 0,
+          "blocked": 0
+        }
+      ],
+      [
+        {
+          "phase": 1,
+          "f": 3300,
+          "n": 50,
+          "mode": -1,
+          "plain": 0,
+          "interleaved": 0,
+          "blocked": 0
+        },
+        {
+          "phase": 1,
+          "f": 3350,
+          "n": 50,
+          "mode": -1,
+          "plain": 0,
+          "interleaved": 0,
+          "blocked": 0
+        },
+        {
+          "phase": 1,
+          "f": 3400,
+          "n": 50,
+          "mode": -1,
+          "plain": 0,
+          "interleaved": 0,
+          "blocked": 0
+        },
+        {
+          "phase": 1,
+          "f": 3450,
+          "n": 50,
+          "mode": -1,
+          "plain": 0,
+          "interleaved": 0,
+          "blocked": 0
+        },
+        {
+          "phase": 1,
+          "f": 3500,
+          "n": 50,
+          "mode": -1,
+          "plain": 0,
+          "interleaved": 0,
+          "blocked": 0
+        },
+        {
+          "phase": 1,
+          "f": 3550,
+          "n": 50,
+          "mode": -1,
+          "plain": 0,
+          "interleaved": 0,
+          "blocked": 0
+        },
+        {
+          "phase": 1,
+          "f": 3600,
+          "n": 50,
+          "mode": -1,
+          "plain": 0,
+          "interleaved": 0,
+          "blocked": 0
+        },
+        {
+          "phase": 1,
+          "f": 3650,
+          "n": 50,
+          "mode": -1,
+          "plain": 0,
+          "interleaved": 0,
+          "blocked": 0
+        },
+        {
+          "phase": 1,
+          "f": 3700,
+          "n": 50,
+          "mode": -1,
+          "plain": 0,
+          "interleaved": 0,
+          "blocked": 0
+        },
+        {
+          "phase": 1,
+          "f": 3750,
+          "n": 50,
+          "mode": -1,
+          "plain": 0,
+          "interleaved": 0,
+          "blocked": 0
+        }
+      ],
+      [
+        {
+          "phase": 2,
+          "f": 5500,
+          "n": 50,
+          "mode": -1,
+          "plain": 0,
+          "interleaved": 0,
+          "blocked": 0
+        },
+        {
+          "phase": 2,
+          "f": 5550,
+          "n": 50,
+          "mode": -1,
+          "plain": 0,
+          "interleaved": 0,
+          "blocked": 0
+        },
+        {
+          "phase": 2,
+          "f": 5600,
+          "n": 50,
+          "mode": -1,
+          "plain": 0,
+          "interleaved": 0,
+          "blocked": 0
+        },
+        {
+          "phase": 2,
+          "f": 5650,
+          "n": 50,
+          "mode": -1,
+          "plain": 0,
+          "interleaved": 0,
+          "blocked": 0
+        },
+        {
+          "phase": 2,
+          "f": 5700,
+          "n": 50,
+          "mode": -1,
+          "plain": 0,
+          "interleaved": 0,
+          "blocked": 0
+        },
+        {
+          "phase": 2,
+          "f": 5750,
+          "n": 50,
+          "mode": -1,
+          "plain": 0,
+          "interleaved": 0,
+          "blocked": 0
+        },
+        {
+          "phase": 2,
+          "f": 5800,
+          "n": 50,
+          "mode": -1,
+          "plain": 0,
+          "interleaved": 0,
+          "blocked": 0
+        },
+        {
+          "phase": 2,
+          "f": 5850,
+          "n": 50,
+          "mode": -1,
+          "plain": 0,
+          "interleaved": 0,
+          "blocked": 0
+        },
+        {
+          "phase": 2,
+          "f": 5900,
+          "n": 50,
+          "mode": -1,
+          "plain": 0,
+          "interleaved": 0,
+          "blocked": 0
+        },
+        {
+          "phase": 2,
+          "f": 5950,
+          "n": 50,
+          "mode": -1,
+          "plain": 0,
+          "interleaved": 0,
+          "blocked": 0
+        }
+      ],
+      [
+        {
+          "phase": 3,
+          "f": 7700,
+          "n": 50,
+          "mode": 0,
+          "plain": 50,
+          "interleaved": 0,
+          "blocked": 0
+        },
+        {
+          "phase": 3,
+          "f": 7750,
+          "n": 50,
+          "mode": 0,
+          "plain": 50,
+          "interleaved": 0,
+          "blocked": 0
+        },
+        {
+          "phase": 3,
+          "f": 7800,
+          "n": 50,
+          "mode": 0,
+          "plain": 50,
+          "interleaved": 0,
+          "blocked": 0
+        },
+        {
+          "phase": 3,
+          "f": 7850,
+          "n": 50,
+          "mode": 0,
+          "plain": 50,
+          "interleaved": 0,
+          "blocked": 0
+        },
+        {
+          "phase": 3,
+          "f": 7900,
+          "n": 50,
+          "mode": 0,
+          "plain": 50,
+          "interleaved": 0,
+          "blocked": 0
+        },
+        {
+          "phase": 3,
+          "f": 7950,
+          "n": 50,
+          "mode": 0,
+          "plain": 50,
+          "interleaved": 0,
+          "blocked": 0
+        },
+        {
+          "phase": 3,
+          "f": 8000,
+          "n": 50,
+          "mode": 0,
+          "plain": 50,
+          "interleaved": 0,
+          "blocked": 0
+        },
+        {
+          "phase": 3,
+          "f": 8050,
+          "n": 50,
+          "mode": 0,
+          "plain": 50,
+          "interleaved": 0,
+          "blocked": 0
+        },
+        {
+          "phase": 3,
+          "f": 8100,
+          "n": 50,
+          "mode": 0,
+          "plain": 50,
+          "interleaved": 0,
+          "blocked": 0
+        },
+        {
+          "phase": 3,
+          "f": 8150,
+          "n": 50,
+          "mode": 0,
+          "plain": 50,
+          "interleaved": 0,
+          "blocked": 0
+        }
+      ],
+      [
+        {
+          "phase": 4,
+          "f": 9900,
+          "n": 50,
+          "mode": 2,
+          "plain": 0,
+          "interleaved": 50,
+          "blocked": 0
+        },
+        {
+          "phase": 4,
+          "f": 9950,
+          "n": 50,
+          "mode": 2,
+          "plain": 0,
+          "interleaved": 50,
+          "blocked": 0
+        },
+        {
+          "phase": 4,
+          "f": 10000,
+          "n": 50,
+          "mode": 2,
+          "plain": 0,
+          "interleaved": 50,
+          "blocked": 0
+        },
+        {
+          "phase": 4,
+          "f": 10050,
+          "n": 50,
+          "mode": 2,
+          "plain": 0,
+          "interleaved": 50,
+          "blocked": 0
+        },
+        {
+          "phase": 4,
+          "f": 10100,
+          "n": 50,
+          "mode": 2,
+          "plain": 0,
+          "interleaved": 50,
+          "blocked": 0
+        },
+        {
+          "phase": 4,
+          "f": 10150,
+          "n": 50,
+          "mode": 2,
+          "plain": 0,
+          "interleaved": 50,
+          "blocked": 0
+        },
+        {
+          "phase": 4,
+          "f": 10200,
+          "n": 50,
+          "mode": 2,
+          "plain": 0,
+          "interleaved": 50,
+          "blocked": 0
+        },
+        {
+          "phase": 4,
+          "f": 10250,
+          "n": 50,
+          "mode": 2,
+          "plain": 0,
+          "interleaved": 50,
+          "blocked": 0
+        },
+        {
+          "phase": 4,
+          "f": 10300,
+          "n": 50,
+          "mode": 2,
+          "plain": 0,
+          "interleaved": 50,
+          "blocked": 0
+        },
+        {
+          "phase": 4,
+          "f": 10350,
+          "n": 50,
+          "mode": 2,
+          "plain": 0,
+          "interleaved": 50,
+          "blocked": 0
+        }
+      ],
+      [
+        {
+          "phase": 5,
+          "f": 12100,
+          "n": 50,
+          "mode": 0,
+          "plain": 50,
+          "interleaved": 0,
+          "blocked": 0
+        },
+        {
+          "phase": 5,
+          "f": 12150,
+          "n": 50,
+          "mode": 0,
+          "plain": 50,
+          "interleaved": 0,
+          "blocked": 0
+        },
+        {
+          "phase": 5,
+          "f": 12200,
+          "n": 50,
+          "mode": 0,
+          "plain": 50,
+          "interleaved": 0,
+          "blocked": 0
+        },
+        {
+          "phase": 5,
+          "f": 12250,
+          "n": 50,
+          "mode": 0,
+          "plain": 50,
+          "interleaved": 0,
+          "blocked": 0
+        },
+        {
+          "phase": 5,
+          "f": 12300,
+          "n": 50,
+          "mode": 0,
+          "plain": 50,
+          "interleaved": 0,
+          "blocked": 0
+        },
+        {
+          "phase": 5,
+          "f": 12350,
+          "n": 50,
+          "mode": 0,
+          "plain": 50,
+          "interleaved": 0,
+          "blocked": 0
+        },
+        {
+          "phase": 5,
+          "f": 12400,
+          "n": 50,
+          "mode": 0,
+          "plain": 50,
+          "interleaved": 0,
+          "blocked": 0
+        },
+        {
+          "phase": 5,
+          "f": 12450,
+          "n": 50,
+          "mode": 0,
+          "plain": 50,
+          "interleaved": 0,
+          "blocked": 0
+        },
+        {
+          "phase": 5,
+          "f": 12500,
+          "n": 50,
+          "mode": 0,
+          "plain": 50,
+          "interleaved": 0,
+          "blocked": 0
+        },
+        {
+          "phase": 5,
+          "f": 12550,
+          "n": 50,
+          "mode": 0,
+          "plain": 50,
+          "interleaved": 0,
+          "blocked": 0
+        }
+      ]
+    ],
+    "enabled_counter_windows": [
+      {
+        "frame": 3300,
+        "seams": 6700,
+        "retained": 5700,
+        "discarded": 0,
+        "blss": 0,
+        "bbox": 0,
+        "nobbox": 0,
+        "shared": 0,
+        "notshared": 0
+      },
+      {
+        "frame": 3350,
+        "seams": 6700,
+        "retained": 5700,
+        "discarded": 0,
+        "blss": 0,
+        "bbox": 0,
+        "nobbox": 0,
+        "shared": 0,
+        "notshared": 0
+      },
+      {
+        "frame": 3400,
+        "seams": 6700,
+        "retained": 5700,
+        "discarded": 0,
+        "blss": 0,
+        "bbox": 0,
+        "nobbox": 0,
+        "shared": 0,
+        "notshared": 0
+      },
+      {
+        "frame": 3450,
+        "seams": 6700,
+        "retained": 5700,
+        "discarded": 0,
+        "blss": 0,
+        "bbox": 0,
+        "nobbox": 0,
+        "shared": 0,
+        "notshared": 0
+      },
+      {
+        "frame": 3500,
+        "seams": 6700,
+        "retained": 5700,
+        "discarded": 0,
+        "blss": 0,
+        "bbox": 0,
+        "nobbox": 0,
+        "shared": 0,
+        "notshared": 0
+      },
+      {
+        "frame": 3550,
+        "seams": 6700,
+        "retained": 5700,
+        "discarded": 0,
+        "blss": 0,
+        "bbox": 0,
+        "nobbox": 0,
+        "shared": 0,
+        "notshared": 0
+      },
+      {
+        "frame": 3600,
+        "seams": 6700,
+        "retained": 5700,
+        "discarded": 0,
+        "blss": 0,
+        "bbox": 0,
+        "nobbox": 0,
+        "shared": 0,
+        "notshared": 0
+      },
+      {
+        "frame": 3650,
+        "seams": 6700,
+        "retained": 5700,
+        "discarded": 0,
+        "blss": 0,
+        "bbox": 0,
+        "nobbox": 0,
+        "shared": 0,
+        "notshared": 0
+      },
+      {
+        "frame": 3700,
+        "seams": 6700,
+        "retained": 5700,
+        "discarded": 0,
+        "blss": 0,
+        "bbox": 0,
+        "nobbox": 0,
+        "shared": 0,
+        "notshared": 0
+      },
+      {
+        "frame": 3750,
+        "seams": 6700,
+        "retained": 5700,
+        "discarded": 0,
+        "blss": 0,
+        "bbox": 0,
+        "nobbox": 0,
+        "shared": 0,
+        "notshared": 0
+      }
+    ],
+    "note": "Counts/bookkeeping only: zero discarded selection in stationary night emulator windows. No hardware cost or gain claim.",
+    "artifacts": [
+      {
+        "path": "F:\\Projects\\tyrax2-lab-20261001\\discarded-order-trial-emulator\\emulog.txt",
+        "sha256": "7a5e5d348cd1c1f3a1831355da3534d2b0ec92a2c8a57913acbd81fe2f50d2b6",
+        "bytes": 494166
+      },
+      {
+        "path": "F:\\Projects\\tyrax2-lab-20261001\\discarded-order-trial-emulator\\game-log.txt",
+        "sha256": "c9e7fe15f5a599ed30b1f102a8dd945b25702684d99b17b82507a5d9659b7fb0",
+        "bytes": 422416
+      },
+      {
+        "path": "F:\\Projects\\tyrax2-lab-20261001\\discarded-order-trial-emulator\\report.txt",
+        "sha256": "e0f674b11f556f72a588084f92021c5f4808671df2c9cc4c2b3fe62ee4693b7d",
+        "bytes": 2497
+      },
+      {
+        "path": "F:\\Projects\\tyrax2-lab-20261001\\discarded-order-trial-emulator\\Screenshot.png",
+        "sha256": "08a9f67a18c4e387351c7a5a0a2927d8bb6344e727a3be73f788cd191ce18274",
+        "bytes": 280698
+      },
+      {
+        "path": "F:\\Projects\\tyrax2-lab-20261001\\discarded-order-trial-emulator\\state1.p2s",
+        "sha256": "a5b8b153db721cfac30bd1a21b504255b020432872ea5752f6e2119d03db78c0",
+        "bytes": 5491107
+      }
+    ],
+    "full_bookkeeping_validation": {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\discarded-order-trial-emulator-validation-combined-summary.json",
+      "sha256": "b73875e7cb82726a3e0fba8ea02e6f92caa5a8f9bfebf31ab1ab0c953daac5a1",
+      "result": "All six512-frame raw windows and neighboring profile/counter/order windows parse; scoped gates/partitions/candidate identities and pinned counts pass. Emulator timings are not physical measurements.",
+      "input_note": "Emulator raw/FRAMETIME are in game-log.txt while direct printf probe fields are in emulog.txt; merge only by exact frame keys. Earlier single-stream parser attempts were incomplete and excluded."
+    }
+  },
+  "artifacts": [
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\prepare-discarded-pick-trial.py",
+      "sha256": "bc32d4b8da9cd322dbc4d1f152d17a200baebded43dd06f4cc3b724ae89d23bd",
+      "bytes": 3519
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\prepare-discarded-order-trial.py",
+      "sha256": "a98ab35be8507529f198ce1ce8e0fbd1238b407e4d397fd1af7f9196a33e723b",
+      "bytes": 2094
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\analyze-discarded-order-trial.py",
+      "sha256": "f01a72228c1b6b070a2477dcfd6ef2250bce08360e28dcfef32a1bd0cb57ee41",
+      "bytes": 5122
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\discarded-pick-trial-build.log",
+      "sha256": "5e6b2d0237864e8e96da19c68bcdc094fe54ed16781e2a0de07e369ce0929673",
+      "bytes": 204011
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\discarded-pick-trial-repeat-build.log",
+      "sha256": "e8bc7b4df66c45275a732b05f074fcef2db8ca2fd96a07d73e167b08cbf104e4",
+      "bytes": 35515
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\discarded-order-trial-build.log",
+      "sha256": "3f31e48088e157e077de0bfa2c29425da1ff0671e69995a95feb1fe6b24c40c2",
+      "bytes": 7110
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\discarded-order-trial-prephysical.elf.sym",
+      "sha256": "35c5c4d22cef357e830b2b8b958c0fb47c3bc1b348db0206ef507aa911676d60",
+      "bytes": 24944884
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\discarded-pick-probe\\fixture\\game\\bin\\vehicle-playground.elf",
+      "sha256": "62a7e9159b72f4e9bb2af457980ad6fd2035c2dd47104fd327f51000ee1c8a35",
+      "bytes": 4573596
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\discarded-pick-probe\\probe.patch",
+      "sha256": "c9414a50b392ea23887ae019b63e86c259214bfb4913ebf2442ba2bc13dbf5a5",
+      "bytes": 1676
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\discarded-pick-probe\\report.md",
+      "sha256": "ca680f874266f1e1c670ffb07969f3f72546cc28b03575349879d6463a28d56b",
+      "bytes": 4285
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\archive-matching-symbols.py",
+      "sha256": "13084f40f2dcd6b4938b890981dbc53bdff57edd0e0134e410e509e41bdd4136",
+      "bytes": 772
+    }
+  ],
+  "limitations": [
+    "Source establishes mixed-label interval and stale-marker possibility; no nonzero bias or clip-regression cause established.",
+    "Private forced-order gates retain authored-off/split safety and compiled scaffold.",
+    "First failed build used profile default0 and has stale copied ELF; excluded. Repeat restores shared level2 timing header consistently.",
+    "Auto diagnostic gate work deltas may also reflect changed selector distribution; they are not pure observer overhead.",
+    "Pinned plain/interleaved/plain controls are separate from auto census phases; no clip candidate included."
+  ]
+}
