@@ -8753,6 +8753,9 @@ static std::string sceneDataContent(const Project& p, const std::string& ns,
                "  // same).\n"
                "  int farPart; int farHideMask; float farDistance;\n"
                "  float trafficDistance;\n"
+               "  // The controls card on getting in (docs/vehicles.md): a\n"
+               "  // FONTS slot (-1 = no card) and how many seconds it stays up.\n"
+               "  int tutorialFont; float tutorialSecs;\n"
                "};\n"
                "struct VehicleInstData { int scene; int object; int def; int driveable;\n"
                "                         int wpFirst; int wpCount; };\n";
@@ -8763,10 +8766,10 @@ static std::string sceneDataContent(const Project& p, const std::string& ns,
         if (defs.empty()) {
             out << "    {-1, -1, \"\"";
             for (size_t i = 0; i < fields.size(); ++i) out << ", 0.0F";
-            out << ", 0.0F, 0.0F, 0.0F, {0.0F, 0.0F, 0.0F}, -1, 1.0F, 1.0F, 0,"
+            out << ", 0.0F, 0.0F, 0.0F, {0.0F, 0.0F, 0.0F}, -1, 1.0F, 1.0F, 0.55F, 0.85F, 1.7F, 0,"
                    " -1, -1, -1, 80, 80, 0, {0.0F, 0.0F, 0.0F, 0.0F},"
                    " {0.0F, 0.0F, 0.0F, 0.0F}, -1, -1, -1, 1.0F, -1, \"\", \"\","
-                   " -1, 128.0F, -1, 0, 0.0F, 0.0F}\n";
+                   " -1, 128.0F, -1, 0, 0.0F, 0.0F, -1, 0.0F}\n";
         } else {
             for (const VehicleDef* v : defs) {
                 const int base = vehicleBodyModel(p, v->name);
@@ -8806,14 +8809,17 @@ static std::string sceneDataContent(const Project& p, const std::string& ns,
                 // exactly one font; with three fonts and the HUD on the third,
                 // FONT_COUNT was 1, the emitted slot 2, and the guard in
                 // renderVehicleHud silently drew nothing.
-                int hudFont = -1;
-                if (v->showHud)
+                // The controls card draws in the same font, resolved once.
+                int fontSlot = -1;
+                if (v->showHud || v->tutorialSeconds > 0.0f)
                     if (const GameFont* gf = p.findFont(v->hudFont)) {
                         const int projIdx = (int)(gf - p.fonts.data());
                         const std::vector<int> af = p.atlasFontIndices();
                         for (size_t k = 0; k < af.size(); ++k)
-                            if (af[k] == projIdx) { hudFont = (int)k; break; }
+                            if (af[k] == projIdx) { fontSlot = (int)k; break; }
                     }
+                const int hudFont = v->showHud ? fontSlot : -1;
+                const int tutorialFont = v->tutorialSeconds > 0.0f ? fontSlot : -1;
                 out << ", " << floatLit(v->camDist) << ", " << floatLit(v->camHeight)
                     << ", " << floatLit(v->camPitch) << ", "
                     << vec3Init(v->exitOffset) << ", " << snd << ", "
@@ -8848,7 +8854,8 @@ static std::string sceneDataContent(const Project& p, const std::string& ns,
                     << (v->glassOpacity < 1.0f ? v->glassPart : -1) << ", "
                     << floatLit(v->glassOpacity * 128.0f) << ", " << v->farPart
                     << ", " << v->farHideMask << ", " << floatLit(v->farDistance)
-                    << ", " << floatLit(v->trafficDistance)
+                    << ", " << floatLit(v->trafficDistance) << ", "
+                    << tutorialFont << ", " << floatLit(v->tutorialSeconds)
                     << "},  // " << escapeCString(v->name) << "\n";
             }
         }
@@ -12375,6 +12382,18 @@ static std::string vehicleMembers(const Project& p) {
   void updateVehicleEngineSound(VehicleRt& v, const VehicleDefData& s, int driving);
   void muteVehicleEngines();
   void renderVehicleHud();
+  // The controls card (docs/vehicles.md, "Controls card"): opened on getting
+  // into a car, built every frame from the live bindings.
+  void updateVehicleTutorial(float dt);
+  void renderVehicleTutorial();
+  float vehTutLeft_ = 0.0F;   // seconds the card has left, 0 = hidden
+  float vehTutAge_ = 0.0F;    // seconds since it opened (fade-in)
+  int vehTutCar_ = -1;        // the vehicle it was opened for
+  int vehTutLastDriver_ = -1; // last frame's vehicleDriver_ (entry edge)
+  unsigned int vehTutUsed_ = 0;  // bit per row the driver has tried
+  std::vector<unsigned char> vehTutSeen_;  // per definition: shown this boot
+  Tyra::Sprite vehTutPanel_;  // hud/loading-white.png, tinted to a dark card
+  bool vehTutPanelReady_ = false;
   // Is this runtime object a placed vehicle? The paint pass asks per part.
   int vehiclePaintFor(int objIdx);
   // The shine budget (VEHICLE_SHINE_BUDGET): picks which vehicles draw the
@@ -14398,11 +14417,26 @@ void TerrainGame::setupVehicles(int scene) {
     // AI-only and HUD-disabled vehicles keep fonts lazy; revisits reuse the
     // existing sprite/texture and refresh only normal evictable residency.
     if (v.driveable && v.def >= 0) {
-      Sprite* glyph = fontGlyphSprite(engine, VEHICLE_DEFS[v.def].hudFont);
-      if (glyph) {
+      const VehicleDefData& vd = VEHICLE_DEFS[v.def];
+      auto warm = [&](Sprite* sp) {
+        if (!sp) return;
         auto* texture = engine->renderer.getTextureRepository().getBySpriteId(
-            glyph->id);
+            sp->id);
         if (texture) engine->renderer.core.texture.useTexture(texture);
+      };
+      warm(fontGlyphSprite(engine, vd.hudFont >= 0 ? vd.hudFont : vd.tutorialFont));
+      // The controls card opens on the entry frame with button glyphs and a
+      // backing card: both textures are read here, not on that frame.
+      if (vd.tutorialFont >= 0) {
+        warm(iconSheetSprite(engine));
+        if (!vehTutPanelReady_) {
+          vehTutPanel_.mode = SpriteMode::MODE_STRETCH;
+          engine->renderer.getTextureRepository()
+              .add(FileUtils::fromCwd("hud/loading-white.png"))
+              ->addLink(vehTutPanel_.id);
+          vehTutPanelReady_ = true;
+        }
+        warm(&vehTutPanel_);
       }
     }
   }
@@ -14536,6 +14570,7 @@ void TerrainGame::stepVehicles(float dt) {
   }
   vehSubStepRepeat_ = false;
   vehSubStepMore_ = false;
+  updateVehicleTutorial(dt);
 }
 
 // Speed feel (docs/vehicles.md, "Speed feel"): turns the driven car's speed
@@ -17189,6 +17224,221 @@ void TerrainGame::renderVehicleHud() {
   }
 }
 
+// The controls card (docs/vehicles.md, "Controls card"): what to press, shown
+// the first time each car DEFINITION is entered after boot. Nothing in it is
+// baked - every frame it asks the input map what each drive action is bound
+// to RIGHT NOW (a preset switch or an in-game rebind moves the glyph with it),
+// drops a row the car has no use for (no nitrous bottle, no lamps) or the
+// binding has no button for (a keyboard-only action has no glyph to show),
+// and dims a row once the driver has tried it. All rows tried = the card
+// takes its leave early; getting out closes it at once.
+//
+// A row's bit in vehTutUsed_ is its index here; the fallback button is the
+// one updateVehicles reads when the project's map has no such action.
+namespace {
+struct VehTutRow {
+  int role;           // input action index (IA_ROLE_*), -1 = none
+  int pad;            // kPadButtonNames index used when role is -1, -1 = none
+  const char* stick;  // icon NAME of a stick row (no action, no button)
+  const char* label;
+};
+constexpr int kVehTutRows = 10;
+const VehTutRow kVehTut[kVehTutRows] = {
+    {-1, -1, "lstick", "Steer"},
+    {IA_ROLE_VEH_THROTTLE, 12, nullptr, "Accelerate"},
+    {IA_ROLE_VEH_BRAKE, 9, nullptr, "Brake / reverse"},
+    {IA_ROLE_VEH_HANDBRAKE, 3, nullptr, "Handbrake"},
+    {IA_ROLE_VEH_NITROUS, 0, nullptr, "Nitrous"},
+    {-1, 4, nullptr, "Lights"},
+    {IA_ROLE_VEH_CAMERA, 2, nullptr, "Camera"},
+    {-1, -1, "rstick", "Look around"},
+    {IA_ROLE_VEH_REARVIEW, 13, nullptr, "Look back"},
+    {IA_ROLE_USE, -1, nullptr, "Get out"},
+};
+// What a row reads as when the project has no icon for it.
+const char* const kVehTutPadText[16] = {
+    "X", "SQUARE", "TRIANGLE", "CIRCLE", "UP", "DOWN", "LEFT", "RIGHT",
+    "L1", "L2", "L3", "R1", "R2", "R3", "START", "SELECT"};
+
+bool vehTutHeld(const Tyra::PadButtons& b, int i) {
+  switch (i) {
+    case 0: return b.Cross != 0;
+    case 2: return b.Triangle != 0;
+    case 3: return b.Circle != 0;
+    case 4: return b.DpadUp != 0;
+    case 9: return b.L2 != 0;
+    case 12: return b.R2 != 0;
+    case 13: return b.R3 != 0;
+    default: return false;
+  }
+}
+
+int vehTutIcon(const char* name) {
+  for (int i = 0; i < ICON_COUNT; ++i)
+    if (strcmp(ICONS[i].name, name) == 0) return ICONS[i].h > 0 ? i : -1;
+  return -1;
+}
+
+// Does this car have a use for row r at all?
+bool vehTutRowApplies(int r, const VehicleDefData& s) {
+  if (r == 4) return s.nosCapacity > 0.001F;
+  if (r == 5) return s.headlights != 0 || s.lampPart >= 0;
+  return true;
+}
+
+// The button a row is on right now (kPadButtonNames), -1 = no button; a
+// stick row answers -2.
+int vehTutPad(const VehTutRow& row) {
+  if (row.stick) return -2;
+  if (row.role >= 0) {
+    if (row.role >= INPUT_ACTION_COUNT) return -1;
+    const int pad = g_inputBind[row.role].pad;
+    return pad >= 0 && pad < 16 ? pad : -1;
+  }
+  return row.pad;
+}
+}  // namespace
+
+void TerrainGame::updateVehicleTutorial(float dt) {
+  const int drv = vehicleDriver_;
+  const int entered = drv >= 0 && drv != vehTutLastDriver_;
+  vehTutLastDriver_ = drv;
+  if (drv < 0 || drv != vehTutCar_) vehTutLeft_ = 0.0F;
+  if (entered) {
+    const int def = vehicles_[drv].def;
+    if ((int)vehTutSeen_.size() < VEHICLE_DEF_COUNT)
+      vehTutSeen_.resize((size_t)VEHICLE_DEF_COUNT, 0);
+    if (def >= 0 && VEHICLE_DEFS[def].tutorialFont >= 0 &&
+        VEHICLE_DEFS[def].tutorialSecs > 0.0F && !vehTutSeen_[(size_t)def]) {
+      vehTutSeen_[(size_t)def] = 1;
+      vehTutCar_ = drv;
+      vehTutLeft_ = VEHICLE_DEFS[def].tutorialSecs;
+      vehTutAge_ = 0.0F;
+      vehTutUsed_ = 0;
+      TYRA_LOG("VEH controls card for ", drv);
+    }
+  }
+  if (vehTutLeft_ <= 0.0F) return;
+  // SELECT dismisses it at once - nothing in the drive reads that button.
+  if (engine->pad.getClicked().Select) {
+    vehTutLeft_ = 0.0F;
+    return;
+  }
+  vehTutAge_ += dt;
+  vehTutLeft_ -= dt;
+  // The entry press itself (USE) must not tick a row off, so tries count
+  // only once the card is up.
+  if (vehTutAge_ < 0.2F) return;
+
+  Tyra::Pad& pad = engine->pad;
+  const auto& l = pad.getLeftJoyPad();
+  const auto& rs = pad.getRightJoyPad();
+  const auto off = [](int a) { return a < 128 - 48 || a > 128 + 48; };
+  const VehicleDefData& s = VEHICLE_DEFS[vehicles_[drv].def];
+  unsigned int want = 0;
+  for (int r = 0; r < kVehTutRows; ++r) {
+    if (!vehTutRowApplies(r, s) || vehTutPad(kVehTut[r]) == -1) continue;
+    if (r != 9) want |= 1u << r;  // Get out is never "tried" from inside
+    bool used = false;
+    if (r == 0) {
+      used = off(l.h);
+    } else if (r == 7) {
+      used = off(rs.h) || off(rs.v);
+    } else if (kVehTut[r].role >= 0) {
+      used = inputPressed(pad, kVehTut[r].role);
+    } else if (kVehTut[r].pad >= 0) {
+      used = vehTutHeld(pad.getPressed(), kVehTut[r].pad);
+    }
+    if (used && r != 9) vehTutUsed_ |= 1u << r;
+  }
+  // Everything tried: a second to see the last tick, then go.
+  if (want && (vehTutUsed_ & want) == want && vehTutLeft_ > 1.0F) vehTutLeft_ = 1.0F;
+}
+
+// Drawn beside the speed readout in the 2D pass, as runtime text: a row is
+// "{{icon}} Label", so drawFontText puts the button glyph inline. Positions are
+// fractions of the framebuffer with the widescreen squeeze on every horizontal
+// one, inside the title-safe area (see renderVehicleHud).
+void TerrainGame::renderVehicleTutorial() {
+  if (vehTutLeft_ <= 0.0F || !scriptCtx.hudVisible || scriptCtx.hudSuppressed) return;
+  if (vehTutCar_ < 0 || vehTutCar_ != vehicleDriver_) return;
+  const VehicleRt& v = vehicles_[vehTutCar_];
+  if (v.def < 0) return;
+  const VehicleDefData& s = VEHICLE_DEFS[v.def];
+  const int font = s.tutorialFont;
+  if (font < 0 || font >= FONT_COUNT) return;
+
+  const auto& scr = engine->renderer.core.getSettings();
+  const float W = (float)scr.getWidth(), H = (float)scr.getHeight();
+  const float sx = (4.0F / 3.0F) / scr.getWindowAspect();
+  // Fade in over a quarter second, out over the last half.
+  float a = vehTutAge_ / 0.25F;
+  if (vehTutLeft_ / 0.5F < a) a = vehTutLeft_ / 0.5F;
+  if (a > 1.0F) a = 1.0F;
+  if (a <= 0.0F) return;
+
+  char lines[kVehTutRows][64];
+  int rowOf[kVehTutRows];
+  int n = 0;
+  for (int r = 0; r < kVehTutRows; ++r) {
+    if (!vehTutRowApplies(r, s)) continue;
+    const VehTutRow& row = kVehTut[r];
+    const int pad = vehTutPad(row);
+    if (pad == -1) continue;  // bound to no button: nothing to show
+    const int icon = pad == -2 ? vehTutIcon(row.stick)
+                               : (ICON_COUNT > 0 ? ICON_FOR_PAD[pad] : -1);
+    if (icon >= 0)
+      snprintf(lines[n], sizeof(lines[n]), "{{%s}} %s", ICONS[icon].name, row.label);
+    else
+      snprintf(lines[n], sizeof(lines[n]), "%s  %s",
+               pad == -2 ? (r == 0 ? "L-STICK" : "R-STICK") : kVehTutPadText[pad],
+               row.label);
+    rowOf[n++] = r;
+  }
+  if (n == 0) return;
+  // The way out, under the rows, smaller and dimmer than them.
+  char hint[48];
+  const int selIcon = ICON_COUNT > 0 ? ICON_FOR_PAD[15] : -1;
+  if (selIcon >= 0)
+    snprintf(hint, sizeof(hint), "{{%s}} Hide", ICONS[selIcon].name);
+  else
+    snprintf(hint, sizeof(hint), "%s", "SELECT  Hide");
+
+  const float size = H * 0.034F, rowH = H * 0.046F;
+  const float titleSize = H * 0.040F, hintSize = H * 0.032F;
+  float wMax = fontTextWidth(font, "CONTROLS", titleSize, sx);
+  for (int i = 0; i < n; ++i) {
+    const float w = fontTextWidth(font, lines[i], size, sx);
+    if (w > wMax) wMax = w;
+  }
+  const float hintW = fontTextWidth(font, hint, hintSize, sx);
+  if (hintW > wMax) wMax = hintW;
+  const float margin = H * 0.022F;
+  const float x0 = W * 0.06F;  // title-safe left edge
+  // Below the debug build's stats overlay, which owns the top-left corner.
+  const float y0 = H * 0.26F;
+  const float boxW = wMax + margin * 2.0F * sx, boxH = titleSize + rowH * ((float)n + 0.9F) + margin * 2.2F;
+  if (vehTutPanelReady_) {
+    vehTutPanel_.size = Vec2(boxW, boxH);
+    vehTutPanel_.position = Vec2(x0, y0);
+    vehTutPanel_.color = Color(0.0F, 0.0F, 0.0F, 96.0F * a);
+    engine->renderer.renderer2D.render(vehTutPanel_);
+  }
+  const float tx = x0 + margin * sx;
+  drawFontText(engine, font, "CONTROLS", tx + fontTextWidth(font, "CONTROLS", titleSize, sx) * 0.5F,
+               y0 + margin + titleSize * 0.5F, titleSize, sx, 128.0F * a);
+  for (int i = 0; i < n; ++i) {
+    const bool tried = (vehTutUsed_ >> rowOf[i]) & 1u;
+    const float w = fontTextWidth(font, lines[i], size, sx);
+    drawFontText(engine, font, lines[i], tx + w * 0.5F,
+                 y0 + margin * 1.4F + titleSize + rowH * ((float)i + 0.5F), size, sx,
+                 (tried ? 44.0F : 128.0F) * a);
+  }
+  drawFontText(engine, font, hint, tx + hintW * 0.5F,
+               y0 + margin * 1.4F + titleSize + rowH * ((float)n + 0.45F), hintSize, sx,
+               96.0F * a);
+}
+
 // One wheel submit per vehicle definition: transform into world space and
 // concatenate cars sharing the same wheel material. Four wheels is a few hundred
 // vertices of VU0 work against the ~1 ms a second submit would cost.
@@ -17807,7 +18057,7 @@ static std::string vehicleDrivingAnd(const Project& p) {
 // prompt (which appears only on foot) is never competing with it.
 static std::string vehicleHudCall(const Project& p) {
     if (!projectHasVehicles(p)) return "";
-    return "    renderVehicleHud();\n";
+    return "    renderVehicleHud();\n    renderVehicleTutorial();\n";
 }
 
 static std::string vehicleUseCall(const Project& p) {

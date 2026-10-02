@@ -51,6 +51,12 @@ project with no setup. Those names are also what makes `{{action:x}}` work: it
 resolves the action's pad button and looks up the icon named after it
 (lowercased).
 
+Two more built-in drawings exist but are not seeded: `lstick` and `rstick`, the
+analog sticks (a ring with L or R). No binding can name a stick, so only the
+[vehicle controls card](vehicles.md#controls-card) asks for them and adds them
+when it is switched on. To use them elsewhere, add icons with those names in
+*Button icons*; the PNG is generated on the next build like the others.
+
 The images are **drawn by the editor**, not shipped as blobs: the face buttons
 are geometry in the DualShock colors (blue ✕, red ○, pink □, green △), the
 d-pad four an arrow, and the shoulder/Start/Select ones their **label alone** -

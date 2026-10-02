@@ -2,7 +2,11 @@
 
 A playable PS2 district for TyraX vehicles. Open `vehicle-playground.tyra` in
 TyraX and build the project. The main scene starts in the Ravager; press
-**Square** to get out and enter the nearby Pica Turbo or Strix V12.
+**Square** to get out and enter the nearby Pica Turbo or Strix V12. The first
+time you sit in each car a controls card lists its buttons with their glyphs,
+dimming each one as you try it ([Controls card](../../docs/vehicles.md#controls-card));
+**Select** hides it. **D-pad down** repairs the car you are driving (the
+Ravager's flow graph, a *Repair Vehicle* node).
 
 The current seated start is the primary [TyraX2 hardware control](../../docs/tyrax2.md).
 `tools/tyrax2-fixture.py` makes isolated day/night copies with host polling off,

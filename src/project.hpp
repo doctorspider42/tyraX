@@ -1408,6 +1408,11 @@ struct VehicleDef {
     // question, not one this code can answer. 3.6 turns metres per second into
     // km/h, which is the common case.
     float hudSpeedScale = 3.6f;
+    // The controls card shown on getting in (docs/vehicles.md, "Controls
+    // card"): seconds it stays up, 0 = never. Built at RUNTIME from the live
+    // bindings and from what this car has (nitrous, lights), and drawn in the
+    // HUD font - which is why a car with it on joins atlasFontIndices().
+    float tutorialSeconds = 0.0f;
     // Tyre smoke look (docs/particles.md): the NAME of a particle-library
     // effect, "" = the built-in grey puffs. The effect's colour, opacity,
     // size, growth, life and texture drive the puffs; the SPAWNING stays the
@@ -1451,6 +1456,7 @@ inline bool operator==(const VehicleDef& a, const VehicleDef& b) {
         a.lampPart != b.lampPart || a.lampRearVerts != b.lampRearVerts ||
         a.glassOpacity != b.glassOpacity || a.glassPart != b.glassPart ||
         a.hudFont != b.hudFont || a.hudSpeedScale != b.hudSpeedScale ||
+        a.tutorialSeconds != b.tutorialSeconds ||
         a.farDistance != b.farDistance || a.farModel != b.farModel ||
         a.trafficDistance != b.trafficDistance || a.farPart != b.farPart ||
         a.farHideMask != b.farHideMask || a.fastWheel != b.fastWheel ||
@@ -1514,6 +1520,7 @@ inline void visitVehicleTuning(VehicleDef& v, const VehicleDef& defaults, Fn fn)
     VEH_TUNING("driver", showHud);
     VEH_TUNING("driver", hudFont);
     VEH_TUNING("driver", hudSpeedScale);
+    VEH_TUNING("driver", tutorialSeconds);
     VEH_TUNING("sounds", engineSound);
     VEH_TUNING("sounds", engineHighSound);
     VEH_TUNING("sounds", engineHighEnabled);
@@ -4651,6 +4658,11 @@ std::string blssShotLabel(const Project& p, const BlssShot& s, int index);
 // missing entries - a renamed/repointed/deleted icon stays as the user left it.
 // Their PNGs are generated into res/hud/ when absent (saveAssets).
 void ensureTextIcons(Project& p);
+// Adds the two analog-stick icons ({{lstick}}, {{rstick}}) when missing. Not
+// part of ensureTextIcons on purpose: every project would grow two entries and
+// two sheet cells for glyphs only the vehicle controls card asks for. True when
+// anything was added.
+bool ensureStickIcons(Project& p);
 
 // --- Per-object / per-section (de)serialization ------------------------------
 // The building blocks of both the on-disk format and the collaboration wire

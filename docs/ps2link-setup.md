@@ -35,7 +35,7 @@ tools/ps2link/build.ps1 -Low -NoUsb -Packed
    **No `IPCONFIG.DAT` and the console silently falls back to `192.168.1.10`**
    and vanishes from the LAN.
 3. **Boot it** from your launcher. The screen must read
-   `Welcome to TyraX ps2link r6 (no USB)` and end with a `Net config:` line
+   `Welcome to TyraX ps2link r7 (no USB)` and end with a `Net config:` line
    showing the address you chose. A lower `r<n>`, or plain "Welcome to ps2link",
    means the wrong build — see the [troubleshooting table](#when-it-does-not-work).
 4. **Point the editor at it** — *Edit > Preferences > Real PS2 (network deploy)
@@ -283,6 +283,67 @@ high image can be shot over a low one, but not the other way round.** The low
 build is measured from a card boot instead, which is how the last table row was
 taken.
 
+**Quiesce the hardware before touching the screen (r7)** — the fix for a
+console that answers ping, keeps `tcp/18193` listening, and ignores every
+`reset` and `execee` until the physical button.
+
+`pkoReset()` did its work in this order: kill the game's thread, **`init_scr()`
+and print "program stopped"**, then `ResetEE()` to quiesce the DMAC/VUs/GIF/IPU,
+re-arm SIF0, take the exception vectors back. The comment above the `ResetEE()`
+call states the problem the ordering creates: *TerminateThread stops the CPU,
+not the hardware* — the dead game still owns those blocks and a transfer left
+mid-chain keeps running with nobody to service it. `init_scr()` draws through
+the GIF and the DMAC, i.e. through exactly those blocks, **before** they are
+silenced.
+
+If it blocks there it blocks **ps2link's EE command thread**, and that is the
+one thread that executes every command there is. From that moment the console
+answers no `reset` and no `execee` ever again — while its IOP-side file server,
+a different thread on a different processor, keeps listening on `tcp/18193`.
+That is the whole reported symptom, including why only the reset button
+recovers it and why it is intermittent: it depends on whether the game happened
+to die mid-chain. The r6 measurement did not catch it because that payload was
+too light to be mid-transfer when it was killed; a heavy 3D scene is not.
+
+r7 silences the hardware **first**, takes the exception vectors back **second**,
+and only then touches the screen — by which point a fault inside `init_scr()`
+lands in ps2link's own handler and says so, instead of jumping into the dead
+game's crash handler, which is now dead memory.
+
+**Hardware smoke test, 2026-10-02:** the user flashed the r7 low, packed,
+no-USB build onto the console. `vehicle-playground` completed **6/6 reset →
+redeploy cycles**, including three resets after acceleration/steering. Each
+redeploy produced a fresh ELF load and vehicle logs; debugger frames advanced
+after every restart. Cycles 2–6 first reported frame 1, then reached 46–71;
+the final game remained running and advanced from frame 796 to 896. No
+`freepad: DMA Busy` or asset-load failure was observed. The existing debug
+game ELF from 2026-10-01 was reused, with Live Debugger and Remote Pad enabled;
+this was not a rebuild of the game from the merged branch.
+
+The flashed ps2link ELF's SHA-256 was
+`24f063e69cd1834b71b399f48723493614996f7fbcb16ac7a11f83b0753f0973`;
+the game ELF's was
+`e5e2ede1d69801dd023c3536030afe008dc42e9344c2ad7ec39c28f6f6a43c50`.
+The first cycle's host verifier needed repair for an open-log sharing error
+and a debugger that had not been attached; subsequent vehicle logs and attached
+frame progression confirmed that the game was running. Initial network failures
+were the default `192.168.1.10` configuration on a `192.168.100.x` LAN, before
+the baseline launch, and are excluded from the six cycles.
+
+> **Longer observation remains necessary.** Six successful cycles establish
+> hardware smoke-test coverage, not elimination of an intermittent failure or
+> proof that this mechanism caused every historical wedge. Consoles still
+> running r6 retain the old ordering.
+
+**TyraX2 follow-up, 2026-10-02:** a network reset from the r7 smoke-test
+game followed by the unchanged heavy timeline ring-control ELF
+(`a03865970ece7981c99982c098a4b1296fed79b0a4165f10c8780872318f5a2d`)
+completed all 5400 loops and all 384 inactive-observer samples, including
+three scene loads, with no physical restart. The file server was stopped
+before reset and the new launch waited for the IOP restart. This extends the
+smoke test to the pipelined renderer; it does not prove that every possible
+hang is recoverable.
+
 ## 2. Put it on the console
 
 1. Copy `ps2link.elf` onto the memory card as **`PS2LINK.ELF`** (uLaunchELF over
@@ -331,7 +392,7 @@ taken.
 3. Boot it. The screen must read:
 
    ```
-   Welcome to TyraX ps2link r5 (USB keyboard + mouse)
+   Welcome to TyraX ps2link r7 (USB keyboard + mouse)
    based on ps2link
    ...
    Net config: 192.168.1.42  255.255.255.0  192.168.1.1
@@ -575,10 +636,11 @@ one (a wedge still answers ARP and usually ping).
 | `[editor] Could not reach ps2link at <ip>` | `ps2client reset` failed outright — wrong IP, console not booted into ps2link, cable/link down. |
 | `[editor] WARNING: no console log from <ip> within 15s` | The launch is unconfirmed, but the editor deliberately keeps `ps2client` alive so a game that did start retains its assets. If nothing started, use **Stop on PS2**, check the IP against the console's `Net config:` line, then check inbound **UDP 18194** for `ps2client`. |
 | Boot screen says "Welcome to ps2link" | Stock ps2link. Rebuild from `tools/ps2link/` and reflash. |
-| Boot banner is below `r6` | r1 = keyboard/mouse only; r2 = plus the hang fixes; r3 = plus the SPU2 silencing, but Stop still wedges the console; r4 = Stop kills the game reliably; r5 = no stdio on any error path. **Stop only survives from r6.** Reflash. |
+| Boot banner is below `r7` | r1 = keyboard/mouse only; r2 = plus the hang fixes; r3 = plus the SPU2 silencing, but Stop still wedges the console; r4 = Stop kills the game reliably; r5 = no stdio on any error path. **Stop only survives from r6**, and r7 is what stops a Stop from wedging the command channel. Reflash. |
 | Stop leaves the console frozen on the game | Fixed in r4. On a pre-r4 build the reset either never reached the console or killed the game and took ps2link down with it; only a power cycle recovered. |
 | Stop kills the game but the console then needs a power cycle | **Fixed in r6** — `pkoReset()` rebooted the IOP immediately before `ExecPS2()` and crt0 then ran against an IOP with no modules (12/12 cycles since; see "One IOP reboot per Stop" above). On r4 it could show as an EE exception with `BadAddr 8` and on r5 as a black screen with no exception; both are the same wedge wearing different faces. Reflash r6. |
 | The game boots to a frozen Tyra logo, last log line `Curent pad(0,0) status: DISCONNECT` | The pad had not settled yet and the engine waited for it forever. Fixed in the engine (`vendor/tyra`, `Pad::waitPadReady` is bounded now), so rebuild the game. A deploy also waits ~10 s after the reset for exactly this reason. |
+| Console answers ping, `tcp/18193` still listening, but every `reset` and `execee` is ignored | ps2link's EE command thread is stuck, most likely in `init_scr()` drawing through a GIF/DMAC the dead game left mid-chain. Addressed in **r7** (quiesce before screen); on r6 and below only the physical Reset button recovers it. |
 | Stop works once and the next one wedges | Partly r4 — the `.bss` half of it — and the rest is the double IOP reboot r6 removed. Seen on r4 and r5; if you still see it on r6, that is a new bug, so say so. |
 | Console wedges after the editor is closed, or after a `ps2client` dies | Fixed in r2 (`pko_recv_bytes()` spun forever on a closed peer while holding the `host:` lock). If it still happens on r2, that is a new bug — say so, it is not the old one. |
 | A debug build dies after a random number of frames, `BadAddr 0x00000010`, EPC in `rpc_packet_free`/`_request_end` | A duplicate SIF RPC completion — see [the SIF RPC completion crash](#the-sif-rpc-completion-crash-and-the-guard-against-it). The engine guard stops the crash; check `SifRpcGuard::rejected()` and report the count. **Not** a VU, assembler or clipper fault, and **not** a stale ps2link. |

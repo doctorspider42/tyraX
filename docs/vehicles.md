@@ -7,6 +7,11 @@ placed cars. [The Blender tutorial](blender-vehicle-modeling.md) covers making
 and exporting a model from scratch. [Motor District](../examples/vehicle-playground/README.md)
 is a playable example with three editable Blender cars.
 
+A placed vehicle whose definition has no ID or model path is skipped. If no
+usable definitions remain, generated code keeps a complete inert placeholder
+(including both engine sound layers and the controls card fields), so an
+incomplete vehicle setup still compiles.
+
 ## Importing a model
 
 Import a `.glb` into `res/models/`, then select it on the Vehicle Editor's
@@ -193,6 +198,35 @@ interior. **Speed feel** adds authored shake, blur, camera widening and nitrous
 flames as speed rises. The Driver tab controls the speedometer and HUD scale.
 
 ![Skid marks and tyre smoke](img/vehicle-skids-smoke.png)
+
+### Controls card
+
+*Driver > Controls card on entry* shows a short list of what to press the first
+time the player gets into each car (each definition, once per boot). The card is
+built while the game runs, so it always matches what is actually set up:
+
+![The controls card in the Ravager](img/vehicle-controls-card.png)
+
+
+- every button glyph comes from the **current** binding of its Input Map action
+  (`veh-throttle`, `veh-brake`, `veh-handbrake`, `veh-nitrous`, `veh-camera`,
+  `veh-rearview`, `use` for getting out), so a preset switch or an in-game rebind
+  changes the card too. A project without one of these actions shows the
+  button the car falls back to;
+- rows the car has no use for are left out: *Nitrous* needs a bottle
+  (`nosCapacity` > 0), *Lights* needs headlights or a lamp part. An action bound
+  only to a key has no glyph and is left out too;
+- a row dims once the driver has tried it. When everything has been tried the
+  card closes after a second; otherwise it stays for *Card stays* seconds.
+  **Select** (shown at the bottom of the card) or getting out closes it at once.
+
+Steering and looking around are the sticks, which no binding names, so they use
+the `{{lstick}}` / `{{rstick}}` icons. Ticking the option adds both to *UI
+Editor > Button icons* if the project lacks them (a missing icon reads as
+`L-STICK` / `R-STICK`). The card uses the HUD font and sits at the left of the
+screen inside the title-safe area; it is hidden with the HUD (*Set HUD Visible*,
+cutscenes that hide the HUD). Stored as the definition's `"tutorial"` seconds
+(format v94), inherited from the global defaults like other Driver settings.
 
 ### Exhaust pipes
 

@@ -1,5 +1,6 @@
 #pragma once
 
+// 1.170.1: complete the empty vehicle definition initializer after merging controls cards.
 // 1.170.0: hierarchical hardware timeline, actual render jobs and compile-out controls.
 // Project format remains v94.
 
@@ -5528,6 +5529,13 @@
 // District's open road on a PS2.
 #define TYRAX_VERSION_MAJOR 1
 #define TYRAX_VERSION_MINOR 170
+// 1.169.0: the vehicle controls card - getting into a car for the first time
+// shows what to press, built at runtime from the LIVE bindings and from what
+// that car has (nitrous, lamps), with button glyphs; rows dim as they are
+// tried. Vehicle Editor > Driver > Controls card on entry (format v94). New
+// optional {{lstick}} / {{rstick}} built-in icons.
+// Also: a repaired car no longer shows full reflection until the camera
+// turns (the rebuild now invalidates the paint pass's cached view key).
 // 1.168.0: Use enters the car you LOOK at (in reach + under the camera aim,
 // vehicleUseTarget), not whichever is near; the prompt follows it. Exiting
 // picks the first spot clear of every collision box - a walker placed
@@ -5626,7 +5634,7 @@
 // existing unlit VU1 path; conservative local bounds, custom stages unchanged.
 // 1.150.1: prepare driveable vehicle HUD fonts during scene loading; plain
 // runtime text no longer loads the icon sheet before drawing an actual icon.
-#define TYRAX_VERSION_PATCH 0
+#define TYRAX_VERSION_PATCH 1
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
@@ -6117,6 +6125,9 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // and smoke 1, i.e. an older car smokes too - it is presentation. Additive;
 // no migration step.
 // v94 adds the optional framePipeline project preference (default false).
+// v94 (docs/vehicles.md, "Controls card"): a definition's "tutorial" seconds,
+// written only when non-zero. Missing = no card, as before. Additive; no
+// migration step.
 inline constexpr int kFormatVersion = 94;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"

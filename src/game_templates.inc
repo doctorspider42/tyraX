@@ -1684,9 +1684,10 @@ inline Sprite* fontGlyphSprite(Engine* engine, int fontIdx) {
 /** Draws a string centred on (cx, cy). `sx` squeezes the horizontal axis the
  * same way fontTextWidth measures it - 1 everywhere except inside a menu panel
  * compensated for anamorphic widescreen, where the glyphs have to be squeezed
- * with the panel or they come out fatter than the baked rows around them. */
+ * with the panel or they come out fatter than the baked rows around them.
+ * `alpha` (128 = opaque) fades glyphs, shadow and icons together. */
 inline void drawFontText(Engine* engine, int fontIdx, const char* s, float cx,
-                  float cy, float size, float sx = 1.0F) {
+                  float cy, float size, float sx = 1.0F, float alpha = 128.0F) {
   Sprite* glyph = fontGlyphSprite(engine, fontIdx);
   if (!glyph) return;
   const FontData& f = FONTS[fontIdx];
@@ -1708,9 +1709,9 @@ inline void drawFontText(Engine* engine, int fontIdx, const char* s, float cx,
   for (int pass = f.shadow ? 0 : 1; pass < 2; ++pass) {
     const float ox = pass == 0 ? 1.0F : 0.0F;
     if (pass == 0)
-      sp.color = Color(10.0F, 12.0F, 16.0F, 100.0F);
+      sp.color = Color(10.0F, 12.0F, 16.0F, 100.0F * alpha / 128.0F);
     else
-      sp.color = Color((float)f.r, (float)f.g, (float)f.b, 128.0F);
+      sp.color = Color((float)f.r, (float)f.g, (float)f.b, alpha);
     // Icons carry their own colors (the DualShock palette for the face
     // buttons), so they draw untinted - and only on the glyph pass: a dark
     // offset copy under a colored icon just leaks a fringe around it.
@@ -1729,7 +1730,7 @@ inline void drawFontText(Engine* engine, int fontIdx, const char* s, float cx,
         if (ir.h > 0 && pass == 1 && !iconSp)
           iconSp = iconSheetSprite(engine);
         if (ir.h > 0 && pass == 1 && iconSp) {
-          iconSp->color = Color(128.0F, 128.0F, 128.0F, 128.0F);
+          iconSp->color = Color(128.0F, 128.0F, 128.0F, alpha);
           iconSp->size = Vec2((float)ir.w, (float)ir.h);
           iconSp->offset = Vec2((float)ir.u, (float)ir.v);
           iconSp->scale = box / (float)ir.h;
@@ -19283,6 +19284,14 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
         part.envNormals.size() == part.vertices.size()) {
       part.envColors.assign(part.vertices.size(),
                             Color(128.0F, 128.0F, 128.0F, 128.0F));
+      // Those are placeholders, not paint: a vehicle's fresnel/specular pass
+      // must rewrite them on the next draw. A rebuild that REUSES the part (a
+      // repair, a damage re-bake) kept envPaintValid and the old paint key, so
+      // the pass saw "same view" and left the car at full reflection until
+      // the camera turned four steps - "the car goes very bright after a
+      // repair until I drive a bit".
+      part.envPaintValid = false;
+      part.paintMapSrc = nullptr;
       if (!part.envBag) {
         part.envInfoBag = std::make_unique<StaPipInfoBag>();
         // GOURAUD, not flat: the vehicle paint pass writes a per-vertex
