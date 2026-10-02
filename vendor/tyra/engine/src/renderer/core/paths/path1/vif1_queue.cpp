@@ -7,6 +7,9 @@
 #include "renderer/core/paths/path1/vif1_queue.hpp"
 #include <kernel.h>
 #include <dma.h>
+#if TYRA_VIF1_VALIDATE
+#include "debug/debug.hpp"
+#endif
 
 namespace Tyra {
 
@@ -38,6 +41,11 @@ s32 handlerId = -1;
 // The newest sequence number the last data-cache write-back covered.
 u32 flushedUpTo = 0;
 void (*openChainCloser)() = nullptr;  // see setOpenChainCloser()
+#if TYRA_VIF1_VALIDATE
+const void* seqWho[64];  // who submitted each recent sequence number
+void noteStarted(u32 chain, u32 seq, const void* who);
+void checkFinished();
+#endif
 
 // Submits a chain still being built by someone else, ahead of the caller's.
 #if TYRA_VIF1_QUEUE_HOLD
@@ -93,6 +101,14 @@ void Vif1Queue::start(u32 chain, u32 sequence) {
   }
 #else
   (void)sequence;
+#endif
+#if TYRA_VIF1_VALIDATE
+  // At START, not at submit: this is when the DMAC begins reading, so a chain
+  // (or the data it REFs) rewritten while it waited in the ring shows up here.
+  validate(reinterpret_cast<const void*>(chain), "queue-start",
+           seqWho[sequence & 63]);
+  checkFinished();
+  noteStarted(chain, sequence, seqWho[sequence & 63]);
 #endif
   *kDStat = 1U << 1;  // clear the channel's completion status (write-1-clears)
   *kQwc = 0;
@@ -217,6 +233,9 @@ u32 Vif1Queue::submit(const void* chain) {
 #endif
   const u32 sequence = submitted + 1;
   submitted = sequence;
+#if TYRA_VIF1_VALIDATE
+  seqWho[sequence & 63] = __builtin_return_address(0);
+#endif
   if (!running) {
     running = true;
     start(addr, sequence);
@@ -253,9 +272,193 @@ void Vif1Queue::drain() {
   closeSegmentIfIdle();
 #endif
   dma_channel_wait(DMA_CHANNEL_VIF1, 0);
+#if TYRA_VIF1_VALIDATE
+  checkFinished();
+#endif
 }
 
 bool Vif1Queue::busy() { return running; }
+
+#if TYRA_VIF1_VALIDATE
+namespace {
+// VIF1 state that survives a chain boundary, as on the hardware.
+u32 vCl = 1, vWl = 1;   // STCYCL
+u32 vPending = 0;       // data words still owed to the last VIFcode
+u32 vPendingCode = 0;   // ... and that code
+const void* vPendingWho = nullptr;
+const char* vPendingName = "";
+u32 vReports = 0;
+u32 vChains = 0;
+
+const u32* ramWords(u32 addr) {
+  if (addr & 0x80000000) return reinterpret_cast<const u32*>(0x70000000 | (addr & 0x3FFF));
+  return reinterpret_cast<const u32*>(addr & 0x01FFFFFF);
+}
+
+bool validCmd(u32 c) {
+  if (c <= 0x07) return true;
+  if (c >= 0x60) return true;  // UNPACK, all variants
+  switch (c) {
+    case 0x10: case 0x11: case 0x13: case 0x14: case 0x15: case 0x17:
+    case 0x20: case 0x30: case 0x31: case 0x4A: case 0x50: case 0x51:
+      return true;
+  }
+  return false;
+}
+
+u32 dataWords(u32 code) {
+  const u32 cmd = (code >> 24) & 0x7F;
+  const u32 num = (code >> 16) & 0xFF;
+  const u32 imm = code & 0xFFFF;
+  if (cmd == 0x20) return 1;
+  if (cmd == 0x30 || cmd == 0x31) return 4;
+  if (cmd == 0x4A) return (num ? num : 256) * 2;
+  if (cmd == 0x50 || cmd == 0x51) return (imm ? imm : 65536) * 4;
+  if (cmd >= 0x60) {
+    const u32 vn = (cmd >> 2) & 3, vl = cmd & 3;
+    u32 n = num ? num : 256;
+    if (vWl > vCl) n = (n / vWl) * vCl + ((n % vWl) < vCl ? (n % vWl) : vCl);
+    const u32 bits = (vn == 3 && vl == 3) ? 16 : (vn + 1) * (32 >> vl);
+    return (n * bits + 31) / 32;
+  }
+  return 0;
+}
+
+void report(const char* what, const char* name, const void* who, u32 tagIdx, u32 tagW0, u32 word,
+            u32 wordIdx) {
+  if (vReports >= 6) return;
+  ++vReports;
+  TYRA_LOG("VIF1CHECK chain#", vChains, " ", what, " from=", name, " who=", who, " tag#",
+           tagIdx, " tagw0=", tagW0, " word#", wordIdx, " value=", word,
+           " pendingFrom=", vPendingName, "@", vPendingWho, " pendingCode=", vPendingCode);
+}
+
+void feed(u32 w, const char* name, const void* who, u32 tagIdx, u32 tagW0, u32 wordIdx) {
+  if (vPending) {
+    --vPending;
+    return;
+  }
+  const u32 cmd = (w >> 24) & 0x7F;
+  if (!validCmd(cmd)) {
+    report("BAD-VIFCODE", name, who, tagIdx, tagW0, w, wordIdx);
+    return;
+  }
+  if (cmd == 0x01) {  // STCYCL
+    vCl = w & 0xFF;
+    vWl = (w >> 8) & 0xFF;
+    if (vWl == 0) vWl = 256;
+    if (vCl == 0) vCl = 256;
+  }
+  vPending = dataWords(w);
+  vPendingCode = w;
+  vPendingWho = who;
+  vPendingName = name;
+}
+
+// Hash of every word the chain hands VIF1 (tags' VIF halves + payloads).
+u32 chainHash(u32 tagAddr) {
+  u32 h = 2166136261u;
+  for (u32 t = 0; t < 20000; ++t) {
+    const u32* tag = ramWords(tagAddr);
+    const u32 w0 = tag[0], addr = tag[1];
+    const u32 qwc = w0 & 0xFFFF, id = (w0 >> 28) & 7;
+    for (u32 i = 0; i < 4; ++i) h = (h ^ tag[i]) * 16777619u;
+    u32 payload, next;
+    switch (id) {
+      case 1: payload = tagAddr + 16; next = payload + qwc * 16; break;
+      case 7: payload = tagAddr + 16; next = 0; break;
+      case 0: payload = addr; next = 0; break;
+      case 3: case 4: payload = addr; next = tagAddr + 16; break;
+      default: return h;
+    }
+    const u32* p = ramWords(payload);
+    for (u32 i = 0; i < qwc * 4; ++i) h = (h ^ p[i]) * 16777619u;
+    if (next == 0) return h;
+    tagAddr = next;
+  }
+  return h;
+}
+
+u32 inflightChain = 0, inflightHash = 0, inflightSeq = 0;
+const void* inflightWho = nullptr;
+u32 raceReports = 0;
+
+void noteStarted(u32 chain, u32 seq, const void* who) {
+  inflightChain = chain;
+  inflightSeq = seq;
+  inflightWho = who;
+  inflightHash = chainHash(chain);
+}
+
+void checkFinished() {
+  if (inflightChain == 0) return;
+  const u32 h = chainHash(inflightChain);
+  if (h != inflightHash && raceReports < 6) {
+    ++raceReports;
+    TYRA_LOG("VIF1CHECK RACE: chain seq ", inflightSeq, " at ", inflightChain,
+             " from ", inflightWho,
+             " changed while VIF1 was reading it (hash ", inflightHash, " -> ",
+             h, ")");
+  }
+  inflightChain = 0;
+}
+
+void Vif1QueueValidateHeartbeat() {
+  if ((vChains % 5000) == 0)
+    TYRA_LOG("VIF1CHECK ok: ", vChains, " chains walked, ", vReports,
+             " defects, ", raceReports, " races");
+}
+}  // namespace
+
+void Vif1Queue::validate(const void* chain, const char* name, const void* who) {
+  ++vChains;
+  Vif1QueueValidateHeartbeat();
+  if (name[0] != 'q') {  // a direct sender: it is about to own the channel
+    checkFinished();
+    noteStarted(reinterpret_cast<u32>(chain), 0, who);
+  }
+  if (vPending) report("STREAM-ENTERS-MID-DATA", name, who, 0, 0, vPending, 0);
+  u32 tagAddr = reinterpret_cast<u32>(chain);
+  u32 callDepth = 0;
+  u32 callRet[2] = {0, 0};
+  for (u32 t = 0; t < 20000; ++t) {
+    const u32* tag = ramWords(tagAddr);
+    const u32 w0 = tag[0], addr = tag[1];
+    const u32 qwc = w0 & 0xFFFF, id = (w0 >> 28) & 7;
+    feed(tag[2], name, who, t, w0, 0);
+    feed(tag[3], name, who, t, w0, 1);
+    u32 payload, next;
+    switch (id) {
+      case 1: payload = tagAddr + 16; next = payload + qwc * 16; break;  // cnt
+      case 7: payload = tagAddr + 16; next = 0; break;                   // end
+      case 0: payload = addr; next = 0; break;                           // refe
+      case 3: case 4: payload = addr; next = tagAddr + 16; break;        // ref/refs
+      case 2: payload = tagAddr + 16; next = addr; break;                // next
+      case 5:                                                            // call
+        payload = tagAddr + 16;
+        if (callDepth >= 2) { report("CALL-TOO-DEEP", name, who, t, w0, 0, 0); return; }
+        callRet[callDepth++] = payload + qwc * 16;
+        next = addr;
+        break;
+      case 6:                                                            // ret
+        payload = tagAddr + 16;
+        if (callDepth == 0) { next = 0; break; }
+        next = callRet[--callDepth];
+        break;
+      default: report("BAD-DMATAG", name, who, t, w0, addr, 0); return;
+    }
+    if (qwc && !(payload & 0x80000000) && (payload & 0x0FFFFFFF) >= 0x02000000) {
+      report("BAD-PAYLOAD-ADDR", name, who, t, w0, payload, 0);
+      return;
+    }
+    const u32* p = ramWords(payload);
+    for (u32 i = 0; i < qwc * 4; ++i) feed(p[i], name, who, t, w0, 2 + i);
+    if (next == 0) return;
+    tagAddr = next;
+  }
+  report("CHAIN-TOO-LONG", name, who, 0, 0, 0, 0);
+}
+#endif
 
 void Vif1Queue::setOpenChainCloser(void (*closer)()) {
   openChainCloser = closer;

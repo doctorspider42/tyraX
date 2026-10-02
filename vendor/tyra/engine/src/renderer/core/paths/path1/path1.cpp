@@ -53,6 +53,7 @@ void Path1::uploadDrawFinishProgram() {
                                 &VU1DrawFinish_CodeStart,
                                 &VU1DrawFinish_CodeEnd);
   Vif1Queue::drain();
+  TYRA_VIF1_CHECK((packet2)->base, "path1:packet2");
   dma_channel_send_packet2(packet2, DMA_CHANNEL_VIF1, true);
   packet2_free(packet2);
 }
@@ -82,6 +83,7 @@ void Path1::addDrawFinishTag(packet2_t* packet) {
 
 void Path1::sendDrawFinishTag() {
   Vif1Queue::drain();
+  TYRA_VIF1_CHECK((drawFinishPacket)->base, "path1:drawFinishPacket");
   dma_channel_send_packet2(drawFinishPacket, DMA_CHANNEL_VIF1, true);
 }
 
@@ -110,6 +112,7 @@ u32 Path1::uploadProgram(VU1Program* program, const u32& address) {
   packet2_utils_vu_add_end_tag(packet2);
 
   Vif1Queue::drain();
+  TYRA_VIF1_CHECK((packet2)->base, "path1:packet2");
   dma_channel_send_packet2(packet2, DMA_CHANNEL_VIF1, true);
   Vif1Queue::drain();
 
@@ -186,6 +189,7 @@ void Path1::setDoubleBuffer(const u16& startingAddress, const u16& bufferSize) {
 
   packet2_utils_vu_add_end_tag(doubleBufferPacket);
   Vif1Queue::drain();  // Modified by TyraX: see vif1_queue.hpp
+  TYRA_VIF1_CHECK((doubleBufferPacket)->base, "path1:doubleBufferPacket");
   dma_channel_send_packet2(doubleBufferPacket, DMA_CHANNEL_VIF1, true);
   // Modified by TyraX: pipelines call this when they bring VU1 up
   // (after their own dma_channel_initialize(VIF1)) - from here on the PATH1

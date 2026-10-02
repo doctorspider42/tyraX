@@ -246,6 +246,7 @@ image, or keep the PC quiet while the game runs.
 | An emitter fires the instant you walk into range | The intended reset of its interval; shorten the interval if you want it sooner. |
 | The scene runs at 25 FPS while music plays and an emitter is in earshot | Fixed 2026-08 — the music stream no longer blocks audsrv for everyone else. If you see it again, you are on an engine build from before that; see *Emitters and streaming music* above. |
 | Music drags, stutters or pops while running over ps2link, and the log says "Music ring ran low" | The music streams from the PC and the IOP is busy with the network. From a disc it plays evenly. See *Music stutters over ps2link*. |
+| The game freezes a moment after its first "Music ring ran low" line, and PCSX2's log says `Vif1: Unknown VifCmd` | Fixed in 1.169.1. The warning is printed from the engine's audio thread, whose stack was too small for it, and the overflow corrupted a renderer packet. Rebuild with a current editor. A build since then reports `Audio thread stack overflow` instead of freezing if that thread ever outgrows its stack again. |
 | A Play Sound node does nothing, sometimes | Its priority is not above anything currently playing, so it is being dropped. Raise it, or pin it a channel. |
 | A pinned sound stopped layering over itself | That is the fix — pinning cuts off, as the parameter always claimed. Use auto if you want copies to overlap. |
 | Nothing plays at all, on hardware, but PCSX2 is fine | Not this page. See the EE cache write-back in the `tyra-engine-dev` skill's audio section. |

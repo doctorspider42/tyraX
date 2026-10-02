@@ -108,6 +108,7 @@ void McpipCull::initStaticPacket() {
 
 void McpipCull::sendVU1StaticData() {
   Vif1Queue::drain();
+  TYRA_VIF1_CHECK((staticPacket)->base, "mcpip_cull:staticPacket");
   dma_channel_send_packet2(staticPacket, DMA_CHANNEL_VIF1, true);
 }
 
