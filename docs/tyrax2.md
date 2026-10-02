@@ -245,9 +245,22 @@ event ring, retaining existing fences. The first built same-ELF off/on/off trial
 uses explicit synthetic marker toggles for unattended software mapping; manual
 Square input is a separate source-default mode. Normal progressive two-buffer
 output, plain order and observer/marker settings are matched across blocks.
-No emulator was run, as requested by the user. The
-[fixture record](tyrax2-latency-fixture-2026-10-02.json) retains exact final build,
-source/asset/ELF/symbol hashes and host limits; first physical mapping is pending.
+After the user unlocked the emulator, both PS2 and PCSX2 completed all 5,400
+game loops. V1 software mapping was rejected: the observer assumed that the
+synchronous off path queued a native prefix, while the actual default
+ORDERED/native/arena flags are zero. It consumed an absent tag in the first
+off block and a stale tag after returning from on to off. The console remained
+healthy. Host checks had modeled the wrong off path and did not establish
+actual target hook coverage. A private V2 observer uses the current render tag
+for legacy synchronous presents and clears queued identity each render revision.
+The [fixture record](tyrax2-latency-fixture-2026-10-02.json) retains the original
+build hashes and rejected logs. V2 passes 36,241 actual-header legacy-off and
+36,345 ordered-off host checks, native compilation, and all 39 synthetic edge
+mappings across the full 5,400-loop emulator run. Cold phase-zero renders
+(24 extra) and phase-one prefixes (five extra) are separate from input polls;
+all blocks have zero invalid/dropped events. A separate initial-block snapshot
+shows the white marker and normal scene. Emulator numerical delays are not
+physical latency evidence; corrected PS2 mapping remains pending.
 No button-to-TV result or default promotion follows from source/host/native gates.
 Default promotion remains open after latency and broader validation.
 

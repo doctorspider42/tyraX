@@ -4360,4 +4360,13 @@ is software mapping only; manualSquare default is a separate build. Match
 normalProgressive480p/Bits16/two buffers/limiter/plain/noBLSS/extrapolation
 across3x1800loop blocks, warm300. Ring180224B, no per-event prints/newwaits.
 Target uint32 printf casts and compiler clock memory clobber are recorded.
-First physical mapping remains pending; no TVphotons/default promotion accepted.
+V1 PS2/emulator completed5400loops but mapping FAILED: actual legacy off
+(ORDERED/native/arena0, support1) never queueRecords; syncPresent consumed
+absent/stale queued tags. Hostoracle had assumed ordered off. Validate actual
+legacy1,2,7,8 and active1,2,3,4,5,6,10,7,8 paths, all39warm synthetic edges,
+plus off/on/restored-off completeness. Cold extra renders/prefixes must be
+accounted separately. V2 actual-header host36241/36345, native and full
+5400loop emulator39/39 mapping pass; actual cold extras24renders/5prefixes
+recorded. Initial-block marker screenshot checked separately. PhysicalV2
+pending; emulator numerical delay is not hardware latency. No TVphotons/default
+promotion accepted.
