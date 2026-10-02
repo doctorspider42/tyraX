@@ -4215,3 +4215,16 @@ The morning guarded PHYSICAL transition run FAILED at procedural loading
 after dense: 2,160 frames, 98,304 accepted chains, two splits, zero fallback.
 No malformed-chain rejection occurred. This is an open qualification blocker,
 not a passed soak; the scratch stall probe awaits a physical restart.
+
+
+1.169.1 fixes post-presentation direct-send ordering: wait the actual DMA
+channel after synchronizing the previous hybrid frame, immediately before the
+direct send. The quiet physical control reproduced a VIF1 DMA stall before
+this correction and passed 10,920 frames after it. The repeated-transition
+control without watchdogs/stage prints passed 10,440 frames, 15 transitions
+(five complete scene cycles), 765,952 valid chains and zero direct fallback.
+PCSX2 2.9.93 again passed field/progressive/PAL/1080i, limiter and pipeline
+toggles, foreign 2D/3D handshakes and explicit synchronization. Stage stdout
+can hide a timing race: the pre-fix verbose probe passed 12,000 frames while
+the quiet probe hung. Preserve both controls and their hashes. Renew ordinary
+day/night timing after this fix; guarded driving FPS is not production timing.

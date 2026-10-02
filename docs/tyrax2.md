@@ -404,6 +404,15 @@ then `frameSendPacket()` synchronizes the previous frame, whose hybrid present
 can start GIF DMA again. Sending immediately after that callback can overwrite
 a busy channel. A scratch candidate adds a channel wait after synchronization,
 immediately before the direct send, including unsupported recording fallbacks.
-It has compiled successfully and is awaiting a fresh physical boot. This
-candidate has not yet established hardware acceptance or changed the shipped
-engine sources.
+The correction is implemented in 1.169.1 without a project-format change.
+The same quiet watchdog control then passed 10,920 frames, all three scene
+transitions and cameras, with 671,744 accepted source chains and zero direct
+fallbacks; the user confirmed normal car, lights, shadows and HUD on the PS2.
+A subsequent physical build without watchdogs or loading-stage prints passed
+10,440 frames and five complete scene cycles (15 transitions), with 765,952
+accepted chains, zero rejection and zero direct fallback. Its 17 split frames
+include bounded loading/driving overflow; this stress result does not claim
+one chain for every exceptional frame. Mode/limiter/pipeline changes and
+foreign 2D/3D handshakes also passed again in PCSX2 2.9.93. These controls close
+the reproduced loading-race blocker. The renewed day/night timing controls
+remain pending; preserve the earlier failed attempts as historical evidence.

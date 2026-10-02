@@ -3444,3 +3444,16 @@ completed event and wedges loading on hardware. While recording, clear is an
 ordering-only no-op: intermediate FINISH packets are suppressed, and the old
 job still owns that bit. Test explicit foreign align2D/align3D between frames,
 not only parked draws, alongside the frame-end marker.
+
+
+Direct-send ordering after pipeline presentation: frameSendPacket must wait the
+actual DMA channel AFTER synchronizeExternal, immediately before sending. The
+producer may already have pre-waited GIF, but completing the prior hybrid frame
+can start a new GIF DMA copy inside that callback. A pre-wait alone therefore
+allows the direct sender to overwrite an active transfer. This also applies to
+unsupported recording fallbacks after their drain/presentation callback. The
+physical quiet loading control reproduced a stuck VIF1 DMA (CHCR 300001c5,
+VIF STAT 0e0000ca, GIF STAT 00000e00) during procedural loading before this
+ordering correction. Loading-stage stdout hid the race in a 12,000-frame run;
+keep stage tracking in RAM and print only on timeout when diagnosing timing
+races. Preserve the failed log and ELF alongside successful controls.

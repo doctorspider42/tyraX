@@ -1,6 +1,6 @@
 {
-  "status": "experimental runtime implemented; same-ELF day performance repeated and first final night timing complete; physical scene-transition acceptance FAILED and requires diagnosis",
-  "version": "1.169.0",
+  "status": "experimental 1.169.1 runtime implemented; reproduced physical loading race fixed and repeated transitions passed; renewed ordinary timing controls pending",
+  "version": "1.169.1",
   "format_version": 94,
   "default_enabled": false,
   "extra_ee_bytes": 2359296,
@@ -14,7 +14,7 @@
     "src/project.cpp": "8bc667302b19f7c8f4979cfd4a1c0d32d718871970296dcc86e4df3acf8cac64",
     "src/project.hpp": "703d2acc4e280f8190c57958027c91990b7805a90183298f1d04ec4f778158be",
     "src/templates.cpp": "d8c97c9eef10ee72bd1e831f1cbc69404af2ab692049e0b52dc4bf7dfb0297f8",
-    "src/version.hpp": "6f4cca3e3f04db082aa77c85cae052d63f70a1298126e8ab0e67fd0c5cf4598a",
+    "src/version.hpp": "8a9384db9cb2e6dea9c2c1ca550f439faec23862f17defbe16d373f1c462f35e",
     "tools/tyrax2-fixture.py": "cc64298c61630076c78a3fb224bafca354ecf483a4ede4e80d21fc69adec0f5f",
     "tools/tyrax2-timing.py": "eb8500a3be8d33c60e9bf169af94460e88e7abbaea662d883090c1baa16fb792",
     "vendor/tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.hpp": "d89fa588b2c73a86143c3e5b5ceea52c25850c0392b8b0eaba5a5ad95375f145",
@@ -43,7 +43,7 @@
     "vendor/tyra/engine/src/renderer/core/warp/renderer_core_warp.cpp": "d8597533d11a67febc28d276823c37df05ff56acb1589475419f38c9a2424db2",
     "vendor/tyra/engine/inc/renderer/core/paths/path1/frame_chain_arena.hpp": "8d26d6f61b882897c930482f42ce64342a883691be6cf2acba06e641d526f94b",
     "vendor/tyra/engine/inc/renderer/core/paths/path1/frame_vif_writer.hpp": "0ee77091872dca566a642212fbaad2dc19e6c7202ff73917feef6fc61211ce5d",
-    "vendor/tyra/engine/inc/renderer/core/paths/path1/frame_submission.hpp": "1da4032e5f2b737816fca4ab2168c38961a15af207e9f52ef51fe08f27663cf1",
+    "vendor/tyra/engine/inc/renderer/core/paths/path1/frame_submission.hpp": "275f51290e00bb4901ad0d9c396a2cbe19072b1481d46d2eaef9ee2b8b5eb9a0",
     "tools/verify-frame-arena.cpp": "74358291093bbaeb39a9c70e1b19d9daab635304c25da1ed77b58dd0ccb2dfbe",
     "tools/verify-frame-writer.cpp": "802b1bc6eb7ee89e88942967ff5b3190a2f44762d7eed764fd76852c763a6ce5"
   },
@@ -593,7 +593,7 @@
     "next_step": "scratch-only loading-stage and DMA/GS wait diagnostic build prepared, awaiting physical power cycle"
   },
   "physical_loading_diagnostics": {
-    "qualification": "OPEN: no root cause or production fix established; instrumented success cannot erase prior failures",
+    "qualification": "Reproduced loading-race blocker closed by post-presentation direct DMA wait; earlier failures retained",
     "early_probe_failed_startup": {
       "status": "failed_startup_loading",
       "scene_transitions_reached": false,
@@ -653,7 +653,7 @@
         "sha256": "6e9360bac905eb70695e4e73c71139a7311f3714a220fc2f1d8781635fd03d8c"
       }
     },
-    "next_step": "Fresh physical boot of scratch post-presentation DMA-wait fix, then uninstrumented repeated scene-transition control and renewed timing acceptance.",
+    "next_step": "Renew ordinary production day/night timing with the corrected direct-send order",
     "quiet_probe_physical": {
       "status": "FAILED: VIF1 DMA stuck during procedural load",
       "stage": "loadScene entry",
@@ -677,12 +677,309 @@
       "cause_candidate": "Prior-presentation callback starts GIF DMA after caller pre-wait; raw send can overwrite busy GIF channel."
     },
     "candidate": {
-      "status": "compiled, awaiting physical boot; scratch only",
+      "status": "implemented in production 1.169.1; physical diagnostic and repeated transition controls passed",
       "change": "Wait DMA channel after previous-presentation synchronization, before direct packet send",
       "elf": {
         "path": "F:\\Projects\\tyrax2-lab-20261001\\pipeline-gif-send-fix-physical.elf",
         "sha256": "e33b4103291deb1c6e2ee8587149a8d88c19c32e7497872045ed051d06238904"
       }
+    },
+    "fixed_quiet_control": {
+      "status": "Passed physical quiet watchdog control with post-presentation DMA wait",
+      "frames": 10920,
+      "accepted_source_chains": 671744,
+      "split_frames": 13,
+      "direct_fallbacks": 0,
+      "scene_changes": [
+        {
+          "scene": "dense",
+          "game_frame": 1800
+        },
+        {
+          "scene": "procedural",
+          "game_frame": 2100
+        },
+        {
+          "scene": "main",
+          "game_frame": 2400
+        }
+      ],
+      "cameras": [
+        0,
+        1,
+        2
+      ],
+      "unique_logged_positions": 358,
+      "minimum_reported_free_heap_kib": 6542,
+      "artifacts": [
+        {
+          "path": "F:\\Projects\\tyrax2-lab-20261001\\pipeline-gif-send-fix-physical.log",
+          "sha256": "b115519bb16773d2856fb63ad94ab3378de86ffa3c44c0d65e59088ced99a0fc"
+        },
+        {
+          "path": "F:\\Projects\\tyrax2-lab-20261001\\pipeline-gif-send-fix-physical.elf",
+          "sha256": "e33b4103291deb1c6e2ee8587149a8d88c19c32e7497872045ed051d06238904"
+        }
+      ],
+      "instrumentation": "chain guard, snapshot memcmp, injected driving and scene transitions; stage tracked in RAM; only prolonged waits print registers",
+      "visual_status": "User confirmed normal car, lights, shadows and HUD on physical PS2",
+      "qualification": "Candidate ordering fix passed diagnostic control; uninstrumented repeated transitions and renewed timing pending"
+    },
+    "fixed_repeated_transitions": {
+      "status": "Passed physical repeated scene-transition soak with post-presentation DMA wait",
+      "frames": 10440,
+      "accepted_source_chains": 765952,
+      "split_frames": 17,
+      "direct_fallbacks": 0,
+      "scene_changes": [
+        {
+          "scene": "dense",
+          "game_frame": 1800
+        },
+        {
+          "scene": "procedural",
+          "game_frame": 2100
+        },
+        {
+          "scene": "main",
+          "game_frame": 2400
+        },
+        {
+          "scene": "dense",
+          "game_frame": 3600
+        },
+        {
+          "scene": "procedural",
+          "game_frame": 3900
+        },
+        {
+          "scene": "main",
+          "game_frame": 4200
+        },
+        {
+          "scene": "dense",
+          "game_frame": 5400
+        },
+        {
+          "scene": "procedural",
+          "game_frame": 5700
+        },
+        {
+          "scene": "main",
+          "game_frame": 6000
+        },
+        {
+          "scene": "dense",
+          "game_frame": 7200
+        },
+        {
+          "scene": "procedural",
+          "game_frame": 7500
+        },
+        {
+          "scene": "main",
+          "game_frame": 7800
+        },
+        {
+          "scene": "dense",
+          "game_frame": 9000
+        },
+        {
+          "scene": "procedural",
+          "game_frame": 9300
+        },
+        {
+          "scene": "main",
+          "game_frame": 9600
+        }
+      ],
+      "cameras": [
+        0,
+        1,
+        2
+      ],
+      "unique_logged_positions": 294,
+      "minimum_reported_free_heap_kib": 6206,
+      "artifacts": [
+        {
+          "path": "F:\\Projects\\tyrax2-lab-20261001\\pipeline-gif-send-stress-physical.log",
+          "sha256": "4b2824fd18630f802fc317fddda5ee43f8ed042ae21cd7829f2ac4cc7f2be1c9"
+        },
+        {
+          "path": "F:\\Projects\\tyrax2-lab-20261001\\pipeline-gif-send-stress-physical.elf",
+          "sha256": "fccc35cc726f5db162e6562371df194ed5914574cf5eb4a4fe6ef5ca35b9de47"
+        }
+      ],
+      "instrumentation": "chain guard, actual R5900 snapshot memcmp, injected driving and repeated scene transitions; no watchdogs or loading-stage prints",
+      "visual_status": "not confirmed for this run",
+      "qualification": "Repeated hardware transition acceptance passed; renewed production timing controls pending",
+      "complete_scene_cycles": 5
+    },
+    "mode_regression": {
+      "status": "passed in PCSX2 2.9.93",
+      "markers": [
+        "field",
+        "progressive",
+        "unlimited",
+        "limited",
+        "off",
+        "on",
+        "foreign3d",
+        "foreign2d",
+        "synchronized",
+        "pal",
+        "1080i",
+        "restored"
+      ],
+      "artifacts": [
+        {
+          "path": "F:\\Projects\\tyrax2-lab-20261001\\pipeline-gif-send-modes.elf",
+          "sha256": "4c928cfe1d88254c71930891737635f9f0c77b247a10f81da93210e34a5d5ec5"
+        },
+        {
+          "path": "F:\\Projects\\tyrax2-lab-20261001\\pipeline-gif-send-modes-emulator-corrected\\emulog.txt",
+          "sha256": "22959f9125db604f7460a3df14c04ddbd8778dff3f3a6e2280c6be458a5a1609"
+        },
+        {
+          "path": "F:\\Projects\\tyrax2-lab-20261001\\pipeline-gif-send-modes-emulator-corrected\\state1.p2s",
+          "sha256": "c752065172bbc2bc87f2cea65660e75e1d30027e5e86d38ebcd65484f18c2eab"
+        },
+        {
+          "path": "F:\\Projects\\tyrax2-lab-20261001\\pipeline-gif-send-modes-emulator-corrected\\report.txt",
+          "sha256": "e3ec34104b0d742aca5ed95c1987d395fb182401a8c7a89bb4a09f6730a8a1d2"
+        }
+      ]
     }
+  },
+  "pre_dma_wait_fix_source_sha256": {
+    "src/app.cpp": "d09a787b64fd0645ec1157c102f711b17b61be4ac09fbe83aef9e59051f33d0e",
+    "src/game_templates.inc": "ebf0ec5aabaf4113f97506718af634ad02be0e50d85d029dbee6b87fdcec170f",
+    "src/project.cpp": "8bc667302b19f7c8f4979cfd4a1c0d32d718871970296dcc86e4df3acf8cac64",
+    "src/project.hpp": "703d2acc4e280f8190c57958027c91990b7805a90183298f1d04ec4f778158be",
+    "src/templates.cpp": "d8c97c9eef10ee72bd1e831f1cbc69404af2ab692049e0b52dc4bf7dfb0297f8",
+    "src/version.hpp": "6f4cca3e3f04db082aa77c85cae052d63f70a1298126e8ab0e67fd0c5cf4598a",
+    "tools/tyrax2-fixture.py": "cc64298c61630076c78a3fb224bafca354ecf483a4ede4e80d21fc69adec0f5f",
+    "tools/tyrax2-timing.py": "eb8500a3be8d33c60e9bf169af94460e88e7abbaea662d883090c1baa16fb792",
+    "vendor/tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.hpp": "d89fa588b2c73a86143c3e5b5ceea52c25850c0392b8b0eaba5a5ad95375f145",
+    "vendor/tyra/engine/inc/renderer/core/gs/renderer_core_gs.hpp": "f3ed4de6f8c0bb6ec6f15cbbb70d360ac156abe92edd889bb59743b35308914c",
+    "vendor/tyra/engine/inc/renderer/core/paths/path1/vif1_queue.hpp": "f283e5a1fb2acbe94582403d866f95c3e9cc247c623e3cc0329103a475fd7376",
+    "vendor/tyra/engine/inc/renderer/core/renderer_core.hpp": "736d0cba3623e87e1b566884fc0f9af6df612bf43f4e0564aa67f1c5da7ea93d",
+    "vendor/tyra/engine/src/renderer/3d/pipeline/dynamic/core/dynpip_renderer.cpp": "2b6e84a9174ae1a00033d08e47eb725e3e36ad3fe1cd3246a729b978d42189ff",
+    "vendor/tyra/engine/src/renderer/3d/pipeline/minecraft/programs/as_is/mcpip_clip.cpp": "4cbe4199b2f049e4fd069f434b3d2516cd435029654d838af673e40d051444f5",
+    "vendor/tyra/engine/src/renderer/3d/pipeline/minecraft/programs/cull/mcpip_cull.cpp": "6fa3d12cfc48a073adb71205797715e0f7f22cc86eadb18c4292d2ef7ccfd030",
+    "vendor/tyra/engine/src/renderer/3d/pipeline/minecraft/programs/mcpip_programs_manager.cpp": "30317998ec3990115923ae76d802da4bca3fbd1d63a5d6aefe68ac8fc5f4629e",
+    "vendor/tyra/engine/src/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.cpp": "597e444875e6f5d45cff7359f0430ca89f27bd77657cbb7194554c7c9baa9825",
+    "vendor/tyra/engine/src/renderer/3d/renderer_3d_utility.cpp": "0583de1d7cf60335b9c88a9f642cae24b4e48e8febfa0dd518374b8e15e90c63",
+    "vendor/tyra/engine/src/renderer/core/2d/renderer_core_2d.cpp": "c81b3f6e4f6419f467bec2790fae06aea6f17dfab767bdbaf650c5a35bb743f2",
+    "vendor/tyra/engine/src/renderer/core/alphamask/renderer_core_alpha_mask.cpp": "f0787af8865dbb990b03573e097c23a1c13d9bb5724c6a4a15d3cf5ef8f54203",
+    "vendor/tyra/engine/src/renderer/core/blss/renderer_core_blss.cpp": "e957b553464799bc221636d9883b0a4933d5ffd00f9bf7aa74c61625e9b5f1e9",
+    "vendor/tyra/engine/src/renderer/core/envmap/renderer_core_envmap.cpp": "affbff21c8a3a6af5223bd40d8750fd60c3f1f677765db3ee35fce2b654a9de5",
+    "vendor/tyra/engine/src/renderer/core/gs/renderer_core_gs.cpp": "4f214a89ee91601463c4e008edc0cae11a117638f61429661f6d8ee57db8f80c",
+    "vendor/tyra/engine/src/renderer/core/paths/path1/path1.cpp": "f88fbc21c296f543ac7b637b9b4341fd48d58564982b054613255b46b86639e6",
+    "vendor/tyra/engine/src/renderer/core/paths/path1/vif1_queue.cpp": "41c13286b8a3140b862013a21ae438d68a3edfec27dab1fde32bdbc9702a8f93",
+    "vendor/tyra/engine/src/renderer/core/paths/path3/path3.cpp": "c27669c8850656f99dca355b6bc2bbcbdb1e683a187c8c1b1e5102038b6df414",
+    "vendor/tyra/engine/src/renderer/core/postfx/renderer_core_postfx.cpp": "8b1755a6d40c756a5225e2927b83613b8a98719d233b09a4741831406b68f446",
+    "vendor/tyra/engine/src/renderer/core/renderer_core.cpp": "520c81dbc1ac36e829c9c76408a15fe987567450ddbdd8341ccb5e1cce2fbd6f",
+    "vendor/tyra/engine/src/renderer/core/renderer_core_sync.cpp": "b9cbd9ae59c79e74bb24008f1c9ced689aa77147f000c307e6a8df42b6f9c704",
+    "vendor/tyra/engine/src/renderer/core/shadowmap/renderer_core_shadow_map.cpp": "fc2e457b9e14568b0484cb3aa60b3a3c3fc7f5b4e8c0ae142b4f003b8073cd3f",
+    "vendor/tyra/engine/src/renderer/core/splitview/renderer_core_splitview.cpp": "e8a806fbd96974b345228d49de2591518108a546a4a7d1f36cc65b5874be09ed",
+    "vendor/tyra/engine/src/renderer/core/warp/renderer_core_warp.cpp": "d8597533d11a67febc28d276823c37df05ff56acb1589475419f38c9a2424db2",
+    "vendor/tyra/engine/inc/renderer/core/paths/path1/frame_chain_arena.hpp": "8d26d6f61b882897c930482f42ce64342a883691be6cf2acba06e641d526f94b",
+    "vendor/tyra/engine/inc/renderer/core/paths/path1/frame_vif_writer.hpp": "0ee77091872dca566a642212fbaad2dc19e6c7202ff73917feef6fc61211ce5d",
+    "vendor/tyra/engine/inc/renderer/core/paths/path1/frame_submission.hpp": "1da4032e5f2b737816fca4ab2168c38961a15af207e9f52ef51fe08f27663cf1",
+    "tools/verify-frame-arena.cpp": "74358291093bbaeb39a9c70e1b19d9daab635304c25da1ed77b58dd0ccb2dfbe",
+    "tools/verify-frame-writer.cpp": "802b1bc6eb7ee89e88942967ff5b3190a2f44762d7eed764fd76852c763a6ce5"
+  },
+  "post_dma_wait_fix_timing": {
+    "status": "day boot 1 passed; repeat and two night boots pending",
+    "day": [
+      {
+        "log": "F:\\Projects\\tyrax2-lab-20261001\\pipeline-gif-send-day-boot1.log",
+        "first": 1100,
+        "frames": 512,
+        "hz": 60,
+        "budget_ms": 16.666666666666668,
+        "mean_ms": 13.863461593786875,
+        "median_ms": 13.787872314453125,
+        "p95_ms": 14.736735026041666,
+        "max_ms": 15.207129584418404,
+        "over_budget": 0,
+        "note": "Renderer critical-path work excluding presentation pacing; not full period or delivered FPS.",
+        "period_windows": [
+          {
+            "frame": 1100,
+            "period_ms": 17.35
+          },
+          {
+            "frame": 1150,
+            "period_ms": 17.02
+          },
+          {
+            "frame": 1200,
+            "period_ms": 17.02
+          },
+          {
+            "frame": 1250,
+            "period_ms": 17.35
+          },
+          {
+            "frame": 1300,
+            "period_ms": 17.02
+          },
+          {
+            "frame": 1350,
+            "period_ms": 17.35
+          },
+          {
+            "frame": 1400,
+            "period_ms": 17.02
+          },
+          {
+            "frame": 1450,
+            "period_ms": 17.35
+          },
+          {
+            "frame": 1500,
+            "period_ms": 17.02
+          },
+          {
+            "frame": 1550,
+            "period_ms": 17.02
+          }
+        ],
+        "mean_period_ms": 17.152,
+        "delivered_rate_from_period_hz": 58.30223880597015,
+        "log_sha256": "2eb41342ecbffa49444b6ec0c41dff0e6fd3abbb6b89388363d283c73684ed27",
+        "elf_sha256": "ab9a60326fa8749e493608df24277e6bf8f2fdbc6f36fee9c05a1e6c2968490c",
+        "elf_path": "F:\\Projects\\tyrax2-lab-20261001\\pipeline-gif-send-day-boot1.elf",
+        "period_note": "Neighboring ten 50-frame summary windows, not the exact 512 raw work samples."
+      }
+    ],
+    "night": []
+  },
+  "post_dma_wait_fix_builds": {
+    "status": "Windows editor 1.169.1 and native PS2 stress/modes/day/night builds passed",
+    "artifacts": [
+      {
+        "path": "F:\\Projects\\tyrax2-lab-20261001\\pipeline-gif-send-editor-build.log",
+        "sha256": "34d946a156a91128476b223dca3447b9f71a395c86470b9d60cdf995bb59d4c7"
+      },
+      {
+        "path": "F:\\Projects\\tyrax2-lab-20261001\\pipeline-gif-send-stress-build.log",
+        "sha256": "b51f2846d5d9739ba52771a829c3b36f598f2a38b4238d1e9dcc2e4600c86187"
+      },
+      {
+        "path": "F:\\Projects\\tyrax2-lab-20261001\\pipeline-gif-send-modes-build.log",
+        "sha256": "62d19744ca61742e337d33bea3bdd275338d23585ce755c330fccd1fd46f6e12"
+      },
+      {
+        "path": "F:\\Projects\\tyrax2-lab-20261001\\pipeline-gif-send-day-build.log",
+        "sha256": "23f624febf24da2cf25babcda6a449b696a9f685154bf0c2c4c1dd2f106326e8"
+      },
+      {
+        "path": "F:\\Projects\\tyrax2-lab-20261001\\pipeline-gif-send-night-build.log",
+        "sha256": "001831642bb80b373a2e18dd8a12231fc80ea697ee68d5723e23ddcfc1f75a5b"
+      }
+    ]
   }
 }

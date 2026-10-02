@@ -308,8 +308,15 @@ recovered 0.50-0.72 ms of hardware `work`. What it did not do, ranked:
   failure as separate evidence; the loading failure's cause is undetermined.
   The subsequent power-cycle guarded drive also stalled while loading
   procedural after reaching dense (2,160 frames / 98,304 valid chains).
-  **Open defect/qualification blocker:** diagnose this physical transition
-  stall; passing source-chain validation and emulator transitions do not close it.
+  **Loading-race fix in 1.169.1:** the quiet physical control exposed a stuck
+  VIF1 DMA. Waiting the direct DMA channel after prior hybrid presentation
+  prevents a new send from overwriting the copy started by that callback.
+  The corrected control passed 10,920 frames; a subsequent build without
+  watchdogs or loading-stage prints passed 10,440 frames and five complete
+  scene cycles (15 transitions), with 765,952 valid chains and zero fallback.
+  Renewed ordinary day/night timing repeats are still pending. Physical
+  input-to-display latency and promotion from the default-off experiment
+  remain separate open acceptance work.
   The [runtime record](tyrax2-runtime-2026-10-02.json) distinguishes final results
   from historical arms. The older GPU-only sweep is not a current gain ceiling.
   Reference-title SPR staging and its approximately 16-qword-plus-CALL object

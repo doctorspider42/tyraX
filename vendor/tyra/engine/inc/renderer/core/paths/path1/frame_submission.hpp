@@ -43,6 +43,10 @@ inline void frameSendPacket(packet2_t* packet, int channel, bool flush) {
 
   }
   if (!recording) Vif1Queue::synchronizeExternal();
+  // Presentation above can itself start GIF DMA (hybrid framebuffer copy).
+  // A producer's earlier pre-wait cannot protect this send from that work.
+  // Unsupported recording fallbacks also present before sending directly.
+  dma_channel_wait(channel, 0);
   dma_channel_send_packet2(packet, channel, flush);
   // The producer may immediately reuse/free a source after an ordering-only
   // wait. An unsupported borrowed transfer must finish before returning.
