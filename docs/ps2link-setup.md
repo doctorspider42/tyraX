@@ -310,11 +310,30 @@ and only then touches the screen — by which point a fault inside `init_scr()`
 lands in ps2link's own handler and says so, instead of jumping into the dead
 game's crash handler, which is now dead memory.
 
-> **Not yet confirmed on hardware.** This is a mechanism that explains every
-> observed symptom and a reordering that is correct on its own terms, but the
-> wedge it targets is intermittent, so a card must be flashed and the failure
-> must fail to recur before this is called fixed. Until then a console still
-> running r6 behaves like the old code.
+**Hardware smoke test, 2026-10-02:** the user flashed the r7 low, packed,
+no-USB build onto the console. `vehicle-playground` completed **6/6 reset →
+redeploy cycles**, including three resets after acceleration/steering. Each
+redeploy produced a fresh ELF load and vehicle logs; debugger frames advanced
+after every restart. Cycles 2–6 first reported frame 1, then reached 46–71;
+the final game remained running and advanced from frame 796 to 896. No
+`freepad: DMA Busy` or asset-load failure was observed. The existing debug
+game ELF from 2026-10-01 was reused, with Live Debugger and Remote Pad enabled;
+this was not a rebuild of the game from the merged branch.
+
+The flashed ps2link ELF's SHA-256 was
+`24f063e69cd1834b71b399f48723493614996f7fbcb16ac7a11f83b0753f0973`;
+the game ELF's was
+`e5e2ede1d69801dd023c3536030afe008dc42e9344c2ad7ec39c28f6f6a43c50`.
+The first cycle's host verifier needed repair for an open-log sharing error
+and a debugger that had not been attached; subsequent vehicle logs and attached
+frame progression confirmed that the game was running. Initial network failures
+were the default `192.168.1.10` configuration on a `192.168.100.x` LAN, before
+the baseline launch, and are excluded from the six cycles.
+
+> **Longer observation remains necessary.** Six successful cycles establish
+> hardware smoke-test coverage, not elimination of an intermittent failure or
+> proof that this mechanism caused every historical wedge. Consoles still
+> running r6 retain the old ordering.
 
 ## 2. Put it on the console
 
