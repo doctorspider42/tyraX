@@ -299,10 +299,17 @@ recovered 0.50-0.72 ms of hardware `work`. What it did not do, ranked:
   synchronous fences. Host/sanitizer checks, native/Docker builds and emulator
   driving, scene transitions, display changes and GPU readback passed.
   The first final physical day boot reduced full period from approximately
-  28.1 to 17.15 ms (35.6 to 58.3 Hz). **Still open:** repeat final day and night
-  hardware boots after a physical power cycle, measure input latency, and decide
-  whether to promote the switch. The second final boot hit pre-gameplay
-  `freepad: DMA Busy`; predecessor night periods remained approximately 33.4 ms.
+  28.1 to 17.15 ms (35.6 to 58.3 Hz), repeated with the SAME ELF after the morning
+  power cycle. Final night boot 1 measured 18.234 ms work and 33.403 ms period
+  (29.94 Hz); its next soft-reset launch stalled during loading, without timing.
+  **Still open:** a second successful final night boot, physical driving/scene
+  soak, input-latency measurement, and deciding whether to promote the switch.
+  Preserve the earlier pre-gameplay `freepad: DMA Busy` and current loading
+  failure as separate evidence; the loading failure's cause is undetermined.
+  The subsequent power-cycle guarded drive also stalled while loading
+  procedural after reaching dense (2,160 frames / 98,304 valid chains).
+  **Open defect/qualification blocker:** diagnose this physical transition
+  stall; passing source-chain validation and emulator transitions do not close it.
   The [runtime record](tyrax2-runtime-2026-10-02.json) distinguishes final results
   from historical arms. The older GPU-only sweep is not a current gain ceiling.
   Reference-title SPR staging and its approximately 16-qword-plus-CALL object

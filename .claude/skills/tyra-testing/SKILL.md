@@ -4202,3 +4202,16 @@ PS2 builds passed. Final physical day timing is ONE boot (17.152 ms full period,
 Final night hardware timing and input-latency measurement remain pending a
 physical power cycle. Never substitute emulator FPS or predecessor night work
 for those checks.
+
+Morning physical follow-up (2026-10-02): the SAME final day ELF repeated
+13.988 ms work / 17.152 ms period (58.3 Hz), with 0/512 above 16.667 ms.
+Final night boot 1 measured 18.234 ms work / 33.403 ms period (29.94 Hz);
+all 512 samples exceed the NTSC work budget. The next soft-reset launch
+stalled during loading, without a usable timing window; cause undetermined.
+See the runtime record for hashes. Physical night repeat and guarded driving
+remain pending a physical restart; do not confuse this with a guard rejection.
+
+The morning guarded PHYSICAL transition run FAILED at procedural loading
+after dense: 2,160 frames, 98,304 accepted chains, two splits, zero fallback.
+No malformed-chain rejection occurred. This is an open qualification blocker,
+not a passed soak; the scratch stall probe awaits a physical restart.

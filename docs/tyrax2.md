@@ -198,22 +198,33 @@ version does not introduce the reference title's SPR staging scheme.
 The [runtime record](tyrax2-runtime-2026-10-02.json) separates final-candidate
 results from predecessor experiments and includes local artifact hashes:
 
-| Physical PS2, seated day start | Baseline, two boots | Final candidate, one boot |
+| Physical PS2, seated day start | Baseline, two boots | Final candidate, two boots |
 | --- | --- | --- |
-| Mean render critical-path work, 512 frames | 15.707 / 15.721 ms | 13.992 ms |
-| Work above 16.667 ms | 8 / 7 of 512 | 0 of 512 |
-| Mean complete presentation period, neighboring 500-frame window | 28.061 / 28.095 ms | 17.152 ms |
-| Rate derived from that period | approximately 35.6 Hz | 58.3 Hz |
+| Mean render critical-path work, 512 frames | 15.707 / 15.721 ms | 13.992 / 13.988 ms |
+| Work above 16.667 ms | 8 / 7 of 512 | 0 / 0 of 512 |
+| Mean complete presentation period, neighboring 500-frame window | 28.061 / 28.095 ms | 17.152 / 17.152 ms |
+| Rate derived from that period | approximately 35.6 Hz | 58.3 / 58.3 Hz |
 
 Critical-path work excludes presentation pacing but includes any unhidden
 previous GPU tail; it is not pure EE computation. Full period is the performance
 result. The raw work and neighboring period windows are different sample sets.
-The final day candidate completed gameplay on hardware; its second boot stopped
-before gameplay with `freepad: DMA Busy`. No final-candidate night hardware result
-is claimed. The earlier night pipeline retained approximately 33.4 ms periods
-(approximately 30 Hz), despite reducing work. Emulator FPS is not PS2 timing.
-Repeat final day and night boots after a physical power cycle before promoting
-the switch or claiming repeatable final performance.
+The original final day repeat stopped before gameplay with `freepad: DMA Busy`.
+After the user's morning physical power cycle, the SAME archived day ELF repeated
+17.152 ms periods and zero over-budget work samples. The final night candidate's
+first hardware boot measured 18.234 ms critical-path work, versus baseline
+19.918 / 19.912 ms, but retained 33.403 ms periods (29.94 Hz). All 512 night work
+samples still exceeded 16.667 ms. Its second launch after a soft reset stalled
+during loading, producing no timing window; the cause remains undetermined.
+Emulator FPS is not PS2 timing. A second successful night boot and physical
+driving/scene-transition coverage remain required before broader promotion.
+
+The morning physical guarded drive reached 2,160 recorded frames and 98,304
+accepted source chains, switched to the dense scene and exercised cameras
+0/1/2, then stalled while loading procedural. It had two split frames and zero
+direct fallbacks. This is a FAILED scene-transition acceptance run, despite the
+valid chains; its cause is not established. A scratch-only diagnostic build adds
+loading-stage markers and DMA/GS wait register snapshots for the next power-cycle
+run. The emulator's completed transition test does not close this hardware failure.
 
 Windows editor, native PS2 and Docker PS2 builds passed. Windows host checks and
 Linux ASan/UBSan passed 1,074 arena cases plus 10,000 malformed streams and 43

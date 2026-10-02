@@ -1,5 +1,5 @@
 {
-  "status": "experimental runtime implemented; correctness checks passed; final hardware repeat/performance qualification pending morning power cycle",
+  "status": "experimental runtime implemented; same-ELF day performance repeated and first final night timing complete; physical scene-transition acceptance FAILED and requires diagnosis",
   "version": "1.169.0",
   "format_version": 94,
   "default_enabled": false,
@@ -151,7 +151,7 @@
     "repeat_status": "Second boot blocked before gameplay by freepad DMA Busy; do not substitute emulator timing."
   },
   "physical_baseline_record": "tyrax2-baseline-2026-10-01.json",
-  "hardware_limit": "Final day one boot only. Second boot stopped before gameplay with freepad DMA Busy; no final night hardware result. User authorized emulator work overnight and physical repeats in morning.",
+  "hardware_limit": "Morning power cycle allowed a same-ELF day repeat and first final night timing. Second night soft-reset launch stalled during loading; hardware soak and night repeat await physical restart.",
   "predecessor_night": {
     "status": "historical, before final in-chain FINISH and foreign synchronization fix",
     "mean_work_ms_boots": [
@@ -421,9 +421,9 @@
     ]
   },
   "remaining_hardware_checks": [
-    "Repeat two final-candidate boots each for seated day and night with original settings and host polling off",
+    "Repeat a second successful final night timing boot",
     "Measure input-to-display latency",
-    "Long physical driving/scene-transition soak before default-on promotion"
+    "Physical driving/scene-transition soak before broader promotion"
   ],
   "editor_ui": {
     "saved_enabled_reopened": "passed",
@@ -432,5 +432,164 @@
     "enabled_codegen_emits_setter": "passed",
     "display_doc_fixture": "isolated showcase copy, progressive/hybrid/triple buffering, original saved layout resized for current DPI",
     "screenshot_sha256": "70f4483c82466cfd82c12ac17723d71fc8c058a905924cdacc094c411fa936b8"
+  },
+  "physical_day_final_repeat": {
+    "log": "F:\\Projects\\tyrax2-lab-20261001\\pipeline-morning-day-boot1.log",
+    "first": 1100,
+    "frames": 512,
+    "hz": 60,
+    "budget_ms": 16.666666666666668,
+    "mean_ms": 13.987614101833767,
+    "median_ms": 13.903089735243055,
+    "p95_ms": 14.849253336588541,
+    "max_ms": 15.463738335503471,
+    "over_budget": 0,
+    "note": "Renderer critical-path work excluding presentation pacing; not full period or delivered FPS.",
+    "period_windows": [
+      {
+        "frame": 1100,
+        "period_ms": 17.35
+      },
+      {
+        "frame": 1150,
+        "period_ms": 17.02
+      },
+      {
+        "frame": 1200,
+        "period_ms": 17.02
+      },
+      {
+        "frame": 1250,
+        "period_ms": 17.35
+      },
+      {
+        "frame": 1300,
+        "period_ms": 17.02
+      },
+      {
+        "frame": 1350,
+        "period_ms": 17.35
+      },
+      {
+        "frame": 1400,
+        "period_ms": 17.02
+      },
+      {
+        "frame": 1450,
+        "period_ms": 17.35
+      },
+      {
+        "frame": 1500,
+        "period_ms": 17.02
+      },
+      {
+        "frame": 1550,
+        "period_ms": 17.02
+      }
+    ],
+    "mean_period_ms": 17.152,
+    "delivered_rate_from_period_hz": 58.30223880597015,
+    "log_sha256": "da3e27b8fff2939eaa38d1534c5c5f6eab88522b5bc1c18c6835e5dba9fbf2fc",
+    "elf_sha256": "9417fcdcbb0c080ff0ed6be561650d4947fdf821027f24c964a2da54fb400529",
+    "elf_path": "F:\\Projects\\tyrax2-lab-20261001\\pipeline-release-day-syncfix.elf",
+    "period_note": "Neighboring ten 50-frame summary windows, not the exact 512 raw work samples."
+  },
+  "physical_night_final": {
+    "successful_boots": [
+      {
+        "log": "F:\\Projects\\tyrax2-lab-20261001\\pipeline-morning-night-boot1.log",
+        "first": 1100,
+        "frames": 512,
+        "hz": 60,
+        "budget_ms": 16.666666666666668,
+        "mean_ms": 18.23352935579088,
+        "median_ms": 18.240091959635414,
+        "p95_ms": 18.900285508897568,
+        "max_ms": 20.031690809461807,
+        "over_budget": 512,
+        "note": "Renderer critical-path work excluding presentation pacing; not full period or delivered FPS.",
+        "period_windows": [
+          {
+            "frame": 1100,
+            "period_ms": 33.7
+          },
+          {
+            "frame": 1150,
+            "period_ms": 33.37
+          },
+          {
+            "frame": 1200,
+            "period_ms": 33.37
+          },
+          {
+            "frame": 1250,
+            "period_ms": 33.37
+          },
+          {
+            "frame": 1300,
+            "period_ms": 33.37
+          },
+          {
+            "frame": 1350,
+            "period_ms": 33.37
+          },
+          {
+            "frame": 1400,
+            "period_ms": 33.37
+          },
+          {
+            "frame": 1450,
+            "period_ms": 33.37
+          },
+          {
+            "frame": 1500,
+            "period_ms": 33.37
+          },
+          {
+            "frame": 1550,
+            "period_ms": 33.37
+          }
+        ],
+        "mean_period_ms": 33.403,
+        "delivered_rate_from_period_hz": 29.937430769691346,
+        "log_sha256": "59b1e54a52a3028c21d7afadb773d51d4369708eed04592c6302f29190d05782",
+        "elf_sha256": "26b328f99e4a668b1e85bc99070a5db3cc30b4b8cea03849ffa3047adc52ef1d",
+        "elf_path": "F:\\Projects\\tyrax2-lab-20261001\\pipeline-release-night-syncfix.elf",
+        "period_note": "Neighboring ten 50-frame summary windows, not the exact 512 raw work samples."
+      }
+    ],
+    "repeat_status": "second launch stalled during loading after soft reset, no timing window, root cause undetermined"
+  },
+  "morning_failed_relaunch": {
+    "path": "F:\\Projects\\tyrax2-lab-20261001\\pipeline-morning-night-boot2.log",
+    "sha256": "36c0b7054fc32a526a1489fdddf78ac4b109c3240e4e832e1e01de994c5fdffe"
+  },
+  "physical_guarded_drive": {
+    "status": "FAILED: stalled loading procedural after dense transition, root cause undetermined",
+    "frames": 2160,
+    "accepted_source_chains": 98304,
+    "split_frames": 2,
+    "direct_fallbacks": 0,
+    "dma_busy_starts": 2114,
+    "cameras": [
+      0,
+      1,
+      2
+    ],
+    "scene_changes_completed": [
+      "dense"
+    ],
+    "failed_scene": "procedural",
+    "artifacts": [
+      {
+        "path": "F:\\Projects\\tyrax2-lab-20261001\\pipeline-morning-guard-drive.log",
+        "sha256": "809cf93fddc182b69013dc229dbfbaae47bbea83ced28d45f512b447eecb5400"
+      },
+      {
+        "path": "F:\\Projects\\tyrax2-lab-20261001\\pipeline-morning-guard-drive.elf",
+        "sha256": "2b672ef048396957e2299efddf947b456401001c1f93b9cdfcc65776c624f129"
+      }
+    ],
+    "next_step": "scratch-only loading-stage and DMA/GS wait diagnostic build prepared, awaiting physical power cycle"
   }
 }
