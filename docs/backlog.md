@@ -333,6 +333,11 @@ recovered 0.50-0.72 ms of hardware `work`. What it did not do, ranked:
   AABB planes visited and live-light selection. A micro-mode rewrite needs
   shared program/register ownership and setup/transfer pricing. Neither fewer
   searches nor this single diagnostic boot establishes a new FPS gain.
+  The [one-search trial](tyrax2-ee-vu0.md#one-search-borrowing-trial-physical-ps2)
+  passed host/native/emulator and one physical baseline/candidate/baseline boot:
+  18.468 / 18.435 / 18.556 ms work, all 29.94 Hz. The apparent saving overlaps
+  control variation; keep the candidate private and prioritize snapshot-stage
+  attribution. No production optimization is accepted.
 - **Night light-effect cost after TyraX2 — measured, optimization open.**
   A [physical one-group isolation run](tyrax2.md#night-workload-isolation-physical-ps2-2026-10-02)
   brackets seven stationary garage variants with full-night controls of

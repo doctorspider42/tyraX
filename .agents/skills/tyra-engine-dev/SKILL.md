@@ -3474,3 +3474,11 @@ completion upper bound, not VU utilization. Existing waits total about 0.003 ms;
 cache flush is about 0.009 ms, so do not reuse the historical 1.09 ms estimate.
 VU0 macro users already include vectors/matrices/bounds/skinning. Price remaining
 scalar math and micro transfer/ownership before proposing asynchronous offload.
+
+
+One-search immutable borrowing trial: docs/tyrax2-immutable-borrow-2026-10-02.json
+records 55,163 differential operations, integrated arena/writer gates, native/
+emulator success and one physical same-ELF control/candidate/control run. Work
+18.468/18.435/18.556 ms gives 0.033–0.121 ms apparent savings versus 0.088 ms
+control spread; all arms remain 29.94 Hz. Candidate stays private: fewer binary
+searches and passing semantics are not proof of a material frame gain.

@@ -38,3 +38,17 @@ Skinning retains vector registers across assembly blocks and explicitly forbids 
 4. If a math block is material, first compare a synchronous macro implementation with exact boundary/classification controls. Only then price micro-mode identity transfer/setup and a shared owner dispatcher. Include packing, launch, waits and readback in its cost.
 
 The retained beam-state shortcut remains a separate private candidate. Preserve moving cameras/lights, visibility, levels and portal views and compare outputs before quiet physical timing. No VU0 rewrite, production night optimization or additional FPS gain is accepted by this audit.
+
+## One-search borrowing trial, physical PS2
+
+A narrow private variant removes the second lowerBound inside a successful ImmutableSpanTable::borrow. Public contains, both snapshot passes, lookup selection, retirement and reader-bank mutation remain unchanged. A differential oracle extracted the actual baseline and candidate classes: 55,163 operations / 38,018,254 assertions passed, including 50,000 randomized operations and range/mask/full-table/two-bank boundaries. A host count control gives 2,000 versus 1,000 searches for 1,000 successful borrows; this is not timing evidence.
+
+The integrated candidate passed the existing 1,074 arena cases plus 10,000 malformed streams and 43 writer cases. Native build and PCSX2 2.9.93 passed all three phases, two scene reloads and 6,600 gameplay frames. A fresh physical boot ran baseline/candidate/baseline in the same ELF, with a shared runtime branch and no new profiling scopes. Each 2,200-frame phase uses 1,100 warmup frames and an exact 512-frame raw work window; neighboring period summaries remain separate.
+
+| Variant | Mean renderer work (ms) | Delivered rate from period (Hz) |
+| --- | ---: | ---: |
+| Baseline before | 18.468173 | 29.94 |
+| One-search borrowing | 18.435447 | 29.94 |
+| Baseline restored | 18.556225 | 29.94 |
+
+Apparent savings are 0.032727–0.120778 ms, while the controls themselves differ by 0.088052 ms. One sequential boot does not distinguish a stable small gain from control variation; no production integration or FPS improvement is accepted. The candidate remains private. Prioritize the bounded snapshot/native breakdown rather than calling this enough to restore the night frame budget. The [trial record](tyrax2-immutable-borrow-2026-10-02.json) preserves exact windows, patch, tests, preparation/analysis scripts and hashes. Its frozen log does not stop the owned client serving the restored baseline.
