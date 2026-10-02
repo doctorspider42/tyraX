@@ -26,6 +26,20 @@ The second fresh boot of the identical ELF also passes all 13,200 frames and win
 
 Source triage excludes stale heavy counters as direct pin-plain routing inputs, but finds different retained memory and unreset animation clocks. Scene reload does not reset dynamic-light/star time, and the hour-pinning script is followed by a real-dt day/night tick. Actual light/sky/packet digests were not recorded, so complete equal-input attribution remains open. A separate private control can replay phase-relative light/star evaluation and current-hour sky evaluation without changing physics dt; price its observer and compare actual ordered light fields and star outputs. Do not silently change the existing measured ELF.
 
+That private visual-time control now passes a fresh physical 13,200-frame boot,
+all six raw/count/order windows and eleven matching-offset samples per phase.
+Pinned plain/interleaved/plain work is 17.521326/17.307883/17.522563 ms:
+0.213443–0.214679 ms interleaved benefit against 0.001237 ms plain spread,
+with approximately 30 Hz delivery unchanged. All sampled pinned light/runtime,
+camera, star-output and sky digests/counts agree. Visual time is replayed equally
+in all arms; real physics dt and allocator/cache history remain normal. This
+strengthens the stationary-pose order evidence, without establishing full
+unsampled/pixel/query identity or the cause of earlier drift. Different clock
+evaluation and observer/layout prevent treating lower cross-build work as a
+production gain. No emulator was run, as requested by the user; new physical
+image confirmation remains separate. The [controlled-clock record](tyrax2-pinned-clock-2026-10-02.json)
+retains exact source, matching ELF/symbol and frozen-log provenance.
+
 The next narrow EE reuse census counts adjacent enabled affine-inverse input repeats first, then identical picker query inputs. The private count-only inverse observer passes 100,039 actual-source host comparisons for each macro setting and independent count bookkeeping, with exact restoration of baseline sources; native/emulator/physical activation remain separate gates. It adds no clocks, skips or packet changes. The inverse depends on 12 model elements; picker reuse additionally needs current ordered mutable light state. Existing transform-cache hits prove neither identity. Count and price key/observer cost before implementing a one-entry cache; do not revive the rejected full transformed-light cache or freeze public light state once per frame.
 
 This is an integration gap in cost selection; ordinary flowgraph ordering and resource fences remain supported. No new mandatory flow node, production selector fix, default promotion or FPS gain is accepted by this audit.

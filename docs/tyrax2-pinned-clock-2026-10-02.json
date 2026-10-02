@@ -1,0 +1,5365 @@
+{
+  "date": "2026-10-02",
+  "production_change": false,
+  "emulator": "Not run; explicitly prohibited by user for this trial",
+  "physical": {
+    "fixture": {
+      "game": "F:\\Projects\\tyrax2-lab-20261001\\pinned-clock-trial\\game",
+      "engine": "F:\\Projects\\tyrax2-lab-20261001\\discarded-pick-probe\\fixture\\tyra",
+      "source_files": {
+        "inc\\ao_data.gen.hpp": "e1d30cfec2772c80d671541a533aa30c98392088cfe8feb0e7dde5f766b76e14",
+        "inc\\bag_array.gen.hpp": "997e644d615fe559bbc530751df7d019d84624473b1f980a53c94dd45c94a150",
+        "inc\\blss_net.gen.hpp": "511e70a165a8caddfc372c1a9477fda940826daf9b182ff858edb57e43cbe22f",
+        "inc\\controls.hpp": "aedb04fa50016916a62bf671629be67860467fab09d96f6f9381c149051e17f4",
+        "inc\\credits_data.gen.hpp": "ef7d2789d92ea28f1cc52b8593f2843d3eee6121822e94d9da8e89760205cc34",
+        "inc\\daynight.gen.hpp": "58d326bd0a82fef774fe819bdb6a2d4fe1f65f6a6d0aa828c9865cfc274bc261",
+        "inc\\decal_data.gen.hpp": "4dcbb0c37d4dc6bddb8752041ccaabda1618c5fef444b53d7c6685c55cb0941b",
+        "inc\\facts.gen.hpp": "6000e5dec19a13e13d58d77956b02a8218b6650ba60996a7ac549489b924a36a",
+        "inc\\font_data.gen.hpp": "001df424488c10432ba1c912723c46a322bd6a63eb9a11e43cfedaf9e938ba66",
+        "inc\\game_runtime.gen.hpp": "d5e05cbda4bad8b0359033566eabaf8e6a54f1cd09576c4d4401dd2a77a00016",
+        "inc\\hud_data.gen.hpp": "723d3554de4a63aab2b87d5e5aa328f519593ddf21bf8b668c36db37fcad33eb",
+        "inc\\icon_data.gen.hpp": "92940be7b1d4101738dd35bd93ef3ccb389055cdbdc17cc1f9178674adf6c915",
+        "inc\\input_map.gen.hpp": "21e1a69288defd8d4a5a97ae9fed9a0dd81551ec4c6bc125af645610a88c7ade",
+        "inc\\input_replay.gen.hpp": "b2db1ad6e5aa92ae3c60a781f487a4da77508f8056d0705c30370d036180cbd8",
+        "inc\\interleave_trial.hpp": "348d22a470e25c7050732ba413132751d352e91344b482a5c5e7f6ebee030208",
+        "inc\\live_pad.gen.hpp": "bbece0f5bc0cd7730d3a6f8fb815df3cab305228fec75ce2b86797b6aa6e6510",
+        "inc\\loading_data.gen.hpp": "f5163f3b48b8bfebb62a11f4a848da035db1e31c891bccd1db0d419096049242",
+        "inc\\menu_data.gen.hpp": "53d7fd905c3ab5118d6dc7b453838fd648b9da4d40a5ec9ca207e55d86261772",
+        "inc\\model_data.gen.hpp": "b01025a1f2d94a5ebd5589440bc51e25051b5829e4c0763f21c1859b03468635",
+        "inc\\nav_data.gen.hpp": "1893f6c6eb7bc90eeb5efbe2a33d380a65619520ca0f245ff5e587aaea25b3c9",
+        "inc\\occlusion_data.gen.hpp": "b01d769590e8c3d46532fa944548561c081418f44d59760764647df7b46c2798",
+        "inc\\pinned_state_trial.hpp": "2b3b96cd21e17c1ff3d8e814814a316b8792b9abe6e75b4709b93c2c92069a8e",
+        "inc\\prefab_data.gen.hpp": "3e29237c3875b30f0ed497ea7e03dd69de6c11ad9f28d5d4023f5a145b75d402",
+        "inc\\probe_data.gen.hpp": "067370d2e543bffc2219bcc06b6bcd4ebcd577051e4b60671d654a1ead11d597",
+        "inc\\procedural.gen.hpp": "ed32d1182fcc217de0e2a04b19ddeec7a9c0a0e93b1e6b6e7b8e38e837721d43",
+        "inc\\save_system.gen.hpp": "6ba4da909f33534d85e21f5de4a6c286293c46c6bd650309b461b9fadea87154",
+        "inc\\scene_data.hpp": "a6b08faa745a430790d3d386208b56c0c275754e56e987dcf3038db65445b2e7",
+        "inc\\scripts\\credits.gen.hpp": "77e3236d4c2b50bbc0fd1e03a00a27ee195cd72a20eda7b937f8899456c282d8",
+        "inc\\scripts\\district_data.hpp": "9e3395f8ab382b9af8105ad4fac4e0a3aa8ddb69169164730744930c578c8bd4",
+        "inc\\scripts\\flow_nodes.hpp": "ef26f134383ada3f8d5e87f434be711a87570a2b8ca02a3dc74564ef07924dc0",
+        "inc\\scripts\\live_debug.gen.hpp": "83bd9633d27bc7f9a3a17f8e7dd432288f3ef8d6168ca4a27f9f750bb52d6cd2",
+        "inc\\scripts\\live_logic.gen.hpp": "51b2bac1cd6226a8034e0cad78e1e88443b2a522af18a9216ca4c694441b6658",
+        "inc\\scripts\\navigation.gen.hpp": "7558460c9443b62554394b013214389fe35d851bf2acb5e6dfdb45643bb46a94",
+        "inc\\scripts\\screen_fx.gen.hpp": "5c109059ceed508470f91a24cba38566b12d1ec66b15db1a34cf74521cf5fdb1",
+        "inc\\scripts\\script.hpp": "89a9162149734744cdf9692e36eec30c1f2f88006b2ff6c7f28e2f501030cd8d",
+        "inc\\scripts\\scroller.gen.hpp": "e91e563bfb20de6a36b6a9b5b89bbdc96916edfe0b1d32abb94f6240e1e86e4c",
+        "inc\\scripts\\sequences.gen.hpp": "dc82ac5eb18be9295492600c2b992aa3cc70dbd8ec0764af5dc830a171f6d80f",
+        "inc\\scripts\\vu0_kernels.gen.hpp": "cbb95d8e9d1f23ad80c760b510d650a3fa4d0981be082b2b8cf137ba8523cfc2",
+        "inc\\scripts\\vu_programs.gen.hpp": "d61e0a47ea258ff618db9dbe45688ccfa51f9ad7689a48cd152dce2574b73a3a",
+        "inc\\scripts\\vu_scripts.gen.hpp": "2664d01d56abf3129d5b89a865eeae66f839f57d825fb264a990c227371c39f0",
+        "inc\\shadow_data.gen.hpp": "c21338db0874a9d0ce96598d1a561762033745c3da7c3c6939ddef3deb1caefc",
+        "inc\\terrain_config.hpp": "6c9e8ab1a7a5a989c1b91f9fbb6c6e4fb9f2f7c0f2186e4a4c665a68d7463676",
+        "inc\\terrain_game.hpp": "0932b855f47e3879024706d3b41b9f9e2d4252671ff5a000483d61e7a84d0f09",
+        "inc\\terrain_heights.gen.hpp": "5495e2f0ad14b80e256ccba9724301c8799a92660cc067a101bffd7e96ba5cc7",
+        "inc\\texture_data.gen.hpp": "ff57c54426ab6d9149fde88630071b3e2e27a0e61c4d7d9281c92365c1a10abb",
+        "inc\\vehicle_sound_loops.gen.txt": "89ce0e531ae8016bec6e269ef65968505e28923101a1d3490891704846ccb3f3",
+        "src\\gen\\credits.gen.cpp": "91339bb83f5ab035167bca35a5b2962b9eec3da2c4fbfdd36e2c99739b926f03",
+        "src\\gen\\flow_graph.gen.cpp": "ccbc8200cb725a66a7dfc1e184d4ce397a5457321d6b184f8a5696e1e4216a3c",
+        "src\\gen\\game_collision.gen.cpp": "5f04b5c5529ba0bcdb9baffb9d47facaafcf4566619cdde37fabbe1d19c2bd61",
+        "src\\gen\\game_lighting.gen.cpp": "f333064891fc7d0a05ea3b8a53066c6985d000cc4fc9ef733b3d5dc1faf8787d",
+        "src\\gen\\game_physics.gen.cpp": "dfc2cba59807e044e1eba41d1883911117921462c44ba3209d2938c0c9050a93",
+        "src\\gen\\game_scene.gen.cpp": "85a72b6d3c26ed6505998ff8e3bdf68799369923108dee86b113709437f6af4c",
+        "src\\gen\\game_vehicles.gen.cpp": "6d97a4cc1a28aed59f448e78dfaeee6aabf38b91403cb9ae9513c7cc7821b2f5",
+        "src\\gen\\input_map.gen.cpp": "36d55372ac935d8e7b210c5ad602a934a156977f298217d35f176c5539c4a798",
+        "src\\gen\\input_replay.gen.cpp": "c41787877b2adf8fa6da894eafe1dfef019631dae0de6d6ffa95fc63548c0c9e",
+        "src\\gen\\live_debug.gen.cpp": "a93d9b9becd09ec2ee917e73cbd04aea72f86ecea94614d8fcae1f4ee505b2f4",
+        "src\\gen\\live_link.gen.cpp": "24f808946415c4dc9fca0b586a689279fb76138df1e7f29d5a056070d81317a0",
+        "src\\gen\\live_logic.gen.cpp": "7915e90a5ed8b75854f952283e0cb0bb71437c9fb4e072dd12087f7cfecfb152",
+        "src\\gen\\live_pad.gen.cpp": "6a5d0762cc724c31a745e7deb692b48b2defd59612af352a37610ed434a06360",
+        "src\\gen\\live_tex.gen.cpp": "7c799c350d8bb6d46ef821062d567964dda46795a53b3422548f92bdae8f4d51",
+        "src\\gen\\live_time.gen.cpp": "80d239a176c6b96a6eb69bee5181bc9528974aa6a586c52b5b1ef22be269c2b6",
+        "src\\gen\\livedbg.sym": "5bf4bc3a7767a57daf0011cd5d1051cccbc5578e3faad87ad4f43ea7e9b5565a",
+        "src\\gen\\livelogic.built": "8400b369faddfcb3cb05eefee173ef700824ea70158fee50cc41931ed0711e8e",
+        "src\\gen\\navigation.gen.cpp": "0f4ce0734795e4fc0c13e5cf12b801ce72eb55ef70e4c69a8ca5b026a950ac0f",
+        "src\\gen\\object_scripts.gen.cpp": "cb34058e8e7aa5e4dea71f927b65e50d2e617527313dc80b354befedf935f218",
+        "src\\gen\\procedural.gen.cpp": "69b207ea7ec2fcb9a0429d08b6cb670a7b643e9234508c8af1b06e8faa4cd808",
+        "src\\gen\\scene_objects.gen.cpp": "7746cfeb68f2d88bf9fe111950e85b9d2f97efd54661b821bea86a80529a7a52",
+        "src\\gen\\screen_fx.gen.cpp": "a6ea93ac20926c74735010a21500dcd7b80e620e27105ea5e3c644924fb66249",
+        "src\\gen\\scroller.gen.cpp": "2882013a4215ad9cf3912bf62cc79e8c367f45b8cc34fab3393fe34639a7c989",
+        "src\\gen\\sequences.gen.cpp": "aca2b6c3e4bed6b451b2edf8760cf0b7a4b29a500c6df8ba34eea7fbe8e59d7e",
+        "src\\gen\\vu_programs.gen.cpp": "60ef74bdab9c293ca2fca415aeb38daa287c5bae3abc8e97d6d7db61eef0c1d1",
+        "src\\gen\\vu_scripts.boot": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "src\\main.cpp": "7d56972ed21c50c6cdd08bf64b25160838446af9eff6c1d034f535409b6afb36",
+        "src\\save_system.gen.cpp": "a1eb568550fd04db0a35d1f2f787521a4bb48a43937f927e0cf5bdcce3fcab52",
+        "src\\scripts\\district_mood.cpp": "3f2369db68d9833fdcafe26a93140a16233e5fe75f13f921065dcd043e49c834",
+        "src\\scripts\\example_interaction.cpp": "246d914d86c08f7d5ff18adaed691ac950eaf3b3b95431291ef9c5cd2696156a",
+        "src\\terrain_game.cpp": "9417ce2a269681f1e3d60d0f3990346a8c3e0ed07fd52128027bb0a46326fd1d"
+      },
+      "base_game": "F:\\Projects\\tyrax2-lab-20261001\\discarded-pick-probe\\fixture\\game",
+      "prepared_sources": "F:\\Projects\\tyrax2-lab-20261001\\pinned-state-control-fixture\\game",
+      "emulator": "Prohibited by current user instruction; not run",
+      "note": "Private visual clocks and eleven sampled acceptance digests per phase; baseline same six-phase order/census trial. No prior copied ELF eligible.",
+      "phases": [
+        "compiled-on runtime gate off before",
+        "discarded pick census enabled",
+        "compiled-on runtime gate off restored",
+        "pinned plain before",
+        "pinned interleaved",
+        "pinned plain restored"
+      ],
+      "frames_per_phase": 2200,
+      "warm_work_start_offset": 1100,
+      "work_sample_count": 512,
+      "bucket_names": [
+        "retainedSphere",
+        "discardedSphere",
+        "sharedRetained",
+        "sharedDiscarded",
+        "blssSphere",
+        "retainedPick",
+        "discardedPick"
+      ],
+      "counter_names": [
+        "seams",
+        "retained",
+        "discarded",
+        "blss",
+        "bbox",
+        "nobbox",
+        "shared",
+        "notshared"
+      ],
+      "candidate_kinds": [
+        "retained",
+        "discarded",
+        "uncontextualized"
+      ],
+      "frame_timing": "TYRA_FRAME_PROFILE2 restored consistently in shared header. Initial build failed at ungated ftrig reference with repo default0; old copied ELF excluded. Baseline arena-check-night engine differs from repo in exactly this header default.",
+      "orders": [
+        -1,
+        -1,
+        -1,
+        0,
+        2,
+        0
+      ],
+      "total_frames": 13200,
+      "clock_control": "PRIVATE_PINNED_VISUAL_CLOCK default1; step2/refresh, resetphase evaluation; sampled11digestsphase",
+      "root_fix": "Cast existing ORDERCOUNT uint32 values to unsigned for target printf percent-u; first build format warnings excluded from final repeat."
+    },
+    "log": "F:\\Projects\\tyrax2-lab-20261001\\pinned-clock-trial-physical-snapshot.log",
+    "log_sha256": "84f11f41a7bc6d47c6ecea7f53477551fb41834bcdba196bc33add3b6280a7c6",
+    "elf_sha256": "554aa7075841e535a885bcd8dbcbb92a1435bbafcef013b8ebc20f96a80f69ce",
+    "results": [
+      {
+        "log": "F:\\Projects\\tyrax2-lab-20261001\\pinned-clock-trial-physical-snapshot.log",
+        "first": 1100,
+        "frames": 512,
+        "hz": 60,
+        "budget_ms": 16.666666666666668,
+        "mean_ms": 17.350821110937332,
+        "median_ms": 17.306566026475693,
+        "p95_ms": 17.785135904947918,
+        "max_ms": 19.08908420138889,
+        "over_budget": 512,
+        "note": "Renderer critical-path work excluding presentation pacing; not full period or delivered FPS.",
+        "phase": 0,
+        "name": "compiled-on runtime gate off before",
+        "windows": {
+          "FRAMETIME": [
+            {
+              "frame": 1100,
+              "period": 33.37,
+              "pre": 1.7,
+              "stall": 13.92
+            },
+            {
+              "frame": 1150,
+              "period": 33.37,
+              "pre": 1.62,
+              "stall": 14.26
+            },
+            {
+              "frame": 1200,
+              "period": 33.37,
+              "pre": 1.63,
+              "stall": 14.35
+            },
+            {
+              "frame": 1250,
+              "period": 33.37,
+              "pre": 1.69,
+              "stall": 14.21
+            },
+            {
+              "frame": 1300,
+              "period": 33.37,
+              "pre": 1.62,
+              "stall": 14.17
+            },
+            {
+              "frame": 1350,
+              "period": 33.37,
+              "pre": 1.68,
+              "stall": 14.16
+            },
+            {
+              "frame": 1400,
+              "period": 33.37,
+              "pre": 1.6,
+              "stall": 14.38
+            },
+            {
+              "frame": 1450,
+              "period": 33.37,
+              "pre": 1.7,
+              "stall": 14.34
+            },
+            {
+              "frame": 1500,
+              "period": 33.37,
+              "pre": 1.63,
+              "stall": 14.35
+            },
+            {
+              "frame": 1550,
+              "period": 33.37,
+              "pre": 1.63,
+              "stall": 14.42
+            }
+          ],
+          "DPPROFILE": [
+            {
+              "frame": 1100,
+              "retainedSphere": 0.0,
+              "discardedSphere": 0.0,
+              "sharedRetained": 0.0,
+              "sharedDiscarded": 0.0,
+              "blssSphere": 0.0,
+              "retainedPick": 0.0,
+              "discardedPick": 0.0,
+              "calls": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "frame": 1150,
+              "retainedSphere": 0.0,
+              "discardedSphere": 0.0,
+              "sharedRetained": 0.0,
+              "sharedDiscarded": 0.0,
+              "blssSphere": 0.0,
+              "retainedPick": 0.0,
+              "discardedPick": 0.0,
+              "calls": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "frame": 1200,
+              "retainedSphere": 0.0,
+              "discardedSphere": 0.0,
+              "sharedRetained": 0.0,
+              "sharedDiscarded": 0.0,
+              "blssSphere": 0.0,
+              "retainedPick": 0.0,
+              "discardedPick": 0.0,
+              "calls": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "frame": 1250,
+              "retainedSphere": 0.0,
+              "discardedSphere": 0.0,
+              "sharedRetained": 0.0,
+              "sharedDiscarded": 0.0,
+              "blssSphere": 0.0,
+              "retainedPick": 0.0,
+              "discardedPick": 0.0,
+              "calls": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "frame": 1300,
+              "retainedSphere": 0.0,
+              "discardedSphere": 0.0,
+              "sharedRetained": 0.0,
+              "sharedDiscarded": 0.0,
+              "blssSphere": 0.0,
+              "retainedPick": 0.0,
+              "discardedPick": 0.0,
+              "calls": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "frame": 1350,
+              "retainedSphere": 0.0,
+              "discardedSphere": 0.0,
+              "sharedRetained": 0.0,
+              "sharedDiscarded": 0.0,
+              "blssSphere": 0.0,
+              "retainedPick": 0.0,
+              "discardedPick": 0.0,
+              "calls": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "frame": 1400,
+              "retainedSphere": 0.0,
+              "discardedSphere": 0.0,
+              "sharedRetained": 0.0,
+              "sharedDiscarded": 0.0,
+              "blssSphere": 0.0,
+              "retainedPick": 0.0,
+              "discardedPick": 0.0,
+              "calls": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "frame": 1450,
+              "retainedSphere": 0.0,
+              "discardedSphere": 0.0,
+              "sharedRetained": 0.0,
+              "sharedDiscarded": 0.0,
+              "blssSphere": 0.0,
+              "retainedPick": 0.0,
+              "discardedPick": 0.0,
+              "calls": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "frame": 1500,
+              "retainedSphere": 0.0,
+              "discardedSphere": 0.0,
+              "sharedRetained": 0.0,
+              "sharedDiscarded": 0.0,
+              "blssSphere": 0.0,
+              "retainedPick": 0.0,
+              "discardedPick": 0.0,
+              "calls": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "frame": 1550,
+              "retainedSphere": 0.0,
+              "discardedSphere": 0.0,
+              "sharedRetained": 0.0,
+              "sharedDiscarded": 0.0,
+              "blssSphere": 0.0,
+              "retainedPick": 0.0,
+              "discardedPick": 0.0,
+              "calls": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          ],
+          "DPPCOUNT": [
+            {
+              "frame": 1100,
+              "seams": 0.0,
+              "retained": 0.0,
+              "discarded": 0.0,
+              "blss": 0.0,
+              "bbox": 0.0,
+              "nobbox": 0.0,
+              "shared": 0.0,
+              "notshared": 0.0,
+              "candidatecalls": [
+                0,
+                0,
+                0
+              ],
+              "candidates": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "frame": 1150,
+              "seams": 0.0,
+              "retained": 0.0,
+              "discarded": 0.0,
+              "blss": 0.0,
+              "bbox": 0.0,
+              "nobbox": 0.0,
+              "shared": 0.0,
+              "notshared": 0.0,
+              "candidatecalls": [
+                0,
+                0,
+                0
+              ],
+              "candidates": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "frame": 1200,
+              "seams": 0.0,
+              "retained": 0.0,
+              "discarded": 0.0,
+              "blss": 0.0,
+              "bbox": 0.0,
+              "nobbox": 0.0,
+              "shared": 0.0,
+              "notshared": 0.0,
+              "candidatecalls": [
+                0,
+                0,
+                0
+              ],
+              "candidates": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "frame": 1250,
+              "seams": 0.0,
+              "retained": 0.0,
+              "discarded": 0.0,
+              "blss": 0.0,
+              "bbox": 0.0,
+              "nobbox": 0.0,
+              "shared": 0.0,
+              "notshared": 0.0,
+              "candidatecalls": [
+                0,
+                0,
+                0
+              ],
+              "candidates": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "frame": 1300,
+              "seams": 0.0,
+              "retained": 0.0,
+              "discarded": 0.0,
+              "blss": 0.0,
+              "bbox": 0.0,
+              "nobbox": 0.0,
+              "shared": 0.0,
+              "notshared": 0.0,
+              "candidatecalls": [
+                0,
+                0,
+                0
+              ],
+              "candidates": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "frame": 1350,
+              "seams": 0.0,
+              "retained": 0.0,
+              "discarded": 0.0,
+              "blss": 0.0,
+              "bbox": 0.0,
+              "nobbox": 0.0,
+              "shared": 0.0,
+              "notshared": 0.0,
+              "candidatecalls": [
+                0,
+                0,
+                0
+              ],
+              "candidates": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "frame": 1400,
+              "seams": 0.0,
+              "retained": 0.0,
+              "discarded": 0.0,
+              "blss": 0.0,
+              "bbox": 0.0,
+              "nobbox": 0.0,
+              "shared": 0.0,
+              "notshared": 0.0,
+              "candidatecalls": [
+                0,
+                0,
+                0
+              ],
+              "candidates": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "frame": 1450,
+              "seams": 0.0,
+              "retained": 0.0,
+              "discarded": 0.0,
+              "blss": 0.0,
+              "bbox": 0.0,
+              "nobbox": 0.0,
+              "shared": 0.0,
+              "notshared": 0.0,
+              "candidatecalls": [
+                0,
+                0,
+                0
+              ],
+              "candidates": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "frame": 1500,
+              "seams": 0.0,
+              "retained": 0.0,
+              "discarded": 0.0,
+              "blss": 0.0,
+              "bbox": 0.0,
+              "nobbox": 0.0,
+              "shared": 0.0,
+              "notshared": 0.0,
+              "candidatecalls": [
+                0,
+                0,
+                0
+              ],
+              "candidates": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "frame": 1550,
+              "seams": 0.0,
+              "retained": 0.0,
+              "discarded": 0.0,
+              "blss": 0.0,
+              "bbox": 0.0,
+              "nobbox": 0.0,
+              "shared": 0.0,
+              "notshared": 0.0,
+              "candidatecalls": [
+                0,
+                0,
+                0
+              ],
+              "candidates": [
+                0,
+                0,
+                0
+              ]
+            }
+          ]
+        },
+        "mean_period_ms": 33.37,
+        "stage_means_ms": {
+          "retainedSphere": 0.0,
+          "discardedSphere": 0.0,
+          "sharedRetained": 0.0,
+          "sharedDiscarded": 0.0,
+          "blssSphere": 0.0,
+          "retainedPick": 0.0,
+          "discardedPick": 0.0
+        },
+        "calls_means_per_frame": {
+          "retainedSphere": 0.0,
+          "discardedSphere": 0.0,
+          "sharedRetained": 0.0,
+          "sharedDiscarded": 0.0,
+          "blssSphere": 0.0,
+          "retainedPick": 0.0,
+          "discardedPick": 0.0
+        },
+        "counter_means_per_frame": {
+          "seams": 0.0,
+          "retained": 0.0,
+          "discarded": 0.0,
+          "blss": 0.0,
+          "bbox": 0.0,
+          "nobbox": 0.0,
+          "shared": 0.0,
+          "notshared": 0.0
+        },
+        "order_windows": [
+          {
+            "frame": 1100,
+            "phase": 0,
+            "n": 50,
+            "mode": -1,
+            "plain": 0,
+            "interleaved": 0,
+            "blocked": 0
+          },
+          {
+            "frame": 1150,
+            "phase": 0,
+            "n": 50,
+            "mode": -1,
+            "plain": 0,
+            "interleaved": 0,
+            "blocked": 0
+          },
+          {
+            "frame": 1200,
+            "phase": 0,
+            "n": 50,
+            "mode": -1,
+            "plain": 0,
+            "interleaved": 0,
+            "blocked": 0
+          },
+          {
+            "frame": 1250,
+            "phase": 0,
+            "n": 50,
+            "mode": -1,
+            "plain": 0,
+            "interleaved": 0,
+            "blocked": 0
+          },
+          {
+            "frame": 1300,
+            "phase": 0,
+            "n": 50,
+            "mode": -1,
+            "plain": 0,
+            "interleaved": 0,
+            "blocked": 0
+          },
+          {
+            "frame": 1350,
+            "phase": 0,
+            "n": 50,
+            "mode": -1,
+            "plain": 0,
+            "interleaved": 0,
+            "blocked": 0
+          },
+          {
+            "frame": 1400,
+            "phase": 0,
+            "n": 50,
+            "mode": -1,
+            "plain": 0,
+            "interleaved": 0,
+            "blocked": 0
+          },
+          {
+            "frame": 1450,
+            "phase": 0,
+            "n": 50,
+            "mode": -1,
+            "plain": 0,
+            "interleaved": 0,
+            "blocked": 0
+          },
+          {
+            "frame": 1500,
+            "phase": 0,
+            "n": 50,
+            "mode": -1,
+            "plain": 0,
+            "interleaved": 0,
+            "blocked": 0
+          },
+          {
+            "frame": 1550,
+            "phase": 0,
+            "n": 50,
+            "mode": -1,
+            "plain": 0,
+            "interleaved": 0,
+            "blocked": 0
+          }
+        ],
+        "candidate_calls_means_per_frame": {
+          "retained": 0.0,
+          "discarded": 0.0,
+          "uncontextualized": 0.0
+        },
+        "candidates_means_per_frame": {
+          "retained": 0.0,
+          "discarded": 0.0,
+          "uncontextualized": 0.0
+        },
+        "delivered_rate_from_period_hz": 29.967036260113876
+      },
+      {
+        "log": "F:\\Projects\\tyrax2-lab-20261001\\pinned-clock-trial-physical-snapshot.log",
+        "first": 3300,
+        "frames": 512,
+        "hz": 60,
+        "budget_ms": 16.666666666666668,
+        "mean_ms": 17.604890406131744,
+        "median_ms": 17.484029134114586,
+        "p95_ms": 18.103749593098957,
+        "max_ms": 19.51885986328125,
+        "over_budget": 512,
+        "note": "Renderer critical-path work excluding presentation pacing; not full period or delivered FPS.",
+        "phase": 1,
+        "name": "discarded pick census enabled",
+        "windows": {
+          "FRAMETIME": [
+            {
+              "frame": 3300,
+              "period": 33.37,
+              "pre": 1.64,
+              "stall": 13.66
+            },
+            {
+              "frame": 3350,
+              "period": 33.37,
+              "pre": 1.7,
+              "stall": 13.85
+            },
+            {
+              "frame": 3400,
+              "period": 33.37,
+              "pre": 1.63,
+              "stall": 14.06
+            },
+            {
+              "frame": 3450,
+              "period": 33.37,
+              "pre": 1.64,
+              "stall": 13.99
+            },
+            {
+              "frame": 3500,
+              "period": 33.37,
+              "pre": 1.7,
+              "stall": 14.03
+            },
+            {
+              "frame": 3550,
+              "period": 33.37,
+              "pre": 1.67,
+              "stall": 14.07
+            },
+            {
+              "frame": 3600,
+              "period": 33.37,
+              "pre": 1.7,
+              "stall": 14.0
+            },
+            {
+              "frame": 3650,
+              "period": 33.37,
+              "pre": 1.65,
+              "stall": 14.09
+            },
+            {
+              "frame": 3700,
+              "period": 33.37,
+              "pre": 1.65,
+              "stall": 14.03
+            },
+            {
+              "frame": 3750,
+              "period": 33.37,
+              "pre": 1.69,
+              "stall": 14.07
+            }
+          ],
+          "DPPROFILE": [
+            {
+              "frame": 3300,
+              "retainedSphere": 0.18301,
+              "discardedSphere": 0.0,
+              "sharedRetained": 0.0,
+              "sharedDiscarded": 0.0,
+              "blssSphere": 0.0,
+              "retainedPick": 0.61208,
+              "discardedPick": 0.0,
+              "calls": [
+                5650,
+                0,
+                0,
+                0,
+                0,
+                5700,
+                0
+              ]
+            },
+            {
+              "frame": 3350,
+              "retainedSphere": 0.18573,
+              "discardedSphere": 0.0,
+              "sharedRetained": 0.0,
+              "sharedDiscarded": 0.0,
+              "blssSphere": 0.0,
+              "retainedPick": 0.62919,
+              "discardedPick": 0.0,
+              "calls": [
+                5650,
+                0,
+                0,
+                0,
+                0,
+                5700,
+                0
+              ]
+            },
+            {
+              "frame": 3400,
+              "retainedSphere": 0.18679,
+              "discardedSphere": 0.0,
+              "sharedRetained": 0.0,
+              "sharedDiscarded": 0.0,
+              "blssSphere": 0.0,
+              "retainedPick": 0.61604,
+              "discardedPick": 0.0,
+              "calls": [
+                5650,
+                0,
+                0,
+                0,
+                0,
+                5700,
+                0
+              ]
+            },
+            {
+              "frame": 3450,
+              "retainedSphere": 0.18561,
+              "discardedSphere": 0.0,
+              "sharedRetained": 0.0,
+              "sharedDiscarded": 0.0,
+              "blssSphere": 0.0,
+              "retainedPick": 0.61659,
+              "discardedPick": 0.0,
+              "calls": [
+                5650,
+                0,
+                0,
+                0,
+                0,
+                5700,
+                0
+              ]
+            },
+            {
+              "frame": 3500,
+              "retainedSphere": 0.18051,
+              "discardedSphere": 0.0,
+              "sharedRetained": 0.0,
+              "sharedDiscarded": 0.0,
+              "blssSphere": 0.0,
+              "retainedPick": 0.62512,
+              "discardedPick": 0.0,
+              "calls": [
+                5650,
+                0,
+                0,
+                0,
+                0,
+                5700,
+                0
+              ]
+            },
+            {
+              "frame": 3550,
+              "retainedSphere": 0.17647,
+              "discardedSphere": 0.0,
+              "sharedRetained": 0.0,
+              "sharedDiscarded": 0.0,
+              "blssSphere": 0.0,
+              "retainedPick": 0.61716,
+              "discardedPick": 0.0,
+              "calls": [
+                5650,
+                0,
+                0,
+                0,
+                0,
+                5700,
+                0
+              ]
+            },
+            {
+              "frame": 3600,
+              "retainedSphere": 0.17363,
+              "discardedSphere": 0.0,
+              "sharedRetained": 0.0,
+              "sharedDiscarded": 0.0,
+              "blssSphere": 0.0,
+              "retainedPick": 0.61846,
+              "discardedPick": 0.0,
+              "calls": [
+                5650,
+                0,
+                0,
+                0,
+                0,
+                5700,
+                0
+              ]
+            },
+            {
+              "frame": 3650,
+              "retainedSphere": 0.18016,
+              "discardedSphere": 0.0,
+              "sharedRetained": 0.0,
+              "sharedDiscarded": 0.0,
+              "blssSphere": 0.0,
+              "retainedPick": 0.61398,
+              "discardedPick": 0.0,
+              "calls": [
+                5650,
+                0,
+                0,
+                0,
+                0,
+                5700,
+                0
+              ]
+            },
+            {
+              "frame": 3700,
+              "retainedSphere": 0.18098,
+              "discardedSphere": 0.0,
+              "sharedRetained": 0.0,
+              "sharedDiscarded": 0.0,
+              "blssSphere": 0.0,
+              "retainedPick": 0.62147,
+              "discardedPick": 0.0,
+              "calls": [
+                5650,
+                0,
+                0,
+                0,
+                0,
+                5700,
+                0
+              ]
+            },
+            {
+              "frame": 3750,
+              "retainedSphere": 0.19111,
+              "discardedSphere": 0.0,
+              "sharedRetained": 0.0,
+              "sharedDiscarded": 0.0,
+              "blssSphere": 0.0,
+              "retainedPick": 0.61716,
+              "discardedPick": 0.0,
+              "calls": [
+                5650,
+                0,
+                0,
+                0,
+                0,
+                5700,
+                0
+              ]
+            }
+          ],
+          "DPPCOUNT": [
+            {
+              "frame": 3300,
+              "seams": 6700.0,
+              "retained": 5700.0,
+              "discarded": 0.0,
+              "blss": 0.0,
+              "bbox": 0.0,
+              "nobbox": 0.0,
+              "shared": 0.0,
+              "notshared": 0.0,
+              "candidatecalls": [
+                5700,
+                0,
+                0
+              ],
+              "candidates": [
+                45600,
+                0,
+                0
+              ]
+            },
+            {
+              "frame": 3350,
+              "seams": 6700.0,
+              "retained": 5700.0,
+              "discarded": 0.0,
+              "blss": 0.0,
+              "bbox": 0.0,
+              "nobbox": 0.0,
+              "shared": 0.0,
+              "notshared": 0.0,
+              "candidatecalls": [
+                5700,
+                0,
+                0
+              ],
+              "candidates": [
+                45600,
+                0,
+                0
+              ]
+            },
+            {
+              "frame": 3400,
+              "seams": 6700.0,
+              "retained": 5700.0,
+              "discarded": 0.0,
+              "blss": 0.0,
+              "bbox": 0.0,
+              "nobbox": 0.0,
+              "shared": 0.0,
+              "notshared": 0.0,
+              "candidatecalls": [
+                5700,
+                0,
+                0
+              ],
+              "candidates": [
+                45600,
+                0,
+                0
+              ]
+            },
+            {
+              "frame": 3450,
+              "seams": 6700.0,
+              "retained": 5700.0,
+              "discarded": 0.0,
+              "blss": 0.0,
+              "bbox": 0.0,
+              "nobbox": 0.0,
+              "shared": 0.0,
+              "notshared": 0.0,
+              "candidatecalls": [
+                5700,
+                0,
+                0
+              ],
+              "candidates": [
+                45600,
+                0,
+                0
+              ]
+            },
+            {
+              "frame": 3500,
+              "seams": 6700.0,
+              "retained": 5700.0,
+              "discarded": 0.0,
+              "blss": 0.0,
+              "bbox": 0.0,
+              "nobbox": 0.0,
+              "shared": 0.0,
+              "notshared": 0.0,
+              "candidatecalls": [
+                5700,
+                0,
+                0
+              ],
+              "candidates": [
+                45600,
+                0,
+                0
+              ]
+            },
+            {
+              "frame": 3550,
+              "seams": 6700.0,
+              "retained": 5700.0,
+              "discarded": 0.0,
+              "blss": 0.0,
+              "bbox": 0.0,
+              "nobbox": 0.0,
+              "shared": 0.0,
+              "notshared": 0.0,
+              "candidatecalls": [
+                5700,
+                0,
+                0
+              ],
+              "candidates": [
+                45600,
+                0,
+                0
+              ]
+            },
+            {
+              "frame": 3600,
+              "seams": 6700.0,
+              "retained": 5700.0,
+              "discarded": 0.0,
+              "blss": 0.0,
+              "bbox": 0.0,
+              "nobbox": 0.0,
+              "shared": 0.0,
+              "notshared": 0.0,
+              "candidatecalls": [
+                5700,
+                0,
+                0
+              ],
+              "candidates": [
+                45600,
+                0,
+                0
+              ]
+            },
+            {
+              "frame": 3650,
+              "seams": 6700.0,
+              "retained": 5700.0,
+              "discarded": 0.0,
+              "blss": 0.0,
+              "bbox": 0.0,
+              "nobbox": 0.0,
+              "shared": 0.0,
+              "notshared": 0.0,
+              "candidatecalls": [
+                5700,
+                0,
+                0
+              ],
+              "candidates": [
+                45600,
+                0,
+                0
+              ]
+            },
+            {
+              "frame": 3700,
+              "seams": 6700.0,
+              "retained": 5700.0,
+              "discarded": 0.0,
+              "blss": 0.0,
+              "bbox": 0.0,
+              "nobbox": 0.0,
+              "shared": 0.0,
+              "notshared": 0.0,
+              "candidatecalls": [
+                5700,
+                0,
+                0
+              ],
+              "candidates": [
+                45600,
+                0,
+                0
+              ]
+            },
+            {
+              "frame": 3750,
+              "seams": 6700.0,
+              "retained": 5700.0,
+              "discarded": 0.0,
+              "blss": 0.0,
+              "bbox": 0.0,
+              "nobbox": 0.0,
+              "shared": 0.0,
+              "notshared": 0.0,
+              "candidatecalls": [
+                5700,
+                0,
+                0
+              ],
+              "candidates": [
+                45600,
+                0,
+                0
+              ]
+            }
+          ]
+        },
+        "mean_period_ms": 33.37,
+        "stage_means_ms": {
+          "retainedSphere": 0.1824,
+          "discardedSphere": 0.0,
+          "sharedRetained": 0.0,
+          "sharedDiscarded": 0.0,
+          "blssSphere": 0.0,
+          "retainedPick": 0.618725,
+          "discardedPick": 0.0
+        },
+        "calls_means_per_frame": {
+          "retainedSphere": 113.0,
+          "discardedSphere": 0.0,
+          "sharedRetained": 0.0,
+          "sharedDiscarded": 0.0,
+          "blssSphere": 0.0,
+          "retainedPick": 114.0,
+          "discardedPick": 0.0
+        },
+        "counter_means_per_frame": {
+          "seams": 134.0,
+          "retained": 114.0,
+          "discarded": 0.0,
+          "blss": 0.0,
+          "bbox": 0.0,
+          "nobbox": 0.0,
+          "shared": 0.0,
+          "notshared": 0.0
+        },
+        "order_windows": [
+          {
+            "frame": 3300,
+            "phase": 1,
+            "n": 50,
+            "mode": -1,
+            "plain": 0,
+            "interleaved": 0,
+            "blocked": 0
+          },
+          {
+            "frame": 3350,
+            "phase": 1,
+            "n": 50,
+            "mode": -1,
+            "plain": 0,
+            "interleaved": 0,
+            "blocked": 0
+          },
+          {
+            "frame": 3400,
+            "phase": 1,
+            "n": 50,
+            "mode": -1,
+            "plain": 0,
+            "interleaved": 0,
+            "blocked": 0
+          },
+          {
+            "frame": 3450,
+            "phase": 1,
+            "n": 50,
+            "mode": -1,
+            "plain": 0,
+            "interleaved": 0,
+            "blocked": 0
+          },
+          {
+            "frame": 3500,
+            "phase": 1,
+            "n": 50,
+            "mode": -1,
+            "plain": 0,
+            "interleaved": 0,
+            "blocked": 0
+          },
+          {
+            "frame": 3550,
+            "phase": 1,
+            "n": 50,
+            "mode": -1,
+            "plain": 0,
+            "interleaved": 0,
+            "blocked": 0
+          },
+          {
+            "frame": 3600,
+            "phase": 1,
+            "n": 50,
+            "mode": -1,
+            "plain": 0,
+            "interleaved": 0,
+            "blocked": 0
+          },
+          {
+            "frame": 3650,
+            "phase": 1,
+            "n": 50,
+            "mode": -1,
+            "plain": 0,
+            "interleaved": 0,
+            "blocked": 0
+          },
+          {
+            "frame": 3700,
+            "phase": 1,
+            "n": 50,
+            "mode": -1,
+            "plain": 0,
+            "interleaved": 0,
+            "blocked": 0
+          },
+          {
+            "frame": 3750,
+            "phase": 1,
+            "n": 50,
+            "mode": -1,
+            "plain": 0,
+            "interleaved": 0,
+            "blocked": 0
+          }
+        ],
+        "candidate_calls_means_per_frame": {
+          "retained": 114.0,
+          "discarded": 0.0,
+          "uncontextualized": 0.0
+        },
+        "candidates_means_per_frame": {
+          "retained": 912.0,
+          "discarded": 0.0,
+          "uncontextualized": 0.0
+        },
+        "delivered_rate_from_period_hz": 29.967036260113876,
+        "observed_gate_on_work_delta_against_controls_ms": [
+          0.25406929519441235,
+          0.27758445342381677
+        ]
+      },
+      {
+        "log": "F:\\Projects\\tyrax2-lab-20261001\\pinned-clock-trial-physical-snapshot.log",
+        "first": 5500,
+        "frames": 512,
+        "hz": 60,
+        "budget_ms": 16.666666666666668,
+        "mean_ms": 17.327305952707928,
+        "median_ms": 17.20855034722222,
+        "p95_ms": 17.814754909939236,
+        "max_ms": 19.09930419921875,
+        "over_budget": 512,
+        "note": "Renderer critical-path work excluding presentation pacing; not full period or delivered FPS.",
+        "phase": 2,
+        "name": "compiled-on runtime gate off restored",
+        "windows": {
+          "FRAMETIME": [
+            {
+              "frame": 5500,
+              "period": 33.37,
+              "pre": 1.7,
+              "stall": 13.89
+            },
+            {
+              "frame": 5550,
+              "period": 33.37,
+              "pre": 1.64,
+              "stall": 14.17
+            },
+            {
+              "frame": 5600,
+              "period": 33.37,
+              "pre": 1.71,
+              "stall": 14.26
+            },
+            {
+              "frame": 5650,
+              "period": 33.37,
+              "pre": 1.63,
+              "stall": 14.3
+            },
+            {
+              "frame": 5700,
+              "period": 33.37,
+              "pre": 1.64,
+              "stall": 14.36
+            },
+            {
+              "frame": 5750,
+              "period": 33.37,
+              "pre": 1.7,
+              "stall": 14.34
+            },
+            {
+              "frame": 5800,
+              "period": 33.37,
+              "pre": 1.64,
+              "stall": 14.32
+            },
+            {
+              "frame": 5850,
+              "period": 33.37,
+              "pre": 1.7,
+              "stall": 14.32
+            },
+            {
+              "frame": 5900,
+              "period": 33.37,
+              "pre": 1.63,
+              "stall": 14.33
+            },
+            {
+              "frame": 5950,
+              "period": 33.37,
+              "pre": 1.62,
+              "stall": 14.4
+            }
+          ],
+          "DPPROFILE": [
+            {
+              "frame": 5500,
+              "retainedSphere": 0.0,
+              "discardedSphere": 0.0,
+              "sharedRetained": 0.0,
+              "sharedDiscarded": 0.0,
+              "blssSphere": 0.0,
+              "retainedPick": 0.0,
+              "discardedPick": 0.0,
+              "calls": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "frame": 5550,
+              "retainedSphere": 0.0,
+              "discardedSphere": 0.0,
+              "sharedRetained": 0.0,
+              "sharedDiscarded": 0.0,
+              "blssSphere": 0.0,
+              "retainedPick": 0.0,
+              "discardedPick": 0.0,
+              "calls": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "frame": 5600,
+              "retainedSphere": 0.0,
+              "discardedSphere": 0.0,
+              "sharedRetained": 0.0,
+              "sharedDiscarded": 0.0,
+              "blssSphere": 0.0,
+              "retainedPick": 0.0,
+              "discardedPick": 0.0,
+              "calls": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "frame": 5650,
+              "retainedSphere": 0.0,
+              "discardedSphere": 0.0,
+              "sharedRetained": 0.0,
+              "sharedDiscarded": 0.0,
+              "blssSphere": 0.0,
+              "retainedPick": 0.0,
+              "discardedPick": 0.0,
+              "calls": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "frame": 5700,
+              "retainedSphere": 0.0,
+              "discardedSphere": 0.0,
+              "sharedRetained": 0.0,
+              "sharedDiscarded": 0.0,
+              "blssSphere": 0.0,
+              "retainedPick": 0.0,
+              "discardedPick": 0.0,
+              "calls": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "frame": 5750,
+              "retainedSphere": 0.0,
+              "discardedSphere": 0.0,
+              "sharedRetained": 0.0,
+              "sharedDiscarded": 0.0,
+              "blssSphere": 0.0,
+              "retainedPick": 0.0,
+              "discardedPick": 0.0,
+              "calls": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "frame": 5800,
+              "retainedSphere": 0.0,
+              "discardedSphere": 0.0,
+              "sharedRetained": 0.0,
+              "sharedDiscarded": 0.0,
+              "blssSphere": 0.0,
+              "retainedPick": 0.0,
+              "discardedPick": 0.0,
+              "calls": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "frame": 5850,
+              "retainedSphere": 0.0,
+              "discardedSphere": 0.0,
+              "sharedRetained": 0.0,
+              "sharedDiscarded": 0.0,
+              "blssSphere": 0.0,
+              "retainedPick": 0.0,
+              "discardedPick": 0.0,
+              "calls": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "frame": 5900,
+              "retainedSphere": 0.0,
+              "discardedSphere": 0.0,
+              "sharedRetained": 0.0,
+              "sharedDiscarded": 0.0,
+              "blssSphere": 0.0,
+              "retainedPick": 0.0,
+              "discardedPick": 0.0,
+              "calls": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "frame": 5950,
+              "retainedSphere": 0.0,
+              "discardedSphere": 0.0,
+              "sharedRetained": 0.0,
+              "sharedDiscarded": 0.0,
+              "blssSphere": 0.0,
+              "retainedPick": 0.0,
+              "discardedPick": 0.0,
+              "calls": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          ],
+          "DPPCOUNT": [
+            {
+              "frame": 5500,
+              "seams": 0.0,
+              "retained": 0.0,
+              "discarded": 0.0,
+              "blss": 0.0,
+              "bbox": 0.0,
+              "nobbox": 0.0,
+              "shared": 0.0,
+              "notshared": 0.0,
+              "candidatecalls": [
+                0,
+                0,
+                0
+              ],
+              "candidates": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "frame": 5550,
+              "seams": 0.0,
+              "retained": 0.0,
+              "discarded": 0.0,
+              "blss": 0.0,
+              "bbox": 0.0,
+              "nobbox": 0.0,
+              "shared": 0.0,
+              "notshared": 0.0,
+              "candidatecalls": [
+                0,
+                0,
+                0
+              ],
+              "candidates": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "frame": 5600,
+              "seams": 0.0,
+              "retained": 0.0,
+              "discarded": 0.0,
+              "blss": 0.0,
+              "bbox": 0.0,
+              "nobbox": 0.0,
+              "shared": 0.0,
+              "notshared": 0.0,
+              "candidatecalls": [
+                0,
+                0,
+                0
+              ],
+              "candidates": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "frame": 5650,
+              "seams": 0.0,
+              "retained": 0.0,
+              "discarded": 0.0,
+              "blss": 0.0,
+              "bbox": 0.0,
+              "nobbox": 0.0,
+              "shared": 0.0,
+              "notshared": 0.0,
+              "candidatecalls": [
+                0,
+                0,
+                0
+              ],
+              "candidates": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "frame": 5700,
+              "seams": 0.0,
+              "retained": 0.0,
+              "discarded": 0.0,
+              "blss": 0.0,
+              "bbox": 0.0,
+              "nobbox": 0.0,
+              "shared": 0.0,
+              "notshared": 0.0,
+              "candidatecalls": [
+                0,
+                0,
+                0
+              ],
+              "candidates": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "frame": 5750,
+              "seams": 0.0,
+              "retained": 0.0,
+              "discarded": 0.0,
+              "blss": 0.0,
+              "bbox": 0.0,
+              "nobbox": 0.0,
+              "shared": 0.0,
+              "notshared": 0.0,
+              "candidatecalls": [
+                0,
+                0,
+                0
+              ],
+              "candidates": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "frame": 5800,
+              "seams": 0.0,
+              "retained": 0.0,
+              "discarded": 0.0,
+              "blss": 0.0,
+              "bbox": 0.0,
+              "nobbox": 0.0,
+              "shared": 0.0,
+              "notshared": 0.0,
+              "candidatecalls": [
+                0,
+                0,
+                0
+              ],
+              "candidates": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "frame": 5850,
+              "seams": 0.0,
+              "retained": 0.0,
+              "discarded": 0.0,
+              "blss": 0.0,
+              "bbox": 0.0,
+              "nobbox": 0.0,
+              "shared": 0.0,
+              "notshared": 0.0,
+              "candidatecalls": [
+                0,
+                0,
+                0
+              ],
+              "candidates": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "frame": 5900,
+              "seams": 0.0,
+              "retained": 0.0,
+              "discarded": 0.0,
+              "blss": 0.0,
+              "bbox": 0.0,
+              "nobbox": 0.0,
+              "shared": 0.0,
+              "notshared": 0.0,
+              "candidatecalls": [
+                0,
+                0,
+                0
+              ],
+              "candidates": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "frame": 5950,
+              "seams": 0.0,
+              "retained": 0.0,
+              "discarded": 0.0,
+              "blss": 0.0,
+              "bbox": 0.0,
+              "nobbox": 0.0,
+              "shared": 0.0,
+              "notshared": 0.0,
+              "candidatecalls": [
+                0,
+                0,
+                0
+              ],
+              "candidates": [
+                0,
+                0,
+                0
+              ]
+            }
+          ]
+        },
+        "mean_period_ms": 33.37,
+        "stage_means_ms": {
+          "retainedSphere": 0.0,
+          "discardedSphere": 0.0,
+          "sharedRetained": 0.0,
+          "sharedDiscarded": 0.0,
+          "blssSphere": 0.0,
+          "retainedPick": 0.0,
+          "discardedPick": 0.0
+        },
+        "calls_means_per_frame": {
+          "retainedSphere": 0.0,
+          "discardedSphere": 0.0,
+          "sharedRetained": 0.0,
+          "sharedDiscarded": 0.0,
+          "blssSphere": 0.0,
+          "retainedPick": 0.0,
+          "discardedPick": 0.0
+        },
+        "counter_means_per_frame": {
+          "seams": 0.0,
+          "retained": 0.0,
+          "discarded": 0.0,
+          "blss": 0.0,
+          "bbox": 0.0,
+          "nobbox": 0.0,
+          "shared": 0.0,
+          "notshared": 0.0
+        },
+        "order_windows": [
+          {
+            "frame": 5500,
+            "phase": 2,
+            "n": 50,
+            "mode": -1,
+            "plain": 0,
+            "interleaved": 0,
+            "blocked": 0
+          },
+          {
+            "frame": 5550,
+            "phase": 2,
+            "n": 50,
+            "mode": -1,
+            "plain": 0,
+            "interleaved": 0,
+            "blocked": 0
+          },
+          {
+            "frame": 5600,
+            "phase": 2,
+            "n": 50,
+            "mode": -1,
+            "plain": 0,
+            "interleaved": 0,
+            "blocked": 0
+          },
+          {
+            "frame": 5650,
+            "phase": 2,
+            "n": 50,
+            "mode": -1,
+            "plain": 0,
+            "interleaved": 0,
+            "blocked": 0
+          },
+          {
+            "frame": 5700,
+            "phase": 2,
+            "n": 50,
+            "mode": -1,
+            "plain": 0,
+            "interleaved": 0,
+            "blocked": 0
+          },
+          {
+            "frame": 5750,
+            "phase": 2,
+            "n": 50,
+            "mode": -1,
+            "plain": 0,
+            "interleaved": 0,
+            "blocked": 0
+          },
+          {
+            "frame": 5800,
+            "phase": 2,
+            "n": 50,
+            "mode": -1,
+            "plain": 0,
+            "interleaved": 0,
+            "blocked": 0
+          },
+          {
+            "frame": 5850,
+            "phase": 2,
+            "n": 50,
+            "mode": -1,
+            "plain": 0,
+            "interleaved": 0,
+            "blocked": 0
+          },
+          {
+            "frame": 5900,
+            "phase": 2,
+            "n": 50,
+            "mode": -1,
+            "plain": 0,
+            "interleaved": 0,
+            "blocked": 0
+          },
+          {
+            "frame": 5950,
+            "phase": 2,
+            "n": 50,
+            "mode": -1,
+            "plain": 0,
+            "interleaved": 0,
+            "blocked": 0
+          }
+        ],
+        "candidate_calls_means_per_frame": {
+          "retained": 0.0,
+          "discarded": 0.0,
+          "uncontextualized": 0.0
+        },
+        "candidates_means_per_frame": {
+          "retained": 0.0,
+          "discarded": 0.0,
+          "uncontextualized": 0.0
+        },
+        "delivered_rate_from_period_hz": 29.967036260113876
+      },
+      {
+        "log": "F:\\Projects\\tyrax2-lab-20261001\\pinned-clock-trial-physical-snapshot.log",
+        "first": 7700,
+        "frames": 512,
+        "hz": 60,
+        "budget_ms": 16.666666666666668,
+        "mean_ms": 17.52132605844074,
+        "median_ms": 17.412938435872398,
+        "p95_ms": 17.881639268663193,
+        "max_ms": 19.168785942925346,
+        "over_budget": 512,
+        "note": "Renderer critical-path work excluding presentation pacing; not full period or delivered FPS.",
+        "phase": 3,
+        "name": "pinned plain before",
+        "windows": {
+          "FRAMETIME": [
+            {
+              "frame": 7700,
+              "period": 33.37,
+              "pre": 1.63,
+              "stall": 13.94
+            },
+            {
+              "frame": 7750,
+              "period": 33.37,
+              "pre": 1.7,
+              "stall": 14.02
+            },
+            {
+              "frame": 7800,
+              "period": 33.37,
+              "pre": 1.64,
+              "stall": 14.09
+            },
+            {
+              "frame": 7850,
+              "period": 33.37,
+              "pre": 1.65,
+              "stall": 14.08
+            },
+            {
+              "frame": 7900,
+              "period": 33.37,
+              "pre": 1.68,
+              "stall": 14.08
+            },
+            {
+              "frame": 7950,
+              "period": 33.37,
+              "pre": 1.64,
+              "stall": 14.15
+            },
+            {
+              "frame": 8000,
+              "period": 33.37,
+              "pre": 1.7,
+              "stall": 14.07
+            },
+            {
+              "frame": 8050,
+              "period": 33.37,
+              "pre": 1.64,
+              "stall": 14.13
+            },
+            {
+              "frame": 8100,
+              "period": 33.37,
+              "pre": 1.71,
+              "stall": 14.08
+            },
+            {
+              "frame": 8150,
+              "period": 33.37,
+              "pre": 1.63,
+              "stall": 14.15
+            }
+          ],
+          "DPPROFILE": [
+            {
+              "frame": 7700,
+              "retainedSphere": 0.0,
+              "discardedSphere": 0.0,
+              "sharedRetained": 0.0,
+              "sharedDiscarded": 0.0,
+              "blssSphere": 0.0,
+              "retainedPick": 0.0,
+              "discardedPick": 0.0,
+              "calls": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "frame": 7750,
+              "retainedSphere": 0.0,
+              "discardedSphere": 0.0,
+              "sharedRetained": 0.0,
+              "sharedDiscarded": 0.0,
+              "blssSphere": 0.0,
+              "retainedPick": 0.0,
+              "discardedPick": 0.0,
+              "calls": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "frame": 7800,
+              "retainedSphere": 0.0,
+              "discardedSphere": 0.0,
+              "sharedRetained": 0.0,
+              "sharedDiscarded": 0.0,
+              "blssSphere": 0.0,
+              "retainedPick": 0.0,
+              "discardedPick": 0.0,
+              "calls": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "frame": 7850,
+              "retainedSphere": 0.0,
+              "discardedSphere": 0.0,
+              "sharedRetained": 0.0,
+              "sharedDiscarded": 0.0,
+              "blssSphere": 0.0,
+              "retainedPick": 0.0,
+              "discardedPick": 0.0,
+              "calls": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "frame": 7900,
+              "retainedSphere": 0.0,
+              "discardedSphere": 0.0,
+              "sharedRetained": 0.0,
+              "sharedDiscarded": 0.0,
+              "blssSphere": 0.0,
+              "retainedPick": 0.0,
+              "discardedPick": 0.0,
+              "calls": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "frame": 7950,
+              "retainedSphere": 0.0,
+              "discardedSphere": 0.0,
+              "sharedRetained": 0.0,
+              "sharedDiscarded": 0.0,
+              "blssSphere": 0.0,
+              "retainedPick": 0.0,
+              "discardedPick": 0.0,
+              "calls": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "frame": 8000,
+              "retainedSphere": 0.0,
+              "discardedSphere": 0.0,
+              "sharedRetained": 0.0,
+              "sharedDiscarded": 0.0,
+              "blssSphere": 0.0,
+              "retainedPick": 0.0,
+              "discardedPick": 0.0,
+              "calls": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "frame": 8050,
+              "retainedSphere": 0.0,
+              "discardedSphere": 0.0,
+              "sharedRetained": 0.0,
+              "sharedDiscarded": 0.0,
+              "blssSphere": 0.0,
+              "retainedPick": 0.0,
+              "discardedPick": 0.0,
+              "calls": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "frame": 8100,
+              "retainedSphere": 0.0,
+              "discardedSphere": 0.0,
+              "sharedRetained": 0.0,
+              "sharedDiscarded": 0.0,
+              "blssSphere": 0.0,
+              "retainedPick": 0.0,
+              "discardedPick": 0.0,
+              "calls": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "frame": 8150,
+              "retainedSphere": 0.0,
+              "discardedSphere": 0.0,
+              "sharedRetained": 0.0,
+              "sharedDiscarded": 0.0,
+              "blssSphere": 0.0,
+              "retainedPick": 0.0,
+              "discardedPick": 0.0,
+              "calls": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          ],
+          "DPPCOUNT": [
+            {
+              "frame": 7700,
+              "seams": 0.0,
+              "retained": 0.0,
+              "discarded": 0.0,
+              "blss": 0.0,
+              "bbox": 0.0,
+              "nobbox": 0.0,
+              "shared": 0.0,
+              "notshared": 0.0,
+              "candidatecalls": [
+                0,
+                0,
+                0
+              ],
+              "candidates": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "frame": 7750,
+              "seams": 0.0,
+              "retained": 0.0,
+              "discarded": 0.0,
+              "blss": 0.0,
+              "bbox": 0.0,
+              "nobbox": 0.0,
+              "shared": 0.0,
+              "notshared": 0.0,
+              "candidatecalls": [
+                0,
+                0,
+                0
+              ],
+              "candidates": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "frame": 7800,
+              "seams": 0.0,
+              "retained": 0.0,
+              "discarded": 0.0,
+              "blss": 0.0,
+              "bbox": 0.0,
+              "nobbox": 0.0,
+              "shared": 0.0,
+              "notshared": 0.0,
+              "candidatecalls": [
+                0,
+                0,
+                0
+              ],
+              "candidates": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "frame": 7850,
+              "seams": 0.0,
+              "retained": 0.0,
+              "discarded": 0.0,
+              "blss": 0.0,
+              "bbox": 0.0,
+              "nobbox": 0.0,
+              "shared": 0.0,
+              "notshared": 0.0,
+              "candidatecalls": [
+                0,
+                0,
+                0
+              ],
+              "candidates": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "frame": 7900,
+              "seams": 0.0,
+              "retained": 0.0,
+              "discarded": 0.0,
+              "blss": 0.0,
+              "bbox": 0.0,
+              "nobbox": 0.0,
+              "shared": 0.0,
+              "notshared": 0.0,
+              "candidatecalls": [
+                0,
+                0,
+                0
+              ],
+              "candidates": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "frame": 7950,
+              "seams": 0.0,
+              "retained": 0.0,
+              "discarded": 0.0,
+              "blss": 0.0,
+              "bbox": 0.0,
+              "nobbox": 0.0,
+              "shared": 0.0,
+              "notshared": 0.0,
+              "candidatecalls": [
+                0,
+                0,
+                0
+              ],
+              "candidates": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "frame": 8000,
+              "seams": 0.0,
+              "retained": 0.0,
+              "discarded": 0.0,
+              "blss": 0.0,
+              "bbox": 0.0,
+              "nobbox": 0.0,
+              "shared": 0.0,
+              "notshared": 0.0,
+              "candidatecalls": [
+                0,
+                0,
+                0
+              ],
+              "candidates": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "frame": 8050,
+              "seams": 0.0,
+              "retained": 0.0,
+              "discarded": 0.0,
+              "blss": 0.0,
+              "bbox": 0.0,
+              "nobbox": 0.0,
+              "shared": 0.0,
+              "notshared": 0.0,
+              "candidatecalls": [
+                0,
+                0,
+                0
+              ],
+              "candidates": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "frame": 8100,
+              "seams": 0.0,
+              "retained": 0.0,
+              "discarded": 0.0,
+              "blss": 0.0,
+              "bbox": 0.0,
+              "nobbox": 0.0,
+              "shared": 0.0,
+              "notshared": 0.0,
+              "candidatecalls": [
+                0,
+                0,
+                0
+              ],
+              "candidates": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "frame": 8150,
+              "seams": 0.0,
+              "retained": 0.0,
+              "discarded": 0.0,
+              "blss": 0.0,
+              "bbox": 0.0,
+              "nobbox": 0.0,
+              "shared": 0.0,
+              "notshared": 0.0,
+              "candidatecalls": [
+                0,
+                0,
+                0
+              ],
+              "candidates": [
+                0,
+                0,
+                0
+              ]
+            }
+          ]
+        },
+        "mean_period_ms": 33.37,
+        "stage_means_ms": {
+          "retainedSphere": 0.0,
+          "discardedSphere": 0.0,
+          "sharedRetained": 0.0,
+          "sharedDiscarded": 0.0,
+          "blssSphere": 0.0,
+          "retainedPick": 0.0,
+          "discardedPick": 0.0
+        },
+        "calls_means_per_frame": {
+          "retainedSphere": 0.0,
+          "discardedSphere": 0.0,
+          "sharedRetained": 0.0,
+          "sharedDiscarded": 0.0,
+          "blssSphere": 0.0,
+          "retainedPick": 0.0,
+          "discardedPick": 0.0
+        },
+        "counter_means_per_frame": {
+          "seams": 0.0,
+          "retained": 0.0,
+          "discarded": 0.0,
+          "blss": 0.0,
+          "bbox": 0.0,
+          "nobbox": 0.0,
+          "shared": 0.0,
+          "notshared": 0.0
+        },
+        "order_windows": [
+          {
+            "frame": 7700,
+            "phase": 3,
+            "n": 50,
+            "mode": 0,
+            "plain": 50,
+            "interleaved": 0,
+            "blocked": 0
+          },
+          {
+            "frame": 7750,
+            "phase": 3,
+            "n": 50,
+            "mode": 0,
+            "plain": 50,
+            "interleaved": 0,
+            "blocked": 0
+          },
+          {
+            "frame": 7800,
+            "phase": 3,
+            "n": 50,
+            "mode": 0,
+            "plain": 50,
+            "interleaved": 0,
+            "blocked": 0
+          },
+          {
+            "frame": 7850,
+            "phase": 3,
+            "n": 50,
+            "mode": 0,
+            "plain": 50,
+            "interleaved": 0,
+            "blocked": 0
+          },
+          {
+            "frame": 7900,
+            "phase": 3,
+            "n": 50,
+            "mode": 0,
+            "plain": 50,
+            "interleaved": 0,
+            "blocked": 0
+          },
+          {
+            "frame": 7950,
+            "phase": 3,
+            "n": 50,
+            "mode": 0,
+            "plain": 50,
+            "interleaved": 0,
+            "blocked": 0
+          },
+          {
+            "frame": 8000,
+            "phase": 3,
+            "n": 50,
+            "mode": 0,
+            "plain": 50,
+            "interleaved": 0,
+            "blocked": 0
+          },
+          {
+            "frame": 8050,
+            "phase": 3,
+            "n": 50,
+            "mode": 0,
+            "plain": 50,
+            "interleaved": 0,
+            "blocked": 0
+          },
+          {
+            "frame": 8100,
+            "phase": 3,
+            "n": 50,
+            "mode": 0,
+            "plain": 50,
+            "interleaved": 0,
+            "blocked": 0
+          },
+          {
+            "frame": 8150,
+            "phase": 3,
+            "n": 50,
+            "mode": 0,
+            "plain": 50,
+            "interleaved": 0,
+            "blocked": 0
+          }
+        ],
+        "candidate_calls_means_per_frame": {
+          "retained": 0.0,
+          "discarded": 0.0,
+          "uncontextualized": 0.0
+        },
+        "candidates_means_per_frame": {
+          "retained": 0.0,
+          "discarded": 0.0,
+          "uncontextualized": 0.0
+        },
+        "delivered_rate_from_period_hz": 29.967036260113876
+      },
+      {
+        "log": "F:\\Projects\\tyrax2-lab-20261001\\pinned-clock-trial-physical-snapshot.log",
+        "first": 9900,
+        "frames": 512,
+        "hz": 60,
+        "budget_ms": 16.666666666666668,
+        "mean_ms": 17.307883361975353,
+        "median_ms": 17.205274793836807,
+        "p95_ms": 17.684831407335068,
+        "max_ms": 18.949564615885418,
+        "over_budget": 512,
+        "note": "Renderer critical-path work excluding presentation pacing; not full period or delivered FPS.",
+        "phase": 4,
+        "name": "pinned interleaved",
+        "windows": {
+          "FRAMETIME": [
+            {
+              "frame": 9900,
+              "period": 33.37,
+              "pre": 1.7,
+              "stall": 14.1
+            },
+            {
+              "frame": 9950,
+              "period": 33.37,
+              "pre": 1.63,
+              "stall": 14.28
+            },
+            {
+              "frame": 10000,
+              "period": 33.37,
+              "pre": 1.71,
+              "stall": 14.22
+            },
+            {
+              "frame": 10050,
+              "period": 33.37,
+              "pre": 1.64,
+              "stall": 14.3
+            },
+            {
+              "frame": 10100,
+              "period": 33.37,
+              "pre": 1.64,
+              "stall": 14.33
+            },
+            {
+              "frame": 10150,
+              "period": 33.37,
+              "pre": 1.71,
+              "stall": 14.29
+            },
+            {
+              "frame": 10200,
+              "period": 33.37,
+              "pre": 1.66,
+              "stall": 14.33
+            },
+            {
+              "frame": 10250,
+              "period": 33.37,
+              "pre": 1.7,
+              "stall": 14.3
+            },
+            {
+              "frame": 10300,
+              "period": 33.37,
+              "pre": 1.62,
+              "stall": 14.36
+            },
+            {
+              "frame": 10350,
+              "period": 33.37,
+              "pre": 1.71,
+              "stall": 14.3
+            }
+          ],
+          "DPPROFILE": [
+            {
+              "frame": 9900,
+              "retainedSphere": 0.0,
+              "discardedSphere": 0.0,
+              "sharedRetained": 0.0,
+              "sharedDiscarded": 0.0,
+              "blssSphere": 0.0,
+              "retainedPick": 0.0,
+              "discardedPick": 0.0,
+              "calls": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "frame": 9950,
+              "retainedSphere": 0.0,
+              "discardedSphere": 0.0,
+              "sharedRetained": 0.0,
+              "sharedDiscarded": 0.0,
+              "blssSphere": 0.0,
+              "retainedPick": 0.0,
+              "discardedPick": 0.0,
+              "calls": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "frame": 10000,
+              "retainedSphere": 0.0,
+              "discardedSphere": 0.0,
+              "sharedRetained": 0.0,
+              "sharedDiscarded": 0.0,
+              "blssSphere": 0.0,
+              "retainedPick": 0.0,
+              "discardedPick": 0.0,
+              "calls": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "frame": 10050,
+              "retainedSphere": 0.0,
+              "discardedSphere": 0.0,
+              "sharedRetained": 0.0,
+              "sharedDiscarded": 0.0,
+              "blssSphere": 0.0,
+              "retainedPick": 0.0,
+              "discardedPick": 0.0,
+              "calls": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "frame": 10100,
+              "retainedSphere": 0.0,
+              "discardedSphere": 0.0,
+              "sharedRetained": 0.0,
+              "sharedDiscarded": 0.0,
+              "blssSphere": 0.0,
+              "retainedPick": 0.0,
+              "discardedPick": 0.0,
+              "calls": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "frame": 10150,
+              "retainedSphere": 0.0,
+              "discardedSphere": 0.0,
+              "sharedRetained": 0.0,
+              "sharedDiscarded": 0.0,
+              "blssSphere": 0.0,
+              "retainedPick": 0.0,
+              "discardedPick": 0.0,
+              "calls": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "frame": 10200,
+              "retainedSphere": 0.0,
+              "discardedSphere": 0.0,
+              "sharedRetained": 0.0,
+              "sharedDiscarded": 0.0,
+              "blssSphere": 0.0,
+              "retainedPick": 0.0,
+              "discardedPick": 0.0,
+              "calls": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "frame": 10250,
+              "retainedSphere": 0.0,
+              "discardedSphere": 0.0,
+              "sharedRetained": 0.0,
+              "sharedDiscarded": 0.0,
+              "blssSphere": 0.0,
+              "retainedPick": 0.0,
+              "discardedPick": 0.0,
+              "calls": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "frame": 10300,
+              "retainedSphere": 0.0,
+              "discardedSphere": 0.0,
+              "sharedRetained": 0.0,
+              "sharedDiscarded": 0.0,
+              "blssSphere": 0.0,
+              "retainedPick": 0.0,
+              "discardedPick": 0.0,
+              "calls": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "frame": 10350,
+              "retainedSphere": 0.0,
+              "discardedSphere": 0.0,
+              "sharedRetained": 0.0,
+              "sharedDiscarded": 0.0,
+              "blssSphere": 0.0,
+              "retainedPick": 0.0,
+              "discardedPick": 0.0,
+              "calls": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          ],
+          "DPPCOUNT": [
+            {
+              "frame": 9900,
+              "seams": 0.0,
+              "retained": 0.0,
+              "discarded": 0.0,
+              "blss": 0.0,
+              "bbox": 0.0,
+              "nobbox": 0.0,
+              "shared": 0.0,
+              "notshared": 0.0,
+              "candidatecalls": [
+                0,
+                0,
+                0
+              ],
+              "candidates": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "frame": 9950,
+              "seams": 0.0,
+              "retained": 0.0,
+              "discarded": 0.0,
+              "blss": 0.0,
+              "bbox": 0.0,
+              "nobbox": 0.0,
+              "shared": 0.0,
+              "notshared": 0.0,
+              "candidatecalls": [
+                0,
+                0,
+                0
+              ],
+              "candidates": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "frame": 10000,
+              "seams": 0.0,
+              "retained": 0.0,
+              "discarded": 0.0,
+              "blss": 0.0,
+              "bbox": 0.0,
+              "nobbox": 0.0,
+              "shared": 0.0,
+              "notshared": 0.0,
+              "candidatecalls": [
+                0,
+                0,
+                0
+              ],
+              "candidates": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "frame": 10050,
+              "seams": 0.0,
+              "retained": 0.0,
+              "discarded": 0.0,
+              "blss": 0.0,
+              "bbox": 0.0,
+              "nobbox": 0.0,
+              "shared": 0.0,
+              "notshared": 0.0,
+              "candidatecalls": [
+                0,
+                0,
+                0
+              ],
+              "candidates": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "frame": 10100,
+              "seams": 0.0,
+              "retained": 0.0,
+              "discarded": 0.0,
+              "blss": 0.0,
+              "bbox": 0.0,
+              "nobbox": 0.0,
+              "shared": 0.0,
+              "notshared": 0.0,
+              "candidatecalls": [
+                0,
+                0,
+                0
+              ],
+              "candidates": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "frame": 10150,
+              "seams": 0.0,
+              "retained": 0.0,
+              "discarded": 0.0,
+              "blss": 0.0,
+              "bbox": 0.0,
+              "nobbox": 0.0,
+              "shared": 0.0,
+              "notshared": 0.0,
+              "candidatecalls": [
+                0,
+                0,
+                0
+              ],
+              "candidates": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "frame": 10200,
+              "seams": 0.0,
+              "retained": 0.0,
+              "discarded": 0.0,
+              "blss": 0.0,
+              "bbox": 0.0,
+              "nobbox": 0.0,
+              "shared": 0.0,
+              "notshared": 0.0,
+              "candidatecalls": [
+                0,
+                0,
+                0
+              ],
+              "candidates": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "frame": 10250,
+              "seams": 0.0,
+              "retained": 0.0,
+              "discarded": 0.0,
+              "blss": 0.0,
+              "bbox": 0.0,
+              "nobbox": 0.0,
+              "shared": 0.0,
+              "notshared": 0.0,
+              "candidatecalls": [
+                0,
+                0,
+                0
+              ],
+              "candidates": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "frame": 10300,
+              "seams": 0.0,
+              "retained": 0.0,
+              "discarded": 0.0,
+              "blss": 0.0,
+              "bbox": 0.0,
+              "nobbox": 0.0,
+              "shared": 0.0,
+              "notshared": 0.0,
+              "candidatecalls": [
+                0,
+                0,
+                0
+              ],
+              "candidates": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "frame": 10350,
+              "seams": 0.0,
+              "retained": 0.0,
+              "discarded": 0.0,
+              "blss": 0.0,
+              "bbox": 0.0,
+              "nobbox": 0.0,
+              "shared": 0.0,
+              "notshared": 0.0,
+              "candidatecalls": [
+                0,
+                0,
+                0
+              ],
+              "candidates": [
+                0,
+                0,
+                0
+              ]
+            }
+          ]
+        },
+        "mean_period_ms": 33.37,
+        "stage_means_ms": {
+          "retainedSphere": 0.0,
+          "discardedSphere": 0.0,
+          "sharedRetained": 0.0,
+          "sharedDiscarded": 0.0,
+          "blssSphere": 0.0,
+          "retainedPick": 0.0,
+          "discardedPick": 0.0
+        },
+        "calls_means_per_frame": {
+          "retainedSphere": 0.0,
+          "discardedSphere": 0.0,
+          "sharedRetained": 0.0,
+          "sharedDiscarded": 0.0,
+          "blssSphere": 0.0,
+          "retainedPick": 0.0,
+          "discardedPick": 0.0
+        },
+        "counter_means_per_frame": {
+          "seams": 0.0,
+          "retained": 0.0,
+          "discarded": 0.0,
+          "blss": 0.0,
+          "bbox": 0.0,
+          "nobbox": 0.0,
+          "shared": 0.0,
+          "notshared": 0.0
+        },
+        "order_windows": [
+          {
+            "frame": 9900,
+            "phase": 4,
+            "n": 50,
+            "mode": 2,
+            "plain": 0,
+            "interleaved": 50,
+            "blocked": 0
+          },
+          {
+            "frame": 9950,
+            "phase": 4,
+            "n": 50,
+            "mode": 2,
+            "plain": 0,
+            "interleaved": 50,
+            "blocked": 0
+          },
+          {
+            "frame": 10000,
+            "phase": 4,
+            "n": 50,
+            "mode": 2,
+            "plain": 0,
+            "interleaved": 50,
+            "blocked": 0
+          },
+          {
+            "frame": 10050,
+            "phase": 4,
+            "n": 50,
+            "mode": 2,
+            "plain": 0,
+            "interleaved": 50,
+            "blocked": 0
+          },
+          {
+            "frame": 10100,
+            "phase": 4,
+            "n": 50,
+            "mode": 2,
+            "plain": 0,
+            "interleaved": 50,
+            "blocked": 0
+          },
+          {
+            "frame": 10150,
+            "phase": 4,
+            "n": 50,
+            "mode": 2,
+            "plain": 0,
+            "interleaved": 50,
+            "blocked": 0
+          },
+          {
+            "frame": 10200,
+            "phase": 4,
+            "n": 50,
+            "mode": 2,
+            "plain": 0,
+            "interleaved": 50,
+            "blocked": 0
+          },
+          {
+            "frame": 10250,
+            "phase": 4,
+            "n": 50,
+            "mode": 2,
+            "plain": 0,
+            "interleaved": 50,
+            "blocked": 0
+          },
+          {
+            "frame": 10300,
+            "phase": 4,
+            "n": 50,
+            "mode": 2,
+            "plain": 0,
+            "interleaved": 50,
+            "blocked": 0
+          },
+          {
+            "frame": 10350,
+            "phase": 4,
+            "n": 50,
+            "mode": 2,
+            "plain": 0,
+            "interleaved": 50,
+            "blocked": 0
+          }
+        ],
+        "candidate_calls_means_per_frame": {
+          "retained": 0.0,
+          "discarded": 0.0,
+          "uncontextualized": 0.0
+        },
+        "candidates_means_per_frame": {
+          "retained": 0.0,
+          "discarded": 0.0,
+          "uncontextualized": 0.0
+        },
+        "delivered_rate_from_period_hz": 29.967036260113876,
+        "saving_against_pinned_plain_controls_ms": [
+          0.2134426964653855,
+          0.21467941337161633
+        ]
+      },
+      {
+        "log": "F:\\Projects\\tyrax2-lab-20261001\\pinned-clock-trial-physical-snapshot.log",
+        "first": 12100,
+        "frames": 512,
+        "hz": 60,
+        "budget_ms": 16.666666666666668,
+        "mean_ms": 17.52256277534697,
+        "median_ms": 17.420528835720486,
+        "p95_ms": 17.893293592664932,
+        "max_ms": 19.175977918836807,
+        "over_budget": 512,
+        "note": "Renderer critical-path work excluding presentation pacing; not full period or delivered FPS.",
+        "phase": 5,
+        "name": "pinned plain restored",
+        "windows": {
+          "FRAMETIME": [
+            {
+              "frame": 12100,
+              "period": 33.37,
+              "pre": 1.64,
+              "stall": 13.94
+            },
+            {
+              "frame": 12150,
+              "period": 33.37,
+              "pre": 1.71,
+              "stall": 14.02
+            },
+            {
+              "frame": 12200,
+              "period": 33.37,
+              "pre": 1.64,
+              "stall": 14.08
+            },
+            {
+              "frame": 12250,
+              "period": 33.37,
+              "pre": 1.7,
+              "stall": 14.03
+            },
+            {
+              "frame": 12300,
+              "period": 33.37,
+              "pre": 1.64,
+              "stall": 14.1
+            },
+            {
+              "frame": 12350,
+              "period": 33.37,
+              "pre": 1.63,
+              "stall": 14.15
+            },
+            {
+              "frame": 12400,
+              "period": 33.37,
+              "pre": 1.71,
+              "stall": 14.06
+            },
+            {
+              "frame": 12450,
+              "period": 33.37,
+              "pre": 1.63,
+              "stall": 14.14
+            },
+            {
+              "frame": 12500,
+              "period": 33.37,
+              "pre": 1.69,
+              "stall": 14.1
+            },
+            {
+              "frame": 12550,
+              "period": 33.37,
+              "pre": 1.64,
+              "stall": 14.14
+            }
+          ],
+          "DPPROFILE": [
+            {
+              "frame": 12100,
+              "retainedSphere": 0.0,
+              "discardedSphere": 0.0,
+              "sharedRetained": 0.0,
+              "sharedDiscarded": 0.0,
+              "blssSphere": 0.0,
+              "retainedPick": 0.0,
+              "discardedPick": 0.0,
+              "calls": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "frame": 12150,
+              "retainedSphere": 0.0,
+              "discardedSphere": 0.0,
+              "sharedRetained": 0.0,
+              "sharedDiscarded": 0.0,
+              "blssSphere": 0.0,
+              "retainedPick": 0.0,
+              "discardedPick": 0.0,
+              "calls": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "frame": 12200,
+              "retainedSphere": 0.0,
+              "discardedSphere": 0.0,
+              "sharedRetained": 0.0,
+              "sharedDiscarded": 0.0,
+              "blssSphere": 0.0,
+              "retainedPick": 0.0,
+              "discardedPick": 0.0,
+              "calls": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "frame": 12250,
+              "retainedSphere": 0.0,
+              "discardedSphere": 0.0,
+              "sharedRetained": 0.0,
+              "sharedDiscarded": 0.0,
+              "blssSphere": 0.0,
+              "retainedPick": 0.0,
+              "discardedPick": 0.0,
+              "calls": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "frame": 12300,
+              "retainedSphere": 0.0,
+              "discardedSphere": 0.0,
+              "sharedRetained": 0.0,
+              "sharedDiscarded": 0.0,
+              "blssSphere": 0.0,
+              "retainedPick": 0.0,
+              "discardedPick": 0.0,
+              "calls": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "frame": 12350,
+              "retainedSphere": 0.0,
+              "discardedSphere": 0.0,
+              "sharedRetained": 0.0,
+              "sharedDiscarded": 0.0,
+              "blssSphere": 0.0,
+              "retainedPick": 0.0,
+              "discardedPick": 0.0,
+              "calls": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "frame": 12400,
+              "retainedSphere": 0.0,
+              "discardedSphere": 0.0,
+              "sharedRetained": 0.0,
+              "sharedDiscarded": 0.0,
+              "blssSphere": 0.0,
+              "retainedPick": 0.0,
+              "discardedPick": 0.0,
+              "calls": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "frame": 12450,
+              "retainedSphere": 0.0,
+              "discardedSphere": 0.0,
+              "sharedRetained": 0.0,
+              "sharedDiscarded": 0.0,
+              "blssSphere": 0.0,
+              "retainedPick": 0.0,
+              "discardedPick": 0.0,
+              "calls": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "frame": 12500,
+              "retainedSphere": 0.0,
+              "discardedSphere": 0.0,
+              "sharedRetained": 0.0,
+              "sharedDiscarded": 0.0,
+              "blssSphere": 0.0,
+              "retainedPick": 0.0,
+              "discardedPick": 0.0,
+              "calls": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "frame": 12550,
+              "retainedSphere": 0.0,
+              "discardedSphere": 0.0,
+              "sharedRetained": 0.0,
+              "sharedDiscarded": 0.0,
+              "blssSphere": 0.0,
+              "retainedPick": 0.0,
+              "discardedPick": 0.0,
+              "calls": [
+                0,
+                0,
+                0,
+                0,
+                0,
+                0,
+                0
+              ]
+            }
+          ],
+          "DPPCOUNT": [
+            {
+              "frame": 12100,
+              "seams": 0.0,
+              "retained": 0.0,
+              "discarded": 0.0,
+              "blss": 0.0,
+              "bbox": 0.0,
+              "nobbox": 0.0,
+              "shared": 0.0,
+              "notshared": 0.0,
+              "candidatecalls": [
+                0,
+                0,
+                0
+              ],
+              "candidates": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "frame": 12150,
+              "seams": 0.0,
+              "retained": 0.0,
+              "discarded": 0.0,
+              "blss": 0.0,
+              "bbox": 0.0,
+              "nobbox": 0.0,
+              "shared": 0.0,
+              "notshared": 0.0,
+              "candidatecalls": [
+                0,
+                0,
+                0
+              ],
+              "candidates": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "frame": 12200,
+              "seams": 0.0,
+              "retained": 0.0,
+              "discarded": 0.0,
+              "blss": 0.0,
+              "bbox": 0.0,
+              "nobbox": 0.0,
+              "shared": 0.0,
+              "notshared": 0.0,
+              "candidatecalls": [
+                0,
+                0,
+                0
+              ],
+              "candidates": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "frame": 12250,
+              "seams": 0.0,
+              "retained": 0.0,
+              "discarded": 0.0,
+              "blss": 0.0,
+              "bbox": 0.0,
+              "nobbox": 0.0,
+              "shared": 0.0,
+              "notshared": 0.0,
+              "candidatecalls": [
+                0,
+                0,
+                0
+              ],
+              "candidates": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "frame": 12300,
+              "seams": 0.0,
+              "retained": 0.0,
+              "discarded": 0.0,
+              "blss": 0.0,
+              "bbox": 0.0,
+              "nobbox": 0.0,
+              "shared": 0.0,
+              "notshared": 0.0,
+              "candidatecalls": [
+                0,
+                0,
+                0
+              ],
+              "candidates": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "frame": 12350,
+              "seams": 0.0,
+              "retained": 0.0,
+              "discarded": 0.0,
+              "blss": 0.0,
+              "bbox": 0.0,
+              "nobbox": 0.0,
+              "shared": 0.0,
+              "notshared": 0.0,
+              "candidatecalls": [
+                0,
+                0,
+                0
+              ],
+              "candidates": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "frame": 12400,
+              "seams": 0.0,
+              "retained": 0.0,
+              "discarded": 0.0,
+              "blss": 0.0,
+              "bbox": 0.0,
+              "nobbox": 0.0,
+              "shared": 0.0,
+              "notshared": 0.0,
+              "candidatecalls": [
+                0,
+                0,
+                0
+              ],
+              "candidates": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "frame": 12450,
+              "seams": 0.0,
+              "retained": 0.0,
+              "discarded": 0.0,
+              "blss": 0.0,
+              "bbox": 0.0,
+              "nobbox": 0.0,
+              "shared": 0.0,
+              "notshared": 0.0,
+              "candidatecalls": [
+                0,
+                0,
+                0
+              ],
+              "candidates": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "frame": 12500,
+              "seams": 0.0,
+              "retained": 0.0,
+              "discarded": 0.0,
+              "blss": 0.0,
+              "bbox": 0.0,
+              "nobbox": 0.0,
+              "shared": 0.0,
+              "notshared": 0.0,
+              "candidatecalls": [
+                0,
+                0,
+                0
+              ],
+              "candidates": [
+                0,
+                0,
+                0
+              ]
+            },
+            {
+              "frame": 12550,
+              "seams": 0.0,
+              "retained": 0.0,
+              "discarded": 0.0,
+              "blss": 0.0,
+              "bbox": 0.0,
+              "nobbox": 0.0,
+              "shared": 0.0,
+              "notshared": 0.0,
+              "candidatecalls": [
+                0,
+                0,
+                0
+              ],
+              "candidates": [
+                0,
+                0,
+                0
+              ]
+            }
+          ]
+        },
+        "mean_period_ms": 33.37,
+        "stage_means_ms": {
+          "retainedSphere": 0.0,
+          "discardedSphere": 0.0,
+          "sharedRetained": 0.0,
+          "sharedDiscarded": 0.0,
+          "blssSphere": 0.0,
+          "retainedPick": 0.0,
+          "discardedPick": 0.0
+        },
+        "calls_means_per_frame": {
+          "retainedSphere": 0.0,
+          "discardedSphere": 0.0,
+          "sharedRetained": 0.0,
+          "sharedDiscarded": 0.0,
+          "blssSphere": 0.0,
+          "retainedPick": 0.0,
+          "discardedPick": 0.0
+        },
+        "counter_means_per_frame": {
+          "seams": 0.0,
+          "retained": 0.0,
+          "discarded": 0.0,
+          "blss": 0.0,
+          "bbox": 0.0,
+          "nobbox": 0.0,
+          "shared": 0.0,
+          "notshared": 0.0
+        },
+        "order_windows": [
+          {
+            "frame": 12100,
+            "phase": 5,
+            "n": 50,
+            "mode": 0,
+            "plain": 50,
+            "interleaved": 0,
+            "blocked": 0
+          },
+          {
+            "frame": 12150,
+            "phase": 5,
+            "n": 50,
+            "mode": 0,
+            "plain": 50,
+            "interleaved": 0,
+            "blocked": 0
+          },
+          {
+            "frame": 12200,
+            "phase": 5,
+            "n": 50,
+            "mode": 0,
+            "plain": 50,
+            "interleaved": 0,
+            "blocked": 0
+          },
+          {
+            "frame": 12250,
+            "phase": 5,
+            "n": 50,
+            "mode": 0,
+            "plain": 50,
+            "interleaved": 0,
+            "blocked": 0
+          },
+          {
+            "frame": 12300,
+            "phase": 5,
+            "n": 50,
+            "mode": 0,
+            "plain": 50,
+            "interleaved": 0,
+            "blocked": 0
+          },
+          {
+            "frame": 12350,
+            "phase": 5,
+            "n": 50,
+            "mode": 0,
+            "plain": 50,
+            "interleaved": 0,
+            "blocked": 0
+          },
+          {
+            "frame": 12400,
+            "phase": 5,
+            "n": 50,
+            "mode": 0,
+            "plain": 50,
+            "interleaved": 0,
+            "blocked": 0
+          },
+          {
+            "frame": 12450,
+            "phase": 5,
+            "n": 50,
+            "mode": 0,
+            "plain": 50,
+            "interleaved": 0,
+            "blocked": 0
+          },
+          {
+            "frame": 12500,
+            "phase": 5,
+            "n": 50,
+            "mode": 0,
+            "plain": 50,
+            "interleaved": 0,
+            "blocked": 0
+          },
+          {
+            "frame": 12550,
+            "phase": 5,
+            "n": 50,
+            "mode": 0,
+            "plain": 50,
+            "interleaved": 0,
+            "blocked": 0
+          }
+        ],
+        "candidate_calls_means_per_frame": {
+          "retained": 0.0,
+          "discarded": 0.0,
+          "uncontextualized": 0.0
+        },
+        "candidates_means_per_frame": {
+          "retained": 0.0,
+          "discarded": 0.0,
+          "uncontextualized": 0.0
+        },
+        "delivered_rate_from_period_hz": 29.967036260113876
+      }
+    ],
+    "control_spread_ms": 0.02351515822940442,
+    "limitations": [
+      "One sequential same-ELF diagnostic boot; no production timing or optimization acceptance. Auto selection may confound observed gate-on work deltas.",
+      "Gate-off controls retain compiled scaffolding; pristine/compiled-out controls remain separate.",
+      "Sphere and pick partitions include observer clocks/counters and context, not a pure removable cost.",
+      "Shared BLSS/discarded sphere cannot be removed along with overwritten pick. No VU utilization claim.",
+      "Counters mean bags reaching actual light preparation and candidate activation, not output influence."
+    ],
+    "pinned_plain_control_spread_ms": 0.0012367169062308392
+  },
+  "sampled_state": {
+    "log": "F:\\Projects\\tyrax2-lab-20261001\\pinned-clock-trial-physical-snapshot.log",
+    "log_sha256": "84f11f41a7bc6d47c6ecea7f53477551fb41834bcdba196bc33add3b6280a7c6",
+    "base": [
+      {
+        "phase": 0,
+        "first": 0,
+        "enabled": 1,
+        "stepBits": 1023969417
+      },
+      {
+        "phase": 1,
+        "first": 2200,
+        "enabled": 1,
+        "stepBits": 1023969417
+      },
+      {
+        "phase": 2,
+        "first": 4400,
+        "enabled": 1,
+        "stepBits": 1023969417
+      },
+      {
+        "phase": 3,
+        "first": 6600,
+        "enabled": 1,
+        "stepBits": 1023969417
+      },
+      {
+        "phase": 4,
+        "first": 8800,
+        "enabled": 1,
+        "stepBits": 1023969417
+      },
+      {
+        "phase": 5,
+        "first": 11000,
+        "enabled": 1,
+        "stepBits": 1023969417
+      }
+    ],
+    "samples": [
+      {
+        "phase": 0,
+        "f": 1100,
+        "offset": 1100,
+        "enabled": 1,
+        "tBits": 1108528333,
+        "dtBits": 1024681000,
+        "dynBits": 1108528333,
+        "starBits": 1108528333,
+        "paused": 0,
+        "registered": 8,
+        "rtLights": 8,
+        "starCalls": 1,
+        "starSubmits": 3,
+        "light": "a7f37cc5:1a2f9744",
+        "state": "372654e5:328cf475",
+        "camera": "f2ef9a4b:ade5f640",
+        "stars": "d53dbdae:df365ea9",
+        "sky": "d749a6a5:246279ce"
+      },
+      {
+        "phase": 0,
+        "f": 1150,
+        "offset": 1150,
+        "enabled": 1,
+        "tBits": 1108965239,
+        "dtBits": 1024597272,
+        "dynBits": 1108965239,
+        "starBits": 1108965239,
+        "paused": 0,
+        "registered": 8,
+        "rtLights": 8,
+        "starCalls": 1,
+        "starSubmits": 3,
+        "light": "db443653:44f11688",
+        "state": "c2afa325:585ff210",
+        "camera": "f2ef9a4b:ade5f640",
+        "stars": "05e3fac3:b19d5c42",
+        "sky": "d749a6a5:246279ce"
+      },
+      {
+        "phase": 0,
+        "f": 1200,
+        "offset": 1200,
+        "enabled": 1,
+        "tBits": 1109402146,
+        "dtBits": 1024609533,
+        "dynBits": 1109402146,
+        "starBits": 1109402146,
+        "paused": 0,
+        "registered": 8,
+        "rtLights": 8,
+        "starCalls": 1,
+        "starSubmits": 3,
+        "light": "2f00c191:5b3ec5a4",
+        "state": "0c619078:028998da",
+        "camera": "f2ef9a4b:ade5f640",
+        "stars": "b74c6b91:cd30a77f",
+        "sky": "d749a6a5:246279ce"
+      },
+      {
+        "phase": 0,
+        "f": 1250,
+        "offset": 1250,
+        "enabled": 1,
+        "tBits": 1109839053,
+        "dtBits": 1024617239,
+        "dynBits": 1109839053,
+        "starBits": 1109839053,
+        "paused": 0,
+        "registered": 8,
+        "rtLights": 8,
+        "starCalls": 1,
+        "starSubmits": 3,
+        "light": "79977495:3338de99",
+        "state": "d4937aa6:417f1401",
+        "camera": "f2ef9a4b:ade5f640",
+        "stars": "5835c1aa:ff7bb431",
+        "sky": "d749a6a5:246279ce"
+      },
+      {
+        "phase": 0,
+        "f": 1300,
+        "offset": 1300,
+        "enabled": 1,
+        "tBits": 1110275960,
+        "dtBits": 1024598643,
+        "dynBits": 1110275960,
+        "starBits": 1110275960,
+        "paused": 0,
+        "registered": 8,
+        "rtLights": 8,
+        "starCalls": 1,
+        "starSubmits": 3,
+        "light": "3ae1dee1:5e9482bf",
+        "state": "6c7a1a54:a1952be4",
+        "camera": "f2ef9a4b:ade5f640",
+        "stars": "103abd11:466e2222",
+        "sky": "d749a6a5:246279ce"
+      },
+      {
+        "phase": 0,
+        "f": 1350,
+        "offset": 1350,
+        "enabled": 1,
+        "tBits": 1110712866,
+        "dtBits": 1024672082,
+        "dynBits": 1110712866,
+        "starBits": 1110712866,
+        "paused": 0,
+        "registered": 8,
+        "rtLights": 8,
+        "starCalls": 1,
+        "starSubmits": 3,
+        "light": "252875ad:79e0e01a",
+        "state": "3cfd4c79:42ed8c32",
+        "camera": "f2ef9a4b:ade5f640",
+        "stars": "4a62dad5:3d58af2c",
+        "sky": "d749a6a5:246279ce"
+      },
+      {
+        "phase": 0,
+        "f": 1400,
+        "offset": 1400,
+        "enabled": 1,
+        "tBits": 1111149773,
+        "dtBits": 1024615043,
+        "dynBits": 1111149773,
+        "starBits": 1111149773,
+        "paused": 0,
+        "registered": 8,
+        "rtLights": 8,
+        "starCalls": 1,
+        "starSubmits": 3,
+        "light": "471b6321:d5ed52cf",
+        "state": "befd24c3:09e5388d",
+        "camera": "f2ef9a4b:ade5f640",
+        "stars": "5b3fdaf1:39fe336e",
+        "sky": "d749a6a5:246279ce"
+      },
+      {
+        "phase": 0,
+        "f": 1450,
+        "offset": 1450,
+        "enabled": 1,
+        "tBits": 1111586680,
+        "dtBits": 1024619576,
+        "dynBits": 1111586680,
+        "starBits": 1111586680,
+        "paused": 0,
+        "registered": 8,
+        "rtLights": 8,
+        "starCalls": 1,
+        "starSubmits": 3,
+        "light": "2d57e533:e6866a99",
+        "state": "72cfcb2a:7fad39b7",
+        "camera": "f2ef9a4b:ade5f640",
+        "stars": "32043b05:32e33816",
+        "sky": "d749a6a5:246279ce"
+      },
+      {
+        "phase": 0,
+        "f": 1500,
+        "offset": 1500,
+        "enabled": 1,
+        "tBits": 1112023586,
+        "dtBits": 1024608632,
+        "dynBits": 1112023586,
+        "starBits": 1112023586,
+        "paused": 0,
+        "registered": 8,
+        "rtLights": 8,
+        "starCalls": 1,
+        "starSubmits": 3,
+        "light": "9b647176:4db99d23",
+        "state": "c254ff13:8dba25aa",
+        "camera": "f2ef9a4b:ade5f640",
+        "stars": "6f31bf9f:640106b9",
+        "sky": "d749a6a5:246279ce"
+      },
+      {
+        "phase": 0,
+        "f": 1550,
+        "offset": 1550,
+        "enabled": 1,
+        "tBits": 1112460493,
+        "dtBits": 1024612890,
+        "dynBits": 1112460493,
+        "starBits": 1112460493,
+        "paused": 0,
+        "registered": 8,
+        "rtLights": 8,
+        "starCalls": 1,
+        "starSubmits": 3,
+        "light": "a97e84c3:c3648d67",
+        "state": "7239170c:4bb3fc22",
+        "camera": "f2ef9a4b:ade5f640",
+        "stars": "789f160e:df4d03dc",
+        "sky": "d749a6a5:246279ce"
+      },
+      {
+        "phase": 0,
+        "f": 1600,
+        "offset": 1600,
+        "enabled": 1,
+        "tBits": 1112897400,
+        "dtBits": 1024675872,
+        "dynBits": 1112897400,
+        "starBits": 1112897400,
+        "paused": 0,
+        "registered": 8,
+        "rtLights": 8,
+        "starCalls": 1,
+        "starSubmits": 3,
+        "light": "b7c8cab7:62b0d30e",
+        "state": "fc833aa7:30ec223c",
+        "camera": "f2ef9a4b:ade5f640",
+        "stars": "86093d70:20ab90a8",
+        "sky": "d749a6a5:246279ce"
+      },
+      {
+        "phase": 1,
+        "f": 3300,
+        "offset": 1100,
+        "enabled": 1,
+        "tBits": 1108528333,
+        "dtBits": 1024614858,
+        "dynBits": 1108528333,
+        "starBits": 1108528333,
+        "paused": 0,
+        "registered": 8,
+        "rtLights": 8,
+        "starCalls": 1,
+        "starSubmits": 3,
+        "light": "a7f37cc5:1a2f9744",
+        "state": "372654e5:328cf475",
+        "camera": "f2ef9a4b:ade5f640",
+        "stars": "d53dbdae:df365ea9",
+        "sky": "d749a6a5:246279ce"
+      },
+      {
+        "phase": 1,
+        "f": 3350,
+        "offset": 1150,
+        "enabled": 1,
+        "tBits": 1108965239,
+        "dtBits": 1024611370,
+        "dynBits": 1108965239,
+        "starBits": 1108965239,
+        "paused": 0,
+        "registered": 8,
+        "rtLights": 8,
+        "starCalls": 1,
+        "starSubmits": 3,
+        "light": "db443653:44f11688",
+        "state": "c2afa325:585ff210",
+        "camera": "f2ef9a4b:ade5f640",
+        "stars": "05e3fac3:b19d5c42",
+        "sky": "d749a6a5:246279ce"
+      },
+      {
+        "phase": 1,
+        "f": 3400,
+        "offset": 1200,
+        "enabled": 1,
+        "tBits": 1109402146,
+        "dtBits": 1024623720,
+        "dynBits": 1109402146,
+        "starBits": 1109402146,
+        "paused": 0,
+        "registered": 8,
+        "rtLights": 8,
+        "starCalls": 1,
+        "starSubmits": 3,
+        "light": "2f00c191:5b3ec5a4",
+        "state": "0c619078:028998da",
+        "camera": "f2ef9a4b:ade5f640",
+        "stars": "b74c6b91:cd30a77f",
+        "sky": "d749a6a5:246279ce"
+      },
+      {
+        "phase": 1,
+        "f": 3450,
+        "offset": 1250,
+        "enabled": 1,
+        "tBits": 1109839053,
+        "dtBits": 1024687603,
+        "dynBits": 1109839053,
+        "starBits": 1109839053,
+        "paused": 0,
+        "registered": 8,
+        "rtLights": 8,
+        "starCalls": 1,
+        "starSubmits": 3,
+        "light": "79977495:3338de99",
+        "state": "d4937aa6:417f1401",
+        "camera": "f2ef9a4b:ade5f640",
+        "stars": "5835c1aa:ff7bb431",
+        "sky": "d749a6a5:246279ce"
+      },
+      {
+        "phase": 1,
+        "f": 3500,
+        "offset": 1300,
+        "enabled": 1,
+        "tBits": 1110275960,
+        "dtBits": 1024618548,
+        "dynBits": 1110275960,
+        "starBits": 1110275960,
+        "paused": 0,
+        "registered": 8,
+        "rtLights": 8,
+        "starCalls": 1,
+        "starSubmits": 3,
+        "light": "3ae1dee1:5e9482bf",
+        "state": "6c7a1a54:a1952be4",
+        "camera": "f2ef9a4b:ade5f640",
+        "stars": "103abd11:466e2222",
+        "sky": "d749a6a5:246279ce"
+      },
+      {
+        "phase": 1,
+        "f": 3550,
+        "offset": 1350,
+        "enabled": 1,
+        "tBits": 1110712866,
+        "dtBits": 1024626949,
+        "dynBits": 1110712866,
+        "starBits": 1110712866,
+        "paused": 0,
+        "registered": 8,
+        "rtLights": 8,
+        "starCalls": 1,
+        "starSubmits": 3,
+        "light": "252875ad:79e0e01a",
+        "state": "3cfd4c79:42ed8c32",
+        "camera": "f2ef9a4b:ade5f640",
+        "stars": "4a62dad5:3d58af2c",
+        "sky": "d749a6a5:246279ce"
+      },
+      {
+        "phase": 1,
+        "f": 3600,
+        "offset": 1400,
+        "enabled": 1,
+        "tBits": 1111149773,
+        "dtBits": 1024633885,
+        "dynBits": 1111149773,
+        "starBits": 1111149773,
+        "paused": 0,
+        "registered": 8,
+        "rtLights": 8,
+        "starCalls": 1,
+        "starSubmits": 3,
+        "light": "471b6321:d5ed52cf",
+        "state": "befd24c3:09e5388d",
+        "camera": "f2ef9a4b:ade5f640",
+        "stars": "5b3fdaf1:39fe336e",
+        "sky": "d749a6a5:246279ce"
+      },
+      {
+        "phase": 1,
+        "f": 3650,
+        "offset": 1450,
+        "enabled": 1,
+        "tBits": 1111586680,
+        "dtBits": 1024648816,
+        "dynBits": 1111586680,
+        "starBits": 1111586680,
+        "paused": 0,
+        "registered": 8,
+        "rtLights": 8,
+        "starCalls": 1,
+        "starSubmits": 3,
+        "light": "2d57e533:e6866a99",
+        "state": "72cfcb2a:7fad39b7",
+        "camera": "f2ef9a4b:ade5f640",
+        "stars": "32043b05:32e33816",
+        "sky": "d749a6a5:246279ce"
+      },
+      {
+        "phase": 1,
+        "f": 3700,
+        "offset": 1500,
+        "enabled": 1,
+        "tBits": 1112023586,
+        "dtBits": 1024719051,
+        "dynBits": 1112023586,
+        "starBits": 1112023586,
+        "paused": 0,
+        "registered": 8,
+        "rtLights": 8,
+        "starCalls": 1,
+        "starSubmits": 3,
+        "light": "9b647176:4db99d23",
+        "state": "c254ff13:8dba25aa",
+        "camera": "f2ef9a4b:ade5f640",
+        "stars": "6f31bf9f:640106b9",
+        "sky": "d749a6a5:246279ce"
+      },
+      {
+        "phase": 1,
+        "f": 3750,
+        "offset": 1550,
+        "enabled": 1,
+        "tBits": 1112460493,
+        "dtBits": 1025279992,
+        "dynBits": 1112460493,
+        "starBits": 1112460493,
+        "paused": 0,
+        "registered": 8,
+        "rtLights": 8,
+        "starCalls": 1,
+        "starSubmits": 3,
+        "light": "a97e84c3:c3648d67",
+        "state": "7239170c:4bb3fc22",
+        "camera": "f2ef9a4b:ade5f640",
+        "stars": "789f160e:df4d03dc",
+        "sky": "d749a6a5:246279ce"
+      },
+      {
+        "phase": 1,
+        "f": 3800,
+        "offset": 1600,
+        "enabled": 1,
+        "tBits": 1112897400,
+        "dtBits": 1024627883,
+        "dynBits": 1112897400,
+        "starBits": 1112897400,
+        "paused": 0,
+        "registered": 8,
+        "rtLights": 8,
+        "starCalls": 1,
+        "starSubmits": 3,
+        "light": "b7c8cab7:62b0d30e",
+        "state": "fc833aa7:30ec223c",
+        "camera": "f2ef9a4b:ade5f640",
+        "stars": "86093d70:20ab90a8",
+        "sky": "d749a6a5:246279ce"
+      },
+      {
+        "phase": 2,
+        "f": 5500,
+        "offset": 1100,
+        "enabled": 1,
+        "tBits": 1108528333,
+        "dtBits": 1024606748,
+        "dynBits": 1108528333,
+        "starBits": 1108528333,
+        "paused": 0,
+        "registered": 8,
+        "rtLights": 8,
+        "starCalls": 1,
+        "starSubmits": 3,
+        "light": "a7f37cc5:1a2f9744",
+        "state": "372654e5:328cf475",
+        "camera": "f2ef9a4b:ade5f640",
+        "stars": "d53dbdae:df365ea9",
+        "sky": "d749a6a5:246279ce"
+      },
+      {
+        "phase": 2,
+        "f": 5550,
+        "offset": 1150,
+        "enabled": 1,
+        "tBits": 1108965239,
+        "dtBits": 1024607867,
+        "dynBits": 1108965239,
+        "starBits": 1108965239,
+        "paused": 0,
+        "registered": 8,
+        "rtLights": 8,
+        "starCalls": 1,
+        "starSubmits": 3,
+        "light": "db443653:44f11688",
+        "state": "c2afa325:585ff210",
+        "camera": "f2ef9a4b:ade5f640",
+        "stars": "05e3fac3:b19d5c42",
+        "sky": "d749a6a5:246279ce"
+      },
+      {
+        "phase": 2,
+        "f": 5600,
+        "offset": 1200,
+        "enabled": 1,
+        "tBits": 1109402146,
+        "dtBits": 1024684796,
+        "dynBits": 1109402146,
+        "starBits": 1109402146,
+        "paused": 0,
+        "registered": 8,
+        "rtLights": 8,
+        "starCalls": 1,
+        "starSubmits": 3,
+        "light": "2f00c191:5b3ec5a4",
+        "state": "0c619078:028998da",
+        "camera": "f2ef9a4b:ade5f640",
+        "stars": "b74c6b91:cd30a77f",
+        "sky": "d749a6a5:246279ce"
+      },
+      {
+        "phase": 2,
+        "f": 5650,
+        "offset": 1250,
+        "enabled": 1,
+        "tBits": 1109839053,
+        "dtBits": 1024607993,
+        "dynBits": 1109839053,
+        "starBits": 1109839053,
+        "paused": 0,
+        "registered": 8,
+        "rtLights": 8,
+        "starCalls": 1,
+        "starSubmits": 3,
+        "light": "79977495:3338de99",
+        "state": "d4937aa6:417f1401",
+        "camera": "f2ef9a4b:ade5f640",
+        "stars": "5835c1aa:ff7bb431",
+        "sky": "d749a6a5:246279ce"
+      },
+      {
+        "phase": 2,
+        "f": 5700,
+        "offset": 1300,
+        "enabled": 1,
+        "tBits": 1110275960,
+        "dtBits": 1024597638,
+        "dynBits": 1110275960,
+        "starBits": 1110275960,
+        "paused": 0,
+        "registered": 8,
+        "rtLights": 8,
+        "starCalls": 1,
+        "starSubmits": 3,
+        "light": "3ae1dee1:5e9482bf",
+        "state": "6c7a1a54:a1952be4",
+        "camera": "f2ef9a4b:ade5f640",
+        "stars": "103abd11:466e2222",
+        "sky": "d749a6a5:246279ce"
+      },
+      {
+        "phase": 2,
+        "f": 5750,
+        "offset": 1350,
+        "enabled": 1,
+        "tBits": 1110712866,
+        "dtBits": 1024598889,
+        "dynBits": 1110712866,
+        "starBits": 1110712866,
+        "paused": 0,
+        "registered": 8,
+        "rtLights": 8,
+        "starCalls": 1,
+        "starSubmits": 3,
+        "light": "252875ad:79e0e01a",
+        "state": "3cfd4c79:42ed8c32",
+        "camera": "f2ef9a4b:ade5f640",
+        "stars": "4a62dad5:3d58af2c",
+        "sky": "d749a6a5:246279ce"
+      },
+      {
+        "phase": 2,
+        "f": 5800,
+        "offset": 1400,
+        "enabled": 1,
+        "tBits": 1111149773,
+        "dtBits": 1024598867,
+        "dynBits": 1111149773,
+        "starBits": 1111149773,
+        "paused": 0,
+        "registered": 8,
+        "rtLights": 8,
+        "starCalls": 1,
+        "starSubmits": 3,
+        "light": "471b6321:d5ed52cf",
+        "state": "befd24c3:09e5388d",
+        "camera": "f2ef9a4b:ade5f640",
+        "stars": "5b3fdaf1:39fe336e",
+        "sky": "d749a6a5:246279ce"
+      },
+      {
+        "phase": 2,
+        "f": 5850,
+        "offset": 1450,
+        "enabled": 1,
+        "tBits": 1111586680,
+        "dtBits": 1024686767,
+        "dynBits": 1111586680,
+        "starBits": 1111586680,
+        "paused": 0,
+        "registered": 8,
+        "rtLights": 8,
+        "starCalls": 1,
+        "starSubmits": 3,
+        "light": "2d57e533:e6866a99",
+        "state": "72cfcb2a:7fad39b7",
+        "camera": "f2ef9a4b:ade5f640",
+        "stars": "32043b05:32e33816",
+        "sky": "d749a6a5:246279ce"
+      },
+      {
+        "phase": 2,
+        "f": 5900,
+        "offset": 1500,
+        "enabled": 1,
+        "tBits": 1112023586,
+        "dtBits": 1024603258,
+        "dynBits": 1112023586,
+        "starBits": 1112023586,
+        "paused": 0,
+        "registered": 8,
+        "rtLights": 8,
+        "starCalls": 1,
+        "starSubmits": 3,
+        "light": "9b647176:4db99d23",
+        "state": "c254ff13:8dba25aa",
+        "camera": "f2ef9a4b:ade5f640",
+        "stars": "6f31bf9f:640106b9",
+        "sky": "d749a6a5:246279ce"
+      },
+      {
+        "phase": 2,
+        "f": 5950,
+        "offset": 1550,
+        "enabled": 1,
+        "tBits": 1112460493,
+        "dtBits": 1024604083,
+        "dynBits": 1112460493,
+        "starBits": 1112460493,
+        "paused": 0,
+        "registered": 8,
+        "rtLights": 8,
+        "starCalls": 1,
+        "starSubmits": 3,
+        "light": "a97e84c3:c3648d67",
+        "state": "7239170c:4bb3fc22",
+        "camera": "f2ef9a4b:ade5f640",
+        "stars": "789f160e:df4d03dc",
+        "sky": "d749a6a5:246279ce"
+      },
+      {
+        "phase": 2,
+        "f": 6000,
+        "offset": 1600,
+        "enabled": 1,
+        "tBits": 1112897400,
+        "dtBits": 1024607179,
+        "dynBits": 1112897400,
+        "starBits": 1112897400,
+        "paused": 0,
+        "registered": 8,
+        "rtLights": 8,
+        "starCalls": 1,
+        "starSubmits": 3,
+        "light": "b7c8cab7:62b0d30e",
+        "state": "fc833aa7:30ec223c",
+        "camera": "f2ef9a4b:ade5f640",
+        "stars": "86093d70:20ab90a8",
+        "sky": "d749a6a5:246279ce"
+      },
+      {
+        "phase": 3,
+        "f": 7700,
+        "offset": 1100,
+        "enabled": 1,
+        "tBits": 1108528333,
+        "dtBits": 1024577721,
+        "dynBits": 1108528333,
+        "starBits": 1108528333,
+        "paused": 0,
+        "registered": 8,
+        "rtLights": 8,
+        "starCalls": 1,
+        "starSubmits": 3,
+        "light": "a7f37cc5:1a2f9744",
+        "state": "372654e5:328cf475",
+        "camera": "f2ef9a4b:ade5f640",
+        "stars": "d53dbdae:df365ea9",
+        "sky": "d749a6a5:246279ce"
+      },
+      {
+        "phase": 3,
+        "f": 7750,
+        "offset": 1150,
+        "enabled": 1,
+        "tBits": 1108965239,
+        "dtBits": 1024672699,
+        "dynBits": 1108965239,
+        "starBits": 1108965239,
+        "paused": 0,
+        "registered": 8,
+        "rtLights": 8,
+        "starCalls": 1,
+        "starSubmits": 3,
+        "light": "db443653:44f11688",
+        "state": "c2afa325:585ff210",
+        "camera": "f2ef9a4b:ade5f640",
+        "stars": "05e3fac3:b19d5c42",
+        "sky": "d749a6a5:246279ce"
+      },
+      {
+        "phase": 3,
+        "f": 7800,
+        "offset": 1200,
+        "enabled": 1,
+        "tBits": 1109402146,
+        "dtBits": 1024600631,
+        "dynBits": 1109402146,
+        "starBits": 1109402146,
+        "paused": 0,
+        "registered": 8,
+        "rtLights": 8,
+        "starCalls": 1,
+        "starSubmits": 3,
+        "light": "2f00c191:5b3ec5a4",
+        "state": "0c619078:028998da",
+        "camera": "f2ef9a4b:ade5f640",
+        "stars": "b74c6b91:cd30a77f",
+        "sky": "d749a6a5:246279ce"
+      },
+      {
+        "phase": 3,
+        "f": 7850,
+        "offset": 1250,
+        "enabled": 1,
+        "tBits": 1109839053,
+        "dtBits": 1024607736,
+        "dynBits": 1109839053,
+        "starBits": 1109839053,
+        "paused": 0,
+        "registered": 8,
+        "rtLights": 8,
+        "starCalls": 1,
+        "starSubmits": 3,
+        "light": "79977495:3338de99",
+        "state": "d4937aa6:417f1401",
+        "camera": "f2ef9a4b:ade5f640",
+        "stars": "5835c1aa:ff7bb431",
+        "sky": "d749a6a5:246279ce"
+      },
+      {
+        "phase": 3,
+        "f": 7900,
+        "offset": 1300,
+        "enabled": 1,
+        "tBits": 1110275960,
+        "dtBits": 1025260207,
+        "dynBits": 1110275960,
+        "starBits": 1110275960,
+        "paused": 0,
+        "registered": 8,
+        "rtLights": 8,
+        "starCalls": 1,
+        "starSubmits": 3,
+        "light": "3ae1dee1:5e9482bf",
+        "state": "6c7a1a54:a1952be4",
+        "camera": "f2ef9a4b:ade5f640",
+        "stars": "103abd11:466e2222",
+        "sky": "d749a6a5:246279ce"
+      },
+      {
+        "phase": 3,
+        "f": 7950,
+        "offset": 1350,
+        "enabled": 1,
+        "tBits": 1110712866,
+        "dtBits": 1024602837,
+        "dynBits": 1110712866,
+        "starBits": 1110712866,
+        "paused": 0,
+        "registered": 8,
+        "rtLights": 8,
+        "starCalls": 1,
+        "starSubmits": 3,
+        "light": "252875ad:79e0e01a",
+        "state": "3cfd4c79:42ed8c32",
+        "camera": "f2ef9a4b:ade5f640",
+        "stars": "4a62dad5:3d58af2c",
+        "sky": "d749a6a5:246279ce"
+      },
+      {
+        "phase": 3,
+        "f": 8000,
+        "offset": 1400,
+        "enabled": 1,
+        "tBits": 1111149773,
+        "dtBits": 1024688602,
+        "dynBits": 1111149773,
+        "starBits": 1111149773,
+        "paused": 0,
+        "registered": 8,
+        "rtLights": 8,
+        "starCalls": 1,
+        "starSubmits": 3,
+        "light": "471b6321:d5ed52cf",
+        "state": "befd24c3:09e5388d",
+        "camera": "f2ef9a4b:ade5f640",
+        "stars": "5b3fdaf1:39fe336e",
+        "sky": "d749a6a5:246279ce"
+      },
+      {
+        "phase": 3,
+        "f": 8050,
+        "offset": 1450,
+        "enabled": 1,
+        "tBits": 1111586680,
+        "dtBits": 1024619003,
+        "dynBits": 1111586680,
+        "starBits": 1111586680,
+        "paused": 0,
+        "registered": 8,
+        "rtLights": 8,
+        "starCalls": 1,
+        "starSubmits": 3,
+        "light": "2d57e533:e6866a99",
+        "state": "72cfcb2a:7fad39b7",
+        "camera": "f2ef9a4b:ade5f640",
+        "stars": "32043b05:32e33816",
+        "sky": "d749a6a5:246279ce"
+      },
+      {
+        "phase": 3,
+        "f": 8100,
+        "offset": 1500,
+        "enabled": 1,
+        "tBits": 1112023586,
+        "dtBits": 1024599883,
+        "dynBits": 1112023586,
+        "starBits": 1112023586,
+        "paused": 0,
+        "registered": 8,
+        "rtLights": 8,
+        "starCalls": 1,
+        "starSubmits": 3,
+        "light": "9b647176:4db99d23",
+        "state": "c254ff13:8dba25aa",
+        "camera": "f2ef9a4b:ade5f640",
+        "stars": "6f31bf9f:640106b9",
+        "sky": "d749a6a5:246279ce"
+      },
+      {
+        "phase": 3,
+        "f": 8150,
+        "offset": 1550,
+        "enabled": 1,
+        "tBits": 1112460493,
+        "dtBits": 1024607889,
+        "dynBits": 1112460493,
+        "starBits": 1112460493,
+        "paused": 0,
+        "registered": 8,
+        "rtLights": 8,
+        "starCalls": 1,
+        "starSubmits": 3,
+        "light": "a97e84c3:c3648d67",
+        "state": "7239170c:4bb3fc22",
+        "camera": "f2ef9a4b:ade5f640",
+        "stars": "789f160e:df4d03dc",
+        "sky": "d749a6a5:246279ce"
+      },
+      {
+        "phase": 3,
+        "f": 8200,
+        "offset": 1600,
+        "enabled": 1,
+        "tBits": 1112897400,
+        "dtBits": 1024613181,
+        "dynBits": 1112897400,
+        "starBits": 1112897400,
+        "paused": 0,
+        "registered": 8,
+        "rtLights": 8,
+        "starCalls": 1,
+        "starSubmits": 3,
+        "light": "b7c8cab7:62b0d30e",
+        "state": "fc833aa7:30ec223c",
+        "camera": "f2ef9a4b:ade5f640",
+        "stars": "86093d70:20ab90a8",
+        "sky": "d749a6a5:246279ce"
+      },
+      {
+        "phase": 4,
+        "f": 9900,
+        "offset": 1100,
+        "enabled": 1,
+        "tBits": 1108528333,
+        "dtBits": 1024596120,
+        "dynBits": 1108528333,
+        "starBits": 1108528333,
+        "paused": 0,
+        "registered": 8,
+        "rtLights": 8,
+        "starCalls": 1,
+        "starSubmits": 3,
+        "light": "a7f37cc5:1a2f9744",
+        "state": "372654e5:328cf475",
+        "camera": "f2ef9a4b:ade5f640",
+        "stars": "d53dbdae:df365ea9",
+        "sky": "d749a6a5:246279ce"
+      },
+      {
+        "phase": 4,
+        "f": 9950,
+        "offset": 1150,
+        "enabled": 1,
+        "tBits": 1108965239,
+        "dtBits": 1024694189,
+        "dynBits": 1108965239,
+        "starBits": 1108965239,
+        "paused": 0,
+        "registered": 8,
+        "rtLights": 8,
+        "starCalls": 1,
+        "starSubmits": 3,
+        "light": "db443653:44f11688",
+        "state": "c2afa325:585ff210",
+        "camera": "f2ef9a4b:ade5f640",
+        "stars": "05e3fac3:b19d5c42",
+        "sky": "d749a6a5:246279ce"
+      },
+      {
+        "phase": 4,
+        "f": 10000,
+        "offset": 1200,
+        "enabled": 1,
+        "tBits": 1109402146,
+        "dtBits": 1024620041,
+        "dynBits": 1109402146,
+        "starBits": 1109402146,
+        "paused": 0,
+        "registered": 8,
+        "rtLights": 8,
+        "starCalls": 1,
+        "starSubmits": 3,
+        "light": "2f00c191:5b3ec5a4",
+        "state": "0c619078:028998da",
+        "camera": "f2ef9a4b:ade5f640",
+        "stars": "b74c6b91:cd30a77f",
+        "sky": "d749a6a5:246279ce"
+      },
+      {
+        "phase": 4,
+        "f": 10050,
+        "offset": 1250,
+        "enabled": 1,
+        "tBits": 1109839053,
+        "dtBits": 1024607012,
+        "dynBits": 1109839053,
+        "starBits": 1109839053,
+        "paused": 0,
+        "registered": 8,
+        "rtLights": 8,
+        "starCalls": 1,
+        "starSubmits": 3,
+        "light": "79977495:3338de99",
+        "state": "d4937aa6:417f1401",
+        "camera": "f2ef9a4b:ade5f640",
+        "stars": "5835c1aa:ff7bb431",
+        "sky": "d749a6a5:246279ce"
+      },
+      {
+        "phase": 4,
+        "f": 10100,
+        "offset": 1300,
+        "enabled": 1,
+        "tBits": 1110275960,
+        "dtBits": 1024587269,
+        "dynBits": 1110275960,
+        "starBits": 1110275960,
+        "paused": 0,
+        "registered": 8,
+        "rtLights": 8,
+        "starCalls": 1,
+        "starSubmits": 3,
+        "light": "3ae1dee1:5e9482bf",
+        "state": "6c7a1a54:a1952be4",
+        "camera": "f2ef9a4b:ade5f640",
+        "stars": "103abd11:466e2222",
+        "sky": "d749a6a5:246279ce"
+      },
+      {
+        "phase": 4,
+        "f": 10150,
+        "offset": 1350,
+        "enabled": 1,
+        "tBits": 1110712866,
+        "dtBits": 1024595876,
+        "dynBits": 1110712866,
+        "starBits": 1110712866,
+        "paused": 0,
+        "registered": 8,
+        "rtLights": 8,
+        "starCalls": 1,
+        "starSubmits": 3,
+        "light": "252875ad:79e0e01a",
+        "state": "3cfd4c79:42ed8c32",
+        "camera": "f2ef9a4b:ade5f640",
+        "stars": "4a62dad5:3d58af2c",
+        "sky": "d749a6a5:246279ce"
+      },
+      {
+        "phase": 4,
+        "f": 10200,
+        "offset": 1400,
+        "enabled": 1,
+        "tBits": 1111149773,
+        "dtBits": 1024682879,
+        "dynBits": 1111149773,
+        "starBits": 1111149773,
+        "paused": 0,
+        "registered": 8,
+        "rtLights": 8,
+        "starCalls": 1,
+        "starSubmits": 3,
+        "light": "471b6321:d5ed52cf",
+        "state": "befd24c3:09e5388d",
+        "camera": "f2ef9a4b:ade5f640",
+        "stars": "5b3fdaf1:39fe336e",
+        "sky": "d749a6a5:246279ce"
+      },
+      {
+        "phase": 4,
+        "f": 10250,
+        "offset": 1450,
+        "enabled": 1,
+        "tBits": 1111586680,
+        "dtBits": 1024587928,
+        "dynBits": 1111586680,
+        "starBits": 1111586680,
+        "paused": 0,
+        "registered": 8,
+        "rtLights": 8,
+        "starCalls": 1,
+        "starSubmits": 3,
+        "light": "2d57e533:e6866a99",
+        "state": "72cfcb2a:7fad39b7",
+        "camera": "f2ef9a4b:ade5f640",
+        "stars": "32043b05:32e33816",
+        "sky": "d749a6a5:246279ce"
+      },
+      {
+        "phase": 4,
+        "f": 10300,
+        "offset": 1500,
+        "enabled": 1,
+        "tBits": 1112023586,
+        "dtBits": 1024585771,
+        "dynBits": 1112023586,
+        "starBits": 1112023586,
+        "paused": 0,
+        "registered": 8,
+        "rtLights": 8,
+        "starCalls": 1,
+        "starSubmits": 3,
+        "light": "9b647176:4db99d23",
+        "state": "c254ff13:8dba25aa",
+        "camera": "f2ef9a4b:ade5f640",
+        "stars": "6f31bf9f:640106b9",
+        "sky": "d749a6a5:246279ce"
+      },
+      {
+        "phase": 4,
+        "f": 10350,
+        "offset": 1550,
+        "enabled": 1,
+        "tBits": 1112460493,
+        "dtBits": 1024596335,
+        "dynBits": 1112460493,
+        "starBits": 1112460493,
+        "paused": 0,
+        "registered": 8,
+        "rtLights": 8,
+        "starCalls": 1,
+        "starSubmits": 3,
+        "light": "a97e84c3:c3648d67",
+        "state": "7239170c:4bb3fc22",
+        "camera": "f2ef9a4b:ade5f640",
+        "stars": "789f160e:df4d03dc",
+        "sky": "d749a6a5:246279ce"
+      },
+      {
+        "phase": 4,
+        "f": 10400,
+        "offset": 1600,
+        "enabled": 1,
+        "tBits": 1112897400,
+        "dtBits": 1024598153,
+        "dynBits": 1112897400,
+        "starBits": 1112897400,
+        "paused": 0,
+        "registered": 8,
+        "rtLights": 8,
+        "starCalls": 1,
+        "starSubmits": 3,
+        "light": "b7c8cab7:62b0d30e",
+        "state": "fc833aa7:30ec223c",
+        "camera": "f2ef9a4b:ade5f640",
+        "stars": "86093d70:20ab90a8",
+        "sky": "d749a6a5:246279ce"
+      },
+      {
+        "phase": 5,
+        "f": 12100,
+        "offset": 1100,
+        "enabled": 1,
+        "tBits": 1108528333,
+        "dtBits": 1024604629,
+        "dynBits": 1108528333,
+        "starBits": 1108528333,
+        "paused": 0,
+        "registered": 8,
+        "rtLights": 8,
+        "starCalls": 1,
+        "starSubmits": 3,
+        "light": "a7f37cc5:1a2f9744",
+        "state": "372654e5:328cf475",
+        "camera": "f2ef9a4b:ade5f640",
+        "stars": "d53dbdae:df365ea9",
+        "sky": "d749a6a5:246279ce"
+      },
+      {
+        "phase": 5,
+        "f": 12150,
+        "offset": 1150,
+        "enabled": 1,
+        "tBits": 1108965239,
+        "dtBits": 1024594749,
+        "dynBits": 1108965239,
+        "starBits": 1108965239,
+        "paused": 0,
+        "registered": 8,
+        "rtLights": 8,
+        "starCalls": 1,
+        "starSubmits": 3,
+        "light": "db443653:44f11688",
+        "state": "c2afa325:585ff210",
+        "camera": "f2ef9a4b:ade5f640",
+        "stars": "05e3fac3:b19d5c42",
+        "sky": "d749a6a5:246279ce"
+      },
+      {
+        "phase": 5,
+        "f": 12200,
+        "offset": 1200,
+        "enabled": 1,
+        "tBits": 1109402146,
+        "dtBits": 1024606425,
+        "dynBits": 1109402146,
+        "starBits": 1109402146,
+        "paused": 0,
+        "registered": 8,
+        "rtLights": 8,
+        "starCalls": 1,
+        "starSubmits": 3,
+        "light": "2f00c191:5b3ec5a4",
+        "state": "0c619078:028998da",
+        "camera": "f2ef9a4b:ade5f640",
+        "stars": "b74c6b91:cd30a77f",
+        "sky": "d749a6a5:246279ce"
+      },
+      {
+        "phase": 5,
+        "f": 12250,
+        "offset": 1250,
+        "enabled": 1,
+        "tBits": 1109839053,
+        "dtBits": 1024596027,
+        "dynBits": 1109839053,
+        "starBits": 1109839053,
+        "paused": 0,
+        "registered": 8,
+        "rtLights": 8,
+        "starCalls": 1,
+        "starSubmits": 3,
+        "light": "79977495:3338de99",
+        "state": "d4937aa6:417f1401",
+        "camera": "f2ef9a4b:ade5f640",
+        "stars": "5835c1aa:ff7bb431",
+        "sky": "d749a6a5:246279ce"
+      },
+      {
+        "phase": 5,
+        "f": 12300,
+        "offset": 1300,
+        "enabled": 1,
+        "tBits": 1110275960,
+        "dtBits": 1024692092,
+        "dynBits": 1110275960,
+        "starBits": 1110275960,
+        "paused": 0,
+        "registered": 8,
+        "rtLights": 8,
+        "starCalls": 1,
+        "starSubmits": 3,
+        "light": "3ae1dee1:5e9482bf",
+        "state": "6c7a1a54:a1952be4",
+        "camera": "f2ef9a4b:ade5f640",
+        "stars": "103abd11:466e2222",
+        "sky": "d749a6a5:246279ce"
+      },
+      {
+        "phase": 5,
+        "f": 12350,
+        "offset": 1350,
+        "enabled": 1,
+        "tBits": 1110712866,
+        "dtBits": 1024587196,
+        "dynBits": 1110712866,
+        "starBits": 1110712866,
+        "paused": 0,
+        "registered": 8,
+        "rtLights": 8,
+        "starCalls": 1,
+        "starSubmits": 3,
+        "light": "252875ad:79e0e01a",
+        "state": "3cfd4c79:42ed8c32",
+        "camera": "f2ef9a4b:ade5f640",
+        "stars": "4a62dad5:3d58af2c",
+        "sky": "d749a6a5:246279ce"
+      },
+      {
+        "phase": 5,
+        "f": 12400,
+        "offset": 1400,
+        "enabled": 1,
+        "tBits": 1111149773,
+        "dtBits": 1024673103,
+        "dynBits": 1111149773,
+        "starBits": 1111149773,
+        "paused": 0,
+        "registered": 8,
+        "rtLights": 8,
+        "starCalls": 1,
+        "starSubmits": 3,
+        "light": "471b6321:d5ed52cf",
+        "state": "befd24c3:09e5388d",
+        "camera": "f2ef9a4b:ade5f640",
+        "stars": "5b3fdaf1:39fe336e",
+        "sky": "d749a6a5:246279ce"
+      },
+      {
+        "phase": 5,
+        "f": 12450,
+        "offset": 1450,
+        "enabled": 1,
+        "tBits": 1111586680,
+        "dtBits": 1024586888,
+        "dynBits": 1111586680,
+        "starBits": 1111586680,
+        "paused": 0,
+        "registered": 8,
+        "rtLights": 8,
+        "starCalls": 1,
+        "starSubmits": 3,
+        "light": "2d57e533:e6866a99",
+        "state": "72cfcb2a:7fad39b7",
+        "camera": "f2ef9a4b:ade5f640",
+        "stars": "32043b05:32e33816",
+        "sky": "d749a6a5:246279ce"
+      },
+      {
+        "phase": 5,
+        "f": 12500,
+        "offset": 1500,
+        "enabled": 1,
+        "tBits": 1112023586,
+        "dtBits": 1024606469,
+        "dynBits": 1112023586,
+        "starBits": 1112023586,
+        "paused": 0,
+        "registered": 8,
+        "rtLights": 8,
+        "starCalls": 1,
+        "starSubmits": 3,
+        "light": "9b647176:4db99d23",
+        "state": "c254ff13:8dba25aa",
+        "camera": "f2ef9a4b:ade5f640",
+        "stars": "6f31bf9f:640106b9",
+        "sky": "d749a6a5:246279ce"
+      },
+      {
+        "phase": 5,
+        "f": 12550,
+        "offset": 1550,
+        "enabled": 1,
+        "tBits": 1112460493,
+        "dtBits": 1024599408,
+        "dynBits": 1112460493,
+        "starBits": 1112460493,
+        "paused": 0,
+        "registered": 8,
+        "rtLights": 8,
+        "starCalls": 1,
+        "starSubmits": 3,
+        "light": "a97e84c3:c3648d67",
+        "state": "7239170c:4bb3fc22",
+        "camera": "f2ef9a4b:ade5f640",
+        "stars": "789f160e:df4d03dc",
+        "sky": "d749a6a5:246279ce"
+      },
+      {
+        "phase": 5,
+        "f": 12600,
+        "offset": 1600,
+        "enabled": 1,
+        "tBits": 1112897400,
+        "dtBits": 1024610325,
+        "dynBits": 1112897400,
+        "starBits": 1112897400,
+        "paused": 0,
+        "registered": 8,
+        "rtLights": 8,
+        "starCalls": 1,
+        "starSubmits": 3,
+        "light": "b7c8cab7:62b0d30e",
+        "state": "fc833aa7:30ec223c",
+        "camera": "f2ef9a4b:ade5f640",
+        "stars": "86093d70:20ab90a8",
+        "sky": "d749a6a5:246279ce"
+      }
+    ],
+    "pinned_comparisons": [
+      {
+        "offset": 1100,
+        "mismatches": {}
+      },
+      {
+        "offset": 1150,
+        "mismatches": {}
+      },
+      {
+        "offset": 1200,
+        "mismatches": {}
+      },
+      {
+        "offset": 1250,
+        "mismatches": {}
+      },
+      {
+        "offset": 1300,
+        "mismatches": {}
+      },
+      {
+        "offset": 1350,
+        "mismatches": {}
+      },
+      {
+        "offset": 1400,
+        "mismatches": {}
+      },
+      {
+        "offset": 1450,
+        "mismatches": {}
+      },
+      {
+        "offset": 1500,
+        "mismatches": {}
+      },
+      {
+        "offset": 1550,
+        "mismatches": {}
+      },
+      {
+        "offset": 1600,
+        "mismatches": {}
+      }
+    ],
+    "all_pinned_sampled_inputs_match": true,
+    "limits": [
+      "Eleven probabilistic digest samples per phase, not complete unsampled/pixel/querysphere/skip identity.",
+      "Hashes/instrumentation and visual-clock changes retain their own overhead; no pristine production gain.",
+      "Physics/real dt/cache/allocator history deliberately not frozen."
+    ]
+  },
+  "acceptance": "All13200frames/six raw512 windows and count/order partitions pass. All11matchingoffset pinned samples agree. Plain17.521326/IL17.307883/plain17.522563 ms;0.213443..0.214679ms apparent benefit vs0.001237ms plain spread. Approximately30Hz delivery; no new production optimization/default promotion.",
+  "artifacts": [
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\pinned-clock-trial\\fixture.json",
+      "sha256": "888aac00ca1f5058cf9538568ec111e06d720135e8149b967497af1f0ad101ad",
+      "bytes": 9918
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\pinned-state-control-fixture\\README.md",
+      "sha256": "0a327d24882023e8661351bfde7708dbc1001866f62bb0568867dfe4239fd411",
+      "bytes": 6120
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\pinned-state-control-fixture\\source-hashes.json",
+      "sha256": "b276001f44718c91ce5968ed129512e41f852ebddcaf3b3a95e2c366ad896e24",
+      "bytes": 17274
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\pinned-state-control-fixture\\candidate.patch",
+      "sha256": "d07cd5abe2ccf5c5197384ed13939b2fc0d7306f8256e0270a8f762ce291d9ec",
+      "bytes": 12171
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\pinned-clock-trial-build.log",
+      "sha256": "d36de5e626a8529ba9b1b4d2e42105a80b9e2745cb912f0fc2cefdc7c986bd08",
+      "bytes": 206542
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\pinned-clock-trial-repeat-build.log",
+      "sha256": "4673ea9a02c9a691c63a25207aadb8789ba0a8257fd644825e9c88f9bddb3933",
+      "bytes": 3099
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\pinned-clock-trial-physical-snapshot.log",
+      "sha256": "84f11f41a7bc6d47c6ecea7f53477551fb41834bcdba196bc33add3b6280a7c6",
+      "bytes": 808948
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\pinned-clock-trial-physical-summary.json",
+      "sha256": "db937acc3a8163a5fe81bad29ebf4bf40d271edede5a887a5efc3a957a6bd032",
+      "bytes": 99468
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\pinned-clock-trial-physical-state-summary.json",
+      "sha256": "41d4665ab30721822bd64cd0315870ce7523ea86c525de5c9056ba4c6f00f083",
+      "bytes": 35678
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\pinned-clock-trial-physical.elf",
+      "sha256": "554aa7075841e535a885bcd8dbcbb92a1435bbafcef013b8ebc20f96a80f69ce",
+      "bytes": 4581340
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\pinned-clock-trial-physical.elf.sym",
+      "sha256": "7bbfae349a50ab7c4518f597c1c387d883730c354d2f028fff2ed60d21e4ed1e",
+      "bytes": 25019548
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\analyze-pinned-clock-work.py",
+      "sha256": "2956e3613971f3ac318e1925deb43655d14528210cd4ffda4a48d56b0c05bbde",
+      "bytes": 5172
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\analyze-pinned-clock-state.py",
+      "sha256": "0dd9a0b429fdff9d3377725b4c2e2515729ccba069281a3d830887ad018efb43",
+      "bytes": 2426
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\ee-inverse-cost-probe\\report.md",
+      "sha256": "df92a9e9be86d7ef7c2d678664e24e9e70d9fc8e6e879daae43543790e9ac444",
+      "bytes": 6148
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\ee-inverse-cost-probe\\evidence.json",
+      "sha256": "e41ac9b31c10b1e8b4b13b3124a4afc098aa4b7cdc81265010a7a9d18eb36a70",
+      "bytes": 4950
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\ee-inverse-cost-trial\\report.md",
+      "sha256": "8bb2924969a74b6d5ff781a65fe4f414f41de73353f16852c60128353368510b",
+      "bytes": 4388
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\ee-inverse-cost-trial\\fixture.json",
+      "sha256": "92fbd6173d20de20347b33010e89926f04105e2e1c4526a5ebaed58114b9815e",
+      "bytes": 6386
+    }
+  ],
+  "limitations": [
+    "Visual time replay and sampled digest observer differ from authored production; do not assign cross-build timing difference to clocks alone.",
+    "Matching11probabilistic samples do not establish full unsampled/pixel/receiverquery identity.",
+    "One sequential controlled-clock boot; no causal explanation of old clip regression or first boot drift.",
+    "No current physical image confirmation or emulator screenshot for this new fixture.",
+    "Existing observer scopes are not pure removable cost.",
+    "Inverse cost census is host/source-only preparation; target and physical costs pending."
+  ]
+}

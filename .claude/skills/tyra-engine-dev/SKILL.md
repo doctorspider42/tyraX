@@ -3547,3 +3547,10 @@ active presentation completes the previous job, and triple-buffer flip queues
 for later vblank. Track edge/job/buffer identity, not sequence subtraction or
 requested pipeline state. Display-register delay is not button-to-TV photons.
 Private marker off/on/off plan is read-only preparation, not measured latency.
+
+Private visual-clock replay passes 13,200 physical frames and six raw/count/order
+windows without emulator: plain/IL/plain 17.521/17.308/17.523 ms gives about
+0.214 ms benefit vs 0.0012 ms plain spread, still30Hz. Eleven sampled pinned
+light/state/camera/star/sky digests agree; unsampled/pixel/query equality and
+causation of earlier drift remain open. Clock/observer/layout changes prevent
+cross-build production-gain attribution. See tyrax2-pinned-clock-2026-10-02.json.

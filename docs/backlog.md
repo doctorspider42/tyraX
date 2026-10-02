@@ -343,6 +343,11 @@ recovered 0.50-0.72 ms of hardware `work`. What it did not do, ranked:
   against 0.046 ms plain spread. Full animated-input equality remains open;
   no production selector fix is accepted. Then design/reset
   settled sampling and price normal critical-path work plus period before shipping.
+  A [private replayed visual-clock control](tyrax2-pinned-clock-2026-10-02.json)
+  passes 13,200 physical frames with all 11 pinned sampled inputs matching:
+  plain/IL/plain 17.521/17.308/17.523 ms, about 0.214 ms benefit vs 0.0012 ms
+  plain spread, still 30 Hz. No emulator, full pixel/query identity or production
+  clock change is accepted; use these controls to gate a future selector design.
 - **Remaining EE work / VU0 offload — audited, experiments open.**
   [Current physical attribution](tyrax2-ee-vu0.md) finds 2.724 ms snapshots
   and 0.743 ms conversion nested in 3.665 ms submission, but only about
