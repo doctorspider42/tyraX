@@ -823,6 +823,26 @@ void App::drawPropertiesWindow() {
                 "Snaps to the road's 0.5-unit lateral grid; the grip fades to\n"
                 "the terrain's with it. A texture whose alpha is ragged at the\n"
                 "edges makes it look organic. 0 = the hard edge.");
+            // Kerbs (docs/roads.md "Kerbs"): baked on the host at build.
+            if (ImGui::Checkbox("Kerbs", &o.roadKerb)) committed = true;
+            prefHelp(
+                "A concrete kerb along both edges, baked at build: it stops\n"
+                "where the road enters a junction patch and runs around the\n"
+                "patch's rounded corners instead (only between roads that\n"
+                "both have kerbs). Vertex colour only - no texture, no VRAM.\n"
+                "Visual only: vehicles and the player do not collide with it.\n"
+                "The game skips kerbs farther than ~60 units from the camera.");
+            if (o.roadKerb) {
+                ImGui::SetNextItemWidth(scaled(220));
+                if (ImGui::SliderFloat("Kerb height", &o.roadKerbHeight, 0.02f, 0.5f,
+                                       "%.2f units"))
+                    committed = true;
+                ImGui::SetNextItemWidth(scaled(220));
+                if (ImGui::SliderFloat("Kerb width", &o.roadKerbWidth, 0.05f, 1.0f,
+                                       "%.2f units"))
+                    committed = true;
+                prefHelp("The flat top of the kerb, outward from the road edge.");
+            }
         }
         // This road's crossings (docs/roads.md, "Junction overrides"): the
         // plan the build uses, one button each - the same junction the

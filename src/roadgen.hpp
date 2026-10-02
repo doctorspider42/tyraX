@@ -347,6 +347,9 @@ struct CrossingRoad {
     float spill = kSpillDefault, edgeFade = 0.0f;
     int rank = 1;
     std::string intersection;  // intersection material ("" = none)
+    // Kerbs (docs/roads.md "Kerbs"): only planKerbs reads these.
+    bool kerb = false;
+    float kerbHeight = 0.15f, kerbWidth = 0.25f;
 };
 
 // What an override says the crossing does. Auto = the rank rule.
@@ -445,5 +448,49 @@ CrossingPlan planCrossings(const std::vector<CrossingRoad>& roads,
 void addCrossingsToSurface(Surface& s, const std::vector<CrossingRoad>& roads,
                            const CrossingPlan& plan, const HeightFn& terrain,
                            const TerrainGrid& grid = {});
+
+// --- kerbs (docs/roads.md "Kerbs") -----------------------------------------
+//
+// A kerb is a two-face profile swept along a line: a vertical FACE at the
+// line from just below the road surface up to the kerb height, and the flat
+// TOP from the line outward by the kerb width. No bottom and no back face:
+// nobody sees them, and nothing in this engine backface-culls. Host-baked,
+// like the junction patches: the codegen emits the strips the console
+// uploads unchanged, and the viewport draws the same triangles.
+//
+// The lines are each kerbed road's two edges, CUT wherever the kerb would lie
+// on another road or inside a junction patch, plus the edge stretches of
+// every patch outline between two arms whose roads both have kerbs (never
+// across an arm's cap: the road continues there). Points follow the drawn
+// surface; straight stretches merge within kKerbTolerance.
+inline constexpr float kKerbTolerance = 0.02f;  // lateral and vertical merge error
+inline constexpr float kKerbSink = 0.04f;       // face base below the surface
+inline constexpr float kKerbCell = 32.0f;       // chunk grid (cull granularity)
+inline constexpr float kKerbShadeTop = 0.78f;   // baked shading, 1 = white
+inline constexpr float kKerbShadeFace = 0.56f;
+// One kerb line. pts: x, y (the surface under the line), z, outward unit
+// normal nx, nz - per point.
+struct KerbPiece {
+    int road = -1;  // CrossingRoad index that owns it (a patch's chain: an arm's road)
+    int node = -1;  // crossing index for a patch chain, -1 for a road edge
+    float height = 0.15f, width = 0.25f;
+    std::vector<float> pts;
+    int points() const { return (int)(pts.size() / 5); }
+};
+struct KerbVertex {
+    float x, y, z, shade;
+};
+// `surface` answers the DRAWN road height under (x, z) (roads + patches, the
+// rank lift included) or Surface::kNone; `ground` is the bare terrain.
+std::vector<KerbPiece> planKerbs(const std::vector<CrossingRoad>& roads,
+                                 const CrossingPlan& plan, const HeightFn& surface,
+                                 const HeightFn& ground);
+// Every piece as triangle STRIP runs of kStripRun (the road chunks' run
+// contract), grouped into kKerbCell chunks of at most kChunkBudget vertices.
+// `chunkSizes` receives one vertex count per chunk.
+void kerbStrips(const std::vector<KerbPiece>& pieces, std::vector<KerbVertex>& out,
+                std::vector<int>& chunkSizes);
+// One piece as a triangle LIST (the viewport, the check).
+void kerbTriangles(const KerbPiece& piece, std::vector<KerbVertex>& out);
 
 }  // namespace roadgen

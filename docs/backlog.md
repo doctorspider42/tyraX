@@ -16,7 +16,12 @@ is not:
   arm caps, fillets and gore are already in `Junction::outline`'s
   construction (`nodeOutline`); expose the per-arm frames instead of only
   the ring.
-- **Kerbs and pavements** extruded along road edges and around the fillets.
+- ~~**Kerbs**~~ along road edges and around the fillets: done (format 95,
+  docs/roads.md "Kerbs"; host-baked strips, 60-unit draw distance, visual
+  only). Still open: **pavements** (a wide raised walk behind the kerb, the
+  same sweep with a texture), **kerb collision** for the vehicles (a wheel
+  should bump up a kerb rather than pass through it), and the draw distance
+  as a project setting.
 - **Overrides for nodes of more than two roads.** `JunctionOverride` is still
   a road PAIR, and the Junction panel's Winner combo offers only `c.a`/`c.b`.
 - **A per-node corner radius** (today 1.5 x the mean half width, 1..8).

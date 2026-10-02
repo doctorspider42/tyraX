@@ -5,6 +5,7 @@
 #include <set>
 #include <cmath>
 #include <limits>
+#include <map>
 #include <utility>
 
 #include "meshstrip.hpp"  // the run contract the strip emitter keeps
@@ -1916,6 +1917,484 @@ float Surface::at(float x, float z, float* grip, float* cover) const {
         }
     }
     return best;
+}
+
+// --- kerbs (docs/roads.md "Kerbs") -------------------------------------------
+//
+// Host-only, like the junction patches: the codegen bakes the strips and the
+// console uploads them unchanged, so there is no EE twin to keep in step.
+
+namespace {
+
+struct KerbPt {
+    float x, z, nx, nz;
+};
+
+// Even-odd point in an XZ ring.
+bool insideRing(const std::vector<P>& ring, float x, float z) {
+    bool in = false;
+    for (size_t i = 0, j = ring.size() - 1; i < ring.size(); j = i++) {
+        const P& a = ring[i];
+        const P& b = ring[j];
+        if ((a.z > z) != (b.z > z)) {
+            const float xi = a.x + (z - a.z) * (b.x - a.x) / (b.z - a.z);
+            if (x < xi) in = !in;
+        }
+    }
+    return in;
+}
+
+// What a kerb may not lie on: every road's surface and every drawn patch.
+struct KerbWorld {
+    const std::vector<CrossingRoad>& roads;
+    std::vector<Line> lines;
+    std::vector<std::array<float, 4>> box;  // per road: min x, min z, max x, max z
+    struct Patch {
+        int crossing = -1;
+        std::vector<P> ring;
+        float mnx = 0, mnz = 0, mxx = 0, mxz = 0;
+    };
+    std::vector<Patch> patches;
+
+    KerbWorld(const std::vector<CrossingRoad>& r, const CrossingPlan& plan) : roads(r) {
+        lines.resize(roads.size());
+        box.resize(roads.size(), {1e30f, 1e30f, -1e30f, -1e30f});
+        for (size_t i = 0; i < roads.size(); ++i) {
+            if (roads[i].points.size() < 4) continue;
+            lines[i] = lineOf(roads[i].points);
+            const float h = halfW((int)i) + 1.0f;
+            for (const P& q : lines[i].p) {
+                box[i][0] = std::min(box[i][0], q.x - h);
+                box[i][1] = std::min(box[i][1], q.z - h);
+                box[i][2] = std::max(box[i][2], q.x + h);
+                box[i][3] = std::max(box[i][3], q.z + h);
+            }
+        }
+        for (size_t ci = 0; ci < plan.crossings.size(); ++ci) {
+            const Crossing& c = plan.crossings[ci];
+            if (c.kind != kCrossPatch || c.patchDuplicate) continue;
+            const std::vector<float>& o = c.shape.outline;
+            if (o.size() < 6) continue;
+            Patch pa;
+            pa.crossing = (int)ci;
+            pa.mnx = pa.mnz = 1e30f;
+            pa.mxx = pa.mxz = -1e30f;
+            for (size_t k = 0; k + 1 < o.size(); k += 2) {
+                pa.ring.push_back({o[k], o[k + 1]});
+                pa.mnx = std::min(pa.mnx, o[k]);
+                pa.mxx = std::max(pa.mxx, o[k]);
+                pa.mnz = std::min(pa.mnz, o[k + 1]);
+                pa.mxz = std::max(pa.mxz, o[k + 1]);
+            }
+            patches.push_back(std::move(pa));
+        }
+    }
+    float halfW(int i) const { return 0.5f * std::max(0.1f, roads[(size_t)i].width); }
+    // On road r's surface, `margin` inside its edge.
+    bool onRoad(int r, float x, float z, float margin) const {
+        const Line& l = lines[(size_t)r];
+        if (l.p.size() < 2) return false;
+        const std::array<float, 4>& b = box[(size_t)r];
+        if (x < b[0] || z < b[1] || x > b[2] || z > b[3]) return false;
+        return projectOnto(l, x, z, nullptr) < halfW(r) - margin;
+    }
+    bool onAnyRoad(float x, float z, int except, float margin) const {
+        for (int r = 0; r < (int)roads.size(); ++r)
+            if (r != except && onRoad(r, x, z, margin)) return true;
+        return false;
+    }
+    bool inPatch(float x, float z, int exceptCrossing) const {
+        for (const Patch& pa : patches) {
+            if (pa.crossing == exceptCrossing) continue;
+            if (x < pa.mnx || x > pa.mxx || z < pa.mnz || z > pa.mxz) continue;
+            if (insideRing(pa.ring, x, z)) return true;
+        }
+        return false;
+    }
+    // The road whose edge (x, z) lies on, among `among`.
+    int edgeRoad(const std::vector<int>& among, float x, float z) const {
+        int best = -1;
+        float bestD = 1e30f;
+        for (int r : among) {
+            if (lines[(size_t)r].p.size() < 2) continue;
+            const float d = std::fabs(projectOnto(lines[(size_t)r], x, z, nullptr) - halfW(r));
+            if (d < bestD) {
+                bestD = d;
+                best = r;
+            }
+        }
+        return best;
+    }
+};
+
+// Longest single kerb segment after merging: keeps a chunk's box compact and
+// bounds how far one straight chord can stray from a long, gentle crest.
+constexpr float kKerbMaxRun = 8.0f;
+
+// Heights onto the drawn surface, then merge every point a chord already
+// represents within kKerbTolerance (laterally and vertically).
+void finishKerbPiece(KerbPiece& piece, const std::vector<KerbPt>& in, float fallbackLift,
+                     const HeightFn& surface, const HeightFn& ground,
+                     std::vector<KerbPiece>& out) {
+    if (in.size() < 2) return;
+    float len = 0.0f;
+    for (size_t i = 1; i < in.size(); ++i)
+        len += std::hypot(in[i].x - in[i - 1].x, in[i].z - in[i - 1].z);
+    if (len < 0.05f) return;
+    std::vector<float> y(in.size());
+    for (size_t i = 0; i < in.size(); ++i) {
+        const KerbPt& q = in[i];
+        // A hair inside the road (or patch): the surface the face stands on.
+        float h = surface ? surface(q.x - q.nx * 0.1f, q.z - q.nz * 0.1f) : Surface::kNone;
+        if (!(h > -1.0e29f)) h = (ground ? ground(q.x, q.z) : 0.0f) + kLift + fallbackLift;
+        y[i] = h;
+    }
+    std::vector<size_t> keep{0};
+    size_t a = 0;
+    while (a + 1 < in.size()) {
+        size_t best = a + 1;
+        for (size_t j = a + 2; j < in.size(); ++j) {
+            const float cx = in[j].x - in[a].x, cz = in[j].z - in[a].z;
+            const float cl = std::hypot(cx, cz);
+            if (cl > kKerbMaxRun || cl < 1e-5f) break;
+            bool ok = true;
+            for (size_t k = a + 1; k < j && ok; ++k) {
+                const float px = in[k].x - in[a].x, pz = in[k].z - in[a].z;
+                const float t = (px * cx + pz * cz) / (cl * cl);
+                const float lat = std::fabs(px * cz - pz * cx) / cl;
+                const float dy = std::fabs(y[k] - (y[a] + (y[j] - y[a]) * t));
+                ok = t > 0.0f && t < 1.0f && lat <= kKerbTolerance && dy <= kKerbTolerance &&
+                     in[k].nx * in[a].nx + in[k].nz * in[a].nz > 0.995f;
+            }
+            if (!ok) break;
+            best = j;
+        }
+        keep.push_back(best);
+        a = best;
+    }
+    piece.pts.clear();
+    for (size_t k : keep)
+        piece.pts.insert(piece.pts.end(), {in[k].x, y[k], in[k].z, in[k].nx, in[k].nz});
+    out.push_back(piece);
+}
+
+// The profile at one point: face base, face top (= the top's inner edge),
+// the top's outer edge.
+void kerbProfile(const KerbPiece& p, int i, KerbVertex& b, KerbVertex& t, KerbVertex& o,
+                 KerbVertex& tTop) {
+    const float* q = &p.pts[(size_t)i * 5];
+    b = {q[0], q[1] - kKerbSink, q[2], kKerbShadeFace};
+    t = {q[0], q[1] + p.height, q[2], kKerbShadeFace};
+    tTop = {q[0], q[1] + p.height, q[2], kKerbShadeTop};
+    o = {q[0] + q[3] * p.width, q[1] + p.height, q[2] + q[4] * p.width, kKerbShadeTop};
+}
+
+}  // namespace
+
+std::vector<KerbPiece> planKerbs(const std::vector<CrossingRoad>& roads,
+                                 const CrossingPlan& plan, const HeightFn& surface,
+                                 const HeightFn& ground) {
+    std::vector<KerbPiece> out;
+    bool any = false;
+    for (const CrossingRoad& r : roads) any |= r.kerb && r.points.size() >= 4;
+    if (!any) return out;
+    const KerbWorld world(roads, plan);
+
+    // 1. Patch chains: each drawn patch's outline, minus its arm caps (where
+    // a road carries on), minus whatever lies on a road or another patch. A
+    // run between two caps is the kerb around one fillet (or along the far
+    // side of a T); it is kept only when the roads at both its ends have kerbs.
+    struct End {
+        float x, z;
+    };
+    std::vector<End> chainEnds;
+    for (const KerbWorld::Patch& pa : world.patches) {
+        const Crossing& c = plan.crossings[(size_t)pa.crossing];
+        bool kerbed = false;
+        for (int ri : c.roads) kerbed |= roads[(size_t)ri].kerb;
+        if (!kerbed) continue;
+        const std::vector<P>& ring = pa.ring;
+        const size_t m = ring.size();
+        double area = 0.0;
+        for (size_t k = 0; k < m; ++k)
+            area += (double)ring[k].x * ring[(k + 1) % m].z -
+                    (double)ring[(k + 1) % m].x * ring[k].z;
+        const float sign = area >= 0.0 ? 1.0f : -1.0f;
+        // Outward normal of segment k, and whether a kerb may stand on it.
+        std::vector<float> snx(m), snz(m);
+        std::vector<char> kept(m, 0);
+        float widest = 0.25f;
+        for (int ri : c.roads) widest = std::max(widest, roads[(size_t)ri].kerbWidth);
+        for (size_t k = 0; k < m; ++k) {
+            const P& a = ring[k];
+            const P& b = ring[(k + 1) % m];
+            const float dx = b.x - a.x, dz = b.z - a.z;
+            const float l = std::hypot(dx, dz);
+            if (l < 1e-5f) continue;
+            snx[k] = sign * dz / l;
+            snz[k] = -sign * dx / l;
+            const float mx = 0.5f * (a.x + b.x), mz = 0.5f * (a.z + b.z);
+            bool blocked =
+                world.onAnyRoad(mx + snx[k] * 0.05f, mz + snz[k] * 0.05f, -1, 0.0f) ||
+                world.onAnyRoad(mx + snx[k] * widest, mz + snz[k] * widest, -1, 0.0f) ||
+                world.inPatch(mx + snx[k] * 0.05f, mz + snz[k] * 0.05f, pa.crossing);
+            kept[k] = blocked ? 0 : 1;
+        }
+        size_t start = m;
+        for (size_t k = 0; k < m; ++k)
+            if (kept[k] && !kept[(k + m - 1) % m]) {
+                start = k;
+                break;
+            }
+        const bool ringWhole =
+            start == m && std::all_of(kept.begin(), kept.end(), [](char v) { return v != 0; });
+        if (start == m && !ringWhole) continue;
+        if (ringWhole) start = 0;
+        auto vertexNormal = [&](size_t k, bool first, bool last, float* nx, float* nz) {
+            // Chain ends take their one segment's normal; interior points the
+            // mean of both, so the top's outer edge stays parallel round a curve.
+            const size_t prev = (k + m - 1) % m;
+            float x = 0.0f, z = 0.0f;
+            if (!first || ringWhole) x += snx[prev], z += snz[prev];
+            if (!last || ringWhole) x += snx[k % m], z += snz[k % m];
+            const float l = std::hypot(x, z);
+            *nx = l > 1e-6f ? x / l : snx[k % m];
+            *nz = l > 1e-6f ? z / l : snz[k % m];
+        };
+        std::vector<char> used(m, 0);
+        for (size_t s0 = start, guard = 0; guard < m; ++guard, s0 = (s0 + 1) % m) {
+            if (!kept[s0] || used[s0]) continue;
+            if (!ringWhole && kept[(s0 + m - 1) % m]) continue;  // not a run start
+            // The run s0 .. s1 (segments), points s0 .. s1 + 1.
+            size_t count = 0;
+            while (count < m && kept[(s0 + count) % m]) used[(s0 + count) % m] = 1, ++count;
+            const P& pa0 = ring[s0];
+            const P& pa1 = ring[(s0 + count) % m];
+            int r0 = -1, r1 = -1;
+            if (ringWhole) {
+                bool all = true;
+                for (int ri : c.roads) all &= roads[(size_t)ri].kerb;
+                if (!all) continue;
+                r0 = r1 = c.roads[0];
+            } else {
+                r0 = world.edgeRoad(c.roads, pa0.x, pa0.z);
+                r1 = world.edgeRoad(c.roads, pa1.x, pa1.z);
+                if (r0 < 0 || r1 < 0 || !roads[(size_t)r0].kerb || !roads[(size_t)r1].kerb)
+                    continue;
+                chainEnds.push_back({pa0.x, pa0.z});
+                chainEnds.push_back({pa1.x, pa1.z});
+            }
+            std::vector<KerbPt> pts;
+            for (size_t q = 0; q <= count; ++q) {
+                const size_t k = (s0 + q) % m;
+                float nx, nz;
+                vertexNormal(k, q == 0, q == count, &nx, &nz);
+                if (q > 0) {
+                    // Subdivide long segments so the heights follow the patch.
+                    const P& a = ring[(k + m - 1) % m];
+                    const P& b = ring[k];
+                    const int steps = (int)std::ceil(std::hypot(b.x - a.x, b.z - a.z) / 1.0f);
+                    const size_t seg = (k + m - 1) % m;
+                    for (int st = 1; st < steps; ++st) {
+                        const float f = (float)st / (float)steps;
+                        pts.push_back({a.x + (b.x - a.x) * f, a.z + (b.z - a.z) * f, snx[seg],
+                                       snz[seg]});
+                    }
+                }
+                pts.push_back({ring[k].x, ring[k].z, nx, nz});
+            }
+            KerbPiece piece;
+            piece.road = r0;
+            piece.node = pa.crossing;
+            piece.height = roads[(size_t)r0].kerbHeight;
+            piece.width = roads[(size_t)r0].kerbWidth;
+            finishKerbPiece(piece, pts, rankLift(roads[(size_t)r0].rank), surface, ground,
+                            out);
+        }
+    }
+
+    // 2. Road edges: both sides of every kerbed road, cut wherever the kerb
+    // would enter a patch or lie on another road. A cut is placed by
+    // bisection and snapped onto the patch chain's end when one is that close,
+    // so the road's kerb and the fillet's meet in one point.
+    for (int ri = 0; ri < (int)roads.size(); ++ri) {
+        const CrossingRoad& R = roads[(size_t)ri];
+        if (!R.kerb || R.points.size() < 4) continue;
+        std::vector<std::vector<Vertex>> rows;
+        int cs = 1;
+        buildRows(R.points, R.width, nullptr, R.sampleStep, rows, &cs);
+        if (rows.size() < 2) continue;
+        for (int side = 0; side < 2; ++side) {
+            std::vector<KerbPt> st;
+            for (const std::vector<Vertex>& row : rows) {
+                const Vertex& e = side == 0 ? row[0] : row[(size_t)cs];
+                const Vertex& o = side == 0 ? row[(size_t)cs] : row[0];
+                float nx = e.x - o.x, nz = e.z - o.z;
+                const float l = std::hypot(nx, nz);
+                if (l > 1e-6f) nx /= l, nz /= l;
+                st.push_back({e.x, e.z, nx, nz});
+            }
+            auto blocked = [&](const KerbPt& q) {
+                return world.inPatch(q.x - q.nx * 0.05f, q.z - q.nz * 0.05f, -1) ||
+                       world.onAnyRoad(q.x + q.nx * 0.02f, q.z + q.nz * 0.02f, ri, 0.0f) ||
+                       world.onAnyRoad(q.x + q.nx * R.kerbWidth, q.z + q.nz * R.kerbWidth, ri,
+                                       0.0f);
+            };
+            auto lerpPt = [](const KerbPt& a, const KerbPt& b, float f) {
+                KerbPt q{a.x + (b.x - a.x) * f, a.z + (b.z - a.z) * f, a.nx + (b.nx - a.nx) * f,
+                         a.nz + (b.nz - a.nz) * f};
+                const float l = std::hypot(q.nx, q.nz);
+                if (l > 1e-6f) q.nx /= l, q.nz /= l;
+                return q;
+            };
+            // The last free point between a free `in` and a blocked `out`.
+            auto boundary = [&](const KerbPt& in, const KerbPt& outPt) {
+                float lo = 0.0f, hi = 1.0f;
+                for (int it = 0; it < 14; ++it) {
+                    const float mid = 0.5f * (lo + hi);
+                    if (blocked(lerpPt(in, outPt, mid))) hi = mid; else lo = mid;
+                }
+                KerbPt q = lerpPt(in, outPt, lo);
+                float bestD = 0.35f;
+                for (const End& e : chainEnds) {
+                    const float d = std::hypot(e.x - q.x, e.z - q.z);
+                    if (d < bestD) {
+                        bestD = d;
+                        q.x = e.x;
+                        q.z = e.z;
+                    }
+                }
+                return q;
+            };
+            std::vector<char> blk(st.size());
+            for (size_t i = 0; i < st.size(); ++i) blk[i] = blocked(st[i]) ? 1 : 0;
+            std::vector<KerbPt> cur;
+            auto flush = [&]() {
+                KerbPiece piece;
+                piece.road = ri;
+                piece.height = R.kerbHeight;
+                piece.width = R.kerbWidth;
+                finishKerbPiece(piece, cur, rankLift(R.rank), surface, ground, out);
+                cur.clear();
+            };
+            for (size_t i = 0; i < st.size(); ++i) {
+                if (!blk[i]) {
+                    if (cur.empty() && i > 0) cur.push_back(boundary(st[i], st[i - 1]));
+                    cur.push_back(st[i]);
+                } else if (!cur.empty()) {
+                    cur.push_back(boundary(st[i - 1], st[i]));
+                    flush();
+                }
+            }
+            if (!cur.empty()) flush();
+        }
+    }
+    return out;
+}
+
+void kerbTriangles(const KerbPiece& p, std::vector<KerbVertex>& out) {
+    for (int i = 0; i + 1 < p.points(); ++i) {
+        KerbVertex b0, t0, o0, u0, b1, t1, o1, u1;
+        kerbProfile(p, i, b0, t0, o0, u0);
+        kerbProfile(p, i + 1, b1, t1, o1, u1);
+        out.insert(out.end(), {b0, b1, t1, b0, t1, t0});  // the face
+        out.insert(out.end(), {u0, u1, o1, u0, o1, o0});  // the top
+    }
+}
+
+void kerbStrips(const std::vector<KerbPiece>& pieces, std::vector<KerbVertex>& out,
+                std::vector<int>& chunkSizes) {
+    out.clear();
+    chunkSizes.clear();
+    // Pieces cut into kKerbCell cells by segment midpoint; one cell's pieces
+    // share chunks, so a chunk's box stays about a cell wide and the frustum
+    // and the draw distance reject kerbs a street at a time.
+    struct Sub {
+        size_t piece;
+        int first, last;  // point range, inclusive
+    };
+    std::map<std::pair<int, int>, std::vector<Sub>> cells;
+    for (size_t pi = 0; pi < pieces.size(); ++pi) {
+        const KerbPiece& p = pieces[pi];
+        const int n = p.points();
+        if (n < 2) continue;
+        auto cellOf = [&](int seg) {
+            const float* a = &p.pts[(size_t)seg * 5];
+            const float* b = &p.pts[(size_t)(seg + 1) * 5];
+            return std::make_pair((int)std::floor(0.5f * (a[0] + b[0]) / kKerbCell),
+                                  (int)std::floor(0.5f * (a[2] + b[2]) / kKerbCell));
+        };
+        int first = 0;
+        std::pair<int, int> cell = cellOf(0);
+        for (int s = 1; s < n - 1; ++s) {
+            const std::pair<int, int> c = cellOf(s);
+            if (c == cell) continue;
+            cells[cell].push_back({pi, first, s});
+            first = s;
+            cell = c;
+        }
+        cells[cell].push_back({pi, first, n - 1});
+    }
+
+    // The run contract of tessellateStrips (and meshstrip): runs of exactly
+    // kStripRun, a run that fills mid-strip carries its last two vertices
+    // over, unrelated strips join by repeating a vertex either side, and a
+    // chunk's last run is padded to a multiple of 3.
+    size_t chunkStart = 0, runStart = 0;
+    bool open = false;
+    auto runLen = [&]() { return out.size() - runStart; };
+    auto pushRaw = [&](const KerbVertex& v) {
+        if (runLen() == (size_t)kStripRun) {
+            const KerbVertex a = out[out.size() - 2];
+            const KerbVertex b = out[out.size() - 1];
+            runStart = out.size();
+            out.push_back(a);
+            out.push_back(b);
+        }
+        out.push_back(v);
+    };
+    auto startStrip = [&](const KerbVertex& v) {
+        if (runLen() > 0) {
+            const KerbVertex last = out.back();
+            pushRaw(last);
+            pushRaw(v);
+        }
+        pushRaw(v);
+    };
+    auto closeChunk = [&]() {
+        if (!open) return;
+        const size_t target = ((runLen() + 2) / 3) * 3;
+        while (runLen() < target) out.push_back(out.back());
+        chunkSizes.push_back((int)(out.size() - chunkStart));
+        chunkStart = runStart = out.size();
+        open = false;
+    };
+    for (const auto& [cell, subs] : cells) {
+        (void)cell;
+        closeChunk();
+        for (const Sub& s : subs) {
+            const KerbPiece& p = pieces[s.piece];
+            const int m = s.last - s.first + 1;
+            // Two strips of 2m vertices, two joins, and the run carry-overs.
+            const size_t cost = (size_t)(4 * m + 4) + (size_t)(4 * m + 4) / (kStripRun - 2) * 2 + 2;
+            if (open && (out.size() - chunkStart) + cost > (size_t)kChunkBudget) closeChunk();
+            open = true;
+            KerbVertex b, t, o, u;
+            // The face: base, top, base, top ... along the line.
+            for (int i = s.first; i <= s.last; ++i) {
+                kerbProfile(p, i, b, t, o, u);
+                if (i == s.first) startStrip(b); else pushRaw(b);
+                pushRaw(t);
+            }
+            // The top: inner, outer, inner, outer ...
+            for (int i = s.first; i <= s.last; ++i) {
+                kerbProfile(p, i, b, t, o, u);
+                if (i == s.first) startStrip(u); else pushRaw(u);
+                pushRaw(o);
+            }
+        }
+        closeChunk();
+    }
 }
 
 }  // namespace roadgen
