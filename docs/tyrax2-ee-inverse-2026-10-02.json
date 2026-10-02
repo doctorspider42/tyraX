@@ -1,0 +1,936 @@
+{
+  "date": "2026-10-02",
+  "production_change": false,
+  "physical_measurement": "pending",
+  "probe": {
+    "macro": "TYRA_INVERSE_REPEAT_PROBE=0 default; define1 for engine/game consistently",
+    "engine": "F:\\Projects\\tyrax2-lab-20261001\\ee-inverse-repeat-probe\\engine",
+    "files": [
+      {
+        "path": "vendor/tyra/engine/src/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.cpp",
+        "before_sha256": "597e444875e6f5d45cff7359f0430ca89f27bd77657cbb7194554c7c9baa9825",
+        "after_sha256": "7c0c517ec2f3cff34266e44b85f6b4f3726c368ec0bef9cd6e3f579c9d7617a1"
+      },
+      {
+        "path": "vendor/tyra/engine/src/renderer/3d/pipeline/static/core/stapip_core.cpp",
+        "before_sha256": "b805bf42bd72a34761764eaaa207ce7ff8d3b8862183b135091bc88e3b874932",
+        "after_sha256": "fb468ffd6d3affa68cc2b31245c288e8810d8e9b42495d455acf966794508d88"
+      }
+    ],
+    "new_files": [
+      {
+        "path": "inc/debug/inverse_repeat_probe.hpp",
+        "sha256": "a5b9f933b7318edc91e2aa779504fb3062f00b68e74d23c3c3cb9a19552abe16"
+      },
+      {
+        "path": "src/debug/inverse_repeat_probe.cpp",
+        "sha256": "b8b644a611a9d3da3748bce5c419c094c6e07a9715fa3c77923467b46646c61f"
+      }
+    ],
+    "api": "Tyra::InverseRepeatProbe::setEnabled,reset,take",
+    "clocks": false,
+    "arithmetic_skips": false,
+    "frame_boundary": "StaPipCore::onFrameEnd tail after qbufferRenderer flush and before existing transformCache invalidation",
+    "host_oracle": {
+      "result": "PASS",
+      "exact_insertion_restoration": true,
+      "records": [
+        {
+          "macro": 0,
+          "command": [
+            "g++",
+            "-std=c++17",
+            "-O2",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            "-DTYRA_INVERSE_REPEAT_PROBE=0",
+            "-I",
+            "F:\\Projects\\tyrax2-lab-20261001\\ee-inverse-repeat-probe\\engine\\inc",
+            "F:\\Projects\\tyrax2-lab-20261001\\ee-inverse-repeat-probe\\host-oracle.cpp",
+            "F:\\Projects\\tyrax2-lab-20261001\\ee-inverse-repeat-probe\\engine\\src\\debug\\inverse_repeat_probe.cpp",
+            "-o",
+            "F:\\Projects\\tyrax2-lab-20261001\\ee-inverse-repeat-probe\\host-oracle-0.exe"
+          ],
+          "build_stdout": "",
+          "build_stderr": "",
+          "exit_code": 0,
+          "stdout": "PASS macro=0 actual_buildSpot_bit_comparisons=100039 reference_enabled_calls=39994 reference_repeats=3744\n",
+          "stderr": "",
+          "binary_sha256": "6446bf297265c994ee22e0c327783a9959cb210a70acac10ee83337538d92c24"
+        },
+        {
+          "macro": 1,
+          "command": [
+            "g++",
+            "-std=c++17",
+            "-O2",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            "-DTYRA_INVERSE_REPEAT_PROBE=1",
+            "-I",
+            "F:\\Projects\\tyrax2-lab-20261001\\ee-inverse-repeat-probe\\engine\\inc",
+            "F:\\Projects\\tyrax2-lab-20261001\\ee-inverse-repeat-probe\\host-oracle.cpp",
+            "F:\\Projects\\tyrax2-lab-20261001\\ee-inverse-repeat-probe\\engine\\src\\debug\\inverse_repeat_probe.cpp",
+            "-o",
+            "F:\\Projects\\tyrax2-lab-20261001\\ee-inverse-repeat-probe\\host-oracle-1.exe"
+          ],
+          "build_stdout": "",
+          "build_stderr": "",
+          "exit_code": 0,
+          "stdout": "PASS macro=1 actual_buildSpot_bit_comparisons=100039 reference_enabled_calls=39994 reference_repeats=3744\n",
+          "stderr": "",
+          "binary_sha256": "85f86bf7b08e46c5ba7ed6fb5b5e3675e27a7b242489c1400e5d831fb0735e4c"
+        }
+      ],
+      "target_speed_claim": false,
+      "coverage": [
+        "actual inverse/buildSpot source",
+        "macro0/1",
+        "runtimegateoff/on/off",
+        "enabled-only counts",
+        "withinframe reset",
+        "12field namedbits",
+        "ignored field mutation",
+        "same/different pointer",
+        "nonfinite/signedzero",
+        "determinant tiny/singular",
+        "100000 stateful calls per macro",
+        "bit-exact initialized output fields",
+        "independent counter oracle"
+      ]
+    },
+    "artifacts": {
+      "actual-source.inc": "208d0f28ff727cb64058b7941ba56c7a156e0996e6bc967a1af4fb2c2f5714d0",
+      "host-oracle.cpp": "47e5da0c4dafd08c7ca790d076a407de06698292631548c018f3950fdd5b6666",
+      "prepare.py": "203f3371b2da8aa073cf56562173af9c1eab8da2abfdb9cc01354e45f5ca9bdb",
+      "probe.patch": "0a2a2bd92a8e750dfeb9f472e3f53d2663e4352de01fbdeb24633dc84c58c16d",
+      "verify.py": "d34275e1a81a5a063b52eef73789e18c456ca363ebaea2a07a29a2e0d43d46f5"
+    }
+  },
+  "fixture": {
+    "fixture": "F:\\Projects\\tyrax2-lab-20261001\\ee-inverse-repeat-trial",
+    "baseline_game": "F:\\Projects\\tyrax2-lab-20261001\\arena-check-night\\game",
+    "baseline_wrapper": "F:\\Projects\\tyrax2-lab-20261001\\arena-check-night\\tyra",
+    "engine_source": "F:\\Projects\\tyrax2-lab-20261001\\ee-inverse-repeat-probe\\engine",
+    "phases": [
+      "compiled-in gateoff before",
+      "count-only enabled",
+      "compiled-in gateoff restored"
+    ],
+    "frames_per_phase": 2200,
+    "finish_frame": 6600,
+    "scene_reloads": 2,
+    "counter_cadence_completed_frames": 50,
+    "counter_names": [
+      "EnabledCalls",
+      "FirstInFrame",
+      "SameBits",
+      "ChangedBits",
+      "SamePointerSameBits",
+      "SamePointerChangedBits",
+      "DifferentPointerSameBits",
+      "DifferentPointerChangedBits",
+      "NonfiniteCalls",
+      "FiniteSameBits",
+      "FrameEnds"
+    ],
+    "raw_windows": [
+      {
+        "phase": 0,
+        "first": 1100,
+        "count": 512,
+        "last": 1611
+      },
+      {
+        "phase": 1,
+        "first": 3300,
+        "count": 512,
+        "last": 3811
+      },
+      {
+        "phase": 2,
+        "first": 5500,
+        "count": 512,
+        "last": 6011
+      }
+    ],
+    "effective_header_defaults": {
+      "TYRA_INVERSE_REPEAT_PROBE": 1,
+      "TYRA_FRAME_PROFILE": 2,
+      "INTERLEAVE_PASSES": 0
+    },
+    "explicitly_excluded_baseline_elfs": [
+      "bin/vehicle-playground.elf"
+    ],
+    "game_modifications": [
+      "inc/terrain_config.hpp:existing INTERLEAVE_PASSES1 to0 in all arms",
+      "src/terrain_game.cpp:phasehelper+postendFrame counts"
+    ],
+    "source_only": true,
+    "native_build": false,
+    "emulator": false,
+    "console_access": false,
+    "changes": [
+      {
+        "path": "tyra/engine/inc/debug/inverse_repeat_probe.hpp",
+        "before_sha256": "a5b9f933b7318edc91e2aa779504fb3062f00b68e74d23c3c3cb9a19552abe16",
+        "after_sha256": "265d6fd214e5176ff148a47ec07141605b7afa0a8945889ee262f5791d58631a"
+      },
+      {
+        "path": "tyra/engine/inc/debug/frame_profile.hpp",
+        "before_sha256": "40d0b23c7b0a08aa2804f45b5de48a2179ae6cfd7e9a72980c7745c521e6a09e",
+        "after_sha256": "41a3b054cfdb3fccbb0cc0ac5fea4ab5f9b76f7963627a1786c2327a51385b36"
+      },
+      {
+        "path": "game/inc/terrain_config.hpp",
+        "before_sha256": "6c9e8ab1a7a5a989c1b91f9fbb6c6e4fb9f2f7c0f2186e4a4c665a68d7463676",
+        "after_sha256": "875ff109214b944df89bdad309d251ef5a003124090487eb5a52e222df1f5a2e"
+      },
+      {
+        "path": "game/src/terrain_game.cpp",
+        "before_sha256": "9412a062087b5c61db1ee46a7c2a71dca84a2966d7cb6c4fb9c81e3ec6851b83",
+        "after_sha256": "b72f9728a727c13093d5e0d4695b4711c2f06d4b093babd00f0707606184cc8d"
+      }
+    ],
+    "limits": [
+      "countobserver has no clocks but costs memory/comparison/counters",
+      "rawwork phases are sequential and warm reload controls, not paired elapsed time",
+      "postrender count stdout may affect pacing/next pre interval; same cadence in all phases",
+      "header defaults can be overridden externally: root must record actual build flags",
+      "FrameEnds is actual existing engine seam count; compare to n, do not assume it"
+    ],
+    "artifacts": {
+      "game/src/terrain_game.cpp": "b72f9728a727c13093d5e0d4695b4711c2f06d4b093babd00f0707606184cc8d",
+      "game/inc/terrain_config.hpp": "875ff109214b944df89bdad309d251ef5a003124090487eb5a52e222df1f5a2e",
+      "tyra/engine/inc/debug/inverse_repeat_probe.hpp": "265d6fd214e5176ff148a47ec07141605b7afa0a8945889ee262f5791d58631a",
+      "tyra/engine/src/debug/inverse_repeat_probe.cpp": "b8b644a611a9d3da3748bce5c419c094c6e07a9715fa3c77923467b46646c61f",
+      "tyra/engine/inc/debug/frame_profile.hpp": "41a3b054cfdb3fccbb0cc0ac5fea4ab5f9b76f7963627a1786c2327a51385b36",
+      "tyra/engine/src/renderer/3d/pipeline/static/core/stapip_core.cpp": "fb468ffd6d3affa68cc2b31245c288e8810d8e9b42495d455acf966794508d88",
+      "tyra/engine/src/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.cpp": "7c0c517ec2f3cff34266e44b85f6b4f3726c368ec0bef9cd6e3f579c9d7617a1"
+    },
+    "source_sanity": {
+      "result": "PASS",
+      "game_differences": [
+        "inc/terrain_config.hpp",
+        "src/terrain_game.cpp"
+      ],
+      "missing_files": [],
+      "elf_count": 0,
+      "dpp": false,
+      "build_or_runtime_test": false
+    },
+    "report_sha256": "3aa964c0601b7234b986a6b186c7782f952c71f7b2384011acd809edd495189a"
+  },
+  "emulator": {
+    "log": "F:\\Projects\\tyrax2-lab-20261001\\ee-inverse-repeat-trial-emulator\\combined-validation.log",
+    "log_sha256": "4b71df3abfcddc75b5c2725649c3cb835814ad88c25fccac4f56285a426aade3",
+    "elf": "F:/Projects/tyrax2-lab-20261001/ee-inverse-repeat-trial/game/bin/vehicle-playground.elf",
+    "elf_sha256": "5257e1155790afc161f149300a9dc680534459b00eccf62f1145d693f3421536",
+    "results": [
+      {
+        "log": "F:\\Projects\\tyrax2-lab-20261001\\ee-inverse-repeat-trial-emulator\\combined-validation.log",
+        "first": 1100,
+        "frames": 512,
+        "hz": 60,
+        "budget_ms": 16.666666666666668,
+        "mean_ms": 8.049638244840834,
+        "median_ms": 7.9847971598307295,
+        "p95_ms": 8.326256646050346,
+        "max_ms": 9.60261705186632,
+        "over_budget": 0,
+        "note": "Renderer critical-path work excluding presentation pacing; not full period or delivered FPS.",
+        "phase": 0,
+        "count_windows": [
+          {
+            "frame": 1100,
+            "phase": 0,
+            "epoch": 0,
+            "n": 50,
+            "EnabledCalls": 0,
+            "FirstInFrame": 0,
+            "SameBits": 0,
+            "ChangedBits": 0,
+            "SamePointerSameBits": 0,
+            "SamePointerChangedBits": 0,
+            "DifferentPointerSameBits": 0,
+            "DifferentPointerChangedBits": 0,
+            "NonfiniteCalls": 0,
+            "FiniteSameBits": 0,
+            "FrameEnds": 0
+          },
+          {
+            "frame": 1150,
+            "phase": 0,
+            "epoch": 0,
+            "n": 50,
+            "EnabledCalls": 0,
+            "FirstInFrame": 0,
+            "SameBits": 0,
+            "ChangedBits": 0,
+            "SamePointerSameBits": 0,
+            "SamePointerChangedBits": 0,
+            "DifferentPointerSameBits": 0,
+            "DifferentPointerChangedBits": 0,
+            "NonfiniteCalls": 0,
+            "FiniteSameBits": 0,
+            "FrameEnds": 0
+          },
+          {
+            "frame": 1200,
+            "phase": 0,
+            "epoch": 0,
+            "n": 50,
+            "EnabledCalls": 0,
+            "FirstInFrame": 0,
+            "SameBits": 0,
+            "ChangedBits": 0,
+            "SamePointerSameBits": 0,
+            "SamePointerChangedBits": 0,
+            "DifferentPointerSameBits": 0,
+            "DifferentPointerChangedBits": 0,
+            "NonfiniteCalls": 0,
+            "FiniteSameBits": 0,
+            "FrameEnds": 0
+          },
+          {
+            "frame": 1250,
+            "phase": 0,
+            "epoch": 0,
+            "n": 50,
+            "EnabledCalls": 0,
+            "FirstInFrame": 0,
+            "SameBits": 0,
+            "ChangedBits": 0,
+            "SamePointerSameBits": 0,
+            "SamePointerChangedBits": 0,
+            "DifferentPointerSameBits": 0,
+            "DifferentPointerChangedBits": 0,
+            "NonfiniteCalls": 0,
+            "FiniteSameBits": 0,
+            "FrameEnds": 0
+          },
+          {
+            "frame": 1300,
+            "phase": 0,
+            "epoch": 0,
+            "n": 50,
+            "EnabledCalls": 0,
+            "FirstInFrame": 0,
+            "SameBits": 0,
+            "ChangedBits": 0,
+            "SamePointerSameBits": 0,
+            "SamePointerChangedBits": 0,
+            "DifferentPointerSameBits": 0,
+            "DifferentPointerChangedBits": 0,
+            "NonfiniteCalls": 0,
+            "FiniteSameBits": 0,
+            "FrameEnds": 0
+          },
+          {
+            "frame": 1350,
+            "phase": 0,
+            "epoch": 0,
+            "n": 50,
+            "EnabledCalls": 0,
+            "FirstInFrame": 0,
+            "SameBits": 0,
+            "ChangedBits": 0,
+            "SamePointerSameBits": 0,
+            "SamePointerChangedBits": 0,
+            "DifferentPointerSameBits": 0,
+            "DifferentPointerChangedBits": 0,
+            "NonfiniteCalls": 0,
+            "FiniteSameBits": 0,
+            "FrameEnds": 0
+          },
+          {
+            "frame": 1400,
+            "phase": 0,
+            "epoch": 0,
+            "n": 50,
+            "EnabledCalls": 0,
+            "FirstInFrame": 0,
+            "SameBits": 0,
+            "ChangedBits": 0,
+            "SamePointerSameBits": 0,
+            "SamePointerChangedBits": 0,
+            "DifferentPointerSameBits": 0,
+            "DifferentPointerChangedBits": 0,
+            "NonfiniteCalls": 0,
+            "FiniteSameBits": 0,
+            "FrameEnds": 0
+          },
+          {
+            "frame": 1450,
+            "phase": 0,
+            "epoch": 0,
+            "n": 50,
+            "EnabledCalls": 0,
+            "FirstInFrame": 0,
+            "SameBits": 0,
+            "ChangedBits": 0,
+            "SamePointerSameBits": 0,
+            "SamePointerChangedBits": 0,
+            "DifferentPointerSameBits": 0,
+            "DifferentPointerChangedBits": 0,
+            "NonfiniteCalls": 0,
+            "FiniteSameBits": 0,
+            "FrameEnds": 0
+          },
+          {
+            "frame": 1500,
+            "phase": 0,
+            "epoch": 0,
+            "n": 50,
+            "EnabledCalls": 0,
+            "FirstInFrame": 0,
+            "SameBits": 0,
+            "ChangedBits": 0,
+            "SamePointerSameBits": 0,
+            "SamePointerChangedBits": 0,
+            "DifferentPointerSameBits": 0,
+            "DifferentPointerChangedBits": 0,
+            "NonfiniteCalls": 0,
+            "FiniteSameBits": 0,
+            "FrameEnds": 0
+          },
+          {
+            "frame": 1550,
+            "phase": 0,
+            "epoch": 0,
+            "n": 50,
+            "EnabledCalls": 0,
+            "FirstInFrame": 0,
+            "SameBits": 0,
+            "ChangedBits": 0,
+            "SamePointerSameBits": 0,
+            "SamePointerChangedBits": 0,
+            "DifferentPointerSameBits": 0,
+            "DifferentPointerChangedBits": 0,
+            "NonfiniteCalls": 0,
+            "FiniteSameBits": 0,
+            "FrameEnds": 0
+          }
+        ],
+        "means_per_frame": {
+          "EnabledCalls": 0.0,
+          "FirstInFrame": 0.0,
+          "SameBits": 0.0,
+          "ChangedBits": 0.0,
+          "SamePointerSameBits": 0.0,
+          "SamePointerChangedBits": 0.0,
+          "DifferentPointerSameBits": 0.0,
+          "DifferentPointerChangedBits": 0.0,
+          "NonfiniteCalls": 0.0,
+          "FiniteSameBits": 0.0,
+          "FrameEnds": 0.0
+        },
+        "mean_period_ms": 16.748
+      },
+      {
+        "log": "F:\\Projects\\tyrax2-lab-20261001\\ee-inverse-repeat-trial-emulator\\combined-validation.log",
+        "first": 3300,
+        "frames": 512,
+        "hz": 60,
+        "budget_ms": 16.666666666666668,
+        "mean_ms": 8.218329164716932,
+        "median_ms": 8.14292738172743,
+        "p95_ms": 8.48385281032986,
+        "max_ms": 9.733208550347221,
+        "over_budget": 0,
+        "note": "Renderer critical-path work excluding presentation pacing; not full period or delivered FPS.",
+        "phase": 1,
+        "count_windows": [
+          {
+            "frame": 3300,
+            "phase": 1,
+            "epoch": 1,
+            "n": 50,
+            "EnabledCalls": 3550,
+            "FirstInFrame": 50,
+            "SameBits": 3000,
+            "ChangedBits": 500,
+            "SamePointerSameBits": 2950,
+            "SamePointerChangedBits": 0,
+            "DifferentPointerSameBits": 50,
+            "DifferentPointerChangedBits": 500,
+            "NonfiniteCalls": 0,
+            "FiniteSameBits": 3000,
+            "FrameEnds": 50
+          },
+          {
+            "frame": 3350,
+            "phase": 1,
+            "epoch": 1,
+            "n": 50,
+            "EnabledCalls": 3550,
+            "FirstInFrame": 50,
+            "SameBits": 3000,
+            "ChangedBits": 500,
+            "SamePointerSameBits": 2950,
+            "SamePointerChangedBits": 0,
+            "DifferentPointerSameBits": 50,
+            "DifferentPointerChangedBits": 500,
+            "NonfiniteCalls": 0,
+            "FiniteSameBits": 3000,
+            "FrameEnds": 50
+          },
+          {
+            "frame": 3400,
+            "phase": 1,
+            "epoch": 1,
+            "n": 50,
+            "EnabledCalls": 3550,
+            "FirstInFrame": 50,
+            "SameBits": 3000,
+            "ChangedBits": 500,
+            "SamePointerSameBits": 2950,
+            "SamePointerChangedBits": 0,
+            "DifferentPointerSameBits": 50,
+            "DifferentPointerChangedBits": 500,
+            "NonfiniteCalls": 0,
+            "FiniteSameBits": 3000,
+            "FrameEnds": 50
+          },
+          {
+            "frame": 3450,
+            "phase": 1,
+            "epoch": 1,
+            "n": 50,
+            "EnabledCalls": 3550,
+            "FirstInFrame": 50,
+            "SameBits": 3000,
+            "ChangedBits": 500,
+            "SamePointerSameBits": 2950,
+            "SamePointerChangedBits": 0,
+            "DifferentPointerSameBits": 50,
+            "DifferentPointerChangedBits": 500,
+            "NonfiniteCalls": 0,
+            "FiniteSameBits": 3000,
+            "FrameEnds": 50
+          },
+          {
+            "frame": 3500,
+            "phase": 1,
+            "epoch": 1,
+            "n": 50,
+            "EnabledCalls": 3550,
+            "FirstInFrame": 50,
+            "SameBits": 3000,
+            "ChangedBits": 500,
+            "SamePointerSameBits": 2950,
+            "SamePointerChangedBits": 0,
+            "DifferentPointerSameBits": 50,
+            "DifferentPointerChangedBits": 500,
+            "NonfiniteCalls": 0,
+            "FiniteSameBits": 3000,
+            "FrameEnds": 50
+          },
+          {
+            "frame": 3550,
+            "phase": 1,
+            "epoch": 1,
+            "n": 50,
+            "EnabledCalls": 3550,
+            "FirstInFrame": 50,
+            "SameBits": 3000,
+            "ChangedBits": 500,
+            "SamePointerSameBits": 2950,
+            "SamePointerChangedBits": 0,
+            "DifferentPointerSameBits": 50,
+            "DifferentPointerChangedBits": 500,
+            "NonfiniteCalls": 0,
+            "FiniteSameBits": 3000,
+            "FrameEnds": 50
+          },
+          {
+            "frame": 3600,
+            "phase": 1,
+            "epoch": 1,
+            "n": 50,
+            "EnabledCalls": 3550,
+            "FirstInFrame": 50,
+            "SameBits": 3000,
+            "ChangedBits": 500,
+            "SamePointerSameBits": 2950,
+            "SamePointerChangedBits": 0,
+            "DifferentPointerSameBits": 50,
+            "DifferentPointerChangedBits": 500,
+            "NonfiniteCalls": 0,
+            "FiniteSameBits": 3000,
+            "FrameEnds": 50
+          },
+          {
+            "frame": 3650,
+            "phase": 1,
+            "epoch": 1,
+            "n": 50,
+            "EnabledCalls": 3550,
+            "FirstInFrame": 50,
+            "SameBits": 3000,
+            "ChangedBits": 500,
+            "SamePointerSameBits": 2950,
+            "SamePointerChangedBits": 0,
+            "DifferentPointerSameBits": 50,
+            "DifferentPointerChangedBits": 500,
+            "NonfiniteCalls": 0,
+            "FiniteSameBits": 3000,
+            "FrameEnds": 50
+          },
+          {
+            "frame": 3700,
+            "phase": 1,
+            "epoch": 1,
+            "n": 50,
+            "EnabledCalls": 3550,
+            "FirstInFrame": 50,
+            "SameBits": 3000,
+            "ChangedBits": 500,
+            "SamePointerSameBits": 2950,
+            "SamePointerChangedBits": 0,
+            "DifferentPointerSameBits": 50,
+            "DifferentPointerChangedBits": 500,
+            "NonfiniteCalls": 0,
+            "FiniteSameBits": 3000,
+            "FrameEnds": 50
+          },
+          {
+            "frame": 3750,
+            "phase": 1,
+            "epoch": 1,
+            "n": 50,
+            "EnabledCalls": 3550,
+            "FirstInFrame": 50,
+            "SameBits": 3000,
+            "ChangedBits": 500,
+            "SamePointerSameBits": 2950,
+            "SamePointerChangedBits": 0,
+            "DifferentPointerSameBits": 50,
+            "DifferentPointerChangedBits": 500,
+            "NonfiniteCalls": 0,
+            "FiniteSameBits": 3000,
+            "FrameEnds": 50
+          }
+        ],
+        "means_per_frame": {
+          "EnabledCalls": 71.0,
+          "FirstInFrame": 1.0,
+          "SameBits": 60.0,
+          "ChangedBits": 10.0,
+          "SamePointerSameBits": 59.0,
+          "SamePointerChangedBits": 0.0,
+          "DifferentPointerSameBits": 1.0,
+          "DifferentPointerChangedBits": 10.0,
+          "NonfiniteCalls": 0.0,
+          "FiniteSameBits": 60.0,
+          "FrameEnds": 1.0
+        },
+        "mean_period_ms": 16.714
+      },
+      {
+        "log": "F:\\Projects\\tyrax2-lab-20261001\\ee-inverse-repeat-trial-emulator\\combined-validation.log",
+        "first": 5500,
+        "frames": 512,
+        "hz": 60,
+        "budget_ms": 16.666666666666668,
+        "mean_ms": 8.082993812031216,
+        "median_ms": 8.004870944552952,
+        "p95_ms": 8.35560777452257,
+        "max_ms": 9.838328043619791,
+        "over_budget": 0,
+        "note": "Renderer critical-path work excluding presentation pacing; not full period or delivered FPS.",
+        "phase": 2,
+        "count_windows": [
+          {
+            "frame": 5500,
+            "phase": 2,
+            "epoch": 2,
+            "n": 50,
+            "EnabledCalls": 0,
+            "FirstInFrame": 0,
+            "SameBits": 0,
+            "ChangedBits": 0,
+            "SamePointerSameBits": 0,
+            "SamePointerChangedBits": 0,
+            "DifferentPointerSameBits": 0,
+            "DifferentPointerChangedBits": 0,
+            "NonfiniteCalls": 0,
+            "FiniteSameBits": 0,
+            "FrameEnds": 0
+          },
+          {
+            "frame": 5550,
+            "phase": 2,
+            "epoch": 2,
+            "n": 50,
+            "EnabledCalls": 0,
+            "FirstInFrame": 0,
+            "SameBits": 0,
+            "ChangedBits": 0,
+            "SamePointerSameBits": 0,
+            "SamePointerChangedBits": 0,
+            "DifferentPointerSameBits": 0,
+            "DifferentPointerChangedBits": 0,
+            "NonfiniteCalls": 0,
+            "FiniteSameBits": 0,
+            "FrameEnds": 0
+          },
+          {
+            "frame": 5600,
+            "phase": 2,
+            "epoch": 2,
+            "n": 50,
+            "EnabledCalls": 0,
+            "FirstInFrame": 0,
+            "SameBits": 0,
+            "ChangedBits": 0,
+            "SamePointerSameBits": 0,
+            "SamePointerChangedBits": 0,
+            "DifferentPointerSameBits": 0,
+            "DifferentPointerChangedBits": 0,
+            "NonfiniteCalls": 0,
+            "FiniteSameBits": 0,
+            "FrameEnds": 0
+          },
+          {
+            "frame": 5650,
+            "phase": 2,
+            "epoch": 2,
+            "n": 50,
+            "EnabledCalls": 0,
+            "FirstInFrame": 0,
+            "SameBits": 0,
+            "ChangedBits": 0,
+            "SamePointerSameBits": 0,
+            "SamePointerChangedBits": 0,
+            "DifferentPointerSameBits": 0,
+            "DifferentPointerChangedBits": 0,
+            "NonfiniteCalls": 0,
+            "FiniteSameBits": 0,
+            "FrameEnds": 0
+          },
+          {
+            "frame": 5700,
+            "phase": 2,
+            "epoch": 2,
+            "n": 50,
+            "EnabledCalls": 0,
+            "FirstInFrame": 0,
+            "SameBits": 0,
+            "ChangedBits": 0,
+            "SamePointerSameBits": 0,
+            "SamePointerChangedBits": 0,
+            "DifferentPointerSameBits": 0,
+            "DifferentPointerChangedBits": 0,
+            "NonfiniteCalls": 0,
+            "FiniteSameBits": 0,
+            "FrameEnds": 0
+          },
+          {
+            "frame": 5750,
+            "phase": 2,
+            "epoch": 2,
+            "n": 50,
+            "EnabledCalls": 0,
+            "FirstInFrame": 0,
+            "SameBits": 0,
+            "ChangedBits": 0,
+            "SamePointerSameBits": 0,
+            "SamePointerChangedBits": 0,
+            "DifferentPointerSameBits": 0,
+            "DifferentPointerChangedBits": 0,
+            "NonfiniteCalls": 0,
+            "FiniteSameBits": 0,
+            "FrameEnds": 0
+          },
+          {
+            "frame": 5800,
+            "phase": 2,
+            "epoch": 2,
+            "n": 50,
+            "EnabledCalls": 0,
+            "FirstInFrame": 0,
+            "SameBits": 0,
+            "ChangedBits": 0,
+            "SamePointerSameBits": 0,
+            "SamePointerChangedBits": 0,
+            "DifferentPointerSameBits": 0,
+            "DifferentPointerChangedBits": 0,
+            "NonfiniteCalls": 0,
+            "FiniteSameBits": 0,
+            "FrameEnds": 0
+          },
+          {
+            "frame": 5850,
+            "phase": 2,
+            "epoch": 2,
+            "n": 50,
+            "EnabledCalls": 0,
+            "FirstInFrame": 0,
+            "SameBits": 0,
+            "ChangedBits": 0,
+            "SamePointerSameBits": 0,
+            "SamePointerChangedBits": 0,
+            "DifferentPointerSameBits": 0,
+            "DifferentPointerChangedBits": 0,
+            "NonfiniteCalls": 0,
+            "FiniteSameBits": 0,
+            "FrameEnds": 0
+          },
+          {
+            "frame": 5900,
+            "phase": 2,
+            "epoch": 2,
+            "n": 50,
+            "EnabledCalls": 0,
+            "FirstInFrame": 0,
+            "SameBits": 0,
+            "ChangedBits": 0,
+            "SamePointerSameBits": 0,
+            "SamePointerChangedBits": 0,
+            "DifferentPointerSameBits": 0,
+            "DifferentPointerChangedBits": 0,
+            "NonfiniteCalls": 0,
+            "FiniteSameBits": 0,
+            "FrameEnds": 0
+          },
+          {
+            "frame": 5950,
+            "phase": 2,
+            "epoch": 2,
+            "n": 50,
+            "EnabledCalls": 0,
+            "FirstInFrame": 0,
+            "SameBits": 0,
+            "ChangedBits": 0,
+            "SamePointerSameBits": 0,
+            "SamePointerChangedBits": 0,
+            "DifferentPointerSameBits": 0,
+            "DifferentPointerChangedBits": 0,
+            "NonfiniteCalls": 0,
+            "FiniteSameBits": 0,
+            "FrameEnds": 0
+          }
+        ],
+        "means_per_frame": {
+          "EnabledCalls": 0.0,
+          "FirstInFrame": 0.0,
+          "SameBits": 0.0,
+          "ChangedBits": 0.0,
+          "SamePointerSameBits": 0.0,
+          "SamePointerChangedBits": 0.0,
+          "DifferentPointerSameBits": 0.0,
+          "DifferentPointerChangedBits": 0.0,
+          "NonfiniteCalls": 0.0,
+          "FiniteSameBits": 0.0,
+          "FrameEnds": 0.0
+        },
+        "mean_period_ms": 16.714
+      }
+    ],
+    "limitations": [
+      "Count-only observer; no inverse time or cache saving measured.",
+      "Pinned plain in every phase. Sequential animated/time/cache/heap differences remain possible.",
+      "Gateoff retains compiled scaffold; parent work deltas are not production gain.",
+      "Host arithmetic/bookkeeping, emulator activation and physical costs are separate gates."
+    ]
+  },
+  "acceptance": "Native build and complete6600frame emulator pass. All three512raw windows and ten50frame count windows each pass; gateoff counters zero. Enabled71calls/frame,60finite repeats,1first,10changed; pointer same59 repeats/different1 repeat. One observed frameEnd per frame. No inverse timing or production gain follows.",
+  "artifacts": [
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\ee-inverse-repeat-probe\\report.md",
+      "sha256": "b827ced48d78025300719e5f91799ac4a95e2cc991f431ef86d7a3c400610bb3",
+      "bytes": 4405
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\ee-inverse-repeat-probe\\evidence.json",
+      "sha256": "c2258b911612dd1ad144c7b11a4dd77efa13e0a867caa73ff674cc1f7e268029",
+      "bytes": 4306
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\ee-inverse-repeat-probe\\probe.patch",
+      "sha256": "0a2a2bd92a8e750dfeb9f472e3f53d2663e4352de01fbdeb24633dc84c58c16d",
+      "bytes": 1057
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\ee-inverse-repeat-trial\\fixture.json",
+      "sha256": "dcc073c1e3ac1331130b497c1fcd9d46fce25bee14692128158b49d098b00e86",
+      "bytes": 4261
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\ee-inverse-repeat-trial\\report.md",
+      "sha256": "3aa964c0601b7234b986a6b186c7782f952c71f7b2384011acd809edd495189a",
+      "bytes": 3839
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\ee-inverse-repeat-trial\\trial.patch",
+      "sha256": "ab8c041fa99cef6053e96aec37c4f6ce1930435b29a5ed0ca2f3b0f47d8be995",
+      "bytes": 4704
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\ee-inverse-repeat-trial-build.log",
+      "sha256": "0752450721d1d009da428dbbe6764286bdc77d7c167896e7ffdffb2a1a62194a",
+      "bytes": 203556
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\ee-inverse-repeat-trial-emulator-capture.log",
+      "sha256": "1c05654c2db5e741bd905bd19f636b4ba5e5891a610d38b9fe52c5555f9606c6",
+      "bytes": 631
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\ee-inverse-repeat-trial-emulator\\emulog.txt",
+      "sha256": "cb7072ddb7d183c8e4a021e982289edbf2d3c00c6190dad10e505e3c9eb46fbe",
+      "bytes": 244181
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\ee-inverse-repeat-trial-emulator\\game-log.txt",
+      "sha256": "4e9f885ab229c6dbd0566a4668a53c7e0e5c5ed389236d0c744e8abdd034b17a",
+      "bytes": 210715
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\ee-inverse-repeat-trial-emulator\\combined-validation.log",
+      "sha256": "4b71df3abfcddc75b5c2725649c3cb835814ad88c25fccac4f56285a426aade3",
+      "bytes": 454897
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\ee-inverse-repeat-trial-emulator\\validation-summary.json",
+      "sha256": "a6678e390672e6efcfd34a1180bfcfd096d671d4f3af258696106066d7dbba98",
+      "bytes": 18506
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\ee-inverse-repeat-trial-emulator\\state1.p2s",
+      "sha256": "7ff92a42c40599440b7a5e31f3a2496b69a2fd38d237bd846bfea7ce48097a77",
+      "bytes": 6149871
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\ee-inverse-repeat-trial-emulator\\Screenshot.png",
+      "sha256": "c5f5876c32ac83822eb654a3daf6f3f92ebf6bc562d3d30504e10736591f15f1",
+      "bytes": 280800
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\ee-inverse-repeat-trial-prephysical.elf",
+      "sha256": "5257e1155790afc161f149300a9dc680534459b00eccf62f1145d693f3421536",
+      "bytes": 4570812
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\ee-inverse-repeat-trial-prephysical.elf.sym",
+      "sha256": "be34dc9b84318fe6b1279258e9e1b37a33dede587ec122e0d4868068ae8cd217",
+      "bytes": 24929440
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\analyze-inverse-trial.py",
+      "sha256": "78d206c9d63ee62ff60ab192dfa2e64ddac7594c404307012d8e9b86154214aa",
+      "bytes": 2677
+    }
+  ],
+  "limitations": [
+    "Existing native engine Vec4 memcpy warnings retained; successful build is not a warning-free claim.",
+    "Observer counts real enabled inverse calls; intervening disabled preparations do not reset adjacency.",
+    "Count-only gateoff/on/off is compiled-in scaffold, not a pristine compiled-out comparison.",
+    "Same ELF uses pinned plain in all arms but retains temporal/light/cache/layout confounds for work deltas.",
+    "Host oracle does not prove PS2 floating arithmetic; emulator activation is not physical timing.",
+    "Screenshot visually normal after restored gateoff, no pixel differential."
+  ]
+}

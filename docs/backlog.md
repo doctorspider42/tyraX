@@ -377,6 +377,10 @@ recovered 0.50-0.72 ms of hardware `work`. What it did not do, ranked:
   price key/observer overhead before a small cache. Public mutable light state
   prevents a setters-only epoch or once-per-frame frozen picker key. All
   diagnostic arms still deliver approximately 30 Hz.
+  [Enabled inverse repeat census](tyrax2-ee-vu0.md#enabled-affine-inverse-repeat-census-physical-test-pending)
+  passes actual-source host controls, native build and 6,600 emulator frames:
+  60 finite repeats among 71 enabled calls/frame. Physical activation/observer
+  cost is next, then separately price inverse/key work before a one-entry cache.
 - **Night light-effect cost after TyraX2 — measured, optimization open.**
   A [physical one-group isolation run](tyrax2.md#night-workload-isolation-physical-ps2-2026-10-02)
   brackets seven stationary garage variants with full-night controls of

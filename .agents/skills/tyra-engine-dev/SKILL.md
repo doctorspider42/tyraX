@@ -3526,3 +3526,11 @@ or FPS promotion. Actual animated light/sky/packet equality is not proven;
 scene reload retains clocks and hour pin precedes real-dt day/night advance.
 Private inverse count-only observer passes 100,039 host actual-source comparisons
 per macro setting; native/emulator/physical activation are separate gates.
+
+Enabled inverse count-only census: docs/tyrax2-ee-inverse-2026-10-02.json.
+Native build and 6,600 emulator frames pass three raw512/count windows under
+plain order in every arm: 71 inverse calls/frame, 60 finite input repeats,
+59 same-pointer/1 different-pointer repeats, 1 first/10 changed, frameEnd1.
+Physical activation and key/inverse cost remain pending; never multiply the
+whole local-preparation parent cost by repeat fraction as an expected saving.
+Gateoff scaffold and gateon comparison/copy/count work require separate pricing.
