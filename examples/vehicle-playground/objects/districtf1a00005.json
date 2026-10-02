@@ -1,0 +1,1 @@
+{"id": "districtf1a00005", "name": "Quarry road", "type": "road", "position": [55, 0, 111.5], "rotation": [0, 0, 0], "scale": [1, 1, 1], "color": [1, 1, 1], "physics": false, "roadPoints": [55, 111.5, 55, 138], "roadWidth": 9, "roadSampleStep": 2, "roadTexture": "res/materials/district-road.mtl", "roadIntersectionTexture": "res/materials/district-asphalt.mtl"}

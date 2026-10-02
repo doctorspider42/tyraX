@@ -1,0 +1,1 @@
+{"id": "districtf1a00002", "name": "Orchard north", "type": "road", "position": [100, 0, 24], "rotation": [0, 0, 0], "scale": [1, 1, 1], "color": [1, 1, 1], "physics": false, "roadPoints": [100, 24, 98, 40, 101, 63.1], "roadWidth": 8, "roadSampleStep": 2, "roadTexture": "res/materials/district-road.mtl", "roadIntersectionTexture": "res/materials/district-asphalt.mtl"}

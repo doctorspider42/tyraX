@@ -20,8 +20,17 @@ builds measured 6.7-7.6 s. This excludes editor generation/baking and cold setup
 
 ## What's in the project
 
-- **main** is the driving district: seven roads, a garage, a cobbled crossing,
-  dirt service lane, buildings, lights, pushable props and three cars.
+- **main** is the driving district: thirteen roads, a garage, a cobbled crossing,
+  dirt service lane, buildings, lights, pushable props and three cars. Every
+  place roads meet is a [road node](../../docs/roads.md) with rounded corners,
+  and six of the roads exist to show the kinds: **Orchard lane** leaves Market
+  cross street as a T and splits into a Y (**Orchard north** ends on Skyline
+  avenue, **Orchard east** on the ring road), **Service ramp** peels off the
+  east side of the ring at a shallow angle and drops onto Foundry link, and
+  **Quarry road** leaves the north side of the ring and turns a corner into
+  **Quarry spur**.
+
+  ![PCSX2, mirrored in X: the Orchard fork between the ring road and Skyline avenue, the Service ramp leaving the ring, and the Quarry corner](../../docs/img/road-nodes-district.png)
 - **dense** adds buildings for a busier drive.
 - **procedural** demonstrates painted building and tree placement. Open its
   Procedural layout to inspect the saved graph.

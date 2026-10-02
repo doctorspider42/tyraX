@@ -900,6 +900,7 @@ void TerrainGame::loop() {
     // covers the frame the flag goes UP, because that scan ran before the
     // sequence player did (docs/cutscenes.md).
     renderVehicleHud();
+    renderVehicleTutorial();
     if ((useTargetIndex >= 0 || vehiclePrompt_ != 0) &&
         !scriptCtx.hudSuppressed) {
       const bool pick =

@@ -1180,6 +1180,15 @@ class TerrainGame : public Tyra::Game {
   float vehCamOrbit_ = 0.0F;
   float vehCamLift_ = 0.0F;
   int vehiclePrompt_ = 0;   // draw the USE prompt: on foot, near a driveable car
+  // The ONE car USE would enter this frame (-1 = none): in reach AND looked
+  // at. The prompt and the click both read it, so two cars side by side can
+  // never show one and enter the other.
+  int vehicleUseTarget() const;
+  // Would a walker standing here be stopped dead? collidePlayer freezes a
+  // walker that is already inside a collision box on both axes, so an exit
+  // spot inside a neighbouring car or wall left the player unable to move
+  // until a jump lifted their feet over the box's top.
+  bool vehExitSpotFree(float x, float z, float feetY) const;
   // Which camera the driver is looking through, cycled with Triangle.
   // 0 = chase, 1 = bumper, 2 = far. See vehicleCameraFor().
   int vehCamMode_ = 0;
@@ -1382,6 +1391,18 @@ class TerrainGame : public Tyra::Game {
   void updateVehicleEngineSound(VehicleRt& v, const VehicleDefData& s, int driving);
   void muteVehicleEngines();
   void renderVehicleHud();
+  // The controls card (docs/vehicles.md, "Controls card"): opened on getting
+  // into a car, built every frame from the live bindings.
+  void updateVehicleTutorial(float dt);
+  void renderVehicleTutorial();
+  float vehTutLeft_ = 0.0F;   // seconds the card has left, 0 = hidden
+  float vehTutAge_ = 0.0F;    // seconds since it opened (fade-in)
+  int vehTutCar_ = -1;        // the vehicle it was opened for
+  int vehTutLastDriver_ = -1; // last frame's vehicleDriver_ (entry edge)
+  unsigned int vehTutUsed_ = 0;  // bit per row the driver has tried
+  std::vector<unsigned char> vehTutSeen_;  // per definition: shown this boot
+  Tyra::Sprite vehTutPanel_;  // hud/loading-white.png, tinted to a dark card
+  bool vehTutPanelReady_ = false;
   // Is this runtime object a placed vehicle? The paint pass asks per part.
   int vehiclePaintFor(int objIdx);
   // The shine budget (VEHICLE_SHINE_BUDGET): picks which vehicles draw the
