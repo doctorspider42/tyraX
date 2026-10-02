@@ -4281,3 +4281,13 @@ emulator success and one physical same-ELF control/candidate/control run. Work
 18.468/18.435/18.556 ms gives 0.033–0.121 ms apparent savings versus 0.088 ms
 control spread; all arms remain 29.94 Hz. Candidate stays private: fewer binary
 searches and passing semantics are not proof of a material frame gain.
+
+
+Snapshot/native breakdown: docs/tyrax2-snapshot-breakdown-2026-10-02.json retains
+one physical gateoff/on/off run and the exact callback/state oracle. Enabled
+preflight/fixups total 1.882 ms; mutable copy 1.056 ms; chain copy 0.266 ms.
+Observer work increase is 0.252–0.431 ms; gateoff still has compiled scaffold,
+so pristine/compiled-out controls remain separate. Never add snapshot children
+to their parent or claim VU utilization. Existing object-cost export inserts
+per-object batch fences; some STAPIP_ATTRIB counters ignore runtime telemetry.
+Use ordinary batching for the next exclusive scalar-math census.

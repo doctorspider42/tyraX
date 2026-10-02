@@ -338,6 +338,13 @@ recovered 0.50-0.72 ms of hardware `work`. What it did not do, ranked:
   18.468 / 18.435 / 18.556 ms work, all 29.94 Hz. The apparent saving overlaps
   control variation; keep the candidate private and prioritize snapshot-stage
   attribution. No production optimization is accepted.
+  [Bounded snapshot attribution](tyrax2-ee-vu0.md#bounded-snapshotnative-breakdown-physical-ps2)
+  is now complete: preflight/fixups 1.882 ms, mutable copy 1.056 ms and chain
+  copy 0.266 ms in the enabled diagnostic, with 0.252–0.431 ms observer work
+  increase against gate-off controls. Next price fewer validation/copy passes
+  and measure clip-transform repetition plus local spot inverse/normalization.
+  Keep pristine/compiled-out controls and normal batching; these counters do
+  not establish a new production timing or a VU0 gain.
 - **Night light-effect cost after TyraX2 — measured, optimization open.**
   A [physical one-group isolation run](tyrax2.md#night-workload-isolation-physical-ps2-2026-10-02)
   brackets seven stationary garage variants with full-night controls of

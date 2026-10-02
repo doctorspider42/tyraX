@@ -52,3 +52,33 @@ The integrated candidate passed the existing 1,074 arena cases plus 10,000 malfo
 | Baseline restored | 18.556225 | 29.94 |
 
 Apparent savings are 0.032727–0.120778 ms, while the controls themselves differ by 0.088052 ms. One sequential boot does not distinguish a stable small gain from control variation; no production integration or FPS improvement is accepted. The candidate remains private. Prioritize the bounded snapshot/native breakdown rather than calling this enough to restore the night frame budget. The [trial record](tyrax2-immutable-borrow-2026-10-02.json) preserves exact windows, patch, tests, preparation/analysis scripts and hashes. Its frozen log does not stop the owned client serving the restored baseline.
+
+## Bounded snapshot/native breakdown, physical PS2
+
+A private three-phase same-ELF diagnostic toggles aggregate COP0 clocks/counters off/on/off. Both host macro variants pass 10,047 actual-class callback/state differential cases, including partial writes on failure and unstable second-pass resolution. The actual fixture headers also pass the existing arena/writer harnesses; native compilation, PCSX2 and physical PS2 complete all 6,600 gameplay frames and both scene reloads. No new DMA wait, allocation, FINISH read/clear or GPU hold is introduced by the probe.
+
+Warm exact 512-frame renderer-work windows give **19.164984 / 19.596451 / 19.344394 ms**, off/on/off. Enabling the observer changes work by **+0.252057 to +0.431467 ms** against these controls, whose spread is 0.179410 ms. These are one-boot ranges, not confidence intervals. Runtime-disabled probes may still have compiled scaffolding overhead; pristine and compiled-out physical controls remain separate gates. This instrumented result is not a new production benchmark or accepted optimization.
+
+Ten neighboring 50-frame enabled summaries give the following diagnostic brackets:
+
+| Bracket | Mean ms/frame |
+| --- | ---: |
+| Entire snapshot | 3.312289 |
+| Preflight tag/range/callback checks | 1.104756 |
+| Full source-chain copy | 0.265598 |
+| Second-pass fixups, excluding mutable copy | 0.776857 |
+| Mutable REF copying | 1.056222 |
+| Native sizing pass | 0.158458 |
+| Native decode / writer emission | 0.515674 |
+
+Entire snapshot includes preflight, chain copy, second-pass fixups and mutable copying. Fixups above subtract the nested mutable-copy child; never add the inclusive second pass and its child. Native sizing and emission are sibling adapter brackets, still inside submission. Timings include counter/clock overhead and are not a pure instruction or bandwidth measurement.
+
+Per warm frame, the observed source path visits 1606.33 tags in each pass, calls the readable resolver 964.20 times and the immutable resolver 1086.19 times. It copies 56.16 KiB of original chains and 167.93 KiB of mutable REF payload, while borrowing 2100.61 KiB. Published copied qwords equal full-chain plus mutable-copy qwords; borrowed bytes are excluded rather than subtracted a second time. Enabled windows have matching preflight/second-pass tags and successful snapshot attempts; native sizing and emission visit equal tag counts. Disabled windows retain zero metrics.
+
+The [machine record](tyrax2-snapshot-breakdown-2026-10-02.json) preserves exact raw/profile/count/period windows, observer overhead, source/ELF/frozen-log hashes, preparation/analysis scripts and probe/test evidence. No production behavior changed. Further source changes need quiet physical controls and existing rollback, capacity, callback and bank-lease gates.
+
+### What this changes next
+
+The measured preflight plus fixups total about 1.882 ms; mutable copying adds 1.056 ms, versus only 0.266 ms for full-chain copying. These are instrumented costs, not additive gain estimates. Runtime-disabled work also differs from earlier pristine ELF measurements; cross-boot/layout differences cannot all be assigned to the runtime gate. Price pristine/compiled-out controls before deriving a production saving from these brackets.
+
+The source audit identifies two additional scalar-math seams to census: a partial guard-band bag can transform the same eight clip planes twice in one render call; local spot preparation performs affine inverse and normalization inside sendObjectData, beyond the existing prepLight bracket. Measure activation/cache misses and exclusive cost before reusing results or writing a VU0 kernel. Existing object-cost export changes batching with per-object fences, and some TYRA_STAPIP_ATTRIB counters ignore the runtime telemetry gate, so those modes cannot silently stand in for an ordinary pipeline control. The full read-only census plan and source hashes are retained in the machine record.
