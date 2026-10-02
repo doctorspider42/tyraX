@@ -22,6 +22,7 @@
 #include "menustyle.hpp"
 #include "objparser.hpp"
 #include "platform.hpp"
+#include "roadtex.hpp"  // the road materials a new project is seeded with
 #include "savebake.hpp"
 #include "templates.hpp"
 
@@ -5041,6 +5042,10 @@ std::string create(Project& out, const std::string& name, const std::string& par
             !err.empty())
             return err;
     }
+    // Ready road materials (docs/road-textures.md): a Road inserted into a
+    // fresh project picks road-2lane + road-junction, so it is textured from
+    // the first click. Ordinary tracked assets - res/.gitignore keeps them.
+    if (auto err = roadtex::seedProject(out.dir); !err.empty()) return err;
     if (auto err = save(out); !err.empty()) return err;
 
     // Every project is born with its history file (a single-entry undo stack)

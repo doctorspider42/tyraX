@@ -20,6 +20,7 @@
 #include "audiopreview.hpp"
 #include "camtake.hpp"
 #include "dronegen.hpp"
+#include "roadtex.hpp"  // Road Texture Generator recipe member
 #include "history.hpp"
 #include "phonecam.hpp"
 #include "gibake.hpp"
@@ -1146,6 +1147,12 @@ private:
     // music tool. All of these live in droneui.cpp (the assetbrowser.cpp
     // precedent: a self-contained subsystem gets its own TU).
     void drawDroneGeneratorWindow();
+    // Tools > Road Texture Generator (docs/road-textures.md): bakes road
+    // surface materials into res/materials/roads with roadtex.cpp. Lives in
+    // roadtex_ui.cpp. open...() loads the recipe of a generated .mtl (the
+    // .roadtex sidecar next to it) when there is one.
+    void drawRoadTextureWindow();
+    void openRoadTextureGenerator(const std::string& mtlRel);
     // Starts/stops live audition. Opening the device also creates the
     // LiveSynth; a machine with no sound card just gets droneAudioError_.
     void droneAudition(bool on);
@@ -2427,6 +2434,13 @@ private:
     // and hands its result over through droneRenderDone_ (Runner idiom: the UI
     // thread only ever reads the result after that flag is set).
     bool showDroneGenerator_ = false;
+    bool showRoadTexGen_ = false;
+    roadtex::RoadTexParams roadTexParams_;
+    std::string roadTexName_ = "road-custom";
+    std::string roadTexStatus_;
+    unsigned int roadTexGl_ = 0;            // preview texture
+    roadtex::RoadTexParams roadTexGlFor_;   // the recipe it was generated from
+    bool roadTexGlValid_ = false;
     dronegen::Params droneParams_;
     int dronePreset_ = 0;
     int droneTab_ = 0;

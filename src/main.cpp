@@ -49,6 +49,7 @@
 #include "procbake.hpp"
 #include "project.hpp"
 #include "roadgen.hpp"
+#include "roadtex.hpp"
 #include "shadowbake.hpp"
 #include "staticbatch.hpp"
 #include "texatlas.hpp"
@@ -702,6 +703,53 @@ static int atlasReportFromCli(int argc, char** argv) {
     std::printf("[atlas] pages=%zu members=%zu excluded=%zu savedKb=%d\n",
                 plan.pages.size(), plan.entries.size(), plan.excluded.size(),
                 v.savedKb);
+    return 0;
+}
+
+// tyrax-editor.exe --road-texture <projectDir> <name> [key=value ...]
+// The headless twin of Tools > Road Texture Generator (docs/road-textures.md):
+// writes res/materials/roads/<name>.png + .mtl + .roadtex. Starts from the
+// existing <name>.roadtex recipe when there is one (so key=value EDITS it),
+// else from the defaults; keys are the recipe file's own.
+static int roadTextureFromCli(int argc, char** argv) {
+    if (argc < 4) {
+        std::fprintf(stderr,
+                     "usage: tyrax-editor --road-texture <projectDir> <name> [key=value ...]\n"
+                     "  keys: surface=asphalt|cobble|gravel|dirt lanes=0..6 wear=0..1\n"
+                     "        tint=r,g,b seed=N size=64|128|256 width=units(0=auto)\n"
+                     "        ragged=0|1 intersection=0|1\n"
+                     "  per line, L = centre | divider | edge:\n"
+                     "        L=none|dashed|solid|double|solid-dashed|dashed-solid\n"
+                     "        L.colour=white|yellow|r,g,b L.width=units\n"
+                     "        L.dash=units L.gap=units (snapped to divide 4 units)\n");
+        return 2;
+    }
+    const std::string dir = argv[2];
+    std::error_code ec;
+    if (!std::filesystem::is_directory(dir, ec)) {
+        std::fprintf(stderr, "error: not a directory: %s\n", dir.c_str());
+        return 1;
+    }
+    roadtex::RoadTexParams p;
+    const bool had = roadtex::readRecipe(dir, argv[3], &p);
+    for (int i = 4; i < argc; ++i) {
+        const std::string a = argv[i];
+        const size_t eq = a.find('=');
+        std::string err = "expected key=value, got '" + a + "'";
+        if (eq == std::string::npos ||
+            !roadtex::applyKey(p, a.substr(0, eq), a.substr(eq + 1), &err)) {
+            std::fprintf(stderr, "error: %s\n", err.c_str());
+            return 2;
+        }
+    }
+    std::string err;
+    const std::string mtl = roadtex::writeAssets(dir, argv[3], p, &err);
+    if (mtl.empty()) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
+    std::printf("road-texture: %s (%dx%d, %s recipe) -> %s\n", roadtex::fileStem(argv[3]).c_str(),
+                p.size, p.size, had ? "edited" : "new", mtl.c_str());
     return 0;
 }
 
@@ -4801,6 +4849,8 @@ int main(int argc, char** argv) {
         return atlasReportFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--batch-report") == 0)
         return batchReportFromCli(argc, argv);
+    if (argc > 1 && std::strcmp(argv[1], "--road-texture") == 0)
+        return roadTextureFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--road-crossings") == 0)
         return roadCrossingsFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--dump-graph") == 0)
@@ -4952,6 +5002,10 @@ int main(int argc, char** argv) {
             "ask the GS for, against the\n"
             "                                          measured break-even: the "
             "speed half of 'turn it on?'\n"
+            "  --road-texture <projectDir> <name> [key=value ...]\n"
+            "                                          generate a road material into "
+            "res/materials/roads\n"
+            "                                          (docs/road-textures.md)\n"
             "  --road-crossings <projectDir> [sceneIndex]\n"
             "                                          every road crossing and what "
             "it does; exit 1 on an\n"

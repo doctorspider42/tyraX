@@ -36,10 +36,15 @@ in VRAM.** There is no baked geometry to store, ship or stream.
   older projects remain readable and appear in a separate legacy section of
   the picker, but new authoring should use a material so a texture replacement
   has one owner. Road UV scale remains fixed at one repeat per four world units;
-  the other MTL properties are not applied to this boot-generated surface. The
-  Motor District's road textures are ordinary checked-in PNGs
-  (`examples/vehicle-playground/res/textures/district-*.png`); the editor has
-  no road texture generator, and a new project's road starts untextured grey.
+  the other MTL properties are not applied to this boot-generated surface.
+  **Tools > Road Texture Generator** (the **Generate...** button beside the
+  picker) bakes asphalt, setts, gravel or dirt with lane markings into
+  `res/materials/roads/` ([road-textures.md](road-textures.md)). A new project
+  is seeded with five of them, and a Road inserted into it starts on
+  `road-2lane` with `road-junction` as its intersection material - textured
+  from the first click. Empty still means untextured grey. The Motor
+  District's road textures are hand-made checked-in PNGs
+  (`examples/vehicle-playground/res/textures/district-*.png`).
 - **Intersection material** enables automatic junctions. Wherever roads of
   the same **rank** meet - a crossing at any angle, a road ending on another
   (a T or a fork), two road ends sharing a spot (a corner) - and they all name
@@ -450,6 +455,7 @@ canonicalizes only that integer part; positions and fractional UVs remain exact.
 | `src/templates.cpp` (`roadsImpl`) | The runtime twin + data tables + the scene-load hook. |
 | `src/props_ui.cpp` | The Road properties panel + `App::alignTerrainToRoad`. |
 | `src/junction_ui.cpp` | Junction markers, selection and the Junction section (overrides). |
+| `src/roadtex.cpp/.hpp`, `src/roadtex_ui.cpp` | The Road Texture Generator ([road-textures.md](road-textures.md)). |
 
 ## Adaptive street geometry budget (1.86.3)
 
@@ -600,7 +606,8 @@ spills now on the dense grid):
 
 A texture whose alpha is ragged along its sides (U 0 and 1) makes the edge
 look organic: StaPip discards texels with alpha 0, and the fade blends the
-rest.
+rest. The Road Texture Generator's **Ragged edges** (dirt only, on in the
+seeded `road-dirt`) writes exactly that.
 
 ## Junction overrides (1.145)
 
