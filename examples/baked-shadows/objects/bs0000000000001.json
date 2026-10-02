@@ -1,0 +1,1 @@
+{ "id": "bs0000000000001", "name": "post-1", "type": "cylinder", "position": [2, 1, -6], "rotation": [0, 0, 0], "scale": [0.8, 2, 0.8], "color": [0.82, 0.78, 0.7], "physics": false, "shadowMode": 4 }

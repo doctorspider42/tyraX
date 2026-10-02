@@ -65,7 +65,14 @@ patch="$here/tyrax.patch"
 # Pinned so the patch always applies cleanly; bump both when refreshing.
 repo='https://github.com/ps2dev/ps2link.git'
 commit='0c6138c5553760423070d1797ac475c4d98a06e6'
-image='ps2dev/ps2dev:latest'
+# Pinned to a release tag, and the SAME tag docker/Dockerfile builds its copy of
+# ps2link with, so the image's /usr/local/share/tyrax/ps2link/ and this script
+# produce the same ELF. It used to be ':latest', which quietly made a script
+# whose whole point is reproducibility a moving target: the same commit and the
+# same patch measured 285 364 B when tools/ps2link/ps2link.elf was committed and
+# 285 620 B a few weeks later, with nothing here changed. v2.0.0 gives 284 340 B
+# every time.
+image='ps2dev/ps2dev:v2.0.0'
 
 if ! command -v docker >/dev/null 2>&1; then
     echo "docker not found - the ps2link build runs inside $image." >&2

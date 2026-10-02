@@ -26,18 +26,27 @@ public:
     // is recreated, the game objects and the compiled engine (VU1 microprograms
     // included) are deleted, and everything is compiled from source. For when a
     // build misbehaves in a way an incremental build cannot see.
-    void buildAndRun(const Project& p, bool runEmulator, bool rebuild = false);
-    void runEmulatorOnly(const Project& p);
+    void buildAndRun(const Project& p, bool runEmulator, bool rebuild = false,
+                     int launchScene = -1);
+    void runEmulatorOnly(const Project& p, int launchScene = -1);
     // Network deploy to a PS2 running ps2link at p.ps2LinkIp: reset ps2link,
     // then `ps2client execee host:<name>.elf -ps2link` with cwd = bin/, so the
     // game boots on the console with assets served from this PC. The ps2client
     // process stays alive as the host: file server (killed on the next deploy
     // or editor exit - the game on the console dies with it) and its output,
     // including the console's printf log, streams into the Output panel.
-    void buildAndRunPs2(const Project& p, bool build, bool rebuild = false);
+    void buildAndRunPs2(const Project& p, bool build, bool rebuild = false,
+                        int launchScene = -1);
     // Stops the game running on the console: kills the ps2client file server
     // and resets ps2link, so the PS2 reboots back into its listening state.
     void stopPs2(const Project& p);
+    // Switches the CONSOLE off, the way its own power button does: kills the
+    // file server, then `ps2client poweroff`, which ps2link answers on the IOP
+    // with PoweroffShutdown() - the registered shutdown callbacks (ps2dev9
+    // parks the expansion bay) and then the CDVD cutting the power rails.
+    // Nothing answers afterwards, so the next deploy needs somebody to switch
+    // it back on by hand.
+    void powerOffPs2(const Project& p);
     // Closes the running PCSX2 instance that is booting THIS project's ELF (the
     // editor does not keep the emulator's handle after launch, so it is found by
     // the -elf path on its command line). Best-effort and instant; a no-op when
@@ -55,6 +64,24 @@ public:
     // the container may finish there in the background - harmless, the next
     // build just finds warm objects.
     void cancel();
+
+    // What the NEXT launch should do about the input recorder
+    // (docs/input-replay.md). Set it before buildAndRun/runEmulatorOnly and
+    // the worker consumes it - and CLEARS it - as part of preparing bin/, so a
+    // record run is never accidentally repeated by the next plain F5.
+    //
+    // It lives here rather than on Project because it is not project data: it
+    // is a property of one launch, like the rebuild flag.
+    struct ReplayLaunch {
+        enum Mode { None, Record, Play } mode = None;
+        std::string file;  // Play: absolute path of the .tyrarep to perform
+        // Delete the host-side save files first. A recording that starts from
+        // a fresh boot replays into whatever save state happens to be on disk
+        // otherwise, and "the run diverges because the game remembered
+        // something" is the hardest divergence to read.
+        bool clearSaves = false;
+    };
+    ReplayLaunch replay_;
 
     State state() const { return state_.load(); }
     bool busy() const { return state_.load() == State::Running; }
@@ -84,7 +111,19 @@ private:
     ResetResult resetPs2Link(const Project& p);
     // Runs a command through the platform shell in `cwd`, streams output to
     // log. Returns process exit code, or -1 on spawn failure.
-    int exec(const std::string& cmdline, const std::string& cwd);
+    int exec(const std::string& rawCmdline, const std::string& cwd);
+    // Latched from Project::toolchainImage when the worker starts; exec()
+    // exports it as TYRAX_IMAGE for `docker compose` commands. Empty = export
+    // nothing, so the compose file's own default (and the project's .env)
+    // decide, as they did before the setting existed.
+    std::string toolchainImage_;
+    // Prepares bin/ for the input recorder (docs/input-replay.md) and CONSUMES
+    // replay_. Order matters and is the same on both transports: clear every
+    // channel file first (a leftover replay.in would make the fresh boot
+    // perform the last session's run), then stage what this launch asked for.
+    // Worker-side, like everything else it sits between; the UI thread only
+    // writes replay_ while the Runner is idle.
+    void stageReplayChannel(const std::string& binDir);
     bool launchPCSX2(const Project& p);
     bool deployToPs2(const Project& p);
     void killPs2Client();
@@ -96,7 +135,8 @@ private:
     bool claimPs2Channel(const Project& p);
     // Closes the PCSX2 instances booting this project's ELF, and only those.
     void killEmulatorsFor(const Project& p, const std::string& exe);
-    void worker(Project p, bool build, bool run, bool ps2, bool rebuild);
+    void worker(Project p, bool build, bool run, bool ps2, bool rebuild,
+                int launchScene);
     void join();
 
     std::thread thread_;

@@ -6,6 +6,7 @@
 # Copyright 2022, tyra - https://github.com/h4570/tyra
 # Licensed under Apache License 2.0
 # Sandro Sobczyński <sandro.sobczynski@gmail.com>
+# Modified by TyraX: emitsStateFlag()/kPackedCountWord for retained replays.
 */
 
 #pragma once
@@ -27,6 +28,10 @@ class StaPipVU1Program : public VU1Program {
   u32& getReglist();
 
   const StaPipProgramName& getName() const;
+  u8 getReglistCount() const { return reglistCount; }
+  u32 getGsVertexCount(const u32& inputCount) const {
+    return gsVertexCount(inputCount);
+  }
 
   // Modified by TyraX: virtual - the billboard programs have their own
   // input/output qword budget (6 GS verts per input center).
@@ -34,7 +39,17 @@ class StaPipVU1Program : public VU1Program {
                               const u16& vu1DBufferSize) const;
 
   void addBufferDataToPacket(packet2_t* packet, StaPipQBuffer* buffer,
-                             prim_t* prim);
+                             prim_t* prim, const bool& emitState);
+
+  /** Modified by TyraX: does a buffer header built with this emitState carry
+   * VU1_STAPIP_EMIT_STATE_FLAG? The rule addStandardBufferDataToPacket
+   * applies, exposed so a retained block can be re-flagged on replay. */
+  bool emitsStateFlag(const bool& emitState) const;
+
+  /** Modified by TyraX: where that flag lives in the block
+   * addBufferDataToPacket writes - qword 1 (after the unpack's CNT tag), word
+   * 3: the packed vertex count. */
+  static constexpr u32 kPackedCountWord = 4 + 3;
 
  protected:
   StaPipProgramName name;
@@ -51,7 +66,7 @@ class StaPipVU1Program : public VU1Program {
 
  private:
   void addStandardBufferDataToPacket(packet2_t* packet, StaPipQBuffer* buffer,
-                                     prim_t* prim);
+                                     prim_t* prim, const bool& emitState);
 };
 
 }  // namespace Tyra

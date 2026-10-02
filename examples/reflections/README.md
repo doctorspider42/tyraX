@@ -9,8 +9,8 @@ every 14 seconds (and back after 7), and only the dynamic surfaces follow.
 
 | What | Material | Mode |
 | --- | --- | --- |
-| Avenue, **left** pedestals | `chrome.mtl` | **Static sphere map** — `sunset-sky.png` (indigo→violet→blazing horizon streak); never changes |
-| Avenue, **right** pedestals | `chrome-dyn.mtl` | **Dynamic `@sky`** — the game re-renders the scene's sky dome into a 128×128 VRAM texture every frame |
+| Avenue, **right** pedestals | `chrome.mtl` | **Static sphere map** — `sunset-sky.png` (indigo→violet→blazing horizon streak); never changes |
+| Avenue, **left** pedestals | `chrome-dyn.mtl` | **Dynamic `@sky`** — the game re-renders the scene's sky dome into a 128×128 VRAM texture every frame |
 | The tall **mirror monolith** | `chrome-dyn.mtl` | Dynamic, on a big flat slab |
 | Three big spheres at the end | `paint-red/blue/black.mtl` | Dynamic at lower strength over colored bases — the "car paint" look |
 | Red box at the spawn | *(none)* | Matte control — no reflection pass |
@@ -39,8 +39,18 @@ section picks a sphere-map PNG or `<dynamic - live sky>` plus a strength.
 The `.mtl` files store the standard `refl` statement:
 
 ```
-refl -type sphere -mm 0 0.9 sunset-sky.png   # static
-refl -type sphere -mm 0 0.9 @sky             # dynamic
+refl -type sphere -mm 0 0.9 sunset-sky.png     # static
+refl -type sphere -mm 0 0.9 -rounded @sky      # dynamic
 ```
 
 Full guide: [docs/reflective-materials.md](../../docs/reflective-materials.md).
+
+Generated object values live in `src/gen/scene_objects.gen.cpp`;
+`inc/scene_data.hpp` keeps stable declarations. Counts and object IDs live in
+the same data file, so ordinary moves, color edits, additions and removals can
+rebuild it alone. Changes to features or derived tables can still rebuild consumers.
+
+Generated game methods are split between `src/terrain_game.cpp` and the
+`src/gen/game_*.gen.cpp` subsystems, with shared inline helpers/state in
+`inc/game_runtime.gen.hpp`. Header changes can compile these units in parallel.
+The main file remains user-ownable; generated subsystem files refresh on build.

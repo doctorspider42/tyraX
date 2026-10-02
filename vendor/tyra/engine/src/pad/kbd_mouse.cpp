@@ -19,6 +19,7 @@ namespace Tyra {
 KbdMouse::KbdMouse() {
   kbdOk = false;
   mouseOk = false;
+  forced = false;
   memset(held, 0, sizeof(held));
   memset(clicked, 0, sizeof(clicked));
   memset(&mouse, 0, sizeof(mouse));
@@ -104,6 +105,18 @@ void KbdMouse::update() {
       prevButtons = mouse.buttons;
     }
   }
+}
+
+/** TyraX: replace the polled state wholesale - see the header. `prevButtons`
+ * follows the forced state so the frame after a replay ends does not read a
+ * held button as freshly clicked. */
+void KbdMouse::setState(const u8 heldIn[32], const u8 clickedIn[32],
+                        const MouseState& mouseIn, bool enabled) {
+  memcpy(held, heldIn, sizeof(held));
+  memcpy(clicked, clickedIn, sizeof(clicked));
+  mouse = mouseIn;
+  prevButtons = mouse.buttons;
+  forced = enabled;
 }
 
 }  // namespace Tyra

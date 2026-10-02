@@ -8,8 +8,13 @@
 # Sandro Sobczyński <sandro.sobczynski@gmail.com>
 */
 
+#include "math/math.hpp"
+
 #include <math.h>
+#include "debug/hardware_trace.hpp"
 #include "renderer/core/renderer_core.hpp"
+#include "renderer/core/paths/path3/path3_fence.hpp"
+#include "renderer/core/paths/path1/vif1_queue.hpp"
 #include "thread/threading.hpp"
 #include "debug/debug.hpp"
 #include "debug/frame_profile.hpp"
@@ -21,6 +26,9 @@ namespace FrameProfile {
 // COP0 Count at the top of this frame's beginFrame(). Not published in the
 // header: nothing outside endFrame() has any business reading a half-frame.
 static u32 frameStart = 0;
+// The previous present's end (tPre, tPeriod). 0 until the first present, which
+// is what keeps the first frame's tPre from reading "since power-on".
+static u32 prevPresentEnd = 0;
 }  // namespace FrameProfile
 #endif
 
@@ -38,36 +46,44 @@ RendererCore::RendererCore() {
 }
 RendererCore::~RendererCore() {}
 
-void RendererCore::init(VideoMode videoMode, DisplayMode displayMode,
-                        bool widescreen, bool tripleBuffering) {
-  settings.setVideoMode(videoMode);
+void RendererCore::init(const RendererOptions& options) {
+  settings.setVideoMode(options.videoMode);
   // Must precede gs.init - it sizes the frame/z buffers (TyraX fork).
-  settings.setDisplayMode(displayMode);
-  settings.setWidescreen(widescreen);
+  settings.setDisplayMode(options.displayMode);
+  settings.setWidescreen(options.widescreen);
+  // ...and it picks their pixel format + the GS dither state (TyraX fork).
+  settings.setColorDepth(options.colorDepth);
+  settings.setDither(options.dither);
   // Same rule: gs.init decides how many display buffers to allocate from it
-  // (TyraX fork, docs/frame-pacing.md).
-  settings.setTripleBuffering(tripleBuffering);
+  // (TyraX fork, docs/frame-pacing.md). Note the two interact - a third
+  // display buffer is half the price at ColorDepth::Bits16.
+  settings.setTripleBuffering(options.tripleBuffering);
   path3.init(&settings);
   sync.init(&path3, &path1);
   gs.init(&settings);
   // Post fx VRAM sits right above the frame/z buffers; allocate it before
   // any texture buffer so texture free (FIFO) never reclaims it.
   postFx.init(&settings, &gs);
-  // Same rule for the dynamic env map's render target (TyraX fork).
+  // Same rule for the dynamic env map's render target (TyraX fork) - but
+  // only if this project has a reflective "@sky" material at all. The
+  // target and its z are 128 KB of a ~1.08 MB texture heap, and they used
+  // to be reserved whether or not anything ever sampled them.
+  envMap.setEnabled(options.envMap);
   envMap.init(&settings, &gs, &sync, &path1);
   // Projected shadows: wiring only - VRAM is allocated lazily when the game
   // calls shadowMap.allocate() (init() also re-places the buffers after a
   // display-mode VRAM reset if they were on).
   shadowMap.init(&settings, &gs, &sync, &path1);
+  alphaMask.init(&settings, &gs, &sync, &path1);
   // Camera-feed render target (TyraX fork, "texture feeds"): a second
-  // instance of the same redirect bracket, permanently allocated below
-  // every texture for the same FIFO-free reason. Costs 128 KB of VRAM
-  // whether the game uses feeds or not. Clamp: feeds sample through plain
-  // surface UVs and the default Repeat bleeds the opposite edge rows into
-  // the screen border.
+  // instance of the same redirect bracket, another 128 KB, and equally
+  // opt-in. Clamp: feeds sample through plain surface UVs and the default
+  // Repeat bleeds the opposite edge rows into the screen border.
+  camFeed.setEnabled(options.camFeed);
   camFeed.init(&settings, &gs, &sync, &path1);
-  camFeed.getTexture()->setWrapSettings(TextureWrap::Clamp,
-                                        TextureWrap::Clamp);
+  if (camFeed.getTexture())
+    camFeed.getTexture()->setWrapSettings(TextureWrap::Clamp,
+                                          TextureWrap::Clamp);
   // BLSS, the neural upscaler (TyraX fork): its low-res render target belongs
   // in the same permanent region, in the same relative order - but it is only
   // taken when the generated game's init() calls blss.configure(), so a
@@ -99,9 +115,13 @@ void RendererCore::rebuildPermanentBuffers() {
   gs.reallocateBuffers();
   postFx.init(&settings, &gs);
   envMap.init(&settings, &gs, &sync, &path1);
-  shadowMap.init(&settings, &gs, &sync, &path1);  // re-places if allocated
+  shadowMap.init(&settings, &gs, &sync, &path1);
+  alphaMask.init(&settings, &gs, &sync, &path1);  // re-places if allocated
   camFeed.init(&settings, &gs, &sync, &path1);
-  camFeed.getTexture()->setWrapSettings(TextureWrap::Clamp, TextureWrap::Clamp);
+  // Null when this project reserved no camera-feed target (TyraX fork).
+  if (camFeed.getTexture())
+    camFeed.getTexture()->setWrapSettings(TextureWrap::Clamp,
+                                          TextureWrap::Clamp);
   TYRA_LOG("Permanent GS buffers re-placed (raster scale ",
            settings.getRasterScaleX(), "x", settings.getRasterScaleY(),
            "), texture heap free MB: ", gs.vram.getFreeSpaceInMB());
@@ -118,6 +138,15 @@ void RendererCore::setDisplayOutput(const DisplayMode& mode,
   const bool wsChanged = settings.getWidescreen() != widescreen;
   if (!modeChanged && !wsChanged) return;
 
+  // Modified by TyraX: Hybrid's two-buffer present leaves its PATH3 copy
+  // in flight. Drain both paths before a mode change resets the GS and moves
+  // the permanent buffers; resetting while that copy runs can wedge GIF DMA.
+  if (modeChanged) {
+    path3Fence();
+    sync.align2D();
+    if (path1.isVU1Configured()) sync.align3D();
+  }
+
   settings.setDisplayMode(mode);
   settings.setWidescreen(widescreen);
 
@@ -131,7 +160,8 @@ void RendererCore::setDisplayOutput(const DisplayMode& mode,
     gs.reinit();
     postFx.init(&settings, &gs);
     envMap.init(&settings, &gs, &sync, &path1);
-    shadowMap.init(&settings, &gs, &sync, &path1);  // re-places if allocated
+    shadowMap.init(&settings, &gs, &sync, &path1);
+  alphaMask.init(&settings, &gs, &sync, &path1);  // re-places if allocated
     camFeed.init(&settings, &gs, &sync, &path1);
     // Same for the BLSS low-res target: vram.reset() forgot it, and its size
     // follows the new framebuffer geometry (re-places only if configured).
@@ -182,7 +212,7 @@ void RendererCore::setSpotLight(const Color& color, const Vec4& position,
   spot.color = color;
   spot.position = position;
   spot.direction = direction;
-  const float len = sqrtf(direction.x * direction.x +
+  const float len = Math::sqrtNonNegative(direction.x * direction.x +
                           direction.y * direction.y +
                           direction.z * direction.z);
   if (len > 1e-5F) {
@@ -214,8 +244,36 @@ int RendererCore::addDynPointLight(const Color& color, const Vec4& position,
   return static_cast<int>(dynLightCount++);
 }
 
+int RendererCore::addDynSpotLight(const Color& color,
+                                  const Vec4& position,
+                                  const Vec4& direction, const float& range,
+                                  const float& cutoffDegrees,
+                                  const float& softness) {
+  // Modified by TyraX: a scene spot light is the point-light registry entry
+  // with the cone constants filled - the VU1 slot has carried them since the
+  // camera torch, so no program changes.
+  const int slot = addDynPointLight(color, position, range);
+  if (slot < 0) return slot;
+  auto& l = dynLights[slot];
+  l.point = false;
+  l.direction = direction;
+  const float len = Math::sqrtNonNegative(direction.x * direction.x +
+                          direction.y * direction.y +
+                          direction.z * direction.z);
+  if (len > 1e-5F) {
+    l.direction.x /= len;
+    l.direction.y /= len;
+    l.direction.z /= len;
+  }
+  l.direction.w = 0.0F;
+  const float halfAngle = cutoffDegrees * 3.14159265F / 180.0F;
+  l.cosCutoff = cosf(halfAngle);
+  l.softness = softness < 1.0F ? 1.0F : softness;
+  return slot;
+}
+
 const RendererCoreSpotLight* RendererCore::pickDynLight(
-    const Vec4& worldCenter, const float& worldRadius) const {
+    const Vec4& worldCenter, const float& worldRadius, int skipSlot) const {
   // Score = luminance * quadratic falloff at the sphere's NEAREST point, so
   // a big mesh near a torch competes fairly with the camera flashlight.
   const RendererCoreSpotLight* best = &spot;
@@ -224,14 +282,19 @@ const RendererCoreSpotLight* RendererCore::pickDynLight(
   const RendererCoreSpotLight* candidates[DYN_LIGHTS_MAX + 1];
   u32 count = 0;
   if (spot.enabled) candidates[count++] = &spot;
-  for (u32 i = 0; i < dynLightCount; i++) candidates[count++] = &dynLights[i];
+  for (u32 i = 0; i < dynLightCount; i++) {
+    // Modified by TyraX: the bag's named exclusion (its light is drawn
+    // projected, per pixel, by the game's shadow pass instead).
+    if ((int)i == skipSlot) continue;
+    candidates[count++] = &dynLights[i];
+  }
 
   for (u32 i = 0; i < count; i++) {
     const auto* l = candidates[i];
     const float dx = l->position.x - worldCenter.x;
     const float dy = l->position.y - worldCenter.y;
     const float dz = l->position.z - worldCenter.z;
-    float d = sqrtf(dx * dx + dy * dy + dz * dz) - worldRadius;
+    float d = Math::sqrtNonNegative(dx * dx + dy * dy + dz * dz) - worldRadius;
     if (d < 0.0F) d = 0.0F;
     if (d >= l->range) continue;
     const float att = 1.0F - d / l->range;
@@ -261,26 +324,34 @@ const RendererCoreSpotLight* RendererCore::pickDynLight(
 void RendererCore::beginFrame() {
 #if TYRA_FRAME_PROFILE
   FrameProfile::frameStart = FrameProfile::ticks();
+  FrameProfile::tPre = FrameProfile::prevPresentEnd != 0
+                           ? FrameProfile::frameStart -
+                                 FrameProfile::prevPresentEnd
+                           : 0;
 #endif
   beginFrameStamp();
   renderer3D.update();
   drained3DFor2D = false;
   postFxAppliedMask = 0;
   postFxDrained = false;
-  Threading::switchThread();
+  if (frameYield) Threading::switchThread();  // Modified by TyraX: see setFrameYield
   path3.clearScreen(&gs.zBuffer, bgColor);
 }
 
 void RendererCore::beginFrame(const CameraInfo3D& cameraInfo) {
 #if TYRA_FRAME_PROFILE
   FrameProfile::frameStart = FrameProfile::ticks();
+  FrameProfile::tPre = FrameProfile::prevPresentEnd != 0
+                           ? FrameProfile::frameStart -
+                                 FrameProfile::prevPresentEnd
+                           : 0;
 #endif
   beginFrameStamp();
   renderer3D.update(cameraInfo);
   drained3DFor2D = false;
   postFxAppliedMask = 0;
   postFxDrained = false;
-  Threading::switchThread();
+  if (frameYield) Threading::switchThread();  // Modified by TyraX: see setFrameYield
   path3.clearScreen(&gs.zBuffer, bgColor);
 }
 
@@ -337,7 +408,90 @@ void RendererCore::beginFrameStamp() {
 }
 
 void RendererCore::endFrame() {
-  Threading::switchThread();
+  HardwareTrace::Scope traceEnd("EndFrame");
+  if (frameYield) Threading::switchThread();  // Modified by TyraX: see setFrameYield
+  // Modified by TyraX (TYRA_2D_VIF1_DIRECT): the frame's sprites may still be
+  // queued on VIF1 behind the 3D, and with no interrupt nothing starts a
+  // queued chain while the EE sits in the vsync wait below - so the frame is
+  // not finished until they have gone out. This is where the wait the stock
+  // path paid before its first sprite (sync.align3D) now lands, after the EE
+  // has built the whole 2D pass alongside the GS.
+  path3Fence();
+#if TYRA_VIF1_QUEUE_HOLD
+  // The GPU-only frame probe (vif1_queue.hpp). The frame's VIF1 work ran in
+  // segments with the EE waiting - normally ONE, released by the fence just
+  // above - and this FINISH ends the last of them. busy = the closed segments
+  // + the tail from where the EE last saw work finish (or the fence returned)
+  // to FINISH. Logged as a 30-frame mean in microseconds.
+  if (path1.isVU1Configured()) {
+    u32 tFence;
+    __asm__ volatile("mfc0 %0, $9" : "=r"(tFence));
+    sync.align3D();
+    u32 t1;
+    __asm__ volatile("mfc0 %0, $9" : "=r"(t1));
+    static u32 frames = 0, measured = 0, chains = 0, releases = 0;
+    static float sumUs = 0.0F, maxUs = 0.0F;
+    if (Vif1Queue::holdReleases > 0) {
+      u32 busy = Vif1Queue::holdBusyTicks;
+      if (Vif1Queue::holdSegOpen) {
+        busy += t1 - Vif1Queue::holdSegStart;
+      } else {
+        const u32 from =
+            static_cast<s32>(Vif1Queue::holdLastClose - tFence) > 0
+                ? Vif1Queue::holdLastClose
+                : tFence;
+        busy += t1 - from;
+      }
+      const float us = busy / 294.912F;
+      sumUs += us;
+      if (us > maxUs) maxUs = us;
+      ++measured;
+    }
+    chains += Vif1Queue::holdChains;
+    releases += Vif1Queue::holdReleases;
+    Vif1Queue::holdReleases = 0;
+    Vif1Queue::holdChains = 0;
+    Vif1Queue::holdBusyTicks = 0;
+    Vif1Queue::holdSegOpen = false;
+    if (++frames == 30) {
+      TYRA_LOG("GPUHOLD us ", measured ? static_cast<int>(sumUs / measured) : -1,
+               " max ", static_cast<int>(maxUs), " frames ", measured,
+               "/30 chains ", chains / 30, " releases/frame x10 ",
+               releases / 3);
+      frames = measured = chains = releases = 0;
+      sumUs = maxUs = 0.0F;
+    }
+  }
+#endif
+#if TYRA_VIF1_QUEUE
+  // Modified by TyraX: close the frame's VIF1 queue, whether or not a 2D chain
+  // did it above. path3Fence() only drains when the frame drew a sprite -
+  // waiting for the 2D chain is what proves every 3D chain queued in front of
+  // it has gone out. A frame with NO 2D (no HUD, no prompt, no menu) left the
+  // queue as it was, and without the interrupt (TYRA_VIF1_QUEUE_ISR 0) a queued
+  // chain is only STARTED by the next submit or wait: the next frame's first
+  // bag. By then this frame's present and the next frame's draw-target switch
+  // and clear have gone out on PATH3, so the frame's last chains drew into the
+  // NEXT back buffer, under its sky and terrain. The backlog sustains itself -
+  // each submit starts at most one queued chain and adds one - so a single
+  // GS-heavy frame (the terrain lightmap pass, a full-screen blend) pushed it
+  // to kPacketCount - 1 and every later frame lost its last three bags.
+  // Depth-tested opaque bags drawn early still win the z test against the
+  // terrain that follows; blended, z-write-off ones (baked shadow decals, blob
+  // shadows) vanish under it. examples/baked-shadows, docs/shadows.md.
+  //
+  // Same barrier the 2D fence pays, and nothing more: the DMA done, then the
+  // VIF FIFO empty, so the PATH3 packets below cannot win the GIF between two
+  // of the last chain's packets. No GS FINISH handshake - that remains the
+  // frame profile's fairness fence and the post-fx drain's job.
+  Vif1Queue::drain();
+  {
+    volatile u32* const vif1Stat = reinterpret_cast<volatile u32*>(0x10003C00);
+    constexpr u32 kVif1Busy = 0x1F000003;  // FQC (FIFO qwords) | VPS
+    while (*vif1Stat & kVif1Busy) {
+    }
+  }
+#endif
   // The dynamic pipeline kicks the scene on PATH1/VU1 asynchronously (double
   // buffered - sendPacket() returns while the DMA is still draining). PostFx
   // composites over the framebuffer via PATH3 and writes no z, so any scene
@@ -349,7 +503,17 @@ void RendererCore::endFrame() {
   // that - e.g. the pure-2D loading screen - there is nothing on PATH1 to
   // drain and the draw-finish handshake would spin forever waiting for a
   // FINISH that VU1 can't deliver yet.
-  applyPostFx();
+  // Modified by TyraX: close the 3D pass's texture-wrap contract before
+  // anything composites. StaPipCore no longer restores REPEAT per clamped bag
+  // (see StaPipCore::render), and RendererCoreAlphaMask documents its reliance
+  // on that contract, so the last clamped bag of a frame is undone here. The
+  // drain is guarded the same way every barrier in this function is: before
+  // VU1 is up there is nothing on PATH1 and the handshake would spin forever.
+  if (!gs.textureWrapIsRepeat()) {
+    if (path1.isVU1Configured()) sync.align3D();
+    gs.setTextureWrap(RendererCoreGS::repeatWrap());
+  }
+  { HardwareTrace::Scope trace("PostFx"); applyPostFx(); }
 #if TYRA_FRAME_PROFILE
   // THE FAIRNESS FENCE (inc/debug/frame_profile.hpp, tDrain). One guarded
   // drain, at one point, in BOTH arms - a BLSS frame is already serialised by
@@ -380,6 +544,7 @@ void RendererCore::endFrame() {
   // presenting, and an overrunning frame costs one late field instead of an
   // idle one.
   {  // Modified by TyraX: everything below is STALL, not the frame's cost.
+    HardwareTrace::Scope trace("Present");
     u32 t0, t1;
     __asm__ volatile("mfc0 %0, $9" : "=r"(t0));
     if (gs.getFrameBufferCount() < 3) {
@@ -388,6 +553,14 @@ void RendererCore::endFrame() {
     gs.flipBuffers(isFrameLimitOn);
     __asm__ volatile("mfc0 %0, $9" : "=r"(t1));
     stallAccum += t1 - t0;
+    stallTotal += t1 - t0;
+#if TYRA_FRAME_PROFILE
+    FrameProfile::tStall = t1 - t0;
+    FrameProfile::tPeriod = FrameProfile::prevPresentEnd != 0
+                                ? t1 - FrameProfile::prevPresentEnd
+                                : 0;
+    FrameProfile::prevPresentEnd = t1;
+#endif
   }
   hasPresentedFrame = true;  // Modified by TyraX: the warp has a source now
 }
@@ -398,14 +571,19 @@ bool RendererCore::presentWarpFrame(const WarpCamera& from,
   // Nothing to warp before the first flip - the "previous" buffer is still
   // whatever the GS powered up with.
   if (!hasPresentedFrame) return false;
+  // Modified by TyraX: the Hybrid colour depth keeps no previous 32-bit frame
+  // to warp (see ColorDepth::Hybrid), so it presents no synthetic frames; the
+  // caller reads `false` and simply waits for the next rendered one.
+  if (settings.isHybridOutput()) return false;
 
-  Threading::switchThread();
+  if (frameYield) Threading::switchThread();  // Modified by TyraX: see setFrameYield
   warp.draw(from, to);
   // Deliberately NO applyPostFx: bloom, grain and grading are already baked
   // into the source image, and running them again would compound them on every
   // warped frame. Deliberately no beginFrame either - the warp covers every
   // pixel, so the clear would only be work.
   {  // Modified by TyraX: the synthesised frame's present is stall too.
+    HardwareTrace::Scope trace("Present");
     u32 t0, t1;
     __asm__ volatile("mfc0 %0, $9" : "=r"(t0));
     if (gs.getFrameBufferCount() < 3) {
@@ -414,6 +592,7 @@ bool RendererCore::presentWarpFrame(const WarpCamera& from,
     gs.flipBuffers(isFrameLimitOn, /*synthetic=*/true);
     __asm__ volatile("mfc0 %0, $9" : "=r"(t1));
     stallAccum += t1 - t0;
+    stallTotal += t1 - t0;
   }
   return true;
 }

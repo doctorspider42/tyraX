@@ -22,7 +22,14 @@ struct Wobble : vu::Program {
         // so if vcl reports `no opt table` or `failed to convert all uta
         // linear->raw` on the lit or matcap classes, the answer is a cheaper
         // wave, not a narrower claim.
-        return vu::kAll;
+        //
+        // The one exception is a class this scene never draws. vu-lab has no
+        // textured-lit mesh, so there is no second pass to separate from, and
+        // with the generator's per-vertex material-state flag that class no
+        // longer fits openvcl's allocator ("Register allocation ran out of
+        // registers"). A project that DOES draw textured-lit meshes must keep
+        // kAll and find the register elsewhere.
+        return vu::kAll & ~vu::kLitTextured;
     }
 
     // ObjectSpace: before the MVP multiply, the only place a displacement is in

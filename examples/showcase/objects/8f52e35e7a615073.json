@@ -1,0 +1,1 @@
+{ "id": "8f52e35e7a615073", "name": "district-cellar", "type": "model", "position": [0, -10.35, -18], "rotation": [0, 0, 0], "scale": [1, 1, 1], "color": [1, 1, 1], "physics": false, "collision": "mesh", "drawDistance": 12, "model": "res/aster/district-cellar.obj", "meshLod": 0 }

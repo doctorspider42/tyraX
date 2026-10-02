@@ -50,3 +50,13 @@ shade). PS2-only — the editor viewport shows the base material.
 The two sibling examples: [raytraced-mirror](../raytraced-mirror) (the VU0
 raytracer on its own) and [probe-aim](../probe-aim) (the reflected-ray
 env-map probe).
+
+Generated object values live in `src/gen/scene_objects.gen.cpp`;
+`inc/scene_data.hpp` keeps stable declarations. Counts and object IDs live in
+the same data file, so ordinary moves, color edits, additions and removals can
+rebuild it alone. Changes to features or derived tables can still rebuild consumers.
+
+Generated game methods are split between `src/terrain_game.cpp` and the
+`src/gen/game_*.gen.cpp` subsystems, with shared inline helpers/state in
+`inc/game_runtime.gen.hpp`. Header changes can compile these units in parallel.
+The main file remains user-ownable; generated subsystem files refresh on build.

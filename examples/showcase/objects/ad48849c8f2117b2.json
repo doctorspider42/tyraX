@@ -1,0 +1,1 @@
+{ "id": "ad48849c8f2117b2", "name": "vault-lamp", "type": "point-light", "position": [0, 3.8, -25], "rotation": [0, 0, 0], "scale": [1, 1, 1], "color": [0.25, 0.75, 1], "physics": false, "light": { "brightness": 0.65, "radius": 6, "dynamic": true, "flicker": 0.08, "beam": 1 } }

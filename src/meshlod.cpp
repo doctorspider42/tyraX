@@ -116,7 +116,7 @@ void recomputeFaceNormals(std::vector<float>& verts) {
     }
 }
 
-void decimate(Mesh& w, size_t targetVerts) {
+void decimate(Mesh& w, size_t targetVerts, bool lockBorders) {
     const size_t vertCount = w.pos.size() / 3;
     std::vector<uint32_t> remap(vertCount);
     for (size_t i = 0; i < vertCount; ++i) remap[i] = (uint32_t)i;
@@ -146,9 +146,14 @@ void decimate(Mesh& w, size_t targetVerts) {
     }
 
     for (int round = 0; round < 64 && alive > targetVerts; ++round) {
-        // live triangles + per-vertex quadrics + edge -> use count
+        // live triangles + per-vertex quadrics + edge -> use count (and the
+        // face normal of the first owner, for the border penalty)
+        struct EdgeInfo {
+            int uses = 0;
+            double n[3] = {0, 0, 0};
+        };
         std::vector<Quadric> quadrics(vertCount);
-        std::map<std::pair<uint32_t, uint32_t>, int> edgeUses;
+        std::map<std::pair<uint32_t, uint32_t>, EdgeInfo> edgeUses;
         for (size_t t = 0; t + 2 < w.tris.size() + 1 && t < w.tris.size();
              t += 3) {
             uint32_t a = resolve(w.tris[t]), b = resolve(w.tris[t + 1]),
@@ -173,17 +178,48 @@ void decimate(Mesh& w, size_t targetVerts) {
             quadrics[b].add(q);
             quadrics[c].add(q);
             const uint32_t e[3][2] = {{a, b}, {b, c}, {c, a}};
-            for (auto& ed : e)
-                edgeUses[{std::min(ed[0], ed[1]), std::max(ed[0], ed[1])}]++;
+            for (auto& ed : e) {
+                EdgeInfo& ei =
+                    edgeUses[{std::min(ed[0], ed[1]), std::max(ed[0], ed[1])}];
+                if (ei.uses++ == 0) ei.n[0] = nx, ei.n[1] = ny, ei.n[2] = nz;
+            }
         }
         if (edgeUses.empty()) break;
 
         // open-border vertices (edge used by a single triangle) are locked
-        // for this round so silhouette outlines and part borders hold still
+        // for this round so silhouette outlines and part borders hold still -
+        // or, with borders unlocked, weighted down by a plane through the
+        // edge perpendicular to its one face, so a border vertex can only
+        // move ALONG its border cheaply (the shadow proxy's need)
         std::vector<uint8_t> border(vertCount, 0);
-        for (const auto& eu : edgeUses)
-            if (eu.second == 1)
-                border[eu.first.first] = border[eu.first.second] = 1;
+        for (const auto& eu : edgeUses) {
+            if (eu.second.uses != 1) continue;
+            const uint32_t a = eu.first.first, b = eu.first.second;
+            if (lockBorders) {
+                border[a] = border[b] = 1;
+                continue;
+            }
+            const float* pa = &w.pos[a * 3];
+            const float* pb = &w.pos[b * 3];
+            const double ex = pb[0] - pa[0], ey = pb[1] - pa[1],
+                         ez = pb[2] - pa[2];
+            const double* n = eu.second.n;
+            // perpendicular plane: edge x face normal
+            double px = ey * n[2] - ez * n[1], py = ez * n[0] - ex * n[2],
+                   pz = ex * n[1] - ey * n[0];
+            const double pl = std::sqrt(px * px + py * py + pz * pz);
+            if (pl < 1e-12) continue;
+            px /= pl, py /= pl, pz /= pl;
+            const double d = -(px * pa[0] + py * pa[1] + pz * pa[2]);
+            Quadric q;
+            q.addPlane(px, py, pz, d);
+            // weighted by the edge length squared - the usual boundary
+            // emphasis, so a long outline edge is much dearer to break
+            const double el = ex * ex + ey * ey + ez * ez;
+            for (int i = 0; i < 10; ++i) q.m[i] *= 4.0 * (el + 1e-6);
+            quadrics[a].add(q);
+            quadrics[b].add(q);
+        }
 
         struct Candidate {
             double cost;
@@ -261,6 +297,44 @@ std::vector<std::vector<float>> generateTiers(const std::vector<float>& verts) {
         tiers.push_back(std::move(tier));
     }
     return tiers;
+}
+
+std::vector<float> generateShadowProxy(
+    const std::vector<const std::vector<float>*>& parts, size_t maxTris) {
+    std::vector<float> out;
+    size_t corners = 0;
+    for (const std::vector<float>* pv : parts) corners += pv->size() / 8;
+    corners = corners / 3 * 3;
+    if (corners == 0 || corners / 3 <= maxTris) return out;  // fits as is
+    // Positions only, every part in one list: a shadow has no materials,
+    // and welding across parts is what closes the seams between them.
+    std::vector<float> pos;
+    pos.reserve(corners * 3);
+    for (const std::vector<float>* pv : parts) {
+        const std::vector<float>& v = *pv;
+        const size_t n = v.size() / 8 / 3 * 3;
+        for (size_t i = 0; i < n; ++i)
+            pos.insert(pos.end(), &v[i * 8], &v[i * 8] + 3);
+    }
+    // weld() copies a normal per vertex; none exist here, so the positions
+    // stand in and are never read (keyNormals off, and unweld is not used)
+    Mesh w = weld(pos.data(), pos.data(), nullptr, nullptr, nullptr,
+                  corners, false);
+    // A closed mesh has ~2 triangles per vertex, an open one fewer; aim at
+    // the closed ratio and tighten until the triangle count really fits.
+    size_t target = maxTris / 2;
+    for (int attempt = 0; attempt < 8 && target >= 4; ++attempt) {
+        Mesh m = w;
+        decimate(m, target, false);
+        if (m.tris.size() / 3 <= maxTris) {
+            out.reserve(m.tris.size() * 3);
+            for (uint32_t idx : m.tris)
+                out.insert(out.end(), &m.pos[idx * 3], &m.pos[idx * 3] + 3);
+            return out;
+        }
+        target = target * 3 / 4;
+    }
+    return out;  // could not be brought under the budget
 }
 
 std::vector<float> unweldInterleaved(const Mesh& w) {

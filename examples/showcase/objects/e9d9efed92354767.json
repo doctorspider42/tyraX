@@ -1,0 +1,1 @@
+{ "id": "e9d9efed92354767", "name": "heart-light", "type": "point-light", "position": [0, 4.1, -12], "rotation": [0, 0, 0], "scale": [1, 1, 1], "color": [0.25, 0.8, 0.9], "physics": false, "light": { "brightness": 0.65, "radius": 8, "dynamic": true, "flicker": 0.08, "beam": 1 } }

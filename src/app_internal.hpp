@@ -12,6 +12,7 @@
 // small and keep its includes cheap.
 #pragma once
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdio>
 #include <filesystem>
@@ -132,6 +133,60 @@ inline std::string readTextFileTail(const std::string& path, size_t maxBytes) {
     return data;
 }
 
+// ImGui's own std::string bridge (vendor/imgui/misc/cpp/imgui_stdlib.cpp is
+// not in the build): the widget writes into the string's own buffer and asks
+// for a bigger one through this callback, so the field has no length limit.
+inline int growString(ImGuiInputTextCallbackData* d) {
+    if (d->EventFlag != ImGuiInputTextFlags_CallbackResize) return 0;
+    auto* s = static_cast<std::string*>(d->UserData);
+    s->resize((size_t)d->BufTextLen);
+    d->Buf = s->data();
+    return 0;
+}
+
+// A PROSE field: one row high while the text is one row, taller as it wraps or
+// gains newlines, up to a cap it starts scrolling at. For the few things in
+// this editor written in sentences - the World Facts descriptions, and the
+// note a Comment object carries.
+//
+// Two things a single-line helper gets wrong for a paragraph. Its buffer is a
+// fixed size, and prose written by hand or by an example's build script runs
+// several times that, so opening the field would silently truncate one - hence
+// the resize callback. And prose WRAPS, which a single-line field answers by
+// scrolling sideways, one word visible at a time.
+//
+// The wrap width is measured a shade narrow on purpose. ImGui wraps against
+// the inner width of the child window the widget builds, which depends on
+// whether a scrollbar is up; guessing narrow costs at most one spare row, and
+// guessing wide would leave the last row clipped below the box.
+inline void inputTextProse(const char* id, std::string& value, bool* changed,
+                           int maxRows = 12) {
+    const ImGuiStyle& st = ImGui::GetStyle();
+    const float rowH = ImGui::GetTextLineHeight();
+    const float wrap = std::max(
+        ImGui::GetFontSize() * 2.0f,
+        ImGui::CalcItemWidth() - st.FramePadding.x * 2.0f - st.ScrollbarSize -
+            2.0f);
+    float textH = value.empty()
+                      ? rowH
+                      : ImGui::CalcTextSize(value.c_str(), nullptr, false, wrap).y;
+    // A trailing newline draws no glyphs, so the measurement misses the row the
+    // caret is sitting on - the one case where the box would otherwise grow
+    // only after the NEXT character is typed.
+    if (!value.empty() && value.back() == '\n') textH += rowH;
+    int rows = (int)(textH / rowH + 0.5f);
+    if (rows < 1) rows = 1;
+    if (rows > maxRows) rows = maxRows;
+
+    const ImVec2 size(0.0f, rows * rowH + st.FramePadding.y * 2.0f);
+    const bool edited = ImGui::InputTextMultiline(
+        id, value.data(), value.capacity() + 1, size,
+        ImGuiInputTextFlags_WordWrap | ImGuiInputTextFlags_CallbackResize,
+        growString, &value);
+    (void)edited;
+    if (ImGui::IsItemDeactivatedAfterEdit() && changed) *changed = true;
+}
+
 // Compact help marker: a dimmed "(?)" on the same line as the preceding widget
 // that reveals its explanation on hover, instead of unrolling a multi-paragraph
 // description inline. Keeps the dense Preferences dialogs from running several
@@ -139,6 +194,21 @@ inline std::string readTextFileTail(const std::string& path, size_t maxBytes) {
 inline void prefHelp(const char* tip) {
     ImGui::SameLine();
     ImGui::TextDisabled("(?)");
+    if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tip);
+}
+
+// prefHelp's idea applied to a WRAPPED sentence: the short version on screen,
+// the long one on hover. It cannot use prefHelp itself, because that marker is
+// placed with SameLine - and after a wrapped block SameLine lands beside the
+// FIRST line, or off the right edge entirely when the last line happens to fill
+// the width. A narrow docked panel does both, and a "(?)" nobody can see is the
+// same thing as no explanation at all. So the marker flows INSIDE the text,
+// where wrapping can never strand it, and the whole sentence is the hover
+// target rather than one 12-pixel glyph.
+inline void textWrappedHelp(const char* text, const char* tip) {
+    std::string s(text);
+    s += "  (?)";
+    ImGui::TextWrapped("%s", s.c_str());
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", tip);
 }
 

@@ -21,7 +21,7 @@ lighting is a texture and a table; the ray tracing happened on your desktop.
 
 ## Turning it off to see the difference
 
-*Tools > Bake Global Illumination* → untick **Enable baked global
+*Tools > Global Illumination* → untick **Enable baked global
 illumination**, then build. Same geometry, same sun, same sky colours — flat
 ambient shading, no bleed, no shadows beyond the analytic contact term. Tick
 it back on and press **Bake this scene** to get the light back (about 10
@@ -45,3 +45,13 @@ never silently shipped.
 Standard FPP template: left stick walks, right stick looks, X jumps. Walk into
 the alcove and back out to feel the probe grid work on the player's
 surroundings.
+
+Generated object values live in `src/gen/scene_objects.gen.cpp`;
+`inc/scene_data.hpp` keeps stable declarations. Counts and object IDs live in
+the same data file, so ordinary moves, color edits, additions and removals can
+rebuild it alone. Changes to features or derived tables can still rebuild consumers.
+
+Generated game methods are split between `src/terrain_game.cpp` and the
+`src/gen/game_*.gen.cpp` subsystems, with shared inline helpers/state in
+`inc/game_runtime.gen.hpp`. Header changes can compile these units in parallel.
+The main file remains user-ownable; generated subsystem files refresh on build.

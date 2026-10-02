@@ -497,7 +497,8 @@ bool App::applyChatObjectProp(SceneData& sc, SceneObject& o,
         if (mode == "box") o.collisionMode = 0;
         else if (mode == "mesh") o.collisionMode = 1;
         else if (mode == "none") o.collisionMode = 2;
-        else err = "collision must be \"box\", \"mesh\" or \"none\"";
+        else if (mode == "invisible" && o.type == PrimitiveType::Box) o.collisionMode = 3;
+        else err = "collision must be \"box\", \"mesh\", \"none\", or \"invisible\" (Box only)";
         return true;
     }
     if (key == "detail") {
@@ -1336,7 +1337,8 @@ std::string App::runChatTool(aichat::ToolCall& c) {
         // The channel's age BEFORE the launch: what makes "the game reported"
         // mean this run rather than a file left over from the last one.
         chatGameMark_ = chatGameSignal();
-        runner_.buildAndRun(projectForBuild(), run);
+        runner_.buildAndRun(projectForBuild(), run, false,
+                            run ? project_.activeScene : -1);
         chatBuildWasRun_ = run;
         chatBuildWaiting_ = true;  // the loop parks until it settles
         statusMessage_ = "AI: building";

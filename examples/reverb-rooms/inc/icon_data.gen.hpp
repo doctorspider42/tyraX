@@ -6,10 +6,10 @@ namespace Reverb_rooms {
 // Inline text icons: `{{name}}` in any text draws one of these
 // (docs/text-icons.md). One sheet for all of them - it reaches GS
 // VRAM only when a runtime text actually blits an icon.
-constexpr int ICON_COUNT = 16;
-constexpr const char* ICON_SHEET = "hud/icons.png";
-constexpr int ICON_SHEET_W = 128;
-constexpr int ICON_SHEET_H = 128;
+inline constexpr int ICON_COUNT = 16;
+inline constexpr const char* ICON_SHEET = "hud/icons.png";
+inline constexpr int ICON_SHEET_W = 128;
+inline constexpr int ICON_SHEET_H = 128;
 
 struct IconRect {
   const char* name;
@@ -39,6 +39,6 @@ inline const IconRect ICONS[ICON_COUNT > 0 ? ICON_COUNT : 1] = {
 // Icon index per pad button (kPadButtonNames order), -1 = the
 // project has no icon for it. This is what turns a live binding
 // into a glyph for {{action:...}}.
-constexpr int ICON_FOR_PAD[16] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
+inline constexpr int ICON_FOR_PAD[16] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15};
 
 }  // namespace Reverb_rooms

@@ -12,9 +12,11 @@
 # arithmetic - truncating shifts, 8-bit clamps, the two-triangle interpolation
 # of the Gouraud grid - so a divergence does not make the net inaccurate, it
 # makes it optimise the wrong objective. Section numbers below cite that page.
+# Modified by TyraX: GIF-channel sends pass path3Fence() first.
 */
 
 #include <dma.h>
+#include "renderer/core/paths/path3/path3_fence.hpp"
 #include <draw.h>
 #include <gif_tags.h>
 #include <graph.h>
@@ -286,7 +288,8 @@ void RendererCoreBlss::allocate() {
   // history is the other display framebuffer (section 6) and the low-res pass
   // points ZBUF at the main z buffer (section 7) - FRAME and ZBUF bases are
   // independent registers.
-  lowVram = gs->vram.allocateBuffer(lowBufW, lowH, GS_PSM_32);
+  fbPsm = settings->getFrameBufferPsm();
+  lowVram = gs->vram.allocateBuffer(lowBufW, lowH, fbPsm);
   TYRA_ASSERT(lowVram >= 0, "Out of VRAM for the BLSS low-res target");
   allocated = true;
   TYRA_LOG("BLSS: ", lowW, "x", lowH, " low-res target at VRAM ", lowVram);
@@ -320,12 +323,17 @@ void RendererCoreBlss::configure(int t_scaleX, int t_scaleY, float t_sharpen,
   // BLSS PER SCENE: pin what the z buffer is sized for BEFORE the realloc
   // decision below, so that decision is made once and for the whole run. A
   // game that mixes upscaled and native scenes pins 1,1 - z covers the display,
-  // needsBufferRealloc() stays false forever after, and setScene() is free.
+  // after the initial colour-target reserve rebuild, setScene() is free.
   // A game whose scenes all agree pins nothing and gets the small z buffer it
   // always got.
   if (gs != nullptr && enabled && t_nativeScenes) gs->setZRasterScale(1, 1);
 
   settings->setRasterScale(enabled ? scaleX : 1, enabled ? scaleY : 1);
+  // Modified by TyraX: a mixed project pins Z at full size, but still reserves
+  // a low-res colour target. That reserve must re-decide triple buffering at
+  // configure(), and remain present when a native scene changes video mode.
+  if (gs != nullptr)
+    gs->setLowResTargetScale(enabled ? scaleX : 1, enabled ? scaleY : 1);
   // The projection's raster scale changed; the world-space frustum planes did
   // not (they come from fov + aspectRatio) - see RendererCore3D::setProjection.
   if (core3D != nullptr) core3D->setFov(core3D->getFov());
@@ -336,9 +344,10 @@ void RendererCoreBlss::configure(int t_scaleX, int t_scaleY, float t_sharpen,
   // the way a display-mode switch does it: textures evicted, frame/z buffers
   // rebuilt (the frame buffers land at the same addresses, z at the smaller
   // one), then every permanent buffer above them re-placed in the same
-  // relative order. Only when the size actually changes - a project with BLSS
-  // off never reaches this, and calling configure() twice with the same scale
-  // is free.
+  // relative order. Also rebuild when the colour-target reserve changes,
+  // even if native scenes pinned Z at full size. Only when the layout changes:
+  // a project with BLSS off never reaches this, and calling configure() twice
+  // with the same scale is free.
   //
   // Safe HERE and nowhere later: generated games call configure() at the top
   // of init(), before buildScene() loads a single asset, so the eviction the
@@ -1475,7 +1484,7 @@ void RendererCoreBlss::beginScene(const Color& clearColor) {
   // the previous window and never painted).
   PACK_GIFTAG(q, GS_SET_XYOFFSET(offX16, offY16), GS_REG_XYOFFSET_1);
   q++;
-  PACK_GIFTAG(q, GS_SET_FRAME(lowVram >> 11, lowBufW >> 6, GS_PSM_32, 0),
+  PACK_GIFTAG(q, GS_SET_FRAME(lowVram >> 11, lowBufW >> 6, fbPsm, 0),
               GS_REG_FRAME_1);
   q++;
   PACK_GIFTAG(q, GS_SET_SCISSOR(0, lowW - 1, 0, lowH - 1), GS_REG_SCISSOR_1);
@@ -1514,6 +1523,7 @@ void RendererCoreBlss::beginScene(const Color& clearColor) {
   packet2_update(beginPacket, q);
   packet2_update(beginPacket, draw_finish(beginPacket->next));
   dma_channel_wait(DMA_CHANNEL_GIF, 0);
+  path3Fence();  // Modified by TyraX: path3_fence.hpp
   dma_channel_send_packet2(beginPacket, DMA_CHANNEL_GIF, true);
   draw_wait_finish();
 #if TYRA_FRAME_PROFILE
@@ -1557,6 +1567,7 @@ void RendererCoreBlss::endScene() {
   packet2_update(endPacket, q);
   packet2_update(endPacket, draw_finish(endPacket->next));
   dma_channel_wait(DMA_CHANNEL_GIF, 0);
+  path3Fence();  // Modified by TyraX: path3_fence.hpp
   dma_channel_send_packet2(endPacket, DMA_CHANNEL_GIF, true);
   draw_wait_finish();
 #if TYRA_FRAME_PROFILE
@@ -1611,7 +1622,7 @@ qword_t* RendererCoreBlss::emitPassState(qword_t* q, int srcVram, int srcBufW,
     //   RGB = Ct * 128 >> 7 = Ct      (exact, no loss)
     //   A   = TA0 * Av >> 7 = Av      (with TEXA below)
     PACK_GIFTAG(q,
-                GS_SET_TEX0(srcVram >> 6, srcBufW >> 6, GS_PSM_32, lg2(texW),
+                GS_SET_TEX0(srcVram >> 6, srcBufW >> 6, fbPsm, lg2(texW),
                             lg2(texH), 0 /* TCC: RGB */,
                             0 /* TFX: MODULATE */, 0, 0, 0, 0, 0),
                 GS_REG_TEX0_1);
@@ -1636,7 +1647,7 @@ qword_t* RendererCoreBlss::emitPassState(qword_t* q, int srcVram, int srcBufW,
   // what draw_setup_environment leaves (see kEnvTexa), re-stated per pass.
   PACK_GIFTAG(q, GS_SET_COLCLAMP(COLOR_CLAMP_ENABLE), GS_REG_COLCLAMP);
   q++;
-  PACK_GIFTAG(q, GS_SET_FRAME(fbVram >> 11, fbBufW >> 6, GS_PSM_32, 0),
+  PACK_GIFTAG(q, GS_SET_FRAME(fbVram >> 11, fbBufW >> 6, fbPsm, 0),
               GS_REG_FRAME_1);
   q++;
   PACK_GIFTAG(q, alpha, GS_REG_ALPHA_1);
@@ -1940,6 +1951,7 @@ void RendererCoreBlss::composite() {
     FrameProfile::tBlssPacket = FrameProfile::ticks() - fpP0;
     FrameProfile::tBlssCompositeEe = FrameProfile::ticks() - fpT0;
 #endif
+    path3Fence();  // Modified by TyraX: path3_fence.hpp
     dma_channel_send_packet2(packet, DMA_CHANNEL_GIF, true);
     draw_wait_finish();
 #if TYRA_FRAME_PROFILE
@@ -1999,7 +2011,12 @@ void RendererCoreBlss::composite() {
   // unaffected), which is a quality loss and not a wrong picture. Said once,
   // because it is a property of the configuration and not of the frame.
   const int targetVram = static_cast<int>(gs->getCurrentFrameBuffer()->address);
-  const bool histIsTarget = histVram == targetVram;
+  // Modified by TyraX: in the Hybrid colour depth the "previous frame" is the
+  // 16-bit DISPLAY buffer (what the frame capture photographs), not a 32-bit
+  // history this pass could sample in the frame's format - so it has no
+  // history at all, which is the same honest degradation as the case below.
+  const bool histIsTarget =
+      histVram == targetVram || settings->isHybridOutput();
   if (histIsTarget && !histAliasWarned) {
     histAliasWarned = true;
     TYRA_WARN(
@@ -2085,6 +2102,7 @@ void RendererCoreBlss::composite() {
   // again on the EE has not saved anything.
   FrameProfile::tBlssCompositeEe = FrameProfile::ticks() - fpT0;
 #endif
+  path3Fence();  // Modified by TyraX: path3_fence.hpp
   dma_channel_send_packet2(packet, DMA_CHANNEL_GIF, true);
   draw_wait_finish();
 #if TYRA_FRAME_PROFILE

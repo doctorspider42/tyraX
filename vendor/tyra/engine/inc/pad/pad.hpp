@@ -80,6 +80,28 @@ class Pad {
   /** Overlay slots - see injectVirtual. */
   static const int VIRT_SLOTS = 2;
 
+  /** TyraX: the raw padRead() packet, pressures included. A DualShock 2
+   * reports 0..255 for the twelve pressure buttons (buttons.*_p), which is
+   * what an analog throttle reads; the stick clicks and Start/Select have no
+   * pressure and exist only in the digital mask. Valid for the last update()
+   * that had a controller - a game must gate on getPressed() first, because
+   * an unpressed button's pressure byte is stale, not zero, on some pads. */
+  const padButtonStatus& rawButtons() const { return buttons; }
+
+  /** TyraX: OVERWRITE the whole polled state (docs/input-replay.md).
+   *
+   * injectVirtual MERGES on top of the hardware, which is right for a pad
+   * overlay and wrong for a replay: a recording has to WIN over whatever a
+   * physical controller is doing, or a hand resting on a stick silently
+   * changes the run being reproduced. So this replaces `pressed`, `clicked`
+   * and both stick axes outright, and recomputes isCentered/isMoved by the
+   * same rule injectVirtual uses.
+   *
+   * Call it as the LAST stage of a frame's input - after update() and after
+   * every overlay - or whatever runs later overwrites it back. */
+  void setState(const PadButtons& pressedIn, const PadButtons& clickedIn,
+                u8 leftH, u8 leftV, u8 rightH, u8 rightV);
+
  private:
   /** TyraX: how long waitPadReady() gives a controller to settle, in ~1 ms
    * polls. Generous, because it only ever costs this much when there is no

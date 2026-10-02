@@ -10,6 +10,7 @@
 #                    USB keyboard/mouse device (kbdMouse)
 */
 
+#include "debug/hardware_trace.hpp"
 #include "engine.hpp"
 #include "debug/sifrpc_guard.hpp"
 #include <kernel.h>
@@ -28,18 +29,21 @@ Engine::~Engine() {}
 void Engine::run(Game* t_game) {
   game = t_game;
   game->init();
+  HardwareTrace::configure();
   while (true) {
     realLoop();
   }
 }
 
 void Engine::realLoop() {
-  pad.update();
+  HardwareTrace::beginFrame();
+  { HardwareTrace::Scope trace("Pad"); pad.update(); }
   if (kbdMouse.isEnabled()) kbdMouse.update();
-  game->loop();
-  info.update();
+  { HardwareTrace::Scope trace("Game"); game->loop(); }
+  { HardwareTrace::Scope trace("Info"); info.update(); }
   // One compare per frame unless the guard has actually dropped something.
   SifRpcGuard::report();
+  HardwareTrace::endFrame();
 }
 
 void Engine::initAll(const EngineOptions& options) {
@@ -80,8 +84,17 @@ void Engine::initAll(const EngineOptions& options) {
       (!underPs2Link || options.loadUsbKbdMouseUnderPs2Link);
   const bool loadOwnHid = withKbdMouse && !underPs2Link;
   irx.loadAll(options.loadUsbDriver, loadOwnHid, info.writeLogsToFile);
-  renderer.init(options.videoMode, options.displayMode, options.widescreen,
-                options.tripleBuffering);
+  // Modified by TyraX: the renderer's init-time knobs travel as a struct.
+  RendererOptions rendererOptions;
+  rendererOptions.videoMode = options.videoMode;
+  rendererOptions.displayMode = options.displayMode;
+  rendererOptions.widescreen = options.widescreen;
+  rendererOptions.colorDepth = options.colorDepth;
+  rendererOptions.dither = options.dither;
+  rendererOptions.envMap = options.envMapTarget;
+  rendererOptions.camFeed = options.camFeedTarget;
+  rendererOptions.tripleBuffering = options.tripleBuffering;
+  renderer.init(rendererOptions);
   banner.show(&renderer);
   audio.init();
   pad.init();

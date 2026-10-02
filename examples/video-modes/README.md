@@ -21,11 +21,12 @@ draws it. Switch modes in-game and the panel keeps the same physical size and
 position on the TV — the framebuffer is 512x448 interlaced but 448x540 in
 1080i, and the runtime scales the menu by both factors.
 
-**STANDARD 4:3 / WIDESCREEN 16:9 is the same test one axis over**, and the
+**STANDARD 4:3 and WIDESCREEN 16:9 — two rows of their own — are the same test
+one axis over**, and the
 most useful thing this project shows: 16:9 on the PS2 is *anamorphic* — the
 framebuffer does not change, the TV stretches it — so the panel is squeezed
 horizontally to exactly cancel that (see
-[menu-styles.md](../../docs/menu-styles.md) "Widescreen"). Toggle it with the
+[menu-styles.md](../../docs/menu-styles.md) "Widescreen"). Switch between the two rows with the
 menu open and watch: the panel narrows to three quarters of its width **in
 the framebuffer**, which on a 16:9 set is the same physical panel it was
 before, with the same letter shapes. Measured on the console at 512x448: 575
@@ -47,7 +48,8 @@ select with **X**, back out with **Triangle**:
 | PROGRESSIVE 480P | Switch to progressive 480p |
 | HD 1080I | Switch to 1080i |
 | 480I FIELD RENDER | Switch to interlaced **field rendering** (a fresh half-height 512x224 image every field — 50/60 distinct pictures per second for ~half the fill/VRAM) |
-| STANDARD 4:3 / WIDESCREEN 16:9 | Aspect-ratio switch (applies instantly) |
+| STANDARD 4:3 | Back to the 4:3 aspect (applies instantly) |
+| WIDESCREEN 16:9 | Anamorphic 16:9 (applies instantly) |
 | CLOSE | Dismiss the menu |
 
 The highlighted row draws from a **baked state cell** (the gradient plate,
@@ -87,3 +89,13 @@ blind.
   works on any cable/TV; expect a slightly softer static picture (each field
   is a half-height image) and judge the motion smoothness on a real CRT —
   PCSX2's deinterlacing hides most of the difference.
+
+Generated object values live in `src/gen/scene_objects.gen.cpp`;
+`inc/scene_data.hpp` keeps stable declarations. Counts and object IDs live in
+the same data file, so ordinary moves, color edits, additions and removals can
+rebuild it alone. Changes to features or derived tables can still rebuild consumers.
+
+Generated game methods are split between `src/terrain_game.cpp` and the
+`src/gen/game_*.gen.cpp` subsystems, with shared inline helpers/state in
+`inc/game_runtime.gen.hpp`. Header changes can compile these units in parallel.
+The main file remains user-ownable; generated subsystem files refresh on build.

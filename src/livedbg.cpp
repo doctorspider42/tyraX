@@ -1,6 +1,8 @@
 #include "livedbg.hpp"
 
 #include <cstdio>
+#include <cmath>
+#include <iomanip>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -261,6 +263,44 @@ bool readSnapshot(const std::string& path, Snapshot& out) {
     return parseSnapshot(bytes, out);
 }
 
+bool readRenderCost(const std::string& path, RenderCost& out) {
+    std::ifstream f(path);
+    std::string magic, end;
+    int version = 0, count = 0;
+    RenderCost r;
+    uint32_t echo = 0;
+    if (!(f >> magic >> version >> r.seq >> r.scene >> count >> r.totalMs) ||
+        magic != "TXRP" || version != 1 || r.scene < 0 || count < 0 ||
+        count > 4096 || !std::isfinite(r.totalMs) || r.totalMs < 0) return false;
+    for (int i = 0; i < count; ++i) {
+        RenderCostRow row;
+        if (!(f >> row.object >> row.label >> row.ms) || row.object < -1 ||
+            row.label.size() > 80 || !std::isfinite(row.ms) || row.ms < 0)
+            return false;
+        r.rows.push_back(std::move(row));
+    }
+    if (!(f >> end >> echo) || end != "END" || echo != r.seq) return false;
+    std::string extra;
+    if (f >> extra) return false;
+    out = std::move(r);
+    return true;
+}
+
+std::string renderCostCsv(const RenderCost& r) {
+    std::ostringstream o;
+    o << "scene,object,stage,milliseconds\n" << std::fixed << std::setprecision(3);
+    o << r.scene << ",-1,Total," << r.totalMs << '\n';
+    for (const auto& row : r.rows) {
+        o << r.scene << ',' << row.object << ",\"";
+        for (char c : row.label) {
+            if (c == '"') o << '"';
+            o << c;
+        }
+        o << "\"," << row.ms << '\n';
+    }
+    return o.str();
+}
+
 // ---------------------------------------------------------------- command ---
 
 bool Command::sameStateAs(const Command& o) const {
@@ -268,8 +308,9 @@ bool Command::sameStateAs(const Command& o) const {
            stepFrames == o.stepFrames && breakpoints == o.breakpoints &&
            fire == o.fire && fireAndRun == o.fireAndRun &&
            captureVu == o.captureVu && vuFlush == o.vuFlush &&
-           measureRam == o.measureRam && watchObjects == o.watchObjects &&
-           sameFactSets(o);
+           measureRam == o.measureRam && captureFrame == o.captureFrame &&
+           captureRenderCost == o.captureRenderCost &&
+           watchObjects == o.watchObjects && sameFactSets(o);
 }
 
 bool Command::sameFactSets(const Command& o) const {
@@ -290,8 +331,9 @@ std::vector<unsigned char> encodeCommand(const Command& c) {
     put32(v, kCmdMagic);
     put32(v, kCmdVersion);
     put32(v, c.seq);
-    // Bits 0-3 are the switches; a capture with a named flush index sets bit 4
-    // and carries the index in bits 8-23 (see Command::vuFlush). Spare bits
+    // Bits 0-3 and 5-7 are the switches; a VU capture with a named flush index
+    // sets bit 4 and carries the index in bits 8-23 (see Command::vuFlush).
+    // Spare bits
     // rather than a longer header: a game built before this reads the switches
     // it knows and ignores the rest, so no version bump is needed on either
     // side.
@@ -300,6 +342,8 @@ std::vector<unsigned char> encodeCommand(const Command& c) {
     if (c.captureVu && c.vuFlush >= 0)
         flags |= 16u | ((uint32_t)(c.vuFlush & 0xFFFF) << 8);
     if (c.measureRam) flags |= 32u;
+    if (c.captureFrame) flags |= 64u;
+    if (c.captureRenderCost) flags |= 128u;
     // Fact overrides ride the top byte: the header is full at 32 bytes and a
     // count capped at kMaxFactSets has nowhere better to live. A game built
     // before they existed reads those bits as 0, i.e. "no overrides".

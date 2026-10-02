@@ -1,5 +1,7 @@
 {
   "name": "procedural",
+  "formatVersion": 92,
+  "editorVersion": "1.166.0",
   "template": "fpp",
   "projectId": "d1075df8658a56e1",
   "settings": {
@@ -14,11 +16,19 @@
     "showMemory": false,
     "showProfiler": false,
     "showAreas": false,
+    "showCollision": false,
     "liveLink": true,
+    "liveLinkPollFrames": 0,
+    "liveLogicPollFrames": 0,
+    "liveDebugPollFrames": 0,
+    "liveDebugSnapshotFrames": 0,
+    "timeMachineFrames": 0,
     "liveDebug": true,
     "eeCrashHandler": false,
     "liveLogic": true,
     "timeMachine": true,
+    "remotePad": true,
+    "inputRecorder": false,
     "keyboardMouse": false,
     "keyboardMousePs2Link": true,
     "disableVsync": false,
@@ -28,6 +38,7 @@
     "animSourceFps": 24,
     "animPlayFps": 24,
     "staticBatching": true,
+    "occlusionCulling": false,
     "envProbeReflected": false,
     "navCellSize": 1,
     "navMaxSlope": 40,
@@ -35,6 +46,8 @@
     "unitsPerMeter": 1,
     "terrainDetail": 64,
     "terrainViewDistance": 0,
+    "terrainLodDistance": 0,
+    "reflectionReuseBudget": 1,
     "skyColor": [0.25, 0.55, 0.78],
     "skyTopColor": [0.08, 0.3, 0.65],
     "skyDome": true,
@@ -77,12 +90,20 @@
     "bloomThreshold": 0,
     "bloomSpread": 0,
     "grain": 0,
+    "motionBlur": 0,
     "dofAmount": 0,
     "dofFocus": 20,
     "dofRange": 15,
     "flare": 0,
     "godRays": 0,
     "blobShadows": false,
+    "blssEnabled": false,
+    "blssScale": 0,
+    "blssNetwork": true,
+    "blssSharpen": 0.5,
+    "blssTemporal": true,
+    "blssJitter": false,
+    "blssDebugView": 0,
     "fogEnabled": false,
     "fogColor": [0.5, 0.5, 0.55],
     "fogStart": 15,
@@ -99,7 +120,7 @@
   "scenes": [
     { "name": "main",
       "terrain": { "width": 140, "depth": 140 },
-      "settings": { "lighting": { "dir": [0.37, 0.82, 0.44], "ambient": 0.55, "diffuse": 0.45, "color": [1, 1, 1], "brightness": 1 }, "sky": { "color": [0.25, 0.55, 0.78], "topColor": [0.08, 0.3, 0.65], "dome": true, "zenithSize": 0.5 }, "clipping": "vu1", "terrainMaterial": "", "postfx": { "bloom": 0, "bloomThreshold": 0, "bloomSpread": 0, "grain": 0, "dofAmount": 0, "dofFocus": 20, "dofRange": 15, "flare": 0, "godRays": 0 }, "fog": { "enabled": false, "color": [0.5, 0.5, 0.55], "start": 15, "end": 120 }, "highlight": { "usable": false, "distance": 6, "color": [1, 0.85, 0.15], "width": 0.35, "steps": 4, "opacity": 0.56, "overlay": false } }, "overrides": { "lighting": false, "sky": false, "clipping": false, "terrainMat": false, "postFx": false, "fog": false, "highlight": false },
+      "settings": { "lighting": { "dir": [0.37, 0.82, 0.44], "ambient": 0.55, "diffuse": 0.45, "color": [1, 1, 1], "brightness": 1 }, "sky": { "color": [0.25, 0.55, 0.78], "topColor": [0.08, 0.3, 0.65], "dome": true, "zenithSize": 0.5 }, "clipping": "vu1", "terrainMaterial": "", "postfx": { "bloom": 0, "bloomThreshold": 0, "bloomSpread": 0, "grain": 0, "motionBlur": 0, "dofAmount": 0, "dofFocus": 20, "dofRange": 15, "flare": 0, "godRays": 0 }, "fog": { "enabled": false, "color": [0.5, 0.5, 0.55], "start": 15, "end": 120 }, "highlight": { "usable": false, "distance": 6, "color": [1, 0.85, 0.15], "width": 0.35, "steps": 4, "opacity": 0.56, "overlay": false } }, "overrides": { "lighting": false, "sky": false, "clipping": false, "terrainMat": false, "postFx": false, "fog": false, "highlight": false },
       "objects": ["2423e8bb5f5c86c1", "7f3a1c02d1e04a91", "2b8d40f6c3a1e7d2", "9e14c7a80b5d2f63", "4c62ab19e8d70f35", "d05f8e2374b1a6c9", "13ae95bc6027d8f4", "8a71d3f5029c4be6", "62d224db0684bd6d", "5f810e80e6dbc1c8", "e39258dbfb16e247", "34b9d705830f6ada", "0267485f1ac9a8a8", "6201e36cd833d55d", "6a477ff63fb4f3c3", "0f291ca937668c35", "3e52915eeda2ce42", "e3af84539116ede3", "eb7ff06d55ce7c38", "b1c3b05881fed450", "9b2cb33e62bacf2c", "dd5d254aa7de2959", "007da54bcb41b4a6", "9dde48bd74f798e3", "986b32c8351ba0f3"] }
   ],
   "fonts": [
@@ -132,10 +153,29 @@
   ],
   "hudBloomLayer": -1,
   "hudGrainLayer": -1,
+  "hudMotionBlurLayer": 0,
   "music": [],
   "sounds": [],
   "saveValues": [],
   "saveTexts": [],
+  "saveTitle": "",
+  "saveIcon": "",
+  "saveIconModel": "",
+  "saveIconClip": "",
+  "saveIconFrames": 6,
+  "saveIconMotion": "",
+  "saveIconMotionAmount": 1,
+  "saveMenuWritesCheckpoint": false,
+  "saveAutosaveSlot": -1,
+  "saveSlotCount": 3,
+  "saveSlotsPerPage": 3,
+  "saveAsync": false,
+  "saveSpinner": true,
+  "saveSpinnerImage": "",
+  "saveSpinnerFrames": 8,
+  "saveSpinnerCorner": 3,
+  "saveSpinnerMargin": 20,
+  "saveSpinnerScale": 1,
   "gradings": [],
   "defaultGrading": -1,
   "ambience": [
@@ -145,8 +185,12 @@
   "loadingScreens": [],
   "defaultLoadingScreen": -1,
   "splashScreens": [],
+  "credits": [],
   "sequences": [],
-  "menus": [],
+  "menus": [
+    { "name": "save", "title": "SAVE GAME", "saveMenu": true, "screenPos": [0.5, 0.45], "accent": [0.47, 0.82, 1],
+      "entries": [] }
+  ],
   "input": {
     "activePreset": 0,
     "allowRebind": true,
@@ -168,7 +212,13 @@
       { "name": "menu-up", "label": "Menu up", "role": "menu-up", "rebindable": false },
       { "name": "menu-down", "label": "Menu down", "role": "menu-down", "rebindable": false },
       { "name": "menu-left", "label": "Menu left", "role": "menu-left", "rebindable": false },
-      { "name": "menu-right", "label": "Menu right", "role": "menu-right", "rebindable": false }
+      { "name": "menu-right", "label": "Menu right", "role": "menu-right", "rebindable": false },
+      { "name": "veh-throttle", "label": "Vehicle throttle", "role": "veh-throttle" },
+      { "name": "veh-brake", "label": "Vehicle brake", "role": "veh-brake" },
+      { "name": "veh-handbrake", "label": "Vehicle handbrake", "role": "veh-handbrake" },
+      { "name": "veh-nitrous", "label": "Vehicle nitrous", "role": "veh-nitrous" },
+      { "name": "veh-camera", "label": "Vehicle camera", "role": "veh-camera" },
+      { "name": "veh-rearview", "label": "Vehicle rear view", "role": "veh-rearview" }
     ],
     "presets": [
       { "name": "Default", "bindings": [
@@ -189,17 +239,25 @@
           { "action": "menu-up", "pad": "DpadUp", "key": 82 },
           { "action": "menu-down", "pad": "DpadDown", "key": 81 },
           { "action": "menu-left", "pad": "DpadLeft", "key": 80 },
-          { "action": "menu-right", "pad": "DpadRight", "key": 79 }
+          { "action": "menu-right", "pad": "DpadRight", "key": 79 },
+          { "action": "veh-throttle", "pad": "R2", "key": 26 },
+          { "action": "veh-brake", "pad": "L2", "key": 22 },
+          { "action": "veh-handbrake", "pad": "Circle", "key": 44 },
+          { "action": "veh-nitrous", "pad": "Cross", "key": 225 },
+          { "action": "veh-camera", "pad": "Triangle", "key": 6 },
+          { "action": "veh-rearview", "pad": "R3", "key": 21 }
         ] }
     ]
   },
-  "editor": { "selectedObject": -1, "gizmo": 0, "gizmoSpace": 0, "viewMode": 0, "viewProjection": 0, "breakpoints": [] },
+  "editor": { "selectedObject": -1, "gizmo": 0, "gizmoSpace": 0, "viewMode": 0, "viewProjection": 0, "showFog": true, "cam": [0.8, 0.6, 90, 0, 0, 0], "breakpoints": [] },
   "activeLayout": 4,
   "layouts": [
     { "name": "Default", "recipe": 0, "open": [], "ini": "" },
     { "name": "Director", "recipe": 1, "open": ["cutscene"], "ini": "" },
     { "name": "Material Designer", "recipe": 2, "open": ["material"], "ini": "" },
     { "name": "Debugger", "recipe": 3, "open": ["debugger"], "ini": "" },
-    { "name": "Procedural", "recipe": 0, "open": ["proc"], "ini": "" }
+    { "name": "Procedural", "recipe": 0, "open": ["proc"], "ini": "" },
+    { "name": "Procedural", "recipe": 4, "open": ["proc", "prefabs"], "ini": "" },
+    { "name": "Menu Designer", "recipe": 5, "open": ["menus", "menupreview", "fonts"], "ini": "" }
   ]
 }

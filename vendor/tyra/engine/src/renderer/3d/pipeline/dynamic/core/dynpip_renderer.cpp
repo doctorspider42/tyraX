@@ -6,12 +6,16 @@
 # Copyright 2022, tyra - https://github.com/h4570/tyra
 # Licensed under Apache License 2.0
 # Sandro Sobczyński <sandro.sobczynski@gmail.com>
+# Modified by TyraX: VIF1 waits go through Vif1Queue::drain(), so a chain
+# queued by the static pipeline is finished before this code takes the channel
+# (renderer/core/paths/path1/vif1_queue.hpp).
 */
 
 // Modified by TyraX: PipelineZTest_TestOnly branch in sendObjectData;
 // alpha-test AFAIL fixed to ATEST_KEEP_ALL (cutout texels write no z).
 
 #include "renderer/3d/pipeline/dynamic/core/dynpip_renderer.hpp"
+#include "renderer/core/paths/path1/vif1_queue.hpp"
 #include "renderer/3d/pipeline/dynamic/core/programs/dynpip_vu1_shared_defines.h"
 #include <dma.h>
 #include <utility>
@@ -33,7 +37,8 @@ DynPipRenderer::~DynPipRenderer() {
 
 void DynPipRenderer::allocateOnUse(const u32& t_packetSize) {
   staticDataPacket = packet2_create(3, P2_TYPE_NORMAL, P2_MODE_CHAIN, true);
-  objectDataPacket = packet2_create(20, P2_TYPE_NORMAL, P2_MODE_CHAIN, true);
+  // Four inline lighting qwords replace the former REF payload.
+  objectDataPacket = packet2_create(25, P2_TYPE_NORMAL, P2_MODE_CHAIN, true);  // +1: the FLUSHE tag
 
   packetSize = t_packetSize;
 
@@ -92,13 +97,26 @@ void DynPipRenderer::sendStaticData() const {
   packet2_utils_vu_close_unpack(staticDataPacket);
 
   packet2_utils_vu_add_end_tag(staticDataPacket);
-  dma_channel_wait(DMA_CHANNEL_VIF1, 0);
+  Vif1Queue::drain();
   dma_channel_send_packet2(staticDataPacket, DMA_CHANNEL_VIF1, true);
 }
 
 void DynPipRenderer::sendObjectData(
     DynPipBag* bag, M4x4* mvp, RendererCoreTextureBuffers* texBuffers) const {
+  // The previous DMA must finish before reusing its packet storage.
+  Vif1Queue::drain();
   packet2_reset(objectDataPacket, false);
+  // Modified by TyraX: same barrier as StaPipQBufferRenderer::sendObjectData.
+  // The wait above only proves the previous chain was CONSUMED; its last MSCAL
+  // may still be running - or parked on an XGKICK behind a slow GS fill - and
+  // everything below lands at absolute VU1 addresses the microprogram reads
+  // mid-draw. A pipeline switch makes this cross-pipeline too: the StaPip clip
+  // program of the frame's last static bag can still be running when the
+  // first animated mesh uploads its MVP here. FLUSHE = wait for its end.
+  packet2_chain_open_cnt(objectDataPacket, 0, 0, 0);
+  packet2_vif_flushe(objectDataPacket, 0);
+  packet2_vif_nop(objectDataPacket, 0);
+  packet2_chain_close_tag(objectDataPacket);
   packet2_utils_vu_add_unpack_data(objectDataPacket, VU1_MVP_MATRIX_ADDR,
                                    mvp->data, 4, false);
 
@@ -109,10 +127,18 @@ void DynPipRenderer::sendObjectData(
     packet2_utils_vu_add_unpack_data(
         objectDataPacket, VU1_LIGHTS_DIRS_ADDR,
         bag->lighting->dirLights->getLightDirections(), 3, false);
-
-    packet2_utils_vu_add_unpack_data(objectDataPacket, VU1_LIGHTS_COLORS_ADDR,
-                                     bag->lighting->dirLights->getLightColors(),
-                                     4, false);
+    // add_unpack_data emits a DMA REF, not a copy. The mode-adjusted
+    // colors must live in the packet, never in a temporary stack array.
+    const Vec4* colors = bag->lighting->dirLights->getLightColors();
+    packet2_utils_vu_open_unpack(objectDataPacket, VU1_LIGHTS_COLORS_ADDR, false);
+    for (int i = 0; i < 4; ++i) {
+      packet2_add_float(objectDataPacket, colors[i].x);
+      packet2_add_float(objectDataPacket, colors[i].y);
+      packet2_add_float(objectDataPacket, colors[i].z);
+      packet2_add_float(objectDataPacket, i == 3
+          ? (bag->lighting->dirLights->signedSH ? -1.0F : 0.0F) : colors[i].w);
+    }
+    packet2_utils_vu_close_unpack(objectDataPacket);
   }
 
   u8 singleColorEnabled = bag->color->single != nullptr;
@@ -168,7 +194,6 @@ void DynPipRenderer::sendObjectData(
   packet2_utils_vu_close_unpack(objectDataPacket);
 
   packet2_utils_vu_add_end_tag(objectDataPacket);
-  dma_channel_wait(DMA_CHANNEL_VIF1, 0);
   dma_channel_send_packet2(objectDataPacket, DMA_CHANNEL_VIF1, true);
 }
 
@@ -203,7 +228,7 @@ void DynPipRenderer::addBufferDataToPacket(DynPipBag** bags, const u32& count) {
 }
 
 void DynPipRenderer::sendPacket() {
-  dma_channel_wait(DMA_CHANNEL_VIF1, 0);
+  Vif1Queue::drain();
   dma_channel_wait(DMA_CHANNEL_GIF, 0);  // Wait for texture. Issue #182.
 
   // dma_wait_fast(); // This have no impact on performance
@@ -221,9 +246,9 @@ void DynPipRenderer::clearLastProgramName() {
 }
 
 void DynPipRenderer::uploadPrograms() {
-  dma_channel_wait(DMA_CHANNEL_VIF1, 0);
+  Vif1Queue::drain();
   dma_channel_send_packet2(programsPacket, DMA_CHANNEL_VIF1, true);
-  dma_channel_wait(DMA_CHANNEL_VIF1, 0);
+  Vif1Queue::drain();
 }
 
 void DynPipRenderer::setDoubleBuffer() {

@@ -1132,7 +1132,9 @@ void App::drawCutsceneWindow() {
     ImGui::SameLine(0.0f, scaled(14.0f));
     if (ImGui::Checkbox("Skippable", &s.skippable)) changed = true;
     if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Pressing START in the game ends the cutscene early.");
+        ImGui::SetTooltip("The menu button (START) ends the cutscene early.\n"
+                          "While it plays that button is the cutscene's, not\n"
+                          "the pause menu's.");
     ImGui::SameLine(0.0f, scaled(14.0f));
     if (ImGui::Checkbox("Camera track", &s.cameraEnabled)) changed = true;
     if (ImGui::IsItemHovered())
@@ -1143,6 +1145,41 @@ void App::drawCutsceneWindow() {
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("Hide the third-person player avatar while the cutscene\n"
                           "plays (no effect in FPP/noclip - they have no body).");
+    ImGui::SameLine(0.0f, scaled(14.0f));
+    if (ImGui::Checkbox("Hide HUD", &s.hideHud)) changed = true;
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Hides the HUD, the USE prompt and USE itself.\n"
+                          "Display Text stays - subtitles keep working.\n"
+                          "Off for a cutscene the player keeps playing under.");
+
+    // How a skip is taken. Only meaningful while the cutscene is skippable, so
+    // the row only appears then - a mode that decides nothing reads as one that
+    // is broken.
+    if (s.skippable) {
+        static const char* kSkipNames[] = {"Skip instantly", "Ask first"};
+        ImGui::SetNextItemWidth(scaled(130.0f));
+        if (ImGui::Combo("On skip", &s.skipMode, kSkipNames, kSeqSkipModeCount))
+            changed = true;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Ask first opens the project's skip screen and\n"
+                              "freezes the cutscene until the player answers.");
+        if (s.skipMode == kSeqSkipConfirm) {
+            const int sm = project::skipMenuIndex(project_);
+            ImGui::SameLine(0.0f, scaled(10.0f));
+            if (sm < 0) {
+                ImGui::TextColored(ImVec4(1.0f, 0.72f, 0.3f, 1.0f),
+                                   "no skip screen - skips instantly");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip(
+                        "Nothing to open, so the press just skips.\n"
+                        "Tools > Menu Editor > + Skip screen.");
+            } else {
+                ImGui::TextDisabled("screen: %s", project_.menus[sm].name.c_str());
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Edit it in Tools > Menu Editor.");
+            }
+        }
+    }
 
     // Cinematic dressing: widescreen masks + fades, composited over the frame
     // (and the HUD) on the PS2 and previewed on the viewport image.
@@ -1972,15 +2009,22 @@ void App::drawCutsceneWindow() {
                                   "tilts with that entity instead.");
         }
 
-        // Every shot films from a Camera entity. (Legacy free shots from older
-        // projects still play - their stored eye/look-at is the fallback - but
-        // new shots always pick a camera; add them with + Add object > Camera.)
-        const char* shotLabel = k.camera.empty() ? "<pick a camera>" : k.camera.c_str();
+        // A shot either films from a Camera entity or is FREE - its own stored
+        // eye/look-at/FOV/roll. Free is not a leftover: it is what the take
+        // importer and the phone-camera recorder write when you point them at
+        // the camera lane rather than at an entity, so this combo has to be
+        // able to go back to it or a mis-click is one-way.
+        const char* shotLabel = k.camera.empty() ? "Free shot" : k.camera.c_str();
         ImGui::SetNextItemWidth(scaled(160.0f));
         bool anyCam = false;
         if (ImGui::BeginCombo("Shot from", shotLabel)) {
+            if (ImGui::Selectable("Free shot", k.camera.empty())) {
+                k.camera.clear();
+                changed = true;
+            }
             for (const SceneObject& o : project_.objects()) {
                 if (o.type != PrimitiveType::Camera) continue;
+                if (!anyCam) ImGui::Separator();
                 anyCam = true;
                 if (ImGui::Selectable(o.name.c_str(), o.name == k.camera)) {
                     k.camera = o.name;
@@ -1993,9 +2037,10 @@ void App::drawCutsceneWindow() {
             ImGui::EndCombo();
         }
         if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("The shot films from this Camera entity's pose + FOV.\n"
-                              "Animate the entity (or import a take into it) for a\n"
-                              "moving shot; Step easing between two cameras = a cut.");
+            ImGui::SetTooltip("A Camera entity films from its own pose + FOV - animate\n"
+                              "it (or import a take into it) for a moving shot. Free\n"
+                              "shot uses the eye/look-at stored on this key instead.\n"
+                              "Step easing between two shots = a cut.");
         {
             bool found = false;
             for (const SceneObject& o : project_.objects())

@@ -39,6 +39,68 @@ enum class VideoMode { Auto, NTSC, PAL };
  * Values are serialized in projects and flow graphs - append only. */
 enum class DisplayMode { Interlaced, Progressive480p, HiDef1080i, InterlacedField, Pal576i };
 
+/** Framebuffer colour depth (TyraX fork). Bits32 is PSMCT32, the stock
+ * 8-8-8-8 buffer. Bits16 is PSMCT16, the 5-5-5-1 buffer every other PS2
+ * generation shipped: it HALVES what the two frame buffers cost in GS
+ * memory (458 KB -> 229 KB at 512x448, more at the taller scan modes),
+ * which is the single biggest lever on a 4 MB GS - the texture heap roughly
+ * doubles. The price is 32 levels per channel instead of 256, i.e. banding
+ * in gradients, skies and post-fx blur, which is what the GS's ordered
+ * dither exists to break up (RendererOptions::dither).
+ * Values are serialized in projects - append only.
+ *
+ * Hybrid (TyraX fork): the scene, post fx and 2D all draw into ONE PSMCT32
+ * buffer over a 32-bit z, so every blend and every z test is full precision;
+ * with two buffers, after vsync a single blit copies it into ONE PSMCT16 buffer,
+ * and that is what the display scans. The copy is what the TV sees, so the GS
+ * can start drawing the next frame into the 32-bit buffer at once - the same
+ * overlap two display buffers give - while the pair costs a 32-bit buffer plus
+ * half of one instead of two (512 KB back at 512x512). No previous 32-bit frame
+ * exists to read, so motion blur, the upscaler's temporal pass and frame
+ * extrapolation do not run in this mode. Triple buffering adds a second
+ * PSMCT16 display buffer: one is scanned out, one queues the finished copy,
+ * while the same PSMCT32 buffer renders the next frame.
+ */
+enum class ColorDepth { Bits32, Bits16, Hybrid };
+
+/**
+ * Everything the renderer needs to know at init time (TyraX fork). It used
+ * to be three positional arguments; VRAM-shaping options pushed that past
+ * what a signature should carry.
+ */
+struct RendererOptions {
+  VideoMode videoMode = VideoMode::Auto;
+  DisplayMode displayMode = DisplayMode::Interlaced;
+  bool widescreen = false;
+
+  /** Framebuffer pixel format - see ColorDepth. */
+  ColorDepth colorDepth = ColorDepth::Bits32;
+
+  /**
+   * GS ordered dithering (DTHE + the DIMX matrix). The GS only dithers when
+   * it writes a 16-bit destination, so this is a no-op at Bits32 and is what
+   * makes Bits16 look like a graded image instead of a posterized one.
+   */
+  bool dither = true;
+
+  /**
+   * Reserve the dynamic env-map target (128x128 + its z, 128 KB). Only a
+   * project with a reflective "@sky" material ever reads it; off by default
+   * would break every existing caller, so RendererCore turns it off only
+   * when the game says so.
+   */
+  bool envMap = true;
+
+  /** Reserve the camera-feed target (another 128 KB) - texture feeds. */
+  bool camFeed = true;
+
+  /** Triple buffering (docs/frame-pacing.md): a third full display buffer,
+   * presented from a vblank handler instead of stalling the EE on vsync.
+   * The most expensive option in this struct - and the cheapest to afford
+   * at ColorDepth::Bits16 or Hybrid, whose display buffer is half the size. */
+  bool tripleBuffering = false;
+};
+
 class RendererSettings {
  public:
   RendererSettings()
@@ -61,6 +123,36 @@ class RendererSettings {
   void setVideoMode(const VideoMode& mode) { videoMode = mode; }
   const DisplayMode& getDisplayMode() const { return displayMode; }
   const bool& getWidescreen() const { return widescreen; }
+  /** Framebuffer colour depth (TyraX fork) - see ColorDepth. Set before
+   * RendererCoreGS allocates buffers; it decides their pixel format. */
+  const ColorDepth& getColorDepth() const { return colorDepth; }
+  void setColorDepth(const ColorDepth& depth) { colorDepth = depth; }
+  /** GS ordered dithering, only meaningful at Bits16 (TyraX fork). */
+  const bool& getDither() const { return dither; }
+  void setDither(const bool& on) { dither = on; }
+  /** What may actually be written to DTHE. The GS manual requires dithering
+   * OFF for PSMCT32/24; real hardware leaves that result unspecified while
+   * PCSX2 commonly treats it as inert. */
+  bool isDitherActive() const {
+    return dither && colorDepth == ColorDepth::Bits16;
+  }
+  /** Hybrid colour depth (TyraX fork, see ColorDepth): a 32-bit draw buffer
+   * presented through one dithered blit into a 16-bit display buffer. */
+  bool isHybridOutput() const { return colorDepth == ColorDepth::Hybrid; }
+  /** Whether that present blit dithers. DTHE stays OFF for everything drawn
+   * into the 32-bit buffer (isDitherActive() is false in Hybrid) and is armed
+   * only for the blit, whose destination is the 16-bit display buffer. */
+  bool isHybridDitherActive() const { return dither && isHybridOutput(); }
+  /** The GS pixel storage mode of the frame buffers (TyraX fork): the
+   * one place that maps colour depth onto a PSM. Everything that writes a
+   * FRAME register for the screen - the drawing environment, the post-fx
+   * blits, the env-map and shadow-map restores - must use this and not
+   * assume GS_PSM_32, or it writes the frame in the wrong format. */
+  int getFrameBufferPsm() const {
+    // GS_PSM_32 = 0, GS_PSM_16 = 2 (gs_psm.h); spelled out to keep this
+    // header free of the ps2sdk include.
+    return colorDepth == ColorDepth::Bits16 ? 2 : 0;
+  }
   /** Selects the scan mode and its framebuffer size (TyraX fork).
    * When (re)selected before RendererCoreGS allocates buffers, sizes them;
    * at runtime RendererCore::setDisplayOutput drives the re-allocation. */
@@ -98,7 +190,7 @@ class RendererSettings {
    * RendererCoreGS allocates buffers - it decides how many frame buffers the
    * permanent VRAM region holds, and the third one is not cheap (a full
    * display buffer: 229 376 words at 512x448x32, half that in
-   * InterlacedField). Off by default, and the engine falls back to two
+   * InterlacedField or with Bits16/Hybrid output). Off by default, and the engine falls back to two
    * buffers when the third does not fit.
    */
   const bool& getTripleBuffering() const { return tripleBuffering; }
@@ -106,7 +198,11 @@ class RendererSettings {
 
   /** Frame buffers the renderer wants: 3 with triple buffering on, else 2.
    * What it actually GOT is RendererCoreGS::getFrameBufferCount(). */
-  unsigned int getFrameBufferCount() const { return tripleBuffering ? 3u : 2u; }
+  unsigned int getFrameBufferCount() const {
+    // Modified by TyraX: Hybrid's third buffer is another 16-bit display
+    // target; its 32-bit draw target remains at index 0.
+    return tripleBuffering ? 3u : 2u;
+  }
   /** Height of the physical frame/z buffers - half the logical height when
    * field rendering, the logical height otherwise (TyraX fork). Everything
    * that sizes or addresses the framebuffer (allocation, XYOFFSET/SCISSOR,
@@ -190,6 +286,8 @@ class RendererSettings {
   VideoMode videoMode;
   DisplayMode displayMode;
   bool widescreen = false;
+  ColorDepth colorDepth = ColorDepth::Bits32;  // Modified by TyraX
+  bool dither = true;                          // Modified by TyraX
   // Modified by TyraX: BLSS raster scale (1,1 = off - no project pays for it).
   int rasterScaleX = 1;
   int rasterScaleY = 1;

@@ -51,6 +51,22 @@ back in. Blob shadows stay visible because they have no direction to switch.
 The sun uses additive blending; the moon uses alpha blending and a desktop-
 generated phase texture. Both discs can bloom and flare.
 
+The lens flare and the god rays are aimed from the sun's projected screen
+position, and that projection is not the textbook one. Tyra's perspective
+matrix is built for the VU1 pipeline's fixed 2048 scale, so after the
+homogeneous divide the screen edge sits at `w * raster / 4096` rather than at
+`w`, and the matrix already carries the GS's downward y. Until 1.65.1 the sun
+was projected as if `x/w` were normalised device coordinates and its y was
+flipped a second time, which pulled it 8x closer to the middle of the screen
+(at a 512 px raster) and mirrored it across the centre: the shafts radiated
+from roughly nowhere, the ghost sprites walked the wrong axis, and the edge
+fade decided the sun had left the screen at the wrong angles. If a sun effect
+looks misaimed, that is the first thing to check. The ghost sprites also take
+one extra correction, because the 2D renderer authors sprites in the stock
+512x448 layout and letterboxes it into taller rasters - so in **Full-height
+PAL** or **1080i** a world-anchored sprite has to come back up by half the
+difference, or the flare hangs below its own sun.
+
 ## Stars
 
 Stars are a deterministic point field on the sky dome. Keyframes control their
@@ -59,6 +75,10 @@ look like a flat texture pasted behind it.
 
 The star seed and density are project settings. Changing them changes the field
 but adds no runtime asset files.
+
+A [painted sky](sky-texture.md) follows the cycle as a tint: shown as
+painted at the authored hour, darkened toward night. Its painted sun does not
+move.
 
 ## Static or live
 
@@ -98,3 +118,13 @@ available cache; it does not run those desktop raytracers automatically.
 - Preview sunrise and sunset in motion; static noon/night shots will not expose
   a bad handover.
 - Use the runtime example as a reference before building a custom track.
+
+## A fixed mood selected in a game menu
+
+[Motor District](../examples/vehicle-playground) uses a pause-menu toggle backed
+by a save value. Its project-owned `district_mood.cpp` pins the generated
+`daynight::g_hour` to noon or midnight before rendering and switches eight live
+spotlights plus emissive dressing on resume. This exercises the existing hybrid
+cycle without duplicating scene geometry; it is not a Set Ambience sky-only
+swap or a replacement for separate GI bakes. The script also reapplies the
+light/visibility state on scene-generation changes.

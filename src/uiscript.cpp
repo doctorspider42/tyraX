@@ -159,6 +159,21 @@ void beginFrame() {
 
 const std::vector<Item>& items() { return g_items; }
 
+void markLastItemChecked(bool checked) {
+    if (!g_enabled) return;
+    auto found = g_byId.find((uint32_t)ImGui::GetItemID());
+    if (found == g_byId.end()) return;
+    Item& it = g_items[found->second];
+    it.checkable = true;
+    it.checked = checked;
+}
+
+void nameItem(uint32_t id, const char* label) {
+    if (!g_enabled) return;
+    auto found = g_byId.find(id);
+    if (found != g_byId.end()) g_items[found->second].label = displayLabel(label);
+}
+
 const Item* find(const std::string& target, bool clickable) {
     const std::string t = trim(target);
     if (t.empty()) return nullptr;
@@ -384,11 +399,34 @@ bool parseScript(const std::string& text, std::vector<Step>& out,
         auto needArg = [&](size_t count) { return tok.size() == count; };
 
         if (cmd == "click" || cmd == "rightclick" || cmd == "right-click" ||
-            cmd == "doubleclick" || cmd == "hover" ||
+            cmd == "doubleclick" || cmd == "shiftclick" || cmd == "hover" ||
             cmd == "expect" || cmd == "expect-not" || cmd == "expectnot" ||
             cmd == "expect-checked" || cmd == "expect-unchecked") {
-            if (!needArg(2)) return fail(cmd + " needs one target");
-            s.kind = cmd == "click"             ? Step::Click
+            // The pointing steps take an optional "<dx>,<dy>" offset from the
+            // target's centre. It is what reaches anything the editor DRAWS
+            // over a widget rather than submitting as one - the viewport is a
+            // single huge item, so a comment icon, a marker or a handle in it
+            // has no name of its own and used to be unclickable by any script
+            // (docs/ui-scripting.md). The assertions take no offset: they name
+            // a widget and never touch the mouse.
+            const bool pointing = cmd == "click" || cmd == "shiftclick" || cmd == "rightclick" ||
+                                  cmd == "right-click" || cmd == "doubleclick" ||
+                                  cmd == "hover";
+            if (pointing && tok.size() == 3) {
+                const size_t comma = tok[2].find(',');
+                double dx = 0, dy = 0;
+                if (comma == std::string::npos ||
+                    !toNumber(tok[2].substr(0, comma), dx) ||
+                    !toNumber(tok[2].substr(comma + 1), dy))
+                    return fail(cmd + " offset must be <dx>,<dy>");
+                s.dx = (float)dx;
+                s.dy = (float)dy;
+            } else if (!needArg(2)) {
+                return fail(cmd + " needs one target" +
+                            (pointing ? " and an optional <dx>,<dy> offset" : ""));
+            }
+            s.shiftClick = cmd == "shiftclick";
+            s.kind = (cmd == "click" || cmd == "shiftclick") ? Step::Click
                      : cmd == "rightclick"      ? Step::RightClick
                      : cmd == "right-click"     ? Step::RightClick
                      : cmd == "doubleclick"     ? Step::DoubleClick

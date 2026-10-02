@@ -61,6 +61,10 @@ unsigned long long processId();
 // "HH:MM:SS " in local time - the Output panel stamps every line with it.
 std::string logTimeStamp();
 
+// "20260817-163544" in local time - the same clock, spelled for a FILE NAME:
+// no colons (Windows forbids them) and sorted by name = sorted by time.
+std::string fileTimeStamp();
+
 // --- shell command fragments -----------------------------------------------
 // Command lines are written once and handed to Process below, which runs them
 // through the platform shell. These cover the handful of spots where the two
@@ -223,9 +227,22 @@ void errorBox(const std::string& title, const std::string& message);
 // an unattended run must never silently consent to it.
 bool confirmBox(const std::string& title, const std::string& message);
 
+// Open an http(s) URL in the user's browser. Best-effort and non-blocking;
+// anything that is not http/https is ignored rather than handed to the shell -
+// the URLs here come off the network (a GitHub release's page), and "open
+// whatever this string says" is how that becomes an execution primitive.
+void openUrl(const std::string& url);
+
 // Show `path` in the system file manager, selecting the entry itself when it
 // is a file. Best-effort: silently does nothing when no file manager answers.
 void revealInFileManager(const std::string& path);
+
+// Put an RGBA image on the native clipboard so it pastes as pixels, not as a
+// file path. `pngPath` is the already-saved equivalent used by Linux clipboard
+// helpers; Windows publishes a CF_DIBV5 directly from `rgba`. Returns false
+// when the platform clipboard is busy or no image-capable helper is installed.
+bool copyImageToClipboard(const unsigned char* rgba, int width, int height,
+                          const std::string& pngPath);
 
 // Open a project folder (and optionally jump to one file) in VS Code. Returns
 // "" on success, or a message naming what went wrong.

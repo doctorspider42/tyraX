@@ -20,10 +20,7 @@ LIBDIRS     :=
 INC         := -I$(INCDIR)
 INCDEP      := -I$(INCDIR)
 
-include ../Makefile.base
-
-# Modified by TyraX: `| directories` order-only prerequisite - this rule
-# overrides Makefile.base's link rule, so it needs the same -j guard (bin/ is
-# created by `directories`, which runs under the parallel `resources` goal).
-$(TARGET): $(OBJECTS) $(VCL_OBJECTS) $(VU_OBJECTS_VCL) $(VU_OBJECTS_VSM) $(IRXEM_OBJECTS) | directories
-	$(AR) rcs $(TARGETDIR)/$(TARGET) $(OBJECTS) $(VCL_OBJECTS) $(VU_OBJECTS_VCL) $(VU_OBJECTS_VSM) $(IRXEM_OBJECTS)
+# Modified by TyraX: the shared rule archives .a targets and tracks bin/libtyra.a.
+# A second recipe here used to emit overriding/ignoring-recipe warnings.
+TYRA_MAKEFILE := ../Makefile.base
+include $(TYRA_MAKEFILE)

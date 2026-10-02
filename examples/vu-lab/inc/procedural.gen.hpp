@@ -26,6 +26,13 @@ struct Pt {
   short asset;        // index into VolumeDef::assets, -1 = none
   short prefab;       // index into VolumeDef::prefabs, -1 = none
   unsigned char faces;  // visible-face mask, 63 = all six
+  // 1 = this point is a cell of the block lattice, so the merge
+  // may read the collision field around it for ambient occlusion.
+  // Stated rather than inferred: `faces` is 63 for a fully
+  // exposed block AND for every point that never met the node,
+  // so a graph merging blocks with a scatter has no other way to
+  // tell the two apart.
+  unsigned char block;
   float a[PROC_ATTR_SLOTS];
 };
 

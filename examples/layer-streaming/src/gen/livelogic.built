@@ -1,9 +1,0 @@
-# TyraX Live Logic: the flow graphs this build compiled natively.
-# One line per graph: <scene> <objectId> <graphHash>. The editor
-# hot-patches a graph only when the live one differs (see
-# docs/live-logic.md). Generated - do not edit.
-1
-g 0 fb81dbcb6ef34efb 3c87811e9fd24434
-g 0 01de5097c617273d dc822d26f60800c5
-g 0 b80e7220770c1a66 328d82afe76e3510
-g 0 2e44e1e216149b50 d2882eb83da3f1a1

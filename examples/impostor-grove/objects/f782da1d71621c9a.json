@@ -1,0 +1,1 @@
+{ "id": "f782da1d71621c9a", "name": "Gate capital 1", "type": "box", "position": [3.6, 3.9, 15], "rotation": [0, 0, 0], "scale": [1.8, 0.35, 1.6], "color": [0.66, 0.64, 0.51], "physics": false, "material": "res/materials/stone.mtl" }

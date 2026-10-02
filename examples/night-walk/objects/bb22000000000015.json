@@ -1,0 +1,1 @@
+{ "id": "bb22000000000015", "name": "street-light", "type": "model", "position": [-3.2, 0, -5.6], "rotation": [0, 90, 0], "scale": [3.2, 3.2, 3.2], "color": [1, 1, 1], "physics": false, "model": "res/models/kenney/detail-light-single.obj" }

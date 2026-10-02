@@ -227,6 +227,10 @@ Report bakeVolume(Project& p, SceneData& s, const std::string& volumeId,
         rep.error = "no scatter volume with that id";
         return rep;
     }
+    if (volPtr->procGraph.frozen) {
+        rep.error = "volume is frozen; unfreeze it before baking";
+        return rep;
+    }
     // A copy: writing chunk objects into s.objects reallocates the vector.
     const SceneObject vol = *volPtr;
     rep.volumes = 1;
@@ -427,6 +431,29 @@ Report bakeVolume(Project& p, SceneData& s, const std::string& volumeId,
     return rep;
 }
 
+Report setFrozen(Project& p, SceneData& s, const std::string& volumeId,
+                 bool frozen, procgen::Cache* cache) {
+    Report rep;
+    const SceneObject* vol = findById(s, volumeId);
+    if (!vol || vol->type != PrimitiveType::Scatter) {
+        rep.error = "no scatter volume with that id";
+        return rep;
+    }
+    if (frozen && vol->procGraph.runtime) {
+        rep.error = "runtime volumes cannot freeze; switch to baked mode first";
+        return rep;
+    }
+    if (vol->procGraph.frozen == frozen) return rep;
+    if (frozen && vol->procGraph.bakedHash != procgen::bakeHash(p, s, *vol)) {
+        rep = bakeVolume(p, s, volumeId, cache);
+        if (!rep.error.empty()) return rep;
+    }
+    // Baking may have reallocated the objects vector.
+    for (SceneObject& o : s.objects)
+        if (o.id == volumeId) o.procGraph.frozen = frozen;
+    return rep;
+}
+
 Report bakeAll(Project& p, bool force) {
     Report total;
     procgen::Cache cache;
@@ -436,8 +463,9 @@ Report bakeAll(Project& p, bool force) {
         for (const SceneObject& o : s.objects)
             // A RUNTIME volume has nothing to bake: its graph is compiled into
             // the game and evaluated on the console (docs/procedural-runtime.md).
-            if (o.type == PrimitiveType::Scatter && !o.procGraph.empty() &&
-                !o.procGraph.runtime)
+            if (o.type == PrimitiveType::Scatter &&
+                (!o.procGraph.empty() || o.procGraph.bakedHash) &&
+                !o.procGraph.runtime && !o.procGraph.frozen)
                 ids.push_back(o.id);
         for (const std::string& id : ids) {
             const SceneObject* o = findById(s, id);
@@ -461,8 +489,9 @@ Report bakeAll(Project& p, bool force) {
 bool anyStale(const Project& p) {
     for (const SceneData& s : p.scenes)
         for (const SceneObject& o : s.objects)
-            if (o.type == PrimitiveType::Scatter && !o.procGraph.empty() &&
-                !o.procGraph.runtime &&
+            if (o.type == PrimitiveType::Scatter &&
+                (!o.procGraph.empty() || o.procGraph.bakedHash) &&
+                !o.procGraph.runtime && !o.procGraph.frozen &&
                 o.procGraph.bakedHash != procgen::bakeHash(p, s, o))
                 return true;
     return false;

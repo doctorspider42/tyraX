@@ -1,0 +1,1 @@
+{ "id": "1ca334ab410ade1c", "name": "Entrance view", "type": "camera", "position": [0, 2, -22], "rotation": [-2, 0, 0], "scale": [1, 1, 1], "color": [1, 1, 1], "physics": false, "camera": { "fov": 60, "feed": false, "feedTerrain": true, "feedObjects": [] } }

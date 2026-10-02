@@ -1,0 +1,3 @@
+newmtl district-plaza
+Kd 1 1 1
+map_Kd ../textures/district-plaza.png

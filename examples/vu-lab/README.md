@@ -31,6 +31,11 @@ installs a host compiler into the container once (~1 min).
 the engine's own shading and returns to cell shading, which is how a game frees
 micro memory for something else at a trigger or a cutscene beat.
 
+**SQUARE is the PS1 vertex snap, CROSS the two-colour palette** - the other two
+scripts, on the same rule: a material class carries ONE program, so picking a
+look replaces whatever was resident (one pipeline drain, one upload) while all
+four sit in the ELF the whole time, and pressing the active button turns it off.
+
 **CIRCLE is the geometry one, and it rearranges VU1 around itself.** It selects
 the Wobble - a wave in OBJECT space - and at the same time switches to VU1
 clipping and narrows the resident classes to Colour + Textured + Reflective;
@@ -71,7 +76,7 @@ to see the other half of the feature; what they demonstrate is below.
 
 ## What is in it
 
-Five props in a row in front of the spawn, each deliberately on a different
+Six props in a row in front of the spawn, each deliberately on a different
 drawing path, plus a small 40x40 terrain:
 
 | Object | Why it is there | VU parameters |
@@ -80,7 +85,7 @@ drawing path, plus a small 40x40 terrain:
 | `lit-ball` | `Dynamic lighting` on, so it is in a LIT class - the one a look can only reach with plain values. | none |
 | `flat-box` | Plain vertex colour, and it sits at the edge of the spawn view. | none |
 | `tall-pillar` | Dead centre, and owns the scene's one flow graph (see below), including the Display Text node the VU0 readout draws through. | `0, 1, 0, 0` - Desaturate |
-| `tex-box` | A `map_Kd` material, so the mesh carries an ST stream. | none |
+| `tex-box` | A `map_Kd` material, so the mesh carries an ST stream. | `0.12, 0, 0.9, 0` |
 | `chrome-ball` | A `refl` (matcap) material - the ST slot carries a normal instead. | none |
 
 ## What it authors
@@ -253,9 +258,9 @@ Two things it makes concrete that the stage-composed one cannot:
 ### Three things the example is shaped to teach
 
 **A custom program only reaches packages fully inside the frustum.** `flat-box`
-carries the same Desaturate parameter the pillar does, and in the spawn view it
-stays RED - it is cut off by the right edge of the screen, so its package is
-classified as frustum-crossing and drawn by the untouched `clip` program instead
+carries no VU parameters of its own and runs under the same look as everything
+else, and in the spawn view it stays RED - it is cut off by the right edge of
+the screen, so its package is classified as frustum-crossing and drawn by the untouched `clip` program instead
 of the overridden `cull` one. Walk toward it until it is fully on screen and it
 turns grey. That is the honest limit of `setProgramOverride`, and this is what it
 looks like rather than a paragraph about it.
@@ -271,12 +276,28 @@ example died on the engine's own assert:
 
 With VU1 clipping on, the ten resident programs are five `cull` plus five
 `clip`, and the clip family is big - close enough to the 2042-slot ceiling that
-a custom program of any size pushes it over. vu-lab draws nothing lit, so
-codegen emits `setResidentClasses(25)` (colour, textured, matcap) and the two
-dropped lighting classes pay for the stages. *Tools > VU Programs > Micro
+a custom program of any size pushes it over. That run's fix was a boot mask of
+27 that dropped the `td` class. Codegen no longer emits one: since the clip TD
+program shares the TC image, the engine keeps all five classes resident
+(`src/gen/vu_programs.gen.cpp` asks the engine and keeps no copy of the mask).
+CIRCLE still narrows the set to `setResidentClasses(25)` - colour, textured,
+matcap - for as long as the Wobble is on (`kWobbleClasses`,
+`src/scripts/vu_look_switch.cpp`). *Tools > VU Programs > Micro
 memory* is where that bar lives, and it reads the ENGINE's own `.vclpp` files -
 budgeting against the generator's descriptions alone is what let this ship green
 and assert on the console.
+
+**The textured-lit class is claimed by the cheap programs only.** Cell shading
+and Wobble leave `kLitTextured` out (`src/vu/cell_shading.cpp`,
+`src/vu/wobble.cpp`). This scene has no textured-lit mesh, so nothing can show
+a Wobble pass that moves and another that does not. And under openvcl, the
+native build's VU assembler, those two programs do not fit that class:
+`openvcl: Register allocation ran out of registers` on `vu_script0_td` and
+`vu_script3_td` (openvcl needs a couple more registers than Sony `vcl` on the
+generated set, docs/toolchain-image.md, "A second corpus"). Vertex snap is
+three instructions and still claims every class. A project that draws
+textured-lit meshes has to keep a displacement on `kAll` and find the register
+somewhere else.
 
 **Two stages per program is not an arbitrary demo size.** A third one on the
 colour program does not build: VCL runs out of VF registers and dies with `no
@@ -345,7 +366,7 @@ tyrax-editor --vu-list vendor/tyra/engine/src/renderer/3d/pipeline/static/core/p
 last mesh of a chain — everything before it has been overwritten in VU1 memory by
 definition. Flush 0 here carries 14 meshes (terrain chunks) and is not
 resolvable; the later flushes carry one prop each and are. The picker exists for
-exactly this. Five sparse props is the whole reason the scene looks like this.
+exactly this. Six sparse props is the whole reason the scene looks like this.
 
 **The devkit layer disappears if nothing is instrumented.** The Live Debugger
 runtime is generated from the flow-graph nodes a project has, so a scene with no
@@ -353,7 +374,8 @@ graph at all compiles `src/gen/live_debug.gen.cpp` down to an empty translation
 unit — and then there is no command channel, and *"Capture next VU1 packet" does
 nothing at all*. That is the zero-cost rule working as designed, but it is
 surprising when you are building a capture fixture. `tall-pillar` carries a
-two-node graph (`On Start` → `Set Object Visible`) that does nothing visible; it
+three-node graph (`On Start` → `Set Object Visible`, plus the unwired
+`Display Text` the VU0 readout draws through) that changes nothing visible; it
 is there to keep the devkit layer alive.
 
 ## It is also the A/B fixture for adopting generated microcode
@@ -387,3 +409,13 @@ geometry packet in memory picked the EE's own PRIM tag at `buffer+1` followed by
 the vertex array read as GS vertices — the input compared against itself. The
 comparison now runs at the address the candidate program actually kicked, and
 anything overlapping what the chain uploaded is discarded.
+
+Generated object values live in `src/gen/scene_objects.gen.cpp`;
+`inc/scene_data.hpp` keeps stable declarations. Counts and object IDs live in
+the same data file, so ordinary moves, color edits, additions and removals can
+rebuild it alone. Changes to features or derived tables can still rebuild consumers.
+
+Generated game methods are split between `src/terrain_game.cpp` and the
+`src/gen/game_*.gen.cpp` subsystems, with shared inline helpers/state in
+`inc/game_runtime.gen.hpp`. Header changes can compile these units in parallel.
+The main file remains user-ownable; generated subsystem files refresh on build.

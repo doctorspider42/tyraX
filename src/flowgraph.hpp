@@ -126,6 +126,11 @@ enum class FlowParamKind {
     SequenceName,  // name of a Project::sequences entry (Cutscene Director)
     CreditsName,   // name of a Project::credits roll (Tools > Credits Editor)
     HudTextName,  // name of a Project::hudTexts entry (baked text sprite)
+    HudBarName,   // name of a Project::hudBars entry (a live bar)
+    // name of ANY HUD element - an image, a text or a bar (Tools > UI Editor).
+    // Resolved image first, then text, then bar, so a name shared across kinds
+    // reaches the image.
+    HudElementName,
     FontName,  // name of a Project::fonts entry (Tools > Font Manager)
     InputActionName,  // name of a Project::input action (Tools > Input Map)
     KeyName,   // a keyboard key label from inputKeyNames() ("Space", "F1")
@@ -238,6 +243,18 @@ struct FlowNodeType {
     // is still num[], so codegen, links and every existing project are
     // untouched. Leave null for a genuine number.
     const char* numChoices[4] = {};
+    // A numeric parameter that is a FRACTION: stored 0..1, drawn as a 0..100%
+    // slider. Two things come with the flag and both were asked for. The
+    // percentage is how such a knob READS - "0.200" says nothing about how
+    // strong the effect is - and the slider BOUNDS it, where the generic drag
+    // below happily takes a parameter to -4 or 900, neither of which means
+    // anything and both of which codegen then silently clamps away.
+    //
+    // Declared rather than guessed from the label, for the reason numChoices
+    // is: "Amount" names four different ranges across this registry (bloom
+    // goes to 2, a distance to hundreds), so a heuristic on that word can only
+    // be wrong somewhere.
+    bool numPercent[4] = {};
     FlowParamKind numKind = FlowParamKind::None;  // Color = picker for num[0..2]
     bool idIn = false;    // accepts an object id from a data link (object-param nodes)
     bool idOut = false;   // exposes its resolved object as an id output
@@ -1065,6 +1082,31 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
          .idIn = true, .idOut = true, .posIn = true,
          .desc = "Moves the player to a point instantly. A linked position "
                  "overrides the object's."},
+        // Requests carried out by the game's vehicle update (a graph cannot
+        // call the game - ScriptContext::vehicleRequest). docs/vehicles.md,
+        // "From a flow graph".
+        {.key = "EnterVehicle", .title = "Enter Vehicle",
+         .category = "Player", .strKind = FlowParamKind::ObjectName,
+         .strTip = "The Vehicle object to put the player in. Empty = this "
+                   "graph's own object.",
+         .idIn = true,
+         .desc = "Seats the player in a vehicle at once, from anywhere - no "
+                 "walking up, no USE press, and the Driveable flag is not "
+                 "asked. Already driving another car = out of that one first. "
+                 "On Start -> Enter Vehicle starts a scene behind the wheel."},
+        {.key = "ExitVehicle", .title = "Exit Vehicle",
+         .category = "Player",
+         .desc = "Puts the player out at the driver's door, exactly as the USE "
+                 "button does. Nothing happens on foot."},
+        {.key = "RepairVehicle", .title = "Repair Vehicle",
+         .category = "Player", .strKind = FlowParamKind::ObjectName,
+         .strTip = "The Vehicle object to repair. Empty, or anything that is "
+                   "not a vehicle = the car the player is driving (nothing "
+                   "happens on foot).",
+         .idIn = true,
+         .desc = "Puts a damaged vehicle right: dents out, smoke gone, full "
+                 "power back (docs/vehicles.md, \"Damage\"). A garage is an "
+                 "Area with On Enter -> Repair Vehicle."},
         // The hit object is a runtime reference (-1 = none) - actions fed it
         // are guarded like Spawn Object clones.
         {.key = "Raycast", .title = "Raycast", .category = "Player",
@@ -1215,6 +1257,21 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
                      "replaces it."},
          .numIn = true,
          .desc = "Controls the film-grain overlay."},
+        {.key = "SetMotionBlur", .title = "Set Motion Blur",
+         .category = "Scene",
+         .numCount = 1, .numLabels = {"Amount"},
+         .numTips = {"How much of the previous frame is blended over this "
+                     "one, 0% off to 100%. The trail compounds frame after "
+                     "frame, so 20-40% is already a long smear, and 100% is "
+                     "capped short of freezing the picture. A wired number "
+                     "replaces it (0..1, not 0..100), so a Tween can ramp the "
+                     "blur into a sprint or a hit."},
+         .numPercent = {true},
+         .numIn = true,
+         .desc = "Controls the motion blur - the previous frame smeared over "
+                 "this one. Costs no VRAM and no EE time (the other display "
+                 "buffer IS the last frame), so it is the cheap way to sell "
+                 "speed, a dash or a daze."},
         {.key = "SetFlare", .title = "Set Lens Flare", .category = "Scene",
          .numCount = 1, .numLabels = {"Amount"},
          .numTips = {"Flare brightness, 0 off to 1. A wired number replaces "
@@ -1459,6 +1516,57 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
                         "Hides it now, whatever the countdown was doing."},
          .desc = "Shows or hides a pre-baked text sprite. Nothing is drawn "
                  "glyph by glyph here, so it costs one textured quad."},
+        // Animated HUD (docs/hud-animation.md): per-element visibility with
+        // the element's own transition, live bars, and one-shot effects. The
+        // LOOPED motion (pulse, bob, ...) is authored on the element in the UI
+        // Editor and needs no node at all.
+        {.key = "SetHudElementVisible", .title = "Set HUD Element Visible",
+         .category = "HUD", .strKind = FlowParamKind::HudElementName,
+         .strTip = "Any HUD element from Tools > UI Editor: an image in the "
+                   "screen stack, a bar, or a text (a text here is the same "
+                   "as Set Text Visible without the auto-hide).",
+         .execInCount = 3, .execInLabels = {"show", "hide", "toggle"},
+         .execInTips = {"Shows it, playing the element's own show transition "
+                        "(Fade, Slide, Pop - set in the UI Editor).",
+                        "Hides it through the same transition in reverse.",
+                        "Flips it - one button that opens and closes a map."},
+         .desc = "Shows or hides ONE HUD element - an image, a bar or a text - "
+                 "through the transition authored on it. Set HUD Visible "
+                 "still hides the whole stack at once; this is the per-element "
+                 "half."},
+        {.key = "SetHudBar", .title = "Set HUD Bar", .category = "HUD",
+         .strKind = FlowParamKind::HudBarName,
+         .strTip = "The bar from Tools > UI Editor > Bars. A bar bound to a "
+                   "save value follows that value every frame; this node then "
+                   "writes the save value, so the two never disagree.",
+         .numCount = 1, .numLabels = {"Value"},
+         .numTips = {"The new value in the bar's own units (its Min..Max map it "
+                     "to the fill; 0..100 for a default bar). A wired number "
+                     "replaces it."},
+         .numIn = true,
+         .execInCount = 2, .execInLabels = {"set", "set instantly"},
+         .execInTips = {"The fill EASES to the new value over the bar's "
+                        "Smoothing time, and the ghost strip lingers where it "
+                        "was - the usual damage/heal feel.",
+                        "Jumps the fill there at once, ghost included - for a "
+                        "respawn or a scene start."},
+         .desc = "Sets a HUD bar's value - health after a hit, stamina while "
+                 "sprinting, coins collected. Wire a Get Save Value or any "
+                 "Math node into Value for a computed one."},
+        {.key = "PlayHudEffect", .title = "Play HUD Effect", .category = "HUD",
+         .strKind = FlowParamKind::HudElementName,
+         .strTip = "The element to play it on: an image, a bar or a text from "
+                   "Tools > UI Editor.",
+         .numCount = 2, .numLabels = {"Effect", "Seconds"},
+         .numTips = {"Flash brightens and fades back, Bounce pops the scale, "
+                     "Shake jitters the position. All are one-shots layered "
+                     "over the element's looped animation.",
+                     "How long the effect runs. 0.3-0.5 reads as a hit; a "
+                     "second or more reads as an alarm."},
+         .numChoices = {"Flash|Bounce|Shake"},
+         .desc = "Plays a one-shot effect on a HUD element - a flash on the "
+                 "health bar when it drops, a bounce on the coin counter when "
+                 "one is collected. Costs nothing while idle."},
         // Runtime text: the string is only known while the game runs, so it
         // draws glyph by glyph from a Font Manager font's atlas instead of a
         // pre-baked sprite. The atlas only reaches VRAM once shown.
@@ -2375,42 +2483,6 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
 }
 
 // ---------------------------------------------------------------------------
-// Node types retired by the exec-pin merge: each Show*/Hide*/Toggle* family
-// collapsed into one node carrying a labeled exec pin per branch. A pre-merge
-// graph would otherwise lose those nodes outright (readFlowGraph drops unknown
-// types), so project::readFlowGraph rewrites the type and retargets every exec
-// link landing on the node to `pin`.
-struct FlowLegacyNode {
-    const char* from;  // the retired FlowNode::type
-    const char* to;    // its replacement
-    int pin;           // exec input the old node's behavior now lives on
-};
-
-inline const std::vector<FlowLegacyNode>& flowLegacyNodes() {
-    static const std::vector<FlowLegacyNode> v = {
-        {"ShowObject", "SetObjectVisible", 0},
-        {"HideObject", "SetObjectVisible", 1},
-        {"ToggleObject", "SetObjectVisible", 2},
-        {"ShowHud", "SetHudVisible", 0},
-        {"HideHud", "SetHudVisible", 1},
-        {"ToggleHud", "SetHudVisible", 2},
-        {"ShowText", "SetTextVisible", 0},
-        {"HideText", "SetTextVisible", 1},
-        {"LoadLayer", "SetLayerLoaded", 0},
-        {"UnloadLayer", "SetLayerLoaded", 1},
-        {"PlayAnimation", "Animation", 0},
-        {"StopAnimation", "Animation", 1},
-    };
-    return v;
-}
-
-inline const FlowLegacyNode* flowLegacyNode(const std::string& type) {
-    for (const FlowLegacyNode& m : flowLegacyNodes())
-        if (type == m.from) return &m;
-    return nullptr;
-}
-
-// ---------------------------------------------------------------------------
 // Project-defined custom nodes (see flownode.cpp).
 //
 // A custom node is a user-authored *action* node loaded from a .flownode text
@@ -2638,6 +2710,8 @@ inline const char* flowStrLabel(const FlowNodeType& t) {
         case FlowParamKind::CreditsName: return "Credits";
         case FlowParamKind::MenuName: return "Menu";
         case FlowParamKind::HudTextName: return "Text";
+        case FlowParamKind::HudBarName: return "Bar";
+        case FlowParamKind::HudElementName: return "Element";
         case FlowParamKind::FontName: return "Font";
         case FlowParamKind::ScreenFxName: return "Effect";
         case FlowParamKind::PrefabName: return "Prefab";

@@ -1,0 +1,1 @@
+{ "id": "96cc30b4b05c0238", "name": "Courtyard wall 2", "type": "box", "position": [-9, 0.52002, 15], "rotation": [0, 0, 0], "scale": [1.1, 1.04004, 2.7], "color": [0.56, 0.57, 0.43], "physics": false, "material": "res/materials/stone.mtl" }

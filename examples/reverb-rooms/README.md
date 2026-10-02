@@ -1,8 +1,9 @@
 # reverb-rooms example
 
-Four rooms, four different acoustics, one sound. This is the demo for
-[reverb](../../docs/reverb.md): the PlayStation 2's **hardware reverb**,
-authored by drawing a box.
+Five reverb zones — cave mouth, hall, pipe corridor, chamber, and a closet that
+switches reverb off again — against the bare outdoors, and one sound. This is
+the demo for [reverb](../../docs/reverb.md): the PlayStation 2's **hardware
+reverb**, authored by drawing a box.
 
 Open `reverb-rooms.tyra` in the editor and Build & Run (`F5`), or build
 headless: `tyrax-editor --build <this folder> --run`.
@@ -104,3 +105,13 @@ all work — against one unchanging sample.
 `res/sfx/knock.wav` is a synthesised percussive knock (22 kHz mono, 0.18 s),
 generated for this example and in the public domain. A short transient is the
 right test signal: a reverb tail is only legible after a sound that *stops*.
+
+Generated object values live in `src/gen/scene_objects.gen.cpp`;
+`inc/scene_data.hpp` keeps stable declarations. Counts and object IDs live in
+the same data file, so ordinary moves, color edits, additions and removals can
+rebuild it alone. Changes to features or derived tables can still rebuild consumers.
+
+Generated game methods are split between `src/terrain_game.cpp` and the
+`src/gen/game_*.gen.cpp` subsystems, with shared inline helpers/state in
+`inc/game_runtime.gen.hpp`. Header changes can compile these units in parallel.
+The main file remains user-ownable; generated subsystem files refresh on build.

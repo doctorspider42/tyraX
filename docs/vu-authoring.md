@@ -378,7 +378,7 @@ slots?" is usually no:
 | Skeletal animation: pose | the EE | No |
 | Skeletal animation: skinning | VU0 in **macro mode** (COP2 instructions issued by the EE) | **No** - macro mode has no microprogram to upload |
 | Animated models, drawing | VU1, the dynamic pipeline's four programs | No - uploaded when that pipeline is used, over the same addresses, so it SWAPS with the static set rather than sharing it |
-| Particle billboards | VU1, their own small set | No - swapped in on demand (`ensureProgramSet`) |
+| Particle billboards | VU1, two programs (206 words) | **Yes when they fit, which is the normal case** - appended to the resident set whenever it stays under the ceiling; only a set your own programs have grown past that swaps them in on demand (`ensureProgramSet`, two VIF1 drains per transition) |
 | A project's VU0 kernel | VU0 in **micro** mode | Yes, but against VU0's own 512 slots |
 
 So a scene with no animation frees EE time and VU0 cycles, not slots: there is
@@ -726,11 +726,11 @@ Two consequences you cannot design around:
    program over randomized vertices, and must produce an identical GIF packet.
    That is what makes installing a program safe: meshes that want nothing get
    exactly the pixels they would have got. They still pay the instructions.
-2. **Batched objects share a bag, and therefore share parameters.** The
-   generated game merges non-moving primitives into combined bags
-   (`staticBatchEligible`); one bag is one `sendObjectData`, so one parameter
-   quadword. If two props need different strengths, they need to be different
-   bags.
+2. **A custom-parameter object stays out of static batches.** The generated
+   game merges compatible non-moving primitives and compact model parts into
+   combined bags (`staticBatchEligible`), but one bag has only one
+   `sendObjectData` parameter quadword. Any non-zero per-object VU parameter
+   therefore keeps that object on its own bag.
 
 A per-object *program* would also break static batching outright — a merged bag
 cannot hold two programs, so every such object would become a batch blocker.
@@ -1136,12 +1136,22 @@ than the generator's descriptions. That is not fastidiousness: budgeting against
 the cull half alone showed `examples/vu-lab` comfortably green while the console
 died on the engine's assert the first time it ran.
 
-The built-in clip family is five logical programs but only three resident code
-images. `C/D` share the two-stream image, `TC/TCE` share the three-stream image,
-and `TD` remains specialised. The Micro memory panel applies those aliases (and
+The built-in clip family is five logical programs but only TWO resident code
+images. `C/D` share the two-stream image and `TC/TCE/TD` share the
+three-stream one (TD's normals ride where TC's colours do; TD is picked by
+`VU1_OPTIONS_ADDR.x < 0`). The Micro memory panel applies those aliases (and
 prices a custom override as a separate image); summing all five `.vclpp` files
 by hand is deliberately conservative but no longer describes what Path1
 uploads.
+
+**What your own programs compete with besides the classes: the two billboard
+programs.** They are appended to the resident set whenever the whole set still
+fits (206 words; the all-class built-in set leaves room for them in both
+clipping modes). A project whose own looks push the set past that does not
+fail - the billboards drop back to being swapped in on demand, which costs two
+VIF1 drains per billboard/non-billboard transition. The boot log says which
+(`billboards resident` / `swapped on demand`), and the frame-cost CSV's
+`Program_swaps_count` row counts the swaps.
 
 ```
 | Assertion failed!
@@ -1152,9 +1162,16 @@ uploads.
 Two ways to buy room:
 
 - **Drop material classes the project never draws.** This is the one that
-  actually works, and codegen does it for you: the mask is derived from what the
-  scenes and prefabs draw (`project::vuNeededClasses`) and emitted as
-  `core.setResidentClasses(...)` at the top of `install`. vu-lab draws one lit
+  actually works, and codegen does it for you **in a project with its own VU
+  program**: the mask is derived from what the scenes and prefabs draw
+  (`project::vuNeededClasses`) and emitted as `core.setResidentClasses(...)` at
+  the top of `install`. A project WITHOUT one is not narrowed - its engine keeps
+  all five classes - because `vuNeededClasses` only sees scene objects and
+  prefabs, and a terrain, a road, a vehicle or a spawned mesh draws classes it
+  does not see; nothing there is short of micro memory anyway.
+  `vuprog::residentClasses()` asks the engine in both cases (it used to answer
+  from a copy seeded with the auto mask even where the engine kept all five, so
+  `vuprog::setResidentClasses(<that mask>)` silently did nothing). vu-lab draws one lit
   ball and no textured-lit mesh, so it ships `setResidentClasses(27)` and the
   dropped `td` class is what pays for its stages.
   `StaPipCore::setResidentClasses(mask)` removes a class's two programs from the
@@ -1433,6 +1450,17 @@ can. Calibration, all measured rather than reasoned:
 | 32 | a two-stage textured program — vcl allocated it fine |
 | 35 | a two-stage colour program — fine |
 | **36** | a four-stage colour program — `no opt table`, build dead |
+
+**It can also under-state, and that one is not academic.** Because the scan is
+linear, a per-mesh constant loaded in the preamble and last read in the
+per-buffer header (the GIF tag block) looks dead for the rest of the program -
+but the batch loop branches back to that header, so on the real machine it is
+live everywhere. The TC clip image read **30** here while it carried the TD path,
+and Sony's `vcl` refused it (`no opt table .. for sharedDirMode`, 33 live by hand
+count); openvcl only fitted it by sinking those loads into the header itself. So
+a number under the cliff is evidence, not proof: for any VU change, assemble the
+`.vclpp` under BOTH assemblers (docs/toolchain-image.md, "Sony's vcl is a build
+target too").
 
 The cliff is sharp, and it is close. **A cull-family program starts around 23**
 (the MVP matrix, the spot light's seven scratch registers, three vertices, three

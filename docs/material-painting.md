@@ -1,11 +1,18 @@
 # Materials and texture painting
 
 The Material Editor previews `.mtl` files on their real model, edits their PS2
-settings and paints layered textures. Open it with **Tools > Material Editor**.
+settings and paints layered textures. Open it with **Tools > Material Editor**,
+or click **Edit...** beside an object's **Material** field to select that file
+and focus the editor. Models also supply their preview mesh.
 
 ![The Material Editor showing an altar material, its paint layers, smart mask controls and live model preview.](img/material-editor.png)
 
 ## Edit a material
+
+Use **Search materials...** to filter the left list by filename or folder,
+without case sensitivity. A direct **Edit...** clears a filter that would hide
+the requested file. External file additions appear within 1.5 seconds; asset
+imports, moves and deletes refresh the list immediately.
 
 Choose a material on the left. The centre column controls its colour, brightness,
 texture, tiling, reflection and glow. The preview on the right can use a sphere,
@@ -63,3 +70,17 @@ it to the material. Power-of-two sizes are the safest choice. Start small:
 
 For raytraced AO, curvature, thickness and high-poly projection, see
 [Material map baking](material-baking.md).
+
+## Box signs and material refresh
+
+The front and back faces of a Box use V=0 at the top, so an upright PNG sign
+stays upright in the editor and generated game. Other faces retain their UVs.
+![Upright garage sign and direct material Edit button.](img/box-sign-upright.png)
+
+Existing textures painted to compensate for the old vertical inversion need
+repainting. Procedural and GI cache signatures change so old geometry or baked
+lighting cannot silently retain the previous mapping; regenerate the game.
+
+Saving material settings refreshes only models and roads that use that file.
+Unrelated scene geometry and resident textures remain cached. The asset list
+and PNG dimensions are cached too; see [Editor performance](editor-performance.md).

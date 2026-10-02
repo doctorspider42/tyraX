@@ -81,8 +81,8 @@ bool App::loadMaterialFile(const std::string& relPath) {
 
     std::vector<char> gotHint;      // "# tyra-brightness" seen (Kd split)
     std::vector<char> gotKe;        // an "Ke" statement seen (emission)
-    // "# tyra-glow" seen: 0 none, 1 strength only (legacy - split Ke),
-    // 2 strength + authored color (+ optional white-hot; nothing to split)
+    // "# tyra-glow" seen: the authored strength + color (+ optional white-hot)
+    // behind the resolved Ke, so there is nothing to split back out of it.
     std::vector<char> gotGlowHint;
     // The raw "Ke" of each entry, kept OUT of the staged color so the hint
     // line and the statement cannot clobber each other whatever their order.
@@ -180,17 +180,14 @@ bool App::loadMaterialFile(const std::string& relPath) {
                 ss >> e.brightness;
                 gotHint.back() = 1;
             } else if (what == "tyra-glow") {
-                // "<strength> [r g b] [white]" - the authored controls behind
-                // the resolved Ke. The 1-number form is the original layout
-                // (color recovered by dividing Ke, no white-hot core).
-                ss >> e.glow;
+                // "<strength> <r> <g> <b> [white]" - the authored controls
+                // behind the resolved Ke, so nothing has to be split back out.
                 float r, g, b;
+                ss >> e.glow;
                 if (ss >> r >> g >> b) {
                     e.glowColor[0] = r, e.glowColor[1] = g, e.glowColor[2] = b;
-                    gotGlowHint.back() = 2;  // color authored too - no split
-                    ss >> e.glowWhite;       // absent = 0 (leaves the default)
-                } else {
                     gotGlowHint.back() = 1;
+                    ss >> e.glowWhite;  // absent = 0 (leaves the default)
                 }
             } else if (what == "tyra-glow-light") {
                 ss >> e.glowRange >> e.glowLight;
@@ -238,7 +235,7 @@ bool App::loadMaterialFile(const std::string& relPath) {
             e.glowColor[0] = e.glowColor[1] = e.glowColor[2] = 1.0f;
             continue;
         }
-        if (gotGlowHint[i] == 2) {
+        if (gotGlowHint[i]) {
             e.glow = e.glow < 0.0f ? 0.0f : (e.glow > 2.0f ? 2.0f : e.glow);
             e.glowWhite = e.glowWhite < 0.0f ? 0.0f
                           : (e.glowWhite > 1.0f ? 1.0f : e.glowWhite);
@@ -246,9 +243,11 @@ bool App::loadMaterialFile(const std::string& relPath) {
                 c = c < 0.0f ? 0.0f : (c > 1.0f ? 1.0f : c);
             continue;
         }
+        // No hint at all - a hand-written .mtl carrying only an Ke. Split it
+        // the same way Kd/brightness is split: the brightest component is the
+        // strength, which renders identically either way.
         const std::array<float, 3>& k = keRaw[i];
-        float g = gotGlowHint[i] == 1 ? e.glow
-                                      : std::max(k[0], std::max(k[1], k[2]));
+        float g = std::max(k[0], std::max(k[1], k[2]));
         g = g < 0.0f ? 0.0f : g > 2.0f ? 2.0f : g;
         for (int c = 0; c < 3; ++c) {
             float v = g > 0.01f ? k[c] / g : 1.0f;
@@ -349,13 +348,15 @@ void App::saveMaterialFile() {
     out.close();
     // every consumer caches the parsed file - drop them so the scene viewport
     // and the properties panel pick the change up next frame
-    viewport_.invalidateAssets();
+    viewport_.invalidateMaterial(matEdPath_);
     modelInfoCache_.clear();
     statusMessage_ = "Saved " + matEdPath_;
 }
 
 void App::openMaterialEditor(const std::string& relPath,
                              const std::string& modelHint) {
+    matEdFocusNext_ = true;
+    if (!matEdFilter_.PassFilter(relPath.c_str())) matEdFilter_.Clear();
     showMaterialEditor_ = true;
     // preview straight on the mesh the material is used by - static .obj or
     // animated .glb/.fbx (both take the assigned .mtl as an override)
@@ -1874,6 +1875,14 @@ void App::matEdBakeSection(const std::string& entryName,
             "Writes ao/curvature/thickness/bent/normal/position PNGs next\n"
             "to the .mtl - mask sources for wear & dirt, or exports for\n"
             "external tools.");
+    // This block is the HAND bake, per material, once. The same occlusion is
+    // also available for every model asset without asking - said here because
+    // this is where someone about to do it by hand is standing.
+    ImGui::TextDisabled("Scene-wide automatic AO: Tools > Baked Lighting");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "Bakes every .obj model's own AO into its texture at build,\n"
+            "cached per asset. docs/ambient-occlusion.md");
 }
 
 // --- Smart masks (docs/material-baking.md) -----------------------------------
@@ -2557,6 +2566,7 @@ void App::drawMaterialEditorWindow() {
 
     ImGui::SetNextWindowSize(ImVec2(scaled(1020), scaled(600)),
                              ImGuiCond_FirstUseEver);
+    if (matEdFocusNext_) { ImGui::SetNextWindowFocus(); matEdFocusNext_ = false; }
     if (!ImGui::Begin("Material Editor", &showMaterialEditor_)) {
         matEdFocused_ = false;
         ImGui::End();
@@ -2574,14 +2584,22 @@ void App::drawMaterialEditorWindow() {
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("Creates a .mtl in res/materials - assign it to any\n"
                           "object in Properties > Material.");
+    ImGui::SetNextItemWidth(-FLT_MIN);
+    if (ImGui::InputTextWithHint("##material_search", "Search materials...",
+            matEdFilter_.InputBuf, sizeof(matEdFilter_.InputBuf))) matEdFilter_.Build();
     ImGui::Separator();
-    for (const std::string& rel : listMaterialAssets()) {
+    const auto& materials = listMaterialAssets();
+    int shown = 0;
+    for (const std::string& rel : materials) {
+        if (!matEdFilter_.PassFilter(rel.c_str())) continue;
+        ++shown;
         if (ImGui::Selectable(rel.substr(4).c_str(), rel == matEdPath_))
             openMaterialEditor(rel);
     }
-    if (listMaterialAssets().empty())
+    if (materials.empty())
         ImGui::TextDisabled("No materials yet.\nA material is a color +\n"
                             "optional texture shared\nby any number of objects.");
+    else if (!shown) ImGui::TextDisabled("No matching materials.");
     ImGui::EndChild();
 
     // --- "New material" modal ------------------------------------------------
@@ -2875,8 +2893,16 @@ void App::drawMaterialEditorWindow() {
             ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f),
                                "Texture missing - renders as plain color.");
         } else {
-            int tw = 0, th = 0, comp = 0;
-            if (stbi_info(texAbs.string().c_str(), &tw, &th, &comp)) {
+            const auto stamp = std::filesystem::last_write_time(texAbs, ec);
+            const std::string infoPath = texAbs.lexically_normal().generic_string();
+            if (matEdInfoPath_ != infoPath || matEdInfoTime_ != stamp) {
+                matEdInfoPath_ = infoPath;
+                matEdInfoTime_ = stamp;
+                int comp = 0;
+                matEdInfoOk_ = stbi_info(texAbs.string().c_str(), &matEdInfoW_, &matEdInfoH_, &comp) != 0;
+            }
+            const int tw = matEdInfoW_, th = matEdInfoH_;
+            if (matEdInfoOk_) {
                 const bool pow2 = tw > 0 && th > 0 && (tw & (tw - 1)) == 0 &&
                                   (th & (th - 1)) == 0;
                 if (!pow2)

@@ -24,6 +24,7 @@
 #include "./postfx/renderer_core_postfx.hpp"
 #include "./envmap/renderer_core_envmap.hpp"
 #include "./shadowmap/renderer_core_shadow_map.hpp"
+#include "./alphamask/renderer_core_alpha_mask.hpp"
 #include "./splitview/renderer_core_splitview.hpp"
 #include "./warp/renderer_core_warp.hpp"
 #include "./blss/renderer_core_blss.hpp"
@@ -133,6 +134,10 @@ class RendererCore : public RendererCore2dBounds {
   /** Dynamic spot light - the flashlight (TyraX fork). */
   RendererCoreSpotLight spot;
 
+  /** Destination-alpha shadow mask - the flashlight's shadow volumes
+   * (TyraX fork, docs/flashlight.md "The shadow"). */
+  RendererCoreAlphaMask alphaMask;
+
   /**
    * Scene dynamic lights (TyraX fork). The color VU1 programs evaluate ONE
    * light per mesh, so the StaPip picks the strongest contributor per bag
@@ -148,10 +153,10 @@ class RendererCore : public RendererCore2dBounds {
   // beginFrame.
   bool drained3DFor2D = false;
 
-  /** Called by renderer */
-  void init(VideoMode videoMode = VideoMode::Auto,
-            DisplayMode displayMode = DisplayMode::Interlaced,
-            bool widescreen = false, bool tripleBuffering = false);
+  /** Called by renderer (TyraX fork: everything init-time in one struct -
+   * scan mode, colour depth, dithering, triple buffering and which render
+   * targets to reserve; see RendererOptions). */
+  void init(const RendererOptions& options = RendererOptions());
 
   /**
    * Runtime video output switch (TyraX fork): scan mode
@@ -206,13 +211,27 @@ class RendererCore : public RendererCore2dBounds {
                        const float& range);
 
   /**
+   * Register a scene dynamic SPOT light for this frame (TyraX fork): the
+   * same registry slot as a point light, with the cone constants filled the
+   * way setSpotLight fills the camera torch. Direction need not be
+   * normalized. Silently ignored past DYN_LIGHTS_MAX.
+   */
+  int addDynSpotLight(const Color& color, const Vec4& position,
+                      const Vec4& direction, const float& range,
+                      const float& cutoffDegrees,
+                      const float& softness = 3.0F);
+
+  /**
    * Pick the strongest dynamic light (flashlight or scene light) for a
    * world-space bounding sphere (TyraX fork). Never null - with nothing
    * registered it returns the flashlight state, disabled or not, which
    * uploads zero colors and keeps the VU1 additive term a no-op.
    */
+  /** skipSlot: a dynLights index this pick must ignore (-1 = none) - see
+   * PipelineInfoBag::dynLightSkipSlot. */
   const RendererCoreSpotLight* pickDynLight(const Vec4& worldCenter,
-                                            const float& worldRadius) const;
+                                            const float& worldRadius,
+                                            int skipSlot = -1) const;
 
   /** Clear screen and update view frustum for frustum culling. NO 3D support */
   void beginFrame();
@@ -223,8 +242,9 @@ class RendererCore : public RendererCore2dBounds {
   /**
    * Apply a subset of the full-screen post effects NOW instead of at endFrame
    * (TyraX fork). `passes` is a RendererCorePostFx::Pass bitmask - the
-   * UI Editor screen stack applies bloom(+grading) and grain at independent
-   * points, e.g. bloom under the HUD, grain over everything. Call it
+   * UI Editor screen stack applies bloom(+grading), grain and motion blur at
+   * independent points, e.g. motion blur under the HUD (so a moving HUD
+   * element does not smear), bloom under it too, grain over everything. Call it
    * mid-frame - after the scene, before the HUD sprites you want on top.
    * Each pass runs at most once per frame; endFrame() composites whatever is
    * still unapplied. The PATH1 drain barrier (endFrame's) runs once, on the
@@ -304,6 +324,29 @@ class RendererCore : public RendererCore2dBounds {
   }
 
   /**
+   * Modified by TyraX: the same stall time as a running total that nobody
+   * resets (it wraps with the COP0 count), for a second reader. The
+   * interleaved-passes tuner (docs/interleaved-passes.md) takes differences
+   * of it, so it can price a whole loop without stealing takeStallTicks()
+   * from the frame extrapolation gate or the profiling rig.
+   */
+  u32 getStallTotal() const { return stallTotal; }
+
+  /**
+   * Modified by TyraX: whether beginFrame()/endFrame() sleep 0.5 ms each
+   * (Threading::switchThread). Off by default: the game thread runs at 0x40,
+   * below the audio threads and ps2link's command thread, which preempt it
+   * on their own, so the two sleeps were 1.03-1.07 ms of every frame of
+   * nothing (measured on a PS2). The generated game turns it on while the
+   * editor's Live Debugger is attached: with its snapshot writes to host:
+   * and music streaming over ps2link, a frame loop with no sleep hung the
+   * console (SIF stuck) about a minute in, 2 of 2 runs, while the sleeping
+   * one ran clean - mechanism not found (docs/backlog.md).
+   */
+  void setFrameYield(bool on) { frameYield = on; }
+  bool getFrameYield() const { return frameYield; }
+
+  /**
    * Modified by TyraX: the screen rectangle everything drawn through the 2D
    * path touched last frame, in display pixels; empty (x1 < x0) when nothing
    * did. The frame warp keeps this region UNWARPED, because the HUD is pixels
@@ -354,6 +397,8 @@ class RendererCore : public RendererCore2dBounds {
   bool hasPresentedFrame = false;
   // Modified by TyraX: see getLastFrameWorkTicks / get2dBounds.
   u32 stallAccum = 0;
+  u32 stallTotal = 0;
+  bool frameYield = false;
   int hud2dX0 = 1 << 20, hud2dY0 = 1 << 20, hud2dX1 = -1, hud2dY1 = -1;
   // Which post fx passes already ran this frame (RendererCorePostFx::Pass
   // bits) - endFrame composites the rest. postFxDrained: the PATH1 barrier

@@ -170,7 +170,8 @@ over guessing from this file.
   on a 16:9 project the wide (16:9) style covers nothing and cinema 2.39:1 is
   thinner - that is correct, not a broken node. **Set Player Visible** drops the third-person avatar for a
   free-flying camera move. **On Sequence Finished** fires when a cutscene stops
-  for ANY reason (ran out, Stop Sequence, player skipped) - the way to chain
+  for ANY reason (ran out, Stop Sequence, player skipped - a skip is a stop, so
+  there is nothing extra to wire for one) - the way to chain
   "play the cutscene, then carry on"; its bool output is "a cutscene is playing
   right now", for gating gameplay logic out while one runs.
   **Set Sound Volume** ducks all sound effects (music has its own node).
@@ -180,6 +181,12 @@ over guessing from this file.
   / open menu / fire a flow event), so the graph usually needs nothing after it.
   **Stop Credits** ends one early, and **On Credits Finished** fires the frame a
   roll stops for any reason.
+  **Set HUD Element Visible** shows, hides or toggles one named HUD image,
+  baked text or live bar through its configured transition. **Set HUD Bar**
+  writes a bar value (and its backing save value when it has one), while
+  **Play HUD Effect** adds a one-shot flash, bounce or shake without replacing
+  the element's looped animation. These target the element name configured in
+  Tools > UI Editor; see `docs/hud-animation.md`.
 - **Graphs talk to each other with EVENTS, not with polled variables.**
   **Send Event** broadcasts a name (plus an optional number payload) to every
   graph in the game; every **On Event** of that name fires on the NEXT frame,

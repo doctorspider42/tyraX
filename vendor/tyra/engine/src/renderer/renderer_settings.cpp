@@ -25,10 +25,12 @@ void RendererSettings::copy(RendererSettings* out, const RendererSettings* in) {
   out->interlacedHeightF = in->interlacedHeightF;
   out->interlacedHeightUI = in->interlacedHeightUI;
   out->videoMode = in->videoMode;
-  out->displayMode = in->displayMode;      // Modified by TyraX
-  out->widescreen = in->widescreen;        // Modified by TyraX
-  out->rasterScaleX = in->rasterScaleX;    // Modified by TyraX (BLSS)
-  out->rasterScaleY = in->rasterScaleY;    // Modified by TyraX (BLSS)
+  out->displayMode = in->displayMode;          // Modified by TyraX
+  out->widescreen = in->widescreen;            // Modified by TyraX
+  out->colorDepth = in->colorDepth;            // Modified by TyraX
+  out->dither = in->dither;                    // Modified by TyraX
+  out->rasterScaleX = in->rasterScaleX;        // Modified by TyraX (BLSS)
+  out->rasterScaleY = in->rasterScaleY;        // Modified by TyraX (BLSS)
   out->tripleBuffering = in->tripleBuffering;  // Modified by TyraX
 }
 
@@ -48,7 +50,12 @@ std::string RendererSettings::getPrint() const {
   res << "far: " << far << ", ";
   res << "projectionScale: " << projectionScale << ", ";
   res << "aspectRatio: " << aspectRatio << ", ";
-  res << "interlaced height: " << interlacedHeightF;
+  res << "interlaced height: " << interlacedHeightF << ", ";
+  // Modified by TyraX: the colour depth decides the framebuffer PSM, and
+  // "why is my VRAM budget different" is the first question it raises.
+  res << "color depth: " << (colorDepth == ColorDepth::Bits16 ? 16 : 32)
+      << "bpp, ";
+  res << "dither: " << (dither ? "on" : "off");
   res << ")";
   return res.str();
 }

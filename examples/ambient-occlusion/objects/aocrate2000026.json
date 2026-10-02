@@ -1,0 +1,1 @@
+{ "id": "aocrate2000026", "name": "crate-2", "type": "model", "position": [-7.3, 1.56, -0.05], "rotation": [0, 4, 0], "scale": [0.86, 0.86, 0.86], "color": [1, 1, 1], "physics": false, "model": "res/models/Prop_Crate.obj" }

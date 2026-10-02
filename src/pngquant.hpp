@@ -23,6 +23,15 @@ bool quantize(const std::string& srcPath, const std::string& dstPath,
 bool quantizeRGBA(const std::string& dstPath, const unsigned char* rgba, int w,
                   int h, int colors, std::string& error);
 
+// Same again, but the palettized PNG comes back as BYTES instead of being
+// written. The vehicle bake needs this: it content-compares what it is about
+// to write against what is already on disk (a fresh mtime on an asset the
+// compiler reads is a rebuild nobody asked for), so it cannot quantize a file
+// it has already written. `out` is left untouched on failure.
+bool quantizeRGBAToMemory(std::vector<unsigned char>& out,
+                          const unsigned char* rgba, int w, int h, int colors,
+                          std::string& error);
+
 // Writes an RGBA buffer as a plain 32-bit PNG (full color, no palette).
 bool writePngRGBA(const std::string& dstPath, const unsigned char* rgba, int w,
                   int h, std::string& error);
@@ -45,6 +54,16 @@ std::vector<unsigned char> quantizePreviewRGBA(
     std::vector<unsigned char>* outPalette = nullptr);
 
 // Bilinear resample of an RGBA buffer to dw x dh (returns dw*dh*4 bytes).
+// A 4-bit indexed PNG from indices the caller already chose (0..15, one byte
+// per pixel, w even) and the 16-entry RGBA palette to go with them. No
+// quantization at all: for data whose palette is a fixed RAMP - the baked
+// ground shadows (docs/shadows.md) store sixteen alpha levels of one colour,
+// and a colour quantizer is exactly what would merge them. The engine's PNG
+// loader keeps tRNS alpha per entry (`a >> 1` into the CLUT), so the levels
+// reach the GS intact. False with `error` set on failure.
+bool writeIndexed4(const std::string& dstPath, const unsigned char* indices, int w,
+                   int h, const unsigned char paletteRgba[64], std::string& error);
+
 std::vector<unsigned char> resizeRGBA(const unsigned char* rgba, int sw, int sh,
                                       int dw, int dh);
 

@@ -129,6 +129,9 @@ struct AmbiencePreset {
     float skyTopColor[3] = {0.08f, 0.3f, 0.65f};
     bool skyDome = true;
     float zenithSize = 0.5f;  // 0.05..0.95; how much of the dome is zenith color
+    // Painted sky (ProjectSettings::skyTexture): res/ panorama + its yaw.
+    std::string skyTexture;
+    float skyTextureYaw = 0.0f;
 
     // Lighting (baked into vertex colors at build; a runtime preset switch
     // cannot re-bake it - only the sky repaints live).
@@ -164,7 +167,8 @@ inline bool operator==(const AmbiencePreset& a, const AmbiencePreset& b) {
     };
     return a.name == b.name && eq3(a.skyColor, b.skyColor) &&
            eq3(a.skyTopColor, b.skyTopColor) && a.skyDome == b.skyDome &&
-           a.zenithSize == b.zenithSize &&
+           a.zenithSize == b.zenithSize && a.skyTexture == b.skyTexture &&
+           a.skyTextureYaw == b.skyTextureYaw &&
            eq3(a.lightDir, b.lightDir) && a.ambient == b.ambient &&
            a.diffuse == b.diffuse && eq3(a.lightColor, b.lightColor) &&
            a.brightness == b.brightness && a.aoEnabled == b.aoEnabled &&

@@ -3,9 +3,14 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <filesystem>
+#include <map>
+#include <memory>
+#include <mutex>
 
 #include "objparser.hpp"
 #include "primmesh.hpp"
+#include "roadgen.hpp"
 
 namespace decalproj {
 namespace {
@@ -125,6 +130,50 @@ void addLocalMesh(std::vector<Tri>& out, const std::vector<float>& mesh,
     }
 }
 
+// A parsed .obj, kept between projections. The shadow bake projects once per
+// caster (twice, with the plinth pass) and every projection used to re-read
+// and re-parse EVERY model in the scene from disk: 12.6 of Motor District's
+// 13.3 s bake (docs/shadows.md, "What the bake costs"). Keyed by path, and
+// re-read when the file's size or write time changes, so an edited model is
+// never served stale. Shared by the editor's projected-decal preview (UI
+// thread) and the shadow baker (its worker), hence the mutex.
+struct CachedModel {
+    std::vector<std::vector<float>> submeshes;  // objparser's 8-float vertices
+    V3 mn{1e30f, 1e30f, 1e30f}, mx{-1e30f, -1e30f, -1e30f};
+};
+std::shared_ptr<const CachedModel> cachedModel(const std::string& path) {
+    namespace fs = std::filesystem;
+    static std::mutex mu;
+    static std::map<std::string, std::pair<std::string, std::shared_ptr<const CachedModel>>>
+        cache;
+    std::error_code ec;
+    const auto ft = fs::last_write_time(path, ec);
+    if (ec) return nullptr;
+    const auto sz = fs::file_size(path, ec);
+    if (ec) return nullptr;
+    const std::string stamp =
+        std::to_string((long long)ft.time_since_epoch().count()) + ":" + std::to_string(sz);
+    {
+        std::lock_guard<std::mutex> lk(mu);
+        const auto it = cache.find(path);
+        if (it != cache.end() && it->second.first == stamp) return it->second.second;
+    }
+    objparser::Model m;
+    if (!objparser::load(path, m)) return nullptr;
+    auto cm = std::make_shared<CachedModel>();
+    for (const objparser::Submesh& sm : m.submeshes) {
+        for (size_t i = 0; i + 7 < sm.verts.size(); i += 8) {
+            const V3 v{sm.verts[i], sm.verts[i + 1], sm.verts[i + 2]};
+            cm->mn = {std::min(cm->mn.x, v.x), std::min(cm->mn.y, v.y), std::min(cm->mn.z, v.z)};
+            cm->mx = {std::max(cm->mx.x, v.x), std::max(cm->mx.y, v.y), std::max(cm->mx.z, v.z)};
+        }
+        cm->submeshes.push_back(sm.verts);
+    }
+    std::lock_guard<std::mutex> lk(mu);
+    cache[path] = {stamp, cm};
+    return cm;
+}
+
 void addObjectReceiver(std::vector<Tri>& out, const Project& p, const SceneObject& o,
                        const Aabb& box) {
     const Xform x(o);
@@ -134,10 +183,18 @@ void addObjectReceiver(std::vector<Tri>& out, const Project& p, const SceneObjec
     }
     if (o.type == PrimitiveType::Model) {
         if (o.modelPath.empty() || isAnimatedModelPath(o.modelPath)) return;  // .obj only
-        objparser::Model m;
-        if (!objparser::load(p.filePath(o.modelPath), m)) return;
-        for (const objparser::Submesh& s : m.submeshes)
-            addLocalMesh(out, s.verts, x, box);
+        const std::shared_ptr<const CachedModel> m = cachedModel(p.filePath(o.modelPath));
+        if (!m || m->submeshes.empty()) return;
+        // The model's own bounds, in the world: the eight corners of its local
+        // box through the object's transform. Most models are nowhere near a
+        // given projector, and this skips all their triangles at once.
+        Aabb wb;
+        for (int k = 0; k < 8; ++k)
+            wb.add(x.worldFromLocal({(k & 1) ? m->mx.x : m->mn.x,
+                                     (k & 2) ? m->mx.y : m->mn.y,
+                                     (k & 4) ? m->mx.z : m->mn.z}));
+        if (!wb.overlaps(box)) return;
+        for (const std::vector<float>& sm : m->submeshes) addLocalMesh(out, sm, x, box);
         return;
     }
     std::vector<float> mesh;
@@ -211,6 +268,120 @@ void addTerrainReceiver(std::vector<Tri>& out, const SceneData& s, const Aabb& b
         }
 }
 
+// The roads as receivers: each road's full-width ribbon (core and faded edge
+// bands draw at the same height) and the fitted junction patches, tessellated
+// exactly as Viewport::syncRoadDraws does - the same roadgen calls over the
+// same render-grid terrain height - so a decal sits on the asphalt the player
+// sees. Overlays and spills at crossings are not included.
+// Every road triangle a projection may land on - the ribbons plus the fitted
+// junction patches - for the roads `accept` lets through. Independent of the
+// projector, so it is built ONCE per scene state and only clipped to each
+// projector's box afterwards: re-tessellating every road and re-planning every
+// junction per caster was most of Motor District's shadow bake after the model
+// cache (docs/shadows.md, "What the bake costs"). The key hashes everything
+// the tessellation reads, so an edited road or heightmap is never served
+// stale; one entry, because a bake asks for the same scene over and over.
+uint64_t mixKey(uint64_t h, const void* data, size_t n) {
+    const unsigned char* b = (const unsigned char*)data;
+    for (size_t i = 0; i < n; ++i) h = (h ^ b[i]) * 1099511628211ull;
+    return h;
+}
+std::shared_ptr<const std::vector<Tri>> roadTris(
+    const SceneData& s, const std::function<bool(const SceneObject&)>& accept) {
+    const float w = (float)s.terrain.width, d = (float)s.terrain.depth;
+    const bool grid = s.terrain.enabled && s.hmW >= 2 && s.hmD >= 2 &&
+                      (int)s.heights.size() == s.hmW * s.hmD;
+    uint64_t key = 1469598103934665603ull;
+    const auto mixF = [&](float f) { key = mixKey(key, &f, sizeof f); };
+    const auto mixI = [&](int64_t v) { key = mixKey(key, &v, sizeof v); };
+    const auto mixS = [&](const std::string& v) {
+        mixI((int64_t)v.size());
+        key = mixKey(key, v.data(), v.size());
+    };
+    mixF(w), mixF(d), mixI(grid ? 1 : 0), mixI(s.hmW), mixI(s.hmD);
+    if (grid) key = mixKey(key, s.heights.data(), s.heights.size() * sizeof(float));
+    for (const SceneObject& o : s.objects) {
+        if (o.type != PrimitiveType::Road) continue;
+        mixS(o.id);
+        mixI(accept && !accept(o) ? 0 : 1);
+        mixI((int64_t)o.roadPoints.size());
+        for (float v : o.roadPoints) mixF(v);
+        mixF(o.roadWidth), mixF(o.roadSampleStep), mixI(o.roadRank);
+        mixF(o.roadGrip), mixF(o.roadSpill), mixF(o.roadEdgeFade);
+        mixS(o.roadIntersectionTexture);
+    }
+    for (const roadgen::JunctionOverride& j : s.roadJunctions) {
+        mixS(j.roadA), mixS(j.roadB), mixF(j.x), mixF(j.z), mixI(j.winner);
+        mixS(j.material), mixF(j.grip);
+    }
+    static std::mutex mu;
+    static uint64_t cachedKey = 0;
+    static std::shared_ptr<const std::vector<Tri>> cached;
+    {
+        std::lock_guard<std::mutex> lk(mu);
+        if (cached && cachedKey == key) return cached;
+    }
+
+    const roadgen::HeightFn ground = [&](float x, float z) {
+        return grid ? roadgen::terrainHeight(s.heights, s.hmW, s.hmD, w, d, x, z)
+                    : 0.0f;
+    };
+    auto built = std::make_shared<std::vector<Tri>>();
+    std::vector<Tri>& out = *built;
+    auto push = [&](const roadgen::Vertex& a, const roadgen::Vertex& b,
+                    const roadgen::Vertex& c) {
+        Tri t;
+        t.p[0] = {a.x, a.y, a.z};
+        t.p[1] = {b.x, b.y, b.z};
+        t.p[2] = {c.x, c.y, c.z};
+        t.n = normalize(cross(t.p[1] - t.p[0], t.p[2] - t.p[0]));
+        // Up-facing, like the terrain: the facing test keeps what a floor
+        // decal projects onto, whichever way the ribbon happened to wind.
+        if (t.n.y < 0.0f) {
+            std::swap(t.p[1], t.p[2]);
+            t.n = {-t.n.x, -t.n.y, -t.n.z};
+        }
+        out.push_back(t);
+    };
+    std::vector<roadgen::Vertex> all;
+    for (const SceneObject& o : s.objects) {
+        if (o.type != PrimitiveType::Road || o.roadPoints.size() < 4) continue;
+        if (accept && !accept(o)) continue;
+        const float lift = roadgen::rankLift(o.roadRank);
+        std::vector<roadgen::Vertex> tris;
+        roadgen::tessellate(o.roadPoints, o.roadWidth,
+                            [&](float x, float z) { return ground(x, z) + lift; },
+                            tris, {}, o.roadSampleStep);
+        for (size_t i = 0; i + 2 < tris.size(); i += 3) push(tris[i], tris[i + 1], tris[i + 2]);
+        all.insert(all.end(), tris.begin(), tris.end());
+    }
+    const std::vector<roadgen::CrossingRoad> cr = project::crossingRoads(s.objects);
+    if (cr.size() >= 2 && !all.empty()) {
+        const roadgen::CrossingPlan plan = roadgen::planCrossings(cr, s.roadJunctions);
+        for (const roadgen::Crossing& c : plan.crossings) {
+            if (c.kind != roadgen::kCrossPatch || c.patchDuplicate) continue;
+            std::vector<roadgen::Vertex> patch;
+            roadgen::tessellateJunctionSurface(c.shape, all, ground, c.lift, patch);
+            for (size_t i = 0; i + 2 < patch.size(); i += 3)
+                push(patch[i], patch[i + 1], patch[i + 2]);
+        }
+    }
+    std::lock_guard<std::mutex> lk(mu);
+    cachedKey = key;
+    cached = built;
+    return built;
+}
+
+void addRoadReceivers(std::vector<Tri>& out, const SceneData& s, const Aabb& box,
+                      const std::function<bool(const SceneObject&)>& accept) {
+    const std::shared_ptr<const std::vector<Tri>> all = roadTris(s, accept);
+    for (const Tri& t : *all) {
+        Aabb tb;
+        for (const V3& v : t.p) tb.add(v);
+        if (tb.overlaps(box)) out.push_back(t);
+    }
+}
+
 // Sutherland-Hodgman clip of a convex polygon (local space) against one axis
 // half-space. axis 0/1/2 = x/y/z; keepPositive true keeps coord <= +0.5, false
 // keeps coord >= -0.5.
@@ -238,17 +409,52 @@ void clipPlane(std::vector<V3>& poly, int axis, bool upper) {
 
 }  // namespace
 
-DecalMesh project(const Project& p, const SceneData& s, const SceneObject& decal) {
+bool objectTriangles(const Project& p, const SceneObject& o,
+                     std::vector<float>& out) {
+    if (!isReceiverType(o.type)) return false;
+    const size_t before = out.size();
+    Aabb all;
+    all.add({-1e30f, -1e30f, -1e30f});
+    all.add({1e30f, 1e30f, 1e30f});
+    std::vector<Tri> tris;
+    addObjectReceiver(tris, p, o, all);
+    out.reserve(before + tris.size() * 9);
+    for (const Tri& t : tris)
+        for (int k = 0; k < 3; ++k) {
+            out.push_back(t.p[k].x);
+            out.push_back(t.p[k].y);
+            out.push_back(t.p[k].z);
+        }
+    return out.size() > before;
+}
+
+void projectorBasis(const SceneObject& decal, float origin[3], float axisX[3],
+                    float axisY[3], float axisZ[3]) {
+    const Xform x(decal);
+    for (int k = 0; k < 3; ++k) origin[k] = x.pos[k];
+    // rot() is linear, so rotating the three unit vectors IS the basis - and
+    // taking it this way rather than writing the matrix out keeps one
+    // definition of the rotation for every caller.
+    const V3 ax = x.rot({1, 0, 0}), ay = x.rot({0, 1, 0}), az = x.rot({0, 0, 1});
+    axisX[0] = ax.x, axisX[1] = ax.y, axisX[2] = ax.z;
+    axisY[0] = ay.x, axisY[1] = ay.y, axisY[2] = ay.z;
+    axisZ[0] = az.x, axisZ[1] = az.y, axisZ[2] = az.z;
+}
+
+DecalMesh project(const Project& p, const SceneData& s, const SceneObject& decal,
+                  const Receivers& rx) {
     DecalMesh out;
     const Xform x(decal);
     const Aabb box = projectorAabb(x);
 
     // Gather receiver triangles overlapping the projector box.
     std::vector<Tri> tris;
-    addTerrainReceiver(tris, s, box);
+    if (rx.terrain) addTerrainReceiver(tris, s, box);
+    if (rx.roads) addRoadReceivers(tris, s, box, rx.accept);
     for (const SceneObject& o : s.objects) {
         if (&o == &decal || o.id == decal.id) continue;
         if (!isReceiverType(o.type)) continue;
+        if (rx.accept && !rx.accept(o)) continue;
         addObjectReceiver(tris, p, o, box);
     }
 

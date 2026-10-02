@@ -422,6 +422,27 @@ void Pad::injectVirtual(const PadButtons& held, s16 leftJoyH, s16 leftJoyV,
   rightJoyPad.isMoved = !rightJoyPad.isCentered;
 }
 
+/** TyraX: replace the polled state wholesale - see the header. The two
+ * isCentered/isMoved lines are the same rule injectVirtual applies; they are
+ * restated rather than shared because there is nothing else in common. */
+void Pad::setState(const PadButtons& pressedIn, const PadButtons& clickedIn,
+                   u8 leftH, u8 leftV, u8 rightH, u8 rightV) {
+  this->pressed = pressedIn;
+  this->clicked = clickedIn;
+  leftJoyPad.h = leftH;
+  leftJoyPad.v = leftV;
+  rightJoyPad.h = rightH;
+  rightJoyPad.v = rightV;
+  leftJoyPad.isCentered = leftJoyPad.h == 127 && leftJoyPad.v == 127;
+  leftJoyPad.isMoved = !leftJoyPad.isCentered;
+  rightJoyPad.isCentered = rightJoyPad.h == 127 && rightJoyPad.v == 127;
+  rightJoyPad.isMoved = !rightJoyPad.isCentered;
+  // A replayed frame is also the frame the NEXT overlay diffs against: leaving
+  // virtPrev at what the hardware happened to be doing would make the first
+  // frame after a replay ends fabricate click edges out of nothing.
+  for (int i = 0; i < VIRT_SLOTS; ++i) this->virtPrev[i] = pressedIn;
+}
+
 /** Resets state of joys/buttons */
 void Pad::reset() {
   this->clicked.Cross = 0;
@@ -453,6 +474,17 @@ void Pad::reset() {
   this->pressed.L2 = 0;
   this->pressed.R1 = 0;
   this->pressed.R2 = 0;
+  // Modified by TyraX: the four digital-mask buttons too. The modification
+  // that ADDED them to handlePressedButtons() (they have no pressure value,
+  // so they were missing from `pressed` entirely) forgot this clear side, so
+  // the first R3 press latched pressed.R3 = 1 for the rest of the run - the
+  // exact mirror image of the bug it fixed ("the press was seen once - and
+  // then nothing ever held it down" became "held down forever after one
+  // press"; reported as the rear-view camera staying on for good).
+  this->pressed.L3 = 0;
+  this->pressed.R3 = 0;
+  this->pressed.Start = 0;
+  this->pressed.Select = 0;
 }
 
 /** Center both sticks - the resting state a game must see for a pad that has

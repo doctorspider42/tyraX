@@ -1,0 +1,5 @@
+newmtl source
+Kd 0.04 0.3 1
+# tyra-glow 1 0.04 0.3 1 0.25
+# tyra-glow-light 10 1.4
+Ke 0.055999999999999994 0.42 1.4

@@ -99,6 +99,53 @@ victim's volume and playing on the next frame, or a KOFF plus the ADSR release
 - both cost a frame of latency, so neither is worth paying before someone
 actually hears the problem.
 
+## TyraX change 3: one source tree, two PS2SDKs
+
+Not a feature - the price of the fork outliving the image it was written for.
+TyraX now has two toolchain images (`docs/toolchain-image.md`): the inherited
+`h4570/tyra` with a 2022 ps2sdk, and one built from a current ps2dev base. The
+committed `bin/libaudsrv.a` only serves the first (it carries GCC 11.3 LTO
+bytecode, which a newer GCC refuses), so the second compiles the **EE half from
+these sources** with its own compiler.
+
+That crosses a rename. Upstream moved ten EE-side SIF RPC entry points to
+`sce`-prefixed names, and the two SDKs export **disjoint** sets - measured, not
+assumed: `h4570/tyra`'s `libkernel.a` has `SifCallRpc` and not `sceSifCallRpc`,
+a current one has `sceSifCallRpc` and not `SifCallRpc`. So the sources compile
+either way and then fail to LINK on the other one, with an *"undefined reference
+to `SifCallRpc'"* that says nothing about SDK versions.
+
+- `ee/src/sif-compat.h` aliases the ten. It writes the OLD names and maps them
+  forward rather than the reverse, so the diff against upstream stays at one
+  new header plus one `#include` instead of ten renamed call sites.
+- It is included **first, before any ps2sdk header**. The aliases have to
+  rewrite the DECLARATIONS too, and `kernel.h` carries two of them
+  (`SifSetDma`, `SifDmaStat`); after it, the calls get renamed while the
+  prototypes do not, which `-Werror` reports as an implicit declaration of
+  `sceSifSetDma` rather than as an include-order problem.
+- `ee/Makefile` turns `TYRAX_PS2SDK_SCE_SIF` in the environment into the define.
+  It goes in the makefile and not on `make`'s command line because `Rules.make`
+  does `EE_CFLAGS := ... $(EE_INCS) $(EE_CFLAGS)`, and a command-line
+  `EE_CFLAGS` overrides that whole assignment - include paths included, which
+  fails as *"compilation terminated"* on a missing header rather than as a bad
+  flag.
+
+**The switch has to come from outside, and it cannot be detected here.** This
+module is always compiled against the pinned ps2sdk source tree above, so every
+header the preprocessor can see is the old one whichever image is building;
+what differs is the ps2sdk the result gets LINKED against.
+`__has_include(<sifrpc-common.h>)` was tried and is exactly that trap - the file
+is present in a current image and still invisible to this compile, so it
+silently chose the old names and the game failed to link. The image that knows
+which ps2sdk it ships is the one that sets the variable.
+
+`SifAllocIopHeap`, `SifFreeIopHeap` and `SifInitIopHeap` kept their names
+upstream and resolve from `libkernel.a` either way, which is why the list is ten
+and not thirteen.
+
+`build.sh` / `build.ps1` and the committed `bin/` are unaffected: they target the
+old SDK, so they set nothing and get the old names, exactly as before.
+
 ## Licence: this module is LGPL v2, not AFL
 
 Worth reading before you touch this, because it is **not** the licence the rest

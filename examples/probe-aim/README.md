@@ -14,8 +14,9 @@ headless: `tyrax-editor.exe --build <this folder> --run`.
 ## What to do
 
 You spawn facing a big chrome ball on a pedestal, a chrome monolith to the
-side — and a red crate, a yellow ball and a blue pillar standing **behind
-you**. Look at the chrome: the props behind your back reflect in the middle
+side — a red crate, a yellow ball and a blue pillar standing **behind
+you**, and a smaller red ball a few steps **in front**, between you and the
+pedestal. Look at the chrome: the props behind your back reflect in the middle
 of the ball, like a real mirror. **Each reflective object carries its own
 probe** — the ball and the monolith mirror *different* prop subsets in the
 same frame, from their own vantage points — and the probe pose depends only
@@ -36,9 +37,9 @@ the probe then renders from YOUR eye, not the surface's.
   crystal-ball look-back; a box's reflects off the hit face, which is why
   the monolith is rotated so its reflected cone actually contains the
   props — at its first rotation it honestly mirrored empty sky).
-- **`crate-red` / `ball-sun` / `pillar-blue`** — plain primitives with
-  **Show in reflections** checked: they render into the env map every
-  refresh (base passes, z-tested in the map).
+- **`crate-red` / `ball-sun` / `pillar-blue` / `ball-sun-copy`** — plain
+  primitives with **Show in reflections** checked: they render into the env
+  map every refresh (base passes, z-tested in the map).
 - **`envProbeReflected: true`** in the project settings — the whole feature
   is this one preference; the raycast targets are found automatically (any
   object bound to the dynamic map).
@@ -51,3 +52,13 @@ put ten in a scene and it will crawl. The env map contains sky + listed
 objects, not the terrain, so ground-facing reflections show the horizon
 color, and a 110° probe cannot cover the full reflected hemisphere at
 grazing angles.
+
+Generated object values live in `src/gen/scene_objects.gen.cpp`;
+`inc/scene_data.hpp` keeps stable declarations. Counts and object IDs live in
+the same data file, so ordinary moves, color edits, additions and removals can
+rebuild it alone. Changes to features or derived tables can still rebuild consumers.
+
+Generated game methods are split between `src/terrain_game.cpp` and the
+`src/gen/game_*.gen.cpp` subsystems, with shared inline helpers/state in
+`inc/game_runtime.gen.hpp`. Header changes can compile these units in parallel.
+The main file remains user-ownable; generated subsystem files refresh on build.

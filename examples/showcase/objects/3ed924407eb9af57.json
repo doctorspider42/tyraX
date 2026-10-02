@@ -1,0 +1,1 @@
+{ "id": "3ed924407eb9af57", "name": "cellar-acoustics", "type": "area", "position": [0, -9, -18], "rotation": [0, 0, 0], "scale": [14, 6, 18], "color": [1, 1, 1], "physics": false, "reverb": { "preset": 3, "amount": 0.3, "delay": 64, "feedback": 64, "priority": 2 } }

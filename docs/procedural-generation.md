@@ -29,6 +29,23 @@ Try the six graphs in [examples/procedural](../examples/procedural).
 
    ![The same result baked into chunk meshes with the live preview disabled again.](img/procedural-baked.png)
 
+## Freeze a finished layout
+
+In baked mode, check **Frozen** beside **Clear bake**. If the current layout
+has not been baked, or its bake is stale, the editor bakes it first. The saved
+chunks then stay in place when roads, painted materials, terrain, the volume
+transform or graph parameters change. The viewport draws those chunks, and
+builds keep them even after saving and reopening the project.
+
+The graph remains editable; its changes take effect after unchecking **Frozen**.
+Unfreezing resumes live preview and the next build refreshes a stale bake.
+**Bake now**, **Clear bake**, instance editing and the runtime-mode switch are
+disabled while frozen. Runtime volumes must switch to baked mode before freezing.
+**Show preview** also hides or shows frozen geometry. Deleting a volume still
+deletes its generated output.
+
+![A frozen painted district keeps its baked layout and retains the editable graph.](img/procedural-frozen.png)
+
 ## Start a volume
 
 Add **Procedural volume** from the object menu or click **New volume** in the
@@ -45,6 +62,7 @@ The window lets you:
 
 Graphs pass three data types: **points**, **masks** (0–1 fields over the region)
 and **curves**. Pins only accept their own type, and cycles are refused.
+Input labels sit on the left; output labels sit on the right beside their pins.
 
 ## Node cheat sheet
 
@@ -52,7 +70,7 @@ and **curves**. Pins only accept their own type, and cycles are refused.
 |---|---|---|
 | Sources | Scatter on Surface/Grid/in Volume/along Curve, Single Point, Blocks Fill | Create points |
 | Masks | Noise, Terrain, Combine, Remap | Say where or how densely |
-| Filters | Attribute, Mask, Minimum Distance, Keep Away, Limit Count | Remove unwanted points |
+| Filters | Attribute, Mask, Minimum Distance, Keep Away, Validate Placement, Limit Count | Remove unwanted points |
 | Repeat | Array, Radial Array | Exact rows, stacks, rings and arcs |
 | Assign | Pick Asset, Pick Prefab, Vary Transform, Set Attribute | Choose and vary the result |
 | Output | Output, Object Settings | Set chunks, budget and shared properties |
@@ -80,6 +98,79 @@ painted over grass counts as rock. This source is build-time only.
 
 Use **Single Point > Radial Array > Pick Asset > Output**. Arrays are exact and
 do not add random placement.
+
+**Buildings on concrete, trees on grass, roads kept clear**
+
+Use **Scatter on Surface > Pick Asset > Vary Transform > Validate Placement**
+for each species. Set **Roads = Avoid roads**, enable **Restrict terrain material** and
+choose the allowed **Material**: concrete for buildings, grass for
+trees. **Min coverage = 1** requires fully visible material throughout
+the footprint, including any clearance. A centre on concrete is insufficient
+when part of the building would extend onto grass.
+
+For a uniform building heading, set the building branch's **Vary Transform >
+Yaw range = 0**, **Tilt jitter = 0** and **Align to normal = 0**. Terrain
+scatter starts with zero rotation, so every building keeps that heading while
+scale can still vary. The vehicle-playground procedural scene uses this setup;
+its trees retain random yaw.
+
+Enable **Avoid model overlap** to reject intersections between accepted
+instances, and **Avoid scene models** to include placed static models and
+solid primitives. These switches are independent. **Clearance** adds a gap
+in world units. Merge the species, then add one final **Validate Placement**
+with model overlap enabled to check them together; earlier input wins, so
+connect buildings to Merge's first input to give them priority. Two separate
+volumes do not check each other's generated instances; baked procedural chunks
+are excluded to keep previews and repeated bakes independent of bake order.
+
+**Using a road as a scatter path**
+
+Set **Validate Placement > Roads = Only on roads**. **Road** selects a named
+road; **(every road)** accepts any road in the scene. Feed points from **Scatter
+on Surface** or **Scatter on Grid** through Pick Asset and Vary Transform first.
+Only origins inside the road's full spline ribbon survive, including soft edges
+and bends; a canopy or arch can extend outside it. This is an area filter, not
+centreline spacing, and does not change height or heading. Keep the source's
+terrain snap and height offset as appropriate for the asset.
+
+**Ignore roads** disables road filtering. **Avoid roads** checks the whole
+transformed model footprint plus clearance. **Only on roads** checks the origin
+without a road inset; clearance still applies to model overlap and painted
+material checks. Collision and material switches remain independent. Turn off
+**Restrict terrain material** when the path should ignore the paint under it,
+and turn off both overlap switches if models should intersect. No road surface
+means an empty result in Only mode. A missing or non-road target warns rather
+than silently falling back to all roads. Existing saved `roads=0/1` values keep
+their Ignore/Avoid behavior.
+
+![Pallet markers follow the selected Ring road with Only on roads](img/procedural-road-path.png)
+
+The check uses conservative world AABBs from actual OBJ bounds, transformed
+with rotation, offset and scale. It can leave extra room beside rotated or
+concave models. Roads use the full authored width (including faded edges) and
+the same spline triangles as the road renderer. Painted coverage uses a lower
+bound across all intersected splat cells, including layers painted on top;
+blended borders may reject additional placements. Material checks require
+terrain and reject footprints outside its bounds. Missing models and prefab
+instances are rejected with a warning; use Pick Asset for this workflow.
+
+Keep this filter after all automatic transform edits. Manual instance overrides
+apply after graph evaluation and can intentionally move an accepted object
+across a boundary. This is an authoring placement check; **Output > Collision**
+separately controls the baked geometry's gameplay collision.
+
+The host CPU evaluates the filter on the background preview worker. A spatial
+hash checks nearby occupied cells rather than every model against every other
+model; giant bounds use a bounded overflow path. No GPU or runtime PS2 work is
+required. Validate Placement is build-time only and the runtime capability
+checker reports it as unsupported.
+
+Try the **procedural** scene (index 2) in
+[vehicle-playground](../examples/vehicle-playground): existing urban buildings
+and park trees, painted concrete lots, grass strips and seven roads, with one
+merged scatter graph. The project's default start scene remains `main`.
+
+![Concrete buildings and grass trees merge into a shared placement check](img/procedural-placement.png)
 
 ## Curves and hand edits
 

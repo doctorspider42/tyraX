@@ -1,0 +1,3 @@
+newmtl gold
+Kd 0.8 0.57 0.23
+refl -type sphere -mm 0 0.22 @sky

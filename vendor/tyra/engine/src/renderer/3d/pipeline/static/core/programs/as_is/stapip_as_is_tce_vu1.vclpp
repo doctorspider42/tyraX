@@ -24,6 +24,7 @@
     lq         texBufferClutGifTag, 11(vi00)  ; VU1_CLUT_ADDR
     lq         alphaGifTag, 21(vi00)  ; VU1_ALPHA_ADDR - per-mesh GS blend equation, in-band
     lq         fogParams, 8(vi00)  ; VU1_OPTIONS_ADDR.zw = GS hardware fog
+    add.x      fogParams, vf00, fogParams[z]  ; fog scale into .x (CalculateTyraFog)
     lq         envBasisX, 4(vi00)  ; LoadTyraEnvBasis - VU1_ENV_BASIS_ADDR (the lights matrix area; env bags carry no lighting)
     lq         envBasisY, 5(vi00)
     lq         envBasisZ, 6(vi00)
@@ -127,8 +128,7 @@ processing:
     mini.xyz   color3, color3, i
     max.xyz    color3, color3, vf00[x]
     ftoi0      color3, color3
-    add.x      fogAccum, vf00, vertex1[w]  ; CalculateTyraFog
-    mul.x      fogAccum, fogAccum, fogParams[z]
+    mul.x      fogAccum, fogParams, vertex1[w]  ; CalculateTyraFog
     add.x      fogAccum, fogAccum, fogParams[w]
     loi        255
     mini.x     fogAccum, fogAccum, i
@@ -136,8 +136,7 @@ processing:
     ftoi4.x    fogAccum, fogAccum
     mtir       fogInt, fogAccum[x]
     isw.w      fogInt, 2(destAddress)
-    add.x      fogAccum, vf00, vertex2[w]  ; CalculateTyraFog
-    mul.x      fogAccum, fogAccum, fogParams[z]
+    mul.x      fogAccum, fogParams, vertex2[w]  ; CalculateTyraFog
     add.x      fogAccum, fogAccum, fogParams[w]
     loi        255
     mini.x     fogAccum, fogAccum, i
@@ -145,8 +144,7 @@ processing:
     ftoi4.x    fogAccum, fogAccum
     mtir       fogInt, fogAccum[x]
     isw.w      fogInt, 5(destAddress)
-    add.x      fogAccum, vf00, vertex3[w]  ; CalculateTyraFog
-    mul.x      fogAccum, fogAccum, fogParams[z]
+    mul.x      fogAccum, fogParams, vertex3[w]  ; CalculateTyraFog
     add.x      fogAccum, fogAccum, fogParams[w]
     loi        255
     mini.x     fogAccum, fogAccum, i

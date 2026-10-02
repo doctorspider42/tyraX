@@ -3,24 +3,26 @@
 
 namespace Day_night {
 
-constexpr int TEXTURE_COUNT = 0;
+inline constexpr int TEXTURE_COUNT = 0;
 inline const char* TEXTURE_PATHS[TEXTURE_COUNT > 0 ? TEXTURE_COUNT : 1] = {
     "",
 };
 
-constexpr int TERRAIN_TEXTURES[5] = {-1, -1, -1, -1, -1};
-constexpr float TERRAIN_TILE_US[5] = {1.0F, 1.0F, 1.0F, 1.0F, 1.0F};
-constexpr float TERRAIN_TILE_VS[5] = {1.0F, 1.0F, 1.0F, 1.0F, 1.0F};
-constexpr bool TERRAIN_HAS_MATERIALS[5] = {false, false, false, false, false};
-constexpr float TERRAIN_TINTS[5][3] = {{1.0F, 1.0F, 1.0F}, {1.0F, 1.0F, 1.0F}, {1.0F, 1.0F, 1.0F}, {1.0F, 1.0F, 1.0F}, {1.0F, 1.0F, 1.0F}};
-constexpr float TERRAIN_TINT_VARIATIONS[5] = {0.0F, 0.0F, 0.0F, 0.0F, 0.0F};
-constexpr float TERRAIN_TINT_SCALES[5] = {24.0F, 24.0F, 24.0F, 24.0F, 24.0F};
+inline constexpr int TERRAIN_TEXTURES[5] = {-1, -1, -1, -1, -1};
+inline constexpr float TERRAIN_TILE_US[5] = {1.0F, 1.0F, 1.0F, 1.0F, 1.0F};
+inline constexpr float TERRAIN_TILE_VS[5] = {1.0F, 1.0F, 1.0F, 1.0F, 1.0F};
+inline constexpr bool TERRAIN_HAS_MATERIALS[5] = {false, false, false, false, false};
+inline constexpr float TERRAIN_TINTS[5][3] = {{1.0F, 1.0F, 1.0F}, {1.0F, 1.0F, 1.0F}, {1.0F, 1.0F, 1.0F}, {1.0F, 1.0F, 1.0F}, {1.0F, 1.0F, 1.0F}};
+inline constexpr float TERRAIN_TINT_VARIATIONS[5] = {0.0F, 0.0F, 0.0F, 0.0F, 0.0F};
+inline constexpr float TERRAIN_TINT_SCALES[5] = {24.0F, 24.0F, 24.0F, 24.0F, 24.0F};
 
-constexpr int TERRAIN_LAYER_COUNTS[5] = {0, 0, 0, 0, 0};
-constexpr int TERRAIN_MAX_LAYERS = 1;
-constexpr int TERRAIN_LAYER_TEXTURES[5][1] = {};
-constexpr float TERRAIN_LAYER_TILE_US[5][1] = {};
-constexpr float TERRAIN_LAYER_TILE_VS[5][1] = {};
-constexpr float TERRAIN_LAYER_TINTS[5][1][3] = {};
+inline constexpr int TERRAIN_LAYER_COUNTS[5] = {0, 0, 0, 0, 0};
+inline constexpr int TERRAIN_MAX_LAYERS = 1;
+inline constexpr int TERRAIN_LAYER_TEXTURES[5][1] = {};
+inline constexpr float TERRAIN_LAYER_TILE_US[5][1] = {};
+inline constexpr float TERRAIN_LAYER_TILE_VS[5][1] = {};
+inline constexpr float TERRAIN_LAYER_TINTS[5][1][3] = {};
+inline constexpr float TERRAIN_LAYER_GRIPS[5][1] = {{1.0F}, {1.0F}, {1.0F}, {1.0F}, {1.0F}};
+inline constexpr bool TERRAIN_LAYER_GRIP_ANY = false;
 
 }  // namespace Day_night

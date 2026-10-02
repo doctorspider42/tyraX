@@ -169,6 +169,18 @@ struct Snapshot {
 bool parseSnapshot(const std::vector<unsigned char>& bytes, Snapshot& out);
 bool readSnapshot(const std::string& path, Snapshot& out);
 
+// On-demand, synchronized render-cost capture. Separate file so normal
+// snapshots stay small. Object rows are children of the Objects phase.
+struct RenderCostRow { int object = -1; std::string label; double ms = 0; };
+struct RenderCost {
+    uint32_t seq = 0;
+    int scene = -1;
+    double totalMs = 0;
+    std::vector<RenderCostRow> rows;
+};
+bool readRenderCost(const std::string& path, RenderCost& out);
+std::string renderCostCsv(const RenderCost& report);
+
 // ---------------------------------------------------------------- command ---
 
 /** bin/livedbg.cmd - what the editor asks the game to do. Applied by the game
@@ -195,6 +207,13 @@ struct Command {
     // engine's measurement allocates every free block and frees the chain, so
     // it happens when asked and never on a timer.
     bool measureRam = false;
+    // Ask the game to photograph ITSELF: read the last finished frame out of
+    // GS VRAM and write bin/frame.tga (docs/devkit.md, "The game's own
+    // screenshot"). One-shot, like `fire`. This is the only capture path that
+    // works on real hardware - and on a locked or disconnected desktop, where
+    // every host-side one (PCSX2's F8, GDI, PrintWindow) is blind.
+    bool captureFrame = false;
+    bool captureRenderCost = false;  // one synchronized render pass, bit 7
     int stepFrames = 0;        // run exactly this many frames, then freeze
     std::vector<uint16_t> breakpoints;  // node keys that halt the game
     std::vector<uint16_t> fire;         // node keys to force-fire once

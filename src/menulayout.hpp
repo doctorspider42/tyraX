@@ -66,7 +66,7 @@ struct Texture {
 };
 
 struct Layout {
-    // --- the legacy contract (unchanged meaning) -----------------------------
+    // --- the panel geometry every consumer has always read -------------------
     int panelW = 256;
     int canvasH = 64;   // panel texture height (pow2)
     int contentH = 64;  // drawn part, used for vertical centering

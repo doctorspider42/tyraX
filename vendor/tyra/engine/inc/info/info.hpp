@@ -13,6 +13,17 @@
 #include <tamtypes.h>
 #include <stddef.h>
 #include "./version.hpp"
+
+/**
+ * Modified by TyraX: the acceptance gate for getFreeRAMSize() (docs/devkit.md,
+ * "What the devkit costs at runtime"). Default 0. At 1 every reading is taken
+ * twice - by the bookkeeping query and by the exhaustive allocation probe it
+ * replaced - and logged as MEMVERIFY. It costs exactly the hitch it exists to
+ * remove, so it never ships and never goes into a measurement.
+ */
+#ifndef TYRA_MEM_VERIFY
+#define TYRA_MEM_VERIFY 0
+#endif
 // Modified by TyraX: no longer includes time/timer.hpp - the FPS counter reads
 // COP0 Count directly (see getFps). Timer is still a public engine class and
 // still reachable through the <tyra> umbrella header.
@@ -97,6 +108,9 @@ class Info {
  private:
   void* allocateLargestFreeRAMBlock(size_t* size);
   size_t getFreeRAMSize();
+  /** The pre-2026-09-23 measurement: allocate the largest free block until
+   * malloc fails, and sum. Kept as the oracle for TYRA_MEM_VERIFY. */
+  size_t getFreeRAMSizeProbe();
 
   float fps;
   float presentedFps;

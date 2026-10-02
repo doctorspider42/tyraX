@@ -46,6 +46,8 @@ class StaPipProgramsRepository {
   ~StaPipProgramsRepository();
 
   StaPipVU1Program* getProgram(const StaPipProgramName& name);
+  bool hasOverride(const StaPipProgramName& name) const;
+  bool hasAnyOverride() const { return overrideCount != 0; }
 
   /** TyraX addition: let a GAME supply its own microprogram in place of a
    * built-in one (docs/vu-framework.md). The editor can generate a VU1 program
@@ -85,6 +87,7 @@ class StaPipProgramsRepository {
    * built-in member above. */
   static const int kOverrideSlots = 32;
   StaPipVU1Program* overrides[kOverrideSlots];
+  u8 overrideCount = 0;
 };
 
 }  // namespace Tyra

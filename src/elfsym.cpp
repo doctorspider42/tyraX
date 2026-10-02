@@ -181,8 +181,9 @@ Audit auditRelease(const std::string& elfPath) {
     // Symbols the debugging layers would leave behind. Namespace names survive
     // C++ mangling, so a substring match on the mangled name is enough.
     static const char* const kSymbolNeedles[] = {
-        "livedbg", "livelogic", "livepad", "LiveLink", "LiveDebug", "LiveLogic",
-        "LiveTex", "flowDbg", "flowLive"};
+        "livedbg", "livelogic", "livepad", "inputreplay", "LiveLink",
+        "LiveDebug", "LiveLogic", "LiveTex", "flowDbg", "flowLive",
+        "ReplayFingerprint"};
     for (const char* needle : kSymbolNeedles)
         for (const Symbol* s : img.symbolsContaining(needle))
             a.findings.push_back({s->name, "symbol", s->size});
@@ -193,9 +194,33 @@ Audit auditRelease(const std::string& elfPath) {
     // (the PS2 toolchain strips the symbol table, so an incidental signal is
     // not enough); the file names are the second, independent signal - the
     // polling code cannot exist without them.
+    // "frame.tga" is the self-screenshot's output (docs/devkit.md). It rides
+    // the livedbg runtime, so the marker above already covers the layer - but
+    // the file name is the independent signal, exactly as for the others.
     static const char* const kStringNeedles[] = {
         "TXDEVKIT-", "livedbg.bin", "livedbg.cmd", "livelink.bin",
-        "livelogic.bin", "livepad.bin"};
+        "livelogic.bin", "livepad.bin", "frame.tga", "replay.in",
+        "replay.out"};
+    // ...and the MEASUREMENT apparatus, which is a different failure from the
+    // devkit layers above: these are opt-in macros somebody turned on for one
+    // A/B and did not turn back off. Each tag below is a literal that exists
+    // ONLY while its macro is 1, so a hit is proof the ELF was built as an
+    // instrument rather than as a game - which is exactly the mistake every
+    // measurement recipe in this repo ends by warning about ("restore the
+    // profile macro to zero before the final release build"). The census that
+    // shipped live cost about 1 ms a frame and 1,016 host: writes in a
+    // 1,440-frame run, and nothing caught it; a string scan does.
+    static const char* const kMeasurementNeedles[] = {
+        "FTCLIP",           // TYRA_FRAME_PROFILE, engine
+        "FTPKT",            // TYRA_FRAME_PROFILE, packet structure walker
+        "STAPIPRET",        // TYRA_STAPIP_RETAINED_REPORT
+        "STAPIPMISS",       // the retained-command invalidation census
+        "STAPIPBAKE",       // TYRA_STAPIP_BAKED_REPORT
+        "VRAMRES",          // TYRA_VRAM_CENSUS
+        "VRAMEVICT",        // TYRA_VRAM_CENSUS
+        "ROADINDEXVERIFY",  // TYRA_ROAD_INDEX_VERIFY, generated game
+        "MEMVERIFY",        // TYRA_MEM_VERIFY, engine info/info.hpp
+        "WHEELBAKE"};       // TYRA_WHEEL_REBUILD_REPORT, generated game
     for (const char* sectionName : {".rodata", ".data", ".sdata"}) {
         const Section* s = img.section(sectionName);
         if (!s || !s->size || s->type == 8 /* SHT_NOBITS */) continue;
@@ -206,6 +231,11 @@ Audit auditRelease(const std::string& elfPath) {
             if (blob.find(needle) != std::string::npos)
                 a.findings.push_back(
                     {needle, std::string("string in ") + sectionName, 0});
+        for (const char* needle : kMeasurementNeedles)
+            if (blob.find(needle) != std::string::npos)
+                a.findings.push_back(
+                    {needle, std::string("measurement build - ") + sectionName,
+                     0});
     }
     a.clean = a.findings.empty();
     return a;

@@ -8,6 +8,7 @@
 # Sandro Sobczyński <sandro.sobczynski@gmail.com>
 */
 
+// Modified by TyraX: hardware sqrt for nonnegative squared lengths.
 #pragma once
 
 extern "C" {
@@ -32,6 +33,14 @@ class Math {
   static float sin(const float& x);
   static float tan(const float& x);
   static float invSqrt(const float& x);
+  // Modified by TyraX: lengths/radii have nonnegative finite inputs. Newlib
+  // sqrtf uses a 25-step software loop; use the EE instruction for this domain.
+  // This deliberately is not a replacement for general libm/errno semantics.
+  static inline float sqrtNonNegative(float x) {
+    float result;
+    asm("sqrt.s %0, %1" : "=f"(result) : "f"(x));
+    return result;
+  }
   static float randomf(const float& min, const float& max);
   static int randomi(const int& min, const int& max);
   static bool equalf(const float& a, const float& b,

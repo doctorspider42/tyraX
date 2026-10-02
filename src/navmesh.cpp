@@ -57,6 +57,7 @@ bool blocksNavigation(const SceneObject& o) {
         case PrimitiveType::Scatter:
         case PrimitiveType::Area:
         case PrimitiveType::Scroller:
+        case PrimitiveType::Comment:
             return false;  // markers / visual-only, collidePlayer's skip list
         default:
             break;
@@ -114,6 +115,10 @@ NavGrid bake(const Project& p, const SceneData& s) {
                 it = modelAabbs.emplace(o.modelPath, box).first;
             }
             for (int a = 0; a < 3; ++a) mn[a] = it->second[a], mx[a] = it->second[a + 3];
+            // The model's own collision box blocks instead (blocksNavigation
+            // already dropped mesh mode), the same box the walker collides as.
+            if (auto own = p.modelCollision.find(o.modelPath); own != p.modelCollision.end())
+                for (int a = 0; a < 3; ++a) mn[a] = own->second.mn[a], mx[a] = own->second.mx[a];
         }
         Blocker b;
         const float cx = o.position[0] + 0.5f * (mn[0] + mx[0]) * o.scale[0];

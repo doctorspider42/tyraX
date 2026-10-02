@@ -7,8 +7,10 @@ struct Project;
 
 // Project-format migrations. A step upgrades a loaded project from format
 // `from` to `from + 1`; project::load's tolerant reader has already parsed the
-// file (it keeps reading legacy keys forever, so parsing never needs the
-// version), and a step transforms the in-memory model where the old data's
+// file (every field it does not find simply defaults, so parsing never needs
+// the version - and anything OLDER than version::kMinFormatVersion is refused
+// there before a step could run), and a step transforms the in-memory model
+// where the old data's
 // MEANING changed - rescaled units, split/merged fields, restructured
 // references. A step that needs data the reader no longer parses can re-read
 // files itself via Project::dir. Steps run in order and the chain covers any

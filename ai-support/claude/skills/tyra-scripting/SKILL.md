@@ -26,7 +26,18 @@ player position, save values, audio...).
   no exceptions on hot paths, 32 MB RAM) - keep per-frame work small, avoid
   allocation in update loops.
 - The scene tables (`inc/scene_data.hpp`) and every `*.gen.hpp` are
-  regenerated - read them, never edit them.
+  regenerated - read them, never edit them. Object values are defined in
+  `src/gen/scene_objects.gen.cpp`; the arrays are `extern const`, so read them
+  at runtime rather than using them in a `constexpr` expression. Object arrays
+  are unsized declarations: use `SCENE_OBJECT_COUNTS[scene]` for their lengths
+  instead of `sizeof` or `std::size`. Counts and object ID values also live in
+  the generated data source.
+
+Generated game methods also live in `src/gen/game_*.gen.cpp`, with shared
+inline helpers/state in `inc/game_runtime.gen.hpp`; both are editor-owned.
+`src/terrain_game.cpp` remains user-ownable for startup/loop/camera edits.
+Keep its shared-header include when taking ownership of a split main.
+A legacy user-owned monolith remains supported without generated subsystem files.
 
 ## 2. Custom flow-graph nodes (`.flownode`)
 

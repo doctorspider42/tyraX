@@ -6,6 +6,8 @@
 # Copyright 2022, tyra - https://github.com/h4570/tyra
 # Licensed under Apache License 2.0
 # Sandro Sobczyński <sandro.sobczynski@gmail.com>
+# Modified by TyraX: cached id -> texture lookup (findLinked); list changes
+# bump Texture::linkGeneration.
 */
 
 #include "renderer/core/texture/texture_repository.hpp"
@@ -30,18 +32,31 @@ void TextureRepository::init(
   coreTexture = t_coreTexture;  // Modified by TyraX (see header)
 }
 
-Texture* TextureRepository::getBySpriteId(const u32& t_id) const {
+Texture* TextureRepository::findLinked(const u32& t_id) const {
+  // Fibonacci hashing: ids come from UniqueId (rand() draws), so any bit mix
+  // does; the top bits of the product are the well-mixed ones.
+  LinkCacheEntry& slot =
+      linkCache[(t_id * 2654435761U) >> (32 - kLinkCacheBits)];
+  if (slot.texture != nullptr && slot.id == t_id &&
+      slot.generation == Texture::linkGeneration)
+    return slot.texture;
   for (u32 i = 0; i < textures.size(); i++) {
-    if (textures[i]->isLinkedWith(t_id)) return textures[i];
+    if (textures[i]->isLinkedWith(t_id)) {
+      slot.id = t_id;
+      slot.generation = Texture::linkGeneration;
+      slot.texture = textures[i];
+      return textures[i];
+    }
   }
-  return nullptr;
+  return nullptr;  // not cached: the callers assert on it anyway
+}
+
+Texture* TextureRepository::getBySpriteId(const u32& t_id) const {
+  return findLinked(t_id);
 }
 
 Texture* TextureRepository::getByMeshMaterialId(const u32& t_id) const {
-  for (u32 i = 0; i < textures.size(); i++) {
-    if (textures[i]->isLinkedWith(t_id)) return textures[i];
-  }
-  return nullptr;
+  return findLinked(t_id);
 }
 
 Texture* TextureRepository::getByTextureId(const u32& t_id) const {
@@ -58,11 +73,13 @@ const s32 TextureRepository::getIndexOf(const u32& t_texId) const {
 
 Texture* TextureRepository::add(Texture* texture) {
   textures.push_back(texture);
+  ++Texture::linkGeneration;
   return texture;
 }
 
 void TextureRepository::removeByIndex(const u32& t_index) {
   textures.erase(textures.begin() + t_index);
+  ++Texture::linkGeneration;
 }
 
 int TextureRepository::removeBufferId(const u32& t_texId) {
@@ -140,6 +157,7 @@ Texture* TextureRepository::add(const char* fullpath) {
   texture->sourcePath = fullpath;
 
   textures.push_back(texture);
+  ++Texture::linkGeneration;
   return texture;
 }
 
@@ -164,6 +182,7 @@ void TextureRepository::addByMesh(const Mesh* mesh, const char* directory,
 
     texture->addLink(mesh->materials[i]->id);
     textures.push_back(texture);
+    ++Texture::linkGeneration;
   }
 }
 

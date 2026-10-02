@@ -29,6 +29,14 @@ The interesting number is the missing one: a 44 × 44 × 14 field is 27 000
 cubes, and 2 400 of them exist. The rest are never generated at all — nothing
 can see them.
 
+The cubes also **occlude each other**: corners walled in by neighbours darken,
+open ones stay bright. That comes out of the same solid-cell field the walker
+stands on, computed once per generation, and it is what stops a landscape of
+untextured cubes reading as flat cardboard — turn *Ambient occlusion* off in
+*Tools > Ambience Editor* and the whole world goes matte. See
+[ambient occlusion](../../docs/procedural-runtime.md) for how it works and what
+**AO strength** does to it.
+
 ## How the graph works
 
 `Blocks Fill` builds the columns from four octaves of Perlin noise and emits one
@@ -76,10 +84,20 @@ are what you actually stand on.
 
 ## Things worth trying
 
-- Raise **Emit depth** on the Blocks Fill node from 2 to 4: the cliff faces
+- Raise **Emit depth** on the Blocks Fill node from 3 to 5: the cliff faces
   fill in, and the instance count climbs.
 - Set **Relief** to 0 for a flat slab, or **Feature size** to 12 for badlands.
 - Switch the volume to **Baked** in the Procedural window and press *Bake now*:
   the same graph, written to disc as ordinary chunk meshes. You lose the fresh
   world per run and the block collision; you gain a scene that costs the
   console nothing at load.
+
+Generated object values live in `src/gen/scene_objects.gen.cpp`;
+`inc/scene_data.hpp` keeps stable declarations. Counts and object IDs live in
+the same data file, so ordinary moves, color edits, additions and removals can
+rebuild it alone. Changes to features or derived tables can still rebuild consumers.
+
+Generated game methods are split between `src/terrain_game.cpp` and the
+`src/gen/game_*.gen.cpp` subsystems, with shared inline helpers/state in
+`inc/game_runtime.gen.hpp`. Header changes can compile these units in parallel.
+The main file remains user-ownable; generated subsystem files refresh on build.

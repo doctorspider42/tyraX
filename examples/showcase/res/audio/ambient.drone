@@ -1,0 +1,220 @@
+# TyraX drone patch - Tools > Drone Generator
+# Rendered next to the WAV it produced; edit by hand if you like,
+# unknown keys are ignored and missing ones keep their default.
+version = 1
+title = Neon Dusk
+
+# piece
+seed = 1984
+length = 60
+rate = 22050
+stereo = true
+bpm = 64
+beatsPerBar = 4
+root = 35
+tuning = 440
+scale = Dorian
+glide = 2.5
+
+# progression
+steps = 4
+step1.notes = 0, 7, 15, 22
+step1.bars = 8
+step2.notes = 5, 12, 15, 19
+step2.bars = 8
+step3.notes = 3, 10, 14, 21
+step3.bars = 8
+step4.notes = -2, 5, 12, 17
+step4.bars = 8
+step5.notes = 0, 7, 12, 15
+step5.bars = 8
+step6.notes = -4, 3, 12, 14
+step6.bars = 8
+step7.notes = 0, 7, 12, 15
+step7.bars = 8
+step8.notes = -4, 3, 12, 14
+step8.bars = 8
+
+# layer 1
+layer1.on = true
+layer1.wave = Saw
+layer1.octave = 0
+layer1.semi = 0
+layer1.fine = 0
+layer1.unison = 5
+layer1.detune = 16
+layer1.spread = 1
+layer1.level = 0.2
+layer1.pan = 0
+layer1.tone = 0.55
+layer1.attack = 4
+layer1.release = 5
+layer1.drift = 6
+layer1.fmRatio = 2
+layer1.fmIndex = 1.5
+layer1.pulseWidth = 0.35
+layer1.notes = 30
+
+# layer 2
+layer2.on = true
+layer2.wave = Sine
+layer2.octave = -1
+layer2.semi = 0
+layer2.fine = 0
+layer2.unison = 3
+layer2.detune = 14
+layer2.spread = 0.8
+layer2.level = 0.42
+layer2.pan = 0
+layer2.tone = 0.42
+layer2.attack = 6
+layer2.release = 7
+layer2.drift = 8
+layer2.fmRatio = 2
+layer2.fmIndex = 1.5
+layer2.pulseWidth = 0.35
+layer2.notes = 1
+
+# layer 3
+layer3.on = true
+layer3.wave = Triangle
+layer3.octave = 2
+layer3.semi = 0
+layer3.fine = 0
+layer3.unison = 1
+layer3.detune = 12
+layer3.spread = 0.6
+layer3.level = 0.08
+layer3.pan = 0
+layer3.tone = 0.8
+layer3.attack = 4
+layer3.release = 5
+layer3.drift = 6
+layer3.fmRatio = 2
+layer3.fmIndex = 1.5
+layer3.pulseWidth = 0.35
+layer3.notes = 16
+
+# layer 4
+layer4.on = false
+layer4.wave = Triangle
+layer4.octave = -1
+layer4.semi = 0
+layer4.fine = 0
+layer4.unison = 1
+layer4.detune = 12
+layer4.spread = 0.6
+layer4.level = 0.2
+layer4.pan = 0
+layer4.tone = 0.6
+layer4.attack = 4
+layer4.release = 5
+layer4.drift = 6
+layer4.fmRatio = 2
+layer4.fmIndex = 1.5
+layer4.pulseWidth = 0.35
+layer4.notes = 1
+
+# air
+air.on = false
+air.level = 0.12
+air.cutoff = 900
+air.res = 0.3
+air.motionRate = 0.05
+air.motionDepth = 0.5
+air.stereo = 0.7
+
+# bells
+bells.on = true
+bells.timbre = Glass
+bells.density = 12
+bells.level = 0.2
+bells.decay = 3
+bells.octave = 2
+bells.range = 12
+bells.spread = 0.8
+bells.chordLock = true
+bells.quantize = 1
+bells.delaySend = 0.5
+bells.reverbSend = 0.8
+bells.bright = 0.5
+
+# filter
+filter.type = Low pass
+filter.cutoff = 2800
+filter.res = 0.25
+
+# motion
+lfo1.rate = 0.05
+lfo1.shape = Sine
+lfo1.depth = 1
+lfo1.sync = false
+lfo2.rate = 0.13
+lfo2.shape = Smooth random
+lfo2.depth = 1
+lfo2.sync = false
+lfo3.rate = 0.5
+lfo3.shape = Triangle
+lfo3.depth = 1
+lfo3.sync = false
+mod1.src = Arc
+mod1.dst = Filter cutoff
+mod1.amount = 0.35
+mod2.src = LFO 2
+mod2.dst = Layer 1 level
+mod2.amount = 0.2
+mod3.src = LFO 1
+mod3.dst = Width
+mod3.amount = 0.25
+mod4.src = -
+mod4.dst = -
+mod4.amount = 0
+mod5.src = -
+mod5.dst = -
+mod5.amount = 0
+mod6.src = -
+mod6.dst = -
+mod6.amount = 0
+arc = 0.35, 0.7, 1, 0.8, 0.3
+
+# fx
+drive = 0.15
+driveMix = 1
+chorus.rate = 0.25
+chorus.depth = 0.4
+chorus.mix = 0.35
+chorus.spread = 1
+tape.wow = 0.15
+tape.flutter = 0.05
+tape.hiss = 0
+delay.div = 2
+delay.time = 1.5
+delay.feedback = 0.5
+delay.mix = 0.3
+delay.damp = 0.5
+delay.pingpong = true
+reverb.size = 0.8
+reverb.decay = 8
+reverb.damp = 0.45
+reverb.lowCut = 90
+reverb.predelay = 0.03
+reverb.diffusion = 0.7
+reverb.width = 1
+reverb.mix = 0.42
+reverb.shimmer = 0
+reverb.shimmerSemi = 12
+out.lowCut = 40
+out.highCut = 9000
+out.tilt = 1.5
+out.width = 1
+out.monoBelow = 140
+
+# master
+master.level = 0.8
+master.fadeIn = 2
+master.fadeOut = 4
+master.loopSeamless = true
+master.loopTail = 6
+master.normalize = 0.89
+master.limiter = true
+master.dither = true

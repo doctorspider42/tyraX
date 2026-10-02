@@ -23,8 +23,11 @@
 #include "history.hpp"
 #include "phonecam.hpp"
 #include "gibake.hpp"
+#include "litbake.hpp"
+#include "shadowbake.hpp"
 #include "procbake.hpp"
 #include "matbake.hpp"
+#include "modelao.hpp"  // the automatic model-AO baker + its per-asset plan
 #include "menubake.hpp"  // CreditsLayout member (Credits Editor preview)
 #include "menulayout.hpp"  // the Menu Preview's row geometry
 #include "menustyle.hpp"  // the staged stylesheet the Style tab edits
@@ -33,18 +36,24 @@
 #include "vucap.hpp"
 #include "livedbg.hpp"
 #include "livepad.hpp"
+#include "livereplay.hpp"
 #include "logview.hpp"  // LogView members (the Output / Debug severity split)
 #include "uiscript.hpp"
 #include "livetime.hpp"
 #include "livelogic.hpp"
 #include "placement.hpp"
+#include "roadgen.hpp"  // roadgen::Surface - the test drive stands on roads
 #include "prefab.hpp"
+#include "vehbake.hpp"  // the import bake cached per vehicle definition
 #include "project.hpp"
+#include "staticbatch.hpp"
+#include "texatlas.hpp"
 #include "vugen.hpp"  // vugen::Built - the VU panel keeps a live preview
 #include "runner.hpp"
 #include "session.hpp"
 #include "theme.hpp"  // theme::Id theme_ member (interface theme)
 #include "treegen.hpp"
+#include "update.hpp"  // update::Release member (the update check's answer)
 #include "savebake.hpp"
 #include "viewport.hpp"
 
@@ -221,6 +230,12 @@ private:
     // RendererSettings::updateGeometry, so a new display mode is one entry in
     // both places.
     bool viewportPs2_ = false;
+    // PS2 shading (per-vertex + flat triangles) and GS colour simulation
+    // (0 = match project, 1 = full 32-bit, 2 = 16-bit, 3 = 16-bit + dither) -
+    // docs/ps2-viewport.md. Machine-global like viewportPs2_, pushed to the
+    // viewport each frame next to setPs2Output.
+    bool viewportPs2Shade_ = false;
+    int viewportGsColor_ = 0;
     Viewport::Ps2Output ps2ViewportOutput() const;
     // Draws the overlay over the viewport image. `pos`/`size` are the image rect.
     void drawSafeAreaOverlay(const ImVec2& pos, const ImVec2& size);
@@ -325,6 +340,10 @@ private:
     void addPortal();
     void addArea();
     void addScroller();
+    // An editor note pinned into the scene (docs/comments.md). Selects it and
+    // puts the keyboard in the Properties field, because a note with no text
+    // is the one object that is useless the moment it is created.
+    void addComment();
     void drawAddObjectMenu();
     // Area picker for a "catch area" reference (Mirror/Portal/feed Camera) or
     // a layer zone: a combo of this scene's Area objects plus <none>. Returns
@@ -388,7 +407,10 @@ private:
     std::string importMaterialAsset();
     // All .mtl assets an object can use: res/materials + res/models, as
     // project-relative paths ("res/materials/walls.mtl")
-    std::vector<std::string> listMaterialAssets();
+    const std::vector<std::string>& listMaterialAssets();
+    std::vector<std::string> materialAssetCache_;
+    std::string materialAssetProject_;
+    double materialAssetScanTime_ = -1.0;
     // Combo picking an .mtl for the object (primitives: surface; models:
     // override). Returns true when materialPath changed.
     bool drawMaterialCombo(SceneObject& o);
@@ -405,6 +427,40 @@ private:
     // static .obj model only takes the mesh-LOD distance. Returns true when a
     // value changed (caller commits).
     bool drawLodOverrides(SceneObject& o, bool animated = true);
+    // Roads (docs/roads.md): flatten the heightfield to the selected
+    // road's interpolated line, smooth shoulder falloff, one undo step.
+    void alignTerrainToRoad(int objIndex);
+    // Road viewport editing (docs/roads.md): click empty ground = append a
+    // point, click a point = drag it, click the line = insert there.
+    bool roadEdit_ = false;
+    int roadDragPoint_ = -1;
+    // Junction overrides (docs/roads.md, "Junction overrides"). A junction is
+    // not an object: it is selected by its identity - the road-id pair and
+    // where it was - and re-found in the plan every frame, so a road edit
+    // that moves the crossing a little keeps it selected. `override` >= 0
+    // selects an ORPHANED override (its crossing is gone) by index instead.
+    struct JunctionSel {
+        bool active = false;
+        std::string a, b;  // road ids, the crossing's A/B
+        float x = 0.0f, z = 0.0f;
+        int orphan = -1;   // index into SceneData::roadJunctions
+        int scene = -1;    // a scene switch drops it
+    };
+    JunctionSel junctionSel_;
+    // The active scene's crossings (markers, Properties): planCrossings
+    // without the decals, cached on a signature of the roads + overrides.
+    roadgen::CrossingPlan crossingPlan_;
+    std::vector<roadgen::CrossingRoad> crossingRoadList_;
+    std::vector<int> crossingRoadObj_;  // road k -> index in project_.objects()
+    uint64_t crossingPlanSig_ = 0;
+    const roadgen::CrossingPlan& sceneCrossings();
+    // Crossing index the selection resolves to (-1: none / orphan).
+    int selectedCrossing();
+    void selectJunction(int crossing);
+    void drawJunctionProperties();
+    // Viewport diamonds on the crossings, shown while a road or a junction is
+    // selected. Returns the crossing under `mouse` (or -1) when `hit` asks.
+    int junctionMarkers(ImVec2 imgPos, ImVec2 avail, bool draw, ImVec2 mouse);
     // Retargets every BY-NAME reference to `renamed` after its name changed
     // from `from` (cutscene tracks and camera shots, mirror lists, scroller
     // members, camera feeds, portal links, texture feeds, and - for an Area -
@@ -603,6 +659,11 @@ private:
     std::vector<std::string> listAnimatedModelFiles();
     // "Pick..." button + popup listing res/textures; true when path changed
     bool pickProjectTexture(const char* popupId, std::string& path);
+    // Road surface picker: materials first, legacy direct PNGs second. A .mtl
+    // resolves through its first map_Kd in both viewport and generated game.
+    bool drawRoadSurfaceCombo(const char* label, const char* id,
+                              std::string& surfacePath,
+                              const char* noneLabel = nullptr);
     // Cached objparser summary of a model (for the properties panel)
     struct ModelInfo {
         bool ok = false;
@@ -667,7 +728,7 @@ private:
     // nothing changed.
     void rescanAssets(bool announce);
     // Cached format problem of a project WAV ("" = fine). sfx = adpenc rules
-    // (16-bit PCM 22050 Hz); music = the song player rules.
+    // (mono PCM16/22050 + standard header); music = the song player rules.
     const std::string& wavIssue(const std::string& relPath, bool sfx);
     std::map<std::string, std::string> wavIssueCache_;
     void importHudImage();
@@ -697,10 +758,49 @@ private:
     // 3D turntable preview (treegen). "Add to scene" bakes the .obj/.mtl/PNGs
     // into res/models/trees and drops a Model object in - see treegen.hpp.
     void drawTreeGeneratorWindow();
-    // Tools > Bake Global Illumination: per-scene staleness + the bake itself
+    // Tools > Global Illumination: per-scene staleness + the bake itself
     // on gibake::Baker's worker thread (docs/global-illumination.md).
     void giBakerPoll();
     void drawGiBakeSection();
+    // The "Baked lighting" tab of the Ambience Editor (docs/ambient-occlusion.md).
+    // One home for the light that is computed on the host and shipped as
+    // pixels; drawBakedLightingSection is a list of sections, drawModelAoSection
+    // is the first of them.
+    void modelAoPoll();
+    void drawBakedLightingSection();
+    void drawSceneAoSection();
+    void drawModelAoSection();
+    // "Pre-lit models" - the second section of that tab (docs/prelit-models.md,
+    // "Managing pre-lit objects"): which objects of the active scene are
+    // pre-lit, whether their textures still match the scene, and the batch bake.
+    void drawPrelitSection();
+    // "Baked shadows" - the fourth section (docs/shadows.md): the project-wide
+    // quality, the per-scene staleness + budget readout and the bake itself.
+    void drawShadowBakeSection();
+    // Pushes the CACHED shadow bake into the viewport (never bakes), and
+    // drains shadowBaker_ so a finished one becomes visible.
+    void updateShadowDecals();
+    void shadowBakerPoll();
+    // Drains litBaker_ and applies whatever it finished, as ONE undo step.
+    // Polled every frame from drawUI and from nowhere else - the giBakerPoll
+    // rule: a batch started from the tab has to land whether or not the tab (or
+    // Properties, or the object's selection) is still there when it finishes.
+    void litBakerPoll();
+    // Puts one object back on the material it had before its first bake and
+    // forgets it was ever pre-lit. One commitChange.
+    void revertPrelit(int objIndex);
+    // What the panels draw from. litbake::signature hashes every file the GI
+    // bake reads, so it cannot be asked per row per frame: this is recomputed
+    // only when the model, the scene or the bake parameters move.
+    struct PrelitStatus {
+        int index = -1;
+        bool prelit = false;  // its texture carries light TODAY
+        bool fresh = false;   // ...and still matches the scene
+        bool movable = false;  // project::objectRuntimeMovable
+        int texSize = 0;       // the baked image's own size, 0 = not on disk
+    };
+    const std::vector<PrelitStatus>& prelitStatuses();
+    const PrelitStatus* prelitStatusFor(int objIndex);
     // (Re)builds the in-memory tree mesh + textures from treeParams_ and bumps
     // treePreviewVersion_ so the preview re-uploads. Called on any param edit.
     void rebuildTreePreview();
@@ -712,6 +812,74 @@ private:
     // a procedural graph, or by the Spawn Prefab node at runtime. Lives in
     // prefab_ui.cpp (the assetbrowser.cpp precedent).
     void drawPrefabsWindow();
+    // Tools > Particle Editor (docs/particles.md): the project's particle
+    // library - effects defined once, linked from emitters and from a
+    // vehicle's tyre smoke, with procedural smoke / flame / glow textures.
+    // Lives in particle_ui.cpp (the prefab_ui.cpp precedent).
+    void drawParticleEditorWindow();
+    // Opens the window with `effect` selected ("" = keep the selection).
+    void openParticleEditor(const std::string& effect);
+    // Regenerates the effect's procedural texture into res/ and points its
+    // material at it; returns false with a message in particleStatus_.
+    bool particleBakeTexture(ParticleEffect& fx);
+
+    // Tools > Vehicle Editor (docs/vehicles.md): define a car once - model,
+    // wheels, driving - and place it in as many scenes as you like. Lives in
+    // vehicle_ui.cpp (the prefab_ui.cpp precedent).
+    void drawVehicleWindow();
+    // Runs the import bake for one definition and caches the result. Called
+    // when the model or a budget changes, never per frame - it parses a .fbx.
+    void vehicleRefreshBake(int index, bool force);
+    // Per-frame, from drawUI: keeps definitions baked so placed instances draw
+    // even with the window shut (the giBakerPoll rule).
+    void vehicleTick();
+    // Test drive (docs/vehicles.md): runs vehiclesim::step on a placed vehicle
+    // straight in the viewport, against the real scene's terrain. The whole
+    // point of vehiclesim being host-only - tuning grip and acceleration in a
+    // "slider, feel, slider" loop instead of "slider, four minutes, PCSX2".
+    void vehicleDriveTick();
+    void vehicleDriveStart(int objectIndex);
+    void vehicleDriveStop();
+    // Scene-object index being test-driven, -1 = nobody.
+    int vehicleDriveObj_ = -1;
+    vehiclesim::DriveState vehicleDriveState_;
+    float vehicleDriveAccum_ = 0.0f;  // test drive: time not yet stepped (1/50 s steps)
+    // The transform the object had before the drive. A test drive is a way of
+    // LOOKING at a vehicle, never an edit - it must put the car back exactly
+    // where the author left it (the procedural seed-sweep rule).
+    float vehicleDriveHome_[6] = {0, 0, 0, 0, 0, 0};
+    // The drawn road surface of the driven scene, built at vehicleDriveStart:
+    // the test drive's ground is max(terrain, road), the generated runtime's
+    // groundSurfaceAt (docs/vehicles.md, "Wheels on the road surface").
+    roadgen::Surface vehicleDriveRoads_;
+    // Panel-driven controls, alongside the keyboard. Not a testing hook: when
+    // you are tuning grip you want the car to keep going while both hands are
+    // on the sliders, and a held key cannot do that.
+    bool vehicleDriveHoldThrottle_ = false;
+    float vehicleDriveSteer_ = 0.0f;
+    // Damage preview (docs/vehicles.md, "Damage"): a dented COPY of one
+    // definition's baked body, pushed to the viewport in place of the real
+    // one - by the Damage tab's test hits and by a test drive into a wall.
+    // Like the drive it is a way of looking, never an edit: nothing reaches
+    // the project, and a re-bake or Repair drops it.
+    std::string vehDmgPreviewId_;      // definition id, "" = no preview
+    tmdl::Model vehDmgPreviewBody_;
+    float vehDmgPreviewDamage_ = 0.0f;
+    int vehDmgPreviewSerial_ = 0;      // the drive's impactSerial last dented
+    float vehDmgTestSpeed_ = 18.0f;    // the Damage tab's test-hit speed
+    float vehDmgPreviewOver_ = 0.0f;   // the pending hit's speed past the threshold
+    std::vector<float> vehDmgPreviewHp_;  // per bake piece, the runtime's hp
+    std::vector<char> vehDmgPreviewGone_;
+    std::string vehDmgPreviewLost_;       // what came off, for the readout
+    // Dents one impact into the preview (starting it from the bake if none).
+    void vehicleDamagePreviewHit(const VehicleDef& v, const vehiclesim::Impact& im);
+    void vehicleDamagePreviewReset();
+    // Renaming a definition retargets every instance in every scene. The
+    // renameFont precedent: a reference stores the NAME, so it has to follow.
+    void renameVehicleDef(int index, const std::string& newName);
+    // Body bounds of a placed Vehicle, for placement/collision (the
+    // ModelAabbFn a Vehicle takes - only the App knows the definitions).
+    bool vehicleBodyBounds(const SceneObject& o, float* mn, float* mx);
 
     // Tools > Neural Upscaler (BLSS) - blss_ui.cpp, docs/neural-upscaler.md.
     // Training, evaluation, cross-validation, the input-channel report, the
@@ -1194,8 +1362,8 @@ private:
     // sequence preview is active. May also drive the viewport camera.
     const std::vector<SceneObject>& cutscenePosedObjects();
     // UI Editor (Tools > UI Editor): the screen stack - HUD images plus the
-    // full-screen effects layer (bloom/grain), reorderable so effects can sit
-    // under the crosshair/text instead of blurring them.
+    // full-screen effect layers (bloom, grain, motion blur), reorderable so
+    // effects can sit under the crosshair/text instead of blurring them.
     void drawUiEditorWindow();
     // Loading Screens (Tools > Loading Screens): named loading screens (bg
     // color + images + baked texts + progress bars) assignable per scene, with
@@ -1439,7 +1607,11 @@ private:
     // Selection set helpers. selectedObject_ stays the "primary" (anchor) of
     // the set - always selection_.back() (or -1) - so the many single-select
     // reads keep working; selection_ carries the full multi-selection.
-    void selectOnly(int i);     // replace the selection with {i} (i<0 clears)
+    void expandSelectionGroups();
+    void groupSelection();
+    void ungroupSelection();
+    std::string selectedGroup() const;
+    void selectOnly(int i, bool expandGroups = true);     // replace the selection with {i} (i<0 clears)
     void toggleSelect(int i);   // add/remove i (no-op for i<0)
     void clearSelection();
     bool isSelected(int i) const;
@@ -1483,6 +1655,12 @@ private:
     // the "Run on PS2" actions.
     std::string globalEmulatorPath_;
     std::string globalPs2Ip_;
+    // Docker image the game compiles in (Edit > Preferences > Build, editor.ini
+    // `toolchainImage`). Empty = leave the choice to the generated compose file
+    // and the project's own .env, i.e. exactly the behaviour before this setting
+    // existed. See docs/toolchain-image.md.
+    std::string globalToolchainImage_;
+    std::string globalBuildBackend_ = "native";
     // Parent folder proposed as the location for new projects (Edit >
     // Preferences). Empty = fall back to ~/TyraProjects.
     std::string globalDefaultProjectsDir_;
@@ -1493,6 +1671,46 @@ private:
     // AI assistant backend for flow-graph generation (editor.ini; Edit >
     // Preferences > AI assistant). Model "" = the backend's default.
     aigen::Config globalAi_;
+
+    // --- Update check (docs/updates.md, update.cpp + update_ui.cpp) ---------
+    // Whether the editor asks GitHub for a newer release when it starts
+    // (editor.ini, Edit > Preferences; Help > Check for updates asks
+    // regardless), and one version the user has told it to stop mentioning.
+    // Both are machine-global: which build is installed on this PC is not a
+    // property of any project.
+    bool globalUpdateCheck_ = true;
+    // The console session log (sessionlog.hpp): EditorConfig::consoleLogLines /
+    // consoleLogFiles, and their Preferences working copies.
+    int globalConsoleLogLines_ = 20000;
+    int globalConsoleLogFiles_ = 10;
+    int prefConsoleLogLines_ = 20000;
+    int prefConsoleLogFiles_ = 10;
+    std::string globalUpdateSkip_;
+    // ONE worker for both jobs (the check and the download), because they are
+    // never both wanted and the UI is a single modal. Everything below it is
+    // written by that thread and read by the UI thread only after `done` flips
+    // - the Runner/aigen idiom, no mutex.
+    std::thread updateThread_;
+    std::atomic<bool> updateDone_{false};
+    std::atomic<bool> updateBusy_{false};
+    update::Release updateRelease_;
+    std::string updateError_;
+    std::filesystem::path updateFile_;  // the downloaded installer
+    enum class UpdateJob { None, Check, Download };
+    UpdateJob updateJob_ = UpdateJob::None;
+    bool updateManual_ = false;      // asked for from the menu: say so either way
+    bool updateChecking_ = false;    // a check is in flight (menu item greys out)
+    bool updateDownloading_ = false;
+    bool openUpdatePopup_ = false;   // request to open the modal next frame
+    std::string updateStatus_;       // one line under the menu item / in the modal
+    // Started at startup (when the preference is on) and from Help > Check for
+    // updates; updateTick() collects the answer each frame from drawUI.
+    void startUpdateCheck(bool manual);
+    void updateTick();
+    void drawUpdateModal();
+    // Downloads the installer, then closes the editor and lets it run.
+    void updateDownload();
+    void updateJoinWorker();
     // Selection index the orbit pivot was last snapped to; -1 = none. Lets
     // "orbit around selection" re-center only when the selection changes.
     int navFocusedIndex_ = -1;
@@ -1557,6 +1775,7 @@ private:
     // Full multi-selection (indices into the active scene's objects, in click
     // order). selectedObject_ == (selection_.empty() ? -1 : selection_.back()).
     std::vector<int> selection_;
+    bool selectionGroupMember_ = false;  // explicit child-row inspection
     // Rubber-band box select in progress (anchor = io.MouseClickedPos[0]).
     bool boxSelecting_ = false;
     // Click cycling: clicking the same spot again walks the objects stacked
@@ -1574,8 +1793,17 @@ private:
     int pickCycleLast_ = -1;
     // Resolves a viewport click into an object index (-1 = empty space),
     // advancing the cycle. `cycled` reports that this click stepped through
-    // the stack rather than starting a new pick.
-    int viewportPick(float u, float v, ImVec2 mouse, bool* cycled);
+    // the stack rather than starting a new pick. The image rect is passed in
+    // because a comment icon is hit-tested in SCREEN space (it is drawn there
+    // too, and a note far from the camera has a 3D box smaller than its icon).
+    int viewportPick(float u, float v, ImVec2 mouse, ImVec2 imgPos, ImVec2 avail,
+                     bool* cycled);
+    // The status-bar line after a pick: the object, its place in the stack
+    // under the cursor and what the next click there would select.
+    std::string pickStackStatus(int hit) const;
+    // The right-click menu's candidates (Viewport::pickAll order), captured
+    // when the menu opens so the rows stay stable while it is up.
+    std::vector<int> pickMenu_;
     // Scene-objects list filters (view state, per session - a filter that
     // outlived a restart would hide objects nobody remembers hiding).
     // sceneFilterType_ holds a PrimitiveType value, or -1 for "every type".
@@ -1608,6 +1836,10 @@ private:
     // scale deltas cumulatively over the whole drag, not per frame)
     float gizmoDragScale0_[3] = {1.0f, 1.0f, 1.0f};
     bool gizmoWasUsing_ = false;
+    // Whether the current gizmo drag has changed the anchor's transform at
+    // all. A press released without motion has not, and is treated as a click
+    // (it picks) rather than as an empty edit (it used to dirty the project).
+    bool gizmoEdited_ = false;
 
     // Measuring tape (docs/world-scale.md): click two points on the scene and
     // read the distance between them, in world units and in meters. A pure
@@ -1619,6 +1851,33 @@ private:
     bool measureLive_ = false;  // the end point is following the cursor
     // Draws the tape over the viewport image (line, endpoints, readout).
     void drawMeasureOverlay(ImVec2 imgPos, ImVec2 avail);
+
+    // --- Comments (docs/comments.md) ---------------------------------------
+    // Editor notes pinned into the scene. They have no geometry: the viewport
+    // skips PrimitiveType::Comment entirely and the app draws a message icon
+    // over the finished image instead, which is why the icon is the same size
+    // at any distance and never hides what the note is about.
+    //
+    // ONE function computes where those icons are (screenIcons); the overlay
+    // draws them and the picker hit-tests them, so what you see is exactly
+    // what a click selects - the axis-gizmo arrangement.
+    struct ScreenIcon {
+        int index = -1;      // into project_.objects()
+        ImVec2 center{0, 0};  // screen-space centre of the bubble
+        float w = 0.0f, h = 0.0f;
+        ImVec2 anchor{0, 0};  // the object's own point, where the tail lands
+        float depth = 0.0f;   // distance along the view axis, for ordering
+        bool emitter = false;  // a particle emitter's badge (docs/particles.md)
+    };
+    std::vector<ScreenIcon> screenIcons(ImVec2 imgPos, ImVec2 avail);
+    void drawScreenIconOverlay(ImVec2 imgPos, ImVec2 avail);
+    // View > Comments. Machine-global (editor.ini), not project data: icons
+    // always remain visible and clickable; this only chooses whether every
+    // note's text is expanded or only the selected one's. Off by default.
+    bool showCommentText_ = false;
+    // Set by addComment(): the Properties note field takes the keyboard on the
+    // next frame it is drawn, so a fresh note is typed rather than hunted for.
+    bool commentFocus_ = false;
     // World-space size of an object as drawn: the unit primitive or the
     // model's own bounds, times its scale. False for types with no extent
     // worth quoting (markers, lights). Used by the Properties readout.
@@ -1674,6 +1933,57 @@ private:
     // Prefabs (Tools > Prefabs). Project-wide, so the window is a plain list
     // with an index - nothing about it is per scene.
     bool showPrefabs_ = false;
+    bool showParticles_ = false;
+    // docs/particles.md: what viewport_.setEmitterLayers was last fed from.
+    uint64_t emitterLayersSerial_ = ~0ull;
+    int emitterLayersScene_ = -1;
+    int particleSel_ = -1;             // selected library entry
+    std::string particleStatus_;       // last bake / rename message
+    int particleLayerSel_ = 0;         // 0 = the effect's main layer
+    // GL previews of each layer's generated texture, one per flipbook frame.
+    struct ParticleTexCache {
+        ParticleTexGen recipe;
+        std::vector<unsigned int> ids;
+        bool valid = false;
+    };
+    std::vector<ParticleTexCache> particleTex_;
+    std::string particleRenameFrom_;   // name while the Name field is edited
+    // The window's animated 2D preview: a handful of billboards simulated with
+    // the effect's own knobs (an approximation - the viewport shows the exact
+    // per-kind formulas on a placed emitter).
+    struct ParticlePreviewDot { float x, y, vx, vy, life, maxLife, spin; };
+    std::vector<std::vector<ParticlePreviewDot>> particlePreview_;  // per layer
+    unsigned particlePreviewRng_ = 1u;
+    float particlePreviewAcc_ = 0.0f;
+    bool showVehicles_ = false;
+    int vehicleSel_ = -1;  // selected definition in the Vehicle Editor
+    void drawVehiclePreview(const VehicleDef& v, int modelIndex);
+    std::unique_ptr<Viewport> vehiclePreview_;
+    std::unique_ptr<audiopreview::EngineLoop> vehicleEnginePreview_;
+    std::string vehiclePreviewKey_, vehicleAudioKey_, vehiclePreviewModel_;
+    float vehiclePreviewSpeed_ = 0, vehiclePreviewSteer_ = 0, vehiclePreviewSpin_ = 0;
+    float vehiclePreviewRevs_ = 0;
+    float vehiclePreviewLimiter_ = 0;  // rev limiter bounce phase (vehiclesim::revLimiterStep)
+    bool vehiclePreviewPlay_ = false, vehiclePreviewSound_ = false;
+    bool vehiclePreviewFast_ = false;
+    bool vehicleBudgetEdit_ = false;
+    // Cached import bakes, one per definition, keyed by what the bake depends
+    // on. A bake parses a .glb/.fbx and decimates it - far too slow for a
+    // frame - so the window shows the last result and re-runs it only when
+    // that key changes or the author asks.
+    struct VehicleBakeCache {
+        std::string key;          // model path + budgets + merge flag
+        bool ok = false;
+        std::string error;
+        vehbake::Result result;
+    };
+    std::map<std::string, VehicleBakeCache> vehicleBakes_;  // by definition id
+    // The Vehicle Editor's own undo stack. Definitions are project-wide, so
+    // commitChange() dirties without pushing a step (History carries the
+    // scenes alone) - and a window full of sliders needs an undo of its own.
+    // The Material Editor and the Menu Editor's Style tab made the same call.
+    std::vector<std::vector<VehicleDef>> vehicleUndo_;
+    int vehicleUndoAt_ = -1;
     // Tools > World Facts (docs/world-facts.md). Project-wide like Prefabs, so
     // the window is a tabbed list with an index and nothing about it is per
     // scene.
@@ -1841,9 +2151,11 @@ private:
 
     // UI Editor (Tools > UI Editor): selected screen-stack entry - a HUD image
     // (uiFxSel_ == 0, index in selectedHud_), an effect layer (uiFxSel_ 1 =
-    // bloom + color grading, 2 = film grain), the pinned USE prompt (3), a
-    // HUD text (4, index in selectedText_) or a custom screen effect placement
-    // (5, index in selectedFx_ into project_.screenFx).
+    // bloom + color grading, 2 = film grain, 9 = motion blur), the pinned USE
+    // prompt (3), a HUD text (4, index in selectedText_) or a custom screen
+    // effect placement (5, index in selectedFx_ into project_.screenFx). The
+    // pinned-under-the-stack effects take 6 (depth of field), 7 (lens flare)
+    // and 8 (god rays).
     bool showUiEditor_ = false;
     bool showFontManager_ = false;
     bool showInputMap_ = false;
@@ -1857,18 +2169,96 @@ private:
     // Tree Generator (Tools > Tree Generator). The preview mesh + textures are
     // rebuilt into these on any param change; treePreviewVersion_ tells the
     // viewport when to re-upload. treeName_ is the asset base name.
-    // Tools > Bake Global Illumination (docs/global-illumination.md). The bake
+    // Tools > Global Illumination (docs/global-illumination.md). The bake
     // is EXPLICIT - never part of a build - so this window is where a project
     // learns that its lighting is stale, and the one place that fixes it.
     bool showGiBake_ = false;
+    // Tools > Texture Atlas (docs/texture-atlasing.md, src/atlas_ui.cpp): what
+    // the packer merged with what, why a texture was refused, and the VRAM
+    // arithmetic. The plan reads every candidate image off disk, so it is
+    // cached and recomputed only when something that feeds it changes.
+    // Tools > Static Batches (docs/static-batching.md, src/batch_ui.cpp): what
+    // merged with what, what it costs in VU1 packages, and why every object
+    // that is not batched is not batched. The grouping comes from
+    // staticbatch::compute - the host twin of the generated
+    // buildStaticBatchList - and is cached because it reads every baked
+    // .tmdl in the scene.
+    bool showStaticBatches_ = false;
+    bool showBatchOverlay_ = false;  // View > Static batches
+    bool showBatchCells_ = false;    // the selected batch's grouping cell
+    bool batchDirty_ = true;
+    int batchSelected_ = -1;  // focuses the overlay on one batch, -1 = all
+    staticbatch::Result batchResult_;
+    std::vector<std::string> batchWarnings_;
+    void drawStaticBatchesWindow();
+    void refreshStaticBatches();
+    void updateBatchOverlay();
+    void drawBatchExcludeCheckbox(int objectIndex);
+
+    bool showTextureAtlas_ = false;
+    bool atlasPlanDirty_ = true;
+    texatlas::Plan atlasPlan_;
+    texatlas::VramEstimate atlasVram_;
+    void drawTextureAtlasWindow();
+    // Page previews are composited from the plan rather than read back from
+    // the bake (which lags every edit) - the map lives beside HudTexture,
+    // which is declared further down.
+    void rebuildAtlasPreviews();
     gibake::Baker giBaker_;
+    // Baked shadow decals (docs/shadows.md). Async like the two bakers around
+    // it; unlike them it writes only to disk, so there is nothing to apply
+    // back onto the model - the poll exists to refresh the viewport preview
+    // and the staleness table.
+    shadowbake::Baker shadowBaker_;
+    uint64_t shadowBakeVersion_ = ~0ull;
+    // What the viewport was last given: the key of everything that could have
+    // changed it, and the version the viewport rebuilds its GL meshes on.
+    uint64_t shadowPreviewKey_ = 0;
+    uint64_t shadowPreviewVersion_ = 0;
+    // Background re-bake (docs/shadows.md, "Re-baked while you edit"): with
+    // the auto-bake switch on, the active scene re-bakes itself a moment after
+    // the last edit. Keyed on (scene, modelEditSerial_); an edit during an
+    // AUTO bake cancels it - a manual one is left to finish.
+    uint64_t shadowAutoKey_ = ~0ull;
+    double shadowAutoEditTime_ = 0.0;
+    bool shadowAutoPending_ = false;
+    bool shadowAutoRunning_ = false;
+    // Pre-lit models (docs/prelit-models.md): the scene's light baked into ONE
+    // object's texture, from the button in Properties. Async because the bounce
+    // solve is the expensive half; the result is applied on the UI thread, so
+    // the object edit goes through commitChange like every other edit.
+    litbake::Baker litBaker_;
+    litbake::Params litBakeParams_;
+    // The active scene's pre-lit status table + the key it was computed for
+    // (scene, modelEditSerial_, the bake parameters). ~0 = recompute.
+    std::vector<PrelitStatus> prelitStatus_;
+    uint64_t prelitStatusKey_ = ~0ull;
     // The probe grid currently uploaded to the viewport: reloaded when the
     // scene changes, the model is edited (which can stale the bake) or a bake
     // finishes.
     int giViewScene_ = -1;
     uint64_t giViewSerial_ = ~0ull;
     uint64_t giViewVersion_ = ~0ull;
+    // ...and when the GI switch itself moves. Without it the preference was
+    // the one GI setting the viewport ignored: gibake::load already refuses
+    // to answer while GI is off, but nothing asked it again, so unticking the
+    // box left the baked light on screen until the scene changed.
+    int giViewEnabled_ = -1;
     uint64_t giBakerSeen_ = 0;  // last Baker version pushed to the viewport
+
+    // Automatic model AO (docs/ambient-occlusion.md, "Model AO"). The bake is
+    // a property of an ASSET, not of a scene, so it has no per-scene staleness
+    // readout - it just has to be there when the viewport uploads a texture.
+    // showBakedLighting_ is not a window flag: it is "show me that tab",
+    // exactly like showGiBake_.
+    bool showBakedLighting_ = false;
+    modelao::Baker modelAoBaker_;
+    uint64_t modelAoSeen_ = 0;  // last Baker version pushed to the viewport
+    // What the last run was started FOR: the settings plus the per-asset
+    // overrides. Re-scanning every frame would mean parsing every .obj in the
+    // project every frame, so the poll starts a run when this changes and at
+    // no other time (plus the panel's explicit Re-scan).
+    uint64_t modelAoIntent_ = 0;
 
     // Tools > Neural Upscaler (BLSS) - blss_ui.cpp, docs/neural-upscaler.md.
     // One job at a time: every verb here saturates the machine, so a second
@@ -2024,6 +2414,11 @@ private:
     char treeName_[64] = "tree";
     float treeGenAngle_ = 40.0f, treeGenPitch_ = 18.0f, treeGenZoom_ = 1.0f;
     bool treeGenSpin_ = true;
+    bool treeGenImpostor_ = true;
+    int treeImpostorViews_ = 8;
+    int modelImpostorViews_ = 8;
+    std::string modelImpostorObject_;
+    bool impostorGpu_ = true;
     int treeGenDisplayMode_ = 0;
     // Drone Generator (Tools > Drone Generator, docs/drone-generator.md).
     // droneParams_ is the whole patch; the LiveSynth and the audio device are
@@ -2080,6 +2475,11 @@ private:
     int selectedHud_ = -1;
     int uiFxSel_ = 0;
     int selectedText_ = -1;
+    // UI Editor > Bars (uiFxSel_ 9, index into Project::hudBars). The preview
+    // fraction is editor-only: what the viewport overlay fills the selected bar
+    // to, so a bar can be judged at 30% without running the game (-1 = start).
+    int selectedBar_ = -1;
+    float hudBarPreview_ = -1.0f;
     // Font Manager selection (index into Project::fonts).
     int fontSel_ = 0;
     // Cached atlas footprint line: measuring it walks all 95 glyphs, so it is
@@ -2400,6 +2800,12 @@ private:
     // updates live. Not project data, so no undo history (same as imports).
     bool showMaterialEditor_ = false;
     bool showTerrainEditor_ = false;  // the unified Sculpt + Paint terrain tool
+    ImGuiTextFilter matEdFilter_;
+    bool matEdFocusNext_ = false;
+    std::string matEdInfoPath_;
+    std::filesystem::file_time_type matEdInfoTime_{};
+    int matEdInfoW_ = 0, matEdInfoH_ = 0;
+    bool matEdInfoOk_ = false;
     std::string matEdPath_;  // project-relative path of the open .mtl ("" = none)
     struct MatEdEntry {
         std::string name;
@@ -2704,6 +3110,9 @@ private:
     };
     std::map<std::string, HudTexture> hudTexCache_;
     const HudTexture* hudTexture(const std::string& relPath);
+    // Texture Atlas page previews, composited from the plan (see
+    // rebuildAtlasPreviews): keyed by page index, rebuilt with the plan.
+    std::map<int, HudTexture> atlasPagePreview_;
     // The generated drawing of a built-in text icon as a GL texture. Lets the
     // Button icons manager preview an icon whose PNG the project has not baked
     // yet, and show what "restore default" gives back. Null for a name that is
@@ -2721,6 +3130,16 @@ private:
     // Texture-bake controls (pow2 size + quantization) shared by HUD images
     // and the USE prompt in the UI Editor. Returns true on change.
     bool hudBakeControls(HudImage& h);
+    // The shared "Motion" block (loop + show/hide transition) every HUD
+    // element's property panel ends with, and the optional-image picker a bar
+    // uses twice (fill, frame). Both return true on a change.
+    bool hudMotionControls(HudAnim& anim, HudTransition& trans, bool* visibleAtStart);
+    bool hudBarImageControls(const char* id, const char* title, HudImage& img,
+                             bool withSize);
+    // Renames a HUD element's name in every flow node that references it by
+    // that kind (Set HUD Element Visible / Play HUD Effect / Set HUD Bar).
+    void renameHudElementRefs(const std::string& from, const std::string& to,
+                              bool isBar);
     // The embedded built-in USE prompt sprite (viewport overlay preview).
     const HudTexture* builtinUseTexture();
     HudTexture builtinUseTex_;
@@ -2864,6 +3283,10 @@ private:
     // The game template is not copied - it is fixed at creation and the window
     // only displays it.
     bool showProjectPrefs_ = false;
+    // A tab name for the NEXT frame of Project Preferences to select (see the
+    // beginTab lambda there); empty = leave whichever tab the author left on.
+    // One-shot: honoured once and cleared.
+    std::string prefsFocusTab_;
     bool focusProjectPrefs_ = false;  // menu/shortcut re-open raises the window
     TerrainConfig prefTerrain_;       // width/depth scratch - see prefGridDetail_
     ProjectSettings prefSettings_;
@@ -2886,6 +3309,8 @@ private:
     bool openEditorPrefsPopup_ = false;
     char prefEmulatorPath_[512] = "";  // PCSX2 exe path (auto-detect if empty)
     char prefPs2Ip_[64] = "";          // ps2link IP for Run on PS2
+    char prefToolchainImage_[256] = "";  // Docker image games compile in ("" = compose default)
+    int prefBuildBackend_ = 0;             // 0 native, 1 Docker fallback
     char prefDefaultProjectsDir_[512] = "";  // default parent folder for new projects
     char prefDisplayName_[48] = "";          // session display name (editor.ini)
     char prefSessionCacheDir_[512] = "";     // remote-project cache root override
@@ -3046,6 +3471,12 @@ private:
     // track that; they are baselined on project attach so opening a project
     // with a stale dump in its log neither pops it nor looks like a shrink.
     bool errorPopupEnabled_ = true;
+    // "Bake GI on the GPU when this machine has one" - machine-global
+    // (editor.ini), edited from the Ambience Editor's Global illumination tab
+    // next to the Bake buttons, which is where a person looks for it. The
+    // errorPopup precedent: a machine-wide setting does not have to live in the
+    // Preferences modal, it just has to go through saveGlobalConfig().
+    bool giGpuBake_ = false;
     std::string errorSeenSig_;
     std::string errorModalText_;      // block shown in the open dialog
     bool openErrorPopup_ = false;     // request to open the modal next frame
@@ -3123,7 +3554,14 @@ private:
     };
     DbgState dbgState_ = DbgState::Off;
     livedbg::Symbols dbgSyms_;      // src/gen/livedbg.sym (as generated)
-    livedbg::Snapshot dbgSnap_;     // newest snapshot the game wrote
+    livedbg::Snapshot dbgSnap_;  // newest snapshot the game wrote
+    livedbg::RenderCost dbgRenderCost_, dbgRenderBaseline_;
+    // Show the Obj_* rows (one object's own pipeline bill, docs/profiling.md).
+    bool dbgRenderCostDetail_ = false;
+    uint32_t dbgRenderCostSeq_ = 0;
+    bool dbgRenderCostWaiting_ = false;
+    double dbgRenderCostPoll_ = 0;
+    std::string dbgRenderCostProject_;
     livedbg::Timeline dbgTimeline_;  // per-frame fire history (the scrub)
     livedbg::Command dbgCmd_;       // last command written (state + seq)
     bool dbgCmdWritten_ = false;    // has the current dbgCmd_ reached the game?
@@ -3147,6 +3585,10 @@ private:
      * about it. Empty while the game is reporting normally. Shared by the
      * window's state block and the Stats tab so the two cannot disagree. */
     std::string dbgSilenceReason() const;
+    /** The paragraph dbgSilenceReason() no longer prints inline: which file is
+     * silent and how a running console ends up with nowhere to write. For the
+     * (?) hover next to it; only meaningful when the reason is non-empty. */
+    const char* dbgSilenceDetail() const;
     float dbgFps_ = 0.0f;           // measured against the editor's wall clock
     int dbgScrub_ = -1;             // timeline index being inspected (-1 = live)
     std::string dbgWatchFilter_;    // Watch tab search box (name or kind)
@@ -3173,6 +3615,31 @@ private:
     /** Pushes history entry `index` back into the running game. */
     void timeMachineRewind(int index);
     void drawTimeMachinePanel();
+
+    // The input recorder (docs/input-replay.md): the fifth direction of the
+    // same host: channel, and the only one that reproduces a whole SESSION.
+    // The mode is chosen for the NEXT run and staged into the Runner, which
+    // does the file work before the launch - so nothing here talks to a
+    // running game except replayTick(), which reads the status the game
+    // writes into bin/replay.st (~4 Hz, the livetimeTick shape).
+    enum class ReplayArm { None, Record, Play };
+    ReplayArm replayArm_ = ReplayArm::None;
+    std::string replayFile_;        // recordings/<name>.tyrarep for Play
+    livereplay::Status replayStatus_;
+    bool replayHaveStatus_ = false;
+    double replayNextTick_ = 0.0;   // ImGui::GetTime() gate for the reader
+    std::string replayMsg_;         // last action, shown in the panel
+    std::string replaySaveName_;    // the Save field's contents
+    std::vector<std::string> replayFiles_;  // recordings/*.tyrarep, cached
+    double replayScanAt_ = 0.0;     // when that list was last rebuilt
+    void replayTick();
+    void drawReplayPanel();
+    /** Asks the running game to finish its recording, waits for the terminal
+     * chunk, and canonicalizes bin/replay.out into recordings/<name>.tyrarep.
+     * Returns "" or an error. */
+    std::string replayStopAndSave(const std::string& name);
+    /** recordings/*.tyrarep, refreshed at most a few times a second. */
+    void replayRescan(bool force);
 
     // Remote Pad (docs/remote-pad.md): the fourth direction of the same host:
     // channel, and the only one carrying INPUT. While the window is open the
@@ -3257,6 +3724,22 @@ private:
     int dbgVuMesh_ = 0;  // which position stream of the flush the preview draws
     bool dbgVuPinFlush_ = false;  // re-grab one draw instead of walking them
     int dbgVuFlushWanted_ = 0;    // ...which one
+    // The game's own screenshot (docs/devkit.md): the running game reads its
+    // last finished frame out of GS VRAM and writes bin/frame.tga, which this
+    // decodes into a GL texture for the Debugger's Screen tab. The only capture
+    // path that works on real hardware - and the only one that survives a
+    // locked desktop, where PCSX2's F8 and every host-side grab go blind.
+    unsigned int dbgShotTex_ = 0;   // GL texture, or 0 when nothing decoded
+    int dbgShotW_ = 0, dbgShotH_ = 0;
+    long long dbgShotStamp_ = 0;    // last_write_time of the file we decoded
+    size_t dbgShotSize_ = 0;
+    int dbgShotTorn_ = 0;           // consecutive polls that saw NO progress
+    size_t dbgShotPartial_ = 0;     // size of the last short read - see below
+    bool dbgShotWaiting_ = false;   // asked for one, none arrived yet
+    std::string dbgShotFile_;       // the PNG this capture was kept as
+    std::vector<unsigned char> dbgShotPixels_;  // RGBA, for Copy image
+    std::string dbgShotError_;
+    void dbgReadFrameShot();
     void dbgReadVuCapture();
     void dbgReadCrashReport();
     void dbgResolveCrashNames();
@@ -3279,7 +3762,8 @@ private:
         NoBuild,    // no built-graph list yet (build once)
         InSync,     // nothing differs from the build - nothing to patch
         Patched,    // N graphs are running from the editor's patch
-        Blocked     // an edited graph cannot be hot-patched (rebuild needed)
+        Blocked,    // an edited graph cannot be hot-patched (rebuild needed)
+        OffStale    // graphs differ from the build and Live Logic is OFF
     };
     LogicState liveLogicState_ = LogicState::Off;
     livelogic::BuiltList liveLogicBuilt_;

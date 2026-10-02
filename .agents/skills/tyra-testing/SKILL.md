@@ -4,7 +4,7 @@ description: >
   How to build, run and VERIFY anything in this repo: compiling the editor
   (build.ps1 on Windows, build.sh on Linux), headless CLI project creation and
   game builds, checking code
-  generation without Docker, full e2e in Docker + PCSX2 (boot, emulog.txt,
+  generation without a game build, full native or Docker-fallback e2e + PCSX2 (boot, emulog.txt,
   reliable screenshots, and DRIVING both the game's controller (`--pad`) and the
   EDITOR's own UI (`--ui-script`, clicking widgets BY NAME) unattended — neither
   needs window focus — plus synthetic keyboard/mouse via the bundled scripts, GDI
@@ -24,6 +24,15 @@ description: >
 > is in git history, and `docs/backlog.md` has the recipe. New work records
 > itself in its commit message and PR body instead.
 
+Generated-game split verification: build both FPP and orbit fixtures with the
+native backend, boot them in a private PCSX2 instance, and inspect scene/menu/
+vehicle state. Syntax-check historical example subsystems with the PS2 compiler.
+Check that mutable helper symbols/cache guards have one final linked instance;
+check marker-owned upgrade, owned legacy preservation and owned split refresh.
+Time active ambience keys and a real project preference, separately from
+ordinary object moves/additions and no-op builds. Jobs use host-visible logical
+CPU counts; never describe the measured `-j24` as a fixed project setting.
+
 There is **no committed test suite** (no CTest, no test/ dir). Verification is
 layered: compile → codegen inspection → PCSX2 boot → visual/log/audio checks.
 Use the cheapest layer that actually exercises your change, and be honest in
@@ -31,6 +40,25 @@ your commit message and PR body about which layer you reached — the establishe
 wording distinguishes "verified in PCSX2" from "compiles, needs a pad test by a
 human". (That record used to live in `PROGRESS.md`, retired at ~15 800 lines;
 the honesty convention outlived the file.)
+
+**If the thing you need for a clean test does not exist, ADD IT - now, in the
+same change, not in a backlog entry.** "The start pitch cannot be authored, so
+I aimed the torch with a pad script" cost an afternoon of guessed `stick r`
+pushes before the one-line fix (the Player's rotation X is the pitch, 1.66.0,
+docs/player-start.md) made the fixture a JSON edit. The pattern recurs: a
+constant that should be a setting, a state only reachable by a human at the
+pad, a value the game computes but never logs. Each one is a small, honest
+feature (or a `--flag`, or a `TYRA_LOG` line) that makes the test repeatable
+for everyone after you - and an A/B that depends on a hand-driven input is not
+an A/B. Ask "what would make this a file edit + one command?" and build that
+first; the user has asked for exactly this.
+
+**Frozen-camera fixture** (every PCSX2 A/B of a rendering change): on the
+Player object set `walkSpeed: 0`, `lookSpeed: 0`, the `position` that frames
+the shot and `rotation: [pitchDownDeg, headingDeg, 0]` (rotation X is the
+pitch, positive = down - docs/player-start.md), plus `"keyboardMouse": false`
+in the `.tyra`. Then `--build <dir> --run`, wait ~12 s, `-PrintWindow`
+screenshot. Same frame every boot, no pad needed.
 
 ## Layer 0 — build the editor
 
@@ -45,7 +73,8 @@ box you are on; they take the same flags and do the same things.
 ```
 
 ```bash
-./setup.sh --deps    # one-time on a bare box: toolchain + dev headers
+./setup.sh --deps    # one-time on a bare box: EDITOR toolchain + dev headers,
+                     # AND the game half (curl/tar/rsync) - one command, both
 ./build.sh           # → build/tyrax-editor
 ./build.sh --run     # build + launch the GUI
 ./build.sh --clean   # full rebuild
@@ -137,6 +166,24 @@ are real source files, so a half-finished clone reports as missing rather than
 sneaking through — delete the directory and re-run setup when the guard says a
 probe is still absent after a fetch.
 
+## Native incremental build regression
+
+On Windows compare TYRAX_NATIVE_DIRECT=1 with the default WSL filesystem
+cache, warming each separately. Verify bin/ returns to the authored project,
+a Windows-written runtime channel survives, and DWARF paths map to authored
+sources. Use a private PCSX2 capture slot to boot the resulting ELF.
+
+
+Use a scratch copy of `examples/vehicle-playground`. Warm the native build, then
+repeat `--build`: no compile/link/archive commands and unchanged ELF/archive
+mtimes. Change one script source, then one scene value, and inspect which objects
+rebuilt. Touch the engine archive to verify another project's engine rebuild
+relinks the game without recompiling it. Change a Makefile to verify flags
+invalidate objects. A failed engine compile must fail again on retry until fixed.
+For IRX ABI changes compare objcopy binary payloads and check the link has no
+abicalls mismatch warnings. Toolchain identities must match for byte-identical
+source trees at different absolute paths. Exclude setup/cold builds from timings.
+
 ## Layer 1 — headless CLI (no GUI needed)
 
 (`build\tyrax-editor.exe` on Windows, `build/tyrax-editor` on Linux — written
@@ -149,11 +196,17 @@ TYRAX --resave <projectDir>          # load + save, no Docker
 TYRAX --migrate <projectDir>         # backup + apply format migrations
 TYRAX --refresh-gen <projectDir>     # regen sources, no Docker
 TYRAX --bake-gi <projectDir>         # bake global illumination, no Docker
+TYRAX --bake-status <projectDir>     # read-only: is every bake cache fresh? exit 3 = stale
+TYRAX --bake-model-ao <projectDir> [--texbake]   # per-model self-AO, no Docker
+TYRAX --bake-prelit <projectDir> [sceneName]     # re-bake STALE pre-lit objects
 TYRAX --dump <projectDir>            # JSON project summary
+TYRAX --atlas-report <projectDir>    # what texture atlasing packed, refused (with reasons), and costs
+TYRAX --batch-report <projectDir> [scene]  # how static objects batch, and WHY each one that does not (docs/static-batching.md)
 TYRAX --chat-prompt [projectDir]     # what the AI Assistant is told (docs/ai-chat.md)
 TYRAX --list-nodes <projectDir>      # what the graph generator is told
 TYRAX --dump-graph <projectDir> <object> [scene]
 TYRAX --apply-graph <projectDir> <object> <g.json> [scene] [--append]
+TYRAX --vehicle-check                # drive-model property tests, exit 0 = pass
 TYRAX --pad <projectDir> "<script>"  # drive the RUNNING game's pad, no focus
 TYRAX --ui-script [projectDir] "<script>"  # drive the EDITOR's own UI, no focus
 TYRAX <projectDir|project.tyra>      # open GUI on a project
@@ -290,6 +343,18 @@ replace the e2e pass - it models no cycle timing and no MAC/STATUS flags, and no
 generated microcode has been built for hardware yet - but a program that fails
 here will not work on the console either.
 
+**AND A GREEN `--vu-check` ONLY MEANS SOMETHING IF YOU CAN MAKE IT RED.** It
+stages VU1 memory itself, so a term whose staged inputs make it evaluate to zero
+is compared by comparing nothing - which is exactly what happened to the spot
+light for its whole life (every `w` lane of its three quadwords was left at 0,
+and all three of `invRange2`/`cosCut2`/`invSoft` are `w` lanes). The check
+passed against a program that ran 21 operations a vertex and would have passed
+against one that omitted them. So when you add, remove or GATE a term in a
+microprogram, falsify the check first: invert the branch or zero the term in the
+HANDWRITTEN program - which needs no editor rebuild, that side is read off disk -
+and confirm it reports `DIFFERENT`. See docs/vu-framework.md, "The check that
+makes this more than a plausible story".
+
 **Rebuild before believing a `--vu-check` failure, and never attribute one by
 swapping the engine alone.** Both sides of every comparison must come from ONE
 commit: the generated side is compiled into the binary, the handwritten side is
@@ -324,8 +389,8 @@ mtime before trusting a run from there.
   `"enabled": false` and `inc/scene_data.hpp` reads `TERRAIN_ENABLEDS = {false}`
   with `TERRAIN_TEXTURES = {-1}`. Verifying it in PCSX2 needs a floor object in
   the scene, or the player falls at boot — which is the feature, not a bug.
-- `--build` streams the whole Docker build log to stdout and returns a real
-  exit code — the backbone of scripted e2e runs.
+- `--build` streams the whole native (or explicit `--docker` fallback) build
+  log to stdout and returns a real exit code — the backbone of scripted e2e runs.
 - `--bake-gi` runs the whole global-illumination bake for every scene
   (docs/global-illumination.md) into `.res-baked/gi/` and then refreshes the
   generated files, so the probe table and the lightmap flags follow - **no
@@ -335,11 +400,54 @@ mtime before trusting a run from there.
   the scene shipped GI), check `inc/probe_data.gen.hpp` has a
   `SCENE_PROBE_GRIDS` entry, then `--build --run` and A/B the screenshot
   against the same project with `"giEnabled": false` in its `.tyra`. Two
-  traps worth knowing: the bake is NEVER part of a build (a build only READS
-  the cache), so a change to the scene silently falls it back to the pre-GI
-  lighting until you re-bake; and it prints per scene how long it took plus
+  traps worth knowing: the bake is NOT part of a build by default (a build only
+  READS the cache), so a change to the scene silently falls it back to the
+  pre-GI lighting until you re-bake - `"giAutoBake": true` in the settings
+  makes `--build` (and the GUI build) re-bake exactly the STALE scenes first,
+  printing `gi: baked GI ...` / `gi: fresh ...` per scene, and the check is a
+  second build that says `fresh` for all of them; and it prints per scene how long it took plus
   the atlas/terrain/probe dimensions, which is the fastest sanity check that
   it saw any geometry at all (`atlas 0` means no eligible receivers).
+- `--bake-status <dir>` answers "is the cache fresh?" WITHOUT baking or
+  writing anything: one line per scene for GI and baked shadows (`fresh` /
+  `STALE` with the cache and live signatures / `absent (or an older cache
+  version)` / `off`), one per stamped pre-lit object and one per model-AO map,
+  then `bake status: fresh|STALE`; exit 0 or 3. Use it after any change to a
+  bake signature or cache version, on every example that checks a cache in
+  (`git ls-files examples | grep res-baked`). `absent` on a checked-in cache
+  means the format version moved without a re-bake. The line-ending recipe
+  (1.164.2): copy the example out of the tree, rewrite its `.obj`/`.mtl` to
+  CRLF, and it must still read `fresh`.
+- `--bake-model-ao` bakes every eligible `.obj` model's OWN ambient occlusion
+  (docs/ambient-occlusion.md, "Model AO") into `.res-baked/modelao/` and prints
+  one line per (model, texture) pair - `baked` / `fresh` / `skipped ... :
+  reason`. It exists because the shipping path for that feature is `texbake`,
+  which runs only inside a real Docker build, so **`--bake-model-ao
+  <dir> --texbake` is how the whole chain is checkable with no container**:
+  the second flag runs the texture bake too, i.e. the actual multiply into
+  `.res-baked`, which logs `model AO: multiplied into <texture>`. The honest
+  check afterwards is a pixel one - decode `res/models/x.png` and
+  `.res-baked/models/x.png` and compare their RGB means (baked must be darker)
+  and their alpha channels (must be IDENTICAL - the GS cutout rule). Re-run to
+  confirm idempotence (`fresh`, byte-identical map). The verb refuses when the
+  project has the feature off, so a fixture needs `"modelAo": true` in its
+  `.tyra` settings (new projects get it; older ones do not).
+- `--bake-prelit <dir> [scene]` re-bakes every object marked to ship pre-lit
+  (`prelitWanted`) whose baked texture no longer matches the scene
+  (docs/prelit-models.md, "Managing pre-lit objects"), then saves and
+  regenerates. It prints `baked` or `fresh` per object plus a summary and exits
+  non-zero on a bake failure. **Two runs are the test**: the second must report
+  everything `fresh` and bake nothing, which is the only check that the
+  signature is stable rather than merely present. To see a stale one, move the
+  object (edit its `objects/<id>.json` position) and run again - it re-bakes,
+  and the reported `mean light` moves with it. The object's stamp lands in
+  `objects/<id>.json` as `prelitSig` (hex string), `prelitWanted` and - only
+  when the object had a material override before its first bake -
+  `prelitSource`. It refuses a project needing a format migration, like every
+  headless verb that writes the project. With `"prelitAutoBake": true` in the
+  project's settings, `--build` (and the GUI's build) runs the SAME loop first
+  and prints `pre-lit: ...` lines - the check is a build log that says
+  `0 baked, N already fresh` on the second build.
 - `--resave` loads a project and writes the `.tyra` (+ heights) straight back
   out — **no Docker**. Because `project::load` runs every format migration,
   this is the clean way to test/round-trip a `.tyra`-format change headlessly:
@@ -371,6 +479,32 @@ mtime before trusting a run from there.
   a real backend, put a stub `claude.cmd` on PATH that swallows stdin
   (`findstr /r ".*" > nul`) and echoes a graph JSON — the Generator, parser,
   append-merge and save all exercise for real (see PROGRESS 65).
+- **`--refresh-gen` DOES run the vehicle bake** (`vehbake::bakeProject`, the
+  `[vehicle]` lines), unlike texbake: the bake hands measurements BACK to the
+  definition - the emissive `lamps` part index and its rear corner count,
+  `vehbake::adoptMeasured` - and codegen bakes those into `VEHICLE_DEFS`, so a
+  refresh without the bake emits `-1` for a part the next build writes. The
+  Runner runs it before `refreshGenerated` for the same reason. The check for
+  a lamp-material model is one grep: `grep -o '{[^}]*}, {[^}]*}, [0-9-]*,
+  [0-9]*, [0-9-]*, [0-9.]*F}' inc/scene_data.hpp` on the `VEHICLE_DEFS` row
+  reads `..., 2, 60, ...` on the CC96 (part 2, 60 rear corners); the lamp
+  colours on a GS capture then read EXACTLY the runtime's constants
+  ((175,32,24) lit / (78,14,12) off / (255,45,35) braking), which is how the
+  chain was verified.
+- **The far tier, without eyes** (1.134.0, docs/vehicles.md "An authored far
+  model"). The bake logs `far model X N tris (wheels in), S submit(s) past D
+  units (T for cars nobody drives)` or `no far tier carries the wheels`, plus a
+  line per body part: `part K name L list verts -> S strip (x); tier ...;
+  hidden far` - the strip ratio is the packing acceptance number. The game logs
+  `VEHLOD car N tier T swap at D` on every swap. To SEE a tier, set
+  `farDistance` 3 (the driven car) or `trafficDistance` 3 (every other car) on
+  a scratch copy and `--capture-frame`: the car is then on its far tier at
+  chase-camera range. Compare against the full car with the shine off
+  (`settings.vehicleShineBudget` 1 leaves only the driven car shiny) - a far
+  car gives up its shine, so a shiny full car reads brighter for that reason
+  alone. The chase camera in vehicle-playground does not orbit under
+  `--pad "stick r ..."` at boot; move the parked car into the view in the
+  copy's object JSON instead (forward is +z there).
 - Both `--build` and `--refresh-gen` also run the **procedural bake** first
   (`procbake::bakeAll` - docs/procedural-generation.md): stale Procedural
   volumes are baked into their chunk meshes and the project is saved, printing
@@ -416,12 +550,9 @@ Most features live or die in the generated code, and you can inspect it
 without building:
 
 - `--new` writes every generated file; grep them for your new constants/logic.
-- For an **existing** project, `project::refreshGenerated()` runs at the very
-  start of `--build`, *before* Docker is contacted — so even with Docker
-  stopped, a failed `--build` still refreshes `inc/scene_data.hpp`,
-  `src/gen/flow_graph.gen.cpp`, etc. for inspection. There is no
-  `--no-docker` flag; the expected outcome is "Failed to start docker
-  container..." + exit code 1 with fresh generated files on disk.
+- For an **existing** project, use `--refresh-gen <projectDir>` directly. It
+  refreshes `inc/scene_data.hpp`, `src/gen/flow_graph.gen.cpp`, etc. without
+  provisioning the native toolchain or contacting Docker.
 - When inspecting, remember the ownership split (see tyra-editor-dev): `.gen.*`
   files and `scene_data.hpp` are always rewritten — trust them after a refresh;
   `terrain_game.cpp` / `controls.hpp` / `script.hpp` regenerate only while their
@@ -514,29 +645,114 @@ machine** (the second without a project), host from A, join from B at
 `127.0.0.1` — loopback is not blocked by Windows Firewall even when the LAN
 prompt was declined.
 
-## Layer 3 — full e2e: Docker build + PCSX2 boot
+## Layer 3 — full e2e: native build + PCSX2 boot
 
-Prerequisites: Docker **running** (Docker Desktop on Windows, `docker` + the
-compose plugin on Linux) and PCSX2 with a BIOS configured — auto-detected in
+For editor Play, select a scene other than the saved startup scene and launch
+from the toolbar or F5. Check the Runner log's `Play scene:` line and the
+game's loaded scene, then check that `bin/launch.scene` was consumed. Build-only
+and CLI launches still use the saved startup scene; the marker must never enter
+an exported ISO.
+
+Prerequisites: WSL on Windows or the packages named by
+`tools/toolchain/setup.sh` on Linux, and PCSX2 with a BIOS configured — auto-detected in
 `Program Files\PCSX2`, or on Linux from PATH / flatpak / an AppImage under
 `~/Applications` or `~/Downloads`. Anything else: set the path in
 *Edit > Preferences*.
+
+**A relative project path is fine now, and was not before.** `--build
+examples/<name> --run` used to hand the native build script and PCSX2 a
+RELATIVE path: the script's `cd` failed outright, and PCSX2 derived the `host:`
+asset root from the relative ELF, so the game booted to an untextured scene
+with no baked shadows and nothing in any log saying why. Both are absolutised
+at the source now (`Project::elfPath`, and the Runner's native-build
+arguments); the ~145-character ELF limit is therefore measured on the path
+PCSX2 really sees.
+
+Host preparation is deliberately explicit. Check it with
+`bash tools/toolchain/prepare-host.sh`; install missing Debian/Ubuntu packages
+with `--install`. **On Linux `./setup.sh --deps` already covers this** - its
+four distro lists carry `curl`, `tar` and `rsync` alongside the editor's own
+dependencies, so a box set up for the editor can build games too; the split
+used to bite exactly once, at the first Build & Run. And a manual
+`tools/toolchain/setup.sh` now installs into the SAME directory the editor
+uses (`configDir()/toolchain/ps2dev`), so it is a pre-install rather than a
+second 943 MB copy. On Windows, `prepare-host.ps1 -Install` reaches the same script
+inside the default WSL distribution. A normal build never runs `apt`; the
+Windows installer offers this as an unchecked, non-inherited task.
 
 ```
 TYRAX --build <projectDir> --run
 ```
 
-What happens (see `src/runner.cpp`): generated files refresh → `docker compose
-up -d` (container `<name>-compiler-1`, straight from the stock image) → engine
-sources checksum-synced into the shared volume, `libtyra` rebuilt if changed
+What happens (see `src/runner.cpp`): generated files refresh → verified PS2DEV
+and the vendored VU tools are provisioned if needed → engine sources checksum-
+synced into the native cache, `libtyra` rebuilt if changed
 (VU1 microprograms only when a VU source changed) → project rsynced → `make -j`
 → WAV sfx converted with `adpenc` → `bin/` synced back → existing PCSX2
 processes killed → `HostFs = true` forced in PCSX2.ini → PCSX2 launched on the
 ELF.
 
+For every `*-loop.wav`, verify byte 6 of the generated `.adpcm` is `1` (for
+example with `od -An -tu1 -j6 -N1`). This is part of native/Docker parity: a
+newer output with byte `0` must be re-encoded with `adpenc -L`, not skipped.
+
 Notes:
-- First-ever build downloads the `h4570/tyra` image and compiles the engine
-  (minutes). Subsequent builds take seconds unless the engine changed.
+- First-ever build downloads PS2DEV v2.0.0, tests OpenVCL and compiles the
+  engine (minutes). Subsequent builds take seconds unless the
+  engine changed.
+- **Testing a change to the toolchain image itself**: build it with
+  `docker\build.ps1` / `docker/build.sh` (add `-FromSource` / `--from-source`
+  for `docker/Dockerfile.fromsource`, the one CI publishes; without it you get
+  `docker/Dockerfile`, the inherited A/B reference, which **CI does not build at
+  all** - so local is the only check it gets). Both scripts run the same checks
+  CI does. Then point a scratch project at it with one line,
+  `TYRAX_IMAGE=tyrax-toolchain:local` in the project's `.env`, and take it all
+  the way to a PCSX2 boot. `docker compose config` in the project directory
+  prints which image will actually be used; `docker ps -a --filter
+  name=<project>` confirms which one the container was created from. Nothing in
+  the editor needs rebuilding for this - `docker-compose.yml` is regenerated per
+  build and reads that variable. See `docs/toolchain-image.md`.
+- **A VU1 packet capture can be armed WITHOUT the GUI**, which is what makes a
+  microcode A/B into numbers instead of screenshots:
+  `python .agents/skills/tyra-testing/scripts/arm-vucap.py <projectDir> <flushIndex>`
+  writes the same `bin/livedbg.cmd` the *Debugger > VU > Capture VU1 packet* button
+  **`--full` and `--peek` are what make it a comparison tool.** The plain decode
+  prints the first four staged packets and four vertices of each, which is right for
+  reading and useless for diffing two builds - the packet that differs is rarely the
+  first. `--dump-vucap <dir> --full` prints all of them; `--peek <qw>[,n]` prints raw
+  data-memory quadwords as floats and words. That second one is how a microprogram
+  reports its own intermediates: **quadwords 1016..1023 are free** in the static
+  pipeline's map, and code ABOVE `begin:` runs once per activation while `begin:`
+  loops per batch - so a slot pointer set up there turns those eight quadwords into a
+  ring with one slot per batch. Without that, every peek reports the LAST batch,
+  which is exactly the one where two builds usually agree.
+  does, the game answers with `bin/vucap.bin`, and
+  `tyrax-editor --dump-vucap <projectDir>` decodes it — chain, VU1 memory, and **the
+  GIF packets the program staged for XGKICK**. Name the flush index: "the next packet"
+  is a different draw every time, a named index is the same draw forever.
+  **Two gotchas.** The responder only exists when the project has instrumentable
+  flow-graph nodes (`liveDebugOn = liveDebugEnabled && !syms.nodes.empty()`), so a
+  bare scratch project answers nothing — give it one node
+  (`--apply-graph <dir> <object> graph.json` with an `OnStart` → `Log` pair is enough)
+  and rebuild. And the decode prints only the first few staged packets, so a
+  difference deeper in the list shows up in the header counts, not the listing.
+- **An image swap used to rebuild NOTHING, which made it the easiest A/B to get
+  wrong.** The incremental logic keys off source timestamps, and an image swap
+  touches no source, so the previous image's objects were relinked and the new
+  toolchain appeared to change nothing. This was not theoretical: three
+  consecutive `VCL_FLAGS` probes each booted the *previous* probe's VU microcode
+  and produced three identical screenshots, one of which was then chased as a
+  rendering bug. Since 2026-08-05 the Runner stamps the VU assembler itself
+  (`/tyra/.vcl-stamp`) and prints `VU assembler changed - rebuilding the
+  microprograms`. The stamp hashes the resolved `vcl`, `vclpp` AND the `openvcl`
+  binary behind the wrapper - hashing only the wrapper missed a rebuilt openvcl whose
+  flags had not changed, and the previous binary's microcode was relinked while the
+  measurements said the new one should fit. Look for that line after a swap, and in
+  general **verify from the log that the work happened** — `grep -cE '(^| )vcl '` (one line per
+  microprogram, 25 of them) and `grep -c 'elf-g++ .* -c -o'` — before you believe
+  any picture. Note that a full microcode rebuild is ~2 min under Sony's `vcl`
+  but **seconds** under openvcl, so a fast build is not by itself evidence that
+  nothing was rebuilt.
 - **The whole pipeline is incremental, so measure a build by what it
   RECOMPILED, not by the clock.** `grep -c 'elf-g++ .* -c -o'` over the build
   log is the number that means something: on `examples/showcase` (18 TUs, 6
@@ -558,6 +774,14 @@ Notes:
   `%USERPROFILE%\Documents` — or `$XDG_CONFIG_HOME/PCSX2/inis` and the flatpak
   sandbox (`~/.var/app/net.pcsx2.PCSX2/config/PCSX2/inis`) on Linux. Logs and
   screenshots live next to it (`logs/emulog.txt`, `snaps/`).
+- **Normalize Windows PCSX2 CLI paths with `[IO.Path]::GetFullPath()`.** In
+  2.9.84, a forward-slash `C:/...` supplied to `-elf` reported that an existing
+  ELF did not exist; the same file booted with `C:\...`. Normalize `-logfile`
+  too. This does not apply to the game's PS2 `host:/` paths. For an isolated
+  `-datapath <parent>` on this Windows build, settings were created under
+  `<parent>/PCSX2/inis`, not `<parent>/inis`; inspect the actual created path
+  before diagnosing a first-run wizard. Keep isolated settings separate from
+  the user's configuration.
 - Missing `HostFs` = "Failed to load ...png" assert on the first fopen. The
   editor enforces it, but PCSX2 rewrites its ini on exit — if a game asserts on
   asset loading, check HostFs first. (The launcher also configures PCSX2's
@@ -660,6 +884,19 @@ Notes:
   in `~/tyra-projects/<name>` (or the Windows equivalent) instead. If a boot
   produces nothing but `TLB Miss` spam, measure the path before debugging the
   game.
+- **A relative `-elf` path is a different black-screen failure.** PCSX2 may
+  rebase it below the ELF directory, so `examples/foo/bin/foo.elf` becomes
+  `examples/foo/bin/examples/foo/bin/foo.elf`; emulog reports `Denying access`
+  or `Failed to read ELF`, the entry point is `0xFFFFFFFF`, and `bin/log.txt`
+  never appears. The editor launcher resolves an absolute native path before
+  launch; do the same when invoking PCSX2 by hand. Reproduce launcher regressions
+  with `--build ./examples/<name> --run`, deliberately keeping the CLI project
+  path relative, then inspect the running process's `-elf` argument.
+- **Keep the project path relative in one native-backend regression run.** The
+  Runner must resolve it before invoking `native-build`: that helper changes
+  into the project, so forwarding `./examples/foo` verbatim turns it into
+  `examples/foo/examples/foo` and fails before make. `--build ./examples/foo`
+  exercises this seam; an absolute-only test does not.
 - **Docker on Linux runs the container as root**, so a `docker` group that was
   granted in the current login session is not yet active in an already-running
   shell. Either start a fresh session or accept that `docker` needs privilege
@@ -683,6 +920,49 @@ Notes:
   stdout from `--build <dir> --run-ps2 <ip>`, and the Debug window falls back to
   the same stream. A game built before 2026-08-06 logs NOTHING over ps2link (the
   EE's stdout was buffered and never flushed) — rebuild before believing silence.
+- **The game can photograph ITSELF, and that is the path that never lies about
+  which window it grabbed** (docs/devkit.md, "The game's own screenshot"). A
+  debug build with *Live Debugger* on takes a one-shot on the same command
+  channel as the VU1 capture — **flags bit 6** of `bin/livedbg.cmd`, or
+  *Debugger > Screen > Capture frame* — reads its last finished frame out of GS
+  VRAM and writes `bin/frame.tga`; the editor decodes that and keeps the picture
+  as `screenshots/frame-<date>-<time>.png` in the project, which is what *Show
+  file* opens. No desktop, no window, no focus, and it is the ONLY one that
+  exists on real hardware. Reach for it whenever a host-side grab is in doubt:
+  an occluded window, a locked or disconnected session, a parallel worktree's
+  emulator, or a console. Headless: `TYRAX --capture-frame <projectDir> -o
+  shot.png` writes the command, waits for the file and decodes it - the
+  console A/B recipe is `--build <dir> --run-ps2 <ip>` (the process that stays
+  up IS the host: server), `--pad` to move, `--capture-frame` per vantage.
+
+  **It works on a console since 1.55.1 and did not before**, which is worth
+  knowing when reading anything measured with it earlier: ps2sdk's
+  `ps2_screenshot_file()` creates its output with `open(O_CREAT|O_WRONLY)`, and
+  over ps2link that create arrives at the `host:` server as a **mkdir of the
+  target name** - the host gets a DIRECTORY called `frame.tga`, the open fails,
+  and the function has no failure path to report it with. The runtime writes the
+  file itself now (docs/devkit.md, "Why the file is written by the game rather
+  than by libdebug"). Over ps2link one capture freezes the game for about three
+  seconds; in PCSX2 it lands between two frames.
+
+  Scripted, through the editor's own encoder (the `livedbg.cpp` probe recipe
+  below), it is ~10 lines: `Command c; c.seq = n; c.captureFrame = true;
+  livedbg::writeCommand(bin + "livedbg.cmd", c);` then wait for `frame.tga` and
+  read it. The file is an uncompressed 32-bit TGA, **BGRA, bottom row first**,
+  exactly `18 + w*h*4` bytes — PIL opens it directly, and that size is also how
+  you tell a finished write from a poll that landed mid-transfer (it is written
+  a scan line at a time over `host:`, so mid-write reads are common, not rare —
+  and over ps2link the write takes SECONDS, so decide "still writing" from the
+  size still GROWING rather than from a number of tries). Its alpha is already
+  opaque; a frame buffer's alpha is a working channel rather than coverage, so
+  the game writes 255 instead of handing over a half-transparent picture.
+
+  What comes back is the **GS raster**, not the television picture — no aspect
+  correction, no letterbox — which is why it is also the cheapest way to read
+  the real buffer geometry without touching `ScreenshotSize` in PCSX2.ini. To
+  cross-check it against the emulator, crop the PrintWindow grab to its
+  non-black columns and compare resized: measured **0.91/255** mean absolute
+  difference on an fpp fixture, which is what a correct capture looks like.
 - **Screenshots**: PCSX2's F8 via SendKeys is flaky. On Windows use the bundled
   script, which has **two capture back-ends** — and picking the wrong one is how
   a whole run becomes fiction, so read this before the flags:
@@ -929,7 +1209,16 @@ Notes:
   point is tried. `shot` writes the same self-captured framebuffer as `TYRAX_SHOT`, and
   what it CANNOT name is anything not made of ImGui widgets - the 3D viewport
   (one big item: `drag` inside it, or work through the Project panel's list), the
-  imnodes flow canvas and the ImGuizmo gizmo. Not all modals close on `escape` -
+  imnodes flow canvas and the ImGuizmo gizmo. **The four pointing steps take an
+  optional `<dx>,<dy>` offset from the target's centre**, which is how you reach
+  something the editor DRAWS over a widget rather than submitting as one - a
+  marker, a handle, a comment icon (docs/comments.md). Anchor on a real item
+  near the picture and offset into it: `click 'Viewport/Move (1)' 545,303`
+  selected a comment by its icon, with both rects read out of one `dump`. Two
+  things about that measurement - take the icon's own pixels off a `shot`
+  (find the colour, average it) rather than eyeballing, and pair the click with
+  an `expect` that only the intended object produces (`Properties/Copy text` is
+  a comment and nothing else), or "it selected something" is all you proved. Not all modals close on `escape` -
   click their `Cancel`; `dump` shows it. **A rect in `dump` is not a promise the
   click will land**: a window taller than the room it got still submits the items
   past its bottom edge, so they are listed with rects OUTSIDE the window, and
@@ -1139,6 +1428,44 @@ Notes:
   the object at *positive* X. An hour went into a banding hypothesis about the
   wrong cylinder. The cheap disambiguator: force one object's colour to
   something absurd for a single run and see which one changes.
+- **A VU1 TIMING hazard is invisible in PCSX2 under EVERY renderer, and only a
+  console shows it.** The rule above is about the GS; this one is about the VU,
+  and switching renderers does nothing for it. PCSX2's VU does not model the
+  pipeline hazards the hardware has, so a microprogram that reads a register one
+  row too early runs *correctly* in the emulator. Measured the hard way: a branch
+  at a label whose condition was produced in a jump's delay slot clipped against
+  the wrong frustum planes on a real PS2 — triangles appearing and occluding the
+  screen, changing with camera movement — while the same ELF rendered a clean
+  picture in PCSX2, logged zero asserts, and passed a path-sensitive value oracle
+  over 277 traces and 2631 branch conditions. Every value oracle is blind to it by
+  construction: the defect changes WHEN a register is readable, not what is
+  computed. If a change touches VU scheduling, latency or padding, PCSX2 is a
+  smoke test and the console is the verdict. Symptom vocabulary for the related
+  ADC-bit class: **stray smeared triangles at screen edges**, which the HW
+  renderer also masks.
+- **A temporal effect needs a SETTLE test, not a frame diff.** "The two
+  captures are identical" does not mean the picture is frozen, and reading it
+  that way cost a full round on the motion-blur change. Two independent reasons,
+  both live on the stock `fpp` fixture: a heavy trail over a **repeating**
+  pattern averages it FLAT (the checkerboard ground smeared over ten frames of a
+  yaw turn is near-uniform green, and uniform green looks the same from every
+  heading - the axis-aligned-walk trap one dimension over), and a long trail is
+  indistinguishable from a freeze *while the camera moves* anyway. Ask instead
+  whether the picture CATCHES UP: drive the motion, `neutral`, wait a few
+  seconds, capture twice. A settled frame that is SHARP is a trail; one that is
+  smeared - or, in the case that produced this note, still showing the **boot
+  splash** thousands of frames into the run - is a freeze. One look at the image
+  answers it, where three pixel tables did not. Also inspect static high-contrast
+  HUD text after the idle clear: a diagonal down-right tail means the 1:1
+  history sprite sampled texel boundaries instead of centres, even when point
+  filtering is enabled. Motion blur's default idle
+  clear is ONE sharp frame after about 0.12 seconds below its meaningful-motion
+  rate threshold, not a permanent zero
+  amount: after the settle capture, keep the camera parked and move an object
+  across it. The object must still trail. Test the option-off arm separately
+  because its 16-bit fixed-point residue is expected. Test at a forced low frame
+  rate or on hardware too: a per-frame displacement threshold passed at 60 FPS
+  in PCSX2 and failed at ~30 FPS on PS2 because pad drift doubled per frame.
 - **Rendering correctness**: switch PCSX2 to the **software renderer** before
   judging visuals — the HW renderer masks GS raster-window wrap bugs that real
   hardware shows. Give the game a few seconds to reach a steady state, then
@@ -1182,6 +1509,15 @@ Notes:
   name, one engine volume per checkout), so when another agent's session is live
   it is still politer to build with plain `--build` and launch PCSX2 yourself on
   `bin/<name>.elf` (`-logfile <path>` keeps your emulog out of theirs).
+  **Adaptive BLSS needs a hardware decision gate.** PCSX2 can verify codegen,
+  forced threshold transitions and the moving-picture gate, but its software
+  rasterizer may never cross the real fill-bound threshold. On PS2, capture the
+  same parked pose once native and once with Plain + adaptive. Require the log
+  to report `Adaptive resolution: REDUCED`, capture through `--capture-frame
+  <projectDir>`, and compare HUD frame/scene milliseconds. Flat scene time with
+  a shorter whole frame locates the gain in GS fill. Stop the host session
+  before the next boot.
+
   For a finer breakdown,
   the manual COP0/HUD deep-dive (own the generated `terrain_game.cpp`, bracket
   phases with `mfc0 $9`, deterministic camera orbit, in-run A/B, engine-side
@@ -1199,6 +1535,18 @@ Notes:
   debug build polls `livepad.bin` through HostFs every frame); and **run the
   page's GS fill calibration before quoting any PCSX2 number about GS cost** —
   measured, PCSX2 under-reports fill by **76x**.
+  **For an ABSOLUTE frame time use `TYRA_FRAME_PROFILE 2`, not 1** (1.123.8).
+  Level 1 carries the packet-structure walker and the pipeline telemetry and is
+  not transparent - HUD SCENE 13.21 ms uninstrumented, 17.70 at level 1, 13.04
+  at level 2 on the same console pose. Prove transparency in every report by
+  matching SCENE against an uninstrumented boot. And read `pre`/`stall`/
+  `period`/`miss` as well as `work`: `work` starts at `beginFrame()`, so a
+  frame can miss its field with `over20=0`. **Over ps2link, a debug build's
+  `miss` is mostly the devkit**: Remote Pad polls `host:` every 4th frame there
+  and Live Debugger every 25th, and compiling both out took the Motor District
+  day frame from 15/50 misses to 0-1/50 (docs/profiling.md). The same builds
+  are also the ones whose software reset wedged the console (`freepad: DMA
+  Busy`), while the devkit-off build survived two resets in a row.
 - **Testing whether a picture is STILL needs a period-2 test, not a diff** — and
   **three** instruments in a row got this wrong before it stuck, so the full
   rules live in docs/profiling.md, "The stability gate". The short form, each
@@ -1290,6 +1638,14 @@ Notes:
   `livedbg.bin` stops advancing while the console still answers `ping`. The fix
   is a redeploy (*Run on PS2*, F6), not a retry — and it is why
   `--debug-state` reports the transport.
+
+  A missing first `[ps2]` log line does **not** prove `execee` failed: the UDP
+  command may have reached the console while its tty reply was lost. The Runner
+  waits 15 seconds, reports an unconfirmed launch, and keeps `ps2client` alive.
+  Never "clean up" that timeout by killing the process — doing so removes
+  `host:` from a possibly running game, whose exact symptom is checkerboard
+  text, missing models and silent audio. Use Stop on PS2 explicitly when the
+  console really did not launch.
 
   **A deploy no longer kills anybody else's file server, and the story of why
   is worth keeping.** `deployToPs2`, `stopPs2` and `clean` used to run
@@ -1476,7 +1832,15 @@ Notes:
   scripted probe selects the flush the same way the panel does: flags bit 3 arms
   a capture, bit 4 means "index in bits 8-23", and without bit 4 each capture
   walks to the next flush (that is how PROGRESS 201 was verified). **Delete
-  `livedbg.cmd` before booting a fixture** - a leftover command is applied at
+A stale `CMD_VERSION` in a hand-rolled arming script arms NOTHING, silently:
+the game drops a command whose version it does not know
+(`if (magic != CMD_MAGIC || version != CMD_VERSION) return;`), so the script
+prints "armed" and `--dump-vucap` answers "no capture yet" - on the console
+AND in the emulator, which makes it look like the transport. `arm-vucap.py`
+was stuck on version 1 against a game at 2 for exactly that long. Check the
+constant in `src/livedbg.cpp` before suspecting anything else, and note that
+one arming that DOES land sets `vuCapPending` and the tap then refuses every
+later one until the write finishes.   `livedbg.cmd` before booting a fixture** - a leftover command is applied at
   boot and eats the first capture, which reads exactly like an off-by-one in the
   walk. If
   you see tags like `refe qwc=32789` or float garbage, the walker lost sync (see
@@ -1507,6 +1871,16 @@ Notes:
   build also runs it and logs the verdict. **Negative-test it too** - run it
   against a DEBUG ELF and confirm it fails and names the findings, otherwise a
   broken check reads exactly like a clean build (entry 193).
+  **It also flags a MEASUREMENT build** (1.123.2) - an opt-in profiling macro
+  left switched on, which is the mistake every recipe on this page ends by
+  warning about. It scans `.rodata` for the tags those macros own (`FTCLIP`,
+  `FTPKT`, `STAPIPRET`, `STAPIPMISS`, `STAPIPBAKE`, `VRAMRES`, `VRAMEVICT`,
+  `ROADINDEXVERIFY`, `WHEELBAKE`) and prints them as `measurement build -
+  .rodata`. Negative-test THIS half too, and it is cheap: build the same
+  project with `TYRA_WHEEL_REBUILD_REPORT=1` (generated game, no engine
+  rebuild) or `TYRA_FRAME_PROFILE=1` (engine) and the finding must appear and
+  then disappear again. **Add the tag when you add a gate** - a macro whose
+  log line is not in that list ships silently.
 - **Live Logic patches without the GUI**: `livelogic.cpp` has no GUI
   dependency, so a ~100-line host harness (link it against the editor's
   `build/CMakeFiles/tyrax-editor.dir/src/*.obj` minus `app`/`viewport`/
@@ -1613,6 +1987,70 @@ test rather than a screenshot:
   stopped arriving - the one failure mode a "did it move?" test cannot see.
 - **crop the status bar out** if you want a cleaner number: it is the only thing
   moving in an idle frame, so its rows are pure noise for every comparison.
+
+### Recording a run and proving it reproduces (docs/input-replay.md)
+
+The pixel-diff recipe above answers "did the game react". This answers the
+harder one - "did it do **the same thing** as last time" - and it needs no
+screenshots at all, because the game checks itself and the exit code is the
+verdict. Requires the debug profile and `"inputRecorder": true` in the `.tyra`.
+
+```bash
+# Record. --pad takes the same script the --pad command does; --seconds is a
+# FLOOR, so idle frames after the script still get recorded.
+tyrax-editor --record $P recordings/smoke.tyrarep \
+    --pad "wait 6; stick l 0 -127; wait 3; press cross; wait 1; neutral" --seconds 14
+
+# Perform it again. 0 = reproduced exactly, 3 = diverged, 1 = could not run.
+tyrax-editor --replay $P recordings/smoke.tyrarep ; echo "exit=$?"
+```
+
+`--replay`'s exit code is the whole point: a recording is a regression test for
+a **play session**, which is the thing `--pad` alone could never be (it can
+drive a game, but nothing afterwards could say whether the game did the same
+thing). The game logs its own verdict, and every line it prints is prefixed
+`Replay:` - one anchor for a grep over `bin/log.txt`:
+
+```text
+Replay: finished 705 frames, 0 divergences
+Replay: finished 705 frames, 304 divergences (first at frame 400)
+Replay: diverged at frame 400: pos (0 1.8 10.301) yaw 0 pitch 0, expected (0 1.8 10.5) yaw 0 pitch 0
+```
+
+Three checks make this a real test rather than a smoke test, and all three were
+run on the branch that added it:
+
+- **Read the recording back before trusting the replay.** A file of 705
+  all-neutral frames replays perfectly and proves nothing. `--replay-dump
+  <file.tyrarep>` prints the timeline without running anything - every button
+  press and every jump in the fingerprint too big to have been walked, frame
+  numbers on both - and with a frame range (`--replay-dump f a b`) the raw
+  per-frame view, sticks included. Read it against the `Portal:` / `Pick:`
+  lines the game writes into `bin/log.txt` (docs/devkit.md): that pairing is
+  what turns "it sometimes throws me across the room" into "the grab is frame
+  390 and frames 391-407 move 0.75 of a unit each with the stick CENTRED".
+  Recordings made since 1.85.0 carry those events THEMSELVES, so the dump
+  prints "grabbed object 38" beside the press with no emulator involved, and a
+  replay reports a missing one by name instead of as a position delta.
+  Assert the stick really left centre, a button was really held,
+  and the fingerprints really move. On the FPP fixture: 208 frames with the
+  stick off-centre, 7 with a button, 669 of 705 carrying a fingerprint (the first
+  ~36 are boot, where scripts have not started), player z 0 -> 20.8, and `dt`
+  ranging 0.020..0.080 - the loading hitches, recorded.
+- **Tamper with it.** Change ONE frame's axis byte and re-encode (so the CRC
+  stays valid - the test is "different input, different run", not "damaged file
+  refused"). It must come back `exit=3` and name that exact frame. Measured:
+  changing frame 400's left-stick vertical gave `first at frame 400`.
+- **Fight it with the Remote Pad.** Run `--pad "hold left; wait 8"` from a
+  SECOND process against a replaying game. It must still report 0 divergences -
+  that is what proves `Pad::setState`'s overwrite beats `injectVirtual`'s
+  overlay, and it is the one property a single-process test cannot see.
+
+A fourth is worth running on any project with a runtime procedural volume set to
+*a new world every run*: the seed is the one non-deterministic number the game
+asks for, so grep `bin/log.txt` for `Procedural <name>: N instances, seed S`
+after both runs and check S is identical. On `examples/cube`: 27 instances, seed
+329243691, both times.
 
 ### The motion gate: does the picture survive being MOVED?
 
@@ -1757,6 +2195,19 @@ same leg is dropped rather than reported.
   and **warns when that lands within 0.04 of a whole number of frames** - an
   even stride samples one phase of a period-2 artefact forever, which is exactly
   how the shake survived its first harness.
+- **A ROUTE SAMPLED BY `--capture-frame` NEEDS A LENGTH COPRIME WITH THE
+  ADVANCE.** The capture path freezes the game for a fixed spell, so the game
+  advances almost exactly the same number of frames between two
+  `--capture-frame` calls. Give a frame-indexed camera route a round length and
+  the two are commensurate: every run walks the same handful of poses forever.
+  Measured on a console A/B of `examples/showcase` - a 1920-frame route sampled
+  eight distinct poses, and three DIFFERENT builds produced digit-identical
+  score sequences, which reads exactly like "the change did nothing". A prime
+  route length (1913 was used) walks the whole route instead, and because the
+  advance is deterministic every arm still walks it in the SAME order - which
+  is what makes two builds comparable frame by frame. Confirm the alignment
+  rather than assuming it: search a small offset window for the minimum mean
+  |diff| and check it lands on 0.
 - **`-PrintWindow` by default.** A GDI `CopyFromScreen` reads the SCREEN, so an
   occluded window captures whatever is physically in front of it - that once
   grabbed the owner's browser instead of the emulator and produced a perfectly
@@ -1876,6 +2327,202 @@ docker compose ... exec -T compiler sh -c "rsync -ac --include=*/ --include=bin/
   build.
 - **PCSX2 only.** Admissible for correctness (which is all this measures);
   never quote a GS-fill or per-function number from it.
+
+### Measuring a console-only flicker: the failure-rate fixture
+
+Some corruption exists only on a real PS2 and only in SOME frames of a static
+scene (the 1.81.1 slot-pool race: a lamp's corona as a sliver in 4-19 of 30
+frames, never in PCSX2). A single `--capture-frame` per build is then a coin
+toss dressed as a verdict, and two builds photographed once each will "differ"
+for no reason. The fixture that works:
+
+1. **Pin the run**: an input replay (`bin/replay.in`, docs/input-replay.md)
+   pins `dt`, and a tiny script parks the camera on a fixed pose from a frame
+   number on (`examples/showcase`'s `vantagecam.cpp` shape: pose A until frame
+   1400, pose B for ever after). The same pose then renders for the rest of
+   the run, so every capture is of the same picture.
+2. **Sample, don't shoot**: wait for `--debug-state` to report a frame past the
+   park, then take 24-30 free-running `--capture-frame`s a few seconds apart.
+3. **Score each against ONE reference** of that pose (a build known good, or
+   PCSX2) with the HUD rows masked (`d[:70,:] = 0`; the FPS/MEM text differs
+   between builds), and report `pixels > 40` per sample. The number is the
+   **rate**, and the distinct values tell you how many interleavings there
+   are (a race gives a small discrete set; garbage gives all different).
+4. **Bisect with barriers, not theories**: an arm per synchronisation point
+   (GS FINISH after every bag, a VIF1 FLUSH packet the EE waits for, a FLUSH
+   in the VIF stream only, one wait at one suspected site), 24+ samples each,
+   read the FPS off the HUD too. In 1.81.1 only the arms where the EE waited
+   fixed it - that single fact located the writer.
+
+Three traps: the fixture compares CONTENT, so both arms must be the same
+project directory (two scratch copies with a moved object "differed" by exactly
+one "PICK UP" prompt and cost a day); `--capture-frame` resumes a halted game,
+so never mix it with halt/step walking inside one sample series; and
+`--debug-state` reads `bin/livedbg.bin`, which the PREVIOUS run left behind at
+its last frame - delete it before launching or the "past the park" wait
+returns at once and the series photographs the moving camera.
+
+### The shadow A/B rig: one command per switch
+
+Dynamic shadows (docs/shadows.md, docs/flashlight.md) are the case the layers
+above are awkward for: the change is a **switch**, the evidence is **where the
+picture got darker**, and the honest test is the same authored frame rendered
+twice with one setting moved. Two scripts make that one command.
+
+```powershell
+# 1. the fixture, once - headless, no Docker, SHORT path
+powershell -File .claude\skills\tyra-testing\scripts\make-shadow-fixture.ps1 `
+    -Editor build-dev\tyrax-editor.exe -Force
+
+# 2. the A/B, per switch
+powershell -File .claude\skills\tyra-testing\scripts\shadow-ab.ps1 `
+    -Editor build-dev\tyrax-editor.exe `
+    -Project $env:TEMP\tyra-editor-test\spotab `
+    -Vantages $env:TEMP\tyra-editor-test\spotab\vantages.json `
+    -Toggle spotShadowVolumes -Values true,false `
+    -OutDir <scratchpad>\spotab
+```
+
+`-Toggle` is any key the manifest writes on a line of its own —
+`spotShadowVolumes`, `flashShadowVolumes`, `blobShadows` — and it is **inserted**
+when the file does not carry it, which every project that never touched the
+setting does not. **`bakedShadows` is the one toggle that needs a step in
+between** (docs/shadows.md): it reads a CACHE, so patching the key alone
+switches a feature the project has no bake for. Run
+`tyrax-editor --bake-shadows <project>` once with the key true, then A/B it —
+the cache is content-hashed and survives the toggle going false and true again,
+so one bake serves every row of the run. For each (value x vantage) the rig patches the setting and the
+Player's pose, runs `--build --run` under a hard timeout, waits `-Settle`
+(14 s), screenshots **the emulator whose command line names this project**,
+greps the game's own `bin/log.txt` for `Assertion` / `=======` banners, and
+writes `report.md` with a per-row table plus a delta table. Build logs and a
+copy of each boot's `log.txt` land beside the screenshots.
+
+**The fixture** (`%TEMP%\tyra-editor-test\spotab`, from the `fpp` template):
+flat 100x100 terrain, **two** lamp+caster+wall groups 20 u apart — a spot light
+4 u up (half-angle 30, radius 12, `"shadowVolumes": 0` so the PROJECT switch is
+what decides), a 1.5 u box 0.9 u off the cone axis, an 8x4x1 wall 3 u behind it
+— and a frozen Player with the flashlight on. Two groups because the
+interesting failure of a per-light feature is not "does one lamp work" but
+whether the second one starves: the count band is one buffer for the whole
+frame. `vantages.json` frames lamp 1 from 8 u, **both** groups from 20 u back
+midway between them (from 8 u they are 51 degrees off the axis and a 60-degree
+frame holds neither), and lamp 2 from 8 u.
+
+Five things it had to get right, each of which produced a confident, wrong
+answer first:
+
+- **A torch that sits on the eye casts no visible shadow at all.** The camera
+  occludes exactly what the light does, so every shadow hides behind the thing
+  casting it and both switch positions photograph identically — measured, with
+  the volumes demonstrably working: **d centre 0.004, d lower third 0.000**. The
+  fixture drops the torch by the clamp's full metre (`offsetDown`) and 0.6 m to
+  the side, which puts the caster's shadow on the wall as a band ABOVE its own
+  silhouette. Same trap for a spot: a light co-located with the camera is not a
+  test.
+- **A new project applies an AMBIENCE PRESET on top of its settings.** `--new`
+  ships one ("Default", blue sky, ambient 0.55) with `defaultAmbience: 0`, so a
+  manifest that says `ambient: 0.1` still renders a sunny afternoon and every
+  shadow is washed out. The fixture sets `defaultAmbience: -1`.
+- **`-Trim` cannot be used, and neither can a plain content bounding box.** The
+  crop is found from the FIRST capture and reused for every one after it (the
+  motion gate's rule: a crop that follows the content re-registers two different
+  pictures into the same rectangle). Finding it needs a **coverage** rule rather
+  than a bounding box — PCSX2 paints its own `FPS 58.35 [P]` overlay inside the
+  black letterbox, and that one line of thin text stretched the measured picture
+  from 959x691 to 959x829, which put the FPS-strip region on pure black.
+- **`powershell -File` does not split `-Values true,false`**, so the rig gets one
+  string, writes `"key": true,false,` into the manifest, and the build fails with
+  `spotab.tyra is malformed` — which points at nothing. It splits on commas
+  itself now.
+- **A region metric reports 0.0000 for "nothing changed" AND for "the subject
+  was not in my rectangle."** The `between` vantage frames two lamp groups, so
+  both sit at the EDGES: its centre region read exactly 0.0000 for a switch the
+  whole frame scored 0.00005 on, against a 0.00000 control. There is a
+  whole-frame column for that reason — read it first, then the regions to say
+  *where*.
+
+**Read the numbers, not the pictures.** Each row reports the mean luma (0..1) of
+the **whole frame**, of the **centre region** (the caster and the wall behind
+it) and of the **lower third** (the ground), plus the **ink coverage of the FPS
+strip** — which is a liveness check and NOT a reading of the counter: a black
+window measures as a beautiful shadow everywhere, and 0.000 ink is what catches
+it.
+
+**Pass the same value twice for the noise floor.** `-Values true,true` boots one
+configuration twice; the delta table is indexed by variant, so the second row is
+what two boots of an unchanged project differ by. A delta smaller than that is
+not a finding. Measured on this fixture (frozen camera, `progressive` display,
+`--pad` never touched) the noise floor is **exactly 0.00000** — nine boots
+across three vantages produced byte-identical means for the two `false` arms, on
+every region. That zero is what makes a 0.0134 mean something.
+
+**Pass ONE value and a line of vantages and the same rig is a WALK** — which is
+how you answer "from where does this shadow stop being drawn at all", a question
+no A/B of a switch can reach. The vantages are then not three views of one
+subject but one subject seen from a sequence of standpoints, and the column to
+read is `centre mean` against the vantage name. That is how the projected-shadow
+slot flicker (1.70.1) was found: `examples/night-walk` copied to a short path,
+its twelve `projShadow` casters left alone, the Player walked sideways past the
+shed at x = 0, 4, 6, 7, 7.5, 8, 9, 10 with each pose aimed at the shed's base,
+`-Toggle showFps -Values true` (a no-op key set to what it already was, so the
+rig runs exactly one arm). The shed's ground shadow is a hard-edged black quad
+through x = 7.5 and entirely gone at x = 8.0 — frame mean 0.10289 → 0.11360,
+centre 0.187 → 0.216, the picture getting BRIGHTER as the shadow left. Half a
+unit sideways, and the numbers say which half-unit. Two things that made it
+work: aim every vantage at the same world point (compute the pitch and yaw per
+standpoint rather than reusing one rotation, or the subject walks out of the
+measured region and a real change reads as a confident 0.0000), and RENAME the
+scratch copy's project, because a Docker container is named after the project
+and the owner may be building the original in their own checkout at the same
+time (renaming means fixing the namespace in `src/scripts/*.cpp` too, or the
+Runner's pre-flight refuses the build).
+
+**Everything that can reach Docker is bounded** and killed with its children on
+timeout, because a `docker` call on this machine blocks forever instead of
+failing. And nothing is ever killed by name: the emulator the rig captures and
+closes is the one whose `-elf` names the project, the same discriminator
+`Runner::killEmulatorsFor` uses — a parallel worktree's PCSX2 is neither
+captured nor reaped.
+
+**Windows only so far**, like `motion-gate.ps1`: the capture is
+`screenshot-window.ps1`, the measurement is System.Drawing and the emulator is
+found through `Win32_Process`. Nothing in the design is platform-specific — a
+Linux twin swaps the first for `wayland-control.py shot --area`, the second for
+ten lines of PIL and the third for `/proc/<pid>/cmdline`. Say which OS a
+reported number came from.
+
+#### Proven on the flashlight (2026-08-21)
+
+The spot runtime does not exist yet, so the rig was proven on
+`flashShadowVolumes`, whose volumes have worked since 1.62.0. Nine boots
+(`-Values true,false,false` — the repeated value is the control), three
+vantages, PCSX2 software renderer, 959x691 picture, **all nine logs clean**:
+
+| vantage | frame mean, `true` -> `false` | d frame | d centre | control (arm 2 - arm 1) |
+|---|---|---|---|---|
+| lamp1-8u | 0.14608 -> 0.14846 | **+0.00238** | **+0.0134** | 0.00000 |
+| between  | 0.11111 -> 0.11115 | +0.00005 | 0.0000 | 0.00000 |
+| lamp2-8u | 0.13705 -> 0.14004 | **+0.00299** | **+0.0173** | 0.00000 |
+
+Turning the volumes OFF makes the picture BRIGHTER, which is the right sign:
+the shadow is what was removed. The control column is the load-bearing one —
+the two `false` arms came back byte-identical on every region of every vantage,
+so the fixture is deterministic to the digit and the deltas are the switch and
+nothing else. `between` is the honest 0: at 20 u the torch barely reaches those
+casters, and that vantage exists for the SPOT test, where each lamp lights its
+own group regardless of where the camera stands.
+
+The screenshots show it as plainly as the numbers do: with the switch on, the
+box lays a hard-edged rectangle across the wall and a wedge across the ground;
+with it off, the wall is evenly lit and there is no shadow anywhere.
+
+**`-Toggle spotShadowVolumes` is already wired end to end on the same fixture**,
+even without a runtime: flipping it and running `--refresh-gen` moves
+`SPOT_SHADOW_VOLUMES_USED` in `inc/scene_data.hpp` between `false` and `true`
+(the two lamps resolve the predicate). So when the runtime lands, the rig is a
+one-liner away from a number — see docs/backlog.md, "Run the shadow A/B rig
+against the spot runtime".
 
 ## Verifying the AI Assistant (docs/ai-chat.md)
 
@@ -2024,16 +2671,1430 @@ And the reply is consumed by `aiChatTick`, which runs from `drawUI` whether or n
 the window is open - so a `wait` long enough for N backend invocations is what a
 multi-step turn needs, and closing the window mid-turn does not strand it.
 
+## Verifying the packages and the update check (docs/updates.md)
+
+Both halves are checkable on the machine you are on - neither needs CI, and
+neither should be believed without this.
+
+**The pure half first.** `update::compareVersions` and `update::parseRelease`
+have no ImGui, no GL and no `Project`, so they take a 40-line harness (the
+treegen/placement pattern):
+
+```bash
+g++ -std=c++20 -I src -I vendor/glfw/include harness.cpp \
+    src/update.cpp src/json.cpp src/platform.cpp build/vendor/glfw/src/libglfw3.a \
+    -o uh.exe -lshell32 -lole32 -luuid -lws2_32 -lcomdlg32 -lgdi32
+```
+
+Feed `parseRelease` a REAL payload, not only a hand-written one -
+`curl -sL https://api.github.com/repos/<any>/releases/latest` is one command and
+it is what proves the asset picker survives GitHub's actual shape. The same
+harness can call `fetchLatest()` for the live path; against a repository with no
+releases the honest answer is *no releases have been published yet*, which is a
+state and not a failure.
+
+**The UI half** is an ordinary `--ui-script` run - the modal is reachable with
+no network luck involved, because a failed check opens it too:
+
+```bash
+./build/tyrax-editor.exe --ui-script "frames 10; click Help; click 'Check for updates'; wait 3; shot upd.png; dump"
+```
+
+The automatic startup check is deliberately skipped while a UI script is running
+(`uiScriptActive_`), so no unattended run can have a dialog open itself mid-step.
+
+**The installer is verified by installing it**, and that is worth the five
+minutes because the thing it can silently get wrong is the LAYOUT. Note the
+first trap: a silent install started from a console-attached shell just sits
+there until something kills it - drive it with `Start-Process -Wait`.
+
+```powershell
+./installer/build-installer.ps1 -SkipBuild
+Start-Process dist\TyraX-Setup-<v>.exe -Wait -ArgumentList `
+  '/VERYSILENT','/SUPPRESSMSGBOXES','/CURRENTUSER',"/DIR=$env:TEMP\tyrax-test","/LOG=$env:TEMP\ins.log"
+```
+
+Then prove the installed tree WORKS rather than merely exists, which is two
+commands and covers every exe-relative lookup at once:
+
+```powershell
+$env:TEMP\tyrax-test\bin\tyrax-editor.exe --vu-check           # finds <exe>/../vendor/tyra
+$env:TEMP\tyrax-test\bin\tyrax-editor.exe --new t $env:TEMP    # then grep the engine path
+Select-String tyrax-test $env:TEMP\t\docker-compose.yml        #   in the generated compose
+```
+
+Finish with `unins000.exe /VERYSILENT` and check that the directory, the Start
+Menu folder and the `HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall`
+key are all gone - an installer that cannot uninstall itself is a worse bug than
+one that cannot install.
+
+**The Linux packages are the same idea and cost less.** All three come out of
+one staged tree, so the tarball is the one to unpack and RUN - it proves the
+layout for the other two:
+
+```bash
+./installer/build-package.sh --skip-build --all --out-dir /tmp/pkg
+tar xzf /tmp/pkg/tyrax-<v>-linux-x86_64.tar.gz -C /tmp/pkg
+/tmp/pkg/tyrax-<v>/bin/tyrax-editor --new t /tmp/pkg   # then grep the engine path
+grep engine-src /tmp/pkg/t/docker-compose.yml          #   in the generated compose
+```
+
+That last line is the whole point: it must name the UNPACKED tree's
+`vendor/tyra` and not your checkout's. `--deb` needs `dpkg-deb`
+(`apt-get install dpkg-dev`), `--rpm` needs `rpmbuild` (`apt-get install rpm`);
+inspect what they declare rather than trusting the spec - `dpkg-deb -I`/`-c` and
+`rpm -qip`/`-qRp`/`-qlp` print the metadata, the dependency list and the file
+list, and a missing `zenity | kdialog` there is an editor whose Open button does
+nothing.
+
+**The self-update is testable without a release**, and it should be, because
+every branch of it is a refusal:
+
+```bash
+g++ -std=c++20 -I src harness.cpp src/update.cpp src/json.cpp src/platform.cpp -o uh
+```
+
+Put that binary at `<root>/bin/`, write a `.tyrax-package` marker beside it and
+call `update::installKind`/`selfInstallBlocked` for each word: `tarball` (empty
+= the button appears), `deb`, `rpm`, no file at all (source checkout), and
+`tarball` in a `chmod a-w` directory. Then drive the real thing - build a
+throwaway "new release" tarball of the same harness, call
+`update::runInstaller` on it, and check afterwards that the tree carries the new
+files, that a file the new release does NOT contain survived (the overlay is
+deliberate) and that the binary was relaunched.
+
+## Verifying rigid-body physics (docs/physics.md)
+
+Three layers, in order. **The hull** is a host harness: link
+`src/physhull.cpp` + `src/primmesh.cpp` + `src/objparser.cpp` and print what
+`build()` returns for a model - the unit box must read volume 1.0 and
+covariance 0.0833 on the diagonal, and a legged prop must keep its feet as the
+lowest corners (`examples/physics-playground`'s stool/table/chair/barrier all
+report four at y = 0). **The codegen** is `--refresh-gen` + a grep of
+`inc/model_data.gen.hpp` for `PHYS_HULL_COUNT` and `MODEL_PHYS_HULL`. **The
+behaviour** is a PCSX2 boot of a short-path copy plus `--capture-frame`
+contact sheets of the fall, and a rest check (two captures seconds apart after
+settling must not differ where the props are).
+
+Energy is the thing a screenshot cannot judge - a solver that injects energy
+looks like "lively" bounces. Instrument the COPY's generated
+`src/terrain_game.cpp` (never the template) with a `TYRA_LOG` of the awake
+count and the summed squared velocity every 100 frames, compile it with
+`tools/toolchain/native-build.sh` directly (an editor `--build` regenerates the
+instrumentation away), and require both to fall. Cost is the same trick with
+`profTicks()` around the `updateObjectPhysics()` call, against a baseline arm
+generated by an editor built from the parent commit into its own worktree -
+same example, same engine flags. Two traps from that round: `pkill -f
+<pattern>` matches the shell running the command itself and kills it (select
+PCSX2 by pid, reading `/proc/<pid>/cmdline` with `tr '\0' ' '`), and a second
+PCSX2 left running on the same ELF halves both frame rates.
+## Verifying the particle library (docs/particles.md)
+
+`--bake-particles <projectDir>` re-bakes every effect's generated texture,
+re-syncs the linked emitters and regenerates - run it twice and `md5sum` the
+PNGs (the second run must change nothing), then grep `inc/scene_data.hpp` for a
+linked emitter's row (its values are the EFFECT's, its last column is
+`emitAdditive`) and `inc/model_data.gen.hpp` for `MATERIAL_PATHS` and
+the `VEHICLE_SMOKE_LOOKS` row of a definition whose `smokeEffect` names the
+effect (`inc/scene_data.hpp`: `effect` 1, the frame `.mtl` paths;
+`examples/vehicle-playground`'s Rally 04 links "Rally dust", a two-frame
+flipbook). The textures themselves are a harness away:
+`particletex.cpp` links with `-I src -I vendor/stb`, a TU defining
+`STB_IMAGE_WRITE_IMPLEMENTATION` and a one-line stub of
+`project::particleLayerStem` (`bakeEffect` calls it). On Windows link it
+`-static`: from Git Bash the `/mingw64` runtime DLLs shadow scoop's and the
+harness exits 127 before `main`. The built-in tyre puff's recipe
+(`vehbake::builtinSmokeRecipe`) was picked this way, side by side with the
+hand-written puff it replaced. Composite each over a DARK and a LIGHT
+background before judging it - a premultiplied flame looks right on one and a
+smoke puff's edge only shows on the other. On the console, `examples/particle-lab`
+is the fixture: `--build --run` then `--capture-frame`.
+
 ## Choosing the right depth
 
 | Change | Minimum honest verification |
 |---|---|
+| A package or the update check | The section above: a harness for the pure half, `--ui-script` for the modal, a real install (silent on Windows, unpack the tarball on Linux) + `--vu-check`/`--new` FROM it for the layout, then uninstall / a driven self-update |
 | Editor UI (a panel, a dialog, a toggle) | Layer 0 + a `--ui-script` run that opens it, does the thing and ASSERTS it (`expect`/`expect-checked`), plus a `shot` to look at. No focus, no coordinates, either OS |
 | Editor viewport (rendering) | Layer 0 + a screenshot of the affected panel (`shot` from a UI script, `TYRAX_SHOT` on a timer, or `screenshot-window.ps1`/`wayland-control.py` from outside) - and measure the pixels rather than eyeballing |
 | Serialization (`.tyra`) | Layer 1 `--new` + reopen; round-trip save/load diff |
 | Codegen / templates | Layer 2 grep or harness, then one Layer 3 boot |
-| Engine (`vendor/tyra`) | Layer 3 always — compile happens only in Docker; SW-renderer screenshot for anything visual |
+| Engine (`vendor/tyra`) | Layer 3 always — compile with the native backend (and Docker too for compatibility-sensitive changes); SW-renderer screenshot for anything visual |
 | Audio | Layer 3 + peak-meter check |
 | Anything a player DOES (buttons, walking, menus, two players) | Layer 3 + `--pad` (see the recipe above) — an idle control shot, then drive, then measure. No human, either OS; `watch` (Linux) / `-Watch` (Windows) collapses the whole drive into one contact sheet |
 | Anything that changes how a frame is BUILT or PRESENTED (the upscaler, frame pacing, extrapolation, buffer counts, a full-screen pass) | Layer 3 + **the motion gate**, two arms one knob apart. A parked A/B cannot see a fault that only exists in motion, and four of those reached the owner on this branch |
+| A dynamic-shadow switch (spot/flashlight volumes, blob shadows, a per-object shadow mode) | Layer 3 + **the shadow A/B rig** — `make-shadow-fixture.ps1` then `shadow-ab.ps1 -Toggle <key> -Values a,b`. Quote the `report.md` deltas against a same-value control run, not a pair of screenshots |
 | ISO export | Export + mount the ISO on the host + boot it in PCSX2 |
+
+
+## Animated directional GI
+
+Use examples/probe-lighting in a scratch directory. Bake with `--bake-gi DIR
+--gpu`, build and boot in PCSX2 software mode, then walk from courtyard through
+the doorway with Remote Pad. Compare frozen poses with the old dominant-lobe
+path, keeping the same baked table. Check two pose-sharing instances near the
+opposite side lights: their bags must retain separate directions. Check yaw
+and uniform scale, GI disabled/dead probes, and both viewport shading modes.
+The current signed RGB SH mode must retain independent coloured directions
+and darken back-facing normals; L2 and surface-transfer PRT are not implemented.
+
+Verified on Windows: probe-lighting GPU bake, Docker/PCSX2 software boot,
+fixed-pose L1 A/B with a byte-identical return-to-new control, both editor
+shading modes, and a separately built/booted GI-disabled fallback. The example
+README records the sampled coefficients and limits; these are not hardware
+performance measurements.
+
+
+### Animation and RGB SH regression checks
+
+`--vu-check` includes signed chromatic coefficients in the randomized comparisons
+and a numeric RGB oracle (opposing normals, rotation, both lighting modes,
+negative output and saturation). This still needs a PS2 Docker build and a
+software-renderer walk through `examples/probe-lighting`.
+
+For animation timings enable `TYRA_SKEL_PROFILE` in skel_instance.hpp, rebuild,
+and inspect per-instance `SKELTIME`. Measure ordinary playback, not the frozen
+lighting comparison. For LOD stress, use three humanoids at meshLod 1.5 in a
+scratch copy, walk through the doorway and force all three tiers in generated
+code if camera distances do not cross each threshold. Distinguish a hang that
+is reproduced from an old observation that is not.
+
+When restoring generated C++ with Copy-Item, touch its LastWriteTime or clean
+the scratch game objects: Copy-Item preserves old timestamps, and make may
+otherwise relink the previous instrumented object despite different source.
+
+
+Lighting DMA lifetime regressions need temporal checks: an arithmetic VU test
+and a single screenshot cannot expose a dangling REF to stack data. Hold the
+camera/pose fixed and compare a sequence of frames (excluding the FPS HUD),
+then restore normal animation and walk the scene. Exercise the actual packet
+submission; `--vu-check` validates microcode, not the EE source pointers.
+
+## Eight-view foliage impostors
+
+Use examples/impostor-grove (its README has reproducible generators). Verify
+`--resave` retains `impostor`, `impostorDistance` and `impostorBillboard`, `--refresh-gen` collects both
+model paths, then build/run a short-path copy. Show profiler logs representation
+transitions as `IMPOSTOR object=... far=...`; walk towards and away from a tree.
+Compare a frozen-camera control with every distance set to zero. Verify binary
+alpha and deterministic atlas bytes after regenerating assets. Rendering changes
+need a screenshot, not just the model table. Host fixture C++ helpers belong under
+`authoring/`: a root-level .cpp can expand the Makefile's unquoted find glob and
+leave SOURCES empty (`undefined reference to main`).
+
+For eight-view captures, compare a frozen single-tree near/far pair and orbit it:
+`IMPOSTOR VIEW` logs sector changes with Show profiler enabled. Verify the 512x256
+atlas, all eight ordered parts, yaw rotation and fallback for tilted transforms.
+
+Universal capture: select a non-tree multi-material OBJ, activate the Properties
+tab, click Bake impostor, save/reopen and inspect assignment plus alpha/Kd. Check
+material overrides and missing textures/reflection failures; no assignment should
+change on failure. The grove now includes Waystone for this path. Close floating
+tool windows (or remove their open flag in the scratch layout) before scripted
+scene selection; an overlapping Tree Generator can intercept the click.
+
+Selection: verify list selection shows the full model box, then a viewport click
+hits the same model. A frozen orbit camera aimed inside an empty part of a model
+AABB tests fallback. Put an alpha-cutout card in front of a smaller prop to check
+that transparent texels do not steal a surface hit. Test a distant billboard and
+rotated/scaled instances; no PS2 rebuild is required for editor-only picking.
+
+The viewport image is named `Viewport canvas` for `--ui-script` (1.74.1).
+Set a scratch project camera to aim at the test point, then `click 'Viewport canvas'`
+then `key ctrl+s` and check `editor.selectedObject` in the scratch manifest
+(scene rows are not checkable widgets). This injects a real viewport click without
+OS focus; the test hook only registers the existing image rectangle.
+
+Verified on Windows for 1.74.1: grove scene-list selection shows the whole
+Waystone bounds; a viewport click in its empty AABB selects it; a transparent
+foreground quad lets the mesh behind win, whereas its opaque version wins
+itself; a distant Waystone impostor remains clickable.
+
+Grove ground regression: freeze the player at (48, 0, 48), heading -135,
+pitch -12. The old floor material (-s 16 16) loses detail there; -s 0.5 0.5
+restores it in PCSX2 software rendering. Terrain material scale counts repeats
+per world unit, not over the whole map. Compare a fixed ground crop; do not
+infer a missing texture binding from a flat colour alone.
+
+GPU impostors: `--bake-impostor PROJECT MODEL OUTPUT_STEM 4|8|16 [--gpu]` prints
+backend and total time without assigning an object. Compare CPU/GPU atlases for
+all counts on a cutout tree and multi-material Waystone: same dimensions, binary
+alpha, close silhouette masks, matching Kd/interior colours; GL edge coverage is
+not byte-identical. Invalid counts fail before output. Verify Capture views in
+Properties only changes saved `impostorViews` after a successful bake, resave an
+old eight-view object, and boot mixed 4/8/16 assets in PCSX2 while orbiting. Run
+`--gi-gpu-check` after changes to the shared bake context and inspect the viewport
+after GPU baking to catch context restoration bugs.
+
+Verified 1.75.0 on Windows: model UI baked/saved 16 GPU views, Tree Generator
+baked/saved 4 GPU views; choosing 16 without baking kept a legacy object's 8.
+The capture oracle passed all counts (Waystone IoU 1.0, oak >0.999); forced CPU
+fallback was byte-identical to CPU PNG output and invalid counts wrote nothing.
+GI's shared-context oracle still agreed (0.0022% relative mean error). The mixed
+4/8/16 grove built and booted in PCSX2 software mode; Remote Pad motion produced
+capture-sector updates without allocation failures. Higher atlas counts consume
+VRAM: the tested mixed scene had about 35 KiB free after moving, with evictions
+during motion, so do not describe larger view counts as free.
+
+## Vehicle terrain stability
+
+**Damage** (docs/vehicles.md): `--vehicle-check`'s `-- damage --` block holds
+the host rules. In the game, `On Start -> Enter Vehicle` seats the player in
+vehicle-playground's CC96 facing +z; `--pad "hold r2; wait 12; release all"`
+drives it into the arena wall and `bin/log.txt` answers with a `VEHDMG ... hit`
+line (impact, damage %, vertices moved, microseconds). The throttle is R2 and,
+since 1.147.0, reverse is L2 held from a standstill (`hold l2`; it brakes
+first if the car is still rolling) - the left stick only steers. To SEE a
+front dent from the chase rig, back off a few units and HOLD R3 (the rear view
+puts the camera ahead of the nose) while `--capture-frame` runs - against a wall
+the rig sits inside it. The editor side needs no game: Damage tab > Hit front
+with the car framed via the manifest's `editor.cam` (`[yaw, pitch, dist, tx,
+ty, tz]`, radians) and `selectedObject` - edit that key by its `editor` block,
+not with a global replace: vehicle definitions have a `"cam"` key too. Loose
+pieces: `VEHDMG <car> lost <kind> ...`; the Ravager into the arena wall from the
+start loses kind 5 and 1 in the hit, and a burst of `--capture-frame` right
+after `lost 1` appears catches the bonnet in the air. To force a door off,
+park another car broadside across the start lane in a scratch copy (its object
+JSON `position` / `rotation`) and raise its `damageLoose`.
+
+Run `--vehicle-check` after changing vehicle contact or transforms. Its bank
+fixture restrains horizontal translation but retains gravity (zero gravity
+would prevent initial clearance from settling). It covers six headings and
+20/25/50/120 Hz, generic-renderer versus wheel-rig orientation including Euler
+singular headings, missing terrain contacts, and alternating 50/8.33 ms steps
+with only a bumper supported. The latter must not generate launch velocity.
+These are host properties, not a PS2 frame-rate measurement: build and drive
+vehicle-playground for runtime validation, and measure wheel-batch changes on
+the console/emulator with an unchanged mesh and camera.
+
+Whether a tyre touches the ground is a LOG LINE, not a screenshot: the game
+prints `VEHCONTACT car N def D parked|driven gap1000 ... roadlift1000 ...`
+(lowest drawn tyre vertex minus `groundSurfaceAt`, per wheel, in mm; a parked
+car once as it sleeps, the driven car every second, nothing on a far tier).
+0 is on the ground; -119 on a road was the terrain-only contact bug, -7 a
+definition radius behind its baked wheel (docs/vehicles.md, "Wheels on the
+road surface"). Check a car on a road AND one on bare terrain - the road
+lift column tells them apart.
+
+## Triangle strips: a host property test, then one knob in PCSX2
+
+A stripifier is the kind of code that renders *almost* right, so check it where
+checking is free. `src/meshstrip.cpp` has no GL, no ImGui and no `Project`, so a
+harness links in seconds:
+
+```bash
+g++ -std=gnu++20 -O1 -I src -o stripcheck harness.cpp src/meshstrip.cpp
+```
+
+The property that matters is not "it produced a strip" - it is that the strip
+draws the SAME TRIANGLES. Expand the output back (triangle i of a run is
+`v[i], v[i+1], v[i+2]`, never across a run boundary), canonicalise each triangle
+so winding does not matter (nothing backface-culls) and drop degenerates, then
+compare the multisets. Assert the structural invariants in the same pass: every
+run but the last exactly `kRun` vertices, every run length a multiple of 3, and
+the result smaller than the list it replaces. Feed it grids in BOTH orientations
+- a 200-cell row and a 200-cell column of one grid behaved completely
+differently and that is how two real defects were found (seed order, and the
+three-versus-six seed orientations) - plus a cube, ten cubes, and a pile of
+triangles sharing nothing, which must be REFUSED rather than stripped.
+
+**Take the multiset over the attributes the BAG receives, not over all eight
+floats.** `meshstrip::Weld::kNoNormal` (docs/model-pipeline.md, "The weld key is
+a property of the BAG") welds on position and UV, so a strip vertex may legally
+carry a different normal from the corner a given triangle had - an all-eight
+comparison FAILS on a correct stripper, which is the kind of check that gets
+"fixed" the wrong way. A worked instance is
+`examples/vehicle-playground/authoring/wheel-strip-2026-09-17/stripcheck-wheels.cpp`,
+which runs the property against the district's three REAL baked wheels rather
+than against synthetic input:
+
+```bash
+g++ -std=gnu++20 -O1 -I src -o stripcheck     examples/vehicle-playground/authoring/wheel-strip-2026-09-17/stripcheck-wheels.cpp     src/meshstrip.cpp
+./stripcheck examples/vehicle-playground/.res-baked/vehicles
+```
+
+**And a hand-written grid strip needs a PICTURE, because no count can see its
+one failure mode.** The quad diagonal flips unless each column pair is emitted
+far-corner-first, which on a terrain-following surface is a different surface -
+54 pixels of one 512x512 self-capture, against arms that were each
+byte-identical over three repeats. `meshstrip` output is immune (the multiset
+test covers it); roads, terrain and the projected-shadow receiver patch are not.
+
+**The PCSX2 arm is one knob, not two builds of different trees.** Build two
+editor binaries from the SAME worktree differing only in whether the bake calls
+`meshstrip::build`, and run both against one project directory. The engine, the
+assets and the generated game are then byte-identical between arms and the only
+difference is what the `.tmdl` carries - which is what makes a pixel diff
+attributable. Freeze the camera from a global script (`TYRA_SCRIPT`, no
+attachment), set `displayMode: progressive`, and capture with the game's OWN
+`--capture-frame` rather than a window grab: on the Motor District that gave
+**three byte-identical captures per arm**, so any non-zero difference is the
+change.
+
+Aim a pose at the clip path deliberately. The guard band sends most
+screen-straddling packages down the cull route, so an ordinary outdoor vantage
+exercises the strip-to-list expansion ZERO times - `sexp=0` in the `FTCLIP` line
+says so. Park the camera inside a building and it runs thousands of times.
+And read `verts` from that line, not the triangle counts: a strip package
+reports its degenerate joins as triangles.
+
+### Roads and terrain (1.96.0)
+
+Those are grids, they are stripped too, and neither goes through `meshstrip`,
+so the harness above does not cover them. Their oracle is
+`examples/vehicle-playground/authoring/verify-road-twins.py` (Python 3 + g++,
+no emulator): it compiles the real host tessellator AND the actual generated
+`buildRoads` body with storage stubs, then checks the strip output vertex for
+vertex and chunk for chunk between the two, asserts the same run invariants
+(interior runs exactly `roadgen::kStripRun`, every run a multiple of 3), and
+compares the expanded triangle SET against the list emitter's. Run it before
+anything else - it is seconds, and it is the only check that sees both twins.
+
+Since 1.117, road V is rebased by a whole repeat per chunk to keep physical-GS
+ST values bounded. The list and strip chunk boundaries can differ, so the
+oracle compares their V modulo integers while keeping positions, U, fractional
+V and the host/runtime strip stream exact. Do not replace that with raw V
+equality: it would reject texture-identical output and tempt the hardware fix
+back out. A stationary physical-console capture is still the acceptance gate;
+PCSX2 did not reproduce the stretched-one-texel failure.
+
+**Road HEIGHT queries have their own gate, and it is an in-game one** (1.123,
+docs/roads.md). `roadSurfaceAt` is sampled 17 times per blob shadow, per light
+pool and per glow patch, and it is answered from a uniform XZ grid built once
+after the roads are. The grid must be a NO-OP, so the check is
+`TYRA_ROAD_INDEX_VERIFY` in the generated `terrain_game.cpp` - default 0
+(it costs more than the work it checks, so it never ships and never goes into a
+measurement). Flip it to 1 AFTER `--refresh-gen`, build with `native-build`
+directly, drive, and read `ROADINDEXVERIFY checked N bad M` out of the game's
+log; `ROADINDEX cells NxN entries M` at scene load says the grid was built at
+all. Measured on the district: 140 000 queries, 0 mismatches, day and night.
+
+Two traps, both of which make a green run worthless. **An off-road query agrees
+trivially** - both sides answer "no road" - so a run that never walks onto
+asphalt proves nothing; the deliberately broken control arm stayed green for
+40 000 queries for exactly that reason, and only went red once the walk crossed
+a street. And **falsify it before believing it**: shifting the query one cell in
+x must make it report a first mismatch, with the point that produced it.
+
+**The static-batch grouping has the same shape of oracle, and for the same
+reason.** `TerrainGame::buildStaticBatchList` is generated code that runs on
+the EE; `src/staticbatch.cpp` is its host twin (what *Tools > Static Batches*,
+the viewport overlay and `--batch-report` all read). Their oracle is
+`examples/vehicle-playground/authoring/verify-batch-twins.py` (Python 3 + g++,
+no emulator, seconds): it lifts `buildStaticBatchList` VERBATIM out of
+templates.cpp by string index, compiles it beside the twin against small stubs,
+and diffs the batch assignment member for member over eleven fixtures - texture
+and cell and lamp and strip-run keys, the singleton drop, the oversized-model
+guard, batching off, and a deliberate MISSING-TEXTURE case (acquireTexture
+returns nullptr for a file that is not on disk, so every missing texture
+batches with every untextured primitive - a twin that "fixes" that is wrong).
+
+Two things worth copying. It asserts the shape of what it LIFTED (the key
+names must still appear in the body) so an agreeing diff of two implementations
+cannot silently become a diff of nothing. And it was checked that it can FAIL:
+break one key in the twin and two fixtures disagree with a readable diff and a
+non-zero exit - an oracle nobody has seen fail is not evidence.
+
+The ELIGIBILITY half needs no harness at all: `batchStatic` in a generated
+`inc/scene_data.hpp` IS the twin's stage-1 verdict, so `--refresh-gen` plus a
+census of that column checks it (87 of 142 on examples/vehicle-playground). And
+`--batch-report`'s totals can be read against the running game's own two log
+lines ("Static batching: eligible 87, solo 22" / "65 objects in 48 batches").
+
+Since 1.105 it also prints, per fixture, the three numbers behind the road's
+lateral budget (docs/roads.md): the **worst surface error** against the dense
+reference, the **worst UV drift in texels**, and the **worst T-vertex seam**.
+Two things about that seam check are worth stealing for any mesh reduction.
+It is an exact T-VERTEX test - a vertex lying strictly inside another triangle's
+edge in XZ and off it in Y - because SAMPLING a surface at its own vertices
+reads barycentric noise off every triangle that merely touches the point, and
+that noise floor (measured here at 5e-5) is larger than the seams worth finding.
+And its fixtures had to be built for it: the original eight are analytic
+surfaces, curved everywhere, with no coplanar runs to merge, so they passed a
+reduction they could not exercise. The three `heightfield ...` fixtures lay a
+road over a triangulated 4-unit grid - the district's real ground - and are the
+only ones in the file where the merge fires at all.
+
+**The PCSX2 knob for these is one expression, and it has to be flipped in
+`src/templates.cpp`, not in the generated game.** `buildRoads` and
+`buildTerrainChunk` each gate on `minPackageSize() >= 72`; raise that number to
+something no class derives and the same scene builds as triangle lists.
+Editing the generated `src/terrain_game.cpp` does NOT work - `--build`
+regenerates it first and your probe is gone (the same trap as any generated-
+file edit). Flip it in templates.cpp, build the editor, and **keep a COPY of
+each binary** (`build-dev\tyrax-editor-strips.exe` /
+`build-dev\tyrax-editor-lists.exe`), then build one fixture with each. Two
+things the copies must respect: they have to live INSIDE the checkout, because
+the editor finds `tools/toolchain` and `vendor/tyra` relative to its own
+executable and a copy in a scratch directory fails with "Native toolchain files
+are missing"; and confirm the two really differ
+(`grep -c 'minPackageSize() >= 4096U'` reads 2 and 0) - the binaries come out
+the same SIZE, so a mis-timed copy looks exactly like a successful one.
+Terrain additionally needs a terrain MATERIAL to strip at all -
+`TERRAINSTRIP ... strips 0` in `bin/log.txt` is that case and not a failure.
+
+The render-cost row `Roads` is ready road/junction cull and submission, not
+generation; roads are built once at scene load. `Procedural` explicitly skips
+owner `-3` road chunks and now means only procedural volumes/prefabs. Old CSVs
+from before 1.117.6 reported both together as `Procedural`, so do not compare
+those labels directly without summing the new rows.
+
+**Do not use `--build --run` for this.** It kills every running PCSX2, and with
+parallel worktree sessions that is somebody else's game. Launch
+`pcsx2-qt.exe -elf <project>\bin\vehicle-playground.elf` yourself and talk to
+it through that project's own `bin/livedbg.cmd` (`--capture-frame <project>`),
+which is per-project and cannot reach the other instance. Run the editor
+through a normal `--build --run` once beforehand so `HostFs` and
+`Renderer = 13` are already in `PCSX2.ini`.
+
+**The district's NIGHT poses are not frozen, and no settle time fixes them.**
+Freezing the camera is not enough: at night the lamps flicker, so three
+captures of ONE arm differ from each other at 6 s of settle and still differ at
+30 s. That makes any between-arm difference at a night pose unreadable, and it
+is a property of the fixture rather than of whatever you changed. The two DAY
+poses are byte-identical across three captures in both arms, so base a pixel
+A/B on those and quote the night poses' own within-arm spread as the noise
+floor if you use them at all. Check the repeats PER POSE before reading any
+difference - "the fixture is static" is an assumption this one does not meet.
+
+For "do both arms draw the same thing", read the producers' own lines -
+`ROADSTRIP scene N strips S packages P triangles T` and `TERRAINSTRIP scene N
+chunk cx,cz ...`. Those triangle counts are surface counts with degenerates
+dropped and MUST match across arms; `FTCLIP`'s cull/clip/guard triangles are GS
+primitives and legitimately differ by about 1.5x between representations.
+
+## Motor District and flat-road spans (1.85.0)
+
+The roadgen.cpp / templates.cpp buildRoads twins sample every lateral height,
+then retain the established horizontal collapse, or merge a non-flat span's
+lateral cells into maximal runs within the two budgets in roadgen.hpp
+(`kSpanFlatness`, the surface and the seam; `kSpanShear`, the UV). Do not infer
+planarity from the shoulders: an interior crown or saddle must retain its
+samples. Run examples/vehicle-playground/authoring/verify-road-twins.py
+for a compiled comparison of both actual implementations, then build/drive the
+example. ROADS now logs emitted vertices as well as chunks. The district's
+seven-road network is an EE memory stress case, not just a screenshot fixture.
+
+## Measuring a CONTENT change, where the arm is the editor (1.105)
+
+A codegen change has no engine macro to flip, so the two arms are two EDITOR
+binaries generating the same example. Build both from the worktree under test -
+`./build.ps1`, copy the exe aside, `git checkout <base> -- src/<the changed
+files>`, build again, copy aside, restore - and record BOTH hashes.
+`examples/vehicle-playground/authoring/road-lod-2026-09-16/build-arm.ps1` takes
+the editor as a parameter for exactly this reason, and holds the baked asset
+tree constant across the arms so the only difference is generated code.
+
+Three things that round taught, all of them cheap to repeat:
+
+- **`--profile quiet-debug`, not `debug`.** The live tools' `host:` pollers cost
+  6.44 ms of `work` and put +3.5 to +4.4 ms outliers inside `update`. With them
+  off the repeatability floor was **0.016 ms of `work`**, eight times tighter
+  than the same rig at `debug`.
+- **A map-wide count is not a frame.** The road reduction removed 9 798
+  triangles from the district and **614** from the garage-day frame. Measure the
+  pose that is slow, not the inventory.
+- **A quality criterion can usually be turned into a number instead of a
+  screenshot.** "Coarse terrain must not bury a road" became the worst rise of
+  the coarse ground above the road's own lift, at every dense sample of every
+  road (`terrain-lod-burial.py`); "no distracting LOD transitions" became the
+  worst mesh disagreement converted into pixels at the distance the band
+  switches (`terrain-lod-step.py`). Both run in seconds with no console.
+
+Textured vehicles: vehbake::Result::textures holds bin-relative names and PNG
+bytes for source images; bakeProject and vehicleRefreshBake both write them.
+The viewport resolves ModelPart::bakedTextureRel per draw, never a cached GL
+name. Palette UV fixup must only visit palette parts (real UV V=-1 is valid).
+A wheel/body image and Kd match permits textured wheels in body distance tiers.
+Use the GGBot GLB in Motor District to check the PNG references, actual in-game
+texture, four detected wheels and the distant wheel silhouette. Rigid nodes
+sharing one material may collapse to one dominant owner during import; the
+example preparation retains one material slot per wheel.
+
+Shared dynamic env sampling must use the LEVEL capture's world-up, not the
+pitched chase camera's up. Static sphere-map images keep the view basis and
+reflected-ray probes keep their own basis. The viewport envSt shader mirrors
+this distinction. To diagnose a reflection, inspect the env target separately
+from the final car: populated target + unchanged car in a scenery hide/show
+comparison is a sampling problem, not proof that the capture failed.
+
+Mixed vehicle definitions keep separate runtime wheel batches so a palette car
+and a textured car never sample through the last vehicle's image. Verify both
+cars together at near range; far tiers carry their own baked wheels.
+
+Wheel batches retain their per-definition position, colour and UV buffers until
+scene unload: PATH1 DMA can still read one definition while the next is being
+prepared. The conservative CPU reject must cover the actual rig (wheel mesh
+radius, track, wheelbase, full suspension travel, steer, spin and body
+attitude), and must use the active camera/frustum plus the body's visibility,
+draw-distance and split-band gates. Check a near/far LOD crossing has neither
+duplicate nor missing wheels, then capture the separate `Wheels` render-cost
+row; it is a diagnostic phase, not a hardware FPS result.
+
+## Render-cost capture
+
+Use `--profile-frame PROJECT -o report.csv` against a debug game with Live
+Debugger on and a live host server. Verify matching sequence/footer, finite
+phase/object values, repeated captures and CSV output. For UI changes drive
+Render cost / Measure render cost / Keep as baseline / Copy render cost CSV,
+and click the column headers: each sorts, and a third click on the same header
+clears the sort back to the original grouping.
+Object rows are nested costs inside Objects. Measurements drain the pipeline;
+verify ordinary FPS separately and capture the same camera on physical PS2.
+
+### Manual ps2link launch: require the resident-IOP marker
+
+Prefer `--build PROJECT --run-ps2 IP`, which creates the marker automatically.
+If running ps2client manually, first create and verify **an absolute path** to
+`PROJECT/bin/ps2link.run` containing `ps2link`. Launch with `PROJECT/bin` as the
+working directory. `-ps2link` on execee alone is insufficient with this crt0.
+A missing marker resets IOP, removes the host filesystem/network service and
+can require a physical reboot; a later UDP poweroff cannot repair that loss.
+Do not chain a failed marker write into an execee command. In PowerShell use
+`-ErrorAction Stop` and `Test-Path -LiteralPath` before launching. A working
+directory already ending in `bin` must not receive another relative `bin/`.
+Also stop an emulator serving the same project before hardware captures: its
+fresh `livedbg.bin`/`frame.tga` can otherwise disguise a disconnected console.
+
+### A debug build over ps2link is NOT the player's frame (2026-09-23)
+
+Read this before quoting ANY frame time or FPS off a console. Three separate
+debug-only costs sat inside every Motor District measurement for two days, and
+each one looked like a property of the scene. All three were measured on a
+physical PS2 with `TYRA_FRAME_PROFILE 2` (below) at a parked vantage.
+
+| devkit cost | cadence over ps2link | what it did to the frame |
+|---|---|---|
+| **Remote Pad** polls `host:livepad.bin` | every 4th frame (every frame in PCSX2) | a network round trip in `loop()` ahead of `beginFrame()` |
+| **Live Debugger** polls `livedbg.cmd` / writes the snapshot | every 25th frame (6th in PCSX2) | the same, rarer |
+| **HUD `MEM` readout** (`showMemory`) - FIXED in 1.123.10 | every 2 s of game time | `getAvailableRAM()` malloc-probed the heap until it failed: **+31 ms** on one pose, **+75 ms** on a fragmented one. It now reads `mallinfo()` + `EndOfHeap() - sbrk(0)`; a build older than 1.123.10 still has the hitch |
+| **`TYRA_FRAME_PROFILE 1`** | every frame | the packet walker + pipeline telemetry: HUD SCENE 13.21 -> 17.70 ms |
+
+The first two together: the day frame read **26.3 ms with 15 of 50 frames
+missing their field; with Remote Pad and Live Debugger compiled out it read
+20.4 ms and 0-1 of 50** - the shipped scene already held 50 FPS. 14.5-16.5
+network round trips per 50 frames against 14-16 measured misses. The MEM probe
+is the regular **hitch every two seconds** a debug build shows (one 94 ms
+frame per 50 at 25 FPS); it is gone the moment `showMemory` is off, 8 periodic
+spikes against 0 in a paired emulator run.
+
+**The clean console measurement, in order:**
+
+1. In the project's `.tyra`: `remotePad`, `liveDebug`, `liveLink`,
+   `liveLogic`, `timeMachine` and `inputRecorder` false (and `showMemory` too
+   on an engine older than 1.123.10).
+   (No Remote Pad also means no scripted day/night toggle - plan the poses.)
+2. `TYRA_FRAME_PROFILE 2` in `vendor/tyra/engine/inc/debug/frame_profile.hpp`
+   - FRAMETIME alone, transparent. Level 1 is for WHAT a frame is made of, and
+   only its deltas are quotable.
+3. `--refresh-gen`, then `tools/toolchain/native-build.ps1` directly.
+4. Deploy with a bare `execee` straight after a power cycle (next section),
+   and read `FRAMETIME` off the ps2client stdout. `pre + work + stall` must
+   come to `period`; `miss` high with `over20` low means the cost is OUTSIDE
+   the render (`work` starts at `beginFrame()`). `FTUPD`, printed beside it,
+   splits the update half of `pre` into ten sections - `in` large means the
+   devkit's host polling, not the game.
+5. **Transparency check:** capture the same pose once uninstrumented; its HUD
+   SCENE must match the instrumented run's. 13.21 vs 13.04 is a pass.
+6. `FTRAW` gives every frame's `work`. A periodic spike is a TIMER - check the
+   gaps: exactly equal gaps are frame-counted, gaps alternating 50/51 or 99/101
+   are seconds converted through `g_frameDt` (`everyFrames(s)`), which is how
+   the MEM probe was found in one read.
+
+**TWO different console failures look alike - tell them apart first.**
+
+- **Empty ps2client log, not even `loadelf:`** - a RACE, not a wedge. ps2link
+  reboots the IOP on `reset` and is deaf until it is back; an `execee` sent
+  into that window is a lost UDP packet and ps2client then waits for ever.
+  This began on 2026-09-23 the moment a deploy script sent `execee` straight
+  after `reset` (before, the two were separate commands seconds apart). Kill
+  the client and send `execee` again WITHOUT another reset - it boots. The
+  deploy recipe: `reset`, wait ~8 s, `execee`, and on an empty log after ~20 s
+  kill and re-send the `execee`.
+- **`freepad: DMA Busy ... ret = 0` repeating** - a real IOP wedge on the next
+  boot, and only a power cycle clears it. That is the one below.
+
+**Two arms must be looking at the same thing.** A pad whose stick rests off
+centre moves the view on one boot and not the next (the car's glance camera
+did exactly that until 1.124.2 and faked a +2.7 ms regression). Compare
+`Loop_past_draw_count` / `Loop_past_coarse_count` in the two captures before
+comparing any millisecond, and take a `--capture-frame` of each arm.
+
+**Resetting a console that is running a debug build can wedge it.** From the
+evening of 2026-09-22 most `reset` + `execee` cycles of a debug build came back
+with `freepad: DMA Busy ID = ... ret = 0` repeating (or an entirely empty
+ps2client log) and `livedbg.bin` stuck at frame 1, and only a physical power
+cycle cleared it; a devkit-off build came back clean from two consecutive
+resets. The prime suspect is the reset landing while the devkit's `host:` I/O
+is in flight. The polling code is months old, so WHY it became frequent is not
+known - do not write a root cause. What works: straight after a power cycle
+ps2link is idle, so send a **bare `execee`** - a probe-`reset` followed by a
+launch-`reset` failed twice in a row. Budget one clean boot per power cycle for
+a debug build, and measure on a devkit-off build, which both resets cleanly and
+is the frame the player gets.
+
+**`--build --run` (PCSX2) deletes `bin/ps2link.run`.** Re-create it before the
+next console deploy (`printf 'ps2link' > <project>/bin/ps2link.run`), and keep
+the `execee` inside the script that checks it - a guard that only `exit`s is
+bypassed by the next command in a `;` chain, which is how a launch without the
+marker reset the IOP mid-load and cost a power cycle.
+
+### PCSX2 savestates and GS dumps, unattended (docs/emulator-captures.md)
+
+`scripts/pcsx2-capture.py run <elf> --stage --states 3 --gsdump` starts a
+**private** PCSX2 (`-datapath` under `%TEMP%\tyra-editor-test\pcsx2-capture-<slot>`,
+its own ini with PINE on), takes savestates over PINE and one single-frame GS
+dump, writes `report.txt` and stops only the PID it started. `gs <dump>` /
+`state <p2s>` analyse hand-taken captures of any title. Needs
+`pip install zstandard numpy`.
+
+- **No focus, no global input.** The GS dump is PCSX2's own hotkey, rebound to
+  F12 in the private ini and delivered by `PostMessage` to that PID's window,
+  which is inside the rule in "never inject global input". Windows only; Linux
+  skips the dump step.
+- **One `--slot` per parallel run.** The user's global `PCSX2.ini` is never
+  touched.
+- **A savestate lands at VSync, so VIF1 is always idle.** For a TyraX game it
+  shows at most the last ping-pong packet. Use the VU1 packet tap
+  (`arm-vucap.py`) for our own chains; the savestate analyser is for games that
+  build one frame chain.
+- **GS pixel counts are scissored coverage, not fill.** Compare with them; do
+  not price the GS with them.
+
+### What is SUBMITTED is not what is SEEN: ask by REMOVAL
+
+An inventory ranks a frame by what each producer hands the GS. It cannot say
+whether any of it reaches the screen, and a whole front was once promoted on the
+assumption that it did. The instrument that settles it needs **no new engine
+counter and no engine edit**, because the game can already hide an object at
+runtime (`ctx.objects[i].visible`):
+
+> hide exactly one object, photograph the frame, diff it against the control.
+> **Zero pixels changed means the object contributed nothing by ANY path** —
+> silhouette, projected shadow, baked AO or reflection — so it is free to cull
+> and there is no quality argument to have. A non-zero count IS its on-screen
+> contribution, and `triangles / visible pixels` then ranks the population.
+
+`examples/vehicle-playground/authoring/world-visibility-2026-09-17/` is the
+worked example. `probe-visibility.ps1` drives the whole population **from one
+boot** — write the index set to the fixture's command file, wait, then
+`--capture-frame` — which is the difference between twenty minutes and an hour
+per object.
+
+Three checks come BEFORE any verdict is read, because every claim of this shape
+is a claim about a zero and a broken instrument produces zeros too:
+
+- **within-probe repeatability**, then **control drift** (photograph the control
+  first AND last in the same boot; a run whose control moves is dead), and
+- **a positive control for every zero.** A lone zero cannot tell "invisible"
+  from "the hide never reached that index". Photograph the suspected occluder
+  removed too: if the object then paints pixels, the hide reached it and it was
+  genuinely behind something. **Do not read that pair against the control** —
+  the pair and the occluder-alone probe change the same screen region, so they
+  report the same count of different pixels and the comparison silently
+  confirms nothing. Compare pair against occluder.
+
+Also worth knowing: the self-capture writes over `host:` fs and that write can
+tear (`wrote N of M bytes - the host: write did not complete`). It is a
+transient — **retry the capture** rather than letting it kill a long single-boot
+run, which is exactly what it did the first time.
+
+### Proving "collisions and picking are unchanged" WITHOUT a capture
+
+A capture can only show the poses you thought to photograph. When a change is
+supposed to leave gameplay data alone, diff the GENERATED SCENE DATA instead —
+it covers every object at once and it is exact.
+
+The obvious version of that diff FAILS, and the reason generalises to any
+change that adds an asset. Adding models to a project inserts them into
+`model_data.gen.hpp` **in place**, so every model index above the insertion
+shifts and a plain diff of `scene_data.hpp` reports a change on most rows. The
+coupe's `model` going 11 -> 13 is the same vehicle body. So:
+
+1. read both `model_data.gen.hpp` tables and build `index -> name` for each;
+2. rewrite the control's model field to the candidate's index for the SAME
+   NAME;
+3. diff, and require the residual to be only the fields the change owns.
+
+`examples/vehicle-playground/authoring/impostor-threshold-2026-09-17/verify_scene_identity.py`
+is the worked example. Two things it learned the hard way: select the object
+rows by their FIELD COUNT (other tables in the same header share the
+`{...}, // name` shape), and expect **consequences** as well as the change —
+assigning an impostor also clears `batchStatic`, because a batched member has
+no bag of its own to swap. Report those rather than allow-listing them silently.
+
+### Judging a POP: the ratio, not the pixel count
+
+A representation swap (impostor, LOD tier) is supposed to change the picture, so
+"the pixels changed" is not a defect and a capture A/B at one pose cannot decide
+anything. Park the camera at a series of STATIONS across the switch distance —
+stations, not a moving camera, because the capture path freezes the game and two
+arms' `--capture-frame` calls never land on the same frame of a moving route.
+Then compare:
+
+* `move(ctl)`  — pixels changing between adjacent stations in the CONTROL. This
+  is the yardstick: what the eye already accepts as "the camera moved".
+* `move(cand)` — the same step in the candidate, which contains the swap.
+
+**A swap step whose ratio to the control step is near 1 is invisible against
+motion that is happening anyway; one far above 1 is a pop, and the ratio is how
+bad.** Judging by the candidate-vs-control column alone is wrong — that column
+is large wherever the cheap representation is showing at all, including where
+nothing is popping.
+
+Cover BOTH kinds of swap. Distance swaps need an approach route; a multi-view
+billboard also changes view sector as the camera moves AROUND the object, and
+rotating the camera in place does NOT test that (the view is chosen from the
+object-to-camera-POSITION vector), so add an orbit at a fixed radius.
+
+### Measuring a SKIP-WHEN-UNCHANGED change: three fixtures, not one
+
+`--keep-routes` exists because the district's traffic is parked and a change
+that skips work when an input did not change scores 100% on a still scene. The
+camera is parked too, and that is the other half of the same hazard. The
+reflection reuse budget (1.106.0) is the worked example, and the shape
+generalises to any such change:
+
+- **the parked fixture is the BEST case, and it must be labelled as one.** It
+  answers "what is this worth when nothing is happening" and nothing else.
+- **a MOTION fixture answers what it is worth in play.**
+  `authoring/reflection-probe-2026-09-16/motion-sampler.py` replaces the
+  sampler's four poses with four camera regimes (idle / straight / a gentle
+  turn / a hard turn), keeping the 1440-frame window and the
+  `district-benchmark.csv` "safe to write now" signal. Its result was the
+  finding: the saving falls as the camera turns faster and reaches ZERO in a
+  hard turn, which is exactly the case the change would be rejected for.
+- **an INVALIDATION fixture answers the question that actually decides it** —
+  does the skip ever hold something it should have thrown away?
+  `content-sampler.py` parks the camera and changes the SCENE instead (an
+  object hidden and shown, an object sliding, a day/night flip), so pose drift
+  is zero by construction and only the invalidation can force work. Give it a
+  regime where NOTHING changes as its own control: if that one does work, the
+  other three prove nothing.
+
+Two rules from it worth stealing. Predict each regime's number before the run —
+"one capture per toggle, 120 of 120 for a thing that moves every frame" is a
+sharp prediction and a shape is not. And state the quality cost in the unit the
+change is written in and record it FROM INSIDE the game: this one reports the
+worst staleness it actually permitted, in pixels of the reflection's own
+128-pixel target, so the acceptance criterion is a measurement rather than a
+screenshot.
+
+### Devkit cadence overrides
+
+Round-trip all five cadence fields, including missing/default and out-of-range
+values. Generate automatic, overridden, disabled and release variants; overrides
+must only gate host I/O, never graph execution or replay/pad updates. Exercise
+Preferences input/save/reopen, compile and boot the generated debug game, verify
+snapshot frame deltas, then halt/resume and capture at a slow command interval.
+Check longer report intervals do not repeatedly flag a live game as hung.
+
+## Full-asset gate for performance fixtures
+
+An isolated native build is not an asset bake. A copy excluding bin and
+.res-baked must first materialize the complete baked resources (normally with
+an editor build), then add instrumentation and use native-build directly.
+Before timing, compare deployed PNG/TMDL/MTL files with the intended baked
+reference, reject missing/different resources, verify fresh frame IDs and
+inspect actual GS captures after the sampling window. A September 14 fixture
+with only sfx/vehicles directories lacked 66 PNGs and 11 TMDLs: placeholders
+and skipped models made matching baseline/candidate triangle counts falsely
+reassuring. See docs/performance-hardware-recheck.md. Empty redirected host
+logs or a failed ping alone do not prove a failed boot; check new telemetry.
+
+**And the GENERATED SOURCES are half of that gate, not just the assets.** A
+fixture script that copies an example copies its **committed** `inc/*.gen.hpp`,
+`src/gen/` and `src/terrain_game.cpp`, and examples' generated files in this
+repo drift silently (that is a standing condition, not an accident). Compile
+that with `native-build` directly - which every instrumented fixture does,
+because an editor `--build` would regenerate the instrumentation away - and you
+are measuring **a different game from the one the editor under test produces**,
+with nothing in any log saying so. Measured on `examples/vehicle-playground`,
+2026-09-15: a stale fixture reported **12.17 texture re-uploads per frame** in
+garage day and **3.6 ms more render submission** than the same scene
+regenerated with the editor being compared, which records 0.000 re-uploads and
+0 evictions in all four poses. An entire GS VRAM investigation was launched at
+that ghost. So `--build` (or at least `--refresh-gen`) the fixture once before
+instrumenting it, and **check a counter against the previous known-good run
+before concluding anything from a change in it** - a number that moved because
+the fixture is stale looks exactly like a regression.
+
+**AND `--refresh-gen` IS NOT ENOUGH ON ITS OWN, because the EDITOR BINARY can be
+older than HEAD.** `build/tyrax-editor.exe` is a build artifact, not a property
+of the checkout: a worktree sitting at the branch tip can hold an exe compiled
+hours earlier, and `--refresh-gen` will then faithfully regenerate the fixture
+with the OLD baker while every log line says "regenerated". Measured on the
+EE-submission probes, 2026-09-16: the binary was built at 15:17 and the commit
+that raised the VU1 package ceiling landed at 17:07, so seven arms were baked
+with `stripRun = 72u` against a tree whose `meshstrip::kRun` reads 75 - a legal,
+self-consistent fixture that is simply not the one the branch-tip table
+describes.
+
+**The capture hash does not catch it, and believing it does is the trap.** The
+strip run changes how a surface is cut into runs, not which pixels it covers, so
+the garage-day frame hashed to exactly the expected value. Check the things that
+are actually functions of the baker:
+
+```bash
+grep -E "ROADSTRIP|TERRAINSTRIP" <results>/host.log   # packages 470 / 588 verts, 8 pkgs at 75
+grep -n "stripRun = 7" <fixture>/src/terrain_game.cpp  # the baked constant itself
+```
+
+Compare the binary's mtime against the commit that last touched what you are
+measuring (`git log -1 --format=%ad <path>`), and rebuild the editor when in
+doubt. A round whose arms all share one wrong fixture keeps its DELTAS - that is
+what saved the probes - but loses the right to be quoted against anyone else's
+absolute numbers.
+
+**One more comparability trap from the same round: `--profile debug` leaves the
+LIVE TOOLS ON, and two of their pollers run inside the instrumenter's `update`
+bracket.** `livepad::tick` and `livedbg::tickFromLoop` `fopen` `livepad.bin` and
+`livedbg.cmd` over `host:` every frame - network I/O inside the measurement.
+Measured on the same fixture, garage day: **4.79 ms of `update` and 6.44 ms of
+`work`**, which is why that control read 36.51 ms against a published 30.42 for
+what a reader would assume was the same scene. `benchmark-district.py
+--profile quiet-debug` is the same build profile with `liveLink`, `liveDebug`,
+`liveLogic`, `timeMachine`, `remotePad` and `inputRecorder` off; with them off
+the two tables agreed to 0.35 ms of `work` and 0.00 ms of `total`. **Say which
+profile a frame-time table was taken on, or it cannot be read against another
+one** - and treat sporadic multi-millisecond `update` outliers as host-I/O
+contention rather than as a finding.
+
+## Hardware timeline capture
+
+Use tools/hardware-trace.py arm PROJECT before a boot, then export the complete
+bin/hardware-trace.csv to HTML/Perfetto. The engine captures bounded RAM events
+without new drains and writes after sampling. Scope totals overlap; VIF1 DMA
+wait is not VU1 execution, and VIF/GIF snapshots are not utilization. Compare
+unarmed/armed controls and reject dropped or stale events. See
+docs/hardware-profiler.md for start-frame semantics and capture limits.
+For debug builds, inspect per-frame `Live_debug_poll` and `Live_debug_flush`
+before blaming gameplay update spikes. An unattached debugger should write its
+one boot marker but no periodic flushes; a valid command attaches it and resumes
+the configured report cadence.
+Vehicle projects expose `Vehicles_update`, `Vehicle_smoke_update` and
+`Vehicle_skids_update`; nested `Vehicle_sleep` events count parked instances
+that skipped the expensive ground/collider/suspension path.
+
+### Native hardware timeline (1.92)
+
+`src/hardware_timeline.cpp` reads the same bounded CSV as the offline exporter.
+Debugger > Hardware timeline arms the next boot and loads completed captures on
+demand, with frame selection, zoom, raw marker tooltips and inclusive totals.
+No browser, Python or extra debugger polling is required. Engine detail scopes
+separate package creation/classification, qbuffer copies and packet construction.
+See `docs/hardware-profiler.md`; use unarmed controls to rank performance.
+
+### Retained static command data acceptance (1.96)
+
+The A/B is **one knob in one worktree, one project directory**:
+`TYRA_STAPIP_RETAINED_COMMANDS` in
+`vendor/tyra/.../static/core/stapip_qbuffer_renderer.hpp`, 1 against 0. The
+engine is rebuilt by the ordinary `--build` because the header is an engine
+source; the generated game, the assets and every other number are common mode.
+
+Three checks, in this order, and the first two are the ones that mean something:
+
+- **The packet must be byte-identical, so the picture must be.** Frozen camera,
+  `--capture-frame` three times per arm, confirm the three repeats of each arm
+  are byte-identical to each other BEFORE comparing arms. Anything non-zero
+  across arms is a bug in the capture-and-replay, not a rendering difference to
+  interpret - the change writes the same bytes to VIF1 by construction.
+- **The counts must not move.** VU1 packages, submitted vertices and packet
+  flushes come from the same bags producing the same packets, so `FTCLIP`'s
+  `verts` and `flush` and the frame-cost CSV's submission count must be
+  identical between arms. A moved count means a bag stopped being submitted.
+  The new counters are `STAPIPRET retained=N rebuilt=M per frame, cache=K KB`
+  (a debug engine logs them every 300 frames) or
+  `StaPipCore::takeRetainedCommandHits/Builds` from the game.
+- **Then, and only then, the time.** And **PCSX2 cannot price this change**: it
+  emulates no EE data cache, while the change trades computing bytes for
+  reading them out of a cold ~128 KB arena. Its delta is an upper bound on the
+  hardware saving and must be labelled as one.
+
+Stress the invalidation deliberately - it is the whole correctness surface.
+Force texture evictions with a batch pending, switch the pipeline away and
+back, cross an LOD threshold in both directions (a tier swaps the bag's vertex
+pointer AND count), reload the scene, and move the camera over hundreds of
+frames. `rebuilt` per frame is the instrument: it should be near zero on a
+parked pose and spike exactly where geometry changed.
+
+### The content-version contract, and its negative test
+
+`BagArray<T>` (docs/bag-content-version.md) is what makes the baked stream's
+invalidation structural instead of a rule: every array the generated game hands
+a `StaPipBag` is one, `data()` is const, and every mutation stamps
+`contentVersion`. **The whole argument for that design is that a raw write does
+not compile, so the check is a NEGATIVE one and it needs no PS2 toolchain:**
+
+```bash
+tools/bag-array-enforcement.sh <project>/inc/bag_array.gen.hpp
+```
+
+Seven cases against the REAL generated header (`TYRAX_BAG_ARRAY_NO_TYRA` drops
+only the four `bind()` overloads): two positive - the sanctioned API compiles,
+and the stamp MOVES on every mutation - and five escapes that must each be
+refused. **Falsify it before believing it**: make `data()` non-const in a copy
+of the header and it must go red on exactly the two cases that property guards
+(measured: `passed 5, failed 2`). The positive control is load bearing too - a
+header that failed to compile at all would "pass" every negative case.
+
+Two traps this conversion produced, both of which read as something else:
+
+- **`bind()` aims the bag at `data()`, and an EMPTY vector's `data()` may be
+  null**, which the engine rejects with *"Vertices are required in 3D render
+  bag!"* at the first frame. A raw C array could not have that problem and could
+  not carry a stamp either; size the ring before binding. Size it before the
+  FIRST updater/builder too, not merely before the lazy bag setup. Vehicle
+  smoke clears dead slots, skid geometry may spawn in the physics update, and
+  vehicle glow writes its lit-lamp geometry before checking whether its bag
+  exists. Indexing or spanning those zero-length arrays called `Vec4::set`
+  through null. PCSX2 hid the write because its RAM starts at zero; hardware
+  reported cause 3, `BadAddr 0`, immediately after the loading screen.
+- **A new generated file must join `refreshGenerated`'s allowlist, not just the
+  `--new` scaffold.** `inc/bag_array.gen.hpp` was written at creation and not on
+  refresh, so every existing project - and every performance fixture, which is
+  how it was caught - regenerated code that needs it and then failed to compile.
+  Same silent shape as the `live_pad.gen.cpp` mistake the allowlist comments
+  already name.
+
+### Baked VIF stream acceptance (TYRA_STAPIP_BAKED_STREAM)
+
+Same shape as the retained-command A/B above and one extra rule.
+`TYRA_STAPIP_BAKED_STREAM` in the same engine header, 1 against 0, one project
+directory, plus `TYRA_FRAME_PROFILE` and `TYRA_STAPIP_BAKED_REPORT` set to 1
+in **both** arms (they are measurement flips - revert them before committing).
+
+- **The gate is the picture plus three counters**, and the counters are free:
+  `FTCLIP` gives `cull`/`clip`/`guard`, `verts` and `flush`, and `STAPIPBAKE`
+  gives `chainQw` - the DMA chain quadwords the static pipeline hands VIF1 per
+  frame, which is the number the change exists to move and is compiled into the
+  control arm too. Nothing here is a millisecond, and a PCSX2 millisecond about
+  this change would not be admissible anyway.
+- **That counter gate only works while the flush cadence is held fixed, and it
+  is the reason the spike could not deliver the prize.** A run of packages under
+  one `REF` tag cannot cross a packet flush boundary, so pinning `packetFlushes`
+  pins the saving. Any change that moves the cadence must use the redesigned
+  gate instead - docs/baked-stream-acceptance-gate.md: a canonical, NOP-stripped
+  hash of the word stream VIF1 actually receives (decoded at the packet tap,
+  with texture mutations interleaved in order) plus byte-identical pixels over a
+  pose sweep. It constrains what the GS is given without constraining the chain
+  that built it. The `FTCLIP` routing counts become **diagnostics that explain a
+  hash failure**, not gate conditions.
+- **A gate arm is never a timing arm.** The hash reads ~2.7 MB a frame and costs
+  10-25 ms; that is fine, because it is a separate ELF from anything you time.
+  Do not read a millisecond off a build that carries it.
+- **Drive the Motor District fixture by its pose file, never with `--pad`.**
+  `benchmark-district.py`'s sampler reads `bin/district-benchmark-pose.txt`
+  every 30 frames **after** its 1440 measured frames, and it writes
+  `bin/district-benchmark.csv` at exactly that moment - so the CSV appearing is
+  the "it is safe to write to bin/ now" signal. Phase 0 is garage day, which is
+  the only pose to compare pixels at (the night poses have authored lamp flicker
+  and twinkling stars and never settle).
+- **Launch PCSX2 yourself** (`pcsx2-qt.exe -batch -nogui -logfile <yours> -elf
+  <abs path>`), never `--build --run`, which reaps other worktrees' emulators -
+  and delete `bin/livedbg.cmd` and `bin/frame.tga` before the boot and between
+  captures, or the first `--capture-frame` reads the previous arm's file.
+- **The stale-libtyra trap has a specific shape here**: the feature is an engine
+  header, so the ELF only moves if `libtyra` was re-archived. Check the build log
+  for `Engine sources changed - rebuilding libtyra...` followed by an
+  `elf-ar rcs bin/libtyra.a` line, and `sha256sum` the two ELFs - they MUST
+  differ. A null A/B is only evidence if the two arms were two builds.
+- **A MATCHING CAPTURE HASH IS NOT A FIXTURE CHECK, and on this fixture it will
+  actively mislead you.** This round's first pass borrowed the editor binary
+  from another checkout, which predated the 72 -> 75 package ceiling, so the
+  fixture's generated `src/terrain_game.cpp` came out with `stripRun = 72u` and
+  the roads and terrain were cut into 72-vertex runs: `cull=40175 ...
+  verts=55332` instead of `38750 ... 55836`. Its garage-day capture STILL hashed
+  to `415f970f...73f1e`, the value `package-ceiling-75-2026-09-16` published for
+  that pose - because **both** of that round's arms hash to it, the strip run
+  changing how a surface is cut into runs and not which pixels it covers. So
+  check the SCENE, not the picture: `ROADSTRIP scene 0 ... packages 470` and
+  `TERRAINSTRIP ... vertices 588 packages 8` in the game's `bin/log.txt`, plus
+  `grep -n "stripRun = 7" <fixture>/src/terrain_game.cpp`. And build the editor
+  from the worktree you are measuring, every time - `./build.ps1` is 6 minutes
+  and a wrong fixture is a day.
+- **`STAPIPMISS` says WHY a bag rebuilt**, which is what turns "the cache churns"
+  into something actionable: one counter per invalidation reason (`bbox`, `prim`,
+  `streams`, `program`, `size`, `new`, `incomplete`) plus the biggest bag that
+  moved, by vertex and package count. On the garage-day pose it reads
+  `bbox=1 prim=2` per frame and zero everywhere else, and on the outer-road pose
+  it reads zero everywhere - so the design converges and the garage contains
+  three callers that lie to it.
+- **`STAPIPMISS` splits `bbox=` from `content=` since the content-version
+  contract**, and the split is the point: `bbox=N content=0` is a mesh that
+  MOVED, `bbox=0 content=N` is one that was RE-SHADED. Both used to read as
+  `bbox`, which is why "the cache churns" was never actionable. At garage day
+  the district now reads `bbox=300 content=600` over 300 frames and names the
+  2 280-vertex bag - the two cars' paint pass.
+- **THE ADVERSARIAL ARM IS THE ONE THAT FINDS REAL DEFECTS, AND IT NEEDS NO
+  CONTROL.** `TYRA_STAPIP_BAKED_VERIFY` rebuilds every block with the ordinary
+  writers and compares, so it runs under `--keep-routes` with the traffic
+  MOVING - the one fixture where a missing invalidation can fire, and the one
+  where an A/B is impossible (two arms never share a frame). `failed=0` is the
+  acceptance. Measured 2026-09-17: **169 843 blocks checked, `failed=0`** over
+  ~12 600 frames. **Enrich its MISMATCH line before hunting**: the program
+  class and first differing quadword alone cost a lot of guessing; the stream
+  pointers plus the differing quadword's four floats named the caller in one
+  run (three equal RGB lanes drifting by 0.012 is a camera-dependent shade and
+  nothing else is).
+- **`--profile quiet-debug` turns Live Debugger OFF, so `--capture-frame` does
+  not work on that fixture.** The counters (`FTCLIP`, `STAPIPBAKE`,
+  `STAPIPMISS`) do. For the pixel half of the gate, flip `"liveDebug": true` in
+  the fixture's `.tyra` for BOTH arms rather than changing profile between them.
+
+### Skip-when-unchanged acceptance, and the fixture that lies about it (1.100)
+
+`benchmark-district.py` **strips every vehicle's route** (it pops
+`vehicle.route` from every object JSON) so the fixture is deterministic. For
+almost every change that costs nothing. For any change that **skips work when an
+input did not change** it is a trap: every car is still, every frame, forever, so
+a skip test that would never fire in a real district scores 100%. **A number from
+the parked fixture alone is not evidence for such a change, and saying so is part
+of the result.** Pass `--keep-routes` for a second fixture whose AI drivers are
+driving (camera still frozen, player still pinned) and quote both — the parked
+best case and the moving realistic case. The cost of the second is determinism:
+with traffic moving the pixels are not repeatable, so run the `--capture-frame`
+A/B on the parked fixture and take only timings and counts from the moving one.
+
+The wheel-batch round is the worked example (`docs/wheel-rebake-skip.md`). Its
+per-frame counters are `WHEELBAKE cars=N rebuilt=M wheels=W rebuilt=X batches=B
+stamped=S per 300 frames` in the game's `bin/log.txt`, behind
+`TYRA_WHEEL_REBUILD_REPORT`, **default 0** — it is a timed `host:` write, so it
+is off for the same reason `STAPIPRET` is, and it must not be armed inside a
+`benchmark-district.py` sampling window. Unlike `STAPIPRET` it lives in the
+GENERATED game, so it is flipped in `src/templates.cpp` (or `-D` on the game's
+own compile), not in an engine header. `stamped` against `batches` is the second
+lever read directly: it is how many submits bumped `bboxVersion`, and on parked
+traffic it should fall to zero once the pose settles.
+
+**A FIXTURE GENERATED BY A STALE EDITOR BINARY MEASURES A DIFFERENT GAME, AND
+NOTHING IN ANY LOG SAYS SO.** This is the morning's stale-generated-sources rule
+wearing different clothes, and it is worse, because regenerating the fixture -
+the documented fix for that one - does not help if the *editor doing the
+regenerating* is old. Measured on this branch, same day: a control fixture
+generated by an editor binary that predated the imported-model batching merge
+carried `keyL=0` / `batchStatic=0` where the candidate's carried `keyL=3`, so a
+wheel-code A/B silently straddled the batching boundary and reported **-2.949 ms
+where the honest number was -1.838**, with a +682/+875 triangle difference that
+sent two people hunting a phantom. **Rebuild the editor for the control arm too,
+from the commit you mean, and diff the two generated `terrain_game.cpp` before
+you measure** - the diff should contain your change and nothing else, and
+`keyL=` / `batchStatic=` are cheap canaries. Separate fixture directories do not
+protect you here: the arms really were two builds, they were two builds of two
+different games.
+
+### Pricing a CULLING change in PCSX2: counts, plus a batching-OFF third arm
+
+A change to what gets *grouped* or *culled* is measurable in the emulator
+without ever quoting a millisecond, and on this repo's rules that is the honest
+way round: PCSX2 emulates no EE data cache, so its times mislead, while its
+**counts and its pixels are exact**. The recipe that priced the static-batch
+cell (1.102.1, docs/model-pipeline.md):
+
+- **The counters are two log lines, not an instrumented loop.** Set
+  `TYRA_FRAME_PROFILE` to 1 in `vendor/tyra/engine/inc/debug/frame_profile.hpp`
+  (**identical in every arm, and reverted before committing** - it is a
+  measurement flip, not a change) and the game prints `FTCLIP` every 50 frames:
+  package and triangle counts per clipper route, `flush` (packet flushes),
+  `verts` and `out`. Divide by 50 for per-frame; total VU1 packages is
+  `cull + clip + guard + out`. The generated game prints `Static batching:` at
+  scene load for the batched/solo split. No `instrument-frame-cost.py`, no
+  patched `loop()`, and nothing to regenerate away.
+- **RUN A BATCHING-OFF THIRD ARM, and make it the reference.** Two arms tell you
+  a change moved; they cannot tell you which one is *right*. `staticBatching:
+  false` in the `.tyra` renders the ground truth. That third arm is what turned
+  "the new cell is cheaper" into the much stronger "the new cell is
+  byte-identical to no batching at all, and the OLD one drew 400 pixels of props
+  the unbatched scene culls" - a visible defect nobody was looking for.
+- **A steady count is not a steady picture.** Check both gates separately. The
+  adversarial fixture for that round had counts identical to the digit across
+  four consecutive `FTCLIP` windows in both arms while its *captures* differed
+  by 283-419 px **within one arm**, so its numbers were quotable and its pixels
+  were not. Report which gate a fixture passes rather than assuming determinism
+  travels from one to the other.
+- **Watch for the DOMINATED case, because that is the one that can only lose.**
+  Batching on a big map was worse on both axes at once - more triangles *and*
+  more packet flushes - which needs no hardware to condemn. With the cell fixed
+  the same feature became a pure win on one map and a genuine trade (+23.5%
+  triangles, -43% flushes) on another. "Worse on every axis" is a verdict;
+  "worse on one, better on another" is a question for the console.
+- Usual hygiene, all of which this round needed: short paths outside the repo,
+  one PCSX2 launched per arm by hand (never `--build --run`, which reaps other
+  sessions' emulators), `frame.tga` deleted between `--capture-frame` calls or
+  the next one reads the previous file, and a DAY pose on the district because
+  the night ones flicker.
+
+**HASH THE TWO ELFs BEFORE YOU BELIEVE A NULL RESULT.** The cleanest way to
+A/B a codegen change is one project directory and two compiles, swapping only
+the generated `src/terrain_game.cpp` between them - it removes the fixture, the
+assets and the scene as variables in one move. It also has a trap that returns a
+*perfect* null and looks like a clean result: **`Copy-Item` (and `cp -p`, and
+`git checkout` of a file) carries the SOURCE's timestamp across**, so the
+swapped-in file can be OLDER than the object `make` already built from the other
+arm, `make` does nothing, and both arms run the same ELF. Measured here: two
+arms whose sources differed by 332 lines produced **byte-identical ELFs**, and
+every routing counter in all four poses read a delta of exactly 0.0 - which is
+indistinguishable from a real null and was nearly reported as one. After
+swapping, stamp the file (`(Get-Item $f).LastWriteTime = Get-Date`), delete the
+matching `.o` in BOTH the project and the `-Cache` tree, and then **hash the two
+ELFs and check they differ**. A null A/B is only evidence if the two arms were
+two builds. (An `instrument-frame-cost.py` pass happens to rewrite the file and
+bump its mtime, which is why that flow does not hit this.)
+
+Two correctness checks this class of change needs and a timing A/B does not:
+
+- **A skip must be a NO-OP, not a cheaper approximation.** Hold the old code as
+  an oracle and compare the live buffer against a full rebuild *every* frame,
+  including the frames that skipped. The failure mode is one frame of staleness,
+  which a still screenshot cannot see and a frame-time table rewards.
+  **Run that oracle INSIDE the game, not only in a host harness.** A host
+  harness checks the inputs you thought of; an in-game one checks the inputs the
+  game actually produces - a driving car, an LOD crossing, a rig entering and
+  leaving the batch - and it reports a number instead of asking you to squint at
+  a PNG. The wheel round's is `TYRA_WHEEL_REBUILD_VERIFY` (default 0; it costs
+  more than the work it checks, so it never ships and never goes in a
+  measurement): it re-derives every drawn car's wheels with the PRE-CHANGE
+  arithmetic and byte-compares, printing `VERIFY checked=N STALE=M`. Do not
+  reshape the hot path to share code with the checker - independent code catches
+  more, and a refactor invalidates whatever the console has already measured.
+- **Anything hoisted out of a loop must be BIT-identical, not equivalent.** A
+  reassociated rotation differs in the last place and that is a moved pixel. Do
+  the trigonometry once but keep the same operations in the same order on the
+  same operands, and prove it over a wide random spread including the degenerate
+  branches - a native harness that links neither the editor nor the engine does
+  this in seconds and costs no emulator boot.
+
+### Static submission batch acceptance (1.93)
+
+Use complete baked resource hashes, four parked day/night poses, warmed
+unarmed frame-cost rows, a second baseline boot and GS captures. Texture
+residency must be stressed separately: evict while a batch is pending and
+switch the pipeline away/back, then verify fresh frame progress, reuploads
+and intact textures. Night images contain animated star twinkle and lamp
+flicker; compare repeated same-build captures before calling a pixel delta
+a renderer regression. A lower DMA count alone is not acceptance: the larger
+bag prototype reduced sends but increased pipeline waits. See
+docs/static-submission-batching.md for measurements and the evidence recipe.
+
+### Hull and reflection proxy acceptance (1.111.0)
+
+For a hull proxy, bake a concave multi-material OBJ through the Properties UI,
+resave, refresh generated assets, and inspect the emitted OBJ: one `usemtl`,
+`4n-4` faces for its convex XZ ring, and a non-billboard far assignment. Boot
+near/far poses and verify collision/picking identity from generated scene data.
+For material consolidation, use a fixture with repeated `usemtl` groups that
+resolve to identical state and inspect `.tmdl` part counts; include a captured
+4/8/16-view impostor as the negative control whose ordered parts must survive.
+For a reflection box proxy, compare the per-producer frame inventory and a
+console self-capture with only `reflectionProxy` changed. The env-probe object
+row should fall to one bag / one package while the main-view rows and generated
+collision fields remain identical.
+
+For automatic road junctions, cross two roads with the same intersection
+texture, one road with no value and one pair with different values. The first
+pair alone must produce a `ROAD_JUNCTIONS` row, with 12 vertices / four triangles
+on flat ground. Since 1.151.2, uneven junctions refine conformingly on the host
+(up to 256 triangles), then ship baked XYZUV in `ROAD_JUNCTION_VERTS`.
+The viewport and PCSX2 patch must match. `verify-road-twins.py` also exercises
+terrain folds and both Market endpoints, proves the old fan regression is
+triggered, sweeps clearance and checks nonempty runtime junction uploads. Move one spline
+off the crossing, resave and refresh: the row must disappear. Always rerun
+`verify-road-twins.py`. For the physical-PS2 stretched-road regression, inspect
+the generated road STs first: each chunk's V must begin in `[0,1)` and stay
+bounded by roughly that chunk's nine repeats. Then park the same camera on
+hardware and confirm lane markings survive; PCSX2 is only the topology/image
+regression arm because it never reproduced the original smear.
+Road strips ship on since 1.117.2. `ROADSTRIP ... strips 1` is expected; use
+`TYRA_STRIP_ROADS=0` only as the list control. Across an A/B, compare the
+producer's surface-triangle count (it must be identical), then packages,
+vertices, synchronized frame costs and several physical-console road views.
+
+### Read live bbox counters for per-object attribution
+
+`StaPipCore::takeTelemetry()` folds `cacher.stats` into `telemetry.attrib`
+and resets it. Peeking `telemetry.attrib.bboxCache*` around an individual draw
+therefore yields zero deltas even when that draw replaces cached boxes.
+Instrumented per-object probes must snapshot the live `cacher.stats` as well
+as the live telemetry brackets. Frame exports taken via `takeTelemetry()`
+remain correct. The first three 2026-09-28 causal arms retain those deferred
+per-object zeros; the cache control/candidate/repeat arms fix that reader and
+identify two fresh replacements per frame in each of Ravager and Pica.
+Keep each A/B group on one ELF with a boot-only switch; report instrumented
+times separately from the production 23.923 ms baseline. The archived probe
+patches and complete captures are in the example's `night-entry-hardware-2026-09-28/causal/`.
+
+### Accept a bbox-cache change against fresh canonical bounds
+
+The 2026-09-28 count-variant acceptance compares cached main boxes, every
+child box, merged min/max ranges and coarse bounds to freshly constructed
+`StaPipBagPackagesBBox` instances on physical PS2. It also checks repeated
+full/prefix requests, content-version bumps, hundreds of changing counts,
+different VU package sizes, recycled-address versions, full expiry and hash
+index reconstruction after partial expiry. The oracle is a correctness arm;
+its timings cannot be used as performance data. The shipped engine keeps
+`TYRA_STAPIP_ATTRIB=0` and carries none of the oracle/boot-toggle/raster hooks.
+See the example's `night-entry-hardware-2026-09-28/fix/README.md` for patches
+and the 3,470 lifecycle cases plus 48,803 live requests.
+
+Scenario overrides must run after the initial scene creates vehicle instances,
+at the simulation boundary. A first-loop override can see an empty array and
+be replaced by `bootFirstScene()`. Export traffic positions/speeds and reject
+a nominal parked control if another car moves; the first acceptance fixture
+caught exactly that error. Continuous driving windows are selected by actual
+position, not a presumed frame count. Quality-reduction probes may change FPS
+and thus physics substep cost; compare render/finish as well as total work.
+
+## Exact first-entry HUD acceptance (1.150.1)
+
+Use the stationary night fixture and record every frame through the exact
+driver transition. Compare one ELF with a boot-only old/new HUD gate and
+repeat the control. A config read must be guarded by the one-time init result,
+not merely follow a helper whose internal `done` returns false on later frames:
+otherwise host I/O happens every frame and the timing control is invalid.
+Check single-init logs, identical ELF hashes, driver/speed/traffic state and
+aligned CSVs. Keep first-entry work/HUD/uploads separate from warm medians.
+
+For lifecycle acceptance, revisit scenes, count atlas copies and check sprite
+and texture identity; evict VRAM and reload normally. Plain and unknown-token
+strings must not request the icon sheet. A valid icon must load once and reuse
+its sheet thereafter. Run these loading/render checks after timing, never
+inside the benchmark window. Compile a non-vehicle orbit project too. Physical PS2 measurements are authoritative; emulator boots and
+images are correctness evidence only.
+
+For the HUD lifetime probe, mutate VRAM inside an active render frame after
+scene submission and before frame end, then test resolved icons in ordinary
+HUD frames. The between-frame forced mutation stalled at the barrier in
+PCSX2; do not count that or a blocked forced scene transition as passed
+lifecycle evidence. Repeated font preparation is distinct from full scene
+revisit acceptance. Correctness-only -O1 harness timings are never hardware
+performance evidence.
+
+## Road editing (1.151.0)
+
+Road loops repeat the first XZ pair at the end of `roadPoints`; `roadgen::isClosed`
+and `controlCount` hide the seam sentinel from editing. The host and generated
+`buildRoads` wrap Catmull-Rom neighbours and final tangents together. No format
+field was added. `moveControl`/`removeControl` preserve closure and minimum counts.
+Properties has collapsible Crossings/Points and a reversible Closed loop toggle;
+viewport Shift-click deletes, endpoint snap closes at release, one undo each.
+Outlines reuse `Viewport::RoadDraw`; full-width soft borders retain a separate
+outline. During viewport drag only, both crossing caches defer work until release.
+Verify loop seams and open-road parity with the vehicle-playground road twin
+oracle; UI scripts can target `Road point N` handles and use `shiftclick`.
+
+## Vehicle defaults and chase-camera acceptance (1.153.0)
+
+Resave a legacy definition and verify its tuning stays local. In a scratch
+project, change global accel, damage and nosCapacity; verify inheritance, local
+accel and zero-capacity overrides plus a silent sounds override survive save/load
+and reach VEHICLE_DEFS. Global defaults must work without vehicles. UI scripts
+can target Global defaults, Inherit global defaults and Has nitrous. Boot a
+third-person Player beside a car, press Use, verify VEH avatar 0 while seated,
+then exit and check visibility/door placement. A blocker behind the chase boom
+must reduce boom100 below want100; removing it must restore the distance. Include
+rotated boxes, terrain, collision-none, self exclusion and far/rear views. The
+clearance pass runs after shake, not only on the unshaken rig.
+
+Vehicle Editor UX: use an isolated vehicle-playground copy. Assert three car rows, `Vehicle preview canvas`, `Spin wheels`, and `Listen to engine`; set Speed above/below the fast-wheel threshold, orbit/zoom, capture normal/fast/steered previews for all three cars, and check audition stays checked (device/decoder opened), updates with Revs, and stops on selection/close. In Cost, attempting to change a triangle slider before the advanced checkbox must leave the saved budget unchanged; unlock and verify edit/save/reload. Reflection texture choices are thumbnails with Dynamic sky and Import PNG. Host audition differs from SPU2 ADPCM; a native build verifies the new idle WAV encodes as a loop.
+
+Vehicle inheritance: create a new car, save and assert no tuningOverrides plus
+resolved global fields. Edit a single Driving/Driver/Sounds parameter and check
+only its field key is added. Change a global sibling field and check it reaches
+all cars while the edited field survives. Use defaults must remove only the
+current section's overrides, then survive save/reload. Pre-83 local/group files
+must preserve authored values, including empty sounds and zero volumes.
+For tyre reduction, test @auto at 32 triangles on all three models, inspect
+actual cost and the continuous outer tyre, then test authored wheel_blur at
+speed and from both sides. None/@auto must still detect exactly four wheels
+when the source GLB contains wheel_blur. Verify original GLB mesh/material/image
+prefixes remain unchanged and repeat authoring is byte-identical.
+
+Vehicle sound import: select an ordinary WAV without -loop.wav in idle/high-rev
+and tyre-squeal dropdowns, save/reload and audition. Headlights must appear only
+in Effects; its Use defaults resets the Effects override without resetting
+Sounds. Verify optional vehicle_sound_loops.gen.txt is rewritten/deduplicated
+and deleted when the last ordinary continuous role is removed. Check native
+and Docker encoder header byte 6 through one-shot -> loop -> one-shot while WAV
+mtime is unchanged; gear-shift-only sounds stay one-shots, suffix loops stay
+loops. Include paths with spaces and an already-fresh encoded cache.
+
+
+Sound effect conversion (1.157.0): `wavconvert::soundIssue` requires canonical
+mono PCM16/22050; import and Project > Sounds > Convert downmix too. Runner calls
+`wavconvert::bakeSounds` AFTER texbake and BEFORE either build backend, preparing
+`.res-baked/sfx` without modifying `res/sfx`. Both encoders read this mirror,
+check cached APCM byte 5 for mono as well as byte 6 for loop intent, and preserve
+the source path for role matching. A conversion error must fail the build.
+Test stereo PCM16, PCM24, float, extended headers and an odd metadata chunk;
+verify duration, source hashes, incremental mtime stability and ADPCM mono/loop
+headers in BOTH backends. Decode the actual ADPCM and compare the waveform to
+the converted WAV: header checks alone missed adpenc's corrupt stereo reader
+(`fread(wave+i, 2, ...)` advances by one byte). Music conversion stays stereo
+unless its own mono option is chosen.
+
+## Hybrid triple-buffer acceptance (1.153.0)
+
+Use a frozen-camera scratch project with solid geometry and HUD. Boot hybrid
+double/triple variants in the software renderer; compare the finished scene
+captures and inspect GS dumps for CT32 draw at slot 0, CT16 copies to slots
+1/2, DTHE on only during copies, and PSMZ32 depth. Check fresh frame progress
+and absence of alternating black frames. Exercise limiter on/off, field mode,
+a BLSS layout rebuild and a mode with insufficient headroom. In a mixed
+project, use a scratch global script with `ctx.requestDisplayMode` to switch
+field/full PAL at the normal pre-frame boundary, including while BLSS is
+scene-disabled; check 3/2 buffer grants and fresh captures after both switches.
+Regular 32-bit
+triple buffering must still rotate all three draw targets. Verify the
+Preferences checkbox can be enabled in Hybrid and persists after reopening.
+Space repeated `--capture-frame` CLI calls by more than one second: their
+command sequence is wall-clock seconds, so two calls in the same second are
+seen as the same command. A PCSX2 run establishes correctness, not hardware
+frame-pacing performance.
+
+## Procedural placement validation (1.154.0)
+
+Use a host harness to compare the spatial hash with an independent all-pairs
+AABB rejection oracle, including rotated/off-centre assets, differently sized
+models, clearance, cell boundaries and the giant-bound overflow. Check painted
+islands inside a footprint, upper-layer occlusion, absent terrain, spline bends,
+closed roads and road width/point edits invalidating bakeHash. Repeat evaluation
+and baking, and verify serialization and the runtime capability rejection.
+Drive Validate Placement's checkboxes and material picker through --ui-script.
+Use vehicle-playground's procedural scene for refresh-gen and a game boot;
+benchmark many candidates only in the host filter, not as a PS2 timing claim.
+
+For road path filtering (1.155.0), compare origins against an independent
+point-in-triangle oracle over straight, curved and closed road ribbons. Check
+legacy roads=0/1, both road targets, no roads and missing/non-road targets;
+Only must ignore canopy width but retain independent collision/material checks.
+
+Procedural parameter combos now register their scoped labels for UI scripts.
+Open Roads/Road/Material by name and assert the popup options; no coordinate
+workaround is needed for these node controls.
+
+## Frozen procedural bake acceptance (1.156.0)
+
+Freeze a stale/unbaked scratch volume, then move roads, edit terrain/materials,
+seed and graph parameters. Compare generated object JSON and mesh hashes before
+and after both ordinary and forced bakeAll and refresh-gen. Save/reload and
+repeat; anyStale must ignore it and explicit bakeVolume must refuse. Unfreeze,
+assert staleness and rebake; output must change. Verify missing frozen defaults
+off and equality notices the flag. Runtime freezing must fail without mutation.
+Drive Frozen with --ui-script, save/reopen, inspect the checkbox and disabled
+bake/clear/mode/instance controls. Capture the viewport too: frozen chunks must
+remain visible without live instances, and Show preview must hide them.
+
+## Scene object data iteration regression
+
+After warming a scratch native game, move an authored object and refresh
+generation. Compare the header and script timestamps: for a value-only move,
+`scene_objects.gen.cpp` should be the only compiled source when other bakes
+stay unchanged. Also test ordinary object additions/removals (which should keep the header
+stable), scene-count changes, color edits, empty scenes,
+baked scroller clones, both camera templates and a custom script that reads
+`SCENE_OBJECT_TABLES`. Check old/new initializer rows for exact equivalence and
+boot the resulting game. Test culling both enabled and disabled: static-box
+additions must update its proxy data without changing the declaration header.
+Feature and other derived-table edits may rebuild more. Profile a remaining
+large compile with GCC `-ftime-report` before assuming parsing/I/O is its cost.

@@ -525,6 +525,16 @@ std::string App::blssVramLine(const ProjectSettings& s) const {
     const int zOut = blssBufferWords(outW, outH);
     const int zLow = blssBufferWords(lowW, lowH);
     const int target = blssBufferWords(lowW, lowH);
+    if (s.blssAdaptive) {
+        char adaptive[320];
+        std::snprintf(
+            adaptive, sizeof(adaptive),
+            "    Adaptive %s costs %d KB of GS VRAM on this project's %dx%d output: "
+            "the full-size z-buffer\n    remains resident so native/reduced switches "
+            "are allocation-free, and the %dx%d colour target is additional.",
+            sx == 1 ? "1x2" : "2x2", target * 4 / 1024, outW, outH, lowW, lowH);
+        return adaptive;
+    }
     const int net = zOut - zLow - target;
     char buf[320];
     if (net > 0)
@@ -805,6 +815,7 @@ bool App::drawBlssSettings(ProjectSettings& s, BlssDetail detail) {
         ImGui::SetNextItemWidth(scaled(520));
         if (ImGui::Combo("Mode", &mode, modeNames, 2)) {
             s.blssNetwork = mode == 1;
+            if (s.blssNetwork) s.blssAdaptive = false;
             changed = true;
         }
         help(
@@ -843,6 +854,23 @@ bool App::drawBlssSettings(ProjectSettings& s, BlssDetail detail) {
             "temporal pass can fuse two jitter phases, and plain mode has no\n"
             "temporal pass - jitter without one is the period-2 bob and nothing\n"
             "else.");
+
+        ImGui::BeginDisabled(s.blssNetwork);
+        if (ImGui::Checkbox("Adapt resolution to frame budget", &s.blssAdaptive))
+            changed = true;
+        ImGui::EndDisabled();
+        help(
+            "Starts each scene at native 3D resolution. After four sustained\n"
+            "missed display fields it switches to the selected reduced raster;\n"
+            "after three seconds of full-rate headroom it briefly probes native\n"
+            "again. HUD, menus, text and post effects always stay native.\n"
+            "Available only in Plain mode, where the decision itself is cheap.",
+            "Both raster layouts are reserved at boot. Switching therefore moves\n"
+            "no GS memory and evicts no textures, but the z-buffer must remain\n"
+            "full-size and the low-resolution colour target is additional\n"
+            "overhead. Adaptive mode trades the fixed upscaler's VRAM saving for\n"
+            "automatic speed recovery and stable hysteresis. Scene loads get a\n"
+            "30-frame warm-up so asset streaming cannot force a false downgrade.");
 
         int scale = s.blssScale == 1 ? 1 : 0;
         // Deliberately no resolution in these labels. They used to read "(256x224

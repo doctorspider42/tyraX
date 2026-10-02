@@ -17,10 +17,10 @@ Two signs on identical pedestals, with **identical `Kd`** (`0.1 0.9 1.0`):
 
 | Side | Material | `Ke` |
 | --- | --- | --- |
-| Left, `s1-sign-MATTE` | `sign-matte.mtl` | *none* |
-| Right, `s1-sign-GLOW` | `sign-glow.mtl` | `0.1 0.9 1.0` |
+| Right, `s1-sign-MATTE` | `sign-matte.mtl` | *none* |
+| Left, `s1-sign-GLOW` | `sign-glow.mtl` | `0.1 0.9 1.0` |
 
-The left one is a barely visible dark silhouette; the right one is full cyan.
+The right one is a barely visible dark silhouette; the left one is full cyan.
 Same color, same scene, one line of `.mtl`. Neither lights its pedestal —
 that's station 3's job, kept separate on purpose.
 
@@ -51,7 +51,7 @@ The pool on the ground has a quadratic falloff measured from the **plane's
 surface**, not its center — which is why the whole plate lights evenly instead
 of blooming from a point.
 
-`s3-shadow-wall` is the shadow demo — a slab between the pit and the far right
+`s3-shadow-wall` is the shadow demo — a slab between the pit and the far left
 pillar. The light doesn't pass through it: the pillar behind is dark on the
 side facing the pit, and the ground carries the wall's shadow. Untick the
 wall's *Cast shadow* in Properties and the shadow disappears (the flag is
@@ -140,7 +140,7 @@ dominated by ordinary geometry, not the glow.
 
 ## Things to try
 
-- Open `sign-matte.mtl` in the Material Editor and drag **Glow** up: the left
+- Open `sign-matte.mtl` in the Material Editor and drag **Glow** up: the matte
   sign lights up in the viewport as you drag, and the panel tells you what the
   project's bloom is set to.
 - Give `concrete.mtl` a tiny glow (0.15, no light) — the whole alley turns
@@ -150,3 +150,13 @@ dominated by ordinary geometry, not the glow.
   the floor and the light, in one click.
 - Raise **Spread** to 1.0 in the UI Editor: at some point the corona stops
   reading as glow and starts reading as haze. That's the knob's honest limit.
+
+Generated object values live in `src/gen/scene_objects.gen.cpp`;
+`inc/scene_data.hpp` keeps stable declarations. Counts and object IDs live in
+the same data file, so ordinary moves, color edits, additions and removals can
+rebuild it alone. Changes to features or derived tables can still rebuild consumers.
+
+Generated game methods are split between `src/terrain_game.cpp` and the
+`src/gen/game_*.gen.cpp` subsystems, with shared inline helpers/state in
+`inc/game_runtime.gen.hpp`. Header changes can compile these units in parallel.
+The main file remains user-ownable; generated subsystem files refresh on build.

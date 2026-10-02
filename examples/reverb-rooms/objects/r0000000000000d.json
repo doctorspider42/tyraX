@@ -1,1 +1,1 @@
-{"id": "r0000000000000d", "name": "chamber-floor", "type": "box", "position": [-27, 0.05, 12], "rotation": [0, 0, 0], "scale": [14, 0.1, 16], "color": [0.2, 0.32, 0.24], "physics": false, "collision": "none"}
+{ "id": "r0000000000000d", "name": "chamber-floor", "type": "box", "position": [-27, 0.05, 12], "rotation": [0, 0, 0], "scale": [14, 0.1, 16], "color": [0.2, 0.32, 0.24], "physics": false, "collision": "none" }

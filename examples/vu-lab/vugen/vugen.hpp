@@ -157,6 +157,7 @@ class Vu {
     void branchIfNotEq(IVal a, IVal b, Lbl l);
     void branchIfEq(IVal a, IVal b, Lbl l);
     void branchIfGtz(IVal a, Lbl l);
+    void branchIfGez(IVal a, Lbl l);
     void branchIfLtz(IVal a, Lbl l);
 
     // --- the clip family's own primitives ---------------------------------
@@ -366,7 +367,7 @@ struct StageDef {
 /** The catalogue. Ordered by slot, then by how often you would reach for it. */
 const std::vector<StageDef>& stageDefs();
 /** nullptr when the key names nothing - an unknown stage is DROPPED rather
- * than guessed at, the flowLegacyNodes rule. */
+ * than guessed at, the readFlowGraph rule. */
 const StageDef* stageDef(const std::string& key);
 
 /** One authored parameter value: a literal, or field `meshSlot` of the per-mesh
@@ -474,6 +475,13 @@ struct Desc {
      * shading branch differs; custom programs remain fully specialised. */
     bool sharedClipDir = false;
     bool sharedClipEnv = false;
+    /** TC's image ALSO covers TD: same three-stream input (the normals sit
+     * where TC's colours do), same stride-3 scratch polygon, same GIF register
+     * list. Selected by VU1_OPTIONS_ADDR.x < 0 - a lane that was only ever
+     * tested `> 0` (single colour) against `<= 0`, and a TD mesh is never
+     * single-colour. Within the env branch (TD bags also set .y > 0), so the
+     * TC colour path pays nothing for it. */
+    bool sharedClipTexDir = false;
     /** The image an EE wrapper actually UPLOADS for this program, as a
      * `.name`/linker symbol stem. Empty means the program owns its own image;
      * otherwise it names the ABI-compatible peer whose image covers this one,
@@ -495,6 +503,9 @@ struct Desc {
     /** Test-harness value written to VU1_OPTIONS_ADDR.y. It does not change
      * generated code; non-zero selects the shared image's peer path. */
     int runtimeClipVariant = 0;
+    /** Test-harness value written to VU1_OPTIONS_ADDR.x instead of the
+     * single-colour flag when non-zero (negative selects TC's TD path). */
+    int runtimeColorLane = 0;
     std::string dir = "as_is";  // sub-directory under programs/
 
     /** A PROJECT's own program: the same skeleton with a stage list woven in.
@@ -707,6 +718,9 @@ std::vector<float> simulateKernel(const BuiltKernel& b, const KernelDesc& k,
 
 /** Result of running two programs on identical input and diffing what they
  * staged for the GS. */
+// Independent numeric oracle for signed RGB SH and the classic fallback.
+bool checkLighting(std::string& error);
+
 struct Equivalence {
     bool ran = false;
     bool identical = false;
@@ -727,6 +741,32 @@ Equivalence equivalence(const vuir::Program& a, const vuir::Program& b,
                         const Desc& d, int trials, uint32_t seed,
                         const float customParams[4] = nullptr,
                         float customTime = 0.0f);
+
+/** The input the EE hands an EXPERIMENT image (stapip_vu1_experiments.hpp)
+ * that it does not hand the shipping one. `b` runs on memory staged exactly
+ * like `a`'s and then rewritten this way. */
+enum class ExperimentInput {
+    Same,            // (a): nothing changes on the EE - must be bit-identical
+    FoldedLights,    // (b): dirs = D * M (EE rounding), matrix slots garbage
+    UnitEnvNormals,  // (c): the ST-slot normals normalized on the EE
+};
+
+/** An experiment's verdict: every GS word must match exactly EXCEPT colour
+ * words (both integers <= 255), which may differ by up to `colorTol`, and
+ * float words (both normal floats), which may differ by up to `floatRelTol`
+ * relative. The maxima actually seen are reported either way, so a pass
+ * states its own tolerance. */
+struct Tolerance {
+    bool ran = false, within = false;
+    int trials = 0, maxColorDelta = 0, colorWordsDiffering = 0, words = 0;
+    double maxFloatRel = 0.0;
+    double maxFloatAbs = 0.0;  // the same words, absolute
+    std::string detail, error;
+};
+Tolerance experimentEquivalence(const vuir::Program& a, const vuir::Program& b,
+                                const Desc& d, ExperimentInput input,
+                                int trials, uint32_t seed, int colorTol,
+                                double floatRelTol, double floatAbsTol = 0.0);
 
 // ---------------------------------------------------------------------------
 // Micro-memory budget

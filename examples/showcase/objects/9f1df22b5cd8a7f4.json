@@ -1,0 +1,1 @@
+{ "id": "9f1df22b5cd8a7f4", "name": "sea-stack-4", "type": "model", "position": [-24, -9, -80], "rotation": [0, 0, 0], "scale": [2, 1, 2], "color": [1, 1, 1], "physics": false, "collision": "none", "drawDistance": 150, "model": "res/aster/island.obj" }

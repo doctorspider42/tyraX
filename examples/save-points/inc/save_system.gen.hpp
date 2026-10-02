@@ -10,7 +10,7 @@ namespace Save_points {
 // (libmc, card-root-relative path). When the BIOS mc modules cannot
 // be loaded or no formatted PS2 card responds, the slots fall back
 // to save<n>.sav next to the ELF (host: under PCSX2).
-constexpr int SAVE_SLOTS = 23;
+constexpr int SAVE_SLOTS = 3;
 constexpr const char* SAVE_MC_DIR = "/TYRA-SAVEPOINTS";
 constexpr unsigned int SAVE_MAGIC = 0x56535954u;  // "TYSV"
 // v2: SaveGameData gained the text-value block (SAVE_TEXT_*)
@@ -136,7 +136,7 @@ constexpr int SAVE_AUTOSAVE_SLOT = -1;
 // project have more slots than fit on one screen.
 constexpr int SAVE_MENU_INDEX = 0;
 constexpr int SAVE_SLOTS_PER_PAGE = 3;
-constexpr int SAVE_PAGES = 8;
+constexpr int SAVE_PAGES = 1;
 // (SAVE_COMMIT_AUTOSAVE / SAVE_COMMIT_NEXT live in scene_data.hpp:
 // the flow graph writes them and does not include this header.)
 

@@ -51,6 +51,29 @@ build. The editor tells you which graph and why, per graph, in the Debugger's
 A graph that did not exist at build time is also a rebuild case: Live Link can
 spawn a new *object*, but it cannot give one logic.
 
+**Branching nodes are a rebuild case too** — Flip Flop, Branch, Sequence, Gate,
+Switch Number, For Loop. A patched block is a straight list of instructions, so
+a node with two exec outputs has no shape in the IR; `capability()` rejects the
+graph and names it.
+
+## "But LIVE is green"
+
+LIVE and LOGIC are different features and answer different questions, which is
+the single most common confusion here:
+
+| chip | what it streams |
+|---|---|
+| **LIVE** (Live Link) | object edits — move, rotate, scale, recolour, show/hide, add/delete |
+| **LOGIC** (Live Logic) | the flow graphs themselves |
+
+So a flow-graph edit with Live Link on and Live Logic **off** reaches nothing,
+while LIVE stays green — correctly, because it is still streaming object edits.
+That used to be silent. The toolbar now shows an amber **LOGIC (off)** whenever
+a graph differs from the one the running build compiled and Live Logic is off:
+*Build & Run (F5), or turn Live Logic on in Project Preferences > Build.* The
+check costs one hash per graph and no compile, which is why it can run with the
+feature switched off.
+
 ## How it works
 
 The editor compiles, the game interprets.

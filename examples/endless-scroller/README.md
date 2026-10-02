@@ -23,7 +23,7 @@ belt fills behind you too, out to the *keep-behind* distance.
 - **tunnel-belt** is the Scroller (Insert > World > Scroller (endless)),
   invisible in the game, its +Z pointing down the corridor. Speed is **−7**
   units/s (negative = the content flows toward the player), the window is
-  **45 ahead / 6 behind**, and it runs at start.
+  **45 ahead / 24 behind**, and it runs at start.
 - Its single segment **tunnel-ring** (length **3**) lists four member objects —
   `floor`, `wall-left`, `wall-right`, `arch-beam` — authored once around the
   origin. The floor and walls are 3 units deep so they tile into a seamless
@@ -37,7 +37,7 @@ belt fills behind you too, out to the *keep-behind* distance.
   [docs/endless-scroller.md](../../docs/endless-scroller.md).)
 - At build the editor bakes enough clones of those four objects to fill the
   window (see `SCROLLERS` / `SCROLLER_CLONES` in `inc/scene_data.hpp`) and the
-  generated `src/scripts/scroller.gen.cpp` slides them each frame. The authored
+  generated `src/gen/scroller.gen.cpp` slides them each frame. The authored
   members are hidden templates — edit them and the whole tunnel changes.
 
 Change the look with almost no work: retint or resize the four members, add a
@@ -45,3 +45,13 @@ second segment (e.g. a wider "cavern" ring) so the tunnel alternates, or drive
 **Set Scroller Speed** from the flow graph to accelerate as the game ramps up.
 
 Full guide: [docs/endless-scroller.md](../../docs/endless-scroller.md).
+
+Generated object values live in `src/gen/scene_objects.gen.cpp`;
+`inc/scene_data.hpp` keeps stable declarations. Counts and object IDs live in
+the same data file, so ordinary moves, color edits, additions and removals can
+rebuild it alone. Changes to features or derived tables can still rebuild consumers.
+
+Generated game methods are split between `src/terrain_game.cpp` and the
+`src/gen/game_*.gen.cpp` subsystems, with shared inline helpers/state in
+`inc/game_runtime.gen.hpp`. Header changes can compile these units in parallel.
+The main file remains user-ownable; generated subsystem files refresh on build.

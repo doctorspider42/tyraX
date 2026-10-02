@@ -4,7 +4,7 @@ Flow nodes (`.flownode`), screen effects (`.screenfx`), **menu stylesheets**
 (`.menustyle`) and **VU1 microprograms** (`.vclpp` / `.vcl` / `.vsm`). See
 `docs/vscode-extension.md`.
 
-Language support for the text-file formats [TyraX](https://github.com/doctorspider42/tyra-editor)
+Language support for the text-file formats [TyraX](https://github.com/doctorspider42/tyraX)
 projects carry:
 
 - **`.flownode`** — [custom flow-graph nodes](../../docs/custom-flow-nodes.md)

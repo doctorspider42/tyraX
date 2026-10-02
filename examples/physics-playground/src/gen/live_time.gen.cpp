@@ -46,10 +46,10 @@ constexpr u32 TM_FOOTER_XOR = 0x5A5A5A5A;
 constexpr int TM_OBJ_STRIDE = 112;
 // Authored objects plus the runtime spawn pool: a capture covers the clones
 // too, or rewinding past a Spawn Object leaves the clone standing there.
-constexpr int TM_MAX_OBJECTS = 62;
+constexpr int TM_MAX_OBJECTS = 70;
 constexpr int TM_MAX_VARS = 1;
 constexpr int TM_MAX_SAVES = 1;
-constexpr tllu64 TM_LAYOUT = 1262277444791132247ull;
+constexpr tllu64 TM_LAYOUT = 4382059512658551559ull;
 constexpr int TM_GRAPH_BYTES = 485;
 constexpr int TM_STATE_MAX = 2 + TM_MAX_OBJECTS * TM_OBJ_STRIDE + 30 + 2 +
                              TM_MAX_VARS * 12 + 2 + TM_MAX_SAVES * 4 + 2 +
@@ -60,7 +60,7 @@ unsigned char buf[TM_HEADER + TM_STATE_MAX + 4];
 u32 seqOut = 0;         // captures written
 u32 frameNo = 0;        // monotonic across restores: the history's ordering key
 u32 lastRestoreSeq = 0;  // the restore we last applied
-int cooldown = 1;
+int cooldown = 13;  // poll phase - see docs/devkit.md
 unsigned int lastGen = 0xFFFFFFFFu;
 
 inline void put16(unsigned char* p, unsigned short v) { memcpy(p, &v, 2); }

@@ -1,5 +1,6 @@
 TARGET      := probe-aim.elf
-ENGINEDIR	:= /tyra/engine
+ENGINEDIR	?= /tyra/engine
+TYRA_MAKEFILE ?= /tyra/Makefile.base
 
 #The Directories, Source, Includes, Objects, Binary and Resources
 SRCDIR      := src
@@ -29,4 +30,4 @@ LIBDIRS     := -L$(ENGINEDIR)/bin
 INC         := -I$(INCDIR) -I$(ENGINEDIR)/inc
 INCDEP      := -I$(INCDIR) -I$(ENGINEDIR)/inc
 
-include /tyra/Makefile.base
+include $(TYRA_MAKEFILE)

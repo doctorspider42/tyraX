@@ -1,0 +1,1 @@
+{ "id": "district9635ea45", "name": "Night garage trim 3.0", "type": "box", "position": [-25, 3, -22.67], "rotation": [0, 0, 0], "scale": [10, 0.12, 0.08], "color": [1, 1, 1], "physics": false, "collision": "none", "reflected": true, "castShadow": false, "material": "res/materials/night-cyan.mtl" }

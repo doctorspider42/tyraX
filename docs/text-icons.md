@@ -51,6 +51,12 @@ project with no setup. Those names are also what makes `{{action:x}}` work: it
 resolves the action's pad button and looks up the icon named after it
 (lowercased).
 
+Two more built-in drawings exist but are not seeded: `lstick` and `rstick`, the
+analog sticks (a ring with L or R). No binding can name a stick, so only the
+[vehicle controls card](vehicles.md#controls-card) asks for them and adds them
+when it is switched on. To use them elsewhere, add icons with those names in
+*Button icons*; the PNG is generated on the next build like the others.
+
 The images are **drawn by the editor**, not shipped as blobs: the face buttons
 are geometry in the DualShock colors (blue ✕, red ○, pink □, green △), the
 d-pad four an arrow, and the shoulder/Start/Select ones their **label alone** -
@@ -140,7 +146,9 @@ very differently:
   `res/hud/icons.png`, with the rects in `inc/icon_data.gen.hpp`. The generated
   game blits a sub-rect per icon (`resolveIconToken`/`drawFontText`), and the
   sheet reaches GS VRAM **only the first time a text actually draws an icon** —
-  a project that uses no placeholders never pays for it.
+  plain speed/gear/NOS strings do not load it. Unknown tokens remain literal
+  text and do not request the sheet either. A project that draws no icons
+  never pays for this asset.
 
 Both sides derive their geometry from the same `iconAtlasLayout`, and the two
 advance formulas are twins (`iconAdvance` in menubake.cpp, `iconAdvanceFor` in

@@ -183,3 +183,9 @@ the audit can see it even though the PS2 toolchain strips symbols).
   used at the same time.
 - A pause/step from the Live Debugger freezes the world; the pad state still
   arrives, it just has no frames to act on until the game resumes.
+- An [input replay](input-replay.md) **overrides** this channel completely. The
+  recorder is the last stage of a frame's input and it *overwrites* the pad
+  rather than merging, so a `--pad` script running against a replaying game
+  changes nothing. The reverse is what makes `--record --pad` work: the
+  recorder reads the pad after the overlay has been folded in, so whatever the
+  Remote Pad presses is recorded as though a person had pressed it.

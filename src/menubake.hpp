@@ -185,10 +185,43 @@ std::string textFileName(const std::string& textName);
 // The RGBA form is the single bake; the PNG one wraps it. The editor viewport
 // uploads these pixels straight to GL (the night sky's soft dot is kind 2), so
 // there is no second, preview-quality sprite.
+//
+// Kind 2 - the 3D beam corona, which the star field also draws through -
+// bakes at 128, not 64: it is a world-space billboard that can fill a third
+// of the screen right next to its own lamp, and at 64 the radial gradient's
+// texels are ~4 px there, so the rim CONTOURS in visible steps (the second
+// half of the night-walk lamp staircase report; the first half was the
+// z-fight the corona pull in updateAndRenderLightBeams fixes). The 2D
+// lens-flare sprites stay at 64 - they draw small, alpha-shaped.
 constexpr int kFlareSpriteSize = 64;
+constexpr int kCoronaSpriteSize = 128;
+inline int flareSpriteSize(int kind) {
+    return kind == 2 ? kCoronaSpriteSize : kFlareSpriteSize;
+}
 void bakeFlareRGBA(int kind, std::vector<unsigned char>& rgba);
 bool bakeFlarePNG(int kind, std::vector<unsigned char>& png);
 std::string flareFileName(int kind);
+
+// --- Flashlight gobo (docs/flashlight.md) ------------------------------------
+// The camera flashlight's ground pool is a PROJECTED texture: the patch under
+// the beam takes its STs from the light's own frustum, so this image IS the
+// shape of the light and the terrain's vertex grid stops deciding it. Shape in
+// RGB - the pool is an additive bag (Cs*FIX + Cd), which never reads texture
+// alpha, same rule as the corona (kind 2 above).
+//
+// 128x128 rather than the flares' 64: this one is stretched over several world
+// units directly under the player's eye, and it is the thing being looked AT.
+// Costs ~6% of the ~1.08 MB texture heap (docs/gs-vram.md), so refreshGenerated
+// bakes it - and scene_data.hpp's FLASHLIGHT_USED gates the load - only for
+// projects that can show a flashlight or projected vehicle headlights
+// (templates::projectUsesFlashlight/projectUsesVehicleHeadlights).
+//
+// The profile fades to black well before the border (kGoboEdge below), because
+// the projected STs are clamped on the EE and a lit edge texel would smear
+// outward into a hard rectangle.
+constexpr int kFlashGoboSize = 128;
+void bakeFlashGoboRGBA(std::vector<unsigned char>& rgba);
+bool bakeFlashGoboPNG(std::vector<unsigned char>& png);
 
 // --- Sun and moon discs (docs/day-night-cycle.md) ----------------------------
 // The two sky bodies a day/night cycle draws, baked to res/hud/ by
@@ -326,6 +359,12 @@ std::string atlasFileName(const std::string& fontName);
 // lowercased pad-button names (see textIconNameForPad), which is what lets
 // `{{action:jump}}` resolve to a button's icon.
 const std::vector<std::string>& builtinIconNames();
+
+// Built-in drawings that are NOT seeded into every project: the two analog
+// sticks ("lstick", "rstick"), which are not buttons and so no binding can
+// name them. Added on demand (project::ensureStickIcons) - the vehicle
+// controls card asks for them - and generated like the rest once listed.
+const std::vector<std::string>& optionalBuiltinIconNames();
 
 // Draws the built-in icon `name` at px x px into RGBA `out`. False when the
 // name is not a built-in one (a user icon has a PNG instead) or px is unusable.

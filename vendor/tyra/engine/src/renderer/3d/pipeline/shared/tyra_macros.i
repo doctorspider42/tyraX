@@ -86,7 +86,7 @@
    lq.xyz      t_lightsColors[0],      t_colorOffset(vi00)
    lq.xyz      t_lightsColors[1],      t_colorOffset+1(vi00)
    lq.xyz      t_lightsColors[2],      t_colorOffset+2(vi00)
-   lq.xyz      t_ambientColor,         t_colorOffset+3(vi00)
+   lq.xyzw     t_ambientColor,         t_colorOffset+3(vi00)
 #endmacro
 
 ;//---------------------------------------------------------
@@ -226,11 +226,14 @@
    madd.xyz    acc,              t_lightDirections[1],   t_normal[y]
    madd.xyz    t_outputColor,    t_lightDirections[2],   t_normal[z]
    mini.xyz    t_outputColor,    t_outputColor,          vf00[w]
-   max.xyz     t_outputColor,    t_outputColor,          vf00[x]
+   max.xyz     t_outputColor,    t_outputColor,          t_ambientColor[w]
    mula.xyz    acc,              t_lightColors[0],       t_outputColor[x]
    madda.xyz   acc,              t_lightColors[1],       t_outputColor[y]
    madda.xyz   acc,              t_lightColors[2],       t_outputColor[z]
    madd.xyz    t_outputColor,    t_ambientColor,         vf00[w]
+   loi         255
+   mini.xyz    t_outputColor,    t_outputColor,          i
+   max.xyz     t_outputColor,    t_outputColor,          vf00[x]
    loi         128
 	addi.w      t_outputColor,    vf00,    i
 #endmacro
@@ -260,9 +263,14 @@
 ;//   z - fogScale  = -255 / (fogEnd - fogStart)
 ;//   w - fogOffset = 255 * fogEnd / (fogEnd - fogStart)
 ;// (x holds singleColorEnabled, y holds dynpip interpolation)
+;// Modified by TyraX: the REGISTER's x then gets a copy of the
+;// scale (every reader of the single-colour flag uses ilw from
+;// memory, and the dynpip lerp reads only y), which is what lets
+;// CalculateTyraFog multiply w by it in one instruction.
 ;//---------------------------------------------------------
 #macro LoadTyraFogParams: t_fogParams, t_optionsAddr
    lq          t_fogParams,   t_optionsAddr(vi00)
+   add.x       t_fogParams,   vf00,          t_fogParams[z]
 #endmacro
 
 ;//---------------------------------------------------------
@@ -284,10 +292,13 @@
 ;// (word3 bits 4-11; the 4 fraction bits fall into ignored
 ;// bits 0-3). GS blends Cout = (F*Cin + (255-F)*FOGCOL) >> 8,
 ;// so F=255 means no fog.
+;// Modified by TyraX: t_fogParams must come from LoadTyraFogParams,
+;// whose x lane holds the scale: w * scale is then ONE multiply
+;// (w as the broadcast operand) instead of a copy of w into an x
+;// lane and a multiply - bit-identical, one instruction a vertex.
 ;//---------------------------------------------------------
 #macro CalculateTyraFog: t_fogInt, t_vertex, t_fogParams
-   add.x       fogAccum,      vf00,          t_vertex[w]
-   mul.x       fogAccum,      fogAccum,      t_fogParams[z]
+   mul.x       fogAccum,      t_fogParams,   t_vertex[w]
    add.x       fogAccum,      fogAccum,      t_fogParams[w]
    loi         255
    mini.x      fogAccum,      fogAccum,      i
@@ -302,6 +313,16 @@
 ;// the W word (only bit 15 = ADC matters for XYZ2), but packed
 ;// XYZF2 reads F from bits 4-11, so the ADC decision is masked
 ;// down to bit 15 before OR-ing the fog bits in.
+;//
+;// NOTHING may be written between the #macro line and the first instruction -
+;// not even a comment. vclpp then expands the whole macro to NOTHING, with no
+;// error, and every caller builds green with the instructions missing. That is
+;// why this note sits here rather than below. See the same warning (and what it
+;// cost the blocks pipeline) above PerformClipCheck in vcl_sml.i.
+;//
+;// The second operand of the clipw below stays BARE: its w field is implied by
+;// the instruction, Sony's vcl infers it, and openvcl is patched to do the same
+;// (docker/openvcl-tyrax.patch, docs/toolchain-image.md).
 ;//---------------------------------------------------------
 #macro PerformTyraFogClipCheck: t_vertex, t_destAddress, t_destAddressOffset, t_fogInt, t_adcMask
    clipw.xyz   t_vertex,      t_vertex
@@ -330,11 +351,26 @@
 ;//   quad0: position.xyz,  w = 1/objRange^2
 ;//   quad1: direction.xyz, w = cos^2(halfAngle)
 ;//   quad2: color.rgb,     w = softness/(objRange^2*(1-cos^2))
+;//
+;// t_spotFlag receives VU1_OPTIONS_ADDR.y, which is a THREE-STATE
+;// integer and the gate the per-vertex arithmetic below hangs on:
+;//    > 0   the shared clip image's PEER path (D shading / matcap
+;//          ST). Predates this gate; every existing reader tests
+;//          only the sign in that direction, which is why the spot
+;//          could be folded into the same lane for free.
+;//    = 0   base path, and NO dynamic light reaches this mesh -
+;//          skip CalculateTyraSpotLight entirely.
+;//    < 0   base path, and a dynamic light does reach it - run it.
+;// The EE decides (StaPipQBufferRenderer::sendObjectData, from
+;// StaPipClipperSpot::enabled), which is the same predicate the EE
+;// clipper's addSpotToColor already used - so the two halves agree
+;// by construction and a gated mesh renders bit-identically.
 ;//---------------------------------------------------------
-#macro LoadTyraSpotLight: t_spotPos, t_spotDir, t_spotCol, t_addr
+#macro LoadTyraSpotLight: t_spotPos, t_spotDir, t_spotCol, t_spotFlag, t_addr, t_optionsAddr
    lq          t_spotPos,     t_addr+0(vi00)
    lq          t_spotDir,     t_addr+1(vi00)
    lq          t_spotCol,     t_addr+2(vi00)
+   ilw.y       t_spotFlag,    t_optionsAddr(vi00)
 #endmacro
 
 ;//---------------------------------------------------------
@@ -374,4 +410,52 @@
    mul.x       spotC,         spotC,         spotA
    mul.xyz     spotAdd,       t_spotCol,     spotC[x]
    add.xyz     t_color,       t_color,       spotAdd
+#endmacro
+
+;//---------------------------------------------------------
+;// Modified by TyraX: the measured-only experiments of the VU1 audit
+;// (stapip_vu1_experiments.hpp). Used by the *_fold and *_envn images.
+;//---------------------------------------------------------
+;// (b): the light directions arrive pre-multiplied by the light matrix
+;// (the EE folds D * M per bag), so the object-space normal goes straight
+;// into the direction dot products - no matrix load, three instructions
+;// a vertex fewer. The normal register is left in OBJECT space.
+;//---------------------------------------------------------
+#macro LoadTyraDirectionalLightsFolded: t_lightDirections, t_lightsColors, t_ambientColor, t_dirOffset, t_colorOffset
+   lq.xyz      t_lightDirections[0],   t_dirOffset(vi00)
+   lq.xyz      t_lightDirections[1],   t_dirOffset+1(vi00)
+   lq.xyz      t_lightDirections[2],   t_dirOffset+2(vi00)
+   lq.xyz      t_lightsColors[0],      t_colorOffset(vi00)
+   lq.xyz      t_lightsColors[1],      t_colorOffset+1(vi00)
+   lq.xyz      t_lightsColors[2],      t_colorOffset+2(vi00)
+   lq.xyzw     t_ambientColor,         t_colorOffset+3(vi00)
+#endmacro
+
+#macro CalculateTyraDirectionalLightsFolded: t_outputColor, t_normal, t_lightDirections, t_lightColors, t_ambientColor
+   mula.xyz    acc,              t_lightDirections[0],   t_normal[x]
+   madd.xyz    acc,              t_lightDirections[1],   t_normal[y]
+   madd.xyz    t_outputColor,    t_lightDirections[2],   t_normal[z]
+   mini.xyz    t_outputColor,    t_outputColor,          vf00[w]
+   max.xyz     t_outputColor,    t_outputColor,          t_ambientColor[w]
+   mula.xyz    acc,              t_lightColors[0],       t_outputColor[x]
+   madda.xyz   acc,              t_lightColors[1],       t_outputColor[y]
+   madda.xyz   acc,              t_lightColors[2],       t_outputColor[z]
+   madd.xyz    t_outputColor,    t_ambientColor,         vf00[w]
+   loi         255
+   mini.xyz    t_outputColor,    t_outputColor,          i
+   max.xyz     t_outputColor,    t_outputColor,          vf00[x]
+   loi         128
+   addi.w      t_outputColor,    vf00,    i
+#endmacro
+
+;//---------------------------------------------------------
+;// (c): CalculateTyraEnvStq for a normal the EE already normalized - the
+;// same two scaled dot products, without the rsqrt (so no Q either).
+;//---------------------------------------------------------
+#macro CalculateTyraEnvStqUnit: t_stq, t_envBasisX, t_envBasisY, t_envBasisZ
+   mula.xy  acc,         t_envBasisX, t_stq[x]
+   madda.xy acc,         t_envBasisY, t_stq[y]
+   madd.xy  t_stq,       t_envBasisZ, t_stq[z]
+   add.xy   t_stq,       t_stq,       t_envBasisZ[w]
+   add.z    t_stq,       vf00,         t_envBasisZ[z]
 #endmacro

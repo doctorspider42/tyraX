@@ -1,0 +1,11 @@
+#ifndef __OPENVCL_VERSION_H__
+#define __OPENVCL_VERSION_H__
+
+namespace vcl
+{
+
+static const char* const OPENVCL_VERSION = "@PROJECT_VERSION@";
+
+}
+
+#endif

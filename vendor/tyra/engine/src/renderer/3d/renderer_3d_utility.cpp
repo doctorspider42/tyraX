@@ -7,9 +7,11 @@
 # Copyright 2022, tyra - https://github.com/h4570/tyra
 # Licensed under Apache License 2.0
 # Sandro Sobczyński <sandro.sobczynski@gmail.com>
+# Modified by TyraX: GIF-channel sends pass path3Fence() first.
 */
 
 #include "renderer/3d/renderer_3d_utility.hpp"
+#include "renderer/core/paths/path3/path3_fence.hpp"
 #include "debug/debug.hpp"
 #include <math3d.h>
 #include <draw.h>
@@ -105,6 +107,7 @@ void Renderer3DUtility::drawLine(const Vec4& from, const Vec4& to,
   packet2_chain_close_tag(packet);
 
   dma_channel_wait(DMA_CHANNEL_GIF, 0);
+  path3Fence();  // Modified by TyraX: path3_fence.hpp
   dma_channel_send_packet2(packet, DMA_CHANNEL_GIF, true);
   dma_channel_wait(DMA_CHANNEL_GIF, 0);
 
@@ -171,6 +174,7 @@ void Renderer3DUtility::drawBBox(const CoreBBox& v, const Color& color) {
   packet2_chain_close_tag(packet);
 
   dma_channel_wait(DMA_CHANNEL_GIF, 0);
+  path3Fence();  // Modified by TyraX: path3_fence.hpp
   dma_channel_send_packet2(packet, DMA_CHANNEL_GIF, true);
   dma_channel_wait(DMA_CHANNEL_GIF, 0);
 

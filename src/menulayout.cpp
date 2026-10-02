@@ -11,10 +11,13 @@ namespace menulayout {
 
 namespace {
 
-// The PS2 texture axis cap, and the GS words a texture costs (docs/gs-vram.md:
-// every allocation carries 1024 * 2 words of padding on top of its pixels).
+// The PS2 texture axis cap and the size of the texture heap in GS words
+// (docs/gs-vram.md). The heap figure is the DEFAULT layout's - 32-bit colour
+// with both optional render targets reserved; 16-bit colour roughly doubles
+// it and a project that needs neither target gains another 64k words, so
+// this is the pessimistic end of the range, which is the right end for a
+// "does my menu fit" check.
 constexpr int kMaxAxis = 512;
-constexpr int kTexPadWords = 2048;
 constexpr int kTextureHeapWords = 282000;
 
 int pow2AtLeast(int v) {
@@ -80,12 +83,32 @@ int bitsForQuant(int quant) {
 
 }  // namespace
 
+// The GS footprint of one texture, in words - the host's mirror of the
+// engine's RendererCoreGSVRam::getSize (docs/gs-vram.md). GS memory is paged
+// and swizzled, so a texture occupies whole pages once it is bigger than one,
+// and inside a single page it occupies whole BLOCKS up to the highest one its
+// texels reach. Menu textures are always power-of-two, which is exactly the
+// case where a page is filled edge to edge, so the page arithmetic alone is
+// faithful here and the block detail only matters for the CLUT.
+//
+// This used to add a flat 2048 words per texture, mirroring an engine hack
+// that has since been replaced by the real thing. Keep the two in step: an
+// over-estimate here reports menus as not fitting when they do.
+static int gsWords(int w, int h, int bits) {
+    if (w <= 0 || h <= 0) return 0;
+    const int pageW = bits == 4 ? 128 : bits == 8 ? 128 : 64;
+    const int pageH = bits == 4 ? 128 : bits == 8 ? 64 : 32;
+    const int pagesW = (w + pageW - 1) / pageW;
+    const int pagesH = (h + pageH - 1) / pageH;
+    return pagesW * pagesH * 2048;
+}
+
 int Texture::words() const {
     if (w <= 0 || h <= 0) return 0;
-    const long long bytes = (long long)w * h * bits / 8;
-    // Palettized textures also carry their CLUT (16 or 256 entries, 32bpp).
-    const long long clut = bits == 4 ? 16 * 4 : bits == 8 ? 256 * 4 : 0;
-    return (int)((bytes + clut + 3) / 4) + kTexPadWords;
+    // Palettized textures also carry their CLUT: 16 entries fit one 64-word
+    // GS block, 256 entries take four.
+    const int clut = bits == 4 ? 64 : bits == 8 ? 256 : 0;
+    return gsWords(w, h, bits) + clut;
 }
 
 int Layout::words() const {

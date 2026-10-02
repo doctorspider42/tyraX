@@ -80,6 +80,11 @@ static std::string strKindDesc(FlowParamKind k) {
         case FlowParamKind::CreditsName: return "credits roll name (see context)";
         case FlowParamKind::HudTextName:
             return "on-screen text name (see context)";
+        case FlowParamKind::HudBarName:
+            return "HUD bar name (see context; Tools > UI Editor > Bars)";
+        case FlowParamKind::HudElementName:
+            return "HUD element name - a HUD image, an on-screen text or a HUD "
+                   "bar (see context)";
         // Display Text's font. It was the one strKind with no entry here, so
         // its str slot reached the model as "no string param" while the node's
         // prose talked about "the font named str".
@@ -404,6 +409,10 @@ std::string systemPrompt(const Project& p, int ownerIndex,
     }
     ctxLine("On-screen texts",
             nameList(p.hudTexts, [](const HudText& t) { return t.name; }));
+    ctxLine("HUD images",
+            nameList(p.hud, [](const HudImage& h) { return h.name; }));
+    ctxLine("HUD bars",
+            nameList(p.hudBars, [](const HudBar& b) { return b.name; }));
     ctxLine("Color grading presets",
             nameList(p.gradings, [](const ColorGradingPreset& g) { return g.name; }));
     ctxLine("Ambience presets",

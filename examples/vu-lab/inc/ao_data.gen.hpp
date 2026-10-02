@@ -6,7 +6,7 @@
 // axes in world space; sphere = 1 reads half[0] as the radius;
 // objIndex = scene-table index (an object never occludes itself).
 
-namespace {
+namespace ao_data_gen_hpp_detail {
 struct AoOccData {
   float pos[3];
   float ax[3], ay[3], az[3];
@@ -15,7 +15,7 @@ struct AoOccData {
   int objIndex;
 };
 
-static const AoOccData S0_AO_OCC[6] = {
+inline const AoOccData S0_AO_OCC[6] = {
     {{-4.5F, 1.0F, 8.0F}, {1.0F, 0.0F, 0.0F}, {0.0F, 1.0F, 0.0F}, {0.0F, 0.0F, 1.0F}, {1.0F, 1.0F, 1.0F}, 0, 1},
     {{-1.5F, 1.0F, 8.0F}, {1.0F, 0.0F, 0.0F}, {0.0F, 1.0F, 0.0F}, {0.0F, 0.0F, 1.0F}, {0.9F, 0.9F, 0.9F}, 1, 2},
     {{1.5F, 1.0F, 8.0F}, {1.0F, 0.0F, 0.0F}, {0.0F, 1.0F, 0.0F}, {0.0F, 0.0F, 1.0F}, {1.0F, 1.0F, 1.0F}, 0, 3},
@@ -24,8 +24,8 @@ static const AoOccData S0_AO_OCC[6] = {
     {{2.0F, 1.0F, 4.0F}, {1.0F, 0.0F, 0.0F}, {0.0F, 1.0F, 0.0F}, {0.0F, 0.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 1, 6},
 };
 
-static const AoOccData* const SCENE_AO_OCC_TABLES[] = {S0_AO_OCC};
-static const int SCENE_AO_OCC_COUNTS[] = {6};
+inline const AoOccData* const SCENE_AO_OCC_TABLES[] = {S0_AO_OCC};
+inline const int SCENE_AO_OCC_COUNTS[] = {6};
 
 struct EmisLightData {
   float pos[3];
@@ -38,24 +38,25 @@ struct EmisLightData {
 };
 
 
-static const EmisLightData* const SCENE_EMIS_TABLES[] = {nullptr};
-static const int SCENE_EMIS_COUNTS[] = {0};
+inline const EmisLightData* const SCENE_EMIS_TABLES[] = {nullptr};
+inline const int SCENE_EMIS_COUNTS[] = {0};
 
 struct AoAtlasRect {
   float u0, v0, du, dv;
 };
-static const AoAtlasRect S0_AO_RECTS[7] = {{0.0234375F, 0.679688F, 0.265625F, 0.203125F}, {0.335938F, 0.679688F, 0.265625F, 0.1875F}, {0.648438F, 0.679688F, 0.015625F, 0.0625F}, {0.570312F, 0.0234375F, 0.15625F, 0.40625F}, {0.773438F, 0.0234375F, 0.078125F, 0.328125F}, {0.898438F, 0.0234375F, 0.078125F, 0.328125F}, {0.0234375F, 0.0234375F, 0.5F, 0.609375F}};
-static const int S0_AO_FIRST[7] = {-1, -1, -1, 0, 6, -1, -1};
-static const unsigned char S0_AO_LIT[7] = {0, 0, 0, 0, 0, 0, 0};
-static const AoAtlasRect* const SCENE_AO_ATLAS_RECTS_T[] = {S0_AO_RECTS};
-static const int* const SCENE_AO_ATLAS_FIRSTS_T[] = {S0_AO_FIRST};
-static const unsigned char* const SCENE_AO_ATLAS_LITS_T[] = {S0_AO_LIT};
-static const char* const SCENE_AO_ATLAS_PATHS[] = {"aoatlas/scene0.png"};
-static const char* const SCENE_AO_MAP_PATHS[] = {"aomap/scene0.png"};
-static const unsigned char SCENE_AO_MAP_OCCS[] = {1};
-static const unsigned char SCENE_AO_MAP_LITS[] = {0};
-static const unsigned char SCENE_AO_ATLAS_GIS[] = {0};
-static const unsigned char SCENE_AO_MAP_GIS[] = {0};
+inline const AoAtlasRect S0_AO_RECTS[7] = {{0.0234375F, 0.851562F, 0.265625F, 0.125F}, {0.335938F, 0.851562F, 0.265625F, 0.125F}, {0.648438F, 0.851562F, 0.015625F, 0.0625F}, {0.695312F, 0.0234375F, 0.234375F, 0.234375F}, {0.414062F, 0.0234375F, 0.09375F, 0.296875F}, {0.554688F, 0.0234375F, 0.09375F, 0.296875F}, {0.0234375F, 0.0234375F, 0.34375F, 0.78125F}};
+inline const int S0_AO_FIRST[7] = {-1, -1, -1, 0, 6, -1, -1};
+inline const unsigned char S0_AO_LIT[7] = {0, 0, 0, 0, 0, 0, 0};
+inline const AoAtlasRect* const SCENE_AO_ATLAS_RECTS_T[] = {S0_AO_RECTS};
+inline const int* const SCENE_AO_ATLAS_FIRSTS_T[] = {S0_AO_FIRST};
+inline const unsigned char* const SCENE_AO_ATLAS_LITS_T[] = {S0_AO_LIT};
+inline const char* const SCENE_AO_ATLAS_PATHS[] = {"aoatlas/scene0.png"};
+inline const char* const SCENE_AO_MAP_PATHS[] = {"aomap/scene0.png"};
+inline const unsigned char SCENE_AO_MAP_OCCS[] = {1};
+inline const unsigned char SCENE_AO_MAP_LITS[] = {0};
+inline const unsigned char SCENE_AO_ATLAS_GIS[] = {0};
+inline const unsigned char SCENE_AO_MAP_GIS[] = {0};
+inline const unsigned char SCENE_AO_MAP_GILUMS[] = {0};
 }  // namespace
 
 #define SCENE_AO_OCC SCENE_AO_OCC_TABLES[g_activeScene]
@@ -71,3 +72,6 @@ static const unsigned char SCENE_AO_MAP_GIS[] = {0};
 #define SCENE_AO_MAP_LIT SCENE_AO_MAP_LITS[g_activeScene]
 #define SCENE_AO_ATLAS_GI SCENE_AO_ATLAS_GIS[g_activeScene]
 #define SCENE_AO_MAP_GI SCENE_AO_MAP_GIS[g_activeScene]
+#define SCENE_AO_MAP_GILUM SCENE_AO_MAP_GILUMS[g_activeScene]
+
+using namespace ao_data_gen_hpp_detail;

@@ -1,0 +1,1 @@
+{ "id": "prop000000000002", "name": "stool-3", "type": "model", "position": [-4.5, 9, 1], "rotation": [0, 0, 80], "scale": [1, 1, 1], "color": [1, 1, 1], "physics": true, "physMass": 0.5, "physBounce": 0.2, "physFriction": 0.6, "physTumble": true, "physSleep": 3, "model": "res/models/stool.obj" }

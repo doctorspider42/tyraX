@@ -80,10 +80,20 @@ PS2_TOOLS=(
 # because the split of the X11 headers into packages differs everywhere - the
 # CONTENT is the same set every time, so a new dependency has to be added to
 # all four or that distro's users get a link error instead of a clear message.
-SYSTEM_PACKAGES_apt="build-essential cmake ninja-build git pkg-config libgl1-mesa-dev libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libxkbcommon-dev libwayland-dev wayland-protocols zenity ccache"
-SYSTEM_PACKAGES_dnf="gcc-c++ cmake ninja-build git pkgconf-pkg-config mesa-libGL-devel libX11-devel libXrandr-devel libXinerama-devel libXcursor-devel libXi-devel libxkbcommon-devel wayland-devel wayland-protocols-devel zenity ccache"
-SYSTEM_PACKAGES_pacman="base-devel cmake ninja git pkgconf mesa libx11 libxrandr libxinerama libxcursor libxi libxkbcommon wayland wayland-protocols zenity ccache"
-SYSTEM_PACKAGES_zypper="gcc-c++ cmake ninja git pkg-config Mesa-libGL-devel libX11-devel libXrandr-devel libXinerama-devel libXcursor-devel libXi-devel libxkbcommon-devel wayland-devel wayland-protocols-devel zenity ccache"
+#
+# THE LISTS COVER BOTH HALVES OF THE PROJECT, and that is deliberate: the
+# editor's own build needs the compiler and the GL/X11/Wayland headers, and the
+# Docker-free GAME build needs `curl` (fetch the pinned PS2DEV archive), `tar`
+# (unpack it) and `rsync` (sync the engine tree into the build cache) - the set
+# tools/toolchain/prepare-host.sh checks for. Without them here, `setup.sh
+# --deps` leaves a machine that builds the editor perfectly and then fails on
+# the first Build & Run with a missing tool, which is the least helpful moment
+# to find out. prepare-host.sh --install stays as the apt-only fallback for a
+# host that only wants the game half.
+SYSTEM_PACKAGES_apt="build-essential cmake ninja-build git pkg-config libgl1-mesa-dev libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev libxkbcommon-dev libwayland-dev wayland-protocols zenity ccache curl rsync tar"
+SYSTEM_PACKAGES_dnf="gcc-c++ cmake ninja-build git pkgconf-pkg-config mesa-libGL-devel libX11-devel libXrandr-devel libXinerama-devel libXcursor-devel libXi-devel libxkbcommon-devel wayland-devel wayland-protocols-devel zenity ccache curl rsync tar"
+SYSTEM_PACKAGES_pacman="base-devel cmake ninja git pkgconf mesa libx11 libxrandr libxinerama libxcursor libxi libxkbcommon wayland wayland-protocols zenity ccache curl rsync tar"
+SYSTEM_PACKAGES_zypper="gcc-c++ cmake ninja git pkg-config Mesa-libGL-devel libX11-devel libXrandr-devel libXinerama-devel libXcursor-devel libXi-devel libxkbcommon-devel wayland-devel wayland-protocols-devel zenity ccache curl rsync tar"
 
 # Package manager for THIS machine -> "<manager>|<install command>|<packages>",
 # or "" when none is recognised. Sourced by both setup.sh (to install) and
