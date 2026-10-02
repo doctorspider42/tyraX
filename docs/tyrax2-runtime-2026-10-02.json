@@ -891,7 +891,7 @@
     "tools/verify-frame-writer.cpp": "802b1bc6eb7ee89e88942967ff5b3190a2f44762d7eed764fd76852c763a6ce5"
   },
   "post_dma_wait_fix_timing": {
-    "status": "same-ELF day repeat passed; two night boots pending",
+    "status": "same-ELF day repeat and first corrected night boot passed; final night repeat pending",
     "day": [
       {
         "log": "F:\\Projects\\tyrax2-lab-20261001\\pipeline-gif-send-day-boot1.log",
@@ -1016,7 +1016,69 @@
         "period_note": "Neighboring ten 50-frame summary windows, not the exact 512 raw work samples."
       }
     ],
-    "night": []
+    "night": [
+      {
+        "log": "F:\\Projects\\tyrax2-lab-20261001\\pipeline-gif-send-night-boot1.log",
+        "first": 1100,
+        "frames": 512,
+        "hz": 60,
+        "budget_ms": 16.666666666666668,
+        "mean_ms": 18.113875952031876,
+        "median_ms": 18.17263454861111,
+        "p95_ms": 18.757242838541668,
+        "max_ms": 19.918182373046875,
+        "over_budget": 512,
+        "note": "Renderer critical-path work excluding presentation pacing; not full period or delivered FPS.",
+        "period_windows": [
+          {
+            "frame": 1100,
+            "period_ms": 33.7
+          },
+          {
+            "frame": 1150,
+            "period_ms": 33.37
+          },
+          {
+            "frame": 1200,
+            "period_ms": 33.37
+          },
+          {
+            "frame": 1250,
+            "period_ms": 33.37
+          },
+          {
+            "frame": 1300,
+            "period_ms": 33.37
+          },
+          {
+            "frame": 1350,
+            "period_ms": 33.37
+          },
+          {
+            "frame": 1400,
+            "period_ms": 33.37
+          },
+          {
+            "frame": 1450,
+            "period_ms": 33.37
+          },
+          {
+            "frame": 1500,
+            "period_ms": 33.37
+          },
+          {
+            "frame": 1550,
+            "period_ms": 33.37
+          }
+        ],
+        "mean_period_ms": 33.403,
+        "delivered_rate_from_period_hz": 29.937430769691346,
+        "log_sha256": "d8e316bbe82e123e3f704409a3812f1699fb7193f62828c502048fd365e47f4c",
+        "elf_sha256": "296996436d2f8b1e7718a067453ca247d442fd20703b1711b9aa8a40ccec7afe",
+        "elf_path": "F:\\Projects\\tyrax2-lab-20261001\\pipeline-gif-send-night-boot1.elf",
+        "period_note": "Neighboring ten 50-frame summary windows, not the exact 512 raw work samples."
+      }
+    ]
   },
   "post_dma_wait_fix_builds": {
     "status": "Windows editor 1.169.1 and native PS2 stress/modes/day/night builds passed",
