@@ -261,7 +261,7 @@ for people building games with it. Internals live in code comments, the git log
 
 Developer design docs (internals, not user guides):
 
-- [Physical PS2 hardware timeline](hardware-profiler.md) — bounded RAM captures, hierarchical elapsed-time accounting, actual render jobs and compile-out/runtime observer controls; legacy editor view and HTML/Perfetto export.
+- [Physical PS2 hardware timeline](hardware-profiler.md) — bounded RAM captures, hierarchical elapsed-time accounting, actual render jobs and compile-out/runtime observer controls; legacy editor view, HTML/Perfetto export and [same-ELF startup ring control](hardware-timeline-ring-control-2026-10-02.json).
 - [Hardware profiler findings](hardware-profiler-results.md) — seven full-asset physical PS2 controls separating host I/O, framebuffer depth, raster area and additional-pass costs.
 - [VU1 arithmetic and DMA cache-flush cost](vu1-and-dma-cache-cost.md) — what a
   VU1 cycle per triangle is worth in frame time on real hardware, why ps2sdk's

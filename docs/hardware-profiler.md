@@ -99,6 +99,18 @@ ring is allocated before scene assets and can change their memory placement.
 Next isolate ring reservation using the same ELF and separate boot configuration,
 with capture disabled in every arm and matching independent sample windows.
 
+The [private ring-only control](hardware-timeline-ring-control-2026-10-02.json)
+is built and passes both explicit boot settings in the emulator: one identical
+instrumented ELF, reservation 0 or 1 before assets, three 1,800-frame blocks and
+128 independent samples per block. Trace remains inactive and never exports.
+Configuration parsing, geometry-address inspection and state digests occur
+outside sampled windows. Both runs provide all 384 whole-engine/work samples;
+declared state digests match within and between modes. Real physics dt remains
+live, so this is not full vehicle-state or pixel equivalence. Final screenshots
+look normal but differ in HUD speed; emulator timings are structural validation
+only. Physical fresh-boot 0/1/0 reservation controls remain pending. This probe
+isolates a reservation configuration in one ELF, not compiler-pruned hook cost.
+
 The immutable calibration fixture still has the older generated `Scene` scope,
 which is detail-only. Its coarse renderer work therefore remains under `Game`;
 this is a coverage limit of that ELF, not evidence that the remainder is scalar

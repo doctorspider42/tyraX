@@ -1,0 +1,67 @@
+{
+  "date": "2026-10-02",
+  "status": "Private same-ELF ring control prepared; physical reservation0/1/0 pending",
+  "production_change": false,
+  "elf_sha256": "a03865970ece7981c99982c098a4b1296fed79b0a4165f10c8780872318f5a2d",
+  "native_build": "PASS",
+  "engine": "Unchanged private instrumented engine with common whole-loop sampler and FrameProfile2",
+  "trace_compiled": 1,
+  "trace_active_in_all_modes": false,
+  "ring_bytes_when_reserved": 1966080,
+  "ring_slots": 32768,
+  "reservation": "Explicit boot flag read once before assets, same ELF in all boots",
+  "phases": 3,
+  "frames_per_phase": 1800,
+  "frames_per_run": 5400,
+  "samples_per_phase": 128,
+  "samples_per_run": 384,
+  "sample_offsets": [
+    900,
+    1027
+  ],
+  "sample_exclusions": 0,
+  "address_and_state_diagnostics_offsets": [
+    850,
+    1100
+  ],
+  "host_log_analyzer_controls": {
+    "positive": 2,
+    "negative": 26,
+    "status": "PASS",
+    "config_lexical_spec_only": "4 positive /9 negative, not compiled C++ parser tests"
+  },
+  "emulator": {
+    "modes": [
+      0,
+      1
+    ],
+    "complete_frames_each": 5400,
+    "accepted_samples_each": 384,
+    "physical_cost_evidence": false,
+    "within_and_between_mode_state_digest_checks": "PASS",
+    "trace_files_generated": false
+  },
+  "limitations": [
+    "Same ELF isolates reservation configuration, not flag-dispatch pruning.",
+    "Heap placement/cache/boot state require physical adjacent controls and repeats.",
+    "Game addresses/capacities do not expose all engine bank/allocator state.",
+    "Real physics dt is logged and excluded from frozen visual-state digest equality.",
+    "No physical cost, optimization, utilization or photon latency accepted.",
+    "Final emulator screenshots differ in HUD speed; declared sampled state digests do not prove full vehicle-state or pixel equivalence."
+  ],
+  "artifact_root": "F:\\Projects\\tyrax2-lab-20261001",
+  "artifact_sha256": {
+    "timeline-ring-control-strict-mode0-emulator\\emulog.txt": "7a7c84fc54893142e33d9c5a50d727010599a621a7aa4cce8b4daffee4958839",
+    "timeline-ring-control-strict-mode0-emulator\\game-log.txt": "da3144e8b45f74fad795af613c601ffda9f8f4f060940e86112e841452589468",
+    "timeline-ring-control-strict-mode0-emulator\\ring-control.cfg": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354",
+    "timeline-ring-control-strict-mode1-emulator\\emulog.txt": "5d309a856e00a96cd61a8ddeb64f39a9aa9b7bc05e2a77b74c229c19aecf37ff",
+    "timeline-ring-control-strict-mode1-emulator\\game-log.txt": "cfc71fcb201df8cebaba184119921d1b58a649a8e0835d73ae64f76e3f54ae99",
+    "timeline-ring-control-strict-mode1-emulator\\ring-control.cfg": "f1b2f662800122bed0ff255693df89c4487fbdcf453d3524a42d4ec20c3d9c04",
+    "tyrax2-timeline-ring-control/source-hashes.json": "a519f880b5362e488f223153115d605c8ba924848ee173921bf93db6be159740",
+    "tyrax2-timeline-ring-control/asset-hashes.json": "e16d0734c94c6f7c81a258970505f15e1f65450de6a46c246d822fcf361914f5",
+    "tyrax2-timeline-ring-control/analyze-log.py": "d9c9bf2efb5312e11748ac7302ce1759323dd5e226c79c953cab44a9f6f3bad1",
+    "tyrax2-timeline-ring-control/fixture.patch": "24d5b1b31ba0e242e7f34bf0e0d7c7ccbb47ceb6329187f370d1dca1f7ee94c2",
+    "timeline-ring-control-strict-prephysical.elf": "a03865970ece7981c99982c098a4b1296fed79b0a4165f10c8780872318f5a2d",
+    "timeline-ring-control-strict-prephysical.elf.sym": "a1fc5748e9711237b0d2b7abc7515099d01d51f30bfb0828a851e286e1cd4ab0"
+  }
+}

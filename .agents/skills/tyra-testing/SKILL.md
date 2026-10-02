@@ -3618,6 +3618,17 @@ about480KiB on EE; log actual allocation size. Event density depends on detail
 and fixture. The private32-frame/8192-slot detailed emulator capture overflowed
 and was rejected; revised calibration uses8 frames/32768 retained slots.
 
+For startup reservation cost, keep one instrumented ELF and all trace hooks
+inactive, read a private explicit 0/1 reservation config before game assets,
+and compare fresh boots 0/1/0. This controls code layout while allowing asset
+heap placement to change. The private ring-only fixture uses three 1,800-frame
+blocks, 128 independent samples each, and state/address inspection outside the
+window. Native and both emulator settings validate structure; physical cost
+requires actual boot controls. Declared state digests with live physics dt do
+not prove full vehicle-state or pixel equality. See the ring control evidence
+linked from `docs/hardware-profiler.md`; do not call this compiler-pruned hook
+overhead or add its result to overlapping scope totals.
+
 Job0 and contextUINT32_MAX explicitly mean unknown, including a pending source
 from before capture. A capture-generation stamp prevents prior-window job IDs
 from aliasing new ones. `record_job` follows the current EE recorder;

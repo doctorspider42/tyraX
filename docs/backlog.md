@@ -424,6 +424,10 @@ recovered 0.50-0.72 ms of hardware `work`. What it did not do, ranked:
   spread. This brackets a repeatable combined difference, not the ring/hook
   split. Next isolate pre-asset ring reservation using the same ELF, then refresh
   coarse Scene coverage and run broader repeated controls;
+  [Same-ELF ring control](hardware-timeline-ring-control-2026-10-02.json) is
+  prepared: native build and both complete 5,400-frame emulator runs pass,
+  384 independent samples each with trace inactive. Declared state digests
+  match, real physics remains live. Physical boot reservation 0/1/0 is next.
   seven warm samples per arm in a single boot are exploratory only. No constant
   overhead correction, VU/GS utilization or EE arithmetic-only cost is inferred.
 - **Night light-effect cost after TyraX2 — measured, optimization open.**
