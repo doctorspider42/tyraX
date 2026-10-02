@@ -3576,6 +3576,79 @@ Vehicle projects expose `Vehicles_update`, `Vehicle_smoke_update` and
 `Vehicle_skids_update`; nested `Vehicle_sleep` events count parked instances
 that skipped the expensive ground/collider/suspension path.
 
+### Bounded hierarchy and observer controls (1.170)
+
+The default `TYRA_HARDWARE_TRACE=1` retains the opt-in boot feature. A missing
+config leaves compiled runtime guards; it is not the same as a build with
+`TYRA_HARDWARE_TRACE=0` consistently defined in engine AND generated game.
+Compiled-out APIs are inline no-ops with `constexpr active=false`: there must be
+no trace clocks, register reads, file access, allocation or implementation calls
+in the optimized path. Host symbol/disassembly checks support this contract;
+check the target build too before claiming target dispatch cost.
+
+`hardware-trace.cfg` accepts `first frames states [detail=0] [capacity=8192]`;
+first is an absolute zero-based engine-loop index, frames is1..32, capacity is
+128..32768, and the remaining input must be whitespace only. Coarse capture
+reserves Frame/Pad/Game/Info, refreshed generated Update/Scene, submission,
+existing completion waits and pacing. Detailed capture adds object/package,
+snapshot/preflight/chain-copy/fixup/mutable-copy, native sizing/emission and
+cache-writeback scopes. Register snapshots remain an independent option.
+Refresh generated sources: an Update recorded only AFTER its children does not
+establish their parent hierarchy. Do not insert additional fences for tracing.
+
+`Scope(name, Kind::Span, false)` is explicitly coarse; the default third argument
+is true (detailed-only). `Scope::finish()` is idempotent and destructors close
+early returns. Labels must have static lifetime. The recorder is main-EE-thread
+only. `reserveCapture(capacity)` retains storage across runtime controls;
+`configureCapture(first,frames,states=false,detail=false,capacity=8192)` arms a
+future window, `disable()` preserves storage, and `release()` frees it. Use these
+outside active capture. `loopIndex()` identifies the current engine loop; when
+arming from game code, beginFrame has already run, so use loopIndex()+1 or later.
+Inactive `context()` returns unknown job/context fields, not stale metadata.
+
+The editor keeps the exact five-column `hardware-trace.csv`. Use
+`hardware-trace-v2.csv` or the per-window `hardware-trace-v2-<first>.csv` sidecar
+for explicit event/parent IDs, kinds, source jobs, sequence, context,
+requested/effective decision and clock epoch. END carries drops and invalid
+hierarchy/clock counts. Reject incomplete, dropped, invalid, stale or
+source-mismatched captures. Scope parents are reserved on entry; compatibility
+raw-duration records have kind=legacy and unknown parent, so they remain
+inclusive-only and cannot enter the exclusive ledger. Default8192 slots use
+about480KiB on EE; log actual allocation size. Event density depends on detail
+and fixture. The private32-frame/8192-slot detailed emulator capture overflowed
+and was rejected; revised calibration uses8 frames/32768 retained slots.
+
+Job0 and contextUINT32_MAX explicitly mean unknown, including a pending source
+from before capture. A capture-generation stamp prevents prior-window job IDs
+from aliasing new ones. `record_job` follows the current EE recorder;
+`present_job` identifies the ACTUAL CPU presentation source and may differ while
+previous-job waits nest inside the current recording scope. Never infer N-1
+from frame numbers. The source is not universally the display latch: triple
+buffers may queue for a later existing ISR; no ISR or TV photons are measured.
+Requested pipeline mode differs from effective queue recording after fallback.
+Scope self-time is elapsed EE time, including preemption and unclassified waits,
+not useful CPU instructions or EE/VU/GS utilization. Snapshot points are not
+continuous hardware occupancy. Some bank-reclaim waits remain inside enclosing
+work; unlabelled time is not proof of scalar math.
+
+Price the observer with matching off/coarse/off/detail/off/detail+states/off
+arms in ONE instrumented ELF, storage reserved in ALL arms, identical warmed
+scene/camera/replay/clock/order/window identities, and common independent clock
+samples. Export runs after capture and can delay its enclosing/following loop:
+exclude the export-bearing sample in every arm. The current private8-sample
+fixture therefore retains7 comparable samples. Small single-boot windows are
+exploratory; repeat boots and use both adjacent controls. Independent sampling
+and FrameProfile also cost work. A separate compiled-out ELF changes layout and
+held heap, so its delta is not pure dispatch cost. Unchanged paced wall time is
+not free instrumentation; never subtract a universal overhead constant.
+**No physical timeline-v2 observer overhead is accepted yet.** Require complete
+valid repeated controls before adding that claim.
+
+See [the timeline hierarchy/observer protocol](../../../docs/hardware-profiler.md#hierarchy-and-observer-controls-1170)
+and `tools/hardware-trace-analysis.md`. Export V2 with
+`python tools/hardware-trace.py export PROJECT/bin/hardware-trace-v2.csv -o REPORT`;
+`controls MANIFEST.json -o REPORT.json` validates declared matching controls.
+
 ### Native hardware timeline (1.92)
 
 `src/hardware_timeline.cpp` reads the same bounded CSV as the offline exporter.

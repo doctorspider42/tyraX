@@ -143,6 +143,8 @@ class Vif1Queue {
   static bool collectRetiredImmutableSpan(const void* base);
   static void flushRecording();
   static bool recordingFrame();
+  // Modified by TyraX: actual post-allocation fallback, for observer provenance.
+  static bool recordingPipelined();
   // Foreign GPU submissions between frames complete the pending presentation.
   static void synchronizeExternal();
   static void beginRecordingFrame(bool pipeline = false);

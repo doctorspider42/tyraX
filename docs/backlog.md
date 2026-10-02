@@ -402,6 +402,19 @@ recovered 0.50-0.72 ms of hardware `work`. What it did not do, ranked:
   pass: conservative key0.138159ms versus inverse0.076089ms/frame in scoped
   diagnostic. Repeat inverse is only0.063533ms; no output cache or frame gain
   accepted. Prioritize complete timeline attribution over this key candidate.
+- **TyraX2 timeline attribution and observer cost — tool prepared, physical calibration open.**
+  [Hierarchical capture and controls](hardware-profiler.md#hierarchy-and-observer-controls-1170)
+  reserve parents on entry, separate exclusive EE wall time from waits/pacing,
+  retain actual CPU recording/presentation source jobs and reject dropped or
+  inconsistent captures. Compiled-out, runtime-off, coarse, detailed and optional
+  register-snapshot controls remain distinct. The private seven-arm fixture
+  holds the ring outside the timed windows and excludes export-contaminated
+  samples from every arm. Eight-frame emulator captures pass strict hierarchy
+  validation (104/20,048/23,424 events); the earlier overflowing 32-frame detail
+  captures are rejected. See [validation evidence](hardware-timeline-v2-2026-10-02.json).
+  Physical observer overhead and repeated matched controls remain required;
+  seven warm samples per arm in a single boot are exploratory only. No constant
+  overhead correction, VU/GS utilization or EE arithmetic-only cost is inferred.
 - **Night light-effect cost after TyraX2 — measured, optimization open.**
   A [physical one-group isolation run](tyrax2.md#night-workload-isolation-physical-ps2-2026-10-02)
   brackets seven stationary garage variants with full-night controls of

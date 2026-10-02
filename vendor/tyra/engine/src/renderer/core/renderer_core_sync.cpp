@@ -31,7 +31,7 @@ void RendererCoreSync::init(Path3* t_path3, Path1* t_path1) {
 // FINISH exclusive to send-then-wait handshakes.
 void RendererCoreSync::align3D() {
   if (Vif1Queue::recordingFrame()) { Vif1Queue::recordBarrier(); return; }
-  HardwareTrace::Scope trace("Align3D");
+  HardwareTrace::Scope trace("Align3D", HardwareTrace::Kind::Span, false);
 #if TYRA_VIF1_QUEUE_HOLD
   // Modified by TyraX: the GPU-only frame probe - a barrier's segment closes
   // at the last DMA, so the GS tail up to this FINISH is added to it.
@@ -77,7 +77,7 @@ void RendererCoreSync::clear() {
 }
 
 void RendererCoreSync::waitAndClear() {
-  HardwareTrace::Scope trace("GS_FINISH_wait");
+  HardwareTrace::Scope trace("GS_FINISH_wait", HardwareTrace::Kind::Wait, false);
   while (!check()) {
   }
   clear();

@@ -2887,6 +2887,37 @@ wait is not VU1 execution, and VIF/GIF snapshots are not utilization. Compare
 unarmed/armed controls and reject dropped or stale events. See
 docs/hardware-profiler.md for start-frame semantics and capture limits.
 
+### Hierarchical diagnostic codegen contract
+
+Keep both FPP and orbit generated loops in `src/game_templates.inc` paired:
+`Update` is a real `HardwareTrace::Scope("Update", Kind::Span, false)` at loop
+entry and explicitly `finish()`es immediately before `renderer.beginFrame()`.
+Do not replace it with a raw interval recorded at the end: that loses its actual
+parent reservation and can overlap nested engine scopes. The shared generated
+`renderScene()` opens `Scope("Scene", Kind::Span, false)` at entry. The `false`
+detail argument retains these high-level scopes in coarse captures. RAII handles
+early returns; repeated scene/view calls create separate instances. Per-object
+`costStart` / `costEnd` trace clocks and records require both
+`HardwareTrace::active` and `HardwareTrace::detailed`; the separate requested
+render-cost diagnostic keeps its existing explicit synchronization behavior.
+Raw duration records are v2 `kind=legacy,parent_id=UINT32_MAX`: inclusive only,
+never authoritative children for exclusive accounting. Generic spans measure EE
+wall time and can contain unlabelled waits/IRQs; their label does not establish
+CPU or VU utilization. Typed waits/pacing and snapshots retain distinct meanings.
+
+The legacy `hardware-trace.csv` stays exactly five columns for the editor.
+The fifteen-column `hardware-trace-v2.csv` companion carries reserved event/
+parent IDs, CPU recording/presentation source IDs and wrap epochs for the CLI.
+`present_job` is not a universal display-latch or TV-latency measurement: triple
+buffering can queue work for an uninstrumented later ISR display. Frame/Scene
+scopes opened before recording can have job0 while later children have actual IDs.
+Configuration is `start frames states detail capacity`; detail defaults to coarse,
+capacity defaults to 8192 and must be 128..32768. Reject incomplete, dropped,
+invalid or stale captures; validate both generated loop styles before claiming
+parity. See `tools/hardware-trace-analysis.md` for exclusive ledgers and matched
+repeated compiled-out/runtime-off/coarse/detailed controls. No universal overhead
+constant or zero-impact claim is supported.
+
 ### Native hardware timeline (1.92)
 
 `src/hardware_timeline.cpp` reads the same bounded CSV as the offline exporter.

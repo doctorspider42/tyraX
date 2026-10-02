@@ -431,6 +431,11 @@ void RendererCore::beginFrameRecording() {
     gs.setRecordingContext(gs.nextRecordingContext());
   recordingContext = gs.getRecordingContext();
   Vif1Queue::beginRecordingFrame(pipelineFrameActive);
+#if TYRA_HARDWARE_TRACE
+  if (HardwareTrace::active) traceRecordingJob = HardwareTrace::beginJob(
+      recordingContext, framePipelineRequested,
+      pipelineFrameActive && Vif1Queue::recordingPipelined());
+#endif
 }
 
 void RendererCore::setFramePipeline(bool on) {
@@ -446,11 +451,19 @@ void RendererCore::completePipelineFrameThunk(void* user) {
 void RendererCore::completePipelineFrame() {
   if (!pipelineFramePending) return;
   pipelineFramePending = false; // waits must not recursively present this job
-  Vif1Queue::waitFor(pipelineSequence);
+#if TYRA_HARDWARE_TRACE
+  HardwareTrace::PresentContext traceOwner(
+      tracePendingEpoch == HardwareTrace::captureEpoch() ? tracePendingJob : 0,
+      pipelineSequence, pipelineContext);
+#endif
+  HardwareTrace::Scope traceCompletion("PendingPresent", HardwareTrace::Kind::Span, false);
+  { HardwareTrace::Scope trace("VIF_completion_wait", HardwareTrace::Kind::Wait, false);
+    Vif1Queue::waitFor(pipelineSequence); }
   gs.setRecordingContext(pipelineContext);
   // The final FLUSHA/DIRECT FINISH was recorded in this job's sole chain.
   // Wait its GS tail, then consume the exclusive event before the next job.
   sync.waitAndClear();
+  HardwareTrace::Scope tracePacing("Present", HardwareTrace::Kind::Pacing, false);
   u32 t0, t1;
   __asm__ volatile("mfc0 %0, $9" : "=r"(t0));
   if (gs.getFrameBufferCount() < 3 && isFrameLimitOn) graph_wait_vsync();
@@ -470,7 +483,7 @@ void RendererCore::completePipelineFrame() {
 }
 
 void RendererCore::endFrame() {
-  HardwareTrace::Scope traceEnd("EndFrame");
+  HardwareTrace::Scope traceEnd("EndFrame", HardwareTrace::Kind::Span, false);
   if (frameYield) Threading::switchThread();  // Modified by TyraX: see setFrameYield
   // Modified by TyraX (TYRA_2D_VIF1_DIRECT): the frame's sprites may still be
   // queued on VIF1 behind the 3D, and with no interrupt nothing starts a
@@ -577,12 +590,18 @@ void RendererCore::endFrame() {
     if (path1.isVU1Configured()) sync.align3D();
     gs.setTextureWrap(RendererCoreGS::repeatWrap());
   }
-  { HardwareTrace::Scope trace("PostFx"); applyPostFx(); }
+  { HardwareTrace::Scope trace("PostFx", HardwareTrace::Kind::Span, false); applyPostFx(); }
   Vif1Queue::endRecordingFrame();
   if (pipelineFrameActive) {
     pipelineContext = recordingContext;
     pipelineSequence = Vif1Queue::lastSequence();
     pipelineFramePending = true;
+#if TYRA_HARDWARE_TRACE
+    if (HardwareTrace::active) {
+      tracePendingJob = traceRecordingJob;
+      tracePendingEpoch = HardwareTrace::captureEpoch();
+    } else { tracePendingJob = 0; tracePendingEpoch = 0; }
+#endif
 #if TYRA_FRAME_PROFILE
     FrameProfile::tFrameWork = FrameProfile::ticks() - FrameProfile::frameStart -
                               FrameProfile::tExcluded;
@@ -623,7 +642,14 @@ void RendererCore::endFrame() {
   // presenting, and an overrunning frame costs one late field instead of an
   // idle one.
   {  // Modified by TyraX: everything below is STALL, not the frame's cost.
-    HardwareTrace::Scope trace("Present");
+    HardwareTrace::PresentContext traceOwner(
+#if TYRA_HARDWARE_TRACE
+        traceRecordingJob,
+#else
+        0,
+#endif
+        Vif1Queue::lastSequence(), recordingContext);
+    HardwareTrace::Scope trace("Present", HardwareTrace::Kind::Pacing, false);
     u32 t0, t1;
     __asm__ volatile("mfc0 %0, $9" : "=r"(t0));
     if (gs.getFrameBufferCount() < 3) {
@@ -667,7 +693,7 @@ bool RendererCore::presentWarpFrame(const WarpCamera& from,
   // warped frame. Deliberately no beginFrame either - the warp covers every
   // pixel, so the clear would only be work.
   {  // Modified by TyraX: the synthesised frame's present is stall too.
-    HardwareTrace::Scope trace("Present");
+    HardwareTrace::Scope trace("SyntheticPresent", HardwareTrace::Kind::Pacing, false);
     u32 t0, t1;
     __asm__ volatile("mfc0 %0, $9" : "=r"(t0));
     if (gs.getFrameBufferCount() < 3) {

@@ -198,7 +198,7 @@ void TerrainGame::init() {
 
 
 void TerrainGame::loop() {
-  const u32 traceUpdateStart = Tyra::HardwareTrace::active ? Tyra::HardwareTrace::ticks() : 0;
+  Tyra::HardwareTrace::Scope traceUpdate("Update", Tyra::HardwareTrace::Kind::Span, false);
   updateFrameClock();  // real dt: frame drops slow the picture, not the game
   beamBatchCall = 0;  // the light-beam batch slots start over (see BeamBatch)
 #ifdef TYRAX_KBD_MOUSE
@@ -650,7 +650,7 @@ void TerrainGame::loop() {
     if (vuprog::ENABLED) vuprog::setTime(stapip.core, g_vuClock);
     if (vuscript::COUNT > 0) stapip.core.setVuTime(g_vuClock);
   }
-  if (Tyra::HardwareTrace::active) Tyra::HardwareTrace::record("Update", traceUpdateStart, Tyra::HardwareTrace::ticks());
+  traceUpdate.finish();
   engine->renderer.beginFrame(CameraInfo3D(&cameraPosition, &cameraLookAt, &cameraUp));
   {
     engine->renderer.renderer3D.usePipeline(stapip);

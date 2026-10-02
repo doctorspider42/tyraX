@@ -577,7 +577,7 @@ void StaPipCore::render(StaPipBag* bag) {
   TYRA_ASSERT(!(!frustumCull && bag->info->fullClipChecks == true),
               "Full clip checks are not supported with frustum culling = off!");
 
-  const u32 traceBoundsStart = HardwareTrace::active ? HardwareTrace::ticks() : 0;
+  HardwareTrace::Scope traceBounds("Bounds", HardwareTrace::Kind::Span, true);
   const u32 boundsStart = telemetryEnabled ? readCoreTelemetryTicks() : 0;
   // The head costs no clock of its own: the bounds bracket's own first read
   // is also the head's last one. Everything above this line - the fog
@@ -653,14 +653,14 @@ void StaPipCore::render(StaPipBag* bag) {
       if (telemetryEnabled) telemetry.boundsTicks += readCoreTelemetryTicks()-boundsStart;
       TYRA_ATTRIB_ADD(renderTicks, attribRenderStart);
       TYRA_ATTRIB_INC(renderCallsCulled);
-      if (HardwareTrace::active) HardwareTrace::record("Bounds", traceBoundsStart, HardwareTrace::ticks());
+      traceBounds.finish();
       recordOutsideBag(bag);
       return;
     }
   }
 
   if (telemetryEnabled) telemetry.boundsTicks += readCoreTelemetryTicks()-boundsStart;
-  if (HardwareTrace::active) HardwareTrace::record("Bounds", traceBoundsStart, HardwareTrace::ticks());
+  traceBounds.finish();
   const u32 prepareStart = telemetryEnabled ? readCoreTelemetryTicks() : 0;
 
   // Modified by TyraX: the per-bag blend equation (additiveBlendFix - the

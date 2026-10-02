@@ -220,7 +220,7 @@ void TerrainGame::init() {
 
 
 void TerrainGame::loop() {
-  const u32 traceUpdateStart = Tyra::HardwareTrace::active ? Tyra::HardwareTrace::ticks() : 0;
+  Tyra::HardwareTrace::Scope traceUpdate("Update", Tyra::HardwareTrace::Kind::Span, false);
   beamBatchCall = 0;  // the light-beam batch slots start over (see BeamBatch)
 #if TYRA_FRAME_PROFILE
   // FTUPD (docs/profiling.md, "The update half of pre"): lap i adds the time
@@ -754,7 +754,7 @@ void TerrainGame::loop() {
   }
   UPD_LAP(9);
 #undef UPD_LAP
-  if (Tyra::HardwareTrace::active) Tyra::HardwareTrace::record("Update", traceUpdateStart, Tyra::HardwareTrace::ticks());
+  traceUpdate.finish();
   engine->renderer.beginFrame(CameraInfo3D(&cameraPosition, &cameraLookAt, &cameraUp));
   {
     engine->renderer.renderer3D.usePipeline(stapip);

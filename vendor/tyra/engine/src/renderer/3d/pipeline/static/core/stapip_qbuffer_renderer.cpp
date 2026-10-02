@@ -2791,7 +2791,7 @@ void StaPipQBufferRenderer::flushPendingPacket() {
     submissionPacketHasTexture = false;
     return;
   }
-  if (HardwareTrace::active && submissionBatchBags > 0) {
+  if (HardwareTrace::active && HardwareTrace::detailed && submissionBatchBags > 0) {
     const u32 now = HardwareTrace::ticks();
     HardwareTrace::record("Submission_batch", now, now, submissionBatchBags);
   }
@@ -2889,7 +2889,7 @@ void StaPipQBufferRenderer::sendPacket() {
 
   const u32 submitStart = telemetry != nullptr ? readTelemetryTicks() : 0;
   { HardwareTrace::Scope trace("VIF1_submit");
-    if (HardwareTrace::active) { const u32 t=HardwareTrace::ticks(); HardwareTrace::record("Packet_qwords", t, t, packet2_get_qw_count(currentPacket)); }
+    if (HardwareTrace::active && HardwareTrace::detailed) { const u32 t=HardwareTrace::ticks(); HardwareTrace::record("Packet_qwords", t, t, packet2_get_qw_count(currentPacket)); }
     // Modified by TyraX: the DMA chain quadwords this pipeline hands VIF1 -
     // the number the baked VIF stream exists to move. Compiled into both arms.
     if (telemetry) chainQwords += packet2_get_qw_count(currentPacket);

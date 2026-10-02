@@ -6,46 +6,21 @@ import argparse
 import csv
 import json
 from pathlib import Path
+from hardware_trace_analysis import read_capture as read_accounted_capture, account, compare_controls
 
 
 def read_capture(path):
-    with path.open(newline='', encoding='utf-8') as f:
-        rows = list(csv.DictReader(f))
-    if not rows or rows[-1]['label'] != 'END':
-        raise ValueError('Incomplete capture: missing END footer')
-    footer = rows.pop()
-    count, dropped, frames, first = (int(footer[k]) for k in
-        ['start_ticks', 'duration_ticks', 'frame', 'value'])
-    if dropped:
-        raise ValueError(f'Capture overflow: {dropped} events dropped; request fewer frames')
-    if len(rows) != count or not 1 <= frames <= 32:
-        raise ValueError('Invalid event count or frame count')
-    for row in rows:
-        for key in ['start_ticks', 'duration_ticks', 'frame', 'value']:
-            row[key] = int(row[key])
-            if not 0 <= row[key] <= 0xffffffff:
-                raise ValueError('Invalid unsigned event field')
-    frame_rows = {x['frame']: x for x in rows if x['label'] == 'Frame'}
-    if len(frame_rows) != frames or set(frame_rows) != set(range(first, first+frames)):
-        raise ValueError('Missing or duplicate frame range')
-    if sum(x['label'] == 'Frame' for x in rows) != frames:
-        raise ValueError('Duplicate frame event')
-    for x in rows:
-        if x['frame'] not in frame_rows:
-            raise ValueError('Event outside requested frames')
-        f = frame_rows[x['frame']]
-        if not (f['start_ticks'] <= x['start_ticks'] and
-                x['start_ticks']+x['duration_ticks'] <= f['start_ticks']+f['duration_ticks']):
-            raise ValueError('Event outside frame time bounds')
-    return rows, frame_rows
+    rows, frames, _ = read_accounted_capture(path)
+    return rows, frames
 
 
 HTML = r'''<!doctype html><meta charset="utf-8"><title>PS2 hardware timeline</title>
 <style>body{font:15px system-ui;background:#121723;color:#e8edf6;margin:24px}select{font:inherit;padding:6px}svg{width:100%;min-width:900px;background:#192233}text{fill:#e8edf6;font:12px system-ui}main{overflow:auto}p{max-width:1000px;line-height:1.5}table{border-collapse:collapse}td,th{padding:6px 20px;text-align:right;border-bottom:1px solid #354054}td:first-child,th:first-child{text-align:left}</style>
-<h1>PS2 hardware timeline</h1><p>Measured EE scopes and waits overlap across rows. VIF/GIF markers are instantaneous register observations, not VU1/GS utilization. No per-draw barriers were added. Export and file I/O occur after the capture. Hover for raw values; select a frame below.</p>
+<h1>PS2 hardware timeline</h1><p>Measured EE scopes and waits overlap across rows. The exclusive ledger counts each interval once and exposes unaccounted time. VIF/GIF snapshots are instantaneous observations, not VU1/GS utilization. Job IDs identify recorded work and CPU presentation sources; N/N-1 alone does not establish pipeline age. Hover for raw values; select a frame below.</p>
 <label>Frame <select id="frame"></select></label><main><svg id="chart"></svg></main>
-<h2>Selected frame: inclusive scope totals</h2><p>Do not sum nested rows. Frame includes pad, game and info work. Present includes buffer-flip waits, not only VSync. Short captures are diagnostics; use longer controls to establish performance.</p><table><thead><tr><th>Scope</th><th>Count</th><th>Total ms</th></tr></thead><tbody id="totals"></tbody></table>
-<script>const events=DATA;
+<h2>Selected frame: exclusive EE ledger</h2><p>CPU spans include elapsed EE work, not solely arithmetic. Wait and pacing spans remain separate. Unaccounted and ambiguous intervals are explicit. Capture scaffolding and CPU scheduling change with observers: compare compiled-out, runtime-off, coarse and detailed arms with matched camera/replay/clock inputs and repeated A/B controls. Do not subtract one constant overhead.</p><table><tbody id="ledger"></tbody></table>
+<h2>Scope hierarchy</h2><p>Inclusive parent and child durations overlap. Exclusive durations partition the measured frame; legacy equal or crossing spans remain ambiguous.</p><table><thead><tr><th>Scope / parent</th><th>Job / CPU present source</th><th>Inclusive ms</th><th>Exclusive ms</th></tr></thead><tbody id="totals"></tbody></table>
+<script>const events=DATA,report=REPORT;
 const select=document.querySelector('#frame'), svg=document.querySelector('#chart');
 const frames=events.filter(e=>e.label==='Frame');
 for(const f of frames){const o=document.createElement('option');o.value=f.frame;o.textContent=f.frame;select.append(o)}
@@ -56,21 +31,24 @@ labels.forEach((l,i)=>svg.append(el('text',{x:8,y:45+i*26},l)));
 const sums={};for(const e of rows){const y=30+labels.indexOf(e.label)*26,x=left+(e.start_ticks-f.start_ticks)*scale;const mark=e.duration_ticks===0;const n=el('rect',{x,y,width:Math.max(mark?2:0.1,e.duration_ticks*scale),height:18,fill:mark?'#dba44c':e.label.includes('wait')?'#e27b6c':'#55b4d5',opacity:.85});let detail=`${e.label}: ${(e.duration_ticks/294912).toFixed(4)} ms; value=${e.value} (0x${e.value.toString(16)})`;
 if(e.label.startsWith('VIF1_')&&mark)detail+=`; VPS=${e.value&3}, VEW=${(e.value>>2)&1}`;
 if(e.label==='GIF_STATE')detail+=`; APATH=${(e.value>>10)&3}, FIFO=${(e.value>>24)&31}`;
-n.append(el('title',{},detail));svg.append(n);if(!mark){const a=sums[e.label]??=[0,0];a[0]++;a[1]+=e.duration_ticks}}
-const table=document.querySelector('#totals');table.replaceChildren();for(const [name,[n,t]] of Object.entries(sums).sort((a,b)=>b[1][1]-a[1][1])){const tr=document.createElement('tr');for(const v of [name,n,(t/294912).toFixed(4)]){const td=document.createElement('td');td.textContent=v;tr.append(td)}table.append(tr)}}select.onchange=draw;draw();</script>'''
+if(e.kind==='legacy')detail+='; INCLUSIVE ONLY: unknown hierarchy, excluded from exclusive ledger';
+n.append(el('title',{},detail+`; event=${e.event_id}, parent=${e.parent_id}, kind=${e.kind}, record job=${e.job_id??'unknown'}, CPU present source=${e.display_source_id??'unknown'}, exclusive=${(e.exclusive_ticks/294912).toFixed(4)} ms`));svg.append(n)}
+const selected=report.frames.find(e=>e.frame===f.frame),ledger=document.querySelector('#ledger');ledger.replaceChildren();for(const [name,t] of Object.entries(selected.ledger_ms)){const tr=document.createElement('tr');for(const v of [name,t.toFixed(4)+' ms']){const td=document.createElement('td');td.textContent=v;tr.append(td)}ledger.append(tr)}
+const table=document.querySelector('#totals');table.replaceChildren();for(const e of [...rows].sort((a,b)=>a.start_ticks-b.start_ticks||b.duration_ticks-a.duration_ticks||a.event_id-b.event_id)){const tr=document.createElement('tr');for(const v of [`${e.label} (#${e.event_id}, parent #${e.parent_id})`,`${e.job_id??'unknown'} / ${e.display_source_id??'unknown'}`,(e.duration_ticks/294912).toFixed(4),e.kind==='legacy'?'unknown / inclusive only':(e.exclusive_ticks/294912).toFixed(4)]){const td=document.createElement('td');td.textContent=v;tr.append(td)}table.append(tr)}}select.onchange=draw;draw();</script>'''
 
 
 def export(path, output):
-    rows, frames = read_capture(path)
+    rows, frames, metadata = read_accounted_capture(path)
+    report = account(rows, frames, metadata)
     output.parent.mkdir(parents=True, exist_ok=True)
     payload = json.dumps(rows).replace('<', '\\u003c')
-    output.with_suffix('.html').write_text(HTML.replace('DATA', payload), encoding='utf-8')
+    output.with_suffix('.html').write_text(HTML.replace('DATA', payload).replace('REPORT', json.dumps(report).replace('<', '\\u003c')), encoding='utf-8')
     labels = sorted({x['label'] for x in rows})
     trace = [{'ph': 'M', 'name': 'thread_name', 'pid': 1, 'tid': i,
               'args': {'name': label}} for i, label in enumerate(labels)]
-    for x in rows:
+    for x in sorted(rows, key=lambda row:(row['start_ticks'],-row['duration_ticks'],row['event_id'])):
         event = {'name': x['label'], 'pid': 1, 'tid': labels.index(x['label']),
-                 'ts': x['start_ticks']/294.912, 'args': {'frame': x['frame'], 'value': x['value']}}
+                 'ts': x['start_ticks']/294.912, 'args': {'frame': x['frame'], 'value': x['value'], 'event_id':x['event_id'],'parent_id':x['parent_id'],'kind':x['kind'],'record_job':x['job_id'],'display_source':x['display_source_id'],'exclusive_ticks':x['exclusive_ticks']}}
         if x['duration_ticks']:
             event.update(ph='X', dur=x['duration_ticks']/294.912)
         else:
@@ -82,7 +60,8 @@ def export(path, output):
         rs = [x for x in rows if x['label']==label]
         summary[label] = {'count': len(rs), 'mean_ms_per_frame':
                          sum(x['duration_ticks'] for x in rs)/294912/len(frames)}
-    output.with_suffix('.summary.json').write_text(json.dumps(summary,indent=2)+'\n',encoding='utf-8')
+    report['inclusive_label_totals']=summary
+    output.with_suffix('.summary.json').write_text(json.dumps(report,indent=2)+'\n',encoding='utf-8')
     print(f'{len(rows)} events, {len(frames)} complete frames -> {output.with_suffix(".html")}')
 
 
@@ -94,14 +73,22 @@ def main():
     arm.add_argument('--start', type=int, default=120)
     arm.add_argument('--frames', type=int, default=4)
     arm.add_argument('--no-states', action='store_true')
+    arm.add_argument('--detailed', action='store_true', help='Request detailed scopes; coarse capture is the default')
+    arm.add_argument('--capacity', type=int, default=8192, help='Bounded RAM event slots (128..32768); detailed captures may need a shorter window')
     disarm = sub.add_parser('disarm')
     disarm.add_argument('project', type=Path)
     exp = sub.add_parser('export')
     exp.add_argument('csv', type=Path)
     exp.add_argument('-o', '--output', type=Path, required=True)
+    controls = sub.add_parser('controls', help='Review explicit repeated observer A/B/A controls')
+    controls.add_argument('manifest', type=Path)
+    controls.add_argument('-o', '--output', type=Path, required=True)
     args = parser.parse_args()
     if args.command == 'export':
         export(args.csv, args.output)
+    elif args.command == 'controls':
+        result=compare_controls(json.loads(args.manifest.read_text(encoding='utf-8')))
+        args.output.write_text(json.dumps(result,indent=2)+'\n',encoding='utf-8')
     else:
         cfg = args.project/'bin/hardware-trace.cfg'
         if not cfg.parent.is_dir():
@@ -111,7 +98,9 @@ def main():
         else:
             if not 0 <= args.start <= 1000000 or not 1 <= args.frames <= 32:
                 parser.error('start must be 0..1000000; frames must be 1..32')
-            cfg.write_text(f'{args.start} {args.frames} {int(not args.no_states)}\n', encoding='ascii')
+            if not 128 <= args.capacity <= 32768:
+                parser.error('capacity must be 128..32768')
+            cfg.write_text(f'{args.start} {args.frames} {int(not args.no_states)} {int(args.detailed)} {args.capacity}\n', encoding='ascii')
             print(f'Armed next boot: {cfg}. Existing CSV is not proof of a fresh capture.')
 
 

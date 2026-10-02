@@ -6,6 +6,7 @@
 
 #include "renderer/core/paths/path1/vif1_queue.hpp"
 #include <kernel.h>
+#include "debug/hardware_trace.hpp"
 #include "renderer/core/paths/path3/path3_fence.hpp"
 #include <dma.h>
 #include <draw.h>
@@ -104,7 +105,8 @@ void Vif1Queue::start(u32 chain, u32 sequence) {
                 "lazy flush writes back from start(), which must not run in an "
                 "interrupt (FlushCache is a syscall)");
   if (static_cast<s32>(flushedUpTo - sequence) < 0) {
-    FlushCache(0);
+    { HardwareTrace::Scope trace("CacheWriteback", HardwareTrace::Kind::Span, true);
+      FlushCache(0); }
     flushedUpTo = submitted;  // everything submitted so far is now in RAM
   }
 #else
@@ -302,6 +304,7 @@ void prepareArena() {
 #endif
 
 u32 Vif1Queue::submit(const void* chain, u32 qwords, bool* sourceCopied) {
+  HardwareTrace::Scope traceSubmit("VIFSubmit", HardwareTrace::Kind::Span, true);
   if (sourceCopied) *sourceCopied = false;
 #if TYRA_VIF1_CHAIN_CHECK
   const auto check = Vif1ChainCheck::validate(chain, qwords, resolveChainRef);
@@ -390,10 +393,12 @@ u32 Vif1Queue::submit(const void* chain, u32 qwords, bool* sourceCopied) {
       sourceCopied && *sourceCopied) {
     u32 records = 0;
     const u32* ownedWords = static_cast<const u32*>(chain);
+    { HardwareTrace::Scope trace("NativeSizing", HardwareTrace::Kind::Span, true);
     for (u32 at = 0; at < qwords; ++records) {
       const u32 header = ownedWords[at * 4];
       const u32 id = (header >> 28) & 7;
       at += (id == 1 || id == 7) ? 1 + (header & 65535) : 1;
+    }
     }
     if (nativeInFlight) {
       waitFor(nativeInFlight);
@@ -407,6 +412,7 @@ u32 Vif1Queue::submit(const void* chain, u32 qwords, bool* sourceCopied) {
       nativeWriter->reset();
     }
     if (records <= nativeWriter->availableQwords()) {
+      HardwareTrace::Scope traceEmit("NativeEmission", HardwareTrace::Kind::Span, true);
       const u32 mark = nativeWriter->checkpoint();
       const u32* words = static_cast<const u32*>(chain);
       bool recorded = true;
@@ -513,6 +519,14 @@ void Vif1Queue::drain() {
 }
 
 bool Vif1Queue::busy() { return running; }
+
+bool Vif1Queue::recordingPipelined() {
+#if TYRA_ORDERED_FRAME || TYRA_FRAME_PIPELINE_SUPPORT
+  return frameRecording && framePipelined;
+#else
+  return false;
+#endif
+}
 
 bool Vif1Queue::recordingFrame() {
 #if TYRA_ORDERED_FRAME || TYRA_FRAME_PIPELINE_SUPPORT
@@ -658,6 +672,7 @@ bool Vif1Queue::recordGif(const packet2_t* packet) {
     if (chainArena->used() > arenaPeak) arenaPeak = chainArena->used();
   }
   u32 required = qwords + 1;
+  { HardwareTrace::Scope trace("NativeGifSizing", HardwareTrace::Kind::Span, true);
   if (packet->mode == P2_MODE_CHAIN) {
     required = 0;
     const u32* words = static_cast<const u32*>(source);
@@ -668,12 +683,14 @@ bool Vif1Queue::recordGif(const packet2_t* packet) {
       at += (id == 1 || id == 7) ? 1 + size : 1;
     }
   }
+  }
   if (required > nativeWriter->availableQwords()) {
     flushRecording();
     if (nativeInFlight) waitFor(nativeInFlight);
     nativeInFlight = 0;
     nativeWriter->reset();
   }
+  HardwareTrace::Scope traceEmit("NativeGifEmission", HardwareTrace::Kind::Span, true);
   const u32 mark = nativeWriter->checkpoint();
   bool recorded = false;
   if (packet->mode == P2_MODE_NORMAL) {
@@ -713,6 +730,7 @@ void Vif1Queue::flushRecording() {
   if (!nativePendingSequence) return;
   const u32 sequence = nativePendingSequence;
   nativePendingSequence = 0;
+  HardwareTrace::Scope traceFlush("NativeFlush", HardwareTrace::Kind::Span, false);
   const u32 qwords = nativeWriter->finish();
   completeBeforeSubmission();
   // Previous presentation consumed its bit before this prefix starts. Only
@@ -737,9 +755,16 @@ void Vif1Queue::flushRecording() {
 #if TYRA_VIF1_QUEUE_LAZY_FLUSH
   flushedUpTo = sequence - 1;
 #else
-  FlushCache(0);
+  { HardwareTrace::Scope trace("CacheWriteback", HardwareTrace::Kind::Span, true);
+    FlushCache(0); }
 #endif
-  enqueue(nativeWriter->data(), sequence);
+  if (HardwareTrace::active) { HardwareTrace::Context saved = HardwareTrace::context();
+    auto current = saved; current.sequence = sequence;
+    HardwareTrace::setContext(current);
+    { HardwareTrace::Scope trace("NativeSubmission", HardwareTrace::Kind::Span, false);
+      enqueue(nativeWriter->data(), sequence); }
+    HardwareTrace::setContext(saved);
+  } else enqueue(nativeWriter->data(), sequence);
   nativeInFlight = sequence;
   bankSequences[currentBank] = sequence;
   ++nativeBatches;

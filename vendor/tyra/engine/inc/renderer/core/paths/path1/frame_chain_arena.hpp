@@ -2,6 +2,7 @@
  * Licensed under Apache 2.0. See docs/tyrax2.md. */
 #pragma once
 #include <string.h>
+#include "debug/hardware_trace.hpp"
 #include "vif1_chain_check.hpp"
 
 #ifndef TYRA_FRAME_PIPELINE_SUPPORT
@@ -106,6 +107,7 @@ class FrameChainArena {
   Snapshot copy(const void* base, uint32_t qwords,
                 Vif1ChainCheck::Resolver resolver, void* context,
                 uint32_t dmaBase, ImmutableResolver immutable = nullptr) {
+    HardwareTrace::Scope traceSnapshot("Snapshot", HardwareTrace::Kind::Span, true);
     if (!memory || !base || !qwords || qwords > 65536 ||
         (reinterpret_cast<uintptr_t>(base) & 15) ||
         (reinterpret_cast<uintptr_t>(memory) & 15) || (dmaBase & 15)) return {};
@@ -115,6 +117,7 @@ class FrameChainArena {
     bool ended = false;
     // Preflight all ranges and space before writing anything. The original
     // source stays owned by the synchronous caller throughout both passes.
+    { HardwareTrace::Scope trace("SnapshotPreflight", HardwareTrace::Kind::Span, true);
     while (at < qwords) {
       const auto* tag = words + at * 4;
       const uint32_t size = tag[0] & 65535, id = (tag[0] >> 28) & 7;
@@ -138,11 +141,14 @@ class FrameChainArena {
     if (!ended || at != qwords || cursor > capacity ||
         needed > capacity - cursor || dmaBase > UINT32_MAX - cursor ||
         needed > UINT32_MAX - (dmaBase + cursor)) return {};
+    }
     uint8_t* target = memory + cursor;
-    if (!copyQwords(target, base, qwords)) return {};
+    { HardwareTrace::Scope trace("SnapshotChainCopy", HardwareTrace::Kind::Span, true);
+      if (!copyQwords(target, base, qwords)) return {}; }
     uint32_t payload = qwords * 16;
     uint32_t borrowed = 0;
     at = 0;
+    { HardwareTrace::Scope trace("SnapshotFixup", HardwareTrace::Kind::Span, true);
     while (at < qwords) {
       const auto* source = words + at * 4;
       auto* tag = reinterpret_cast<uint32_t*>(target) + at * 4;
@@ -154,12 +160,14 @@ class FrameChainArena {
         } else if (size) {
           const auto* ref = resolver(source[1], size, context);
           if (!ref) return {}; // resolver contract must be stable
-          if (!copyQwords(target + payload, ref, size)) return {};
+          { HardwareTrace::Scope trace("SnapshotMutableCopy", HardwareTrace::Kind::Span, true);
+            if (!copyQwords(target + payload, ref, size)) return {}; }
           tag[1] = dmaBase + cursor + payload;
           payload += size * 16;
         }
         ++at;
       }
+    }
     }
     cursor += needed;
     return {target, needed, borrowed};

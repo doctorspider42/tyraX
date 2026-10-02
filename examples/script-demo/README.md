@@ -67,3 +67,8 @@ Generated game methods are split between `src/terrain_game.cpp` and the
 `src/gen/game_*.gen.cpp` subsystems, with shared inline helpers/state in
 `inc/game_runtime.gen.hpp`. Header changes can compile these units in parallel.
 The main file remains user-ownable; generated subsystem files refresh on build.
+
+
+Hardware timeline instrumentation matches the 1.170 coarse/detail emitter.
+Use the [capture and observer-control guide](../../docs/hardware-profiler.md)
+when comparing performance; traces add measurable work.

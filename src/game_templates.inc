@@ -4541,7 +4541,7 @@ void TerrainGame::init() {
 
 
 void TerrainGame::loop() {
-  const u32 traceUpdateStart = Tyra::HardwareTrace::active ? Tyra::HardwareTrace::ticks() : 0;
+  Tyra::HardwareTrace::Scope traceUpdate("Update", Tyra::HardwareTrace::Kind::Span, false);
   updateFrameClock();  // real dt: frame drops slow the picture, not the game
   beamBatchCall = 0;  // the light-beam batch slots start over (see BeamBatch)
 #ifdef TYRAX_KBD_MOUSE
@@ -4993,7 +4993,7 @@ void TerrainGame::loop() {
     if (vuprog::ENABLED) vuprog::setTime(stapip.core, g_vuClock);
     if (vuscript::COUNT > 0) stapip.core.setVuTime(g_vuClock);
   }
-  if (Tyra::HardwareTrace::active) Tyra::HardwareTrace::record("Update", traceUpdateStart, Tyra::HardwareTrace::ticks());
+  traceUpdate.finish();
   engine->renderer.beginFrame(CameraInfo3D(&cameraPosition, &cameraLookAt, &cameraUp));
   {
     engine->renderer.renderer3D.usePipeline(stapip);
@@ -6817,7 +6817,7 @@ void TerrainGame::init() {
 
 
 void TerrainGame::loop() {
-  const u32 traceUpdateStart = Tyra::HardwareTrace::active ? Tyra::HardwareTrace::ticks() : 0;
+  Tyra::HardwareTrace::Scope traceUpdate("Update", Tyra::HardwareTrace::Kind::Span, false);
   beamBatchCall = 0;  // the light-beam batch slots start over (see BeamBatch)
 #if TYRA_FRAME_PROFILE
   // FTUPD (docs/profiling.md, "The update half of pre"): lap i adds the time
@@ -7351,7 +7351,7 @@ void TerrainGame::loop() {
   }
   UPD_LAP(9);
 #undef UPD_LAP
-  if (Tyra::HardwareTrace::active) Tyra::HardwareTrace::record("Update", traceUpdateStart, Tyra::HardwareTrace::ticks());
+  traceUpdate.finish();
   engine->renderer.beginFrame(CameraInfo3D(&cameraPosition, &cameraLookAt, &cameraUp));
   {
     engine->renderer.renderer3D.usePipeline(stapip);
@@ -22777,7 +22777,7 @@ void TerrainGame::pushPhysicsBodies(float prevX, float prevZ, float nextX,
 
 
 void TerrainGame::renderScene() {
-  Tyra::HardwareTrace::Scope traceScene("Scene");
+  Tyra::HardwareTrace::Scope traceScene("Scene", Tyra::HardwareTrace::Kind::Span, false);
   // Debug profiler: scene phase = sky + terrain + objects + anim (+ the
   // deferred usable bodies, timed separately below). Folded away entirely
   // when DEBUG_SHOW_PROFILER is false. See drawDebugHud.
@@ -22788,9 +22788,9 @@ void TerrainGame::renderScene() {
   struct CostRow { int object; const char* label; u32 ticks; };
   std::vector<CostRow> costRows;
   if (costSeq) { costRows.reserve(runtimeObjects.size()+20); engine->renderer.core.sync.align3D(); }
-  auto costStart = [&]() -> u32 { return (costSeq || Tyra::HardwareTrace::active) ? profTicks() : 0; };
+  auto costStart = [&]() -> u32 { return (costSeq || (Tyra::HardwareTrace::active && Tyra::HardwareTrace::detailed)) ? profTicks() : 0; };
   auto costEnd = [&](const char* label, int object, u32 start) {
-    if (Tyra::HardwareTrace::active) Tyra::HardwareTrace::record(label, start, profTicks(), object + 1);
+    if (Tyra::HardwareTrace::active && Tyra::HardwareTrace::detailed) Tyra::HardwareTrace::record(label, start, profTicks(), object + 1);
     if (!costSeq) return;
     engine->renderer.core.sync.align3D();
     if (costRows.size() < 4088) costRows.push_back({object,label,profTicks()-start});

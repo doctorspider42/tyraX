@@ -4,6 +4,65 @@ The hardware profiler records bounded EE scopes and pipeline-state observations
 in RAM, then exports an interactive timeline and Perfetto-compatible JSON.
 It measures the ordinary asynchronous renderer without adding per-draw drains.
 
+## Hierarchy and observer controls (1.170)
+
+Coarse capture records the main loop, pad/game/info, refreshed generated
+Update/Scene scopes, frame submission, existing completion waits and presentation
+pacing. Detailed capture adds package, snapshot/preflight/fixup/mutable-copy,
+native sizing/emission and other fine scopes. Register snapshots are a separate
+option. Refresh generated game sources when upgrading: Update now reserves its
+parent scope before nested work and closes explicitly before rendering.
+
+The editor retains its five-column `hardware-trace.csv`. The separate
+`hardware-trace-v2.csv` and `hardware-trace-v2-<first>.csv` provide explicit scope
+parents, typed intervals and actual recording/presentation source jobs:
+
+```sh
+python tools/hardware-trace.py arm PROJECT --start 1100 --frames 4 --no-states
+python tools/hardware-trace.py arm PROJECT --start 1100 --frames 2 --detailed --no-states
+python tools/hardware-trace.py export PROJECT/bin/hardware-trace-v2.csv -o REPORT
+```
+
+`--capacity` selects 128..32768 slots (default8192). Event density depends on
+scene and detail mode. The first Motor District emulator calibration overflowed
+8192 slots during a32-frame detailed window; its result is rejected. The revised
+private fixture captures8 frames with32768 retained slots. Capacity and timing
+still require physical acceptance; shorten the window on overflow. Export
+occurs after capture, but its host I/O can delay the enclosing/following loop.
+
+V2 analysis partitions elapsed frame intervals once into authoritative scope
+self-time, existing waits, pacing and uncovered time. Inclusive totals remain
+separate. Raw compatibility spans have unknown parents and remain inclusive-only;
+they cannot silently enter the exclusive ledger. COP0 spans include preemption
+and any unclassified waiting: self-time is not useful CPU instructions or VU/GS
+utilization. `present_job` identifies the CPU presentation source, not an ISR
+display latch or TV photons. Pending jobs from before a capture are explicitly
+unknown. Requested mode differs from effective recording after fallback.
+
+Define `TYRA_HARDWARE_TRACE=0` consistently in engine and game to compile out
+trace APIs: inline no-ops and constant false gates remove trace clocks, file
+access, allocation, state reads and implementation calls. The default is1 to
+retain the existing opt-in boot feature; a missing config still leaves compiled
+guards. Runtime-off and compiled-out controls therefore answer different
+questions. Never label the default build zero-overhead.
+
+The private calibration compares Off/coarse/Off/detail/Off/detail+states/Off
+with the same ELF and a ring reserved before all phases. Common independent
+clock samples measure the full engine loop plus game/render work. Of8 samples,
+the last includes automatic export and is excluded in every arm, leaving7.
+Small single-boot windows are exploratory; repeat boots and compare both adjacent
+controls. The independent sampler/FrameProfile also cost work. A separate
+compiled-out ELF changes code layout and held heap, so its difference is not
+pure dispatch cost. Wall time includes pacing; unchanged wall time does not
+establish free instrumentation. Do not subtract one universal overhead constant.
+
+`hardware-trace.py controls MANIFEST.json -o REPORT.json` checks repeated explicit
+A/B/A controls with matching scene/camera/replay/clock/order/window identities,
+one instrumented ELF and declared separate compiled-out layout. See
+[host analysis protocol](../tools/hardware-trace-analysis.md) and the
+[validation record](hardware-timeline-v2-2026-10-02.json). Physical observer cost
+remains pending until complete valid controls are measured on PS2.
+
 [Seven physical PS2 controls and measured overhead](hardware-profiler-results.md)
 record the first full-asset Motor District diagnosis.
 
@@ -52,8 +111,9 @@ python tools/hardware-trace.py arm /path/to/project --start 120 --frames 4
 The engine reads `bin/hardware-trace.cfg` once after game initialization. Start
 is a zero-based engine-loop index, including loading/splash loops, not a scene
 frame number. Choose a warmed window after loading. Capture length is 1–32
-frames; 32,768 event slots occupy 640 KiB on EE, allocated only when armed and
-freed after export. A missing or invalid configuration disables capture. There
+frames. The default 8,192 event slots occupy approximately 480 KiB on EE;
+capacity is configurable from 128 to 32,768. Boot capture allocates before
+sampling and frees after export. A missing or invalid configuration disables capture. There
 is no continuous host-file polling. The game keeps playing after capture.
 
 The completed file is `bin/hardware-trace.csv`. Archive old files before a new
@@ -104,8 +164,9 @@ static lifetime; storage retains their pointers until export. The recorder is
 for the main EE thread only. Scope destructors handle early returns. When
 unarmed, hooks check the active flag without reading clocks or hardware state.
 The engine owns configure/beginFrame/endFrame, so early game-loop returns still
-close a complete frame. This first version uses a boot capture configuration,
-not a live Debugger UI command or a hardware utilization percentage display.
+close a complete frame. The editor uses boot capture configuration; calibration
+code can reserve retained storage and arm future windows between phases.
+This is not a hardware utilization percentage display.
 
 Pair traces with isolated raster, shader, extra-pass and debug-I/O controls.
 Changes to visible content are diagnostic substitutions, not proposed quality

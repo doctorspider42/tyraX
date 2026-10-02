@@ -15,6 +15,7 @@
 */
 
 #pragma once
+#include "debug/hardware_trace.hpp"
 
 #include <tamtypes.h>
 #include "./2d/renderer_core_2d.hpp"
@@ -402,6 +403,10 @@ class RendererCore : public RendererCore2dBounds {
   bool framePipelineRequested = false;
   bool pipelineFramePending = false;
   u32 pipelineSequence = 0;
+  // Modified by TyraX: zero means the source job predates this capture.
+#if TYRA_HARDWARE_TRACE
+  u32 traceRecordingJob = 0, tracePendingJob = 0, tracePendingEpoch = 0;
+#endif
   u8 pipelineContext = 0, recordingContext = 0;
 
   bool isFrameLimitOn;
