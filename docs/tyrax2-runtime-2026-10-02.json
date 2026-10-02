@@ -891,7 +891,7 @@
     "tools/verify-frame-writer.cpp": "802b1bc6eb7ee89e88942967ff5b3190a2f44762d7eed764fd76852c763a6ce5"
   },
   "post_dma_wait_fix_timing": {
-    "status": "day boot 1 passed; repeat and two night boots pending",
+    "status": "same-ELF day repeat passed; two night boots pending",
     "day": [
       {
         "log": "F:\\Projects\\tyrax2-lab-20261001\\pipeline-gif-send-day-boot1.log",
@@ -953,6 +953,67 @@
         "elf_sha256": "ab9a60326fa8749e493608df24277e6bf8f2fdbc6f36fee9c05a1e6c2968490c",
         "elf_path": "F:\\Projects\\tyrax2-lab-20261001\\pipeline-gif-send-day-boot1.elf",
         "period_note": "Neighboring ten 50-frame summary windows, not the exact 512 raw work samples."
+      },
+      {
+        "log": "F:\\Projects\\tyrax2-lab-20261001\\pipeline-gif-send-day-boot2.log",
+        "first": 1100,
+        "frames": 512,
+        "hz": 60,
+        "budget_ms": 16.666666666666668,
+        "mean_ms": 13.86492363611857,
+        "median_ms": 13.782660590277779,
+        "p95_ms": 14.73590087890625,
+        "max_ms": 15.33650377061632,
+        "over_budget": 0,
+        "note": "Renderer critical-path work excluding presentation pacing; not full period or delivered FPS.",
+        "period_windows": [
+          {
+            "frame": 1100,
+            "period_ms": 17.35
+          },
+          {
+            "frame": 1150,
+            "period_ms": 17.02
+          },
+          {
+            "frame": 1200,
+            "period_ms": 17.02
+          },
+          {
+            "frame": 1250,
+            "period_ms": 17.68
+          },
+          {
+            "frame": 1300,
+            "period_ms": 17.02
+          },
+          {
+            "frame": 1350,
+            "period_ms": 17.35
+          },
+          {
+            "frame": 1400,
+            "period_ms": 17.02
+          },
+          {
+            "frame": 1450,
+            "period_ms": 17.35
+          },
+          {
+            "frame": 1500,
+            "period_ms": 17.02
+          },
+          {
+            "frame": 1550,
+            "period_ms": 17.02
+          }
+        ],
+        "mean_period_ms": 17.185,
+        "delivered_rate_from_period_hz": 58.19028222286879,
+        "log_sha256": "2c1344a206fb0d27622a2e8bf5ee07021ad07d92ca9c1d44e11e3f3db1c05dbf",
+        "elf_sha256": "ab9a60326fa8749e493608df24277e6bf8f2fdbc6f36fee9c05a1e6c2968490c",
+        "elf_path": "F:\\Projects\\tyrax2-lab-20261001\\pipeline-gif-send-day-boot2.elf",
+        "period_note": "Neighboring ten 50-frame summary windows, not the exact 512 raw work samples."
       }
     ],
     "night": []
@@ -980,6 +1041,7 @@
         "path": "F:\\Projects\\tyrax2-lab-20261001\\pipeline-gif-send-night-build.log",
         "sha256": "001831642bb80b373a2e18dd8a12231fc80ea697ee68d5723e23ddcfc1f75a5b"
       }
-    ]
+    ],
+    "timing_engine_matches_tracked_production_sources": true
   }
 }
