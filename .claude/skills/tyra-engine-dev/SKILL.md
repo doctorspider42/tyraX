@@ -3580,7 +3580,13 @@ Private inverse/key cost trial: Off/CountOnly/Scoped/CountOnly/Off,5x2200
 frames, plain order and4cold scene reloads. Native+full11000 emulator pass
 5raw512 windows/220records; warm71calls60repeat11miss/nf0/frameEnds1.
 Full16 conservative64B key is not inverse output cache; every original inverse
-runs. Emulator clocks are not physical cost; physical trial pending. INVCOST
+runs. Emulator clocks are not physical cost. Physical11000frames pass: scoped
+key0.138159ms/inverse0.076089ms, repeat inverse0.063533ms. Off/Count/Scoped/
+Count/Off work18.681/18.857/18.928/18.961/18.731ms, all33.403ms periods.
+Countspread0.104ms containsScoped-minus-Count: clockoverhead unresolved.
+Originalparser failed interleaved hostopen; separatephysical-v2 keeps original
+hashes and strips only anchoredknowncompleteopen rows (3positive/12reject).
+No outputcache/framegain. INVCOST
 f labels END, FRAMETIME labels START: match warmed aggregate endpoints
 first+50..first+500, retain12-frame rawtail mismatch. Disjoint key/inverse scopes
 are BuildSpot children; inverse-minus-key is not frame gain. See

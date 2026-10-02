@@ -398,8 +398,10 @@ recovered 0.50-0.72 ms of hardware `work`. What it did not do, ranked:
   the whole preparation bucket is not an inverse-only saving estimate.
   The [separate inverse/key cost census](tyrax2-ee-inverse-cost-2026-10-02.json)
   passes native compilation and all11,000 emulator frames across five blocks,
-  with exact warm activation and complete windows. Physical cost is pending;
-  every inverse still runs and no output cache or frame gain is accepted.
+  with exact warm activation and complete windows. Physical11000frames also
+  pass: conservative key0.138159ms versus inverse0.076089ms/frame in scoped
+  diagnostic. Repeat inverse is only0.063533ms; no output cache or frame gain
+  accepted. Prioritize complete timeline attribution over this key candidate.
 - **Night light-effect cost after TyraX2 — measured, optimization open.**
   A [physical one-group isolation run](tyrax2.md#night-workload-isolation-physical-ps2-2026-10-02)
   brackets seven stationary garage variants with full-night controls of

@@ -1,7 +1,7 @@
 {
   "date": "2026-10-02",
   "production_change": false,
-  "status": "Private key/inverse cost census: native and complete emulator bookkeeping pass; physical cost pending.",
+  "status": "Complete11000-frame physical diagnostic cost census; no inverse-result cache or frame gain accepted.",
   "phases": [
     "Off",
     "CountOnly",
@@ -2652,11 +2652,2613 @@
       "path": "F:/Projects/tyrax2-lab-20261001/ee-inverse-cost-trial-emulator/restored.png",
       "sha256": "9f31e0a38cebd50fa66829cb1494c0aafd1729bef37d78e6da855a25c213a911",
       "bytes": 280555
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\ee-inverse-cost-trial-physical-snapshot.log",
+      "sha256": "9a82b62364478dfce9bbb63c86f1187b8138a2a2b36989c93ce74619eba83c1a",
+      "bytes": 642471
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\ee-inverse-cost-trial-physical.elf",
+      "sha256": "063106d0cca2c414a0ce5b55d0b855460809fbdf34e61ef5a50a97086307bfe2",
+      "bytes": 4571548
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\ee-inverse-cost-trial-physical.elf.sym",
+      "sha256": "e9a1ee5580102d48cba511b01c1a1bf30dd1be8dd2ef862fe937c005f903131e",
+      "bytes": 24929284
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\ee-inverse-cost-trial-physical-analysis-root.json",
+      "sha256": "0f7ee5f934258bf8f8ca900d96d5f05b2c283d2397a76284a36cf5ac7e4a1e76",
+      "bytes": 61509
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\ee-inverse-cost-trial-physical-analysis-root.log",
+      "sha256": "e753e97553352e9624fb55cd16df860e272b3525d01887a0ce586a61a4595d03",
+      "bytes": 2787
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\ee-inverse-cost-trial-physical-analysis.log",
+      "sha256": "dddd8ab963c074dfb8ff23deaa2801f2b67f5684be08050976d0461b789a173e",
+      "bytes": 1498
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\ee-inverse-cost-trial\\analyze-physical-v2.py",
+      "sha256": "092791b5f1b8b029cbd41a6a05b158eb37def03bc53c5e1ee54594b4cf1502ea",
+      "bytes": 14692
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\ee-inverse-cost-trial\\physical-v2-tests.json",
+      "sha256": "fd582ca8dd1bc5d02b5e16d1f8dd3e0b92dfa6e68b3011036dfc13e7ab69a611",
+      "bytes": 779
     }
   ],
   "parser_controls": {
     "accepted": 3,
     "rejected": 21
   },
-  "visual": "Final restored emulator snapshot inspected: normal parked car, street, lights and HUD; no pixel differential or physical confirmation."
+  "visual": "Final restored emulator snapshot inspected: normal parked car, street, lights and HUD; no pixel differential or physical confirmation.",
+  "physical": {
+    "analysis": {
+      "complete_run": true,
+      "phases": [
+        {
+          "phase": 0,
+          "mode": 0,
+          "warm_raw_first": 1100,
+          "warm_raw_frames": 512,
+          "mean_work_ms": 18.681172960334354,
+          "median_work_ms": 18.721737331814236,
+          "p95_work_ms": 19.248487684461807,
+          "max_work_ms": 20.64135064019097,
+          "work_above_60hz_budget": 512,
+          "mean_period_ms": 33.403,
+          "delivered_rate_from_period_hz": 29.937430769691346,
+          "aggregate_start": 1100,
+          "aggregate_frames": 500,
+          "aggregate_endpoints": [
+            1150,
+            1200,
+            1250,
+            1300,
+            1350,
+            1400,
+            1450,
+            1500,
+            1550,
+            1600
+          ],
+          "totals": {
+            "FiniteRepeatCalls": 0,
+            "FiniteMissCalls": 0,
+            "NonfiniteMissCalls": 0,
+            "FrameEnds": 0,
+            "FiniteRepeatKeyTicks": 0,
+            "FiniteMissKeyTicks": 0,
+            "NonfiniteMissKeyTicks": 0,
+            "FiniteRepeatInverseTicks": 0,
+            "FiniteMissInverseTicks": 0,
+            "NonfiniteMissInverseTicks": 0
+          },
+          "buckets": {
+            "FiniteRepeat": {
+              "calls_total": 0,
+              "calls_per_frame": 0.0,
+              "key_ms_per_frame": 0.0,
+              "inverse_ms_per_frame": 0.0,
+              "key_ms_per_call": null,
+              "inverse_ms_per_call": null
+            },
+            "FiniteMiss": {
+              "calls_total": 0,
+              "calls_per_frame": 0.0,
+              "key_ms_per_frame": 0.0,
+              "inverse_ms_per_frame": 0.0,
+              "key_ms_per_call": null,
+              "inverse_ms_per_call": null
+            },
+            "NonfiniteMiss": {
+              "calls_total": 0,
+              "calls_per_frame": 0.0,
+              "key_ms_per_frame": 0.0,
+              "inverse_ms_per_frame": 0.0,
+              "key_ms_per_call": null,
+              "inverse_ms_per_call": null
+            }
+          },
+          "count_windows": [
+            {
+              "phase": 0,
+              "epoch": 0,
+              "mode": 0,
+              "f": 1150,
+              "n": 50,
+              "FiniteRepeatCalls": 0,
+              "FiniteMissCalls": 0,
+              "NonfiniteMissCalls": 0,
+              "FrameEnds": 0,
+              "FiniteRepeatKeyTicks": 0,
+              "FiniteMissKeyTicks": 0,
+              "NonfiniteMissKeyTicks": 0,
+              "FiniteRepeatInverseTicks": 0,
+              "FiniteMissInverseTicks": 0,
+              "NonfiniteMissInverseTicks": 0
+            },
+            {
+              "phase": 0,
+              "epoch": 0,
+              "mode": 0,
+              "f": 1200,
+              "n": 50,
+              "FiniteRepeatCalls": 0,
+              "FiniteMissCalls": 0,
+              "NonfiniteMissCalls": 0,
+              "FrameEnds": 0,
+              "FiniteRepeatKeyTicks": 0,
+              "FiniteMissKeyTicks": 0,
+              "NonfiniteMissKeyTicks": 0,
+              "FiniteRepeatInverseTicks": 0,
+              "FiniteMissInverseTicks": 0,
+              "NonfiniteMissInverseTicks": 0
+            },
+            {
+              "phase": 0,
+              "epoch": 0,
+              "mode": 0,
+              "f": 1250,
+              "n": 50,
+              "FiniteRepeatCalls": 0,
+              "FiniteMissCalls": 0,
+              "NonfiniteMissCalls": 0,
+              "FrameEnds": 0,
+              "FiniteRepeatKeyTicks": 0,
+              "FiniteMissKeyTicks": 0,
+              "NonfiniteMissKeyTicks": 0,
+              "FiniteRepeatInverseTicks": 0,
+              "FiniteMissInverseTicks": 0,
+              "NonfiniteMissInverseTicks": 0
+            },
+            {
+              "phase": 0,
+              "epoch": 0,
+              "mode": 0,
+              "f": 1300,
+              "n": 50,
+              "FiniteRepeatCalls": 0,
+              "FiniteMissCalls": 0,
+              "NonfiniteMissCalls": 0,
+              "FrameEnds": 0,
+              "FiniteRepeatKeyTicks": 0,
+              "FiniteMissKeyTicks": 0,
+              "NonfiniteMissKeyTicks": 0,
+              "FiniteRepeatInverseTicks": 0,
+              "FiniteMissInverseTicks": 0,
+              "NonfiniteMissInverseTicks": 0
+            },
+            {
+              "phase": 0,
+              "epoch": 0,
+              "mode": 0,
+              "f": 1350,
+              "n": 50,
+              "FiniteRepeatCalls": 0,
+              "FiniteMissCalls": 0,
+              "NonfiniteMissCalls": 0,
+              "FrameEnds": 0,
+              "FiniteRepeatKeyTicks": 0,
+              "FiniteMissKeyTicks": 0,
+              "NonfiniteMissKeyTicks": 0,
+              "FiniteRepeatInverseTicks": 0,
+              "FiniteMissInverseTicks": 0,
+              "NonfiniteMissInverseTicks": 0
+            },
+            {
+              "phase": 0,
+              "epoch": 0,
+              "mode": 0,
+              "f": 1400,
+              "n": 50,
+              "FiniteRepeatCalls": 0,
+              "FiniteMissCalls": 0,
+              "NonfiniteMissCalls": 0,
+              "FrameEnds": 0,
+              "FiniteRepeatKeyTicks": 0,
+              "FiniteMissKeyTicks": 0,
+              "NonfiniteMissKeyTicks": 0,
+              "FiniteRepeatInverseTicks": 0,
+              "FiniteMissInverseTicks": 0,
+              "NonfiniteMissInverseTicks": 0
+            },
+            {
+              "phase": 0,
+              "epoch": 0,
+              "mode": 0,
+              "f": 1450,
+              "n": 50,
+              "FiniteRepeatCalls": 0,
+              "FiniteMissCalls": 0,
+              "NonfiniteMissCalls": 0,
+              "FrameEnds": 0,
+              "FiniteRepeatKeyTicks": 0,
+              "FiniteMissKeyTicks": 0,
+              "NonfiniteMissKeyTicks": 0,
+              "FiniteRepeatInverseTicks": 0,
+              "FiniteMissInverseTicks": 0,
+              "NonfiniteMissInverseTicks": 0
+            },
+            {
+              "phase": 0,
+              "epoch": 0,
+              "mode": 0,
+              "f": 1500,
+              "n": 50,
+              "FiniteRepeatCalls": 0,
+              "FiniteMissCalls": 0,
+              "NonfiniteMissCalls": 0,
+              "FrameEnds": 0,
+              "FiniteRepeatKeyTicks": 0,
+              "FiniteMissKeyTicks": 0,
+              "NonfiniteMissKeyTicks": 0,
+              "FiniteRepeatInverseTicks": 0,
+              "FiniteMissInverseTicks": 0,
+              "NonfiniteMissInverseTicks": 0
+            },
+            {
+              "phase": 0,
+              "epoch": 0,
+              "mode": 0,
+              "f": 1550,
+              "n": 50,
+              "FiniteRepeatCalls": 0,
+              "FiniteMissCalls": 0,
+              "NonfiniteMissCalls": 0,
+              "FrameEnds": 0,
+              "FiniteRepeatKeyTicks": 0,
+              "FiniteMissKeyTicks": 0,
+              "NonfiniteMissKeyTicks": 0,
+              "FiniteRepeatInverseTicks": 0,
+              "FiniteMissInverseTicks": 0,
+              "NonfiniteMissInverseTicks": 0
+            },
+            {
+              "phase": 0,
+              "epoch": 0,
+              "mode": 0,
+              "f": 1600,
+              "n": 50,
+              "FiniteRepeatCalls": 0,
+              "FiniteMissCalls": 0,
+              "NonfiniteMissCalls": 0,
+              "FrameEnds": 0,
+              "FiniteRepeatKeyTicks": 0,
+              "FiniteMissKeyTicks": 0,
+              "NonfiniteMissKeyTicks": 0,
+              "FiniteRepeatInverseTicks": 0,
+              "FiniteMissInverseTicks": 0,
+              "NonfiniteMissInverseTicks": 0
+            }
+          ],
+          "profile_windows": [
+            {
+              "n": 50,
+              "f": 1100,
+              "work": [
+                18.76,
+                18.75,
+                19.24
+              ],
+              "submit": 18.76,
+              "drain": 0.0,
+              "blss": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "comp": [
+                0.0,
+                0.0
+              ],
+              "over20": 1,
+              "cam": 0.0,
+              "pre": 1.65,
+              "stall": 13.0,
+              "period": 33.7,
+              "miss": 50
+            },
+            {
+              "n": 50,
+              "f": 1150,
+              "work": [
+                18.75,
+                18.74,
+                19.19
+              ],
+              "submit": 18.75,
+              "drain": 0.0,
+              "blss": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "comp": [
+                0.0,
+                0.0
+              ],
+              "over20": 1,
+              "cam": 0.0,
+              "pre": 1.58,
+              "stall": 12.95,
+              "period": 33.37,
+              "miss": 50
+            },
+            {
+              "n": 50,
+              "f": 1200,
+              "work": [
+                18.75,
+                18.76,
+                19.28
+              ],
+              "submit": 18.75,
+              "drain": 0.0,
+              "blss": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "comp": [
+                0.0,
+                0.0
+              ],
+              "over20": 1,
+              "cam": 0.0,
+              "pre": 1.57,
+              "stall": 12.94,
+              "period": 33.37,
+              "miss": 50
+            },
+            {
+              "n": 50,
+              "f": 1250,
+              "work": [
+                18.74,
+                18.71,
+                19.3
+              ],
+              "submit": 18.74,
+              "drain": 0.0,
+              "blss": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "comp": [
+                0.0,
+                0.0
+              ],
+              "over20": 1,
+              "cam": 0.0,
+              "pre": 1.65,
+              "stall": 12.89,
+              "period": 33.37,
+              "miss": 50
+            },
+            {
+              "n": 50,
+              "f": 1300,
+              "work": [
+                18.63,
+                18.68,
+                19.25
+              ],
+              "submit": 18.63,
+              "drain": 0.0,
+              "blss": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "comp": [
+                0.0,
+                0.0
+              ],
+              "over20": 1,
+              "cam": 0.0,
+              "pre": 1.58,
+              "stall": 13.07,
+              "period": 33.37,
+              "miss": 50
+            },
+            {
+              "n": 50,
+              "f": 1350,
+              "work": [
+                18.64,
+                18.74,
+                19.23
+              ],
+              "submit": 18.64,
+              "drain": 0.0,
+              "blss": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "comp": [
+                0.0,
+                0.0
+              ],
+              "over20": 1,
+              "cam": 0.0,
+              "pre": 1.64,
+              "stall": 13.01,
+              "period": 33.37,
+              "miss": 50
+            },
+            {
+              "n": 50,
+              "f": 1400,
+              "work": [
+                18.64,
+                18.72,
+                19.1
+              ],
+              "submit": 18.64,
+              "drain": 0.0,
+              "blss": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "comp": [
+                0.0,
+                0.0
+              ],
+              "over20": 0,
+              "cam": 0.0,
+              "pre": 1.58,
+              "stall": 13.06,
+              "period": 33.37,
+              "miss": 50
+            },
+            {
+              "n": 50,
+              "f": 1450,
+              "work": [
+                18.56,
+                18.69,
+                19.21
+              ],
+              "submit": 18.56,
+              "drain": 0.0,
+              "blss": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "comp": [
+                0.0,
+                0.0
+              ],
+              "over20": 0,
+              "cam": 0.0,
+              "pre": 1.64,
+              "stall": 13.07,
+              "period": 33.37,
+              "miss": 50
+            },
+            {
+              "n": 50,
+              "f": 1500,
+              "work": [
+                18.61,
+                18.68,
+                19.23
+              ],
+              "submit": 18.61,
+              "drain": 0.0,
+              "blss": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "comp": [
+                0.0,
+                0.0
+              ],
+              "over20": 0,
+              "cam": 0.0,
+              "pre": 1.58,
+              "stall": 13.09,
+              "period": 33.37,
+              "miss": 50
+            },
+            {
+              "n": 50,
+              "f": 1550,
+              "work": [
+                18.66,
+                18.72,
+                19.23
+              ],
+              "submit": 18.66,
+              "drain": 0.0,
+              "blss": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "comp": [
+                0.0,
+                0.0
+              ],
+              "over20": 0,
+              "cam": 0.0,
+              "pre": 1.57,
+              "stall": 13.05,
+              "period": 33.37,
+              "miss": 50
+            }
+          ]
+        },
+        {
+          "phase": 1,
+          "mode": 1,
+          "warm_raw_first": 3300,
+          "warm_raw_frames": 512,
+          "mean_work_ms": 18.857432663440704,
+          "median_work_ms": 18.906801011827255,
+          "p95_work_ms": 19.440755208333332,
+          "max_work_ms": 20.67247856987847,
+          "work_above_60hz_budget": 512,
+          "mean_period_ms": 33.403,
+          "delivered_rate_from_period_hz": 29.937430769691346,
+          "aggregate_start": 3300,
+          "aggregate_frames": 500,
+          "aggregate_endpoints": [
+            3350,
+            3400,
+            3450,
+            3500,
+            3550,
+            3600,
+            3650,
+            3700,
+            3750,
+            3800
+          ],
+          "totals": {
+            "FiniteRepeatCalls": 30000,
+            "FiniteMissCalls": 5500,
+            "NonfiniteMissCalls": 0,
+            "FrameEnds": 500,
+            "FiniteRepeatKeyTicks": 0,
+            "FiniteMissKeyTicks": 0,
+            "NonfiniteMissKeyTicks": 0,
+            "FiniteRepeatInverseTicks": 0,
+            "FiniteMissInverseTicks": 0,
+            "NonfiniteMissInverseTicks": 0
+          },
+          "buckets": {
+            "FiniteRepeat": {
+              "calls_total": 30000,
+              "calls_per_frame": 60.0,
+              "key_ms_per_frame": 0.0,
+              "inverse_ms_per_frame": 0.0,
+              "key_ms_per_call": 0.0,
+              "inverse_ms_per_call": 0.0
+            },
+            "FiniteMiss": {
+              "calls_total": 5500,
+              "calls_per_frame": 11.0,
+              "key_ms_per_frame": 0.0,
+              "inverse_ms_per_frame": 0.0,
+              "key_ms_per_call": 0.0,
+              "inverse_ms_per_call": 0.0
+            },
+            "NonfiniteMiss": {
+              "calls_total": 0,
+              "calls_per_frame": 0.0,
+              "key_ms_per_frame": 0.0,
+              "inverse_ms_per_frame": 0.0,
+              "key_ms_per_call": null,
+              "inverse_ms_per_call": null
+            }
+          },
+          "count_windows": [
+            {
+              "phase": 1,
+              "epoch": 1,
+              "mode": 1,
+              "f": 3350,
+              "n": 50,
+              "FiniteRepeatCalls": 3000,
+              "FiniteMissCalls": 550,
+              "NonfiniteMissCalls": 0,
+              "FrameEnds": 50,
+              "FiniteRepeatKeyTicks": 0,
+              "FiniteMissKeyTicks": 0,
+              "NonfiniteMissKeyTicks": 0,
+              "FiniteRepeatInverseTicks": 0,
+              "FiniteMissInverseTicks": 0,
+              "NonfiniteMissInverseTicks": 0
+            },
+            {
+              "phase": 1,
+              "epoch": 1,
+              "mode": 1,
+              "f": 3400,
+              "n": 50,
+              "FiniteRepeatCalls": 3000,
+              "FiniteMissCalls": 550,
+              "NonfiniteMissCalls": 0,
+              "FrameEnds": 50,
+              "FiniteRepeatKeyTicks": 0,
+              "FiniteMissKeyTicks": 0,
+              "NonfiniteMissKeyTicks": 0,
+              "FiniteRepeatInverseTicks": 0,
+              "FiniteMissInverseTicks": 0,
+              "NonfiniteMissInverseTicks": 0
+            },
+            {
+              "phase": 1,
+              "epoch": 1,
+              "mode": 1,
+              "f": 3450,
+              "n": 50,
+              "FiniteRepeatCalls": 3000,
+              "FiniteMissCalls": 550,
+              "NonfiniteMissCalls": 0,
+              "FrameEnds": 50,
+              "FiniteRepeatKeyTicks": 0,
+              "FiniteMissKeyTicks": 0,
+              "NonfiniteMissKeyTicks": 0,
+              "FiniteRepeatInverseTicks": 0,
+              "FiniteMissInverseTicks": 0,
+              "NonfiniteMissInverseTicks": 0
+            },
+            {
+              "phase": 1,
+              "epoch": 1,
+              "mode": 1,
+              "f": 3500,
+              "n": 50,
+              "FiniteRepeatCalls": 3000,
+              "FiniteMissCalls": 550,
+              "NonfiniteMissCalls": 0,
+              "FrameEnds": 50,
+              "FiniteRepeatKeyTicks": 0,
+              "FiniteMissKeyTicks": 0,
+              "NonfiniteMissKeyTicks": 0,
+              "FiniteRepeatInverseTicks": 0,
+              "FiniteMissInverseTicks": 0,
+              "NonfiniteMissInverseTicks": 0
+            },
+            {
+              "phase": 1,
+              "epoch": 1,
+              "mode": 1,
+              "f": 3550,
+              "n": 50,
+              "FiniteRepeatCalls": 3000,
+              "FiniteMissCalls": 550,
+              "NonfiniteMissCalls": 0,
+              "FrameEnds": 50,
+              "FiniteRepeatKeyTicks": 0,
+              "FiniteMissKeyTicks": 0,
+              "NonfiniteMissKeyTicks": 0,
+              "FiniteRepeatInverseTicks": 0,
+              "FiniteMissInverseTicks": 0,
+              "NonfiniteMissInverseTicks": 0
+            },
+            {
+              "phase": 1,
+              "epoch": 1,
+              "mode": 1,
+              "f": 3600,
+              "n": 50,
+              "FiniteRepeatCalls": 3000,
+              "FiniteMissCalls": 550,
+              "NonfiniteMissCalls": 0,
+              "FrameEnds": 50,
+              "FiniteRepeatKeyTicks": 0,
+              "FiniteMissKeyTicks": 0,
+              "NonfiniteMissKeyTicks": 0,
+              "FiniteRepeatInverseTicks": 0,
+              "FiniteMissInverseTicks": 0,
+              "NonfiniteMissInverseTicks": 0
+            },
+            {
+              "phase": 1,
+              "epoch": 1,
+              "mode": 1,
+              "f": 3650,
+              "n": 50,
+              "FiniteRepeatCalls": 3000,
+              "FiniteMissCalls": 550,
+              "NonfiniteMissCalls": 0,
+              "FrameEnds": 50,
+              "FiniteRepeatKeyTicks": 0,
+              "FiniteMissKeyTicks": 0,
+              "NonfiniteMissKeyTicks": 0,
+              "FiniteRepeatInverseTicks": 0,
+              "FiniteMissInverseTicks": 0,
+              "NonfiniteMissInverseTicks": 0
+            },
+            {
+              "phase": 1,
+              "epoch": 1,
+              "mode": 1,
+              "f": 3700,
+              "n": 50,
+              "FiniteRepeatCalls": 3000,
+              "FiniteMissCalls": 550,
+              "NonfiniteMissCalls": 0,
+              "FrameEnds": 50,
+              "FiniteRepeatKeyTicks": 0,
+              "FiniteMissKeyTicks": 0,
+              "NonfiniteMissKeyTicks": 0,
+              "FiniteRepeatInverseTicks": 0,
+              "FiniteMissInverseTicks": 0,
+              "NonfiniteMissInverseTicks": 0
+            },
+            {
+              "phase": 1,
+              "epoch": 1,
+              "mode": 1,
+              "f": 3750,
+              "n": 50,
+              "FiniteRepeatCalls": 3000,
+              "FiniteMissCalls": 550,
+              "NonfiniteMissCalls": 0,
+              "FrameEnds": 50,
+              "FiniteRepeatKeyTicks": 0,
+              "FiniteMissKeyTicks": 0,
+              "NonfiniteMissKeyTicks": 0,
+              "FiniteRepeatInverseTicks": 0,
+              "FiniteMissInverseTicks": 0,
+              "NonfiniteMissInverseTicks": 0
+            },
+            {
+              "phase": 1,
+              "epoch": 1,
+              "mode": 1,
+              "f": 3800,
+              "n": 50,
+              "FiniteRepeatCalls": 3000,
+              "FiniteMissCalls": 550,
+              "NonfiniteMissCalls": 0,
+              "FrameEnds": 50,
+              "FiniteRepeatKeyTicks": 0,
+              "FiniteMissKeyTicks": 0,
+              "NonfiniteMissKeyTicks": 0,
+              "FiniteRepeatInverseTicks": 0,
+              "FiniteMissInverseTicks": 0,
+              "NonfiniteMissInverseTicks": 0
+            }
+          ],
+          "profile_windows": [
+            {
+              "n": 50,
+              "f": 3300,
+              "work": [
+                18.86,
+                18.88,
+                19.41
+              ],
+              "submit": 18.86,
+              "drain": 0.0,
+              "blss": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "comp": [
+                0.0,
+                0.0
+              ],
+              "over20": 1,
+              "cam": 0.0,
+              "pre": 1.58,
+              "stall": 13.0,
+              "period": 33.7,
+              "miss": 50
+            },
+            {
+              "n": 50,
+              "f": 3350,
+              "work": [
+                18.84,
+                18.9,
+                19.43
+              ],
+              "submit": 18.84,
+              "drain": 0.0,
+              "blss": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "comp": [
+                0.0,
+                0.0
+              ],
+              "over20": 1,
+              "cam": 0.0,
+              "pre": 1.65,
+              "stall": 12.79,
+              "period": 33.37,
+              "miss": 50
+            },
+            {
+              "n": 50,
+              "f": 3400,
+              "work": [
+                18.87,
+                18.94,
+                19.34
+              ],
+              "submit": 18.87,
+              "drain": 0.0,
+              "blss": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "comp": [
+                0.0,
+                0.0
+              ],
+              "over20": 1,
+              "cam": 0.0,
+              "pre": 1.58,
+              "stall": 12.82,
+              "period": 33.37,
+              "miss": 50
+            },
+            {
+              "n": 50,
+              "f": 3450,
+              "work": [
+                18.88,
+                18.91,
+                19.48
+              ],
+              "submit": 18.88,
+              "drain": 0.0,
+              "blss": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "comp": [
+                0.0,
+                0.0
+              ],
+              "over20": 1,
+              "cam": 0.0,
+              "pre": 1.58,
+              "stall": 12.81,
+              "period": 33.37,
+              "miss": 50
+            },
+            {
+              "n": 50,
+              "f": 3500,
+              "work": [
+                18.85,
+                18.86,
+                19.46
+              ],
+              "submit": 18.84,
+              "drain": 0.0,
+              "blss": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "comp": [
+                0.0,
+                0.0
+              ],
+              "over20": 1,
+              "cam": 0.0,
+              "pre": 1.65,
+              "stall": 12.78,
+              "period": 33.37,
+              "miss": 50
+            },
+            {
+              "n": 50,
+              "f": 3550,
+              "work": [
+                18.74,
+                18.88,
+                19.4
+              ],
+              "submit": 18.74,
+              "drain": 0.0,
+              "blss": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "comp": [
+                0.0,
+                0.0
+              ],
+              "over20": 1,
+              "cam": 0.0,
+              "pre": 1.6,
+              "stall": 12.92,
+              "period": 33.37,
+              "miss": 50
+            },
+            {
+              "n": 50,
+              "f": 3600,
+              "work": [
+                18.8,
+                18.91,
+                19.45
+              ],
+              "submit": 18.8,
+              "drain": 0.0,
+              "blss": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "comp": [
+                0.0,
+                0.0
+              ],
+              "over20": 1,
+              "cam": 0.0,
+              "pre": 1.64,
+              "stall": 12.84,
+              "period": 33.37,
+              "miss": 50
+            },
+            {
+              "n": 50,
+              "f": 3650,
+              "work": [
+                18.78,
+                18.92,
+                19.35
+              ],
+              "submit": 18.78,
+              "drain": 0.0,
+              "blss": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "comp": [
+                0.0,
+                0.0
+              ],
+              "over20": 0,
+              "cam": 0.0,
+              "pre": 1.58,
+              "stall": 12.91,
+              "period": 33.37,
+              "miss": 50
+            },
+            {
+              "n": 50,
+              "f": 3700,
+              "work": [
+                18.91,
+                18.94,
+                19.47
+              ],
+              "submit": 18.91,
+              "drain": 0.0,
+              "blss": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "comp": [
+                0.0,
+                0.0
+              ],
+              "over20": 1,
+              "cam": 0.0,
+              "pre": 1.58,
+              "stall": 12.78,
+              "period": 33.37,
+              "miss": 50
+            },
+            {
+              "n": 50,
+              "f": 3750,
+              "work": [
+                18.97,
+                18.93,
+                19.44
+              ],
+              "submit": 18.97,
+              "drain": 0.0,
+              "blss": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "comp": [
+                0.0,
+                0.0
+              ],
+              "over20": 1,
+              "cam": 0.0,
+              "pre": 1.6,
+              "stall": 12.69,
+              "period": 33.37,
+              "miss": 50
+            }
+          ]
+        },
+        {
+          "phase": 2,
+          "mode": 2,
+          "warm_raw_first": 5500,
+          "warm_raw_frames": 512,
+          "mean_work_ms": 18.92795718378491,
+          "median_work_ms": 18.96422661675347,
+          "p95_work_ms": 19.500162760416668,
+          "max_work_ms": 20.997755262586807,
+          "work_above_60hz_budget": 512,
+          "mean_period_ms": 33.403,
+          "delivered_rate_from_period_hz": 29.937430769691346,
+          "aggregate_start": 5500,
+          "aggregate_frames": 500,
+          "aggregate_endpoints": [
+            5550,
+            5600,
+            5650,
+            5700,
+            5750,
+            5800,
+            5850,
+            5900,
+            5950,
+            6000
+          ],
+          "totals": {
+            "FiniteRepeatCalls": 30000,
+            "FiniteMissCalls": 5500,
+            "NonfiniteMissCalls": 0,
+            "FrameEnds": 500,
+            "FiniteRepeatKeyTicks": 15676486,
+            "FiniteMissKeyTicks": 4695948,
+            "NonfiniteMissKeyTicks": 0,
+            "FiniteRepeatInverseTicks": 9368293,
+            "FiniteMissInverseTicks": 1851446,
+            "NonfiniteMissInverseTicks": 0
+          },
+          "buckets": {
+            "FiniteRepeat": {
+              "calls_total": 30000,
+              "calls_per_frame": 60.0,
+              "key_ms_per_frame": 0.10631297471788194,
+              "inverse_ms_per_frame": 0.06353280300564236,
+              "key_ms_per_call": 0.001771882911964699,
+              "inverse_ms_per_call": 0.0010588800500940395
+            },
+            "FiniteMiss": {
+              "calls_total": 5500,
+              "calls_per_frame": 11.0,
+              "key_ms_per_frame": 0.031846435546875,
+              "inverse_ms_per_frame": 0.012555921766493056,
+              "key_ms_per_call": 0.0028951305042613637,
+              "inverse_ms_per_call": 0.0011414474333175505
+            },
+            "NonfiniteMiss": {
+              "calls_total": 0,
+              "calls_per_frame": 0.0,
+              "key_ms_per_frame": 0.0,
+              "inverse_ms_per_frame": 0.0,
+              "key_ms_per_call": null,
+              "inverse_ms_per_call": null
+            }
+          },
+          "count_windows": [
+            {
+              "phase": 2,
+              "epoch": 2,
+              "mode": 2,
+              "f": 5550,
+              "n": 50,
+              "FiniteRepeatCalls": 3000,
+              "FiniteMissCalls": 550,
+              "NonfiniteMissCalls": 0,
+              "FrameEnds": 50,
+              "FiniteRepeatKeyTicks": 1519824,
+              "FiniteMissKeyTicks": 477556,
+              "NonfiniteMissKeyTicks": 0,
+              "FiniteRepeatInverseTicks": 979296,
+              "FiniteMissInverseTicks": 192479,
+              "NonfiniteMissInverseTicks": 0
+            },
+            {
+              "phase": 2,
+              "epoch": 2,
+              "mode": 2,
+              "f": 5600,
+              "n": 50,
+              "FiniteRepeatCalls": 3000,
+              "FiniteMissCalls": 550,
+              "NonfiniteMissCalls": 0,
+              "FrameEnds": 50,
+              "FiniteRepeatKeyTicks": 1630098,
+              "FiniteMissKeyTicks": 465822,
+              "NonfiniteMissKeyTicks": 0,
+              "FiniteRepeatInverseTicks": 928210,
+              "FiniteMissInverseTicks": 189933,
+              "NonfiniteMissInverseTicks": 0
+            },
+            {
+              "phase": 2,
+              "epoch": 2,
+              "mode": 2,
+              "f": 5650,
+              "n": 50,
+              "FiniteRepeatCalls": 3000,
+              "FiniteMissCalls": 550,
+              "NonfiniteMissCalls": 0,
+              "FrameEnds": 50,
+              "FiniteRepeatKeyTicks": 1509432,
+              "FiniteMissKeyTicks": 443564,
+              "NonfiniteMissKeyTicks": 0,
+              "FiniteRepeatInverseTicks": 964894,
+              "FiniteMissInverseTicks": 190122,
+              "NonfiniteMissInverseTicks": 0
+            },
+            {
+              "phase": 2,
+              "epoch": 2,
+              "mode": 2,
+              "f": 5700,
+              "n": 50,
+              "FiniteRepeatCalls": 3000,
+              "FiniteMissCalls": 550,
+              "NonfiniteMissCalls": 0,
+              "FrameEnds": 50,
+              "FiniteRepeatKeyTicks": 1531223,
+              "FiniteMissKeyTicks": 480920,
+              "NonfiniteMissKeyTicks": 0,
+              "FiniteRepeatInverseTicks": 881786,
+              "FiniteMissInverseTicks": 167594,
+              "NonfiniteMissInverseTicks": 0
+            },
+            {
+              "phase": 2,
+              "epoch": 2,
+              "mode": 2,
+              "f": 5750,
+              "n": 50,
+              "FiniteRepeatCalls": 3000,
+              "FiniteMissCalls": 550,
+              "NonfiniteMissCalls": 0,
+              "FrameEnds": 50,
+              "FiniteRepeatKeyTicks": 1598865,
+              "FiniteMissKeyTicks": 465648,
+              "NonfiniteMissKeyTicks": 0,
+              "FiniteRepeatInverseTicks": 928510,
+              "FiniteMissInverseTicks": 166392,
+              "NonfiniteMissInverseTicks": 0
+            },
+            {
+              "phase": 2,
+              "epoch": 2,
+              "mode": 2,
+              "f": 5800,
+              "n": 50,
+              "FiniteRepeatCalls": 3000,
+              "FiniteMissCalls": 550,
+              "NonfiniteMissCalls": 0,
+              "FrameEnds": 50,
+              "FiniteRepeatKeyTicks": 1494854,
+              "FiniteMissKeyTicks": 442460,
+              "NonfiniteMissKeyTicks": 0,
+              "FiniteRepeatInverseTicks": 962865,
+              "FiniteMissInverseTicks": 190314,
+              "NonfiniteMissInverseTicks": 0
+            },
+            {
+              "phase": 2,
+              "epoch": 2,
+              "mode": 2,
+              "f": 5850,
+              "n": 50,
+              "FiniteRepeatCalls": 3000,
+              "FiniteMissCalls": 550,
+              "NonfiniteMissCalls": 0,
+              "FrameEnds": 50,
+              "FiniteRepeatKeyTicks": 1609210,
+              "FiniteMissKeyTicks": 477670,
+              "NonfiniteMissKeyTicks": 0,
+              "FiniteRepeatInverseTicks": 867409,
+              "FiniteMissInverseTicks": 177375,
+              "NonfiniteMissInverseTicks": 0
+            },
+            {
+              "phase": 2,
+              "epoch": 2,
+              "mode": 2,
+              "f": 5900,
+              "n": 50,
+              "FiniteRepeatCalls": 3000,
+              "FiniteMissCalls": 550,
+              "NonfiniteMissCalls": 0,
+              "FrameEnds": 50,
+              "FiniteRepeatKeyTicks": 1577681,
+              "FiniteMissKeyTicks": 489192,
+              "NonfiniteMissKeyTicks": 0,
+              "FiniteRepeatInverseTicks": 927767,
+              "FiniteMissInverseTicks": 200971,
+              "NonfiniteMissInverseTicks": 0
+            },
+            {
+              "phase": 2,
+              "epoch": 2,
+              "mode": 2,
+              "f": 5950,
+              "n": 50,
+              "FiniteRepeatCalls": 3000,
+              "FiniteMissCalls": 550,
+              "NonfiniteMissCalls": 0,
+              "FrameEnds": 50,
+              "FiniteRepeatKeyTicks": 1588554,
+              "FiniteMissKeyTicks": 430400,
+              "NonfiniteMissKeyTicks": 0,
+              "FiniteRepeatInverseTicks": 914481,
+              "FiniteMissInverseTicks": 200697,
+              "NonfiniteMissInverseTicks": 0
+            },
+            {
+              "phase": 2,
+              "epoch": 2,
+              "mode": 2,
+              "f": 6000,
+              "n": 50,
+              "FiniteRepeatCalls": 3000,
+              "FiniteMissCalls": 550,
+              "NonfiniteMissCalls": 0,
+              "FrameEnds": 50,
+              "FiniteRepeatKeyTicks": 1616745,
+              "FiniteMissKeyTicks": 522716,
+              "NonfiniteMissKeyTicks": 0,
+              "FiniteRepeatInverseTicks": 1013075,
+              "FiniteMissInverseTicks": 175569,
+              "NonfiniteMissInverseTicks": 0
+            }
+          ],
+          "profile_windows": [
+            {
+              "n": 50,
+              "f": 5500,
+              "work": [
+                18.92,
+                18.93,
+                19.47
+              ],
+              "submit": 18.92,
+              "drain": 0.0,
+              "blss": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "comp": [
+                0.0,
+                0.0
+              ],
+              "over20": 1,
+              "cam": 0.0,
+              "pre": 1.65,
+              "stall": 12.86,
+              "period": 33.7,
+              "miss": 50
+            },
+            {
+              "n": 50,
+              "f": 5550,
+              "work": [
+                18.9,
+                18.94,
+                19.52
+              ],
+              "submit": 18.9,
+              "drain": 0.0,
+              "blss": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "comp": [
+                0.0,
+                0.0
+              ],
+              "over20": 1,
+              "cam": 0.0,
+              "pre": 1.58,
+              "stall": 12.8,
+              "period": 33.37,
+              "miss": 50
+            },
+            {
+              "n": 50,
+              "f": 5600,
+              "work": [
+                19.04,
+                19.02,
+                19.51
+              ],
+              "submit": 19.04,
+              "drain": 0.0,
+              "blss": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "comp": [
+                0.0,
+                0.0
+              ],
+              "over20": 1,
+              "cam": 0.0,
+              "pre": 1.65,
+              "stall": 12.6,
+              "period": 33.37,
+              "miss": 50
+            },
+            {
+              "n": 50,
+              "f": 5650,
+              "work": [
+                18.92,
+                18.99,
+                19.39
+              ],
+              "submit": 18.92,
+              "drain": 0.0,
+              "blss": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "comp": [
+                0.0,
+                0.0
+              ],
+              "over20": 1,
+              "cam": 0.0,
+              "pre": 1.58,
+              "stall": 12.78,
+              "period": 33.37,
+              "miss": 50
+            },
+            {
+              "n": 50,
+              "f": 5700,
+              "work": [
+                18.95,
+                19.01,
+                19.52
+              ],
+              "submit": 18.95,
+              "drain": 0.0,
+              "blss": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "comp": [
+                0.0,
+                0.0
+              ],
+              "over20": 1,
+              "cam": 0.0,
+              "pre": 1.58,
+              "stall": 12.74,
+              "period": 33.37,
+              "miss": 50
+            },
+            {
+              "n": 50,
+              "f": 5750,
+              "work": [
+                18.95,
+                18.96,
+                19.48
+              ],
+              "submit": 18.95,
+              "drain": 0.0,
+              "blss": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "comp": [
+                0.0,
+                0.0
+              ],
+              "over20": 1,
+              "cam": 0.0,
+              "pre": 1.64,
+              "stall": 12.69,
+              "period": 33.37,
+              "miss": 50
+            },
+            {
+              "n": 50,
+              "f": 5800,
+              "work": [
+                18.91,
+                18.9,
+                19.49
+              ],
+              "submit": 18.91,
+              "drain": 0.0,
+              "blss": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "comp": [
+                0.0,
+                0.0
+              ],
+              "over20": 1,
+              "cam": 0.0,
+              "pre": 1.57,
+              "stall": 12.78,
+              "period": 33.37,
+              "miss": 50
+            },
+            {
+              "n": 50,
+              "f": 5850,
+              "work": [
+                18.89,
+                18.95,
+                19.46
+              ],
+              "submit": 18.89,
+              "drain": 0.0,
+              "blss": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "comp": [
+                0.0,
+                0.0
+              ],
+              "over20": 1,
+              "cam": 0.0,
+              "pre": 1.64,
+              "stall": 12.73,
+              "period": 33.37,
+              "miss": 50
+            },
+            {
+              "n": 50,
+              "f": 5900,
+              "work": [
+                18.86,
+                18.97,
+                19.39
+              ],
+              "submit": 18.86,
+              "drain": 0.0,
+              "blss": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "comp": [
+                0.0,
+                0.0
+              ],
+              "over20": 0,
+              "cam": 0.0,
+              "pre": 1.57,
+              "stall": 12.84,
+              "period": 33.37,
+              "miss": 50
+            },
+            {
+              "n": 50,
+              "f": 5950,
+              "work": [
+                18.94,
+                18.99,
+                19.51
+              ],
+              "submit": 18.94,
+              "drain": 0.0,
+              "blss": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "comp": [
+                0.0,
+                0.0
+              ],
+              "over20": 1,
+              "cam": 0.0,
+              "pre": 1.58,
+              "stall": 12.75,
+              "period": 33.37,
+              "miss": 50
+            }
+          ]
+        },
+        {
+          "phase": 3,
+          "mode": 1,
+          "warm_raw_first": 7700,
+          "warm_raw_frames": 512,
+          "mean_work_ms": 18.96112883090973,
+          "median_work_ms": 18.979570176866318,
+          "p95_work_ms": 19.506490071614582,
+          "max_work_ms": 20.82347954644097,
+          "work_above_60hz_budget": 512,
+          "mean_period_ms": 33.403,
+          "delivered_rate_from_period_hz": 29.937430769691346,
+          "aggregate_start": 7700,
+          "aggregate_frames": 500,
+          "aggregate_endpoints": [
+            7750,
+            7800,
+            7850,
+            7900,
+            7950,
+            8000,
+            8050,
+            8100,
+            8150,
+            8200
+          ],
+          "totals": {
+            "FiniteRepeatCalls": 30000,
+            "FiniteMissCalls": 5500,
+            "NonfiniteMissCalls": 0,
+            "FrameEnds": 500,
+            "FiniteRepeatKeyTicks": 0,
+            "FiniteMissKeyTicks": 0,
+            "NonfiniteMissKeyTicks": 0,
+            "FiniteRepeatInverseTicks": 0,
+            "FiniteMissInverseTicks": 0,
+            "NonfiniteMissInverseTicks": 0
+          },
+          "buckets": {
+            "FiniteRepeat": {
+              "calls_total": 30000,
+              "calls_per_frame": 60.0,
+              "key_ms_per_frame": 0.0,
+              "inverse_ms_per_frame": 0.0,
+              "key_ms_per_call": 0.0,
+              "inverse_ms_per_call": 0.0
+            },
+            "FiniteMiss": {
+              "calls_total": 5500,
+              "calls_per_frame": 11.0,
+              "key_ms_per_frame": 0.0,
+              "inverse_ms_per_frame": 0.0,
+              "key_ms_per_call": 0.0,
+              "inverse_ms_per_call": 0.0
+            },
+            "NonfiniteMiss": {
+              "calls_total": 0,
+              "calls_per_frame": 0.0,
+              "key_ms_per_frame": 0.0,
+              "inverse_ms_per_frame": 0.0,
+              "key_ms_per_call": null,
+              "inverse_ms_per_call": null
+            }
+          },
+          "count_windows": [
+            {
+              "phase": 3,
+              "epoch": 3,
+              "mode": 1,
+              "f": 7750,
+              "n": 50,
+              "FiniteRepeatCalls": 3000,
+              "FiniteMissCalls": 550,
+              "NonfiniteMissCalls": 0,
+              "FrameEnds": 50,
+              "FiniteRepeatKeyTicks": 0,
+              "FiniteMissKeyTicks": 0,
+              "NonfiniteMissKeyTicks": 0,
+              "FiniteRepeatInverseTicks": 0,
+              "FiniteMissInverseTicks": 0,
+              "NonfiniteMissInverseTicks": 0
+            },
+            {
+              "phase": 3,
+              "epoch": 3,
+              "mode": 1,
+              "f": 7800,
+              "n": 50,
+              "FiniteRepeatCalls": 3000,
+              "FiniteMissCalls": 550,
+              "NonfiniteMissCalls": 0,
+              "FrameEnds": 50,
+              "FiniteRepeatKeyTicks": 0,
+              "FiniteMissKeyTicks": 0,
+              "NonfiniteMissKeyTicks": 0,
+              "FiniteRepeatInverseTicks": 0,
+              "FiniteMissInverseTicks": 0,
+              "NonfiniteMissInverseTicks": 0
+            },
+            {
+              "phase": 3,
+              "epoch": 3,
+              "mode": 1,
+              "f": 7850,
+              "n": 50,
+              "FiniteRepeatCalls": 3000,
+              "FiniteMissCalls": 550,
+              "NonfiniteMissCalls": 0,
+              "FrameEnds": 50,
+              "FiniteRepeatKeyTicks": 0,
+              "FiniteMissKeyTicks": 0,
+              "NonfiniteMissKeyTicks": 0,
+              "FiniteRepeatInverseTicks": 0,
+              "FiniteMissInverseTicks": 0,
+              "NonfiniteMissInverseTicks": 0
+            },
+            {
+              "phase": 3,
+              "epoch": 3,
+              "mode": 1,
+              "f": 7900,
+              "n": 50,
+              "FiniteRepeatCalls": 3000,
+              "FiniteMissCalls": 550,
+              "NonfiniteMissCalls": 0,
+              "FrameEnds": 50,
+              "FiniteRepeatKeyTicks": 0,
+              "FiniteMissKeyTicks": 0,
+              "NonfiniteMissKeyTicks": 0,
+              "FiniteRepeatInverseTicks": 0,
+              "FiniteMissInverseTicks": 0,
+              "NonfiniteMissInverseTicks": 0
+            },
+            {
+              "phase": 3,
+              "epoch": 3,
+              "mode": 1,
+              "f": 7950,
+              "n": 50,
+              "FiniteRepeatCalls": 3000,
+              "FiniteMissCalls": 550,
+              "NonfiniteMissCalls": 0,
+              "FrameEnds": 50,
+              "FiniteRepeatKeyTicks": 0,
+              "FiniteMissKeyTicks": 0,
+              "NonfiniteMissKeyTicks": 0,
+              "FiniteRepeatInverseTicks": 0,
+              "FiniteMissInverseTicks": 0,
+              "NonfiniteMissInverseTicks": 0
+            },
+            {
+              "phase": 3,
+              "epoch": 3,
+              "mode": 1,
+              "f": 8000,
+              "n": 50,
+              "FiniteRepeatCalls": 3000,
+              "FiniteMissCalls": 550,
+              "NonfiniteMissCalls": 0,
+              "FrameEnds": 50,
+              "FiniteRepeatKeyTicks": 0,
+              "FiniteMissKeyTicks": 0,
+              "NonfiniteMissKeyTicks": 0,
+              "FiniteRepeatInverseTicks": 0,
+              "FiniteMissInverseTicks": 0,
+              "NonfiniteMissInverseTicks": 0
+            },
+            {
+              "phase": 3,
+              "epoch": 3,
+              "mode": 1,
+              "f": 8050,
+              "n": 50,
+              "FiniteRepeatCalls": 3000,
+              "FiniteMissCalls": 550,
+              "NonfiniteMissCalls": 0,
+              "FrameEnds": 50,
+              "FiniteRepeatKeyTicks": 0,
+              "FiniteMissKeyTicks": 0,
+              "NonfiniteMissKeyTicks": 0,
+              "FiniteRepeatInverseTicks": 0,
+              "FiniteMissInverseTicks": 0,
+              "NonfiniteMissInverseTicks": 0
+            },
+            {
+              "phase": 3,
+              "epoch": 3,
+              "mode": 1,
+              "f": 8100,
+              "n": 50,
+              "FiniteRepeatCalls": 3000,
+              "FiniteMissCalls": 550,
+              "NonfiniteMissCalls": 0,
+              "FrameEnds": 50,
+              "FiniteRepeatKeyTicks": 0,
+              "FiniteMissKeyTicks": 0,
+              "NonfiniteMissKeyTicks": 0,
+              "FiniteRepeatInverseTicks": 0,
+              "FiniteMissInverseTicks": 0,
+              "NonfiniteMissInverseTicks": 0
+            },
+            {
+              "phase": 3,
+              "epoch": 3,
+              "mode": 1,
+              "f": 8150,
+              "n": 50,
+              "FiniteRepeatCalls": 3000,
+              "FiniteMissCalls": 550,
+              "NonfiniteMissCalls": 0,
+              "FrameEnds": 50,
+              "FiniteRepeatKeyTicks": 0,
+              "FiniteMissKeyTicks": 0,
+              "NonfiniteMissKeyTicks": 0,
+              "FiniteRepeatInverseTicks": 0,
+              "FiniteMissInverseTicks": 0,
+              "NonfiniteMissInverseTicks": 0
+            },
+            {
+              "phase": 3,
+              "epoch": 3,
+              "mode": 1,
+              "f": 8200,
+              "n": 50,
+              "FiniteRepeatCalls": 3000,
+              "FiniteMissCalls": 550,
+              "NonfiniteMissCalls": 0,
+              "FrameEnds": 50,
+              "FiniteRepeatKeyTicks": 0,
+              "FiniteMissKeyTicks": 0,
+              "NonfiniteMissKeyTicks": 0,
+              "FiniteRepeatInverseTicks": 0,
+              "FiniteMissInverseTicks": 0,
+              "NonfiniteMissInverseTicks": 0
+            }
+          ],
+          "profile_windows": [
+            {
+              "n": 50,
+              "f": 7700,
+              "work": [
+                18.98,
+                18.97,
+                19.53
+              ],
+              "submit": 18.98,
+              "drain": 0.0,
+              "blss": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "comp": [
+                0.0,
+                0.0
+              ],
+              "over20": 1,
+              "cam": 0.0,
+              "pre": 1.58,
+              "stall": 12.9,
+              "period": 33.7,
+              "miss": 50
+            },
+            {
+              "n": 50,
+              "f": 7750,
+              "work": [
+                19.02,
+                18.98,
+                19.47
+              ],
+              "submit": 19.02,
+              "drain": 0.0,
+              "blss": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "comp": [
+                0.0,
+                0.0
+              ],
+              "over20": 1,
+              "cam": 0.0,
+              "pre": 1.64,
+              "stall": 12.62,
+              "period": 33.37,
+              "miss": 50
+            },
+            {
+              "n": 50,
+              "f": 7800,
+              "work": [
+                19.05,
+                19.03,
+                19.51
+              ],
+              "submit": 19.05,
+              "drain": 0.0,
+              "blss": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "comp": [
+                0.0,
+                0.0
+              ],
+              "over20": 1,
+              "cam": 0.0,
+              "pre": 1.57,
+              "stall": 12.65,
+              "period": 33.37,
+              "miss": 50
+            },
+            {
+              "n": 50,
+              "f": 7850,
+              "work": [
+                18.96,
+                19.0,
+                19.56
+              ],
+              "submit": 18.96,
+              "drain": 0.0,
+              "blss": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "comp": [
+                0.0,
+                0.0
+              ],
+              "over20": 1,
+              "cam": 0.0,
+              "pre": 1.58,
+              "stall": 12.74,
+              "period": 33.37,
+              "miss": 50
+            },
+            {
+              "n": 50,
+              "f": 7900,
+              "work": [
+                18.87,
+                18.98,
+                19.48
+              ],
+              "submit": 18.87,
+              "drain": 0.0,
+              "blss": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "comp": [
+                0.0,
+                0.0
+              ],
+              "over20": 0,
+              "cam": 0.0,
+              "pre": 1.63,
+              "stall": 12.77,
+              "period": 33.37,
+              "miss": 50
+            },
+            {
+              "n": 50,
+              "f": 7950,
+              "work": [
+                18.91,
+                18.96,
+                19.48
+              ],
+              "submit": 18.91,
+              "drain": 0.0,
+              "blss": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "comp": [
+                0.0,
+                0.0
+              ],
+              "over20": 1,
+              "cam": 0.0,
+              "pre": 1.57,
+              "stall": 12.79,
+              "period": 33.37,
+              "miss": 50
+            },
+            {
+              "n": 50,
+              "f": 8000,
+              "work": [
+                18.91,
+                18.99,
+                19.48
+              ],
+              "submit": 18.91,
+              "drain": 0.0,
+              "blss": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "comp": [
+                0.0,
+                0.0
+              ],
+              "over20": 1,
+              "cam": 0.0,
+              "pre": 1.64,
+              "stall": 12.72,
+              "period": 33.37,
+              "miss": 50
+            },
+            {
+              "n": 50,
+              "f": 8050,
+              "work": [
+                18.96,
+                18.97,
+                19.53
+              ],
+              "submit": 18.96,
+              "drain": 0.0,
+              "blss": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "comp": [
+                0.0,
+                0.0
+              ],
+              "over20": 1,
+              "cam": 0.0,
+              "pre": 1.58,
+              "stall": 12.73,
+              "period": 33.37,
+              "miss": 50
+            },
+            {
+              "n": 50,
+              "f": 8100,
+              "work": [
+                18.96,
+                18.98,
+                19.46
+              ],
+              "submit": 18.96,
+              "drain": 0.0,
+              "blss": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "comp": [
+                0.0,
+                0.0
+              ],
+              "over20": 1,
+              "cam": 0.0,
+              "pre": 1.64,
+              "stall": 12.67,
+              "period": 33.37,
+              "miss": 50
+            },
+            {
+              "n": 50,
+              "f": 8150,
+              "work": [
+                18.98,
+                18.98,
+                19.49
+              ],
+              "submit": 18.98,
+              "drain": 0.0,
+              "blss": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "comp": [
+                0.0,
+                0.0
+              ],
+              "over20": 1,
+              "cam": 0.0,
+              "pre": 1.58,
+              "stall": 12.71,
+              "period": 33.37,
+              "miss": 50
+            }
+          ]
+        },
+        {
+          "phase": 4,
+          "mode": 0,
+          "warm_raw_first": 9900,
+          "warm_raw_frames": 512,
+          "mean_work_ms": 18.730859796206158,
+          "median_work_ms": 18.775614420572914,
+          "p95_work_ms": 19.34363471137153,
+          "max_work_ms": 20.853502061631943,
+          "work_above_60hz_budget": 512,
+          "mean_period_ms": 33.403,
+          "delivered_rate_from_period_hz": 29.937430769691346,
+          "aggregate_start": 9900,
+          "aggregate_frames": 500,
+          "aggregate_endpoints": [
+            9950,
+            10000,
+            10050,
+            10100,
+            10150,
+            10200,
+            10250,
+            10300,
+            10350,
+            10400
+          ],
+          "totals": {
+            "FiniteRepeatCalls": 0,
+            "FiniteMissCalls": 0,
+            "NonfiniteMissCalls": 0,
+            "FrameEnds": 0,
+            "FiniteRepeatKeyTicks": 0,
+            "FiniteMissKeyTicks": 0,
+            "NonfiniteMissKeyTicks": 0,
+            "FiniteRepeatInverseTicks": 0,
+            "FiniteMissInverseTicks": 0,
+            "NonfiniteMissInverseTicks": 0
+          },
+          "buckets": {
+            "FiniteRepeat": {
+              "calls_total": 0,
+              "calls_per_frame": 0.0,
+              "key_ms_per_frame": 0.0,
+              "inverse_ms_per_frame": 0.0,
+              "key_ms_per_call": null,
+              "inverse_ms_per_call": null
+            },
+            "FiniteMiss": {
+              "calls_total": 0,
+              "calls_per_frame": 0.0,
+              "key_ms_per_frame": 0.0,
+              "inverse_ms_per_frame": 0.0,
+              "key_ms_per_call": null,
+              "inverse_ms_per_call": null
+            },
+            "NonfiniteMiss": {
+              "calls_total": 0,
+              "calls_per_frame": 0.0,
+              "key_ms_per_frame": 0.0,
+              "inverse_ms_per_frame": 0.0,
+              "key_ms_per_call": null,
+              "inverse_ms_per_call": null
+            }
+          },
+          "count_windows": [
+            {
+              "phase": 4,
+              "epoch": 4,
+              "mode": 0,
+              "f": 9950,
+              "n": 50,
+              "FiniteRepeatCalls": 0,
+              "FiniteMissCalls": 0,
+              "NonfiniteMissCalls": 0,
+              "FrameEnds": 0,
+              "FiniteRepeatKeyTicks": 0,
+              "FiniteMissKeyTicks": 0,
+              "NonfiniteMissKeyTicks": 0,
+              "FiniteRepeatInverseTicks": 0,
+              "FiniteMissInverseTicks": 0,
+              "NonfiniteMissInverseTicks": 0
+            },
+            {
+              "phase": 4,
+              "epoch": 4,
+              "mode": 0,
+              "f": 10000,
+              "n": 50,
+              "FiniteRepeatCalls": 0,
+              "FiniteMissCalls": 0,
+              "NonfiniteMissCalls": 0,
+              "FrameEnds": 0,
+              "FiniteRepeatKeyTicks": 0,
+              "FiniteMissKeyTicks": 0,
+              "NonfiniteMissKeyTicks": 0,
+              "FiniteRepeatInverseTicks": 0,
+              "FiniteMissInverseTicks": 0,
+              "NonfiniteMissInverseTicks": 0
+            },
+            {
+              "phase": 4,
+              "epoch": 4,
+              "mode": 0,
+              "f": 10050,
+              "n": 50,
+              "FiniteRepeatCalls": 0,
+              "FiniteMissCalls": 0,
+              "NonfiniteMissCalls": 0,
+              "FrameEnds": 0,
+              "FiniteRepeatKeyTicks": 0,
+              "FiniteMissKeyTicks": 0,
+              "NonfiniteMissKeyTicks": 0,
+              "FiniteRepeatInverseTicks": 0,
+              "FiniteMissInverseTicks": 0,
+              "NonfiniteMissInverseTicks": 0
+            },
+            {
+              "phase": 4,
+              "epoch": 4,
+              "mode": 0,
+              "f": 10100,
+              "n": 50,
+              "FiniteRepeatCalls": 0,
+              "FiniteMissCalls": 0,
+              "NonfiniteMissCalls": 0,
+              "FrameEnds": 0,
+              "FiniteRepeatKeyTicks": 0,
+              "FiniteMissKeyTicks": 0,
+              "NonfiniteMissKeyTicks": 0,
+              "FiniteRepeatInverseTicks": 0,
+              "FiniteMissInverseTicks": 0,
+              "NonfiniteMissInverseTicks": 0
+            },
+            {
+              "phase": 4,
+              "epoch": 4,
+              "mode": 0,
+              "f": 10150,
+              "n": 50,
+              "FiniteRepeatCalls": 0,
+              "FiniteMissCalls": 0,
+              "NonfiniteMissCalls": 0,
+              "FrameEnds": 0,
+              "FiniteRepeatKeyTicks": 0,
+              "FiniteMissKeyTicks": 0,
+              "NonfiniteMissKeyTicks": 0,
+              "FiniteRepeatInverseTicks": 0,
+              "FiniteMissInverseTicks": 0,
+              "NonfiniteMissInverseTicks": 0
+            },
+            {
+              "phase": 4,
+              "epoch": 4,
+              "mode": 0,
+              "f": 10200,
+              "n": 50,
+              "FiniteRepeatCalls": 0,
+              "FiniteMissCalls": 0,
+              "NonfiniteMissCalls": 0,
+              "FrameEnds": 0,
+              "FiniteRepeatKeyTicks": 0,
+              "FiniteMissKeyTicks": 0,
+              "NonfiniteMissKeyTicks": 0,
+              "FiniteRepeatInverseTicks": 0,
+              "FiniteMissInverseTicks": 0,
+              "NonfiniteMissInverseTicks": 0
+            },
+            {
+              "phase": 4,
+              "epoch": 4,
+              "mode": 0,
+              "f": 10250,
+              "n": 50,
+              "FiniteRepeatCalls": 0,
+              "FiniteMissCalls": 0,
+              "NonfiniteMissCalls": 0,
+              "FrameEnds": 0,
+              "FiniteRepeatKeyTicks": 0,
+              "FiniteMissKeyTicks": 0,
+              "NonfiniteMissKeyTicks": 0,
+              "FiniteRepeatInverseTicks": 0,
+              "FiniteMissInverseTicks": 0,
+              "NonfiniteMissInverseTicks": 0
+            },
+            {
+              "phase": 4,
+              "epoch": 4,
+              "mode": 0,
+              "f": 10300,
+              "n": 50,
+              "FiniteRepeatCalls": 0,
+              "FiniteMissCalls": 0,
+              "NonfiniteMissCalls": 0,
+              "FrameEnds": 0,
+              "FiniteRepeatKeyTicks": 0,
+              "FiniteMissKeyTicks": 0,
+              "NonfiniteMissKeyTicks": 0,
+              "FiniteRepeatInverseTicks": 0,
+              "FiniteMissInverseTicks": 0,
+              "NonfiniteMissInverseTicks": 0
+            },
+            {
+              "phase": 4,
+              "epoch": 4,
+              "mode": 0,
+              "f": 10350,
+              "n": 50,
+              "FiniteRepeatCalls": 0,
+              "FiniteMissCalls": 0,
+              "NonfiniteMissCalls": 0,
+              "FrameEnds": 0,
+              "FiniteRepeatKeyTicks": 0,
+              "FiniteMissKeyTicks": 0,
+              "NonfiniteMissKeyTicks": 0,
+              "FiniteRepeatInverseTicks": 0,
+              "FiniteMissInverseTicks": 0,
+              "NonfiniteMissInverseTicks": 0
+            },
+            {
+              "phase": 4,
+              "epoch": 4,
+              "mode": 0,
+              "f": 10400,
+              "n": 50,
+              "FiniteRepeatCalls": 0,
+              "FiniteMissCalls": 0,
+              "NonfiniteMissCalls": 0,
+              "FrameEnds": 0,
+              "FiniteRepeatKeyTicks": 0,
+              "FiniteMissKeyTicks": 0,
+              "NonfiniteMissKeyTicks": 0,
+              "FiniteRepeatInverseTicks": 0,
+              "FiniteMissInverseTicks": 0,
+              "NonfiniteMissInverseTicks": 0
+            }
+          ],
+          "profile_windows": [
+            {
+              "n": 50,
+              "f": 9900,
+              "work": [
+                18.75,
+                18.78,
+                19.38
+              ],
+              "submit": 18.75,
+              "drain": 0.0,
+              "blss": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "comp": [
+                0.0,
+                0.0
+              ],
+              "over20": 1,
+              "cam": 0.0,
+              "pre": 1.65,
+              "stall": 13.04,
+              "period": 33.7,
+              "miss": 50
+            },
+            {
+              "n": 50,
+              "f": 9950,
+              "work": [
+                18.68,
+                18.72,
+                19.31
+              ],
+              "submit": 18.68,
+              "drain": 0.0,
+              "blss": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "comp": [
+                0.0,
+                0.0
+              ],
+              "over20": 1,
+              "cam": 0.0,
+              "pre": 1.58,
+              "stall": 13.02,
+              "period": 33.37,
+              "miss": 50
+            },
+            {
+              "n": 50,
+              "f": 10000,
+              "work": [
+                18.67,
+                18.78,
+                19.3
+              ],
+              "submit": 18.67,
+              "drain": 0.0,
+              "blss": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "comp": [
+                0.0,
+                0.0
+              ],
+              "over20": 0,
+              "cam": 0.0,
+              "pre": 1.65,
+              "stall": 12.95,
+              "period": 33.37,
+              "miss": 50
+            },
+            {
+              "n": 50,
+              "f": 10050,
+              "work": [
+                18.76,
+                18.84,
+                19.24
+              ],
+              "submit": 18.76,
+              "drain": 0.0,
+              "blss": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "comp": [
+                0.0,
+                0.0
+              ],
+              "over20": 1,
+              "cam": 0.0,
+              "pre": 1.57,
+              "stall": 12.95,
+              "period": 33.37,
+              "miss": 50
+            },
+            {
+              "n": 50,
+              "f": 10100,
+              "work": [
+                18.7,
+                18.78,
+                19.28
+              ],
+              "submit": 18.7,
+              "drain": 0.0,
+              "blss": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "comp": [
+                0.0,
+                0.0
+              ],
+              "over20": 0,
+              "cam": 0.0,
+              "pre": 1.57,
+              "stall": 13.0,
+              "period": 33.37,
+              "miss": 50
+            },
+            {
+              "n": 50,
+              "f": 10150,
+              "work": [
+                18.68,
+                18.75,
+                19.34
+              ],
+              "submit": 18.68,
+              "drain": 0.0,
+              "blss": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "comp": [
+                0.0,
+                0.0
+              ],
+              "over20": 1,
+              "cam": 0.0,
+              "pre": 1.64,
+              "stall": 12.95,
+              "period": 33.37,
+              "miss": 50
+            },
+            {
+              "n": 50,
+              "f": 10200,
+              "work": [
+                18.71,
+                18.76,
+                19.33
+              ],
+              "submit": 18.71,
+              "drain": 0.0,
+              "blss": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "comp": [
+                0.0,
+                0.0
+              ],
+              "over20": 1,
+              "cam": 0.0,
+              "pre": 1.58,
+              "stall": 12.99,
+              "period": 33.37,
+              "miss": 50
+            },
+            {
+              "n": 50,
+              "f": 10250,
+              "work": [
+                18.78,
+                18.78,
+                19.36
+              ],
+              "submit": 18.78,
+              "drain": 0.0,
+              "blss": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "comp": [
+                0.0,
+                0.0
+              ],
+              "over20": 1,
+              "cam": 0.0,
+              "pre": 1.64,
+              "stall": 12.86,
+              "period": 33.37,
+              "miss": 50
+            },
+            {
+              "n": 50,
+              "f": 10300,
+              "work": [
+                18.76,
+                18.81,
+                19.35
+              ],
+              "submit": 18.76,
+              "drain": 0.0,
+              "blss": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "comp": [
+                0.0,
+                0.0
+              ],
+              "over20": 1,
+              "cam": 0.0,
+              "pre": 1.58,
+              "stall": 12.93,
+              "period": 33.37,
+              "miss": 50
+            },
+            {
+              "n": 50,
+              "f": 10350,
+              "work": [
+                18.82,
+                18.84,
+                19.36
+              ],
+              "submit": 18.82,
+              "drain": 0.0,
+              "blss": [
+                0.0,
+                0.0,
+                0.0
+              ],
+              "comp": [
+                0.0,
+                0.0
+              ],
+              "over20": 1,
+              "cam": 0.0,
+              "pre": 1.65,
+              "stall": 12.81,
+              "period": 33.37,
+              "miss": 50
+            }
+          ]
+        }
+      ],
+      "off_control_spread_ms": 0.049686835871803225,
+      "count_control_spread_ms": 0.10369616746902466,
+      "count_observer_work_delta_vs_off_ranges_ms": [
+        [
+          0.17625970310634997,
+          0.12657286723454675
+        ],
+        [
+          0.27995587057537463,
+          0.2302690347035714
+        ]
+      ],
+      "scoped_work_delta_vs_count_controls_ms": [
+        0.07052452034420398,
+        -0.03317164712482068
+      ],
+      "expectations": {
+        "enabled_calls_per_frame": 71,
+        "max_full16_repeats_per_frame": 60,
+        "exact_full16_repeats_per_frame": 60,
+        "nonfinite_calls_per_frame": 0
+      },
+      "limits": [
+        "One sequential diagnostic boot; no accepted cache/frame saving.",
+        "Full16 finite-miss-only key differs from previous exact12-field adjacency census; exact60 repeat gate is optional until activation confirmed.",
+        "Calls in CountOnly and Scoped must agree; nonfinite invalidates key and still runs original inverse.",
+        "Key and inverse times are exclusive children of BuildSpot; do not add parents again.",
+        "Hypothetical key excludes actual48B inverse output storage/hit consumption; inverse-minus-key is not frame saving.",
+        "Clock brackets and aggregation/scheduling have overhead; Off/CountOnly/Scoped comparisons retain temporal/light/pacing limits.",
+        "Off is compiled-in scaffold, separate from pristine compiled-out.",
+        "INVCOST endpoint windows cover500 warmed frames; raw work has512, including12 additional tail frames.",
+        "FrameProfile consumes previous-render work; count/end-frame and profile/raw index streams retain their documented one-render delay.",
+        "Post-render stdout matched in all arms may affect nextpre/period.",
+        "Ticks /294912 are milliseconds; consumer/VU utilization is not measured."
+      ],
+      "environment": "ps2",
+      "physical_timing_interpretation_allowed": true,
+      "timing_interpretation": "Diagnostic PS2 observer/key/inverse costs only; not cache acceptance.",
+      "log": "F:\\Projects\\tyrax2-lab-20261001\\ee-inverse-cost-trial-physical-snapshot.log",
+      "log_sha256": "9a82b62364478dfce9bbb63c86f1187b8138a2a2b36989c93ce74619eba83c1a",
+      "elf": "F:\\Projects\\tyrax2-lab-20261001\\ee-inverse-cost-trial-physical.elf",
+      "elf_sha256": "063106d0cca2c414a0ce5b55d0b855460809fbdf34e61ef5a50a97086307bfe2",
+      "analyzer_sha256": "092791b5f1b8b029cbd41a6a05b158eb37def03bc53c5e1ee54594b4cf1502ea",
+      "normalization": {
+        "method": "Remove only complete anchored ps2client open name host:/PATH flag 1 data 41378 and open fd = integer rows before original flat fragment assembly. Unknown/malformed service rows are rejected.",
+        "removed_rows": 740,
+        "removed_sha256": "18e5a673c5149f4955b20234faf76159a89db93bab027b520add421bfb1c0242"
+      },
+      "normalized_record_sha256": "acf23e3c104702487175dbec2f9269b365b14e876847dd0437d3dc681a23854e",
+      "base_analyzer_sha256": "159cc61a355de4245b8ebb160b866adcee1c78d650c2fe643322195c0bea9e63"
+    },
+    "hardware_hang": false,
+    "original_parser_failed": "Frozen original parser concatenated ps2client host-file open records into the first phase marker. Original log and parser preserved; physical-v2 removes only anchored complete known open rows before assembly.",
+    "parser_controls": {
+      "accepted": 3,
+      "rejected": 12
+    },
+    "scoped_total_key_ms_per_frame": 0.13815941026475695,
+    "scoped_total_inverse_ms_per_frame": 0.07608872477213542,
+    "cache_acceptance": false,
+    "interpretation": "Conservative key scope costs more than the actual inverse scope in this diagnostic. Repeat inverse bucket only0.063533ms/frame. Do not implement this key as an optimization based on repeat count; no candidate output cache/skipped inverse was measured. Scoped-vs-Count work falls within Count control spread, so independent clock overhead is unresolved."
+  }
 }

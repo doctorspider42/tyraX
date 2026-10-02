@@ -126,7 +126,7 @@ The fresh physical same-ELF run also completes 6,600 frames and all three raw/co
 Observer bit loads/comparisons/copies/count increments still cost EE work; gate-off retains compiled scaffold. Price actual inverse and key cost before implementing one-entry reuse. The earlier local preparation bucket includes other work and cannot be multiplied by the repeat fraction as a saving. A future inverse-only cache must keep current light transform, normalization and influence live. The [machine record](tyrax2-ee-inverse-2026-10-02.json) preserves host/native/emulator/physical evidence, source/ELF/frozen-log hashes and the visually normal emulator restored capture; no production engine change is accepted.
 
 
-### Inverse and conservative-key cost census, prepared for hardware
+### Inverse and conservative-key cost census, physical PS2
 
 A separate private five-block Off/CountOnly/Scoped/CountOnly/Off fixture retains
 every original inverse. Each block has 2,200 frames with plain draw order; four
@@ -142,6 +142,22 @@ nonfinite misses and one frame-end reset. Off counters and CountOnly ticks
 remain zero. Strict parser controls reject incomplete or mismatched runs.
 Emulator clock values are not physical EE costs. The
 [machine record](tyrax2-ee-inverse-cost-2026-10-02.json) retains exact source,
-ELF/symbol and frozen-log hashes; a physical trial remains pending. Even on PS2,
+ELF/symbol and frozen-log hashes. The fresh physical trial also completes all
+11,000 frames with identical warm activation and no hang. Work
+Off/CountOnly/Scoped/CountOnly/Off is 18.681 / 18.857 / 18.928 / 18.961 /
+18.731 ms; every arm has a 33.403 ms period. Off control spread is 0.050 ms
+and Count control spread 0.104 ms. Scoped-minus-Count is -0.033 to +0.071 ms,
+so this run does not independently resolve clock overhead.
+
+Scoped finite-repeat key/inverse costs are 0.106313 / 0.063533 ms per frame;
+finite-miss key/inverse costs are 0.031846 / 0.012556 ms. Combined key work
+(0.138159 ms) is greater than inverse work (0.076089 ms) in these diagnostic
+brackets. These are instrumented child costs, not a cache candidate gain.
+The repeated-inverse bucket is small despite 60 repeats/frame; this does not
+support promoting the conservative-key cache. Original physical parsing
+failed on interleaved host-service open messages; a separately hashed strict
+v2 parser normalizes only known anchored complete rows, preserving the
+original parser/log and passing three positive/twelve negative controls.
+No inverse-only cache or production optimization is accepted. Even on PS2,
 inverse-minus-key will not establish a frame saving or justify production reuse
 without a separate candidate comparison.
