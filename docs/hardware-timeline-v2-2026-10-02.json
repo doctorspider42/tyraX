@@ -1,7 +1,7 @@
 {
   "date": "2026-10-02",
   "version": "1.170.0",
-  "status": "Tool implemented; physical observer calibration pending",
+  "status": "First instrumented physical calibration passes; compiled-out physical control and repeated controls pending",
   "production_renderer_behavior_changed": false,
   "trace_default_compiled": 1,
   "runtime_default": "unarmed",
@@ -107,9 +107,128 @@
     "decision": "Reject both detail captures and their observer cost comparisons; original artifacts retained"
   },
   "physical": {
-    "status": "pending fresh PS2 powercycle",
+    "status": "Complete 15400-frame instrumented PS2 run, seven arms, 49 accepted samples",
     "observer_cost_accepted": false,
-    "repeated_controls_complete": false
+    "single_boot_exploratory_comparison_complete": true,
+    "repeated_controls_complete": false,
+    "compiled_out_hardware_control": "pending",
+    "frame_profile_work_means_ms": [
+      17.697576613653276,
+      17.913900223989334,
+      17.702239990234375,
+      20.898794507223464,
+      17.775104341052828,
+      21.41226777576265,
+      17.798145596943204
+    ],
+    "whole_engine_wall_means_ms": [
+      33.36719476609003,
+      33.370108468191965,
+      33.3663577125186,
+      33.371927897135414,
+      33.36349390423487,
+      33.36768353174603,
+      33.362088158017116
+    ],
+    "comparisons": {
+      "1": {
+        "engineTicks": {
+          "deltaBeforeMs": 0.0029137021019352005,
+          "deltaAfterMs": 0.003750755673365802,
+          "controlSpreadMs": 0.0008370535714306016
+        },
+        "loopTicks": {
+          "deltaBeforeMs": 0.003844246031746934,
+          "deltaAfterMs": 0.001738048735120401,
+          "controlSpreadMs": 0.002106197296626533
+        },
+        "renderTicks": {
+          "deltaBeforeMs": 0.0002533443390362322,
+          "deltaAfterMs": 0.0007222493489571491,
+          "controlSpreadMs": 0.0004689050099209169
+        },
+        "workTicks": {
+          "deltaBeforeMs": 0.21632361033605818,
+          "deltaAfterMs": 0.21166023375495868,
+          "controlSpreadMs": 0.004663376581099499
+        }
+      },
+      "3": {
+        "engineTicks": {
+          "deltaBeforeMs": 0.0055701846168147995,
+          "deltaAfterMs": 0.008433992900542364,
+          "controlSpreadMs": 0.0028638082837275647
+        },
+        "loopTicks": {
+          "deltaBeforeMs": 0.003195141989088768,
+          "deltaAfterMs": 0.0014125279017918047,
+          "controlSpreadMs": 0.0017826140872969631
+        },
+        "renderTicks": {
+          "deltaBeforeMs": 0.1935192289806551,
+          "deltaAfterMs": 0.0001986064608132665,
+          "controlSpreadMs": 0.19332062251984183
+        },
+        "workTicks": {
+          "deltaBeforeMs": 3.1965545169890888,
+          "deltaAfterMs": 3.123690166170636,
+          "controlSpreadMs": 0.07286435081845255
+        }
+      },
+      "5": {
+        "engineTicks": {
+          "deltaBeforeMs": 0.004189627511159699,
+          "deltaAfterMs": 0.005595373728915831,
+          "controlSpreadMs": 0.001405746217756132
+        },
+        "loopTicks": {
+          "deltaBeforeMs": -0.0052654932415663325,
+          "deltaAfterMs": -0.003921750992070372,
+          "controlSpreadMs": 0.0013437422494959606
+        },
+        "renderTicks": {
+          "deltaBeforeMs": -0.030179462735617335,
+          "deltaAfterMs": -0.0077359638516867335,
+          "controlSpreadMs": 0.0224434988839306
+        },
+        "workTicks": {
+          "deltaBeforeMs": 3.637163434709823,
+          "deltaAfterMs": 3.6141221788194464,
+          "controlSpreadMs": 0.023041255890376533
+        }
+      }
+    },
+    "captures": [
+      {
+        "arm": "Coarse",
+        "frames": 8,
+        "events": 104,
+        "dropped": 0,
+        "invalid": 0,
+        "ambiguous": 0,
+        "strict_export": "PASS"
+      },
+      {
+        "arm": "Detailed",
+        "frames": 8,
+        "events": 19685,
+        "dropped": 0,
+        "invalid": 0,
+        "ambiguous": 0,
+        "strict_export": "PASS"
+      },
+      {
+        "arm": "DetailedWithStates",
+        "frames": 8,
+        "events": 23064,
+        "dropped": 0,
+        "invalid": 0,
+        "ambiguous": 0,
+        "strict_export": "PASS"
+      }
+    ],
+    "cost_interpretation": "Observed FrameProfile work delta against both adjacent runtime-off controls; not an isolated instruction bill or scalar correction. Overall wall remains paced around33.36ms; detail activation transient changes pacing. States-minus-detail is not isolated MMIO cost.",
+    "evidence": "tyrax2-timeline-calibration-v2-on-physical-evidence/machine-evidence.json"
   },
   "limitations": [
     "Seven accepted warm samples per arm in one boot are exploratory; repeated matched runs are required.",
@@ -123,6 +242,10 @@
     "tyrax2-timeline-calibration-v2-on-prephysical.elf": "ce3d0be2801bcc0580eadac8a6412ce9aaa3fc324e435cba1162734fc605b014",
     "tyrax2-timeline-calibration-v2-off-prephysical.elf": "4c8abd8ff53ec38092a8758e0562b7f049af1ff9873b9b2dddcb58fc67e2e5ec",
     "tyrax2-timeline-calibration-v2-on-emulator/machine-evidence.json": "4ed5ad74051c9304093378723c0e4403c5dff18337f1cb553b4a5936dc4c8b93",
-    "timeline-v2-off-target-symbols.log": "e8a19f8e6f12797925e15cf9af83cc830aacb50e4709da2c01da2a2cef816064"
+    "timeline-v2-off-target-symbols.log": "e8a19f8e6f12797925e15cf9af83cc830aacb50e4709da2c01da2a2cef816064",
+    "timeline-v2-calibration-physical-root-snapshot.log": "82dd20ce42902dc6771db3fee441f96087d3b209167aa2413c1716d47edd8963",
+    "timeline-v2-calibration-physical-root-analysis.json": "12d2a33b4edc6cfae44d741e1972c990953bbc76d12fbc643dcb2030c5c3b361",
+    "timeline-v2-calibration-physical.elf": "ce3d0be2801bcc0580eadac8a6412ce9aaa3fc324e435cba1162734fc605b014",
+    "tyrax2-timeline-calibration-v2-on-physical-evidence/machine-evidence.json": "7e27e092f41e5ee88e92411e4edc419b778c2ca9dc2c19cfa247996a5fa851e6"
   }
 }

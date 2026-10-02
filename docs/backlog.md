@@ -412,7 +412,11 @@ recovered 0.50-0.72 ms of hardware `work`. What it did not do, ranked:
   samples from every arm. Eight-frame emulator captures pass strict hierarchy
   validation (104/20,048/23,424 events); the earlier overflowing 32-frame detail
   captures are rejected. See [validation evidence](hardware-timeline-v2-2026-10-02.json).
-  Physical observer overhead and repeated matched controls remain required;
+  First physical 15,400-frame calibration passes all arms and strict exports:
+  observed work increase versus adjacent runtime-off controls is 0.212–0.216 ms
+  coarse, 3.124–3.197 ms detail and 3.614–3.637 ms detail with states. Whole-engine
+  wall stays around 33.36 ms while work consumes pacing headroom. Compiled-out
+  physical comparison and repeated matched controls remain required;
   seven warm samples per arm in a single boot are exploratory only. No constant
   overhead correction, VU/GS utilization or EE arithmetic-only cost is inferred.
 - **Night light-effect cost after TyraX2 — measured, optimization open.**

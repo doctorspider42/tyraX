@@ -61,7 +61,21 @@ A/B/A controls with matching scene/camera/replay/clock/order/window identities,
 one instrumented ELF and declared separate compiled-out layout. See
 [host analysis protocol](../tools/hardware-trace-analysis.md) and the
 [validation record](hardware-timeline-v2-2026-10-02.json). Physical observer cost
-remains pending until complete valid controls are measured on PS2.
+requires repeated valid matched controls on PS2.
+
+The first instrumented physical calibration completes 15,400 frames and all
+seven arms. Coarse/detail/detail-with-states captures pass strict export with
+104/19,685/23,064 events, each 8 frames, no drops, invalid entries or ambiguities.
+Independent FrameProfile work means are 17.697577/17.913900/17.702240/20.898795/
+17.775104/21.412268/17.798146 ms for Off/Coarse/Off/Detailed/Off/States/Off.
+Against both adjacent controls, observed work increases are 0.211660–0.216324 ms
+coarse, 3.123690–3.196555 ms detailed and 3.614122–3.637163 ms detailed with states.
+The whole-engine mean remains around 33.36 ms: added work mostly consumes pacing
+headroom, and detail activation changes individual frame pacing. Unchanged FPS
+therefore does not establish zero observer cost. Seven accepted samples per arm
+in one boot remain exploratory; compiled-out physical comparison and repeated
+matched runs are open. States-minus-detail is not an isolated register-read
+cost, and none of these ranges is a constant correction for production timing.
 
 [Seven physical PS2 controls and measured overhead](hardware-profiler-results.md)
 record the first full-asset Motor District diagnosis.
