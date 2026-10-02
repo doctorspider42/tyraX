@@ -4333,3 +4333,16 @@ plain order in every arm: 71 inverse calls/frame, 60 finite input repeats,
 Physical activation and key/inverse cost remain pending; never multiply the
 whole local-preparation parent cost by repeat fraction as an expected saving.
 Gateoff scaffold and gateon comparison/copy/count work require separate pricing.
+
+Fresh physical inverse census completes6,600frames, same ELF as emulator:
+71calls/60finite repeats/1first/10changed and frameEnd1. Work off/on/off
+18.191/18.492/18.239ms, all33.403ms periods. Enabled census work increases
+0.253–0.300ms vs0.048ms controlspread; not pure inverse/key cost or gain.
+Physical activation is complete; next separately price minimal key/inverse work.
+
+Core latency gate: docs/tyrax2.md and tyrax2-latency-plan-2026-10-02.json.
+Pad/Game/Present scopes do not associate input edges with displayed buffers;
+active presentation completes the previous job, and triple-buffer flip queues
+for later vblank. Track edge/job/buffer identity, not sequence subtraction or
+requested pipeline state. Display-register delay is not button-to-TV photons.
+Private marker off/on/off plan is read-only preparation, not measured latency.

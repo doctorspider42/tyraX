@@ -217,6 +217,31 @@ PS2 timing. The experimental runtime's physical timing and repeated scene
 transition gates have passed; input-to-display latency measurement and broader
 promotion remain future acceptance work. The switch stays off by default.
 
+### Remaining core acceptance: input-to-display latency
+
+The renderer and authoring integration are implemented as an opt-in experiment;
+further night math optimization is separate from the remaining latency gate.
+Existing Pad/Game/Present scopes and frame counters do not map an input edge to
+the actual displayed buffer. Active submission may present the previous job,
+and triple-buffer flip can queue a buffer for a later vblank. Requested pipeline
+state also does not establish effective overlap in compatibility modes.
+
+The prepared private test plan uses one parked-scene ELF with pipeline
+off/on/restored-off blocks and a persistent high-contrast sprite toggled by a
+reserved physical pad button. Track edge/game identity through native prefixes,
+the pending job and the buffer selected for display; store bounded events in
+RAM without new waits, readbacks or per-event prints. Start with progressive
+two-buffer output, limiter enabled and no BLSS/synthetic presents. Record actual
+active state, cadence and instrumentation overhead; exclude setup and mode
+boundaries. Software establishes observed-input-to-display-register identity
+and delay, while an external recording is required for button-to-TV-image
+latency. Do not infer a fixed millisecond penalty from N/N-1 alone.
+
+The [preparation record](tyrax2-latency-plan-2026-10-02.json) retains source hashes
+and the detailed private plan. It is read-only preparation, with no fixture
+implementation, emulator run or new physical latency result. Default promotion
+remains open after latency and broader validation.
+
 The morning physical guarded drive reached 2,160 recorded frames and 98,304
 accepted source chains, switched to the dense scene and exercised cameras
 0/1/2, then stalled while loading procedural. It had two split frames and zero
