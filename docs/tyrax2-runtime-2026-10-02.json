@@ -591,5 +591,98 @@
       }
     ],
     "next_step": "scratch-only loading-stage and DMA/GS wait diagnostic build prepared, awaiting physical power cycle"
+  },
+  "physical_loading_diagnostics": {
+    "qualification": "OPEN: no root cause or production fix established; instrumented success cannot erase prior failures",
+    "early_probe_failed_startup": {
+      "status": "failed_startup_loading",
+      "scene_transitions_reached": false,
+      "watchdog_active_at_stall": false,
+      "last_host_file": "gshadow/s0_3_2.png",
+      "log_bytes": 14555,
+      "log_sha256": "881d871427634846fce93ac645fbf5523cde7ecad815a260f0f94354e64607ff",
+      "elf_sha256": "2e912980570b2246e85c0f7de70289c28885b0f2e51ca5a2519067e270bdcbae",
+      "cause": "unresolved",
+      "note": "Fresh physical power cycle; diagnostics activated at gameplay frame 1750, but startup stalled before activation."
+    },
+    "startup_probe_soak": {
+      "status": "diagnostic physical soak passed; earlier uninstrumented loading hangs remain unresolved",
+      "frames": 12000,
+      "accepted_source_chains": 663552,
+      "split_frames": 5,
+      "direct_fallbacks": 0,
+      "scene_changes": [
+        {
+          "scene": "dense",
+          "game_frame": 1800
+        },
+        {
+          "scene": "procedural",
+          "game_frame": 2100
+        },
+        {
+          "scene": "main",
+          "game_frame": 2400
+        }
+      ],
+      "cameras": [
+        0,
+        1,
+        2
+      ],
+      "unique_logged_positions": 379,
+      "minimum_reported_free_heap_kib": 6537,
+      "artifacts": [
+        {
+          "path": "F:\\Projects\\tyrax2-lab-20261001\\pipeline-stall-probe-startup-physical.log",
+          "sha256": "e842392f2f75aed7af34dc43498fab0a389e4346277005f71f654124eb9982dd"
+        },
+        {
+          "path": "F:\\Projects\\tyrax2-lab-20261001\\pipeline-stall-probe-startup-physical.elf",
+          "sha256": "308092434ed1e69b5a4ee5f48f411e97fb84b7bb7c72def30304f70b9adf9e2a"
+        }
+      ],
+      "instrumentation": "chain guard, snapshot memcmp, injected driving and scene transitions; startup watchdogs; stage prints may alter race timing",
+      "visual_status": "not confirmed for this run",
+      "qualification": "diagnostic evidence only; does not establish root cause or production fix"
+    },
+    "quiet_probe_soft_reset": {
+      "status": "failed before gameplay with freepad: DMA Busy; requires physical power cycle",
+      "artifact": {
+        "path": "F:\\Projects\\tyrax2-lab-20261001\\pipeline-stall-probe-quiet-softreset-failed.log",
+        "sha256": "6e9360bac905eb70695e4e73c71139a7311f3714a220fc2f1d8781635fd03d8c"
+      }
+    },
+    "next_step": "Fresh physical boot of scratch post-presentation DMA-wait fix, then uninstrumented repeated scene-transition control and renewed timing acceptance.",
+    "quiet_probe_physical": {
+      "status": "FAILED: VIF1 DMA stuck during procedural load",
+      "stage": "loadScene entry",
+      "completed_scenes": [
+        "PIPESCENE dense frame=1800"
+      ],
+      "last_ordered_frame": [
+        "ORDEREDFRAME frames=2040 splitFrames=2"
+      ],
+      "stall": "STALLPROBE DMA stuck stage=loadScene entry vifchcr=300001c5 tadr=0092d9a0 qwc=0000000f vifstat=0e0000ca gifchcr=00000081 gifstat=00000e00 csr=551c600cSTALLPROBE DMA stuck stage=loa",
+      "artifacts": [
+        {
+          "path": "F:\\Projects\\tyrax2-lab-20261001\\pipeline-stall-probe-quiet-physical.log",
+          "sha256": "1d98ba3b901db4ad4021627077948f60e1af89f5f298a2303e94b0d1eb83a377"
+        },
+        {
+          "path": "F:\\Projects\\tyrax2-lab-20261001\\pipeline-stall-probe-quiet-physical.elf",
+          "sha256": "2833753553faeb2e2ee3da64d26e3b32495539dbacf1dc82e53db63fe8befcd6"
+        }
+      ],
+      "cause_candidate": "Prior-presentation callback starts GIF DMA after caller pre-wait; raw send can overwrite busy GIF channel."
+    },
+    "candidate": {
+      "status": "compiled, awaiting physical boot; scratch only",
+      "change": "Wait DMA channel after previous-presentation synchronization, before direct packet send",
+      "elf": {
+        "path": "F:\\Projects\\tyrax2-lab-20261001\\pipeline-gif-send-fix-physical.elf",
+        "sha256": "e33b4103291deb1c6e2ee8587149a8d88c19c32e7497872045ed051d06238904"
+      }
+    }
   }
 }

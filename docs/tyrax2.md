@@ -381,3 +381,29 @@ its new handshake. During recording it preserves the old event. Synchronizing
 only at a later physical send is too late: a prior clear could lose the event,
 as the physical loading regression demonstrated. Explicit foreign 2D/3D
 handshakes are covered by the mode fixture.
+
+Further physical loading diagnostics on 2026-10-02 reproduced a startup hang
+after a fresh power cycle, before gameplay activated the first watchdog.
+A scratch build with startup watchdogs and loading-stage prints then completed
+12,000 frames, all three scene transitions, all three cameras and 663,552
+accepted source chains, with zero direct fallbacks or watchdog alarms. This is
+diagnostic evidence only: the prints may hide a timing race, and no production
+fix or root cause has been established. The earlier loading failures remain
+qualification blockers. A quieter scratch build retains the loading stage in
+RAM and prints registers only after prolonged waits. Its first soft-reset
+launch stopped before gameplay with `freepad: DMA Busy`; a physical power cycle
+was required. On its subsequent fresh physical boot, the quiet control hung
+during the procedural load with VIF1 DMA still active and repeatedly identical
+registers: CHCR `300001c5`, TADR `0092d9a0`, QWC `0000000f`, VIF STAT
+`0e0000ca`, GIF CHCR `00000081`, GIF STAT `00000e00`, GS CSR `551c600c`.
+The last completed ordered-frame summary was 2040; only the dense transition
+had returned. The runtime record preserves the ELF and log hashes.
+
+The ordering adapter has a concrete candidate race: a producer pre-waits GIF,
+then `frameSendPacket()` synchronizes the previous frame, whose hybrid present
+can start GIF DMA again. Sending immediately after that callback can overwrite
+a busy channel. A scratch candidate adds a channel wait after synchronization,
+immediately before the direct send, including unsupported recording fallbacks.
+It has compiled successfully and is awaiting a fresh physical boot. This
+candidate has not yet established hardware acceptance or changed the shipped
+engine sources.
