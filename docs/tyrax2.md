@@ -543,3 +543,7 @@ The run completed 11,000 measured gameplay frames; the frozen log's later
 arena summary has zero direct fallbacks and five exceptional split frames.
 Full night is restored and ps2client remains serving it. This is completed
 attribution, with no production effect removal or accepted night optimization.
+
+## EE preparation and VU0 follow-up, 2026-10-02
+
+The [physical pipeline attribution and VU0 audit](tyrax2-ee-vu0.md) measures 2.724 ms source snapshots and 0.743 ms native conversion inside 3.665 ms submission, with only 0.003 ms combined existing VIF/FINISH waits. VU0 already handles vector/matrix/skin math in macro mode. Prioritize fewer packet/range/lease passes, then measure remaining scalar math before offloading. Combined consumer completion is a sampled upper bound, not VU-only time; no new optimization is accepted here.

@@ -324,6 +324,15 @@ recovered 0.50-0.72 ms of hardware `work`. What it did not do, ranked:
   from historical arms. The older GPU-only sweep is not a current gain ceiling.
   Reference-title SPR staging and its approximately 16-qword-plus-CALL object
   scheme remain separate future work; this implementation does not add them.
+- **Remaining EE work / VU0 offload — audited, experiments open.**
+  [Current physical attribution](tyrax2-ee-vu0.md) finds 2.724 ms snapshots
+  and 0.743 ms conversion nested in 3.665 ms submission, but only about
+  0.003 ms existing completion waits. VU0 already performs macro-mode
+  vector/matrix/bounds/skin work. First price one-search immutable borrowing
+  and subdivide snapshot/native passes; then census scalar plane transforms,
+  AABB planes visited and live-light selection. A micro-mode rewrite needs
+  shared program/register ownership and setup/transfer pricing. Neither fewer
+  searches nor this single diagnostic boot establishes a new FPS gain.
 - **Night light-effect cost after TyraX2 — measured, optimization open.**
   A [physical one-group isolation run](tyrax2.md#night-workload-isolation-physical-ps2-2026-10-02)
   brackets seven stationary garage variants with full-night controls of

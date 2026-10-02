@@ -377,3 +377,7 @@ physical costs and records diagnostic preparation/submission brackets and cache 
 [TyraX2 SPR staging](tyrax2-spr-staging.md) separates finalized-prefix staging,
 cache publication and CALL/RET. It records the completed host byte-preservation
 experiment and the remaining physical DMA/cache/performance gates.
+
+## TyraX2 EE and VU0 audit
+
+[EE preparation and VU0](tyrax2-ee-vu0.md) records physical snapshot/conversion/wait attribution, existing VU0 macro owners and the ranked measurement gates for fewer submission passes or a future math kernel. The [machine record](tyrax2-pipeline-attribution-2026-10-02.json) retains exact diagnostic windows and provenance; no offload or hardware gain is claimed.

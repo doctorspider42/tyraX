@@ -3465,3 +3465,12 @@ not EE cache/barrier correctness. Before fromSPR writes owned RAM, establish
 safe destination cached-alias ownership: a later flush of stale dirty cache
 lines can overwrite DMA results. Preserve snapshot/new immutable REF publication
 and bank-reader leases; SPR transfer completion is not VIF1-reader completion.
+
+
+Current ordered-night attribution (2026-10-02): see docs/tyrax2-ee-vu0.md and
+docs/tyrax2-pipeline-attribution-2026-10-02.json. Snapshot/native conversion are
+nested inside submit; read-only sampled FINISH yields a combined consumer
+completion upper bound, not VU utilization. Existing waits total about 0.003 ms;
+cache flush is about 0.009 ms, so do not reuse the historical 1.09 ms estimate.
+VU0 macro users already include vectors/matrices/bounds/skinning. Price remaining
+scalar math and micro transfer/ownership before proposing asynchronous offload.
