@@ -2249,13 +2249,39 @@ packet out and cleared `psize`. Which counter fires — `rejectedNoPacket` vs
 instance live in the same address space as the game, and the guard is installed
 only into the game's.
 
+### Extend hardware observation of the r7 wedge fix
+
+`pkoReset()` touched the screen (`init_scr()`) BEFORE quiescing the DMAC/GIF the
+dead game left mid-chain, and `init_scr()` draws through exactly those blocks.
+Blocking there blocks ps2link's EE command thread - the one thread that executes
+every command - so the console ignores `reset` and `execee` for good while its
+IOP-side file server keeps listening. r7 reorders it: hardware, then vectors,
+then screen. Written up in
+[ps2link-setup.md](ps2link-setup.md). The 2026-10-02 physical-console smoke test
+passed **6/6 vehicle-playground reset/redeploy cycles**, including three after
+driving, using the user-flashed low packed no-USB r7 build. Fresh ELF loads and
+advancing debugger frames confirmed restarts. Longer observation remains open:
+six cycles do not establish elimination of the intermittent failure.
+
+**A caution about the evidence for that wedge.** Of the four apparent wedges
+observed while chasing it, **two were provably my own tooling** - a cycle script
+pointed at the wrong project directory, and a missing `bin/ps2link.run` marker
+(without it the game sets `writeLogsToFile` and opens `log.txt` over `host:` for
+every log line, one round trip each, so the boot crawls and looks exactly like a
+hang). Both presented identically to a wedged console: `DEPLOY FAILED`, a static
+picture, no response. So the "five rapid reset+teardown cycles reproduce it"
+recipe recorded earlier is **not trustworthy** - the real rate is unknown and
+lower. Verify a deploy is fresh from the capture (a boot line, or a low first
+`VRAMSTAT f=`) before recording anything about console state.
+
 ### Recover the console from the refuses-every-deploy wedge
 
-Repeatable now: five rapid reset + teardown cycles get there, and so does a
-hung game. Ping answers, `tcp/18193` listens, every `execee` is ignored, three
-`ps2client reset`s change nothing and only the physical Reset recovers it. Same
-family as the historical hang list in
-[ps2link-setup.md](ps2link-setup.md); worth a look now that there is a recipe.
+Historical symptom: ping answers, `tcp/18193` listens, every `execee` is ignored,
+and software resets do not recover the console. The earlier five-rapid-cycle
+reproduction claim is withdrawn for the tooling reasons above. If this recurs
+on r7, retain a fresh-launch capture and the flashed ELF identity before
+investigating; a physical Reset remains the historical recovery. See
+[ps2link-setup.md](ps2link-setup.md).
 
 
 ### Move generated scene data out of the header
