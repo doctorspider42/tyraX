@@ -402,7 +402,7 @@ recovered 0.50-0.72 ms of hardware `work`. What it did not do, ranked:
   pass: conservative key0.138159ms versus inverse0.076089ms/frame in scoped
   diagnostic. Repeat inverse is only0.063533ms; no output cache or frame gain
   accepted. Prioritize complete timeline attribution over this key candidate.
-- **TyraX2 timeline attribution and observer cost — tool prepared, physical calibration open.**
+- **TyraX2 timeline attribution and observer controls — physical controls measured, attribution open.**
   [Hierarchical capture and controls](hardware-profiler.md#hierarchy-and-observer-controls-1170)
   reserve parents on entry, separate exclusive EE wall time from waits/pacing,
   retain actual CPU recording/presentation source jobs and reject dropped or
@@ -422,8 +422,8 @@ recovered 0.50-0.72 ms of hardware `work`. What it did not do, ranked:
   instrumented return completes another 15,400 frames: matching controls remain
   0.916–0.931 ms above compiled-out, with 0.004–0.036 ms instrumented control
   spread. This brackets a repeatable combined difference, not the ring/hook
-  split. Next isolate pre-asset ring reservation using the same ELF, then refresh
-  coarse Scene coverage and run broader repeated controls;
+  split. Pre-asset ring reservation is now measured separately; refreshed
+  coarse Scene coverage and broader repeated controls remain open;
   [Same-ELF ring control](hardware-timeline-ring-control-2026-10-02.json) is
   prepared: native build and both complete 5,400-frame emulator runs pass,
   384 independent samples each with trace inactive. Declared state digests
@@ -435,9 +435,21 @@ recovered 0.50-0.72 ms of hardware `work`. What it did not do, ranked:
   and size/capacity topology match. No universal ring/hook bill or subtraction
   from older ELF gaps: layout interactions, live physics and one bracket limit
   transfer. Mode1 original cfg bytes were not archived before replacement;
-  runtime mode/reservation records remain valid. Next isolate selected inactive
-  dispatch while holding executable and memory layout fixed.
-  seven warm samples per arm in a single boot are exploratory only. No constant
+  runtime mode/reservation records remain valid.
+  [Selected inactive dispatch](hardware-timeline-dispatch-control-2026-10-02.json)
+  retains two rejected live-dt ABA boots with camera drift and one passing BAB;
+  this is not an accepted two-order cost.
+  [Fixed game dt](hardware-timeline-dispatch-fixed-control-2026-10-02.json)
+  passes both orders but reverses the work-delta sign: the middle phase is
+  heavier in both boots, so stable routing cost remains unresolved.
+  [Continuous scene and a common sample buffer](hardware-timeline-dispatch-continuous-control-2026-10-02.json)
+  pass both orders (5400 loops/384 samples each), with exact state/dt/address and
+  export-before-reuse checks. Bypass lowers measured work by 0.130–0.134 ms;
+  outer-control spreads are 0.003855/0.001551 ms. This is a local net routing
+  effect from one boot per order, retaining common observer work. Removing two
+  variables together does not identify the earlier phase effect's cause.
+  Broader repeats and fresh coarse-Scene attribution remain open. Earlier seven
+  warm samples per arm in a single boot are exploratory only. No constant
   overhead correction, VU/GS utilization or EE arithmetic-only cost is inferred.
 - **Night light-effect cost after TyraX2 — measured, optimization open.**
   A [physical one-group isolation run](tyrax2.md#night-workload-isolation-physical-ps2-2026-10-02)

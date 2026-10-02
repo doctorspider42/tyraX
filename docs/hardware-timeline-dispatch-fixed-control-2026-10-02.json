@@ -1,0 +1,166 @@
+{
+  "status": "selected_dispatch_fixed_workload_paired_controls",
+  "environment": "ps2",
+  "same_exact_elf": true,
+  "single_ABA_plus_single_reverse_BAB": true,
+  "fixed_game_dt": "2/videoHz",
+  "production_fps_proxy": false,
+  "accepted_total_inactive_observer_bill": false,
+  "compiler_pruning_equivalence": false,
+  "ring_held_all_arms": true,
+  "boots": {
+    "0": {
+      "evidence_directory": "F:\\Projects\\tyrax2-lab-20261001\\tyrax2-timeline-dispatch-fixed-order0-physical-evidence",
+      "machine_sha256": "fc3144e3895ede44a5809acbdeeefc86d615545cb1f1e16ae3b9a82b2965d988",
+      "elf_sha256": "9b513da70c6b8fc3c2545602bd1732a41972ee255a58c56a55ecd6670ac3658f",
+      "pattern": [
+        "normal",
+        "bypass",
+        "normal"
+      ],
+      "samples": 384,
+      "fixed_wrapper_pass": true,
+      "mean_ms_by_phase": {
+        "0": {
+          "engineTicks": 33.36593781577216,
+          "loopTicks": 33.31650368372599,
+          "renderTicks": 31.87261782752143,
+          "workTicks": 17.508986526065403
+        },
+        "1": {
+          "engineTicks": 33.365951432122124,
+          "loopTicks": 33.31302388509115,
+          "renderTicks": 31.864000638326008,
+          "workTicks": 18.271300898657906
+        },
+        "2": {
+          "engineTicks": 33.36596149868436,
+          "loopTicks": 33.328280978732636,
+          "renderTicks": 31.89011854595608,
+          "workTicks": 17.57304122712877
+        }
+      },
+      "bypass_minus_normal_ms": {
+        "engineTicks": {
+          "bypass_minus_normal_vs_first_ms": 1.361634996202257e-05,
+          "bypass_minus_normal_vs_last_ms": -1.0066562228732639e-05,
+          "outer_control_spread_ms": 2.3682912190755207e-05
+        },
+        "loopTicks": {
+          "bypass_minus_normal_vs_first_ms": -0.0034797986348470054,
+          "bypass_minus_normal_vs_last_ms": -0.015257093641493056,
+          "outer_control_spread_ms": 0.01177729500664605
+        },
+        "renderTicks": {
+          "bypass_minus_normal_vs_first_ms": -0.008617189195421007,
+          "bypass_minus_normal_vs_last_ms": -0.026117907630072698,
+          "outer_control_spread_ms": 0.01750071843465169
+        },
+        "workTicks": {
+          "bypass_minus_normal_vs_first_ms": 0.7623143725925021,
+          "bypass_minus_normal_vs_last_ms": 0.6982596715291342,
+          "outer_control_spread_ms": 0.06405470106336805
+        }
+      },
+      "preservation_review_sha256": "ebcf066a774d53ff33a01eaa467ccfecfa3f1fccc305af8756a7940789c74222"
+    },
+    "1": {
+      "evidence_directory": "F:\\Projects\\tyrax2-lab-20261001\\tyrax2-timeline-dispatch-fixed-order1-physical-evidence",
+      "machine_sha256": "e1bbbe297b5b24c79e58841520fb2a033ff38b7a36024521dd0a9bfec1241ce8",
+      "elf_sha256": "9b513da70c6b8fc3c2545602bd1732a41972ee255a58c56a55ecd6670ac3658f",
+      "pattern": [
+        "bypass",
+        "normal",
+        "bypass"
+      ],
+      "samples": 384,
+      "fixed_wrapper_pass": true,
+      "mean_ms_by_phase": {
+        "0": {
+          "engineTicks": 33.365978982713486,
+          "loopTicks": 33.3161538971795,
+          "renderTicks": 31.867077350616455,
+          "workTicks": 17.392653518252903
+        },
+        "1": {
+          "engineTicks": 33.36596865124173,
+          "loopTicks": 33.3167388704088,
+          "renderTicks": 31.861382007598877,
+          "workTicks": 18.405720657772488
+        },
+        "2": {
+          "engineTicks": 33.36570527818468,
+          "loopTicks": 33.32751274108887,
+          "renderTicks": 31.890307717853123,
+          "workTicks": 17.459929307301838
+        }
+      },
+      "bypass_minus_normal_ms": {
+        "engineTicks": {
+          "bypass_minus_normal_vs_first_ms": 1.0331471761067709e-05,
+          "bypass_minus_normal_vs_last_ms": -0.00026337305704752606,
+          "outer_control_spread_ms": 0.00027370452880859375
+        },
+        "loopTicks": {
+          "bypass_minus_normal_vs_first_ms": -0.0005849732293023004,
+          "bypass_minus_normal_vs_last_ms": 0.010773870680067275,
+          "outer_control_spread_ms": 0.011358843909369575
+        },
+        "renderTicks": {
+          "bypass_minus_normal_vs_first_ms": 0.005695343017578125,
+          "bypass_minus_normal_vs_last_ms": 0.028925710254245333,
+          "outer_control_spread_ms": 0.02323036723666721
+        },
+        "workTicks": {
+          "bypass_minus_normal_vs_first_ms": -1.0130671395195856,
+          "bypass_minus_normal_vs_last_ms": -0.9457913504706489,
+          "outer_control_spread_ms": 0.06727578904893664
+        }
+      },
+      "preservation_review_sha256": "eabe35e4db828983a9a94aac58de968ebc47d9dce94e7e3098f040aa2237e286"
+    }
+  },
+  "cross_boot_sampled_comparisons": {
+    "PINSTATE": {
+      "0:850": {},
+      "0:1100": {},
+      "1:850": {},
+      "1:1100": {},
+      "2:850": {},
+      "2:1100": {}
+    },
+    "DISPATCHADDR": {
+      "0": {},
+      "1": {},
+      "2": {}
+    },
+    "DISPATCHPART": {
+      "0:0": {},
+      "0:1": {},
+      "0:2": {},
+      "0:3": {},
+      "1:0": {},
+      "1:1": {},
+      "1:2": {},
+      "1:3": {},
+      "2:0": {},
+      "2:1": {},
+      "2:2": {},
+      "2:3": {}
+    }
+  },
+  "cross_boot_raw_camera_words_equal": true,
+  "limits": [
+    "This is a new fixed-workload ELF; original live-dt rejected boots remain rejected and cannot be repaired by these results.",
+    "Single ABA and reverse BAB constrain window order but do not establish exhaustive stable repeats.",
+    "Same ELF retains selector branches, lexical scopes, common trace lifecycle, sampler and FrameProfile. This measures selected dispatch only.",
+    "Recorded digests and selected addresses are partial sampled state, not full physics, cache state or framebuffer identity.",
+    "Held allocation/layout and boot/warm state can affect work; no subtraction from older different ELF controls.",
+    "Game/render/work/whole-loop spans overlap, and pacing can absorb work deltas."
+  ],
+  "interpretation": "Net performance difference from selected inactive diagnostic routing in a common fixed workload; not isolated function-call bill or accepted gain.",
+  "accepted_gain": false,
+  "work_delta_direction_consistent_across_orders": false,
+  "stable_selected_routing_cost_accepted": false,
+  "conclusion": "Strict sampled controls pass in both orders, but work delta reverses sign: ABA bypass is slower, BAB bypass is faster. The middle phase has higher work in both boots. Routing cost is unresolved; no causal explanation is established by these measurements."
+}

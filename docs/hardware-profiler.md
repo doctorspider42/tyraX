@@ -131,8 +131,49 @@ inactive hook dispatch, and its effect cannot be subtracted from an older
 different ELF's configuration gap. The reserved boot's original cfg bytes were
 overwritten after completion before archival: launch/runtime records establish
 mode1/reserved1, but no original cfg byte hash is claimed. The return cfg was
-archived explicitly before launch. Next separate selected inactive dispatch
-from code/data layout using a new controlled probe.
+archived explicitly before launch. The selected inactive dispatch controls
+below retain the ring while testing routing separately.
+
+### Inactive dispatch: state and phase controls
+
+A private same-ELF selector bypasses selected inactive diagnostic callers and
+metadata paths while retaining the ring, trace lifecycle counters, sampler,
+profiling and real renderer operations. Its result is net routing performance,
+including existing waits, rather than a pure function-call bill or a
+compiler-pruned equivalent.
+
+The [live-dt controls](hardware-timeline-dispatch-control-2026-10-02.json)
+retain both rejected normal/bypass/normal boots: the first phase has a different
+camera digest. Only the reverse bypass/normal/bypass boot passes all 384 samples;
+its local bypass-minus-normal work difference is -0.185 to -0.174 ms. A separate
+raw-camera ELF reconciles all 13 camera words with their hashes. Its physical
+and emulator controls differ only in the camera position Y by one float ULP;
+this maps the two observed hashes in that diagnostic, without recovering exact
+values from the older hash-only ELF or repairing its rejected runs.
+
+The [fixed-game-dt controls](hardware-timeline-dispatch-fixed-control-2026-10-02.json)
+use the same nominal 1/30 s game step in every arm while measurement clocks and
+pacing remain real. Both orders pass all 384 samples, exact state/camera/dt and
+provenance controls, but the work delta reverses sign: +0.698 to +0.762 ms in
+normal/bypass/normal, and -1.013 to -0.946 ms in bypass/normal/bypass. The middle
+phase is heavier in both boots. No stable dispatch cost or gain is accepted.
+
+The [continuous-scene controls](hardware-timeline-dispatch-continuous-control-2026-10-02.json)
+retain scene/resources across phases and reuse one 128-sample buffer, exported
+after its final whole-loop timestamp and before reuse. Both orders complete
+5400 loops and pass all 384 samples, exact state/camera/dt checks, constant
+sample and accessible resource addresses, and frozen provenance. Bypass lowers
+measured work by 0.130383–0.134239 ms; outer-control spreads are 0.003855 ms
+and 0.001551 ms. Whole-engine time remains approximately 33.36 ms with pacing.
+The earlier middle-phase increase is absent in these two boots.
+
+This is a local net routing effect from one normal/bypass/normal and one reverse
+boot under a fixed game workload. Common sampling, lexical scopes and lifecycle
+counters remain. It is not a total inactive-observer bill, a compiler-pruned
+comparison or a universal correction for older ELFs. Removing reloads and
+changing sample-buffer layout together does not identify which caused the
+earlier phase effect. Broader repeats and fresh coarse-Scene attribution remain
+open.
 
 The immutable calibration fixture still has the older generated `Scene` scope,
 which is detail-only. Its coarse renderer work therefore remains under `Game`;

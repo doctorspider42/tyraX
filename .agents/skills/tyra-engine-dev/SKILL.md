@@ -1250,6 +1250,16 @@ Rules the same evening paid for:
 ## Hard-won pitfalls (dead ends already explored — don't repeat them)
 
 **Devkit and measurement**
+- **A same-ELF observer switch is a net routing test, not a pure hook bill.**
+  Reverse the arm order and retain rejected controls. The dispatch calibration
+  first rejected camera drift with live physics, then reversed its work delta
+  sign under fixed game dt: the middle phase was heavier in both orders.
+  Keep a continuous scene and one sample-buffer address when isolating routing;
+  verify actual dt, exact camera/state fields, accessible addresses and export
+  before buffer reuse. Existing waits remain inside work time. Do not explain
+  a sign reversal as cache behavior without a separate measurement, or subtract
+  a private routing delta from another ELF's compiled-out gap. Evidence and
+  limitations: `docs/hardware-profiler.md`.
 - **The free-RAM probe is a measurement, not a sensor - and it used to lie.**
   `Info::getFreeRAMSize` is the only way to ask this allocator what is left:
   claim every free block until malloc refuses, sum, free the chain. The block

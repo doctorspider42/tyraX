@@ -60,6 +60,14 @@ pitch, positive = down - docs/player-start.md), plus `"keyboardMouse": false`
 in the `.tyra`. Then `--build <dir> --run`, wait ~12 s, `-PrintWindow`
 screenshot. Same frame every boot, no pad needed.
 
+For observer calibration, an identical ELF does not guarantee identical
+workload or memory placement. Archive configuration bytes before launch; use
+matched camera/state/dt and address controls, compare both arm orders, and
+keep rejected runs. A continuous-scene/common-buffer fixture must export and
+finish the whole-loop sample before buffer reuse. Interpret the result as net
+routing performance, including existing waits; it is not a compiler-pruned
+equivalent or an automatic timing correction. See `docs/hardware-profiler.md`.
+
 ## Layer 0 — build the editor
 
 The editor builds and runs on **Windows and Linux**. Pick the script for the
