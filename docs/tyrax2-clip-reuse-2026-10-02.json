@@ -1,0 +1,271 @@
+{
+  "production_change": false,
+  "physical_measurement": "pending",
+  "host": {
+    "source_files": [
+      {
+        "path": "vendor/tyra/engine/src/renderer/3d/pipeline/static/core/stapip_core.cpp",
+        "sha256": "b805bf42bd72a34761764eaaa207ce7ff8d3b8862183b135091bc88e3b874932"
+      },
+      {
+        "path": "vendor/tyra/engine/src/renderer/core/3d/bbox/core_bbox.cpp",
+        "sha256": "5531eccf89d1debfc66dfa23175def2d7ddba1c91cbc567c50b9cfa11ff9bc2b"
+      },
+      {
+        "path": "vendor/tyra/engine/src/renderer/core/3d/clipper/planes_clip_algorithm.cpp",
+        "sha256": "6e2435971f4ef71fa623831eb22475754367cb4b14a2f462d2d0304b23631031"
+      },
+      {
+        "path": "vendor/tyra/engine/inc/renderer/3d/pipeline/static/core/programs/stapip_vu1_shared_defines.h",
+        "sha256": "85f7f7164fbafbb96dde9b6590748a3f94bbf8fa91e23de929aea48aa3f10d71"
+      }
+    ],
+    "candidate_sha256": "0991e3e47f6d45788eff46417ecd3842e1245ee0c6a09dea6418c03f327e1a6c",
+    "gated_sha256": "122dc882836d3837dd02d2b79d3b6c0af939a51474722e8b9e1dd5d17965e1af",
+    "scope": "single render invocation only",
+    "experiment": true,
+    "constant_checks": {
+      "VU1_CLIP_XY_BAND": "0.9F",
+      "clipMargin": "-10.0F"
+    },
+    "host_oracle": {
+      "result": "PASS",
+      "records": [
+        {
+          "guard": 1,
+          "build_command": [
+            "g++",
+            "-std=c++17",
+            "-O2",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            "-Wno-unused-parameter",
+            "-DGUARD_ENABLED=1",
+            "F:\\Projects\\tyrax2-lab-20261001\\clip-plane-reuse-candidate\\differential.cpp",
+            "-o",
+            "F:\\Projects\\tyrax2-lab-20261001\\clip-plane-reuse-candidate\\differential-guard1.exe"
+          ],
+          "build_stdout": "",
+          "build_stderr": "",
+          "exit_code": 0,
+          "stdout": "PASS guard=1 cases=120164 saved_transforms=3671 promoted=4 unchanged=116493\n",
+          "stderr": "",
+          "binary_sha256": "e05b9e4f724d90f64bd52324284cb989d8b5b5bf1fa2371b285c330f7f39cb7a"
+        },
+        {
+          "guard": 0,
+          "build_command": [
+            "g++",
+            "-std=c++17",
+            "-O2",
+            "-Wall",
+            "-Wextra",
+            "-Werror",
+            "-Wno-unused-parameter",
+            "-DGUARD_ENABLED=0",
+            "F:\\Projects\\tyrax2-lab-20261001\\clip-plane-reuse-candidate\\differential.cpp",
+            "-o",
+            "F:\\Projects\\tyrax2-lab-20261001\\clip-plane-reuse-candidate\\differential-guard0.exe"
+          ],
+          "build_stdout": "",
+          "build_stderr": "",
+          "exit_code": 0,
+          "stdout": "PASS guard=0 cases=120164 saved_transforms=0 promoted=0 unchanged=120164\n",
+          "stderr": "",
+          "binary_sha256": "0740aa6cba1a6d76c973382f7cd1bc8306807f5b140a711810653af08b462fdd"
+        }
+      ],
+      "total_calls": 240328,
+      "claims": "actual-source host routing and bit equivalence only; no PS2 codegen, DMA, pixels or speed proof"
+    },
+    "artifact_hashes": {
+      "baseline-stapip_core.cpp": "b805bf42bd72a34761764eaaa207ce7ff8d3b8862183b135091bc88e3b874932",
+      "candidate-stapip_core.cpp": "0991e3e47f6d45788eff46417ecd3842e1245ee0c6a09dea6418c03f327e1a6c",
+      "candidate.patch": "da26ed8f62d314e99084ac5d84df112670035f43c6006ddd1bb64d9e50fd1ee1",
+      "clip_plane_reuse_trial.cpp": "221859160f4d8fc0fa03f7a074f0a7757142fcde873ad5c0ac75025191ef2847",
+      "clip_plane_reuse_trial.hpp": "5a4e2ef85ede74f44429c85cbcc7a4a264947b9bcc216bb8a26f2e6cc3182301",
+      "differential-generated.inc": "1147e9454587bffd44d54a36104c745b859a59f71d534678bc462feb5b8c5782",
+      "differential.cpp": "53e1c4322eebea866c87d2f929fedab9a0aa6dc885eb93a62e99877dcbfc8e2e",
+      "gated-stapip_core.cpp": "122dc882836d3837dd02d2b79d3b6c0af939a51474722e8b9e1dd5d17965e1af",
+      "prepare.py": "589bcb1972aa917275121861c35034ec4088af9d1d2e11e0558ac5ef66bfa088",
+      "verify.py": "b93b790d6798f6ce5cfca4bcea316868387e6b0dbe97c9a54d36426ce1e70752"
+    }
+  },
+  "fixture": {
+    "phases": [
+      "baseline before",
+      "same-call clip planes reused",
+      "baseline restored"
+    ],
+    "frames_per_phase": 2200,
+    "warm_work_start_offset": 1100,
+    "work_sample_count": 512,
+    "note": "Runtime gate unchanged inside frame; no math scopes. Gate-off retains bool/branch scaffold. Exact per-render reuse, no cross-frame cache.",
+    "artifacts": {
+      "tyra\\engine\\src\\renderer\\3d\\pipeline\\static\\core\\stapip_core.cpp": "122dc882836d3837dd02d2b79d3b6c0af939a51474722e8b9e1dd5d17965e1af",
+      "game\\src\\terrain_game.cpp": "c1b285958ce763d2cadb9ccf75e7260890d427807f0e329ad29029b5783a348f",
+      "tyra\\engine\\inc\\debug\\clip_plane_reuse_trial.hpp": "5a4e2ef85ede74f44429c85cbcc7a4a264947b9bcc216bb8a26f2e6cc3182301",
+      "tyra\\engine\\src\\debug\\clip_plane_reuse_trial.cpp": "221859160f4d8fc0fa03f7a074f0a7757142fcde873ad5c0ac75025191ef2847"
+    }
+  },
+  "emulator": [
+    {
+      "slot": 28755,
+      "completed_marker": "CLIPTRIAL done first=6600",
+      "artifacts": [
+        {
+          "path": "F:\\Projects\\tyrax2-lab-20261001\\clip-reuse-trial-emulator\\emulog.txt",
+          "sha256": "ba984ee483a35a72a1c59aefb676e34b2edcf9eb3eefc3c08ff374d9af8196cc",
+          "bytes": 213521
+        },
+        {
+          "path": "F:\\Projects\\tyrax2-lab-20261001\\clip-reuse-trial-emulator\\game-log.txt",
+          "sha256": "16108282951a58865b4232adf5d5290b7ba96d1552d1240780e90e487ba7fcfe",
+          "bytes": 214942
+        },
+        {
+          "path": "F:\\Projects\\tyrax2-lab-20261001\\clip-reuse-trial-emulator\\report.txt",
+          "sha256": "7b9f657d9475f12f682c2823eed441eef40d6a779db14dc9a4aadfd36de3d948",
+          "bytes": 2471
+        },
+        {
+          "path": "F:\\Projects\\tyrax2-lab-20261001\\clip-reuse-trial-emulator\\Screenshot.png",
+          "sha256": "b1c28ed549b8416e20bb978da0b1ca3d97cd49a3bd673b2899f3260881e44502",
+          "bytes": 279810
+        },
+        {
+          "path": "F:\\Projects\\tyrax2-lab-20261001\\clip-reuse-trial-emulator\\state1.p2s",
+          "sha256": "a51a7100f0f4c65d7f2247d6ba3348717b7e0b2b90cd175a89876e9e0bfb0276",
+          "bytes": 5171655
+        }
+      ]
+    },
+    {
+      "slot": 28756,
+      "completed_marker": "CLIPMOTION done stage=3",
+      "artifacts": [
+        {
+          "path": "F:\\Projects\\tyrax2-lab-20261001\\clip-reuse-motion-emulator\\emulog.txt",
+          "sha256": "b4a9d061a72559297090f974ce0e0a17e149ce5085838ebc9a6e58af5f4c50fd",
+          "bytes": 213911
+        },
+        {
+          "path": "F:\\Projects\\tyrax2-lab-20261001\\clip-reuse-motion-emulator\\game-log.txt",
+          "sha256": "2500c601b8d54fd3a23488c3ab5a65608025566ded620a3f041657767abc6539",
+          "bytes": 169907
+        },
+        {
+          "path": "F:\\Projects\\tyrax2-lab-20261001\\clip-reuse-motion-emulator\\report.txt",
+          "sha256": "a820b7566198ea3a4e7609697d26455e3a30b8fa88d985fc22dd8c35404548d5",
+          "bytes": 2482
+        },
+        {
+          "path": "F:\\Projects\\tyrax2-lab-20261001\\clip-reuse-motion-emulator\\state1.p2s",
+          "sha256": "52f4c8a20c879bf235a0b85a03abe6e47f0974c96c2529a7414d82d32789efb3",
+          "bytes": 5709314
+        }
+      ],
+      "scenes": [
+        [
+          "0",
+          "0",
+          "0"
+        ],
+        [
+          "0",
+          "1",
+          "0"
+        ],
+        [
+          "1",
+          "2",
+          "1"
+        ],
+        [
+          "2",
+          "3",
+          "2"
+        ],
+        [
+          "0",
+          "4",
+          "3"
+        ]
+      ],
+      "cameras": [
+        "0",
+        "1",
+        "2"
+      ],
+      "distinct_vehicle_positions": 45,
+      "min_speed10": -59,
+      "max_speed10": 197,
+      "note": "Deterministic final Pad::setState stage, candidate always enabled. Separate emulator acceptance ELF; not hardware timing or pixel equivalence."
+    }
+  ],
+  "artifacts": [
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\prepare-clip-reuse-trial.py",
+      "sha256": "5723ba1382f314d7e1c63d1c6e1a2a64dd70a8472b351a94b33f67a731a73bfd",
+      "bytes": 2357
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\prepare-clip-reuse-motion.py",
+      "sha256": "d519ef54323cc670db10c24c9a968ba75ddfa964d3a9d4dfe5c469264318b286",
+      "bytes": 2358
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\analyze-clip-reuse-trial.py",
+      "sha256": "e89d2a5b1571f4829884a2c359efa53a252da1917072055d0a4561e4277817b7",
+      "bytes": 2357
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\clip-reuse-trial-build.log",
+      "sha256": "2125d2ef09037bbd6f216ad4ce58b50e5f94fe6767223fcb16e479aeb2773515",
+      "bytes": 201149
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\clip-reuse-motion-build.log",
+      "sha256": "d4270c8f09056b3b371b30f66791989669b576e41ed3eacfd9ea6d5c39eebd13",
+      "bytes": 3083
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\clip-reuse-trial\\quiet-terrain_game.cpp",
+      "sha256": "c1b285958ce763d2cadb9ccf75e7260890d427807f0e329ad29029b5783a348f",
+      "bytes": 114658
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\clip-reuse-trial\\motion-terrain_game.cpp",
+      "sha256": "71796ace663ed2951e45c2573f24056258cadf4564fd69254110e0c340328c5c",
+      "bytes": 115492
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\clip-reuse-trial\\game\\bin\\vehicle-playground.elf",
+      "sha256": "3a6890fcdf72148249d20125205ae0026f585af8cd72a266db9bef3b4b4fba34",
+      "bytes": 4569884
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\clip-reuse-trial\\game\\bin\\clip-reuse-motion.elf",
+      "sha256": "15cd62fb1845cf15c688ca8eba560001846f396410d5ecd90ebfda8037eae671",
+      "bytes": 4570524
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\clip-reuse-trial-emulator\\Screenshot.png",
+      "sha256": "b1c28ed549b8416e20bb978da0b1ca3d97cd49a3bd673b2899f3260881e44502",
+      "bytes": 279810
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\clip-reuse-motion-emulator\\Screenshot.png",
+      "sha256": "d31b7419c5daa2c3dd863e9bfff147c8f87d500982ce96de2728d239aadf9f39",
+      "bytes": 292824
+    }
+  ],
+  "date": "2026-10-02",
+  "limitations": [
+    "Host bit/classification equivalence is not PS2 instruction equivalence.",
+    "Quiet emulator completes6600 frames and two same-scene reloads; separate candidate-enabled motion build cycles main/dense/procedural/main and cameras0/1/2.",
+    "Captured final screenshots were visually inspected; no baseline/candidate pixel differential claimed.",
+    "Physical timing and console candidate acceptance pending. Gate-off includes branch/bool scaffold."
+  ]
+}

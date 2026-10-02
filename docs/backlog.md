@@ -355,8 +355,10 @@ recovered 0.50-0.72 ms of hardware `work`. What it did not do, ranked:
   [Exclusive math census](tyrax2-ee-vu0.md#exclusive-ee-math-census-physical-ps2)
   completed 6,600 frames: eight-plane transforms 0.377 ms with 11 duplicate calls,
   selection 0.457 ms with 912 candidates/frame, local preparation 0.230 ms.
-  Next gate per-render clip reuse and exact light-pick skips; quiet physical
-  controls remain required. All diagnostic arms still deliver 29.94 Hz.
+  Private per-render clip reuse passes 240,328 host comparisons, native build,
+  6,600 quiet emulator frames and separate movement/camera/scene cycles.
+  [Candidate physical timing](tyrax2-clip-reuse-2026-10-02.json) is next; exact
+  light-pick activation and output gates remain separate. All diagnostic arms still deliver 29.94 Hz.
 - **Night light-effect cost after TyraX2 — measured, optimization open.**
   A [physical one-group isolation run](tyrax2.md#night-workload-isolation-physical-ps2-2026-10-02)
   brackets seven stationary garage variants with full-night controls of
