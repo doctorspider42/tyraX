@@ -174,8 +174,9 @@ int App::junctionMarkers(ImVec2 imgPos, ImVec2 avail, bool draw, ImVec2 mouse) {
     };
     for (size_t ci = 0; ci < plan.crossings.size(); ++ci) {
         const roadgen::Crossing& c = plan.crossings[ci];
-        const float lift = std::max(roadgen::rankLift(crossingRoadList_[(size_t)c.a].rank),
-                                    roadgen::rankLift(crossingRoadList_[(size_t)c.b].rank));
+        float lift = -1e30f;
+        for (int r : c.roads)
+            lift = std::max(lift, roadgen::rankLift(crossingRoadList_[(size_t)r].rank));
         marker(c.shape.x, c.shape.z, lift, (int)ci, c.override >= 0, false,
                sel == (int)ci);
     }
@@ -244,8 +245,10 @@ void App::drawJunctionProperties() {
     const std::string& idA = crossingRoadList_[(size_t)c.a].id;
     const std::string& idB = crossingRoadList_[(size_t)c.b].id;
     const std::string nameA = nameOf(idA), nameB = nameOf(idB);
-    ImGui::Text("%s  x  %s", nameA.c_str(), nameB.c_str());
-    ImGui::TextDisabled("at %.1f, %.1f", c.shape.x, c.shape.z);
+    std::string who;
+    for (int r : c.roads) who += (who.empty() ? "" : "  x  ") + nameOf(crossingRoadList_[(size_t)r].id);
+    ImGui::TextUnformatted(who.c_str());
+    ImGui::TextDisabled("at %.1f, %.1f - %d arms", c.shape.x, c.shape.z, c.arms);
 
     // What the build makes here, from the plan itself.
     std::string result;
@@ -254,7 +257,7 @@ void App::drawJunctionProperties() {
                                                : " (" + fileStem(c.material) + ")") +
                  (c.patchDuplicate ? ", merged with a patch nearby" : "");
     else if (c.kind == roadgen::kCrossThrough)
-        result = (c.winner == c.a ? nameA : nameB) + " runs through";
+        result = nameOf(crossingRoadList_[(size_t)c.winner].id) + " runs through";
     else
         result = "overlap - no patch";
     char gripBuf[32];

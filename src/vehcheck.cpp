@@ -1197,6 +1197,119 @@ void junctionOverrides() {
             "an override whose crossing is gone is reported as orphaned and changes nothing");
 }
 
+// Road nodes (1.170.0, docs/roads.md "Road nodes"): T's, forks at any angle,
+// many-armed crossings and corners become ONE node each, with a filleted
+// outline. Flat ground, every road naming the same intersection material, so
+// every node is a patch and the assembled surface shows where it reaches.
+void roadNodes() {
+    std::printf("-- road nodes --\n");
+    auto road = [](const char* id, std::vector<float> pts, float width) {
+        roadgen::CrossingRoad r;
+        r.id = id;
+        r.points = std::move(pts);
+        r.width = width;
+        r.intersection = "res/materials/x.mtl";
+        return r;
+    };
+    const auto flat = [](float, float) { return 0.0f; };
+    auto surfaceOf = [&](const std::vector<roadgen::CrossingRoad>& roads,
+                         const roadgen::CrossingPlan& plan) {
+        roadgen::Surface s;
+        for (const roadgen::CrossingRoad& r : roads) {
+            std::vector<roadgen::Vertex> tris;
+            roadgen::tessellate(r.points, r.width, flat, tris);
+            s.add(tris, r.grip);
+        }
+        roadgen::addCrossingsToSurface(s, roads, plan, flat);
+        s.build();
+        return s;
+    };
+    auto on = [](const roadgen::Surface& s, float x, float z) {
+        return s.at(x, z) != roadgen::Surface::kNone;
+    };
+    auto summary = [](const char* what, const roadgen::CrossingPlan& p) {
+        std::printf("  %s: %zu node(s)", what, p.crossings.size());
+        for (const roadgen::Crossing& c : p.crossings)
+            std::printf(" [%zu roads, %d arms, kind %d, %zu outline pts]", c.roads.size(),
+                        c.arms, c.kind, c.shape.outline.size() / 2);
+        std::printf("\n");
+    };
+
+    // T: a stem ending on a through road. The fillet fills the inside corner
+    // (3.5, 4.5) - on neither road - and leaves the far side of the through
+    // road and the arc's outside alone.
+    {
+        std::vector<roadgen::CrossingRoad> r = {road("main", {-40, 0, 40, 0}, 8),
+                                                road("stem", {0, 0, 0, 40}, 6)};
+        const roadgen::CrossingPlan p = roadgen::planCrossings(r, {});
+        summary("T", p);
+        const roadgen::Surface s = surfaceOf(r, p);
+        verdict(p.crossings.size() == 1 && p.crossings[0].arms == 3 &&
+                    p.crossings[0].kind == roadgen::kCrossPatch,
+                "a road ending on another makes one three-armed node");
+        verdict(on(s, 3.5f, 4.5f) && on(s, -3.5f, 4.5f) && !on(s, 5.5f, 6.5f) &&
+                    !on(s, 0.0f, -4.5f),
+                "the T's fillets pave both inside corners and nothing else");
+    }
+    // Y: one road splitting in two, 41 degrees apart, all ending at one spot.
+    {
+        std::vector<roadgen::CrossingRoad> r = {road("in", {0, -40, 0, 0}, 6),
+                                                road("left", {0, 0, -15, 40}, 6),
+                                                road("right", {0, 0, 15, 40}, 6)};
+        const roadgen::CrossingPlan p = roadgen::planCrossings(r, {});
+        summary("Y", p);
+        const roadgen::Surface s = surfaceOf(r, p);
+        verdict(p.crossings.size() == 1 && p.crossings[0].arms == 3 &&
+                    p.crossings[0].roads.size() == 3,
+                "a three-way fork is one node holding all three roads");
+        verdict(on(s, 0.0f, 0.5f) && !on(s, 0.0f, 30.0f),
+                "the fork's patch covers the split and stops short of the gore");
+    }
+    // A slip road leaving at 14 degrees: the old crossing finder refused it.
+    {
+        std::vector<roadgen::CrossingRoad> r = {road("main", {0, -40, 0, 40}, 8),
+                                                road("slip", {0, 0, 10, 40}, 6)};
+        const roadgen::CrossingPlan p = roadgen::planCrossings(r, {});
+        summary("slip road", p);
+        verdict(p.crossings.size() == 1 && p.crossings[0].arms == 3,
+                "a shallow fork off a through road is a node");
+    }
+    // Three roads crossing at one point, 60 degrees apart: six arms, one node.
+    {
+        std::vector<roadgen::CrossingRoad> r;
+        const char* ids[3] = {"r0", "r1", "r2"};
+        for (int k = 0; k < 3; ++k) {
+            const float a = (float)k * 1.0471976f;
+            r.push_back(road(ids[k], {-40 * std::cos(a), -40 * std::sin(a),
+                                      40 * std::cos(a), 40 * std::sin(a)}, 6));
+        }
+        const roadgen::CrossingPlan p = roadgen::planCrossings(r, {});
+        summary("six-way", p);
+        verdict(p.crossings.size() == 1 && p.crossings[0].arms == 6,
+                "three roads through one spot are one six-armed node");
+    }
+    // L: two roads ending at one spot at right angles. The outside corner is
+    // on neither road; the node rounds it.
+    {
+        std::vector<roadgen::CrossingRoad> r = {road("a", {40, 0, 0, 0}, 8),
+                                                road("b", {0, 0, 0, 40}, 8)};
+        const roadgen::CrossingPlan p = roadgen::planCrossings(r, {});
+        summary("L", p);
+        const roadgen::Surface s = surfaceOf(r, p);
+        verdict(p.crossings.size() == 1 && p.crossings[0].arms == 2 &&
+                    on(s, -2.0f, -2.0f) && !on(s, -3.5f, -3.5f),
+                "a corner of two road ends is rounded on its outside");
+    }
+    // A road simply continuing into another is not a junction.
+    {
+        std::vector<roadgen::CrossingRoad> r = {road("a", {-40, 0, 0, 0}, 8),
+                                                road("b", {0, 0, 40, 0}, 8)};
+        const roadgen::CrossingPlan p = roadgen::planCrossings(r, {});
+        summary("continuation", p);
+        verdict(p.crossings.empty(), "two roads joined end to end in line make no node");
+    }
+}
+
 // The pedals: R2 gas, L2 brake-then-reverse (vehiclesim::pedals, the rule the
 // console's controller and the test drive share).
 void pedalsCheck() {
@@ -1291,6 +1404,7 @@ int run() {
     offroad();
     crossings();
     junctionOverrides();
+    roadNodes();
     damage();
     pieces();
     speedFeelCurve();

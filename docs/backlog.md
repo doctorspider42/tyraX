@@ -4,6 +4,30 @@ This is only unfinished work that still has a clear payoff and a testable end.
 Finished investigations belong in commit history; reusable facts belong in the
 relevant guide or developer skill.
 
+## Road nodes: what the first version left out (1.170.0, 2026-10-02)
+
+docs/roads.md, "Road nodes". The geometry is in; the rest of the network idea
+is not:
+
+- **Markings as decals generated from the node.** Stop lines at each arm's
+  cap, zebra crossings across the arms, dashed turn guides inside the node,
+  chevrons in a fork's gore - geometry from one small shared markings atlas,
+  so every junction looks different at the VRAM cost of one texture. The
+  arm caps, fillets and gore are already in `Junction::outline`'s
+  construction (`nodeOutline`); expose the per-arm frames instead of only
+  the ring.
+- **Kerbs and pavements** extruded along road edges and around the fillets.
+- **Overrides for nodes of more than two roads.** `JunctionOverride` is still
+  a road PAIR, and the Junction panel's Winner combo offers only `c.a`/`c.b`.
+- **A per-node corner radius** (today 1.5 x the mean half width, 1..8).
+- **Snapping in the editor**: dragging a road end onto another road should
+  land it on that road's centre line, which is what makes a clean T.
+- **Price the patch cost on a console.** The Motor District main scene went
+  from 1 362 to 4 314 patch vertices (triangle lists). Emitting the
+  grid-cut patches as strips is the obvious lever if it shows up.
+- **City blocks**: the faces of the road graph are the lots a procedural
+  generator wants to fill.
+
 ## Separate remaining runtime settings from compilation decisions
 
 Game methods now compile in six parallel units with shared inline helpers/state.

@@ -5515,7 +5515,14 @@
 // host-baked albedo map (REFL_GROUND_*): -2 ms a turning frame on the Motor
 // District's open road on a PS2.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 169
+#define TYRAX_VERSION_MINOR 170
+// 1.170.0: ROAD NODES. Every place roads meet - a crossing at any angle, an
+// open end resting on another road (a T or a fork), two ends sharing a spot
+// (a corner), several roads through one point - is ONE node with a filleted
+// outline built from its arms (roadgen::findNodes), and the patch is cut
+// along the terrain's own grid where a fan cannot follow the ground. The
+// 14-degree crossing refusal is gone. Host-only: the console still uploads
+// baked XYZUV. No format change.
 // 1.169.0: the vehicle controls card - getting into a car for the first time
 // shows what to press, built at runtime from the LIVE bindings and from what
 // that car has (nitrous, lamps), with button glyphs; rows dim as they are

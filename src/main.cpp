@@ -753,9 +753,12 @@ static int roadCrossingsFromCli(int argc, char** argv) {
             } else {
                 what = "overlap";
             }
-            std::printf("[road] crossing %zu: %s x %s at %.2f,%.2f: %s%s\n", ci,
-                        name(c.a).c_str(), name(c.b).c_str(), c.shape.x, c.shape.z,
-                        what.c_str(), c.override >= 0 ? "  [override]" : "");
+            std::string who;
+            for (int r : c.roads) who += (who.empty() ? "" : " x ") + name(r);
+            std::printf("[road] crossing %zu: %s at %.2f,%.2f, %d arms, %zu outline points: "
+                        "%s%s\n", ci, who.c_str(), c.shape.x, c.shape.z, c.arms,
+                        c.shape.outline.size() / 2, what.c_str(),
+                        c.override >= 0 ? "  [override]" : "");
         }
         int nOverlay = 0, nSpill = 0, verts = 0;
         for (const roadgen::CrossingDecal& d : plan.decals) {

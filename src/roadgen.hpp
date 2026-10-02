@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <functional>
 #include <string>
 #include <vector>
@@ -59,12 +60,17 @@ struct Vertex {
     float u, v;     // u 0..1 across the width, v = arc length / texLen
 };
 
-// A crossing of two sampled centre lines. `cornerXZ` is the convex overlap of
-// the two road-width strips, ordered around the centre. This host footprint
-// seeds the fitted XYZUV patch; the PS2 never performs road detection.
+// A junction footprint. `outline` (x0,z0,x1,z1,...) is the node polygon the
+// planner builds (1.170.0, docs/roads.md "Road nodes"): every arm cut off
+// square at its trim distance, neighbouring arms joined by a fillet arc. It
+// is ordered counter-clockwise seen from above and star-shaped about (x, z),
+// so the patch is a fan from the centre. `cornerXZ` is the legacy four-corner
+// overlap findJunctions() still produces; the patch uses it only when the
+// outline is empty. The PS2 never performs road detection.
 struct Junction {
     float x = 0, z = 0;
     float cornerXZ[8] = {};
+    std::vector<float> outline;
 };
 
 // Ground height under a world XZ (the terrain, on both consumers).
@@ -193,9 +199,18 @@ float tessellate(const std::vector<float>& pointsXZ, float width,
 // Conforming junction patch: sample the actual road triangles, refine the
 // shared fan grid, then bound clearance at every triangle intersection.
 // XYZUV is baked on the host; the EE only uploads it at scene load.
+// The terrain's render grid: node (i, k) at (x0 + i*dx, z0 + k*dz), each cell
+// split along the diagonal terrainHeight() uses. Default = unknown.
+struct TerrainGrid {
+    float x0 = 0.0f, z0 = 0.0f, dx = 0.0f, dz = 0.0f;
+};
+TerrainGrid terrainGridOf(int columns, int rows, float width, float depth);
+// A node patch (1.170.0) that a fan from the centre cannot fit is cut along
+// `grid` instead, so every piece lies in one ground plane; pass the scene's
+// grid (an unknown one falls back to a 2-unit grid).
 void tessellateJunctionSurface(const Junction& junction,
     const std::vector<Vertex>& roads, const HeightFn& terrain, float lift,
-    std::vector<Vertex>& out);
+    std::vector<Vertex>& out, const TerrainGrid& grid = {});
 // Render-grid interpolation (the two terrain triangles, not bilinear height).
 float terrainHeight(const std::vector<float>& heights, int columns, int rows,
                     float width, float depth, float x, float z);
@@ -366,6 +381,10 @@ enum CrossingKind : int {
 
 struct Crossing {
     int a = -1, b = -1;  // road indices into the planner's input, a < b
+    // Every road meeting at this node, ascending (a and b are its first two).
+    // A plain crossing has two; a three-road fork or a five-way plaza more.
+    std::vector<int> roads;
+    int arms = 0;        // how many road ends leave the node (X = 4, T/Y = 3)
     Junction shape;
     int override = -1;   // index into the overrides, or -1 (Auto)
     int kind = kCrossOverlap;
@@ -379,7 +398,19 @@ struct Crossing {
     // loser here as an OVERLAY decal. Its grip.
     bool overlay = false;
     float overlayGrip = 1.0f;
+    bool has(int road) const {
+        return std::find(roads.begin(), roads.end(), road) != roads.end();
+    }
 };
+
+// ROAD NODES (1.170.0, docs/roads.md "Road nodes"): where roads meet - a
+// centre-line crossing, an open end resting on another road (a T, or a fork
+// at any angle) or two ends sharing a spot (a corner) - clustered into ONE
+// node per place, however many roads meet there. Each node knows its arms
+// (one per road end leaving it) and carries the filleted outline in
+// `shape.outline`. Kind/material/overrides are planCrossings' business; this
+// is the geometry alone, in a deterministic order.
+std::vector<Crossing> findNodes(const std::vector<CrossingRoad>& roads);
 
 // A spill or an overlay: a road's own triangles laid over another road.
 struct CrossingDecal {
@@ -412,6 +443,7 @@ CrossingPlan planCrossings(const std::vector<CrossingRoad>& roads,
 // The plan's patches and decals as drawn surface (the test drive, the check):
 // `terrain` is the bare ground height.
 void addCrossingsToSurface(Surface& s, const std::vector<CrossingRoad>& roads,
-                           const CrossingPlan& plan, const HeightFn& terrain);
+                           const CrossingPlan& plan, const HeightFn& terrain,
+                           const TerrainGrid& grid = {});
 
 }  // namespace roadgen

@@ -44,7 +44,7 @@ RoadDefRt ROAD_DEFS[1];
 float ROAD_POINTS[64];
 const char* ROAD_TEXTURE_PATHS[1]={""};
 struct RoadJunctionRt { int scene,tex,first,count; float grip; };
-float ROAD_JUNCTION_VERTS[3840]{};
+float ROAD_JUNCTION_VERTS[3600 * 5]{};
 struct RoadSpillRt { int scene,road,first,count; float baseGrip, grip, lift; };
 int ROAD_SPILL_COUNT=0; RoadSpillRt ROAD_SPILLS[1]{}; float ROAD_SPILL_VERTS[1]{};
 int ROAD_EDGE_COUNT=0; RoadSpillRt ROAD_EDGES[1]{}; float ROAD_EDGE_VERTS[1]{};
@@ -344,7 +344,8 @@ static float gridHeight(float x, float z) {
 }
 
 void checkJunctions(const char* name, const std::vector<roadgen::CrossingRoad>& roads,
-                    const roadgen::HeightFn& height, bool expectOldFailure=false) {
+                    const roadgen::HeightFn& height, bool expectOldFailure=false,
+                    const roadgen::TerrainGrid& grid={}) {
   std::vector<roadgen::Vertex> source;
   for(const auto& r:roads) {
     std::vector<roadgen::Vertex> mesh;
@@ -359,18 +360,29 @@ void checkJunctions(const char* name, const std::vector<roadgen::CrossingRoad>& 
     if(crossing.kind!=roadgen::kCrossPatch || crossing.patchDuplicate) continue;
     ++checked;
     std::vector<roadgen::Vertex> patch,old;
-    roadgen::tessellateJunctionSurface(crossing.shape,source,height,crossing.lift,patch);
+    roadgen::tessellateJunctionSurface(crossing.shape,source,height,crossing.lift,patch,grid);
     roadgen::tessellateJunction(crossing.shape,[&](float x,float z){return height(x,z)+crossing.lift;},old);
-    require(patch.size()>=12 && patch.size()<=768 && patch.size()%3==0,"bounded junction mesh");
+    require(patch.size()>=12 && patch.size()<=3600 && patch.size()%3==0,"bounded junction mesh");
     vertices+=patch.size();
     roadgen::Surface over,previous; over.add(patch);over.build();previous.add(old);previous.build();
     // Independent world-space sweep, including endpoints and road/terrain
     // seams. No test samples are chosen by the candidate's subdivision.
+    // The node outline (1.170.0) replaced the four-corner overlap: sweep its
+    // bounding box and keep the samples inside the polygon, slightly shrunk
+    // toward the centre so the boundary itself is not a tie.
     const auto& j=crossing.shape;
+    const auto& ring=j.outline;
+    float mnx=1e30f,mxx=-1e30f,mnz=1e30f,mxz=-1e30f;
+    for(size_t k=0;k+1<ring.size();k+=2){mnx=std::min(mnx,ring[k]);mxx=std::max(mxx,ring[k]);
+      mnz=std::min(mnz,ring[k+1]);mxz=std::max(mxz,ring[k+1]);}
+    auto inside=[&](float x,float z){
+      x=j.x+(x-j.x)/0.9999f;z=j.z+(z-j.z)/0.9999f;bool in=false;const size_t m=ring.size()/2;
+      for(size_t a=0,b=m-1;a<m;b=a++){float xa=ring[a*2],za=ring[a*2+1],xb=ring[b*2],zb=ring[b*2+1];
+        if(((za>z)!=(zb>z))&&(x<(xb-xa)*(z-za)/(zb-za)+xa))in=!in;}
+      return in;};
     for(int a=0;a<=80;++a)for(int b=0;b<=80;++b) {
-      float u=0.0001f+0.9998f*a/80.f,v=0.0001f+0.9998f*b/80.f;
-      float x=(1-u)*(1-v)*j.cornerXZ[0]+u*(1-v)*j.cornerXZ[2]+u*v*j.cornerXZ[4]+(1-u)*v*j.cornerXZ[6];
-      float z=(1-u)*(1-v)*j.cornerXZ[1]+u*(1-v)*j.cornerXZ[3]+u*v*j.cornerXZ[5]+(1-u)*v*j.cornerXZ[7];
+      float x=mnx+(mxx-mnx)*a/80.f,z=mnz+(mxz-mnz)*b/80.f;
+      if(!inside(x,z))continue;
       float road=under.at(x,z);if(road<-1e29f)continue;
       if(over.at(x,z)-road<0.0199f) std::fprintf(stderr,"%s at %.7f %.7f road %.7f patch %.7f\n",name,x,z,road,over.at(x,z));
       require(over.at(x,z)-road>=0.0199f,"road penetrates junction clearance");
@@ -385,12 +397,19 @@ void checkJunctions(const char* name, const std::vector<roadgen::CrossingRoad>& 
       p[0]=v.x;p[1]=v.y;p[2]=v.z;p[3]=v.u;p[4]=v.v;
     }
     TerrainGame runtime;runtime.height=height;runtime.buildRoads(0);
-    require(runtime.procChunks.size()==1,"one bounded junction chunk");
-    const auto& chunk=runtime.procChunks[0];
-    require(chunk.vertices.size()==patch.size() && chunk.stripRun==0 &&
-            chunk.roadGrip==0.73f && chunk.owner==-3,"junction runtime metadata");
+    // A node patch may exceed one 1800-vertex upload chunk; the runtime
+    // splits it in order, so the chunks concatenate back to the patch.
+    require(runtime.procChunks.size()==(patch.size()+1799)/1800,"bounded junction chunks");
+    std::vector<Tyra::Vec4> rv,rst;
+    for(const auto& chunk:runtime.procChunks) {
+      require(chunk.vertices.size()<=1800 && chunk.stripRun==0 &&
+              chunk.roadGrip==0.73f && chunk.owner==-3,"junction runtime metadata");
+      rv.insert(rv.end(),chunk.vertices.begin(),chunk.vertices.end());
+      rst.insert(rst.end(),chunk.sts.begin(),chunk.sts.end());
+    }
+    require(rv.size()==patch.size(),"junction runtime vertex count");
     for(size_t k=0;k<patch.size();++k) {
-      const auto& v=patch[k];const auto& r=chunk.vertices[k];const auto& st=chunk.sts[k];
+      const auto& v=patch[k];const auto& r=rv[k];const auto& st=rst[k];
       require(r.x==v.x && r.y==v.y && r.z==v.z && st.x==v.u && st.y==v.v,
               "baked junction differs from generated runtime");
     }
@@ -484,9 +503,11 @@ int main(int argc,char** argv) {
   crossing[0].intersection=crossing[1].intersection="asphalt";
   checkJunctions("flat",crossing,[](float,float){return 0.f;});
   checkJunctions("slope",crossing,[](float x,float z){return 0.3f*x+0.2f*z;});
-  checkJunctions("terrain folds",crossing,gridHeight);
+  // gridHeight's own grid: 4-unit cells, node 0 at -64 cells.
+  const roadgen::TerrainGrid folds{-256.f,-256.f,4.f,4.f};
+  checkJunctions("terrain folds",crossing,gridHeight,false,folds);
   crossing[0].rank=crossing[1].rank=2;
-  checkJunctions("main rank",crossing,gridHeight);
+  checkJunctions("main rank",crossing,gridHeight,false,folds);
   require(argc==2,"pass example terrain heights");
   std::ifstream terrainFile(argv[1]);int w=0,d=0;terrainFile>>w>>d;
   require(w>=2 && d>=2,"read Market terrain grid");
@@ -499,7 +520,7 @@ int main(int argc,char** argv) {
   crossing[1].width=11;crossing[1].sampleStep=2;
   checkJunctions("Market endpoints",crossing,[&](float x,float z){
     return roadgen::terrainHeight(heights,w,d,320,320,x,z);
-  },true);
+  },true,roadgen::terrainGridOf(w,d,320,320));
   return 0;
 }
 '''

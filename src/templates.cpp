@@ -9060,8 +9060,12 @@ static std::string sceneDataContent(const Project& p, const std::string& ns,
                 for (const roadgen::Crossing& c : plan.crossings) {
                     if (c.kind != roadgen::kCrossPatch || c.patchDuplicate) continue;
                     std::vector<roadgen::Vertex> mesh;
-                    roadgen::tessellateJunctionSurface(c.shape, roadTriangles, ground,
-                                                     c.lift, mesh);
+                    roadgen::tessellateJunctionSurface(
+                        c.shape, roadTriangles, ground, c.lift, mesh,
+                        sc.terrain.enabled
+                            ? roadgen::terrainGridOf(sc.hmW, sc.hmD, (float)sc.terrain.width,
+                                                     (float)sc.terrain.depth)
+                            : roadgen::TerrainGrid{});
                     junctionRows.push_back(
                         {(int)si, textureIndex(project::resolveRoadTexture(p, c.material)),
                          (int)junctionVerts.size(), (int)mesh.size(), c.grip});

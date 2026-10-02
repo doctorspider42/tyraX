@@ -404,7 +404,8 @@ void App::vehicleDriveStart(int objectIndex) {
         if (cr.size() >= 2)
             roadgen::addCrossingsToSurface(
                 vehicleDriveRoads_, cr,
-                roadgen::planCrossings(cr, project_.active().roadJunctions), terrainAt);
+                roadgen::planCrossings(cr, project_.active().roadJunctions), terrainAt,
+                viewport_.terrainGrid());
     }
     vehicleDriveRoads_.build();
 }

@@ -476,10 +476,13 @@ void tessellateJunction(const Junction& j, const HeightFn& height,
                         std::vector<Vertex>& out) {
     const float cy = (height ? height(j.x, j.z) : 0.0f) + kLift + 0.02f;
     Vertex center{j.x, cy, j.z, 0.5f, 0.5f};
-    for (int k = 0; k < 4; ++k) {
-        const int n = (k + 1) & 3;
-        const float ax = j.cornerXZ[k * 2], az = j.cornerXZ[k * 2 + 1];
-        const float bx = j.cornerXZ[n * 2], bz = j.cornerXZ[n * 2 + 1];
+    std::vector<float> ring = j.outline;
+    if (ring.size() < 6) ring.assign(j.cornerXZ, j.cornerXZ + 8);
+    const size_t corners = ring.size() / 2;
+    for (size_t k = 0; k < corners; ++k) {
+        const size_t n = (k + 1) % corners;
+        const float ax = ring[k * 2], az = ring[k * 2 + 1];
+        const float bx = ring[n * 2], bz = ring[n * 2 + 1];
         const Vertex a{ax, (height ? height(ax, az) : 0.0f) + kLift + 0.02f,
                        az, 0.5f + (ax - j.x) / 32.0f,
                        0.5f + (az - j.z) / 32.0f};
@@ -508,16 +511,76 @@ float terrainHeight(const std::vector<float>& heights, int columns, int rows,
            (1 - fx) * (h(ix, iz + 1) - h(ix + 1, iz + 1));
 }
 
+namespace {
+
+struct DQ {
+    double x, z;
+};
+
+double crossDQ(DQ o, DQ a, DQ b) {
+    return (a.x - o.x) * (b.z - o.z) - (a.z - o.z) * (b.x - o.x);
+}
+
+// Ear clipping of a counter-clockwise simple polygon: triangles appended to
+// `tris` as corner triples, counter-clockwise, zero-area ones dropped. A
+// polygon that will not clip (degenerate leftovers) fans what remains.
+void earClip(std::vector<DQ> p, std::vector<DQ>& tris) {
+    auto emit = [&](DQ a, DQ b, DQ c) {
+        if (crossDQ(a, b, c) > 1e-9) tris.insert(tris.end(), {a, b, c});
+    };
+    while (p.size() > 3) {
+        bool clipped = false;
+        for (size_t k = 0; k < p.size() && !clipped; ++k) {
+            const size_t ka = (k + p.size() - 1) % p.size(), kc = (k + 1) % p.size();
+            const DQ a = p[ka], b = p[k], c = p[kc];
+            if (crossDQ(a, b, c) <= 1e-9) continue;
+            bool empty = true;
+            for (size_t m = 0; m < p.size() && empty; ++m) {
+                if (m == k || m == ka || m == kc) continue;
+                empty = !(crossDQ(a, b, p[m]) > 0 && crossDQ(b, c, p[m]) > 0 &&
+                          crossDQ(c, a, p[m]) > 0);
+            }
+            if (!empty) continue;
+            emit(a, b, c);
+            p.erase(p.begin() + (long)k);
+            clipped = true;
+        }
+        if (!clipped) break;
+    }
+    for (size_t k = 1; k + 1 < p.size(); ++k) emit(p[0], p[k], p[k + 1]);
+}
+
+}  // namespace
+
+#ifndef TYRA_JUNCTION_TOL
+#define TYRA_JUNCTION_TOL 0.01f
+#endif
+constexpr float kJunctionTol = TYRA_JUNCTION_TOL;
+
+TerrainGrid terrainGridOf(int columns, int rows, float width, float depth) {
+    TerrainGrid g;
+    if (columns < 2 || rows < 2 || width <= 0 || depth <= 0) return g;
+    g.x0 = -0.5f * width;
+    g.z0 = -0.5f * depth;
+    g.dx = width / (float)(columns - 1);
+    g.dz = depth / (float)(rows - 1);
+    return g;
+}
+
 void tessellateJunctionSurface(const Junction& j,
     const std::vector<Vertex>& roads, const HeightFn& terrain, float lift,
-    std::vector<Vertex>& out) {
+    std::vector<Vertex>& out, const TerrainGrid& grid) {
+    // The footprint ring: the node outline, or the legacy four corners.
+    std::vector<float> ring = j.outline;
+    if (ring.size() < 6) ring.assign(j.cornerXZ, j.cornerXZ + 8);
+    const size_t corners = ring.size() / 2;
     // Only triangles near this junction participate in the host-side proof.
     float minX = j.x, maxX = j.x, minZ = j.z, maxZ = j.z;
-    for (int k = 0; k < 4; ++k) {
-        minX = std::min(minX, j.cornerXZ[k * 2]);
-        maxX = std::max(maxX, j.cornerXZ[k * 2]);
-        minZ = std::min(minZ, j.cornerXZ[k * 2 + 1]);
-        maxZ = std::max(maxZ, j.cornerXZ[k * 2 + 1]);
+    for (size_t k = 0; k < corners; ++k) {
+        minX = std::min(minX, ring[k * 2]);
+        maxX = std::max(maxX, ring[k * 2]);
+        minZ = std::min(minZ, ring[k * 2 + 1]);
+        maxZ = std::max(maxZ, ring[k * 2 + 1]);
     }
     std::vector<Vertex> local;
     for (size_t i = 0; i + 2 < roads.size(); i += 3) {
@@ -528,7 +591,36 @@ void tessellateJunctionSurface(const Junction& j,
             std::min({t[0].z, t[1].z, t[2].z}) > maxZ) continue;
         local.insert(local.end(), t, t + 3);
     }
-    auto plane = [](const Vertex* t, double x, double z, double* a = nullptr,
+    // A node outline reaches past the roads (its fillets lie on bare ground),
+    // so the ground itself joins the proof as a fine grid of triangles at
+    // the height a road would have there: the patch then clears the terrain
+    // between its vertices as well as at them.
+    // The grid is the terrain's own (its two triangles per cell, the split
+    // terrainHeight uses), so these triangles ARE the ground, not a resampling
+    // of it. Without a known grid a 2-unit one stands in.
+    TerrainGrid g = grid;
+    if (!(g.dx > 0.0f && g.dz > 0.0f)) g = TerrainGrid{0.0f, 0.0f, 2.0f, 2.0f};
+    int ix0 = (int)std::floor((minX - g.x0) / g.dx), ix1 = (int)std::ceil((maxX - g.x0) / g.dx);
+    int iz0 = (int)std::floor((minZ - g.z0) / g.dz), iz1 = (int)std::ceil((maxZ - g.z0) / g.dz);
+    // A huge node on a fine grid would make the proof quadratic; coarsen.
+    const int stride = std::max(1, std::max(ix1 - ix0, iz1 - iz0) / 64);
+    std::vector<std::array<Vertex, 3>> cells;  // the ground triangles, CCW
+    if (j.outline.size() >= 6) {
+        auto node = [&](int ix, int iz) {
+            const float x = g.x0 + g.dx * (float)ix, z = g.z0 + g.dz * (float)iz;
+            return Vertex{x, (terrain ? terrain(x, z) : 0.0f) + kLift + lift, z, 0.0f, 0.0f};
+        };
+        for (int iz = iz0; iz < iz1; iz += stride)
+            for (int ix = ix0; ix < ix1; ix += stride) {
+                const Vertex a = node(ix, iz), b = node(ix + stride, iz);
+                const Vertex c = node(ix + stride, iz + stride), d = node(ix, iz + stride);
+                cells.push_back({a, b, d});
+                cells.push_back({b, c, d});
+            }
+        if (terrain)
+            for (const auto& t : cells) local.insert(local.end(), t.begin(), t.end());
+    }
+    auto plane =[](const Vertex* t, double x, double z, double* a = nullptr,
                     double* b = nullptr) {
         const double den = (double)(t[1].z - t[2].z) * (t[0].x - t[2].x) +
                            (double)(t[2].x - t[1].x) * (t[0].z - t[2].z);
@@ -553,12 +645,29 @@ void tessellateJunctionSurface(const Junction& j,
                       0.5f + (z - j.z) / 32.0f};
     };
     out.clear();
-    const Vertex center = vertex(j.x, j.z);
-    for (int k = 0; k < 4; ++k) {
-        const int n = (k + 1) & 3;
-        out.insert(out.end(), {center, vertex(j.cornerXZ[k * 2], j.cornerXZ[k * 2 + 1]),
-                              vertex(j.cornerXZ[n * 2], j.cornerXZ[n * 2 + 1])});
+    // A fan from the centre when every outline step turns counter-clockwise
+    // about it (the usual node, and the legacy four corners); otherwise an arm
+    // on a bend has curled the ring around the centre and it is ear-clipped.
+    bool star = true;
+    for (size_t k = 0; k < corners && star; ++k) {
+        const size_t n = (k + 1) % corners;
+        star = (ring[k * 2] - j.x) * (ring[n * 2 + 1] - j.z) -
+                   (ring[k * 2 + 1] - j.z) * (ring[n * 2] - j.x) > 1e-6f;
     }
+    if (star) {
+        const Vertex center = vertex(j.x, j.z);
+        for (size_t k = 0; k < corners; ++k) {
+            const size_t n = (k + 1) % corners;
+            out.insert(out.end(), {center, vertex(ring[k * 2], ring[k * 2 + 1]),
+                                  vertex(ring[n * 2], ring[n * 2 + 1])});
+        }
+    } else {
+        std::vector<DQ> poly, tris;
+        for (size_t k = 0; k < corners; ++k) poly.push_back({ring[k * 2], ring[k * 2 + 1]});
+        earClip(poly, tris);
+        for (const DQ& q : tris) out.push_back(vertex((float)q.x, (float)q.z));
+    }
+    if (out.empty()) return;
     struct Q { double x, z; };
     // The difference of two triangle planes is affine. Its maximum over
     // their overlap is at an overlap corner: this is a bound, not a sampling
@@ -612,17 +721,89 @@ void tessellateJunctionSurface(const Junction& j,
         if (a.x > b.x || (a.x == b.x && a.z > b.z)) std::swap(a, b);
         return std::array<float, 4>{a.x, a.z, b.x, b.z};
     };
+    // The outline cut along the ground's own triangles: every piece lies in
+    // one terrain plane, so it follows the ground exactly where a fan from
+    // the centre would chord across every fold. Each piece is the ring
+    // clipped by one (convex) ground triangle, then ear-clipped.
+    auto gridPatch = [&]() {
+        std::vector<Vertex> tris;
+        std::vector<Q> subject;
+        for (size_t k = 0; k < corners; ++k) subject.push_back({ring[k * 2], ring[k * 2 + 1]});
+        // The ring clipped by one (convex) ground triangle, repeats dropped.
+        auto clip = [&](const std::array<Vertex, 3>& cell, double* area) {
+            std::vector<Q> poly = subject;
+            for (int e = 0; e < 3 && poly.size() >= 3; ++e) {
+                const Vertex& a = cell[(size_t)e];
+                const Vertex& b = cell[(size_t)(e + 1) % 3];
+                auto side = [&](Q q) {
+                    return (b.x - a.x) * (q.z - a.z) - (b.z - a.z) * (q.x - a.x);
+                };
+                std::vector<Q> next;
+                Q prev = poly.back();
+                double dp = side(prev);
+                for (Q q : poly) {
+                    const double dq = side(q);
+                    if ((dp >= 0) != (dq >= 0)) {
+                        const double f = dp / (dp - dq);
+                        next.push_back({prev.x + f * (q.x - prev.x), prev.z + f * (q.z - prev.z)});
+                    }
+                    if (dq >= 0) next.push_back(q);
+                    prev = q;
+                    dp = dq;
+                }
+                poly.swap(next);
+            }
+            std::vector<DQ> p;
+            for (Q q : poly)
+                if (p.empty() || std::hypot(p.back().x - q.x, p.back().z - q.z) > 1e-5)
+                    p.push_back({q.x, q.z});
+            while (p.size() > 1 && std::hypot(p.back().x - p[0].x, p.back().z - p[0].z) <= 1e-5)
+                p.pop_back();
+            *area = 0;
+            for (size_t k = 0; p.size() >= 3 && k < p.size(); ++k)
+                *area += crossDQ(p[0], p[k], p[(k + 1) % p.size()]);
+            return p;
+        };
+        // Snapped, so the corner two neighbouring pieces share is the same
+        // float pair however each piece clipped it (no hairline crack).
+        auto snap = [](double v) { return (float)(std::round(v * 4096.0) / 4096.0); };
+        for (const auto& cell : cells) {
+            double area = 0;
+            std::vector<DQ> p = clip(cell, &area);
+            if (p.size() < 3 || area < 1e-6) continue;
+            std::vector<DQ> pieces;
+            earClip(p, pieces);
+            for (const DQ& q : pieces) tris.push_back(vertex(snap(q.x), snap(q.z)));
+        }
+        return tris;
+    };
     float guard = 0;
+    bool gridded = false;
     for (int level = 0; ; ++level) {
-        const std::vector<float> errors = deficit();
+        std::vector<float> errors = deficit();
         guard = *std::max_element(errors.begin(), errors.end());
+        // A node patch the fan cannot follow is rebuilt along the ground
+        // grid once, before any splitting.
+        if (guard > kJunctionTol && !gridded && !cells.empty()) {
+            gridded = true;
+            std::vector<Vertex> g2 = gridPatch();
+            if (!g2.empty()) {
+                out.swap(g2);
+                errors = deficit();
+                guard = *std::max_element(errors.begin(), errors.end());
+            }
+        }
         // Split only triangles that need it, and split their neighbours on
         // the same edges. No T-junctions; flat patches retain four triangles.
         // The final bound still guarantees clearance at the safety cap.
-        if (guard <= 0.01f || level == 3) break;
+        // A many-armed node starts from more triangles; stop refining before
+        // it becomes a vertex budget of its own (one more split at most
+        // quadruples it, so this caps a patch at 3600 vertices; the lift
+        // below still holds).
+        if (guard <= kJunctionTol || level == 3 || out.size() > 3 * 300) break;
         std::set<std::array<float, 4>> split;
         for (size_t i = 0; i < errors.size(); ++i) {
-            if (errors[i] <= 0.01f) continue;
+            if (errors[i] <= kJunctionTol) continue;
             const Vertex* t = &out[i * 3];
             for (int k = 0; k < 3; ++k) split.insert(edge(t[k], t[(k + 1) % 3]));
         }
@@ -804,18 +985,552 @@ void tessellateEdges(const std::vector<float>& pointsXZ, float width,
 namespace {
 
 // How far from a crossing's centre its spill and overlay triangles can lie:
-// the overlap parallelogram, half the wider road (a reduced full-width
-// triangle's centroid) and a station of slack.
+// the node outline, half the widest road (a reduced full-width triangle's
+// centroid) and a station of slack.
 float crossingReach(const Crossing& c, const std::vector<CrossingRoad>& roads) {
     float r = 0.0f;
-    for (int k = 0; k < 4; ++k)
-        r = std::max(r, std::hypot(c.shape.cornerXZ[k * 2] - c.shape.x,
-                                   c.shape.cornerXZ[k * 2 + 1] - c.shape.z));
-    return r + 0.5f * std::max(roads[(size_t)c.a].width, roads[(size_t)c.b].width) +
-           2.0f;
+    const std::vector<float>& o = c.shape.outline;
+    if (!o.empty()) {
+        for (size_t k = 0; k + 1 < o.size(); k += 2)
+            r = std::max(r, std::hypot(o[k] - c.shape.x, o[k + 1] - c.shape.z));
+    } else {
+        for (int k = 0; k < 4; ++k)
+            r = std::max(r, std::hypot(c.shape.cornerXZ[k * 2] - c.shape.x,
+                                       c.shape.cornerXZ[k * 2 + 1] - c.shape.z));
+    }
+    float w = 0.0f;
+    for (int ri : c.roads) w = std::max(w, roads[(size_t)ri].width);
+    return r + 0.5f * w + 2.0f;
+}
+
+// --- road nodes (docs/roads.md "Road nodes") ---------------------------------
+
+// A road centre line as a polyline with its running arc length. One-unit
+// pieces, the spacing findJunctions always sampled crossings at.
+struct Line {
+    std::vector<P> p;
+    std::vector<float> s;
+    bool closed = false;
+    float len() const { return s.empty() ? 0.0f : s.back(); }
+};
+
+Line lineOf(const std::vector<float>& pts) {
+    Line l;
+    l.closed = isClosed(pts);
+    l.p = centreLine(pts);
+    for (size_t i = 0; i < l.p.size(); ++i)
+        l.s.push_back(i == 0 ? 0.0f
+                             : l.s.back() + std::hypot(l.p[i].x - l.p[i - 1].x,
+                                                       l.p[i].z - l.p[i - 1].z));
+    return l;
+}
+
+// The centre-line point at arc length s: wrapped on a loop, clamped otherwise.
+P lineAt(const Line& l, float s) {
+    if (l.p.empty()) return {0.0f, 0.0f};
+    const float L = l.len();
+    if (l.p.size() < 2 || !(L > 0.0f)) return l.p[0];
+    if (l.closed) {
+        s = std::fmod(s, L);
+        if (s < 0.0f) s += L;
+    } else {
+        s = std::clamp(s, 0.0f, L);
+    }
+    size_t i = (size_t)(std::upper_bound(l.s.begin(), l.s.end(), s) - l.s.begin());
+    i = std::clamp(i, (size_t)1, l.s.size() - 1);
+    const float s0 = l.s[i - 1], s1 = l.s[i];
+    const float f = s1 > s0 ? (s - s0) / (s1 - s0) : 0.0f;
+    return {l.p[i - 1].x + (l.p[i].x - l.p[i - 1].x) * f,
+            l.p[i - 1].z + (l.p[i].z - l.p[i - 1].z) * f};
+}
+
+// Distance from (x, z) to the centre line, and the arc length of the nearest
+// point on it.
+float projectOnto(const Line& l, float x, float z, float* sOut) {
+    float best = 1e30f, bestS = 0.0f;
+    for (size_t i = 0; i + 1 < l.p.size(); ++i) {
+        const float ax = l.p[i].x, az = l.p[i].z;
+        const float dx = l.p[i + 1].x - ax, dz = l.p[i + 1].z - az;
+        const float l2 = dx * dx + dz * dz;
+        float t = l2 > 1e-12f ? ((x - ax) * dx + (z - az) * dz) / l2 : 0.0f;
+        t = std::clamp(t, 0.0f, 1.0f);
+        const float ex = ax + dx * t - x, ez = az + dz * t - z;
+        const float d = ex * ex + ez * ez;
+        if (d < best) {
+            best = d;
+            bestS = l.s[i] + (l.s[i + 1] - l.s[i]) * t;
+        }
+    }
+    if (sOut) *sOut = bestS;
+    return std::sqrt(best);
+}
+
+// How far beyond its half width an open end may stop short of another road
+// and still be read as ending ON it.
+constexpr float kNodeSnap = 1.0f;
+// Fillet radius as a fraction of the two arms' mean half width, clamped.
+constexpr float kCornerRadiusScale = 1.5f;
+constexpr float kCornerRadiusMin = 1.0f, kCornerRadiusMax = 8.0f;
+// An arm is never trimmed shorter than this, nor further than this many of
+// its own widths (a shallow fork would otherwise pave half the map).
+constexpr float kMinTrim = 1.0f, kMaxTrimWidths = 3.0f;
+// Square slack between the last fillet tangent and the arm's cap.
+constexpr float kCapMargin = 0.5f;
+// Arc tessellation: one outline point per this many radians of fillet.
+#ifndef TYRA_NODE_ARC_DIV
+#define TYRA_NODE_ARC_DIV 8.0f
+#endif
+#ifndef TYRA_NODE_EDGE_STEP
+#define TYRA_NODE_EDGE_STEP 2.0f
+#endif
+constexpr float kArcStep = 3.14159265f / TYRA_NODE_ARC_DIV;
+constexpr float kEdgeStep = TYRA_NODE_EDGE_STEP;
+
+struct Arm {
+    int road = -1;
+    float ux = 1.0f, uz = 0.0f;  // outward unit direction at the node
+    float h = 1.0f;              // half width
+    float limit = 1e30f;         // the most it may be trimmed (centre-line arc)
+    float angle = 0.0f;
+    // The road under the arm: its centre line, the arc length nearest the
+    // node and which way along it the arm leaves (+1 / -1). The outline's
+    // edges follow this curve, so an arm on a bend bends with its road.
+    const Line* line = nullptr;
+    float s = 0.0f, dir = 1.0f;
+};
+
+// A point on an arm's edge `sigma` along its centre line from the node:
+// side +1 = the arm's left edge, -1 its right. `tx/tz` receive the arm's
+// outward tangent there.
+P armEdge(const Arm& a, float sigma, float side, float* tx = nullptr, float* tz = nullptr) {
+    const float s = a.s + a.dir * sigma;
+    const P c = lineAt(*a.line, s);
+    const P f = lineAt(*a.line, s + a.dir * 0.5f), b = lineAt(*a.line, s - a.dir * 0.5f);
+    float ux = f.x - b.x, uz = f.z - b.z;
+    const float ul = std::hypot(ux, uz);
+    if (ul > 1e-6f) {
+        ux /= ul;
+        uz /= ul;
+    } else {
+        ux = a.ux;
+        uz = a.uz;
+    }
+    if (tx) *tx = ux;
+    if (tz) *tz = uz;
+    return {c.x - side * a.h * uz, c.z + side * a.h * ux};
+}
+
+// The convex hull of a point ring (monotone chain), counter-clockwise.
+std::vector<P> hullOf(std::vector<P> pts) {
+    std::sort(pts.begin(), pts.end(), [](const P& a, const P& b) {
+        return a.x < b.x || (a.x == b.x && a.z < b.z);
+    });
+    if (pts.size() < 3) return pts;
+    auto cross = [](const P& o, const P& a, const P& b) {
+        return (a.x - o.x) * (b.z - o.z) - (a.z - o.z) * (b.x - o.x);
+    };
+    std::vector<P> h(pts.size() * 2);
+    size_t k = 0;
+    for (size_t i = 0; i < pts.size(); ++i) {
+        while (k >= 2 && cross(h[k - 2], h[k - 1], pts[i]) <= 0) --k;
+        h[k++] = pts[i];
+    }
+    for (size_t i = pts.size() - 1, t = k + 1; i-- > 0;) {
+        while (k >= t && cross(h[k - 2], h[k - 1], pts[i]) <= 0) --k;
+        h[k++] = pts[i];
+    }
+    h.resize(k - 1);
+    return h;
+}
+
+// The node polygon: every arm cut square at its trim distance, the gap
+// between each pair of neighbouring arms closed by a fillet tangent to both
+// road edges (or, on a reflex side, an arc around the centre). Trims grow
+// until the fillets fit and are then clamped by how much road each arm has;
+// a fillet that no longer fits shrinks, and one that cannot shrink enough is
+// cut straight across.
+std::vector<float> nodeOutline(float cx, float cz, std::vector<Arm>& arms) {
+    const float kPi = 3.14159265358979f;
+    for (Arm& a : arms) a.angle = std::atan2(a.uz, a.ux);
+    std::sort(arms.begin(), arms.end(),
+              [](const Arm& l, const Arm& r) { return l.angle < r.angle; });
+    const int n = (int)arms.size();
+    enum { kOpen, kFillet, kCut };
+    struct Corner {
+        int type = kOpen;
+        float a = 0, b = 0, t = 0, theta = 0;
+    };
+    std::vector<Corner> cs((size_t)n);
+    // Left normal of an arm: its direction turned +90 degrees, so the angular
+    // order and the "left" side agree.
+    auto nlx = [&](int i) { return -arms[(size_t)i].uz; };
+    auto nlz = [&](int i) { return arms[(size_t)i].ux; };
+    for (int i = 0; i < n; ++i) {
+        const int j = (i + 1) % n;
+        const Arm& A = arms[(size_t)i];
+        const Arm& B = arms[(size_t)j];
+        float theta = B.angle - A.angle;
+        if (n == 1 || theta <= 0.0f) theta += 2.0f * kPi;
+        Corner& c = cs[(size_t)i];
+        c.theta = theta;
+        if (theta >= kPi - 0.02f) continue;  // a reflex (or straight) side
+        // Left edge of A: h_A nl_A + a u_A. Right edge of B: -h_B nl_B + b u_B.
+        const float rx = -B.h * nlx(j) - A.h * nlx(i);
+        const float rz = -B.h * nlz(j) - A.h * nlz(i);
+        const float det = -(A.ux * B.uz - A.uz * B.ux);
+        if (std::fabs(det) < 1e-6f) continue;
+        c.a = (rx * -B.uz - rz * -B.ux) / det;
+        c.b = (A.ux * rz - A.uz * rx) / det;
+        const float r = std::clamp(kCornerRadiusScale * 0.5f * (A.h + B.h),
+                                   kCornerRadiusMin, kCornerRadiusMax);
+        c.t = std::max({r / std::tan(0.5f * theta), -c.a, -c.b});
+        c.type = kFillet;
+    }
+    std::vector<float> d((size_t)n);
+    for (int i = 0; i < n; ++i) {
+        const int p = (i + n - 1) % n;
+        float need = 0.0f;
+        if (cs[(size_t)i].type == kFillet) need = cs[(size_t)i].a + cs[(size_t)i].t;
+        if (cs[(size_t)p].type == kFillet)
+            need = std::max(need, cs[(size_t)p].b + cs[(size_t)p].t);
+        const Arm& A = arms[(size_t)i];
+        const float cap = std::max(kMinTrim, std::min(A.limit, kMaxTrimWidths * 2.0f * A.h));
+        d[(size_t)i] = std::min(std::max(need + kCapMargin, kMinTrim), cap);
+    }
+    for (int i = 0; i < n; ++i) {
+        Corner& c = cs[(size_t)i];
+        if (c.type != kFillet) continue;
+        const int j = (i + 1) % n;
+        const float tmax = std::min(d[(size_t)i] - c.a, d[(size_t)j] - c.b);
+        if (tmax >= c.t) continue;
+        if (tmax > std::max({-c.a, -c.b, 0.0f}) + 0.05f)
+            c.t = tmax;
+        else
+            c.type = kCut;
+    }
+
+    std::vector<P> ring;
+    auto push = [&](P q) {
+        if (!ring.empty() && std::hypot(ring.back().x - q.x, ring.back().z - q.z) < 1e-3f)
+            return;
+        ring.push_back(q);
+    };
+    // An arm's edge between two distances, walked in the given order, one
+    // point per unit of road so a bend is followed.
+    auto walkEdge = [&](const Arm& a, float from, float to, float side) {
+        const int steps = std::max(1, (int)std::ceil(std::fabs(to - from) / kEdgeStep));
+        for (int k = 0; k <= steps; ++k)
+            push(armEdge(a, from + (to - from) * (float)k / (float)steps, side));
+    };
+    // Segment p0-p1 against q0-q1: the crossing and its fraction along q.
+    auto crossAt = [](P p0, P p1, P q0, P q1, P* at, float* fq) {
+        const float rx = p1.x - p0.x, rz = p1.z - p0.z;
+        const float sx = q1.x - q0.x, sz = q1.z - q0.z;
+        const float den = rx * sz - rz * sx;
+        if (std::fabs(den) < 1e-9f) return false;
+        const float qx = q0.x - p0.x, qz = q0.z - p0.z;
+        const float t = (qx * sz - qz * sx) / den, u = (qx * rz - qz * rx) / den;
+        if (t < 0.0f || t > 1.0f || u < 0.0f || u > 1.0f) return false;
+        *at = {p0.x + rx * t, p0.z + rz * t};
+        *fq = u;
+        return true;
+    };
+    // An arm whose cap begins on its neighbour's edge (a cut corner, below)
+    // does not emit its own right cap corner.
+    std::vector<char> skipRight((size_t)n, 0);
+    for (int i = 0; i < n; ++i) {
+        const int j = (i + 1) % n;
+        const Arm& A = arms[(size_t)i];
+        const Arm& B = arms[(size_t)j];
+        const float di = d[(size_t)i], dj = d[(size_t)j];
+        if (!skipRight[(size_t)i]) push(armEdge(A, di, -1.0f));
+        const Corner& c = cs[(size_t)i];
+        if (c.type == kFillet) {
+            const float ta = c.a + c.t, tb = c.b + c.t;
+            walkEdge(A, di, ta, 1.0f);
+            // A quadratic Bezier tangent to both edges where they leave it:
+            // the circle's job, on edges that may curve.
+            float t1x, t1z, t2x, t2z;
+            const P p0 = armEdge(A, ta, 1.0f, &t1x, &t1z);
+            const P p2 = armEdge(B, tb, -1.0f, &t2x, &t2z);
+            // Rays inward along each edge: p0 - l*t1 and p2 - m*t2.
+            const float den = t1x * t2z - t1z * t2x;
+            bool curved = false;
+            if (std::fabs(den) > 1e-4f) {
+                const float qx = p2.x - p0.x, qz = p2.z - p0.z;
+                // p0 - l t1 = p2 - m t2  =>  -l t1 + m t2 = q
+                const float l = -(qx * t2z - qz * t2x) / den;
+                const float m = (t1x * qz - t1z * qx) / den;
+                if (l > 0.0f && m > 0.0f) {
+                    const P p1{p0.x - l * t1x, p0.z - l * t1z};
+                    const int steps =
+                        std::max(2, (int)std::ceil((kPi - c.theta) / kArcStep));
+                    for (int k = 1; k < steps; ++k) {
+                        const float f = (float)k / (float)steps, g = 1.0f - f;
+                        push({g * g * p0.x + 2.0f * g * f * p1.x + f * f * p2.x,
+                              g * g * p0.z + 2.0f * g * f * p1.z + f * f * p2.z});
+                    }
+                    curved = true;
+                }
+            }
+            (void)curved;
+            walkEdge(B, tb, dj, -1.0f);
+        } else if (c.type == kOpen) {
+            walkEdge(A, di, 0.0f, 1.0f);
+            const P s1 = armEdge(A, 0.0f, 1.0f), s2 = armEdge(B, 0.0f, -1.0f);
+            const float g1 = std::atan2(s1.z - cz, s1.x - cx);
+            float sweep = std::atan2(s2.z - cz, s2.x - cx) - g1;
+            while (sweep < 0.0f) sweep += 2.0f * kPi;
+            while (sweep >= 2.0f * kPi) sweep -= 2.0f * kPi;
+            // A side just short of straight puts s2 a hair clockwise of s1;
+            // that is a straight join, not a full turn around the node.
+            if (sweep > kPi) sweep = 0.0f;
+            const float r1 = std::hypot(s1.x - cx, s1.z - cz);
+            const float r2 = std::hypot(s2.x - cx, s2.z - cz);
+            const int steps = std::max(1, (int)std::ceil(sweep / kArcStep));
+            for (int k = 1; k < steps; ++k) {
+                const float f = (float)k / (float)steps;
+                const float rr = r1 + (r2 - r1) * f;
+                push({cx + rr * std::cos(g1 + sweep * f), cz + rr * std::sin(g1 + sweep * f)});
+            }
+            walkEdge(B, 0.0f, dj, -1.0f);
+        } else {
+            // Cut: the two arms still overlap where they are trimmed (a slip
+            // road leaving at a shallow angle). The union's outline runs
+            // from one cap onto the other arm's edge where they cross, so
+            // the gore beyond stays ground.
+            const P capR = armEdge(A, di, -1.0f), capL = armEdge(A, di, 1.0f);
+            const P jR0 = armEdge(B, 0.0f, -1.0f), jR1 = armEdge(B, dj, -1.0f);
+            const P iL0 = armEdge(A, 0.0f, 1.0f);
+            const P jCapR = jR1, jCapL = armEdge(B, dj, 1.0f);
+            P at;
+            float f = 0.0f;
+            if (crossAt(capR, capL, jR0, jR1, &at, &f)) {
+                // A's cap runs into B: leave A's cap there, follow B's edge out.
+                push(at);
+                walkEdge(B, f * dj, dj, -1.0f);
+            } else if (crossAt(jCapR, jCapL, iL0, capL, &at, &f)) {
+                // B's cap runs into A: follow A's edge in to it, start B's cap there.
+                walkEdge(A, di, f * di, 1.0f);
+                push(at);
+                skipRight[(size_t)j] = 1;
+                if (j == 0 && !ring.empty()) ring.erase(ring.begin());
+            } else {
+                push(capL);
+            }
+        }
+    }
+    while (ring.size() > 1 &&
+           std::hypot(ring.back().x - ring[0].x, ring.back().z - ring[0].z) < 1e-3f)
+        ring.pop_back();
+    // The ring need not be star-shaped about the centre (an arm on a bend
+    // curls around it); tessellateJunctionSurface ear-clips one that is not.
+    // It must be SIMPLE, though: arms folding over each other would make a
+    // self-crossing ring, and their convex hull still covers every arm.
+    bool simple = ring.size() >= 3;
+    double area = 0.0;
+    for (size_t k = 0; k < ring.size(); ++k) {
+        const P& a = ring[k];
+        const P& b = ring[(k + 1) % ring.size()];
+        area += (double)a.x * b.z - (double)b.x * a.z;
+    }
+    simple &= area > 1e-4;
+    for (size_t k = 0; k < ring.size() && simple; ++k)
+        for (size_t m = k + 2; m < ring.size() && simple; ++m) {
+            if (k == 0 && m + 1 == ring.size()) continue;  // neighbours via the wrap
+            P at;
+            float f;
+            simple = !crossAt(ring[k], ring[(k + 1) % ring.size()], ring[m],
+                              ring[(m + 1) % ring.size()], &at, &f);
+        }
+    if (!simple) ring = hullOf(ring);
+    std::vector<float> out;
+    for (const P& q : ring) out.insert(out.end(), {q.x, q.z});
+    return out;
 }
 
 }  // namespace
+
+std::vector<Crossing> findNodes(const std::vector<CrossingRoad>& roads) {
+    const int n = (int)roads.size();
+    std::vector<Line> lines((size_t)n);
+    for (int i = 0; i < n; ++i)
+        if (roads[(size_t)i].points.size() >= 4) lines[(size_t)i] = lineOf(roads[(size_t)i].points);
+    auto halfW = [&](int i) { return 0.5f * std::max(0.1f, roads[(size_t)i].width); };
+    auto usable = [&](int i) { return lines[(size_t)i].p.size() >= 2; };
+
+    // 1. Contacts between pairs of roads.
+    struct Contact {
+        float x, z;
+        int a, b;
+    };
+    std::vector<Contact> contacts;
+    auto addContact = [&](int a, int b, float x, float z) {
+        const float merge = 0.5f * std::min(roads[(size_t)a].width, roads[(size_t)b].width);
+        for (const Contact& c : contacts)
+            if (std::min(c.a, c.b) == std::min(a, b) && std::max(c.a, c.b) == std::max(a, b) &&
+                std::hypot(c.x - x, c.z - z) < merge)
+                return;
+        contacts.push_back({x, z, a, b});
+    };
+    for (int a = 0; a < n; ++a)
+        for (int b = a + 1; b < n; ++b) {
+            if (!usable(a) || !usable(b)) continue;
+            const std::vector<P>& A = lines[(size_t)a].p;
+            const std::vector<P>& B = lines[(size_t)b].p;
+            // Centre lines crossing, at any angle.
+            for (size_t ai = 0; ai + 1 < A.size(); ++ai) {
+                const float adx = A[ai + 1].x - A[ai].x, adz = A[ai + 1].z - A[ai].z;
+                const float amnx = std::min(A[ai].x, A[ai + 1].x), amxx = std::max(A[ai].x, A[ai + 1].x);
+                const float amnz = std::min(A[ai].z, A[ai + 1].z), amxz = std::max(A[ai].z, A[ai + 1].z);
+                for (size_t bi = 0; bi + 1 < B.size(); ++bi) {
+                    if (std::max(B[bi].x, B[bi + 1].x) < amnx || std::min(B[bi].x, B[bi + 1].x) > amxx ||
+                        std::max(B[bi].z, B[bi + 1].z) < amnz || std::min(B[bi].z, B[bi + 1].z) > amxz)
+                        continue;
+                    const float bdx = B[bi + 1].x - B[bi].x, bdz = B[bi + 1].z - B[bi].z;
+                    const float den = adx * bdz - adz * bdx;
+                    if (std::fabs(den) < 1e-9f) continue;
+                    const float qx = B[bi].x - A[ai].x, qz = B[bi].z - A[ai].z;
+                    const float ta = (qx * bdz - qz * bdx) / den;
+                    const float tb = (qx * adz - qz * adx) / den;
+                    if (ta < -1e-4f || ta > 1.0001f || tb < -1e-4f || tb > 1.0001f) continue;
+                    addContact(a, b, A[ai].x + adx * ta, A[ai].z + adz * ta);
+                }
+            }
+        }
+    // Open ends resting on another road: a T, a fork, a corner.
+    for (int a = 0; a < n; ++a) {
+        if (!usable(a) || lines[(size_t)a].closed) continue;
+        for (const P& e : {lines[(size_t)a].p.front(), lines[(size_t)a].p.back()})
+            for (int b = 0; b < n; ++b) {
+                if (b == a || !usable(b)) continue;
+                float s = 0.0f;
+                if (projectOnto(lines[(size_t)b], e.x, e.z, &s) > halfW(b) + kNodeSnap) continue;
+                const P q = lineAt(lines[(size_t)b], s);
+                addContact(a, b, q.x, q.z);
+            }
+    }
+
+    // 2. Contacts close together are ONE node (three roads meeting make three
+    // pairwise contacts at one spot).
+    std::vector<int> parent(contacts.size());
+    for (size_t i = 0; i < parent.size(); ++i) parent[i] = (int)i;
+    std::function<int(int)> root = [&](int i) {
+        return parent[(size_t)i] == i ? i : parent[(size_t)i] = root(parent[(size_t)i]);
+    };
+    for (size_t i = 0; i < contacts.size(); ++i)
+        for (size_t j = i + 1; j < contacts.size(); ++j) {
+            const Contact& p = contacts[i];
+            const Contact& q = contacts[j];
+            const float r = std::max({halfW(p.a), halfW(p.b), halfW(q.a), halfW(q.b)}) + 0.5f;
+            if (std::hypot(p.x - q.x, p.z - q.z) < r) parent[(size_t)root((int)j)] = root((int)i);
+        }
+    struct Node {
+        float x = 0, z = 0;
+        int count = 0;
+        std::vector<int> roads;
+        std::vector<float> s;  // per road: arc length nearest the centre
+    };
+    std::vector<Node> nodes;
+    std::vector<int> nodeOf(contacts.size(), -1);
+    for (size_t i = 0; i < contacts.size(); ++i) {
+        const int r = root((int)i);
+        if (nodeOf[(size_t)r] < 0) {
+            nodeOf[(size_t)r] = (int)nodes.size();
+            nodes.emplace_back();
+        }
+        Node& nd = nodes[(size_t)nodeOf[(size_t)r]];
+        nd.x += contacts[i].x;
+        nd.z += contacts[i].z;
+        ++nd.count;
+        for (int rd : {contacts[i].a, contacts[i].b})
+            if (std::find(nd.roads.begin(), nd.roads.end(), rd) == nd.roads.end())
+                nd.roads.push_back(rd);
+    }
+    for (Node& nd : nodes) {
+        nd.x /= (float)nd.count;
+        nd.z /= (float)nd.count;
+        std::sort(nd.roads.begin(), nd.roads.end());
+        for (int rd : nd.roads) {
+            float s = 0.0f;
+            projectOnto(lines[(size_t)rd], nd.x, nd.z, &s);
+            nd.s.push_back(s);
+        }
+    }
+
+    // 3. Arms, outline.
+    std::vector<Crossing> out;
+    for (size_t ni = 0; ni < nodes.size(); ++ni) {
+        const Node& nd = nodes[ni];
+        std::vector<Arm> arms;
+        for (size_t k = 0; k < nd.roads.size(); ++k) {
+            const int rd = nd.roads[k];
+            const Line& l = lines[(size_t)rd];
+            const float s = nd.s[k], L = l.len();
+            float others = 0.0f;
+            for (int q : nd.roads)
+                if (q != rd) others = std::max(others, halfW(q));
+            const float endTol = others + 1.5f;
+            const P at = lineAt(l, s);
+            const float off = std::hypot(at.x - nd.x, at.z - nd.z);
+            const float look = std::max(2.0f, off * 2.0f);
+            // The gap to the nearest other node along this road, either way.
+            float fwdGap = l.closed ? 0.5f * L : L - s, backGap = l.closed ? 0.5f * L : s;
+            for (size_t nj = 0; nj < nodes.size(); ++nj) {
+                if (nj == ni) continue;
+                const Node& o = nodes[nj];
+                for (size_t m = 0; m < o.roads.size(); ++m) {
+                    if (o.roads[m] != rd) continue;
+                    float ds = o.s[m] - s;
+                    if (l.closed) {
+                        while (ds > 0.5f * L) ds -= L;
+                        while (ds < -0.5f * L) ds += L;
+                    }
+                    if (ds > 0.0f) fwdGap = std::min(fwdGap, 0.5f * ds);
+                    if (ds < 0.0f) backGap = std::min(backGap, -0.5f * ds);
+                }
+            }
+            auto addArm = [&](float dir, float limit) {
+                const P to = lineAt(l, s + dir * look);
+                float ux = to.x - nd.x, uz = to.z - nd.z;
+                const float ul = std::hypot(ux, uz);
+                if (!(ul > 1e-4f)) return;
+                Arm a;
+                a.road = rd;
+                a.ux = ux / ul;
+                a.uz = uz / ul;
+                a.h = halfW(rd);
+                a.limit = limit;
+                a.line = &l;
+                a.s = s;
+                a.dir = dir;
+                arms.push_back(a);
+            };
+            const bool fwd = l.closed || L - s > endTol;
+            const bool back = l.closed || s > endTol;
+            if (fwd) addArm(1.0f, fwdGap);
+            if (back) addArm(-1.0f, backGap);
+            // A short road wholly inside the node still leaves it one way.
+            if (!fwd && !back) addArm(L - s >= s ? 1.0f : -1.0f, std::max(L - s, s));
+        }
+        if (arms.size() < 2) continue;
+        // Two arms almost in line is a road continuing, not a junction.
+        if (arms.size() == 2 &&
+            arms[0].ux * arms[1].ux + arms[0].uz * arms[1].uz < -0.866f)
+            continue;
+        Crossing c;
+        c.roads = nd.roads;
+        c.a = nd.roads[0];
+        c.b = nd.roads.size() > 1 ? nd.roads[1] : nd.roads[0];
+        c.arms = (int)arms.size();
+        c.shape.x = nd.x;
+        c.shape.z = nd.z;
+        c.shape.outline = nodeOutline(nd.x, nd.z, arms);
+        if (c.shape.outline.size() < 6 || c.a == c.b) continue;
+        out.push_back(std::move(c));
+    }
+    return out;
+}
 
 CrossingPlan planCrossings(const std::vector<CrossingRoad>& roads,
                            const std::vector<JunctionOverride>& overrides,
@@ -824,28 +1539,15 @@ CrossingPlan planCrossings(const std::vector<CrossingRoad>& roads,
     const int n = (int)roads.size();
     auto usable = [&](int i) { return roads[(size_t)i].points.size() >= 4; };
 
-    // 1. Every crossing of every pair, in pair order (the order the codegen
-    // always emitted its patches in).
-    for (int a = 0; a < n; ++a)
-        for (int b = a + 1; b < n; ++b) {
-            if (!usable(a) || !usable(b)) continue;
-            std::vector<Junction> found;
-            findJunctions(roads[(size_t)a].points, roads[(size_t)a].width,
-                          roads[(size_t)b].points, roads[(size_t)b].width, found);
-            for (const Junction& j : found) {
-                Crossing c;
-                c.a = a;
-                c.b = b;
-                c.shape = j;
-                plan.crossings.push_back(c);
-            }
-        }
+    // 1. Every node: crossings, T's, forks and corners, one per place however
+    // many roads meet there (docs/roads.md "Road nodes").
+    plan.crossings = findNodes(roads);
 
-    // 2. Overrides -> crossings: the same pair, the nearest crossing within
+    // 2. Overrides -> crossings: a node holding both roads, the nearest within
     // the narrower road's width. Stored order decides ties; a crossing takes
     // at most one override.
     plan.overrideCrossing.assign(overrides.size(), -1);
-    std::vector<char> swapped(plan.crossings.size(), 0);
+    std::vector<int> overrideWinner(plan.crossings.size(), -1);
     auto roadIndex = [&](const std::string& id) {
         if (id.empty()) return -1;
         for (int i = 0; i < n; ++i)
@@ -859,13 +1561,12 @@ CrossingPlan planCrossings(const std::vector<CrossingRoad>& roads,
             ++plan.orphans;
             continue;
         }
-        const int lo = std::min(ia, ib), hi = std::max(ia, ib);
-        float best = std::max(1.0f, std::min(roads[(size_t)lo].width,
-                                             roads[(size_t)hi].width));
+        float best = std::max(1.0f, std::min(roads[(size_t)ia].width,
+                                             roads[(size_t)ib].width));
         int at = -1;
         for (size_t ci = 0; ci < plan.crossings.size(); ++ci) {
             const Crossing& c = plan.crossings[ci];
-            if (c.a != lo || c.b != hi || c.override >= 0) continue;
+            if (!c.has(ia) || !c.has(ib) || c.override >= 0) continue;
             const float d = std::hypot(c.shape.x - o.x, c.shape.z - o.z);
             if (d <= best) {
                 best = d;
@@ -877,58 +1578,66 @@ CrossingPlan planCrossings(const std::vector<CrossingRoad>& roads,
             continue;
         }
         plan.crossings[(size_t)at].override = (int)oi;
-        swapped[(size_t)at] = ia > ib;
+        if (o.winner == kWinnerRoadA) overrideWinner[(size_t)at] = ia;
+        if (o.winner == kWinnerRoadB) overrideWinner[(size_t)at] = ib;
         plan.overrideCrossing[oi] = at;
     }
 
-    // 3. What each crossing does.
+    // 3. What each crossing does. A node may hold more than two roads; the
+    // rules are the pair rules asked of all of them at once.
     for (size_t ci = 0; ci < plan.crossings.size(); ++ci) {
         Crossing& c = plan.crossings[ci];
-        const CrossingRoad& A = roads[(size_t)c.a];
-        const CrossingRoad& B = roads[(size_t)c.b];
         int winner = kWinnerAuto;
         std::string material;
         float grip = 0.0f;
         if (c.override >= 0) {
             const JunctionOverride& o = overrides[(size_t)c.override];
             winner = o.winner;
-            if (swapped[ci] && winner == kWinnerRoadA)
-                winner = kWinnerRoadB;
-            else if (swapped[ci] && winner == kWinnerRoadB)
-                winner = kWinnerRoadA;
             material = o.material;
             grip = o.grip;
             // A material alone asks for a patch.
             if (winner == kWinnerAuto && !material.empty()) winner = kWinnerPatch;
         }
-        const float liftA = rankLift(A.rank), liftB = rankLift(B.rank);
+        bool sameRank = true, sameMaterial = true;
+        int top = c.roads[0];
+        float minGrip = 1e30f, maxLift = -1e30f;
+        std::string anyMaterial;
+        for (int ri : c.roads) {
+            const CrossingRoad& R = roads[(size_t)ri];
+            sameRank &= R.rank == roads[(size_t)c.roads[0]].rank;
+            sameMaterial &= !R.intersection.empty() &&
+                            R.intersection == roads[(size_t)c.roads[0]].intersection;
+            if (R.rank > roads[(size_t)top].rank) top = ri;
+            minGrip = std::min(minGrip, R.grip);
+            maxLift = std::max(maxLift, rankLift(R.rank));
+            if (anyMaterial.empty()) anyMaterial = R.intersection;
+        }
         if (winner == kWinnerAuto) {
-            if (A.rank == B.rank) {
-                if (!A.intersection.empty() && A.intersection == B.intersection) {
+            if (sameRank) {
+                if (sameMaterial) {
                     c.kind = kCrossPatch;
-                    c.material = A.intersection;
-                    c.grip = std::min(A.grip, B.grip);
-                    c.lift = liftA;
+                    c.material = roads[(size_t)c.roads[0]].intersection;
+                    c.grip = minGrip;
+                    c.lift = maxLift;
                 }
             } else {
                 c.kind = kCrossThrough;
-                c.winner = A.rank > B.rank ? c.a : c.b;
+                c.winner = top;
             }
         } else if (winner == kWinnerPatch) {
             c.kind = kCrossPatch;
-            c.material = !material.empty()       ? material
-                         : !A.intersection.empty() ? A.intersection
-                                                   : B.intersection;
-            c.grip = grip > 0.0f ? grip : std::min(A.grip, B.grip);
-            c.lift = std::max(liftA, liftB);
+            c.material = !material.empty() ? material : anyMaterial;
+            c.grip = grip > 0.0f ? grip : minGrip;
+            c.lift = maxLift;
         } else {
             c.kind = kCrossThrough;
-            c.winner = winner == kWinnerRoadA ? c.a : c.b;
-            const int loser = c.winner == c.a ? c.b : c.a;
+            c.winner = overrideWinner[ci] >= 0 ? overrideWinner[ci] : c.a;
+            int loserRank = -1000;
+            for (int ri : c.roads)
+                if (ri != c.winner) loserRank = std::max(loserRank, roads[(size_t)ri].rank);
             // A winner the rank lift already puts on top needs nothing drawn,
             // unless the crossing's grip is overridden (the overlay carries it).
-            c.overlay = roads[(size_t)c.winner].rank <= roads[(size_t)loser].rank ||
-                        grip > 0.0f;
+            c.overlay = roads[(size_t)c.winner].rank <= loserRank || grip > 0.0f;
             c.overlayGrip = grip > 0.0f ? grip : roads[(size_t)c.winner].grip;
         }
         if (c.kind == kCrossPatch)
@@ -943,12 +1652,11 @@ CrossingPlan planCrossings(const std::vector<CrossingRoad>& roads,
 
     // The crossing of pair (p, q) a triangle centred at (x, z) belongs to.
     auto crossingAt = [&](int p, int q, float x, float z) {
-        const int lo = std::min(p, q), hi = std::max(p, q);
         int best = -1;
         float bestD = 1e30f;
         for (size_t ci = 0; ci < plan.crossings.size(); ++ci) {
             const Crossing& c = plan.crossings[ci];
-            if (c.a != lo || c.b != hi) continue;
+            if (!c.has(p) || !c.has(q)) continue;
             const float d = std::hypot(c.shape.x - x, c.shape.z - z);
             if (d < crossingReach(c, roads) && d < bestD) {
                 bestD = d;
@@ -965,26 +1673,29 @@ CrossingPlan planCrossings(const std::vector<CrossingRoad>& roads,
     for (size_t ci = 0; ci < plan.crossings.size(); ++ci) {
         const Crossing& c = plan.crossings[ci];
         if (c.kind != kCrossThrough || !c.overlay) continue;
-        const int w = c.winner, l = c.winner == c.a ? c.b : c.a;
-        const CrossingRoad& W = roads[(size_t)w];
-        const CrossingRoad& L = roads[(size_t)l];
-        std::vector<SpillVertex> sv;
-        tessellateSpill(W.points, W.width, W.sampleStep, L.points, L.width,
-                        std::numeric_limits<float>::infinity(), sv, W.edgeFade);
-        CrossingDecal d;
-        d.road = w;
-        d.under = l;
-        d.overlay = true;
-        d.grip = c.overlayGrip;
-        d.baseGrip = L.grip;
-        d.hostLift = std::max(rankLift(W.rank), rankLift(L.rank)) + kSpillLift;
-        for (size_t t = 0; t + 2 < sv.size(); t += 3) {
-            const float cx = (sv[t].x + sv[t + 1].x + sv[t + 2].x) / 3.0f;
-            const float cz = (sv[t].z + sv[t + 1].z + sv[t + 2].z) / 3.0f;
-            if (crossingAt(w, l, cx, cz) != (int)ci) continue;
-            d.verts.insert(d.verts.end(), sv.begin() + (long)t, sv.begin() + (long)t + 3);
+        const int w = c.winner;
+        for (int l : c.roads) {
+            if (l == w) continue;
+            const CrossingRoad& W = roads[(size_t)w];
+            const CrossingRoad& L = roads[(size_t)l];
+            std::vector<SpillVertex> sv;
+            tessellateSpill(W.points, W.width, W.sampleStep, L.points, L.width,
+                            std::numeric_limits<float>::infinity(), sv, W.edgeFade);
+            CrossingDecal d;
+            d.road = w;
+            d.under = l;
+            d.overlay = true;
+            d.grip = c.overlayGrip;
+            d.baseGrip = L.grip;
+            d.hostLift = std::max(rankLift(W.rank), rankLift(L.rank)) + kSpillLift;
+            for (size_t t = 0; t + 2 < sv.size(); t += 3) {
+                const float cx = (sv[t].x + sv[t + 1].x + sv[t + 2].x) / 3.0f;
+                const float cz = (sv[t].z + sv[t + 1].z + sv[t + 2].z) / 3.0f;
+                if (crossingAt(w, l, cx, cz) != (int)ci) continue;
+                d.verts.insert(d.verts.end(), sv.begin() + (long)t, sv.begin() + (long)t + 3);
+            }
+            if (!d.verts.empty()) plan.decals.push_back(std::move(d));
         }
-        if (!d.verts.empty()) plan.decals.push_back(std::move(d));
     }
 
     // 4b. SPILLS, in the (low, high) order the codegen always used. The rank
@@ -1000,7 +1711,7 @@ CrossingPlan planCrossings(const std::vector<CrossingRoad>& roads,
             bool needed = rankDir;
             for (const Crossing& c : plan.crossings)
                 if (c.override >= 0 && c.kind == kCrossThrough && c.winner == hi &&
-                    (c.a == li || c.b == li))
+                    c.has(li))
                     needed = true;
             if (!needed) continue;
             std::vector<SpillVertex> sv;
@@ -1045,7 +1756,8 @@ CrossingPlan planCrossings(const std::vector<CrossingRoad>& roads,
 }
 
 void addCrossingsToSurface(Surface& s, const std::vector<CrossingRoad>& roads,
-                           const CrossingPlan& plan, const HeightFn& terrain) {
+                           const CrossingPlan& plan, const HeightFn& terrain,
+                           const TerrainGrid& grid) {
     std::vector<Vertex> roadTriangles;
     for (const CrossingRoad& r : roads) {
         std::vector<Vertex> mesh;
@@ -1057,7 +1769,7 @@ void addCrossingsToSurface(Surface& s, const std::vector<CrossingRoad>& roads,
     for (const Crossing& c : plan.crossings) {
         if (c.kind != kCrossPatch || c.patchDuplicate) continue;
         std::vector<Vertex> tris;
-        tessellateJunctionSurface(c.shape, roadTriangles, terrain, c.lift, tris);
+        tessellateJunctionSurface(c.shape, roadTriangles, terrain, c.lift, tris, grid);
         s.add(tris, c.grip);
     }
     for (const CrossingDecal& d : plan.decals) {

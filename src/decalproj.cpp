@@ -361,7 +361,9 @@ std::shared_ptr<const std::vector<Tri>> roadTris(
         for (const roadgen::Crossing& c : plan.crossings) {
             if (c.kind != roadgen::kCrossPatch || c.patchDuplicate) continue;
             std::vector<roadgen::Vertex> patch;
-            roadgen::tessellateJunctionSurface(c.shape, all, ground, c.lift, patch);
+            roadgen::tessellateJunctionSurface(
+                c.shape, all, ground, c.lift, patch,
+                grid ? roadgen::terrainGridOf(s.hmW, s.hmD, w, d) : roadgen::TerrainGrid{});
             for (size_t i = 0; i + 2 < patch.size(); i += 3)
                 push(patch[i], patch[i + 1], patch[i + 2]);
         }

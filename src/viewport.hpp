@@ -172,6 +172,9 @@ public:
     // terrain REMOVED (TerrainConfig::enabled false) - callers that must not
     // treat that as a floor ask the model, not this (App::placementHeight).
     float terrainHeight(float x, float z) const;
+    // The render grid terrainHeight samples (unknown when there is no terrain):
+    // road node patches are cut along it (roadgen::tessellateJunctionSurface).
+    roadgen::TerrainGrid terrainGrid() const;
     // The painted layers' tyre grip at (x, z) (1.142.0): the layers composited
     // bottom-up by their weights on the drawn triangles, the generated
     // TerrainGame::terrainGripAt's twin. `grips` is one value per layer.

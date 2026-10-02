@@ -1939,6 +1939,11 @@ float Viewport::terrainHeight(float x, float z) const {
            (1.0f - fx) * (h(ix, iz + 1) - h(ix + 1, iz + 1));
 }
 
+roadgen::TerrainGrid Viewport::terrainGrid() const {
+    if (hmW_ < 2 || hmD_ < 2 || !terrain_.enabled) return {};
+    return roadgen::terrainGridOf(hmW_, hmD_, (float)terrain_.width, (float)terrain_.depth);
+}
+
 float Viewport::terrainLayerGrip(float x, float z,
                                  const std::vector<float>& grips) const {
     const int layerN = (int)grips.size();
@@ -4256,7 +4261,8 @@ void Viewport::syncRoadDraws(const std::vector<SceneObject>& objects) {
         const SceneObject& a = objects[(size_t)objIdx[(size_t)c.a]];
         std::vector<roadgen::Vertex> triangles;
         roadgen::tessellateJunctionSurface(c.shape, roadTriangles,
-            [&](float x, float z) { return terrainHeight(x, z); }, c.lift, triangles);
+            [&](float x, float z) { return terrainHeight(x, z); }, c.lift, triangles,
+            terrainGrid());
         std::vector<float> iv;
         for (const roadgen::Vertex& v : triangles)
             iv.insert(iv.end(), {v.x, v.y, v.z, 1.0f, 1.0f, 1.0f, v.u, v.v});

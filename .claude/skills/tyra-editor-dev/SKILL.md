@@ -2966,13 +2966,21 @@ Automatic road intersections are host decisions too. The Properties picker
 stores a material path in the legacy-named `roadTexture` /
 `roadIntersectionTexture` fields; `project::resolveRoadTexture` resolves the
 first `map_Kd`, while direct PNG values remain a backwards-compatible path.
-Two crossing roads' authored intersection references must match;
-`roadgen::findJunctions` samples the same Catmull-Rom centre line, codegen
-uses the centre plus four strip-overlap corners as the footprint. Since
-1.151.2, `roadgen::tessellateJunctionSurface` fits an adaptive, conforming mesh
+Every road at a node must name the same intersection reference. Since
+1.170.0 the footprint is a NODE (`roadgen::findNodes`, docs/roads.md "Road
+nodes"): crossings at any angle, open ends resting on another road (T, fork)
+and shared ends (corners) are clustered into one node per place, with a
+filleted outline whose arm edges follow the road curves; `Crossing::roads`
+lists every road there and `c.a`/`c.b` are only its first two, so a new
+consumer asks `c.has(road)` instead of comparing a pair. `findJunctions` and
+`cornerXZ` remain only for the oracle's legacy cases. Since 1.151.2,
+`roadgen::tessellateJunctionSurface` fits an adaptive, conforming mesh
 against actual road triangles and proves 0.02-unit clearance at triangle
-intersection corners. Codegen bakes XYZUV in `ROAD_JUNCTION_VERTS`; `buildRoads`
-only uploads it. Flat patches retain four triangles. Use the rendered terrain
+intersection corners; since 1.170.0 it also proves clearance over the
+terrain's own triangles and, where a fan cannot follow the ground, cuts the
+outline along the terrain grid - so pass the scene's `roadgen::TerrainGrid`
+(`terrainGridOf`, `Viewport::terrainGrid`) or it falls back to 2-unit cells.
+Codegen bakes XYZUV in `ROAD_JUNCTION_VERTS`; `buildRoads` only uploads it. Use the rendered terrain
 triangle sampler (`roadgen::terrainHeight`) when generating the source roads,
 not `project::heightAtWorld`'s bilinear interpolation. Keep the viewport,
 test drive and generated data on that shared host result; never move road

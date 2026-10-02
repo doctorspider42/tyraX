@@ -3893,9 +3893,21 @@ collision fields remain identical.
 
 For automatic road junctions, cross two roads with the same intersection
 texture, one road with no value and one pair with different values. The first
-pair alone must produce a `ROAD_JUNCTIONS` row, with 12 vertices / four triangles
-on flat ground. Since 1.151.2, uneven junctions refine conformingly on the host
-(up to 256 triangles), then ship baked XYZUV in `ROAD_JUNCTION_VERTS`.
+pair alone must produce a `ROAD_JUNCTIONS` row (since 1.170.0 a flat four-way
+node is ~90 vertices: its fillets). Uneven junctions refine conformingly on the
+host or are cut along the terrain grid (capped at 3 600 vertices, uploaded in
+1 800-vertex chunks), then ship baked XYZUV in `ROAD_JUNCTION_VERTS`.
+**Road nodes** (T, fork, many-armed, corner) have three cheap gates before any
+boot: `--vehicle-check` "road nodes"; `--road-crossings <dir>`, which now prints
+every road at a node, its arm count and its outline point count (an outline of
+4-6 points on a node with fillets is the convex-hull fallback - a folded ring);
+and a host harness over `roadgen.cpp` alone (link it `-static` from Git Bash)
+that rasterises `Crossing::shape.outline` over the road triangles to a PNG -
+the picture is what found the wrapped arcs (holes), the straight arms on bends
+and the negative-fillet slip road, none of which any count showed. In PCSX2,
+park a frozen camera high over a scratch project with every node kind, on flat
+ground AND on rolling hills (write `terrain-<scene>.heights` yourself: `n n`
+then n*n heights, n = terrainDetail + 1), and `--capture-frame`.
 The viewport and PCSX2 patch must match. `verify-road-twins.py` also exercises
 terrain folds and both Market endpoints, proves the old fan regression is
 triggered, sweeps clearance and checks nonempty runtime junction uploads. Move one spline
