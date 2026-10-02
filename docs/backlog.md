@@ -418,8 +418,12 @@ recovered 0.50-0.72 ms of hardware `work`. What it did not do, ranked:
   wall stays around 33.36 ms while work consumes pacing headroom. Compiled-out
   physical comparison now passes 15,400 frames: runtime-off work is
   0.887–0.966 ms higher at matching offsets. This includes code layout, held ring
-  and separate boot order; it is not isolated hook cost. Alternating boot repeats
-  and a fresh coarse Scene fixture remain required;
+  and separate boot order; it is not isolated hook cost. The identical
+  instrumented return completes another 15,400 frames: matching controls remain
+  0.916–0.931 ms above compiled-out, with 0.004–0.036 ms instrumented control
+  spread. This brackets a repeatable combined difference, not the ring/hook
+  split. Next isolate pre-asset ring reservation using the same ELF, then refresh
+  coarse Scene coverage and run broader repeated controls;
   seven warm samples per arm in a single boot are exploratory only. No constant
   overhead correction, VU/GS utilization or EE arithmetic-only cost is inferred.
 - **Night light-effect cost after TyraX2 — measured, optimization open.**

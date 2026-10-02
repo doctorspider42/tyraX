@@ -1,7 +1,7 @@
 {
   "date": "2026-10-02",
   "version": "1.170.0",
-  "status": "Instrumented and compiled-out physical runs pass; alternating boot repeats and refreshed coarse Scene calibration pending",
+  "status": "Physical instrumented/compiled-out/identical-instrumented bracket passes; combined configuration difference repeats; ring-only isolation pending",
   "production_renderer_behavior_changed": false,
   "trace_default_compiled": 1,
   "runtime_default": "unarmed",
@@ -254,7 +254,146 @@
       "4": 0.9262608119419653,
       "6": 0.9662979368179556
     },
-    "compiled_out_comparison_interpretation": "Combined configuration difference: code layout, held32768event ring versus no ring, independent boot order and inactive hooks. Not isolated dispatch overhead. One boot per ELF; require alternating repeats."
+    "compiled_out_comparison_interpretation": "Combined configuration difference: code layout, held32768event ring versus no ring, independent boot order and inactive hooks. Not isolated dispatch overhead. One boot per ELF; require alternating repeats.",
+    "identical_instrumented_repeat": {
+      "complete_frames": 15400,
+      "valid_samples": 56,
+      "accepted_samples": 49,
+      "same_elf_sha256": "ce3d0be2801bcc0580eadac8a6412ce9aaa3fc324e435cba1162734fc605b014",
+      "work_means_ms": [
+        17.72473628937252,
+        17.95798795185392,
+        17.73127625480531,
+        20.923963274274556,
+        17.77097623310392,
+        21.478519984654017,
+        17.762373182508682
+      ],
+      "engine_wall_means_ms": [
+        33.36908201187376,
+        33.375174386160715,
+        33.363680884951634,
+        33.367655436197914,
+        33.3663334922185,
+        33.367688375806054,
+        33.36262003580729
+      ],
+      "comparisons": {
+        "1": {
+          "engineTicks": {
+            "deltaBeforeMs": 0.006092374286957636,
+            "deltaAfterMs": 0.011493501209081103,
+            "controlSpreadMs": 0.005401126922123467
+          },
+          "loopTicks": {
+            "deltaBeforeMs": 0.004671611483132665,
+            "deltaAfterMs": 0.0048353407118071345,
+            "controlSpreadMs": 0.0001637292286744696
+          },
+          "renderTicks": {
+            "deltaBeforeMs": -0.008317735460071418,
+            "deltaAfterMs": -0.00857834588913775,
+            "controlSpreadMs": 0.00026061042906633247
+          },
+          "workTicks": {
+            "deltaBeforeMs": 0.2332516624814005,
+            "deltaAfterMs": 0.22671169704861072,
+            "controlSpreadMs": 0.006539965432789785
+          }
+        },
+        "3": {
+          "engineTicks": {
+            "deltaBeforeMs": 0.0039745512462801,
+            "deltaAfterMs": 0.0013219439794127652,
+            "controlSpreadMs": 0.002652607266867335
+          },
+          "loopTicks": {
+            "deltaBeforeMs": -0.002834743923614269,
+            "deltaAfterMs": -0.010200621589781633,
+            "controlSpreadMs": 0.007365877666167364
+          },
+          "renderTicks": {
+            "deltaBeforeMs": 0.14351302858382908,
+            "deltaAfterMs": -0.028551858568949484,
+            "controlSpreadMs": 0.17206488715277857
+          },
+          "workTicks": {
+            "deltaBeforeMs": 3.192687019469247,
+            "deltaAfterMs": 3.152987041170636,
+            "controlSpreadMs": 0.039699978298610716
+          }
+        },
+        "5": {
+          "engineTicks": {
+            "deltaBeforeMs": 0.0013548835875525356,
+            "deltaAfterMs": 0.00506833999876477,
+            "controlSpreadMs": 0.003713456411212235
+          },
+          "loopTicks": {
+            "deltaBeforeMs": -0.008081829737101032,
+            "deltaAfterMs": 0.00032745845734183376,
+            "controlSpreadMs": 0.008409288194442865
+          },
+          "renderTicks": {
+            "deltaBeforeMs": -0.027851407490079083,
+            "deltaAfterMs": 0.14098055400545917,
+            "controlSpreadMs": 0.16883196149553825
+          },
+          "workTicks": {
+            "deltaBeforeMs": 3.707543751550098,
+            "deltaAfterMs": 3.716146802145335,
+            "controlSpreadMs": 0.00860305059523725
+          }
+        }
+      },
+      "captures": [
+        {
+          "arm": "Coarse",
+          "frames": 8,
+          "events": 104,
+          "dropped": 0,
+          "invalid": 0,
+          "ambiguous": 0,
+          "strict_export": "PASS"
+        },
+        {
+          "arm": "Detailed",
+          "frames": 8,
+          "events": 19688,
+          "dropped": 0,
+          "invalid": 0,
+          "ambiguous": 0,
+          "strict_export": "PASS"
+        },
+        {
+          "arm": "DetailedWithStates",
+          "frames": 8,
+          "events": 23064,
+          "dropped": 0,
+          "invalid": 0,
+          "ambiguous": 0,
+          "strict_export": "PASS"
+        }
+      ]
+    },
+    "physical_boot_order": [
+      "instrumented",
+      "compiled_out",
+      "identical_instrumented"
+    ],
+    "repeat_runtime_off_minus_compiled_out_work_ms": {
+      "0": 0.9285050649491566,
+      "2": 0.9159342447916679,
+      "4": 0.9221327039930571,
+      "6": 0.9305255223834337
+    },
+    "same_instrumented_control_spread_work_ms": {
+      "0": 0.02715967571924338,
+      "2": 0.029036264570933668,
+      "4": 0.004128107948908166,
+      "6": 0.03577241443452195
+    },
+    "bracket_interpretation": "Combined configuration gap remains positive against both identical instrumented boots, exceeding same-ELF control spread. No isolation of ring/asset layout versus code/hooks; one middle compiled-out boot. Broad repeated observer acceptance remains open."
   },
   "limitations": [
     "Seven accepted warm samples per arm in one boot are exploratory; repeated matched runs are required.",
@@ -278,7 +417,12 @@
     "timeline-v2-compiled-out-physical.elf": "4c8abd8ff53ec38092a8758e0562b7f049af1ff9873b9b2dddcb58fc67e2e5ec",
     "tyrax2-timeline-calibration-v2-off-physical-evidence/machine-evidence.json": "b07b13a9809881f699b60cd17dd331103acda69c916d56d301ac0784c6fec92c",
     "hardware-timeline-attribution/attribution.json": "a3bd6f3ffe1034fd09d61c76dc4e2f7f962a991d074a05a633b0cfcead7f2eb1",
-    "tyrax2-timeline-calibration-v2-off-physical-evidence/compiled-config-comparison.json": "7bcad1e26749302a3ff431329a631179c258cbdc6733abbe564fd545cae969f4"
+    "tyrax2-timeline-calibration-v2-off-physical-evidence/compiled-config-comparison.json": "7bcad1e26749302a3ff431329a631179c258cbdc6733abbe564fd545cae969f4",
+    "timeline-v2-calibration-repeat-physical-root-snapshot.log": "c0a67d1d825035a48d9e67a8d4646cd3460ed4195257c5fed0acff66785540bd",
+    "timeline-v2-calibration-repeat-physical-root-analysis.json": "62d74e8e3d9210a0e74a4c4307779be93e2faff0db1a77a95ac66ddef1edc1e6",
+    "timeline-v2-calibration-repeat-physical.elf": "ce3d0be2801bcc0580eadac8a6412ce9aaa3fc324e435cba1162734fc605b014",
+    "tyrax2-timeline-calibration-v2-on-repeat-physical-evidence/machine-evidence.json": "4bb00a97c660f7f4870c2959346bc85688a93e30c5606bd13de11d30e9791b60",
+    "tyrax2-timeline-calibration-v2-on-repeat-physical-evidence/compiled-config-bracket.json": "f48fec8b71be87255dfad39fd392218b954a74fb31eab41360dfe9df3db3c03b"
   },
   "attribution": "Instrumented detailed exclusive residuals locate bag preparation, scene assembly, dispatch, bounds and repeated snapshot work; not a production cost bill."
 }

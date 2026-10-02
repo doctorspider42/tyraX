@@ -87,6 +87,18 @@ hooks, code layout, a retained 32,768-event ring versus no ring, and independent
 boot order. It does not isolate the cost of flag checks. Alternating boot
 repeats remain required before assigning a stable configuration cost.
 
+An identical instrumented-ELF repeat completes another 15,400 frames and passes
+all raw controls and three strict captures (104/19,688/23,064 events, no drops or
+invalid entries). In Instrumented/Compiled-out/Identical-instrumented boot order,
+matching runtime-off work is 0.901345/0.886898/0.926261/0.966298 ms above the middle
+boot in the first run and 0.928505/0.915934/0.922133/0.930526 ms above it in the
+repeat. The two instrumented control means differ by only 0.004128–0.035772 ms.
+This supports a repeatable combined configuration difference, not an isolated
+inactive-hook bill. The middle compiled-out boot is still single; the retained
+ring is allocated before scene assets and can change their memory placement.
+Next isolate ring reservation using the same ELF and separate boot configuration,
+with capture disabled in every arm and matching independent sample windows.
+
 The immutable calibration fixture still has the older generated `Scene` scope,
 which is detail-only. Its coarse renderer work therefore remains under `Game`;
 this is a coverage limit of that ELF, not evidence that the remainder is scalar
