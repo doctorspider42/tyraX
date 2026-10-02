@@ -1,0 +1,113 @@
+{
+  "date": "2026-10-02",
+  "version": "1.169.2",
+  "change": "Preserve legal SetDisplayMode4; clamp outside0..4; no format change.",
+  "codegen": [
+    {
+      "template": "fpp",
+      "requests": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        0,
+        4,
+        4
+      ],
+      "timeout_s": 2,
+      "generated_flow_sha256": "4edbd002bfc113c9c91b661640f09593bda94ee96efcf7258749dab05b501cdd",
+      "graph_input_sha256": "fe060c7c65661c545606255a94163dfcd2093fd2a9ad452a7ac2e51955d5559f"
+    },
+    {
+      "template": "orbit",
+      "requests": [
+        0,
+        1,
+        2,
+        3,
+        4,
+        0,
+        4,
+        4
+      ],
+      "timeout_s": 2,
+      "generated_flow_sha256": "4edbd002bfc113c9c91b661640f09593bda94ee96efcf7258749dab05b501cdd",
+      "graph_input_sha256": "fe060c7c65661c545606255a94163dfcd2093fd2a9ad452a7ac2e51955d5559f"
+    }
+  ],
+  "runtime_observer": {
+    "fpp": {
+      "runtime_header_sha256": "8ffa614c597e89ffd326bcc6cefd9fefe991290e1fa70561f718592dc246c788",
+      "note": "Scratch read-only actual settings observation after existing apply/revert; no new waits, original flow-generated mode4 and timeout2 retained."
+    },
+    "orbit": {
+      "runtime_header_sha256": "8ffa614c597e89ffd326bcc6cefd9fefe991290e1fa70561f718592dc246c788",
+      "note": "Scratch read-only actual settings observation after existing apply/revert; no new waits, original flow-generated mode4 and timeout2 retained."
+    }
+  },
+  "emulator": [
+    {
+      "template": "orbit",
+      "markers": [
+        "PALFLOW_APPLIED mode=4 hz=50.0 pipelineRequested=1",
+        "PALFLOW_REVERT mode=0 hz=50.0 pipelineRequested=1"
+      ],
+      "log": {
+        "path": "F:\\Projects\\tyrax2-lab-20261001\\pal-flow-orbit-emulator-repeat\\emulog.txt",
+        "sha256": "d163d95d602a2fdb096ce2bf33ee06aa5bedd655ceef4c0d7c0503491dce0e27",
+        "bytes": 46963
+      },
+      "native_build": {
+        "path": "F:\\Projects\\tyrax2-lab-20261001\\pal-flow-orbit-repeat-build.log",
+        "sha256": "41cdd87116bec1e203ad03d820a574615194652c91179217d81f19f9a782af65",
+        "bytes": 8652
+      },
+      "elf": {
+        "path": "F:\\Projects\\tyrax2-lab-20261001\\pal-flow-tests\\orbit\\bin\\video-modes.elf",
+        "sha256": "b2831dd58f0ce1e4f6495d57aa9da267575e154ea1de2ff97a10c22911ecc4af",
+        "bytes": 3533796
+      },
+      "capture_report": {
+        "path": "F:\\Projects\\tyrax2-lab-20261001\\pal-flow-orbit-emulator-repeat\\report.txt",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    },
+    {
+      "template": "fpp",
+      "markers": [
+        "PALFLOW_APPLIED mode=4 hz=50.0 pipelineRequested=1",
+        "PALFLOW_REVERT mode=0 hz=50.0 pipelineRequested=1"
+      ],
+      "log": {
+        "path": "F:\\Projects\\tyrax2-lab-20261001\\pal-flow-fpp-emulator-final\\emulog.txt",
+        "sha256": "1d7d0917e0289bf21de9d81c5f302f7e63fa847d62d4c752e972a994456735e1",
+        "bytes": 46840
+      },
+      "native_build": {
+        "path": "F:\\Projects\\tyrax2-lab-20261001\\pal-flow-fpp-repeat-build.log",
+        "sha256": "e5d5b727d3281fd57ea8b652020c565e599d18038080658af25588509935193b",
+        "bytes": 8636
+      },
+      "elf": {
+        "path": "F:\\Projects\\tyrax2-lab-20261001\\pal-flow-tests\\fpp\\bin\\video-modes.elf",
+        "sha256": "89b788e0b7c55f3b42e7f226f5745e99bea819f4b95243760223cd3a5869c000",
+        "bytes": 3537156
+      },
+      "capture_report": {
+        "path": "F:\\Projects\\tyrax2-lab-20261001\\pal-flow-fpp-emulator-final\\report.txt",
+        "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+      }
+    }
+  ],
+  "limitations": [
+    "Runtime markers verify actual PAL4 selection and timed rollback, not hardware video/pixels or input latency.",
+    "Savestate capture unavailable in both PAL runs; no screenshot/pixel acceptance claimed.",
+    "Earlier scratch fixtures did not dispatch mode4; failed fixtures excluded. Slot28753 used nonexistent ELF and was cancelled; final FPP uses28754."
+  ],
+  "editor_build": {
+    "path": "F:\\Projects\\tyrax2-lab-20261001\\pal-flow-final-editor-build.log",
+    "sha256": "f0b7ab4f8a26942142ee346ef050bd0072a178b55a84e6d2e4e1a8cd0ddcefa7",
+    "result": "PASS Dev Windows editor with embedded docs/AI guides"
+  }
+}

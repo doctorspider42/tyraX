@@ -4291,3 +4291,10 @@ so pristine/compiled-out controls remain separate. Never add snapshot children
 to their parent or claim VU utilization. Existing object-cost export inserts
 per-object batch fences; some STAPIP_ATTRIB counters ignore runtime telemetry.
 Use ordinary batching for the next exclusive scalar-math census.
+
+Exclusive ordinary-batching math census: docs/tyrax2-ee-math-2026-10-02.json
+records 6,600 physical/emulator frames, seven scoped paths and same-ELF gate
+controls. Clip transform8 is 0.377 ms with 11 duplicate guard-fallback calls/frame;
+light pick is 0.457 ms with 912 candidates. Counter/clock overhead and VU0 macro
+helpers are included; no micro-mode utilization or production gain follows.
+Gate per-render reuse/classification and exact light-selection ordering first.

@@ -1,0 +1,1565 @@
+{
+  "fixture": {
+    "phases": [
+      "compiled-on runtime gate off before",
+      "EE math census enabled",
+      "compiled-on runtime gate off restored"
+    ],
+    "frames_per_phase": 2200,
+    "warm_work_start_offset": 1100,
+    "work_sample_count": 512,
+    "bucket_names": [
+      "transform6",
+      "coarse6",
+      "transform8",
+      "sphere",
+      "pick",
+      "buildspot",
+      "influence"
+    ],
+    "counter_names": [
+      "render",
+      "reusehit",
+      "reusemiss",
+      "planehit",
+      "planemiss",
+      "guard",
+      "promote",
+      "duplicate",
+      "candidates",
+      "enabled",
+      "disabled"
+    ],
+    "note": "Seven mutually exclusive child brackets in these call paths, no per-plane clocks or changed batching. Gate-off is not a pristine/compiled-out control; scope times include observer counters. Source uses original arithmetic and early returns.",
+    "artifacts": {
+      "tyra\\engine\\inc\\debug\\ee_math_census.hpp": "90e1477e7cb786da07224736d196f7a5c702da599ac8a2383553b552ce9f401b",
+      "tyra\\engine\\src\\debug\\ee_math_census.cpp": "00681df7412ea4955e93d5069ab28c6e2bfebef2519813db9ff2e94cebc4ca1b",
+      "game\\src\\terrain_game.cpp": "08dc0cc805678b68d5f1684244da186c2d565f08fcf895a2627b10be1530c9b3",
+      "game\\src\\gen\\game_collision.gen.cpp": "7c4752e0bd064c97e3ca889321be534e0a703018296e611fa714ae9722ef3711",
+      "tyra\\engine\\src\\renderer\\3d\\pipeline\\static\\core\\stapip_core.cpp": "7a137d66d31fe1426bb626e97c1ac86df41502f60be1e11c82f3d6d447263abf",
+      "tyra\\engine\\src\\renderer\\3d\\pipeline\\static\\core\\stapip_qbuffer_renderer.cpp": "13545b14654b5706c541a64b3247214b6d9397bf375026fe008dec6a524eb157",
+      "tyra\\engine\\src\\renderer\\core\\renderer_core.cpp": "62fd29b308495917e04ba7e6a8651ed9686ea94a98b70db90fd1f00ba58da3e9"
+    }
+  },
+  "log": "F:\\Projects\\tyrax2-lab-20261001\\ee-math-trial-physical-snapshot.log",
+  "log_sha256": "610cd57a77cc178e5eed7c41042a95110ace186ec5f4e2bcf61c4217d0fab2b8",
+  "elf_sha256": "70423b8333f8970bf3422291a45b3bb28b30973b3fcc3ed612bbcdd8e18e8e71",
+  "results": [
+    {
+      "log": "F:\\Projects\\tyrax2-lab-20261001\\ee-math-trial-physical-snapshot.log",
+      "first": 1100,
+      "frames": 512,
+      "hz": 60,
+      "budget_ms": 16.666666666666668,
+      "mean_ms": 18.231584197945065,
+      "median_ms": 18.24200439453125,
+      "p95_ms": 18.875074598524307,
+      "max_ms": 20.36248101128472,
+      "over_budget": 512,
+      "note": "Renderer critical-path work excluding presentation pacing; not full period or delivered FPS.",
+      "phase": 0,
+      "name": "compiled-on runtime gate off before",
+      "windows": {
+        "FRAMETIME": [
+          {
+            "frame": 1100,
+            "period": 33.7,
+            "pre": 1.67,
+            "stall": 13.61
+          },
+          {
+            "frame": 1150,
+            "period": 33.37,
+            "pre": 1.6,
+            "stall": 13.45
+          },
+          {
+            "frame": 1200,
+            "period": 33.37,
+            "pre": 1.59,
+            "stall": 13.51
+          },
+          {
+            "frame": 1250,
+            "period": 33.37,
+            "pre": 1.66,
+            "stall": 13.27
+          },
+          {
+            "frame": 1300,
+            "period": 33.37,
+            "pre": 1.59,
+            "stall": 13.2
+          },
+          {
+            "frame": 1350,
+            "period": 33.37,
+            "pre": 1.65,
+            "stall": 13.24
+          },
+          {
+            "frame": 1400,
+            "period": 33.37,
+            "pre": 1.59,
+            "stall": 13.57
+          },
+          {
+            "frame": 1450,
+            "period": 33.37,
+            "pre": 1.66,
+            "stall": 13.44
+          },
+          {
+            "frame": 1500,
+            "period": 33.37,
+            "pre": 1.59,
+            "stall": 13.53
+          },
+          {
+            "frame": 1550,
+            "period": 33.37,
+            "pre": 1.59,
+            "stall": 13.64
+          }
+        ],
+        "MATHCENSUS": [
+          {
+            "frame": 1100,
+            "transform6": 0.0,
+            "coarse6": 0.0,
+            "transform8": 0.0,
+            "sphere": 0.0,
+            "pick": 0.0,
+            "buildspot": 0.0,
+            "influence": 0.0,
+            "calls": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "frame": 1150,
+            "transform6": 0.0,
+            "coarse6": 0.0,
+            "transform8": 0.0,
+            "sphere": 0.0,
+            "pick": 0.0,
+            "buildspot": 0.0,
+            "influence": 0.0,
+            "calls": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "frame": 1200,
+            "transform6": 0.0,
+            "coarse6": 0.0,
+            "transform8": 0.0,
+            "sphere": 0.0,
+            "pick": 0.0,
+            "buildspot": 0.0,
+            "influence": 0.0,
+            "calls": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "frame": 1250,
+            "transform6": 0.0,
+            "coarse6": 0.0,
+            "transform8": 0.0,
+            "sphere": 0.0,
+            "pick": 0.0,
+            "buildspot": 0.0,
+            "influence": 0.0,
+            "calls": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "frame": 1300,
+            "transform6": 0.0,
+            "coarse6": 0.0,
+            "transform8": 0.0,
+            "sphere": 0.0,
+            "pick": 0.0,
+            "buildspot": 0.0,
+            "influence": 0.0,
+            "calls": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "frame": 1350,
+            "transform6": 0.0,
+            "coarse6": 0.0,
+            "transform8": 0.0,
+            "sphere": 0.0,
+            "pick": 0.0,
+            "buildspot": 0.0,
+            "influence": 0.0,
+            "calls": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "frame": 1400,
+            "transform6": 0.0,
+            "coarse6": 0.0,
+            "transform8": 0.0,
+            "sphere": 0.0,
+            "pick": 0.0,
+            "buildspot": 0.0,
+            "influence": 0.0,
+            "calls": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "frame": 1450,
+            "transform6": 0.0,
+            "coarse6": 0.0,
+            "transform8": 0.0,
+            "sphere": 0.0,
+            "pick": 0.0,
+            "buildspot": 0.0,
+            "influence": 0.0,
+            "calls": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "frame": 1500,
+            "transform6": 0.0,
+            "coarse6": 0.0,
+            "transform8": 0.0,
+            "sphere": 0.0,
+            "pick": 0.0,
+            "buildspot": 0.0,
+            "influence": 0.0,
+            "calls": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "frame": 1550,
+            "transform6": 0.0,
+            "coarse6": 0.0,
+            "transform8": 0.0,
+            "sphere": 0.0,
+            "pick": 0.0,
+            "buildspot": 0.0,
+            "influence": 0.0,
+            "calls": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          }
+        ],
+        "MATHCOUNT": [
+          {
+            "frame": 1100,
+            "render": 0.0,
+            "reusehit": 0.0,
+            "reusemiss": 0.0,
+            "planehit": 0.0,
+            "planemiss": 0.0,
+            "guard": 0.0,
+            "promote": 0.0,
+            "duplicate": 0.0,
+            "candidates": 0.0,
+            "enabled": 0.0,
+            "disabled": 0.0
+          },
+          {
+            "frame": 1150,
+            "render": 0.0,
+            "reusehit": 0.0,
+            "reusemiss": 0.0,
+            "planehit": 0.0,
+            "planemiss": 0.0,
+            "guard": 0.0,
+            "promote": 0.0,
+            "duplicate": 0.0,
+            "candidates": 0.0,
+            "enabled": 0.0,
+            "disabled": 0.0
+          },
+          {
+            "frame": 1200,
+            "render": 0.0,
+            "reusehit": 0.0,
+            "reusemiss": 0.0,
+            "planehit": 0.0,
+            "planemiss": 0.0,
+            "guard": 0.0,
+            "promote": 0.0,
+            "duplicate": 0.0,
+            "candidates": 0.0,
+            "enabled": 0.0,
+            "disabled": 0.0
+          },
+          {
+            "frame": 1250,
+            "render": 0.0,
+            "reusehit": 0.0,
+            "reusemiss": 0.0,
+            "planehit": 0.0,
+            "planemiss": 0.0,
+            "guard": 0.0,
+            "promote": 0.0,
+            "duplicate": 0.0,
+            "candidates": 0.0,
+            "enabled": 0.0,
+            "disabled": 0.0
+          },
+          {
+            "frame": 1300,
+            "render": 0.0,
+            "reusehit": 0.0,
+            "reusemiss": 0.0,
+            "planehit": 0.0,
+            "planemiss": 0.0,
+            "guard": 0.0,
+            "promote": 0.0,
+            "duplicate": 0.0,
+            "candidates": 0.0,
+            "enabled": 0.0,
+            "disabled": 0.0
+          },
+          {
+            "frame": 1350,
+            "render": 0.0,
+            "reusehit": 0.0,
+            "reusemiss": 0.0,
+            "planehit": 0.0,
+            "planemiss": 0.0,
+            "guard": 0.0,
+            "promote": 0.0,
+            "duplicate": 0.0,
+            "candidates": 0.0,
+            "enabled": 0.0,
+            "disabled": 0.0
+          },
+          {
+            "frame": 1400,
+            "render": 0.0,
+            "reusehit": 0.0,
+            "reusemiss": 0.0,
+            "planehit": 0.0,
+            "planemiss": 0.0,
+            "guard": 0.0,
+            "promote": 0.0,
+            "duplicate": 0.0,
+            "candidates": 0.0,
+            "enabled": 0.0,
+            "disabled": 0.0
+          },
+          {
+            "frame": 1450,
+            "render": 0.0,
+            "reusehit": 0.0,
+            "reusemiss": 0.0,
+            "planehit": 0.0,
+            "planemiss": 0.0,
+            "guard": 0.0,
+            "promote": 0.0,
+            "duplicate": 0.0,
+            "candidates": 0.0,
+            "enabled": 0.0,
+            "disabled": 0.0
+          },
+          {
+            "frame": 1500,
+            "render": 0.0,
+            "reusehit": 0.0,
+            "reusemiss": 0.0,
+            "planehit": 0.0,
+            "planemiss": 0.0,
+            "guard": 0.0,
+            "promote": 0.0,
+            "duplicate": 0.0,
+            "candidates": 0.0,
+            "enabled": 0.0,
+            "disabled": 0.0
+          },
+          {
+            "frame": 1550,
+            "render": 0.0,
+            "reusehit": 0.0,
+            "reusemiss": 0.0,
+            "planehit": 0.0,
+            "planemiss": 0.0,
+            "guard": 0.0,
+            "promote": 0.0,
+            "duplicate": 0.0,
+            "candidates": 0.0,
+            "enabled": 0.0,
+            "disabled": 0.0
+          }
+        ]
+      },
+      "mean_period_ms": 33.403,
+      "stage_means_ms": {
+        "transform6": 0.0,
+        "coarse6": 0.0,
+        "transform8": 0.0,
+        "sphere": 0.0,
+        "pick": 0.0,
+        "buildspot": 0.0,
+        "influence": 0.0
+      },
+      "calls_means_per_frame": {
+        "transform6": 0.0,
+        "coarse6": 0.0,
+        "transform8": 0.0,
+        "sphere": 0.0,
+        "pick": 0.0,
+        "buildspot": 0.0,
+        "influence": 0.0
+      },
+      "counter_means_per_frame": {
+        "render": 0.0,
+        "reusehit": 0.0,
+        "reusemiss": 0.0,
+        "planehit": 0.0,
+        "planemiss": 0.0,
+        "guard": 0.0,
+        "promote": 0.0,
+        "duplicate": 0.0,
+        "candidates": 0.0,
+        "enabled": 0.0,
+        "disabled": 0.0
+      },
+      "delivered_rate_from_period_hz": 29.937430769691346
+    },
+    {
+      "log": "F:\\Projects\\tyrax2-lab-20261001\\ee-math-trial-physical-snapshot.log",
+      "first": 3300,
+      "frames": 512,
+      "hz": 60,
+      "budget_ms": 16.666666666666668,
+      "mean_ms": 18.250114772054886,
+      "median_ms": 18.363265991210938,
+      "p95_ms": 18.88091362847222,
+      "max_ms": 20.133958604600693,
+      "over_budget": 512,
+      "note": "Renderer critical-path work excluding presentation pacing; not full period or delivered FPS.",
+      "phase": 1,
+      "name": "EE math census enabled",
+      "windows": {
+        "FRAMETIME": [
+          {
+            "frame": 3300,
+            "period": 33.7,
+            "pre": 1.61,
+            "stall": 13.6
+          },
+          {
+            "frame": 3350,
+            "period": 33.37,
+            "pre": 1.68,
+            "stall": 13.3
+          },
+          {
+            "frame": 3400,
+            "period": 33.37,
+            "pre": 1.62,
+            "stall": 13.41
+          },
+          {
+            "frame": 3450,
+            "period": 33.37,
+            "pre": 1.62,
+            "stall": 13.36
+          },
+          {
+            "frame": 3500,
+            "period": 33.37,
+            "pre": 1.69,
+            "stall": 13.41
+          },
+          {
+            "frame": 3550,
+            "period": 33.37,
+            "pre": 1.65,
+            "stall": 13.41
+          },
+          {
+            "frame": 3600,
+            "period": 33.37,
+            "pre": 1.68,
+            "stall": 13.31
+          },
+          {
+            "frame": 3650,
+            "period": 33.37,
+            "pre": 1.61,
+            "stall": 13.54
+          },
+          {
+            "frame": 3700,
+            "period": 33.37,
+            "pre": 1.62,
+            "stall": 13.32
+          },
+          {
+            "frame": 3750,
+            "period": 33.37,
+            "pre": 1.67,
+            "stall": 13.3
+          }
+        ],
+        "MATHCENSUS": [
+          {
+            "frame": 3300,
+            "transform6": 0.10875,
+            "coarse6": 0.04866,
+            "transform8": 0.3776,
+            "sphere": 0.12998,
+            "pick": 0.45691,
+            "buildspot": 0.23381,
+            "influence": 0.14001,
+            "calls": [
+              1286,
+              650,
+              3700,
+              5650,
+              5700,
+              6700,
+              3550
+            ]
+          },
+          {
+            "frame": 3350,
+            "transform6": 0.11307,
+            "coarse6": 0.0468,
+            "transform8": 0.37901,
+            "sphere": 0.13021,
+            "pick": 0.45017,
+            "buildspot": 0.23218,
+            "influence": 0.13626,
+            "calls": [
+              1300,
+              650,
+              3700,
+              5650,
+              5700,
+              6700,
+              3550
+            ]
+          },
+          {
+            "frame": 3400,
+            "transform6": 0.10577,
+            "coarse6": 0.04936,
+            "transform8": 0.37225,
+            "sphere": 0.12827,
+            "pick": 0.45791,
+            "buildspot": 0.2314,
+            "influence": 0.13711,
+            "calls": [
+              1284,
+              650,
+              3700,
+              5650,
+              5700,
+              6700,
+              3550
+            ]
+          },
+          {
+            "frame": 3450,
+            "transform6": 0.11637,
+            "coarse6": 0.04737,
+            "transform8": 0.38306,
+            "sphere": 0.13721,
+            "pick": 0.46021,
+            "buildspot": 0.23189,
+            "influence": 0.12689,
+            "calls": [
+              1300,
+              650,
+              3700,
+              5650,
+              5700,
+              6700,
+              3550
+            ]
+          },
+          {
+            "frame": 3500,
+            "transform6": 0.10616,
+            "coarse6": 0.04937,
+            "transform8": 0.37428,
+            "sphere": 0.12834,
+            "pick": 0.45732,
+            "buildspot": 0.22276,
+            "influence": 0.12849,
+            "calls": [
+              1284,
+              650,
+              3700,
+              5650,
+              5700,
+              6700,
+              3550
+            ]
+          },
+          {
+            "frame": 3550,
+            "transform6": 0.10856,
+            "coarse6": 0.04939,
+            "transform8": 0.37817,
+            "sphere": 0.13105,
+            "pick": 0.45457,
+            "buildspot": 0.23047,
+            "influence": 0.13065,
+            "calls": [
+              1300,
+              650,
+              3700,
+              5650,
+              5700,
+              6700,
+              3550
+            ]
+          },
+          {
+            "frame": 3600,
+            "transform6": 0.11114,
+            "coarse6": 0.04865,
+            "transform8": 0.36953,
+            "sphere": 0.13323,
+            "pick": 0.44711,
+            "buildspot": 0.22808,
+            "influence": 0.13069,
+            "calls": [
+              1296,
+              650,
+              3700,
+              5650,
+              5700,
+              6700,
+              3550
+            ]
+          },
+          {
+            "frame": 3650,
+            "transform6": 0.10947,
+            "coarse6": 0.04588,
+            "transform8": 0.37997,
+            "sphere": 0.13434,
+            "pick": 0.45545,
+            "buildspot": 0.23037,
+            "influence": 0.13432,
+            "calls": [
+              1288,
+              650,
+              3700,
+              5650,
+              5700,
+              6700,
+              3550
+            ]
+          },
+          {
+            "frame": 3700,
+            "transform6": 0.1082,
+            "coarse6": 0.0477,
+            "transform8": 0.38379,
+            "sphere": 0.12934,
+            "pick": 0.46301,
+            "buildspot": 0.22174,
+            "influence": 0.13003,
+            "calls": [
+              1300,
+              650,
+              3700,
+              5650,
+              5700,
+              6700,
+              3550
+            ]
+          },
+          {
+            "frame": 3750,
+            "transform6": 0.10325,
+            "coarse6": 0.04944,
+            "transform8": 0.37732,
+            "sphere": 0.13718,
+            "pick": 0.46254,
+            "buildspot": 0.23466,
+            "influence": 0.1397,
+            "calls": [
+              1284,
+              650,
+              3700,
+              5650,
+              5700,
+              6700,
+              3550
+            ]
+          }
+        ],
+        "MATHCOUNT": [
+          {
+            "frame": 3300,
+            "render": 6750.0,
+            "reusehit": 5414.0,
+            "reusemiss": 1336.0,
+            "planehit": 5264.0,
+            "planemiss": 1286.0,
+            "guard": 3150.0,
+            "promote": 2600.0,
+            "duplicate": 550.0,
+            "candidates": 45600.0,
+            "enabled": 3550.0,
+            "disabled": 3150.0
+          },
+          {
+            "frame": 3350,
+            "render": 6750.0,
+            "reusehit": 5400.0,
+            "reusemiss": 1350.0,
+            "planehit": 5250.0,
+            "planemiss": 1300.0,
+            "guard": 3150.0,
+            "promote": 2600.0,
+            "duplicate": 550.0,
+            "candidates": 45600.0,
+            "enabled": 3550.0,
+            "disabled": 3150.0
+          },
+          {
+            "frame": 3400,
+            "render": 6750.0,
+            "reusehit": 5416.0,
+            "reusemiss": 1334.0,
+            "planehit": 5266.0,
+            "planemiss": 1284.0,
+            "guard": 3150.0,
+            "promote": 2600.0,
+            "duplicate": 550.0,
+            "candidates": 45600.0,
+            "enabled": 3550.0,
+            "disabled": 3150.0
+          },
+          {
+            "frame": 3450,
+            "render": 6750.0,
+            "reusehit": 5400.0,
+            "reusemiss": 1350.0,
+            "planehit": 5250.0,
+            "planemiss": 1300.0,
+            "guard": 3150.0,
+            "promote": 2600.0,
+            "duplicate": 550.0,
+            "candidates": 45600.0,
+            "enabled": 3550.0,
+            "disabled": 3150.0
+          },
+          {
+            "frame": 3500,
+            "render": 6750.0,
+            "reusehit": 5416.0,
+            "reusemiss": 1334.0,
+            "planehit": 5266.0,
+            "planemiss": 1284.0,
+            "guard": 3150.0,
+            "promote": 2600.0,
+            "duplicate": 550.0,
+            "candidates": 45600.0,
+            "enabled": 3550.0,
+            "disabled": 3150.0
+          },
+          {
+            "frame": 3550,
+            "render": 6750.0,
+            "reusehit": 5400.0,
+            "reusemiss": 1350.0,
+            "planehit": 5250.0,
+            "planemiss": 1300.0,
+            "guard": 3150.0,
+            "promote": 2600.0,
+            "duplicate": 550.0,
+            "candidates": 45600.0,
+            "enabled": 3550.0,
+            "disabled": 3150.0
+          },
+          {
+            "frame": 3600,
+            "render": 6750.0,
+            "reusehit": 5404.0,
+            "reusemiss": 1346.0,
+            "planehit": 5254.0,
+            "planemiss": 1296.0,
+            "guard": 3150.0,
+            "promote": 2600.0,
+            "duplicate": 550.0,
+            "candidates": 45600.0,
+            "enabled": 3550.0,
+            "disabled": 3150.0
+          },
+          {
+            "frame": 3650,
+            "render": 6750.0,
+            "reusehit": 5412.0,
+            "reusemiss": 1338.0,
+            "planehit": 5262.0,
+            "planemiss": 1288.0,
+            "guard": 3150.0,
+            "promote": 2600.0,
+            "duplicate": 550.0,
+            "candidates": 45600.0,
+            "enabled": 3550.0,
+            "disabled": 3150.0
+          },
+          {
+            "frame": 3700,
+            "render": 6750.0,
+            "reusehit": 5400.0,
+            "reusemiss": 1350.0,
+            "planehit": 5250.0,
+            "planemiss": 1300.0,
+            "guard": 3150.0,
+            "promote": 2600.0,
+            "duplicate": 550.0,
+            "candidates": 45600.0,
+            "enabled": 3550.0,
+            "disabled": 3150.0
+          },
+          {
+            "frame": 3750,
+            "render": 6750.0,
+            "reusehit": 5416.0,
+            "reusemiss": 1334.0,
+            "planehit": 5266.0,
+            "planemiss": 1284.0,
+            "guard": 3150.0,
+            "promote": 2600.0,
+            "duplicate": 550.0,
+            "candidates": 45600.0,
+            "enabled": 3550.0,
+            "disabled": 3150.0
+          }
+        ]
+      },
+      "mean_period_ms": 33.403,
+      "stage_means_ms": {
+        "transform6": 0.109074,
+        "coarse6": 0.048262,
+        "transform8": 0.377498,
+        "sphere": 0.131915,
+        "pick": 0.45652,
+        "buildspot": 0.229736,
+        "influence": 0.133415
+      },
+      "calls_means_per_frame": {
+        "transform6": 25.844,
+        "coarse6": 13.0,
+        "transform8": 74.0,
+        "sphere": 113.0,
+        "pick": 114.0,
+        "buildspot": 134.0,
+        "influence": 71.0
+      },
+      "counter_means_per_frame": {
+        "render": 135.0,
+        "reusehit": 108.15599999999999,
+        "reusemiss": 26.844,
+        "planehit": 105.15599999999999,
+        "planemiss": 25.844,
+        "guard": 63.0,
+        "promote": 52.0,
+        "duplicate": 11.0,
+        "candidates": 912.0,
+        "enabled": 71.0,
+        "disabled": 63.0
+      },
+      "delivered_rate_from_period_hz": 29.937430769691346,
+      "observer_work_increase_against_controls_ms": [
+        0.018530574109821174,
+        -0.0679365528954392
+      ]
+    },
+    {
+      "log": "F:\\Projects\\tyrax2-lab-20261001\\ee-math-trial-physical-snapshot.log",
+      "first": 5500,
+      "frames": 512,
+      "hz": 60,
+      "budget_ms": 16.666666666666668,
+      "mean_ms": 18.318051324950325,
+      "median_ms": 18.33012898763021,
+      "p95_ms": 19.01040310329861,
+      "max_ms": 20.160474989149307,
+      "over_budget": 512,
+      "note": "Renderer critical-path work excluding presentation pacing; not full period or delivered FPS.",
+      "phase": 2,
+      "name": "compiled-on runtime gate off restored",
+      "windows": {
+        "FRAMETIME": [
+          {
+            "frame": 5500,
+            "period": 33.7,
+            "pre": 1.68,
+            "stall": 13.62
+          },
+          {
+            "frame": 5550,
+            "period": 33.37,
+            "pre": 1.61,
+            "stall": 13.34
+          },
+          {
+            "frame": 5600,
+            "period": 33.37,
+            "pre": 1.68,
+            "stall": 13.41
+          },
+          {
+            "frame": 5650,
+            "period": 33.37,
+            "pre": 1.61,
+            "stall": 13.44
+          },
+          {
+            "frame": 5700,
+            "period": 33.37,
+            "pre": 1.61,
+            "stall": 13.34
+          },
+          {
+            "frame": 5750,
+            "period": 33.37,
+            "pre": 1.69,
+            "stall": 13.29
+          },
+          {
+            "frame": 5800,
+            "period": 33.37,
+            "pre": 1.61,
+            "stall": 13.17
+          },
+          {
+            "frame": 5850,
+            "period": 33.37,
+            "pre": 1.67,
+            "stall": 13.02
+          },
+          {
+            "frame": 5900,
+            "period": 33.37,
+            "pre": 1.6,
+            "stall": 13.28
+          },
+          {
+            "frame": 5950,
+            "period": 33.37,
+            "pre": 1.61,
+            "stall": 13.47
+          }
+        ],
+        "MATHCENSUS": [
+          {
+            "frame": 5500,
+            "transform6": 0.0,
+            "coarse6": 0.0,
+            "transform8": 0.0,
+            "sphere": 0.0,
+            "pick": 0.0,
+            "buildspot": 0.0,
+            "influence": 0.0,
+            "calls": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "frame": 5550,
+            "transform6": 0.0,
+            "coarse6": 0.0,
+            "transform8": 0.0,
+            "sphere": 0.0,
+            "pick": 0.0,
+            "buildspot": 0.0,
+            "influence": 0.0,
+            "calls": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "frame": 5600,
+            "transform6": 0.0,
+            "coarse6": 0.0,
+            "transform8": 0.0,
+            "sphere": 0.0,
+            "pick": 0.0,
+            "buildspot": 0.0,
+            "influence": 0.0,
+            "calls": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "frame": 5650,
+            "transform6": 0.0,
+            "coarse6": 0.0,
+            "transform8": 0.0,
+            "sphere": 0.0,
+            "pick": 0.0,
+            "buildspot": 0.0,
+            "influence": 0.0,
+            "calls": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "frame": 5700,
+            "transform6": 0.0,
+            "coarse6": 0.0,
+            "transform8": 0.0,
+            "sphere": 0.0,
+            "pick": 0.0,
+            "buildspot": 0.0,
+            "influence": 0.0,
+            "calls": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "frame": 5750,
+            "transform6": 0.0,
+            "coarse6": 0.0,
+            "transform8": 0.0,
+            "sphere": 0.0,
+            "pick": 0.0,
+            "buildspot": 0.0,
+            "influence": 0.0,
+            "calls": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "frame": 5800,
+            "transform6": 0.0,
+            "coarse6": 0.0,
+            "transform8": 0.0,
+            "sphere": 0.0,
+            "pick": 0.0,
+            "buildspot": 0.0,
+            "influence": 0.0,
+            "calls": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "frame": 5850,
+            "transform6": 0.0,
+            "coarse6": 0.0,
+            "transform8": 0.0,
+            "sphere": 0.0,
+            "pick": 0.0,
+            "buildspot": 0.0,
+            "influence": 0.0,
+            "calls": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "frame": 5900,
+            "transform6": 0.0,
+            "coarse6": 0.0,
+            "transform8": 0.0,
+            "sphere": 0.0,
+            "pick": 0.0,
+            "buildspot": 0.0,
+            "influence": 0.0,
+            "calls": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          },
+          {
+            "frame": 5950,
+            "transform6": 0.0,
+            "coarse6": 0.0,
+            "transform8": 0.0,
+            "sphere": 0.0,
+            "pick": 0.0,
+            "buildspot": 0.0,
+            "influence": 0.0,
+            "calls": [
+              0,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          }
+        ],
+        "MATHCOUNT": [
+          {
+            "frame": 5500,
+            "render": 0.0,
+            "reusehit": 0.0,
+            "reusemiss": 0.0,
+            "planehit": 0.0,
+            "planemiss": 0.0,
+            "guard": 0.0,
+            "promote": 0.0,
+            "duplicate": 0.0,
+            "candidates": 0.0,
+            "enabled": 0.0,
+            "disabled": 0.0
+          },
+          {
+            "frame": 5550,
+            "render": 0.0,
+            "reusehit": 0.0,
+            "reusemiss": 0.0,
+            "planehit": 0.0,
+            "planemiss": 0.0,
+            "guard": 0.0,
+            "promote": 0.0,
+            "duplicate": 0.0,
+            "candidates": 0.0,
+            "enabled": 0.0,
+            "disabled": 0.0
+          },
+          {
+            "frame": 5600,
+            "render": 0.0,
+            "reusehit": 0.0,
+            "reusemiss": 0.0,
+            "planehit": 0.0,
+            "planemiss": 0.0,
+            "guard": 0.0,
+            "promote": 0.0,
+            "duplicate": 0.0,
+            "candidates": 0.0,
+            "enabled": 0.0,
+            "disabled": 0.0
+          },
+          {
+            "frame": 5650,
+            "render": 0.0,
+            "reusehit": 0.0,
+            "reusemiss": 0.0,
+            "planehit": 0.0,
+            "planemiss": 0.0,
+            "guard": 0.0,
+            "promote": 0.0,
+            "duplicate": 0.0,
+            "candidates": 0.0,
+            "enabled": 0.0,
+            "disabled": 0.0
+          },
+          {
+            "frame": 5700,
+            "render": 0.0,
+            "reusehit": 0.0,
+            "reusemiss": 0.0,
+            "planehit": 0.0,
+            "planemiss": 0.0,
+            "guard": 0.0,
+            "promote": 0.0,
+            "duplicate": 0.0,
+            "candidates": 0.0,
+            "enabled": 0.0,
+            "disabled": 0.0
+          },
+          {
+            "frame": 5750,
+            "render": 0.0,
+            "reusehit": 0.0,
+            "reusemiss": 0.0,
+            "planehit": 0.0,
+            "planemiss": 0.0,
+            "guard": 0.0,
+            "promote": 0.0,
+            "duplicate": 0.0,
+            "candidates": 0.0,
+            "enabled": 0.0,
+            "disabled": 0.0
+          },
+          {
+            "frame": 5800,
+            "render": 0.0,
+            "reusehit": 0.0,
+            "reusemiss": 0.0,
+            "planehit": 0.0,
+            "planemiss": 0.0,
+            "guard": 0.0,
+            "promote": 0.0,
+            "duplicate": 0.0,
+            "candidates": 0.0,
+            "enabled": 0.0,
+            "disabled": 0.0
+          },
+          {
+            "frame": 5850,
+            "render": 0.0,
+            "reusehit": 0.0,
+            "reusemiss": 0.0,
+            "planehit": 0.0,
+            "planemiss": 0.0,
+            "guard": 0.0,
+            "promote": 0.0,
+            "duplicate": 0.0,
+            "candidates": 0.0,
+            "enabled": 0.0,
+            "disabled": 0.0
+          },
+          {
+            "frame": 5900,
+            "render": 0.0,
+            "reusehit": 0.0,
+            "reusemiss": 0.0,
+            "planehit": 0.0,
+            "planemiss": 0.0,
+            "guard": 0.0,
+            "promote": 0.0,
+            "duplicate": 0.0,
+            "candidates": 0.0,
+            "enabled": 0.0,
+            "disabled": 0.0
+          },
+          {
+            "frame": 5950,
+            "render": 0.0,
+            "reusehit": 0.0,
+            "reusemiss": 0.0,
+            "planehit": 0.0,
+            "planemiss": 0.0,
+            "guard": 0.0,
+            "promote": 0.0,
+            "duplicate": 0.0,
+            "candidates": 0.0,
+            "enabled": 0.0,
+            "disabled": 0.0
+          }
+        ]
+      },
+      "mean_period_ms": 33.403,
+      "stage_means_ms": {
+        "transform6": 0.0,
+        "coarse6": 0.0,
+        "transform8": 0.0,
+        "sphere": 0.0,
+        "pick": 0.0,
+        "buildspot": 0.0,
+        "influence": 0.0
+      },
+      "calls_means_per_frame": {
+        "transform6": 0.0,
+        "coarse6": 0.0,
+        "transform8": 0.0,
+        "sphere": 0.0,
+        "pick": 0.0,
+        "buildspot": 0.0,
+        "influence": 0.0
+      },
+      "counter_means_per_frame": {
+        "render": 0.0,
+        "reusehit": 0.0,
+        "reusemiss": 0.0,
+        "planehit": 0.0,
+        "planemiss": 0.0,
+        "guard": 0.0,
+        "promote": 0.0,
+        "duplicate": 0.0,
+        "candidates": 0.0,
+        "enabled": 0.0,
+        "disabled": 0.0
+      },
+      "delivered_rate_from_period_hz": 29.937430769691346
+    }
+  ],
+  "control_spread_ms": 0.08646712700526038,
+  "limitations": [
+    "One sequential diagnostic boot; no production timing or optimization acceptance.",
+    "Gate-off controls retain compiled scaffolding; pristine/compiled-out controls remain separate.",
+    "Seven exclusive scoped call paths include counters and clocks, not a complete EE census.",
+    "Sphere and plane helpers already use VU0 macro arithmetic. No VU utilization claim.",
+    "Render counter counts only calls reaching the transform-key seam."
+  ],
+  "date": "2026-10-02",
+  "production_change": false,
+  "probe_evidence": {
+    "base": "F:\\Projects\\tyrax2-lab-20261001\\arena-check-night",
+    "fixture": "F:\\Projects\\tyrax2-lab-20261001\\ee-math-probe\\fixture",
+    "files": [
+      {
+        "path": "tyra/engine/src/renderer/3d/pipeline/static/core/stapip_core.cpp",
+        "before_sha256": "b805bf42bd72a34761764eaaa207ce7ff8d3b8862183b135091bc88e3b874932",
+        "after_sha256": "7a137d66d31fe1426bb626e97c1ac86df41502f60be1e11c82f3d6d447263abf"
+      },
+      {
+        "path": "tyra/engine/src/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.cpp",
+        "before_sha256": "597e444875e6f5d45cff7359f0430ca89f27bd77657cbb7194554c7c9baa9825",
+        "after_sha256": "13545b14654b5706c541a64b3247214b6d9397bf375026fe008dec6a524eb157"
+      },
+      {
+        "path": "tyra/engine/src/renderer/core/renderer_core.cpp",
+        "before_sha256": "520c81dbc1ac36e829c9c76408a15fe987567450ddbdd8341ccb5e1cce2fbd6f",
+        "after_sha256": "62fd29b308495917e04ba7e6a8651ed9686ea94a98b70db90fd1f00ba58da3e9"
+      },
+      {
+        "path": "tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_spot_bounds.hpp",
+        "before_sha256": "12f608e80f16ca73209c01160b92afda971f6a93203e4e08b40399fe84493344",
+        "after_sha256": "28c6dde920527a71fee18652308a551671450d1b3597d6202568df34cd091bfb"
+      },
+      {
+        "path": "game/src/gen/game_collision.gen.cpp",
+        "before_sha256": "5f04b5c5529ba0bcdb9baffb9d47facaafcf4566619cdde37fabbe1d19c2bd61",
+        "after_sha256": "7c4752e0bd064c97e3ca889321be534e0a703018296e611fa714ae9722ef3711"
+      }
+    ],
+    "macro": "TYRA_EE_MATH_CENSUS=1 must be defined consistently for engine and game; default is 0",
+    "api": "Tyra::EEMathCensus::setEnabled, reset, take",
+    "clock": "EE COP0 Count; unsigned difference into uint64 aggregate",
+    "new_files": [
+      {
+        "path": "tyra/engine/inc/debug/ee_math_census.hpp",
+        "sha256": "244affe4606c9ba2814e2312af97d94508e0eb209d0fcc83e65206aa6d404298"
+      },
+      {
+        "path": "tyra/engine/src/debug/ee_math_census.cpp",
+        "sha256": "00681df7412ea4955e93d5069ab28c6e2bfebef2519813db9ff2e94cebc4ca1b"
+      }
+    ],
+    "prepare_sha256": "b3bbc6471e38d6909b44ffbdb02af423f4e32cef91f689e83fc961d02a6abe79"
+  },
+  "insertion_check": {
+    "result": "PASS",
+    "exact_restored_sources": [
+      "tyra/engine/src/renderer/3d/pipeline/static/core/stapip_core.cpp",
+      "tyra/engine/src/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.cpp",
+      "tyra/engine/src/renderer/core/renderer_core.cpp",
+      "tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_spot_bounds.hpp",
+      "game/src/gen/game_collision.gen.cpp"
+    ],
+    "host_api_controls": [
+      "compiled out",
+      "compiled in gateoff",
+      "gateon",
+      "gateoff after sample",
+      "unsigned tick wrap",
+      "early return",
+      "take/reset"
+    ],
+    "hardware_speed_claim": false
+  },
+  "artifacts": [
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\analyze-math-trial.py",
+      "sha256": "9def2294dcb23534381fbeab6e17cf36dd288d93c36615cafb54f6347a33cddb",
+      "bytes": 3457
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\prepare-math-trial.py",
+      "sha256": "5493529f5a05ba92f33eef2504672c264f625d1b6535491af02853b655db70b7",
+      "bytes": 3680
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\ee-math-probe\\prepare.py",
+      "sha256": "b3bbc6471e38d6909b44ffbdb02af423f4e32cef91f689e83fc961d02a6abe79",
+      "bytes": 8001
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\ee-math-probe\\census.patch",
+      "sha256": "c3c8fbc13026d84dc00c795ff8775875b06502276e843d286319ab327e09af26",
+      "bytes": 6384
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\ee-math-probe\\report.md",
+      "sha256": "5333b2b78d659af52c9de81dbcfdd2448b77bee33a2ffabcacc19ce62fa04510",
+      "bytes": 3954
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\ee-math-trial-build.log",
+      "sha256": "3e0fb4139c018a80f8089f309dba2c34c0ab65c0def68fccc2b0d840cc790b58",
+      "bytes": 202842
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\capture-unattended.py",
+      "sha256": "d3da34efe51e090a69a48b0e0de382fecbd9f5869dfa888c569a70a524d8a130",
+      "bytes": 790
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\ee-math-probe\\fixture\\tyra\\engine\\inc\\renderer\\3d\\pipeline\\static\\core\\stapip_spot_bounds.hpp",
+      "sha256": "28c6dde920527a71fee18652308a551671450d1b3597d6202568df34cd091bfb",
+      "bytes": 2101
+    }
+  ],
+  "emulator": {
+    "version": "2.9.93",
+    "completed_frames": 6600,
+    "artifacts": [
+      {
+        "path": "F:\\Projects\\tyrax2-lab-20261001\\ee-math-trial-emulator-repeat\\emulog.txt",
+        "sha256": "988b8dbb83e10fbca43534527c0aa7b73518d04edcd711680be871d6751208a1",
+        "bytes": 262099
+      },
+      {
+        "path": "F:\\Projects\\tyrax2-lab-20261001\\ee-math-trial-emulator-repeat\\game-log.txt",
+        "sha256": "0a6cbdf75bc51629a9a8a5c83617490ef6ee4f119a6dbd4a59f9fb7fa81e0df5",
+        "bytes": 214940
+      },
+      {
+        "path": "F:\\Projects\\tyrax2-lab-20261001\\ee-math-trial-emulator-repeat\\report.txt",
+        "sha256": "e6e3e92aa37625b2efa85dbe6388a55e25792a5bf56d9eb84b99b0ee7b6d5f50",
+        "bytes": 2471
+      },
+      {
+        "path": "F:\\Projects\\tyrax2-lab-20261001\\ee-math-trial-emulator-repeat\\state1.p2s",
+        "sha256": "07dbd096801476f6fa55eb3eabf4751f113748e612caaf14506fe36b2ecdad89",
+        "bytes": 5415654
+      }
+    ],
+    "earlier_attempt": "Slot28748 started paused and did not reach6600 within capture deadline; not accepted. Owned repeat config disabled PauseOnControllerDisconnection."
+  },
+  "host_probe_report": "# Private EE math census\n\nPrepared against the pristine `arena-check-night` engine and game. This is private diagnostic scaffolding; no repository production files were changed.\n\nRun `prepare.py` only into a fresh output. It retains source hashes and a five-file insertion patch. New header and implementation live in `fixture/tyra/engine/{inc,src}/debug/ee_math_census.*`. Default `TYRA_EE_MATH_CENSUS=0`; define it to 1 consistently in BOTH engine and game build flags for the runtime-gated experiment. Initial runtime gate is false. Root owns native builds, emulator and console.\n\nAPI: `Tyra::EEMathCensus::setEnabled(bool)`, `reset()`, `take()`. `Sample` contains seven `uint64_t ticks[]`, seven `calls[]`, and eleven `counts[]`; enum order is the serialization contract. Read/take/reset only outside render calls at frame boundaries. Do not serialize inside the sample. Root should save the enum names beside raw values. No waits, packet boundaries, uniforms, state mutation or arithmetic expressions changed.\n\nSeven scopes are mutually exclusive in these actual call paths:\n\n1. `Transform6`: only actual engine object-plane transform miss; cached six-plane copies are counted separately and not timed here. Parent is bounds / bdPlanes.\n2. `CoarseTransform6`: generated coarse-cull local-plane transform, before engine submission. Parent is generated object/coarse cull work; excluded from engine bounds totals.\n3. `Transform8`: function entry for actual eight-plane clip transforms; caller is prepare / prepPackager. Guard attempt and second classification transform both count, without adding caller clocks.\n4. `Sphere`: only real bbox world-sphere construction; parent is prepare / prepLight. Includes existing VU0 matrix arithmetic and existing scalar square roots.\n5. `Pick`: actual picker function, including candidate assembly/scoring; parent normally prepLight. Candidates are counted once after skip-slot/spot activation, not guessed from authored lights.\n6. `BuildSpot`: actual local-light function including disabled early return, inverse, direction normalization and point early return; parent is sendObjectData / prepObjectData, not prepLight. Enabled/disabled calls are separate counts.\n7. `Influence`: actual conservative zero-influence function, after its original short-circuit conditions; sibling of BuildSpot, within sendObjectData. No change to selected-light identity or conditions.\n\nRenderCalls is counted at the existing transform-key seam (after earlier fast-path returns), so it means bags reaching that seam, not all public render() entries. ReuseHit/Miss mean exact existing transform-cache predicate; PlaneHit/Miss only apply with frustumCull. GuardAttempts/Promotions and DuplicateClipCalls establish the existing same-call repeated transform. The tiny guard bookkeeping bool is compiled out when macro=0; when macro=1 it is set even with runtime gate off, though counters/clocks remain gated. Price compiled-in off against compiled-out separately.\n\nScope time includes its call-counter increment and body count observers where present; it excludes its start/end clock operations and destructor accumulation. Read-only COP0 Count, modulo uint32 difference, accumulated into uint64. Runtime-gate-off pays branches/scaffold but reads no clock and accumulates nothing. No per-plane clocks; no bbox visit expansion, pre-existing attribution enabling, HardwareTrace or object-cost request. All seven buckets are disjoint here and can be summed as observed math work, but must not be added to inclusive existing parents or frame work again.\n\nHost API tests check compile-out and compiled-in runtime gate off, unsigned clock wrap, early returns, reset/take and counts. Fake host clock validates bookkeeping only, no EE timing or PS2 instruction code generation. Insertion review shows no arithmetic or original early-return changes. Target compile/emulator/pixels and physical off/on/off controls remain root acceptance gates.\n",
+  "next_light_pick_audit": {
+    "report": "# Dynamic light selection: ranked exact-semantics plan\n\nRead-only audit, 2026-10-02. No repository changes, builds, emulator or hardware access. Root supplied physical diagnostic: pick 0.456520 ms with 912 actual candidate evaluations/frame; local buildSpot 0.229736 ms, 134 calls (71 enabled,63 disabled); world sphere0.131915 ms. These are scoped observations from that diagnostic, not an independently repeated result or an optimization gain. The 63 disabled buildSpot calls do not establish 63 unnecessary picks.\n\n## Exact current selection contract\n\n`RendererCore::pickDynLight` (`renderer_core.cpp:284\u2013330`) returns a POINTER, initially `&spot`, with bestScore=-1. Candidate order is enabled camera spot first, then dynLights slots0..dynLightCount-1 except exact named skipSlot. Capacity is8 scene entries plus camera spot. `dynLights[i].enabled` is NOT checked here; public direct edits can leave an entry disabled and it is still scored. Negative/out-of-range skipSlot excludes nothing. If no candidate beats -1, including all range-rejected or NaN scores, return remains `&spot`, even if disabled or skipped candidates exhausted the registry.\n\nFor each candidate, float order is squared distance, Math::sqrtNonNegative, minus radius, clamp negative distance to0, reject d>=range, attenuation1-d/range, meanRGB*att*att. Spot cone only downranks by0.05; it does not exclude the candidate. Inside a containing mesh sphere the reconstructed distance is `d+worldRadius`, potentially radius rather than actual centre distance; preserve this existing approximation. The cone comparison is strict `<cosCutoff`, dist threshold `>1e-4`. Winner update is strict score>bestScore: ties keep first candidate. A zero-score in-range candidate beats initial-1, so deleting a black/zero candidate can change pointer/selected light. Negative,NaN,Inf and unusual range/radius inputs are possible through public state; do not silently assign stronger guarantees than API asserts/game data actually enforce.\n\n`StaPipCore::render:846\u2013881` requests selection only for unlit bags (`!bag->lighting`) with dynLightPick. It computes the sphere only when pick OR BLSS proxy wants it and bbox exists; otherwise translation/radius0. After pick, spotLit=false ALWAYS replaces the result with immutable disabled kNoSpotLight. A null bagLight for dynLightPick=false instead means global camera spot; those are not interchangeable. buildSpotForBag is called later for every unlit bag, returns immediately if chosen light disabled; selected pointer does not imply active contribution after bbox zero-influence filtering/custom override handling.\n\n## Rank1: skip a selection whose result is unconditionally discarded\n\nNarrow candidate: add `bag->info->spotLit` to wantsLightPick. Preserve assignment of kNoSpotLight below; retain sphere work whenever blssOn is true. Ordinary output/staged uniform selection stays identical, since original pick result was overwritten without side effects. This removes ALL candidate work for that call rather than changing score math. Do not move kNoSpotLight handling globally or disable selection merely because camera spot is off: scene lights still compete.\n\nActivation gate: first count `!lighting && dynLightPick && !spotLit` bags and candidates they currently visit, plus shared BLSS sphere calls. Generated pools/shadows commonly already dynLightPick=false; disabling buildSpot on63 calls is therefore not a volume estimate for this candidate. Count before accepting even a low-risk optimization. For private differential control compare actual StaPipCore light preparation and subsequent selected pointer/buildSpot/bbox influence/options/uniform emissions with BLSS on/off, precise/no bbox, billboard/nonbillboard and custom overrides. Counters/callbacks expected to change only inside unused pick; output and BLSS sphere must remain.\n\n## Rank2: price exact repeated sphere queries before introducing a cache\n\nA one-entry consecutive-query cache can be exact with key {worldCenterXYZ bits,worldRadius bits,skipSlot,ordered light state}. Consecutive materials sometimes share model but NOT bbox bounds: same model pointer is not a sphere key. Count actual identical spheres and skipSlot over immediately adjacent pick calls first, separately within frame and across frames. Do not assume the existing transform-cache hit means same light query. Portal/mirror/split passes may re-enter objects; identity must come from actual world sphere and light contents, not camera/view ID alone.\n\nSelection depends on ordered count, spot.enabled and score-read spot state; each used scene slot's positionXYZ,range,RGB,point, and directionXYZ/cosCutoff when !point. Exact signatures should compare named initialized fields, not whole structs (padding or stale point-only direction). Return pointer identity must match baseline; store slot identity rather than a detached light copy. Full final-light preparation additionally depends on enabled,softness and the selected light's other fields, so do not reuse buildSpot results from a pick-only signature. Public spot,dynLights,dynLightCount mean an epoch bumped only by setters is INSUFFICIENT to detect all legal callers' direct writes. Either compare relevant fields at lookup, or explicitly close that public mutability contract before epoch-based caching. That extra scan is overhead and must be priced on guaranteed misses/moving cameras.\n\nA per-pass signature frozen once is not generally safe unless all mutation entry points/direct public writes are covered. Normal generated update registers lights before render, but that does not establish the same property for custom code. Frame-only validity is also insufficient if a script mutates registry within that frame. Bounded1-entry cache avoids unbounded per-bag storage; reset at scene/init teardown and on any nonfinite key if no explicit NaN policy, even though named bit comparisons could otherwise retain it. No production candidate implemented.\n\n## Rank3: simplify candidate assembly without changing candidates/math\n\nReplace temporary pointer-array construction with an enabled-spot evaluation followed by dyn slot loop in identical order, skipping same slot. Score expression and winner comparator unchanged. This removes staging/copy of pointers; it does NOT remove the912 scored candidates or square roots. It is a very small differential target but may compile similarly or regress due duplicated loop/body/branch pressure. Do not combine with black/enabled/cone filters. Instrument assembly versus score only if needed; per-candidate clocks would overprice observer cost.\n\nPotential precomputed luminance per current light registry also needs direct-public-mutation invalidation; one-time precompute is not automatically safe. Reassociating RGB or multiplying reciprocal instead of dividing changes boundary/tie floating behavior. Keep the current expression ordering in any exact candidate.\n\n## Rank4: conservative broad-phase rejection (higher proof burden)\n\nSquared distance vs `(range+radius)^2` or axis distance can reject far lights before sqrt, but naive substitution is NOT exact current float semantics. Rounded sqrt, rounded radius subtraction, rounded range addition, overflow, subnormal/NaN,negative radius and equality boundaries can disagree. Need a conservative interval bound that proves the ORIGINAL d>=range comparison for each skipped candidate; near-boundary fallback must run original math. VU0/COP1 rounding on EE is part of acceptance. Host randomized parity alone is not a mathematical proof. Start by count far rejection rate and distances from boundary; if few rejections, do not pursue. Never cone-cull outright:0.05 downranking remains nonzero.\n\n## Invalidation map and generated fixture implications\n\n- updateDynLights (`game_templates.inc:638\u2013690`) clears count every frame and repopulates slots; on/intensity, visible/active, mutableposition/rotation/radius/bright/color, flicker and scene order determine contents. Slot pointers remain the same while identity/content changes; cache by pointer alone is invalid.\n- setSpotLight (`renderer_core.cpp:215\u2013237`) normalizes camera direction, stores RGB/range/cutoff/softness; disableSpotLight changes enabled. Generated FPP/ORBIT setters (`game_templates.inc:4971/7327`) follow live flashlight pose; camera motion invalidates through actual spot position/direction, not frustum planes. No view-dependent term exists directly in pick. Portal view changes that leave sphere and world lights unchanged need not invalidate an exact pick key, but transformed/rebound world centre or spotlight state must.\n- Named dynLightSkipSlot is per receiver and is updated for projected light receivers (`game_templates.inc:16447+`). Skipping entry affects tie order/available candidates. Scene visibility can compress registry and renumber slots, so do not keep a result/skip bitset across repopulation without verifying order.\n- Per-material bbox centre/radius, geometry version/rebuild, model/scale/animation, non-bbox radius0, and material dynLightPick/spotLit/lighting flags govern whether query occurs. Cache keys must use computed sphere, not model pointer/version alone. Negative/nonuniform scale handling must preserve existing column0 scale approximation.\n- Disabled dynamic entries and zero-color entries are not proven removable under actual engine public state. Ordinary generated k<=0 lights are already omitted before registration. Avoid adding a second heuristic whose activation mostly duplicates this existing filter.\n\n## Differential and physical acceptance controls\n\nUse actual baseline selection body plus candidate body, map returned pointers to camera/dyn slot identity. Deterministic cases: empty/alloutside fallback, disabled camera with scene candidate, public-disabled scene entry, named first/middle/last exclusions, identical scoreties, zero/negative RGB, camera-first ties, containing/zero/large sphere, point versus spot, soft cone penalty, dist1e-4 boundary, exact range and adjacent representable floats, NaN/Inf/signedzero/extreme valid floats. Random operations should include clear/re-add/reorder, move camera/lamp, mutate RGB/point/direction/range/cutoff directly, flipenabled, registrycount changes, skipSlot and sphere mutations. For cache exercise repeated hit then EACH keyed field mutation followed by hit, slot reuse and scene teardown; compare exact pointer identity not only approximate score/pixels.\n\nFor rank1 integrate actual light-preparation differential to preserve BLSS shared sphere and kNoSpot result; selected-pointer oracle alone is insufficient. For broader scoring changes additionally verify EE target score/classification boundaries and actual downstream meshSpot/selected uniforms. Physical A/B/A uses normal batching, same stationary night pose, moving camera and portal/scene transitions; archive emitted counts and scope work overhead separately. Treat parent pick/buildSpot/sphere as separate non-overlapping children; never sum them again with prepLight/prepObjectData/rendererwork parents. A lower host operation count is not a timing gain. No optimization is accepted by this audit.\n",
+    "sources": [
+      {
+        "path": "F:\\Projects\\tyra-editor\\vendor\\tyra\\engine\\src\\renderer\\core\\renderer_core.cpp",
+        "sha256": "520c81dbc1ac36e829c9c76408a15fe987567450ddbdd8341ccb5e1cce2fbd6f"
+      },
+      {
+        "path": "F:\\Projects\\tyra-editor\\vendor\\tyra\\engine\\inc\\renderer\\core\\renderer_core.hpp",
+        "sha256": "736d0cba3623e87e1b566884fc0f9af6df612bf43f4e0564aa67f1c5da7ea93d"
+      },
+      {
+        "path": "F:\\Projects\\tyra-editor\\vendor\\tyra\\engine\\src\\renderer\\3d\\pipeline\\static\\core\\stapip_core.cpp",
+        "sha256": "b805bf42bd72a34761764eaaa207ce7ff8d3b8862183b135091bc88e3b874932"
+      },
+      {
+        "path": "F:\\Projects\\tyra-editor\\vendor\\tyra\\engine\\src\\renderer\\3d\\pipeline\\static\\core\\stapip_qbuffer_renderer.cpp",
+        "sha256": "597e444875e6f5d45cff7359f0430ca89f27bd77657cbb7194554c7c9baa9825"
+      },
+      {
+        "path": "F:\\Projects\\tyra-editor\\vendor\\tyra\\engine\\inc\\renderer\\3d\\pipeline\\shared\\bag\\pipeline_info_bag.hpp",
+        "sha256": "37e5454dc7ed6f8999b10c206b7d50485a69a247148e7fe1193899e14acee328"
+      },
+      {
+        "path": "F:\\Projects\\tyra-editor\\src\\game_templates.inc",
+        "sha256": "ebf0ec5aabaf4113f97506718af634ad02be0e50d85d029dbee6b87fdcec170f"
+      }
+    ]
+  }
+}

@@ -13,6 +13,26 @@ build time all graphs compile into `src/gen/flow_graph.gen.cpp` - one
 script class per graph. There is no interpreter on the PS2: graphs become
 plain C++.
 
+## TyraX2 custom-code contract
+
+[TyraX2 source documentation](https://github.com/doctorspider42/tyraX/blob/main/docs/tyrax2.md) describes the default-off frame pipeline.
+Ordinary renderer APIs supply ordering fences; do not add an unconditional
+wait to every custom node/script. Raw DMA/GS writes and CPU GPU readbacks are
+not automatically recorded. Use `Tyra::frameSendPacket` from
+`renderer/core/paths/path1/frame_submission.hpp` for custom packets, or retain
+the queue/channel completion and source-ownership contract; drain
+`Tyra::Vif1Queue` before a foreign direct VIF1 send. DMA completion alone does
+not release a GS texture reader.
+
+Call `RendererCore::setFramePipeline(bool)` only between frames;
+`getFramePipeline()` returns the request, not actual overlap in compatibility
+modes. Before a between-frame CPU GPU readback, call
+`renderer.core.synchronizeFrame()` (the generated debugger does). During
+recording, `sync.align3D()` / `sync.align2D()` may only record ordering barriers,
+so neither they nor `synchronizeFrame()` are a general mid-recording readback
+or resource-destruction recipe. Keep referenced buffers and VRAM alive until
+their actual readers complete.
+
 ## Reading and writing graphs
 
 Always go through the editor CLI (it validates node types and link rules):

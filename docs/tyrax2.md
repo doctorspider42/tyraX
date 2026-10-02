@@ -547,3 +547,11 @@ attribution, with no production effect removal or accepted night optimization.
 ## EE preparation and VU0 follow-up, 2026-10-02
 
 The [physical pipeline attribution and VU0 audit](tyrax2-ee-vu0.md) measures 2.724 ms source snapshots and 0.743 ms native conversion inside 3.665 ms submission, with only 0.003 ms combined existing VIF/FINISH waits. VU0 already handles vector/matrix/skin math in macro mode. Prioritize fewer packet/range/lease passes, then measure remaining scalar math before offloading. Combined consumer completion is a sampled upper bound, not VU-only time; no new optimization is accepted here.
+
+## Authoring integration audit, 2026-10-02
+
+The standard flowgraph and generated FPP/ORBIT loops already use the engine synchronization contracts. Scene unload, texture mutation, display changes, auxiliary passes and live-debugger captures do not require an unconditional wait around every node. Custom raw DMA, resource ownership and CPU readback still require explicit completion/lifetime handling; see [custom flow nodes](custom-flow-nodes.md) and [object scripts](object-scripts.md).
+
+Version 1.169.2 fixes an existing Set Display Mode generator mismatch: legal full-height PAL value 4 was clamped to InterlacedField value 3. Scratch FPP and ORBIT fixtures preserve all five values, clamp outside 0..4 and retain the confirmation timeout. Native builds and PCSX2 runtime markers verify PAL4 at 50 Hz and timed rollback to 0, with the pipeline request retained. This is emulator control-flow validation, not physical video/pixel or latency acceptance. Existing video-modes example nodes only use 0..3, so their generated behavior is unchanged. The [integration record](tyrax2-integration-2026-10-02.json) preserves hashes and limitations.
+
+Optional Set/Get Frame Pipeline nodes would be authoring conveniences, not required integration. Any future setter must defer its request until before beginFrame in both templates. getFramePipeline reports the requested setting, including during compatibility fallback; an actual-active/fallback query needs an explicit engine API. Physical input-to-display latency and default promotion remain open acceptance gates; SPR/CALL staging remains separate work.

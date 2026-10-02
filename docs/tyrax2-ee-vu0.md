@@ -82,3 +82,25 @@ The [machine record](tyrax2-snapshot-breakdown-2026-10-02.json) preserves exact 
 The measured preflight plus fixups total about 1.882 ms; mutable copying adds 1.056 ms, versus only 0.266 ms for full-chain copying. These are instrumented costs, not additive gain estimates. Runtime-disabled work also differs from earlier pristine ELF measurements; cross-boot/layout differences cannot all be assigned to the runtime gate. Price pristine/compiled-out controls before deriving a production saving from these brackets.
 
 The source audit identifies two additional scalar-math seams to census: a partial guard-band bag can transform the same eight clip planes twice in one render call; local spot preparation performs affine inverse and normalization inside sendObjectData, beyond the existing prepLight bracket. Measure activation/cache misses and exclusive cost before reusing results or writing a VU0 kernel. Existing object-cost export changes batching with per-object fences, and some TYRA_STAPIP_ATTRIB counters ignore the runtime telemetry gate, so those modes cannot silently stand in for an ordinary pipeline control. The full read-only census plan and source hashes are retained in the machine record.
+
+## Exclusive EE math census, physical PS2
+
+A private ordinary-batching probe completed 6,600 gameplay frames and two scene reloads in both PCSX2 2.9.93 and a fresh physical boot. The same ELF runs compiled-on/runtime-gate off, census enabled, then off again. Seven scopes preserve original arithmetic, early returns and rendering order; no new DMA wait or GPU hold is introduced. Probe host API/compile-out controls and source-insertion removal checks passed.
+
+| Scoped call path | Diagnostic ms/frame | Calls/frame |
+| --- | ---: | ---: |
+| Engine six-plane transform, cache miss | 0.109074 | 25.844 |
+| Generated coarse six-plane transform | 0.048262 | 13 |
+| Eight clip-plane transform | 0.377498 | 74 |
+| World bounding sphere | 0.131915 | 113 |
+| Dynamic-light selection | 0.456520 | 114 |
+| Local spot preparation | 0.229736 | 134 |
+| Zero-influence check | 0.133415 | 71 |
+
+These seven mutually exclusive scoped paths total 1.486420 ms in the enabled diagnostic; they are not a complete EE census or a potential saving. Helpers already include VU0 macro arithmetic. Local preparation and influence are children of sendObjectData, outside the old prepLight bracket. Do not add children to their existing parent totals.
+
+Warm exact 512-frame work windows average 18.231584 / 18.250115 / 18.318051 ms; all three period windows remain 33.403 ms (29.94 Hz). Enabled work is +0.018531 / -0.067937 ms against the controls, whose spread is 0.086467 ms. This run does not resolve observer overhead or a speed gain. Gate-off controls retain compiled scaffold; pristine/compiled-out hardware controls remain separate.
+
+At the transform-key seam, 135 calls/frame split into 108.156 reuse hits and 26.844 misses. Plane-cache counts are 105.156 hits / 25.844 misses. Guard attempts number 63, with 52 promotions and 11 repeated eight-plane transforms after a failed promotion. Light selection examines 912 actual candidates/frame across 114 calls. Local spot preparation has 71 enabled and 63 disabled calls. Disabled preparation is not proof that the preceding selection was unnecessary; bags can have different pick flags.
+
+Next prepare an exact per-render reuse of already calculated clip planes, with no cross-frame cache, and audit light-selection skips against tie ordering, zero scores, disabled slots, runtime changes and portal views. Compare actual-source boundary/classification/output controls before native, emulator and quiet physical candidate timing. No VU0 micro kernel or production math optimization is accepted. The [machine record](tyrax2-ee-math-2026-10-02.json) retains exact windows, counters, source/ELF/frozen-log hashes and probe/build/emulator evidence; the earlier paused emulator attempt is excluded from acceptance.

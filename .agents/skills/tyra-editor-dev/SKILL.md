@@ -3112,3 +3112,9 @@ permanent VRAM rebuilds complete pending jobs first. FRAMEPIPELINE busy-starts
 prove actual overlap; ORDEREDFRAME split counts must stop increasing in an ordinary
 warmed fixture before claiming one-chain frames. See docs/tyrax2.md for acceptance
 and honest timing limits; early work counters included presentation pacing.
+Runtime display flow-node parity: `SetDisplayMode` offers five values in
+`flowgraph.hpp` / `flowgraph_ui.cpp`; its `templates.cpp` emitter must clamp to
+0..4, matching `Tyra::DisplayMode`. Mode 4 is full-height PAL 576i, not mode 3
+field rendering. Preserve this through generated `ctx.requestDisplayMode`;
+`docs/frame-pacing.md` documents the mapping. The existing `video-modes` example
+uses 0..3, so verify mode 4 in a scratch copy when changing this emitter.

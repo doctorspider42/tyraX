@@ -26,6 +26,31 @@ see [Moving nodes to another project](#moving-nodes-to-another-project).
 *The [custom-nodes example](../examples/custom-nodes): two custom nodes
 (`Nearest Visible`, `Spin By`) wired next to a built-in action.*
 
+## TyraX2 and custom rendering
+
+The experimental [TyraX2 frame pipeline](tyrax2.md) records ordinary engine
+render operations and supplies their ordering fences automatically. Custom
+logic using those APIs needs no unconditional fence per node or script call.
+Raw DMA sends, GS register writes and CPU GPU readbacks bypass that contract;
+they are not automatically captured by enabling the project preference.
+
+Change `RendererCore::setFramePipeline(bool)` between frames, before
+`beginFrame()`. `getFramePipeline()` reports the **requested** setting, not
+whether overlap is active in the current compatibility mode. Before a
+between-frame CPU GPU readback, call `renderer.core.synchronizeFrame()` to
+complete the pending presentation; the generated debugger capture already
+uses it. This is not a mid-recording readback helper.
+
+For custom packets, use the existing adapters in
+`renderer/core/paths/path1/frame_submission.hpp` (`Tyra::frameSendPacket` and
+its ordering helpers), or explicitly obey the queue/channel completion and
+source-ownership contracts. `Tyra::Vif1Queue::drain()` is required before a
+foreign direct VIF1 send. An idle DMA channel does not prove the GS has stopped
+reading a texture. During recording, `sync.align3D()` / `sync.align2D()` can
+record barriers instead of waiting on the CPU: do not use them as proof that
+readback or resource destruction is safe. Keep referenced bytes and VRAM
+alive until their actual readers finish.
+
 ## Quick start
 
 1. Open the **Flow Graph** tab → **Custom nodes… ▸ New starter node**. This

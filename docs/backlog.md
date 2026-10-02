@@ -324,6 +324,13 @@ recovered 0.50-0.72 ms of hardware `work`. What it did not do, ranked:
   from historical arms. The older GPU-only sweep is not a current gain ceiling.
   Reference-title SPR staging and its approximately 16-qword-plus-CALL object
   scheme remain separate future work; this implementation does not add them.
+- **TyraX2 authoring integration — audited; PAL fix shipped in 1.169.2.**
+  Standard flow nodes/generated loops already use engine ordering and resource
+  fences; custom DMA/readback guidance is now linked from authoring/AI guides.
+  Legal Set Display Mode 4 now survives codegen; FPP/ORBIT native builds and
+  emulator mode4/timeout rollback pass. Optional pipeline setter/query nodes
+  remain separate conveniences; requested state is not active overlap.
+  See [integration audit](tyrax2.md#authoring-integration-audit-2026-10-02).
 - **Remaining EE work / VU0 offload — audited, experiments open.**
   [Current physical attribution](tyrax2-ee-vu0.md) finds 2.724 ms snapshots
   and 0.743 ms conversion nested in 3.665 ms submission, but only about
@@ -342,9 +349,14 @@ recovered 0.50-0.72 ms of hardware `work`. What it did not do, ranked:
   is now complete: preflight/fixups 1.882 ms, mutable copy 1.056 ms and chain
   copy 0.266 ms in the enabled diagnostic, with 0.252–0.431 ms observer work
   increase against gate-off controls. Next price fewer validation/copy passes
-  and measure clip-transform repetition plus local spot inverse/normalization.
+  and use the completed exclusive math census to rank candidates.
   Keep pristine/compiled-out controls and normal batching; these counters do
   not establish a new production timing or a VU0 gain.
+  [Exclusive math census](tyrax2-ee-vu0.md#exclusive-ee-math-census-physical-ps2)
+  completed 6,600 frames: eight-plane transforms 0.377 ms with 11 duplicate calls,
+  selection 0.457 ms with 912 candidates/frame, local preparation 0.230 ms.
+  Next gate per-render clip reuse and exact light-pick skips; quiet physical
+  controls remain required. All diagnostic arms still deliver 29.94 Hz.
 - **Night light-effect cost after TyraX2 — measured, optimization open.**
   A [physical one-group isolation run](tyrax2.md#night-workload-isolation-physical-ps2-2026-10-02)
   brackets seven stationary garage variants with full-night controls of

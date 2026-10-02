@@ -191,7 +191,10 @@ at runtime, every time the mode changes:
 
 - `ProjectSettings::supportedModes` declares the scan modes a player can switch
   into (Preferences > Display > *Supported resolutions*), and a menu row or the
-  `Set Display Mode` flow node can make that switch mid-game.
+  `Set Display Mode` flow node can make that switch mid-game. The node preserves
+  all five engine values: 0 interlaced, 1 progressive 480p, 2 1080i,
+  3 field rendering, and 4 full-height PAL 576i. PAL 576i remains mode 4 in
+  generated scripts; it must not be clamped to field rendering.
 - `RendererCore::setDisplayOutput` answers a mode change with `gs.reinit()`,
   which re-runs `allocateVramBuffers` over the new framebuffer size — so the
   headroom check above is asked **again**, with a different answer, and
