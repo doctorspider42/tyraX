@@ -1,7 +1,7 @@
 {
   "date": "2026-10-02",
   "version": "1.170.0",
-  "status": "Physical instrumented/compiled-out/identical-instrumented bracket passes; combined configuration difference repeats; ring-only isolation pending",
+  "status": "Physical configuration A/B/A and same-ELF ring0/1/0 brackets pass; inactive dispatch versus code/data layout remains unresolved",
   "production_renderer_behavior_changed": false,
   "trace_default_compiled": 1,
   "runtime_default": "unarmed",
@@ -393,7 +393,8 @@
       "4": 0.004128107948908166,
       "6": 0.03577241443452195
     },
-    "bracket_interpretation": "Combined configuration gap remains positive against both identical instrumented boots, exceeding same-ELF control spread. No isolation of ring/asset layout versus code/hooks; one middle compiled-out boot. Broad repeated observer acceptance remains open."
+    "bracket_interpretation": "Combined configuration gap remains positive against both identical instrumented boots, exceeding same-ELF control spread. No isolation of ring/asset layout versus code/hooks; one middle compiled-out boot. Broad repeated observer acceptance remains open.",
+    "ring_reservation_control": "See hardware-timeline-ring-control-2026-10-02.json: one complete same-ELF bracket, observed small work decrease with reserved ring, no isolated hook bill or transfer to older executable layout"
   },
   "limitations": [
     "Seven accepted warm samples per arm in one boot are exploratory; repeated matched runs are required.",

@@ -429,7 +429,14 @@ recovered 0.50-0.72 ms of hardware `work`. What it did not do, ranked:
   384 independent samples each with trace inactive. Declared state digests
   match, real physics remains live. First physical reservation0 boot passes all
   5,400 frames and 384 samples: work means 17.556/17.664/17.682 ms. Reservation1
-  and reservation0 return are next; no ring effect accepted from this baseline.
+  and reservation0 return also pass all samples. In one same-ELF 0/1/0 bracket,
+  reserved work is 0.069–0.101 ms lower than both controls, whose spreads are
+  0.0006–0.0193 ms. All 45 observed addresses move and restore, declared states
+  and size/capacity topology match. No universal ring/hook bill or subtraction
+  from older ELF gaps: layout interactions, live physics and one bracket limit
+  transfer. Mode1 original cfg bytes were not archived before replacement;
+  runtime mode/reservation records remain valid. Next isolate selected inactive
+  dispatch while holding executable and memory layout fixed.
   seven warm samples per arm in a single boot are exploratory only. No constant
   overhead correction, VU/GS utilization or EE arithmetic-only cost is inferred.
 - **Night light-effect cost after TyraX2 — measured, optimization open.**

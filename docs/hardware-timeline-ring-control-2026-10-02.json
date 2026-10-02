@@ -1,6 +1,6 @@
 {
   "date": "2026-10-02",
-  "status": "First same-ELF no-reservation physical control passes; reservation1 and return0 pending",
+  "status": "One same-ELF physical reservation0/1/0 bracket complete; observed small work decrease with reserved ring, no general hook cost accepted",
   "production_change": false,
   "elf_sha256": "a03865970ece7981c99982c098a4b1296fed79b0a4165f10c8780872318f5a2d",
   "native_build": "PASS",
@@ -66,7 +66,19 @@
     "timeline-ring-mode0-physical-root-snapshot.log": "8d5ce57b1994f834d9ff05574c1afd351ae330244a28a8942195e203b0a64292",
     "timeline-ring-mode0-physical-root-analysis.json": "1c0de5202b7446cbb8d9d9f10da90fd9dce2784048c7931c97512809c73d9cdb",
     "timeline-ring-mode0-physical.elf": "a03865970ece7981c99982c098a4b1296fed79b0a4165f10c8780872318f5a2d",
-    "tyrax2-timeline-ring-mode0-physical-evidence/machine-evidence.json": "95799fe8eecf3ca4d3599f1d222ff5ac52c59b2efa96f06301e07834d137e8d4"
+    "tyrax2-timeline-ring-mode0-physical-evidence/machine-evidence.json": "95799fe8eecf3ca4d3599f1d222ff5ac52c59b2efa96f06301e07834d137e8d4",
+    "timeline-ring-mode1-physical-root-snapshot.log": "ee683055e132063f99bd78a501a0c74f899e9337d839f4cd8417d77b82dc77a7",
+    "timeline-ring-mode1-physical-root-analysis.json": "500883f8861b703e067af70f3bc91e71ceed965461c8f4ceeaf825d5b2e41e60",
+    "timeline-ring-mode1-physical.elf": "a03865970ece7981c99982c098a4b1296fed79b0a4165f10c8780872318f5a2d",
+    "tyrax2-timeline-ring-mode1-physical-evidence/machine-evidence.json": "0ff7b8b7225cf78d95e2237ecfd42329347ab1299947b08138ea1852d7ac8be5",
+    "tyrax2-timeline-ring-mode1-physical-evidence/same-elf-mode-comparison.json": "9255a87cbff61dcb929b1d5b6d3bbd022e0b18191c581cbdc8262354bafb5cb7",
+    "timeline-ring-mode0-return-physical-root-snapshot.log": "b6d3f8222c29b367f6b5c16f8b1d3d83d1700819cfd236e2fed49de654a12286",
+    "timeline-ring-mode0-return-physical-root-analysis.json": "aacb81521122efdd6aec1133778d64b75f99dcb4deb5d02acc4503b72ac9903a",
+    "timeline-ring-mode0-return-physical.elf": "a03865970ece7981c99982c098a4b1296fed79b0a4165f10c8780872318f5a2d",
+    "timeline-ring-mode0-return-physical-launch.cfg": "13bf7b3039c63bf5a50491fa3cfd8eb4e699d1ba1436315aef9cbe5711530354",
+    "tyrax2-timeline-ring-mode0-return-physical-evidence/machine-evidence.json": "696268ee3908ebf3f2c7ab8ec11d9e3db48416a37720f73378690ab7a26eb77e",
+    "tyrax2-timeline-ring-mode0-return-physical-evidence/same-elf-ring-bracket.json": "926198d82f46ebeb811728166e4cafea9878acdecd7dd21b880368768295ffa2",
+    "tyrax2-timeline-ring-mode0-return-physical-evidence/selected-part-return-confirmation.json": "0e76694239b9f2a41628a2a8ec2633234808f9517b332f2bcf01424755dc65e7"
   },
   "physical": {
     "mode0": {
@@ -182,9 +194,261 @@
       },
       "evidence": "tyrax2-timeline-ring-mode0-physical-evidence/machine-evidence.json"
     },
-    "mode1": "pending",
-    "mode0_return": "pending",
+    "mode1": {
+      "frames": 5400,
+      "accepted_samples": 384,
+      "state_digest_controls": 6,
+      "trace_active": false,
+      "ring_reserved": true,
+      "strict_analysis": "PASS",
+      "metrics_by_phase": {
+        "0": {
+          "engineTicks": {
+            "count": 128,
+            "mean_ticks": 9840026.765625,
+            "median_ticks": 9840009.0,
+            "min_ticks": 8842284,
+            "max_ticks": 10843350,
+            "mean_ms": 33.36597617467245
+          },
+          "loopTicks": {
+            "count": 128,
+            "mean_ticks": 9824804.90625,
+            "median_ticks": 9829364.0,
+            "min_ticks": 8821703,
+            "max_ticks": 10831835,
+            "mean_ms": 33.314361254374184
+          },
+          "renderTicks": {
+            "count": 128,
+            "mean_ticks": 9393941.828125,
+            "median_ticks": 9422907.0,
+            "min_ticks": 8415165,
+            "max_ticks": 10421445,
+            "mean_ms": 31.853372626834446
+          },
+          "workTicks": {
+            "count": 128,
+            "mean_ticks": 5156888.390625,
+            "median_ticks": 5118033.0,
+            "min_ticks": 5066962,
+            "max_ticks": 5528010,
+            "mean_ms": 17.486193815867107
+          }
+        },
+        "1": {
+          "engineTicks": {
+            "count": 128,
+            "mean_ticks": 9839959.859375,
+            "median_ticks": 9840042.0,
+            "min_ticks": 8883990,
+            "max_ticks": 10796148,
+            "mean_ms": 33.365749306148956
+          },
+          "loopTicks": {
+            "count": 128,
+            "mean_ticks": 9825353.890625,
+            "median_ticks": 9829270.0,
+            "min_ticks": 8872357,
+            "max_ticks": 10785455,
+            "mean_ms": 33.316222773657906
+          },
+          "renderTicks": {
+            "count": 128,
+            "mean_ticks": 9394760.421875,
+            "median_ticks": 9423521.0,
+            "min_ticks": 8458815,
+            "max_ticks": 10395139,
+            "mean_ms": 31.856148348914253
+          },
+          "workTicks": {
+            "count": 128,
+            "mean_ticks": 5187112.234375,
+            "median_ticks": 5147657.0,
+            "min_ticks": 5101414,
+            "max_ticks": 5521528,
+            "mean_ms": 17.58867809507582
+          }
+        },
+        "2": {
+          "engineTicks": {
+            "count": 128,
+            "mean_ticks": 9839961.921875,
+            "median_ticks": 9840039.0,
+            "min_ticks": 8910462,
+            "max_ticks": 10771322,
+            "mean_ms": 33.365756299760605
+          },
+          "loopTicks": {
+            "count": 128,
+            "mean_ticks": 9828482.796875,
+            "median_ticks": 9829271.0,
+            "min_ticks": 8896955,
+            "max_ticks": 10760323,
+            "mean_ms": 33.326832400427925
+          },
+          "renderTicks": {
+            "count": 128,
+            "mean_ticks": 9398324.84375,
+            "median_ticks": 9423595.0,
+            "min_ticks": 8486989,
+            "max_ticks": 10353495,
+            "mean_ms": 31.868234740363228
+          },
+          "workTicks": {
+            "count": 128,
+            "mean_ticks": 5184758.3359375,
+            "median_ticks": 5141241.0,
+            "min_ticks": 5084710,
+            "max_ticks": 5615524,
+            "mean_ms": 17.580696397357517
+          }
+        }
+      },
+      "evidence": "tyrax2-timeline-ring-mode1-physical-evidence/machine-evidence.json",
+      "original_boot_cfg_bytes_archived": false,
+      "config_provenance": "Launch read observed1; all runtime config/phase/sample/window records mode1/reserved1. File switched to0 after completion before archive; original bytes unavailable and no original cfg hash claimed."
+    },
+    "mode0_return": {
+      "frames": 5400,
+      "accepted_samples": 384,
+      "state_digest_controls": 6,
+      "trace_active": false,
+      "ring_reserved": false,
+      "strict_analysis": "PASS",
+      "metrics_by_phase": {
+        "0": {
+          "engineTicks": {
+            "count": 128,
+            "mean_ticks": 9840025.078125,
+            "median_ticks": 9840009.0,
+            "min_ticks": 8912214,
+            "max_ticks": 10767864,
+            "mean_ms": 33.36597045262655
+          },
+          "loopTicks": {
+            "count": 128,
+            "mean_ticks": 9823697.5,
+            "median_ticks": 9829145.0,
+            "min_ticks": 8901195,
+            "max_ticks": 10756499,
+            "mean_ms": 33.310606214735245
+          },
+          "renderTicks": {
+            "count": 128,
+            "mean_ticks": 9387030.390625,
+            "median_ticks": 9420181.0,
+            "min_ticks": 8479951,
+            "max_ticks": 10341715,
+            "mean_ms": 31.82993703418308
+          },
+          "workTicks": {
+            "count": 128,
+            "mean_ticks": 5177417.7421875,
+            "median_ticks": 5146672.0,
+            "min_ticks": 5075812,
+            "max_ticks": 5503792,
+            "mean_ms": 17.555805603663128
+          }
+        },
+        "1": {
+          "engineTicks": {
+            "count": 128,
+            "mean_ticks": 9840033.921875,
+            "median_ticks": 9840041.0,
+            "min_ticks": 8865364,
+            "max_ticks": 10809758,
+            "mean_ms": 33.366000440385605
+          },
+          "loopTicks": {
+            "count": 128,
+            "mean_ticks": 9824379.8125,
+            "median_ticks": 9829253.0,
+            "min_ticks": 8853683,
+            "max_ticks": 10798663,
+            "mean_ms": 33.312919828626846
+          },
+          "renderTicks": {
+            "count": 128,
+            "mean_ticks": 9390266.65625,
+            "median_ticks": 9420326.0,
+            "min_ticks": 8423107,
+            "max_ticks": 10393185,
+            "mean_ms": 31.84091069963243
+          },
+          "workTicks": {
+            "count": 128,
+            "mean_ticks": 5207570.390625,
+            "median_ticks": 5173266.0,
+            "min_ticks": 5079136,
+            "max_ticks": 5493074,
+            "mean_ms": 17.65804847081502
+          }
+        },
+        "2": {
+          "engineTicks": {
+            "count": 128,
+            "mean_ticks": 9840024.40625,
+            "median_ticks": 9840048.0,
+            "min_ticks": 8873610,
+            "max_ticks": 10799022,
+            "mean_ms": 33.36596817440457
+          },
+          "loopTicks": {
+            "count": 128,
+            "mean_ticks": 9828866.40625,
+            "median_ticks": 9829346.0,
+            "min_ticks": 8860271,
+            "max_ticks": 10787747,
+            "mean_ms": 33.32813315921359
+          },
+          "renderTicks": {
+            "count": 128,
+            "mean_ticks": 9393927.59375,
+            "median_ticks": 9419120.0,
+            "min_ticks": 8461897,
+            "max_ticks": 9989565,
+            "mean_ms": 31.853324360317654
+          },
+          "workTicks": {
+            "count": 128,
+            "mean_ticks": 5208961.625,
+            "median_ticks": 5176959.0,
+            "min_ticks": 5101046,
+            "max_ticks": 5654624,
+            "mean_ms": 17.66276592678494
+          }
+        }
+      },
+      "evidence": "tyrax2-timeline-ring-mode0-return-physical-evidence/machine-evidence.json",
+      "original_boot_cfg_bytes_archived": true
+    },
     "ring_cost_accepted": false,
-    "interpretation": "Single no-ring boot baseline only. Compare matching phases of the same ELF in adjacent reservation controls; no comparison to older changed binaries as isolated hook cost."
+    "interpretation": "In this ELF, ring reservation has0.069-0.101ms lower work versus both controls, exceeding0.0006-0.0193ms control spreads. One bracket only, live physics/partial state/address controls. Do not transfer exact effect to older ELF layout, infer isolated hooks, subtract from old configuration gap, or accept universal ring cost.",
+    "boot_order": [
+      0,
+      1,
+      0
+    ],
+    "observed_work_delta_ms": {
+      "0": {
+        "reserved_minus_initial": -0.0701962047153053,
+        "reserved_minus_return": -0.06961178779602051,
+        "control_spread": 0.0005844169192847914
+      },
+      "1": {
+        "reserved_minus_initial": -0.0755605697631836,
+        "reserved_minus_return": -0.0693703757392008,
+        "control_spread": 0.006190194023982798
+      },
+      "2": {
+        "reserved_minus_initial": -0.1013308366139718,
+        "reserved_minus_return": -0.08206952942742163,
+        "control_spread": 0.01926130718655017
+      }
+    },
+    "sampled_state_digest_comparison": "PASS all declared named fields in both pairs; real dt excluded",
+    "accessible_vector_and_selected_part_topology": "PASS sizes/capacities; all45observed addresses differ with ring and restore on return0",
+    "single_bracket_effect_observed": true
   }
 }

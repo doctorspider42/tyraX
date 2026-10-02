@@ -108,16 +108,31 @@ outside sampled windows. Both runs provide all 384 whole-engine/work samples;
 declared state digests match within and between modes. Real physics dt remains
 live, so this is not full vehicle-state or pixel equivalence. Final screenshots
 look normal but differ in HUD speed; emulator timings are structural validation
-only. Physical fresh-boot 0/1/0 reservation controls remain pending. This probe
+only. The physical fresh-boot 0/1/0 results are recorded below. This probe
 isolates a reservation configuration in one ELF, not compiler-pruned hook cost.
 
 The first physical no-reservation boot also passes: 5,400 frames, all 384
 independent samples, six matching state controls and valid accessible-address
 provenance, with no trace recording or exports. Phase work means are
 17.556390/17.664239/17.682027 ms and whole-engine means remain about 33.366 ms.
-This is a baseline only. Reservation-on and no-reservation return boots of the
-same ELF remain necessary before assigning a buffer effect; older binaries
-cannot substitute for these controls.
+This first boot is a baseline only; the completed bracket follows below.
+Older binaries cannot substitute for same-ELF reservation controls.
+
+The complete same-ELF physical reservation 0/1/0 bracket now passes all three
+5,400-frame boots and 384 samples per boot. Reserved-ring work means are
+17.486194/17.588678/17.580696 ms; return no-ring means are
+17.555806/17.658048/17.662766 ms. The reserved boot is 0.069370–0.101331 ms lower
+than both matching controls, whose spreads are 0.000584–0.019261 ms. Declared
+state fields and accessible vector/selected-part sizes and capacities match;
+all 45 observed addresses move with the ring and restore in the return boot.
+This is one bracket under this executable layout, with live physics and partial
+state/address coverage. It does not establish a general ring cost or isolate
+inactive hook dispatch, and its effect cannot be subtracted from an older
+different ELF's configuration gap. The reserved boot's original cfg bytes were
+overwritten after completion before archival: launch/runtime records establish
+mode1/reserved1, but no original cfg byte hash is claimed. The return cfg was
+archived explicitly before launch. Next separate selected inactive dispatch
+from code/data layout using a new controlled probe.
 
 The immutable calibration fixture still has the older generated `Scene` scope,
 which is detail-only. Its coarse renderer work therefore remains under `Game`;
