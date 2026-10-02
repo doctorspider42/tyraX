@@ -234,13 +234,87 @@ calibration ELFs.
 The dominant observed envelope is now Scene, rather than unexplained Game.
 Scene has no typed children in this coarse capture, so its inclusive and
 exclusive ledger durations coincide; that does not make it pure arithmetic.
+Synchronous queue snapshotting/conversion reached during scene submission is
+included. The envelope excludes only later work after `renderScene` returns;
+EndFrame is not a blanket owner of all snapshot/native preparation.
 The pooled CPU-labelled frame ledger is 19.666059 ms, known waits 0.003082 ms,
 pacing 13.660563 ms and uncovered time 0.035484 ms, with zero ambiguity. These
 categories partition elapsed frame time; the CPU label still includes any
 unclassified waits or interruptions. Do not subtract the EndFrame completion
-waits from Scene: they are outside it. Narrow attribution inside bag preparation
-and dispatch remains open, as does pricing any actual candidate with capture
-disabled. No production optimization or VU/GS utilization claim follows.
+waits from Scene: they are outside it. The aggregate census below subsequently
+subdivides bag preparation and dispatch; pricing any actual candidate with
+capture disabled remains open. No production optimization or VU/GS utilization
+claim follows.
+
+### Aggregate bag preparation and dispatch census
+
+A private follow-up splits each `StaPipCore::render` call into eleven contiguous,
+exclusive intervals. It preserves rendering order and measures Head, Bounds,
+packager/MVP, texture/wrap, program selection, light sphere/pick, BLSS/fog,
+object data, cache opening/replay, dispatch routing and finalization/tail.
+Early returns retain exact coverage. Route counters distinguish empty, culled,
+direct and partial bags, with replay/retention as separate flags. Partial
+stripped/list/subpackage work remains combined inside DispatchRoute.
+
+The same ELF compares Off/On/Off and On/Off/On with continuous resources,
+fixed game dt and common 128-row sample and metrics buffers. A common Scene
+envelope exists in every arm; the detailed trace remains inactive. Active bag
+observation reads Count twelve times per ordinary call, twice for an empty
+call and three times for a culled call. Aggregation occurs after the final bag
+timestamp, inside Scene, so independent renderer-work controls include its cost.
+Runtime Off retains common observers, branches and layout; it is not equivalent
+to removing the instrumentation at compile time.
+
+Two UDP export attempts were rejected for missing records. Splitting the burst
+across frames still lost data. The accepted export design writes RAW/BAG/WINDOW
+records to a separate `host:` file during offsets 1200–1327, after the sampled
+offsets 900–1027 and the final state control at 1100. It closes the file before
+DONE. Startup/control stdout and the exact file are validated separately;
+missing rows are never reconstructed or deduplicated. The next phase cannot
+reuse the buffers until the previous export completes.
+
+[Both physical boot orders](hardware-bag-dispatch-census-2026-10-03.json) pass
+5400 loops each and all 768 raw/metrics pairs, with 384 active frames.
+Exact state/camera/dt, accessible addresses and common buffer addresses match
+within and across boots. Every active sample has 135 calls: zero empty, one
+culled, 123 direct and 11 partial; 122 replayed and 11 retained flags. Every bag is
+inside the one Scene and its eleven intervals telescope exactly to its total.
+Native build, full emulator replay, independent source/algebra and negative
+acceptance controls pass. Earlier UDP attempts remain rejected evidence.
+
+| Active observation | Mean range across three 128-frame windows |
+|---|---:|
+| Head | 0.308874–0.313884 ms |
+| Bounds | 2.044088–2.050814 ms |
+| Packager/MVP | 0.830883–0.832784 ms |
+| Texture/wrap | 0.582511–0.587716 ms |
+| Program selection | 0.116315–0.121862 ms |
+| Light sphere/pick | 0.945445–0.957241 ms |
+| BLSS/fog | 0.084924–0.090435 ms |
+| Object data | 2.179928–2.192450 ms |
+| Cache opening and actual replay | 3.526090–3.534135 ms |
+| Dispatch routing and package work | 2.847574–2.858901 ms |
+| Finalization/tail | 1.937671–1.942483 ms |
+| Sum of selected bag intervals | 15.431570–15.449663 ms |
+| Common Scene envelope | 18.514274–18.518139 ms |
+| Scene minus selected bag intervals | 3.067463–3.082704 ms |
+
+Off Scene means are 17.731714–17.734488 ms. Independent renderer work increases
+by 0.781749–0.784440 ms in Off/On/Off and 0.778792–0.780136 ms in On/Off/On;
+outer-control spreads are 0.002691/0.001344 ms. Pacing leaves the whole-engine
+period approximately 33.365 ms. This measures net activation under one boot per
+order, retaining common instrumentation; do not distribute that cost uniformly
+among buckets or subtract it from each bucket. Elapsed intervals include waits,
+interruptions and synchronous snapshot/native preparation. The Scene residual
+includes work outside selected bags and aggregation after their terminal stamps.
+It is not all bookkeeping, nor a pure CPU bill.
+
+The next concrete hypothesis is the largest group: distinguish baked lookup
+from actual replay/submission, including any snapshot and native conversion
+performed synchronously inside it. DispatchRoute's partial package paths are
+also still combined. A measured candidate must preserve output and be compared
+with bag observation disabled. No production speedup or VU/GS utilization claim
+is established by this census.
 
 ### What attribution can decide
 
@@ -252,8 +326,11 @@ finishes and where the EE waits. Its exclusive wall times are not a production
 arithmetic bill.
 
 Coarse Scene supplies a lower-volume envelope for `renderScene`: Update is
-already closed, and deferred snapshot/native work in EndFrame remains outside
-that invocation. Its span still includes unlabelled waits and interruptions.
+already closed. Snapshot copying and native sizing/emission called synchronously
+by scene submission are inside this envelope; only work performed after
+`renderScene` returns is outside it. Final chain closure, pending presentation
+and DMA submission normally occur in EndFrame. Its span still includes
+unlabelled waits and interruptions.
 Only the named completion waits are separately classified; tiny measured waits
 do not prove all consumers or the EE are idle elsewhere. Existing narrow
 snapshot and math censuses rank hypotheses, but different ELF/boot observations

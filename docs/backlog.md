@@ -455,8 +455,19 @@ recovered 0.50-0.72 ms of hardware `work`. What it did not do, ranked:
   Coarse activation adds 0.069–0.097 ms renderer work with outer-control spreads
   0.022251/0.020429 ms. Exact named state/camera/dt and accessible addresses
   match within/across boots. This is a fixed-workload elapsed EE envelope, not
-  pure arithmetic or VU/GS utilization. Next narrowly attribute bag preparation
-  and dispatch, then price candidates with capture off; broader repeats remain
+  pure arithmetic or VU/GS utilization.
+  [Aggregate bag census](hardware-bag-dispatch-census-2026-10-03.json) now passes
+  both 5400-loop physical orders with all 768 raw/metrics pairs. Three active
+  windows have 135 calls each (one culled, 123 direct, 11 partial; 122 replayed),
+  exact exclusive coverage and matching state/camera/dt/accessible addresses.
+  Cache opening plus actual replay is 3.526–3.534 ms, dispatch 2.848–2.859 ms,
+  object data 2.180–2.192 ms and bounds 2.044–2.051 ms. Selected bags total
+  15.432–15.450 ms inside 18.514–18.518 ms Scene; the residual includes other
+  work and observer aggregation. Net activation adds 0.779–0.784 ms renderer
+  work in both orders, retaining common instrumentation. Two incomplete UDP
+  attempts are rejected; reliable file export occurs after measurement.
+  Next separate actual replay/submission from lookup in the largest group,
+  then price a concrete candidate with observation off; broader repeats remain
   open. Earlier seven
   warm samples per arm in a single boot are exploratory only. No constant
   overhead correction, VU/GS utilization or EE arithmetic-only cost is inferred.
