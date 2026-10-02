@@ -2003,6 +2003,27 @@ rounding a total pixel count to 2048 words is not the allocator's layout.
   is not true of the engine's own boot screens.
 
 **Audio**
+- **The audio thread's stack is 16 KB and GUARDED - keep anything heavy off
+  it or grow it** (`Audio::threadStackSize`, 1.169.1). It was 2 KB from
+  `memalign(1, ...)` for the engine's whole life, which held only while
+  nothing on that thread logged. `AudioSong::work()` runs there, and the
+  low-ring warning (#253) made it call `TYRA_WARN` - an ostringstream plus a
+  `host:` write, several KB. The overflow ran DOWN into the heap block below
+  the stack, which in `examples/showcase` was Path1's draw-finish packet: the
+  next PATH1 barrier sent VIF1 a saved register frame, PCSX2 printed
+  `Vif1: Unknown VifCmd! [47]` and the game froze ~16 s into the scene, every
+  boot. Nothing pointed at audio - the symptom was a VIF1 desync and the dead
+  packet belonged to the renderer. What found it, in order: the VIF1 chain
+  validator (below) named the CHAIN, a canary on that packet named the
+  overwritten FIELD (`packet2_t::base`), and a dump of the region showed
+  qword-strided register saves with return addresses - a stack. The guard is
+  16 canary words at the bottom of the stack, checked after every `work()`; a
+  write past them is a `TYRA_SOFT_ERROR` naming `threadStackSize`. Proven both
+  ways: at 2 KB it fires and the game hangs, at 16 KB neither. **Any thread
+  you create gets the same treatment: size it for logging, align it to 16
+  (the EE saves 128-bit registers with `sq`), guard its bottom.** A heap block
+  that turns into a different, well-formed struct is a stack or a DMA writing
+  into it, not a double free - a `--wrap=free` watch came back empty here.
 - audsrv streams PCM only; ADPCM is for one-shots (`adpcm.tryPlay`), and an
   ADPCM voice cannot be STOPPED - only started, or started over.
   **The channel budget of a generated game**, per bus (every new sound goes to
@@ -2630,6 +2651,19 @@ must keep:
   `FRAME_1` write. **"Every byte matches but nothing shows" means look at WHEN
   the GS gets it, not what.** A new frame-boundary PATH3 sender must come after
   this drain.
+- **`TYRA_VIF1_VALIDATE` is the instrument for a VIF1 desync** (0, never
+  shipped; 1.169.1). It walks every chain the way the DMAC and VIF1 will -
+  DMA tags, then the VIFcode stream they carry, with STCYCL and a half-eaten
+  UNPACK carried across chain boundaries as the hardware carries them - and
+  logs `VIF1CHECK` lines naming the sender. Queued chains are walked when they
+  START (not when submitted, so a chain rewritten while it waited shows up),
+  direct senders through `TYRA_VIF1_CHECK` before their
+  `dma_channel_send_packet2`, and every chain is hashed again when it finishes
+  (`RACE` = written while VIF1 was reading it). A `VIF1CHECK ok` heartbeat
+  every 5000 chains proves it is running. **A new direct VIF1 sender must add
+  a `TYRA_VIF1_CHECK`**, or the walker's model of the stream goes stale. The
+  bad word PCSX2 reports is usually far downstream of the chain that broke the
+  stream; this names the chain.
 - **`TYRA_VIF1_QUEUE_HOLD` is a measurement probe, never a mode** (0): the
   queue only collects chains until the EE first waits, and `endFrame` logs the
   frame's VU1+GS time alone (`GPUHOLD us`). Run it with

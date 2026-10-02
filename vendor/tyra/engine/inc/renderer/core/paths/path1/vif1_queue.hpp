@@ -59,6 +59,18 @@
 #ifndef TYRA_VIF1_QUEUE_HOLD
 #define TYRA_VIF1_QUEUE_HOLD 0
 #endif
+/** DIAGNOSTIC, never on in anything shipped. 1 = every chain handed to VIF1
+ * (submit(), and the direct senders that call validate()) is walked on the EE
+ * the way the DMAC and VIF1 will read it: DMA tags, then the VIFcode stream
+ * they carry, with the VIF's own state (STCYCL, a half-consumed UNPACK) carried
+ * from one chain into the next exactly as the hardware carries it. The first
+ * few defects are logged with the caller's return address (symbolize it). This
+ * is the instrument for "Vif1: Unknown VifCmd" in PCSX2 or a hung VIF1 on a
+ * console: the bad word is usually far downstream of the chain that broke the
+ * stream. */
+#ifndef TYRA_VIF1_VALIDATE
+#define TYRA_VIF1_VALIDATE 0
+#endif
 
 namespace Tyra {
 
@@ -121,6 +133,12 @@ class Vif1Queue {
    */
   static void setOpenChainCloser(void (*closer)());
 
+#if TYRA_VIF1_VALIDATE
+  /** Walks `chain` as VIF1 will (see TYRA_VIF1_VALIDATE); `name` and `who`
+   * (a return address) are logged with any defect. */
+  static void validate(const void* chain, const char* name, const void* who);
+#endif
+
 #if TYRA_VIF1_QUEUE_HOLD
   /** The probe's per-frame record. A frame that needs a barrier mid-frame
    * (a VU1 program-set swap, a texture upload) releases more than once; each
@@ -150,3 +168,11 @@ class Vif1Queue {
 };
 
 }  // namespace Tyra
+
+/** For the senders that bypass the queue (dma_channel_send_packet2 on VIF1):
+ * keeps the validator's model of the VIF1 stream complete. */
+#if TYRA_VIF1_VALIDATE
+#define TYRA_VIF1_CHECK(chain, name)   ::Tyra::Vif1Queue::validate((chain), (name), __builtin_return_address(0))
+#else
+#define TYRA_VIF1_CHECK(chain, name) ((void)0)
+#endif

@@ -17,19 +17,55 @@
 extern void* _gp;
 
 void audioThread(Tyra::Audio* audio) {
-  while (true) audio->work();
+  while (true) {
+    audio->work();
+    audio->checkStackGuard();
+  }
 }
 
 namespace Tyra {
 
-const u16 Audio::threadStackSize = 2 * 1024;
+// Modified by TyraX: was 2 KB, which held only while this thread never logged.
+// AudioSong::work() runs here and, since the low-ring warning (#253), can call
+// TYRA_WARN - an ostringstream plus a host: write, several KB of stack. The
+// overflow ran DOWN into whatever the heap had placed below the stack: in
+// examples/showcase that was Path1's draw-finish packet, so the next PATH1
+// barrier sent VIF1 a saved register frame ("Vif1: Unknown VifCmd! [47]" in
+// PCSX2, a frozen game ~16 s into the scene). 16 KB matches the song
+// streamer's thread. 16-byte aligned because the EE saves 128-bit registers
+// with sq, which faults on a misaligned stack.
+const u32 Audio::threadStackSize = 16 * 1024;
+
+namespace {
+// The lowest words of the stack: an overflow writes them first.
+constexpr u32 kStackGuardWords = 16;
+constexpr u32 kStackGuardValue = 0x5AFE57AC;
+}  // namespace
 
 Audio::Audio() {
-  threadStack = static_cast<u8*>(memalign(sizeof(u8), threadStackSize));
+  threadStack = static_cast<u8*>(memalign(16, threadStackSize));
+  if (threadStack) {
+    u32* guard = reinterpret_cast<u32*>(threadStack);
+    for (u32 i = 0; i < kStackGuardWords; ++i) guard[i] = kStackGuardValue;
+  }
 }
 
 Audio::~Audio() {
-  if (threadStack) delete[] threadStack;
+  if (threadStack) free(threadStack);  // memalign'd, so free(), not delete[]
+}
+
+void Audio::checkStackGuard() {
+  if (stackGuardReported || !threadStack) return;
+  const u32* guard = reinterpret_cast<const u32*>(threadStack);
+  for (u32 i = 0; i < kStackGuardWords; ++i) {
+    if (guard[i] != kStackGuardValue) {
+      stackGuardReported = true;
+      TYRA_SOFT_ERROR("Audio thread stack overflow: its guard word ", i,
+                      " was overwritten. Heap memory below the stack is "
+                      "corrupt - grow Audio::threadStackSize.");
+      return;
+    }
+  }
 }
 
 void Audio::init() {

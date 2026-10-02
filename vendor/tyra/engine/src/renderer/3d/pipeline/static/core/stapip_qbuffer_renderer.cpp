@@ -1600,6 +1600,7 @@ void StaPipQBufferRenderer::sendStaticData() const {
     HardwareTrace::state("VIF1_WAIT_START");
     Vif1Queue::drain();
     HardwareTrace::state("VIF1_WAIT_END"); }
+  TYRA_VIF1_CHECK((staticDataPacket)->base, "stapip_qbuffer_renderer:staticDataPacket");
   dma_channel_send_packet2(staticDataPacket, DMA_CHANNEL_VIF1, true);
 }
 
@@ -1864,6 +1865,7 @@ void StaPipQBufferRenderer::uploadPrograms() {
     HardwareTrace::state("VIF1_WAIT_START");
     Vif1Queue::drain();
     HardwareTrace::state("VIF1_WAIT_END"); }
+  TYRA_VIF1_CHECK((programsPacket)->base, "stapip_qbuffer_renderer:programsPacket");
   dma_channel_send_packet2(programsPacket, DMA_CHANNEL_VIF1, true);
   { HardwareTrace::Scope trace("VIF1_DMA_wait");
     HardwareTrace::state("VIF1_WAIT_START");
@@ -1887,6 +1889,7 @@ void StaPipQBufferRenderer::ensureProgramSet(const bool& billboard) {
     HardwareTrace::state("VIF1_WAIT_START");
     Vif1Queue::drain();
     HardwareTrace::state("VIF1_WAIT_END"); }
+  TYRA_VIF1_CHECK((billboard ? billboardProgramsPacket : programsPacket)->base, "stapip_qbuffer_renderer:billboardProgramsPacket : programsPacket");
   dma_channel_send_packet2(
       billboard ? billboardProgramsPacket : programsPacket, DMA_CHANNEL_VIF1,
       true);
@@ -2893,6 +2896,7 @@ void StaPipQBufferRenderer::sendPacket() {
                  " dropped(no flush)=", probeDropped);
     }
 #endif
+    TYRA_VIF1_CHECK((currentPacket)->base, "stapip_qbuffer_renderer:currentPacket");
     dma_channel_send_packet2(currentPacket, DMA_CHANNEL_VIF1, probeFlush);
     probePacketUsesPool = false;
 #elif TYRA_VIF1_QUEUE
@@ -2903,6 +2907,7 @@ void StaPipQBufferRenderer::sendPacket() {
 #endif
     packetSequence[context] = Vif1Queue::submit(currentPacket->base);
 #else
+    TYRA_VIF1_CHECK((currentPacket)->base, "stapip_qbuffer_renderer:currentPacket");
     dma_channel_send_packet2(currentPacket, DMA_CHANNEL_VIF1, true);
 #endif
   }
