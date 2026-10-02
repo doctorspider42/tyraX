@@ -320,6 +320,18 @@ recovered 0.50-0.72 ms of hardware `work`. What it did not do, ranked:
   from historical arms. The older GPU-only sweep is not a current gain ceiling.
   Reference-title SPR staging and its approximately 16-qword-plus-CALL object
   scheme remain separate future work; this implementation does not add them.
+- **Night light-effect cost after TyraX2 — measured, optimization open.**
+  A [physical one-group isolation run](tyrax2.md#night-workload-isolation-physical-ps2-2026-10-02)
+  brackets seven stationary garage variants with full-night controls of
+  18.377 / 18.574 ms work. Removing scene pools/beams saves 1.870–2.067 ms;
+  registered live lighting saves 1.059–1.256 ms; eleven night-dressing boxes
+  save 0.742–0.939 ms. These single-boot ranges are non-additive. Projected
+  shadows and vehicle headlight ground pools show no saving beyond control
+  spread in this view. Every individual arm still delivers approximately
+  30 Hz. Next separate pools from beams and profile receiver search, geometry
+  rebuild, submission and overdraw; then examine live-light selection. Keep
+  the image and measure full period, not just renderer work, before calling
+  this a night performance fix.
 - ~~**The 0.5 ms sleeps in `RendererCore::beginFrame`/`endFrame`**~~ **SHIPPED
   1.128.3 behind a runtime gate** (`RendererCore::setFrameYield`, off; the
   generated game turns it on only while the Live Debugger is attached):

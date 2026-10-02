@@ -422,3 +422,67 @@ the table above reports the corrected results. Preserve the earlier failed
 attempts as historical evidence. The final timing log is an immutable snapshot;
 ps2client remains serving the last night game so ending measurement does not
 strand its next host-file access.
+
+## Night workload isolation (physical PS2, 2026-10-02)
+
+The stationary Motor District garage night was tested in one fresh physical
+boot with the corrected 1.169.1 engine. A scratch game removed one group at a
+time, reloaded the same scene, and restored full night at the end. Each phase
+ran for 2,200 measured gameplay frames; its warm 512-frame work window started
+1,100 frames into the phase. The ordinary vehicle pose and camera were retained;
+no driving was injected. Native compilation and a separate PCSX2 2.9.93 run
+through all seven phases passed before accepting the hardware record.
+
+| Variant | Mean work (ms) | p95 (ms) | Mean period (ms) | Delivered rate (Hz) |
+| --- | ---: | ---: | ---: | ---: |
+| Full night, before | 18.377 | 18.955 | 33.403 | 29.94 |
+| No projected scene shadows | 18.389 | 18.991 | 33.403 | 29.94 |
+| No scene light pools or beams | 16.507 | 16.941 | 33.370 | 29.97 |
+| No registered live dynamic lights | 17.318 | 17.928 | 33.370 | 29.97 |
+| No night dressing | 17.635 | 18.244 | 33.370 | 29.97 |
+| No vehicle headlight ground pools | 18.357 | 18.974 | 33.403 | 29.94 |
+| Full night, restored | 18.574 | 19.194 | 33.403 | 29.94 |
+
+The full-night controls differ by 0.197 ms. Relative to those two controls,
+removing scene pools/beams saves **1.870–2.067 ms**, registered live lighting
+**1.059–1.256 ms**, and the eleven visible night-dressing boxes
+**0.742–0.939 ms**. These are observed control ranges from one sequential boot,
+not confidence intervals or additive costs. Projected shadows and the vehicle's
+ground pools show no gain larger than the control spread in this stationary
+view. This does not establish their cost while driving or in another scene.
+
+The live-light arm clears the engine's dynamic-light registration after the
+ordinary light update, before object lighting and rendering. It removes both
+CPU `dynLightAt` pickup and per-bag selection of registered lights, while
+retaining effect on/level state, baked lighting, and the separate camera spot.
+The pool/beam arm skips their render/update functions; the dressing arm hides
+only the eleven project-owned boxes. The vehicle arm retains emissive lamp
+materials and glow, skipping only the headlight ground patches. Projected scene
+shadows are a separate pass, not a vehicle-headlight shadow-map implementation.
+
+No individual removal reaches the next presentation rung. Even the pool/beam
+arm retains about **1.574 ms of game update** alongside its 16.507 ms renderer
+work. Work measures the renderer's critical path excluding presentation pacing,
+including unhidden GPU time; it cannot identify pure EE versus GPU cost.
+The period is a separate average of ten neighboring 50-frame windows. Ordinary
+automatic interleave selection remains active, so these results characterize
+the actual runtime rather than a fixed routing microbenchmark.
+
+The fixture completed all seven phases on PS2 and returned to normal night;
+the frozen log's latest arena summary reports zero direct fallbacks. Loading
+splits remain exceptional frames outside the warm timing windows. The
+[machine-readable record](tyrax2-night-isolation-2026-10-02.json) contains the
+ELF/log hashes, exact windows, source hashes, preparation/analysis scripts and
+emulator evidence. The host server remains alive for subsequent file access.
+
+The next optimization target is scene pools/beams: separate those two passes,
+then measure receiver search, geometry rebuild, submission and overdraw before
+choosing caching or batching changes. Registered live-light selection follows.
+These measurements support investigating the night workload; they do not
+justify removing visual effects or claiming a 60 Hz night fix.
+
+`tools/tyrax2-timing.py` also recognizes the explicit unprefixed renderer
+counter records appended after a raw block by ps2client tty fragmentation.
+It still requires exactly 64 valid words per raw record, rejects duplicate or
+missing frames, and rejects unknown trailers. Eleven synthetic boundary and
+strictness controls passed; the archived final-night baseline remained identical.

@@ -4234,3 +4234,15 @@ boots (29.94 Hz). Day has 0/512 over-budget work samples per boot; night has
 512/512 in each. Guarded driving FPS is not production timing. Use an immutable
 log snapshot to close measurement while keeping ps2client serving the last game.
 Physical input-to-display latency and promotion remain future acceptance work.
+
+The 2026-10-02 stationary night isolation uses seven sequential 2,200-frame
+phases, one group removed per arm, with full-night controls before and after.
+Warm raw windows start at phase*2200+1100 and contain 512 frames. See
+docs/tyrax2-night-isolation-2026-10-02.json for preparation/analysis sources and
+hashes. Control spread was 0.197 ms; do not add removal gains or extrapolate
+stationary vehicle-light cost to driving. All arms retained approximately 30 Hz.
+tools/tyrax2-timing.py recognizes only explicit unprefixed FRAMEARENA,
+NATIVEVIF, ORDEREDFRAME, FRAMEPIPELINE and NIGHTISOLATE trailers after raw words;
+tty fragmentation can glue one to word 64. Exact word count, malformed-token,
+duplicate-frame and missing-frame checks remain mandatory. Eleven synthetic
+boundary/strictness controls passed, with the archived baseline unchanged.

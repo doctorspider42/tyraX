@@ -365,6 +365,9 @@ Developer design docs (internals, not user guides):
 [TyraX2](tyrax2.md) documents the experimental opt-in ordered frame recorder,
 two owned banks for EE/GPU overlap, compatibility and overflow fences, chain
 validation, and reproducible physical-console correctness/performance controls.
-The [1.169.0 runtime acceptance record](tyrax2-runtime-2026-10-02.json) preserves
-final day hardware timing, emulator/host coverage and pending hardware repeats;
-the earlier arena record remains historical experiment evidence.
+The [1.169.1 runtime acceptance record](tyrax2-runtime-2026-10-02.json) preserves
+final repeated day/night hardware timing, the loading-race correction and
+emulator/host coverage; the earlier arena record remains historical evidence.
+The [night isolation record](tyrax2-night-isolation-2026-10-02.json) compares
+seven physical variants, identifies scene pools/beams and live lighting as
+the largest measured groups, and preserves exact windows and reproduction scripts.

@@ -22,6 +22,12 @@ def main():
     samples = {}
     for block in text.split('LOG: FTRAW ')[1:]:
         block = block.split('LOG:')[0].replace('\r', '').replace('\n', '').strip()
+        # Renderer printf counters have no LOG prefix. At a tty boundary they
+        # may follow the 64th hex word with no newline left after normalization.
+        # Recognize only these explicit record starts; malformed raw payloads
+        # must still fail the exact-token check below.
+        block = re.split(r'FRAMEARENA |NATIVEVIF |ORDEREDFRAME |'
+                         r'FRAMEPIPELINE |NIGHTISOLATE ', block, maxsplit=1)[0]
         tokens = block.split()
         if not tokens or not re.fullmatch(r'\d+', tokens[0]):
             continue
