@@ -4246,3 +4246,21 @@ NATIVEVIF, ORDEREDFRAME, FRAMEPIPELINE and NIGHTISOLATE trailers after raw words
 tty fragmentation can glue one to word 64. Exact word count, malformed-token,
 duplicate-frame and missing-frame checks remain mandatory. Eleven synthetic
 boundary/strictness controls passed, with the archived baseline unchanged.
+
+SPR finalized-prefix host experiment: compile tools/verify-spr-prefix-staging.cpp
+with C++17, -O2 -Wall -Wextra -Werror (recorded Windows MinGW run uses -static).
+It tests actual FrameVifWriter bytes and the current validator through 8/16 KiB
+host windows, rollback before finalization, delayed copies and held bank reuse.
+Forty variants passed; this is scaffolding bookkeeping, not an EE SPR owner,
+DMA/cache/barrier proof or hardware speed claim. See docs/tyrax2-spr-staging.md
+for the retained-flush physical prototype and separate no-flush gates.
+
+Pool/beam split attribution: docs/tyrax2-light-split-2026-10-02.json preserves
+five 2,200-frame diagnostic phases and their 512-frame raw work windows.
+Per-pass COP0 totals include nested render time; do not add the two or call
+their difference geometry-only. Receiver timing covers three explicit call
+sites, not every terrain helper. Both full-night controls show zero beam
+buffer rebuilds despite about 0.25 ms surrounding assembly/comparison work.
+Candidate memoization must invalidate for moving camera/light, visibility,
+runtime levels and portal views, then pass byte/pixel controls before quiet
+hardware timing. All diagnostic arms still delivered approximately 30 Hz.

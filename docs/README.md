@@ -371,3 +371,9 @@ emulator/host coverage; the earlier arena record remains historical evidence.
 The [night isolation record](tyrax2-night-isolation-2026-10-02.json) compares
 seven physical variants, identifies scene pools/beams and live lighting as
 the largest measured groups, and preserves exact windows and reproduction scripts.
+The [pool/beam split record](tyrax2-light-split-2026-10-02.json) separates their
+physical costs and records diagnostic preparation/submission brackets and cache rebuilds.
+
+[TyraX2 SPR staging](tyrax2-spr-staging.md) separates finalized-prefix staging,
+cache publication and CALL/RET. It records the completed host byte-preservation
+experiment and the remaining physical DMA/cache/performance gates.

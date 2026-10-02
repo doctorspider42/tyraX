@@ -486,3 +486,60 @@ counter records appended after a raw block by ps2client tty fragmentation.
 It still requires exactly 64 valid words per raw record, rejects duplicate or
 missing frames, and rejects unknown trailers. Eleven synthetic boundary and
 strictness controls passed; the archived final-night baseline remained identical.
+
+## Separate pool and beam costs (physical PS2, 2026-10-02)
+
+A second scratch fixture separates scene pools from beams/coronas. Five
+2,200-frame phases retain the same stationary car/camera and scene reloads,
+with warm 512-frame windows at phase*2200+1100. All phases passed a native
+build, a separate PCSX2 2.9.93 run and a fresh physical PS2 boot. This fixture
+also times the effect functions and their nested `stapip.core.render` calls
+with COP0 counters, so its absolute work is diagnostic, not a new uninstrumented
+production benchmark.
+
+| Variant | Mean work (ms) | p95 (ms) | Mean period (ms) |
+| --- | ---: | ---: | ---: |
+| Full night, before | 18.345 | 18.887 | 33.403 |
+| No scene pools | 17.328 | 17.610 | 33.403 |
+| No scene beams/coronas | 17.575 | 18.216 | 33.370 |
+| Neither group | 16.511 | 16.839 | 33.370 |
+| Full night, restored | 18.459 | 19.015 | 33.403 |
+
+The controls differ by 0.114 ms. Pool removal saves **1.017–1.131 ms**;
+beam/corona removal **0.770–0.884 ms**; removing both **1.834–1.948 ms**.
+These sequential control ranges are non-additive and not confidence intervals.
+Every arm remains approximately 30 Hz. Game update adds about 1.60 ms even
+when both groups are absent, so the 16.511 ms renderer work does not establish
+a 60 Hz frame.
+
+The two full-night controls give these neighboring 50-frame profile averages:
+
+| Effect | Entire function (ms/frame) | Nested submission (ms/frame) | Other helper work (ms/frame) | Submits/frame |
+| --- | ---: | ---: | ---: | ---: |
+| Pools | 0.885–0.910 | 0.704–0.716 | 0.181–0.194 | 1 |
+| Beams/coronas | 0.746–0.748 | 0.497–0.501 | 0.246–0.250 | 2 |
+
+Submission is already included in the function total and covers EE packet/cache
+work plus any waits. Subtracting it gives the surrounding helper work, not a
+complete geometry-only measurement. The pool pass's three explicit receiver/box
+collection call sites report 0.0000 ms at this precision; the instrumentation
+does not cover every terrain query inside helpers. Pool batches rebuild about
+0.25–0.32 times/frame; beam batches have **zero stamped rebuilds** in these warm
+controls. Thus retained beam arrays already work, but assembling/comparing their
+temporary data still costs time each frame. The deletion gains include wider
+pipeline scheduling and unhidden GPU effects; they cannot be equated with pure
+CPU brackets or used to identify exact GS overdraw.
+
+The next candidate is a correctly invalidated unchanged-state shortcut for beam
+assembly, followed by inspecting which pool-batch key fields cause rebuilds.
+Preserve moving cameras/lights, visibility, flicker/levels and portal views;
+compare bytes and pixels before timing without counters. The observed beam
+helper bracket is only about 0.25 ms, not a promised path to 60 Hz. Submission
+cost still dominates both functions and needs a separate bounded experiment.
+
+The [split record](tyrax2-light-split-2026-10-02.json) preserves preparation and
+analysis scripts, exact raw/profile/period windows and ELF/log/source hashes.
+The run completed 11,000 measured gameplay frames; the frozen log's later
+arena summary has zero direct fallbacks and five exceptional split frames.
+Full night is restored and ps2client remains serving it. This is completed
+attribution, with no production effect removal or accepted night optimization.

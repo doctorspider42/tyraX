@@ -248,9 +248,13 @@ a success metric of fewer submissions/MSCAL boundaries plus lower hardware
   packets in flight measured -0.50..-0.72 ms of hardware `work`. So the EE was
   waiting, and some of that wait was recoverable.
 - **Scratchpad staging** is already covered by S1 in
-  [ee-submission-rearchitecture.md](ee-submission-rearchitecture.md). Do not
-  create a duplicate project before the corrupt no-flush arm identifies every
-  EE-written buffer and the required ordering barrier.
+  [ee-submission-rearchitecture.md](ee-submission-rearchitecture.md).
+  [The post-TyraX2 audit](tyrax2-spr-staging.md) now has a completed host-only
+  finalized-prefix experiment: 40 variants preserve actual writer bytes and
+  exercise delayed-copy/window/bank bookkeeping. Next use private SPR→RAM
+  staging with the existing flush retained. Cache-flush removal remains gated
+  by the corrupt arm's dirty-source inventory and barrier proof. CALL/RET is
+  separate and has no demonstrated advantage over current whole-bag REF replay.
 
 Do not re-add the article's already-done or already-refuted suggestions as new
 tasks: primitive state already rides GIFtag PRE; VU1 clip programs already patch
@@ -328,8 +332,13 @@ recovered 0.50-0.72 ms of hardware `work`. What it did not do, ranked:
   save 0.742–0.939 ms. These single-boot ranges are non-additive. Projected
   shadows and vehicle headlight ground pools show no saving beyond control
   spread in this view. Every individual arm still delivers approximately
-  30 Hz. Next separate pools from beams and profile receiver search, geometry
-  rebuild, submission and overdraw; then examine live-light selection. Keep
+  30 Hz. The [subsequent split](tyrax2.md#separate-pool-and-beam-costs-physical-ps2-2026-10-02)
+  is complete: pool removal saves 1.017–1.131 ms, beam/corona removal
+  0.770–0.884 ms. Nested submission dominates both diagnostic function brackets;
+  beam arrays do not rebuild, but surrounding assembly/comparison still costs
+  about 0.25 ms/frame. Next prototype a correctly invalidated unchanged-state
+  beam shortcut and inspect pool-batch key changes; separately price submission
+  and overdraw, then live-light selection. These are still open experiments. Keep
   the image and measure full period, not just renderer work, before calling
   this a night performance fix.
 - ~~**The 0.5 ms sleeps in `RendererCore::beginFrame`/`endFrame`**~~ **SHIPPED
@@ -564,10 +573,12 @@ Two hypotheses, not separated:
 2. `FlushCache(0)` is also supplying an ordering barrier, and removing it lets
    the DMAC start before the EE's stores have landed.
 
-**S1 (the frame chain out of cached memory) cannot be built until this is
-answered**, and it is worth 1.09 ms of garage-day `work` when it is — half the
-2.10 ms the plan predicted. Re-run with `--keep-routes`: a parked fixture cannot
-see a per-frame rebake that writes the same bytes every frame.
+**S1 cache-flush removal stays gated until this is answered.** The 1.09 ms
+measurement belongs to this older architecture, not the current single-chain
+runtime. The 2026-10-02 [SPR audit and host experiment](tyrax2-spr-staging.md)
+allow a narrower finalized-prefix staging control with flush retained;
+no SPR runtime or hardware gain is accepted yet. Re-run with `--keep-routes`:
+a parked fixture cannot see a per-frame rebake writing the same bytes each frame.
 
 Evidence, arms and recipe:
 [ee-probes-2026-09-16](../examples/vehicle-playground/authoring/ee-probes-2026-09-16/README.md).

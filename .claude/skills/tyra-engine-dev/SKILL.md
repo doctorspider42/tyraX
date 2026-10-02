@@ -3457,3 +3457,11 @@ VIF STAT 0e0000ca, GIF STAT 00000e00) during procedural loading before this
 ordering correction. Loading-stage stdout hid the race in a 12,000-frame run;
 keep stage tracking in RAM and print only on timeout when diagnosing timing
 races. Preserve the failed log and ELF alongside successful controls.
+
+Post-TyraX2 SPR gate: docs/tyrax2-spr-staging.md separates staging a finalized
+prefix with existing flushes retained from no-global-flush and CALL/RET work.
+The host tool verifies actual writer bytes through staging-window scaffolding,
+not EE cache/barrier correctness. Before fromSPR writes owned RAM, establish
+safe destination cached-alias ownership: a later flush of stale dirty cache
+lines can overwrite DMA results. Preserve snapshot/new immutable REF publication
+and bank-reader leases; SPR transfer completion is not VIF1-reader completion.
