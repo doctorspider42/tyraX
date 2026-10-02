@@ -357,8 +357,9 @@ recovered 0.50-0.72 ms of hardware `work`. What it did not do, ranked:
   selection 0.457 ms with 912 candidates/frame, local preparation 0.230 ms.
   Private per-render clip reuse passes 240,328 host comparisons, native build,
   6,600 quiet emulator frames and separate movement/camera/scene cycles.
-  [Candidate physical timing](tyrax2-clip-reuse-2026-10-02.json) is next; exact
-  light-pick activation and output gates remain separate. All diagnostic arms still deliver 29.94 Hz.
+  [Candidate physical timing](tyrax2-clip-reuse-2026-10-02.json) is complete:
+  18.248 /19.137 /18.411 ms, all 29.94 Hz; do not integrate the observed regression.
+  Cause remains unresolved. Measure discarded light-pick activation separately. All diagnostic arms still deliver 29.94 Hz.
 - **Night light-effect cost after TyraX2 — measured, optimization open.**
   A [physical one-group isolation run](tyrax2.md#night-workload-isolation-physical-ps2-2026-10-02)
   brackets seven stationary garage variants with full-night controls of

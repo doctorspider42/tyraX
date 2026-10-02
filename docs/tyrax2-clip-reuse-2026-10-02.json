@@ -1,6 +1,279 @@
 {
   "production_change": false,
-  "physical_measurement": "pending",
+  "physical_measurement": {
+    "fixture": {
+      "phases": [
+        "baseline before",
+        "same-call clip planes reused",
+        "baseline restored"
+      ],
+      "frames_per_phase": 2200,
+      "warm_work_start_offset": 1100,
+      "work_sample_count": 512,
+      "note": "Runtime gate unchanged inside frame; no math scopes. Gate-off retains bool/branch scaffold. Exact per-render reuse, no cross-frame cache.",
+      "artifacts": {
+        "tyra\\engine\\src\\renderer\\3d\\pipeline\\static\\core\\stapip_core.cpp": "122dc882836d3837dd02d2b79d3b6c0af939a51474722e8b9e1dd5d17965e1af",
+        "game\\src\\terrain_game.cpp": "c1b285958ce763d2cadb9ccf75e7260890d427807f0e329ad29029b5783a348f",
+        "tyra\\engine\\inc\\debug\\clip_plane_reuse_trial.hpp": "5a4e2ef85ede74f44429c85cbcc7a4a264947b9bcc216bb8a26f2e6cc3182301",
+        "tyra\\engine\\src\\debug\\clip_plane_reuse_trial.cpp": "221859160f4d8fc0fa03f7a074f0a7757142fcde873ad5c0ac75025191ef2847"
+      }
+    },
+    "log": "F:\\Projects\\tyrax2-lab-20261001\\clip-reuse-trial-physical-snapshot.log",
+    "log_sha256": "553a907cc17de4cacb562de03003ffb17cc70786c5b1741e8250097d818baeb9",
+    "elf_sha256": "3a6890fcdf72148249d20125205ae0026f585af8cd72a266db9bef3b4b4fba34",
+    "results": [
+      {
+        "log": "F:\\Projects\\tyrax2-lab-20261001\\clip-reuse-trial-physical-snapshot.log",
+        "first": 1100,
+        "frames": 512,
+        "hz": 60,
+        "budget_ms": 16.666666666666668,
+        "mean_ms": 18.24776671992408,
+        "median_ms": 18.22603522406684,
+        "p95_ms": 18.712595621744793,
+        "max_ms": 20.072879367404514,
+        "over_budget": 512,
+        "note": "Renderer critical-path work excluding presentation pacing; not full period or delivered FPS.",
+        "phase": 0,
+        "name": "baseline before",
+        "period_windows": [
+          {
+            "frame": 1100,
+            "period": 33.7,
+            "pre": 1.61,
+            "stall": 13.65
+          },
+          {
+            "frame": 1150,
+            "period": 33.37,
+            "pre": 1.56,
+            "stall": 13.45
+          },
+          {
+            "frame": 1200,
+            "period": 33.37,
+            "pre": 1.55,
+            "stall": 13.4
+          },
+          {
+            "frame": 1250,
+            "period": 33.37,
+            "pre": 1.62,
+            "stall": 13.37
+          },
+          {
+            "frame": 1300,
+            "period": 33.37,
+            "pre": 1.54,
+            "stall": 13.53
+          },
+          {
+            "frame": 1350,
+            "period": 33.37,
+            "pre": 1.61,
+            "stall": 13.44
+          },
+          {
+            "frame": 1400,
+            "period": 33.37,
+            "pre": 1.55,
+            "stall": 13.44
+          },
+          {
+            "frame": 1450,
+            "period": 33.37,
+            "pre": 1.61,
+            "stall": 13.52
+          },
+          {
+            "frame": 1500,
+            "period": 33.37,
+            "pre": 1.55,
+            "stall": 13.39
+          },
+          {
+            "frame": 1550,
+            "period": 33.37,
+            "pre": 1.55,
+            "stall": 13.49
+          }
+        ],
+        "mean_period_ms": 33.403,
+        "mean_pre_ms": 1.5750000000000002,
+        "delivered_rate_from_period_hz": 29.937430769691346
+      },
+      {
+        "log": "F:\\Projects\\tyrax2-lab-20261001\\clip-reuse-trial-physical-snapshot.log",
+        "first": 3300,
+        "frames": 512,
+        "hz": 60,
+        "budget_ms": 16.666666666666668,
+        "mean_ms": 19.13706518544091,
+        "median_ms": 19.16069539388021,
+        "p95_ms": 19.679182264539932,
+        "max_ms": 21.384141710069443,
+        "over_budget": 512,
+        "note": "Renderer critical-path work excluding presentation pacing; not full period or delivered FPS.",
+        "phase": 1,
+        "name": "same-call clip planes reused",
+        "period_windows": [
+          {
+            "frame": 3300,
+            "period": 33.7,
+            "pre": 1.56,
+            "stall": 12.86
+          },
+          {
+            "frame": 3350,
+            "period": 33.37,
+            "pre": 1.61,
+            "stall": 12.54
+          },
+          {
+            "frame": 3400,
+            "period": 33.37,
+            "pre": 1.56,
+            "stall": 12.41
+          },
+          {
+            "frame": 3450,
+            "period": 33.37,
+            "pre": 1.55,
+            "stall": 12.45
+          },
+          {
+            "frame": 3500,
+            "period": 33.37,
+            "pre": 1.62,
+            "stall": 12.61
+          },
+          {
+            "frame": 3550,
+            "period": 33.37,
+            "pre": 1.59,
+            "stall": 12.77
+          },
+          {
+            "frame": 3600,
+            "period": 33.37,
+            "pre": 1.62,
+            "stall": 12.45
+          },
+          {
+            "frame": 3650,
+            "period": 33.37,
+            "pre": 1.55,
+            "stall": 12.43
+          },
+          {
+            "frame": 3700,
+            "period": 33.37,
+            "pre": 1.55,
+            "stall": 12.51
+          },
+          {
+            "frame": 3750,
+            "period": 33.37,
+            "pre": 1.61,
+            "stall": 12.64
+          }
+        ],
+        "mean_period_ms": 33.403,
+        "mean_pre_ms": 1.582,
+        "delivered_rate_from_period_hz": 29.937430769691346,
+        "saving_against_controls_ms": [
+          -0.8892984655168306,
+          -0.725925862789154
+        ]
+      },
+      {
+        "log": "F:\\Projects\\tyrax2-lab-20261001\\clip-reuse-trial-physical-snapshot.log",
+        "first": 5500,
+        "frames": 512,
+        "hz": 60,
+        "budget_ms": 16.666666666666668,
+        "mean_ms": 18.411139322651756,
+        "median_ms": 18.457621256510418,
+        "p95_ms": 19.021148681640625,
+        "max_ms": 20.410203721788193,
+        "over_budget": 512,
+        "note": "Renderer critical-path work excluding presentation pacing; not full period or delivered FPS.",
+        "phase": 2,
+        "name": "baseline restored",
+        "period_windows": [
+          {
+            "frame": 5500,
+            "period": 33.7,
+            "pre": 1.63,
+            "stall": 13.24
+          },
+          {
+            "frame": 5550,
+            "period": 33.37,
+            "pre": 1.55,
+            "stall": 13.25
+          },
+          {
+            "frame": 5600,
+            "period": 33.37,
+            "pre": 1.62,
+            "stall": 13.07
+          },
+          {
+            "frame": 5650,
+            "period": 33.37,
+            "pre": 1.54,
+            "stall": 13.15
+          },
+          {
+            "frame": 5700,
+            "period": 33.37,
+            "pre": 1.54,
+            "stall": 13.42
+          },
+          {
+            "frame": 5750,
+            "period": 33.37,
+            "pre": 1.62,
+            "stall": 13.34
+          },
+          {
+            "frame": 5800,
+            "period": 33.37,
+            "pre": 1.55,
+            "stall": 13.34
+          },
+          {
+            "frame": 5850,
+            "period": 33.37,
+            "pre": 1.62,
+            "stall": 13.42
+          },
+          {
+            "frame": 5900,
+            "period": 33.37,
+            "pre": 1.55,
+            "stall": 13.31
+          },
+          {
+            "frame": 5950,
+            "period": 33.37,
+            "pre": 1.54,
+            "stall": 13.48
+          }
+        ],
+        "mean_period_ms": 33.403,
+        "mean_pre_ms": 1.576,
+        "delivered_rate_from_period_hz": 29.937430769691346
+      }
+    ],
+    "control_spread_ms": 0.1633726027276765,
+    "limitations": [
+      "One sequential same-ELF runtime-branch trial; no new profiling probes.",
+      "Warm 512-frame raw work and neighboring 50-frame period summaries are distinct measurements.",
+      "Fewer transforms alone is not a full-frame gain; preserve exact clipping/classification and moving-view acceptance before production integration."
+    ]
+  },
   "host": {
     "source_files": [
       {
@@ -266,6 +539,271 @@
     "Host bit/classification equivalence is not PS2 instruction equivalence.",
     "Quiet emulator completes6600 frames and two same-scene reloads; separate candidate-enabled motion build cycles main/dense/procedural/main and cameras0/1/2.",
     "Captured final screenshots were visually inspected; no baseline/candidate pixel differential claimed.",
-    "Physical timing and console candidate acceptance pending. Gate-off includes branch/bool scaffold."
-  ]
+    "Physical same-ELF timing complete; no physical candidate pixel differential or measured cause. Gate-off includes branch/bool scaffold; pristine controls remain separate."
+  ],
+  "decision": "Do not integrate: candidate arm has higher work in this same-ELF physical run. Cause unresolved; no gain accepted.",
+  "physical_final_telemetry": {
+    "FRAMEARENA": [
+      "FRAMEARENA frames=7200 peak=1040416 resets=6 fallbacks=0 maxFrameBytes=2825552 maxBorrowed=2151152 freeKiB=10671"
+    ],
+    "NATIVEVIF": [
+      "NATIVEVIF frames=7200 batches=7206"
+    ],
+    "ORDEREDFRAME": [
+      "ORDEREDFRAME frames=7200 splitFrames=3"
+    ],
+    "FRAMEPIPELINE": [
+      "FRAMEPIPELINE starts=7200 dmaBusyStarts=7172"
+    ]
+  },
+  "regression_triage": {
+    "report": "# Clip-plane same-call reuse: rejected physical trial triage\n\nRead-only inspection, 2026-10-02. Frozen physical log SHA256 `553a907cc17de4cacb562de03003ffb17cc70786c5b1741e8250097d818baeb9`; use `clip-reuse-trial-physical-summary.json` (the requested snapshot-summary filename does not exist). Trial6400+ was not run by this subagent. No source modifications or builds performed. Candidate rejected for this run; this audit does not identify a proven mechanism.\n\nRoot summary: sameELF gateoff/on/off, each2200frames,512 warmed work samples starting1100/3300/5500. Work18.2477667 /19.1370652 /18.4111393ms; candidate+0.8892985 versus first and+0.7259259 versus restored control; controls differ0.1633726ms. All deliver29.94Hz. One runtime-gated ELF avoids between-arm static code-layout differences; gateoff retains bool/branch scaffold, so it is not a compiled pristine control.\n\n## Source side effects\n\nTrial computeClipObjectSpacePlanes reads near/far through const-ref inline getters, clipMargin, fixed guard constants and mvp; writes only eight clipObjectSpacePlanes' normalXYZ/W+distance. All arithmetic is plain scalarfloat; no source COP2 asm, DMA, register-MMIO, cache calls or telemetry reads. activePlaneMaskAABB reads planes/bounds, scans up to8 and builds local integer mask; no writes to input planes, no shared state, no VU0 helper. The first compute completes before mask; when mask fails to promote a bag, second compute has identical source inputs within that call. Ordinary C++ source therefore offers no intended value-changing side effect from repeating it.\n\nNative compiler may materialize the local160-byte planes array through memset and alter COP1 condition/caller-clobbered registers legitimately; correct surrounding compiled C++ cannot depend on their undocumented residual values. Source-level scalar expressions do not establish precise cache/pipeline behavior, instruction timing or undocumented hardware interaction. An ABI/register bug would require direct machine-level evidence or a reproduction; none is established here.\n\nNative inspection provenance: quiet physical ELF is stripped. Current game/bin/vehicle-playground.elf.sym was overwritten by the separate motion build, as root confirmed; .text sizes/hash differ (quiet3048896bytes/395422f3..., currentsym3049344bytes/378ad7a0...). Do not attribute current symbol addresses or render allocation to frozen quiet ELF. A unique12-byte compute-compatible instruction prefix in quiet .text is at0x20a490; raw objdump there shows scalarCOP1 stores and a helper call0x2cf808, consistent with the analogous current-symbol memset prologue. This is pattern-inferred function identification, not archived symbol proof. It cannot explain the regression or justify a VU0 state hypothesis. No quiet sym was archived, and no compiler/register-pressure conclusion is claimed.\n\n## Warm-window observations\n\n`clip-reuse-triage-observations.json` contains source log rows and extraction. Interleave decisions are associated with the PRECEDING FRAMETIME window marker, not a per-decision timestamp; association uncertainty is up to the next50-frame logging interval. For each512-sample region there are5 logged decisions: phase0 interleaved5/plain0; phase1 interleaved2/plain3; phase2 interleaved4/plain1. These are decision-report frequencies, NOT exact fraction of frames rendered in each order. Every report retains heavy44/drawn50/blendAt23. Probe chooses alternating8pairs over16frames and then holds selected order100frames (game_vehicles.gen.cpp ilAccount). Winner requires >4/8 pairwins and1% margin. Automatic interleave can thus change its downstream state while clip gate changes; this is a plausible confound or mediator, not established cause. Both on/off probe timings are also higher in candidate region, so simply seeing more plain decisions is not sufficient to explain the entire effect.\n\nFRAMETIME window means from11 printed rows per region: pre1.579091 /1.579091 /1.580000ms; submit18.245455 /19.139091 /18.409091ms; stall13.464545 /12.568182 /13.302727ms; period33.400ms each. Submit aligns with the higher work; stall drops correspondingly under unchanged field pacing. These coarse rounded window means are NOT the exact512 raw-work means or an independent GPU utilization decomposition. Drain0 in all windows.\n\nUpdate components remain small/stable: vehicle0.859818 /0.865364 /0.856545ms; physics0.061364 /0.061182 /0.061000; rest0.403636 /0.400909 /0.404091. Vehicle gather0.204273 /0.202909 /0.201545, rig0.081727 /0.082273 /0.080636, input0.023364 /0.023636 /0.024000. No update-side increase remotely comparable to0.73\u20130.89ms appears in these observed buckets. These are overlapping/nested parents/children and are not summed.\n\nVehicle log has one identical pose/state across all warm regions: pos0,-74, speed0,yaw0,gear0,rpm800,cam0,pitch1536,FOV60,boom/wanted665,mtx1. No moving/camera acceptance is inferred.\n\nActual counters selected by their OWN printed frames within each region show fallbacks0, maxFrameBytes2825552,maxBorrowed2151152 throughout; native batches-frames=2/4/6 and ordered splitFrames=1/2/3 remain CONSTANT within each warm region. Thus no warmed fallback/split/batch explosion is visible. Arena resets2/4/6 plateau in their respective regions. Peak1020512/1020512/1040416 and freeKiB10723/10704/10671 are cumulative/high-water or scene-reload state, not per-frame byte counts. The restored control has the largest high-water/lower heap yet faster work than enabled arm; that neither proves nor rules out cache behavior. One extra split per reload appears outside warmed samples, not a measured persistent new split cost.\n\n## Decision\n\nKeep this candidate private/rejected and prioritize the discarded-pick activation census. A source-proven redundant calculation is not automatically a safe performance win on physical PS2. If revisiting, first pin interleave mode separately (plain/interleaved) in matched runtime arms, record exact per-frame order/probe flag without per-bag clocks, repeat fresh boots, archive matching unstripped ELF and compiled-out control. Only then examine packet counts/branch/cache effects. Do not claim a new FPS benefit, register-side-effect cause, or that dynamic interleave alone explains this regression.\n",
+    "observations": {
+      "0": {
+        "decision_reports": [
+          {
+            "preceding_frame_window": 1100,
+            "choice": "interleaved",
+            "line": "LOG: INTERLEAVE auto on=19495us off=20244us -> interleaved wins=7/8 heavy=44 drawn=50 blendAt=23"
+          },
+          {
+            "preceding_frame_window": 1200,
+            "choice": "interleaved",
+            "line": "LOG: INTERLEAVE auto on=19695us off=20140us -> interleaved wins=5/8 heavy=44 drawn=50 blendAt=23"
+          },
+          {
+            "preceding_frame_window": 1350,
+            "choice": "interleaved",
+            "line": "LOG: INTERLEAVE auto on=19600us off=21093us -> interleaved wins=7/8 heavy=44 drawn=50 blendAt=23"
+          },
+          {
+            "preceding_frame_window": 1450,
+            "choice": "interleaved",
+            "line": "LOG: INTERLEAVE auto on=20029us off=19834us -> interleaved wins=5/8 heavy=44 drawn=50 blendAt=23"
+          },
+          {
+            "preceding_frame_window": 1550,
+            "choice": "interleaved",
+            "line": "LOG: INTERLEAVE auto on=19440us off=20119us -> interleaved wins=7/8 heavy=44 drawn=50 blendAt=23"
+          }
+        ],
+        "decision_counts": {
+          "interleaved": 5
+        },
+        "vehicle_unique": [
+          "LOG: VEH pos 0 -74 spd10 0 lat10 0 yaw 0 gear 0 rpm 800 slip10 0 nos10 10 cam 0 pitch 1536 lean10 0 mtx 1 fw 0 paved 4 grip100 100 shake 0 blur 0 fov 60 boom100 665 want100 665 avatar 0"
+        ],
+        "arena": [
+          "FRAMEARENA frames=1200 peak=1020512 resets=2 fallbacks=0 maxFrameBytes=2825552 maxBorrowed=2151152 freeKiB=10723",
+          "FRAMEARENA frames=1320 peak=1020512 resets=2 fallbacks=0 maxFrameBytes=2825552 maxBorrowed=2151152 freeKiB=10723",
+          "FRAMEARENA frames=1440 peak=1020512 resets=2 fallbacks=0 maxFrameBytes=2825552 maxBorrowed=2151152 freeKiB=10723",
+          "FRAMEARENA frames=1560 peak=1020512 resets=2 fallbacks=0 maxFrameBytes=2825552 maxBorrowed=2151152 freeKiB=10723"
+        ],
+        "native": [
+          "NATIVEVIF frames=1200 batches=1202",
+          "NATIVEVIF frames=1320 batches=1322",
+          "NATIVEVIF frames=1440 batches=1442",
+          "NATIVEVIF frames=1560 batches=1562"
+        ],
+        "ordered": [
+          "ORDEREDFRAME frames=1200 splitFrames=1",
+          "ORDEREDFRAME frames=1320 splitFrames=1",
+          "ORDEREDFRAME frames=1440 splitFrames=1",
+          "ORDEREDFRAME frames=1560 splitFrames=1"
+        ],
+        "window_means": {
+          "FRAMETIME_submit": 18.245454545454546,
+          "FRAMETIME_drain": 0.0,
+          "FRAMETIME_over20": 0.09090909090909091,
+          "FRAMETIME_cam": 0.0,
+          "FRAMETIME_pre": 1.579090909090909,
+          "FRAMETIME_stall": 13.464545454545455,
+          "FRAMETIME_period": 33.4,
+          "FRAMETIME_miss": 50.0,
+          "FTUPD_in": 0.011818181818181818,
+          "FTUPD_player": 0.05572727272727273,
+          "FTUPD_scripts": 0.010363636363636363,
+          "FTUPD_stream": 0.002181818181818182,
+          "FTUPD_phys": 0.06136363636363636,
+          "FTUPD_veh": 0.8598181818181818,
+          "FTUPD_portal": 0.0018181818181818182,
+          "FTUPD_part": 0.0,
+          "FTUPD_sound": 0.04309090909090909,
+          "FTUPD_rest": 0.4036363636363637,
+          "FTVEH_input": 0.023363636363636364,
+          "FTVEH_gather": 0.20427272727272727,
+          "FTVEH_rig": 0.08172727272727273,
+          "FTVEH_walls": 0.010090909090909091,
+          "FTVEH_bodies": 0.012363636363636363,
+          "FTVEH_smoke": 0.03654545454545455,
+          "FTVEH_sound": 0.006363636363636364
+        }
+      },
+      "1": {
+        "decision_reports": [
+          {
+            "preceding_frame_window": 3300,
+            "choice": "plain",
+            "line": "LOG: INTERLEAVE auto on=20533us off=20750us -> plain wins=4/8 heavy=44 drawn=50 blendAt=23"
+          },
+          {
+            "preceding_frame_window": 3400,
+            "choice": "interleaved",
+            "line": "LOG: INTERLEAVE auto on=20402us off=20889us -> interleaved wins=7/8 heavy=44 drawn=50 blendAt=23"
+          },
+          {
+            "preceding_frame_window": 3550,
+            "choice": "plain",
+            "line": "LOG: INTERLEAVE auto on=20691us off=21234us -> plain wins=4/8 heavy=44 drawn=50 blendAt=23"
+          },
+          {
+            "preceding_frame_window": 3650,
+            "choice": "interleaved",
+            "line": "LOG: INTERLEAVE auto on=20452us off=21072us -> interleaved wins=7/8 heavy=44 drawn=50 blendAt=23"
+          },
+          {
+            "preceding_frame_window": 3750,
+            "choice": "plain",
+            "line": "LOG: INTERLEAVE auto on=20639us off=20769us -> plain wins=2/8 heavy=44 drawn=50 blendAt=23"
+          }
+        ],
+        "decision_counts": {
+          "plain": 3,
+          "interleaved": 2
+        },
+        "vehicle_unique": [
+          "LOG: VEH pos 0 -74 spd10 0 lat10 0 yaw 0 gear 0 rpm 800 slip10 0 nos10 10 cam 0 pitch 1536 lean10 0 mtx 1 fw 0 paved 4 grip100 100 shake 0 blur 0 fov 60 boom100 665 want100 665 avatar 0"
+        ],
+        "arena": [
+          "FRAMEARENA frames=3360 peak=1020512 resets=4 fallbacks=0 maxFrameBytes=2825552 maxBorrowed=2151152 freeKiB=10704",
+          "FRAMEARENA frames=3480 peak=1020512 resets=4 fallbacks=0 maxFrameBytes=2825552 maxBorrowed=2151152 freeKiB=10704",
+          "FRAMEARENA frames=3600 peak=1020512 resets=4 fallbacks=0 maxFrameBytes=2825552 maxBorrowed=2151152 freeKiB=10704",
+          "FRAMEARENA frames=3720 peak=1020512 resets=4 fallbacks=0 maxFrameBytes=2825552 maxBorrowed=2151152 freeKiB=10704"
+        ],
+        "native": [
+          "NATIVEVIF frames=3360 batches=3364",
+          "NATIVEVIF frames=3480 batches=3484",
+          "NATIVEVIF frames=3600 batches=3604",
+          "NATIVEVIF frames=3720 batches=3724"
+        ],
+        "ordered": [
+          "ORDEREDFRAME frames=3360 splitFrames=2",
+          "ORDEREDFRAME frames=3480 splitFrames=2",
+          "ORDEREDFRAME frames=3600 splitFrames=2",
+          "ORDEREDFRAME frames=3720 splitFrames=2"
+        ],
+        "window_means": {
+          "FRAMETIME_submit": 19.13909090909091,
+          "FRAMETIME_drain": 0.0,
+          "FRAMETIME_over20": 1.3636363636363635,
+          "FRAMETIME_cam": 0.0,
+          "FRAMETIME_pre": 1.579090909090909,
+          "FRAMETIME_stall": 12.568181818181818,
+          "FRAMETIME_period": 33.4,
+          "FRAMETIME_miss": 50.0,
+          "FTUPD_in": 0.011727272727272727,
+          "FTUPD_player": 0.055545454545454544,
+          "FTUPD_scripts": 0.010090909090909091,
+          "FTUPD_stream": 0.0023636363636363638,
+          "FTUPD_phys": 0.061181818181818184,
+          "FTUPD_veh": 0.8653636363636363,
+          "FTUPD_portal": 0.0019090909090909091,
+          "FTUPD_part": 9.090909090909092e-05,
+          "FTUPD_sound": 0.042727272727272725,
+          "FTUPD_rest": 0.40090909090909094,
+          "FTVEH_input": 0.023636363636363636,
+          "FTVEH_gather": 0.2029090909090909,
+          "FTVEH_rig": 0.08227272727272728,
+          "FTVEH_walls": 0.009636363636363636,
+          "FTVEH_bodies": 0.012090909090909091,
+          "FTVEH_smoke": 0.03690909090909091,
+          "FTVEH_sound": 0.006545454545454545
+        }
+      },
+      "2": {
+        "decision_reports": [
+          {
+            "preceding_frame_window": 5500,
+            "choice": "plain",
+            "line": "LOG: INTERLEAVE auto on=20120us off=19923us -> plain wins=4/8 heavy=44 drawn=50 blendAt=23"
+          },
+          {
+            "preceding_frame_window": 5650,
+            "choice": "interleaved",
+            "line": "LOG: INTERLEAVE auto on=19427us off=21199us -> interleaved wins=7/8 heavy=44 drawn=50 blendAt=23"
+          },
+          {
+            "preceding_frame_window": 5750,
+            "choice": "interleaved",
+            "line": "LOG: INTERLEAVE auto on=19824us off=20195us -> interleaved wins=5/8 heavy=44 drawn=50 blendAt=23"
+          },
+          {
+            "preceding_frame_window": 5850,
+            "choice": "interleaved",
+            "line": "LOG: INTERLEAVE auto on=19787us off=20148us -> interleaved wins=6/8 heavy=44 drawn=50 blendAt=23"
+          },
+          {
+            "preceding_frame_window": 5950,
+            "choice": "interleaved",
+            "line": "LOG: INTERLEAVE auto on=19947us off=20132us -> interleaved wins=5/8 heavy=44 drawn=50 blendAt=23"
+          }
+        ],
+        "decision_counts": {
+          "plain": 1,
+          "interleaved": 4
+        },
+        "vehicle_unique": [
+          "LOG: VEH pos 0 -74 spd10 0 lat10 0 yaw 0 gear 0 rpm 800 slip10 0 nos10 10 cam 0 pitch 1536 lean10 0 mtx 1 fw 0 paved 4 grip100 100 shake 0 blur 0 fov 60 boom100 665 want100 665 avatar 0"
+        ],
+        "arena": [
+          "FRAMEARENA frames=5520 peak=1040416 resets=6 fallbacks=0 maxFrameBytes=2825552 maxBorrowed=2151152 freeKiB=10671",
+          "FRAMEARENA frames=5640 peak=1040416 resets=6 fallbacks=0 maxFrameBytes=2825552 maxBorrowed=2151152 freeKiB=10671",
+          "FRAMEARENA frames=5760 peak=1040416 resets=6 fallbacks=0 maxFrameBytes=2825552 maxBorrowed=2151152 freeKiB=10671",
+          "FRAMEARENA frames=5880 peak=1040416 resets=6 fallbacks=0 maxFrameBytes=2825552 maxBorrowed=2151152 freeKiB=10671",
+          "FRAMEARENA frames=6000 peak=1040416 resets=6 fallbacks=0 maxFrameBytes=2825552 maxBorrowed=2151152 freeKiB=10671"
+        ],
+        "native": [
+          "NATIVEVIF frames=5520 batches=5526",
+          "NATIVEVIF frames=5640 batches=5646",
+          "NATIVEVIF frames=5760 batches=5766",
+          "NATIVEVIF frames=5880 batches=5886",
+          "NATIVEVIF frames=6000 batches=6006"
+        ],
+        "ordered": [
+          "ORDEREDFRAME frames=5520 splitFrames=3",
+          "ORDEREDFRAME frames=5640 splitFrames=3",
+          "ORDEREDFRAME frames=5760 splitFrames=3",
+          "ORDEREDFRAME frames=5880 splitFrames=3",
+          "ORDEREDFRAME frames=6000 splitFrames=3"
+        ],
+        "window_means": {
+          "FRAMETIME_submit": 18.40909090909091,
+          "FRAMETIME_drain": 0.0,
+          "FRAMETIME_over20": 0.5454545454545454,
+          "FRAMETIME_cam": 0.0,
+          "FRAMETIME_pre": 1.58,
+          "FRAMETIME_stall": 13.302727272727273,
+          "FRAMETIME_period": 33.4,
+          "FRAMETIME_miss": 50.0,
+          "FTUPD_in": 0.012272727272727272,
+          "FTUPD_player": 0.055363636363636365,
+          "FTUPD_scripts": 0.009909090909090909,
+          "FTUPD_stream": 0.002,
+          "FTUPD_phys": 0.061,
+          "FTUPD_veh": 0.8565454545454545,
+          "FTUPD_portal": 0.0017272727272727272,
+          "FTUPD_part": 0.0,
+          "FTUPD_sound": 0.04318181818181818,
+          "FTUPD_rest": 0.4040909090909091,
+          "FTVEH_input": 0.024,
+          "FTVEH_gather": 0.20154545454545456,
+          "FTVEH_rig": 0.08063636363636364,
+          "FTVEH_walls": 0.009909090909090909,
+          "FTVEH_bodies": 0.01218181818181818,
+          "FTVEH_smoke": 0.03772727272727273,
+          "FTVEH_sound": 0.006545454545454545
+        }
+      }
+    }
+  }
 }
