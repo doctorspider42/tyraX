@@ -332,6 +332,8 @@ lie under it, so a stripe stays white in a building's shadow.
 
 ![PCSX2: zebras and stop lines on a T and an X, edge lines carried round the fillets](img/road-markings-pcsx2.png)
 
+![PCSX2, a new project's seeded materials: road-4lane (double yellow centre) meets road-2lane at a T; the node carries each road's edge line round its corners, zebras on every arm, a stop line on the stem](img/road-markings-generated.png)
+
 **The bug the paint found.** The first PCSX2 run drew no paint at all, while the
 data was right. The paint row's world box reached +infinity in Y: on the
 six-armed node over rolling ground, one sliver triangle of the grid cut had no
