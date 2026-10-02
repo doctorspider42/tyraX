@@ -799,6 +799,12 @@ void App::drawPropertiesWindow() {
             static const char* kRanks[] = {"Track", "Local", "Main"};
             ImGui::SetNextItemWidth(scaled(220));
             if (ImGui::Combo("Rank", &o.roadRank, kRanks, 3)) committed = true;
+            static const char* kMarks[] = {"None", "Stop lines", "Stop lines + zebras"};
+            ImGui::SetNextItemWidth(scaled(220));
+            if (ImGui::Combo("Markings", &o.roadMarkings, kMarks, 3)) committed = true;
+            prefHelp(
+                "Paint at this road's junctions. A stop line marks where it\n"
+                "gives way; zebras cross each arm of a 3+-way junction.");
             prefHelp(
                 "Which road wins a crossing. A higher rank runs straight\n"
                 "through and covers the lower one - a mud track stops at the\n"

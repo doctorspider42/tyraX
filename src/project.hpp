@@ -921,6 +921,10 @@ struct SceneObject {
     // Soft edges (1.144.0, docs/roads.md "Soft edges"): the outer this-many
     // units on each side fade into the terrain (0 = the hard edge).
     float roadEdgeFade = 0.0f;
+    // Node markings (1.171.0, docs/roads.md "Markings"): roadgen::RoadMarkings -
+    // 0 none, 1 stop lines where this road gives way (the default), 2 stop
+    // lines plus zebra crossings on every arm of its 3+-armed nodes.
+    int roadMarkings = 1;
     // Road surface asset. New authoring points at a .mtl (its first map_Kd);
     // direct PNG paths remain accepted for projects authored before the
     // material picker existed. Empty = untextured grey.
@@ -1683,6 +1687,7 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.roadWidth == b.roadWidth && a.roadSampleStep == b.roadSampleStep &&
            a.roadGrip == b.roadGrip && a.roadRank == b.roadRank &&
            a.roadSpill == b.roadSpill && a.roadEdgeFade == b.roadEdgeFade &&
+           a.roadMarkings == b.roadMarkings &&
            a.roadTexture == b.roadTexture &&
            a.roadIntersectionTexture == b.roadIntersectionTexture &&
            a.vuParams[0] == b.vuParams[0] && a.vuParams[1] == b.vuParams[1] &&

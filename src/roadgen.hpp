@@ -71,6 +71,9 @@ struct Junction {
     float x = 0, z = 0;
     float cornerXZ[8] = {};
     std::vector<float> outline;
+    // Per outline point: 1 when the segment from it to the next is an arm's
+    // CAP (the road carries on there), 0 for a road edge or fillet.
+    std::vector<unsigned char> outlineCap;
 };
 
 // Ground height under a world XZ (the terrain, on both consumers).
@@ -347,6 +350,19 @@ struct CrossingRoad {
     float spill = kSpillDefault, edgeFade = 0.0f;
     int rank = 1;
     std::string intersection;  // intersection material ("" = none)
+    int markings = 1;          // RoadMarkings: what this road's node arms get painted
+};
+
+// What a road's arms get painted at its nodes (1.171.0, docs/roads.md
+// "Markings"). A stop line marks the road that GIVES WAY: one ending at a node
+// another road runs through (a T), or at a crossing the lower-ranked /
+// narrower road. Crossings are zebras across the arm just past the patch.
+// The markings' paint colour, 0xRRGGBB in the untextured 0..255 range.
+inline constexpr int kMarkingRgb = 0xE8E8E0;
+enum RoadMarkings : int {
+    kMarkNone = 0,
+    kMarkStopLines = 1,
+    kMarkCrossings = 2,  // stop lines + zebra crossings
 };
 
 // What an override says the crossing does. Auto = the rank rule.
@@ -379,12 +395,27 @@ enum CrossingKind : int {
     kCrossThrough = 2,  // `winner` runs through, the other is covered
 };
 
+// One arm of a road node: where the node's outline cut it and which way it
+// leaves - what anything painted on the node (markings) is laid out from.
+struct NodeArm {
+    int road = -1;
+    bool ends = false;          // the road ends here (else it runs through)
+    float h = 1.0f;             // half width
+    float trim = 0.0f;          // the cap's distance from the node, along the road
+    float capX = 0.0f, capZ = 0.0f;  // the cap's centre
+    float tx = 1.0f, tz = 0.0f;      // the road's outward direction there
+};
+
 struct Crossing {
     int a = -1, b = -1;  // road indices into the planner's input, a < b
     // Every road meeting at this node, ascending (a and b are its first two).
     // A plain crossing has two; a three-road fork or a five-way plaza more.
     std::vector<int> roads;
     int arms = 0;        // how many road ends leave the node (X = 4, T/Y = 3)
+    // A TRANSITION node (1.171.0): two roads joined in line with different
+    // widths; its patch is the taper between them.
+    bool transition = false;
+    std::vector<NodeArm> armList;  // per arm, in angular order
     Junction shape;
     int override = -1;   // index into the overrides, or -1 (Auto)
     int kind = kCrossOverlap;
@@ -439,6 +470,13 @@ struct CrossingPlan {
 CrossingPlan planCrossings(const std::vector<CrossingRoad>& roads,
                            const std::vector<JunctionOverride>& overrides,
                            bool withDecals = true);
+
+// The plan's node MARKINGS (1.171.0) as white-paint triangles (XYZ, UV 0),
+// laid onto `surface` - the drawn roads plus the node patches - kSpillLift
+// above it, split where the surface bends so the paint follows it. Untextured;
+// the consumer gives them one colour. Deterministic, crossing order.
+void bakeMarkings(const CrossingPlan& plan, const std::vector<CrossingRoad>& roads,
+                  const Surface& surface, std::vector<Vertex>& out);
 
 // The plan's patches and decals as drawn surface (the test drive, the check):
 // `terrain` is the bare ground height.

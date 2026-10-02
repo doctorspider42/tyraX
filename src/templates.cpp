@@ -8962,6 +8962,7 @@ static std::string sceneDataContent(const Project& p, const std::string& ns,
                 int scene, tex;
                 int first, count;
                 float grip;
+                int rgb = 0;  // 0 = the road grey a texture modulates; else paint
             };
             // A spill (1.143.0): road `road`'s surface trailing onto a
             // higher-rank road, baked here by roadgen::tessellateSpill.
@@ -9057,6 +9058,7 @@ static std::string sceneDataContent(const Project& p, const std::string& ns,
                         mesh, {}, r.sampleStep);
                     roadTriangles.insert(roadTriangles.end(), mesh.begin(), mesh.end());
                 }
+                std::vector<roadgen::Vertex> markSurfaceTris;
                 for (const roadgen::Crossing& c : plan.crossings) {
                     if (c.kind != roadgen::kCrossPatch || c.patchDuplicate) continue;
                     std::vector<roadgen::Vertex> mesh;
@@ -9070,6 +9072,25 @@ static std::string sceneDataContent(const Project& p, const std::string& ns,
                         {(int)si, textureIndex(project::resolveRoadTexture(p, c.material)),
                          (int)junctionVerts.size(), (int)mesh.size(), c.grip});
                     junctionVerts.insert(junctionVerts.end(), mesh.begin(), mesh.end());
+                    markSurfaceTris.insert(markSurfaceTris.end(), mesh.begin(), mesh.end());
+                }
+                // Node markings (1.171.0, docs/roads.md "Markings"): white paint
+                // laid on the roads and patches just built, one untextured row
+                // per scene.
+                {
+                    roadgen::Surface paintOn;
+                    paintOn.add(roadTriangles);
+                    paintOn.add(markSurfaceTris);
+                    paintOn.build();
+                    std::vector<roadgen::Vertex> paint;
+                    roadgen::bakeMarkings(plan, cr, paintOn, paint);
+                    if (!paint.empty()) {
+                        JunctionRow row{(int)si, -1, (int)junctionVerts.size(),
+                                        (int)paint.size(), 1.0f};
+                        row.rgb = roadgen::kMarkingRgb;
+                        junctionRows.push_back(row);
+                        junctionVerts.insert(junctionVerts.end(), paint.begin(), paint.end());
+                    }
                 }
                 for (const roadgen::CrossingDecal& d : plan.decals) {
                     if (d.verts.empty() || rowOf[(size_t)d.road] < 0) continue;
@@ -9109,7 +9130,7 @@ static std::string sceneDataContent(const Project& p, const std::string& ns,
                     out << (k ? ", " : "") << floatLit(roadPts[k]);
                 out << "};\n"
                     << "struct RoadJunctionRt { int scene; int tex; int first; int count;"
-                       " float grip; };\n";
+                       " float grip; int rgb; };\n";
                 if (junctionRows.empty()) {
                     out << "constexpr RoadJunctionRt ROAD_JUNCTIONS[1] = {};\n";
                 } else {
@@ -9117,7 +9138,8 @@ static std::string sceneDataContent(const Project& p, const std::string& ns,
                         << junctionRows.size() << "] = {\n";
                     for (const JunctionRow& j : junctionRows)
                         out << "    {" << j.scene << ", " << j.tex << ", " << j.first
-                            << ", " << j.count << ", " << floatLit(j.grip) << "},\n";
+                            << ", " << j.count << ", " << floatLit(j.grip) << ", "
+                            << j.rgb << "},\n";
                     out << "};\n";
                 }
                 out << "constexpr float ROAD_JUNCTION_VERTS["
@@ -18511,12 +18533,17 @@ void TerrainGame::buildRoads(int scene) {
       c.roadTex = tex;
       c.roadGrip = j.grip;
       c.stripRun = 0;
+      // A painted row (node markings, 1.171.0) carries its own colour and no
+      // texture; a patch takes the road grey its texture modulates.
+      const Tyra::Color paint((float)((j.rgb >> 16) & 255), (float)((j.rgb >> 8) & 255),
+                              (float)(j.rgb & 255), 128.0F);
+      const Tyra::Color& shade = j.rgb != 0 ? paint : grey;
       const int count = std::min(1800, j.count - first);
       for (int k = 0; k < count; ++k) {
         const float* v = &ROAD_JUNCTION_VERTS[(size_t)(j.first + first + k) * 5];
         c.vertices.push_back(Tyra::Vec4(v[0], v[1], v[2], 1.0F));
         c.sts.push_back(Tyra::Vec4(v[3], v[4], 1.0F, 0.0F));
-        c.colors.push_back(grey);
+        c.colors.push_back(shade);
       }
     }
   }

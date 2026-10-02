@@ -1092,6 +1092,8 @@ std::string objectJson(const SceneObject& o) {
             json += ", \"roadSpill\": " + fmtFloat(o.roadSpill);
         if (o.roadEdgeFade != 0.0f)
             json += ", \"roadEdgeFade\": " + fmtFloat(o.roadEdgeFade);
+        if (o.roadMarkings != 1)
+            json += ", \"roadMarkings\": " + std::to_string(o.roadMarkings);
         bool anyLift = false;
         for (float h : o.roadHeights) anyLift |= h != 0.0f;
         if (anyLift) {
@@ -1724,6 +1726,7 @@ std::vector<roadgen::CrossingRoad> crossingRoads(const std::vector<SceneObject>&
         r.edgeFade = o.roadEdgeFade;
         r.rank = o.roadRank;
         r.intersection = o.roadIntersectionTexture;
+        r.markings = o.roadMarkings;
         out.push_back(std::move(r));
         if (objectIndex) objectIndex->push_back((int)i);
     }
@@ -6227,6 +6230,8 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
             if (o.roadEdgeFade < 0.0f) o.roadEdgeFade = 0.0f;
             if (o.roadEdgeFade > 4.0f) o.roadEdgeFade = 4.0f;
         }
+        if (const auto* rmk = jo.find("roadMarkings"))
+            o.roadMarkings = std::clamp((int)rmk->numberOr(1.0), 0, 2);
         if (const auto* rh = jo.find("roadHeights")) {
             o.roadHeights.clear();
             if (rh->type == json::Value::Type::Array)

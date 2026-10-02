@@ -271,6 +271,67 @@ with each kind on flat ground and on rolling hills.
 
 ![PCSX2 (the image is mirrored in X): every node kind from above, a six-armed node on rolling ground, and a curved T beside a slip road](img/road-nodes-pcsx2.png)
 
+## Transition nodes (1.171)
+
+Two roads joined end to end in line used to make no node at all. When their
+WIDTHS differ (by more than half a unit), the join is a **transition node**: its
+patch is the taper from the wide road to the narrow one, 3 units long per unit
+of width lost (4 to 20 units), laid entirely on the narrow road's side. It sits
+there because the wide road's own ribbon ends at the node at full width; a taper
+reaching back into it would leave the wide ribbon's corners showing outside it.
+Every corner of a transition outline is cut straight (`nodeOutline`'s `taper`),
+so it is a trapezoid. It follows the patch rules like any node (equal ranks and
+the same intersection material), and it gets no markings.
+
+A change of SURFACE at one width (asphalt into a dirt track) is not a
+transition: give the two roads different ranks and the lower one spills onto
+the higher, or overlap their ends.
+
+## Markings (1.171)
+
+Every patch node is painted: untextured white geometry baked on the host by
+`roadgen::bakeMarkings` and laid onto the roads and patches it covers
+(`kSpillLift` above them, split where the surface bends), uploaded as one more
+`ROAD_JUNCTIONS` row with `tex = -1` and its colour in the new `rgb` column. So
+it costs no texture and no VRAM, one bag per scene, and no work per frame.
+
+- **Edge lines.** The road texture's edge line (columns 5..8 of 128 across the
+  width, `kEdgeLineU0/U1`) is carried round the node along every outline
+  segment that is a road edge or a fillet, never across a cap, where the road
+  and its own painted line carry on (`Junction::outlineCap` marks those). The
+  inset is a fraction of the node's mean road width, so it matches a texture
+  that puts its edge line at the same fraction; one that puts it elsewhere will
+  show a step at the cap.
+- **Stop lines** on the road that gives way: one ending at a node another road
+  runs through (a T), or at a crossing of through roads the lower rank, then
+  the narrower, then the later one. Across the incoming lane only, assuming
+  right-hand traffic, just inside the patch.
+- **Zebra crossings** (opt-in): 0.5-unit stripes on a 1-unit pitch, 3 units
+  long, across every arm just past the patch, on nodes of three or more arms.
+
+Each road chooses with **Markings** in Properties (`roadMarkings`, format 96,
+written only when not 1): *None*, *Stop lines* (the default, edge lines
+included) or *Stop lines + zebras*. A node paints edge lines only when every
+road at it allows markings. Paint that would hang past a road is dropped.
+
+Cost: a T on flat ground is 84 vertices of paint (edge lines and one stop
+line), 198 with zebras - a straight run of outline is one stripe, split only
+where the ground bends by more than 1 cm. The Motor District (zebras on Skyline
+avenue only) paints 4 860 / 1 182 / 2 328 vertices in its main / dense /
+procedural scenes; the district's uneven ground is what splits them. The paint is not a shadow receiver: baked shadow decals
+lie under it, so a stripe stays white in a building's shadow.
+
+![PCSX2: zebras and stop lines on a T and an X, edge lines carried round the fillets](img/road-markings-pcsx2.png)
+
+**The bug the paint found.** The first PCSX2 run drew no paint at all, while the
+data was right. The paint row's world box reached +infinity in Y: on the
+six-armed node over rolling ground, one sliver triangle of the grid cut had no
+area in XZ, `plane()` answered -1e30 for it, the clearance proof read that as a
+1e30 deficit, and the whole patch was lifted out of the world - taking the
+paint, laid onto that surface, with it. Slivers are now skipped by the proof and
+dropped by the ear clipper. `--vehicle-check` "a node patch on rolling ground
+stays on the ground" pins it on a real heightfield.
+
 ## Physical-PS2 texture coordinates and the strip default
 
 Roads reach VU1 as **triangle strips** by default. A temporary triangle-list

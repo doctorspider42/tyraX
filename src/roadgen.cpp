@@ -526,7 +526,8 @@ double crossDQ(DQ o, DQ a, DQ b) {
 // polygon that will not clip (degenerate leftovers) fans what remains.
 void earClip(std::vector<DQ> p, std::vector<DQ>& tris) {
     auto emit = [&](DQ a, DQ b, DQ c) {
-        if (crossDQ(a, b, c) > 1e-9) tris.insert(tris.end(), {a, b, c});
+        // Slivers under 1e-6 square units are dropped: they cover nothing.
+        if (crossDQ(a, b, c) > 2e-6) tris.insert(tris.end(), {a, b, c});
     };
     while (p.size() > 3) {
         bool clipped = false;
@@ -556,6 +557,10 @@ void earClip(std::vector<DQ> p, std::vector<DQ>& tris) {
 #define TYRA_JUNCTION_TOL 0.01f
 #endif
 constexpr float kJunctionTol = TYRA_JUNCTION_TOL;
+// Where a node's painted edge line sits, as a fraction of the road width in
+// from the outline - the road texture's own edge line (district-road.png,
+// columns 5..8 of 128).
+constexpr float kEdgeLineU0 = 5.0f / 128.0f, kEdgeLineU1 = 8.0f / 128.0f;
 
 TerrainGrid terrainGridOf(int columns, int rows, float width, float depth) {
     TerrainGrid g;
@@ -677,8 +682,16 @@ void tessellateJunctionSurface(const Junction& j,
         for (size_t p = 0; p + 2 < out.size(); p += 3) {
             double worst = 0;
             const Vertex* t = &out[p];
-            const double sign = ((double)(t[1].x - t[0].x) * (t[2].z - t[0].z) -
-                                 (double)(t[1].z - t[0].z) * (t[2].x - t[0].x)) >= 0 ? 1 : -1;
+            const double area2 = (double)(t[1].x - t[0].x) * (t[2].z - t[0].z) -
+                                 (double)(t[1].z - t[0].z) * (t[2].x - t[0].x);
+            // A sliver with no area in XZ covers no ground and has no plane:
+            // plane() answers -1e30 for it, which would read as a 1e30
+            // deficit and lift the whole patch out of the world.
+            if (std::fabs(area2) < 1e-9) {
+                errors.push_back(0.0f);
+                continue;
+            }
+            const double sign = area2 >= 0 ? 1 : -1;
             for (size_t r = 0; r + 2 < local.size(); r += 3) {
                 const Vertex* road = &local[r];
                 if (std::max({road[0].x, road[1].x, road[2].x}) <
@@ -1084,6 +1097,10 @@ constexpr float kCapMargin = 0.5f;
 #define TYRA_NODE_EDGE_STEP 2.0f
 #endif
 constexpr float kArcStep = 3.14159265f / TYRA_NODE_ARC_DIV;
+// Transition nodes: the smallest half-width step that makes one, and the
+// taper's length - this many units per unit of width lost, clamped.
+constexpr float kTransitionMinStep = 0.25f;
+constexpr float kTaperPerUnit = 3.0f, kTaperMin = 4.0f, kTaperMax = 20.0f;
 constexpr float kEdgeStep = TYRA_NODE_EDGE_STEP;
 
 struct Arm {
@@ -1097,6 +1114,8 @@ struct Arm {
     // edges follow this curve, so an arm on a bend bends with its road.
     const Line* line = nullptr;
     float s = 0.0f, dir = 1.0f;
+    float fixedTrim = 0.0f;  // > 0: a transition node's set trim (in)
+    float trim = 0.0f;       // where the outline cut the arm (out)
 };
 
 // A point on an arm's edge `sigma` along its centre line from the node:
@@ -1149,7 +1168,10 @@ std::vector<P> hullOf(std::vector<P> pts) {
 // until the fillets fit and are then clamped by how much road each arm has;
 // a fillet that no longer fits shrinks, and one that cannot shrink enough is
 // cut straight across.
-std::vector<float> nodeOutline(float cx, float cz, std::vector<Arm>& arms) {
+// `taper`: a TRANSITION node (two arms in line, two widths) - every corner
+// is cut, so the outline is the straight taper between the two caps.
+std::vector<float> nodeOutline(float cx, float cz, std::vector<Arm>& arms, bool taper,
+                               std::vector<unsigned char>* capsOut) {
     const float kPi = 3.14159265358979f;
     for (Arm& a : arms) a.angle = std::atan2(a.uz, a.ux);
     std::sort(arms.begin(), arms.end(),
@@ -1195,8 +1217,12 @@ std::vector<float> nodeOutline(float cx, float cz, std::vector<Arm>& arms) {
             need = std::max(need, cs[(size_t)p].b + cs[(size_t)p].t);
         const Arm& A = arms[(size_t)i];
         const float cap = std::max(kMinTrim, std::min(A.limit, kMaxTrimWidths * 2.0f * A.h));
-        d[(size_t)i] = std::min(std::max(need + kCapMargin, kMinTrim), cap);
+        d[(size_t)i] = A.fixedTrim > 0.0f
+                           ? std::max(0.25f, std::min(A.fixedTrim, A.limit))
+                           : std::min(std::max(need + kCapMargin, kMinTrim), cap);
+        if (taper) cs[(size_t)i].type = kCut;
     }
+    for (int i = 0; i < n; ++i) arms[(size_t)i].trim = d[(size_t)i];
     for (int i = 0; i < n; ++i) {
         Corner& c = cs[(size_t)i];
         if (c.type != kFillet) continue;
@@ -1210,10 +1236,17 @@ std::vector<float> nodeOutline(float cx, float cz, std::vector<Arm>& arms) {
     }
 
     std::vector<P> ring;
+    // Per point: 1 when the segment FROM it is an arm's cap (where the road
+    // carries on), which is what an edge line must not be painted across.
+    std::vector<unsigned char> capFrom;
     auto push = [&](P q) {
         if (!ring.empty() && std::hypot(ring.back().x - q.x, ring.back().z - q.z) < 1e-3f)
             return;
         ring.push_back(q);
+        capFrom.push_back(0);
+    };
+    auto markCap = [&]() {
+        if (!capFrom.empty()) capFrom.back() = 1;
     };
     // An arm's edge between two distances, walked in the given order, one
     // point per unit of road so a bend is followed.
@@ -1243,7 +1276,10 @@ std::vector<float> nodeOutline(float cx, float cz, std::vector<Arm>& arms) {
         const Arm& A = arms[(size_t)i];
         const Arm& B = arms[(size_t)j];
         const float di = d[(size_t)i], dj = d[(size_t)j];
-        if (!skipRight[(size_t)i]) push(armEdge(A, di, -1.0f));
+        if (!skipRight[(size_t)i]) {
+            push(armEdge(A, di, -1.0f));
+            markCap();
+        }
         const Corner& c = cs[(size_t)i];
         if (c.type == kFillet) {
             const float ta = c.a + c.t, tb = c.b + c.t;
@@ -1313,16 +1349,26 @@ std::vector<float> nodeOutline(float cx, float cz, std::vector<Arm>& arms) {
                 // B's cap runs into A: follow A's edge in to it, start B's cap there.
                 walkEdge(A, di, f * di, 1.0f);
                 push(at);
+                markCap();
                 skipRight[(size_t)j] = 1;
-                if (j == 0 && !ring.empty()) ring.erase(ring.begin());
+                if (j == 0 && !ring.empty()) {
+                    ring.erase(ring.begin());
+                    capFrom.erase(capFrom.begin());
+                }
             } else {
                 push(capL);
             }
         }
     }
     while (ring.size() > 1 &&
-           std::hypot(ring.back().x - ring[0].x, ring.back().z - ring[0].z) < 1e-3f)
+           std::hypot(ring.back().x - ring[0].x, ring.back().z - ring[0].z) < 1e-3f) {
+        // The closing duplicate IS ring[0]: a cap that starts there starts
+        // at ring[0].
+        const unsigned char f = capFrom.back();
         ring.pop_back();
+        capFrom.pop_back();
+        if (!capFrom.empty()) capFrom[0] = (unsigned char)(capFrom[0] | f);
+    }
     // The ring need not be star-shaped about the centre (an arm on a bend
     // curls around it); tessellateJunctionSurface ear-clips one that is not.
     // It must be SIMPLE, though: arms folding over each other would make a
@@ -1343,7 +1389,11 @@ std::vector<float> nodeOutline(float cx, float cz, std::vector<Arm>& arms) {
             simple = !crossAt(ring[k], ring[(k + 1) % ring.size()], ring[m],
                               ring[(m + 1) % ring.size()], &at, &f);
         }
-    if (!simple) ring = hullOf(ring);
+    if (!simple) {
+        ring = hullOf(ring);
+        capFrom.assign(ring.size(), 1);  // a hull's segments map to nothing: no edge lines
+    }
+    if (capsOut) *capsOut = capFrom;
     std::vector<float> out;
     for (const P& q : ring) out.insert(out.end(), {q.x, q.z});
     return out;
@@ -1514,10 +1564,21 @@ std::vector<Crossing> findNodes(const std::vector<CrossingRoad>& roads) {
             if (!fwd && !back) addArm(L - s >= s ? 1.0f : -1.0f, std::max(L - s, s));
         }
         if (arms.size() < 2) continue;
-        // Two arms almost in line is a road continuing, not a junction.
+        // Two arms almost in line is a road continuing, not a junction - unless
+        // the width changes there: then it is a TRANSITION node, and its patch
+        // is the taper from the wide road to the narrow one, laid entirely on
+        // the narrow side (the wide road's own ribbon ends at the node at full
+        // width, so a taper reaching into it would leave its corners showing).
+        bool taper = false;
         if (arms.size() == 2 &&
-            arms[0].ux * arms[1].ux + arms[0].uz * arms[1].uz < -0.866f)
-            continue;
+            arms[0].ux * arms[1].ux + arms[0].uz * arms[1].uz < -0.866f) {
+            Arm& w = arms[0].h >= arms[1].h ? arms[0] : arms[1];
+            Arm& nw = &w == &arms[0] ? arms[1] : arms[0];
+            if (w.h - nw.h < kTransitionMinStep || w.road == nw.road) continue;
+            taper = true;
+            w.fixedTrim = 0.5f;
+            nw.fixedTrim = std::clamp(kTaperPerUnit * 2.0f * (w.h - nw.h), kTaperMin, kTaperMax);
+        }
         Crossing c;
         c.roads = nd.roads;
         c.a = nd.roads[0];
@@ -1525,8 +1586,29 @@ std::vector<Crossing> findNodes(const std::vector<CrossingRoad>& roads) {
         c.arms = (int)arms.size();
         c.shape.x = nd.x;
         c.shape.z = nd.z;
-        c.shape.outline = nodeOutline(nd.x, nd.z, arms);
+        c.transition = taper;
+        c.shape.outline = nodeOutline(nd.x, nd.z, arms, taper, &c.shape.outlineCap);
         if (c.shape.outline.size() < 6 || c.a == c.b) continue;
+        // The arms as the markings (and anything else drawn on a node) see
+        // them: where each was cut, which way it leaves, whether its road
+        // ends here.
+        for (const Arm& a : arms) {
+            NodeArm na;
+            na.road = a.road;
+            na.h = a.h;
+            na.trim = a.trim;
+            int same = 0;
+            for (const Arm& b : arms) same += b.road == a.road;
+            na.ends = same == 1;
+            const P cc = lineAt(*a.line, a.s + a.dir * a.trim);
+            float tx = a.ux, tz = a.uz;
+            armEdge(a, a.trim, 0.0f, &tx, &tz);
+            na.capX = cc.x;
+            na.capZ = cc.z;
+            na.tx = tx;
+            na.tz = tz;
+            c.armList.push_back(na);
+        }
         out.push_back(std::move(c));
     }
     return out;
@@ -1753,6 +1835,142 @@ CrossingPlan planCrossings(const std::vector<CrossingRoad>& roads,
             for (CrossingDecal& g : groups) plan.decals.push_back(std::move(g));
         }
     return plan;
+}
+
+void bakeMarkings(const CrossingPlan& plan, const std::vector<CrossingRoad>& roads,
+                  const Surface& surface, std::vector<Vertex>& out) {
+    out.clear();
+    auto y = [&](P q) {
+        const float h = surface.at(q.x, q.z);
+        return h == Surface::kNone ? h : h + kSpillLift;
+    };
+    // One painted quad a0 a1 b1 b0, a0->a1 its long side: split along that
+    // side until each piece is flat to 1 cm (or 1 unit long), so flat ground
+    // keeps one quad per stripe and a bend in the surface is followed.
+    auto paint = [&](P a0, P a1, P b1, P b0) {
+        auto lerp = [](P p, P q, float f) { return P{p.x + (q.x - p.x) * f, p.z + (q.z - p.z) * f}; };
+        const float len = std::hypot(a1.x - a0.x, a1.z - a0.z);
+        int steps = 1;
+        for (; steps < 16 && len / (float)steps > 1.0f; steps *= 2) {
+            bool flat = true;
+            for (int k = 0; k < steps && flat; ++k) {
+                const float f0 = (float)k / steps, f1 = (float)(k + 1) / steps;
+                const P q[4] = {lerp(a0, a1, f0), lerp(a0, a1, f1), lerp(b0, b1, f1), lerp(b0, b1, f0)};
+                const P mid = lerp(lerp(q[0], q[1], 0.5f), lerp(q[3], q[2], 0.5f), 0.5f);
+                flat = std::fabs(y(mid) - 0.25f * (y(q[0]) + y(q[1]) + y(q[2]) + y(q[3]))) <= 0.01f;
+            }
+            if (flat) break;
+        }
+        for (int k = 0; k < steps; ++k) {
+            const float f0 = (float)k / steps, f1 = (float)(k + 1) / steps;
+            const P q[4] = {lerp(a0, a1, f0), lerp(a0, a1, f1), lerp(b0, b1, f1), lerp(b0, b1, f0)};
+            float h[4];
+            bool off = false;
+            for (int m = 0; m < 4; ++m) off |= (h[m] = y(q[m])) == Surface::kNone;
+            if (off) continue;  // paint never hangs past the road
+            // Counter-clockwise from above whichever way the frame turned.
+            const float cr = (q[1].x - q[0].x) * (q[2].z - q[0].z) -
+                             (q[1].z - q[0].z) * (q[2].x - q[0].x);
+            const int o[6] = {0, 1, 2, 0, 2, 3}, r[6] = {0, 2, 1, 0, 3, 2};
+            for (int m = 0; m < 6; ++m) {
+                const int idx = cr >= 0.0f ? o[m] : r[m];
+                out.push_back({q[idx].x, h[idx], q[idx].z, 0.0f, 0.0f});
+            }
+        }
+    };
+    // A rectangle in an arm's frame: `along` from the cap (negative = inside
+    // the patch), `lat` across (+ = the arm's left, which is the lane coming
+    // INTO the node under right-hand traffic).
+    auto quad = [&](const NodeArm& a, float al0, float al1, float la0, float la1) {
+        const float nx = -a.tz, nz = a.tx;
+        auto at = [&](float al, float la) {
+            return P{a.capX + a.tx * al + nx * la, a.capZ + a.tz * al + nz * la};
+        };
+        if (std::fabs(al1 - al0) >= std::fabs(la1 - la0))
+            paint(at(al0, la0), at(al1, la0), at(al1, la1), at(al0, la1));
+        else
+            paint(at(al0, la0), at(al0, la1), at(al1, la1), at(al1, la0));
+    };
+    for (const Crossing& c : plan.crossings) {
+        if (c.kind != kCrossPatch || c.patchDuplicate || c.transition) continue;
+        bool through = false;
+        for (const NodeArm& a : c.armList) through |= !a.ends;
+        // The road that gives way at a crossing of through roads: lower rank,
+        // then narrower, then the later one (a deterministic tie-break).
+        int minor = -1;
+        bool anyEnds = false;
+        for (const NodeArm& a : c.armList) anyEnds |= a.ends;
+        if (!anyEnds)
+            for (int r : c.roads) {
+                if (minor < 0) { minor = r; continue; }
+                const CrossingRoad& R = roads[(size_t)r];
+                const CrossingRoad& M = roads[(size_t)minor];
+                if (R.rank < M.rank || (R.rank == M.rank && R.width < M.width) ||
+                    (R.rank == M.rank && R.width == M.width))
+                    minor = r;
+            }
+        // EDGE LINES around the node: the road texture's own edge line (5..8
+        // of 128 across the width) carried along every outline segment that
+        // is a road edge or a fillet - never across a cap, where the road and
+        // its painted line carry on.
+        bool paintEdges = !c.shape.outlineCap.empty();
+        float meanH = 0.0f;
+        for (const NodeArm& a : c.armList) {
+            paintEdges &= roads[(size_t)a.road].markings > kMarkNone;
+            meanH += a.h / (float)c.armList.size();
+        }
+        const std::vector<float>& ring = c.shape.outline;
+        const size_t pts = ring.size() / 2;
+        if (paintEdges && c.shape.outlineCap.size() == pts) {
+            const float in0 = kEdgeLineU0 * 2.0f * meanH, in1 = kEdgeLineU1 * 2.0f * meanH;
+            auto pt = [&](size_t k) { return P{ring[(k % pts) * 2], ring[(k % pts) * 2 + 1]}; };
+            for (size_t k = 0; k < pts; ++k) {
+                if (c.shape.outlineCap[k]) continue;
+                // A straight run of segments (an arm's edge walked every 2
+                // units) is ONE stripe: extend while the next segment is not a
+                // cap and turns by under ~1.5 degrees. paint() still splits it
+                // where the ground bends.
+                const P p0 = pt(k);
+                size_t e = k + 1;
+                P p1 = pt(e);
+                while (e < pts && !c.shape.outlineCap[e % pts]) {
+                    const P q = pt(e + 1);
+                    const float ax = p1.x - p0.x, az = p1.z - p0.z;
+                    const float bx = q.x - p1.x, bz = q.z - p1.z;
+                    const float la = std::hypot(ax, az), lb = std::hypot(bx, bz);
+                    if (!(la > 1e-4f) || !(lb > 1e-4f)) break;
+                    if ((ax * bz - az * bx) / (la * lb) > 0.026f ||
+                        (ax * bz - az * bx) / (la * lb) < -0.026f ||
+                        ax * bx + az * bz <= 0.0f)
+                        break;
+                    ++e;
+                    p1 = q;
+                }
+                const float dx = p1.x - p0.x, dz = p1.z - p0.z, l = std::hypot(dx, dz);
+                k = e - 1;  // the loop's ++k moves to the run's last segment's end
+                if (!(l > 1e-4f)) continue;
+                const float nx = -dz / l, nz = dx / l;  // inward: the ring is CCW
+                paint({p0.x + nx * in0, p0.z + nz * in0}, {p1.x + nx * in0, p1.z + nz * in0},
+                      {p1.x + nx * in1, p1.z + nz * in1}, {p0.x + nx * in1, p0.z + nz * in1});
+            }
+        }
+        for (const NodeArm& a : c.armList) {
+            const CrossingRoad& R = roads[(size_t)a.road];
+            if (R.markings <= kMarkNone) continue;
+            const bool givesWay = (through && a.ends) || a.road == minor;
+            if (givesWay && a.h >= 1.5f)
+                quad(a, -0.7f, -0.25f, 0.15f, a.h - 0.35f);  // stop line, incoming lane
+            if (R.markings >= kMarkCrossings && c.arms >= 3 && a.h >= 2.5f) {
+                // Zebra: 0.5-wide stripes on a 1-unit pitch, centred on the road.
+                const int n = (int)std::floor((2.0f * a.h - 1.0f) / 1.0f);
+                const float first = -0.5f * (float)(n - 1);
+                for (int k = 0; k < n; ++k) {
+                    const float m = first + (float)k;
+                    quad(a, 0.6f, 3.6f, m - 0.25f, m + 0.25f);
+                }
+            }
+        }
+    }
 }
 
 void addCrossingsToSurface(Surface& s, const std::vector<CrossingRoad>& roads,

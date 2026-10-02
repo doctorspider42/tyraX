@@ -9,13 +9,12 @@ relevant guide or developer skill.
 docs/roads.md, "Road nodes". The geometry is in; the rest of the network idea
 is not:
 
-- **Markings as decals generated from the node.** Stop lines at each arm's
-  cap, zebra crossings across the arms, dashed turn guides inside the node,
-  chevrons in a fork's gore - geometry from one small shared markings atlas,
-  so every junction looks different at the VRAM cost of one texture. The
-  arm caps, fillets and gore are already in `Junction::outline`'s
-  construction (`nodeOutline`); expose the per-arm frames instead of only
-  the ring.
+- ~~Markings~~ DONE 1.171.0 (edge lines, stop lines, zebras - untextured
+  paint, docs/roads.md "Markings"). Still open: dashed turn guides inside a
+  node, chevrons in a fork's gore, left-hand traffic, and taking the edge-line
+  inset from the road's own texture recipe instead of the district's ratio.
+- ~~Width transitions~~ DONE 1.171.0 (docs/roads.md "Transition nodes"). Still
+  open: a surface change at one width, and lane-count changes inside ONE road.
 - **Kerbs and pavements** extruded along road edges and around the fillets.
 - **Overrides for nodes of more than two roads.** `JunctionOverride` is still
   a road PAIR, and the Junction panel's Winner combo offers only `c.a`/`c.b`.

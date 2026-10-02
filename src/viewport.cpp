@@ -4228,6 +4228,7 @@ void Viewport::syncRoadDraws(const std::vector<SceneObject>& objects) {
         mix(csig, &r.grip, sizeof(r.grip));
         mix(csig, &r.spill, sizeof(r.spill));
         mix(csig, &r.edgeFade, sizeof(r.edgeFade));
+        mix(csig, &r.markings, sizeof(r.markings));
         mix(csig, &r.rank, sizeof(r.rank));
         mix(csig, r.intersection.data(), r.intersection.size() + 1);
         mix(csig, o.roadTexture.data(), o.roadTexture.size() + 1);
@@ -4256,6 +4257,7 @@ void Viewport::syncRoadDraws(const std::vector<SceneObject>& objects) {
     for (const auto& entry : roadDraws_)
         roadTriangles.insert(roadTriangles.end(), entry.second.outline.begin(),
                              entry.second.outline.end());
+    std::vector<roadgen::Vertex> paintOnTris;
     for (const roadgen::Crossing& c : plan.crossings) {
         if (c.kind != roadgen::kCrossPatch || c.patchDuplicate) continue;
         const SceneObject& a = objects[(size_t)objIdx[(size_t)c.a]];
@@ -4273,6 +4275,31 @@ void Viewport::syncRoadDraws(const std::vector<SceneObject>& objects) {
         d.owner = keyOf(c.a);
         d.color[0] = a.color[0], d.color[1] = a.color[1], d.color[2] = a.color[2];
         roadCross_.push_back(std::move(d));
+        paintOnTris.insert(paintOnTris.end(), triangles.begin(), triangles.end());
+    }
+    // Node markings (docs/roads.md "Markings"): the codegen's bakeMarkings over
+    // the same roads and patches, untextured paint drawn with the first patch's
+    // road.
+    {
+        roadgen::Surface paintOn;
+        paintOn.add(roadTriangles);
+        paintOn.add(paintOnTris);
+        paintOn.build();
+        std::vector<roadgen::Vertex> paint;
+        roadgen::bakeMarkings(plan, cr, paintOn, paint);
+        if (!paint.empty()) {
+            std::vector<float> iv;
+            for (const roadgen::Vertex& v : paint)
+                iv.insert(iv.end(), {v.x, v.y, v.z, 1.0f, 1.0f, 1.0f, 0.0f, 0.0f});
+            RoadCrossDraw d;
+            d.mesh = uploadMesh(iv);
+            d.owner = keyOf(plan.crossings.front().a);
+            const float k = 1.0f / 255.0f;
+            d.color[0] = ((roadgen::kMarkingRgb >> 16) & 255) * k;
+            d.color[1] = ((roadgen::kMarkingRgb >> 8) & 255) * k;
+            d.color[2] = (roadgen::kMarkingRgb & 255) * k;
+            roadCross_.push_back(std::move(d));
+        }
     }
     for (const roadgen::CrossingDecal& dc : plan.decals) {
         if (dc.verts.empty()) continue;

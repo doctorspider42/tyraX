@@ -43,7 +43,7 @@ int ROAD_COUNT=1, ROAD_TEXTURE_COUNT=0;
 RoadDefRt ROAD_DEFS[1];
 float ROAD_POINTS[64];
 const char* ROAD_TEXTURE_PATHS[1]={""};
-struct RoadJunctionRt { int scene,tex,first,count; float grip; };
+struct RoadJunctionRt { int scene,tex,first,count; float grip; int rgb; };
 float ROAD_JUNCTION_VERTS[3600 * 5]{};
 struct RoadSpillRt { int scene,road,first,count; float baseGrip, grip, lift; };
 int ROAD_SPILL_COUNT=0; RoadSpillRt ROAD_SPILLS[1]{}; float ROAD_SPILL_VERTS[1]{};

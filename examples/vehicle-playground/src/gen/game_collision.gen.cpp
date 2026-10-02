@@ -9003,12 +9003,17 @@ void TerrainGame::buildRoads(int scene) {
       c.roadTex = tex;
       c.roadGrip = j.grip;
       c.stripRun = 0;
+      // A painted row (node markings, 1.171.0) carries its own colour and no
+      // texture; a patch takes the road grey its texture modulates.
+      const Tyra::Color paint((float)((j.rgb >> 16) & 255), (float)((j.rgb >> 8) & 255),
+                              (float)(j.rgb & 255), 128.0F);
+      const Tyra::Color& shade = j.rgb != 0 ? paint : grey;
       const int count = std::min(1800, j.count - first);
       for (int k = 0; k < count; ++k) {
         const float* v = &ROAD_JUNCTION_VERTS[(size_t)(j.first + first + k) * 5];
         c.vertices.push_back(Tyra::Vec4(v[0], v[1], v[2], 1.0F));
         c.sts.push_back(Tyra::Vec4(v[3], v[4], 1.0F, 0.0F));
-        c.colors.push_back(grey);
+        c.colors.push_back(shade);
       }
     }
   }

@@ -3904,7 +3904,13 @@ every road at a node, its arm count and its outline point count (an outline of
 and a host harness over `roadgen.cpp` alone (link it `-static` from Git Bash)
 that rasterises `Crossing::shape.outline` over the road triangles to a PNG -
 the picture is what found the wrapped arcs (holes), the straight arms on bends
-and the negative-fillet slip road, none of which any count showed. In PCSX2,
+and the negative-fillet slip road, none of which any count showed. **When
+something laid on a node is invisible in PCSX2 while its row is in the data,
+read the chunk's world box first** (a `TYRA_LOG` of `aabbMin/aabbMax` in the
+scratch copy's generated `game_vehicles.gen.cpp`, compiled with
+`tools/toolchain/native-build.ps1` directly so `--build` does not regenerate
+it away): a Y of INT_MAX was a 1e30 vertex from a sliver patch triangle, and
+it took the markings out of the frustum with it. In PCSX2,
 park a frozen camera high over a scratch project with every node kind, on flat
 ground AND on rolling hills (write `terrain-<scene>.heights` yourself: `n n`
 then n*n heights, n = terrainDetail + 1), and `--capture-frame`.

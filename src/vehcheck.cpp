@@ -1287,6 +1287,40 @@ void roadNodes() {
         summary("six-way", p);
         verdict(p.crossings.size() == 1 && p.crossings[0].arms == 6,
                 "three roads through one spot are one six-armed node");
+        // The same node on rolling ground (the scratch fixture that found it):
+        // a sliver piece of the grid cut once read as a 1e30 clearance deficit
+        // and lifted the whole patch out of the world.
+        // A real heightfield (33 x 33 nodes over 160 units, the scratch
+        // project's), sampled the way the renderer draws it.
+        std::vector<float> hm(33 * 33);
+        for (int k = 0; k < 33; ++k)
+            for (int i = 0; i < 33; ++i) {
+                const float x = -80.0f + 5.0f * (float)i, z = -80.0f + 5.0f * (float)k;
+                hm[(size_t)k * 33 + i] = 1.2f * std::sin(x * 0.21f) * std::cos(z * 0.17f) +
+                                         0.6f * std::sin(z * 0.37f + 1.0f);
+            }
+        const roadgen::HeightFn hills = [&](float x, float z) {
+            return roadgen::terrainHeight(hm, 33, 33, 160.0f, 160.0f, x, z);
+        };
+        const roadgen::TerrainGrid grid = roadgen::terrainGridOf(33, 33, 160.0f, 160.0f);
+        std::vector<roadgen::Vertex> roadTris;
+        for (const roadgen::CrossingRoad& rr : r) {
+            std::vector<roadgen::Vertex> m;
+            roadgen::tessellate(rr.points, rr.width, hills, m);
+            roadTris.insert(roadTris.end(), m.begin(), m.end());
+        }
+        float worst = 0.0f;
+        size_t verts = 0;
+        for (const roadgen::Crossing& c : p.crossings) {
+            std::vector<roadgen::Vertex> patch;
+            roadgen::tessellateJunctionSurface(c.shape, roadTris, hills, c.lift, patch, grid);
+            verts += patch.size();
+            for (const roadgen::Vertex& v : patch)
+                worst = std::max(worst, std::fabs(v.y - hills(v.x, v.z)));
+        }
+        std::printf("  six-way on hills: %zu verts, worst height over ground %.3f\n", verts,
+                    worst);
+        verdict(verts > 0 && worst < 0.5f, "a node patch on rolling ground stays on the ground");
     }
     // L: two roads ending at one spot at right angles. The outside corner is
     // on neither road; the node rounds it.
@@ -1299,6 +1333,57 @@ void roadNodes() {
         verdict(p.crossings.size() == 1 && p.crossings[0].arms == 2 &&
                     on(s, -2.0f, -2.0f) && !on(s, -3.5f, -3.5f),
                 "a corner of two road ends is rounded on its outside");
+    }
+    // A width change where two roads join in line is a TRANSITION node: its
+    // patch is the taper, laid on the narrow road (1.171.0).
+    {
+        std::vector<roadgen::CrossingRoad> r = {road("wide", {-40, 0, 0, 0}, 12),
+                                                road("narrow", {0, 0, 40, 0}, 6)};
+        const roadgen::CrossingPlan p = roadgen::planCrossings(r, {});
+        summary("transition", p);
+        const roadgen::Surface s = surfaceOf(r, p);
+        // Halfway along the taper (18 units: 3 per unit of width lost) the
+        // patch is ~4.5 wide each side: on it at 4.2, off the narrow road there.
+        verdict(p.crossings.size() == 1 && p.crossings[0].transition &&
+                    on(s, 9.0f, 4.2f) && !on(s, 9.0f, 5.2f) && !on(s, 25.0f, 4.0f),
+                "a width change in line tapers from the wide road to the narrow one");
+    }
+    // Markings: a T paints a stop line on the stem only; zebras when asked;
+    // none when a road says none.
+    {
+        std::vector<roadgen::CrossingRoad> r = {road("main", {-40, 0, 40, 0}, 8),
+                                                road("stem", {0, 0, 0, 40}, 6)};
+        auto paintOf = [&](const std::vector<roadgen::CrossingRoad>& rr) {
+            const roadgen::CrossingPlan p = roadgen::planCrossings(rr, {});
+            const roadgen::Surface s = surfaceOf(rr, p);
+            std::vector<roadgen::Vertex> paint;
+            roadgen::bakeMarkings(p, rr, s, paint);
+            return paint;
+        };
+        const std::vector<roadgen::Vertex> stop = paintOf(r);
+        // Triangles by where their centre lies: the stem's incoming lane
+        // (x < 0 - right-hand traffic coming south), its outgoing lane, and
+        // the painted edge line the node carries round its fillets.
+        int incoming = 0, outgoing = 0, edges = 0;
+        for (size_t t = 0; t + 2 < stop.size(); t += 3) {
+            const float cx = (stop[t].x + stop[t + 1].x + stop[t + 2].x) / 3.0f;
+            const float cz = (stop[t].z + stop[t + 1].z + stop[t + 2].z) / 3.0f;
+            if (cz > 2.0f && cz < 15.0f && cx > -2.4f && cx < -0.1f) ++incoming;
+            if (cz > 2.0f && cz < 15.0f && cx > 0.1f && cx < 2.4f) ++outgoing;
+            if (cz < -3.0f && cz > -4.0f) ++edges;  // along the main road's far edge
+        }
+        r[0].markings = r[1].markings = roadgen::kMarkCrossings;
+        const std::vector<roadgen::Vertex> zebra = paintOf(r);
+        r[0].markings = r[1].markings = roadgen::kMarkNone;
+        const std::vector<roadgen::Vertex> none = paintOf(r);
+        std::printf("  markings: T %zu verts (stop line %d tris, outgoing lane %d, far edge "
+                    "line %d), + zebras %zu, none %zu\n",
+                    stop.size(), incoming, outgoing, edges, zebra.size(), none.size());
+        verdict(incoming == 2 && outgoing == 0,
+                "a T paints one stop line, on the stem's incoming lane");
+        verdict(edges > 0, "the node carries the road's edge line along its patch");
+        verdict(zebra.size() >= stop.size() + 19 * 6 && none.empty(),
+                "zebras are added on request, and a road can ask for no paint");
     }
     // A road simply continuing into another is not a junction.
     {

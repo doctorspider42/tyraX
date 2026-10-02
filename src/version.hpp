@@ -5515,7 +5515,13 @@
 // host-baked albedo map (REFL_GROUND_*): -2 ms a turning frame on the Motor
 // District's open road on a PS2.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 170
+#define TYRAX_VERSION_MINOR 171
+// 1.171.0: ROAD MARKINGS AND TRANSITIONS. Every patch node is painted
+// (roadgen::bakeMarkings): the road's edge line carried round the fillets,
+// stop lines where a road gives way, optional zebras - untextured paint in one
+// ROAD_JUNCTIONS row per scene (new rgb column). Two roads joined in line with
+// different widths make a transition node whose patch is the taper. Fixes a
+// sliver in a grid-cut patch lifting the whole patch to 1e30. Format v96.
 // 1.170.0: ROAD NODES. Every place roads meet - a crossing at any angle, an
 // open end resting on another road (a T or a fork), two ends sharing a spot
 // (a corner), several roads through one point - is ONE node with a filleted
@@ -6121,7 +6127,10 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // v94 (docs/vehicles.md, "Controls card"): a definition's "tutorial" seconds,
 // written only when non-zero. Missing = no card, as before. Additive; no
 // migration step.
-inline constexpr int kFormatVersion = 94;
+// v96 (docs/roads.md, "Markings"): a road's "roadMarkings" (0 none, 1 stop
+// lines, 2 + zebras), written only when not 1. Missing = stop lines. Additive;
+// no migration step. (v95 is the kerbs branch's.)
+inline constexpr int kFormatVersion = 96;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

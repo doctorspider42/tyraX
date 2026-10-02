@@ -2980,7 +2980,15 @@ intersection corners; since 1.170.0 it also proves clearance over the
 terrain's own triangles and, where a fan cannot follow the ground, cuts the
 outline along the terrain grid - so pass the scene's `roadgen::TerrainGrid`
 (`terrainGridOf`, `Viewport::terrainGrid`) or it falls back to 2-unit cells.
-Codegen bakes XYZUV in `ROAD_JUNCTION_VERTS`; `buildRoads` only uploads it. Use the rendered terrain
+Codegen bakes XYZUV in `ROAD_JUNCTION_VERTS`; `buildRoads` only uploads it.
+Since 1.171.0 the node MARKINGS (`roadgen::bakeMarkings`: edge lines round
+the fillets, stop lines, zebras; per-road `roadMarkings`) ride the same table
+as one untextured row per scene - `RoadJunctionRt::rgb` non-zero = paint, its
+colour, no texture - so a new painted thing needs no new runtime path; and a
+width change between two roads joined in line is a TRANSITION node
+(`Crossing::transition`, taper outline). Per-arm frames for anything drawn on
+a node are `Crossing::armList`; `Junction::outlineCap` says which outline
+segments are arm caps. Use the rendered terrain
 triangle sampler (`roadgen::terrainHeight`) when generating the source roads,
 not `project::heightAtWorld`'s bilinear interpolation. Keep the viewport,
 test drive and generated data on that shared host result; never move road
