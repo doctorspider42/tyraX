@@ -260,7 +260,15 @@ mappings across the full 5,400-loop emulator run. Cold phase-zero renders
 (24 extra) and phase-one prefixes (five extra) are separate from input polls;
 all blocks have zero invalid/dropped events. A separate initial-block snapshot
 shows the white marker and normal scene. Emulator numerical delays are not
-physical latency evidence; corrected PS2 mapping remains pending.
+physical latency evidence. The fresh physical V2 trial also passes all 5,400
+loops and 39 mappings, with no invalid/dropped events or hang. Synthetic
+EE-event-to-display-register medians off/on/restored-off are
+33.276 / 66.623 / 33.276 ms (13 events each). Means are 34.551 / 66.621 /
+33.267 ms; the first off block includes one 49.960 ms sample. The on median is
+about 33.35 ms later than either off control in this instrumented parked night,
+progressive two-buffer configuration. This is not a universal fixed penalty:
+physical button/TV photons, independent observer overhead and other output
+modes remain separate acceptance gates.
 No button-to-TV result or default promotion follows from source/host/native gates.
 Default promotion remains open after latency and broader validation.
 

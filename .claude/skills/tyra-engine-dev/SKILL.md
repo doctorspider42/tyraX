@@ -3569,8 +3569,11 @@ plus off/on/restored-off completeness. Cold extra renders/prefixes must be
 accounted separately. V2 actual-header host36241/36345, native and full
 5400loop emulator39/39 mapping pass; actual cold extras24renders/5prefixes
 recorded. Initial-block marker screenshot checked separately. PhysicalV2
-pending; emulator numerical delay is not hardware latency. No TVphotons/default
-promotion accepted.
+PASS5400loops39/39synthetic maps: medians33.276/66.623/33.276ms
+EEevent-to-display-register, about33.35ms later on in this exact instrumented
+night/two-buffer configuration. Firstoff has49.960ms outlier; means/ranges
+retained. No universal penalty, observer-free cost or button/TVphoton result.
+Emulator numerical delay is not hardware latency; default promotion open.
 
 
 Private inverse/key cost trial: Off/CountOnly/Scoped/CountOnly/Off,5x2200

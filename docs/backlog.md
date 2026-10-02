@@ -324,7 +324,9 @@ recovered 0.50-0.72 ms of hardware `work`. What it did not do, ranked:
   initial host checks and native compilation; PS2 and PCSX2 completed 5,400
   loops, but V1 mapping was rejected due to absent/stale legacy-off observer
   tags. V2 passes actual-header host checks, native compilation and all39
-  software mappings in the full emulator run; corrected PS2 mapping is pending;
+  software mappings in full emulator and fresh PS2 runs. Physical synthetic
+  event-to-display-register medians33.276/66.623/33.276ms show about33.35ms
+  extra in this controlled configuration;
   manual physical input/TV-image latency and promotion remain separate gates.
   The [runtime record](tyrax2-runtime-2026-10-02.json) distinguishes final results
   from historical arms. The older GPU-only sweep is not a current gain ceiling.
