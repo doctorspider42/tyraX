@@ -28,7 +28,10 @@ builds measured 6.7-7.6 s. This excludes editor generation/baking and cold setup
   avenue, **Orchard east** on the ring road), **Service ramp** peels off the
   east side of the ring at a shallow angle and drops onto Foundry link, and
   **Quarry road** leaves the north side of the ring and turns a corner into
-  **Quarry spur**.
+  **Quarry spur**. The twelve asphalt streets have
+  [kerbs](../../docs/roads.md#kerbs-format-95), which run around every
+  junction's rounded corners. The dirt West service lane has none. They are
+  visual only: the cars drive through them.
 
   ![PCSX2, mirrored in X: the Orchard fork between the ring road and Skyline avenue, the Service ramp leaving the ring, and the Quarry corner](../../docs/img/road-nodes-district.png)
 - **dense** adds buildings for a busier drive.
