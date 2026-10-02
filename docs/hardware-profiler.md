@@ -172,8 +172,8 @@ boot under a fixed game workload. Common sampling, lexical scopes and lifecycle
 counters remain. It is not a total inactive-observer bill, a compiler-pruned
 comparison or a universal correction for older ELFs. Removing reloads and
 changing sample-buffer layout together does not identify which caused the
-earlier phase effect. Broader repeats and fresh coarse-Scene attribution remain
-open.
+earlier phase effect. Broader repeats remain open; fresh coarse Scene
+attribution is recorded below.
 
 The immutable calibration fixture still has the older generated `Scene` scope,
 which is detail-only. Its coarse renderer work therefore remains under `Game`;
@@ -184,6 +184,86 @@ In the instrumented detailed trace, the largest exclusive residuals are static
 bag preparation, scene assembly, dispatch and bounds. Snapshot mutable copying
 and preflight also have repeated activation. This ranking locates candidate
 paths; detailed observer cost prevents treating it as a production cost bill.
+
+### Fresh coarse Scene envelope
+
+A new private fixture transplants the exact current generator's existing
+`Scene` scope (`Kind::Span, false`) into the preserved game. This activates one
+scope per main-view frame in coarse mode; it does not regenerate the complete
+project or add per-object clocks. All remaining game/engine rendering code
+stays unchanged. The same ELF uses Off/Coarse/Off and Coarse/Off/Coarse, continuous
+scene/resources, a common sample buffer, fixed game dt, and normal inactive
+routing in every arm. Detail and register snapshots remain off.
+
+The unchanged capture API caps a window at 32 frames. Each arm records 32 raw
+samples; index31 is excluded uniformly from every metric in every arm because
+the last captured whole-engine loop includes automatic file export. The other
+31 samples are aligned to actual engine frames and recording jobs. The ring
+stays reserved before assets in all arms, and configuration bytes are frozen
+before each launch. Camera/state/dt, accessible addresses and export-before-reuse
+controls are required alongside strict complete CSV hierarchy acceptance.
+
+[Two physical boot orders](hardware-timeline-scene-coarse-2026-10-02.json)
+complete 5400 loops each, with 192 raw/186 uniformly selected independent
+samples in total. All three active captures pass 32 frames/448 events each,
+exactly one authoritative Scene per frame, zero drops/invalid hierarchy or
+ambiguities, and matching actual source jobs. The first 31 frames of each
+capture provide 93 attributed frames; full final capture frames remain valid
+but are excluded from every quantitative comparison. Exact named state,
+13 camera words, game dt, accessible vector/part addresses and the common
+sample address match within and across both boots. ELF/config/source/asset
+and matching-symbol provenance is frozen independently. Native compilation,
+complete emulator replay and independent source/parser controls also pass.
+
+| Coarse observation | Mean range across three accepted windows |
+|---|---:|
+| Scene inclusive/exclusive elapsed EE span | 17.680436–17.704852 ms |
+| Update exclusive span | 1.439001–1.451992 ms |
+| Remaining Game exclusive span | 0.385932–0.399354 ms |
+| Named VIF/GS completion waits, outside Scene | 0.003058–0.003096 ms |
+| Presentation pacing | 13.646139–13.681891 ms |
+
+Coarse activation increases independent renderer work by 0.074674–0.096925 ms
+in Off/Coarse/Off and 0.068905–0.089334 ms in reverse order. Outer-control
+spreads are 0.022251/0.020429 ms. Whole-engine periods stay approximately
+33.36 ms: pacing absorbs the observed increase. This is one boot per order
+under the fixed parked workload, not a universal correction or a pure Scope
+call cost. The new ELF's inactive timings are not interchangeable with older
+calibration ELFs.
+
+The dominant observed envelope is now Scene, rather than unexplained Game.
+Scene has no typed children in this coarse capture, so its inclusive and
+exclusive ledger durations coincide; that does not make it pure arithmetic.
+The pooled CPU-labelled frame ledger is 19.666059 ms, known waits 0.003082 ms,
+pacing 13.660563 ms and uncovered time 0.035484 ms, with zero ambiguity. These
+categories partition elapsed frame time; the CPU label still includes any
+unclassified waits or interruptions. Do not subtract the EndFrame completion
+waits from Scene: they are outside it. Narrow attribution inside bag preparation
+and dispatch remains open, as does pricing any actual candidate with capture
+disabled. No production optimization or VU/GS utilization claim follows.
+
+### What attribution can decide
+
+A reliable total timer and a complete ownership ledger answer different
+questions. A wide parent scope can own nearly all frame work while still
+containing many unnamed operations. Detailed trace helps locate those paths,
+but its several-millisecond disturbance can change when asynchronous work
+finishes and where the EE waits. Its exclusive wall times are not a production
+arithmetic bill.
+
+Coarse Scene supplies a lower-volume envelope for `renderScene`: Update is
+already closed, and deferred snapshot/native work in EndFrame remains outside
+that invocation. Its span still includes unlabelled waits and interruptions.
+Only the named completion waits are separately classified; tiny measured waits
+do not prove all consumers or the EE are idle elsewhere. Existing narrow
+snapshot and math censuses rank hypotheses, but different ELF/boot observations
+cannot be summed into one Scene total.
+
+After establishing the envelope and its activation cost, measure a small set
+of aggregate operations inside the dominant bag-preparation/dispatch paths.
+Keep original batching and compare candidate work with the observer disabled.
+A useful next experiment must identify an operation or validate a saving;
+repeating calibration alone does neither.
 
 [Seven physical PS2 controls and measured overhead](hardware-profiler-results.md)
 record the first full-asset Motor District diagnosis.

@@ -423,7 +423,7 @@ recovered 0.50-0.72 ms of hardware `work`. What it did not do, ranked:
   0.916–0.931 ms above compiled-out, with 0.004–0.036 ms instrumented control
   spread. This brackets a repeatable combined difference, not the ring/hook
   split. Pre-asset ring reservation is now measured separately; refreshed
-  coarse Scene coverage and broader repeated controls remain open;
+  coarse Scene coverage is now measured separately; broader controls remain open;
   [Same-ELF ring control](hardware-timeline-ring-control-2026-10-02.json) is
   prepared: native build and both complete 5,400-frame emulator runs pass,
   384 independent samples each with trace inactive. Declared state digests
@@ -448,7 +448,16 @@ recovered 0.50-0.72 ms of hardware `work`. What it did not do, ranked:
   outer-control spreads are 0.003855/0.001551 ms. This is a local net routing
   effect from one boot per order, retaining common observer work. Removing two
   variables together does not identify the earlier phase effect's cause.
-  Broader repeats and fresh coarse-Scene attribution remain open. Earlier seven
+  [Fresh coarse Scene attribution](hardware-timeline-scene-coarse-2026-10-02.json)
+  now passes both physical orders: 192 raw/186 selected samples, three strict
+  captures (32 frames/448 events each; first31 selected). Scene is
+  17.680–17.705 ms, Update 1.439–1.452 ms and remaining Game 0.386–0.399 ms.
+  Coarse activation adds 0.069–0.097 ms renderer work with outer-control spreads
+  0.022251/0.020429 ms. Exact named state/camera/dt and accessible addresses
+  match within/across boots. This is a fixed-workload elapsed EE envelope, not
+  pure arithmetic or VU/GS utilization. Next narrowly attribute bag preparation
+  and dispatch, then price candidates with capture off; broader repeats remain
+  open. Earlier seven
   warm samples per arm in a single boot are exploratory only. No constant
   overhead correction, VU/GS utilization or EE arithmetic-only cost is inferred.
 - **Night light-effect cost after TyraX2 — measured, optimization open.**
