@@ -1,21 +1,53 @@
-# TyraX
+<p align="center">
+  <img src="docs/img/readme-banner.png" alt="TyraX — the 3D editor that makes real PlayStation 2 games. Banner showing the Ravager driving through Motor District at night, captured in PCSX2." width="100%">
+</p>
 
-*Pronounced **TIE-raks** — /ˈtaɪræks/ (like "tie" + "racks").*
+<p align="center">
+  <a href="https://github.com/doctorspider42/tyraX/releases/latest"><img src="https://img.shields.io/github/v/release/doctorspider42/tyraX?style=for-the-badge&label=release&color=26d9ff&labelColor=0b1220" alt="Latest release"></a>
+  <a href="https://github.com/doctorspider42/tyraX/actions/workflows/release.yml"><img src="https://img.shields.io/github/actions/workflow/status/doctorspider42/tyraX/release.yml?branch=main&style=for-the-badge&label=release%20build&labelColor=0b1220" alt="Release build status"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/doctorspider42/tyraX?style=for-the-badge&color=26d9ff&labelColor=0b1220" alt="Apache-2.0 license"></a>
+  <br>
+  <img src="https://img.shields.io/badge/target-PlayStation%202-003791?style=for-the-badge&logo=playstation&logoColor=white&labelColor=0b1220" alt="Target: PlayStation 2">
+  <img src="https://img.shields.io/badge/editor-Windows%20%7C%20Linux-26d9ff?style=for-the-badge&labelColor=0b1220" alt="Editor: Windows and Linux">
+  <img src="https://img.shields.io/badge/C%2B%2B-20-00599C?style=for-the-badge&logo=cplusplus&logoColor=white&labelColor=0b1220" alt="C++20">
+  <img src="https://img.shields.io/badge/runs%20on-PCSX2%20%2B%20real%20hardware-26d9ff?style=for-the-badge&labelColor=0b1220" alt="Runs on PCSX2 and real hardware">
+  <br>
+  <a href="https://github.com/doctorspider42/tyraX/stargazers"><img src="https://img.shields.io/github/stars/doctorspider42/tyraX?style=flat-square&logo=github&label=stars&color=26d9ff" alt="GitHub stars"></a>
+  <a href="https://github.com/doctorspider42/tyraX/releases"><img src="https://img.shields.io/github/downloads/doctorspider42/tyraX/total?style=flat-square&label=downloads&color=26d9ff" alt="Total downloads"></a>
+  <a href="https://github.com/doctorspider42/tyraX/commits/main"><img src="https://img.shields.io/github/commit-activity/m/doctorspider42/tyraX?style=flat-square&label=commits&color=26d9ff" alt="Commit activity"></a>
+  <a href="https://github.com/doctorspider42/tyraX/commits/main"><img src="https://img.shields.io/github/last-commit/doctorspider42/tyraX?style=flat-square&color=26d9ff" alt="Last commit"></a>
+  <a href="https://discord.gg/PpTAkQh6u"><img src="https://img.shields.io/badge/Tyra-Discord-5865F2?style=flat-square&logo=discord&logoColor=white" alt="Tyra Discord"></a>
+  <a href="https://github.com/sponsors/doctorspider42"><img src="https://img.shields.io/badge/sponsor-%E2%9D%A4-ea4aaa?style=flat-square&logo=githubsponsors&logoColor=white" alt="Sponsor"></a>
+</p>
 
-**A 3D editor that makes real PlayStation 2 games**, engine included — based on
-[Tyra](https://github.com/h4570/tyra).
+<p align="center">
+  <a href="#quickstart"><b>Quickstart</b></a> ·
+  <a href="#gallery"><b>Gallery</b></a> ·
+  <a href="#what-it-does"><b>Features</b></a> ·
+  <a href="#example-projects"><b>Examples</b></a> ·
+  <a href="docs/README.md"><b>Docs</b></a> ·
+  <a href="#run-on-a-real-ps2"><b>Real PS2</b></a> ·
+  <a href="https://github.com/doctorspider42/tyraX/releases/latest"><b>Download</b></a>
+</p>
+
+<p align="center"><i>Pronounced <b>TIE-raks</b> — /ˈtaɪræks/ (like "tie" + "racks").</i></p>
+
+---
+
+**TyraX is a 3D editor that makes real PlayStation 2 games, engine included** —
+based on [Tyra](https://github.com/h4570/tyra).
 
 Sculpt terrain, drop in models and lights, wire the gameplay in a visual flow
-graph — then press one key and a PS2 runs your world. PCSX2, or a real console
-over ethernet.
+graph — then press **one key** and a PS2 runs your world. PCSX2, or a real
+console over ethernet.
 
 Under the hood TyraX writes the game as ordinary C++ against the engine and
 compiles it with a native PS2DEV + OpenVCL toolchain. Scene object values compile
 once for fast object iteration; game subsystems compile in parallel with an
 automatic CPU job count ([details](docs/native-toolchain.md#parallel-game-compilation)).
-Both halves live in this repo —
-the editor and the engine (`vendor/tyra/engine`) — and the generated sources
-are yours to take over, file by file, whenever you want them.
+Both halves live in this repo — the editor and the engine (`vendor/tyra/engine`) —
+and the generated sources are yours to take over, file by file, whenever you
+want them.
 
 While the game runs, the editor stays attached: drag an object and it moves on
 the console as you drag, hot-patch a flow graph with no rebuild, put a
@@ -25,16 +57,92 @@ audit.
 
 And the ceiling is nowhere near 2002: baked global illumination with light
 probes, portals you walk through, reflections **ray-traced per pixel on VU0**,
-a neural upscaler measured **1.63× faster on a real console**, split-screen
-co-op, NPCs that find their way around walls.
+a neural upscaler measured **1.63× faster on a real console**, driveable cars on
+terrain-following roads, split-screen co-op, NPCs that find their way around
+walls.
 
 The editor is C++20 + Dear ImGui (docking) + GLFW + OpenGL 3.3, one source tree
 for **Windows and Linux**.
 
-![The TyraX editor in its default Face buttons theme: the Project panel (scenes, objects, layers, assets) on the left, the 3D viewport with a checkerboard terrain, scene objects, a transform gizmo and camera-entity frustum wedges in the center, the Properties panel for the selected box on the right, and the build Output docked below.](docs/img/editor-overview.png)
-
+> [!TIP]
 > This file is the map. Every feature has a guide in **[docs/](docs/README.md)** —
-> that index is the manual.
+> that index is the manual, and the same pages are baked into the editor, where
+> the built-in [AI Assistant](docs/ai-chat.md) answers from them.
+
+## Gallery
+
+Every game frame below is **[Motor District](examples/vehicle-playground/README.md)**,
+one of the example projects, captured from the running game in PCSX2 with the
+devkit's own frame grab (`--capture-frame`) and stretched to the 4:3 a television
+would show. Nothing is retouched; the speedometer and NOS gauge are the game's
+own HUD.
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/img/readme-district-day-start.png" alt="Motor District by day: the orange Ravager on the start line between a purple and a red car, apartment blocks and a garage behind"></td>
+    <td width="50%"><img src="docs/img/readme-district-day-drive.png" alt="The Ravager at 80 km/h between brick apartment blocks, approaching a zebra crossing"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub><b>Day.</b> Three Blender-built cars on the start line; press Square to swap.</sub></td>
+    <td align="center"><sub><b>80 and climbing.</b> Seven terrain-following roads, CC0 city scenery.</sub></td>
+  </tr>
+  <tr>
+    <td width="50%"><img src="docs/img/readme-district-night-start.png" alt="The same start line at night: street lamps cast pools of light, apartment windows glow, stars overhead"></td>
+    <td width="50%"><img src="docs/img/readme-district-night-drive.png" alt="Driving at night between lit apartment blocks, street lamps with visible light cones along the road"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub><b>Night.</b> One pause-menu toggle flips the district to its night grade.</sub></td>
+    <td align="center"><sub><b>Street lamps, light beams, lit windows</b> — rendered on the PS2 engine.</sub></td>
+  </tr>
+</table>
+
+<p align="center">
+  <img src="docs/img/readme-editor-district.png" alt="The TyraX editor with Motor District open: the Project panel with the main, dense and procedural scenes on the left, the 3D viewport in the middle showing the three cars on the road with the Ravager selected under a move gizmo, a street lamp with its light cone, and the Properties panel for the selected vehicle on the right" width="100%">
+  <br>
+  <sub><b>The same place in the editor</b> — the Ravager selected, its vehicle properties on the right. <code>F5</code> and it is on the console.</sub>
+</p>
+
+## At a glance
+
+<table>
+  <tr>
+    <td align="center" width="25%"><h3>44</h3><sub>example projects, each with its own README</sub></td>
+    <td align="center" width="25%"><h3>120</h3><sub>guides in <a href="docs/README.md"><code>docs/</code></a>, baked into the editor</sub></td>
+    <td align="center" width="25%"><h3>1 key</h3><sub>from the viewport to a running PS2 (<code>F5</code> / <code>F6</code>)</sub></td>
+    <td align="center" width="25%"><h3>0</h3><sub>devkit code in a release ELF — <a href="docs/devkit.md">audited on every release build</a></sub></td>
+  </tr>
+</table>
+
+<table>
+  <tr>
+    <td width="33%" valign="top">
+      <b>🎮 Real hardware, not a mock-up</b><br>
+      <sub>The same ELF boots in PCSX2 or on a <a href="docs/ps2link-setup.md">real PS2 over ethernet</a>, assets streamed from your PC — no ISO, no SMB.</sub>
+    </td>
+    <td width="33%" valign="top">
+      <b>🔴 A devkit that stays attached</b><br>
+      <sub><a href="docs/live-link.md">Live Link</a>, <a href="docs/live-logic.md">hot-patched logic</a>, <a href="docs/live-debugger.md">breakpoints</a>, a <a href="docs/time-machine.md">time machine</a> and a <a href="docs/remote-pad.md">remote pad</a>.</sub>
+    </td>
+    <td width="33%" valign="top">
+      <b>✨ Past the 2002 ceiling</b><br>
+      <sub><a href="docs/global-illumination.md">Baked GI + probes</a>, <a href="docs/raytraced-reflections.md">VU0 ray-traced mirrors</a>, <a href="docs/portals.md">portals</a>, the <a href="docs/neural-upscaler.md">BLSS upscaler</a>.</sub>
+    </td>
+  </tr>
+  <tr>
+    <td width="33%" valign="top">
+      <b>🧩 Gameplay without boilerplate</b><br>
+      <sub>A visual <a href="docs/custom-flow-nodes.md">flow graph</a>, Unity-style <a href="docs/object-scripts.md">C++ object scripts</a>, menus, HUD, saves, cutscenes.</sub>
+    </td>
+    <td width="33%" valign="top">
+      <b>🚗 Cars and roads</b><br>
+      <sub><a href="docs/roads.md">Terrain-following streets</a>, <a href="docs/vehicles.md">driveable and AI vehicles</a> with damage, and a <a href="docs/blender-vehicle-modeling.md">Blender tutorial</a> to make your own.</sub>
+    </td>
+    <td width="33%" valign="top">
+      <b>🧠 Your code, your game</b><br>
+      <sub>Generated C++ you can take over file by file, and <a href="LICENSE-EXCEPTION.md">no conditions</a> on the games you ship.</sub>
+    </td>
+  </tr>
+</table>
 
 ## Why would anyone do this?
 
@@ -115,6 +223,12 @@ Then, in the editor:
 
 ## Requirements
 
+**Windows or Linux**, [PCSX2](https://pcsx2.net/) with a BIOS, and on Windows
+WSL with a Debian/Ubuntu distribution. No Docker in the default path.
+
+<details>
+<summary><b>The full list, and the one path-length trap</b></summary>
+
 - **Windows or Linux.**
 - On Windows, WSL with a Debian/Ubuntu distribution. The installer can
   optionally prepare its host packages and pinned PS2 toolchain; the same
@@ -142,6 +256,8 @@ Then, in the editor:
   The editor warns in *Output*. Build & Run passes an absolute native path;
   invoking PCSX2 by hand should do the same, because its host loader can rebase
   a relative `-elf` path below `bin/` and leave only a black screen.
+
+</details>
 
 ## What it does
 
@@ -521,8 +637,7 @@ to take ownership** of a file, and the editor stops regenerating it.
 TyraX is free, Apache-2.0 and developed in the open. If it is useful to you,
 the **Sponsor** button at the top of this repository (or
 [github.com/sponsors/doctorspider42](https://github.com/sponsors/doctorspider42))
-helps keep the PS2 hardware, devkits and test consoles running. The button is
-wired from [`.github/FUNDING.yml`](.github/FUNDING.yml).
+helps keep the PS2 hardware, devkits and test consoles running.
 
 ## Credits
 
@@ -576,3 +691,11 @@ for you: every project TyraX creates gets a **`THIRD-PARTY-NOTICES.txt`** at its
 root, pre-filled with exactly those notices. Ship it beside the ELF, in the package
 or as an in-game credits screen and you are compliant. It is written once and never
 regenerated, so your own credits added to it survive every build.
+
+---
+
+<p align="center">
+  <b>Made for the PlayStation 2, in the open.</b><br>
+  <sub>If TyraX made you want to write a PS2 game, a ⭐ helps the next person find it.</sub><br><br>
+  <a href="https://github.com/doctorspider42/tyraX/stargazers"><img src="https://img.shields.io/github/stars/doctorspider42/tyraX?style=social" alt="Star TyraX on GitHub"></a>
+</p>
