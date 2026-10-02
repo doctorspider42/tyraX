@@ -394,6 +394,10 @@ recovered 0.50-0.72 ms of hardware `work`. What it did not do, ranked:
   18.191/18.492/18.239 ms gives 0.253–0.300 ms observed census increase;
   all arms remain about 30 Hz. Separately price inverse/key work before reuse;
   the whole preparation bucket is not an inverse-only saving estimate.
+  The [separate inverse/key cost census](tyrax2-ee-inverse-cost-2026-10-02.json)
+  passes native compilation and all11,000 emulator frames across five blocks,
+  with exact warm activation and complete windows. Physical cost is pending;
+  every inverse still runs and no output cache or frame gain is accepted.
 - **Night light-effect cost after TyraX2 — measured, optimization open.**
   A [physical one-group isolation run](tyrax2.md#night-workload-isolation-physical-ps2-2026-10-02)
   brackets seven stationary garage variants with full-night controls of

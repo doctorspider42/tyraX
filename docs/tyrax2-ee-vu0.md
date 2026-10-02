@@ -124,3 +124,24 @@ Native build and a complete 6,600-frame emulator gateoff/on/off run pass with pl
 The fresh physical same-ELF run also completes 6,600 frames and all three raw/count windows. Activation matches the emulator exactly: 71 calls, 60 finite repeats, one first and 10 changed, with one actual frame-end reset. Work gateoff/on/off is 18.191/18.492/18.239 ms; enabled work increases by 0.253–0.300 ms against controls whose spread is 0.048 ms. Delivery remains approximately 30 Hz. This prices the instrumented census as a whole, not a future minimal cache key or a pure observer bill: sequential animated-light/time/cache effects remain possible. Matching symbol and stripped archives are retained.
 
 Observer bit loads/comparisons/copies/count increments still cost EE work; gate-off retains compiled scaffold. Price actual inverse and key cost before implementing one-entry reuse. The earlier local preparation bucket includes other work and cannot be multiplied by the repeat fraction as a saving. A future inverse-only cache must keep current light transform, normalization and influence live. The [machine record](tyrax2-ee-inverse-2026-10-02.json) preserves host/native/emulator/physical evidence, source/ELF/frozen-log hashes and the visually normal emulator restored capture; no production engine change is accepted.
+
+
+### Inverse and conservative-key cost census, prepared for hardware
+
+A separate private five-block Off/CountOnly/Scoped/CountOnly/Off fixture retains
+every original inverse. Each block has 2,200 frames with plain draw order; four
+scene reloads occur outside warm windows. Scoped mode measures conservative
+64-byte full-model key lookup/finite-miss snapshot and actual affine inversion
+in separate brackets, with compiler memory clobbers. This does not implement
+a result cache, output-store/hit-read cost, or arithmetic skip.
+
+Native compilation and the full 11,000-frame emulator run pass all five raw
+512-frame windows and 220 aggregate records. Warm CountOnly/Scoped/CountOnly
+activation agrees: 71 calls/frame, 60 finite repeats, 11 finite misses, zero
+nonfinite misses and one frame-end reset. Off counters and CountOnly ticks
+remain zero. Strict parser controls reject incomplete or mismatched runs.
+Emulator clock values are not physical EE costs. The
+[machine record](tyrax2-ee-inverse-cost-2026-10-02.json) retains exact source,
+ELF/symbol and frozen-log hashes; a physical trial remains pending. Even on PS2,
+inverse-minus-key will not establish a frame saving or justify production reuse
+without a separate candidate comparison.

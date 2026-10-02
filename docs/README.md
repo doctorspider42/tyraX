@@ -391,3 +391,9 @@ The [exclusive EE math census](tyrax2-ee-vu0.md#exclusive-ee-math-census-physica
 The [same-call clip-plane candidate record](tyrax2-clip-reuse-2026-10-02.json) retains exact host classification controls, native build, quiet emulator phases and a separate moving-camera/scene cycle. Physical timing observes a regression; the candidate remains private and unaccepted.
 
 [TyraX2 automatic interleave attribution](tyrax2-interleave.md) explains the confirmed mixed-label sampling interval under N/N-1, zero discarded picks in the stationary night pose, and two physical pinned-order boots: the repeat indicates 0.358–0.404 ms interleave benefit, with approximately 30 Hz delivery unchanged.
+
+
+The [inverse/key cost census record](tyrax2-ee-inverse-cost-2026-10-02.json)
+retains the private five-block native/emulator trial, strict activation/window
+checks and source/ELF/log provenance. Physical costs and any output-cache
+candidate remain separate gates; emulator clocks establish no EE speed gain.

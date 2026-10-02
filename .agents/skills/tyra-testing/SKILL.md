@@ -4370,3 +4370,14 @@ accounted separately. V2 actual-header host36241/36345, native and full
 recorded. Initial-block marker screenshot checked separately. PhysicalV2
 pending; emulator numerical delay is not hardware latency. No TVphotons/default
 promotion accepted.
+
+
+Private inverse/key cost trial: Off/CountOnly/Scoped/CountOnly/Off,5x2200
+frames, plain order and4cold scene reloads. Native+full11000 emulator pass
+5raw512 windows/220records; warm71calls60repeat11miss/nf0/frameEnds1.
+Full16 conservative64B key is not inverse output cache; every original inverse
+runs. Emulator clocks are not physical cost; physical trial pending. INVCOST
+f labels END, FRAMETIME labels START: match warmed aggregate endpoints
+first+50..first+500, retain12-frame rawtail mismatch. Disjoint key/inverse scopes
+are BuildSpot children; inverse-minus-key is not frame gain. See
+docs/tyrax2-ee-inverse-cost-2026-10-02.json.
