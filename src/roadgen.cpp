@@ -1412,7 +1412,14 @@ std::vector<Crossing> findNodes(const std::vector<CrossingRoad>& roads) {
         int a, b;
     };
     std::vector<Contact> contacts;
+    // Bridges (docs/roads.md "Bridges"): a node forms only where both roads
+    // are on the ground - a deck passing over another road is an OVERPASS,
+    // not a junction, and two decks meeting in the air are not supported.
+    auto elevated = [&](int r, float x, float z) {
+        return roads[(size_t)r].elevation ? roads[(size_t)r].elevation(x, z) : 0.0f;
+    };
     auto addContact = [&](int a, int b, float x, float z) {
+        if (std::max(elevated(a, x, z), elevated(b, x, z)) > kOverpassClearance) return;
         const float merge = 0.5f * std::min(roads[(size_t)a].width, roads[(size_t)b].width);
         for (const Contact& c : contacts)
             if (std::min(c.a, c.b) == std::min(a, b) && std::max(c.a, c.b) == std::max(a, b) &&
@@ -2102,7 +2109,7 @@ void Surface::build() {
     }
 }
 
-float Surface::at(float x, float z, float* grip, float* cover) const {
+float Surface::at(float x, float z, float* grip, float* cover, float maxY) const {
     float best = kNone;
     if (grip) *grip = 1.0f;
     if (cover) *cover = 1.0f;
@@ -2123,7 +2130,9 @@ float Surface::at(float x, float z, float* grip, float* cover) const {
         const float wc = 1.0f - wa - wb;
         if (wa < -0.0001f || wb < -0.0001f || wc < -0.0001f) continue;
         const float y = wa * a.y + wb * b.y + wc * c.y;
-        if (y > best) {
+        // maxY (docs/roads.md "Bridges"): the highest surface NOT above it, so
+        // a car under a bridge deck stays on the road it is driving on.
+        if (y > best && y <= maxY) {
             best = y;
             const size_t t = cellItems_[e];
             if (grip) *grip = wa * grip_[t] + wb * grip_[t + 1] + wc * grip_[t + 2];
@@ -2213,9 +2222,18 @@ struct KerbWorld {
         if (x < b[0] || z < b[1] || x > b[2] || z > b[3]) return false;
         return projectOnto(l, x, z, nullptr) < halfW(r) - margin;
     }
+    // A road's surface above the bare ground here (0 unless it is a bridge).
+    float elevation(int r, float x, float z) const {
+        return r >= 0 && roads[(size_t)r].elevation ? roads[(size_t)r].elevation(x, z) : 0.0f;
+    }
+    // `except` is the road the kerb belongs to (-1 = a patch, on the ground);
+    // a bridge deck passing over it, or a road under the deck, is not "on".
     bool onAnyRoad(float x, float z, int except, float margin) const {
+        const float ref = elevation(except, x, z);
         for (int r = 0; r < (int)roads.size(); ++r)
-            if (r != except && onRoad(r, x, z, margin)) return true;
+            if (r != except && onRoad(r, x, z, margin) &&
+                std::fabs(elevation(r, x, z) - ref) <= kOverpassClearance)
+                return true;
         return false;
     }
     bool inPatch(float x, float z, int exceptCrossing) const {
@@ -2261,7 +2279,10 @@ void finishKerbPiece(KerbPiece& piece, const std::vector<KerbPt>& in, float fall
         const KerbPt& q = in[i];
         // A hair inside the road (or patch): the surface the face stands on.
         float h = surface ? surface(q.x - q.nx * 0.1f, q.z - q.nz * 0.1f) : Surface::kNone;
-        if (!(h > -1.0e29f)) h = (ground ? ground(q.x, q.z) : 0.0f) + kLift + fallbackLift;
+        const float glued = (ground ? ground(q.x, q.z) : 0.0f) + kLift + fallbackLift;
+        // A bridge deck overhead is not what the kerb stands on (docs/roads.md
+        // "Bridges"): the surface answers the highest triangle there.
+        if (!(h > -1.0e29f) || h > glued + kOverpassClearance) h = glued;
         y[i] = h;
     }
     std::vector<size_t> keep{0};

@@ -317,7 +317,10 @@ public:
     // kNone when no triangle covers (x, z). `grip`, when given, receives the
     // grip of the triangle that answered (1 when none did); `cover` how much
     // of the road is there (1, or a faded edge's alpha).
-    float at(float x, float z, float* grip = nullptr, float* cover = nullptr) const;
+    // `maxY` (docs/roads.md "Bridges"): only triangles at or below it answer -
+    // the highest surface not above a wheel, so a deck overhead is ignored.
+    float at(float x, float z, float* grip = nullptr, float* cover = nullptr,
+             float maxY = 1.0e30f) const;
     static constexpr float kNone = -1.0e30f;
 
 private:
@@ -360,7 +363,15 @@ struct CrossingRoad {
     // Kerbs (docs/roads.md "Kerbs"): only planKerbs reads these.
     bool kerb = false;
     float kerbHeight = 0.15f, kerbWidth = 0.25f;
+    // Bridges (docs/roads.md "Bridges", src/roadbridge.hpp): how far this
+    // road's surface is above the ground it would otherwise be glued to, at a
+    // world XZ on it. Empty = an ordinary road (0 everywhere). The planner
+    // makes no node where either road is more than kOverpassClearance up, and
+    // a kerb is not cut by a road that far above or below it.
+    std::function<float(float x, float z)> elevation;
 };
+// Vertical separation beyond which two roads crossing in XZ do not meet.
+inline constexpr float kOverpassClearance = 2.0f;
 
 // What a road's arms get painted at its nodes (1.171.0, docs/roads.md
 // "Markings"). A stop line marks the road that GIVES WAY: one ending at a node

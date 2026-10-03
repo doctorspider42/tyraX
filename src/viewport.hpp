@@ -1117,6 +1117,10 @@ private:
         Mesh mesh;
         Mesh edgeMesh;   // the soft-edge bands (1.144.0), alpha-faded
         std::vector<roadgen::Vertex> outline;
+        // A bridge (docs/roads.md "Bridges"): outline is its deck, glued its
+        // ordinary self on the ground, which the node patches are fitted to.
+        bool bridge = false;
+        std::vector<roadgen::Vertex> glued;
         std::string texture, material;
         uint64_t signature = 0;
     };

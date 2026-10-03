@@ -20,6 +20,14 @@ is not:
   ~~kerb collision~~ (the tops join the road height index; the walker steps
   onto them). Still open: **pavements** (a wide raised walk behind the kerb,
   the same sweep with a texture) and the draw distance as a project setting.
+- ~~**Bridges**~~ and overpasses: done (format 100, docs/roads.md "Bridges";
+  host-baked deck + structure, no node at an overpass, capped wheel queries).
+  Still open: **collision with the structure** (piers and parapets as oriented
+  boxes for the walker and the cars - today a car can drive off a deck's side),
+  the deck **casting** baked shadows onto the terrain under it, capping
+  `projSurfaceAt` so projected shadows and light pools under a deck stay on the
+  ground, a height **handle** in the viewport (today Properties > Points), and
+  nodes between two decks in the air.
 - **Overrides for nodes of more than two roads.** `JunctionOverride` is still
   a road PAIR, and the Junction panel's Winner combo offers only `c.a`/`c.b`.
 - **A per-node corner radius** (today 1.5 x the mean half width, 1..8).

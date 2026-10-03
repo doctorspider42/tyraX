@@ -899,10 +899,17 @@ struct SceneObject {
     // world space (the object's own position is cosmetic for roads - points
     // are absolute, which is what lets "align terrain" mean one thing).
     std::vector<float> roadPoints;
-    // Per-point LIFT above the terrain (units; empty = all glued flat).
-    // Catmull-Rom interpolated along the spline like the XZ, so a ramp
-    // climbs smoothly between anchors - dunes-jump material.
+    // Per-control-point DECK height above the terrain (units; empty = 0),
+    // read only when roadBridge is on (docs/roads.md "Bridges"). On an
+    // ordinary road it is the retired 1.77 lift: ignored, cleared on edit.
     std::vector<float> roadHeights;
+    // Bridge (format v100, docs/roads.md "Bridges", src/roadbridge.hpp): the
+    // deck follows a profile through the control points (terrain there +
+    // roadHeights) instead of the ground between them - so it spans a dip by
+    // itself and a raised point makes an overpass - with parapets, piers and
+    // abutments wherever it stands above the terrain. Host-baked: the console
+    // uploads the deck and the structure unchanged.
+    bool roadBridge = false;
     float roadWidth = 6.0f;
     // Longitudinal geometry spacing. 1 preserves the dense terrain-following
     // surface; 2 halves the stations for broad, gently varying streets.
@@ -1690,6 +1697,7 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.flowGraph == b.flowGraph && a.scripts == b.scripts &&
            a.procGraph == b.procGraph && a.procSource == b.procSource &&
            a.roadPoints == b.roadPoints && a.roadHeights == b.roadHeights &&
+           a.roadBridge == b.roadBridge &&
            a.roadWidth == b.roadWidth && a.roadSampleStep == b.roadSampleStep &&
            a.roadGrip == b.roadGrip && a.roadRank == b.roadRank &&
            a.roadSpill == b.roadSpill && a.roadEdgeFade == b.roadEdgeFade &&
@@ -4904,9 +4912,11 @@ std::string resolveRoadTexture(const Project& p, const std::string& surfaceRel);
 // `projectDir`, when given, lets a road whose surface is a generated texture
 // (res/materials/roads/<stem>.mtl with its .roadtex recipe) report where that
 // texture paints its edge line, so node markings meet it.
+// `ground` (docs/roads.md "Bridges") is the scene's bare terrain height; a
+// bridge's elevation is measured against it (empty = flat ground at 0).
 std::vector<roadgen::CrossingRoad> crossingRoads(
     const std::vector<SceneObject>& objects, std::vector<int>* objectIndex = nullptr,
-    const std::string& projectDir = "");
+    const std::string& projectDir = "", const roadgen::HeightFn& ground = {});
 
 // Loads the single <name>.tyra project file from an existing project
 // directory (game data + editor-side state + window layout).

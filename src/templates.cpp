@@ -56,6 +56,7 @@
 #include "vehbake.hpp"
 #include "vugen.hpp"  // the VU program generator - a project may carry its own
 #include "tmdl.hpp"
+#include "roadbridge.hpp"  // bridge decks + structure, host-baked
 #include "roadgen.hpp"  // the road tessellator this file carries a twin of
 #include "wire.hpp"  // fnv1a64 - stable per-override .tskl suffix
 
@@ -207,6 +208,7 @@ static int vehicleBodyModel(const Project& p, const std::string& defName) {
 // the vehicle codegen; declared here because the scene tables come first.
 static bool projectHasVehicles(const Project& p);
 static bool projectHasKerbs(const Project& p);
+static bool projectHasBridges(const Project& p);
 
 // The VEHICLE_DEFS row index of a definition, or -1. Only definitions with a
 // model get a row, so this is NOT the Project::vehicles index.
@@ -1885,8 +1887,10 @@ class TerrainGame : public Tyra::Game {
   u32 ilMark = 0, ilStallMark = 0;
   // `grip`, when given, receives the answering road's grip (1 when none);
   // `cover` how much of the road is there (1, or a soft edge's fade).
+  // `maxY` (docs/roads.md "Bridges"): the highest surface NOT above it - a
+  // wheel, a walker or a shadow under a bridge deck keeps its own road.
   float roadSurfaceAt(float x, float z, float* grip = nullptr,
-                      float* cover = nullptr) const;
+                      float* cover = nullptr, float maxY = 1.0e30F) const;
   void buildRoadHeightIndex() const;
   // The pre-grid exhaustive walk, defined only under TYRA_ROAD_INDEX_VERIFY
   // (see roadSurfaceAt) - it is the oracle that gate compares against.
@@ -1900,7 +1904,7 @@ class TerrainGame : public Tyra::Game {
   mutable float roadIdxMinX = 0.0F, roadIdxMinZ = 0.0F, roadIdxInv = 0.0F;
   mutable int roadIdxN = 0;
   mutable bool roadIdxDirty = true;
-  float groundSurfaceAt(float x, float z) const;
+  float groundSurfaceAt(float x, float z, float maxY = 1.0e30F) const;
   float walkGroundAt(float x, float z, float feetY) const;
   // The painted terrain layers' tyre grip at (x, z), 1 without any
   // (1.142.0; the host twin is Viewport::terrainLayerGrip).
@@ -3737,8 +3741,10 @@ class TerrainGame : public Tyra::Game {
   u32 ilMark = 0, ilStallMark = 0;
   // `grip`, when given, receives the answering road's grip (1 when none);
   // `cover` how much of the road is there (1, or a soft edge's fade).
+  // `maxY` (docs/roads.md "Bridges"): the highest surface NOT above it - a
+  // wheel, a walker or a shadow under a bridge deck keeps its own road.
   float roadSurfaceAt(float x, float z, float* grip = nullptr,
-                      float* cover = nullptr) const;
+                      float* cover = nullptr, float maxY = 1.0e30F) const;
   void buildRoadHeightIndex() const;
   // The pre-grid exhaustive walk, defined only under TYRA_ROAD_INDEX_VERIFY
   // (see roadSurfaceAt) - it is the oracle that gate compares against.
@@ -3752,7 +3758,7 @@ class TerrainGame : public Tyra::Game {
   mutable float roadIdxMinX = 0.0F, roadIdxMinZ = 0.0F, roadIdxInv = 0.0F;
   mutable int roadIdxN = 0;
   mutable bool roadIdxDirty = true;
-  float groundSurfaceAt(float x, float z) const;
+  float groundSurfaceAt(float x, float z, float maxY = 1.0e30F) const;
   float walkGroundAt(float x, float z, float feetY) const;
   // The painted terrain layers' tyre grip at (x, z), 1 without any
   // (1.142.0; the host twin is Viewport::terrainLayerGrip).
@@ -8992,10 +8998,18 @@ static std::string sceneDataContent(const Project& p, const std::string& ns,
             std::vector<KerbRow> kerbRows;
             std::vector<float> kerbVerts;  // x, y, z, shade
             std::ostringstream kerbNotes;
+            // Bridges (docs/roads.md "Bridges", src/roadbridge.cpp): the deck
+            // becomes junction rows, the structure ROAD_BRIDGE rows; the EE's
+            // buildRoads never sees a bridge road.
+            const bool hasBridges = projectHasBridges(p);
+            std::vector<roadbridge::SceneChunk> bridgeRows;
+            std::vector<float> bridgeVerts;  // x, y, z, shade
+            std::ostringstream bridgeNotes;
             for (size_t si = 0; si < p.scenes.size(); ++si)
                 for (const SceneObject& o : p.scenes[si].objects) {
                     if (o.type != PrimitiveType::Road || o.roadPoints.size() < 4)
                         continue;
+                    if (o.roadBridge) continue;  // host-baked below
                     const int tix =
                         textureIndex(project::resolveRoadTexture(p, o.roadTexture));
                     RoadRow r;
@@ -9039,13 +9053,21 @@ static std::string sceneDataContent(const Project& p, const std::string& ns,
             // before the spills that may land on them).
             int crossingOrphans = 0;
             for (size_t si = 0; si < p.scenes.size(); ++si) {
+                const SceneData& sc = p.scenes[si];
+                auto ground = [&](float x, float z) {
+                    return sc.terrain.enabled ? roadgen::terrainHeight(sc.heights,
+                        sc.hmW, sc.hmD, (float)sc.terrain.width, (float)sc.terrain.depth,
+                        x, z) : -1000000.0f;
+                };
                 std::vector<int> objIdx;
                 const std::vector<roadgen::CrossingRoad> cr =
-                    project::crossingRoads(p.scenes[si].objects, &objIdx, p.dir);
+                    project::crossingRoads(p.scenes[si].objects, &objIdx, p.dir, ground);
                 if (cr.empty()) continue;
-                // Scene road k -> its roadRows index (rows are in scene order).
+                // Scene road k -> its roadRows index (rows are in scene order;
+                // a bridge has none).
                 std::vector<int> rowOf(cr.size(), -1);
                 for (size_t k = 0, r = 0; k < cr.size(); ++k) {
+                    if (p.scenes[si].objects[(size_t)objIdx[k]].roadBridge) continue;
                     while (r < roadRows.size() &&
                            (roadRows[r].scene != (int)si ||
                             roadRows[r].source != &p.scenes[si].objects[(size_t)objIdx[k]]))
@@ -9055,12 +9077,37 @@ static std::string sceneDataContent(const Project& p, const std::string& ns,
                 const roadgen::CrossingPlan plan =
                     roadgen::planCrossings(cr, p.scenes[si].roadJunctions);
                 crossingOrphans += plan.orphans;
-                const SceneData& sc = p.scenes[si];
-                auto ground = [&](float x, float z) {
-                    return sc.terrain.enabled ? roadgen::terrainHeight(sc.heights,
-                        sc.hmW, sc.hmD, (float)sc.terrain.width, (float)sc.terrain.depth,
-                        x, z) : -1000000.0f;
-                };
+                // Bridges: each deck as textured junction rows (V rebased per
+                // row), each structure as cell chunks.
+                for (size_t k = 0; k < cr.size() && hasBridges; ++k) {
+                    const SceneObject& bo = sc.objects[(size_t)objIdx[k]];
+                    if (!bo.roadBridge) continue;
+                    const roadbridge::Deck deck = roadbridge::buildDeck(bo, ground);
+                    std::vector<roadgen::Vertex> tris;
+                    roadbridge::tessellateDeck(deck, tris);
+                    std::vector<int> sizes;
+                    roadbridge::chunkDeck(tris, sizes);
+                    const int tex = textureIndex(project::resolveRoadTexture(p, bo.roadTexture));
+                    int at = 0;
+                    for (int sz : sizes) {
+                        junctionRows.push_back({(int)si, tex, (int)junctionVerts.size(), sz,
+                                                bo.roadGrip});
+                        junctionVerts.insert(junctionVerts.end(), tris.begin() + at,
+                                             tris.begin() + at + sz);
+                        at += sz;
+                    }
+                    roadbridge::Structure st;
+                    roadbridge::buildStructure(deck, cr, (int)k, st);
+                    std::vector<roadbridge::ChunkRow> rows;
+                    roadbridge::chunkStructure(st, bridgeVerts, rows);
+                    for (const roadbridge::ChunkRow& r : rows)
+                        bridgeRows.push_back({(int)si, r.first, r.count});
+                    bridgeNotes << "// scene " << si << " \"" << escapeCString(bo.name) << "\": deck "
+                                << tris.size() << " vertices in " << sizes.size() << " rows, "
+                                << st.spans << " span(s), " << st.piers << " pier(s), "
+                                << st.abutments << " abutment(s), " << st.tris.size()
+                                << " structure vertices in " << rows.size() << " chunks\n";
+                }
                 std::vector<roadgen::Vertex> roadTriangles;
                 for (const roadgen::CrossingRoad& r : cr) {
                     std::vector<roadgen::Vertex> mesh;
@@ -9141,7 +9188,7 @@ static std::string sceneDataContent(const Project& p, const std::string& ns,
             if (crossingOrphans > 0)
                 out << "\n// " << crossingOrphans
                     << " road junction override(s) match no crossing (orphaned).\n";
-            if (!roadRows.empty()) {
+            if (!roadRows.empty() || !junctionRows.empty()) {
                 out << "\n// Roads (docs/roads.md): points in, geometry at boot.\n"
                     << "constexpr int ROAD_COUNT = " << roadRows.size() << ";\n"
                     << "constexpr int ROAD_TEXTURE_COUNT = " << roadTex.size()
@@ -9151,8 +9198,9 @@ static std::string sceneDataContent(const Project& p, const std::string& ns,
                     << "struct RoadDefRt { int scene; int first; int pointCount;"
                        " float width; float sampleStep; int tex; float grip;"
                        " float lift; float uInset; };\n"
-                    << "constexpr RoadDefRt ROAD_DEFS[" << roadRows.size()
+                    << "constexpr RoadDefRt ROAD_DEFS[" << std::max((size_t)1, roadRows.size())
                     << "] = {\n";
+                if (roadRows.empty()) out << "    {},  // every road is a bridge\n";
                 for (const RoadRow& r : roadRows)
                     out << "    {" << r.scene << ", " << r.first << ", "
                         << r.count << ", " << floatLit(r.coreWidth) << ", "
@@ -9161,7 +9209,7 @@ static std::string sceneDataContent(const Project& p, const std::string& ns,
                         << floatLit(r.uInset)
                         << "},  // " << escapeCString(r.name) << "\n";
                 out << "};\n"
-                    << "constexpr float ROAD_POINTS[" << roadPts.size()
+                    << "constexpr float ROAD_POINTS[" << std::max((size_t)1, roadPts.size())
                     << "] = {";
                 for (size_t k = 0; k < roadPts.size(); ++k)
                     out << (k ? ", " : "") << floatLit(roadPts[k]);
@@ -9256,6 +9304,10 @@ static std::string sceneDataContent(const Project& p, const std::string& ns,
                         out << "};\n";
                     }
                 }
+                // Bridges (docs/roads.md "Bridges"): emitted only when a road
+                // is one, so every other road project stays byte-identical.
+                if (hasBridges)
+                    out << roadbridge::tablesSource(bridgeRows, bridgeVerts, bridgeNotes.str());
                 if (roadTex.empty()) {
                     out << "constexpr const char* ROAD_TEXTURE_PATHS[1] = "
                            "{\"\"};\n";
@@ -12792,8 +12844,9 @@ void TerrainGame::updateVehicleSkids(float dt) {
       // hugs a camber instead of floating off one side of it (the old marks
       // at wheelY sat under every road: the wheels sample the terrain).
       float e[6] = {ax - rx, 0.0F, az - rz, ax + rx, 0.0F, az + rz};
-      e[1] = groundSurfaceAt(e[0], e[2]) + 0.03F;
-      e[4] = groundSurfaceAt(e[3], e[5]) + 0.03F;
+      // Capped at the car (docs/roads.md "Bridges"): never the deck overhead.
+      e[1] = groundSurfaceAt(e[0], e[2], v.pos[1] + 1.5F) + 0.03F;
+      e[4] = groundSurfaceAt(e[3], e[5], v.pos[1] + 1.5F) + 0.03F;
       if (!v.skidOn[w]) {
         // A tyre that just let go: remember where, draw from the next step.
         for (int k = 0; k < 6; ++k) v.skidEdge[w][k] = e[k];
@@ -12997,7 +13050,7 @@ void TerrainGame::renderVehicleGlow() {
         const float rz = rzn + (rzf - rzn) * t;
         const float x = bx + rx * side;
         const float z = bz + rz * side;
-        return Vec4(x, groundSurfaceAt(x, z) + e, z, 1.0F);
+        return Vec4(x, groundSurfaceAt(x, z, v.pos[1] + 1.5F) + e, z, 1.0F);
       };
       auto beamColor = [&](float t) {
         const float fade = 1.0F - t;
@@ -13789,7 +13842,7 @@ void TerrainGame::updateVehicleDebris(float dt) {
         if (gr > d.pos[1] - d.low && gr < d.pos[1] + 0.5F) d.pos[1] = gr + d.low;
       }
     }
-    const float ground = groundSurfaceAt(d.pos[0], d.pos[2]);
+    const float ground = groundSurfaceAt(d.pos[0], d.pos[2], d.pos[1] - d.low + 0.5F);
     if (d.pos[1] - d.low < ground + 0.02F) {
       d.pos[1] = ground + d.low;
       if (d.vel[1] < 0.0F) d.vel[1] = -d.vel[1] * 0.3F;
@@ -15564,7 +15617,10 @@ void TerrainGame::updateVehicles(float dt) {
       // tyre is on the paved surface.
       const float terrW = terrainHeightAt(wx, wz);
       float roadGW = 1.0F, roadCover = 1.0F;
-      const float roadW = roadSurfaceAt(wx, wz, &roadGW, &roadCover);
+      // The highest surface not above the car (docs/roads.md "Bridges"): a
+      // car UNDER a bridge stays on its road instead of snapping up onto the
+      // deck. 1.5 = roadbridge::kVehicleStepUp, the host twin's cap.
+      const float roadW = roadSurfaceAt(wx, wz, &roadGW, &roadCover, v.pos[1] + 1.5F);
       gy[w] = roadW > terrW ? roadW : terrW;
       bool pavedW = roadW > -1.0e29F;
       // How much of the road this tyre is on (1.144.0): 1, 0 off it, or a
@@ -15644,7 +15700,7 @@ void TerrainGame::updateVehicles(float dt) {
         const V3 off = contactRotate(
             {px[k], -0.65F * s.rideHeight * SC, pz[k]});
         const float floor = groundSurfaceAt(v.pos[0] + off.x,
-                                            v.pos[2] + off.z);
+                                            v.pos[2] + off.z, v.pos[1] + 1.5F);
         if (floor <= TERRAIN_VOID_Y * 0.5F) continue;
         const float need = floor - off.y + 0.03F;
         if (need > bodyFloorY) bodyFloorY = need;
@@ -17997,7 +18053,7 @@ void TerrainGame::renderVehicleWheels() {
             sz += wv[i].z;
           }
           const float cx = sx / (float)real, cz = sz / (float)real;
-          const float surf = groundSurfaceAt(cx, cz);
+          const float surf = groundSurfaceAt(cx, cz, v.pos[1] + 1.5F);
           gap[w] = (int)((lo - surf) * 1000.0F);
           lift[w] = (int)((surf - terrainHeightAt(cx, cz)) * 1000.0F);
         }
@@ -18195,6 +18251,16 @@ static std::string roadsMembers(const Project& p) {
 static std::string roadsSetupCall(const Project& p) {
     if (!projectHasRoads(p)) return "";
     return "  buildRoads(sceneIndex);\n";
+}
+
+// Bridges (docs/roads.md "Bridges"): the same zero-cost rule - no bridge road,
+// no ROAD_BRIDGE tables and no upload block.
+static bool projectHasBridges(const Project& p) {
+    for (const SceneData& sc : p.scenes)
+        for (const SceneObject& o : sc.objects)
+            if (o.type == PrimitiveType::Road && o.roadBridge && o.roadPoints.size() >= 4)
+                return true;
+    return false;
 }
 
 // The kerb upload, spliced into buildRoads before procFinishChunks.
@@ -18815,6 +18881,12 @@ void TerrainGame::buildRoads(int scene) {
         const std::string anchor = "  if (any) procFinishChunks();";
         const size_t at = s.find(anchor);
         if (at != std::string::npos) s.insert(at, roadKerbsUpload());
+    }
+    // Bridges (docs/roads.md "Bridges"): the structure upload, same place.
+    if (projectHasBridges(p)) {
+        const std::string anchor = "  if (any) procFinishChunks();";
+        const size_t at = s.find(anchor);
+        if (at != std::string::npos) s.insert(at, roadbridge::uploadSource());
     }
     return s;
 }

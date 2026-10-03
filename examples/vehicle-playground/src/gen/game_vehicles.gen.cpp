@@ -512,8 +512,10 @@ void TerrainGame::buildRoads(int scene) {
   // KERBS (docs/roads.md "Kerbs"): host-baked triangle-strip runs, one
   // ROAD_KERBS row per cell-sized chunk, uploaded unchanged - the EE does no
   // kerb geometry at all. Owner -4, not -3: renderProcChunks draws them (the
-  // frustum reject, the chunk draw distance, occlusion), and the road height
-  // index never sees them, because a kerb is visual only. Untextured: the
+  // frustum reject, the chunk draw distance, occlusion). The road height
+  // index takes them too (roadSurfaceAt reads owner -3 AND -4), so wheels,
+  // walkers, blob shadows and light pools stand on a kerb top; the vertical
+  // faces have no area in XZ and drop out by themselves. Untextured: the
   // baked shade is the vertex colour (128 = full in an untextured bag).
   for (size_t i = procChunks.size(); i > 0; --i)
     if (procChunks[i - 1].owner == -4)
@@ -554,9 +556,46 @@ void TerrainGame::buildRoads(int scene) {
       kerbVertices += (int)c.vertices.size();
       kerbPackages += (int)((c.vertices.size() + 74) / 75);
     }
+    // The chunk list changed under the height index: the count alone cannot
+    // tell (the same number of kerb chunks is erased and pushed back).
+    roadIdxDirty = true;
     if (kerbChunks > 0)
       TYRA_LOG("ROADKERB scene ", scene, " chunks ", kerbChunks, " vertices ",
                kerbVertices, " packages ", kerbPackages, " triangles ", kerbTriangles);
+  }
+  // BRIDGES (docs/roads.md "Bridges"): parapets, deck edges and underside,
+  // piers and abutments - host-baked triangle lists, one ROAD_BRIDGES row per
+  // cell chunk, uploaded unchanged. The deck itself is a ROAD_JUNCTIONS row
+  // (owner -3: the road height index and every wheel read it). Owner -5, not
+  // -4: renderProcChunks draws these (frustum reject, occlusion) but the road
+  // height index does not read them, so nothing stands on an underside or a
+  // parapet top. Untextured: the baked shade is the vertex colour.
+  for (size_t i = procChunks.size(); i > 0; --i)
+    if (procChunks[i - 1].owner == -5)
+      procChunks.erase(procChunks.begin() + (i - 1));
+  {
+    int bridgeChunks = 0, bridgeVertices = 0;
+    for (int bi = 0; bi < ROAD_BRIDGE_COUNT; ++bi) {
+      const RoadBridgeRt& br = ROAD_BRIDGES[bi];
+      if (br.scene != scene || br.count < 3) continue;
+      any = true;
+      procChunks.push_back(ProcChunk());
+      ProcChunk& c = procChunks.back();
+      c.owner = -5;
+      c.stripRun = 0;
+      const float* base = &ROAD_BRIDGE_VERTS[(size_t)br.first * 4];
+      for (int k = 0; k < br.count; ++k) {
+        const float* v = base + (size_t)k * 4;
+        c.vertices.push_back(Tyra::Vec4(v[0], v[1], v[2], 1.0F));
+        const float g = v[3] * 128.0F;  // concrete, a hair warm
+        c.colors.push_back(Tyra::Color(g, g * 0.99F, g * 0.96F, 128.0F));
+      }
+      ++bridgeChunks;
+      bridgeVertices += br.count;
+    }
+    if (bridgeChunks > 0)
+      TYRA_LOG("ROADBRIDGE scene ", scene, " chunks ", bridgeChunks, " vertices ",
+               bridgeVertices);
   }
   if (any) procFinishChunks();
   int roadChunks = 0, roadVertices = 0, roadPackages = 0;
@@ -884,8 +923,9 @@ void TerrainGame::updateVehicleSkids(float dt) {
       // hugs a camber instead of floating off one side of it (the old marks
       // at wheelY sat under every road: the wheels sample the terrain).
       float e[6] = {ax - rx, 0.0F, az - rz, ax + rx, 0.0F, az + rz};
-      e[1] = groundSurfaceAt(e[0], e[2]) + 0.03F;
-      e[4] = groundSurfaceAt(e[3], e[5]) + 0.03F;
+      // Capped at the car (docs/roads.md "Bridges"): never the deck overhead.
+      e[1] = groundSurfaceAt(e[0], e[2], v.pos[1] + 1.5F) + 0.03F;
+      e[4] = groundSurfaceAt(e[3], e[5], v.pos[1] + 1.5F) + 0.03F;
       if (!v.skidOn[w]) {
         // A tyre that just let go: remember where, draw from the next step.
         for (int k = 0; k < 6; ++k) v.skidEdge[w][k] = e[k];
@@ -1089,7 +1129,7 @@ void TerrainGame::renderVehicleGlow() {
         const float rz = rzn + (rzf - rzn) * t;
         const float x = bx + rx * side;
         const float z = bz + rz * side;
-        return Vec4(x, groundSurfaceAt(x, z) + e, z, 1.0F);
+        return Vec4(x, groundSurfaceAt(x, z, v.pos[1] + 1.5F) + e, z, 1.0F);
       };
       auto beamColor = [&](float t) {
         const float fade = 1.0F - t;
@@ -1881,7 +1921,7 @@ void TerrainGame::updateVehicleDebris(float dt) {
         if (gr > d.pos[1] - d.low && gr < d.pos[1] + 0.5F) d.pos[1] = gr + d.low;
       }
     }
-    const float ground = groundSurfaceAt(d.pos[0], d.pos[2]);
+    const float ground = groundSurfaceAt(d.pos[0], d.pos[2], d.pos[1] - d.low + 0.5F);
     if (d.pos[1] - d.low < ground + 0.02F) {
       d.pos[1] = ground + d.low;
       if (d.vel[1] < 0.0F) d.vel[1] = -d.vel[1] * 0.3F;
@@ -3656,7 +3696,10 @@ void TerrainGame::updateVehicles(float dt) {
       // tyre is on the paved surface.
       const float terrW = terrainHeightAt(wx, wz);
       float roadGW = 1.0F, roadCover = 1.0F;
-      const float roadW = roadSurfaceAt(wx, wz, &roadGW, &roadCover);
+      // The highest surface not above the car (docs/roads.md "Bridges"): a
+      // car UNDER a bridge stays on its road instead of snapping up onto the
+      // deck. 1.5 = roadbridge::kVehicleStepUp, the host twin's cap.
+      const float roadW = roadSurfaceAt(wx, wz, &roadGW, &roadCover, v.pos[1] + 1.5F);
       gy[w] = roadW > terrW ? roadW : terrW;
       bool pavedW = roadW > -1.0e29F;
       // How much of the road this tyre is on (1.144.0): 1, 0 off it, or a
@@ -3736,7 +3779,7 @@ void TerrainGame::updateVehicles(float dt) {
         const V3 off = contactRotate(
             {px[k], -0.65F * s.rideHeight * SC, pz[k]});
         const float floor = groundSurfaceAt(v.pos[0] + off.x,
-                                            v.pos[2] + off.z);
+                                            v.pos[2] + off.z, v.pos[1] + 1.5F);
         if (floor <= TERRAIN_VOID_Y * 0.5F) continue;
         const float need = floor - off.y + 0.03F;
         if (need > bodyFloorY) bodyFloorY = need;
@@ -6089,7 +6132,7 @@ void TerrainGame::renderVehicleWheels() {
             sz += wv[i].z;
           }
           const float cx = sx / (float)real, cz = sz / (float)real;
-          const float surf = groundSurfaceAt(cx, cz);
+          const float surf = groundSurfaceAt(cx, cz, v.pos[1] + 1.5F);
           gap[w] = (int)((lo - surf) * 1000.0F);
           lift[w] = (int)((surf - terrainHeightAt(cx, cz)) * 1000.0F);
         }
@@ -6428,7 +6471,7 @@ float TerrainGame::roadSurfaceScan(float x, float z) const {
     if (y > best) best = y;
   };
   for (const ProcChunk& c : procChunks) {
-    if (c.owner != -3 || c.vertices.size() < 3) continue;
+    if ((c.owner != -3 && c.owner != -4) || c.vertices.size() < 3) continue;
     if (x < c.aabbMin[0] || x > c.aabbMax[0] ||
         z < c.aabbMin[2] || z > c.aabbMax[2])
       continue;
@@ -6458,7 +6501,7 @@ void TerrainGame::buildRoadHeightIndex() const {
   float mnx = 1.0e30F, mxx = -1.0e30F, mnz = 1.0e30F, mxz = -1.0e30F;
   bool any = false;
   for (const ProcChunk& c : procChunks) {
-    if (c.owner != -3 || c.vertices.size() < 3) continue;
+    if ((c.owner != -3 && c.owner != -4) || c.vertices.size() < 3) continue;
     any = true;
     if (c.aabbMin[0] < mnx) mnx = c.aabbMin[0];
     if (c.aabbMax[0] > mxx) mxx = c.aabbMax[0];
@@ -6484,7 +6527,7 @@ void TerrainGame::buildRoadHeightIndex() const {
     unsigned int ci = 0;
     for (const ProcChunk& c : procChunks) {
       const unsigned int chunk = ci++;
-      if (c.owner != -3 || c.vertices.size() < 3) continue;
+      if ((c.owner != -3 && c.owner != -4) || c.vertices.size() < 3) continue;
       if (chunk >= 1024U) continue;  // the entry packs 10 bits of chunk index
       const size_t count = c.vertices.size();
       if (count >= (size_t)(1U << 22)) continue;  // ...and 22 of vertex index
@@ -6539,7 +6582,7 @@ void TerrainGame::buildRoadHeightIndex() const {
 
 
 float TerrainGame::roadSurfaceAt(float x, float z, float* grip,
-                                 float* cover) const {
+                                 float* cover, float maxY) const {
   float best = -1.0e30F;
   if (grip) *grip = 1.0F;
   if (cover) *cover = 1.0F;
@@ -6572,7 +6615,7 @@ float TerrainGame::roadSurfaceAt(float x, float z, float* grip,
     // crack to a six-vertex light/shadow patch on their shared edge.
     if (wa < -0.0001F || wb < -0.0001F || wc < -0.0001F) return;
     const float y = wa * a.y + wb * b.y + wc * c.y;
-    if (y > best) {
+    if (y > best && y <= maxY) {
       best = y;
       if (grip) *grip = wa * ga + wb * gb + wc * gc;
       if (cover) *cover = wa * ca + wb * cb + wc * cc;
@@ -6608,7 +6651,7 @@ float TerrainGame::roadSurfaceAt(float x, float z, float* grip,
                  ca, cb, cc);
   }
 #if TYRA_ROAD_INDEX_VERIFY
-  {
+  if (maxY > 1.0e29F) {  // the scan oracle answers the uncapped question
     static unsigned int checked = 0, bad = 0;
     static float worst = 0.0F;
     const float ref = roadSurfaceScan(x, z);
@@ -6668,10 +6711,27 @@ float TerrainGame::terrainGripAt(float x, float z) const {
 
 
 
-float TerrainGame::groundSurfaceAt(float x, float z) const {
+// `maxY` (docs/roads.md "Bridges"): only a road surface at or below it - the
+// one a caster, a wheel or a mark is actually on, never a deck overhead.
+float TerrainGame::groundSurfaceAt(float x, float z, float maxY) const {
   const float terrain = terrainHeightAt(x, z);
-  const float road = roadSurfaceAt(x, z);
+  const float road = roadSurfaceAt(x, z, nullptr, nullptr, maxY);
   return road > terrain ? road : terrain;
+}
+
+
+
+// The walker's floor (docs/roads.md "Kerbs"): the terrain, or a road, kerb or
+// pavement top under the feet - but only one within a step up of them, so a
+// road on a ramp or a bridge overhead never teleports a walker onto it. The
+// same 0.5-unit step collidePlayer allows onto objects.
+float TerrainGame::walkGroundAt(float x, float z, float feetY) const {
+  const float terrain = terrainHeightAt(x, z);
+  // The highest road surface within the step - so a walker under a bridge
+  // keeps the road it is on, not the terrain beneath both.
+  const float road = roadSurfaceAt(x, z, nullptr, nullptr, feetY + 0.5F);
+  if (road > terrain) return road;
+  return terrain;
 }
 
 

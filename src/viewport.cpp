@@ -20,6 +20,7 @@
 #include "objparser.hpp"
 #include "placement.hpp"
 #include "primmesh.hpp"
+#include "roadbridge.hpp"
 #include "roadgen.hpp"
 #include "scrollsim.hpp"
 #include "skytex.hpp"
@@ -3225,10 +3226,15 @@ void Viewport::pickAll(float u, float v, const std::vector<SceneObject>& objects
         // selection target and the obsolete centre cube cannot steal clicks.
         if (o.type == PrimitiveType::Road) {
             std::vector<roadgen::Vertex> strip;
-            roadgen::tessellate(
-                o.roadPoints, o.roadWidth,
-                [&](float x, float z) { return terrainHeight(x, z); }, strip,
-                {}, o.roadSampleStep);
+            // A bridge is clicked on its deck (docs/roads.md "Bridges").
+            if (o.roadBridge)
+                roadbridge::drawnRoad(
+                    o, [&](float x, float z) { return terrainHeight(x, z); }, strip);
+            else
+                roadgen::tessellate(
+                    o.roadPoints, o.roadWidth,
+                    [&](float x, float z) { return terrainHeight(x, z); }, strip,
+                    {}, o.roadSampleStep);
             float best = 1e30f;
             for (size_t vi = 0; vi + 2 < strip.size(); vi += 3) {
                 const Vec3 a{strip[vi].x, strip[vi].y, strip[vi].z};
@@ -4148,6 +4154,9 @@ void Viewport::syncRoadDraws(const std::vector<SceneObject>& objects) {
         mix(sig, o.color, sizeof(o.color));
         mix(sig, &o.roadEdgeFade, sizeof(o.roadEdgeFade));
         mix(sig, &o.roadRank, sizeof(o.roadRank));
+        mix(sig, &o.roadBridge, sizeof(o.roadBridge));
+        if (!o.roadHeights.empty())
+            mix(sig, o.roadHeights.data(), o.roadHeights.size() * sizeof(float));
         auto it = roadDraws_.find(key);
         if (it != roadDraws_.end() && it->second.signature == sig) continue;
 
@@ -4155,12 +4164,27 @@ void Viewport::syncRoadDraws(const std::vector<SceneObject>& objects) {
         // RoadDefRt::lift.
         const float lift = roadgen::rankLift(o.roadRank);
         // Soft edges (1.144.0): the opaque core, plus the faded bands below.
-        const roadgen::EdgeFade ef = roadgen::edgeFadeFor(o.roadWidth, o.roadEdgeFade);
+        // A bridge (docs/roads.md "Bridges") draws its deck - the codegen's
+        // own - with no soft edge; its glued self is kept for the node
+        // patches, which are fitted to the roads on the ground.
+        const roadgen::EdgeFade ef = o.roadBridge
+                                         ? roadgen::EdgeFade{o.roadWidth, 0.0f, 0}
+                                         : roadgen::edgeFadeFor(o.roadWidth, o.roadEdgeFade);
         std::vector<roadgen::Vertex> strip;
-        roadgen::tessellate(
-            o.roadPoints, ef.coreWidth,
-            [&](float x, float z) { return terrainHeight(x, z) + lift; }, strip, {},
-            o.roadSampleStep, ef.uInset);
+        std::vector<roadgen::Vertex> glued;
+        if (o.roadBridge) {
+            roadbridge::drawnRoad(o, [&](float x, float z) { return terrainHeight(x, z); },
+                                  strip);
+            roadgen::tessellate(
+                o.roadPoints, o.roadWidth,
+                [&](float x, float z) { return terrainHeight(x, z) + lift; }, glued, {},
+                o.roadSampleStep);
+        } else {
+            roadgen::tessellate(
+                o.roadPoints, ef.coreWidth,
+                [&](float x, float z) { return terrainHeight(x, z) + lift; }, strip, {},
+                o.roadSampleStep, ef.uInset);
+        }
         std::vector<float> interleaved;
         interleaved.reserve(strip.size() * 8);
         for (const roadgen::Vertex& v : strip)
@@ -4186,6 +4210,8 @@ void Viewport::syncRoadDraws(const std::vector<SceneObject>& objects) {
                 next.outline, {}, o.roadSampleStep);
         else
             next.outline = std::move(strip);
+        next.bridge = o.roadBridge;
+        next.glued = std::move(glued);
         next.mesh = uploadMesh(interleaved);
         if (!edgeInterleaved.empty()) next.edgeMesh = uploadMesh9(edgeInterleaved);
         next.material = o.roadTexture;
@@ -4215,8 +4241,8 @@ void Viewport::syncRoadDraws(const std::vector<SceneObject>& objects) {
     // codegen's own roadgen::planCrossings over the same roads and the same
     // overrides, rebuilt when any road, the overrides or the terrain move.
     std::vector<int> objIdx;
-    const std::vector<roadgen::CrossingRoad> cr =
-        project::crossingRoads(objects, &objIdx, projectDir_);
+    const std::vector<roadgen::CrossingRoad> cr = project::crossingRoads(
+        objects, &objIdx, projectDir_, [&](float x, float z) { return terrainHeight(x, z); });
     uint64_t csig = 1469598103934665603ULL;
     mix(csig, &roadTerrainRevision_, sizeof(roadTerrainRevision_));
     for (size_t k = 0; k < cr.size(); ++k) {
@@ -4242,6 +4268,11 @@ void Viewport::syncRoadDraws(const std::vector<SceneObject>& objects) {
         mix(csig, &r.kerb, sizeof(r.kerb));
         mix(csig, &r.kerbHeight, sizeof(r.kerbHeight));
         mix(csig, &r.kerbWidth, sizeof(r.kerbWidth));
+        // Bridges (docs/roads.md "Bridges"): their structure keeps its piers
+        // off the other roads, so it rebuilds with them.
+        mix(csig, &o.roadBridge, sizeof(o.roadBridge));
+        if (!o.roadHeights.empty())
+            mix(csig, o.roadHeights.data(), o.roadHeights.size() * sizeof(float));
     }
     for (const roadgen::JunctionOverride& j : roadJunctions_) {
         mix(csig, j.roadA.data(), j.roadA.size() + 1);
@@ -4269,9 +4300,11 @@ void Viewport::syncRoadDraws(const std::vector<SceneObject>& objects) {
         return o.id.empty() ? ("road-" + std::to_string(objIdx[(size_t)road])) : o.id;
     };
     std::vector<roadgen::Vertex> roadTriangles;
-    for (const auto& entry : roadDraws_)
-        roadTriangles.insert(roadTriangles.end(), entry.second.outline.begin(),
-                             entry.second.outline.end());
+    for (const auto& entry : roadDraws_) {
+        const std::vector<roadgen::Vertex>& src =
+            entry.second.bridge ? entry.second.glued : entry.second.outline;
+        roadTriangles.insert(roadTriangles.end(), src.begin(), src.end());
+    }
     std::vector<roadgen::Vertex> paintOnTris;
     if (anyKerb) kerbSurface.add(roadTriangles);
     for (const roadgen::Crossing& c : plan.crossings) {
@@ -4358,6 +4391,27 @@ void Viewport::syncRoadDraws(const std::vector<SceneObject>& objects) {
             d.owner = keyOf(road);
             roadCross_.push_back(std::move(d));
         }
+    }
+    // Bridges (docs/roads.md "Bridges"): parapets, deck edges, underside,
+    // piers and abutments - the codegen's roadbridge::buildStructure over the
+    // same roads, drawn untextured with their baked shade.
+    for (size_t k = 0; k < cr.size(); ++k) {
+        const SceneObject& o = objects[(size_t)objIdx[k]];
+        if (!o.roadBridge) continue;
+        const roadbridge::Deck deck =
+            roadbridge::buildDeck(o, [&](float x, float z) { return terrainHeight(x, z); });
+        roadbridge::Structure st;
+        roadbridge::buildStructure(deck, cr, (int)k, st);
+        if (st.tris.empty()) continue;
+        std::vector<float> iv;
+        iv.reserve(st.tris.size() * 8);
+        for (const roadgen::KerbVertex& v : st.tris)
+            iv.insert(iv.end(), {v.x, v.y, v.z, v.shade, v.shade * 0.99f, v.shade * 0.96f,
+                                 0.0f, 0.0f});
+        RoadCrossDraw d;
+        d.mesh = uploadMesh(iv);
+        d.owner = keyOf((int)k);
+        roadCross_.push_back(std::move(d));
     }
 }
 

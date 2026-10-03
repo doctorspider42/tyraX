@@ -24,6 +24,7 @@
 #include <functional>
 #include <vector>
 
+#include "roadbridge.hpp"
 #include "roadgen.hpp"
 #include "vehiclesim.hpp"
 
@@ -1631,6 +1632,7 @@ int run() {
     junctionOverrides();
     roadNodes();
     roadKerbs();
+    roadbridge::check(verdict);  // docs/roads.md "Bridges"
     damage();
     pieces();
     speedFeelCurve();
