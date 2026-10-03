@@ -46,6 +46,12 @@ also completes both private pinned-plain Showcase orders. Front means are
 price remains unresolved. This calibration does not close the authored Auto
 Showcase reverse-order gate or establish a renderer optimization.
 
+The [scene preparation isolation](tyrax2-scene-isolation.md) adds a private
+frozen-scene Full/terminal-software-completion experiment. Both emulator
+protocols pass; physical cost qualification remains open. This diagnostic uses
+Bits32 with HUD and post effects excluded, so it does not establish ordinary
+Hybrid night or Showcase performance.
+
 ## Portal interaction qualification (2026-10-03)
 
 Fresh debug builds with the integrated engine completed actual pad-driven

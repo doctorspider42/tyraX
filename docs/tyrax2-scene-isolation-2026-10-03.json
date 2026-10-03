@@ -1,0 +1,586 @@
+{
+  "status": "emulator_protocol_qualified_physical_start_pending_power_reset",
+  "date": "2026-10-03",
+  "workload": "Private vehicle-playground night scene0, frozen main Scene only, Bits32/two buffers, HUD/Update/postFX excluded",
+  "production_changes": false,
+  "physical_cost_accepted": false,
+  "native_sixty_fps_accepted": false,
+  "pure_ee_or_gpu_time_accepted": false,
+  "observer_cost_priced": false,
+  "fixture": "F:\\Projects\\tyrax2-lab-20261001\\ee-isolation-scene-v3",
+  "elf_sha256": "227418533b0e1663202185cb81e962d169032918d2640ba243759f806f01d037",
+  "source_manifest_sha256": "bb23cc547b9541a5de2adbf5488a41a66fc33d5d721bf63b0b2592b670e213a3",
+  "source_files_verified": 494,
+  "protocol": {
+    "fresh_boot_configs": [
+      "Full -> Full",
+      "Full -> terminal preparation sink"
+    ],
+    "ordinary_warm_loops": 600,
+    "warm_per_stage": 128,
+    "samples_per_stage": 128,
+    "frozen_loops_per_boot": 512,
+    "buffer_bytes": 10240,
+    "count_reads_per_sample": 2,
+    "sink_return_to_full_allowed": false,
+    "post_close_stdout_required": true
+  },
+  "emulator_pair_review": "F:\\Projects\\tyrax2-lab-20261001\\resumed-60fps-20261003\\isolation-v3-emulator-pair-independent\\pair-review.json",
+  "emulator_pair_review_sha256": "eafa85fdd71d98830cd179afc096934d97dad0700d7e7550ed66bf41ebfbf53b",
+  "emulator_boots": [
+    {
+      "config": 0,
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\ee-isolation-v3-emulator0-evidence",
+      "provenance_sha256": "34b4e09115cbb97342fc13ff113aa9eb84fd845b267ba264387f1a00a0573244",
+      "files": {
+        "ee-isolation.cfg": "5feceb66ffc86f38d952786c6d696c79c2dbc239dd4e91b46729d73a27fb57e9",
+        "ee-isolation.log": "f0c759c2350bc324a68685529db9aa8cff22069ddd079b6dc39a293ba5ec2ced",
+        "native-build.log": "b2c3c094afa44db7044c3c7d287f1264a03ee3f236bc3ab71d34ea2c74382694",
+        "quiet-night.cfg": "6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b",
+        "stdout.log": "9cf9332f662a151757c05cbfc394c271e3aec032f96e0ecee29224235a6559d8",
+        "target-source-manifest.json": "bb23cc547b9541a5de2adbf5488a41a66fc33d5d721bf63b0b2592b670e213a3",
+        "vehicle-playground.elf": "227418533b0e1663202185cb81e962d169032918d2640ba243759f806f01d037",
+        "vehicle-playground.elf.sym": "83cc1294e83d761f68c8a8902c0b6ef45d4ebd731d22fdc3e4b76eb49f57e983"
+      },
+      "strict_sha256": "f65ed5a6596a672d2754ef52fb8ead9c5f3d9468704fa5b04f4f336bb85e7f1d",
+      "settled_guard": {
+        "camera": "49de11e6:aff79bfb",
+        "light": "755764ef:d0375e1f",
+        "state": "77f6fa0a:3b043778",
+        "objects": "167",
+        "lights": "8",
+        "driver": "0"
+      },
+      "guard_rows": [
+        {
+          "stage": "0",
+          "offset": "0",
+          "camera": "49de11e6:aff79bfb",
+          "light": "755764ef:d0375e1f",
+          "state": "77f6fa0a:3b043778",
+          "objects": "167",
+          "lights": "8",
+          "driver": "0",
+          "sink": "0"
+        },
+        {
+          "stage": "0",
+          "offset": "127",
+          "camera": "49de11e6:aff79bfb",
+          "light": "755764ef:d0375e1f",
+          "state": "77f6fa0a:3b043778",
+          "objects": "167",
+          "lights": "8",
+          "driver": "0",
+          "sink": "0"
+        },
+        {
+          "stage": "0",
+          "offset": "255",
+          "camera": "49de11e6:aff79bfb",
+          "light": "755764ef:d0375e1f",
+          "state": "77f6fa0a:3b043778",
+          "objects": "167",
+          "lights": "8",
+          "driver": "0",
+          "sink": "0"
+        },
+        {
+          "stage": "1",
+          "offset": "0",
+          "camera": "49de11e6:aff79bfb",
+          "light": "755764ef:d0375e1f",
+          "state": "77f6fa0a:3b043778",
+          "objects": "167",
+          "lights": "8",
+          "driver": "0",
+          "sink": "0"
+        },
+        {
+          "stage": "1",
+          "offset": "127",
+          "camera": "49de11e6:aff79bfb",
+          "light": "755764ef:d0375e1f",
+          "state": "77f6fa0a:3b043778",
+          "objects": "167",
+          "lights": "8",
+          "driver": "0",
+          "sink": "0"
+        },
+        {
+          "stage": "1",
+          "offset": "255",
+          "camera": "49de11e6:aff79bfb",
+          "light": "755764ef:d0375e1f",
+          "state": "77f6fa0a:3b043778",
+          "objects": "167",
+          "lights": "8",
+          "driver": "0",
+          "sink": "0"
+        }
+      ],
+      "camera_rows": [
+        {
+          "stage": "0",
+          "offset": "0",
+          "w0": "00000000",
+          "w1": "4028b437",
+          "w2": "c2a19b64",
+          "w3": "3f800000",
+          "w4": "00000000",
+          "w5": "3f9a5e32",
+          "w6": "c2949b64",
+          "w7": "3f800000",
+          "w8": "00000000",
+          "w9": "3f800000",
+          "w10": "00000000",
+          "w11": "3f800000"
+        },
+        {
+          "stage": "0",
+          "offset": "127",
+          "w0": "00000000",
+          "w1": "4028b437",
+          "w2": "c2a19b64",
+          "w3": "3f800000",
+          "w4": "00000000",
+          "w5": "3f9a5e32",
+          "w6": "c2949b64",
+          "w7": "3f800000",
+          "w8": "00000000",
+          "w9": "3f800000",
+          "w10": "00000000",
+          "w11": "3f800000"
+        },
+        {
+          "stage": "0",
+          "offset": "255",
+          "w0": "00000000",
+          "w1": "4028b437",
+          "w2": "c2a19b64",
+          "w3": "3f800000",
+          "w4": "00000000",
+          "w5": "3f9a5e32",
+          "w6": "c2949b64",
+          "w7": "3f800000",
+          "w8": "00000000",
+          "w9": "3f800000",
+          "w10": "00000000",
+          "w11": "3f800000"
+        },
+        {
+          "stage": "1",
+          "offset": "0",
+          "w0": "00000000",
+          "w1": "4028b437",
+          "w2": "c2a19b64",
+          "w3": "3f800000",
+          "w4": "00000000",
+          "w5": "3f9a5e32",
+          "w6": "c2949b64",
+          "w7": "3f800000",
+          "w8": "00000000",
+          "w9": "3f800000",
+          "w10": "00000000",
+          "w11": "3f800000"
+        },
+        {
+          "stage": "1",
+          "offset": "127",
+          "w0": "00000000",
+          "w1": "4028b437",
+          "w2": "c2a19b64",
+          "w3": "3f800000",
+          "w4": "00000000",
+          "w5": "3f9a5e32",
+          "w6": "c2949b64",
+          "w7": "3f800000",
+          "w8": "00000000",
+          "w9": "3f800000",
+          "w10": "00000000",
+          "w11": "3f800000"
+        },
+        {
+          "stage": "1",
+          "offset": "255",
+          "w0": "00000000",
+          "w1": "4028b437",
+          "w2": "c2a19b64",
+          "w3": "3f800000",
+          "w4": "00000000",
+          "w5": "3f9a5e32",
+          "w6": "c2949b64",
+          "w7": "3f800000",
+          "w8": "00000000",
+          "w9": "3f800000",
+          "w10": "00000000",
+          "w11": "3f800000"
+        }
+      ],
+      "packet_counter_ranges": {
+        "0": {
+          "hardware": [
+            1
+          ],
+          "software": [
+            0
+          ],
+          "directHardware": [
+            1
+          ],
+          "directSoftware": [
+            0
+          ],
+          "softwarePresents": [
+            0
+          ],
+          "forbidden": [
+            0
+          ]
+        },
+        "1": {
+          "hardware": [
+            1
+          ],
+          "software": [
+            0
+          ],
+          "directHardware": [
+            1
+          ],
+          "directSoftware": [
+            0
+          ],
+          "softwarePresents": [
+            0
+          ],
+          "forbidden": [
+            0
+          ]
+        }
+      },
+      "raw_records": 256,
+      "complete_postclose_stdout": true
+    },
+    {
+      "config": 1,
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\ee-isolation-v3-emulator1-evidence",
+      "provenance_sha256": "e2a752970ab8aa690ca5ed410fb036da2c4138ff8d5f652ae902e905dc75a57e",
+      "files": {
+        "ee-isolation.cfg": "6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b",
+        "ee-isolation.log": "0fa61f5b4240b4a63de42d777c0421375647960c5d5c7c06b5475229b3e9a18c",
+        "quiet-night.cfg": "6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b",
+        "stdout.log": "9baf38f40d2675d51cc3dd47e6d2b9e07d7b1ea6598225af0a242d8acd8307ee",
+        "target-source-manifest.json": "bb23cc547b9541a5de2adbf5488a41a66fc33d5d721bf63b0b2592b670e213a3",
+        "vehicle-playground.elf": "227418533b0e1663202185cb81e962d169032918d2640ba243759f806f01d037",
+        "vehicle-playground.elf.sym": "83cc1294e83d761f68c8a8902c0b6ef45d4ebd731d22fdc3e4b76eb49f57e983"
+      },
+      "strict_sha256": "5564f6cef43673032cf28785ef9a4a0966e353f140dec9fdd2df7e351033d6d0",
+      "settled_guard": {
+        "camera": "49de11e6:aff79bfb",
+        "light": "755764ef:d0375e1f",
+        "state": "77f6fa0a:3b043778",
+        "objects": "167",
+        "lights": "8",
+        "driver": "0"
+      },
+      "guard_rows": [
+        {
+          "stage": "0",
+          "offset": "0",
+          "camera": "49de11e6:aff79bfb",
+          "light": "755764ef:d0375e1f",
+          "state": "77f6fa0a:3b043778",
+          "objects": "167",
+          "lights": "8",
+          "driver": "0",
+          "sink": "0"
+        },
+        {
+          "stage": "0",
+          "offset": "127",
+          "camera": "49de11e6:aff79bfb",
+          "light": "755764ef:d0375e1f",
+          "state": "77f6fa0a:3b043778",
+          "objects": "167",
+          "lights": "8",
+          "driver": "0",
+          "sink": "0"
+        },
+        {
+          "stage": "0",
+          "offset": "255",
+          "camera": "49de11e6:aff79bfb",
+          "light": "755764ef:d0375e1f",
+          "state": "77f6fa0a:3b043778",
+          "objects": "167",
+          "lights": "8",
+          "driver": "0",
+          "sink": "0"
+        },
+        {
+          "stage": "1",
+          "offset": "0",
+          "camera": "49de11e6:aff79bfb",
+          "light": "755764ef:d0375e1f",
+          "state": "77f6fa0a:3b043778",
+          "objects": "167",
+          "lights": "8",
+          "driver": "0",
+          "sink": "1"
+        },
+        {
+          "stage": "1",
+          "offset": "127",
+          "camera": "49de11e6:aff79bfb",
+          "light": "755764ef:d0375e1f",
+          "state": "77f6fa0a:3b043778",
+          "objects": "167",
+          "lights": "8",
+          "driver": "0",
+          "sink": "1"
+        },
+        {
+          "stage": "1",
+          "offset": "255",
+          "camera": "49de11e6:aff79bfb",
+          "light": "755764ef:d0375e1f",
+          "state": "77f6fa0a:3b043778",
+          "objects": "167",
+          "lights": "8",
+          "driver": "0",
+          "sink": "1"
+        }
+      ],
+      "camera_rows": [
+        {
+          "stage": "0",
+          "offset": "0",
+          "w0": "00000000",
+          "w1": "4028b437",
+          "w2": "c2a19b64",
+          "w3": "3f800000",
+          "w4": "00000000",
+          "w5": "3f9a5e32",
+          "w6": "c2949b64",
+          "w7": "3f800000",
+          "w8": "00000000",
+          "w9": "3f800000",
+          "w10": "00000000",
+          "w11": "3f800000"
+        },
+        {
+          "stage": "0",
+          "offset": "127",
+          "w0": "00000000",
+          "w1": "4028b437",
+          "w2": "c2a19b64",
+          "w3": "3f800000",
+          "w4": "00000000",
+          "w5": "3f9a5e32",
+          "w6": "c2949b64",
+          "w7": "3f800000",
+          "w8": "00000000",
+          "w9": "3f800000",
+          "w10": "00000000",
+          "w11": "3f800000"
+        },
+        {
+          "stage": "0",
+          "offset": "255",
+          "w0": "00000000",
+          "w1": "4028b437",
+          "w2": "c2a19b64",
+          "w3": "3f800000",
+          "w4": "00000000",
+          "w5": "3f9a5e32",
+          "w6": "c2949b64",
+          "w7": "3f800000",
+          "w8": "00000000",
+          "w9": "3f800000",
+          "w10": "00000000",
+          "w11": "3f800000"
+        },
+        {
+          "stage": "1",
+          "offset": "0",
+          "w0": "00000000",
+          "w1": "4028b437",
+          "w2": "c2a19b64",
+          "w3": "3f800000",
+          "w4": "00000000",
+          "w5": "3f9a5e32",
+          "w6": "c2949b64",
+          "w7": "3f800000",
+          "w8": "00000000",
+          "w9": "3f800000",
+          "w10": "00000000",
+          "w11": "3f800000"
+        },
+        {
+          "stage": "1",
+          "offset": "127",
+          "w0": "00000000",
+          "w1": "4028b437",
+          "w2": "c2a19b64",
+          "w3": "3f800000",
+          "w4": "00000000",
+          "w5": "3f9a5e32",
+          "w6": "c2949b64",
+          "w7": "3f800000",
+          "w8": "00000000",
+          "w9": "3f800000",
+          "w10": "00000000",
+          "w11": "3f800000"
+        },
+        {
+          "stage": "1",
+          "offset": "255",
+          "w0": "00000000",
+          "w1": "4028b437",
+          "w2": "c2a19b64",
+          "w3": "3f800000",
+          "w4": "00000000",
+          "w5": "3f9a5e32",
+          "w6": "c2949b64",
+          "w7": "3f800000",
+          "w8": "00000000",
+          "w9": "3f800000",
+          "w10": "00000000",
+          "w11": "3f800000"
+        }
+      ],
+      "packet_counter_ranges": {
+        "0": {
+          "hardware": [
+            1
+          ],
+          "software": [
+            0
+          ],
+          "directHardware": [
+            1
+          ],
+          "directSoftware": [
+            0
+          ],
+          "softwarePresents": [
+            0
+          ],
+          "forbidden": [
+            0
+          ]
+        },
+        "1": {
+          "hardware": [
+            0
+          ],
+          "software": [
+            1
+          ],
+          "directHardware": [
+            0
+          ],
+          "directSoftware": [
+            1
+          ],
+          "softwarePresents": [
+            1
+          ],
+          "forbidden": [
+            0
+          ]
+        }
+      },
+      "raw_records": 256,
+      "complete_postclose_stdout": true
+    }
+  ],
+  "source_audit": "F:\\Projects\\tyrax2-lab-20261001\\ee-isolation-scene-v3\\independent-sink-review-v3.json",
+  "source_audit_sha256": "671c5a7e7021e930af66e7942690c23b683351d16196093644e077bc3bda4cfc",
+  "physical_attempts": [
+    {
+      "stem": "ee-isolation-v3-reset0",
+      "files": {
+        "ee-isolation-v3-reset0.log": {
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "ee-isolation-v3-reset0.err": {
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        }
+      },
+      "loadelf_seen": false,
+      "samples_accepted": false
+    },
+    {
+      "stem": "ee-isolation-v3-physical0",
+      "files": {
+        "ee-isolation-v3-physical0.log": {
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "ee-isolation-v3-physical0.err": {
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "ee-isolation-v3-physical0.elf": {
+          "bytes": 4479452,
+          "sha256": "227418533b0e1663202185cb81e962d169032918d2640ba243759f806f01d037"
+        },
+        "ee-isolation-v3-physical0.elf.sym": {
+          "bytes": 24502812,
+          "sha256": "83cc1294e83d761f68c8a8902c0b6ef45d4ebd731d22fdc3e4b76eb49f57e983"
+        }
+      },
+      "loadelf_seen": false,
+      "samples_accepted": false
+    },
+    {
+      "stem": "ee-isolation-v3-physical0-retry",
+      "files": {
+        "ee-isolation-v3-physical0-retry.log": {
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "ee-isolation-v3-physical0-retry.err": {
+          "bytes": 0,
+          "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        },
+        "ee-isolation-v3-physical0-retry.elf": {
+          "bytes": 4479452,
+          "sha256": "227418533b0e1663202185cb81e962d169032918d2640ba243759f806f01d037"
+        },
+        "ee-isolation-v3-physical0-retry.elf.sym": {
+          "bytes": 24502812,
+          "sha256": "83cc1294e83d761f68c8a8902c0b6ef45d4ebd731d22fdc3e4b76eb49f57e983"
+        }
+      },
+      "loadelf_seen": false,
+      "samples_accepted": false
+    }
+  ],
+  "limitations": [
+    "No physical samples collected: console ping works but network-reset launch and single bare execee retry produced empty logs. Renderer hang is not established.",
+    "Full includes same-job completion/pacing; sink retains packet assembly/cache publication/software completion. Subtraction is not VU or GS time.",
+    "Common two-read/buffer/counter observer remains unpriced. Sparse digests and submission cardinality are not full state/packet/pixel identity.",
+    "Workload differs from ordinary Hybrid night gameplay and pinned Showcase; no cross-ELF gain or ordinary FPS inference.",
+    "Terminal sink cannot safely resume Full without restoring actual GPU texture/program residency and buffer state.",
+    "V1 Hybrid rejected before timed loops; V2 accepted protocol only, timing rejected for periodic arena printf. V3 suppresses that report commonly after freeze.",
+    "Asset proof compares original V1 frozen input hashes and current retained ADPCM output bytes; no re-encoding oracle or new audio playback acceptance. APCM offset12 is not a Hz rate; WAV rate is checked separately."
+  ],
+  "native_proof": {
+    "path": "F:\\Projects\\tyrax2-lab-20261001\\ee-isolation-scene-v3\\root-native-proof-v3.json",
+    "sha256": "b8c929205be5b82e53d9eb0e610719a64a6f27c0e4276524ef7d1b30cc45d8b6",
+    "status": "PASS_native_source_assets_elf_v3",
+    "source_files": 494,
+    "original_v1_res_inputs": 348,
+    "original_v1_baked_inputs": 302,
+    "ordinary_shipping_assets": 294,
+    "encoded_adpcm_assets": 4,
+    "exact_text_and_entry_symbol_parity": true,
+    "native_exit": 0,
+    "prebuild_bin_manifest_available": false
+  }
+}
