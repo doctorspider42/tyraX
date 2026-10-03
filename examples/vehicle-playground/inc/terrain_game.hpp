@@ -830,6 +830,10 @@ class TerrainGame : public Tyra::Game {
   // The lamp pools' colour: lamp colour x night level x the grade's
   // compensation. The pool chunks (ProcChunk::lampLight) point here.
   Tyra::Color roadLampPoolColor_ = Tyra::Color(0.0F, 0.0F, 0.0F, 128.0F);
+  // Puddles (docs/weather.md "Puddles"): every puddle chunk (owner -6,
+  // ProcChunk::puddle) points its colour bag here - dark water plus the sky,
+  // alpha the wetness. Alpha 0 = dry: renderRoadChunks skips them.
+  Tyra::Color roadPuddleColor_ = Tyra::Color(0.0F, 0.0F, 0.0F, 0.0F);
   float roadLampLevel_ = 0.0F;
   float roadLampComp_[3] = {1.0F, 1.0F, 1.0F};
   int roadLampScene_ = -1, roadLampFirst_ = 0, roadLampEnd_ = 0;

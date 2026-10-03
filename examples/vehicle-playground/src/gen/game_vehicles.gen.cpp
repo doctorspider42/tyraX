@@ -6842,6 +6842,7 @@ constexpr int kRoadLampStreaks = 32;
 constexpr float kRoadLampCoronaFar = 160.0F;
 constexpr float kRoadLampCoronaFade = 110.0F;
 constexpr float kRoadLampStreakFar = 55.0F;
+constexpr int kRoadCarStreaks = 0;        // car-light streaks a frame (0: not vehicles + weather)
 constexpr int kRainDrops = 240;
 constexpr float kRainBox = 11.0F;         // half width of the box round the camera
 constexpr float kRainBelow = 4.0F, kRainHeight = 14.0F;
@@ -6882,6 +6883,17 @@ void TerrainGame::updateWeather() {
   // Wet asphalt: darker and a little cooler. 128 = dry = the texture as is.
   const float w = weather::g_state.wet;
   roadWetTint_ = Tyra::Color(128.0F - w * 58.0F, 128.0F - w * 55.0F, 128.0F - w * 46.0F, 128.0F);
+  // Puddles: dark water mirroring the sky, filling as the road soaks. The sky
+  // colour is the one the frame clears with, which the night grade's
+  // compensation has already brightened - take that back out, the puddle is
+  // graded like the road it lies on.
+  {
+    float pc[4];
+    weather::weatherPuddleColor(w, scriptCtx.skyColor.r / roadLampComp_[0],
+                                scriptCtx.skyColor.g / roadLampComp_[1],
+                                scriptCtx.skyColor.b / roadLampComp_[2], roadLampLevel_, pc);
+    roadPuddleColor_ = Tyra::Color(pc[0], pc[1], pc[2], pc[3]);
+  }
   updateRain(dt);
 }
 
@@ -6954,11 +6966,18 @@ void TerrainGame::renderRain() {
 
 void TerrainGame::renderRoadLamps() {
   const float lv = roadLampLevel_;
-  if (lv < 0.004F || !beamCoronaTex) return;
+  if (!beamCoronaTex) return;
+  const float wet = weather::g_state.wet;
+  const bool lit = lv >= 0.004F;
+  // Car lights on a wet road (docs/weather.md): any car whose lamps are on,
+  // night or day - so the lamps' level does not gate this half.
+  const bool carLights = kRoadCarStreaks > 0 && wet > 0.02F;
+  if (!lit && !carLights) return;
   // 1. The pools: host-baked additive decals, coloured by roadLampPoolColor_.
   //    Drawn here, after the whole scene, so the asphalt under them is
   //    already in the frame whatever order the interleaved passes chose.
   for (ProcChunk& c : procChunks) {
+    if (!lit) break;
     if (!c.lampLight || !c.bag || c.bag->count == 0) continue;
     const Tyra::Vec4 mn(c.aabbMin[0], c.aabbMin[1], c.aabbMin[2], 1.0F);
     const Tyra::Vec4 mx(c.aabbMax[0], c.aabbMax[1], c.aabbMax[2], 1.0F);
@@ -6978,11 +6997,14 @@ void TerrainGame::renderRoadLamps() {
   // 2. Coronas round the lamp heads and, on a wet road, each lamp's
   //    reflection: a streak lying on the road from under the lamp toward the
   //    viewer, centred where a mirror would show it. One additive bag.
-  if (roadLampEnd_ <= roadLampFirst_) return;
+  //    And 3. below, every car's lamps mirrored in the wet road, in the same
+  //    bag.
+  const bool lampSprites = lit && roadLampEnd_ > roadLampFirst_;
+  if (!lampSprites && !carLights) return;
   if (!roadLampSprBag_) {
-    roadLampSprVerts_.reserve((kRoadLampCoronas + kRoadLampStreaks) * 6);
-    roadLampSprSts_.reserve((kRoadLampCoronas + kRoadLampStreaks) * 6);
-    roadLampSprCols_.reserve((kRoadLampCoronas + kRoadLampStreaks) * 6);
+    roadLampSprVerts_.reserve((kRoadLampCoronas + kRoadLampStreaks + kRoadCarStreaks) * 6);
+    roadLampSprSts_.reserve((kRoadLampCoronas + kRoadLampStreaks + kRoadCarStreaks) * 6);
+    roadLampSprCols_.reserve((kRoadLampCoronas + kRoadLampStreaks + kRoadCarStreaks) * 6);
     roadLampSprInfo_ = std::make_unique<Tyra::StaPipInfoBag>();
     roadLampSprInfo_->model = &model;
     roadLampSprInfo_->shadingType = Tyra::TyraShadingGouraud;
@@ -7015,14 +7037,13 @@ void TerrainGame::renderRoadLamps() {
   if (rl > 1e-4F) rx /= rl, rz /= rl;
   else rx = 1.0F, rz = 0.0F;
   const float ux = -rz * fy, uy = rz * fx - rx * fz, uz = rx * fy;
-  const float wet = weather::g_state.wet;
   int coronas = 0, streaks = 0;
   auto put = [&](float x, float y, float z, float u, float v, const Tyra::Color& col) {
     roadLampSprVerts_.push_back(Tyra::Vec4(x, y, z, 1.0F));
     roadLampSprSts_.push_back(Tyra::Vec4(u, v, 1.0F, 0.0F));
     roadLampSprCols_.push_back(col);
   };
-  for (int li = roadLampFirst_; li < roadLampEnd_; ++li) {
+  for (int li = roadLampFirst_; lampSprites && li < roadLampEnd_; ++li) {
     const float* L = &ROAD_LAMPS[(size_t)li * 10];
     const float dx = L[1] - ex, dy = L[2] - ey, dz = L[3] - ez;
     const float d2 = dx * dx + dy * dy + dz * dz;
@@ -7086,6 +7107,7 @@ void TerrainGame::renderRoadLamps() {
       ++streaks;
     }
   }
+  (void)streaks;
   if (roadLampSprVerts_.empty()) return;
   roadLampSprVerts_.bind(roadLampSprBag_);
   roadLampSprSts_.bind(roadLampSprTexBag_);
