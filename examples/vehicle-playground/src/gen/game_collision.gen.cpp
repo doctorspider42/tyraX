@@ -9003,11 +9003,20 @@ void TerrainGame::buildRoads(int scene) {
       c.roadTex = tex;
       c.roadGrip = j.grip;
       c.stripRun = 0;
-      // A painted row (node markings, 1.171.0) carries its own colour and no
-      // texture; a patch takes the road grey its texture modulates.
-      const Tyra::Color paint((float)((j.rgb >> 16) & 255), (float)((j.rgb >> 8) & 255),
-                              (float)(j.rgb & 255), 128.0F);
+      // A painted row (node markings, 1.171.0) carries its own colour; a
+      // patch takes the road grey its texture modulates. Paint WITH a texture
+      // (the worn road-paint) is alpha-blended by that texture's alpha onto
+      // the asphalt, its colour halved (128 = 1 when it modulates a texel).
+      const bool paintTex = j.rgb != 0 && tex != nullptr;
+      const float pk = paintTex ? 0.5F : 1.0F;
+      const Tyra::Color paint((float)((j.rgb >> 16) & 255) * pk,
+                              (float)((j.rgb >> 8) & 255) * pk,
+                              (float)(j.rgb & 255) * pk, 128.0F);
       const Tyra::Color& shade = j.rgb != 0 ? paint : grey;
+      if (paintTex) {
+        c.roadBlend = true;
+        c.roadGripBase = j.grip;  // no grip of its own: the road's, unblended
+      }
       const int count = std::min(1800, j.count - first);
       for (int k = 0; k < count; ++k) {
         const float* v = &ROAD_JUNCTION_VERTS[(size_t)(j.first + first + k) * 5];

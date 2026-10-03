@@ -294,10 +294,11 @@ the higher, or overlap their ends.
 
 ## Markings (1.171)
 
-Every patch node is painted: untextured white geometry baked on the host by
+Every patch node is painted: white geometry baked on the host by
 `roadgen::bakeMarkings` and laid onto the roads and patches it covers
-(`kSpillLift` above them, split where the surface bends), uploaded as one more
-`ROAD_JUNCTIONS` row with `tex = -1` and its colour in the new `rgb` column. So
+(`kSpillLift` above them, split where the surface bends), uploaded as more
+`ROAD_JUNCTIONS` rows with its colour in the `rgb` column (see "Worn paint"
+below for the texture). So
 it costs no texture and no VRAM, one bag per scene, and no work per frame.
 
 - **Edge lines.** The road texture's edge line is carried round the node along
@@ -329,6 +330,30 @@ where the ground bends by more than 1 cm. The Motor District (zebras on Skyline
 avenue only) paints 4 860 / 1 182 / 2 328 vertices in its main / dense /
 procedural scenes; the district's uneven ground is what splits them. The paint is not a shadow receiver: baked shadow decals
 lie under it, so a stripe stays white in a building's shadow.
+
+### Worn paint
+
+Flat white paint on asphalt reads as a cartoon, so the paint is drawn with a
+generated **worn-paint texture** (`res/materials/roads/road-paint.png`,
+`roadtex::paintWear`, 64 x 64). It is near-white with grime in it, and its
+alpha is eaten away by the wear: broad patches where the paint is half faded,
+chips right through it inside them, and a fine grain everywhere. The paint
+row is alpha-blended by that alpha onto the asphalt under it, so the line
+blends into the road instead of lying on top of it.
+
+- **UVs are the world position** / `kPaintExtent` (4 units), so the wear does
+  not repeat stripe by stripe, and two stripes side by side wear differently.
+- **One row per 32-unit cell** (`kKerbCell`) instead of one per scene. Each
+  is culled a block at a time, and its UVs are rebased to small numbers.
+- **The texture is generated, not authored.** `roadtex::ensurePaintTexture`
+  writes it (only when missing or different) at build, when the viewport
+  draws markings, and with the seeds of a new project. It has no recipe;
+  delete it and it comes back byte-identical.
+- **Runtime:** a row with both a texture and an `rgb` is paint over a texture.
+  Its chunk is `roadBlend` (blended, its grip the road's), and its colour is
+  halved, because 128 is 1x when the colour modulates a texel. The alpha
+  has eight levels, which the console's 4-bit palette keeps; a level of 0 is
+  discarded by the alpha test (chipped through).
 
 ![PCSX2: zebras and stop lines on a T and an X, edge lines carried round the fillets](img/road-markings-pcsx2.png)
 

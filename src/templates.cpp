@@ -57,6 +57,7 @@
 #include "vugen.hpp"  // the VU program generator - a project may carry its own
 #include "tmdl.hpp"
 #include "roadgen.hpp"  // the road tessellator this file carries a twin of
+#include "roadtex.hpp"
 #include "wire.hpp"  // fnv1a64 - stable per-override .tskl suffix
 
 namespace templates {
@@ -9100,11 +9101,43 @@ static std::string sceneDataContent(const Project& p, const std::string& ns,
                     std::vector<roadgen::Vertex> paint;
                     roadgen::bakeMarkings(plan, cr, paintOn, paint);
                     if (!paint.empty()) {
-                        JunctionRow row{(int)si, -1, (int)junctionVerts.size(),
-                                        (int)paint.size(), 1.0f};
-                        row.rgb = roadgen::kMarkingRgb;
-                        junctionRows.push_back(row);
-                        junctionVerts.insert(junctionVerts.end(), paint.begin(), paint.end());
+                        // Worn paint: textured with road-paint (its alpha
+                        // blends the line into the asphalt), UVs from the
+                        // world position, one row per 32-unit cell - culled
+                        // a block at a time, UVs rebased to small numbers.
+                        const std::string paintMtl = roadtex::ensurePaintTexture(p.dir);
+                        const int ptex =
+                            paintMtl.empty()
+                                ? -1
+                                : textureIndex(project::resolveRoadTexture(p, paintMtl));
+                        std::map<std::pair<int, int>, std::vector<roadgen::Vertex>> cells;
+                        for (size_t t = 0; t + 2 < paint.size(); t += 3) {
+                            const float cx = (paint[t].x + paint[t + 1].x + paint[t + 2].x) / 3.0f;
+                            const float cz = (paint[t].z + paint[t + 1].z + paint[t + 2].z) / 3.0f;
+                            std::vector<roadgen::Vertex>& dst =
+                                cells[{(int)std::floor(cx / roadgen::kKerbCell),
+                                       (int)std::floor(cz / roadgen::kKerbCell)}];
+                            dst.insert(dst.end(), paint.begin() + (long)t,
+                                       paint.begin() + (long)t + 3);
+                        }
+                        for (auto& [cell, tris] : cells) {
+                            (void)cell;
+                            if (ptex >= 0) {
+                                float mu = 1e30f, mv = 1e30f;
+                                for (roadgen::Vertex& v : tris) {
+                                    v.u = v.x / roadtex::kPaintExtent;
+                                    v.v = v.z / roadtex::kPaintExtent;
+                                    mu = std::min(mu, v.u), mv = std::min(mv, v.v);
+                                }
+                                mu = std::floor(mu), mv = std::floor(mv);
+                                for (roadgen::Vertex& v : tris) v.u -= mu, v.v -= mv;
+                            }
+                            JunctionRow row{(int)si, ptex, (int)junctionVerts.size(),
+                                            (int)tris.size(), 1.0f};
+                            row.rgb = roadgen::kMarkingRgb;
+                            junctionRows.push_back(row);
+                            junctionVerts.insert(junctionVerts.end(), tris.begin(), tris.end());
+                        }
                     }
                 }
                 // Kerbs (docs/roads.md "Kerbs"): baked here as strip runs in
@@ -18700,11 +18733,20 @@ void TerrainGame::buildRoads(int scene) {
       c.roadTex = tex;
       c.roadGrip = j.grip;
       c.stripRun = 0;
-      // A painted row (node markings, 1.171.0) carries its own colour and no
-      // texture; a patch takes the road grey its texture modulates.
-      const Tyra::Color paint((float)((j.rgb >> 16) & 255), (float)((j.rgb >> 8) & 255),
-                              (float)(j.rgb & 255), 128.0F);
+      // A painted row (node markings, 1.171.0) carries its own colour; a
+      // patch takes the road grey its texture modulates. Paint WITH a texture
+      // (the worn road-paint) is alpha-blended by that texture's alpha onto
+      // the asphalt, its colour halved (128 = 1 when it modulates a texel).
+      const bool paintTex = j.rgb != 0 && tex != nullptr;
+      const float pk = paintTex ? 0.5F : 1.0F;
+      const Tyra::Color paint((float)((j.rgb >> 16) & 255) * pk,
+                              (float)((j.rgb >> 8) & 255) * pk,
+                              (float)(j.rgb & 255) * pk, 128.0F);
       const Tyra::Color& shade = j.rgb != 0 ? paint : grey;
+      if (paintTex) {
+        c.roadBlend = true;
+        c.roadGripBase = j.grip;  // no grip of its own: the road's, unblended
+      }
       const int count = std::min(1800, j.count - first);
       for (int k = 0; k < count; ++k) {
         const float* v = &ROAD_JUNCTION_VERTS[(size_t)(j.first + first + k) * 5];

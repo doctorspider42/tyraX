@@ -21,6 +21,7 @@
 #include "placement.hpp"
 #include "primmesh.hpp"
 #include "roadgen.hpp"
+#include "roadtex.hpp"
 #include "scrollsim.hpp"
 #include "skytex.hpp"
 #include <stb_image.h>
@@ -4307,16 +4308,36 @@ void Viewport::syncRoadDraws(const std::vector<SceneObject>& objects) {
         std::vector<roadgen::Vertex> paint;
         roadgen::bakeMarkings(plan, cr, paintOn, paint);
         if (!paint.empty()) {
-            std::vector<float> iv;
-            for (const roadgen::Vertex& v : paint)
-                iv.insert(iv.end(), {v.x, v.y, v.z, 1.0f, 1.0f, 1.0f, 0.0f, 0.0f});
-            RoadCrossDraw d;
-            d.mesh = uploadMesh(iv);
-            d.owner = keyOf(plan.crossings.front().a);
+            // Worn paint, as the console draws it: the road-paint texture at
+            // world-projected UVs, blended by its alpha.
+            const std::string paintMtl =
+                projectDir_.empty() ? std::string() : roadtex::ensurePaintTexture(projectDir_);
+            const std::string paintTex =
+                paintMtl.empty() ? std::string()
+                                 : project::resolveRoadTexture(projectDir_, paintMtl);
             const float k = 1.0f / 255.0f;
-            d.color[0] = ((roadgen::kMarkingRgb >> 16) & 255) * k;
-            d.color[1] = ((roadgen::kMarkingRgb >> 8) & 255) * k;
-            d.color[2] = (roadgen::kMarkingRgb & 255) * k;
+            const float r = ((roadgen::kMarkingRgb >> 16) & 255) * k,
+                        g = ((roadgen::kMarkingRgb >> 8) & 255) * k,
+                        b = (roadgen::kMarkingRgb & 255) * k;
+            RoadCrossDraw d;
+            d.owner = keyOf(plan.crossings.front().a);
+            if (!paintTex.empty()) {
+                std::vector<float> iv;
+                for (const roadgen::Vertex& v : paint)
+                    iv.insert(iv.end(), {v.x, v.y, v.z, r, g, b, 1.0f,
+                                         v.x / roadtex::kPaintExtent,
+                                         v.z / roadtex::kPaintExtent});
+                d.mesh = uploadMesh9(iv);
+                d.texture = paintTex;
+                d.material = paintMtl;
+                d.blended = true;
+            } else {
+                std::vector<float> iv;
+                for (const roadgen::Vertex& v : paint)
+                    iv.insert(iv.end(), {v.x, v.y, v.z, 1.0f, 1.0f, 1.0f, 0.0f, 0.0f});
+                d.mesh = uploadMesh(iv);
+                d.color[0] = r, d.color[1] = g, d.color[2] = b;
+            }
             roadCross_.push_back(std::move(d));
         }
     }

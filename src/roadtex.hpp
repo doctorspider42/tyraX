@@ -143,6 +143,19 @@ std::string writeAssets(const std::string& projectDir, const std::string& name,
 // Reads <projectDir>/<kDir>/<stem>.roadtex; false when there is none.
 bool readRecipe(const std::string& projectDir, const std::string& name, RoadTexParams* out);
 
+// Worn road paint (docs/roads.md "Markings"): the texture a node's painted
+// lines are drawn with - near-white with grime in it, and an alpha that the
+// wear eats away in patches and chips, so the paint blends into the asphalt
+// under it instead of lying on it as a flat, clean colour. Tiles every
+// kPaintExtent units in world X/Z (the paint's UVs are its world position).
+inline constexpr const char* kPaintStem = "road-paint";
+inline constexpr float kPaintExtent = 4.0f;
+std::vector<unsigned char> paintWear(int size = 64, unsigned seed = 1);
+// Writes res/materials/roads/road-paint.png + .mtl when missing or different
+// (generated, deterministic - no recipe), and returns the .mtl's project
+// path; "" when it cannot be written.
+std::string ensurePaintTexture(const std::string& projectDir);
+
 // The ready materials a new project is seeded with (road-2lane, road-4lane,
 // road-dirt, road-cobble, road-junction, pavement-slabs).
 struct Preset {
