@@ -367,6 +367,11 @@ class RendererCore : public RendererCore2dBounds {
   }
 
   void setFrameLimit(const bool& onoff) { isFrameLimitOn = onoff; }
+  bool getFrameLimit() const { return isFrameLimitOn; }
+  // Modified by TyraX: ordinary/loading and successful warp render starts.
+  // Independent of profiling; this is an observation epoch, not a job ID.
+  // Unsigned adjacent difference one remains valid through counter wrap.
+  u32 getRecordingGeneration() const { return recordingGeneration; }
   // Opt-in TyraX2; change between frames. Unsupported modes remain synchronous.
   void setFramePipeline(bool on);
   bool getFramePipeline() const { return framePipelineRequested; }
@@ -399,6 +404,7 @@ class RendererCore : public RendererCore2dBounds {
   void completePipelineFrame();
   static void completePipelineFrameThunk(void* user);
   bool frameMeasurementActive = false;
+  u32 recordingGeneration = 0;
   bool pipelineFrameActive = false;
   bool framePipelineRequested = false;
   bool pipelineFramePending = false;

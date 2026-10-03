@@ -1,0 +1,175 @@
+{
+  "status": "tyrax2_1_171_0_core_release_checkpoint_broad_runtime_pending",
+  "date": "2026-10-03",
+  "editor_version": "1.171.0",
+  "project_format": 95,
+  "current_core_source_hashes": {
+    "src/project.hpp": "c0c7fda17f1a7c5737a215bfc955f98e44aa02703f763cc0cb2bffd866d8e591",
+    "src/project.cpp": "f97004f4eb8bc500f03df96620d406230c72f1f30dc6b799d074b37118d93319",
+    "src/templates.cpp": "f8706d6d63b8c3a6cb20f34d8c974c9783c608d00f9cd2a060eb84d3b43e3545",
+    "src/game_templates.inc": "7ab08981f49e4c4c30a4a5462a61b68a570280f611429d6294bbc5ebc408d1d7",
+    "src/version.hpp": "936d0fa4e3bbc24e3025260434b25eb7544f95aa4443bbd9e9e1c03e8c4a6e39",
+    "vendor/tyra/engine/inc/renderer/core/paths/path1/frame_chain_arena.hpp": "d2cf31629c1f3c8127cec7d9590632ed3a7e82af7049c04b2e533d015615970b",
+    "vendor/tyra/engine/src/renderer/core/paths/path1/vif1_queue.cpp": "949fe358e54a6af5f28103ceb855f943b7498034625b6a55a4fc2222cc8dc4b7",
+    "vendor/tyra/engine/inc/renderer/core/renderer_core.hpp": "4e295cd961be4d8f8d32a18d831b90c0bab534b200986fc692d1130a3a1f9a65",
+    "vendor/tyra/engine/src/renderer/core/renderer_core.cpp": "e4c97f885a2d022c9191fd95034a675337577a1c1507281d13548ac37a3b09b9"
+  },
+  "default_policy": {
+    "new_project_request": true,
+    "missing_v94_or_older": false,
+    "missing_v95": true,
+    "explicit_boolean_wins": true,
+    "save_always_serializes_request": true,
+    "generated_initialization_explicit_true_or_false": true,
+    "standalone_engine_compile_time_default": false,
+    "effective_overlap_not_guaranteed": true
+  },
+  "integrated_changes": [
+    "Successful arena preflight root-tag counts reused for eligible native sizing; public Snapshot12B preserved, counted16B metadata and counting tax priced in private controls.",
+    "First16 engine-known REF memo with128B target scratch; generic callbacks unchanged; actual pure-RAM resolver and same-bank idempotent lease contract.",
+    "Settled-block adaptive selector with recording-generation/output/view/diagnostic exclusions; ordinary clocks preserved."
+  ],
+  "qualification": {
+    "actual_core_host": {
+      "status": "passed_host_only",
+      "evidence": {
+        "path": "F:\\Projects\\tyrax2-lab-20261001\\night-final-product-host-controls.log",
+        "sha256": "30326c9992a2b2f6a0ab64c8db26bf56dc2604635376a15aec69f3fe95da2278"
+      },
+      "selector_checks": 356,
+      "arena_cases": 16210,
+      "malformed_streams": 10000,
+      "target_timing": false
+    },
+    "default_cli": {
+      "status": "six_actual_cli_controls_passed",
+      "evidence": {
+        "path": "F:\\Projects\\tyrax2-lab-20261001\\default-promotion-cli\\cli-default-proof.json",
+        "sha256": "c4a2aad152018f2e4be333055214ae65a91207a20019bfb5793ee9b4ae59c2ea"
+      },
+      "tested_editor_sha256": "4f8c49fb8fdd1a450c1203726988a8390740a4db2e0160a1ac42cc40e5b2158b",
+      "note": "Exact historical CLI editor hash retained; later selector guards do not imply a different default result. Current final-editor explicit-false/legacy generation source controls are separate.",
+      "current_final_editor_source_controls": {
+        "path": "F:\\Projects\\tyrax2-lab-20261001\\portable-quiet-tool-proposal\\final-variant-controls.json",
+        "sha256": "cb9fe8a6f8d99736837a7c9f6fffd7e79004c638b42a9942f9e8aee65047d8d3"
+      }
+    },
+    "postmemo_motion": {
+      "native_and_physical": {
+        "path": "F:\\Projects\\tyrax2-lab-20261001\\night-postmemo-motion-physical-evidence\\result.json",
+        "sha256": "278c76402d5dacd53f1f656004b4124b8353b6081108093860f54c09c738af24"
+      },
+      "native_provenance": {
+        "path": "F:\\Projects\\tyrax2-lab-20261001\\night-postmemo-motion-physical-evidence\\native-runtime-proof.json",
+        "sha256": "08c7b9b7498536260f24e3671d077540066bfd5d9a67a7c5c61cb5aa67af9688"
+      },
+      "selected_elf_sha256": "b9333da2af46212cbbc10f333e73beaf459de1f59603b6c9f13e36169cb66ca1",
+      "source_manifest_sha256": "da1b1f52c786f6a1c44083bd11b72eba9b9cadbb7d6ea5b2ef6f79240ab76e20",
+      "validated_chains_at_least": 368640,
+      "arena_fallbacks": 0,
+      "emulator_complete_log": {
+        "path": "F:\\Projects\\tyrax2-lab-20261001\\night-integrated-postmemo-motion-emulator\\accepted-emulog.txt",
+        "sha256": "7fa518ed89ff803d19fa7b0cec1a12fe6f9b1ca858c9cf8a424c5f2c008820a5"
+      },
+      "emulator_report": {
+        "path": "F:\\Projects\\tyrax2-lab-20261001\\night-integrated-postmemo-motion-emulator\\report.txt",
+        "sha256": "fac25df45363d383743cb4fe4bcd9526b3ea11e598d9076bf0cb5df8322cb9fc"
+      },
+      "physical_tv_pixels_or_latency_accepted": false
+    },
+    "all_examples_native": {
+      "status": "44_of44_passed",
+      "evidence": {
+        "path": "F:\\Projects\\tyrax2-lab-20261001\\night-final-postmemo-build-evidence\\results.json",
+        "sha256": "e2ad9ccde618ae48d775133deddc1750149eeafa4288583681316d34bc08d2d0"
+      },
+      "inputs": {
+        "path": "F:\\Projects\\tyrax2-lab-20261001\\night-final-postmemo-build-evidence\\inputs.json",
+        "sha256": "e7825d0adbcd01100a41779ff7fcaa32acc80c30c77519cbc85a30d6fba995f9"
+      },
+      "same_current_engine_input_hashes_verified": true,
+      "runtime_emulator_acceptance_implied": false
+    },
+    "fallback_emulator": {
+      "status": "five_actual_runtime_guard_controls_pass",
+      "modes": [
+        "ordinary",
+        "true-field",
+        "blss",
+        "unlimited-triple",
+        "lowheap"
+      ],
+      "evidence": {
+        "path": "F:\\Projects\\tyrax2-lab-20261001\\postmemo-fallback-qualification.json",
+        "sha256": "7fc9ace259cb25362dd91a4cc08d83e7816782748ccdce232852b7c6a49debb9"
+      },
+      "physical": false,
+      "performance_claim": false
+    },
+    "shipping_portable_probe": {
+      "status": "actual_shipping_tool_native_and_emulator_complete",
+      "evidence": {
+        "path": "F:\\Projects\\tyrax2-lab-20261001\\root-portable-quiet-showcase-shipping-independent-emulator0\\machine-evidence.json",
+        "sha256": "70db934f10846539c867bfc00900fc478304fdf106f99abf89b84c5c996b0f7a"
+      },
+      "native_provenance": {
+        "path": "F:\\Projects\\tyrax2-lab-20261001\\night-portable-quiet-hardened-native-proof.json",
+        "sha256": "2b38ece5105e5769dd49ec6ee695aa03c447093429671635b9a8316cfd1a7edb"
+      },
+      "selected_elf_sha256": "0eb09f5040655c6ca8e5c66d7c21a2a2a691c997ee9399bf9947601ba6b55ac4",
+      "source_manifest_sha256": "8ea9714ad9b49a4991c6b1598f0d6a124f5656b33bb62a91af6c3a82c882ac44",
+      "verified_source_files": 488,
+      "verified_runtime_assets": 193,
+      "engine_loops": 5400,
+      "accepted_raw_samples": 128,
+      "chunks": 15,
+      "profile": 0,
+      "hardware_trace": 0,
+      "ordinary_clocks": true,
+      "authored_controls_preserved": true,
+      "night_known": false,
+      "late_combined_archive": true,
+      "environment": "emulator",
+      "physical_fps_accepted": false
+    }
+  },
+  "historical_physical_records": {
+    "reference_memo": {
+      "path": "tyrax2-native-reference-memo-2026-10-03.json",
+      "sha256": "75acbbf5f4ac07b488bace12cefd99c1077c62d2226c3da8be131e432cba864b",
+      "diagnostic_work_reduction_ms_range": [
+        0.296,
+        0.304
+      ],
+      "frame_period_ms_approx": 33.367,
+      "ordinary_production_gain_accepted": false
+    },
+    "prememo_ordinary_quiet": {
+      "path": "tyrax2-quiet-cadence-2026-10-03.json",
+      "sha256": "e4441594949b1b20398f0c33ef2065825a5210c5d7516da3db5d933d49b62d14",
+      "rendered_period_ms_approx": 33.367,
+      "sampler_tax_attribution": "unresolved adaptive drift",
+      "postmemo_result": false
+    }
+  },
+  "pending": [
+    "Complete runtime emulator boot/screenshot coverage of all44 current native example builds.",
+    "Showcase and portal interaction acceptance beyond parked boot/source controls.",
+    "Paired physical post-Memo ordinary-clock quiet cadence.",
+    "Physical Showcase reverse-order quiet control.",
+    "Physical button-to-TV latency and TV scanout/photon cadence."
+  ],
+  "universal_sixty_fps_accepted": false,
+  "physical_postmemo_quiet_accepted": false,
+  "physical_showcase_reverse_accepted": false,
+  "full44_emulator_accepted": false,
+  "interaction_accepted": false,
+  "tv_photon_latency_accepted": false,
+  "limitations": [
+    "Core integration/default policy is distinct from broad runtime/interaction/performance qualification.",
+    "Native builds and emulator numbers do not establish physical FPS, CPU/VU/GS utilization or latency.",
+    "Diagnostic same-ELF improvements cannot be subtracted from different ordinary production binaries.",
+    "Shipping probe combined archive was created after launch; no fabricated prelaunch bundle.",
+    "Source manifests cover copied inputs; installed native SDK/compiler/VCL and referenced SDK IRX binaries require separate external provenance."
+  ]
+}

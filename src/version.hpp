@@ -1,5 +1,9 @@
 #pragma once
 
+// 1.171.0: default TyraX2 for new projects; preserve legacy and explicit opt-out.
+// Reuse owned snapshot tag counts for native sizing; settled adaptive interleave.
+// Format v95 always writes framePipeline; missing v94-or-older requests stay off.
+
 // 1.170.1: complete the empty vehicle definition initializer after merging controls cards.
 // 1.170.0: hierarchical hardware timeline, actual render jobs and compile-out controls.
 // Project format remains v94.
@@ -5528,7 +5532,7 @@
 // host-baked albedo map (REFL_GROUND_*): -2 ms a turning frame on the Motor
 // District's open road on a PS2.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 170
+#define TYRAX_VERSION_MINOR 171
 // 1.169.0: the vehicle controls card - getting into a car for the first time
 // shows what to press, built at runtime from the LIVE bindings and from what
 // that car has (nitrous, lamps), with button glyphs; rows dim as they are
@@ -5634,7 +5638,7 @@
 // existing unlit VU1 path; conservative local bounds, custom stages unchanged.
 // 1.150.1: prepare driveable vehicle HUD fonts during scene loading; plain
 // runtime text no longer loads the icon sheet before drawing an actual icon.
-#define TYRAX_VERSION_PATCH 1
+#define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)
@@ -6128,7 +6132,10 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // v94 (docs/vehicles.md, "Controls card"): a definition's "tutorial" seconds,
 // written only when non-zero. Missing = no card, as before. Additive; no
 // migration step.
-inline constexpr int kFormatVersion = 94;
+// v95 defaults new projects to TyraX2 and always writes framePipeline.
+// Missing v94-or-older values remain false; explicit false survives resave.
+// No destructive migration step: legacy files retain their request in memory.
+inline constexpr int kFormatVersion = 95;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

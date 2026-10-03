@@ -1761,7 +1761,8 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
                  : "")
          << (p.settings.dither ? "" : "    \"dither\": false,\n")
          << (p.settings.tripleBuffering ? "    \"tripleBuffering\": true,\n" : "")
-         << (p.settings.framePipeline ? "    \"framePipeline\": true,\n" : "")
+         << "    \"framePipeline\": "
+         << (p.settings.framePipeline ? "true" : "false") << ",\n"
          << (p.settings.frameExtrapolation ? "    \"frameExtrapolation\": true,\n" : "")
          << (p.settings.frameExtrapolationPlane != 0.0f
                  ? "    \"frameExtrapolationPlane\": " +
@@ -6300,6 +6301,10 @@ static void readSceneObjects(const Project& p, const json::Value& objs,
 
 static void readSettingsSection(const json::Value& root, Project& out) {
     out.settings = ProjectSettings{};
+    // v95 changes only the new-project default. Older manifests and legacy
+    // section blobs without an explicit request retain ordinary submission.
+    const auto* format = root.find("formatVersion");
+    out.settings.framePipeline = format && format->numberOr(0) >= 95;
     if (const auto* s = root.find("settings")) {
         ProjectSettings& st = out.settings;
         if (const auto* v = s->find("videoSystem")) {

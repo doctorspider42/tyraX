@@ -1,6 +1,8 @@
 /* Modified by TyraX: frame-owned snapshots of complete DMA chains and REFs.
  * Licensed under Apache 2.0. See docs/tyrax2.md. */
 #pragma once
+#include <type_traits>
+#include <array>
 #include <string.h>
 #include "debug/hardware_trace.hpp"
 #include "vif1_chain_check.hpp"
@@ -96,6 +98,13 @@ class ImmutableSpanTable {
 class FrameChainArena {
  public:
   struct Snapshot { void* chain = nullptr; uint32_t bytes = 0, borrowedBytes = 0; };
+  // Optional preflight metadata for native VIF recording. Ordinary copies
+  // retain the original Snapshot ABI and do not count root DMA tags.
+  struct CountedSnapshot { void* chain = nullptr; uint32_t bytes = 0, borrowedBytes = 0, records = 0; };
+#if defined(_EE)
+  static_assert(sizeof(Snapshot)==12,"Snapshot ABI changed");
+  static_assert(sizeof(CountedSnapshot)==16,"CountedSnapshot ABI changed");
+#endif
   // Only an owner that fences before mutation/destruction may offer a span.
   // This callback is stable throughout a copy, like the readable resolver.
   using ImmutableResolver = bool (*)(uint32_t address, uint32_t qwords);
@@ -107,6 +116,30 @@ class FrameChainArena {
   Snapshot copy(const void* base, uint32_t qwords,
                 Vif1ChainCheck::Resolver resolver, void* context,
                 uint32_t dmaBase, ImmutableResolver immutable = nullptr) {
+    return copyImpl<false>(base,qwords,resolver,context,dmaBase,immutable);
+  }
+  CountedSnapshot copyCounted(const void* base, uint32_t qwords,
+                Vif1ChainCheck::Resolver resolver, void* context,
+                uint32_t dmaBase, ImmutableResolver immutable = nullptr) {
+    return copyImpl<true>(base,qwords,resolver,context,dmaBase,immutable);
+  }
+  // Engine-only fast path: resolver must be a pure stable RAM lookup; immutable
+  // may only OR the current bank reader bit (idempotently). Registry, bank,
+  // source tags and referenced storage must remain stable across this call.
+  // Never use with arbitrary/stateful callbacks: copy/copyCounted keep their
+  // exact callback behavior. Scratch is per-copy, first16 nonempty refs only;
+  // overflow refs use the original callbacks again during fixup.
+  template<bool Memoize>
+  CountedSnapshot copyKnownRefsCounted(const void* base, uint32_t qwords,
+                Vif1ChainCheck::Resolver resolver, void* context,
+                uint32_t dmaBase, ImmutableResolver immutable) {
+    return copyEngineKnownImpl<Memoize>(base,qwords,resolver,context,dmaBase,immutable);
+  }
+ private:
+  template<bool Memoize>
+  CountedSnapshot copyEngineKnownImpl(const void* base, uint32_t qwords,
+                Vif1ChainCheck::Resolver resolver, void* context,
+                uint32_t dmaBase, ImmutableResolver immutable) {
     HardwareTrace::Scope traceSnapshot("Snapshot", HardwareTrace::Kind::Span, true);
     if (!memory || !base || !qwords || qwords > 65536 ||
         (reinterpret_cast<uintptr_t>(base) & 15) ||
@@ -114,6 +147,15 @@ class FrameChainArena {
     const auto* words = static_cast<const uint32_t*>(base);
     uint32_t at = 0, needed = qwords * 16;
     uint32_t payloadQwords = 0;
+    uint32_t tagCount = 0;
+    struct EngineRef { const uint32_t* resolved; bool immutable; };
+#ifdef _EE
+    static_assert(sizeof(EngineRef)==8,"Engine-known memo entry ABI changed");
+#endif
+    struct NoRefScratch {};
+    // Control/generic specializations contain no array or entry initialization.
+    typename std::conditional<Memoize,std::array<EngineRef,16>,NoRefScratch>::type refScratch;
+    uint32_t preRefOrdinal = 0, fixRefOrdinal = 0;
     bool ended = false;
     // Preflight all ranges and space before writing anything. The original
     // source stays owned by the synchronous caller throughout both passes.
@@ -124,6 +166,108 @@ class FrameChainArena {
       if (tag[0] & 0x8c000000u) return {};
       if (size > 1048576 - payloadQwords) return {};
       payloadQwords += size;
+      ++tagCount;
+      if (id == 1 || id == 7) {
+        if (size > qwords - at - 1) return {};
+        at += size + 1;
+      } else if (id == 0 || id == 3) {
+        {
+          if (size) {
+            const uint32_t slot = preRefOrdinal++;
+            if ((tag[1] & 0x8000000f) || !resolver) return {};
+            const uint32_t* ref = resolver(tag[1],size,context);
+            if (!ref) return {};
+            bool isBorrowed = false;
+            if (immutable) isBorrowed = immutable(tag[1],size);
+            if constexpr (Memoize) {
+              if (slot < 16) refScratch[slot] = {ref,isBorrowed};
+            }
+            if (!isBorrowed) {
+              if (size * 16 > capacity || needed > capacity - size * 16) return {};
+              needed += size * 16;
+            }
+          }
+        }
+        ++at;
+      } else return {};
+      if (id == 0 || id == 7) { ended = true; break; }
+    }
+    if (!ended || at != qwords || cursor > capacity ||
+        needed > capacity - cursor || dmaBase > UINT32_MAX - cursor ||
+        needed > UINT32_MAX - (dmaBase + cursor)) return {};
+    }
+    uint8_t* target = memory + cursor;
+    { HardwareTrace::Scope trace("SnapshotChainCopy", HardwareTrace::Kind::Span, true);
+      if (!copyQwords(target, base, qwords)) return {}; }
+    uint32_t payload = qwords * 16;
+    uint32_t borrowed = 0;
+    at = 0;
+    { HardwareTrace::Scope trace("SnapshotFixup", HardwareTrace::Kind::Span, true);
+    while (at < qwords) {
+      const auto* source = words + at * 4;
+      auto* tag = reinterpret_cast<uint32_t*>(target) + at * 4;
+      const uint32_t size = source[0] & 65535, id = (source[0] >> 28) & 7;
+      if (id == 1 || id == 7) at += size + 1;
+      else {
+        {
+          if (size) {
+            const uint32_t slot = fixRefOrdinal++;
+            bool isBorrowed = false;
+            const uint32_t* ref = nullptr;
+            bool cached = false;
+            if constexpr (Memoize) {
+              if (slot < 16) {
+                isBorrowed = refScratch[slot].immutable;
+                ref = refScratch[slot].resolved;
+                cached = true;
+              }
+            }
+            if (!cached && immutable) isBorrowed = immutable(source[1],size);
+            if (isBorrowed) borrowed += size * 16;
+            else {
+              if (!cached) ref = resolver(source[1],size,context);
+              if (!ref) return {}; // engine-known resolver must remain stable
+              { HardwareTrace::Scope trace("SnapshotMutableCopy", HardwareTrace::Kind::Span, true);
+                if (!copyQwords(target + payload,ref,size)) return {}; }
+              tag[1] = dmaBase + cursor + payload;
+              payload += size * 16;
+            }
+          }
+        }
+        ++at;
+      }
+    }
+    }
+    cursor += needed;
+    return {target, needed, borrowed, tagCount};
+  }
+
+  template<bool TrackTags>
+  using CopyResult = typename std::conditional<TrackTags,CountedSnapshot,Snapshot>::type;
+  template<bool TrackTags>
+  CopyResult<TrackTags> copyImpl(const void* base, uint32_t qwords,
+                Vif1ChainCheck::Resolver resolver, void* context,
+                uint32_t dmaBase, ImmutableResolver immutable) {
+    HardwareTrace::Scope traceSnapshot("Snapshot", HardwareTrace::Kind::Span, true);
+    if (!memory || !base || !qwords || qwords > 65536 ||
+        (reinterpret_cast<uintptr_t>(base) & 15) ||
+        (reinterpret_cast<uintptr_t>(memory) & 15) || (dmaBase & 15)) return {};
+    const auto* words = static_cast<const uint32_t*>(base);
+    uint32_t at = 0, needed = qwords * 16;
+    uint32_t payloadQwords = 0;
+    struct NoTagCount {};
+    typename std::conditional<TrackTags,uint32_t,NoTagCount>::type tagCount{};
+    bool ended = false;
+    // Preflight all ranges and space before writing anything. The original
+    // source stays owned by the synchronous caller throughout both passes.
+    { HardwareTrace::Scope trace("SnapshotPreflight", HardwareTrace::Kind::Span, true);
+    while (at < qwords) {
+      const auto* tag = words + at * 4;
+      const uint32_t size = tag[0] & 65535, id = (tag[0] >> 28) & 7;
+      if (tag[0] & 0x8c000000u) return {};
+      if (size > 1048576 - payloadQwords) return {};
+      payloadQwords += size;
+      if constexpr (TrackTags) ++tagCount;
       if (id == 1 || id == 7) {
         if (size > qwords - at - 1) return {};
         at += size + 1;
@@ -170,7 +314,8 @@ class FrameChainArena {
     }
     }
     cursor += needed;
-    return {target, needed, borrowed};
+    if constexpr (TrackTags) return {target, needed, borrowed, tagCount};
+    else return {target, needed, borrowed};
   }
 
  public:

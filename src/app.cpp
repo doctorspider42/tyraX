@@ -15739,7 +15739,8 @@ void App::drawPreferencesWindow() {
              "of input latency. Field rendering, temporal upscaling and\n"
              "unlimited triple buffering use synchronous compatibility.\n"
              "Memory overflow splits a frame.\n"
-             "Experimental: measure your game's frame pacing before enabling.");
+             "Enabled by default for new projects. Measure your game's\n"
+             "frame pacing and input response when choosing this setting.");
     ImGui::Checkbox("Disable VSync (experimental)", &prefSettings_.disableVsync);
     prefHelp(
         "Skips the vsync wait before the buffer flip. The frame rate becomes\n"

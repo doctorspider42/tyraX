@@ -1772,8 +1772,10 @@ struct ProjectSettings {
     // It is off by default and the engine falls back to two buffers when
     // it does not fit. Decided at engine init; no runtime switch.
     bool tripleBuffering = false;
-    // TyraX2: record frame N while VIF/VU1/GS execute N-1. Opt-in EE RAM cost.
-    bool framePipeline = false;
+    // TyraX2: requested for new projects; record N while VIF/VU1/GS execute N-1.
+    // Costs about 2.25 MiB EE RAM when available; compatibility modes fall back.
+    // The reader preserves an absent legacy request as false (format <= 94).
+    bool framePipeline = true;
 
     // Frame extrapolation (docs/frame-extrapolation.md): after each rendered
     // frame the game presents a SYNTHESISED one, re-drawing it under the

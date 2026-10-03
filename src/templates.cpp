@@ -1861,7 +1861,7 @@ class TerrainGame : public Tyra::Game {
   // object that may blend and after the loop.
   void submitHeavy(Tyra::StaPipBag* bag);
   void dripHeavy(bool all);
-  bool interleaveBegin();
+  bool interleaveBegin(bool serializedCost = false);
   void interleaveEnd();
   void ilAccount(u32 work);
   bool objectMayBlend(int index);
@@ -1872,16 +1872,38 @@ class TerrainGame : public Tyra::Game {
   int heavyDrawn = 0, heavyPrevDrawn = 16;
   int heavyBlendAt = -1;  // drawn-object index of this frame's blend flush
   int ilLastBlendAt = -1;  // the same, for the last interleaved frame
-  // The auto tuner: 8 probe pairs (one frame in each order), then the order
-  // that won most pairs is held for 100 frames before probing again.
+  // Settled homogeneous blocks: four reversed-order block pairs, then hold.
+  // Observation is inclusive loop wall work minus pacing, not per-job GPU cost.
+  void ilReset();
   bool ilProbing = true, ilChoice = false;
-  int ilFrame = 0, ilWins = 0;
-  u32 ilPairOn = 0, ilSumOn = 0, ilSumOff = 0;
+  int ilFrame = 0, ilWins = 0, ilPair = 0, ilBlock = 0, ilAccepted = 0;
+  int ilWarmup = 2, ilViews = 0, ilCameraRig = 0;
+  u32 ilPairOn = 0, ilPairOff = 0;
+  unsigned long long ilBlockSum = 0, ilSumOn = 0, ilSumOff = 0;
   int ilLastHeavy = 0;
-  // Whole-loop work of the previous frame: COP0 period minus the renderer's
-  // stall (vsync / display buffer), taken from one interleaveBegin to the next.
-  bool ilHaveMark = false, ilMarkActive = false;
-  u32 ilMark = 0, ilStallMark = 0;
+  bool ilHaveMark = false, ilMarkActive = false, ilHaveGeneration = false;
+  bool ilPipelined = false, ilRequested = false, ilCameraOverride = false;
+  u32 ilMark = 0, ilStallMark = 0, ilGeneration = 0;
+  // Exact mode/geometry fields: no packed-key collisions or frame-address key.
+  struct InterleaveMode {
+    u32 video, display, color, buffers;
+    bool field, blss, limiter, yield, widescreen, dither, network;
+    float width, height, renderHeight, rasterWidth, rasterHeight;
+    int lowW, lowH, frameWidth, x0, x1, y0, y1;
+    bool operator==(const InterleaveMode& o) const {
+      return video == o.video && display == o.display && color == o.color &&
+             buffers == o.buffers && field == o.field && blss == o.blss &&
+             limiter == o.limiter && yield == o.yield && widescreen == o.widescreen &&
+             dither == o.dither && network == o.network && width == o.width &&
+             height == o.height && renderHeight == o.renderHeight &&
+             rasterWidth == o.rasterWidth && rasterHeight == o.rasterHeight &&
+             lowW == o.lowW && lowH == o.lowH && frameWidth == o.frameWidth &&
+             x0 == o.x0 && x1 == o.x1 && y0 == o.y0 && y1 == o.y1;
+    }
+  } ilMode{};
+  unsigned int ilSceneGeneration = 0;
+  uintptr_t ilCameraSource = 0;
+  std::vector<unsigned char> ilPortalTopology;
   // `grip`, when given, receives the answering road's grip (1 when none);
   // `cover` how much of the road is there (1, or a soft edge's fade).
   float roadSurfaceAt(float x, float z, float* grip = nullptr,
@@ -3712,7 +3734,7 @@ class TerrainGame : public Tyra::Game {
   // object that may blend and after the loop.
   void submitHeavy(Tyra::StaPipBag* bag);
   void dripHeavy(bool all);
-  bool interleaveBegin();
+  bool interleaveBegin(bool serializedCost = false);
   void interleaveEnd();
   void ilAccount(u32 work);
   bool objectMayBlend(int index);
@@ -3723,16 +3745,38 @@ class TerrainGame : public Tyra::Game {
   int heavyDrawn = 0, heavyPrevDrawn = 16;
   int heavyBlendAt = -1;  // drawn-object index of this frame's blend flush
   int ilLastBlendAt = -1;  // the same, for the last interleaved frame
-  // The auto tuner: 8 probe pairs (one frame in each order), then the order
-  // that won most pairs is held for 100 frames before probing again.
+  // Settled homogeneous blocks: four reversed-order block pairs, then hold.
+  // Observation is inclusive loop wall work minus pacing, not per-job GPU cost.
+  void ilReset();
   bool ilProbing = true, ilChoice = false;
-  int ilFrame = 0, ilWins = 0;
-  u32 ilPairOn = 0, ilSumOn = 0, ilSumOff = 0;
+  int ilFrame = 0, ilWins = 0, ilPair = 0, ilBlock = 0, ilAccepted = 0;
+  int ilWarmup = 2, ilViews = 0, ilCameraRig = 0;
+  u32 ilPairOn = 0, ilPairOff = 0;
+  unsigned long long ilBlockSum = 0, ilSumOn = 0, ilSumOff = 0;
   int ilLastHeavy = 0;
-  // Whole-loop work of the previous frame: COP0 period minus the renderer's
-  // stall (vsync / display buffer), taken from one interleaveBegin to the next.
-  bool ilHaveMark = false, ilMarkActive = false;
-  u32 ilMark = 0, ilStallMark = 0;
+  bool ilHaveMark = false, ilMarkActive = false, ilHaveGeneration = false;
+  bool ilPipelined = false, ilRequested = false, ilCameraOverride = false;
+  u32 ilMark = 0, ilStallMark = 0, ilGeneration = 0;
+  // Exact mode/geometry fields: no packed-key collisions or frame-address key.
+  struct InterleaveMode {
+    u32 video, display, color, buffers;
+    bool field, blss, limiter, yield, widescreen, dither, network;
+    float width, height, renderHeight, rasterWidth, rasterHeight;
+    int lowW, lowH, frameWidth, x0, x1, y0, y1;
+    bool operator==(const InterleaveMode& o) const {
+      return video == o.video && display == o.display && color == o.color &&
+             buffers == o.buffers && field == o.field && blss == o.blss &&
+             limiter == o.limiter && yield == o.yield && widescreen == o.widescreen &&
+             dither == o.dither && network == o.network && width == o.width &&
+             height == o.height && renderHeight == o.renderHeight &&
+             rasterWidth == o.rasterWidth && rasterHeight == o.rasterHeight &&
+             lowW == o.lowW && lowH == o.lowH && frameWidth == o.frameWidth &&
+             x0 == o.x0 && x1 == o.x1 && y0 == o.y0 && y1 == o.y1;
+    }
+  } ilMode{};
+  unsigned int ilSceneGeneration = 0;
+  uintptr_t ilCameraSource = 0;
+  std::vector<unsigned char> ilPortalTopology;
   // `grip`, when given, receives the answering road's grip (1 when none);
   // `cover` how much of the road is there (1, or a soft edge's fade).
   float roadSurfaceAt(float x, float z, float* grip = nullptr,
@@ -5475,6 +5519,7 @@ struct ScriptContext {
   float playerBoom = 0.0F;
   bool teleportMotion = false;
   bool cameraOverride = false;
+  uintptr_t cameraSource = 0;  // custom overrides: stable opaque owner, never dereferenced
   Tyra::Vec4 cameraEye;
   Tyra::Vec4 cameraAt;
   // Camera up vector - the Dutch angle. Defaults to world up, so a cutscene
@@ -18992,7 +19037,8 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
     s = replaceAll(s, "{{TRIPLE_BUFFERING}}",
                    st.tripleBuffering ? "true" : "false");
     s = replaceAll(s, "{{FRAME_PIPELINE_SETUP}}", st.framePipeline ?
-                   "  engine->renderer.core.setFramePipeline(true);\n" : "");
+                   "  engine->renderer.core.setFramePipeline(true);\n" :
+                   "  engine->renderer.core.setFramePipeline(false);\n");
     s = replaceAll(s, "{{KBD_MOUSE}}", st.keyboardMouse ? "true" : "false");
     s = replaceAll(s, "{{KBD_MOUSE_PS2LINK}}",
                    st.keyboardMousePs2Link ? "true" : "false");
@@ -19040,6 +19086,8 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
     s = replaceAll(s, "{{ROADS_IMPL}}", roadsImpl(p));
     s = replaceAll(s, "{{ROADS_SETUP}}", roadsSetupCall(p));
     s = replaceAll(s, "{{VEHICLE_SETUP}}", vehicleSetupCall(p));
+    s = replaceAll(s, "{{INTERLEAVE_CAMERA_RIG}}",
+                   projectHasVehicles(p) ? "(vehicleDriver_ + 1) * 4 + vehCamMode_" : "0");
     s = replaceAll(s, "{{VEHICLE_IMPL}}", vehicleImpl(p));
     s = replaceAll(s, "{{VEHICLE_USE}}", vehicleUseCall(p));
     s = replaceAll(s, "{{VEHICLE_WALKER_GATE}}", vehicleWalkerGate(p));
@@ -19789,6 +19837,7 @@ class SequenceDirector : public Script {
   // projection FOV restored.
   void release(ScriptContext& ctx) {
     ctx.cameraOverride = false;
+    ctx.cameraSource = 0;
     ctx.hidePlayer = false;
     ctx.hudSuppressed = false;
     ctx.barsStyle = 0;
@@ -19968,6 +20017,7 @@ class SequenceDirector : public Script {
         at[0] += ox, at[1] += oy, at[2] += oz;
       }
       ctx.cameraOverride = true;
+      ctx.cameraSource = (uintptr_t)(active_ + 1);
       ctx.cameraEye.x = eye[0];
       ctx.cameraEye.y = eye[1];
       ctx.cameraEye.z = eye[2];
@@ -21356,6 +21406,7 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                "  const Tyra::Vec4 fwd(cx * sy * cz + sx * sz,\n"
                "                       cx * sy * sz - sx * cz, cx * cy);\n"
                "  ctx.cameraOverride = true;\n"
+               "  ctx.cameraSource = reinterpret_cast<uintptr_t>(&o);\n"
                "  ctx.cameraEye = eye;\n"
                "  ctx.cameraAt = eye + fwd;\n"
                "  ctx.cameraUp = Tyra::Vec4(0.0F, 1.0F, 0.0F);\n"
@@ -23989,6 +24040,7 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                 // playing cutscene simply overwrites them next frame.
                 const auto e = posExpr(n);
                 c << pad << "ctx.cameraOverride = true;\n"
+                  << pad << "ctx.cameraSource = reinterpret_cast<uintptr_t>(&" << obj << ");\n"
                   << pad << "ctx.cameraEye = Tyra::Vec4(" << e[0] << ", " << e[1]
                   << ", " << e[2] << ");\n"
                   << pad << "ctx.cameraAt = Tyra::Vec4(" << obj
@@ -23999,6 +24051,7 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                 c << pad << "flowCameraFrom(ctx, " << obj << ");\n";
             } else if (n.type == "ReleaseCamera") {
                 c << pad << "ctx.cameraOverride = false;\n"
+                  << pad << "ctx.cameraSource = 0;\n"
                   << pad << "ctx.cameraUp = Tyra::Vec4(0.0F, 1.0F, 0.0F);\n";
             } else if (n.type == "CameraShake") {
                 c << pad << "ctx.shakeAmp = " << numOperand(n) << ";\n"

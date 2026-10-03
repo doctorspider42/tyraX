@@ -1,6 +1,64 @@
 # TyraX2 automatic interleave attribution
 
-The generated automatic draw-order selector needs different sampling rules when TyraX2 prepares frame N while the consumer executes N-1.
+The historical generated automatic draw-order selector required different sampling rules when TyraX2 prepares frame N while the consumer executes N-1.
+
+## Settled-block correction (source and host verified)
+
+The generated selector now compares four reversed-order pairs of homogeneous
+blocks: two whole intervals discarded after each order transition, then four
+accepted loop observations per block. It retains the 1% margin and requires
+three of four pair wins, then holds the choice for 100 valid observations.
+It preserves the previous choice on invalidation instead of forcing plain.
+Authored Off/Always, heavy-bag lifetimes and the alpha/cutout/non-z-write gates
+are unchanged. No new synchronization or COP0 read is introduced.
+
+The bounded-depth proof comes from actual renderer/queue flow:
+`RendererCore` owns one `pipelineFramePending` boolean and one pending sequence;
+`Vif1Queue::flushRecording` calls `completeBeforeSubmission` before submitting
+any new native prefix, whose callback completes that pending frame. At the
+recording end, the prior pending frame has therefore completed before the new
+frame replaces its slot. Overflow prefixes are parts of the same recording;
+they cannot add another outstanding presentation owner. Compatibility consumes
+its frame synchronously. Two discarded helper-to-helper intervals after a
+choice change therefore exclude every old-order pending contribution, including
+early completion caused by portals/readbacks. Accepted observations have
+homogeneous adjacent order, not a synthetic sum of per-job GPU costs.
+
+An always-valid `recordingGeneration` increments at every 2D/3D recording start
+and at a successful synthetic warp render start after its early-return guards,
+independently of trace/FrameProfile and context reuse. This adds one ordinary
+counter increment per start; target overhead is not assumed zero. Both beginFrame
+overloads reach the ordinary/loading seam; warp intentionally has no beginFrame
+and increments separately. Failed warp attempts do not increment. This counter
+is an observation epoch, not a submission job identity. A repeated
+helper, a gap, scene reload, requested/effective pipeline transition or mode/view
+change resets all partial sums/pairs. Unsigned generation difference one is valid
+through wrap. Adjacency is tracked independently of timing marks: repeated
+helpers and recurring synthetic/skipped frames discard partial data and retain
+the chosen order without clocks, rather than restart the first probe block.
+Camera guards compare override/source identity and vehicle rig,
+not eye/aim animation. Portal guards compare structural active/visible/target
+eligibility and actual drawn view count, not every camera position or distance.
+
+Unknown custom overrides (cameraSource zero) retain the last choice without
+selector clocks and discard incomplete evidence. Generated camera releases clear
+ownership; nonzero identities are opaque and never dereferenced. Custom scripts
+must assign their own stable identity or zero it rather than inherit another
+camera owner. Public raw fields cannot detect an uninstrumented same-frame
+pose/override overwrite that leaves an existing owner intact; explicit assignment
+is the custom-script contract. Known/unknown/known transitions restart fresh
+settled blocks.
+
+Host checks mechanically extract the actual selector/declarations, replace only
+the vehicle expression with a mock and provide renderer/portal seams. They verify
+both verdicts, 32 accepted samples across 48 intervals, settled adjacent order,
+whole-probe reset, Off/Always without clock reads, scene/split/skipped/repeated
+helpers, effective and requested modes, field/buffer/BLSS/limiter transitions,
+camera/topology/view transitions, unsigned generation/clock/stall wrap, invalid
+pacing and 64-bit block accumulation. Host timing is not PS2 cost evidence.
+Target generated FPP/ORBIT compilation, quality regressions and physical adaptive
+cost/throughput remain separate root-owned gates. Historical measurements below
+retain their original selector and ELF; no FPS gain follows from this source fix.
 
 ## Confirmed source contract gap
 
@@ -42,4 +100,17 @@ retains exact source, matching ELF/symbol and frozen-log provenance.
 
 The next narrow EE reuse census counts adjacent enabled affine-inverse input repeats first, then identical picker query inputs. The private count-only inverse observer passes 100,039 actual-source host comparisons for each macro setting and independent count bookkeeping, with exact restoration of baseline sources; native/emulator/physical activation remain separate gates. It adds no clocks, skips or packet changes. The inverse depends on 12 model elements; picker reuse additionally needs current ordered mutable light state. Existing transform-cache hits prove neither identity. Count and price key/observer cost before implementing a one-entry cache; do not revive the rejected full transformed-light cache or freeze public light state once per frame.
 
-This is an integration gap in cost selection; ordinary flowgraph ordering and resource fences remain supported. No new mandatory flow node, production selector fix, default promotion or FPS gain is accepted by this audit.
+This is an integration gap in cost selection; ordinary flowgraph ordering and resource fences remain supported. No new mandatory flow node or FPS gain follows from this audit. The source correction above supersedes the historical selector gap. The new-project default follows docs/tyrax2.md; target cadence, broader example coverage and physical button-to-TV latency are separate evidence.
+
+The output guard compares exact region, DisplayMode, ColorDepth and actual
+buffer count, plus field/BLSS/limiter/widescreen/dither/network state. Geometry
+keys are logical width/height, physical render height, raster width/height,
+BLSS low-resolution dimensions and GS FRAME width/scissor extents. These are
+separate fields, not a hash or packed key. Invalid nonfinite/nonpositive geometry
+retains the last choice without clocks. Rotating framebuffer addresses and
+per-frame jitter XYOFFSET are deliberately excluded so ordinary buffering and
+temporal sampling do not permanently reset adaptation. Host controls use the
+actual renderer enum declarations and verify scan/color/size/scissor changes
+independently while holding region, field mode and buffer count constant.
+
+Additional adaptive epoch exclusions: exact frameYield state is part of the mode guard. The portal topology byte includes each portal's actual live bit, so swapping drawn portal identities invalidates evidence even if view count stays constant. Active HardwareTrace capture and serialized render-cost requests discard partial pairs, retain the previous choice and skip selector clocks; the actual renderScene costSeq is passed explicitly. The selector uses one dedicated COP0 read with a compiler memory clobber; other profiler clocks are unchanged. These guards avoid comparing diagnostic/serialization epochs, but do not turn the inclusive loop score into a pure CPU, GPU or arithmetic cost.

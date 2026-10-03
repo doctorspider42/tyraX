@@ -24,6 +24,14 @@ number that goes stale. The refusal messages quote the live values.
 
 ## What happens when you open a project
 
+Format v95 changes the **new-project** TyraX2 request default. The reader keeps
+an absent `settings.framePipeline` false for v94 and older manifests, while v95
+defaults it true. Explicit true/false always wins, and saving always emits the
+boolean. Thus resaving a legacy project preserves its ordinary renderer and
+opting out survives reopening. This additive policy needs no registered
+destructive migration step. Format-less settings wire blobs retain legacy
+false when the request is absent; current writers send an explicit value.
+
 - **Same version** — opens normally.
 - **Newer than the editor** (`formatVersion` > `kFormatVersion`) — refused,
   with a message naming both versions ("update TyraX"). Opening it anyway

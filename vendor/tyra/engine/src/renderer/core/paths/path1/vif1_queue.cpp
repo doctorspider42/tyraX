@@ -303,6 +303,27 @@ void prepareArena() {
 }
 #endif
 
+#if TYRA_NATIVE_VIF_RECORD || TYRA_FRAME_PIPELINE_SUPPORT
+namespace {
+// Re-evaluate native eligibility for each copy, including the retry after drain.
+// Counts belong only to the final successful owned snapshot.
+FrameChainArena::Snapshot copyForNativeRecording(const void* chain, u32 qwords,
+                                                bool* sourceCopied,
+                                                u32& records, bool& counted) {
+  records = 0; counted = false;
+  if ((TYRA_NATIVE_VIF_RECORD || frameRecording) && nativeWriter && sourceCopied) {
+    // Both engine callbacks satisfy the stable RAM/idempotent bank lease contract.
+    const auto snapshot = chainArena->copyKnownRefsCounted<true>(chain, qwords, resolveChainRef,
+        nullptr, reinterpret_cast<u32>(arenaMemory), isImmutableSpan);
+    if (snapshot.chain) { records = snapshot.records; counted = true; }
+    return {snapshot.chain, snapshot.bytes, snapshot.borrowedBytes};
+  }
+  return chainArena->copy(chain, qwords, resolveChainRef, nullptr,
+                         reinterpret_cast<u32>(arenaMemory), isImmutableSpan);
+}
+}
+#endif
+
 u32 Vif1Queue::submit(const void* chain, u32 qwords, bool* sourceCopied) {
   HardwareTrace::Scope traceSubmit("VIFSubmit", HardwareTrace::Kind::Span, true);
   if (sourceCopied) *sourceCopied = false;
@@ -327,6 +348,10 @@ u32 Vif1Queue::submit(const void* chain, u32 qwords, bool* sourceCopied) {
   (void)qwords;
 #endif
   closeOpenChain();
+#if TYRA_NATIVE_VIF_RECORD || TYRA_FRAME_PIPELINE_SUPPORT
+  u32 snapshotRecords = 0;
+  bool snapshotCounted = false;
+#endif
 #if TYRA_FRAME_CHAIN_ARENA || TYRA_FRAME_PIPELINE_SUPPORT
   static_assert(!TYRA_FRAME_CHAIN_ARENA || (TYRA_VIF1_QUEUE &&
                 !TYRA_VIF1_QUEUE_ISR && !TYRA_VIF1_QUEUE_HOLD),
@@ -334,17 +359,27 @@ u32 Vif1Queue::submit(const void* chain, u32 qwords, bool* sourceCopied) {
   if (TYRA_FRAME_CHAIN_ARENA || frameRecording) {
   prepareArena();
   if (chainArena) {
+#if TYRA_NATIVE_VIF_RECORD || TYRA_FRAME_PIPELINE_SUPPORT
+    auto snapshot = copyForNativeRecording(chain, qwords, sourceCopied,
+                                          snapshotRecords, snapshotCounted);
+#else
     auto snapshot = chainArena->copy(chain, qwords, resolveChainRef, nullptr,
                                     reinterpret_cast<u32>(arenaMemory),
                                     isImmutableSpan);
+#endif
     if (!snapshot.chain && chainArena->used()) {
       // A bounded arena may fill mid-frame. Complete every previous reader
       // before reclaiming; preserve submission order and retry once.
       drain();
       ++arenaResets;
+#if TYRA_NATIVE_VIF_RECORD || TYRA_FRAME_PIPELINE_SUPPORT
+      snapshot = copyForNativeRecording(chain, qwords, sourceCopied,
+                                        snapshotRecords, snapshotCounted);
+#else
       snapshot = chainArena->copy(chain, qwords, resolveChainRef, nullptr,
                                  reinterpret_cast<u32>(arenaMemory),
                                  isImmutableSpan);
+#endif
     }
     if (snapshot.chain) {
       chain = snapshot.chain;
@@ -391,13 +426,15 @@ u32 Vif1Queue::submit(const void* chain, u32 qwords, bool* sourceCopied) {
                 "native recording needs owned sources");
   if ((TYRA_NATIVE_VIF_RECORD || frameRecording) && nativeWriter &&
       sourceCopied && *sourceCopied) {
-    u32 records = 0;
+    u32 records = snapshotRecords;
+    if (!snapshotCounted) {
     const u32* ownedWords = static_cast<const u32*>(chain);
     { HardwareTrace::Scope trace("NativeSizing", HardwareTrace::Kind::Span, true);
     for (u32 at = 0; at < qwords; ++records) {
       const u32 header = ownedWords[at * 4];
       const u32 id = (header >> 28) & 7;
       at += (id == 1 || id == 7) ? 1 + (header & 65535) : 1;
+    }
     }
     }
     if (nativeInFlight) {

@@ -4208,7 +4208,7 @@ seated-start day/night fixtures with plain/timing/check/hold engine modes.
 Refresh and build the returned game against its copied engine, keep one host
 server, and use the resident-IOP marker. Preserve the authored video mode:
 NTSC's 16.667 ms budget is not FRAMETIME's fixed over20 threshold.
-Frame arenas and N/N-1 now have an experimental runtime path; see the later section.
+The historical arena stages below preceded the integrated N/N-1 runtime; see the current default policy in the later section.
 
 
 Experimental TyraX2 chain arena (2026-10-02): TYRA_FRAME_CHAIN_ARENA remains
@@ -4253,8 +4253,10 @@ batch's last logical source sequence, zero is reserved across wrap, and prefix
 reuse waits actual DMA. Reconstruct operations, never splice END/NEXT buffers.
 Both lazy and eager paths must write back AFTER final prefix/snapshot writes.
 
-TyraX2 ordered frame runtime (1.169.0, format v94): the optional project setting
-framePipeline defaults false and emits setFramePipeline(true) only when enabled.
+TyraX2 ordered frame runtime: 1.171.0 / format v95 defaults new projects to
+framePipeline=true and serializes the explicit bool. Missing v94-or-older
+requests remain false; missing v95 requests default true. Explicit booleans win;
+codegen emits setFramePipeline(true/false). The engine compile-time default stays zero.
 Engine support is compiled but disabled projects do not allocate frame banks.
 Ordering-only GIF/VIF waits use frame_submission.hpp; actual resource destruction,
 readback and presentation retain real completion fences. Intermediate FINISH
@@ -4325,7 +4327,9 @@ within each pose: day 13.863 / 13.865 ms work and 17.152 / 17.185 ms period
 boots (29.94 Hz). Day has 0/512 over-budget work samples per boot; night has
 512/512 in each. Guarded driving FPS is not production timing. Use an immutable
 log snapshot to close measurement while keeping ps2client serving the last game.
-Physical input-to-display latency and promotion remain future acceptance work.
+That dated acceptance record left input-to-display latency and promotion open.
+The current new-project default is implemented; physical button-to-TV latency
+remains unmeasured, and current post-Memo/Showcase qualification is separate.
 
 The 2026-10-02 stationary night isolation uses seven sequential 2,200-frame
 phases, one group removed per arm, with full-night controls before and after.
@@ -4464,7 +4468,9 @@ PASS5400loops39/39synthetic maps: medians33.276/66.623/33.276ms
 EEevent-to-display-register, about33.35ms later on in this exact instrumented
 night/two-buffer configuration. Firstoff has49.960ms outlier; means/ranges
 retained. No universal penalty, observer-free cost or button/TVphoton result.
-Emulator numerical delay is not hardware latency; default promotion open.
+Emulator numerical delay is not hardware latency. This dated fixture did not
+establish a default-policy or TV-photon result; current new-project defaults
+follow docs/tyrax2.md and physical button-to-TV latency remains unmeasured.
 
 
 Private inverse/key cost trial: Off/CountOnly/Scoped/CountOnly/Off,5x2200
@@ -4482,3 +4488,59 @@ f labels END, FRAMETIME labels START: match warmed aggregate endpoints
 first+50..first+500, retain12-frame rawtail mismatch. Disjoint key/inverse scopes
 are BuildSpot children; inverse-minus-key is not frame gain. See
 docs/tyrax2-ee-inverse-cost-2026-10-02.json.
+
+Portable TyraX2 source controls: `python tools/verify-tyrax2-host.py` uses a host
+GCC/Clang C++17 compiler (`--compiler /path/to/g++`, optional `--only adaptive`
+or `--only count`). It extracts actual selector methods/declarations and includes
+the actual arena header; temporary type shims compile tracing out. It verifies
+bookkeeping/counted-copy semantics, not target timing or full editor/game behavior.
+Run target builds, image checks and physical controls separately.
+
+Adaptive host acceptance now checks successful/failed synthetic warp generation, recurring interrupted epochs retaining both verdicts without clocks, exact frameYield changes, same-count portal-live identity swaps, and diagnostic HWT/serialized-cost exclusion. One dedicated ordered COP0 read preserves compiler memory ordering; no new waits. Run tools/verify-tyrax2-host.py (host only).
+
+
+Engine-known memo16 controls in `tools/verify-frame-arena.cpp` exercise the
+actual arena against generic counted output/cursor/borrow/counts at the
+0/1/15/16/17/40-reference prefix/spill boundaries, malformed/short-capacity
+failures, retry after retirement and both-bank reader release. Public generic
+copy/copyCounted callback traces stay equal; no engine implementation is mirrored
+in the oracle. Host output/lease proof does not establish DMA/cache timing,
+native stack assembly or physical display cadence.
+
+
+### Portable ordinary-clock quiet fixtures
+
+Use `tools/tyrax2-quiet-fixture.py --project PROJECT --engine TYRA_ROOT --editor
+EDITOR_EXECUTABLE --out NEW_DESTINATION --order 0` with absolute paths. It copies
+the authored FPP project/current engine, refreshes generation only in that copy,
+then applies uniquely anchored private sampler hooks. It performs no game build
+or device launch. Unsupported templates, reused destinations and source drift
+are rejected; do not regenerate an instrumented fixture.
+
+Authored display/color/triple/pipeline request, product HUD, camera/scripts,
+portals, audio, save values and ordinary clocks remain intact. Authored remote-pad/input-recorder/keyboard controls remain by default; explicit
+`--disable-control-apparatus` disables only the named remotePad/inputRecorder
+keys and records that apparatus control. Initial requests 0/1 and sparse request
+changes are retained, including explicit false/legacy v94 synchronous ownership.
+Mood/script state
+is opaque: no save slot is changed. Diagnostic overlays and link/debug/logic polling are disabled
+and FrameProfile/HardwareTrace compile out in the private copy. The same-ELF
+Off/On/Off and reverse orders keep a 6144-byte sample buffer and 420-byte chunk
+array. Two per-loop clocks are restricted to the warmed On window; common 64-loop
+chunks bound Count wrap assumptions, and authoritative file exports follow all
+timed windows.
+
+Run `tools/tyrax2-quiet/analyze-quiet.py STDOUT --artifact FILE --expected-order
+0 --environment ps2 -o REPORT` only on complete evidence. Preserve exact native
+build/source/ELF/symbol/config/runtime-asset provenance for both boots. Missing
+UDP/file records are not reconstructed. Completed rendered flip-return periods
+and synthetic/zero/multiple events are separate; triple-buffer returns may mark
+queue boundaries rather than TV scanout. Ordinary/adaptive state can drift, so
+net sampler differences are not isolated observer instructions, pure CPU cost,
+uniform corrections or 60 FPS certification. See
+`tools/tyrax2-quiet/README.md` for bounds, limitations and actual-header/source
+host controls; no extra fence/wait/register read is inserted.
+
+The source identity hashes every file in engine/game source and include trees, engine resources and the optional game `vugen` framework, without an extension whitelist (including embedded `.irx-em`). Root build recipes/helpers and project data are also covered; generated `obj`/`bin` outputs are excluded. Runtime assets are recorded separately. PS2DEV/SDK/VCL/compiler binaries and SDK IRX modules named by `.irx-em` recipes remain external build dependencies and require separate native provenance; the manifest does not claim to hash those installed tools. Missing required source trees or recipes reject preparation.
+
+Host VU dependency validation follows the native recipe exactly: only direct lowercase `.cpp` files in `game/src/vu` or `game/src/vu0` activate compilation of `game/vugen/*.cpp`. Active recipes require framework implementations and the literal quoted include closure resolved through source-local paths or `game/vugen`; unresolved or out-of-manifest local includes reject preparation. Empty, nested-only and name-only VU directories do not impose a framework requirement. Installed standard-library/compiler dependencies remain external native provenance.

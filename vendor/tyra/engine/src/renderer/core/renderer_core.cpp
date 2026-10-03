@@ -421,6 +421,7 @@ void RendererCore::beginFrameStamp() {
 }
 
 void RendererCore::beginFrameRecording() {
+  ++recordingGeneration;  // Modified by TyraX: ordinary/loading render starts
   // Field bias and temporal readbacks retain synchronous compatibility.
   pipelineFrameActive = framePipelineRequested && !settings.isFieldRendering() &&
                         !blss.isEnabled() &&
@@ -686,6 +687,7 @@ bool RendererCore::presentWarpFrame(const WarpCamera& from,
   // caller reads `false` and simply waits for the next rendered one.
   if (settings.isHybridOutput()) return false;
 
+  ++recordingGeneration;  // Modified by TyraX: successful synthetic render start
   if (frameYield) Threading::switchThread();  // Modified by TyraX: see setFrameYield
   warp.draw(from, to);
   // Deliberately NO applyPostFx: bloom, grain and grading are already baked

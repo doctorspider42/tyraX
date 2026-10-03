@@ -3265,6 +3265,20 @@ are recorded in docs/performance-hardware-recheck.md.
 
 ## Hardware timeline capture
 
+### Native sizing reuse (1.171)
+
+Successful native-eligible snapshots use `copyCounted()` metadata instead of a
+second sizing scan. Keep public `Snapshot`/`copy()` unchanged (12-byte EE ABI);
+the separate counted result is 16 bytes and the ordinary specialization has no
+per-tag counter. Retry after a drain must reevaluate native eligibility and
+clear failed-count metadata. Retain the final owned-source predicate, fallback
+scan, capacity, emission, rollback and real completion fences. A detailed
+`NativeSizing` span exists only when the scan actually runs. The private paired
+physical result is 0.147–0.158 ms less observed work, still approximately 30 Hz;
+it does not price the final uninstrumented engine. See docs/tyrax2-ee-vu0.md.
+Run tools/verify-frame-arena.cpp for tag-count/byte/rollback cases along with
+the native writer and ownership controls; host parity does not establish FPS.
+
 Use tools/hardware-trace.py arm PROJECT before a boot, then export the complete
 bin/hardware-trace.csv to HTML/Perfetto. The engine captures bounded RAM events
 without new drains and writes after sampling. Scope totals overlap; VIF1 DMA
@@ -3434,8 +3448,9 @@ on loading with audio still running. Mask only real controls (0x8c000000 for
 IRQ/PCE); the host regression harness keeps a valid END with dirty padding.
 
 
-Experimental TyraX2 chain arena (2026-10-02): TYRA_FRAME_CHAIN_ARENA remains
-OFF by default. It snapshots packet bytes and REF arrays into a bounded 1 MiB
+Historical initial TyraX2 chain-arena stage (2026-10-02): the diagnostic
+TYRA_FRAME_CHAIN_ARENA switch remained OFF by default. The integrated runtime
+request and current new-project defaults are described below. It snapshots packet bytes and REF arrays into a bounded 1 MiB
 allocation, preserving independent chains. Queue metadata grows without growing
 producer buffers/copy pools. sourceCopied frees only the original source; retain
 the actual DMA sequence for ordered fences (especially the HUD PATH3 fence).
@@ -3471,13 +3486,19 @@ is recorded in docs/tyrax2.md. Broader scene/mode coverage remains required.
 
 Experimental TYRA_NATIVE_VIF_RECORD records owned sources as native CNT/REF
 operations with one END per ordered segment. Foreign-path barriers still
-flush; do not claim one full-frame chain or N/N-1 yet. Completion retires the
+flush. This historical prototype preceded the integrated full-frame/N/N-1
+runtime; use the current acceptance records below. Completion retires the
 batch's last logical source sequence, zero is reserved across wrap, and prefix
 reuse waits actual DMA. Reconstruct operations, never splice END/NEXT buffers.
 Both lazy and eager paths must write back AFTER final prefix/snapshot writes.
 
-TyraX2 ordered frame runtime (1.169.0, format v94): the optional project setting
-framePipeline defaults false and emits setFramePipeline(true) only when enabled.
+TyraX2 ordered frame runtime: 1.171.0 / format v95 defaults new projects to
+framePipeline=true and always serializes the explicit bool. Missing v94-or-older
+requests remain false; missing v95 requests default true. Explicit false/true wins.
+Settings are read before formatVersionOnDisk is assigned, so the default policy
+reads the root format stamp directly. Format-less legacy section blobs default
+false; current wire writers always include the request. Codegen emits explicit
+setFramePipeline(true/false); the engine compile-time default stays zero.
 Engine support is compiled but disabled projects do not allocate frame banks.
 Ordering-only GIF/VIF waits use frame_submission.hpp; actual resource destruction,
 readback and presentation retain real completion fences. Intermediate FINISH
@@ -3656,7 +3677,9 @@ PASS5400loops39/39synthetic maps: medians33.276/66.623/33.276ms
 EEevent-to-display-register, about33.35ms later on in this exact instrumented
 night/two-buffer configuration. Firstoff has49.960ms outlier; means/ranges
 retained. No universal penalty, observer-free cost or button/TVphoton result.
-Emulator numerical delay is not hardware latency; default promotion open.
+Emulator numerical delay is not hardware latency. This dated fixture did not
+establish a default-policy or TV-photon result; current new-project defaults
+follow docs/tyrax2.md and physical button-to-TV latency remains unmeasured.
 
 
 Private inverse/key cost trial: Off/CountOnly/Scoped/CountOnly/Off,5x2200
@@ -3674,3 +3697,14 @@ f labels END, FRAMETIME labels START: match warmed aggregate endpoints
 first+50..first+500, retain12-frame rawtail mismatch. Disjoint key/inverse scopes
 are BuildSpot children; inverse-minus-key is not frame gain. See
 docs/tyrax2-ee-inverse-cost-2026-10-02.json.
+
+Automatic interleave's `recordingGeneration` is always-valid ordinary state,
+independent of trace capture. Increment at every renderer 2D/3D recording start;
+unsigned adjacent difference one handles wrap. The settled-block proof relies
+on ONE pending presentation frame and completion before a new native prefix
+starts. Changing that depth/ownership requires revisiting selector settling;
+`recordingPipelined()` is a memory-only accessor, not hardware polling.
+
+Adaptive observation epochs also increment on successful warp render starts after early returns (warp deliberately skips beginFrame). Failed warp attempts do not increment. This counter is not a job ID; recurring synthetic/helper gaps retain the prior choice without clocks and discard partial probe evidence. The host runner compiles the actual warp prefix and checks both failed branches.
+
+Engine-known snapshot REF memo requires a pure stable RAM resolver and idempotent same-bank immutable readers-OR with no registry/source mutation during copy. Generic copy/copyCounted callback behavior must remain unchanged; local first16 nonempty refs spill normally. The integrated path has paired private physical controls in docs/tyrax2-native-reference-memo-2026-10-03.json; their diagnostic gain is not an ordinary-clock production gain or 60 FPS. Host parity alone remains insufficient.

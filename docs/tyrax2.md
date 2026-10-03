@@ -7,11 +7,33 @@ natively and terminated once, including the final presentation FINISH.
 Texture uploads, GS state and auxiliary passes are represented in order.
 Explicit same-frame GPU reads, compatibility
 operations and bounded-memory overflow may drain through a measured fallback.
-Preferences > Display > **TyraX2 frame pipeline** enables experimental ordered
-frame recording and N/N-1 execution. It is off by default. Ordinary projects
-keep their existing queue and do not allocate frame banks. The setting is saved
-as optional `settings.framePipeline` in format v94 and generates
-`RendererCore::setFramePipeline(true)` during game initialization.
+Preferences > Display > **TyraX2 frame pipeline** controls ordered frame
+recording and N/N-1 execution. Version 1.171.0 enables the request for new
+projects. Format v95 always saves `settings.framePipeline`, including `false`;
+older manifests without the field retain the ordinary queue and allocate no
+frame banks. Generated initialization explicitly calls
+`RendererCore::setFramePipeline(true)` or `false` for either project setting.
+
+## New-project default and legacy preservation (1.171.0)
+
+A missing request in format v94 or earlier remains false. A missing request in
+v95 defaults true; an explicit boolean wins in every supported format. Saving
+always writes the effective request, so a legacy project resaved as v95 remains
+off and an explicit opt-out survives reopening. Legacy section-transfer blobs
+without a format stamp or request also remain off. No destructive migration is
+required. The engine compile-time default stays zero: generated projects make
+the request after initialization, and standalone engine clients keep their
+existing behavior.
+
+The request still falls back synchronously for field rendering, active BLSS,
+unlimited triple buffering and unavailable pipeline banks. New-project defaults
+do not establish effective overlap, universal 60 FPS or button-to-TV latency.
+The historical acceptance records below describe their original opt-in builds;
+the default policy is implemented; broad example validation and the physical
+post-Memo quiet/Showcase reverse controls are recorded separately. The existing
+[ordinary-clock quiet record](tyrax2-quiet-cadence-2026-10-03.json) measured about
+30 FPS in its authored pre-Memo night configuration; it is not a post-Memo
+result or 60 FPS acceptance. Physical button-to-TV latency remains unmeasured.
 
 ## Acceptance order
 
@@ -101,9 +123,22 @@ from later source mutations, independent snapshots, bounded overflow, rollback,
 and unsafe/unsupported tags. Run it with the same host compiler/sanitizers as
 the chain validator. Use `--mode arena-check` and `--mode arena-timing` fixtures
 for separate correctness and hardware timing arms. These diagnostic switches stay off in ordinary generated games. The project
-preference is the separate experimental runtime opt-in, with no default allocation.
+preference controls the runtime request independently of these historical diagnostic switches; new-project and legacy defaults follow the policy above.
 
 ## Native frame writer prototype
+
+Native recording reuses the root-tag count from successful arena preflight.
+`copyCounted()` supplies separate 16-byte EE metadata; public `Snapshot` remains
+12 bytes and ordinary `copy()` does not increment a per-tag counter. The queue
+selects counting only for an eligible owned native copy, reevaluates eligibility
+after a drain/retry, and consumes only successful-copy metadata. The existing
+scan remains when no counted copy is available. Capacity, emission, rollback,
+sequence and completion fences are unchanged. Detailed `NativeSizing` spans
+describe actual remaining scans; an elided scan has no synthetic timing span.
+[Paired private physical controls](tyrax2-ee-vu0.md#native-sizing-reuse-paired-physical-candidate-controls-2026-10-03)
+show a small net improvement; final production timing is a separate check.
+`tools/verify-frame-arena.cpp` also checks mixed CNT/REF/END counts, zero-length
+REFs, REFE termination, copied/borrowed byte parity and failed-copy rollback.
 
 `frame_vif_writer.hpp` constructs clean CNT/REF records from VIF operations,
 reserving one END that only `finish()` writes. It has explicit unsubmitted
@@ -189,8 +224,10 @@ job's programs or targets while it is still executing.
 
 ## Runtime acceptance (2026-10-02)
 
-The feature ships experimentally, off by default. Enable **Project > Preferences
-> Display > TyraX2 frame pipeline**, save, and rebuild the game. The request
+The 2026-10-02 builds were experimental and off by default. Current new-project
+and legacy behavior is described above. **Project > Preferences
+> Display > TyraX2 frame pipeline** changes the saved request; rebuild the game.
+The request
 survives save/reopen; `getFramePipeline()` reports the requested setting, even
 when the current display mode takes a synchronous compatibility path. This
 version does not introduce the reference title's SPR staging scheme.
@@ -214,13 +251,15 @@ work, versus baseline 19.918 / 19.912 ms, but both retained 33.403 ms periods
 (29.94 Hz). All 512 night work samples in each boot still exceeded 16.667 ms.
 This reduces critical-path work without raising night FPS. Emulator FPS is not
 PS2 timing. The experimental runtime's physical timing and repeated scene
-transition gates have passed; input-to-display latency measurement and broader
-promotion remain future acceptance work. The switch stays off by default.
+transition gates passed for those builds. Their original release record left
+input-to-display latency and promotion open; the new-project policy above does
+not overwrite those historical measurements.
 
-### Remaining core acceptance: input-to-display latency
+### Physical button-to-TV latency limitation
 
-The renderer and authoring integration are implemented as an opt-in experiment;
-further night math optimization is separate from the remaining latency gate.
+The historical latency fixtures used an opt-in renderer configuration. Real
+button-to-TV latency remains unmeasured; synthetic event-to-display-register
+results below document the measured tradeoff without claiming TV photons.
 Existing Pad/Game/Present scopes and frame counters do not map an input edge to
 the actual displayed buffer. Active submission may present the previous job,
 and triple-buffer flip can queue a buffer for a later vblank. Requested pipeline
@@ -269,8 +308,9 @@ about 33.35 ms later than either off control in this instrumented parked night,
 progressive two-buffer configuration. This is not a universal fixed penalty:
 physical button/TV photons, independent observer overhead and other output
 modes remain separate acceptance gates.
-No button-to-TV result or default promotion follows from source/host/native gates.
-Default promotion remains open after latency and broader validation.
+These source/host/native gates did not establish button-to-TV latency or justify
+the default policy by themselves. The current new-project default is described
+above; physical button-to-TV latency remains unmeasured.
 
 The morning physical guarded drive reached 2,160 recorded frames and 98,304
 accepted source chains, switched to the dense scene and exercised cameras
@@ -609,4 +649,73 @@ The standard flowgraph and generated FPP/ORBIT loops already use the engine sync
 
 Version 1.169.2 fixes an existing Set Display Mode generator mismatch: legal full-height PAL value 4 was clamped to InterlacedField value 3. Scratch FPP and ORBIT fixtures preserve all five values, clamp outside 0..4 and retain the confirmation timeout. Native builds and PCSX2 runtime markers verify PAL4 at 50 Hz and timed rollback to 0, with the pipeline request retained. This is emulator control-flow validation, not physical video/pixel or latency acceptance. Existing video-modes example nodes only use 0..3, so their generated behavior is unchanged. The [integration record](tyrax2-integration-2026-10-02.json) preserves hashes and limitations.
 
-Optional Set/Get Frame Pipeline nodes would be authoring conveniences, not required integration. Any future setter must defer its request until before beginFrame in both templates. getFramePipeline reports the requested setting, including during compatibility fallback; an actual-active/fallback query needs an explicit engine API. Physical input-to-display latency and default promotion remain open acceptance gates; SPR/CALL staging remains separate work.
+Optional Set/Get Frame Pipeline nodes would be authoring conveniences, not required integration. Any future setter must defer its request until before beginFrame in both templates. getFramePipeline reports the requested setting, including during compatibility fallback; an actual-active/fallback query needs an explicit engine API. Physical button-to-TV latency remains unmeasured. New-project defaults follow the policy above; broad example validation is recorded separately. SPR/CALL staging remains separate work.
+
+### Integrated engine-known reference memo
+
+Native owned snapshot copies can retain the resolved pointer and immutable
+classification for the first16 nonempty REF/REFE tags in a local128-byte EE
+scratch array. Preflight still validates every tag and range before publishing
+success; payload, tag order, counted native sizing, fallback, retries and fences
+are preserved. Additional references spill to the original fixup callbacks.
+Ordinary copy/copyCounted and arbitrary callbacks retain their existing behavior.
+The specialized path is valid only for the engine pure RAM resolver and same-bank
+idempotent reader-bit lease callback, with stable registry/source ownership for
+both passes. No cross-frame cache or heap allocation is introduced.
+
+The specialized path is integrated after actual-source parity and the paired
+physical controls below. Those diagnostic controls do not establish an
+ordinary-clock production gain or 60 FPS. Post-Memo quiet cadence and Showcase
+reverse-order qualification remain separate checks at this documentation checkpoint.
+
+### Engine-known reference memo physical control (2026-10-03)
+
+The same-ELF ABA and reverse BAB controls accepted 384 samples per boot on the
+selected fixed night workload. Memo16 reduced the diagnostic inclusive work
+metric by 0.296–0.304 ms against both brackets in both orders. The frame period
+remained approximately 33.367 ms (30 FPS), and the old diagnostic period's owner
+remains unknown. The delta includes the candidate's 128-byte EE stack scratch
+and all common diagnostic classification/query counters, Scene clocks and held
+ring; it is not an isolated lookup cost, production-quiet gain or 60 FPS proof.
+Current generic callback behavior is unchanged. The host arena runner separately
+checks actual memo output/count/cursor parity, prefix/spill boundaries and
+reader retirement/retry ownership; see `tyrax2-native-reference-memo-2026-10-03.json`
+for the immutable physical evidence and limitations.
+
+
+### Portable ordinary-clock quiet fixtures
+
+Use `tools/tyrax2-quiet-fixture.py --project PROJECT --engine TYRA_ROOT --editor
+EDITOR_EXECUTABLE --out NEW_DESTINATION --order 0` with absolute paths. It copies
+the authored FPP project/current engine, refreshes generation only in that copy,
+then applies uniquely anchored private sampler hooks. It performs no game build
+or device launch. Unsupported templates, reused destinations and source drift
+are rejected; do not regenerate an instrumented fixture.
+
+Authored display/color/triple/pipeline request, product HUD, camera/scripts,
+portals, audio, save values and ordinary clocks remain intact. Authored remote-pad/input-recorder/keyboard controls remain by default; explicit
+`--disable-control-apparatus` disables only the named remotePad/inputRecorder
+keys and records that apparatus control. Initial requests 0/1 and sparse request
+changes are retained, including explicit false/legacy v94 synchronous ownership.
+Mood/script state
+is opaque: no save slot is changed. Diagnostic overlays and link/debug/logic polling are disabled
+and FrameProfile/HardwareTrace compile out in the private copy. The same-ELF
+Off/On/Off and reverse orders keep a 6144-byte sample buffer and 420-byte chunk
+array. Two per-loop clocks are restricted to the warmed On window; common 64-loop
+chunks bound Count wrap assumptions, and authoritative file exports follow all
+timed windows.
+
+Run `tools/tyrax2-quiet/analyze-quiet.py STDOUT --artifact FILE --expected-order
+0 --environment ps2 -o REPORT` only on complete evidence. Preserve exact native
+build/source/ELF/symbol/config/runtime-asset provenance for both boots. Missing
+UDP/file records are not reconstructed. Completed rendered flip-return periods
+and synthetic/zero/multiple events are separate; triple-buffer returns may mark
+queue boundaries rather than TV scanout. Ordinary/adaptive state can drift, so
+net sampler differences are not isolated observer instructions, pure CPU cost,
+uniform corrections or 60 FPS certification. See
+`tools/tyrax2-quiet/README.md` for bounds, limitations and actual-header/source
+host controls; no extra fence/wait/register read is inserted.
+
+The source identity hashes every file in engine/game source and include trees, engine resources and the optional game `vugen` framework, without an extension whitelist (including embedded `.irx-em`). Root build recipes/helpers and project data are also covered; generated `obj`/`bin` outputs are excluded. Runtime assets are recorded separately. PS2DEV/SDK/VCL/compiler binaries and SDK IRX modules named by `.irx-em` recipes remain external build dependencies and require separate native provenance; the manifest does not claim to hash those installed tools. Missing required source trees or recipes reject preparation.
+
+Host VU dependency validation follows the native recipe exactly: only direct lowercase `.cpp` files in `game/src/vu` or `game/src/vu0` activate compilation of `game/vugen/*.cpp`. Active recipes require framework implementations and the literal quoted include closure resolved through source-local paths or `game/vugen`; unresolved or out-of-manifest local includes reject preparation. Empty, nested-only and name-only VU directories do not impose a framework requirement. Installed standard-library/compiler dependencies remain external native provenance.

@@ -196,3 +196,29 @@ original parser/log and passing three positive/twelve negative controls.
 No inverse-only cache or production optimization is accepted. Even on PS2,
 inverse-minus-key will not establish a frame saving or justify production reuse
 without a separate candidate comparison.
+
+## Native reference metadata reuse: paired physical controls, 2026-10-03
+
+The [paired reference-memo record](tyrax2-native-reference-memo-2026-10-03.json)
+accepts both orders of the same native ELF, 10,800 loops and 768 samples.
+Keeping the first 16 nonempty reference classifications within one copy avoids
+322 repeated immutable queries and 200 repeated readable-range queries per
+sampled frame. Net observed work falls by 0.296–0.304 ms; periods remain about
+33.367 ms. This includes the 128-byte local scratch and common diagnostic
+counters. Generic callbacks remain unchanged, and additional references spill
+to their original callbacks. Production integration has separate native and
+ordinary-game checks; these diagnostic results do not predict a 60 FPS gain.
+
+## Ordinary-clock cadence control before reference memo, 2026-10-03
+
+The [quiet cadence record](tyrax2-quiet-cadence-2026-10-03.json) preserves the
+authored progressive Hybrid output, vehicle HUD, audio, physics and visual
+clocks. FrameProfile and HardwareTrace are compiled out, with no trace ring.
+Both physical orders complete 5,400 loops each. The completed rendered-flip
+period is approximately 33.367 ms, with no synthetic presentations in the
+sampled windows. Sampled inclusive non-pacing time is approximately 19.2 ms.
+It includes interrupts, other waits and deferred completion, rather than pure
+EE computation. Automatic interleave choices differ across arms and boots;
+negative sampler deltas therefore do not establish negative instruction cost
+or a uniform observer correction. This is a different ELF and workload from
+the fixed diagnostic controls and must not be subtracted from them.

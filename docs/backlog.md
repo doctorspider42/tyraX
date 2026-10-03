@@ -294,8 +294,16 @@ recovered 0.50-0.72 ms of hardware `work`. What it did not do, ranked:
   EE-heavy bags with it, or deferring the pool run, before a deeper queue
   (depth 8 measured worse).
 
-- **One chain for the whole scene / a frame-pipelined engine - SHIPPED
-  experimentally in 1.169.0 (2026-10-02), off by default.**
+- **One chain for the whole scene / a frame-pipelined engine — integrated;
+  new-project default enabled in 1.171.0 (format v95).**
+  New projects request TyraX2; missing v94-or-older fields preserve false,
+  missing v95 fields default true and explicit booleans win. Every save writes
+  the effective bool and generated initialization emits true/false explicitly.
+  Engine compile-time defaults remain zero; compatibility modes still apply.
+  The [current core release checkpoint](tyrax2-release-2026-10-03.json) separates
+  host/default controls, post-Memo motion, 44 native builds, five emulator
+  fallback controls and the shipping portable probe from pending broad
+  emulator/interaction coverage. The dated measurements below remain historical.
   [TyraX2](tyrax2.md) records one native VIF1 chain per ordinary frame, including
   ordered uploads, state, auxiliary passes and the final FINISH. Two owned banks
   let the EE prepare N while VU1/GS execute N-1. Preferences > Display enables
@@ -318,8 +326,9 @@ recovered 0.50-0.72 ms of hardware `work`. What it did not do, ranked:
   watchdogs or loading-stage prints passed 10,440 frames and five complete
   scene cycles (15 transitions), with 765,952 valid chains and zero fallback.
   Physical timing and repeated transition acceptance are complete for the
-  experimental runtime. **Still open:** physical input-to-display latency and
-  promotion from the default-off experiment.
+  historical 1.169.1 runtime. The current default policy above is implemented;
+  physical button-to-TV latency, broad example runtime coverage and current
+  post-Memo quiet/Showcase reverse qualification remain separate checks.
   The [private latency fixture](tyrax2-latency-fixture-2026-10-02.json) passes
   initial host checks and native compilation; PS2 and PCSX2 completed 5,400
   loops, but V1 mapping was rejected due to absent/stale legacy-off observer
@@ -327,7 +336,8 @@ recovered 0.50-0.72 ms of hardware `work`. What it did not do, ranked:
   software mappings in full emulator and fresh PS2 runs. Physical synthetic
   event-to-display-register medians33.276/66.623/33.276ms show about33.35ms
   extra in this controlled configuration;
-  manual physical input/TV-image latency and promotion remain separate gates.
+  manual physical input/TV-image latency remains unmeasured; these dated
+  diagnostic results do not establish universal latency or 60 FPS.
   The [runtime record](tyrax2-runtime-2026-10-02.json) distinguishes final results
   from historical arms. The older GPU-only sweep is not a current gain ceiling.
   Reference-title SPR staging and its approximately 16-qword-plus-CALL object
@@ -339,7 +349,8 @@ recovered 0.50-0.72 ms of hardware `work`. What it did not do, ranked:
   emulator mode4/timeout rollback pass. Optional pipeline setter/query nodes
   remain separate conveniences; requested state is not active overlap.
   See [integration audit](tyrax2.md#authoring-integration-audit-2026-10-02).
-- **Automatic interleave selection under TyraX2 — attribution gap confirmed.**
+- **Automatic interleave selection under TyraX2 — settled-block correction
+  integrated in 1.171.0; historical attribution limits retained.**
   The old alternating scorer can label current EE plus pending previous GPU
   cost as one current-order sample; split/mode/scene interruptions can leave
   stale marks. Source mismatch does not establish bias or clip-regression cause.
@@ -349,20 +360,28 @@ recovered 0.50-0.72 ms of hardware `work`. What it did not do, ranked:
   arms remain approximately 30 Hz. An identical-ELF fresh repeat measures
   18.392/17.988/18.346 ms, a positive 0.358–0.404 ms interleave indication
   against 0.046 ms plain spread. Full animated-input equality remains open;
-  no production selector fix is accepted. Then design/reset
-  settled sampling and price normal critical-path work plus period before shipping.
+  these historical trials did not accept a production selector fix. The current
+  selector uses reversed homogeneous blocks with two transition intervals
+  discarded, exact output/view/recording-generation guards and diagnostic
+  exclusions. Actual-source host controls pass; this correction does not price
+  pure CPU/GPU work or establish a night FPS gain.
   A [private replayed visual-clock control](tyrax2-pinned-clock-2026-10-02.json)
   passes 13,200 physical frames with all 11 pinned sampled inputs matching:
   plain/IL/plain 17.521/17.308/17.523 ms, about 0.214 ms benefit vs 0.0012 ms
   plain spread, still 30 Hz. No emulator, full pixel/query identity or production
-  clock change is accepted; use these controls to gate a future selector design.
+  clock change follows from that historical control; the integrated selector
+  preserves ordinary game clocks and its current target evidence is separate.
 - **Remaining EE work / VU0 offload — audited, experiments open.**
   The [native-sizing reuse candidate](tyrax2-ee-vu0.md#native-sizing-reuse-paired-physical-candidate-controls-2026-10-03)
   now passes two same-ELF physical orders, 10,800 loops and 768 accepted samples.
   Reusing successful snapshot tag counts removes 106 sizing scans per sampled
   frame, with 0.147–0.158 ms less observed work versus outer-arm spreads of
-  0.004–0.009 ms. Periods remain approximately 33.367 ms. Production integration,
-  motion checks and uninstrumented timing remain open; no 60 FPS gain is claimed.
+  0.004–0.009 ms. Periods remain approximately 33.367 ms. Count reuse is integrated
+  with successful-copy metadata and retry/eligibility guards; post-Memo actual
+  production motion passed native/emulator/physical chain controls. Ordinary-clock
+  production timing remains separate; no 60 FPS gain is claimed. Memo16 is also
+  integrated after paired private controls showing 0.296–0.304 ms less diagnostic
+  work, including its 128-byte EE scratch; this is not a quiet production delta.
   [Current physical attribution](tyrax2-ee-vu0.md) finds 2.724 ms snapshots
   and 0.743 ms conversion nested in 3.665 ms submission, but only about
   0.003 ms existing completion waits. VU0 already performs macro-mode
@@ -490,9 +509,10 @@ recovered 0.50-0.72 ms of hardware `work`. What it did not do, ranked:
   and borrow 2,118,944 bytes/frame; observer activation still adds 0.784–0.805 ms.
   Explicit emulator85/PS286 contracts preserve the initial emulator rejection;
   parser record-count bounds were independently corrected. No pure arithmetic,
-  cross-device workload equality or performance gain follows. Next price reuse
-  of the snapshot's record count against the existing native sizing scan, with
-  observation off and candidate counting/ABI costs included.
+  cross-device workload equality or performance gain follows from that census.
+  Subsequent same-ELF native-sizing reuse controls included candidate counting
+  and ABI costs and are recorded above; integrated ordinary-clock cadence is
+  qualified separately.
   Broader repeats remain open. Earlier seven
   warm samples per arm in a single boot are exploratory only. No constant
   overhead correction, VU/GS utilization or EE arithmetic-only cost is inferred.

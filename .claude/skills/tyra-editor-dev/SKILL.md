@@ -3149,8 +3149,13 @@ and runtime mode changes are disabled while frozen. clearVolume still supports
 volume deletion. Never implement freeze only in the UI: headless builds and
 reopening must preserve the same saved geometry.
 
-TyraX2 ordered frame runtime (1.169.0, format v94): the optional project setting
-framePipeline defaults false and emits setFramePipeline(true) only when enabled.
+TyraX2 ordered frame runtime: 1.171.0 / format v95 defaults new projects to
+framePipeline=true and always serializes the explicit bool. Missing v94-or-older
+requests remain false; missing v95 requests default true. Explicit false/true wins.
+Settings are read before formatVersionOnDisk is assigned, so the default policy
+reads the root format stamp directly. Format-less legacy section blobs default
+false; current wire writers always include the request. Codegen emits explicit
+setFramePipeline(true/false); the engine compile-time default stays zero.
 Engine support is compiled but disabled projects do not allocate frame banks.
 Ordering-only GIF/VIF waits use frame_submission.hpp; actual resource destruction,
 readback and presentation retain real completion fences. Intermediate FINISH
@@ -3170,3 +3175,11 @@ Runtime display flow-node parity: `SetDisplayMode` offers five values in
 field rendering. Preserve this through generated `ctx.requestDisplayMode`;
 `docs/frame-pacing.md` documents the mapping. The existing `video-modes` example
 uses 0..3, so verify mode 4 in a scratch copy when changing this emitter.
+
+Generated automatic interleave uses settled homogeneous blocks (two discarded
+whole intervals, four accepted observations, four reversed-order pairs). Keep
+FPP/ORBIT state declarations identical. Stable camera-source IDs cover flow
+cameras and sequence ownership; ordinary camera animation must not reset probes.
+See `docs/interleaved-passes.md` and `docs/tyrax2-interleave.md`.
+
+Adaptive host acceptance now checks successful/failed synthetic warp generation, recurring interrupted epochs retaining both verdicts without clocks, exact frameYield changes, same-count portal-live identity swaps, and diagnostic HWT/serialized-cost exclusion. One dedicated ordered COP0 read preserves compiler memory ordering; no new waits. Run tools/verify-tyrax2-host.py (host only).
