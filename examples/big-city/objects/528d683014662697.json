@@ -1,0 +1,1 @@
+{ "id": "528d683014662697", "name": "Building 218", "type": "model", "position": [-113.778, 0, -191.876], "rotation": [0, 0, 0], "scale": [1.8848, 1.764, 2.0589], "color": [1, 1, 1], "physics": false, "drawDistance": 300, "castShadow": false, "model": "res/models/urban/city-highrise-3.obj" }

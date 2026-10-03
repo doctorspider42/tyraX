@@ -1,0 +1,3 @@
+newmtl city-ground
+Kd 1 1 1
+map_Kd -s 0.25 0.25 1 ../textures/city-ground.png

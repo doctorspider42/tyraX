@@ -1,0 +1,1 @@
+{ "id": "69c567f8c5e7a1cb", "name": "Building 137", "type": "model", "position": [-209.574, 0, -250.825], "rotation": [0, 0, 0], "scale": [1.9791, 1.756, 2.5597], "color": [1, 1, 1], "physics": false, "drawDistance": 300, "castShadow": false, "model": "res/models/urban/city-highrise-2.obj" }

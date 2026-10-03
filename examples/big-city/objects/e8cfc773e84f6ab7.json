@@ -1,0 +1,1 @@
+{ "id": "e8cfc773e84f6ab7", "name": "Building 188", "type": "model", "position": [-210.821, 0, 256], "rotation": [0, 0, 0], "scale": [1.8666, 1.5313, 2.5557], "color": [1, 1, 1], "physics": false, "drawDistance": 230, "castShadow": false, "model": "res/models/urban/district-tower.obj" }

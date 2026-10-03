@@ -1,0 +1,1 @@
+{ "id": "2441312339c2ba50", "name": "Building 236", "type": "model", "position": [-100.374, 0, 30.8814], "rotation": [0, 0, 0], "scale": [1.8694, 1.6779, 1.773], "color": [1, 1, 1], "physics": false, "drawDistance": 300, "castShadow": false, "model": "res/models/urban/city-highrise-4.obj" }

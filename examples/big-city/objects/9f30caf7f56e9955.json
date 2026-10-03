@@ -1,0 +1,1 @@
+{ "id": "9f30caf7f56e9955", "name": "Building 366", "type": "model", "position": [72.5245, 0, -99.3672], "rotation": [0, 0, 0], "scale": [2.6737, 1.6356, 2.0486], "color": [1, 1, 1], "physics": false, "drawDistance": 300, "castShadow": false, "model": "res/models/urban/city-highrise-4.obj" }

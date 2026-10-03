@@ -1,0 +1,1 @@
+{ "id": "ca59aed27b4fddca", "name": "Building 411", "type": "model", "position": [118.354, 0, 394.017], "rotation": [0, 0, 0], "scale": [2.5059, 1.4056, 2.7536], "color": [1, 1, 1], "physics": false, "drawDistance": 300, "castShadow": false, "model": "res/models/urban/city-highrise-2.obj" }

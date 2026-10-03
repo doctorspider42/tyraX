@@ -1,0 +1,1 @@
+{ "id": "2c9659e85751c85f", "name": "Building 185", "type": "model", "position": [-174.59, 0, 212.344], "rotation": [0, 0, 0], "scale": [2.0237, 1.4351, 2.1115], "color": [1, 1, 1], "physics": false, "drawDistance": 300, "castShadow": false, "model": "res/models/urban/city-highrise-2.obj" }

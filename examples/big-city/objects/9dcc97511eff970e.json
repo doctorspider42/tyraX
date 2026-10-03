@@ -1,0 +1,1 @@
+{ "id": "9dcc97511eff970e", "name": "Building 567", "type": "model", "position": [391.336, 0, -157.807], "rotation": [0, 0, 0], "scale": [1.7192, 2.3962, 2.0063], "color": [1, 1, 1], "physics": false, "drawDistance": 230, "castShadow": false, "model": "res/models/urban/district-workshop.obj" }

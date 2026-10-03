@@ -1,0 +1,1 @@
+{ "id": "ce452d90dc5b0f69", "name": "Building 308", "type": "model", "position": [-25.9025, 0, 113.912], "rotation": [0, 0, 0], "scale": [2.8244, 1.5266, 2.3017], "color": [1, 1, 1], "physics": false, "drawDistance": 300, "castShadow": false, "model": "res/models/urban/city-highrise-4.obj" }

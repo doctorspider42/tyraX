@@ -1,0 +1,1 @@
+{ "id": "c6879d709d6dc4fb", "name": "Building 603", "type": "model", "position": [344.898, 0, 253.09], "rotation": [0, 0, 0], "scale": [1.9016, 2.328, 1.8543], "color": [1, 1, 1], "physics": false, "drawDistance": 230, "castShadow": false, "model": "res/models/urban/district-workshop.obj" }

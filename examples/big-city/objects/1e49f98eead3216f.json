@@ -1,0 +1,1 @@
+{ "id": "1e49f98eead3216f", "name": "Building 43", "type": "model", "position": [-340.098, 0, -79.7593], "rotation": [0, 0, 0], "scale": [2.7059, 1.6193, 2.1009], "color": [1, 1, 1], "physics": false, "drawDistance": 300, "castShadow": false, "model": "res/models/urban/city-highrise-2.obj" }

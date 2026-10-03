@@ -1,0 +1,1 @@
+{ "id": "df398f47d4dcf301", "name": "Parked car 2", "type": "model", "position": [55.3127, 0.12, -268.112], "rotation": [0, 0.021, 0], "scale": [1, 1, 1], "color": [0.15, 0.3, 0.7], "physics": false, "drawDistance": 80, "castShadow": false, "model": "res/models/urban/city-car.obj" }

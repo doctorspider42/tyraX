@@ -1,0 +1,1 @@
+{ "id": "154042910c021158", "name": "Building 534", "type": "model", "position": [301.225, 0, 210.592], "rotation": [0, 0, 0], "scale": [2.4181, 1.9441, 2.0296], "color": [1, 1, 1], "physics": false, "drawDistance": 230, "castShadow": false, "model": "res/models/urban/district-loft.obj" }

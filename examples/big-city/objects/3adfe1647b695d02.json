@@ -1,0 +1,1 @@
+{ "id": "3adfe1647b695d02", "name": "Plaza tree 6", "type": "model", "position": [0.1468, 0, -115.411], "rotation": [0, 0, 0], "scale": [1, 1, 1], "color": [1, 1, 1], "physics": false, "drawDistance": 110, "castShadow": false, "model": "res/models/urban/city-tree.obj" }

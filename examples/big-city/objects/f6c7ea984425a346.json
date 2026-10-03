@@ -1,0 +1,1 @@
+{ "id": "f6c7ea984425a346", "name": "Building 53", "type": "model", "position": [-384.33, 0, 158.276], "rotation": [0, 0, 0], "scale": [1.7313, 1.6919, 3.0636], "color": [1, 1, 1], "physics": false, "drawDistance": 230, "castShadow": false, "model": "res/models/urban/district-tower.obj" }

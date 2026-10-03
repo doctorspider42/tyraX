@@ -1,0 +1,1 @@
+{ "id": "c0d03aa4d12e6f45", "name": "Building 23", "type": "model", "position": [-395.882, 0, -184.289], "rotation": [0, 0, 0], "scale": [1.8888, 2.2819, 2.5305], "color": [1, 1, 1], "physics": false, "drawDistance": 230, "castShadow": false, "model": "res/models/urban/district-workshop.obj" }

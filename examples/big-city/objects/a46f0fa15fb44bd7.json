@@ -1,0 +1,1 @@
+{ "id": "a46f0fa15fb44bd7", "name": "Building 269", "type": "model", "position": [-25.5715, 0, -374.144], "rotation": [0, 0, 0], "scale": [3.0887, 1.3933, 1.9605], "color": [1, 1, 1], "physics": false, "drawDistance": 230, "castShadow": false, "model": "res/models/urban/district-tower.obj" }

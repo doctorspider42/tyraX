@@ -1,0 +1,1 @@
+{ "id": "0555c0a23173b126", "name": "Building 88", "type": "model", "position": [-252.001, 0, -97.6969], "rotation": [0, 0, 0], "scale": [2.7847, 1.297, 2.1466], "color": [1, 1, 1], "physics": false, "drawDistance": 230, "castShadow": false, "model": "res/models/urban/district-tower.obj" }

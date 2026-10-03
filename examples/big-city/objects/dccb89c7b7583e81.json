@@ -1,0 +1,1 @@
+{ "id": "dccb89c7b7583e81", "name": "Building 322", "type": "model", "position": [-28.7698, 0, 302.538], "rotation": [0, 0, 0], "scale": [2.1555, 1.6915, 2.0078], "color": [1, 1, 1], "physics": false, "drawDistance": 230, "castShadow": false, "model": "res/models/urban/district-tower.obj" }

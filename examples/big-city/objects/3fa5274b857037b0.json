@@ -1,0 +1,1 @@
+{ "id": "3fa5274b857037b0", "name": "Building 328", "type": "model", "position": [30.3359, 0, 268.125], "rotation": [0, 0, 0], "scale": [2.1484, 1.4661, 2.0133], "color": [1, 1, 1], "physics": false, "drawDistance": 230, "castShadow": false, "model": "res/models/urban/district-tower.obj" }

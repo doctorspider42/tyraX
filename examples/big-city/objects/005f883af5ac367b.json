@@ -1,0 +1,1 @@
+{ "id": "005f883af5ac367b", "name": "Building 268", "type": "model", "position": [-25.5715, 0, -392.083], "rotation": [0, 0, 0], "scale": [3.111, 1.3288, 2.0539], "color": [1, 1, 1], "physics": false, "drawDistance": 230, "castShadow": false, "model": "res/models/urban/district-tower.obj" }

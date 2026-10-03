@@ -1,0 +1,1 @@
+{ "id": "d08b9929c0ca3c05", "name": "Building 572", "type": "model", "position": [357.707, 0, -88.7466], "rotation": [0, 0, 0], "scale": [1.924, 1.717, 2.7369], "color": [1, 1, 1], "physics": false, "drawDistance": 300, "castShadow": false, "model": "res/models/urban/city-highrise-2.obj" }

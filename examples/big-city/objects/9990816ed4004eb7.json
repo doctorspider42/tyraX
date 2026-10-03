@@ -1,0 +1,1 @@
+{ "id": "9990816ed4004eb7", "name": "Building 139", "type": "model", "position": [-172.584, 0, -296.238], "rotation": [0, 0, 0], "scale": [2.0958, 1.6541, 2.477], "color": [1, 1, 1], "physics": false, "drawDistance": 230, "castShadow": false, "model": "res/models/urban/district-tower.obj" }

@@ -1,0 +1,1 @@
+{ "id": "eea13971174c2ef2", "name": "Building 272", "type": "model", "position": [0.5271, 0, -338.267], "rotation": [0, 0, 0], "scale": [3.1081, 1.3542, 1.9898], "color": [1, 1, 1], "physics": false, "drawDistance": 230, "castShadow": false, "model": "res/models/urban/district-tower.obj" }

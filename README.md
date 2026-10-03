@@ -545,6 +545,7 @@ wait for their polish pass.
 | [upscaler-lab](examples/upscaler-lab) | The fill-bound scene built to make the neural upscaler sweat. It wins: 1.63× on real hardware |
 | [video-modes](examples/video-modes) | 480i / 480p / 1080i and 4:3 / 16:9, switched at runtime — with keep-or-revert |
 | [vu-lab](examples/vu-lab) | Six props on five VU1 paths — capture a draw off the console, replay it on the host |
+| [big-city](examples/big-city) | A generated 1 km city: 78 roads and 214 nodes, ring road, tram, railway with a bridge, 1 283 objects; how far 32 MB of EE RAM goes, measured |
 | [vehicle-playground](examples/vehicle-playground) | Motor District: thirteen roads with T's, a fork, a slip road and a corner, a level crossing and a tram line, CC0 city scenery, three driveable car models, day/night and live paint reflections; painted procedural district with road and overlap checks |
 
 ## CLI

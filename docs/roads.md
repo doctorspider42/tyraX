@@ -467,6 +467,14 @@ XZ, so the barycentric test drops them by itself. The kerb grip is 1.
 - **Rebuilds:** the kerb upload sets `roadIdxDirty`. A scene load erases and
   pushes back the same number of kerb chunks, so the index's chunk-count check
   alone would miss the change.
+- **How many chunks it can hold.** An index entry is one 32-bit word: 13 bits
+  of chunk position in `procChunks` and 19 of vertex index, so 8 192 chunks of
+  up to 524 287 vertices. It was 10 + 22 (1 024 chunks) until
+  [examples/big-city](../examples/big-city/README.md), whose roads, kerbs,
+  rails and details make about 1 600 chunks: every road chunk past the 1 024th
+  was silently missing, so wheels and walkers there stood on the terrain 0.12
+  below the asphalt. A chunk still out of range is counted and logged as
+  `ROADINDEX skipped N chunk(s) ...` instead of vanishing.
 
 Kerbs are **not shadow receivers**: the shadow bake's road hash does not include
 them, so turning kerbs on leaves a baked-shadow cache fresh.

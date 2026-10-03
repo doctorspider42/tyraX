@@ -1,0 +1,1 @@
+{ "id": "cb1a85037d190dd0", "name": "Building 360", "type": "model", "position": [95.7188, 0, -207.171], "rotation": [0, 0, 0], "scale": [2.5362, 1.7875, 2.5775], "color": [1, 1, 1], "physics": false, "drawDistance": 300, "castShadow": false, "model": "res/models/urban/city-highrise-2.obj" }
