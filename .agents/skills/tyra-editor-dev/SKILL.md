@@ -670,6 +670,24 @@ leave it asking forever), and the only thing that still needs a `dirty` re-bake
 is a SCALE change, because scale is baked into the local vertices. Worth 16 →
 50 FPS on examples/endless-runner.
 
+**Static imported models draw a SHARED model-space bake** (1.173,
+`INSTANCE_SHARING`, docs/instance-sharing.md). `rebuildObjectGeometry` decides
+`ObjectGeometry::shared` per rebuild (`instanceShareEligible`); a shared part's
+own `vertices`/`sts`/`colors` stay EMPTY and its bags point at the model's
+`GameModel::sharedParts[pi]` (positions + STs, unscaled) and a pooled
+`SharedColors` array, under `objMat` - which, unlike the physics path's,
+carries the object's SCALE (`updateObjMat` folds it in when `g.shared`).
+`shared` is deliberately NOT `matrixMode`: everything that tests matrixMode
+means "a moving body". So **any new code that walks a part's vertices must
+read them through the bag (`bag->vertices`/`bag->count`, model space when
+`g.shared`) or call `unshareObject(i)` first** if it needs world space (the
+torch receiver passes and the shadow wall patch do: they draw coplanar copies
+at the base pass's exact depth). A new exclusion goes in
+`instanceShareEligible` and in the doc's "Who stays solo" table together.
+The shared arrays are counted by `ShRef`, never `std::shared_ptr` (one EE
+kernel semaphore per control block on this toolchain - see tyra-engine-dev).
+A debug build's `MEMSTAT` log line (`logGeometryMemory`) is the instrument.
+
 **Physics bodies are rigid bodies** (docs/physics.md): `updateObjectPhysics`
 predicts the pose, collects corner contacts (terrain, `objectCollisionBox` boxes
 WITH rotation, collision meshes per corner ray, hull vs hull) and solves them

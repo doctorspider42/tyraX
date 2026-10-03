@@ -5515,7 +5515,15 @@
 // host-baked albedo map (REFL_GROUND_*): -2 ms a turning frame on the Motor
 // District's open road on a PS2.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 172
+#define TYRAX_VERSION_MINOR 173
+// 1.173.0: SHARED MODEL GEOMETRY. A static imported-model instance draws ONE
+// model-space bake of its parts (positions + STs, owned by the model) under
+// its own matrix, scale included; only its lit colours are its own, and
+// those are pooled by content (docs/instance-sharing.md). Preferences >
+// Rendering > Share model geometry between instances (format v102, on by
+// default). A debug build logs MEMSTAT (what object geometry holds) ~4 s
+// after a scene load. Also: static batches trim their growth slack, LOD
+// tiers bake under their own object's lights and keep their Ke floor.
 // 1.172.0: THE ROAD NETWORK GROWS A CITY. Kerb tops are solid (the road
 // height index reads owner -4; walkers use walkGroundAt, a 0.5 step cap);
 // pavements behind the kerbs (v97, textured ROAD_JUNCTIONS rows wrapping the
@@ -6164,7 +6172,10 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // yaw), seed, signs (1 give way, 2 stop), signals, signModel, signalModel -
 // holding only its non-default keys, and written only when any is set.
 // Missing = no furniture, as before. Additive; no migration step.
-inline constexpr int kFormatVersion = 101;
+// v102 (docs/instance-sharing.md): settings.instanceSharing, written only
+// when false. Missing = on (the 1.173 default); a project that switched it
+// off says so. Additive; no migration step.
+inline constexpr int kFormatVersion = 102;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

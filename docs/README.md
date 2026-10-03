@@ -24,6 +24,11 @@ for people building games with it. Internals live in code comments, the git log
   that stayed solo; what a batch costs in VU1 packages against its members
   drawn separately, why the merged box is the number to look at, and the
   per-object opt-out for when one outlying member keeps a whole group drawn.
+- [Sharing model geometry between instances](instance-sharing.md) — every
+  copy of an imported model draws one model-space mesh under its own matrix
+  and keeps only its lit colours, pooled by content; what it saves against
+  static batching (measured on the big city), who stays solo and why, the
+  `MEMSTAT` log line, and the `std::shared_ptr` semaphore trap.
 - [World scale: units, meters and imports](world-scale.md) — what a unit is
   worth, why imports land several times too small, and the tools that tell you.
 - [The terrain, and building without one](terrain.md) — the per-scene ground

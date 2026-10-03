@@ -1897,6 +1897,10 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
          << "    \"animPlayFps\": " << fmtFloat(p.settings.animPlayFps) << ",\n"
          << "    \"staticBatching\": "
          << (p.settings.staticBatching ? "true" : "false") << ",\n"
+         // Only when off (format v102), so every existing project resaves
+         // byte for byte.
+         << (!p.settings.instanceSharing ? "    \"instanceSharing\": false,\n"
+                                          : "")
          // Written only when not the default, so a project that never
          // sets it resaves byte for byte (format v64).
          << (p.settings.interleavePasses != "auto"
@@ -6530,6 +6534,8 @@ static void readSettingsSection(const json::Value& root, Project& out) {
         if (st.animPlayFps > 240.0f) st.animPlayFps = 240.0f;
         if (const auto* v = s->find("staticBatching"))
             st.staticBatching = v->boolOr(true);
+        if (const auto* v = s->find("instanceSharing"))
+            st.instanceSharing = v->boolOr(true);
         if (const auto* v = s->find("interleavePasses")) {
             st.interleavePasses = v->stringOr("auto");
             if (st.interleavePasses != "off" && st.interleavePasses != "always")

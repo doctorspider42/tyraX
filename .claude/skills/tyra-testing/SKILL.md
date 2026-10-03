@@ -1497,7 +1497,16 @@ Notes:
   `bin/log.txt` (texture binds/hits/uploads/re-uploads/evictions, resident
   count, free MB, largest free block) — the honest way to tell "the scene is
   thrashing textures" from "the scene is just heavy"; see
-  [docs/gs-vram.md](../../../docs/gs-vram.md). Parallel worktree sessions each
+  [docs/gs-vram.md](../../../docs/gs-vram.md). For **EE RAM**, the same build
+  (with the HUD's MEM line on) prints `MEMSTAT` 60/300/900/1500 frames after a
+  scene load: RAM in use plus what object tables, instance parts, solo bakes,
+  shared meshes, pooled colours, static batches and the engine's baked/retained
+  caches hold - the line to diff between two arms of a memory change
+  ([docs/instance-sharing.md](../../../docs/instance-sharing.md)). A game that
+  "hangs" with `bin/log.txt` and the Live Debugger silent but PCSX2 still
+  drawing may have lost `host:` I/O, not the EE: take
+  `pcsx2-capture.py run --states 3` and `addr2line` the EE PCs before
+  assuming a hang. Parallel worktree sessions each
   run their own emulator, so when several are up
   `screenshot-window.ps1 -ProcessName pcsx2-qt` grabs whichever it finds first
   (it warns, but the frames are already wrong) — pass **`-ProcessId <pid>`**

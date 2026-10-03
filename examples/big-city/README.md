@@ -126,16 +126,32 @@ readout, by configuration:
 | **shipped: 1 km city, everything** | **27.1-27.9 MB** |
 | 1.4 km city, all road features, roads only | out of memory |
 | 1.4 km city, 3 562 objects (first version) | out of memory |
+| **1.173** (instance sharing, trimmed batches): shipped city, batching on | 27.3 MB |
+| 1.173: shipped city, batching off (every model shared) | 25.3 MB |
+| 1.173: furniture on every road (`FURNITURE_CORE_ONLY=False`, 2 557 objects), batching on | out of memory (as in 1.172) |
+| **1.173: the same 2 557 objects, batching off** | **30.0 MB, runs** |
+
+The 1.173 rows are at the frozen walker (-42, -100) and read from the HUD 60 s
+after boot; the 1.172 shipped city reads 29.1 MB there. See
+[docs/instance-sharing.md](../../docs/instance-sharing.md) for the
+breakdown and the frame-time side (batching off costs 1.6-2.4 ms of HUD SCENE
+in PCSX2).
 
 What that works out to:
 
-- **A static object costs roughly 70-110 bytes of EE RAM per vertex it draws**,
-  whatever the object is: the 28-triangle tree cost about 9 KB, a 22-triangle
-  building about 6 KB. Each instance keeps its own expanded vertex, colour and
-  UV arrays, and static batching then makes a second, merged copy. Instances of
-  one model share nothing. Turning batching off did not rescue a 1 km
-  configuration with 1 809 objects either (out of memory both ways). This, not the triangle count on screen, is what limits how much
-  city fits.
+- **In 1.172 a static object cost roughly 70-110 bytes of EE RAM per vertex
+  it draws**, whatever the object was: the 28-triangle tree about 9 KB, a
+  22-triangle building about 6 KB. Each instance kept its own expanded vertex,
+  colour and UV arrays, and a batch made a merged copy that kept up to as
+  much slack again as it held. Instances of one model shared nothing, and
+  turning batching off did not rescue a 1 km configuration with 1 809 objects
+  either (out of memory both ways). **Since 1.173** batches trim that slack
+  (-1.6 MB here) and objects that do not batch draw one shared model-space
+  mesh per model, keeping only their colours (pooled: 897 arrays for 1 656
+  parts here). Batched, a member still costs 48 bytes a vertex; unbatched and
+  shared, about 650 bytes of bookkeeping per part plus its share of the
+  colours, and about 1 KB per object whatever it is. That bookkeeping, not the
+  triangle count on screen, is now what limits how much city fits.
 - **Road surfaces cost about 60 bytes per vertex**, plus the baked tables in the
   ELF (`ROAD_JUNCTION_VERTS`, `ROAD_KERB_VERTS`: 3.3 MB of `.rodata` on the
   first version). Pavements on the core grid lines added about 4 MB on their

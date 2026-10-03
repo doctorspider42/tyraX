@@ -2019,6 +2019,13 @@ struct ProjectSettings {
     // bag (pre-batching behavior; the A/B lever for profiling).
     bool staticBatching = true;
 
+    // Instance sharing (docs/instance-sharing.md): a static imported-model
+    // instance draws one model-space bake shared by every instance of the
+    // model, under its own matrix; only its lit colours are its own, and
+    // those are pooled by content. Off = every instance bakes its own
+    // world-space copy (pre-1.173). Saved only when off (format v102).
+    bool instanceSharing = true;
+
     // Interleaved passes (docs/interleaved-passes.md): the generated game
     // feeds the static batch and road bags into the object loop so the EE's
     // object work overlaps VU1's batch and road work. "auto" = the game times
@@ -2598,6 +2605,7 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.animSourceFps == b.animSourceFps &&
            a.animPlayFps == b.animPlayFps &&
            a.staticBatching == b.staticBatching &&
+           a.instanceSharing == b.instanceSharing &&
            a.interleavePasses == b.interleavePasses &&
            a.vehicleShineBudget == b.vehicleShineBudget &&
            a.occlusionCulling == b.occlusionCulling &&

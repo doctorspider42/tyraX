@@ -11,12 +11,26 @@ measurements. A 1 km city runs at the 60 FPS cap in PCSX2 with 27-28 of 32 MB
 used; every bigger version died in `std::bad_alloc` at scene load. In order of
 payoff:
 
-- **Share static model geometry between instances.** Each static object keeps
-  its own expanded vertex/colour/UV arrays (~70-110 B per drawn vertex), and
-  static batching adds a merged copy on top. Either drop the per-member arrays
-  once a batch owns them, or draw solo instances of one model from shared
-  arrays with a per-object matrix. Test: big-city's `MEM` at the same pose, and
-  `GRID_LINES=12` booting.
+- ~~Share static model geometry between instances~~ DONE 1.173.0
+  (docs/instance-sharing.md): one model-space bake per part under a per-object
+  matrix, pooled colours; batches trim their growth slack (-1.6 MB on the
+  city). With batching off the 2 557-object city (`FURNITURE_CORE_ONLY=False`)
+  now boots at 30.0 MB. What it made visible, in order of payoff:
+  - **The per-instance bookkeeping is now the biggest object cost**: ~650 B per
+    `GeoPart` + bags whatever it draws (2.8 MB for 4 305 parts) and ~1 KB of
+    `RuntimeObject` + `ObjectGeometry` per object (2.7 MB for 2 589). Most of a
+    GeoPart is room for passes a static prop never uses (env, lit, AO,
+    emissive, portal clips, paint maps) - move them behind one pointer.
+  - **A batch/share policy by mesh size**: batches pay 48 B a vertex per
+    member, a shared instance ~650 B + its colours. Batching only the tiny
+    meshes (trees, lamps) and sharing the rest might keep most of the draw-call
+    saving at a fraction of the memory. Needs a console frame-time pass first
+    (every number in instance-sharing.md is PCSX2).
+  - **The baked VIF stream cache holds 1.8-3.1 MB** on the city (a copy of
+    every baked bag's payload, budget 4 MB): the budget is an EE RAM lever of
+    its own.
+  - `GRID_LINES=12` is roads-only memory and was not re-tried (road streaming
+    is in progress separately).
 - **Road vertex size.** Road chunks hold `Vec4` position, `Color` and `Vec4` ST
   per vertex (48 B before bags), and the baked tables stay in `.rodata` after
   upload. Packed or freed-after-upload data would buy most of a 1.4 km city.

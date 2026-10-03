@@ -16139,6 +16139,17 @@ void App::drawPreferencesWindow() {
         "the roads' mean colour instead of the real ground chunks, out to\n"
         "the ground radius or 64 units, whichever is larger.");
 
+    ImGui::Checkbox("Share model geometry between instances",
+                    &prefSettings_.instanceSharing);
+    prefHelp(
+        "Every placed copy of an imported model draws one shared model-space\n"
+        "mesh under its own matrix and keeps only its lit colours (pooled\n"
+        "when copies light alike), instead of a whole world-space copy of\n"
+        "the mesh. Statically batched objects draw from their batch either\n"
+        "way; with batching off, this is what keeps a big scene in EE RAM.\n"
+        "Objects with physics, the USE highlight, dynamic lighting,\n"
+        "reflections or an impostor keep their own copy.");
+
     ImGui::Checkbox("Static object batching", &prefSettings_.staticBatching);
     prefHelp(
         "Merges non-moving primitives and compact imported-model parts\n"

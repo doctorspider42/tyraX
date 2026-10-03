@@ -1249,6 +1249,21 @@ Rules the same evening paid for:
 
 ## Hard-won pitfalls (dead ends already explored — don't repeat them)
 
+**Toolchain**
+- **No `std::shared_ptr` / `std::weak_ptr` on the EE (1.173.0).** This
+  toolchain's libstdc++ uses the MUTEX lock policy: every control block calls
+  `pthread_mutex_init`, i.e. allocates an EE kernel semaphore. A few hundred
+  live control blocks (the first instance-sharing build gave every shared mesh
+  part and colour array one) exhaust the kernel's semaphores, and from then on
+  every `host:` open fails silently - `bin/log.txt` stops, the Live Debugger
+  stops answering (`--capture-frame` times out), lazily loaded textures turn
+  into the magenta placeholder - while the game keeps drawing, so it reads as a
+  hang. Use a plain counted handle (`TerrainGame::ShRef` in the generated
+  game). Diagnosed with `pcsx2-capture.py run --states 3` + `addr2line` on the
+  EE PC in each savestate (`cpuRegs` starts 32 bytes after its tag in
+  `PCSX2 Internal Structures.dat`; pc at +680), which showed a main thread
+  rendering normally (docs/instance-sharing.md, "Traps worth knowing").
+
 **Devkit and measurement**
 - **The free-RAM probe is a measurement, not a sensor - and it used to lie.**
   `Info::getFreeRAMSize` is the only way to ask this allocator what is left:
@@ -2909,6 +2924,15 @@ here must keep.
   the cache outright. Note what the key does not need: a recycled heap address
   with the same layout produces the same block, because the block carries
   addresses and counts and no vertex data.
+- **An entry is one (vertex array, package size, STREAM SET)** since 1.173 - in
+  this cache and in the baked VIF stream cache alike. Before, the lookup took
+  the vertex array alone as an entry's identity and treated a different
+  colour/ST/normal pointer as "something moved": the generated game's shared
+  instances (docs/instance-sharing.md - one model-space vertex array drawn by
+  hundreds of bags, each with its own colour array) then rebuilt one entry on
+  every submit. Bags that differ only in their matrix and share every stream
+  share one entry, which is legal because neither cache encodes the matrix
+  (mirrors and portals already re-submitted one bag under several).
 - **The same capture-and-replay covers the clipping chain.** `addClipChain`'s
   fifteen quadwords - 52 float stores **per mesh** - depend only on the
   renderer's near/far pair and the guard band, so they are captured once.
