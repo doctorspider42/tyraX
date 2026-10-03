@@ -316,6 +316,93 @@ also still combined. A measured candidate must preserve output and be compared
 with bag observation disabled. No production speedup or VU/GS utilization claim
 is established by this census.
 
+### Replay lookup and conditional flush census
+
+The next private fixture replaces CacheOpenReplay with three contiguous
+siblings: DispatchBakedOpen, DispatchWholeReplay and DispatchRetainedOpen.
+All other bag intervals retain their boundaries, giving thirteen siblings and
+fourteen Count reads per ordinary bag. Existing short-circuit calls, cache
+decisions, packet construction and DMA ordering remain unchanged. Attempt and
+acceptance counters use existing booleans: a non-null baked entry is accepted,
+not necessarily complete or ready to replay.
+
+ReplayFlushInclusive wraps only the existing conditional `flushPendingPacket`
+call inside `replayWholeBakedBag`, adding two Count reads per actual flush.
+Singleton Scene/bag/replay depth and the current WholeReplay bucket establish
+ownership; orphan, nested or wrong-owner captures are rejected. This is a
+nested subset of WholeReplay, never an additional sibling. The flush submits
+the shared pending packet, potentially containing several bags; its elapsed
+cost belongs to the triggering call, not only that bag's geometry. Child
+aggregation occurs after its terminal timestamp inside WholeReplay, so the
+parent-minus-child difference includes observer guards/commit/glue as well as
+replay work outside the flush. It is not a pure REF-append bill.
+
+The same ELF retains Off/On/Off and reverse, continuous resources, normal
+inactive trace routing, common Scene and 128-row buffers, fixed game dt and
+separate authoritative file export after sampling. Metrics now occupy 33792
+bytes. The strict checks include all thirteen sibling intervals, nested child
+containment, call-attempt identities and unchanged state/camera/address controls.
+
+These parked fixtures advance simulation by a fixed 1/30 second per frame under
+NTSC. PCSX2 may execute more game frames per real second than this PS2 night
+workload, so simulation can visibly run faster even at the emulator's normal
+1x setting. This is diagnostic fixed-workload behavior, not ordinary generated
+game timing or an emulator-derived hardware performance result.
+
+[Both physical orders](hardware-replay-census-2026-10-03.json) complete 5400
+loops each with all 768 raw/metric pairs; the three active windows provide 384
+observations. Exact selected state/raw-camera/address/common-buffer controls
+match within/across boots, and every active frame has 135 calls: one culled,
+123 direct and 11 partial. Baked opening is attempted 123 times, accepts 122
+entries and leads to 122 successful replay calls. Retained opening is attempted
+12 times and accepts 11. The child observes 86 real conditional flush calls per
+frame, with zero ownership errors. It does not count every flush in the frame
+or imply fixed four-bag batches.
+
+| Active elapsed observation | Mean range across three 128-frame windows |
+|---|---:|
+| Baked opening, including dispatch prefix | 1.053096–1.075434 ms |
+| WholeReplay, including conditional flush | 2.746441–2.758218 ms |
+| ReplayFlushInclusive, nested inside WholeReplay | 2.248903–2.252703 ms |
+| WholeReplay minus its child | 0.496579–0.505515 ms |
+| Retained opening and closing glue | 0.124836–0.130651 ms |
+| DispatchRoute | 2.847265–2.850926 ms |
+| Bounds | 2.259668–2.282224 ms |
+| Object data | 2.214429–2.239308 ms |
+| Finalization/tail | 2.000384–2.016023 ms |
+| Thirteen selected bag intervals | 16.269245–16.288591 ms |
+| Common Scene envelope | 19.366182–19.368673 ms |
+| Scene minus selected bag intervals | 3.080082–3.098673 ms |
+
+The child accounts for 81.8005% of pooled observed WholeReplay duration. This
+locates shared-packet flush/submission as the dominant operation inside this
+parent, while leaving its existing waits/snapshot/native work combined. Off
+Scene means are 17.955527–17.960979 ms. Independent renderer work increases by
+1.400969–1.402325 ms in Off/On/Off and 1.406834–1.408165 ms in reverse; outer
+work spreads are 0.001356/0.001331 ms. The selected observer impact is substantial.
+It includes enabled guards, sibling/child clocks, ownership writes and aggregate
+commits, while common instrumentation remains in Off. Do not subtract this
+cost uniformly, compare bucket deltas with the earlier ELF, or interpret the
+measured flush span as an achievable saving or a pure CPU bill.
+
+Native compilation/publication, full emulator replay and independent actual
+header/source/parser checks pass. Initial WSL startup failed with
+HCS_E_CONNECTION_TIMEOUT; stopping Docker Desktop restored Ubuntu access.
+Ubuntu also responded after Docker Desktop was started again following capture.
+The prepared TyraX Docker toolchain also compiled the sources; selected boots
+use one exact recovered-native ELF. A Docker-created output directory blocked
+native publication, so it was preserved separately before a fresh output retry.
+All 328 baseline runtime assets are hash-verified after restoring missing assets.
+These are recorded build/environment events, not an established Docker/WSL root
+cause or a production renderer fix.
+
+The next targeted experiment should drop the broad bag observer while splitting
+the existing send path into pre-submit work, `Vif1Queue::submit` and post-submit
+reuse. Snapshot and native conversion are synchronous children of submit.
+Retain ordinary batching and actual waits; price the narrower observer in both
+orders, then compare a concrete candidate with observation disabled. No shipped
+performance improvement or VU/GS utilization claim follows from this result.
+
 ### What attribution can decide
 
 A reliable total timer and a complete ownership ledger answer different

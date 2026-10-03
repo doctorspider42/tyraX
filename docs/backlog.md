@@ -466,9 +466,18 @@ recovered 0.50-0.72 ms of hardware `work`. What it did not do, ranked:
   work and observer aggregation. Net activation adds 0.779–0.784 ms renderer
   work in both orders, retaining common instrumentation. Two incomplete UDP
   attempts are rejected; reliable file export occurs after measurement.
-  Next separate actual replay/submission from lookup in the largest group,
-  then price a concrete candidate with observation off; broader repeats remain
-  open. Earlier seven
+  [Replay split](hardware-replay-census-2026-10-03.json) now passes both 5400-loop
+  physical orders with 768 complete pairs and matching selected state/address
+  controls. Baked opening is 1.053–1.075 ms; WholeReplay 2.746–2.758 ms contains
+  a 2.249–2.253 ms conditional flush child (81.8% pooled), leaving 0.497–0.506 ms
+  outside it, including observer seams. Retained opening is 0.125–0.131 ms.
+  Counts remain 122 successful replays and 86 actual child flushes per frame;
+  flush submits a shared packet, not only the trigger bag's geometry. Net
+  activation adds 1.401–1.408 ms renderer work in both orders, retaining common
+  instrumentation; no cross-ELF subtraction or saving is inferred.
+  Next drop broad bag clocks and split existing send/submit/reuse; retain
+  batching/waits, then price a concrete candidate with observation off.
+  Broader repeats remain open. Earlier seven
   warm samples per arm in a single boot are exploratory only. No constant
   overhead correction, VU/GS utilization or EE arithmetic-only cost is inferred.
 - **Night light-effect cost after TyraX2 — measured, optimization open.**

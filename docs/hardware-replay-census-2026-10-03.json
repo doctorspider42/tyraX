@@ -1,0 +1,1335 @@
+{
+  "status": "paired_replay_census_complete",
+  "date": "2026-10-03",
+  "environment": "ps2",
+  "export_revision": 3,
+  "build_backend": "native",
+  "native_initial_status": "startup unavailable; recovered selected backend recorded per boot",
+  "exact_same_elf": "344db6d11c1b48187875b06a8e51980d0118c0622ed20ac89bdd84a034349210",
+  "samples_per_boot": 384,
+  "on_windows": 3,
+  "off_windows": 3,
+  "on_samples": 384,
+  "off_samples": 384,
+  "boots": [
+    {
+      "order": 0,
+      "machine_sha256": "e0cd44a83d484e56191a286ed971846288877f2fb9bbd3d655de68533ad2facb",
+      "evidence_path": "F:\\Projects\\tyrax2-lab-20261001\\tyrax2-replay-census-order0-physical-evidence",
+      "exact_elf_sha256": "344db6d11c1b48187875b06a8e51980d0118c0622ed20ac89bdd84a034349210",
+      "authoritative_file_sha256": "93aab48d7ccc718884ceaa3f991642d1ba87f41d780737b03143da9b09e16b57",
+      "means": {
+        "0": {
+          "engineTicks": {
+            "count": 128,
+            "mean_ticks": 9840124.875,
+            "median_ticks": 9840079.0,
+            "min_ticks": 8904572,
+            "max_ticks": 10773824,
+            "mean_ms": 33.36630884806315
+          },
+          "loopTicks": {
+            "count": 128,
+            "mean_ticks": 9823966.640625,
+            "median_ticks": 9828413.0,
+            "min_ticks": 8892305,
+            "max_ticks": 10761563,
+            "mean_ms": 33.311518828074135
+          },
+          "renderTicks": {
+            "count": 128,
+            "mean_ticks": 9397525.546875,
+            "median_ticks": 9429137.0,
+            "min_ticks": 8475945,
+            "max_ticks": 10352295,
+            "mean_ms": 31.865524450937908
+          },
+          "workTicks": {
+            "count": 128,
+            "mean_ticks": 5418969.4375,
+            "median_ticks": 5389782.0,
+            "min_ticks": 5304465,
+            "max_ticks": 5827417,
+            "mean_ms": 18.37486924065484
+          }
+        },
+        "1": {
+          "engineTicks": {
+            "count": 128,
+            "mean_ticks": 9839942.390625,
+            "median_ticks": 9840080.0,
+            "min_ticks": 8888354,
+            "max_ticks": 10776752,
+            "mean_ms": 33.365690072377525
+          },
+          "loopTicks": {
+            "count": 128,
+            "mean_ticks": 9824099.015625,
+            "median_ticks": 9828413.0,
+            "min_ticks": 8876171,
+            "max_ticks": 10764647,
+            "mean_ms": 33.31196769078573
+          },
+          "renderTicks": {
+            "count": 128,
+            "mean_ticks": 9396613.9375,
+            "median_ticks": 9424412.0,
+            "min_ticks": 8484087,
+            "max_ticks": 10373061,
+            "mean_ms": 31.8624333275689
+          },
+          "workTicks": {
+            "count": 128,
+            "mean_ticks": 5832132.109375,
+            "median_ticks": 5805031.0,
+            "min_ticks": 5721641,
+            "max_ticks": 6159945,
+            "mean_ms": 19.77583858701918
+          }
+        },
+        "2": {
+          "engineTicks": {
+            "count": 128,
+            "mean_ticks": 9840122.328125,
+            "median_ticks": 9840085.0,
+            "min_ticks": 8828174,
+            "max_ticks": 10852104,
+            "mean_ms": 33.3663002120124
+          },
+          "loopTicks": {
+            "count": 128,
+            "mean_ticks": 9827502.71875,
+            "median_ticks": 9828423.0,
+            "min_ticks": 8815787,
+            "max_ticks": 10839971,
+            "mean_ms": 33.32350911034478
+          },
+          "renderTicks": {
+            "count": 128,
+            "mean_ticks": 9400783.421875,
+            "median_ticks": 9428447.0,
+            "min_ticks": 8413929,
+            "max_ticks": 10428603,
+            "mean_ms": 31.876571390363907
+          },
+          "workTicks": {
+            "count": 128,
+            "mean_ticks": 5418569.65625,
+            "median_ticks": 5387585.0,
+            "min_ticks": 5316781,
+            "max_ticks": 5796791,
+            "mean_ms": 18.373513645595974
+          }
+        }
+      },
+      "net_observer_delta_ms": {
+        "engineTicks": {
+          "observer_on_minus_off_vs_first_ms": -0.0006187756856282552,
+          "observer_on_minus_off_vs_last_ms": -0.000610139634874132,
+          "outer_control_spread_ms": 8.636050754123264e-06
+        },
+        "loopTicks": {
+          "observer_on_minus_off_vs_first_ms": 0.0004488627115885417,
+          "observer_on_minus_off_vs_last_ms": -0.011541419559054904,
+          "outer_control_spread_ms": 0.011990282270643447
+        },
+        "renderTicks": {
+          "observer_on_minus_off_vs_first_ms": -0.0030911233690049914,
+          "observer_on_minus_off_vs_last_ms": -0.014138062795003256,
+          "outer_control_spread_ms": 0.011046939425998263
+        },
+        "workTicks": {
+          "observer_on_minus_off_vs_first_ms": 1.4009693463643391,
+          "observer_on_minus_off_vs_last_ms": 1.4023249414232042,
+          "outer_control_spread_ms": 0.0013555950588650173
+        }
+      },
+      "states": {
+        "0:850": {
+          "phase": "0",
+          "f": "850",
+          "offset": "850",
+          "enabled": "1",
+          "tBits": "41e2eeef",
+          "dtBits": "3d088889",
+          "dynBits": "41e2eeef",
+          "starBits": "41e2eeef",
+          "paused": "0",
+          "registered": "8",
+          "rtLights": "8",
+          "starCalls": "1",
+          "starSubmits": "3",
+          "light": "20bb2e1d:014396f6",
+          "state": "59b4e731:750dc305",
+          "camera": "f2ef9a4b:ade5f640",
+          "stars": "7c0cb521:5a81e4c4",
+          "sky": "d749a6a5:246279ce"
+        },
+        "0:1100": {
+          "phase": "0",
+          "f": "1100",
+          "offset": "1100",
+          "enabled": "1",
+          "tBits": "4212cccd",
+          "dtBits": "3d088889",
+          "dynBits": "4212cccd",
+          "starBits": "4212cccd",
+          "paused": "0",
+          "registered": "8",
+          "rtLights": "8",
+          "starCalls": "1",
+          "starSubmits": "3",
+          "light": "a7f37cc5:1a2f9744",
+          "state": "372654e5:328cf475",
+          "camera": "f2ef9a4b:ade5f640",
+          "stars": "d53dbdae:df365ea9",
+          "sky": "d749a6a5:246279ce"
+        },
+        "1:850": {
+          "phase": "1",
+          "f": "2650",
+          "offset": "850",
+          "enabled": "1",
+          "tBits": "41e2eeef",
+          "dtBits": "3d088889",
+          "dynBits": "41e2eeef",
+          "starBits": "41e2eeef",
+          "paused": "0",
+          "registered": "8",
+          "rtLights": "8",
+          "starCalls": "1",
+          "starSubmits": "3",
+          "light": "20bb2e1d:014396f6",
+          "state": "59b4e731:750dc305",
+          "camera": "f2ef9a4b:ade5f640",
+          "stars": "7c0cb521:5a81e4c4",
+          "sky": "d749a6a5:246279ce"
+        },
+        "1:1100": {
+          "phase": "1",
+          "f": "2900",
+          "offset": "1100",
+          "enabled": "1",
+          "tBits": "4212cccd",
+          "dtBits": "3d088889",
+          "dynBits": "4212cccd",
+          "starBits": "4212cccd",
+          "paused": "0",
+          "registered": "8",
+          "rtLights": "8",
+          "starCalls": "1",
+          "starSubmits": "3",
+          "light": "a7f37cc5:1a2f9744",
+          "state": "372654e5:328cf475",
+          "camera": "f2ef9a4b:ade5f640",
+          "stars": "d53dbdae:df365ea9",
+          "sky": "d749a6a5:246279ce"
+        },
+        "2:850": {
+          "phase": "2",
+          "f": "4450",
+          "offset": "850",
+          "enabled": "1",
+          "tBits": "41e2eeef",
+          "dtBits": "3d088889",
+          "dynBits": "41e2eeef",
+          "starBits": "41e2eeef",
+          "paused": "0",
+          "registered": "8",
+          "rtLights": "8",
+          "starCalls": "1",
+          "starSubmits": "3",
+          "light": "20bb2e1d:014396f6",
+          "state": "59b4e731:750dc305",
+          "camera": "f2ef9a4b:ade5f640",
+          "stars": "7c0cb521:5a81e4c4",
+          "sky": "d749a6a5:246279ce"
+        },
+        "2:1100": {
+          "phase": "2",
+          "f": "4700",
+          "offset": "1100",
+          "enabled": "1",
+          "tBits": "4212cccd",
+          "dtBits": "3d088889",
+          "dynBits": "4212cccd",
+          "starBits": "4212cccd",
+          "paused": "0",
+          "registered": "8",
+          "rtLights": "8",
+          "starCalls": "1",
+          "starSubmits": "3",
+          "light": "a7f37cc5:1a2f9744",
+          "state": "372654e5:328cf475",
+          "camera": "f2ef9a4b:ade5f640",
+          "stars": "d53dbdae:df365ea9",
+          "sky": "d749a6a5:246279ce"
+        }
+      },
+      "addresses": {
+        "0": {
+          "phase": "0",
+          "mode": "0",
+          "requested": "1",
+          "scene": "0",
+          "objects": "167",
+          "objectsCapacity": "167",
+          "objectsPtr": "00da7e30",
+          "geometry": "167",
+          "geometryCapacity": "167",
+          "geometryPtr": "00db9040",
+          "models": "122",
+          "modelsCapacity": "122",
+          "modelsPtr": "007808a0"
+        },
+        "1": {
+          "phase": "1",
+          "mode": "1",
+          "requested": "1",
+          "scene": "0",
+          "objects": "167",
+          "objectsCapacity": "167",
+          "objectsPtr": "00da7e30",
+          "geometry": "167",
+          "geometryCapacity": "167",
+          "geometryPtr": "00db9040",
+          "models": "122",
+          "modelsCapacity": "122",
+          "modelsPtr": "007808a0"
+        },
+        "2": {
+          "phase": "2",
+          "mode": "0",
+          "requested": "1",
+          "scene": "0",
+          "objects": "167",
+          "objectsCapacity": "167",
+          "objectsPtr": "00da7e30",
+          "geometry": "167",
+          "geometryCapacity": "167",
+          "geometryPtr": "00db9040",
+          "models": "122",
+          "modelsCapacity": "122",
+          "modelsPtr": "007808a0"
+        }
+      },
+      "sample_buffer": "00551418",
+      "metrics_buffer": "00549018"
+    },
+    {
+      "order": 1,
+      "machine_sha256": "c1b066ffeecc42045c3d4cb946df49ffb40801e72632bab890f2d53f2b76d27f",
+      "evidence_path": "F:\\Projects\\tyrax2-lab-20261001\\tyrax2-replay-census-order1-physical-evidence",
+      "exact_elf_sha256": "344db6d11c1b48187875b06a8e51980d0118c0622ed20ac89bdd84a034349210",
+      "authoritative_file_sha256": "fa32c6b36d46f257e3e83dfa5b01bb60c61c14a8bda859e9cfe5f261bc0fa0ae",
+      "means": {
+        "0": {
+          "engineTicks": {
+            "count": 128,
+            "mean_ticks": 9839934.7109375,
+            "median_ticks": 9840092.0,
+            "min_ticks": 8872113,
+            "max_ticks": 10796216,
+            "mean_ms": 33.36566403177049
+          },
+          "loopTicks": {
+            "count": 128,
+            "mean_ticks": 9824164.203125,
+            "median_ticks": 9828422.0,
+            "min_ticks": 8859883,
+            "max_ticks": 10784413,
+            "mean_ms": 33.31218873129951
+          },
+          "renderTicks": {
+            "count": 128,
+            "mean_ticks": 9395934.71875,
+            "median_ticks": 9424653.0,
+            "min_ticks": 8455329,
+            "max_ticks": 10373069,
+            "mean_ms": 31.86013020409478
+          },
+          "workTicks": {
+            "count": 128,
+            "mean_ticks": 5832086.3125,
+            "median_ticks": 5804952.0,
+            "min_ticks": 5728237,
+            "max_ticks": 6158549,
+            "mean_ms": 19.775683297051323
+          }
+        },
+        "1": {
+          "engineTicks": {
+            "count": 128,
+            "mean_ticks": 9840072,
+            "median_ticks": 9840098.0,
+            "min_ticks": 8907590,
+            "max_ticks": 10772612,
+            "mean_ms": 33.366129557291664
+          },
+          "loopTicks": {
+            "count": 128,
+            "mean_ticks": 9824240.390625,
+            "median_ticks": 9828428.0,
+            "min_ticks": 8894629,
+            "max_ticks": 10760333,
+            "mean_ms": 33.31244707107544
+          },
+          "renderTicks": {
+            "count": 128,
+            "mean_ticks": 9397915.6875,
+            "median_ticks": 9429490.0,
+            "min_ticks": 8483193,
+            "max_ticks": 10349325,
+            "mean_ms": 31.86684735616048
+          },
+          "workTicks": {
+            "count": 128,
+            "mean_ticks": 5416801.546875,
+            "median_ticks": 5386165.0,
+            "min_ticks": 5303451,
+            "max_ticks": 5841755,
+            "mean_ms": 18.367518266042072
+          }
+        },
+        "2": {
+          "engineTicks": {
+            "count": 128,
+            "mean_ticks": 9840057.109375,
+            "median_ticks": 9840089.0,
+            "min_ticks": 8833070,
+            "max_ticks": 10852196,
+            "mean_ms": 33.366079065534805
+          },
+          "loopTicks": {
+            "count": 128,
+            "mean_ticks": 9827130.625,
+            "median_ticks": 9828435.0,
+            "min_ticks": 8811571,
+            "max_ticks": 10840223,
+            "mean_ms": 33.322247399224175
+          },
+          "renderTicks": {
+            "count": 128,
+            "mean_ticks": 9398380.921875,
+            "median_ticks": 9423729.0,
+            "min_ticks": 8404029,
+            "max_ticks": 10430415,
+            "mean_ms": 31.868424892425537
+          },
+          "workTicks": {
+            "count": 128,
+            "mean_ticks": 5831693.8203125,
+            "median_ticks": 5806163.0,
+            "min_ticks": 5721475,
+            "max_ticks": 6126259,
+            "mean_ms": 19.774352418051826
+          }
+        }
+      },
+      "net_observer_delta_ms": {
+        "engineTicks": {
+          "observer_on_minus_off_vs_first_ms": -0.00046552552117241756,
+          "observer_on_minus_off_vs_last_ms": -5.0491756863064235e-05,
+          "outer_control_spread_ms": 0.0004150337643093533
+        },
+        "loopTicks": {
+          "observer_on_minus_off_vs_first_ms": -0.00025833977593315975,
+          "observer_on_minus_off_vs_last_ms": 0.009800328148735894,
+          "outer_control_spread_ms": 0.010058667924669053
+        },
+        "renderTicks": {
+          "observer_on_minus_off_vs_first_ms": -0.006717152065700955,
+          "observer_on_minus_off_vs_last_ms": 0.0015775362650553386,
+          "outer_control_spread_ms": 0.008294688330756294
+        },
+        "workTicks": {
+          "observer_on_minus_off_vs_first_ms": 1.4081650310092502,
+          "observer_on_minus_off_vs_last_ms": 1.406834152009752,
+          "outer_control_spread_ms": 0.0013308789994981554
+        }
+      },
+      "states": {
+        "0:850": {
+          "phase": "0",
+          "f": "850",
+          "offset": "850",
+          "enabled": "1",
+          "tBits": "41e2eeef",
+          "dtBits": "3d088889",
+          "dynBits": "41e2eeef",
+          "starBits": "41e2eeef",
+          "paused": "0",
+          "registered": "8",
+          "rtLights": "8",
+          "starCalls": "1",
+          "starSubmits": "3",
+          "light": "20bb2e1d:014396f6",
+          "state": "59b4e731:750dc305",
+          "camera": "f2ef9a4b:ade5f640",
+          "stars": "7c0cb521:5a81e4c4",
+          "sky": "d749a6a5:246279ce"
+        },
+        "0:1100": {
+          "phase": "0",
+          "f": "1100",
+          "offset": "1100",
+          "enabled": "1",
+          "tBits": "4212cccd",
+          "dtBits": "3d088889",
+          "dynBits": "4212cccd",
+          "starBits": "4212cccd",
+          "paused": "0",
+          "registered": "8",
+          "rtLights": "8",
+          "starCalls": "1",
+          "starSubmits": "3",
+          "light": "a7f37cc5:1a2f9744",
+          "state": "372654e5:328cf475",
+          "camera": "f2ef9a4b:ade5f640",
+          "stars": "d53dbdae:df365ea9",
+          "sky": "d749a6a5:246279ce"
+        },
+        "1:850": {
+          "phase": "1",
+          "f": "2650",
+          "offset": "850",
+          "enabled": "1",
+          "tBits": "41e2eeef",
+          "dtBits": "3d088889",
+          "dynBits": "41e2eeef",
+          "starBits": "41e2eeef",
+          "paused": "0",
+          "registered": "8",
+          "rtLights": "8",
+          "starCalls": "1",
+          "starSubmits": "3",
+          "light": "20bb2e1d:014396f6",
+          "state": "59b4e731:750dc305",
+          "camera": "f2ef9a4b:ade5f640",
+          "stars": "7c0cb521:5a81e4c4",
+          "sky": "d749a6a5:246279ce"
+        },
+        "1:1100": {
+          "phase": "1",
+          "f": "2900",
+          "offset": "1100",
+          "enabled": "1",
+          "tBits": "4212cccd",
+          "dtBits": "3d088889",
+          "dynBits": "4212cccd",
+          "starBits": "4212cccd",
+          "paused": "0",
+          "registered": "8",
+          "rtLights": "8",
+          "starCalls": "1",
+          "starSubmits": "3",
+          "light": "a7f37cc5:1a2f9744",
+          "state": "372654e5:328cf475",
+          "camera": "f2ef9a4b:ade5f640",
+          "stars": "d53dbdae:df365ea9",
+          "sky": "d749a6a5:246279ce"
+        },
+        "2:850": {
+          "phase": "2",
+          "f": "4450",
+          "offset": "850",
+          "enabled": "1",
+          "tBits": "41e2eeef",
+          "dtBits": "3d088889",
+          "dynBits": "41e2eeef",
+          "starBits": "41e2eeef",
+          "paused": "0",
+          "registered": "8",
+          "rtLights": "8",
+          "starCalls": "1",
+          "starSubmits": "3",
+          "light": "20bb2e1d:014396f6",
+          "state": "59b4e731:750dc305",
+          "camera": "f2ef9a4b:ade5f640",
+          "stars": "7c0cb521:5a81e4c4",
+          "sky": "d749a6a5:246279ce"
+        },
+        "2:1100": {
+          "phase": "2",
+          "f": "4700",
+          "offset": "1100",
+          "enabled": "1",
+          "tBits": "4212cccd",
+          "dtBits": "3d088889",
+          "dynBits": "4212cccd",
+          "starBits": "4212cccd",
+          "paused": "0",
+          "registered": "8",
+          "rtLights": "8",
+          "starCalls": "1",
+          "starSubmits": "3",
+          "light": "a7f37cc5:1a2f9744",
+          "state": "372654e5:328cf475",
+          "camera": "f2ef9a4b:ade5f640",
+          "stars": "d53dbdae:df365ea9",
+          "sky": "d749a6a5:246279ce"
+        }
+      },
+      "addresses": {
+        "0": {
+          "phase": "0",
+          "mode": "1",
+          "requested": "1",
+          "scene": "0",
+          "objects": "167",
+          "objectsCapacity": "167",
+          "objectsPtr": "00da7e30",
+          "geometry": "167",
+          "geometryCapacity": "167",
+          "geometryPtr": "00db9040",
+          "models": "122",
+          "modelsCapacity": "122",
+          "modelsPtr": "007808a0"
+        },
+        "1": {
+          "phase": "1",
+          "mode": "0",
+          "requested": "1",
+          "scene": "0",
+          "objects": "167",
+          "objectsCapacity": "167",
+          "objectsPtr": "00da7e30",
+          "geometry": "167",
+          "geometryCapacity": "167",
+          "geometryPtr": "00db9040",
+          "models": "122",
+          "modelsCapacity": "122",
+          "modelsPtr": "007808a0"
+        },
+        "2": {
+          "phase": "2",
+          "mode": "1",
+          "requested": "1",
+          "scene": "0",
+          "objects": "167",
+          "objectsCapacity": "167",
+          "objectsPtr": "00da7e30",
+          "geometry": "167",
+          "geometryCapacity": "167",
+          "geometryPtr": "00db9040",
+          "models": "122",
+          "modelsCapacity": "122",
+          "modelsPtr": "007808a0"
+        }
+      },
+      "sample_buffer": "00551418",
+      "metrics_buffer": "00549018"
+    }
+  ],
+  "cross_boot_controls": {
+    "raw_camera_word_sets_equal": true,
+    "named_state_sets_equal": true,
+    "address_sets_equal": true,
+    "sample_buffer_equal": true,
+    "metrics_buffer_equal": true
+  },
+  "nested_flush_additive": false,
+  "nested_flush_parent": "DispatchWholeReplay",
+  "pooled_nested_flush_duration_fraction_of_WholeReplay": 0.8180049677090885,
+  "pooled_nested_flush": {
+    "count": 384,
+    "mean_ms": 2.25048918194241,
+    "min_ms": 2.0766432020399304,
+    "max_ms": 2.5418768988715277
+  },
+  "pooled_WholeReplay_minus_nested_flush": {
+    "count": 384,
+    "mean_ms": 0.5007033789599383,
+    "min_ms": 0.4471028645833333,
+    "max_ms": 0.6575249565972222
+  },
+  "bucket_ranking_elapsed_on": [
+    {
+      "bucket": "DispatchRoute",
+      "count": 384,
+      "mean_ms": 2.8491047841531256,
+      "min_ms": 2.6182115342881946,
+      "max_ms": 3.2043084038628473,
+      "on_window_mean_min_ms": 2.847265084584554,
+      "on_window_mean_max_ms": 2.850926160812378
+    },
+    {
+      "bucket": "DispatchWholeReplay",
+      "count": 384,
+      "mean_ms": 2.751192560902348,
+      "min_ms": 2.531280517578125,
+      "max_ms": 3.0120137532552085,
+      "on_window_mean_min_ms": 2.7464410993787975,
+      "on_window_mean_max_ms": 2.7582178910573325
+    },
+    {
+      "bucket": "Bounds",
+      "count": 384,
+      "mean_ms": 2.2721528123926236,
+      "min_ms": 2.0462443033854165,
+      "max_ms": 2.5740492078993054,
+      "on_window_mean_min_ms": 2.259668323728773,
+      "on_window_mean_max_ms": 2.282223516040378
+    },
+    {
+      "bucket": "PrepObjectData",
+      "count": 384,
+      "mean_ms": 2.224432759814792,
+      "min_ms": 2.0156317816840277,
+      "max_ms": 2.491031222873264,
+      "on_window_mean_min_ms": 2.2144291400909424,
+      "on_window_mean_max_ms": 2.239308383729723
+    },
+    {
+      "bucket": "DispatchFinalizeTail",
+      "count": 384,
+      "mean_ms": 2.0084116458892822,
+      "min_ms": 1.8121066623263888,
+      "max_ms": 2.285831027560764,
+      "on_window_mean_min_ms": 2.000384065839979,
+      "on_window_mean_max_ms": 2.0160231590270996
+    },
+    {
+      "bucket": "DispatchBakedOpen",
+      "count": 384,
+      "mean_ms": 1.06077214523598,
+      "min_ms": 0.9428439670138888,
+      "max_ms": 1.2429470486111112,
+      "on_window_mean_min_ms": 1.0530962944030762,
+      "on_window_mean_max_ms": 1.0754341814253066
+    },
+    {
+      "bucket": "PrepLightSphere",
+      "count": 384,
+      "mean_ms": 0.9541329719402172,
+      "min_ms": 0.8497551812065972,
+      "max_ms": 1.1636996799045138,
+      "on_window_mean_min_ms": 0.9441815217336019,
+      "on_window_mean_max_ms": 0.9624050458272299
+    },
+    {
+      "bucket": "PrepPackagerMVP",
+      "count": 384,
+      "mean_ms": 0.8552446630265977,
+      "min_ms": 0.7677171495225694,
+      "max_ms": 1.0284559461805556,
+      "on_window_mean_min_ms": 0.8514810668097602,
+      "on_window_mean_max_ms": 0.8575119972229004
+    },
+    {
+      "bucket": "PrepTextureWrap",
+      "count": 384,
+      "mean_ms": 0.5817301538255479,
+      "min_ms": 0.5207078721788194,
+      "max_ms": 0.774627685546875,
+      "on_window_mean_min_ms": 0.5788664552900527,
+      "on_window_mean_max_ms": 0.5847967995537652
+    },
+    {
+      "bucket": "Head",
+      "count": 384,
+      "mean_ms": 0.38118973484745733,
+      "min_ms": 0.33660888671875,
+      "max_ms": 0.5366719563802084,
+      "on_window_mean_min_ms": 0.38005977206759983,
+      "on_window_mean_max_ms": 0.3819720215267605
+    },
+    {
+      "bucket": "DispatchRetainedOpen",
+      "count": 384,
+      "mean_ms": 0.12768873461970576,
+      "min_ms": 0.111114501953125,
+      "max_ms": 0.23542277018229166,
+      "on_window_mean_min_ms": 0.12483612696329753,
+      "on_window_mean_max_ms": 0.13065126207139757
+    },
+    {
+      "bucket": "PrepProgram",
+      "count": 384,
+      "mean_ms": 0.10861507168522587,
+      "min_ms": 0.09718492296006945,
+      "max_ms": 0.17866346571180555,
+      "on_window_mean_min_ms": 0.10679478115505642,
+      "on_window_mean_max_ms": 0.11178882916768391
+    },
+    {
+      "bucket": "PrepBLSSFog",
+      "count": 384,
+      "mean_ms": 0.10286130728545012,
+      "min_ms": 0.08824327256944445,
+      "max_ms": 0.23337809244791666,
+      "on_window_mean_min_ms": 0.10010168287489149,
+      "on_window_mean_max_ms": 0.1059862772623698
+    }
+  ],
+  "grouped_elapsed_on": {
+    "Head": {
+      "count": 384,
+      "mean_ms": 0.38118973484745733,
+      "min_ms": 0.33660888671875,
+      "max_ms": 0.5366719563802084
+    },
+    "Bounds": {
+      "count": 384,
+      "mean_ms": 2.2721528123926236,
+      "min_ms": 2.0462443033854165,
+      "max_ms": 2.5740492078993054
+    },
+    "Prep": {
+      "count": 384,
+      "mean_ms": 4.827016927577831,
+      "min_ms": 4.529042561848958,
+      "max_ms": 5.160847981770833
+    },
+    "Dispatch": {
+      "count": 384,
+      "mean_ms": 8.797169870800442,
+      "min_ms": 8.396375868055555,
+      "max_ms": 9.2081298828125
+    }
+  },
+  "on_route_count_ranges_per_frame": {
+    "calls": {
+      "min": 135,
+      "max": 135
+    },
+    "empty": {
+      "min": 0,
+      "max": 0
+    },
+    "outside": {
+      "min": 1,
+      "max": 1
+    },
+    "direct": {
+      "min": 123,
+      "max": 123
+    },
+    "partial": {
+      "min": 11,
+      "max": 11
+    },
+    "replayed": {
+      "min": 122,
+      "max": 122
+    },
+    "retained": {
+      "min": 11,
+      "max": 11
+    },
+    "other": {
+      "min": 0,
+      "max": 0
+    },
+    "bakedAttempts": {
+      "min": 123,
+      "max": 123
+    },
+    "bakedAccepted": {
+      "min": 122,
+      "max": 122
+    },
+    "replayAttempts": {
+      "min": 122,
+      "max": 122
+    },
+    "retainedAttempts": {
+      "min": 12,
+      "max": 12
+    },
+    "replayFlushCalls": {
+      "min": 86,
+      "max": 86
+    },
+    "replayFlushInvalid": {
+      "min": 0,
+      "max": 0
+    }
+  },
+  "phase_ledger": [
+    {
+      "order": 0,
+      "phase": 0,
+      "mode": 0,
+      "scene": {
+        "count": 128,
+        "mean_ms": 17.955876456366646,
+        "min_ms": 17.569407145182293,
+        "max_ms": 19.309858534071182
+      },
+      "whole_bag": {
+        "count": 128,
+        "mean_ms": 0.0,
+        "min_ms": 0.0,
+        "max_ms": 0.0
+      },
+      "scene_minus_bag": {
+        "count": 128,
+        "mean_ms": 17.955876456366646,
+        "min_ms": 17.569407145182293,
+        "max_ms": 19.309858534071182
+      },
+      "counts_first": {
+        "calls": 0,
+        "empty": 0,
+        "outside": 0,
+        "direct": 0,
+        "partial": 0,
+        "replayed": 0,
+        "retained": 0,
+        "other": 0,
+        "bakedAttempts": 0,
+        "bakedAccepted": 0,
+        "replayAttempts": 0,
+        "retainedAttempts": 0,
+        "replayFlushCalls": 0,
+        "replayFlushInvalid": 0
+      },
+      "counts_constant": true,
+      "WholeReplay": {
+        "count": 128,
+        "mean_ms": 0.0,
+        "min_ms": 0.0,
+        "max_ms": 0.0
+      },
+      "nested_flush_duration_fraction_of_WholeReplay": null,
+      "nested_flush": {
+        "count": 128,
+        "mean_ms": 0.0,
+        "min_ms": 0.0,
+        "max_ms": 0.0
+      },
+      "WholeReplay_minus_nested_flush": {
+        "count": 128,
+        "mean_ms": 0.0,
+        "min_ms": 0.0,
+        "max_ms": 0.0
+      },
+      "bucket_means_ms": {
+        "Head": 0.0,
+        "Bounds": 0.0,
+        "PrepPackagerMVP": 0.0,
+        "PrepTextureWrap": 0.0,
+        "PrepProgram": 0.0,
+        "PrepLightSphere": 0.0,
+        "PrepBLSSFog": 0.0,
+        "PrepObjectData": 0.0,
+        "DispatchBakedOpen": 0.0,
+        "DispatchWholeReplay": 0.0,
+        "DispatchRetainedOpen": 0.0,
+        "DispatchRoute": 0.0,
+        "DispatchFinalizeTail": 0.0
+      }
+    },
+    {
+      "order": 0,
+      "phase": 1,
+      "mode": 1,
+      "scene": {
+        "count": 128,
+        "mean_ms": 19.366181903415256,
+        "min_ms": 18.984568277994793,
+        "max_ms": 20.520782470703125
+      },
+      "whole_bag": {
+        "count": 128,
+        "mean_ms": 16.27475134531657,
+        "min_ms": 16.019751654730904,
+        "max_ms": 16.56582980685764
+      },
+      "scene_minus_bag": {
+        "count": 128,
+        "mean_ms": 3.091430558098687,
+        "min_ms": 2.7563680013020835,
+        "max_ms": 4.272701687282986
+      },
+      "counts_first": {
+        "calls": 135,
+        "empty": 0,
+        "outside": 1,
+        "direct": 123,
+        "partial": 11,
+        "replayed": 122,
+        "retained": 11,
+        "other": 0,
+        "bakedAttempts": 123,
+        "bakedAccepted": 122,
+        "replayAttempts": 122,
+        "retainedAttempts": 12,
+        "replayFlushCalls": 86,
+        "replayFlushInvalid": 0
+      },
+      "counts_constant": true,
+      "WholeReplay": {
+        "count": 128,
+        "mean_ms": 2.7582178910573325,
+        "min_ms": 2.531280517578125,
+        "max_ms": 2.993197970920139
+      },
+      "nested_flush_duration_fraction_of_WholeReplay": 0.8167239677961918,
+      "nested_flush": {
+        "count": 128,
+        "mean_ms": 2.252702660030789,
+        "min_ms": 2.076755099826389,
+        "max_ms": 2.4207288953993054
+      },
+      "WholeReplay_minus_nested_flush": {
+        "count": 128,
+        "mean_ms": 0.5055152310265435,
+        "min_ms": 0.4480183919270833,
+        "max_ms": 0.6575249565972222
+      },
+      "bucket_means_ms": {
+        "Head": 0.3819720215267605,
+        "Bounds": 2.2745665974087186,
+        "PrepPackagerMVP": 0.8575119972229004,
+        "PrepTextureWrap": 0.5847967995537652,
+        "PrepProgram": 0.10679478115505642,
+        "PrepLightSphere": 0.9441815217336019,
+        "PrepBLSSFog": 0.10249596171908909,
+        "PrepObjectData": 2.2195607556237116,
+        "DispatchBakedOpen": 1.0537859598795574,
+        "DispatchWholeReplay": 2.7582178910573325,
+        "DispatchRetainedOpen": 0.1275788148244222,
+        "DispatchRoute": 2.847265084584554,
+        "DispatchFinalizeTail": 2.0160231590270996
+      }
+    },
+    {
+      "order": 0,
+      "phase": 2,
+      "mode": 0,
+      "scene": {
+        "count": 128,
+        "mean_ms": 17.960979355706108,
+        "min_ms": 17.624684651692707,
+        "max_ms": 19.225691053602432
+      },
+      "whole_bag": {
+        "count": 128,
+        "mean_ms": 0.0,
+        "min_ms": 0.0,
+        "max_ms": 0.0
+      },
+      "scene_minus_bag": {
+        "count": 128,
+        "mean_ms": 17.960979355706108,
+        "min_ms": 17.624684651692707,
+        "max_ms": 19.225691053602432
+      },
+      "counts_first": {
+        "calls": 0,
+        "empty": 0,
+        "outside": 0,
+        "direct": 0,
+        "partial": 0,
+        "replayed": 0,
+        "retained": 0,
+        "other": 0,
+        "bakedAttempts": 0,
+        "bakedAccepted": 0,
+        "replayAttempts": 0,
+        "retainedAttempts": 0,
+        "replayFlushCalls": 0,
+        "replayFlushInvalid": 0
+      },
+      "counts_constant": true,
+      "WholeReplay": {
+        "count": 128,
+        "mean_ms": 0.0,
+        "min_ms": 0.0,
+        "max_ms": 0.0
+      },
+      "nested_flush_duration_fraction_of_WholeReplay": null,
+      "nested_flush": {
+        "count": 128,
+        "mean_ms": 0.0,
+        "min_ms": 0.0,
+        "max_ms": 0.0
+      },
+      "WholeReplay_minus_nested_flush": {
+        "count": 128,
+        "mean_ms": 0.0,
+        "min_ms": 0.0,
+        "max_ms": 0.0
+      },
+      "bucket_means_ms": {
+        "Head": 0.0,
+        "Bounds": 0.0,
+        "PrepPackagerMVP": 0.0,
+        "PrepTextureWrap": 0.0,
+        "PrepProgram": 0.0,
+        "PrepLightSphere": 0.0,
+        "PrepBLSSFog": 0.0,
+        "PrepObjectData": 0.0,
+        "DispatchBakedOpen": 0.0,
+        "DispatchWholeReplay": 0.0,
+        "DispatchRetainedOpen": 0.0,
+        "DispatchRoute": 0.0,
+        "DispatchFinalizeTail": 0.0
+      }
+    },
+    {
+      "order": 1,
+      "phase": 0,
+      "mode": 1,
+      "scene": {
+        "count": 128,
+        "mean_ms": 19.36791796154446,
+        "min_ms": 19.008636474609375,
+        "max_ms": 20.476484510633682
+      },
+      "whole_bag": {
+        "count": 128,
+        "mean_ms": 16.269245359632706,
+        "min_ms": 15.981658935546875,
+        "max_ms": 16.53847927517361
+      },
+      "scene_minus_bag": {
+        "count": 128,
+        "mean_ms": 3.0986726019117565,
+        "min_ms": 2.7043050130208335,
+        "max_ms": 4.136566162109375
+      },
+      "counts_first": {
+        "calls": 135,
+        "empty": 0,
+        "outside": 1,
+        "direct": 123,
+        "partial": 11,
+        "replayed": 122,
+        "retained": 11,
+        "other": 0,
+        "bakedAttempts": 123,
+        "bakedAccepted": 122,
+        "replayAttempts": 122,
+        "retainedAttempts": 12,
+        "replayFlushCalls": 86,
+        "replayFlushInvalid": 0
+      },
+      "counts_constant": true,
+      "WholeReplay": {
+        "count": 128,
+        "mean_ms": 2.7489186922709146,
+        "min_ms": 2.548831515842014,
+        "max_ms": 3.0120137532552085
+      },
+      "nested_flush_duration_fraction_of_WholeReplay": 0.8181044876115522,
+      "nested_flush": {
+        "count": 128,
+        "mean_ms": 2.2489027182261148,
+        "min_ms": 2.0766432020399304,
+        "max_ms": 2.5418768988715277
+      },
+      "WholeReplay_minus_nested_flush": {
+        "count": 128,
+        "mean_ms": 0.5000159740447998,
+        "min_ms": 0.4488084581163194,
+        "max_ms": 0.6253424750434028
+      },
+      "bucket_means_ms": {
+        "Head": 0.38153741094801163,
+        "Bounds": 2.259668323728773,
+        "PrepPackagerMVP": 0.8567409250471327,
+        "PrepTextureWrap": 0.5788664552900527,
+        "PrepProgram": 0.10726160473293728,
+        "PrepLightSphere": 0.9558123482598199,
+        "PrepBLSSFog": 0.1059862772623698,
+        "PrepObjectData": 2.2144291400909424,
+        "DispatchBakedOpen": 1.0754341814253066,
+        "DispatchWholeReplay": 2.7489186922709146,
+        "DispatchRetainedOpen": 0.12483612696329753,
+        "DispatchRoute": 2.850926160812378,
+        "DispatchFinalizeTail": 2.008827712800768
+      }
+    },
+    {
+      "order": 1,
+      "phase": 1,
+      "mode": 0,
+      "scene": {
+        "count": 128,
+        "mean_ms": 17.95552651087443,
+        "min_ms": 17.531483968098957,
+        "max_ms": 19.400861952039932
+      },
+      "whole_bag": {
+        "count": 128,
+        "mean_ms": 0.0,
+        "min_ms": 0.0,
+        "max_ms": 0.0
+      },
+      "scene_minus_bag": {
+        "count": 128,
+        "mean_ms": 17.95552651087443,
+        "min_ms": 17.531483968098957,
+        "max_ms": 19.400861952039932
+      },
+      "counts_first": {
+        "calls": 0,
+        "empty": 0,
+        "outside": 0,
+        "direct": 0,
+        "partial": 0,
+        "replayed": 0,
+        "retained": 0,
+        "other": 0,
+        "bakedAttempts": 0,
+        "bakedAccepted": 0,
+        "replayAttempts": 0,
+        "retainedAttempts": 0,
+        "replayFlushCalls": 0,
+        "replayFlushInvalid": 0
+      },
+      "counts_constant": true,
+      "WholeReplay": {
+        "count": 128,
+        "mean_ms": 0.0,
+        "min_ms": 0.0,
+        "max_ms": 0.0
+      },
+      "nested_flush_duration_fraction_of_WholeReplay": null,
+      "nested_flush": {
+        "count": 128,
+        "mean_ms": 0.0,
+        "min_ms": 0.0,
+        "max_ms": 0.0
+      },
+      "WholeReplay_minus_nested_flush": {
+        "count": 128,
+        "mean_ms": 0.0,
+        "min_ms": 0.0,
+        "max_ms": 0.0
+      },
+      "bucket_means_ms": {
+        "Head": 0.0,
+        "Bounds": 0.0,
+        "PrepPackagerMVP": 0.0,
+        "PrepTextureWrap": 0.0,
+        "PrepProgram": 0.0,
+        "PrepLightSphere": 0.0,
+        "PrepBLSSFog": 0.0,
+        "PrepObjectData": 0.0,
+        "DispatchBakedOpen": 0.0,
+        "DispatchWholeReplay": 0.0,
+        "DispatchRetainedOpen": 0.0,
+        "DispatchRoute": 0.0,
+        "DispatchFinalizeTail": 0.0
+      }
+    },
+    {
+      "order": 1,
+      "phase": 2,
+      "mode": 1,
+      "scene": {
+        "count": 128,
+        "mean_ms": 19.36867316563924,
+        "min_ms": 18.991689046223957,
+        "max_ms": 20.407636854383682
+      },
+      "whole_bag": {
+        "count": 128,
+        "mean_ms": 16.28859133190579,
+        "min_ms": 16.011793348524307,
+        "max_ms": 16.55538601345486
+      },
+      "scene_minus_bag": {
+        "count": 128,
+        "mean_ms": 3.080081833733453,
+        "min_ms": 2.7988484700520835,
+        "max_ms": 3.9692213270399304
+      },
+      "counts_first": {
+        "calls": 135,
+        "empty": 0,
+        "outside": 1,
+        "direct": 123,
+        "partial": 11,
+        "replayed": 122,
+        "retained": 11,
+        "other": 0,
+        "bakedAttempts": 123,
+        "bakedAccepted": 122,
+        "replayAttempts": 122,
+        "retainedAttempts": 12,
+        "replayFlushCalls": 86,
+        "replayFlushInvalid": 0
+      },
+      "counts_constant": true,
+      "WholeReplay": {
+        "count": 128,
+        "mean_ms": 2.7464410993787975,
+        "min_ms": 2.5415106879340277,
+        "max_ms": 2.9713914659288196
+      },
+      "nested_flush_duration_fraction_of_WholeReplay": 0.8191918508935837,
+      "nested_flush": {
+        "count": 128,
+        "mean_ms": 2.249862167570326,
+        "min_ms": 2.0814344618055554,
+        "max_ms": 2.511474609375
+      },
+      "WholeReplay_minus_nested_flush": {
+        "count": 128,
+        "mean_ms": 0.4965789318084717,
+        "min_ms": 0.4471028645833333,
+        "max_ms": 0.6120334201388888
+      },
+      "bucket_means_ms": {
+        "Head": 0.38005977206759983,
+        "Bounds": 2.282223516040378,
+        "PrepPackagerMVP": 0.8514810668097602,
+        "PrepTextureWrap": 0.5815272066328261,
+        "PrepProgram": 0.11178882916768391,
+        "PrepLightSphere": 0.9624050458272299,
+        "PrepBLSSFog": 0.10010168287489149,
+        "PrepObjectData": 2.239308383729723,
+        "DispatchBakedOpen": 1.0530962944030762,
+        "DispatchWholeReplay": 2.7464410993787975,
+        "DispatchRetainedOpen": 0.13065126207139757,
+        "DispatchRoute": 2.8491231070624456,
+        "DispatchFinalizeTail": 2.000384065839979
+      }
+    }
+  ],
+  "pooled_on_scene": {
+    "count": 384,
+    "mean_ms": 19.367591010199654,
+    "min_ms": 18.984568277994793,
+    "max_ms": 20.520782470703125
+  },
+  "pooled_on_whole_bag": {
+    "count": 384,
+    "mean_ms": 16.277529345618355,
+    "min_ms": 15.981658935546875,
+    "max_ms": 16.56582980685764
+  },
+  "pooled_on_scene_minus_bag": {
+    "count": 384,
+    "mean_ms": 3.090061664581299,
+    "min_ms": 2.7043050130208335,
+    "max_ms": 4.272701687282986
+  },
+  "pooled_off_scene": {
+    "count": 384,
+    "mean_ms": 17.957460774315727,
+    "min_ms": 17.531483968098957,
+    "max_ms": 19.400861952039932
+  },
+  "independent_actual_header_negative_controls_sha256": "ad9021bb70b1a1966da931da956b946ebaa3d5d599ee5af93ca1a43100c88ec4",
+  "independent_strict_artifact_controls_sha256": "f3ef363f14f156a880863f30eae7bf895dc29557f98e8dc44444865508d49826",
+  "build_chronology_sha256": "fcdf437b6863d4720032de5c351e616b469fa2cf325dc4cad1eca2b367dcadea",
+  "independent_extra_ownership_controls_sha256": "7598ab5946a176dc032732bdfd9c4cb79e2c3c7677e9d0daab85f8b669e6c1d0",
+  "independent_source_review_sha256": "97bc775cee30c5a2856dcd84bebde4efded51abe15f61ec132080df7a646b127",
+  "pure_cpu_bill": false,
+  "vu_gs_utilization": false,
+  "total_observer_bill": false,
+  "production_optimization_gain": false,
+  "limitations": [
+    "One Off/On/Off and one reverse On/Off/On boot under continuous fixed-game workload; no broad repeated scene/view coverage.",
+    "Bucket sums are contiguous elapsed spans and include existing waits/submission and observer timestamps. Commit follows final bag timestamp and belongs to Scene/net On effect.",
+    "All-arm Scene/reset/copy/sampling/ring/layout overhead remains; On-minus-Off is net selected census effect, not complete observer bill.",
+    "Named digests/raw-camera/address controls cover selected state; full vehicle/pixel equality is not proven.",
+    "ReplayFlushInclusive is already contained in WholeReplay. WholeReplay-minus-child includes observer commits/seams and shared packet work belongs to the trigger call, not isolated REF math. Scene residual is elapsed unassigned work, not isolated math cost. No subtraction or acceptance inherited from prior census ELFs."
+  ]
+}
