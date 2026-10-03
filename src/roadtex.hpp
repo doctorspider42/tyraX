@@ -22,7 +22,19 @@
 // ever written there, never inside the road.
 namespace roadtex {
 
-enum Surface { kAsphalt = 0, kCobble = 1, kGravel = 2, kDirt = 3 };
+// kBallast (docs/roads.md "Rails and tram tracks"): a railway's track bed -
+// crushed stone with sleepers painted across it at kSleeperPitch, one row of
+// sleepers per track (`tracks`), centred the way roadrail lays the rails.
+enum Surface { kAsphalt = 0, kCobble = 1, kGravel = 2, kDirt = 3, kBallast = 4 };
+inline constexpr int kSurfaceCount = 5;
+enum Sleepers { kSleepersTimber = 0, kSleepersConcrete = 1 };
+// Sleeper layout of the ballast surface, world units at the standard gauge.
+// Seven sleepers per 4-unit V repeat (0.571 apart; real track is ~0.6). The
+// sleeper length and the track spacing match roadrail's kTrackSpacingRail.
+inline constexpr int kSleepersPerRepeat = 7;
+inline constexpr float kSleeperLength = 2.6f;
+inline constexpr float kBallastTrackSpacing = 4.0f;
+inline constexpr float kBallastGauge = 1.435f;
 
 // A painted line's pattern. The two mixed kinds are a solid and a dashed line
 // side by side ("may cross from the dashed side"): kSolidDashed has the solid
@@ -69,6 +81,10 @@ struct RoadTexParams {
     float width = 0.0f;     // design road width in units (line placement); 0 = from lanes
     bool raggedEdges = false;   // dirt only: alpha-0 notches along U 0 and 1
     bool intersection = false;  // isotropic junction patch: no markings, tiles in U too
+    // Ballast only: the sleepers' material and how many tracks the bed carries
+    // (1 or 2, kBallastTrackSpacing apart, centred across the width).
+    int sleepers = kSleepersTimber;
+    int tracks = 1;
 
     RoadTexParams();
     bool operator==(const RoadTexParams& o) const;
@@ -113,7 +129,8 @@ std::string writeAssets(const std::string& projectDir, const std::string& name,
 bool readRecipe(const std::string& projectDir, const std::string& name, RoadTexParams* out);
 
 // The ready materials a new project is seeded with (road-2lane, road-4lane,
-// road-dirt, road-cobble, road-junction).
+// road-dirt, road-cobble, road-junction, rail-ballast, rail-ballast-double,
+// rail-junction).
 struct Preset {
     const char* name;
     RoadTexParams params;
@@ -121,6 +138,11 @@ struct Preset {
 std::vector<Preset> presets();
 inline constexpr const char* kDefaultSurface = "res/materials/roads/road-2lane.mtl";
 inline constexpr const char* kDefaultJunction = "res/materials/roads/road-junction.mtl";
+// What a road switched to Kind = Rail picks (props_ui), by track count.
+inline constexpr const char* kDefaultBallast = "res/materials/roads/rail-ballast.mtl";
+inline constexpr const char* kDefaultBallastDouble =
+    "res/materials/roads/rail-ballast-double.mtl";
+inline constexpr const char* kDefaultRailJunction = "res/materials/roads/rail-junction.mtl";
 
 // Writes every preset into a project. "" on success.
 std::string seedProject(const std::string& projectDir);

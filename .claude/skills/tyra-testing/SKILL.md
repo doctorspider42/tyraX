@@ -3941,6 +3941,18 @@ on: kerbs are owner -4 and stay out of all three. A kerb is a few pixels
 wide, so take a LOW frozen camera (eye 0.6-1 units) a few units from a
 fillet, and crop the shot before looking. `--bake-status` must stay `fresh`,
 because kerbs are not shadow receivers.
+**Rails and tram tracks** (docs/roads.md "Rails and tram tracks") ride the
+same tables, so the same gates apply. `--vehicle-check` "road rails" builds a
+railway across a kerbed, zebra-painted street: gauge, unbroken rails, flush
+exactly over the street, one panel, no kerb or paint on the railway, strips
+against the list, a two-track tram street, and the ballast texture's
+determinism, tiling and seven sleepers per repeat. `--road-crossings <dir>`
+prints one `[rail]` line per rail/tram road (raised / flush / panel lines and
+their lengths) and a `[rail] total` of strip vertices and chunks; the game's
+`ROADKERB` line counts kerb and rail chunks together. In PCSX2 the Motor
+District's level crossing is at (-110, 0): a frozen camera at (-102, -9), eye
+2.4, looking at (-111, 2) frames both tracks crossing Market cross street;
+(4, -50), eye 1.8, looking at (0, -30) runs up the tram tracks.
 The viewport and PCSX2 patch must match. `verify-road-twins.py` also exercises
 terrain folds and both Market endpoints, proves the old fan regression is
 triggered, sweeps clearance and checks nonempty runtime junction uploads. Move one spline

@@ -512,8 +512,10 @@ void TerrainGame::buildRoads(int scene) {
   // KERBS (docs/roads.md "Kerbs"): host-baked triangle-strip runs, one
   // ROAD_KERBS row per cell-sized chunk, uploaded unchanged - the EE does no
   // kerb geometry at all. Owner -4, not -3: renderProcChunks draws them (the
-  // frustum reject, the chunk draw distance, occlusion), and the road height
-  // index never sees them, because a kerb is visual only. Untextured: the
+  // frustum reject, the chunk draw distance, occlusion). The road height
+  // index takes them too (roadSurfaceAt reads owner -3 AND -4), so wheels,
+  // walkers, blob shadows and light pools stand on a kerb top; the vertical
+  // faces have no area in XZ and drop out by themselves. Untextured: the
   // baked shade is the vertex colour (128 = full in an untextured bag).
   for (size_t i = procChunks.size(); i > 0; --i)
     if (procChunks[i - 1].owner == -4)
@@ -534,6 +536,17 @@ void TerrainGame::buildRoads(int scene) {
       c.stripRun = useStrips ? (int)stripRun : 0;
       auto put = [&](const float* v) {
         c.vertices.push_back(Tyra::Vec4(v[0], v[1], v[2], 1.0F));
+        if (v[3] >= 1.5F) {
+          // Rails (docs/roads.md "Rails and tram tracks"): a shade of 2+
+          // names a ROAD_KERB_PALETTE colour (roadrail::shadeRgb's rule).
+          int k = (int)v[3] - 2;
+          if (k < 0) k = 0;
+          if (k > 3) k = 3;
+          const float* pc = ROAD_KERB_PALETTE[k];
+          c.colors.push_back(
+              Tyra::Color(pc[0] * 128.0F, pc[1] * 128.0F, pc[2] * 128.0F, 128.0F));
+          return;
+        }
         const float g = v[3] * 128.0F;  // light concrete, a hair warm
         c.colors.push_back(Tyra::Color(g, g * 0.98F, g * 0.94F, 128.0F));
       };
@@ -554,6 +567,9 @@ void TerrainGame::buildRoads(int scene) {
       kerbVertices += (int)c.vertices.size();
       kerbPackages += (int)((c.vertices.size() + 74) / 75);
     }
+    // The chunk list changed under the height index: the count alone cannot
+    // tell (the same number of kerb chunks is erased and pushed back).
+    roadIdxDirty = true;
     if (kerbChunks > 0)
       TYRA_LOG("ROADKERB scene ", scene, " chunks ", kerbChunks, " vertices ",
                kerbVertices, " packages ", kerbPackages, " triangles ", kerbTriangles);
@@ -6428,7 +6444,7 @@ float TerrainGame::roadSurfaceScan(float x, float z) const {
     if (y > best) best = y;
   };
   for (const ProcChunk& c : procChunks) {
-    if (c.owner != -3 || c.vertices.size() < 3) continue;
+    if ((c.owner != -3 && c.owner != -4) || c.vertices.size() < 3) continue;
     if (x < c.aabbMin[0] || x > c.aabbMax[0] ||
         z < c.aabbMin[2] || z > c.aabbMax[2])
       continue;
@@ -6458,7 +6474,7 @@ void TerrainGame::buildRoadHeightIndex() const {
   float mnx = 1.0e30F, mxx = -1.0e30F, mnz = 1.0e30F, mxz = -1.0e30F;
   bool any = false;
   for (const ProcChunk& c : procChunks) {
-    if (c.owner != -3 || c.vertices.size() < 3) continue;
+    if ((c.owner != -3 && c.owner != -4) || c.vertices.size() < 3) continue;
     any = true;
     if (c.aabbMin[0] < mnx) mnx = c.aabbMin[0];
     if (c.aabbMax[0] > mxx) mxx = c.aabbMax[0];
@@ -6484,7 +6500,7 @@ void TerrainGame::buildRoadHeightIndex() const {
     unsigned int ci = 0;
     for (const ProcChunk& c : procChunks) {
       const unsigned int chunk = ci++;
-      if (c.owner != -3 || c.vertices.size() < 3) continue;
+      if ((c.owner != -3 && c.owner != -4) || c.vertices.size() < 3) continue;
       if (chunk >= 1024U) continue;  // the entry packs 10 bits of chunk index
       const size_t count = c.vertices.size();
       if (count >= (size_t)(1U << 22)) continue;  // ...and 22 of vertex index
@@ -6672,6 +6688,19 @@ float TerrainGame::groundSurfaceAt(float x, float z) const {
   const float terrain = terrainHeightAt(x, z);
   const float road = roadSurfaceAt(x, z);
   return road > terrain ? road : terrain;
+}
+
+
+
+// The walker's floor (docs/roads.md "Kerbs"): the terrain, or a road, kerb or
+// pavement top under the feet - but only one within a step up of them, so a
+// road on a ramp or a bridge overhead never teleports a walker onto it. The
+// same 0.5-unit step collidePlayer allows onto objects.
+float TerrainGame::walkGroundAt(float x, float z, float feetY) const {
+  const float terrain = terrainHeightAt(x, z);
+  const float road = roadSurfaceAt(x, z);
+  if (road > terrain && road <= feetY + 0.5F) return road;
+  return terrain;
 }
 
 

@@ -478,7 +478,7 @@ void TerrainGame::updatePlayerWalker(PlayerCtl& P, int pi, Tyra::Pad& pad) {
     if (nextZ > limZ) nextZ = limZ;
     if (nextZ < -limZ) nextZ = -limZ;
 
-    float ground = terrainHeightAt(nextX, nextZ);
+    float ground = walkGroundAt(nextX, nextZ, P.y);
     // a linked floor portal underfoot swallows the avatar too
     if (PORTAL_COUNT > 0 && portalSwallowsPlayer(nextX, P.y, nextZ))
       ground = -1e30F;
@@ -644,7 +644,7 @@ void TerrainGame::updatePlayerWalker(PlayerCtl& P, int pi, Tyra::Pad& pad) {
   if (nextZ > limZ) nextZ = limZ;
   if (nextZ < -limZ) nextZ = -limZ;
 
-  float ground = terrainHeightAt(nextX, nextZ);
+  float ground = walkGroundAt(nextX, nextZ, P.y);
   // a linked floor portal underfoot swallows the walker (see
   // portalSwallowsPlayer) - the terrain stops being the floor there
   if (PORTAL_COUNT > 0 && portalSwallowsPlayer(nextX, P.y, nextZ))
@@ -9103,8 +9103,10 @@ void TerrainGame::buildRoads(int scene) {
   // KERBS (docs/roads.md "Kerbs"): host-baked triangle-strip runs, one
   // ROAD_KERBS row per cell-sized chunk, uploaded unchanged - the EE does no
   // kerb geometry at all. Owner -4, not -3: renderProcChunks draws them (the
-  // frustum reject, the chunk draw distance, occlusion), and the road height
-  // index never sees them, because a kerb is visual only. Untextured: the
+  // frustum reject, the chunk draw distance, occlusion). The road height
+  // index takes them too (roadSurfaceAt reads owner -3 AND -4), so wheels,
+  // walkers, blob shadows and light pools stand on a kerb top; the vertical
+  // faces have no area in XZ and drop out by themselves. Untextured: the
   // baked shade is the vertex colour (128 = full in an untextured bag).
   for (size_t i = procChunks.size(); i > 0; --i)
     if (procChunks[i - 1].owner == -4)
@@ -9125,6 +9127,17 @@ void TerrainGame::buildRoads(int scene) {
       c.stripRun = useStrips ? (int)stripRun : 0;
       auto put = [&](const float* v) {
         c.vertices.push_back(Tyra::Vec4(v[0], v[1], v[2], 1.0F));
+        if (v[3] >= 1.5F) {
+          // Rails (docs/roads.md "Rails and tram tracks"): a shade of 2+
+          // names a ROAD_KERB_PALETTE colour (roadrail::shadeRgb's rule).
+          int k = (int)v[3] - 2;
+          if (k < 0) k = 0;
+          if (k > 3) k = 3;
+          const float* pc = ROAD_KERB_PALETTE[k];
+          c.colors.push_back(
+              Tyra::Color(pc[0] * 128.0F, pc[1] * 128.0F, pc[2] * 128.0F, 128.0F));
+          return;
+        }
         const float g = v[3] * 128.0F;  // light concrete, a hair warm
         c.colors.push_back(Tyra::Color(g, g * 0.98F, g * 0.94F, 128.0F));
       };
@@ -9145,6 +9158,9 @@ void TerrainGame::buildRoads(int scene) {
       kerbVertices += (int)c.vertices.size();
       kerbPackages += (int)((c.vertices.size() + 74) / 75);
     }
+    // The chunk list changed under the height index: the count alone cannot
+    // tell (the same number of kerb chunks is erased and pushed back).
+    roadIdxDirty = true;
     if (kerbChunks > 0)
       TYRA_LOG("ROADKERB scene ", scene, " chunks ", kerbChunks, " vertices ",
                kerbVertices, " packages ", kerbPackages, " triangles ", kerbTriangles);

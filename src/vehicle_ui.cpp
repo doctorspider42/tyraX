@@ -27,6 +27,7 @@
 #include "app.hpp"
 #include "app_internal.hpp"
 #include "placement.hpp"
+#include "roadrail.hpp"
 #include "imgui.h"
 #include "theme.hpp"
 
@@ -409,6 +410,9 @@ void App::vehicleDriveStart(int objectIndex) {
             roadgen::addCrossingsToSurface(vehicleDriveRoads_, cr, plan, terrainAt,
                                            viewport_.terrainGrid());
         roadgen::addKerbsToSurface(vehicleDriveRoads_, cr, plan, terrainAt);
+        // Rail heads, grooves and level-crossing panels (docs/roads.md "Rails and
+        // tram tracks") ride in the same owner -4 chunks on the console.
+        roadrail::addRailsToSurface(vehicleDriveRoads_, cr, plan, terrainAt);
     }
     vehicleDriveRoads_.build();
 }

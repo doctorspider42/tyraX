@@ -28,7 +28,8 @@ namespace fs = std::filesystem;
 
 namespace {
 
-const char* const kSurfaces[] = {"Asphalt", "Cobble / setts", "Gravel", "Dirt / mud"};
+const char* const kSurfaces[] = {"Asphalt", "Cobble / setts", "Gravel", "Dirt / mud",
+                                 "Rail ballast"};
 const char* const kStyles[] = {"None",         "Dashed",        "Solid",
                                "Double solid", "Solid | dashed", "Dashed | solid"};
 
@@ -130,7 +131,19 @@ void App::drawRoadTextureWindow() {
 
     ImGui::SeparatorText("Surface");
     ImGui::SetNextItemWidth(scaled(170));
-    ImGui::Combo("Surface", &p.surface, kSurfaces, 4);
+    ImGui::Combo("Surface", &p.surface, kSurfaces, roadtex::kSurfaceCount);
+    if (p.surface == roadtex::kBallast && !p.intersection) {
+        // docs/roads.md "Rails and tram tracks": the sleepers sit under the
+        // rails a road of Kind = Rail draws, so the track count must match it.
+        static const char* kSleeperNames[] = {"Timber", "Concrete"};
+        ImGui::SetNextItemWidth(scaled(170));
+        ImGui::Combo("Sleepers", &p.sleepers, kSleeperNames, 2);
+        ImGui::SetNextItemWidth(scaled(170));
+        ImGui::SliderInt("Tracks", &p.tracks, 1, 2);
+        prefHelp("Rows of sleepers across the bed, 4 units apart - match the\n"
+                 "road's Tracks so the sleepers sit under its rails. Design\n"
+                 "width auto = 3.6 (one track) or 7.6 (two).");
+    }
     ImGui::Checkbox("Intersection patch", &p.intersection);
     prefHelp("For Intersection material: no markings, tiles both ways\n"
              "(mapped one repeat per 32 units).");

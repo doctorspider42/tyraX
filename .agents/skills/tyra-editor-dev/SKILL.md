@@ -3029,6 +3029,24 @@ draw distance. The shadow bake's road hash (`decalproj.cpp`) leaves the kerb
 fields out on purpose: kerbs are not receivers, and adding them would mark
 every baked-shadow cache stale.
 
+**Rails and tram tracks (format 98, docs/roads.md "Rails and tram tracks")
+ride the kerb pipeline and add no runtime table.** The field chain is
+`SceneObject::roadKind/roadRailGauge/roadTracks` (+ `operator==`), the same
+writers/readers (written only off-default), the Kind/Tracks/Gauge block of the
+road section in `props_ui.cpp` (`applyRailwayPreset`: Railway sets the ballast
+materials, writing them from `roadtex::presets()` when missing, plus rank
+Track, no spill/kerb/markings), `liveLinkRecipeHash` (mixed only when kind is
+not 0), `project::crossingRoads` -> `CrossingRoad::kind/railGauge/tracks` (it
+also FORCES a railway's kerb, markings and edge line off) and the crossing
+signature in `Viewport::syncRoadDraws`. The geometry is all in
+`src/roadrail.cpp` (kept out of roadgen.cpp on purpose: `planRails`, its own
+strip emitter with the kerbs' run contract, `addRailsToSurface`); roadgen.cpp
+only learned to skip markings at a node a railway is in. The codegen appends
+the rail strips as more `ROAD_KERBS` chunks, `projectHasKerbs` is true for a
+rail or tram road too, and a vertex shade of 2+ names an entry of
+`ROAD_KERB_PALETTE` (printed from `roadrail::kPalette`; the upload's `put`
+lambda and `roadrail::shadeRgb` are the two readers - change both).
+
 ## Vehicle HUD font preparation (1.150.1)
 
 `fontGlyphSprite` in the shared generated helpers owns one persistent sprite

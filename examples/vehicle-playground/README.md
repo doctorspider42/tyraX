@@ -20,7 +20,7 @@ builds measured 6.7-7.6 s. This excludes editor generation/baking and cold setup
 
 ## What's in the project
 
-- **main** is the driving district: thirteen roads, a garage, a cobbled crossing,
+- **main** is the driving district: thirteen roads and a railway, a garage, a cobbled crossing,
   dirt service lane, buildings, lights, pushable props and three cars. Every
   place roads meet is a [road node](../../docs/roads.md) with rounded corners,
   and six of the roads exist to show the kinds: **Orchard lane** leaves Market
@@ -35,6 +35,11 @@ builds measured 6.7-7.6 s. This excludes editor generation/baking and cold setup
   [kerbs](../../docs/roads.md#kerbs-format-95), which run around every
   junction's rounded corners. The dirt West service lane has none. Their
   tops are solid: a car that clips one bumps up over it.
+  **Freight line** is a double-track
+  [railway](../../docs/roads.md#rails-and-tram-tracks-format-98) at x = -110
+  that crosses Market cross street at a level crossing, and **Garage
+  boulevard** carries two flush tram tracks down its middle, through every
+  node it passes, the plaza included.
 
   ![PCSX2, mirrored in X: the Orchard fork between the ring road and Skyline avenue, the Service ramp leaving the ring, and the Quarry corner](../../docs/img/road-nodes-district.png)
 - **dense** adds buildings for a busier drive.

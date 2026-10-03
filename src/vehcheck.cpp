@@ -24,7 +24,10 @@
 #include <functional>
 #include <vector>
 
+#include "project.hpp"
 #include "roadgen.hpp"
+#include "roadrail.hpp"
+#include "roadtex.hpp"
 #include "vehiclesim.hpp"
 
 namespace vehcheck {
@@ -1535,6 +1538,244 @@ void roadKerbs() {
     verdict(chains == 1, "a fillet keeps its kerb only when both of its roads have kerbs");
 }
 
+// Rails and tram tracks (docs/roads.md "Rails and tram tracks"): a railway
+// along z = 10 crossed at x = 0 by a kerbed, zebra-painted street, on flat
+// ground. The rails must sit at the gauge on the ballast, run on unbroken
+// across the street (flush there, with a crossing panel), never be kerbed or
+// painted, pack into valid strips, and the ballast texture must be a pure,
+// tiling function of its recipe with seven sleepers per repeat.
+void roadRails() {
+    std::printf("-- road rails --\n");
+    auto object = [](const char* id, std::vector<float> pts, float width) {
+        SceneObject o;
+        o.type = PrimitiveType::Road;
+        o.id = id;
+        o.roadPoints = std::move(pts);
+        o.roadWidth = width;
+        o.roadIntersectionTexture = "res/materials/x.mtl";
+        return o;
+    };
+    std::vector<SceneObject> objs;
+    objs.push_back(object("rail", {-40, 10, 40, 10}, 3.6f));
+    objs.back().roadKind = roadrail::kRail;
+    objs.back().roadRank = 0;
+    objs.back().roadSpill = 0.0f;
+    objs.back().roadKerb = true;      // authored by mistake: a railway is never kerbed
+    objs.back().roadMarkings = 2;     // ... nor painted
+    objs.push_back(object("street", {0, -30, 0, 50}, 8.0f));
+    objs.back().roadKerb = true;
+    objs.back().roadMarkings = 2;
+    const std::vector<roadgen::CrossingRoad> r = project::crossingRoads(objs);
+    verdict(r.size() == 2 && r[0].kind == roadrail::kRail && !r[0].kerb && r[0].markings == 0 &&
+                !r[0].edgeLine && r[1].kerb,
+            "a railway road is never kerbed or painted, the street keeps both");
+    auto build = [&](const std::vector<roadgen::CrossingRoad>& rs, roadgen::CrossingPlan& p,
+                     roadgen::Surface& s) {
+        p = roadgen::planCrossings(rs, {});
+        for (const roadgen::CrossingRoad& rd : rs) {
+            std::vector<roadgen::Vertex> tris;
+            roadgen::tessellate(rd.points, rd.width,
+                                [&](float, float) { return roadgen::rankLift(rd.rank); }, tris);
+            s.add(tris, rd.grip);
+        }
+        roadgen::addCrossingsToSurface(s, rs, p, flat);
+        s.build();
+    };
+    roadgen::CrossingPlan plan;
+    roadgen::Surface surf;
+    build(r, plan, surf);
+    const auto at = [&](float x, float z) { return surf.at(x, z); };
+    const std::vector<roadrail::RailPiece> rails = roadrail::planRails(r, plan, at, flat);
+    // Gauge: every rail point of the railway sits on z = 10 +- (1.435 + 0.07) / 2.
+    const float half = 0.5f * (1.435f + roadrail::kRailHeadWidth);
+    float worstGauge = 0.0f, worstHeight = 0.0f;
+    int raised = 0, flush = 0, panels = 0;
+    float flushMinX = 1e30f, flushMaxX = -1e30f;
+    std::vector<std::pair<float, float>> spans[2];  // per rail: x ranges covered
+    for (const roadrail::RailPiece& p : rails) {
+        if (p.road != 0) continue;
+        if (p.profile == roadrail::kProfilePanel) {
+            ++panels;
+            continue;
+        }
+        (p.profile == roadrail::kProfileRaised ? raised : flush)++;
+        const int side = p.pts[2] > 10.0f ? 1 : 0;
+        float x0 = 1e30f, x1 = -1e30f;
+        for (int i = 0; i < p.points(); ++i) {
+            const float x = p.pts[(size_t)i * 5], y = p.pts[(size_t)i * 5 + 1],
+                        z = p.pts[(size_t)i * 5 + 2];
+            worstGauge = std::max(worstGauge, std::fabs(std::fabs(z - 10.0f) - half));
+            // On the ballast the line stands on the rail road's own surface;
+            // on the street, on the street's.
+            const float expect = p.profile == roadrail::kProfileRaised
+                                     ? roadgen::kLift + roadgen::rankLift(0)
+                                     : roadgen::kLift + roadgen::rankLift(1);
+            worstHeight = std::max(worstHeight, std::fabs(y - expect));
+            x0 = std::min(x0, x), x1 = std::max(x1, x);
+            if (p.profile == roadrail::kProfileFlush)
+                flushMinX = std::min(flushMinX, x), flushMaxX = std::max(flushMaxX, x);
+        }
+        spans[side].push_back({x0, x1});
+    }
+    std::printf("  railway: %d raised, %d flush, %d panel line(s); gauge error %.5f, height "
+                "error %.5f; flush over x %.2f..%.2f\n",
+                raised, flush, panels, worstGauge, worstHeight, flushMinX, flushMaxX);
+    verdict(worstGauge < 1e-3f, "the rails sit at the gauge (inner faces 1.435 apart)");
+    verdict(worstHeight < 2e-3f, "each rail line stands on the drawn surface under it");
+    // Unbroken: per rail, the spans chain from x = -40 to 40 with no gap.
+    bool unbroken = true;
+    for (auto& sp : spans) {
+        std::sort(sp.begin(), sp.end());
+        float reach = -40.0f;
+        for (const auto& [a, b] : sp) {
+            unbroken &= a <= reach + 1e-3f;
+            reach = std::max(reach, b);
+        }
+        unbroken &= reach >= 40.0f - 1e-3f && !sp.empty() && sp.front().first <= -40.0f + 1e-3f;
+    }
+    verdict(raised == 4 && flush == 2 && unbroken,
+            "the rails run on unbroken across the street (raised, flush, raised)");
+    verdict(flushMinX > -4.05f && flushMaxX < 4.05f && flushMinX < -3.9f && flushMaxX > 3.9f,
+            "they are flush exactly where the street is (|x| < 4)");
+    verdict(panels == 1, "the level crossing gets one panel under the track");
+    // Collision: a car on the crossing rides the flush head, one on the
+    // ballast bumps a raised rail, and the step stays far below a walker's.
+    {
+        roadgen::Surface s2;
+        roadgen::CrossingPlan p2;
+        build(r, p2, s2);
+        roadrail::addRailsToSurface(s2, r, p2, flat);
+        s2.build();
+        const float onFlush = s2.at(0.0f, 10.0f + half), onRaised = s2.at(-20.0f, 10.0f + half);
+        const float bed = s2.at(-20.0f, 10.0f);
+        std::printf("  rail collision: flush head %.3f, raised head %.3f over a bed at %.3f\n",
+                    onFlush, onRaised, bed);
+        verdict(std::fabs(onFlush - (roadgen::kLift + roadrail::kFlushLift)) < 2e-3f &&
+                    std::fabs(onRaised - bed - roadrail::kRailHeight) < 2e-3f &&
+                    roadrail::kRailHeight < 0.5f,
+                "rail heads are standable surface, a step a walker clears");
+    }
+    // No kerb stands on the ballast and no paint lands on a railway's node.
+    {
+        const std::vector<roadgen::KerbPiece> kerbs = roadgen::planKerbs(r, plan, at, flat);
+        bool onBallast = false, railKerb = false;
+        for (const roadgen::KerbPiece& k : kerbs) {
+            railKerb |= k.road == 0;
+            for (int i = 0; i < k.points(); ++i)
+                onBallast |= std::fabs(k.pts[(size_t)i * 5 + 2] - 10.0f) < 1.79f &&
+                             std::fabs(k.pts[(size_t)i * 5]) < 4.1f;
+        }
+        std::vector<roadgen::Vertex> paint;
+        roadgen::bakeMarkings(plan, r, surf, paint);
+        int patchNodes = 0;
+        for (const roadgen::Crossing& c : plan.crossings)
+            patchNodes += c.kind == roadgen::kCrossPatch ? 1 : 0;
+        std::printf("  %zu street kerb line(s), %zu paint vertices at %d patch node(s)\n",
+                    kerbs.size(), paint.size(), patchNodes);
+        verdict(!railKerb && !onBallast && !kerbs.empty(),
+                "the street's kerbs stop at the ballast, the railway has none");
+        verdict(paint.empty(), "no zebra or stop line is painted across the railway");
+    }
+    // Strips: the same triangles as the list, whole chunks, every size % 3.
+    {
+        std::vector<roadgen::KerbVertex> sv, lv;
+        std::vector<int> sizes;
+        roadrail::railStrips(rails, sv, sizes);
+        for (const roadrail::RailPiece& p : rails) roadrail::railTriangles(p, lv);
+        auto same = [](const roadgen::KerbVertex& a, const roadgen::KerbVertex& b) {
+            return a.x == b.x && a.y == b.y && a.z == b.z;
+        };
+        int sum = 0, tris = 0;
+        bool mult3 = true, shades = true;
+        for (int sz : sizes) sum += sz, mult3 &= sz % 3 == 0;
+        for (const roadgen::KerbVertex& v : sv) shades &= v.shade >= 2.0f && v.shade < 6.0f;
+        for (size_t a0 = 0, ci = 0; ci < sizes.size(); a0 += (size_t)sizes[ci], ++ci)
+            for (size_t r0 = a0; r0 < a0 + (size_t)sizes[ci]; r0 += 75) {
+                const size_t len = std::min((size_t)75, a0 + (size_t)sizes[ci] - r0);
+                for (size_t i = 0; i + 2 < len; ++i)
+                    if (!same(sv[r0 + i], sv[r0 + i + 1]) &&
+                        !same(sv[r0 + i + 1], sv[r0 + i + 2]) && !same(sv[r0 + i], sv[r0 + i + 2]))
+                        ++tris;
+            }
+        std::printf("  strips: %zu vertices in %zu chunks, %d triangles (list %zu)\n",
+                    sv.size(), sizes.size(), tris, lv.size() / 3);
+        verdict(sum == (int)sv.size() && mult3 && tris == (int)(lv.size() / 3) && shades,
+                "the rail strips hold exactly the list's triangles, in palette colours");
+    }
+    // A tram street: two tracks, every rail flush, 3 m apart.
+    {
+        std::vector<SceneObject> t;
+        t.push_back(object("tram", {-30, 0, 30, 0}, 12.0f));
+        t.back().roadKind = roadrail::kTram;
+        t.back().roadTracks = 2;
+        const std::vector<roadgen::CrossingRoad> tr = project::crossingRoads(t);
+        roadgen::CrossingPlan tp;
+        roadgen::Surface ts;
+        build(tr, tp, ts);
+        const std::vector<roadrail::RailPiece> tramRails =
+            roadrail::planRails(tr, tp, [&](float x, float z) { return ts.at(x, z); }, flat);
+        std::vector<float> zs;
+        bool allFlush = true;
+        for (const roadrail::RailPiece& p : tramRails) {
+            allFlush &= p.profile == roadrail::kProfileFlush;
+            zs.push_back(p.pts[2]);
+        }
+        std::sort(zs.begin(), zs.end());
+        const bool spaced = zs.size() == 4 && std::fabs(zs[0] + 1.5f + half) < 1e-3f &&
+                            std::fabs(zs[1] + 1.5f - half) < 1e-3f &&
+                            std::fabs(zs[2] - 1.5f + half) < 1e-3f &&
+                            std::fabs(zs[3] - 1.5f - half) < 1e-3f;
+        std::printf("  tram: %zu rail line(s)%s\n", tramRails.size(),
+                    allFlush ? ", all flush" : "");
+        verdict(allFlush && spaced, "a two-track tram street gets four flush rails, 3 m apart");
+    }
+    // The ballast texture: a pure function of the recipe that tiles along V,
+    // seven sleepers per repeat down the track's centre.
+    {
+        roadtex::RoadTexParams b;
+        b.surface = roadtex::kBallast;
+        b.lanes = 0;
+        b.edge.style = roadtex::kLineNone;
+        const std::vector<unsigned char> a = roadtex::generate(b), a2 = roadtex::generate(b);
+        roadtex::RoadTexParams c = b;
+        c.sleepers = roadtex::kSleepersConcrete;
+        const std::vector<unsigned char> cc = roadtex::generate(c);
+        const int n = 128;
+        auto px = [&](const std::vector<unsigned char>& img, int x, int y, int ch) {
+            return (int)img[((size_t)y * n + x) * 4 + ch];
+        };
+        // Timber is warm brown, clearly redder than the grey stones; a
+        // sleeper is ~8 texels long down V, a warm stone 2-3.
+        int runs = 0, len = 0;
+        for (int y = 0; y <= n; ++y) {
+            const bool sleeper = y < n && px(a, n / 2, y, 0) - px(a, n / 2, y, 2) > 14;
+            if (sleeper) {
+                ++len;
+            } else {
+                runs += len >= 5 ? 1 : 0;
+                len = 0;
+            }
+        }
+        // Wrap seam: the first and last rows differ no more than neighbours do.
+        auto rowDiff = [&](int y0, int y1) {
+            long d = 0;
+            for (int x = 0; x < n; ++x)
+                for (int ch = 0; ch < 3; ++ch) d += std::abs(px(a, x, y0, ch) - px(a, x, y1, ch));
+            return d;
+        };
+        long inner = 0;
+        for (int y = 1; y < n; ++y) inner = std::max(inner, rowDiff(y - 1, y));
+        const long seam = rowDiff(n - 1, 0);
+        const std::string text = roadtex::toText(c);
+        const roadtex::RoadTexParams back = roadtex::fromText(text);
+        std::printf("  ballast: %d sleeper run(s) down the centre, seam diff %ld (rows %ld)\n",
+                    runs, seam, inner);
+        verdict(a == a2 && a != cc && runs == roadtex::kSleepersPerRepeat && seam <= inner &&
+                    back == c,
+                "the ballast texture is deterministic, tiles, and round-trips its recipe");
+    }
+}
+
 // The pedals: R2 gas, L2 brake-then-reverse (vehiclesim::pedals, the rule the
 // console's controller and the test drive share).
 void pedalsCheck() {
@@ -1631,6 +1872,7 @@ int run() {
     junctionOverrides();
     roadNodes();
     roadKerbs();
+    roadRails();
     damage();
     pieces();
     speedFeelCurve();

@@ -360,6 +360,12 @@ struct CrossingRoad {
     // Kerbs (docs/roads.md "Kerbs"): only planKerbs reads these.
     bool kerb = false;
     float kerbHeight = 0.15f, kerbWidth = 0.25f;
+    // Rails (docs/roads.md "Rails and tram tracks"): roadrail::Kind, the gauge
+    // between the heads' inner faces and the track count. Only roadrail and
+    // bakeMarkings (no paint on a node a railway passes) read them.
+    int kind = 0;
+    float railGauge = 1.435f;
+    int tracks = 1;
 };
 
 // What a road's arms get painted at its nodes (1.171.0, docs/roads.md

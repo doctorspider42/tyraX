@@ -1890,6 +1890,11 @@ void bakeMarkings(const CrossingPlan& plan, const std::vector<CrossingRoad>& roa
     };
     for (const Crossing& c : plan.crossings) {
         if (c.kind != kCrossPatch || c.patchDuplicate || c.transition) continue;
+        // A railway at the node (docs/roads.md "Rails and tram tracks"): no
+        // zebra across the tracks, no edge line round a turnout's bed.
+        bool railway = false;
+        for (int r : c.roads) railway |= roads[(size_t)r].kind == 1;
+        if (railway) continue;
         bool through = false;
         for (const NodeArm& a : c.armList) through |= !a.ends;
         // The road that gives way at a crossing of through roads: lower rank,
