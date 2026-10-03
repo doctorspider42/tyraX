@@ -431,8 +431,12 @@ in this serialized route. This historical record remains unchanged.
 The [retained-hit census](tyrax2-mutable-ref-retained-census-2026-10-03.json)
 adds the cached-command observation and qualifies both orders:98.46% of copied
 bytes match Pool/Bag, with only2640 Unknown bytes/frame. Its own observer costs
-about0.945–0.950 ms. Road/selected static-owner volume and allocation retirement
-remain next gates; these counts establish neither a gain nor borrowing rights.
+about0.945–0.950 ms. These counts establish neither a gain nor borrowing rights.
+The [road-owner census](tyrax2-road-owner-census-2026-10-03.json) qualifies both
+physical/emulator orders with66 road chunks and198 recorded ranges, but zero
+copied-original-road bytes. Its own observer costs about1.073–1.076 ms; the
+common off-span owner guards have unpriced absolute cost. Selected static
+GeoPart volume remains the next gate; no borrowing optimization is accepted.
 
 The [one-search immutable-borrow trial](tyrax2-immutable-borrow-2026-10-02.json) preserves the narrow candidate, differential and integrated checks, and one physical baseline/candidate/baseline run. Its small apparent work saving overlaps control variation; the runtime remains unchanged.
 

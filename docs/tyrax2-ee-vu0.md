@@ -1,5 +1,23 @@
 # TyraX2 EE preparation and VU0 audit
 
+## Road-owner copied-REF census and observer pricing, 2026-10-03
+
+The fixed physical night Scene0 workload published zero Road-class mutable REF bytes in every On sample (three On stages, 128 samples each). It still published 129,360 B/frame as BagDeclared, 39,840 B as Pool and 2,640 B as UnknownOther: 171,840 B across 421 copied REFs. The recorded ownership inventory was 66 road chunks, 198 ranges and 1,288,080 used bytes. That static inventory must not be substituted for copied volume. This negative result does not establish that roads were absent from rendering or that every Bag owner has been identified.
+
+The private observer's own same-ELF nonpacing On-minus-Off contrasts were +1.074263944/+1.075823201 ms (ABA) and +1.072995795/+1.076002889 ms (BAB). Outer same-state spreads were 0.001559258/0.003007094 ms. These inclusive serialized measurements include completion/waits and observer/control effects; they are not pure EE/GPU costs, production savings or evidence of 60 FPS. No cross-ELF timing subtraction against V1a or V2 was performed. The common 1,536 owner guard checks per boot run outside the Count spans; their absolute application cost remains unknown.
+
+All four archives independently validate the actual runtime protocol and exact three-image RGB/converted-alpha raster parity. Native exit0, 495 inventoried inputs and the actual486 used native mirror inputs plus9 ancillary metadata files are separately bound by root attestations. The final independent physical pair audit passed on all768 raw physical samples and all four source-launch attestations, binding the actual summary SHA256. Its initial ancillary tool attempt failed with KeyError (wrong metrics object); the original tool and reproduced failure are retained. This was an ancillary analysis-tool failure, not a game failure.
+
+Actual EE metadata proof records four roots20,512 B, Metrics256 B, SnapshotScope72 B, atlas ranges5,120 B and owner guard records23,040 B. This is metadata layout evidence, not net Qbuffer-class ABI or full application footprint. Actual-header host parity ran2,234 cases/44,051 assertions at both O0 and O2; modeled Chunk/array guard controls ran49 assertions. Host/parser scope and raw unstamped-write/pointer-ABA limitations remain explicit in the pinned evidence.
+
+V1a and V2 public machine records are preserved with their current SHA256s in the [machine record](tyrax2-road-owner-census-2026-10-03.json). The Road census is private instrumentation only: no production code was integrated and no owner lifetime/borrowing optimization was accepted. Future append-only storage requires a separate safe frame-bank reuse fence, must not reset on generic queue drain, and must avoid original delete[] ownership conflicts.
+
+Next measure actual copied ranges from an explicit static GeoPart whitelist.
+Do not implement original-road borrowing on the strength of atlas capacity: this
+view has no copied-original-road opportunity. Derived road clipping in Pool and
+existing baked-road traffic were not attributed by this census.
+
+
 ## Retained-command ownership coverage and observer pricing, 2026-10-03
 
 This private experiment records independently qualified same-ELF physical Off/On/Off and reverse orders, plus two emulator orders. It is a private observer experiment. The native build exited 0; the selected ELF is `4d1646134dd773f97666596e0f94a8a5b047769e67ad9047aaf18f1b8fb356d4`. The independent physical-pair audit verified both raw measurement sets and all four source/launch attestations.

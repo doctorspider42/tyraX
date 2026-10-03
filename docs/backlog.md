@@ -421,8 +421,13 @@ recovered 0.50-0.72 ms of hardware `work`. What it did not do, ranked:
   The [retained-hit census](tyrax2-mutable-ref-retained-census-2026-10-03.json)
   now qualifies both orders on PS2/PCSX2: Pool39840, Bag129360, Unknown2640
   bytes/frame, unchanged total171840. This matches98.46% of copied bytes;
-  its own observer adds0.945–0.950 ms. Next measure road/selected static-owner
-  subsets before designing a narrow seal/retirement or typed owner-bank trial.
+  its own observer adds0.945–0.950 ms. The [road-owner census](tyrax2-road-owner-census-2026-10-03.json)
+  now completes both PS2/PCSX2 orders:66 road chunks/198 ranges/1288080 used
+  bytes, but zero copied-original-road bytes in every physical On sample.
+  Its own observer adds1.073–1.076 ms; common untimed guards are not priced.
+  Do not implement original-road borrowing for this view. Next measure an
+  explicit static GeoPart subset; derived clipping and mutable producers remain
+  separate work before any seal/retirement or typed owner-bank trial.
   Storage classification alone grants no immutable borrowing rights.
   The [resumed candidate audit](tyrax2-ee-vu0.md#next-60-hz-candidates-host-controls-2026-10-03)
   rejects the broad beam cache as a demonstrated driving gain, identifies

@@ -1,0 +1,304 @@
+{
+  "schema": 1,
+  "status": "PASS_private_road_owner_census_zero_copied_subset_and_observer_pricing",
+  "productionIntegrated": false,
+  "scope": "Same-ELF serialized frozen night Scene0 Off/On/Off and reverse; Road atlas census only; separate emulator protocol/raster controls",
+  "elfSha256": "d63a2c15f49251659abf34a9c7b5449159dfa6bf3e40c748951a3bacf176e890",
+  "sourceManifestSha256": "c5ecd969887b7d818938d6bea349a59dc34282abf66621e368162ad9cef494c9",
+  "sourceInventory": {
+    "inventoried": 495,
+    "actualUsedMirror": 486,
+    "ancillaryMetadata": 9
+  },
+  "usedMirrorProofSha256": "9b4e34528da455c2d189402c7ffde7862d0d8eb18331d6b0720eaa98d26dd71e",
+  "nativeExit": 0,
+  "archives": [
+    {
+      "environment": "emulator",
+      "order": 0,
+      "archive": "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-owner-v3-emulator0-evidence",
+      "records": 384,
+      "sourceLaunchQualified": true,
+      "independentReviewStatus": "PASS_independent_road_owner_ref_census_archive"
+    },
+    {
+      "environment": "emulator",
+      "order": 1,
+      "archive": "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-owner-v3-emulator1-evidence",
+      "records": 384,
+      "sourceLaunchQualified": true,
+      "independentReviewStatus": "PASS_independent_road_owner_ref_census_archive"
+    },
+    {
+      "environment": "physical",
+      "order": 0,
+      "archive": "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-owner-v3-physical0-evidence",
+      "records": 384,
+      "sourceLaunchQualified": true,
+      "independentReviewStatus": "PASS_independent_road_owner_ref_census_archive"
+    },
+    {
+      "environment": "physical",
+      "order": 1,
+      "archive": "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-owner-v3-physical1-evidence",
+      "records": 384,
+      "sourceLaunchQualified": true,
+      "independentReviewStatus": "PASS_independent_road_owner_ref_census_archive"
+    }
+  ],
+  "physicalPairAudit": {
+    "path": "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-owner-census-v3-runtime-independent-review\\physical-pair-audit.json",
+    "accepted": true,
+    "sha256": "2b27a8fd6ce92c4902d3b56d4dd021ce0bc9de1ac3c321dd22648ee500614e24",
+    "initialAttempt": "Ancillary pair auditor failed with KeyError at line49 (wrong metrics object); no target/source change and no acceptance inferred from failed audit.",
+    "summarySha256": "20327757041711faac3334cd70e17af1bf2db2808d5daaebff8039b0b706d6c5",
+    "records": 768,
+    "exactStatus": "PASS_independent_physical_raw_pair_and_four_attestation_contracts"
+  },
+  "ownerInventory": [
+    {
+      "roads": 66,
+      "generation": 1,
+      "registeredUsedBytes": 1288080,
+      "registryCapacity": 256,
+      "registryMetadataBytes": 5120,
+      "guardMetadataBytes": 23040,
+      "commonGuardChecks": 1536,
+      "scope": "Static recorded owner atlas; capacity and used volume are not copied-byte measurements or immutable-lifetime proof",
+      "rangeCount": 198
+    },
+    {
+      "roads": 66,
+      "generation": 1,
+      "registeredUsedBytes": 1288080,
+      "registryCapacity": 256,
+      "registryMetadataBytes": 5120,
+      "guardMetadataBytes": 23040,
+      "commonGuardChecks": 1536,
+      "scope": "Static recorded owner atlas; capacity and used volume are not copied-byte measurements or immutable-lifetime proof",
+      "rangeCount": 198
+    }
+  ],
+  "physicalCountsPerSampledFrame": {
+    "sampleFrames": 128,
+    "classes": {
+      "UnknownOther": {
+        "workRefs": 11.0,
+        "workQwords": 165.0,
+        "publishedRefs": 11.0,
+        "publishedQwords": 165.0,
+        "primitiveCopyBytes": 2640.0,
+        "publishedMutableCopyBytes": 2640.0,
+        "unpublishedPrimitiveCopyRefs": 0.0,
+        "unpublishedPrimitiveCopyBytes": 0.0
+      },
+      "Pool": {
+        "workRefs": 181.0,
+        "workQwords": 2490.0,
+        "publishedRefs": 181.0,
+        "publishedQwords": 2490.0,
+        "primitiveCopyBytes": 39840.0,
+        "publishedMutableCopyBytes": 39840.0,
+        "unpublishedPrimitiveCopyRefs": 0.0,
+        "unpublishedPrimitiveCopyBytes": 0.0
+      },
+      "BagDeclared": {
+        "workRefs": 229.0,
+        "workQwords": 8085.0,
+        "publishedRefs": 229.0,
+        "publishedQwords": 8085.0,
+        "primitiveCopyBytes": 129360.0,
+        "publishedMutableCopyBytes": 129360.0,
+        "unpublishedPrimitiveCopyRefs": 0.0,
+        "unpublishedPrimitiveCopyBytes": 0.0
+      }
+    },
+    "snapshot": {
+      "snapshotAttemptsPerFrame": 106.0,
+      "snapshotPublishedPerFrame": 106.0,
+      "snapshotFailedPerFrame": 0.0,
+      "failedCopiesPerFrame": 0.0,
+      "publishedBytesPerFrame": 223328.0,
+      "publishedBorrowedBytesPerFrame": 2151152.0
+    },
+    "coverage": {
+      "foreignCopyRefsPerFrame": 0.0,
+      "stalePoolNotesPerFrame": 0.0,
+      "ownerNotesPerFrame": 410.0,
+      "observedPoolFractionOfPrimitiveCopyBytesLowerBound": 0.23184357541899442,
+      "observedPoolFractionOfPublishedMutableCopyBytesLowerBound": 0.23184357541899442,
+      "unknownPrimitiveCopyBytesPerFrame": 2640.0
+    },
+    "copiedBagOwnerSubsets": {
+      "Road": {
+        "workRefs": 0.0,
+        "workQwords": 0.0,
+        "publishedRefs": 0.0,
+        "publishedQwords": 0.0,
+        "primitiveCopyBytes": 0.0,
+        "publishedMutableCopyBytes": 0.0,
+        "unpublishedPrimitiveCopyRefs": 0.0,
+        "unpublishedPrimitiveCopyBytes": 0.0
+      },
+      "OtherBagDeclared": {
+        "workRefs": 229.0,
+        "workQwords": 8085.0,
+        "publishedRefs": 229.0,
+        "publishedQwords": 8085.0,
+        "primitiveCopyBytes": 129360.0,
+        "publishedMutableCopyBytes": 129360.0,
+        "unpublishedPrimitiveCopyRefs": 0.0,
+        "unpublishedPrimitiveCopyBytes": 0.0
+      }
+    },
+    "roadFractionOfPublishedMutableCopyBytes": 0.0,
+    "atlasLookupsPerFrame": 229.0,
+    "roadSubsetScope": "Actual copied/published Road subset of Bag, not atlas allocation capacity, immutable eligibility or DMA/display volume",
+    "scope": "successful snapshot publication, NOT DMA submit/completion/presentation; Pool is storage category lowerbound, NOT immutable borrowing permission"
+  },
+  "physicalOnStagesIdentical": true,
+  "physicalOnSamplesWithZeroRoad": 384,
+  "observerPriceOnMinusOffNonpacingMs": [
+    1.0742639435662156,
+    1.0758232010735398,
+    1.0729957951439744,
+    1.0760028892093203
+  ],
+  "outerNonpacingSpreadMs": [
+    0.0015592575073242188,
+    0.003007094065345939
+  ],
+  "physicalStages": [
+    {
+      "order": 0,
+      "stage": 0,
+      "observerEnabled": false,
+      "observedTiming": {
+        "wallMeanMs": 32.85553238126967,
+        "pacingMeanMs": 6.468118190765381,
+        "nonpacingMeanMs": 26.387414190504288
+      }
+    },
+    {
+      "order": 0,
+      "stage": 1,
+      "observerEnabled": true,
+      "observedTiming": {
+        "wallMeanMs": 32.854399628109405,
+        "pacingMeanMs": 5.392721494038899,
+        "nonpacingMeanMs": 27.461678134070503
+      }
+    },
+    {
+      "order": 0,
+      "stage": 2,
+      "observerEnabled": false,
+      "observedTiming": {
+        "wallMeanMs": 32.85722102059258,
+        "pacingMeanMs": 6.471366087595622,
+        "nonpacingMeanMs": 26.385854932996963
+      }
+    },
+    {
+      "order": 1,
+      "stage": 0,
+      "observerEnabled": true,
+      "observedTiming": {
+        "wallMeanMs": 32.85447014702691,
+        "pacingMeanMs": 5.400392320421007,
+        "nonpacingMeanMs": 27.454077826605904
+      }
+    },
+    {
+      "order": 1,
+      "stage": 1,
+      "observerEnabled": false,
+      "observedTiming": {
+        "wallMeanMs": 32.855236000484894,
+        "pacingMeanMs": 6.474153969022963,
+        "nonpacingMeanMs": 26.38108203146193
+      }
+    },
+    {
+      "order": 1,
+      "stage": 2,
+      "observerEnabled": true,
+      "observedTiming": {
+        "wallMeanMs": 32.85448545879788,
+        "pacingMeanMs": 5.397400538126628,
+        "nonpacingMeanMs": 27.45708492067125
+      }
+    }
+  ],
+  "targetMetadataBytes": {
+    "rootTables": 20512,
+    "metrics": 256,
+    "snapshotScope": 72,
+    "atlasRanges": 5120,
+    "ownerGuardRoads": 23040,
+    "fullQbufferNetAbiVerified": false
+  },
+  "hostControls": {
+    "actualArenaCases": 2234,
+    "assertionsEachO0O2": 44051,
+    "guardAssertions": 49,
+    "parserSyntheticPositives": 4,
+    "parserSyntheticNegatives": 19
+  },
+  "priorPublicRecordsPreserved": {
+    "F:\\Projects\\tyra-editor\\docs\\tyrax2-mutable-ref-census-2026-10-03.json": "84ef1d4f1d93441c74cab29e67d9fd1129d75aecbed60d86c7f3202d47d318d4",
+    "F:\\Projects\\tyra-editor\\docs\\tyrax2-mutable-ref-retained-census-2026-10-03.json": "bad0d6735062305234eff934ee090d242dd76fe6fd197e96e3b2515848381be0"
+  },
+  "countOnlyV2Comparison": {
+    "BagDeclaredBytesUnchanged": 129360,
+    "PoolBytesUnchanged": 39840,
+    "UnknownOtherBytesUnchanged": 2640,
+    "totalMutableCopiedBytesUnchanged": 171840,
+    "crossElfTimingSubtractionPerformed": false
+  },
+  "raster": "Exact RGB and converted working-alpha all3 exports per boot; camera/light/object guards. Crossboot equality observed, not required.",
+  "limits": [
+    "Zero Road is copied/published subset in this fixed workload, not absence of road rendering, atlas coverage failure, or a general zero-road-volume claim.",
+    "66 road chunks/198 registered ranges/1288080B are static inventory, not copied volume or immutable borrowing eligibility.",
+    "Common1536 owner guard checks are outside Count spans; their absolute application cost is unknown, not priced by On-Off.",
+    "Observer pricing is its own same-ELF inclusive nonpacing delta, not pure EE/GPU work or production gain; no cross-ELF subtraction.",
+    "Road atlas guards cannot detect raw unstamped writes or exact pointer-size-stamp ABA. Private frozen-owner contract only.",
+    "Snapshot publication is not DMA/display; root totals overlap copied payload and borrowed payload is external.",
+    "No60FPS claim, no production integration, no general Bag borrowing authorization."
+  ],
+  "evidenceSha256": {
+    "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-owner-v3-summary-tools\\actual-physical-summary.json": "20327757041711faac3334cd70e17af1bf2db2808d5daaebff8039b0b706d6c5",
+    "F:\\Projects\\tyrax2-lab-20261001\\resumed-mutable-ref-owner-census-v3\\root-native-proof-census.json": "7854f7aeb4e3fe35ec7d76bab65909b3ea7b0fd4cb76bb787a7ab28436591379",
+    "F:\\Projects\\tyrax2-lab-20261001\\resumed-mutable-ref-owner-census-v3\\root-used-mirror-proof-confirmed.json": "9b4e34528da455c2d189402c7ffde7862d0d8eb18331d6b0720eaa98d26dd71e",
+    "F:\\Projects\\tyrax2-lab-20261001\\resumed-mutable-ref-owner-census-v3\\target-source-manifest.json": "c5ecd969887b7d818938d6bea349a59dc34282abf66621e368162ad9cef494c9",
+    "F:\\Projects\\tyrax2-lab-20261001\\resumed-mutable-ref-owner-census-v3\\root-freeze-review.json": "8b2c3aa472877f6e3b6ef732f7b25278864f80e963a872383825f278c109de18",
+    "F:\\Projects\\tyrax2-lab-20261001\\resumed-mutable-ref-owner-census-v3\\source-control.json": "06199c7fad2894a9c39fb5c085cf662a949a57c15a4a827d4e6fa920233d388c",
+    "F:\\Projects\\tyrax2-lab-20261001\\resumed-mutable-ref-owner-census-v3\\source-closure-review.json": "0a5690cab35d66b8117e1769a77bce9fe3570faa346a4ab7cb5350bc40dab64a",
+    "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-owner-v3-root-abi\\proof.json": "f36f32257bb41f66451e4af2ac63b5609c618f854987edc372b3f26818c142a5",
+    "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-owner-v3-host-controls\\proof.json": "f5c57af24d560925c670aa1715eb75e5b286c3983f796cbfddaed4a33841b3ca",
+    "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-owner-census-v3-independent-review\\proof.json": "122531c1cdd0853cd34eee9487187100819d17a1771cd325735c18315910afe6",
+    "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-owner-v3-emulator0-evidence\\artifact-hashes.json": "7f80093822d9cfee0372d4ec39aa88643a1b02f8b564d7bfa4b7e55442281b63",
+    "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-owner-v3-emulator0-evidence\\strict-analysis.json": "233ce4d64100b8121d7d0fa8bedf8acdd0e090ebddcfe25cb65c9772b8a2d60b",
+    "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-owner-v3-emulator0-evidence\\source-launch-qualified.json": "e4465de410316ff52752468e77459c31e153e725ab93c51dd9473e05dc59e534",
+    "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-owner-census-v3-runtime-independent-review\\emulator0-review.json": "dc093ddc8537081eaf21399cc1def04d9d8f4c0ea39daef60bdfe553c74f18ed",
+    "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-owner-v3-emulator1-evidence\\artifact-hashes.json": "f24261e6aee0e4df189c1a3c0c51194d05c6e0de9437c5994ce14a439b8c30bf",
+    "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-owner-v3-emulator1-evidence\\strict-analysis.json": "375231514e6b79a5ad5dd1cf6b745f69f0f05f8d598dff1d8dc7b4509e45c338",
+    "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-owner-v3-emulator1-evidence\\source-launch-qualified.json": "82edc8879ccd4dc4eaefb0ee308554dd1173279ca01989834640b09caf99c440",
+    "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-owner-census-v3-runtime-independent-review\\emulator1-review.json": "6d2cfd50e8bcd0acd1e225117550ebf417aa213cbdb35021a9feabddbda37b79",
+    "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-owner-v3-physical0-evidence\\artifact-hashes.json": "9b7194f19a94e6f742641f4e371fa996150cfd7e714d7c7e0e40dfbfd46b5061",
+    "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-owner-v3-physical0-evidence\\strict-analysis.json": "c7e3fd28493ee520884045b5c8d31b32368c2b16d1a99799d293848e01916cd5",
+    "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-owner-v3-physical0-evidence\\source-launch-qualified.json": "2efcb7f34b5d5c163d78de5ab206d726ab212f79cbd056e4cb18ee9506a429b2",
+    "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-owner-census-v3-runtime-independent-review\\physical0-review.json": "f84fe811368256e030c6a1641d05247ef26f7e475d55959b760681cfe0a7c962",
+    "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-owner-v3-physical1-evidence\\artifact-hashes.json": "bf2d8744b17eb32c1226bc6464d798d31a24578e4387e9d1489df5b94f2ebcdc",
+    "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-owner-v3-physical1-evidence\\strict-analysis.json": "a05523805343ec50a3de81d7ce8fca6b395071ff389b0a010a600955f923f681",
+    "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-owner-v3-physical1-evidence\\source-launch-qualified.json": "617f5f672c77160d14c5ee2d9b77029776de3f8c0094182e9d197895b88709fd",
+    "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-owner-census-v3-runtime-independent-review\\physical1-review.json": "5ae4dce08504fc87b1edc247834ed2dc7c5359dbbf79b323b806fd281ed4bdf1",
+    "F:\\Projects\\tyra-editor\\docs\\tyrax2-mutable-ref-census-2026-10-03.json": "84ef1d4f1d93441c74cab29e67d9fd1129d75aecbed60d86c7f3202d47d318d4",
+    "F:\\Projects\\tyra-editor\\docs\\tyrax2-mutable-ref-retained-census-2026-10-03.json": "bad0d6735062305234eff934ee090d242dd76fe6fd197e96e3b2515848381be0",
+    "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-owner-census-v3-runtime-independent-review\\physical-pair-audit.json": "2b27a8fd6ce92c4902d3b56d4dd021ce0bc9de1ac3c321dd22648ee500614e24",
+    "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-owner-census-v3-runtime-independent-review\\audit-physical-pair.py": "24085f19df47f41b90d82d7c08711e1ac554bde56b5e8abecc09664f898da038",
+    "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-owner-census-v3-runtime-independent-review\\audit-physical-pair-before-variable-fix.py": "5bc201b6cfef1ad3a0e189a7dde4afb52c3d40fe53b77fb1bea881d148360f35",
+    "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-owner-census-v3-runtime-independent-review\\variable-failure-reproduced.log": "275a029732b3069ea96f197eebd4ed24cb2e64f2a1231c5c42454aa1b6a01ae6"
+  },
+  "date": "2026-10-03"
+}

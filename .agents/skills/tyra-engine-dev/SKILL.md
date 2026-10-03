@@ -1268,6 +1268,14 @@ Rules the same evening paid for:
   subsets and preserve pending readers through rebuild/LOD/scene teardown
   before proposing borrowing. Public MeshMaterialFrame aliases and VU0 skinning
   remain writable. See `docs/tyrax2-mutable-ref-retained-census-2026-10-03.json`.
+  The road-owner follow-up records198 used ranges/1288080 allocation bytes but
+  zero copied-original-road bytes in both PS2 orders: allocation inventory is
+  not copy traffic. Do not implement a road borrowing optimization for that
+  view or attribute derived clip Pool/baked bytes by ancestry. Its observer
+  adds1.073–1.076 ms inclusive; common pre/post owner guards sit outside the
+  clock span and have unpriced absolute cost. Next qualify an explicit static
+  GeoPart subset, without changing LOD/batching/materials to create traffic.
+  See `docs/tyrax2-road-owner-census-2026-10-03.json`.
 - **Renaming a private trial header affects generated translation units.**
   Check all local includes before freeze; scanning only API names misses stale
   include directives. Keep the failed build immutable and qualify a new fixture
