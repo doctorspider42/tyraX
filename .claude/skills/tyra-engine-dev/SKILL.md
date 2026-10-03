@@ -1260,7 +1260,14 @@ Rules the same evening paid for:
   count observer in both orders: this fixture adds about0.84–0.85 ms inclusive
   nonpacing, not pure EE cost. A separate owner bank must survive generic drains
   and detach qbuffers without deleting its pointers. See
-  `docs/tyrax2-mutable-ref-census-2026-10-03.json`.
+  `docs/tyrax2-mutable-ref-census-2026-10-03.json`. Its retained-HIT follow-up
+  qualifies98.46% of copied bytes (97.39% of REF operations), with unchanged
+  total171840 bytes/frame and2640 Unknown. Its own observer adds0.945–0.950 ms;
+  do not subtract costs across the two ELFs. BagDeclared is a pointer/count
+  storage match, not an allocation lease: measure narrow road/static-owner
+  subsets and preserve pending readers through rebuild/LOD/scene teardown
+  before proposing borrowing. Public MeshMaterialFrame aliases and VU0 skinning
+  remain writable. See `docs/tyrax2-mutable-ref-retained-census-2026-10-03.json`.
 - **Renaming a private trial header affects generated translation units.**
   Check all local includes before freeze; scanning only API names misses stale
   include directives. Keep the failed build immutable and qualify a new fixture

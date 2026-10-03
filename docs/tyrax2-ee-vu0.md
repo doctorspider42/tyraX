@@ -1,5 +1,33 @@
 # TyraX2 EE preparation and VU0 audit
 
+## Retained-command ownership coverage and observer pricing, 2026-10-03
+
+This private experiment records independently qualified same-ELF physical Off/On/Off and reverse orders, plus two emulator orders. It is a private observer experiment. The native build exited 0; the selected ELF is `4d1646134dd773f97666596e0f94a8a5b047769e67ad9047aaf18f1b8fb356d4`. The independent physical-pair audit verified both raw measurement sets and all four source/launch attestations.
+
+V2 adds exactly one ownership observation before appending a retained-HIT cached command block. The other 492 source/control inventory entries are byte-exact qualified V1a. Packet construction, actual REF resolution, Memo16, callbacks and the closed/drained stage-boundary root reset are unchanged. The actual inventory has 493 entries: 484 used native-mirror inputs plus 9 explicit ancillary metadata entries. Startup order config is archived separately.
+
+Each boot completed 768 frozen Scene loops and 384 sampled records, with 128 warm and 128 sampled loops per stage. Real beginFrame/renderScene/endFrame/synchronizeFrame, two common Count reads and actual pacing-delta accounting remain in every arm. Three offclock framebuffer exports per boot matched exactly in RGB and converted working alpha; camera/light/object guards were stable. All three physical On stages yielded identical sample counts:
+
+| Storage match | Mutable REFs/frame | Qwords/frame | Copied bytes/frame | Copied-byte share |
+|---|---:|---:|---:|---:|
+| UnknownOther |11|165|2640|1.5363%|
+| Pool |181|2490|39840|23.1844%|
+| BagDeclared |229|8085|129360|75.2793%|
+| Total |421|10740|171840|100%|
+
+Pool and Bag together match 410 of 421 mutable REF operations(97.3872%) and 169200 of 171840 copied bytes(98.4637%). This is storage classification, not immutable borrowing permission. Each frame also published 106 successful arena snapshots totaling 223328 snapshot bytes and 2151152 external borrowed bytes, with 410 ownership notes. Failed copies/snapshots, foreign/stale notes and invalid/overflow/conflict/lifecycle counters were zero in the physical sample blocks. Snapshot bytes already include copied payload plus root/CNT/alignment; borrowed bytes are external. These totals must not be added together or described as display completion counts.
+
+The count-only comparison with the accepted V1a record shows 83 REF operations and 99408 bytes/frame moving from UnknownOther to BagDeclared. Pool volume, total 421 REFs/171840 mutable bytes, snapshot count/bytes and borrowed bytes are unchanged. This demonstrates the retained-HIT observation gap in this workload; it does not identify every generated array or prove the remaining 2640 unknown bytes belong to clipping. No timing was subtracted across the V1a/V2 ELFs.
+
+Within V2's own physical orders, On increased mean nonpacing inclusive time by 0.944503/0.950303ms against Off in the first boot and 0.948154/0.949142ms in reverse order. Same-state outer spreads were 0.005800ms and 0.000988ms. Mean wall intervals remained near 33.327ms as pacing changed. These are aggregate observer costs under serialized real completion, not pure EE/GPU work, an optimization gain or a constant tax to subtract elsewhere. No 60 FPS or production-performance acceptance follows.
+
+Target metadata remains four root tables totaling 16416 bytes, Metrics 208 bytes, SnapshotScope 56 bytes and 24 additional qbuffer fields bytes; those fields do not establish the full class's net ABI growth. All source/native/asset/ELF, raw archive, attestation, strict parser and independent review pointers are hashed in the [machine record](tyrax2-mutable-ref-retained-census-2026-10-03.json). The previous accepted public V1a record is referenced by its actual repository hash and remains unchanged.
+
+A separate owner audit identifies two plausible bounded directions: sealed generated road-chunk arrays, or an explicit whitelist of nondeforming generated static-model GeoPart allocations. Their contribution to the 129360-byte Bag category is not measured. Registration must cover actual emitted ranges and preserve copied fallback; old allocations must survive pending readers through rebuild/LOD/scene teardown. Public MeshMaterialFrame pointers and shallow aliases permit writes, while VU0 skinning mutates position/normal outputs in place. Therefore neither every Bag nor every static-looking mesh can become borrowed memory by default. Content stamps are cache keys, not reader locks. Any separate append-only owner bank must avoid reuse on generic drain and adapt existing delete[]/dynamic-detach behavior explicitly.
+
+The original V1 exit 2 missing-header failure and V1a's exact two-include repair remain historical evidence. V2 qualified runtime coverage is a new result for its own source and does not retroactively replace the earlier measurements. The renderer/default remain production decisions separate from this private census.
+
+
 
 ## Mutable REF ownership census and observer pricing, 2026-10-03
 
@@ -24,8 +52,9 @@ and drain; aggregate takes retain generations. Exact-start emission notes
 classify actual copied ranges. Retained-command hits bypass the current note
 hook, explaining a source coverage gap without proving that every Unknown REF
 has one owner. Pool volume is a lower bound, not safe borrowing permission.
-Next add notes at retained replay, requalify actual counts and price that
-observer before choosing an append-only owner-bank experiment. Such a bank
+At this historical V1a stage, retained replay still needed notes and a new
+count/observer qualification. The V2 result above closes that coverage seam.
+Owner-attributed volume remains necessary before choosing an owner-bank experiment. Such a bank
 must survive midframe drains and reuse storage only at a proven frame-bank
 completion fence; qbuffer detachment must preserve allocator ownership.
 

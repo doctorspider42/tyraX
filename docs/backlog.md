@@ -417,8 +417,13 @@ recovered 0.50-0.72 ms of hardware `work`. What it did not do, ranked:
   The [private mutable REF census](tyrax2-mutable-ref-census-2026-10-03.json)
   now qualifies both orders on PS2/PCSX2: 171840 mutable bytes/frame, including
   Pool39840, Bag29952 and Unknown102048; observer adds 0.841–0.847 ms in the
-  serialized fixed Scene. Next cover retained-command hits, then choose a
-  typed owner-bank experiment from actual volume and price its complete cost.
+  serialized fixed Scene. Its historical Unknown category included retained hits.
+  The [retained-hit census](tyrax2-mutable-ref-retained-census-2026-10-03.json)
+  now qualifies both orders on PS2/PCSX2: Pool39840, Bag129360, Unknown2640
+  bytes/frame, unchanged total171840. This matches98.46% of copied bytes;
+  its own observer adds0.945–0.950 ms. Next measure road/selected static-owner
+  subsets before designing a narrow seal/retirement or typed owner-bank trial.
+  Storage classification alone grants no immutable borrowing rights.
   The [resumed candidate audit](tyrax2-ee-vu0.md#next-60-hz-candidates-host-controls-2026-10-03)
   rejects the broad beam cache as a demonstrated driving gain, identifies
   saturated-flicker over-invalidation, and records a private direct-recording
