@@ -4130,6 +4130,31 @@ generating nothing). Then, in PCSX2:
 - `Select-Object -First N` on a PowerShell script's output STOPS the script
   after N lines - a capture loop piped into it takes one shot and quits.
 
+## Weather and lit street lamps (format 107)
+
+`--vehicle-check` "wet roads and lamps" is the host layer (lamp heads, pool
+placement on the drawn surface, chunking, determinism, the packed UV, the
+weather state machine, the lamp level, and the codegen: lamps, streaming items,
+tables on disk, rain, Set Weather, nothing-generated-when-unused). Set
+`TYRAX_ROADLIGHT_DUMP=<dir>` to get its generated sources as gen<N>.txt. Then,
+in PCSX2 (docs/weather.md "What it costs" is the recipe):
+
+- **Fixture**: a short-path copy of the Motor District, player
+  `b632d92adecbb4e9` at (-3, -35) with rotation [pitch, heading, 0] (POSITIVE
+  pitch looks DOWN), walkSpeed/lookSpeed 0, `ravagerpark00001`'s flowGraph
+  removed, `"interleavePasses": "off"`, and the `district-night` save value's
+  default set to 1 (the mood script pins midnight on its first unpaused frame).
+  The scene's `"weather": 1` and `"streetLamps": 2` (Off, the clean A arm) go in
+  the .tyra scene entry.
+- **Launch PCSX2 yourself** (`pcsx2-qt.exe -elf <abs elf>`, keep the PID): the
+  Runner's `--run` kills every PCSX2 on the machine.
+- **Read**: the `Road_lamps` and `Rain` profiler rows, the HUD MEM in a
+  `--capture-frame`, and `// scene N: L lit lamps, pools V vertices` in the
+  generated scene_data.hpp. A streamed project's pools show in
+  `ROADSTREAM load resident ... vertices` and `ROADFILE open ... KB`.
+- **Big City at night**: its lamps are scene objects, so add furniture lamps to
+  its roads in the copy and give its ambience a non-running cycle at hour 0.
+
 ## Exact first-entry HUD acceptance (1.150.1)
 
 Use the stationary night fixture and record every frame through the exact

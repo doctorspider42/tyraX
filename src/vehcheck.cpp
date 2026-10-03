@@ -29,6 +29,7 @@
 #include "roadbridge.hpp"
 #include "roadfurniture.hpp"
 #include "roadstream.hpp"
+#include "roadlight.hpp"
 #include "roadfile.hpp"
 #include "pngquant.hpp"
 #include "roaddetail.hpp"
@@ -2162,6 +2163,7 @@ int run() {
     roadfurn::check(verdict);  // docs/roads.md "Street furniture"
     roadstream::check(verdict);  // docs/roads.md "Road streaming"
     roaddraw::check(verdict);  // docs/roads.md "Drawing roads"
+    roadlight::check(verdict);  // docs/weather.md "wet roads and lamps"
     roadfile::check(verdict);  // docs/roads.md "Tables on disk"
     damage();
     pieces();

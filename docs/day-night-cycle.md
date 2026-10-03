@@ -128,3 +128,11 @@ spotlights plus emissive dressing on resume. This exercises the existing hybrid
 cycle without duplicating scene geometry; it is not a Set Ambience sky-only
 swap or a replacement for separate GI bakes. The script also reapplies the
 light/visibility state on scene-generation changes.
+
+## Street lamps follow the cycle
+
+The road furniture's street lamps light themselves from the same sun: their
+pools, halos and wet reflections come on in the dusk (fully lit 3 degrees
+below the horizon, off at 6 above) and go off at dawn, through the live clock or
+a pinned hour like the district's. A cycle that does not run lights them at its
+baked hour. See [weather.md](weather.md).

@@ -59,6 +59,10 @@ builds measured 6.7-7.6 s. This excludes editor generation/baking and cold setup
   a give-way sign at each of their stop lines and traffic lights on Garage
   boulevard's four-way nodes - 128 instances generated at build (none of
   them scene objects), merged into 23 chunks; the poles and trunks are solid.
+  At night (pause menu > TIME OF DAY) the 50 lamps [light the street](../../docs/weather.md):
+  a baked pool of light under each, a halo round each head. Set a scene's
+  weather to Rain in Scene Preferences (or fire a Set Weather node) for wet
+  asphalt and the lamps' reflections streaking across it.
 
   ![PCSX2, mirrored in X: the Orchard fork between the ring road and Skyline avenue, the Service ramp leaving the ring, and the Quarry corner](../../docs/img/road-nodes-district.png)
 - **dense** adds buildings for a busier drive.

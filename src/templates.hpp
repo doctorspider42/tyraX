@@ -104,6 +104,14 @@ bool projectUsesFlare(const Project& p);
 // Gates the res/hud/flare-corona.png bake and BEAMS_USED in scene_data.hpp.
 bool projectUsesBeams(const Project& p);
 
+// Lit street lamps (docs/weather.md): a road with furniture lamps in a scene
+// whose lamps are not Off. Gates the pool rows, ROAD_LAMPS, the lamp runtime
+// and the res/hud/flare-corona.png bake (the pools and coronas draw through
+// it).
+bool projectHasLitLamps(const Project& p);
+// Weather (docs/weather.md): a scene that rains or a Set Weather node.
+bool projectUsesWeather(const Project& p);
+
 // True when any scene can show the camera flashlight (a Player object with it
 // enabled, or a Set Flashlight node that could switch one on at runtime).
 // Gates the res/hud/flashlight-gobo.png bake and FLASHLIGHT_USED in

@@ -935,6 +935,20 @@ void Tables::add(int scene, const Result& r) {
     }
 }
 
+void Tables::addLight(int scene, const std::vector<float>& xyz, const std::vector<uint32_t>& uv,
+                      const std::vector<int>& chunkSizes, const std::string& note) {
+    int at = (int)(verts.size() / 3);
+    for (int sz : chunkSizes) {
+        Row r{scene, at, sz};
+        r.light = 1;
+        rows.push_back(r);
+        at += sz;
+    }
+    verts.insert(verts.end(), xyz.begin(), xyz.end());
+    rgb.insert(rgb.end(), uv.begin(), uv.end());
+    notes += note;
+}
+
 std::string Tables::source(bool embedVerts) const {
     std::ostringstream out;
     auto lit = [](float v) {
@@ -950,7 +964,8 @@ std::string Tables::source(bool embedVerts) const {
            "// unchanged at scene load, with one collision box per instance.\n"
         << notes << "constexpr int ROAD_FURN_COUNT = " << rows.size() << ";\n"
         << "constexpr float ROAD_FURN_DRAW_DISTANCE = " << lit(kDrawDistance) << ";\n"
-        << "struct RoadFurnRt { int scene; int first; int count; };\n"
+        << (this->lit ? "struct RoadFurnRt { int scene; int first; int count; int light; };\n"
+                : "struct RoadFurnRt { int scene; int first; int count; };\n")
         << "constexpr int ROAD_FURN_BOX_COUNT = " << boxes.size() / 7 << ";\n";
     if (boxes.empty()) {
         out << "constexpr float ROAD_FURN_BOXES[1] = {};\n";
@@ -970,7 +985,9 @@ std::string Tables::source(bool embedVerts) const {
         return out.str();
     }
     out << "constexpr RoadFurnRt ROAD_FURN[" << rows.size() << "] = {\n";
-    for (const Row& r : rows) out << "    {" << r.scene << ", " << r.first << ", " << r.count << "},\n";
+    for (const Row& r : rows)
+        out << "    {" << r.scene << ", " << r.first << ", " << r.count
+            << (this->lit ? (r.light ? ", 1" : ", 0") : "") << "},\n";
     if (!embedVerts) {
         out << "};\n// ROAD_FURN_VERTS, ROAD_FURN_RGB: in bin/roadfile/roads.bin.\n";
         return out.str();
@@ -988,8 +1005,8 @@ std::string Tables::source(bool embedVerts) const {
     return out.str();
 }
 
-std::string uploadSource() {
-    return R"(  // STREET FURNITURE (docs/roads.md "Street furniture"): lamps, trees,
+std::string uploadSource(bool lit) {
+    std::string s = R"(  // STREET FURNITURE (docs/roads.md "Street furniture"): lamps, trees,
   // bollards, signs and traffic lights - host-baked triangle lists in vertex
   // colour, one ROAD_FURN row per cell chunk, uploaded unchanged. Owner -7:
   // renderProcChunks draws them (frustum reject, the chunk draw distance,
@@ -1044,6 +1061,35 @@ std::string uploadSource() {
                " boxes ", furnBoxes);
   }
 )";
+    if (!lit) return s;
+    // Lit street lamps (docs/weather.md): a light row is a lamp POOL - an
+    // additive decal through the corona sprite, its UV packed in the colour
+    // word, drawn at night by renderRoadLamps (the colour is the night level,
+    // one per frame, bound by procFinishChunks).
+    const std::string from = "      c.stripRun = 0;\n"
+                             "      for (int v = 0; v < fr.count; ++v) {\n"
+                             "        const float* p = &ROAD_FURN_VERTS[(size_t)(fr.first + v) * 3];\n"
+                             "        const unsigned int rgb = ROAD_FURN_RGB[fr.first + v];\n"
+                             "        c.vertices.push_back(Tyra::Vec4(p[0], p[1], p[2], 1.0F));\n";
+    const std::string to = "      c.stripRun = 0;\n"
+                           "      c.lampLight = fr.light;\n"
+                           "      if (fr.light) {\n"
+                           "        c.drawDist = ROAD_LAMP_DRAW_DISTANCE;\n"
+                           "        c.roadTex = beamCoronaTex;\n"
+                           "        c.colors.shrink_to_fit();  // no per-vertex colour: one per frame\n"
+                           "      }\n"
+                           "      for (int v = 0; v < fr.count; ++v) {\n"
+                           "        const float* p = &ROAD_FURN_VERTS[(size_t)(fr.first + v) * 3];\n"
+                           "        const unsigned int rgb = ROAD_FURN_RGB[fr.first + v];\n"
+                           "        c.vertices.push_back(Tyra::Vec4(p[0], p[1], p[2], 1.0F));\n"
+                           "        if (fr.light) {\n"
+                           "          c.sts.push_back(Tyra::Vec4((float)((rgb >> 12) & 4095U) * (1.0F / 4095.0F),\n"
+                           "                                     (float)(rgb & 4095U) * (1.0F / 4095.0F), 1.0F, 0.0F));\n"
+                           "          continue;\n"
+                           "        }\n";
+    const size_t at = s.find(from);
+    if (at != std::string::npos) s.replace(at, from.size(), to);
+    return s;
 }
 
 // --- --vehicle-check "road furniture" ------------------------------------------------

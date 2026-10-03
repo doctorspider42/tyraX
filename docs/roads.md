@@ -1364,15 +1364,29 @@ as needing a rebuild (`liveLinkRecipeHash`, mixed only when set).
 
 ### Lamps that light
 
-A built-in lamp's lens is unshaded (its full warm colour), but the lamp casts
-no light: it creates no light object. (How the baked colours read at night was
-not checked - the captures are daytime.) Light the street the way the Motor
-District already does - place **Point** or **Spot** lights (and their ground
-pools) at the lamps you want lit; `--road-crossings` gives no positions, but
-the viewport shows every lamp. Generating one light per lamp is deliberately
-not done: the console's dynamic-light budget is a handful per view, not one per
-lamp, so a generated light would need its own budgeting (nearest-N per frame)
-first - see the backlog.
+At night the lamps light the street ([weather.md](weather.md)). Each lamp gets a
+**pool** of warm light on the road under its head, and a **halo** round the
+head. On a wet road it also gets a **reflection** streaking toward the viewer.
+
+None of these is a dynamic light. The console's light budget is a handful per
+view, and a city has hundreds of lamps. So the pieces are built cheaply:
+
+- the pool is a host-baked additive decal laid on the drawn surface. It goes in
+  extra `ROAD_FURN` rows with a `light` column, so it streams and pages with the
+  furniture;
+- the halos and streaks are one sprite bag rebuilt per frame from a 10-float
+  `ROAD_LAMPS` row per lamp;
+- the night level is one colour per frame.
+
+When the lamps light is the scene's **Street lamps** setting (Scene Preferences):
+*Auto* follows the day/night cycle's sun, or a lamp can be *Always on* or *Off*.
+The lamps' own lens is unshaded (its full warm colour) at any hour.
+
+In the Motor District the cost is 50 lamps, 3 342 pool vertices, about +0.3 MB
+and about +0.5 ms in PCSX2 at a street-level night pose. The numbers, the
+streaming and Big City are in weather.md, "What it costs".
+
+![PCSX2, Motor District at night: the lamps' pools on Garage boulevard's pavements and road, their halos down the street](img/road-night-lamps-pcsx2.png)
 
 ### What it costs
 
@@ -1417,7 +1431,8 @@ distance, and strips instead of lists.
 - Furniture is not a shadow caster (the baked shadow bake reads objects) and
   is not lit by the light probes; its shade is baked.
 - The draw distance is a constant, not a project setting.
-- A lamp is not a light (see above).
+- A lamp lights the street with a baked pool and a halo, not a dynamic
+  light: it does not light models or cars (see "Lamps that light").
 
 `--vehicle-check` "road furniture" builds a kerbed T with pavements and zebras,
 a four-way crossing with lights, a give-way T and a lone kerbless street, and
@@ -1823,6 +1838,7 @@ canonicalizes only that integer part; positions and fractional UVs remain exact.
 | `src/roaddraw_ui.cpp` | The tool in the viewport (panel, preview, clicks), the bridge height handles and Properties' Preset section. |
 | `src/roadpresets.cpp/.hpp` | The preset table, the on-demand materials, `apply` / `fromRoad`, the project presets' JSON ("Road presets"). |
 | `src/roadfurniture.cpp/.hpp`, `src/roadfurniture_ui.cpp` | Street furniture: placement, the built-in models, `.obj` instancing, the console tables and upload, `--vehicle-check` "road furniture", and the Properties section ("Street furniture"). |
+| `src/roadlight.cpp/.hpp`, `src/weather_core.inl` | Lit street lamps and weather ([weather.md](weather.md)): the lamp pools' bake, `ROAD_LAMPS`, the generated lamp/rain/wet-tint runtime and its template hooks, the weather state machine shared with the game, `--vehicle-check` "wet roads and lamps". |
 
 ## Adaptive street geometry budget (1.86.3)
 

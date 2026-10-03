@@ -175,6 +175,11 @@ over guessing from this file.
   "play the cutscene, then carry on"; its bool output is "a cutscene is playing
   right now", for gating gameplay logic out while one runs.
   **Set Sound Volume** ducks all sound effects (music has its own node).
+  **Set Weather** (Dry / Rain, intensity 0..1, transition seconds) makes it
+  rain round the camera; the roads get wet over ~6 s and dry over ~40 s on
+  their own, and at night the street lamps reflect in them. 0 seconds switches
+  at once (wet roads included) - use that from On Start. A scene's starting
+  weather is set in Scene Preferences, not with this node.
   **Play Credits** rolls a credits screen (Tools > Credits Editor) by name: it
   takes over the screen and the pad - this graph included - until it ends or the
   player skips it, then runs the ROLL's own finish action (resume / switch scene

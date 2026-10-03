@@ -194,13 +194,22 @@ std::vector<ModelTri> builtinModel(int kind, int signKind = kSignGiveWay);
 struct Tables {
     struct Row {
         int scene, first, count;
+        int light = 0;  // 1 = a street lamp POOL row (docs/weather.md)
     };
     std::vector<Row> rows;
     std::vector<float> verts;        // x, y, z
-    std::vector<uint32_t> rgb;       // per vertex
+    std::vector<uint32_t> rgb;       // per vertex (a pool row: its packed UV)
     std::vector<float> boxes;        // scene, min xyz, max xyz
     std::string notes;               // "// scene N: ..." lines
+    // Lit street lamps (docs/weather.md): the rows carry a `light` column, and
+    // a light row's colour word is its texture coordinate (roadlight::packUv).
+    // False = the tables print exactly as they did before lamps lit.
+    bool lit = false;
     void add(int scene, const Result& r);
+    // One scene's lamp pools (roadlight::bakePools): x y z per vertex, the
+    // packed UV in the colour word, whole chunks.
+    void addLight(int scene, const std::vector<float>& xyz, const std::vector<uint32_t>& uv,
+                  const std::vector<int>& chunkSizes, const std::string& note);
     // embedVerts false (docs/roads.md "Tables on disk"): the rows, boxes and
     // counts only - the vertices and colours are in bin/roadfile/roads.bin.
     std::string source(bool embedVerts = true) const;
@@ -208,7 +217,9 @@ struct Tables {
 // The block spliced into the generated buildRoads before procFinishChunks:
 // owner -7 chunks (renderProcChunks draws them: frustum reject, the chunk
 // draw distance, occlusion) and owner -7 procColliders.
-std::string uploadSource();
+// `lit`: the pool rows' variant (Tables::lit) - the same text plus the light
+// column's lines, so a project without lamps keeps its exact source.
+std::string uploadSource(bool lit = false);
 
 // --vehicle-check "road furniture".
 void check(void (*verdict)(bool, const char*));

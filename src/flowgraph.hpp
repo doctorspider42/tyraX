@@ -1280,6 +1280,24 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
          .desc = "Controls the sun lens flare. It follows the scene's "
                  "lighting direction and hides behind geometry, so there is "
                  "nothing to position."},
+        {.key = "SetWeather", .title = "Set Weather", .category = "Scene",
+         .numCount = 3, .numLabels = {"Weather", "Intensity", "Seconds"},
+         .numTips = {"Dry stops the rain; Rain starts it. The roads follow on "
+                     "their own: they get wet over about 6 s of rain and dry "
+                     "over about 40 s after it stops.",
+                     "How hard it rains, 0..100%: the number of drops and how "
+                     "wet the roads get. Ignored for Dry.",
+                     "How long the rain takes to reach the new intensity, in "
+                     "seconds. 0 switches at once, wet roads included - the way "
+                     "to set a scene up from On Start."},
+         .numChoices = {"Dry|Rain"},
+         .numPercent = {false, true, false},
+         .desc = "Changes the weather (docs/weather.md): rain around the "
+                 "camera, darker wet asphalt, and - at night - the street "
+                 "lamps' reflections streaking across the wet road. The "
+                 "scene's own weather (Scene Preferences) is what a scene "
+                 "load starts with. Not hot-patchable by Live Logic: a graph "
+                 "that gains this node needs a rebuild."},
         {.key = "SetGodRays", .title = "Set God Rays", .category = "Scene",
          .numCount = 1, .numLabels = {"Amount"},
          .numTips = {"Shaft strength, 0 off to 1. A wired number replaces it."},
