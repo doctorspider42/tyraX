@@ -337,6 +337,40 @@ are not an accepted candidate gain. Next qualify exact Off/On/Off raster pairs,
 ordinary motion/scene/resource lifecycles and native macro profiles before
 production integration or a 60 Hz claim.
 
+
+## Direct-producer fixed raster and net route cost, 2026-10-03
+
+The corrected private producer now passes both Off/On/Off and On/Off/On on
+PCSX2 and physical PS2, using one ELF and the current Memo16 engine. Each boot
+records 384 samples and three completed GS readbacks. All three rasters are
+byte-identical within each boot; the two boots also match within each device.
+The frozen camera, world/light guards, positive On commits and zero invalid
+packets qualify this narrow plain-night workload. Working alpha is converted
+with saturation; this does not establish raw GS alpha equivalence above 127.
+
+The physical result rejects this candidate as a demonstrated optimization.
+Off nonpacing work is about 26.68–26.69 ms; On is 27.51–27.52 ms. All four
+within-boot contrasts add0.828–0.841ms, while outer same-policy means differ
+by 0.0024/0.0065 ms. Total elapsed remains about 33.33 ms because pacing shrinks.
+The span includes begin/render/end and actual VIF/GS synchronization, so this
+is an inclusive route regression, not a pure producer EE instruction bill.
+It cannot be priced by subtracting the separate replay scanner experiment.
+
+The first native attempt failed on an undefined disabled-probe macro. Its
+successor passed raster/protocol checks but was rejected for 16 host-log opens
+inside the frozen interval. The final fixture suppresses the entire generated
+contact-telemetry observer and only healthy SIF announcements in every arm;
+warnings/counters and fatal guards remain. Both orders now have zero observed
+host log opens between FREEZE and DONE. Common clocks and apparatus remain
+unpriced; no cross-ELF observer correction is applied.
+
+The [machine record](tyrax2-direct-producer-raster-2026-10-03.json) retains
+all four accepted archives, the rejected attempts, raw statistics and source,
+ELF, asset and independent-parser provenance. Motion, scene/resource lifetime,
+native macro profiles and ordinary authored-night/Showcase FPS remain open.
+Keep the gate private and Off by default. Audit remaining passes and native
+encoding before expanding a slower candidate into production.
+
 A proposed Showcase matrix trigonometry cleanup was also rejected before
 integration. The actual optimized MIPS function already calls sinf and cosf
 three times each; host wrappers that count calls prevented the compiler's

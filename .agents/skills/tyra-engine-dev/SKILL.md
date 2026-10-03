@@ -1279,8 +1279,17 @@ Rules the same evening paid for:
   source packets or turn a divergent ledger into transparent fallback. Host
   controls must seed dirty tags through the actual SDK setter and check later
   PAD mutations, not just freshly zeroed modeled tags. The corrected private
-  activation passes PS2/PCSX2, but has no accepted raster or speed result yet.
+  activation passes PS2/PCSX2. Its later fixed raster trial passes exact GS
+  readbacks in both orders, but On regresses inclusive nonpacing by about 0.83 ms;
+  this candidate is not an accepted speed gain.
   See `docs/tyrax2-direct-producer-activation-2026-10-03.json`.
+- **Muting renderer reports does not silence generated-game observers.** A
+  private raster timing trial still performed 16 host log opens after freeze:
+  contact telemetry ran every 50 driven frames, and healthy SIF guard reports
+  remained. Suppress the whole observer work identically in all arms, preserve
+  warnings/fatal semantics, and reject actual host-log IO inside the frozen
+  interval. Keep protocol/raster success separate from rejected timing.
+  See `docs/tyrax2-direct-producer-raster-2026-10-03.json`.
 - **VU memory snapshot labels must be checked against addresses.** The installed
   SDK `vif_registers.h` names `VU1_MEM1_START` as 0x11008000 and
   `VU1_MICROMEM1_START` as 0x1100c000, opposite the actual program/data map.

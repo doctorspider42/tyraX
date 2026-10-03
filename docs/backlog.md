@@ -405,8 +405,11 @@ recovered 0.50-0.72 ms of hardware `work`. What it did not do, ranked:
   [Direct-producer activation](tyrax2-direct-producer-activation-2026-10-03.json)
   now passes 5400 ordinary-clock loops on PS2 and PCSX2 after a diagnosed
   reserved DMA-padding mismatch; positive commits and zero invalid packets
-  prove real use. The candidate remains private pending raster/motion/resource
-  lifecycle checks, native macro profiles and controlled speed comparisons.
+  prove real use. The [fixed raster comparison](tyrax2-direct-producer-raster-2026-10-03.json)
+  now passes both physical and emulator orders with exact GS image pairs.
+  It rejects a speed gain: On adds 0.828–0.841 ms nonpacing in all four physical
+  brackets. Keep the candidate private/Off; audit remaining passes/encoding
+  before broader motion/resource checks, native profiles and ordinary FPS trials.
   The [resumed candidate audit](tyrax2-ee-vu0.md#next-60-hz-candidates-host-controls-2026-10-03)
   rejects the broad beam cache as a demonstrated driving gain, identifies
   saturated-flicker over-invalidation, and records a private direct-recording

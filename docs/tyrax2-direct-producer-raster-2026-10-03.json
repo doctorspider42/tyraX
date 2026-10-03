@@ -1,0 +1,1092 @@
+{
+  "schema": 1,
+  "date": "2026-10-03",
+  "scope": "Private fixed plain-night Scene direct-producer route qualification; production unchanged",
+  "fixture": "F:\\Projects\\tyrax2-lab-20261001\\resumed-direct-producer-raster-v1c",
+  "records": [
+    {
+      "environment": "emulator",
+      "order": 0,
+      "archive": "F:\\Projects\\tyrax2-lab-20261001\\direct-raster-v1c-emulator0-evidence",
+      "review": "F:\\Projects\\tyrax2-lab-20261001\\direct-raster-v1c-independent-tools\\actual-emulator0-review.json",
+      "reviewSha256": "5b9194fca877bd50f8913f025bb9f0ce5307262c3a17d076b958ef253fff3a09",
+      "artifactMapSha256": "8b70ebbd711825aec1f204161edfbd8c00a63584f3df5f817f732221e59da0d4",
+      "rawSha256": "1fc83c83f3bd71f608667b166979ad1518d35b4f9e9222bab12f198fe654f9e0",
+      "stdoutSha256": "47b87c551d931d13b6850d17b945a3c0d5a01ae224e9118378ffc572dfcbde0a",
+      "elfSha256": "76278dea7ea5aabe4c02e5facd1c5c2192788f945c7a2189b8d29c810338187b",
+      "symbolsSha256": "7f94bb9eab0b7d413610850a40c73ad3187c07e897bb1000963438cdd2dd6b89",
+      "sourceManifestSha256": "0a838779971b0007e6b531cbe01dfc2397ac1c56beacbb56d5a64a1d3edb9099",
+      "sourceFiles": 493,
+      "nativeExit": 0,
+      "loops": 768,
+      "samples": 384,
+      "exactWithinBootRaster": true,
+      "hostLogIOBetweenFreezeAndDone": 0,
+      "stageResults": [
+        {
+          "stage": 0,
+          "policy": 0,
+          "elapsed": {
+            "samples": 128,
+            "mean_ticks": 4913477.4296875,
+            "mean_ms": 16.660825702879166,
+            "median_ms": 16.661512586805557,
+            "min_ms": 16.643775092230904,
+            "max_ms": 16.679263644748264
+          },
+          "nonpacing": {
+            "samples": 128,
+            "mean_ticks": 2234663.90625,
+            "mean_ms": 7.5773922602335615,
+            "median_ms": 7.575748019748264,
+            "min_ms": 7.538876003689236,
+            "max_ms": 7.626376681857639
+          },
+          "warm": {
+            "stage": "0",
+            "part": "warm",
+            "attempts": "0",
+            "committed": "0",
+            "declined": "0",
+            "invalid": "0",
+            "operations": "0",
+            "inlinePayloadQwords": "0",
+            "prefixHighQwords": "0"
+          },
+          "sample": {
+            "stage": "0",
+            "part": "sample",
+            "attempts": "0",
+            "committed": "0",
+            "declined": "0",
+            "invalid": "0",
+            "operations": "0",
+            "inlinePayloadQwords": "0",
+            "prefixHighQwords": "0"
+          },
+          "framebufferAddresses": {
+            "0": 0,
+            "1": 200704
+          }
+        },
+        {
+          "stage": 1,
+          "policy": 1,
+          "elapsed": {
+            "samples": 128,
+            "mean_ticks": 4913378.4375,
+            "mean_ms": 16.660490036010742,
+            "median_ms": 16.661512586805557,
+            "min_ms": 16.635413275824654,
+            "max_ms": 16.66644287109375
+          },
+          "nonpacing": {
+            "samples": 128,
+            "mean_ticks": 2290497.4140625,
+            "mean_ms": 7.76671486430698,
+            "median_ms": 7.765909830729167,
+            "min_ms": 7.730658637152778,
+            "max_ms": 7.821831597222222
+          },
+          "warm": {
+            "stage": "1",
+            "part": "warm",
+            "attempts": "13440",
+            "committed": "9088",
+            "declined": "4352",
+            "invalid": "0",
+            "operations": "78848",
+            "inlinePayloadQwords": "126720",
+            "prefixHighQwords": "2504"
+          },
+          "sample": {
+            "stage": "1",
+            "part": "sample",
+            "attempts": "13440",
+            "committed": "9088",
+            "declined": "4352",
+            "invalid": "0",
+            "operations": "78848",
+            "inlinePayloadQwords": "126720",
+            "prefixHighQwords": "2504"
+          },
+          "framebufferAddresses": {
+            "0": 0,
+            "1": 200704
+          }
+        },
+        {
+          "stage": 2,
+          "policy": 0,
+          "elapsed": {
+            "samples": 128,
+            "mean_ticks": 4913255.8515625,
+            "mean_ms": 16.660074366463554,
+            "median_ms": 16.661509195963543,
+            "min_ms": 16.639136420355904,
+            "max_ms": 16.675428602430557
+          },
+          "nonpacing": {
+            "samples": 128,
+            "mean_ticks": 2234097.1875,
+            "mean_ms": 7.575470606486003,
+            "median_ms": 7.5731557210286455,
+            "min_ms": 7.536790635850695,
+            "max_ms": 7.633494059244792
+          },
+          "warm": {
+            "stage": "2",
+            "part": "warm",
+            "attempts": "0",
+            "committed": "0",
+            "declined": "0",
+            "invalid": "0",
+            "operations": "0",
+            "inlinePayloadQwords": "0",
+            "prefixHighQwords": "0"
+          },
+          "sample": {
+            "stage": "2",
+            "part": "sample",
+            "attempts": "0",
+            "committed": "0",
+            "declined": "0",
+            "invalid": "0",
+            "operations": "0",
+            "inlinePayloadQwords": "0",
+            "prefixHighQwords": "0"
+          },
+          "framebufferAddresses": {
+            "0": 0,
+            "1": 200704
+          }
+        }
+      ],
+      "imageSha256": [
+        "b13fca1a98f2dc1b0392ab2f194a9fe459584f7521689590460a1117456df216",
+        "b13fca1a98f2dc1b0392ab2f194a9fe459584f7521689590460a1117456df216",
+        "b13fca1a98f2dc1b0392ab2f194a9fe459584f7521689590460a1117456df216"
+      ]
+    },
+    {
+      "environment": "emulator",
+      "order": 1,
+      "archive": "F:\\Projects\\tyrax2-lab-20261001\\direct-raster-v1c-emulator1-evidence",
+      "review": "F:\\Projects\\tyrax2-lab-20261001\\direct-raster-v1c-independent-tools\\actual-emulator1-review.json",
+      "reviewSha256": "3bc95366267c5fb4deab2b913c0efe658e53da99a7c1b6478082350cca577ed0",
+      "artifactMapSha256": "238c6c978125ce392672a4d6389b66f30b63df260fb8ab43eef32cb49a4fcbf1",
+      "rawSha256": "6115b11b0544e9cbea6a3de56f9e90874d742ec01da8bf1560ab3f6495626844",
+      "stdoutSha256": "8c48f1c5c09138c45309c654cdaa1e733039e678a43fd702ab5ce6ca96fc80f7",
+      "elfSha256": "76278dea7ea5aabe4c02e5facd1c5c2192788f945c7a2189b8d29c810338187b",
+      "symbolsSha256": "7f94bb9eab0b7d413610850a40c73ad3187c07e897bb1000963438cdd2dd6b89",
+      "sourceManifestSha256": "0a838779971b0007e6b531cbe01dfc2397ac1c56beacbb56d5a64a1d3edb9099",
+      "sourceFiles": 493,
+      "nativeExit": 0,
+      "loops": 768,
+      "samples": 384,
+      "exactWithinBootRaster": true,
+      "hostLogIOBetweenFreezeAndDone": 0,
+      "stageResults": [
+        {
+          "stage": 0,
+          "policy": 1,
+          "elapsed": {
+            "samples": 128,
+            "mean_ticks": 4913429.109375,
+            "mean_ms": 16.660661856333416,
+            "median_ms": 16.661512586805557,
+            "min_ms": 16.636983235677082,
+            "max_ms": 16.68398708767361
+          },
+          "nonpacing": {
+            "samples": 128,
+            "mean_ticks": 2289951.0078125,
+            "mean_ms": 7.764862087037828,
+            "median_ms": 7.7640126546223955,
+            "min_ms": 7.72624037000868,
+            "max_ms": 7.81086900499132
+          },
+          "warm": {
+            "stage": "0",
+            "part": "warm",
+            "attempts": "13440",
+            "committed": "9085",
+            "declined": "4355",
+            "invalid": "0",
+            "operations": "78830",
+            "inlinePayloadQwords": "126693",
+            "prefixHighQwords": "2574"
+          },
+          "sample": {
+            "stage": "0",
+            "part": "sample",
+            "attempts": "13440",
+            "committed": "9088",
+            "declined": "4352",
+            "invalid": "0",
+            "operations": "78848",
+            "inlinePayloadQwords": "126720",
+            "prefixHighQwords": "2504"
+          },
+          "framebufferAddresses": {
+            "0": 0,
+            "1": 200704
+          }
+        },
+        {
+          "stage": 1,
+          "policy": 0,
+          "elapsed": {
+            "samples": 128,
+            "mean_ticks": 4913470.8515625,
+            "mean_ms": 16.66080339749654,
+            "median_ms": 16.661512586805557,
+            "min_ms": 16.640730116102432,
+            "max_ms": 16.68020968967014
+          },
+          "nonpacing": {
+            "samples": 128,
+            "mean_ticks": 2234208.90625,
+            "mean_ms": 7.575849427117242,
+            "median_ms": 7.574249267578125,
+            "min_ms": 7.53700425889757,
+            "max_ms": 7.61582777235243
+          },
+          "warm": {
+            "stage": "1",
+            "part": "warm",
+            "attempts": "0",
+            "committed": "0",
+            "declined": "0",
+            "invalid": "0",
+            "operations": "0",
+            "inlinePayloadQwords": "0",
+            "prefixHighQwords": "0"
+          },
+          "sample": {
+            "stage": "1",
+            "part": "sample",
+            "attempts": "0",
+            "committed": "0",
+            "declined": "0",
+            "invalid": "0",
+            "operations": "0",
+            "inlinePayloadQwords": "0",
+            "prefixHighQwords": "0"
+          },
+          "framebufferAddresses": {
+            "0": 0,
+            "1": 200704
+          }
+        },
+        {
+          "stage": 2,
+          "policy": 1,
+          "elapsed": {
+            "samples": 128,
+            "mean_ticks": 4913308.359375,
+            "mean_ms": 16.660252412160236,
+            "median_ms": 16.661509195963543,
+            "min_ms": 16.63913302951389,
+            "max_ms": 16.676537407769096
+          },
+          "nonpacing": {
+            "samples": 128,
+            "mean_ticks": 2289930.65625,
+            "mean_ms": 7.764793078104655,
+            "median_ms": 7.7636566162109375,
+            "min_ms": 7.728868272569445,
+            "max_ms": 7.819820827907986
+          },
+          "warm": {
+            "stage": "2",
+            "part": "warm",
+            "attempts": "13440",
+            "committed": "9088",
+            "declined": "4352",
+            "invalid": "0",
+            "operations": "78848",
+            "inlinePayloadQwords": "126720",
+            "prefixHighQwords": "2504"
+          },
+          "sample": {
+            "stage": "2",
+            "part": "sample",
+            "attempts": "13440",
+            "committed": "9088",
+            "declined": "4352",
+            "invalid": "0",
+            "operations": "78848",
+            "inlinePayloadQwords": "126720",
+            "prefixHighQwords": "2504"
+          },
+          "framebufferAddresses": {
+            "0": 0,
+            "1": 200704
+          }
+        }
+      ],
+      "imageSha256": [
+        "b13fca1a98f2dc1b0392ab2f194a9fe459584f7521689590460a1117456df216",
+        "b13fca1a98f2dc1b0392ab2f194a9fe459584f7521689590460a1117456df216",
+        "b13fca1a98f2dc1b0392ab2f194a9fe459584f7521689590460a1117456df216"
+      ]
+    },
+    {
+      "environment": "ps2",
+      "order": 0,
+      "archive": "F:\\Projects\\tyrax2-lab-20261001\\direct-raster-v1c-physical0-evidence",
+      "review": "F:\\Projects\\tyrax2-lab-20261001\\direct-raster-v1c-independent-tools\\actual-physical0-review.json",
+      "reviewSha256": "682010799e932d5b64eb5e20e7e230611e5de0e76943e144873c58c0d14c357f",
+      "artifactMapSha256": "74f8d446748bbd66b3c59b8027d2c59ec4ade354a2109f64f3d4a5a9567251db",
+      "rawSha256": "12b72dc6295bdc9de0083975917b5e8da6ec07c94b4397116aa870bf07ccb90e",
+      "stdoutSha256": "6daa9817b458351452559de092dc16b1203b8fcac85efb7e0ccfc156af5da0e8",
+      "elfSha256": "76278dea7ea5aabe4c02e5facd1c5c2192788f945c7a2189b8d29c810338187b",
+      "symbolsSha256": "7f94bb9eab0b7d413610850a40c73ad3187c07e897bb1000963438cdd2dd6b89",
+      "sourceManifestSha256": "0a838779971b0007e6b531cbe01dfc2397ac1c56beacbb56d5a64a1d3edb9099",
+      "sourceFiles": 493,
+      "nativeExit": 0,
+      "loops": 768,
+      "samples": 384,
+      "exactWithinBootRaster": true,
+      "hostLogIOBetweenFreezeAndDone": 0,
+      "stageResults": [
+        {
+          "stage": 0,
+          "policy": 0,
+          "elapsed": {
+            "samples": 128,
+            "mean_ticks": 9828223.578125,
+            "mean_ms": 33.32595343059964,
+            "median_ms": 33.329613579644096,
+            "min_ms": 33.29608832465278,
+            "max_ms": 33.350986056857636
+          },
+          "nonpacing": {
+            "samples": 128,
+            "mean_ticks": 7869745.171875,
+            "mean_ms": 26.685062567392986,
+            "median_ms": 26.681399875217014,
+            "min_ms": 26.566836886935764,
+            "max_ms": 26.824079725477432
+          },
+          "warm": {
+            "stage": "0",
+            "part": "warm",
+            "attempts": "0",
+            "committed": "0",
+            "declined": "0",
+            "invalid": "0",
+            "operations": "0",
+            "inlinePayloadQwords": "0",
+            "prefixHighQwords": "0"
+          },
+          "sample": {
+            "stage": "0",
+            "part": "sample",
+            "attempts": "0",
+            "committed": "0",
+            "declined": "0",
+            "invalid": "0",
+            "operations": "0",
+            "inlinePayloadQwords": "0",
+            "prefixHighQwords": "0"
+          },
+          "framebufferAddresses": {
+            "1": 200704,
+            "0": 0
+          }
+        },
+        {
+          "stage": 1,
+          "policy": 1,
+          "elapsed": {
+            "samples": 128,
+            "mean_ticks": 9828544.25,
+            "mean_ms": 33.32704077826606,
+            "median_ms": 33.32969835069444,
+            "min_ms": 33.302456325954864,
+            "max_ms": 33.345431857638886
+          },
+          "nonpacing": {
+            "samples": 128,
+            "mean_ticks": 8113838.4375,
+            "mean_ms": 27.512744267781574,
+            "median_ms": 27.514909532335068,
+            "min_ms": 27.377431233723957,
+            "max_ms": 27.635786268446182
+          },
+          "warm": {
+            "stage": "1",
+            "part": "warm",
+            "attempts": "13440",
+            "committed": "9088",
+            "declined": "4352",
+            "invalid": "0",
+            "operations": "78848",
+            "inlinePayloadQwords": "126720",
+            "prefixHighQwords": "2504"
+          },
+          "sample": {
+            "stage": "1",
+            "part": "sample",
+            "attempts": "13440",
+            "committed": "9088",
+            "declined": "4352",
+            "invalid": "0",
+            "operations": "78848",
+            "inlinePayloadQwords": "126720",
+            "prefixHighQwords": "2504"
+          },
+          "framebufferAddresses": {
+            "1": 200704,
+            "0": 0
+          }
+        },
+        {
+          "stage": 2,
+          "policy": 0,
+          "elapsed": {
+            "samples": 128,
+            "mean_ticks": 9829124.2734375,
+            "mean_ms": 33.32900754610697,
+            "median_ms": 33.32964409722222,
+            "min_ms": 33.306640625,
+            "max_ms": 33.348483615451386
+          },
+          "nonpacing": {
+            "samples": 128,
+            "mean_ticks": 7869027.140625,
+            "mean_ms": 26.6826278368632,
+            "median_ms": 26.678548177083332,
+            "min_ms": 26.522891574435764,
+            "max_ms": 26.808515760633682
+          },
+          "warm": {
+            "stage": "2",
+            "part": "warm",
+            "attempts": "0",
+            "committed": "0",
+            "declined": "0",
+            "invalid": "0",
+            "operations": "0",
+            "inlinePayloadQwords": "0",
+            "prefixHighQwords": "0"
+          },
+          "sample": {
+            "stage": "2",
+            "part": "sample",
+            "attempts": "0",
+            "committed": "0",
+            "declined": "0",
+            "invalid": "0",
+            "operations": "0",
+            "inlinePayloadQwords": "0",
+            "prefixHighQwords": "0"
+          },
+          "framebufferAddresses": {
+            "1": 200704,
+            "0": 0
+          }
+        }
+      ],
+      "imageSha256": [
+        "e365c3f982809ac0da70a6f53f42bac300f9f227f54820fa6df175a5628302bd",
+        "e365c3f982809ac0da70a6f53f42bac300f9f227f54820fa6df175a5628302bd",
+        "e365c3f982809ac0da70a6f53f42bac300f9f227f54820fa6df175a5628302bd"
+      ]
+    },
+    {
+      "environment": "ps2",
+      "order": 1,
+      "archive": "F:\\Projects\\tyrax2-lab-20261001\\direct-raster-v1c-physical1-evidence",
+      "review": "F:\\Projects\\tyrax2-lab-20261001\\direct-raster-v1c-independent-tools\\actual-physical1-review.json",
+      "reviewSha256": "45216fb62079b667ead3c041b6500b0be5c4f7a58ad588459173d08ae1db50e2",
+      "artifactMapSha256": "3265a16fbceccc8b28343500deb6bf10594b4a2fd9126f6264b2311658961625",
+      "rawSha256": "8749a729a8a2a9e69fab72663d4365f168878da57cb06109fa62e8199f6664ba",
+      "stdoutSha256": "46928f93f60c9be2475ba9b153300b15dfc3512e1c27e6369fcbd340b02c096d",
+      "elfSha256": "76278dea7ea5aabe4c02e5facd1c5c2192788f945c7a2189b8d29c810338187b",
+      "symbolsSha256": "7f94bb9eab0b7d413610850a40c73ad3187c07e897bb1000963438cdd2dd6b89",
+      "sourceManifestSha256": "0a838779971b0007e6b531cbe01dfc2397ac1c56beacbb56d5a64a1d3edb9099",
+      "sourceFiles": 493,
+      "nativeExit": 0,
+      "loops": 768,
+      "samples": 384,
+      "exactWithinBootRaster": true,
+      "hostLogIOBetweenFreezeAndDone": 0,
+      "stageResults": [
+        {
+          "stage": 0,
+          "policy": 1,
+          "elapsed": {
+            "samples": 128,
+            "mean_ticks": 9828467.34375,
+            "mean_ms": 33.326780001322426,
+            "median_ms": 33.32970174153646,
+            "min_ms": 33.29704454210069,
+            "max_ms": 33.34651014539931
+          },
+          "nonpacing": {
+            "samples": 128,
+            "mean_ticks": 8113869.359375,
+            "mean_ms": 27.512849118974472,
+            "median_ms": 27.51360405815972,
+            "min_ms": 27.401892768012154,
+            "max_ms": 27.631005181206596
+          },
+          "warm": {
+            "stage": "0",
+            "part": "warm",
+            "attempts": "13440",
+            "committed": "9088",
+            "declined": "4352",
+            "invalid": "0",
+            "operations": "78848",
+            "inlinePayloadQwords": "126720",
+            "prefixHighQwords": "2504"
+          },
+          "sample": {
+            "stage": "0",
+            "part": "sample",
+            "attempts": "13440",
+            "committed": "9088",
+            "declined": "4352",
+            "invalid": "0",
+            "operations": "78848",
+            "inlinePayloadQwords": "126720",
+            "prefixHighQwords": "2504"
+          },
+          "framebufferAddresses": {
+            "1": 200704,
+            "0": 0
+          }
+        },
+        {
+          "stage": 1,
+          "policy": 0,
+          "elapsed": {
+            "samples": 128,
+            "mean_ticks": 9828778.46875,
+            "mean_ms": 33.327834977044,
+            "median_ms": 33.329684787326386,
+            "min_ms": 33.2900390625,
+            "max_ms": 33.34785291883681
+          },
+          "nonpacing": {
+            "samples": 128,
+            "mean_ticks": 7867746.140625,
+            "mean_ms": 26.678284168243408,
+            "median_ms": 26.67266845703125,
+            "min_ms": 26.554935031467014,
+            "max_ms": 26.823001437717014
+          },
+          "warm": {
+            "stage": "1",
+            "part": "warm",
+            "attempts": "0",
+            "committed": "0",
+            "declined": "0",
+            "invalid": "0",
+            "operations": "0",
+            "inlinePayloadQwords": "0",
+            "prefixHighQwords": "0"
+          },
+          "sample": {
+            "stage": "1",
+            "part": "sample",
+            "attempts": "0",
+            "committed": "0",
+            "declined": "0",
+            "invalid": "0",
+            "operations": "0",
+            "inlinePayloadQwords": "0",
+            "prefixHighQwords": "0"
+          },
+          "framebufferAddresses": {
+            "1": 200704,
+            "0": 0
+          }
+        },
+        {
+          "stage": 2,
+          "policy": 1,
+          "elapsed": {
+            "samples": 128,
+            "mean_ticks": 9828982.03125,
+            "mean_ms": 33.32852522532145,
+            "median_ms": 33.32969835069444,
+            "min_ms": 33.305826822916664,
+            "max_ms": 33.35101318359375
+          },
+          "nonpacing": {
+            "samples": 128,
+            "mean_ticks": 8115782.09375,
+            "mean_ms": 27.519334899054634,
+            "median_ms": 27.518568250868057,
+            "min_ms": 27.410247802734375,
+            "max_ms": 27.632571750217014
+          },
+          "warm": {
+            "stage": "2",
+            "part": "warm",
+            "attempts": "13440",
+            "committed": "9088",
+            "declined": "4352",
+            "invalid": "0",
+            "operations": "78848",
+            "inlinePayloadQwords": "126720",
+            "prefixHighQwords": "2504"
+          },
+          "sample": {
+            "stage": "2",
+            "part": "sample",
+            "attempts": "13440",
+            "committed": "9088",
+            "declined": "4352",
+            "invalid": "0",
+            "operations": "78848",
+            "inlinePayloadQwords": "126720",
+            "prefixHighQwords": "2504"
+          },
+          "framebufferAddresses": {
+            "1": 200704,
+            "0": 0
+          }
+        }
+      ],
+      "imageSha256": [
+        "e365c3f982809ac0da70a6f53f42bac300f9f227f54820fa6df175a5628302bd",
+        "e365c3f982809ac0da70a6f53f42bac300f9f227f54820fa6df175a5628302bd",
+        "e365c3f982809ac0da70a6f53f42bac300f9f227f54820fa6df175a5628302bd"
+      ]
+    }
+  ],
+  "rejectedAttempts": [
+    {
+      "archive": "F:\\Projects\\tyrax2-lab-20261001\\direct-raster-v1-native-failed-evidence",
+      "reason": "Native exit2: probe log macro not defined in disabled probe profile; no qualified ELF or runtime",
+      "acceptedTiming": false,
+      "artifactMapSha256": "8f89be6daed2f20c3738214ce930ccd9fb37da4d5d8fe71d6b7544ba5d8b351b"
+    },
+    {
+      "archive": "F:\\Projects\\tyrax2-lab-20261001\\direct-raster-v1b-emulator0-io-rejected-evidence",
+      "reason": "Protocol and raster pass, timing rejected:16 host:/log.txt opens between FREEZE/DONE",
+      "acceptedTiming": false,
+      "artifactMapSha256": "4b60353a10b69d52c48f7fce719274043e868b9eef86a0616840e2bd651a4eb5"
+    }
+  ],
+  "physicalPair": {
+    "status": "PASS_same_ELF_two_order_fixed_Scene_summary",
+    "environment": "ps2",
+    "sourceManifestSha256": "0a838779971b0007e6b531cbe01dfc2397ac1c56beacbb56d5a64a1d3edb9099",
+    "selectedElfSha256": "76278dea7ea5aabe4c02e5facd1c5c2192788f945c7a2189b8d29c810338187b",
+    "selectedSymbolSha256": "7f94bb9eab0b7d413610850a40c73ad3187c07e897bb1000963438cdd2dd6b89",
+    "reviewSha256": [
+      "682010799e932d5b64eb5e20e7e230611e5de0e76943e144873c58c0d14c357f",
+      "45216fb62079b667ead3c041b6500b0be5c4f7a58ad588459173d08ae1db50e2"
+    ],
+    "rawArtifactSha256": [
+      "12b72dc6295bdc9de0083975917b5e8da6ec07c94b4397116aa870bf07ccb90e",
+      "8749a729a8a2a9e69fab72663d4365f168878da57cb06109fa62e8199f6664ba"
+    ],
+    "CountTicksPerMs": 294912,
+    "clockConvention": "Existing EE Count convention; no new oscillator calibration",
+    "sampleCount": 768,
+    "blocks": [
+      {
+        "order": 0,
+        "stage": 0,
+        "policy": 0,
+        "ticks": {
+          "samples": 128,
+          "mean_ticks": 9828223.578125,
+          "mean_ms": 33.32595343059964,
+          "median_ms": 33.329613579644096,
+          "p95_ms": 33.33015272352431,
+          "min_ms": 33.29608832465278,
+          "max_ms": 33.350986056857636,
+          "observedRangeMs": 0.05489773220486111
+        },
+        "pacing": {
+          "samples": 128,
+          "mean_ticks": 1958478.40625,
+          "mean_ms": 6.640890863206652,
+          "median_ms": 6.643429226345486,
+          "p95_ms": 6.742543538411458,
+          "min_ms": 6.499732123480903,
+          "max_ms": 6.762644449869792,
+          "observedRangeMs": 0.2629123263888889
+        },
+        "nonpacing": {
+          "samples": 128,
+          "mean_ticks": 7869745.171875,
+          "mean_ms": 26.685062567392986,
+          "median_ms": 26.681399875217014,
+          "p95_ms": 26.796627468532986,
+          "min_ms": 26.566836886935764,
+          "max_ms": 26.824079725477432,
+          "observedRangeMs": 0.2572428385416667
+        }
+      },
+      {
+        "order": 0,
+        "stage": 1,
+        "policy": 1,
+        "ticks": {
+          "samples": 128,
+          "mean_ticks": 9828544.25,
+          "mean_ms": 33.32704077826606,
+          "median_ms": 33.32969835069444,
+          "p95_ms": 33.332926432291664,
+          "min_ms": 33.302456325954864,
+          "max_ms": 33.345431857638886,
+          "observedRangeMs": 0.042975531684027776
+        },
+        "pacing": {
+          "samples": 128,
+          "mean_ticks": 1714705.8125,
+          "mean_ms": 5.814296510484484,
+          "median_ms": 5.81156751844618,
+          "p95_ms": 5.909786648220486,
+          "min_ms": 5.69850328233507,
+          "max_ms": 5.929575602213542,
+          "observedRangeMs": 0.2310723198784722
+        },
+        "nonpacing": {
+          "samples": 128,
+          "mean_ticks": 8113838.4375,
+          "mean_ms": 27.512744267781574,
+          "median_ms": 27.514909532335068,
+          "p95_ms": 27.602047390407986,
+          "min_ms": 27.377431233723957,
+          "max_ms": 27.635786268446182,
+          "observedRangeMs": 0.2583550347222222
+        }
+      },
+      {
+        "order": 0,
+        "stage": 2,
+        "policy": 0,
+        "ticks": {
+          "samples": 128,
+          "mean_ticks": 9829124.2734375,
+          "mean_ms": 33.32900754610697,
+          "median_ms": 33.32964409722222,
+          "p95_ms": 33.330173068576386,
+          "min_ms": 33.306640625,
+          "max_ms": 33.348483615451386,
+          "observedRangeMs": 0.04184299045138889
+        },
+        "pacing": {
+          "samples": 128,
+          "mean_ticks": 1960097.1328125,
+          "mean_ms": 6.646379709243774,
+          "median_ms": 6.649624294704861,
+          "p95_ms": 6.753102620442708,
+          "min_ms": 6.52091810438368,
+          "max_ms": 6.806650797526042,
+          "observedRangeMs": 0.2857326931423611
+        },
+        "nonpacing": {
+          "samples": 128,
+          "mean_ticks": 7869027.140625,
+          "mean_ms": 26.6826278368632,
+          "median_ms": 26.678548177083332,
+          "p95_ms": 26.796688503689236,
+          "min_ms": 26.522891574435764,
+          "max_ms": 26.808515760633682,
+          "observedRangeMs": 0.2856241861979167
+        }
+      },
+      {
+        "order": 1,
+        "stage": 0,
+        "policy": 1,
+        "ticks": {
+          "samples": 128,
+          "mean_ticks": 9828467.34375,
+          "mean_ms": 33.326780001322426,
+          "median_ms": 33.32970174153646,
+          "p95_ms": 33.331210666232636,
+          "min_ms": 33.29704454210069,
+          "max_ms": 33.34651014539931,
+          "observedRangeMs": 0.04946560329861111
+        },
+        "pacing": {
+          "samples": 128,
+          "mean_ticks": 1714597.984375,
+          "mean_ms": 5.813930882347955,
+          "median_ms": 5.813500298394097,
+          "p95_ms": 5.90205552842882,
+          "min_ms": 5.675513373480903,
+          "max_ms": 5.92732408311632,
+          "observedRangeMs": 0.2518107096354167
+        },
+        "nonpacing": {
+          "samples": 128,
+          "mean_ticks": 8113869.359375,
+          "mean_ms": 27.512849118974472,
+          "median_ms": 27.51360405815972,
+          "p95_ms": 27.603620741102432,
+          "min_ms": 27.401892768012154,
+          "max_ms": 27.631005181206596,
+          "observedRangeMs": 0.22911241319444445
+        }
+      },
+      {
+        "order": 1,
+        "stage": 1,
+        "policy": 0,
+        "ticks": {
+          "samples": 128,
+          "mean_ticks": 9828778.46875,
+          "mean_ms": 33.327834977044,
+          "median_ms": 33.329684787326386,
+          "p95_ms": 33.330220540364586,
+          "min_ms": 33.2900390625,
+          "max_ms": 33.34785291883681,
+          "observedRangeMs": 0.05781385633680555
+        },
+        "pacing": {
+          "samples": 128,
+          "mean_ticks": 1961032.328125,
+          "mean_ms": 6.6495508088005915,
+          "median_ms": 6.650855170355903,
+          "p95_ms": 6.74537828233507,
+          "min_ms": 6.50685289171007,
+          "max_ms": 6.774898952907986,
+          "observedRangeMs": 0.2680460611979167
+        },
+        "nonpacing": {
+          "samples": 128,
+          "mean_ticks": 7867746.140625,
+          "mean_ms": 26.678284168243408,
+          "median_ms": 26.67266845703125,
+          "p95_ms": 26.796797010633682,
+          "min_ms": 26.554935031467014,
+          "max_ms": 26.823001437717014,
+          "observedRangeMs": 0.26806640625
+        }
+      },
+      {
+        "order": 1,
+        "stage": 2,
+        "policy": 1,
+        "ticks": {
+          "samples": 128,
+          "mean_ticks": 9828982.03125,
+          "mean_ms": 33.32852522532145,
+          "median_ms": 33.32969835069444,
+          "p95_ms": 33.33033582899306,
+          "min_ms": 33.305826822916664,
+          "max_ms": 33.35101318359375,
+          "observedRangeMs": 0.045186360677083336
+        },
+        "pacing": {
+          "samples": 128,
+          "mean_ticks": 1713199.9375,
+          "mean_ms": 5.809190326266819,
+          "median_ms": 5.811391194661458,
+          "p95_ms": 5.896982828776042,
+          "min_ms": 5.697262234157986,
+          "max_ms": 5.919301350911458,
+          "observedRangeMs": 0.2220391167534722
+        },
+        "nonpacing": {
+          "samples": 128,
+          "mean_ticks": 8115782.09375,
+          "mean_ms": 27.519334899054634,
+          "median_ms": 27.518568250868057,
+          "p95_ms": 27.599700927734375,
+          "min_ms": 27.410247802734375,
+          "max_ms": 27.632571750217014,
+          "observedRangeMs": 0.2223239474826389
+        }
+      }
+    ],
+    "withinBootContrasts": [
+      {
+        "order": 0,
+        "metrics": {
+          "ticks": {
+            "OnMinusOffMs": [
+              0.0010873476664201576,
+              -0.001966767840912098
+            ],
+            "outerSamePolicySpreadMs": 0.0030541155073322557,
+            "sameDirectionBothBrackets": false
+          },
+          "pacing": {
+            "OnMinusOffMs": [
+              -0.826594352722168,
+              -0.8320831987592907
+            ],
+            "outerSamePolicySpreadMs": 0.005488846037122741,
+            "sameDirectionBothBrackets": true
+          },
+          "nonpacing": {
+            "OnMinusOffMs": [
+              0.8276817003885881,
+              0.8301164309183733
+            ],
+            "outerSamePolicySpreadMs": 0.0024347305297851562,
+            "sameDirectionBothBrackets": true
+          }
+        }
+      },
+      {
+        "order": 1,
+        "metrics": {
+          "ticks": {
+            "OnMinusOffMs": [
+              -0.0010549757215727595,
+              0.000690248277450678
+            ],
+            "outerSamePolicySpreadMs": 0.0017452239990234375,
+            "sameDirectionBothBrackets": false
+          },
+          "pacing": {
+            "OnMinusOffMs": [
+              -0.8356199264526367,
+              -0.8403604825337725
+            ],
+            "outerSamePolicySpreadMs": 0.004740556081135772,
+            "sameDirectionBothBrackets": true
+          },
+          "nonpacing": {
+            "OnMinusOffMs": [
+              0.834564950731064,
+              0.8410507308112258
+            ],
+            "outerSamePolicySpreadMs": 0.006485780080161874,
+            "sameDirectionBothBrackets": true
+          }
+        }
+      }
+    ],
+    "pooledPolicy": {
+      "0": {
+        "ticks": {
+          "samples": 384,
+          "mean_ticks": 9828708.7734375,
+          "mean_ms": 33.327598651250206,
+          "median_ms": 33.32964409722222,
+          "p95_ms": 33.33021375868056,
+          "min_ms": 33.2900390625,
+          "max_ms": 33.350986056857636,
+          "observedRangeMs": 0.06094699435763889
+        },
+        "pacing": {
+          "samples": 384,
+          "mean_ticks": 1959869.2890625,
+          "mean_ms": 6.6456071270836725,
+          "median_ms": 6.64933607313368,
+          "p95_ms": 6.745961507161458,
+          "min_ms": 6.499732123480903,
+          "max_ms": 6.806650797526042,
+          "observedRangeMs": 0.3069186740451389
+        },
+        "nonpacing": {
+          "samples": 384,
+          "mean_ticks": 7868839.484375,
+          "mean_ms": 26.68199152416653,
+          "median_ms": 26.678660074869793,
+          "p95_ms": 26.796647813585068,
+          "min_ms": 26.522891574435764,
+          "max_ms": 26.824079725477432,
+          "observedRangeMs": 0.3011881510416667
+        }
+      },
+      "1": {
+        "ticks": {
+          "samples": 384,
+          "mean_ticks": 9828664.541666666,
+          "mean_ms": 33.32744866830331,
+          "median_ms": 33.32969835069444,
+          "p95_ms": 33.331990559895836,
+          "min_ms": 33.29704454210069,
+          "max_ms": 33.35101318359375,
+          "observedRangeMs": 0.05396864149305555
+        },
+        "pacing": {
+          "samples": 384,
+          "mean_ticks": 1714167.9114583333,
+          "mean_ms": 5.8124725730330855,
+          "median_ms": 5.811516655815972,
+          "p95_ms": 5.900970458984375,
+          "min_ms": 5.675513373480903,
+          "max_ms": 5.929575602213542,
+          "observedRangeMs": 0.2540622287326389
+        },
+        "nonpacing": {
+          "samples": 384,
+          "mean_ticks": 8114496.630208333,
+          "mean_ms": 27.514976095270228,
+          "median_ms": 27.515828450520832,
+          "p95_ms": 27.600094265407986,
+          "min_ms": 27.377431233723957,
+          "max_ms": 27.635786268446182,
+          "observedRangeMs": 0.2583550347222222
+        }
+      }
+    },
+    "nonpacingOnMinusOffRangeMs": [
+      0.8276817003885881,
+      0.8410507308112258
+    ],
+    "directionStableAcrossFourBrackets": true,
+    "exactCrossbootFixedRasterAccepted": true,
+    "physicalFixedWorkloadPolicyComparisonAccepted": true,
+    "pureEEProducerCostAccepted": false,
+    "ordinaryFPSGainAccepted": false,
+    "productionPromotionAccepted": false,
+    "limits": [
+      "Only six128-sample blocks in two boots; observed min/max and p95 are not hard worst-case bounds or broad significance proof.",
+      "Total elapsed includes begin/render/end/synchronize and actual GS/VIF completion; subtracting existing pacing does not remove all hidden waits.",
+      "Candidate route counters/lease handling/writer work are part of the inclusive net policy comparison.",
+      "Two common Count reads and apparatus held allarms are unpriced residual; no uniform observer correction or cross-ELF subtraction.",
+      "Frozen night Scene with exact final rasters is not authored ordinary clocks, moving camera/scenes, lifecycle or universal60FPS acceptance.",
+      "No TV-photon latency or pure GPU-time claim."
+    ]
+  },
+  "physicalPairSummarySha256": "8ff4b186f4df00d76a353df9a0d7e77bee3bb13996253e8ef0ac013900290b29",
+  "independentParserSha256": "bd6fc622ef58f13ee8c5fbbc9e187f97a3dc157732785d1c4d00657b4f84b6f0",
+  "independentNativeReviewSha256": "567029e003f33756f267c3733a1ba7bc05f9daf2b19202abe58691c6d6e6e120",
+  "independentHostControlsSha256": "c16a77c5f7253a614256b131ba78cbf7a7a331106332bec5217bf20d41f95e66",
+  "sourceReviewSha256": "fa3de1687e9113bb4e2963c7a45e03ccb3b4b3ea90f8493adf16fe7c218b809f",
+  "verdict": "Reject as demonstrated optimization: On adds0.828..0.841ms nonpacing across all four brackets",
+  "claims": {
+    "fixedRasterParity": true,
+    "inclusivePhysicalRouteComparison": true,
+    "performanceGain": false,
+    "pureEEProducerCost": false,
+    "ordinaryFPSGain": false,
+    "sixtyFPS": false,
+    "productionPromotion": false
+  },
+  "commonControls": [
+    "Current production Memo16 plus corrected private producer; no historical pre-Memo engine",
+    "600 fixed1/60 warm frames, then frozen Scene/camera/night clock and render dt0",
+    "Plain32-bit two-buffer mode; no HUD/postfx/Hybrid/BLSS/portals/mirrors",
+    "Two Count reads span real begin/render/end/synchronize; existing pacing subtracted separately",
+    "128warm+128sample perstage, common2560B scratch and7680B output",
+    "All raw exports after all windows; GS images offclock between stages followed by128warm",
+    "Periodic engine reports, generated contact telemetry observer and healthy SIF announcements suppressed identically; guard warnings and fatal behavior retained"
+  ],
+  "limits": [
+    "Only six128-sample blocks in two boots; observed min/max and p95 are not hard worst-case bounds or broad significance proof.",
+    "Total elapsed includes begin/render/end/synchronize and actual GS/VIF completion; subtracting existing pacing does not remove all hidden waits.",
+    "Candidate route counters/lease handling/writer work are part of the inclusive net policy comparison.",
+    "Two common Count reads and apparatus held allarms are unpriced residual; no uniform observer correction or cross-ELF subtraction.",
+    "Frozen night Scene with exact final rasters is not authored ordinary clocks, moving camera/scenes, lifecycle or universal60FPS acceptance.",
+    "No TV-photon latency or pure GPU-time claim.",
+    "Three final frame rasters perboot are not all-frame visual or motion/resource-lifetime coverage",
+    "Exact working-alpha conversion saturates at255; raw GS alpha values above127 are not distinguished",
+    "Runtime checks confirm no log.txt opens in the frozen interval, not arbitrary absence of all network traffic",
+    "Network reset succeeded for these two fresh starts; indefinite reset reliability is not proved"
+  ],
+  "publicRecordIndependentAudit": {
+    "sha256": "f9f6a6cb3722a3065fc0e0ed2184dd8a095b545d857c0eff2fd19e7287aecbd5",
+    "path": "F:/Projects/tyrax2-lab-20261001/direct-raster-v1c-independent-tools/public-record-audit.json"
+  }
+}

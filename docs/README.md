@@ -416,7 +416,10 @@ work; it is not a pure GPU timer or an ordinary FPS result.
 The private [direct-producer activation record](tyrax2-direct-producer-activation-2026-10-03.json)
 records a diagnosed SDK DMA-padding mismatch and corrected 5400-loop activation
 checks in PCSX2 and PS2. Positive commits and zero invalid packets establish
-activation only; exact raster, lifecycle and speed qualification remain open.
+activation only. The [fixed raster and route-cost record](tyrax2-direct-producer-raster-2026-10-03.json)
+now qualifies both stage orders and exact GS raster pairs, while rejecting a
+speed gain: On adds about 0.83 ms nonpacing on PS2. Lifecycle/native-profile and
+ordinary FPS qualification remain open; the candidate stays private.
 
 The [one-search immutable-borrow trial](tyrax2-immutable-borrow-2026-10-02.json) preserves the narrow candidate, differential and integrated checks, and one physical baseline/candidate/baseline run. Its small apparent work saving overlaps control variation; the runtime remains unchanged.
 
