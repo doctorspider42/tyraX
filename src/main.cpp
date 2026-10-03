@@ -48,6 +48,7 @@
 #include "platform.hpp"
 #include "procbake.hpp"
 #include "project.hpp"
+#include "roadbridge.hpp"
 #include "roadgen.hpp"
 #include "roadrail.hpp"
 #include "roadtex.hpp"
@@ -779,9 +780,16 @@ static int roadCrossingsFromCli(int argc, char** argv) {
     for (size_t si = 0; si < p.scenes.size(); ++si) {
         if (only >= 0 && (int)si != only) continue;
         const SceneData& sc = p.scenes[si];
+        const roadgen::HeightFn bare = [&](float x, float z) {
+            return sc.terrain.enabled
+                       ? roadgen::terrainHeight(sc.heights, sc.hmW, sc.hmD,
+                                                (float)sc.terrain.width,
+                                                (float)sc.terrain.depth, x, z)
+                       : -1000000.0f;
+        };
         std::vector<int> idx;
         const std::vector<roadgen::CrossingRoad> roads =
-            project::crossingRoads(sc.objects, &idx);
+            project::crossingRoads(sc.objects, &idx, "", bare);
         const roadgen::CrossingPlan plan = roadgen::planCrossings(roads, sc.roadJunctions);
         std::printf("=== scene %zu: %s - %zu roads, %zu crossings, %zu overrides ===\n",
                     si, sc.name.c_str(), roads.size(), plan.crossings.size(),
@@ -819,6 +827,27 @@ static int roadCrossingsFromCli(int argc, char** argv) {
         }
         std::printf("[road] decals: %d overlay(s), %d spill(s), %d vertices\n", nOverlay,
                     nSpill, verts);
+        // Bridges (docs/roads.md "Bridges"): the codegen's own deck and
+        // structure, so these are the ROAD_BRIDGE tables' totals.
+        for (size_t k = 0; k < roads.size(); ++k) {
+            const SceneObject& bo = sc.objects[(size_t)idx[k]];
+            if (!bo.roadBridge) continue;
+            const roadbridge::Deck deck = roadbridge::buildDeck(bo, bare);
+            std::vector<roadgen::Vertex> tris;
+            roadbridge::tessellateDeck(deck, tris);
+            roadbridge::Structure st;
+            roadbridge::buildStructure(deck, roads, (int)k, st);
+            float peak = -1e30f, clearMax = 0.0f;
+            for (const roadbridge::Station& s : deck.st) {
+                peak = std::max(peak, s.y);
+                clearMax = std::max(clearMax, deck.elevationAt(s.x, s.z));
+            }
+            std::printf("[bridge] %s: deck %zu vertices (%zu stations), top %.2f, %.2f above "
+                        "the ground at most; %d span(s), %d pier(s), %d abutment(s), %zu "
+                        "structure vertices\n",
+                        bo.name.c_str(), tris.size(), deck.st.size(), peak, clearMax, st.spans,
+                        st.piers, st.abutments, st.tris.size());
+        }
         // Kerbs (docs/roads.md "Kerbs"): the codegen's own bake - the same
         // surface (rank-lifted roads + patches) and the same planKerbs - so
         // the totals here are the ROAD_KERB tables' and the game's ROADKERB.

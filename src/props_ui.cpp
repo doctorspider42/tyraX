@@ -8,6 +8,7 @@
 // -------------------------------------------------------------------------
 #include "app.hpp"
 #include "app_internal.hpp"
+#include "roadbridge.hpp"
 #include "roadgen.hpp"
 #include "roadrail.hpp"
 #include "theme.hpp"
@@ -902,6 +903,17 @@ void App::drawPropertiesWindow() {
                 "on over the higher road's edge for this far and fades out -\n"
                 "mud trailed onto the asphalt. Grip fades with it. 0 = a clean\n"
                 "edge. No effect against equal or lower ranks.");
+            // Bridges (docs/roads.md "Bridges"): baked on the host at build.
+            if (ImGui::Checkbox("Bridge", &o.roadBridge)) {
+                roadbridge::onPointsReshaped(o);
+                committed = true;
+            }
+            prefHelp(
+                "The deck runs through each point's Height above the terrain\n"
+                "instead of hugging the ground between points: it spans a dip\n"
+                "by itself, a raised point makes an overpass. Parapets, piers\n"
+                "and abutments where it stands clear of the ground.");
+            ImGui::BeginDisabled(o.roadBridge);
             ImGui::SetNextItemWidth(scaled(220));
             if (ImGui::SliderFloat("Edge fade", &o.roadEdgeFade, 0.0f, 4.0f,
                                    "%.1f units"))
@@ -954,6 +966,7 @@ void App::drawPropertiesWindow() {
                         "Pavement) is made for it.");
                 }
             }
+            ImGui::EndDisabled();
         }
         // This road's crossings (docs/roads.md, "Junction overrides"): the
         // plan the build uses, one button each - the same junction the
@@ -1003,7 +1016,7 @@ void App::drawPropertiesWindow() {
                 } else {
                     o.roadPoints.resize(o.roadPoints.size() - 2);
                 }
-                o.roadHeights.clear();
+                roadbridge::onPointsReshaped(o);
                 committed = true;
             }
             int removeAt = -1, insertAfter = -1;
@@ -1018,9 +1031,17 @@ void App::drawPropertiesWindow() {
                         o.roadPoints[o.roadPoints.size() - 2] = o.roadPoints[0];
                         o.roadPoints.back() = o.roadPoints[1];
                     }
-                    o.roadHeights.clear();
+                    roadbridge::onPointsReshaped(o);
                 }
                 committed |= ImGui::IsItemDeactivatedAfterEdit();
+                if (o.roadBridge) {
+                    roadbridge::onPointsReshaped(o);
+                    ImGui::SameLine();
+                    ImGui::SetNextItemWidth(scaled(60));
+                    ImGui::DragFloat("Height", &o.roadHeights[(size_t)i], 0.1f, 0.0f,
+                                     roadbridge::kMaxHeight, "%.1f");
+                    committed |= ImGui::IsItemDeactivatedAfterEdit();
+                }
                 ImGui::SameLine();
                 if (ImGui::SmallButton("+")) insertAfter = i;
                 ImGui::SameLine();
@@ -1039,11 +1060,11 @@ void App::drawPropertiesWindow() {
                     nz = 2.0f * o.roadPoints[at - 1] - o.roadPoints[at - 3];
                 }
                 o.roadPoints.insert(o.roadPoints.begin() + at, {nx, nz});
-                o.roadHeights.clear();
+                roadbridge::onPointInserted(o, insertAfter + 1);
                 committed = true;
             }
             if (removeAt >= 0 && roadgen::removeControl(o.roadPoints, removeAt)) {
-                o.roadHeights.clear();
+                roadbridge::onPointRemoved(o, removeAt);
                 committed = true;
             }
         }
@@ -1056,12 +1077,15 @@ void App::drawPropertiesWindow() {
             "the first and release to CLOSE a loop. Uncheck Closed loop\n"
             "to reopen it. Esc stops; Ctrl+Z undoes each operation.");
         ImGui::SameLine();
+        ImGui::BeginDisabled(o.roadBridge);
         if (ImGui::Button("Align terrain to road"))
             alignTerrainToRoad(selectedObject_);
+        ImGui::EndDisabled();
         prefHelp(
             "Flattens the heightfield to the road's interpolated line -\n"
             "the surface under the asphalt becomes the asphalt's own grade,\n"
-            "with a smooth shoulder falloff. Undoable like any edit.");
+            "with a smooth shoulder falloff. Undoable like any edit.\n"
+            "Not for a bridge: it would fill the gap under the deck.");
     }
     if (isScatter) {
         ImGui::TextDisabled(

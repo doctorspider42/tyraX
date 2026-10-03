@@ -26,6 +26,7 @@
 #include <vector>
 
 #include "project.hpp"
+#include "roadbridge.hpp"
 #include "roadgen.hpp"
 #include "roadrail.hpp"
 #include "roadtex.hpp"
@@ -1970,6 +1971,7 @@ int run() {
     roadKerbs();
     roadTextures();
     roadRails();
+    roadbridge::check(verdict);  // docs/roads.md "Bridges"
     damage();
     pieces();
     speedFeelCurve();

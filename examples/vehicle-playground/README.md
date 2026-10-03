@@ -44,6 +44,11 @@ builds measured 6.7-7.6 s. This excludes editor generation/baking and cold setup
   that crosses Market cross street at a level crossing, and **Garage
   boulevard** carries two flush tram tracks down its middle, through every
   node it passes, the plaza included.
+  **Service lane flyover** is a [bridge](../../docs/roads.md#bridges-format-100):
+  it leaves the west side of the ring road as a T, climbs to 6 units, passes
+  OVER the West service lane on wall piers (no junction there - an overpass)
+  and comes down onto Foundry link as another T. Its points carry heights
+  `0, 3, 6, 6, 3, 0` (Properties > Points with *Bridge* ticked).
 
   ![PCSX2, mirrored in X: the Orchard fork between the ring road and Skyline avenue, the Service ramp leaving the ring, and the Quarry corner](../../docs/img/road-nodes-district.png)
 - **dense** adds buildings for a busier drive.

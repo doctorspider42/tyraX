@@ -15958,8 +15958,10 @@ void TerrainGame::updateAndRenderBlobShadows() {
     // Object base: the player entity sits at its feet, everything else is
     // centered (base = center - halfY).
     if (b.objIndex == PLAYER_INDEX) halfY = 0.0F;
-    const float ground = groundSurfaceAt(cx, cz);
-    const float h = (d.position[1] - halfY) - ground;
+    // The surface under the caster, not a bridge deck above it.
+    const float casterBase = d.position[1] - halfY;
+    const float ground = groundSurfaceAt(cx, cz, casterBase + 0.5F);
+    const float h = casterBase - ground;
     float fade = 1.0F - h * (1.0F / 3.0F);
     // NOT the day/night handover fade (daynight::g_shadowFade), which the
     // projected silhouettes do take: this quad sits UNDER the caster and has no
@@ -15992,7 +15994,7 @@ void TerrainGame::updateAndRenderBlobShadows() {
     auto receiver = [&](float lx, float lz) {
       const float x = cx + lx * cy + lz * sy;
       const float z = cz - lx * sy + lz * cy;
-      return Vec4(x, groundSurfaceAt(x, z) + lift, z, 1.0F);
+      return Vec4(x, groundSurfaceAt(x, z, casterBase + 0.5F) + lift, z, 1.0F);
     };
     // A 3x3 cell patch has only 4x4 unique corners. groundSurfaceAt also
     // searches road/junction chunks and their triangles, so rebuilding the
@@ -21209,7 +21211,7 @@ void TerrainGame::buildRoadHeightIndex() const {
 
 
 float TerrainGame::roadSurfaceAt(float x, float z, float* grip,
-                                 float* cover) const {
+                                 float* cover, float maxY) const {
   float best = -1.0e30F;
   if (grip) *grip = 1.0F;
   if (cover) *cover = 1.0F;
@@ -21242,7 +21244,7 @@ float TerrainGame::roadSurfaceAt(float x, float z, float* grip,
     // crack to a six-vertex light/shadow patch on their shared edge.
     if (wa < -0.0001F || wb < -0.0001F || wc < -0.0001F) return;
     const float y = wa * a.y + wb * b.y + wc * c.y;
-    if (y > best) {
+    if (y > best && y <= maxY) {
       best = y;
       if (grip) *grip = wa * ga + wb * gb + wc * gc;
       if (cover) *cover = wa * ca + wb * cb + wc * cc;
@@ -21278,7 +21280,7 @@ float TerrainGame::roadSurfaceAt(float x, float z, float* grip,
                  ca, cb, cc);
   }
 #if TYRA_ROAD_INDEX_VERIFY
-  {
+  if (maxY > 1.0e29F) {  // the scan oracle answers the uncapped question
     static unsigned int checked = 0, bad = 0;
     static float worst = 0.0F;
     const float ref = roadSurfaceScan(x, z);
@@ -21338,9 +21340,11 @@ float TerrainGame::terrainGripAt(float x, float z) const {
 
 
 
-float TerrainGame::groundSurfaceAt(float x, float z) const {
+// `maxY` (docs/roads.md "Bridges"): only a road surface at or below it - the
+// one a caster, a wheel or a mark is actually on, never a deck overhead.
+float TerrainGame::groundSurfaceAt(float x, float z, float maxY) const {
   const float terrain = terrainHeightAt(x, z);
-  const float road = roadSurfaceAt(x, z);
+  const float road = roadSurfaceAt(x, z, nullptr, nullptr, maxY);
   return road > terrain ? road : terrain;
 }
 
@@ -21352,8 +21356,10 @@ float TerrainGame::groundSurfaceAt(float x, float z) const {
 // same 0.5-unit step collidePlayer allows onto objects.
 float TerrainGame::walkGroundAt(float x, float z, float feetY) const {
   const float terrain = terrainHeightAt(x, z);
-  const float road = roadSurfaceAt(x, z);
-  if (road > terrain && road <= feetY + 0.5F) return road;
+  // The highest road surface within the step - so a walker under a bridge
+  // keeps the road it is on, not the terrain beneath both.
+  const float road = roadSurfaceAt(x, z, nullptr, nullptr, feetY + 0.5F);
+  if (road > terrain) return road;
   return terrain;
 }
 

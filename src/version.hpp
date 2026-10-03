@@ -6140,7 +6140,12 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // road, 1 railway, 2 tram street; written only when not 0), roadRailGauge
 // (only when not 1.435) and roadTracks (only when not 1). Missing = a plain
 // road, as before. Additive; no migration step.
-inline constexpr int kFormatVersion = 98;
+// v100 (docs/roads.md, "Bridges"): a road's "roadBridge" (written only when
+// true), which makes the existing per-point "roadHeights" mean deck heights.
+// Missing = an ordinary glued road, as before (heights still ignored).
+// Additive; no migration step. (v99 was
+// reserved for a branch that never needed a format change; it is skipped.)
+inline constexpr int kFormatVersion = 100;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

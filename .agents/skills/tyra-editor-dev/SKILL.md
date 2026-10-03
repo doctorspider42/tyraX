@@ -3060,6 +3060,25 @@ rail or tram road too, and a vertex shade of 2+ names an entry of
 `ROAD_KERB_PALETTE` (printed from `roadrail::kPalette`; the upload's `put`
 lambda and `roadrail::shadeRgb` are the two readers - change both).
 
+**Bridges are host-baked and the EE twin does NOT carry them** (format 100,
+docs/roads.md "Bridges", `src/roadbridge.cpp`). A road with `roadBridge` is left
+out of `ROAD_DEFS`; its deck becomes `ROAD_JUNCTIONS` rows (owner -3, so the
+height index reads it) and its parapets/underside/piers/abutments
+`ROAD_BRIDGES` rows (owner -5: drawn by `renderProcChunks`, NOT in the height
+index). Three rules for anything new that reads roads. (1) The DRAWN surface of
+a road object is `roadbridge::drawnRoad`, not `roadgen::tessellate` - a consumer
+that tessellates a bridge glued draws it on the ground. (2) Node patches, kerbs
+and markings are fitted to the GLUED roads (a bridge's ground self), or a node
+under a deck is pulled up onto it. (3) A ground query that must not snap onto a
+deck overhead passes `maxY` (`roadSurfaceAt`/`groundSurfaceAt` on the console,
+`roadgen::Surface::at` on the host): wheels use the car's y + 1.5, walkers feet
++ 0.5, blob shadows the caster's base + 0.5. `CrossingRoad::elevation` is how
+the planner learns a bridge's height (`project::crossingRoads` takes the
+scene's bare-terrain HeightFn for it); `findNodes` and the kerb planner skip
+anything more than `roadgen::kOverpassClearance` apart vertically. A bridge's
+`roadHeights` follow its points through `roadbridge::onPointInserted/Removed/
+Reshaped` - every point-edit site calls them instead of clearing the vector.
+
 ## Vehicle HUD font preparation (1.150.1)
 
 `fontGlyphSprite` in the shared generated helpers owns one persistent sprite

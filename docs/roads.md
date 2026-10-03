@@ -88,10 +88,12 @@ in VRAM.** There is no baked geometry to store, ship or stream.
   full crossing-planner runs per drag frame. Build output always uses the final
   exact points, with no preview simplification or changed road detail.
 
-- A road has no vertical authoring offset: every left and right edge vertex is
-  sampled independently from the terrain. The short-lived `roadHeights`
-  project field is still accepted when an older file contains it, but is
-  ignored and cleared the next time the spline is edited. Roads cannot float.
+- An ordinary road has no vertical authoring offset: every left and right edge
+  vertex is sampled independently from the terrain. The short-lived 1.77
+  `roadHeights` lift is still accepted when an older file contains it, but is
+  ignored and cleared the next time the spline is edited. A road that should
+  leave the ground is a **bridge** (see "Bridges" below), which gives that same
+  per-point field a new meaning.
 - The road OBJECT does not collide (`objectCollides` excludes it) — the
   surface is procChunks, and the box at the object's position was an
   invisible wall you could hit.
@@ -735,6 +737,151 @@ zebra-painted street on flat ground and checks that:
 - the ballast texture is deterministic, tiles, has seven sleepers per repeat,
   and round-trips its recipe.
 
+## Bridges (format 100)
+
+A road with **Bridge** ticked leaves the ground: its deck runs through a height
+profile instead of hugging the terrain, and wherever it stands clear of the
+ground it gets parapets, a deck edge and underside, piers and abutments. It is
+the same Road object - the same points, width, material and rank - plus one flag
+and one number per point, so a bridge is authored the way a street is.
+
+![PCSX2: the Motor District's Service lane flyover crossing over the dirt West service lane on wall piers; a car parked under the deck stays on the lane, Foundry link in front](img/road-bridge-pcsx2.png)
+
+### The model, and why this one
+
+Each control point carries a **Height** (`roadHeights`, Properties > Points,
+0..30): the deck's height above the terrain AT that point. The deck at any
+station is the Catmull-Rom of *(terrain at point k + height k)* along the same
+spline parameter as the XZ, clamped between the segment's two control values so
+a plateau never bulges and a ramp never dips below its foot. A deck vertex is
+the **higher** of that profile and the ordinary glued road there.
+
+That one rule gives the two cases people actually build:
+
+- **Every height 0: a valley bridge.** The deck runs straight from control point
+  to control point and spans whatever dip lies between them - a river, a ravine -
+  with nothing to tune. Where the terrain rises above that line, the road is
+  simply on the ground again.
+- **A raised point: an overpass.** Points `0, 3, 6, 6, 3, 0` are two ramps and a
+  span; the ramps are as long as the neighbouring points are far apart, so the
+  grade is controlled by point spacing, which is already what the author edits.
+
+Two alternatives were weighed. A flag plus an automatic profile (straight line
+between where the deck leaves and rejoins the terrain) handles valleys but
+cannot make an overpass on flat ground, which is the commoner case in a city. A
+per-point ABSOLUTE height would make every bridge break when the terrain is
+re-sculpted under it; heights relative to the terrain at the point keep the
+abutments on the ground through a sculpt. The deck is **flat across** (one
+height per station), so a station pair wholly in the air is one full-width quad.
+
+`roadHeights` only means this when `roadBridge` is on. On an ordinary road it is
+still the retired lift: ignored, and cleared by a point edit. On a bridge it is
+kept in step with the points instead: inserting a point interpolates its
+neighbours' heights, deleting one removes its height (`roadbridge::onPoint*`).
+
+### Host-baked, so the EE twin did not grow
+
+Every ordinary road is tessellated **on the EE at boot** from `ROAD_DEFS`, and
+`buildRoads` is a hand-kept twin of `roadgen.cpp`. A bridge is not: the codegen
+leaves it out of `ROAD_DEFS` altogether and bakes it, like the junction patches
+and the kerbs:
+
+- the **deck** becomes ordinary `ROAD_JUNCTIONS` rows - textured with the road's
+  own material, owner `-3`, one row per 1 800 vertices with V rebased by a whole
+  repeat (the road chunks' physical-GS rule). Being owner `-3` it joins the road
+  height index, so wheels, walkers, blob shadows and light pools stand on it with
+  no new runtime code;
+- the **structure** becomes `ROAD_BRIDGES` / `ROAD_BRIDGE_VERTS` (x, y, z, baked
+  shade per vertex), triangle lists in 32-unit cell chunks uploaded unchanged by
+  a block spliced into `buildRoads` before `procFinishChunks`. Owner **`-5`**:
+  `renderProcChunks` draws it (frustum reject, occlusion, no draw distance) and
+  the road height index does NOT read it, so nothing ever stands on an underside
+  or a parapet top.
+
+Both are emitted only when a road is a bridge, so every other road project's
+generated sources are byte-identical. `verify-road-twins.py` still passes
+unchanged - the twin it checks is untouched. `src/roadbridge.cpp` is the deck,
+the structure and the tables; the viewport, the test drive, the shadow decals'
+receivers, `--road-crossings` and the codegen all call it.
+
+### The structure
+
+Built wherever the deck is more than 0.3 above the glued road
+(`roadbridge::kStructureMin`), per run of such stations:
+
+- **parapets**: a 0.9-high, 0.3-wide solid wall outside each edge - inner face,
+  top, and an outer face that continues down to the **deck underside** 0.7 below
+  the deck top, which is the visible edge beam;
+- the **underside** across the full width, and **end caps** where a run starts
+  and ends;
+- **abutments**: a full-width block at each end, where the gap under the deck
+  first exceeds 0.5, from just below the ground up into the deck;
+- **wall piers** at most 16 units apart between the abutments, only where the
+  gap is taller than 1.5, sunk 0.3 into the ground - and **never on another
+  road**: a pier whose footprint would touch any other road (plus a unit of
+  margin) moves up to a quarter spacing along the deck, or is left out.
+
+Stations merge into chords within 3 cm (at most 8 units each), so a straight span
+costs a handful of vertices; the parapet's inner face stands that tolerance ON
+the deck so a chord on the inside of a bend never opens a gap at the deck edge.
+Shading is baked from a fixed sun (top 0.80, the shadowed underside 0.30), like
+the kerbs, and the structure is untextured: no VRAM.
+
+**Measured** on the Motor District's flyover (95 units, 9 wide, 6 high): deck
+582 vertices (98 stations, one row), structure 978 vertices in 4 chunks
+(4 piers, 2 abutments) - `[bridge]` lines in `--road-crossings`, and the
+`ROADBRIDGE scene N chunks M vertices V` line in the game's log.
+
+### Overpasses: no node, kerbs and wheels keep their road
+
+- **No junction.** `CrossingRoad::elevation` tells the planner how high a road is
+  above the ground at a point; `findNodes` refuses a contact where EITHER road is
+  more than `kOverpassClearance` (2 units) up. A deck passing over a street is an
+  overpass, and a bridge's ends on the ground still make ordinary T nodes - the
+  flyover joins the ring road and Foundry link that way. Two decks meeting in
+  the air make no node (not supported).
+- **Kerbs.** A kerb is not cut by a road more than the clearance above or below
+  it (`KerbWorld::onAnyRoad`), and a kerb never climbs onto a deck overhead: the
+  surface lookup falls back to the glued height when it answers more than the
+  clearance above it. A bridge has parapets, not kerbs (`Kerbs` and `Edge fade`
+  are greyed for a bridge).
+- **Node patches** are fitted to the GLUED roads - a bridge's ground-level self -
+  so a junction under a bridge is not pulled up to the deck.
+- **Wheels.** `roadSurfaceAt` and `groundSurfaceAt` take a `maxY`: the highest
+  surface NOT above it. The vehicle wheels, the body-floor probes, skid marks,
+  the headlight beam patch and debris ask with the car's height + 1.5
+  (`roadbridge::kVehicleStepUp`), so a car under a bridge stays on its road
+  instead of snapping up onto the deck; one driving up the ramp is always within
+  that step of the deck. `walkGroundAt` asks with the feet + 0.5 (it used to fall
+  through to the terrain under a deck, missing the lower road), and blob shadows
+  with the caster's base + 0.5. The host twins match: `roadgen::Surface::at`
+  takes the same cap and the editor test drive uses it.
+
+### Limits
+
+- **No collision with the structure.** A walker or a car passes through a pier
+  or a parapet, and a car can drive off the side of a deck. The walker's
+  `collidePlayer` reads boxes and procedural colliders; a rotated pier would need
+  an oriented box and a parapet a chain of them - not done.
+- **Shadows.** The deck does not cast onto the terrain under it: baked shadow
+  decals and ground shadow maps come from objects, and a road is a receiver
+  only (the deck does receive decals, at deck height). Projected shadows and
+  light pools under a deck may still land on it - their receiver query
+  (`projSurfaceAt`) is uncapped.
+- A bridge does not spill onto other roads, has no soft edge, and **Align
+  terrain to road** is disabled for it (it would fill the gap under the deck).
+- The reflection probe's ground stand-in paints a bridge onto the ground map.
+- The editor's point markers sit at terrain + Height; the deck itself is drawn
+  exactly.
+
+`--vehicle-check` "road bridges" checks: the deck passes through terrain +
+height at a raised point with no overshoot and one quad per elevated station
+pair; an all-zero bridge spans a 5-unit dip; an overpass makes no node while the
+same road on the ground makes one; the lower road keeps both kerbs, uncut, at its
+own height; a wheel under the deck reads the lower road and one on the deck the
+deck; piers and abutments reach into the ground and none stands on the lower
+road; a 100-unit bridge stays under 2 000 structure vertices.
+
 ## Physical-PS2 texture coordinates and the strip default
 
 Roads reach VU1 as **triangle strips** by default. A temporary triangle-list
@@ -851,6 +998,7 @@ canonicalizes only that integer part; positions and fractional UVs remain exact.
 |---|---|
 | `src/roadgen.hpp/.cpp` | The Catmull-Rom tessellator, `splineAt` (align pass, handles), `findNodes` (where roads meet, and each node's outline) and `planCrossings` (every crossing decision). |
 | `src/roadrail.hpp/.cpp` | Rails and tram tracks: `planRails`, the strip emitter and the palette ("Rails and tram tracks"). |
+| `src/roadbridge.hpp/.cpp` | Bridges: the deck profile and tessellation, the structure, the console tables and upload block, `--vehicle-check` "road bridges". |
 | `src/templates.cpp` (`roadsImpl`) | The runtime twin + data tables + the scene-load hook. |
 | `src/props_ui.cpp` | The Road properties panel + `App::alignTerrainToRoad`. |
 | `src/junction_ui.cpp` | Junction markers, selection and the Junction section (overrides). |

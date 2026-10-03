@@ -22,6 +22,7 @@
 #include "menustyle.hpp"
 #include "objparser.hpp"
 #include "platform.hpp"
+#include "roadbridge.hpp"  // a bridge road's elevation for the crossing planner
 #include "roadtex.hpp"  // the road materials a new project is seeded with
 #include "savebake.hpp"
 #include "templates.hpp"
@@ -1112,6 +1113,8 @@ std::string objectJson(const SceneObject& o) {
         if (o.roadRailGauge != 1.435f)
             json += ", \"roadRailGauge\": " + fmtFloat(o.roadRailGauge);
         if (o.roadTracks != 1) json += ", \"roadTracks\": " + std::to_string(o.roadTracks);
+        // Bridge (v100): written only when on.
+        if (o.roadBridge) json += ", \"roadBridge\": true";
         bool anyLift = false;
         for (float h : o.roadHeights) anyLift |= h != 0.0f;
         if (anyLift) {
@@ -1729,7 +1732,8 @@ std::string resolveRoadTexture(const Project& p, const std::string& surfaceRel) 
 
 std::vector<roadgen::CrossingRoad> crossingRoads(const std::vector<SceneObject>& objects,
                                                  std::vector<int>* objectIndex,
-                                                 const std::string& projectDir) {
+                                                 const std::string& projectDir,
+                                                 const roadgen::HeightFn& ground) {
     std::vector<roadgen::CrossingRoad> out;
     if (objectIndex) objectIndex->clear();
     for (size_t i = 0; i < objects.size(); ++i) {
@@ -1776,6 +1780,12 @@ std::vector<roadgen::CrossingRoad> crossingRoads(const std::vector<SceneObject>&
             r.kerb = false;
             r.markings = 0;
             r.edgeLine = false;
+        }
+        // Bridges (docs/roads.md "Bridges"): the planner learns how high the
+        // deck is wherever it asks; a bridge carries parapets, not kerbs.
+        if (o.roadBridge) {
+            r.elevation = roadbridge::elevationFn(o, ground);
+            r.kerb = false;
         }
         r.pavement = r.kerb ? o.roadPavement : 0.0f;
         out.push_back(std::move(r));
@@ -6304,6 +6314,8 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
             o.roadRailGauge = std::clamp((float)rrg->numberOr(1.435), 0.3f, 3.0f);
         if (const auto* rtr = jo.find("roadTracks"))
             o.roadTracks = std::clamp((int)rtr->numberOr(1.0), 1, 2);
+        if (const auto* rb = jo.find("roadBridge"))
+            o.roadBridge = rb->boolOr(false);
         if (const auto* rh = jo.find("roadHeights")) {
             o.roadHeights.clear();
             if (rh->type == json::Value::Type::Array)
@@ -8470,6 +8482,12 @@ uint64_t liveLinkRecipeHash(const SceneObject& o) {
     if (o.type == PrimitiveType::Road && o.roadKind != 0) {
         fnvMix(h, 0x52);
         fnvMix(h, o.roadKind), fnvMixF(h, o.roadRailGauge), fnvMix(h, o.roadTracks);
+    }
+    // A bridge's deck and structure are host-baked the same way (ROAD_JUNCTION
+    // rows + ROAD_BRIDGE_VERTS), so its heights need a rebuild too.
+    if (o.type == PrimitiveType::Road && o.roadBridge) {
+        fnvMix(h, 0x42);
+        for (float v : o.roadHeights) fnvMixF(h, v);
     }
     // The four numbers this mesh hands the project's own VU1 microprogram.
     // They are BAKED into SCENE_OBJECTS and the live-link record carries only

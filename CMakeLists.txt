@@ -325,6 +325,7 @@ add_executable(tyrax-editor
     src/uvunwrap.cpp
     src/vehbake.cpp
     src/vehicle_ui.cpp
+    src/roadbridge.cpp
     src/roadgen.cpp
     src/roadrail.cpp
     src/roadtex.cpp

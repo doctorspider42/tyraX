@@ -1,5 +1,6 @@
 #include "app.hpp"
 #include "app_internal.hpp"
+#include "roadbridge.hpp"  // a bridge's heights follow its points
 #include "roadgen.hpp"
 #include "hudanim.hpp"
 
@@ -3492,8 +3493,11 @@ void App::drawViewportWindow() {
                 for (size_t k = 0; k < (size_t)roadgen::controlCount(ro.roadPoints) * 2; k += 2) {
                     const float px = ro.roadPoints[k], pz = ro.roadPoints[k + 1];
                     ImVec2 pt;
+                    // A bridge's marker sits at its deck height (docs/roads.md
+                    // "Bridges").
+                    const float lift = ro.roadBridge ? roadbridge::heightOf(ro, (int)(k / 2)) : 0.0f;
                     if (worldToImage(
-                            px, viewport_.terrainHeight(px, pz) + 0.15f, pz,
+                            px, viewport_.terrainHeight(px, pz) + 0.15f + lift, pz,
                             pt)) {
                         const float rr = roadEdit_ ? 7.0f : 5.0f;
                         dl->AddCircleFilled(pt, rr,
@@ -3819,8 +3823,8 @@ void App::drawViewportWindow() {
                 std::vector<char> skipAll(project_.objects().size(), 1);
                 const bool hit = viewport_.placementRaycast(
                     u, v, project_.objects(), skipAll, ground);
-                auto toScreen = [&](float wx, float wz, ImVec2& out) {
-                    const float wy = viewport_.terrainHeight(wx, wz) + 0.15f;
+                auto toScreen = [&](float wx, float wz, ImVec2& out, float lift = 0.0f) {
+                    const float wy = viewport_.terrainHeight(wx, wz) + 0.15f + lift;
                     const float* V = viewport_.viewMatrix();
                     const float* P = viewport_.projMatrix();
                     const float vx = V[0] * wx + V[4] * wy + V[8] * wz + V[12];
@@ -3839,7 +3843,7 @@ void App::drawViewportWindow() {
                     if (hit && ImGui::IsMouseHoveringRect(imgPos, ImVec2(imgPos.x + avail.x, imgPos.y + avail.y)) &&
                         (size_t)roadDragPoint_ * 2 + 1 < ro.roadPoints.size()) {
                         roadgen::moveControl(ro.roadPoints, roadDragPoint_, ground[0], ground[2]);
-                        ro.roadHeights.clear();
+                        roadbridge::onPointsReshaped(ro);
                     }
                     if (!ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
                         bool merged = false;
@@ -3868,7 +3872,8 @@ void App::drawViewportWindow() {
                     for (int i = 0; i < np; ++i) {
                         ImVec2 pt;
                         if (!toScreen(ro.roadPoints[(size_t)i * 2],
-                                      ro.roadPoints[(size_t)i * 2 + 1], pt))
+                                      ro.roadPoints[(size_t)i * 2 + 1], pt,
+                                      ro.roadBridge ? roadbridge::heightOf(ro, i) : 0.0f))
                             continue;
                         const float dx = pt.x - io.MousePos.x;
                         const float dy = pt.y - io.MousePos.y;
@@ -3879,7 +3884,7 @@ void App::drawViewportWindow() {
                     }
                     if (grab >= 0 && io.KeyShift) {
                         if (roadgen::removeControl(ro.roadPoints, grab)) {
-                            ro.roadHeights.clear();
+                            roadbridge::onPointRemoved(ro, grab);
                             commitChange();
                             statusMessage_ = "Road point removed";
                         } else {
@@ -3914,14 +3919,15 @@ void App::drawViewportWindow() {
                             const size_t at = (size_t)(insertSeg + 1) * 2;
                             ro.roadPoints.insert(ro.roadPoints.begin() + at,
                                                  {ground[0], ground[2]});
-                            ro.roadHeights.clear();
+                            roadbridge::onPointInserted(ro, insertSeg + 1);
                             roadDragPoint_ = insertSeg + 1;
                             statusMessage_ = "Road point inserted";
                         } else if (!roadgen::isClosed(ro.roadPoints)) {
                             // 3) open ground: append.
                             ro.roadPoints.push_back(ground[0]);
                             ro.roadPoints.push_back(ground[2]);
-                            ro.roadHeights.clear();
+                            roadbridge::onPointInserted(
+                                ro, roadgen::controlCount(ro.roadPoints) - 1);
                             roadDragPoint_ =
                                 (int)(ro.roadPoints.size() / 2) - 1;
                             statusMessage_ = "Road point added";

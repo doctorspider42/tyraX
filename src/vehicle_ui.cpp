@@ -28,6 +28,7 @@
 #include "app_internal.hpp"
 #include "placement.hpp"
 #include "roadrail.hpp"
+#include "roadbridge.hpp"
 #include "imgui.h"
 #include "theme.hpp"
 
@@ -376,6 +377,12 @@ void App::vehicleDriveStart(int objectIndex) {
         const SceneObject& r = objs[i];
         if (r.type != PrimitiveType::Road || r.roadPoints.size() < 4) continue;
         std::vector<roadgen::Vertex> tris;
+        if (r.roadBridge) {
+            // A bridge's deck (docs/roads.md "Bridges"): the codegen's own.
+            roadbridge::drawnRoad(r, terrainAt, tris);
+            vehicleDriveRoads_.add(tris, r.roadGrip);
+            continue;
+        }
         const float lift = roadgen::rankLift(r.roadRank);  // the console's lift
         const auto liftedAt = [&](float x, float z) { return terrainAt(x, z) + lift; };
         // Soft edges (1.144.0): the core, then the faded bands - a tyre on a
@@ -403,7 +410,8 @@ void App::vehicleDriveStart(int objectIndex) {
     // Kerb tops too (docs/roads.md "Kerbs"): the console's height index reads
     // them, so a tyre that hits one rides up onto it here as well.
     {
-        const std::vector<roadgen::CrossingRoad> cr = project::crossingRoads(objs);
+        const std::vector<roadgen::CrossingRoad> cr =
+            project::crossingRoads(objs, nullptr, "", terrainAt);
         const roadgen::CrossingPlan plan =
             roadgen::planCrossings(cr, project_.active().roadJunctions);
         if (cr.size() >= 2)
@@ -477,10 +485,14 @@ void App::vehicleDriveTick() {
     // drawn roadgen::kLift above it: the generated runtime's groundSurfaceAt
     // (max of the two). Terrain alone put every tyre 0.12 into the asphalt on
     // both twins (docs/vehicles.md, "Wheels on the road surface").
+    // Capped at the car (docs/roads.md "Bridges"): the highest surface not
+    // above it, the console's roadSurfaceAt(..., v.pos[1] + 1.5), so a car
+    // under a bridge stays on its road.
     const vehiclesim::HeightFn ground = [this](float x, float z) {
         const float terrain =
             project_.active().terrain.enabled ? viewport_.terrainHeight(x, z) : -1e6f;
-        const float road = vehicleDriveRoads_.at(x, z);
+        const float road = vehicleDriveRoads_.at(
+            x, z, nullptr, nullptr, vehicleDriveState_.pos[1] + roadbridge::kVehicleStepUp);
         return road > terrain ? road : terrain;
     };
     // The surface under a tyre (off-road 1.136.0, road grip 1.137.0): a road
@@ -493,7 +505,10 @@ void App::vehicleDriveTick() {
         layerGrips.push_back(l.grip);
     const vehiclesim::SurfaceFn surface = [this, layerGrips](float x, float z) {
         vehiclesim::SurfaceSample s;
-        if (vehicleDriveRoads_.at(x, z, &s.grip, &s.cover) <= -1.0e29f) s.cover = 0.0f;
+        if (vehicleDriveRoads_.at(x, z, &s.grip, &s.cover,
+                                  vehicleDriveState_.pos[1] + roadbridge::kVehicleStepUp) <=
+            -1.0e29f)
+            s.cover = 0.0f;
         if (s.cover < 1.0f) s.terrainGrip = viewport_.terrainLayerGrip(x, z, layerGrips);
         return s;
     };

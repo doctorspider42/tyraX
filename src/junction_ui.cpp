@@ -35,7 +35,8 @@ const roadgen::CrossingPlan& App::sceneCrossings() {
     if (roadDragPoint_ >= 0 && crossingPlanSig_ != 0) return crossingPlan_;
     const std::vector<SceneObject>& objs = project_.objects();
     std::vector<int> idx;
-    std::vector<roadgen::CrossingRoad> roads = project::crossingRoads(objs, &idx);
+    std::vector<roadgen::CrossingRoad> roads = project::crossingRoads(
+        objs, &idx, "", [this](float x, float z) { return viewport_.terrainHeight(x, z); });
     uint64_t h = 1469598103934665603ULL;
     const int scene = project_.activeScene;
     h = fnv(h, &scene, sizeof(scene));
@@ -48,6 +49,11 @@ const roadgen::CrossingPlan& App::sceneCrossings() {
         h = fnv(h, &r.rank, sizeof(r.rank));
         h = fnv(h, r.intersection.data(), r.intersection.size() + 1);
         h = fnv(h, &idx[k], sizeof(int));
+        // A bridge's deck decides which crossings are overpasses.
+        const SceneObject& ro = objs[(size_t)idx[k]];
+        h = fnv(h, &ro.roadBridge, sizeof(ro.roadBridge));
+        if (!ro.roadHeights.empty())
+            h = fnv(h, ro.roadHeights.data(), ro.roadHeights.size() * sizeof(float));
     }
     for (const roadgen::JunctionOverride& j : project_.active().roadJunctions) {
         h = fnv(h, j.roadA.data(), j.roadA.size() + 1);

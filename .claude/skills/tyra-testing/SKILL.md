@@ -4008,6 +4008,19 @@ caught exactly that error. Continuous driving windows are selected by actual
 position, not a presumed frame count. Quality-reduction probes may change FPS
 and thus physics substep cost; compare render/finish as well as total work.
 
+## Bridges (format 100)
+
+`--vehicle-check` "road bridges" is the host layer (profile, valley span, no node
+at an overpass, uncut kerbs, the capped wheel query, piers to the ground, vertex
+budget). `--road-crossings <dir> 0` prints a `[bridge]` line per bridge (deck and
+structure vertices, piers, abutments, peak) - the codegen's own numbers - and the
+game logs `ROADBRIDGE scene N chunks M vertices V`. The EE twin is unchanged, so
+`verify-road-twins.py` must still pass as before. Visual check: the Motor
+District's *Service lane flyover* from a frozen Player at (-82, 0, -70),
+rotation [-8, 38, 0], HUD off, with `picapark00000001` moved to (-62.5, 0.5,
+-50) - under the deck, on the West service lane (docs/img/road-bridge-pcsx2.png).
+The car must sit on the lane, not on the deck six units up.
+
 ## Exact first-entry HUD acceptance (1.150.1)
 
 Use the stationary night fixture and record every frame through the exact
