@@ -5515,7 +5515,17 @@
 // host-baked albedo map (REFL_GROUND_*): -2 ms a turning frame on the Motor
 // District's open road on a PS2.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 171
+#define TYRAX_VERSION_MINOR 172
+// 1.172.0: THE ROAD NETWORK GROWS A CITY. Kerb tops are solid (the road
+// height index reads owner -4; walkers use walkGroundAt, a 0.5 step cap);
+// pavements behind the kerbs (v97, textured ROAD_JUNCTIONS rows wrapping the
+// fillet corners); railways and tram streets with level crossings (v98,
+// rails in the kerb tables by palette shade); road details - manholes,
+// gullies, patches, cracks, oil (v99, owner -6 decals); bridges and
+// overpasses (v100, host-baked deck + structure, capped ground queries,
+// oriented parapet/pier walls in procColliders). The Road Texture Generator
+// gains paving slabs, pavers, rail ballast and weathering (wear, grime,
+// cracks), and node paint is a worn texture blended into the asphalt.
 // 1.171.0: ROAD MARKINGS AND TRANSITIONS. Every patch node is painted
 // (roadgen::bakeMarkings): the road's edge line carried round the fillets,
 // stop lines where a road gives way, optional zebras - untextured paint in one
