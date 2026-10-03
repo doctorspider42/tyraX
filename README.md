@@ -380,7 +380,7 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
   [streaming layers](docs/streaming-layers.md),
   [world facts](docs/world-facts.md), runtime spawning and the
   [endless scroller](docs/endless-scroller.md).
-- **[Roads](docs/roads.md) and [vehicles](docs/vehicles.md)** — terrain-following streets with automatic rounded junctions, T's, forks and corners, kerbs and pavements that follow the fillets, [bridges and overpasses](docs/roads.md#bridges-format-100), [railway and tram tracks](docs/roads.md#rails-and-tram-tracks-format-98) with level crossings, painted junctions, placed road details (manholes, gullies, patches, cracks, oil), [street furniture](docs/roads.md#street-furniture-format-101) (lamps, trees, bollards, signs and traffic lights generated from the roads) and [generated road textures](docs/road-textures.md), driveable and AI cars, model and sound authoring, damage and live previews. Try [Motor District](examples/vehicle-playground/README.md) or follow the [Blender vehicle tutorial](docs/blender-vehicle-modeling.md).
+- **[Roads](docs/roads.md) and [vehicles](docs/vehicles.md)** — terrain-following streets with automatic rounded junctions, T's, forks and corners, kerbs and pavements that follow the fillets, [bridges and overpasses](docs/roads.md#bridges-format-100), [railway and tram tracks](docs/roads.md#rails-and-tram-tracks-format-98) with level crossings, painted junctions, placed road details (manholes, gullies, patches, cracks, oil), [street furniture](docs/roads.md#street-furniture-format-101) (lamps, trees, bollards, signs and traffic lights generated from the roads), [road streaming](docs/roads.md#road-streaming-format-102) by distance for big maps and [generated road textures](docs/road-textures.md), driveable and AI cars, model and sound authoring, damage and live previews. Try [Motor District](examples/vehicle-playground/README.md) or follow the [Blender vehicle tutorial](docs/blender-vehicle-modeling.md).
 - **[NavMesh + NPC AI](docs/navigation-ai.md)** — baked on the host, A* on the EE.
 - **[Cinematics](docs/cutscenes.md)** — the Cutscene Director, fed by keyframes
   or by a [phone-recorded 6DoF take](docs/camera-takes.md) or the
@@ -545,7 +545,7 @@ wait for their polish pass.
 | [upscaler-lab](examples/upscaler-lab) | The fill-bound scene built to make the neural upscaler sweat. It wins: 1.63× on real hardware |
 | [video-modes](examples/video-modes) | 480i / 480p / 1080i and 4:3 / 16:9, switched at runtime — with keep-or-revert |
 | [vu-lab](examples/vu-lab) | Six props on five VU1 paths — capture a draw off the console, replay it on the host |
-| [big-city](examples/big-city) | A generated 1 km city: 78 roads and 214 nodes, ring road, tram, railway with a bridge, 1 283 objects; how far 32 MB of EE RAM goes, measured |
+| [big-city](examples/big-city) | A generated 1.4 km city: 120 roads, ring road, tram, railway with a bridge, 2 420 objects in auto-streamed districts, roads streamed by distance; how far 32 MB of EE RAM goes, measured |
 | [vehicle-playground](examples/vehicle-playground) | Motor District: thirteen roads with T's, a fork, a slip road and a corner, a level crossing and a tram line, CC0 city scenery, three driveable car models, day/night and live paint reflections; painted procedural district with road and overlap checks |
 
 ## CLI

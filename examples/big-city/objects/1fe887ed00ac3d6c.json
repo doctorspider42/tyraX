@@ -1,0 +1,1 @@
+{ "id": "1fe887ed00ac3d6c", "name": "Building 722", "type": "model", "position": [2.5714, 0, -153.83], "rotation": [0, 0, 0], "scale": [2.7557, 1.5877, 2.1473], "color": [1, 1, 1], "physics": false, "layer": "district-4-3", "drawDistance": 300, "castShadow": false, "model": "res/models/urban/city-highrise-4.obj" }

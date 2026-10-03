@@ -7,15 +7,31 @@ relevant guide or developer skill.
 ## Big maps: EE RAM, not frame time, is the limit (2026-10-03)
 
 [examples/big-city](../examples/big-city/README.md), "Limits found", has the
-measurements. A 1 km city runs at the 60 FPS cap in PCSX2 with 27-28 of 32 MB
-used; every bigger version died in `std::bad_alloc` at scene load. In order of
-payoff:
+measurements. The first city (1 km, everything resident) used 27-28 of 32 MB
+and every bigger version died in `std::bad_alloc` at scene load. ~~Road
+streaming~~ and auto-streamed districts are DONE (format 102, docs/roads.md
+"Road streaming"): the shipped city is now 1.4 km at 16-22 MB. What is left, in
+order of payoff:
 
+- **The ELF's own tables are the next wall.** Road streaming frees the runtime
+  copies only; `ROAD_JUNCTION_VERTS`, `ROAD_KERB_VERTS`, `ROAD_FURN_VERTS` and
+  the scene table stay in `.rodata`, loaded with the ELF. Kerbs everywhere +
+  furniture on every road in the 1.4 km city made an 11.8 MB ELF and 30.7 MB at
+  spawn; pavements on every street a 20.8 MB ELF that never reached a frame.
+  Next step: write the baked road tables to a file under `bin/` and read each
+  item's rows from it when the item is built (host: now, CD later), keeping
+  only the item list resident. Test: the rsbc5 configuration of the big-city
+  README booting under 24 MB.
+- **A strip chunk is built in one frame.** The streaming budget bounds what a
+  frame STARTS, not one item: the worst streaming frame while driving the city
+  was 4-6 ms (one dense strip chunk). Splitting a replay across frames (resume
+  at any station, not only a chunk start) would cap it. Test: `ROADSTREAM ...
+  worst us` under 2 000 on the same drive.
 - ~~Share static model geometry between instances~~ DONE 1.173.0
   (docs/instance-sharing.md): one model-space bake per part under a per-object
   matrix, pooled colours; batches trim their growth slack (-1.6 MB on the
-  city). With batching off the 2 557-object city (`FURNITURE_CORE_ONLY=False`)
-  now boots at 30.0 MB. What it made visible, in order of payoff:
+  1 km city). With batching off the 2 557-object 1 km city
+  (`FURNITURE_CORE_ONLY=False`) now boots at 30.0 MB. What it made visible, in order of payoff:
   - **The per-instance bookkeeping is now the biggest object cost**: ~650 B per
     `GeoPart` + bags whatever it draws (2.8 MB for 4 305 parts) and ~1 KB of
     `RuntimeObject` + `ObjectGeometry` per object (2.7 MB for 2 589). Most of a
@@ -29,19 +45,19 @@ payoff:
   - **The baked VIF stream cache holds 1.8-3.1 MB** on the city (a copy of
     every baked bag's payload, budget 4 MB): the budget is an EE RAM lever of
     its own.
-  - `GRID_LINES=12` is roads-only memory and was not re-tried (road streaming
-    is in progress separately).
+- **Streamed layers are never batched.** The districts that make the 1.4 km
+  city fit cost static batching (0 batches); PCSX2 kept 60 FPS parked and
+  48-58 driving, but a console may not. Batching per layer (a batch dies with
+  its layer) would give it back.
 - **Road vertex size.** Road chunks hold `Vec4` position, `Color` and `Vec4` ST
-  per vertex (48 B before bags), and the baked tables stay in `.rodata` after
-  upload. Packed or freed-after-upload data would buy most of a 1.4 km city.
-  Pavements are the biggest single item (about 4 MB on ten core grid lines).
+  per vertex (48 B before bags). Packed data would halve the resident roads.
 - **Kerb/rail/detail chunk size.** 32-unit kerb cells made 1 210 chunks of ~80
   vertices on the first big-city; road details 743 chunks of 16. Larger cells
   (with the draw distance raised to match) cut chunk overhead and submits.
 - **Say out of memory on screen.** A `bad_alloc` at scene load is a black
   screen with nothing in `bin/log.txt`; only the EE console names it. A
   `std::set_new_handler` that logs and draws "out of EE memory" would have
-  saved most of the bisection.
+  saved most of the bisection (it would have again for the rsbc4 run).
 - **A `.glb` placed as a static model** loads as a per-instance DynamicMesh;
   either bake it to a `.tmdl` like an OBJ or warn in the editor.
 - ~~The road height index's 1 024-chunk cap~~ DONE: 13/19-bit packing and a

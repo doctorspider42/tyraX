@@ -1,1 +1,1 @@
-{ "id": "621bd9bde736dffa", "name": "Plinth 1-4 4", "type": "box", "position": [-340.098, 0.135, -89.1794], "rotation": [0, 0, 0], "scale": [25.0761, 0.27, 76.2609], "color": [0.47, 0.47, 0.45], "physics": false, "collision": "none", "drawDistance": 140, "castShadow": false }
+{ "id": "621bd9bde736dffa", "name": "Plinth 1-4 4", "type": "box", "position": [-575.204, 0.135, -274.182], "rotation": [0, 0, 0], "scale": [34.634, 0.27, 67.5453], "color": [0.47, 0.47, 0.45], "physics": false, "collision": "none", "layer": "district-1-2", "drawDistance": 140, "castShadow": false }

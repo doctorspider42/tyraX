@@ -6566,6 +6566,9 @@ void TerrainGame::updateLayerStreaming() {
     for (int l = 0; l < lc; ++l)
       if (layerTarget[l] == 0) layerState[l] = 0;
     applyLayerResidency();
+    // The streamed-out instances let go of their pooled colours; free the
+    // arrays only the pool still holds now rather than at its next sweep.
+    if (anyOut) pruneColorPool();
     if (anyOut) buildParticles();  // drop the streamed-out emitters' pools
   }
 
@@ -8927,6 +8930,9 @@ void TerrainGame::updateLayerStreaming() {
     for (int l = 0; l < lc; ++l)
       if (layerTarget[l] == 0) layerState[l] = 0;
     applyLayerResidency();
+    // The streamed-out instances let go of their pooled colours; free the
+    // arrays only the pool still holds now rather than at its next sweep.
+    if (anyOut) pruneColorPool();
     if (anyOut) buildParticles();  // drop the streamed-out emitters' pools
   }
 
@@ -19037,23 +19043,27 @@ TerrainGame::ShRef<TerrainGame::SharedColors> TerrainGame::poolColors(
   // An array nobody draws any more (its instances were rebuilt, recoloured or
   // streamed out) is held by the pool alone until its bucket is next visited;
   // sweep the whole pool now and then so a long Live Link session or layer
-  // streaming cannot pile those up. Erasing other buckets leaves `bucket`
-  // valid - a std::map erase invalidates only the erased node.
-  if ((++colorPoolAdds & 255U) == 0) {
-    for (auto it = colorPool.begin(); it != colorPool.end();) {
-      std::vector<ShRef<SharedColors>>& b = it->second;
-      for (size_t k = 0; k < b.size();)
-        if (b[k].useCount() <= 1)
-          b.erase(b.begin() + (long)k);
-        else
-          ++k;
-      if (b.empty() && &b != &bucket)
-        it = colorPool.erase(it);
-      else
-        ++it;
-    }
-  }
+  // streaming cannot pile those up. `bucket` holds `sc`, so the sweep keeps
+  // it.
+  if ((++colorPoolAdds & 255U) == 0) pruneColorPool();
   return sc;
+}
+
+
+
+void TerrainGame::pruneColorPool() {
+  for (auto it = colorPool.begin(); it != colorPool.end();) {
+    std::vector<ShRef<SharedColors>>& b = it->second;
+    for (size_t k = 0; k < b.size();)
+      if (b[k].useCount() <= 1)
+        b.erase(b.begin() + (long)k);
+      else
+        ++k;
+    if (b.empty())
+      it = colorPool.erase(it);
+    else
+      ++it;
+  }
 }
 
 

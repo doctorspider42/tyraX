@@ -114,6 +114,44 @@ standing ON the edge cannot thrash. If you can't see why a zone is or isn't
 resident, turn on *Preferences > Build > Show areas* and the box is drawn
 in the game (see [areas.md](areas.md)).
 
+## A city: districts plus road streaming
+
+Layers stream OBJECTS. The road network is not in any layer - its geometry is
+generated at scene load - so on a big map it streams separately, by the
+project's **Road stream radius** (docs/roads.md, "Road streaming"). The two are
+meant to be used together, and [examples/big-city](../examples/big-city) is the
+worked example: a 1.4 km city whose buildings, trees, lamps and parked cars sit
+in 200-unit **district layers** with auto-stream circles, and whose roads stream
+within 260 units of the camera.
+
+- **Size the zones from the draw distances.** A district must be resident
+  before its nearest object is inside that object's draw distance, so the
+  circle reaches about `0.71 x district size + margin` with the margin near the
+  draw distance (big-city: 0.71 x 200 + 150 = 292, unloading at 344). A
+  300-unit district with a 160 margin - the first try - kept nine of the
+  1.4 km city's districts resident at the centre and saved almost nothing.
+- **Road radius past the fog**, so asphalt is built while it is still fogged
+  out (big-city: fog 90-220, roads 260, terrain ring 240).
+- **What it bought, at spawn:** 27.9 MB with everything resident (the 1 km
+  city), 21.8 MB with only the roads streamed, 17.8 MB with the districts too -
+  and the same districts then carried a 1.4 km city (2 420 objects, 120 roads)
+  at 15.8-21.6 MB.
+- **Layered objects are not statically batched** (docs/static-batching.md), so
+  a fully layered city has no batches at all. PCSX2 still held 60 FPS parked
+  and 48-58 driving; on a console the submit count may matter (docs/backlog.md).
+
+**Driving.** The zones are tested at UPDATE time against `cameraLookAt`, and
+while somebody drives that is still the walker's view - the walker waits at the
+car's door, and the chase camera only takes over in the render. Until 2026-10-03
+a whole city of zones kept its spawn districts while you drove away. A project
+with vehicles and auto-stream layers now uses the driven car as the focus
+(generated only there, so every other project keeps its exact source).
+
+**The log.** A project with auto-stream layers writes `LAYER <index> load` and
+`LAYER <index> unload` into `bin/log.txt` as zones flip - the index is the
+layer's position in the scene's list. That is how to tell an unload from a
+zone that never loaded without attaching the debugger.
+
 ## What happens to object state
 
 Unloading a layer **discards its runtime state**. When it comes back, its

@@ -1,1 +1,1 @@
-{ "id": "58974b6004ab1b41", "name": "Lamp 86", "type": "model", "position": [-30.7838, 0, -11.3596], "rotation": [0, 135.515, 0], "scale": [1, 1, 1], "color": [1, 1, 1], "physics": false, "drawDistance": 70, "castShadow": false, "model": "res/models/urban/city-lamp.obj" }
+{ "id": "58974b6004ab1b41", "name": "Lamp 86", "type": "model", "position": [-678.526, 0, 52.1486], "rotation": [0, 179.102, 0], "scale": [1, 1, 1], "color": [1, 1, 1], "physics": false, "layer": "district-0-4", "drawDistance": 70, "castShadow": false, "model": "res/models/urban/city-lamp.obj" }

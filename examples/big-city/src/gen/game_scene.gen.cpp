@@ -1159,7 +1159,10 @@ void TerrainGame::loadScene(int sceneIndex) {
   // generated survives a scene switch), and the first placement of this call
   // sat ten lines above it - five road chunks built and wiped before the
   // first frame, a road only the boot log ever saw.
-  buildRoads(sceneIndex);
+  // Road streaming (docs/roads.md "Road streaming"): plan the scene's roads,
+  // then build everything within the radius of the start focus.
+  roadStreamSetup(sceneIndex);
+  roadStreamUpdate(lsFocusX, lsFocusZ, 0.0F, 0.0F, false, 0x7FFFFFFF);
 
 
   // Raytraced mirrors (VU0 PoC): create this scene's reflection textures

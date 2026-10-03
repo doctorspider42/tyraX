@@ -62,6 +62,7 @@
 #include "roadrail.hpp"  // rails + tram tracks, baked into the kerb tables
 #include "roaddetail.hpp"  // road details: host-baked decals (docs/roads.md)
 #include "roadfurniture.hpp"  // street furniture: host-baked lamps, trees, signs
+#include "roadstream.hpp"  // road streaming: the runtime cut from buildRoads' own text
 #include "wire.hpp"  // fnv1a64 - stable per-override .tskl suffix
 
 namespace templates {
@@ -1689,6 +1690,9 @@ class TerrainGame : public Tyra::Game {
   ShRef<SharedColors> poolColors(BagArray<Tyra::Color>& cols);
   std::map<unsigned int, std::vector<ShRef<SharedColors>>> colorPool;
   unsigned int colorPoolAdds = 0;  // every 256th adoption sweeps the pool
+  // Frees the pooled arrays no instance draws any more (the pool's own
+  // reference is the last one) - also run after a layer streams out.
+  void pruneColorPool();
   bool instanceShareEligible(int index) const;
   void bakeSharedObject(int index, const GameModel& gm);
   // A pass that needs this object's WORLD-space vertices (the torch's
@@ -3666,6 +3670,9 @@ class TerrainGame : public Tyra::Game {
   ShRef<SharedColors> poolColors(BagArray<Tyra::Color>& cols);
   std::map<unsigned int, std::vector<ShRef<SharedColors>>> colorPool;
   unsigned int colorPoolAdds = 0;  // every 256th adoption sweeps the pool
+  // Frees the pooled arrays no instance draws any more (the pool's own
+  // reference is the last one) - also run after a layer streams out.
+  void pruneColorPool();
   bool instanceShareEligible(int index) const;
   void bakeSharedObject(int index, const GameModel& gm);
   // A pass that needs this object's WORLD-space vertices (the torch's
@@ -18723,19 +18730,30 @@ static bool projectHasRoadDetails(const Project& p) {
     return false;
 }
 
+// Road streaming (docs/roads.md "Road streaming"): a project setting, and
+// only meaningful with roads. Off = not one byte of this reaches the sources.
+static bool projectStreamsRoads(const Project& p) {
+    return p.settings.roadStreamRadius > 0.0f && projectHasRoads(p);
+}
+
+static roadstream::Emitted roadStreamEmit(const Project& p);
+
 static std::string roadsMembers(const Project& p) {
     if (!projectHasRoads(p)) return "";
-    return R"(  // --- roads (docs/roads.md) ---
+    std::string s = R"(  // --- roads (docs/roads.md) ---
   // Built at scene load from ROAD_DEFS: the tessellated chunks live in
   // procChunks under owner -3, textures in this small cache (acquired once,
   // shared by every chunk of every road using them).
   Tyra::Texture* roadTextures_[ROAD_TEXTURE_COUNT > 0 ? ROAD_TEXTURE_COUNT : 1] = {};
   void buildRoads(int scene);
 )";
+    if (projectStreamsRoads(p)) s += roadStreamEmit(p).members;
+    return s;
 }
 
 static std::string roadsSetupCall(const Project& p) {
     if (!projectHasRoads(p)) return "";
+    if (projectStreamsRoads(p)) return roadStreamEmit(p).setup;
     return "  buildRoads(sceneIndex);\n";
 }
 
@@ -18867,7 +18885,7 @@ static std::string roadDetailsUpload() {
 )";
 }
 
-static std::string roadsImpl(const Project& p) {
+static std::string roadsImplBuild(const Project& p) {
     if (!projectHasRoads(p)) return "";
     std::string s = R"(
 // Roads (docs/roads.md). TWIN NOTICE: this is src/roadgen.cpp's arithmetic,
@@ -19458,6 +19476,35 @@ void TerrainGame::buildRoads(int scene) {
     return s;
 }
 
+// Road streaming (docs/roads.md "Road streaming"): the streaming runtime is
+// CUT from the text above - buildRoads, its upload blocks, procFinishChunks -
+// by roadstream::emit, never retyped, so a streamed chunk is built by the
+// same lines as an unstreamed one.
+static roadstream::Emitted roadStreamEmit(const Project& p) {
+    roadstream::Sources src;
+    src.roads = roadsImplBuild(p);
+    if (projectHasKerbs(p)) src.kerbs = roadKerbsUpload();
+    if (projectHasRoadDetails(p)) src.details = roadDetailsUpload();
+    if (projectHasBridges(p)) src.bridges = roadbridge::uploadSource();
+    if (projectHasRoadFurniture(p)) src.furniture = roadfurn::uploadSource();
+    {
+        const std::string tpl = TPL_GAME_COLLISION;
+        const size_t a = tpl.find("void TerrainGame::procFinishChunks() {");
+        const size_t b = a == std::string::npos ? a : tpl.find("\n}\n", a);
+        if (b != std::string::npos) src.finish = tpl.substr(a, b + 3 - a);
+    }
+    roadstream::Params prm;
+    prm.radius = p.settings.roadStreamRadius;
+    prm.vehicles = projectHasVehicles(p);
+    return roadstream::emit(src, prm);
+}
+
+static std::string roadsImpl(const Project& p) {
+    std::string s = roadsImplBuild(p);
+    if (projectStreamsRoads(p)) s += roadStreamEmit(p).impl;
+    return s;
+}
+
 static std::string vehicleSetupCall(const Project& p) {
     if (!projectHasVehicles(p)) return "";
     return "  setupVehicles(sceneIndex);\n";
@@ -19908,6 +19955,55 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
     s = replaceAll(s, "{{BLSS_INIT}}", blssInit(p));
     s = replaceAll(s, "{{BLSS_SCENE_SETUP}}", blssSceneSetup(p));
     s = replaceAll(s, "{{BLSS_SCENE_RENDER}}", blssSceneRender(p));
+    // Auto-streamed layers in a vehicle project (docs/streaming-layers.md,
+    // "Driving"): the zones were tested against cameraLookAt at UPDATE time,
+    // which is still the walker's view - the parked walker standing at the
+    // car's door - while somebody drives; the chase camera only takes over
+    // in the render. Driving a whole city left every district exactly as it
+    // was at spawn. The driven car is the focus instead. Patched only where
+    // both exist, so every other project keeps its exact source.
+    bool autoStream = false;
+    for (const SceneData& sc : p.scenes)
+        for (const SceneLayer& l : sc.layers) autoStream = autoStream || l.autoStream;
+    // The residency log (docs/streaming-layers.md): a project whose zones
+    // stream layers by themselves says so in bin/log.txt, which is the only
+    // way to tell an unload from "never loaded" without a debugger.
+    if (autoStream) {
+        s = replaceAll(s,
+                       "      layerState[l] = 1;  // loading - assets stream in below\n"
+                       "      changed = true;\n",
+                       "      layerState[l] = 1;  // loading - assets stream in below\n"
+                       "      changed = true;\n"
+                       "      TYRA_LOG(\"LAYER \", l, \" load\");\n");
+        s = replaceAll(s,
+                       "      layerTarget[l] = 0;\n"
+                       "      changed = true;\n",
+                       "      layerTarget[l] = 0;\n"
+                       "      changed = true;\n"
+                       "      TYRA_LOG(\"LAYER \", l, \" unload\");\n");
+    }
+    if (projectHasVehicles(p)) {
+        if (autoStream)
+            s = replaceAll(s,
+                           "    const float px = cameraLookAt.x;\n"
+                           "    const float pz = cameraLookAt.z;\n",
+                           "    float px = cameraLookAt.x;\n"
+                           "    float pz = cameraLookAt.z;\n"
+                           "    // Driving: the car is the focus (the walker waits at its door).\n"
+                           "    if (vehicleDriver_ >= 0 && vehicleDriver_ < vehicleCount_) {\n"
+                           "      px = vehicles_[vehicleDriver_].pos[0];\n"
+                           "      pz = vehicles_[vehicleDriver_].pos[2];\n"
+                           "    }\n");
+    }
+    // Road streaming (docs/roads.md "Road streaming"): the three hooks in code
+    // every project shares (the height lookup, the per-frame update, the
+    // far-car freeze). Last, so the vehicle code is already in place.
+    if (projectStreamsRoads(p)) {
+        roadstream::Params prm;
+        prm.radius = p.settings.roadStreamRadius;
+        prm.vehicles = projectHasVehicles(p);
+        s = roadstream::patchTemplate(s, prm);
+    }
     return s;
 }
 

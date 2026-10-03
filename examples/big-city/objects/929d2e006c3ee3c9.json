@@ -1,1 +1,1 @@
-{ "id": "929d2e006c3ee3c9", "name": "Central plaza", "type": "box", "position": [0.1468, 0.1, -89.411], "rotation": [0, 0, 0], "scale": [68, 0.2, 68], "color": [0.66, 0.62, 0.55], "physics": false, "collision": "none", "drawDistance": 140, "castShadow": false }
+{ "id": "929d2e006c3ee3c9", "name": "Central plaza", "type": "box", "position": [3.1215, 0.1, -86.95], "rotation": [0, 0, 0], "scale": [68, 0.2, 68], "color": [0.66, 0.62, 0.55], "physics": false, "collision": "none", "drawDistance": 140, "castShadow": false }

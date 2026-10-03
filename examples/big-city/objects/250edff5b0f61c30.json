@@ -1,0 +1,1 @@
+{ "id": "250edff5b0f61c30", "name": "Building 1324", "type": "model", "position": [452.554, 0, 394.928], "rotation": [0, 0, 0], "scale": [1.8617, 1.4727, 1.9073], "color": [1, 1, 1], "physics": false, "layer": "district-6-6", "drawDistance": 230, "castShadow": false, "model": "res/models/urban/district-loft.obj" }

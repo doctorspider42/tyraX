@@ -1,0 +1,1 @@
+{ "id": "9c5e6d2fa49cba2a", "name": "Lamp 138", "type": "model", "position": [397.238, 0, 384.319], "rotation": [0, 315.532, 0], "scale": [1, 1, 1], "color": [1, 1, 1], "physics": false, "layer": "district-6-6", "drawDistance": 70, "castShadow": false, "model": "res/models/urban/city-lamp.obj" }

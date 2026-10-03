@@ -3135,6 +3135,31 @@ road height index never reads -7. An `.obj` model's texture is SAMPLED into the
 vertex colours at bake (no VRAM, no texture-atlas trap). The Properties
 section is `App::drawRoadFurniture` in `src/roadfurniture_ui.cpp`.
 
+**Road streaming (format 102, docs/roads.md "Road streaming") is CUT, not
+retyped.** `ProjectSettings::roadStreamRadius` > 0 swaps `buildRoads` for
+`roadStreamSetup` + a per-frame `roadStreamUpdate`, and `roadstream::emit`
+(`src/roadstream.cpp`) builds that runtime out of the non-streaming text:
+buildRoads' per-road loop (patched to plan or replay one chunk), the
+junction/spill/edge uploads, the kerb/bridge/detail/furniture upload blocks and
+procFinishChunks' per-chunk body, each cut at fixed anchors. **So editing any
+of those texts can break an anchor** - `--vehicle-check` "road streaming"
+generates a project with every road feature and fails on a miss, and the
+generated source gets an `#error` naming it. Three shared hooks are
+string-patched in `fillTemplate` only when streaming is on
+(`roadstream::patchTemplate`: roadSurfaceAt's lookup, the update after the
+terrain ring, the far-car freeze), so radius 0 regenerates byte-identically.
+The pure part - item boxes, the coarse grid, the per-chunk height index, the
+ring - is `src/roadstream_core.inl`, ONE file compiled into the editor
+(namespace roadstream) and pasted verbatim into the generated class (embedded
+by CMake via `embed_binary.cmake`): structs and member functions only, no
+includes, no `/* */` comments (`ROADS_IMPL` also lands inside one in the
+collision TU). Streamed chunks live in procChunks slots tagged `instance = -2
+- item`, free slots are owner -8, and anything that erases procChunks is
+caught by the tags (`roadStreamRemap`). Two neighbours were fixed with it,
+both patched only where they apply: auto-stream layer zones focus on the
+DRIVEN car in vehicle projects (they read the parked walker before), and
+auto-stream projects log `LAYER n load|unload`.
+
 ## Vehicle HUD font preparation (1.150.1)
 
 `fontGlyphSprite` in the shared generated helpers owns one persistent sprite

@@ -4052,6 +4052,39 @@ rotation [-8, 38, 0], HUD off, with `picapark00000001` moved to (-62.5, 0.5,
 -50) - under the deck, on the West service lane (docs/img/road-bridge-pcsx2.png).
 The car must sit on the lane, not on the deck six units up.
 
+## Road streaming (format 102)
+
+`--vehicle-check` "road streaming" is the host layer: the cut, the per-chunk
+height index against a scan through a load/unload walk, the ring, and the
+codegen (every anchor of `roadstream::emit` still matching, streaming off
+generating nothing). Then, in PCSX2:
+
+- **Off is byte-identical**: `--refresh-gen` the Motor District with the
+  setting at 0 and `git status` must show nothing.
+- **The plan matches the full build**: a streamed game's `ROADS`/`ROADSTRIP`
+  lines (`... (streamed)`) must equal the unstreamed build's numbers. A
+  `ROADSTREAM replay mismatch` line is a replay that diverged from its plan.
+- **The height index**: flip `TYRA_ROAD_INDEX_VERIFY` (rebuild with
+  `native-build` directly, docs/roads.md "Road height queries") and drive.
+  Its scan oracle only checks UNCAPPED queries, and a driven car's wheels are
+  all capped (`maxY`) - a parked drive logged nothing for eight minutes. For a
+  test run, widen the gate in the generated `game_vehicles.gen.cpp` to
+  `maxY > 1.0e29F || roadSurfaceScan(x, z) <= maxY` (the capped answer must
+  equal the scan wherever the scan's highest surface is under the cap): the
+  Motor District at radius 80 gave 80 000 checks, 0 bad.
+- **Under the wheels**: `VEHCONTACT ... roadlift1000` is the road's height
+  over the terrain at each wheel - ~119-154 on asphalt, 0 = the road under the
+  car is missing (or the car left it). Drive with `--pad "hold r2; wait 24;
+  release all"` and read it along the way.
+- **Memory and hitches**: the HUD `MEM` in `--capture-frame` shots, and the
+  `ROADSTREAM resident ... worst us` line (every 150 busy frames).
+- **Layers**: a project with auto-stream layers logs `LAYER n load|unload`;
+  none while driving across districts = the focus is wrong.
+- **Out of memory** is a black screen after `VEH controls card` with nothing
+  in the log, and `--capture-frame` times out ("no complete bin/frame.tga").
+- `Select-Object -First N` on a PowerShell script's output STOPS the script
+  after N lines - a capture loop piped into it takes one shot and quits.
+
 ## Exact first-entry HUD acceptance (1.150.1)
 
 Use the stationary night fixture and record every frame through the exact

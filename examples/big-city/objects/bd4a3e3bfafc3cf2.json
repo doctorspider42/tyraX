@@ -1,0 +1,1 @@
+{ "id": "bd4a3e3bfafc3cf2", "name": "Building 955", "type": "model", "position": [210.251, 0, -78.7873], "rotation": [0, 0, 0], "scale": [1.9912, 1.6454, 1.9752], "color": [1, 1, 1], "physics": false, "layer": "district-5-3", "drawDistance": 300, "castShadow": false, "model": "res/models/urban/city-highrise-3.obj" }

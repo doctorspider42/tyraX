@@ -5520,7 +5520,7 @@
 // model-space bake of its parts (positions + STs, owned by the model) under
 // its own matrix, scale included; only its lit colours are its own, and
 // those are pooled by content (docs/instance-sharing.md). Preferences >
-// Rendering > Share model geometry between instances (format v102, on by
+// Rendering > Share model geometry between instances (format v103, on by
 // default). A debug build logs MEMSTAT (what object geometry holds) ~4 s
 // after a scene load. Also: static batches trim their growth slack, LOD
 // tiers bake under their own object's lights and keep their Ke floor.
@@ -6172,10 +6172,13 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // yaw), seed, signs (1 give way, 2 stop), signals, signModel, signalModel -
 // holding only its non-default keys, and written only when any is set.
 // Missing = no furniture, as before. Additive; no migration step.
-// v102 (docs/instance-sharing.md): settings.instanceSharing, written only
+// v102 (docs/roads.md, "Road streaming"): the project setting
+// "roadStreamRadius" (world units, written only when > 0). Missing = 0 = every
+// road chunk resident, as before. Additive; no migration step.
+// v103 (docs/instance-sharing.md): settings.instanceSharing, written only
 // when false. Missing = on (the 1.173 default); a project that switched it
 // off says so. Additive; no migration step.
-inline constexpr int kFormatVersion = 102;
+inline constexpr int kFormatVersion = 103;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

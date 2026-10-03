@@ -1,0 +1,1 @@
+{ "id": "8166e72b7caec72c", "name": "Building 661", "type": "model", "position": [-110.831, 0, 346.018], "rotation": [0, 0, 0], "scale": [2.4501, 1.493, 2.6494], "color": [1, 1, 1], "physics": false, "layer": "district-3-6", "drawDistance": 300, "castShadow": false, "model": "res/models/urban/city-highrise-2.obj" }

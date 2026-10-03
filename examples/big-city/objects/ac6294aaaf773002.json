@@ -1,0 +1,1 @@
+{ "id": "ac6294aaaf773002", "name": "Building 1061", "type": "model", "position": [304.623, 0, -96.7296], "rotation": [0, 0, 0], "scale": [2.0028, 1.6255, 1.9705], "color": [1, 1, 1], "physics": false, "layer": "district-5-3", "drawDistance": 230, "castShadow": false, "model": "res/models/urban/district-loft.obj" }

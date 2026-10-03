@@ -26,8 +26,10 @@ rebuild (`tyrax-editor --build examples/big-city`).
 KNOBS - everything below the "Knobs" banner is meant to be edited:
 
   SEED              the city. Different seed = different jitter, lots, parks, cars.
-  GRID_LINES        grid lines per axis (avenues + streets). 10 -> 9x9 blocks. 12 (a
-                    1.4 km city) does not fit in the EE's 32 MB - see the README.
+  GRID_LINES        grid lines per axis (avenues + streets). 14 -> 13x13 blocks, a
+                    1.4 km city; it fits in the EE's 32 MB only with ROAD_STREAM and
+                    STREAM_LAYERS on (10 + RING_RADIUS 500 + TERRAIN_SIZE 1340 is the
+                    1 km city that fits without them) - see the README.
   BLOCK             grid spacing in world units (1 unit = 1 m in this project).
   RING_RADIUS       the ring road, a superellipse |x|^4+|z|^4=R^4 round the grid.
   TERRAIN_SIZE      the square terrain (world bounds); ring, railway and spurs fit in it.
@@ -44,10 +46,15 @@ KNOBS - everything below the "Knobs" banner is meant to be edited:
   FOG_START/END     GS distance fog; keep FOG_END a little under the longest draw
                     distance so things fade out instead of popping.
   VIEW_DISTANCE     terrain chunk streaming ring.
+  ROAD_STREAM       road streaming radius (docs/roads.md "Road streaming"): only the
+                    road geometry this close to the camera is built. None = every road
+                    resident (the whole network costs ~6 MB of EE RAM at 1 km).
   LOWPOLY_PROPS     14-triangle generated trees/lamps (True) or the Kenney ones.
   FURNITURE_CORE_ONLY  street trees, lamps and parked cars only on the core roads.
   STREAM_LAYERS     True = buildings/trees/props go into auto-streamed district
-                    layers (layered objects are not batched).
+                    layers (layered objects are not batched). DISTRICT_SIZE is the
+                    square a layer covers, STREAM_MARGIN how far beyond its centre's
+                    half-diagonal the zone reaches (keep it near the draw distances).
   STATIC_BATCHING, OCCLUSION, TREE_MESH_LOD   project rendering switches.
   BUILDINGS, TREES, LAMPS, PARKED_CARS, WRITE_ROADS   content switches for bisecting.
   POSE              (x, z, heading, pitch, eye): a frozen walker instead of the car,
@@ -70,12 +77,12 @@ import zlib
 # Knobs
 # ----------------------------------------------------------------------------
 SEED = 2026
-GRID_LINES = 10
+GRID_LINES = 14
 BLOCK = 92.0
 LINE_JITTER = 6.0          # +- offset of each grid line
 LINE_WOBBLE = 2.5          # sine wobble amplitude of the minor streets
-RING_RADIUS = 500.0
-TERRAIN_SIZE = 1340
+RING_RADIUS = 700.0
+TERRAIN_SIZE = 1740
 TERRAIN_DETAIL = 67        # cells per axis: the city is flat, 20-unit cells are plenty
 LOCAL_STREET_P = 0.55
 DEAD_END_P = 0.3
@@ -127,15 +134,16 @@ PLINTH_DRAW = 140.0
 FOG_START = 90.0
 FOG_END = 220.0
 VIEW_DISTANCE = 240.0
+ROAD_STREAM = 260.0         # None = every road resident
 TERRAIN_LOD = 110.0
 
 TREE_SPACING = 20.0
 LAMP_SPACING = 40.0
 SIDEWALK = 3.5            # building setback from the kerb (trees, lamps)
 PARKED_CAR_P = 0.18        # chance per 9-unit parking slot on streets/locals
-STREAM_LAYERS = False
-DISTRICT_SIZE = 300.0
-STREAM_MARGIN = 160.0
+STREAM_LAYERS = True        # districts stream by distance (docs/streaming-layers.md)
+DISTRICT_SIZE = 200.0
+STREAM_MARGIN = 150.0       # zone radius = 0.71 x DISTRICT_SIZE + this
 TREE_MESH_LOD = 0.0
 OCCLUSION = False
 FURNITURE_CORE_ONLY = True # trees/lamps/parked cars only along the core roads (RAM)
@@ -1010,6 +1018,10 @@ def apply_settings(p):
         'lightDir': [-0.45, 0.75, 0.4], 'ambient': 0.5, 'diffuse': 0.5,
         'lightColor': [1, 0.95, 0.86],
     })
+    if ROAD_STREAM:
+        s['roadStreamRadius'] = ROAD_STREAM
+    else:
+        s.pop('roadStreamRadius', None)
     for a in p.get('ambience', [])[:1]:
         a.update({'skyColor': haze, 'skyTopColor': [0.22, 0.42, 0.66],
                   'fogEnabled': True, 'fogColor': haze, 'fogStart': FOG_START,

@@ -1,1 +1,1 @@
-{ "id": "12588be59d3b15fd", "name": "Bench 3", "type": "model", "position": [-379.012, 0, 303.202], "rotation": [0, -22.918, 0], "scale": [2, 2, 2], "color": [1, 1, 1], "physics": false, "drawDistance": 55, "castShadow": false, "model": "res/models/urban/detail-bench.obj" }
+{ "id": "12588be59d3b15fd", "name": "Bench 3", "type": "model", "position": [-285.85, 0, 484.292], "rotation": [0, -22.918, 0], "scale": [2, 2, 2], "color": [1, 1, 1], "physics": false, "layer": "district-2-6", "drawDistance": 55, "castShadow": false, "model": "res/models/urban/detail-bench.obj" }

@@ -1,0 +1,1 @@
+{ "id": "22625b2b763e70bc", "name": "Building 911", "type": "model", "position": [212.887, 0, -478.571], "rotation": [0, 0, 0], "scale": [1.3092, 2.3959, 2.3982], "color": [1, 1, 1], "physics": false, "layer": "district-5-1", "drawDistance": 230, "castShadow": false, "model": "res/models/urban/district-workshop.obj" }
