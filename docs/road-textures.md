@@ -7,7 +7,7 @@ markings - into
 `res/materials/roads/`, so a road looks right the moment it is dropped instead
 of starting untextured grey.
 
-![Generated road-4lane and road-2lane meeting at a road-junction patch, in PCSX2](img/road-textures.png)
+![Generated road-4lane and road-2lane meeting at a road-junction patch, in PCSX2, with the default weathering](img/road-textures.png)
 
 ## What a new project gets
 
@@ -34,9 +34,9 @@ ignore `res/materials/`, so they are tracked.
 - **Load** re-opens a texture made here (it reads the `.roadtex` recipe);
   **Preset** starts from one of the seeded recipes. **Name** is the file stem
   in `res/materials/roads`.
-- **Surface**, **Wear** (stains, cracks, wheel tracks, chipped paint), **Tint**
-  (multiplies the surface colour), **Seed**, **Resolution** (64 / 128 / 256;
-  2 / 8 / 32 KB at the default 4-bit quantization).
+- **Surface**, **Wear**, **Grime** and **Cracks** (see "Weathering" below),
+  **Tint** (multiplies the surface colour), **Seed**, **Resolution** (64 / 128 /
+  256; 2 / 8 / 32 KB at the default 4-bit quantization).
 - **Intersection patch** makes the junction variant: no markings, and it tiles
   in both directions (see the layout contract below). **Pavement** is the same
   on a 2 x 2-unit tile; the two are exclusive, and either one hides the line
@@ -95,6 +95,34 @@ The texture follows the road tessellator's mapping ([roads.md](roads.md)):
   discards alpha-0 texels (the GS alpha-test cutout trap), so alpha 0 is never
   written inside the road.
 
+## Weathering
+
+Three recipe knobs, each 0..1, take the texture from clean to worn. All three
+at 0 is the clean texture of before they existed, bit for bit
+(`--vehicle-check` "road textures" holds golden hashes of every preset). The
+defaults (wear 0.35, grime 0.3, cracks 0.3) are a mildly weathered road.
+
+- **Wear** - on the surface: stains, large tone blotches, rectangular repairs
+  of newer, darker tar (asphalt), the wheel paths. On the paint: low-frequency
+  noise fades it in patches and breaks it off in places, it chips, the
+  surface's pits show through it, and its edge goes soft and ragged (a
+  falloff of up to about two texels instead of a hard stripe). At wear 0 the
+  paint is the exact box-filtered stripe it always was.
+- **Grime** - the dark rubber / oil strip down the middle of each lane (paved
+  surfaces), dust swept toward the sides, and a darker gutter along both outer
+  edges. Strips only: a junction patch or a pavement tile has no edges.
+- **Cracks** - crack lines (asphalt, plus a finer crazing where it is worn;
+  hairline cracks on a few paving slabs) and tar-sealed seams on asphalt
+  strips: one along the road and, at higher values, one across it, placed by
+  the seed. A junction patch gets no seams, since a straight seam repeating
+  every 32 units reads as a grid.
+
+Everything is seeded from the recipe seed and periodic, so the texture still
+tiles. Judge it after quantization: the build bakes 4-bit with Floyd-Steinberg
+dither (`pngquant.cpp`), and at the defaults the weathering survives as tone
+rather than speckle. At 0.9 on all three, the blotches posterize into flat
+patches.
+
 ## Paving slabs
 
 Two surfaces made for pavements, usable on a road strip too:
@@ -126,7 +154,9 @@ or delete, like a `.drone` patch. **Load** only lists recipes that are still in
 The pixels are a pure function of the recipe - seeded hashes and periodic value
 noise, never a running RNG - so the window's preview, the saved file and the
 CLI agree byte for byte (checked: the -O1 editor and an -O2 host harness give
-identical md5s).
+identical md5s). A recipe written before Grime and Cracks existed loads them at
+their defaults, so re-saving it weathers it; set them to 0 to keep the old
+pixels.
 
 ## Headless
 
@@ -137,6 +167,7 @@ tyrax-editor --road-texture <projectDir> <name> [key=value ...]
 Starts from `<name>.roadtex` when it exists (so the keys edit it), else from
 the defaults. Keys are the recipe file's own:
 `surface=asphalt|cobble|gravel|dirt|slabs|pavers`, `lanes=0..6`, `wear`,
+`grime`, `cracks`,
 `tint=r,g,b`, `seed`, `size=64|128|256`, `width` (0 = auto), `ragged=0|1`,
 `intersection=0|1`, `pavement=0|1`, `slab` and `joint` (units), and per line `L` = `centre`,
 `divider` or `edge`: `L=none|dashed|solid|double|solid-dashed|dashed-solid`,

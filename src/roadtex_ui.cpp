@@ -163,7 +163,13 @@ void App::drawRoadTextureWindow() {
     }
     ImGui::SetNextItemWidth(scaled(170));
     ImGui::SliderFloat("Wear", &p.wear, 0.0f, 1.0f, "%.2f");
-    prefHelp("Stains, cracks, wheel tracks, chipped paint.");
+    prefHelp("Stains, patches, wheel tracks; chipped, faded paint.");
+    ImGui::SetNextItemWidth(scaled(170));
+    ImGui::SliderFloat("Grime", &p.grime, 0.0f, 1.0f, "%.2f");
+    prefHelp("Rubber strip down each lane, dust, dark gutters.");
+    ImGui::SetNextItemWidth(scaled(170));
+    ImGui::SliderFloat("Cracks", &p.cracks, 0.0f, 1.0f, "%.2f");
+    prefHelp("Crack lines and tar-sealed seams. All three at 0 = clean.");
     ImGui::SetNextItemWidth(scaled(170));
     ImGui::ColorEdit3("Tint", p.tint, ImGuiColorEditFlags_NoInputs);
     ImGui::SetNextItemWidth(scaled(170));

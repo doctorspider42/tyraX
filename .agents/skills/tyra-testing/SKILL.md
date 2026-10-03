@@ -2824,7 +2824,11 @@ twice and `md5sum` (must be identical - the -O1 editor and an -O2 harness
 agreed byte for byte), stack each PNG on itself vertically to see the V seam (2 x 2 for a
 junction patch or a `pavement=1` tile, which must tile both ways),
 and quantize to 16 colours (PIL) before judging it - the build bakes 4-bit by
-default. In PCSX2: two crossing roads naming the same `road-junction`
+default (link `src/pngquant.cpp` and use `quantizePreviewRGBA(..., 16,
+FloydSteinberg)` to see exactly what ships). `--vehicle-check` "road textures"
+pins the zero-weathering output to golden hashes - if it fails after a
+weathering change, a term is not multiplied by its knob. In PCSX2: two
+crossing roads naming the same `road-junction`
 (`--road-crossings` must print the patch), a frozen high camera,
 `--capture-frame`.
 

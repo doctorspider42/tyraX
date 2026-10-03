@@ -73,7 +73,14 @@ struct RoadTexParams {
     LinePaint centre;       // between the two directions (lanes >= 2)
     LinePaint divider;      // between lanes of one direction (lanes >= 3)
     LinePaint edge;         // near both road edges
-    float wear = 0.35f;     // 0..1: stains, cracks, tyre tracks, chipped paint
+    // Weathering, each 0..1; all three at 0 is the clean texture. wear: stains,
+    // tone blotches and repairs, wheel tracks, chipped / faded / broken paint
+    // with soft edges. grime: the dark rubber strip down each lane, dust toward
+    // the edges, gutter darkening at the outer edges. cracks: crack lines and
+    // tar-sealed seams.
+    float wear = 0.35f;
+    float grime = 0.3f;
+    float cracks = 0.3f;
     float tint[3] = {1.0f, 1.0f, 1.0f};  // multiplies the surface's base colour
     int seed = 1;
     int size = 128;         // 64 / 128 / 256, square

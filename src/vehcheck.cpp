@@ -22,9 +22,11 @@
 #include <algorithm>
 #include <cstdio>
 #include <functional>
+#include <string>
 #include <vector>
 
 #include "roadgen.hpp"
+#include "roadtex.hpp"
 #include "vehiclesim.hpp"
 
 namespace vehcheck {
@@ -1399,6 +1401,52 @@ void roadNodes() {
 // where a road enters the node patch, run around both fillets and along the
 // far side, never stand on a road (an arm cap is where the road carries on),
 // merge a straight edge to a few points, and pack into valid strip runs.
+// Road textures (docs/road-textures.md): the weathering knobs are additive, so
+// wear = grime = cracks = 0 must still be the clean texture BIT FOR BIT - the
+// golden hashes are the pixels of every preset before weathering existed
+// (FNV-1a 64 of generate()). No libm call reaches a pixel on that path except
+// through a factor of exactly 0, so the hashes are the same at -O1 and -O3.
+void roadTextures() {
+    std::printf("-- road textures --\n");
+    struct Golden {
+        const char* name;
+        unsigned long long hash;
+    };
+    const Golden golden[] = {{"road-2lane", 0x9036849f596a4a86ull},
+                             {"road-4lane", 0x378e108cdafceafeull},
+                             {"road-dirt", 0xaa4a5058e2cf2ef0ull},
+                             {"road-cobble", 0xa4d8fb81c69f1013ull},
+                             {"road-junction", 0xec01f4be25364863ull},
+                             {"pavement-slabs", 0xb448c8362828f2eeull}};
+    auto fnv = [](const std::vector<unsigned char>& px) {
+        unsigned long long h = 1469598103934665603ull;
+        for (unsigned char b : px) h = (h ^ b) * 1099511628211ull;
+        return h;
+    };
+    int matched = 0, roundTrips = 0, stable = 0, total = 0;
+    for (const roadtex::Preset& pr : roadtex::presets()) {
+        ++total;
+        roadtex::RoadTexParams clean = pr.params;
+        clean.wear = clean.grime = clean.cracks = 0.0f;
+        const unsigned long long h = fnv(roadtex::generate(clean));
+        for (const Golden& g : golden)
+            if (std::string(g.name) == pr.name && g.hash == h) ++matched;
+        if (roadtex::fromText(roadtex::toText(pr.params)) == pr.params) ++roundTrips;
+        if (roadtex::generate(pr.params) == roadtex::generate(pr.params)) ++stable;
+    }
+    char what[160];
+    std::snprintf(what, sizeof what, "weathering 0 = the clean texture bit for bit (%d/%d presets)",
+                  matched, (int)(sizeof golden / sizeof golden[0]));
+    verdict(matched == (int)(sizeof golden / sizeof golden[0]), what);
+    verdict(roundTrips == total, "every preset's recipe survives toText -> fromText");
+    verdict(stable == total, "generate() is deterministic (two calls, same bytes)");
+    roadtex::RoadTexParams worn = roadtex::presets()[0].params;
+    roadtex::RoadTexParams clean = worn;
+    clean.wear = clean.grime = clean.cracks = 0.0f;
+    verdict(roadtex::generate(worn) != roadtex::generate(clean),
+            "the default weathering changes the texture");
+}
+
 void roadKerbs() {
     std::printf("-- road kerbs --\n");
     auto road = [](const char* id, std::vector<float> pts, float width, bool kerb) {
@@ -1609,6 +1657,7 @@ int run() {
     junctionOverrides();
     roadNodes();
     roadKerbs();
+    roadTextures();
     damage();
     pieces();
     speedFeelCurve();
