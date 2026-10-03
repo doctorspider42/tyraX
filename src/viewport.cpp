@@ -22,6 +22,7 @@
 #include "primmesh.hpp"
 #include "roadgen.hpp"
 #include "roadtex.hpp"
+#include "roadrail.hpp"
 #include "scrollsim.hpp"
 #include "skytex.hpp"
 #include <stb_image.h>
@@ -4245,6 +4246,11 @@ void Viewport::syncRoadDraws(const std::vector<SceneObject>& objects) {
         mix(csig, &r.kerbWidth, sizeof(r.kerbWidth));
         mix(csig, &r.pavement, sizeof(r.pavement));
         mix(csig, o.roadPavementMaterial.data(), o.roadPavementMaterial.size() + 1);
+        // Rails (docs/roads.md "Rails and tram tracks") follow the crossings
+        // too: they turn flush across another road.
+        mix(csig, &r.kind, sizeof(r.kind));
+        mix(csig, &r.railGauge, sizeof(r.railGauge));
+        mix(csig, &r.tracks, sizeof(r.tracks));
     }
     for (const roadgen::JunctionOverride& j : roadJunctions_) {
         mix(csig, j.roadA.data(), j.roadA.size() + 1);
@@ -4266,6 +4272,8 @@ void Viewport::syncRoadDraws(const std::vector<SceneObject>& objects) {
                                            : roadgen::CrossingPlan{};
     bool anyKerb = false;
     for (const roadgen::CrossingRoad& r : cr) anyKerb |= r.kerb;
+    // Rails stand on the same drawn surface the kerbs do.
+    const bool anyRail = roadrail::anyRails(cr);
     roadgen::Surface kerbSurface;
     auto keyOf = [&](int road) {
         const SceneObject& o = objects[(size_t)objIdx[(size_t)road]];
@@ -4276,7 +4284,7 @@ void Viewport::syncRoadDraws(const std::vector<SceneObject>& objects) {
         roadTriangles.insert(roadTriangles.end(), entry.second.outline.begin(),
                              entry.second.outline.end());
     std::vector<roadgen::Vertex> paintOnTris;
-    if (anyKerb) kerbSurface.add(roadTriangles);
+    if (anyKerb || anyRail) kerbSurface.add(roadTriangles);
     for (const roadgen::Crossing& c : plan.crossings) {
         if (c.kind != roadgen::kCrossPatch || c.patchDuplicate) continue;
         const SceneObject& a = objects[(size_t)objIdx[(size_t)c.a]];
@@ -4284,7 +4292,7 @@ void Viewport::syncRoadDraws(const std::vector<SceneObject>& objects) {
         roadgen::tessellateJunctionSurface(c.shape, roadTriangles,
             [&](float x, float z) { return terrainHeight(x, z); }, c.lift, triangles,
             terrainGrid());
-        if (anyKerb) kerbSurface.add(triangles, c.grip);
+        if (anyKerb || anyRail) kerbSurface.add(triangles, c.grip);
         std::vector<float> iv;
         for (const roadgen::Vertex& v : triangles)
             iv.insert(iv.end(), {v.x, v.y, v.z, 1.0f, 1.0f, 1.0f, v.u, v.v});
@@ -4360,21 +4368,37 @@ void Viewport::syncRoadDraws(const std::vector<SceneObject>& objects) {
     // Kerbs: the codegen's own roadgen::planKerbs over the same plan, drawn as
     // triangle lists with their baked shade (the console uploads the same
     // lines as strips). One opaque mesh per owning road, untextured.
-    if (anyKerb) {
+    if (anyKerb || anyRail) {
         kerbSurface.build();
-        const std::vector<roadgen::KerbPiece> pieces = roadgen::planKerbs(
-            cr, plan, [&](float x, float z) { return kerbSurface.at(x, z); },
-            [&](float x, float z) { return terrainHeight(x, z); });
+        const auto surfaceAt = [&](float x, float z) { return kerbSurface.at(x, z); };
+        const auto groundAt = [&](float x, float z) { return terrainHeight(x, z); };
         std::map<int, std::vector<float>> byRoad;
         std::vector<roadgen::KerbVertex> tris;
-        for (const roadgen::KerbPiece& kp : pieces) {
-            tris.clear();
-            roadgen::kerbTriangles(kp, tris);
-            std::vector<float>& iv = byRoad[kp.road];
-            for (const roadgen::KerbVertex& v : tris)
-                iv.insert(iv.end(), {v.x, v.y, v.z, v.shade, v.shade * 0.98f,
-                                     v.shade * 0.94f, 0.0f, 0.0f});
-        }
+        auto put = [&](int road) {
+            std::vector<float>& iv = byRoad[road];
+            for (const roadgen::KerbVertex& v : tris) {
+                float rgb[3];
+                roadrail::shadeRgb(v.shade, rgb);
+                iv.insert(iv.end(), {v.x, v.y, v.z, rgb[0], rgb[1], rgb[2], 0.0f, 0.0f});
+            }
+        };
+        const std::vector<roadgen::KerbPiece> pieces =
+            anyKerb ? roadgen::planKerbs(cr, plan, surfaceAt, groundAt)
+                    : std::vector<roadgen::KerbPiece>{};
+        if (anyKerb)
+            for (const roadgen::KerbPiece& kp : pieces) {
+                tris.clear();
+                roadgen::kerbTriangles(kp, tris);
+                put(kp.road);
+            }
+        // Rails and tram tracks: roadrail::planRails, the codegen's own.
+        if (anyRail)
+            for (const roadrail::RailPiece& rp :
+                 roadrail::planRails(cr, plan, surfaceAt, groundAt)) {
+                tris.clear();
+                roadrail::railTriangles(rp, tris);
+                put(rp.road);
+            }
         for (auto& [road, iv] : byRoad) {
             RoadCrossDraw d;
             d.mesh = uploadMesh(iv);

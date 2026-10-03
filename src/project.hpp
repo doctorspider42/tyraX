@@ -937,6 +937,15 @@ struct SceneObject {
     // Host-baked into ROAD_JUNCTIONS rows.
     float roadPavement = 0.0f;
     std::string roadPavementMaterial;
+    // Rails and tram tracks (format v98, docs/roads.md "Rails and tram
+    // tracks"): roadrail::Kind - 0 a road, 1 a railway (the strip is the
+    // ballast bed, raised steel rails on it), 2 a tram street (rails set
+    // flush into the road). Gauge = between the rail heads' inner faces,
+    // world units; tracks = 1 or 2 side by side. Host-baked into the
+    // ROAD_KERB tables with the kerbs, untextured.
+    int roadKind = 0;
+    float roadRailGauge = 1.435f;  // 0.3..3
+    int roadTracks = 1;
     // Road surface asset. New authoring points at a .mtl (its first map_Kd);
     // direct PNG paths remain accepted for projects authored before the
     // material picker existed. Empty = untextured grey.
@@ -1701,9 +1710,10 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.roadSpill == b.roadSpill && a.roadEdgeFade == b.roadEdgeFade &&
            a.roadMarkings == b.roadMarkings &&
            a.roadKerb == b.roadKerb && a.roadKerbHeight == b.roadKerbHeight &&
-           a.roadKerbWidth == b.roadKerbWidth &&
+                      a.roadKerbWidth == b.roadKerbWidth && a.roadKind == b.roadKind &&
            a.roadPavement == b.roadPavement &&
            a.roadPavementMaterial == b.roadPavementMaterial &&
+           a.roadRailGauge == b.roadRailGauge && a.roadTracks == b.roadTracks &&
            a.roadTexture == b.roadTexture &&
            a.roadIntersectionTexture == b.roadIntersectionTexture &&
            a.vuParams[0] == b.vuParams[0] && a.vuParams[1] == b.vuParams[1] &&

@@ -545,6 +545,17 @@ void TerrainGame::buildRoads(int scene) {
       c.stripRun = useStrips ? (int)stripRun : 0;
       auto put = [&](const float* v) {
         c.vertices.push_back(Tyra::Vec4(v[0], v[1], v[2], 1.0F));
+        if (v[3] >= 1.5F) {
+          // Rails (docs/roads.md "Rails and tram tracks"): a shade of 2+
+          // names a ROAD_KERB_PALETTE colour (roadrail::shadeRgb's rule).
+          int k = (int)v[3] - 2;
+          if (k < 0) k = 0;
+          if (k > 3) k = 3;
+          const float* pc = ROAD_KERB_PALETTE[k];
+          c.colors.push_back(
+              Tyra::Color(pc[0] * 128.0F, pc[1] * 128.0F, pc[2] * 128.0F, 128.0F));
+          return;
+        }
         const float g = v[3] * 128.0F;  // light concrete, a hair warm
         c.colors.push_back(Tyra::Color(g, g * 0.98F, g * 0.94F, 128.0F));
       };

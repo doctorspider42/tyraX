@@ -6136,7 +6136,11 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // v97 (docs/roads.md, "Pavements"): road object keys roadPavement (width, written
 // only when not 0) and roadPavementMaterial (a .mtl, written only when set).
 // Missing = no pavement, as before. Additive; no migration step.
-inline constexpr int kFormatVersion = 97;
+// v98 (docs/roads.md, "Rails and tram tracks"): road object keys roadKind (0
+// road, 1 railway, 2 tram street; written only when not 0), roadRailGauge
+// (only when not 1.435) and roadTracks (only when not 1). Missing = a plain
+// road, as before. Additive; no migration step.
+inline constexpr int kFormatVersion = 98;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

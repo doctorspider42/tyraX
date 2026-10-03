@@ -23,6 +23,12 @@ is not:
   as a project setting, a draw distance for road chunks (pavements draw
   wherever the frustum reaches), pavements as shadow receivers, and kerb
   ramps (dropped kerbs) where a zebra meets the pavement.
+- ~~**Rails and tram tracks**~~ done (format 98, docs/roads.md "Rails and tram
+  tracks": Kind = Railway / Tram street, host-baked rails in the kerb tables,
+  level crossings, a ballast texture). Still open: points and frogs at a
+  turnout (today two lines simply overlap), crossing barriers and signals as
+  ready props, a train to ride on a railway's spline, and a physical-PS2 pass
+  (PCSX2 only so far).
 - **Overrides for nodes of more than two roads.** `JunctionOverride` is still
   a road PAIR, and the Junction panel's Winner combo offers only `c.a`/`c.b`.
 - **A per-node corner radius** (today 1.5 x the mean half width, 1..8).

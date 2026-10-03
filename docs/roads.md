@@ -598,6 +598,143 @@ them out, like the kerbs), and they have no draw distance of their own:
 - the strip runs hold exactly the list's triangles;
 - a fillet loses its kerb when one of its roads has none.
 
+## Rails and tram tracks (format 98)
+
+A road's **Kind** (`roadKind`) turns it into track. **Railway** (1) makes the
+strip itself the ballast bed, and real steel rails stand on it. **Tram street**
+(2) is an ordinary street with the rails set flush into it. Road (0) is the
+default and is not written, so every existing road saves byte-identical. The
+point of building track out of roads is that the whole road workflow carries
+over: the same spline handles, the same terrain gluing, the same nodes, and no
+external tool.
+
+- **Tracks** (`roadTracks`, 1 or 2) lays one or two tracks side by side,
+  centred: 4 units apart on a railway, 3 on a tram street.
+- **Gauge** (`roadRailGauge`, default 1.435) is measured between the rail
+  heads' inner faces, as real gauge is. The whole profile scales with it, so a
+  1.0 metre-gauge line gets lighter rails. A project at another scale sets it
+  once. Choosing Railway in a project whose units-per-metre is not 1 converts
+  the default for you.
+- Choosing **Railway** in the Properties panel applies a preset. It sets the
+  ballast materials, a bed as wide as its sleepers (3.6, or 7.6 for two
+  tracks), rank **Track**, no spill, no kerbs, no markings and grip 0.7. The
+  materials are written from the generator's presets when the project has
+  none. Changing Tracks swaps the single and double bed and resizes it.
+
+### What is built
+
+- **The bed** is the road strip, textured with a `rail-ballast` material: the
+  `ballast` surface of the [Road Texture Generator](road-textures.md), with
+  crushed stone, timber or concrete sleepers painted across it (seven per
+  4-unit repeat, 0.57 apart), tie plates or rail pads, and rust dust under
+  each rail. New projects are seeded with `rail-ballast` (one track),
+  `rail-ballast-double` (two) and `rail-junction` (stones only, the
+  intersection material).
+- **Raised rails** on a railway's own bed: two side faces from 0.03 below the
+  bed up to the head at 0.12, and the 0.07-wide head on top. The faces are
+  rusty brown and the head is polished steel. There is no foot and no
+  sleeper geometry, because the texture carries those.
+- **Flush rails** on a tram street, and on a railway wherever it crosses
+  another road: the 0.07 head 0.035 above the road surface (above the node
+  paint at 0.02), plus a dark 0.045 groove on its inner side, which is the
+  flangeway.
+- **Level-crossing panels**: where a railway crosses a road, a dark rubber
+  panel 0.025 above the road spans each track and 0.6 past each rail. It is
+  drawn before the rails that lie on it.
+
+The rails run the road's **whole length and are never cut at a node**. Where
+a railway leaves its own bed and crosses any road that is not a railway (or a
+node patch that one takes part in), its rails turn flush there. The switch
+point is placed by bisection, so the flush stretch is exactly the road's
+width. That is what makes a level crossing: the street runs through (the
+Railway preset is rank Track, so a Local street covers the bed), the rails stay
+on top of it, and the panel goes under them. Two railways meeting at a fork
+or a diamond simply run their rails on through. With the `rail-junction`
+intersection material on both, the node's patch is a stones-only bed under
+the turnout.
+
+**A railway is never kerbed or painted.** `project::crossingRoads` forces its
+kerb, markings and edge line off whatever was authored, and `bakeMarkings`
+paints nothing at a node a railway takes part in. So there is no zebra across
+the tracks. A kerbed street's kerb stops at the ballast's edge, because
+planKerbs cuts a kerb wherever it would stand on another road. A tram street
+is a street, and it keeps its kerbs and markings.
+
+### How it runs
+
+There is **no new runtime table and no console rail code**. The rails are
+host-baked (`roadrail::planRails`, `src/roadrail.cpp`) and travel in the
+kerbs' own `ROAD_KERBS` / `ROAD_KERB_VERTS` chunks: the same strip run
+contract, the same 32-unit cells, owner -4, and the 60-unit draw distance. A
+rail vertex is a kerb vertex whose shade is 2 or more. That shade names an
+entry of `ROAD_KERB_PALETTE` (polished steel, rust, groove, panel), which the
+codegen prints from `roadrail::kPalette`. A shade below 1.5 is still the kerb's
+concrete grey, so a kerbed project without rails draws as before. A project with
+a rail or tram road gets the kerb tables even if it has no kerbs.
+
+- **Collision**: the heads, grooves and panels have area in XZ, so the road
+  height index takes them like kerb tops. A car rides over a flush head on the
+  street. On the bed, a wheel or a walker steps up the 0.12 raised rail, which
+  is well inside the walker's 0.5 step. The test drive sees the same tops
+  through `roadrail::addRailsToSurface`.
+- **The stations** are the road's own. `planRails` reads them back out of
+  `roadgen::tessellate` over a flat height. There, every station pair is one
+  full-width quad whose first two vertices are the row's edges, so the rails
+  follow exactly the spline the bed is built from without a third copy of the
+  sampler. Points then merge within 0.01 units (tighter than a kerb's 0.02,
+  because a rail must look straight), with chords of at most 8 units.
+- The viewport draws the same pieces from `roadrail::planRails`, rebuilt with
+  the crossings (the signature mixes kind, gauge and tracks). Live Link
+  reports a rail edit as needing a rebuild.
+- `--road-crossings <project>` prints `[rail] <road>: railway|tram, N raised
+  (L units), N flush (L units), N crossing panel(s)` per road and the strip
+  total. The game's `ROADKERB` log line counts the rail chunks with the kerbs.
+
+**Motor District** has both (main scene). **Freight line** is a double-track
+railway at x = -110 that crosses Market cross street at a level crossing.
+**Garage boulevard** is a two-track tram street, with the tracks running on
+through its nodes, including the plaza at the centre. Measured with
+`--road-crossings`: the tram is 4 flush rails over 880 units; the railway is
+8 raised lines (324 units), 4 flush (44 units, the 11-unit street) and 2
+panels; together that is 1 464 strip vertices in 20 chunks. Market cross
+street's kerbs gain two cuts at the ballast, so the kerb total is now 143 lines
+over 3 438 units.
+
+![PCSX2 (mirrored in X), Motor District: left, the Freight line's double track on its ballast bed crossing Market cross street - flush rails and rubber panels across the asphalt; right, Garage boulevard's two flush tram tracks running up the street](img/road-rails-pcsx2.png)
+
+Both shots are frozen-camera `--capture-frame`s of a short-path copy (60 FPS
+in PCSX2; `ROADKERB scene 0 chunks 91 vertices 8001`, which is the 71 kerb and
+20 rail chunks).
+
+### Limits
+
+- No points (switch blades) or frogs. A turnout is two lines overlapping on a
+  shared bed, which reads right from a car but not from a train driver's seat.
+  There is also no train to drive.
+- The sleepers are texture, so they are laid out for the material's design
+  width and the standard gauge. A bed much wider than its material, or a
+  far-from-standard gauge, puts the painted tie plates beside the rails.
+- A level crossing needs the street to cover the bed. The Railway preset's
+  rank Track does that. A railway left at the street's rank overlaps it and
+  z-fights, like any two equal-rank roads without a shared intersection
+  material.
+- Rails are not shadow receivers (the same as kerbs). There are no crossing
+  barriers or signals; those are props.
+
+`--vehicle-check` "road rails" builds a railway crossing a kerbed,
+zebra-painted street on flat ground and checks that:
+- the railway is never kerbed or painted;
+- the rails are at the gauge and on the drawn surface;
+- they run unbroken across the street (raised, flush, raised);
+- they are flush for exactly the street's width, with one panel;
+- the heads are standable and within a walker's step;
+- the street's kerbs stop at the ballast;
+- no paint is laid;
+- the strips hold the list's triangles in palette colours;
+- a two-track tram street gets four flush rails 3 apart;
+- the ballast texture is deterministic, tiles, has seven sleepers per repeat,
+  and round-trips its recipe.
+
 ## Physical-PS2 texture coordinates and the strip default
 
 Roads reach VU1 as **triangle strips** by default. A temporary triangle-list
@@ -713,6 +850,7 @@ canonicalizes only that integer part; positions and fractional UVs remain exact.
 | File | What it is |
 |---|---|
 | `src/roadgen.hpp/.cpp` | The Catmull-Rom tessellator, `splineAt` (align pass, handles), `findNodes` (where roads meet, and each node's outline) and `planCrossings` (every crossing decision). |
+| `src/roadrail.hpp/.cpp` | Rails and tram tracks: `planRails`, the strip emitter and the palette ("Rails and tram tracks"). |
 | `src/templates.cpp` (`roadsImpl`) | The runtime twin + data tables + the scene-load hook. |
 | `src/props_ui.cpp` | The Road properties panel + `App::alignTerrainToRoad`. |
 | `src/junction_ui.cpp` | Junction markers, selection and the Junction section (overrides). |

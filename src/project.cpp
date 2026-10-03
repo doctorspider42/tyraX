@@ -1107,6 +1107,11 @@ std::string objectJson(const SceneObject& o) {
             json += ", \"roadPavement\": " + fmtFloat(o.roadPavement);
         if (!o.roadPavementMaterial.empty())
             json += ", \"roadPavementMaterial\": \"" + jsonEscape(o.roadPavementMaterial) + "\"";
+        // Rails (v98): only when not a plain road / not the defaults.
+        if (o.roadKind != 0) json += ", \"roadKind\": " + std::to_string(o.roadKind);
+        if (o.roadRailGauge != 1.435f)
+            json += ", \"roadRailGauge\": " + fmtFloat(o.roadRailGauge);
+        if (o.roadTracks != 1) json += ", \"roadTracks\": " + std::to_string(o.roadTracks);
         bool anyLift = false;
         for (float h : o.roadHeights) anyLift |= h != 0.0f;
         if (anyLift) {
@@ -1761,7 +1766,18 @@ std::vector<roadgen::CrossingRoad> crossingRoads(const std::vector<SceneObject>&
         r.kerb = o.roadKerb;
         r.kerbHeight = o.roadKerbHeight;
         r.kerbWidth = o.roadKerbWidth;
-        r.pavement = o.roadKerb ? o.roadPavement : 0.0f;
+        // Rails (docs/roads.md "Rails and tram tracks"): a railway is never
+        // kerbed or painted - no zebra across the tracks, no stop line on the
+        // ballast. A tram street is a street and keeps both.
+        r.kind = o.roadKind;
+        r.railGauge = o.roadRailGauge;
+        r.tracks = o.roadTracks;
+        if (r.kind == 1) {
+            r.kerb = false;
+            r.markings = 0;
+            r.edgeLine = false;
+        }
+        r.pavement = r.kerb ? o.roadPavement : 0.0f;
         out.push_back(std::move(r));
         if (objectIndex) objectIndex->push_back((int)i);
     }
@@ -6282,6 +6298,12 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
             o.roadPavement = std::clamp((float)rpv->numberOr(0.0), 0.0f, 6.0f);
         if (const auto* rpm = jo.find("roadPavementMaterial"))
             o.roadPavementMaterial = rpm->stringOr("");
+        if (const auto* rki = jo.find("roadKind"))
+            o.roadKind = std::clamp((int)rki->numberOr(0.0), 0, 2);
+        if (const auto* rrg = jo.find("roadRailGauge"))
+            o.roadRailGauge = std::clamp((float)rrg->numberOr(1.435), 0.3f, 3.0f);
+        if (const auto* rtr = jo.find("roadTracks"))
+            o.roadTracks = std::clamp((int)rtr->numberOr(1.0), 1, 2);
         if (const auto* rh = jo.find("roadHeights")) {
             o.roadHeights.clear();
             if (rh->type == json::Value::Type::Array)
@@ -8442,6 +8464,12 @@ uint64_t liveLinkRecipeHash(const SceneObject& o) {
             fnvMixF(h, o.roadPavement);
             for (char ch : o.roadPavementMaterial) fnvMix(h, (unsigned char)ch);
         }
+    }
+    // Rails and tram tracks bake into the same tables (docs/roads.md "Rails
+    // and tram tracks"). Mixed only on a rail or tram road, the same way.
+    if (o.type == PrimitiveType::Road && o.roadKind != 0) {
+        fnvMix(h, 0x52);
+        fnvMix(h, o.roadKind), fnvMixF(h, o.roadRailGauge), fnvMix(h, o.roadTracks);
     }
     // The four numbers this mesh hands the project's own VU1 microprogram.
     // They are BAKED into SCENE_OBJECTS and the live-link record carries only

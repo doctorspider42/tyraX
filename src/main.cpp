@@ -49,6 +49,7 @@
 #include "procbake.hpp"
 #include "project.hpp"
 #include "roadgen.hpp"
+#include "roadrail.hpp"
 #include "roadtex.hpp"
 #include "shadowbake.hpp"
 #include "staticbatch.hpp"
@@ -823,7 +824,10 @@ static int roadCrossingsFromCli(int argc, char** argv) {
         // the totals here are the ROAD_KERB tables' and the game's ROADKERB.
         bool anyKerb = false;
         for (const roadgen::CrossingRoad& r : roads) anyKerb |= r.kerb;
-        if (anyKerb) {
+        // Rails and tram tracks (docs/roads.md "Rails and tram tracks") are
+        // planned on the same surface and ride in the same tables.
+        const bool anyRail = roadrail::anyRails(roads);
+        if (anyKerb || anyRail) {
             auto ground = [&](float x, float z) {
                 return sc.terrain.enabled
                            ? roadgen::terrainHeight(sc.heights, sc.hmW, sc.hmD,
@@ -853,36 +857,65 @@ static int roadCrossingsFromCli(int argc, char** argv) {
                 surf.add(mesh, c.grip);
             }
             surf.build();
-            const std::vector<roadgen::KerbPiece> pieces = roadgen::planKerbs(
-                roads, plan, [&](float x, float z) { return surf.at(x, z); }, ground);
-            std::vector<roadgen::KerbVertex> strip;
-            std::vector<int> sizes;
-            roadgen::kerbStrips(pieces, strip, sizes);
-            float total = 0.0f;
-            for (size_t r = 0; r < roads.size(); ++r) {
-                int lines = 0, points = 0, chains = 0;
-                float len = 0.0f;
-                for (const roadgen::KerbPiece& kp : pieces) {
-                    if (kp.road != (int)r) continue;
-                    ++lines;
-                    chains += kp.node >= 0 ? 1 : 0;
-                    points += kp.points();
-                    for (int i = 1; i < kp.points(); ++i)
-                        len += std::hypot(kp.pts[(size_t)i * 5] - kp.pts[(size_t)(i - 1) * 5],
-                                          kp.pts[(size_t)i * 5 + 2] -
-                                              kp.pts[(size_t)(i - 1) * 5 + 2]);
+            if (anyRail) {
+                const std::vector<roadrail::RailPiece> rails = roadrail::planRails(
+                    roads, plan, [&](float x, float z) { return surf.at(x, z); }, ground);
+                std::vector<roadgen::KerbVertex> rstrip;
+                std::vector<int> rsizes;
+                roadrail::railStrips(rails, rstrip, rsizes);
+                for (size_t r = 0; r < roads.size(); ++r) {
+                    int n[3] = {0, 0, 0};
+                    float len[3] = {0.0f, 0.0f, 0.0f};
+                    for (const roadrail::RailPiece& rp : rails) {
+                        if (rp.road != (int)r) continue;
+                        ++n[rp.profile];
+                        for (int i = 1; i < rp.points(); ++i)
+                            len[rp.profile] += std::hypot(
+                                rp.pts[(size_t)i * 5] - rp.pts[(size_t)(i - 1) * 5],
+                                rp.pts[(size_t)i * 5 + 2] - rp.pts[(size_t)(i - 1) * 5 + 2]);
+                    }
+                    if (n[0] + n[1] + n[2] > 0)
+                        std::printf("[rail] %s: %s, %d raised (%.1f units), %d flush (%.1f "
+                                    "units), %d crossing panel(s) (%.1f units)\n",
+                                    name((int)r).c_str(),
+                                    roads[r].kind == roadrail::kRail ? "railway" : "tram",
+                                    n[0], len[0], n[1], len[1], n[2], len[2]);
                 }
-                total += len;
-                if (lines > 0)
-                    std::printf("[kerb] %s: %d line(s) (%d around nodes), %.1f units, %d "
-                                "points -> %d strip vertices before joins\n",
-                                name((int)r).c_str(), lines, chains, len, points, points * 4);
+                std::printf("[rail] total: %zu line(s), %zu strip vertices in %zu chunks\n",
+                            rails.size(), rstrip.size(), rsizes.size());
             }
-            int tris = 0;
-            for (const roadgen::KerbPiece& kp : pieces) tris += 4 * (kp.points() - 1);
-            std::printf("[kerb] total: %zu line(s), %.1f units, %d triangles, %zu strip "
-                        "vertices in %zu chunks\n",
-                        pieces.size(), total, tris, strip.size(), sizes.size());
+            if (anyKerb) {
+                const std::vector<roadgen::KerbPiece> pieces = roadgen::planKerbs(
+                    roads, plan, [&](float x, float z) { return surf.at(x, z); }, ground);
+                std::vector<roadgen::KerbVertex> strip;
+                std::vector<int> sizes;
+                roadgen::kerbStrips(pieces, strip, sizes);
+                float total = 0.0f;
+                for (size_t r = 0; r < roads.size(); ++r) {
+                    int lines = 0, points = 0, chains = 0;
+                    float len = 0.0f;
+                    for (const roadgen::KerbPiece& kp : pieces) {
+                        if (kp.road != (int)r) continue;
+                        ++lines;
+                        chains += kp.node >= 0 ? 1 : 0;
+                        points += kp.points();
+                        for (int i = 1; i < kp.points(); ++i)
+                            len += std::hypot(kp.pts[(size_t)i * 5] - kp.pts[(size_t)(i - 1) * 5],
+                                              kp.pts[(size_t)i * 5 + 2] -
+                                                  kp.pts[(size_t)(i - 1) * 5 + 2]);
+                    }
+                    total += len;
+                    if (lines > 0)
+                        std::printf("[kerb] %s: %d line(s) (%d around nodes), %.1f units, %d "
+                                    "points -> %d strip vertices before joins\n",
+                                    name((int)r).c_str(), lines, chains, len, points, points * 4);
+                }
+                int tris = 0;
+                for (const roadgen::KerbPiece& kp : pieces) tris += 4 * (kp.points() - 1);
+                std::printf("[kerb] total: %zu line(s), %.1f units, %d triangles, %zu strip "
+                            "vertices in %zu chunks\n",
+                            pieces.size(), total, tris, strip.size(), sizes.size());
+            }
         }
         for (size_t oi = 0; oi < sc.roadJunctions.size(); ++oi) {
             if (plan.overrideCrossing[oi] >= 0) continue;

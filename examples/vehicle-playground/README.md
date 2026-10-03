@@ -20,7 +20,7 @@ builds measured 6.7-7.6 s. This excludes editor generation/baking and cold setup
 
 ## What's in the project
 
-- **main** is the driving district: thirteen roads, a garage, a cobbled crossing,
+- **main** is the driving district: thirteen roads and a railway, a garage, a cobbled crossing,
   dirt service lane, buildings, lights, pushable props and three cars. Every
   place roads meet is a [road node](../../docs/roads.md) with rounded corners,
   and six of the roads exist to show the kinds: **Orchard lane** leaves Market
@@ -39,6 +39,11 @@ builds measured 6.7-7.6 s. This excludes editor generation/baking and cold setup
   link) have 2.5-unit [pavements](../../docs/roads.md#pavements-format-97)
   of paving slabs behind the kerbs (`res/materials/roads/district-pavement`,
   a generated texture with its `.roadtex` recipe).
+  **Freight line** is a double-track
+  [railway](../../docs/roads.md#rails-and-tram-tracks-format-98) at x = -110
+  that crosses Market cross street at a level crossing, and **Garage
+  boulevard** carries two flush tram tracks down its middle, through every
+  node it passes, the plaza included.
 
   ![PCSX2, mirrored in X: the Orchard fork between the ring road and Skyline avenue, the Service ramp leaving the ring, and the Quarry corner](../../docs/img/road-nodes-district.png)
 - **dense** adds buildings for a busier drive.

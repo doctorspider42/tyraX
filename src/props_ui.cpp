@@ -9,6 +9,7 @@
 #include "app.hpp"
 #include "app_internal.hpp"
 #include "roadgen.hpp"
+#include "roadrail.hpp"
 #include "theme.hpp"
 
 #include <algorithm>
@@ -96,6 +97,44 @@ static const char* typeLabel(PrimitiveType t) {
         case PrimitiveType::Comment: return "Comment";
     }
     return "Object";
+}
+
+// A road switched to Kind = Railway (docs/roads.md "Rails and tram tracks"):
+// the ballast bed's materials (written from roadtex's presets when the project
+// has none - an older project was not seeded with them), a bed as wide as its
+// sleepers, rank Track so a street it crosses runs over it (the level
+// crossing), no spill onto that street, no kerbs, no markings, a gravel grip.
+// `full` false only follows a track-count change (material + width).
+static void applyRailwayPreset(SceneObject& o, const std::string& projectDir,
+                               float unitsPerMeter, bool full = true) {
+    namespace fs = std::filesystem;
+    if (full && o.roadRailGauge == 1.435f && unitsPerMeter > 0.0f)
+        o.roadRailGauge = std::clamp(1.435f * unitsPerMeter, 0.3f, 3.0f);
+    const float s = o.roadRailGauge / roadrail::kStandardGauge;
+    for (const roadtex::Preset& pr : roadtex::presets()) {
+        if (std::string(pr.name).rfind("rail-", 0) != 0) continue;
+        std::error_code ec;
+        const fs::path mtl =
+            fs::path(projectDir) / roadtex::kDir / (std::string(pr.name) + ".mtl");
+        if (!projectDir.empty() && !fs::exists(mtl, ec)) {
+            std::string err;
+            roadtex::writeAssets(projectDir, pr.name, pr.params, &err);
+        }
+    }
+    const bool dbl = o.roadTracks >= 2;
+    const std::string single = roadtex::kDefaultBallast, twin = roadtex::kDefaultBallastDouble;
+    if (full || o.roadTexture == single || o.roadTexture == twin)
+        o.roadTexture = dbl ? twin : single;
+    o.roadWidth = std::clamp(
+        (roadtex::kSleeperLength + 1.0f + (dbl ? roadrail::kTrackSpacingRail : 0.0f)) * s,
+        1.0f, 24.0f);
+    if (!full) return;
+    o.roadIntersectionTexture = roadtex::kDefaultRailJunction;
+    o.roadRank = 0;
+    o.roadSpill = 0.0f;
+    o.roadKerb = false;
+    o.roadMarkings = 0;
+    o.roadGrip = 0.7f;
 }
 
 static std::string blobShadowFileName(const SceneObject& o) {
@@ -759,6 +798,45 @@ void App::drawPropertiesWindow() {
         ImGui::TextDisabled(
             "Road: a spline through the points below, tessellated onto the "
             "terrain at boot.");
+        // Rails and tram tracks (docs/roads.md "Rails and tram tracks").
+        {
+            static const char* kKinds[] = {"Road", "Railway", "Tram street"};
+            const int before = o.roadKind;
+            ImGui::SetNextItemWidth(scaled(220));
+            if (ImGui::Combo("Kind", &o.roadKind, kKinds, 3)) {
+                committed = true;
+                if (o.roadKind == roadrail::kRail && before != roadrail::kRail)
+                    applyRailwayPreset(o, project_.dir, project_.settings.unitsPerMeter);
+            }
+            prefHelp(
+                "Road: a street. Railway: the strip is a ballast bed with\n"
+                "sleepers and steel rails stand on it; where it crosses a\n"
+                "road the rails turn flush and get a crossing panel (a level\n"
+                "crossing). Tram street: a street with rails set flush into\n"
+                "it. Choosing Railway sets the ballast materials (made here\n"
+                "if the project has none), width, rank Track, no spill, no\n"
+                "kerbs or markings. Rails are baked at build: vertex colour\n"
+                "only, no texture, no VRAM.");
+            if (o.roadKind != roadrail::kRoad) {
+                ImGui::SetNextItemWidth(scaled(220));
+                if (ImGui::SliderInt("Tracks", &o.roadTracks, 1, 2)) {
+                    committed = true;
+                    if (o.roadKind == roadrail::kRail)
+                        applyRailwayPreset(o, project_.dir,
+                                           project_.settings.unitsPerMeter, false);
+                }
+                prefHelp(o.roadKind == roadrail::kRail
+                             ? "One or two tracks on the bed, 4 m apart (the\n"
+                               "ballast material and width follow)."
+                             : "One or two tracks down the street, 3 m apart.");
+                ImGui::SetNextItemWidth(scaled(220));
+                if (ImGui::SliderFloat("Gauge", &o.roadRailGauge, 0.3f, 3.0f, "%.3f units"))
+                    committed = true;
+                prefHelp(
+                    "Between the rails' inner faces: 1.435 m is standard gauge,\n"
+                    "1.0 metre gauge. The rail profile scales with it.");
+            }
+        }
         ImGui::SetNextItemWidth(scaled(220));
         ImGui::SliderFloat("Width", &o.roadWidth, 1.0f, 24.0f, "%.1f");
         prefHelp("Full width of the surface, world units.");

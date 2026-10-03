@@ -132,6 +132,82 @@ struct Rgb {
 Rgb lerp(Rgb a, Rgb b, float t) { return {mix(a.r, b.r, t), mix(a.g, b.g, t), mix(a.b, b.b, t)}; }
 Rgb scale(Rgb a, float k) { return {a.r * k, a.g * k, a.b * k}; }
 
+// Coverage of a texel `tex` units wide by a band of half width `half` at
+// distance `d` from its centre - a one-texel box filter, so sleeper edges are
+// as crisp as the resolution allows and never alias into stairs.
+float bandCover(float d, float half, float tex) { return clamp01((half - d) / tex + 0.5f); }
+
+// The railway track bed (kBallast, docs/roads.md "Rails and tram tracks").
+// Crushed stone everywhere; unless this is the junction variant, a row of
+// sleepers per track painted across it with rail seats and rust stains where
+// roadrail stands the 3D rails (kBallastGauge apart, centred on each track).
+Rgb ballastTexel(const Field& f, const RoadTexParams& p, float u, float v, float W, float L,
+                 float du, float grain, float mid, float big, float wear) {
+    const float wx = u * W, wz = v * L;
+    Rgb c = scale(Rgb{0.40f, 0.39f, 0.37f},
+                  0.88f + (grain - 0.5f) * 0.30f + (mid - 0.5f) * 0.14f);
+    float id = 0.0f, dome = 0.0f;
+    const float cov = f.pebbles(97, u, v, 0.075f, 0.97f, &id, &dome);
+    // Mostly grey stones, a few warm granite ones.
+    Rgb stone = lerp(Rgb{0.34f, 0.33f, 0.32f}, Rgb{0.63f, 0.61f, 0.57f}, id);
+    if (id > 0.82f) stone = lerp(stone, Rgb{0.56f, 0.45f, 0.35f}, 0.5f);
+    c = lerp(c, scale(stone, 0.66f + 0.56f * dome), cov);
+    c = scale(c, 1.0f - wear * 0.25f * smoothstep(0.55f, 0.75f, big));
+    if (p.intersection) return c;  // a turnout's bed: stones only, tiles both ways
+    // The bed slopes away at its sides: the outer half unit reads darker.
+    c = scale(c, 0.76f + 0.24f * smoothstep(0.0f, 0.6f, std::min(wx, W - wx)));
+    const float txW = W * du, txL = L * du;  // one texel, world units
+    const int tracks = std::clamp(p.tracks, 1, 2);
+    const float pitch = L / (float)kSleepersPerRepeat;
+    const bool concrete = p.sleepers == kSleepersConcrete;
+    const float sw = concrete ? 0.26f : 0.24f;  // sleeper width along the track
+    const float k = std::floor(wz / pitch);
+    const float along = std::fabs(wz - (k + 0.5f) * pitch);
+    const int sid = wrap((int)k, kSleepersPerRepeat);
+    for (int t = 0; t < tracks; ++t) {
+        const float tc = 0.5f * W + (tracks == 2 ? (t == 0 ? -0.5f : 0.5f) * kBallastTrackSpacing
+                                                 : 0.0f);
+        const float ax = std::fabs(wx - tc);
+        // Timber sleepers vary a little in length and position; concrete
+        // ones are cast exact.
+        const float jitter =
+            concrete ? 0.0f : (hash01(f.seed ^ 0x51EEu, (uint32_t)sid, (uint32_t)t) - 0.5f) * 0.12f;
+        const float covX = bandCover(std::fabs(wx - tc - jitter), 0.5f * kSleeperLength, txW);
+        const float covZ = bandCover(along, 0.5f * sw, txL);
+        const float on = covX * covZ;
+        // The sleeper's shadow on the stones right beside it.
+        const float shadow = bandCover(along, 0.5f * sw + 0.07f, txL) *
+                             bandCover(ax, 0.5f * kSleeperLength + 0.05f, txW);
+        c = scale(c, 1.0f - 0.28f * shadow * (1.0f - on));
+        // Distance to a rail centre: the gauge is between the heads' INNER faces,
+        // and a head is 0.07 wide (roadrail::kRailHeadWidth).
+        const float seat = std::fabs(ax - 0.5f * kBallastGauge - 0.035f);
+        if (on > 0.0f) {
+            Rgb s;
+            if (concrete) {
+                s = scale(Rgb{0.60f, 0.59f, 0.56f}, 0.92f + (grain - 0.5f) * 0.16f);
+                // Rubber rail pads and clips where the rails sit.
+                s = lerp(s, Rgb{0.16f, 0.15f, 0.15f}, bandCover(seat, 0.09f, txW));
+            } else {
+                const float tone = hash01(f.seed ^ 0x7133u, (uint32_t)sid, (uint32_t)t);
+                s = lerp(Rgb{0.25f, 0.18f, 0.12f}, Rgb{0.36f, 0.27f, 0.19f}, tone);
+                // Grain runs along the sleeper (across the track).
+                const float gr = f.noise(103, u, v, 3, kSleepersPerRepeat * 14);
+                s = scale(s, 0.80f + 0.34f * gr);
+                // Steel tie plates under the rails.
+                s = lerp(s, Rgb{0.21f, 0.19f, 0.18f}, bandCover(seat, 0.11f, txW));
+            }
+            // Edges catch a little less light.
+            s = scale(s, 0.86f + 0.14f * smoothstep(0.0f, 0.05f, 0.5f * sw - along));
+            c = lerp(c, s, on);
+        }
+        // Rust dust shed by the wheels, strongest right under each rail.
+        const float rust = (1.0f - smoothstep(0.05f, 0.18f, seat)) * (0.30f + 0.45f * wear);
+        c = lerp(c, Rgb{0.34f, 0.21f, 0.13f}, rust * 0.55f);
+    }
+    return c;
+}
+
 // One painted stripe across U (world units), solid or dashed along V.
 struct Line {
     float c, halfW;  // centre and half width, world units across the road
@@ -191,7 +267,7 @@ struct LineBuilder {
 
 std::vector<Line> markingLines(const RoadTexParams& p, float W, float texel) {
     std::vector<Line> out;
-    if (p.isotropic()) return out;
+    if (p.isotropic() || p.surface == kBallast) return out;  // no paint on a track bed
     const LineBuilder lb{texel, &out};
     const float laneInset = std::min(0.35f, W * 0.08f);
     if (p.edge.style != kLineNone) {
@@ -223,7 +299,8 @@ bool writeIfChanged(const std::filesystem::path& path, const std::string& bytes)
     return (bool)out;
 }
 
-const char* const kSurfaceKeys[] = {"asphalt", "cobble", "gravel", "dirt", "slabs", "pavers"};
+const char* const kSurfaceKeys[] = {"asphalt", "cobble", "gravel", "dirt", "slabs", "pavers", "ballast"};
+const char* const kSleeperKeys[] = {"timber", "concrete"};
 const char* const kStyleKeys[] = {"none", "dashed", "solid", "double", "solid-dashed",
                                   "dashed-solid"};
 
@@ -281,7 +358,8 @@ bool RoadTexParams::operator==(const RoadTexParams& o) const {
            tint[0] == o.tint[0] && tint[1] == o.tint[1] && tint[2] == o.tint[2] &&
            seed == o.seed && size == o.size && width == o.width &&
            raggedEdges == o.raggedEdges && intersection == o.intersection &&
-           pavement == o.pavement && slabSize == o.slabSize && jointWidth == o.jointWidth;
+           pavement == o.pavement && slabSize == o.slabSize && jointWidth == o.jointWidth &&
+           sleepers == o.sleepers && tracks == o.tracks;
 }
 
 int quantizeDash(const LinePaint& l, float* dashOut, float* gapOut) {
@@ -295,6 +373,9 @@ int quantizeDash(const LinePaint& l, float* dashOut, float* gapOut) {
 
 float designWidth(const RoadTexParams& p) {
     if (p.width > 0.5f) return p.width;
+    // A track bed: the sleepers plus a 0.5 shoulder each side, per track.
+    if (p.surface == kBallast)
+        return kSleeperLength + 1.0f + (p.tracks >= 2 ? kBallastTrackSpacing : 0.0f);
     const int lanes = std::clamp(p.lanes, 0, 6);
     return lanes > 0 ? (float)lanes * 3.0f + 1.5f : 6.0f;
 }
@@ -370,7 +451,7 @@ std::vector<unsigned char> generate(const RoadTexParams& p) {
     // V so they tile trivially. A junction patch has no direction, so none.
     const float inset = std::min(0.35f, W * 0.08f);
     const int trackLanes =
-        lanes > 0 ? lanes : (surface == kGravel || surface == kDirt ? 1 : 0);
+        surface == kBallast ? 0 : lanes > 0 ? lanes : (surface == kGravel || surface == kDirt ? 1 : 0);
     const float laneW = trackLanes > 0 ? (W - 2.0f * inset) / (float)trackLanes : 0.0f;
     auto wheelTrack = [&](float wx) {
         if (junction || trackLanes == 0) return 0.0f;
@@ -544,6 +625,8 @@ std::vector<unsigned char> generate(const RoadTexParams& p) {
                 const Rgb jointCol = scale(pavers ? Rgb{0.33f, 0.31f, 0.27f} : Rgb{0.30f, 0.29f, 0.27f},
                                            1.0f - wear * 0.30f);
                 c = lerp(scale(slab, k), jointCol, joint);
+            } else if (surface == kBallast) {
+                c = ballastTexel(f, p, u, v, W, L, du, grain, mid, big, wear);
             } else {  // dirt / mud
                 const Rgb base{0.40f, 0.30f, 0.20f};
                 float k = 0.92f + (grain - 0.5f) * 0.26f + (mid - 0.5f) * 0.30f +
@@ -667,6 +750,13 @@ std::string toText(const RoadTexParams& p) {
     std::snprintf(buf, sizeof buf, "grime=%.6g\ncracks=%.6g\npavement=%d\nslab=%.6g\njoint=%.6g\n",
                   p.grime, p.cracks, p.pavement ? 1 : 0, p.slabSize, p.jointWidth);
     out += buf;
+    // Ballast keys only on a ballast recipe, so every older recipe re-saves
+    // byte-identical.
+    if (p.surface == kBallast) {
+        std::snprintf(buf, sizeof buf, "sleepers=%s\ntracks=%d\n",
+                      kSleeperKeys[std::clamp(p.sleepers, 0, 1)], std::clamp(p.tracks, 1, 2));
+        out += buf;
+    }
     const struct {
         const char* key;
         const LinePaint* l;
@@ -801,6 +891,14 @@ bool applyKey(RoadTexParams& p, const std::string& key, const std::string& value
     } else if (key == "joint") {
         if (!parseFloat(value, &p.jointWidth) || p.jointWidth < 0.0f || p.jointWidth > 0.2f)
             return bad();
+    } else if (key == "sleepers") {
+        const int k = lookup(kSleeperKeys, 2, value);
+        if (k < 0) return bad();
+        p.sleepers = k;
+    } else if (key == "tracks") {
+        int k = 0;
+        if (!parseInt(value, &k) || k < 1 || k > 2) return bad();
+        p.tracks = k;
     } else {
         if (err) *err = "unknown key: " + key;
         return false;
@@ -963,6 +1061,26 @@ std::vector<Preset> presets() {
     slabs.wear = 0.3f;
     slabs.seed = 6;
     out.push_back({"pavement-slabs", slabs});
+    // Railway beds (docs/roads.md "Rails and tram tracks"): what a road set to
+    // Kind = Rail picks - single and double track, and the stones-only bed a
+    // fork or diamond of two railways meets on.
+    RoadTexParams ballast;
+    ballast.surface = kBallast;
+    ballast.lanes = 0;
+    ballast.edge.style = kLineNone;
+    ballast.centre.style = kLineNone;
+    ballast.divider.style = kLineNone;
+    ballast.wear = 0.4f;
+    ballast.seed = 6;
+    out.push_back({"rail-ballast", ballast});
+    RoadTexParams ballast2 = ballast;
+    ballast2.tracks = 2;
+    ballast2.seed = 7;
+    out.push_back({"rail-ballast-double", ballast2});
+    RoadTexParams railJunction = ballast;
+    railJunction.intersection = true;
+    railJunction.seed = 8;
+    out.push_back({"rail-junction", railJunction});
     return out;
 }
 

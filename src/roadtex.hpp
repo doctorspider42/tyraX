@@ -32,8 +32,20 @@ enum Surface {
     kDirt = 3,
     kSlabs = 4,   // square concrete paving slabs
     kPavers = 5,  // small brick pavers in a running bond
-    kSurfaceCount = 6
+    // kBallast (docs/roads.md "Rails and tram tracks"): a railway's track bed -
+    // crushed stone with sleepers painted across it at kSleeperPitch, one row
+    // of sleepers per track (`tracks`), centred the way roadrail lays the rails.
+    kBallast = 6,
+    kSurfaceCount = 7
 };
+enum Sleepers { kSleepersTimber = 0, kSleepersConcrete = 1 };
+// Sleeper layout of the ballast surface, world units at the standard gauge.
+// Seven sleepers per 4-unit V repeat (0.571 apart; real track is ~0.6). The
+// sleeper length and the track spacing match roadrail's kTrackSpacingRail.
+inline constexpr int kSleepersPerRepeat = 7;
+inline constexpr float kSleeperLength = 2.6f;
+inline constexpr float kBallastTrackSpacing = 4.0f;
+inline constexpr float kBallastGauge = 1.435f;
 
 // A painted line's pattern. The two mixed kinds are a solid and a dashed line
 // side by side ("may cross from the dashed side"): kSolidDashed has the solid
@@ -93,6 +105,10 @@ struct RoadTexParams {
 
     // No lines are painted (a junction patch or a pavement tile).
     bool isotropic() const { return intersection || pavement; }
+    // Ballast only: the sleepers' material and how many tracks the bed carries
+    // (1 or 2, kBallastTrackSpacing apart, centred across the width).
+    int sleepers = kSleepersTimber;
+    int tracks = 1;
 
     RoadTexParams();
     bool operator==(const RoadTexParams& o) const;
@@ -157,7 +173,8 @@ std::vector<unsigned char> paintWear(int size = 64, unsigned seed = 1);
 std::string ensurePaintTexture(const std::string& projectDir);
 
 // The ready materials a new project is seeded with (road-2lane, road-4lane,
-// road-dirt, road-cobble, road-junction, pavement-slabs).
+// road-dirt, road-cobble, road-junction, pavement-slabs,
+// rail-ballast, rail-ballast-double, rail-junction).
 struct Preset {
     const char* name;
     RoadTexParams params;
@@ -165,6 +182,11 @@ struct Preset {
 std::vector<Preset> presets();
 inline constexpr const char* kDefaultSurface = "res/materials/roads/road-2lane.mtl";
 inline constexpr const char* kDefaultJunction = "res/materials/roads/road-junction.mtl";
+// What a road switched to Kind = Rail picks (props_ui), by track count.
+inline constexpr const char* kDefaultBallast = "res/materials/roads/rail-ballast.mtl";
+inline constexpr const char* kDefaultBallastDouble =
+    "res/materials/roads/rail-ballast-double.mtl";
+inline constexpr const char* kDefaultRailJunction = "res/materials/roads/rail-junction.mtl";
 
 // Writes every preset into a project. "" on success.
 std::string seedProject(const std::string& projectDir);

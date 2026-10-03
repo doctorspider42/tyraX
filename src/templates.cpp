@@ -58,6 +58,7 @@
 #include "tmdl.hpp"
 #include "roadgen.hpp"  // the road tessellator this file carries a twin of
 #include "roadtex.hpp"
+#include "roadrail.hpp"  // rails + tram tracks, baked into the kerb tables
 #include "wire.hpp"  // fnv1a64 - stable per-override .tskl suffix
 
 namespace templates {
@@ -9193,6 +9194,26 @@ static std::string sceneDataContent(const Project& p, const std::string& ns,
                     if (paveVerts > 0)
                         kerbNotes << "// scene " << si << ": pavements " << paveVerts
                                   << " vertices in " << paveRows.size() << " rows\n";
+                    // Rails and tram tracks (docs/roads.md "Rails and tram
+                    // tracks"): the same strips on the same surface, appended
+                    // as more kerb chunks - the console tells them apart only
+                    // by their palette shade.
+                    const std::vector<roadrail::RailPiece> rails = roadrail::planRails(
+                        cr, plan,
+                        [&](float x, float z) { return kerbSurface.at(x, z); }, ground);
+                    std::vector<roadgen::KerbVertex> rv;
+                    std::vector<int> railSizes;
+                    roadrail::railStrips(rails, rv, railSizes);
+                    for (int sz : railSizes) {
+                        kerbRows.push_back({(int)si, at, sz});
+                        at += sz;
+                    }
+                    for (const roadgen::KerbVertex& v : rv)
+                        kerbVerts.insert(kerbVerts.end(), {v.x, v.y, v.z, v.shade});
+                    if (!rv.empty())
+                        kerbNotes << "// scene " << si << ": " << rails.size()
+                                  << " rail lines, " << rv.size() << " strip vertices in "
+                                  << railSizes.size() << " chunks\n";
                 }
                 for (const roadgen::CrossingDecal& d : plan.decals) {
                     if (d.verts.empty() || rowOf[(size_t)d.road] < 0) continue;
@@ -9302,6 +9323,15 @@ static std::string sceneDataContent(const Project& p, const std::string& ns,
                         << "constexpr int ROAD_KERB_COUNT = " << kerbRows.size() << ";\n"
                         << "constexpr float ROAD_KERB_DRAW_DISTANCE = 60.0F;\n"
                         << "struct RoadKerbRt { int scene; int first; int count; };\n";
+                    // A shade of 2+ names one of these (roadrail::kPalette):
+                    // the rails' steel, rust, groove and crossing panel.
+                    out << "constexpr float ROAD_KERB_PALETTE[" << roadrail::kPaletteCount
+                        << "][3] = {";
+                    for (int k = 0; k < roadrail::kPaletteCount; ++k)
+                        out << (k ? ", " : "") << "{" << floatLit(roadrail::kPalette[k][0])
+                            << ", " << floatLit(roadrail::kPalette[k][1]) << ", "
+                            << floatLit(roadrail::kPalette[k][2]) << "}";
+                    out << "};\n";
                     if (kerbRows.empty()) {
                         out << "constexpr RoadKerbRt ROAD_KERBS[1] = {};\n"
                             << "constexpr float ROAD_KERB_VERTS[1] = {};\n";
@@ -18237,11 +18267,14 @@ static bool projectHasRoads(const Project& p) {
 }
 
 // Kerbs (docs/roads.md "Kerbs"): the same zero-cost rule one level down - no
-// kerbed road, no ROAD_KERB tables and no upload block.
+// kerbed road, no ROAD_KERB tables and no upload block. Rails and tram tracks
+// (docs/roads.md "Rails and tram tracks") ride in the same tables, so a rail
+// or tram road counts too.
 static bool projectHasKerbs(const Project& p) {
     for (const SceneData& sc : p.scenes)
         for (const SceneObject& o : sc.objects)
-            if (o.type == PrimitiveType::Road && o.roadKerb && o.roadPoints.size() >= 4)
+            if (o.type == PrimitiveType::Road && o.roadPoints.size() >= 4 &&
+                (o.roadKerb || o.roadKind == roadrail::kRail || o.roadKind == roadrail::kTram))
                 return true;
     return false;
 }
@@ -18291,6 +18324,17 @@ static std::string roadKerbsUpload() {
       c.stripRun = useStrips ? (int)stripRun : 0;
       auto put = [&](const float* v) {
         c.vertices.push_back(Tyra::Vec4(v[0], v[1], v[2], 1.0F));
+        if (v[3] >= 1.5F) {
+          // Rails (docs/roads.md "Rails and tram tracks"): a shade of 2+
+          // names a ROAD_KERB_PALETTE colour (roadrail::shadeRgb's rule).
+          int k = (int)v[3] - 2;
+          if (k < 0) k = 0;
+          if (k > 3) k = 3;
+          const float* pc = ROAD_KERB_PALETTE[k];
+          c.colors.push_back(
+              Tyra::Color(pc[0] * 128.0F, pc[1] * 128.0F, pc[2] * 128.0F, 128.0F));
+          return;
+        }
         const float g = v[3] * 128.0F;  // light concrete, a hair warm
         c.colors.push_back(Tyra::Color(g, g * 0.98F, g * 0.94F, 128.0F));
       };

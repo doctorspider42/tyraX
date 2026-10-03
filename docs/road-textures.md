@@ -2,7 +2,7 @@
 
 The Road Texture Generator (Tools > Road Texture Generator, or **Generate...**
 beside a Road's Surface material) bakes road surface materials procedurally -
-asphalt, cobble setts, gravel, dirt, paving slabs or brick pavers, with lane
+asphalt, cobble setts, gravel, dirt, paving slabs, brick pavers or a railway's ballast bed, with lane
 markings - into
 `res/materials/roads/`, so a road looks right the moment it is dropped instead
 of starting untextured grey.
@@ -11,7 +11,7 @@ of starting untextured grey.
 
 ## What a new project gets
 
-`project::create` seeds six ready materials, each a `.png`, a one-material
+`project::create` seeds nine ready materials, each a `.png`, a one-material
 `.mtl` and the editor-only `.roadtex` recipe:
 
 | Material | What it is |
@@ -22,6 +22,9 @@ of starting untextured grey.
 | `road-cobble` | Cobble setts, no markings (6 units). |
 | `road-junction` | Isotropic asphalt for the **Intersection material**. |
 | `pavement-slabs` | 0.5-unit concrete paving slabs for a pavement (2 x 2-unit tile). |
+| `rail-ballast` | A railway bed: ballast with timber sleepers for one track (3.6 units). |
+| `rail-ballast-double` | The same bed for two tracks, 4 units apart (7.6 units). |
+| `rail-junction` | Stones only, tiling both ways: the intersection material where railways meet. |
 
 A Road inserted from Insert > Gameplay > Road picks `road-2lane` as its
 surface and `road-junction` as its intersection material whenever those files
@@ -63,6 +66,15 @@ ignore `res/materials/`, so they are tracked.
 The preview shows the texture repeated as a strip of road at its design
 proportions (or 2 x 2 for a junction patch or a pavement tile), on a grass-coloured ground so the
 ragged sides show.
+
+**Rail ballast** ([roads.md](roads.md), "Rails and tram tracks") paints no
+markings at all. Its own controls are **Sleepers** (timber or concrete) and
+**Tracks** (1 or 2). The sleepers are 2.6 long, seven per 4-unit repeat,
+centred on each track, with tie plates (timber) or rail pads (concrete) and rust
+dust where a road of Kind = Railway stands its rails: 1.435 + 0.07 apart, at
+the standard gauge. Design width auto is 3.6 for one track and 7.6 for two. A
+rail road wider than its material stretches the sleepers with it. With
+Intersection patch on, it is stones only.
 
 ## Layout contract
 
@@ -168,7 +180,9 @@ tyrax-editor --road-texture <projectDir> <name> [key=value ...]
 
 Starts from `<name>.roadtex` when it exists (so the keys edit it), else from
 the defaults. Keys are the recipe file's own:
-`surface=asphalt|cobble|gravel|dirt|slabs|pavers`, `lanes=0..6`, `wear`,
+`surface=asphalt|cobble|gravel|dirt|slabs|pavers|ballast`,
+`sleepers=timber|concrete` and `tracks=1|2` (ballast only, and written only
+for it), `lanes=0..6`, `wear`,
 `grime`, `cracks`,
 `tint=r,g,b`, `seed`, `size=64|128|256`, `width` (0 = auto), `ragged=0|1`,
 `intersection=0|1`, `pavement=0|1`, `slab` and `joint` (units), and per line `L` = `centre`,

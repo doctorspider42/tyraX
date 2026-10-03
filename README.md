@@ -84,7 +84,7 @@ own HUD.
   </tr>
   <tr>
     <td align="center"><sub><b>Day.</b> Three Blender-built cars on the start line; press Square to swap.</sub></td>
-    <td align="center"><sub><b>80 and climbing.</b> Thirteen terrain-following roads with rounded junctions, forks and corners, CC0 city scenery.</sub></td>
+    <td align="center"><sub><b>80 and climbing.</b> Thirteen terrain-following roads with rounded junctions, forks and corners, a railway and a tram line, CC0 city scenery.</sub></td>
   </tr>
   <tr>
     <td width="50%"><img src="docs/img/readme-district-night-start.png" alt="The same start line at night: street lamps cast pools of light, apartment windows glow, stars overhead"></td>
@@ -380,7 +380,7 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
   [streaming layers](docs/streaming-layers.md),
   [world facts](docs/world-facts.md), runtime spawning and the
   [endless scroller](docs/endless-scroller.md).
-- **[Roads](docs/roads.md) and [vehicles](docs/vehicles.md)** — terrain-following streets with automatic rounded junctions, T's, forks and corners, kerbs and pavements that follow the fillets, painted junctions and [generated road textures](docs/road-textures.md), driveable and AI cars, model and sound authoring, damage and live previews. Try [Motor District](examples/vehicle-playground/README.md) or follow the [Blender vehicle tutorial](docs/blender-vehicle-modeling.md).
+- **[Roads](docs/roads.md) and [vehicles](docs/vehicles.md)** — terrain-following streets with automatic rounded junctions, T's, forks and corners, kerbs and pavements that follow the fillets, [railway and tram tracks](docs/roads.md#rails-and-tram-tracks-format-98) with level crossings, painted junctions and [generated road textures](docs/road-textures.md), driveable and AI cars, model and sound authoring, damage and live previews. Try [Motor District](examples/vehicle-playground/README.md) or follow the [Blender vehicle tutorial](docs/blender-vehicle-modeling.md).
 - **[NavMesh + NPC AI](docs/navigation-ai.md)** — baked on the host, A* on the EE.
 - **[Cinematics](docs/cutscenes.md)** — the Cutscene Director, fed by keyframes
   or by a [phone-recorded 6DoF take](docs/camera-takes.md) or the
@@ -545,7 +545,7 @@ wait for their polish pass.
 | [upscaler-lab](examples/upscaler-lab) | The fill-bound scene built to make the neural upscaler sweat. It wins: 1.63× on real hardware |
 | [video-modes](examples/video-modes) | 480i / 480p / 1080i and 4:3 / 16:9, switched at runtime — with keep-or-revert |
 | [vu-lab](examples/vu-lab) | Six props on five VU1 paths — capture a draw off the console, replay it on the host |
-| [vehicle-playground](examples/vehicle-playground) | Motor District: thirteen roads with T's, a fork, a slip road and a corner, CC0 city scenery, three driveable car models, day/night and live paint reflections; painted procedural district with road and overlap checks |
+| [vehicle-playground](examples/vehicle-playground) | Motor District: thirteen roads with T's, a fork, a slip road and a corner, a level crossing and a tram line, CC0 city scenery, three driveable car models, day/night and live paint reflections; painted procedural district with road and overlap checks |
 
 ## CLI
 
