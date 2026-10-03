@@ -715,9 +715,11 @@ static int roadTextureFromCli(int argc, char** argv) {
     if (argc < 4) {
         std::fprintf(stderr,
                      "usage: tyrax-editor --road-texture <projectDir> <name> [key=value ...]\n"
-                     "  keys: surface=asphalt|cobble|gravel|dirt lanes=0..6 wear=0..1\n"
+                     "  keys: surface=asphalt|cobble|gravel|dirt|slabs|pavers lanes=0..6\n"
+                     "        wear=0..1 grime=0..1 cracks=0..1\n"
                      "        tint=r,g,b seed=N size=64|128|256 width=units(0=auto)\n"
-                     "        ragged=0|1 intersection=0|1\n"
+                     "        ragged=0|1 intersection=0|1 pavement=0|1\n"
+                     "        surface=slabs|pavers: slab=units joint=units\n"
                      "  per line, L = centre | divider | edge:\n"
                      "        L=none|dashed|solid|double|solid-dashed|dashed-solid\n"
                      "        L.colour=white|yellow|r,g,b L.width=units\n"

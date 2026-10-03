@@ -20,6 +20,8 @@ namespace {
 // than included so this module stays free of the road geometry code.
 constexpr float kStripLen = 4.0f;
 constexpr float kJunctionExtent = 32.0f;
+// The pavement strip's mapping: one repeat per 2 units across AND along.
+constexpr float kPavementExtent = 2.0f;
 
 uint32_t hash3(uint32_t a, uint32_t b, uint32_t c) {
     uint32_t h = a * 0x9E3779B1u ^ (b + 0x7F4A7C15u) * 0x85EBCA77u ^ (c + 0x165667B1u) * 0xC2B2AE3Du;
@@ -189,7 +191,7 @@ struct LineBuilder {
 
 std::vector<Line> markingLines(const RoadTexParams& p, float W, float texel) {
     std::vector<Line> out;
-    if (p.intersection) return out;
+    if (p.isotropic()) return out;
     const LineBuilder lb{texel, &out};
     const float laneInset = std::min(0.35f, W * 0.08f);
     if (p.edge.style != kLineNone) {
@@ -221,7 +223,7 @@ bool writeIfChanged(const std::filesystem::path& path, const std::string& bytes)
     return (bool)out;
 }
 
-const char* const kSurfaceKeys[] = {"asphalt", "cobble", "gravel", "dirt"};
+const char* const kSurfaceKeys[] = {"asphalt", "cobble", "gravel", "dirt", "slabs", "pavers"};
 const char* const kStyleKeys[] = {"none", "dashed", "solid", "double", "solid-dashed",
                                   "dashed-solid"};
 
@@ -274,10 +276,12 @@ RoadTexParams::RoadTexParams() {
 
 bool RoadTexParams::operator==(const RoadTexParams& o) const {
     return surface == o.surface && lanes == o.lanes && centre == o.centre &&
-           divider == o.divider && edge == o.edge && wear == o.wear &&
+           divider == o.divider && edge == o.edge && wear == o.wear && grime == o.grime &&
+           cracks == o.cracks &&
            tint[0] == o.tint[0] && tint[1] == o.tint[1] && tint[2] == o.tint[2] &&
            seed == o.seed && size == o.size && width == o.width &&
-           raggedEdges == o.raggedEdges && intersection == o.intersection;
+           raggedEdges == o.raggedEdges && intersection == o.intersection &&
+           pavement == o.pavement && slabSize == o.slabSize && jointWidth == o.jointWidth;
 }
 
 int quantizeDash(const LinePaint& l, float* dashOut, float* gapOut) {
@@ -295,8 +299,36 @@ float designWidth(const RoadTexParams& p) {
     return lanes > 0 ? (float)lanes * 3.0f + 1.5f : 6.0f;
 }
 
+void tileExtent(const RoadTexParams& p, float* across, float* along) {
+    if (p.pavement) {
+        *across = *along = kPavementExtent;
+    } else if (p.intersection) {
+        *across = *along = kJunctionExtent;
+    } else {
+        *across = designWidth(p);
+        *along = kStripLen;
+    }
+}
+
+void slabGrid(const RoadTexParams& p, int* cols, int* rows) {
+    float W = 0.0f, L = 0.0f;
+    tileExtent(p, &W, &L);
+    const int n = p.size == 64 || p.size == 256 ? p.size : 128;
+    const float s = std::clamp(p.slabSize, 0.1f, 2.0f);
+    if (std::clamp(p.surface, 0, kSurfaceCount - 1) == kPavers) {
+        // bricks half the slab size long, a quarter wide; rows EVEN so the
+        // running bond's half-brick offset wraps at the tile edge
+        *cols = std::clamp((int)std::lround(W / (0.5f * s)), 1, n / 4);
+        *rows = std::clamp((int)std::lround(L / (0.25f * s)), 2, n / 2);
+        *rows += *rows & 1;
+    } else {
+        *cols = std::clamp((int)std::lround(W / s), 1, n / 4);
+        *rows = std::clamp((int)std::lround(L / s), 1, n / 4);
+    }
+}
+
 bool edgeLineSpan(const RoadTexParams& p, float* u0, float* u1) {
-    if (p.intersection || p.edge.style == kLineNone) return false;
+    if (p.isotropic() || p.edge.style == kLineNone) return false;
     const int n = p.size == 64 || p.size == 256 ? p.size : 128;
     const float W = designWidth(p);
     const std::vector<Line> lines = markingLines(p, W, W / (float)n);
@@ -317,12 +349,17 @@ bool edgeLineSpan(const RoadTexParams& p, float* u0, float* u1) {
 std::vector<unsigned char> generate(const RoadTexParams& p) {
     const int n = p.size == 64 || p.size == 256 ? p.size : 128;
     std::vector<unsigned char> px((size_t)n * n * 4, 255);
-    const bool junction = p.intersection;
-    const float W = junction ? kJunctionExtent : designWidth(p);
-    const float L = junction ? kJunctionExtent : kStripLen;
+    const bool junction = p.isotropic();  // no direction: no tracks, no edges
+    float W = 0.0f, L = 0.0f;
+    tileExtent(p, &W, &L);
     const Field f{n, W, L, (uint32_t)p.seed * 2654435761u + 17u};
     const float wear = clamp01(p.wear);
-    const int surface = std::clamp(p.surface, 0, 3);
+    const float grime = clamp01(p.grime), cracks = clamp01(p.cracks);
+    const int surface = std::clamp(p.surface, 0, kSurfaceCount - 1);
+    int slabCols = 1, slabRows = 1;
+    slabGrid(p, &slabCols, &slabRows);
+    // half the joint, never under half a texel so it cannot vanish
+    const float jointHalf = std::max(0.5f * std::max(0.0f, p.jointWidth), 0.5f * W / (float)n);
     const Rgb tint{std::max(0.0f, p.tint[0]), std::max(0.0f, p.tint[1]),
                    std::max(0.0f, p.tint[2])};
     const std::vector<Line> lines = markingLines(p, W, W / (float)n);
@@ -332,7 +369,8 @@ std::vector<unsigned char> generate(const RoadTexParams& p) {
     // Wheel paths (the polished / rutted tracks): two per lane, constant along
     // V so they tile trivially. A junction patch has no direction, so none.
     const float inset = std::min(0.35f, W * 0.08f);
-    const int trackLanes = lanes > 0 ? lanes : (surface >= kGravel ? 1 : 0);
+    const int trackLanes =
+        lanes > 0 ? lanes : (surface == kGravel || surface == kDirt ? 1 : 0);
     const float laneW = trackLanes > 0 ? (W - 2.0f * inset) / (float)trackLanes : 0.0f;
     auto wheelTrack = [&](float wx) {
         if (junction || trackLanes == 0) return 0.0f;
@@ -346,6 +384,29 @@ std::vector<unsigned char> generate(const RoadTexParams& p) {
         }
         return t;
     };
+    // The rubber / oil strip down the middle of each lane (between the wheel
+    // paths) - paved surfaces only, strips only.
+    const bool paved = surface == kAsphalt || surface == kCobble || surface == kSlabs ||
+                       surface == kPavers;
+    auto laneCentre = [&](float wx) {
+        if (junction || trackLanes == 0 || !paved) return 0.0f;
+        float t = 0.0f;
+        for (int k = 0; k < trackLanes; ++k) {
+            const float d = (wx - (inset + laneW * ((float)k + 0.5f))) / 0.42f;
+            t = std::max(t, std::exp(-d * d));
+        }
+        return t;
+    };
+    const float texelU = W / (float)n;
+    // Tar-sealed seams (asphalt strips): one along the road and, with enough
+    // cracks, one across it, placed by the seed. Both wobble with periodic
+    // noise, so the texture still tiles. Not on a junction patch: a straight
+    // seam repeating every 32 units would read as a grid.
+    const float seamU = W * (0.2f + 0.6f * hash01(f.seed ^ 0x5EA1u, 1u, 2u));
+    const float seamV = 0.15f + 0.7f * hash01(f.seed ^ 0x5EA1u, 3u, 4u);
+    const bool seamAcross = hash01(f.seed ^ 0x5EA1u, 5u, 6u) < cracks * 1.6f;
+    const float texelV = L / (float)n;
+    const float seamHalf = 0.035f;
 
     const float du = 1.0f / (float)n;
 
@@ -372,7 +433,47 @@ std::vector<unsigned char> generate(const RoadTexParams& p) {
                 k -= track * 0.10f;
                 // cracks: thin ridges of a mid-scale field
                 const float cr = 1.0f - std::fabs(2.0f * f.fbm(41, u, v, 1.6f, 3) - 1.0f);
-                k -= wear * 0.35f * smoothstep(0.93f, 0.985f, cr);
+                k -= cracks * 0.45f * smoothstep(0.93f, 0.985f, cr);
+                // a second, finer crack net where the wear is (crazing)
+                const float cr2 = 1.0f - std::fabs(2.0f * f.fbm(47, u, v, 0.6f, 2) - 1.0f);
+                k -= cracks * 0.25f * smoothstep(0.96f, 0.99f, cr2) * smoothstep(0.45f, 0.7f, big);
+                // large tone blotches (old patching, sun-bleached areas)
+                k += wear * 0.20f * (f.fbm(97, u, v, 3.0f, 2) - 0.5f);
+                // repairs: rectangles of newer, darker and smoother tar on a
+                // coarse periodic grid (inside their cells: no seam crossing)
+                {
+                    const int rcx = f.cells(W, 3.0f), rcy = f.cells(L, 4.0f);
+                    const float gx = u * (float)rcx, gy = v * (float)rcy;
+                    const int ix = (int)std::floor(gx), iy = (int)std::floor(gy);
+                    const uint32_t hx = (uint32_t)wrap(ix, rcx), hy = (uint32_t)wrap(iy, rcy);
+                    if (hash01(f.seed ^ 0xFA7Cu, hx, hy) < 0.45f * wear) {
+                        const float x0 = 0.08f + 0.35f * hash01(f.seed ^ 0xFA7Du, hx, hy);
+                        const float y0 = 0.08f + 0.35f * hash01(f.seed ^ 0xFA7Eu, hx, hy);
+                        const float x1 = std::min(0.92f, x0 + 0.25f + 0.4f * hash01(f.seed ^ 0xFA7Fu, hx, hy));
+                        const float y1 = std::min(0.92f, y0 + 0.25f + 0.4f * hash01(f.seed ^ 0xFA80u, hx, hy));
+                        const float lx = gx - (float)ix, ly = gy - (float)iy;
+                        const float ex = std::min(lx - x0, x1 - lx) * W / (float)rcx;
+                        const float ey = std::min(ly - y0, y1 - ly) * L / (float)rcy;
+                        const float in = smoothstep(-0.5f * texelU, 0.5f * texelU, std::min(ex, ey));
+                        // fresh tar: darker, and its own finer grain
+                        k = mix(k, 0.80f + (grain - 0.5f) * 0.12f, in);
+                    }
+                }
+                // tar-sealed seams: thin, near-black, slightly glossy lines
+                if (cracks > 0.0f && !junction) {
+                    const float wob = (f.fbm(107, u, v, 1.5f, 2) - 0.5f) * 0.5f;
+                    const float hu = std::max(seamHalf, 0.5f * texelU);
+                    float seam = 1.0f - smoothstep(hu - 0.5f * texelU, hu + 0.5f * texelU,
+                                                   std::fabs(wx - seamU - wob));
+                    if (seamAcross) {
+                        const float hv = std::max(seamHalf, 0.5f * texelV);
+                        float dv = v - seamV - 0.3f * wob / L;
+                        dv -= std::floor(dv + 0.5f);  // periodic distance
+                        seam = std::max(seam, 1.0f - smoothstep(hv - 0.5f * texelV, hv + 0.5f * texelV,
+                                                                std::fabs(dv) * L));
+                    }
+                    k = mix(k, 0.62f, seam * std::min(1.0f, cracks * 1.6f));
+                }
                 c = scale(base, k);
             } else if (surface == kCobble) {
                 // Setts: rows along V, each row offset half a stone. Integer
@@ -409,6 +510,40 @@ std::vector<unsigned char> generate(const RoadTexParams& p) {
                 const Rgb peb = lerp(Rgb{0.36f, 0.34f, 0.31f}, Rgb{0.66f, 0.62f, 0.55f}, id);
                 c = lerp(c, scale(peb, 0.75f + 0.45f * dome), cov);
                 c = scale(c, 1.0f - wear * 0.18f * smoothstep(0.6f, 0.78f, big));
+            } else if (surface == kSlabs || surface == kPavers) {
+                // A grid of slabs (or a running bond of pavers): whole slabs
+                // per tile on both axes, so the pattern wraps in U and V.
+                const bool pavers = surface == kPavers;
+                const float ry = v * (float)slabRows;
+                const int row = (int)std::floor(ry);
+                const float cx = u * (float)slabCols + (pavers && (row & 1) ? 0.5f : 0.0f);
+                const int col = wrap((int)std::floor(cx), slabCols);
+                const float fx = cx - std::floor(cx), fy = ry - (float)row;
+                const float ex = std::min(fx, 1.0f - fx) * W / (float)slabCols;
+                const float ey = std::min(fy, 1.0f - fy) * L / (float)slabRows;
+                const float e = std::min(ex, ey);  // distance to the joint, units
+                const uint32_t sid = pavers ? 0xBA7Eu : 0x51ABu;
+                const float t0 = hash01(f.seed ^ sid, (uint32_t)col, (uint32_t)row);
+                const float t1 = hash01(f.seed ^ (sid + 1u), (uint32_t)col, (uint32_t)row);
+                const Rgb slab = pavers ? lerp(Rgb{0.46f, 0.25f, 0.18f}, Rgb{0.58f, 0.36f, 0.25f}, t1)
+                                        : lerp(Rgb{0.58f, 0.57f, 0.54f}, Rgb{0.66f, 0.64f, 0.60f}, t1);
+                float k = 0.90f + 0.18f * t0 + (grain - 0.5f) * 0.16f + (mid - 0.5f) * 0.06f;
+                k *= 0.90f + 0.10f * smoothstep(jointHalf, jointHalf + 0.04f, e);  // worn arris
+                // wear: grime that ignores the slab edges, and the odd
+                // stained / sunken slab darker than its neighbours
+                k -= wear * 0.20f * smoothstep(0.55f, 0.75f, big);
+                const float stained = hash01(f.seed ^ (sid + 2u), (uint32_t)col, (uint32_t)row);
+                k -= wear * 0.18f * smoothstep(0.85f, 0.95f, stained);
+                const float cr = 1.0f - std::fabs(2.0f * f.fbm(43, u, v, 0.7f, 3) - 1.0f);
+                // hairline cracks, only on some slabs (a crack stops at a joint)
+                const float cracked = hash01(f.seed ^ (sid + 3u), (uint32_t)col, (uint32_t)row);
+                if (!pavers && cracked < 0.35f * cracks)
+                    k -= cracks * 0.3f * smoothstep(0.95f, 0.99f, cr);
+                const float texel = W / (float)n;
+                const float joint = 1.0f - smoothstep(jointHalf - 0.5f * texel, jointHalf + 0.5f * texel, e);
+                const Rgb jointCol = scale(pavers ? Rgb{0.33f, 0.31f, 0.27f} : Rgb{0.30f, 0.29f, 0.27f},
+                                           1.0f - wear * 0.30f);
+                c = lerp(scale(slab, k), jointCol, joint);
             } else {  // dirt / mud
                 const Rgb base{0.40f, 0.30f, 0.20f};
                 float k = 0.92f + (grain - 0.5f) * 0.26f + (mid - 0.5f) * 0.30f +
@@ -427,16 +562,52 @@ std::vector<unsigned char> generate(const RoadTexParams& p) {
             }
             c = {c.r * tint.r, c.g * tint.g, c.b * tint.b};
 
+            // Grime. Each term is multiplied by `grime`, so at 0 it is exact.
+            if (grime > 0.0f) {
+                // the rubber strip down each lane, mottled
+                c = scale(c, 1.0f - grime * 0.16f * laneCentre(wx) * (0.6f + 0.8f * mid));
+                if (!junction) {
+                    const float de = std::min(wx, W - wx);  // units to the nearer edge
+                    // dust swept toward the sides, then a dark gutter at the edge
+                    const float dust = smoothstep(0.15f, 0.5f, de) * (1.0f - smoothstep(0.8f, 2.2f, de));
+                    const Rgb dustCol{0.50f * tint.r, 0.47f * tint.g, 0.42f * tint.b};
+                    c = lerp(c, dustCol, grime * 0.22f * dust * (0.5f + mid));
+                    const float gutter = 1.0f - smoothstep(0.0f, 0.45f, de);
+                    c = scale(c, 1.0f - grime * 0.40f * gutter * (0.7f + 0.6f * big));
+                }
+            }
+
             // Paint: exact box-filtered coverage of the texel by each line,
             // chipped by wear.
             if (!lines.empty()) {
                 const float u0 = (float)x * du * W, u1 = (float)(x + 1) * du * W;
                 const float v0 = (float)y * du, v1 = (float)(y + 1) * du;
                 const float chip = f.fbm(71, u, v, 0.18f, 3);
-                const float keep = 1.0f - std::min(1.0f, wear * 1.4f) *
-                                              smoothstep(0.72f - 0.3f * wear, 0.84f - 0.3f * wear, chip);
+                float keep = 1.0f - std::min(1.0f, wear * 1.4f) *
+                                        smoothstep(0.72f - 0.3f * wear, 0.84f - 0.3f * wear, chip);
+                float raggedW = 1.0f;
+                if (wear > 0.0f) {
+                    // patchy fading (low-frequency), and lengths broken off
+                    keep *= 1.0f - std::min(0.6f, wear * 0.9f) *
+                                       smoothstep(0.45f, 0.75f, f.fbm(101, u, v, 1.2f, 3));
+                    keep *= 1.0f - std::min(1.0f, wear * 1.5f) *
+                                       smoothstep(0.80f - 0.22f * wear, 0.85f - 0.22f * wear,
+                                                  f.fbm(103, u, v, 2.5f, 2));
+                    // the surface's pits show through
+                    keep *= 1.0f - std::min(0.7f, wear * 1.4f) * smoothstep(0.40f, 0.28f, grain);
+                    // ragged paint edge: the width breathes along the line
+                    raggedW = 1.0f + wear * 0.5f * (f.fbm(109, u, v, 0.15f, 2) - 0.5f);
+                }
                 for (const Line& ln : lines) {
-                    float cov = overlap(u0, u1, ln.c - ln.halfW, ln.c + ln.halfW);
+                    float cov = 0.0f;
+                    if (wear > 0.0f) {
+                        // soft falloff instead of a hard stripe
+                        const float hw = ln.halfW * raggedW;
+                        const float soft = texelU * (0.5f + 1.2f * wear);
+                        cov = 1.0f - smoothstep(hw - soft, hw + soft, std::fabs(wx - ln.c));
+                    } else {
+                        cov = overlap(u0, u1, ln.c - ln.halfW, ln.c + ln.halfW);
+                    }
                     if (cov <= 0.0f) continue;
                     if (ln.dashes > 0) {
                         // dashes centred in their periods: none crosses the V seam
@@ -489,9 +660,12 @@ std::string toText(const RoadTexParams& p) {
     std::snprintf(buf, sizeof buf,
                   "surface=%s\nlanes=%d\nwear=%.6g\ntint=%.6g,%.6g,%.6g\nseed=%d\nsize=%d\n"
                   "width=%.6g\nragged=%d\nintersection=%d\n",
-                  kSurfaceKeys[std::clamp(p.surface, 0, 3)], p.lanes, p.wear, p.tint[0],
-                  p.tint[1], p.tint[2], p.seed, p.size, p.width, p.raggedEdges ? 1 : 0,
-                  p.intersection ? 1 : 0);
+                  kSurfaceKeys[std::clamp(p.surface, 0, kSurfaceCount - 1)], p.lanes, p.wear,
+                  p.tint[0], p.tint[1], p.tint[2], p.seed, p.size, p.width,
+                  p.raggedEdges ? 1 : 0, p.intersection ? 1 : 0);
+    out += buf;
+    std::snprintf(buf, sizeof buf, "grime=%.6g\ncracks=%.6g\npavement=%d\nslab=%.6g\njoint=%.6g\n",
+                  p.grime, p.cracks, p.pavement ? 1 : 0, p.slabSize, p.jointWidth);
     out += buf;
     const struct {
         const char* key;
@@ -586,7 +760,7 @@ bool applyKey(RoadTexParams& p, const std::string& key, const std::string& value
         return true;
     }
     if (key == "surface") {
-        const int k = lookup(kSurfaceKeys, 4, value);
+        const int k = lookup(kSurfaceKeys, kSurfaceCount, value);
         if (k < 0) return bad();
         p.surface = k;
     } else if (key == "lanes") {
@@ -600,6 +774,12 @@ bool applyKey(RoadTexParams& p, const std::string& key, const std::string& value
     } else if (key == "wear") {
         if (!parseFloat(value, &p.wear)) return bad();
         p.wear = clamp01(p.wear);
+    } else if (key == "grime") {
+        if (!parseFloat(value, &p.grime)) return bad();
+        p.grime = clamp01(p.grime);
+    } else if (key == "cracks") {
+        if (!parseFloat(value, &p.cracks)) return bad();
+        p.cracks = clamp01(p.cracks);
     } else if (key == "tint") {
         if (!parseTriple(value, 0.0f, 2.0f, p.tint)) return bad();
     } else if (key == "seed") {
@@ -614,6 +794,13 @@ bool applyKey(RoadTexParams& p, const std::string& key, const std::string& value
         if (!parseBool(value, &p.raggedEdges)) return bad();
     } else if (key == "intersection") {
         if (!parseBool(value, &p.intersection)) return bad();
+    } else if (key == "pavement") {
+        if (!parseBool(value, &p.pavement)) return bad();
+    } else if (key == "slab") {
+        if (!parseFloat(value, &p.slabSize) || p.slabSize < 0.1f || p.slabSize > 2.0f) return bad();
+    } else if (key == "joint") {
+        if (!parseFloat(value, &p.jointWidth) || p.jointWidth < 0.0f || p.jointWidth > 0.2f)
+            return bad();
     } else {
         if (err) *err = "unknown key: " + key;
         return false;
@@ -713,6 +900,16 @@ std::vector<Preset> presets() {
     junction.intersection = true;
     junction.seed = 5;
     out.push_back({"road-junction", junction});
+    RoadTexParams slabs;
+    slabs.surface = kSlabs;
+    slabs.pavement = true;
+    slabs.lanes = 0;
+    slabs.edge.style = kLineNone;
+    slabs.centre.style = kLineNone;
+    slabs.divider.style = kLineNone;
+    slabs.wear = 0.3f;
+    slabs.seed = 6;
+    out.push_back({"pavement-slabs", slabs});
     return out;
 }
 

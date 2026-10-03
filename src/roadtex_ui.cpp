@@ -28,7 +28,8 @@ namespace fs = std::filesystem;
 
 namespace {
 
-const char* const kSurfaces[] = {"Asphalt", "Cobble / setts", "Gravel", "Dirt / mud"};
+const char* const kSurfaces[] = {"Asphalt", "Cobble / setts", "Gravel", "Dirt / mud",
+                                 "Paving slabs", "Brick pavers"};
 const char* const kStyles[] = {"None",         "Dashed",        "Solid",
                                "Double solid", "Solid | dashed", "Dashed | solid"};
 
@@ -120,6 +121,16 @@ void App::drawRoadTextureWindow() {
         ImGui::EndCombo();
     }
     prefHelp("Re-open a texture made here (its .roadtex recipe).");
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(scaled(90));
+    if (ImGui::BeginCombo("##preset", "Preset", ImGuiComboFlags_None)) {
+        for (const roadtex::Preset& pr : roadtex::presets())
+            if (ImGui::Selectable(pr.name)) {
+                p = pr.params;
+                roadTexName_ = pr.name;
+            }
+        ImGui::EndCombo();
+    }
     ImGui::SetNextItemWidth(scaled(170));
     {
         char nameBuf[96];
@@ -130,13 +141,35 @@ void App::drawRoadTextureWindow() {
 
     ImGui::SeparatorText("Surface");
     ImGui::SetNextItemWidth(scaled(170));
-    ImGui::Combo("Surface", &p.surface, kSurfaces, 4);
-    ImGui::Checkbox("Intersection patch", &p.intersection);
+    ImGui::Combo("Surface", &p.surface, kSurfaces, roadtex::kSurfaceCount);
+    if (ImGui::Checkbox("Intersection patch", &p.intersection) && p.intersection)
+        p.pavement = false;
     prefHelp("For Intersection material: no markings, tiles both ways\n"
              "(mapped one repeat per 32 units).");
+    if (ImGui::Checkbox("Pavement", &p.pavement) && p.pavement) p.intersection = false;
+    prefHelp("For a pavement: no markings, tiles both ways\n"
+             "(one repeat per 2 x 2 units).");
+    if (p.surface == roadtex::kSlabs || p.surface == roadtex::kPavers) {
+        int cols = 1, rows = 1;
+        roadtex::slabGrid(p, &cols, &rows);
+        ImGui::SetNextItemWidth(scaled(170));
+        ImGui::SliderFloat("Slab size", &p.slabSize, 0.1f, 2.0f, "%.2f u");
+        prefHelp("Slab edge, units. Pavers: half x quarter of it.\n"
+                 "Snapped to a whole number per tile.");
+        ImGui::SameLine();
+        ImGui::TextDisabled("%d x %d", cols, rows);
+        ImGui::SetNextItemWidth(scaled(170));
+        ImGui::SliderFloat("Joint width", &p.jointWidth, 0.0f, 0.1f, "%.3f u");
+    }
     ImGui::SetNextItemWidth(scaled(170));
     ImGui::SliderFloat("Wear", &p.wear, 0.0f, 1.0f, "%.2f");
-    prefHelp("Stains, cracks, wheel tracks, chipped paint.");
+    prefHelp("Stains, patches, wheel tracks; chipped, faded paint.");
+    ImGui::SetNextItemWidth(scaled(170));
+    ImGui::SliderFloat("Grime", &p.grime, 0.0f, 1.0f, "%.2f");
+    prefHelp("Rubber strip down each lane, dust, dark gutters.");
+    ImGui::SetNextItemWidth(scaled(170));
+    ImGui::SliderFloat("Cracks", &p.cracks, 0.0f, 1.0f, "%.2f");
+    prefHelp("Crack lines and tar-sealed seams. All three at 0 = clean.");
     ImGui::SetNextItemWidth(scaled(170));
     ImGui::ColorEdit3("Tint", p.tint, ImGuiColorEditFlags_NoInputs);
     ImGui::SetNextItemWidth(scaled(170));
@@ -149,13 +182,13 @@ void App::drawRoadTextureWindow() {
             p.size = sizeIdx == 0 ? 64 : (sizeIdx == 2 ? 256 : 128);
         prefHelp("4-bit GS VRAM: 2 / 8 / 32 KB.");
     }
-    if (p.surface == roadtex::kDirt && !p.intersection) {
+    if (p.surface == roadtex::kDirt && !p.isotropic()) {
         ImGui::Checkbox("Ragged edges", &p.raggedEdges);
         prefHelp("Notches the sides (alpha 0 there only) - pairs with\n"
                  "the road's Edge fade.");
     }
 
-    if (!p.intersection) {
+    if (!p.isotropic()) {
         ImGui::SeparatorText("Markings");
         ImGui::SetNextItemWidth(scaled(170));
         ImGui::SliderInt("Lanes", &p.lanes, 0, 6);
@@ -194,9 +227,9 @@ void App::drawRoadTextureWindow() {
     if (selectedObject_ >= 0 && selectedObject_ < (int)project_.objects().size() &&
         project_.objects()[(size_t)selectedObject_].type == PrimitiveType::Road)
         road = &project_.objects()[(size_t)selectedObject_];
-    ImGui::BeginDisabled(!road);
+    ImGui::BeginDisabled(!road || p.pavement);
     if (ImGui::Button(p.intersection ? "Apply as intersection material" : "Apply to selected road") &&
-        road) {
+        road && !p.pavement) {
         const std::string mtl = writeNow();
         if (!mtl.empty()) {
             (p.intersection ? road->roadIntersectionTexture : road->roadTexture) = mtl;
@@ -204,8 +237,10 @@ void App::drawRoadTextureWindow() {
         }
     }
     ImGui::EndDisabled();
-    if (!road && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-        ImGui::SetTooltip("Select a Road first.");
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled) && (!road || p.pavement))
+        ImGui::SetTooltip(p.pavement ? "A pavement texture: Save it and pick it as a\n"
+                                       "pavement material."
+                                     : "Select a Road first.");
     if (!roadTexStatus_.empty()) ImGui::TextDisabled("%s", roadTexStatus_.c_str());
     ImGui::EndChild();
     ImGui::SameLine();
@@ -227,7 +262,7 @@ void App::drawRoadTextureWindow() {
     const ImTextureID tex = (ImTextureID)(intptr_t)roadTexGl_;
     // a grass-ish ground so ragged edges and the road's sides read
     dl->AddRectFilled(p0, ImVec2(p0.x + avail.x, p0.y + avail.y), IM_COL32(52, 74, 40, 255), 4.0f);
-    if (p.intersection) {
+    if (p.isotropic()) {
         // 2 x 2 repeats: the tiling in both directions is what matters here
         const float s = std::min(avail.x, avail.y) - scaled(16);
         const ImVec2 a(p0.x + (avail.x - s) * 0.5f, p0.y + (avail.y - s) * 0.5f);
