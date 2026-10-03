@@ -1761,11 +1761,14 @@ struct TrafficSettings {
     float amber = 3.0f;
     float allRed = 2.0f;
     bool leftHand = false;              // left-hand traffic
+    bool headlights = true;             // the cars light up at night (format 108)
+    bool laneChanges = true;            // multi-lane roads: change lanes (format 108)
 };
 inline bool operator==(const TrafficSettings& a, const TrafficSettings& b) {
     return a.cars == b.cars && a.vehicles == b.vehicles && a.radius == b.radius &&
            a.density == b.density && a.speed == b.speed && a.green == b.green &&
-           a.amber == b.amber && a.allRed == b.allRed && a.leftHand == b.leftHand;
+           a.amber == b.amber && a.allRed == b.allRed && a.leftHand == b.leftHand &&
+           a.headlights == b.headlights && a.laneChanges == b.laneChanges;
 }
 inline bool operator!=(const TrafficSettings& a, const TrafficSettings& b) { return !(a == b); }
 

@@ -1,7 +1,7 @@
 // -------------------------------------------------------------------------
 // The Road's "Street furniture" Properties section (docs/roads.md "Street
 // furniture"): lamp / tree / bollard lines along the pavement, signs at the
-// stop lines and traffic lights at four-way nodes. Everything it edits is
+// stop lines and traffic lights at three- and four-way nodes. Everything it edits is
 // SceneObject::roadFurniture (roadfurn::Settings); the placement itself is
 // roadfurniture.cpp, the same function the codegen and the viewport call.
 //
@@ -114,8 +114,9 @@ bool App::drawRoadFurniture(SceneObject& o) {
              "the driver coming in. Needs Markings (the stop line).");
     if (s.signs != roadfurn::kSignNone && modelCombo("Sign model", s.signModel)) changed = true;
     if (ImGui::Checkbox("Traffic lights", &s.signals)) changed = true;
-    prefHelp("A signal on every arm of this road's four-way nodes, in place\n"
-             "of the signs there.");
+    prefHelp("A signal on every arm of this road's three- and four-way nodes,\n"
+             "in place of the signs there. A junction's own Control (select\n"
+             "its diamond) can turn them on or off at that node alone.");
     if (s.signals && modelCombo("Signal model", s.signalModel)) changed = true;
     ImGui::TextDisabled("Baked at build: merged chunks (a few draws), solid poles and trunks,");
     ImGui::TextDisabled("hidden past ~%.0f units. Not scene objects.", roadfurn::kDrawDistance);

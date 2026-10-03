@@ -6203,7 +6203,10 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // not 0), "weatherIntensity" (only when not 1) and "streetLamps" (1 always
 // on, 2 off; only when not 0 = auto). Missing = dry, lamps by the day/night
 // cycle. Additive; no migration step.
-inline constexpr int kFormatVersion = 107;
+// v108 (docs/traffic.md, "Signals"): a junction override's "control" (1 no
+// lights or signs, 2 traffic lights, 3 stop signs; written only when not 0 =
+// auto, the roads' street furniture decides). Additive; no migration step.
+inline constexpr int kFormatVersion = 108;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

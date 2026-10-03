@@ -188,6 +188,7 @@ Graph build(const std::vector<roadgen::CrossingRoad>& roads, const roadgen::Cros
         n.z = c.shape.z;
         n.signalled = ci < signalled.size() && signalled[ci];
         n.arms = c.arms;
+        n.phases = n.signalled ? roadfurn::signalPhases((int)c.armList.size()) : 0;
     }
     auto usableNode = [&](const roadgen::Crossing& c) { return !c.patchDuplicate; };
 
@@ -291,7 +292,8 @@ Graph build(const std::vector<roadgen::CrossingRoad>& roads, const roadgen::Cros
                 s0 = m - 0.05f;
                 s1 = m + 0.05f;
             }
-            for (int dir = 1; dir >= -1; dir -= 2)
+            for (int dir = 1; dir >= -1; dir -= 2) {
+                const int firstLane = (int)g.lanes.size();
                 for (int k = 0; k < per; ++k) {
                     Lane ln;
                     ln.road = (int)ri;
@@ -330,6 +332,14 @@ Graph build(const std::vector<roadgen::CrossingRoad>& roads, const roadgen::Cros
                         if (a.node == -1) laneLeave[ri * 2 + (dir > 0 ? 0 : 1)].push_back(li);
                     }
                 }
+                // The lanes of one direction side by side: what a lane change
+                // moves between (index 0 at the kerb).
+                for (int k = 0; k < per; ++k) {
+                    Lane& l = g.lanes[(size_t)(firstLane + k)];
+                    l.outer = k > 0 ? firstLane + k - 1 : -1;
+                    l.inner = k + 1 < per ? firstLane + k + 1 : -1;
+                }
+            }
             for (int e = 0; e < 2; ++e) {
                 const Cut& cut = e == 0 ? st.first : st.second;
                 if (cut.node != -1 || cl.closed()) continue;
@@ -426,7 +436,9 @@ Graph build(const std::vector<roadgen::CrossingRoad>& roads, const roadgen::Cros
             cn.turn = turn;
             cn.givesWay = yields[(size_t)arm] != 0;
             cn.rank = (cn.givesWay ? 0 : 2) + (turn == kFarSide ? 0 : 1);
-            cn.group = g.nodes[ci].signalled ? arm % 2 : -1;
+            // A signalled node's phase for this approach: opposite arms
+            // together at a four-way node, one arm at a time anywhere else.
+            cn.group = g.nodes[ci].signalled ? roadfurn::signalPhase((int)na, arm) : -1;
             cn.pts = curve(from, to, 0.4f);
             g.laneOut[(size_t)from].push_back((int)g.conns.size());
             g.conns.push_back(std::move(cn));
@@ -603,6 +615,8 @@ void toSim(const Graph& g, const Options& opt, float green, float amber, float a
         TfSeg s;
         addPts(g.lanes[(size_t)li].pts, s);
         s.kind = 0;
+        s.inner = g.lanes[(size_t)li].inner;
+        s.outer = g.lanes[(size_t)li].outer;
         s.nextFirst = (int)out.next.size();
         for (int k : g.laneOut[(size_t)li]) out.next.push_back(L + k);
         s.nextCount = (int)g.laneOut[(size_t)li].size();
@@ -625,12 +639,13 @@ void toSim(const Graph& g, const Options& opt, float green, float amber, float a
         s.confCount = (int)c.conflicts.size();
         out.segs.push_back(s);
     }
-    const float cyc = 2.0f * (green + amber + allRed);
     for (size_t ni = 0; ni < g.nodes.size(); ++ni) {
         TfNode n;
         n.signal = g.nodes[ni].signalled ? 1 : 0;
+        n.phases = g.nodes[ni].signalled ? g.nodes[ni].phases : 2;
         // Neighbouring signals do not change together (a fixed, per-node
         // phase offset; no green wave).
+        const float cyc = (float)(n.phases > 1 ? n.phases : 2) * (green + amber + allRed);
         n.offset = std::fmod((float)ni * 7.31f, cyc > 0.0f ? cyc : 1.0f);
         out.nodes.push_back(n);
     }
@@ -666,9 +681,11 @@ std::string describe(const Graph& g, const std::vector<roadgen::CrossingRoad>& r
         int conns = 0;
         for (const Connection& c : g.conns) conns += c.node == n.crossing;
         if (conns == 0) continue;
+        char ctl[48];
+        if (n.signalled) std::snprintf(ctl, sizeof(ctl), "traffic lights (%d phases)", n.phases);
+        else std::snprintf(ctl, sizeof(ctl), "priority");
         std::snprintf(b, sizeof(b), "  node %d at (%.1f, %.1f): %d arms, %s, %d connections\n",
-                      n.crossing, n.x, n.z, n.arms, n.signalled ? "traffic lights" : "priority",
-                      conns);
+                      n.crossing, n.x, n.z, n.arms, ctl, conns);
         o << b;
         for (const Connection& c : g.conns) {
             if (c.node != n.crossing) continue;
@@ -679,7 +696,9 @@ std::string describe(const Graph& g, const std::vector<roadgen::CrossingRoad>& r
                           c.arm, roads[(size_t)f.road].id.c_str(), f.index,
                           roads[(size_t)t.road].id.c_str(), t.index, kTurn[c.turn],
                           c.givesWay ? "gives way" : "priority", c.rank,
-                          c.group >= 0 ? (c.group ? ", phase B" : ", phase A") : "",
+                          c.group >= 0 ? (c.group == 0 ? ", phase A" : c.group == 1 ? ", phase B"
+                                                    : c.group == 2 ? ", phase C" : ", phase D+")
+                                       : "",
                           c.conflicts.size());
             o << b;
         }

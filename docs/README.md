@@ -40,7 +40,9 @@ for people building games with it. Internals live in code comments, the git log
 - [Road traffic](traffic.md) — ambient AI cars that drive the road network by
   themselves: a lane graph baked from the roads, stop lines and give-way
   priority from the same rule that paints them, working traffic lights on the
-  street furniture's signal heads, spawning around the player and a cheap
+  street furniture's signal heads (three phases at a T, a per-junction
+  Control), lane changes on multi-lane roads, headlights at night, the On Red
+  Light Run flow node, spawning around the player and a cheap
   far-car path. View > Lanes, `--road-lanes`, the costs and the checks.
 - [Roads](roads.md) — spline streets glued to the terrain: a handful of authored
   points and one texture become a tessellated, terrain-projected ribbon, built

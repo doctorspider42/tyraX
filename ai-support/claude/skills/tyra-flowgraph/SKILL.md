@@ -180,6 +180,14 @@ over guessing from this file.
   their own, and at night the street lamps reflect in them. 0 seconds switches
   at once (wet roads included) - use that from On Start. A scene's starting
   weather is set in Scene Preferences, not with this node.
+  **On Red Light Run** (Player category) fires when the PLAYER's car crosses a
+  stop line at traffic lights on red - once per crossing, never for the
+  ambient traffic cars. Its number output is the car's speed then (units/s).
+  Params: Node (-1 = any signalled node, else the node number `--road-lanes`
+  prints) and Min speed (0 = any run). It needs road traffic on (Preferences >
+  World > Traffic, Ambient cars above 0) and a signalled node; without them it
+  never fires. Hang a fine, a wanted level or a HUD warning off it (On Red
+  Light Run -> Show Text). See `docs/traffic.md` in the TyraX repo.
   **Play Credits** rolls a credits screen (Tools > Credits Editor) by name: it
   takes over the screen and the pad - this graph included - until it ends or the
   player skips it, then runs the ROLL's own finish action (resume / switch scene

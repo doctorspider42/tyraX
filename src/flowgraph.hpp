@@ -1107,6 +1107,23 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
          .desc = "Puts a damaged vehicle right: dents out, smoke gone, full "
                  "power back (docs/vehicles.md, \"Damage\"). A garage is an "
                  "Area with On Enter -> Repair Vehicle."},
+        // Road traffic (docs/traffic.md): the game counts the player's red
+        // runs into ScriptContext::redLightRuns; the node watches the count.
+        {.key = "OnRedLightRun", .title = "On Red Light Run",
+         .category = "Player", .trigger = true, .numCount = 2,
+         .numLabels = {"Node", "Min speed"},
+         .numTips = {"Only this road node (its number in --road-lanes and "
+                     "View > Lanes). -1 = any signalled node.",
+                     "Only when the car crosses the line at least this fast, "
+                     "units per second. 0 = any run, however slow."},
+         .numOut = true,
+         .desc = "Fires when the PLAYER's car crosses a stop line at traffic "
+                 "lights while its light is red - the moment the front of the "
+                 "car passes the line, once per crossing. Its number output is "
+                 "the car's speed then (units/s). Needs road traffic on "
+                 "(Preferences > World > Traffic) and a signalled node; "
+                 "ambient cars never trigger it. A fine, a wanted level or a "
+                 "HUD warning hangs off it: On Red Light Run -> Show Text."},
         // The hit object is a runtime reference (-1 = none) - actions fed it
         // are guarded like Spawn Object clones.
         {.key = "Raycast", .title = "Raycast", .category = "Player",

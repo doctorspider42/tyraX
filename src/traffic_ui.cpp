@@ -58,6 +58,7 @@ void App::drawLanesOverlay(ImVec2 imgPos, ImVec2 avail) {
         ImU32 col = c.givesWay ? IM_COL32(255, 220, 60, 200) : IM_COL32(90, 230, 120, 200);
         if (c.group == 0) col = IM_COL32(255, 150, 50, 210);
         if (c.group == 1) col = IM_COL32(200, 120, 255, 210);
+        if (c.group == 2) col = IM_COL32(80, 220, 230, 210);  // a T's third phase
         polyline(c.pts, col, scaled(1.5f), false);
     }
     // Lanes that stop: a dead end, or no legal exit (red).
@@ -109,9 +110,19 @@ void App::drawTrafficSettings(TrafficSettings& t) {
     ImGui::SameLine();
     ImGui::SetNextItemWidth(scaled(70.0f));
     ImGui::DragFloat("All red", &t.allRed, 0.1f, 0.0f, 10.0f, "%.1f s");
-    prefHelp("One phase of the traffic lights. The two directions take turns:\n"
-             "green, amber, then all red while the junction clears.");
+    prefHelp("One phase of the traffic lights: green, amber, then all red while\n"
+             "the junction clears. At a four-way node the two directions take\n"
+             "turns; at a T each arm takes its turn (three phases).");
     ImGui::Checkbox("Left-hand traffic", &t.leftHand);
+    ImGui::Checkbox("Lane changes", &t.laneChanges);
+    prefHelp("On a road with two or more lanes each way, a car moves into the\n"
+             "lane its turn leaves from and passes a stopped or crawling car,\n"
+             "when the next lane has a gap. Off = every car keeps its lane.");
+    ImGui::Checkbox("Headlights at night", &t.headlights);
+    prefHelp("The cars switch their lamps on with the scene's night (its\n"
+             "day/night cycle, or the hour a still cycle is baked at). Off =\n"
+             "they never light up - each lit car near the camera draws its\n"
+             "headlight pool and lamp coronas.");
     ImGui::EndDisabled();
     t.cars = std::clamp(t.cars, 0, 32);
     t.radius = std::clamp(t.radius, 20.0f, 2000.0f);

@@ -1224,6 +1224,7 @@ static void writeRoadJunctionsArray(std::ostream& json,
         if (!j.material.empty())
             json << ", \"material\": \"" << jsonEscape(j.material) << "\"";
         if (j.grip > 0.0f) json << ", \"grip\": " << fmtFloat(j.grip);
+        if (j.control != roadgen::kControlAuto) json << ", \"control\": " << j.control;
         json << " }";
     }
     json << "]";
@@ -1248,6 +1249,9 @@ static void readRoadJunctionsArray(const json::Value& arr,
             if (j.grip <= 0.0f) j.grip = 0.0f;
             else j.grip = std::clamp(j.grip, 0.1f, 1.5f);
         }
+        if (const auto* v = jj.find("control")) j.control = (int)v->numberOr(0.0);
+        if (j.control < roadgen::kControlAuto || j.control > roadgen::kControlStop)
+            j.control = roadgen::kControlAuto;
         if (!j.roadA.empty() && !j.roadB.empty()) out.push_back(j);
     }
 }
@@ -1842,6 +1846,8 @@ static std::string trafficJson(const TrafficSettings& t) {
     if (t.amber != d.amber) key("amber", fmtFloat(t.amber));
     if (t.allRed != d.allRed) key("allRed", fmtFloat(t.allRed));
     if (t.leftHand != d.leftHand) key("leftHand", t.leftHand ? "true" : "false");
+    if (t.headlights != d.headlights) key("headlights", t.headlights ? "true" : "false");
+    if (t.laneChanges != d.laneChanges) key("laneChanges", t.laneChanges ? "true" : "false");
     return s + "},\n";
 }
 
@@ -6679,6 +6685,8 @@ static void readSettingsSection(const json::Value& root, Project& out) {
             num("amber", tr.amber, 1.0f, 10.0f);
             num("allRed", tr.allRed, 0.0f, 10.0f);
             if (const auto* v = t->find("leftHand")) tr.leftHand = v->boolOr(false);
+            if (const auto* v = t->find("headlights")) tr.headlights = v->boolOr(true);
+            if (const auto* v = t->find("laneChanges")) tr.laneChanges = v->boolOr(true);
         }
         // A project written before v55 has no key and keeps the default 1.0
         // pixel, which is sub-pixel on the 128-pixel target: the reuse is
@@ -8815,6 +8823,7 @@ uint64_t liveLinkContextHash(const Project& p) {
     if (p.settings.traffic != TrafficSettings()) {
         const TrafficSettings& t = p.settings.traffic;
         fnvMix(h, 0x7F), fnvMix(h, (uint64_t)t.cars), fnvMix(h, t.leftHand ? 1 : 0);
+        fnvMix(h, t.headlights ? 1 : 0), fnvMix(h, t.laneChanges ? 1 : 0);
         for (const std::string& v : t.vehicles) fnvMixS(h, v);
         fnvMixF(h, t.radius), fnvMixF(h, t.density), fnvMixF(h, t.speed);
         fnvMixF(h, t.green), fnvMixF(h, t.amber), fnvMixF(h, t.allRed);
@@ -8836,6 +8845,7 @@ uint64_t liveLinkContextHash(const Project& p) {
             fnvMixS(h, j.roadA), fnvMixS(h, j.roadB);
             fnvMixF(h, j.x), fnvMixF(h, j.z);
             fnvMix(h, (uint64_t)j.winner), fnvMixS(h, j.material), fnvMixF(h, j.grip);
+            fnvMix(h, (uint64_t)j.control);
         }
         // Scrollers bake their belt layout (clone objects + SCROLLERS tables)
         // from their segments AND the current transforms of the member objects

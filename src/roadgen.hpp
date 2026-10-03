@@ -408,6 +408,17 @@ enum JunctionWinner : int {
     kWinnerRoadA = 2,  // road A runs through, B is covered (and may spill)
     kWinnerRoadB = 3,
 };
+// How a node is controlled (format v108, docs/traffic.md "Signals"). Auto =
+// the roads' street furniture decides: traffic lights at a three- or four-way
+// node when one of its roads ticks Traffic lights. Who gives way when there
+// are no lights is always giveWayArms - the control only adds or removes the
+// lights and the signs, never moves a stop line.
+enum JunctionControl : int {
+    kControlAuto = 0,
+    kControlNone = 1,     // no lights and no signs (the stop lines stay)
+    kControlSignals = 2,  // traffic lights, whatever the roads ask
+    kControlStop = 3,     // a stop sign at every arm that gives way
+};
 // Stored in the scene (SceneData::roadJunctions). Fields at their Auto value
 // change nothing; a material alone forces a patch.
 struct JunctionOverride {
@@ -416,10 +427,12 @@ struct JunctionOverride {
     int winner = kWinnerAuto;
     std::string material;      // patch material, "" = the roads' own
     float grip = 0.0f;         // 0 = auto (the lower road's / the winner's)
+    int control = kControlAuto;  // lights / signs (JunctionControl)
 };
 inline bool operator==(const JunctionOverride& a, const JunctionOverride& b) {
     return a.roadA == b.roadA && a.roadB == b.roadB && a.x == b.x && a.z == b.z &&
-           a.winner == b.winner && a.material == b.material && a.grip == b.grip;
+           a.winner == b.winner && a.material == b.material && a.grip == b.grip &&
+           a.control == b.control;
 }
 inline bool operator!=(const JunctionOverride& a, const JunctionOverride& b) {
     return !(a == b);
@@ -454,6 +467,7 @@ struct Crossing {
     std::vector<NodeArm> armList;  // per arm, in angular order
     Junction shape;
     int override = -1;   // index into the overrides, or -1 (Auto)
+    int control = kControlAuto;  // the override's JunctionControl
     int kind = kCrossOverlap;
     int winner = -1;     // road index for kCrossThrough
     bool patchDuplicate = false;  // a patch another crossing already makes

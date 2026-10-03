@@ -3995,9 +3995,17 @@ read the scratch copy's `ROAD_FURN` rows and `ROAD_FURN_VERTS`.
 their side, continuity through a T and a crossing, curves inside the patch,
 priority = the painted stop lines, no conflicting greens, and a 300 s host
 simulation of 10 cars on `vehiclesim::step` through a signalised crossing - no
-overlap, no entry on red, no deadlock; `TF_DEBUG=1` prints the first overlap
-and every car stuck 40 s), plus the codegen gate (five hooks, a streamed
-project too, nothing with traffic off). `--road-lanes <dir> [scene]` prints the
+overlap, no entry on red, no deadlock; the same through a signalised T (three
+phases: never two moving, every movement green within one cycle); a 2+2-lane
+crossing with a car broken down in a kerb lane - followers pass it, turners
+move into their turn's lane, still no overlap/red entry/deadlock;
+`TF_DEBUG=1` prints the first overlap, every car stuck 40 s and every new worst
+lane offset), plus the codegen gate (six hooks, a streamed project too, the
+On Red Light Run node's count watch, nothing with traffic off). A host-sim
+tweak is not proven by ONE seed: the first lane-change version passed 12 cars /
+stop 50 before the node and deadlocked at 25 and 75 and with 16 cars - sweep
+the car count and the breakdown's position (and a 21-wide, three-lane road)
+before trusting a change to the core. `--road-lanes <dir> [scene]` prints the
 graph; exit 1 = a lane with no legal exit. In PCSX2 the Motor District's
 fixture is a frozen walker at (14, -78), eye 16, rotation [28, -29, 0] over the
 Garage boulevard x Foundry link signals (remove `flowGraph` from
@@ -4005,7 +4013,19 @@ Garage boulevard x Foundry link signals (remove `flowGraph` from
 `--capture-frame` a few seconds apart; read `TRAFFIC cars ...` every 5 s in
 `bin/log.txt` - it carries the far-path count and the EE microseconds of the
 core and of the whole vehicle step. The render-cost CSV has no update rows;
-the traffic EE time is only in that line.
+the traffic EE time is only in that line (it also counts `lane changes`,
+`overtakes` and whether the `lights` are on). Three more fixtures: the
+signalised T where Garage boulevard meets the ring road - walker at (-2, -80),
+eye 4, looking at (-9, -100), its head flips green/red a few shots apart; a
+RED-LIGHT RUN - keep `ravagerpark00001`'s graph (the player is seated, facing
+north at (0, -74)) and drive with `--pad "hold r2; wait 2; release all; wait
+1.5; ..."` through nodes 11, 10, 12 and the T at (0, 112), polling
+`bin/log.txt` for `TRAFFIC player crossed the line at node N on <colour>` and
+capturing the moment `red light run` appears (the HUD line lasts 3 s); and
+multi-lane traffic in Big City with the walker over Grand Avenue at (-586, -20).
+Traffic A/Bs have project switches now - `"headlights": false`,
+`"laneChanges": false` in `settings.traffic` - so an arm is a settings edit and
+a rebuild, never a hand-patched generated file.
 The viewport and PCSX2 patch must match. `verify-road-twins.py` also exercises
 terrain folds and both Market endpoints, proves the old fan regression is
 triggered, sweeps clearance and checks nonempty runtime junction uploads. Move one spline

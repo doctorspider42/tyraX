@@ -1233,8 +1233,8 @@ at 0; and the atlas survives a 16-colour quantization unchanged.
 A road's **Street furniture** section (Properties, a collapsing header under
 the road's own controls) fills the street the way a city does: **street
 lamps**, **trees** and **bollards** in lines along the pavement, a **give-way
-or stop sign** at every stop line, and **traffic lights** at four-way nodes.
-None of it is a scene object. It is generated from the road at build, the way
+or stop sign** at every stop line, and **traffic lights** at three- and
+four-way nodes. None of it is a scene object. It is generated from the road at build, the way
 kerbs and pavements are, so moving a road moves its lamps, and a district
 with three hundred lamps saves three hundred fewer objects.
 
@@ -1259,8 +1259,10 @@ Each of the three lines has the same controls:
 **Furniture seed** turns and sizes every tree (a random yaw, 0.85-1.15 size)
 without moving or dropping one. **Signs** picks None, Give way or Stop for the
 stop lines this road gives way at; **Traffic lights** puts a signal on every
-arm of this road's four-way nodes instead. Sign and signal models are
-pickable too.
+arm of this road's three- and four-way nodes instead (before format 108, only
+four-way nodes). A junction's own **Control** (the Junction panel: Auto, None,
+Traffic lights, Stop signs; format 108) overrides both at that one node -
+docs/traffic.md, "Signals". Sign and signal models are pickable too.
 
 Everything is stored as one `roadFurniture` object on the road, holding only
 the keys that differ from the defaults, and written only when something is set
@@ -1275,9 +1277,13 @@ the keys that differ from the defaults, and written only when something is set
    road runs through, or the minor road of a crossing of through roads, the
    `bakeMarkings` rule - get a sign beside their stop line: on the incoming
    lane's side, just behind the kerb (`h + kerb width + 0.45` from the centre
-   line), facing the driver coming in. A four-way node where any road asks for
-   lights gets a signal on every arm and no signs. A sign that does not fit
-   moves back along the arm a unit at a time (up to 8).
+   line), facing the driver coming in. A three- or four-way node where any
+   road asks for lights (`roadfurn::nodeSignalled`, the rule the lane graph's
+   phases use too) gets a signal on every arm and no signs. A junction's
+   Control can turn the lights on (3+ arms) or off, or put a STOP sign at every
+   arm that gives way whatever the road asks; it never changes which arms give
+   way. A sign that does not fit moves back along the arm a unit at a time (up
+   to 8).
 2. **Lamps, then bollards, then trees** along each road (bridges excluded: a
    bridge has parapets). Lamps face the road; bollards too; trees take the
    seed's yaw.
@@ -1402,7 +1408,9 @@ Garage boulevard's four-way nodes.
   four-way nodes) - from 222 candidates (44 dropped on a carriageway, 50 at a
   node, none overlapping); **15 564 vertices (5 188 triangles) in 23 chunks**,
   128 collision boxes. ELF data: 46 692 floats + 15 564 colour words, about
-  250 KB.
+  250 KB. Since format 108 Garage boulevard's two T's onto the ring road are
+  signalled too: 132 instances (6 signs, 18 signals), 15 966 vertices in 26
+  chunks.
 - **Untouched**: `ROADS scene 0 chunks 187 vertices 52131` and `ROADKERB scene
   0 chunks 91 vertices 8040` read the same with furniture on and off.
 - **PCSX2**, frozen walker on Garage boulevard at (-3, -35) looking north
@@ -1442,14 +1450,16 @@ distance, and strips instead of lists.
   one), and the AI cars obey it.
 
 `--vehicle-check` "road furniture" builds a kerbed T with pavements and zebras,
-a four-way crossing with lights, a give-way T and a lone kerbless street, and
+a four-way crossing with lights, a T onto the signalled road, a give-way T and
+a lone kerbless street, and
 checks: the same roads bake the same furniture bit for bit; every kind is
 placed; no instance's footprint touches a road, a patch or paint; the lone
 street carries exactly the expected lamps at exactly their spacing and the
 crowded one keeps its survivors on the station grid; lamps face their road and
 stand on the pavement top; every sign is at a painted stop line facing the
 approach, with the road's sign kind; the four-way gets four signals and no
-signs; the vertex, chunk and box counts match the instances; a new seed turns
+signs, the T on the signalled road three; a junction's Control turns the X's
+lights off, lights the unsignalled T and swaps a give-way sign for STOP; the vertex, chunk and box counts match the instances; a new seed turns
 the trees without moving them; an `.obj` model is instanced with its own
 triangles and colours; and the settings round-trip with nothing saved at the
 defaults.
@@ -2019,6 +2029,10 @@ crossing: select a road, click the white diamond on a crossing (or the road's
   the roads' own intersection material.
 - **Own grip**: the tyre grip of the crossing's surface. Auto = the lower road
   for a patch, the winner's for a winner.
+- **Control** (format 108): *Auto* (traffic lights at a three- or four-way node
+  when one of its roads asks for them), *None* (no lights, no signs), *Traffic
+  lights* (whatever the roads ask) or *Stop signs* (a STOP at every arm that
+  gives way). It never changes who gives way - docs/traffic.md, "Signals".
 - **Reset to auto** deletes the override; *Frame in viewport* pivots the camera
   on the crossing.
 
@@ -2031,7 +2045,8 @@ accent = overridden, red = orphaned.
 
 An override is stored in the scene (`SceneData::roadJunctions`, the scene
 table's `"roadJunctions"` list, format 79): the two road object ids, the
-crossing's position, and the three fields (each omitted at Auto). It matches
+crossing's position, and the four fields (each omitted at Auto; `"control"`
+since format 108). It matches
 the computed crossing of the same road pair nearest to the stored position
 within the narrower road's width, so point edits that move the crossing a
 little keep it. Editing a field re-stamps the position.

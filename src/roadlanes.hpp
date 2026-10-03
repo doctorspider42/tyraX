@@ -36,6 +36,9 @@ struct Lane {
     int road = -1;          // CrossingRoad index
     int dir = 1;            // +1 along the road's points, -1 against them
     int index = 0;          // 0 = the kerb-side lane, upward toward the centre
+    // The lanes beside it in the same direction of the same stretch: toward
+    // the centre (index + 1) and toward the kerb (index - 1), -1 for none.
+    int inner = -1, outer = -1;
     int perDir = 1;         // lanes this direction has
     float offset = 0.0f;    // distance right (or left) of the centre line
     int fromNode = -1, fromArm = -1;  // crossing index + arm it leaves, -1 = an open end
@@ -55,7 +58,7 @@ struct Connection {
     int turn = kStraight;
     bool givesWay = false;  // `from` arrives on an arm that gives way (a stop line)
     int rank = 0;           // priority: 2 major / 0 giving way, +1 not a far-side turn
-    int group = -1;         // signalled node: the approach's phase (arm index % 2)
+    int group = -1;         // signalled node: the approach's phase (roadfurn::signalPhase)
     std::vector<float> pts; // x, y, z
     std::vector<int> conflicts;  // connections whose paths this one crosses
 };
@@ -64,6 +67,7 @@ struct NodeInfo {
     int crossing = -1;
     float x = 0.0f, z = 0.0f;
     bool signalled = false;
+    int phases = 0;         // signalled: phases in its cycle (roadfurn::signalPhases)
     int arms = 0;
 };
 
@@ -116,7 +120,7 @@ inline constexpr const char* kCarPrefix = "~traffic-";
 // road pass - it already holds each scene's roads, plan and furniture.
 struct Tables {
     std::vector<std::array<int, 6>> scenes;  // segFirst, segCount, nodeFirst, nodeCount, lampFirst, lampCount
-    std::vector<int> segs;                   // 11 ints per segment (TrafficSegData)
+    std::vector<int> segs;                   // 13 ints per segment (TrafficSegData)
     std::vector<float> pts;
     std::vector<int> next, conf, nodeSignal;
     std::vector<float> lamps;                // node, group, x, y, z, fx, fz, scale
@@ -133,9 +137,9 @@ std::string coreSource();
 std::string membersSource();
 std::string implSource(bool streamed);
 // Splices the hooks into the vehicle runtime template text. Silent where an
-// anchor is absent (every other template); the check proves all five land.
+// anchor is absent (every other template); the check proves all six land.
 std::string patchTemplate(std::string s);
-extern const char* const kHookMarks[5];
+extern const char* const kHookMarks[6];
 
 // --vehicle-check "road traffic".
 void check(void (*verdict)(bool, const char*));
