@@ -227,20 +227,27 @@ void App::drawRoadTextureWindow() {
     if (selectedObject_ >= 0 && selectedObject_ < (int)project_.objects().size() &&
         project_.objects()[(size_t)selectedObject_].type == PrimitiveType::Road)
         road = &project_.objects()[(size_t)selectedObject_];
-    ImGui::BeginDisabled(!road || p.pavement);
-    if (ImGui::Button(p.intersection ? "Apply as intersection material" : "Apply to selected road") &&
-        road && !p.pavement) {
+    ImGui::BeginDisabled(!road);
+    if (ImGui::Button(p.pavement       ? "Apply as pavement material"
+                      : p.intersection ? "Apply as intersection material"
+                                       : "Apply to selected road") &&
+        road) {
         const std::string mtl = writeNow();
         if (!mtl.empty()) {
-            (p.intersection ? road->roadIntersectionTexture : road->roadTexture) = mtl;
+            if (p.pavement) {
+                road->roadPavementMaterial = mtl;
+                // A pavement needs its kerb, and some width to show.
+                road->roadKerb = true;
+                if (road->roadPavement <= 0.0f) road->roadPavement = 2.5f;
+            } else {
+                (p.intersection ? road->roadIntersectionTexture : road->roadTexture) = mtl;
+            }
             commitChange();
         }
     }
     ImGui::EndDisabled();
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled) && (!road || p.pavement))
-        ImGui::SetTooltip(p.pavement ? "A pavement texture: Save it and pick it as a\n"
-                                       "pavement material."
-                                     : "Select a Road first.");
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled) && !road)
+        ImGui::SetTooltip("Select a Road first.");
     if (!roadTexStatus_.empty()) ImGui::TextDisabled("%s", roadTexStatus_.c_str());
     ImGui::EndChild();
     ImGui::SameLine();

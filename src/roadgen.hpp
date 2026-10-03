@@ -360,6 +360,9 @@ struct CrossingRoad {
     // Kerbs (docs/roads.md "Kerbs"): only planKerbs reads these.
     bool kerb = false;
     float kerbHeight = 0.15f, kerbWidth = 0.25f;
+    // Pavement (docs/roads.md "Pavements"): a walk this wide behind the kerb,
+    // at the kerb's height. 0 = none; needs kerb. planPavements reads it.
+    float pavement = 0.0f;
 };
 
 // What a road's arms get painted at its nodes (1.171.0, docs/roads.md
@@ -536,11 +539,41 @@ void kerbStrips(const std::vector<KerbPiece>& pieces, std::vector<KerbVertex>& o
                 std::vector<int>& chunkSizes);
 // One piece as a triangle LIST (the viewport, the check).
 void kerbTriangles(const KerbPiece& piece, std::vector<KerbVertex>& out);
-// The kerb TOPS as drawn surface - what the console's road height index reads
-// from the owner -4 chunks, so the test drive bumps over a kerb where the
-// console car does. `s` must already hold the roads and patches (planKerbs
+// The kerb TOPS (and the pavements behind them) as drawn surface - what the
+// console's road height index reads from the owner -4 kerb chunks and the -3
+// pavement rows, so the test drive bumps over a kerb where the console car does. `s` must already hold the roads and patches (planKerbs
 // reads it); it is built here, and the caller builds it again after.
 void addKerbsToSurface(Surface& s, const std::vector<CrossingRoad>& roads,
                        const CrossingPlan& plan, const HeightFn& ground);
+
+// --- pavements (docs/roads.md "Pavements") ---------------------------------
+//
+// A pavement is the kerb's top carried on outward: a slab at the kerb height
+// from the kerb's outer edge out to the road's `pavement` width, and an outer
+// face dropping to the ground. It follows every kerb line - so it wraps the
+// junction fillets too - narrows wherever its outer edge would reach another
+// road or a patch, closes a tight corner in the point the two straight
+// offsets meet, and rises with the ground wherever the ground is higher.
+// Host-baked textured triangles (XYZUV): the codegen ships them as
+// ROAD_JUNCTIONS rows, one per road and cell, so the console draws, culls and
+// collides with them like a junction patch and does no work of its own.
+inline constexpr float kPavementTile = 2.0f;   // one texture repeat, both ways
+inline constexpr float kPavementLift = 0.05f;  // over the ground it rises onto
+inline constexpr float kPavementSink = 0.04f;  // outer face base below ground
+inline constexpr float kPavementMax = 6.0f;
+// An untextured pavement's colour, 0xRRGGBB in the untextured 0..255 range.
+inline constexpr int kPavementRgb = 0x9C9890;
+struct PavementMesh {
+    int road = -1;  // CrossingRoad index (its material)
+    int cellX = 0, cellZ = 0;  // kKerbCell cell
+    std::vector<Vertex> tris;  // triangle LIST, UVs rebased to small numbers
+};
+std::vector<PavementMesh> planPavements(const std::vector<CrossingRoad>& roads,
+                                        const CrossingPlan& plan,
+                                        const std::vector<KerbPiece>& kerbs,
+                                        const HeightFn& ground);
+// The slabs as drawn surface (the test drive, the check): every triangle
+// with area in XZ; the outer faces drop out.
+void addPavementsToSurface(Surface& s, const std::vector<PavementMesh>& meshes);
 
 }  // namespace roadgen

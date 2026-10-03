@@ -4242,6 +4242,8 @@ void Viewport::syncRoadDraws(const std::vector<SceneObject>& objects) {
         mix(csig, &r.kerb, sizeof(r.kerb));
         mix(csig, &r.kerbHeight, sizeof(r.kerbHeight));
         mix(csig, &r.kerbWidth, sizeof(r.kerbWidth));
+        mix(csig, &r.pavement, sizeof(r.pavement));
+        mix(csig, o.roadPavementMaterial.data(), o.roadPavementMaterial.size() + 1);
     }
     for (const roadgen::JunctionOverride& j : roadJunctions_) {
         mix(csig, j.roadA.data(), j.roadA.size() + 1);
@@ -4356,6 +4358,31 @@ void Viewport::syncRoadDraws(const std::vector<SceneObject>& objects) {
             RoadCrossDraw d;
             d.mesh = uploadMesh(iv);
             d.owner = keyOf(road);
+            roadCross_.push_back(std::move(d));
+        }
+        // Pavements (docs/roads.md "Pavements"): the codegen's planPavements
+        // over the same kerb lines, one textured mesh per owning road.
+        const std::vector<roadgen::PavementMesh> pave = roadgen::planPavements(
+            cr, plan, pieces, [&](float x, float z) { return terrainHeight(x, z); });
+        std::map<int, std::vector<float>> paveByRoad;
+        for (const roadgen::PavementMesh& pm : pave) {
+            std::vector<float>& iv = paveByRoad[pm.road];
+            for (const roadgen::Vertex& v : pm.tris)
+                iv.insert(iv.end(), {v.x, v.y, v.z, 1.0f, 1.0f, 1.0f, v.u, v.v});
+        }
+        for (auto& [road, iv] : paveByRoad) {
+            const SceneObject& o = objects[(size_t)objIdx[(size_t)road]];
+            RoadCrossDraw d;
+            d.mesh = uploadMesh(iv);
+            d.owner = keyOf(road);
+            d.material = o.roadPavementMaterial;
+            d.texture = project::resolveRoadTexture(projectDir_, o.roadPavementMaterial);
+            if (d.texture.empty()) {
+                const float k = 1.0f / 255.0f;
+                d.color[0] = ((roadgen::kPavementRgb >> 16) & 255) * k;
+                d.color[1] = ((roadgen::kPavementRgb >> 8) & 255) * k;
+                d.color[2] = (roadgen::kPavementRgb & 255) * k;
+            }
             roadCross_.push_back(std::move(d));
         }
     }

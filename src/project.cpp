@@ -1102,6 +1102,11 @@ std::string objectJson(const SceneObject& o) {
             json += ", \"roadKerbHeight\": " + fmtFloat(o.roadKerbHeight);
         if (o.roadKerbWidth != 0.25f)
             json += ", \"roadKerbWidth\": " + fmtFloat(o.roadKerbWidth);
+        // Pavements (v97): written only when set.
+        if (o.roadPavement != 0.0f)
+            json += ", \"roadPavement\": " + fmtFloat(o.roadPavement);
+        if (!o.roadPavementMaterial.empty())
+            json += ", \"roadPavementMaterial\": \"" + jsonEscape(o.roadPavementMaterial) + "\"";
         bool anyLift = false;
         for (float h : o.roadHeights) anyLift |= h != 0.0f;
         if (anyLift) {
@@ -1756,6 +1761,7 @@ std::vector<roadgen::CrossingRoad> crossingRoads(const std::vector<SceneObject>&
         r.kerb = o.roadKerb;
         r.kerbHeight = o.roadKerbHeight;
         r.kerbWidth = o.roadKerbWidth;
+        r.pavement = o.roadKerb ? o.roadPavement : 0.0f;
         out.push_back(std::move(r));
         if (objectIndex) objectIndex->push_back((int)i);
     }
@@ -6272,6 +6278,10 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
                 std::clamp((float)rkh->numberOr(0.15), 0.02f, 0.5f);
         if (const auto* rkw = jo.find("roadKerbWidth"))
             o.roadKerbWidth = std::clamp((float)rkw->numberOr(0.25), 0.05f, 1.0f);
+        if (const auto* rpv = jo.find("roadPavement"))
+            o.roadPavement = std::clamp((float)rpv->numberOr(0.0), 0.0f, 6.0f);
+        if (const auto* rpm = jo.find("roadPavementMaterial"))
+            o.roadPavementMaterial = rpm->stringOr("");
         if (const auto* rh = jo.find("roadHeights")) {
             o.roadHeights.clear();
             if (rh->type == json::Value::Type::Array)
@@ -8427,6 +8437,11 @@ uint64_t liveLinkRecipeHash(const SceneObject& o) {
     if (o.type == PrimitiveType::Road && o.roadKerb) {
         fnvMix(h, 0x4B);
         fnvMixF(h, o.roadKerbHeight), fnvMixF(h, o.roadKerbWidth);
+        // Pavements (v97) ride on the kerbs and are baked the same way.
+        if (o.roadPavement != 0.0f || !o.roadPavementMaterial.empty()) {
+            fnvMixF(h, o.roadPavement);
+            for (char ch : o.roadPavementMaterial) fnvMix(h, (unsigned char)ch);
+        }
     }
     // The four numbers this mesh hands the project's own VU1 microprogram.
     // They are BAKED into SCENE_OBJECTS and the live-link record carries only

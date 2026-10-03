@@ -479,6 +479,81 @@ round a fillet, the painted edge line inside it, a zebra beyond.
 
 ![PCSX2: kerb and painted edge line round a junction fillet in the Motor District, a zebra crossing beyond](img/road-kerbs-markings-district.png)
 
+## Pavements (format 97)
+
+A kerbed road's **Pavement** slider (`roadPavement`, 0-6 units, default 0 =
+none) lays a walk that wide behind each of its kerbs, at the kerb's height.
+**Pavement material** (`roadPavementMaterial`, a `.mtl`) textures it; empty
+means untextured concrete (`kPavementRgb`). Both are written only when set.
+The Road Texture Generator's **Pavement** mode makes the texture: the
+`pavement-slabs` seed every new project gets, or **Apply as pavement
+material**, which also turns the road's kerbs on and gives it a 2.5-unit walk
+([Paving slabs](road-textures.md#paving-slabs)).
+
+![PCSX2: pavements of paving slabs wrapping the four corners of the Garage boulevard x Market cross street plaza in the Motor District](img/road-pavements-pcsx2.png)
+
+A pavement is the kerb top carried on outward, so it follows every kerb line
+(`roadgen::planPavements`, host only, over the `planKerbs` pieces):
+
+- **It wraps the junction corners with the kerb.** Round the inside of a
+  fillet the straight offsets would fold over each other. Each folded run is
+  closed in the point where the offsets either side of it meet, so the block
+  corner is paved square.
+- **It narrows instead of running onto another road or patch.** The outer edge
+  is found by bisection along the kerb normal and stops half a pavement short
+  of any other road, so two parallel streets' pavements meet in the middle
+  rather than overlapping. A width changes by at most one unit per unit along,
+  so a cut reads as a taper, not a notch.
+- **It follows the ground.** Flat at the kerb top, it rises wherever the
+  ground under its outer edge or its middle is higher (`kPavementLift`, 0.05,
+  above it). Wherever it stands above the ground, an **outer face** drops to
+  0.04 below it, textured as the slab's edge.
+- **UV**: one texture repeat per 2 units (`kPavementTile`), across AND along,
+  rebased per mesh to small numbers for the PS2's ST path.
+- **No kerb, no pavement**: the walk is built from the kerb lines, so a road
+  with Kerbs off has none whatever the slider says.
+
+### How it runs
+
+Pavements need **no runtime code**. The codegen groups the triangles by
+material and 32-unit cell (`kKerbCell`) and emits them as ordinary
+`ROAD_JUNCTIONS` rows (XYZUV, the junction patch format). At scene load they
+become owner -3 road chunks like a patch, so they are:
+
+- **culled** per cell by `renderRoadChunks`' frustum test,
+- **in the road height index**: the player walks on them (`walkGroundAt`), a
+  car bumps up onto them, and blob shadows and light pools lie on them,
+- **free on the EE**: uploaded unchanged, no per-frame work.
+
+`// scene N: pavements V vertices in R rows` in the generated `scene_data.hpp`
+is the bake's own count. The viewport draws the same meshes, and the test
+drive stands on them (`roadgen::addKerbsToSurface` adds them). `--vehicle-check`
+("pavements") checks that a walk is at the kerb top and as wide as asked, that
+it narrows off another road, that the inside of a fillet corner is paved, and
+that the UVs stay small.
+
+### What they cost
+
+The Motor District main scene, with 2.5-unit slab pavements on its four
+downtown streets (Skyline avenue, Garage boulevard, Market cross street and
+Foundry link): **11 292 vertices in 51 rows** (3 764 triangles). `ROADS scene
+0` goes from 83 chunks and 39 513 vertices to 134 and 50 805.
+
+PCSX2, raised view over the Garage x Market plaza (eye 9), three
+`--profile-frame` captures per arm, emulated EE timing:
+
+| | `Roads` | `Total` |
+|---|---:|---:|
+| without pavements | 0.12-0.15 ms | 8.7-9.9 ms |
+| with pavements | 0.17-0.19 ms | 8.6-8.6 ms |
+
+About **+0.05 ms** in the road phase; the frame total is within noise and the
+HUD reads 60 FPS on both arms. Not measured on a physical PS2.
+
+The pavements are **not shadow receivers** (the shadow bake's road hash leaves
+them out, like the kerbs), and they have no draw distance of their own:
+`renderRoadChunks` draws every road chunk in the frustum.
+
 ### Limits
 
 - No collision, and no surface query answers the kerb top.

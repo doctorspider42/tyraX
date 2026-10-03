@@ -55,8 +55,10 @@ ignore `res/materials/`, so they are tracked.
 - **Save** writes the files. **Apply to selected road** writes them and sets
   the selected Road's Surface material; with Intersection patch on it reads
   **Apply as intersection material** and sets that slot instead. Both are
-  ordinary undoable edits. A pavement texture has no Road slot to apply to
-  here, so it is only saved.
+  ordinary undoable edits. With Pavement on it reads **Apply as pavement
+  material**: it sets the Road's Pavement material, turns its kerbs on and
+  gives it a 2.5-unit pavement if it had none
+  ([Pavements](roads.md#pavements-format-97)).
 
 The preview shows the texture repeated as a strip of road at its design
 proportions (or 2 x 2 for a junction patch or a pavement tile), on a grass-coloured ground so the

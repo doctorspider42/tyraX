@@ -2536,6 +2536,211 @@ void addKerbsToSurface(Surface& s, const std::vector<CrossingRoad>& roads,
         for (const KerbVertex* v : {&a, &b, &c}) tris.push_back({v->x, v->y, v->z, 0.0f, 0.0f});
     }
     s.add(tris, 1.0f);
+    // The pavements behind them are drawn surface as well.
+    addPavementsToSurface(s, planPavements(roads, plan, pieces, ground));
+}
+
+std::vector<PavementMesh> planPavements(const std::vector<CrossingRoad>& roads,
+                                        const CrossingPlan& plan,
+                                        const std::vector<KerbPiece>& kerbs,
+                                        const HeightFn& ground) {
+    std::vector<PavementMesh> out;
+    bool any = false;
+    for (const KerbPiece& k : kerbs)
+        any |= k.road >= 0 && roads[(size_t)k.road].pavement > 0.01f;
+    if (!any) return out;
+    const KerbWorld world(roads, plan);
+    // Clear of every road by `clear` beyond its edge (a pavement of its own
+    // stops halfway, so two pavements meet instead of overlapping), and of
+    // every patch.
+    auto blocked = [&](float x, float z, float clear) {
+        for (int r = 0; r < (int)roads.size(); ++r) {
+            const Line& l = world.lines[(size_t)r];
+            if (l.p.size() < 2) continue;
+            const std::array<float, 4>& b = world.box[(size_t)r];
+            const float pad = clear + 1.0f;
+            if (x < b[0] - pad || z < b[1] - pad || x > b[2] + pad || z > b[3] + pad) continue;
+            if (projectOnto(l, x, z, nullptr) < world.halfW(r) + clear) return true;
+        }
+        return world.inPatch(x, z, -1);
+    };
+    // No terrain answers a very low height (the codegen's -1e6): then there
+    // is nothing to rise onto and no face to drop.
+    auto groundAt = [&](float x, float z) {
+        const float g = ground ? ground(x, z) : -1.0e30f;
+        return g > -1.0e5f ? g : -1.0e30f;
+    };
+    std::map<std::pair<int, std::pair<int, int>>, size_t> slot;  // (road, cell) -> out
+
+    for (const KerbPiece& kp : kerbs) {
+        if (kp.road < 0) continue;
+        const CrossingRoad& R = roads[(size_t)kp.road];
+        const float want = std::min(R.pavement, kPavementMax);
+        if (want <= 0.01f || kp.points() < 2) continue;
+        // 1. Resample the kerb line at most 2 units apart: the merged kerb
+        // points can be 8 apart, and the ground under a wide slab is not as
+        // straight as the road edge.
+        struct Q {
+            float x, y, z, nx, nz;  // the kerb top's OUTER edge, its height
+        };
+        std::vector<Q> q;
+        for (int i = 0; i < kp.points(); ++i) {
+            const float* a = &kp.pts[(size_t)i * 5];
+            Q v{a[0] + a[3] * kp.width, a[1] + kp.height, a[2] + a[4] * kp.width, a[3], a[4]};
+            if (i > 0) {
+                const Q& p = q.back();
+                const float d = std::hypot(v.x - p.x, v.z - p.z);
+                const int steps = (int)std::ceil(d / 2.0f);
+                const Q p0 = p;
+                for (int s = 1; s < steps; ++s) {
+                    const float f = (float)s / (float)steps;
+                    Q m{p0.x + (v.x - p0.x) * f, p0.y + (v.y - p0.y) * f, p0.z + (v.z - p0.z) * f,
+                        p0.nx + (v.nx - p0.nx) * f, p0.nz + (v.nz - p0.nz) * f};
+                    const float l = std::hypot(m.nx, m.nz);
+                    if (l > 1e-6f) m.nx /= l, m.nz /= l;
+                    q.push_back(m);
+                }
+            }
+            q.push_back(v);
+        }
+        const size_t n = q.size();
+        // 2. The outer edge: straight offsets, narrowed off other roads and
+        // patches (bisection along the normal).
+        std::vector<float> w(n, want);
+        for (size_t i = 0; i < n; ++i) {
+            const float clear = 0.5f * (want + kp.width);
+            if (!blocked(q[i].x + q[i].nx * w[i], q[i].z + q[i].nz * w[i], clear) &&
+                !blocked(q[i].x + q[i].nx * w[i] * 0.5f, q[i].z + q[i].nz * w[i] * 0.5f, clear))
+                continue;
+            float lo = 0.0f, hi = w[i];
+            for (int it = 0; it < 12; ++it) {
+                const float mid = 0.5f * (lo + hi);
+                if (blocked(q[i].x + q[i].nx * mid, q[i].z + q[i].nz * mid, clear)) hi = mid;
+                else lo = mid;
+            }
+            w[i] = lo;
+        }
+        // A width may change by at most one unit per unit along, so a cut
+        // reads as a taper, not a notch.
+        std::vector<float> arc(n, 0.0f);
+        for (size_t i = 1; i < n; ++i)
+            arc[i] = arc[i - 1] + std::hypot(q[i].x - q[i - 1].x, q[i].z - q[i - 1].z);
+        for (size_t i = 1; i < n; ++i) w[i] = std::min(w[i], w[i - 1] + (arc[i] - arc[i - 1]));
+        for (size_t i = n - 1; i-- > 0;) w[i] = std::min(w[i], w[i + 1] + (arc[i + 1] - arc[i]));
+        std::vector<float> ox(n), oz(n);
+        for (size_t i = 0; i < n; ++i) {
+            ox[i] = q[i].x + q[i].nx * w[i];
+            oz[i] = q[i].z + q[i].nz * w[i];
+        }
+        // 3. A tight corner (the inside of a fillet): the offsets fold over.
+        // Each folded run closes in the point where the straight offsets
+        // either side of it meet - the block's corner.
+        for (size_t i = 0; i + 1 < n;) {
+            const float ix = q[i + 1].x - q[i].x, iz = q[i + 1].z - q[i].z;
+            const float fx = ox[i + 1] - ox[i], fz = oz[i + 1] - oz[i];
+            if (fx * ix + fz * iz > 0.15f * (ix * ix + iz * iz)) {
+                ++i;
+                continue;
+            }
+            size_t a = i, b = i + 1;
+            while (b + 1 < n) {
+                const float jx = q[b + 1].x - q[b].x, jz = q[b + 1].z - q[b].z;
+                const float gx = ox[b + 1] - ox[b], gz = oz[b + 1] - oz[b];
+                if (gx * jx + gz * jz > 0.15f * (jx * jx + jz * jz)) break;
+                ++b;
+            }
+            // Tangents just outside the run.
+            const size_t a0 = a > 0 ? a - 1 : a, b1 = b + 1 < n ? b + 1 : b;
+            float t0x = q[a].x - q[a0].x, t0z = q[a].z - q[a0].z;
+            if (a0 == a) t0x = -q[a].nz, t0z = q[a].nx;
+            float t1x = q[b1].x - q[b].x, t1z = q[b1].z - q[b].z;
+            if (b1 == b) t1x = -q[b].nz, t1z = q[b].nx;
+            const float den = t0x * t1z - t0z * t1x;
+            if (std::fabs(den) > 1e-6f) {
+                const float dx = ox[b] - ox[a], dz = oz[b] - oz[a];
+                const float s = (dx * t1z - dz * t1x) / den;
+                const float kx = ox[a] + t0x * s, kz = oz[a] + t0z * s;
+                // Only a meeting point in front of both, and on clear ground.
+                const bool ahead = (kx - ox[a]) * t0x + (kz - oz[a]) * t0z >= -0.01f &&
+                                   (ox[b] - kx) * t1x + (oz[b] - kz) * t1z >= -0.01f;
+                if (ahead && !blocked(kx, kz, 0.0f))
+                    for (size_t k = a; k <= b; ++k) ox[k] = kx, oz[k] = kz;
+                else
+                    for (size_t k = a; k <= b; ++k) ox[k] = q[k].x, oz[k] = q[k].z;  // none
+            }
+            i = b + 1;
+        }
+        // 4. Heights: flat at the kerb top, raised onto higher ground; the
+        // outer face drops to the ground under the outer edge.
+        std::vector<float> yo(n), go(n), yi(n);
+        for (size_t i = 0; i < n; ++i) {
+            const float gi = groundAt(q[i].x, q[i].z);
+            yi[i] = std::max(q[i].y, gi + kPavementLift);
+            go[i] = groundAt(ox[i], oz[i]);
+            const float gm = groundAt(0.5f * (q[i].x + ox[i]), 0.5f * (q[i].z + oz[i]));
+            // The middle too: a slab is two vertices across, so the ground
+            // under its middle must not poke through.
+            const float raise = std::max(go[i], 2.0f * gm - gi) + kPavementLift;
+            yo[i] = std::max(q[i].y, raise);
+            yi[i] = std::max(yi[i], q[i].y);
+        }
+        // 5. Triangles, binned into kKerbCell cells by segment midpoint.
+        for (size_t i = 0; i + 1 < n; ++i) {
+            const float wi0 = std::hypot(ox[i] - q[i].x, oz[i] - q[i].z);
+            const float wi1 = std::hypot(ox[i + 1] - q[i + 1].x, oz[i + 1] - q[i + 1].z);
+            if (wi0 < 0.02f && wi1 < 0.02f) continue;
+            const float mx = 0.25f * (q[i].x + q[i + 1].x + ox[i] + ox[i + 1]);
+            const float mz = 0.25f * (q[i].z + q[i + 1].z + oz[i] + oz[i + 1]);
+            const std::pair<int, std::pair<int, int>> key{
+                kp.road, {(int)std::floor(mx / kKerbCell), (int)std::floor(mz / kKerbCell)}};
+            auto it = slot.find(key);
+            if (it == slot.end()) {
+                it = slot.emplace(key, out.size()).first;
+                PavementMesh pm;
+                pm.road = kp.road;
+                pm.cellX = key.second.first;
+                pm.cellZ = key.second.second;
+                out.push_back(std::move(pm));
+            }
+            std::vector<Vertex>& t = out[it->second].tris;
+            const float v0 = arc[i] / kPavementTile, v1 = arc[i + 1] / kPavementTile;
+            const Vertex a{q[i].x, yi[i], q[i].z, 0.0f, v0};
+            const Vertex b{q[i + 1].x, yi[i + 1], q[i + 1].z, 0.0f, v1};
+            const Vertex c{ox[i + 1], yo[i + 1], oz[i + 1], wi1 / kPavementTile, v1};
+            const Vertex d{ox[i], yo[i], oz[i], wi0 / kPavementTile, v0};
+            t.insert(t.end(), {a, b, c, a, c, d});
+            // The outer face, where the slab stands above the ground.
+            const float h0 = yo[i] - go[i], h1 = yo[i + 1] - go[i + 1];
+            if ((h0 > 0.03f || h1 > 0.03f) && go[i] > -1.0e29f && go[i + 1] > -1.0e29f) {
+                const float fb0 = go[i] - kPavementSink, fb1 = go[i + 1] - kPavementSink;
+                const Vertex e{ox[i], fb0, oz[i], (wi0 + h0) / kPavementTile, v0};
+                const Vertex f{ox[i + 1], fb1, oz[i + 1], (wi1 + h1) / kPavementTile, v1};
+                t.insert(t.end(), {d, c, f, d, f, e});
+            }
+        }
+    }
+    // Small UVs: the physical PS2's ST path wants them near zero (the road
+    // chunks' integer rebase rule).
+    for (PavementMesh& pm : out) {
+        float mu = 1e30f, mv = 1e30f;
+        for (const Vertex& v : pm.tris) mu = std::min(mu, v.u), mv = std::min(mv, v.v);
+        mu = std::floor(mu);
+        mv = std::floor(mv);
+        for (Vertex& v : pm.tris) v.u -= mu, v.v -= mv;
+    }
+    return out;
+}
+
+void addPavementsToSurface(Surface& s, const std::vector<PavementMesh>& meshes) {
+    std::vector<Vertex> tris;
+    for (const PavementMesh& pm : meshes)
+        for (size_t i = 0; i + 2 < pm.tris.size(); i += 3) {
+            const Vertex &a = pm.tris[i], &b = pm.tris[i + 1], &c = pm.tris[i + 2];
+            const float area = (b.x - a.x) * (c.z - a.z) - (c.x - a.x) * (b.z - a.z);
+            if (std::fabs(area) < 1e-6f) continue;
+            tris.insert(tris.end(), {a, b, c});
+        }
+    if (!tris.empty()) s.add(tris, 1.0f);
 }
 
 void kerbStrips(const std::vector<KerbPiece>& pieces, std::vector<KerbVertex>& out,

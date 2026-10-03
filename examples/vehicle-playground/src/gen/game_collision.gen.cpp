@@ -478,7 +478,7 @@ void TerrainGame::updatePlayerWalker(PlayerCtl& P, int pi, Tyra::Pad& pad) {
     if (nextZ > limZ) nextZ = limZ;
     if (nextZ < -limZ) nextZ = -limZ;
 
-    float ground = terrainHeightAt(nextX, nextZ);
+    float ground = walkGroundAt(nextX, nextZ, P.y);
     // a linked floor portal underfoot swallows the avatar too
     if (PORTAL_COUNT > 0 && portalSwallowsPlayer(nextX, P.y, nextZ))
       ground = -1e30F;
@@ -644,7 +644,7 @@ void TerrainGame::updatePlayerWalker(PlayerCtl& P, int pi, Tyra::Pad& pad) {
   if (nextZ > limZ) nextZ = limZ;
   if (nextZ < -limZ) nextZ = -limZ;
 
-  float ground = terrainHeightAt(nextX, nextZ);
+  float ground = walkGroundAt(nextX, nextZ, P.y);
   // a linked floor portal underfoot swallows the walker (see
   // portalSwallowsPlayer) - the terrain stops being the floor there
   if (PORTAL_COUNT > 0 && portalSwallowsPlayer(nextX, P.y, nextZ))
@@ -9103,8 +9103,10 @@ void TerrainGame::buildRoads(int scene) {
   // KERBS (docs/roads.md "Kerbs"): host-baked triangle-strip runs, one
   // ROAD_KERBS row per cell-sized chunk, uploaded unchanged - the EE does no
   // kerb geometry at all. Owner -4, not -3: renderProcChunks draws them (the
-  // frustum reject, the chunk draw distance, occlusion), and the road height
-  // index never sees them, because a kerb is visual only. Untextured: the
+  // frustum reject, the chunk draw distance, occlusion). The road height
+  // index takes them too (roadSurfaceAt reads owner -3 AND -4), so wheels,
+  // walkers, blob shadows and light pools stand on a kerb top; the vertical
+  // faces have no area in XZ and drop out by themselves. Untextured: the
   // baked shade is the vertex colour (128 = full in an untextured bag).
   for (size_t i = procChunks.size(); i > 0; --i)
     if (procChunks[i - 1].owner == -4)
@@ -9145,6 +9147,9 @@ void TerrainGame::buildRoads(int scene) {
       kerbVertices += (int)c.vertices.size();
       kerbPackages += (int)((c.vertices.size() + 74) / 75);
     }
+    // The chunk list changed under the height index: the count alone cannot
+    // tell (the same number of kerb chunks is erased and pushed back).
+    roadIdxDirty = true;
     if (kerbChunks > 0)
       TYRA_LOG("ROADKERB scene ", scene, " chunks ", kerbChunks, " vertices ",
                kerbVertices, " packages ", kerbPackages, " triangles ", kerbTriangles);

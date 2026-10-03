@@ -1527,6 +1527,55 @@ void roadKerbs() {
                     past = s.at(-20.0f, -4.6f);
         std::printf("  kerb collision: road %.3f, kerb top %.3f, past the kerb %s\n", onRoad,
                     onKerb, past == roadgen::Surface::kNone ? "none" : "SURFACE");
+        // Pavements: the same T with a 2.5-unit walk behind every kerb.
+        std::vector<roadgen::CrossingRoad> rp = r;
+        for (roadgen::CrossingRoad& rd : rp) rd.pavement = 2.5f;
+        // Ground that rises past z = -9 (the main road's far side) by 1 unit.
+        const auto slope = flat;
+        std::vector<roadgen::KerbPiece> kp;
+        {
+            roadgen::Surface ks;
+            for (const roadgen::CrossingRoad& rd : rp) {
+                std::vector<roadgen::Vertex> tris;
+                roadgen::tessellate(rd.points, rd.width, flat, tris);
+                ks.add(tris, rd.grip);
+            }
+            roadgen::addCrossingsToSurface(ks, rp, p, flat);
+            ks.build();
+            kp = roadgen::planKerbs(rp, p, [&](float x, float z) { return ks.at(x, z); }, slope);
+        }
+        const std::vector<roadgen::PavementMesh> pave = roadgen::planPavements(rp, p, kp, slope);
+        roadgen::Surface ps;
+        roadgen::addPavementsToSurface(ps, pave);
+        ps.build();
+        size_t paveVerts = 0;
+        float worstUv = 0.0f;
+        for (const roadgen::PavementMesh& pm : pave)
+            for (const roadgen::Vertex& v : pm.tris) {
+                ++paveVerts;
+                worstUv = std::max({worstUv, std::fabs(v.u), std::fabs(v.v)});
+            }
+        // On the main road's far side, 1.5 units behind the kerb (z = -5.75):
+        // the kerb top's height. Past the walk (z = -7): nothing.
+        const float walk = ps.at(-20.0f, -5.75f), beyond = ps.at(-20.0f, -7.0f);
+        // Into the stem's mouth: the walk must not reach the stem (|x| < 3).
+        bool onStem = false;
+        for (const roadgen::PavementMesh& pm : pave)
+            for (const roadgen::Vertex& v : pm.tris)
+                onStem |= v.z > 4.5f && std::fabs(v.x) < 2.95f;
+        // The inside corner of a fillet closes: a point in the block corner,
+        // diagonal to the T's right fillet, is covered.
+        const float corner = ps.at(5.45f, 6.45f);
+        std::printf("  pavements: %zu vertices in %zu meshes, walk %.3f (kerb top %.3f), past it %s, "
+                    "fillet corner %s, max |uv| %.1f\n",
+                    paveVerts, pave.size(), walk, onKerb,
+                    beyond == roadgen::Surface::kNone ? "none" : "SURFACE",
+                    corner == roadgen::Surface::kNone ? "OPEN" : "covered", worstUv);
+        verdict(std::fabs(walk - onKerb) < 0.02f && beyond == roadgen::Surface::kNone,
+                "a pavement is the kerb top carried on, as wide as asked");
+        verdict(!onStem, "a pavement narrows instead of running onto another road");
+        verdict(corner != roadgen::Surface::kNone, "the inside of a fillet corner is paved");
+        verdict(worstUv < 64.0f, "pavement UVs are rebased to small numbers");
         verdict(std::fabs(onKerb - onRoad - 0.15f) < 0.02f && onRoad < 0.2f &&
                     past == roadgen::Surface::kNone,
                 "a kerb top is standable surface one kerb height above the road, nothing past it");

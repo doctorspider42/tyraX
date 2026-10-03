@@ -9128,6 +9128,38 @@ static std::string sceneDataContent(const Project& p, const std::string& ns,
                         kerbNotes << "// scene " << si << ": " << pieces.size()
                                   << " kerb lines, " << kv.size() << " strip vertices in "
                                   << sizes.size() << " chunks\n";
+                    // Pavements (docs/roads.md "Pavements"): the kerb top
+                    // carried on outward, textured triangles in junction rows
+                    // - one per material and cell, so they cull, draw and
+                    // collide like a patch and cost the EE nothing.
+                    const std::vector<roadgen::PavementMesh> pave =
+                        roadgen::planPavements(cr, plan, pieces, ground);
+                    std::map<std::pair<int, std::pair<int, int>>, std::vector<roadgen::Vertex>>
+                        paveRows;
+                    for (const roadgen::PavementMesh& pm : pave) {
+                        const SceneObject& src =
+                            p.scenes[si].objects[(size_t)objIdx[(size_t)pm.road]];
+                        const int tix =
+                            src.roadPavementMaterial.empty()
+                                ? -1
+                                : textureIndex(
+                                      project::resolveRoadTexture(p, src.roadPavementMaterial));
+                        std::vector<roadgen::Vertex>& dst =
+                            paveRows[{tix, {pm.cellX, pm.cellZ}}];
+                        dst.insert(dst.end(), pm.tris.begin(), pm.tris.end());
+                    }
+                    size_t paveVerts = 0;
+                    for (const auto& [key, tris] : paveRows) {
+                        JunctionRow row{(int)si, key.first, (int)junctionVerts.size(),
+                                        (int)tris.size(), 1.0f};
+                        if (key.first < 0) row.rgb = roadgen::kPavementRgb;
+                        junctionRows.push_back(row);
+                        junctionVerts.insert(junctionVerts.end(), tris.begin(), tris.end());
+                        paveVerts += tris.size();
+                    }
+                    if (paveVerts > 0)
+                        kerbNotes << "// scene " << si << ": pavements " << paveVerts
+                                  << " vertices in " << paveRows.size() << " rows\n";
                 }
                 for (const roadgen::CrossingDecal& d : plan.decals) {
                     if (d.verts.empty() || rowOf[(size_t)d.road] < 0) continue;

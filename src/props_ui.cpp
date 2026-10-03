@@ -854,6 +854,27 @@ void App::drawPropertiesWindow() {
                                        "%.2f units"))
                     committed = true;
                 prefHelp("The flat top of the kerb, outward from the road edge.");
+                // Pavements (docs/roads.md "Pavements"): the kerb top carried on.
+                ImGui::SetNextItemWidth(scaled(220));
+                if (ImGui::SliderFloat("Pavement", &o.roadPavement, 0.0f, 6.0f,
+                                       o.roadPavement > 0.0f ? "%.2f units" : "none"))
+                    committed = true;
+                prefHelp(
+                    "A walk this wide behind each kerb, at the kerb's height,\n"
+                    "baked at build. It wraps the junction corners with the\n"
+                    "kerb, narrows where it would reach another road, rises\n"
+                    "with higher ground and drops to lower ground with a face.\n"
+                    "Solid: the player walks on it, a car bumps up onto it.");
+                if (o.roadPavement > 0.0f) {
+                    if (drawRoadSurfaceCombo("Pavement material", "road-pavement",
+                                             o.roadPavementMaterial,
+                                             "<none - untextured concrete>"))
+                        committed = true;
+                    prefHelp(
+                        "Tiled once per 2 units both ways - the pavement-slabs\n"
+                        "texture new projects get (Tools > Road Texture Generator,\n"
+                        "Pavement) is made for it.");
+                }
             }
         }
         // This road's crossings (docs/roads.md, "Junction overrides"): the

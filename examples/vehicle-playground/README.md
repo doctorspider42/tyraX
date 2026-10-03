@@ -34,7 +34,11 @@ builds measured 6.7-7.6 s. This excludes editor generation/baking and cold setup
   twelve asphalt streets have
   [kerbs](../../docs/roads.md#kerbs-format-95), which run around every
   junction's rounded corners. The dirt West service lane has none. Their
-  tops are solid: a car that clips one bumps up over it.
+  tops are solid: a car that clips one bumps up over it. The four downtown
+  streets (Skyline avenue, Garage boulevard, Market cross street, Foundry
+  link) have 2.5-unit [pavements](../../docs/roads.md#pavements-format-97)
+  of paving slabs behind the kerbs (`res/materials/roads/district-pavement`,
+  a generated texture with its `.roadtex` recipe).
 
   ![PCSX2, mirrored in X: the Orchard fork between the ring road and Skyline avenue, the Service ramp leaving the ring, and the Quarry corner](../../docs/img/road-nodes-district.png)
 - **dense** adds buildings for a busier drive.

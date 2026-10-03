@@ -18,8 +18,11 @@ is not:
 - ~~**Kerbs**~~ along road edges and around the fillets: done (format 95,
   docs/roads.md "Kerbs"; host-baked strips, 60-unit draw distance) and
   ~~kerb collision~~ (the tops join the road height index; the walker steps
-  onto them). Still open: **pavements** (a wide raised walk behind the kerb,
-  the same sweep with a texture) and the draw distance as a project setting.
+  onto them) and ~~pavements~~ (format 97, docs/roads.md "Pavements";
+  textured junction rows behind the kerb). Still open: the kerb draw distance
+  as a project setting, a draw distance for road chunks (pavements draw
+  wherever the frustum reaches), pavements as shadow receivers, and kerb
+  ramps (dropped kerbs) where a zebra meets the pavement.
 - **Overrides for nodes of more than two roads.** `JunctionOverride` is still
   a road PAIR, and the Junction panel's Winner combo offers only `c.a`/`c.b`.
 - **A per-node corner radius** (today 1.5 x the mean half width, 1..8).

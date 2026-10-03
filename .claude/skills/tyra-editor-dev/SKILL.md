@@ -3022,12 +3022,25 @@ decides every kerb line from the crossing plan, and the codegen bakes them
 with `kerbStrips` into `ROAD_KERBS`/`ROAD_KERB_VERTS`. Those tables and the
 upload block (`roadKerbsUpload`, spliced into `buildRoads` before
 `procFinishChunks`) exist only when `projectHasKerbs`, so a kerbless road
-project regenerates byte-identically. The chunks are owner **-4**: owner -3
-would put them into the road height index (wheels, blob shadows and light
-pools would stand on the kerb top) and into `renderRoadChunks`, which has no
-draw distance. The shadow bake's road hash (`decalproj.cpp`) leaves the kerb
-fields out on purpose: kerbs are not receivers, and adding them would mark
-every baked-shadow cache stale.
+project regenerates byte-identically. The chunks are owner **-4**, so
+`renderProcChunks` draws them with its draw distance (`renderRoadChunks` has
+none), and the road height index reads owner -3 AND -4 (kerb collision): a
+kerb top is ground for wheels, walkers (`walkGroundAt`, a 0.5 step cap), blob
+shadows and light pools. The shadow bake's road hash (`decalproj.cpp`) leaves
+the kerb fields out on purpose: kerbs are not receivers, and adding them
+would mark every baked-shadow cache stale.
+
+**Pavements (format 97, docs/roads.md "Pavements") ride on the kerbs and
+need no table of their own.** `SceneObject::roadPavement/roadPavementMaterial`
+take the kerb chain (the material is an asset path: `assetbrowser.cpp`'s usage
+notes and both rename swaps list it), `CrossingRoad::pavement` is set only for
+a kerbed road, and `roadgen::planPavements` turns the SAME `planKerbs` pieces
+into textured XYZUV triangles. The codegen ships them as ordinary
+`ROAD_JUNCTIONS` rows, one per material and 32-unit cell (`rgb` =
+`kPavementRgb` when untextured), so they are owner -3 road chunks: culled,
+drawn and collided with like a patch, with no EE work and no new runtime
+code. The viewport and the test drive (`addKerbsToSurface`) call the same
+function on the same pieces.
 
 ## Vehicle HUD font preparation (1.150.1)
 
