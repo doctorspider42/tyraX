@@ -396,8 +396,12 @@ recovered 0.50-0.72 ms of hardware `work`. What it did not do, ranked:
   repetitions and exact VU startup state/data checks in both PCSX2 and PS2.
   Direct GS readback resolves conflicting window images: each ordinary/replay
   pair has identical 448-by-448 rasters. Full per-submit EE validation is
-  included in its interval; next price it against sealed immutable ownership
-  in the same ELF before interpreting consumer service cost.
+  included in its interval. The same-ELF [pricing control](tyrax2-replay-pricing-2026-10-03.json)
+  now passes both physical stage orders: Full near 23.33 ms, Sealed near
+  10.73 ms, exact raster pairs and real completion. The roughly 12.60 ms
+  difference includes scanner policy/cache effects, not isolated instruction
+  or GPU time. Next qualify actual direct-producer activation, fallback and
+  ordinary raster equivalence on the current engine before pricing any gain.
   The [resumed candidate audit](tyrax2-ee-vu0.md#next-60-hz-candidates-host-controls-2026-10-03)
   rejects the broad beam cache as a demonstrated driving gain, identifies
   saturated-flicker over-invalidation, and records a private direct-recording

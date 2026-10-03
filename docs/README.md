@@ -405,8 +405,11 @@ the difference includes changed completion/backpressure, not isolated GPU time.
 The [owned frame capture](tyrax2-frame-capture-2026-10-03.json) qualifies a
 2.37 MB closure and all 1160 REF payloads on PS2 and PCSX2. The
 [terminal replay record](tyrax2-frame-replay-2026-10-03.json) qualifies exact
-framebuffer pairs and VU-state/completion checks on both. Consumer timing
-remains open because full per-submit EE validation is included.
+framebuffer pairs and VU-state/completion checks on both. The same-ELF
+[validation pricing record](tyrax2-replay-pricing-2026-10-03.json) prices the
+inclusive repeated-scanner policy at about 12.60 ms on PS2, with both stage
+orders qualified. Sealed replay still includes reset, submission and completion
+work; it is not a pure GPU timer or an ordinary FPS result.
 
 [EE preparation and VU0](tyrax2-ee-vu0.md) records physical snapshot/conversion/wait attribution, existing VU0 macro owners and the ranked measurement gates for fewer submission passes or a future math kernel. The [machine record](tyrax2-pipeline-attribution-2026-10-02.json) retains exact diagnostic windows and provenance; no offload or hardware gain is claimed.
 

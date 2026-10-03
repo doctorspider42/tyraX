@@ -1257,12 +1257,18 @@ Rules the same evening paid for:
   NOP words make that record 80 bytes, QWC 4. Check the actual SDK writer and
   serialized target bytes, not just command counts or a modeled packet.
   The private terminal replay also validates its entire 2.4 MB closure per
-  submission; that EE scan is inside its measured interval. Protocol FINISH
+  native replay, plus a separate small helper; that EE scan is inside its
+  measured interval. Protocol FINISH
   and VU-state equality do not establish framebuffer equality. Conflicting
   PrintWindow images require actual GS raster readback before interpreting
   replay timing. V6 qualifies exact ordinary/replay framebuffer pairs on PS2
-  and PCSX2 with off-clock readback; it does not price that validation tax.
-  See `docs/tyrax2-scene-isolation.md` and its dated replay record.
+  and PCSX2 with off-clock readback. V7 prices Full/Sealed/Full and its reverse
+  in the same ELF on PS2: about 23.33 versus 10.73 ms, with matching raster
+  pairs. The difference includes validation policy and cache effects; sealed
+  replay still contains helper/reset/submission/completion work. It is not pure
+  VU/GS time, an additive frame budget or an ordinary FPS gain. Private seals
+  rely on controlled immutability and do not detect arbitrary later mutation.
+  See `docs/tyrax2-scene-isolation.md` and its dated replay/pricing records.
 - **VU memory snapshot labels must be checked against addresses.** The installed
   SDK `vif_registers.h` names `VU1_MEM1_START` as 0x11008000 and
   `VU1_MICROMEM1_START` as 0x1100c000, opposite the actual program/data map.

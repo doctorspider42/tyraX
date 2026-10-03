@@ -140,8 +140,9 @@ and native GS FINISH. Ordinary rendering never resumes.
 PCSX2 completes 128 warm and 128 sampled repetitions: 512 hardware starts in
 the loop, no software or direct submissions, and exact startup data/register
 and resident program comparisons. These are protocol checks. The interval
-also includes full EE VIF validation of the roughly 2.4 MB closure on every
-submission; it is not a consumer-only or GPU-only timer.
+also includes full EE VIF validation: each native replay traverses the roughly
+2.4 MB closure, while its 13-QW helper is checked separately. It is not a
+consumer-only or GPU-only timer.
 
 The first V5 runtime was rejected by the SDK's packet alignment assertion.
 With TTE enabled, opening a DMA tag advances the writer by 8 bytes. Sixteen
@@ -170,3 +171,40 @@ timed loop unchanged. The next same-ELF control must price repeated full
 validation against prevalidated immutable ownership before using replay timing
 to select a bottleneck. Physical reset/start succeeds here; permanent reset
 reliability and ordinary gameplay gains remain unproved.
+
+## Replay validation cost
+
+The private V7 fixture prices the repeated EE scanner in one unchanged ELF.
+Two physical boots run Full/Sealed/Full and Sealed/Full/Sealed, with 128 warm
+and 128 sampled repetitions per stage. Full scans the owned closure on each
+submission. Sealed uses three private, opaque handles created by full validation
+before timing; ownership, idle-channel, sequence, cache, DMA and real FINISH
+guards remain active in both paths. The source keeps those buffers immutable.
+These handles are not a general mutation-safe API.
+
+| Physical order | Stage 0 mean | Stage 1 mean | Stage 2 mean |
+| --- | ---: | ---: | ---: |
+| Full / Sealed / Full | 23.332975 ms | 10.732229 ms | 23.332972 ms |
+| Sealed / Full / Sealed | 10.733013 ms | 23.339298 ms | 10.731401 ms |
+
+All 768 sampled repetitions pass the independent parser. Each boot has 768
+warm-plus-sampled repetitions, 1542 total helper/restore/native submissions,
+three valid seals and zero rejected submissions. Ordinary/replay GS raster
+pairs remain byte-identical within both PS2 boots and both PCSX2 boots.
+Readbacks, stage copies, boundary hashes and exports are outside every window;
+there is no host I/O between stages. Every stage writes the same 512-byte sample
+scratch area. Startup restoration occurs before each stage, followed by warmup.
+Only the last-stage startup DATA is exported as raw bytes; earlier stages use
+target byte comparisons and full state records. Boundary hashes check stage
+edges, and final raster equality covers the aggregate sequence rather than
+separate image acquisitions after every stage.
+
+The approximately 12.60 ms difference is the inclusive policy and cache effect
+of repeated validation in this private test. It does not identify pure scanner
+instruction cost. The sealed interval still includes helper setup, VU data
+restoration, submission, cache work, DMA and GS FINISH waits. It is not pure
+VU/GS time, cannot be added to the earlier preparation interval, and certifies
+no ordinary FPS gain. The [pricing record](tyrax2-replay-pricing-2026-10-03.json)
+pins the source, ELF, raw archives and independent reviews. Next measure a
+direct producer in an ordinary renderer fixture with proven activation and
+matching raster/ownership behavior before any production promotion.
