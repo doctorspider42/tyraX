@@ -5526,6 +5526,8 @@
 // oriented parapet/pier walls in procColliders). The Road Texture Generator
 // gains paving slabs, pavers, rail ballast and weathering (wear, grime,
 // cracks), and node paint is a worn texture blended into the asphalt.
+// Street furniture (v101): lamps, trees, bollards, signs at stop lines and
+// traffic lights generated from roads, merged owner -7 chunks + pole boxes.
 // 1.171.0: ROAD MARKINGS AND TRANSITIONS. Every patch node is painted
 // (roadgen::bakeMarkings): the road's edge line carried round the fillets,
 // stop lines where a road gives way, optional zebras - untextured paint in one
