@@ -1,0 +1,1 @@
+{ "id": "a6c9c6a26da710b0", "name": "Building 82", "type": "model", "position": [-250.953, 0, -157.015], "rotation": [0, 0, 0], "scale": [2.631, 1.5098, 2.0339], "color": [1, 1, 1], "physics": false, "drawDistance": 230, "castShadow": false, "model": "res/models/urban/district-tower.obj" }

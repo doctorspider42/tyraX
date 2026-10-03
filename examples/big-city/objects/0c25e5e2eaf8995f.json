@@ -1,0 +1,1 @@
+{ "id": "0c25e5e2eaf8995f", "name": "Building 334", "type": "model", "position": [15.743, 0, 341.577], "rotation": [0, 0, 0], "scale": [1.8357, 1.4519, 2.0107], "color": [1, 1, 1], "physics": false, "drawDistance": 230, "castShadow": false, "model": "res/models/urban/district-tower.obj" }

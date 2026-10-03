@@ -1,0 +1,1 @@
+{ "id": "cbc30b47a694677c", "name": "Building 90", "type": "model", "position": [-252.001, 0, -60.7385], "rotation": [0, 0, 0], "scale": [2.9084, 1.8567, 1.9422], "color": [1, 1, 1], "physics": false, "drawDistance": 230, "castShadow": false, "model": "res/models/urban/district-loft.obj" }

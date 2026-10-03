@@ -1,0 +1,1 @@
+{ "id": "67dc075f28b7c37a", "name": "Building 405", "type": "model", "position": [73.1605, 0, 369.266], "rotation": [0, 0, 0], "scale": [2.6581, 1.5094, 2.7445], "color": [1, 1, 1], "physics": false, "drawDistance": 230, "castShadow": false, "model": "res/models/urban/district-loft.obj" }

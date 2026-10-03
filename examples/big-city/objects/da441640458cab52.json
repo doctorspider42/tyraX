@@ -1,0 +1,1 @@
+{ "id": "da441640458cab52", "name": "Building 523", "type": "model", "position": [256.861, 0, 73.8053], "rotation": [0, 0, 0], "scale": [1.6234, 1.5253, 2.5882], "color": [1, 1, 1], "physics": false, "drawDistance": 230, "castShadow": false, "model": "res/models/urban/district-tower.obj" }

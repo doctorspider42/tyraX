@@ -1,0 +1,1 @@
+{ "id": "1f5ed9638bfd9e8d", "name": "Building 298", "type": "model", "position": [30.1098, 0, -175.342], "rotation": [0, 0, 0], "scale": [2.0807, 1.4427, 1.8774], "color": [1, 1, 1], "physics": false, "drawDistance": 300, "castShadow": false, "model": "res/models/urban/city-highrise-2.obj" }

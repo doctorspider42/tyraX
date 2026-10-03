@@ -1,0 +1,1 @@
+{ "id": "1dc85166e95002a2", "name": "Lamp 22", "type": "model", "position": [56.7797, 0, -359.292], "rotation": [0, 270.839, 0], "scale": [1, 1, 1], "color": [1, 1, 1], "physics": false, "drawDistance": 70, "castShadow": false, "model": "res/models/urban/city-lamp.obj" }

@@ -1,0 +1,1 @@
+{ "id": "8b7f5fd339c2de1e", "name": "Building 240", "type": "model", "position": [-67.7715, 0, 30.8814], "rotation": [0, 0, 0], "scale": [1.7095, 1.4825, 1.7357], "color": [1, 1, 1], "physics": false, "drawDistance": 300, "castShadow": false, "model": "res/models/urban/city-highrise-5.obj" }

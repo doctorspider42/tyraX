@@ -1,0 +1,1 @@
+{ "id": "375211be6d0cd247", "name": "Building 66", "type": "model", "position": [-337.8, 0, 360.196], "rotation": [0, 0, 0], "scale": [2.1842, 1.3116, 1.9966], "color": [1, 1, 1], "physics": false, "drawDistance": 230, "castShadow": false, "model": "res/models/urban/district-loft.obj" }

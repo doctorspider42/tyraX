@@ -1,0 +1,1 @@
+{ "id": "2b12035cf1098540", "name": "Building 380", "type": "model", "position": [103.115, 0, -18.4485], "rotation": [0, 0, 0], "scale": [2.0189, 1.747, 2.8536], "color": [1, 1, 1], "physics": false, "drawDistance": 300, "castShadow": false, "model": "res/models/urban/city-highrise-5.obj" }

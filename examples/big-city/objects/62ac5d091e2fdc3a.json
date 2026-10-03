@@ -1,0 +1,1 @@
+{ "id": "62ac5d091e2fdc3a", "name": "Bench 9", "type": "model", "position": [-101.94, 0, -248.38], "rotation": [0, -22.918, 0], "scale": [2, 2, 2], "color": [1, 1, 1], "physics": false, "drawDistance": 55, "castShadow": false, "model": "res/models/urban/detail-bench.obj" }

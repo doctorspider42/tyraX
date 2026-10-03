@@ -1,0 +1,1 @@
+{ "id": "922707053dd0a7c6", "name": "Park tree 89", "type": "model", "position": [187.795, 0, 259.865], "rotation": [0, 272.953, 0], "scale": [1.0911, 1.0911, 1.0911], "color": [1, 1, 1], "physics": false, "drawDistance": 110, "castShadow": false, "model": "res/models/urban/city-pine.obj" }

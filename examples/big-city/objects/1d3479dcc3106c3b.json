@@ -1,0 +1,1 @@
+{ "id": "1d3479dcc3106c3b", "name": "Building 391", "type": "model", "position": [69.4162, 0, 191.487], "rotation": [0, 0, 0], "scale": [1.9675, 1.8082, 1.965], "color": [1, 1, 1], "physics": false, "drawDistance": 300, "castShadow": false, "model": "res/models/urban/city-highrise-3.obj" }

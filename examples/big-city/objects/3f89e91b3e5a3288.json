@@ -1,0 +1,1 @@
+{ "id": "3f89e91b3e5a3288", "name": "Lamp 35", "type": "model", "position": [57.4956, 0, 361.289], "rotation": [0, 269.863, 0], "scale": [1, 1, 1], "color": [1, 1, 1], "physics": false, "drawDistance": 70, "castShadow": false, "model": "res/models/urban/city-lamp.obj" }

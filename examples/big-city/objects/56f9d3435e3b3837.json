@@ -1,0 +1,1 @@
+{ "id": "56f9d3435e3b3837", "name": "Building 365", "type": "model", "position": [72.5245, 0, -118.515], "rotation": [0, 0, 0], "scale": [2.7424, 1.5149, 2.2214], "color": [1, 1, 1], "physics": false, "drawDistance": 300, "castShadow": false, "model": "res/models/urban/city-highrise-3.obj" }

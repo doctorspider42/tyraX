@@ -1,0 +1,1 @@
+{ "id": "e6c45390f6c84b47", "name": "Building 319", "type": "model", "position": [-28.7698, 0, 250.919], "rotation": [0, 0, 0], "scale": [2.3085, 1.4324, 2.0256], "color": [1, 1, 1], "physics": false, "drawDistance": 230, "castShadow": false, "model": "res/models/urban/district-tower.obj" }

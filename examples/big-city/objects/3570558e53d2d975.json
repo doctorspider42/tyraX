@@ -1,0 +1,1 @@
+{ "id": "3570558e53d2d975", "name": "Lamp 76", "type": "model", "position": [400.694, 0, 56.0776], "rotation": [0, 180.797, 0], "scale": [1, 1, 1], "color": [1, 1, 1], "physics": false, "drawDistance": 70, "castShadow": false, "model": "res/models/urban/city-lamp.obj" }

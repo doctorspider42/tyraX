@@ -1,0 +1,1 @@
+{ "id": "39eadfb5ed028cf0", "name": "Building 175", "type": "model", "position": [-209.975, 0, 100.077], "rotation": [0, 0, 0], "scale": [1.8975, 1.5084, 1.6692], "color": [1, 1, 1], "physics": false, "drawDistance": 300, "castShadow": false, "model": "res/models/urban/city-highrise-2.obj" }

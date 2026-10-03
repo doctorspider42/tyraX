@@ -1,0 +1,1 @@
+{ "id": "b610a1f3decb9c7f", "name": "Avenue tree 278", "type": "model", "position": [290.887, 0, -50.1989], "rotation": [0, 262.266, 0], "scale": [0.8637, 0.8637, 0.8637], "color": [1, 1, 1], "physics": false, "drawDistance": 110, "castShadow": false, "model": "res/models/urban/city-tree.obj" }

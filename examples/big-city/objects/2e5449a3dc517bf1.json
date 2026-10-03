@@ -1,0 +1,1 @@
+{ "id": "2e5449a3dc517bf1", "name": "Building 389", "type": "model", "position": [69.4162, 0, 154.453], "rotation": [0, 0, 0], "scale": [1.8208, 1.5951, 2.0193], "color": [1, 1, 1], "physics": false, "drawDistance": 300, "castShadow": false, "model": "res/models/urban/city-highrise-4.obj" }

@@ -1,0 +1,1 @@
+{ "id": "97948fb4b007258e", "name": "Avenue tree 230", "type": "model", "position": [-328.154, 0, -50.1989], "rotation": [0, 244.914, 0], "scale": [0.8959, 0.8959, 0.8959], "color": [1, 1, 1], "physics": false, "drawDistance": 110, "castShadow": false, "model": "res/models/urban/city-tree.obj" }

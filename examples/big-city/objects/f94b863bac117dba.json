@@ -1,0 +1,1 @@
+{ "id": "f94b863bac117dba", "name": "Building 465", "type": "model", "position": [160.604, 0, 116.58], "rotation": [0, 0, 0], "scale": [2.3208, 1.7203, 1.6134], "color": [1, 1, 1], "physics": false, "drawDistance": 300, "castShadow": false, "model": "res/models/urban/city-highrise-3.obj" }

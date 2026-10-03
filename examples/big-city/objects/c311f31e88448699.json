@@ -1,0 +1,1 @@
+{ "id": "c311f31e88448699", "name": "Building 160", "type": "model", "position": [-155.319, 0, -79.1107], "rotation": [0, 0, 0], "scale": [2.1154, 1.5192, 2.0244], "color": [1, 1, 1], "physics": false, "drawDistance": 300, "castShadow": false, "model": "res/models/urban/city-highrise-2.obj" }

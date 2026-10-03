@@ -1,0 +1,1 @@
+{ "id": "fb0bd2ef8afe6cd6", "name": "Building 183", "type": "model", "position": [-156.897, 0, 100.077], "rotation": [0, 0, 0], "scale": [1.8649, 1.5838, 1.8364], "color": [1, 1, 1], "physics": false, "drawDistance": 300, "castShadow": false, "model": "res/models/urban/city-highrise-3.obj" }

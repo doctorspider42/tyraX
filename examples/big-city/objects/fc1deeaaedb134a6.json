@@ -1,0 +1,1 @@
+{ "id": "fc1deeaaedb134a6", "name": "Building 396", "type": "model", "position": [73.1605, 0, 252.863], "rotation": [0, 0, 0], "scale": [2.6876, 1.7393, 2.6001], "color": [1, 1, 1], "physics": false, "drawDistance": 230, "castShadow": false, "model": "res/models/urban/district-tower.obj" }

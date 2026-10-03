@@ -1,0 +1,1 @@
+{ "id": "213fc407bef14a7a", "name": "Building 507", "type": "model", "position": [269.949, 0, -207.142], "rotation": [0, 0, 0], "scale": [1.7372, 1.5509, 2.5921], "color": [1, 1, 1], "physics": false, "drawDistance": 230, "castShadow": false, "model": "res/models/urban/district-tower.obj" }

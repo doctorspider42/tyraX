@@ -4,6 +4,35 @@ This is only unfinished work that still has a clear payoff and a testable end.
 Finished investigations belong in commit history; reusable facts belong in the
 relevant guide or developer skill.
 
+## Big maps: EE RAM, not frame time, is the limit (2026-10-03)
+
+[examples/big-city](../examples/big-city/README.md), "Limits found", has the
+measurements. A 1 km city runs at the 60 FPS cap in PCSX2 with 27-28 of 32 MB
+used; every bigger version died in `std::bad_alloc` at scene load. In order of
+payoff:
+
+- **Share static model geometry between instances.** Each static object keeps
+  its own expanded vertex/colour/UV arrays (~70-110 B per drawn vertex), and
+  static batching adds a merged copy on top. Either drop the per-member arrays
+  once a batch owns them, or draw solo instances of one model from shared
+  arrays with a per-object matrix. Test: big-city's `MEM` at the same pose, and
+  `GRID_LINES=12` booting.
+- **Road vertex size.** Road chunks hold `Vec4` position, `Color` and `Vec4` ST
+  per vertex (48 B before bags), and the baked tables stay in `.rodata` after
+  upload. Packed or freed-after-upload data would buy most of a 1.4 km city.
+  Pavements are the biggest single item (about 4 MB on ten core grid lines).
+- **Kerb/rail/detail chunk size.** 32-unit kerb cells made 1 210 chunks of ~80
+  vertices on the first big-city; road details 743 chunks of 16. Larger cells
+  (with the draw distance raised to match) cut chunk overhead and submits.
+- **Say out of memory on screen.** A `bad_alloc` at scene load is a black
+  screen with nothing in `bin/log.txt`; only the EE console names it. A
+  `std::set_new_handler` that logs and draws "out of EE memory" would have
+  saved most of the bisection.
+- **A `.glb` placed as a static model** loads as a per-instance DynamicMesh;
+  either bake it to a `.tmdl` like an OBJ or warn in the editor.
+- ~~The road height index's 1 024-chunk cap~~ DONE: 13/19-bit packing and a
+  `ROADINDEX skipped` line (docs/roads.md, "Kerb collision").
+
 ## Road nodes: what the first version left out (1.170.0, 2026-10-02)
 
 docs/roads.md, "Road nodes". The geometry is in; the rest of the network idea

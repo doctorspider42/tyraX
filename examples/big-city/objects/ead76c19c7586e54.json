@@ -1,0 +1,1 @@
+{ "id": "ead76c19c7586e54", "name": "Building 610", "type": "model", "position": [360.193, 0, 302.82], "rotation": [0, 0, 0], "scale": [1.94, 1.5597, 1.8525], "color": [1, 1, 1], "physics": false, "drawDistance": 230, "castShadow": false, "model": "res/models/urban/district-loft.obj" }

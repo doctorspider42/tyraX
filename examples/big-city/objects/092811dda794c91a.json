@@ -1,0 +1,1 @@
+{ "id": "092811dda794c91a", "name": "Building 314", "type": "model", "position": [-28.9855, 0, 210.204], "rotation": [0, 0, 0], "scale": [2.1586, 1.6017, 2.0794], "color": [1, 1, 1], "physics": false, "drawDistance": 300, "castShadow": false, "model": "res/models/urban/city-highrise-3.obj" }

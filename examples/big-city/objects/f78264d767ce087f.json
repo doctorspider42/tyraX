@@ -1,0 +1,1 @@
+{ "id": "f78264d767ce087f", "name": "Building 506", "type": "model", "position": [253.263, 0, -161.824], "rotation": [0, 0, 0], "scale": [1.8228, 1.7318, 2.6256], "color": [1, 1, 1], "physics": false, "drawDistance": 230, "castShadow": false, "model": "res/models/urban/district-tower.obj" }

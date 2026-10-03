@@ -1,0 +1,1 @@
+{ "id": "c20a5665d2c07549", "name": "Building 529", "type": "model", "position": [301.225, 0, 111.938], "rotation": [0, 0, 0], "scale": [2.3648, 1.4737, 2.7513], "color": [1, 1, 1], "physics": false, "drawDistance": 230, "castShadow": false, "model": "res/models/urban/district-tower.obj" }

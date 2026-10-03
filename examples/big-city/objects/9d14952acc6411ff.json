@@ -1,0 +1,1 @@
+{ "id": "9d14952acc6411ff", "name": "Building 398", "type": "model", "position": [73.1605, 0, 299.485], "rotation": [0, 0, 0], "scale": [2.6446, 1.2803, 2.6632], "color": [1, 1, 1], "physics": false, "drawDistance": 230, "castShadow": false, "model": "res/models/urban/district-tower.obj" }
