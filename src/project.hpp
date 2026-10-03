@@ -2130,7 +2130,7 @@ struct ProjectSettings {
     // what they were before the setting existed. Saved only when > 0.
     float roadStreamRadius = 0.0f;  // world units, 0 = off
     // Project road presets (docs/roads.md "Road presets", format v105): the
-    // ones saved from a road with "Save as project preset", listed after the
+    // ones saved from a road with "Save preset", listed after the
     // built-ins in the Draw road tool and Properties. Written only when any.
     std::vector<roadpresets::Preset> roadPresets;
     // Road tables on disk (docs/roads.md "Tables on disk", format v104): with

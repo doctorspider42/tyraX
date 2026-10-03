@@ -31,6 +31,7 @@ void App::rebuildRoadSnapper() {
     roadDraw_.snapper = std::make_unique<roaddraw::Snapper>(std::move(roads));
     roadDraw_.roadObject = std::move(idx);
     roadDraw_.scene = project_.activeScene;
+    roadDraw_.serial = modelEditSerial_;
 }
 
 void App::startRoadDraw() {
@@ -91,7 +92,9 @@ bool App::roadDrawViewport(ImVec2 imgPos, ImVec2 avail, bool imageHovered, bool 
     RoadDrawTool& t = roadDraw_;
     if (!t.active) return false;
     if (!hasProject_ || avail.x < 1.0f || avail.y < 1.0f) return false;
-    if (!t.snapper || t.scene != project_.activeScene) {
+    // Rebuilt on a scene switch AND on any model edit (an undo, a road moved
+    // from Properties): a stale Snapper kept naming a road Ctrl+Z had removed.
+    if (!t.snapper || t.scene != project_.activeScene || t.serial != modelEditSerial_) {
         t.placed.clear();
         rebuildRoadSnapper();
     }
@@ -462,7 +465,9 @@ bool App::drawRoadPresetControls(SceneObject& o) {
     if (roadPresetPick_.empty() || !roadpresets::find(mine, roadPresetPick_))
         roadPresetPick_ = current ? current->key : roadpresets::builtins().front().key;
     const roadpresets::Preset* pick = roadpresets::find(mine, roadPresetPick_);
-    ImGui::SetNextItemWidth(scaled(170));
+    // Field on its own line, its button under it: a button beside a field
+    // ran off a default-width Properties panel.
+    ImGui::SetNextItemWidth(-FLT_MIN);
     if (ImGui::BeginCombo("##roadpreset", pick ? pick->name.c_str() : "")) {
         for (const roadpresets::Preset* p : roadpresets::all(mine)) {
             std::string label = p->name;
@@ -473,7 +478,6 @@ bool App::drawRoadPresetControls(SceneObject& o) {
         }
         ImGui::EndCombo();
     }
-    ImGui::SameLine();
     if (ImGui::Button("Apply preset") && pick) {
         // Every selected road (the multi-selection case: apply to all of them).
         std::vector<int> targets;
@@ -499,10 +503,9 @@ bool App::drawRoadPresetControls(SceneObject& o) {
              "every selected road. Points and bridge heights are kept.");
     ImGui::TextDisabled(current ? "This road is the %s preset." : "This road matches no preset%s",
                         current ? current->name.c_str() : ".");
-    ImGui::SetNextItemWidth(scaled(170));
+    ImGui::SetNextItemWidth(-FLT_MIN);
     ImGui::InputText("##roadpresetname", roadPresetName_, sizeof roadPresetName_);
-    ImGui::SameLine();
-    if (ImGui::Button("Save as project preset")) {
+    if (ImGui::Button("Save preset")) {
         roadpresets::Preset p = roadpresets::fromRoad(o, roadPresetName_);
         bool replaced = false;
         for (roadpresets::Preset& q : mine)

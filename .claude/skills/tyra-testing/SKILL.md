@@ -4091,7 +4091,7 @@ then `--build --run` and `--capture-frame` from a Player with a big `eyeHeight`
 [16, 45, 0], walk/look speed 0). The UI is reachable by name for a visible run:
 `Viewport/Draw road (8)`, the tool panel's `Viewport/Preset` combo, the canvas
 `Viewport canvas` with offsets for the clicks (`doubleclick` finishes, `key
-enter` / `key escape`), Properties' `Apply preset` / `Save as project preset`,
+enter` / `key escape`), Properties' `Apply preset` / `Save preset`,
 and the bridge squares `Bridge height N` (`drag 'Bridge height 2' 0 -40`).
 
 ## Road streaming (format 102)

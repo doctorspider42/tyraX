@@ -289,19 +289,30 @@ void App::drawRoadTextureWindow() {
     const ImTextureID tex = (ImTextureID)(intptr_t)roadTexGl_;
     // a grass-ish ground so ragged edges and the road's sides read
     dl->AddRectFilled(p0, ImVec2(p0.x + avail.x, p0.y + avail.y), IM_COL32(52, 74, 40, 255), 4.0f);
+    // Repeats are drawn as separate tiles with UVs in 0..1: the ImGui OpenGL
+    // backend binds its own (clamping) sampler over the texture's GL_REPEAT,
+    // so one image with UVs past 1 smeared its last row down the strip.
     if (p.isotropic()) {
         // 2 x 2 repeats: the tiling in both directions is what matters here
         const float s = std::min(avail.x, avail.y) - scaled(16);
         const ImVec2 a(p0.x + (avail.x - s) * 0.5f, p0.y + (avail.y - s) * 0.5f);
-        dl->AddImage(tex, a, ImVec2(a.x + s, a.y + s), ImVec2(0, 0), ImVec2(2, 2));
+        const float h = s * 0.5f;
+        for (int ty = 0; ty < 2; ++ty)
+            for (int tx = 0; tx < 2; ++tx)
+                dl->AddImage(tex, ImVec2(a.x + h * tx, a.y + h * ty),
+                             ImVec2(a.x + h * (tx + 1), a.y + h * (ty + 1)));
     } else {
         // a strip of road at its design proportions: one repeat = 4 units
         const float W = roadtex::designWidth(p);
         const float w = std::min(avail.x - scaled(32), scaled(220));
         const float x0 = p0.x + (avail.x - w) * 0.5f;
-        const float reps = (avail.y - scaled(8)) / (w * 4.0f / W);
-        dl->AddImage(tex, ImVec2(x0, p0.y + scaled(4)), ImVec2(x0 + w, p0.y + avail.y - scaled(4)),
-                     ImVec2(0, 0), ImVec2(1, reps));
+        const float tile = w * 4.0f / W;  // one repeat's height on screen
+        const float y0 = p0.y + scaled(4), y1 = p0.y + avail.y - scaled(4);
+        for (float y = y0; tile > 1.0f && y < y1; y += tile) {
+            const float yb = std::min(y + tile, y1);
+            dl->AddImage(tex, ImVec2(x0, y), ImVec2(x0 + w, yb), ImVec2(0, 0),
+                         ImVec2(1, (yb - y) / tile));
+        }
     }
     ImGui::Dummy(avail);
     ImGui::EndChild();

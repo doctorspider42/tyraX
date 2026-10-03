@@ -38,7 +38,7 @@ bool App::drawRoadFurniture(SceneObject& o) {
         const std::string current =
             path.empty() ? "<built-in>" : std::filesystem::path(path).filename().string();
         bool hit = false;
-        ImGui::SetNextItemWidth(scaled(220));
+        ImGui::SetNextItemWidth(propFieldWidth());
         if (ImGui::BeginCombo(label, current.c_str())) {
             if (ImGui::Selectable("<built-in>", path.empty()) && !path.empty()) {
                 path.clear();
@@ -59,22 +59,22 @@ bool App::drawRoadFurniture(SceneObject& o) {
                             const char* help) {
         ImGui::PushID(title);
         ImGui::SeparatorText(title);
-        ImGui::SetNextItemWidth(scaled(220));
+        ImGui::SetNextItemWidth(propFieldWidth());
         if (ImGui::SliderFloat("Spacing", &l.spacing, 0.0f, maxSpacing,
                                l.spacing > 0.0f ? "every %.1f units" : "off"))
             changed = true;
         prefHelp(help);
         if (l.spacing > 0.0f) {
-            ImGui::SetNextItemWidth(scaled(220));
+            ImGui::SetNextItemWidth(propFieldWidth());
             if (ImGui::Combo("Side", &l.side, kSides, IM_ARRAYSIZE(kSides))) changed = true;
             prefHelp("Left and right are seen walking the road in the order its\n"
                      "points run. Alternate swaps sides station by station.");
-            ImGui::SetNextItemWidth(scaled(220));
+            ImGui::SetNextItemWidth(propFieldWidth());
             if (ImGui::SliderFloat("Offset", &l.offset, 0.0f, 8.0f, "%.2f from the kerb"))
                 changed = true;
             prefHelp("From the road edge (the kerb face) outward. On a 2.5-unit\n"
                      "pavement 0.6 is at the kerb and 1.6 mid-walk.");
-            ImGui::SetNextItemWidth(scaled(220));
+            ImGui::SetNextItemWidth(propFieldWidth());
             if (ImGui::SliderFloat("Phase", &l.phase, 0.0f, l.spacing, "%.1f units")) changed = true;
             prefHelp("Shifts every station along the road. The first one stands\n"
                      "phase + half a spacing from the road's start.");
@@ -83,10 +83,10 @@ bool App::drawRoadFurniture(SceneObject& o) {
                      "(its texture is sampled into the vertex colours - no VRAM).\n"
                      "Its +Z faces the road; Yaw turns it. Built-in = a few dozen\n"
                      "triangles, 1 unit = 1 metre.");
-            ImGui::SetNextItemWidth(scaled(220));
+            ImGui::SetNextItemWidth(propFieldWidth());
             if (ImGui::SliderFloat("Scale", &l.scale, 0.1f, 10.0f, "%.2f")) changed = true;
             if (kind != roadfurn::kTree) {
-                ImGui::SetNextItemWidth(scaled(220));
+                ImGui::SetNextItemWidth(propFieldWidth());
                 if (ImGui::SliderFloat("Yaw", &l.yaw, -180.0f, 180.0f, "%.0f deg")) changed = true;
             }
         }
@@ -102,13 +102,13 @@ bool App::drawRoadFurniture(SceneObject& o) {
     lineControls("Bollards", roadfurn::kBollard, s.bollards, 30.0f,
                  "A bollard this often - a row of them keeps cars off a walk.");
     if (s.trees.spacing > 0.0f) {
-        ImGui::SetNextItemWidth(scaled(220));
+        ImGui::SetNextItemWidth(propFieldWidth());
         if (ImGui::InputInt("Furniture seed", &s.seed)) changed = true;
         prefHelp("Another turn and size for every tree; positions stay.");
     }
     ImGui::SeparatorText("Junctions");
     const char* signKinds[] = {"None", "Give way", "Stop"};
-    ImGui::SetNextItemWidth(scaled(220));
+    ImGui::SetNextItemWidth(propFieldWidth());
     if (ImGui::Combo("Signs", &s.signs, signKinds, IM_ARRAYSIZE(signKinds))) changed = true;
     prefHelp("A sign beside every stop line this road gives way at, facing\n"
              "the driver coming in. Needs Markings (the stop line).");

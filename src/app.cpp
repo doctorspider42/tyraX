@@ -8670,15 +8670,32 @@ bool App::pickProjectTexture(const char* popupId, std::string& path) {
     return changed;
 }
 
+float App::propFieldWidth(float preferred) const {
+    const float avail = ImGui::GetContentRegionAvail().x;
+    return std::clamp(avail - scaled(150.0f), scaled(80.0f), scaled(preferred));
+}
+
 bool App::drawRoadSurfaceCombo(const char* label, const char* id,
                                std::string& surfacePath, const char* noneLabel) {
     if (!noneLabel) noneLabel = "<none - untextured grey>";
     std::string current = surfacePath.empty() ? noneLabel : surfacePath;
     if (current.rfind("res/", 0) == 0) current = current.substr(4);
+    // The preview names the material, not its folder: at a Properties panel's
+    // width a path showed only "materials/". The whole path is the tooltip.
+    std::string shown = current;
+    if (!surfacePath.empty()) {
+        const size_t slash = shown.find_last_of("/\\");
+        if (slash != std::string::npos) shown = shown.substr(slash + 1);
+        const size_t dot = shown.rfind('.');
+        if (dot != std::string::npos && dot > 0) shown = shown.substr(0, dot);
+    }
 
     bool changed = false;
-    ImGui::SetNextItemWidth(scaled(300));
-    if (ImGui::BeginCombo(label, current.c_str())) {
+    ImGui::SetNextItemWidth(propFieldWidth(300.0f));
+    const bool open = ImGui::BeginCombo(label, shown.c_str());
+    if (!open && !surfacePath.empty() && ImGui::IsItemHovered())
+        ImGui::SetTooltip("%s", current.c_str());
+    if (open) {
         if (ImGui::Selectable(noneLabel, surfacePath.empty()) &&
             !surfacePath.empty()) {
             surfacePath.clear();

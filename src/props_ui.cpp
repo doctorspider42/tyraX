@@ -783,7 +783,7 @@ void App::drawPropertiesWindow() {
         {
             static const char* kKinds[] = {"Road", "Railway", "Tram street"};
             const int before = o.roadKind;
-            ImGui::SetNextItemWidth(scaled(220));
+            ImGui::SetNextItemWidth(propFieldWidth());
             if (ImGui::Combo("Kind", &o.roadKind, kKinds, 3)) {
                 committed = true;
                 if (o.roadKind == roadrail::kRail && before != roadrail::kRail)
@@ -799,7 +799,7 @@ void App::drawPropertiesWindow() {
                 "kerbs or markings. Rails are baked at build: vertex colour\n"
                 "only, no texture, no VRAM.");
             if (o.roadKind != roadrail::kRoad) {
-                ImGui::SetNextItemWidth(scaled(220));
+                ImGui::SetNextItemWidth(propFieldWidth());
                 if (ImGui::SliderInt("Tracks", &o.roadTracks, 1, 2)) {
                     committed = true;
                     if (o.roadKind == roadrail::kRail)
@@ -810,7 +810,7 @@ void App::drawPropertiesWindow() {
                              ? "One or two tracks on the bed, 4 m apart (the\n"
                                "ballast material and width follow)."
                              : "One or two tracks down the street, 3 m apart.");
-                ImGui::SetNextItemWidth(scaled(220));
+                ImGui::SetNextItemWidth(propFieldWidth());
                 if (ImGui::SliderFloat("Gauge", &o.roadRailGauge, 0.3f, 3.0f, "%.3f units"))
                     committed = true;
                 prefHelp(
@@ -818,10 +818,10 @@ void App::drawPropertiesWindow() {
                     "1.0 metre gauge. The rail profile scales with it.");
             }
         }
-        ImGui::SetNextItemWidth(scaled(220));
+        ImGui::SetNextItemWidth(propFieldWidth());
         ImGui::SliderFloat("Width", &o.roadWidth, 1.0f, 24.0f, "%.1f");
         prefHelp("Full width of the surface, world units.");
-        ImGui::SetNextItemWidth(scaled(220));
+        ImGui::SetNextItemWidth(propFieldWidth());
         if (ImGui::SliderFloat("Longitudinal spacing", &o.roadSampleStep,
                                1.0f, 2.0f, "%.2f m"))
             committed = true;
@@ -829,7 +829,7 @@ void App::drawPropertiesWindow() {
             "Distance between geometry rows along the spline. 1 m follows\n"
             "sharp terrain folds most closely; up to 2 m reduces road\n"
             "triangles and VU1 packages. Inspect crests and tight bends.");
-        ImGui::SetNextItemWidth(scaled(220));
+        ImGui::SetNextItemWidth(propFieldWidth());
         if (ImGui::SliderFloat("Surface grip", &o.roadGrip, 0.1f, 1.5f, "%.2f"))
             committed = true;
         prefHelp(
@@ -861,10 +861,10 @@ void App::drawPropertiesWindow() {
             "supported.");
         {
             static const char* kRanks[] = {"Track", "Local", "Main"};
-            ImGui::SetNextItemWidth(scaled(220));
+            ImGui::SetNextItemWidth(propFieldWidth());
             if (ImGui::Combo("Rank", &o.roadRank, kRanks, 3)) committed = true;
             static const char* kMarks[] = {"None", "Stop lines", "Stop lines + zebras"};
-            ImGui::SetNextItemWidth(scaled(220));
+            ImGui::SetNextItemWidth(propFieldWidth());
             if (ImGui::Combo("Markings", &o.roadMarkings, kMarks, 3)) committed = true;
             prefHelp(
                 "Paint at this road's junctions. A stop line marks where it\n"
@@ -874,7 +874,7 @@ void App::drawPropertiesWindow() {
                 "through and covers the lower one - a mud track stops at the\n"
                 "asphalt's edge instead of fighting it. Equal ranks meet in\n"
                 "an intersection-material junction, as before.");
-            ImGui::SetNextItemWidth(scaled(220));
+            ImGui::SetNextItemWidth(propFieldWidth());
             if (ImGui::SliderFloat("Spill onto higher roads", &o.roadSpill, 0.0f,
                                    8.0f, "%.1f units"))
                 committed = true;
@@ -894,7 +894,7 @@ void App::drawPropertiesWindow() {
                 "by itself, a raised point makes an overpass. Parapets, piers\n"
                 "and abutments where it stands clear of the ground.");
             ImGui::BeginDisabled(o.roadBridge);
-            ImGui::SetNextItemWidth(scaled(220));
+            ImGui::SetNextItemWidth(propFieldWidth());
             if (ImGui::SliderFloat("Edge fade", &o.roadEdgeFade, 0.0f, 4.0f,
                                    "%.1f units"))
                 committed = true;
@@ -915,17 +915,17 @@ void App::drawPropertiesWindow() {
                 "onto it, and blob shadows and light pools lie on it.\n"
                 "The game skips kerbs farther than ~60 units from the camera.");
             if (o.roadKerb) {
-                ImGui::SetNextItemWidth(scaled(220));
+                ImGui::SetNextItemWidth(propFieldWidth());
                 if (ImGui::SliderFloat("Kerb height", &o.roadKerbHeight, 0.02f, 0.5f,
                                        "%.2f units"))
                     committed = true;
-                ImGui::SetNextItemWidth(scaled(220));
+                ImGui::SetNextItemWidth(propFieldWidth());
                 if (ImGui::SliderFloat("Kerb width", &o.roadKerbWidth, 0.05f, 1.0f,
                                        "%.2f units"))
                     committed = true;
                 prefHelp("The flat top of the kerb, outward from the road edge.");
                 // Pavements (docs/roads.md "Pavements"): the kerb top carried on.
-                ImGui::SetNextItemWidth(scaled(220));
+                ImGui::SetNextItemWidth(propFieldWidth());
                 if (ImGui::SliderFloat("Pavement", &o.roadPavement, 0.0f, 6.0f,
                                        o.roadPavement > 0.0f ? "%.2f units" : "none"))
                     committed = true;
@@ -948,7 +948,7 @@ void App::drawPropertiesWindow() {
             }
             ImGui::EndDisabled();
             // Road details (docs/roads.md "Road details"): baked at build.
-            ImGui::SetNextItemWidth(scaled(220));
+            ImGui::SetNextItemWidth(propFieldWidth());
             if (ImGui::SliderFloat("Details", &o.roadDetails, 0.0f, 1.0f,
                                    o.roadDetails > 0.0f ? "%.2f" : "none")) {
                 committed = true;
@@ -964,7 +964,7 @@ void App::drawPropertiesWindow() {
                 "(res/materials/roads/road-details.png - repaint it freely).\n"
                 "The game skips them farther than ~50 units from the camera.");
             if (o.roadDetails > 0.0f) {
-                ImGui::SetNextItemWidth(scaled(220));
+                ImGui::SetNextItemWidth(propFieldWidth());
                 if (ImGui::InputInt("Detail seed", &o.roadDetailSeed)) committed = true;
                 prefHelp("Another arrangement at the same density.");
             }
@@ -1076,7 +1076,11 @@ void App::drawPropertiesWindow() {
             roadEdit_ = !roadEdit_;
             if (roadEdit_ && roadDraw_.active) stopRoadDraw();
         }
-        ImGui::SameLine();
+        // Beside it when there is room, else on its own line.
+        if (ImGui::GetContentRegionAvail().x - ImGui::GetItemRectSize().x >
+            ImGui::CalcTextSize("Draw road...").x + ImGui::GetStyle().FramePadding.x * 2.0f +
+                ImGui::GetStyle().ItemSpacing.x * 2.0f)
+            ImGui::SameLine();
         if (ImGui::Button("Draw road...")) {
             roadDraw_.preset = roadPresetPick_.empty() ? roadDraw_.preset : roadPresetPick_;
             startRoadDraw();

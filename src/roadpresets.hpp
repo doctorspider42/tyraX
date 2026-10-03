@@ -75,7 +75,7 @@ std::vector<std::string> ensureMaterials(const std::string& projectDir, const Pr
 // flag, the name and the object's id are left alone. `unitsPerMeter` scales a
 // railway's standard gauge (and its bed) to the project.
 void apply(const Preset& p, SceneObject& road, float unitsPerMeter);
-// The inverse: a preset holding the road's fields ("Save as project preset").
+// The inverse: a preset holding the road's fields ("Save preset").
 Preset fromRoad(const SceneObject& road, const std::string& name);
 // True when the road's fields are exactly what apply() would set (the
 // Properties panel marks the matching preset).

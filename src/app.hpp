@@ -191,6 +191,11 @@ private:
     // a widget a literal pixel size should route it through this or the text
     // clips at high scale (a 180 px combo can't hold 2.5x-tall glyphs).
     float scaled(float px) const { return px * uiScaleApplied_; }
+    // A Properties field's width that always leaves its label (and a "(?)"
+    // marker) on screen: `preferred` (unscaled px) when the panel is wide,
+    // narrower when it is not, never below a usable minimum. A fixed
+    // scaled(220) pushed every road field's label off a default-width panel.
+    float propFieldWidth(float preferred = 220.0f) const;
     void drawViewportWindow();
     // Switch the viewport camera projection (View menu, the viewport's "Proj:"
     // button, the axis gizmo, the numpad shortcuts). Editor state: it rides
@@ -451,6 +456,7 @@ private:
         std::unique_ptr<roaddraw::Snapper> snapper;
         std::vector<int> roadObject;  // snapper road -> object index
         int scene = -1;
+        uint64_t serial = 0;  // modelEditSerial_ it was built at: an undo rebuilds it
         roaddraw::Snap hover;         // where the cursor snaps this frame
         bool hoverValid = false;
         ImVec4 panelRect{0, 0, 0, 0};  // the options panel, which owns its clicks
@@ -472,10 +478,10 @@ private:
     int bridgeDragPoint_ = -1;
     float bridgeDragGrab_ = 0.0f;  // cursor-to-handle height offset at the grab
     // Road presets in Properties (docs/roads.md "Road presets"): the combo,
-    // Apply to every selected road and Save as project preset. True = changed.
+    // Apply to every selected road and Save preset. True = changed.
     bool drawRoadPresetControls(SceneObject& o);
     std::string roadPresetPick_;            // Properties' chosen preset key
-    char roadPresetName_[64] = "My street";  // Save as project preset
+    char roadPresetName_[64] = "My street";  // Save preset
     // Junction overrides (docs/roads.md, "Junction overrides"). A junction is
     // not an object: it is selected by its identity - the road-id pair and
     // where it was - and re-found in the plan every frame, so a road edit

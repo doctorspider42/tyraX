@@ -129,10 +129,8 @@ is not:
   rule. The launcher scripts are write-once (user-owned), so EXISTING
   projects, examples included, keep the old copies until the file is deleted
   and the next build writes it again.
-- **Draw road: the snap label survives an undo.** After Ctrl+Z removes a road
-  just drawn, the tool's hover label still names it ("end of city-street-3")
-  until the mouse moves - the snap preview is only recomputed on mouse
-  motion. Recompute it on any project change (seen in a `--ui-script` run).
+- ~~**Draw road: the snap label survived an undo**~~ - the Snapper now rebuilds on any
+  model edit (`modelEditSerial_`), not only on a scene switch.
 - ~~**Bridges**~~ and overpasses: done (format 100, docs/roads.md "Bridges";
   host-baked deck + structure, no node at an overpass, capped wheel queries).
   ~~Collision with the structure~~ (oriented parapet and pier walls in

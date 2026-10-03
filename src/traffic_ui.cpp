@@ -21,7 +21,13 @@ void App::drawLanesOverlay(ImVec2 imgPos, ImVec2 avail) {
         lanesSerial_ = modelEditSerial_;
     }
     ImDrawList* dl = ImGui::GetWindowDrawList();
-    dl->PushClipRect(imgPos, ImVec2(imgPos.x + avail.x, imgPos.y + avail.y), true);
+    // Clip to the PICTURE, not the panel: in the PS2 output mode the scene is
+    // letterboxed and the lanes ran on across the bars beside it.
+    float bsx = 1.0f, bsy = 1.0f;
+    viewport_.pictureScale(bsx, bsy);
+    const ImVec2 pic0(imgPos.x + avail.x * 0.5f * (1.0f - bsx), imgPos.y + avail.y * 0.5f * (1.0f - bsy));
+    const ImVec2 pic1(imgPos.x + avail.x * 0.5f * (1.0f + bsx), imgPos.y + avail.y * 0.5f * (1.0f + bsy));
+    dl->PushClipRect(pic0, pic1, true);
     auto toScreen = [&](const float* w, ImVec2& out) {
         float u, v;
         if (!viewport_.projectToImage(w, u, v)) return false;
@@ -69,7 +75,10 @@ void App::drawLanesOverlay(ImVec2 imgPos, ImVec2 avail) {
             dl->AddCircleFilled(e, scaled(4.0f), IM_COL32(255, 70, 60, 230));
     }
     dl->PopClipRect();
-    ImGui::SetCursorScreenPos(ImVec2(imgPos.x + 8, imgPos.y + avail.y - scaled(22.0f)));
+    // The summary under the tool bar, top left of the picture: at the bottom
+    // the viewport's own buttons covered it.
+    ImGui::SetCursorScreenPos(
+        ImVec2(pic0.x + scaled(8.0f), pic0.y + ImGui::GetFrameHeightWithSpacing() * 1.5f));
     ImGui::TextColored(ImVec4(0.55f, 0.75f, 1.0f, 1.0f), "Lanes: %zu lanes, %zu connections, %d dead end(s)%s",
                        lanesGraph_.lanes.size(), lanesGraph_.conns.size(), lanesGraph_.deadEnds,
                        lanesGraph_.warnings.size() > (size_t)lanesGraph_.deadEnds ? ", see --road-lanes" : "");

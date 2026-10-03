@@ -146,7 +146,7 @@ rule, which now lives in `roadpresets::applyRailway`).
 
 **In Properties** (a road's **Preset** section): the combo marks the preset the
 road already is; **Apply preset** applies the chosen one to every selected road
-(one undo step); **Save as project preset** captures this road's look under a
+(one undo step); **Save preset** captures this road's look under a
 name. Project presets are saved in the `.tyra` (`settings.roadPresets`, format
 105, written only when there are any) and listed after the built-ins in
 Properties, the Draw road tool, `--draw-road` and the AI tool; one of the same

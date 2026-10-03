@@ -733,6 +733,10 @@ public:
     // the picture and not on the bars beside it.
     const float* viewMatrix() const { return viewM_; }
     const float* projMatrix() const { return projM_; }
+    // How much of the panel the picture covers per axis (1, 1 outside the PS2
+    // output mode): an overlay clips to the centred box this describes, not
+    // to the whole panel, or it draws over the letterbox bars.
+    void pictureScale(float& sx, float& sy) const { ps2LetterBox(sx, sy); }
 
     // PS2 output emulation (docs/ps2-viewport.md): render the scene at the GS
     // framebuffer size of the project's display mode and present it - nearest,
