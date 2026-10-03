@@ -5515,7 +5515,15 @@
 // host-baked albedo map (REFL_GROUND_*): -2 ms a turning frame on the Motor
 // District's open road on a PS2.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 173
+#define TYRAX_VERSION_MINOR 174
+// 1.174.0: ROADS THAT LIVE. The Draw road tool (snap to ends and centre
+// lines, 15-degree steps, live width ghost) with road presets and bridge
+// height handles (v105, --draw-road); road traffic - a lane graph from the
+// network, ambient AI cars that stop at the lines, give way and obey working
+// traffic lights (v106, --road-lanes); lamps that light the street at night
+// and rain with wet roads (v107, Set Weather); road streaming by distance
+// (v102) with the baked road tables read from bin/roadfile/roads.bin per
+// item (v104). The project launcher scripts close only this project's PCSX2.
 // 1.173.0: SHARED MODEL GEOMETRY. A static imported-model instance draws ONE
 // model-space bake of its parts (positions + STs, owned by the model) under
 // its own matrix, scale included; only its lit colours are its own, and
