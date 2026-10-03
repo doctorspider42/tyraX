@@ -1,0 +1,1 @@
+{ "id": "5e1b318afe46a4eb", "name": "Building 859", "type": "model", "position": [104.182, 0, 68.6829], "rotation": [0, 0, 0], "scale": [1.8221, 1.5564, 2.7938], "color": [1, 1, 1], "physics": false, "layer": "district-4-4", "drawDistance": 300, "castShadow": false, "model": "res/models/urban/city-highrise-4.obj" }

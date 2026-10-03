@@ -1385,6 +1385,18 @@ void App::liveLogicTick() {
                 liveLogicBlocked_.emplace_back(o.name, why);
                 continue;
             }
+            // Set Weather writes the weather state, which only exists in a
+            // build that already had weather (a raining scene or another Set
+            // Weather node): the first one in a project is a rebuild.
+            if (!liveLogicBuilt_.weather) {
+                bool weatherNode = false;
+                for (const FlowNode& n : o.flowGraph.nodes) weatherNode |= n.type == "SetWeather";
+                if (weatherNode) {
+                    liveLogicBlocked_.emplace_back(
+                        o.name, "Set Weather (this build has no weather runtime yet)");
+                    continue;
+                }
+            }
             if (!wasBuilt) {
                 // A graph added since the build: the object itself may not even
                 // exist in the running game. Live Link spawns new objects but

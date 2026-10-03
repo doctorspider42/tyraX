@@ -1,0 +1,1 @@
+{ "id": "2393eda4beab4f19", "name": "Building 1258", "type": "model", "position": [436.928, 0, -210.316], "rotation": [0, 0, 0], "scale": [1.3027, 1.7022, 2.0865], "color": [1, 1, 1], "physics": false, "layer": "district-6-3", "drawDistance": 230, "castShadow": false, "model": "res/models/urban/district-workshop.obj" }

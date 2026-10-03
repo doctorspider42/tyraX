@@ -1,0 +1,1 @@
+{ "id": "4a98b54597f2732d", "name": "Building 756", "type": "model", "position": [12.8023, 0, 249.37], "rotation": [0, 0, 0], "scale": [1.9803, 1.2855, 1.9776], "color": [1, 1, 1], "physics": false, "layer": "district-4-5", "drawDistance": 230, "castShadow": false, "model": "res/models/urban/district-tower.obj" }

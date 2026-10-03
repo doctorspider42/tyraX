@@ -4,6 +4,243 @@ This is only unfinished work that still has a clear payoff and a testable end.
 Finished investigations belong in commit history; reusable facts belong in the
 relevant guide or developer skill.
 
+## Big maps: EE RAM, not frame time, is the limit (2026-10-03)
+
+[examples/big-city](../examples/big-city/README.md), "Limits found", has the
+measurements. The first city (1 km, everything resident) used 27-28 of 32 MB
+and every bigger version died in `std::bad_alloc` at scene load. ~~Road
+streaming~~ and auto-streamed districts are DONE (format 102, docs/roads.md
+"Road streaming"): the shipped city is now 1.4 km at 16-22 MB. What is left, in
+order of payoff:
+
+- ~~The ELF's own road tables~~ DONE (format 104, docs/roads.md "Tables on
+  disk"): a streamed project reads each item's baked rows from
+  `bin/roadfile/roads.bin` on a reader thread. The shipped city's ELF went
+  6.86 -> 4.92 MB (-1.7 MB at every pose); kerbs everywhere now ships at
+  19-19.8 MB; pavements on every street boot at 22.5 and peak at 26.2 MB
+  (embedded: a 20.8 MB ELF that never reached a frame). What it left:
+  - **The resident road is the wall now**: pavements everywhere keep ~120 000
+    road vertices resident downtown (~60 B each + index) and run at 32 FPS.
+    A smaller radius for pavements and kerbs than for asphalt (they are drawn
+    to 60 units anyway) would cut most of it. Test: pavements everywhere under
+    23 MB driving downtown.
+  - **The ISO path is not verified end to end.** `--export-iso` packs
+    `ROADFILE/ROADS.BIN` behind the ELF, but the big-city ISO stopped before
+    the scene loaded (`libpng error: Not a PNG file` on the vehicle shadow
+    PNG over cdrom0:, before any road read). Fix that, then check the
+    `ROADFILE open cdrom0:...` and `ROADFILE reads` lines in the EE console,
+    and order the disc by position (each item is a seek on a real drive).
+  - **File-backed tables without streaming** (load every item at scene load)
+    would save only the ELF copy, ~25% of a resident road. Not done; worth it
+    only for a project that cannot stream.
+  - **ps2link throughput** is unmeasured (PCSX2 host: reads 9-16 MB/s
+    synchronous, 0.2-0.7 ms per item on the reader).
+- **A strip chunk is built in one frame.** The streaming budget bounds what a
+  frame STARTS, not one item: the worst streaming frame while driving the city
+  was 4-6 ms (one dense strip chunk). Splitting a replay across frames (resume
+  at any station, not only a chunk start) would cap it. Test: `ROADSTREAM ...
+  worst us` under 2 000 on the same drive.
+- ~~Share static model geometry between instances~~ DONE 1.173.0
+  (docs/instance-sharing.md): one model-space bake per part under a per-object
+  matrix, pooled colours; batches trim their growth slack (-1.6 MB on the
+  1 km city). The streamed 1.4 km city saves ~1.5 MB at every pose (downtown
+  19.9 -> 18.4 MB). With batching off the 2 557-object 1 km city
+  (`FURNITURE_CORE_ONLY=False`) now boots at 30.0 MB. What it made visible,
+  in order of payoff:
+  - **The per-instance bookkeeping is now the biggest object cost**: ~650 B per
+    `GeoPart` + bags whatever it draws (2.8 MB for 4 305 parts) and ~1 KB of
+    `RuntimeObject` + `ObjectGeometry` per object (2.7 MB for 2 589). Most of a
+    GeoPart is room for passes a static prop never uses (env, lit, AO,
+    emissive, portal clips, paint maps) - move them behind one pointer.
+  - **A batch/share policy by mesh size**: batches pay 48 B a vertex per
+    member, a shared instance ~650 B + its colours. Batching only the tiny
+    meshes (trees, lamps) and sharing the rest might keep most of the draw-call
+    saving at a fraction of the memory. Needs a console frame-time pass first
+    (every number in instance-sharing.md is PCSX2).
+  - **The baked VIF stream cache holds 1.8-3.1 MB** on the city (a copy of
+    every baked bag's payload, budget 4 MB): the budget is an EE RAM lever of
+    its own.
+- **Streamed layers are never batched.** The districts that make the 1.4 km
+  city fit cost static batching (0 batches); PCSX2 kept 60 FPS parked and
+  48-58 driving, but a console may not. Batching per layer (a batch dies with
+  its layer) would give it back.
+- **Road vertex size.** Road chunks hold `Vec4` position, `Color` and `Vec4` ST
+  per vertex (48 B before bags). Packed data would halve the resident roads.
+- **Kerb/rail/detail chunk size.** 32-unit kerb cells made 1 210 chunks of ~80
+  vertices on the first big-city; road details 743 chunks of 16. Larger cells
+  (with the draw distance raised to match) cut chunk overhead and submits.
+- **Say out of memory on screen.** A `bad_alloc` at scene load is a black
+  screen with nothing in `bin/log.txt`; only the EE console names it. A
+  `std::set_new_handler` that logs and draws "out of EE memory" would have
+  saved most of the bisection (it would have again for the rsbc4 run).
+- **A `.glb` placed as a static model** loads as a per-instance DynamicMesh;
+  either bake it to a `.tmdl` like an OBJ or warn in the editor.
+- ~~The road height index's 1 024-chunk cap~~ DONE: 13/19-bit packing and a
+  `ROADINDEX skipped` line (docs/roads.md, "Kerb collision").
+
+## Road traffic: what the first version left out (format 106, 2026-10-03)
+
+docs/traffic.md. Shipped: the lane graph, stop lines / give way / gap
+acceptance, working traffic lights on the furniture's signal heads, spawning
+and recycling around the player, a kinematic far-car path, View > Lanes,
+`--road-lanes`, the host simulation in `--vehicle-check`. Left:
+
+- **A traffic car costs ~0.37 MB of EE RAM** (its own vehicle geometry: dents
+  and paint are per car). Sharing one mesh between undamaged traffic cars of a
+  definition (copy on first dent) would make 10+ cars affordable in Big City.
+- ~~**Lane changes**~~ (overtaking a slow or stopped car, picking the turn
+  lane by the intended exit): done (format 108 branch, docs/traffic.md "Lane
+  changes"; gap check, smooth blend, host-simulated on a 2+2 crossing with a
+  breakdown). Still open: changing lanes to merge where a road narrows (a lane
+  that ends in a transition node has no exit of its own today), courtesy gaps
+  (a car making room for a merging one), and lane changes on the far path
+  being measured on a console.
+- ~~**An On Red Light Run flow node**~~: done (Player category; speed output,
+  node and minimum-speed filters; the Motor District's Garage boulevard shows
+  a HUD line).
+- ~~**Signals at three-way nodes**~~: done (format 108; three phases, one arm
+  at a time; a junction's Control = Auto / None / Traffic lights / Stop
+  signs). Still open: signals at five-way nodes under Auto (an override can
+  light them: one phase per arm), protected left-turn phases at a four-way
+  node, a T phase plan that lets the through road's straight movements share
+  a green, and a green wave along an avenue (the offsets are per node and
+  arbitrary).
+- **Pedestrians**: traffic queues behind the player on foot, nothing more.
+- ~~**Traffic headlights at night**~~: done (the cars switch with the scene's
+  night; see docs/traffic.md "What it costs" for the PCSX2 cost).
+- **A physical PS2 pass**: every number in docs/traffic.md is PCSX2.
+
+## Road nodes: what the first version left out (1.170.0, 2026-10-02)
+
+docs/roads.md, "Road nodes". The geometry is in; the rest of the network idea
+is not:
+
+- ~~Markings~~ DONE 1.171.0 (edge lines, stop lines, zebras - untextured
+  paint, docs/roads.md "Markings"). Still open: dashed turn guides inside a
+  node, chevrons in a fork's gore, left-hand traffic, and painting the edge line
+  in the texture's own colour and dash (it is always white and solid).
+- ~~Width transitions~~ DONE 1.171.0 (docs/roads.md "Transition nodes"). Still
+  open: a surface change at one width, and lane-count changes inside ONE road.
+- ~~**Kerbs**~~ along road edges and around the fillets: done (format 95,
+  docs/roads.md "Kerbs"; host-baked strips, 60-unit draw distance) and
+  ~~kerb collision~~ (the tops join the road height index; the walker steps
+  onto them) and ~~pavements~~ (format 97, docs/roads.md "Pavements";
+  textured junction rows behind the kerb). Still open: the kerb draw distance
+  as a project setting, a draw distance for road chunks (pavements draw
+  wherever the frustum reaches), pavements as shadow receivers, and kerb
+  ramps (dropped kerbs) where a zebra meets the pavement.
+- ~~**Rails and tram tracks**~~ done (format 98, docs/roads.md "Rails and tram
+  tracks": Kind = Railway / Tram street, host-baked rails in the kerb tables,
+  level crossings, a ballast texture). Still open: points and frogs at a
+  turnout (today two lines simply overlap), crossing barriers and signals as
+  ready props, a train to ride on a railway's spline, and a physical-PS2 pass
+  (PCSX2 only so far).
+- ~~**run.ps1 / run.sh closed every PCSX2 on the machine**~~ (`Stop-Process
+  -Name` / `pkill -x`): fixed for new projects - they close only the instance
+  running the project's own ELF, the editor's `Runner::killEmulatorsFor`
+  rule. The launcher scripts are write-once (user-owned), so EXISTING
+  projects, examples included, keep the old copies until the file is deleted
+  and the next build writes it again.
+- ~~**Draw road: the snap label survived an undo**~~ - the Snapper now rebuilds on any
+  model edit (`modelEditSerial_`), not only on a scene switch.
+- ~~**Bridges**~~ and overpasses: done (format 100, docs/roads.md "Bridges";
+  host-baked deck + structure, no node at an overpass, capped wheel queries).
+  ~~Collision with the structure~~ (oriented parapet and pier walls in
+  procColliders). Still open: the deck **casting** baked shadows onto the terrain under it, capping
+  `projSurfaceAt` so projected shadows and light pools under a deck stay on the
+  ground, ~~a height **handle** in the viewport~~ (done: docs/roads.md
+  "Height handles"), and nodes between two decks in the air.
+  onto them). Still open: **pavements** (a wide raised walk behind the kerb,
+  the same sweep with a texture) and the draw distance as a project setting.
+- ~~**Road details**~~ (manholes, gullies, repair patches, cracks, oil stains):
+  done (format 99, docs/roads.md "Road details"; host-baked decals, owner -5,
+  50-unit draw distance). Still open: patches allowed ON a node patch (today
+  nodes stay clean), a per-kind density, decals that change grip (a patch, a
+  wet manhole), the draw distance as a project setting, and a physical-PS2
+  cost pass.
+- ~~**Street furniture**~~ (lamps, trees, bollards along the pavement, signs
+  at the stop lines, traffic lights at three- and four-way nodes): done (format 101,
+  docs/roads.md "Street furniture"; host-baked merged vertex-colour chunks,
+  owner -7, 80-unit draw distance, pole/trunk boxes in procColliders; about
+  +0.6 ms EE in PCSX2 on the Motor District). ~~**Lamps that light**~~: done
+  without dynamic lights (docs/weather.md: baked pools in the furniture rows,
+  per-frame halos and wet streaks). Still open: prefabs as
+  furniture models, furniture as baked-shadow casters, lighter or stripped
+  models if the cost shows on a console, left-hand traffic for the signs, a
+  draw-distance setting, and a physical-PS2 pass.
+- **Overrides for nodes of more than two roads.** `JunctionOverride` is still
+  a road PAIR, and the Junction panel's Winner combo offers only `c.a`/`c.b`.
+- **A per-node corner radius** (today 1.5 x the mean half width, 1..8). With
+  it, a fillet radius HANDLE on the selected node in the viewport (the
+  diamond already opens the node's overrides in place); it needs a radius
+  field in `JunctionOverride` and `nodeOutline` reading it, which is why the
+  Draw road work stopped short of it.
+- ~~**Snapping in the editor**~~ done: the Draw road tool snaps to ends and
+  centre lines, and releasing a dragged road END in Edit in viewport lands it
+  on the road under it (docs/roads.md "Drawing roads").
+
+## Weather and lit street lamps: what the first version left out (2026-10-03)
+
+docs/weather.md. Built: rain round the camera, the wet-asphalt tint, Set
+Weather, furniture lamps' baked pools, halos and wet reflection streaks, all
+verified in PCSX2 only.
+
+- **Physical PS2.** Nothing was measured on a console: the `Road_lamps` row
+  (0.5 ms in PCSX2, +0.25 ms with streaks, +0.1 ms rain) includes the GS fill
+  of the near pools, and how much of it is EE was not split.
+- **The viewport preview was not looked at.** It is compiled and wired (pools,
+  halos, streaks, wet tint from the scene and the previewed hour), but the
+  editor GUI was not launched for the change: take a `--ui-script` shot of the
+  Motor District at night and in the rain.
+- ~~**Puddles**~~: done (docs/weather.md "Puddles": a details decal kind
+  placed last, its own texture and chunks, one shared colour whose alpha is
+  the wetness). Still open: a puddle that mirrors an image (it is one colour
+  plus the streaks that cross it), puddles that change grip, a physical-PS2
+  look at the night sheen, and a `--ui-script` look at the viewport preview.
+- ~~**Car-light streaks**~~: done (docs/weather.md "Car lights on a wet road":
+  every car whose lamps are on, 2-4 quads a car in the lamps' bag, the core's
+  `weatherCarStreaks`). Still open: streaks that follow a kerb or crest, and
+  a headlight pool that knows the road is wet.
+- **Bucket the lamps by cell** for the halo/streak pass: it walks every lamp
+  of the scene each frame (1 404 in the Big City test, fine there).
+- **Object lamps.** Big City's lamps are scene objects, so they do not light;
+  moving its generator to furniture lamps would light the city.
+- **Rain occlusion and splashes**: rain falls through bridges and roofs, and
+  nothing splashes. Spray behind cars in the rain is not built either (the
+  tyre smoke pool is the candidate; measure it).
+- ~~**Set Weather in Live Logic**~~: done (`OP_SetWeather`, in a build that
+  carries the weather runtime - the built list's `weather` line). Not yet
+  exercised end to end: patch a Set Weather into a running game from the
+  editor GUI.
+- Reflection views (the env probe) show the wet tint and the puddles, but no
+  pools, halos, streaks or rain: those are per-frame bags built for the main
+  eye, and a rebuild per view was not worth it yet.
+
+## Road drawing: what the first version left out (2026-10-03)
+
+docs/roads.md, "Drawing roads" and "Road presets". Done: the Draw road tool
+(snapping to ends, centre lines, 15-degree steps, grid), eight data presets
+plus project presets (format 105), Apply preset, bridge height handles,
+`--draw-road`, the AI `draw_road` tool. Open:
+
+- **A visible `--ui-script` pass** of the tool (the script is in the commit
+  message of the work; the GUI was not opened on the author's machine).
+- **Snapping while dragging a MIDDLE point** (only a dragged end snaps), and
+  an angle step while dragging.
+- **Curves while drawing**: today a bend is more clicks; a tangent drag or an
+  arc-by-radius would draw a roundabout or a curved avenue in two clicks.
+- **Heights while drawing** a bridge (the CLI and the AI tool take `x,z,h`;
+  the viewport tool draws on the ground and the handles raise it afterwards).
+- **Asset renames** do not reach project presets' material or model paths
+  (they do reach roads).
+- **Preset thumbnails** in the combo, and lane-count presets that pick the
+  width from the texture's design width automatically.
+- **Price the patch cost on a console.** The Motor District main scene went
+  from 1 362 to 4 314 patch vertices (triangle lists). Emitting the
+  grid-cut patches as strips is the obvious lever if it shows up.
+- **City blocks**: the faces of the road graph are the lots a procedural
+  generator wants to fill.
+
 ## Separate remaining runtime settings from compilation decisions
 
 Game methods now compile in six parallel units with shared inline helpers/state.

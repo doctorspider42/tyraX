@@ -1,5 +1,6 @@
 #pragma once
 
+#include <algorithm>
 #include <functional>
 #include <string>
 #include <vector>
@@ -59,12 +60,20 @@ struct Vertex {
     float u, v;     // u 0..1 across the width, v = arc length / texLen
 };
 
-// A crossing of two sampled centre lines. `cornerXZ` is the convex overlap of
-// the two road-width strips, ordered around the centre. This host footprint
-// seeds the fitted XYZUV patch; the PS2 never performs road detection.
+// A junction footprint. `outline` (x0,z0,x1,z1,...) is the node polygon the
+// planner builds (1.170.0, docs/roads.md "Road nodes"): every arm cut off
+// square at its trim distance, neighbouring arms joined by a fillet arc. It
+// is ordered counter-clockwise seen from above and star-shaped about (x, z),
+// so the patch is a fan from the centre. `cornerXZ` is the legacy four-corner
+// overlap findJunctions() still produces; the patch uses it only when the
+// outline is empty. The PS2 never performs road detection.
 struct Junction {
     float x = 0, z = 0;
     float cornerXZ[8] = {};
+    std::vector<float> outline;
+    // Per outline point: 1 when the segment from it to the next is an arm's
+    // CAP (the road carries on there), 0 for a road edge or fillet.
+    std::vector<unsigned char> outlineCap;
 };
 
 // Ground height under a world XZ (the terrain, on both consumers).
@@ -193,9 +202,18 @@ float tessellate(const std::vector<float>& pointsXZ, float width,
 // Conforming junction patch: sample the actual road triangles, refine the
 // shared fan grid, then bound clearance at every triangle intersection.
 // XYZUV is baked on the host; the EE only uploads it at scene load.
+// The terrain's render grid: node (i, k) at (x0 + i*dx, z0 + k*dz), each cell
+// split along the diagonal terrainHeight() uses. Default = unknown.
+struct TerrainGrid {
+    float x0 = 0.0f, z0 = 0.0f, dx = 0.0f, dz = 0.0f;
+};
+TerrainGrid terrainGridOf(int columns, int rows, float width, float depth);
+// A node patch (1.170.0) that a fan from the centre cannot fit is cut along
+// `grid` instead, so every piece lies in one ground plane; pass the scene's
+// grid (an unknown one falls back to a 2-unit grid).
 void tessellateJunctionSurface(const Junction& junction,
     const std::vector<Vertex>& roads, const HeightFn& terrain, float lift,
-    std::vector<Vertex>& out);
+    std::vector<Vertex>& out, const TerrainGrid& grid = {});
 // Render-grid interpolation (the two terrain triangles, not bilinear height).
 float terrainHeight(const std::vector<float>& heights, int columns, int rows,
                     float width, float depth, float x, float z);
@@ -299,7 +317,10 @@ public:
     // kNone when no triangle covers (x, z). `grip`, when given, receives the
     // grip of the triangle that answered (1 when none did); `cover` how much
     // of the road is there (1, or a faded edge's alpha).
-    float at(float x, float z, float* grip = nullptr, float* cover = nullptr) const;
+    // `maxY` (docs/roads.md "Bridges"): only triangles at or below it answer -
+    // the highest surface not above a wheel, so a deck overhead is ignored.
+    float at(float x, float z, float* grip = nullptr, float* cover = nullptr,
+             float maxY = 1.0e30f) const;
     static constexpr float kNone = -1.0e30f;
 
 private:
@@ -332,6 +353,52 @@ struct CrossingRoad {
     float spill = kSpillDefault, edgeFade = 0.0f;
     int rank = 1;
     std::string intersection;  // intersection material ("" = none)
+    int markings = 1;          // RoadMarkings: what this road's node arms get painted
+    // Where this road's texture paints its edge line, U across the width - so
+    // a node's painted edge line meets it. The default is the Motor District's
+    // texture (columns 5..8 of 128); a generated texture's recipe says its own
+    // (project::crossingRoads reads it). edgeLine false = the texture has none.
+    bool edgeLine = true;
+    float edgeU0 = 5.0f / 128.0f, edgeU1 = 8.0f / 128.0f;
+    // How many lanes the texture paints (both directions together), from a
+    // generated texture's recipe; 0 = unknown, and the lane graph derives it
+    // from the width (src/roadlanes.cpp, docs/traffic.md).
+    int lanes = 0;
+    // Kerbs (docs/roads.md "Kerbs"): only planKerbs reads these.
+    bool kerb = false;
+    float kerbHeight = 0.15f, kerbWidth = 0.25f;
+    // Pavement (docs/roads.md "Pavements"): a walk this wide behind the kerb,
+    // at the kerb's height. 0 = none; needs kerb. planPavements reads it.
+    float pavement = 0.0f;
+    // Rails (docs/roads.md "Rails and tram tracks"): roadrail::Kind, the gauge
+    // between the heads' inner faces and the track count. Only roadrail and
+    // bakeMarkings (no paint on a node a railway passes) read them.
+    int kind = 0;
+    float railGauge = 1.435f;
+    int tracks = 1;
+    // Bridges (docs/roads.md "Bridges", src/roadbridge.hpp): how far this
+    // road's surface is above the ground it would otherwise be glued to, at a
+    // world XZ on it. Empty = an ordinary road (0 everywhere). The planner
+    // makes no node where either road is more than kOverpassClearance up, and
+    // a kerb is not cut by a road that far above or below it.
+    std::function<float(float x, float z)> elevation;
+    // Details (docs/roads.md "Road details"): only roaddetail reads these.
+    float details = 0.0f;
+    int detailSeed = 0;
+};
+// Vertical separation beyond which two roads crossing in XZ do not meet.
+inline constexpr float kOverpassClearance = 2.0f;
+
+// What a road's arms get painted at its nodes (1.171.0, docs/roads.md
+// "Markings"). A stop line marks the road that GIVES WAY: one ending at a node
+// another road runs through (a T), or at a crossing the lower-ranked /
+// narrower road. Crossings are zebras across the arm just past the patch.
+// The markings' paint colour, 0xRRGGBB in the untextured 0..255 range.
+inline constexpr int kMarkingRgb = 0xE8E8E0;
+enum RoadMarkings : int {
+    kMarkNone = 0,
+    kMarkStopLines = 1,
+    kMarkCrossings = 2,  // stop lines + zebra crossings
 };
 
 // What an override says the crossing does. Auto = the rank rule.
@@ -341,6 +408,17 @@ enum JunctionWinner : int {
     kWinnerRoadA = 2,  // road A runs through, B is covered (and may spill)
     kWinnerRoadB = 3,
 };
+// How a node is controlled (format v108, docs/traffic.md "Signals"). Auto =
+// the roads' street furniture decides: traffic lights at a three- or four-way
+// node when one of its roads ticks Traffic lights. Who gives way when there
+// are no lights is always giveWayArms - the control only adds or removes the
+// lights and the signs, never moves a stop line.
+enum JunctionControl : int {
+    kControlAuto = 0,
+    kControlNone = 1,     // no lights and no signs (the stop lines stay)
+    kControlSignals = 2,  // traffic lights, whatever the roads ask
+    kControlStop = 3,     // a stop sign at every arm that gives way
+};
 // Stored in the scene (SceneData::roadJunctions). Fields at their Auto value
 // change nothing; a material alone forces a patch.
 struct JunctionOverride {
@@ -349,10 +427,12 @@ struct JunctionOverride {
     int winner = kWinnerAuto;
     std::string material;      // patch material, "" = the roads' own
     float grip = 0.0f;         // 0 = auto (the lower road's / the winner's)
+    int control = kControlAuto;  // lights / signs (JunctionControl)
 };
 inline bool operator==(const JunctionOverride& a, const JunctionOverride& b) {
     return a.roadA == b.roadA && a.roadB == b.roadB && a.x == b.x && a.z == b.z &&
-           a.winner == b.winner && a.material == b.material && a.grip == b.grip;
+           a.winner == b.winner && a.material == b.material && a.grip == b.grip &&
+           a.control == b.control;
 }
 inline bool operator!=(const JunctionOverride& a, const JunctionOverride& b) {
     return !(a == b);
@@ -364,10 +444,30 @@ enum CrossingKind : int {
     kCrossThrough = 2,  // `winner` runs through, the other is covered
 };
 
+// One arm of a road node: where the node's outline cut it and which way it
+// leaves - what anything painted on the node (markings) is laid out from.
+struct NodeArm {
+    int road = -1;
+    bool ends = false;          // the road ends here (else it runs through)
+    float h = 1.0f;             // half width
+    float trim = 0.0f;          // the cap's distance from the node, along the road
+    float capX = 0.0f, capZ = 0.0f;  // the cap's centre
+    float tx = 1.0f, tz = 0.0f;      // the road's outward direction there
+};
+
 struct Crossing {
     int a = -1, b = -1;  // road indices into the planner's input, a < b
+    // Every road meeting at this node, ascending (a and b are its first two).
+    // A plain crossing has two; a three-road fork or a five-way plaza more.
+    std::vector<int> roads;
+    int arms = 0;        // how many road ends leave the node (X = 4, T/Y = 3)
+    // A TRANSITION node (1.171.0): two roads joined in line with different
+    // widths; its patch is the taper between them.
+    bool transition = false;
+    std::vector<NodeArm> armList;  // per arm, in angular order
     Junction shape;
     int override = -1;   // index into the overrides, or -1 (Auto)
+    int control = kControlAuto;  // the override's JunctionControl
     int kind = kCrossOverlap;
     int winner = -1;     // road index for kCrossThrough
     bool patchDuplicate = false;  // a patch another crossing already makes
@@ -379,7 +479,19 @@ struct Crossing {
     // loser here as an OVERLAY decal. Its grip.
     bool overlay = false;
     float overlayGrip = 1.0f;
+    bool has(int road) const {
+        return std::find(roads.begin(), roads.end(), road) != roads.end();
+    }
 };
+
+// ROAD NODES (1.170.0, docs/roads.md "Road nodes"): where roads meet - a
+// centre-line crossing, an open end resting on another road (a T, or a fork
+// at any angle) or two ends sharing a spot (a corner) - clustered into ONE
+// node per place, however many roads meet there. Each node knows its arms
+// (one per road end leaving it) and carries the filleted outline in
+// `shape.outline`. Kind/material/overrides are planCrossings' business; this
+// is the geometry alone, in a deterministic order.
+std::vector<Crossing> findNodes(const std::vector<CrossingRoad>& roads);
 
 // A spill or an overlay: a road's own triangles laid over another road.
 struct CrossingDecal {
@@ -409,9 +521,106 @@ CrossingPlan planCrossings(const std::vector<CrossingRoad>& roads,
                            const std::vector<JunctionOverride>& overrides,
                            bool withDecals = true);
 
+// The plan's node MARKINGS (1.171.0) as white-paint triangles (XYZ, UV 0),
+// laid onto `surface` - the drawn roads plus the node patches - kSpillLift
+// above it, split where the surface bends so the paint follows it. Untextured;
+// the consumer gives them one colour. Deterministic, crossing order.
+void bakeMarkings(const CrossingPlan& plan, const std::vector<CrossingRoad>& roads,
+                  const Surface& surface, std::vector<Vertex>& out);
+
+// WHO GIVES WAY at a node, per arm of `c.armList` (1 = that arm's incoming
+// lane yields): a road ending at a node another road runs through (a T), or at
+// a crossing of through roads the lower rank, then the narrower, then the
+// later one. The ONE rule - bakeMarkings paints its stop lines from it, the
+// street furniture stands its signs by them, and the lane graph
+// (src/roadlanes.cpp) gives those approaches the lower priority, so a car
+// stops exactly where the paint says.
+std::vector<unsigned char> giveWayArms(const Crossing& c, const std::vector<CrossingRoad>& roads);
+
 // The plan's patches and decals as drawn surface (the test drive, the check):
 // `terrain` is the bare ground height.
 void addCrossingsToSurface(Surface& s, const std::vector<CrossingRoad>& roads,
-                           const CrossingPlan& plan, const HeightFn& terrain);
+                           const CrossingPlan& plan, const HeightFn& terrain,
+                           const TerrainGrid& grid = {});
+
+// --- kerbs (docs/roads.md "Kerbs") -----------------------------------------
+//
+// A kerb is a two-face profile swept along a line: a vertical FACE at the
+// line from just below the road surface up to the kerb height, and the flat
+// TOP from the line outward by the kerb width. No bottom and no back face:
+// nobody sees them, and nothing in this engine backface-culls. Host-baked,
+// like the junction patches: the codegen emits the strips the console
+// uploads unchanged, and the viewport draws the same triangles.
+//
+// The lines are each kerbed road's two edges, CUT wherever the kerb would lie
+// on another road or inside a junction patch, plus the edge stretches of
+// every patch outline between two arms whose roads both have kerbs (never
+// across an arm's cap: the road continues there). Points follow the drawn
+// surface; straight stretches merge within kKerbTolerance.
+inline constexpr float kKerbTolerance = 0.02f;  // lateral and vertical merge error
+inline constexpr float kKerbSink = 0.04f;       // face base below the surface
+inline constexpr float kKerbCell = 32.0f;       // chunk grid (cull granularity)
+inline constexpr float kKerbShadeTop = 0.78f;   // baked shading, 1 = white
+inline constexpr float kKerbShadeFace = 0.56f;
+// One kerb line. pts: x, y (the surface under the line), z, outward unit
+// normal nx, nz - per point.
+struct KerbPiece {
+    int road = -1;  // CrossingRoad index that owns it (a patch's chain: an arm's road)
+    int node = -1;  // crossing index for a patch chain, -1 for a road edge
+    float height = 0.15f, width = 0.25f;
+    std::vector<float> pts;
+    int points() const { return (int)(pts.size() / 5); }
+};
+struct KerbVertex {
+    float x, y, z, shade;
+};
+// `surface` answers the DRAWN road height under (x, z) (roads + patches, the
+// rank lift included) or Surface::kNone; `ground` is the bare terrain.
+std::vector<KerbPiece> planKerbs(const std::vector<CrossingRoad>& roads,
+                                 const CrossingPlan& plan, const HeightFn& surface,
+                                 const HeightFn& ground);
+// Every piece as triangle STRIP runs of kStripRun (the road chunks' run
+// contract), grouped into kKerbCell chunks of at most kChunkBudget vertices.
+// `chunkSizes` receives one vertex count per chunk.
+void kerbStrips(const std::vector<KerbPiece>& pieces, std::vector<KerbVertex>& out,
+                std::vector<int>& chunkSizes);
+// One piece as a triangle LIST (the viewport, the check).
+void kerbTriangles(const KerbPiece& piece, std::vector<KerbVertex>& out);
+// The kerb TOPS (and the pavements behind them) as drawn surface - what the
+// console's road height index reads from the owner -4 kerb chunks and the -3
+// pavement rows, so the test drive bumps over a kerb where the console car does. `s` must already hold the roads and patches (planKerbs
+// reads it); it is built here, and the caller builds it again after.
+void addKerbsToSurface(Surface& s, const std::vector<CrossingRoad>& roads,
+                       const CrossingPlan& plan, const HeightFn& ground);
+
+// --- pavements (docs/roads.md "Pavements") ---------------------------------
+//
+// A pavement is the kerb's top carried on outward: a slab at the kerb height
+// from the kerb's outer edge out to the road's `pavement` width, and an outer
+// face dropping to the ground. It follows every kerb line - so it wraps the
+// junction fillets too - narrows wherever its outer edge would reach another
+// road or a patch, closes a tight corner in the point the two straight
+// offsets meet, and rises with the ground wherever the ground is higher.
+// Host-baked textured triangles (XYZUV): the codegen ships them as
+// ROAD_JUNCTIONS rows, one per road and cell, so the console draws, culls and
+// collides with them like a junction patch and does no work of its own.
+inline constexpr float kPavementTile = 2.0f;   // one texture repeat, both ways
+inline constexpr float kPavementLift = 0.05f;  // over the ground it rises onto
+inline constexpr float kPavementSink = 0.04f;  // outer face base below ground
+inline constexpr float kPavementMax = 6.0f;
+// An untextured pavement's colour, 0xRRGGBB in the untextured 0..255 range.
+inline constexpr int kPavementRgb = 0x9C9890;
+struct PavementMesh {
+    int road = -1;  // CrossingRoad index (its material)
+    int cellX = 0, cellZ = 0;  // kKerbCell cell
+    std::vector<Vertex> tris;  // triangle LIST, UVs rebased to small numbers
+};
+std::vector<PavementMesh> planPavements(const std::vector<CrossingRoad>& roads,
+                                        const CrossingPlan& plan,
+                                        const std::vector<KerbPiece>& kerbs,
+                                        const HeightFn& ground);
+// The slabs as drawn surface (the test drive, the check): every triangle
+// with area in XZ; the outer faces drop out.
+void addPavementsToSurface(Surface& s, const std::vector<PavementMesh>& meshes);
 
 }  // namespace roadgen

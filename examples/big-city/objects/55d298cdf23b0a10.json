@@ -1,0 +1,1 @@
+{ "id": "55d298cdf23b0a10", "name": "Building 660", "type": "model", "position": [-65.644, 0, 304.086], "rotation": [0, 0, 0], "scale": [2.4954, 1.4147, 2.1614], "color": [1, 1, 1], "physics": false, "layer": "district-4-5", "drawDistance": 300, "castShadow": false, "model": "res/models/urban/city-highrise-2.obj" }

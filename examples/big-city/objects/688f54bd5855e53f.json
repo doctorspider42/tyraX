@@ -1,0 +1,1 @@
+{ "id": "688f54bd5855e53f", "name": "Building 841", "type": "model", "position": [72.099, 0, -87.3387], "rotation": [0, 0, 0], "scale": [2.4316, 1.5335, 2.7849], "color": [1, 1, 1], "physics": false, "layer": "district-4-3", "drawDistance": 300, "castShadow": false, "model": "res/models/urban/city-highrise-3.obj" }

@@ -1,0 +1,1 @@
+{ "id": "bb12f7b1e7516293", "name": "Building 473", "type": "model", "position": [-172.824, 0, -251.88], "rotation": [0, 0, 0], "scale": [2.1923, 1.6536, 2.4502], "color": [1, 1, 1], "physics": false, "layer": "district-3-3", "drawDistance": 300, "castShadow": false, "model": "res/models/urban/city-highrise-2.obj" }

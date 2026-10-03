@@ -1,0 +1,1 @@
+{ "id": "8828ebb737859fb1", "name": "Building 192", "type": "model", "position": [-481.424, 0, 93.4241], "rotation": [0, 0, 0], "scale": [1.7488, 2.116, 2.4933], "color": [1, 1, 1], "physics": false, "layer": "district-1-4", "drawDistance": 230, "castShadow": false, "model": "res/models/urban/district-workshop.obj" }

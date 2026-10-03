@@ -1,0 +1,1 @@
+{ "id": "bce679816c434945", "name": "Building 941", "type": "model", "position": [210.251, 0, -210.614], "rotation": [0, 0, 0], "scale": [1.923, 1.7055, 2.0675], "color": [1, 1, 1], "physics": false, "layer": "district-5-3", "drawDistance": 230, "castShadow": false, "model": "res/models/urban/district-tower.obj" }

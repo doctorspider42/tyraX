@@ -135,6 +135,9 @@ static std::string orderFiles(const Project& p, std::vector<OrderedFile>& out,
             }
         }
     }
+    // Road tables on disk (docs/roads.md "Tables on disk"): read piece by piece
+    // while the roads stream, so it sits with the scenes, before the music.
+    take("roadfile/roads.bin", "roads");
     for (const std::string& m : p.music) take(binPathOf(m), "music");
     for (const auto& rel : std::set<std::string>(remaining)) take(rel, "other");
 

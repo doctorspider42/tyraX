@@ -72,6 +72,8 @@ enum OpCode : uint8_t {
     OP_SetRotation,       // degrees, absolute
     OP_SpinObject,        // pin 0 start (num[0..2] deg/s) / 1 stop
     OP_SetMotionBlur,     // previous-frame blend weight, 0..1
+    OP_SetWeather,        // num[0] kind (1 rain), num[1] intensity 0..1, num[2] seconds;
+                          // needs the weather runtime in the build (BuiltList::weather)
     OP_Count
 };
 
@@ -191,6 +193,9 @@ struct BuiltGraph {
 };
 struct BuiltList {
     bool loaded = false;
+    // The build carries the weather runtime (a `weather` line): OP_SetWeather
+    // has a state to write. Without it a graph with Set Weather is a rebuild.
+    bool weather = false;
     std::vector<BuiltGraph> graphs;
 };
 bool loadBuiltList(const std::string& path, BuiltList& out);

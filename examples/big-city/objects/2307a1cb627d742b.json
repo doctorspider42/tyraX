@@ -1,0 +1,1 @@
+{ "id": "2307a1cb627d742b", "name": "Building 1104", "type": "model", "position": [250.508, 0, 481.222], "rotation": [0, 0, 0], "scale": [2.1239, 1.5663, 3.3696], "color": [1, 1, 1], "physics": false, "layer": "district-5-6", "drawDistance": 230, "castShadow": false, "model": "res/models/urban/district-loft.obj" }

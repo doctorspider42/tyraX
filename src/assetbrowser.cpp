@@ -351,6 +351,10 @@ void App::rebuildAssetUsage() {
             if (!o.roadIntersectionTexture.empty())
                 note(o.roadIntersectionTexture, 2,
                      where + " (intersection surface)", si, oi);
+            if (!o.roadPavementMaterial.empty())
+                note(o.roadPavementMaterial, 2, where + " (pavement surface)", si, oi);
+            for (const std::string* m : roadfurn::modelPaths(o.roadFurniture))
+                if (!m->empty()) note(*m, 0, where + " (street furniture)", si, oi);
             if (!o.soundPath.empty()) note(o.soundPath, 0, where + " (sound)", si, oi);
             for (const FlowNode& n : o.flowGraph.nodes) {
                 const FlowNodeType* t = flowNodeType(n.type);
@@ -398,6 +402,10 @@ void App::rebuildAssetUsage() {
             if (!o.roadIntersectionTexture.empty())
                 note(o.roadIntersectionTexture, 2,
                      where + " (intersection surface)");
+            if (!o.roadPavementMaterial.empty())
+                note(o.roadPavementMaterial, 2, where + " (pavement surface)");
+            for (const std::string* m : roadfurn::modelPaths(o.roadFurniture))
+                if (!m->empty()) note(*m, 0, where + " (street furniture)");
             if (!o.soundPath.empty()) note(o.soundPath, 0, where + " (sound)");
         }
 
@@ -605,9 +613,11 @@ std::vector<std::string> App::assetSidecars(const std::string& rel) {
     const std::string dir = folderOf(rel);
     const std::string stem = stemOf(rel);
     // Animated-model replacement UVs (uvunwrap), the model AO sidecar, and the
-    // Drone Generator patch that produced a track (docs/drone-generator.md) -
-    // all editor-only data whose whole value is staying next to its asset.
-    for (const char* ext : {".uvs", ".aov", ".drone"}) {
+    // Drone Generator patch that produced a track (docs/drone-generator.md),
+    // the Road Texture Generator recipe of a road texture
+    // (docs/road-textures.md) - all editor-only data whose whole value is
+    // staying next to its asset.
+    for (const char* ext : {".uvs", ".aov", ".drone", ".roadtex"}) {
         const std::string cand = dir + "/" + stem + ext;
         if (fs::exists(assetAbs(cand), ec)) out.push_back(cand);
     }
@@ -681,6 +691,8 @@ int App::retargetAssetPath(const std::string& from, const std::string& to) {
             swap(o.materialPath);
             swap(o.roadTexture);
             swap(o.roadIntersectionTexture);
+            swap(o.roadPavementMaterial);
+            for (std::string* m : roadfurn::modelPaths(o.roadFurniture)) swap(*m);
             // The material a Revert would put back (docs/prelit-models.md): a
             // stored asset path like any other, so renaming that .mtl must
             // follow it or Revert points a pre-lit object at a file that has
@@ -713,6 +725,8 @@ int App::retargetAssetPath(const std::string& from, const std::string& to) {
             swap(o.materialPath);
             swap(o.roadTexture);
             swap(o.roadIntersectionTexture);
+            swap(o.roadPavementMaterial);
+            for (std::string* m : roadfurn::modelPaths(o.roadFurniture)) swap(*m);
             swap(o.prelitSource);
             swap(o.soundPath);
         }

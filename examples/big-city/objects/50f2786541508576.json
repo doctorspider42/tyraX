@@ -1,0 +1,1 @@
+{ "id": "50f2786541508576", "name": "Building 961", "type": "model", "position": [157.47, 0, 21.9387], "rotation": [0, 0, 0], "scale": [1.9648, 1.4643, 3.2561], "color": [1, 1, 1], "physics": false, "layer": "district-5-4", "drawDistance": 300, "castShadow": false, "model": "res/models/urban/city-highrise-3.obj" }

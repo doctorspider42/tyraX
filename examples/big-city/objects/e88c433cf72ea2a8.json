@@ -1,0 +1,1 @@
+{ "id": "e88c433cf72ea2a8", "name": "Building 1200", "type": "model", "position": [343.667, 0, 305.023], "rotation": [0, 0, 0], "scale": [1.3272, 1.7735, 1.8811], "color": [1, 1, 1], "physics": false, "layer": "district-6-5", "drawDistance": 230, "castShadow": false, "model": "res/models/urban/district-workshop.obj" }

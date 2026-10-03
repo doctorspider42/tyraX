@@ -56,7 +56,16 @@
 #include "vehbake.hpp"
 #include "vugen.hpp"  // the VU program generator - a project may carry its own
 #include "tmdl.hpp"
+#include "roadbridge.hpp"  // bridge decks + structure, host-baked
 #include "roadgen.hpp"  // the road tessellator this file carries a twin of
+#include "roadtex.hpp"
+#include "roadrail.hpp"  // rails + tram tracks, baked into the kerb tables
+#include "roaddetail.hpp"  // road details: host-baked decals (docs/roads.md)
+#include "roadfurniture.hpp"  // street furniture: host-baked lamps, trees, signs
+#include "roadlight.hpp"  // lit street lamps + weather (docs/weather.md)
+#include "roadstream.hpp"  // road streaming: the runtime cut from buildRoads' own text
+#include "roadlanes.hpp"   // road traffic: the lane graph and the traffic core (docs/traffic.md)
+#include "roadfile.hpp"  // road tables on disk: bin/roadfile/roads.bin + its directory
 #include "wire.hpp"  // fnv1a64 - stable per-override .tskl suffix
 
 namespace templates {
@@ -206,6 +215,51 @@ static int vehicleBodyModel(const Project& p, const std::string& defName) {
 // project without one regenerates byte for byte. Defined next to the rest of
 // the vehicle codegen; declared here because the scene tables come first.
 static bool projectHasVehicles(const Project& p);
+static bool projectHasKerbs(const Project& p);
+static bool projectHasBridges(const Project& p);
+static bool projectHasRoadDetails(const Project& p);
+// Street furniture (docs/roads.md "Street furniture"): any road asking for any.
+static bool projectHasRoadFurniture(const Project& p) {
+    for (const SceneData& sc : p.scenes)
+        for (const SceneObject& o : sc.objects)
+            if (o.type == PrimitiveType::Road && o.roadPoints.size() >= 4 &&
+                roadfurn::any({o.roadFurniture}))
+                return true;
+    return false;
+}
+
+// Lit street lamps (docs/weather.md): a road with furniture lamps in a scene
+// whose lamps are not Off. The gate of the pool rows, ROAD_LAMPS and the
+// lamp runtime - a project without one keeps its exact source.
+bool projectHasLitLamps(const Project& p) {
+    for (const SceneData& sc : p.scenes) {
+        if (sc.streetLamps == 2) continue;
+        for (const SceneObject& o : sc.objects)
+            if (o.type == PrimitiveType::Road && o.roadPoints.size() >= 4 && !o.roadBridge &&
+                o.roadFurniture.lamps.spacing > 0.0f)
+                return true;
+    }
+    return false;
+}
+
+// Weather (docs/weather.md): a scene that rains, or a graph that can make it.
+bool projectUsesWeather(const Project& p) {
+    for (const SceneData& sc : p.scenes) {
+        if (sc.weather != 0) return true;
+        for (const SceneObject& o : sc.objects)
+            for (const FlowNode& n : o.flowGraph.nodes)
+                if (n.type == "SetWeather") return true;
+    }
+    return false;
+}
+
+bool projectHasPuddles(const Project& p) {
+    return projectUsesWeather(p) && projectHasRoadDetails(p);
+}
+
+bool projectHasWetCarStreaks(const Project& p) {
+    return projectUsesWeather(p) && projectHasVehicles(p);
+}
 
 // The VEHICLE_DEFS row index of a definition, or -1. Only definitions with a
 // model get a row, so this is NOT the Project::vehicles index.
@@ -793,6 +847,10 @@ class BagArray {
    * Deliberate: `reserve` before a fill is the common idiom and stamping it
    * would make every build path take two stamps instead of one. */
   void reserve(std::size_t n) { v_.reserve(n); }
+  /** Drops growth slack. It may MOVE the bytes, so unlike reserve it stamps,
+   * and a bound bag must be re-bound afterwards (every caller binds after
+   * the fill it trims). */
+  void shrink_to_fit() { touch(); v_.shrink_to_fit(); }
 
 #ifndef TYRAX_BAG_ARRAY_NO_TYRA
   // ---- the four ways bytes may reach a bag, and there are no others ----
@@ -1047,6 +1105,13 @@ constexpr float REFLECTION_PROBE_FOV_DEG = 110.0F;
 // its former batches. false = every object submits its own bag.
 constexpr bool STATIC_BATCHING = {{STATIC_BATCHING}};
 
+// Instance sharing (Preferences > Rendering, docs/instance-sharing.md): a
+// static imported-model instance draws ONE model-space bake of its parts,
+// shared by every instance of the model, under its own matrix - only its lit
+// colours are its own (and pooled by content). false = every instance bakes
+// its own world-space copy, as before 1.173.
+constexpr bool INSTANCE_SHARING = {{INSTANCE_SHARING}};
+
 // Interleaved passes (Preferences > Rendering, docs/interleaved-passes.md):
 // the static batch and road bags are EE-cheap and GPU-heavy, the object loop
 // the opposite, and drawn one after the other the EE waits for VU1 in the
@@ -1270,6 +1335,76 @@ class TerrainGame : public Tyra::Game {
   void setupShadowDecals();   // per scene load: build the bags, take the pages
   void renderShadowDecals();  // per frame: one submit per resident group
 
+  // Instance sharing (INSTANCE_SHARING, docs/instance-sharing.md). A static
+  // model instance used to bake its own WORLD-space copy of every vertex:
+  // position, lit colour and ST, 48 bytes a vertex, per instance. A shared
+  // instance instead draws ONE model-space bake of the part (positions + STs,
+  // owned by the model, built on first use) under its own objMat, and owns
+  // only what really differs - its lit colours, which are themselves pooled
+  // by content, so instances that light identically share those too.
+  // Reference-counted on purpose: the model, every instance part and every
+  // pooled colour array hold their own reference, so whichever of
+  // freeModelAsset and the last GeoPart goes first, the arrays outlive every
+  // bag that points at them.
+  //
+  // NOT std::shared_ptr. This toolchain builds libstdc++'s shared_ptr with
+  // the MUTEX lock policy, so every control block runs pthread_mutex_init -
+  // one EE kernel semaphore each - and a city's few hundred shared parts ran
+  // the kernel out of semaphores mid-load: host: I/O (the log, Live
+  // Debugger, lazily loaded HUD textures) stopped dead while the game kept
+  // drawing. A plain counter is all a single-threaded owner needs.
+  template <class T>
+  class ShRef {
+   public:
+    ShRef() = default;
+    explicit ShRef(T* p) : p_(p) { if (p_) ++p_->refs; }
+    ShRef(const ShRef& o) : p_(o.p_) { if (p_) ++p_->refs; }
+    ShRef(ShRef&& o) noexcept : p_(o.p_) { o.p_ = nullptr; }
+    ShRef& operator=(ShRef o) {
+      T* t = p_;
+      p_ = o.p_;
+      o.p_ = t;
+      return *this;
+    }
+    ~ShRef() { reset(); }
+    void reset() {
+      if (p_ && --p_->refs == 0) delete p_;
+      p_ = nullptr;
+    }
+    T* get() const { return p_; }
+    T* operator->() const { return p_; }
+    T& operator*() const { return *p_; }
+    explicit operator bool() const { return p_ != nullptr; }
+    int useCount() const { return p_ ? p_->refs : 0; }
+
+   private:
+    T* p_ = nullptr;
+  };
+  struct SharedGeo {
+    int refs = 0;  // ShRef's count
+    BagArray<Tyra::Vec4> vertices;  // model space, UNSCALED (objMat scales)
+    BagArray<Tyra::Vec4> sts;
+    unsigned int stripRun = 0;  // as GeoPart::stripRun: 0 = triangle list
+    unsigned int stamp = 0;     // ONE bboxVersion for every instance
+    float mn[3] = {0.0F, 0.0F, 0.0F}, mx[3] = {0.0F, 0.0F, 0.0F};
+    // Distance LOD tiers, model space too, built the first time any instance
+    // needs one (index lod - 1). `strip` = drawn as a strip (an authored
+    // vehicle far tier only; never shared, so always false here in practice).
+    struct Tier {
+      BagArray<Tyra::Vec4> vertices;
+      BagArray<Tyra::Vec4> sts;
+      bool strip = false;
+      bool built = false;
+      unsigned int stamp = 0;
+    };
+    std::vector<Tier> tiers;
+  };
+  struct SharedColors {
+    int refs = 0;  // ShRef's count; the pool's own reference is one of them
+    BagArray<Tyra::Color> colors;
+    unsigned int hash = 0;
+  };
+
   // Scene objects at runtime (mutable by scripts/physics); geometry per
   // object, one draw part per model material (primitives use parts[0])
   struct GeoPart {
@@ -1306,6 +1441,14 @@ class TerrainGame : public Tyra::Game {
     // the shading bake, the env normals, the coarse AABB - does not.
     // Tier 0 only: applyGeoLod clears it while a LOD tier is shown.
     unsigned int stripRun = 0;
+    // Instance sharing: non-null = `vertices`/`sts` above are EMPTY and the
+    // bags draw the model's shared model-space arrays under the object's
+    // objMat; the colours are `sharedCols` (pooled), `colors` stays empty.
+    // Anything that walks this part's vertices must read them through the
+    // bag (bag->vertices / bag->count), or unshare the object first
+    // (ObjectGeometry::noShare) when it needs WORLD space.
+    ShRef<SharedGeo> shared;
+    ShRef<SharedColors> sharedCols;
     std::unique_ptr<Tyra::StaPipBag> bag;
     std::unique_ptr<Tyra::StaPipInfoBag> infoBag;
     std::unique_ptr<Tyra::StaPipColorBag> colorBag;
@@ -1390,6 +1533,10 @@ class TerrainGame : public Tyra::Game {
       BagArray<Tyra::Vec4> envNormals;
       BagArray<Tyra::Color> envColors;
       u32 stamp = 0;  // bboxVersion of these buffers
+      // A shared part's tier: positions/STs live in SharedGeo::tiers and
+      // only this instance's pooled colours here (the arrays above stay
+      // empty).
+      ShRef<SharedColors> sharedCols;
     };
     std::vector<Lod> lods;
     int shownLod = 0;  // tier the bags currently point at
@@ -1438,6 +1585,14 @@ class TerrainGame : public Tyra::Game {
     // settled body gets correct rest-pose shading back.
     Tyra::M4x4 objMat;
     bool matrixMode = false;
+    // Instance sharing (SharedGeo above): every part draws the model's
+    // shared model-space bake under objMat, which - unlike the physics path
+    // - carries the object's SCALE too. Static: objMat is set at rebuild.
+    // Not matrixMode, because everything that tests matrixMode means "a
+    // moving body"; consumers that need WORLD-space vertices set noShare
+    // and rebuild, after which this object bakes world space for good.
+    bool shared = false;
+    bool noShare = false;
     // Reflected-probe mode: the matcap ST basis must be the PROBE camera's
     // right/up, not the main camera's - a probe looking back at the player
     // has its left on the player's right, and sampling its map with the
@@ -1556,10 +1711,40 @@ class TerrainGame : public Tyra::Game {
     std::vector<float> shadowVerts;
     Tyra::CollisionMesh collider;  // built only when a scene needs mesh mode
     std::vector<std::string> texPaths;  // texture-cache refs this model holds
+    // Instance sharing: the model-space bake of each part, built when the
+    // first shared instance asks (acquireSharedGeo). Instances hold their own
+    // references, so freeing the model never pulls an array from under a bag.
+    std::vector<ShRef<SharedGeo>> sharedParts;
   };
   std::vector<GameModel> gameModels;
   void loadModelAsset(int index);
   void freeModelAsset(int index);
+  // Instance sharing (docs/instance-sharing.md).
+  ShRef<SharedGeo> acquireSharedGeo(int model, int part);
+  // A colour array equal to `cols` from the pool, or `cols` itself adopted
+  // into it. Pooled by content, so equally lit instances share one array.
+  ShRef<SharedColors> poolColors(BagArray<Tyra::Color>& cols);
+  std::map<unsigned int, std::vector<ShRef<SharedColors>>> colorPool;
+  unsigned int colorPoolAdds = 0;  // every 256th adoption sweeps the pool
+  // Frees the pooled arrays no instance draws any more (the pool's own
+  // reference is the last one) - also run after a layer streams out.
+  void pruneColorPool();
+  bool instanceShareEligible(int index) const;
+  void bakeSharedObject(int index, const GameModel& gm);
+  // A pass that needs this object's WORLD-space vertices (the torch's
+  // receiver and wall patches, the projected-shadow floor clamp): a shared
+  // object is rebuilt unshared, for good. Cheap no-op otherwise.
+  void unshareObject(int index);
+  // The shading globals rebuildObjectGeometry stages for an imported model
+  // (analytic-light pruning, GI route, pre-lit), for a bake that happens
+  // OUTSIDE it - a distance LOD tier. Reset with resetModelShading().
+  void stageModelShading(int index);
+  void resetModelShading();
+  // Debug builds (DEBUG_SHOW_MEM): MEMSTAT lines in bin/log.txt 60, 300, 900 and
+  // 1500 frames after a scene load - EE RAM in use and what object geometry
+  // holds. memStatCountdown counts those frames (-1 = done / off).
+  void logGeometryMemory();
+  int memStatCountdown = -1;
   // Animated .glb models: serialized by the editor to .tskl skeletal files
   // (paths in model_data.gen.hpp) - bone keyframe tracks + bind-pose mesh.
   // Poses are evaluated and skinned on the EE/VU0 (SkelInstance) for the
@@ -1811,6 +1996,12 @@ class TerrainGame : public Tyra::Game {
     float mx[3];
     short owner;     // procedural volume, -1 = a script-spawned prefab
     short instance;  // prefab instance handle, -1 = a volume's own geometry
+    // An ORIENTED box (bridge parapets and piers, docs/roads.md "Bridges"):
+    // lhx/lhz > 0 are its half extents in its own yaw frame (lx = dx*yc -
+    // dz*ys, lz = dx*ys + dz*yc about the mn/mx centre, the object boxes'
+    // convention); mn/mx stay its world AABB for the cheap rejects. 0 = the
+    // plain axis-aligned box mn/mx describe.
+    float lhx = 0.0F, lhz = 0.0F, yc = 1.0F, ys = 0.0F;
   };
   std::vector<StaticBox> procColliders;
   // Live prefab instances, so Despawn Prefab can find what it made.
@@ -1884,14 +2075,16 @@ class TerrainGame : public Tyra::Game {
   u32 ilMark = 0, ilStallMark = 0;
   // `grip`, when given, receives the answering road's grip (1 when none);
   // `cover` how much of the road is there (1, or a soft edge's fade).
+  // `maxY` (docs/roads.md "Bridges"): the highest surface NOT above it - a
+  // wheel, a walker or a shadow under a bridge deck keeps its own road.
   float roadSurfaceAt(float x, float z, float* grip = nullptr,
-                      float* cover = nullptr) const;
+                      float* cover = nullptr, float maxY = 1.0e30F) const;
   void buildRoadHeightIndex() const;
   // The pre-grid exhaustive walk, defined only under TYRA_ROAD_INDEX_VERIFY
   // (see roadSurfaceAt) - it is the oracle that gate compares against.
   float roadSurfaceScan(float x, float z) const;
   // roadSurfaceAt's uniform XZ grid over the road triangles: prefix offsets
-  // per cell, and entries packing (chunk << 22 | last vertex of a triangle).
+  // per cell, and entries packing (chunk << 19 | last vertex of a triangle).
   // Built once after the roads are, and again if the chunk list changes.
   mutable std::vector<unsigned int> roadIdxStart;
   mutable std::vector<unsigned int> roadIdxItems;
@@ -1899,7 +2092,8 @@ class TerrainGame : public Tyra::Game {
   mutable float roadIdxMinX = 0.0F, roadIdxMinZ = 0.0F, roadIdxInv = 0.0F;
   mutable int roadIdxN = 0;
   mutable bool roadIdxDirty = true;
-  float groundSurfaceAt(float x, float z) const;
+  float groundSurfaceAt(float x, float z, float maxY = 1.0e30F) const;
+  float walkGroundAt(float x, float z, float feetY) const;
   // The painted terrain layers' tyre grip at (x, z), 1 without any
   // (1.142.0; the host twin is Viewport::terrainLayerGrip).
   float terrainGripAt(float x, float z) const;
@@ -3121,6 +3315,76 @@ class TerrainGame : public Tyra::Game {
   void setupShadowDecals();   // per scene load: build the bags, take the pages
   void renderShadowDecals();  // per frame: one submit per resident group
 
+  // Instance sharing (INSTANCE_SHARING, docs/instance-sharing.md). A static
+  // model instance used to bake its own WORLD-space copy of every vertex:
+  // position, lit colour and ST, 48 bytes a vertex, per instance. A shared
+  // instance instead draws ONE model-space bake of the part (positions + STs,
+  // owned by the model, built on first use) under its own objMat, and owns
+  // only what really differs - its lit colours, which are themselves pooled
+  // by content, so instances that light identically share those too.
+  // Reference-counted on purpose: the model, every instance part and every
+  // pooled colour array hold their own reference, so whichever of
+  // freeModelAsset and the last GeoPart goes first, the arrays outlive every
+  // bag that points at them.
+  //
+  // NOT std::shared_ptr. This toolchain builds libstdc++'s shared_ptr with
+  // the MUTEX lock policy, so every control block runs pthread_mutex_init -
+  // one EE kernel semaphore each - and a city's few hundred shared parts ran
+  // the kernel out of semaphores mid-load: host: I/O (the log, Live
+  // Debugger, lazily loaded HUD textures) stopped dead while the game kept
+  // drawing. A plain counter is all a single-threaded owner needs.
+  template <class T>
+  class ShRef {
+   public:
+    ShRef() = default;
+    explicit ShRef(T* p) : p_(p) { if (p_) ++p_->refs; }
+    ShRef(const ShRef& o) : p_(o.p_) { if (p_) ++p_->refs; }
+    ShRef(ShRef&& o) noexcept : p_(o.p_) { o.p_ = nullptr; }
+    ShRef& operator=(ShRef o) {
+      T* t = p_;
+      p_ = o.p_;
+      o.p_ = t;
+      return *this;
+    }
+    ~ShRef() { reset(); }
+    void reset() {
+      if (p_ && --p_->refs == 0) delete p_;
+      p_ = nullptr;
+    }
+    T* get() const { return p_; }
+    T* operator->() const { return p_; }
+    T& operator*() const { return *p_; }
+    explicit operator bool() const { return p_ != nullptr; }
+    int useCount() const { return p_ ? p_->refs : 0; }
+
+   private:
+    T* p_ = nullptr;
+  };
+  struct SharedGeo {
+    int refs = 0;  // ShRef's count
+    BagArray<Tyra::Vec4> vertices;  // model space, UNSCALED (objMat scales)
+    BagArray<Tyra::Vec4> sts;
+    unsigned int stripRun = 0;  // as GeoPart::stripRun: 0 = triangle list
+    unsigned int stamp = 0;     // ONE bboxVersion for every instance
+    float mn[3] = {0.0F, 0.0F, 0.0F}, mx[3] = {0.0F, 0.0F, 0.0F};
+    // Distance LOD tiers, model space too, built the first time any instance
+    // needs one (index lod - 1). `strip` = drawn as a strip (an authored
+    // vehicle far tier only; never shared, so always false here in practice).
+    struct Tier {
+      BagArray<Tyra::Vec4> vertices;
+      BagArray<Tyra::Vec4> sts;
+      bool strip = false;
+      bool built = false;
+      unsigned int stamp = 0;
+    };
+    std::vector<Tier> tiers;
+  };
+  struct SharedColors {
+    int refs = 0;  // ShRef's count; the pool's own reference is one of them
+    BagArray<Tyra::Color> colors;
+    unsigned int hash = 0;
+  };
+
   // Scene objects at runtime (mutable by scripts/physics); geometry per
   // object, one draw part per model material (primitives use parts[0])
   struct GeoPart {
@@ -3157,6 +3421,14 @@ class TerrainGame : public Tyra::Game {
     // the shading bake, the env normals, the coarse AABB - does not.
     // Tier 0 only: applyGeoLod clears it while a LOD tier is shown.
     unsigned int stripRun = 0;
+    // Instance sharing: non-null = `vertices`/`sts` above are EMPTY and the
+    // bags draw the model's shared model-space arrays under the object's
+    // objMat; the colours are `sharedCols` (pooled), `colors` stays empty.
+    // Anything that walks this part's vertices must read them through the
+    // bag (bag->vertices / bag->count), or unshare the object first
+    // (ObjectGeometry::noShare) when it needs WORLD space.
+    ShRef<SharedGeo> shared;
+    ShRef<SharedColors> sharedCols;
     std::unique_ptr<Tyra::StaPipBag> bag;
     std::unique_ptr<Tyra::StaPipInfoBag> infoBag;
     std::unique_ptr<Tyra::StaPipColorBag> colorBag;
@@ -3241,6 +3513,10 @@ class TerrainGame : public Tyra::Game {
       BagArray<Tyra::Vec4> envNormals;
       BagArray<Tyra::Color> envColors;
       u32 stamp = 0;  // bboxVersion of these buffers
+      // A shared part's tier: positions/STs live in SharedGeo::tiers and
+      // only this instance's pooled colours here (the arrays above stay
+      // empty).
+      ShRef<SharedColors> sharedCols;
     };
     std::vector<Lod> lods;
     int shownLod = 0;  // tier the bags currently point at
@@ -3289,6 +3565,14 @@ class TerrainGame : public Tyra::Game {
     // settled body gets correct rest-pose shading back.
     Tyra::M4x4 objMat;
     bool matrixMode = false;
+    // Instance sharing (SharedGeo above): every part draws the model's
+    // shared model-space bake under objMat, which - unlike the physics path
+    // - carries the object's SCALE too. Static: objMat is set at rebuild.
+    // Not matrixMode, because everything that tests matrixMode means "a
+    // moving body"; consumers that need WORLD-space vertices set noShare
+    // and rebuild, after which this object bakes world space for good.
+    bool shared = false;
+    bool noShare = false;
     // Reflected-probe mode: the matcap ST basis must be the PROBE camera's
     // right/up, not the main camera's - a probe looking back at the player
     // has its left on the player's right, and sampling its map with the
@@ -3407,10 +3691,40 @@ class TerrainGame : public Tyra::Game {
     std::vector<float> shadowVerts;
     Tyra::CollisionMesh collider;  // built only when a scene needs mesh mode
     std::vector<std::string> texPaths;  // texture-cache refs this model holds
+    // Instance sharing: the model-space bake of each part, built when the
+    // first shared instance asks (acquireSharedGeo). Instances hold their own
+    // references, so freeing the model never pulls an array from under a bag.
+    std::vector<ShRef<SharedGeo>> sharedParts;
   };
   std::vector<GameModel> gameModels;
   void loadModelAsset(int index);
   void freeModelAsset(int index);
+  // Instance sharing (docs/instance-sharing.md).
+  ShRef<SharedGeo> acquireSharedGeo(int model, int part);
+  // A colour array equal to `cols` from the pool, or `cols` itself adopted
+  // into it. Pooled by content, so equally lit instances share one array.
+  ShRef<SharedColors> poolColors(BagArray<Tyra::Color>& cols);
+  std::map<unsigned int, std::vector<ShRef<SharedColors>>> colorPool;
+  unsigned int colorPoolAdds = 0;  // every 256th adoption sweeps the pool
+  // Frees the pooled arrays no instance draws any more (the pool's own
+  // reference is the last one) - also run after a layer streams out.
+  void pruneColorPool();
+  bool instanceShareEligible(int index) const;
+  void bakeSharedObject(int index, const GameModel& gm);
+  // A pass that needs this object's WORLD-space vertices (the torch's
+  // receiver and wall patches, the projected-shadow floor clamp): a shared
+  // object is rebuilt unshared, for good. Cheap no-op otherwise.
+  void unshareObject(int index);
+  // The shading globals rebuildObjectGeometry stages for an imported model
+  // (analytic-light pruning, GI route, pre-lit), for a bake that happens
+  // OUTSIDE it - a distance LOD tier. Reset with resetModelShading().
+  void stageModelShading(int index);
+  void resetModelShading();
+  // Debug builds (DEBUG_SHOW_MEM): MEMSTAT lines in bin/log.txt 60, 300, 900 and
+  // 1500 frames after a scene load - EE RAM in use and what object geometry
+  // holds. memStatCountdown counts those frames (-1 = done / off).
+  void logGeometryMemory();
+  int memStatCountdown = -1;
   // Animated .glb models: serialized by the editor to .tskl skeletal files
   // (paths in model_data.gen.hpp) - bone keyframe tracks + bind-pose mesh.
   // Poses are evaluated and skinned on the EE/VU0 (SkelInstance) for the
@@ -3662,6 +3976,12 @@ class TerrainGame : public Tyra::Game {
     float mx[3];
     short owner;     // procedural volume, -1 = a script-spawned prefab
     short instance;  // prefab instance handle, -1 = a volume's own geometry
+    // An ORIENTED box (bridge parapets and piers, docs/roads.md "Bridges"):
+    // lhx/lhz > 0 are its half extents in its own yaw frame (lx = dx*yc -
+    // dz*ys, lz = dx*ys + dz*yc about the mn/mx centre, the object boxes'
+    // convention); mn/mx stay its world AABB for the cheap rejects. 0 = the
+    // plain axis-aligned box mn/mx describe.
+    float lhx = 0.0F, lhz = 0.0F, yc = 1.0F, ys = 0.0F;
   };
   std::vector<StaticBox> procColliders;
   // Live prefab instances, so Despawn Prefab can find what it made.
@@ -3735,14 +4055,16 @@ class TerrainGame : public Tyra::Game {
   u32 ilMark = 0, ilStallMark = 0;
   // `grip`, when given, receives the answering road's grip (1 when none);
   // `cover` how much of the road is there (1, or a soft edge's fade).
+  // `maxY` (docs/roads.md "Bridges"): the highest surface NOT above it - a
+  // wheel, a walker or a shadow under a bridge deck keeps its own road.
   float roadSurfaceAt(float x, float z, float* grip = nullptr,
-                      float* cover = nullptr) const;
+                      float* cover = nullptr, float maxY = 1.0e30F) const;
   void buildRoadHeightIndex() const;
   // The pre-grid exhaustive walk, defined only under TYRA_ROAD_INDEX_VERIFY
   // (see roadSurfaceAt) - it is the oracle that gate compares against.
   float roadSurfaceScan(float x, float z) const;
   // roadSurfaceAt's uniform XZ grid over the road triangles: prefix offsets
-  // per cell, and entries packing (chunk << 22 | last vertex of a triangle).
+  // per cell, and entries packing (chunk << 19 | last vertex of a triangle).
   // Built once after the roads are, and again if the chunk list changes.
   mutable std::vector<unsigned int> roadIdxStart;
   mutable std::vector<unsigned int> roadIdxItems;
@@ -3750,7 +4072,8 @@ class TerrainGame : public Tyra::Game {
   mutable float roadIdxMinX = 0.0F, roadIdxMinZ = 0.0F, roadIdxInv = 0.0F;
   mutable int roadIdxN = 0;
   mutable bool roadIdxDirty = true;
-  float groundSurfaceAt(float x, float z) const;
+  float groundSurfaceAt(float x, float z, float maxY = 1.0e30F) const;
+  float walkGroundAt(float x, float z, float feetY) const;
   // The painted terrain layers' tyre grip at (x, z), 1 without any
   // (1.142.0; the host twin is Viewport::terrainLayerGrip).
   float terrainGripAt(float x, float z) const;
@@ -5511,6 +5834,14 @@ struct ScriptContext {
   // The Repair Vehicle node: the vehicle object to put right, or
   // VEHICLE_REQUEST_EXIT for "the one the player is driving".
   int vehicleRepair = VEHICLE_REQUEST_NONE;
+  // Road traffic (docs/traffic.md): the player's red-light runs. The game
+  // bumps the count each time the player's car crosses a stop line on red
+  // and leaves the node and the car's speed (units/s) beside it; the On Red
+  // Light Run flow node fires when its own copy of the count falls behind.
+  // A project without traffic never writes them.
+  int redLightRuns = 0;
+  int redLightNode = -1;
+  float redLightSpeed = 0.0F;
 
   // Index of the usable object the player pressed BTN_USE on this frame
   // (-1 = none). Drives the flow graph "On Used" trigger.
@@ -6127,7 +6458,13 @@ function RunPCSX2 {
     $executableNameWithoutExt = (Split-Path $executableName -Leaf).Split('.')[0]
     $targetFileName = "$PWD/bin/$(GetTargetELFName)"
 
-    Stop-Process -Name $executableNameWithoutExt -ErrorAction 'SilentlyContinue'
+    # Close only the PCSX2 running THIS project's ELF (the editor's rule,
+    # Runner::killEmulatorsFor): several emulators run at once, one per
+    # project or worktree, and closing them all by name ends somebody else's.
+    $elfFull = [System.IO.Path]::GetFullPath($targetFileName)
+    Get-CimInstance Win32_Process -Filter "Name = '$executableName'" -ErrorAction 'SilentlyContinue' |
+        Where-Object { $_.CommandLine -and ($_.CommandLine.Replace('/', '\') -like "*$($elfFull.Replace('/', '\'))*") } |
+        ForEach-Object { Stop-Process -Id $_.ProcessId -ErrorAction 'SilentlyContinue' }
 
     if ($isNewVersion) {
         Start-Process -FilePath "$dirPath/$executableName" -ArgumentList "-elf", $targetFileName
@@ -6173,8 +6510,14 @@ fi
 ELF="bin/$(grep -oE '[^ ]*\.elf' Makefile | head -1)"
 [ -f "$ELF" ] || { echo "$ELF not found - build the project first." >&2; exit 1; }
 
-pkill -x pcsx2-qt >/dev/null 2>&1 || true
-pkill -x pcsx2 >/dev/null 2>&1 || true
+# Close only the PCSX2 running THIS project's ELF (the editor's rule,
+# Runner::killEmulatorsFor): several emulators run at once, one per project or
+# worktree, and pkill by name ends somebody else's.
+for pid in $(pgrep -x pcsx2-qt 2>/dev/null; pgrep -x pcsx2 2>/dev/null); do
+    if [ -r "/proc/$pid/cmdline" ] && tr '\0' ' ' < "/proc/$pid/cmdline" | grep -qF -- "$PWD/$ELF"; then
+        kill "$pid" 2>/dev/null || true
+    fi
+done
 exec $PCSX2 -elf "$PWD/$ELF"
 )SH";
 
@@ -7502,8 +7845,32 @@ static std::string dayNightHeader(const Project& p) {
            "  if (len > 0.001F) g_hour = wrap24(g_hour + dt * (24.0F / len));\n"
            "  evaluate(scene, g_hour);\n"
            "}\n\n"
-           "}  // namespace daynight\n"
-           "}  // namespace " << ns << "\n";
+           "}  // namespace daynight\n";
+    // Weather and street lamps (docs/weather.md): only a project that has
+    // either gets the block, so every other project's header is unchanged.
+    const bool lamps = projectHasLitLamps(p), weather = projectUsesWeather(p);
+    if (lamps || weather) {
+        // A weather-only project still compiles the lamp runtime: it gets an
+        // empty ROAD_LAMPS (a project with lamps has the real one in
+        // scene_data.hpp).
+        if (!lamps) out << "\n" << roadlight::emptyLampTableSource();
+        std::vector<roadlight::SceneWeather> sw;
+        for (const SceneData& sc : p.scenes) {
+            roadlight::SceneWeather w;
+            w.weather = sc.weather;
+            w.intensity = sc.weatherIntensity;
+            w.lamps = sc.streetLamps;
+            // Auto in a scene whose cycle does not run: the level at the hour
+            // it is baked at. No cycle at all: day, lamps off.
+            if (const DayCycle* c = sceneDayCycle(p, sc))
+                if (!c->runtime)
+                    w.staticLevel = roadlight::lampLevelFromSun(
+                        ambience::evaluate(*c, ambience::bakedHour(*c)).sunDir[1]);
+            sw.push_back(w);
+        }
+        out << roadlight::weatherHeaderSource(sw);
+    }
+    out << "}  // namespace " << ns << "\n";
     return out.str();
 }
 
@@ -8066,9 +8433,15 @@ static bool staticBatchEligible(const SceneObject& o,
 // inc/scene_data.hpp.
 static std::string blssInterlock(const Project& p);
 
-// inc/scene_data.hpp - pure data mirror of the .tyra project, regenerated on build
+// Road tables on disk (docs/roads.md "Tables on disk"): defined with the
+// road streaming switch below.
+static bool projectRoadTablesOnDisk(const Project& p);
+
+// inc/scene_data.hpp - pure data mirror of the .tyra project, regenerated on build.
+// `roadFile` receives bin/roadfile/roads.bin when the project keeps its road tables on
+// disk (empty otherwise).
 static std::string sceneDataContent(const Project& p, const std::string& ns,
-                                    std::string& objectSource) {
+                                    std::string& objectSource, std::string& roadFile) {
     std::ostringstream out;
     std::ostringstream objects;
     objects << "// Generated by TyraX. Do not edit - regenerated on every build.\n"
@@ -8575,8 +8948,14 @@ static std::string sceneDataContent(const Project& p, const std::string& ns,
                 objects << "0";
             } else {
                 for (size_t i = 0; i < objs.size(); ++i) {
+                    // A traffic car (docs/traffic.md) is the codegen's, not the
+                    // editor's: no identity, so Live Link neither patches nor
+                    // hides it.
+                    const bool trafficCar =
+                        objs[i].id.rfind(roadlanes::kCarPrefix, 0) == 0;
                     std::snprintf(hb, sizeof(hb), "0x%016llx",
-                                  (unsigned long long)project::liveLinkIdHash(objs[i]));
+                                  trafficCar ? 0ULL
+                                             : (unsigned long long)project::liveLinkIdHash(objs[i]));
                     objects << (i ? ", " : "") << hb << "ULL";
                 }
                 for (size_t i = 0; i < sceneClones[si].size(); ++i)
@@ -8962,6 +9341,7 @@ static std::string sceneDataContent(const Project& p, const std::string& ns,
                 int scene, tex;
                 int first, count;
                 float grip;
+                int rgb = 0;  // 0 = the road grey a texture modulates; else paint
             };
             // A spill (1.143.0): road `road`'s surface trailing onto a
             // higher-rank road, baked here by roadgen::tessellateSpill.
@@ -8980,10 +9360,53 @@ static std::string sceneDataContent(const Project& p, const std::string& ns,
             std::vector<RoadRow> roadRows;
             std::vector<JunctionRow> junctionRows;
             std::vector<roadgen::Vertex> junctionVerts;
+            // Kerbs (docs/roads.md "Kerbs"): one row per chunk of strip runs.
+            struct KerbRow {
+                int scene, first, count;
+            };
+            const bool hasKerbs = projectHasKerbs(p);
+            std::vector<KerbRow> kerbRows;
+            std::vector<float> kerbVerts;  // x, y, z, shade
+            std::ostringstream kerbNotes;
+            // Bridges (docs/roads.md "Bridges", src/roadbridge.cpp): the deck
+            // becomes junction rows, the structure ROAD_BRIDGE rows; the EE's
+            // buildRoads never sees a bridge road.
+            const bool hasBridges = projectHasBridges(p);
+            std::vector<roadbridge::SceneChunk> bridgeRows;
+            std::vector<float> bridgeBoxes;  // scene, min/max xyz, half x/z, yaw cos/sin
+            std::vector<float> bridgeVerts;  // x, y, z, shade
+            std::ostringstream bridgeNotes;
+            // Road details (docs/roads.md "Road details"): one row per chunk
+            // of decal triangles, x y z u v into the details atlas.
+            const bool hasDetails = projectHasRoadDetails(p);
+            std::vector<KerbRow> detailRows;
+            std::vector<float> detailVerts;
+            std::ostringstream detailNotes;
+            int detailTex = -1;
+            // Puddles (docs/weather.md "Puddles"): more detail rows, flagged
+            // by a `wet` column that exists only in a project with weather -
+            // every other project's table keeps its exact text.
+            const bool puddlesOn = projectHasPuddles(p);
+            std::vector<int> detailWet;  // per detailRows entry
+            int puddleTex = -1;
+            // Street furniture (docs/roads.md "Street furniture"): merged
+            // vertex-colour chunks + collision boxes, from the roads.
+            const bool hasFurniture = projectHasRoadFurniture(p);
+            roadfurn::Tables furnTables;
+            // Road traffic (docs/traffic.md): the lane graph per scene, from
+            // the same roads, plan and signals.
+            const bool hasTraffic = roadlanes::projectHasTraffic(p);
+            roadlanes::Tables trafficTables;
+            // Lit street lamps (docs/weather.md): pool rows ride in the
+            // furniture's own table, ROAD_LAMPS beside it.
+            const bool litLamps = projectHasLitLamps(p);
+            furnTables.lit = litLamps;
+            std::vector<std::pair<int, roadlight::Lamp>> litLampRows;
             for (size_t si = 0; si < p.scenes.size(); ++si)
                 for (const SceneObject& o : p.scenes[si].objects) {
                     if (o.type != PrimitiveType::Road || o.roadPoints.size() < 4)
                         continue;
+                    if (o.roadBridge) continue;  // host-baked below
                     const int tix =
                         textureIndex(project::resolveRoadTexture(p, o.roadTexture));
                     RoadRow r;
@@ -9027,13 +9450,21 @@ static std::string sceneDataContent(const Project& p, const std::string& ns,
             // before the spills that may land on them).
             int crossingOrphans = 0;
             for (size_t si = 0; si < p.scenes.size(); ++si) {
+                const SceneData& sc = p.scenes[si];
+                auto ground = [&](float x, float z) {
+                    return sc.terrain.enabled ? roadgen::terrainHeight(sc.heights,
+                        sc.hmW, sc.hmD, (float)sc.terrain.width, (float)sc.terrain.depth,
+                        x, z) : -1000000.0f;
+                };
                 std::vector<int> objIdx;
                 const std::vector<roadgen::CrossingRoad> cr =
-                    project::crossingRoads(p.scenes[si].objects, &objIdx);
+                    project::crossingRoads(p.scenes[si].objects, &objIdx, p.dir, ground);
                 if (cr.empty()) continue;
-                // Scene road k -> its roadRows index (rows are in scene order).
+                // Scene road k -> its roadRows index (rows are in scene order;
+                // a bridge has none).
                 std::vector<int> rowOf(cr.size(), -1);
                 for (size_t k = 0, r = 0; k < cr.size(); ++k) {
+                    if (p.scenes[si].objects[(size_t)objIdx[k]].roadBridge) continue;
                     while (r < roadRows.size() &&
                            (roadRows[r].scene != (int)si ||
                             roadRows[r].source != &p.scenes[si].objects[(size_t)objIdx[k]]))
@@ -9043,12 +9474,41 @@ static std::string sceneDataContent(const Project& p, const std::string& ns,
                 const roadgen::CrossingPlan plan =
                     roadgen::planCrossings(cr, p.scenes[si].roadJunctions);
                 crossingOrphans += plan.orphans;
-                const SceneData& sc = p.scenes[si];
-                auto ground = [&](float x, float z) {
-                    return sc.terrain.enabled ? roadgen::terrainHeight(sc.heights,
-                        sc.hmW, sc.hmD, (float)sc.terrain.width, (float)sc.terrain.depth,
-                        x, z) : -1000000.0f;
-                };
+                // Bridges: each deck as textured junction rows (V rebased per
+                // row), each structure as cell chunks.
+                for (size_t k = 0; k < cr.size() && hasBridges; ++k) {
+                    const SceneObject& bo = sc.objects[(size_t)objIdx[k]];
+                    if (!bo.roadBridge) continue;
+                    const roadbridge::Deck deck = roadbridge::buildDeck(bo, ground);
+                    std::vector<roadgen::Vertex> tris;
+                    roadbridge::tessellateDeck(deck, tris);
+                    std::vector<int> sizes;
+                    roadbridge::chunkDeck(tris, sizes);
+                    const int tex = textureIndex(project::resolveRoadTexture(p, bo.roadTexture));
+                    int at = 0;
+                    for (int sz : sizes) {
+                        junctionRows.push_back({(int)si, tex, (int)junctionVerts.size(), sz,
+                                                bo.roadGrip});
+                        junctionVerts.insert(junctionVerts.end(), tris.begin() + at,
+                                             tris.begin() + at + sz);
+                        at += sz;
+                    }
+                    roadbridge::Structure st;
+                    roadbridge::buildStructure(deck, cr, (int)k, st);
+                    std::vector<roadbridge::ChunkRow> rows;
+                    roadbridge::chunkStructure(st, bridgeVerts, rows);
+                    for (const roadbridge::ChunkRow& r : rows)
+                        bridgeRows.push_back({(int)si, r.first, r.count});
+                    for (const roadbridge::CollisionBox& b : st.boxes)
+                        bridgeBoxes.insert(bridgeBoxes.end(),
+                                           {(float)si, b.mn[0], b.mn[1], b.mn[2], b.mx[0], b.mx[1],
+                                            b.mx[2], b.hx, b.hz, b.yc, b.ys});
+                    bridgeNotes << "// scene " << si << " \"" << escapeCString(bo.name) << "\": deck "
+                                << tris.size() << " vertices in " << sizes.size() << " rows, "
+                                << st.spans << " span(s), " << st.piers << " pier(s), "
+                                << st.abutments << " abutment(s), " << st.tris.size()
+                                << " structure vertices in " << rows.size() << " chunks\n";
+                }
                 std::vector<roadgen::Vertex> roadTriangles;
                 for (const roadgen::CrossingRoad& r : cr) {
                     std::vector<roadgen::Vertex> mesh;
@@ -9057,15 +9517,275 @@ static std::string sceneDataContent(const Project& p, const std::string& ns,
                         mesh, {}, r.sampleStep);
                     roadTriangles.insert(roadTriangles.end(), mesh.begin(), mesh.end());
                 }
+                std::vector<roadgen::Vertex> markSurfaceTris;
+                std::vector<roadgen::Vertex> detailPaint;  // road details avoid it
+                std::vector<roadgen::Vertex> furnPaint;     // ... and so does furniture
+                std::vector<roadgen::PavementMesh> furnPave; // which stands on these
+                // Kerbs stand on the drawn surface: the roads and their patches.
+                roadgen::Surface kerbSurface;
+                if (hasKerbs) kerbSurface.add(roadTriangles);
                 for (const roadgen::Crossing& c : plan.crossings) {
                     if (c.kind != roadgen::kCrossPatch || c.patchDuplicate) continue;
                     std::vector<roadgen::Vertex> mesh;
-                    roadgen::tessellateJunctionSurface(c.shape, roadTriangles, ground,
-                                                     c.lift, mesh);
+                    roadgen::tessellateJunctionSurface(
+                        c.shape, roadTriangles, ground, c.lift, mesh,
+                        sc.terrain.enabled
+                            ? roadgen::terrainGridOf(sc.hmW, sc.hmD, (float)sc.terrain.width,
+                                                     (float)sc.terrain.depth)
+                            : roadgen::TerrainGrid{});
+                    if (hasKerbs) kerbSurface.add(mesh, c.grip);
                     junctionRows.push_back(
                         {(int)si, textureIndex(project::resolveRoadTexture(p, c.material)),
                          (int)junctionVerts.size(), (int)mesh.size(), c.grip});
                     junctionVerts.insert(junctionVerts.end(), mesh.begin(), mesh.end());
+                    markSurfaceTris.insert(markSurfaceTris.end(), mesh.begin(), mesh.end());
+                }
+                // Node markings (1.171.0, docs/roads.md "Markings"): white paint
+                // laid on the roads and patches just built, one untextured row
+                // per scene.
+                {
+                    roadgen::Surface paintOn;
+                    paintOn.add(roadTriangles);
+                    paintOn.add(markSurfaceTris);
+                    paintOn.build();
+                    std::vector<roadgen::Vertex> paint;
+                    roadgen::bakeMarkings(plan, cr, paintOn, paint);
+                    if (hasDetails) detailPaint = paint;
+                    if (hasFurniture) furnPaint = paint;
+                    if (!paint.empty()) {
+                        // Worn paint: textured with road-paint (its alpha
+                        // blends the line into the asphalt), UVs from the
+                        // world position, one row per 32-unit cell - culled
+                        // a block at a time, UVs rebased to small numbers.
+                        const std::string paintMtl = roadtex::ensurePaintTexture(p.dir);
+                        const int ptex =
+                            paintMtl.empty()
+                                ? -1
+                                : textureIndex(project::resolveRoadTexture(p, paintMtl));
+                        std::map<std::pair<int, int>, std::vector<roadgen::Vertex>> cells;
+                        for (size_t t = 0; t + 2 < paint.size(); t += 3) {
+                            const float cx = (paint[t].x + paint[t + 1].x + paint[t + 2].x) / 3.0f;
+                            const float cz = (paint[t].z + paint[t + 1].z + paint[t + 2].z) / 3.0f;
+                            std::vector<roadgen::Vertex>& dst =
+                                cells[{(int)std::floor(cx / roadgen::kKerbCell),
+                                       (int)std::floor(cz / roadgen::kKerbCell)}];
+                            dst.insert(dst.end(), paint.begin() + (long)t,
+                                       paint.begin() + (long)t + 3);
+                        }
+                        for (auto& [cell, tris] : cells) {
+                            (void)cell;
+                            if (ptex >= 0) {
+                                float mu = 1e30f, mv = 1e30f;
+                                for (roadgen::Vertex& v : tris) {
+                                    v.u = v.x / roadtex::kPaintExtent;
+                                    v.v = v.z / roadtex::kPaintExtent;
+                                    mu = std::min(mu, v.u), mv = std::min(mv, v.v);
+                                }
+                                mu = std::floor(mu), mv = std::floor(mv);
+                                for (roadgen::Vertex& v : tris) v.u -= mu, v.v -= mv;
+                            }
+                            JunctionRow row{(int)si, ptex, (int)junctionVerts.size(),
+                                            (int)tris.size(), 1.0f};
+                            row.rgb = roadgen::kMarkingRgb;
+                            junctionRows.push_back(row);
+                            junctionVerts.insert(junctionVerts.end(), tris.begin(), tris.end());
+                        }
+                    }
+                }
+                // Kerbs (docs/roads.md "Kerbs"): baked here as strip runs in
+                // cell chunks; the console uploads them unchanged.
+                if (hasKerbs) {
+                    kerbSurface.build();
+                    const std::vector<roadgen::KerbPiece> pieces = roadgen::planKerbs(
+                        cr, plan,
+                        [&](float x, float z) { return kerbSurface.at(x, z); }, ground);
+                    std::vector<roadgen::KerbVertex> kv;
+                    std::vector<int> sizes;
+                    roadgen::kerbStrips(pieces, kv, sizes);
+                    int at = (int)(kerbVerts.size() / 4);
+                    for (int sz : sizes) {
+                        kerbRows.push_back({(int)si, at, sz});
+                        at += sz;
+                    }
+                    for (const roadgen::KerbVertex& v : kv)
+                        kerbVerts.insert(kerbVerts.end(), {v.x, v.y, v.z, v.shade});
+                    if (!kv.empty())
+                        kerbNotes << "// scene " << si << ": " << pieces.size()
+                                  << " kerb lines, " << kv.size() << " strip vertices in "
+                                  << sizes.size() << " chunks\n";
+                    // Pavements (docs/roads.md "Pavements"): the kerb top
+                    // carried on outward, textured triangles in junction rows
+                    // - one per material and cell, so they cull, draw and
+                    // collide like a patch and cost the EE nothing.
+                    const std::vector<roadgen::PavementMesh> pave =
+                        roadgen::planPavements(cr, plan, pieces, ground);
+                    if (hasFurniture) furnPave = pave;
+                    std::map<std::pair<int, std::pair<int, int>>, std::vector<roadgen::Vertex>>
+                        paveRows;
+                    for (const roadgen::PavementMesh& pm : pave) {
+                        const SceneObject& src =
+                            p.scenes[si].objects[(size_t)objIdx[(size_t)pm.road]];
+                        const int tix =
+                            src.roadPavementMaterial.empty()
+                                ? -1
+                                : textureIndex(
+                                      project::resolveRoadTexture(p, src.roadPavementMaterial));
+                        std::vector<roadgen::Vertex>& dst =
+                            paveRows[{tix, {pm.cellX, pm.cellZ}}];
+                        dst.insert(dst.end(), pm.tris.begin(), pm.tris.end());
+                    }
+                    size_t paveVerts = 0;
+                    for (const auto& [key, tris] : paveRows) {
+                        JunctionRow row{(int)si, key.first, (int)junctionVerts.size(),
+                                        (int)tris.size(), 1.0f};
+                        if (key.first < 0) row.rgb = roadgen::kPavementRgb;
+                        junctionRows.push_back(row);
+                        junctionVerts.insert(junctionVerts.end(), tris.begin(), tris.end());
+                        paveVerts += tris.size();
+                    }
+                    if (paveVerts > 0)
+                        kerbNotes << "// scene " << si << ": pavements " << paveVerts
+                                  << " vertices in " << paveRows.size() << " rows\n";
+                    // Rails and tram tracks (docs/roads.md "Rails and tram
+                    // tracks"): the same strips on the same surface, appended
+                    // as more kerb chunks - the console tells them apart only
+                    // by their palette shade.
+                    const std::vector<roadrail::RailPiece> rails = roadrail::planRails(
+                        cr, plan,
+                        [&](float x, float z) { return kerbSurface.at(x, z); }, ground);
+                    std::vector<roadgen::KerbVertex> rv;
+                    std::vector<int> railSizes;
+                    roadrail::railStrips(rails, rv, railSizes);
+                    for (int sz : railSizes) {
+                        kerbRows.push_back({(int)si, at, sz});
+                        at += sz;
+                    }
+                    for (const roadgen::KerbVertex& v : rv)
+                        kerbVerts.insert(kerbVerts.end(), {v.x, v.y, v.z, v.shade});
+                    if (!rv.empty())
+                        kerbNotes << "// scene " << si << ": " << rails.size()
+                                  << " rail lines, " << rv.size() << " strip vertices in "
+                                  << railSizes.size() << " chunks\n";
+                }
+                // Road details (docs/roads.md "Road details"): decals laid on
+                // the roads just built, clear of the patches, the paint and
+                // the spills; the console uploads them unchanged.
+                if (hasDetails && roaddetail::any(cr)) {
+                    roaddetail::SceneInput di;
+                    di.roads = &cr;
+                    di.plan = &plan;
+                    di.ground = ground;
+                    di.patches = markSurfaceTris;
+                    di.paint = detailPaint;
+                    di.puddles = puddlesOn;
+                    const roaddetail::Result dr = roaddetail::build(di);
+                    if (detailTex < 0) detailTex = textureIndex(roaddetail::kAtlasPng);
+                    if (puddlesOn && puddleTex < 0)
+                        puddleTex = textureIndex(roaddetail::kPuddlePng);
+                    int at = (int)(detailVerts.size() / 5);
+                    for (int sz : dr.chunkSizes) {
+                        detailRows.push_back({(int)si, at, sz});
+                        detailWet.push_back(0);
+                        at += sz;
+                    }
+                    for (const roadgen::Vertex& v : dr.tris)
+                        detailVerts.insert(detailVerts.end(), {v.x, v.y, v.z, v.u, v.v});
+                    // The puddles: their own chunks, after the scene's decals.
+                    for (int sz : dr.puddleChunkSizes) {
+                        detailRows.push_back({(int)si, at, sz});
+                        detailWet.push_back(1);
+                        at += sz;
+                    }
+                    for (const roadgen::Vertex& v : dr.puddleTris)
+                        detailVerts.insert(detailVerts.end(), {v.x, v.y, v.z, v.u, v.v});
+                    if (puddlesOn)
+                        detailNotes << "// scene " << si << ": " << dr.puddles.size()
+                                    << " puddles (" << dr.puddleCandidates << " tried, "
+                                    << dr.puddlesOnCrest << " on a crest), "
+                                    << dr.puddleTris.size() << " vertices in "
+                                    << dr.puddleChunkSizes.size() << " chunks\n";
+                    int perKind[roaddetail::kKindCount] = {};
+                    for (const roaddetail::Decal& d : dr.decals) ++perKind[d.kind];
+                    detailNotes << "// scene " << si << ": " << dr.decals.size() << " decals (";
+                    for (int k = 0; k < roaddetail::kKindCount; ++k)
+                        detailNotes << (k ? ", " : "") << perKind[k] << " "
+                                    << roaddetail::kindName(k);
+                    detailNotes << "), " << dr.tris.size() << " vertices in "
+                                << dr.chunkSizes.size() << " chunks\n";
+                }
+                // Street furniture (docs/roads.md "Street furniture"): lines
+                // along the pavements, signs at the stop lines - the
+                // console uploads the merged chunks and boxes unchanged.
+                std::vector<roadfurn::Instance> furnSignals;
+                if (hasFurniture) {
+                    std::vector<roadfurn::Settings> fs;
+                    for (int oi : objIdx) fs.push_back(sc.objects[(size_t)oi].roadFurniture);
+                    if (roadfurn::any(fs)) {
+                        roadfurn::SceneInput fi;
+                        fi.roads = &cr;
+                        fi.settings = &fs;
+                        fi.plan = &plan;
+                        fi.ground = ground;
+                        fi.patches = markSurfaceTris;
+                        fi.paint = furnPaint;
+                        fi.pavements = furnPave;
+                        fi.projectDir = p.dir;
+                        fi.liveSignals = hasTraffic;
+                        const roadfurn::Result fr = roadfurn::build(fi);
+                        for (const roadfurn::Instance& in : fr.instances)
+                            if (in.kind == roadfurn::kSignal) furnSignals.push_back(in);
+                        furnTables.add((int)si, fr);
+                        // Lit street lamps (docs/weather.md): a pool of light
+                        // under every lamp, laid on the drawn surface, as more
+                        // ROAD_FURN rows (the furniture's cells, its streaming
+                        // items, its roadfile pages) - plus each lamp's row in
+                        // ROAD_LAMPS for the coronas and the wet streaks. A
+                        // scene whose lamps are Off bakes none.
+                        if (litLamps && sc.streetLamps != 2) {
+                            roadgen::Surface lampSurf;
+                            lampSurf.add(roadTriangles);
+                            lampSurf.add(markSurfaceTris);
+                            roadgen::addPavementsToSurface(lampSurf, furnPave);
+                            lampSurf.build();
+                            const roadgen::HeightFn top = [&](float x, float z) {
+                                const float s = lampSurf.at(x, z), g = ground(x, z);
+                                return s != roadgen::Surface::kNone && s > g ? s : g;
+                            };
+                            std::vector<roadlight::Lamp> lamps = roadlight::lampsOf(fr);
+                            const roadlight::Pools pools = roadlight::bakePools(lamps, top);
+                            std::vector<float> xyz;
+                            std::vector<uint32_t> uv;
+                            for (const roadgen::Vertex& v : pools.tris) {
+                                xyz.insert(xyz.end(), {v.x, v.y, v.z});
+                                uv.push_back(roadlight::packUv(v.u, v.v));
+                            }
+                            std::ostringstream note;
+                            if (!lamps.empty())
+                                note << "// scene " << si << ": " << lamps.size()
+                                     << " lit lamps, pools " << pools.tris.size()
+                                     << " vertices in " << pools.chunkSizes.size()
+                                     << " chunks\n";
+                            furnTables.addLight((int)si, xyz, uv, pools.chunkSizes, note.str());
+                            for (const roadlight::Lamp& L : lamps) litLampRows.push_back({(int)si, L});
+                        }
+                    }
+                }
+                if (hasTraffic) {
+                    std::vector<roadfurn::Settings> fs;
+                    for (int oi : objIdx) fs.push_back(sc.objects[(size_t)oi].roadFurniture);
+                    std::vector<bool> signalled(plan.crossings.size(), false);
+                    for (size_t ci = 0; ci < plan.crossings.size(); ++ci)
+                        signalled[ci] = roadfurn::nodeSignalled(plan.crossings[ci], cr, fs);
+                    roadlanes::Options lo;
+                    lo.leftHand = p.settings.traffic.leftHand;
+                    lo.speed = p.settings.traffic.speed;
+                    const roadlanes::Graph lg = roadlanes::build(cr, plan, signalled, ground, lo);
+                    // Dead ends are normal (map edges); a lane with no
+                    // legal exit is a road worth fixing. --road-lanes lists both.
+                    for (const std::string& w : lg.warnings)
+                        if (w.find("dead end") == std::string::npos)
+                            std::printf("[traffic] scene %zu: %s\n", si, w.c_str());
+                    trafficTables.addScene((int)si, lg, lo, furnSignals);
                 }
                 for (const roadgen::CrossingDecal& d : plan.decals) {
                     if (d.verts.empty() || rowOf[(size_t)d.road] < 0) continue;
@@ -9079,7 +9799,7 @@ static std::string sceneDataContent(const Project& p, const std::string& ns,
             if (crossingOrphans > 0)
                 out << "\n// " << crossingOrphans
                     << " road junction override(s) match no crossing (orphaned).\n";
-            if (!roadRows.empty()) {
+            if (!roadRows.empty() || !junctionRows.empty()) {
                 out << "\n// Roads (docs/roads.md): points in, geometry at boot.\n"
                     << "constexpr int ROAD_COUNT = " << roadRows.size() << ";\n"
                     << "constexpr int ROAD_TEXTURE_COUNT = " << roadTex.size()
@@ -9089,8 +9809,9 @@ static std::string sceneDataContent(const Project& p, const std::string& ns,
                     << "struct RoadDefRt { int scene; int first; int pointCount;"
                        " float width; float sampleStep; int tex; float grip;"
                        " float lift; float uInset; };\n"
-                    << "constexpr RoadDefRt ROAD_DEFS[" << roadRows.size()
+                    << "constexpr RoadDefRt ROAD_DEFS[" << std::max((size_t)1, roadRows.size())
                     << "] = {\n";
+                if (roadRows.empty()) out << "    {},  // every road is a bridge\n";
                 for (const RoadRow& r : roadRows)
                     out << "    {" << r.scene << ", " << r.first << ", "
                         << r.count << ", " << floatLit(r.coreWidth) << ", "
@@ -9099,13 +9820,13 @@ static std::string sceneDataContent(const Project& p, const std::string& ns,
                         << floatLit(r.uInset)
                         << "},  // " << escapeCString(r.name) << "\n";
                 out << "};\n"
-                    << "constexpr float ROAD_POINTS[" << roadPts.size()
+                    << "constexpr float ROAD_POINTS[" << std::max((size_t)1, roadPts.size())
                     << "] = {";
                 for (size_t k = 0; k < roadPts.size(); ++k)
                     out << (k ? ", " : "") << floatLit(roadPts[k]);
                 out << "};\n"
                     << "struct RoadJunctionRt { int scene; int tex; int first; int count;"
-                       " float grip; };\n";
+                       " float grip; int rgb; };\n";
                 if (junctionRows.empty()) {
                     out << "constexpr RoadJunctionRt ROAD_JUNCTIONS[1] = {};\n";
                 } else {
@@ -9113,9 +9834,36 @@ static std::string sceneDataContent(const Project& p, const std::string& ns,
                         << junctionRows.size() << "] = {\n";
                     for (const JunctionRow& j : junctionRows)
                         out << "    {" << j.scene << ", " << j.tex << ", " << j.first
-                            << ", " << j.count << ", " << floatLit(j.grip) << "},\n";
+                            << ", " << j.count << ", " << floatLit(j.grip) << ", "
+                            << j.rgb << "},\n";
                     out << "};\n";
                 }
+                // Tables on disk (docs/roads.md "Tables on disk"): a streamed
+                // project's per-vertex tables go to bin/roadfile/roads.bin instead, one
+                // item per streaming item, each value the float its literal
+                // below would have parsed to - so a row read from the file is
+                // bit for bit the row the embedded build expands.
+                const bool onDisk = projectRoadTablesOnDisk(p);
+                roadfile::Builder roadFileItems;
+                auto diskWord = [](float v, int precision) {
+                    return roadfile::bits(roadfile::asLiteral(floatLit(v, precision)));
+                };
+                if (onDisk) {
+                    for (size_t ji = 0; ji < junctionRows.size(); ++ji) {
+                        const JunctionRow& j = junctionRows[ji];
+                        for (int first = 0; first < j.count; first += roadfile::kPiece) {
+                            const int n = std::min(roadfile::kPiece, j.count - first);
+                            std::vector<uint32_t> w;
+                            w.reserve((size_t)n * 5);
+                            for (int k = 0; k < n; ++k) {
+                                const roadgen::Vertex& v = junctionVerts[(size_t)(j.first + first + k)];
+                                for (float f : {v.x, v.y, v.z, v.u, v.v}) w.push_back(diskWord(f, 9));
+                            }
+                            roadFileItems.add(roadfile::kJunction, j.scene, (int)ji, first, n, w, 5, 2);
+                        }
+                    }
+                    out << "// ROAD_JUNCTION_VERTS: in bin/roadfile/roads.bin (docs/roads.md \"Tables on disk\").\n";
+                } else {
                 out << "constexpr float ROAD_JUNCTION_VERTS["
                     << std::max((size_t)1, junctionVerts.size() * 5) << "] = {\n";
                 for (const roadgen::Vertex& v : junctionVerts)
@@ -9123,6 +9871,7 @@ static std::string sceneDataContent(const Project& p, const std::string& ns,
                         << floatLit(v.z, 9) << ", " << floatLit(v.u, 9) << ", "
                         << floatLit(v.v, 9) << ",\n";
                 out << "};\n";
+                }
                 // Spills (1.143.0, docs/roads.md "Crossings"): baked XZ + UV +
                 // fade; the EE lifts them onto the road surface at boot.
                 out << "struct RoadSpillRt { int scene; int road; int first;"
@@ -9140,11 +9889,23 @@ static std::string sceneDataContent(const Project& p, const std::string& ns,
                             << sr.first << ", " << sr.count << ", "
                             << floatLit(sr.baseGrip) << ", " << floatLit(sr.grip)
                             << ", " << floatLit(sr.lift) << "},\n";
+                    if (onDisk) {
+                        out << "};\n// ROAD_SPILL_VERTS: in bin/roadfile/roads.bin.\n";
+                        for (size_t si = 0; si < spillRows.size(); ++si) {
+                            const SpillRow& sr = spillRows[si];
+                            if (sr.count < 1) continue;
+                            std::vector<uint32_t> w;
+                            for (int k = 0; k < sr.count * 5; ++k)
+                                w.push_back(diskWord(spillVerts[(size_t)sr.first * 5 + (size_t)k], 6));
+                            roadFileItems.add(roadfile::kSpill, sr.scene, (int)si, 0, sr.count, w, 5, 1);
+                        }
+                    } else {
                     out << "};\nconstexpr float ROAD_SPILL_VERTS["
                         << spillVerts.size() << "] = {";
                     for (size_t k = 0; k < spillVerts.size(); ++k)
                         out << (k ? ", " : "") << floatLit(spillVerts[k]);
                     out << "};\n";
+                    }
                 }
                 // Soft edges (1.144.0): RoadSpillRt rows (baseGrip unused).
                 out << "constexpr int ROAD_EDGE_COUNT = " << edgeRows.size() << ";\n";
@@ -9158,11 +9919,183 @@ static std::string sceneDataContent(const Project& p, const std::string& ns,
                         out << "    {" << er.scene << ", " << er.road << ", "
                             << er.first << ", " << er.count << ", 1.0F, "
                             << floatLit(er.grip) << ", 0.0F},\n";
+                    if (onDisk) {
+                        out << "};\n// ROAD_EDGE_VERTS: in bin/roadfile/roads.bin.\n";
+                        for (size_t ei = 0; ei < edgeRows.size(); ++ei) {
+                            const SpillRow& er = edgeRows[ei];
+                            for (int at = 0; at < er.count; at += roadfile::kPiece) {
+                                const int n = std::min(roadfile::kPiece, er.count - at);
+                                std::vector<uint32_t> w;
+                                for (int k = 0; k < n * 5; ++k)
+                                    w.push_back(diskWord(
+                                        edgeVerts[(size_t)(er.first + at) * 5 + (size_t)k], 6));
+                                roadFileItems.add(roadfile::kEdge, er.scene, (int)ei, at, n, w, 5, 1);
+                            }
+                        }
+                    } else {
                     out << "};\nconstexpr float ROAD_EDGE_VERTS[" << edgeVerts.size()
                         << "] = {";
                     for (size_t k = 0; k < edgeVerts.size(); ++k)
                         out << (k ? ", " : "") << floatLit(edgeVerts[k]);
                     out << "};\n";
+                    }
+                }
+                // Kerbs (docs/roads.md "Kerbs"): emitted only when a road has
+                // them, so every other road project stays byte-identical.
+                if (hasKerbs) {
+                    out << "// Kerbs (docs/roads.md \"Kerbs\"): host-baked triangle-strip"
+                           " runs of 75, one row per\n// chunk; x, y, z, shade per vertex."
+                           " Uploaded unchanged at scene load.\n"
+                        << kerbNotes.str()
+                        << "constexpr int ROAD_KERB_COUNT = " << kerbRows.size() << ";\n"
+                        << "constexpr float ROAD_KERB_DRAW_DISTANCE = 60.0F;\n"
+                        << "struct RoadKerbRt { int scene; int first; int count; };\n";
+                    // A shade of 2+ names one of these (roadrail::kPalette):
+                    // the rails' steel, rust, groove and crossing panel.
+                    out << "constexpr float ROAD_KERB_PALETTE[" << roadrail::kPaletteCount
+                        << "][3] = {";
+                    for (int k = 0; k < roadrail::kPaletteCount; ++k)
+                        out << (k ? ", " : "") << "{" << floatLit(roadrail::kPalette[k][0])
+                            << ", " << floatLit(roadrail::kPalette[k][1]) << ", "
+                            << floatLit(roadrail::kPalette[k][2]) << "}";
+                    out << "};\n";
+                    if (kerbRows.empty()) {
+                        out << "constexpr RoadKerbRt ROAD_KERBS[1] = {};\n"
+                            << "constexpr float ROAD_KERB_VERTS[1] = {};\n";
+                    } else {
+                        out << "constexpr RoadKerbRt ROAD_KERBS[" << kerbRows.size()
+                            << "] = {\n";
+                        for (const KerbRow& kr : kerbRows)
+                            out << "    {" << kr.scene << ", " << kr.first << ", " << kr.count
+                                << "},\n";
+                        if (onDisk) {
+                            out << "};\n// ROAD_KERB_VERTS: in bin/roadfile/roads.bin.\n";
+                            for (size_t ki = 0; ki < kerbRows.size(); ++ki) {
+                                const KerbRow& kr = kerbRows[ki];
+                                if (kr.count < 3) continue;
+                                std::vector<uint32_t> w;
+                                for (int k = 0; k < kr.count; ++k) {
+                                    const float* v = &kerbVerts[(size_t)(kr.first + k) * 4];
+                                    w.push_back(diskWord(v[0], 7));
+                                    w.push_back(diskWord(v[1], 7));
+                                    w.push_back(diskWord(v[2], 7));
+                                    w.push_back(diskWord(v[3], 6));
+                                }
+                                roadFileItems.add(roadfile::kKerb, kr.scene, (int)ki, 0, kr.count, w, 4, 2);
+                            }
+                        } else {
+                        out << "};\nconstexpr float ROAD_KERB_VERTS[" << kerbVerts.size()
+                            << "] = {\n";
+                        for (size_t k = 0; k < kerbVerts.size(); k += 4)
+                            out << "    " << floatLit(kerbVerts[k], 7) << ", "
+                                << floatLit(kerbVerts[k + 1], 7) << ", "
+                                << floatLit(kerbVerts[k + 2], 7) << ", "
+                                << floatLit(kerbVerts[k + 3]) << ",\n";
+                        out << "};\n";
+                        }
+                    }
+                }
+                // Bridges (docs/roads.md "Bridges"): emitted only when a road
+                // is one, so every other road project stays byte-identical.
+                if (hasBridges) {
+                    out << roadbridge::tablesSource(bridgeRows, bridgeVerts, bridgeNotes.str(),
+                                                    bridgeBoxes, !onDisk);
+                    if (onDisk)
+                        for (size_t bi = 0; bi < bridgeRows.size(); ++bi) {
+                            const roadbridge::SceneChunk& br = bridgeRows[bi];
+                            if (br.count < 3) continue;
+                            std::vector<uint32_t> w;
+                            for (int k = 0; k < br.count * 4; ++k)
+                                w.push_back(diskWord(bridgeVerts[(size_t)br.first * 4 + (size_t)k], 7));
+                            roadFileItems.add(roadfile::kBridge, br.scene, (int)bi, 0, br.count, w, 4, 2);
+                        }
+                }
+                // Road details (docs/roads.md "Road details"): emitted only
+                // when a road has them, so every other project stays
+                // byte-identical.
+                if (hasDetails) {
+                    out << "// Road details (docs/roads.md \"Road details\"): host-baked decal"
+                           " triangles (lists), one row\n// per chunk; x, y, z, u, v into"
+                           " the details atlas. Uploaded unchanged at scene load.\n"
+                        << detailNotes.str()
+                        << "constexpr int ROAD_DETAIL_COUNT = " << detailRows.size() << ";\n"
+                        << "constexpr int ROAD_DETAIL_TEX = " << detailTex << ";\n"
+                        << "constexpr float ROAD_DETAIL_DRAW_DISTANCE = "
+                        << floatLit(roaddetail::kDrawDistance) << ";\n";
+                    // Puddles (docs/weather.md "Puddles"): a `wet` column -
+                    // 1 = a puddle chunk, textured from ROAD_PUDDLE_TEX and
+                    // coloured by the one per-frame puddle colour.
+                    if (puddlesOn)
+                        out << "constexpr int ROAD_PUDDLE_TEX = " << puddleTex << ";\n"
+                            << "struct RoadDetailRt { int scene; int first; int count; int wet; };\n";
+                    else
+                        out << "struct RoadDetailRt { int scene; int first; int count; };\n";
+                    if (detailRows.empty()) {
+                        out << "constexpr RoadDetailRt ROAD_DETAILS[1] = {};\n"
+                            << "constexpr float ROAD_DETAIL_VERTS[1] = {};\n";
+                    } else {
+                        out << "constexpr RoadDetailRt ROAD_DETAILS[" << detailRows.size()
+                            << "] = {\n";
+                        for (size_t di = 0; di < detailRows.size(); ++di) {
+                            const KerbRow& dr = detailRows[di];
+                            out << "    {" << dr.scene << ", " << dr.first << ", " << dr.count;
+                            if (puddlesOn) out << ", " << detailWet[di];
+                            out << "},\n";
+                        }
+                        if (onDisk) {
+                            out << "};\n// ROAD_DETAIL_VERTS: in bin/roadfile/roads.bin.\n";
+                            for (size_t di = 0; di < detailRows.size(); ++di) {
+                                const KerbRow& dr = detailRows[di];
+                                if (dr.count < 3) continue;
+                                std::vector<uint32_t> w;
+                                for (int k = 0; k < dr.count; ++k) {
+                                    const float* v = &detailVerts[(size_t)(dr.first + k) * 5];
+                                    w.push_back(diskWord(v[0], 7));
+                                    w.push_back(diskWord(v[1], 7));
+                                    w.push_back(diskWord(v[2], 7));
+                                    w.push_back(diskWord(v[3], 6));
+                                    w.push_back(diskWord(v[4], 6));
+                                }
+                                roadFileItems.add(roadfile::kDetail, dr.scene, (int)di, 0, dr.count, w, 5, 2);
+                            }
+                        } else {
+                        out << "};\nconstexpr float ROAD_DETAIL_VERTS[" << detailVerts.size()
+                            << "] = {\n";
+                        for (size_t k = 0; k < detailVerts.size(); k += 5)
+                            out << "    " << floatLit(detailVerts[k], 7) << ", "
+                                << floatLit(detailVerts[k + 1], 7) << ", "
+                                << floatLit(detailVerts[k + 2], 7) << ", "
+                                << floatLit(detailVerts[k + 3], 6) << ", "
+                                << floatLit(detailVerts[k + 4], 6) << ",\n";
+                        out << "};\n";
+                        }
+                    }
+                }
+                // Street furniture (docs/roads.md "Street furniture"): emitted
+                // only when a road asks for some, so every other project stays
+                // byte-identical.
+                if (hasFurniture) {
+                    out << furnTables.source(!onDisk);
+                    if (litLamps) out << roadlight::lampTableSource(litLampRows);
+                    if (onDisk)
+                        for (size_t fi = 0; fi < furnTables.rows.size(); ++fi) {
+                            const roadfurn::Tables::Row& fr = furnTables.rows[fi];
+                            if (fr.count < 3) continue;
+                            // The vertices, then their colours (the reader's
+                            // ROAD_FURN_RGB starts count * 12 bytes in).
+                            std::vector<uint32_t> w;
+                            for (int k = 0; k < fr.count * 3; ++k)
+                                w.push_back(diskWord(furnTables.verts[(size_t)fr.first * 3 + (size_t)k], 7));
+                            for (int k = 0; k < fr.count; ++k)
+                                w.push_back(furnTables.rgb[(size_t)(fr.first + k)]);
+                            roadFileItems.add(roadfile::kFurn, fr.scene, (int)fi, 0, fr.count, w, 3, 2);
+                        }
+                }
+                // Road traffic (docs/traffic.md): only when the project runs it.
+                if (hasTraffic) out << trafficTables.source(p, sceneCount);
+                if (onDisk) {
+                    out << roadFileItems.directorySource();
+                    roadFile = roadFileItems.file();
                 }
                 if (roadTex.empty()) {
                     out << "constexpr const char* ROAD_TEXTURE_PATHS[1] = "
@@ -9219,6 +10152,9 @@ static std::string sceneDataContent(const Project& p, const std::string& ns,
                         wpCount = (int)wps.size();
                     }
                 }
+                // A traffic car (docs/traffic.md) is marked by wpFirst -2:
+                // the traffic core places and drives it.
+                if (o.id.rfind(roadlanes::kCarPrefix, 0) == 0) wpFirst = -2;
                 irecs << (instCount ? ",\n" : "") << "    {" << (int)si << ", "
                       << (int)oi << ", " << di << ", "
                       << (o.vehicleDriveable ? 1 : 0) << ", " << wpFirst << ", "
@@ -12700,8 +13636,9 @@ void TerrainGame::updateVehicleSkids(float dt) {
       // hugs a camber instead of floating off one side of it (the old marks
       // at wheelY sat under every road: the wheels sample the terrain).
       float e[6] = {ax - rx, 0.0F, az - rz, ax + rx, 0.0F, az + rz};
-      e[1] = groundSurfaceAt(e[0], e[2]) + 0.03F;
-      e[4] = groundSurfaceAt(e[3], e[5]) + 0.03F;
+      // Capped at the car (docs/roads.md "Bridges"): never the deck overhead.
+      e[1] = groundSurfaceAt(e[0], e[2], v.pos[1] + 1.5F) + 0.03F;
+      e[4] = groundSurfaceAt(e[3], e[5], v.pos[1] + 1.5F) + 0.03F;
       if (!v.skidOn[w]) {
         // A tyre that just let go: remember where, draw from the next step.
         for (int k = 0; k < 6; ++k) v.skidEdge[w][k] = e[k];
@@ -12905,7 +13842,7 @@ void TerrainGame::renderVehicleGlow() {
         const float rz = rzn + (rzf - rzn) * t;
         const float x = bx + rx * side;
         const float z = bz + rz * side;
-        return Vec4(x, groundSurfaceAt(x, z) + e, z, 1.0F);
+        return Vec4(x, groundSurfaceAt(x, z, v.pos[1] + 1.5F) + e, z, 1.0F);
       };
       auto beamColor = [&](float t) {
         const float fade = 1.0F - t;
@@ -13697,7 +14634,7 @@ void TerrainGame::updateVehicleDebris(float dt) {
         if (gr > d.pos[1] - d.low && gr < d.pos[1] + 0.5F) d.pos[1] = gr + d.low;
       }
     }
-    const float ground = groundSurfaceAt(d.pos[0], d.pos[2]);
+    const float ground = groundSurfaceAt(d.pos[0], d.pos[2], d.pos[1] - d.low + 0.5F);
     if (d.pos[1] - d.low < ground + 0.02F) {
       d.pos[1] = ground + d.low;
       if (d.vel[1] < 0.0F) d.vel[1] = -d.vel[1] * 0.3F;
@@ -15347,11 +16284,12 @@ void TerrainGame::updateVehicles(float dt) {
           return;
         }
         if (b.mx[1] <= feet0 + 0.5F || b.mn[1] >= feet0 + 0.9F) return;
-        const float bhx = 0.5F * (b.mx[0] - b.mn[0]) + 0.35F;
-        const float bhz = 0.5F * (b.mx[2] - b.mn[2]) + 0.35F;
+        const bool oriented = b.lhx > 0.0F;
+        const float bhx = (oriented ? b.lhx : 0.5F * (b.mx[0] - b.mn[0])) + 0.35F;
+        const float bhz = (oriented ? b.lhz : 0.5F * (b.mx[2] - b.mn[2])) + 0.35F;
         const float rr = reach + bhx + bhz;
         if (ddx * ddx + ddz * ddz >= rr * rr || wallBoxN >= 12) return;
-        wallBox[wallBoxN++] = {wx, wz, bhx, bhz, 1.0F, 0.0F};
+        wallBox[wallBoxN++] = {wx, wz, bhx, bhz, b.yc, b.ys};
       };
       // SUB-STEP REUSE (TYRA_VEH_SUBSTEP_REUSE, docs/vehicles.md "Per-car EE
       // cuts"). The first sub-step of a multi-step frame records every entry
@@ -15472,7 +16410,10 @@ void TerrainGame::updateVehicles(float dt) {
       // tyre is on the paved surface.
       const float terrW = terrainHeightAt(wx, wz);
       float roadGW = 1.0F, roadCover = 1.0F;
-      const float roadW = roadSurfaceAt(wx, wz, &roadGW, &roadCover);
+      // The highest surface not above the car (docs/roads.md "Bridges"): a
+      // car UNDER a bridge stays on its road instead of snapping up onto the
+      // deck. 1.5 = roadbridge::kVehicleStepUp, the host twin's cap.
+      const float roadW = roadSurfaceAt(wx, wz, &roadGW, &roadCover, v.pos[1] + 1.5F);
       gy[w] = roadW > terrW ? roadW : terrW;
       bool pavedW = roadW > -1.0e29F;
       // How much of the road this tyre is on (1.144.0): 1, 0 off it, or a
@@ -15552,7 +16493,7 @@ void TerrainGame::updateVehicles(float dt) {
         const V3 off = contactRotate(
             {px[k], -0.65F * s.rideHeight * SC, pz[k]});
         const float floor = groundSurfaceAt(v.pos[0] + off.x,
-                                            v.pos[2] + off.z);
+                                            v.pos[2] + off.z, v.pos[1] + 1.5F);
         if (floor <= TERRAIN_VOID_Y * 0.5F) continue;
         const float need = floor - off.y + 0.03F;
         if (need > bodyFloorY) bodyFloorY = need;
@@ -17905,7 +18846,7 @@ void TerrainGame::renderVehicleWheels() {
             sz += wv[i].z;
           }
           const float cx = sx / (float)real, cz = sz / (float)real;
-          const float surf = groundSurfaceAt(cx, cz);
+          const float surf = groundSurfaceAt(cx, cz, v.pos[1] + 1.5F);
           gap[w] = (int)((lo - surf) * 1000.0F);
           lift[w] = (int)((surf - terrainHeightAt(cx, cz)) * 1000.0F);
         }
@@ -18079,25 +19020,225 @@ static bool projectHasRoads(const Project& p) {
     return false;
 }
 
+// Kerbs (docs/roads.md "Kerbs"): the same zero-cost rule one level down - no
+// kerbed road, no ROAD_KERB tables and no upload block. Rails and tram tracks
+// (docs/roads.md "Rails and tram tracks") ride in the same tables, so a rail
+// or tram road counts too.
+static bool projectHasKerbs(const Project& p) {
+    for (const SceneData& sc : p.scenes)
+        for (const SceneObject& o : sc.objects)
+            if (o.type == PrimitiveType::Road && o.roadPoints.size() >= 4 &&
+                (o.roadKerb || o.roadKind == roadrail::kRail || o.roadKind == roadrail::kTram))
+                return true;
+    return false;
+}
+
+// Road details (docs/roads.md "Road details"): the same zero-cost rule - no
+// road with details, no ROAD_DETAIL tables, no atlas and no upload block.
+static bool projectHasRoadDetails(const Project& p) {
+    for (const SceneData& sc : p.scenes)
+        for (const SceneObject& o : sc.objects)
+            if (o.type == PrimitiveType::Road && o.roadDetails > 0.0f &&
+                o.roadPoints.size() >= 4)
+                return true;
+    return false;
+}
+
+// Road streaming (docs/roads.md "Road streaming"): a project setting, and
+// only meaningful with roads. Off = not one byte of this reaches the sources.
+static bool projectStreamsRoads(const Project& p) {
+    return p.settings.roadStreamRadius > 0.0f && projectHasRoads(p);
+}
+
+// Road tables on disk (docs/roads.md "Tables on disk", format v104): the
+// default for a streamed project, unless it asked to keep them in the ELF.
+static bool projectRoadTablesOnDisk(const Project& p) {
+    return projectStreamsRoads(p) && !p.settings.roadStreamEmbedTables;
+}
+
+static roadstream::Emitted roadStreamEmit(const Project& p);
+
 static std::string roadsMembers(const Project& p) {
     if (!projectHasRoads(p)) return "";
-    return R"(  // --- roads (docs/roads.md) ---
+    std::string s = R"(  // --- roads (docs/roads.md) ---
   // Built at scene load from ROAD_DEFS: the tessellated chunks live in
   // procChunks under owner -3, textures in this small cache (acquired once,
   // shared by every chunk of every road using them).
   Tyra::Texture* roadTextures_[ROAD_TEXTURE_COUNT > 0 ? ROAD_TEXTURE_COUNT : 1] = {};
   void buildRoads(int scene);
 )";
+    if (projectStreamsRoads(p)) s += roadStreamEmit(p).members;
+    // Road traffic (docs/traffic.md): only when the project runs it.
+    if (roadlanes::projectHasTraffic(p)) s += roadlanes::membersSource();
+    return s;
 }
 
 static std::string roadsSetupCall(const Project& p) {
     if (!projectHasRoads(p)) return "";
+    if (projectStreamsRoads(p)) return roadStreamEmit(p).setup;
     return "  buildRoads(sceneIndex);\n";
 }
 
-static std::string roadsImpl(const Project& p) {
+// Bridges (docs/roads.md "Bridges"): the same zero-cost rule - no bridge road,
+// no ROAD_BRIDGE tables and no upload block.
+static bool projectHasBridges(const Project& p) {
+    for (const SceneData& sc : p.scenes)
+        for (const SceneObject& o : sc.objects)
+            if (o.type == PrimitiveType::Road && o.roadBridge && o.roadPoints.size() >= 4)
+                return true;
+    return false;
+}
+
+// The kerb upload, spliced into buildRoads before procFinishChunks.
+static std::string roadKerbsUpload() {
+    return R"(  // KERBS (docs/roads.md "Kerbs"): host-baked triangle-strip runs, one
+  // ROAD_KERBS row per cell-sized chunk, uploaded unchanged - the EE does no
+  // kerb geometry at all. Owner -4, not -3: renderProcChunks draws them (the
+  // frustum reject, the chunk draw distance, occlusion). The road height
+  // index takes them too (roadSurfaceAt reads owner -3 AND -4), so wheels,
+  // walkers, blob shadows and light pools stand on a kerb top; the vertical
+  // faces have no area in XZ and drop out by themselves. Untextured: the
+  // baked shade is the vertex colour (128 = full in an untextured bag).
+  for (size_t i = procChunks.size(); i > 0; --i)
+    if (procChunks[i - 1].owner == -4)
+      procChunks.erase(procChunks.begin() + (i - 1));
+  {
+    int kerbChunks = 0, kerbVertices = 0, kerbPackages = 0, kerbTriangles = 0;
+    auto same = [](const float* a, const float* b) {
+      return a[0] == b[0] && a[1] == b[1] && a[2] == b[2];
+    };
+    for (int ki = 0; ki < ROAD_KERB_COUNT; ++ki) {
+      const RoadKerbRt& kr = ROAD_KERBS[ki];
+      if (kr.scene != scene || kr.count < 3) continue;
+      any = true;
+      procChunks.push_back(ProcChunk());
+      ProcChunk& c = procChunks.back();
+      c.owner = -4;
+      c.drawDist = ROAD_KERB_DRAW_DISTANCE;
+      c.stripRun = useStrips ? (int)stripRun : 0;
+      auto put = [&](const float* v) {
+        c.vertices.push_back(Tyra::Vec4(v[0], v[1], v[2], 1.0F));
+        if (v[3] >= 1.5F) {
+          // Rails (docs/roads.md "Rails and tram tracks"): a shade of 2+
+          // names a ROAD_KERB_PALETTE colour (roadrail::shadeRgb's rule).
+          int k = (int)v[3] - 2;
+          if (k < 0) k = 0;
+          if (k > 3) k = 3;
+          const float* pc = ROAD_KERB_PALETTE[k];
+          c.colors.push_back(
+              Tyra::Color(pc[0] * 128.0F, pc[1] * 128.0F, pc[2] * 128.0F, 128.0F));
+          return;
+        }
+        const float g = v[3] * 128.0F;  // light concrete, a hair warm
+        c.colors.push_back(Tyra::Color(g, g * 0.98F, g * 0.94F, 128.0F));
+      };
+      const float* base = &ROAD_KERB_VERTS[(size_t)kr.first * 4];
+      for (int at = 0; at < kr.count; at += 75) {
+        const int len = kr.count - at < 75 ? kr.count - at : 75;
+        for (int k = 0; k + 2 < len; ++k) {
+          const float* a = base + (size_t)(at + k) * 4;
+          if (same(a, a + 4) || same(a + 4, a + 8) || same(a, a + 8)) continue;
+          ++kerbTriangles;
+          // The list control arm (TYRA_STRIP_ROADS 0): the same triangles.
+          if (!useStrips) { put(a); put(a + 4); put(a + 8); }
+        }
+      }
+      if (useStrips)
+        for (int k = 0; k < kr.count; ++k) put(base + (size_t)k * 4);
+      ++kerbChunks;
+      kerbVertices += (int)c.vertices.size();
+      kerbPackages += (int)((c.vertices.size() + 74) / 75);
+    }
+    // The chunk list changed under the height index: the count alone cannot
+    // tell (the same number of kerb chunks is erased and pushed back).
+    roadIdxDirty = true;
+    if (kerbChunks > 0)
+      TYRA_LOG("ROADKERB scene ", scene, " chunks ", kerbChunks, " vertices ",
+               kerbVertices, " packages ", kerbPackages, " triangles ", kerbTriangles);
+  }
+)";
+}
+
+// The road-details upload, spliced into buildRoads before procFinishChunks.
+// With puddles (docs/weather.md "Puddles") a `wet` row is a puddle chunk:
+// its own texture and the ProcChunk::puddle flag, whose colour bag
+// procFinishChunks points at the one per-frame puddle colour. The streaming
+// runtime cuts the texture lookup and the fill from this text (roadstream.cpp
+// "detail texture", "detail upload"), so both lines sit inside those cuts.
+static std::string roadDetailsUploadBase();
+static std::string roadDetailsUpload(bool puddles) {
+    std::string s = roadDetailsUploadBase();
+    if (!puddles) return s;
+    auto swap = [&](const char* from, const char* to) {
+        const size_t at = s.find(from);
+        if (at != std::string::npos) s.replace(at, std::string(from).size(), to);
+    };
+    swap("    Tyra::Texture* detailTex = nullptr;\n",
+         "    Tyra::Texture* detailTex = nullptr;\n"
+         "    Tyra::Texture* puddleTex = nullptr;  // puddles (docs/weather.md)\n");
+    swap("      detailTex = roadTextures_[ROAD_DETAIL_TEX];\n    }\n",
+         "      if (ROAD_PUDDLE_TEX >= 0 && ROAD_PUDDLE_TEX < ROAD_TEXTURE_COUNT) {\n"
+         "        if (!roadTextures_[ROAD_PUDDLE_TEX])\n"
+         "          roadTextures_[ROAD_PUDDLE_TEX] = acquireTexture(ROAD_TEXTURE_PATHS[ROAD_PUDDLE_TEX]);\n"
+         "        puddleTex = roadTextures_[ROAD_PUDDLE_TEX];\n"
+         "      }\n"
+         "      detailTex = roadTextures_[ROAD_DETAIL_TEX];\n    }\n");
+    swap("      c.roadTex = detailTex;\n",
+         "      c.roadTex = dr.wet && puddleTex ? puddleTex : detailTex;\n"
+         "      c.puddle = dr.wet;  // one shared colour: the wetness (docs/weather.md)\n");
+    return s;
+}
+
+static std::string roadDetailsUploadBase() {
+    return R"(  // ROAD DETAILS (docs/roads.md "Road details"): manholes, gullies,
+  // patches, cracks and oil stains, host-baked as textured triangle lists laid
+  // kDetailLift over the drawn road, one ROAD_DETAILS row per cell-sized chunk.
+  // Owner -6: renderRoadChunks draws them in the road pass, after every -3
+  // chunk (frustum reject, the chunk draw distance), blended by the atlas
+  // alpha; the road height index never sees them - a decal is paint, not
+  // surface.
+  for (size_t i = procChunks.size(); i > 0; --i)
+    if (procChunks[i - 1].owner == -6)
+      procChunks.erase(procChunks.begin() + (i - 1));
+  {
+    Tyra::Texture* detailTex = nullptr;
+    if (ROAD_DETAIL_TEX >= 0 && ROAD_DETAIL_TEX < ROAD_TEXTURE_COUNT) {
+      if (!roadTextures_[ROAD_DETAIL_TEX])
+        roadTextures_[ROAD_DETAIL_TEX] = acquireTexture(ROAD_TEXTURE_PATHS[ROAD_DETAIL_TEX]);
+      detailTex = roadTextures_[ROAD_DETAIL_TEX];
+    }
+    int detailChunks = 0, detailVertices = 0;
+    for (int di = 0; di < ROAD_DETAIL_COUNT; ++di) {
+      const RoadDetailRt& dr = ROAD_DETAILS[di];
+      if (dr.scene != scene || dr.count < 3 || !detailTex) continue;
+      any = true;
+      procChunks.push_back(ProcChunk());
+      ProcChunk& c = procChunks.back();
+      c.owner = -6;
+      c.roadTex = detailTex;
+      c.roadBlend = true;
+      c.drawDist = ROAD_DETAIL_DRAW_DISTANCE;
+      c.stripRun = 0;
+      const float* base = &ROAD_DETAIL_VERTS[(size_t)dr.first * 5];
+      for (int k = 0; k < dr.count; ++k) {
+        const float* v = base + (size_t)k * 5;
+        c.vertices.push_back(Tyra::Vec4(v[0], v[1], v[2], 1.0F));
+        c.sts.push_back(Tyra::Vec4(v[3], v[4], 1.0F, 0.0F));
+        c.colors.push_back(grey);
+      }
+      ++detailChunks;
+      detailVertices += dr.count;
+    }
+    if (detailChunks > 0)
+      TYRA_LOG("ROADDETAIL scene ", scene, " chunks ", detailChunks, " vertices ",
+               detailVertices, " triangles ", detailVertices / 3);
+  }
+)";
+}
+
+static std::string roadsImplBuild(const Project& p) {
     if (!projectHasRoads(p)) return "";
-    return R"(
+    std::string s = R"(
 // Roads (docs/roads.md). TWIN NOTICE: this is src/roadgen.cpp's arithmetic,
 // transcribed - CHANGE ONE AND CHANGE BOTH (the vehiclesim rule). The whole
 // road is data: at scene load the spline is sampled every 1 unit and every
@@ -18507,12 +19648,26 @@ void TerrainGame::buildRoads(int scene) {
       c.roadTex = tex;
       c.roadGrip = j.grip;
       c.stripRun = 0;
+      // A painted row (node markings, 1.171.0) carries its own colour; a
+      // patch takes the road grey its texture modulates. Paint WITH a texture
+      // (the worn road-paint) is alpha-blended by that texture's alpha onto
+      // the asphalt, its colour halved (128 = 1 when it modulates a texel).
+      const bool paintTex = j.rgb != 0 && tex != nullptr;
+      const float pk = paintTex ? 0.5F : 1.0F;
+      const Tyra::Color paint((float)((j.rgb >> 16) & 255) * pk,
+                              (float)((j.rgb >> 8) & 255) * pk,
+                              (float)(j.rgb & 255) * pk, 128.0F);
+      const Tyra::Color& shade = j.rgb != 0 ? paint : grey;
+      if (paintTex) {
+        c.roadBlend = true;
+        c.roadGripBase = j.grip;  // no grip of its own: the road's, unblended
+      }
       const int count = std::min(1800, j.count - first);
       for (int k = 0; k < count; ++k) {
         const float* v = &ROAD_JUNCTION_VERTS[(size_t)(j.first + first + k) * 5];
         c.vertices.push_back(Tyra::Vec4(v[0], v[1], v[2], 1.0F));
         c.sts.push_back(Tyra::Vec4(v[3], v[4], 1.0F, 0.0F));
-        c.colors.push_back(grey);
+        c.colors.push_back(shade);
       }
     }
   }
@@ -18643,6 +19798,73 @@ void TerrainGame::buildRoads(int scene) {
            " packages ", roadPackages, " triangles ", roadTriangles);
 }
 )";
+    // Kerbs (docs/roads.md "Kerbs"): only a project with a kerbed road gets
+    // the upload block, so every other road project keeps its exact source.
+    if (projectHasKerbs(p)) {
+        const std::string anchor = "  if (any) procFinishChunks();";
+        const size_t at = s.find(anchor);
+        if (at != std::string::npos) s.insert(at, roadKerbsUpload());
+    }
+    // Bridges (docs/roads.md "Bridges"): the structure upload, same place.
+    if (projectHasBridges(p)) {
+        const std::string anchor = "  if (any) procFinishChunks();";
+        const size_t at = s.find(anchor);
+        if (at != std::string::npos) s.insert(at, roadbridge::uploadSource());
+    }
+    // Road details (docs/roads.md "Road details"): the same rule - only a
+    // project with details gets the block (after the kerbs').
+    if (projectHasRoadDetails(p)) {
+        const std::string anchor = "  if (any) procFinishChunks();";
+        const size_t at = s.find(anchor);
+        if (at != std::string::npos) s.insert(at, roadDetailsUpload(projectHasPuddles(p)));
+    }
+    // Street furniture (docs/roads.md "Street furniture"): the same rule.
+    if (projectHasRoadFurniture(p)) {
+        const std::string anchor = "  if (any) procFinishChunks();";
+        const size_t at = s.find(anchor);
+        if (at != std::string::npos) s.insert(at, roadfurn::uploadSource(projectHasLitLamps(p)));
+    }
+    return s;
+}
+
+// Road streaming (docs/roads.md "Road streaming"): the streaming runtime is
+// CUT from the text above - buildRoads, its upload blocks, procFinishChunks -
+// by roadstream::emit, never retyped, so a streamed chunk is built by the
+// same lines as an unstreamed one.
+static roadstream::Emitted roadStreamEmit(const Project& p) {
+    roadstream::Sources src;
+    src.roads = roadsImplBuild(p);
+    if (projectHasKerbs(p)) src.kerbs = roadKerbsUpload();
+    if (projectHasRoadDetails(p)) src.details = roadDetailsUpload(projectHasPuddles(p));
+    if (projectHasBridges(p)) src.bridges = roadbridge::uploadSource();
+    if (projectHasRoadFurniture(p)) src.furniture = roadfurn::uploadSource(projectHasLitLamps(p));
+    {
+        const std::string tpl = TPL_GAME_COLLISION;
+        const size_t a = tpl.find("void TerrainGame::procFinishChunks() {");
+        const size_t b = a == std::string::npos ? a : tpl.find("\n}\n", a);
+        if (b != std::string::npos) src.finish = tpl.substr(a, b + 3 - a);
+    }
+    roadstream::Params prm;
+    prm.radius = p.settings.roadStreamRadius;
+    prm.vehicles = projectHasVehicles(p);
+    prm.tablesOnDisk = projectRoadTablesOnDisk(p);
+    return roadstream::emit(src, prm);
+}
+
+static std::string roadsImpl(const Project& p) {
+    // Tables on disk: buildRoads (never called by a streamed project) would
+    // read the per-vertex tables the ELF no longer has - it is not compiled.
+    // Its text is still what the streaming runtime is cut from.
+    std::string s;
+    if (projectRoadTablesOnDisk(p)) {
+        s = roadStreamEmit(p).impl;
+    } else {
+        s = roadsImplBuild(p);
+        if (projectStreamsRoads(p)) s += roadStreamEmit(p).impl;
+    }
+    // Road traffic (docs/traffic.md): whichever way the roads are built.
+    if (roadlanes::projectHasTraffic(p)) s += roadlanes::implSource(projectStreamsRoads(p));
+    return s;
 }
 
 static std::string vehicleSetupCall(const Project& p) {
@@ -18682,8 +19904,14 @@ static std::string vehicleRenderCall(const Project& p) {
     // Its own cost phase keeps the wheel CPU rebuild and batched submit out of
     // the unlabelled scene total. It sits outside Objects, so rows do not
     // double-count either pass.
-    return "  { const u32 ct=costStart(); renderVehicleWheels(); costEnd(\"Wheels\",-1,ct); }\n"
-           "  renderVehicleDebris();\n";
+    return std::string(
+               "  { const u32 ct=costStart(); renderVehicleWheels(); costEnd(\"Wheels\",-1,ct); }\n"
+               "  renderVehicleDebris();\n") +
+           // Road traffic (docs/traffic.md): the lit lens of every signal head.
+           (roadlanes::projectHasTraffic(p)
+                ? "  { const u32 ct=costStart(); renderTrafficLamps(); "
+                  "costEnd(\"Traffic_lights\",-1,ct); }\n"
+                : "");
 }
 
 static std::string vehicleSmokeRenderCall(const Project& p) {
@@ -18960,6 +20188,7 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
     s = replaceAll(s, "{{ANIM_LOD_DISTANCE}}", floatLit(st.animLodDistance));
     s = replaceAll(s, "{{MESH_LOD_DISTANCE}}", floatLit(st.meshLodDistance));
     s = replaceAll(s, "{{STATIC_BATCHING}}", st.staticBatching ? "true" : "false");
+    s = replaceAll(s, "{{INSTANCE_SHARING}}", st.instanceSharing ? "true" : "false");
     s = replaceAll(s, "{{INTERLEAVE_PASSES}}",
                    st.interleavePasses == "off"      ? "0"
                    : st.interleavePasses == "always" ? "2"
@@ -19036,6 +20265,19 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
     s = replaceAll(s, "{{VEHICLE_MEMBERS}}", vehicleMembers(p));
     s = replaceAll(s, "{{ROADS_MEMBERS}}", roadsMembers(p));
     s = replaceAll(s, "{{ROADS_IMPL}}", roadsImpl(p));
+    // Road details (docs/roads.md "Road details"): the owner -6 decal chunks
+    // are BLENDED over the asphalt, so they must reach the GS after it. The
+    // interleaved passes hold the road bags back until the object loop, which
+    // is later than renderProcChunks - so the decals join the road pass
+    // (after every -3 chunk: they are appended last) instead. Patched only
+    // when a road has details, so every other project keeps its exact source.
+    if (projectHasRoadDetails(p)) {
+        s = replaceAll(s, "    if (c.owner != -3 || !c.bag || c.bag->count == 0) continue;",
+                       "    if ((c.owner != -3 && c.owner != -6) || !c.bag || c.bag->count == 0)\n"
+                       "      continue;  // -6: road details, blended after the asphalt");
+        s = replaceAll(s, "    if (c.owner == -3) continue;",
+                       "    if (c.owner == -3 || c.owner == -6) continue;  // -6 draws with the roads");
+    }
     s = replaceAll(s, "{{ROADS_SETUP}}", roadsSetupCall(p));
     s = replaceAll(s, "{{VEHICLE_SETUP}}", vehicleSetupCall(p));
     s = replaceAll(s, "{{VEHICLE_IMPL}}", vehicleImpl(p));
@@ -19081,6 +20323,73 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
     s = replaceAll(s, "{{BLSS_INIT}}", blssInit(p));
     s = replaceAll(s, "{{BLSS_SCENE_SETUP}}", blssSceneSetup(p));
     s = replaceAll(s, "{{BLSS_SCENE_RENDER}}", blssSceneRender(p));
+    // Auto-streamed layers in a vehicle project (docs/streaming-layers.md,
+    // "Driving"): the zones were tested against cameraLookAt at UPDATE time,
+    // which is still the walker's view - the parked walker standing at the
+    // car's door - while somebody drives; the chase camera only takes over
+    // in the render. Driving a whole city left every district exactly as it
+    // was at spawn. The driven car is the focus instead. Patched only where
+    // both exist, so every other project keeps its exact source.
+    bool autoStream = false;
+    for (const SceneData& sc : p.scenes)
+        for (const SceneLayer& l : sc.layers) autoStream = autoStream || l.autoStream;
+    // The residency log (docs/streaming-layers.md): a project whose zones
+    // stream layers by themselves says so in bin/log.txt, which is the only
+    // way to tell an unload from "never loaded" without a debugger.
+    if (autoStream) {
+        s = replaceAll(s,
+                       "      layerState[l] = 1;  // loading - assets stream in below\n"
+                       "      changed = true;\n",
+                       "      layerState[l] = 1;  // loading - assets stream in below\n"
+                       "      changed = true;\n"
+                       "      TYRA_LOG(\"LAYER \", l, \" load\");\n");
+        s = replaceAll(s,
+                       "      layerTarget[l] = 0;\n"
+                       "      changed = true;\n",
+                       "      layerTarget[l] = 0;\n"
+                       "      changed = true;\n"
+                       "      TYRA_LOG(\"LAYER \", l, \" unload\");\n");
+    }
+    if (projectHasVehicles(p)) {
+        if (autoStream)
+            s = replaceAll(s,
+                           "    const float px = cameraLookAt.x;\n"
+                           "    const float pz = cameraLookAt.z;\n",
+                           "    float px = cameraLookAt.x;\n"
+                           "    float pz = cameraLookAt.z;\n"
+                           "    // Driving: the car is the focus (the walker waits at its door).\n"
+                           "    if (vehicleDriver_ >= 0 && vehicleDriver_ < vehicleCount_) {\n"
+                           "      px = vehicles_[vehicleDriver_].pos[0];\n"
+                           "      pz = vehicles_[vehicleDriver_].pos[2];\n"
+                           "    }\n");
+    }
+    // Road streaming (docs/roads.md "Road streaming"): the three hooks in code
+    // every project shares (the height lookup, the per-frame update, the
+    // far-car freeze). Last, so the vehicle code is already in place.
+    if (projectStreamsRoads(p)) {
+        roadstream::Params prm;
+        prm.radius = p.settings.roadStreamRadius;
+        prm.vehicles = projectHasVehicles(p);
+        prm.tablesOnDisk = projectRoadTablesOnDisk(p);
+        s = roadstream::patchTemplate(s, prm);
+    }
+    // Road traffic (docs/traffic.md): the four hooks in the vehicle runtime.
+    if (roadlanes::projectHasTraffic(p)) s = roadlanes::patchTemplate(s);
+    // Lit street lamps and weather (docs/weather.md): the lamp pools' bag,
+    // the wet tint, the coronas, the rain and their hooks. Last, so the
+    // streaming copy of procFinishChunks above takes the same patch. A project
+    // with neither keeps its exact source.
+    {
+        roadlight::Gates g;
+        g.lamps = projectHasLitLamps(p);
+        g.weather = projectUsesWeather(p);
+        g.vehicles = projectHasVehicles(p);
+        g.puddles = projectHasPuddles(p);
+        for (const SceneData& sc : p.scenes)
+            for (const SceneObject& o : sc.objects)
+                g.roads = g.roads || (o.type == PrimitiveType::Road && o.roadPoints.size() >= 4);
+        s = roadlight::patchTemplate(s, g);
+    }
     return s;
 }
 
@@ -20989,6 +22298,8 @@ std::string flowGraphScript(const Project& p) {
     if (anyNav)
         out << "#include \"scripts/navigation.gen.hpp\"  // AI nodes "
                "(Patrol/Chase/Flee/On Player Seen)\n";
+    if (uses("SetWeather"))
+        out << "#include \"daynight.gen.hpp\"  // Set Weather (docs/weather.md)\n";
     if (dbgOn)
         out << "#include \"scripts/live_debug.gen.hpp\"  // Live Debugger "
                "hits / halt / force-fire\n";
@@ -22324,6 +23635,8 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                 if (ei < 0) return "0.0F";
                 return "flowEvtCurVal[" + std::to_string(ei) + "]";
             }
+            // The car's speed at the player's latest red-light run (units/s).
+            if (n.type == "OnRedLightRun") return "ctx.redLightSpeed";
             if (n.type == "RollRandom") return "rnd" + std::to_string(n.id);
             if (n.type == "PlayerFallSpeed")
                 // Already units/second - the walker keeps the PLAYER's
@@ -23153,6 +24466,14 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
             } else if (n.type == "SetFlashlight") {
                 c << pad << "ctx.flashlight = " << (n.num[0] != 0.0f ? "1" : "0")
                   << ";\n";
+            } else if (n.type == "SetWeather") {
+                // docs/weather.md: straight into the weather state the game
+                // ticks (daynight.gen.hpp), not through ScriptContext.
+                float in = n.num[1];
+                in = in < 0.0f ? 0.0f : (in > 1.0f ? 1.0f : in);
+                const float sec = n.num[2] > 0.0f ? n.num[2] : 0.0f;
+                c << pad << "weather::request(" << ((int)n.num[0] == 1 ? 1 : 0) << ", "
+                  << floatLit(in) << ", " << floatLit(sec) << ");\n";
             } else if (n.type == "SetFog") {
                 c << pad << "ctx.fog = " << (n.num[0] != 0.0f ? "1" : "0") << ";\n";
             } else if (n.type == "SetParticles") {
@@ -24794,6 +26115,28 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                        << "      if (ended != " << flag << ") {\n"
                        << "        " << flag << " = ended;\n" << body
                        << "      }\n    }\n";
+            } else if (n.type == "OnRedLightRun") {
+                // Road traffic (docs/traffic.md). The OnCreditsEnd shape: the
+                // game COUNTS the player's red runs into the context, and the
+                // node fires when its own copy falls behind - one fire per run,
+                // whatever order the graphs update in. A scene load re-syncs to
+                // the live count, so a run in the last scene is not news here.
+                const std::string flag = "redRuns" + std::to_string(n.id);
+                addMember("int", flag, "0", 'i', 1);
+                flagResets << "      " << flag << " = ctx.redLightRuns;\n";
+                std::string filter;
+                if (n.num[0] >= 0.0f)
+                    filter += "ctx.redLightNode == " + std::to_string((int)std::lround(n.num[0]));
+                if (n.num[1] > 0.0f)
+                    filter += std::string(filter.empty() ? "" : " && ") +
+                              "ctx.redLightSpeed >= " + floatLit(n.num[1]);
+                clsOut << "    if (ctx.redLightRuns != " << flag << ") {\n"
+                       << "      " << flag << " = ctx.redLightRuns;\n";
+                if (filter.empty())
+                    clsOut << body;
+                else
+                    clsOut << "      if (" << filter << ") {\n" << body << "      }\n";
+                clsOut << "    }\n";
             } else if (n.type == "OnFactChanged") {
                 // The reactive door in. A latch of the PREVIOUS value rather
                 // than a rising edge, because "changed" has to cover a count
@@ -25356,6 +26699,12 @@ static const std::vector<std::pair<std::string, std::string>>& liveLogicOpBodies
          "      if (!o) break;\n"
          "      for (int a = 0; a < 3; ++a)\n"
          "        o->spinRate[a] = in.pin == 1 ? 0.0F : in.num[a];\n"},
+        // Set Weather (docs/weather.md): straight into the weather state, the
+        // native node's own call. The placeholder is the call in a build with
+        // the weather runtime and a no-op without one - the editor never
+        // sends this opcode to such a build (BuiltList::weather), it reports
+        // the graph as a rebuild case instead.
+        {"OP_SetWeather", "{{WEATHER}}"},
     };
     return v;
 }
@@ -25977,12 +27326,22 @@ static std::string liveLogicSource(const Project& p) {
             continue;
         }
         cases << "    case " << name << ":\n"
-              << replaceAll(*body, "{{BLURMAX}}",
-                            std::to_string(motionBlurMaxFix(p.settings)))
+              << replaceAll(replaceAll(*body, "{{BLURMAX}}",
+                                       std::to_string(motionBlurMaxFix(p.settings))),
+                            "{{WEATHER}}",
+                            projectUsesWeather(p)
+                                ? "      weather::request((int)in.num[0] == 1 ? 1 : 0,\n"
+                                  "                       in.num[1] < 0.0F ? 0.0F : (in.num[1] > 1.0F ? 1.0F : in.num[1]),\n"
+                                  "                       in.num[2] > 0.0F ? in.num[2] : 0.0F);\n"
+                                : "      (void)in;  // no weather runtime in this build\n")
               << "      break;\n";
     }
 
     std::string s = TPL_LIVE_LOGIC_CPP;
+    if (projectUsesWeather(p))
+        s = replaceAll(s, "#include \"scripts/live_logic.gen.hpp\"\n",
+                       "#include \"scripts/live_logic.gen.hpp\"\n"
+                       "#include \"daynight.gen.hpp\"  // Set Weather (docs/weather.md)\n");
     s = replaceAll(s, "{{LOGIC_CADENCE}}", devkitCadence(p.settings.liveLogicPollFrames, "Tyra::IrxLoader::keepIopResident ? 25 : 6"));
     s = replaceAll(s, "{{NS}}", sanitizeNamespace(p.name));
     s = replaceAll(s, "{{ENUMS}}", enums.str());
@@ -28019,6 +29378,20 @@ static std::string liveLinkScript(const Project& p) {
            "\n"
            "}  // namespace\n"
            "}  // namespace " << ns << "\n";
+    // Road traffic (docs/traffic.md): the appended cars have id hash 0 and
+    // are not the editor's to hide. Patched in only then, so every other
+    // project keeps its exact poller.
+    if (roadlanes::projectHasTraffic(p)) {
+        std::string s = out.str();
+        const std::string from = "      if (present[i] || hiddenByLL_[i]) continue;\n";
+        const size_t at = s.find(from);
+        if (at != std::string::npos)
+            s.replace(at, from.size(),
+                      "      if (present[i] || hiddenByLL_[i] ||\n"
+                      "          SCENE_OBJECT_ID_TABLES[ctx.scene][i] == 0ULL)\n"
+                      "        continue;\n");
+        return s;
+    }
     return out.str();
 }
 
@@ -34653,7 +36026,15 @@ std::vector<File> generate(const Project& source) {
         resolved = std::make_unique<Project>(source);
         project::applyVehicleDefaults(*resolved);
     }
-    const Project& p = resolved ? *resolved : source;
+    // Road traffic (docs/traffic.md): the ambient cars are ordinary vehicle
+    // instances APPENDED to the scenes here, so they get every table a placed
+    // car gets; the runtime keeps them hidden until it places them on a lane.
+    std::unique_ptr<Project> withTraffic;
+    if (roadlanes::projectHasTraffic(resolved ? *resolved : source)) {
+        withTraffic = std::make_unique<Project>();
+        roadlanes::withTrafficCars(resolved ? *resolved : source, *withTraffic);
+    }
+    const Project& p = withTraffic ? *withTraffic : resolved ? *resolved : source;
     const std::string ns = sanitizeNamespace(p.name);
     auto fill = [&](const char* tpl) { return fillTemplate(p, tpl); };
 
@@ -34688,8 +36069,8 @@ std::vector<File> generate(const Project& source) {
     // clean project's file list byte-identical - refreshGenerated sweeps a
     // leftover away.
     const std::string blssRefusal = blssInterlock(p);
-    std::string objectSource;
-    const std::string sceneData = sceneDataContent(p, ns, objectSource);
+    std::string objectSource, roadFile;
+    const std::string sceneData = sceneDataContent(p, ns, objectSource, roadFile);
     const std::string occlusionData = occlusionDataHeader(p, objectSource);
     // Preserve a user-owned legacy monolith. New projects and marker-owned
     // games use parallel subsystem files; a user-owned split main keeps them.
@@ -34824,6 +36205,14 @@ std::vector<File> generate(const Project& source) {
     // is what it always was. project::refreshGenerated deletes a leftover.
     if (!blssRefusal.empty())
         files.push_back({"src\\gen\\blss_interlock.gen.cpp", blssRefusal});
+    // Road tables on disk (docs/roads.md "Tables on disk"): the baked road rows
+    // of a streamed project. Written into .res-baked like the vehicle bake, so
+    // the Makefile's resources step copies it next to the ELF (bin/roadfile/,
+    // the game's asset root and what an ISO export packs) on EVERY build - a
+    // file written straight into bin/ would not survive a --rebuild, which
+    // drops bin/ after this refresh. Binary; refreshGenerated writes it and
+    // deletes a leftover when the project stops needing it.
+    if (!roadFile.empty()) files.push_back({".res-baked\\roadfile\\roads.bin", roadFile});
     // Source names need no magic suffix. The encoder is outside the model,
     // so supply just the additional paths that continuous vehicle roles use.
     // Legacy *-loop.wav still works without this optional manifest.

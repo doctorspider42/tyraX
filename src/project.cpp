@@ -22,6 +22,9 @@
 #include "menustyle.hpp"
 #include "objparser.hpp"
 #include "platform.hpp"
+#include "roadbridge.hpp"  // a bridge road's elevation for the crossing planner
+#include "roaddetail.hpp"  // the road details atlas, written on demand
+#include "roadtex.hpp"  // the road materials a new project is seeded with
 #include "savebake.hpp"
 #include "templates.hpp"
 
@@ -1092,6 +1095,35 @@ std::string objectJson(const SceneObject& o) {
             json += ", \"roadSpill\": " + fmtFloat(o.roadSpill);
         if (o.roadEdgeFade != 0.0f)
             json += ", \"roadEdgeFade\": " + fmtFloat(o.roadEdgeFade);
+        if (o.roadMarkings != 1)
+            json += ", \"roadMarkings\": " + std::to_string(o.roadMarkings);
+        // Kerbs (v95): written only when on, or when a size was edited, so an
+        // untouched road resaves byte-identical.
+        if (o.roadKerb) json += ", \"roadKerb\": true";
+        if (o.roadKerbHeight != 0.15f)
+            json += ", \"roadKerbHeight\": " + fmtFloat(o.roadKerbHeight);
+        if (o.roadKerbWidth != 0.25f)
+            json += ", \"roadKerbWidth\": " + fmtFloat(o.roadKerbWidth);
+        // Pavements (v97): written only when set.
+        if (o.roadPavement != 0.0f)
+            json += ", \"roadPavement\": " + fmtFloat(o.roadPavement);
+        if (!o.roadPavementMaterial.empty())
+            json += ", \"roadPavementMaterial\": \"" + jsonEscape(o.roadPavementMaterial) + "\"";
+        // Rails (v98): only when not a plain road / not the defaults.
+        if (o.roadKind != 0) json += ", \"roadKind\": " + std::to_string(o.roadKind);
+        if (o.roadRailGauge != 1.435f)
+            json += ", \"roadRailGauge\": " + fmtFloat(o.roadRailGauge);
+        if (o.roadTracks != 1) json += ", \"roadTracks\": " + std::to_string(o.roadTracks);
+        // Bridge (v100): written only when on.
+        if (o.roadBridge) json += ", \"roadBridge\": true";
+        // Details (v99): written only when on / off the default seed.
+        if (o.roadDetails != 0.0f)
+            json += ", \"roadDetails\": " + fmtFloat(o.roadDetails);
+        if (o.roadDetailSeed != 0)
+            json += ", \"roadDetailSeed\": " + std::to_string(o.roadDetailSeed);
+        // Street furniture (v101): one object of its non-default keys.
+        if (const std::string rf = roadfurn::toJson(o.roadFurniture); !rf.empty())
+            json += ", \"roadFurniture\": " + rf;
         bool anyLift = false;
         for (float h : o.roadHeights) anyLift |= h != 0.0f;
         if (anyLift) {
@@ -1192,6 +1224,7 @@ static void writeRoadJunctionsArray(std::ostream& json,
         if (!j.material.empty())
             json << ", \"material\": \"" << jsonEscape(j.material) << "\"";
         if (j.grip > 0.0f) json << ", \"grip\": " << fmtFloat(j.grip);
+        if (j.control != roadgen::kControlAuto) json << ", \"control\": " << j.control;
         json << " }";
     }
     json << "]";
@@ -1216,6 +1249,9 @@ static void readRoadJunctionsArray(const json::Value& arr,
             if (j.grip <= 0.0f) j.grip = 0.0f;
             else j.grip = std::clamp(j.grip, 0.1f, 1.5f);
         }
+        if (const auto* v = jj.find("control")) j.control = (int)v->numberOr(0.0);
+        if (j.control < roadgen::kControlAuto || j.control > roadgen::kControlStop)
+            j.control = roadgen::kControlAuto;
         if (!j.roadA.empty() && !j.roadB.empty()) out.push_back(j);
     }
 }
@@ -1708,7 +1744,9 @@ std::string resolveRoadTexture(const Project& p, const std::string& surfaceRel) 
 }
 
 std::vector<roadgen::CrossingRoad> crossingRoads(const std::vector<SceneObject>& objects,
-                                                 std::vector<int>* objectIndex) {
+                                                 std::vector<int>* objectIndex,
+                                                 const std::string& projectDir,
+                                                 const roadgen::HeightFn& ground) {
     std::vector<roadgen::CrossingRoad> out;
     if (objectIndex) objectIndex->clear();
     for (size_t i = 0; i < objects.size(); ++i) {
@@ -1724,6 +1762,50 @@ std::vector<roadgen::CrossingRoad> crossingRoads(const std::vector<SceneObject>&
         r.edgeFade = o.roadEdgeFade;
         r.rank = o.roadRank;
         r.intersection = o.roadIntersectionTexture;
+        r.markings = o.roadMarkings;
+        // A generated surface knows where its edge line is (docs/road-textures.md).
+        const std::string dirPrefix = std::string(roadtex::kDir) + "/";
+        if (!projectDir.empty() && o.roadTexture.rfind(dirPrefix, 0) == 0 &&
+            o.roadTexture.size() > dirPrefix.size() + 4 &&
+            o.roadTexture.compare(o.roadTexture.size() - 4, 4, ".mtl") == 0) {
+            const std::string stem = o.roadTexture.substr(
+                dirPrefix.size(), o.roadTexture.size() - dirPrefix.size() - 4);
+            roadtex::RoadTexParams rp;
+            if (roadtex::readRecipe(projectDir, stem, &rp)) {
+                float u0 = 0.0f, u1 = 0.0f;
+                r.edgeLine = roadtex::edgeLineSpan(rp, &u0, &u1);
+                // The lanes it paints are the lanes traffic drives
+                // (docs/traffic.md). Track and isotropic surfaces paint none.
+                if (!rp.isotropic() && rp.surface != roadtex::kBallast) r.lanes = rp.lanes;
+                if (r.edgeLine) {
+                    r.edgeU0 = u0;
+                    r.edgeU1 = u1;
+                }
+            }
+        }
+        r.kerb = o.roadKerb;
+        r.kerbHeight = o.roadKerbHeight;
+        r.kerbWidth = o.roadKerbWidth;
+        // Rails (docs/roads.md "Rails and tram tracks"): a railway is never
+        // kerbed or painted - no zebra across the tracks, no stop line on the
+        // ballast. A tram street is a street and keeps both.
+        r.kind = o.roadKind;
+        r.railGauge = o.roadRailGauge;
+        r.tracks = o.roadTracks;
+        if (r.kind == 1) {
+            r.kerb = false;
+            r.markings = 0;
+            r.edgeLine = false;
+        }
+        // Bridges (docs/roads.md "Bridges"): the planner learns how high the
+        // deck is wherever it asks; a bridge carries parapets, not kerbs.
+        if (o.roadBridge) {
+            r.elevation = roadbridge::elevationFn(o, ground);
+            r.kerb = false;
+        }
+        r.pavement = r.kerb ? o.roadPavement : 0.0f;
+        r.details = o.roadDetails;
+        r.detailSeed = o.roadDetailSeed;
         out.push_back(std::move(r));
         if (objectIndex) objectIndex->push_back((int)i);
     }
@@ -1737,6 +1819,37 @@ std::vector<roadgen::CrossingRoad> crossingRoads(const std::vector<SceneObject>&
 // a standalone JSON object - the collaboration wire format for project-wide
 // data. New manifest keys must join one of these writers (or become a new
 // Section) so they reach both the file and the wire.
+
+// Road traffic (docs/traffic.md, format v106): only the keys that differ from
+// TrafficSettings' defaults, and nothing at all when none does - a project
+// without traffic saves exactly what it did before.
+static std::string trafficJson(const TrafficSettings& t) {
+    const TrafficSettings d;
+    if (t == d) return std::string();
+    std::string s = "    \"traffic\": {";
+    bool first = true;
+    auto key = [&](const char* k, const std::string& v) {
+        s += std::string(first ? "" : ", ") + "\"" + k + "\": " + v;
+        first = false;
+    };
+    if (t.cars != d.cars) key("cars", std::to_string(t.cars));
+    if (t.vehicles != d.vehicles) {
+        std::string list = "[";
+        for (size_t i = 0; i < t.vehicles.size(); ++i)
+            list += std::string(i ? ", " : "") + "\"" + jsonEscape(t.vehicles[i]) + "\"";
+        key("vehicles", list + "]");
+    }
+    if (t.radius != d.radius) key("radius", fmtFloat(t.radius));
+    if (t.density != d.density) key("density", fmtFloat(t.density));
+    if (t.speed != d.speed) key("speed", fmtFloat(t.speed));
+    if (t.green != d.green) key("green", fmtFloat(t.green));
+    if (t.amber != d.amber) key("amber", fmtFloat(t.amber));
+    if (t.allRed != d.allRed) key("allRed", fmtFloat(t.allRed));
+    if (t.leftHand != d.leftHand) key("leftHand", t.leftHand ? "true" : "false");
+    if (t.headlights != d.headlights) key("headlights", t.headlights ? "true" : "false");
+    if (t.laneChanges != d.laneChanges) key("laneChanges", t.laneChanges ? "true" : "false");
+    return s + "},\n";
+}
 
 static void writeSettingsSection(std::ostream& json, const Project& p) {
     json << "\"settings\": {\n"
@@ -1822,6 +1935,10 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
          << "    \"animPlayFps\": " << fmtFloat(p.settings.animPlayFps) << ",\n"
          << "    \"staticBatching\": "
          << (p.settings.staticBatching ? "true" : "false") << ",\n"
+         // Only when off (format v103), so every existing project resaves
+         // byte for byte.
+         << (!p.settings.instanceSharing ? "    \"instanceSharing\": false,\n"
+                                          : "")
          // Written only when not the default, so a project that never
          // sets it resaves byte for byte (format v64).
          << (p.settings.interleavePasses != "auto"
@@ -1848,6 +1965,22 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
          << ",\n"
          << "    \"terrainLodDistance\": "
          << fmtFloat(p.settings.terrainLodDistance) << ",\n"
+         // Written only when on (format v102), so a project without road
+         // streaming saves exactly what it did before.
+         << (p.settings.roadStreamRadius > 0.0f
+                 ? "    \"roadStreamRadius\": " + fmtFloat(p.settings.roadStreamRadius) +
+                       ",\n"
+                 : std::string())
+         // Written only when the project has any (format v105).
+         << (!p.settings.roadPresets.empty()
+                 ? "    \"roadPresets\": " + roadpresets::toJson(p.settings.roadPresets) +
+                       ",\n"
+                 : std::string())
+         // Written only when true (format v104): the default keeps a streamed
+         // project's road tables in bin/roadfile/roads.bin (docs/roads.md "Tables on disk").
+         << (p.settings.roadStreamEmbedTables ? "    \"roadStreamEmbedTables\": true,\n"
+                                              : "")
+         << trafficJson(p.settings.traffic)
          << "    \"reflectionReuseBudget\": "
          << fmtFloat(p.settings.reflectionReuseBudget) << ",\n"
          << (p.settings.reflectionGroundRadius > 0.0f
@@ -2029,6 +2162,24 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
          << "  }";
 }
 
+// Weather and street lamps (docs/weather.md, format v107): each key written
+// only off its default, so a scene that never used them saves byte-identical.
+// `sep` is the caller's separator (",\n      " in the manifest, ", " in the
+// history), the shape of the keys around it.
+static void writeSceneWeather(std::ostream& json, const SceneData& sc, const char* sep) {
+    if (sc.weather != 0) json << sep << "\"weather\": " << sc.weather;
+    if (sc.weatherIntensity != 1.0f)
+        json << sep << "\"weatherIntensity\": " << fmtFloat(sc.weatherIntensity);
+    if (sc.streetLamps != 0) json << sep << "\"streetLamps\": " << sc.streetLamps;
+}
+static void readSceneWeather(const json::Value& js, SceneData& sc) {
+    if (const auto* v = js.find("weather")) sc.weather = std::clamp((int)v->numberOr(0.0), 0, 1);
+    if (const auto* v = js.find("weatherIntensity"))
+        sc.weatherIntensity = std::clamp((float)v->numberOr(1.0), 0.0f, 1.0f);
+    if (const auto* v = js.find("streetLamps"))
+        sc.streetLamps = std::clamp((int)v->numberOr(0.0), 0, 2);
+}
+
 // The scene table: names + per-scene meta + ordered object-id lists. Not a
 // Section - the collaboration layer ships it as its own message (per-object
 // bodies live in objects/<id>.json).
@@ -2062,6 +2213,7 @@ static void writeScenesTable(std::ostream& json, const Project& p) {
                  << fmtFloat(sc.terrainTintVariation)
                  << ",\n      \"terrainTintScale\": "
                  << fmtFloat(sc.terrainTintScale);
+        writeSceneWeather(json, sc, ",\n      ");
         // Ordered ids only - each object's body is a separate objects/<id>.json
         // file (written below). Order is significant (first Player / SpawnPoint
         // wins, draw order), so it is preserved by the list.
@@ -5038,6 +5190,10 @@ std::string create(Project& out, const std::string& name, const std::string& par
             !err.empty())
             return err;
     }
+    // Ready road materials (docs/road-textures.md): a Road inserted into a
+    // fresh project picks road-2lane + road-junction, so it is textured from
+    // the first click. Ordinary tracked assets - res/.gitignore keeps them.
+    if (auto err = roadtex::seedProject(out.dir); !err.empty()) return err;
     if (auto err = save(out); !err.empty()) return err;
 
     // Every project is born with its history file (a single-entry undo stack)
@@ -5233,6 +5389,7 @@ bool applyScenesLayout(Project& p, const std::string& body) {
             sc.terrainTintScale = (float)v->numberOr(24.0);
             if (sc.terrainTintScale < 1.0f) sc.terrainTintScale = 1.0f;
         }
+        readSceneWeather(js, sc);
         if (const auto* t = js.find("terrain")) {
             if (const auto* v = t->find("width")) sc.terrain.width = (int)v->numberOr(64);
             if (const auto* v = t->find("depth")) sc.terrain.depth = (int)v->numberOr(64);
@@ -6227,6 +6384,33 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
             if (o.roadEdgeFade < 0.0f) o.roadEdgeFade = 0.0f;
             if (o.roadEdgeFade > 4.0f) o.roadEdgeFade = 4.0f;
         }
+        if (const auto* rmk = jo.find("roadMarkings"))
+            o.roadMarkings = std::clamp((int)rmk->numberOr(1.0), 0, 2);
+        if (const auto* rk = jo.find("roadKerb"))
+            o.roadKerb = rk->boolOr(false);
+        if (const auto* rkh = jo.find("roadKerbHeight"))
+            o.roadKerbHeight =
+                std::clamp((float)rkh->numberOr(0.15), 0.02f, 0.5f);
+        if (const auto* rkw = jo.find("roadKerbWidth"))
+            o.roadKerbWidth = std::clamp((float)rkw->numberOr(0.25), 0.05f, 1.0f);
+        if (const auto* rpv = jo.find("roadPavement"))
+            o.roadPavement = std::clamp((float)rpv->numberOr(0.0), 0.0f, 6.0f);
+        if (const auto* rpm = jo.find("roadPavementMaterial"))
+            o.roadPavementMaterial = rpm->stringOr("");
+        if (const auto* rki = jo.find("roadKind"))
+            o.roadKind = std::clamp((int)rki->numberOr(0.0), 0, 2);
+        if (const auto* rrg = jo.find("roadRailGauge"))
+            o.roadRailGauge = std::clamp((float)rrg->numberOr(1.435), 0.3f, 3.0f);
+        if (const auto* rtr = jo.find("roadTracks"))
+            o.roadTracks = std::clamp((int)rtr->numberOr(1.0), 1, 2);
+        if (const auto* rb = jo.find("roadBridge"))
+            o.roadBridge = rb->boolOr(false);
+        if (const auto* rdd = jo.find("roadDetails"))
+            o.roadDetails = std::clamp((float)rdd->numberOr(0.0), 0.0f, 1.0f);
+        if (const auto* rds = jo.find("roadDetailSeed"))
+            o.roadDetailSeed = (int)rds->numberOr(0.0);
+        if (const auto* rfu = jo.find("roadFurniture"))
+            roadfurn::fromJson(*rfu, o.roadFurniture);
         if (const auto* rh = jo.find("roadHeights")) {
             o.roadHeights.clear();
             if (rh->type == json::Value::Type::Array)
@@ -6424,6 +6608,8 @@ static void readSettingsSection(const json::Value& root, Project& out) {
         if (st.animPlayFps > 240.0f) st.animPlayFps = 240.0f;
         if (const auto* v = s->find("staticBatching"))
             st.staticBatching = v->boolOr(true);
+        if (const auto* v = s->find("instanceSharing"))
+            st.instanceSharing = v->boolOr(true);
         if (const auto* v = s->find("interleavePasses")) {
             st.interleavePasses = v->stringOr("auto");
             if (st.interleavePasses != "off" && st.interleavePasses != "always")
@@ -6468,6 +6654,39 @@ static void readSettingsSection(const json::Value& root, Project& out) {
         if (const auto* v = s->find("terrainLodDistance")) {
             st.terrainLodDistance = (float)v->numberOr(0.0);
             if (st.terrainLodDistance < 0.0f) st.terrainLodDistance = 0.0f;
+        }
+        // v102 (docs/roads.md "Road streaming"): missing = 0 = off.
+        if (const auto* v = s->find("roadStreamRadius")) {
+            st.roadStreamRadius = (float)v->numberOr(0.0);
+            if (!(st.roadStreamRadius > 0.0f)) st.roadStreamRadius = 0.0f;
+        }
+        // v105 (docs/roads.md "Road presets"): missing = none.
+        if (const auto* v = s->find("roadPresets")) roadpresets::fromJson(*v, st.roadPresets);
+        // v104 (docs/roads.md "Tables on disk"): missing = false = a streamed
+        // project's road tables go to bin/roadfile/roads.bin.
+        if (const auto* v = s->find("roadStreamEmbedTables"))
+            st.roadStreamEmbedTables = v->boolOr(false);
+        // v106 (docs/traffic.md): missing = no traffic; missing keys = defaults.
+        if (const auto* t = s->find("traffic"); t && t->type == json::Value::Type::Object) {
+            TrafficSettings& tr = st.traffic;
+            if (const auto* v = t->find("cars")) tr.cars = std::clamp((int)v->numberOr(0.0), 0, 32);
+            if (const auto* v = t->find("vehicles"); v && v->type == json::Value::Type::Array) {
+                tr.vehicles.clear();
+                for (const auto& e : v->arr)
+                    if (!e.stringOr("").empty()) tr.vehicles.push_back(e.stringOr(""));
+            }
+            auto num = [&](const char* k, float& f, float lo, float hi) {
+                if (const auto* v = t->find(k)) f = std::clamp((float)v->numberOr(f), lo, hi);
+            };
+            num("radius", tr.radius, 20.0f, 2000.0f);
+            num("density", tr.density, 0.1f, 20.0f);
+            num("speed", tr.speed, 2.0f, 40.0f);
+            num("green", tr.green, 2.0f, 120.0f);
+            num("amber", tr.amber, 1.0f, 10.0f);
+            num("allRed", tr.allRed, 0.0f, 10.0f);
+            if (const auto* v = t->find("leftHand")) tr.leftHand = v->boolOr(false);
+            if (const auto* v = t->find("headlights")) tr.headlights = v->boolOr(true);
+            if (const auto* v = t->find("laneChanges")) tr.laneChanges = v->boolOr(true);
         }
         // A project written before v55 has no key and keeps the default 1.0
         // pixel, which is sub-pixel on the 128-pixel target: the reuse is
@@ -8005,6 +8224,7 @@ std::string load(Project& out, const std::string& projectDir) {
                 sc.terrainTintScale = (float)v->numberOr(24.0);
                 if (sc.terrainTintScale < 1.0f) sc.terrainTintScale = 1.0f;
             }
+            readSceneWeather(js, sc);
             if (const auto* objs = js.find("objects"))
                 readSceneObjects(out, *objs, sc.objects);
             if (const auto* t = js.find("terrain")) {
@@ -8220,6 +8440,7 @@ std::string saveHistory(const Project& p, const History& h) {
                 json << ", \"terrainTintVariation\": "
                      << fmtFloat(sc.terrainTintVariation)
                      << ", \"terrainTintScale\": " << fmtFloat(sc.terrainTintScale);
+            writeSceneWeather(json, sc, ", ");
             json << ", \"objects\": ";
             writeObjectsArray(json, sc.objects, "        ");
             json << " }";
@@ -8267,6 +8488,7 @@ std::string loadHistory(const Project& p, History& h) {
                     sc.terrainTintScale = (float)v->numberOr(24.0);
                     if (sc.terrainTintScale < 1.0f) sc.terrainTintScale = 1.0f;
                 }
+                readSceneWeather(js, sc);
                 if (const auto* objs = js.find("objects"))
                     readObjectsArray(*objs, sc.objects);
                 if (const auto* t = js.find("terrain")) {
@@ -8376,6 +8598,44 @@ uint64_t liveLinkRecipeHash(const SceneObject& o) {
     fnvMix(h, o.bakedLighting ? 1 : 0);
     fnvMix(h, o.dynamicLighting ? 1 : 0);
     fnvMix(h, o.prelit ? 1 : 0);
+    // Road kerbs are host-baked into ROAD_KERB_VERTS at build: an edit can
+    // only show after a rebuild. Mixed only when on, so a kerbless road's
+    // recipe is the one it always had.
+    if (o.type == PrimitiveType::Road && o.roadKerb) {
+        fnvMix(h, 0x4B);
+        fnvMixF(h, o.roadKerbHeight), fnvMixF(h, o.roadKerbWidth);
+        // Pavements (v97) ride on the kerbs and are baked the same way.
+        if (o.roadPavement != 0.0f || !o.roadPavementMaterial.empty()) {
+            fnvMixF(h, o.roadPavement);
+            for (char ch : o.roadPavementMaterial) fnvMix(h, (unsigned char)ch);
+        }
+    }
+    // Rails and tram tracks bake into the same tables (docs/roads.md "Rails
+    // and tram tracks"). Mixed only on a rail or tram road, the same way.
+    if (o.type == PrimitiveType::Road && o.roadKind != 0) {
+        fnvMix(h, 0x52);
+        fnvMix(h, o.roadKind), fnvMixF(h, o.roadRailGauge), fnvMix(h, o.roadTracks);
+    }
+    // A bridge's deck and structure are host-baked the same way (ROAD_JUNCTION
+    // rows + ROAD_BRIDGE_VERTS), so its heights need a rebuild too.
+    if (o.type == PrimitiveType::Road && o.roadBridge) {
+        fnvMix(h, 0x42);
+        for (float v : o.roadHeights) fnvMixF(h, v);
+    }
+    // Road details (docs/roads.md "Road details") are host-baked the same way
+    // (ROAD_DETAIL_VERTS). Mixed only when on, so a road without them keeps
+    // the recipe it always had.
+    if (o.type == PrimitiveType::Road && o.roadDetails > 0.0f) {
+        fnvMix(h, 0x44);
+        fnvMixF(h, o.roadDetails);
+        fnvMix(h, (uint64_t)(uint32_t)o.roadDetailSeed);
+    }
+    // Street furniture (docs/roads.md "Street furniture") is host-baked the
+    // same way (ROAD_FURN_VERTS + boxes). Mixed only when set.
+    if (o.type == PrimitiveType::Road && !roadfurn::isDefault(o.roadFurniture)) {
+        fnvMix(h, 0x46);
+        fnvMix(h, roadfurn::signature(o.roadFurniture));
+    }
     // The four numbers this mesh hands the project's own VU1 microprogram.
     // They are BAKED into SCENE_OBJECTS and the live-link record carries only
     // transform + colour, so an edit of them cannot show without a rebuild -
@@ -8557,6 +8817,17 @@ uint64_t liveLinkContextHash(const Project& p) {
     // and the baked streaming-layer tables (indices + zones).
     uint64_t h = kFnvSeed;
     fnvMix(h, p.scenes.size());
+    // Road traffic (docs/traffic.md) is baked - the cars appended to the
+    // scene tables, the lane graph, the signal timing - so a change reads as
+    // "rebuild". Mixed only when set, so every other project keeps its hash.
+    if (p.settings.traffic != TrafficSettings()) {
+        const TrafficSettings& t = p.settings.traffic;
+        fnvMix(h, 0x7F), fnvMix(h, (uint64_t)t.cars), fnvMix(h, t.leftHand ? 1 : 0);
+        fnvMix(h, t.headlights ? 1 : 0), fnvMix(h, t.laneChanges ? 1 : 0);
+        for (const std::string& v : t.vehicles) fnvMixS(h, v);
+        fnvMixF(h, t.radius), fnvMixF(h, t.density), fnvMixF(h, t.speed);
+        fnvMixF(h, t.green), fnvMixF(h, t.amber), fnvMixF(h, t.allRed);
+    }
     for (const SceneData& sc : p.scenes) {
         fnvMix(h, 0x5C);  // scene separator
         fnvMix(h, sc.layers.size());
@@ -8574,6 +8845,7 @@ uint64_t liveLinkContextHash(const Project& p) {
             fnvMixS(h, j.roadA), fnvMixS(h, j.roadB);
             fnvMixF(h, j.x), fnvMixF(h, j.z);
             fnvMix(h, (uint64_t)j.winner), fnvMixS(h, j.material), fnvMixF(h, j.grip);
+            fnvMix(h, (uint64_t)j.control);
         }
         // Scrollers bake their belt layout (clone objects + SCROLLERS tables)
         // from their segments AND the current transforms of the member objects
@@ -8853,6 +9125,20 @@ void clampStartScene(Project& p) {
 
 std::string refreshGenerated(const Project& p) {
     if (auto err = syncVuFramework(p); !err.empty()) return err;
+    // Road details (docs/roads.md "Road details"): the decals' atlas is an
+    // ordinary asset, written the first time a road asks for details so the
+    // texture bake that follows ships it. An existing file is never touched.
+    {
+        bool details = false;
+        for (const SceneData& sc : p.scenes)
+            for (const SceneObject& o : sc.objects)
+                details |= o.type == PrimitiveType::Road && o.roadDetails > 0.0f;
+        if (details)
+            if (auto err = roaddetail::ensureAtlas(p.dir); !err.empty()) return err;
+        // Puddles (docs/weather.md "Puddles"): their texture, the same way.
+        if (templates::projectHasPuddles(p))
+            if (auto err = roaddetail::ensurePuddles(p.dir); !err.empty()) return err;
+    }
     // ONCE. generate() is the whole codegen pass - every scene table, every
     // microprogram, every bake-derived header - and it also PRINTS the
     // diagnostics a build reports (a skipped procedural volume, a look that
@@ -8881,6 +9167,10 @@ std::string refreshGenerated(const Project& p) {
             // directory". Exactly the live_pad.gen.cpp mistake noted below.
             f.relativePath == "inc\\bag_array.gen.hpp" ||
             f.relativePath == "inc\\scene_data.hpp" ||
+            // Road tables on disk (docs/roads.md "Tables on disk"): the rows the
+            // scene_data.hpp directory points into - they must always come
+            // from the same refresh, or the game reports a stale file.
+            f.relativePath == ".res-baked\\roadfile\\roads.bin" ||
             // Object table definitions accompany the declarations even in
             // projects created before the data was moved out of the header.
             f.relativePath == "src\\gen\\scene_objects.gen.cpp" ||
@@ -9055,6 +9345,21 @@ std::string refreshGenerated(const Project& p) {
 
         if (write) {
             if (auto err = writeFile(path, f.content); !err.empty()) return err;
+        }
+    }
+
+    // Road tables on disk: a project that stopped streaming (or keeps its
+    // tables in the ELF again) must not ship the old file - neither the baked
+    // copy nor the one the Makefile already put next to the ELF.
+    {
+        const bool roadFile = std::any_of(generated.begin(), generated.end(),
+            [](const templates::File& f) {
+                return f.relativePath == ".res-baked\\roadfile\\roads.bin";
+            });
+        if (!roadFile) {
+            std::error_code ec;
+            fs::remove_all(fs::path(p.dir) / ".res-baked" / "roadfile", ec);
+            fs::remove_all(fs::path(p.dir) / "bin" / "roadfile", ec);
         }
     }
 
@@ -9489,7 +9794,9 @@ std::string refreshGenerated(const Project& p) {
     // night sky draws its stars through the SAME sprite - a star is a soft
     // radial dot, and an untextured quad would be a hard square - so a
     // starfield project bakes it whether or not it has a single beam.
-    if (templates::projectUsesBeams(p) || templates::projectStarCycle(p)) {
+    if (templates::projectUsesBeams(p) || templates::projectStarCycle(p) ||
+        templates::projectHasLitLamps(p) ||   // + the lamp pools and coronas (docs/weather.md)
+        templates::projectHasWetCarStreaks(p)) {  // + car lights on a wet road
         for (int kind = 2; kind < 3; ++kind) {
             std::vector<unsigned char> png;
             if (!menubake::bakeFlarePNG(kind, png))

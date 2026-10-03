@@ -1,0 +1,1 @@
+{ "id": "11d9decff3880464", "name": "Building 386", "type": "model", "position": [-296.415, 0, -60.0723], "rotation": [0, 0, 0], "scale": [2.4869, 1.6514, 1.979], "color": [1, 1, 1], "physics": false, "layer": "district-2-4", "drawDistance": 300, "castShadow": false, "model": "res/models/urban/city-highrise-2.obj" }

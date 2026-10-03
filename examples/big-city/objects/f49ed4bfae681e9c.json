@@ -1,0 +1,1 @@
+{ "id": "f49ed4bfae681e9c", "name": "Building 350", "type": "model", "position": [-297.018, 0, -539.058], "rotation": [0, 0, 0], "scale": [2.1199, 1.6432, 1.9994], "color": [1, 1, 1], "physics": false, "layer": "district-2-1", "drawDistance": 230, "castShadow": false, "model": "res/models/urban/district-workshop.obj" }

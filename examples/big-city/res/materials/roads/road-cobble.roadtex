@@ -1,0 +1,25 @@
+# Road Texture Generator recipe (docs/road-textures.md) - editor-only
+surface=cobble
+lanes=0
+wear=0.35
+tint=1,1,1
+seed=4
+size=128
+width=6
+ragged=0
+intersection=0
+centre=dashed
+centre.colour=0.88,0.88,0.84
+centre.width=0.12
+centre.dash=2
+centre.gap=2
+divider=dashed
+divider.colour=0.88,0.88,0.84
+divider.width=0.12
+divider.dash=1.5
+divider.gap=2.5
+edge=none
+edge.colour=0.88,0.88,0.84
+edge.width=0.15
+edge.dash=1
+edge.gap=1

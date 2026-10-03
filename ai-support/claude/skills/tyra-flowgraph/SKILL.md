@@ -175,6 +175,22 @@ over guessing from this file.
   "play the cutscene, then carry on"; its bool output is "a cutscene is playing
   right now", for gating gameplay logic out while one runs.
   **Set Sound Volume** ducks all sound effects (music has its own node).
+  **Set Weather** (Dry / Rain, intensity 0..1, transition seconds) makes it
+  rain round the camera; the roads get wet over ~6 s and dry over ~40 s on
+  their own, puddles fill by the kerbs (on roads with details), and the street
+  lamps and every lit car's lamps reflect in them. Live Logic can hot-patch it
+  once the build already has weather (a raining scene or another Set Weather).
+  0 seconds switches
+  at once (wet roads included) - use that from On Start. A scene's starting
+  weather is set in Scene Preferences, not with this node.
+  **On Red Light Run** (Player category) fires when the PLAYER's car crosses a
+  stop line at traffic lights on red - once per crossing, never for the
+  ambient traffic cars. Its number output is the car's speed then (units/s).
+  Params: Node (-1 = any signalled node, else the node number `--road-lanes`
+  prints) and Min speed (0 = any run). It needs road traffic on (Preferences >
+  World > Traffic, Ambient cars above 0) and a signalled node; without them it
+  never fires. Hang a fine, a wanted level or a HUD warning off it (On Red
+  Light Run -> Show Text). See `docs/traffic.md` in the TyraX repo.
   **Play Credits** rolls a credits screen (Tools > Credits Editor) by name: it
   takes over the screen and the pad - this graph included - until it ends or the
   player skips it, then runs the ROLL's own finish action (resume / switch scene

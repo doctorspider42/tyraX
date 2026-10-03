@@ -1,0 +1,1 @@
+{ "id": "339339e9a0f4a593", "name": "Building 290", "type": "model", "position": [-356.881, 0, -86.8442], "rotation": [0, 0, 0], "scale": [1.8795, 1.6905, 2.7652], "color": [1, 1, 1], "physics": false, "layer": "district-2-3", "drawDistance": 300, "castShadow": false, "model": "res/models/urban/city-highrise-2.obj" }

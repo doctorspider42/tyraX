@@ -1,0 +1,1 @@
+{ "id": "0bd432cb0ac59bc2", "name": "Building 820", "type": "model", "position": [73.7204, 0, -285.767], "rotation": [0, 0, 0], "scale": [2.5122, 1.3673, 1.8115], "color": [1, 1, 1], "physics": false, "layer": "district-4-2", "drawDistance": 230, "castShadow": false, "model": "res/models/urban/district-tower.obj" }

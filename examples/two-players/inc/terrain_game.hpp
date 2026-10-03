@@ -169,6 +169,76 @@ class TerrainGame : public Tyra::Game {
   void setupShadowDecals();   // per scene load: build the bags, take the pages
   void renderShadowDecals();  // per frame: one submit per resident group
 
+  // Instance sharing (INSTANCE_SHARING, docs/instance-sharing.md). A static
+  // model instance used to bake its own WORLD-space copy of every vertex:
+  // position, lit colour and ST, 48 bytes a vertex, per instance. A shared
+  // instance instead draws ONE model-space bake of the part (positions + STs,
+  // owned by the model, built on first use) under its own objMat, and owns
+  // only what really differs - its lit colours, which are themselves pooled
+  // by content, so instances that light identically share those too.
+  // Reference-counted on purpose: the model, every instance part and every
+  // pooled colour array hold their own reference, so whichever of
+  // freeModelAsset and the last GeoPart goes first, the arrays outlive every
+  // bag that points at them.
+  //
+  // NOT std::shared_ptr. This toolchain builds libstdc++'s shared_ptr with
+  // the MUTEX lock policy, so every control block runs pthread_mutex_init -
+  // one EE kernel semaphore each - and a city's few hundred shared parts ran
+  // the kernel out of semaphores mid-load: host: I/O (the log, Live
+  // Debugger, lazily loaded HUD textures) stopped dead while the game kept
+  // drawing. A plain counter is all a single-threaded owner needs.
+  template <class T>
+  class ShRef {
+   public:
+    ShRef() = default;
+    explicit ShRef(T* p) : p_(p) { if (p_) ++p_->refs; }
+    ShRef(const ShRef& o) : p_(o.p_) { if (p_) ++p_->refs; }
+    ShRef(ShRef&& o) noexcept : p_(o.p_) { o.p_ = nullptr; }
+    ShRef& operator=(ShRef o) {
+      T* t = p_;
+      p_ = o.p_;
+      o.p_ = t;
+      return *this;
+    }
+    ~ShRef() { reset(); }
+    void reset() {
+      if (p_ && --p_->refs == 0) delete p_;
+      p_ = nullptr;
+    }
+    T* get() const { return p_; }
+    T* operator->() const { return p_; }
+    T& operator*() const { return *p_; }
+    explicit operator bool() const { return p_ != nullptr; }
+    int useCount() const { return p_ ? p_->refs : 0; }
+
+   private:
+    T* p_ = nullptr;
+  };
+  struct SharedGeo {
+    int refs = 0;  // ShRef's count
+    BagArray<Tyra::Vec4> vertices;  // model space, UNSCALED (objMat scales)
+    BagArray<Tyra::Vec4> sts;
+    unsigned int stripRun = 0;  // as GeoPart::stripRun: 0 = triangle list
+    unsigned int stamp = 0;     // ONE bboxVersion for every instance
+    float mn[3] = {0.0F, 0.0F, 0.0F}, mx[3] = {0.0F, 0.0F, 0.0F};
+    // Distance LOD tiers, model space too, built the first time any instance
+    // needs one (index lod - 1). `strip` = drawn as a strip (an authored
+    // vehicle far tier only; never shared, so always false here in practice).
+    struct Tier {
+      BagArray<Tyra::Vec4> vertices;
+      BagArray<Tyra::Vec4> sts;
+      bool strip = false;
+      bool built = false;
+      unsigned int stamp = 0;
+    };
+    std::vector<Tier> tiers;
+  };
+  struct SharedColors {
+    int refs = 0;  // ShRef's count; the pool's own reference is one of them
+    BagArray<Tyra::Color> colors;
+    unsigned int hash = 0;
+  };
+
   // Scene objects at runtime (mutable by scripts/physics); geometry per
   // object, one draw part per model material (primitives use parts[0])
   struct GeoPart {
@@ -205,6 +275,14 @@ class TerrainGame : public Tyra::Game {
     // the shading bake, the env normals, the coarse AABB - does not.
     // Tier 0 only: applyGeoLod clears it while a LOD tier is shown.
     unsigned int stripRun = 0;
+    // Instance sharing: non-null = `vertices`/`sts` above are EMPTY and the
+    // bags draw the model's shared model-space arrays under the object's
+    // objMat; the colours are `sharedCols` (pooled), `colors` stays empty.
+    // Anything that walks this part's vertices must read them through the
+    // bag (bag->vertices / bag->count), or unshare the object first
+    // (ObjectGeometry::noShare) when it needs WORLD space.
+    ShRef<SharedGeo> shared;
+    ShRef<SharedColors> sharedCols;
     std::unique_ptr<Tyra::StaPipBag> bag;
     std::unique_ptr<Tyra::StaPipInfoBag> infoBag;
     std::unique_ptr<Tyra::StaPipColorBag> colorBag;
@@ -289,6 +367,10 @@ class TerrainGame : public Tyra::Game {
       BagArray<Tyra::Vec4> envNormals;
       BagArray<Tyra::Color> envColors;
       u32 stamp = 0;  // bboxVersion of these buffers
+      // A shared part's tier: positions/STs live in SharedGeo::tiers and
+      // only this instance's pooled colours here (the arrays above stay
+      // empty).
+      ShRef<SharedColors> sharedCols;
     };
     std::vector<Lod> lods;
     int shownLod = 0;  // tier the bags currently point at
@@ -337,6 +419,14 @@ class TerrainGame : public Tyra::Game {
     // settled body gets correct rest-pose shading back.
     Tyra::M4x4 objMat;
     bool matrixMode = false;
+    // Instance sharing (SharedGeo above): every part draws the model's
+    // shared model-space bake under objMat, which - unlike the physics path
+    // - carries the object's SCALE too. Static: objMat is set at rebuild.
+    // Not matrixMode, because everything that tests matrixMode means "a
+    // moving body"; consumers that need WORLD-space vertices set noShare
+    // and rebuild, after which this object bakes world space for good.
+    bool shared = false;
+    bool noShare = false;
     // Reflected-probe mode: the matcap ST basis must be the PROBE camera's
     // right/up, not the main camera's - a probe looking back at the player
     // has its left on the player's right, and sampling its map with the
@@ -455,10 +545,40 @@ class TerrainGame : public Tyra::Game {
     std::vector<float> shadowVerts;
     Tyra::CollisionMesh collider;  // built only when a scene needs mesh mode
     std::vector<std::string> texPaths;  // texture-cache refs this model holds
+    // Instance sharing: the model-space bake of each part, built when the
+    // first shared instance asks (acquireSharedGeo). Instances hold their own
+    // references, so freeing the model never pulls an array from under a bag.
+    std::vector<ShRef<SharedGeo>> sharedParts;
   };
   std::vector<GameModel> gameModels;
   void loadModelAsset(int index);
   void freeModelAsset(int index);
+  // Instance sharing (docs/instance-sharing.md).
+  ShRef<SharedGeo> acquireSharedGeo(int model, int part);
+  // A colour array equal to `cols` from the pool, or `cols` itself adopted
+  // into it. Pooled by content, so equally lit instances share one array.
+  ShRef<SharedColors> poolColors(BagArray<Tyra::Color>& cols);
+  std::map<unsigned int, std::vector<ShRef<SharedColors>>> colorPool;
+  unsigned int colorPoolAdds = 0;  // every 256th adoption sweeps the pool
+  // Frees the pooled arrays no instance draws any more (the pool's own
+  // reference is the last one) - also run after a layer streams out.
+  void pruneColorPool();
+  bool instanceShareEligible(int index) const;
+  void bakeSharedObject(int index, const GameModel& gm);
+  // A pass that needs this object's WORLD-space vertices (the torch's
+  // receiver and wall patches, the projected-shadow floor clamp): a shared
+  // object is rebuilt unshared, for good. Cheap no-op otherwise.
+  void unshareObject(int index);
+  // The shading globals rebuildObjectGeometry stages for an imported model
+  // (analytic-light pruning, GI route, pre-lit), for a bake that happens
+  // OUTSIDE it - a distance LOD tier. Reset with resetModelShading().
+  void stageModelShading(int index);
+  void resetModelShading();
+  // Debug builds (DEBUG_SHOW_MEM): MEMSTAT lines in bin/log.txt 60, 300, 900 and
+  // 1500 frames after a scene load - EE RAM in use and what object geometry
+  // holds. memStatCountdown counts those frames (-1 = done / off).
+  void logGeometryMemory();
+  int memStatCountdown = -1;
   // Animated .glb models: serialized by the editor to .tskl skeletal files
   // (paths in model_data.gen.hpp) - bone keyframe tracks + bind-pose mesh.
   // Poses are evaluated and skinned on the EE/VU0 (SkelInstance) for the
@@ -710,6 +830,12 @@ class TerrainGame : public Tyra::Game {
     float mx[3];
     short owner;     // procedural volume, -1 = a script-spawned prefab
     short instance;  // prefab instance handle, -1 = a volume's own geometry
+    // An ORIENTED box (bridge parapets and piers, docs/roads.md "Bridges"):
+    // lhx/lhz > 0 are its half extents in its own yaw frame (lx = dx*yc -
+    // dz*ys, lz = dx*ys + dz*yc about the mn/mx centre, the object boxes'
+    // convention); mn/mx stay its world AABB for the cheap rejects. 0 = the
+    // plain axis-aligned box mn/mx describe.
+    float lhx = 0.0F, lhz = 0.0F, yc = 1.0F, ys = 0.0F;
   };
   std::vector<StaticBox> procColliders;
   // Live prefab instances, so Despawn Prefab can find what it made.
@@ -783,14 +909,16 @@ class TerrainGame : public Tyra::Game {
   u32 ilMark = 0, ilStallMark = 0;
   // `grip`, when given, receives the answering road's grip (1 when none);
   // `cover` how much of the road is there (1, or a soft edge's fade).
+  // `maxY` (docs/roads.md "Bridges"): the highest surface NOT above it - a
+  // wheel, a walker or a shadow under a bridge deck keeps its own road.
   float roadSurfaceAt(float x, float z, float* grip = nullptr,
-                      float* cover = nullptr) const;
+                      float* cover = nullptr, float maxY = 1.0e30F) const;
   void buildRoadHeightIndex() const;
   // The pre-grid exhaustive walk, defined only under TYRA_ROAD_INDEX_VERIFY
   // (see roadSurfaceAt) - it is the oracle that gate compares against.
   float roadSurfaceScan(float x, float z) const;
   // roadSurfaceAt's uniform XZ grid over the road triangles: prefix offsets
-  // per cell, and entries packing (chunk << 22 | last vertex of a triangle).
+  // per cell, and entries packing (chunk << 19 | last vertex of a triangle).
   // Built once after the roads are, and again if the chunk list changes.
   mutable std::vector<unsigned int> roadIdxStart;
   mutable std::vector<unsigned int> roadIdxItems;
@@ -798,7 +926,8 @@ class TerrainGame : public Tyra::Game {
   mutable float roadIdxMinX = 0.0F, roadIdxMinZ = 0.0F, roadIdxInv = 0.0F;
   mutable int roadIdxN = 0;
   mutable bool roadIdxDirty = true;
-  float groundSurfaceAt(float x, float z) const;
+  float groundSurfaceAt(float x, float z, float maxY = 1.0e30F) const;
+  float walkGroundAt(float x, float z, float feetY) const;
   // The painted terrain layers' tyre grip at (x, z), 1 without any
   // (1.142.0; the host twin is Viewport::terrainLayerGrip).
   float terrainGripAt(float x, float z) const;

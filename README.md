@@ -84,7 +84,7 @@ own HUD.
   </tr>
   <tr>
     <td align="center"><sub><b>Day.</b> Three Blender-built cars on the start line; press Square to swap.</sub></td>
-    <td align="center"><sub><b>80 and climbing.</b> Seven terrain-following roads, CC0 city scenery.</sub></td>
+    <td align="center"><sub><b>80 and climbing.</b> Thirteen terrain-following roads with rounded junctions, forks and corners, a railway and a tram line, CC0 city scenery.</sub></td>
   </tr>
   <tr>
     <td width="50%"><img src="docs/img/readme-district-night-start.png" alt="The same start line at night: street lamps cast pools of light, apartment windows glow, stars overhead"></td>
@@ -380,7 +380,7 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
   [streaming layers](docs/streaming-layers.md),
   [world facts](docs/world-facts.md), runtime spawning and the
   [endless scroller](docs/endless-scroller.md).
-- **[Roads](docs/roads.md) and [vehicles](docs/vehicles.md)** — terrain-following streets, driveable and AI cars, model and sound authoring, damage and live previews. Try [Motor District](examples/vehicle-playground/README.md) or follow the [Blender vehicle tutorial](docs/blender-vehicle-modeling.md).
+- **[Roads](docs/roads.md) and [vehicles](docs/vehicles.md)** — [draw roads in the viewport](docs/roads.md#drawing-roads) with snapping that makes the T's, crossings and corners for you and [presets](docs/roads.md#road-presets) for the whole look (city street, boulevard, highway, railway, ...), [lamps that light the street at night and rain with wet roads, puddles and car lights mirrored in them](docs/weather.md), [road traffic](docs/traffic.md) that drives the lanes by itself, changes lanes, and obeys stop lines and working traffic lights (an On Red Light Run node catches the player), terrain-following streets with automatic rounded junctions, T's, forks and corners, kerbs and pavements that follow the fillets, [bridges and overpasses](docs/roads.md#bridges-format-100), [railway and tram tracks](docs/roads.md#rails-and-tram-tracks-format-98) with level crossings, painted junctions, placed road details (manholes, gullies, patches, cracks, oil), [street furniture](docs/roads.md#street-furniture-format-101) (lamps, trees, bollards, signs and traffic lights generated from the roads), [road streaming](docs/roads.md#road-streaming-format-102) by distance for big maps (its baked rows [read from a file](docs/roads.md#tables-on-disk-format-104) piece by piece) and [generated road textures](docs/road-textures.md), driveable and AI cars, model and sound authoring, damage and live previews. Try [Motor District](examples/vehicle-playground/README.md) or follow the [Blender vehicle tutorial](docs/blender-vehicle-modeling.md).
 - **[NavMesh + NPC AI](docs/navigation-ai.md)** — baked on the host, A* on the EE.
 - **[Cinematics](docs/cutscenes.md)** — the Cutscene Director, fed by keyframes
   or by a [phone-recorded 6DoF take](docs/camera-takes.md) or the
@@ -412,6 +412,9 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
   viewport overlay showing what merged with what, what each batch costs in VU1
   packages, and the reason named for every object that stayed solo; plus a
   per-object opt-out for when one outlying member keeps a whole batch drawn.
+- [Shared model geometry](docs/instance-sharing.md) — every copy of an
+  imported model draws one model-space mesh under its own matrix and keeps only
+  its lit colours: ~1.5 MB of EE RAM on the streamed big city.
 - [Interleaved passes](docs/interleaved-passes.md) - batches and roads are
   drawn in between the objects, so the EE works while VU1 draws (-0.5 ms a
   frame in a dense scene); Auto times both orders and keeps the faster.
@@ -545,7 +548,8 @@ wait for their polish pass.
 | [upscaler-lab](examples/upscaler-lab) | The fill-bound scene built to make the neural upscaler sweat. It wins: 1.63× on real hardware |
 | [video-modes](examples/video-modes) | 480i / 480p / 1080i and 4:3 / 16:9, switched at runtime — with keep-or-revert |
 | [vu-lab](examples/vu-lab) | Six props on five VU1 paths — capture a draw off the console, replay it on the host |
-| [vehicle-playground](examples/vehicle-playground) | Motor District: seven roads, CC0 city scenery, three driveable car models, day/night and live paint reflections; painted procedural district with road and overlap checks |
+| [big-city](examples/big-city) | A generated 1.4 km city: 120 roads, ring road, tram, railway with a bridge, 2 420 objects in auto-streamed districts, roads streamed by distance; how far 32 MB of EE RAM goes, measured |
+| [vehicle-playground](examples/vehicle-playground) | Motor District: thirteen roads with T's, a fork, a slip road and a corner, a level crossing and a tram line, CC0 city scenery, three driveable car models, day/night and live paint reflections; painted procedural district with road and overlap checks |
 
 ## CLI
 

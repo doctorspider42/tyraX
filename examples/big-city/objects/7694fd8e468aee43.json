@@ -1,0 +1,1 @@
+{ "id": "7694fd8e468aee43", "name": "Building 178", "type": "model", "position": [-432.261, 0, -78.5546], "rotation": [0, 0, 0], "scale": [1.179, 1.5685, 1.9457], "color": [1, 1, 1], "physics": false, "layer": "district-2-3", "drawDistance": 230, "castShadow": false, "model": "res/models/urban/district-workshop.obj" }

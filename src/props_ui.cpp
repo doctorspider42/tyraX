@@ -8,7 +8,11 @@
 // -------------------------------------------------------------------------
 #include "app.hpp"
 #include "app_internal.hpp"
+#include "roadbridge.hpp"
+#include "roaddetail.hpp"
 #include "roadgen.hpp"
+#include "roadpresets.hpp"
+#include "roadrail.hpp"
 #include "theme.hpp"
 
 #include <algorithm>
@@ -96,6 +100,18 @@ static const char* typeLabel(PrimitiveType t) {
         case PrimitiveType::Comment: return "Comment";
     }
     return "Object";
+}
+
+// A road switched to Kind = Railway (docs/roads.md "Rails and tram tracks"):
+// the ballast bed's materials (written from roadtex's presets when the project
+// has none - an older project was not seeded with them), a bed as wide as its
+// sleepers, rank Track so a street it crosses runs over it (the level
+// crossing), no spill onto that street, no kerbs, no markings, a gravel grip.
+// `full` false only follows a track-count change (material + width).
+// The body lives in roadpresets (the Railway preset shares it).
+static void applyRailwayPreset(SceneObject& o, const std::string& projectDir,
+                               float unitsPerMeter, bool full = true) {
+    roadpresets::applyRailway(o, projectDir, unitsPerMeter, full);
 }
 
 static std::string blobShadowFileName(const SceneObject& o) {
@@ -759,10 +775,53 @@ void App::drawPropertiesWindow() {
         ImGui::TextDisabled(
             "Road: a spline through the points below, tessellated onto the "
             "terrain at boot.");
-        ImGui::SetNextItemWidth(scaled(220));
+        // Road presets (docs/roads.md "Road presets", src/roaddraw_ui.cpp).
+        if (ImGui::CollapsingHeader("Preset", ImGuiTreeNodeFlags_DefaultOpen) &&
+            drawRoadPresetControls(o))
+            committed = true;
+        // Rails and tram tracks (docs/roads.md "Rails and tram tracks").
+        {
+            static const char* kKinds[] = {"Road", "Railway", "Tram street"};
+            const int before = o.roadKind;
+            ImGui::SetNextItemWidth(propFieldWidth());
+            if (ImGui::Combo("Kind", &o.roadKind, kKinds, 3)) {
+                committed = true;
+                if (o.roadKind == roadrail::kRail && before != roadrail::kRail)
+                    applyRailwayPreset(o, project_.dir, project_.settings.unitsPerMeter);
+            }
+            prefHelp(
+                "Road: a street. Railway: the strip is a ballast bed with\n"
+                "sleepers and steel rails stand on it; where it crosses a\n"
+                "road the rails turn flush and get a crossing panel (a level\n"
+                "crossing). Tram street: a street with rails set flush into\n"
+                "it. Choosing Railway sets the ballast materials (made here\n"
+                "if the project has none), width, rank Track, no spill, no\n"
+                "kerbs or markings. Rails are baked at build: vertex colour\n"
+                "only, no texture, no VRAM.");
+            if (o.roadKind != roadrail::kRoad) {
+                ImGui::SetNextItemWidth(propFieldWidth());
+                if (ImGui::SliderInt("Tracks", &o.roadTracks, 1, 2)) {
+                    committed = true;
+                    if (o.roadKind == roadrail::kRail)
+                        applyRailwayPreset(o, project_.dir,
+                                           project_.settings.unitsPerMeter, false);
+                }
+                prefHelp(o.roadKind == roadrail::kRail
+                             ? "One or two tracks on the bed, 4 m apart (the\n"
+                               "ballast material and width follow)."
+                             : "One or two tracks down the street, 3 m apart.");
+                ImGui::SetNextItemWidth(propFieldWidth());
+                if (ImGui::SliderFloat("Gauge", &o.roadRailGauge, 0.3f, 3.0f, "%.3f units"))
+                    committed = true;
+                prefHelp(
+                    "Between the rails' inner faces: 1.435 m is standard gauge,\n"
+                    "1.0 metre gauge. The rail profile scales with it.");
+            }
+        }
+        ImGui::SetNextItemWidth(propFieldWidth());
         ImGui::SliderFloat("Width", &o.roadWidth, 1.0f, 24.0f, "%.1f");
         prefHelp("Full width of the surface, world units.");
-        ImGui::SetNextItemWidth(scaled(220));
+        ImGui::SetNextItemWidth(propFieldWidth());
         if (ImGui::SliderFloat("Longitudinal spacing", &o.roadSampleStep,
                                1.0f, 2.0f, "%.2f m"))
             committed = true;
@@ -770,7 +829,7 @@ void App::drawPropertiesWindow() {
             "Distance between geometry rows along the spline. 1 m follows\n"
             "sharp terrain folds most closely; up to 2 m reduces road\n"
             "triangles and VU1 packages. Inspect crests and tight bends.");
-        ImGui::SetNextItemWidth(scaled(220));
+        ImGui::SetNextItemWidth(propFieldWidth());
         if (ImGui::SliderFloat("Surface grip", &o.roadGrip, 0.1f, 1.5f, "%.2f"))
             committed = true;
         prefHelp(
@@ -786,6 +845,11 @@ void App::drawPropertiesWindow() {
             "one repeat per 4 units, so one small texture carries a street of\n"
             "any length. Direct PNG references from older projects still work.\n"
             "Empty = untextured grey.");
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Generate...##roadtex"))
+            openRoadTextureGenerator(o.roadTexture);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Tools > Road Texture Generator");
         if (drawRoadSurfaceCombo("Intersection material", "road-intersection",
                                  o.roadIntersectionTexture))
             committed = true;
@@ -797,14 +861,20 @@ void App::drawPropertiesWindow() {
             "supported.");
         {
             static const char* kRanks[] = {"Track", "Local", "Main"};
-            ImGui::SetNextItemWidth(scaled(220));
+            ImGui::SetNextItemWidth(propFieldWidth());
             if (ImGui::Combo("Rank", &o.roadRank, kRanks, 3)) committed = true;
+            static const char* kMarks[] = {"None", "Stop lines", "Stop lines + zebras"};
+            ImGui::SetNextItemWidth(propFieldWidth());
+            if (ImGui::Combo("Markings", &o.roadMarkings, kMarks, 3)) committed = true;
+            prefHelp(
+                "Paint at this road's junctions. A stop line marks where it\n"
+                "gives way; zebras cross each arm of a 3+-way junction.");
             prefHelp(
                 "Which road wins a crossing. A higher rank runs straight\n"
                 "through and covers the lower one - a mud track stops at the\n"
                 "asphalt's edge instead of fighting it. Equal ranks meet in\n"
                 "an intersection-material junction, as before.");
-            ImGui::SetNextItemWidth(scaled(220));
+            ImGui::SetNextItemWidth(propFieldWidth());
             if (ImGui::SliderFloat("Spill onto higher roads", &o.roadSpill, 0.0f,
                                    8.0f, "%.1f units"))
                 committed = true;
@@ -813,7 +883,18 @@ void App::drawPropertiesWindow() {
                 "on over the higher road's edge for this far and fades out -\n"
                 "mud trailed onto the asphalt. Grip fades with it. 0 = a clean\n"
                 "edge. No effect against equal or lower ranks.");
-            ImGui::SetNextItemWidth(scaled(220));
+            // Bridges (docs/roads.md "Bridges"): baked on the host at build.
+            if (ImGui::Checkbox("Bridge", &o.roadBridge)) {
+                roadbridge::onPointsReshaped(o);
+                committed = true;
+            }
+            prefHelp(
+                "The deck runs through each point's Height above the terrain\n"
+                "instead of hugging the ground between points: it spans a dip\n"
+                "by itself, a raised point makes an overpass. Parapets, piers\n"
+                "and abutments where it stands clear of the ground.");
+            ImGui::BeginDisabled(o.roadBridge);
+            ImGui::SetNextItemWidth(propFieldWidth());
             if (ImGui::SliderFloat("Edge fade", &o.roadEdgeFade, 0.0f, 4.0f,
                                    "%.1f units"))
                 committed = true;
@@ -823,7 +904,74 @@ void App::drawPropertiesWindow() {
                 "Snaps to the road's 0.5-unit lateral grid; the grip fades to\n"
                 "the terrain's with it. A texture whose alpha is ragged at the\n"
                 "edges makes it look organic. 0 = the hard edge.");
+            // Kerbs (docs/roads.md "Kerbs"): baked on the host at build.
+            if (ImGui::Checkbox("Kerbs", &o.roadKerb)) committed = true;
+            prefHelp(
+                "A concrete kerb along both edges, baked at build: it stops\n"
+                "where the road enters a junction patch and runs around the\n"
+                "patch's rounded corners instead (only between roads that\n"
+                "both have kerbs). Vertex colour only - no texture, no VRAM.\n"
+                "Its top is solid: a wheel rides up onto it, the player steps\n"
+                "onto it, and blob shadows and light pools lie on it.\n"
+                "The game skips kerbs farther than ~60 units from the camera.");
+            if (o.roadKerb) {
+                ImGui::SetNextItemWidth(propFieldWidth());
+                if (ImGui::SliderFloat("Kerb height", &o.roadKerbHeight, 0.02f, 0.5f,
+                                       "%.2f units"))
+                    committed = true;
+                ImGui::SetNextItemWidth(propFieldWidth());
+                if (ImGui::SliderFloat("Kerb width", &o.roadKerbWidth, 0.05f, 1.0f,
+                                       "%.2f units"))
+                    committed = true;
+                prefHelp("The flat top of the kerb, outward from the road edge.");
+                // Pavements (docs/roads.md "Pavements"): the kerb top carried on.
+                ImGui::SetNextItemWidth(propFieldWidth());
+                if (ImGui::SliderFloat("Pavement", &o.roadPavement, 0.0f, 6.0f,
+                                       o.roadPavement > 0.0f ? "%.2f units" : "none"))
+                    committed = true;
+                prefHelp(
+                    "A walk this wide behind each kerb, at the kerb's height,\n"
+                    "baked at build. It wraps the junction corners with the\n"
+                    "kerb, narrows where it would reach another road, rises\n"
+                    "with higher ground and drops to lower ground with a face.\n"
+                    "Solid: the player walks on it, a car bumps up onto it.");
+                if (o.roadPavement > 0.0f) {
+                    if (drawRoadSurfaceCombo("Pavement material", "road-pavement",
+                                             o.roadPavementMaterial,
+                                             "<none - untextured concrete>"))
+                        committed = true;
+                    prefHelp(
+                        "Tiled once per 2 units both ways - the pavement-slabs\n"
+                        "texture new projects get (Tools > Road Texture Generator,\n"
+                        "Pavement) is made for it.");
+                }
+            }
+            ImGui::EndDisabled();
+            // Road details (docs/roads.md "Road details"): baked at build.
+            ImGui::SetNextItemWidth(propFieldWidth());
+            if (ImGui::SliderFloat("Details", &o.roadDetails, 0.0f, 1.0f,
+                                   o.roadDetails > 0.0f ? "%.2f" : "none")) {
+                committed = true;
+                // The atlas the decals use: written once, so the viewport can
+                // show it before the first build.
+                if (o.roadDetails > 0.0f) roaddetail::ensureAtlas(project_.dir);
+            }
+            prefHelp(
+                "Manhole covers, storm-drain gullies (kerbed roads), repair\n"
+                "patches, cracks and oil stains along the road, this dense.\n"
+                "Baked at build as decals on the road surface, never on a\n"
+                "junction patch or under node paint. One shared 8 KB texture\n"
+                "(res/materials/roads/road-details.png - repaint it freely).\n"
+                "The game skips them farther than ~50 units from the camera.");
+            if (o.roadDetails > 0.0f) {
+                ImGui::SetNextItemWidth(propFieldWidth());
+                if (ImGui::InputInt("Detail seed", &o.roadDetailSeed)) committed = true;
+                prefHelp("Another arrangement at the same density.");
+            }
         }
+        // Street furniture (docs/roads.md "Street furniture",
+        // src/roadfurniture_ui.cpp): lamps, trees, bollards, signs, lights.
+        if (drawRoadFurniture(o)) committed = true;
         // This road's crossings (docs/roads.md, "Junction overrides"): the
         // plan the build uses, one button each - the same junction the
         // viewport diamond selects.
@@ -872,7 +1020,7 @@ void App::drawPropertiesWindow() {
                 } else {
                     o.roadPoints.resize(o.roadPoints.size() - 2);
                 }
-                o.roadHeights.clear();
+                roadbridge::onPointsReshaped(o);
                 committed = true;
             }
             int removeAt = -1, insertAfter = -1;
@@ -887,9 +1035,17 @@ void App::drawPropertiesWindow() {
                         o.roadPoints[o.roadPoints.size() - 2] = o.roadPoints[0];
                         o.roadPoints.back() = o.roadPoints[1];
                     }
-                    o.roadHeights.clear();
+                    roadbridge::onPointsReshaped(o);
                 }
                 committed |= ImGui::IsItemDeactivatedAfterEdit();
+                if (o.roadBridge) {
+                    roadbridge::onPointsReshaped(o);
+                    ImGui::SameLine();
+                    ImGui::SetNextItemWidth(scaled(60));
+                    ImGui::DragFloat("Height", &o.roadHeights[(size_t)i], 0.1f, 0.0f,
+                                     roadbridge::kMaxHeight, "%.1f");
+                    committed |= ImGui::IsItemDeactivatedAfterEdit();
+                }
                 ImGui::SameLine();
                 if (ImGui::SmallButton("+")) insertAfter = i;
                 ImGui::SameLine();
@@ -908,16 +1064,29 @@ void App::drawPropertiesWindow() {
                     nz = 2.0f * o.roadPoints[at - 1] - o.roadPoints[at - 3];
                 }
                 o.roadPoints.insert(o.roadPoints.begin() + at, {nx, nz});
-                o.roadHeights.clear();
+                roadbridge::onPointInserted(o, insertAfter + 1);
                 committed = true;
             }
             if (removeAt >= 0 && roadgen::removeControl(o.roadPoints, removeAt)) {
-                o.roadHeights.clear();
+                roadbridge::onPointRemoved(o, removeAt);
                 committed = true;
             }
         }
-        if (ImGui::Button(roadEdit_ ? "Stop editing (Esc)" : "Edit in viewport"))
+        if (ImGui::Button(roadEdit_ ? "Stop editing (Esc)" : "Edit in viewport")) {
             roadEdit_ = !roadEdit_;
+            if (roadEdit_ && roadDraw_.active) stopRoadDraw();
+        }
+        // Beside it when there is room, else on its own line.
+        if (ImGui::GetContentRegionAvail().x - ImGui::GetItemRectSize().x >
+            ImGui::CalcTextSize("Draw road...").x + ImGui::GetStyle().FramePadding.x * 2.0f +
+                ImGui::GetStyle().ItemSpacing.x * 2.0f)
+            ImGui::SameLine();
+        if (ImGui::Button("Draw road...")) {
+            roadDraw_.preset = roadPresetPick_.empty() ? roadDraw_.preset : roadPresetPick_;
+            startRoadDraw();
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("The Draw road tool (8), with the preset picked above.");
         prefHelp(
             "Click the ground to APPEND a point, click a point to DRAG it,\n"
             "click the line between points to INSERT one there.\n"
@@ -925,12 +1094,15 @@ void App::drawPropertiesWindow() {
             "the first and release to CLOSE a loop. Uncheck Closed loop\n"
             "to reopen it. Esc stops; Ctrl+Z undoes each operation.");
         ImGui::SameLine();
+        ImGui::BeginDisabled(o.roadBridge);
         if (ImGui::Button("Align terrain to road"))
             alignTerrainToRoad(selectedObject_);
+        ImGui::EndDisabled();
         prefHelp(
             "Flattens the heightfield to the road's interpolated line -\n"
             "the surface under the asphalt becomes the asphalt's own grade,\n"
-            "with a smooth shoulder falloff. Undoable like any edit.");
+            "with a smooth shoulder falloff. Undoable like any edit.\n"
+            "Not for a bridge: it would fill the gap under the deck.");
     }
     if (isScatter) {
         ImGui::TextDisabled(

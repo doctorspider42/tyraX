@@ -763,6 +763,25 @@ void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
       continue;
     const float headY = feetY + eyeHeight;
     const float stepY = feetY + 0.6F;
+    if (b.lhx > 0.0F) {
+      // An oriented wall (a bridge parapet or pier): the object boxes' rule
+      // in its own yaw frame - a low top is a step, overhead is ignored,
+      // anything else cancels the local axes that entered it.
+      if (b.mx[1] <= stepY || b.mn[1] >= headY) continue;
+      const float ocx = 0.5F * (b.mn[0] + b.mx[0]), ocz = 0.5F * (b.mn[2] + b.mx[2]);
+      const float ohx = b.lhx + playerRadius, ohz = b.lhz + playerRadius;
+      const float ndx = *nextX - ocx, ndz = *nextZ - ocz;
+      const float lnx = ndx * b.yc - ndz * b.ys, lnz = ndx * b.ys + ndz * b.yc;
+      if (!(lnx > -ohx && lnx < ohx && lnz > -ohz && lnz < ohz)) continue;
+      const float pdx = prevX - ocx, pdz = prevZ - ocz;
+      const float lpx = pdx * b.yc - pdz * b.ys, lpz = pdx * b.ys + pdz * b.yc;
+      const bool inX = lpx > -ohx && lpx < ohx, inZ = lpz > -ohz && lpz < ohz;
+      const float lx = inX && inZ ? lpx : (inX ? lnx : lpx);
+      const float lz = inX && inZ ? lpz : (inZ ? lnz : lpz);
+      *nextX = ocx + lx * b.yc + lz * b.ys;
+      *nextZ = ocz - lx * b.ys + lz * b.yc;
+      continue;
+    }
     if (b.mx[1] <= feetY + 0.01F || b.mn[1] >= headY) {
       // Entirely below the feet or above the head: it can still be the floor.
       if (b.mx[1] <= stepY && b.mx[1] > *ground && *nextX + playerRadius > b.mn[0] &&
@@ -1074,6 +1093,10 @@ void TerrainGame::loadScene(int sceneIndex) {
                         RuntimeObject());
   objectGeometry.clear();
   objectGeometry.resize(SCENE_OBJECT_COUNT + MAX_SPAWNED_OBJECTS);
+  // The old scene's instances let go of their pooled colours above; the
+  // pool's own references are the last ones.
+  colorPool.clear();
+  memStatCountdown = DEBUG_SHOW_MEM ? 0 : -1;  // MEMSTAT frame counter
   // The flashlight's receivers are indices into the table that just went away.
   flashSpotOffList.clear();
   // Pool slots start empty - data arrives from a template at spawn time.

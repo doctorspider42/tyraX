@@ -447,8 +447,14 @@ StaPipRetainedEntry* StaPipRetainedCommands::acquire(
   int index = indexBuckets[bucket];
   while (index >= 0) {
     auto& item = storage[index];
+    // Modified by TyraX: an entry is one (vertex array, package size, stream
+    // SET). TyraX's shared instances (docs/instance-sharing.md) draw ONE
+    // vertex array from hundreds of bags, each with its own colour array;
+    // keyed by the vertex array alone they all fought over one entry and
+    // rebuilt it on every submit. Different streams = a different entry.
     if (item.vertices == key.vertices &&
-        item.maxVertCount == key.maxVertCount) {
+        item.maxVertCount == key.maxVertCount && item.colors == key.colors &&
+        item.sts == key.sts && item.normals == key.normals) {
       item.framesLeftToDestroy = kLifetimeFrames;
       if (keyMatches(item, key)) return &item;
       // Something the block encodes moved - an LOD tier, a material, a
@@ -719,8 +725,12 @@ StaPipBakedEntry* StaPipBakedStreams::acquire(const StaPipBakedEntry& key) {
   int index = indexBuckets[bucket];
   while (index >= 0) {
     auto& item = *storage[index];
+    // Modified by TyraX: the stream SET is part of an entry's identity, as in
+    // StaPipRetainedCommands::acquire - shared instances (one vertex array,
+    // many colour arrays) would otherwise churn one entry between them.
     if (item.vertices == key.vertices &&
-        item.maxVertCount == key.maxVertCount) {
+        item.maxVertCount == key.maxVertCount && item.colors == key.colors &&
+        item.sts == key.sts && item.normals == key.normals) {
       ++variants;
       const bool samePass = item.primKey == key.primKey &&
                             item.singleColor == key.singleColor &&

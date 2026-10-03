@@ -16,6 +16,47 @@
 
 namespace Vehicle_playground {
 
+// Text-plane helpers (Convert nodes / Get Save Value)
+static inline std::string flowNumText(float v) {
+  char b[32];
+  snprintf(b, sizeof(b), "%g", (double)v);
+  return std::string(b);
+}
+static inline std::string flowPosText(float x, float y, float z) {
+  char b[64];
+  snprintf(b, sizeof(b), "(%g, %g, %g)", (double)x, (double)y, (double)z);
+  return std::string(b);
+}
+// Number To Text (formatted): fixed decimals and a zero-padded
+// minimum width, so a score reads 00420. The width counts the
+// WHOLE digits only - padding the decimals too would be a second
+// meaning for one number.
+static std::string flowNumTextFmt(float v, int dec, int wid) {
+  char b[40];
+  const bool neg = v < 0.0F;
+  if (neg) v = -v;
+  snprintf(b, sizeof(b), "%.*f", dec, (double)v);
+  std::string s(b);
+  int whole = (int)s.size();
+  const size_t dot = s.find('.');
+  if (dot != std::string::npos) whole = (int)dot;
+  std::string pad;
+  for (int i = whole; i < wid; ++i) pad += '0';
+  return (neg ? std::string("-") : std::string()) + pad + s;
+}
+
+// Display Text: copy a runtime string into its slot's buffer
+// (silently truncated - the slot is a fixed DYN_TEXT_LEN).
+static inline void flowSetDynText(ScriptContext& ctx, int slot,
+                                  const std::string& s) {
+  if (!ctx.dynTextBuf || slot < 0 || slot >= ctx.dynTextCount) return;
+  char* dst = ctx.dynTextBuf + slot * ctx.dynTextLen;
+  int n = (int)s.size();
+  if (n > ctx.dynTextLen - 1) n = ctx.dynTextLen - 1;
+  for (int i = 0; i < n; ++i) dst[i] = s[i];
+  dst[n] = '\0';
+}
+
 // World Facts (docs/world-facts.md): the declared state of
 // the game world. One float array for every scalar fact, one
 // for positions; a computed fact has no slot because it IS a
@@ -86,6 +127,48 @@ bool factProfileDirty() {
   return false;
 }
 
+// Scene "main": graph of "Garage boulevard" (object 13)
+class FlowGraphScript_0_13 : public Script {
+ public:
+  void update(ScriptContext& ctx) override {
+    if (ctx.scene != 0) return;
+    // Live Debugger: nothing in this graph advances while the game is
+    // stopped at a breakpoint (the loop's own pause covers the rest).
+    if (livedbg::halted()) return;
+    if (ctx.sceneGeneration != generation) {
+      // scene was (re)loaded - back to the initial state
+      generation = ctx.sceneGeneration;
+      frame = 0;
+      started = false;
+      redRuns1 = ctx.redLightRuns;
+    }
+    frame++;
+    if (ctx.dynTextOn && ctx.dynTextOn[0])
+      flowSetDynText(ctx, 0, std::string("RED LIGHT! You ran it at ") + flowNumTextFmt(ctx.redLightSpeed, 0, 0));
+    if (livedbg::forced(0)) {  // Live Debugger: fired from the editor
+      livedbg::hit(0);
+      livedbg::hit(1);
+      ctx.dynTextRequest[0] = 1;
+      ctx.dynTextDuration[0] = 3.0F;
+      flowSetDynText(ctx, 0, std::string("RED LIGHT! You ran it at ") + flowNumTextFmt(ctx.redLightSpeed, 0, 0));
+    }
+    if (ctx.redLightRuns != redRuns1) {
+      redRuns1 = ctx.redLightRuns;
+      livedbg::hit(0);
+      livedbg::hit(1);
+      ctx.dynTextRequest[0] = 1;
+      ctx.dynTextDuration[0] = 3.0F;
+      flowSetDynText(ctx, 0, std::string("RED LIGHT! You ran it at ") + flowNumTextFmt(ctx.redLightSpeed, 0, 0));
+    }
+  }
+
+ private:
+  unsigned int generation = 0;
+  int frame = 0;
+  bool started = false;
+  int redRuns1 = 0;
+};
+
 // Scene "main": graph of "ravager-1" (object 131)
 class FlowGraphScript_0_131 : public Script {
  public:
@@ -101,25 +184,25 @@ class FlowGraphScript_0_131 : public Script {
       started = false;
     }
     frame++;
-    if (livedbg::forced(0)) {  // Live Debugger: fired from the editor
-      livedbg::hit(0);
-      livedbg::hit(1);
+    if (livedbg::forced(2)) {  // Live Debugger: fired from the editor
+      livedbg::hit(2);
+      livedbg::hit(3);
       ctx.vehicleRequest = 131;
     }
     if (!started) {
       started = true;
-      livedbg::hit(0);
-      livedbg::hit(1);
+      livedbg::hit(2);
+      livedbg::hit(3);
       ctx.vehicleRequest = 131;
     }
-    if (livedbg::forced(2)) {  // Live Debugger: fired from the editor
-      livedbg::hit(2);
-      livedbg::hit(3);
+    if (livedbg::forced(4)) {  // Live Debugger: fired from the editor
+      livedbg::hit(4);
+      livedbg::hit(5);
       ctx.vehicleRepair = 131;
     }
-    if (ctx.engine->pad.getClicked().Select) {
-      livedbg::hit(2);
-      livedbg::hit(3);
+    if (ctx.engine->pad.getClicked().DpadDown) {
+      livedbg::hit(4);
+      livedbg::hit(5);
       ctx.vehicleRepair = 131;
     }
   }
@@ -145,15 +228,15 @@ class FlowGraphScript_1_132 : public Script {
       started = false;
     }
     frame++;
-    if (livedbg::forced(4)) {  // Live Debugger: fired from the editor
-      livedbg::hit(4);
-      livedbg::hit(5);
+    if (livedbg::forced(6)) {  // Live Debugger: fired from the editor
+      livedbg::hit(6);
+      livedbg::hit(7);
       ctx.vehicleRequest = 132;
     }
     if (!started) {
       started = true;
-      livedbg::hit(4);
-      livedbg::hit(5);
+      livedbg::hit(6);
+      livedbg::hit(7);
       ctx.vehicleRequest = 132;
     }
   }
@@ -174,5 +257,6 @@ void flowDbgReadVar(int index, float* out3) {
 
 }  // namespace Vehicle_playground
 
+TYRA_SCRIPT(Vehicle_playground::FlowGraphScript_0_13);
 TYRA_SCRIPT(Vehicle_playground::FlowGraphScript_0_131);
 TYRA_SCRIPT(Vehicle_playground::FlowGraphScript_1_132);

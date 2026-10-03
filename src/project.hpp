@@ -15,6 +15,8 @@
 #include "input.hpp"
 #include "procgraph.hpp"
 #include "roadgen.hpp"  // JunctionOverride - SceneData stores them verbatim
+#include "roadfurniture.hpp"  // roadfurn::Settings - a road stores them verbatim
+#include "roadpresets.hpp"  // roadpresets::Preset - the project's own road presets
 #include "screenfx.hpp"
 #include "sequence.hpp"
 #include "vehiclesim.hpp"  // DriveSpec - a VehicleDef carries one verbatim
@@ -899,10 +901,17 @@ struct SceneObject {
     // world space (the object's own position is cosmetic for roads - points
     // are absolute, which is what lets "align terrain" mean one thing).
     std::vector<float> roadPoints;
-    // Per-point LIFT above the terrain (units; empty = all glued flat).
-    // Catmull-Rom interpolated along the spline like the XZ, so a ramp
-    // climbs smoothly between anchors - dunes-jump material.
+    // Per-control-point DECK height above the terrain (units; empty = 0),
+    // read only when roadBridge is on (docs/roads.md "Bridges"). On an
+    // ordinary road it is the retired 1.77 lift: ignored, cleared on edit.
     std::vector<float> roadHeights;
+    // Bridge (format v100, docs/roads.md "Bridges", src/roadbridge.hpp): the
+    // deck follows a profile through the control points (terrain there +
+    // roadHeights) instead of the ground between them - so it spans a dip by
+    // itself and a raised point makes an overpass - with parapets, piers and
+    // abutments wherever it stands above the terrain. Host-baked: the console
+    // uploads the deck and the structure unchanged.
+    bool roadBridge = false;
     float roadWidth = 6.0f;
     // Longitudinal geometry spacing. 1 preserves the dense terrain-following
     // surface; 2 halves the stations for broad, gently varying streets.
@@ -921,6 +930,42 @@ struct SceneObject {
     // Soft edges (1.144.0, docs/roads.md "Soft edges"): the outer this-many
     // units on each side fade into the terrain (0 = the hard edge).
     float roadEdgeFade = 0.0f;
+    // Node markings (1.171.0, docs/roads.md "Markings"): roadgen::RoadMarkings -
+    // 0 none, 1 stop lines where this road gives way (the default), 2 stop
+    // lines plus zebra crossings on every arm of its 3+-armed nodes.
+    int roadMarkings = 1;
+    // Kerbs (format v95, docs/roads.md "Kerbs"): a concrete kerb along both
+    // edges, cut at road nodes and run around their fillets instead. Its top
+    // is in the road height index; host-baked into ROAD_KERB_VERTS, untextured.
+    bool roadKerb = false;
+    float roadKerbHeight = 0.15f;  // 0.02..0.5 above the road surface
+    float roadKerbWidth = 0.25f;   // top width, 0.05..1
+    // Pavement (format v97, docs/roads.md "Pavements"): a walk this wide
+    // behind the kerb, at the kerb's height (0 = none, 0..6; needs roadKerb),
+    // textured by roadPavementMaterial (a .mtl, "" = untextured concrete).
+    // Host-baked into ROAD_JUNCTIONS rows.
+    float roadPavement = 0.0f;
+    std::string roadPavementMaterial;
+    // Rails and tram tracks (format v98, docs/roads.md "Rails and tram
+    // tracks"): roadrail::Kind - 0 a road, 1 a railway (the strip is the
+    // ballast bed, raised steel rails on it), 2 a tram street (rails set
+    // flush into the road). Gauge = between the rail heads' inner faces,
+    // world units; tracks = 1 or 2 side by side. Host-baked into the
+    // ROAD_KERB tables with the kerbs, untextured.
+    int roadKind = 0;
+    float roadRailGauge = 1.435f;  // 0.3..3
+    int roadTracks = 1;
+    // Details (format v99, docs/roads.md "Road details"): manhole covers,
+    // gullies, repair patches, cracks and oil stains placed along the road at
+    // this density (0 = none), host-baked as decals into ROAD_DETAIL_VERTS.
+    // The seed picks another arrangement at the same density.
+    float roadDetails = 0.0f;  // 0..1
+    int roadDetailSeed = 0;
+    // Street furniture (format v101, docs/roads.md "Street furniture",
+    // src/roadfurniture.hpp): lamp / tree / bollard lines along the pavement,
+    // signs at the stop lines, traffic lights at four-way nodes - generated
+    // at build, never saved as objects. Written only when not all default.
+    roadfurn::Settings roadFurniture;
     // Road surface asset. New authoring points at a .mtl (its first map_Kd);
     // direct PNG paths remain accepted for projects authored before the
     // material picker existed. Empty = untextured grey.
@@ -1680,9 +1725,18 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.flowGraph == b.flowGraph && a.scripts == b.scripts &&
            a.procGraph == b.procGraph && a.procSource == b.procSource &&
            a.roadPoints == b.roadPoints && a.roadHeights == b.roadHeights &&
+           a.roadBridge == b.roadBridge &&
            a.roadWidth == b.roadWidth && a.roadSampleStep == b.roadSampleStep &&
            a.roadGrip == b.roadGrip && a.roadRank == b.roadRank &&
            a.roadSpill == b.roadSpill && a.roadEdgeFade == b.roadEdgeFade &&
+           a.roadMarkings == b.roadMarkings &&
+           a.roadKerb == b.roadKerb && a.roadKerbHeight == b.roadKerbHeight &&
+                      a.roadKerbWidth == b.roadKerbWidth && a.roadKind == b.roadKind &&
+           a.roadPavement == b.roadPavement &&
+           a.roadPavementMaterial == b.roadPavementMaterial &&
+           a.roadRailGauge == b.roadRailGauge && a.roadTracks == b.roadTracks &&
+           a.roadDetails == b.roadDetails && a.roadDetailSeed == b.roadDetailSeed &&
+           a.roadFurniture == b.roadFurniture &&
            a.roadTexture == b.roadTexture &&
            a.roadIntersectionTexture == b.roadIntersectionTexture &&
            a.vuParams[0] == b.vuParams[0] && a.vuParams[1] == b.vuParams[1] &&
@@ -1690,6 +1744,33 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.prefabSource == b.prefabSource && a.editorGroup == b.editorGroup &&
            a.commentText == b.commentText;
 }
+
+// Road traffic (docs/traffic.md, format v106): ambient AI cars that drive the
+// lane graph by themselves, stop at stop lines and obey the traffic lights.
+// Project-wide, applied to every scene with drivable roads. `cars` 0 (the
+// default) = off, and the generated sources are exactly what they were before
+// the setting existed. Saved as a "traffic" object of only the keys that
+// differ from these defaults, and only when any does.
+struct TrafficSettings {
+    int cars = 0;                       // ambient cars per scene, 0 = off
+    std::vector<std::string> vehicles;  // definitions to draw from; empty = every one
+    float radius = 110.0f;              // spawn radius around the player, units
+    float density = 1.5f;               // cars per 100 units of lane within it
+    float speed = 11.0f;                // the lanes' speed, units/s
+    float green = 12.0f;                // signal phase: green, amber, all-red seconds
+    float amber = 3.0f;
+    float allRed = 2.0f;
+    bool leftHand = false;              // left-hand traffic
+    bool headlights = true;             // the cars light up at night (format 108)
+    bool laneChanges = true;            // multi-lane roads: change lanes (format 108)
+};
+inline bool operator==(const TrafficSettings& a, const TrafficSettings& b) {
+    return a.cars == b.cars && a.vehicles == b.vehicles && a.radius == b.radius &&
+           a.density == b.density && a.speed == b.speed && a.green == b.green &&
+           a.amber == b.amber && a.allRed == b.allRed && a.leftHand == b.leftHand &&
+           a.headlights == b.headlights && a.laneChanges == b.laneChanges;
+}
+inline bool operator!=(const TrafficSettings& a, const TrafficSettings& b) { return !(a == b); }
 
 // General project preferences (Project > Preferences in the editor).
 // Baked into the generated terrain_config.hpp on every build.
@@ -1966,6 +2047,13 @@ struct ProjectSettings {
     // bag (pre-batching behavior; the A/B lever for profiling).
     bool staticBatching = true;
 
+    // Instance sharing (docs/instance-sharing.md): a static imported-model
+    // instance draws one model-space bake shared by every instance of the
+    // model, under its own matrix; only its lit colours are its own, and
+    // those are pooled by content. Off = every instance bakes its own
+    // world-space copy (pre-1.173). Saved only when off (format v103).
+    bool instanceSharing = true;
+
     // Interleaved passes (docs/interleaved-passes.md): the generated game
     // feeds the static batch and road bags into the object loop so the EE's
     // object work overlaps VU1's batch and road work. "auto" = the game times
@@ -2035,6 +2123,28 @@ struct ProjectSettings {
     // Gameplay is unaffected - collision and every height query read the
     // heightmap, never the mesh.
     float terrainLodDistance = 0.0f;  // world units, 0 = off
+    // Road streaming (docs/roads.md "Road streaming", format v102): the
+    // terrain view distance's twin for the road network. > 0 = the generated
+    // game keeps only the road geometry within this many units of the view
+    // focus resident - strip chunks, junction rows, kerbs, rails, bridge
+    // structure, details, street furniture and their collision boxes - and
+    // builds the rest as the player moves. 0 (the default) = every road chunk
+    // is built at scene load and stays, and the generated sources are exactly
+    // what they were before the setting existed. Saved only when > 0.
+    float roadStreamRadius = 0.0f;  // world units, 0 = off
+    // Project road presets (docs/roads.md "Road presets", format v105): the
+    // ones saved from a road with "Save preset", listed after the
+    // built-ins in the Draw road tool and Properties. Written only when any.
+    std::vector<roadpresets::Preset> roadPresets;
+    // Road tables on disk (docs/roads.md "Tables on disk", format v104): with
+    // roads streaming, the baked per-vertex road tables (junction rows, spills,
+    // edges, kerbs, bridges, details, furniture) go to bin/roadfile/roads.bin and the
+    // ELF keeps a directory of them; the game reads each item when the ring
+    // wants it. True keeps them in the ELF as before (no file, no reader
+    // thread). Saved only when true; meaningless without streaming.
+    bool roadStreamEmbedTables = false;
+    // Road traffic (docs/traffic.md, format v106).
+    TrafficSettings traffic;
     // Shared reflection probe: how far the captured image may be out of date
     // before the probe re-renders, IN PIXELS OF ITS OWN 128-pixel target
     // (docs/reflective-materials.md, "The reuse budget"). The probe already
@@ -2487,7 +2597,7 @@ struct ProjectSettings {
     bool highlightOverlay = false;
 };
 
-static_assert(sizeof(ProjectSettings) == 864,
+static_assert(sizeof(ProjectSettings) == 960,
               "ProjectSettings changed size - a field was added or removed. "
               "Add it to operator== below as well, or its Preferences widget "
               "will silently do nothing; then update this number.");
@@ -2545,6 +2655,7 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.animSourceFps == b.animSourceFps &&
            a.animPlayFps == b.animPlayFps &&
            a.staticBatching == b.staticBatching &&
+           a.instanceSharing == b.instanceSharing &&
            a.interleavePasses == b.interleavePasses &&
            a.vehicleShineBudget == b.vehicleShineBudget &&
            a.occlusionCulling == b.occlusionCulling &&
@@ -2555,6 +2666,8 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.terrainDetail == b.terrainDetail &&
            a.terrainViewDistance == b.terrainViewDistance &&
            a.terrainLodDistance == b.terrainLodDistance &&
+           a.roadStreamRadius == b.roadStreamRadius && a.roadPresets == b.roadPresets &&
+           a.roadStreamEmbedTables == b.roadStreamEmbedTables && a.traffic == b.traffic &&
            a.reflectionReuseBudget == b.reflectionReuseBudget &&
            a.reflectionGroundRadius == b.reflectionGroundRadius &&
            a.reflectionScenery == b.reflectionScenery &&
@@ -3417,6 +3530,16 @@ struct SceneData {
     // matched to a computed crossing by road-id pair + nearest position
     // (roadgen::planCrossings). Empty in every scene that never used one.
     std::vector<roadgen::JunctionOverride> roadJunctions;
+
+    // Weather and street lamps (docs/weather.md, format v107), each written
+    // only off its default. `weather` is what a scene load starts with (0 dry,
+    // 1 rain; the Set Weather flow node changes it at runtime) and
+    // `weatherIntensity` how hard it rains (0..1). `streetLamps` decides when
+    // the road furniture's lamps light: 0 Auto (by the day/night cycle's sun,
+    // off in a scene without one), 1 Always on, 2 Off (no pools baked).
+    int weather = 0;
+    float weatherIntensity = 1.0f;
+    int streetLamps = 0;
 };
 
 inline bool operator==(const SceneData& a, const SceneData& b) {
@@ -3432,7 +3555,8 @@ inline bool operator==(const SceneData& a, const SceneData& b) {
            a.overrides == b.overrides && a.settings == b.settings &&
            a.ambiencePreset == b.ambiencePreset &&
            a.loadingScreen == b.loadingScreen &&
-           a.roadJunctions == b.roadJunctions;
+           a.roadJunctions == b.roadJunctions && a.weather == b.weather &&
+           a.weatherIntensity == b.weatherIntensity && a.streetLamps == b.streetLamps;
 }
 
 // One selectable row of a generated in-game menu.
@@ -4888,8 +5012,14 @@ std::string resolveRoadTexture(const Project& p, const std::string& surfaceRel);
 // in object order - the ONE conversion the codegen, the viewport, the test
 // drive and the Properties panel share. `objectIndex`, when given, receives
 // each road's index in sc.objects.
+// `projectDir`, when given, lets a road whose surface is a generated texture
+// (res/materials/roads/<stem>.mtl with its .roadtex recipe) report where that
+// texture paints its edge line, so node markings meet it.
+// `ground` (docs/roads.md "Bridges") is the scene's bare terrain height; a
+// bridge's elevation is measured against it (empty = flat ground at 0).
 std::vector<roadgen::CrossingRoad> crossingRoads(
-    const std::vector<SceneObject>& objects, std::vector<int>* objectIndex = nullptr);
+    const std::vector<SceneObject>& objects, std::vector<int>* objectIndex = nullptr,
+    const std::string& projectDir = "", const roadgen::HeightFn& ground = {});
 
 // Loads the single <name>.tyra project file from an existing project
 // directory (game data + editor-side state + window layout).

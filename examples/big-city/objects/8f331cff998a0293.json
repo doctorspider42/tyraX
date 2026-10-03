@@ -1,0 +1,1 @@
+{ "id": "8f331cff998a0293", "name": "Building 400", "type": "model", "position": [-251.772, 0, -19.294], "rotation": [0, 0, 0], "scale": [1.7889, 1.2893, 2.4159], "color": [1, 1, 1], "physics": false, "layer": "district-3-4", "drawDistance": 230, "castShadow": false, "model": "res/models/urban/district-tower.obj" }
