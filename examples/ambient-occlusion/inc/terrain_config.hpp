@@ -151,6 +151,13 @@ constexpr float REFLECTION_PROBE_FOV_DEG = 110.0F;
 // its former batches. false = every object submits its own bag.
 constexpr bool STATIC_BATCHING = true;
 
+// Instance sharing (Preferences > Rendering, docs/instance-sharing.md): a
+// static imported-model instance draws ONE model-space bake of its parts,
+// shared by every instance of the model, under its own matrix - only its lit
+// colours are its own (and pooled by content). false = every instance bakes
+// its own world-space copy, as before 1.173.
+constexpr bool INSTANCE_SHARING = true;
+
 // Interleaved passes (Preferences > Rendering, docs/interleaved-passes.md):
 // the static batch and road bags are EE-cheap and GPU-heavy, the object loop
 // the opposite, and drawn one after the other the EE waits for VU1 in the

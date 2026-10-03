@@ -95,6 +95,10 @@ class BagArray {
    * Deliberate: `reserve` before a fill is the common idiom and stamping it
    * would make every build path take two stamps instead of one. */
   void reserve(std::size_t n) { v_.reserve(n); }
+  /** Drops growth slack. It may MOVE the bytes, so unlike reserve it stamps,
+   * and a bound bag must be re-bound afterwards (every caller binds after
+   * the fill it trims). */
+  void shrink_to_fit() { touch(); v_.shrink_to_fit(); }
 
 #ifndef TYRAX_BAG_ARRAY_NO_TYRA
   // ---- the four ways bytes may reach a bag, and there are no others ----

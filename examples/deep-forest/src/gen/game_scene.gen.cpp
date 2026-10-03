@@ -1093,6 +1093,10 @@ void TerrainGame::loadScene(int sceneIndex) {
                         RuntimeObject());
   objectGeometry.clear();
   objectGeometry.resize(SCENE_OBJECT_COUNT + MAX_SPAWNED_OBJECTS);
+  // The old scene's instances let go of their pooled colours above; the
+  // pool's own references are the last ones.
+  colorPool.clear();
+  memStatCountdown = DEBUG_SHOW_MEM ? 0 : -1;  // MEMSTAT frame counter
   // The flashlight's receivers are indices into the table that just went away.
   flashSpotOffList.clear();
   // Pool slots start empty - data arrives from a template at spawn time.

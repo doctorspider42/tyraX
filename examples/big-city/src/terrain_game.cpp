@@ -1828,7 +1828,10 @@ void TerrainGame::loadModelAsset(int i) {
 
 // Frees a model's geometry, collider and texture references. Only called
 // when no object of a resident layer uses the model - every GeoPart drawing
-// it was dropped by deactivateObject() beforehand.
+// it was dropped by deactivateObject() beforehand. The shared instance bakes
+// (gm.sharedParts) do not rely on that ordering: each instance part holds its
+// own reference, so an array outlives every bag aimed at it whichever side
+// lets go first (docs/instance-sharing.md).
 void TerrainGame::freeModelAsset(int i) {
   if (i < 0 || i >= MODEL_COUNT || !modelLoaded[i]) return;
   GameModel& gm = gameModels[i];
@@ -2320,6 +2323,9 @@ void TerrainGame::updateLayerStreaming() {
     for (int l = 0; l < lc; ++l)
       if (layerTarget[l] == 0) layerState[l] = 0;
     applyLayerResidency();
+    // The streamed-out instances let go of their pooled colours; free the
+    // arrays only the pool still holds now rather than at its next sweep.
+    if (anyOut) pruneColorPool();
     if (anyOut) buildParticles();  // drop the streamed-out emitters' pools
   }
 
