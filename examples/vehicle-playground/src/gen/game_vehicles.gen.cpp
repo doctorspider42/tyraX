@@ -512,8 +512,10 @@ void TerrainGame::buildRoads(int scene) {
   // KERBS (docs/roads.md "Kerbs"): host-baked triangle-strip runs, one
   // ROAD_KERBS row per cell-sized chunk, uploaded unchanged - the EE does no
   // kerb geometry at all. Owner -4, not -3: renderProcChunks draws them (the
-  // frustum reject, the chunk draw distance, occlusion), and the road height
-  // index never sees them, because a kerb is visual only. Untextured: the
+  // frustum reject, the chunk draw distance, occlusion). The road height
+  // index takes them too (roadSurfaceAt reads owner -3 AND -4), so wheels,
+  // walkers, blob shadows and light pools stand on a kerb top; the vertical
+  // faces have no area in XZ and drop out by themselves. Untextured: the
   // baked shade is the vertex colour (128 = full in an untextured bag).
   for (size_t i = procChunks.size(); i > 0; --i)
     if (procChunks[i - 1].owner == -4)
@@ -554,9 +556,55 @@ void TerrainGame::buildRoads(int scene) {
       kerbVertices += (int)c.vertices.size();
       kerbPackages += (int)((c.vertices.size() + 74) / 75);
     }
+    // The chunk list changed under the height index: the count alone cannot
+    // tell (the same number of kerb chunks is erased and pushed back).
+    roadIdxDirty = true;
     if (kerbChunks > 0)
       TYRA_LOG("ROADKERB scene ", scene, " chunks ", kerbChunks, " vertices ",
                kerbVertices, " packages ", kerbPackages, " triangles ", kerbTriangles);
+  }
+  // ROAD DETAILS (docs/roads.md "Road details"): manholes, gullies,
+  // patches, cracks and oil stains, host-baked as textured triangle lists laid
+  // kDetailLift over the drawn road, one ROAD_DETAILS row per cell-sized chunk.
+  // Owner -5: renderRoadChunks draws them in the road pass, after every -3
+  // chunk (frustum reject, the chunk draw distance), blended by the atlas
+  // alpha; the road height index never sees them - a decal is paint, not
+  // surface.
+  for (size_t i = procChunks.size(); i > 0; --i)
+    if (procChunks[i - 1].owner == -5)
+      procChunks.erase(procChunks.begin() + (i - 1));
+  {
+    Tyra::Texture* detailTex = nullptr;
+    if (ROAD_DETAIL_TEX >= 0 && ROAD_DETAIL_TEX < ROAD_TEXTURE_COUNT) {
+      if (!roadTextures_[ROAD_DETAIL_TEX])
+        roadTextures_[ROAD_DETAIL_TEX] = acquireTexture(ROAD_TEXTURE_PATHS[ROAD_DETAIL_TEX]);
+      detailTex = roadTextures_[ROAD_DETAIL_TEX];
+    }
+    int detailChunks = 0, detailVertices = 0;
+    for (int di = 0; di < ROAD_DETAIL_COUNT; ++di) {
+      const RoadDetailRt& dr = ROAD_DETAILS[di];
+      if (dr.scene != scene || dr.count < 3 || !detailTex) continue;
+      any = true;
+      procChunks.push_back(ProcChunk());
+      ProcChunk& c = procChunks.back();
+      c.owner = -5;
+      c.roadTex = detailTex;
+      c.roadBlend = true;
+      c.drawDist = ROAD_DETAIL_DRAW_DISTANCE;
+      c.stripRun = 0;
+      const float* base = &ROAD_DETAIL_VERTS[(size_t)dr.first * 5];
+      for (int k = 0; k < dr.count; ++k) {
+        const float* v = base + (size_t)k * 5;
+        c.vertices.push_back(Tyra::Vec4(v[0], v[1], v[2], 1.0F));
+        c.sts.push_back(Tyra::Vec4(v[3], v[4], 1.0F, 0.0F));
+        c.colors.push_back(grey);
+      }
+      ++detailChunks;
+      detailVertices += dr.count;
+    }
+    if (detailChunks > 0)
+      TYRA_LOG("ROADDETAIL scene ", scene, " chunks ", detailChunks, " vertices ",
+               detailVertices, " triangles ", detailVertices / 3);
   }
   if (any) procFinishChunks();
   int roadChunks = 0, roadVertices = 0, roadPackages = 0;
@@ -6211,7 +6259,8 @@ void TerrainGame::renderRoadChunks() {
   // procedural volume and prefab in the scene. Roads own the reserved -3
   // producer id, which also gives the profiler an honest standalone phase.
   for (ProcChunk& c : procChunks) {
-    if (c.owner != -3 || !c.bag || c.bag->count == 0) continue;
+    if ((c.owner != -3 && c.owner != -5) || !c.bag || c.bag->count == 0)
+      continue;  // -5: road details, blended after the asphalt
     if (c.drawDist > 0.0F) {
       const float dx = c.centre[0] - cameraPosition.x;
       const float dy = c.centre[1] - cameraPosition.y;
@@ -6428,7 +6477,7 @@ float TerrainGame::roadSurfaceScan(float x, float z) const {
     if (y > best) best = y;
   };
   for (const ProcChunk& c : procChunks) {
-    if (c.owner != -3 || c.vertices.size() < 3) continue;
+    if ((c.owner != -3 && c.owner != -4) || c.vertices.size() < 3) continue;
     if (x < c.aabbMin[0] || x > c.aabbMax[0] ||
         z < c.aabbMin[2] || z > c.aabbMax[2])
       continue;
@@ -6458,7 +6507,7 @@ void TerrainGame::buildRoadHeightIndex() const {
   float mnx = 1.0e30F, mxx = -1.0e30F, mnz = 1.0e30F, mxz = -1.0e30F;
   bool any = false;
   for (const ProcChunk& c : procChunks) {
-    if (c.owner != -3 || c.vertices.size() < 3) continue;
+    if ((c.owner != -3 && c.owner != -4) || c.vertices.size() < 3) continue;
     any = true;
     if (c.aabbMin[0] < mnx) mnx = c.aabbMin[0];
     if (c.aabbMax[0] > mxx) mxx = c.aabbMax[0];
@@ -6484,7 +6533,7 @@ void TerrainGame::buildRoadHeightIndex() const {
     unsigned int ci = 0;
     for (const ProcChunk& c : procChunks) {
       const unsigned int chunk = ci++;
-      if (c.owner != -3 || c.vertices.size() < 3) continue;
+      if ((c.owner != -3 && c.owner != -4) || c.vertices.size() < 3) continue;
       if (chunk >= 1024U) continue;  // the entry packs 10 bits of chunk index
       const size_t count = c.vertices.size();
       if (count >= (size_t)(1U << 22)) continue;  // ...and 22 of vertex index
@@ -6672,6 +6721,19 @@ float TerrainGame::groundSurfaceAt(float x, float z) const {
   const float terrain = terrainHeightAt(x, z);
   const float road = roadSurfaceAt(x, z);
   return road > terrain ? road : terrain;
+}
+
+
+
+// The walker's floor (docs/roads.md "Kerbs"): the terrain, or a road, kerb or
+// pavement top under the feet - but only one within a step up of them, so a
+// road on a ramp or a bridge overhead never teleports a walker onto it. The
+// same 0.5-unit step collidePlayer allows onto objects.
+float TerrainGame::walkGroundAt(float x, float z, float feetY) const {
+  const float terrain = terrainHeightAt(x, z);
+  const float road = roadSurfaceAt(x, z);
+  if (road > terrain && road <= feetY + 0.5F) return road;
+  return terrain;
 }
 
 

@@ -326,6 +326,7 @@ add_executable(tyrax-editor
     src/vehbake.cpp
     src/vehicle_ui.cpp
     src/roadgen.cpp
+    src/roaddetail.cpp
     src/roadtex.cpp
     src/roadtex_ui.cpp
     src/vehcheck.cpp

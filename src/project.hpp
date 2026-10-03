@@ -931,6 +931,12 @@ struct SceneObject {
     bool roadKerb = false;
     float roadKerbHeight = 0.15f;  // 0.02..0.5 above the road surface
     float roadKerbWidth = 0.25f;   // top width, 0.05..1
+    // Details (format v99, docs/roads.md "Road details"): manhole covers,
+    // gullies, repair patches, cracks and oil stains placed along the road at
+    // this density (0 = none), host-baked as decals into ROAD_DETAIL_VERTS.
+    // The seed picks another arrangement at the same density.
+    float roadDetails = 0.0f;  // 0..1
+    int roadDetailSeed = 0;
     // Road surface asset. New authoring points at a .mtl (its first map_Kd);
     // direct PNG paths remain accepted for projects authored before the
     // material picker existed. Empty = untextured grey.
@@ -1696,6 +1702,7 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.roadMarkings == b.roadMarkings &&
            a.roadKerb == b.roadKerb && a.roadKerbHeight == b.roadKerbHeight &&
            a.roadKerbWidth == b.roadKerbWidth &&
+           a.roadDetails == b.roadDetails && a.roadDetailSeed == b.roadDetailSeed &&
            a.roadTexture == b.roadTexture &&
            a.roadIntersectionTexture == b.roadIntersectionTexture &&
            a.vuParams[0] == b.vuParams[0] && a.vuParams[1] == b.vuParams[1] &&

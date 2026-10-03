@@ -24,6 +24,8 @@
 #include <functional>
 #include <vector>
 
+#include "pngquant.hpp"
+#include "roaddetail.hpp"
 #include "roadgen.hpp"
 #include "vehiclesim.hpp"
 
@@ -1535,6 +1537,186 @@ void roadKerbs() {
     verdict(chains == 1, "a fillet keeps its kerb only when both of its roads have kerbs");
 }
 
+// Road details (docs/roads.md "Road details"): a kerbed T with zebras plus a
+// kerbless cross street, on rolling ground. The decals must be deterministic,
+// follow the seed and the density, stay on their own road's opaque core, keep
+// clear of node patches, paint and other roads, put gullies only along kerbs,
+// and lie kDetailLift over the drawn surface everywhere, not just at corners.
+void roadDetails() {
+    std::printf("-- road details --\n");
+    auto road = [](const char* id, std::vector<float> pts, float width, bool kerb,
+                   float details) {
+        roadgen::CrossingRoad r;
+        r.id = id;
+        r.points = std::move(pts);
+        r.width = width;
+        r.intersection = "res/materials/x.mtl";
+        r.kerb = kerb;
+        r.markings = roadgen::kMarkCrossings;
+        r.details = details;
+        return r;
+    };
+    // Rolling ground with a fold, so a decal must split to follow it.
+    const roadgen::HeightFn ground = [](float x, float z) {
+        return 0.8f * std::sin(x * 0.11f) + 0.5f * std::cos(z * 0.07f) +
+               0.3f * std::fabs(std::sin(x * 0.05f + z * 0.03f));
+    };
+    struct Scene {
+        roadgen::CrossingPlan plan;
+        roadgen::Surface surface;  // roads + patches: what is drawn
+        roadgen::Surface patchOnly, paintOnly;
+        std::vector<roadgen::Vertex> patches, paint;
+        roaddetail::Result res;
+    };
+    auto bake = [&](const std::vector<roadgen::CrossingRoad>& r, Scene& s) {
+        s.plan = roadgen::planCrossings(r, {});
+        std::vector<roadgen::Vertex> roadTris;
+        for (const roadgen::CrossingRoad& rd : r) {
+            std::vector<roadgen::Vertex> mesh;
+            roadgen::tessellate(rd.points, rd.width,
+                                [&](float x, float z) { return ground(x, z) + roadgen::rankLift(rd.rank); },
+                                mesh, {}, rd.sampleStep);
+            roadTris.insert(roadTris.end(), mesh.begin(), mesh.end());
+        }
+        s.patches.clear();
+        for (const roadgen::Crossing& c : s.plan.crossings) {
+            if (c.kind != roadgen::kCrossPatch || c.patchDuplicate) continue;
+            std::vector<roadgen::Vertex> mesh;
+            roadgen::tessellateJunctionSurface(c.shape, roadTris, ground, c.lift, mesh);
+            s.patches.insert(s.patches.end(), mesh.begin(), mesh.end());
+        }
+        s.surface = roadgen::Surface();
+        s.surface.add(roadTris);
+        s.surface.add(s.patches);
+        s.surface.build();
+        roadgen::bakeMarkings(s.plan, r, s.surface, s.paint);
+        s.patchOnly = roadgen::Surface();
+        s.patchOnly.add(s.patches);
+        s.patchOnly.build();
+        s.paintOnly = roadgen::Surface();
+        s.paintOnly.add(s.paint);
+        s.paintOnly.build();
+        roaddetail::SceneInput in;
+        in.roads = &r;
+        in.plan = &s.plan;
+        in.ground = ground;
+        in.patches = s.patches;
+        in.paint = s.paint;
+        s.res = roaddetail::build(in);
+    };
+    const std::vector<roadgen::CrossingRoad> roads = {
+        road("main", {-120, 0, 0, 2, 120, 0}, 12, true, 1.0f),
+        road("stem", {0, 0, 0, 90}, 9, true, 1.0f),
+        road("cross", {60, -80, 62, 80}, 8, false, 1.0f)};
+    Scene a, b;
+    bake(roads, a);
+    bake(roads, b);
+    int perKind[roaddetail::kKindCount] = {};
+    for (const roaddetail::Decal& d : a.res.decals) ++perKind[d.kind];
+    std::printf("  %zu decals (%d manholes, %d gullies, %d patches, %d cracks, %d stains), %zu "
+                "vertices in %zu chunks; %d of %d candidates rejected\n",
+                a.res.decals.size(), perKind[roaddetail::kManholeRound] +
+                                         perKind[roaddetail::kManholeSquare],
+                perKind[roaddetail::kGully], perKind[roaddetail::kPatch],
+                perKind[roaddetail::kCrack], perKind[roaddetail::kStain], a.res.tris.size(),
+                a.res.chunkSizes.size(), a.res.rejected, a.res.candidates);
+    bool same = a.res.tris.size() == b.res.tris.size();
+    for (size_t i = 0; same && i < a.res.tris.size(); ++i)
+        same = a.res.tris[i].x == b.res.tris[i].x && a.res.tris[i].y == b.res.tris[i].y &&
+               a.res.tris[i].z == b.res.tris[i].z && a.res.tris[i].u == b.res.tris[i].u &&
+               a.res.tris[i].v == b.res.tris[i].v;
+    verdict(same && !a.res.tris.empty(), "the same roads bake the same decals, bit for bit");
+    bool allKinds = true;
+    for (int k = 0; k < roaddetail::kKindCount; ++k)
+        if (k != roaddetail::kManholeSquare) allKinds &= perKind[k] > 0;
+    verdict(allKinds, "every kind of detail is placed on a dense street");
+
+    // On the road, off the patches and the paint, kDetailLift over the surface.
+    float worstErr = 0.0f, lowest = 1e30f;
+    int offRoad = 0, onPatch = 0, onPaint = 0;
+    for (size_t t = 0; t + 2 < a.res.tris.size(); t += 3) {
+        const roadgen::Vertex* q = &a.res.tris[t];
+        static const float bary[10][3] = {
+            {1, 0, 0}, {0, 1, 0}, {0, 0, 1}, {0.34f, 0.33f, 0.33f}, {0.5f, 0.5f, 0},
+            {0, 0.5f, 0.5f}, {0.5f, 0, 0.5f}, {0.7f, 0.2f, 0.1f}, {0.1f, 0.7f, 0.2f},
+            {0.2f, 0.1f, 0.7f}};
+        for (const auto& w : bary) {
+            const float x = w[0] * q[0].x + w[1] * q[1].x + w[2] * q[2].x;
+            const float y = w[0] * q[0].y + w[1] * q[1].y + w[2] * q[2].y;
+            const float z = w[0] * q[0].z + w[1] * q[1].z + w[2] * q[2].z;
+            const float s = a.surface.at(x, z);
+            if (s == roadgen::Surface::kNone) {
+                ++offRoad;
+                continue;
+            }
+            worstErr = std::max(worstErr, std::fabs(y - s - roaddetail::kDetailLift));
+            lowest = std::min(lowest, y - s);
+            onPatch += a.patchOnly.at(x, z) != roadgen::Surface::kNone ? 1 : 0;
+            onPaint += a.paintOnly.at(x, z) != roadgen::Surface::kNone ? 1 : 0;
+        }
+    }
+    std::printf("  surface: worst height error %.4f, lowest clearance %.4f; %d samples off the "
+                "road, %d on a node patch, %d on paint\n",
+                worstErr, lowest, offRoad, onPatch, onPaint);
+    verdict(offRoad == 0, "no decal hangs off its road");
+    verdict(onPatch == 0, "no decal lies on a node patch");
+    verdict(onPaint == 0, "no decal lies under a stop line or a zebra");
+    verdict(worstErr <= 0.01f && lowest > 0.015f,
+            "decals follow the drawn surface kDetailLift above it (within 1 cm)");
+    // Gullies only along kerbs, just inside the edge.
+    bool gullyOk = true;
+    for (const roaddetail::Decal& d : a.res.decals) {
+        if (d.kind != roaddetail::kGully) continue;
+        const roadgen::CrossingRoad& r = roads[(size_t)d.road];
+        gullyOk &= r.kerb;
+    }
+    verdict(gullyOk && perKind[roaddetail::kGully] > 0, "gullies only on kerbed roads");
+    // Chunks: whole triangles within the budget, summing to the list.
+    int sum = 0;
+    bool chunksOk = true;
+    for (int sz : a.res.chunkSizes) {
+        sum += sz;
+        chunksOk &= sz % 3 == 0 && sz > 0 && sz <= roaddetail::kChunkBudget;
+    }
+    verdict(chunksOk && sum == (int)a.res.tris.size(), "chunks hold whole triangles within budget");
+    // The seed and the density.
+    std::vector<roadgen::CrossingRoad> reseeded = roads;
+    for (roadgen::CrossingRoad& r : reseeded) r.detailSeed = 7;
+    Scene c;
+    bake(reseeded, c);
+    bool differs = c.res.tris.size() != a.res.tris.size();
+    for (size_t i = 0; !differs && i < a.res.tris.size(); ++i)
+        differs = c.res.tris[i].x != a.res.tris[i].x;
+    verdict(differs, "another seed is another arrangement");
+    std::vector<roadgen::CrossingRoad> sparse = roads;
+    for (roadgen::CrossingRoad& r : sparse) r.details = 0.25f;
+    Scene d;
+    bake(sparse, d);
+    std::vector<roadgen::CrossingRoad> none = roads;
+    for (roadgen::CrossingRoad& r : none) r.details = 0.0f;
+    Scene e;
+    bake(none, e);
+    std::printf("  density 1: %zu decals, 0.25: %zu, 0: %zu\n", a.res.decals.size(),
+                d.res.decals.size(), e.res.decals.size());
+    verdict(d.res.decals.size() < a.res.decals.size() && !d.res.decals.empty() &&
+                e.res.decals.empty() && e.res.tris.empty(),
+            "fewer details at a lower density, none at 0");
+    // The atlas: 16 RGBA entries, so the 4-bit bake is lossless.
+    const std::vector<unsigned char> atlas = roaddetail::generateAtlas();
+    const std::vector<unsigned char> q = pngquant::quantizePreviewRGBA(
+        atlas.data(), roaddetail::kAtlasSize, roaddetail::kAtlasSize, 16,
+        pngquant::Dither::FloydSteinberg);
+    size_t diff = 0, used = 0;
+    for (size_t i = 0; i < atlas.size() && i < q.size(); ++i) diff += atlas[i] != q[i] ? 1 : 0;
+    for (size_t i = 3; i < atlas.size(); i += 4) used += atlas[i] != 0 ? 1 : 0;
+    std::printf("  atlas: %d x %d, %zu of %d texels opaque or soft, %zu channel bytes changed by "
+                "4-bit quantization\n",
+                roaddetail::kAtlasSize, roaddetail::kAtlasSize, used,
+                roaddetail::kAtlasSize * roaddetail::kAtlasSize, diff);
+    verdict(q.size() == atlas.size() && diff == 0 && roaddetail::palette().size() == 16,
+            "the details atlas survives the 4-bit bake unchanged");
+}
+
 // The pedals: R2 gas, L2 brake-then-reverse (vehiclesim::pedals, the rule the
 // console's controller and the test drive share).
 void pedalsCheck() {
@@ -1631,6 +1813,7 @@ int run() {
     junctionOverrides();
     roadNodes();
     roadKerbs();
+    roadDetails();
     damage();
     pieces();
     speedFeelCurve();

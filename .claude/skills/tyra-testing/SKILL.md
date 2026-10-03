@@ -3941,6 +3941,16 @@ on: kerbs are owner -4 and stay out of all three. A kerb is a few pixels
 wide, so take a LOW frozen camera (eye 0.6-1 units) a few units from a
 fillet, and crop the shot before looking. `--bake-status` must stay `fresh`,
 because kerbs are not shadow receivers.
+**Road details** (docs/roads.md "Road details"): `--vehicle-check` "road
+details" (determinism, nothing off the road / on a patch / under paint, the
+0.03 lift within 1 cm on rolling ground, gullies only with kerbs, density and
+seed, the atlas lossless at 16 colours). `--road-crossings <dir>` prints one
+`[detail]` line per road and a total with the rejection reasons; the total must
+equal the game's `ROADDETAIL scene N chunks C vertices V triangles T`, and
+`ROADS`/`ROADSTRIP`/`ROADINDEX` must not move (owner -5). To find a vantage,
+read the decal centres out of the scratch copy's generated `ROAD_DETAIL_VERTS`
+(6 vertices per flat decal) and park the frozen camera a few units short of a
+cluster at eye height, pitched ~15 degrees down.
 The viewport and PCSX2 patch must match. `verify-road-twins.py` also exercises
 terrain folds and both Market endpoints, proves the old fan regression is
 triggered, sweeps clearance and checks nonempty runtime junction uploads. Move one spline

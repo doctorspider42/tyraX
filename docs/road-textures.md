@@ -83,6 +83,17 @@ The texture follows the road tessellator's mapping ([roads.md](roads.md)):
   discards alpha-0 texels (the GS alpha-test cutout trap), so alpha 0 is never
   written inside the road.
 
+## The road details atlas
+
+Placed details - manhole covers, gullies, repair patches, cracks, oil stains -
+are not part of a surface texture: a 4-unit tile would repeat them every 4
+units. They are decals from one separate generated atlas,
+`res/materials/roads/road-details.png` (+ `road-details.mtl`), written the first
+time a road's **Details** slider is raised and never overwritten after that,
+so it can be repainted. It is 128 x 128 and drawn from 16 fixed RGBA entries,
+so the 4-bit bake keeps it exactly (8 KB). Layout, placement rules and cost:
+[roads.md](roads.md), "Road details".
+
 ## Files and determinism
 
 `res/materials/roads/<name>.png`, `<name>.mtl` (`newmtl <name>`, `Kd 1 1 1`,

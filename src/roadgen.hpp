@@ -360,6 +360,9 @@ struct CrossingRoad {
     // Kerbs (docs/roads.md "Kerbs"): only planKerbs reads these.
     bool kerb = false;
     float kerbHeight = 0.15f, kerbWidth = 0.25f;
+    // Details (docs/roads.md "Road details"): only roaddetail reads these.
+    float details = 0.0f;
+    int detailSeed = 0;
 };
 
 // What a road's arms get painted at its nodes (1.171.0, docs/roads.md

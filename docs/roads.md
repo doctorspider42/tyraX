@@ -498,6 +498,162 @@ round a fillet, the painted edge line inside it, a zebra beyond.
 - the strip runs hold exactly the list's triangles;
 - a fillet loses its kerb when one of its roads has none.
 
+## Road details (format 99)
+
+A road's **Details** slider (`roadDetails`, 0..1, default 0 = none) scatters
+the small things that make a generated street read as a used one: **manhole
+covers** (round and square), **storm-drain gullies** along the kerb, asphalt
+**repair patches**, **cracks** and **oil stains**. **Detail seed**
+(`roadDetailSeed`, default 0) picks another arrangement at the same density.
+Both keys are written only off their default, so a road without details saves
+byte-identical. Generated road textures already carry fine wear (stains,
+cracks, tyre tracks in the tile itself, [road-textures.md](road-textures.md));
+details are the PLACED layer on top: things a tiling 4-unit texture cannot do
+without repeating itself every 4 units.
+
+What goes where (`roaddetail::build`, host only, `src/roaddetail.cpp`), per road
+and in this priority order. A spacing `s` below is at density 1, and grows to
+the upper figure as the density falls toward 0. Every spacing is jittered.
+
+| Detail | Where | Spacing | Size |
+|---|---|---|---|
+| Manhole, round (75%) or square | a lane centre (lanes = width / 3.5), +-0.3 | 20 .. 60 | 0.9 / 0.8 |
+| Gully | both edges, just inside the kerb, aligned with the road. **Kerbed roads only.** | 20 .. 40 per side | 0.72 x 0.45 |
+| Repair patch (3 cells: fresh dark, old bleached, mid) | anywhere across; 30% are trenches cut across the lane | 12 .. 60 | 1.8-4.2 long |
+| Crack (4 cells, 2 branching) | anywhere, any direction | 8 .. 40 | 1.4-2.4 or 3-5 long |
+| Oil stain (2 cells) | near a lane centre | 15 .. 60 | 0.7-1.5 |
+
+A candidate is **kept only when it fits**, which is what keeps the layer from
+looking stuck on:
+
+- its whole footprint (sampled every 0.25) lies on its own road's triangles,
+  inside the opaque core (an Edge fade's soft bands are excluded);
+- nothing that is not this road - a junction patch, node paint (stop lines,
+  zebras, edge lines), a spill or overlay, another road - is within **0.3
+  units** (`kClearance`) of it. Nodes are therefore clean by construction:
+  their patch, its paint and the arms' zebras all block. That is a choice, and
+  the cheap one to revisit: patches on a node patch would need their own owner
+  test, nothing else;
+- it does not overlap a decal already placed (two blended decals at one height
+  would fight).
+
+Placement is a pure function of the road's points, width, density, seed and
+stable id (counter-based hashes, never a running RNG), so an unchanged project
+bakes the same decals byte for byte, and moving one road never reshuffles
+another's.
+
+Each decal is a quad in its atlas cell's proportions, **split until it follows
+the drawn road surface to 5 mm** (`kFlatness`, probed at seven points per
+piece, up to 8 x 8 pieces) and lifted **0.03** (`kDetailLift`) over it - one
+step above the node paint and the spills (0.02) and below the 0.03 rank step.
+Its heights are read from that road's own triangles (rank lift included), so
+it lies exactly where the asphalt is drawn. On the district's flat streets a
+decal is one quad (6 list vertices).
+
+### The atlas
+
+All details share one generated texture, `res/materials/roads/road-details.png`
+with a one-material `road-details.mtl` beside it - 128 x 128, 12 cells, every
+pixel one of **16 fixed RGBA entries** (`roaddetail::palette`), so the texture
+bake's 4-bit quantization is lossless: 8 KB of VRAM. Alpha is 0 outside the
+shapes (StaPip's alpha test drops those texels) and partial on cracks and oil.
+Every cell keeps a one-pixel transparent margin and its UVs land on texel
+centres, so bilinear filtering never reads a neighbour.
+
+The atlas is an ordinary asset: it is written by `roaddetail::ensureAtlas` the
+first time a road asks for details (the Details slider, and every
+`refreshGenerated` - i.e. every build) **only when it does not exist yet**.
+Repaint it freely; delete the two files to get the generated one back. Its
+generator lives in `roaddetail.cpp` rather than `roadtex.cpp` on purpose: the
+atlas has no recipe and no window, and keeping it out of the road texture
+generator keeps the two features apart.
+
+![The generated details atlas over asphalt grey, 4x: round and square manholes, a gully, two oil stains, three repair patches and four cracks](img/road-details-atlas.png)
+
+### How it runs
+
+The roads' host-baked pattern again: **the console does no detail work beyond
+uploading.** The codegen emits `ROAD_DETAILS` (one `{scene, first, count}` row
+per chunk), `ROAD_DETAIL_VERTS` (x, y, z, u, v), `ROAD_DETAIL_TEX` (the atlas'
+`ROAD_TEXTURE_PATHS` index) and `ROAD_DETAIL_DRAW_DISTANCE`, plus an upload
+block (`roadDetailsUpload`) spliced into `buildRoads` after the kerbs'. All of
+it - and the atlas' texture slot - exists only when some road has details
+(`projectHasRoadDetails`), so every other project regenerates byte-identically.
+
+- **Triangle lists**, whole decals per chunk, chunked by **32-unit cell**
+  (`kDetailCell`), at most 1 800 vertices.
+- **Owner -5.** Not -3: that would put decals into the road height index (a
+  wheel would ride 3 cm up onto a manhole, a blob shadow would lie on it). Not
+  -4: the kerbs are solid. `renderRoadChunks` draws -5 after every -3 chunk
+  (frustum reject, chunk draw distance, ground radius), so the cost lands in
+  the `Roads` profiler row and the reflection views see them too.
+  **Why not `renderProcChunks`, like the kerbs:** a blended decal must reach
+  the GS after the asphalt, and the interleaved passes hold the road bags back
+  until the object loop - later than the `Procedural` phase, so a decal drawn
+  there would go out BEFORE the asphalt it lies on. (Not A/B'd in isolation:
+  the order was fixed from the code before the first useful capture.) The two
+  owner tests are patched in the generated source only when a road has
+  details, so other projects keep their exact source.
+- **Blended** (`roadBlend`, the spills' info bag), modulated by the atlas alpha,
+  vertex colour 128 grey.
+- **Draw distance 50 units** from the chunk centre.
+- `ROADDETAIL scene N chunks C vertices V triangles T` in `bin/log.txt` is the
+  acceptance line. `--road-crossings <project>` prints one `[detail]` line per
+  road and a total (per kind, vertices, chunks, and why candidates were
+  dropped), from the same bake.
+
+The viewport draws the same `roaddetail::build` output, blended with the atlas,
+rebuilt with the crossings (the details and seed are in the crossing
+signature).
+
+### What they cost
+
+Motor District main scene, the twelve kerbed asphalt streets:
+
+| density | decals | manholes / gullies / patches / cracks / stains | list vertices | chunks | candidates dropped |
+|---:|---:|---|---:|---:|---|
+| 0.8 (the example) | 255 | 39 / 89 / 37 / 50 / 40 | 3 222 | 65 | 289 of 544 (269 clearance, 20 overlap) |
+| 1.0 | 356 | 55 / 112 / 59 / 71 / 59 | 4 422 | 67 | 461 of 817 (416 clearance, 45 overlap) |
+
+About half the candidates fall at nodes (their patch, paint and the 0.3
+clearance), which is the "nodes stay clean" rule doing its job on a district
+with a node every block. Most decals are one quad; the rest are split where the
+terrain bends the road, so the mean is 12.6 vertices a decal. The atlas is 8 KB
+of VRAM, once.
+
+- **Untouched**: `ROADS scene 0 chunks 83 vertices 39513`, `ROADSTRIP ...
+  packages 557 triangles 26231` and `ROADINDEX cells 66x66 entries 84689` read
+  the same with details on and off.
+- **PCSX2, frozen camera over a Market cross street cluster (eye 4, pitch 38,
+  x -51), interleaving pinned off, three `--profile-frame` captures per arm**
+  (emulated EE timing, so rough): `Roads` 0.58-0.63 ms off, 0.70-0.77 ms at
+  0.8 and 0.73-0.77 ms at 1.0 - about **+0.15 ms** with a few detail chunks in
+  view. `Total` 4.8-8.3 ms off (one noisy capture) against 5.0-5.6 ms on.
+  Physical PS2 not measured.
+
+Density 0.8, left at street level (eye 1.6) and right from 4 units up. At eye
+height the details read the way real ones do - a crack here, a patch there, the
+gullies at the kerb - rather than as a pattern.
+
+![PCSX2: road details on Market cross street in the Motor District at density 0.8 - street level (left) and from 4 units up (right): a repair patch, an oil stain, a crack and gullies along the kerbs](img/road-details-pcsx2.png)
+
+### Limits
+
+- Nodes stay clean (see above), and so do the first metres of every arm (the
+  zebra and stop-line clearance).
+- One atlas per project, 12 fixed cells; a repaint must keep the layout.
+- Decals are paint: no grip change on a patch, no bump on a manhole.
+- The density is per road, not per kind.
+- Viewport: no per-decal picking or editing; change the seed instead.
+
+`--vehicle-check` "road details" builds a kerbed T with zebras plus a kerbless
+cross street on rolling ground and checks: the same input bakes the same
+decals bit for bit; every kind is placed; no sample of any decal triangle lies
+off the road, on a node patch or on paint; every sample is 0.03 +- 0.01 over the
+drawn surface; gullies only on kerbed roads; chunks hold whole triangles within
+budget; a new seed changes the arrangement; fewer decals at density 0.25, none
+at 0; and the atlas survives a 16-colour quantization unchanged.
+
 ## Physical-PS2 texture coordinates and the strip default
 
 Roads reach VU1 as **triangle strips** by default. A temporary triangle-list
@@ -617,6 +773,7 @@ canonicalizes only that integer part; positions and fractional UVs remain exact.
 | `src/props_ui.cpp` | The Road properties panel + `App::alignTerrainToRoad`. |
 | `src/junction_ui.cpp` | Junction markers, selection and the Junction section (overrides). |
 | `src/roadtex.cpp/.hpp`, `src/roadtex_ui.cpp` | The Road Texture Generator ([road-textures.md](road-textures.md)). |
+| `src/roaddetail.cpp/.hpp` | Road details: placement, the surface-following decal bake and the details atlas ("Road details"). |
 
 ## Adaptive street geometry budget (1.86.3)
 
