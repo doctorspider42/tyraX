@@ -321,7 +321,7 @@ constexpr int kRoadLampStreaks = 32;
 constexpr float kRoadLampCoronaFar = 160.0F;
 constexpr float kRoadLampCoronaFade = 110.0F;
 constexpr float kRoadLampStreakFar = 55.0F;
-constexpr int kRoadCarStreaks = 0;        // car-light streaks a frame (none: no vehicles)
+constexpr int kRoadCarStreaks = 0;        // car-light streaks a frame (0: not vehicles + weather)
 constexpr int kRainDrops = 240;
 constexpr float kRainBox = 11.0F;         // half width of the box round the camera
 constexpr float kRainBelow = 4.0F, kRainHeight = 14.0F;
@@ -756,7 +756,7 @@ std::string patchTemplate(std::string s, const Gates& g) {
     //    car-light streaks in renderRoadLamps and their budget in its bag.
     std::string impl = kImpl;
     if (g.weather && g.vehicles) {
-        impl = replaceAll(impl, "constexpr int kRoadCarStreaks = 0;        // car-light streaks a frame (none: no vehicles)\n",
+        impl = replaceAll(impl, "constexpr int kRoadCarStreaks = 0;        // car-light streaks a frame (0: not vehicles + weather)\n",
                           "constexpr int kRoadCarStreaks = weather::kWeatherCarStreakMax;  // car-light streaks a frame\n");
         impl = replaceAll(impl, "  // {{ROAD_CAR_STREAKS}}\n", kCarStreaks);
     } else {
