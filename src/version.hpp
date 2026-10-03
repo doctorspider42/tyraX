@@ -5515,7 +5515,14 @@
 // host-baked albedo map (REFL_GROUND_*): -2 ms a turning frame on the Motor
 // District's open road on a PS2.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 174
+#define TYRAX_VERSION_MINOR 175
+// 1.175.0: TRAFFIC AND WEATHER, FINISHED. An On Red Light Run flow node, AI
+// lane changes (to the turn's lane, past a stopped car), signals at T nodes
+// and a per-junction control override (v108), traffic headlights at night;
+// puddles that come with the rain, wet-road streaks under every lit car, Set
+// Weather in Live Logic. Editor UI review fixes: road Properties labels stay
+// on screen (propFieldWidth), the lane overlay clips to the picture, the Road
+// Texture Generator preview tiles again, Draw road re-snaps after an undo.
 // 1.174.0: ROADS THAT LIVE. The Draw road tool (snap to ends and centre
 // lines, 15-degree steps, live width ghost) with road presets and bridge
 // height handles (v105, --draw-road); road traffic - a lane graph from the
