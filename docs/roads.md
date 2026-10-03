@@ -990,9 +990,9 @@ it - and the atlas' texture slot - exists only when some road has details
 
 - **Triangle lists**, whole decals per chunk, chunked by **32-unit cell**
   (`kDetailCell`), at most 1 800 vertices.
-- **Owner -5.** Not -3: that would put decals into the road height index (a
+- **Owner -6** (-5 is the bridge structure). Not -3: that would put decals into the road height index (a
   wheel would ride 3 cm up onto a manhole, a blob shadow would lie on it). Not
-  -4: the kerbs are solid. `renderRoadChunks` draws -5 after every -3 chunk
+  -4: the kerbs are solid. `renderRoadChunks` draws -6 after every -3 chunk
   (frustum reject, chunk draw distance, ground radius), so the cost lands in
   the `Roads` profiler row and the reflection views see them too.
   **Why not `renderProcChunks`, like the kerbs:** a blended decal must reach

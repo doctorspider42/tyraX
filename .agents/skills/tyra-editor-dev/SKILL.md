@@ -3089,7 +3089,7 @@ merges; the codegen, the viewport, `--road-crossings` and `--vehicle-check` all
 call `roaddetail::build` with the scene's roads, plan, patch triangles and node
 paint. Tables (`ROAD_DETAILS`/`ROAD_DETAIL_VERTS`/`ROAD_DETAIL_TEX`) and the
 upload block (`roadDetailsUpload`, spliced after the kerbs') exist only when
-`projectHasRoadDetails`. Owner **-5**: out of the road height index (a decal is
+`projectHasRoadDetails`. Owner **-6** (-5 is the bridge structure): out of the road height index (a decal is
 paint, not surface) and drawn blended by `renderRoadChunks` after the -3
 chunks: a blended chunk drawn from `renderProcChunks` lands BEFORE the
 interleaved road bags and the asphalt covers it (the two owner tests are
