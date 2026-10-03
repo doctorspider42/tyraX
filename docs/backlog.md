@@ -381,6 +381,13 @@ recovered 0.50-0.72 ms of hardware `work`. What it did not do, ranked:
   clock change follows from that historical control; the integrated selector
   preserves ordinary game clocks and its current target evidence is separate.
 - **Remaining EE work / VU0 offload — audited, experiments open.**
+  The [resumed candidate audit](tyrax2-ee-vu0.md#next-60-hz-candidates-host-controls-2026-10-03)
+  rejects the broad beam cache as a demonstrated driving gain, identifies
+  saturated-flicker over-invalidation, and records a private direct-recording
+  host smoke for inline uniforms plus immutable whole-baked references.
+  Next qualify producer coverage/ownership and native-prefix pressure before
+  target integration; repeat the current quiet baseline and price the
+  front/tail observer on PS2. No new physical result or FPS gain is accepted.
   The [native-sizing reuse candidate](tyrax2-ee-vu0.md#native-sizing-reuse-paired-physical-candidate-controls-2026-10-03)
   now passes two same-ELF physical orders, 10,800 loops and 768 accepted samples.
   Reusing successful snapshot tag counts removes 106 sizing scans per sampled

@@ -250,3 +250,66 @@ three times each; host wrappers that count calls prevented the compiler's
 common-subexpression elimination and falsely suggested 18 calls. Verify the
 actual target disassembly before treating a source-level call reduction as
 removed EE work.
+
+## Next 60 Hz candidates: host controls, 2026-10-03
+
+An independent audit confirms that the retained post-Memo quiet vehicle ELF
+contains the current production count-reuse and Memo16 implementation. Its
+469-file manifest, ELF/symbol archives and launch inputs match. Private quiet
+hooks, disabled diagnostic/control polling and the saved night start remain
+explicit apparatus differences. A resumed reset and launch produced no fresh
+confirmation; there is no new physical timing result from that attempt.
+
+The earlier broad beam-assembly key has a concrete over-invalidation case:
+the district lamp with brightness 1.15 and flicker 0.025 changes its raw level
+while its effective beam color remains saturated at `kk = 1`. A private
+variant keys actual eligibility and saturated brightness instead. The current
+generator and generated-game baseline match the extracted oracle. Actual
+O0 and O2 host runs each pass 3,126 steps and 43,989 assertions. This repairs
+an activation case, not a measured optimization: the eight-lamp key still
+contains 226/246 words for main/portal views, and moving the camera forces
+misses. Do not integrate the broad cache as a demonstrated driving gain.
+Pool FIX changes remain real visual changes; their rebuild reasons should be
+counted rather than suppressing flicker. Replacing coronas with the particle
+VU1 billboard path also changes partial-quad clipping and is not a transparent
+shortcut.
+
+A separate private direct-recording smoke uses the actual FrameVifWriter,
+FrameChainArena and ImmutableSpanTable headers. Its first 24 checks preserve
+ordered VIF commands and payload against an extracted existing adapter,
+including capacity/END reservation, prior-prefix rollback, actual lease
+refusal/retirement and mixed/mutable fallback. Raw DMA tags intentionally
+differ: direct inline CNT replaces a REF to an owned snapshot. Producer
+ownership and EE addresses are modeled; full queue integration, producer
+coverage, cache publication and hardware performance are not verified.
+An additional warning-clean host run passes 540 extended checks, including
+full-registry refusal, both reader banks, later-reference failure and
+65,535/65,536-qword writer boundaries. These remain host controls.
+
+The proposed first target is a finalized StaPip packet containing only inline
+uniform operations and registered immutable whole-baked-stream references.
+An actual lease is required: a baked entry's `complete` flag does not prove
+successful immutable registration. Unknown or mixed producers retain the
+existing submit path. Inline payload consumes the bounded 128 KiB native
+prefix, so bookkeeping cost, high-water, splits, fallback, teardown and both
+physical arm orders must be checked before integration. Count reuse already
+removed eligible native-sizing scans; do not advertise removing them again.
+
+Private evidence remains under `F:/Projects/tyrax2-lab-20261001/`:
+`resumed-60fps-20261003/postmemo-baseline-audit.json`,
+`ee-resumed-beam-key-review/`, and
+`resumed-60fps-20261003/direct-replay-prototype/`. These host controls establish
+candidate behavior only; no additional FPS or production optimization is
+accepted.
+
+The private `ee-resumed-pool-reason-census/` also supplies a bounded,
+default-off classifier for actual pool-key changes. Host assertion controls
+pass with warning-clean O2 compilation. Its 536-byte metrics distinguish
+membership count, ordered member identity, vertex/ST stamps, RGB and FIX;
+mixed reasons remain mixed. Runtime Off returns before reading either key or
+incrementing metrics. No target fixture includes it yet, and the branch,
+traversal and count overhead still need paired physical pricing. Strict
+captures must reject invalid/overflow counts and reconcile flushes, rebuilds
+and mask-bin totals. The final root host qualification record is
+`resumed-60fps-20261003/root-host-qualification.json` (SHA256
+`8eeb2d5f9ff26290fca33ede58511f6ced89ea067f58ac43d9e804eb50826605`).
