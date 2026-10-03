@@ -3096,6 +3096,27 @@ interleaved road bags and the asphalt covers it (the two owner tests are
 string-patched in `fill()` only when details exist). `refreshGenerated` writes the atlas (`roaddetail::ensureAtlas`) only
 when it is missing, so a repaint survives builds.
 
+**Street furniture (format 101, docs/roads.md "Street furniture") is the same
+pattern again, with its settings in ONE struct.** `SceneObject::roadFurniture`
+is a `roadfurn::Settings` (`src/roadfurniture.hpp`: three `Line`s - lamps,
+trees, bollards - plus seed, signs, signals and their models), so the chain is
+one line per consumer: `roadfurn::toJson`/`fromJson` (an object of only the
+non-default keys), `operator==` (defaulted), `roadfurn::signature` in the
+crossing signature and `liveLinkRecipeHash`, `roadfurn::modelPaths` in the
+asset browser's usage notes and rename swaps. Placement takes the roads with a
+PARALLEL settings vector (no CrossingRoad fields), the plan, patches, paint
+and `planPavements` output; the codegen, the viewport, `--road-crossings`
+(`roadfurn::prepare` rebuilds those inputs) and `--vehicle-check`
+(`roadfurn::check`) all call `roadfurn::build`. Its sign rule is a TWIN of
+`bakeMarkings`' giving-way rule - the check proves every sign stands at
+painted stop line. Tables (`ROAD_FURN*`) and the upload block
+(`roadfurn::uploadSource`, spliced before `procFinishChunks`) exist only when
+`projectHasRoadFurniture`. Owner **-7**: merged untextured vertex-colour chunks
+drawn by `renderProcChunks`, poles and trunks as owner -7 `procColliders`; the
+road height index never reads -7. An `.obj` model's texture is SAMPLED into the
+vertex colours at bake (no VRAM, no texture-atlas trap). The Properties
+section is `App::drawRoadFurniture` in `src/roadfurniture_ui.cpp`.
+
 ## Vehicle HUD font preparation (1.150.1)
 
 `fontGlyphSprite` in the shared generated helpers owns one persistent sprite

@@ -990,6 +990,9 @@ void App::drawPropertiesWindow() {
                 prefHelp("Another arrangement at the same density.");
             }
         }
+        // Street furniture (docs/roads.md "Street furniture",
+        // src/roadfurniture_ui.cpp): lamps, trees, bollards, signs, lights.
+        if (drawRoadFurniture(o)) committed = true;
         // This road's crossings (docs/roads.md, "Junction overrides"): the
         // plan the build uses, one button each - the same junction the
         // viewport diamond selects.

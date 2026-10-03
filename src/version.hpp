@@ -6157,7 +6157,12 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // true), which makes the existing per-point "roadHeights" mean deck heights.
 // Missing = an ordinary glued road, as before (heights still ignored).
 // Additive; no migration step.
-inline constexpr int kFormatVersion = 100;
+// v101 (docs/roads.md, "Street furniture"): a road's "roadFurniture" object -
+// lamps / trees / bollards lines (model, spacing, side, offset, phase, scale,
+// yaw), seed, signs (1 give way, 2 stop), signals, signModel, signalModel -
+// holding only its non-default keys, and written only when any is set.
+// Missing = no furniture, as before. Additive; no migration step.
+inline constexpr int kFormatVersion = 101;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

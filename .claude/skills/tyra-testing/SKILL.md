@@ -3969,6 +3969,18 @@ equal the game's `ROADDETAIL scene N chunks C vertices V triangles T`, and
 read the decal centres out of the scratch copy's generated `ROAD_DETAIL_VERTS`
 (6 vertices per flat decal) and park the frozen camera a few units short of a
 cluster at eye height, pitched ~15 degrees down.
+**Street furniture** (docs/roads.md "Street furniture"): `--vehicle-check`
+"road furniture" (determinism, nothing on a road / patch / paint, exact count
+and spacing on a free street, lamps facing the road on the pavement top, signs
+at painted stop lines facing the approach, four signals at a lit X, tables
+adding up, seed turns trees in place, an `.obj` model, the JSON round-trip).
+`--road-crossings <dir>` prints one `[furniture]` line per furnished road and a
+total; the total must equal the game's `ROADFURN scene N chunks C vertices V
+boxes B`, and `ROADS`/`ROADKERB` must not move (owner -7). The Motor District
+vantages used for the docs: a frozen walker at (-42, 52.6) looking at (0, 61)
+pitch 3 (Skyline avenue's south pavement) and (-3, -35) looking at (0, 10)
+pitch 6 (Garage boulevard toward the lit plaza). To see where chunks are,
+read the scratch copy's `ROAD_FURN` rows and `ROAD_FURN_VERTS`.
 The viewport and PCSX2 patch must match. `verify-road-twins.py` also exercises
 terrain folds and both Market endpoints, proves the old fan regression is
 triggered, sweeps clearance and checks nonempty runtime junction uploads. Move one spline

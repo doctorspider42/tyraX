@@ -1062,6 +1062,213 @@ drawn surface; gullies only on kerbed roads; chunks hold whole triangles within
 budget; a new seed changes the arrangement; fewer decals at density 0.25, none
 at 0; and the atlas survives a 16-colour quantization unchanged.
 
+## Street furniture (format 101)
+
+A road's **Street furniture** section (Properties, a collapsing header under
+the road's own controls) fills the street the way a city does: **street
+lamps**, **trees** and **bollards** in lines along the pavement, a **give-way
+or stop sign** at every stop line, and **traffic lights** at four-way nodes.
+None of it is a scene object. It is generated from the road at build, the way
+kerbs and pavements are, so moving a road moves its lamps, and a district
+with three hundred lamps saves three hundred fewer objects.
+
+![PCSX2, Motor District (mirrored in X): left, Skyline avenue from its south pavement - lamp posts and trees on both walks, traffic lights at the Garage boulevard node ahead; right, Garage boulevard toward the plaza, its signals on every arm](img/road-furniture-pcsx2.png)
+
+### Authoring
+
+Each of the three lines has the same controls:
+
+- **Spacing** (units between stations along the road; 0 = off). Stations are
+  at `phase + spacing/2 + k * spacing` along the centre line.
+- **Side**: both, left, right (seen walking the road in the order its points
+  run) or **alternate** (left, right, left, ... station by station - the
+  staggered lamps of a real avenue).
+- **Offset** from the road edge (the kerb face) outward. On a 2.5-unit pavement
+  0.6 is at the kerb, 1.6 mid-walk.
+- **Phase** shifts every station along the road.
+- **Model**: a project `.obj` (`res/models/...`; a `.tmdl` names its sibling
+  `.obj`), or **built-in**. **Scale** sizes it; **Yaw** turns it (a model's +Z
+  faces the road).
+
+**Furniture seed** turns and sizes every tree (a random yaw, 0.85-1.15 size)
+without moving or dropping one. **Signs** picks None, Give way or Stop for the
+stop lines this road gives way at; **Traffic lights** puts a signal on every
+arm of this road's four-way nodes instead. Sign and signal models are
+pickable too.
+
+Everything is stored as one `roadFurniture` object on the road, holding only
+the keys that differ from the defaults, and written only when something is set
+(format 101). A road without furniture saves byte-identical.
+
+### Where things go
+
+`roadfurn::build` (`src/roadfurniture.cpp`, host only) places, in this order:
+
+1. **Signs and signals.** For every patch node (not a transition, not one a
+   railway crosses), the arms that give way - a road ending at a node another
+   road runs through, or the minor road of a crossing of through roads, the
+   `bakeMarkings` rule - get a sign beside their stop line: on the incoming
+   lane's side, just behind the kerb (`h + kerb width + 0.45` from the centre
+   line), facing the driver coming in. A four-way node where any road asks for
+   lights gets a signal on every arm and no signs. A sign that does not fit
+   moves back along the arm a unit at a time (up to 8).
+2. **Lamps, then bollards, then trees** along each road (bridges excluded: a
+   bridge has parapets). Lamps face the road; bollards too; trees take the
+   seed's yaw.
+
+A candidate is **kept only where it fits**:
+
+- its solid footprint (pole, trunk) stays off every **carriageway** - its own
+  road's (the footprint clear of the edge) and every other road's by
+  `kClearance` (0.3) more, a bridge's by another 0.4 for the parapet;
+- off every **junction patch** and its **paint** (stop lines, zebras, edge
+  lines) by 0.3. Trees and bollards keep a further 2 units from a patch (sight
+  lines at the corner); a lamp may stand right at a corner;
+- clear of what is already placed: solid parts 0.3 apart, and two tall things
+  (anything but a bollard) also keep their heads apart - a crown, a lamp head,
+  a sign plate. A bollard may stand under a tree; a lamp may not stand in one.
+
+A dropped station is simply skipped; the rest stay on the spacing grid. The
+base height is the **pavement top** where there is one (`planPavements`, the
+same slabs the console draws) and the ground otherwise.
+
+Placement is a pure function of the roads, their settings and their stable ids
+(counter-based hashes), so an unchanged project bakes the same furniture byte
+for byte, and editing one road reshuffles nobody else's trees.
+
+### The models
+
+The built-in ones are box-and-prism geometry in metres with baked colours -
+cheap on purpose, since a hundred lamps is a hundred copies:
+
+| kind | triangles | what |
+|---|---:|---|
+| lamp | 54 | 5.5 m pole on a plinth, an arm 1.4 over the road, a head with an unshaded warm lens |
+| tree | 36 | a 2.3 m trunk and a six-sided two-tone crown |
+| bollard | 28 | 0.92 m, dark with a white top |
+| give-way sign | 11 | pole, red-rimmed triangle point down, grey back |
+| stop sign | 26 | pole, red octagon with a white rim, grey back |
+| traffic light | 26 | pole, dark head, red / amber / green lenses |
+
+An **`.obj` model** is instanced with its own triangles. Its texture is
+**sampled into the vertex colours** (Kd x the texel at each vertex's UV), never
+uploaded: every chunk stays one untextured vertex-colour bag and the furniture
+costs **no VRAM**, whatever models it uses. That is exact for flat-coloured
+low-poly kits like the district's Kenney models (their UVs point at colour
+swatches), and an approximation for a detailed texture. It also avoids the
+texture atlas trap: an atlased texture ships only inside its page.
+
+Shading is baked from a fixed sun (ambient 0.45, diffuse 0.55), the kerbs' and
+bridges' rule; lenses are unshaded.
+
+### How it runs
+
+The roads' host-baked pattern again: **the console does no furniture work
+beyond uploading.**
+
+- The codegen emits `ROAD_FURN` (one `{scene, first, count}` row per chunk),
+  `ROAD_FURN_VERTS` (x, y, z), `ROAD_FURN_RGB` (0xRRGGBB per vertex),
+  `ROAD_FURN_BOXES` (scene + world AABB per instance) and
+  `ROAD_FURN_DRAW_DISTANCE`, plus an upload block spliced into `buildRoads`
+  before `procFinishChunks` (`roadfurn::uploadSource`). All of it exists only
+  when some road asks for furniture, so every other project regenerates
+  byte-identically (checked: the Motor District without furniture regenerates
+  `game_collision.gen.cpp` and `game_vehicles.gen.cpp` unchanged).
+- **Merged**: every instance in a **48-unit cell** goes into one triangle-list
+  chunk of at most 1 800 vertices - the procedural merge's economy (a submit
+  costs about the same whatever it holds), so hundreds of lamps are a few
+  dozen draws, of which a handful are in view.
+- **Owner -7** (-3 roads, -4 kerbs and rails, -5 bridge structure, -6 details).
+  `renderProcChunks` draws them: the frustum reject, occlusion, and the
+  chunk's **draw distance of 80 units** from its centre - later than the kerbs
+  (60), because a lamp post is tall, sooner than the district's buildings (145).
+  The cost lands in the `Procedural` profiler row. The road height index does
+  not read -7, so nothing stands on a lamp.
+- **Collision**: one axis-aligned box per instance round its pole or trunk
+  (lamp 0.12, tree 0.2, bollard 0.12, sign 0.06, signal 0.1 radius; full
+  height), pushed into `procColliders` under owner -7. The walker's
+  `collidePlayer` and every car's wall gather already read them: a car stops
+  at a lamp post, the player walks round a tree.
+- `ROADFURN scene N chunks C vertices V boxes B` in `bin/log.txt` is the
+  acceptance line. `--road-crossings <project>` prints one `[furniture]` line
+  per furnished road and a total (per kind, vertices, chunks, boxes, and why
+  candidates were dropped), from the same bake.
+
+The viewport draws the same `roadfurn::build` output (one opaque vertex-colour
+mesh per road, with that road), rebuilt with the crossings: the furniture
+settings are in the crossing signature, and Live Link reports a furniture edit
+as needing a rebuild (`liveLinkRecipeHash`, mixed only when set).
+
+### Lamps that light
+
+A built-in lamp's lens is unshaded (its full warm colour), but the lamp casts
+no light: it creates no light object. (How the baked colours read at night was
+not checked - the captures are daytime.) Light the street the way the Motor
+District already does - place **Point** or **Spot** lights (and their ground
+pools) at the lamps you want lit; `--road-crossings` gives no positions, but
+the viewport shows every lamp. Generating one light per lamp is deliberately
+not done: the console's dynamic-light budget is a handful per view, not one per
+lamp, so a generated light would need its own budgeting (nearest-N per frame)
+first - see the backlog.
+
+### What it costs
+
+The Motor District main scene: Skyline avenue, Garage boulevard, Market cross
+street and Foundry link, each with lamps every 12 alternating sides, trees
+every 16 on both walks (offset 1.9), give-way signs, and traffic lights on
+Garage boulevard's four-way nodes.
+
+- **Bake**: 128 instances - 50 lamps, 58 trees, 8 signs, 12 signals (three
+  four-way nodes) - from 222 candidates (44 dropped on a carriageway, 50 at a
+  node, none overlapping); **15 564 vertices (5 188 triangles) in 23 chunks**,
+  128 collision boxes. ELF data: 46 692 floats + 15 564 colour words, about
+  250 KB.
+- **Untouched**: `ROADS scene 0 chunks 187 vertices 52131` and `ROADKERB scene
+  0 chunks 91 vertices 8040` read the same with furniture on and off.
+- **PCSX2**, frozen walker on Garage boulevard at (-3, -35) looking north
+  toward the plaza (eye 1.8, pitch 6), interleaving pinned off, three
+  `--profile-frame` captures per arm (emulated EE timing, so rough): about 6
+  furniture chunks (~5 000 vertices) are within draw distance ahead.
+
+| | `Procedural` | `Total` | HUD SCENE | HUD FPS | MEM |
+|---|---:|---:|---:|---:|---:|
+| without furniture | 0.76-0.77 ms (one 2.09 outlier) | 9.9-10.8 ms (one 21.2 outlier) | 5.45 ms | 60 | 21.1 MB |
+| with furniture | 1.38-1.51 ms | 8.5-9.8 ms | 6.01 ms | 60 | 22.3 MB |
+
+So the furniture costs about **+0.6 ms of EE time** where a handful of its
+chunks are in view - the HUD's SCENE agrees (+0.56) - and the frame rate does
+not move. `Total` is within its own noise. EE RAM grows 1.2 MB (the tables plus
+the chunks' vertex and colour arrays). Not measured on a physical PS2. The cost
+follows vertices more than chunks (6 chunks, ~5 000 vertices), so the levers
+are lighter models (the lamp is the heaviest at 162 vertices), a shorter draw
+distance, and strips instead of lists.
+
+### Limits
+
+- Bridges get no lines (their deck has parapets); a sign on a bridge's node
+  still works.
+- No furniture inside a node: lamps may stand at a corner, never on the patch.
+- Prefabs are not accepted as models yet: a merged chunk needs triangles, and a
+  prefab is objects. Pick an `.obj`.
+- Signs follow right-hand traffic (the stop line's side), like the markings.
+- Furniture is not a shadow caster (the baked shadow bake reads objects) and
+  is not lit by the light probes; its shade is baked.
+- The draw distance is a constant, not a project setting.
+- A lamp is not a light (see above).
+
+`--vehicle-check` "road furniture" builds a kerbed T with pavements and zebras,
+a four-way crossing with lights, a give-way T and a lone kerbless street, and
+checks: the same roads bake the same furniture bit for bit; every kind is
+placed; no instance's footprint touches a road, a patch or paint; the lone
+street carries exactly the expected lamps at exactly their spacing and the
+crowded one keeps its survivors on the station grid; lamps face their road and
+stand on the pavement top; every sign is at a painted stop line facing the
+approach, with the road's sign kind; the four-way gets four signals and no
+signs; the vertex, chunk and box counts match the instances; a new seed turns
+the trees without moving them; an `.obj` model is instanced with its own
+triangles and colours; and the settings round-trip with nothing saved at the
+defaults.
+
 ## Physical-PS2 texture coordinates and the strip default
 
 Roads reach VU1 as **triangle strips** by default. A temporary triangle-list
@@ -1184,6 +1391,7 @@ canonicalizes only that integer part; positions and fractional UVs remain exact.
 | `src/junction_ui.cpp` | Junction markers, selection and the Junction section (overrides). |
 | `src/roadtex.cpp/.hpp`, `src/roadtex_ui.cpp` | The Road Texture Generator ([road-textures.md](road-textures.md)). |
 | `src/roaddetail.cpp/.hpp` | Road details: placement, the surface-following decal bake and the details atlas ("Road details"). |
+| `src/roadfurniture.cpp/.hpp`, `src/roadfurniture_ui.cpp` | Street furniture: placement, the built-in models, `.obj` instancing, the console tables and upload, `--vehicle-check` "road furniture", and the Properties section ("Street furniture"). |
 
 ## Adaptive street geometry budget (1.86.3)
 

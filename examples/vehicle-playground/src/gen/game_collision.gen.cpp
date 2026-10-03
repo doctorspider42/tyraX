@@ -9280,6 +9280,60 @@ void TerrainGame::buildRoads(int scene) {
       TYRA_LOG("ROADDETAIL scene ", scene, " chunks ", detailChunks, " vertices ",
                detailVertices, " triangles ", detailVertices / 3);
   }
+  // STREET FURNITURE (docs/roads.md "Street furniture"): lamps, trees,
+  // bollards, signs and traffic lights - host-baked triangle lists in vertex
+  // colour, one ROAD_FURN row per cell chunk, uploaded unchanged. Owner -7:
+  // renderProcChunks draws them (frustum reject, the chunk draw distance,
+  // occlusion), the road height index does not read them, and their poles and
+  // trunks are procColliders (the walker and every car stop at them).
+  // Untextured: no VRAM; 128 is the full colour in an untextured bag.
+  for (size_t i = procChunks.size(); i > 0; --i)
+    if (procChunks[i - 1].owner == -7)
+      procChunks.erase(procChunks.begin() + (i - 1));
+  {
+    int furnChunks = 0, furnVertices = 0;
+    const float k = 128.0F / 255.0F;
+    for (int fi = 0; fi < ROAD_FURN_COUNT; ++fi) {
+      const RoadFurnRt& fr = ROAD_FURN[fi];
+      if (fr.scene != scene || fr.count < 3) continue;
+      any = true;
+      procChunks.push_back(ProcChunk());
+      ProcChunk& c = procChunks.back();
+      c.owner = -7;
+      c.drawDist = ROAD_FURN_DRAW_DISTANCE;
+      c.stripRun = 0;
+      for (int v = 0; v < fr.count; ++v) {
+        const float* p = &ROAD_FURN_VERTS[(size_t)(fr.first + v) * 3];
+        const unsigned int rgb = ROAD_FURN_RGB[fr.first + v];
+        c.vertices.push_back(Tyra::Vec4(p[0], p[1], p[2], 1.0F));
+        c.colors.push_back(Tyra::Color((float)((rgb >> 16) & 255U) * k,
+                                       (float)((rgb >> 8) & 255U) * k,
+                                       (float)(rgb & 255U) * k, 128.0F));
+      }
+      ++furnChunks;
+      furnVertices += fr.count;
+    }
+    for (int i = (int)procColliders.size() - 1; i >= 0; --i)
+      if (procColliders[(size_t)i].owner == -7)
+        procColliders.erase(procColliders.begin() + i);
+    int furnBoxes = 0;
+    for (int bi = 0; bi < ROAD_FURN_BOX_COUNT; ++bi) {
+      const float* b = &ROAD_FURN_BOXES[(size_t)bi * 7];
+      if ((int)b[0] != scene) continue;
+      StaticBox sb;
+      for (int a = 0; a < 3; ++a) {
+        sb.mn[a] = b[1 + a];
+        sb.mx[a] = b[4 + a];
+      }
+      sb.owner = -7;
+      sb.instance = -1;
+      procColliders.push_back(sb);
+      ++furnBoxes;
+    }
+    if (furnChunks > 0 || furnBoxes > 0)
+      TYRA_LOG("ROADFURN scene ", scene, " chunks ", furnChunks, " vertices ", furnVertices,
+               " boxes ", furnBoxes);
+  }
   if (any) procFinishChunks();
   int roadChunks = 0, roadVertices = 0, roadPackages = 0;
   // Surface triangles, counted where they are KNOWN. A stripped package

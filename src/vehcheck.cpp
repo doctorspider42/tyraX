@@ -27,6 +27,7 @@
 
 #include "project.hpp"
 #include "roadbridge.hpp"
+#include "roadfurniture.hpp"
 #include "pngquant.hpp"
 #include "roaddetail.hpp"
 #include "roadgen.hpp"
@@ -2155,6 +2156,7 @@ int run() {
     roadRails();
     roadbridge::check(verdict);  // docs/roads.md "Bridges"
     roadDetails();
+    roadfurn::check(verdict);  // docs/roads.md "Street furniture"
     damage();
     pieces();
     speedFeelCurve();

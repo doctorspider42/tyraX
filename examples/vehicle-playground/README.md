@@ -54,6 +54,11 @@ builds measured 6.7-7.6 s. This excludes editor generation/baking and cold setup
   density 0.8 - manhole covers, gullies at the kerb, repair patches, cracks
   and oil stains, from the generated `res/materials/roads/road-details.png`
   atlas; nodes and their zebras stay clean.
+  The same four downtown streets carry [street furniture](../../docs/roads.md#street-furniture-format-101):
+  lamps every 12 units on alternating sides, trees every 16 on both walks,
+  a give-way sign at each of their stop lines and traffic lights on Garage
+  boulevard's four-way nodes - 128 instances generated at build (none of
+  them scene objects), merged into 23 chunks; the poles and trunks are solid.
 
   ![PCSX2, mirrored in X: the Orchard fork between the ring road and Skyline avenue, the Service ramp leaving the ring, and the Quarry corner](../../docs/img/road-nodes-district.png)
 - **dense** adds buildings for a busier drive.

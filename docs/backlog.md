@@ -44,6 +44,15 @@ is not:
   nodes stay clean), a per-kind density, decals that change grip (a patch, a
   wet manhole), the draw distance as a project setting, and a physical-PS2
   cost pass.
+- ~~**Street furniture**~~ (lamps, trees, bollards along the pavement, signs
+  at the stop lines, traffic lights at four-way nodes): done (format 101,
+  docs/roads.md "Street furniture"; host-baked merged vertex-colour chunks,
+  owner -7, 80-unit draw distance, pole/trunk boxes in procColliders; about
+  +0.6 ms EE in PCSX2 on the Motor District). Still open: **lamps that light**
+  (one light per lamp needs a nearest-N budget per frame first), prefabs as
+  furniture models, furniture as baked-shadow casters, lighter or stripped
+  models if the cost shows on a console, left-hand traffic for the signs, a
+  draw-distance setting, and a physical-PS2 pass.
 - **Overrides for nodes of more than two roads.** `JunctionOverride` is still
   a road PAIR, and the Junction panel's Winner combo offers only `c.a`/`c.b`.
 - **A per-node corner radius** (today 1.5 x the mean half width, 1..8).

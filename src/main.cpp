@@ -1015,6 +1015,54 @@ static int roadCrossingsFromCli(int argc, char** argv) {
                             res.rejectedOverlap, res.rejectedOffRoad, res.rejectedClearance);
             }
         }
+        // Street furniture (docs/roads.md "Street furniture"): the codegen's
+        // own bake, so the total is the ROAD_FURN tables' and the game's
+        // ROADFURN line.
+        {
+            auto ground = [&](float x, float z) {
+                return sc.terrain.enabled
+                           ? roadgen::terrainHeight(sc.heights, sc.hmW, sc.hmD,
+                                                    (float)sc.terrain.width,
+                                                    (float)sc.terrain.depth, x, z)
+                           : -1000000.0f;
+            };
+            std::vector<int> fidx;
+            const std::vector<roadgen::CrossingRoad> fr =
+                project::crossingRoads(sc.objects, &fidx, p.dir, ground);
+            std::vector<roadfurn::Settings> fs;
+            for (int oi : fidx) fs.push_back(sc.objects[(size_t)oi].roadFurniture);
+            if (roadfurn::any(fs)) {
+                const roadgen::CrossingPlan fplan = roadgen::planCrossings(fr, sc.roadJunctions);
+                const roadfurn::SceneInput in = roadfurn::prepare(
+                    fr, fs, fplan, ground,
+                    sc.terrain.enabled
+                        ? roadgen::terrainGridOf(sc.hmW, sc.hmD, (float)sc.terrain.width,
+                                                 (float)sc.terrain.depth)
+                        : roadgen::TerrainGrid{},
+                    p.dir);
+                const roadfurn::Result res = roadfurn::build(in);
+                for (size_t r = 0; r < fr.size(); ++r) {
+                    if (!roadfurn::any({fs[r]})) continue;
+                    int per[roadfurn::kKindCount] = {};
+                    for (const roadfurn::Instance& inst : res.instances)
+                        if (inst.road == (int)r) ++per[inst.kind];
+                    std::printf("[furniture] %s:", sc.objects[(size_t)fidx[r]].name.c_str());
+                    for (int k = 0; k < roadfurn::kKindCount; ++k)
+                        std::printf("%s %d %s", k ? "," : "", per[k], roadfurn::kindName(k));
+                    std::printf("\n");
+                }
+                std::printf("[furniture] total: %zu instance(s) (", res.instances.size());
+                for (int k = 0; k < roadfurn::kKindCount; ++k)
+                    std::printf("%s%d %s", k ? ", " : "", res.perKind[k], roadfurn::kindName(k));
+                std::printf("), %zu vertices in %zu chunks, %zu collision boxes; %d candidates, "
+                            "dropped %d on a road, %d at a node, %d overlapping\n",
+                            res.tris.size(), res.chunkSizes.size(), res.boxes.size(),
+                            res.candidates, res.rejectedRoad, res.rejectedNode,
+                            res.rejectedOverlap);
+                for (const std::string& w : res.warnings)
+                    std::printf("[furniture] warning: %s\n", w.c_str());
+            }
+        }
         for (size_t oi = 0; oi < sc.roadJunctions.size(); ++oi) {
             if (plan.overrideCrossing[oi] >= 0) continue;
             const roadgen::JunctionOverride& j = sc.roadJunctions[oi];

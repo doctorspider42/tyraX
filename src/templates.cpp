@@ -61,6 +61,7 @@
 #include "roadtex.hpp"
 #include "roadrail.hpp"  // rails + tram tracks, baked into the kerb tables
 #include "roaddetail.hpp"  // road details: host-baked decals (docs/roads.md)
+#include "roadfurniture.hpp"  // street furniture: host-baked lamps, trees, signs
 #include "wire.hpp"  // fnv1a64 - stable per-override .tskl suffix
 
 namespace templates {
@@ -213,6 +214,15 @@ static bool projectHasVehicles(const Project& p);
 static bool projectHasKerbs(const Project& p);
 static bool projectHasBridges(const Project& p);
 static bool projectHasRoadDetails(const Project& p);
+// Street furniture (docs/roads.md "Street furniture"): any road asking for any.
+static bool projectHasRoadFurniture(const Project& p) {
+    for (const SceneData& sc : p.scenes)
+        for (const SceneObject& o : sc.objects)
+            if (o.type == PrimitiveType::Road && o.roadPoints.size() >= 4 &&
+                roadfurn::any({o.roadFurniture}))
+                return true;
+    return false;
+}
 
 // The VEHICLE_DEFS row index of a definition, or -1. Only definitions with a
 // model get a row, so this is NOT the Project::vehicles index.
@@ -9029,6 +9039,10 @@ static std::string sceneDataContent(const Project& p, const std::string& ns,
             std::vector<float> detailVerts;
             std::ostringstream detailNotes;
             int detailTex = -1;
+            // Street furniture (docs/roads.md "Street furniture"): merged
+            // vertex-colour chunks + collision boxes, from the roads.
+            const bool hasFurniture = projectHasRoadFurniture(p);
+            roadfurn::Tables furnTables;
             for (size_t si = 0; si < p.scenes.size(); ++si)
                 for (const SceneObject& o : p.scenes[si].objects) {
                     if (o.type != PrimitiveType::Road || o.roadPoints.size() < 4)
@@ -9146,6 +9160,8 @@ static std::string sceneDataContent(const Project& p, const std::string& ns,
                 }
                 std::vector<roadgen::Vertex> markSurfaceTris;
                 std::vector<roadgen::Vertex> detailPaint;  // road details avoid it
+                std::vector<roadgen::Vertex> furnPaint;     // ... and so does furniture
+                std::vector<roadgen::PavementMesh> furnPave; // which stands on these
                 // Kerbs stand on the drawn surface: the roads and their patches.
                 roadgen::Surface kerbSurface;
                 if (hasKerbs) kerbSurface.add(roadTriangles);
@@ -9176,6 +9192,7 @@ static std::string sceneDataContent(const Project& p, const std::string& ns,
                     std::vector<roadgen::Vertex> paint;
                     roadgen::bakeMarkings(plan, cr, paintOn, paint);
                     if (hasDetails) detailPaint = paint;
+                    if (hasFurniture) furnPaint = paint;
                     if (!paint.empty()) {
                         // Worn paint: textured with road-paint (its alpha
                         // blends the line into the asphalt), UVs from the
@@ -9243,6 +9260,7 @@ static std::string sceneDataContent(const Project& p, const std::string& ns,
                     // collide like a patch and cost the EE nothing.
                     const std::vector<roadgen::PavementMesh> pave =
                         roadgen::planPavements(cr, plan, pieces, ground);
+                    if (hasFurniture) furnPave = pave;
                     std::map<std::pair<int, std::pair<int, int>>, std::vector<roadgen::Vertex>>
                         paveRows;
                     for (const roadgen::PavementMesh& pm : pave) {
@@ -9317,6 +9335,25 @@ static std::string sceneDataContent(const Project& p, const std::string& ns,
                                     << roaddetail::kindName(k);
                     detailNotes << "), " << dr.tris.size() << " vertices in "
                                 << dr.chunkSizes.size() << " chunks\n";
+                }
+                // Street furniture (docs/roads.md "Street furniture"): lines
+                // along the pavements, signs at the stop lines - the
+                // console uploads the merged chunks and boxes unchanged.
+                if (hasFurniture) {
+                    std::vector<roadfurn::Settings> fs;
+                    for (int oi : objIdx) fs.push_back(sc.objects[(size_t)oi].roadFurniture);
+                    if (roadfurn::any(fs)) {
+                        roadfurn::SceneInput fi;
+                        fi.roads = &cr;
+                        fi.settings = &fs;
+                        fi.plan = &plan;
+                        fi.ground = ground;
+                        fi.patches = markSurfaceTris;
+                        fi.paint = furnPaint;
+                        fi.pavements = furnPave;
+                        fi.projectDir = p.dir;
+                        furnTables.add((int)si, roadfurn::build(fi));
+                    }
                 }
                 for (const roadgen::CrossingDecal& d : plan.decals) {
                     if (d.verts.empty() || rowOf[(size_t)d.road] < 0) continue;
@@ -9493,6 +9530,10 @@ static std::string sceneDataContent(const Project& p, const std::string& ns,
                         out << "};\n";
                     }
                 }
+                // Street furniture (docs/roads.md "Street furniture"): emitted
+                // only when a road asks for some, so every other project stays
+                // byte-identical.
+                if (hasFurniture) out << furnTables.source();
                 if (roadTex.empty()) {
                     out << "constexpr const char* ROAD_TEXTURE_PATHS[1] = "
                            "{\"\"};\n";
@@ -19162,6 +19203,12 @@ void TerrainGame::buildRoads(int scene) {
         const std::string anchor = "  if (any) procFinishChunks();";
         const size_t at = s.find(anchor);
         if (at != std::string::npos) s.insert(at, roadDetailsUpload());
+    }
+    // Street furniture (docs/roads.md "Street furniture"): the same rule.
+    if (projectHasRoadFurniture(p)) {
+        const std::string anchor = "  if (any) procFinishChunks();";
+        const size_t at = s.find(anchor);
+        if (at != std::string::npos) s.insert(at, roadfurn::uploadSource());
     }
     return s;
 }

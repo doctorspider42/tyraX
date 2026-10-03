@@ -665,6 +665,9 @@ private:
     bool drawRoadSurfaceCombo(const char* label, const char* id,
                               std::string& surfacePath,
                               const char* noneLabel = nullptr);
+    // The Road's "Street furniture" section (src/roadfurniture_ui.cpp,
+    // docs/roads.md "Street furniture"); true when a field changed.
+    bool drawRoadFurniture(SceneObject& o);
     // Cached objparser summary of a model (for the properties panel)
     struct ModelInfo {
         bool ok = false;

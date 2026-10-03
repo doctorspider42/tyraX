@@ -4286,6 +4286,9 @@ void Viewport::syncRoadDraws(const std::vector<SceneObject>& objects) {
         // Road details are laid out against the plan and the paint.
         mix(csig, &r.details, sizeof(r.details));
         mix(csig, &r.detailSeed, sizeof(r.detailSeed));
+        // Street furniture keeps clear of the plan, the paint and the roads.
+        const uint64_t furn = roadfurn::signature(o.roadFurniture);
+        mix(csig, &furn, sizeof(furn));
     }
     for (const roadgen::JunctionOverride& j : roadJunctions_) {
         mix(csig, j.roadA.data(), j.roadA.size() + 1);
@@ -4346,6 +4349,7 @@ void Viewport::syncRoadDraws(const std::vector<SceneObject>& objects) {
     // the same roads and patches, untextured paint drawn with the first patch's
     // road.
     std::vector<roadgen::Vertex> detailPaint;  // road details keep clear of it
+    std::vector<roadgen::PavementMesh> furnPave;  // street furniture stands on them
     {
         roadgen::Surface paintOn;
         paintOn.add(roadTriangles);
@@ -4448,6 +4452,7 @@ void Viewport::syncRoadDraws(const std::vector<SceneObject>& objects) {
         // over the same kerb lines, one textured mesh per owning road.
         const std::vector<roadgen::PavementMesh> pave = roadgen::planPavements(
             cr, plan, pieces, [&](float x, float z) { return terrainHeight(x, z); });
+        furnPave = pave;  // street furniture stands on them
         std::map<int, std::vector<float>> paveByRoad;
         for (const roadgen::PavementMesh& pm : pave) {
             std::vector<float>& iv = paveByRoad[pm.road];
@@ -4520,6 +4525,41 @@ void Viewport::syncRoadDraws(const std::vector<SceneObject>& objects) {
             d.owner = keyOf(owner);
             d.blended = true;
             roadCross_.push_back(std::move(d));
+        }
+    }
+    // Street furniture (docs/roads.md "Street furniture"): the codegen's own
+    // roadfurn::build over the same roads, plan, patches, paint and pavements
+    // - the merged vertex-colour triangles the console uploads - one opaque
+    // mesh per owning road.
+    {
+        std::vector<roadfurn::Settings> fs;
+        for (int oi : objIdx) fs.push_back(objects[(size_t)oi].roadFurniture);
+        if (roadfurn::any(fs)) {
+            roadfurn::SceneInput fi;
+            fi.roads = &cr;
+            fi.settings = &fs;
+            fi.plan = &plan;
+            fi.ground = [&](float x, float z) { return terrainHeight(x, z); };
+            fi.patches = paintOnTris;
+            fi.paint = detailPaint;
+            fi.pavements = furnPave;
+            fi.projectDir = projectDir_;
+            const roadfurn::Result fr = roadfurn::build(fi);
+            std::map<int, std::vector<float>> byRoad;
+            for (const roadfurn::Instance& inst : fr.instances) {
+                std::vector<float>& iv = byRoad[inst.road];
+                for (int k = 0; k < inst.vertexCount; ++k) {
+                    const roadfurn::Vertex& v = fr.tris[(size_t)(inst.firstVertex + k)];
+                    iv.insert(iv.end(), {v.x, v.y, v.z, v.r, v.g, v.b, 0.0f, 0.0f});
+                }
+            }
+            for (auto& [road, verts] : byRoad) {
+                if (verts.empty() || road < 0) continue;
+                RoadCrossDraw d;
+                d.mesh = uploadMesh(verts);
+                d.owner = keyOf(road);
+                roadCross_.push_back(std::move(d));
+            }
         }
     }
 }

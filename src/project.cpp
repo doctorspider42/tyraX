@@ -1121,6 +1121,9 @@ std::string objectJson(const SceneObject& o) {
             json += ", \"roadDetails\": " + fmtFloat(o.roadDetails);
         if (o.roadDetailSeed != 0)
             json += ", \"roadDetailSeed\": " + std::to_string(o.roadDetailSeed);
+        // Street furniture (v101): one object of its non-default keys.
+        if (const std::string rf = roadfurn::toJson(o.roadFurniture); !rf.empty())
+            json += ", \"roadFurniture\": " + rf;
         bool anyLift = false;
         for (float h : o.roadHeights) anyLift |= h != 0.0f;
         if (anyLift) {
@@ -6328,6 +6331,8 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
             o.roadDetails = std::clamp((float)rdd->numberOr(0.0), 0.0f, 1.0f);
         if (const auto* rds = jo.find("roadDetailSeed"))
             o.roadDetailSeed = (int)rds->numberOr(0.0);
+        if (const auto* rfu = jo.find("roadFurniture"))
+            roadfurn::fromJson(*rfu, o.roadFurniture);
         if (const auto* rh = jo.find("roadHeights")) {
             o.roadHeights.clear();
             if (rh->type == json::Value::Type::Array)
@@ -8508,6 +8513,12 @@ uint64_t liveLinkRecipeHash(const SceneObject& o) {
         fnvMix(h, 0x44);
         fnvMixF(h, o.roadDetails);
         fnvMix(h, (uint64_t)(uint32_t)o.roadDetailSeed);
+    }
+    // Street furniture (docs/roads.md "Street furniture") is host-baked the
+    // same way (ROAD_FURN_VERTS + boxes). Mixed only when set.
+    if (o.type == PrimitiveType::Road && !roadfurn::isDefault(o.roadFurniture)) {
+        fnvMix(h, 0x46);
+        fnvMix(h, roadfurn::signature(o.roadFurniture));
     }
     // The four numbers this mesh hands the project's own VU1 microprogram.
     // They are BAKED into SCENE_OBJECTS and the live-link record carries only
