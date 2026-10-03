@@ -1269,6 +1269,18 @@ Rules the same evening paid for:
   VU/GS time, an additive frame budget or an ordinary FPS gain. Private seals
   rely on controlled immutability and do not detect arbitrary later mutation.
   See `docs/tyrax2-scene-isolation.md` and its dated replay/pricing records.
+- **SDK DMA padding can survive packet reuse.** `packet2_chain_set_dma_tag`
+  assigns named fields but leaves reserved tag bits16..25 untouched. With
+  `packet2_reset(...,false)`, a legal REF can contain leftover PAD bits. A
+  private producer ledger failed on raw `30050096` versus `30000096`, despite
+  identical address and TTE words. Match capture admissibility to the semantic
+  checker by ignoring only `0x03ff0000`; keep IRQ/PCE/SPR/address checks and
+  store all four actual words for exact later mutation detection. Do not clear
+  source packets or turn a divergent ledger into transparent fallback. Host
+  controls must seed dirty tags through the actual SDK setter and check later
+  PAD mutations, not just freshly zeroed modeled tags. The corrected private
+  activation passes PS2/PCSX2, but has no accepted raster or speed result yet.
+  See `docs/tyrax2-direct-producer-activation-2026-10-03.json`.
 - **VU memory snapshot labels must be checked against addresses.** The installed
   SDK `vif_registers.h` names `VU1_MEM1_START` as 0x11008000 and
   `VU1_MICROMEM1_START` as 0x1100c000, opposite the actual program/data map.

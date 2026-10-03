@@ -1,0 +1,230 @@
+{
+  "schema": 1,
+  "date": "2026-10-03",
+  "scope": "Private producer activation and diagnosed metadata rejection; production unchanged",
+  "records": [
+    {
+      "version": 1,
+      "environment": "emulator",
+      "fixture": "F:\\Projects\\tyrax2-lab-20261001\\resumed-direct-producer-activation-v1",
+      "archive": "F:\\Projects\\tyrax2-lab-20261001\\direct-activation-v1-emulator0-failed-evidence",
+      "sourceFiles": 494,
+      "sourceManifestSha256": "b000fdfdb44dbe127d8026c7f9c68f98262b87eab8f8975f13c80a0121852b4b",
+      "elfSha256": "54d9d0aff15cc66eca94c6e02d2911e72772b95db606b825497be0ee2b6cbe3d",
+      "symbolsSha256": "25bf48bb58fb2b06f5e4ccc617da8e9e0bfcfd99c126fcdd25b7fde584ceef6f",
+      "nativeExit": 0,
+      "nativeProofSha256": "9324ce18469d8c26626ed9e44836b826c17a1c01ffabb9dc35bbbdb423377f97",
+      "artifactMapSha256": "80cbd5d8bb70cb0c3b993eec80ea9d0935dbc06af704d4eaf855a9b8f5997bd9",
+      "independentReview": "F:\\Projects\\tyrax2-lab-20261001\\direct-activation-independent-tools\\actual-v1-emulator-rejection.json",
+      "independentReviewSha256": "c8cbdbbf82712847ed8a9ee4cb7e69960f7d53f9b025ffcb9e82526881e21991",
+      "activationAccepted": false
+    },
+    {
+      "version": 2,
+      "environment": "emulator",
+      "fixture": "F:\\Projects\\tyrax2-lab-20261001\\resumed-direct-producer-activation-v2-diagnostic",
+      "archive": "F:\\Projects\\tyrax2-lab-20261001\\direct-activation-v2-emulator0-failed-evidence",
+      "sourceFiles": 494,
+      "sourceManifestSha256": "01d9a8a6ce15e814877774e35fdb2c90f284dde0e6090243e9b7bf040d403d49",
+      "elfSha256": "a38958e15e01ab8f86c4f5257b5c2610e1a21c60fc2558f8724e716c6c457c73",
+      "symbolsSha256": "1321d75c793d44e3d30869401ac529c87ad7fb2525e6c3e7a09c60672b9572c0",
+      "nativeExit": 0,
+      "nativeProofSha256": "bee2563722430d020e26bd26151f15234e9c64271c9fa888490a99175f1266a6",
+      "artifactMapSha256": "904e4fe03faeca1842feca18b5adce7381980c1c8816bd621d06241e5843d82f",
+      "independentReview": "F:\\Projects\\tyrax2-lab-20261001\\direct-activation-v2-independent-tools\\actual-emulator-archive-review.json",
+      "independentReviewSha256": "8a01f8b21f210cc9a8f4439abd0bc7319a7683f9b5fcd27824ab5a89d07cfc54",
+      "activationAccepted": false,
+      "diagnostic": {
+        "firstFailure": {
+          "stage": 1,
+          "reason": 2,
+          "offset": 12,
+          "operation": 4,
+          "covered": 12,
+          "count": 4,
+          "raw0": 805634198,
+          "raw1": 16947056,
+          "raw2": 0,
+          "raw3": 0,
+          "expected0": 805306518,
+          "expected1": 16947056,
+          "expected2": 0,
+          "expected3": 0,
+          "padMask": 327680,
+          "armed": 1,
+          "poisoned": 1,
+          "sealed": 0,
+          "invalid": 1,
+          "epoch": 2,
+          "base": 15737920,
+          "sizeofLedger": 1364,
+          "alignofLedger": 4
+        },
+        "reservedPadOnlyMismatchObserved": true,
+        "semanticMeaningfulTag0Mask": 4227923967,
+        "diagnosticQualified": true,
+        "activationAccepted": false,
+        "performanceAccepted": false,
+        "encodingAccepted": false,
+        "limitations": [
+          "First latch captures raw tag at failure and later state at the Invalid stop; it does not dump all packet payload bytes.",
+          "Reserved PAD bits16..25 are ignored by the semantic checker and retained by actual SDK named-bitfield writes. A qualifying raw mismatch identifies this diagnostic failure, not all potential producer bugs.",
+          "No successful On3600/QUIETDONE or rendered-output parity follows from a qualified failure."
+        ],
+        "status": "QUALIFIED_DIAGNOSTIC_ACTIVATION_REJECTED",
+        "stdoutSha256": "d19ee6d499f4b890a0ebfd6e92b5010164cf494a104e47f3d412009ccc62b6ea",
+        "parserSha256": "c12f7511da890dfb1d23c011ecd2abb46156e721fffdd33cfc1f8940619810cc"
+      }
+    },
+    {
+      "version": 3,
+      "environment": "emulator",
+      "fixture": "F:\\Projects\\tyrax2-lab-20261001\\resumed-direct-producer-activation-v3",
+      "archive": "F:\\Projects\\tyrax2-lab-20261001\\direct-activation-v3-emulator0-evidence",
+      "sourceFiles": 494,
+      "sourceManifestSha256": "275b2c636620383ed77d583e228b04675fe145c2b88398dc210c505395d04a57",
+      "elfSha256": "628592b6a4a1a39aba1c9a27397cc2752aab5859cc424aadc6943dccc0cccf57",
+      "symbolsSha256": "cba24ec03b8ec96a05000e6f407dd9960b16d240df9bc4936dc065c115ff3102",
+      "nativeExit": 0,
+      "nativeProofSha256": "11a95786c850cf98017518343c4e94d7017233e717be96b19434d3a4524cfc00",
+      "artifactMapSha256": "988f4788745e838e853a4e88cd6a19037b29ec8822c94e2d0fc4ef14f2e53a0c",
+      "independentReview": "F:\\Projects\\tyrax2-lab-20261001\\direct-activation-v3-independent-tools\\actual-emulator-archive-review.json",
+      "independentReviewSha256": "8504f1e3dce75697450864f8a30181991ba870886e0bf9cadcc8f3dfcd605513",
+      "activationAccepted": true,
+      "activation": {
+        "off": {
+          "frame": 1800,
+          "mode": "Off",
+          "valid": 1,
+          "gate": 0,
+          "epoch": 1,
+          "attempts": 0,
+          "committed": 0,
+          "declined": 0,
+          "invalid": 0,
+          "operations": 0,
+          "inlinePayloadQwords": 0,
+          "prefixHighQwords": 0
+        },
+        "on": {
+          "frame": 3600,
+          "mode": "On",
+          "valid": 1,
+          "gate": 1,
+          "epoch": 2,
+          "attempts": 180810,
+          "committed": 117810,
+          "declined": 63000,
+          "invalid": 0,
+          "operations": 1089810,
+          "inlinePayloadQwords": 1765800,
+          "prefixHighQwords": 2581
+        },
+        "hookObservation": "packetHooks=0 is a source declaration; dynamic null hooks are not observed by this schema",
+        "balancedPacketHooksAccepted": false
+      },
+      "loops": 5400,
+      "quietSampleRows": 128,
+      "quietChunkRows": 15,
+      "rootReviewSha256": "4b11d66990c3f9785213333d61fb47c5b1290b364dae7908720b833abe1be477"
+    },
+    {
+      "version": 3,
+      "environment": "ps2",
+      "fixture": "F:\\Projects\\tyrax2-lab-20261001\\resumed-direct-producer-activation-v3",
+      "archive": "F:\\Projects\\tyrax2-lab-20261001\\direct-activation-v3-physical0-evidence",
+      "sourceFiles": 494,
+      "sourceManifestSha256": "275b2c636620383ed77d583e228b04675fe145c2b88398dc210c505395d04a57",
+      "elfSha256": "628592b6a4a1a39aba1c9a27397cc2752aab5859cc424aadc6943dccc0cccf57",
+      "symbolsSha256": "cba24ec03b8ec96a05000e6f407dd9960b16d240df9bc4936dc065c115ff3102",
+      "nativeExit": 0,
+      "nativeProofSha256": "11a95786c850cf98017518343c4e94d7017233e717be96b19434d3a4524cfc00",
+      "artifactMapSha256": "87524ad355f66f0b71c9dd82889acea17952a6d5d4bded4e722def082e5688b9",
+      "independentReview": "F:\\Projects\\tyrax2-lab-20261001\\direct-activation-v3-independent-tools\\actual-physical-archive-review.json",
+      "independentReviewSha256": "059b8bb72681dec785bcdfe62321efdb7b339addff8ffe26c018a7e8874a6efd",
+      "activationAccepted": true,
+      "activation": {
+        "off": {
+          "frame": 1800,
+          "mode": "Off",
+          "valid": 1,
+          "gate": 0,
+          "epoch": 1,
+          "attempts": 0,
+          "committed": 0,
+          "declined": 0,
+          "invalid": 0,
+          "operations": 0,
+          "inlinePayloadQwords": 0,
+          "prefixHighQwords": 0
+        },
+        "on": {
+          "frame": 3600,
+          "mode": "On",
+          "valid": 1,
+          "gate": 1,
+          "epoch": 2,
+          "attempts": 177807,
+          "committed": 116607,
+          "declined": 61200,
+          "invalid": 0,
+          "operations": 1097607,
+          "inlinePayloadQwords": 1782000,
+          "prefixHighQwords": 2508
+        },
+        "hookObservation": "packetHooks=0 is a source declaration; dynamic null hooks are not observed by this schema",
+        "balancedPacketHooksAccepted": false
+      },
+      "loops": 5400,
+      "quietSampleRows": 128,
+      "quietChunkRows": 15,
+      "rootReviewSha256": "e7d695c8ead652a7d54c21d1a4dfa0cb879f161dbc969cd69e7b02e54de7570a"
+    }
+  ],
+  "hostRuns": [
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\direct-activation-sdk-padding-reproduction\\root-run.log",
+      "sha256": "c8d8375d18cdee09ef47606d5598b331e3d15cbb29b52b8a937e58ae353a39ef",
+      "controls": 50,
+      "scope": "Actual SDK inline setters/ledger or actual activation header; surrounding host environment modeled, no target execution"
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\direct-ledger-pad-admissibility-proposal\\root-run-retry.log",
+      "sha256": "2f93ae8a5ba387fd4ebc8abba8ccc4b69011837a8ed3f2f7874176cea50e22f0",
+      "controls": 86,
+      "scope": "Actual SDK inline setters/ledger or actual activation header; surrounding host environment modeled, no target execution"
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\resumed-direct-producer-activation-v1\\host\\root-v2-run-retry.log",
+      "sha256": "640e209d17f0c69c400d1459294a8725f01377d61c5418b48018b46d717a1eb6",
+      "controls": 22,
+      "scope": "Actual SDK inline setters/ledger or actual activation header; surrounding host environment modeled, no target execution"
+    }
+  ],
+  "sourceCorrection": "Three capture tag0 comparisons ignore only reserved PAD0x03ff0000; all four captured words and final exact source comparisons unchanged",
+  "v3UnchangedFilesVsV1": 493,
+  "diagnosticReason": "V2 observed REF raw30050096 vs expected30000096, identical address/TTE; V1 exact runtime tag unknown",
+  "onObservationFrames": [
+    1800,
+    3599
+  ],
+  "gateRemainsOnAfter3600": true,
+  "claims": {
+    "runtimeActivation": true,
+    "rasterParity": false,
+    "directEncodingParity": false,
+    "ordinaryPerformanceGain": false,
+    "sixtyFps": false,
+    "nativeMacroMatrixComplete": false
+  },
+  "limits": [
+    "On counters cover preceding1800 frames, not the entire completed run",
+    "Ordinary clocks can change packet counts between devices",
+    "Quiet sampler and producer transitions are coupled; phase timing is not a candidate speed control",
+    "Packet-hooks absence is source-only; successful commits prove null hooks only at committed calls",
+    "Completed archive covers5400 frames, not later unarchived operation",
+    "Some unsupported packets decline; full producer coverage is not established",
+    "Actual EE ABI1308/align4 is earlier compile-only proof; diagnosticV2 runtime1364/4 includes56 extra bytes",
+    "Exact raster, moving camera/scenes/resource lifecycles, rollback and native macro profiles remain required before production promotion"
+  ]
+}

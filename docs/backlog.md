@@ -402,6 +402,11 @@ recovered 0.50-0.72 ms of hardware `work`. What it did not do, ranked:
   difference includes scanner policy/cache effects, not isolated instruction
   or GPU time. Next qualify actual direct-producer activation, fallback and
   ordinary raster equivalence on the current engine before pricing any gain.
+  [Direct-producer activation](tyrax2-direct-producer-activation-2026-10-03.json)
+  now passes 5400 ordinary-clock loops on PS2 and PCSX2 after a diagnosed
+  reserved DMA-padding mismatch; positive commits and zero invalid packets
+  prove real use. The candidate remains private pending raster/motion/resource
+  lifecycle checks, native macro profiles and controlled speed comparisons.
   The [resumed candidate audit](tyrax2-ee-vu0.md#next-60-hz-candidates-host-controls-2026-10-03)
   rejects the broad beam cache as a demonstrated driving gain, identifies
   saturated-flicker over-invalidation, and records a private direct-recording

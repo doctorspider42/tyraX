@@ -312,6 +312,31 @@ ownership and queue surroundings are modeled; the full native macro matrix,
 target lifecycle checks, actual fallback/prefix coverage and physical
 same-ELF speed trials remain required. It is not integrated into production.
 
+The private activation trial has now passed 5400 ordinary-clock night loops in
+PCSX2 and physical PS2, with zero invalid packets and positive direct commits
+after a drained Off-to-On boundary. The emulator reports 117,810 commits and
+63,000 declines; PS2 reports 116,607 commits and 61,200 declines over the
+1800-frame On observation. Unsupported packets keep the original submission.
+These workloads use ordinary clocks, so counts need not match across devices.
+
+The first activation attempt stopped at an invalid ledger. A separate diagnostic
+version captured a REF tag at offset12: raw `30050096`, expected `30000096`,
+with identical address and TTE words. The difference is solely SDK DMA padding
+bits. The SDK setter writes named fields without clearing reserved bits16..25;
+the existing semantic checker already ignores them. The corrected private
+version masks only those bits in three capture-admissibility checks. It records
+all four actual words and preserves their exact final comparison, so later
+padding mutations remain invalid. V1's exact runtime tag was never captured;
+the diagnostic proves the cause of V2's observed failure.
+
+The [activation record](tyrax2-direct-producer-activation-2026-10-03.json) pins
+all failed and successful versions, source/ELF/assets and actual SDK host
+controls. Successful activation is not encoding or raster equivalence. Quiet
+sampler mode changes alongside the producer in this smoke, so its phase times
+are not an accepted candidate gain. Next qualify exact Off/On/Off raster pairs,
+ordinary motion/scene/resource lifecycles and native macro profiles before
+production integration or a 60 Hz claim.
+
 A proposed Showcase matrix trigonometry cleanup was also rejected before
 integration. The actual optimized MIPS function already calls sinf and cosf
 three times each; host wrappers that count calls prevented the compiler's

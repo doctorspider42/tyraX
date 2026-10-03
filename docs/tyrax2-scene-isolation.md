@@ -176,8 +176,9 @@ reliability and ordinary gameplay gains remain unproved.
 
 The private V7 fixture prices the repeated EE scanner in one unchanged ELF.
 Two physical boots run Full/Sealed/Full and Sealed/Full/Sealed, with 128 warm
-and 128 sampled repetitions per stage. Full scans the owned closure on each
-submission. Sealed uses three private, opaque handles created by full validation
+and 128 sampled repetitions per stage. Full structurally validates each
+submitted root and its referenced VIF stream. Sealed uses three private,
+opaque handles created by full validation
 before timing; ownership, idle-channel, sequence, cache, DMA and real FINISH
 guards remain active in both paths. The source keeps those buffers immutable.
 These handles are not a general mutation-safe API.

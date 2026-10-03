@@ -413,6 +413,11 @@ work; it is not a pure GPU timer or an ordinary FPS result.
 
 [EE preparation and VU0](tyrax2-ee-vu0.md) records physical snapshot/conversion/wait attribution, existing VU0 macro owners and the ranked measurement gates for fewer submission passes or a future math kernel. The [machine record](tyrax2-pipeline-attribution-2026-10-02.json) retains exact diagnostic windows and provenance; no offload or hardware gain is claimed.
 
+The private [direct-producer activation record](tyrax2-direct-producer-activation-2026-10-03.json)
+records a diagnosed SDK DMA-padding mismatch and corrected 5400-loop activation
+checks in PCSX2 and PS2. Positive commits and zero invalid packets establish
+activation only; exact raster, lifecycle and speed qualification remain open.
+
 The [one-search immutable-borrow trial](tyrax2-immutable-borrow-2026-10-02.json) preserves the narrow candidate, differential and integrated checks, and one physical baseline/candidate/baseline run. Its small apparent work saving overlaps control variation; the runtime remains unchanged.
 
 The [snapshot/native breakdown record](tyrax2-snapshot-breakdown-2026-10-02.json) divides validated snapshot passes, chain/mutable copying and native sizing/emission, with same-ELF observer-overhead controls and callback/state tests. It retains the next scalar-math census plan; timings are diagnostic, not a production gain.
