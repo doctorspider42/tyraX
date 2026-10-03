@@ -21,6 +21,7 @@
 #include "placement.hpp"
 #include "primmesh.hpp"
 #include "roadbridge.hpp"
+#include "roaddetail.hpp"
 #include "roadgen.hpp"
 #include "roadtex.hpp"
 #include "roadrail.hpp"
@@ -4282,6 +4283,9 @@ void Viewport::syncRoadDraws(const std::vector<SceneObject>& objects) {
         mix(csig, &o.roadBridge, sizeof(o.roadBridge));
         if (!o.roadHeights.empty())
             mix(csig, o.roadHeights.data(), o.roadHeights.size() * sizeof(float));
+        // Road details are laid out against the plan and the paint.
+        mix(csig, &r.details, sizeof(r.details));
+        mix(csig, &r.detailSeed, sizeof(r.detailSeed));
     }
     for (const roadgen::JunctionOverride& j : roadJunctions_) {
         mix(csig, j.roadA.data(), j.roadA.size() + 1);
@@ -4341,6 +4345,7 @@ void Viewport::syncRoadDraws(const std::vector<SceneObject>& objects) {
     // Node markings (docs/roads.md "Markings"): the codegen's bakeMarkings over
     // the same roads and patches, untextured paint drawn with the first patch's
     // road.
+    std::vector<roadgen::Vertex> detailPaint;  // road details keep clear of it
     {
         roadgen::Surface paintOn;
         paintOn.add(roadTriangles);
@@ -4348,6 +4353,7 @@ void Viewport::syncRoadDraws(const std::vector<SceneObject>& objects) {
         paintOn.build();
         std::vector<roadgen::Vertex> paint;
         roadgen::bakeMarkings(plan, cr, paintOn, paint);
+        detailPaint = paint;
         if (!paint.empty()) {
             // Worn paint, as the console draws it: the road-paint texture at
             // world-projected UVs, blended by its alpha.
@@ -4484,6 +4490,37 @@ void Viewport::syncRoadDraws(const std::vector<SceneObject>& objects) {
         d.mesh = uploadMesh(iv);
         d.owner = keyOf((int)k);
         roadCross_.push_back(std::move(d));
+    }
+    // Road details (docs/roads.md "Road details"): the codegen's own
+    // roaddetail::build over the same roads, patches and paint - the decals the
+    // console uploads - drawn blended with the details atlas, one mesh per
+    // owning road.
+    if (roaddetail::any(cr)) {
+        roaddetail::SceneInput di;
+        di.roads = &cr;
+        di.plan = &plan;
+        di.ground = [&](float x, float z) { return terrainHeight(x, z); };
+        di.patches = paintOnTris;
+        di.paint = detailPaint;
+        const roaddetail::Result dr = roaddetail::build(di);
+        // One mesh for every decal in the scene, owned by the first road
+        // with details (what the owner key is used for is the picking
+        // highlight, and a decal is too small to pick).
+        int owner = -1;
+        for (size_t k = 0; k < cr.size() && owner < 0; ++k)
+            if (cr[k].details > 0.0f) owner = (int)k;
+        std::vector<float> iv;
+        iv.reserve(dr.tris.size() * 9);
+        for (const roadgen::Vertex& v : dr.tris)
+            iv.insert(iv.end(), {v.x, v.y, v.z, 1.0f, 1.0f, 1.0f, 1.0f, v.u, v.v});
+        if (!iv.empty() && owner >= 0) {
+            RoadCrossDraw d;
+            d.mesh = uploadMesh9(iv);
+            d.texture = roaddetail::kAtlasPng;
+            d.owner = keyOf(owner);
+            d.blended = true;
+            roadCross_.push_back(std::move(d));
+        }
     }
 }
 

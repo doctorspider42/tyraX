@@ -49,6 +49,7 @@
 #include "procbake.hpp"
 #include "project.hpp"
 #include "roadbridge.hpp"
+#include "roaddetail.hpp"
 #include "roadgen.hpp"
 #include "roadrail.hpp"
 #include "roadtex.hpp"
@@ -762,7 +763,8 @@ static int roadTextureFromCli(int argc, char** argv) {
 // (docs/roads.md, "Junction overrides") - roadgen::planCrossings, the same
 // call the codegen makes, printed per scene: the pair, the position, the
 // result, the override that matched it, the decals, the kerbs per road (the
-// codegen's own bake, docs/roads.md "Kerbs") and every ORPHANED override.
+// codegen's own bake, docs/roads.md "Kerbs"), the road details per road
+// (docs/roads.md "Road details") and every ORPHANED override.
 // Exits 1 when any override is orphaned, so a script can gate on it.
 static int roadCrossingsFromCli(int argc, char** argv) {
     if (argc < 3) {
@@ -944,6 +946,73 @@ static int roadCrossingsFromCli(int argc, char** argv) {
                 std::printf("[kerb] total: %zu line(s), %.1f units, %d triangles, %zu strip "
                             "vertices in %zu chunks\n",
                             pieces.size(), total, tris, strip.size(), sizes.size());
+            }
+        }
+        // Road details (docs/roads.md "Road details"): the codegen's own bake
+        // - its roads (read with the project dir, as it reads them, so the node
+        // paint they keep clear of is the same), patches and paint - so the
+        // totals are the ROAD_DETAIL tables' and the game's ROADDETAIL line.
+        {
+            const std::vector<roadgen::CrossingRoad> dr = project::crossingRoads(sc.objects, nullptr, p.dir);
+            if (roaddetail::any(dr)) {
+                const roadgen::CrossingPlan dplan = roadgen::planCrossings(dr, sc.roadJunctions);
+                auto ground = [&](float x, float z) {
+                    return sc.terrain.enabled
+                               ? roadgen::terrainHeight(sc.heights, sc.hmW, sc.hmD,
+                                                        (float)sc.terrain.width,
+                                                        (float)sc.terrain.depth, x, z)
+                               : -1000000.0f;
+                };
+                std::vector<roadgen::Vertex> roadTris, patchTris, paint;
+                for (const roadgen::CrossingRoad& r : dr) {
+                    std::vector<roadgen::Vertex> mesh;
+                    roadgen::tessellate(r.points, r.width,
+                        [&](float x, float z) { return ground(x, z) + roadgen::rankLift(r.rank); },
+                        mesh, {}, r.sampleStep);
+                    roadTris.insert(roadTris.end(), mesh.begin(), mesh.end());
+                }
+                for (const roadgen::Crossing& c : dplan.crossings) {
+                    if (c.kind != roadgen::kCrossPatch || c.patchDuplicate) continue;
+                    std::vector<roadgen::Vertex> mesh;
+                    roadgen::tessellateJunctionSurface(
+                        c.shape, roadTris, ground, c.lift, mesh,
+                        sc.terrain.enabled
+                            ? roadgen::terrainGridOf(sc.hmW, sc.hmD, (float)sc.terrain.width,
+                                                     (float)sc.terrain.depth)
+                            : roadgen::TerrainGrid{});
+                    patchTris.insert(patchTris.end(), mesh.begin(), mesh.end());
+                }
+                roadgen::Surface paintOn;
+                paintOn.add(roadTris);
+                paintOn.add(patchTris);
+                paintOn.build();
+                roadgen::bakeMarkings(dplan, dr, paintOn, paint);
+                roaddetail::SceneInput in;
+                in.roads = &dr;
+                in.plan = &dplan;
+                in.ground = ground;
+                in.patches = patchTris;
+                in.paint = paint;
+                const roaddetail::Result res = roaddetail::build(in);
+                std::vector<int> perRoad(dr.size(), 0);
+                int perKind[roaddetail::kKindCount] = {};
+                for (const roaddetail::Decal& d : res.decals) {
+                    ++perRoad[(size_t)d.road];
+                    ++perKind[d.kind];
+                }
+                for (size_t r = 0; r < dr.size(); ++r)
+                    if (dr[r].details > 0.0f)
+                        std::printf("[detail] %s: density %.2f seed %d -> %d decal(s)\n",
+                                    sc.objects[(size_t)idx[r]].name.c_str(), dr[r].details,
+                                    dr[r].detailSeed, perRoad[r]);
+                std::printf("[detail] total: %zu decal(s) (", res.decals.size());
+                for (int k = 0; k < roaddetail::kKindCount; ++k)
+                    std::printf("%s%d %s", k ? ", " : "", perKind[k], roaddetail::kindName(k));
+                std::printf("), %zu vertices in %zu chunks; %d of %d candidates rejected "
+                            "(%d overlap, %d off the road, %d too close to a node, paint or "
+                            "another road)\n",
+                            res.tris.size(), res.chunkSizes.size(), res.rejected, res.candidates,
+                            res.rejectedOverlap, res.rejectedOffRoad, res.rejectedClearance);
             }
         }
         for (size_t oi = 0; oi < sc.roadJunctions.size(); ++oi) {
@@ -5140,8 +5209,8 @@ int main(int argc, char** argv) {
             "  --road-crossings <projectDir> [sceneIndex]\n"
             "                                          every road crossing and what "
             "it does, and the kerbs\n"
-            "                                          per road; exit 1 on an "
-            "orphaned junction\n"
+            "                                          and road details per road; "
+            "exit 1 on an orphaned junction\n"
             "                                          override (docs/roads.md)\n"
             "  --batch-report <projectDir> [sceneIndex]\n"
             "                                          how the static objects "

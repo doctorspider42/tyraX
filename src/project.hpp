@@ -953,6 +953,12 @@ struct SceneObject {
     int roadKind = 0;
     float roadRailGauge = 1.435f;  // 0.3..3
     int roadTracks = 1;
+    // Details (format v99, docs/roads.md "Road details"): manhole covers,
+    // gullies, repair patches, cracks and oil stains placed along the road at
+    // this density (0 = none), host-baked as decals into ROAD_DETAIL_VERTS.
+    // The seed picks another arrangement at the same density.
+    float roadDetails = 0.0f;  // 0..1
+    int roadDetailSeed = 0;
     // Road surface asset. New authoring points at a .mtl (its first map_Kd);
     // direct PNG paths remain accepted for projects authored before the
     // material picker existed. Empty = untextured grey.
@@ -1722,6 +1728,7 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.roadPavement == b.roadPavement &&
            a.roadPavementMaterial == b.roadPavementMaterial &&
            a.roadRailGauge == b.roadRailGauge && a.roadTracks == b.roadTracks &&
+           a.roadDetails == b.roadDetails && a.roadDetailSeed == b.roadDetailSeed &&
            a.roadTexture == b.roadTexture &&
            a.roadIntersectionTexture == b.roadIntersectionTexture &&
            a.vuParams[0] == b.vuParams[0] && a.vuParams[1] == b.vuParams[1] &&

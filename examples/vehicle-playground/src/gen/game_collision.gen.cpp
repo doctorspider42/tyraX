@@ -9237,6 +9237,49 @@ void TerrainGame::buildRoads(int scene) {
     }
     if (bridgeBoxes > 0) TYRA_LOG("ROADBRIDGE scene ", scene, " walls ", bridgeBoxes);
   }
+  // ROAD DETAILS (docs/roads.md "Road details"): manholes, gullies,
+  // patches, cracks and oil stains, host-baked as textured triangle lists laid
+  // kDetailLift over the drawn road, one ROAD_DETAILS row per cell-sized chunk.
+  // Owner -6: renderRoadChunks draws them in the road pass, after every -3
+  // chunk (frustum reject, the chunk draw distance), blended by the atlas
+  // alpha; the road height index never sees them - a decal is paint, not
+  // surface.
+  for (size_t i = procChunks.size(); i > 0; --i)
+    if (procChunks[i - 1].owner == -6)
+      procChunks.erase(procChunks.begin() + (i - 1));
+  {
+    Tyra::Texture* detailTex = nullptr;
+    if (ROAD_DETAIL_TEX >= 0 && ROAD_DETAIL_TEX < ROAD_TEXTURE_COUNT) {
+      if (!roadTextures_[ROAD_DETAIL_TEX])
+        roadTextures_[ROAD_DETAIL_TEX] = acquireTexture(ROAD_TEXTURE_PATHS[ROAD_DETAIL_TEX]);
+      detailTex = roadTextures_[ROAD_DETAIL_TEX];
+    }
+    int detailChunks = 0, detailVertices = 0;
+    for (int di = 0; di < ROAD_DETAIL_COUNT; ++di) {
+      const RoadDetailRt& dr = ROAD_DETAILS[di];
+      if (dr.scene != scene || dr.count < 3 || !detailTex) continue;
+      any = true;
+      procChunks.push_back(ProcChunk());
+      ProcChunk& c = procChunks.back();
+      c.owner = -6;
+      c.roadTex = detailTex;
+      c.roadBlend = true;
+      c.drawDist = ROAD_DETAIL_DRAW_DISTANCE;
+      c.stripRun = 0;
+      const float* base = &ROAD_DETAIL_VERTS[(size_t)dr.first * 5];
+      for (int k = 0; k < dr.count; ++k) {
+        const float* v = base + (size_t)k * 5;
+        c.vertices.push_back(Tyra::Vec4(v[0], v[1], v[2], 1.0F));
+        c.sts.push_back(Tyra::Vec4(v[3], v[4], 1.0F, 0.0F));
+        c.colors.push_back(grey);
+      }
+      ++detailChunks;
+      detailVertices += dr.count;
+    }
+    if (detailChunks > 0)
+      TYRA_LOG("ROADDETAIL scene ", scene, " chunks ", detailChunks, " vertices ",
+               detailVertices, " triangles ", detailVertices / 3);
+  }
   if (any) procFinishChunks();
   int roadChunks = 0, roadVertices = 0, roadPackages = 0;
   // Surface triangles, counted where they are KNOWN. A stripped package
@@ -9290,7 +9333,7 @@ void TerrainGame::renderProcChunks() {
     // Roads have their own phase and profiler row. Keeping them here as well
     // used to make "Procedural" mean "mostly asphalt" and would double-draw
     // them now that the main view calls renderRoadChunks explicitly.
-    if (c.owner == -3) continue;
+    if (c.owner == -3 || c.owner == -6) continue;  // -6 draws with the roads
     if (!c.bag || c.bag->count == 0) continue;
     // StaPip has its own precise clipper, but entering it for every generated
     // road/prefab chunk still pays the bag setup and classification cost. The

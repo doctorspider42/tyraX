@@ -60,6 +60,7 @@
 #include "roadgen.hpp"  // the road tessellator this file carries a twin of
 #include "roadtex.hpp"
 #include "roadrail.hpp"  // rails + tram tracks, baked into the kerb tables
+#include "roaddetail.hpp"  // road details: host-baked decals (docs/roads.md)
 #include "wire.hpp"  // fnv1a64 - stable per-override .tskl suffix
 
 namespace templates {
@@ -211,6 +212,7 @@ static int vehicleBodyModel(const Project& p, const std::string& defName) {
 static bool projectHasVehicles(const Project& p);
 static bool projectHasKerbs(const Project& p);
 static bool projectHasBridges(const Project& p);
+static bool projectHasRoadDetails(const Project& p);
 
 // The VEHICLE_DEFS row index of a definition, or -1. Only definitions with a
 // model get a row, so this is NOT the Project::vehicles index.
@@ -9020,6 +9022,13 @@ static std::string sceneDataContent(const Project& p, const std::string& ns,
             std::vector<float> bridgeBoxes;  // scene, min/max xyz, half x/z, yaw cos/sin
             std::vector<float> bridgeVerts;  // x, y, z, shade
             std::ostringstream bridgeNotes;
+            // Road details (docs/roads.md "Road details"): one row per chunk
+            // of decal triangles, x y z u v into the details atlas.
+            const bool hasDetails = projectHasRoadDetails(p);
+            std::vector<KerbRow> detailRows;
+            std::vector<float> detailVerts;
+            std::ostringstream detailNotes;
+            int detailTex = -1;
             for (size_t si = 0; si < p.scenes.size(); ++si)
                 for (const SceneObject& o : p.scenes[si].objects) {
                     if (o.type != PrimitiveType::Road || o.roadPoints.size() < 4)
@@ -9136,6 +9145,7 @@ static std::string sceneDataContent(const Project& p, const std::string& ns,
                     roadTriangles.insert(roadTriangles.end(), mesh.begin(), mesh.end());
                 }
                 std::vector<roadgen::Vertex> markSurfaceTris;
+                std::vector<roadgen::Vertex> detailPaint;  // road details avoid it
                 // Kerbs stand on the drawn surface: the roads and their patches.
                 roadgen::Surface kerbSurface;
                 if (hasKerbs) kerbSurface.add(roadTriangles);
@@ -9165,6 +9175,7 @@ static std::string sceneDataContent(const Project& p, const std::string& ns,
                     paintOn.build();
                     std::vector<roadgen::Vertex> paint;
                     roadgen::bakeMarkings(plan, cr, paintOn, paint);
+                    if (hasDetails) detailPaint = paint;
                     if (!paint.empty()) {
                         // Worn paint: textured with road-paint (its alpha
                         // blends the line into the asphalt), UVs from the
@@ -9278,6 +9289,34 @@ static std::string sceneDataContent(const Project& p, const std::string& ns,
                         kerbNotes << "// scene " << si << ": " << rails.size()
                                   << " rail lines, " << rv.size() << " strip vertices in "
                                   << railSizes.size() << " chunks\n";
+                }
+                // Road details (docs/roads.md "Road details"): decals laid on
+                // the roads just built, clear of the patches, the paint and
+                // the spills; the console uploads them unchanged.
+                if (hasDetails && roaddetail::any(cr)) {
+                    roaddetail::SceneInput di;
+                    di.roads = &cr;
+                    di.plan = &plan;
+                    di.ground = ground;
+                    di.patches = markSurfaceTris;
+                    di.paint = detailPaint;
+                    const roaddetail::Result dr = roaddetail::build(di);
+                    if (detailTex < 0) detailTex = textureIndex(roaddetail::kAtlasPng);
+                    int at = (int)(detailVerts.size() / 5);
+                    for (int sz : dr.chunkSizes) {
+                        detailRows.push_back({(int)si, at, sz});
+                        at += sz;
+                    }
+                    for (const roadgen::Vertex& v : dr.tris)
+                        detailVerts.insert(detailVerts.end(), {v.x, v.y, v.z, v.u, v.v});
+                    int perKind[roaddetail::kKindCount] = {};
+                    for (const roaddetail::Decal& d : dr.decals) ++perKind[d.kind];
+                    detailNotes << "// scene " << si << ": " << dr.decals.size() << " decals (";
+                    for (int k = 0; k < roaddetail::kKindCount; ++k)
+                        detailNotes << (k ? ", " : "") << perKind[k] << " "
+                                    << roaddetail::kindName(k);
+                    detailNotes << "), " << dr.tris.size() << " vertices in "
+                                << dr.chunkSizes.size() << " chunks\n";
                 }
                 for (const roadgen::CrossingDecal& d : plan.decals) {
                     if (d.verts.empty() || rowOf[(size_t)d.road] < 0) continue;
@@ -9421,6 +9460,39 @@ static std::string sceneDataContent(const Project& p, const std::string& ns,
                 if (hasBridges)
                     out << roadbridge::tablesSource(bridgeRows, bridgeVerts, bridgeNotes.str(),
                                                     bridgeBoxes);
+                // Road details (docs/roads.md "Road details"): emitted only
+                // when a road has them, so every other project stays
+                // byte-identical.
+                if (hasDetails) {
+                    out << "// Road details (docs/roads.md \"Road details\"): host-baked decal"
+                           " triangles (lists), one row\n// per chunk; x, y, z, u, v into"
+                           " the details atlas. Uploaded unchanged at scene load.\n"
+                        << detailNotes.str()
+                        << "constexpr int ROAD_DETAIL_COUNT = " << detailRows.size() << ";\n"
+                        << "constexpr int ROAD_DETAIL_TEX = " << detailTex << ";\n"
+                        << "constexpr float ROAD_DETAIL_DRAW_DISTANCE = "
+                        << floatLit(roaddetail::kDrawDistance) << ";\n"
+                        << "struct RoadDetailRt { int scene; int first; int count; };\n";
+                    if (detailRows.empty()) {
+                        out << "constexpr RoadDetailRt ROAD_DETAILS[1] = {};\n"
+                            << "constexpr float ROAD_DETAIL_VERTS[1] = {};\n";
+                    } else {
+                        out << "constexpr RoadDetailRt ROAD_DETAILS[" << detailRows.size()
+                            << "] = {\n";
+                        for (const KerbRow& dr : detailRows)
+                            out << "    {" << dr.scene << ", " << dr.first << ", " << dr.count
+                                << "},\n";
+                        out << "};\nconstexpr float ROAD_DETAIL_VERTS[" << detailVerts.size()
+                            << "] = {\n";
+                        for (size_t k = 0; k < detailVerts.size(); k += 5)
+                            out << "    " << floatLit(detailVerts[k], 7) << ", "
+                                << floatLit(detailVerts[k + 1], 7) << ", "
+                                << floatLit(detailVerts[k + 2], 7) << ", "
+                                << floatLit(detailVerts[k + 3], 6) << ", "
+                                << floatLit(detailVerts[k + 4], 6) << ",\n";
+                        out << "};\n";
+                    }
+                }
                 if (roadTex.empty()) {
                     out << "constexpr const char* ROAD_TEXTURE_PATHS[1] = "
                            "{\"\"};\n";
@@ -18354,6 +18426,17 @@ static bool projectHasKerbs(const Project& p) {
     return false;
 }
 
+// Road details (docs/roads.md "Road details"): the same zero-cost rule - no
+// road with details, no ROAD_DETAIL tables, no atlas and no upload block.
+static bool projectHasRoadDetails(const Project& p) {
+    for (const SceneData& sc : p.scenes)
+        for (const SceneObject& o : sc.objects)
+            if (o.type == PrimitiveType::Road && o.roadDetails > 0.0f &&
+                o.roadPoints.size() >= 4)
+                return true;
+    return false;
+}
+
 static std::string roadsMembers(const Project& p) {
     if (!projectHasRoads(p)) return "";
     return R"(  // --- roads (docs/roads.md) ---
@@ -18446,6 +18529,54 @@ static std::string roadKerbsUpload() {
     if (kerbChunks > 0)
       TYRA_LOG("ROADKERB scene ", scene, " chunks ", kerbChunks, " vertices ",
                kerbVertices, " packages ", kerbPackages, " triangles ", kerbTriangles);
+  }
+)";
+}
+
+// The road-details upload, spliced into buildRoads before procFinishChunks.
+static std::string roadDetailsUpload() {
+    return R"(  // ROAD DETAILS (docs/roads.md "Road details"): manholes, gullies,
+  // patches, cracks and oil stains, host-baked as textured triangle lists laid
+  // kDetailLift over the drawn road, one ROAD_DETAILS row per cell-sized chunk.
+  // Owner -6: renderRoadChunks draws them in the road pass, after every -3
+  // chunk (frustum reject, the chunk draw distance), blended by the atlas
+  // alpha; the road height index never sees them - a decal is paint, not
+  // surface.
+  for (size_t i = procChunks.size(); i > 0; --i)
+    if (procChunks[i - 1].owner == -6)
+      procChunks.erase(procChunks.begin() + (i - 1));
+  {
+    Tyra::Texture* detailTex = nullptr;
+    if (ROAD_DETAIL_TEX >= 0 && ROAD_DETAIL_TEX < ROAD_TEXTURE_COUNT) {
+      if (!roadTextures_[ROAD_DETAIL_TEX])
+        roadTextures_[ROAD_DETAIL_TEX] = acquireTexture(ROAD_TEXTURE_PATHS[ROAD_DETAIL_TEX]);
+      detailTex = roadTextures_[ROAD_DETAIL_TEX];
+    }
+    int detailChunks = 0, detailVertices = 0;
+    for (int di = 0; di < ROAD_DETAIL_COUNT; ++di) {
+      const RoadDetailRt& dr = ROAD_DETAILS[di];
+      if (dr.scene != scene || dr.count < 3 || !detailTex) continue;
+      any = true;
+      procChunks.push_back(ProcChunk());
+      ProcChunk& c = procChunks.back();
+      c.owner = -6;
+      c.roadTex = detailTex;
+      c.roadBlend = true;
+      c.drawDist = ROAD_DETAIL_DRAW_DISTANCE;
+      c.stripRun = 0;
+      const float* base = &ROAD_DETAIL_VERTS[(size_t)dr.first * 5];
+      for (int k = 0; k < dr.count; ++k) {
+        const float* v = base + (size_t)k * 5;
+        c.vertices.push_back(Tyra::Vec4(v[0], v[1], v[2], 1.0F));
+        c.sts.push_back(Tyra::Vec4(v[3], v[4], 1.0F, 0.0F));
+        c.colors.push_back(grey);
+      }
+      ++detailChunks;
+      detailVertices += dr.count;
+    }
+    if (detailChunks > 0)
+      TYRA_LOG("ROADDETAIL scene ", scene, " chunks ", detailChunks, " vertices ",
+               detailVertices, " triangles ", detailVertices / 3);
   }
 )";
 }
@@ -19025,6 +19156,13 @@ void TerrainGame::buildRoads(int scene) {
         const size_t at = s.find(anchor);
         if (at != std::string::npos) s.insert(at, roadbridge::uploadSource());
     }
+    // Road details (docs/roads.md "Road details"): the same rule - only a
+    // project with details gets the block (after the kerbs').
+    if (projectHasRoadDetails(p)) {
+        const std::string anchor = "  if (any) procFinishChunks();";
+        const size_t at = s.find(anchor);
+        if (at != std::string::npos) s.insert(at, roadDetailsUpload());
+    }
     return s;
 }
 
@@ -19419,6 +19557,19 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
     s = replaceAll(s, "{{VEHICLE_MEMBERS}}", vehicleMembers(p));
     s = replaceAll(s, "{{ROADS_MEMBERS}}", roadsMembers(p));
     s = replaceAll(s, "{{ROADS_IMPL}}", roadsImpl(p));
+    // Road details (docs/roads.md "Road details"): the owner -6 decal chunks
+    // are BLENDED over the asphalt, so they must reach the GS after it. The
+    // interleaved passes hold the road bags back until the object loop, which
+    // is later than renderProcChunks - so the decals join the road pass
+    // (after every -3 chunk: they are appended last) instead. Patched only
+    // when a road has details, so every other project keeps its exact source.
+    if (projectHasRoadDetails(p)) {
+        s = replaceAll(s, "    if (c.owner != -3 || !c.bag || c.bag->count == 0) continue;",
+                       "    if ((c.owner != -3 && c.owner != -6) || !c.bag || c.bag->count == 0)\n"
+                       "      continue;  // -6: road details, blended after the asphalt");
+        s = replaceAll(s, "    if (c.owner == -3) continue;",
+                       "    if (c.owner == -3 || c.owner == -6) continue;  // -6 draws with the roads");
+    }
     s = replaceAll(s, "{{ROADS_SETUP}}", roadsSetupCall(p));
     s = replaceAll(s, "{{VEHICLE_SETUP}}", vehicleSetupCall(p));
     s = replaceAll(s, "{{VEHICLE_IMPL}}", vehicleImpl(p));

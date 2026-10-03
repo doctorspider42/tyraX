@@ -9,6 +9,7 @@
 #include "app.hpp"
 #include "app_internal.hpp"
 #include "roadbridge.hpp"
+#include "roaddetail.hpp"
 #include "roadgen.hpp"
 #include "roadrail.hpp"
 #include "theme.hpp"
@@ -967,6 +968,27 @@ void App::drawPropertiesWindow() {
                 }
             }
             ImGui::EndDisabled();
+            // Road details (docs/roads.md "Road details"): baked at build.
+            ImGui::SetNextItemWidth(scaled(220));
+            if (ImGui::SliderFloat("Details", &o.roadDetails, 0.0f, 1.0f,
+                                   o.roadDetails > 0.0f ? "%.2f" : "none")) {
+                committed = true;
+                // The atlas the decals use: written once, so the viewport can
+                // show it before the first build.
+                if (o.roadDetails > 0.0f) roaddetail::ensureAtlas(project_.dir);
+            }
+            prefHelp(
+                "Manhole covers, storm-drain gullies (kerbed roads), repair\n"
+                "patches, cracks and oil stains along the road, this dense.\n"
+                "Baked at build as decals on the road surface, never on a\n"
+                "junction patch or under node paint. One shared 8 KB texture\n"
+                "(res/materials/roads/road-details.png - repaint it freely).\n"
+                "The game skips them farther than ~50 units from the camera.");
+            if (o.roadDetails > 0.0f) {
+                ImGui::SetNextItemWidth(scaled(220));
+                if (ImGui::InputInt("Detail seed", &o.roadDetailSeed)) committed = true;
+                prefHelp("Another arrangement at the same density.");
+            }
         }
         // This road's crossings (docs/roads.md, "Junction overrides"): the
         // plan the build uses, one button each - the same junction the

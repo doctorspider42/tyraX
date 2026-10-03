@@ -328,6 +328,7 @@ add_executable(tyrax-editor
     src/roadbridge.cpp
     src/roadgen.cpp
     src/roadrail.cpp
+    src/roaddetail.cpp
     src/roadtex.cpp
     src/roadtex_ui.cpp
     src/vehcheck.cpp

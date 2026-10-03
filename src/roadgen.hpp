@@ -378,6 +378,9 @@ struct CrossingRoad {
     // makes no node where either road is more than kOverpassClearance up, and
     // a kerb is not cut by a road that far above or below it.
     std::function<float(float x, float z)> elevation;
+    // Details (docs/roads.md "Road details"): only roaddetail reads these.
+    float details = 0.0f;
+    int detailSeed = 0;
 };
 // Vertical separation beyond which two roads crossing in XZ do not meet.
 inline constexpr float kOverpassClearance = 2.0f;

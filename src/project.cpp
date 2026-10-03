@@ -23,6 +23,7 @@
 #include "objparser.hpp"
 #include "platform.hpp"
 #include "roadbridge.hpp"  // a bridge road's elevation for the crossing planner
+#include "roaddetail.hpp"  // the road details atlas, written on demand
 #include "roadtex.hpp"  // the road materials a new project is seeded with
 #include "savebake.hpp"
 #include "templates.hpp"
@@ -1115,6 +1116,11 @@ std::string objectJson(const SceneObject& o) {
         if (o.roadTracks != 1) json += ", \"roadTracks\": " + std::to_string(o.roadTracks);
         // Bridge (v100): written only when on.
         if (o.roadBridge) json += ", \"roadBridge\": true";
+        // Details (v99): written only when on / off the default seed.
+        if (o.roadDetails != 0.0f)
+            json += ", \"roadDetails\": " + fmtFloat(o.roadDetails);
+        if (o.roadDetailSeed != 0)
+            json += ", \"roadDetailSeed\": " + std::to_string(o.roadDetailSeed);
         bool anyLift = false;
         for (float h : o.roadHeights) anyLift |= h != 0.0f;
         if (anyLift) {
@@ -1788,6 +1794,8 @@ std::vector<roadgen::CrossingRoad> crossingRoads(const std::vector<SceneObject>&
             r.kerb = false;
         }
         r.pavement = r.kerb ? o.roadPavement : 0.0f;
+        r.details = o.roadDetails;
+        r.detailSeed = o.roadDetailSeed;
         out.push_back(std::move(r));
         if (objectIndex) objectIndex->push_back((int)i);
     }
@@ -6316,6 +6324,10 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
             o.roadTracks = std::clamp((int)rtr->numberOr(1.0), 1, 2);
         if (const auto* rb = jo.find("roadBridge"))
             o.roadBridge = rb->boolOr(false);
+        if (const auto* rdd = jo.find("roadDetails"))
+            o.roadDetails = std::clamp((float)rdd->numberOr(0.0), 0.0f, 1.0f);
+        if (const auto* rds = jo.find("roadDetailSeed"))
+            o.roadDetailSeed = (int)rds->numberOr(0.0);
         if (const auto* rh = jo.find("roadHeights")) {
             o.roadHeights.clear();
             if (rh->type == json::Value::Type::Array)
@@ -8489,6 +8501,14 @@ uint64_t liveLinkRecipeHash(const SceneObject& o) {
         fnvMix(h, 0x42);
         for (float v : o.roadHeights) fnvMixF(h, v);
     }
+    // Road details (docs/roads.md "Road details") are host-baked the same way
+    // (ROAD_DETAIL_VERTS). Mixed only when on, so a road without them keeps
+    // the recipe it always had.
+    if (o.type == PrimitiveType::Road && o.roadDetails > 0.0f) {
+        fnvMix(h, 0x44);
+        fnvMixF(h, o.roadDetails);
+        fnvMix(h, (uint64_t)(uint32_t)o.roadDetailSeed);
+    }
     // The four numbers this mesh hands the project's own VU1 microprogram.
     // They are BAKED into SCENE_OBJECTS and the live-link record carries only
     // transform + colour, so an edit of them cannot show without a rebuild -
@@ -8966,6 +8986,17 @@ void clampStartScene(Project& p) {
 
 std::string refreshGenerated(const Project& p) {
     if (auto err = syncVuFramework(p); !err.empty()) return err;
+    // Road details (docs/roads.md "Road details"): the decals' atlas is an
+    // ordinary asset, written the first time a road asks for details so the
+    // texture bake that follows ships it. An existing file is never touched.
+    {
+        bool details = false;
+        for (const SceneData& sc : p.scenes)
+            for (const SceneObject& o : sc.objects)
+                details |= o.type == PrimitiveType::Road && o.roadDetails > 0.0f;
+        if (details)
+            if (auto err = roaddetail::ensureAtlas(p.dir); !err.empty()) return err;
+    }
     // ONCE. generate() is the whole codegen pass - every scene table, every
     // microprogram, every bake-derived header - and it also PRINTS the
     // diagnostics a build reports (a skipped procedural volume, a look that

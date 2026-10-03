@@ -3079,6 +3079,23 @@ anything more than `roadgen::kOverpassClearance` apart vertically. A bridge's
 `roadHeights` follow its points through `roadbridge::onPointInserted/Removed/
 Reshaped` - every point-edit site calls them instead of clearing the vector.
 
+**Road details (format 99, docs/roads.md "Road details") are the same pattern
+in their own files.** `SceneObject::roadDetails/roadDetailSeed` -> the same
+chain as the kerbs (`CrossingRoad::details/detailSeed`, the crossing signature,
+`liveLinkRecipeHash` mixed only when on). Everything else is
+`src/roaddetail.hpp/.cpp` - placement, the surface-following decal bake and the
+atlas generator - kept OUT of roadgen.cpp/roadtex.cpp so parallel road work
+merges; the codegen, the viewport, `--road-crossings` and `--vehicle-check` all
+call `roaddetail::build` with the scene's roads, plan, patch triangles and node
+paint. Tables (`ROAD_DETAILS`/`ROAD_DETAIL_VERTS`/`ROAD_DETAIL_TEX`) and the
+upload block (`roadDetailsUpload`, spliced after the kerbs') exist only when
+`projectHasRoadDetails`. Owner **-5**: out of the road height index (a decal is
+paint, not surface) and drawn blended by `renderRoadChunks` after the -3
+chunks: a blended chunk drawn from `renderProcChunks` lands BEFORE the
+interleaved road bags and the asphalt covers it (the two owner tests are
+string-patched in `fill()` only when details exist). `refreshGenerated` writes the atlas (`roaddetail::ensureAtlas`) only
+when it is missing, so a repaint survives builds.
+
 ## Vehicle HUD font preparation (1.150.1)
 
 `fontGlyphSprite` in the shared generated helpers owns one persistent sprite
