@@ -404,7 +404,8 @@ block in `buildRoads` is gated the same way).
   frustum and the draw distance drop kerbs a block at a time.
 - **Owner -4**, not the roads' -3. `renderProcChunks` draws them, using its
   frustum reject, chunk draw distance and occlusion test, and their cost lands
-  in the `Procedural` profiler row. The road height index never sees them.
+  in the `Procedural` profiler row. The road height index takes them as well
+  (see "Kerb collision" below).
 - **A draw distance of 60 units** (`ROAD_KERB_DRAW_DISTANCE`, the chunk's
   `drawDist`, measured from the chunk centre). A 15 cm kerb is a few pixels at
   that range.
@@ -416,10 +417,32 @@ The viewport draws the same lines from `roadgen::planKerbs` as triangle lists
 (`kerbTriangles`). They are rebuilt with the crossings, so the editor shows
 what the console builds.
 
-**Kerbs are visual only.** They are not in the road height index, so wheels,
-blob shadows and light pools ignore them, and they have no collision. They are
-also not shadow receivers: the shadow bake's road hash does not include them,
-so turning kerbs on leaves a baked-shadow cache fresh.
+### Kerb collision
+
+**A kerb's top is solid ground.** The road height index (`buildRoadHeightIndex`,
+read by `roadSurfaceAt` and `groundSurfaceAt`) takes the owner -4 kerb chunks
+along with the -3 roads. A wheel that clips a kerb rides up onto it, and blob
+shadows and light pools lie on top of it. The vertical faces have no area in
+XZ, so the barycentric test drops them by itself. The kerb grip is 1.
+
+- **The walker** stands on roads and kerb tops too, through
+  `walkGroundAt(x, z, feetY)`: the terrain, or the road surface when it is no
+  more than 0.5 units above the feet (the same step `collidePlayer` allows onto
+  objects). A road on a ramp or a bridge overhead therefore never teleports a
+  walker up onto it. All three walk loops use it (FPP, the per-player avatar
+  and the split-screen walker).
+- **The test drive** sees the same tops: `roadgen::addKerbsToSurface` adds them
+  to the host `Surface` after the patches. `--vehicle-check` ("kerb
+  collision") checks that a kerb top is one kerb height above the road, with
+  nothing past its outer edge.
+- **A kerb is a step, not a wall.** A 0.15 kerb is lower than a wheel's
+  suspension travel, so the car bumps over it rather than stopping.
+- **Rebuilds:** the kerb upload sets `roadIdxDirty`. A scene load erases and
+  pushes back the same number of kerb chunks, so the index's chunk-count check
+  alone would miss the change.
+
+Kerbs are **not shadow receivers**: the shadow bake's road hash does not include
+them, so turning kerbs on leaves a baked-shadow cache fresh.
 
 ### What they cost
 

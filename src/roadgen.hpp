@@ -536,5 +536,11 @@ void kerbStrips(const std::vector<KerbPiece>& pieces, std::vector<KerbVertex>& o
                 std::vector<int>& chunkSizes);
 // One piece as a triangle LIST (the viewport, the check).
 void kerbTriangles(const KerbPiece& piece, std::vector<KerbVertex>& out);
+// The kerb TOPS as drawn surface - what the console's road height index reads
+// from the owner -4 chunks, so the test drive bumps over a kerb where the
+// console car does. `s` must already hold the roads and patches (planKerbs
+// reads it); it is built here, and the caller builds it again after.
+void addKerbsToSurface(Surface& s, const std::vector<CrossingRoad>& roads,
+                       const CrossingPlan& plan, const HeightFn& ground);
 
 }  // namespace roadgen

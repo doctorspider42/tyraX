@@ -33,8 +33,8 @@ builds measured 6.7-7.6 s. This excludes editor generation/baking and cold setup
   crossings too. The
   twelve asphalt streets have
   [kerbs](../../docs/roads.md#kerbs-format-95), which run around every
-  junction's rounded corners. The dirt West service lane has none. They are
-  visual only: the cars drive through them.
+  junction's rounded corners. The dirt West service lane has none. Their
+  tops are solid: a car that clips one bumps up over it.
 
   ![PCSX2, mirrored in X: the Orchard fork between the ring road and Skyline avenue, the Service ramp leaving the ring, and the Quarry corner](../../docs/img/road-nodes-district.png)
 - **dense** adds buildings for a busier drive.

@@ -2517,6 +2517,27 @@ void kerbTriangles(const KerbPiece& p, std::vector<KerbVertex>& out) {
     }
 }
 
+void addKerbsToSurface(Surface& s, const std::vector<CrossingRoad>& roads,
+                       const CrossingPlan& plan, const HeightFn& ground) {
+    bool any = false;
+    for (const CrossingRoad& r : roads) any |= r.kerb;
+    if (!any) return;
+    s.build();
+    const std::vector<KerbPiece> pieces =
+        planKerbs(roads, plan, [&](float x, float z) { return s.at(x, z); }, ground);
+    std::vector<KerbVertex> kv;
+    for (const KerbPiece& p : pieces) kerbTriangles(p, kv);
+    std::vector<Vertex> tris;
+    for (size_t i = 0; i + 2 < kv.size(); i += 3) {
+        const KerbVertex &a = kv[i], &b = kv[i + 1], &c = kv[i + 2];
+        // A face has no area in XZ: the runtime's barycentric test skips it.
+        const float area = (b.x - a.x) * (c.z - a.z) - (c.x - a.x) * (b.z - a.z);
+        if (std::fabs(area) < 1e-6f) continue;
+        for (const KerbVertex* v : {&a, &b, &c}) tris.push_back({v->x, v->y, v->z, 0.0f, 0.0f});
+    }
+    s.add(tris, 1.0f);
+}
+
 void kerbStrips(const std::vector<KerbPiece>& pieces, std::vector<KerbVertex>& out,
                 std::vector<int>& chunkSizes) {
     out.clear();

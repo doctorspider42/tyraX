@@ -1461,6 +1461,28 @@ void roadKerbs() {
     verdict(stemMinZ > 5.0f, "the stem's own kerb stops where it enters the node patch");
     verdict(worstOnRoad > -0.01f, "no kerb point stands on a road (none crosses an arm cap)");
     verdict(farPts <= 14, "a straight edge merges to a point every 8 units at most");
+    {
+        // Collision: the kerb tops join the drawn surface the height index reads.
+        const std::vector<roadgen::CrossingRoad> r = {
+            road("main", {-40, 0, 40, 0}, 8, true), road("stem", {0, 0, 0, 40}, 6, true)};
+        const roadgen::CrossingPlan p = roadgen::planCrossings(r, {});
+        roadgen::Surface s;
+        for (const roadgen::CrossingRoad& rd : r) {
+            std::vector<roadgen::Vertex> tris;
+            roadgen::tessellate(rd.points, rd.width, flat, tris);
+            s.add(tris, rd.grip);
+        }
+        roadgen::addCrossingsToSurface(s, r, p, flat);
+        roadgen::addKerbsToSurface(s, r, p, flat);
+        s.build();
+        const float onKerb = s.at(-20.0f, -4.1f), onRoad = s.at(-20.0f, -3.5f),
+                    past = s.at(-20.0f, -4.6f);
+        std::printf("  kerb collision: road %.3f, kerb top %.3f, past the kerb %s\n", onRoad,
+                    onKerb, past == roadgen::Surface::kNone ? "none" : "SURFACE");
+        verdict(std::fabs(onKerb - onRoad - 0.15f) < 0.02f && onRoad < 0.2f &&
+                    past == roadgen::Surface::kNone,
+                "a kerb top is standable surface one kerb height above the road, nothing past it");
+    }
     // Every fillet end meets a road kerb end in one point.
     int met = 0, ends = 0;
     for (const roadgen::KerbPiece& c : k) {

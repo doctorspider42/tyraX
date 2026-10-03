@@ -841,7 +841,8 @@ void App::drawPropertiesWindow() {
                 "where the road enters a junction patch and runs around the\n"
                 "patch's rounded corners instead (only between roads that\n"
                 "both have kerbs). Vertex colour only - no texture, no VRAM.\n"
-                "Visual only: vehicles and the player do not collide with it.\n"
+                "Its top is solid: a wheel rides up onto it, the player steps\n"
+                "onto it, and blob shadows and light pools lie on it.\n"
                 "The game skips kerbs farther than ~60 units from the camera.");
             if (o.roadKerb) {
                 ImGui::SetNextItemWidth(scaled(220));

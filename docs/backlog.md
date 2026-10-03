@@ -16,11 +16,10 @@ is not:
 - ~~Width transitions~~ DONE 1.171.0 (docs/roads.md "Transition nodes"). Still
   open: a surface change at one width, and lane-count changes inside ONE road.
 - ~~**Kerbs**~~ along road edges and around the fillets: done (format 95,
-  docs/roads.md "Kerbs"; host-baked strips, 60-unit draw distance, visual
-  only). Still open: **pavements** (a wide raised walk behind the kerb, the
-  same sweep with a texture), **kerb collision** for the vehicles (a wheel
-  should bump up a kerb rather than pass through it), and the draw distance
-  as a project setting.
+  docs/roads.md "Kerbs"; host-baked strips, 60-unit draw distance) and
+  ~~kerb collision~~ (the tops join the road height index; the walker steps
+  onto them). Still open: **pavements** (a wide raised walk behind the kerb,
+  the same sweep with a texture) and the draw distance as a project setting.
 - **Overrides for nodes of more than two roads.** `JunctionOverride` is still
   a road PAIR, and the Junction panel's Winner combo offers only `c.a`/`c.b`.
 - **A per-node corner radius** (today 1.5 x the mean half width, 1..8).

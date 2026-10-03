@@ -399,13 +399,16 @@ void App::vehicleDriveStart(int objectIndex) {
     // Crossings (junction patches, overlays, spills): the codegen's own plan
     // (roadgen::planCrossings) over the same roads and the scene's junction
     // overrides, so the test drive stands where the console car will.
+    // Kerb tops too (docs/roads.md "Kerbs"): the console's height index reads
+    // them, so a tyre that hits one rides up onto it here as well.
     {
         const std::vector<roadgen::CrossingRoad> cr = project::crossingRoads(objs);
+        const roadgen::CrossingPlan plan =
+            roadgen::planCrossings(cr, project_.active().roadJunctions);
         if (cr.size() >= 2)
-            roadgen::addCrossingsToSurface(
-                vehicleDriveRoads_, cr,
-                roadgen::planCrossings(cr, project_.active().roadJunctions), terrainAt,
-                viewport_.terrainGrid());
+            roadgen::addCrossingsToSurface(vehicleDriveRoads_, cr, plan, terrainAt,
+                                           viewport_.terrainGrid());
+        roadgen::addKerbsToSurface(vehicleDriveRoads_, cr, plan, terrainAt);
     }
     vehicleDriveRoads_.build();
 }
