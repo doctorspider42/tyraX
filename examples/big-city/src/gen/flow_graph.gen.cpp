@@ -86,8 +86,8 @@ bool factProfileDirty() {
   return false;
 }
 
-// Scene "main": graph of "ravager-1" (object 1282)
-class FlowGraphScript_0_1282 : public Script {
+// Scene "main": graph of "ravager-1" (object 2419)
+class FlowGraphScript_0_2419 : public Script {
  public:
   void update(ScriptContext& ctx) override {
     if (ctx.scene != 0) return;
@@ -104,13 +104,13 @@ class FlowGraphScript_0_1282 : public Script {
     if (livedbg::forced(0)) {  // Live Debugger: fired from the editor
       livedbg::hit(0);
       livedbg::hit(1);
-      ctx.vehicleRequest = 1282;
+      ctx.vehicleRequest = 2419;
     }
     if (!started) {
       started = true;
       livedbg::hit(0);
       livedbg::hit(1);
-      ctx.vehicleRequest = 1282;
+      ctx.vehicleRequest = 2419;
     }
   }
 
@@ -130,4 +130,4 @@ void flowDbgReadVar(int index, float* out3) {
 
 }  // namespace Big_city
 
-TYRA_SCRIPT(Big_city::FlowGraphScript_0_1282);
+TYRA_SCRIPT(Big_city::FlowGraphScript_0_2419);

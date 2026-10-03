@@ -198,9 +198,25 @@ add_custom_command(
 # target and give them order-only deps on everything it LINKS - so the
 # generators (0.1 s of work) waited for libimgui.a, and with them every editor
 # .obj. That serialised ~17 s of imgui.cpp in front of the whole editor build.
+# --- Embedded road streaming core (src/roadstream_core.inl) ---
+# One source, two homes (docs/roads.md "Road streaming"): the editor compiles
+# it for --vehicle-check, and the codegen pastes the same bytes into a
+# generated game that streams its roads (roadstream::coreSource).
+set(ROADSTREAM_CORE_GEN ${CMAKE_BINARY_DIR}/generated/roadstream_core_gen.hpp)
+add_custom_command(
+    OUTPUT ${ROADSTREAM_CORE_GEN}
+    COMMAND ${CMAKE_COMMAND}
+            -DSRC_FILE=${CMAKE_SOURCE_DIR}/src/roadstream_core.inl
+            -DOUT_FILE=${ROADSTREAM_CORE_GEN}
+            -DNAMESPACE=roadstreamsrc -DSYMBOL=kCore
+            -P ${CMAKE_SOURCE_DIR}/cmake/embed_binary.cmake
+    DEPENDS ${CMAKE_SOURCE_DIR}/src/roadstream_core.inl
+            ${CMAKE_SOURCE_DIR}/cmake/embed_binary.cmake
+    COMMENT "Embedding src/roadstream_core.inl")
+
 add_custom_target(tyrax-generated
     DEPENDS ${AI_SUPPORT_GEN} ${DOCS_GEN} ${APP_ICON_GEN} ${MOON_MAP_GEN}
-            ${BLSS_NET_GEN} ${BLSS_META_GEN})
+            ${BLSS_NET_GEN} ${BLSS_META_GEN} ${ROADSTREAM_CORE_GEN})
 
 # --- Editor ---
 add_executable(tyrax-editor
@@ -331,6 +347,7 @@ add_executable(tyrax-editor
     src/roaddetail.cpp
     src/roadfurniture.cpp
     src/roadfurniture_ui.cpp
+    src/roadstream.cpp
     src/roadtex.cpp
     src/roadtex_ui.cpp
     src/vehcheck.cpp

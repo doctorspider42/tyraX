@@ -1,0 +1,1 @@
+{ "id": "bb6c916074c83fd0", "name": "Building 956", "type": "model", "position": [210.251, 0, -60.4934], "rotation": [0, 0, 0], "scale": [1.9287, 1.8337, 2.1362], "color": [1, 1, 1], "physics": false, "layer": "district-5-4", "drawDistance": 300, "castShadow": false, "model": "res/models/urban/city-highrise-2.obj" }

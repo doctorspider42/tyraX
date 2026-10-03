@@ -5803,7 +5803,8 @@ void TerrainGame::updateVehicles(float dt) {
     } else {
       v.sleepFrames = 0;
     }
-    if (v.sleepFrames >= 25) {
+    if (v.sleepFrames >= 25 ||
+        (vi != vehicleDriver_ && !roadStreamReady(v.pos[0], v.pos[2]))) {
       Tyra::HardwareTrace::Scope trace("Vehicle_sleep");
       if (v.objMatPending && !vehSubStepMore_ && v.object >= 0 &&
           v.object < (int)runtimeObjects.size()) {
@@ -9322,6 +9323,1173 @@ void TerrainGame::buildRoads(int scene) {
            (int)(y0 * 10.0F));
   TYRA_LOG("ROADSTRIP scene ", scene, " strips ", useStrips ? 1 : 0,
            " packages ", roadPackages, " triangles ", roadTriangles);
+}
+
+// ---------------------------------------------------------------------------
+// Road streaming (docs/roads.md "Road streaming"). This project streams its
+// roads, so buildRoads is never called: roadStreamSetup PLANS the scene into
+// items - every strip chunk buildRoads would cut, every baked row - and
+// roadStreamUpdate keeps the items within ROAD_STREAM_RADIUS of the view
+// focus built, nearest first, at most ROAD_STREAM_BUDGET vertex units a
+// frame, dropping what has moved beyond ROAD_STREAM_KEEP. Every piece below
+// that BUILDS geometry is cut from the non-streaming build's own source by
+// the codegen (src/roadstream.cpp), so a streamed chunk is the chunk
+// buildRoads makes.
+// ---------------------------------------------------------------------------
+constexpr float ROAD_STREAM_RADIUS = 260.0F;
+constexpr float ROAD_STREAM_KEEP = 300.0F;
+constexpr float ROAD_STREAM_CELL = 64.0F;
+constexpr int ROAD_STREAM_BUDGET = 600;
+enum : unsigned char {
+  RS_STRIP = 0, RS_JUNCTION = 1, RS_SPILL = 2, RS_EDGE = 3, RS_KERB = 4,  // the surface
+  RS_BRIDGE = 5, RS_DETAIL = 6, RS_FURN = 7,                             // drawn only
+  RS_BRIDGE_BOX = 8, RS_FURN_BOX = 9                                     // collision only
+};
+
+Tyra::Texture* TerrainGame::roadStreamTexture(int tex) {
+  if (tex < 0 || tex >= ROAD_TEXTURE_COUNT) return nullptr;
+  if (!roadTextures_[tex]) roadTextures_[tex] = acquireTexture(ROAD_TEXTURE_PATHS[tex]);
+  return roadTextures_[tex];
+}
+
+// One road's strip chunks: buildRoads' own tessellator. item < 0 PLANS the
+// whole road (every chunk into rsScratch_, recorded as an item with its
+// resume state); item >= 0 REPLAYS that one chunk into procChunks[rsTarget_]
+// and stops where buildRoads would have started the next one.
+void TerrainGame::roadStreamTessellate(int ri, int item) {
+  const int scene = ROAD_DEFS[ri].scene;
+  (void)scene;
+  const unsigned int stripRun = 75u;
+  // The physical-GS smear that originally parked this at 0 came from unbounded
+  // road V coordinates, not from strip topology. Each chunk now rebases V by a
+  // whole repeat before either emitter sees it; hardware A/B keeps lane marks
+  // intact while the strip removes hundreds of packages from a district.
+  // Keep 0 as the triangle-list control arm for future renderer work.
+#ifndef TYRA_STRIP_ROADS
+#define TYRA_STRIP_ROADS 1
+#endif
+  const bool useStrips = TYRA_STRIP_ROADS && minPackageSize() >= stripRun;
+  const Tyra::Color grey(128.0F, 128.0F, 128.0F, 128.0F);
+  bool any = false;
+    const RoadDefRt& rd = ROAD_DEFS[ri];
+    if (rd.pointCount < 2) return;
+    any = true;
+    Tyra::Texture* tex = nullptr;
+    if (rd.tex >= 0 && rd.tex < ROAD_TEXTURE_COUNT) {
+      if (!roadTextures_[rd.tex])
+        roadTextures_[rd.tex] = acquireTexture(ROAD_TEXTURE_PATHS[rd.tex]);
+      tex = roadTextures_[rd.tex];
+    }
+    const float* pts = &ROAD_POINTS[rd.first];
+    const int n = rd.pointCount;
+    const float hw = 0.5F * (rd.width > 0.1F ? rd.width : 0.1F);
+    const float sampleStep = rd.sampleStep >= 1.0F
+                                 ? (rd.sampleStep <= 2.0F ? rd.sampleStep : 2.0F)
+                                 : 1.0F;
+    int crossSteps = (int)ceilf((hw * 2.0F) / 0.5F);
+    if (crossSteps < 1) crossSteps = 1;
+    // Catmull-Rom; repeated endpoint means periodic controls, as in roadgen.
+    const bool closed = n >= 4 && pts[0] == pts[(n - 1) * 2] &&
+                        pts[1] == pts[(n - 1) * 2 + 1];
+    auto ptAt = [&](int i, float* x, float* z) {
+      if (closed) {
+        i = (i % (n - 1) + n - 1) % (n - 1);
+      } else {
+        if (i < 0) i = 0;
+        if (i > n - 1) i = n - 1;
+      }
+      *x = pts[i * 2];
+      *z = pts[i * 2 + 1];
+    };
+    auto cr = [](float p0, float p1, float p2, float p3, float t) {
+      const float t2 = t * t, t3 = t2 * t;
+      return 0.5F * ((2.0F * p1) + (-p0 + p2) * t +
+                     (2.0F * p0 - 5.0F * p1 + 4.0F * p2 - p3) * t2 +
+                     (-p0 + 3.0F * p1 - 3.0F * p2 + p3) * t3);
+    };
+    auto sampleAt = [&](int seg, float t, float* x, float* z) {
+      float x0, z0, x1, z1, x2, z2, x3, z3;
+      ptAt(seg - 1, &x0, &z0);
+      ptAt(seg, &x1, &z1);
+      ptAt(seg + 1, &x2, &z2);
+      ptAt(seg + 2, &x3, &z3);
+      *x = cr(x0, x1, x2, x3, t);
+      *z = cr(z0, z1, z2, z3, t);
+    };
+    ProcChunk* c = nullptr;
+    int stationsInChunk = 0;
+    float chunkVBase = 0.0F;
+    // Strip run state, per chunk. TWIN NOTICE: roadgen.cpp's
+    // tessellateStrips - the same packer, vertex for vertex.
+    size_t runStart = 0;
+    bool alongOpen = false;
+    auto runLen = [&]() { return c->vertices.size() - runStart; };
+    // One vertex into the open run. A run that fills MID-STRIP carries the
+    // two-vertex overlap into the next one, or the triangle across the cut is
+    // lost. That is the only place a run ever ends anywhere but at its full
+    // length, which is what lets the packages BE the runs.
+    auto pushRaw = [&](const Tyra::Vec4& p, const Tyra::Vec4& s) {
+      if (runLen() == (size_t)stripRun) {
+        const size_t m = c->vertices.size();
+        const Tyra::Vec4 pa = c->vertices[m - 2], pb = c->vertices[m - 1];
+        const Tyra::Vec4 sa = c->sts[m - 2], sb = c->sts[m - 1];
+        runStart = m;
+        c->vertices.push_back(pa); c->sts.push_back(sa); c->colors.push_back(grey);
+        c->vertices.push_back(pb); c->sts.push_back(sb); c->colors.push_back(grey);
+      }
+      c->vertices.push_back(p); c->sts.push_back(s); c->colors.push_back(grey);
+    };
+    // Begin an unrelated strip inside the open run: repeat the run's last
+    // vertex and the incoming strip's first. Four zero-area triangles, and
+    // the fifth is the incoming strip's own first real one.
+    auto startStrip = [&](const Tyra::Vec4& p, const Tyra::Vec4& s) {
+      if (runLen() > 0) {
+        const Tyra::Vec4 lp = c->vertices.back();
+        const Tyra::Vec4 ls = c->sts.back();
+        pushRaw(lp, ls);
+        pushRaw(p, s);
+      }
+      pushRaw(p, s);
+    };
+    // A chunk's LAST run owes only the multiple of 3 the VU1 vertex loops
+    // need; a count that is not runs off into VU1 memory. The padding repeats
+    // the last vertex, which makes a degenerate triangle the GS rasterises to
+    // nothing.
+    auto closeChunk = [&]() {
+      if (!useStrips || c == nullptr) return;
+      const size_t target = ((runLen() + 2) / 3) * 3;
+      while (runLen() < target) {
+        c->vertices.push_back(c->vertices.back());
+        c->sts.push_back(c->sts.back());
+        c->colors.push_back(grey);
+      }
+      runStart = c->vertices.size();
+    };
+    std::vector<float> px0((size_t)crossSteps + 1);
+    std::vector<float> py0((size_t)crossSteps + 1);
+    std::vector<float> pz0((size_t)crossSteps + 1);
+    // Where this station pair is cut laterally. Hoisted out of the station
+    // loop: this runs on the EE at scene load, once per station of every road
+    // in the district, and a per-station heap allocation there is not free.
+    std::vector<int> cuts;
+    cuts.reserve((size_t)crossSteps + 1);
+    float lv0 = 0.0F;
+    bool havePrev = false;
+    float arc = 0.0F, prevX = 0.0F, prevZ = 0.0F;
+    sampleAt(0, 0.0F, &prevX, &prevZ);
+    // ROAD STREAMING: a replay resumes at the station BEFORE its chunk's
+    // first span, with the arc state that station started from - the
+    // state the plan pass recorded there. That station emits no span
+    // (havePrev is still false), it only rebuilds the row the span needs.
+    int rsSeg0 = 0, rsK0 = 0;
+    if (item >= 0) {
+      const RsItem& rsIt = rsItems_[(size_t)item];
+      rsSeg0 = rsIt.b >> 16;
+      rsK0 = rsIt.b & 0xFFFF;
+      arc = rsIt.arc;
+      prevX = rsIt.px;
+      prevZ = rsIt.pz;
+    }
+    int rsLastSeg = 0, rsLastK = 0;
+    float rsLastArc = 0.0F, rsLastX = prevX, rsLastZ = prevZ;
+    for (int seg = rsSeg0; seg < n - 1; ++seg) {
+      float ax, az, bx, bz;
+      ptAt(seg, &ax, &az);
+      ptAt(seg + 1, &bx, &bz);
+      const float segLen =
+          sqrtf((bx - ax) * (bx - ax) + (bz - az) * (bz - az));
+      const int steps = segLen > sampleStep
+                            ? (int)(segLen / sampleStep) + 1
+                            : 1;
+      for (int k = (seg == rsSeg0 ? rsK0 : (seg == 0 ? 0 : 1)); k <= steps; ++k) {
+        const int rsSeg = seg, rsK = k;
+        const float rsArc = arc, rsX = prevX, rsZ = prevZ;
+        const float t = (float)k / (float)steps;
+        float cx2, cz2, dx2, dz2;
+        sampleAt(seg, t, &cx2, &cz2);
+        float fromX = cx2, fromZ = cz2;
+        if (closed && seg == n - 2 && t == 1.0F) {
+          sampleAt(0, 0.05F, &dx2, &dz2);
+        } else if (t + 0.05F <= 1.0F || seg + 1 < n - 1) {
+          if (t + 0.05F <= 1.0F)
+            sampleAt(seg, t + 0.05F, &dx2, &dz2);
+          else
+            sampleAt(seg + 1, 0.05F, &dx2, &dz2);
+        } else {
+          sampleAt(seg, fmaxf(0.0F, t - 0.05F), &fromX, &fromZ);
+          dx2 = cx2;
+          dz2 = cz2;
+        }
+        float tx = dx2 - fromX, tz = dz2 - fromZ;
+        const float tl = sqrtf(tx * tx + tz * tz);
+        if (tl > 1e-6F) {
+          tx /= tl;
+          tz /= tl;
+        } else {
+          tx = 0.0F;
+          tz = 1.0F;
+        }
+        const float rxu = tz * hw, rzu = -tx * hw;
+        // Geometry spacing is authored, but texture arc length always keeps
+        // the original one-unit integration cadence. A cheaper road must not
+        // make its lane markings slide or accumulate a different repeat.
+        const float prevT = k > 0 ? (float)(k - 1) / (float)steps : 0.0F;
+        int arcSteps = k > 0 ? (int)ceilf((t - prevT) * segLen / 1.0F) : 0;
+        if (k > 0 && arcSteps < 1) arcSteps = 1;
+        for (int ak = 1; ak <= arcSteps; ++ak) {
+          const float at = prevT + (t - prevT) *
+                                       ((float)ak / (float)arcSteps);
+          float apx, apz;
+          sampleAt(seg, at, &apx, &apz);
+          arc += sqrtf((apx - prevX) * (apx - prevX) +
+                       (apz - prevZ) * (apz - prevZ));
+          prevX = apx;
+          prevZ = apz;
+        }
+        prevX = cx2;
+        prevZ = cz2;
+        const float v = arc / 4.0F;
+        std::vector<float> nx((size_t)crossSteps + 1);
+        std::vector<float> ny((size_t)crossSteps + 1);
+        std::vector<float> nz((size_t)crossSteps + 1);
+        for (int j = 0; j <= crossSteps; ++j) {
+          const float u = (float)j / (float)crossSteps;
+          const float side = u * 2.0F - 1.0F;
+          nx[(size_t)j] = cx2 + rxu * side;
+          nz[(size_t)j] = cz2 + rzu * side;
+          ny[(size_t)j] =
+              terrainHeightAt(nx[(size_t)j], nz[(size_t)j]) + 0.12F + rd.lift;
+        }
+        if (havePrev) {
+          // Two triangles per lateral cell, CCW seen from above - the twin's
+          // stitch, emitted station by station so a chunk boundary never
+          // leaves a gap (the previous row is re-used as the base).
+          // Exact lateral reduction: every dense sample must lie on the
+          // proposed quad plane, and the quad must be an affine parallelogram
+          // so its two triangles interpolate ST as the cells they replace do.
+          // The reduction is per SUB-SPAN rather than all-or-nothing, because
+          // a road is a decal on a heightfield sampled far more finely than
+          // the heightfield itself - runs of lateral cells inside one terrain
+          // triangle are exactly coplanar even when the full width is not.
+          // The two budgets are the roadgen.hpp twin's kSpanFlatness (surface,
+          // and with it the T-junction) and kSpanShear (UV, tripped by bends).
+          auto spanIsExact = [&](int j0, int j1) {
+            const float ax = px0[(size_t)j0], ay = py0[(size_t)j0];
+            const float az = pz0[(size_t)j0];
+            const float bx = px0[(size_t)j1], by = py0[(size_t)j1];
+            const float bz = pz0[(size_t)j1];
+            const float dx = nx[(size_t)j0], dy = ny[(size_t)j0];
+            const float dz = nz[(size_t)j0];
+            const float cx = nx[(size_t)j1], cy = ny[(size_t)j1];
+            const float cz = nz[(size_t)j1];
+            const float ux = bx - ax, uy = by - ay, uz = bz - az;
+            const float vx = dx - ax, vy = dy - ay, vz = dz - az;
+            const float pnx = uy * vz - uz * vy;
+            const float pny = uz * vx - ux * vz;
+            const float pnz = ux * vy - uy * vx;
+            const float pnl = sqrtf(pnx * pnx + pny * pny + pnz * pnz);
+            if (!(pnl > 1e-6F)) return false;
+            const float qax = (bx - ax) - (cx - dx);
+            const float qay = (by - ay) - (cy - dy);
+            const float qaz = (bz - az) - (cz - dz);
+            if (sqrtf(qax * qax + qay * qay + qaz * qaz) > 0.05F)
+              return false;
+            for (int r = 0; r < 2; ++r)
+              for (int j = j0; j <= j1; ++j) {
+                const float qx = r ? nx[(size_t)j] : px0[(size_t)j];
+                const float qy = r ? ny[(size_t)j] : py0[(size_t)j];
+                const float qz = r ? nz[(size_t)j] : pz0[(size_t)j];
+                const float dist = fabsf(pnx * (qx - ax) + pny * (qy - ay) +
+                                         pnz * (qz - az)) / pnl;
+                if (dist > 0.00001F) return false;
+              }
+            return true;
+          };
+          // Keep the long-standing horizontal reduction, including curved
+          // spans, as the roadgen.cpp twin does. It is the one case that does
+          // NOT owe the affine check.
+          bool flat = true;
+          const float flatY = py0[0];
+          for (int r = 0; r < 2 && flat; ++r)
+            for (int j = 0; j <= crossSteps; ++j) {
+              const float qy = r ? ny[(size_t)j] : py0[(size_t)j];
+              if (fabsf(qy - flatY) > 0.00001F) { flat = false; break; }
+            }
+          cuts.clear();
+          cuts.push_back(0);
+          if (flat) {
+            cuts.push_back(crossSteps);
+          } else {
+            // Greedy maximal runs. A single cell is the fallback and is never
+            // tested, so this can only remove vertices from the dense mesh.
+            int j0 = 0;
+            while (j0 < crossSteps) {
+              int j1 = j0 + 1;
+              while (j1 < crossSteps && spanIsExact(j0, j1 + 1)) ++j1;
+              cuts.push_back(j1);
+              j0 = j1;
+            }
+          }
+          const bool collapsed = cuts.size() == 2;
+          // Amortize EE bag/bounds work on flat streets, without making dense
+          // slopes unbounded or joining a whole road into one culling box.
+          // The budget is in the currency the chunk actually holds, so the
+          // two emitters cut a road into the SAME number of chunks only by
+          // accident - what matters is that a run never straddles one.
+          const size_t spanVertices =
+              useStrips
+                  ? (collapsed
+                         ? (alongOpen ? (size_t)2 : (size_t)4)
+                         : (2 * cuts.size() + 2))
+                  : (cuts.size() - 1) * 6;
+          if (!c || stationsInChunk >= 36 ||
+              v - chunkVBase >= 16.0F ||
+              c->vertices.size() + spanVertices > 1800) {
+            closeChunk();
+            if (!roadStreamOpen(c, item, ri, rsLastSeg, rsLastK, rsLastArc,
+                                rsLastX, rsLastZ))
+              return;
+            c->owner = -3;
+            c->roadTex = tex;
+            c->roadGrip = rd.grip;
+            c->stripRun = useStrips ? (int)stripRun : 0;
+            // Texture repeat is invariant under an integer V offset. Keep the
+            // value local to this bag: long roads otherwise feed ever-growing
+            // ST coordinates into the physical GS/VU path, where the lost
+            // fractional precision can smear one texel over the whole road.
+            chunkVBase = floorf(lv0);
+            stationsInChunk = 0;
+            runStart = 0;
+            alongOpen = false;
+          }
+          // P is the previous station's row, N this one's.
+          auto vAt = [&](int j, bool newRow) {
+            return newRow ? Tyra::Vec4(nx[(size_t)j], ny[(size_t)j],
+                                       nz[(size_t)j], 1.0F)
+                          : Tyra::Vec4(px0[(size_t)j], py0[(size_t)j],
+                                       pz0[(size_t)j], 1.0F);
+          };
+          auto sAt = [&](int j, bool newRow) {
+            return Tyra::Vec4(rd.uInset + (1.0F - 2.0F * rd.uInset) *
+                                              (float)j / (float)crossSteps,
+                              (newRow ? v : lv0) - chunkVBase, 1.0F, 0.0F);
+          };
+          if (!useStrips) {
+            for (size_t ci = 0; ci + 1 < cuts.size(); ++ci) {
+              const int j = cuts[ci], j2 = cuts[ci + 1];
+              const float u0 = rd.uInset + (1.0F - 2.0F * rd.uInset) *
+                                               (float)j / (float)crossSteps;
+              const float u1 = rd.uInset + (1.0F - 2.0F * rd.uInset) *
+                                               (float)j2 / (float)crossSteps;
+              const Tyra::Vec4 A(px0[(size_t)j], py0[(size_t)j],
+                                 pz0[(size_t)j], 1.0F);
+              const Tyra::Vec4 B(px0[(size_t)j2], py0[(size_t)j2],
+                                 pz0[(size_t)j2], 1.0F);
+              const Tyra::Vec4 C(nx[(size_t)j2], ny[(size_t)j2],
+                                 nz[(size_t)j2], 1.0F);
+              const Tyra::Vec4 D(nx[(size_t)j], ny[(size_t)j],
+                                 nz[(size_t)j], 1.0F);
+              const Tyra::Vec4 sA(u0, lv0 - chunkVBase, 1.0F, 0.0F);
+              const Tyra::Vec4 sB(u1, lv0 - chunkVBase, 1.0F, 0.0F);
+              const Tyra::Vec4 sC(u1, v - chunkVBase, 1.0F, 0.0F);
+              const Tyra::Vec4 sD(u0, v - chunkVBase, 1.0F, 0.0F);
+              c->vertices.push_back(A); c->sts.push_back(sA); c->colors.push_back(grey);
+              c->vertices.push_back(B); c->sts.push_back(sB); c->colors.push_back(grey);
+              c->vertices.push_back(C); c->sts.push_back(sC); c->colors.push_back(grey);
+              c->vertices.push_back(A); c->sts.push_back(sA); c->colors.push_back(grey);
+              c->vertices.push_back(C); c->sts.push_back(sC); c->colors.push_back(grey);
+              c->vertices.push_back(D); c->sts.push_back(sD); c->colors.push_back(grey);
+            }
+          } else if (collapsed) {
+            // A collapsed span is ONE full-width quad, so a street of them is
+            // a grid one cell WIDE and many stations LONG - and a strip has
+            // to run along the long axis or it buys nothing. Taken laterally
+            // a collapsed span is 4 vertices plus a 2-vertex join against the
+            // list's 6: break-even on the EE and 3x the GS primitives, two
+            // thirds of them degenerate. Taken longitudinally it is 2
+            // vertices per STATION, the same 0.35x the dense spans reach.
+            // ... P[w], P[0], N[w], N[0] ... - successive triples are this
+            // span's two triangles, cut along P[0]-N[w], which is the cut the
+            // list stitch above makes. The other interleaving takes the other
+            // diagonal and silently reshapes every non-planar quad.
+            if (!alongOpen) {
+              startStrip(vAt(crossSteps, false), sAt(crossSteps, false));
+              pushRaw(vAt(0, false), sAt(0, false));
+              alongOpen = true;
+            }
+            pushRaw(vAt(crossSteps, true), sAt(crossSteps, true));
+            pushRaw(vAt(0, true), sAt(0, true));
+          } else {
+            // N[0], P[0], N[s], P[s], ... - same argument, same diagonal
+            // P[j]-N[j+s], walked ACROSS the road instead. The cuts are no
+            // longer uniformly spaced, which changes nothing here: the walk
+            // visits them in order and the diagonal is the same one.
+            alongOpen = false;
+            startStrip(vAt(0, true), sAt(0, true));
+            pushRaw(vAt(0, false), sAt(0, false));
+            for (size_t ci = 1; ci < cuts.size(); ++ci) {
+              pushRaw(vAt(cuts[ci], true), sAt(cuts[ci], true));
+              pushRaw(vAt(cuts[ci], false), sAt(cuts[ci], false));
+            }
+          }
+          ++stationsInChunk;
+        }
+        rsLastSeg = rsSeg;
+        rsLastK = rsK;
+        rsLastArc = rsArc;
+        rsLastX = rsX;
+        rsLastZ = rsZ;
+        px0.swap(nx);
+        py0.swap(ny);
+        pz0.swap(nz);
+        lv0 = v;
+        havePrev = true;
+      }
+    }
+    // This road's last chunk still has an open run.
+    closeChunk();
+    if (item < 0 && c) roadStreamPlanClose();
+  (void)any;
+}
+
+bool TerrainGame::roadStreamOpen(ProcChunk*& c, int item, int ri, int seg, int k, float arc,
+                                 float x, float z) {
+  if (item >= 0) {
+    if (c) return false;  // the replayed chunk is complete
+    c = &procChunks[(size_t)rsTarget_];
+    return true;
+  }
+  if (c) roadStreamPlanClose();
+  RsItem it;
+  it.kind = RS_STRIP;
+  it.a = ri;
+  it.b = (seg << 16) | (k & 0xFFFF);
+  it.arc = arc;
+  it.px = x;
+  it.pz = z;
+  rsItems_.push_back(it);
+  rsBoxes_.push_back(RsBox{0.0F, 0.0F, 0.0F, 0.0F});
+  rsScratch_.vertices.clear();
+  rsScratch_.colors.clear();
+  rsScratch_.sts.clear();
+  c = &rsScratch_;
+  return true;
+}
+
+// A planned strip chunk is complete in rsScratch_: its box, its size, the
+// statistics buildRoads logs, and the spill heights it lifts.
+void TerrainGame::roadStreamPlanClose() {
+  RsItem& it = rsItems_.back();
+  const ProcChunk& c = rsScratch_;
+  it.verts = (int)c.vertices.size();
+  RsBox b = {0.0F, 0.0F, 0.0F, 0.0F};
+  if (!c.vertices.empty()) {
+    b = RsBox{c.vertices[0].x, c.vertices[0].z, c.vertices[0].x, c.vertices[0].z};
+    for (size_t i = 1; i < c.vertices.size(); ++i) {
+      const float x = c.vertices[i].x, z = c.vertices[i].z;
+      if (x < b.x0) b.x0 = x;
+      if (x > b.x1) b.x1 = x;
+      if (z < b.z0) b.z0 = z;
+      if (z > b.z1) b.z1 = z;
+    }
+  }
+  rsBoxes_.back() = b;
+  roadStreamLiftSpills(reinterpret_cast<const float*>(c.vertices.data()), 4, c.vertices.size(),
+                       c.stripRun, b);
+  ++rsPlanChunks_;
+  rsPlanVerts_ += it.verts;
+  const size_t run = c.stripRun > 0 ? (size_t)c.stripRun : (size_t)75;
+  rsPlanPackages_ += (int)((c.vertices.size() + run - 1) / run);
+  if (c.stripRun <= 0) {
+    rsPlanTriangles_ += (int)(c.vertices.size() / 3);
+  } else {
+    for (size_t at = 0; at < c.vertices.size(); at += run) {
+      const size_t left = c.vertices.size() - at;
+      const size_t len = left < run ? left : run;
+      for (size_t k = 0; k + 2 < len; ++k) {
+        const Tyra::Vec4& a = c.vertices[at + k];
+        const Tyra::Vec4& bb = c.vertices[at + k + 1];
+        const Tyra::Vec4& d = c.vertices[at + k + 2];
+        const bool degenerate = (a.x == bb.x && a.y == bb.y && a.z == bb.z) ||
+                                (bb.x == d.x && bb.y == d.y && bb.z == d.z) ||
+                                (a.x == d.x && a.y == d.y && a.z == d.z);
+        if (!degenerate) ++rsPlanTriangles_;
+      }
+    }
+  }
+}
+
+// SPILLS: buildRoads lifts each spill vertex onto roadSurfaceAt over the
+// COMPLETE road set (every strip and junction row of the scene, no spill).
+// A streamed scene never holds that set, so the lift happens once, here, as
+// the plan pass walks every surface chunk - the same triangle test, the same
+// maximum - and rsSpillY_ keeps the answers (4 bytes a spill vertex).
+void TerrainGame::roadStreamLiftSpills(const float* v, int stride, size_t count, int stripRun,
+                                       const RsBox& box) {
+  if (rsSpillY_.empty() || count < 3) return;
+  for (int si = 0; si < ROAD_SPILL_COUNT; ++si) {
+    if (rsSpillAt_[(size_t)si] < 0) continue;
+    const RoadSpillRt& sp = ROAD_SPILLS[si];
+    float* ys = &rsSpillY_[(size_t)rsSpillAt_[(size_t)si]];
+    for (int k = 0; k < sp.count; ++k) {
+      const float* sv = &ROAD_SPILL_VERTS[(size_t)(sp.first + k) * 5];
+      if (sv[0] < box.x0 || sv[0] > box.x1 || sv[1] < box.z0 || sv[1] > box.z1) continue;
+      const float y = RsTri::highest(v, stride, count, stripRun, sv[0], sv[1]);
+      if (y > ys[k]) ys[k] = y;
+    }
+  }
+}
+
+void TerrainGame::roadStreamAddItem(int kind, int a, int b, int verts, const float* v,
+                                    int stride, int zAt, int count) {
+  RsItem it;
+  it.kind = (unsigned char)kind;
+  it.a = a;
+  it.b = b;
+  it.verts = verts;
+  rsItems_.push_back(it);
+  RsBox box = {v[0], v[zAt], v[0], v[zAt]};
+  for (int i = 1; i < count; ++i) {
+    const float x = v[(size_t)i * (size_t)stride], z = v[(size_t)i * (size_t)stride + (size_t)zAt];
+    if (x < box.x0) box.x0 = x;
+    if (x > box.x1) box.x1 = x;
+    if (z < box.z0) box.z0 = z;
+    if (z > box.z1) box.z1 = z;
+  }
+  rsBoxes_.push_back(box);
+}
+
+void TerrainGame::roadStreamSetup(int scene) {
+  const unsigned int stripRun = 75u;
+  // The physical-GS smear that originally parked this at 0 came from unbounded
+  // road V coordinates, not from strip topology. Each chunk now rebases V by a
+  // whole repeat before either emitter sees it; hardware A/B keeps lane marks
+  // intact while the strip removes hundreds of packages from a district.
+  // Keep 0 as the triangle-list control arm for future renderer work.
+#ifndef TYRA_STRIP_ROADS
+#define TYRA_STRIP_ROADS 1
+#endif
+  const bool useStrips = TYRA_STRIP_ROADS && minPackageSize() >= stripRun;
+  const Tyra::Color grey(128.0F, 128.0F, 128.0F, 128.0F);
+  bool any = false;
+  (void)any;
+  (void)grey;
+  const u32 rsT0 = profTicks();
+  // Whatever an earlier scene left (loadScene clears procChunks anyway).
+  bool erased = false;
+  for (size_t i = procChunks.size(); i > 0; --i)
+    if (procChunks[i - 1].owner <= -3 && procChunks[i - 1].owner >= -8) {
+      procChunks.erase(procChunks.begin() + (i - 1));
+      erased = true;
+    }
+  for (size_t i = procColliders.size(); i > 0; --i)
+    if ((procColliders[i - 1].owner == -5 || procColliders[i - 1].owner == -7) &&
+        procColliders[i - 1].instance <= -2)
+      procColliders.erase(procColliders.begin() + (i - 1));
+  if (erased) roadStreamRebindAll();
+  rsItems_.clear();
+  rsBoxes_.clear();
+  rsOn_.clear();
+  rsIndex_.clear();
+  rsResident_.clear();
+  rsFree_.clear();
+  rsSpillY_.clear();
+  rsSpillAt_.assign(ROAD_SPILL_COUNT > 0 ? (size_t)ROAD_SPILL_COUNT : (size_t)1, -1);
+  rsPlanVerts_ = rsPlanChunks_ = rsPlanPackages_ = rsPlanTriangles_ = 0;
+  rsPending_ = true;
+  rsLastFoci_ = 0;
+  rsChunkCount_ = procChunks.size();
+  for (int si = 0; si < ROAD_SPILL_COUNT; ++si) {
+    const RoadSpillRt& sp = ROAD_SPILLS[si];
+    if (sp.scene != scene) continue;
+    rsSpillAt_[(size_t)si] = (int)rsSpillY_.size();
+    rsSpillY_.insert(rsSpillY_.end(), (size_t)sp.count, -1.0e30F);
+  }
+  // 1. Strip chunks: every road walked once, chunk by chunk, exactly as
+  //    buildRoads cuts it - nothing kept but each chunk's resume state and box.
+  for (int ri = 0; ri < ROAD_COUNT; ++ri) {
+    const RoadDefRt& rd = ROAD_DEFS[ri];
+    if (rd.scene != scene || rd.pointCount < 2) continue;
+    roadStreamTessellate(ri, -1);
+  }
+  rsScratch_ = ProcChunk();  // the plan's buffers go back to the heap
+  // 2. Junction rows (nodes, paint, bridge decks), in buildRoads' 1800 pieces.
+  for (int ji = 0; ji < ROAD_JUNCTION_COUNT; ++ji) {
+    const RoadJunctionRt& j = ROAD_JUNCTIONS[ji];
+    if (j.scene != scene) continue;
+    for (int first = 0; first < j.count; first += 1800) {
+      const int count = std::min(1800, j.count - first);
+      const float* v = &ROAD_JUNCTION_VERTS[(size_t)(j.first + first) * 5];
+      roadStreamAddItem(RS_JUNCTION, ji, first, count, v, 5, 2, count);
+      roadStreamLiftSpills(v, 5, (size_t)count, 0, rsBoxes_.back());
+      ++rsPlanChunks_;
+      rsPlanVerts_ += count;
+      rsPlanPackages_ += (count + 74) / 75;
+      rsPlanTriangles_ += count / 3;
+    }
+  }
+  // 3. Spills: every surface under them has now been seen.
+  for (int si = 0; si < ROAD_SPILL_COUNT; ++si) {
+    const RoadSpillRt& sp = ROAD_SPILLS[si];
+    if (sp.scene != scene || sp.count < 1) continue;
+    float* ys = &rsSpillY_[(size_t)rsSpillAt_[(size_t)si]];
+    for (int k = 0; k < sp.count; ++k) {
+      const float* sv = &ROAD_SPILL_VERTS[(size_t)(sp.first + k) * 5];
+      float y = ys[k];
+      if (y < -1.0e29F) y = terrainHeightAt(sv[0], sv[1]) + 0.12F;
+      ys[k] = y + 0.02F + sp.lift;
+    }
+    roadStreamAddItem(RS_SPILL, si, 0, sp.count, &ROAD_SPILL_VERTS[(size_t)sp.first * 5], 5, 1,
+                      sp.count);
+    ++rsPlanChunks_;
+    rsPlanVerts_ += sp.count;
+    rsPlanPackages_ += (sp.count + 74) / 75;
+    rsPlanTriangles_ += sp.count / 3;
+  }
+  // 4. Soft edges, 1800 at a time.
+  for (int ei = 0; ei < ROAD_EDGE_COUNT; ++ei) {
+    const RoadSpillRt& ed = ROAD_EDGES[ei];
+    if (ed.scene != scene) continue;
+    for (int at = 0; at < ed.count; at += 1800) {
+      const int n = ed.count - at < 1800 ? ed.count - at : 1800;
+      roadStreamAddItem(RS_EDGE, ei, at, n, &ROAD_EDGE_VERTS[(size_t)(ed.first + at) * 5], 5, 1,
+                        n);
+      ++rsPlanChunks_;
+      rsPlanVerts_ += n;
+      rsPlanPackages_ += (n + 74) / 75;
+      rsPlanTriangles_ += n / 3;
+    }
+  }
+  // 5. Kerbs and rails: one item per baked row.
+  for (int ki = 0; ki < ROAD_KERB_COUNT; ++ki) {
+    const RoadKerbRt& kr = ROAD_KERBS[ki];
+    if (kr.scene != scene || kr.count < 3) continue;
+    roadStreamAddItem(RS_KERB, ki, 0, useStrips ? kr.count : kr.count * 3,
+                      &ROAD_KERB_VERTS[(size_t)kr.first * 4], 4, 2, kr.count);
+  }
+  // 6. Bridge structure, and its walls one box at a time.
+  for (int bi = 0; bi < ROAD_BRIDGE_COUNT; ++bi) {
+    const RoadBridgeRt& br = ROAD_BRIDGES[bi];
+    if (br.scene != scene || br.count < 3) continue;
+    roadStreamAddItem(RS_BRIDGE, bi, 0, br.count, &ROAD_BRIDGE_VERTS[(size_t)br.first * 4],
+                      4, 2, br.count);
+  }
+  for (int bi = 0; bi < ROAD_BRIDGE_BOX_COUNT; ++bi) {
+    const float* b = &ROAD_BRIDGE_BOXES[(size_t)bi * 11];
+    if ((int)b[0] != scene) continue;
+    const float corners[6] = {b[1], b[2], b[3], b[4], b[5], b[6]};
+    roadStreamAddItem(RS_BRIDGE_BOX, bi, 0, 0, corners, 3, 2, 2);
+  }
+  // 7. Road details.
+  for (int di = 0; di < ROAD_DETAIL_COUNT; ++di) {
+    const RoadDetailRt& dr = ROAD_DETAILS[di];
+    if (dr.scene != scene || dr.count < 3) continue;
+    roadStreamAddItem(RS_DETAIL, di, 0, dr.count, &ROAD_DETAIL_VERTS[(size_t)dr.first * 5],
+                      5, 2, dr.count);
+  }
+  if (rsItems_.size() > 32000) {
+    // The grid stores item ids in 16 bits and the collider tag in a short.
+    TYRA_LOG("ROADSTREAM too many items (", (int)rsItems_.size(), "), the rest are dropped");
+    rsItems_.resize(32000);
+    rsBoxes_.resize(32000);
+  }
+  rsOn_.assign(rsItems_.size(), 0);
+  rsIndex_.resize(rsItems_.size());
+  rsGrid_.build(rsBoxes_.data(), (int)rsBoxes_.size(), ROAD_STREAM_CELL);
+  TYRA_LOG("ROADS scene ", scene, " chunks ", rsPlanChunks_, " vertices ", rsPlanVerts_,
+           " (streamed)");
+  TYRA_LOG("ROADSTRIP scene ", scene, " strips ", useStrips ? 1 : 0, " packages ",
+           rsPlanPackages_, " triangles ", rsPlanTriangles_);
+  TYRA_LOG("ROADSTREAM plan scene ", scene, " items ", (int)rsItems_.size(), " cells ",
+           rsGrid_.nx, "x", rsGrid_.nz, " radius ", (int)ROAD_STREAM_RADIUS, " keep ",
+           (int)ROAD_STREAM_KEEP, " spill vertices ", (int)rsSpillY_.size(), " ms ",
+           (int)((profTicks() - rsT0) / 294912U));
+}
+
+// Every bag's pointers into its chunk's arrays - after procChunks moved its
+// elements (a reallocation, an erase), they point at the old addresses.
+void TerrainGame::roadStreamRebindAll() {
+  for (ProcChunk& c : procChunks) {
+    if (!c.bag || !c.colorBag) continue;
+    c.colors.bind(c.colorBag);
+    c.vertices.bind(c.bag);
+    if (c.bag->texture && c.texBag) c.sts.bind(c.texBag);
+  }
+}
+
+// Which procChunks slot holds which item, read back from the chunks' tags -
+// after anything else erased or inserted procChunks (a prefab despawn, a
+// regenerated volume), the indices the items kept are stale.
+void TerrainGame::roadStreamRemap() const {
+  TerrainGame* self = const_cast<TerrainGame*>(this);
+  for (RsItem& it : rsItems_)
+    if (it.kind < RS_BRIDGE_BOX) it.chunk = -1;
+  rsFree_.clear();
+  for (size_t ci = 0; ci < procChunks.size(); ++ci) {
+    const ProcChunk& c = procChunks[ci];
+    if (c.owner == -8) {
+      rsFree_.push_back((int)ci);
+      continue;
+    }
+    if (c.owner > -3 || c.owner < -7 || c.instance > -2) continue;
+    const int item = -2 - c.instance;
+    if (item < (int)rsItems_.size()) rsItems_[(size_t)item].chunk = (int)ci;
+  }
+  self->roadStreamRebindAll();
+  rsChunkCount_ = procChunks.size();
+}
+
+int TerrainGame::roadStreamSlot() {
+  if (rsChunkCount_ != procChunks.size()) roadStreamRemap();
+  while (!rsFree_.empty()) {
+    const int slot = rsFree_.back();
+    rsFree_.pop_back();
+    if (slot >= 0 && slot < (int)procChunks.size() && procChunks[(size_t)slot].owner == -8)
+      return slot;
+  }
+  const bool grows = procChunks.size() == procChunks.capacity();
+  procChunks.emplace_back();
+  procChunks.back().owner = -8;
+  if (grows) roadStreamRebindAll();  // every chunk just moved
+  rsChunkCount_ = procChunks.size();
+  return (int)procChunks.size() - 1;
+}
+
+// procFinishChunks for ONE chunk - its loop body, cut from the template, so
+// a streamed chunk gets exactly the bags, the box and the info bag the full
+// pass would give it, without the full pass's walk over every chunk.
+void TerrainGame::roadStreamFinish(ProcChunk& c) {
+  if (!batchInfoBag) {
+    batchInfoBag = std::make_unique<StaPipInfoBag>();
+    batchInfoBag->model = &model;
+    batchInfoBag->shadingType = TyraShadingGouraud;
+    batchInfoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
+    batchInfoBag->fullClipChecks = true;
+  }
+  do {
+    if (c.vertices.empty()) {
+      c.bag.reset();
+      continue;
+    }
+    if (!c.bag) {
+      c.colorBag = std::make_unique<StaPipColorBag>();
+      c.bag = std::make_unique<StaPipBag>();
+      c.bag->color = c.colorBag.get();
+      c.bag->lighting = nullptr;
+    }
+    // Re-stated every pass, not only on creation: a regeneration reuses the
+    // chunk, and a world whose blocks moved may have gained or lost the AO.
+    c.bag->info = c.smooth ? procSmoothInfoBag.get() : batchInfoBag.get();
+    if (c.roadBlend || c.roadEdge) {
+      // A spill is alpha-over by its vertex alpha (the fade) on the road
+      // under it, a soft edge on the terrain: the painted terrain layer's
+      // arrangement.
+      if (!roadBlendInfoBag) {
+        roadBlendInfoBag = std::make_unique<StaPipInfoBag>();
+        roadBlendInfoBag->model = &model;
+        roadBlendInfoBag->shadingType = TyraShadingGouraud;
+        roadBlendInfoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
+        roadBlendInfoBag->fullClipChecks = true;
+        roadBlendInfoBag->blendingEnabled = true;
+      }
+      c.bag->info = roadBlendInfoBag.get();
+    }
+    c.colors.bind(c.colorBag);
+    c.vertices.bind(c.bag);
+    c.bag->count = static_cast<u32>(c.vertices.size());
+    // Triangle strips (docs/model-pipeline.md). A stripped chunk's array is
+    // already chopped into self-contained runs, so the package size is PINNED
+    // to the run rather than derived: StaPipCore slices a bag at multiples of
+    // it, and a boundary anywhere else would fuse two strips. Nothing else is
+    // derived either - the run is by construction no larger than any static
+    // class's own capacity, which is what buildRoads checks before baking it.
+    // Re-stated every pass, like the info bag above: a regeneration may have
+    // turned a chunk from one representation into the other.
+    c.bag->stripped = c.stripRun > 0;
+    c.bag->packageSize = c.stripRun > 0 ? static_cast<u32>(c.stripRun) : 0U;
+    c.bag->bboxVersion = ++g_bboxStamp;
+    const Tyra::Texture* tex = c.roadTex;
+    if (tex) {
+    } else if (c.model >= 0 && c.model < (int)gameModels.size() &&
+        c.part < (int)gameModels[c.model].parts.size())
+      tex = gameModels[c.model].parts[c.part].texture;
+    else if (c.material >= 0 && c.material < (int)gameMaterials.size())
+      tex = gameMaterials[c.material].texture;
+    if (tex) {
+      if (!c.texBag) c.texBag = std::make_unique<StaPipTextureBag>();
+      c.texBag->texture = const_cast<Tyra::Texture*>(tex);
+      c.sts.bind(c.texBag);
+      c.bag->texture = c.texBag.get();
+    } else {
+      c.bag->texture = nullptr;
+    }
+    c.aabbMin[0] = c.aabbMax[0] = c.vertices[0].x;
+    c.aabbMin[1] = c.aabbMax[1] = c.vertices[0].y;
+    c.aabbMin[2] = c.aabbMax[2] = c.vertices[0].z;
+    for (const Vec4& v : c.vertices) {
+      if (v.x < c.aabbMin[0]) c.aabbMin[0] = v.x;
+      if (v.x > c.aabbMax[0]) c.aabbMax[0] = v.x;
+      if (v.y < c.aabbMin[1]) c.aabbMin[1] = v.y;
+      if (v.y > c.aabbMax[1]) c.aabbMax[1] = v.y;
+      if (v.z < c.aabbMin[2]) c.aabbMin[2] = v.z;
+      if (v.z > c.aabbMax[2]) c.aabbMax[2] = v.z;
+    }
+    for (int a = 0; a < 3; ++a)
+      c.centre[a] = 0.5F * (c.aabbMin[a] + c.aabbMax[a]);
+  } while (false);
+}
+
+void TerrainGame::roadStreamBuild(int item) {
+  if (item < 0 || item >= (int)rsItems_.size() || rsOn_[(size_t)item]) return;
+  RsItem& it = rsItems_[(size_t)item];
+  const short tag = (short)(-2 - item);
+  const unsigned int stripRun = 75u;
+  // The physical-GS smear that originally parked this at 0 came from unbounded
+  // road V coordinates, not from strip topology. Each chunk now rebases V by a
+  // whole repeat before either emitter sees it; hardware A/B keeps lane marks
+  // intact while the strip removes hundreds of packages from a district.
+  // Keep 0 as the triangle-list control arm for future renderer work.
+#ifndef TYRA_STRIP_ROADS
+#define TYRA_STRIP_ROADS 1
+#endif
+  const bool useStrips = TYRA_STRIP_ROADS && minPackageSize() >= stripRun;
+  const Tyra::Color grey(128.0F, 128.0F, 128.0F, 128.0F);
+  bool any = false;
+  (void)any;
+  (void)grey;
+  (void)tag;
+  if (it.kind == RS_BRIDGE_BOX || it.kind == RS_FURN_BOX) {
+    if (it.kind == RS_BRIDGE_BOX) {
+      const float* b = &ROAD_BRIDGE_BOXES[(size_t)it.a * 11];
+      StaticBox sb;
+      for (int a = 0; a < 3; ++a) {
+        sb.mn[a] = b[1 + a];
+        sb.mx[a] = b[4 + a];
+      }
+      sb.lhx = b[7];
+      sb.lhz = b[8];
+      sb.yc = b[9];
+      sb.ys = b[10];
+      sb.owner = -5;
+      sb.instance = -1;
+      procColliders.push_back(sb);
+      procColliders.back().instance = tag;
+    }
+    rsOn_[(size_t)item] = 1;
+    rsResident_.push_back(item);
+    return;
+  }
+  const int slot = roadStreamSlot();
+  procChunks[(size_t)slot] = ProcChunk();
+  ProcChunk& c = procChunks[(size_t)slot];
+  c.instance = -2 - item;
+  it.chunk = slot;
+  if (it.verts > 0) {
+    c.vertices.reserve((size_t)it.verts);
+    c.colors.reserve((size_t)it.verts);
+    if (it.kind != RS_KERB && it.kind != RS_BRIDGE && it.kind != RS_FURN)
+      c.sts.reserve((size_t)it.verts);
+  }
+  switch (it.kind) {
+    case RS_STRIP:
+      rsTarget_ = slot;
+      roadStreamTessellate(it.a, item);
+      if ((int)c.vertices.size() != it.verts && ++rsMismatch_ <= 4)
+        TYRA_LOG("ROADSTREAM replay mismatch item ", item, " road ", it.a, " planned ", it.verts,
+                 " built ", (int)c.vertices.size());
+      break;
+    case RS_JUNCTION: {
+      const RoadJunctionRt& j = ROAD_JUNCTIONS[it.a];
+      Tyra::Texture* tex = roadStreamTexture(j.tex);
+      const int first = it.b;
+      c.owner = -3;
+      c.roadTex = tex;
+      c.roadGrip = j.grip;
+      c.stripRun = 0;
+      // A painted row (node markings, 1.171.0) carries its own colour; a
+      // patch takes the road grey its texture modulates. Paint WITH a texture
+      // (the worn road-paint) is alpha-blended by that texture's alpha onto
+      // the asphalt, its colour halved (128 = 1 when it modulates a texel).
+      const bool paintTex = j.rgb != 0 && tex != nullptr;
+      const float pk = paintTex ? 0.5F : 1.0F;
+      const Tyra::Color paint((float)((j.rgb >> 16) & 255) * pk,
+                              (float)((j.rgb >> 8) & 255) * pk,
+                              (float)(j.rgb & 255) * pk, 128.0F);
+      const Tyra::Color& shade = j.rgb != 0 ? paint : grey;
+      if (paintTex) {
+        c.roadBlend = true;
+        c.roadGripBase = j.grip;  // no grip of its own: the road's, unblended
+      }
+      const int count = std::min(1800, j.count - first);
+      for (int k = 0; k < count; ++k) {
+        const float* v = &ROAD_JUNCTION_VERTS[(size_t)(j.first + first + k) * 5];
+        c.vertices.push_back(Tyra::Vec4(v[0], v[1], v[2], 1.0F));
+        c.sts.push_back(Tyra::Vec4(v[3], v[4], 1.0F, 0.0F));
+        c.colors.push_back(shade);
+      }
+      break;
+    }
+    case RS_SPILL: {
+      const RoadSpillRt& sp = ROAD_SPILLS[it.a];
+      const RoadDefRt& rd = ROAD_DEFS[sp.road];
+      roadStreamTexture(rd.tex);
+      const float* spillY = &rsSpillY_[(size_t)rsSpillAt_[(size_t)it.a]];
+      size_t yi = 0;
+      c.owner = -3;
+      c.roadTex = (rd.tex >= 0 && rd.tex < ROAD_TEXTURE_COUNT)
+                      ? roadTextures_[rd.tex]
+                      : nullptr;
+      c.roadGrip = sp.grip;
+      c.roadGripBase = sp.baseGrip;
+      c.roadBlend = true;
+      c.stripRun = 0;
+      // Integer V rebase, the road chunks' rule (the physical PS2's ST path).
+      float vBase = 1.0e30F;
+      for (int k = 0; k < sp.count; ++k)
+        vBase = fminf(vBase, ROAD_SPILL_VERTS[(size_t)(sp.first + k) * 5 + 3]);
+      vBase = floorf(vBase);
+      for (int k = 0; k < sp.count; ++k) {
+        const float* sv = &ROAD_SPILL_VERTS[(size_t)(sp.first + k) * 5];
+        c.vertices.push_back(Tyra::Vec4(sv[0], spillY[yi++], sv[1], 1.0F));
+        c.sts.push_back(Tyra::Vec4(sv[2], sv[3] - vBase, 1.0F, 0.0F));
+        c.colors.push_back(Tyra::Color(128.0F, 128.0F, 128.0F, sv[4] * 128.0F));
+      }
+      break;
+    }
+    case RS_EDGE: {
+      const RoadSpillRt& ed = ROAD_EDGES[it.a];
+      const RoadDefRt& rd = ROAD_DEFS[ed.road];
+      Tyra::Texture* tex = roadStreamTexture(rd.tex);
+      const int at = it.b;
+      const int n = ed.count - at < 1800 ? ed.count - at : 1800;
+      c.owner = -3;
+      c.roadTex = tex;
+      c.roadGrip = rd.grip;
+      c.roadEdge = true;
+      c.stripRun = 0;
+      float vBase = 1.0e30F;
+      for (int k = 0; k < n; ++k)
+        vBase = fminf(vBase, ROAD_EDGE_VERTS[(size_t)(ed.first + at + k) * 5 + 3]);
+      vBase = floorf(vBase);
+      for (int k = 0; k < n; ++k) {
+        const float* ev = &ROAD_EDGE_VERTS[(size_t)(ed.first + at + k) * 5];
+        c.vertices.push_back(Tyra::Vec4(
+            ev[0], terrainHeightAt(ev[0], ev[1]) + 0.12F + rd.lift, ev[1], 1.0F));
+        c.sts.push_back(Tyra::Vec4(ev[2], ev[3] - vBase, 1.0F, 0.0F));
+        c.colors.push_back(Tyra::Color(128.0F, 128.0F, 128.0F, ev[4] * 128.0F));
+      }
+      break;
+    }
+    case RS_KERB: {
+      const RoadKerbRt& kr = ROAD_KERBS[it.a];
+      int kerbTriangles = 0;
+    auto same = [](const float* a, const float* b) {
+      return a[0] == b[0] && a[1] == b[1] && a[2] == b[2];
+    };
+      c.owner = -4;
+      c.drawDist = ROAD_KERB_DRAW_DISTANCE;
+      c.stripRun = useStrips ? (int)stripRun : 0;
+      auto put = [&](const float* v) {
+        c.vertices.push_back(Tyra::Vec4(v[0], v[1], v[2], 1.0F));
+        if (v[3] >= 1.5F) {
+          // Rails (docs/roads.md "Rails and tram tracks"): a shade of 2+
+          // names a ROAD_KERB_PALETTE colour (roadrail::shadeRgb's rule).
+          int k = (int)v[3] - 2;
+          if (k < 0) k = 0;
+          if (k > 3) k = 3;
+          const float* pc = ROAD_KERB_PALETTE[k];
+          c.colors.push_back(
+              Tyra::Color(pc[0] * 128.0F, pc[1] * 128.0F, pc[2] * 128.0F, 128.0F));
+          return;
+        }
+        const float g = v[3] * 128.0F;  // light concrete, a hair warm
+        c.colors.push_back(Tyra::Color(g, g * 0.98F, g * 0.94F, 128.0F));
+      };
+      const float* base = &ROAD_KERB_VERTS[(size_t)kr.first * 4];
+      for (int at = 0; at < kr.count; at += 75) {
+        const int len = kr.count - at < 75 ? kr.count - at : 75;
+        for (int k = 0; k + 2 < len; ++k) {
+          const float* a = base + (size_t)(at + k) * 4;
+          if (same(a, a + 4) || same(a + 4, a + 8) || same(a, a + 8)) continue;
+          ++kerbTriangles;
+          // The list control arm (TYRA_STRIP_ROADS 0): the same triangles.
+          if (!useStrips) { put(a); put(a + 4); put(a + 8); }
+        }
+      }
+      if (useStrips)
+        for (int k = 0; k < kr.count; ++k) put(base + (size_t)k * 4);
+      (void)kerbTriangles;
+      break;
+    }
+    case RS_BRIDGE: {
+      const RoadBridgeRt& br = ROAD_BRIDGES[it.a];
+      c.owner = -5;
+      c.stripRun = 0;
+      const float* base = &ROAD_BRIDGE_VERTS[(size_t)br.first * 4];
+      for (int k = 0; k < br.count; ++k) {
+        const float* v = base + (size_t)k * 4;
+        c.vertices.push_back(Tyra::Vec4(v[0], v[1], v[2], 1.0F));
+        const float g = v[3] * 128.0F;  // concrete, a hair warm
+        c.colors.push_back(Tyra::Color(g, g * 0.99F, g * 0.96F, 128.0F));
+      }
+      break;
+    }
+    case RS_DETAIL: {
+      const RoadDetailRt& dr = ROAD_DETAILS[it.a];
+    Tyra::Texture* detailTex = nullptr;
+    if (ROAD_DETAIL_TEX >= 0 && ROAD_DETAIL_TEX < ROAD_TEXTURE_COUNT) {
+      if (!roadTextures_[ROAD_DETAIL_TEX])
+        roadTextures_[ROAD_DETAIL_TEX] = acquireTexture(ROAD_TEXTURE_PATHS[ROAD_DETAIL_TEX]);
+      detailTex = roadTextures_[ROAD_DETAIL_TEX];
+    }
+      if (!detailTex) break;
+      c.owner = -6;
+      c.roadTex = detailTex;
+      c.roadBlend = true;
+      c.drawDist = ROAD_DETAIL_DRAW_DISTANCE;
+      c.stripRun = 0;
+      const float* base = &ROAD_DETAIL_VERTS[(size_t)dr.first * 5];
+      for (int k = 0; k < dr.count; ++k) {
+        const float* v = base + (size_t)k * 5;
+        c.vertices.push_back(Tyra::Vec4(v[0], v[1], v[2], 1.0F));
+        c.sts.push_back(Tyra::Vec4(v[3], v[4], 1.0F, 0.0F));
+        c.colors.push_back(grey);
+      }
+      break;
+    }
+    default:
+      break;
+  }
+  roadStreamFinish(c);
+  if (it.kind <= RS_KERB &&
+      !rsIndex_[(size_t)item].build(reinterpret_cast<const float*>(c.vertices.data()),
+                                    c.vertices.size(), c.stripRun))
+    TYRA_LOG("ROADSTREAM item ", item, " too large for its height index");
+  rsOn_[(size_t)item] = 1;
+  rsResident_.push_back(item);
+}
+
+// Frees one item's geometry (or its collision box). The caller takes it off
+// rsResident_.
+void TerrainGame::roadStreamDrop(int item) {
+  RsItem& it = rsItems_[(size_t)item];
+  if (!rsOn_[(size_t)item]) return;
+  rsOn_[(size_t)item] = 0;
+  if (it.kind == RS_BRIDGE_BOX || it.kind == RS_FURN_BOX) {
+    const short tag = (short)(-2 - item);
+    for (size_t i = procColliders.size(); i > 0; --i)
+      if (procColliders[i - 1].instance == tag &&
+          (procColliders[i - 1].owner == -5 || procColliders[i - 1].owner == -7)) {
+        procColliders.erase(procColliders.begin() + (i - 1));
+        break;
+      }
+    return;
+  }
+  if (rsChunkCount_ != procChunks.size() || it.chunk < 0 ||
+      it.chunk >= (int)procChunks.size() ||
+      procChunks[(size_t)it.chunk].instance != -2 - item)
+    roadStreamRemap();
+  if (it.chunk >= 0) {
+    procChunks[(size_t)it.chunk] = ProcChunk();  // arrays and bags back to the heap
+    procChunks[(size_t)it.chunk].owner = -8;
+    rsFree_.push_back(it.chunk);
+  }
+  it.chunk = -1;
+  rsIndex_[(size_t)item] = RsLocalIndex();
+}
+
+// One streaming step: drop what is beyond the keep radius of every focus,
+// then build the nearest missing items until the budget is spent (always at
+// least one). budget < 0 = ROAD_STREAM_BUDGET; loadScene passes "all".
+void TerrainGame::roadStreamUpdate(float fx, float fz, float f2x, float f2z, bool two,
+                                   int budget) {
+  if (rsItems_.empty()) return;
+  if (budget < 0) budget = ROAD_STREAM_BUDGET;
+  const float foci[4] = {fx, fz, f2x, f2z};
+  const int nf = two ? 2 : 1;
+  // Nothing to do until a focus has moved a little or a build is pending.
+  if (!rsPending_ && nf == rsLastFoci_) {
+    bool moved = false;
+    for (int f = 0; f < nf && !moved; ++f) {
+      const float dx = foci[f * 2] - rsLastFocus_[f * 2];
+      const float dz = foci[f * 2 + 1] - rsLastFocus_[f * 2 + 1];
+      moved = dx * dx + dz * dz > 4.0F;
+    }
+    if (!moved) return;
+  }
+  for (int f = 0; f < 4; ++f) rsLastFocus_[f] = foci[f];
+  rsLastFoci_ = nf;
+  const u32 t0 = profTicks();
+  for (size_t r = 0; r < rsResident_.size();) {
+    const int item = rsResident_[r];
+    if (RsRing::keepItem(rsBoxes_[(size_t)item], foci, nf, ROAD_STREAM_KEEP)) {
+      ++r;
+      continue;
+    }
+    roadStreamDrop(item);
+    rsResident_[r] = rsResident_.back();
+    rsResident_.pop_back();
+    ++rsStatDropped_;
+  }
+  rsRing_.wanted(rsGrid_, rsBoxes_.data(), rsOn_.data(), (int)rsItems_.size(), foci, nf,
+                 ROAD_STREAM_RADIUS, rsLoad_, rsKeys_);
+  int spent = 0;
+  size_t built = 0;
+  for (; built < rsLoad_.size() && spent < budget; ++built) {
+    const RsItem& it = rsItems_[(size_t)rsLoad_[built]];
+    spent += it.verts * (it.kind == RS_STRIP ? 4 : 1) + 32;
+    roadStreamBuild(rsLoad_[built]);
+    ++rsStatBuilt_;
+  }
+  rsPending_ = built < rsLoad_.size();
+  const u32 ticks = profTicks() - t0;
+  int verts = 0;
+  size_t indexBytes = 0;
+  auto residentTotals = [&]() {
+    verts = 0;
+    indexBytes = 0;
+    for (const int item : rsResident_) {
+      verts += rsItems_[(size_t)item].verts;
+      indexBytes += rsIndex_[(size_t)item].bytes();
+    }
+  };
+  if (budget > 0x1000000) {
+    // loadScene's drain: one line, and it does not count as a frame.
+    residentTotals();
+    TYRA_LOG("ROADSTREAM load resident ", (int)rsResident_.size(), "/", (int)rsItems_.size(),
+             " vertices ", verts, " index KB ", (int)(indexBytes / 1024), " ms ",
+             (int)(ticks / 294912U));
+    rsStatBuilt_ = rsStatDropped_ = 0;
+    return;
+  }
+  rsStatTicks_ += ticks;
+  if (ticks > rsStatWorst_) rsStatWorst_ = ticks;
+  // The streaming log: a line a few seconds apart while the ring is moving -
+  // what is resident, what moved, and the worst frame's streaming cost.
+  if (++rsStatFrames_ >= 150 && (rsStatBuilt_ > 0 || rsStatDropped_ > 0)) {
+    residentTotals();
+    TYRA_LOG("ROADSTREAM resident ", (int)rsResident_.size(), "/", (int)rsItems_.size(),
+             " vertices ", verts, " index KB ", (int)(indexBytes / 1024), " built ",
+             rsStatBuilt_, " dropped ", rsStatDropped_, " busy frames ", rsStatFrames_,
+             " total us ", (int)(rsStatTicks_ / 295U), " worst us ",
+             (int)(rsStatWorst_ / 295U));
+    rsStatFrames_ = 0;
+    rsStatBuilt_ = rsStatDropped_ = 0;
+    rsStatTicks_ = rsStatWorst_ = 0;
+  }
+}
+
+// Is every surface item touching (x, z)'s cell resident? A car that is not
+// being driven only simulates where this holds (docs/roads.md "Road
+// streaming": far cars freeze rather than drop through an unbuilt road).
+bool TerrainGame::roadStreamReady(float x, float z) const {
+  const int cell = rsGrid_.cellAt(x, z);
+  if (cell < 0) return true;  // no road anywhere near: the terrain is the ground
+  for (unsigned int e = rsGrid_.start[(size_t)cell]; e < rsGrid_.start[(size_t)cell + 1]; ++e) {
+    const int item = rsGrid_.items[e];
+    if (rsItems_[(size_t)item].kind <= RS_KERB && !rsOn_[(size_t)item]) return false;
+  }
+  return true;
 }
  */
 void TerrainGame::renderProcChunks() {

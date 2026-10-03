@@ -1,1 +1,1 @@
-{ "id": "f7bea69f46948a44", "name": "Plaza tree 1", "type": "model", "position": [18.5316, 0, -71.0262], "rotation": [0, 0, 0], "scale": [1, 1, 1], "color": [1, 1, 1], "physics": false, "drawDistance": 110, "castShadow": false, "model": "res/models/urban/city-tree.obj" }
+{ "id": "f7bea69f46948a44", "name": "Plaza tree 1", "type": "model", "position": [21.5062, 0, -68.5653], "rotation": [0, 0, 0], "scale": [1, 1, 1], "color": [1, 1, 1], "physics": false, "layer": "district-4-4", "drawDistance": 110, "castShadow": false, "model": "res/models/urban/city-tree.obj" }

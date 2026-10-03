@@ -1,0 +1,1 @@
+{ "id": "cb94d6caa8c39b63", "name": "Plinth 1-11 13", "type": "box", "position": [-551.905, 0.135, 369.671], "rotation": [0, 0, 0], "scale": [81.2319, 0.27, 71.507], "color": [0.47, 0.47, 0.45], "physics": false, "collision": "none", "layer": "district-1-6", "drawDistance": 140, "castShadow": false }

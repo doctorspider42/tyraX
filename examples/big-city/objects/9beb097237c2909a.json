@@ -1,0 +1,1 @@
+{ "id": "9beb097237c2909a", "name": "Building 826", "type": "model", "position": [95.2975, 0, -251.64], "rotation": [0, 0, 0], "scale": [2.3937, 1.5877, 2.5388], "color": [1, 1, 1], "physics": false, "layer": "district-4-3", "drawDistance": 230, "castShadow": false, "model": "res/models/urban/district-tower.obj" }

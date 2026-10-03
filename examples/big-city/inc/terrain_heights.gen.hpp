@@ -397,10 +397,10 @@ inline constexpr float HM_0_HEIGHTS[4624] = {
 
 inline constexpr int HM_WS[SCENE_COUNT] = {68};
 inline constexpr int HM_DS[SCENE_COUNT] = {68};
-inline constexpr float HM_ORIGIN_XS[SCENE_COUNT] = {-670.0F};
-inline constexpr float HM_ORIGIN_ZS[SCENE_COUNT] = {-670.0F};
-inline constexpr float HM_STEP_XS[SCENE_COUNT] = {20.0F};
-inline constexpr float HM_STEP_ZS[SCENE_COUNT] = {20.0F};
+inline constexpr float HM_ORIGIN_XS[SCENE_COUNT] = {-870.0F};
+inline constexpr float HM_ORIGIN_ZS[SCENE_COUNT] = {-870.0F};
+inline constexpr float HM_STEP_XS[SCENE_COUNT] = {25.9701F};
+inline constexpr float HM_STEP_ZS[SCENE_COUNT] = {25.9701F};
 inline const float* TERRAIN_HEIGHTS_TABLES[SCENE_COUNT] = {HM_0_HEIGHTS};
 
 inline const unsigned char* TERRAIN_SPLAT_TABLES[SCENE_COUNT] = {nullptr};

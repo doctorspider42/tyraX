@@ -6164,7 +6164,10 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // yaw), seed, signs (1 give way, 2 stop), signals, signModel, signalModel -
 // holding only its non-default keys, and written only when any is set.
 // Missing = no furniture, as before. Additive; no migration step.
-inline constexpr int kFormatVersion = 101;
+// v102 (docs/roads.md, "Road streaming"): the project setting
+// "roadStreamRadius" (world units, written only when > 0). Missing = 0 = every
+// road chunk resident, as before. Additive; no migration step.
+inline constexpr int kFormatVersion = 102;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

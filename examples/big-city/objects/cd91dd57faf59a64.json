@@ -1,0 +1,1 @@
+{ "id": "cd91dd57faf59a64", "name": "Plinth 2-13 28", "type": "box", "position": [-457.161, 0.135, 575.226], "rotation": [0, 0, 0], "scale": [67.5792, 0.27, 32.4618], "color": [0.47, 0.47, 0.45], "physics": false, "collision": "none", "layer": "district-2-7", "drawDistance": 140, "castShadow": false }

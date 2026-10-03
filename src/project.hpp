@@ -2088,6 +2088,15 @@ struct ProjectSettings {
     // Gameplay is unaffected - collision and every height query read the
     // heightmap, never the mesh.
     float terrainLodDistance = 0.0f;  // world units, 0 = off
+    // Road streaming (docs/roads.md "Road streaming", format v102): the
+    // terrain view distance's twin for the road network. > 0 = the generated
+    // game keeps only the road geometry within this many units of the view
+    // focus resident - strip chunks, junction rows, kerbs, rails, bridge
+    // structure, details, street furniture and their collision boxes - and
+    // builds the rest as the player moves. 0 (the default) = every road chunk
+    // is built at scene load and stays, and the generated sources are exactly
+    // what they were before the setting existed. Saved only when > 0.
+    float roadStreamRadius = 0.0f;  // world units, 0 = off
     // Shared reflection probe: how far the captured image may be out of date
     // before the probe re-renders, IN PIXELS OF ITS OWN 128-pixel target
     // (docs/reflective-materials.md, "The reuse budget"). The probe already
@@ -2608,6 +2617,7 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.terrainDetail == b.terrainDetail &&
            a.terrainViewDistance == b.terrainViewDistance &&
            a.terrainLodDistance == b.terrainLodDistance &&
+           a.roadStreamRadius == b.roadStreamRadius &&
            a.reflectionReuseBudget == b.reflectionReuseBudget &&
            a.reflectionGroundRadius == b.reflectionGroundRadius &&
            a.reflectionScenery == b.reflectionScenery &&

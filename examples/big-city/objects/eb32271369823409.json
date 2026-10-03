@@ -1,0 +1,1 @@
+{ "id": "eb32271369823409", "name": "Building 819", "type": "model", "position": [73.7204, 0, -302.46], "rotation": [0, 0, 0], "scale": [2.4183, 1.5599, 1.7278], "color": [1, 1, 1], "physics": false, "layer": "district-4-2", "drawDistance": 300, "castShadow": false, "model": "res/models/urban/city-highrise-2.obj" }

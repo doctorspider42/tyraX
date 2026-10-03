@@ -1550,6 +1550,15 @@ void TerrainGame::renderScene() {
   }
   renderTerrain();
   costEnd("Terrain",-1,costTerrainStart);
+  if (!splitSecondPass) {
+    // Road streaming (docs/roads.md "Road streaming").
+    const u32 ct = costStart();
+    const bool p2Road = playerTwoActive && players[1].objIndex >= 0;
+    roadStreamUpdate(cameraLookAt.x, cameraLookAt.z,
+                     p2Road ? players[1].x : 0.0F,
+                     p2Road ? players[1].z : 0.0F, p2Road, -1);
+    costEnd("Road_stream",-1,ct);
+  }
   { const u32 ct=costStart(); buildOcclusionBuffer(); costEnd("Occlusion",-1,ct); }
   // Static batches: one submit per material x cell group of the non-moving
   // primitives (rebuilt first when a member changed). Opaque z-tested

@@ -1,34 +1,44 @@
 # Big City
 
-A procedurally generated city, about a kilometre across, built to find out how
+A procedurally generated city, about 1.4 kilometres across, built to find out how
 TyraX and the PS2 behave on a map this large. Open `big-city.tyra` in TyraX and
 build the project. You start in the Ravager next to the central plaza; drive
 anywhere inside the ring road (Square gets you out).
 
-![Big City running in PCSX2: the Ravager on a downtown avenue](../../docs/img/big-city-pcsx2.png)
+![Big City running in PCSX2: the Ravager on a downtown avenue, 20.3 of 32 MB used](../../docs/img/big-city-pcsx2.png)
+
+It fits in the EE's 32 MB because almost nothing in it is resident at once:
+the roads stream by distance ([road streaming](../../docs/roads.md#road-streaming-format-102),
+260 units) and the buildings, trees, lamps and parked cars live in 200-unit
+district layers that load and unload around the car
+([auto-streamed layers](../../docs/streaming-layers.md#a-city-districts-plus-road-streaming)).
+The first version of this city, 1 km across with everything resident, used
+27.9 MB and was the largest that fitted.
 
 ## What is in it
 
 Everything is written by [`authoring/generate-city.py`](authoring/generate-city.py)
 from one seed. With the shipped knobs:
 
-- **78 roads, 31 km of centre line, 214 nodes**: a perturbed grid of ten avenues
+- **120 roads, 56 km of centre line**: a perturbed grid of fourteen avenues
   and streets per axis (4-lane straight avenues, 2-lane gently wobbling streets),
-  a closed superellipse **ring road** (6 lanes), a **diagonal boulevard** whose
-  every grid node is a six-armed node and which carries a **double tram line**,
-  a shorter second diagonal ending in a five-armed node, a sinuous **river
-  boulevard** crossing the grid at oblique angles, mid-block **lanes** (T's at
-  both ends, or dead ends with one T), four **spurs** that leave the ring and
-  split into **Y forks** at the map edge, closed cobble **park paths**, and a
-  **double-track railway** arc outside the ring: Spur 2 crosses it at a level
-  crossing and Spur 1 flies over it on a **bridge** with piers.
+  a closed superellipse **ring road** (6 lanes, radius 700), a **diagonal
+  boulevard** whose every grid node is a six-armed node and which carries a
+  **double tram line**, a shorter second diagonal ending in a five-armed node, a
+  sinuous **river boulevard** crossing the grid at oblique angles, mid-block
+  **lanes** (T's at both ends, or dead ends with one T), four **spurs** that
+  leave the ring and split into **Y forks** at the map edge, closed cobble
+  **park paths**, and a **double-track railway** arc outside the ring: Spur 2
+  crosses it at a level crossing and Spur 1 flies over it on a **bridge** with
+  piers.
 - **Kerbs, pavements, road details** (manholes, gullies, patches, cracks) and
   zebra crossings on the *core* roads (the grid lines nearest the centre, the
   tram diagonal and the downtown lanes); stop/edge-line paint downtown only.
-- **1 283 objects**: 623 buildings (lean Kenney-derived shells plus generated
-  stacked towers up to 80 m downtown, tapering to lofts and workshops outside),
-  71 block plinths, 350 trees (parks, plaza, core avenues), 104 street lamps,
-  17 parked cars, 21 benches, the plaza, the player and the car.
+- **2 420 objects** (the roads among them): 1 462 buildings (lean
+  Kenney-derived shells plus generated stacked towers up to 80 m downtown,
+  tapering to lofts and workshops outside), 176 block plinths, 449 trees (parks,
+  plaza, core avenues), 145 street lamps, 28 parked cars, 21 benches, the plaza,
+  the player and the car, in **51 district layers**.
 
 All the road features come from [docs/roads.md](../../docs/roads.md). The
 buildings, trees and benches are the Motor District's CC0 Kenney assets
@@ -48,125 +58,145 @@ tyrax-editor --build examples/big-city
 `--resave`, so every file is exactly what the editor would write. The script is
 deterministic: same seed and knobs, same files. It only rewrites the `main`
 scene's objects, its terrain and layer list and a handful of settings (fog,
-view distance, batching, lighting); vehicles, input, menus and fonts in the
-`.tyra` are left alone. Every knob is documented at the top of the script and
-can be overridden for one run, e.g. `--set GRID_LINES=12 --set KERBS=False`.
-`road_object()` is the one place a road's fields are written.
+view distance, road streaming, batching, lighting); vehicles, input, menus and
+fonts in the `.tyra` are left alone. Every knob is documented at the top of the
+script and can be overridden for one run, e.g. `--set GRID_LINES=10 --set
+RING_RADIUS=500.0 --set TERRAIN_SIZE=1340` for the 1 km city. `road_object()`
+is the one place a road's fields are written.
 
 ## Optimisation, up front
 
-- **Fog and draw distances** are the LOD here. Fog 90 to 220 units; buildings
+- **Streaming is the memory budget.** `ROAD_STREAM = 260` (the project's road
+  stream radius) and `STREAM_LAYERS` with `DISTRICT_SIZE = 200` and
+  `STREAM_MARGIN = 150`: each district's zone reaches 292 units from its centre
+  and unloads at 344. Set `ROAD_STREAM=None` and `STREAM_LAYERS=False` and the
+  city no longer fits (the 1 km one does, at 27.9 MB).
+- **Fog and draw distances** are the LOD. Fog 90 to 220 units; buildings
   drawn to 230 (downtown towers 300, for the skyline), trees 110, lamps 70,
   parked cars 80, benches 55. Kerb, rail and detail chunks keep their own short
-  draw distances.
-- **Static batching** merges 1 117 of the objects into 149 batches.
+  draw distances; the roads stream at 260, past the fog.
 - **Terrain streaming**: a 240-unit chunk ring, terrain LOD from 110, and a
   20-unit grid (the city is flat, so more cells would only cost RAM).
 - **Cheap props**: every instanced vertex costs EE RAM (below), so the street
   trees and lamps are 14 triangles each instead of the 152/192 of the Kenney
   ones (`LOWPOLY_PROPS`), and street furniture follows the core roads only.
-- **Off**: conservative occlusion culling (measured below: 3.6 ms to build the
-  visibility buffer, nothing saved, because the occluders, the buildings, are
-  themselves never culled) and baked GI/AO/shadows (bake time on 1 300 objects).
+- **Off**: static batching does nothing here (layered objects are never
+  batched: `Static batching: 0 objects in 0 batches`), conservative occlusion
+  culling (measured on the 1 km city: 3.6 ms to build the visibility buffer,
+  nothing saved, because the occluders, the buildings, are themselves never
+  culled) and baked GI/AO/shadows (bake time on 2 400 objects).
 
 ## Measured (PCSX2, 2026-10-03)
 
-Debug build, NTSC progressive, frozen walker (`POSE`), HUD numbers after the
-scene settled, `--profile-frame` totals over three captures (the profile drains
-the pipeline, so its Total is attribution, not frame time).
+Debug build, NTSC progressive, HUD numbers after the scene settled. The parked
+poses are a frozen walker (`POSE`, eye 1.8, heading 0) with `interleavePasses`
+pinned off and three `--profile-frame` captures each (the profile drains the
+pipeline, so its Total is attribution, not frame time).
 
-| pose | HUD FPS | HUD FRAME / SCENE ms | profile Total ms | MEM |
-|---|---:|---:|---:|---:|
-| car at spawn, downtown avenue | 55.9 | 17.35 / 7.45 | 12.7 | 27.9 / 32 MB |
-| downtown, eye 1.8, along the plaza avenue (-42, -100) | 59.9 | 16.69 / 6.65 | 13.9-16.3 | 27.1 |
-| midtown (-226, -100) | 59.9 | 16.69 / 6.60 | 12.0-15.5 | 27.1 |
-| ring road, city edge (-497, -100) | 59.9 | 16.68 / 3.62 | 7.7-8.4 | 26.4 |
-| raised, eye 40 over downtown, 12 degrees down | 59.9 | 16.68 / 3.99 | 8.2-9.2 | 26.3 |
+**The shipped 1.4 km city:**
 
-`Roads` is a steady 0.8-1.0 ms of the profile at every pose and `Objects` the
-rest (4-11 ms). VRAM 3.2-3.3 / 4 MB. With occlusion culling on, the downtown and
-midtown profiles read 15.3-16.3 ms with an `Occlusion` row of 3.4-3.7 ms.
+| pose | HUD FPS | SCENE ms | profile Total ms | `Roads` ms | MEM |
+|---|---:|---:|---:|---:|---:|
+| car at spawn, downtown avenue | 59.9 | 4.82-5.00 | | | 19.9-20.3 / 32 MB |
+| downtown (-42, -100) | 59.9 | 6.92 | 14.2-15.0 | 2.3-2.6 | 20.7 |
+| midtown (-326, -100) | 59.9 | 4.77 | 11.9-13.4 | 1.6 | 19.0 |
+| ring road, city edge (-697, -100) | 59.9 | 2.36 | 6.9-8.0 | 0.9 | 15.8 |
+| raised, eye 40 over downtown, 12 degrees down | 59.9 | 5.96 | 14.3-17.3 | 2.2 | 19.9 |
+| driving south from spawn, 26 units/s | 48-58 | 7.5-8.1 | | | 20.4-21.6 |
 
-**Boot**: about 15 s from launching PCSX2 to the first frame: 10 s to engine
-init (the 6.0 MB ELF over `host:`), then 1.5 s of objects and batching, 1.2 s of
-roads and 0.7 s for the road height index. The build: `scene_data.hpp` is a
-4.9 MB generated source (the baked road tables); a warm incremental build is
-about 70 s.
+**The same 1 km city, before and after** (same seed, `GRID_LINES=10`,
+`RING_RADIUS=500.0`, `TERRAIN_SIZE=1340`, no layers):
+
+| | MEM at spawn | MEM driving | downtown FPS / SCENE | downtown `Roads` | downtown `Total` |
+|---|---:|---:|---:|---:|---:|
+| everything resident | 27.9 MB | 28.6-29.1 MB | 30.0 / 12.76 ms | 8.5-8.6 ms | 17.2-18.1 ms |
+| roads streamed (260) | 21.8 MB | 20.8-22.7 MB | 59.9 / 7.23 ms | 3.1 ms | 12.8-13.9 ms |
+| roads and districts | 17.8 MB | 17.9-18.7 MB | | | |
+
+(The downtown row of the first table in the old README read 59.9 FPS with
+interleaving on `auto`; pinned off, as here, the road pass waits for VU1 and
+the unstreamed city drops to 30.)
+
+**Streaming while driving** (`ROADSTREAM` lines): the 1.4 km city keeps 465 of
+its 2 377 road items (35 814 vertices, 288 KB of height index) resident at
+spawn, 120-330 at the city edge. Built and dropped 200-540 items per 150 busy
+frames, about 1.2 ms of EE time a frame on average, the worst frame 4.1-5.6 ms
+(one dense strip chunk; docs/roads.md "Road streaming", Limits). The car's
+wheels stayed on the asphalt the whole way (`VEHCONTACT ... roadlift1000
+119-140`), and districts load and unload around it (`LAYER 24 load`, `LAYER 18
+unload`, ...).
+
+**Boot**: the road plan takes 1.4 s and the first ring 0.3 s (`ROADSTREAM
+plan ... ms 1384`, `ROADSTREAM load ... ms 279`); the ELF is 6.9 MB.
 
 The acceptance lines from `bin/log.txt`:
 
 ```
-Static batching: 1117 objects in 149 batches
-ROADKERB scene 0 chunks 285 vertices 21597 packages 424 triangles 14212   (kerbs + rails)
-ROADBRIDGE scene 0 chunks 8 vertices 726
-ROADBRIDGE scene 0 walls 30
-ROADDETAIL scene 0 chunks 122 vertices 2460 triangles 820
-ROADS scene 0 chunks 1134 vertices 89043
-ROADSTRIP scene 0 strips 1 packages 1667 triangles 50186
-ROADINDEX cells 128x128 entries 175775
+ROADS scene 0 chunks 1772 vertices 133746 (streamed)
+ROADSTRIP scene 0 strips 1 packages 2528 triangles 81651
+ROADSTREAM plan scene 0 items 2377 cells 29x29 radius 260 keep 300 spill vertices 0 ms 1384
+ROADSTREAM load resident 465/2377 vertices 35814 index KB 288 ms 279
 ```
 
 ## Limits found
 
-**EE RAM is the wall, long before frame time.** Every larger version that was
-tried ends in `std::bad_alloc` during scene load: the game hangs on a black
-screen after `VEH controls card`, and only the EE console says why (run a PCSX2
-of your own with `-datapath <dir> -logfile <dir>\emulog.txt`, so you do not
-switch logging on for every other emulator on the machine). The emulator's `MEM`
-readout, by configuration:
+**EE RAM is the wall, long before frame time.** An out-of-memory scene load is
+a black screen after `VEH controls card`, with nothing in `bin/log.txt`; only
+the EE console says `std::bad_alloc` (run a PCSX2 of your own with `-datapath
+<dir> -logfile <dir>\emulog.txt`, so you do not switch logging on for every
+other emulator on the machine). The emulator's `MEM` readout, by configuration:
 
 | configuration | MEM |
 |---|---:|
-| roads off, 288 objects (128 of them 152-triangle Kenney trees) | 15.3 MB |
-| + 962 buildings | about 21 MB |
-| roads off, 1 394 trees of 28 triangles | 27.1 MB |
-| 1.4 km city (12 grid lines), roads only, no pavements/rails | 24.2 MB |
-| 1 km city, all road features, pavements on the core grid lines too | 26.1 MB |
-| 1 km city, all road features, no pavements | about 22 MB |
-| **shipped: 1 km city, everything** | **27.1-27.9 MB** |
-| 1.4 km city, all road features, roads only | out of memory |
-| 1.4 km city, 3 562 objects (first version) | out of memory |
+| 1 km, everything resident (the first version) | 27.1-27.9 MB |
+| 1 km, roads streamed | 20.8-22.7 MB |
+| 1 km, roads and districts streamed | 17.8-18.7 MB |
+| **shipped: 1.4 km, roads and districts streamed** | **15.8-21.6 MB** |
+| 1.4 km, kerbs and furniture on every road (4 946 objects, 212 514 road vertices, 11.8 MB ELF) | 30.7 MB at spawn |
+| 1.4 km, plus pavements on every street (659 334 road vertices, 20.8 MB ELF) | out of memory at load |
+| 1.4 km, everything resident | out of memory (the first version's finding) |
 
 What that works out to:
 
+- **The ELF is the next wall.** Streaming frees the expanded runtime copies;
+  the baked road tables (`ROAD_JUNCTION_VERTS`, `ROAD_KERB_VERTS`,
+  `ROAD_FURN_VERTS`) and the scene table are `.rodata`, loaded with the ELF and
+  resident for good. Kerbs and furniture everywhere took the ELF from 6.9 to
+  11.8 MB; pavements everywhere to 20.8 MB. Loading the road tables per item
+  from a file is the next step (docs/backlog.md).
 - **A static object costs roughly 70-110 bytes of EE RAM per vertex it draws**,
   whatever the object is: the 28-triangle tree cost about 9 KB, a 22-triangle
   building about 6 KB. Each instance keeps its own expanded vertex, colour and
-  UV arrays, and static batching then makes a second, merged copy. Instances of
-  one model share nothing. Turning batching off did not rescue a 1 km
-  configuration with 1 809 objects either (out of memory both ways). This, not the triangle count on screen, is what limits how much
-  city fits.
-- **Road surfaces cost about 60 bytes per vertex**, plus the baked tables in the
-  ELF (`ROAD_JUNCTION_VERTS`, `ROAD_KERB_VERTS`: 3.3 MB of `.rodata` on the
-  first version). Pavements on the core grid lines added about 4 MB on their
-  own (the `ROADS` vertex count went from 79 539 to 122 427), which is why the
-  shipped city puts them only on the tram diagonal and the downtown lanes.
+  UV arrays. Layers are what make this affordable: only the districts near the
+  car hold theirs.
+- **Road surfaces cost about 60 bytes per vertex** while resident, plus the
+  baked tables. Road streaming keeps about a third of the network (at 260
+  units) and its per-chunk height index costs ~8 bytes per resident vertex.
 - **A `.glb` placed as a plain model object loads as an animated DynamicMesh,
   once per instance** (`Frames count should be greater than 1 for DynamicMesh`
   in the log). 143 parked cars using the vehicles' far `.glb` models hung the
   first boot after 77 of them; the parked car is a 36-triangle OBJ now.
-- **The road height index held only 1 024 proc chunks** (10 bits of chunk index
-  in `buildRoadHeightIndex`). The first version had 1 210 kerb and 1 029 road
-  chunks; this city has 1 134 road chunks alone. Every road chunk past the
-  1 024th was missing from the index, so wheels and walkers there stood on the
-  terrain under the asphalt. Fixed in this change: 13 bits of chunk (8 192) and
-  19 of vertex, and anything still out of range is logged (`ROADINDEX skipped`)
-  instead of dropped silently. See [docs/roads.md](../../docs/roads.md#kerb-collision).
+- **The road height index held only 1 024 proc chunks** in the first version
+  (10 bits of chunk index); now 13/19 bits, and a streamed project indexes
+  each chunk on its own anyway.
 - **Kerb chunks are small**: at 32-unit cells, kerbs on every street were 1 210
   chunks of about 80 vertices each, and every chunk is a separate submit and
   allocation.
-- **Streaming layers did not rescue the 1.4 km city**: with
-  `STREAM_LAYERS=True` (200-unit districts) the resident set at the central
-  spawn still ran out of memory. Not re-tried on the 1 km city.
+- **Zones must be sized from the draw distances**: 300-unit districts with a
+  160 margin (the first try, with every road still resident) kept most of the
+  city resident at the centre and ran out of memory at 1.4 km. 200 with 150,
+  plus road streaming, works.
 
 ## Not verified
 
-- Driving the whole city with the pad, and the frame rate while moving: every
-  number above is a parked camera.
-- That a car on a road chunk past the old 1 024th now rides on the asphalt: the
-  fix is by construction and the log shows nothing skipped, but no capture
-  compares the two.
-- A physical PS2 (emulator only).
+- A physical PS2 (emulator only): the streaming frame cost and the
+  unbatched-city submit count are PCSX2 numbers.
+- Driving every street: the pad drives were straight runs down an avenue (and
+  a turn that ended in a tree); the parked-car freeze has no far AI car to
+  freeze in this city.
+- Pop-in of a far building as its district loads: the zone reaches 292 units
+  and the buildings draw to 230 through fog that ends at 220, so a building at
+  a district's far corner can appear inside the fog band. Not looked for.
 
 ## Files
 

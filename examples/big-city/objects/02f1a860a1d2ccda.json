@@ -1,1 +1,1 @@
-{ "id": "02f1a860a1d2ccda", "name": "Plaza lamp 4", "type": "model", "position": [-16.5015, 0, -96.2544], "rotation": [0, 180, 0], "scale": [1, 1, 1], "color": [1, 1, 1], "physics": false, "drawDistance": 70, "castShadow": false, "model": "res/models/urban/city-lamp.obj" }
+{ "id": "02f1a860a1d2ccda", "name": "Plaza lamp 4", "type": "model", "position": [-13.5269, 0, -93.7934], "rotation": [0, 180, 0], "scale": [1, 1, 1], "color": [1, 1, 1], "physics": false, "layer": "district-4-3", "drawDistance": 70, "castShadow": false, "model": "res/models/urban/city-lamp.obj" }

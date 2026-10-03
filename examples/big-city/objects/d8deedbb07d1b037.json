@@ -1,1 +1,1 @@
-{ "id": "d8deedbb07d1b037", "name": "Lamp 77", "type": "model", "position": [439.886, 0, 43.7948], "rotation": [0, 360.608, 0], "scale": [1, 1, 1], "color": [1, 1, 1], "physics": false, "drawDistance": 70, "castShadow": false, "model": "res/models/urban/city-lamp.obj" }
+{ "id": "d8deedbb07d1b037", "name": "Lamp 77", "type": "model", "position": [282.028, 0, -32.9464], "rotation": [0, 180, 0], "scale": [1, 1, 1], "color": [1, 1, 1], "physics": false, "layer": "district-5-4", "drawDistance": 70, "castShadow": false, "model": "res/models/urban/city-lamp.obj" }

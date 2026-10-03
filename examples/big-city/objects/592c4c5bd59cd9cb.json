@@ -1,0 +1,1 @@
+{ "id": "592c4c5bd59cd9cb", "name": "Building 631", "type": "model", "position": [-67.7209, 0, -6.2], "rotation": [0, 0, 0], "scale": [3.1571, 1.5626, 1.8218], "color": [1, 1, 1], "physics": false, "layer": "district-4-4", "drawDistance": 300, "castShadow": false, "model": "res/models/urban/city-highrise-5.obj" }

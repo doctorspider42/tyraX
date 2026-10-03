@@ -1,0 +1,1 @@
+{ "id": "d65ffa4e07a1f0dc", "name": "Building 1020", "type": "model", "position": [304.366, 0, -519.921], "rotation": [0, 0, 0], "scale": [2.159, 1.3398, 2.0302], "color": [1, 1, 1], "physics": false, "layer": "district-5-1", "drawDistance": 230, "castShadow": false, "model": "res/models/urban/district-loft.obj" }

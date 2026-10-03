@@ -1,0 +1,1 @@
+{ "id": "6a3b6f9fc0cb8c93", "name": "Building 697", "type": "model", "position": [-24.0403, 0, -378.95], "rotation": [0, 0, 0], "scale": [1.9829, 1.6885, 2.166], "color": [1, 1, 1], "physics": false, "layer": "district-4-2", "drawDistance": 230, "castShadow": false, "model": "res/models/urban/district-loft.obj" }

@@ -1923,6 +1923,12 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
          << ",\n"
          << "    \"terrainLodDistance\": "
          << fmtFloat(p.settings.terrainLodDistance) << ",\n"
+         // Written only when on (format v102), so a project without road
+         // streaming saves exactly what it did before.
+         << (p.settings.roadStreamRadius > 0.0f
+                 ? "    \"roadStreamRadius\": " + fmtFloat(p.settings.roadStreamRadius) +
+                       ",\n"
+                 : std::string())
          << "    \"reflectionReuseBudget\": "
          << fmtFloat(p.settings.reflectionReuseBudget) << ",\n"
          << (p.settings.reflectionGroundRadius > 0.0f
@@ -6574,6 +6580,11 @@ static void readSettingsSection(const json::Value& root, Project& out) {
         if (const auto* v = s->find("terrainLodDistance")) {
             st.terrainLodDistance = (float)v->numberOr(0.0);
             if (st.terrainLodDistance < 0.0f) st.terrainLodDistance = 0.0f;
+        }
+        // v102 (docs/roads.md "Road streaming"): missing = 0 = off.
+        if (const auto* v = s->find("roadStreamRadius")) {
+            st.roadStreamRadius = (float)v->numberOr(0.0);
+            if (!(st.roadStreamRadius > 0.0f)) st.roadStreamRadius = 0.0f;
         }
         // A project written before v55 has no key and keeps the default 1.0
         // pixel, which is sub-pixel on the 128-pixel target: the reuse is

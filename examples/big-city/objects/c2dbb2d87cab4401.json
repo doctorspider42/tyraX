@@ -1,0 +1,1 @@
+{ "id": "c2dbb2d87cab4401", "name": "Plinth 1-10 12", "type": "box", "position": [-552.321, 0.135, 277.097], "rotation": [0, 0, 0], "scale": [80.3992, 0.27, 73.4423], "color": [0.47, 0.47, 0.45], "physics": false, "collision": "none", "layer": "district-1-5", "drawDistance": 140, "castShadow": false }

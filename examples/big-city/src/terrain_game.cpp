@@ -2223,8 +2223,13 @@ void TerrainGame::updateLayerStreaming() {
   // center for orbit showcases) - and player 2's avatar while active, so a
   // zone loads when EITHER player enters and unloads only when both leave.
   if ((int)layerAutoInside.size() == lc) {
-    const float px = cameraLookAt.x;
-    const float pz = cameraLookAt.z;
+    float px = cameraLookAt.x;
+    float pz = cameraLookAt.z;
+    // Driving: the car is the focus (the walker waits at its door).
+    if (vehicleDriver_ >= 0 && vehicleDriver_ < vehicleCount_) {
+      px = vehicles_[vehicleDriver_].pos[0];
+      pz = vehicles_[vehicleDriver_].pos[2];
+    }
     const bool p2 = playerTwoActive && players[1].objIndex >= 0;
     const float ZONE_HYSTERESIS = 8.0F;  // unload band beyond the zone edge
     for (int l = 0; l < lc; ++l) {
@@ -2290,9 +2295,11 @@ void TerrainGame::updateLayerStreaming() {
       layerTarget[l] = 1;
       layerState[l] = 1;  // loading - assets stream in below
       changed = true;
+      TYRA_LOG("LAYER ", l, " load");
     } else if (req == 0 && layerTarget[l] != 0) {
       layerTarget[l] = 0;
       changed = true;
+      TYRA_LOG("LAYER ", l, " unload");
     }
   }
 

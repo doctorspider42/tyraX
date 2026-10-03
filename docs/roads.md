@@ -1277,6 +1277,162 @@ the trees without moving them; an `.obj` model is instanced with its own
 triangles and colours; and the settings round-trip with nothing saved at the
 defaults.
 
+## Road streaming (format 102)
+
+**Project > Preferences > World > Road stream radius** keeps only the road
+geometry near the camera in memory. With a radius above 0 the game builds every
+road chunk within that many units of the view focus and frees the ones that
+fall further than radius + 40 behind; the rest of the network is built, a few
+chunks a frame, as the player moves. It is the terrain view distance's twin for
+the road network, and the reason a generated city larger than 1 km fits in the
+PS2's 32 MB (examples/big-city went from 27.9 MB at spawn to 21.8 MB with roads
+streamed, and from 1 km to 1.4 km once its districts streamed too).
+
+Everything a road makes streams: the EE-tessellated strips, junction rows
+(node patches, paint, bridge decks), spills, soft edges, kerbs and rails,
+bridge structure, road details, street furniture, and the collision boxes of
+bridge walls and furniture. The baked tables in the ELF do not (see Limits).
+0 (the default) builds every road at scene load as before, and the generated
+sources are byte-for-byte what they were before the setting existed (checked:
+the Motor District regenerates unchanged). The value is saved only when set.
+Live Link is not involved: changing it needs a rebuild, like the terrain view
+distance.
+
+**Choosing the radius.** Keep it past the fog end and the terrain view
+distance, so a chunk is built while it is still fogged out or off the terrain
+ring; the **Suggest** button next to the field uses the larger of the two plus
+half a cell. The road pass has no draw distance of its own, so anything beyond
+the fog is wasted memory rather than something you see.
+
+### How it runs
+
+- **The plan.** At scene load `roadStreamSetup` walks every road once with
+  buildRoads' own tessellator, but keeps no geometry: each time buildRoads
+  would start a new chunk, it records an ITEM - the road, the station BEFORE
+  the chunk's first span and the arc-length state that station started from -
+  and the chunk's XZ box and vertex count. Junction rows, spills, edges,
+  kerbs, bridge rows, details, furniture rows and every collision box become
+  items too, their boxes read from the tables. The `ROADS`/`ROADSTRIP` lines
+  are printed from the plan and match the full build exactly (city: `chunks
+  1134 vertices 89043`, `packages 1667 triangles 50186`, the same numbers as
+  without streaming). It costs what building the roads used to: 0.8 s on the
+  1 km city, 1.4 s on the 1.4 km one.
+- **The replay.** Building a strip item resumes the tessellator at that
+  station: the station rebuilds the row the first span needs (it emits nothing,
+  `havePrev` is still false), and the replay stops where buildRoads would have
+  opened the next chunk. A replayed chunk is the planned chunk vertex for
+  vertex (the vertex count is checked on every build; `ROADSTREAM replay
+  mismatch` would name one). Every other item is a copy of its rows.
+- **One source.** None of that code is retyped. `roadstream::emit`
+  (src/roadstream.cpp) CUTS the streaming runtime out of the non-streaming
+  build's own text - buildRoads' per-road loop, its junction/spill/edge
+  uploads, the kerb, bridge, detail and furniture upload blocks and
+  procFinishChunks' per-chunk body - at fixed anchors, and wraps them. An
+  anchor that stops matching becomes an `#error` in the generated source, and
+  `--vehicle-check` "road streaming" generates a streaming project with every
+  road feature to prove each anchor still holds.
+- **The ring.** `roadStreamUpdate` runs once a frame after the terrain's ring
+  (profiler row `Road_stream`), focused on `cameraLookAt` and on player 2
+  while active. It drops every resident item whose box is further than
+  radius + 40 from both foci, then builds the missing items within the radius,
+  nearest first, until a budget is spent: 600 vertex units a frame, a strip
+  vertex counting 4 (it is tessellated, with terrain heights) and a baked one
+  1, plus 32 per item. The first item is always built, so the budget bounds
+  what a frame starts, not one item. At scene load the drain is unbounded.
+  Nothing is done in a frame where no focus moved more than 2 units and
+  nothing is pending.
+- **Where the items live.** Built items occupy procChunks slots tagged with
+  their item (`instance = -2 - item`); a dropped item's slot is freed (owner
+  -8) and reused, so procChunks never shifts under the other items. Anything
+  else that erases from procChunks (a prefab despawn, a regenerated volume)
+  is caught by the tags and remapped; a reallocation re-binds every bag (a
+  bag holds the address of its array's content stamp).
+- **The height index.** A streamed project does not use the global
+  `ROADINDEX` grid (it would be rebuilt on every load and unload: 0.7 s for
+  the 1 km city's 175 775 entries). Each surface chunk (owners -3 and -4) gets
+  its own copy of that grid, ~4-unit cells over its own box, built with the
+  chunk and freed with it, and a static 64-unit cell grid over all item boxes
+  says which items touch a point. `roadSurfaceAt` asks the resident ones. At
+  spawn in the 1 km city that is 299 KB of index for 41 256 resident surface
+  vertices. `TYRA_ROAD_INDEX_VERIFY` still checks it against the scan of every
+  resident triangle: 80 000 queries, 0 mismatches, driving the Motor District
+  with a radius of 80 (chunks loading and dropping all the way).
+- **Spills** are lifted onto the road under them by `roadSurfaceAt` over the
+  COMPLETE road set, which a streamed scene never holds. The plan pass does
+  the lift instead, as it walks every strip and junction chunk (the same
+  triangle test, the same maximum), and keeps one float per spill vertex
+  (1 743 in the Motor District). Soft edges only need the terrain.
+- **Collision boxes** (bridge walls -5, furniture -7) are items of their own
+  and come and go from `procColliders` with their box.
+- **Cars nobody drives freeze where their roads are not built.** A parked or
+  AI car whose 64-unit cell has a surface item that is not resident sleeps in
+  place (the parked-car sleep path) instead of dropping 0.12 units onto the
+  terrain - or through a bridge deck - and being found there when the ring
+  comes back. It wakes when the cell is ready. The driven car is never frozen;
+  the radius keeps far ahead of it (26 units/s down a city avenue: wheels on
+  the asphalt for 590 units, `roadlift1000 119-140` all the way).
+- **Layers in a vehicle project.** Auto-streamed layer zones used to read the
+  walker's position while you drove (it waits at the car's door), so a whole
+  city kept its spawn districts. A project with auto-stream layers and
+  vehicles now focuses them on the driven car (docs/streaming-layers.md).
+
+`ROADSTREAM` lines in `bin/log.txt` are the acceptance lines:
+
+```
+ROADSTREAM plan scene 0 items 1579 cells 22x22 radius 260 keep 300 spill vertices 0 ms 799
+ROADSTREAM load resident 544/1579 vertices 43053 index KB 313 ms 300
+ROADSTREAM resident 265/1579 vertices 18117 index KB 164 built 139 dropped 418 busy frames 150 total us 136094 worst us 8009
+```
+
+The third is printed every 150 frames in which the ring moved: resident items
+of all items, their vertices and index, what was built and dropped, and the
+total and worst EE time the streaming took in those frames.
+
+### What it costs and saves (PCSX2)
+
+1 km city (78 roads, 1 283 objects), NTSC progressive, `interleavePasses` off,
+three `--profile-frame` captures per arm:
+
+| | MEM at spawn | MEM driving | downtown pose `Roads` | downtown `Total` |
+|---|---:|---:|---:|---:|
+| everything resident | 27.9 MB | 28.6-29.1 MB | 8.5-8.6 ms | 17.2-18.1 ms |
+| roads streamed (260) | 21.8 MB | 20.8-22.7 MB | 3.1 ms | 12.8-13.9 ms |
+
+The frame got cheaper as well as smaller: the road pass no longer walks 1 600
+chunks to reject most of them. While driving at 26 units/s the streaming took
+136 ms of EE time over 150 busy frames (about 0.9 ms a frame) with a worst
+frame of 8 ms at a budget of 1 600; at the shipped 600 the worst was 4-6 ms
+(4.1-5.6 ms in the 1.4 km city, 6.4 ms in the hilly Motor District). That
+worst frame is one dense strip chunk - see Limits.
+
+### Limits
+
+- **The ELF tables stay resident.** Streaming frees the expanded runtime copies
+  (~60 bytes a vertex plus the bags); the baked rows in `.rodata`
+  (`ROAD_JUNCTION_VERTS`, `ROAD_KERB_VERTS`, `ROAD_FURN_VERTS`, ...) are loaded
+  with the ELF and stay. They become the limit next: the 1.4 km city with kerbs
+  and furniture on every road was an 11.8 MB ELF at 30.7 MB, and with
+  pavements everywhere a 20.8 MB ELF that never reached a frame. Reading each
+  item's rows from a file when it is built is the next step (docs/backlog.md).
+- **One item is built in one frame.** A dense strip chunk (up to ~1 800
+  vertices on hills) is a 4-6 ms frame however small the budget.
+- **Nothing is drawn past the radius**, so a radius inside the fog shows the
+  network ending. Use the suggestion.
+- **Far cars stop, they do not drive on.** An AI car on a waypoint loop outside
+  the ring stands still until the player comes back.
+- Verified in PCSX2 only: the 1 km and 1.4 km big-city, and the Motor District
+  forced to a radius of 80. Not on a physical PS2.
+
+`--vehicle-check` "road streaming" checks the cut (every chunk has exactly one
+home cell, the grid lists a chunk in exactly the cells its box touches, the
+streamed units add up to the whole build), the height index (per-chunk indexes
+answer exactly what a scan of every resident triangle answers, with everything
+resident and after every step of a load/unload walk, and equal a rebuild from
+scratch), the ring (everything within the radius resident, nothing past the
+keep band, nearest first), the spill lift's arithmetic, and the codegen (every
+anchor matches, a streaming project gets every piece and hook, and streaming
+off generates no streaming code at all).
+
 ## Physical-PS2 texture coordinates and the strip default
 
 Roads reach VU1 as **triangle strips** by default. A temporary triangle-list
@@ -1399,6 +1555,7 @@ canonicalizes only that integer part; positions and fractional UVs remain exact.
 | `src/junction_ui.cpp` | Junction markers, selection and the Junction section (overrides). |
 | `src/roadtex.cpp/.hpp`, `src/roadtex_ui.cpp` | The Road Texture Generator ([road-textures.md](road-textures.md)). |
 | `src/roaddetail.cpp/.hpp` | Road details: placement, the surface-following decal bake and the details atlas ("Road details"). |
+| `src/roadstream.cpp/.hpp`, `src/roadstream_core.inl` | Road streaming: the codegen that cuts the streaming runtime out of the non-streaming source, the template hooks, the core (item boxes, cell grid, per-chunk height index, ring) compiled into the editor AND pasted into the game, `--vehicle-check` "road streaming" ("Road streaming"). |
 | `src/roadfurniture.cpp/.hpp`, `src/roadfurniture_ui.cpp` | Street furniture: placement, the built-in models, `.obj` instancing, the console tables and upload, `--vehicle-check` "road furniture", and the Properties section ("Street furniture"). |
 
 ## Adaptive street geometry budget (1.86.3)
@@ -1849,7 +2006,9 @@ Two things worth knowing if you touch this. An off-road query agrees trivially
 nothing — the falsification arm stayed green for 40 000 queries for exactly
 that reason. And the index keys chunks by their index in `procChunks`, so it is
 rebuilt whenever that list changes size as well as when `buildRoads` marks it
-dirty.
+dirty. A project that streams its roads does not use this grid at all: every
+surface chunk carries its own copy of it, built and freed with the chunk (see
+"Road streaming"), and the same gate checks that.
 
 ## The coarse frustum reject comes back, without the occlusion one (1.123.5)
 

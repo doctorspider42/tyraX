@@ -2,6 +2,7 @@
 #include "app_internal.hpp"
 #include "roadbridge.hpp"  // a bridge's heights follow its points
 #include "roadgen.hpp"
+#include "roadstream.hpp"  // the road stream radius's suggestion
 #include "hudanim.hpp"
 
 #include <algorithm>
@@ -15933,6 +15934,32 @@ void App::drawPreferencesWindow() {
             prefSettings_.terrainLodDistance,
             prefSettings_.terrainLodDistance * 2.2f, span);
     }
+
+    // Road streaming (docs/roads.md "Road streaming"): the roads' twin of the
+    // view distance above, project-wide.
+    ImGui::DragFloat("Road stream radius", &prefSettings_.roadStreamRadius, 1.0f, 0.0f,
+                     2000.0f,
+                     prefSettings_.roadStreamRadius > 0.0f ? "%.0f units"
+                                                           : "off (every road resident)");
+    if (prefSettings_.roadStreamRadius < 0.0f) prefSettings_.roadStreamRadius = 0.0f;
+    {
+        const float suggest = roadstream::suggestedRadius(
+            prefSettings_.fogEnabled ? prefSettings_.fogEnd : 0.0f,
+            prefSettings_.terrainViewDistance);
+        ImGui::SameLine();
+        char label[48];
+        std::snprintf(label, sizeof(label), "Suggest (%.0f)##roadstream", suggest);
+        if (ImGui::SmallButton(label)) prefSettings_.roadStreamRadius = suggest;
+    }
+    prefHelp(
+        "Only the road geometry within this range of the camera is built -\n"
+        "asphalt, junctions, kerbs, rails, bridges, details, street furniture\n"
+        "and their collision - and the rest streams in as the player moves,\n"
+        "a few chunks a frame. A big generated city needs it: every road\n"
+        "vertex costs ~60 bytes of the PS2's 32 MB. Keep it past the fog end\n"
+        "(and the terrain view distance) so nothing pops in sight; Suggest\n"
+        "uses those. Cars nobody drives stop where their road is not built.\n"
+        "0 builds every road at scene load, as before.");
 
     // Worst-case resident mesh memory so oversized configs are caught here,
     // not by an out-of-memory PS2. Mirrors the generated game: 6 verts/cell,

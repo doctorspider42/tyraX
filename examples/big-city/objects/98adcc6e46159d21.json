@@ -1,0 +1,1 @@
+{ "id": "98adcc6e46159d21", "name": "Building 812", "type": "model", "position": [88.9426, 0, -397.548], "rotation": [0, 0, 0], "scale": [1.8478, 1.6468, 2.1557], "color": [1, 1, 1], "physics": false, "layer": "district-4-2", "drawDistance": 230, "castShadow": false, "model": "res/models/urban/district-loft.obj" }
