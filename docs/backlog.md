@@ -475,8 +475,18 @@ recovered 0.50-0.72 ms of hardware `work`. What it did not do, ranked:
   flush submits a shared packet, not only the trigger bag's geometry. Net
   activation adds 1.401–1.408 ms renderer work in both orders, retaining common
   instrumentation; no cross-ELF subtraction or saving is inferred.
-  Next drop broad bag clocks and split existing send/submit/reuse; retain
-  batching/waits, then price a concrete candidate with observation off.
+  [Selected send census](hardware-send-census-2026-10-03.json) removes broad bag
+  clocks and accepts both complete physical orders with 768 raw/metric pairs,
+  matching selected state/address/buffer controls and 86 owned successful
+  flush/send/snapshot/native calls per active frame. Submit is 2.320–2.326 ms;
+  its snapshot child 1.166–1.170 ms, native sizing 0.168–0.170 ms, capacity
+  0.083–0.084 ms and emission 0.440–0.452 ms. Selected packets copy 30,000 bytes
+  and borrow 2,118,944 bytes/frame; observer activation still adds 0.784–0.805 ms.
+  Explicit emulator85/PS286 contracts preserve the initial emulator rejection;
+  parser record-count bounds were independently corrected. No pure arithmetic,
+  cross-device workload equality or performance gain follows. Next price reuse
+  of the snapshot's record count against the existing native sizing scan, with
+  observation off and candidate counting/ABI costs included.
   Broader repeats remain open. Earlier seven
   warm samples per arm in a single boot are exploratory only. No constant
   overhead correction, VU/GS utilization or EE arithmetic-only cost is inferred.

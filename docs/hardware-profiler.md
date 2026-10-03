@@ -403,6 +403,65 @@ Retain ordinary batching and actual waits; price the narrower observer in both
 orders, then compare a concrete candidate with observation disabled. No shipped
 performance improvement or VU/GS utilization claim follows from this result.
 
+### Selected send and synchronous submit census
+
+The next private fixture removes broad bag timestamps and observes only the
+existing replay-triggered flush branch. Each selected flush uses 14 Count reads:
+two for its envelope, four contiguous send stamps (PreSubmit, SubmitInclusive,
+PostSubmitReuse), and two each for SnapshotInclusive, NativeSizing,
+NativeCapacity and NativeEmission inside submit. Common Scene retains two reads
+in every arm. Lexical singleton ownership rejects nested/orphan calls. No tag or
+vertex loop reads clocks; batching, waits, fences and packet operations remain
+unchanged. An independent diagnostic undo matches executable source against the
+original control.
+
+The same native ELF runs Off/On/Off and On/Off/On, retaining the ring, buffers,
+fixed game dt and continuous scene. Reliable file export follows each sample
+window. Snapshot includes preparation, copy and any existing drain/retry;
+capacity includes pressure handling and existing waits. Post includes buffer
+reuse and bookkeeping. SubmitRest and FlushResidual retain unlabelled work and
+observer commits, so children are never added to their inclusive parents.
+
+The [physical record](hardware-send-census-2026-10-03.json) accepts both complete
+5400-loop orders and all 768 raw/metric pairs. Exact selected state, raw camera,
+dt, accessible addresses and common buffers match across boots. Every active
+PS2 frame has 86 flush/send/submit calls and successful snapshots/native records,
+with no retry, fallback, non-null devkit hook or ownership error. These selected
+packets contain 1,875 source qwords and 718 sized DMA records; snapshots copy
+30,000 bytes and borrow 2,118,944 immutable bytes per frame.
+
+| Selected observed interval, three active windows | Mean range |
+| --- | --- |
+| Replay-triggered flush, inclusive | 3.028882–3.046008 ms |
+| PreSubmit | 0.237726–0.250161 ms |
+| SubmitInclusive | 2.319855–2.326098 ms |
+| PostSubmitReuse | 0.185619–0.189910 ms |
+| SnapshotInclusive, child of submit | 1.165831–1.170302 ms |
+| NativeSizing, child of submit | 0.167702–0.170118 ms |
+| NativeCapacity, child of submit | 0.082599–0.083607 ms |
+| NativeEmission, child of submit | 0.439863–0.451540 ms |
+| Submit minus its four children | 0.454070–0.459110 ms |
+| Flush minus its three send siblings | 0.280499–0.284130 ms |
+
+Net observer activation adds 0.804536–0.804571 ms renderer work in Off/On/Off
+and 0.784130–0.785166 ms in reverse. Outer work spreads are 0.000034/0.001036 ms.
+This is still substantial disturbance; common apparatus remains in Off. Do not
+subtract the price from each child, compare it arithmetically with an earlier
+ELF, or label the larger snapshot span a pure copying bill. It already borrows
+about 2.02 MiB of immutable data while copying about 29.30 KiB. The concrete next
+candidate reuses a successful snapshot's DMA-record count to avoid native sizing's
+second tag scan; its extra counting/return cost must be measured with observation
+disabled before claiming any gain. This does not resolve the larger snapshot cost.
+
+Native compilation, full emulator execution, source-operation undo, actual-header
+ownership/read-budget controls and strict negative controls pass. The emulator
+consistently has 85 selected flushes, also present in the previous replay artifact;
+PS2 has 86. The initial hardcoded-86 emulator rejection is preserved, then an
+explicit environment contract accepts all 384 emulator samples. Independent
+checks also exposed and closed a missing record-count bound in the parser.
+Neither tool correction changes the frozen source or ELF. Cross-device workload
+equality and emulator timing claims remain false.
+
 ### What attribution can decide
 
 A reliable total timer and a complete ownership ledger answer different
