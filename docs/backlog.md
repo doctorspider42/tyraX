@@ -123,6 +123,12 @@ is not:
   turnout (today two lines simply overlap), crossing barriers and signals as
   ready props, a train to ride on a railway's spline, and a physical-PS2 pass
   (PCSX2 only so far).
+- ~~**run.ps1 / run.sh closed every PCSX2 on the machine**~~ (`Stop-Process
+  -Name` / `pkill -x`): fixed for new projects - they close only the instance
+  running the project's own ELF, the editor's `Runner::killEmulatorsFor`
+  rule. The launcher scripts are write-once (user-owned), so EXISTING
+  projects, examples included, keep the old copies until the file is deleted
+  and the next build writes it again.
 - **Draw road: the snap label survives an undo.** After Ctrl+Z removes a road
   just drawn, the tool's hover label still names it ("end of city-street-3")
   until the mouse moves - the snap preview is only recomputed on mouse

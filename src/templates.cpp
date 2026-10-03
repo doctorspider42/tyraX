@@ -6442,7 +6442,13 @@ function RunPCSX2 {
     $executableNameWithoutExt = (Split-Path $executableName -Leaf).Split('.')[0]
     $targetFileName = "$PWD/bin/$(GetTargetELFName)"
 
-    Stop-Process -Name $executableNameWithoutExt -ErrorAction 'SilentlyContinue'
+    # Close only the PCSX2 running THIS project's ELF (the editor's rule,
+    # Runner::killEmulatorsFor): several emulators run at once, one per
+    # project or worktree, and closing them all by name ends somebody else's.
+    $elfFull = [System.IO.Path]::GetFullPath($targetFileName)
+    Get-CimInstance Win32_Process -Filter "Name = '$executableName'" -ErrorAction 'SilentlyContinue' |
+        Where-Object { $_.CommandLine -and ($_.CommandLine.Replace('/', '\') -like "*$($elfFull.Replace('/', '\'))*") } |
+        ForEach-Object { Stop-Process -Id $_.ProcessId -ErrorAction 'SilentlyContinue' }
 
     if ($isNewVersion) {
         Start-Process -FilePath "$dirPath/$executableName" -ArgumentList "-elf", $targetFileName
@@ -6488,8 +6494,14 @@ fi
 ELF="bin/$(grep -oE '[^ ]*\.elf' Makefile | head -1)"
 [ -f "$ELF" ] || { echo "$ELF not found - build the project first." >&2; exit 1; }
 
-pkill -x pcsx2-qt >/dev/null 2>&1 || true
-pkill -x pcsx2 >/dev/null 2>&1 || true
+# Close only the PCSX2 running THIS project's ELF (the editor's rule,
+# Runner::killEmulatorsFor): several emulators run at once, one per project or
+# worktree, and pkill by name ends somebody else's.
+for pid in $(pgrep -x pcsx2-qt 2>/dev/null; pgrep -x pcsx2 2>/dev/null); do
+    if [ -r "/proc/$pid/cmdline" ] && tr '\0' ' ' < "/proc/$pid/cmdline" | grep -qF -- "$PWD/$ELF"; then
+        kill "$pid" 2>/dev/null || true
+    fi
+done
 exec $PCSX2 -elf "$PWD/$ELF"
 )SH";
 
