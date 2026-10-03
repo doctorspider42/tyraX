@@ -1,5 +1,41 @@
 # TyraX2 EE preparation and VU0 audit
 
+
+## Mutable REF ownership census and observer pricing, 2026-10-03
+
+A private same-ELF fixed-night Scene census completed both stage orders on
+PS2 and PCSX2: 384 samples and three exact RGB/converted-alpha rasters per boot.
+Two common Count reads bracket normal rendering and real synchronization.
+All three physical On sample windows report 421 copied mutable REFs and 171840
+bytes per frame: UnknownOther 102048 (59.38%), Pool 39840 (23.18%), and declared
+Bag storage 29952 (17.43%). There are 106 successful arena snapshots per frame,
+223328 whole snapshot bytes and 2151152 separately counted borrowed external
+bytes. These totals overlap; do not add them. Publication is arena acceptance,
+not a DMA or display count. No sampled snapshot/copy or coverage error occurred.
+
+On increases inclusive nonpacing by 0.841011–0.846886 ms in all four physical
+comparisons, versus outer-control spreads 0.002011/0.003017 ms. Wall intervals
+stay near 33.327 ms as pacing contracts. This is measured observer impact in
+this serialized scene, with compiled-on Off scaffolding and existing waits;
+it is neither pure EE/GPU cost nor a constant correction for another ELF.
+
+The four-root metadata reset follows actual producer closure, synchronizeFrame
+and drain; aggregate takes retain generations. Exact-start emission notes
+classify actual copied ranges. Retained-command hits bypass the current note
+hook, explaining a source coverage gap without proving that every Unknown REF
+has one owner. Pool volume is a lower bound, not safe borrowing permission.
+Next add notes at retained replay, requalify actual counts and price that
+observer before choosing an append-only owner-bank experiment. Such a bank
+must survive midframe drains and reuse storage only at a proven frame-bank
+completion fence; qbuffer detachment must preserve allocator ownership.
+
+The first private build failed because two generated files included a renamed
+header; the corrected fixture changes only those includes. Its source inventory,
+actual used build mirror, ELF/symbol pair, assets, configuration, strict protocol
+and raw pair arithmetic are independently checked. The [machine record](tyrax2-mutable-ref-census-2026-10-03.json)
+retains hashes, rejected history and limitations. No production renderer change
+or 60 FPS gain is accepted here.
+
 ## Native sizing reuse: paired physical candidate controls (2026-10-03)
 
 A private candidate reuses the DMA-tag count from a successful snapshot preflight

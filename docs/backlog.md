@@ -414,6 +414,11 @@ recovered 0.50-0.72 ms of hardware `work`. What it did not do, ranked:
   also completes both physical orders with common sampler 0: On nonpacing
   regresses 0.676–0.780 ms, rendered completion stays about 29.97 Hz. Keep it
   Off; next audit mutable REF copy ownership/volume and genuine direct emission.
+  The [private mutable REF census](tyrax2-mutable-ref-census-2026-10-03.json)
+  now qualifies both orders on PS2/PCSX2: 171840 mutable bytes/frame, including
+  Pool39840, Bag29952 and Unknown102048; observer adds 0.841–0.847 ms in the
+  serialized fixed Scene. Next cover retained-command hits, then choose a
+  typed owner-bank experiment from actual volume and price its complete cost.
   The [resumed candidate audit](tyrax2-ee-vu0.md#next-60-hz-candidates-host-controls-2026-10-03)
   rejects the broad beam cache as a demonstrated driving gain, identifies
   saturated-flicker over-invalidation, and records a private direct-recording

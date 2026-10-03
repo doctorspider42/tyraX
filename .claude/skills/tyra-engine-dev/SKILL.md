@@ -1250,6 +1250,21 @@ Rules the same evening paid for:
 ## Hard-won pitfalls (dead ends already explored — don't repeat them)
 
 **Devkit and measurement**
+- **Producer bypasses can hide ownership, even with no foreign roots.** A
+  private census notes qbuffer streams in the ordinary program writer; retained
+  command hits append cached bytes and bypass that hook. Unknown copied bytes
+  therefore remain a lower bound on coverage, not a pool/bag assignment. Add
+  notes at the actual replay seam and requalify counts; broad range scans cannot
+  recover missing notes. Reset root tables only after real producer closure and
+  synchronization/drain, while aggregate takes preserve generations. Price the
+  count observer in both orders: this fixture adds about0.84–0.85 ms inclusive
+  nonpacing, not pure EE cost. A separate owner bank must survive generic drains
+  and detach qbuffers without deleting its pointers. See
+  `docs/tyrax2-mutable-ref-census-2026-10-03.json`.
+- **Renaming a private trial header affects generated translation units.**
+  Check all local includes before freeze; scanning only API names misses stale
+  include directives. Keep the failed build immutable and qualify a new fixture
+  with actual source/mirror/ELF proof rather than editing the frozen experiment.
 - **SDK TTE DMA tags advance by 8 bytes, and close does not pad.** Opening a
   `packet2` chain tag with TTE enabled reserves its 64-bit DMA half; the next
   two words are transferred VIF commands. Sixteen following state words leave

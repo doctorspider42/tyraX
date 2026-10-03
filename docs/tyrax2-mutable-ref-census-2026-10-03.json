@@ -1,0 +1,198 @@
+{
+  "schema": 1,
+  "status": "PASS_private_mutable_ref_census_v1a_coverage_and_observer_pricing",
+  "sourceScope": "Private fixed frozen night Scene0, serialized real endFrame/synchronizeFrame, observer Off/On/Off and reverse in same ELF",
+  "productionIntegrated": false,
+  "elfSha256": "91ff89c6722f62b6f97e9d1db1a711dcf45bc9b3cf413a33f1c9472d8f0fb2be",
+  "sourceManifestSha256": "e0d4dbd6c78e623b522ee896d90c095cbf02e5a1c8dff8eb9b2096924b6ec9cb",
+  "sourceInventory": {
+    "inventoried": 493,
+    "actualUsedMirror": 484,
+    "ancillaryMetadata": 9,
+    "runtimeConfigSeparate": true
+  },
+  "history": {
+    "v1NativeExit": 2,
+    "cause": "Two generated TUs included removed direct_raster_trial.hpp",
+    "v1aRepair": "Exactly two include substitutions to mutable_ref_trial.hpp; remaining491 compiler inputs byte-exact V1"
+  },
+  "archives": [
+    {
+      "environment": "emulator",
+      "order": 0,
+      "archive": "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-census-v1a-emulator0-evidence",
+      "sourceLaunchQualified": true,
+      "records": 384,
+      "loops": 768
+    },
+    {
+      "environment": "emulator",
+      "order": 1,
+      "archive": "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-census-v1a-emulator1-evidence",
+      "sourceLaunchQualified": true,
+      "records": 384,
+      "loops": 768
+    },
+    {
+      "environment": "physical",
+      "order": 0,
+      "archive": "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-census-v1a-physical0-evidence",
+      "sourceLaunchQualified": true,
+      "records": 384,
+      "loops": 768
+    },
+    {
+      "environment": "physical",
+      "order": 1,
+      "archive": "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-census-v1a-physical1-evidence",
+      "sourceLaunchQualified": true,
+      "records": 384,
+      "loops": 768
+    }
+  ],
+  "targetMetadataBytes": {
+    "fourRoots": 16416,
+    "metrics": 208,
+    "snapshotScope": 56,
+    "additionalQbufferFields": 24,
+    "fullQbufferClassNetAbiVerified": false
+  },
+  "physicalCountsPerSampledFrame": {
+    "classes": [
+      {
+        "class": "UnknownOther",
+        "refsPerFrame": 94.0,
+        "qwordsPerFrame": 6378.0,
+        "bytesPerFrame": 102048.0,
+        "fractionOfObservedMutableBytes": 0.593854748603352
+      },
+      {
+        "class": "Pool",
+        "refsPerFrame": 181.0,
+        "qwordsPerFrame": 2490.0,
+        "bytesPerFrame": 39840.0,
+        "fractionOfObservedMutableBytes": 0.23184357541899442
+      },
+      {
+        "class": "BagDeclared",
+        "refsPerFrame": 146.0,
+        "qwordsPerFrame": 1872.0,
+        "bytesPerFrame": 29952.0,
+        "fractionOfObservedMutableBytes": 0.17430167597765364
+      }
+    ],
+    "observedMutableCopyBytes": 171840.0,
+    "snapshotAttempts": 106,
+    "snapshotPublished": 106,
+    "publishedSnapshotBytes": 223328,
+    "borrowedBytes": 2151152,
+    "ownerNotes": 327,
+    "failedCopies": 0,
+    "snapshotFailed": 0,
+    "foreignRefs": 0,
+    "staleNotes": 0,
+    "invalidOverflowConflictLifecycle": 0
+  },
+  "physicalStages": [
+    {
+      "order": 0,
+      "stage": 0,
+      "observerEnabled": false,
+      "wallMeanMs": 33.32686530219184,
+      "pacingMeanMs": 7.030909697214763,
+      "nonpacingMeanMs": 26.295955604977078
+    },
+    {
+      "order": 0,
+      "stage": 1,
+      "observerEnabled": true,
+      "wallMeanMs": 33.32770238982307,
+      "pacingMeanMs": 6.188725630442302,
+      "nonpacingMeanMs": 27.138976759380764
+    },
+    {
+      "order": 0,
+      "stage": 2,
+      "observerEnabled": false,
+      "wallMeanMs": 33.32731612523397,
+      "pacingMeanMs": 7.02934996287028,
+      "nonpacingMeanMs": 26.29796616236369
+    },
+    {
+      "order": 1,
+      "stage": 0,
+      "observerEnabled": true,
+      "wallMeanMs": 33.32644478480021,
+      "pacingMeanMs": 6.180942270490858,
+      "nonpacingMeanMs": 27.145502514309353
+    },
+    {
+      "order": 1,
+      "stage": 1,
+      "observerEnabled": false,
+      "wallMeanMs": 33.32714872890048,
+      "pacingMeanMs": 7.028532028198242,
+      "nonpacingMeanMs": 26.298616700702244
+    },
+    {
+      "order": 1,
+      "stage": 2,
+      "observerEnabled": true,
+      "wallMeanMs": 33.32643927468194,
+      "pacingMeanMs": 6.18395389450921,
+      "nonpacingMeanMs": 27.14248538017273
+    }
+  ],
+  "observerPriceOnMinusOffNonpacingMs": [
+    0.8430211544036865,
+    0.8410105970170747,
+    0.8468858136071091,
+    0.8438686794704857
+  ],
+  "outerNonpacingSpreadMs": [
+    0.002010557386611822,
+    0.0030171341366234117
+  ],
+  "raster": "Three exact BGRA-export rasters per boot, RGB and converted working alpha; crossboot raster equality observed but not required",
+  "coverage": "Pool/Bag are matched storage-category lower bounds; UnknownOther is 59.3844% of observed copied mutable bytes, not identified ownership or safe borrowing. Retained-hit paths may bypass current emission notes; follow-up source audit/census required, no assignment of all Unknown to a pool.",
+  "ownerBankIdea": "Separate append-only owner storage only; reuse at proven final frame-bank completion fence, never generic drain; delete[]/dynamic detach and foreign/retained producer lifecycle need explicit ownership adaptation. No implementation/gain forecast.",
+  "limits": [
+    "Primitive work and successful arena publication are not DMA/display acceptance.",
+    "Snapshot bytes include root/CNT/alignment and copied payload; borrowed bytes external. Do not add all totals.",
+    "On-Off prices aggregate observer under serialized completion and common compiled1 layout, not pure EE or GPU work.",
+    "Wall stays about 33.327ms; no 60 FPS, ordinary production speedup or utilization claim.",
+    "Emulator validates protocol/raster and source identity; emulator cost not physical performance.",
+    "V1 failed build and source repair preserved; no retroactive PASS."
+  ],
+  "evidenceSha256": {
+    "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-census-v1a-emulator0-evidence\\artifact-hashes.json": "03588ffa5f3562306361a5a612e54e113273910aa75c8efd0bcc7afa7d411ccb",
+    "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-census-v1a-emulator0-evidence\\source-launch-qualified.json": "ece0eef50ff882e45707833b3ebfa8b885131d7ba0653bb4b2244e5b2ac3b8df",
+    "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-census-v1a-emulator0-evidence\\strict-analysis.json": "e23df76f722223d8b2a51eb9a1762a70008172ae27977946a4a375c9baa43f65",
+    "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-census-runtime-independent-review\\emulator0-review.json": "fa936e7165fc76b1308067a9a25df709f6991b823061b6dad8f192ab5a5be528",
+    "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-census-v1a-emulator1-evidence\\artifact-hashes.json": "92814101a1fe941121a7eb8dc95c29d64b8223b8fe19bec6d0398b68e30ec28e",
+    "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-census-v1a-emulator1-evidence\\source-launch-qualified.json": "f6f6f6ab0eeb167ed56bb5ba5a85348763918aa9f315ff2868ef2f101f855d3c",
+    "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-census-v1a-emulator1-evidence\\strict-analysis.json": "bf08f244298f1109d5529575bc1e18b4b9287ad8dec0d2c2c5ccd8287c21d79b",
+    "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-census-runtime-independent-review\\emulator1-review.json": "5330da994462b5ddab1010e04069bf2320ca7cd17ca4fbb20788fdd529823a03",
+    "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-census-v1a-physical0-evidence\\artifact-hashes.json": "a16187ca2c498f8eea70d926b5dee659abf01324464558134941960e59771735",
+    "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-census-v1a-physical0-evidence\\source-launch-qualified.json": "96400940261d6ab834803048857cb6fce32c98fbc89e867ec6ed3066131d7d41",
+    "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-census-v1a-physical0-evidence\\strict-analysis.json": "f5483bb5f2e9232ed77c399ba3e5c3a406b31b8bf7c860fcf30f10ce46b0ec68",
+    "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-census-runtime-independent-review\\physical0-review.json": "0e7cf3eb8b738ffe11bbe48cac39400152d3d528c2b1fd2f6e6e9da60ccb1523",
+    "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-census-v1a-physical1-evidence\\artifact-hashes.json": "d5baab750062f9c5d18fdd0e928fb7e5bb1a3d31a57adc49845df0ea9795fec0",
+    "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-census-v1a-physical1-evidence\\source-launch-qualified.json": "56149f4094823ef25948bfb2a467f92b1fa4fe0d37f5aef3f2b3de9d6e042fb1",
+    "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-census-v1a-physical1-evidence\\strict-analysis.json": "76acc5092e8d957bc86e5c11a9b46ef275cd0d44d3db093469a4f1fab0a8b52f",
+    "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-census-runtime-independent-review\\physical1-review.json": "8ca1ddc96a44f0cb4f81b73ae90a9ec8c8c5b7adf8bd804ef2c53ee57740bab8",
+    "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-census-summary-tools\\actual-physical-v1a-summary.json": "4f5364b32fe6dee5b42880eacc76fa28c81009f9b85a6f6730cb6030872804f2",
+    "F:\\Projects\\tyrax2-lab-20261001\\resumed-mutable-ref-census-v1a\\target-source-manifest.json": "e0d4dbd6c78e623b522ee896d90c095cbf02e5a1c8dff8eb9b2096924b6ec9cb",
+    "F:\\Projects\\tyrax2-lab-20261001\\resumed-mutable-ref-census-v1a\\root-native-proof-census.json": "4b6f96e670da19f3ae7670c18c58890733514ae2668dfb7b7c15124b7f459de4",
+    "F:\\Projects\\tyrax2-lab-20261001\\resumed-mutable-ref-census-v1a\\root-freeze-review.json": "a58697f2c5e1a03b97ca05b04fe6a09ab1a2244e05cddd9b0646bfd674f7478c",
+    "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-census-v1a-independent-review\\proof.json": "d4be42c377d3c51e46ce479b4f1c3139acdc67ff2eddbeb4023ad7ba8cb343a2",
+    "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-census-v1-native-failed-evidence\\failure-review.json": "f99ea5368025083deab8bd35f3ebaeb9b9d4cd30da747fa281c91b77e250b1b7",
+    "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-census-parser-independent-review\\proof.json": "a28920a4cddb719dbacd3c4c57e279c44fa02bd88f31fe81b42282a423ed3cc2",
+    "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-census-runtime-independent-review\\emulator-pair-review.json": "d1e5e1140f4d034e237720e3bf3710eabde54d191ed746c341bdc5fe92e3616e",
+    "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-census-runtime-independent-review\\physical-pair-audit.json": "c0dc1c88446dbd00f4fc59695314cfff49e6f40198ad3d4f70163831e7eeb8cb",
+    "F:\\Projects\\tyrax2-lab-20261001\\resumed-mutable-ref-census-v1a\\root-used-mirror-proof-confirmed.json": "f2de3a3f1e813f43e6b9c5b0d847706015f829efa6d911caa4a6577fb239eec0",
+    "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-census-unknown-source-audit\\REPORT.md": "39647307fdd8942e682f5e7a55b88503e300497cb0fd2436d62670cd9f3875b9",
+    "F:\\Projects\\tyrax2-lab-20261001\\append-only-producer-owner-feasibility\\REPORT.md": "a1fb0bb26134b9e80ec36b57afe79f579e16d27a8edaecf7a589ba3a548c4092"
+  },
+  "date": "2026-10-03"
+}

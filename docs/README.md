@@ -424,6 +424,11 @@ The [ordinary overlap record](tyrax2-direct-producer-overlap-2026-10-03.json)
 also retains both physical orders: common sampler 0, about 0.68–0.78 ms added
 nonpacing work, about 29.97 Hz rendered completion. Live state is provenance,
 not exact parity; no optimization is promoted.
+The [mutable REF census](tyrax2-mutable-ref-census-2026-10-03.json) qualifies
+both physical/emulator orders: 171840 mutable bytes per fixed-scene frame,
+23.18% matched Pool and 59.38% Unknown. Its observer costs about 0.84–0.85 ms
+in this serialized route. Retained-hit coverage and typed owner lifetime are
+next gates; these counts do not establish an optimization or borrowing rights.
 
 The [one-search immutable-borrow trial](tyrax2-immutable-borrow-2026-10-02.json) preserves the narrow candidate, differential and integrated checks, and one physical baseline/candidate/baseline run. Its small apparent work saving overlaps control variation; the runtime remains unchanged.
 
