@@ -1816,6 +1816,12 @@ class TerrainGame : public Tyra::Game {
     float mx[3];
     short owner;     // procedural volume, -1 = a script-spawned prefab
     short instance;  // prefab instance handle, -1 = a volume's own geometry
+    // An ORIENTED box (bridge parapets and piers, docs/roads.md "Bridges"):
+    // lhx/lhz > 0 are its half extents in its own yaw frame (lx = dx*yc -
+    // dz*ys, lz = dx*ys + dz*yc about the mn/mx centre, the object boxes'
+    // convention); mn/mx stay its world AABB for the cheap rejects. 0 = the
+    // plain axis-aligned box mn/mx describe.
+    float lhx = 0.0F, lhz = 0.0F, yc = 1.0F, ys = 0.0F;
   };
   std::vector<StaticBox> procColliders;
   // Live prefab instances, so Despawn Prefab can find what it made.
@@ -3670,6 +3676,12 @@ class TerrainGame : public Tyra::Game {
     float mx[3];
     short owner;     // procedural volume, -1 = a script-spawned prefab
     short instance;  // prefab instance handle, -1 = a volume's own geometry
+    // An ORIENTED box (bridge parapets and piers, docs/roads.md "Bridges"):
+    // lhx/lhz > 0 are its half extents in its own yaw frame (lx = dx*yc -
+    // dz*ys, lz = dx*ys + dz*yc about the mn/mx centre, the object boxes'
+    // convention); mn/mx stay its world AABB for the cheap rejects. 0 = the
+    // plain axis-aligned box mn/mx describe.
+    float lhx = 0.0F, lhz = 0.0F, yc = 1.0F, ys = 0.0F;
   };
   std::vector<StaticBox> procColliders;
   // Live prefab instances, so Despawn Prefab can find what it made.
@@ -9005,6 +9017,7 @@ static std::string sceneDataContent(const Project& p, const std::string& ns,
             // buildRoads never sees a bridge road.
             const bool hasBridges = projectHasBridges(p);
             std::vector<roadbridge::SceneChunk> bridgeRows;
+            std::vector<float> bridgeBoxes;  // scene, min/max xyz, half x/z, yaw cos/sin
             std::vector<float> bridgeVerts;  // x, y, z, shade
             std::ostringstream bridgeNotes;
             for (size_t si = 0; si < p.scenes.size(); ++si)
@@ -9104,6 +9117,10 @@ static std::string sceneDataContent(const Project& p, const std::string& ns,
                     roadbridge::chunkStructure(st, bridgeVerts, rows);
                     for (const roadbridge::ChunkRow& r : rows)
                         bridgeRows.push_back({(int)si, r.first, r.count});
+                    for (const roadbridge::CollisionBox& b : st.boxes)
+                        bridgeBoxes.insert(bridgeBoxes.end(),
+                                           {(float)si, b.mn[0], b.mn[1], b.mn[2], b.mx[0], b.mx[1],
+                                            b.mx[2], b.hx, b.hz, b.yc, b.ys});
                     bridgeNotes << "// scene " << si << " \"" << escapeCString(bo.name) << "\": deck "
                                 << tris.size() << " vertices in " << sizes.size() << " rows, "
                                 << st.spans << " span(s), " << st.piers << " pier(s), "
@@ -9402,7 +9419,8 @@ static std::string sceneDataContent(const Project& p, const std::string& ns,
                 // Bridges (docs/roads.md "Bridges"): emitted only when a road
                 // is one, so every other road project stays byte-identical.
                 if (hasBridges)
-                    out << roadbridge::tablesSource(bridgeRows, bridgeVerts, bridgeNotes.str());
+                    out << roadbridge::tablesSource(bridgeRows, bridgeVerts, bridgeNotes.str(),
+                                                    bridgeBoxes);
                 if (roadTex.empty()) {
                     out << "constexpr const char* ROAD_TEXTURE_PATHS[1] = "
                            "{\"\"};\n";
@@ -15587,11 +15605,12 @@ void TerrainGame::updateVehicles(float dt) {
           return;
         }
         if (b.mx[1] <= feet0 + 0.5F || b.mn[1] >= feet0 + 0.9F) return;
-        const float bhx = 0.5F * (b.mx[0] - b.mn[0]) + 0.35F;
-        const float bhz = 0.5F * (b.mx[2] - b.mn[2]) + 0.35F;
+        const bool oriented = b.lhx > 0.0F;
+        const float bhx = (oriented ? b.lhx : 0.5F * (b.mx[0] - b.mn[0])) + 0.35F;
+        const float bhz = (oriented ? b.lhz : 0.5F * (b.mx[2] - b.mn[2])) + 0.35F;
         const float rr = reach + bhx + bhz;
         if (ddx * ddx + ddz * ddz >= rr * rr || wallBoxN >= 12) return;
-        wallBox[wallBoxN++] = {wx, wz, bhx, bhz, 1.0F, 0.0F};
+        wallBox[wallBoxN++] = {wx, wz, bhx, bhz, b.yc, b.ys};
       };
       // SUB-STEP REUSE (TYRA_VEH_SUBSTEP_REUSE, docs/vehicles.md "Per-car EE
       // cuts"). The first sub-step of a multi-step frame records every entry

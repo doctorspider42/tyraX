@@ -5925,11 +5925,12 @@ void TerrainGame::updateVehicles(float dt) {
           return;
         }
         if (b.mx[1] <= feet0 + 0.5F || b.mn[1] >= feet0 + 0.9F) return;
-        const float bhx = 0.5F * (b.mx[0] - b.mn[0]) + 0.35F;
-        const float bhz = 0.5F * (b.mx[2] - b.mn[2]) + 0.35F;
+        const bool oriented = b.lhx > 0.0F;
+        const float bhx = (oriented ? b.lhx : 0.5F * (b.mx[0] - b.mn[0])) + 0.35F;
+        const float bhz = (oriented ? b.lhz : 0.5F * (b.mx[2] - b.mn[2])) + 0.35F;
         const float rr = reach + bhx + bhz;
         if (ddx * ddx + ddz * ddz >= rr * rr || wallBoxN >= 12) return;
-        wallBox[wallBoxN++] = {wx, wz, bhx, bhz, 1.0F, 0.0F};
+        wallBox[wallBoxN++] = {wx, wz, bhx, bhz, b.yc, b.ys};
       };
       // SUB-STEP REUSE (TYRA_VEH_SUBSTEP_REUSE, docs/vehicles.md "Per-car EE
       // cuts"). The first sub-step of a multi-step frame records every entry
@@ -9211,6 +9212,30 @@ void TerrainGame::buildRoads(int scene) {
     if (bridgeChunks > 0)
       TYRA_LOG("ROADBRIDGE scene ", scene, " chunks ", bridgeChunks, " vertices ",
                bridgeVertices);
+    // The parapets and piers as walls (procColliders: the walker and every
+    // car collide with them). Owner -5, like the drawn structure.
+    for (int i = (int)procColliders.size() - 1; i >= 0; --i)
+      if (procColliders[(size_t)i].owner == -5)
+        procColliders.erase(procColliders.begin() + i);
+    int bridgeBoxes = 0;
+    for (int bi = 0; bi < ROAD_BRIDGE_BOX_COUNT; ++bi) {
+      const float* b = &ROAD_BRIDGE_BOXES[(size_t)bi * 11];
+      if ((int)b[0] != scene) continue;
+      StaticBox sb;
+      for (int a = 0; a < 3; ++a) {
+        sb.mn[a] = b[1 + a];
+        sb.mx[a] = b[4 + a];
+      }
+      sb.lhx = b[7];
+      sb.lhz = b[8];
+      sb.yc = b[9];
+      sb.ys = b[10];
+      sb.owner = -5;
+      sb.instance = -1;
+      procColliders.push_back(sb);
+      ++bridgeBoxes;
+    }
+    if (bridgeBoxes > 0) TYRA_LOG("ROADBRIDGE scene ", scene, " walls ", bridgeBoxes);
   }
   if (any) procFinishChunks();
   int roadChunks = 0, roadVertices = 0, roadPackages = 0;

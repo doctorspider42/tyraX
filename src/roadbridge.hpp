@@ -108,10 +108,24 @@ void drawnRoad(const SceneObject& o, const roadgen::HeightFn& ground,
 // of x, y, z + baked shade (roadgen::KerbVertex: the kerbs' vertex). `roads`
 // is the scene's planner view and `self` this road's index in it - piers keep
 // off every other road.
+// `boxes`: the parapets and piers as ORIENTED collision boxes, one per
+// straight wall (the console's procColliders, which the walker and every car
+// read; StaticBox::lhx/lhz/yc/ys). mn/mx are the world AABB, for the rejects;
+// hx/hz the half extents in the box's own yaw frame, lx = dx*yc - dz*ys and
+// lz = dx*ys + dz*yc about the AABB centre (the object boxes' convention).
+struct CollisionBox {
+    float mn[3], mx[3];
+    float hx = 0.0f, hz = 0.0f, yc = 1.0f, ys = 0.0f;
+};
 struct Structure {
     std::vector<roadgen::KerbVertex> tris;
+    std::vector<CollisionBox> boxes;
     int spans = 0, piers = 0, abutments = 0;
 };
+// One straight wall from (ax, az) to (bx, bz), `thick` across, ylo..yhi, as
+// boxes (see CollisionBox).
+void wallBoxes(float ax, float az, float bx, float bz, float thick, float ylo, float yhi,
+               std::vector<CollisionBox>& out);
 void buildStructure(const Deck& d, const std::vector<roadgen::CrossingRoad>& roads, int self,
                     Structure& out);
 
@@ -143,8 +157,10 @@ void chunkDeck(std::vector<roadgen::Vertex>& tris, std::vector<int>& rowSizes);
 struct SceneChunk {
     int scene = 0, first = 0, count = 0;
 };
+// `boxes`: scene, min xyz, max xyz, half x, half z, yaw cos, yaw sin - eleven
+// floats per box.
 std::string tablesSource(const std::vector<SceneChunk>& rows, const std::vector<float>& verts,
-                         const std::string& notes);
+                         const std::string& notes, const std::vector<float>& boxes = {});
 // Spliced into buildRoads before procFinishChunks.
 std::string uploadSource();
 

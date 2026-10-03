@@ -857,12 +857,37 @@ the kerbs, and the structure is untextured: no VRAM.
   with the caster's base + 0.5. The host twins match: `roadgen::Surface::at`
   takes the same cap and the editor test drive uses it.
 
+### Structure collision
+
+The parapets and piers are **walls**. `roadbridge::buildStructure` also emits
+one collision box per straight wall (`Structure::boxes`, `wallBoxes`): one per
+parapet chord and side, from the deck top to the parapet top, and one per
+pier, from below the ground to the deck underside. The boxes are **oriented**,
+so a diagonal or curving deck is walled in without the boxes reaching onto it.
+An axis-aligned box round a 45-degree chord would cover most of the lane.
+
+- **Runtime**: the codegen emits them as `ROAD_BRIDGE_BOXES` (scene, world
+  AABB, half x/z in the box's own frame, yaw cos/sin; 11 floats per box). The
+  bridge upload pushes them into `procColliders` (owner -5), so the walker's
+  `collidePlayer` and every car's wall gather already see them.
+  `ROADBRIDGE scene N walls W` is the log line.
+- **`StaticBox` gained an optional frame** (`lhx`, `lhz`, `yc`, `ys`), using
+  the object boxes' convention. 0 means the plain AABB, so every other
+  procedural collider behaves exactly as before. The walker tests an oriented
+  box in its own frame (step, overhead and wall rules as for an object box),
+  and the car's wall list keeps the frame, because `VehWallBox` was already
+  oriented.
+- **Measured**: the Motor District flyover is 42 walls. In PCSX2 a walker
+  pushed at the parapet for 5 s stops 0.3 short of it (the player radius)
+  and slides along it. `--vehicle-check` ("road bridges", collision) builds a
+  45-degree bridge and checks that every parapet box runs along the wall and
+  that its inner face is no nearer the centre line than the deck edge.
+
 ### Limits
 
-- **No collision with the structure.** A walker or a car passes through a pier
-  or a parapet, and a car can drive off the side of a deck. The walker's
-  `collidePlayer` reads boxes and procedural colliders; a rotated pier would need
-  an oriented box and a parapet a chain of them - not done.
+- The structure collides as **walls only**: a parapet top is not something to
+  stand on, and the deck underside is not a ceiling for a jump (see "Structure
+  collision" below).
 - **Shadows.** The deck does not cast onto the terrain under it: baked shadow
   decals and ground shadow maps come from objects, and a road is a receiver
   only (the deck does receive decals, at deck height). Projected shadows and

@@ -232,6 +232,28 @@ void drawnRoad(const SceneObject& o, const roadgen::HeightFn& ground,
         o.roadSampleStep);
 }
 
+void wallBoxes(float ax, float az, float bx, float bz, float thick, float ylo, float yhi,
+               std::vector<CollisionBox>& out) {
+    const float dx = bx - ax, dz = bz - az, len = std::hypot(dx, dz);
+    if (len < 1e-4f || !(yhi > ylo)) return;
+    const float ux = dx / len, uz = dz / len;
+    // Local z runs along the wall: (ys, yc) = (ux, uz) in the object boxes'
+    // frame, so local x is across it.
+    const float nx = -uz * 0.5f * thick, nz = ux * 0.5f * thick;
+    CollisionBox b;
+    b.mn[0] = std::min({ax + nx, ax - nx, bx + nx, bx - nx});
+    b.mx[0] = std::max({ax + nx, ax - nx, bx + nx, bx - nx});
+    b.mn[2] = std::min({az + nz, az - nz, bz + nz, bz - nz});
+    b.mx[2] = std::max({az + nz, az - nz, bz + nz, bz - nz});
+    b.mn[1] = ylo;
+    b.mx[1] = yhi;
+    b.hx = 0.5f * thick;
+    b.hz = 0.5f * len;
+    b.ys = ux;
+    b.yc = uz;
+    out.push_back(b);
+}
+
 void buildStructure(const Deck& d, const std::vector<roadgen::CrossingRoad>& roads, int self,
                     Structure& out) {
     out = Structure{};
@@ -380,6 +402,13 @@ void buildStructure(const Deck& d, const std::vector<roadgen::CrossingRoad>& roa
                 float e0[3], e1[3];
                 P3(p, outer * side, yp - kDeckDepth, e0), P3(q, outer * side, yq - kDeckDepth, e1);
                 quad(out.tris, c0, c1, e1, e0, shade(nx, 0.0f, nz));
+                // The parapet as a wall to collide with: deck top (the lower
+                // end of a ramp chord) to the parapet top (its higher end).
+                const float mid = 0.5f * (inner + outer) * side;
+                float w0[3], w1[3];
+                P3(p, mid, 0.0f, w0), P3(q, mid, 0.0f, w1);
+                wallBoxes(w0[0], w0[2], w1[0], w1[2], outer - inner, std::min(yp, yq) - 0.05f,
+                          std::max(yp, yq) + H, out.boxes);
             }
             float l0[3], l1[3], r0[3], r1[3];
             P3(p, -outer, yp - kDeckDepth, l0), P3(q, -outer, yq - kDeckDepth, l1);
@@ -470,6 +499,13 @@ void buildStructure(const Deck& d, const std::vector<roadgen::CrossingRoad>& roa
             const float top = s.y - kDeckDepth + 0.1f;
             box(c, {top, top, top, top});
             ++out.piers;
+            // The pier as a wall across the span (what a car or walker under
+            // the deck runs into).
+            float lo = 1e30f;
+            for (const XZ& q : c) lo = std::min(lo, bare(q.x, q.z));
+            wallBoxes(0.5f * (c[0].x + c[1].x), 0.5f * (c[0].z + c[1].z),
+                      0.5f * (c[3].x + c[2].x), 0.5f * (c[3].z + c[2].z), kPierLength,
+                      lo - kSink, top, out.boxes);
         }
     }
 }
@@ -565,7 +601,7 @@ void chunkDeck(std::vector<roadgen::Vertex>& tris, std::vector<int>& rowSizes) {
 }
 
 std::string tablesSource(const std::vector<SceneChunk>& rows, const std::vector<float>& verts,
-                         const std::string& notes) {
+                         const std::string& notes, const std::vector<float>& boxes) {
     std::ostringstream out;
     auto lit = [](float v) {
         char b[48];
@@ -580,6 +616,20 @@ std::string tablesSource(const std::vector<SceneChunk>& rows, const std::vector<
            "// ROAD_JUNCTIONS rows).\n"
         << notes << "constexpr int ROAD_BRIDGE_COUNT = " << rows.size() << ";\n"
         << "struct RoadBridgeRt { int scene; int first; int count; };\n";
+    // Collision (parapets, piers): scene, min xyz, max xyz, then the box's
+    // own frame - half x, half z, yaw cos, yaw sin - per box.
+    out << "constexpr int ROAD_BRIDGE_BOX_COUNT = " << boxes.size() / 11 << ";\n";
+    if (boxes.empty()) {
+        out << "constexpr float ROAD_BRIDGE_BOXES[1] = {};\n";
+    } else {
+        out << "constexpr float ROAD_BRIDGE_BOXES[" << boxes.size() << "] = {\n";
+        for (size_t k = 0; k + 10 < boxes.size(); k += 11) {
+            out << "   ";
+            for (size_t j = 0; j < 11; ++j) out << " " << lit(boxes[k + j]) << ",";
+            out << "\n";
+        }
+        out << "};\n";
+    }
     if (rows.empty()) {
         out << "constexpr RoadBridgeRt ROAD_BRIDGES[1] = {};\n"
             << "constexpr float ROAD_BRIDGE_VERTS[1] = {};\n";
@@ -630,6 +680,30 @@ std::string uploadSource() {
     if (bridgeChunks > 0)
       TYRA_LOG("ROADBRIDGE scene ", scene, " chunks ", bridgeChunks, " vertices ",
                bridgeVertices);
+    // The parapets and piers as walls (procColliders: the walker and every
+    // car collide with them). Owner -5, like the drawn structure.
+    for (int i = (int)procColliders.size() - 1; i >= 0; --i)
+      if (procColliders[(size_t)i].owner == -5)
+        procColliders.erase(procColliders.begin() + i);
+    int bridgeBoxes = 0;
+    for (int bi = 0; bi < ROAD_BRIDGE_BOX_COUNT; ++bi) {
+      const float* b = &ROAD_BRIDGE_BOXES[(size_t)bi * 11];
+      if ((int)b[0] != scene) continue;
+      StaticBox sb;
+      for (int a = 0; a < 3; ++a) {
+        sb.mn[a] = b[1 + a];
+        sb.mx[a] = b[4 + a];
+      }
+      sb.lhx = b[7];
+      sb.lhz = b[8];
+      sb.yc = b[9];
+      sb.ys = b[10];
+      sb.owner = -5;
+      sb.instance = -1;
+      procColliders.push_back(sb);
+      ++bridgeBoxes;
+    }
+    if (bridgeBoxes > 0) TYRA_LOG("ROADBRIDGE scene ", scene, " walls ", bridgeBoxes);
   }
 )";
 }
@@ -756,6 +830,35 @@ void check(void (*verdict)(bool, const char*)) {
                 "piers and abutments stand on (and into) the ground");
         verdict(onLower > 4.0f, "no pier stands on the road under the bridge");
         verdict(st.tris.size() < 2000, "a 100-unit bridge's structure stays under 2000 vertices");
+    }
+    // 7. Collision: a DIAGONAL bridge's parapets and piers as boxes that wall
+    // the deck in without walling the deck itself.
+    {
+        const Deck dg = buildDeck({0, 0, 40, 40, 80, 80}, {0, 6, 0}, 8, 1, 1, flat);
+        Structure st;
+        buildStructure(dg, {}, -1, st);
+        // How near each parapet box's own inner face comes to the centre
+        // line x = z, in plan: |centre offset| - its half thickness.
+        float nearest = 1e30f;
+        int high = 0;
+        bool alongWall = true;
+        for (const CollisionBox& b : st.boxes) {
+            // Only the parapets (boxes above the deck's lowest point) bound
+            // the deck; a pier box crosses the centre line under it.
+            if (!(b.mn[1] > 0.5f)) continue;
+            ++high;
+            const float cx = 0.5f * (b.mn[0] + b.mx[0]), cz = 0.5f * (b.mn[2] + b.mx[2]);
+            nearest = std::min(nearest, std::fabs(cx - cz) * 0.70710678f - b.hx);
+            // The frame runs along the 45-degree wall.
+            alongWall &= std::fabs(std::fabs(b.ys) - 0.70710678f) < 0.01f &&
+                         std::fabs(std::fabs(b.yc) - 0.70710678f) < 0.01f;
+        }
+        std::printf("  collision: %zu boxes (%d parapet pieces) on a 45-degree bridge, nearest "
+                    "parapet box %.3f from the centre line (deck half-width 4)\n",
+                    st.boxes.size(), high, nearest);
+        verdict(high > 0 && alongWall && nearest > 4.0f - 0.05f,
+                "oriented parapet boxes wall a diagonal deck in without reaching onto it");
+        verdict((int)st.boxes.size() > high, "piers are walls too");
     }
 }
 

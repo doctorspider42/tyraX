@@ -6143,8 +6143,7 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // v100 (docs/roads.md, "Bridges"): a road's "roadBridge" (written only when
 // true), which makes the existing per-point "roadHeights" mean deck heights.
 // Missing = an ordinary glued road, as before (heights still ignored).
-// Additive; no migration step. (v99 was
-// reserved for a branch that never needed a format change; it is skipped.)
+// Additive; no migration step.
 inline constexpr int kFormatVersion = 100;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"

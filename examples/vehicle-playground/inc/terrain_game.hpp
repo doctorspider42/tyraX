@@ -711,6 +711,12 @@ class TerrainGame : public Tyra::Game {
     float mx[3];
     short owner;     // procedural volume, -1 = a script-spawned prefab
     short instance;  // prefab instance handle, -1 = a volume's own geometry
+    // An ORIENTED box (bridge parapets and piers, docs/roads.md "Bridges"):
+    // lhx/lhz > 0 are its half extents in its own yaw frame (lx = dx*yc -
+    // dz*ys, lz = dx*ys + dz*yc about the mn/mx centre, the object boxes'
+    // convention); mn/mx stay its world AABB for the cheap rejects. 0 = the
+    // plain axis-aligned box mn/mx describe.
+    float lhx = 0.0F, lhz = 0.0F, yc = 1.0F, ys = 0.0F;
   };
   std::vector<StaticBox> procColliders;
   // Live prefab instances, so Despawn Prefab can find what it made.

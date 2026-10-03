@@ -31,9 +31,8 @@ is not:
   (PCSX2 only so far).
 - ~~**Bridges**~~ and overpasses: done (format 100, docs/roads.md "Bridges";
   host-baked deck + structure, no node at an overpass, capped wheel queries).
-  Still open: **collision with the structure** (piers and parapets as oriented
-  boxes for the walker and the cars - today a car can drive off a deck's side),
-  the deck **casting** baked shadows onto the terrain under it, capping
+  ~~Collision with the structure~~ (oriented parapet and pier walls in
+  procColliders). Still open: the deck **casting** baked shadows onto the terrain under it, capping
   `projSurfaceAt` so projected shadows and light pools under a deck stay on the
   ground, a height **handle** in the viewport (today Properties > Points), and
   nodes between two decks in the air.
