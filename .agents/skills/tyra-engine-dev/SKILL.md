@@ -1283,6 +1283,13 @@ Rules the same evening paid for:
   readbacks in both orders, but On regresses inclusive nonpacing by about 0.83 ms;
   this candidate is not an accepted speed gain.
   See `docs/tyrax2-direct-producer-activation-2026-10-03.json`.
+- **Phase-wide activation counters are not perchunk encoding counts.** The
+  private direct-producer ordinary overlap trial records 1800-loop ledgers but
+  only 320 clocked loops perphase. Hold sampler 0 in all arms and use six
+  existing-style boundary Count reads for five 64-loop chunks; keep drains and
+  exports outside them. Live dt/state is provenance, not exact workload parity.
+  Both orders regress nonpacing about 0.68–0.78 ms; the gate remains private/Off.
+  See `docs/tyrax2-direct-producer-overlap-2026-10-03.json`.
 - **Muting renderer reports does not silence generated-game observers.** A
   private raster timing trial still performed 16 host log opens after freeze:
   contact telemetry ran every 50 driven frames, and healthy SIF guard reports

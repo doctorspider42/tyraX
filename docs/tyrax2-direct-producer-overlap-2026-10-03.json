@@ -1,0 +1,896 @@
+{
+  "schema": 1,
+  "date": "2026-10-03",
+  "scope": "Private ordinary-clock pinned-plain stationary night overlapped route comparison; production unchanged",
+  "fixture": "F:\\Projects\\tyrax2-lab-20261001\\resumed-direct-producer-ordinary-overlap-v1",
+  "records": [
+    {
+      "environment": "emulator",
+      "order": 0,
+      "archive": "F:\\Projects\\tyrax2-lab-20261001\\direct-overlap-v1-emulator0-evidence",
+      "review": "F:\\Projects\\tyrax2-lab-20261001\\direct-overlap-independent-tools\\actual-emulator0-review.json",
+      "reviewSha256": "4135a8494a86bc18ae39908911c7f53562b94a4a077639f27e3f13c3268955d2",
+      "artifactMapSha256": "196b83d0ff7e2050dc02c9ab8de5482c3117b0be4f62398c366a91051b8a5d0c",
+      "sourceManifestSha256": "72c69e11b52665a2b387f83d1c60b4403e2ee9b1de11e887b0caf99afd3ce904",
+      "elfSha256": "44adb6ca093a1aba4710ce85cb784002b9e28bf2280316c9226ce767a302fb76",
+      "symbolsSha256": "182fe887058c26b5efb947dd4c17f5523058d1a5891e3312a7dbb5e7d71fa3e2",
+      "configSha256": "5feceb66ffc86f38d952786c6d696c79c2dbc239dd4e91b46729d73a27fb57e9",
+      "nightConfigSha256": "6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b",
+      "rawSha256": "6f99926f44119c7b16bb133e7671a717bd565859d629a21ee79b48cca691289b",
+      "stdoutSha256": "f4393220936f1bd0968543cc2f0dd2643c157375edf344adbaac86d0e329b9de",
+      "sourceFiles": 494,
+      "nativeExit": 0,
+      "ordinaryLoops": 5400,
+      "measuredLoops": 960,
+      "stages": [
+        {
+          "phase": 0,
+          "policy": 0,
+          "loops": 320,
+          "wallMeanMs": 16.68334963056776,
+          "pacingMeanMs": 8.59816607369317,
+          "nonpacingMeanMs": 8.085183556874593,
+          "totalActualFlips": 320,
+          "committed": 0,
+          "declined": 0,
+          "elapsedTicksU64": 1574438402,
+          "pacingTicksU64": 811424753,
+          "nonpacingTicksU64": 763013649,
+          "renderedCompletions": 320,
+          "syntheticCompletions": 0,
+          "completedRenderRateHz": 59.9400013872375
+        },
+        {
+          "phase": 1,
+          "policy": 1,
+          "loops": 320,
+          "wallMeanMs": 16.683349609375,
+          "pacingMeanMs": 8.392316680484349,
+          "nonpacingMeanMs": 8.291032928890651,
+          "totalActualFlips": 320,
+          "committed": 126000,
+          "declined": 63000,
+          "elapsedTicksU64": 1574438400,
+          "pacingTicksU64": 791998367,
+          "nonpacingTicksU64": 782440033,
+          "renderedCompletions": 320,
+          "syntheticCompletions": 0,
+          "completedRenderRateHz": 59.94000146337894
+        },
+        {
+          "phase": 2,
+          "policy": 0,
+          "loops": 320,
+          "wallMeanMs": 16.683349566989474,
+          "pacingMeanMs": 8.58170460595025,
+          "nonpacingMeanMs": 8.101644961039225,
+          "totalActualFlips": 320,
+          "committed": 0,
+          "declined": 0,
+          "elapsedTicksU64": 1574438396,
+          "pacingTicksU64": 809871254,
+          "nonpacingTicksU64": 764567142,
+          "renderedCompletions": 320,
+          "syntheticCompletions": 0,
+          "completedRenderRateHz": 59.94000161566182
+        }
+      ]
+    },
+    {
+      "environment": "emulator",
+      "order": 1,
+      "archive": "F:\\Projects\\tyrax2-lab-20261001\\direct-overlap-v1-emulator1-evidence",
+      "review": "F:\\Projects\\tyrax2-lab-20261001\\direct-overlap-independent-tools\\actual-emulator1-review.json",
+      "reviewSha256": "dacb54f650e46f2df3664a4acd62a4b7fe97a2f804828180a7dac1fabb904696",
+      "artifactMapSha256": "b17283ea8a11029b67276e73f1f6c9f42a2ae63dc6d7bfd872f5898bc157ea36",
+      "sourceManifestSha256": "72c69e11b52665a2b387f83d1c60b4403e2ee9b1de11e887b0caf99afd3ce904",
+      "elfSha256": "44adb6ca093a1aba4710ce85cb784002b9e28bf2280316c9226ce767a302fb76",
+      "symbolsSha256": "182fe887058c26b5efb947dd4c17f5523058d1a5891e3312a7dbb5e7d71fa3e2",
+      "configSha256": "6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b",
+      "nightConfigSha256": "6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b",
+      "rawSha256": "abad6e41863cb72ecb0e439a45c5845982c012d1240c81965aebdb9f47a1e7f9",
+      "stdoutSha256": "28c811cfb71c8c6fc7a883baa45694ebda015cc910dc1b4c41b0a717f63823ad",
+      "sourceFiles": 494,
+      "nativeExit": 0,
+      "ordinaryLoops": 5400,
+      "measuredLoops": 960,
+      "stages": [
+        {
+          "phase": 0,
+          "policy": 1,
+          "loops": 320,
+          "wallMeanMs": 16.68339743084378,
+          "pacingMeanMs": 8.408923647138808,
+          "nonpacingMeanMs": 8.27447378370497,
+          "totalActualFlips": 320,
+          "committed": 122959,
+          "declined": 61797,
+          "elapsedTicksU64": 1574442913,
+          "pacingTicksU64": 793565597,
+          "nonpacingTicksU64": 780877316,
+          "renderedCompletions": 320,
+          "syntheticCompletions": 0,
+          "completedRenderRateHz": 59.93982965071786
+        },
+        {
+          "phase": 1,
+          "policy": 0,
+          "loops": 320,
+          "wallMeanMs": 16.68334963056776,
+          "pacingMeanMs": 8.581929164462618,
+          "nonpacingMeanMs": 8.101420466105143,
+          "totalActualFlips": 320,
+          "committed": 0,
+          "declined": 0,
+          "elapsedTicksU64": 1574438402,
+          "pacingTicksU64": 809892446,
+          "nonpacingTicksU64": 764545956,
+          "renderedCompletions": 320,
+          "syntheticCompletions": 0,
+          "completedRenderRateHz": 59.9400013872375
+        },
+        {
+          "phase": 2,
+          "policy": 1,
+          "loops": 320,
+          "wallMeanMs": 16.683349641164146,
+          "pacingMeanMs": 8.391886615753172,
+          "nonpacingMeanMs": 8.29146302541097,
+          "totalActualFlips": 320,
+          "committed": 126000,
+          "declined": 63000,
+          "elapsedTicksU64": 1574438403,
+          "pacingTicksU64": 791957781,
+          "nonpacingTicksU64": 782480622,
+          "renderedCompletions": 320,
+          "syntheticCompletions": 0,
+          "completedRenderRateHz": 59.940001349166785
+        }
+      ]
+    },
+    {
+      "environment": "ps2",
+      "order": 0,
+      "archive": "F:\\Projects\\tyrax2-lab-20261001\\direct-overlap-v1-physical0-evidence",
+      "review": "F:\\Projects\\tyrax2-lab-20261001\\direct-overlap-independent-tools\\actual-physical0-review.json",
+      "reviewSha256": "f2f036fdbe4024e3a3ea67306e585453a7e48758c4db8d9215b8c50b7949ee2a",
+      "artifactMapSha256": "088c7e098fdff4ebe580223b8593d33212376a829e084717d738c84fe4e204e4",
+      "sourceManifestSha256": "72c69e11b52665a2b387f83d1c60b4403e2ee9b1de11e887b0caf99afd3ce904",
+      "elfSha256": "44adb6ca093a1aba4710ce85cb784002b9e28bf2280316c9226ce767a302fb76",
+      "symbolsSha256": "182fe887058c26b5efb947dd4c17f5523058d1a5891e3312a7dbb5e7d71fa3e2",
+      "configSha256": "5feceb66ffc86f38d952786c6d696c79c2dbc239dd4e91b46729d73a27fb57e9",
+      "nightConfigSha256": "6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b",
+      "rawSha256": "e94a000e219af73c37bac64d8aacbfff4130d2e17bea9293790430e96cd50d76",
+      "stdoutSha256": "2567084003b73298670b694878f66c330220689bea56b64c3951527889afc0d1",
+      "sourceFiles": 494,
+      "nativeExit": 0,
+      "ordinaryLoops": 5400,
+      "measuredLoops": 960,
+      "stages": [
+        {
+          "phase": 0,
+          "policy": 0,
+          "loops": 320,
+          "wallMeanMs": 33.366668192545575,
+          "pacingMeanMs": 13.869129509396023,
+          "nonpacingMeanMs": 19.49753868314955,
+          "totalActualFlips": 320,
+          "committed": 0,
+          "declined": 0,
+          "elapsedTicksU64": 3148873872,
+          "pacingTicksU64": 1308855271,
+          "nonpacingTicksU64": 1840018601,
+          "renderedCompletions": 320,
+          "syntheticCompletions": 0,
+          "completedRenderRateHz": 29.970028599481484
+        },
+        {
+          "phase": 1,
+          "policy": 1,
+          "loops": 320,
+          "wallMeanMs": 33.366665840148926,
+          "pacingMeanMs": 13.166288481818306,
+          "nonpacingMeanMs": 20.20037735833062,
+          "totalActualFlips": 320,
+          "committed": 127800,
+          "declined": 61200,
+          "elapsedTicksU64": 3148873650,
+          "pacingTicksU64": 1242526870,
+          "nonpacingTicksU64": 1906346780,
+          "renderedCompletions": 320,
+          "syntheticCompletions": 0,
+          "completedRenderRateHz": 29.970030712410452
+        },
+        {
+          "phase": 2,
+          "policy": 0,
+          "loops": 320,
+          "wallMeanMs": 33.366666094462076,
+          "pacingMeanMs": 13.842108906639947,
+          "nonpacingMeanMs": 19.52455718782213,
+          "totalActualFlips": 320,
+          "committed": 0,
+          "declined": 0,
+          "elapsedTicksU64": 3148873674,
+          "pacingTicksU64": 1306305287,
+          "nonpacingTicksU64": 1842568387,
+          "renderedCompletions": 320,
+          "syntheticCompletions": 0,
+          "completedRenderRateHz": 29.970030483985685
+        }
+      ]
+    },
+    {
+      "environment": "ps2",
+      "order": 1,
+      "archive": "F:\\Projects\\tyrax2-lab-20261001\\direct-overlap-v1-physical1-evidence",
+      "review": "F:\\Projects\\tyrax2-lab-20261001\\direct-overlap-independent-tools\\actual-physical1-review.json",
+      "reviewSha256": "645c6ccc7f4c41d3ed65b0bc5d1247c2a0b3ab5cd133cdd12c770646216e333f",
+      "artifactMapSha256": "dd60bd5fe53fbf359653747ce1f27a183c59ae51bbb68a7f64e0a83dd61c4992",
+      "sourceManifestSha256": "72c69e11b52665a2b387f83d1c60b4403e2ee9b1de11e887b0caf99afd3ce904",
+      "elfSha256": "44adb6ca093a1aba4710ce85cb784002b9e28bf2280316c9226ce767a302fb76",
+      "symbolsSha256": "182fe887058c26b5efb947dd4c17f5523058d1a5891e3312a7dbb5e7d71fa3e2",
+      "configSha256": "6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b",
+      "nightConfigSha256": "6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b",
+      "rawSha256": "5d4b432907d290e360e2fbc03c3477b85b63474e74566fb23e6e9d15785bad80",
+      "stdoutSha256": "65ec0e0c2e7b844f32b66cc3bfb472612643a34f819c4563c9811cfe6e02b9af",
+      "sourceFiles": 494,
+      "nativeExit": 0,
+      "ordinaryLoops": 5400,
+      "measuredLoops": 960,
+      "stages": [
+        {
+          "phase": 0,
+          "policy": 1,
+          "loops": 320,
+          "wallMeanMs": 33.36674245198568,
+          "pacingMeanMs": 13.115800348917643,
+          "nonpacingMeanMs": 20.250942103068034,
+          "totalActualFlips": 320,
+          "committed": 124706,
+          "declined": 60054,
+          "elapsedTicksU64": 3148880880,
+          "pacingTicksU64": 1237762212,
+          "nonpacingTicksU64": 1911118668,
+          "renderedCompletions": 320,
+          "syntheticCompletions": 0,
+          "completedRenderRateHz": 29.969961899606695
+        },
+        {
+          "phase": 1,
+          "policy": 0,
+          "loops": 320,
+          "wallMeanMs": 33.36666564941406,
+          "pacingMeanMs": 13.895582665337457,
+          "nonpacingMeanMs": 19.471082984076606,
+          "totalActualFlips": 320,
+          "committed": 0,
+          "declined": 0,
+          "elapsedTicksU64": 3148873632,
+          "pacingTicksU64": 1311351704,
+          "nonpacingTicksU64": 1837521928,
+          "renderedCompletions": 320,
+          "syntheticCompletions": 0,
+          "completedRenderRateHz": 29.97003088372903
+        },
+        {
+          "phase": 2,
+          "policy": 1,
+          "loops": 320,
+          "wallMeanMs": 33.366667175292974,
+          "pacingMeanMs": 13.166153823004828,
+          "nonpacingMeanMs": 20.20051335228814,
+          "totalActualFlips": 320,
+          "committed": 127800,
+          "declined": 61200,
+          "elapsedTicksU64": 3148873776,
+          "pacingTicksU64": 1242514162,
+          "nonpacingTicksU64": 1906359614,
+          "renderedCompletions": 320,
+          "syntheticCompletions": 0,
+          "completedRenderRateHz": 29.97002951318046
+        }
+      ]
+    }
+  ],
+  "physicalPair": {
+    "status": "PASS_ordinary_overlap_two_order_arithmetic",
+    "environment": "ps2",
+    "sourceManifestSha256": "72c69e11b52665a2b387f83d1c60b4403e2ee9b1de11e887b0caf99afd3ce904",
+    "selectedElfSha256": "44adb6ca093a1aba4710ce85cb784002b9e28bf2280316c9226ce767a302fb76",
+    "selectedSymbolSha256": "182fe887058c26b5efb947dd4c17f5523058d1a5891e3312a7dbb5e7d71fa3e2",
+    "reviewSha256": [
+      "f2f036fdbe4024e3a3ea67306e585453a7e48758c4db8d9215b8c50b7949ee2a",
+      "645c6ccc7f4c41d3ed65b0bc5d1247c2a0b3ab5cd133cdd12c770646216e333f"
+    ],
+    "rawSha256": [
+      "e94a000e219af73c37bac64d8aacbfff4130d2e17bea9293790430e96cd50d76",
+      "5d4b432907d290e360e2fbc03c3477b85b63474e74566fb23e6e9d15785bad80"
+    ],
+    "CountTicksPerMs": 294912,
+    "phaseCount": 6,
+    "chunkCount": 30,
+    "measuredLoops": 1920,
+    "producerOnLedgers": 3,
+    "producerOffLedgers": 3,
+    "samplerMode": 0,
+    "RAWRecords": 0,
+    "extraCountReadsPerPhase": 6,
+    "blocks": [
+      {
+        "order": 0,
+        "phase": 0,
+        "policy": 0,
+        "loops": 320,
+        "elapsedTicksU64": 3148873872,
+        "pacingTicksU64": 1308855271,
+        "nonpacingTicksU64": 1840018601,
+        "renderedCompletions": 320,
+        "syntheticCompletions": 0,
+        "totalCompletions": 320,
+        "completedRenderRateHz": 29.970028599481484,
+        "wallMeanMs": 33.366668192545575,
+        "pacingMeanMs": 13.869129509396023,
+        "nonpacingMeanMs": 19.49753868314955,
+        "rawChunks": [
+          {
+            "phase": 0,
+            "i": 0,
+            "first": 800,
+            "loops": 64,
+            "elapsed": 629783406,
+            "pacing": 261058714,
+            "totalFlips": 64,
+            "renderedFlips": 64,
+            "syntheticFlips": 0
+          },
+          {
+            "phase": 0,
+            "i": 1,
+            "first": 864,
+            "loops": 64,
+            "elapsed": 629766186,
+            "pacing": 262483175,
+            "totalFlips": 64,
+            "renderedFlips": 64,
+            "syntheticFlips": 0
+          },
+          {
+            "phase": 0,
+            "i": 2,
+            "first": 928,
+            "loops": 64,
+            "elapsed": 629784018,
+            "pacing": 264106099,
+            "totalFlips": 64,
+            "renderedFlips": 64,
+            "syntheticFlips": 0
+          },
+          {
+            "phase": 0,
+            "i": 3,
+            "first": 992,
+            "loops": 64,
+            "elapsed": 629765340,
+            "pacing": 259900662,
+            "totalFlips": 64,
+            "renderedFlips": 64,
+            "syntheticFlips": 0
+          },
+          {
+            "phase": 0,
+            "i": 4,
+            "first": 1056,
+            "loops": 64,
+            "elapsed": 629774922,
+            "pacing": 261306621,
+            "totalFlips": 64,
+            "renderedFlips": 64,
+            "syntheticFlips": 0
+          }
+        ]
+      },
+      {
+        "order": 0,
+        "phase": 1,
+        "policy": 1,
+        "loops": 320,
+        "elapsedTicksU64": 3148873650,
+        "pacingTicksU64": 1242526870,
+        "nonpacingTicksU64": 1906346780,
+        "renderedCompletions": 320,
+        "syntheticCompletions": 0,
+        "totalCompletions": 320,
+        "completedRenderRateHz": 29.970030712410452,
+        "wallMeanMs": 33.366665840148926,
+        "pacingMeanMs": 13.166288481818306,
+        "nonpacingMeanMs": 20.20037735833062,
+        "rawChunks": [
+          {
+            "phase": 1,
+            "i": 0,
+            "first": 2600,
+            "loops": 64,
+            "elapsed": 629774826,
+            "pacing": 249204468,
+            "totalFlips": 64,
+            "renderedFlips": 64,
+            "syntheticFlips": 0
+          },
+          {
+            "phase": 1,
+            "i": 1,
+            "first": 2664,
+            "loops": 64,
+            "elapsed": 629774646,
+            "pacing": 248038313,
+            "totalFlips": 64,
+            "renderedFlips": 64,
+            "syntheticFlips": 0
+          },
+          {
+            "phase": 1,
+            "i": 2,
+            "first": 2728,
+            "loops": 64,
+            "elapsed": 629774712,
+            "pacing": 249012089,
+            "totalFlips": 64,
+            "renderedFlips": 64,
+            "syntheticFlips": 0
+          },
+          {
+            "phase": 1,
+            "i": 3,
+            "first": 2792,
+            "loops": 64,
+            "elapsed": 629774790,
+            "pacing": 249004597,
+            "totalFlips": 64,
+            "renderedFlips": 64,
+            "syntheticFlips": 0
+          },
+          {
+            "phase": 1,
+            "i": 4,
+            "first": 2856,
+            "loops": 64,
+            "elapsed": 629774676,
+            "pacing": 247267403,
+            "totalFlips": 64,
+            "renderedFlips": 64,
+            "syntheticFlips": 0
+          }
+        ]
+      },
+      {
+        "order": 0,
+        "phase": 2,
+        "policy": 0,
+        "loops": 320,
+        "elapsedTicksU64": 3148873674,
+        "pacingTicksU64": 1306305287,
+        "nonpacingTicksU64": 1842568387,
+        "renderedCompletions": 320,
+        "syntheticCompletions": 0,
+        "totalCompletions": 320,
+        "completedRenderRateHz": 29.970030483985685,
+        "wallMeanMs": 33.366666094462076,
+        "pacingMeanMs": 13.842108906639947,
+        "nonpacingMeanMs": 19.52455718782213,
+        "rawChunks": [
+          {
+            "phase": 2,
+            "i": 0,
+            "first": 4400,
+            "loops": 64,
+            "elapsed": 629774760,
+            "pacing": 261390241,
+            "totalFlips": 64,
+            "renderedFlips": 64,
+            "syntheticFlips": 0
+          },
+          {
+            "phase": 2,
+            "i": 1,
+            "first": 4464,
+            "loops": 64,
+            "elapsed": 629774838,
+            "pacing": 260055419,
+            "totalFlips": 64,
+            "renderedFlips": 64,
+            "syntheticFlips": 0
+          },
+          {
+            "phase": 2,
+            "i": 2,
+            "first": 4528,
+            "loops": 64,
+            "elapsed": 629774658,
+            "pacing": 261809354,
+            "totalFlips": 64,
+            "renderedFlips": 64,
+            "syntheticFlips": 0
+          },
+          {
+            "phase": 2,
+            "i": 3,
+            "first": 4592,
+            "loops": 64,
+            "elapsed": 629774730,
+            "pacing": 261354803,
+            "totalFlips": 64,
+            "renderedFlips": 64,
+            "syntheticFlips": 0
+          },
+          {
+            "phase": 2,
+            "i": 4,
+            "first": 4656,
+            "loops": 64,
+            "elapsed": 629774688,
+            "pacing": 261695470,
+            "totalFlips": 64,
+            "renderedFlips": 64,
+            "syntheticFlips": 0
+          }
+        ]
+      },
+      {
+        "order": 1,
+        "phase": 0,
+        "policy": 1,
+        "loops": 320,
+        "elapsedTicksU64": 3148880880,
+        "pacingTicksU64": 1237762212,
+        "nonpacingTicksU64": 1911118668,
+        "renderedCompletions": 320,
+        "syntheticCompletions": 0,
+        "totalCompletions": 320,
+        "completedRenderRateHz": 29.969961899606695,
+        "wallMeanMs": 33.36674245198568,
+        "pacingMeanMs": 13.115800348917643,
+        "nonpacingMeanMs": 20.250942103068034,
+        "rawChunks": [
+          {
+            "phase": 0,
+            "i": 0,
+            "first": 800,
+            "loops": 64,
+            "elapsed": 629781696,
+            "pacing": 248001335,
+            "totalFlips": 64,
+            "renderedFlips": 64,
+            "syntheticFlips": 0
+          },
+          {
+            "phase": 0,
+            "i": 1,
+            "first": 864,
+            "loops": 64,
+            "elapsed": 629769660,
+            "pacing": 248757368,
+            "totalFlips": 64,
+            "renderedFlips": 64,
+            "syntheticFlips": 0
+          },
+          {
+            "phase": 0,
+            "i": 2,
+            "first": 928,
+            "loops": 64,
+            "elapsed": 629781810,
+            "pacing": 248115889,
+            "totalFlips": 64,
+            "renderedFlips": 64,
+            "syntheticFlips": 0
+          },
+          {
+            "phase": 0,
+            "i": 3,
+            "first": 992,
+            "loops": 64,
+            "elapsed": 629765922,
+            "pacing": 246046750,
+            "totalFlips": 64,
+            "renderedFlips": 64,
+            "syntheticFlips": 0
+          },
+          {
+            "phase": 0,
+            "i": 4,
+            "first": 1056,
+            "loops": 64,
+            "elapsed": 629781792,
+            "pacing": 246840870,
+            "totalFlips": 64,
+            "renderedFlips": 64,
+            "syntheticFlips": 0
+          }
+        ]
+      },
+      {
+        "order": 1,
+        "phase": 1,
+        "policy": 0,
+        "loops": 320,
+        "elapsedTicksU64": 3148873632,
+        "pacingTicksU64": 1311351704,
+        "nonpacingTicksU64": 1837521928,
+        "renderedCompletions": 320,
+        "syntheticCompletions": 0,
+        "totalCompletions": 320,
+        "completedRenderRateHz": 29.97003088372903,
+        "wallMeanMs": 33.36666564941406,
+        "pacingMeanMs": 13.895582665337457,
+        "nonpacingMeanMs": 19.471082984076606,
+        "rawChunks": [
+          {
+            "phase": 1,
+            "i": 0,
+            "first": 2600,
+            "loops": 64,
+            "elapsed": 629774406,
+            "pacing": 263831581,
+            "totalFlips": 64,
+            "renderedFlips": 64,
+            "syntheticFlips": 0
+          },
+          {
+            "phase": 1,
+            "i": 1,
+            "first": 2664,
+            "loops": 64,
+            "elapsed": 629777142,
+            "pacing": 262159881,
+            "totalFlips": 64,
+            "renderedFlips": 64,
+            "syntheticFlips": 0
+          },
+          {
+            "phase": 1,
+            "i": 2,
+            "first": 2728,
+            "loops": 64,
+            "elapsed": 629782026,
+            "pacing": 262914359,
+            "totalFlips": 64,
+            "renderedFlips": 64,
+            "syntheticFlips": 0
+          },
+          {
+            "phase": 1,
+            "i": 3,
+            "first": 2792,
+            "loops": 64,
+            "elapsed": 629765268,
+            "pacing": 260964469,
+            "totalFlips": 64,
+            "renderedFlips": 64,
+            "syntheticFlips": 0
+          },
+          {
+            "phase": 1,
+            "i": 4,
+            "first": 2856,
+            "loops": 64,
+            "elapsed": 629774790,
+            "pacing": 261481414,
+            "totalFlips": 64,
+            "renderedFlips": 64,
+            "syntheticFlips": 0
+          }
+        ]
+      },
+      {
+        "order": 1,
+        "phase": 2,
+        "policy": 1,
+        "loops": 320,
+        "elapsedTicksU64": 3148873776,
+        "pacingTicksU64": 1242514162,
+        "nonpacingTicksU64": 1906359614,
+        "renderedCompletions": 320,
+        "syntheticCompletions": 0,
+        "totalCompletions": 320,
+        "completedRenderRateHz": 29.97002951318046,
+        "wallMeanMs": 33.366667175292974,
+        "pacingMeanMs": 13.166153823004828,
+        "nonpacingMeanMs": 20.20051335228814,
+        "rawChunks": [
+          {
+            "phase": 2,
+            "i": 0,
+            "first": 4400,
+            "loops": 64,
+            "elapsed": 629774934,
+            "pacing": 248226253,
+            "totalFlips": 64,
+            "renderedFlips": 64,
+            "syntheticFlips": 0
+          },
+          {
+            "phase": 2,
+            "i": 1,
+            "first": 4464,
+            "loops": 64,
+            "elapsed": 629776578,
+            "pacing": 248525060,
+            "totalFlips": 64,
+            "renderedFlips": 64,
+            "syntheticFlips": 0
+          },
+          {
+            "phase": 2,
+            "i": 2,
+            "first": 4528,
+            "loops": 64,
+            "elapsed": 629772744,
+            "pacing": 248626814,
+            "totalFlips": 64,
+            "renderedFlips": 64,
+            "syntheticFlips": 0
+          },
+          {
+            "phase": 2,
+            "i": 3,
+            "first": 4592,
+            "loops": 64,
+            "elapsed": 629774682,
+            "pacing": 247369225,
+            "totalFlips": 64,
+            "renderedFlips": 64,
+            "syntheticFlips": 0
+          },
+          {
+            "phase": 2,
+            "i": 4,
+            "first": 4656,
+            "loops": 64,
+            "elapsed": 629774838,
+            "pacing": 249766810,
+            "totalFlips": 64,
+            "renderedFlips": 64,
+            "syntheticFlips": 0
+          }
+        ]
+      }
+    ],
+    "withinBootContrasts": [
+      {
+        "order": 0,
+        "metrics": {
+          "wall": {
+            "OnMinusOffMs": [
+              -2.3523966490301973e-06,
+              -2.5431315009427635e-07
+            ],
+            "outerSamePolicySpreadMs": 2.098083498935921e-06
+          },
+          "pacing": {
+            "OnMinusOffMs": [
+              -0.7028410275777173,
+              -0.6758204248216408
+            ],
+            "outerSamePolicySpreadMs": 0.02702060275607643
+          },
+          "nonpacing": {
+            "OnMinusOffMs": [
+              0.70283867518107,
+              0.6758201705084907
+            ],
+            "outerSamePolicySpreadMs": 0.02701850467257927
+          }
+        }
+      },
+      {
+        "order": 1,
+        "metrics": {
+          "wall": {
+            "OnMinusOffMs": [
+              7.680257161979398e-05,
+              1.5258789147765128e-06
+            ],
+            "outerSamePolicySpreadMs": 7.527669270501747e-05
+          },
+          "pacing": {
+            "OnMinusOffMs": [
+              -0.7797823164198139,
+              -0.729428842332629
+            ],
+            "outerSamePolicySpreadMs": 0.050353474087184935
+          },
+          "nonpacing": {
+            "OnMinusOffMs": [
+              0.7798591189914283,
+              0.7294303682115348
+            ],
+            "outerSamePolicySpreadMs": 0.050428750779893505
+          }
+        }
+      }
+    ],
+    "pooledPolicy": {
+      "0": {
+        "measuredLoops": 960,
+        "wallMeanMs": 33.366666645473906,
+        "pacingMeanMs": 13.868940360457808,
+        "nonpacingMeanMs": 19.497726285016096,
+        "renderedCompletions": 960,
+        "syntheticCompletions": 0,
+        "completedRenderRateHz": 29.970029989065367
+      },
+      "1": {
+        "measuredLoops": 960,
+        "wallMeanMs": 33.36669182247586,
+        "pacingMeanMs": 13.149414217913593,
+        "nonpacingMeanMs": 20.217277604562263,
+        "renderedCompletions": 960,
+        "syntheticCompletions": 0,
+        "completedRenderRateHz": 29.97000737503136
+      }
+    },
+    "nonpacingOnMinusOffRangeMs": [
+      0.6758201705084907,
+      0.7798591189914283
+    ],
+    "directionStableAcrossFourPointMeans": true,
+    "exactStateParityAccepted": false,
+    "rasterOrEncodingParityAccepted": false,
+    "pureEEorGPUTimeAccepted": false,
+    "ordinaryGainCausalityAccepted": false,
+    "universalSixtyFPSAccepted": false,
+    "productionPromotionAccepted": false,
+    "limits": [
+      "Live ordinary dt/physics/animation/lights/input are not frozen and can drift; sparse contexts are provenance only, not exact state/camera/pad parity.",
+      "Five64-loop chunks perphase and oneABA/BAB pair give descriptive contrasts/order variation, not broad statistical or causal workload control.",
+      "Entry-to-entry overlap can include deferred previous render and hardware stalls; pacing subtraction is not pure EE or same-job completion.",
+      "Rendered and synthetic flip partitions preserved; completion-call aggregate rate is not TV-photon display rate.",
+      "Multiple/zero flips perindividual loop are not identifiable from64-loop aggregates; do not fabricate perframe cadence samples.",
+      "Common6Count boundary reads and held metadata buffers are unpriced residual; no uniform correction or crossELF/serialized-raster/replay subtraction.",
+      "No missed entireCount wrap within64-loop boundaries is assumed; existing294912ticks/ms convention not newly calibrated."
+    ]
+  },
+  "physicalPairSummarySha256": "bec4f54b891efc299203b34b03cac82650c10ae4ca8b0bf1e8cd5d85304206d2",
+  "sourceReviewSha256": "8b6d94f91c9471944c0a052c46701732cf40d5a5af9f0332733809a41ed3d11b",
+  "nativeReviewSha256": "944fd15c2b1c39bb17147863fec1d8ab285e6908e282a3cb8bafb15df87a3378",
+  "independentParserSha256": "e457d60f06206db2d08f2c96dec03216ff61f9253e08a2034aea20a568348613",
+  "independentHostControlsSha256": "44dd9d8fa6005393352901aee304f82172438b48327e46fccc060a9cfb9ea757",
+  "hostActualHeaderChecks": 10867,
+  "hostQueueAndCoreModeled": true,
+  "compilerInputsChangedFromActivationV3": 7,
+  "unchangedCompilerInputs": 487,
+  "ordinaryControls": [
+    "Corrected private producer ledger and production Memo16 remain unchanged; production has no direct-producer integration. Private gate initializes Off; required cfg0/cfg1 selects Off/On/Off or On/Off/On.",
+    "Sampler mode0constant allarms; sixCount reads producefive64-loop chunks perphase, noRAW",
+    "OneELF cfg0 Off/On/Off and cfg1 On/Off/On; ordinary dt/physics/input/quality retained",
+    "Plain route pinned before adaptiveprobe clocks; not ordinary authored adaptivity",
+    "Known generatedcontact/VEH observers, normalSIF announcements and periodicqueue success reports excluded identically; warnings/fatal/counter semantics retained",
+    "Modeboundaries drain outside windows; no new sampled-frame synchronization",
+    "File exports at1200..1327 and finalphaseclose; terminalSleepThread after checkedfclose"
+  ],
+  "verdict": "No demonstrated optimization: four descriptive withinboot contrasts regress nonpacing0.676..0.780ms; aggregate rendered-completion rate stays29.97Hz",
+  "claims": {
+    "ordinaryOverlapProtocol": true,
+    "performanceGain": false,
+    "pureEEorGPUTime": false,
+    "exactLiveStateOrRasterParity": false,
+    "sixtyFPS": false,
+    "productionPromotion": false
+  },
+  "limits": [
+    "Live ordinary dt/physics/animation/lights/input are not frozen and can drift; sparse contexts are provenance only, not exact state/camera/pad parity.",
+    "Five64-loop chunks perphase and oneABA/BAB pair give descriptive contrasts/order variation, not broad statistical or causal workload control.",
+    "Entry-to-entry overlap can include deferred previous render and hardware stalls; pacing subtraction is not pure EE or same-job completion.",
+    "Rendered and synthetic flip partitions preserved; completion-call aggregate rate is not TV-photon display rate.",
+    "Multiple/zero flips perindividual loop are not identifiable from64-loop aggregates; do not fabricate perframe cadence samples.",
+    "Common6Count boundary reads and held metadata buffers are unpriced residual; no uniform correction or crossELF/serialized-raster/replay subtraction.",
+    "No missed entireCount wrap within64-loop boundaries is assumed; existing294912ticks/ms convention not newly calibrated.",
+    "Producer counters cover all1800 loops perphase; clocks cover320 loops. Positive phase-wide commits do not establish perchunk or perframe direct encoding.",
+    "Known host log opens reject only within750-to-1155 context brackets around the800-to-1120 chunk windows; source-controlled common observers remain excluded.",
+    "Packet-hooks0 is a source declaration, not a universal runtime callback inventory.",
+    "Inherited configuration reader checks bytes/read errors but ignores fclose result; actual archived config bytes and output checkedclose are independently required.",
+    "Prior fixed Scene raster equivalence does not transfer to ordinary live-clock images or motion/lifecycle coverage.",
+    "Two network reset/start sequences succeeded; permanent reset reliability remains unproved."
+  ]
+}

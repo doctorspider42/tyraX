@@ -420,6 +420,10 @@ activation only. The [fixed raster and route-cost record](tyrax2-direct-producer
 now qualifies both stage orders and exact GS raster pairs, while rejecting a
 speed gain: On adds about 0.83 ms nonpacing on PS2. Lifecycle/native-profile and
 ordinary FPS qualification remain open; the candidate stays private.
+The [ordinary overlap record](tyrax2-direct-producer-overlap-2026-10-03.json)
+also retains both physical orders: common sampler 0, about 0.68–0.78 ms added
+nonpacing work, about 29.97 Hz rendered completion. Live state is provenance,
+not exact parity; no optimization is promoted.
 
 The [one-search immutable-borrow trial](tyrax2-immutable-borrow-2026-10-02.json) preserves the narrow candidate, differential and integrated checks, and one physical baseline/candidate/baseline run. Its small apparent work saving overlaps control variation; the runtime remains unchanged.
 

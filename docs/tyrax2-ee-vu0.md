@@ -371,6 +371,27 @@ native macro profiles and ordinary authored-night/Showcase FPS remain open.
 Keep the gate private and Off by default. Audit remaining passes and native
 encoding before expanding a slower candidate into production.
 
+
+The subsequent [ordinary overlap trial](tyrax2-direct-producer-overlap-2026-10-03.json)
+also completes both stage orders on PS2 and PCSX2. Sampler mode 0 is held
+constant: six Count boundaries form five 64-loop chunks perphase, with no RAW
+samples. The two physical boots retain 30 chunks/1920 measured loops. Off work
+excluding recorded pacing is 19.47–19.52 ms; On is 20.20–20.25 ms. All four
+descriptive within-boot contrasts regress by 0.676–0.780 ms, versus 0.027/0.050 ms
+outer-control spreads. Completed rendered-presentation calls remain about
+29.97Hz, with zero synthetic completions in the measured aggregates.
+
+This trial preserves live game clocks and ordinary overlap while pinning the
+plain route and excluding common logging observers. Live states can drift;
+sparse contexts do not prove workload or raster parity. Phase-wide positive
+commits cover 1800 loops, while timing covers 320 loops; they are not perchunk
+encoding counts. Six common clocks and held apparatus remain unpriced.
+The entry-to-entry intervals can include previous render completion, so their
+nonpacing value is not pure EE execution. This is a second rejection of a
+demonstrated gain, not an additive saving or a universal FPS claim. Production
+stays unchanged. Audit actual mutable REF ownership/copy volume and true
+producer emission before implementing another broad metadata path.
+
 A proposed Showcase matrix trigonometry cleanup was also rejected before
 integration. The actual optimized MIPS function already calls sinf and cosf
 three times each; host wrappers that count calls prevented the compiler's

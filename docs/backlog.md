@@ -410,6 +410,10 @@ recovered 0.50-0.72 ms of hardware `work`. What it did not do, ranked:
   It rejects a speed gain: On adds 0.828–0.841 ms nonpacing in all four physical
   brackets. Keep the candidate private/Off; audit remaining passes/encoding
   before broader motion/resource checks, native profiles and ordinary FPS trials.
+  The [ordinary overlap control](tyrax2-direct-producer-overlap-2026-10-03.json)
+  also completes both physical orders with common sampler 0: On nonpacing
+  regresses 0.676–0.780 ms, rendered completion stays about 29.97 Hz. Keep it
+  Off; next audit mutable REF copy ownership/volume and genuine direct emission.
   The [resumed candidate audit](tyrax2-ee-vu0.md#next-60-hz-candidates-host-controls-2026-10-03)
   rejects the broad beam cache as a demonstrated driving gain, identifies
   saturated-flicker over-invalidation, and records a private direct-recording
