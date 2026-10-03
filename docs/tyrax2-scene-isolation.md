@@ -92,3 +92,39 @@ these results do not justify declaring either processor the sole bottleneck.
 The initial empty-log reset attempt and its retry remain archived. A physical
 power reset recovered the first launch, and the next two network resets accepted
 fresh starts. The trial does not establish permanent reset reliability.
+
+## Owned frame capture precursor
+
+The [capture record](tyrax2-frame-capture-2026-10-03.json) qualifies a separate
+private V4 ELF on PCSX2 and physical PS2. During frozen warm iteration 126,
+before any sampled window, it copies the finalized native prefix and every REF
+payload into its own bounded 4 MiB buffer. Later bank reuse cannot invalidate
+that closure. Exact payload comparisons at capture, unchanged closure hashes,
+strict host bounds and post-close completion validate the exported data.
+
+The actual closure is 2,374,592 bytes: 1556 root quadwords, 393 CNT tags, 1160
+owned REF tags and one END. These are source-chain records, not 1554 hardware
+starts: the captured frame has one queued hardware start plus one direct
+presentation transfer. The stream contains 3530 UNPACK, 152 MSCAL, 631 MSCNT and
+24 DIRECT commands. It contains no MPG, BASE or OFFSET. The program image is
+unchanged before/after; VIF double-buffer state changes. DIRECT contains no
+FRAME writes or IMAGE transfers, but this does not inventory the GS commands
+generated later by VU XGKICK.
+
+The original snapshot filenames follow inverted names in the installed SDK
+header: `ee-capture-data-*` was read from 0x11008000, which is VU1 program
+memory; `ee-capture-micro-*` was read from 0x1100c000, which is VU1 data memory.
+The [PCSX2 address map](https://github.com/PCSX2/pcsx2/blob/master/pcsx2/Memory.cpp#L353)
+and actual instruction/data bytes establish this correction. Original files,
+metadata and rejected interpretations remain untouched; the V3 host analyzer
+adds an explicit address-based interpretation. The initially reported program
+change was a labeling error, not evidence of program uploads.
+
+Capture is not replay qualification. Repeated submission needs a checked VIF,
+VU-data and GS startup capsule, a fixed target and real final completion. In
+particular, the native frame omits init-only VU data and BASE/OFFSET. A bare
+MSCAL to the draw-finish helper is unsafe: it XGKICKs the payload at TOP+10;
+the actual `Path1::addDrawFinishTag` must supply its valid GIF packet first.
+This helper cannot be used as an unprepared double-buffer toggle. Extra capture
+allocation and metadata change layout/cache state, so V4 timings are not V3
+prices or an ordinary gameplay optimization.

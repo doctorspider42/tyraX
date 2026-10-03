@@ -1250,6 +1250,20 @@ Rules the same evening paid for:
 ## Hard-won pitfalls (dead ends already explored — don't repeat them)
 
 **Devkit and measurement**
+- **VU memory snapshot labels must be checked against addresses.** The installed
+  SDK `vif_registers.h` names `VU1_MEM1_START` as 0x11008000 and
+  `VU1_MICROMEM1_START` as 0x1100c000, opposite the actual program/data map.
+  Program memory is 0x11008000; data memory is 0x1100c000. A private capture
+  therefore initially mislabeled changing data as a changing program. Preserve
+  raw snapshots and add an explicit address-based interpretation, rather than
+  rewriting evidence. Read only after real VIF/GIF/VU completion; see
+  `docs/tyrax2-scene-isolation.md` and the primary PCSX2 `memMapVUmicro` map.
+- **The draw-finish microprogram is not a bare double-buffer toggle.** It
+  XGKICKs TOP+10. `Path1::addDrawFinishTag` supplies the valid SET/FINISH/zero-PRIM
+  payload before MSCAL; omitting that payload can send stale VU data as GIF
+  commands. Any diagnostic startup capsule must use the approved payload,
+  consume its actual FINISH, retain owned REF data and account for reset cost.
+  An owned captured chain alone does not qualify standalone replay.
 - **A same-ELF observer switch is a net routing test, not a pure hook bill.**
   Reverse the arm order and retain rejected controls. The dispatch calibration
   first rejected camera drift with live physics, then reversed its work delta

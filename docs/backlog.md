@@ -387,6 +387,11 @@ recovered 0.50-0.72 ms of hardware `work`. What it did not do, ranked:
   preparation near 15.48 ms. Observer cost remains unpriced; isolate consumer
   completion/backpressure and dominant preparation groups next. The original
   empty-log launch/retry and subsequent power-reset recovery remain archived.
+  The [owned frame capture precursor](tyrax2-frame-capture-2026-10-03.json)
+  passes emulator and PS2 with all 1160 REF payloads owned and actual program
+  bytes stable. Next qualify an explicit VIF/VU/GS startup capsule and fixed
+  target before replay service measurements; bare draw-finish MSCAL is unsafe
+  without its required GIF payload.
   The [resumed candidate audit](tyrax2-ee-vu0.md#next-60-hz-candidates-host-controls-2026-10-03)
   rejects the broad beam cache as a demonstrated driving gain, identifies
   saturated-flicker over-invalidation, and records a private direct-recording
