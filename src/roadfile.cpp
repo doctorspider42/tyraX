@@ -381,13 +381,19 @@ void check(void (*verdict)(bool, const char*)) {
         E.find("struct RoadFurnRt { int scene; int first; int count; int light; }") != std::string::npos
             ? 4
             : 3;
+    // Puddles (docs/weather.md "Puddles") add a `wet` column to the detail
+    // rows the same way.
+    const int detailWidth =
+        E.find("struct RoadDetailRt { int scene; int first; int count; int wet; }") != std::string::npos
+            ? 4
+            : 3;
     const Table tables[] = {
         {kJunction, "RoadJunctionRt ROAD_JUNCTIONS[", 6, 2, 3, "float ROAD_JUNCTION_VERTS[", 5, 2, 1},
         {kSpill, "RoadSpillRt ROAD_SPILLS[", 7, 2, 3, "float ROAD_SPILL_VERTS[", 5, 1, 1},
         {kEdge, "RoadSpillRt ROAD_EDGES[", 7, 2, 3, "float ROAD_EDGE_VERTS[", 5, 1, 1},
         {kKerb, "RoadKerbRt ROAD_KERBS[", 3, 1, 2, "float ROAD_KERB_VERTS[", 4, 2, 3},
         {kBridge, "RoadBridgeRt ROAD_BRIDGES[", 3, 1, 2, "float ROAD_BRIDGE_VERTS[", 4, 2, 3},
-        {kDetail, "RoadDetailRt ROAD_DETAILS[", 3, 1, 2, "float ROAD_DETAIL_VERTS[", 5, 2, 3},
+        {kDetail, "RoadDetailRt ROAD_DETAILS[", detailWidth, 1, 2, "float ROAD_DETAIL_VERTS[", 5, 2, 3},
         {kFurn, "RoadFurnRt ROAD_FURN[", furnWidth, 1, 2, "float ROAD_FURN_VERTS[", 3, 2, 3},
     };
     const std::vector<uint32_t> furnRgb = uintsOf(E, "unsigned int ROAD_FURN_RGB[");

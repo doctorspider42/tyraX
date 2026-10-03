@@ -12,7 +12,9 @@
 #include <map>
 #include <sstream>
 
+#include "livelogic.hpp"  // the --vehicle-check Live Logic block only
 #include "project.hpp"    // the --vehicle-check codegen block only
+#include "roaddetail.hpp"
 #include "templates.hpp"
 #include "weather_core_gen.hpp"
 
@@ -274,6 +276,10 @@ const char* kMembers = R"RLMEM(  // --- street lamps and weather (docs/weather.m
   // The lamp pools' colour: lamp colour x night level x the grade's
   // compensation. The pool chunks (ProcChunk::lampLight) point here.
   Tyra::Color roadLampPoolColor_ = Tyra::Color(0.0F, 0.0F, 0.0F, 128.0F);
+  // Puddles (docs/weather.md "Puddles"): every puddle chunk (owner -6,
+  // ProcChunk::puddle) points its colour bag here - dark water plus the sky,
+  // alpha the wetness. Alpha 0 = dry: renderRoadChunks skips them.
+  Tyra::Color roadPuddleColor_ = Tyra::Color(0.0F, 0.0F, 0.0F, 0.0F);
   float roadLampLevel_ = 0.0F;
   float roadLampComp_[3] = {1.0F, 1.0F, 1.0F};
   int roadLampScene_ = -1, roadLampFirst_ = 0, roadLampEnd_ = 0;
@@ -315,6 +321,7 @@ constexpr int kRoadLampStreaks = 32;
 constexpr float kRoadLampCoronaFar = 160.0F;
 constexpr float kRoadLampCoronaFade = 110.0F;
 constexpr float kRoadLampStreakFar = 55.0F;
+constexpr int kRoadCarStreaks = 0;        // car-light streaks a frame (0: not vehicles + weather)
 constexpr int kRainDrops = 240;
 constexpr float kRainBox = 11.0F;         // half width of the box round the camera
 constexpr float kRainBelow = 4.0F, kRainHeight = 14.0F;
@@ -355,6 +362,17 @@ void TerrainGame::updateWeather() {
   // Wet asphalt: darker and a little cooler. 128 = dry = the texture as is.
   const float w = weather::g_state.wet;
   roadWetTint_ = Tyra::Color(128.0F - w * 58.0F, 128.0F - w * 55.0F, 128.0F - w * 46.0F, 128.0F);
+  // Puddles: dark water mirroring the sky, filling as the road soaks. The sky
+  // colour is the one the frame clears with, which the night grade's
+  // compensation has already brightened - take that back out, the puddle is
+  // graded like the road it lies on.
+  {
+    float pc[4];
+    weather::weatherPuddleColor(w, scriptCtx.skyColor.r / roadLampComp_[0],
+                                scriptCtx.skyColor.g / roadLampComp_[1],
+                                scriptCtx.skyColor.b / roadLampComp_[2], roadLampLevel_, pc);
+    roadPuddleColor_ = Tyra::Color(pc[0], pc[1], pc[2], pc[3]);
+  }
   updateRain(dt);
 }
 
@@ -427,11 +445,18 @@ void TerrainGame::renderRain() {
 
 void TerrainGame::renderRoadLamps() {
   const float lv = roadLampLevel_;
-  if (lv < 0.004F || !beamCoronaTex) return;
+  if (!beamCoronaTex) return;
+  const float wet = weather::g_state.wet;
+  const bool lit = lv >= 0.004F;
+  // Car lights on a wet road (docs/weather.md): any car whose lamps are on,
+  // night or day - so the lamps' level does not gate this half.
+  const bool carLights = kRoadCarStreaks > 0 && wet > 0.02F;
+  if (!lit && !carLights) return;
   // 1. The pools: host-baked additive decals, coloured by roadLampPoolColor_.
   //    Drawn here, after the whole scene, so the asphalt under them is
   //    already in the frame whatever order the interleaved passes chose.
   for (ProcChunk& c : procChunks) {
+    if (!lit) break;
     if (!c.lampLight || !c.bag || c.bag->count == 0) continue;
     const Tyra::Vec4 mn(c.aabbMin[0], c.aabbMin[1], c.aabbMin[2], 1.0F);
     const Tyra::Vec4 mx(c.aabbMax[0], c.aabbMax[1], c.aabbMax[2], 1.0F);
@@ -451,11 +476,14 @@ void TerrainGame::renderRoadLamps() {
   // 2. Coronas round the lamp heads and, on a wet road, each lamp's
   //    reflection: a streak lying on the road from under the lamp toward the
   //    viewer, centred where a mirror would show it. One additive bag.
-  if (roadLampEnd_ <= roadLampFirst_) return;
+  //    And 3. below, every car's lamps mirrored in the wet road, in the same
+  //    bag.
+  const bool lampSprites = lit && roadLampEnd_ > roadLampFirst_;
+  if (!lampSprites && !carLights) return;
   if (!roadLampSprBag_) {
-    roadLampSprVerts_.reserve((kRoadLampCoronas + kRoadLampStreaks) * 6);
-    roadLampSprSts_.reserve((kRoadLampCoronas + kRoadLampStreaks) * 6);
-    roadLampSprCols_.reserve((kRoadLampCoronas + kRoadLampStreaks) * 6);
+    roadLampSprVerts_.reserve((kRoadLampCoronas + kRoadLampStreaks + kRoadCarStreaks) * 6);
+    roadLampSprSts_.reserve((kRoadLampCoronas + kRoadLampStreaks + kRoadCarStreaks) * 6);
+    roadLampSprCols_.reserve((kRoadLampCoronas + kRoadLampStreaks + kRoadCarStreaks) * 6);
     roadLampSprInfo_ = std::make_unique<Tyra::StaPipInfoBag>();
     roadLampSprInfo_->model = &model;
     roadLampSprInfo_->shadingType = Tyra::TyraShadingGouraud;
@@ -488,14 +516,13 @@ void TerrainGame::renderRoadLamps() {
   if (rl > 1e-4F) rx /= rl, rz /= rl;
   else rx = 1.0F, rz = 0.0F;
   const float ux = -rz * fy, uy = rz * fx - rx * fz, uz = rx * fy;
-  const float wet = weather::g_state.wet;
   int coronas = 0, streaks = 0;
   auto put = [&](float x, float y, float z, float u, float v, const Tyra::Color& col) {
     roadLampSprVerts_.push_back(Tyra::Vec4(x, y, z, 1.0F));
     roadLampSprSts_.push_back(Tyra::Vec4(u, v, 1.0F, 0.0F));
     roadLampSprCols_.push_back(col);
   };
-  for (int li = roadLampFirst_; li < roadLampEnd_; ++li) {
+  for (int li = roadLampFirst_; lampSprites && li < roadLampEnd_; ++li) {
     const float* L = &ROAD_LAMPS[(size_t)li * 10];
     const float dx = L[1] - ex, dy = L[2] - ey, dz = L[3] - ez;
     const float d2 = dx * dx + dy * dy + dz * dz;
@@ -559,6 +586,8 @@ void TerrainGame::renderRoadLamps() {
       ++streaks;
     }
   }
+  (void)streaks;
+  // {{ROAD_CAR_STREAKS}}
   if (roadLampSprVerts_.empty()) return;
   roadLampSprVerts_.bind(roadLampSprBag_);
   roadLampSprSts_.bind(roadLampSprTexBag_);
@@ -572,6 +601,63 @@ void TerrainGame::renderRoadLamps() {
 
 )RLIMPL";
 
+// The car-light streaks (docs/weather.md "Car lights on a wet road"), spliced
+// into renderRoadLamps where `// {{ROAD_CAR_STREAKS}}` stands - only in a
+// project with vehicles, the one place VehicleRt exists. Generic on purpose:
+// EVERY vehicle whose lamps are on (the player's toggle, a definition that
+// starts lit, traffic switched on at night) draws, whoever turned them on.
+const char* kCarStreaks = R"RLCAR(  // 3. Car lights on a wet road: every car whose lamps are on mirrors them
+  //    as streaks toward the viewer - the core's weatherCarStreaks, the same
+  //    function --vehicle-check counts. Only the faces turned to the camera
+  //    draw: two quads a car, four at most, kRoadCarStreaks a frame, the
+  //    driver's car first.
+  if (carLights) {
+    int carQuads = 0;
+    // Dimmer by day: a lamp mirrored in a wet road under daylight is faint.
+    const float day = 0.45F + 0.55F * (lv > 1.0F ? 1.0F : lv);
+    for (int pass = 0; pass < 2; ++pass)
+      for (int vi = 0; vi < vehicleCount_ && carQuads < kRoadCarStreaks; ++vi) {
+        if ((pass == 0) != (vi == vehicleDriver_)) continue;
+        const VehicleRt& v = vehicles_[vi];
+        if (!v.active || v.def < 0 || v.object < 0 || v.object >= (int)objectGeometry.size())
+          continue;
+        if (!runtimeObjects[v.object].visible) continue;
+        const float cdx = v.pos[0] - ex, cdz = v.pos[2] - ez;
+        const float far = weather::kWeatherCarStreakFar + 6.0F;
+        if (cdx * cdx + cdz * cdz > far * far) continue;
+        const VehicleDefData& s = VEHICLE_DEFS[v.def];
+        // The road under each axle: the wheels' own contact heights (a car
+        // that never ran its physics yet stands on its origin).
+        float gf = 0.5F * (v.wheelY[0] + v.wheelY[1]), gr = 0.5F * (v.wheelY[2] + v.wheelY[3]);
+        if (!(fabsf(gf - v.pos[1]) < 1.5F)) gf = v.pos[1];
+        if (!(fabsf(gr - v.pos[1]) < 1.5F)) gr = v.pos[1];
+        float q[48], k[4];
+        int rearOf[4];
+        const int n = weather::weatherCarStreaks(v.pos, v.yaw, v.scale, s.lampFront, s.lampRear,
+                                                 s.track, s.wheelBase, s.bodyOverhang, gf, gr,
+                                                 v.lightsOn, v.brakeOn, v.lampBroken, ex, ey, ez,
+                                                 wet, q, k, rearOf);
+        for (int j = 0; j < n && carQuads < kRoadCarStreaks; ++j) {
+          const float b = k[j] * day;
+          const float br = rearOf[j] ? (v.brakeOn ? 1.0F : 0.55F) : 1.0F;
+          const Tyra::Color col =
+              rearOf[j] ? Tyra::Color(150.0F * b * br * roadLampComp_[0], 22.0F * b * br * roadLampComp_[1],
+                                      16.0F * b * br * roadLampComp_[2], 128.0F)
+                        : Tyra::Color(120.0F * b * roadLampComp_[0], 112.0F * b * roadLampComp_[1],
+                                      92.0F * b * roadLampComp_[2], 128.0F);
+          const float* c = &q[j * 12];
+          put(c[0], c[1], c[2], 0.0F, 0.0F, col);
+          put(c[3], c[4], c[5], 1.0F, 0.0F, col);
+          put(c[6], c[7], c[8], 1.0F, 1.0F, col);
+          put(c[0], c[1], c[2], 0.0F, 0.0F, col);
+          put(c[6], c[7], c[8], 1.0F, 1.0F, col);
+          put(c[9], c[10], c[11], 0.0F, 1.0F, col);
+          ++carQuads;
+        }
+      }
+  }
+)RLCAR";
+
 }  // namespace
 
 std::string patchTemplate(std::string s, const Gates& g) {
@@ -583,9 +669,13 @@ std::string patchTemplate(std::string s, const Gates& g) {
                    "    // A street lamp's POOL of light (docs/weather.md): an additive\n"
                    "    // furniture chunk drawn by renderRoadLamps at night, never by\n"
                    "    // renderProcChunks.\n"
-                   "    int lampLight = 0;\n"
-                   "  };\n  std::vector<ProcChunk> procChunks;\n" +
-                       std::string(kMembers));
+                   "    int lampLight = 0;\n" +
+                       std::string(g.weather
+                                       ? "    // A road-detail PUDDLE (docs/weather.md \"Puddles\"): its colour\n"
+                                         "    // bag is roadPuddleColor_, and it is not drawn while dry.\n"
+                                         "    int puddle = 0;\n"
+                                       : "") +
+                       "  };\n  std::vector<ProcChunk> procChunks;\n" + std::string(kMembers));
     // 2. procFinishChunks (and the streaming copy cut from it): the pool
     //    chunks' additive bag and night colour, the asphalt's wet tint.
     std::string finish =
@@ -621,7 +711,16 @@ std::string patchTemplate(std::string s, const Gates& g) {
             "               cc[k].a == 128.0F;\n"
             "      if (grey) c.colorBag->single = &roadWetTint_;\n"
             "    }\n";
+    if (g.puddles)
+        finish +=
+            "    if (c.puddle) c.colorBag->single = &roadPuddleColor_;  // puddles: the wetness\n";
     s = replaceAll(s, "      c.bag->info = roadBlendInfoBag.get();\n    }\n", finish);
+    // 2b. renderRoadChunks: a puddle chunk is not even submitted while dry
+    //     (its alpha is 0 and every texel would fail the alpha test anyway).
+    if (g.puddles)
+        s = replaceAll(s, "      continue;  // -6: road details, blended after the asphalt\n",
+                       "      continue;  // -6: road details, blended after the asphalt\n"
+                       "    if (c.puddle && roadPuddleColor_.a < 1.0F) continue;  // dry: no puddles\n");
     // 3. renderProcChunks leaves the pools to renderRoadLamps.
     s = replaceAll(s,
                    "  for (ProcChunk& c : procChunks) {\n"
@@ -630,9 +729,14 @@ std::string patchTemplate(std::string s, const Gates& g) {
                    "    if (c.lampLight) continue;  // street lamp pools: renderRoadLamps\n"
                    "    // Roads have their own phase and profiler row.");
     // 4. The pools and coronas draw through the corona sprite.
-    if (g.lamps)
+    if (g.lamps && !(g.weather && g.vehicles))
         s = replaceAll(s, "    if (BEAMS_USED || STAR_COUNT > 0)\n      beamCoronaTex",
                        "    if (BEAMS_USED || STAR_COUNT > 0 || ROAD_LAMP_COUNT > 0)  // + lit street lamps\n"
+                       "      beamCoronaTex");
+    else if (g.weather && g.vehicles)
+        s = replaceAll(s, "    if (BEAMS_USED || STAR_COUNT > 0)\n      beamCoronaTex",
+                       "    if (BEAMS_USED || STAR_COUNT > 0 || ROAD_LAMP_COUNT > 0 ||\n"
+                       "        VEHICLE_DEF_COUNT > 0)  // + lit street lamps, car lights on a wet road\n"
                        "      beamCoronaTex");
     // 5. Once a frame, in the game loop; the authored weather on a scene load.
     s = replaceAll(s, "  updateParticles();\n",
@@ -648,9 +752,17 @@ std::string patchTemplate(std::string s, const Gates& g) {
     s = replaceAll(s, "  costEnd(\"Particles\",-1,costParticleStart);\n",
                    "  costEnd(\"Particles\",-1,costParticleStart);\n"
                    "  { const u32 ct=costStart(); renderRain(); costEnd(\"Rain\",-1,ct); }\n");
-    // 7. The functions.
-    s = replaceAll(s, "void TerrainGame::renderRoadChunks() {",
-                   std::string(kImpl) + "void TerrainGame::renderRoadChunks() {");
+    // 7. The functions - with, in a project with vehicles and weather, the
+    //    car-light streaks in renderRoadLamps and their budget in its bag.
+    std::string impl = kImpl;
+    if (g.weather && g.vehicles) {
+        impl = replaceAll(impl, "constexpr int kRoadCarStreaks = 0;        // car-light streaks a frame (0: not vehicles + weather)\n",
+                          "constexpr int kRoadCarStreaks = weather::kWeatherCarStreakMax;  // car-light streaks a frame\n");
+        impl = replaceAll(impl, "  // {{ROAD_CAR_STREAKS}}\n", kCarStreaks);
+    } else {
+        impl = replaceAll(impl, "  // {{ROAD_CAR_STREAKS}}\n", "");
+    }
+    s = replaceAll(s, "void TerrainGame::renderRoadChunks() {", impl + "void TerrainGame::renderRoadChunks() {");
     return s;
 }
 
@@ -719,6 +831,22 @@ void WeatherSim::tick(float dt) {
 }
 
 float lampLevelFromSun(float sunY) { return weather::weatherLampLevel(sunY); }
+
+float puddleLevel(float wet) { return weather::weatherPuddleLevel(wet); }
+
+void puddleColor(float wet, float skyR, float skyG, float skyB, float lamps, float out[4]) {
+    weather::weatherPuddleColor(wet, skyR, skyG, skyB, lamps, out);
+}
+
+int carStreaks(const float pos[3], float yawDeg, float scale, const float lampFront[4],
+               const float lampRear[4], float track, float wheelBase, float overhang,
+               float groundFront, float groundRear, int lightsOn, int brakeOn, int broken,
+               float ex, float ey, float ez, float wet, float quads[48], float ks[4],
+               int rear[4]) {
+    return weather::weatherCarStreaks(pos, yawDeg, scale, lampFront, lampRear, track, wheelBase,
+                                      overhang, groundFront, groundRear, lightsOn, brakeOn, broken,
+                                      ex, ey, ez, wet, quads, ks, rear);
+}
 
 // --- --vehicle-check "wet roads and lamps" ---------------------------------------
 
@@ -933,6 +1061,258 @@ void check(void (*verdict)(bool, const char*)) {
         verdict(noon == 0.0f && midnight == 1.0f && dusk > 0.1f && dusk < 0.9f && mono,
                 "lamps: off by day, on at night, fading through the dusk");
     }
+    // Puddles (docs/weather.md "Puddles"): the road-details fixture - a kerbed
+    // T with zebras and a kerbless cross street on rolling ground.
+    {
+        const roadgen::HeightFn hills = [](float x, float z) {
+            return 0.8f * std::sin(x * 0.11f) + 0.5f * std::cos(z * 0.07f) +
+                   0.3f * std::fabs(std::sin(x * 0.05f + z * 0.03f));
+        };
+        auto mk = [](const char* id, std::vector<float> pts, float width, bool kerb) {
+            roadgen::CrossingRoad r;
+            r.id = id;
+            r.points = std::move(pts);
+            r.width = width;
+            r.intersection = "res/materials/x.mtl";
+            r.kerb = kerb;
+            r.markings = roadgen::kMarkCrossings;
+            r.details = 0.9f;
+            return r;
+        };
+        const std::vector<roadgen::CrossingRoad> pr = {
+            mk("main", {-120, 0, 0, 2, 120, 0}, 12, true), mk("stem", {0, 0, 0, 90}, 9, true),
+            mk("cross", {60, -80, 62, 80}, 8, false)};
+        const roadgen::CrossingPlan pplan = roadgen::planCrossings(pr, {});
+        std::vector<roadgen::Vertex> roadTris, patches, paint;
+        std::vector<std::vector<roadgen::Vertex>> perRoad(pr.size());
+        for (size_t i = 0; i < pr.size(); ++i) {
+            roadgen::tessellate(pr[i].points, pr[i].width,
+                                [&](float x, float z) { return hills(x, z) + roadgen::rankLift(pr[i].rank); },
+                                perRoad[i], {}, pr[i].sampleStep);
+            roadTris.insert(roadTris.end(), perRoad[i].begin(), perRoad[i].end());
+        }
+        for (const roadgen::Crossing& c : pplan.crossings) {
+            if (c.kind != roadgen::kCrossPatch || c.patchDuplicate) continue;
+            std::vector<roadgen::Vertex> mesh;
+            roadgen::tessellateJunctionSurface(c.shape, roadTris, hills, c.lift, mesh);
+            patches.insert(patches.end(), mesh.begin(), mesh.end());
+        }
+        roadgen::Surface drawn, patchOnly, paintOnly;
+        drawn.add(roadTris);
+        drawn.add(patches);
+        drawn.build();
+        roadgen::bakeMarkings(pplan, pr, drawn, paint);
+        patchOnly.add(patches);
+        patchOnly.build();
+        paintOnly.add(paint);
+        paintOnly.build();
+        std::vector<roadgen::Surface> own(pr.size());
+        for (size_t i = 0; i < pr.size(); ++i) {
+            own[i].add(perRoad[i]);
+            own[i].build();
+        }
+        auto bake = [&](bool puddles) {
+            roaddetail::SceneInput di;
+            di.roads = &pr;
+            di.plan = &pplan;
+            di.ground = hills;
+            di.patches = patches;
+            di.paint = paint;
+            di.puddles = puddles;
+            return roaddetail::build(di);
+        };
+        const roaddetail::Result dry = bake(false), wetA = bake(true), wetB = bake(true);
+        std::snprintf(msg, sizeof(msg),
+                      "%zu puddles (%d tried, %d on a crest), %zu vertices in %zu chunks",
+                      wetA.puddles.size(), wetA.puddleCandidates, wetA.puddlesOnCrest,
+                      wetA.puddleTris.size(), wetA.puddleChunkSizes.size());
+        verdict(wetA.puddles.size() >= 6 && dry.puddles.empty() && dry.puddleTris.empty(), msg);
+        // Placed LAST: a project that gains weather keeps every other decal.
+        bool same = dry.tris.size() == wetA.tris.size() && dry.chunkSizes == wetA.chunkSizes &&
+                    dry.decals.size() == wetA.decals.size();
+        for (size_t i = 0; same && i < dry.tris.size(); ++i)
+            same = std::memcmp(&dry.tris[i], &wetA.tris[i], sizeof(roadgen::Vertex)) == 0;
+        verdict(same, "puddles never move, add or drop a decal of the other kinds");
+        bool det = wetA.puddleTris.size() == wetB.puddleTris.size() &&
+                   wetA.puddleChunkSizes == wetB.puddleChunkSizes;
+        for (size_t i = 0; det && i < wetA.puddleTris.size(); ++i)
+            det = std::memcmp(&wetA.puddleTris[i], &wetB.puddleTris[i], sizeof(roadgen::Vertex)) == 0;
+        verdict(det, "the same roads bake the same puddles, bit for bit");
+        // Every sample of every puddle triangle: on its own road, kDetailLift
+        // over the drawn surface, and on no node patch and no paint.
+        int samples = 0, offRoad = 0, onNode = 0, onPaint = 0, offLift = 0;
+        for (size_t t = 0; t + 2 < wetA.puddleTris.size(); t += 3)
+            for (float s = 0.1f; s < 0.85f; s += 0.2f)
+                for (float r = 0.1f; r + s < 0.95f; r += 0.2f) {
+                    const roadgen::Vertex& p0 = wetA.puddleTris[t];
+                    const roadgen::Vertex& p1 = wetA.puddleTris[t + 1];
+                    const roadgen::Vertex& p2 = wetA.puddleTris[t + 2];
+                    const float x = p0.x + s * (p1.x - p0.x) + r * (p2.x - p0.x);
+                    const float z = p0.z + s * (p1.z - p0.z) + r * (p2.z - p0.z);
+                    const float y = p0.y + s * (p1.y - p0.y) + r * (p2.y - p0.y);
+                    ++samples;
+                    bool onAny = false;
+                    float top = roadgen::Surface::kNone;
+                    for (const roadgen::Surface& o : own) {
+                        const float h = o.at(x, z);
+                        if (h != roadgen::Surface::kNone) onAny = true, top = std::max(top, h);
+                    }
+                    if (!onAny) ++offRoad;
+                    else if (std::fabs(y - top - roaddetail::kDetailLift) > 0.01f) ++offLift;
+                    if (patchOnly.at(x, z) != roadgen::Surface::kNone) ++onNode;
+                    if (paintOnly.at(x, z) != roadgen::Surface::kNone) ++onPaint;
+                }
+        std::snprintf(msg, sizeof(msg),
+                      "every puddle sample lies on its road, %.2f over it, off every node patch "
+                      "and its paint (%d samples: %d off, %d off the lift, %d on a node, %d on paint)",
+                      (double)roaddetail::kDetailLift, samples, offRoad, offLift, onNode, onPaint);
+        verdict(samples > 0 && offRoad == 0 && offLift == 0 && onNode == 0 && onPaint == 0, msg);
+        // Low spots: no puddle sits on a crest of its road (higher than the
+        // road 5 units either way along it), and the kerb puddles hug an edge.
+        int crest = 0, atEdge = 0;
+        for (const roaddetail::Decal& d : wetA.puddles) {
+            const roadgen::CrossingRoad& r = pr[(size_t)d.road];
+            const roadgen::Surface& o = own[(size_t)d.road];
+            const float y0 = o.at(d.x, d.z);
+            const float ya = o.at(d.x - d.ax * 5.0f, d.z - d.az * 5.0f);
+            const float yb = o.at(d.x + d.ax * 5.0f, d.z + d.az * 5.0f);
+            if (y0 != roadgen::Surface::kNone && ya != roadgen::Surface::kNone &&
+                yb != roadgen::Surface::kNone && y0 > 0.5f * (ya + yb) + 0.05f)
+                ++crest;
+            // Distance from the edge: the farthest the road reaches across.
+            const float lx = -d.az, lz = d.ax;
+            float edgeDist = 1e9f;
+            for (int sd = -1; sd <= 1; sd += 2)
+                for (float k = 0.0f; k < r.width; k += 0.1f)
+                    if (o.at(d.x + lx * k * (float)sd, d.z + lz * k * (float)sd) ==
+                        roadgen::Surface::kNone) {
+                        edgeDist = std::min(edgeDist, k);
+                        break;
+                    }
+            atEdge += edgeDist < d.hv + 1.0f ? 1 : 0;
+        }
+        std::snprintf(msg, sizeof(msg),
+                      "puddles collect in low spots: none on a crest, %d of %zu hug the kerb or edge",
+                      atEdge, wetA.puddles.size());
+        verdict(crest == 0 && atEdge * 2 >= (int)wetA.puddles.size(), msg);
+        // Beside the gullies: on the kerbed roads, a share of the puddles
+        // stand right next to a gully (the drain they collect at).
+        int byGully = 0, kerbed = 0;
+        for (const roaddetail::Decal& d : wetA.puddles) {
+            if (!pr[(size_t)d.road].kerb) continue;
+            ++kerbed;
+            bool nearG = false;
+            for (const roaddetail::Decal& gd : wetA.decals)
+                nearG |= gd.kind == roaddetail::kGully && gd.road == d.road &&
+                         std::hypot(gd.x - d.x, gd.z - d.z) < d.hu + gd.hu + 0.6f;
+            byGully += nearG ? 1 : 0;
+        }
+        std::snprintf(msg, sizeof(msg), "%d of %d puddles on kerbed roads lie beside a gully",
+                      byGully, kerbed);
+        verdict(kerbed > 0 && byGully * 4 >= kerbed, msg);
+        int sum = 0;
+        bool budget = true;
+        for (int c : wetA.puddleChunkSizes)
+            sum += c, budget &= c > 0 && c % 3 == 0 && c <= roaddetail::kChunkBudget;
+        bool uv = true;
+        for (const roadgen::Vertex& v : wetA.puddleTris) uv &= v.u > 0.0f && v.u < 1.0f && v.v > 0.0f && v.v < 1.0f;
+        verdict(sum == (int)wetA.puddleTris.size() && budget && uv,
+                "puddle chunks hold whole puddles within budget, UVs inside the puddle texture");
+        // The texture: 16 RGBA entries, so a 4-bit bake keeps it as drawn.
+        const std::vector<unsigned char> px = roaddetail::generatePuddles();
+        std::vector<uint32_t> entries;
+        int opaque = 0;
+        for (size_t i = 0; i + 3 < px.size(); i += 4) {
+            const uint32_t e = (uint32_t)px[i] << 24 | (uint32_t)px[i + 1] << 16 |
+                               (uint32_t)px[i + 2] << 8 | px[i + 3];
+            if (std::find(entries.begin(), entries.end(), e) == entries.end()) entries.push_back(e);
+            opaque += px[i + 3] == 255 ? 1 : 0;
+        }
+        verdict(entries.size() <= 16 && opaque > 400 && px == roaddetail::generatePuddles(),
+                "the puddle texture is 16 RGBA entries at most, deterministic");
+        // Visible only when wet: the level and the colour's alpha follow the
+        // wetness, 0 while the road is merely damp.
+        bool mono = true;
+        float prev = 0.0f;
+        for (int i = 0; i <= 100; ++i) {
+            const float l = puddleLevel((float)i / 100.0f);
+            mono &= l + 1e-6f >= prev;
+            prev = l;
+        }
+        float c0[4], c1[4], cNight[4];
+        puddleColor(0.0f, 120.0f, 140.0f, 170.0f, 0.0f, c0);
+        puddleColor(1.0f, 120.0f, 140.0f, 170.0f, 0.0f, c1);
+        puddleColor(1.0f, 8.0f, 9.0f, 14.0f, 0.0f, cNight);
+        verdict(mono && puddleLevel(0.3f) == 0.0f && puddleLevel(0.9f) == 1.0f && c0[3] == 0.0f &&
+                    c1[3] > 90.0f && c1[3] <= 128.0f && c1[2] > cNight[2],
+                "puddles only show on a wet road: none below 0.35 wetness, full above 0.85, "
+                "lighter under a day sky than at night");
+    }
+    // Car lights on a wet road (docs/weather.md): the core function the
+    // console calls, car by car.
+    {
+        const float pos[3] = {0.0f, 0.0f, 0.0f};
+        const float lf[4] = {0.62f, 0.66f, 2.05f, 0.14f}, lr[4] = {0.64f, 0.78f, -2.1f, 0.12f};
+        const float none4[4] = {0, 0, 0, 0};
+        float q[48], k[4];
+        int rear[4];
+        auto count = [&](int lights, int brake, int broken, float ex, float ez, float wet,
+                         const float* f = nullptr, const float* r = nullptr) {
+            return carStreaks(pos, 0.0f, 1.0f, f ? f : lf, r ? r : lr, 1.6f, 2.7f, 0.9f, 0.0f, 0.0f,
+                              lights, brake, broken, ex, 2.2f, ez, wet, q, k, rear);
+        };
+        // Heading 0 faces +z: a camera ahead sees the headlights, one behind
+        // the tail lamps.
+        const int ahead = count(1, 0, 0, 0.5f, 18.0f, 1.0f);
+        const bool aheadFront = ahead == 2 && rear[0] == 0 && rear[1] == 0;
+        bool onRoad = true, between = true;
+        for (int j = 0; j < ahead; ++j)
+            for (int c = 0; c < 4; ++c) {
+                onRoad &= std::fabs(q[j * 12 + c * 3 + 1] - 0.06f) < 1e-4f;
+                const float z = q[j * 12 + c * 3 + 2];
+                between &= z > 2.0f && z < 18.0f && k[j] > 0.0f && k[j] <= 1.0f;
+            }
+        const int behind = count(1, 0, 0, -0.5f, -18.0f, 1.0f);
+        const bool behindRear = behind == 2 && rear[0] == 1 && rear[1] == 1;
+        const int dry = count(1, 1, 0, 0.5f, 18.0f, 0.0f);
+        const int off = count(0, 0, 0, 0.5f, 18.0f, 1.0f) + count(0, 0, 0, 0.5f, -18.0f, 1.0f);
+        const int braking = count(0, 1, 0, 0.5f, -18.0f, 1.0f) + count(0, 1, 0, 0.5f, 18.0f, 1.0f);
+        const int broken = count(1, 0, 1, 0.5f, 18.0f, 1.0f);
+        const int far = count(1, 0, 0, 0.5f, 80.0f, 1.0f);
+        const int side = count(1, 0, 0, 0.5f, 18.0f, 1.0f, none4, none4);  // unmeasured model
+        std::snprintf(msg, sizeof(msg),
+                      "car streaks: 2 ahead (headlights), 2 behind (tail lamps), dry %d, lamps off %d, "
+                      "braking %d, broken headlights %d, 80 away %d, unmeasured %d",
+                      dry, off, braking, broken, far, side);
+        verdict(aheadFront && behindRear && onRoad && between && dry == 0 && off == 0 &&
+                    braking == 2 && broken == 0 && far == 0 && side == 2,
+                msg);
+        // N cars x at most 4 quads, capped per frame.
+        int total = 0;
+        for (int car = 0; car < 20; ++car) total += std::min(4, count(1, 0, 0, 0.5f, 18.0f, 1.0f));
+        std::snprintf(msg, sizeof(msg),
+                      "20 lit cars in view ask for %d streak quads, the frame draws at most %d",
+                      total, weather::kWeatherCarStreakMax);
+        verdict(total == 40 && weather::kWeatherCarStreakMax == 24, msg);
+        // The splice: a vehicle project gets the block, any other none.
+        const std::string tpl =
+            "  updateParticles();\n"
+            "void TerrainGame::renderRoadChunks() {\n";
+        Gates gv;
+        gv.weather = true;
+        gv.vehicles = true;
+        const std::string withCars = patchTemplate(tpl, gv);
+        gv.vehicles = false;
+        const std::string noCars = patchTemplate(tpl, gv);
+        verdict(withCars.find("weather::weatherCarStreaks(") != std::string::npos &&
+                    withCars.find("kRoadCarStreaks = weather::kWeatherCarStreakMax") != std::string::npos &&
+                    noCars.find("weatherCarStreaks") == std::string::npos &&
+                    noCars.find("kRoadCarStreaks = 0") != std::string::npos &&
+                    withCars.find("{{ROAD_CAR_STREAKS}}") == std::string::npos &&
+                    noCars.find("{{ROAD_CAR_STREAKS}}") == std::string::npos,
+                "a project with vehicles and weather splices the car streaks into the lamp bag, "
+                "any other none");
+    }
     // The codegen: lamps and weather generate their runtime, the pools ride in
     // the streaming furniture items (embedded and on disk), and a project
     // with neither generates none of it.
@@ -1029,6 +1409,58 @@ void check(void (*verdict)(bool, const char*)) {
                     has(rain, "renderRain(); costEnd(\"Rain\"") && has(rain, wantKinds.c_str()) &&
                     has(rain, wantIn.c_str()),
                 "a raining scene generates the wet tint, the rain and its authored weather");
+        // Rain + road details: the puddle rows (a `wet` column), their
+        // texture, the shared colour and the dry skip - embedded, streamed
+        // and on disk.
+        sc.objects[0].roadDetails = 0.8f;
+        const std::string wetDetails = gen();
+        verdict(has(wetDetails, "struct RoadDetailRt { int scene; int first; int count; int wet; };") &&
+                    has(wetDetails, "ROAD_PUDDLE_TEX = ") && has(wetDetails, "c.puddle = dr.wet;") &&
+                    has(wetDetails, "\"materials/roads/road-puddles.png\"") &&
+                    has(wetDetails, "if (c.puddle) c.colorBag->single = &roadPuddleColor_;") &&
+                    has(wetDetails, "if (c.puddle && roadPuddleColor_.a < 1.0F) continue;") &&
+                    has(wetDetails, "weather::weatherPuddleColor(w,") && has(wetDetails, " puddles ("),
+                "rain on a road with details generates the puddle rows, texture, colour and dry skip");
+        p.settings.roadStreamRadius = 150.0f;
+        p.settings.roadStreamEmbedTables = true;
+        const std::string wetStream = gen();
+        {
+            const size_t at = wetStream.find("    case RS_DETAIL: {");
+            const size_t end = at == std::string::npos ? at : wetStream.find("      break;\n    }\n", at);
+            const std::string body = at == std::string::npos || end == std::string::npos
+                                         ? std::string()
+                                         : wetStream.substr(at, end - at);
+            verdict(body.find("c.puddle = dr.wet;") != std::string::npos &&
+                        body.find("puddleTex = roadTextures_[ROAD_PUDDLE_TEX];") != std::string::npos &&
+                        !has(wetStream, "template anchor missing"),
+                    "a streamed project builds each puddle chunk with its detail item (every anchor holds)");
+        }
+        p.settings.roadStreamEmbedTables = false;
+        const std::string wetDisk = gen();
+        {
+            int rows = 0, items = 0, wetRows = 0;
+            if (const size_t k = wetDisk.find("RoadDetailRt ROAD_DETAILS["); k != std::string::npos) {
+                const size_t e = wetDisk.find("};", k);
+                for (size_t q = wetDisk.find("    {", k); q != std::string::npos && q < e;
+                     q = wetDisk.find("    {", q + 1)) {
+                    ++rows;
+                    const size_t close = wetDisk.find("},", q);
+                    wetRows += wetDisk.compare(close - 3, 3, ", 1") == 0 ? 1 : 0;
+                }
+            }
+            if (const size_t d = wetDisk.find("RoadFileItem ROAD_FILE_ITEMS["); d != std::string::npos) {
+                const size_t e = wetDisk.find("};", d);
+                for (size_t k = wetDisk.find("    {6, ", d); k != std::string::npos && k < e;
+                     k = wetDisk.find("    {6, ", k + 1))
+                    ++items;
+            }
+            std::snprintf(msg, sizeof(msg),
+                          "tables on disk: every detail row, puddles included, is a roads.bin item "
+                          "(%d rows, %d of them puddles, %d items)", rows, wetRows, items);
+            verdict(rows > 0 && wetRows > 0 && rows == items, msg);
+        }
+        p.settings.roadStreamRadius = 0.0f;
+        sc.objects[0].roadDetails = 0.0f;
         // Set Weather compiles to a request on the weather state.
         sc.weather = 0;
         {
@@ -1050,14 +1482,41 @@ void check(void (*verdict)(bool, const char*)) {
         verdict(has(node, "weather::request(1, 0.5F, 3.0F);") &&
                     has(node, "#include \"daynight.gen.hpp\"  // Set Weather"),
                 "Set Weather compiles to a request on the weather state");
+        // Live Logic (docs/live-logic.md): a build with weather says so in
+        // its built list, and Set Weather compiles to its opcode.
+        {
+            const std::string built = livelogic::builtListText(p);
+            const std::filesystem::path bf = dir / "livelogic.built";
+            {
+                std::FILE* fp = std::fopen(bf.string().c_str(), "wb");
+                if (fp) std::fwrite(built.data(), 1, built.size(), fp), std::fclose(fp);
+            }
+            livelogic::BuiltList list;
+            const bool loaded = livelogic::loadBuiltList(bf.string(), list);
+            const int si = (int)p.scenes.size() - 1;
+            const bool patchable = livelogic::capability(p, sc, sc.objects[0].flowGraph).patchable;
+            livelogic::Program prog;
+            const bool compiled = livelogic::compile(p, si, 0, prog);
+            bool op = false;
+            for (const livelogic::Instr& in : prog.instrs)
+                op |= in.op == livelogic::OP_SetWeather && in.num[0] == 1.0f && in.num[1] == 0.5f &&
+                      in.num[2] == 3.0f;
+            verdict(loaded && list.weather && patchable && compiled && op,
+                    "Live Logic: a build with weather lists it, Set Weather compiles to OP_SetWeather");
+        }
         // Neither: no lamp and no weather code at all.
         sc.objects[0].flowGraph = FlowGraph{};
         sc.objects[0].roadFurniture.lamps.spacing = 0.0f;
         sc.objects[0].roadFurniture.trees.spacing = 12.0f;
+        sc.objects[0].roadDetails = 0.8f;  // details without weather: no puddles
         const std::string none = gen();
         verdict(!has(none, "lampLight") && !has(none, "weather::") && !has(none, "ROAD_LAMP") &&
-                    !has(none, "roadWetTint_") && has(none, "struct RoadFurnRt { int scene; int first; int count; };"),
-                "a project with no lamps and no weather generates none of it");
+                    !has(none, "roadWetTint_") && has(none, "struct RoadFurnRt { int scene; int first; int count; };") &&
+                    !has(none, "puddle") && !has(none, "PUDDLE") &&
+                    has(none, "struct RoadDetailRt { int scene; int first; int count; };") &&
+                    livelogic::builtListText(p).find("\nweather\n") == std::string::npos,
+                "a project with no lamps and no weather generates none of it (details without puddles)");
+        sc.objects[0].roadDetails = 0.0f;
         // Lamps Off in the only scene: no pools, no runtime.
         sc.objects[0].roadFurniture.lamps.spacing = 15.0f;
         sc.streetLamps = 2;

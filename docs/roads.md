@@ -1211,6 +1211,36 @@ gullies at the kerb - rather than as a pattern.
 
 ![PCSX2: road details on Market cross street in the Motor District at density 0.8 - street level (left) and from 4 units up (right): a repair patch, an oil stain, a crack and gullies along the kerbs](img/road-details-pcsx2.png)
 
+### Puddles
+
+In a project with [weather](weather.md#puddles-host-baked-decals-one-colour) a
+road with details also gets **puddles**: a seventh decal kind
+(`roaddetail::kPuddle`), kept out of `kKindCount`, so every per-kind table and
+line above reads as before. They behave like the other details in four ways:
+
+- they are owner -6, blended and kDetailLift over the road;
+- they follow the same footprint and clearance rules, so never on a node;
+- they ride the same density and seed;
+- they stream and go to `roads.bin` the same way.
+
+They differ in five:
+
+- **Placed last.** A second pass after every other decal, so gaining weather
+  never moves a manhole. Puddles go beside the gullies (uphill), along the
+  lower edge, now and then in a wheel rut, and never on a crest.
+- **The overlap test.** It is an exact rectangle one, not the circles.
+- **Their own texture.** `road-puddles.png`, 64 x 64, written by
+  `roaddetail::ensurePuddles` only when missing.
+- **Their own chunks.** By 64-unit cell (`kPuddleCell`), as extra `ROAD_DETAILS`
+  rows with a `wet` column. The column exists only when puddles do.
+- **One shared colour.** Its alpha is the wetness, so they fade in as the road
+  soaks and out as it dries, with no per-vertex work. A dry puddle chunk is not
+  submitted.
+
+`SceneInput::puddles` switches them on, and `Result::puddles` / `puddleTris` /
+`puddleChunkSizes` hold them. `--vehicle-check` "wet roads and lamps" proves the
+placement.
+
 ### Limits
 
 - Nodes stay clean (see above), and so do the first metres of every arm (the

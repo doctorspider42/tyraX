@@ -4149,8 +4149,10 @@ generating nothing). Then, in PCSX2:
 
 `--vehicle-check` "wet roads and lamps" is the host layer (lamp heads, pool
 placement on the drawn surface, chunking, determinism, the packed UV, the
-weather state machine, the lamp level, and the codegen: lamps, streaming items,
-tables on disk, rain, Set Weather, nothing-generated-when-unused). Set
+weather state machine, the lamp level, puddle placement and visibility, the
+car-streak counts of `weatherCarStreaks`, the Live Logic `weather` line, and the
+codegen: lamps, puddles, streaming items, tables on disk, rain, Set Weather,
+nothing-generated-when-unused). Set
 `TYRAX_ROADLIGHT_DUMP=<dir>` to get its generated sources as gen<N>.txt. Then,
 in PCSX2 (docs/weather.md "What it costs" is the recipe):
 
@@ -4169,6 +4171,21 @@ in PCSX2 (docs/weather.md "What it costs" is the recipe):
   `ROADSTREAM load resident ... vertices` and `ROADFILE open ... KB`.
 - **Big City at night**: its lamps are scene objects, so add furniture lamps to
   its roads in the copy and give its ambience a non-running cycle at hour 0.
+- **Puddles and car streaks** (2026-10-03): the cleanest A/B is EDITOR vs
+  EDITOR - copy `build-dev/tyrax-editor.exe` aside before the change, then
+  build the same fixture with each (`--build <dir> --run`, which since 1.174
+  closes only that project's PCSX2). Puddles are thin at street level: find
+  them from the `ROAD_DETAILS` rows whose last column is 1 and stand 5-10
+  units off one; a debug run with a garish water colour in
+  `weatherPuddleColor` plus an image diff locates them. The parked Ravager at
+  (0, -74.3) faces +z: a walker at (1.5, -62), heading 180, sees its
+  headlights and the traffic's mirrored in the road. The puddle texture is
+  written only when missing, so a stale `res/materials/roads/road-puddles.png` in a copy is
+  kept - delete it to see a texture change.
+- **Flaky under parallel sessions**: "every material a preset names exists
+  after it is applied" (roaddraw's check) shares a temp directory with any
+  other `--vehicle-check` running at the same time and can fail spuriously;
+  rerun alone before believing it.
 
 ## Exact first-entry HUD acceptance (1.150.1)
 

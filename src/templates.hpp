@@ -111,6 +111,13 @@ bool projectUsesBeams(const Project& p);
 bool projectHasLitLamps(const Project& p);
 // Weather (docs/weather.md): a scene that rains or a Set Weather node.
 bool projectUsesWeather(const Project& p);
+// Puddles (docs/weather.md "Puddles"): weather AND a road with details. Gates
+// the puddle decals, their `wet` column, ROAD_PUDDLE_TEX and the
+// res/materials/roads/road-puddles.png bake.
+bool projectHasPuddles(const Project& p);
+// Wet car-light streaks (docs/weather.md): weather AND a vehicle. Gates the
+// car-streak block in renderRoadLamps and the corona sprite it draws with.
+bool projectHasWetCarStreaks(const Project& p);
 
 // True when any scene can show the camera flashlight (a Player object with it
 // enabled, or a Set Flashlight node that could switch one on at runtime).

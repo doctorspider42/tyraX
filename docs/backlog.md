@@ -180,19 +180,29 @@ verified in PCSX2 only.
   halos, streaks, wet tint from the scene and the previewed hour), but the
   editor GUI was not launched for the change: take a `--ui-script` shot of the
   Motor District at night and in the rain.
-- **Puddles**: a road-details decal kind drawn only when wet (its alpha by
-  wetness, so it needs its own colour like the pools).
-- **Car-light streaks** on a wet road under the headlights and tail lights
-  (the vehicle lamp glow positions are known per car; the streak is the lamp
-  streak's geometry).
+- ~~**Puddles**~~: done (docs/weather.md "Puddles": a details decal kind
+  placed last, its own texture and chunks, one shared colour whose alpha is
+  the wetness). Still open: a puddle that mirrors an image (it is one colour
+  plus the streaks that cross it), puddles that change grip, a physical-PS2
+  look at the night sheen, and a `--ui-script` look at the viewport preview.
+- ~~**Car-light streaks**~~: done (docs/weather.md "Car lights on a wet road":
+  every car whose lamps are on, 2-4 quads a car in the lamps' bag, the core's
+  `weatherCarStreaks`). Still open: streaks that follow a kerb or crest, and
+  a headlight pool that knows the road is wet.
 - **Bucket the lamps by cell** for the halo/streak pass: it walks every lamp
   of the scene each frame (1 404 in the Big City test, fine there).
 - **Object lamps.** Big City's lamps are scene objects, so they do not light;
   moving its generator to furniture lamps would light the city.
 - **Rain occlusion and splashes**: rain falls through bridges and roofs, and
-  nothing splashes.
-- **Set Weather in Live Logic** (an opcode writing the weather state).
-- Reflection views (the env probe) show no pools, halos or rain.
+  nothing splashes. Spray behind cars in the rain is not built either (the
+  tyre smoke pool is the candidate; measure it).
+- ~~**Set Weather in Live Logic**~~: done (`OP_SetWeather`, in a build that
+  carries the weather runtime - the built list's `weather` line). Not yet
+  exercised end to end: patch a Set Weather into a running game from the
+  editor GUI.
+- Reflection views (the env probe) show the wet tint and the puddles, but no
+  pools, halos, streaks or rain: those are per-frame bags built for the main
+  eye, and a rebuild per view was not worth it yet.
 
 ## Road drawing: what the first version left out (2026-10-03)
 

@@ -6,6 +6,7 @@
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <sstream>
 
 #include <stb_image_write.h>  // implementation lives in menubake.cpp
@@ -426,6 +427,7 @@ const char* kindName(int kind) {
         case kPatch: return "patch";
         case kCrack: return "crack";
         case kStain: return "oil stain";
+        case kPuddle: return "puddle";
         default: return "?";
     }
 }
@@ -543,6 +545,64 @@ std::string ensureAtlas(const std::string& projectDir) {
                                  kAtlasStem + "\nKd 1 1 1\nmap_Kd " + kAtlasStem + ".png\n";
         if (!writeFile(mtl, text)) return "cannot write " + mtl.string();
     }
+    return "";
+}
+
+std::vector<unsigned char> generatePuddles() {
+    // Four puddles, one per 32 x 32 cell: a lobed outline (angular value
+    // noise sampled on a circle, so it wraps), a flat interior and a soft
+    // 3-texel shore. Alpha is quantized to 16 levels (0, 17, ... 255) and RGB
+    // is a function of the level - 112 (0.875x the shared colour) inside,
+    // up to 176 in the middle of the shore, the glint along a wet edge that
+    // makes a puddle read as water rather than a stain - so the 4-bit bake
+    // keeps every texel as drawn.
+    constexpr int N = kPuddleSize, C = N / 2;
+    std::vector<unsigned char> rgba((size_t)N * N * 4, 0);
+    for (int cell = 0; cell < 4; ++cell) {
+        const int ox = (cell & 1) * C, oy = (cell >> 1) * C;
+        const uint32_t seed = 401u + (uint32_t)cell * 29u;
+        // Elongated a little along U (the road's direction), like the long
+        // shallow water along a kerb.
+        const float sxr = 1.0f, syr = cell == 3 ? 0.62f : 0.78f;
+        for (int y = 1; y < C - 1; ++y)
+            for (int x = 1; x < C - 1; ++x) {
+                const float dx = (x + 0.5f - C * 0.5f) / (C * 0.5f - 1.5f) / sxr;
+                const float dy = (y + 0.5f - C * 0.5f) / (C * 0.5f - 1.5f) / syr;
+                const float a = std::atan2(dy, dx);
+                const float wob =
+                    vnoise(seed, 8.0f + 6.0f * std::cos(a), 8.0f + 6.0f * std::sin(a), 2.6f) * 0.7f +
+                    vnoise(seed + 3, 8.0f + 9.0f * std::cos(a), 8.0f + 9.0f * std::sin(a), 1.4f) * 0.3f;
+                const float edge = 0.62f + 0.38f * wob;  // the shore, 0..1 of the cell
+                const float r = std::hypot(dx, dy) / edge;
+                // Shore: 1 inside, falling to 0 over the outer ~22% of the radius.
+                float t = (1.0f - r) / 0.22f;
+                t = t < 0.0f ? 0.0f : (t > 1.0f ? 1.0f : t);
+                t = t * t * (3.0f - 2.0f * t);
+                const int level = (int)std::lround(t * 15.0f);
+                if (level <= 0) continue;
+                unsigned char* px = &rgba[((size_t)(oy + y) * N + (size_t)(ox + x)) * 4];
+                const float glint = std::sin(3.14159265f * (float)level / 15.0f);
+                px[0] = px[1] = px[2] = (unsigned char)std::lround(120.0f + 90.0f * glint);
+                px[3] = (unsigned char)(level * 17);
+            }
+    }
+    return rgba;
+}
+
+std::string ensurePuddles(const std::string& projectDir) {
+    namespace fs = std::filesystem;
+    const fs::path png = fs::path(projectDir) / kPuddlePng;
+    std::error_code ec;
+    if (fs::exists(png, ec)) return "";
+    fs::create_directories(png.parent_path(), ec);
+    const std::vector<unsigned char> px = generatePuddles();
+    std::string bytes;
+    stbi_write_png_to_func(
+        [](void* ctx, void* data, int size) {
+            static_cast<std::string*>(ctx)->append(static_cast<const char*>(data), (size_t)size);
+        },
+        &bytes, kPuddleSize, kPuddleSize, 4, px.data(), kPuddleSize * 4);
+    if (bytes.empty() || !writeFile(png, bytes)) return "cannot write " + png.string();
     return "";
 }
 
@@ -741,15 +801,152 @@ Result build(const SceneInput& in) {
         }
     }
 
-    // Chunks: whole decals grouped by kDetailCell cell, in a fixed order.
+    // Puddles (docs/weather.md "Puddles"): a second pass over every road,
+    // AFTER all the decals above, so they never displace one - a project that
+    // gains weather keeps every manhole, gully, patch, crack and stain where
+    // it was. Same density, same seed, the same footprint and clearance test
+    // (so never on a node patch, its paint, a spill or another road). Their
+    // overlap test is the exact one - two rectangles, 0.1 apart - rather than
+    // the circles above: a puddle is long and thin, and it belongs right
+    // beside the gully that drains it.
+    std::vector<Decal> puddlesAccepted;
+    if (in.puddles) {
+        auto overlaps = [](const Decal& a, const Decal& b) {
+            // Separating axes: the two decals' own U and V axes.
+            const float ax[4][2] = {{a.ax, a.az}, {-a.az, a.ax}, {b.ax, b.az}, {-b.az, b.ax}};
+            const float dx = b.x - a.x, dz = b.z - a.z;
+            for (const auto& n : ax) {
+                const float ra = a.hu * std::fabs(a.ax * n[0] + a.az * n[1]) +
+                                 a.hv * std::fabs(-a.az * n[0] + a.ax * n[1]);
+                const float rb = b.hu * std::fabs(b.ax * n[0] + b.az * n[1]) +
+                                 b.hv * std::fabs(-b.az * n[0] + b.ax * n[1]);
+                if (std::fabs(dx * n[0] + dz * n[1]) > ra + rb + 0.1f) return false;
+            }
+            return true;
+        };
+        for (size_t ri = 0; ri < roads.size(); ++ri) {
+            const roadgen::CrossingRoad& r = roads[ri];
+            if (!(r.details > 0.0f) || r.points.size() < 4) continue;
+            const float dens = std::clamp(r.details, 0.0f, 1.0f);
+            const CentreLine line(r.points);
+            const float L = line.length();
+            if (L < 1.0f) continue;
+            const float hc = 0.5f * roadgen::edgeFadeFor(r.width, r.edgeFade).coreWidth;
+            const int lanes = std::clamp((int)std::lround(2.0f * hc / 3.5f), 1, 6);
+            const uint64_t roadKey =
+                mix64(hashString(r.id) ^ mix64((uint64_t)(uint32_t)r.detailSeed + 0x51u));
+            // The drawn road's height at arc s, lateral `lat` (kNone off it).
+            auto yAt = [&](float s, float lat) {
+                const Frame f = line.at(std::clamp(s, 0.0f, L));
+                return cover.probe((int)ri, f.x - f.tz * lat, f.z + f.tx * lat, nullptr);
+            };
+            // One candidate at arc s: by the kerb (lat = the low edge) or in a
+            // wheel rut (lat given), hu x hv, turned `turn` from the road.
+            auto tryPuddle = [&](float s, bool rut, float rutLat, float hu, float hv, float turn,
+                                 int cell, int forceSide) {
+                ++res.puddleCandidates;
+                if (s < 0.0f || s > L) return false;
+                // Water runs to the LOW edge: compare the drawn road at both.
+                const float edge = std::max(0.2f, hc - 0.6f);
+                const float yl = yAt(s, edge), yr = yAt(s, -edge);
+                if (yl == roadgen::Surface::kNone || yr == roadgen::Surface::kNone) return false;
+                const float side = forceSide != 0 ? (float)forceSide : (yl <= yr ? 1.0f : -1.0f);
+                const float c = std::cos(turn), sn = std::sin(turn);
+                const float across = std::fabs(sn) * hu + c * hv;  // its reach across the road
+                const float lat = rut ? rutLat : side * (hc - across - 0.1f);
+                // ... and down the road: a crest sheds it. Only a spot no
+                // higher than the mean of the road 5 units either way holds
+                // water (a flat street holds it everywhere, at the kerb).
+                const float y0 = yAt(s, lat), ya = yAt(s - 5.0f, lat), yb = yAt(s + 5.0f, lat);
+                if (y0 == roadgen::Surface::kNone) return false;
+                if (ya != roadgen::Surface::kNone && yb != roadgen::Surface::kNone &&
+                    y0 > 0.5f * (ya + yb) + 0.02f) {
+                    ++res.puddlesOnCrest;
+                    return false;
+                }
+                const Frame f = line.at(s);
+                const float lx = -f.tz, lz = f.tx;
+                Decal d;
+                d.road = (int)ri;
+                d.kind = kPuddle;
+                d.cell = cell;
+                d.x = f.x + lx * lat;
+                d.z = f.z + lz * lat;
+                d.ax = f.tx * c - f.tz * sn;
+                d.az = f.tz * c + f.tx * sn;
+                d.hu = hu;
+                d.hv = hv;
+                const float reach = std::fabs(d.ax * lx + d.az * lz) * hu +
+                                    std::fabs(-d.az * lx + d.ax * lz) * hv;
+                if (std::fabs(lat) + reach > hc - 0.05f) return false;
+                for (const Decal& o : accepted)
+                    if (overlaps(o, d)) return false;
+                for (const Decal& o : puddlesAccepted)
+                    if (overlaps(o, d)) return false;
+                if (fits(d) != 0) return false;
+                const float rad = std::hypot(d.hu, d.hv);
+                placed.push_back({d.x, d.z, rad});
+                puddlesAccepted.push_back(d);
+                return true;
+            };
+            Rng g(roadKey ^ 0x6001u);
+            // 1. Beside the gullies: a gully is where the street drains, so
+            //    the water stands on its uphill side.
+            const float gullyShare = 0.35f + 0.45f * dens;
+            for (const Decal& gd : accepted) {
+                if (gd.road != (int)ri || gd.kind != kGully) continue;
+                const float u = g.next(), hu = 0.9f + 1.0f * g.next(), hv = 0.5f + 0.35f * g.next();
+                const int cell = std::min(3, (int)(g.next() * 4.0f));
+                if (u > gullyShare) continue;
+                // The gully's arc and side: nearest centre-line point.
+                float bestS = 0.0f, bestD = 1e30f;
+                for (float s = 0.0f; s <= L; s += 0.5f) {
+                    const Frame f = line.at(s);
+                    const float dd = (f.x - gd.x) * (f.x - gd.x) + (f.z - gd.z) * (f.z - gd.z);
+                    if (dd < bestD) bestD = dd, bestS = s;
+                }
+                const Frame f = line.at(bestS);
+                const int side = (gd.x - f.x) * -f.tz + (gd.z - f.z) * f.tx >= 0.0f ? 1 : -1;
+                const float off = gd.hu + hu + 0.15f;
+                // Uphill first: the higher end of the gully is where water
+                // comes from.
+                const float ya = yAt(bestS - off, (float)side * (hc - 0.5f));
+                const float yb = yAt(bestS + off, (float)side * (hc - 0.5f));
+                const float first = ya >= yb ? -1.0f : 1.0f;
+                if (!tryPuddle(bestS + first * off, false, 0.0f, hu, hv, 0.0f, cell, side))
+                    tryPuddle(bestS - first * off, false, 0.0f, hu, hv, 0.0f, cell, side);
+            }
+            // 2. Along the road: the low edge, or a wheel rut now and then.
+            const float spacing = 9.0f + 27.0f * (1.0f - dens);
+            for (float s = spacing * g.next(); s < L; s += spacing * (0.6f + 0.8f * g.next())) {
+                const float hu = 1.0f + 1.4f * g.next();   // along the road
+                const float hv = 0.5f + 0.5f * g.next();    // across it
+                const bool rut = g.next() < 0.25f;
+                const int lane = std::min(lanes - 1, (int)(g.next() * (float)lanes));
+                const float rutSide = g.next() < 0.5f ? -1.0f : 1.0f;
+                const float turn = (g.next() - 0.5f) * 0.25f;
+                const int cell = std::min(3, (int)(g.next() * 4.0f));
+                const float laneMid = -hc + (2.0f * hc) * ((float)lane + 0.5f) / (float)lanes;
+                tryPuddle(s, rut, laneMid + rutSide * 0.9f, hu, hv, turn, cell, 0);
+            }
+        }
+    }
+
+    // Chunks: whole decals grouped by `cellSize` cell, in a fixed order, each
+    // split until it follows the drawn surface; `uvRect` gives a decal's
+    // texture rectangle (pixels in a `texSize` square).
+    auto emit = [&](const std::vector<Decal>& list, float cellSize, int texSize,
+                    const std::function<void(const Decal&, int*, int*, int*, int*)>& uvRect,
+                    std::vector<roadgen::Vertex>& outTris, std::vector<int>& outSizes,
+                    std::vector<Decal>& outDecals, int* rejected) {
     struct Keyed {
         int cz, cx;
         size_t i;
     };
     std::vector<Keyed> order;
-    for (size_t i = 0; i < accepted.size(); ++i)
-        order.push_back({(int)std::floor(accepted[i].z / kDetailCell),
-                         (int)std::floor(accepted[i].x / kDetailCell), i});
+    for (size_t i = 0; i < list.size(); ++i)
+        order.push_back({(int)std::floor(list[i].z / cellSize),
+                         (int)std::floor(list[i].x / cellSize), i});
     std::stable_sort(order.begin(), order.end(), [](const Keyed& a, const Keyed& b) {
         return a.cz != b.cz ? a.cz < b.cz : a.cx < b.cx;
     });
@@ -758,8 +955,9 @@ Result build(const SceneInput& in) {
     int chunkStart = 0, curCz = 0, curCx = 0;
     bool open = false;
     for (const Keyed& k : order) {
-        const Decal& d = accepted[k.i];
-        const Cell& c = cs[(size_t)d.cell];
+        const Decal& d = list[k.i];
+        Cell c{d.kind, 0, 0, 1, 1};
+        uvRect(d, &c.x, &c.y, &c.w, &c.h);
         const float bx = -d.az, bz = d.ax;
         auto world = [&](float s, float t, float* x, float* z) {
             *x = d.x + d.ax * s * d.hu + bx * t * d.hv;
@@ -794,7 +992,7 @@ Result build(const SceneInput& in) {
         }
         one.clear();
         bool off = false;
-        const float inv = 1.0f / (float)kAtlasSize;
+        const float inv = 1.0f / (float)texSize;
         for (int j = 0; j < n && !off; ++j)
             for (int i = 0; i < n && !off; ++i) {
                 float qx[4], qy[4], qz[4], qu[4], qv[4];
@@ -820,22 +1018,36 @@ Result build(const SceneInput& in) {
                 }
             }
         if (off || one.empty()) {
-            ++res.rejected;
+            if (rejected) ++*rejected;
             continue;
         }
-        const int size = (int)res.tris.size() - chunkStart;
+        const int size = (int)outTris.size() - chunkStart;
         if (open && (k.cz != curCz || k.cx != curCx || size + (int)one.size() > kChunkBudget)) {
-            res.chunkSizes.push_back(size);
-            chunkStart = (int)res.tris.size();
+            outSizes.push_back(size);
+            chunkStart = (int)outTris.size();
         }
         open = true;
         curCz = k.cz;
         curCx = k.cx;
-        res.tris.insert(res.tris.end(), one.begin(), one.end());
-        res.decals.push_back(d);
+        outTris.insert(outTris.end(), one.begin(), one.end());
+        outDecals.push_back(d);
     }
-    if (open && (int)res.tris.size() > chunkStart)
-        res.chunkSizes.push_back((int)res.tris.size() - chunkStart);
+    if (open && (int)outTris.size() > chunkStart)
+        outSizes.push_back((int)outTris.size() - chunkStart);
+    };
+    emit(accepted, kDetailCell, kAtlasSize,
+         [&](const Decal& d, int* x, int* y, int* w, int* h) {
+             const Cell& c = cs[(size_t)d.cell];
+             *x = c.x, *y = c.y, *w = c.w, *h = c.h;
+         },
+         res.tris, res.chunkSizes, res.decals, &res.rejected);
+    // Puddles: their own texture, a 2 x 2 grid of kPuddleSize / 2 cells.
+    emit(puddlesAccepted, kPuddleCell, kPuddleSize,
+         [](const Decal& d, int* x, int* y, int* w, int* h) {
+             *x = (d.cell & 1) * (kPuddleSize / 2), *y = (d.cell >> 1) * (kPuddleSize / 2);
+             *w = *h = kPuddleSize / 2;
+         },
+         res.puddleTris, res.puddleChunkSizes, res.puddles, nullptr);
     return res;
 }
 

@@ -1803,6 +1803,7 @@ void Viewport::shutdown() {
     if (particleProgram_) glDeleteProgram(particleProgram_);
     if (particleVbo_) glDeleteBuffers(1, &particleVbo_);
     if (coronaTex_) glDeleteTextures(1, &coronaTex_);
+    if (puddleTex_) glDeleteTextures(1, &puddleTex_);
     if (giTerrTex_) glDeleteTextures(1, &giTerrTex_);
     if (giAtlasTex_) glDeleteTextures(1, &giAtlasTex_);
     giTerrTex_ = giAtlasTex_ = 0;
@@ -4305,6 +4306,7 @@ void Viewport::syncRoadDraws(const std::vector<SceneObject>& objects) {
     roadCross_.clear();
     roadLamps_.clear();
     roadLampPools_.clear();
+    roadPuddleVerts_.clear();
     if (cr.empty()) return;
     // One road has no crossings, but it may still have kerbs.
     const roadgen::CrossingPlan plan = cr.size() >= 2
@@ -4509,7 +4511,14 @@ void Viewport::syncRoadDraws(const std::vector<SceneObject>& objects) {
         di.ground = [&](float x, float z) { return terrainHeight(x, z); };
         di.patches = paintOnTris;
         di.paint = detailPaint;
+        // Puddles (docs/weather.md "Puddles") are placed after every other
+        // decal, so baking them always changes nothing else; they are drawn
+        // only while the previewed scene is wet (drawRoadSpills).
+        di.puddles = true;
         const roaddetail::Result dr = roaddetail::build(di);
+        roadPuddleVerts_.clear();
+        for (const roadgen::Vertex& v : dr.puddleTris)
+            roadPuddleVerts_.insert(roadPuddleVerts_.end(), {v.x, v.y, v.z, v.u, v.v});
         // One mesh for every decal in the scene, owned by the first road
         // with details (what the owner key is used for is the picking
         // highlight, and a decal is too small to pick).
@@ -4617,6 +4626,42 @@ void Viewport::drawRoadSpills(const float* viewProj) {
         if (tex) glBindTexture(GL_TEXTURE_2D, tex);
         glBindVertexArray(c.mesh.vao);
         glDrawArrays(GL_TRIANGLES, 0, c.mesh.vertexCount);
+    }
+    // Puddles (docs/weather.md "Puddles"): the console's one colour from the
+    // same core function, over a sky that runs from a day blue to night with
+    // the lamps' level. Texture RGB 128 = 1x, as on the GS.
+    if (roadPuddleVerts_.size() >= 15) {
+        const float lv = std::clamp(roadLampLevel_, 0.0f, 1.0f);
+        float pc[4];
+        roadlight::puddleColor(roadWet_, 128.0f + (10.0f - 128.0f) * lv,
+                               150.0f + (12.0f - 150.0f) * lv, 180.0f + (20.0f - 180.0f) * lv, lv, pc);
+        if (pc[3] >= 1.0f) {
+            if (!puddleTex_) {
+                const std::vector<unsigned char> rgba = roaddetail::generatePuddles();
+                glGenTextures(1, &puddleTex_);
+                glBindTexture(GL_TEXTURE_2D, puddleTex_);
+                glUploadTexRgba(roaddetail::kPuddleSize, roaddetail::kPuddleSize, rgba.data());
+            }
+            std::vector<float> buf;
+            buf.reserve(roadPuddleVerts_.size() / 5 * 9);
+            for (size_t k = 0; k + 4 < roadPuddleVerts_.size(); k += 5) {
+                const float vert[9] = {roadPuddleVerts_[k], roadPuddleVerts_[k + 1],
+                                       roadPuddleVerts_[k + 2], pc[0] / 128.0f,
+                                       pc[1] / 128.0f, pc[2] / 128.0f,
+                                       pc[3] / 128.0f, roadPuddleVerts_[k + 3],
+                                       roadPuddleVerts_[k + 4]};
+                buf.insert(buf.end(), vert, vert + 9);
+            }
+            glUniform1i(uPartUseTex_, 1);
+            glBindTexture(GL_TEXTURE_2D, puddleTex_);
+            glBindVertexArray(particleVao_);
+            glBindBuffer(GL_ARRAY_BUFFER, particleVbo_);
+            glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(buf.size() * sizeof(float)), buf.data(),
+                         GL_DYNAMIC_DRAW);
+            glDrawArrays(GL_TRIANGLES, 0, (GLsizei)(buf.size() / 9));
+            glBindVertexArray(0);
+            glBindTexture(GL_TEXTURE_2D, 0);
+        }
     }
     glDepthMask(GL_TRUE);
     glDisable(GL_BLEND);
