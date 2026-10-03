@@ -2025,6 +2025,18 @@ Replay: finished 705 frames, 304 divergences (first at frame 400)
 Replay: diverged at frame 400: pos (0 1.8 10.301) yaw 0 pitch 0, expected (0 1.8 10.5) yaw 0 pitch 0
 ```
 
+For staged PCSX2 captures, `TYRA_LOG` replay verdicts can be in the owned
+stage's `game/log.txt`, while `pcsx2-capture.py --wait-log` searches emulog.
+A capture exit code or timeout screenshot alone does not prove replay completion.
+Require the actual terminal frame count and zero divergences in the game log,
+matching selected ELF/recording hashes, and the recorded semantic event sequence.
+
+The host replay reader can recover a valid prefix and return success with
+`Recording.truncated=true`. Full canonical-recording acceptance additionally
+requires `truncated=false`, parsed frames equal the declared count, a finalized
+terminal/footer, valid CRC and no trailing bytes. Keep recovered prefixes and
+rejected/tampered recordings separate from complete replay evidence.
+
 Three checks make this a real test rather than a smoke test, and all three were
 run on the branch that added it:
 

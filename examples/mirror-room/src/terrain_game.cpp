@@ -50,6 +50,7 @@ TerrainGame::~TerrainGame() {}
 
 
 void TerrainGame::init() {
+  engine->renderer.core.setFramePipeline(true);
   // Configurable buttons/keys (Tools > Input Map): hand the input runtime the
   // engine (its keyboard/mouse half needs it) and resolve the boot preset into
   // the live bindings before anything reads a button.

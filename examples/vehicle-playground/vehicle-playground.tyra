@@ -5,6 +5,7 @@
   "template": "fpp",
   "projectId": "99089f551e395d01",
   "settings": {
+    "framePipeline": true,
     "videoSystem": "ntsc",
     "displayMode": "progressive",
     "palFullHeight": true,

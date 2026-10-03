@@ -5,6 +5,7 @@
   "template": "thirdperson",
   "projectId": "e1d6c51e29309482",
   "settings": {
+    "framePipeline": true,
     "videoSystem": "auto",
     "displayMode": "interlaced",
     "palFullHeight": true,

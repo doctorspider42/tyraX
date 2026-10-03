@@ -222,3 +222,31 @@ EE computation. Automatic interleave choices differ across arms and boots;
 negative sampler deltas therefore do not establish negative instruction cost
 or a uniform observer correction. This is a different ELF and workload from
 the fixed diagnostic controls and must not be subtracted from them.
+
+## Front/tail observer activation and compiler checks, 2026-10-03
+
+A private boundary sampler completed both same-ELF orders in PCSX2: 5,400
+loops per order, 384 whole-loop samples and 128/256 front/tail samples.
+It adds one ordered Count read after Update and before beginFrame, reuses
+existing presentation/pacing data, and checks exact whole=front+tail algebra.
+The two common endpoints require 262 reads per phase; an active phase requires
+391, including its prime: 129 additional reads. Source, ELF/symbol text and
+runtime assets were checked independently. This validates activation and the
+protocol, not the physical observer price. The common reference apparatus
+and buffers are present in every arm and remain unpriced.
+
+Authored Auto is retained as a separate rejected homogeneous-calibration
+control. Its 129-loop windows cross all 48 probing intervals even when the
+retained winning choice stays unchanged. Actual execution order is a different
+state from that choice. The accepted private calibration pins plain order
+in every arm, checks actual order/probing at both boundaries, and cannot be
+used as an authored Auto performance result. Front/tail values remain inclusive
+elapsed intervals, not pure EE arithmetic or VU/GS utilization. This private
+extension is not enabled in production examples.
+
+A proposed Showcase matrix trigonometry cleanup was also rejected before
+integration. The actual optimized MIPS function already calls sinf and cosf
+three times each; host wrappers that count calls prevented the compiler's
+common-subexpression elimination and falsely suggested 18 calls. Verify the
+actual target disassembly before treating a source-level call reduction as
+removed EE work.

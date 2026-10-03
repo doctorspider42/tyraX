@@ -57,6 +57,7 @@ TerrainGame::~TerrainGame() {}
 
 
 void TerrainGame::init() {
+  engine->renderer.core.setFramePipeline(true);
   // Configurable buttons/keys (Tools > Input Map): hand the input runtime the
   // engine (its keyboard/mouse half needs it) and resolve the boot preset into
   // the live bindings before anything reads a button.
@@ -900,6 +901,7 @@ void TerrainGame::loop() {
     // covers the frame the flag goes UP, because that scan ran before the
     // sequence player did (docs/cutscenes.md).
     renderVehicleHud();
+    renderVehicleTutorial();
     if ((useTargetIndex >= 0 || vehiclePrompt_ != 0) &&
         !scriptCtx.hudSuppressed) {
       const bool pick =

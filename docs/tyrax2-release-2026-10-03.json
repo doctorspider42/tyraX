@@ -1,5 +1,5 @@
 {
-  "status": "tyrax2_1_171_0_core_release_checkpoint_broad_runtime_pending",
+  "status": "tyrax2_1_171_0_default_and_example_qualification_complete_physical_performance_open",
   "date": "2026-10-03",
   "editor_version": "1.171.0",
   "project_format": 95,
@@ -131,6 +131,428 @@
       "late_combined_archive": true,
       "environment": "emulator",
       "physical_fps_accepted": false
+    },
+    "all_examples_emulator": {
+      "status": "44_of44_boot_log_and_image_checks_passed",
+      "evidence": {
+        "path": "F:\\Projects\\tyrax2-lab-20261001\\night-final-postmemo-emulator-resumed-evidence\\results.json",
+        "sha256": "c820d4e20eac9e77af397afe696409faae7b06bd8a78dfb22172a7a97237fc87"
+      },
+      "independent_review": {
+        "path": "F:\\Projects\\tyrax2-lab-20261001\\night-final-postmemo-example-independent-review\\round-0015-44\\evidence.json",
+        "sha256": "40a3c53e78e7d679bf753312ec51a1ad772ebee92e2762c4c375105b2a5f48a8"
+      },
+      "independent_summary": {
+        "path": "F:\\Projects\\tyrax2-lab-20261001\\night-final-postmemo-example-independent-review\\final-summary.json",
+        "sha256": "0304769a881e3595458e6cfec3262b7924dbbeddb4a97521f47762a7e83dd093"
+      },
+      "scope": "Boot and one actual local screenshot per example, both game and emulator log channels, selected staged ELF identity; not exhaustive gameplay.",
+      "first_serial_inherited": 13,
+      "new_parallel_acquisitions": 31,
+      "workers": 3,
+      "parallel_capture_is_not_a_performance_test": true,
+      "examples": [
+        {
+          "name": "vehicle-playground",
+          "slot": 28796,
+          "elf_sha256": "4ffd83cda9466ebcfa5f65026d913f8a4140ffd8f793eccdb8980db320c33f90",
+          "snapshot_sha256": "7a4a2c5884674a77f2e2372040567a0c0867e469b8947e81a95de0d6c6e1d7a2",
+          "last_sparse_arena_count": 4920
+        },
+        {
+          "name": "showcase",
+          "slot": 28797,
+          "elf_sha256": "a78adc52558012df22c279d02cd71785fe66a811f606f174e268abc49dcd2c51",
+          "snapshot_sha256": "ed726d932541515188477450aaac34586c670a4a2e7ca44dc3f0bd792ae262db",
+          "last_sparse_arena_count": 4680
+        },
+        {
+          "name": "portals",
+          "slot": 28798,
+          "elf_sha256": "6b7100ad4dd0c056e815170931e366e29e70757df987135ba2f571aded49b5f6",
+          "snapshot_sha256": "eac5827f46a98fec072311eceabe1aa22d5d3a8c233517e156a3256a911b6518",
+          "last_sparse_arena_count": 4200
+        },
+        {
+          "name": "upscaler-lab",
+          "slot": 28799,
+          "elf_sha256": "6846d4e538328341395bc7cd9367135c1121570bfa5547cda3e0947c7d72f7ff",
+          "snapshot_sha256": "dbe739693a25b943e1f294a56555180e057bf328111b11fd3986f066edb6d7ec",
+          "last_sparse_arena_count": 3960
+        },
+        {
+          "name": "two-players",
+          "slot": 28800,
+          "elf_sha256": "cc896150fa633a434acdce2258f6b4e1d47ff8b4454fc929994b7910d061ece8",
+          "snapshot_sha256": "2d2a8fbea49607d5f002b84e9ea8ab66e26ec25da7ea60a3e75a9d7009851ce0",
+          "last_sparse_arena_count": 4080
+        },
+        {
+          "name": "video-modes",
+          "slot": 28801,
+          "elf_sha256": "50f628e835dc7c53ba0ba7cbda48aeeae4770c375ce1d05c0eb7cd1fd2eea6a2",
+          "snapshot_sha256": "512c81e4a3b22d28c44da9377b5306472dcce9549c622a2a094536354379e954",
+          "last_sparse_arena_count": 4200
+        },
+        {
+          "name": "ambient-occlusion",
+          "slot": 28802,
+          "elf_sha256": "501216f44cffff1106c020f91b226b11ad2abccdd689b9a605b97829109dfd71",
+          "snapshot_sha256": "d2b276c5e7754243fa722cdf5d66051d2dba11d9a9df0852dd8e8e71a7aee707",
+          "last_sparse_arena_count": 4200
+        },
+        {
+          "name": "baked-shadows",
+          "slot": 28803,
+          "elf_sha256": "c7ee0e229ebd217865f922a3d5f163c0a53a0d19938c1a49c3b865786509a331",
+          "snapshot_sha256": "9fe8e1604596c1af3fc1dddb5a185e5e8ccce1bd8ba1f49273232ab973fe1d07",
+          "last_sparse_arena_count": 4200
+        },
+        {
+          "name": "blocks-terrain",
+          "slot": 28804,
+          "elf_sha256": "45d2888c11f99eec8158c9161e246ea8dda7fbedcefe69680534944f3e1afea7",
+          "snapshot_sha256": "3b6b449e539ed38846d93f2f986b85fa0f08c308e3c25a8619609c5effa55274",
+          "last_sparse_arena_count": 4200
+        },
+        {
+          "name": "credits",
+          "slot": 28805,
+          "elf_sha256": "469fa5dc1dac2eb25375f56015e09f91ad8e449bd77afde2d0007971e6c4b026",
+          "snapshot_sha256": "98399dc66733e70081586e8f56cf060ed1c232780f17cdbaee71eecf0629793c",
+          "last_sparse_arena_count": 3960
+        },
+        {
+          "name": "cube",
+          "slot": 28806,
+          "elf_sha256": "0ebd670f8922095bb0d35ed248d1827bfcddc9327d3c5335d79384eb2d886704",
+          "snapshot_sha256": "626fde99aae616b1f4eff2fb75b53c3f564204c9cd0d8eb2883e473226c31e17",
+          "last_sparse_arena_count": 4080
+        },
+        {
+          "name": "custom-nodes",
+          "slot": 28807,
+          "elf_sha256": "e130ecf734db75c748a01e2122a15dc7407f2e5f14e65ae5ac4feeca325c755a",
+          "snapshot_sha256": "7ab7749e7c379633f2c1d84bf7a358483f6bbbc4cc08b807aa2291c0f9360305",
+          "last_sparse_arena_count": 4320
+        },
+        {
+          "name": "cutscene-demo",
+          "slot": 28808,
+          "elf_sha256": "ec29fd237a8594d42d172aa6a3414ea8d3c39c76678bf5850d3136cf2776b773",
+          "snapshot_sha256": "1b9b4859c7e6f385c9ef25af820e5ef9e11a0f64e206efd0ff4c86f9b27b751c",
+          "last_sparse_arena_count": 4200
+        },
+        {
+          "name": "day-night",
+          "slot": 28809,
+          "elf_sha256": "9de2b55a66d0a4bd56d8e25cb1c37ea270bd9ebca7e6f186a7b66a752a3847e7",
+          "snapshot_sha256": "1fa3c33dff0c949d2d94ddd85fdd867dd9006c0b391fe1922c2e7620863932aa",
+          "last_sparse_arena_count": 2880
+        },
+        {
+          "name": "deep-forest",
+          "slot": 28810,
+          "elf_sha256": "969f9467eea91ca5863811979948d3e296b00c81acd209b322a667ef37e4ccff",
+          "snapshot_sha256": "9859833f2f8f72e6900716abad869f00addb039dee28a4683b7724cf4b864cc5",
+          "last_sparse_arena_count": 2760
+        },
+        {
+          "name": "endless-runner",
+          "slot": 28811,
+          "elf_sha256": "6a06a5c80cb7a19a7cde5a93870e6f447cf669d89ae33eb56b05a9d2286d2494",
+          "snapshot_sha256": "fefe5ec45518f1b3d90b8d1ae0fb96cc10f31c3110b327ada46c512049152269",
+          "last_sparse_arena_count": 3120
+        },
+        {
+          "name": "endless-scroller",
+          "slot": 28812,
+          "elf_sha256": "149966f090c4695a2a694b1d40b219e0c47d4bf8e596ac05b54032c97823bf7b",
+          "snapshot_sha256": "b954480764985ff7917863ef8d329c7563e7252ca55ba5bb3a768601b9a30db7",
+          "last_sparse_arena_count": 3240
+        },
+        {
+          "name": "gi-showcase",
+          "slot": 28813,
+          "elf_sha256": "b6cb00bfd6e8baae5c27cfeed82c8d9e450482dabf4e96a767f671c79692b58c",
+          "snapshot_sha256": "ec9bb1f5e94194e422415dd77a1e07f85e53c2987396ca526a555126c5a84e97",
+          "last_sparse_arena_count": 2760
+        },
+        {
+          "name": "global-illumination",
+          "slot": 28814,
+          "elf_sha256": "0a7d8bdead08e25bb7b6355371ed6865f7bfb3589f0b9192f5a8919f33afeec2",
+          "snapshot_sha256": "b32a249691b4d8a70b5f1f2f4c6c60def89dca6688757ec63748aef1b767db0e",
+          "last_sparse_arena_count": 3000
+        },
+        {
+          "name": "glow",
+          "slot": 28815,
+          "elf_sha256": "104e9c21ba2fb5c7853c7ac7642d7bd9fc512a380495f1b682fcbd7e32cc035e",
+          "snapshot_sha256": "d6489290860752e41620ba35c70c54f7f4a8011845da125011b78645ec232a90",
+          "last_sparse_arena_count": 3000
+        },
+        {
+          "name": "hud-animation",
+          "slot": 28816,
+          "elf_sha256": "a0c98f7adcfefe16340b1d0f47ff1455f97b638f4441797ae3071d1bd98ceab7",
+          "snapshot_sha256": "dcf48c8267ac5919d075437ee5d95e63cb69d16b051f6ac16801e1a12bac76c9",
+          "last_sparse_arena_count": 3120
+        },
+        {
+          "name": "impostor-grove",
+          "slot": 28817,
+          "elf_sha256": "5db2006a6dc774d20bd76971e357f4181b4c4a67b08dd0c731d6046478c80144",
+          "snapshot_sha256": "ca89dc1f5cd6a0307250ca583a43da11eb908bf92e29a6fea86d0c7c2b9a3e4f",
+          "last_sparse_arena_count": 2640
+        },
+        {
+          "name": "large-terrain",
+          "slot": 28818,
+          "elf_sha256": "dcb09d12b5058db2340bf78b29bf896ce599fc5f813cd706c94cfe21dc827f83",
+          "snapshot_sha256": "6e88aace31185099ac16cecfde5790bcd25a9ab4eb0ef18388745a264b631600",
+          "last_sparse_arena_count": 3000
+        },
+        {
+          "name": "layer-streaming",
+          "slot": 28819,
+          "elf_sha256": "d3bed0780687e4bf91af5970bfc500293324ca12c3249b4877e2d6ab348b63e3",
+          "snapshot_sha256": "b5e3747fab4fc5c83cea5660ed9196aebb214b3f550008c5098a058b5034eaf7",
+          "last_sparse_arena_count": 3120
+        },
+        {
+          "name": "lighting",
+          "slot": 28820,
+          "elf_sha256": "d0be641aaf9a0e87920b8aa2a1a719a54043758c03268edfc8574324602fafef",
+          "snapshot_sha256": "fd54f6f6e9c0d0a9d43468efae5de89dcde2c4acace696aa7dcfaeed46b418dc",
+          "last_sparse_arena_count": 2880
+        },
+        {
+          "name": "material-lab",
+          "slot": 28821,
+          "elf_sha256": "d301386e11c50e180043fcdf6a62494f5dd43b9cd5a166c9b060fab9e2863065",
+          "snapshot_sha256": "f22e73ae6d6f878d32db339f99bb8fd12d893a461ccc9aac21f6c1c9f6f05d12",
+          "last_sparse_arena_count": 3120
+        },
+        {
+          "name": "mirror-room",
+          "slot": 28822,
+          "elf_sha256": "8d384dfba9a16a1f33efb5aa21b9bd9671bab35d8054709b233b7df783693015",
+          "snapshot_sha256": "0bf115ea364a155e406cc57769cb9705eefd2556cb9990f99204dc6e795b3037",
+          "last_sparse_arena_count": 3240
+        },
+        {
+          "name": "nav-ai",
+          "slot": 28823,
+          "elf_sha256": "b5df87ef2ed9669dba88228b3f3572787d4d0e8164612f74cb24d917adab7c08",
+          "snapshot_sha256": "eb86e27f92e265437f057b0a14a05adfb9cca988867cb78acb98b9e9261eb1af",
+          "last_sparse_arena_count": 3240
+        },
+        {
+          "name": "night-walk",
+          "slot": 28824,
+          "elf_sha256": "5065c749a7a23a74c95b1fb16e25b6a0d5771bb124331e1e5435a86aa1e268cc",
+          "snapshot_sha256": "840e819c94093e83992d80568e097da07011ef0ad0ad89e777f6e438ac42e2ad",
+          "last_sparse_arena_count": 2880
+        },
+        {
+          "name": "object-spawning",
+          "slot": 28825,
+          "elf_sha256": "42ab8bc0d9a69b9abad7b7753caf0214444144c73283725160a764f31db91124",
+          "snapshot_sha256": "ae77a141442cdc1d05b0785aded279c70d13420e5b8a5415d6aac90846ac28f0",
+          "last_sparse_arena_count": 3240
+        },
+        {
+          "name": "particle-lab",
+          "slot": 28826,
+          "elf_sha256": "c3bf4925021a643aea42151a4679961302167b94e9622bfd3640d5316da3beea",
+          "snapshot_sha256": "afcb1c8909eea1746d8eada9b3faa297a64f2e13c19a6a42943ae666a168aa43",
+          "last_sparse_arena_count": 3000
+        },
+        {
+          "name": "physics-playground",
+          "slot": 28827,
+          "elf_sha256": "4b7098a34948d4334ec41d6e73fee6a25c7a007bf49cec4be0c73b4593a629ce",
+          "snapshot_sha256": "720d0e39c5b98c2d171009b52f6fd56ffaab35dade36c60c9bf499d7e338adae",
+          "last_sparse_arena_count": 12720
+        },
+        {
+          "name": "probe-aim",
+          "slot": 28828,
+          "elf_sha256": "eac19a7a1e9c94f6cdd8aa4eb4d41f8a63c6149fec4292d850e81d74f486c48c",
+          "snapshot_sha256": "0fc4aefdaf130b08472792aad2ebb29c3c6e4cc26e68f16d2018c0417caa73c7",
+          "last_sparse_arena_count": 2880
+        },
+        {
+          "name": "probe-lighting",
+          "slot": 28829,
+          "elf_sha256": "39a8cf0fe501e696d942d38265c9583dab6668276cf1230814c9be89c8289108",
+          "snapshot_sha256": "4ade11bb9ae35a6b2ebb7a7c53dc2dea9b995768c147ade7dda77a5fd3743114",
+          "last_sparse_arena_count": 2640
+        },
+        {
+          "name": "procedural",
+          "slot": 28830,
+          "elf_sha256": "6777c71c263c52041f43dbc1999bf0f1b1e36a283d802ee14c128c4f7e0cf115",
+          "snapshot_sha256": "1cf9df7860b4325f005f0793933b85f13bf8cff20c45fc99f4753ed4163a422f",
+          "last_sparse_arena_count": 2760
+        },
+        {
+          "name": "raytraced-mirror",
+          "slot": 28831,
+          "elf_sha256": "2482c8323dc7968a4324a441a834c242f0b1ae49b3253a73303a9a3a722a4594",
+          "snapshot_sha256": "0acda9d41f1e7f0a465b4b185b6091a0a5bfadad542f10d10c6fe4e14bc46152",
+          "last_sparse_arena_count": 960
+        },
+        {
+          "name": "reflections",
+          "slot": 28832,
+          "elf_sha256": "4f4d2ad48b2f5a30011ad2aef6820a8f0b08e65bb136bcebcdcfe692849c11a7",
+          "snapshot_sha256": "8f173dc8a658f4c09097f5fd52bcf29c858bd4e8cca965f370b7fcab35e133e1",
+          "last_sparse_arena_count": 2880
+        },
+        {
+          "name": "reverb-rooms",
+          "slot": 28833,
+          "elf_sha256": "8675fc98650b1e1b1000672bb3c538a94f22b68c24cafabc35158fad6f969ab8",
+          "snapshot_sha256": "e7db6e4d4642942c64ca956d1d821f872d5b1f21cc2f0768a8d4a857e7ad2387",
+          "last_sparse_arena_count": 3000
+        },
+        {
+          "name": "save-points",
+          "slot": 28834,
+          "elf_sha256": "77dd55c3092581937ec71de50ee9df4e50cde470d1682ec20688f6d72153bc68",
+          "snapshot_sha256": "06006ce6681d94576e9584dcaf9c6bd9c016410dd16da8991c03d2da25b72303",
+          "last_sparse_arena_count": 3000
+        },
+        {
+          "name": "script-demo",
+          "slot": 28835,
+          "elf_sha256": "8a33dd1877784d48312d607a1b34cc14c95418153a08d58c636a69f76bd949b5",
+          "snapshot_sha256": "c204996828e9e02e817386fa255b2d3e4aeb81311aaab23587720feb213693a7",
+          "last_sparse_arena_count": 3120
+        },
+        {
+          "name": "texture-atlas",
+          "slot": 28836,
+          "elf_sha256": "d866798d3ce29c186f774ad1cfa6269a3e9dd91126c01b7fc3edf9c22aadf46f",
+          "snapshot_sha256": "4acceabcd95ccb771193d3a522b8d1a8ed9501498e3a0ec3e929e9b4a8448fab",
+          "last_sparse_arena_count": 2760
+        },
+        {
+          "name": "texture-feeds",
+          "slot": 28837,
+          "elf_sha256": "b35720119730138461d85604c742b85b0aaa7dfdc8bc83f5c64cedf45ec3b6ba",
+          "snapshot_sha256": "4e2a3c35c563f0de58dd4cff15907920ec03fa0b221dadc5d75b0aa93a6ee586",
+          "last_sparse_arena_count": 1200
+        },
+        {
+          "name": "vu-lab",
+          "slot": 28838,
+          "elf_sha256": "2b23b37f472b6d31aa638caf0ee59e2a2174819e873d722f07fc0a3412f76894",
+          "snapshot_sha256": "517ba5790fa06a156ee9a3bbb22e74dbfcc66304365e7e5018686e18ec0ac37f",
+          "last_sparse_arena_count": 1560
+        },
+        {
+          "name": "world-facts",
+          "slot": 28839,
+          "elf_sha256": "e815385948dd6ca2b478c2eed2e4db4d76b167ab452cade1e5982bd496d8181b",
+          "snapshot_sha256": "1c4e1fa45829ce8a65af741bbbaa55e64401113a1790ef672a990dd58a77f2cc",
+          "last_sparse_arena_count": 4200
+        }
+      ],
+      "all44_gameplay_accepted": false,
+      "physical_fps_accepted": false
+    },
+    "promoted_examples": {
+      "status": "44_explicit_requests_and_generated_sources_qualified",
+      "source_comparison": {
+        "path": "F:\\Projects\\tyrax2-lab-20261001\\night-promoted-examples-regeneration-parity-v3.json",
+        "sha256": "6b8755d86563bf399229938a59e36827ed2b67b0220d62adfb8c48ff85d736f4"
+      },
+      "shipping_input_audit": {
+        "path": "F:\\Projects\\tyrax2-lab-20261001\\ee-final44-shipping-qualification\\qualification.json",
+        "sha256": "d7491735514f1202ff4521dbd9b8322bc1565bcd93d702b436828ed7b086eb7d"
+      },
+      "generated_resource_comparison": {
+        "path": "F:\\Projects\\tyrax2-lab-20261001\\regeneration-parity-v3\\resource-regeneration-99.json",
+        "sha256": "5c2c6611cd5d7d1f46c9461fa952b4a2b448c361e0cfc2bc6e86099f948ef92b"
+      },
+      "source_mapping": "42 exact accepted source trees; portals uses separately built corrected release reference; Cube uses separately built two-signed-zero reference. Exact generator-derived Compose names and engine bind paths are checked separately.",
+      "private_observers_promoted": false,
+      "authored_quality_tuned": false,
+      "generated_resources": "99 tracked built-in font/HUD refreshes and two vehicle stick icons match accepted generated resources; no manual performance quality reduction.",
+      "original_v2_rejection_retained": {
+        "path": "F:\\Projects\\tyrax2-lab-20261001\\night-promoted-examples-regeneration-parity-v2.json",
+        "sha256": "34d68ccc3eb9ddabeb25d053cf871705fed8d954620092489e45f5889b016e8f"
+      }
+    },
+    "portal_interactions": {
+      "status": "debug_pad_driven_circuits_and_same_elf_replay_passed",
+      "independent": {
+        "path": "F:\\Projects\\tyrax2-lab-20261001\\interaction-playback-independent-consolidation\\acceptance.json",
+        "sha256": "9bc5b2ed52c2912343d64c72252fe4d2927e9b3f7e8d18f7a3cd89278ad75a25"
+      },
+      "showcase_replay_frames": 22408,
+      "portals_replay_frames": 4360,
+      "divergences_each": 0,
+      "showcase_scope": "Cellar entry and return, Grand Tour completion and camera handback.",
+      "portals_scope": "Grab sphere, both portal crossings while carrying, throw after return; corrected two-bar content.",
+      "strict_complete_recordings": true,
+      "shipping_profile_replay_or_hardware_fps_implied": false
+    },
+    "corrected_portals_release": {
+      "status": "native_and_emulator_boot_automatic_object_cycle_passed",
+      "native": {
+        "path": "F:\\Projects\\tyrax2-lab-20261001\\corrected-portals-release-native-provenance\\provenance.json",
+        "sha256": "5435e0a069dc1761de2e4b8d20c9983c09f145d04705b8a36947abef56d6001b"
+      },
+      "runtime": {
+        "path": "F:\\Projects\\tyrax2-lab-20261001\\corrected-portals-release-qualification\\qualification.json",
+        "sha256": "18974e49f46c95dcffd6fd126d73a36abe51b68dc2f7c4c93bc8358efaa6460c"
+      },
+      "elf_sha256": "c11da75c836e948858378052f67f7fe41d5a88617abdf5eb371c13f7fe3f4dd3",
+      "runtime_assets": 43,
+      "observed_counter_frames": 4800,
+      "debug_player_replay_not_transferred_to_release": true
+    },
+    "final_cube_signed_zero": {
+      "status": "separate_final_source_native_and_emulator_qualification",
+      "evidence": {
+        "path": "F:\\Projects\\tyrax2-lab-20261001\\promoted-cube-qualification\\qualification.json",
+        "sha256": "3d5a5abb5780be0f0a795b8d0434efaf45baefd6f1bcbba03d69523a8be8305d"
+      },
+      "delta": "Only two prefab rotation Y constants preserve authored -0.0F instead of normalized 0.0F; no blanket zero normalization or old-ELF byte equality claim."
+    },
+    "private_front_tail_extension": {
+      "status": "both_emulator_orders_protocol_activation_passed_not_production",
+      "evidence": {
+        "path": "F:\\Projects\\tyrax2-lab-20261001\\ee-front-tail-paired-activation\\paired-activation.json",
+        "sha256": "96d5bf2ad260717017b85e98ea4cabebb61cd3b2ec85d9c145e2c32ff7fd9a25"
+      },
+      "loops_per_order": 5400,
+      "common_samples_per_order": 384,
+      "split_samples": [
+        128,
+        256
+      ],
+      "common_reads_per_phase": 262,
+      "active_reads_per_phase": 391,
+      "additional_reads_including_prime": 129,
+      "authored_auto_homogeneous_calibration_rejected": true,
+      "accepted_control": "Explicit private pinned-plain order in all arms; authored Auto retained separately.",
+      "physical_price_accepted": false,
+      "common_reference_apparatus_price_accepted": false
+    },
+    "final_documented_editor": {
+      "status": "incremental_release_build_passed",
+      "binary_sha256": "0cfaf1a1da3aa49b707b2dcbd4dbbe685d53eb2813c292b1b0c63aa7fe5a7015",
+      "log": {
+        "path": "F:\\Projects\\tyrax2-lab-20261001\\night-final-documented-editor-build.log",
+        "sha256": "86cad887270b3cd884479f7a57e6d84fa29d626665ca4d5b5eeefc5ed5c96577"
+      },
+      "changed_object": "aichat.cpp with refreshed embedded documentation",
+      "codegen_sources_unchanged_since_qualified_generation": true
     }
   },
   "historical_physical_records": {
@@ -150,26 +572,58 @@
       "rendered_period_ms_approx": 33.367,
       "sampler_tax_attribution": "unresolved adaptive drift",
       "postmemo_result": false
+    },
+    "showcase_quiet_order0": {
+      "evidence": {
+        "path": "F:\\Projects\\tyrax2-lab-20261001\\showcase-quiet-physical0-evidence\\machine-evidence.json",
+        "sha256": "77976553ae4c0d18d7d54f99f900249c84becfa63b6a291179989cbbb58b4c39"
+      },
+      "analysis": {
+        "path": "F:\\Projects\\tyrax2-lab-20261001\\showcase-quiet-physical0-evidence\\strict-analysis.json",
+        "sha256": "01c5bb0f4d2594f442f984ca370e38d455546183280d59b2fc91db5a3bafbd47"
+      },
+      "selected_elf_sha256": "a954015b1f23361b9e34cc7c9c44910169de85fab7c43cdd7c0d180e1e44815c",
+      "complete_loops": 5400,
+      "accepted_raw_samples": 128,
+      "rendered_flip_return_period": {
+        "samples": 128,
+        "mean_ticks": 11014492.828125,
+        "median_ticks": 11014930.0,
+        "p95_ticks": 11038342,
+        "max_ticks": 11059022,
+        "mean_ms": 37.348405043284096,
+        "above_16_667ms": 128,
+        "above_33_333ms": 128
+      },
+      "scope": "One ordinary-clock parked Showcase probe order, not paired production performance or TV photon cadence.",
+      "reverse_order_accepted": false,
+      "sixty_fps_accepted": false
     }
   },
   "pending": [
-    "Complete runtime emulator boot/screenshot coverage of all44 current native example builds.",
-    "Showcase and portal interaction acceptance beyond parked boot/source controls.",
     "Paired physical post-Memo ordinary-clock quiet cadence.",
     "Physical Showcase reverse-order quiet control.",
-    "Physical button-to-TV latency and TV scanout/photon cadence."
+    "Physical price of the private front/tail boundary apparatus and its common reference.",
+    "Physical button-to-TV latency and TV scanout/photon cadence.",
+    "Further measured optimization toward 60 FPS; no universal 60 FPS acceptance."
   ],
   "universal_sixty_fps_accepted": false,
   "physical_postmemo_quiet_accepted": false,
   "physical_showcase_reverse_accepted": false,
-  "full44_emulator_accepted": false,
-  "interaction_accepted": false,
+  "full44_emulator_accepted": true,
+  "interaction_accepted": true,
   "tv_photon_latency_accepted": false,
   "limitations": [
     "Core integration/default policy is distinct from broad runtime/interaction/performance qualification.",
     "Native builds and emulator numbers do not establish physical FPS, CPU/VU/GS utilization or latency.",
     "Diagnostic same-ELF improvements cannot be subtracted from different ordinary production binaries.",
     "Shipping probe combined archive was created after launch; no fabricated prelaunch bundle.",
-    "Source manifests cover copied inputs; installed native SDK/compiler/VCL and referenced SDK IRX binaries require separate external provenance."
-  ]
+    "Source manifests cover copied inputs; installed native SDK/compiler/VCL and referenced SDK IRX binaries require separate external provenance.",
+    "The original 44-example portal boot used the old rolled topbars; corrected content has independent release and debug interaction records.",
+    "Compose names are directory-derived; v2 rejected them before exact actual-generator validation in v3.",
+    "Cube signed-zero generated-source difference received a fresh native/emulator control, not a blanket float normalization.",
+    "Physical link accepted no fresh reverse-order ELF after three preserved reset/launch attempts; physical gates remain open, with emulator fallback authorized."
+  ],
+  "full44_emulator_accepted_scope": "Boot/log/one-image source-qualified coverage only.",
+  "interaction_accepted_scope": "Separate debug pad circuits and same-ELF replay; corrected release boot/automatic object cycle independently qualified."
 }

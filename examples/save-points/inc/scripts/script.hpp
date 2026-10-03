@@ -114,6 +114,7 @@ struct ScriptContext {
   float playerBoom = 0.0F;
   bool teleportMotion = false;
   bool cameraOverride = false;
+  uintptr_t cameraSource = 0;  // custom overrides: stable opaque owner, never dereferenced
   Tyra::Vec4 cameraEye;
   Tyra::Vec4 cameraAt;
   // Camera up vector - the Dutch angle. Defaults to world up, so a cutscene

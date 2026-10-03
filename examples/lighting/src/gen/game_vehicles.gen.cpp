@@ -93,81 +93,160 @@ void TerrainGame::dripHeavy(bool all) {
 
 
 
-// Decides this frame's order. Off and always are constants; auto probes 8
-// pairs of frames, one in each order, and keeps the order that won most of
-// them for ilHoldFrames. The two frames of a pair see nearly the same view,
-// and counting pair wins instead of summing times means one slow frame (a
-// scene load, a texture upload burst) decides one pair, not the verdict.
-//
-// What is timed is the WHOLE loop, from here to here one frame later, minus
-// the renderer's stall. Timing only the passes that move was tried first
-// and missed the cost: measured on a PS2 in open ground, interleaving costs
-// nothing inside them and +0.19 ms later, at endFrame, where the GS tail
-// that the object loop used to hide is now waited for.
-bool TerrainGame::interleaveBegin() {
+// Settled whole-loop observations, not a per-job GPU timer. The renderer has
+// at most one pending frame: discard two complete intervals after changing
+// order so current preparation, pending completion and next front end share it.
+void TerrainGame::ilReset() {
+  ilProbing = true;
+  ilFrame = ilWins = ilPair = ilBlock = ilAccepted = 0;
+  ilWarmup = 2;
+  ilBlockSum = ilSumOn = ilSumOff = 0;
+  ilPairOn = ilPairOff = 0;
+  ilHaveMark = false;
+}
+
+bool TerrainGame::interleaveBegin(bool serializedCost) {
   heavyBags.clear();
   heavyNext = 0;
   heavyDrawn = 0;
-  if (INTERLEAVE_PASSES == 0 || splitPassActive) return false;
-  if (INTERLEAVE_PASSES == 2) return true;
-  const u32 now = profTicks();
-  const u32 stall = engine->renderer.core.getStallTotal();
+  if (INTERLEAVE_PASSES == 0 || splitPassActive) {
+    ilReset();
+    ilHaveGeneration = false;
+    return false;
+  }
+  if (INTERLEAVE_PASSES == 2) {
+    ilReset();
+    ilHaveGeneration = false;
+    return true;
+  }
+  // Diagnostic capture/serialized cost passes are not ordinary loop samples.
+  if (serializedCost || Tyra::HardwareTrace::active) {
+    ilReset();
+    return ilChoice;
+  }
+  // Raw custom overrides without a stable owner cannot be compared honestly.
+  // Keep the last chosen order; do not restart perpetual first-block interleave.
+  if (scriptCtx.cameraOverride && !scriptCtx.cameraSource) {
+    ilReset();
+    return ilChoice;
+  }
+  auto& core = engine->renderer.core;
+  const u32 generation = core.getRecordingGeneration();
+  // Track adjacency independently of timing marks: recurring synthetic/skipped
+  // frames must retain the verdict, not force the first probe block forever.
+  const bool interrupted = ilHaveGeneration && generation - ilGeneration != 1u;
+  ilHaveGeneration = true;
+  ilGeneration = generation;
+  if (interrupted) {
+    ilReset();
+    return ilChoice;
+  }
+  const bool pipelined = Tyra::Vif1Queue::recordingPipelined();
+  const auto& settings = core.getSettings();
+  const auto target = core.gs.getRasterTarget();
+  const InterleaveMode mode{
+      (u32)settings.getVideoMode(), (u32)settings.getDisplayMode(),
+      (u32)settings.getColorDepth(), core.gs.getFrameBufferCount(),
+      settings.isFieldRendering(), core.blss.isEnabled(), core.getFrameLimit(), core.getFrameYield(),
+      settings.getWidescreen(), settings.getDither(), core.blss.usesNetwork(),
+      settings.getWidth(), settings.getHeight(), settings.getRenderHeightF(),
+      settings.getRasterWidthF(), settings.getRasterHeightF(),
+      core.blss.getLowResW(), core.blss.getLowResH(), target.frameWidth,
+      target.scissorX0, target.scissorX1, target.scissorY0, target.scissorY1};
+  // Invalid geometry has no comparable epoch. Preserve the last choice.
+  if (!(mode.width > 0.0F && mode.height > 0.0F && mode.renderHeight > 0.0F &&
+        mode.rasterWidth > 0.0F && mode.rasterHeight > 0.0F) ||
+      !std::isfinite(mode.width) || !std::isfinite(mode.height) ||
+      !std::isfinite(mode.renderHeight) || !std::isfinite(mode.rasterWidth) ||
+      !std::isfinite(mode.rasterHeight)) {
+    ilReset();
+    return ilChoice;
+  }
+  const uintptr_t cameraSource = scriptCtx.cameraOverride ? scriptCtx.cameraSource : 0;
+  const int cameraRig = 0;
+  bool topologyChanged = false;
+  if (ilPortalTopology.size() != (size_t)PORTAL_COUNT) {
+    ilPortalTopology.assign(PORTAL_COUNT, 0);
+    topologyChanged = true;
+  }
+  int views = 1;
+  for (int pi = 0; pi < PORTAL_COUNT; ++pi) {
+    const auto& p = PORTALS[pi];
+    unsigned char bits = 0;
+    if (p.scene == currentScene && p.object >= 0 && p.target >= 0 &&
+        p.object < (int)runtimeObjects.size() && p.target < (int)runtimeObjects.size()) {
+      const auto& object = runtimeObjects[p.object];
+      bits = (object.active ? 1u : 0u) | (object.visible ? 2u : 0u) |
+             (runtimeObjects[p.target].active ? 4u : 0u);
+    }
+    if (pi < (int)portalLiveFlags.size() && portalLiveFlags[pi]) bits |= 8u;
+    if (ilPortalTopology[pi] != bits) topologyChanged = true;
+    ilPortalTopology[pi] = bits;
+    if (pi < (int)portalLiveFlags.size() && portalLiveFlags[pi]) ++views;
+  }
+  if (ilHaveMark && (ilSceneGeneration != sceneGeneration || ilPipelined != pipelined ||
+      ilRequested != core.getFramePipeline() || !(ilMode == mode) ||
+      ilCameraOverride != scriptCtx.cameraOverride || ilCameraSource != cameraSource ||
+      ilCameraRig != cameraRig || ilViews != views || topologyChanged)) ilReset();
+  const u32 now = ilObservationTicks();
+  const u32 stall = core.getStallTotal();
   if (ilHaveMark) {
     const u32 period = now - ilMark;
     const u32 stalled = stall - ilStallMark;
-    ilAccount(period > stalled ? period - stalled : 0);
+    // Unsigned subtraction accepts a single COP0/stall-counter wrap. Reject
+    // zero/ambiguous long intervals and a pacing delta larger than the period.
+    if (period && period < 0x80000000u && stalled <= period)
+      ilAccount(period - stalled);
+    else ilReset();
   }
   ilHaveMark = true;
   ilMark = now;
   ilStallMark = stall;
-  ilMarkActive = ilProbing ? (ilFrame & 1) == 0 : ilChoice;
+  ilSceneGeneration = sceneGeneration;
+  ilPipelined = pipelined;
+  ilRequested = core.getFramePipeline();
+  ilMode = mode;
+  ilCameraOverride = scriptCtx.cameraOverride;
+  ilCameraSource = cameraSource;
+  ilCameraRig = cameraRig;
+  ilViews = views;
+  // Reverse first/second order in alternate pairs to reduce monotonic drift.
+  ilMarkActive = ilProbing ? ((ilPair & 1) == 0) != (ilBlock != 0) : ilChoice;
   return ilMarkActive;
 }
 
-
-
-// Called once per frame for the frame that just ended, with its work.
 void TerrainGame::ilAccount(u32 work) {
-  constexpr int kProbeFrames = 16;  // 8 pairs
-  // Short on purpose: a hold that outlives the view it was measured in
-  // (measured: 250 frames carried the garage's verdict into open ground)
-  // costs more than the probe frames do.
-  constexpr int ilHoldFrames = 100;
-  ++ilFrame;
+  constexpr int kPairs = 4;
+  constexpr int kBlockSamples = 4;
+  constexpr int kHoldFrames = 100;
+  if (ilWarmup) { --ilWarmup; return; }
   if (!ilProbing) {
-    if (ilFrame >= ilHoldFrames) {
-      ilProbing = true;
-      ilFrame = 0;
-      ilWins = 0;
-      ilSumOn = ilSumOff = 0;
-    }
+    if (++ilFrame >= kHoldFrames) ilReset();
     return;
   }
-  if (ilMarkActive) {
-    ilPairOn = work;
-    ilSumOn += work;
-  } else {
-    // The pair's second frame: interleaving wins it only by a clear 1%,
-    // because the plain order is the one every other measurement of this
-    // engine was taken in.
-    if ((double)ilPairOn * 1.01 < (double)work) ++ilWins;
-    ilSumOff += work;
-  }
-  if (ilFrame < kProbeFrames) return;
-  const bool on = ilWins * 2 > kProbeFrames / 2;
+  ilBlockSum += work;
+  if (++ilAccepted < kBlockSamples) return;
+  const u32 mean = (u32)(ilBlockSum / kBlockSamples);
+  if (ilMarkActive) { ilPairOn = mean; ilSumOn += mean; }
+  else { ilPairOff = mean; ilSumOff += mean; }
+  ilAccepted = 0;
+  ilBlockSum = 0;
+  ilWarmup = 2;
+  if (ilBlock == 0) { ilBlock = 1; return; }
+  if ((double)ilPairOn * 1.01 < (double)ilPairOff) ++ilWins;
+  ilBlock = 0;
+  if (++ilPair < kPairs) return;
+  const bool on = ilWins > kPairs / 2;
   if (on != ilChoice || DEBUG_SHOW_PROFILER)
-    TYRA_LOG("INTERLEAVE auto on=",
-             (int)(ilSumOn / (kProbeFrames / 2) / 295), "us off=",
-             (int)(ilSumOff / (kProbeFrames / 2) / 295), "us -> ",
-             on ? "interleaved" : "plain", " wins=", ilWins, "/",
-             kProbeFrames / 2, " heavy=", ilLastHeavy,
-             " drawn=", heavyPrevDrawn, " blendAt=", ilLastBlendAt);
+    TYRA_LOG("INTERLEAVE settled on=", (int)(ilSumOn / kPairs / 295),
+             "us off=", (int)(ilSumOff / kPairs / 295), "us -> ",
+             on ? "interleaved" : "plain", " wins=", ilWins, "/", kPairs,
+             " heavy=", ilLastHeavy, " drawn=", heavyPrevDrawn,
+             " blendAt=", ilLastBlendAt);
   ilChoice = on;
   ilProbing = false;
   ilFrame = 0;
 }
-
-
 
 void TerrainGame::interleaveEnd() {
   if (heavyActive) {

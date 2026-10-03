@@ -29,11 +29,49 @@ The request still falls back synchronously for field rendering, active BLSS,
 unlimited triple buffering and unavailable pipeline banks. New-project defaults
 do not establish effective overlap, universal 60 FPS or button-to-TV latency.
 The historical acceptance records below describe their original opt-in builds;
-the default policy is implemented; broad example validation and the physical
-post-Memo quiet/Showcase reverse controls are recorded separately. The existing
+the default policy and example qualification are implemented; the physical
+post-Memo quiet/Showcase reverse controls remain open. The existing
 [ordinary-clock quiet record](tyrax2-quiet-cadence-2026-10-03.json) measured about
 30 FPS in its authored pre-Memo night configuration; it is not a post-Memo
 result or 60 FPS acceptance. Physical button-to-TV latency remains unmeasured.
+
+## Portal interaction qualification (2026-10-03)
+
+Fresh debug builds with the integrated engine completed actual pad-driven
+portal circuits in PCSX2. Showcase entered its cellar and returned through
+the paired portal, then completed Grand Tour and returned camera control.
+A same-ELF replay completed 22,408 frames with zero divergences. The small
+portal example completed pickup, both portal crossings while carrying the
+sphere, and throw; its same-ELF replay completed 4,360 frames with zero
+divergences. Complete canonical recordings passed the actual host reader,
+declared-frame-count, CRC, terminal/footer and no-trailing-data gates. A
+recoverable replay prefix alone is not complete-recording acceptance.
+
+The small example initially stopped at an authored frame bar. Its standing
+player box collision path uses yaw only: a tall box rolled by 90 degrees
+looked horizontal but retained a vertical collision blocker. Expressing the
+two overhead bars as unrotated horizontal boxes preserves their plain-color
+rectangular geometry and leaves the side pylons collidable. This is a map
+content correction, not a renderer or general collision algorithm change.
+The original failed circuit and the corrected circuit are retained separately.
+
+These debug interaction and replay checks do not establish shipping-profile
+hardware FPS, audio quality, pixel identity on every transition frame or TV
+latency. Broad native/example boot checks and the final generated release
+source comparison are separate qualifications.
+
+The [1.171.0 qualification record](tyrax2-release-2026-10-03.json) now contains
+44 native example builds and 44 independently reviewed emulator boots/logs/
+actual images. All checked-in examples explicitly request the pipeline and
+have fresh generated sources. The source comparison checks 42 original
+references, the separately built corrected Portal release, and a fresh Cube
+build preserving two authored negative-zero prefab angles. Docker project
+names are verified against the actual directory-derived generator formula.
+Generated built-in font/HUD resources match the tested copies. The original
+strict comparison rejection is retained, rather than hidden by broad path or
+float normalization. Corrected Portal release additionally reached 4,800
+reported frames and its automatic object cycle; this does not transfer the
+debug player replay or physical performance claim to that release binary.
 
 ## Acceptance order
 

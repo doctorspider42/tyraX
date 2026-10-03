@@ -5,6 +5,7 @@
   "template": "orbit",
   "projectId": "37403cbc0de6c648",
   "settings": {
+    "framePipeline": true,
     "videoSystem": "auto",
     "displayMode": "interlaced",
     "widescreen": false,

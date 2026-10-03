@@ -46,6 +46,15 @@ What's in the scene:
   30 u/s terminal velocity, so the loop stays readable instead of accelerating
   into a blur.
 
+The two dark overhead frame bars use an unrotated horizontal box: their
+X/Y scales express the width and thickness directly. The standing-player
+box collision path applies yaw only, so rolling a tall box by 90 degrees
+would leave an invisible vertical blocker across the doorway. This authored
+representation preserves the plain-color rectangular geometry and keeps
+both side pylons collidable; it does not disable collision or change the
+renderer. Use Square to pick up the nearby sphere, carry it through both
+upright portals and use Circle to throw it after returning.
+
 Generated object values live in `src/gen/scene_objects.gen.cpp`;
 `inc/scene_data.hpp` keeps stable declarations. Counts and object IDs live in
 the same data file, so ordinary moves, color edits, additions and removals can
@@ -60,3 +69,5 @@ The main file remains user-ownable; generated subsystem files refresh on build.
 Hardware timeline instrumentation matches the 1.170 coarse/detail emitter.
 Use the [capture and observer-control guide](../../docs/hardware-profiler.md)
 when comparing performance; traces add measurable work.
+
+This example explicitly requests `framePipeline: true` (TyraX2). Its authored interlaced output preserves the existing scan mode and quality; ordinary interlaced output is eligible, unlike true field rendering. True field rendering, BLSS, unlimited triple buffering and unavailable queue memory fall back safely. This request does not guarantee 60 FPS. See [TyraX2](../../docs/tyrax2.md).

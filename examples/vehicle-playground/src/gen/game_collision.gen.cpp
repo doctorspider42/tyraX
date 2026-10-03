@@ -1450,6 +1450,14 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
         part.envNormals.size() == part.vertices.size()) {
       part.envColors.assign(part.vertices.size(),
                             Color(128.0F, 128.0F, 128.0F, 128.0F));
+      // Those are placeholders, not paint: a vehicle's fresnel/specular pass
+      // must rewrite them on the next draw. A rebuild that REUSES the part (a
+      // repair, a damage re-bake) kept envPaintValid and the old paint key, so
+      // the pass saw "same view" and left the car at full reflection until
+      // the camera turned four steps - "the car goes very bright after a
+      // repair until I drive a bit".
+      part.envPaintValid = false;
+      part.paintMapSrc = nullptr;
       if (!part.envBag) {
         part.envInfoBag = std::make_unique<StaPipInfoBag>();
         // GOURAUD, not flat: the vehicle paint pass writes a per-vertex
@@ -4986,11 +4994,26 @@ void TerrainGame::setupVehicles(int scene) {
     // AI-only and HUD-disabled vehicles keep fonts lazy; revisits reuse the
     // existing sprite/texture and refresh only normal evictable residency.
     if (v.driveable && v.def >= 0) {
-      Sprite* glyph = fontGlyphSprite(engine, VEHICLE_DEFS[v.def].hudFont);
-      if (glyph) {
+      const VehicleDefData& vd = VEHICLE_DEFS[v.def];
+      auto warm = [&](Sprite* sp) {
+        if (!sp) return;
         auto* texture = engine->renderer.getTextureRepository().getBySpriteId(
-            glyph->id);
+            sp->id);
         if (texture) engine->renderer.core.texture.useTexture(texture);
+      };
+      warm(fontGlyphSprite(engine, vd.hudFont >= 0 ? vd.hudFont : vd.tutorialFont));
+      // The controls card opens on the entry frame with button glyphs and a
+      // backing card: both textures are read here, not on that frame.
+      if (vd.tutorialFont >= 0) {
+        warm(iconSheetSprite(engine));
+        if (!vehTutPanelReady_) {
+          vehTutPanel_.mode = SpriteMode::MODE_STRETCH;
+          engine->renderer.getTextureRepository()
+              .add(FileUtils::fromCwd("hud/loading-white.png"))
+              ->addLink(vehTutPanel_.id);
+          vehTutPanelReady_ = true;
+        }
+        warm(&vehTutPanel_);
       }
     }
   }
@@ -5124,6 +5147,7 @@ void TerrainGame::stepVehicles(float dt) {
   }
   vehSubStepRepeat_ = false;
   vehSubStepMore_ = false;
+  updateVehicleTutorial(dt);
 }
 
 // Speed feel (docs/vehicles.md, "Speed feel"): turns the driven car's speed
@@ -5217,6 +5241,115 @@ void TerrainGame::collideVehicleCamera() {
                      pz + cosf(v.yaw * 0.0174532925F), 1.0F);
 }
 
+// The car USE enters: in reach of the walker AND under the camera's aim.
+// The aim is the camera ray across the ground (camera to look-at), so it is
+// "what the screen centre points at" in first and third person alike. A car
+// whose footprint the ray crosses wins, nearest crossing first; failing that,
+// the car closest to the aim within a 45-degree cone. Nothing in the cone =
+// no target: standing between two cars and looking away from both enters
+// neither, which is the point - proximity alone picked the wrong one.
+int TerrainGame::vehicleUseTarget() const {
+  if (vehicleDriver_ >= 0 || PLAYER_INDEX < 0) return -1;
+  const float kDeg = 3.14159265F / 180.0F;
+  float ax = cameraLookAt.x - cameraPosition.x, az = cameraLookAt.z - cameraPosition.z;
+  float al = sqrtf(ax * ax + az * az);
+  if (al < 0.0001F) {  // looking straight down/up: fall back to the walker's yaw
+    ax = sinf(players[0].yaw);
+    az = cosf(players[0].yaw);
+    al = 1.0F;
+  }
+  ax /= al;
+  az /= al;
+  const float ox = cameraPosition.x, oz = cameraPosition.z;
+  int best = -1, bestCone = -1;
+  float bestT = 1e30F, bestCos = 0.7071F;  // cos 45 deg
+  for (int vi = 0; vi < vehicleCount_; ++vi) {
+    const VehicleRt& v = vehicles_[vi];
+    if (!v.active || v.def < 0 || !v.driveable) continue;
+    const VehicleDefData& s = VEHICLE_DEFS[v.def];
+    const float SC = v.scale;
+    // ONE radius decides both the prompt and the click.
+    const float useRadius = s.wheelBase * SC * 1.2F + 2.0F;
+    const float pdx = v.pos[0] - players[0].x, pdz = v.pos[2] - players[0].z;
+    if (pdx * pdx + pdz * pdz >= useRadius * useRadius) continue;
+    // The aim ray against the car's footprint, in the car's own frame.
+    const float c = cosf(v.yaw * kDeg), sn = sinf(v.yaw * kDeg);
+    const float rx = ox - v.pos[0], rz = oz - v.pos[2];
+    const float lx = rx * c - rz * sn, lz = rx * sn + rz * c;
+    const float dx = ax * c - az * sn, dz = ax * sn + az * c;
+    const float hw = (s.track * 0.5F + s.wheelRadius * 0.6F) * SC + 0.2F;
+    const float hl = (s.wheelBase * 0.5F + s.wheelRadius * 1.4F) * SC + 0.2F;
+    float t0 = 0.0F, t1 = 1e30F;
+    bool hit = true;
+    const float o2[2] = {lx, lz}, d2[2] = {dx, dz}, h2[2] = {hw, hl};
+    for (int k = 0; k < 2 && hit; ++k) {
+      if (fabsf(d2[k]) < 1e-6F) {
+        if (o2[k] < -h2[k] || o2[k] > h2[k]) hit = false;
+      } else {
+        float ta = (-h2[k] - o2[k]) / d2[k], tb = (h2[k] - o2[k]) / d2[k];
+        if (ta > tb) { const float tt = ta; ta = tb; tb = tt; }
+        if (ta > t0) t0 = ta;
+        if (tb < t1) t1 = tb;
+        if (t0 > t1) hit = false;
+      }
+    }
+    if (hit && t0 < bestT) {
+      bestT = t0;
+      best = vi;
+    }
+    // The cone fallback measures from the camera too, so a third-person
+    // camera behind the avatar judges the angle the player sees on screen.
+    const float cx = v.pos[0] - ox, cz = v.pos[2] - oz;
+    const float cl = sqrtf(cx * cx + cz * cz);
+    const float cosA = cl > 0.0001F ? (cx * ax + cz * az) / cl : 1.0F;
+    if (cosA > bestCos) {
+      bestCos = cosA;
+      bestCone = vi;
+    }
+  }
+  return best >= 0 ? best : bestCone;
+}
+
+// Box colliders only: that is the branch of collidePlayer that freezes a
+// walker found inside (a mesh collider pushes the walker out instead), plus
+// the merged procedural boxes, which share that rule.
+bool TerrainGame::vehExitSpotFree(float x, float z, float feetY) const {
+  const float playerRadius = 0.35F;
+  const float eye = PLAYER_EYE_HEIGHT;
+  for (int oi = 0; oi < (int)runtimeObjects.size(); ++oi) {
+    const RuntimeObject& o = runtimeObjects[oi];
+    if (!o.active || !o.visible || !objectCollides(o.data)) continue;
+    if (o.data.collision == 1 && o.data.type == 5 && o.data.model >= 0 &&
+        o.data.model < (int)gameModels.size() &&
+        !gameModels[o.data.model].collider.empty())
+      continue;
+    const CollisionBox cb = objectCollisionBox(o);
+    const V3 cw = boxRotate({cb.center[0], cb.center[1], cb.center[2]}, o.data);
+    const float cx = o.data.position[0] + cw.x;
+    const float cy = o.data.position[1] + cw.y;
+    const float cz = o.data.position[2] + cw.z;
+    const float top = cy + cb.half[1], bottom = cy - cb.half[1];
+    // Low enough to step onto, or entirely overhead: not a wall.
+    if (feetY + 0.5F >= top || bottom >= feetY + eye) continue;
+    const float yaw = (o.data.rotation[1] + cb.yaw) * 3.14159265F / 180.0F;
+    const float yc = cosf(yaw), ys = sinf(yaw);
+    const float dx = x - cx, dz = z - cz;
+    const float lx = dx * yc - dz * ys, lz = dx * ys + dz * yc;
+    // A little margin over the walker's own radius, so the first step is
+    // not already grazing the wall.
+    const float hx = cb.half[0] + playerRadius + 0.1F;
+    const float hz = cb.half[2] + playerRadius + 0.1F;
+    if (lx > -hx && lx < hx && lz > -hz && lz < hz) return false;
+  }
+  for (const StaticBox& b : procColliders) {
+    if (b.mx[1] <= feetY + 0.6F || b.mn[1] >= feetY + eye) continue;
+    if (x > b.mn[0] - playerRadius && x < b.mx[0] + playerRadius &&
+        z > b.mn[2] - playerRadius && z < b.mx[2] + playerRadius)
+      return false;
+  }
+  return true;
+}
+
 void TerrainGame::updateVehicles(float dt) {
   if (dt <= 0.0F) return;
   if (dt > 0.05F) dt = 0.05F;
@@ -5241,12 +5374,38 @@ void TerrainGame::updateVehicles(float dt) {
     const float side = s.exitOffset[0] < 0.0F ? -1.0F : 1.0F;
     const float minSide = (s.track * 0.5F + s.wheelRadius) * SC + 0.65F;
     const float authoredSide = fabsf(s.exitOffset[0] * SC);
-    const float localSide = side * fmaxf(authoredSide, minSide);
+    const float doorSide = fmaxf(authoredSide, minSide);
     const float localForward = s.exitOffset[2] * SC;
-    players[0].x = v.pos[0] + localSide * ec + localForward * es;
-    players[0].z = v.pos[2] - localSide * es + localForward * ec;
-    players[0].y = fmaxf(v.pos[1] + s.exitOffset[1] * SC,
-                          terrainHeightAt(players[0].x, players[0].z));
+    const float endOut = (s.wheelBase * 0.5F + s.wheelRadius * 1.4F) * SC + 0.9F;
+    // The door first, then further out, then the other side, then behind and
+    // in front. collidePlayer stops a walker DEAD inside a collision box, so
+    // a door that opens into a neighbouring car or a wall must not be where
+    // the player lands - they could not move again until a jump lifted their
+    // feet over the box. The first spot that is clear wins; if none is, the
+    // door spot stands (the old behaviour).
+    const float cand[8][2] = {
+        {side * doorSide, localForward},          {side * (doorSide + 0.7F), localForward},
+        {-side * doorSide, localForward},         {-side * (doorSide + 0.7F), localForward},
+        {0.0F, -endOut},                          {0.0F, endOut},
+        {side * (doorSide + 1.5F), localForward}, {-side * (doorSide + 1.5F), localForward}};
+    int pick = 0;
+    float px = 0.0F, pz = 0.0F, py = 0.0F;
+    for (int k = 0; k < 8; ++k) {
+      const float cx = v.pos[0] + cand[k][0] * ec + cand[k][1] * es;
+      const float cz = v.pos[2] - cand[k][0] * es + cand[k][1] * ec;
+      const float cy = fmaxf(v.pos[1] + s.exitOffset[1] * SC, terrainHeightAt(cx, cz));
+      if (k == 0) { px = cx; pz = cz; py = cy; }
+      if (vehExitSpotFree(cx, cz, cy)) {
+        pick = k;
+        px = cx; pz = cz; py = cy;
+        break;
+      }
+      pick = -1;
+    }
+    players[0].x = px;
+    players[0].z = pz;
+    players[0].y = py;
+    TYRA_LOG("VEH exit spot ", pick);
     const float travelX = v.speed * es + v.lateral * ec;
     const float travelZ = v.speed * ec - v.lateral * es;
     players[0].yaw = travelX * travelX + travelZ * travelZ > 0.25F
@@ -5301,6 +5460,8 @@ void TerrainGame::updateVehicles(float dt) {
   // same frame keeps the first one's list instead of re-walking every object.
   if (!(TYRA_VEH_SUBSTEP_REUSE && vehSubStepRepeat_)) buildVehicleColliders();
   if ((int)vehGather_.size() < vehicleCount_) vehGather_.resize((size_t)vehicleCount_);
+  // Taken once, before any car can change vehicleDriver_ this frame.
+  const int useTarget = vehicleUseTarget();
   for (int vi = 0; vi < vehicleCount_; ++vi) {
     VehicleRt& v = vehicles_[vi];
     if (!v.active || v.def < 0) continue;
@@ -5325,40 +5486,23 @@ void TerrainGame::updateVehicles(float dt) {
       v.dmgPreV[1] = v.speed * cy0 - v.lateral * sy0;
       if (v.dmgCool > 0.0F) v.dmgCool -= dt;
     }
-    // ONE radius decides both the prompt and the click - two formulas here
-    // would show a prompt for a car you cannot enter, or the reverse.
-    const float useRadius = s.wheelBase * SC * 1.2F + 2.0F;
-    if (vehicleDriver_ < 0 && v.driveable && PLAYER_INDEX >= 0) {
-      const float pdx = players[0].x - v.pos[0];
-      const float pdz = players[0].z - v.pos[2];
-      if (pdx * pdx + pdz * pdz < useRadius * useRadius) vehiclePrompt_ = 1;
-    }
+    // ONE target decides both the prompt and the click (vehicleUseTarget):
+    // in reach AND looked at - two formulas here would show a prompt for a
+    // car you cannot enter, or enter the neighbour of the one you meant.
+    if (vi == useTarget) vehiclePrompt_ = 1;
 
-    // Enter and exit, by PROXIMITY - not through the usable machinery, which
-    // costs the matrix fast path (see the scene-row emitter). The price is
-    // that no "press USE" prompt appears yet.
+    // Enter and exit - not through the usable machinery, which costs the
+    // matrix fast path (see the scene-row emitter).
     if (!useHandled && !vehSubStepRepeat_ && PLAYER_INDEX >= 0 &&
         inputClicked(engine->pad, IA_ROLE_USE)) {
-      {
-        const float ddx0 = players[0].x - v.pos[0];
-        const float ddz0 = players[0].z - v.pos[2];
-        const float er0 = s.wheelBase * SC * 1.2F + 1.5F;
-        TYRA_LOG("VEH use-click d2x10 ", (int)((ddx0 * ddx0 + ddz0 * ddz0) * 10.0F),
-                 " er2x10 ", (int)(er0 * er0 * 10.0F), " drv ", vehicleDriver_,
-                 " drb ", v.driveable, " sc10 ", (int)(SC * 10.0F));
-      }
       if (vi == vehicleDriver_) {
         exitAtDoor(vi);
         useHandled = 1;
-      } else if (vehicleDriver_ < 0 && v.driveable) {
-        const float ddx = players[0].x - v.pos[0];
-        const float ddz = players[0].z - v.pos[2];
-        if (ddx * ddx + ddz * ddz < useRadius * useRadius) {
-          vehicleDriver_ = vi;
-          vehCamYaw_ = v.yaw;
-          useHandled = 1;
-          TYRA_LOG("VEH enter ", vi);
-        }
+      } else if (vi == useTarget) {
+        vehicleDriver_ = vi;
+        vehCamYaw_ = v.yaw;
+        useHandled = 1;
+        TYRA_LOG("VEH enter ", vi);
       }
     }
 
@@ -7655,6 +7799,221 @@ void TerrainGame::renderVehicleHud() {
     snprintf(buf, sizeof(buf), pct >= 100 && s.damageMechanical > 0.5F ? "WRECKED" : "DMG %d", pct);
     drawFontText(engine, s.hudFont, buf, W * 0.865F, H * 0.925F, H * 0.038F, sx);
   }
+}
+
+// The controls card (docs/vehicles.md, "Controls card"): what to press, shown
+// the first time each car DEFINITION is entered after boot. Nothing in it is
+// baked - every frame it asks the input map what each drive action is bound
+// to RIGHT NOW (a preset switch or an in-game rebind moves the glyph with it),
+// drops a row the car has no use for (no nitrous bottle, no lamps) or the
+// binding has no button for (a keyboard-only action has no glyph to show),
+// and dims a row once the driver has tried it. All rows tried = the card
+// takes its leave early; getting out closes it at once.
+//
+// A row's bit in vehTutUsed_ is its index here; the fallback button is the
+// one updateVehicles reads when the project's map has no such action.
+namespace {
+struct VehTutRow {
+  int role;           // input action index (IA_ROLE_*), -1 = none
+  int pad;            // kPadButtonNames index used when role is -1, -1 = none
+  const char* stick;  // icon NAME of a stick row (no action, no button)
+  const char* label;
+};
+constexpr int kVehTutRows = 10;
+const VehTutRow kVehTut[kVehTutRows] = {
+    {-1, -1, "lstick", "Steer"},
+    {IA_ROLE_VEH_THROTTLE, 12, nullptr, "Accelerate"},
+    {IA_ROLE_VEH_BRAKE, 9, nullptr, "Brake / reverse"},
+    {IA_ROLE_VEH_HANDBRAKE, 3, nullptr, "Handbrake"},
+    {IA_ROLE_VEH_NITROUS, 0, nullptr, "Nitrous"},
+    {-1, 4, nullptr, "Lights"},
+    {IA_ROLE_VEH_CAMERA, 2, nullptr, "Camera"},
+    {-1, -1, "rstick", "Look around"},
+    {IA_ROLE_VEH_REARVIEW, 13, nullptr, "Look back"},
+    {IA_ROLE_USE, -1, nullptr, "Get out"},
+};
+// What a row reads as when the project has no icon for it.
+const char* const kVehTutPadText[16] = {
+    "X", "SQUARE", "TRIANGLE", "CIRCLE", "UP", "DOWN", "LEFT", "RIGHT",
+    "L1", "L2", "L3", "R1", "R2", "R3", "START", "SELECT"};
+
+bool vehTutHeld(const Tyra::PadButtons& b, int i) {
+  switch (i) {
+    case 0: return b.Cross != 0;
+    case 2: return b.Triangle != 0;
+    case 3: return b.Circle != 0;
+    case 4: return b.DpadUp != 0;
+    case 9: return b.L2 != 0;
+    case 12: return b.R2 != 0;
+    case 13: return b.R3 != 0;
+    default: return false;
+  }
+}
+
+int vehTutIcon(const char* name) {
+  for (int i = 0; i < ICON_COUNT; ++i)
+    if (strcmp(ICONS[i].name, name) == 0) return ICONS[i].h > 0 ? i : -1;
+  return -1;
+}
+
+// Does this car have a use for row r at all?
+bool vehTutRowApplies(int r, const VehicleDefData& s) {
+  if (r == 4) return s.nosCapacity > 0.001F;
+  if (r == 5) return s.headlights != 0 || s.lampPart >= 0;
+  return true;
+}
+
+// The button a row is on right now (kPadButtonNames), -1 = no button; a
+// stick row answers -2.
+int vehTutPad(const VehTutRow& row) {
+  if (row.stick) return -2;
+  if (row.role >= 0) {
+    if (row.role >= INPUT_ACTION_COUNT) return -1;
+    const int pad = g_inputBind[row.role].pad;
+    return pad >= 0 && pad < 16 ? pad : -1;
+  }
+  return row.pad;
+}
+}  // namespace
+
+void TerrainGame::updateVehicleTutorial(float dt) {
+  const int drv = vehicleDriver_;
+  const int entered = drv >= 0 && drv != vehTutLastDriver_;
+  vehTutLastDriver_ = drv;
+  if (drv < 0 || drv != vehTutCar_) vehTutLeft_ = 0.0F;
+  if (entered) {
+    const int def = vehicles_[drv].def;
+    if ((int)vehTutSeen_.size() < VEHICLE_DEF_COUNT)
+      vehTutSeen_.resize((size_t)VEHICLE_DEF_COUNT, 0);
+    if (def >= 0 && VEHICLE_DEFS[def].tutorialFont >= 0 &&
+        VEHICLE_DEFS[def].tutorialSecs > 0.0F && !vehTutSeen_[(size_t)def]) {
+      vehTutSeen_[(size_t)def] = 1;
+      vehTutCar_ = drv;
+      vehTutLeft_ = VEHICLE_DEFS[def].tutorialSecs;
+      vehTutAge_ = 0.0F;
+      vehTutUsed_ = 0;
+      TYRA_LOG("VEH controls card for ", drv);
+    }
+  }
+  if (vehTutLeft_ <= 0.0F) return;
+  // SELECT dismisses it at once - nothing in the drive reads that button.
+  if (engine->pad.getClicked().Select) {
+    vehTutLeft_ = 0.0F;
+    return;
+  }
+  vehTutAge_ += dt;
+  vehTutLeft_ -= dt;
+  // The entry press itself (USE) must not tick a row off, so tries count
+  // only once the card is up.
+  if (vehTutAge_ < 0.2F) return;
+
+  Tyra::Pad& pad = engine->pad;
+  const auto& l = pad.getLeftJoyPad();
+  const auto& rs = pad.getRightJoyPad();
+  const auto off = [](int a) { return a < 128 - 48 || a > 128 + 48; };
+  const VehicleDefData& s = VEHICLE_DEFS[vehicles_[drv].def];
+  unsigned int want = 0;
+  for (int r = 0; r < kVehTutRows; ++r) {
+    if (!vehTutRowApplies(r, s) || vehTutPad(kVehTut[r]) == -1) continue;
+    if (r != 9) want |= 1u << r;  // Get out is never "tried" from inside
+    bool used = false;
+    if (r == 0) {
+      used = off(l.h);
+    } else if (r == 7) {
+      used = off(rs.h) || off(rs.v);
+    } else if (kVehTut[r].role >= 0) {
+      used = inputPressed(pad, kVehTut[r].role);
+    } else if (kVehTut[r].pad >= 0) {
+      used = vehTutHeld(pad.getPressed(), kVehTut[r].pad);
+    }
+    if (used && r != 9) vehTutUsed_ |= 1u << r;
+  }
+  // Everything tried: a second to see the last tick, then go.
+  if (want && (vehTutUsed_ & want) == want && vehTutLeft_ > 1.0F) vehTutLeft_ = 1.0F;
+}
+
+// Drawn beside the speed readout in the 2D pass, as runtime text: a row is
+// "{{icon}} Label", so drawFontText puts the button glyph inline. Positions are
+// fractions of the framebuffer with the widescreen squeeze on every horizontal
+// one, inside the title-safe area (see renderVehicleHud).
+void TerrainGame::renderVehicleTutorial() {
+  if (vehTutLeft_ <= 0.0F || !scriptCtx.hudVisible || scriptCtx.hudSuppressed) return;
+  if (vehTutCar_ < 0 || vehTutCar_ != vehicleDriver_) return;
+  const VehicleRt& v = vehicles_[vehTutCar_];
+  if (v.def < 0) return;
+  const VehicleDefData& s = VEHICLE_DEFS[v.def];
+  const int font = s.tutorialFont;
+  if (font < 0 || font >= FONT_COUNT) return;
+
+  const auto& scr = engine->renderer.core.getSettings();
+  const float W = (float)scr.getWidth(), H = (float)scr.getHeight();
+  const float sx = (4.0F / 3.0F) / scr.getWindowAspect();
+  // Fade in over a quarter second, out over the last half.
+  float a = vehTutAge_ / 0.25F;
+  if (vehTutLeft_ / 0.5F < a) a = vehTutLeft_ / 0.5F;
+  if (a > 1.0F) a = 1.0F;
+  if (a <= 0.0F) return;
+
+  char lines[kVehTutRows][64];
+  int rowOf[kVehTutRows];
+  int n = 0;
+  for (int r = 0; r < kVehTutRows; ++r) {
+    if (!vehTutRowApplies(r, s)) continue;
+    const VehTutRow& row = kVehTut[r];
+    const int pad = vehTutPad(row);
+    if (pad == -1) continue;  // bound to no button: nothing to show
+    const int icon = pad == -2 ? vehTutIcon(row.stick)
+                               : (ICON_COUNT > 0 ? ICON_FOR_PAD[pad] : -1);
+    if (icon >= 0)
+      snprintf(lines[n], sizeof(lines[n]), "{{%s}} %s", ICONS[icon].name, row.label);
+    else
+      snprintf(lines[n], sizeof(lines[n]), "%s  %s",
+               pad == -2 ? (r == 0 ? "L-STICK" : "R-STICK") : kVehTutPadText[pad],
+               row.label);
+    rowOf[n++] = r;
+  }
+  if (n == 0) return;
+  // The way out, under the rows, smaller and dimmer than them.
+  char hint[48];
+  const int selIcon = ICON_COUNT > 0 ? ICON_FOR_PAD[15] : -1;
+  if (selIcon >= 0)
+    snprintf(hint, sizeof(hint), "{{%s}} Hide", ICONS[selIcon].name);
+  else
+    snprintf(hint, sizeof(hint), "%s", "SELECT  Hide");
+
+  const float size = H * 0.034F, rowH = H * 0.046F;
+  const float titleSize = H * 0.040F, hintSize = H * 0.032F;
+  float wMax = fontTextWidth(font, "CONTROLS", titleSize, sx);
+  for (int i = 0; i < n; ++i) {
+    const float w = fontTextWidth(font, lines[i], size, sx);
+    if (w > wMax) wMax = w;
+  }
+  const float hintW = fontTextWidth(font, hint, hintSize, sx);
+  if (hintW > wMax) wMax = hintW;
+  const float margin = H * 0.022F;
+  const float x0 = W * 0.06F;  // title-safe left edge
+  // Below the debug build's stats overlay, which owns the top-left corner.
+  const float y0 = H * 0.26F;
+  const float boxW = wMax + margin * 2.0F * sx, boxH = titleSize + rowH * ((float)n + 0.9F) + margin * 2.2F;
+  if (vehTutPanelReady_) {
+    vehTutPanel_.size = Vec2(boxW, boxH);
+    vehTutPanel_.position = Vec2(x0, y0);
+    vehTutPanel_.color = Color(0.0F, 0.0F, 0.0F, 96.0F * a);
+    engine->renderer.renderer2D.render(vehTutPanel_);
+  }
+  const float tx = x0 + margin * sx;
+  drawFontText(engine, font, "CONTROLS", tx + fontTextWidth(font, "CONTROLS", titleSize, sx) * 0.5F,
+               y0 + margin + titleSize * 0.5F, titleSize, sx, 128.0F * a);
+  for (int i = 0; i < n; ++i) {
+    const bool tried = (vehTutUsed_ >> rowOf[i]) & 1u;
+    const float w = fontTextWidth(font, lines[i], size, sx);
+    drawFontText(engine, font, lines[i], tx + w * 0.5F,
+                 y0 + margin * 1.4F + titleSize + rowH * ((float)i + 0.5F), size, sx,
+                 (tried ? 44.0F : 128.0F) * a);
+  }
+  drawFontText(engine, font, hint, tx + hintW * 0.5F,
+               y0 + margin * 1.4F + titleSize + rowH * ((float)n + 0.45F), hintSize, sx,
+               96.0F * a);
 }
 
 // One wheel submit per vehicle definition: transform into world space and

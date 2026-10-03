@@ -1556,7 +1556,7 @@ void TerrainGame::renderScene() {
   // geometry, so drawing before the solo objects is order-free.
   // Interleaved passes (INTERLEAVE_PASSES): between this line and the roads
   // the batch and road bags are collected instead of submitted.
-  heavyActive = interleaveBegin();
+  heavyActive = interleaveBegin(costSeq != 0);
   heavyCollect = heavyActive;
   heavyBlendAt = -1;
   { const u32 ct=costStart(); renderStaticBatches(); costEnd("Static_batches",-1,ct); }

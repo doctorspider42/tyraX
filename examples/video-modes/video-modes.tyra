@@ -5,6 +5,7 @@
   "template": "orbit",
   "projectId": "85ca440ec8772767",
   "settings": {
+    "framePipeline": true,
     "videoSystem": "auto",
     "displayMode": "interlaced",
     "supportedModes": ["interlaced", "interlaced-field", "progressive", "1080i"],

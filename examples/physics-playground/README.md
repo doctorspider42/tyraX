@@ -65,3 +65,5 @@ The main file remains user-ownable; generated subsystem files refresh on build.
 Hardware timeline instrumentation matches the 1.170 coarse/detail emitter.
 Use the [capture and observer-control guide](../../docs/hardware-profiler.md)
 when comparing performance; traces add measurable work.
+
+This example explicitly requests `framePipeline: true` (TyraX2). Its authored interlaced output preserves the existing scan mode and quality; ordinary interlaced output is eligible, unlike true field rendering. True field rendering, BLSS, unlimited triple buffering and unavailable queue memory fall back safely. This request does not guarantee 60 FPS. See [TyraX2](../../docs/tyrax2.md).

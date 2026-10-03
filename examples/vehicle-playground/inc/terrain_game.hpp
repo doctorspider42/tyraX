@@ -761,7 +761,7 @@ class TerrainGame : public Tyra::Game {
   // object that may blend and after the loop.
   void submitHeavy(Tyra::StaPipBag* bag);
   void dripHeavy(bool all);
-  bool interleaveBegin();
+  bool interleaveBegin(bool serializedCost = false);
   void interleaveEnd();
   void ilAccount(u32 work);
   bool objectMayBlend(int index);
@@ -772,16 +772,38 @@ class TerrainGame : public Tyra::Game {
   int heavyDrawn = 0, heavyPrevDrawn = 16;
   int heavyBlendAt = -1;  // drawn-object index of this frame's blend flush
   int ilLastBlendAt = -1;  // the same, for the last interleaved frame
-  // The auto tuner: 8 probe pairs (one frame in each order), then the order
-  // that won most pairs is held for 100 frames before probing again.
+  // Settled homogeneous blocks: four reversed-order block pairs, then hold.
+  // Observation is inclusive loop wall work minus pacing, not per-job GPU cost.
+  void ilReset();
   bool ilProbing = true, ilChoice = false;
-  int ilFrame = 0, ilWins = 0;
-  u32 ilPairOn = 0, ilSumOn = 0, ilSumOff = 0;
+  int ilFrame = 0, ilWins = 0, ilPair = 0, ilBlock = 0, ilAccepted = 0;
+  int ilWarmup = 2, ilViews = 0, ilCameraRig = 0;
+  u32 ilPairOn = 0, ilPairOff = 0;
+  unsigned long long ilBlockSum = 0, ilSumOn = 0, ilSumOff = 0;
   int ilLastHeavy = 0;
-  // Whole-loop work of the previous frame: COP0 period minus the renderer's
-  // stall (vsync / display buffer), taken from one interleaveBegin to the next.
-  bool ilHaveMark = false, ilMarkActive = false;
-  u32 ilMark = 0, ilStallMark = 0;
+  bool ilHaveMark = false, ilMarkActive = false, ilHaveGeneration = false;
+  bool ilPipelined = false, ilRequested = false, ilCameraOverride = false;
+  u32 ilMark = 0, ilStallMark = 0, ilGeneration = 0;
+  // Exact mode/geometry fields: no packed-key collisions or frame-address key.
+  struct InterleaveMode {
+    u32 video, display, color, buffers;
+    bool field, blss, limiter, yield, widescreen, dither, network;
+    float width, height, renderHeight, rasterWidth, rasterHeight;
+    int lowW, lowH, frameWidth, x0, x1, y0, y1;
+    bool operator==(const InterleaveMode& o) const {
+      return video == o.video && display == o.display && color == o.color &&
+             buffers == o.buffers && field == o.field && blss == o.blss &&
+             limiter == o.limiter && yield == o.yield && widescreen == o.widescreen &&
+             dither == o.dither && network == o.network && width == o.width &&
+             height == o.height && renderHeight == o.renderHeight &&
+             rasterWidth == o.rasterWidth && rasterHeight == o.rasterHeight &&
+             lowW == o.lowW && lowH == o.lowH && frameWidth == o.frameWidth &&
+             x0 == o.x0 && x1 == o.x1 && y0 == o.y0 && y1 == o.y1;
+    }
+  } ilMode{};
+  unsigned int ilSceneGeneration = 0;
+  uintptr_t ilCameraSource = 0;
+  std::vector<unsigned char> ilPortalTopology;
   // `grip`, when given, receives the answering road's grip (1 when none);
   // `cover` how much of the road is there (1, or a soft edge's fade).
   float roadSurfaceAt(float x, float z, float* grip = nullptr,
@@ -1180,6 +1202,15 @@ class TerrainGame : public Tyra::Game {
   float vehCamOrbit_ = 0.0F;
   float vehCamLift_ = 0.0F;
   int vehiclePrompt_ = 0;   // draw the USE prompt: on foot, near a driveable car
+  // The ONE car USE would enter this frame (-1 = none): in reach AND looked
+  // at. The prompt and the click both read it, so two cars side by side can
+  // never show one and enter the other.
+  int vehicleUseTarget() const;
+  // Would a walker standing here be stopped dead? collidePlayer freezes a
+  // walker that is already inside a collision box on both axes, so an exit
+  // spot inside a neighbouring car or wall left the player unable to move
+  // until a jump lifted their feet over the box's top.
+  bool vehExitSpotFree(float x, float z, float feetY) const;
   // Which camera the driver is looking through, cycled with Triangle.
   // 0 = chase, 1 = bumper, 2 = far. See vehicleCameraFor().
   int vehCamMode_ = 0;
@@ -1382,6 +1413,18 @@ class TerrainGame : public Tyra::Game {
   void updateVehicleEngineSound(VehicleRt& v, const VehicleDefData& s, int driving);
   void muteVehicleEngines();
   void renderVehicleHud();
+  // The controls card (docs/vehicles.md, "Controls card"): opened on getting
+  // into a car, built every frame from the live bindings.
+  void updateVehicleTutorial(float dt);
+  void renderVehicleTutorial();
+  float vehTutLeft_ = 0.0F;   // seconds the card has left, 0 = hidden
+  float vehTutAge_ = 0.0F;    // seconds since it opened (fade-in)
+  int vehTutCar_ = -1;        // the vehicle it was opened for
+  int vehTutLastDriver_ = -1; // last frame's vehicleDriver_ (entry edge)
+  unsigned int vehTutUsed_ = 0;  // bit per row the driver has tried
+  std::vector<unsigned char> vehTutSeen_;  // per definition: shown this boot
+  Tyra::Sprite vehTutPanel_;  // hud/loading-white.png, tinted to a dark card
+  bool vehTutPanelReady_ = false;
   // Is this runtime object a placed vehicle? The paint pass asks per part.
   int vehiclePaintFor(int objIdx);
   // The shine budget (VEHICLE_SHINE_BUDGET): picks which vehicles draw the

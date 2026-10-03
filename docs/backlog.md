@@ -300,10 +300,19 @@ recovered 0.50-0.72 ms of hardware `work`. What it did not do, ranked:
   missing v95 fields default true and explicit booleans win. Every save writes
   the effective bool and generated initialization emits true/false explicitly.
   Engine compile-time defaults remain zero; compatibility modes still apply.
-  The [current core release checkpoint](tyrax2-release-2026-10-03.json) separates
+  The [current release qualification](tyrax2-release-2026-10-03.json) separates
   host/default controls, post-Memo motion, 44 native builds, five emulator
-  fallback controls and the shipping portable probe from pending broad
-  emulator/interaction coverage. The dated measurements below remain historical.
+  fallback controls and the shipping portable probe from physical performance
+  gates. All 44 example boots, both log channels and actual local images passed
+  independent review. The examples explicitly request the pipeline and their
+  regenerated sources match qualified inputs: 42 original references, a
+  separately built corrected Portal release and a separately built Cube
+  signed-zero reference. Built-in font/HUD resources were refreshed alongside
+  generated sources; authored quality was not reduced. Showcase cellar/return
+  and Grand Tour handback, and the corrected sphere-carry portal circuit,
+  passed actual pad driving and same-ELF replay with zero divergences. This is
+  not exhaustive gameplay or hardware FPS acceptance for all 44 maps.
+  The dated measurements below remain historical.
   [TyraX2](tyrax2.md) records one native VIF1 chain per ordinary frame, including
   ordered uploads, state, auxiliary passes and the final FINISH. Two owned banks
   let the EE prepare N while VU1/GS execute N-1. Preferences > Display enables
@@ -327,7 +336,7 @@ recovered 0.50-0.72 ms of hardware `work`. What it did not do, ranked:
   scene cycles (15 transitions), with 765,952 valid chains and zero fallback.
   Physical timing and repeated transition acceptance are complete for the
   historical 1.169.1 runtime. The current default policy above is implemented;
-  physical button-to-TV latency, broad example runtime coverage and current
+  physical button-to-TV latency and current
   post-Memo quiet/Showcase reverse qualification remain separate checks.
   The [private latency fixture](tyrax2-latency-fixture-2026-10-02.json) passes
   initial host checks and native compilation; PS2 and PCSX2 completed 5,400

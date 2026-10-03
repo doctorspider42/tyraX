@@ -362,9 +362,15 @@ Developer design docs (internals, not user guides):
 
 ## TyraX2 frame pipeline
 
-[TyraX2](tyrax2.md) documents the experimental opt-in ordered frame recorder,
+[TyraX2](tyrax2.md) documents the ordered frame recorder, enabled for new
+projects since 1.171.0 with explicit legacy preservation and opt-out,
 two owned banks for EE/GPU overlap, compatibility and overflow fences, chain
 validation, and reproducible physical-console correctness/performance controls.
+The [1.171.0 release qualification](tyrax2-release-2026-10-03.json) separates
+default/legacy policy, current native and runtime checks, and open physical
+performance/TV-latency gates. The [reference-memo record](tyrax2-native-reference-memo-2026-10-03.json)
+preserves paired physical diagnostic controls; the [ordinary-clock quiet record](tyrax2-quiet-cadence-2026-10-03.json)
+preserves measured night cadence and unresolved observer/adaptive drift.
 The [1.169.1 runtime acceptance record](tyrax2-runtime-2026-10-02.json) preserves
 final repeated day/night hardware timing, the loading-race correction and
 emulator/host coverage; the earlier arena record remains historical evidence.
