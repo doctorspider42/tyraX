@@ -1250,6 +1250,19 @@ Rules the same evening paid for:
 ## Hard-won pitfalls (dead ends already explored — don't repeat them)
 
 **Devkit and measurement**
+- **SDK TTE DMA tags advance by 8 bytes, and close does not pad.** Opening a
+  `packet2` chain tag with TTE enabled reserves its 64-bit DMA half; the next
+  two words are transferred VIF commands. Sixteen following state words leave
+  the writer at 8 modulo 16 and `packet2_chain_close_tag` asserts. Two trailing
+  NOP words make that record 80 bytes, QWC 4. Check the actual SDK writer and
+  serialized target bytes, not just command counts or a modeled packet.
+  The private terminal replay also validates its entire 2.4 MB closure per
+  submission; that EE scan is inside its measured interval. Protocol FINISH
+  and VU-state equality do not establish framebuffer equality. Conflicting
+  PrintWindow images require actual GS raster readback before interpreting
+  replay timing. V6 qualifies exact ordinary/replay framebuffer pairs on PS2
+  and PCSX2 with off-clock readback; it does not price that validation tax.
+  See `docs/tyrax2-scene-isolation.md` and its dated replay record.
 - **VU memory snapshot labels must be checked against addresses.** The installed
   SDK `vif_registers.h` names `VU1_MEM1_START` as 0x11008000 and
   `VU1_MICROMEM1_START` as 0x1100c000, opposite the actual program/data map.

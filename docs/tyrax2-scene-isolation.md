@@ -128,3 +128,45 @@ the actual `Path1::addDrawFinishTag` must supply its valid GIF packet first.
 This helper cannot be used as an unprepared double-buffer toggle. Extra capture
 allocation and metadata change layout/cache state, so V4 timings are not V3
 prices or an ordinary gameplay optimization.
+
+## Terminal replay qualification
+
+The private V5b prototype captures a live closure in the same ELF, selects its
+actual captured draw target, restores all 16 KiB of VU data and the observed VIF
+double-buffer state, then repeats the native chain. The SDK draw-finish helper
+supplies a valid payload before MSCAL. Every repetition waits for both helper
+and native GS FINISH. Ordinary rendering never resumes.
+
+PCSX2 completes 128 warm and 128 sampled repetitions: 512 hardware starts in
+the loop, no software or direct submissions, and exact startup data/register
+and resident program comparisons. These are protocol checks. The interval
+also includes full EE VIF validation of the roughly 2.4 MB closure on every
+submission; it is not a consumer-only or GPU-only timer.
+
+The first V5 runtime was rejected by the SDK's packet alignment assertion.
+With TTE enabled, opening a DMA tag advances the writer by 8 bytes. Sixteen
+following 32-bit state words leave its cursor misaligned; two trailing NOP
+words produce an aligned 80-byte CNT record with QWC 4. The narrow V5b fix
+changes one of 496 compiler inputs. An independent SDK host check reproduces
+the old assertion and exports the corrected 13-QW helper; its bytes match the
+actual target export. The host check uses installed inline headers and an
+upstream external implementation, so target bytes remain authoritative.
+
+Raster equivalence is a separate gate. One terminal PrintWindow image
+was mostly black, while another unchanged-ELF boot showed the complete scene.
+Neither establishes equality with the original frozen frame. A new private
+V6 fixture reads the ordinary and replay framebuffers directly from GS VRAM,
+outside all timed windows. The [replay record](tyrax2-frame-replay-2026-10-03.json)
+qualifies both PCSX2 and physical PS2: each pair contains identical 448-by-448
+rasters, zero RGB differences and zero differences in exported working alpha.
+Both complete the 256 repetitions, 128 samples and real FINISH checks. Alpha
+is doubled and saturated to 255; raw alpha values above 127 are not distinguished.
+Terminal VIF/VU snapshots precede the final image readback.
+
+This compares the last ordinary frozen frame after 512 loops with replay of
+the warm-126 capture, rather than assuming they match. No cross-environment
+pixel equality is claimed. V6 adds no guessed GS restore and keeps the V5b
+timed loop unchanged. The next same-ELF control must price repeated full
+validation against prevalidated immutable ownership before using replay timing
+to select a bottleneck. Physical reset/start succeeds here; permanent reset
+reliability and ordinary gameplay gains remain unproved.

@@ -392,6 +392,12 @@ recovered 0.50-0.72 ms of hardware `work`. What it did not do, ranked:
   bytes stable. Next qualify an explicit VIF/VU/GS startup capsule and fixed
   target before replay service measurements; bare draw-finish MSCAL is unsafe
   without its required GIF payload.
+  [Terminal replay](tyrax2-frame-replay-2026-10-03.json) now passes 256
+  repetitions and exact VU startup state/data checks in both PCSX2 and PS2.
+  Direct GS readback resolves conflicting window images: each ordinary/replay
+  pair has identical 448-by-448 rasters. Full per-submit EE validation is
+  included in its interval; next price it against sealed immutable ownership
+  in the same ELF before interpreting consumer service cost.
   The [resumed candidate audit](tyrax2-ee-vu0.md#next-60-hz-candidates-host-controls-2026-10-03)
   rejects the broad beam cache as a demonstrated driving gain, identifies
   saturated-flicker over-invalidation, and records a private direct-recording
