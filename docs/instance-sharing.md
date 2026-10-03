@@ -40,20 +40,55 @@ second world-space copy.
   byte-identical to the solo bake's.
 - **Equal colour arrays are one array.** Colours are pooled by content (a hash
   plus a byte compare). In a city of a few rotations, most instances of a
-  model light identically: the shipped big-city has 1 131 shared objects and
-  1 656 shared parts, and with batching off they need 897 distinct colour
-  arrays (354 KB). Prelit models, whose colours are the object tint alone,
-  share one array per tint.
+  model light identically: at the downtown pose of the shipped (streamed)
+  big-city, 458 shared objects with 667 parts draw 351 distinct colour arrays
+  (135 KB); the 1 km version with batching off, 1 656 parts and 897 arrays.
+  Prelit models, whose colours are the object tint alone, share one array per
+  tint.
 
 ## What it saves, and what it costs
 
-All numbers are from `examples/big-city` in PCSX2 (2026-10-03), debug build,
-a frozen walker at (-42, -100). `MEM` and `SCENE` are the HUD's, read off a
-`--capture-frame` 60 s after boot; the object geometry column is the game's
-`MEMSTAT` line (below). The profile Total is `--profile-frame`, three
-captures, and is attribution (the profile drains the pipeline). PCSX2
+All numbers are PCSX2 (2026-10-03), debug build. `MEM` and `SCENE` are the
+HUD's, read off a `--capture-frame` 60 s after boot; the object geometry is
+the game's `MEMSTAT` line (below). Profile Totals are `--profile-frame`, three
+captures, and are attribution (the profile drains the pipeline). PCSX2
 emulates no EE data cache, so read every millisecond here as a direction, not
 as a console number.
+
+### The streamed city (where it matters most)
+
+The shipped `examples/big-city` is a 1.4 km city of 51 auto-streamed district
+layers (2 420 objects). Layered objects are never statically batched, so
+before 1.173 every resident instance carried its own world-space bake.
+Sharing on against sharing off, same build otherwise:
+
+| pose | HUD MEM off -> on | HUD SCENE off -> on | MEMSTAT object geometry, on |
+|---|---:|---:|---|
+| downtown walker (-42, -100) | 19.9 -> **18.4 MB** | 6.76 -> 6.84 ms | 458 shared objects / 667 parts: 23 KB meshes + 135 KB colours (351 arrays); 151 solo objects 522 KB; was 609 solo objects 1 875 KB |
+| car at spawn | 19.6 -> **18.2 MB** | 5.01 -> 5.07 ms | |
+| driving south (`--pad "hold r2; wait 30"`), +12 s | 20.7 -> **19.1 MB** | 8.32 -> 7.82 ms | 42.0 FPS on, 41.9 off |
+| driving, +22 s | 18.0 -> **17.0 MB** | 4.13 -> 4.42 ms | |
+
+About 1.5 MB at every pose, a frame time within the emulator's noise, and the
+downtown picture differs from sharing off in ONE pixel (the transform now runs
+on VU1). Layers loaded and unloaded around the car on both runs (`LAYER n
+load|unload`, 15 events in 30 s); a streamed-out instance drops its references
+and the colour pool is swept right after the unload, and an instance that
+streams back in rebuilds against the (re-)loaded model's bake.
+
+The profile's `Loop_coarse_cull_included` is the line that caught the one cost
+sharing added: testing each shared object's coarse box in its own object space
+moved six planes per object per frame, 0.90 ms against 0.41 ms solo over the
+downtown pose's 370 in-range objects. The box is kept in world space now (the
+model box's corners through `objMat`, boxed again at rebuild): 0.40 ms.
+
+### The 1 km city, batched
+
+Before streaming, `examples/big-city` was a 1 km city of 1 283 objects with
+everything resident and 1 117 of them in 149 static batches. These rows are
+from that version, at the frozen walker (-42, -100), and predate the
+world-space coarse box above (so the two batching-off rows overstate the
+frame cost of sharing):
 
 | arm | HUD MEM | object geometry (MEMSTAT) | HUD SCENE | profile Total |
 |---|---:|---|---:|---:|
@@ -84,23 +119,24 @@ Read it in three steps:
 - **Batching off plus sharing is the smallest arm** (2.0 MB under the default,
   3.2 MB under batching off without sharing) **and the slowest one**: every
   instance is its own submit again, and each bag does its own transform,
-  object-space planes and light setup, which is why sharing is a little slower
-  than solo bakes with batching off (SCENE 13.40 against 12.69 ms).
+  object-space planes and light setup (SCENE 13.40 against 12.69 ms - most
+  of that gap was the coarse-box planes, since moved to world space; on the
+  streamed city the same comparison is now 6.84 against 6.76 ms).
 
-**The default keeps static batching on**, because on the measured scene it is
-worth 1.6 ms of HUD SCENE (about 5 ms of profile attribution), and turns
-sharing on, because it costs
-nothing where batching applies and saves memory everywhere else. A scene that
-is out of EE RAM has a new lever: turning batching off now *saves* memory
-instead of costing it, at the frame-time price above.
+**The defaults: sharing on, static batching unchanged (on).** On the measured
+1 km scene batching is worth 1.6 ms of HUD SCENE (about 5 ms of profile
+attribution); sharing costs nothing where batching applies and saves memory
+everywhere else - most of all in a streamed city, where nothing batches. A
+scene that is out of EE RAM has a new lever: turning batching off now *saves*
+memory instead of costing it, at the frame-time price above.
 
-**The headroom that buys.** The city regenerated with street furniture on every
-road (`--set FURNITURE_CORE_ONLY=False`: 1 057 trees, 570 lamps, 118 parked
-cars, 2 557 objects) runs out of EE RAM at scene load with batching on, in
-1.172 and 1.173 alike (a black screen after `ROADINDEX`). With batching off
+**The headroom that buys.** The 1 km city regenerated with street furniture
+on every road (`--set FURNITURE_CORE_ONLY=False`: 1 057 trees, 570 lamps, 118
+parked cars, 2 557 objects) runs out of EE RAM at scene load with batching on,
+in 1.172 and 1.173 alike (a black screen after `ROADINDEX`). With batching off
 and sharing on it boots and runs: HUD MEM 30.0 MB, SCENE 14.18 ms at the same
-pose (11.82 for the shipped city), the same 30 FPS the debug build shows
-there. MEMSTAT: object tables 2.7 MB, instance parts and their bags 2.8 MB,
+pose (11.82 for the batched 1 283-object city), the same 30 FPS the debug
+build shows there. MEMSTAT: object tables 2.7 MB, instance parts and their bags 2.8 MB,
 shared colours 1.1 MB (3 083 arrays for 4 305 parts), shared geometry 36 KB.
 
 That breakdown also says where the next megabyte is: **the per-instance
@@ -108,6 +144,19 @@ bookkeeping**, not the geometry. A `GeoPart` and its four bags cost about
 650 bytes whatever the part draws - most of it room for passes a static prop
 never uses - and each object carries about a kilobyte of runtime and geometry
 state (docs/backlog.md).
+
+### The other examples
+
+A/B against the 1.172 editor, same pose, PCSX2:
+
+| example | HUD MEM | picture |
+|---|---:|---|
+| vehicle-playground (Motor District, batched + 38 shared objects) | 24.0 -> 23.0 MB | identical below the HUD; SCENE 7.04 -> 7.09 ms |
+| showcase (prelit models, portals, mirrors) | 22.9 -> 21.3 MB | same (window shots; animated water) |
+| night-walk (prelit, lamps) | - | identical |
+| impostor-grove (impostors stay solo) | - | identical |
+| probe-lighting (GI probes) | - | differs only on the animated wobblers (their animation phase) |
+| raytraced-mirror | - | same (window shots; spinning props) |
 
 ## Who stays solo
 
@@ -149,9 +198,10 @@ actually lands on pay it.
 
 Everything else works from the shared bake, through the bag:
 
-- the coarse whole-object box is the model-space box of the shared parts,
-  tested through `objMat` (`coarseObjectOutside`), exactly as StaPip tests the
-  bag;
+- the coarse whole-object box is the world-space box of the shared parts'
+  model boxes through `objMat`, built at rebuild, so `coarseObjectOutside`
+  tests it against the world planes like a solo bake's (StaPip itself still
+  classifies the bag's model-space package boxes through the matrix);
 - the projected-shadow silhouette reads the floor height through the matrix,
   and when it has to clamp a buried part it does so on a world-space copy for
   that one submit;
@@ -191,9 +241,10 @@ A debug build with the HUD's MEM line on writes a `MEMSTAT` line into
 MEMSTAT used 25896 KB | object tables 1361 KB | parts+bags 1119 KB | solo 152 objects 154 parts 6306 verts 609 KB | shared 1131 objects 1656 parts, geometry 36 KB, colours 897 arrays 354 KB | batches 0 0 verts 0 KB | model sources 461 KB | engine baked 1807 KB retained 3 KB
 ```
 
-`used` is the HUD's MEM at 1 KB resolution (the HUD reading can lag it by a
-few hundred KB - it refreshes every two seconds). Every other field is the
-capacity of what it names, slack included. `engine baked` is the baked VIF
+`used` is the same reading as the HUD's MEM, at 1 KB resolution - but taken at
+a different moment, and in every arm measured here it sat 0.3-0.6 MB above the
+HUD figure read off a capture; compare MEMSTAT with MEMSTAT and HUD with HUD.
+Every other field is the capacity of what it names, slack included. `engine baked` is the baked VIF
 stream cache, which holds a copy of every baked bag's vertex payload and is
 capped at 4 MB.
 
@@ -201,5 +252,10 @@ capped at 4 MB.
 
 - A physical PS2: everything above is PCSX2. The frame-time column in
   particular wants a console pass before anyone tunes the default by it.
-- A city that streams its districts as layers (layered objects are never
-  batched, so sharing is their whole saving): not re-measured.
+- Streaming: one 30 s drive per arm (15 layer loads and unloads), MEM and
+  pixels checked at four points; not a long session, and not the Live Link
+  edit-rebuild-unshare cycles on a shared object.
+- `examples/showcase` logs `Vif1: Unknown VifCmd` and stops answering the
+  Live Debugger in PCSX2 - with the 1.172 editor and engine too, so it is not
+  this change; its A/B was a window screenshot (same picture, MEM 22.9 ->
+  21.3 MB).

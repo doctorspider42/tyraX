@@ -19971,17 +19971,27 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
   if (!g.parts.empty()) {
     Vec4 coarseMin(1e30F, 1e30F, 1e30F, 1.0F);
     Vec4 coarseMax(-1e30F, -1e30F, -1e30F, 1.0F);
-    // A shared instance's box is the model-space box of its parts' shared
-    // bake - coarseObjectOutside moves the planes through objMat, scale and
-    // all, exactly as StaPip does for the bag itself.
+    // A shared instance's box: the eight corners of each part's model-space
+    // box through objMat, boxed again in WORLD space. Static, so it is built
+    // once here and coarseObjectOutside tests it against the world planes
+    // like a solo bake's - moving the six planes into every shared object's
+    // own space instead cost ~0.6 ms a frame over a streamed city's ~360
+    // in-range objects (PCSX2). It bounds the rotated box, so it is never
+    // smaller than the geometry; for the usual 0/90/180/270 yaw it is exact.
     for (const GeoPart& part : g.parts)
       if (part.shared && part.bag && !part.shared->vertices.empty()) {
-        if (part.shared->mn[0] < coarseMin.x) coarseMin.x = part.shared->mn[0];
-        if (part.shared->mn[1] < coarseMin.y) coarseMin.y = part.shared->mn[1];
-        if (part.shared->mn[2] < coarseMin.z) coarseMin.z = part.shared->mn[2];
-        if (part.shared->mx[0] > coarseMax.x) coarseMax.x = part.shared->mx[0];
-        if (part.shared->mx[1] > coarseMax.y) coarseMax.y = part.shared->mx[1];
-        if (part.shared->mx[2] > coarseMax.z) coarseMax.z = part.shared->mx[2];
+        for (int k = 0; k < 8; ++k) {
+          const Vec4 c((k & 1) ? part.shared->mx[0] : part.shared->mn[0],
+                       (k & 2) ? part.shared->mx[1] : part.shared->mn[1],
+                       (k & 4) ? part.shared->mx[2] : part.shared->mn[2], 1.0F);
+          const Vec4 w = g.objMat * c;
+          if (w.x < coarseMin.x) coarseMin.x = w.x;
+          if (w.y < coarseMin.y) coarseMin.y = w.y;
+          if (w.z < coarseMin.z) coarseMin.z = w.z;
+          if (w.x > coarseMax.x) coarseMax.x = w.x;
+          if (w.y > coarseMax.y) coarseMax.y = w.y;
+          if (w.z > coarseMax.z) coarseMax.z = w.z;
+        }
         g.coarseBoxValid = true;
       }
     for (const GeoPart& part : g.parts)
@@ -20067,7 +20077,7 @@ bool TerrainGame::coarseObjectOutside(int index) const {
   Plane localPlanes[6];
   const Plane* planes =
       engine->renderer.core.renderer3D.frustumPlanes.getAll();
-  if (g.matrixMode || g.shared) {
+  if (g.matrixMode) {  // a shared instance's box is already world space
     CoreBBox::computeObjectSpacePlanes(localPlanes, planes, g.objMat);
     planes = localPlanes;
   }

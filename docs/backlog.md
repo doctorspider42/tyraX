@@ -30,8 +30,10 @@ order of payoff:
 - ~~Share static model geometry between instances~~ DONE 1.173.0
   (docs/instance-sharing.md): one model-space bake per part under a per-object
   matrix, pooled colours; batches trim their growth slack (-1.6 MB on the
-  1 km city). With batching off the 2 557-object 1 km city
-  (`FURNITURE_CORE_ONLY=False`) now boots at 30.0 MB. What it made visible, in order of payoff:
+  1 km city). The streamed 1.4 km city saves ~1.5 MB at every pose (downtown
+  19.9 -> 18.4 MB). With batching off the 2 557-object 1 km city
+  (`FURNITURE_CORE_ONLY=False`) now boots at 30.0 MB. What it made visible,
+  in order of payoff:
   - **The per-instance bookkeeping is now the biggest object cost**: ~650 B per
     `GeoPart` + bags whatever it draws (2.8 MB for 4 305 parts) and ~1 KB of
     `RuntimeObject` + `ObjectGeometry` per object (2.7 MB for 2 589). Most of a

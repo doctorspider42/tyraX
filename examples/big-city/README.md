@@ -155,6 +155,13 @@ other emulator on the machine). The emulator's `MEM` readout, by configuration:
 | 1.4 km, kerbs and furniture on every road (4 946 objects, 212 514 road vertices, 11.8 MB ELF) | 30.7 MB at spawn |
 | 1.4 km, plus pavements on every street (659 334 road vertices, 20.8 MB ELF) | out of memory at load |
 | 1.4 km, everything resident | out of memory (the first version's finding) |
+| **1.173, shared model geometry**: shipped 1.4 km city, downtown walker / car at spawn / driving | **18.4 / 18.2 / 17.0-19.1 MB** (19.9 / 19.6 / 18.0-20.7 with `instanceSharing` off) |
+
+The last row is [instance sharing](../../docs/instance-sharing.md): a
+streamed layer is never batched, so every resident instance used to carry its
+own world-space copy of its model; now it draws the model's one shared mesh
+and keeps only its (pooled) colours. About 1.5 MB at every pose, the same
+frame time and picture.
 
 What that works out to:
 
@@ -164,11 +171,16 @@ What that works out to:
   resident for good. Kerbs and furniture everywhere took the ELF from 6.9 to
   11.8 MB; pavements everywhere to 20.8 MB. Loading the road tables per item
   from a file is the next step (docs/backlog.md).
-- **A static object costs roughly 70-110 bytes of EE RAM per vertex it draws**,
-  whatever the object is: the 28-triangle tree cost about 9 KB, a 22-triangle
-  building about 6 KB. Each instance keeps its own expanded vertex, colour and
-  UV arrays. Layers are what make this affordable: only the districts near the
-  car hold theirs.
+- **A static object cost roughly 70-110 bytes of EE RAM per vertex it draws**
+  before 1.173, whatever the object was: the 28-triangle tree about 9 KB, a
+  22-triangle building about 6 KB, because each instance kept its own expanded
+  vertex, colour and UV arrays (and a batch a merged copy with up to as much
+  slack again). Since 1.173 an instance draws its model's one shared mesh and
+  keeps only its lit colours, pooled by content (351 arrays for 667 parts at
+  the downtown pose); what is left per object is bookkeeping - about 650 bytes
+  per mesh part and a kilobyte per object (docs/instance-sharing.md). Layers
+  are what make even that affordable: only the districts near the car hold
+  theirs.
 - **Road surfaces cost about 60 bytes per vertex** while resident, plus the
   baked tables. Road streaming keeps about a third of the network (at 260
   units) and its per-chunk height index costs ~8 bytes per resident vertex.

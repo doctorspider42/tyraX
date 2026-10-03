@@ -412,6 +412,9 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
   viewport overlay showing what merged with what, what each batch costs in VU1
   packages, and the reason named for every object that stayed solo; plus a
   per-object opt-out for when one outlying member keeps a whole batch drawn.
+- [Shared model geometry](docs/instance-sharing.md) — every copy of an
+  imported model draws one model-space mesh under its own matrix and keeps only
+  its lit colours: ~1.5 MB of EE RAM on the streamed big city.
 - [Interleaved passes](docs/interleaved-passes.md) - batches and roads are
   drawn in between the objects, so the EE works while VU1 draws (-0.5 ms a
   frame in a dense scene); Auto times both orders and keeps the faster.

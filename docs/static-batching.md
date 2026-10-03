@@ -157,8 +157,9 @@ bytes a vertex (position, lit colour, ST), and a member never draws a bake of
 its own, so for a batched object the batch IS its geometry. Since 1.173 a
 batch trims the growth slack its arrays used to keep (they grew by
 `push_back` and held up to twice their size for the whole scene) - 1.6 MB on
-the big city. Objects that do not batch draw from a shared model-space bake
-instead ([instance-sharing.md](instance-sharing.md)), which on that city makes
+the 1 km version of the big city. Objects that do not batch (streamed layers
+among them) draw from a shared model-space bake instead
+([instance-sharing.md](instance-sharing.md)), which on that city makes
 batching OFF the smaller arm in memory (25.3 against 27.3 MB) and the slower
 one in frame time. Batching stays the default; the trade is measured there.
 
