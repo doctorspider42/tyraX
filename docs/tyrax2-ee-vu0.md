@@ -1,5 +1,40 @@
 # TyraX2 EE preparation and VU0 audit
 
+## Native sizing reuse: paired physical candidate controls (2026-10-03)
+
+A private candidate reuses the DMA-tag count from a successful snapshot preflight
+instead of walking that copied chain again to size native records. The old public
+Snapshot ABI and uncounted compatibility path remain unchanged. Only eligible
+native copies collect the count; failed attempts cannot publish it, retries use
+the final successful copy, and existing capacity, emission and fence paths remain.
+
+One native ELF completed 5,400 loops per physical boot in both Off/On/Off and
+On/Off/On orders. Each boot has 384 accepted samples, with matching phase-relative
+state, raw camera, resources and native workload. Independent source, symbol,
+asset and sample-ledger checks agree. Each sampled frame records 106 submissions;
+the candidate replaces all 106 sizing scans with counts from those snapshots.
+
+| Order | Work means, ms | Candidate versus outer arms, ms | Outer-arm spread, ms |
+| --- | --- | --- | --- |
+| Off/On/Off | 18.166299 / 18.017179 / 18.175260 | -0.149119 / -0.158080 | 0.008961 |
+| On/Off/On | 18.014179 / 18.164677 / 18.018049 | -0.150498 / -0.146628 | 0.003869 |
+
+This is a repeatable net improvement in this controlled binary, including count
+collection and its return ABI. It is not the pure cost of the removed scan.
+Observed periods remain approximately 33.367 ms, so neither boot reaches 60 FPS.
+The common diagnostic buffer, counters, Scene observer and FrameProfile level 2
+remain present in every arm; uninstrumented production timing is still required.
+The period field's job owner is unknown and it must not be attributed to current
+EE, VU or GS work. A full emulator run also passes 5,400 loops; its timings and
+different source workload are not physical performance evidence.
+
+Actual-header host controls cover snapshot rollback, callback behavior, native
+capacity/output parity and eligibility/retry decisions. Production integration,
+moving-camera acceptance and final quiet controls remain separate checks. The
+[paired record](tyrax2-native-sizing-reuse-2026-10-03.json) retains exact hashes,
+counts, periods, controls and limitations. No production engine change is part
+of this measurement milestone.
+
 This audit separates current submission costs from consumer completion and identifies which remaining EE work could benefit from fewer passes or VU0 arithmetic.
 
 ## Physical night diagnostic, 2026-10-02

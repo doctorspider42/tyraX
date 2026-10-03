@@ -357,6 +357,12 @@ recovered 0.50-0.72 ms of hardware `work`. What it did not do, ranked:
   plain spread, still 30 Hz. No emulator, full pixel/query identity or production
   clock change is accepted; use these controls to gate a future selector design.
 - **Remaining EE work / VU0 offload — audited, experiments open.**
+  The [native-sizing reuse candidate](tyrax2-ee-vu0.md#native-sizing-reuse-paired-physical-candidate-controls-2026-10-03)
+  now passes two same-ELF physical orders, 10,800 loops and 768 accepted samples.
+  Reusing successful snapshot tag counts removes 106 sizing scans per sampled
+  frame, with 0.147–0.158 ms less observed work versus outer-arm spreads of
+  0.004–0.009 ms. Periods remain approximately 33.367 ms. Production integration,
+  motion checks and uninstrumented timing remain open; no 60 FPS gain is claimed.
   [Current physical attribution](tyrax2-ee-vu0.md) finds 2.724 ms snapshots
   and 0.743 ms conversion nested in 3.665 ms submission, but only about
   0.003 ms existing completion waits. VU0 already performs macro-mode
