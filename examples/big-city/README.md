@@ -43,6 +43,13 @@ from one seed. With the shipped knobs:
   plaza, core avenues), 145 street lamps, 28 parked cars, 21 benches, the plaza,
   the player and the car, in **51 district layers**.
 
+- **Road traffic** ([docs/traffic.md](../../docs/traffic.md)): four AI cars
+  around the player (`TRAFFIC_CARS`), on a lane graph of 2 310 lanes and 4 710
+  movements (56 800 points, resident while the roads stream: the ELF grows by
+  about 1.1 MB). The city has no traffic lights; every node runs on priority.
+  Each car is about 0.37 MB of EE RAM plus the graph: at spawn (HUD, the car
+  at spawn) 18.3 MB without traffic, 22.2 with the four shipped, 24.2 with six.
+
 All the road features come from [docs/roads.md](../../docs/roads.md). The
 buildings, trees and benches are the Motor District's CC0 Kenney assets
 ([`res/models/urban/LICENSE.txt`](res/models/urban/LICENSE.txt)); the stacked

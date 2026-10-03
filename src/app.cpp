@@ -1563,6 +1563,13 @@ void App::drawMenuBar() {
                     "prop you cannot walk up to or a\ncamera that pulls in "
                     "early. The running game can draw the same\nboxes - "
                     "Preferences > Build > Show collision boxes.");
+            if (ImGui::MenuItem("Lanes", nullptr, showLanes_, hasProject_))
+                showLanes_ = !showLanes_;
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip(
+                    "Draw the lane graph traffic drives (docs/traffic.md):\n"
+                    "lanes in blue, turns through a node in green (priority),\n"
+                    "yellow (gives way) or orange / violet (signal phase A / B).");
             if (ImGui::MenuItem("Static batches", nullptr, showBatchOverlay_,
                                 hasProject_)) {
                 showBatchOverlay_ = !showBatchOverlay_;
@@ -3971,6 +3978,7 @@ void App::drawViewportWindow() {
             if (ImGui::IsKeyPressed(ImGuiKey_Escape)) measurePoints_ = 0;
             drawMeasureOverlay(imgPos, avail);
         }
+        if (showLanes_ && hasProject_) drawLanesOverlay(imgPos, avail);
 
         // Rubber-band box select: tracked until the button is released, even if
         // the cursor leaves the image. A left-drag past the click threshold
@@ -15972,6 +15980,7 @@ void App::drawPreferencesWindow() {
             "stay in the ELF, resident for good, as before (no file to ship,\n"
             "no background reads).");
     }
+    drawTrafficSettings(prefSettings_.traffic);
 
     // Worst-case resident mesh memory so oversized configs are caught here,
     // not by an out-of-memory PS2. Mirrors the generated game: 6 verts/cell,

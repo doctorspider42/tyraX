@@ -21,6 +21,7 @@
 #include "camtake.hpp"
 #include "dronegen.hpp"
 #include "roadtex.hpp"  // Road Texture Generator recipe member
+#include "roadlanes.hpp"  // View > Lanes: the lane graph the overlay draws
 #include "history.hpp"
 #include "phonecam.hpp"
 #include "gibake.hpp"
@@ -2195,6 +2196,15 @@ private:
     // .tmdl in the scene.
     bool showStaticBatches_ = false;
     bool showBatchOverlay_ = false;  // View > Static batches
+    // View > Lanes (docs/traffic.md, src/traffic_ui.cpp): the lane graph
+    // traffic drives, from roadlanes::buildScene - the codegen's own call -
+    // rebuilt when the model or the scene changes and no drag is in flight.
+    bool showLanes_ = false;
+    roadlanes::Graph lanesGraph_;
+    int lanesScene_ = -1;
+    uint64_t lanesSerial_ = ~0ULL;
+    void drawLanesOverlay(ImVec2 imgPos, ImVec2 avail);
+    void drawTrafficSettings(TrafficSettings& t);
     bool showBatchCells_ = false;    // the selected batch's grouping cell
     bool batchDirty_ = true;
     int batchSelected_ = -1;  // focuses the overlay on one batch, -1 = all

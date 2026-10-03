@@ -37,6 +37,11 @@ for people building games with it. Internals live in code comments, the git log
   with a brush, two-pass GS splatting, stochastic tiling.
 - [Terrain distance detail (LOD)](terrain-lod.md) — far tiles built from fewer
   heightmap samples, stitched so no crack shows; what makes a big map drawable.
+- [Road traffic](traffic.md) — ambient AI cars that drive the road network by
+  themselves: a lane graph baked from the roads, stop lines and give-way
+  priority from the same rule that paints them, working traffic lights on the
+  street furniture's signal heads, spawning around the player and a cheap
+  far-car path. View > Lanes, `--road-lanes`, the costs and the checks.
 - [Roads](roads.md) — spline streets glued to the terrain: a handful of authored
   points and one texture become a tessellated, terrain-projected ribbon, built
   at scene load by a twin of the editor's own tessellator, shipped as triangle

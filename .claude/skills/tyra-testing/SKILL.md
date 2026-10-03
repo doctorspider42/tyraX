@@ -3990,6 +3990,21 @@ vantages used for the docs: a frozen walker at (-42, 52.6) looking at (0, 61)
 pitch 3 (Skyline avenue's south pavement) and (-3, -35) looking at (0, 10)
 pitch 6 (Garage boulevard toward the lit plaza). To see where chunks are,
 read the scratch copy's `ROAD_FURN` rows and `ROAD_FURN_VERTS`.
+**Road traffic** (docs/traffic.md): `--vehicle-check` "road traffic" (lanes on
+their side, continuity through a T and a crossing, curves inside the patch,
+priority = the painted stop lines, no conflicting greens, and a 300 s host
+simulation of 10 cars on `vehiclesim::step` through a signalised crossing - no
+overlap, no entry on red, no deadlock; `TF_DEBUG=1` prints the first overlap
+and every car stuck 40 s), plus the codegen gate (five hooks, a streamed
+project too, nothing with traffic off). `--road-lanes <dir> [scene]` prints the
+graph; exit 1 = a lane with no legal exit. In PCSX2 the Motor District's
+fixture is a frozen walker at (14, -78), eye 16, rotation [28, -29, 0] over the
+Garage boulevard x Foundry link signals (remove `flowGraph` from
+`objects/ravagerpark00001.json` in the copy so the player is not seated), then
+`--capture-frame` a few seconds apart; read `TRAFFIC cars ...` every 5 s in
+`bin/log.txt` - it carries the far-path count and the EE microseconds of the
+core and of the whole vehicle step. The render-cost CSV has no update rows;
+the traffic EE time is only in that line.
 The viewport and PCSX2 patch must match. `verify-road-twins.py` also exercises
 terrain folds and both Market endpoints, proves the old fan regression is
 triggered, sweeps clearance and checks nonempty runtime junction uploads. Move one spline

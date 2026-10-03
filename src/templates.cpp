@@ -63,6 +63,7 @@
 #include "roaddetail.hpp"  // road details: host-baked decals (docs/roads.md)
 #include "roadfurniture.hpp"  // street furniture: host-baked lamps, trees, signs
 #include "roadstream.hpp"  // road streaming: the runtime cut from buildRoads' own text
+#include "roadlanes.hpp"   // road traffic: the lane graph and the traffic core (docs/traffic.md)
 #include "roadfile.hpp"  // road tables on disk: bin/roadfile/roads.bin + its directory
 #include "wire.hpp"  // fnv1a64 - stable per-override .tskl suffix
 
@@ -8869,8 +8870,14 @@ static std::string sceneDataContent(const Project& p, const std::string& ns,
                 objects << "0";
             } else {
                 for (size_t i = 0; i < objs.size(); ++i) {
+                    // A traffic car (docs/traffic.md) is the codegen's, not the
+                    // editor's: no identity, so Live Link neither patches nor
+                    // hides it.
+                    const bool trafficCar =
+                        objs[i].id.rfind(roadlanes::kCarPrefix, 0) == 0;
                     std::snprintf(hb, sizeof(hb), "0x%016llx",
-                                  (unsigned long long)project::liveLinkIdHash(objs[i]));
+                                  trafficCar ? 0ULL
+                                             : (unsigned long long)project::liveLinkIdHash(objs[i]));
                     objects << (i ? ", " : "") << hb << "ULL";
                 }
                 for (size_t i = 0; i < sceneClones[si].size(); ++i)
@@ -9302,6 +9309,10 @@ static std::string sceneDataContent(const Project& p, const std::string& ns,
             // vertex-colour chunks + collision boxes, from the roads.
             const bool hasFurniture = projectHasRoadFurniture(p);
             roadfurn::Tables furnTables;
+            // Road traffic (docs/traffic.md): the lane graph per scene, from
+            // the same roads, plan and signals.
+            const bool hasTraffic = roadlanes::projectHasTraffic(p);
+            roadlanes::Tables trafficTables;
             for (size_t si = 0; si < p.scenes.size(); ++si)
                 for (const SceneObject& o : p.scenes[si].objects) {
                     if (o.type != PrimitiveType::Road || o.roadPoints.size() < 4)
@@ -9598,6 +9609,7 @@ static std::string sceneDataContent(const Project& p, const std::string& ns,
                 // Street furniture (docs/roads.md "Street furniture"): lines
                 // along the pavements, signs at the stop lines - the
                 // console uploads the merged chunks and boxes unchanged.
+                std::vector<roadfurn::Instance> furnSignals;
                 if (hasFurniture) {
                     std::vector<roadfurn::Settings> fs;
                     for (int oi : objIdx) fs.push_back(sc.objects[(size_t)oi].roadFurniture);
@@ -9611,8 +9623,29 @@ static std::string sceneDataContent(const Project& p, const std::string& ns,
                         fi.paint = furnPaint;
                         fi.pavements = furnPave;
                         fi.projectDir = p.dir;
-                        furnTables.add((int)si, roadfurn::build(fi));
+                        fi.liveSignals = hasTraffic;
+                        const roadfurn::Result fr = roadfurn::build(fi);
+                        for (const roadfurn::Instance& in : fr.instances)
+                            if (in.kind == roadfurn::kSignal) furnSignals.push_back(in);
+                        furnTables.add((int)si, fr);
                     }
+                }
+                if (hasTraffic) {
+                    std::vector<roadfurn::Settings> fs;
+                    for (int oi : objIdx) fs.push_back(sc.objects[(size_t)oi].roadFurniture);
+                    std::vector<bool> signalled(plan.crossings.size(), false);
+                    for (size_t ci = 0; ci < plan.crossings.size(); ++ci)
+                        signalled[ci] = roadfurn::nodeSignalled(plan.crossings[ci], cr, fs);
+                    roadlanes::Options lo;
+                    lo.leftHand = p.settings.traffic.leftHand;
+                    lo.speed = p.settings.traffic.speed;
+                    const roadlanes::Graph lg = roadlanes::build(cr, plan, signalled, ground, lo);
+                    // Dead ends are normal (map edges); a lane with no
+                    // legal exit is a road worth fixing. --road-lanes lists both.
+                    for (const std::string& w : lg.warnings)
+                        if (w.find("dead end") == std::string::npos)
+                            std::printf("[traffic] scene %zu: %s\n", si, w.c_str());
+                    trafficTables.addScene((int)si, lg, lo, furnSignals);
                 }
                 for (const roadgen::CrossingDecal& d : plan.decals) {
                     if (d.verts.empty() || rowOf[(size_t)d.road] < 0) continue;
@@ -9907,6 +9940,8 @@ static std::string sceneDataContent(const Project& p, const std::string& ns,
                             roadFileItems.add(roadfile::kFurn, fr.scene, (int)fi, 0, fr.count, w, 3, 2);
                         }
                 }
+                // Road traffic (docs/traffic.md): only when the project runs it.
+                if (hasTraffic) out << trafficTables.source(p, sceneCount);
                 if (onDisk) {
                     out << roadFileItems.directorySource();
                     roadFile = roadFileItems.file();
@@ -9966,6 +10001,9 @@ static std::string sceneDataContent(const Project& p, const std::string& ns,
                         wpCount = (int)wps.size();
                     }
                 }
+                // A traffic car (docs/traffic.md) is marked by wpFirst -2:
+                // the traffic core places and drives it.
+                if (o.id.rfind(roadlanes::kCarPrefix, 0) == 0) wpFirst = -2;
                 irecs << (instCount ? ",\n" : "") << "    {" << (int)si << ", "
                       << (int)oi << ", " << di << ", "
                       << (o.vehicleDriveable ? 1 : 0) << ", " << wpFirst << ", "
@@ -18879,6 +18917,8 @@ static std::string roadsMembers(const Project& p) {
   void buildRoads(int scene);
 )";
     if (projectStreamsRoads(p)) s += roadStreamEmit(p).members;
+    // Road traffic (docs/traffic.md): only when the project runs it.
+    if (roadlanes::projectHasTraffic(p)) s += roadlanes::membersSource();
     return s;
 }
 
@@ -19635,9 +19675,15 @@ static std::string roadsImpl(const Project& p) {
     // Tables on disk: buildRoads (never called by a streamed project) would
     // read the per-vertex tables the ELF no longer has - it is not compiled.
     // Its text is still what the streaming runtime is cut from.
-    if (projectRoadTablesOnDisk(p)) return roadStreamEmit(p).impl;
-    std::string s = roadsImplBuild(p);
-    if (projectStreamsRoads(p)) s += roadStreamEmit(p).impl;
+    std::string s;
+    if (projectRoadTablesOnDisk(p)) {
+        s = roadStreamEmit(p).impl;
+    } else {
+        s = roadsImplBuild(p);
+        if (projectStreamsRoads(p)) s += roadStreamEmit(p).impl;
+    }
+    // Road traffic (docs/traffic.md): whichever way the roads are built.
+    if (roadlanes::projectHasTraffic(p)) s += roadlanes::implSource(projectStreamsRoads(p));
     return s;
 }
 
@@ -19678,8 +19724,14 @@ static std::string vehicleRenderCall(const Project& p) {
     // Its own cost phase keeps the wheel CPU rebuild and batched submit out of
     // the unlabelled scene total. It sits outside Objects, so rows do not
     // double-count either pass.
-    return "  { const u32 ct=costStart(); renderVehicleWheels(); costEnd(\"Wheels\",-1,ct); }\n"
-           "  renderVehicleDebris();\n";
+    return std::string(
+               "  { const u32 ct=costStart(); renderVehicleWheels(); costEnd(\"Wheels\",-1,ct); }\n"
+               "  renderVehicleDebris();\n") +
+           // Road traffic (docs/traffic.md): the lit lens of every signal head.
+           (roadlanes::projectHasTraffic(p)
+                ? "  { const u32 ct=costStart(); renderTrafficLamps(); "
+                  "costEnd(\"Traffic_lights\",-1,ct); }\n"
+                : "");
 }
 
 static std::string vehicleSmokeRenderCall(const Project& p) {
@@ -20141,6 +20193,8 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
         prm.tablesOnDisk = projectRoadTablesOnDisk(p);
         s = roadstream::patchTemplate(s, prm);
     }
+    // Road traffic (docs/traffic.md): the four hooks in the vehicle runtime.
+    if (roadlanes::projectHasTraffic(p)) s = roadlanes::patchTemplate(s);
     return s;
 }
 
@@ -29079,6 +29133,20 @@ static std::string liveLinkScript(const Project& p) {
            "\n"
            "}  // namespace\n"
            "}  // namespace " << ns << "\n";
+    // Road traffic (docs/traffic.md): the appended cars have id hash 0 and
+    // are not the editor's to hide. Patched in only then, so every other
+    // project keeps its exact poller.
+    if (roadlanes::projectHasTraffic(p)) {
+        std::string s = out.str();
+        const std::string from = "      if (present[i] || hiddenByLL_[i]) continue;\n";
+        const size_t at = s.find(from);
+        if (at != std::string::npos)
+            s.replace(at, from.size(),
+                      "      if (present[i] || hiddenByLL_[i] ||\n"
+                      "          SCENE_OBJECT_ID_TABLES[ctx.scene][i] == 0ULL)\n"
+                      "        continue;\n");
+        return s;
+    }
     return out.str();
 }
 
@@ -35713,7 +35781,15 @@ std::vector<File> generate(const Project& source) {
         resolved = std::make_unique<Project>(source);
         project::applyVehicleDefaults(*resolved);
     }
-    const Project& p = resolved ? *resolved : source;
+    // Road traffic (docs/traffic.md): the ambient cars are ordinary vehicle
+    // instances APPENDED to the scenes here, so they get every table a placed
+    // car gets; the runtime keeps them hidden until it places them on a lane.
+    std::unique_ptr<Project> withTraffic;
+    if (roadlanes::projectHasTraffic(resolved ? *resolved : source)) {
+        withTraffic = std::make_unique<Project>();
+        roadlanes::withTrafficCars(resolved ? *resolved : source, *withTraffic);
+    }
+    const Project& p = withTraffic ? *withTraffic : resolved ? *resolved : source;
     const std::string ns = sanitizeNamespace(p.name);
     auto fill = [&](const char* tpl) { return fillTemplate(p, tpl); };
 

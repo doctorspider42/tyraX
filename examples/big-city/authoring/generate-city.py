@@ -137,6 +137,7 @@ FOG_START = 90.0
 FOG_END = 220.0
 VIEW_DISTANCE = 240.0
 ROAD_STREAM = 260.0         # None = every road resident
+TRAFFIC_CARS = 4           # ambient AI cars (docs/traffic.md), 0 = none; ~0.37 MB each
 TERRAIN_LOD = 110.0
 
 TREE_SPACING = 20.0
@@ -1024,6 +1025,10 @@ def apply_settings(p):
         s['roadStreamRadius'] = ROAD_STREAM
     else:
         s.pop('roadStreamRadius', None)
+    if TRAFFIC_CARS:
+        s['traffic'] = {'cars': TRAFFIC_CARS}
+    else:
+        s.pop('traffic', None)
     for a in p.get('ambience', [])[:1]:
         a.update({'skyColor': haze, 'skyTopColor': [0.22, 0.42, 0.66],
                   'fogEnabled': True, 'fogColor': haze, 'fogStart': FOG_START,

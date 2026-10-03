@@ -214,9 +214,25 @@ add_custom_command(
             ${CMAKE_SOURCE_DIR}/cmake/embed_binary.cmake
     COMMENT "Embedding src/roadstream_core.inl")
 
+# --- Embedded traffic core (src/traffic_core.inl) ---
+# The road streaming core's arrangement (docs/traffic.md): the editor compiles
+# it for --vehicle-check's host simulation, and the codegen pastes the same
+# bytes into a generated game that runs traffic (roadlanes::coreSource).
+set(TRAFFIC_CORE_GEN ${CMAKE_BINARY_DIR}/generated/traffic_core_gen.hpp)
+add_custom_command(
+    OUTPUT ${TRAFFIC_CORE_GEN}
+    COMMAND ${CMAKE_COMMAND}
+            -DSRC_FILE=${CMAKE_SOURCE_DIR}/src/traffic_core.inl
+            -DOUT_FILE=${TRAFFIC_CORE_GEN}
+            -DNAMESPACE=trafficsrc -DSYMBOL=kCore
+            -P ${CMAKE_SOURCE_DIR}/cmake/embed_binary.cmake
+    DEPENDS ${CMAKE_SOURCE_DIR}/src/traffic_core.inl
+            ${CMAKE_SOURCE_DIR}/cmake/embed_binary.cmake
+    COMMENT "Embedding src/traffic_core.inl")
+
 add_custom_target(tyrax-generated
     DEPENDS ${AI_SUPPORT_GEN} ${DOCS_GEN} ${APP_ICON_GEN} ${MOON_MAP_GEN}
-            ${BLSS_NET_GEN} ${BLSS_META_GEN} ${ROADSTREAM_CORE_GEN})
+            ${BLSS_NET_GEN} ${BLSS_META_GEN} ${ROADSTREAM_CORE_GEN} ${TRAFFIC_CORE_GEN})
 
 # --- Editor ---
 add_executable(tyrax-editor
@@ -348,6 +364,10 @@ add_executable(tyrax-editor
     src/roadfurniture.cpp
     src/roadfurniture_ui.cpp
     src/roadstream.cpp
+    src/roadlanes.cpp
+    src/roadlanes_check.cpp
+    src/roadlanes_gen.cpp
+    src/traffic_ui.cpp
     src/roadfile.cpp
     src/roadtex.cpp
     src/roadtex_ui.cpp

@@ -188,13 +188,17 @@ Tris makeSign(int signKind) {
     return t;
 }
 
-Tris makeSignal() {
+Tris makeSignal(bool live) {
     Tris t;
     prism(t, 0, 0, 0.0f, 2.95f, 0.07f, 4, kPoleGrey, false);
     box(t, 0.0f, 3.40f, 0.0f, 0.17f, 0.46f, 0.11f, kDark);
-    const float lamps[3][3] = {{0.95f, 0.12f, 0.08f}, {0.95f, 0.62f, 0.10f}, {0.15f, 0.85f, 0.30f}};
+    // Live signals (docs/traffic.md "Traffic lights"): the console draws the
+    // lit lens over these, so the baked three are the UNLIT glass.
+    const float lit[3][3] = {{0.95f, 0.12f, 0.08f}, {0.95f, 0.62f, 0.10f}, {0.15f, 0.85f, 0.30f}};
+    const float dark[3][3] = {{0.22f, 0.05f, 0.04f}, {0.22f, 0.15f, 0.04f}, {0.04f, 0.18f, 0.08f}};
+    const float (*lamps)[3] = live ? dark : lit;
     for (int k = 0; k < 3; ++k) {
-        const float y = 3.70f - 0.30f * (float)k;
+        const float y = kSignalLensY[k];
         quad(t, {-0.10f, y - 0.10f, 0.115f}, {0.10f, y - 0.10f, 0.115f},
              {0.10f, y + 0.10f, 0.115f}, {-0.10f, y + 0.10f, 0.115f}, lamps[k], false);
     }
@@ -565,15 +569,27 @@ bool any(const std::vector<Settings>& settings) {
     return false;
 }
 
-std::vector<ModelTri> builtinModel(int kind, int signKind) {
+std::vector<ModelTri> builtinModel(int kind, int signKind, bool liveSignals) {
     switch (kind) {
     case kLamp: return makeLamp();
     case kTree: return makeTree();
     case kBollard: return makeBollard();
     case kSign: return makeSign(signKind);
-    case kSignal: return makeSignal();
+    case kSignal: return makeSignal(liveSignals);
     }
     return {};
+}
+
+bool nodeSignalled(const roadgen::Crossing& c, const std::vector<roadgen::CrossingRoad>& roads,
+                   const std::vector<Settings>& sets) {
+    if (c.kind != roadgen::kCrossPatch || c.patchDuplicate || c.transition || c.arms != 4)
+        return false;
+    bool railway = false, wantSignals = false;
+    for (int r : c.roads) {
+        railway |= roads[(size_t)r].kind == 1;
+        if ((size_t)r < sets.size()) wantSignals |= sets[(size_t)r].signals;
+    }
+    return wantSignals && !railway;
 }
 
 // --- placement ----------------------------------------------------------------------
@@ -662,36 +678,23 @@ Result build(const SceneInput& in) {
     for (size_t ci = 0; ci < plan.crossings.size(); ++ci) {
         const roadgen::Crossing& c = plan.crossings[ci];
         if (c.kind != roadgen::kCrossPatch || c.patchDuplicate || c.transition) continue;
-        bool railway = false, wantSignals = false;
-        for (int r : c.roads) {
-            railway |= roads[(size_t)r].kind == 1;
-            wantSignals |= sets[(size_t)r].signals;
-        }
+        bool railway = false;
+        for (int r : c.roads) railway |= roads[(size_t)r].kind == 1;
         if (railway) continue;  // no paint, no stop line (bakeMarkings' rule)
-        const bool signalled = wantSignals && c.arms == 4;
-        // TWIN of roadgen::bakeMarkings' giving-way rule (who gets the stop
-        // line). --vehicle-check "road furniture" proves every sign stands at
-        // painted stop line, so a drift between the two fails there.
-        bool through = false, anyEnds = false;
-        for (const roadgen::NodeArm& a : c.armList) through |= !a.ends, anyEnds |= a.ends;
-        int minor = -1;
-        if (!anyEnds)
-            for (int r : c.roads) {
-                if (minor < 0) { minor = r; continue; }
-                const roadgen::CrossingRoad& R = roads[(size_t)r];
-                const roadgen::CrossingRoad& M = roads[(size_t)minor];
-                if (R.rank < M.rank || (R.rank == M.rank && R.width < M.width) ||
-                    (R.rank == M.rank && R.width == M.width))
-                    minor = r;
-            }
-        for (const roadgen::NodeArm& a : c.armList) {
+        // The signal rule, shared with the lane graph's phase cycle.
+        const bool signalled = nodeSignalled(c, roads, sets);
+        // roadgen::bakeMarkings' giving-way rule (who gets the stop line),
+        // the one function both call - and the lane graph's priorities too.
+        const std::vector<unsigned char> yields = roadgen::giveWayArms(c, roads);
+        for (size_t ai = 0; ai < c.armList.size(); ++ai) {
+            const roadgen::NodeArm& a = c.armList[ai];
             const roadgen::CrossingRoad& R = roads[(size_t)a.road];
             const Settings& S = sets[(size_t)a.road];
             int kind = -1, signKind = kSignGiveWay;
             if (signalled) {
                 kind = kSignal;
             } else {
-                const bool givesWay = (through && a.ends) || a.road == minor;
+                const bool givesWay = yields[ai] != 0;
                 if (givesWay && a.h >= 1.5f && R.markings > roadgen::kMarkNone &&
                     S.signs != kSignNone) {
                     kind = kSign;
@@ -714,6 +717,7 @@ Result build(const SceneInput& in) {
                 if (why == 0) {
                     emit(a.road, kind, (int)ci, x, z, a.tx, a.tz, 1.0f, 1.0f);
                     if (kind == kSign) res.instances.back().variant = signKind;
+                    res.instances.back().arm = (int)ai;
                     done = true;
                 }
             }
@@ -797,7 +801,7 @@ Result build(const SceneInput& in) {
                 t.clear();
             }
         }
-        if (t.empty()) t = builtinModel(inst.kind, signKind);
+        if (t.empty()) t = builtinModel(inst.kind, signKind, in.liveSignals);
         return modelCache.emplace(key, std::move(t)).first->second;
     };
     // A fixed sun for the baked shade (the kerbs' and the bridges' rule).

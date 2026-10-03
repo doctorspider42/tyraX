@@ -78,6 +78,26 @@ order of payoff:
 - ~~The road height index's 1 024-chunk cap~~ DONE: 13/19-bit packing and a
   `ROADINDEX skipped` line (docs/roads.md, "Kerb collision").
 
+## Road traffic: what the first version left out (format 106, 2026-10-03)
+
+docs/traffic.md. Shipped: the lane graph, stop lines / give way / gap
+acceptance, working traffic lights on the furniture's signal heads, spawning
+and recycling around the player, a kinematic far-car path, View > Lanes,
+`--road-lanes`, the host simulation in `--vehicle-check`. Left:
+
+- **A traffic car costs ~0.37 MB of EE RAM** (its own vehicle geometry: dents
+  and paint are per car). Sharing one mesh between undamaged traffic cars of a
+  definition (copy on first dent) would make 10+ cars affordable in Big City.
+- **Lane changes** (overtaking a slow or parked car, picking the turn lane
+  early) - a car keeps its lane index from node to node today.
+- **An On Red Light Run flow node** - the event is a log line
+  (`TRAFFIC red light run`) only.
+- **Signals at three-way and five-way nodes**, protected left-turn phases, a
+  green wave along an avenue (the offsets are per node and arbitrary).
+- **Pedestrians**: traffic queues behind the player on foot, nothing more.
+- **Traffic headlights at night**, budgeted (the headlight pools cost).
+- **A physical PS2 pass**: every number in docs/traffic.md is PCSX2.
+
 ## Road nodes: what the first version left out (1.170.0, 2026-10-02)
 
 docs/roads.md, "Road nodes". The geometry is in; the rest of the network idea

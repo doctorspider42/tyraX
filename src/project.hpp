@@ -1744,6 +1744,30 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.commentText == b.commentText;
 }
 
+// Road traffic (docs/traffic.md, format v106): ambient AI cars that drive the
+// lane graph by themselves, stop at stop lines and obey the traffic lights.
+// Project-wide, applied to every scene with drivable roads. `cars` 0 (the
+// default) = off, and the generated sources are exactly what they were before
+// the setting existed. Saved as a "traffic" object of only the keys that
+// differ from these defaults, and only when any does.
+struct TrafficSettings {
+    int cars = 0;                       // ambient cars per scene, 0 = off
+    std::vector<std::string> vehicles;  // definitions to draw from; empty = every one
+    float radius = 110.0f;              // spawn radius around the player, units
+    float density = 1.5f;               // cars per 100 units of lane within it
+    float speed = 11.0f;                // the lanes' speed, units/s
+    float green = 12.0f;                // signal phase: green, amber, all-red seconds
+    float amber = 3.0f;
+    float allRed = 2.0f;
+    bool leftHand = false;              // left-hand traffic
+};
+inline bool operator==(const TrafficSettings& a, const TrafficSettings& b) {
+    return a.cars == b.cars && a.vehicles == b.vehicles && a.radius == b.radius &&
+           a.density == b.density && a.speed == b.speed && a.green == b.green &&
+           a.amber == b.amber && a.allRed == b.allRed && a.leftHand == b.leftHand;
+}
+inline bool operator!=(const TrafficSettings& a, const TrafficSettings& b) { return !(a == b); }
+
 // General project preferences (Project > Preferences in the editor).
 // Baked into the generated terrain_config.hpp on every build.
 struct ProjectSettings {
@@ -2111,6 +2135,8 @@ struct ProjectSettings {
     // wants it. True keeps them in the ELF as before (no file, no reader
     // thread). Saved only when true; meaningless without streaming.
     bool roadStreamEmbedTables = false;
+    // Road traffic (docs/traffic.md, format v106).
+    TrafficSettings traffic;
     // Shared reflection probe: how far the captured image may be out of date
     // before the probe re-renders, IN PIXELS OF ITS OWN 128-pixel target
     // (docs/reflective-materials.md, "The reuse budget"). The probe already
@@ -2563,7 +2589,7 @@ struct ProjectSettings {
     bool highlightOverlay = false;
 };
 
-static_assert(sizeof(ProjectSettings) == 872,
+static_assert(sizeof(ProjectSettings) == 936,
               "ProjectSettings changed size - a field was added or removed. "
               "Add it to operator== below as well, or its Preferences widget "
               "will silently do nothing; then update this number.");
@@ -2633,7 +2659,7 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.terrainViewDistance == b.terrainViewDistance &&
            a.terrainLodDistance == b.terrainLodDistance &&
            a.roadStreamRadius == b.roadStreamRadius &&
-           a.roadStreamEmbedTables == b.roadStreamEmbedTables &&
+           a.roadStreamEmbedTables == b.roadStreamEmbedTables && a.traffic == b.traffic &&
            a.reflectionReuseBudget == b.reflectionReuseBudget &&
            a.reflectionGroundRadius == b.reflectionGroundRadius &&
            a.reflectionScenery == b.reflectionScenery &&

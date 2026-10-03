@@ -115,6 +115,7 @@ struct Instance {
     int road = -1;      // CrossingRoad index
     int kind = kLamp;
     int node = -1;      // crossing index (signs, signals), else -1
+    int arm = -1;       // ... and the arm of it whose approach it faces
     int variant = 0;    // a sign's SignKind
     float x = 0, y = 0, z = 0;  // the base, on the pavement or the ground
     float fx = 0, fz = 1;       // unit facing (the model's +Z)
@@ -147,6 +148,9 @@ struct SceneInput {
     std::vector<roadgen::Vertex> paint;
     std::vector<roadgen::PavementMesh> pavements;
     std::string projectDir;  // resolves model paths ("" = built-in models only)
+    // The project runs traffic (docs/traffic.md): the built-in signal's three
+    // lenses are baked UNLIT, because the console lights the current one.
+    bool liveSignals = false;
 };
 
 struct Result {
@@ -184,7 +188,22 @@ struct ModelTri {
     float c[3][3];
     bool lit = true;  // false = emissive (a lamp lens): no shading
 };
-std::vector<ModelTri> builtinModel(int kind, int signKind = kSignGiveWay);
+std::vector<ModelTri> builtinModel(int kind, int signKind = kSignGiveWay,
+                                   bool liveSignals = false);
+
+// The built-in signal head's three lenses, top to bottom red / amber / green,
+// in its model space at scale 1: lens centre heights, the depth of the lens
+// face (+Z faces the approaching driver) and the half size. The traffic
+// runtime draws the lit lens there (docs/traffic.md "Traffic lights").
+inline constexpr float kSignalLensY[3] = {3.70f, 3.40f, 3.10f};
+inline constexpr float kSignalLensZ = 0.115f;
+inline constexpr float kSignalLensHalf = 0.10f;
+
+// Does node `c` carry traffic lights: a four-way patch node (not a transition,
+// not one a railway crosses) where any of its roads asks for signals. The
+// furniture's rule, shared with the lane graph's phase cycle.
+bool nodeSignalled(const roadgen::Crossing& c, const std::vector<roadgen::CrossingRoad>& roads,
+                   const std::vector<Settings>& sets);
 
 // --- the console tables -----------------------------------------------------------
 //

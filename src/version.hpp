@@ -6182,7 +6182,12 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // "roadStreamEmbedTables" (written only when true). Missing = false = a
 // streamed project's baked road tables go to bin/roadfile/roads.bin, read per item;
 // true keeps them in the ELF as v102 did. Additive; no migration step.
-inline constexpr int kFormatVersion = 104;
+// v106 (docs/traffic.md): settings.traffic - ambient cars per scene, the
+// definitions they are drawn from, spawn radius, density, lane speed, signal
+// timing and left-hand traffic - an object of only the keys that differ from
+// the defaults, written only when any does. Missing = no traffic, as before.
+// Additive; no migration step. (105 is reserved by a parallel branch.)
+inline constexpr int kFormatVersion = 106;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

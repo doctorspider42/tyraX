@@ -141,6 +141,12 @@ Assign a vehicle a waypoint route to make it drive itself. AI uses the same
 handling, surface grip and collision model as the player, with steering and
 speed planning for bends and other cars.
 
+For cars that drive the ROAD NETWORK by themselves - lanes, stop lines, give
+way, traffic lights, spawned around the player and recycled - turn on
+[road traffic](traffic.md) instead: one project setting, no route to place.
+Its cars are vehicle instances of these same definitions, and its driver fills
+the same throttle, brake and steer.
+
 The Player flow nodes **Enter Vehicle**, **Exit Vehicle** and **Repair Vehicle**
 seat, release or repair the player without a pad press. Enter Vehicle can seat
 the player from anywhere, including at scene start. Repair Vehicle restores
