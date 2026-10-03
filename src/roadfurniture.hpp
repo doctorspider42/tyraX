@@ -34,7 +34,7 @@ enum Kind : int {
     kTree = 1,
     kBollard = 2,
     kSign = 3,     // give-way / stop sign at a stop line
-    kSignal = 4,   // traffic light at a four-way node
+    kSignal = 4,   // traffic light at a signalled node (nodeSignalled)
     kKindCount = 5
 };
 const char* kindName(int kind);
@@ -75,7 +75,7 @@ struct Settings {
     Line bollards{"", 0.0f, kBoth, 0.4f, 0.0f, 1.0f, 0.0f};
     int seed = 0;               // tree yaw / size jitter, another arrangement
     int signs = kSignNone;      // a sign at each stop line this road gives way at
-    bool signals = false;       // traffic lights at this road's four-way nodes
+    bool signals = false;       // traffic lights at this road's three- and four-way nodes
     std::string signModel;      // "" = built-in (the sign kind picks it)
     std::string signalModel;    // "" = built-in
     bool operator==(const Settings&) const = default;
@@ -199,11 +199,20 @@ inline constexpr float kSignalLensY[3] = {3.70f, 3.40f, 3.10f};
 inline constexpr float kSignalLensZ = 0.115f;
 inline constexpr float kSignalLensHalf = 0.10f;
 
-// Does node `c` carry traffic lights: a four-way patch node (not a transition,
-// not one a railway crosses) where any of its roads asks for signals. The
-// furniture's rule, shared with the lane graph's phase cycle.
+// Does node `c` carry traffic lights: a patch node (not a transition, not one
+// a railway crosses) of three or four arms where any of its roads asks for
+// signals - or of three arms or more whose junction override says Signals
+// (roadgen::kControlSignals; only in a scene that builds street furniture, so
+// the heads always stand where the lights work). An override of None or Stop
+// signs turns them off. The furniture's rule, shared with the lane graph's
+// phase cycle.
 bool nodeSignalled(const roadgen::Crossing& c, const std::vector<roadgen::CrossingRoad>& roads,
                    const std::vector<Settings>& sets);
+// A signalled node's phases: a four-way node runs two (opposite arms share
+// one), every other node one per arm (a T runs three). `arm` is an index into
+// the node's armList - the signal head on that arm shows that phase.
+inline int signalPhases(int arms) { return arms == 4 ? 2 : arms; }
+inline int signalPhase(int arms, int arm) { return arms == 4 ? arm % 2 : arm; }
 
 // --- the console tables -----------------------------------------------------------
 //

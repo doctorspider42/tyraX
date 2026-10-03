@@ -8,6 +8,7 @@
 // the planner matches by road-id pair + nearest position.
 #include "app.hpp"
 #include "app_internal.hpp"
+#include "roadfurniture.hpp"
 #include "roadgen.hpp"
 #include "theme.hpp"
 
@@ -63,6 +64,7 @@ const roadgen::CrossingPlan& App::sceneCrossings() {
         h = fnv(h, &j.winner, sizeof(j.winner));
         h = fnv(h, j.material.data(), j.material.size() + 1);
         h = fnv(h, &j.grip, sizeof(j.grip));
+        h = fnv(h, &j.control, sizeof(j.control));
     }
     if (h != crossingPlanSig_) {
         crossingPlanSig_ = h;
@@ -332,10 +334,43 @@ void App::drawJunctionProperties() {
             changed = true;
         commit |= ImGui::IsItemDeactivatedAfterEdit();
     }
+    // Lights and signs (format v108, docs/traffic.md "Signals"): what the
+    // node does about who goes first, from the plan + the roads' furniture.
+    {
+        std::vector<roadfurn::Settings> fs;
+        for (int oi : crossingRoadObj_) fs.push_back(objs[(size_t)oi].roadFurniture);
+        const bool sig = roadfurn::nodeSignalled(c, crossingRoadList_, fs);
+        std::string now;
+        if (sig)
+            now = "traffic lights, " + std::to_string(roadfurn::signalPhases((int)c.armList.size())) +
+                  " phases";
+        else if (c.control == roadgen::kControlStop)
+            now = "stop signs where it gives way";
+        else if (c.control == roadgen::kControlNone)
+            now = "no lights, no signs";
+        else
+            now = "priority (the roads' signs)";
+        const char* controls[] = {"Auto", "None", "Traffic lights", "Stop signs"};
+        int ctl = std::clamp(cur.control, 0, 3);
+        ImGui::SetNextItemWidth(scaled(260));
+        if (ImGui::Combo("Control", &ctl, controls, IM_ARRAYSIZE(controls)) && ctl != cur.control) {
+            cur.control = ctl;
+            changed = commit = true;
+        }
+        prefHelp(
+            "Auto: traffic lights at a three- or four-way node when one of its\n"
+            "roads ticks Street furniture > Traffic lights. None: no lights and\n"
+            "no signs. Traffic lights: lights here whatever the roads ask (in a\n"
+            "scene whose roads carry street furniture). Stop signs: a STOP at\n"
+            "every arm that gives way. Who gives way is always the stop lines'\n"
+            "rule - this only adds or removes the lights and the signs.");
+        ImGui::TextDisabled("Now: %s", now.c_str());
+    }
     if (had && ImGui::Button("Reset to auto")) {
         cur.winner = roadgen::kWinnerAuto;
         cur.material.clear();
         cur.grip = 0.0f;
+        cur.control = roadgen::kControlAuto;
         changed = commit = true;
     }
     if (changed) {
@@ -344,7 +379,7 @@ void App::drawJunctionProperties() {
         cur.x = c.shape.x;
         cur.z = c.shape.z;
         const bool isAuto = cur.winner == roadgen::kWinnerAuto && cur.material.empty() &&
-                            cur.grip <= 0.0f;
+                            cur.grip <= 0.0f && cur.control == roadgen::kControlAuto;
         if (had && isAuto)
             ovs.erase(ovs.begin() + c.override);
         else if (had)

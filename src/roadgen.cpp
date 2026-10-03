@@ -1681,6 +1681,7 @@ CrossingPlan planCrossings(const std::vector<CrossingRoad>& roads,
             winner = o.winner;
             material = o.material;
             grip = o.grip;
+            c.control = o.control;
             // A material alone asks for a patch.
             if (winner == kWinnerAuto && !material.empty()) winner = kWinnerPatch;
         }

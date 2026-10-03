@@ -1546,6 +1546,10 @@ void App::drawFlowGraphWindow() {
             ImGui::TextDisabled(
                 "Walks the baked nav grid.\nOne AI state per object -\na new "
                 "command replaces it.");
+        if (n.type == "OnRedLightRun")
+            ImGui::TextDisabled(
+                "The player's car only, at a\nsignalled node, with road\ntraffic on. "
+                "Number = speed.");
         if (n.type == "OnPlayerSeen")
             ImGui::TextDisabled(
                 "Vision cone from the NPC's\nfacing; LOS: hills block\nsight. "
@@ -2135,6 +2139,7 @@ void App::drawFlowGraphWindow() {
                         n.num[0] = n.num[1] = n.num[2] = 1.0f;
                     if (std::string(t.key) == "NearObject") n.num[0] = 4.0f;
                     if (std::string(t.key) == "EverySeconds") n.num[0] = 1.0f;
+                    if (std::string(t.key) == "OnRedLightRun") n.num[0] = -1.0f;  // any node
                     if (std::string(t.key) == "Delay") n.num[0] = 1.0f;  // seconds
                     if (std::string(t.key) == "MoveObjectTo") n.num[3] = 2.0f;  // speed
                     if (std::string(t.key) == "Animation") n.num[1] = 1.0f;  // speed

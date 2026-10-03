@@ -582,14 +582,18 @@ std::vector<ModelTri> builtinModel(int kind, int signKind, bool liveSignals) {
 
 bool nodeSignalled(const roadgen::Crossing& c, const std::vector<roadgen::CrossingRoad>& roads,
                    const std::vector<Settings>& sets) {
-    if (c.kind != roadgen::kCrossPatch || c.patchDuplicate || c.transition || c.arms != 4)
+    const int arms = (int)c.armList.size();
+    if (c.kind != roadgen::kCrossPatch || c.patchDuplicate || c.transition || arms < 3)
         return false;
     bool railway = false, wantSignals = false;
     for (int r : c.roads) {
         railway |= roads[(size_t)r].kind == 1;
         if ((size_t)r < sets.size()) wantSignals |= sets[(size_t)r].signals;
     }
-    return wantSignals && !railway;
+    if (railway) return false;
+    if (c.control == roadgen::kControlSignals) return any(sets);
+    if (c.control != roadgen::kControlAuto) return false;
+    return wantSignals && arms <= 4;
 }
 
 // --- placement ----------------------------------------------------------------------
@@ -691,10 +695,17 @@ Result build(const SceneInput& in) {
             const roadgen::CrossingRoad& R = roads[(size_t)a.road];
             const Settings& S = sets[(size_t)a.road];
             int kind = -1, signKind = kSignGiveWay;
+            const bool givesWay = yields[ai] != 0;
             if (signalled) {
                 kind = kSignal;
-            } else {
-                const bool givesWay = yields[ai] != 0;
+            } else if (c.control == roadgen::kControlStop) {
+                // The node's override: a stop sign at every arm that gives
+                // way, whatever the road asks (and with or without paint).
+                if (givesWay && a.h >= 1.5f) {
+                    kind = kSign;
+                    signKind = kSignStop;
+                }
+            } else if (c.control != roadgen::kControlNone) {
                 if (givesWay && a.h >= 1.5f && R.markings > roadgen::kMarkNone &&
                     S.signs != kSignNone) {
                     kind = kSign;
@@ -1113,7 +1124,9 @@ void check(void (*verdict)(bool, const char*)) {
         return r;
     };
     // A kerbed T with pavements and zebras, a four-way crossing of two through
-    // roads, and a lone kerbless street for exact counts.
+    // roads, a T onto the signalled road (the spur: signals there too), a
+    // second T onto the main road (a give-way sign) and a lone kerbless street
+    // for exact counts.
     const std::vector<roadgen::CrossingRoad> roads = {
         road("main", {-60, 0, -20, 0, 20, 0, 60, 0}, 10, true),
         road("stem", {0, -50, 0, -25, 0, 0}, 8, true),
@@ -1121,6 +1134,7 @@ void check(void (*verdict)(bool, const char*)) {
         road("ns", {0, 50, 0, 100, 0, 150}, 9, true),
         road("lone", {-60, 220, 0, 220, 60, 220}, 8, false),
         road("spur", {40, 140, 40, 120, 40, 100}, 8, true),
+        road("side", {40, -40, 40, -20, 40, 0}, 8, true),
     };
     std::vector<Settings> sets(roads.size());
     sets[0].lamps.spacing = 15;
@@ -1135,7 +1149,8 @@ void check(void (*verdict)(bool, const char*)) {
     sets[2].lamps.spacing = 20;
     sets[3].signs = kSignGiveWay;  // overruled by the signals at the X
     sets[4].lamps.spacing = 10;
-    sets[5].signs = kSignGiveWay;
+    sets[5].signs = kSignGiveWay;  // overruled by the signals at the spur's T
+    sets[6].signs = kSignGiveWay;
 
     struct Scene {
         roadgen::CrossingPlan plan;
@@ -1143,8 +1158,9 @@ void check(void (*verdict)(bool, const char*)) {
         std::vector<roadgen::PavementMesh> pave;
         Result res;
     };
-    auto bake = [&](const std::vector<Settings>& s, Scene& sc) {
-        sc.plan = roadgen::planCrossings(roads, {});
+    auto bake = [&](const std::vector<Settings>& s, Scene& sc,
+                    const std::vector<roadgen::JunctionOverride>& ov = {}) {
+        sc.plan = roadgen::planCrossings(roads, ov);
         sc.roadTris.clear();
         for (const roadgen::CrossingRoad& rd : roads) {
             std::vector<roadgen::Vertex> mesh;
@@ -1287,14 +1303,20 @@ void check(void (*verdict)(bool, const char*)) {
     // Signs: at a painted stop line, facing the approach; signals at the X.
     {
         int signs = 0, atLine = 0, facing = 0, stops = 0, signalsAtX = 0, signsAtX = 0;
-        int xNode = -1;
-        for (size_t ci = 0; ci < a.plan.crossings.size(); ++ci)
-            if (a.plan.crossings[ci].arms == 4) xNode = (int)ci;
+        int signalsAtT = 0, signsAtT = 0;
+        int xNode = -1, tNode = -1;
+        for (size_t ci = 0; ci < a.plan.crossings.size(); ++ci) {
+            const roadgen::Crossing& c = a.plan.crossings[ci];
+            if (c.arms == 4) xNode = (int)ci;
+            if (c.arms == 3 && c.has(5)) tNode = (int)ci;  // the spur's T on "ew"
+        }
         for (const Instance& in : r.instances) {
             if (in.kind == kSignal && in.node == xNode) ++signalsAtX;
+            if (in.kind == kSignal && in.node == tNode) ++signalsAtT;
             if (in.kind != kSign) continue;
             ++signs;
             if (in.node == xNode) ++signsAtX;
+            if (in.node == tNode) ++signsAtT;
             if (in.variant == kSignStop) ++stops;
             float best = 1e30f;
             for (const roadgen::Vertex& v : a.paint)
@@ -1305,13 +1327,53 @@ void check(void (*verdict)(bool, const char*)) {
             if ((in.fx * ox + in.fz * oz) / ol > 0.5f) ++facing;
         }
         std::printf("  signs: %d (%d stop), %d within 3 of paint, %d facing the approach; "
-                    "the X has %d signals and %d signs\n",
-                    signs, stops, atLine, facing, signalsAtX, signsAtX);
+                    "the X has %d signals and %d signs, the signalled T %d and %d\n",
+                    signs, stops, atLine, facing, signalsAtX, signsAtX, signalsAtT, signsAtT);
         verdict(signs > 0 && atLine == signs && facing == signs,
                 "every sign stands at a painted stop line and faces the approaching driver");
         verdict(stops > 0 && stops < signs, "the sign kind follows the road (stop / give way)");
         verdict(xNode >= 0 && signalsAtX == 4 && signsAtX == 0,
                 "a signalled four-way gets one light per arm and no signs");
+        verdict(tNode >= 0 && signalsAtT == 3 && signsAtT == 0,
+                "a T on a road with traffic lights gets one light per arm and no signs");
+    }
+    // A junction's own Control (format v108): None drops the X's lights,
+    // Signals lights the unsignalled T, Stop signs puts a STOP at the side
+    // road's give-way arm - and none of them moves a stop line.
+    {
+        std::vector<roadgen::JunctionOverride> ov(3);
+        ov[0].roadA = "ew", ov[0].roadB = "ns", ov[0].x = 0, ov[0].z = 100;
+        ov[0].control = roadgen::kControlNone;
+        ov[1].roadA = "main", ov[1].roadB = "stem", ov[1].x = 0, ov[1].z = 0;
+        ov[1].control = roadgen::kControlSignals;
+        ov[2].roadA = "main", ov[2].roadB = "side", ov[2].x = 40, ov[2].z = 0;
+        ov[2].control = roadgen::kControlStop;
+        Scene cs;
+        bake(sets, cs, ov);
+        const roadgen::CrossingPlan& plan2 = cs.plan;
+        const Result& r2 = cs.res;
+        int xSig = -1, tSig = -1, sideStop = -1;
+        int xLights = 0, tLights = 0, sideStops = 0, sideGiveWay = 0;
+        for (size_t ci = 0; ci < plan2.crossings.size(); ++ci) {
+            const roadgen::Crossing& c = plan2.crossings[ci];
+            const bool sg = nodeSignalled(c, roads, sets);
+            if (c.has(2) && c.has(3)) xSig = sg;
+            if (c.has(0) && c.has(1)) tSig = sg;
+            if (c.has(0) && c.has(6)) sideStop = (int)ci;
+        }
+        for (const Instance& i2 : r2.instances) {
+            const roadgen::Crossing& c = plan2.crossings[(size_t)(i2.node >= 0 ? i2.node : 0)];
+            if (i2.node < 0) continue;
+            if (i2.kind == kSignal && c.has(2) && c.has(3)) ++xLights;
+            if (i2.kind == kSignal && c.has(0) && c.has(1)) ++tLights;
+            if (i2.kind == kSign && i2.node == sideStop) (i2.variant == kSignStop ? sideStops : sideGiveWay)++;
+        }
+        std::printf("  control: X lights %d (signalled %d), main x stem lights %d (signalled %d), "
+                    "side road stop %d / give way %d\n",
+                    xLights, xSig, tLights, tSig, sideStops, sideGiveWay);
+        verdict(xSig == 0 && xLights == 0 && tSig == 1 && tLights == 3 && sideStops == 1 &&
+                    sideGiveWay == 0,
+                "a junction's Control turns its lights off or on and swaps its signs for STOP");
     }
     // The tables add up.
     {

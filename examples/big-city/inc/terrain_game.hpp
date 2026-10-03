@@ -2090,16 +2090,24 @@ class TerrainGame : public Tyra::Game {
     int node = -1;       // the node a connection crosses (-1 for a lane)
     int nextFirst = 0;   // successors in TfGraph::next
     int nextCount = 0;
-    int group = -1;      // a connection at a signalled node: its approach's phase (0 or 1)
+    int group = -1;      // a connection at a signalled node: its approach's phase (0 .. phases-1)
     int rank = 0;        // a connection's priority: a higher rank goes first
     int turn = 0;        // a connection: 0 straight, 1 near side, 2 far side, 3 back
     int confFirst = 0;   // the connections this one crosses, in TfGraph::conf
     int confCount = 0;
+    // A lane on a road with several lanes each way: the lane beside it in the
+    // same direction toward the centre line (inner) and toward the kerb
+    // (outer), -1 for none. What a lane change moves a car onto.
+    int inner = -1;
+    int outer = -1;
     float len = 0.0F;
   };
 
   struct TfNode {
     int signal = 0;        // 1 = traffic lights
+    // Phases in the signal cycle: 2 at a four-way node (opposite arms share a
+    // phase), one per arm at any other node (a T runs three).
+    int phases = 2;
     float offset = 0.0F;   // seconds into the cycle at clock 0
   };
 
@@ -2173,24 +2181,54 @@ class TerrainGame : public Tyra::Game {
         }
     }
 
-    float cycle() const { return 2.0F * (green + amber + allRed); }
+    // One phase's slot: green, amber, then all-red clearance.
+    float slot() const { return green + amber + allRed; }
+    // A four-way node's cycle (two phases).
+    float cycle() const { return 2.0F * slot(); }
+    // Node n's cycle: one slot per phase.
+    float cycleOf(int n) const {
+      const int p = n >= 0 && n < (int)nodes.size() ? nodes[(size_t)n].phases : 2;
+      return (float)(p > 1 ? p : 2) * slot();
+    }
 
     // The light an approach of phase `group` sees at node `n` at time `t`:
-    // 0 green, 1 amber, 2 red. Group 1's half of the cycle is group 0's,
-    // shifted by half a cycle; each half is green, amber, then all-red
-    // clearance, so the two groups are never green or amber together.
+    // 0 green, 1 amber, 2 red. The cycle is one slot per phase in turn, phase
+    // k's slot starting k slots in; each slot is green, amber, then all-red
+    // clearance, so no two phases are ever green or amber together.
     int light(int n, int group, float t) const {
       if (n < 0 || n >= (int)nodes.size() || group < 0 || !nodes[(size_t)n].signal) return 0;
-      const float c = cycle();
+      const float c = cycleOf(n);
       float ph = fmodf(t + nodes[(size_t)n].offset, c);
       if (ph < 0.0F) ph += c;
-      if (group == 1) {
-        ph -= 0.5F * c;
-        if (ph < 0.0F) ph += c;
+      if (group > 0) {
+        ph -= slot() * (float)group;
+        while (ph < 0.0F) ph += c;
       }
       if (ph < green) return 0;
       if (ph < green + amber) return 1;
       return 2;
+    }
+
+    // Is lane b lane a, or a lane beside it in the same direction of the same
+    // road stretch?
+    bool siblings(int a, int b) const {
+      if (a < 0 || b < 0) return false;
+      if (a == b) return true;
+      for (int k = segs[(size_t)a].inner, hop = 0; k >= 0 && hop < 8; k = segs[(size_t)k].inner, ++hop)
+        if (k == b) return true;
+      for (int k = segs[(size_t)a].outer, hop = 0; k >= 0 && hop < 8; k = segs[(size_t)k].outer, ++hop)
+        if (k == b) return true;
+      return false;
+    }
+    // The lane beside a one step toward its sibling b, -1 when b is a itself
+    // or not a sibling.
+    int stepToward(int a, int b) const {
+      if (a < 0 || b < 0 || a == b) return -1;
+      for (int k = segs[(size_t)a].inner, hop = 0; k >= 0 && hop < 8; k = segs[(size_t)k].inner, ++hop)
+        if (k == b) return segs[(size_t)a].inner;
+      for (int k = segs[(size_t)a].outer, hop = 0; k >= 0 && hop < 8; k = segs[(size_t)k].outer, ++hop)
+        if (k == b) return segs[(size_t)a].outer;
+      return -1;
     }
 
     // The point at arc `s` along segment `seg` (clamped): x, y, z, then the
@@ -2271,15 +2309,28 @@ class TerrainGame : public Tyra::Game {
     unsigned int rng = 1U;
     float x = 0.0F, z = 0.0F, yaw = 0.0F, speed = 0.0F;
     float half = 2.2F;     // half the body length, units
+    float halfW = 1.0F;    // half the body width, units (what a lane change clears)
     float brake = 10.0F;   // the definition's braking deceleration
     float stopT = 0.0F;    // seconds at a standstill
     int passed = 0;        // nodes driven through (telemetry, the check)
+    // Lane changes (a road with several lanes each way). `want` is the
+    // movement the car means to take at the end of this stretch, `wantLane`
+    // the lane it leaves from; `chg` the lane it is moving into right now,
+    // blended over chgLen units of that lane from chgS0 (chgS = where it is).
+    int want = -1;
+    int wantLane = -1;
+    int chg = -1;
+    float chgS0 = 0.0F, chgS = 0.0F, chgLen = 0.0F;
+    float chgAt = -100.0F;  // clock when the last change ended
+    int changes = 0;        // lane changes completed (telemetry, the check)
+    float lead = 1e9F;      // last step's bumper-to-bumper gap to what is ahead
   };
 
   // A vehicle that is not traffic (the player's car, a waypoint racer, a parked
   // car): traffic sees it only as something in the way.
   struct TfObstacle {
     float x, z, yaw, half;
+    float speed;
   };
 
   struct TfSim {
@@ -2290,6 +2341,9 @@ class TerrainGame : public Tyra::Game {
     float clock = 0.0F;
     float gapTime = 3.5F;    // seconds of clear road a yielding car needs
     int leftHand = 0;        // only the lane graph's offsets know; kept for telemetry
+    int changing = 1;        // 0 = cars keep their lane (Preferences > Traffic > Lane changes)
+    int laneChanges = 0;     // lane changes begun to reach a turn's lane (telemetry)
+    int overtakes = 0;       // ... and to pass a slow or stopped car
 
     void reset(int n) {
       cars.assign((size_t)(n > 0 ? n : 0), TfCar());
@@ -2325,6 +2379,96 @@ class TerrainGame : public Tyra::Game {
       return g.next[(size_t)G.nextFirst];
     }
 
+    // The way on from lane `seg` when the road has several lanes each way:
+    // first WHICH movement (straight on three times as likely as either turn,
+    // over everything the stretch's lanes offer), then the lane nearest this
+    // one that offers it - a near-side turn leaves from the kerb lane, a
+    // far-side turn from the centre lane. The car remembers it (want,
+    // wantLane) and changes lanes to get there; until it does, it carries on
+    // its own lane's way (straight on when there is one), so a change it never
+    // finds a gap for costs it the turn and never strands it. A single lane
+    // each way is pickNext, unchanged.
+    int route(TfCar& c, int seg) {
+      c.want = -1;
+      c.wantLane = -1;
+      if (seg < 0) return -1;
+      const TfSeg& G = g.segs[(size_t)seg];
+      if (!changing || G.kind != 0 || (G.inner < 0 && G.outer < 0)) return pickNext(c, seg);
+      int lanes[8];
+      int n = 0, own = 0;
+      int k = seg;
+      for (int hop = 0; hop < 8 && g.segs[(size_t)k].outer >= 0; ++hop) k = g.segs[(size_t)k].outer;
+      for (; k >= 0 && n < 8; k = g.segs[(size_t)k].inner) {
+        if (k == seg) own = n;
+        lanes[n++] = k;
+      }
+      int has[3] = {0, 0, 0};
+      for (int i = 0; i < n; ++i) {
+        const TfSeg& L = g.segs[(size_t)lanes[i]];
+        for (int q = 0; q < L.nextCount; ++q) {
+          const int t = g.segs[(size_t)g.next[(size_t)(L.nextFirst + q)]].turn;
+          if (t >= 0 && t < 3) has[t] = 1;
+        }
+      }
+      const int total = has[0] * 3 + has[1] + has[2];
+      if (total <= 0) return pickNext(c, seg);
+      int r = (int)(rnd(c) % (unsigned int)total);
+      int turn = 2;
+      if (r < has[0] * 3) {
+        turn = 0;
+      } else {
+        r -= has[0] * 3;
+        if (has[1] && r < 1) turn = 1;
+      }
+      int bestD = 99, bestConn = -1, bestLane = -1;
+      for (int i = 0; i < n; ++i) {
+        const int d = i > own ? i - own : own - i;
+        if (d >= bestD) continue;
+        const TfSeg& L = g.segs[(size_t)lanes[i]];
+        for (int q = 0; q < L.nextCount; ++q) {
+          const int ns = g.next[(size_t)(L.nextFirst + q)];
+          if (g.segs[(size_t)ns].turn != turn) continue;
+          bestD = d;
+          bestConn = ns;
+          bestLane = lanes[i];
+          break;
+        }
+      }
+      if (bestConn < 0) return pickNext(c, seg);
+      c.want = bestConn;
+      c.wantLane = bestLane;
+      if (bestLane == seg) return bestConn;
+      for (int q = 0; q < G.nextCount; ++q) {
+        const int ns = g.next[(size_t)(G.nextFirst + q)];
+        if (g.segs[(size_t)ns].turn == 0) return ns;
+      }
+      return pickNext(c, seg);
+    }
+
+    // After a lane change onto `lane`: the car's intended movement as THIS lane
+    // offers it (the same turn onto the same road), else it keeps wanting it
+    // and takes the lane's own way meanwhile.
+    int adopt(TfCar& c, int lane) {
+      if (c.want < 0) return route(c, lane);
+      const TfSeg& L = g.segs[(size_t)lane];
+      const int wantTurn = g.segs[(size_t)c.want].turn;
+      const int wantExit = g.exitOf(c.want);
+      for (int q = 0; q < L.nextCount; ++q) {
+        const int ns = g.next[(size_t)(L.nextFirst + q)];
+        if (ns == c.want ||
+            (g.segs[(size_t)ns].turn == wantTurn && g.siblings(g.exitOf(ns), wantExit))) {
+          c.want = ns;
+          c.wantLane = lane;
+          return ns;
+        }
+      }
+      for (int q = 0; q < L.nextCount; ++q) {
+        const int ns = g.next[(size_t)(L.nextFirst + q)];
+        if (g.segs[(size_t)ns].turn == 0) return ns;
+      }
+      return pickNext(c, lane);
+    }
+
     void take(TfCar& c, int conn) {
       if (c.hold == conn) return;
       drop(c);
@@ -2343,14 +2487,17 @@ class TerrainGame : public Tyra::Game {
       c.on = 1;
       c.seg = seg;
       c.s = s;
-      c.nxt = pickNext(c, seg);
+      c.chg = -1;
+      c.chgAt = clock;
+      c.lead = 1e9F;
+      c.nxt = route(c, seg);
       c.stopT = 0.0F;
     }
     void remove(int ci) {
       TfCar& c = cars[(size_t)ci];
       drop(c);
       c.on = 0;
-      c.seg = c.nxt = -1;
+      c.seg = c.nxt = c.chg = -1;
     }
 
     // Follows the body along the graph: re-projects it onto its segment and
@@ -2373,7 +2520,8 @@ class TerrainGame : public Tyra::Game {
         if (G.kind == 1 && c.hold == from) drop(c);
         if (G.kind == 1) ++c.passed;
         c.seg = c.nxt;
-        c.nxt = pickNext(c, c.seg);
+        c.chg = -1;
+        c.nxt = route(c, c.seg);
         c.s = g.project(c.seg, over > 0.0F ? over : 0.0F, c.x, c.z);
       }
     }
@@ -2405,30 +2553,219 @@ class TerrainGame : public Tyra::Game {
 
     // Bumper-to-bumper distance to whatever is ahead: traffic on the path, and
     // anything at all (traffic or not) inside a narrow box along the heading.
-    float leaderGap(int ci) const {
+    // A car changing lanes is on both: it follows what is ahead in either, and
+    // a car moving into a lane is ahead of whoever is behind it there. `who`
+    // gets the car it is (-1 nothing, -2 - k obstacle k).
+    float leaderGapOf(int ci, int* who) const {
       const TfCar& c = cars[(size_t)ci];
       float best = 1e9F;
+      *who = -1;
       const float fx = sinf(c.yaw * 0.017453293F), fz = cosf(c.yaw * 0.017453293F);
       for (int j = 0; j < (int)cars.size(); ++j) {
         if (j == ci || !cars[(size_t)j].on) continue;
         const TfCar& o = cars[(size_t)j];
         float d = pathGap(c, o);
+        if (d >= 0.0F && c.chg >= 0 && o.seg != c.chg && o.chg != c.chg) {
+          // Changing lanes, the car still in the old lane ahead is only in the
+          // way while the two would touch side by side - and it may be passed
+          // closer (1 unit, not 2): this is how a car that stopped right
+          // behind a breakdown steers out round it.
+          const float ofx = sinf(o.yaw * 0.017453293F), ofz = cosf(o.yaw * 0.017453293F);
+          const float lat = (c.x - o.x) * ofz - (c.z - o.z) * ofx;
+          const float clear = c.halfW + o.halfW + 0.15F;
+          d = lat > clear || lat < -clear ? -1.0F : d + 1.0F;
+        }
+        if (d < 0.0F && c.chg >= 0 && o.seg == c.chg && o.s > c.chgS) d = o.s - c.chgS;
+        if (d < 0.0F && c.chg >= 0 && o.chg == c.chg && o.chgS > c.chgS) d = o.chgS - c.chgS;
+        if (d < 0.0F && o.chg >= 0 && o.chg == c.seg && c.seg >= 0 && o.chgS > c.s) d = o.chgS - c.s;
         if (d < 0.0F) {
           const float rx = o.x - c.x, rz = o.z - c.z;
           const float ah = rx * fx + rz * fz;
           const float lat = rx * fz - rz * fx;
           if (ah > 0.5F && ah < 24.0F && lat < 1.3F && lat > -1.3F) d = ah;
         }
-        if (d >= 0.0F && d - c.half - o.half < best) best = d - c.half - o.half;
+        if (d >= 0.0F && d - c.half - o.half < best) {
+          best = d - c.half - o.half;
+          *who = j;
+        }
       }
-      for (const TfObstacle& o : obst) {
+      for (int k = 0; k < (int)obst.size(); ++k) {
+        const TfObstacle& o = obst[(size_t)k];
         const float rx = o.x - c.x, rz = o.z - c.z;
         const float ah = rx * fx + rz * fz;
         const float lat = rx * fz - rz * fx;
-        if (ah > 0.5F && ah < 24.0F && lat < 1.6F && lat > -1.6F && ah - c.half - o.half < best)
+        if (ah > 0.5F && ah < 24.0F && lat < 1.6F && lat > -1.6F && ah - c.half - o.half < best) {
           best = ah - c.half - o.half;
+          *who = -2 - k;
+        }
       }
       return best;
+    }
+    float leaderGap(int ci) const {
+      int who = -1;
+      return leaderGapOf(ci, &who);
+    }
+
+    // Is there room on lane `tgt` at arc `sT` for car `ci` to move in: clear
+    // road ahead (more of it the faster it closes on what is there) and behind
+    // (more the faster what is there closes on it). Cars on the lane, cars
+    // moving into it, cars coming onto it out of a node, and anything else
+    // (the player, a parked car) standing on it.
+    bool gapClear(int ci, int tgt, float sT) const {
+      const TfCar& c = cars[(size_t)ci];
+      const float v = c.speed > 0.0F ? c.speed : 0.0F;
+      auto roomy = [&](float d, float oHalf, float oSpeed) {
+        const float ov = oSpeed > 0.0F ? oSpeed : 0.0F;
+        const float room = (d >= 0.0F ? d : -d) - c.half - oHalf;
+        if (d >= 0.0F) return room > 3.0F + (v > ov ? (v - ov) * 2.5F : 0.0F);
+        return room > 3.0F + ov * 0.6F + (ov > v ? (ov - v) * 2.5F : 0.0F);
+      };
+      for (int j = 0; j < (int)cars.size(); ++j) {
+        if (j == ci || !cars[(size_t)j].on) continue;
+        const TfCar& o = cars[(size_t)j];
+        float a = 0.0F;
+        if (o.seg == tgt) a = o.s;
+        else if (o.chg == tgt) a = o.chgS;
+        else if (o.seg >= 0 && g.segs[(size_t)o.seg].kind == 1 && g.exitOf(o.seg) == tgt)
+          a = o.s - g.segs[(size_t)o.seg].len;
+        else continue;
+        if (!roomy(a - sT, o.half, o.speed)) return false;
+      }
+      float P[5];
+      g.at(tgt, sT, P);
+      for (const TfObstacle& o : obst) {
+        const float along = (o.x - P[0]) * P[3] + (o.z - P[2]) * P[4];
+        if (along > 40.0F || along < -40.0F) continue;
+        float Q[5];
+        g.at(tgt, sT + along, Q);
+        const float ex = o.x - Q[0], ez = o.z - Q[2];
+        if (ex * ex + ez * ez > 2.2F * 2.2F) continue;
+        if (!roomy(along, o.half, o.speed)) return false;
+      }
+      return true;
+    }
+
+    // Is `who` (leaderGapOf's) something car `ci` should pass rather than
+    // queue behind: a car standing or crawling in its lane stretch that is not
+    // itself queueing (not at a line, not close behind another, not near its
+    // lane's end), or anything else in the lane (the player, a parked car)
+    // standing still. Only on a road with another lane this way.
+    bool passable(int ci, int who) const {
+      const TfCar& c = cars[(size_t)ci];
+      if (!changing || who == -1 || c.seg < 0) return false;
+      const TfSeg& S = g.segs[(size_t)c.seg];
+      if (S.kind != 0 || (S.inner < 0 && S.outer < 0)) return false;
+      if (who >= 0) {
+        const TfCar& o = cars[(size_t)who];
+        const float oRem = o.seg >= 0 ? g.segs[(size_t)o.seg].len - o.s : 0.0F;
+        return o.seg == c.seg && o.chg < 0 && o.speed < 0.45F * g.speed && !o.atLine &&
+               o.lead > 8.0F && oRem > 6.0F;
+      }
+      const TfObstacle& o = obst[(size_t)(-2 - who)];
+      return o.speed < 1.0F && o.speed > -1.0F;
+    }
+
+    // Should car `ci`, `lead` behind `who`, change lanes now - and to which?
+    // To reach the lane its movement leaves from, or to pass a car (or
+    // anything else) standing or crawling in its lane that is NOT simply
+    // queueing (a car waiting at a line, or behind another, is not passed).
+    // Only on a lane, holding no junction, not just after a change, and with
+    // room to finish the change before it has to brake for the line.
+    void considerChange(int ci, float lead, int who) {
+      TfCar& c = cars[(size_t)ci];
+      if (!changing || c.chg >= 0 || c.hold >= 0 || c.seg < 0 || clock - c.chgAt < 3.0F) return;
+      const TfSeg& S = g.segs[(size_t)c.seg];
+      if (S.kind != 0 || (S.inner < 0 && S.outer < 0)) return;
+      const float v = c.speed > 0.0F ? c.speed : 0.0F;
+      float L = 8.0F + 1.0F * v;
+      if (L > 24.0F) L = 24.0F;
+      const float remain = S.len - c.s - c.half;
+      const float stopD = v * v / (2.0F * c.brake * 0.45F) + 3.0F;
+      if (remain < L + stopD + 6.0F) return;
+      int tgt = -1, reason = 0;
+      if (c.wantLane >= 0 && c.wantLane != c.seg) {
+        tgt = g.stepToward(c.seg, c.wantLane);
+        reason = 1;
+      }
+      const bool pass = lead < 22.0F && passable(ci, who);
+      if (pass) {
+        // The move has to be over before the car reaches what it passes.
+        if (L > lead + 1.0F) L = lead + 1.0F > 8.0F ? lead + 1.0F : 8.0F;
+        // Pass on the side the car's movement wants, else toward the centre,
+        // else toward the kerb.
+        int side[3] = {tgt, S.inner, S.outer};
+        tgt = -1;
+        for (int k = 0; k < 3 && tgt < 0; ++k) {
+          const int t = side[k];
+          if (t < 0) continue;
+          const float sT = g.project(t, c.s * g.segs[(size_t)t].len / (S.len > 1e-3F ? S.len : 1.0F), c.x, c.z);
+          if (g.segs[(size_t)t].len - sT - c.half > L + stopD + 6.0F && gapClear(ci, t, sT)) tgt = t;
+        }
+        reason = 2;
+      } else if (tgt >= 0) {
+        // gapClear asks for more room ahead the slower the car there is, so
+        // this never moves in behind a car it would only have to pass again.
+        const float sT0 = g.project(tgt, c.s * g.segs[(size_t)tgt].len / (S.len > 1e-3F ? S.len : 1.0F), c.x, c.z);
+        if (g.segs[(size_t)tgt].len - sT0 - c.half < L + stopD + 6.0F || !gapClear(ci, tgt, sT0)) tgt = -1;
+      }
+      if (tgt < 0) return;
+      c.chg = tgt;
+      c.chgS0 = c.chgS = g.project(tgt, c.s * g.segs[(size_t)tgt].len / (S.len > 1e-3F ? S.len : 1.0F), c.x, c.z);
+      c.chgLen = L;
+      if (reason == 2) ++overtakes;
+      else ++laneChanges;
+    }
+
+    // A lane change in flight: how far along the new lane the car has come.
+    // Done once it has covered the blend (or its old lane is about to end,
+    // whatever is left of the move): it is then ON the new lane, and its way on
+    // is its movement as that lane offers it.
+    void laneStep(int ci) {
+      TfCar& c = cars[(size_t)ci];
+      if (c.chg < 0 || c.seg < 0) return;
+      c.chgS = g.project(c.chg, c.chgS, c.x, c.z);
+      const TfSeg& S = g.segs[(size_t)c.seg];
+      // Done = the blend covered AND the body within 0.7 of the new lane (a
+      // slow car lags its pursuit point), or twice the blend whatever, or the
+      // old lane about to end.
+      float P[5];
+      g.at(c.chg, c.chgS, P);
+      const float ex = P[0] - c.x, ez = P[2] - c.z;
+      float run = c.chgS - c.chgS0;
+      // Something ahead closer than the rest of the blend (the car it passes,
+      // the end of a queue): finish the move within that room instead.
+      if (c.lead < c.chgLen - run) {
+        c.chgLen = run + (c.lead > 3.0F ? c.lead : 3.0F);
+        if (c.chgLen < 6.0F) c.chgLen = 6.0F;
+      }
+      const bool there = run >= c.chgLen * 0.92F && ex * ex + ez * ez < 0.7F * 0.7F;
+      if (!there && run < 2.0F * c.chgLen && S.kind == 0 && S.len - c.s > 4.0F) return;
+      c.seg = c.chg;
+      c.s = c.chgS;
+      c.chg = -1;
+      c.chgAt = clock;
+      ++c.changes;
+      c.nxt = adopt(c, c.seg);
+      if (c.hold >= 0 && c.hold != c.nxt) drop(c);
+    }
+
+    // How far into its lane change car c is, d units further on: 0 on the old
+    // lane, 1 on the new, smoothstepped.
+    float blendAt(const TfCar& c, float d) const {
+      float w = (c.chgS - c.chgS0 + d) / (c.chgLen > 1.0F ? c.chgLen : 1.0F);
+      w = w < 0.0F ? 0.0F : (w > 1.0F ? 1.0F : w);
+      return w * w * (3.0F - 2.0F * w);
+    }
+    // The point `d` ahead of the car as ahead(), blended across a lane change
+    // in flight - the far path's pose, so a car changing lanes out there slides
+    // across instead of jumping.
+    void pose(const TfCar& c, float d, float* out) const {
+      ahead(c, d, out);
+      if (c.chg < 0) return;
+      float Q[5];
+      g.at(c.chg, c.chgS + d, Q);
+      const float w = blendAt(c, d);
+      for (int k = 0; k < 3; ++k) out[k] += (Q[k] - out[k]) * w;
     }
 
     // May car `ci` enter connection `conn`, `remain` units short of its line?
@@ -2455,7 +2792,9 @@ class TerrainGame : public Tyra::Game {
         for (int j = 0; j < (int)cars.size(); ++j) {
           if (j == ci || !cars[(size_t)j].on) continue;
           const TfCar& o = cars[(size_t)j];
-          if (o.seg == ex && o.s - o.half < 2.0F * c.half + 1.5F) return false;
+          if ((o.seg == ex && o.s - o.half < 2.0F * c.half + 1.5F) ||
+              (o.chg == ex && o.chgS - o.half < 2.0F * c.half + 1.5F))
+            return false;
         }
       // Give way: a car coming to a crossing path of higher rank, close in time.
       for (int k = 0; k < C.confCount; ++k) {
@@ -2489,12 +2828,19 @@ class TerrainGame : public Tyra::Game {
       *steer = 0.0F;
       c.atLine = 0;
       if (!c.on || c.seg < 0) return;
+      laneStep(ci);
       track(ci);
       const float v = c.speed > 0.0F ? c.speed : 0.0F;
-      // Steering: pure pursuit of a point `look` ahead on the path.
+      int who = -1;
+      const float lead = leaderGapOf(ci, &who);  // bumper to bumper
+      c.lead = lead;
+      considerChange(ci, lead, who);
+      // Steering: pure pursuit of a point `look` ahead on the path - across a
+      // lane change, a point blended from the old lane onto the new one, so the
+      // car drifts over smoothly along the blend's length.
       const float look = (c.half > 2.0F ? 2.0F * c.half : 4.0F) + 0.35F * v;
       float P[5];
-      ahead(c, look, P);
+      pose(c, look, P);
       const float want = atan2f(P[0] - c.x, P[2] - c.z) * 57.29578F;
       float err = want - c.yaw;
       while (err > 180.0F) err -= 360.0F;
@@ -2526,7 +2872,6 @@ class TerrainGame : public Tyra::Game {
       }
       const TfSeg& S = g.segs[(size_t)c.seg];
       const float remain = S.len - c.s - c.half;  // the front bumper to the line
-      const float lead = leaderGap(ci);  // bumper to bumper
       if (c.nxt < 0) {
         // A lane that goes nowhere: stop at its end.
         const float r = remain - 0.5F;
@@ -2538,7 +2883,7 @@ class TerrainGame : public Tyra::Game {
           if (mayEnter(ci, c.nxt, remain)) {
             // Only the FIRST car in line reserves: one queued behind it would
             // hold the junction for a car that cannot move, and gridlock it.
-            if (remain < stopD + 2.0F && lead > remain) take(c, c.nxt);
+            if (remain < stopD + 2.0F && lead > remain && c.chg < 0) take(c, c.nxt);
           } else {
             c.atLine = 1;
             const float r = remain - 0.6F;
@@ -2547,7 +2892,9 @@ class TerrainGame : public Tyra::Game {
           }
         }
       }
-      const float gap = lead - 2.0F;
+      // Behind something it means to pass, it stops further back (10 units, not
+      // 2): the room to steer out round it from a standstill.
+      const float gap = lead - (c.chg < 0 && passable(ci, who) ? 10.0F : 2.0F);
       {
         const float a = sqrtf(gap > 0.0F ? 2.0F * b * gap : 0.0F);
         if (a < allow) allow = a;
@@ -2628,6 +2975,9 @@ class TerrainGame : public Tyra::Game {
   float tfLenT_ = 0.0F, tfLaneNear_ = 0.0F, tfLogT_ = 0.0F;
   unsigned int tfRng_ = 0x9E3779B9U;
   int tfSpawned_ = 0, tfRecycled_ = 0, tfRedRuns_ = 0, tfTarget_ = 0;
+  // Headlights at night (docs/traffic.md "Headlights"): the state every
+  // traffic car was last switched to (-1 = not yet decided this scene).
+  int tfLights_ = -1;
   // EE cost (profTicks, 295 a microsecond): the traffic core's own share and
   // the whole vehicle step it runs inside, summed over the log period.
   u32 tfCoreTicks_ = 0U, tfStepTicks_ = 0U, tfStepT0_ = 0U;
@@ -2656,6 +3006,7 @@ class TerrainGame : public Tyra::Game {
   void trafficPlace(int car, int seg, float s);
   void trafficRemove(int car);
   bool trafficGroundReady(float x, float z) const;
+  int trafficNight() const;
   void trafficRedLight();
   void renderTrafficLamps();
 

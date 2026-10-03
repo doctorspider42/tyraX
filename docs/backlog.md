@@ -88,14 +88,26 @@ and recycling around the player, a kinematic far-car path, View > Lanes,
 - **A traffic car costs ~0.37 MB of EE RAM** (its own vehicle geometry: dents
   and paint are per car). Sharing one mesh between undamaged traffic cars of a
   definition (copy on first dent) would make 10+ cars affordable in Big City.
-- **Lane changes** (overtaking a slow or parked car, picking the turn lane
-  early) - a car keeps its lane index from node to node today.
-- **An On Red Light Run flow node** - the event is a log line
-  (`TRAFFIC red light run`) only.
-- **Signals at three-way and five-way nodes**, protected left-turn phases, a
-  green wave along an avenue (the offsets are per node and arbitrary).
+- ~~**Lane changes**~~ (overtaking a slow or stopped car, picking the turn
+  lane by the intended exit): done (format 108 branch, docs/traffic.md "Lane
+  changes"; gap check, smooth blend, host-simulated on a 2+2 crossing with a
+  breakdown). Still open: changing lanes to merge where a road narrows (a lane
+  that ends in a transition node has no exit of its own today), courtesy gaps
+  (a car making room for a merging one), and lane changes on the far path
+  being measured on a console.
+- ~~**An On Red Light Run flow node**~~: done (Player category; speed output,
+  node and minimum-speed filters; the Motor District's Garage boulevard shows
+  a HUD line).
+- ~~**Signals at three-way nodes**~~: done (format 108; three phases, one arm
+  at a time; a junction's Control = Auto / None / Traffic lights / Stop
+  signs). Still open: signals at five-way nodes under Auto (an override can
+  light them: one phase per arm), protected left-turn phases at a four-way
+  node, a T phase plan that lets the through road's straight movements share
+  a green, and a green wave along an avenue (the offsets are per node and
+  arbitrary).
 - **Pedestrians**: traffic queues behind the player on foot, nothing more.
-- **Traffic headlights at night**, budgeted (the headlight pools cost).
+- ~~**Traffic headlights at night**~~: done (the cars switch with the scene's
+  night; see docs/traffic.md "What it costs" for the PCSX2 cost).
 - **A physical PS2 pass**: every number in docs/traffic.md is PCSX2.
 
 ## Road nodes: what the first version left out (1.170.0, 2026-10-02)
@@ -147,7 +159,7 @@ is not:
   wet manhole), the draw distance as a project setting, and a physical-PS2
   cost pass.
 - ~~**Street furniture**~~ (lamps, trees, bollards along the pavement, signs
-  at the stop lines, traffic lights at four-way nodes): done (format 101,
+  at the stop lines, traffic lights at three- and four-way nodes): done (format 101,
   docs/roads.md "Street furniture"; host-baked merged vertex-colour chunks,
   owner -7, 80-unit draw distance, pole/trunk boxes in procColliders; about
   +0.6 ms EE in PCSX2 on the Motor District). ~~**Lamps that light**~~: done

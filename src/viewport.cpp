@@ -4299,6 +4299,7 @@ void Viewport::syncRoadDraws(const std::vector<SceneObject>& objects) {
         mix(csig, &j.winner, sizeof(j.winner));
         mix(csig, j.material.data(), j.material.size() + 1);
         mix(csig, &j.grip, sizeof(j.grip));
+        mix(csig, &j.control, sizeof(j.control));  // lights and signs (furniture)
     }
     if (csig == roadCrossSig_) return;
     roadCrossSig_ = csig;

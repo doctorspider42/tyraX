@@ -150,6 +150,14 @@ struct ScriptContext {
   // The Repair Vehicle node: the vehicle object to put right, or
   // VEHICLE_REQUEST_EXIT for "the one the player is driving".
   int vehicleRepair = VEHICLE_REQUEST_NONE;
+  // Road traffic (docs/traffic.md): the player's red-light runs. The game
+  // bumps the count each time the player's car crosses a stop line on red
+  // and leaves the node and the car's speed (units/s) beside it; the On Red
+  // Light Run flow node fires when its own copy of the count falls behind.
+  // A project without traffic never writes them.
+  int redLightRuns = 0;
+  int redLightNode = -1;
+  float redLightSpeed = 0.0F;
 
   // Index of the usable object the player pressed BTN_USE on this frame
   // (-1 = none). Drives the flow graph "On Used" trigger.

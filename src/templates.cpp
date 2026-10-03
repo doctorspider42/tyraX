@@ -5834,6 +5834,14 @@ struct ScriptContext {
   // The Repair Vehicle node: the vehicle object to put right, or
   // VEHICLE_REQUEST_EXIT for "the one the player is driving".
   int vehicleRepair = VEHICLE_REQUEST_NONE;
+  // Road traffic (docs/traffic.md): the player's red-light runs. The game
+  // bumps the count each time the player's car crosses a stop line on red
+  // and leaves the node and the car's speed (units/s) beside it; the On Red
+  // Light Run flow node fires when its own copy of the count falls behind.
+  // A project without traffic never writes them.
+  int redLightRuns = 0;
+  int redLightNode = -1;
+  float redLightSpeed = 0.0F;
 
   // Index of the usable object the player pressed BTN_USE on this frame
   // (-1 = none). Drives the flow graph "On Used" trigger.
@@ -23627,6 +23635,8 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                 if (ei < 0) return "0.0F";
                 return "flowEvtCurVal[" + std::to_string(ei) + "]";
             }
+            // The car's speed at the player's latest red-light run (units/s).
+            if (n.type == "OnRedLightRun") return "ctx.redLightSpeed";
             if (n.type == "RollRandom") return "rnd" + std::to_string(n.id);
             if (n.type == "PlayerFallSpeed")
                 // Already units/second - the walker keeps the PLAYER's
@@ -26105,6 +26115,28 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                        << "      if (ended != " << flag << ") {\n"
                        << "        " << flag << " = ended;\n" << body
                        << "      }\n    }\n";
+            } else if (n.type == "OnRedLightRun") {
+                // Road traffic (docs/traffic.md). The OnCreditsEnd shape: the
+                // game COUNTS the player's red runs into the context, and the
+                // node fires when its own copy falls behind - one fire per run,
+                // whatever order the graphs update in. A scene load re-syncs to
+                // the live count, so a run in the last scene is not news here.
+                const std::string flag = "redRuns" + std::to_string(n.id);
+                addMember("int", flag, "0", 'i', 1);
+                flagResets << "      " << flag << " = ctx.redLightRuns;\n";
+                std::string filter;
+                if (n.num[0] >= 0.0f)
+                    filter += "ctx.redLightNode == " + std::to_string((int)std::lround(n.num[0]));
+                if (n.num[1] > 0.0f)
+                    filter += std::string(filter.empty() ? "" : " && ") +
+                              "ctx.redLightSpeed >= " + floatLit(n.num[1]);
+                clsOut << "    if (ctx.redLightRuns != " << flag << ") {\n"
+                       << "      " << flag << " = ctx.redLightRuns;\n";
+                if (filter.empty())
+                    clsOut << body;
+                else
+                    clsOut << "      if (" << filter << ") {\n" << body << "      }\n";
+                clsOut << "    }\n";
             } else if (n.type == "OnFactChanged") {
                 // The reactive door in. A latch of the PREVIOUS value rather
                 // than a rising edge, because "changed" has to cover a count

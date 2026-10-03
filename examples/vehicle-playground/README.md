@@ -57,8 +57,10 @@ builds measured 6.7-7.6 s. This excludes editor generation/baking and cold setup
   The same four downtown streets carry [street furniture](../../docs/roads.md#street-furniture-format-101):
   lamps every 12 units on alternating sides, trees every 16 on both walks,
   a give-way sign at each of their stop lines and traffic lights on Garage
-  boulevard's four-way nodes - 128 instances generated at build (none of
-  them scene objects), merged into 23 chunks; the poles and trunks are solid.
+  boulevard's nodes - its three four-way crossings and, since format 108, the
+  two T's where it ends at the ring road - 132 instances generated at build
+  (none of them scene objects), merged into 26 chunks; the poles and trunks
+  are solid.
   At night (pause menu > TIME OF DAY) the 50 lamps [light the street](../../docs/weather.md):
   a baked pool of light under each, a halo round each head. Set a scene's
   weather to Rain in Scene Preferences (or fire a Set Weather node) for wet
@@ -70,7 +72,11 @@ builds measured 6.7-7.6 s. This excludes editor generation/baking and cold setup
   **Road traffic** ([docs/traffic.md](../../docs/traffic.md)) drives the
   streets: six AI cars (Ravager, Pica, Strix in turn) spawned out of view
   around the player, stopping at the stop lines, giving way, and obeying the
-  three signalised nodes on Garage boulevard, whose heads show their phase.
+  five signalised nodes on Garage boulevard, whose heads show their phase (the
+  two T's run three phases, one arm at a time). At night (pause menu > TIME OF
+  DAY) their lamps come on. Run a red light in the Ravager and Garage
+  boulevard's flow graph - On Red Light Run -> Number To Text (formatted) ->
+  Display Text - prints "RED LIGHT! You ran it at N" for 3 seconds.
   View > Lanes draws the lane graph; `--road-lanes examples/vehicle-playground`
   prints it. Measured in PCSX2: +2.2 MB of EE RAM for the six cars, the vehicle
   step 0.5-0.6 ms a frame with the far cars on their cheap path, 60 FPS.

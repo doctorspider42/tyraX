@@ -3189,11 +3189,21 @@ so never re-derive either. The cars are Vehicle objects APPENDED in
 runtime is `src/traffic_core.inl` (pasted verbatim, class-body rules) plus
 `roadlanes::implSource`, appended to `roadsImpl` OUTSIDE the tables-on-disk
 early path (that early return is how a streamed city first linked without
-it), and five hooks string-patched into the vehicle runtime by
+it), and six hooks string-patched into the vehicle runtime by
 `roadlanes::patchTemplate` (setup, the per-frame ring, the driver branch, the
-far-car path, the sleep exclusion). A new anchor there needs a mark in
+far-car path, the sleep exclusion, and the traffic headlights without a pool). A new anchor there needs a mark in
 `kHookMarks` - the check fails on a hook that did not land. Off = byte-identical
-sources.
+sources. Signal PHASES come from `roadfurn::signalPhase(arms, arm)` (four-way:
+arm % 2; anything else: one phase per arm) - the lane graph's connection
+groups, the `TRAFFIC_LAMPS` heads and the node's phase count in
+`TRAFFIC_NODE_SIGNAL` all read it, so a new phase plan is ONE function plus the
+core's `light()`. A junction's `JunctionOverride::control` (format 108) reaches
+`nodeSignalled` through `Crossing::control` (copied by `planCrossings`); it
+must never touch `giveWayArms`. Lane changes live entirely in the core
+(`route`/`adopt`/`considerChange`/`gapClear`/`laneStep`/`pose`) on top of the
+lanes' `inner`/`outer` links (`TrafficSegData` is 13 ints). The player's red
+runs reach the flow graph through `ScriptContext::redLightRuns`/`Node`/`Speed`
+(the On Red Light Run node watches the count - the OnCreditsEnd shape).
 
 **Road tables on disk (format 104, docs/roads.md "Tables on disk").** A
 streamed project (unless `ProjectSettings::roadStreamEmbedTables`) does not
