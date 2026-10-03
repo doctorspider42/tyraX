@@ -805,6 +805,16 @@ bool TerrainGame::trafficGroundReady(float x, float z) const {
   return true;
 }
 
+// Night for the traffic's headlights: the scene's day/night cycle with the
+// sun under 2 degrees, else the hour a non-running cycle is baked at
+// (TRAFFIC_NIGHT, host-computed with the same rule).
+int TerrainGame::trafficNight() const {
+  if (!TRAFFIC_HEADLIGHTS) return 0;  // Preferences > Traffic > Headlights at night off
+  const int sc = currentScene >= 0 && currentScene < SCENE_COUNT ? currentScene : 0;
+  if (daynight::active(sc)) return daynight::g_sun[1] < 0.0349F ? 1 : 0;
+  return TRAFFIC_NIGHT[sc];
+}
+
 void TerrainGame::trafficSetup(int scene) {
   tf_ = TfSim();
   tfVehicle_.clear();
@@ -815,6 +825,7 @@ void TerrainGame::trafficSetup(int scene) {
   tfLenT_ = tfLogT_ = tfLaneNear_ = 0.0F;
   tfSpawned_ = tfRecycled_ = 0;
   tfRunLine_ = -1;
+  tfLights_ = -1;
   tfLampSig_ = 0U;
   tfLampCount_ = 0;
   tfLampVerts_.resize(kTfLampMax * 12);
@@ -846,12 +857,18 @@ void TerrainGame::trafficSetup(int scene) {
     s.confFirst = (int)g.conf.size();
     s.confCount = d.confCount;
     for (int i = 0; i < d.confCount; ++i) g.conf.push_back(TRAFFIC_CONF[d.confFirst + i]);
+    s.inner = d.inner;
+    s.outer = d.outer;
     g.segs.push_back(s);
   }
-  const float cyc = 2.0F * (TRAFFIC_GREEN + TRAFFIC_AMBER + TRAFFIC_ALL_RED);
+  // TRAFFIC_NODE_SIGNAL is each node's phase count (0 = no lights); each
+  // node's cycle is one slot per phase (the host toSim's twin).
   for (int k = 0; k < sc[3]; ++k) {
     TfNode n;
-    n.signal = TRAFFIC_NODE_SIGNAL[sc[2] + k];
+    const int ph = TRAFFIC_NODE_SIGNAL[sc[2] + k];
+    n.signal = ph > 0 ? 1 : 0;
+    n.phases = ph > 1 ? ph : 2;
+    const float cyc = (float)n.phases * (TRAFFIC_GREEN + TRAFFIC_AMBER + TRAFFIC_ALL_RED);
     n.offset = fmodf((float)k * 7.31F, cyc);
     g.nodes.push_back(n);
   }
@@ -879,6 +896,7 @@ void TerrainGame::trafficSetup(int scene) {
       runtimeObjects[v.object].visible = false;
   }
   tf_.reset((int)tfVehicle_.size());
+  tf_.changing = TRAFFIC_LANE_CHANGES;
   int conns = 0, sig = 0;
   for (const TfSeg& G : g.segs) conns += G.kind == 1;
   for (const TfNode& n : g.nodes) sig += n.signal;
@@ -900,7 +918,7 @@ void TerrainGame::trafficPlace(int car, int seg, float s) {
   v.scale = scale;
   v.wpFirst = -2;
   v.active = 1;
-  v.lightsOn = 0;
+  v.lightsOn = tfLights_ > 0 ? 2 : 0;  // lamps without the pool (see trafficFrame)
   float p[5];
   tf_.g.at(seg, s, p);
   v.pos[0] = p[0];
@@ -964,10 +982,23 @@ void TerrainGame::trafficFrame(float dt) {
     const VehicleRt& v = vehicles_[vi];
     if (!v.active || v.def < 0 || tfCarOf_[(size_t)vi] >= 0) continue;
     const VehicleDefData& s = VEHICLE_DEFS[v.def];
-    tf_.obst.push_back({v.pos[0], v.pos[2], v.yaw, (0.5F * s.wheelBase + s.bodyOverhang) * v.scale});
+    tf_.obst.push_back({v.pos[0], v.pos[2], v.yaw, (0.5F * s.wheelBase + s.bodyOverhang) * v.scale,
+                        v.speed});
   }
   if (vehicleDriver_ < 0 && PLAYER_INDEX >= 0)
-    tf_.obst.push_back({players[0].x, players[0].z, players[0].yaw * 57.29578F, 0.4F});
+    tf_.obst.push_back({players[0].x, players[0].z, players[0].yaw * 57.29578F, 0.4F, 0.0F});
+  // Headlights: every traffic car switches them with the night (a cheap
+  // test once a frame, the cars rewritten only when it flips).
+  {
+    const int night = trafficNight();
+    if (night != tfLights_) {
+      tfLights_ = night;
+      // 2 = lamps and coronas without the projected pool (the hook in
+      // renderVehicleGlow): a pool per moving car is what lights cost.
+      for (int ci = 0; ci < (int)tfVehicle_.size(); ++ci)
+        vehicles_[tfVehicle_[(size_t)ci]].lightsOn = night ? 2 : 0;
+    }
+  }
   const float R = TRAFFIC_RADIUS;
   int on = 0, atLine = 0;
   for (int ci = 0; ci < (int)tf_.cars.size(); ++ci) {
@@ -1023,18 +1054,22 @@ void TerrainGame::trafficFrame(float dt) {
     const int n = tfFrames_ > 0 ? tfFrames_ : 1;
     TYRA_LOG("TRAFFIC cars ", on, "/", target, " lane ", (int)tfLaneNear_, " spawned ", tfSpawned_,
              " recycled ", tfRecycled_, " at a line ", atLine, " red runs ", tfRedRuns_,
+             " lane changes ", tf_.laneChanges, " overtakes ", tf_.overtakes,
+             " lights ", tfLights_ > 0 ? 1 : 0,
              " clock ", (int)tf_.clock, " far ", tfKinematic_ / n,
              " core us/frame ", (int)(tfCoreTicks_ / 295U / (u32)n),
              " vehicles us/frame ", (int)(tfStepTicks_ / 295U / (u32)n));
     tfSpawned_ = tfRecycled_ = 0;
+    tf_.laneChanges = tf_.overtakes = 0;
     tfCoreTicks_ = tfStepTicks_ = 0U;
     tfFrames_ = 0;
     tfKinematic_ = 0;
   }
 }
 
-// The player's car crossing a stop line on red: no HUD, a log line (the
-// telemetry a flow node or a script can build on).
+// The player's car crossing a stop line on red: a log line, and the count,
+// node and speed in ScriptContext that the On Red Light Run flow node fires
+// on (a graph cannot call the game; it watches the count move).
 void TerrainGame::trafficRedLight() {
   if (vehicleDriver_ < 0 || vehicleDriver_ >= vehicleCount_ || tfLines_.empty()) {
     tfRunLine_ = -1;
@@ -1042,8 +1077,10 @@ void TerrainGame::trafficRedLight() {
   }
   const VehicleRt& v = vehicles_[vehicleDriver_];
   const float hx = sinf(v.yaw * 0.017453293F), hz = cosf(v.yaw * 0.017453293F);
+  // The nearest line across (a car straddling the centre line, or between two
+  // lanes of its direction, still crosses the line of the lane nearest it).
   int best = -1;
-  float bestAlong = 0.0F;
+  float bestAlong = 0.0F, bestLat = 1e9F;
   for (int k = 0; k < (int)tfLines_.size(); ++k) {
     const TfSeg& G = tf_.g.segs[(size_t)tfLines_[(size_t)k].lane];
     const float* e = &tf_.g.pts[(size_t)(G.first + G.count - 1) * 3];
@@ -1055,16 +1092,25 @@ void TerrainGame::trafficRedLight() {
     tz /= tl;
     const float rx = v.pos[0] - e[0], rz = v.pos[2] - e[2];
     const float along = rx * tx + rz * tz, lat = rx * tz - rz * tx;
-    if (along > -8.0F && along < 4.0F && lat > -2.5F && lat < 2.5F && hx * tx + hz * tz > 0.6F) {
+    const float al = lat < 0.0F ? -lat : lat;
+    if (along > -8.0F && along < 4.0F && al < 4.5F && al < bestLat && hx * tx + hz * tz > 0.6F) {
       best = k;
       bestAlong = along;
+      bestLat = al;
     }
   }
   if (best >= 0 && best == tfRunLine_ && tfRunAlong_ < 0.0F && bestAlong >= 0.0F) {
     const TfLine& l = tfLines_[(size_t)best];
-    if (tf_.g.light(l.node, l.group, tf_.clock) == 2) {
+    const int lt = tf_.g.light(l.node, l.group, tf_.clock);
+    TYRA_LOG("TRAFFIC player crossed the line at node ", l.node, " on ",
+             lt == 0 ? "green" : (lt == 1 ? "amber" : "red"));
+    if (lt == 2) {
       ++tfRedRuns_;
-      TYRA_LOG("TRAFFIC red light run ", tfRedRuns_, " at node ", l.node);
+      ++scriptCtx.redLightRuns;
+      scriptCtx.redLightNode = l.node;
+      scriptCtx.redLightSpeed = v.speed > 0.0F ? v.speed : -v.speed;
+      TYRA_LOG("TRAFFIC red light run ", tfRedRuns_, " at node ", l.node, " speed ",
+               (int)(scriptCtx.redLightSpeed * 10.0F) / 10.0F);
     }
   }
   tfRunLine_ = best;
@@ -1083,6 +1129,7 @@ void TerrainGame::trafficDrive(int vi, float& throttle, float& brake, float& ste
   c.yaw = v.yaw;
   c.speed = v.speed;
   c.half = (0.5F * s.wheelBase + s.bodyOverhang) * v.scale;
+  c.halfW = (0.5F * s.track + 0.35F) * v.scale;
   c.brake = s.brakeDecel;
   if (s.damageMechanical > 0.5F && v.damage >= 0.999F) {
     throttle = 0.0F;
@@ -1112,7 +1159,7 @@ bool TerrainGame::trafficKinematic(int vi, float dt, float throttle, float brake
   else if (throttle > 0.01F) spd += s.accel * throttle * dt;
   if (spd < 0.0F) spd = 0.0F;
   float p[5];
-  tf_.ahead(c, spd * dt, p);
+  tf_.pose(c, spd * dt, p);  // across a lane change in flight, blended
   const float SC = v.scale;
   v.pos[0] = p[0];
   v.pos[1] = p[1] + s.rideHeight * SC;
@@ -1646,7 +1693,7 @@ void TerrainGame::renderVehicleGlow() {
         }
       }
     }
-    if (v.lightsOn > 0 && !(v.lampBroken & 1) && flashGoboTex &&
+    if (v.lightsOn == 1 && !(v.lampBroken & 1) && flashGoboTex &&  // 2 = traffic: no pool
         headlightCount_ + kVehHeadlightCells <= kVehHeadlightMax) {
       // KEPT PER CAR (TYRA_VEH_LIGHTS_KEEP): the pool below is a function of
       // this key alone, so a car that did not move reuses last frame's 54
