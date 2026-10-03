@@ -3449,6 +3449,26 @@ void TerrainGame::procFinishChunks() {
       }
       c.bag->info = roadBlendInfoBag.get();
     }
+    // Street lamps and weather (docs/weather.md): a lamp pool is additive,
+    // z-tested, unfogged and coloured by the night level; a plain asphalt
+    // chunk (one grey colour) takes the wet tint - ONE colour a frame.
+    c.colorBag->single = nullptr;
+    if (c.lampLight) {
+      if (!roadLampInfoBag_) {
+        roadLampInfoBag_ = std::make_unique<StaPipInfoBag>();
+        roadLampInfoBag_->model = &model;
+        roadLampInfoBag_->shadingType = TyraShadingFlat;
+        roadLampInfoBag_->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
+        roadLampInfoBag_->fullClipChecks = true;
+        roadLampInfoBag_->zTestType = PipelineZTest_TestOnly;
+        roadLampInfoBag_->additiveBlendFix = 128;
+        roadLampInfoBag_->fogDisabled = true;
+        roadLampInfoBag_->dynLightPick = false;
+        roadLampInfoBag_->spotLit = false;
+      }
+      c.bag->info = roadLampInfoBag_.get();
+      c.colorBag->single = &roadLampPoolColor_;
+    }
     c.colors.bind(c.colorBag);
     c.vertices.bind(c.bag);
     c.bag->count = static_cast<u32>(c.vertices.size());
@@ -9802,10 +9822,21 @@ void TerrainGame::buildRoads(int scene) {
       c.owner = -7;
       c.drawDist = ROAD_FURN_DRAW_DISTANCE;
       c.stripRun = 0;
+      c.lampLight = fr.light;
+      if (fr.light) {
+        c.drawDist = ROAD_LAMP_DRAW_DISTANCE;
+        c.roadTex = beamCoronaTex;
+        c.colors.shrink_to_fit();  // no per-vertex colour: one per frame
+      }
       for (int v = 0; v < fr.count; ++v) {
         const float* p = &ROAD_FURN_VERTS[(size_t)(fr.first + v) * 3];
         const unsigned int rgb = ROAD_FURN_RGB[fr.first + v];
         c.vertices.push_back(Tyra::Vec4(p[0], p[1], p[2], 1.0F));
+        if (fr.light) {
+          c.sts.push_back(Tyra::Vec4((float)((rgb >> 12) & 4095U) * (1.0F / 4095.0F),
+                                     (float)(rgb & 4095U) * (1.0F / 4095.0F), 1.0F, 0.0F));
+          continue;
+        }
         c.colors.push_back(Tyra::Color((float)((rgb >> 16) & 255U) * k,
                                        (float)((rgb >> 8) & 255U) * k,
                                        (float)(rgb & 255U) * k, 128.0F));
@@ -9884,6 +9915,7 @@ void TerrainGame::renderProcChunks() {
 #endif
   if (procChunks.empty()) return;
   for (ProcChunk& c : procChunks) {
+    if (c.lampLight) continue;  // street lamp pools: renderRoadLamps
     // Roads have their own phase and profiler row. Keeping them here as well
     // used to make "Procedural" mean "mostly asphalt" and would double-draw
     // them now that the main view calls renderRoadChunks explicitly.

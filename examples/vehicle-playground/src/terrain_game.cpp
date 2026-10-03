@@ -530,6 +530,7 @@ void TerrainGame::loop() {
   if (!menuOwnsPad) updateCarriedObject();
   UPD_LAP(6);
   updateParticles();
+  updateWeather();  // docs/weather.md
   UPD_LAP(7);
   updateSoundEmitters();
   updateReverb();
@@ -1596,7 +1597,7 @@ void TerrainGame::buildScene() {
     // Light-beam corona texture (Point Light > Beam; shape in RGB). The night
     // sky's stars are drawn through the SAME sprite - one 64x64 for both, and a
     // star without it is a hard square - so a starfield loads it too.
-    if (BEAMS_USED || STAR_COUNT > 0)
+    if (BEAMS_USED || STAR_COUNT > 0 || ROAD_LAMP_COUNT > 0)  // + lit street lamps
       beamCoronaTex = engine->renderer.getTextureRepository().add(
           FileUtils::fromCwd("hud/flare-corona.png"));
     // The camera flashlight/vehicle headlight gobo (docs/flashlight.md): the pool patch takes
