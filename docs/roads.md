@@ -19,6 +19,8 @@ The fastest way to lay out a street network is the **Draw road** tool: the
 viewport toolbar's **Draw road (8)** button, the `8` key, Insert > Gameplay >
 **Draw road...**, or **Draw road...** in a road's Properties.
 
+![The editor's Draw road tool: the preset panel top left, a City street being drawn from the grass toward the alley - the width ghost, the snap marker on the alley and the label "T / crossing on alley-1 -90 deg 6.7 u"](img/road-drawing-editor.png)
+
 1. **Pick a preset** in the tool's panel (top left of the viewport): City
    street, Avenue with tram, Boulevard, Country road, Dirt track, Railway,
    Highway, Alley, or one of the project's own ("Road presets" below). The
@@ -1057,6 +1059,8 @@ it does for a point drag. The squares are named `Bridge height N` for
 `--ui-script`. Looking straight down reads nothing (the ray is parallel to the
 stem), so tilt the view to raise a deck. Properties > Points still has the
 numbers.
+
+![The bridge height handles in the editor: the country-road bridge selected (left), handle 2 dragged from 6 to about 16 units with the deck and piers following live (middle), and Ctrl+Z restoring it (right)](img/road-bridge-handles-editor.png)
 
 `--vehicle-check` "road bridges" checks: the deck passes through terrain +
 height at a raised point with no overshoot and one quad per elevated station

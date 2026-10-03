@@ -103,6 +103,10 @@ is not:
   turnout (today two lines simply overlap), crossing barriers and signals as
   ready props, a train to ride on a railway's spline, and a physical-PS2 pass
   (PCSX2 only so far).
+- **Draw road: the snap label survives an undo.** After Ctrl+Z removes a road
+  just drawn, the tool's hover label still names it ("end of city-street-3")
+  until the mouse moves - the snap preview is only recomputed on mouse
+  motion. Recompute it on any project change (seen in a `--ui-script` run).
 - ~~**Bridges**~~ and overpasses: done (format 100, docs/roads.md "Bridges";
   host-baked deck + structure, no node at an overpass, capped wheel queries).
   ~~Collision with the structure~~ (oriented parapet and pier walls in
