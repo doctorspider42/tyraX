@@ -38,6 +38,13 @@ enum Kind : int {
     kKindCount = 6
 };
 const char* kindName(int kind);
+// A PUDDLE (docs/weather.md "Puddles") is a decal too, but not an atlas kind:
+// it has its own texture (kPuddlePng), its own chunks (their one shared
+// colour is the wetness, set once a frame) and is placed only in a project
+// with weather (SceneInput::puddles), last, so it never displaces a decal of
+// the kinds above. Kept out of kKindCount so every per-kind table and line
+// that existed before stays what it was.
+inline constexpr int kPuddle = 6;
 
 // How far a decal floats above the drawn road: one step above the node paint
 // and the spills (roadgen::kSpillLift, 0.02), well under the 0.03 rank step.
@@ -51,6 +58,9 @@ inline constexpr float kFlatness = 0.005f;
 inline constexpr float kDetailCell = 32.0f;
 inline constexpr float kDrawDistance = 50.0f;
 inline constexpr int kChunkBudget = 1800;  // vertices per chunk, == roadgen's
+// Puddles are sparser than the other decals: a bigger cell keeps their
+// chunk (= submit) count down.
+inline constexpr float kPuddleCell = 64.0f;
 
 // --- the atlas ---------------------------------------------------------------
 //
@@ -77,6 +87,18 @@ std::vector<unsigned char> generateAtlas();
 // kept; delete the files to regenerate). "" on success, else the error.
 std::string ensureAtlas(const std::string& projectDir);
 
+// The puddles' texture: 64 x 64, four irregular soft-edged puddles in a 2 x 2
+// grid, every pixel one of 16 RGBA entries (alpha 0..255 in 15 steps, grey
+// 112 inside - 128 is "the vertex colour exactly" - rising to 176 along the
+// shore, a glint at the wet edge), so a 4-bit bake is lossless. The shape is
+// in the alpha, the colour is the shared puddle colour.
+inline constexpr int kPuddleSize = 64;
+inline constexpr const char* kPuddlePng = "res/materials/roads/road-puddles.png";
+std::vector<unsigned char> generatePuddles();  // RGBA8, row 0 at the top
+// Writes kPuddlePng when it does not exist yet (a repaint is kept). "" on
+// success, else the error.
+std::string ensurePuddles(const std::string& projectDir);
+
 // --- placement ---------------------------------------------------------------
 
 struct Decal {
@@ -97,6 +119,9 @@ struct SceneInput {
     roadgen::HeightFn ground;
     std::vector<roadgen::Vertex> patches;
     std::vector<roadgen::Vertex> paint;
+    // Place puddles too (the project has weather): low spots by the kerb and
+    // in the wheel ruts, from the same density and seed.
+    bool puddles = false;
 };
 
 struct Result {
@@ -110,6 +135,14 @@ struct Result {
     int rejectedOverlap = 0;    // on top of an earlier decal
     int rejectedOffRoad = 0;    // footprint not wholly on the road's surface
     int rejectedClearance = 0;  // a patch, paint, spill or other road too close
+    // Puddles (SceneInput::puddles): their own decals, triangles (UV into
+    // kPuddlePng) and chunks of whole puddles by kPuddleCell cell - never
+    // mixed with the atlas decals, because their colour bag is shared.
+    std::vector<Decal> puddles;
+    std::vector<roadgen::Vertex> puddleTris;
+    std::vector<int> puddleChunkSizes;
+    int puddleCandidates = 0;
+    int puddlesOnCrest = 0;  // candidates dropped because the road sheds water there
 };
 
 // True when any road has details > 0 (the zero-cost gate).

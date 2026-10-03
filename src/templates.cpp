@@ -253,6 +253,14 @@ bool projectUsesWeather(const Project& p) {
     return false;
 }
 
+bool projectHasPuddles(const Project& p) {
+    return projectUsesWeather(p) && projectHasRoadDetails(p);
+}
+
+bool projectHasWetCarStreaks(const Project& p) {
+    return projectUsesWeather(p) && projectHasVehicles(p);
+}
+
 // The VEHICLE_DEFS row index of a definition, or -1. Only definitions with a
 // model get a row, so this is NOT the Project::vehicles index.
 static int vehicleDefIndex(const Project& p, const std::string& defName) {
@@ -9367,6 +9375,12 @@ static std::string sceneDataContent(const Project& p, const std::string& ns,
             std::vector<float> detailVerts;
             std::ostringstream detailNotes;
             int detailTex = -1;
+            // Puddles (docs/weather.md "Puddles"): more detail rows, flagged
+            // by a `wet` column that exists only in a project with weather -
+            // every other project's table keeps its exact text.
+            const bool puddlesOn = projectHasPuddles(p);
+            std::vector<int> detailWet;  // per detailRows entry
+            int puddleTex = -1;
             // Street furniture (docs/roads.md "Street furniture"): merged
             // vertex-colour chunks + collision boxes, from the roads.
             const bool hasFurniture = projectHasRoadFurniture(p);
@@ -9655,15 +9669,33 @@ static std::string sceneDataContent(const Project& p, const std::string& ns,
                     di.ground = ground;
                     di.patches = markSurfaceTris;
                     di.paint = detailPaint;
+                    di.puddles = puddlesOn;
                     const roaddetail::Result dr = roaddetail::build(di);
                     if (detailTex < 0) detailTex = textureIndex(roaddetail::kAtlasPng);
+                    if (puddlesOn && puddleTex < 0)
+                        puddleTex = textureIndex(roaddetail::kPuddlePng);
                     int at = (int)(detailVerts.size() / 5);
                     for (int sz : dr.chunkSizes) {
                         detailRows.push_back({(int)si, at, sz});
+                        detailWet.push_back(0);
                         at += sz;
                     }
                     for (const roadgen::Vertex& v : dr.tris)
                         detailVerts.insert(detailVerts.end(), {v.x, v.y, v.z, v.u, v.v});
+                    // The puddles: their own chunks, after the scene's decals.
+                    for (int sz : dr.puddleChunkSizes) {
+                        detailRows.push_back({(int)si, at, sz});
+                        detailWet.push_back(1);
+                        at += sz;
+                    }
+                    for (const roadgen::Vertex& v : dr.puddleTris)
+                        detailVerts.insert(detailVerts.end(), {v.x, v.y, v.z, v.u, v.v});
+                    if (puddlesOn)
+                        detailNotes << "// scene " << si << ": " << dr.puddles.size()
+                                    << " puddles (" << dr.puddleCandidates << " tried, "
+                                    << dr.puddlesOnCrest << " on a crest), "
+                                    << dr.puddleTris.size() << " vertices in "
+                                    << dr.puddleChunkSizes.size() << " chunks\n";
                     int perKind[roaddetail::kKindCount] = {};
                     for (const roaddetail::Decal& d : dr.decals) ++perKind[d.kind];
                     detailNotes << "// scene " << si << ": " << dr.decals.size() << " decals (";
@@ -9981,17 +10013,27 @@ static std::string sceneDataContent(const Project& p, const std::string& ns,
                         << "constexpr int ROAD_DETAIL_COUNT = " << detailRows.size() << ";\n"
                         << "constexpr int ROAD_DETAIL_TEX = " << detailTex << ";\n"
                         << "constexpr float ROAD_DETAIL_DRAW_DISTANCE = "
-                        << floatLit(roaddetail::kDrawDistance) << ";\n"
-                        << "struct RoadDetailRt { int scene; int first; int count; };\n";
+                        << floatLit(roaddetail::kDrawDistance) << ";\n";
+                    // Puddles (docs/weather.md "Puddles"): a `wet` column -
+                    // 1 = a puddle chunk, textured from ROAD_PUDDLE_TEX and
+                    // coloured by the one per-frame puddle colour.
+                    if (puddlesOn)
+                        out << "constexpr int ROAD_PUDDLE_TEX = " << puddleTex << ";\n"
+                            << "struct RoadDetailRt { int scene; int first; int count; int wet; };\n";
+                    else
+                        out << "struct RoadDetailRt { int scene; int first; int count; };\n";
                     if (detailRows.empty()) {
                         out << "constexpr RoadDetailRt ROAD_DETAILS[1] = {};\n"
                             << "constexpr float ROAD_DETAIL_VERTS[1] = {};\n";
                     } else {
                         out << "constexpr RoadDetailRt ROAD_DETAILS[" << detailRows.size()
                             << "] = {\n";
-                        for (const KerbRow& dr : detailRows)
-                            out << "    {" << dr.scene << ", " << dr.first << ", " << dr.count
-                                << "},\n";
+                        for (size_t di = 0; di < detailRows.size(); ++di) {
+                            const KerbRow& dr = detailRows[di];
+                            out << "    {" << dr.scene << ", " << dr.first << ", " << dr.count;
+                            if (puddlesOn) out << ", " << detailWet[di];
+                            out << "},\n";
+                        }
                         if (onDisk) {
                             out << "};\n// ROAD_DETAIL_VERTS: in bin/roadfile/roads.bin.\n";
                             for (size_t di = 0; di < detailRows.size(); ++di) {
@@ -19110,7 +19152,36 @@ static std::string roadKerbsUpload() {
 }
 
 // The road-details upload, spliced into buildRoads before procFinishChunks.
-static std::string roadDetailsUpload() {
+// With puddles (docs/weather.md "Puddles") a `wet` row is a puddle chunk:
+// its own texture and the ProcChunk::puddle flag, whose colour bag
+// procFinishChunks points at the one per-frame puddle colour. The streaming
+// runtime cuts the texture lookup and the fill from this text (roadstream.cpp
+// "detail texture", "detail upload"), so both lines sit inside those cuts.
+static std::string roadDetailsUploadBase();
+static std::string roadDetailsUpload(bool puddles) {
+    std::string s = roadDetailsUploadBase();
+    if (!puddles) return s;
+    auto swap = [&](const char* from, const char* to) {
+        const size_t at = s.find(from);
+        if (at != std::string::npos) s.replace(at, std::string(from).size(), to);
+    };
+    swap("    Tyra::Texture* detailTex = nullptr;\n",
+         "    Tyra::Texture* detailTex = nullptr;\n"
+         "    Tyra::Texture* puddleTex = nullptr;  // puddles (docs/weather.md)\n");
+    swap("      detailTex = roadTextures_[ROAD_DETAIL_TEX];\n    }\n",
+         "      if (ROAD_PUDDLE_TEX >= 0 && ROAD_PUDDLE_TEX < ROAD_TEXTURE_COUNT) {\n"
+         "        if (!roadTextures_[ROAD_PUDDLE_TEX])\n"
+         "          roadTextures_[ROAD_PUDDLE_TEX] = acquireTexture(ROAD_TEXTURE_PATHS[ROAD_PUDDLE_TEX]);\n"
+         "        puddleTex = roadTextures_[ROAD_PUDDLE_TEX];\n"
+         "      }\n"
+         "      detailTex = roadTextures_[ROAD_DETAIL_TEX];\n    }\n");
+    swap("      c.roadTex = detailTex;\n",
+         "      c.roadTex = dr.wet && puddleTex ? puddleTex : detailTex;\n"
+         "      c.puddle = dr.wet;  // one shared colour: the wetness (docs/weather.md)\n");
+    return s;
+}
+
+static std::string roadDetailsUploadBase() {
     return R"(  // ROAD DETAILS (docs/roads.md "Road details"): manholes, gullies,
   // patches, cracks and oil stains, host-baked as textured triangle lists laid
   // kDetailLift over the drawn road, one ROAD_DETAILS row per cell-sized chunk.
@@ -19737,7 +19808,7 @@ void TerrainGame::buildRoads(int scene) {
     if (projectHasRoadDetails(p)) {
         const std::string anchor = "  if (any) procFinishChunks();";
         const size_t at = s.find(anchor);
-        if (at != std::string::npos) s.insert(at, roadDetailsUpload());
+        if (at != std::string::npos) s.insert(at, roadDetailsUpload(projectHasPuddles(p)));
     }
     // Street furniture (docs/roads.md "Street furniture"): the same rule.
     if (projectHasRoadFurniture(p)) {
@@ -19756,7 +19827,7 @@ static roadstream::Emitted roadStreamEmit(const Project& p) {
     roadstream::Sources src;
     src.roads = roadsImplBuild(p);
     if (projectHasKerbs(p)) src.kerbs = roadKerbsUpload();
-    if (projectHasRoadDetails(p)) src.details = roadDetailsUpload();
+    if (projectHasRoadDetails(p)) src.details = roadDetailsUpload(projectHasPuddles(p));
     if (projectHasBridges(p)) src.bridges = roadbridge::uploadSource();
     if (projectHasRoadFurniture(p)) src.furniture = roadfurn::uploadSource(projectHasLitLamps(p));
     {
@@ -20304,6 +20375,8 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
         roadlight::Gates g;
         g.lamps = projectHasLitLamps(p);
         g.weather = projectUsesWeather(p);
+        g.vehicles = projectHasVehicles(p);
+        g.puddles = projectHasPuddles(p);
         for (const SceneData& sc : p.scenes)
             for (const SceneObject& o : sc.objects)
                 g.roads = g.roads || (o.type == PrimitiveType::Road && o.roadPoints.size() >= 4);
@@ -26594,6 +26667,12 @@ static const std::vector<std::pair<std::string, std::string>>& liveLogicOpBodies
          "      if (!o) break;\n"
          "      for (int a = 0; a < 3; ++a)\n"
          "        o->spinRate[a] = in.pin == 1 ? 0.0F : in.num[a];\n"},
+        // Set Weather (docs/weather.md): straight into the weather state, the
+        // native node's own call. The placeholder is the call in a build with
+        // the weather runtime and a no-op without one - the editor never
+        // sends this opcode to such a build (BuiltList::weather), it reports
+        // the graph as a rebuild case instead.
+        {"OP_SetWeather", "{{WEATHER}}"},
     };
     return v;
 }
@@ -27215,12 +27294,22 @@ static std::string liveLogicSource(const Project& p) {
             continue;
         }
         cases << "    case " << name << ":\n"
-              << replaceAll(*body, "{{BLURMAX}}",
-                            std::to_string(motionBlurMaxFix(p.settings)))
+              << replaceAll(replaceAll(*body, "{{BLURMAX}}",
+                                       std::to_string(motionBlurMaxFix(p.settings))),
+                            "{{WEATHER}}",
+                            projectUsesWeather(p)
+                                ? "      weather::request((int)in.num[0] == 1 ? 1 : 0,\n"
+                                  "                       in.num[1] < 0.0F ? 0.0F : (in.num[1] > 1.0F ? 1.0F : in.num[1]),\n"
+                                  "                       in.num[2] > 0.0F ? in.num[2] : 0.0F);\n"
+                                : "      (void)in;  // no weather runtime in this build\n")
               << "      break;\n";
     }
 
     std::string s = TPL_LIVE_LOGIC_CPP;
+    if (projectUsesWeather(p))
+        s = replaceAll(s, "#include \"scripts/live_logic.gen.hpp\"\n",
+                       "#include \"scripts/live_logic.gen.hpp\"\n"
+                       "#include \"daynight.gen.hpp\"  // Set Weather (docs/weather.md)\n");
     s = replaceAll(s, "{{LOGIC_CADENCE}}", devkitCadence(p.settings.liveLogicPollFrames, "Tyra::IrxLoader::keepIopResident ? 25 : 6"));
     s = replaceAll(s, "{{NS}}", sanitizeNamespace(p.name));
     s = replaceAll(s, "{{ENUMS}}", enums.str());

@@ -1150,6 +1150,10 @@ private:
     // u v per pool vertex), rebuilt with the crossings; drawn by drawRoadLamps.
     std::vector<roadlight::Lamp> roadLamps_;
     std::vector<float> roadLampPools_;
+    // Puddles (docs/weather.md "Puddles"): the codegen's puddle decals (x y z
+    // u v), drawn by drawRoadSpills while the scene is wet.
+    std::vector<float> roadPuddleVerts_;
+    uint32_t puddleTex_ = 0;
     float roadLampLevel_ = 0.0f;  // 0 day .. 1 night (setRoadWeather)
     float roadWet_ = 0.0f;        // 0 dry .. 1 soaked
     void drawRoadLamps(const float* viewProj, const float* eye);

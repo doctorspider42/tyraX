@@ -62,7 +62,10 @@ builds measured 6.7-7.6 s. This excludes editor generation/baking and cold setup
   At night (pause menu > TIME OF DAY) the 50 lamps [light the street](../../docs/weather.md):
   a baked pool of light under each, a halo round each head. Set a scene's
   weather to Rain in Scene Preferences (or fire a Set Weather node) for wet
-  asphalt and the lamps' reflections streaking across it.
+  asphalt, the lamps' reflections streaking across it, puddles filling by
+  the kerbs and beside the gullies (from the streets' details), and every
+  lit car - the Ravager, traffic - mirroring its head- and tail lamps in the
+  road ([docs/weather.md](../../docs/weather.md)).
 
   **Road traffic** ([docs/traffic.md](../../docs/traffic.md)) drives the
   streets: six AI cars (Ravager, Pica, Strix in turn) spawned out of view

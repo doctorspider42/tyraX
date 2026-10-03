@@ -29,7 +29,7 @@ The interpreter implements the node families you actually iterate on:
 |---|---|
 | Triggers | On Start, On Update, Every N Seconds, On Button, Near Object, On Condition |
 | Object | Set Object Visible, Move Object By, Move Object To, Set Object Position, Rotate Object By, Set Object Rotation, Spin Object, Set Object Color, Spawn Player At |
-| Scene | Set Sky Color, Switch Scene, Set Fog, Set Bloom, Set Grain, Set Particles |
+| Scene | Set Sky Color, Switch Scene, Set Fog, Set Bloom, Set Grain, Set Particles, Set Weather (in a build that already carries the weather runtime, [weather.md](weather.md)) |
 | HUD | Set HUD Visible, Set Text Visible |
 | Variables | Set Int (both pins: set / add), Set Bool (set / toggle), Set Position (+ Get Bool / Int At Least / Get Position as sources) |
 | Save | Set Save Value, Add To Save Value (+ Value At Least) |
@@ -80,7 +80,8 @@ The editor compiles, the game interprets.
 
 1. **Codegen writes what the build knows.** `src/gen/livelogic.built` lists every
    graph the ELF compiled natively, with a hash of its content (node positions
-   excluded — dragging a node is not a logic change).
+   excluded — dragging a node is not a logic change). A build that carries the
+   weather runtime adds a `weather` line, which is what lets Set Weather patch.
 2. **The editor compiles the difference.** `App::liveLogicTick` (~7 Hz) hashes
    every live graph, and for each one that differs runs `livelogic::compile`
    ([`src/livelogic.hpp`](../src/livelogic.hpp)): a **pre-resolved instruction

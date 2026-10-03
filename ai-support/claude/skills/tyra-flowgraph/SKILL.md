@@ -177,7 +177,10 @@ over guessing from this file.
   **Set Sound Volume** ducks all sound effects (music has its own node).
   **Set Weather** (Dry / Rain, intensity 0..1, transition seconds) makes it
   rain round the camera; the roads get wet over ~6 s and dry over ~40 s on
-  their own, and at night the street lamps reflect in them. 0 seconds switches
+  their own, puddles fill by the kerbs (on roads with details), and the street
+  lamps and every lit car's lamps reflect in them. Live Logic can hot-patch it
+  once the build already has weather (a raining scene or another Set Weather).
+  0 seconds switches
   at once (wet roads included) - use that from On Start. A scene's starting
   weather is set in Scene Preferences, not with this node.
   **Play Credits** rolls a credits screen (Tools > Credits Editor) by name: it

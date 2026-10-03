@@ -1,8 +1,9 @@
 # Weather and lit street lamps
 
 Weather is a per-scene setting, plus a flow node, that makes it rain: drops fall
-around the camera, the asphalt turns dark and wet, and at night every street lamp
-reflects in the road as a long streak. The street lamps that
+around the camera, the asphalt turns dark and wet, puddles fill by the kerbs, and
+every street lamp and every lit car lamp reflects in the road as a long streak.
+The street lamps that
 [road furniture](roads.md#street-furniture-format-101) places light the street at
 night: each one throws a pool of warm light onto the road under it and glows with
 a halo. Both are built the cheap PS2 way. The pools are decals baked on the host,
@@ -46,8 +47,15 @@ The roads follow at their own pace. They get wet over about 6 s of rain
 (`kWeatherDrySeconds`). They never get wetter than the rain makes them. A
 0-second transition switches at once, wet roads included, which is the way to set
 a scene up from On Start. The node writes straight into the game's weather state,
-not through ScriptContext. Live Logic cannot hot-patch it, so a graph that gains
-one needs a rebuild.
+not through ScriptContext.
+
+[Live Logic](live-logic.md) hot-patches it (`OP_SetWeather`, the native node's
+own `weather::request` call), with one condition: the running build must carry
+the weather runtime, which is there when some scene rains or some graph already
+had a Set Weather at build time. Such a build writes a `weather` line into
+`src/gen/livelogic.built`. Without it the editor reports the graph as *Set
+Weather (this build has no weather runtime yet)* and the first Set Weather in a
+project needs one build.
 
 The lamps that light are the road furniture's lamp lines. A lamp placed as an
 ordinary scene object (Big City's are) is still only a model. To light those,
@@ -131,8 +139,118 @@ bag through the corona sprite:
   `d x h / (h + eye)`. It is the corona sprite stretched along that line. On
   screen it reads as the vertical streak under every light on a wet street, the
   classic trick. At most 32 a frame, brightness x wetness.
+- **car-light streaks**, described below, in the same bag.
 
-Car lights get no streaks yet (see the backlog).
+### Car lights on a wet road (per frame, the same bag)
+
+![PCSX2, Motor District at night in the rain: the parked Ravager and traffic with their headlights on, each lamp mirrored in the wet road as a streak toward the camera](img/road-car-streaks-pcsx2.png)
+
+On a wet road every car whose lamps are on mirrors them, the street lamps'
+streak at a car lamp's height. The hook is generic: **every vehicle whose lamps
+are on** draws, whoever switched them on. That can be the player's toggle, a
+definition that starts lit (`headlights`), or traffic switched on at night.
+
+- **The headlights** draw while the lights are on.
+- **The tail lamps** draw while the lights or the brake are on. A braking car
+  with its lights off still mirrors its brake lights.
+- **A broken lamp** draws nothing.
+- **A dry road** draws nothing at all.
+
+The geometry is one function in the shared core, `weatherCarStreaks`
+(`src/weather_core.inl`). The console calls it and `--vehicle-check` counts its
+output. It works like this:
+
+- The lamps are the model's measured lamp boxes (`lampFront`/`lampRear`, from
+  the lamp-named materials). Without them, the tail-lamp glow's shape-blind
+  guess stands in.
+- The streak lies on the road under its axle (the wheels' own contact heights),
+  tilted with the car's pitch, so it needs no height query.
+- It runs from just in front of the lamp toward the viewer and is centred on the
+  mirror point. A low lamp mirrors close to its car, so a car's streak hugs its
+  own bumper.
+- Only the faces turned toward the camera draw, so a car costs two quads, and
+  four at most.
+
+`renderRoadLamps` loops the vehicles (the driver's car first) and puts the
+quads into the coronas' additive bag through the corona sprite. The headlights
+are warm white, the tail lamps dim red, flaring when braking. The budget is
+`kWeatherCarStreakMax` (24 quads a frame, every car together). Cars beyond 45
+units draw none. The streaks are dimmer by day: x(0.45 + 0.55 x the lamps'
+level).
+
+The block is spliced into `renderRoadLamps` only in a project that has vehicles
+and weather (`templates::projectHasWetCarStreaks`). That project also loads and
+bakes the corona sprite, even with no street lamps.
+
+### Puddles (host-baked decals, one colour)
+
+![PCSX2, Motor District in the rain, the same pose by day (left) and at night (right): a puddle along the kerb, lighter and bluer than the wet asphalt by day, a warm sheen at night](img/road-puddles-pcsx2.png)
+
+A puddle is a [road detail](roads.md#road-details-format-99): a host-baked
+decal in an owner -6 chunk, blended and laid kDetailLift over the drawn road.
+It is streamed, and stored in `roads.bin` with tables on disk, like any other
+detail. Puddles need no new setting:
+
+- **They ride the road's Details density.** A road with details > 0 gets
+  puddles in a project with weather (`templates::projectHasPuddles`). A puddle
+  is a detail, and the density is the "how lived-in is this street" knob, so a
+  second slider would mostly be set to the same value.
+- **They are placed last**, after every other decal. A project that gains
+  weather keeps every manhole, gully, patch, crack and stain exactly where it
+  was. `--vehicle-check` compares the two bakes byte for byte.
+
+Where they go (`roaddetail::build`, a second pass over the roads):
+
+- **Beside the gullies.** A gully is where a street drains, so on a kerbed road
+  each gully gets a puddle on its uphill side (35-80% of them, by density).
+- **Along the low edge.** At every candidate (one every 9..36 units by density),
+  the drawn road's height at both edges picks the lower one.
+- **In a wheel rut** now and then, a lane centre +-0.9.
+- **Never on a crest.** A spot higher than the mean of the road 5 units either
+  way along it sheds the water and is skipped.
+- **Clear of everything else.** The details' footprint and clearance test
+  applies (never on a node patch, its paint, a spill or another road). So does
+  an exact rectangle overlap test against every placed decal (0.1 apart). The
+  details' circles would keep a long thin puddle away from the gully that
+  drains it.
+- **Deterministic** from the road's stable id and `roadDetailSeed`.
+
+The puddles are 1-2.4 units long and 0.5-1 across. The pieces follow the road
+surface to 5 mm.
+
+The puddles have their own texture, `res/materials/roads/road-puddles.png`. It
+is 64 x 64, four lobed soft-edged puddles in a 2 x 2 grid, and 16 RGBA entries,
+so the 4-bit bake keeps it as drawn (2 KB of VRAM).
+`roaddetail::ensurePuddles` writes it only when it does not exist, so a repaint
+is kept. The shape is in the alpha. The grey is 112 inside and rises to 176
+along the shore, a glint at the wet edge that makes the puddle read as water and
+not as a stain.
+
+On the console:
+
+- **The rows.** The puddle chunks are extra `ROAD_DETAILS` rows, chunked by
+  64-unit cells (`kPuddleCell`), after each scene's decals. They carry a `wet`
+  column, and the column exists only in a project with puddles, so every other
+  project's table keeps its exact text.
+- **The upload.** `dr.wet` sets `ProcChunk::puddle` and picks `ROAD_PUDDLE_TEX`.
+  Both lines sit inside the text the road streaming cuts from the details
+  upload, so a streamed chunk is built by the same lines.
+- **One colour a frame.** `procFinishChunks` points every puddle chunk's colour
+  bag at one `roadPuddleColor_`, the wet tint's arrangement. `updateWeather`
+  sets it once a frame from `weatherPuddleColor`: dark water, plus a third of
+  the sky colour the frame clears with (the grade's compensation taken back
+  out), plus at night a warm share of the lit street (x the lamps' level).
+  Its alpha follows `weatherPuddleLevel(wetness)`: 0 below 0.35 wetness, full
+  (116/128) at 0.85, smoothstepped. The puddles fill after the road is wet
+  and empty well before it is dry.
+- **Not drawn while dry.** A puddle chunk with alpha 0 is not submitted
+  (`renderRoadChunks`). Nothing is rewritten per vertex, ever.
+- **Reflections.** A street lamp's or a car's streak that crosses a puddle draws
+  over it, because the streaks are drawn after the whole scene. Puddles draw in
+  the road pass, so the reflection views see them too.
+
+`// scene N: P puddles (T tried, C on a crest), V vertices in K chunks` in
+`scene_data.hpp` is the bake's count.
 
 ### Wet asphalt (one colour)
 
@@ -159,7 +277,9 @@ The bag's count is `240 x intensity`.
 ### The state machine (one source, two homes)
 
 `src/weather_core.inl` holds `WeatherState` (the rain ramp and the wetness lag)
-and `weatherLampLevel` (the lamps' level from the sun). The editor compiles it
+and `weatherLampLevel` (the lamps' level from the sun), plus the puddles'
+`weatherPuddleLevel`/`weatherPuddleColor` and the cars' `weatherCarStreaks`. The
+editor compiles it
 (`roadlight::WeatherSim`, `roadlight::lampLevelFromSun`, used by the viewport and
 the check). The codegen pastes the same bytes into the generated
 `inc/daynight.gen.hpp`, inside `namespace weather` (embedded by CMake, the
@@ -186,7 +306,10 @@ Everything above is gated:
 - a project with **furniture lamps** (in a scene whose lamps are not Off) gets the
   pool rows, `ROAD_LAMPS`, the corona texture load and the lamp runtime;
 - a project with **weather** (a scene that rains or a Set Weather node) gets the
-  wet tint and the rain.
+  wet tint and the rain;
+- weather **plus road details** gets the puddles (their rows, the `wet` column,
+  their texture);
+- weather **plus vehicles** gets the car-light streaks (and the corona sprite).
 
 A project with neither keeps its exact generated source. That was checked by
 `--refresh-gen` of every example: only the Motor District (it has furniture
@@ -201,7 +324,13 @@ The viewport previews the same lamps from the same bake (`syncRoadDraws` calls
 - pools, halos and, on a wet scene, streaks are drawn when the previewed hour is
   night. That is the scene's cycle at its slider time, or the Ambience Editor's
   previewed preset, or the scene's lamps set to *Always on*;
-- a wet scene's asphalt and junction patches are drawn with the console's tint.
+- a wet scene's asphalt and junction patches are drawn with the console's tint;
+- a wet scene's puddles are drawn from the same `roaddetail::build` (always
+  baked in the viewport, because they are placed after every other decal and so
+  change nothing), coloured by the same `weatherPuddleColor` over a sky that
+  runs from a day blue to night with the lamps' level.
+
+Cars do not exist in the viewport, so it draws no car-light streaks.
 
 Two things the preview does not show. It does not reproduce the grade's
 compensation, because the editor has no grade to cancel. It also does not show
@@ -244,22 +373,59 @@ and interleaving pinned off. Each arm is three `--profile-frame` captures:
   (it walks all 1 404 lamps for the halos), the HUD reads 59.9 FPS, and
   `roads.bin` grows from 9.4 to 10.4 MB.
 
+**Puddles and car-light streaks (2026-10-03)** were measured as an editor A/B:
+the same night-and-rain fixture (`"weather": 1`, `"streetLamps": 1`, the
+`district-night` default 1, a frozen walker, interleaving off) built once by the
+editor before this change and once after, three `--profile-frame` captures per
+arm:
+
+| pose | arm | `Roads` | `Road_lamps` | `Total` | HUD MEM | HUD VRAM |
+|---|---|---:|---:|---:|---:|---:|
+| (1.5, -62) facing the parked Ravager, eye 1.6: traffic and the Ravager lit, one puddle | before | 1.01-1.13 ms | 0.42-0.44 ms | 8.6-9.0 ms | 23.0-23.3 MB | 3.32 MB |
+| | after | 1.02-1.14 ms | 0.46-0.52 ms | 8.3-9.0 ms | 23.1-23.4 MB | 3.33 MB |
+| (0, -46) up Garage boulevard, eye 5, pitch 26: several puddles | before | 2.12-2.28 ms | 0.68-0.70 ms | 12.6-13.1 ms | | |
+| | after | 2.30-2.34 ms | 0.72-0.86 ms | 12.1-14.2 ms | | |
+
+- **The bake**: the district (details 0.8 on its twelve kerbed streets) gets 70
+  puddles from 236 candidates (36 on a crest), 1 536 vertices in 17 chunks. The
+  other 255 decals are unchanged.
+- **The frame**: puddles cost about +0.1-0.2 ms in `Roads` with several puddle
+  chunks in view (each chunk is one blended submit), and nothing while dry. The
+  car streaks cost about +0.04-0.1 ms in `Road_lamps` for the half dozen lit
+  cars. `Total` moves within its own noise, and the HUD stays at 59.9 FPS. EE
+  RAM grows about 0.1 MB, and VRAM by the 2 KB puddle texture.
+
 Nothing here was measured on a physical PS2.
 
 ## Limits
 
-- Puddles are not built (a road-details decal kind shown only when wet).
-- Car lights cast no wet streaks.
+- A puddle mirrors no image: it is one colour (water, the sky colour, the lit
+  street) with a glint along its shore. The reflections in it are the streaks
+  that cross it. At night it reads as a faint warm sheen, best where a streak
+  lands in it.
+- Puddles exist only on roads with details > 0 (they ride that density), never
+  on a node patch, and they do not change grip.
+- Car-light streaks are flat on the road plane under each axle. They do not
+  follow a kerb or a crest within their 1-4 units, and a car beyond 45 units
+  draws none. The car's own headlight pool (docs/vehicles.md) is unchanged and
+  ignores the wetness.
+- No rain splashes and no spray behind cars. Not built: the tyre smoke pool
+  (docs/particles.md) could carry a spray puff per wheel, but it is a
+  per-definition pool that every car's smoke shares, and nothing was measured.
 - The halo/streak pass walks every lamp of the scene each frame. That is fine at
   hundreds of lamps; a city of many thousands wants the lamps bucketed by cell.
 - Pools do not land on objects and do not light the models. The lamps are not
   dynamic lights.
-- Reflection views (the env probe) do not draw pools, halos or rain.
-- Rain falls through bridges and roofs. There is no occlusion test and no splash
-  on the ground.
+- Reflection views (the env probe) draw the wet tint and the puddles, because
+  both are in the road pass. They do not draw pools, halos, streaks or rain.
+  Those are per-frame bags built for the main camera (camera-facing quads and
+  streaks toward that eye), so a reflection view would need its own rebuild per
+  view. That is not cheap, so it was left out.
+- Rain falls through bridges and roofs. There is no occlusion test.
 - The drawn height of a pool beside a kerb floats up to the kerb's height over
   the road edge (see "The pools").
-- A Set Weather node is not hot-patchable by Live Logic.
+- Live Logic can hot-patch Set Weather only in a build that already carries the
+  weather runtime (see "Authoring").
 
 ## Verification
 
@@ -277,6 +443,31 @@ Nothing here was measured on a physical PS2.
   after it, then dry slowly; 0 seconds switches at once; the intensity is
   clamped; dt 0 holds; the lamp level is off by day, on at night and monotone
   through the dusk.
+- **Puddles** (the road-details fixture, a kerbed T with zebras and a kerbless
+  cross street on rolling ground):
+  - puddles are placed, and none without weather;
+  - every other decal is byte-identical with and without them;
+  - the bake is deterministic bit for bit;
+  - every sample of every puddle lies on its own road, kDetailLift over it, on no
+    node patch and no paint;
+  - none sits on a crest, most hug the kerb or edge, and on kerbed roads at
+    least a quarter lie beside a gully;
+  - the chunks are whole and within budget, with UVs inside the texture;
+  - the texture has 16 RGBA entries at most;
+  - the level and alpha are 0 below 0.35 wetness and full above 0.85, and the
+    colour is lighter under a day sky than at night.
+- **Car-light streaks** (the core's `weatherCarStreaks`):
+  - a camera ahead gets 2 headlight streaks, one behind 2 tail-lamp streaks,
+    lying on the road between the lamp and the eye;
+  - none on a dry road, with the lamps off, with broken headlights or 80 units
+    away;
+  - braking with the lights off gives the 2 brake streaks;
+  - a model with no measured lamps falls back to the guess;
+  - 20 lit cars ask for 40 quads against the 24-quad budget;
+  - the splice lands only with vehicles and weather, and leaves no marker
+    behind either way.
+- **Live Logic**: a build with weather writes and reads back its `weather` line,
+  and Set Weather compiles to `OP_SetWeather` with its three values.
 - **The codegen:**
   - lamps generate the pools, the table and the runtime;
   - a streamed project builds the pools with its furniture items, and every
@@ -284,10 +475,21 @@ Nothing here was measured on a physical PS2.
   - with tables on disk, every furniture row, pools included, is a `roads.bin`
     item;
   - rain generates the tint and the drops;
+  - rain on a road with details generates the puddle rows (`wet` column), the
+    texture, the shared colour and the dry skip; a streamed project builds them
+    with their detail items, and with tables on disk every detail row, puddles
+    included, is a `roads.bin` item;
   - Set Weather compiles to a request;
-  - no lamps and no weather generates none of it, and lamps Off bakes no pools;
+  - no lamps and no weather generates none of it (details without weather get no
+    puddles and the old three-column rows), and lamps Off bakes no pools;
   - the game header carries the core with no block comments.
 
 In PCSX2 the Motor District was checked at night, at night in the rain and with a
 Set Weather (rain, 100%, 8 s) on On Start, which rained and soaked the road after
 25 s. Big City was checked as above.
+
+The puddles and car-light streaks were checked in PCSX2 on the night-and-rain
+fixture above (the two pictures, the A/B table). A build with Live Logic on
+compiled the interpreter's Set Weather case for the console. A Set Weather
+actually patched into a running game was not exercised, because that needs the
+editor GUI's Live Logic tick.

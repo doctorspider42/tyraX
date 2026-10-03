@@ -100,6 +100,8 @@ struct Gates {
     bool lamps = false;    // some road has furniture lamps (pool rows + ROAD_LAMPS)
     bool weather = false;  // some scene rains or a graph has Set Weather
     bool roads = false;    // the project has road chunks (the wet tint)
+    bool vehicles = false; // the project has vehicles (wet car-light streaks, with weather)
+    bool puddles = false;  // weather + road details (puddle chunks)
 };
 // Applies every hook to one filled template (templates.cpp fillTemplate,
 // last). A project with neither gate keeps its exact source.
@@ -124,6 +126,17 @@ struct WeatherSim {
     void tick(float dt);
 };
 float lampLevelFromSun(float sunY);
+// Puddles' one colour (0..255, alpha on the GS 0..128 scale) from the wetness
+// and the sky colour - the core's weatherPuddleColor (docs/weather.md).
+float puddleLevel(float wet);
+void puddleColor(float wet, float skyR, float skyG, float skyB, float lamps, float out[4]);
+// One car's wet-road lamp streaks - the core's weatherCarStreaks, the very
+// function the console's renderRoadLamps calls (quads: 4 x 12 floats).
+int carStreaks(const float pos[3], float yawDeg, float scale, const float lampFront[4],
+               const float lampRear[4], float track, float wheelBase, float overhang,
+               float groundFront, float groundRear, int lightsOn, int brakeOn, int broken,
+               float ex, float ey, float ez, float wet, float quads[48], float ks[4],
+               int rear[4]);
 
 // --vehicle-check "wet roads and lamps".
 void check(void (*verdict)(bool, const char*));

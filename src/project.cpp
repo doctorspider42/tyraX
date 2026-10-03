@@ -9125,6 +9125,9 @@ std::string refreshGenerated(const Project& p) {
                 details |= o.type == PrimitiveType::Road && o.roadDetails > 0.0f;
         if (details)
             if (auto err = roaddetail::ensureAtlas(p.dir); !err.empty()) return err;
+        // Puddles (docs/weather.md "Puddles"): their texture, the same way.
+        if (templates::projectHasPuddles(p))
+            if (auto err = roaddetail::ensurePuddles(p.dir); !err.empty()) return err;
     }
     // ONCE. generate() is the whole codegen pass - every scene table, every
     // microprogram, every bake-derived header - and it also PRINTS the
@@ -9782,7 +9785,8 @@ std::string refreshGenerated(const Project& p) {
     // radial dot, and an untextured quad would be a hard square - so a
     // starfield project bakes it whether or not it has a single beam.
     if (templates::projectUsesBeams(p) || templates::projectStarCycle(p) ||
-        templates::projectHasLitLamps(p)) {  // + the lamp pools and coronas (docs/weather.md)
+        templates::projectHasLitLamps(p) ||   // + the lamp pools and coronas (docs/weather.md)
+        templates::projectHasWetCarStreaks(p)) {  // + car lights on a wet road
         for (int kind = 2; kind < 3; ++kind) {
             std::vector<unsigned char> png;
             if (!menubake::bakeFlarePNG(kind, png))

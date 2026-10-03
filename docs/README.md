@@ -130,7 +130,9 @@ for people building games with it. Internals live in code comments, the git log
 - [Weather and lit street lamps](weather.md) — rain around the camera, dark
   wet asphalt from one colour a frame, and street lamps that light the road at
   night: host-baked pools streamed with the furniture, halos, and wet
-  reflection streaks. The Set Weather node, the state machine the editor and
+  reflection streaks; puddles that fill as the road soaks, and every lit car's
+  lamps mirrored in the wet road. The Set Weather node (hot-patchable by Live
+  Logic), the state machine the editor and
   the game share, and what it all costs on a 1.4 km city.
 - [Painted sky](sky-texture.md) — a 360-degree panorama on the sky dome, tinted
   by the day/night cycle and reflected in car paint.
