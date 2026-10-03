@@ -223,6 +223,29 @@ negative sampler deltas therefore do not establish negative instruction cost
 or a uniform observer correction. This is a different ELF and workload from
 the fixed diagnostic controls and must not be subtracted from them.
 
+## Post-Memo ordinary-clock night cadence, physical PS2
+
+Both fresh physical orders of the retained quiet vehicle fixture complete
+5,400 loops each: 384 raw samples and 30 chunk records in total. Independent
+source review confirms current production count reuse and Memo16; source,
+ELF/symbol, native provenance, assets and configuration match across boots.
+The first start followed a physical reset; the reverse start was confirmed
+after a network reset. Logs and file exports are frozen separately.
+
+Rendered flip-return periods are 33.366664–33.366698 ms (about 29.97 FPS),
+with no synthetic presentations. Inclusive non-pacing chunk means are
+18.923650–19.037890 ms. ABA sampler On-minus-Off differences are
+-0.027762/-0.103965 ms; BAB differences are -0.025819/+0.059199 ms.
+Outer-control spreads are 0.076203/0.085018 ms. Ordinary state and adaptive
+interleave drift remain; mixed signs do not establish an isolated observer
+price, zero-cost sampling or a uniform correction. No historical cross-ELF
+subtraction, pure EE cost or 60 FPS gain is accepted. See the
+[paired machine record](tyrax2-postmemo-quiet-2026-10-03.json) and its independent
+review for exact windows, provenance and limitations.
+Repository JSON acceptance records use LF checkouts so cross-record SHA-256
+links remain stable on Windows and Linux. Raw private device artifacts keep
+their original bytes and hashes.
+
 ## Front/tail observer activation and compiler checks, 2026-10-03
 
 A private boundary sampler completed both same-ELF orders in PCSX2: 5,400
@@ -243,6 +266,23 @@ in every arm, checks actual order/probing at both boundaries, and cannot be
 used as an authored Auto performance result. Front/tail values remain inclusive
 elapsed intervals, not pure EE arithmetic or VU/GS utilization. This private
 extension is not enabled in production examples.
+
+Both [physical pinned-plain orders](tyrax2-front-tail-2026-10-03.json) now
+complete 5,400 loops each, 768 common samples and 384 split samples, with
+exact whole/front/tail and pacing partitions. Front means vary from 1.863 to
+4.219 ms while medians stay around 0.75 ms; non-pacing tail means range from
+36.839 to 37.175 ms. These inclusive intervals point toward render/completion
+work in this Showcase view, not pure EE or VU/GS utilization.
+
+The optional boundary's net phase deltas are +0.890/+1.237 ms in ABA and
+-0.122/+1.854 ms in BAB. BAB outer-control spread is 1.975 ms. Its physical
+price remains unresolved; do not subtract a constant overhead or transfer
+this pinned-plain result to authored Auto. Source review confirms that the
+optional epoch/Count seam adds no file access or hardware wait. Existing
+RemotePad `fopen` polling every four loops lies inside front and appears in
+the log, but its contribution to spikes is not yet proved. A separately
+qualified no-RemotePad calibration is the next control, retaining ordinary
+quality, physics, audio and clocks. The common reference remains unpriced.
 
 A proposed Showcase matrix trigonometry cleanup was also rejected before
 integration. The actual optimized MIPS function already calls sinf and cosf

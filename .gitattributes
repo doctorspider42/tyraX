@@ -20,6 +20,10 @@ examples/** text=auto eol=lf
 *.heights text eol=lf
 *.flownode text eol=lf
 
+# Acceptance records contain SHA-256 links to other repository JSON records.
+# Keep their bytes stable across Windows/Linux checkouts.
+docs/*.json text eol=lf
+
 # The neural upscaler's network and its provenance sidecar. The `.net` is 500
 # bytes of floats and must never be line-ending-normalised; the `.meta` is text
 # the TRAINER writes with LF, and the check that guards the shipped default is

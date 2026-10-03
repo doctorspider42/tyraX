@@ -371,6 +371,14 @@ default/legacy policy, current native and runtime checks, and open physical
 performance/TV-latency gates. The [reference-memo record](tyrax2-native-reference-memo-2026-10-03.json)
 preserves paired physical diagnostic controls; the [ordinary-clock quiet record](tyrax2-quiet-cadence-2026-10-03.json)
 preserves measured night cadence and unresolved observer/adaptive drift.
+The [post-Memo quiet record](tyrax2-postmemo-quiet-2026-10-03.json) adds both
+fresh physical orders with the current count-reuse/Memo engine, 384 samples
+and approximately 29.97 FPS; it does not establish an isolated observer tax,
+cross-ELF gain or 60 FPS.
+The [physical front/tail record](tyrax2-front-tail-2026-10-03.json) completes
+both private pinned-plain Showcase orders, but retains unresolved boundary
+observer price and possible existing RemotePad polling interference; it does
+not report pure EE/VU/GS time or authored Auto performance.
 The [1.169.1 runtime acceptance record](tyrax2-runtime-2026-10-02.json) preserves
 final repeated day/night hardware timing, the loading-race correction and
 emulator/host coverage; the earlier arena record remains historical evidence.

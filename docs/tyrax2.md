@@ -29,11 +29,17 @@ The request still falls back synchronously for field rendering, active BLSS,
 unlimited triple buffering and unavailable pipeline banks. New-project defaults
 do not establish effective overlap, universal 60 FPS or button-to-TV latency.
 The historical acceptance records below describe their original opt-in builds;
-the default policy and example qualification are implemented; the physical
-post-Memo quiet/Showcase reverse controls remain open. The existing
+the default policy and example qualification are implemented. Paired physical
+post-Memo night controls now complete; Showcase reverse controls remain open.
+The existing
 [ordinary-clock quiet record](tyrax2-quiet-cadence-2026-10-03.json) measured about
 30 FPS in its authored pre-Memo night configuration; it is not a post-Memo
 result or 60 FPS acceptance. Physical button-to-TV latency remains unmeasured.
+The [post-Memo quiet record](tyrax2-postmemo-quiet-2026-10-03.json) contains
+both fresh physical orders: 10,800 loops, 384 samples and rendered flip-return
+periods of approximately 33.3667 ms (29.97 FPS). Inclusive non-pacing chunk
+means range from 18.924 to 19.038 ms. Sampler deltas change sign, so no uniform
+observer correction or cross-ELF optimization gain is accepted.
 
 ## Portal interaction qualification (2026-10-03)
 
@@ -703,8 +709,9 @@ both passes. No cross-frame cache or heap allocation is introduced.
 
 The specialized path is integrated after actual-source parity and the paired
 physical controls below. Those diagnostic controls do not establish an
-ordinary-clock production gain or 60 FPS. Post-Memo quiet cadence and Showcase
-reverse-order qualification remain separate checks at this documentation checkpoint.
+ordinary-clock production gain or 60 FPS. Post-Memo quiet cadence is now
+qualified in the paired record above; Showcase reverse-order qualification
+remains a separate check.
 
 ### Engine-known reference memo physical control (2026-10-03)
 

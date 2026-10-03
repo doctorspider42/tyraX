@@ -600,15 +600,36 @@
       "sixty_fps_accepted": false
     }
   },
+  "physical_followup_records": {
+    "postmemo_ordinary_quiet": {
+      "path": "tyrax2-postmemo-quiet-2026-10-03.json",
+      "sha256": "8c3ebd5d079e4a63042fe6b4d0c3b7c83f02e353a6e325cc717304063fdf4503",
+      "paired_orders_complete": true,
+      "engine_loops": 10800,
+      "raw_samples": 384,
+      "rendered_period_ms_approx": 33.3667,
+      "isolated_observer_tax_accepted": false,
+      "ordinary_production_gain_accepted": false,
+      "sixty_fps_accepted": false
+    },
+    "front_tail_pinned_plain": {
+      "path": "tyrax2-front-tail-2026-10-03.json",
+      "sha256": "644c3b4084457416cb9ee437ebc42c4b86f4c7037c9f419df4d8c4aa2a6bd7c6",
+      "paired_protocol_complete": true,
+      "incremental_boundary_price_accepted": false,
+      "common_reference_price_accepted": false,
+      "authored_auto_performance_accepted": false,
+      "sixty_fps_accepted": false
+    }
+  },
   "pending": [
-    "Paired physical post-Memo ordinary-clock quiet cadence.",
     "Physical Showcase reverse-order quiet control.",
     "Physical price of the private front/tail boundary apparatus and its common reference.",
     "Physical button-to-TV latency and TV scanout/photon cadence.",
     "Further measured optimization toward 60 FPS; no universal 60 FPS acceptance."
   ],
   "universal_sixty_fps_accepted": false,
-  "physical_postmemo_quiet_accepted": false,
+  "physical_postmemo_quiet_accepted": true,
   "physical_showcase_reverse_accepted": false,
   "full44_emulator_accepted": true,
   "interaction_accepted": true,

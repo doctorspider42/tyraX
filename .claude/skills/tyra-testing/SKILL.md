@@ -67,6 +67,9 @@ keep rejected runs. A continuous-scene/common-buffer fixture must export and
 finish the whole-loop sample before buffer reuse. Interpret the result as net
 routing performance, including existing waits; it is not a compiler-pruned
 equivalent or an automatic timing correction. See `docs/hardware-profiler.md`.
+Repository JSON acceptance records under `docs/` are pinned to LF so
+cross-record SHA-256 references survive Windows/Linux checkouts. Preserve
+original bytes for private device logs and exported artifacts instead.
 
 ## Layer 0 — build the editor
 
