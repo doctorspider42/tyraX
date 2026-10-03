@@ -48,9 +48,11 @@ Showcase reverse-order gate or establish a renderer optimization.
 
 The [scene preparation isolation](tyrax2-scene-isolation.md) adds a private
 frozen-scene Full/terminal-software-completion experiment. Both emulator
-protocols pass; physical cost qualification remains open. This diagnostic uses
-Bits32 with HUD and post effects excluded, so it does not establish ordinary
-Hybrid night or Showcase performance.
+protocols and three physical boots pass with matching sparse guards. Full
+controls are near 33.33 ms and terminal preparation near 15.48 ms. This diagnostic
+uses Bits32 with HUD and post effects excluded; changed consumer backpressure
+and unpriced common observation prevent ordinary Hybrid night or Showcase gain
+claims and isolated VU/GS attribution.
 
 ## Portal interaction qualification (2026-10-03)
 

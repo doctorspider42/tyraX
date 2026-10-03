@@ -399,8 +399,9 @@ experiment and the remaining physical DMA/cache/performance gates.
 
 [Scene preparation isolation](tyrax2-scene-isolation.md) describes a private
 same-ELF Full/terminal-sink experiment with frozen camera, world and lighting,
-common buffered observation and explicit completion guards. Emulator protocol
-qualification is separate from the outstanding physical cost controls.
+common buffered observation and explicit completion guards. Three physical boots
+retain stable full controls near 33.33 ms and terminal preparation near 15.48 ms;
+the difference includes changed completion/backpressure, not isolated GPU time.
 
 [EE preparation and VU0](tyrax2-ee-vu0.md) records physical snapshot/conversion/wait attribution, existing VU0 macro owners and the ranked measurement gates for fewer submission passes or a future math kernel. The [machine record](tyrax2-pipeline-attribution-2026-10-02.json) retains exact diagnostic windows and provenance; no offload or hardware gain is claimed.
 

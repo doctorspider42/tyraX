@@ -1,9 +1,9 @@
 {
-  "status": "emulator_protocol_qualified_physical_start_pending_power_reset",
+  "status": "three_physical_boots_qualified_scene_preparation_and_full_controls",
   "date": "2026-10-03",
   "workload": "Private vehicle-playground night scene0, frozen main Scene only, Bits32/two buffers, HUD/Update/postFX excluded",
   "production_changes": false,
-  "physical_cost_accepted": false,
+  "physical_cost_accepted": true,
   "native_sixty_fps_accepted": false,
   "pure_ee_or_gpu_time_accepted": false,
   "observer_cost_priced": false,
@@ -562,7 +562,7 @@
     }
   ],
   "limitations": [
-    "No physical samples collected: console ping works but network-reset launch and single bare execee retry produced empty logs. Renderer hang is not established.",
+    "Initial network-reset launch and single bare execee retry had empty logs despite ping; power reset recovered launch. Next two network resets started fresh ELFs. No permanent reset reliability claim.",
     "Full includes same-job completion/pacing; sink retains packet assembly/cache publication/software completion. Subtraction is not VU or GS time.",
     "Common two-read/buffer/counter observer remains unpriced. Sparse digests and submission cardinality are not full state/packet/pixel identity.",
     "Workload differs from ordinary Hybrid night gameplay and pinned Showcase; no cross-ELF gain or ordinary FPS inference.",
@@ -582,5 +582,159 @@
     "exact_text_and_entry_symbol_parity": true,
     "native_exit": 0,
     "prebuild_bin_manifest_available": false
+  },
+  "count_ticks_per_ms": 294912,
+  "physical_boots": [
+    {
+      "stem": "ee-isolation-v3-physical0-powerboot",
+      "evidence": "F:\\Projects\\tyrax2-lab-20261001\\ee-isolation-v3-physical0-powerboot-evidence",
+      "analysis": {
+        "status": "accepted_scene_isolation",
+        "cfg": 0,
+        "issues": [],
+        "records": 256,
+        "clock": "COP0 Count elapsed; no GPU utilization claim",
+        "stageMeanTicks": [
+          9829230.9453125,
+          9828861.65625
+        ],
+        "stageMeanNonpacingTicks": [
+          7716813.265625,
+          7716712.3125
+        ],
+        "sceneOnly": true,
+        "oneWay": true,
+        "environment": "ps2",
+        "postFcloseStdoutGate": true,
+        "timingInterpretation": "elapsed target Count; hardware wait semantics differ by stage; not pure CPU"
+      },
+      "mean_elapsed_ms": [
+        33.32936925358243,
+        33.32811705271403
+      ],
+      "mean_nonpacing_ms": [
+        26.166494634416367,
+        26.166152318318684
+      ],
+      "files": {
+        "analysis.json": "a10720a17559ccfa588da4f4751929510cf0ac1d34ca0ba595b825d7a2edf56d",
+        "analyze-isolation-v3.py": "a1b847d04345fae1fccc0a40a317145ed7b05c9b0e8c0e609be4058ff3c44f87",
+        "ee-isolation.cfg": "5feceb66ffc86f38d952786c6d696c79c2dbc239dd4e91b46729d73a27fb57e9",
+        "ee-isolation.log": "7c1ac75d733a489b707aacd20169b04dc50642cb343888c984c07ac13711fb32",
+        "native-proof.json": "b8c929205be5b82e53d9eb0e610719a64a6f27c0e4276524ef7d1b30cc45d8b6",
+        "provenance.json": "818e9529979dd6b02dba8f4b179c7e46104d381a16b4dc96349c188afd7c1b77",
+        "quiet-night.cfg": "6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b",
+        "stderr.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stdout.log": "01e8980a9696dbecbcfbb5cf1b6eeeaadada2732a3f4f02205703a7268faffe8",
+        "target-source-manifest.json": "bb23cc547b9541a5de2adbf5488a41a66fc33d5d721bf63b0b2592b670e213a3",
+        "vehicle-playground.elf": "227418533b0e1663202185cb81e962d169032918d2640ba243759f806f01d037",
+        "vehicle-playground.elf.sym": "83cc1294e83d761f68c8a8902c0b6ef45d4ebd731d22fdc3e4b76eb49f57e983"
+      }
+    },
+    {
+      "stem": "ee-isolation-v3-physical1",
+      "evidence": "F:\\Projects\\tyrax2-lab-20261001\\ee-isolation-v3-physical1-evidence",
+      "analysis": {
+        "status": "accepted_scene_isolation",
+        "cfg": 1,
+        "issues": [],
+        "records": 256,
+        "clock": "COP0 Count elapsed; no GPU utilization claim",
+        "stageMeanTicks": [
+          9828870.6875,
+          4565266.9296875
+        ],
+        "stageMeanNonpacingTicks": [
+          7715739.6953125,
+          4560755.359375
+        ],
+        "sceneOnly": true,
+        "oneWay": true,
+        "environment": "ps2",
+        "postFcloseStdoutGate": true,
+        "timingInterpretation": "elapsed target Count; hardware wait semantics differ by stage; not pure CPU"
+      },
+      "mean_elapsed_ms": [
+        33.328147676255966,
+        15.480098909801907
+      ],
+      "mean_nonpacing_ms": [
+        26.16285432709588,
+        15.464800887637669
+      ],
+      "files": {
+        "analysis.json": "e35402e609f0fcc08c9a6e0cf438facd6798fd08c4c47426b65cb2ba6b16c89e",
+        "analyze-isolation-v3.py": "a1b847d04345fae1fccc0a40a317145ed7b05c9b0e8c0e609be4058ff3c44f87",
+        "ee-isolation.cfg": "6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b",
+        "ee-isolation.log": "64ee4996e79e4bfc24c4b256242c7e07d419a40539200ea5bf46df180a900f11",
+        "native-proof.json": "b8c929205be5b82e53d9eb0e610719a64a6f27c0e4276524ef7d1b30cc45d8b6",
+        "provenance.json": "f8a9c3db807fe81d2404fe8a3746d9beb83dd0a4870245376ceadde33aa8ef12",
+        "quiet-night.cfg": "6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b",
+        "stderr.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stdout.log": "54af3181bf43034916447bd5265c0269dc4da21395b9cf80f3f6e843320f6fcb",
+        "target-source-manifest.json": "bb23cc547b9541a5de2adbf5488a41a66fc33d5d721bf63b0b2592b670e213a3",
+        "vehicle-playground.elf": "227418533b0e1663202185cb81e962d169032918d2640ba243759f806f01d037",
+        "vehicle-playground.elf.sym": "83cc1294e83d761f68c8a8902c0b6ef45d4ebd731d22fdc3e4b76eb49f57e983"
+      }
+    },
+    {
+      "stem": "ee-isolation-v3-physical0-return",
+      "evidence": "F:\\Projects\\tyrax2-lab-20261001\\ee-isolation-v3-physical0-return-evidence",
+      "analysis": {
+        "status": "accepted_scene_isolation",
+        "cfg": 0,
+        "issues": [],
+        "records": 256,
+        "clock": "COP0 Count elapsed; no GPU utilization claim",
+        "stageMeanTicks": [
+          9828851.9921875,
+          9828821.390625
+        ],
+        "stageMeanNonpacingTicks": [
+          7717371.9140625,
+          7717840.359375
+        ],
+        "sceneOnly": true,
+        "oneWay": true,
+        "environment": "ps2",
+        "postFcloseStdoutGate": true,
+        "timingInterpretation": "elapsed target Count; hardware wait semantics differ by stage; not pure CPU"
+      },
+      "mean_elapsed_ms": [
+        33.32808428340488,
+        33.327980518341064
+      ],
+      "mean_nonpacing_ms": [
+        26.168388923009235,
+        26.169977347056072
+      ],
+      "files": {
+        "analysis.json": "e94f0433bbb993b15a012e9d1907ef05c246473294adaebd20193a23249612d3",
+        "analyze-isolation-v3.py": "a1b847d04345fae1fccc0a40a317145ed7b05c9b0e8c0e609be4058ff3c44f87",
+        "ee-isolation.cfg": "5feceb66ffc86f38d952786c6d696c79c2dbc239dd4e91b46729d73a27fb57e9",
+        "ee-isolation.log": "45169bf85c1cfa210d6725b7401b0de3e8c56b0c670ae929a29e534f07bda7a3",
+        "native-proof.json": "b8c929205be5b82e53d9eb0e610719a64a6f27c0e4276524ef7d1b30cc45d8b6",
+        "provenance.json": "8e5a00f1ff524821507ce52670693c7ae59475f5a887b0eab08bfc459655c4e6",
+        "quiet-night.cfg": "6b86b273ff34fce19d6b804eff5a3f5747ada4eaa22f1d49c01e52ddb7875b4b",
+        "stderr.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "stdout.log": "fa55255a53033b522c985d043c08c4860e9ba1a0539f9e346754a3ace53012b0",
+        "target-source-manifest.json": "bb23cc547b9541a5de2adbf5488a41a66fc33d5d721bf63b0b2592b670e213a3",
+        "vehicle-playground.elf": "227418533b0e1663202185cb81e962d169032918d2640ba243759f806f01d037",
+        "vehicle-playground.elf.sym": "83cc1294e83d761f68c8a8902c0b6ef45d4ebd731d22fdc3e4b76eb49f57e983"
+      }
+    }
+  ],
+  "full_stage_mean_spread_ms": {
+    "elapsed": 0.0013887352413632925,
+    "nonpacing": 0.0071230199601934885
+  },
+  "remaining_work": [
+    "Price common observation separately before observer-corrected claims.",
+    "Isolate consumer completion/backpressure and dominant preparation groups, with preserved ownership/completion guards.",
+    "Qualify any actual optimization under ordinary gameplay, Hybrid night and Showcase; this frozen scene is not their performance acceptance."
+  ],
+  "physical_three_boot_review": {
+    "path": "F:\\Projects\\tyrax2-lab-20261001\\resumed-60fps-20261003\\isolation-v3-physical-pair-independent\\physical-three-boot-review.json",
+    "sha256": "ed13e81e92c2a26f140f959f9c89839a2890b20f60336da11062f0b7e74087fc"
   }
 }

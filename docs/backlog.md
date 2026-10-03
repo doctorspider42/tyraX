@@ -382,10 +382,11 @@ recovered 0.50-0.72 ms of hardware `work`. What it did not do, ranked:
   preserves ordinary game clocks and its current target evidence is separate.
 - **Remaining EE work / VU0 offload — audited, experiments open.**
   The [scene preparation isolation](tyrax2-scene-isolation.md) now passes both
-  private Full→Full and Full→terminal-sink emulator protocols. Physical costs
-  remain open: the first console launch and its single retry produced empty
-  logs after a network reset. Qualify fresh physical controls and cross-boot
-  guards before interpreting preparation versus consumer backpressure.
+  private Full→Full and Full→terminal-sink emulator protocols plus three physical
+  boots with matching cross-boot guards: full controls near 33.33 ms, terminal
+  preparation near 15.48 ms. Observer cost remains unpriced; isolate consumer
+  completion/backpressure and dominant preparation groups next. The original
+  empty-log launch/retry and subsequent power-reset recovery remain archived.
   The [resumed candidate audit](tyrax2-ee-vu0.md#next-60-hz-candidates-host-controls-2026-10-03)
   rejects the broad beam cache as a demonstrated driving gain, identifies
   saturated-flicker over-invalidation, and records a private direct-recording
