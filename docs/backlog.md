@@ -2826,3 +2826,16 @@ floor pass, `kSelfPiece`) and drop a piece whose points all have the caster
 BEHIND them along the light (a trace away from the sun hits the caster) and
 none has it toward the sun. Verify on a copy of examples/baked-shadows with
 post-5 back at y = 1.
+- **Road features over budget on a real PS2 (2026-10-04, docs/roads.md "Cost
+  on a real PS2").** The Motor District junction pose runs 18.5 ms with
+  everything on, 12.9 ms with the new road features off; the emulator said 6.4.
+  Targets, biggest first:
+  - lamps and rain (2.5 ms): a cheaper corona/streak bag, pools merged into
+    fewer chunks;
+  - furniture and details (1.0 ms): fewer, larger chunks, and a shorter
+    furniture draw distance;
+  - the traffic sim's EE cost (1-2.6 ms a frame for six cars): run far cars
+    on the cheap path sooner;
+  - pavements (0.65 ms): merge them into the road chunks of the same cell;
+  - worn node paint (0.5 ms).
+  Re-measure on the console after each step; PCSX2 cannot rank these.

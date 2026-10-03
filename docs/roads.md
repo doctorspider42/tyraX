@@ -1870,6 +1870,50 @@ BOTH** — a road that previews half a metre off its console self is a road
 nobody can author. Whole-repeat V offsets are texture-equivalent, so the oracle
 canonicalizes only that integer part; positions and fractional UVs remain exact.
 
+## Cost on a real PS2 (2026-10-04)
+
+![The real PS2 (not PCSX2), arm A: rain, wet asphalt, lamp halos and streaks, traffic and tram rails - HUD 30 FPS, SCENE 13.6 ms](img/road-ps2-console-rain.png)
+
+The first hardware pass of the whole road set. The console was the user's PS2
+over ps2link. The scene was Motor District's main scene with a frozen camera
+over the Garage boulevard x Foundry link node, and it ran in rain with the
+lamps on, the tram rails and six traffic cars. Each arm turns one more feature
+off. `--profile-frame` rendering totals are in ms; a run of three captures
+spans less than 0.3 ms.
+
+| Arm | Total | Roads | Procedural | Removed vs the arm above |
+|---|---:|---:|---:|---:|
+| A: everything (1 capture) | 18.5 | 3.83 | 2.34 | - |
+| B: dry, lamps off | 15.9-16.1 | 3.55-3.61 | 2.39-2.45 | 2.5 |
+| C: B and no traffic | 15.0-15.2 | 3.63-3.65 | 2.31-2.38 | 0.9 |
+| D: C and no furniture, no details | 14.1 | 3.32-3.36 | 1.68-1.73 | 1.0 |
+| E: D and no pavements | 13.45 | 2.39-2.48 | 1.69-1.82 | 0.65 |
+| F: E and no node markings | 12.8-13.1 | 1.88-1.96 | 1.71-1.76 | 0.5 |
+
+What it says:
+
+- **The emulator under-reads the road features 3-10x.** In PCSX2 the same
+  scene ran at 60 FPS with SCENE 6.4 ms. On the console arm A is 30 FPS, and
+  its Total of 18.5 ms is over the 16.7 ms budget. Pavements measured +0.05 ms
+  in the emulator and cost about 0.65 ms here. The traffic core and vehicle
+  sim log about 0.3 ms plus 1.0-2.6 ms of EE time a frame (`TRAFFIC ...
+  vehicles us/frame`), against 0.06 + 0.4 ms in PCSX2.
+- **Biggest levers, in order:**
+  - lamps and rain together (2.5 ms; the per-frame sprite bag and the pools);
+  - furniture and details (1.0 ms);
+  - traffic rendering (0.9 ms) plus its EE sim;
+  - pavements (0.65 ms);
+  - worn node paint (0.5 ms, blended).
+- **The picture matches PCSX2.** Rain, the wet tint, lamp halos and streaks,
+  the cars, the tram rails and the pavements were all right on the console,
+  with no artefacts.
+- Over ps2link the frame also pays for host file access, so 30 FPS here is an
+  upper bound on the cost, not a USB or ISO number.
+
+The A/B series ended in the known IOP pad-driver wedge (`freepad: DMA Busy`)
+on the seventh deploy, with no `--pad` call at all. Plan about five deploys per
+power cycle.
+
 ## Files
 
 | File | What it is |
