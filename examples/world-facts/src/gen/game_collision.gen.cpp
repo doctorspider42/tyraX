@@ -471,7 +471,7 @@ void TerrainGame::updatePlayerWalker(PlayerCtl& P, int pi, Tyra::Pad& pad) {
     if (nextZ > limZ) nextZ = limZ;
     if (nextZ < -limZ) nextZ = -limZ;
 
-    float ground = terrainHeightAt(nextX, nextZ);
+    float ground = walkGroundAt(nextX, nextZ, P.y);
     // a linked floor portal underfoot swallows the avatar too
     if (PORTAL_COUNT > 0 && portalSwallowsPlayer(nextX, P.y, nextZ))
       ground = -1e30F;
@@ -637,7 +637,7 @@ void TerrainGame::updatePlayerWalker(PlayerCtl& P, int pi, Tyra::Pad& pad) {
   if (nextZ > limZ) nextZ = limZ;
   if (nextZ < -limZ) nextZ = -limZ;
 
-  float ground = terrainHeightAt(nextX, nextZ);
+  float ground = walkGroundAt(nextX, nextZ, P.y);
   // a linked floor portal underfoot swallows the walker (see
   // portalSwallowsPlayer) - the terrain stops being the floor there
   if (PORTAL_COUNT > 0 && portalSwallowsPlayer(nextX, P.y, nextZ))
@@ -1443,6 +1443,14 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
         part.envNormals.size() == part.vertices.size()) {
       part.envColors.assign(part.vertices.size(),
                             Color(128.0F, 128.0F, 128.0F, 128.0F));
+      // Those are placeholders, not paint: a vehicle's fresnel/specular pass
+      // must rewrite them on the next draw. A rebuild that REUSES the part (a
+      // repair, a damage re-bake) kept envPaintValid and the old paint key, so
+      // the pass saw "same view" and left the car at full reflection until
+      // the camera turned four steps - "the car goes very bright after a
+      // repair until I drive a bit".
+      part.envPaintValid = false;
+      part.paintMapSrc = nullptr;
       if (!part.envBag) {
         part.envInfoBag = std::make_unique<StaPipInfoBag>();
         // GOURAUD, not flat: the vehicle paint pass writes a per-vertex

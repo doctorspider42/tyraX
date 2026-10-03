@@ -710,6 +710,12 @@ class TerrainGame : public Tyra::Game {
     float mx[3];
     short owner;     // procedural volume, -1 = a script-spawned prefab
     short instance;  // prefab instance handle, -1 = a volume's own geometry
+    // An ORIENTED box (bridge parapets and piers, docs/roads.md "Bridges"):
+    // lhx/lhz > 0 are its half extents in its own yaw frame (lx = dx*yc -
+    // dz*ys, lz = dx*ys + dz*yc about the mn/mx centre, the object boxes'
+    // convention); mn/mx stay its world AABB for the cheap rejects. 0 = the
+    // plain axis-aligned box mn/mx describe.
+    float lhx = 0.0F, lhz = 0.0F, yc = 1.0F, ys = 0.0F;
   };
   std::vector<StaticBox> procColliders;
   // Live prefab instances, so Despawn Prefab can find what it made.
@@ -783,8 +789,10 @@ class TerrainGame : public Tyra::Game {
   u32 ilMark = 0, ilStallMark = 0;
   // `grip`, when given, receives the answering road's grip (1 when none);
   // `cover` how much of the road is there (1, or a soft edge's fade).
+  // `maxY` (docs/roads.md "Bridges"): the highest surface NOT above it - a
+  // wheel, a walker or a shadow under a bridge deck keeps its own road.
   float roadSurfaceAt(float x, float z, float* grip = nullptr,
-                      float* cover = nullptr) const;
+                      float* cover = nullptr, float maxY = 1.0e30F) const;
   void buildRoadHeightIndex() const;
   // The pre-grid exhaustive walk, defined only under TYRA_ROAD_INDEX_VERIFY
   // (see roadSurfaceAt) - it is the oracle that gate compares against.
@@ -798,7 +806,8 @@ class TerrainGame : public Tyra::Game {
   mutable float roadIdxMinX = 0.0F, roadIdxMinZ = 0.0F, roadIdxInv = 0.0F;
   mutable int roadIdxN = 0;
   mutable bool roadIdxDirty = true;
-  float groundSurfaceAt(float x, float z) const;
+  float groundSurfaceAt(float x, float z, float maxY = 1.0e30F) const;
+  float walkGroundAt(float x, float z, float feetY) const;
   // The painted terrain layers' tyre grip at (x, z), 1 without any
   // (1.142.0; the host twin is Viewport::terrainLayerGrip).
   float terrainGripAt(float x, float z) const;
