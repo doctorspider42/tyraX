@@ -40,6 +40,11 @@ both fresh physical orders: 10,800 loops, 384 samples and rendered flip-return
 periods of approximately 33.3667 ms (29.97 FPS). Inclusive non-pacing chunk
 means range from 18.924 to 19.038 ms. Sampler deltas change sign, so no uniform
 observer correction or cross-ELF optimization gain is accepted.
+The [RemotePad-free front/tail control](tyrax2-front-tail-no-remotepad-2026-10-03.json)
+also completes both private pinned-plain Showcase orders. Front means are
+0.724–0.744 ms and inclusive non-pacing tail means 36.376–36.384 ms; boundary
+price remains unresolved. This calibration does not close the authored Auto
+Showcase reverse-order gate or establish a renderer optimization.
 
 ## Portal interaction qualification (2026-10-03)
 

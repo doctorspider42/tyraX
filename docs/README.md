@@ -379,6 +379,9 @@ The [physical front/tail record](tyrax2-front-tail-2026-10-03.json) completes
 both private pinned-plain Showcase orders, but retains unresolved boundary
 observer price and possible existing RemotePad polling interference; it does
 not report pure EE/VU/GS time or authored Auto performance.
+The [RemotePad-free paired control](tyrax2-front-tail-no-remotepad-2026-10-03.json)
+places front means at 0.724–0.744 ms and inclusive non-pacing tail means at
+36.376–36.384 ms; changing-sign control deltas leave observer price unresolved.
 The [1.169.1 runtime acceptance record](tyrax2-runtime-2026-10-02.json) preserves
 final repeated day/night hardware timing, the loading-race correction and
 emulator/host coverage; the earlier arena record remains historical evidence.

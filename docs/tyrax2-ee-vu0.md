@@ -281,8 +281,36 @@ this pinned-plain result to authored Auto. Source review confirms that the
 optional epoch/Count seam adds no file access or hardware wait. Existing
 RemotePad `fopen` polling every four loops lies inside front and appears in
 the log, but its contribution to spikes is not yet proved. A separately
-qualified no-RemotePad calibration is the next control, retaining ordinary
-quality, physics, audio and clocks. The common reference remains unpriced.
+qualified no-RemotePad calibration now completes both physical orders,
+retaining ordinary quality, physics, audio and clocks. The common reference
+remains unpriced; see the follow-up below.
+
+### RemotePad-free front/tail control, 2026-10-03
+
+The [paired physical record](tyrax2-front-tail-no-remotepad-2026-10-03.json)
+contains 10,800 loops, 768 common samples and 384 split samples from one
+fresh native ELF. Exactly three source inputs differ from the earlier
+fixture: the generated RemotePad header and CPP become their disabled
+stubs, and the project sets `remotePad=false`. The engine, sampler, ordinary
+assets, physics, quality, audio and clocks are retained. Neither order
+opens `livepad.bin`.
+
+Active front means are 0.724–0.744 ms; non-pacing tail means are
+36.376–36.384 ms. This narrows the inclusive workload toward render and
+completion in this pinned-plain Showcase view. It does not isolate EE,
+VU or GS arithmetic. The optional boundary remains unpriced: ABA deltas
+are -1.776/-0.008 ms with 1.768 ms outer-control spread; BAB deltas are
++0.274/+0.016 ms with 0.259 ms spread. These changing signs do not represent
+negative timer cost or permit a uniform subtraction. A cross-ELF comparison
+does not establish RemotePad causality or a production renderer gain.
+
+The private direct StaPip producer has since reached an independent
+five-file source review, 547 actual-header host controls and 13 extracted
+queue transaction controls. A compile-only probe with the actual EE
+compiler confirms the expected 1,308-byte ledger layout. Host producer
+ownership and queue surroundings are modeled; the full native macro matrix,
+target lifecycle checks, actual fallback/prefix coverage and physical
+same-ELF speed trials remain required. It is not integrated into production.
 
 A proposed Showcase matrix trigonometry cleanup was also rejected before
 integration. The actual optimized MIPS function already calls sinf and cosf

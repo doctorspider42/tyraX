@@ -389,8 +389,13 @@ recovered 0.50-0.72 ms of hardware `work`. What it did not do, ranked:
   target integration. The [current paired quiet baseline](tyrax2-postmemo-quiet-2026-10-03.json)
   now completes both physical orders with 384 samples and about 29.97 FPS;
   observer cost remains unresolved. Both [front/tail physical orders](tyrax2-front-tail-2026-10-03.json)
-  also complete, but boundary price remains unresolved; next repeat calibration
-  without the existing RemotePad host-file polling as an explicit apparatus control.
+  also complete. The [RemotePad-free control](tyrax2-front-tail-no-remotepad-2026-10-03.json)
+  now completes another 10,800 physical loops: front means 0.724–0.744 ms,
+  tail means 36.376–36.384 ms. Boundary price remains unresolved because
+  phase deltas change sign and controls drift. Next qualify the private direct
+  producer's native macro matrix, lifecycle/fallback coverage and prefix
+  pressure, then price its net delta in matched physical orders. Host checks
+  pass 547 ledger and 13 queue controls; EE layout is compile-only verified.
   No additional FPS gain is accepted.
   The [native-sizing reuse candidate](tyrax2-ee-vu0.md#native-sizing-reuse-paired-physical-candidate-controls-2026-10-03)
   now passes two same-ELF physical orders, 10,800 loops and 768 accepted samples.
