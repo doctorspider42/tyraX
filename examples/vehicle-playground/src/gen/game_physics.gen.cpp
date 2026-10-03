@@ -2166,6 +2166,7 @@ void TerrainGame::renderScene() {
   // Visible light beams last: additive coronas/cones depth-test against the
   // finished scene (no z writes), so walls occlude them correctly.
   { const u32 ct=costStart(); updateAndRenderLightBeams(); costEnd("Light_beams",-1,ct); }
+  { const u32 ct=costStart(); renderRoadLamps(); costEnd("Road_lamps",-1,ct); }
   if (DEBUG_SHOW_PROFILER) g_profScene += profTicks() - profScene0;
   const u32 costHighlightStart=costStart();
   // Highlight shells after the whole scene so they depth-test against the
@@ -2246,6 +2247,7 @@ void TerrainGame::renderScene() {
 
   if (DEBUG_SHOW_PROFILER) g_profParticles += profTicks() - profPart0;
   costEnd("Particles",-1,costParticleStart);
+  { const u32 ct=costStart(); renderRain(); costEnd("Rain",-1,ct); }
   if (costSeq) {
     engine->renderer.core.sync.align3D();
     const float totalMs=(profTicks()-costTotalStart)/294912.0F;

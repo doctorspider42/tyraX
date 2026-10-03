@@ -2156,6 +2156,24 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
          << "  }";
 }
 
+// Weather and street lamps (docs/weather.md, format v107): each key written
+// only off its default, so a scene that never used them saves byte-identical.
+// `sep` is the caller's separator (",\n      " in the manifest, ", " in the
+// history), the shape of the keys around it.
+static void writeSceneWeather(std::ostream& json, const SceneData& sc, const char* sep) {
+    if (sc.weather != 0) json << sep << "\"weather\": " << sc.weather;
+    if (sc.weatherIntensity != 1.0f)
+        json << sep << "\"weatherIntensity\": " << fmtFloat(sc.weatherIntensity);
+    if (sc.streetLamps != 0) json << sep << "\"streetLamps\": " << sc.streetLamps;
+}
+static void readSceneWeather(const json::Value& js, SceneData& sc) {
+    if (const auto* v = js.find("weather")) sc.weather = std::clamp((int)v->numberOr(0.0), 0, 1);
+    if (const auto* v = js.find("weatherIntensity"))
+        sc.weatherIntensity = std::clamp((float)v->numberOr(1.0), 0.0f, 1.0f);
+    if (const auto* v = js.find("streetLamps"))
+        sc.streetLamps = std::clamp((int)v->numberOr(0.0), 0, 2);
+}
+
 // The scene table: names + per-scene meta + ordered object-id lists. Not a
 // Section - the collaboration layer ships it as its own message (per-object
 // bodies live in objects/<id>.json).
@@ -2189,6 +2207,7 @@ static void writeScenesTable(std::ostream& json, const Project& p) {
                  << fmtFloat(sc.terrainTintVariation)
                  << ",\n      \"terrainTintScale\": "
                  << fmtFloat(sc.terrainTintScale);
+        writeSceneWeather(json, sc, ",\n      ");
         // Ordered ids only - each object's body is a separate objects/<id>.json
         // file (written below). Order is significant (first Player / SpawnPoint
         // wins, draw order), so it is preserved by the list.
@@ -5364,6 +5383,7 @@ bool applyScenesLayout(Project& p, const std::string& body) {
             sc.terrainTintScale = (float)v->numberOr(24.0);
             if (sc.terrainTintScale < 1.0f) sc.terrainTintScale = 1.0f;
         }
+        readSceneWeather(js, sc);
         if (const auto* t = js.find("terrain")) {
             if (const auto* v = t->find("width")) sc.terrain.width = (int)v->numberOr(64);
             if (const auto* v = t->find("depth")) sc.terrain.depth = (int)v->numberOr(64);
@@ -8196,6 +8216,7 @@ std::string load(Project& out, const std::string& projectDir) {
                 sc.terrainTintScale = (float)v->numberOr(24.0);
                 if (sc.terrainTintScale < 1.0f) sc.terrainTintScale = 1.0f;
             }
+            readSceneWeather(js, sc);
             if (const auto* objs = js.find("objects"))
                 readSceneObjects(out, *objs, sc.objects);
             if (const auto* t = js.find("terrain")) {
@@ -8411,6 +8432,7 @@ std::string saveHistory(const Project& p, const History& h) {
                 json << ", \"terrainTintVariation\": "
                      << fmtFloat(sc.terrainTintVariation)
                      << ", \"terrainTintScale\": " << fmtFloat(sc.terrainTintScale);
+            writeSceneWeather(json, sc, ", ");
             json << ", \"objects\": ";
             writeObjectsArray(json, sc.objects, "        ");
             json << " }";
@@ -8458,6 +8480,7 @@ std::string loadHistory(const Project& p, History& h) {
                     sc.terrainTintScale = (float)v->numberOr(24.0);
                     if (sc.terrainTintScale < 1.0f) sc.terrainTintScale = 1.0f;
                 }
+                readSceneWeather(js, sc);
                 if (const auto* objs = js.find("objects"))
                     readObjectsArray(*objs, sc.objects);
                 if (const auto* t = js.find("terrain")) {
@@ -9758,7 +9781,8 @@ std::string refreshGenerated(const Project& p) {
     // night sky draws its stars through the SAME sprite - a star is a soft
     // radial dot, and an untextured quad would be a hard square - so a
     // starfield project bakes it whether or not it has a single beam.
-    if (templates::projectUsesBeams(p) || templates::projectStarCycle(p)) {
+    if (templates::projectUsesBeams(p) || templates::projectStarCycle(p) ||
+        templates::projectHasLitLamps(p)) {  // + the lamp pools and coronas (docs/weather.md)
         for (int kind = 2; kind < 3; ++kind) {
             std::vector<unsigned char> png;
             if (!menubake::bakeFlarePNG(kind, png))

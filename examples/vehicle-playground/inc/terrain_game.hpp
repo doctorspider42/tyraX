@@ -816,8 +816,45 @@ class TerrainGame : public Tyra::Game {
     // equal corner colours is the flat result, so a chunk that mixes blocks
     // with ordinary instances loses nothing.
     bool smooth = false;
+    // A street lamp's POOL of light (docs/weather.md): an additive
+    // furniture chunk drawn by renderRoadLamps at night, never by
+    // renderProcChunks.
+    int lampLight = 0;
   };
   std::vector<ProcChunk> procChunks;
+  // --- street lamps and weather (docs/weather.md) ---
+  // The wet roads' tint: every plain asphalt chunk (owner -3, one grey
+  // colour) points its colour bag here, so wetness is ONE colour per frame,
+  // never a per-vertex rewrite. 128 grey = dry = exactly the old picture.
+  Tyra::Color roadWetTint_ = Tyra::Color(128.0F, 128.0F, 128.0F, 128.0F);
+  // The lamp pools' colour: lamp colour x night level x the grade's
+  // compensation. The pool chunks (ProcChunk::lampLight) point here.
+  Tyra::Color roadLampPoolColor_ = Tyra::Color(0.0F, 0.0F, 0.0F, 128.0F);
+  float roadLampLevel_ = 0.0F;
+  float roadLampComp_[3] = {1.0F, 1.0F, 1.0F};
+  int roadLampScene_ = -1, roadLampFirst_ = 0, roadLampEnd_ = 0;
+  std::unique_ptr<Tyra::StaPipInfoBag> roadLampInfoBag_;
+  // Coronas + wet streaks: one additive bag rebuilt per frame.
+  BagArray<Tyra::Vec4> roadLampSprVerts_, roadLampSprSts_;
+  BagArray<Tyra::Color> roadLampSprCols_;
+  std::unique_ptr<Tyra::StaPipInfoBag> roadLampSprInfo_;
+  std::unique_ptr<Tyra::StaPipColorBag> roadLampSprColorBag_;
+  std::unique_ptr<Tyra::StaPipTextureBag> roadLampSprTexBag_;
+  std::unique_ptr<Tyra::StaPipBag> roadLampSprBag_;
+  // Rain: drops wrapped round the camera, drawn by the particles' VU1
+  // billboard program (one bag, the rain emitter's streak shape).
+  BagArray<Tyra::Vec4> rainPos_, rainParams_;
+  BagArray<Tyra::Color> rainCols_;
+  std::unique_ptr<Tyra::StaPipInfoBag> rainInfo_;
+  std::unique_ptr<Tyra::StaPipColorBag> rainColorBag_;
+  std::unique_ptr<Tyra::StaPipTextureBag> rainTexBag_;
+  std::unique_ptr<Tyra::StaPipBillboardBag> rainBillboard_;
+  std::unique_ptr<Tyra::StaPipBag> rainBag_;
+  unsigned int rainRng_ = 0x9E3779B9u;
+  void updateWeather();
+  void updateRain(float dt);
+  void renderRoadLamps();
+  void renderRain();
   // Collision for generated geometry. Merged geometry has no objects, so a
   // prefab's walls would be scenery you walk through - which is exactly the
   // trade the procedural BAKE makes for vegetation and exactly the wrong one

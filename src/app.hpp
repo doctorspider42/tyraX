@@ -3883,6 +3883,13 @@ private:
     std::string scenePrefAmbience_;  // staged SceneData::ambiencePreset
     std::string scenePrefLoading_;   // staged SceneData::loadingScreen
     bool scenePrefStart_ = false;    // staged "this is Project::startScene"
+    // Staged weather and street lamps (docs/weather.md).
+    int scenePrefWeather_ = 0;
+    float scenePrefWeatherIntensity_ = 1.0f;
+    int scenePrefStreetLamps_ = 0;
+    // The viewport's road weather preview (docs/weather.md): pushed every
+    // frame from the active scene and the previewed hour.
+    void updateRoadWeatherPreview(int presetIndex);
 
     std::string statusMessage_;
 

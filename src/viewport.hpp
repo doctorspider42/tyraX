@@ -17,6 +17,7 @@
 #include "glbparser.hpp"
 #include "navmesh.hpp"
 #include "procgen.hpp"
+#include "roadlight.hpp"  // lit street lamps preview (docs/weather.md)
 #include "project.hpp"
 #include "tmdl.hpp"  // vehicles draw from the import bake, not from an asset path
 #include "objparser.hpp"
@@ -213,6 +214,15 @@ public:
         float compensation[3] = {1.0f, 1.0f, 1.0f};
     };
     void setSkyBodies(const SkyBodies& b) { skyBodies_ = b; }
+    // Weather and street lamps (docs/weather.md): the street lamps' level
+    // (0 day .. 1 night, from the previewed hour and the scene's lamp mode)
+    // and the roads' wetness (the scene's authored weather). The preview
+    // darkens wet asphalt and draws the lamps' pools, halos and - wet - their
+    // reflections, as the console does.
+    void setRoadWeather(float lampLevel, float wet) {
+        roadLampLevel_ = lampLevel;
+        roadWet_ = wet;
+    }
     // Sprite pixels, pushed by the app straight from menubake's RGBA bakes (the
     // same ones refreshGenerated PNG-encodes) so a phase edit previews without a
     // build. 0 = the sun disc, 1 = the moon disc, 2 = the star dot (the soft
@@ -1136,6 +1146,13 @@ private:
         bool blended = false;
     };
     std::vector<RoadCrossDraw> roadCross_;
+    // Lit street lamps (docs/weather.md): the codegen's lamps and pools (x y z
+    // u v per pool vertex), rebuilt with the crossings; drawn by drawRoadLamps.
+    std::vector<roadlight::Lamp> roadLamps_;
+    std::vector<float> roadLampPools_;
+    float roadLampLevel_ = 0.0f;  // 0 day .. 1 night (setRoadWeather)
+    float roadWet_ = 0.0f;        // 0 dry .. 1 soaked
+    void drawRoadLamps(const float* viewProj, const float* eye);
     uint64_t roadCrossSig_ = 0;
     bool roadDragging_ = false;
     std::vector<roadgen::JunctionOverride> roadJunctions_;

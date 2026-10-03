@@ -4303,6 +4303,8 @@ void Viewport::syncRoadDraws(const std::vector<SceneObject>& objects) {
     roadCrossSig_ = csig;
     for (RoadCrossDraw& c : roadCross_) destroyMesh(c.mesh);
     roadCross_.clear();
+    roadLamps_.clear();
+    roadLampPools_.clear();
     if (cr.empty()) return;
     // One road has no crossings, but it may still have kerbs.
     const roadgen::CrossingPlan plan = cr.size() >= 2
@@ -4545,6 +4547,26 @@ void Viewport::syncRoadDraws(const std::vector<SceneObject>& objects) {
             fi.pavements = furnPave;
             fi.projectDir = projectDir_;
             const roadfurn::Result fr = roadfurn::build(fi);
+            // Lit street lamps (docs/weather.md): the codegen's own lamps and
+            // pools, on the same drawn surface; drawRoadLamps shows them when
+            // the previewed hour is night (or the scene's lamps are on).
+            {
+                roadgen::Surface lampSurf;
+                lampSurf.add(roadTriangles);
+                lampSurf.add(paintOnTris);
+                roadgen::addPavementsToSurface(lampSurf, furnPave);
+                lampSurf.build();
+                const roadgen::HeightFn top = [&](float x, float z) {
+                    const float s = lampSurf.at(x, z), g = terrainHeight(x, z);
+                    return s != roadgen::Surface::kNone && s > g ? s : g;
+                };
+                roadLamps_ = roadlight::lampsOf(fr);
+                const roadlight::Pools pools = roadlight::bakePools(roadLamps_, top);
+                roadLampPools_.clear();
+                roadLampPools_.reserve(pools.tris.size() * 5);
+                for (const roadgen::Vertex& v : pools.tris)
+                    roadLampPools_.insert(roadLampPools_.end(), {v.x, v.y, v.z, v.u, v.v});
+            }
             std::map<int, std::vector<float>> byRoad;
             for (const roadfurn::Instance& inst : fr.instances) {
                 std::vector<float>& iv = byRoad[inst.road];
@@ -6534,8 +6556,13 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
                     // scenePass already switches polygon mode for the wire
                     // pass; keep the triangle primitive so all three edges
                     // survive instead of pairing arbitrary triangle corners.
-                    draw(ri->second.mesh, GL_TRIANGLES, viewProj, o.color[0],
-                         o.color[1], o.color[2], tex);
+                    // Wet asphalt (docs/weather.md): the console's one tint,
+                    // 128 - wet * (58, 55, 46), over 128.
+                    const float wr = 1.0f - roadWet_ * 58.0f / 128.0f;
+                    const float wg = 1.0f - roadWet_ * 55.0f / 128.0f;
+                    const float wb = 1.0f - roadWet_ * 46.0f / 128.0f;
+                    draw(ri->second.mesh, GL_TRIANGLES, viewProj, o.color[0] * wr,
+                         o.color[1] * wg, o.color[2] * wb, tex);
                     // This road's junction patches (it is the crossing's
                     // road A), each with its own material.
                     for (const RoadCrossDraw& c : roadCross_) {
@@ -6543,8 +6570,13 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
                             continue;
                         const uint32_t junctionTex =
                             asLines || c.texture.empty() ? 0 : glTexture(c.texture);
-                        draw(c.mesh, GL_TRIANGLES, viewProj, c.color[0], c.color[1],
-                             c.color[2], junctionTex);
+                        // Only textured surfaces take the wet tint (the
+                        // console's grey asphalt chunks; never the kerbs'
+                        // or the furniture's vertex colours).
+                        const bool wetTint = !c.texture.empty();
+                        draw(c.mesh, GL_TRIANGLES, viewProj, c.color[0] * (wetTint ? wr : 1.0f),
+                             c.color[1] * (wetTint ? wg : 1.0f), c.color[2] * (wetTint ? wb : 1.0f),
+                             junctionTex);
                     }
                     ps2NoDyn = 0;  // do not leak the road's static-light mode
                 }
@@ -6893,6 +6925,9 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
     // drawing both would double it). Same order as the generated game: after
     // the scene, additive, z-tested and never z-written.
     if (sceneProgActive_ != program_) drawLightPools(objects, viewProj.m);
+    // Lit street lamps (docs/weather.md): the console's pools, halos and wet
+    // streaks, in every shading mode - they are scene content, like beams.
+    if (viewMode_ != ViewMode::Wireframe) drawRoadLamps(viewProj.m, &eye.x);
 
     // Mirror objects: draw the reflected copies first (real geometry behind
     // the plane, z-tested against the finished scene), then blend the glass
@@ -8452,6 +8487,101 @@ void Viewport::drawLightPools(const std::vector<SceneObject>& objects,
     glBindBuffer(GL_ARRAY_BUFFER, particleVbo_);
     glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(buf.size() * sizeof(float)),
                  buf.data(), GL_DYNAMIC_DRAW);
+    glDrawArrays(GL_TRIANGLES, 0, (GLsizei)(buf.size() / 9));
+    glDepthMask(GL_TRUE);
+    glDisable(GL_BLEND);
+    glBindVertexArray(0);
+    glBindTexture(GL_TEXTURE_2D, 0);
+    glUseProgram(sceneProgActive_);
+}
+
+// Lit street lamps (docs/weather.md) - the editor twin of the generated game's
+// renderRoadLamps: the host-baked pools (the same roadlight::bakePools output
+// the console uploads), a camera-facing corona per lamp head, and on a wet
+// road each lamp's reflection streak toward the viewer. The colours are the
+// console's (128 = 1x) over 128, the corona sprite is the console's, and the
+// blend is the GS additive one. What it does not reproduce is the night
+// grade's compensation, which the editor has no grade to cancel.
+void Viewport::drawRoadLamps(const float* viewProj, const float* eye) {
+    if (roadLampLevel_ < 0.004f || roadLamps_.empty()) return;
+    const float lv = roadLampLevel_;
+    std::vector<float> buf;
+    buf.reserve(roadLampPools_.size() / 5 * 9 + roadLamps_.size() * 6 * 9 * 2);
+    auto put = [&](float x, float y, float z, float r, float g, float b, float u, float v) {
+        const float vert[9] = {x, y, z, r, g, b, 1.0f, u, v};
+        buf.insert(buf.end(), vert, vert + 9);
+    };
+    const float pr = 112.0f / 128.0f * lv, pg = 84.0f / 128.0f * lv, pb = 48.0f / 128.0f * lv;
+    for (size_t k = 0; k + 4 < roadLampPools_.size(); k += 5)
+        put(roadLampPools_[k], roadLampPools_[k + 1], roadLampPools_[k + 2], pr, pg, pb,
+            roadLampPools_[k + 3], roadLampPools_[k + 4]);
+    // The camera basis (the console's: right from the forward's XZ, up = r x f).
+    const float* m = camTarget_;
+    float fx = m[0] - eye[0], fy = m[1] - eye[1], fz = m[2] - eye[2];
+    const float fl = std::sqrt(fx * fx + fy * fy + fz * fz);
+    if (fl > 1e-4f) {
+        fx /= fl, fy /= fl, fz /= fl;
+        float rx = fz, rz = -fx;
+        const float rl = std::sqrt(rx * rx + rz * rz);
+        if (rl > 1e-4f) rx /= rl, rz /= rl;
+        else rx = 1.0f, rz = 0.0f;
+        const float ux = -rz * fy, uy = rz * fx - rx * fz, uz = rx * fy;
+        for (const roadlight::Lamp& L : roadLamps_) {
+            const float dx = L.hx - eye[0], dy = L.hy - eye[1], dz = L.hz - eye[2];
+            const float d = std::sqrt(dx * dx + dy * dy + dz * dz);
+            if (d > 160.0f || dx * fx + dy * fy + dz * fz < -2.0f) continue;
+            const float fade = d > 110.0f ? (160.0f - d) / 50.0f : 1.0f;
+            const float s = 0.55f + 0.011f * d;
+            const float pull = d > 1.0f ? std::min(d * 0.5f, 0.7f) / d : 0.0f;
+            const float cx = L.hx - dx * pull, cy = L.hy - dy * pull, cz = L.hz - dz * pull;
+            const float k = lv * fade / 128.0f;
+            const float r = 118.0f * k, g = 100.0f * k, b = 74.0f * k;
+            const float px = rx * s, pz = rz * s, qx = ux * s, qy = uy * s, qz = uz * s;
+            put(cx - px - qx, cy - qy, cz - pz - qz, r, g, b, 0, 0);
+            put(cx + px - qx, cy - qy, cz + pz - qz, r, g, b, 1, 0);
+            put(cx + px + qx, cy + qy, cz + pz + qz, r, g, b, 1, 1);
+            put(cx - px - qx, cy - qy, cz - pz - qz, r, g, b, 0, 0);
+            put(cx + px + qx, cy + qy, cz + pz + qz, r, g, b, 1, 1);
+            put(cx - px + qx, cy + qy, cz - pz + qz, r, g, b, 0, 1);
+            if (roadWet_ <= 0.02f || d >= 55.0f) continue;
+            float tx = eye[0] - L.gx, tz = eye[2] - L.gz;
+            const float hd = std::sqrt(tx * tx + tz * tz);
+            if (hd < 0.5f) continue;
+            tx /= hd, tz /= hd;
+            const float hgt = std::max(L.hy - L.gy, 0.5f), eyeH = std::max(eye[1] - L.gy, 0.3f);
+            const float mm = hd * hgt / (hgt + eyeH);
+            const float half = std::min(0.5f * mm + 1.2f, L.radius * 1.6f);
+            const float mx = L.gx + tx * mm, mz = L.gz + tz * mm;
+            const float wd = 0.30f + 0.006f * d;
+            const float nx = -tz * wd, nz = tx * wd;
+            const float sf = d > 38.5f ? (55.0f - d) / 16.5f : 1.0f;
+            const float kk = lv * roadWet_ * sf / 128.0f;
+            const float sr = 96.0f * kk, sg = 80.0f * kk, sb = 58.0f * kk;
+            auto yAt = [&](float x, float z) {
+                return L.gy + L.sx * (x - L.gx) + L.sz * (z - L.gz) + 0.07f;
+            };
+            const float x0 = mx - tx * half, z0 = mz - tz * half;
+            const float x1 = mx + tx * half, z1 = mz + tz * half;
+            put(x0 - nx, yAt(x0 - nx, z0 - nz), z0 - nz, sr, sg, sb, 0, 0);
+            put(x0 + nx, yAt(x0 + nx, z0 + nz), z0 + nz, sr, sg, sb, 1, 0);
+            put(x1 + nx, yAt(x1 + nx, z1 + nz), z1 + nz, sr, sg, sb, 1, 1);
+            put(x0 - nx, yAt(x0 - nx, z0 - nz), z0 - nz, sr, sg, sb, 0, 0);
+            put(x1 + nx, yAt(x1 + nx, z1 + nz), z1 + nz, sr, sg, sb, 1, 1);
+            put(x1 - nx, yAt(x1 - nx, z1 - nz), z1 - nz, sr, sg, sb, 0, 1);
+        }
+    }
+    if (buf.empty()) return;
+    glUseProgram(particleProgram_);
+    glUniformMatrix4fv(uPartMvp_, 1, GL_FALSE, viewProj);
+    glUniform1i(uPartUseTex_, 1);
+    glBindTexture(GL_TEXTURE_2D, coronaTex());
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_ONE, GL_ONE);  // the GS additive bag
+    glDepthMask(GL_FALSE);        // z-tested, never written
+    glBindVertexArray(particleVao_);
+    glBindBuffer(GL_ARRAY_BUFFER, particleVbo_);
+    glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(buf.size() * sizeof(float)), buf.data(),
+                 GL_DYNAMIC_DRAW);
     glDrawArrays(GL_TRIANGLES, 0, (GLsizei)(buf.size() / 9));
     glDepthMask(GL_TRUE);
     glDisable(GL_BLEND);

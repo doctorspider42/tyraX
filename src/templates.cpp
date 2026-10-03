@@ -62,6 +62,7 @@
 #include "roadrail.hpp"  // rails + tram tracks, baked into the kerb tables
 #include "roaddetail.hpp"  // road details: host-baked decals (docs/roads.md)
 #include "roadfurniture.hpp"  // street furniture: host-baked lamps, trees, signs
+#include "roadlight.hpp"  // lit street lamps + weather (docs/weather.md)
 #include "roadstream.hpp"  // road streaming: the runtime cut from buildRoads' own text
 #include "roadlanes.hpp"   // road traffic: the lane graph and the traffic core (docs/traffic.md)
 #include "roadfile.hpp"  // road tables on disk: bin/roadfile/roads.bin + its directory
@@ -224,6 +225,31 @@ static bool projectHasRoadFurniture(const Project& p) {
             if (o.type == PrimitiveType::Road && o.roadPoints.size() >= 4 &&
                 roadfurn::any({o.roadFurniture}))
                 return true;
+    return false;
+}
+
+// Lit street lamps (docs/weather.md): a road with furniture lamps in a scene
+// whose lamps are not Off. The gate of the pool rows, ROAD_LAMPS and the
+// lamp runtime - a project without one keeps its exact source.
+bool projectHasLitLamps(const Project& p) {
+    for (const SceneData& sc : p.scenes) {
+        if (sc.streetLamps == 2) continue;
+        for (const SceneObject& o : sc.objects)
+            if (o.type == PrimitiveType::Road && o.roadPoints.size() >= 4 && !o.roadBridge &&
+                o.roadFurniture.lamps.spacing > 0.0f)
+                return true;
+    }
+    return false;
+}
+
+// Weather (docs/weather.md): a scene that rains, or a graph that can make it.
+bool projectUsesWeather(const Project& p) {
+    for (const SceneData& sc : p.scenes) {
+        if (sc.weather != 0) return true;
+        for (const SceneObject& o : sc.objects)
+            for (const FlowNode& n : o.flowGraph.nodes)
+                if (n.type == "SetWeather") return true;
+    }
     return false;
 }
 
@@ -7791,8 +7817,32 @@ static std::string dayNightHeader(const Project& p) {
            "  if (len > 0.001F) g_hour = wrap24(g_hour + dt * (24.0F / len));\n"
            "  evaluate(scene, g_hour);\n"
            "}\n\n"
-           "}  // namespace daynight\n"
-           "}  // namespace " << ns << "\n";
+           "}  // namespace daynight\n";
+    // Weather and street lamps (docs/weather.md): only a project that has
+    // either gets the block, so every other project's header is unchanged.
+    const bool lamps = projectHasLitLamps(p), weather = projectUsesWeather(p);
+    if (lamps || weather) {
+        // A weather-only project still compiles the lamp runtime: it gets an
+        // empty ROAD_LAMPS (a project with lamps has the real one in
+        // scene_data.hpp).
+        if (!lamps) out << "\n" << roadlight::emptyLampTableSource();
+        std::vector<roadlight::SceneWeather> sw;
+        for (const SceneData& sc : p.scenes) {
+            roadlight::SceneWeather w;
+            w.weather = sc.weather;
+            w.intensity = sc.weatherIntensity;
+            w.lamps = sc.streetLamps;
+            // Auto in a scene whose cycle does not run: the level at the hour
+            // it is baked at. No cycle at all: day, lamps off.
+            if (const DayCycle* c = sceneDayCycle(p, sc))
+                if (!c->runtime)
+                    w.staticLevel = roadlight::lampLevelFromSun(
+                        ambience::evaluate(*c, ambience::bakedHour(*c)).sunDir[1]);
+            sw.push_back(w);
+        }
+        out << roadlight::weatherHeaderSource(sw);
+    }
+    out << "}  // namespace " << ns << "\n";
     return out.str();
 }
 
@@ -9313,6 +9363,11 @@ static std::string sceneDataContent(const Project& p, const std::string& ns,
             // the same roads, plan and signals.
             const bool hasTraffic = roadlanes::projectHasTraffic(p);
             roadlanes::Tables trafficTables;
+            // Lit street lamps (docs/weather.md): pool rows ride in the
+            // furniture's own table, ROAD_LAMPS beside it.
+            const bool litLamps = projectHasLitLamps(p);
+            furnTables.lit = litLamps;
+            std::vector<std::pair<int, roadlight::Lamp>> litLampRows;
             for (size_t si = 0; si < p.scenes.size(); ++si)
                 for (const SceneObject& o : p.scenes[si].objects) {
                     if (o.type != PrimitiveType::Road || o.roadPoints.size() < 4)
@@ -9628,6 +9683,39 @@ static std::string sceneDataContent(const Project& p, const std::string& ns,
                         for (const roadfurn::Instance& in : fr.instances)
                             if (in.kind == roadfurn::kSignal) furnSignals.push_back(in);
                         furnTables.add((int)si, fr);
+                        // Lit street lamps (docs/weather.md): a pool of light
+                        // under every lamp, laid on the drawn surface, as more
+                        // ROAD_FURN rows (the furniture's cells, its streaming
+                        // items, its roadfile pages) - plus each lamp's row in
+                        // ROAD_LAMPS for the coronas and the wet streaks. A
+                        // scene whose lamps are Off bakes none.
+                        if (litLamps && sc.streetLamps != 2) {
+                            roadgen::Surface lampSurf;
+                            lampSurf.add(roadTriangles);
+                            lampSurf.add(markSurfaceTris);
+                            roadgen::addPavementsToSurface(lampSurf, furnPave);
+                            lampSurf.build();
+                            const roadgen::HeightFn top = [&](float x, float z) {
+                                const float s = lampSurf.at(x, z), g = ground(x, z);
+                                return s != roadgen::Surface::kNone && s > g ? s : g;
+                            };
+                            std::vector<roadlight::Lamp> lamps = roadlight::lampsOf(fr);
+                            const roadlight::Pools pools = roadlight::bakePools(lamps, top);
+                            std::vector<float> xyz;
+                            std::vector<uint32_t> uv;
+                            for (const roadgen::Vertex& v : pools.tris) {
+                                xyz.insert(xyz.end(), {v.x, v.y, v.z});
+                                uv.push_back(roadlight::packUv(v.u, v.v));
+                            }
+                            std::ostringstream note;
+                            if (!lamps.empty())
+                                note << "// scene " << si << ": " << lamps.size()
+                                     << " lit lamps, pools " << pools.tris.size()
+                                     << " vertices in " << pools.chunkSizes.size()
+                                     << " chunks\n";
+                            furnTables.addLight((int)si, xyz, uv, pools.chunkSizes, note.str());
+                            for (const roadlight::Lamp& L : lamps) litLampRows.push_back({(int)si, L});
+                        }
                     }
                 }
                 if (hasTraffic) {
@@ -9926,6 +10014,7 @@ static std::string sceneDataContent(const Project& p, const std::string& ns,
                 // byte-identical.
                 if (hasFurniture) {
                     out << furnTables.source(!onDisk);
+                    if (litLamps) out << roadlight::lampTableSource(litLampRows);
                     if (onDisk)
                         for (size_t fi = 0; fi < furnTables.rows.size(); ++fi) {
                             const roadfurn::Tables::Row& fr = furnTables.rows[fi];
@@ -19642,7 +19731,7 @@ void TerrainGame::buildRoads(int scene) {
     if (projectHasRoadFurniture(p)) {
         const std::string anchor = "  if (any) procFinishChunks();";
         const size_t at = s.find(anchor);
-        if (at != std::string::npos) s.insert(at, roadfurn::uploadSource());
+        if (at != std::string::npos) s.insert(at, roadfurn::uploadSource(projectHasLitLamps(p)));
     }
     return s;
 }
@@ -19657,7 +19746,7 @@ static roadstream::Emitted roadStreamEmit(const Project& p) {
     if (projectHasKerbs(p)) src.kerbs = roadKerbsUpload();
     if (projectHasRoadDetails(p)) src.details = roadDetailsUpload();
     if (projectHasBridges(p)) src.bridges = roadbridge::uploadSource();
-    if (projectHasRoadFurniture(p)) src.furniture = roadfurn::uploadSource();
+    if (projectHasRoadFurniture(p)) src.furniture = roadfurn::uploadSource(projectHasLitLamps(p));
     {
         const std::string tpl = TPL_GAME_COLLISION;
         const size_t a = tpl.find("void TerrainGame::procFinishChunks() {");
@@ -20195,6 +20284,19 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
     }
     // Road traffic (docs/traffic.md): the four hooks in the vehicle runtime.
     if (roadlanes::projectHasTraffic(p)) s = roadlanes::patchTemplate(s);
+    // Lit street lamps and weather (docs/weather.md): the lamp pools' bag,
+    // the wet tint, the coronas, the rain and their hooks. Last, so the
+    // streaming copy of procFinishChunks above takes the same patch. A project
+    // with neither keeps its exact source.
+    {
+        roadlight::Gates g;
+        g.lamps = projectHasLitLamps(p);
+        g.weather = projectUsesWeather(p);
+        for (const SceneData& sc : p.scenes)
+            for (const SceneObject& o : sc.objects)
+                g.roads = g.roads || (o.type == PrimitiveType::Road && o.roadPoints.size() >= 4);
+        s = roadlight::patchTemplate(s, g);
+    }
     return s;
 }
 
@@ -22103,6 +22205,8 @@ std::string flowGraphScript(const Project& p) {
     if (anyNav)
         out << "#include \"scripts/navigation.gen.hpp\"  // AI nodes "
                "(Patrol/Chase/Flee/On Player Seen)\n";
+    if (uses("SetWeather"))
+        out << "#include \"daynight.gen.hpp\"  // Set Weather (docs/weather.md)\n";
     if (dbgOn)
         out << "#include \"scripts/live_debug.gen.hpp\"  // Live Debugger "
                "hits / halt / force-fire\n";
@@ -24267,6 +24371,14 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
             } else if (n.type == "SetFlashlight") {
                 c << pad << "ctx.flashlight = " << (n.num[0] != 0.0f ? "1" : "0")
                   << ";\n";
+            } else if (n.type == "SetWeather") {
+                // docs/weather.md: straight into the weather state the game
+                // ticks (daynight.gen.hpp), not through ScriptContext.
+                float in = n.num[1];
+                in = in < 0.0f ? 0.0f : (in > 1.0f ? 1.0f : in);
+                const float sec = n.num[2] > 0.0f ? n.num[2] : 0.0f;
+                c << pad << "weather::request(" << ((int)n.num[0] == 1 ? 1 : 0) << ", "
+                  << floatLit(in) << ", " << floatLit(sec) << ");\n";
             } else if (n.type == "SetFog") {
                 c << pad << "ctx.fog = " << (n.num[0] != 0.0f ? "1" : "0") << ";\n";
             } else if (n.type == "SetParticles") {

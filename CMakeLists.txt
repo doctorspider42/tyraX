@@ -230,9 +230,26 @@ add_custom_command(
             ${CMAKE_SOURCE_DIR}/cmake/embed_binary.cmake
     COMMENT "Embedding src/traffic_core.inl")
 
+# --- Embedded weather core (src/weather_core.inl) ---
+# The same arrangement (docs/weather.md): the editor compiles it for the
+# viewport preview and --vehicle-check, and the codegen pastes the same bytes
+# into a generated game's daynight.gen.hpp (roadlight::weatherHeaderSource).
+set(WEATHER_CORE_GEN ${CMAKE_BINARY_DIR}/generated/weather_core_gen.hpp)
+add_custom_command(
+    OUTPUT ${WEATHER_CORE_GEN}
+    COMMAND ${CMAKE_COMMAND}
+            -DSRC_FILE=${CMAKE_SOURCE_DIR}/src/weather_core.inl
+            -DOUT_FILE=${WEATHER_CORE_GEN}
+            -DNAMESPACE=weathersrc -DSYMBOL=kCore
+            -P ${CMAKE_SOURCE_DIR}/cmake/embed_binary.cmake
+    DEPENDS ${CMAKE_SOURCE_DIR}/src/weather_core.inl
+            ${CMAKE_SOURCE_DIR}/cmake/embed_binary.cmake
+    COMMENT "Embedding src/weather_core.inl")
+
 add_custom_target(tyrax-generated
     DEPENDS ${AI_SUPPORT_GEN} ${DOCS_GEN} ${APP_ICON_GEN} ${MOON_MAP_GEN}
-            ${BLSS_NET_GEN} ${BLSS_META_GEN} ${ROADSTREAM_CORE_GEN} ${TRAFFIC_CORE_GEN})
+            ${BLSS_NET_GEN} ${BLSS_META_GEN} ${ROADSTREAM_CORE_GEN} ${TRAFFIC_CORE_GEN}
+            ${WEATHER_CORE_GEN})
 
 # --- Editor ---
 add_executable(tyrax-editor
@@ -365,6 +382,7 @@ add_executable(tyrax-editor
     src/roaddraw_ui.cpp
     src/roadfurniture.cpp
     src/roadfurniture_ui.cpp
+    src/roadlight.cpp
     src/roadpresets.cpp
     src/roadstream.cpp
     src/roadlanes.cpp

@@ -146,8 +146,9 @@ is not:
   at the stop lines, traffic lights at four-way nodes): done (format 101,
   docs/roads.md "Street furniture"; host-baked merged vertex-colour chunks,
   owner -7, 80-unit draw distance, pole/trunk boxes in procColliders; about
-  +0.6 ms EE in PCSX2 on the Motor District). Still open: **lamps that light**
-  (one light per lamp needs a nearest-N budget per frame first), prefabs as
+  +0.6 ms EE in PCSX2 on the Motor District). ~~**Lamps that light**~~: done
+  without dynamic lights (docs/weather.md: baked pools in the furniture rows,
+  per-frame halos and wet streaks). Still open: prefabs as
   furniture models, furniture as baked-shadow casters, lighter or stripped
   models if the cost shows on a console, left-hand traffic for the signs, a
   draw-distance setting, and a physical-PS2 pass.
@@ -161,6 +162,33 @@ is not:
 - ~~**Snapping in the editor**~~ done: the Draw road tool snaps to ends and
   centre lines, and releasing a dragged road END in Edit in viewport lands it
   on the road under it (docs/roads.md "Drawing roads").
+
+## Weather and lit street lamps: what the first version left out (2026-10-03)
+
+docs/weather.md. Built: rain round the camera, the wet-asphalt tint, Set
+Weather, furniture lamps' baked pools, halos and wet reflection streaks, all
+verified in PCSX2 only.
+
+- **Physical PS2.** Nothing was measured on a console: the `Road_lamps` row
+  (0.5 ms in PCSX2, +0.25 ms with streaks, +0.1 ms rain) includes the GS fill
+  of the near pools, and how much of it is EE was not split.
+- **The viewport preview was not looked at.** It is compiled and wired (pools,
+  halos, streaks, wet tint from the scene and the previewed hour), but the
+  editor GUI was not launched for the change: take a `--ui-script` shot of the
+  Motor District at night and in the rain.
+- **Puddles**: a road-details decal kind drawn only when wet (its alpha by
+  wetness, so it needs its own colour like the pools).
+- **Car-light streaks** on a wet road under the headlights and tail lights
+  (the vehicle lamp glow positions are known per car; the streak is the lamp
+  streak's geometry).
+- **Bucket the lamps by cell** for the halo/streak pass: it walks every lamp
+  of the scene each frame (1 404 in the Big City test, fine there).
+- **Object lamps.** Big City's lamps are scene objects, so they do not light;
+  moving its generator to furniture lamps would light the city.
+- **Rain occlusion and splashes**: rain falls through bridges and roofs, and
+  nothing splashes.
+- **Set Weather in Live Logic** (an opcode writing the weather state).
+- Reflection views (the env probe) show no pools, halos or rain.
 
 ## Road drawing: what the first version left out (2026-10-03)
 

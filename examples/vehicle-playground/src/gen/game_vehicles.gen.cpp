@@ -706,10 +706,21 @@ void TerrainGame::buildRoads(int scene) {
       c.owner = -7;
       c.drawDist = ROAD_FURN_DRAW_DISTANCE;
       c.stripRun = 0;
+      c.lampLight = fr.light;
+      if (fr.light) {
+        c.drawDist = ROAD_LAMP_DRAW_DISTANCE;
+        c.roadTex = beamCoronaTex;
+        c.colors.shrink_to_fit();  // no per-vertex colour: one per frame
+      }
       for (int v = 0; v < fr.count; ++v) {
         const float* p = &ROAD_FURN_VERTS[(size_t)(fr.first + v) * 3];
         const unsigned int rgb = ROAD_FURN_RGB[fr.first + v];
         c.vertices.push_back(Tyra::Vec4(p[0], p[1], p[2], 1.0F));
+        if (fr.light) {
+          c.sts.push_back(Tyra::Vec4((float)((rgb >> 12) & 4095U) * (1.0F / 4095.0F),
+                                     (float)(rgb & 4095U) * (1.0F / 4095.0F), 1.0F, 0.0F));
+          continue;
+        }
         c.colors.push_back(Tyra::Color((float)((rgb >> 16) & 255U) * k,
                                        (float)((rgb >> 8) & 255U) * k,
                                        (float)(rgb & 255U) * k, 128.0F));
@@ -6816,6 +6827,273 @@ void TerrainGame::renderVehicleWheels() {
 #endif
 }
 
+
+
+
+// ---------------------------------------------------------------------------
+// Street lamps and weather (docs/weather.md). The lamps' pools are host-baked
+// furniture rows (ProcChunk::lampLight); the coronas and the wet streaks are
+// rebuilt here from ROAD_LAMPS for the lamps near the camera; the rain is a
+// billboard bag wrapped round the camera. All of it is gated on two numbers
+// updateWeather computes once a frame: the lamps' level and the wetness.
+// ---------------------------------------------------------------------------
+constexpr int kRoadLampCoronas = 64;      // per frame, nearest-first is not needed: few are near
+constexpr int kRoadLampStreaks = 32;
+constexpr float kRoadLampCoronaFar = 160.0F;
+constexpr float kRoadLampCoronaFade = 110.0F;
+constexpr float kRoadLampStreakFar = 55.0F;
+constexpr int kRainDrops = 240;
+constexpr float kRainBox = 11.0F;         // half width of the box round the camera
+constexpr float kRainBelow = 4.0F, kRainHeight = 14.0F;
+
+void TerrainGame::updateWeather() {
+  const float dt = g_gameplayPaused ? 0.0F : g_frameDt;
+  weather::g_state.tick(dt);
+  if (roadLampScene_ != currentScene) {
+    // This scene's run of ROAD_LAMPS (the table is in scene order).
+    roadLampScene_ = currentScene;
+    roadLampFirst_ = roadLampEnd_ = 0;
+    for (int i = 0; i < ROAD_LAMP_COUNT; ++i) {
+      const int s = (int)ROAD_LAMPS[(size_t)i * 10];
+      if (s == currentScene) {
+        if (roadLampEnd_ == roadLampFirst_) roadLampFirst_ = i;
+        roadLampEnd_ = i + 1;
+      }
+    }
+  }
+  // The lamps' level: the scene's mode, the live sun, or the baked hour.
+  float lamp = 0.0F;
+  const int sc = currentScene >= 0 && currentScene < SCENE_COUNT ? currentScene : 0;
+  const int mode = weather::SCENE_LAMP_MODES[sc];
+  if (mode == 1)
+    lamp = 1.0F;
+  else if (mode == 0)
+    lamp = daynight::active(sc) ? weather::weatherLampLevel(daynight::g_sun[1])
+                                : weather::SCENE_LAMP_STATIC[sc];
+  roadLampLevel_ = lamp;
+  // Emissive light must not be darkened by the night's full-screen grade a
+  // second time: the sky bodies' compensation (daynight::g_comp) applies.
+  for (int a = 0; a < 3; ++a)
+    roadLampComp_[a] = daynight::gradeOn(sc) ? daynight::g_comp[a] : 1.0F;
+  auto c255 = [](float v) { return v > 255.0F ? 255.0F : v; };
+  roadLampPoolColor_ = Tyra::Color(c255(112.0F * lamp * roadLampComp_[0]),
+                                   c255(84.0F * lamp * roadLampComp_[1]),
+                                   c255(48.0F * lamp * roadLampComp_[2]), 128.0F);
+  // Wet asphalt: darker and a little cooler. 128 = dry = the texture as is.
+  const float w = weather::g_state.wet;
+  roadWetTint_ = Tyra::Color(128.0F - w * 58.0F, 128.0F - w * 55.0F, 128.0F - w * 46.0F, 128.0F);
+  updateRain(dt);
+}
+
+void TerrainGame::updateRain(float dt) {
+  const float rain = weather::g_state.rain;
+  if (rain < 0.01F && rainPos_.empty()) return;
+  if (!rainBag_) {
+    rainPos_.assign(kRainDrops, Tyra::Vec4(0.0F, 0.0F, 0.0F, 1.0F));
+    rainParams_.assign(kRainDrops, Tyra::Vec4(0.0F, 0.0F, 0.0F, 0.0F));
+    rainCols_.assign(kRainDrops, Tyra::Color(170.0F, 178.0F, 196.0F, 84.0F));
+    for (int i = 0; i < kRainDrops; ++i) {
+      rainPos_[(size_t)i] = Tyra::Vec4(
+          cameraPosition.x + (prand(rainRng_) - 0.5F) * 2.0F * kRainBox,
+          cameraPosition.y - kRainBelow + prand(rainRng_) * kRainHeight,
+          cameraPosition.z + (prand(rainRng_) - 0.5F) * 2.0F * kRainBox, 1.0F);
+      // A streak: 3.2 cm wide, 0.75-1.2 long, hanging from world-up (the rain
+      // emitter's basis - its weights are not negated, it has no up side).
+      const float len = 0.38F + 0.22F * prand(rainRng_);
+      rainParams_[(size_t)i] = Tyra::Vec4(0.016F, 0.0F, 0.0F, len);
+    }
+    rainInfo_ = std::make_unique<Tyra::StaPipInfoBag>();
+    rainInfo_->model = &model;
+    rainInfo_->shadingType = Tyra::TyraShadingGouraud;
+    rainInfo_->frustumCulling = Tyra::PipelineInfoBagFrustumCulling_None;  // billboard: VU1 culls
+    rainInfo_->fullClipChecks = false;
+    rainInfo_->zTestType = Tyra::PipelineZTest_TestOnly;
+    rainColorBag_ = std::make_unique<Tyra::StaPipColorBag>();
+    rainTexBag_ = std::make_unique<Tyra::StaPipTextureBag>();
+    rainTexBag_->texture = nullptr;
+    rainBillboard_ = std::make_unique<Tyra::StaPipBillboardBag>();
+    rainBag_ = std::make_unique<Tyra::StaPipBag>();
+    rainBag_->info = rainInfo_.get();
+    rainBag_->color = rainColorBag_.get();
+    rainBag_->texture = rainTexBag_.get();
+    rainBag_->lighting = nullptr;
+    rainBag_->billboard = rainBillboard_.get();
+    rainCols_.bind(rainColorBag_);
+    rainParams_.bind(rainTexBag_);
+  }
+  // Fall, drift, and wrap round the camera: the box moves with the view, so a
+  // car at 26 units/s drives through rain rather than out of it.
+  const float fall = 17.0F * dt, drift = 1.2F * dt;
+  const float cx = cameraPosition.x, cy = cameraPosition.y, cz = cameraPosition.z;
+  for (int i = 0; i < kRainDrops; ++i) {
+    Tyra::Vec4& p = rainPos_[(size_t)i];
+    p.y -= fall;
+    p.x += drift;
+    if (p.x - cx > kRainBox) p.x -= 2.0F * kRainBox;
+    else if (p.x - cx < -kRainBox) p.x += 2.0F * kRainBox;
+    if (p.z - cz > kRainBox) p.z -= 2.0F * kRainBox;
+    else if (p.z - cz < -kRainBox) p.z += 2.0F * kRainBox;
+    if (p.y - cy < -kRainBelow) p.y += kRainHeight;
+    else if (p.y - cy > kRainHeight - kRainBelow) p.y -= kRainHeight;
+  }
+  rainPos_.bind(rainBag_);
+  rainBag_->count = (u32)((float)kRainDrops * (rain > 1.0F ? 1.0F : rain));
+}
+
+void TerrainGame::renderRain() {
+  if (!rainBag_ || rainBag_->count == 0) return;
+  Vec4 fwd = cameraLookAt - cameraPosition;
+  float rx = fwd.z, rz = -fwd.x;
+  const float rl = sqrtf(rx * rx + rz * rz);
+  if (rl > 0.0001F) rx /= rl, rz /= rl;
+  else rx = 1.0F, rz = 0.0F;
+  rainBillboard_->right = Vec4(rx, 0.0F, rz, 0.0F);
+  rainBillboard_->up = Vec4(0.0F, 1.0F, 0.0F, 0.0F);
+  stapip.core.render(rainBag_.get());
+}
+
+void TerrainGame::renderRoadLamps() {
+  const float lv = roadLampLevel_;
+  if (lv < 0.004F || !beamCoronaTex) return;
+  // 1. The pools: host-baked additive decals, coloured by roadLampPoolColor_.
+  //    Drawn here, after the whole scene, so the asphalt under them is
+  //    already in the frame whatever order the interleaved passes chose.
+  for (ProcChunk& c : procChunks) {
+    if (!c.lampLight || !c.bag || c.bag->count == 0) continue;
+    const Tyra::Vec4 mn(c.aabbMin[0], c.aabbMin[1], c.aabbMin[2], 1.0F);
+    const Tyra::Vec4 mx(c.aabbMax[0], c.aabbMax[1], c.aabbMax[2], 1.0F);
+    if (Tyra::CoreBBox::frustumCheckAABB(
+            engine->renderer.core.renderer3D.frustumPlanes.getAll(), mn, mx) ==
+        Tyra::CoreBBoxFrustum::OUTSIDE_FRUSTUM)
+      continue;
+    if (c.drawDist > 0.0F) {
+      const float dx = c.centre[0] - cameraPosition.x;
+      const float dy = c.centre[1] - cameraPosition.y;
+      const float dz = c.centre[2] - cameraPosition.z;
+      if (dx * dx + dy * dy + dz * dz > c.drawDist * c.drawDist) continue;
+    }
+    if (splitBandActive && outsideSplitBand(c.aabbMin, c.aabbMax)) continue;
+    stapip.core.render(c.bag.get());
+  }
+  // 2. Coronas round the lamp heads and, on a wet road, each lamp's
+  //    reflection: a streak lying on the road from under the lamp toward the
+  //    viewer, centred where a mirror would show it. One additive bag.
+  if (roadLampEnd_ <= roadLampFirst_) return;
+  if (!roadLampSprBag_) {
+    roadLampSprVerts_.reserve((kRoadLampCoronas + kRoadLampStreaks) * 6);
+    roadLampSprSts_.reserve((kRoadLampCoronas + kRoadLampStreaks) * 6);
+    roadLampSprCols_.reserve((kRoadLampCoronas + kRoadLampStreaks) * 6);
+    roadLampSprInfo_ = std::make_unique<Tyra::StaPipInfoBag>();
+    roadLampSprInfo_->model = &model;
+    roadLampSprInfo_->shadingType = Tyra::TyraShadingGouraud;
+    roadLampSprInfo_->frustumCulling = Tyra::PipelineInfoBagFrustumCulling_Precise;
+    roadLampSprInfo_->zTestType = Tyra::PipelineZTest_TestOnly;  // occluded, never writes z
+    roadLampSprInfo_->fullClipChecks = true;
+    roadLampSprInfo_->additiveBlendFix = 128;
+    roadLampSprInfo_->fogDisabled = true;  // additive: fog would ADD its colour
+    roadLampSprInfo_->dynLightPick = false;
+    roadLampSprInfo_->spotLit = false;
+    roadLampSprColorBag_ = std::make_unique<Tyra::StaPipColorBag>();
+    roadLampSprTexBag_ = std::make_unique<Tyra::StaPipTextureBag>();
+    roadLampSprTexBag_->texture = beamCoronaTex;
+    roadLampSprBag_ = std::make_unique<Tyra::StaPipBag>();
+    roadLampSprBag_->info = roadLampSprInfo_.get();
+    roadLampSprBag_->color = roadLampSprColorBag_.get();
+    roadLampSprBag_->texture = roadLampSprTexBag_.get();
+    roadLampSprBag_->lighting = nullptr;
+  }
+  roadLampSprVerts_.clear();
+  roadLampSprSts_.clear();
+  roadLampSprCols_.clear();
+  const float ex = cameraPosition.x, ey = cameraPosition.y, ez = cameraPosition.z;
+  float fx = cameraLookAt.x - ex, fy = cameraLookAt.y - ey, fz = cameraLookAt.z - ez;
+  const float fl = sqrtf(fx * fx + fy * fy + fz * fz);
+  if (fl < 1e-4F) return;
+  fx /= fl, fy /= fl, fz /= fl;
+  float rx = fz, rz = -fx;
+  const float rl = sqrtf(rx * rx + rz * rz);
+  if (rl > 1e-4F) rx /= rl, rz /= rl;
+  else rx = 1.0F, rz = 0.0F;
+  const float ux = -rz * fy, uy = rz * fx - rx * fz, uz = rx * fy;
+  const float wet = weather::g_state.wet;
+  int coronas = 0, streaks = 0;
+  auto put = [&](float x, float y, float z, float u, float v, const Tyra::Color& col) {
+    roadLampSprVerts_.push_back(Tyra::Vec4(x, y, z, 1.0F));
+    roadLampSprSts_.push_back(Tyra::Vec4(u, v, 1.0F, 0.0F));
+    roadLampSprCols_.push_back(col);
+  };
+  for (int li = roadLampFirst_; li < roadLampEnd_; ++li) {
+    const float* L = &ROAD_LAMPS[(size_t)li * 10];
+    const float dx = L[1] - ex, dy = L[2] - ey, dz = L[3] - ez;
+    const float d2 = dx * dx + dy * dy + dz * dz;
+    if (d2 > kRoadLampCoronaFar * kRoadLampCoronaFar) continue;
+    if (dx * fx + dy * fy + dz * fz < -2.0F) continue;  // behind the camera
+    const float d = sqrtf(d2);
+    if (coronas < kRoadLampCoronas) {
+      const float fade = d > kRoadLampCoronaFade
+                             ? (kRoadLampCoronaFar - d) / (kRoadLampCoronaFar - kRoadLampCoronaFade)
+                             : 1.0F;
+      // Half size grows a little with distance, so a far lamp is still a
+      // point of light rather than a sub-pixel speck; pulled toward the
+      // camera so it is not cut by its own lamp head.
+      const float s = 0.55F + 0.011F * d;
+      const float pull = d > 1.0F ? (d * 0.5F < 0.7F ? d * 0.5F : 0.7F) / d : 0.0F;
+      const float cx = L[1] - dx * pull, cy = L[2] - dy * pull, cz = L[3] - dz * pull;
+      const float k = lv * fade;
+      const Tyra::Color col(118.0F * k * roadLampComp_[0], 100.0F * k * roadLampComp_[1],
+                            74.0F * k * roadLampComp_[2], 128.0F);
+      // Corners c -/+ right*s -/+ up*s.
+      const float px = rx * s, pz = rz * s;
+      const float qx = ux * s, qy = uy * s, qz = uz * s;
+      put(cx - px - qx, cy - qy, cz - pz - qz, 0.0F, 0.0F, col);
+      put(cx + px - qx, cy - qy, cz + pz - qz, 1.0F, 0.0F, col);
+      put(cx + px + qx, cy + qy, cz + pz + qz, 1.0F, 1.0F, col);
+      put(cx - px - qx, cy - qy, cz - pz - qz, 0.0F, 0.0F, col);
+      put(cx + px + qx, cy + qy, cz + pz + qz, 1.0F, 1.0F, col);
+      put(cx - px + qx, cy + qy, cz - pz + qz, 0.0F, 1.0F, col);
+      ++coronas;
+    }
+    if (wet > 0.02F && d < kRoadLampStreakFar && streaks < kRoadLampStreaks) {
+      float tx = ex - L[4], tz = ez - L[6];
+      const float hd = sqrtf(tx * tx + tz * tz);
+      if (hd < 0.5F) continue;
+      tx /= hd, tz /= hd;
+      const float hgt = L[2] - L[5] > 0.5F ? L[2] - L[5] : 0.5F;
+      const float eyeH = ey - L[5] > 0.3F ? ey - L[5] : 0.3F;
+      const float m = hd * hgt / (hgt + eyeH);  // the mirror point, from the foot
+      float half = 0.5F * m + 1.2F;
+      if (half > L[9] * 1.6F) half = L[9] * 1.6F;
+      const float mx = L[4] + tx * m, mz = L[6] + tz * m;
+      const float wd = 0.30F + 0.006F * d;
+      const float nx = -tz * wd, nz = tx * wd;
+      const float fade = d > kRoadLampStreakFar * 0.7F
+                             ? (kRoadLampStreakFar - d) / (kRoadLampStreakFar * 0.3F)
+                             : 1.0F;
+      const float k = lv * wet * fade;
+      const Tyra::Color col(96.0F * k * roadLampComp_[0], 80.0F * k * roadLampComp_[1],
+                            58.0F * k * roadLampComp_[2], 128.0F);
+      auto yAt = [&](float x, float z) {
+        return L[5] + L[7] * (x - L[4]) + L[8] * (z - L[6]) + 0.07F;
+      };
+      const float x0 = mx - tx * half, z0 = mz - tz * half;  // the lamp's end
+      const float x1 = mx + tx * half, z1 = mz + tz * half;  // the viewer's end
+      put(x0 - nx, yAt(x0 - nx, z0 - nz), z0 - nz, 0.0F, 0.0F, col);
+      put(x0 + nx, yAt(x0 + nx, z0 + nz), z0 + nz, 1.0F, 0.0F, col);
+      put(x1 + nx, yAt(x1 + nx, z1 + nz), z1 + nz, 1.0F, 1.0F, col);
+      put(x0 - nx, yAt(x0 - nx, z0 - nz), z0 - nz, 0.0F, 0.0F, col);
+      put(x1 + nx, yAt(x1 + nx, z1 + nz), z1 + nz, 1.0F, 1.0F, col);
+      put(x1 - nx, yAt(x1 - nx, z1 - nz), z1 - nz, 0.0F, 1.0F, col);
+      ++streaks;
+    }
+  }
+  if (roadLampSprVerts_.empty()) return;
+  roadLampSprVerts_.bind(roadLampSprBag_);
+  roadLampSprSts_.bind(roadLampSprTexBag_);
+  roadLampSprCols_.bind(roadLampSprColorBag_);
+  roadLampSprColorBag_->single = nullptr;
+  roadLampSprBag_->bboxVersion = ++g_bboxStamp;
+  stapip.core.render(roadLampSprBag_.get());
+}
 
 
 

@@ -3527,6 +3527,16 @@ struct SceneData {
     // matched to a computed crossing by road-id pair + nearest position
     // (roadgen::planCrossings). Empty in every scene that never used one.
     std::vector<roadgen::JunctionOverride> roadJunctions;
+
+    // Weather and street lamps (docs/weather.md, format v107), each written
+    // only off its default. `weather` is what a scene load starts with (0 dry,
+    // 1 rain; the Set Weather flow node changes it at runtime) and
+    // `weatherIntensity` how hard it rains (0..1). `streetLamps` decides when
+    // the road furniture's lamps light: 0 Auto (by the day/night cycle's sun,
+    // off in a scene without one), 1 Always on, 2 Off (no pools baked).
+    int weather = 0;
+    float weatherIntensity = 1.0f;
+    int streetLamps = 0;
 };
 
 inline bool operator==(const SceneData& a, const SceneData& b) {
@@ -3542,7 +3552,8 @@ inline bool operator==(const SceneData& a, const SceneData& b) {
            a.overrides == b.overrides && a.settings == b.settings &&
            a.ambiencePreset == b.ambiencePreset &&
            a.loadingScreen == b.loadingScreen &&
-           a.roadJunctions == b.roadJunctions;
+           a.roadJunctions == b.roadJunctions && a.weather == b.weather &&
+           a.weatherIntensity == b.weatherIntensity && a.streetLamps == b.streetLamps;
 }
 
 // One selectable row of a generated in-game menu.

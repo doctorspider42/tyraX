@@ -6191,7 +6191,11 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // timing and left-hand traffic - an object of only the keys that differ from
 // the defaults, written only when any does. Missing = no traffic, as before.
 // Additive; no migration step.
-inline constexpr int kFormatVersion = 106;
+// v107 (docs/weather.md): a scene's "weather" (1 = rain, written only when
+// not 0), "weatherIntensity" (only when not 1) and "streetLamps" (1 always
+// on, 2 off; only when not 0 = auto). Missing = dry, lamps by the day/night
+// cycle. Additive; no migration step.
+inline constexpr int kFormatVersion = 107;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

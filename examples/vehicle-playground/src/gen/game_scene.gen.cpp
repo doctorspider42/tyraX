@@ -1023,6 +1023,7 @@ void TerrainGame::loadScene(int sceneIndex) {
     // what the editor previewed rather than wherever the last scene's clock got
     // to. Must happen BEFORE buildSkyDome, which bakes the zenith in.
     daynight::reset(sceneIndex);
+    weather::reset(sceneIndex);  // docs/weather.md
     if (daynight::active(sceneIndex)) {
       skyHorizonR = daynight::g_sky[0] * 255.0F;
       skyHorizonG = daynight::g_sky[1] * 255.0F;

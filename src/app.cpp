@@ -3015,6 +3015,7 @@ void App::drawViewportWindow() {
             // previewed preset while the editor is open, the scene's own
             // otherwise - so they are visible during ordinary scene work too.
             updateSkyBodyPreview(preview ? selectedAmbience_ : -1);
+            updateRoadWeatherPreview(preview ? selectedAmbience_ : -1);
         }
         // Layer eye toggles: objects on hidden layers vanish from the render
         // and the click picking (mask indices parallel project_.objects()).
@@ -12338,6 +12339,28 @@ void App::drawAmbienceDayCycle(bool& changed) {
     if (changed) project::clampDayCycle(c);
 }
 
+// Weather and street lamps (docs/weather.md): the street lamps' level from the
+// scene's lamp mode and the previewed hour (the same core function the game
+// runs on its live sun), and the roads' wetness from the scene's authored
+// weather - the state a scene load starts with.
+void App::updateRoadWeatherPreview(int presetIndex) {
+    const SceneData& sc = project_.active();
+    float lamp = 0.0f;
+    if (sc.streetLamps == 1) {
+        lamp = 1.0f;
+    } else if (sc.streetLamps == 0) {
+        const DayCycle* c = nullptr;
+        if (presetIndex >= 0 && presetIndex < (int)project_.ambiencePresets.size()) {
+            const DayCycle& pc = project_.ambiencePresets[presetIndex].cycle;
+            if (pc.enabled) c = &pc;
+        } else {
+            c = templates::sceneDayCycle(project_, sc);
+        }
+        if (c) lamp = roadlight::lampLevelFromSun(ambience::evaluate(*c, c->time).sunDir[1]);
+    }
+    viewport_.setRoadWeather(lamp, sc.weather == 1 ? sc.weatherIntensity : 0.0f);
+}
+
 // Pushes the sun/moon discs into the viewport, re-baking the moon only when its
 // inputs moved. `presetIndex` >= 0 = preview that preset (the Ambience Editor is
 // showing it); -1 = whatever the active scene resolves to.
@@ -17423,6 +17446,9 @@ void App::openScenePreferences() {
     scenePrefAmbience_ = project_.active().ambiencePreset;
     scenePrefLoading_ = project_.active().loadingScreen;
     scenePrefStart_ = project_.startScene == project_.activeScene;
+    scenePrefWeather_ = project_.active().weather;
+    scenePrefWeatherIntensity_ = project_.active().weatherIntensity;
+    scenePrefStreetLamps_ = project_.active().streetLamps;
     openScenePrefsPopup_ = true;
 }
 
@@ -17566,6 +17592,29 @@ void App::drawScenePreferencesModal() {
         ImGui::TextDisabled("Author screens in Tools > Loading Screens.");
     }
 
+    // Weather and street lamps (docs/weather.md). Scene data, not a
+    // project-settings category: there is nothing to inherit.
+    ImGui::SeparatorText("Weather and street lamps");
+    {
+        const char* weathers[] = {"Dry", "Rain"};
+        ImGui::Combo("Weather", &scenePrefWeather_, weathers, 2);
+        prefHelp("What this scene starts with. Rain falls around the camera and "
+                 "darkens the asphalt; at night the street lamps' reflections "
+                 "streak across the wet road. The Set Weather flow node changes "
+                 "it at runtime.");
+        ImGui::BeginDisabled(scenePrefWeather_ == 0);
+        float pct = scenePrefWeatherIntensity_ * 100.0f;
+        if (ImGui::SliderFloat("Rain intensity", &pct, 0.0f, 100.0f, "%.0f%%"))
+            scenePrefWeatherIntensity_ = std::clamp(pct / 100.0f, 0.0f, 1.0f);
+        ImGui::EndDisabled();
+        const char* lampModes[] = {"Auto (day/night cycle)", "Always on", "Off"};
+        ImGui::Combo("Street lamps", &scenePrefStreetLamps_, lampModes, 3);
+        prefHelp("When the road furniture's lamps light: their pools on the "
+                 "street, their halos and their wet reflections. Auto follows "
+                 "the sun of the scene's day/night cycle (off in a scene without "
+                 "one); Off bakes no pools at all.");
+    }
+
     category("Clipping", ov.clipping, [&] {
         int clipMode = s.clipping == "fast"      ? 2
                        : s.clipping == "precise" ? 1
@@ -17697,6 +17746,9 @@ void App::drawScenePreferencesModal() {
         sc.overrides = scenePrefOverrides_;
         sc.ambiencePreset = scenePrefAmbience_;
         sc.loadingScreen = scenePrefLoading_;
+        sc.weather = scenePrefWeather_;
+        sc.weatherIntensity = scenePrefWeatherIntensity_;
+        sc.streetLamps = scenePrefStreetLamps_;
         if (scenePrefStart_) project_.startScene = scenePrefScene_;
         applyProjectToViewport();
         commitChange();
