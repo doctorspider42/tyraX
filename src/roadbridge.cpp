@@ -601,7 +601,8 @@ void chunkDeck(std::vector<roadgen::Vertex>& tris, std::vector<int>& rowSizes) {
 }
 
 std::string tablesSource(const std::vector<SceneChunk>& rows, const std::vector<float>& verts,
-                         const std::string& notes, const std::vector<float>& boxes) {
+                         const std::string& notes, const std::vector<float>& boxes,
+                         bool embedVerts) {
     std::ostringstream out;
     auto lit = [](float v) {
         char b[48];
@@ -638,6 +639,12 @@ std::string tablesSource(const std::vector<SceneChunk>& rows, const std::vector<
     out << "constexpr RoadBridgeRt ROAD_BRIDGES[" << rows.size() << "] = {\n";
     for (const SceneChunk& r : rows)
         out << "    {" << r.scene << ", " << r.first << ", " << r.count << "},\n";
+    // Tables on disk (docs/roads.md "Tables on disk"): the vertices are in
+    // bin/roadfile/roads.bin; the codegen's road file builder wrote them.
+    if (!embedVerts) {
+        out << "};\n// ROAD_BRIDGE_VERTS: in bin/roadfile/roads.bin.\n";
+        return out.str();
+    }
     out << "};\nconstexpr float ROAD_BRIDGE_VERTS[" << verts.size() << "] = {\n";
     for (size_t k = 0; k + 3 < verts.size(); k += 4)
         out << "    " << lit(verts[k]) << ", " << lit(verts[k + 1]) << ", " << lit(verts[k + 2])

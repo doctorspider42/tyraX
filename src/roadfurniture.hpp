@@ -201,7 +201,9 @@ struct Tables {
     std::vector<float> boxes;        // scene, min xyz, max xyz
     std::string notes;               // "// scene N: ..." lines
     void add(int scene, const Result& r);
-    std::string source() const;
+    // embedVerts false (docs/roads.md "Tables on disk"): the rows, boxes and
+    // counts only - the vertices and colours are in bin/roadfile/roads.bin.
+    std::string source(bool embedVerts = true) const;
 };
 // The block spliced into the generated buildRoads before procFinishChunks:
 // owner -7 chunks (renderProcChunks draws them: frustum reject, the chunk

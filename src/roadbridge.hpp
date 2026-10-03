@@ -160,7 +160,8 @@ struct SceneChunk {
 // `boxes`: scene, min xyz, max xyz, half x, half z, yaw cos, yaw sin - eleven
 // floats per box.
 std::string tablesSource(const std::vector<SceneChunk>& rows, const std::vector<float>& verts,
-                         const std::string& notes, const std::vector<float>& boxes = {});
+                         const std::string& notes, const std::vector<float>& boxes = {},
+                         bool embedVerts = true);
 // Spliced into buildRoads before procFinishChunks.
 std::string uploadSource();
 

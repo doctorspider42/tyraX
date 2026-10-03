@@ -15960,6 +15960,18 @@ void App::drawPreferencesWindow() {
         "(and the terrain view distance) so nothing pops in sight; Suggest\n"
         "uses those. Cars nobody drives stop where their road is not built.\n"
         "0 builds every road at scene load, as before.");
+    if (prefSettings_.roadStreamRadius > 0.0f) {
+        // Tables on disk (docs/roads.md "Tables on disk"): the default reads
+        // the baked rows from bin/roadfile/roads.bin; this keeps them in the ELF.
+        ImGui::Checkbox("Keep road tables in the ELF", &prefSettings_.roadStreamEmbedTables);
+        prefHelp(
+            "Off (the default): the baked road rows - junctions, pavements,\n"
+            "paint, kerbs, rails, bridges, details, street furniture - are\n"
+            "written to bin/roadfile/roads.bin and read piece by piece as the roads\n"
+            "stream, so they cost no EE RAM until they are near. On: they\n"
+            "stay in the ELF, resident for good, as before (no file to ship,\n"
+            "no background reads).");
+    }
 
     // Worst-case resident mesh memory so oversized configs are caught here,
     // not by an out-of-memory PS2. Mirrors the generated game: 6 verts/cell,

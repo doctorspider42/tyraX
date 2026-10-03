@@ -52,6 +52,11 @@
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
+#include <fcntl.h>   // road tables on disk (docs/roads.md)
+#include <kernel.h>
+#include <malloc.h>
+#include <stdlib.h>
+#include <unistd.h>
 #include <algorithm>
 #include <map>
 #include <string>

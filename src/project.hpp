@@ -2104,6 +2104,13 @@ struct ProjectSettings {
     // is built at scene load and stays, and the generated sources are exactly
     // what they were before the setting existed. Saved only when > 0.
     float roadStreamRadius = 0.0f;  // world units, 0 = off
+    // Road tables on disk (docs/roads.md "Tables on disk", format v104): with
+    // roads streaming, the baked per-vertex road tables (junction rows, spills,
+    // edges, kerbs, bridges, details, furniture) go to bin/roadfile/roads.bin and the
+    // ELF keeps a directory of them; the game reads each item when the ring
+    // wants it. True keeps them in the ELF as before (no file, no reader
+    // thread). Saved only when true; meaningless without streaming.
+    bool roadStreamEmbedTables = false;
     // Shared reflection probe: how far the captured image may be out of date
     // before the probe re-renders, IN PIXELS OF ITS OWN 128-pixel target
     // (docs/reflective-materials.md, "The reuse budget"). The probe already
@@ -2556,7 +2563,7 @@ struct ProjectSettings {
     bool highlightOverlay = false;
 };
 
-static_assert(sizeof(ProjectSettings) == 864,
+static_assert(sizeof(ProjectSettings) == 872,
               "ProjectSettings changed size - a field was added or removed. "
               "Add it to operator== below as well, or its Preferences widget "
               "will silently do nothing; then update this number.");
@@ -2626,6 +2633,7 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.terrainViewDistance == b.terrainViewDistance &&
            a.terrainLodDistance == b.terrainLodDistance &&
            a.roadStreamRadius == b.roadStreamRadius &&
+           a.roadStreamEmbedTables == b.roadStreamEmbedTables &&
            a.reflectionReuseBudget == b.reflectionReuseBudget &&
            a.reflectionGroundRadius == b.reflectionGroundRadius &&
            a.reflectionScenery == b.reflectionScenery &&

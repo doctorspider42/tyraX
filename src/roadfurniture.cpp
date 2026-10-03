@@ -935,7 +935,7 @@ void Tables::add(int scene, const Result& r) {
     }
 }
 
-std::string Tables::source() const {
+std::string Tables::source(bool embedVerts) const {
     std::ostringstream out;
     auto lit = [](float v) {
         char b[48];
@@ -971,6 +971,10 @@ std::string Tables::source() const {
     }
     out << "constexpr RoadFurnRt ROAD_FURN[" << rows.size() << "] = {\n";
     for (const Row& r : rows) out << "    {" << r.scene << ", " << r.first << ", " << r.count << "},\n";
+    if (!embedVerts) {
+        out << "};\n// ROAD_FURN_VERTS, ROAD_FURN_RGB: in bin/roadfile/roads.bin.\n";
+        return out.str();
+    }
     out << "};\nconstexpr float ROAD_FURN_VERTS[" << verts.size() << "] = {\n";
     for (size_t k = 0; k + 2 < verts.size(); k += 3)
         out << "    " << lit(verts[k]) << ", " << lit(verts[k + 1]) << ", " << lit(verts[k + 2]) << ",\n";

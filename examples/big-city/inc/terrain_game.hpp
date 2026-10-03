@@ -1811,6 +1811,99 @@ class TerrainGame : public Tyra::Game {
     }
   };
 
+  // TABLES ON DISK (docs/roads.md "Tables on disk"): bin/roadfile/roads.bin is a 32-byte
+  // header and then every baked item's rows, back to back, exactly the floats
+  // (and furniture colours) the embedded tables would have held. The codegen
+  // writes it with these and the game reads it with these, so the two cannot
+  // disagree about the layout or the checksum.
+  //   header: magic, version, header bytes, item count, payload bytes, the
+  //           payload's checksum (= ROAD_FILE_HASH in the ELF), 0, 0 - all
+  //           little-endian 32-bit words.
+  // The checksum is a word-wise FNV-1a: cheap on the EE (one xor and one
+  // multiply a word) and it catches a stale file, a short read and a read from
+  // the wrong offset alike. Every directory row carries its item's own.
+  struct RsFile {
+    enum : unsigned int {
+      kMagic = 0x44525954U,  // "TYRD"
+      kVersion = 1U,
+      kHeader = 32U,
+      kSeed = 0x811C9DC5U
+    };
+    static unsigned int word(const unsigned char* p) {
+      return (unsigned int)p[0] | ((unsigned int)p[1] << 8) | ((unsigned int)p[2] << 16) |
+             ((unsigned int)p[3] << 24);
+    }
+    static void putWord(unsigned char* p, unsigned int w) {
+      p[0] = (unsigned char)(w & 255U);
+      p[1] = (unsigned char)((w >> 8) & 255U);
+      p[2] = (unsigned char)((w >> 16) & 255U);
+      p[3] = (unsigned char)((w >> 24) & 255U);
+    }
+    static unsigned int sum(const unsigned char* p, unsigned int bytes, unsigned int h) {
+      for (unsigned int i = 0; i + 3 < bytes; i += 4) h = (h ^ word(p + i)) * 16777619U;
+      return h;
+    }
+    // The header's fields. False = not a road table file of this version.
+    static bool header(const unsigned char* h, unsigned int* items, unsigned int* payload,
+                       unsigned int* hash) {
+      if (word(h) != kMagic || word(h + 4) != kVersion || word(h + 8) != kHeader) return false;
+      *items = word(h + 12);
+      *payload = word(h + 16);
+      *hash = word(h + 20);
+      return true;
+    }
+  };
+
+  // The bytes read ahead of their build (the prefetch band) and not yet built:
+  // which items hold some, how many, and when each was last wanted - the LRU
+  // key the cap evicts by. The buffers themselves are the caller's.
+  struct RsCache {
+    std::vector<int> items;
+    std::vector<unsigned int> bytes, stamp;
+    size_t total = 0;
+    void add(int item, unsigned int n, unsigned int now) {
+      items.push_back(item);
+      bytes.push_back(n);
+      stamp.push_back(now);
+      total += n;
+    }
+    int find(int item) const {
+      for (size_t i = 0; i < items.size(); ++i)
+        if (items[i] == item) return (int)i;
+      return -1;
+    }
+    void touch(int item, unsigned int now) {
+      const int i = find(item);
+      if (i >= 0) stamp[(size_t)i] = now;
+    }
+    bool remove(int item) {
+      const int i = find(item);
+      if (i < 0) return false;
+      total -= bytes[(size_t)i];
+      items[(size_t)i] = items.back();
+      bytes[(size_t)i] = bytes.back();
+      stamp[(size_t)i] = stamp.back();
+      items.pop_back();
+      bytes.pop_back();
+      stamp.pop_back();
+      return true;
+    }
+    // The least recently wanted item, -1 when empty. Stamps count up from the
+    // scene start, so the smallest is the oldest.
+    int oldest() const {
+      int best = -1;
+      for (size_t i = 0; i < items.size(); ++i)
+        if (best < 0 || stamp[i] < stamp[(size_t)best]) best = (int)i;
+      return best < 0 ? -1 : items[(size_t)best];
+    }
+    void clear() {
+      items.clear();
+      bytes.clear();
+      stamp.clear();
+      total = 0;
+    }
+  };
+
   // The ring's decisions, separated from what acting on them costs. An item is
   // WANTED while its box is within `radius` of a focus and KEPT while it is
   // within `keep` (> radius) of one: the band between them is the hysteresis,
@@ -1889,6 +1982,7 @@ class TerrainGame : public Tyra::Game {
     float arc = 0.0F, px = 0.0F, pz = 0.0F;  // strip: the arc state before that station
     int verts = 0;           // vertices the item makes (planned)
     int chunk = -1;          // its procChunks index while resident
+    int file = -1;           // tables on disk: its ROAD_FILE_ITEMS row
   };
   mutable std::vector<RsItem> rsItems_;
   std::vector<RsBox> rsBoxes_;
@@ -1929,6 +2023,44 @@ class TerrainGame : public Tyra::Game {
   void roadStreamRemap() const;
   Tyra::Texture* roadStreamTexture(int tex);
   bool roadStreamReady(float x, float z) const;
+  // --- tables on disk (docs/roads.md "Tables on disk") ---
+  // The baked rows are in bin/roadfile/roads.bin; ROAD_FILE_ITEMS (scene_data.hpp)
+  // says where each item's are. A reader thread reads the items the ring
+  // will want next into a slot; the frame collects finished slots into a
+  // capped cache, builds from it and frees the bytes.
+  struct RsIoSlot {
+    volatile int state = 0;  // 0 free, 1 queued, 2 reading, 3 read, 4 read failed, 5 bad checksum
+    int item = -1;
+    unsigned int at = 0, bytes = 0, sum = 0, ticket = 0, ticks = 0;
+    unsigned char* buf = nullptr;
+  };
+  RsIoSlot rsIo_[8];
+  unsigned int rsIoTicket_ = 0;
+  int rsIoSema_ = -1, rsIoThread_ = -1;
+  int rsFd_ = -1;
+  int rsFileState_ = 0;  // 0 not opened yet, 1 good, -1 missing, -2 stale, -3 unreadable
+  int rsReadErrors_ = 0;
+  char rsFileMsg_[48] = {};
+  std::vector<unsigned char*> rsBytes_;  // per item: its rows, read and not yet built
+  std::vector<unsigned char> rsQueued_;  // per item: a reader slot holds it
+  std::vector<unsigned char> rsBad_;     // per item: failed reads (3 = given up)
+  RsCache rsCache_;                      // which items hold bytes, LRU
+  unsigned int rsUseStamp_ = 0;
+  std::vector<float> rsSpillXZ_;         // the plan only: every spill vertex's x, z
+  RsBox rsSpillBox_ = {0.0F, 0.0F, 0.0F, 0.0F};
+  int rsStatReads_ = 0, rsStatLate_ = 0, rsNowReads_ = 0;
+  unsigned int rsStatReadBytes_ = 0, rsStatReadTicks_ = 0, rsStatReadWorst_ = 0;
+  unsigned int rsNowBytes_ = 0, rsNowTicks_ = 0;
+  static void roadStreamIoMain(void* self);
+  bool roadStreamOpenFile();
+  void roadStreamFileError(int state, const char* hud, const char* detail);
+  unsigned char* roadStreamReadNow(int fi);
+  bool roadStreamIoRequest(int item);
+  void roadStreamIoCollect();
+  void roadStreamIoIdle();
+  void roadStreamFreeBytes(int item);
+  void roadStreamAddFileItem(int fi, int verts);
+  void roadStreamDrawError();
 
   // Physics bodies in a walking player's path get shoved along the attempted
   // move (impulse scaled by 1/mass) and woken; called before collidePlayer so

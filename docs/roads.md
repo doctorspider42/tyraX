@@ -1291,7 +1291,9 @@ streamed, and from 1 km to 1.4 km once its districts streamed too).
 Everything a road makes streams: the EE-tessellated strips, junction rows
 (node patches, paint, bridge decks), spills, soft edges, kerbs and rails,
 bridge structure, road details, street furniture, and the collision boxes of
-bridge walls and furniture. The baked tables in the ELF do not (see Limits).
+bridge walls and furniture. The baked rows those items are built from are not
+in the ELF either: they are read from `bin/roadfile/roads.bin`, item by item
+(see "Tables on disk" below).
 0 (the default) builds every road at scene load as before, and the generated
 sources are byte-for-byte what they were before the setting existed (checked:
 the Motor District regenerates unchanged). The value is saved only when set.
@@ -1407,13 +1409,10 @@ worst frame is one dense strip chunk - see Limits.
 
 ### Limits
 
-- **The ELF tables stay resident.** Streaming frees the expanded runtime copies
-  (~60 bytes a vertex plus the bags); the baked rows in `.rodata`
-  (`ROAD_JUNCTION_VERTS`, `ROAD_KERB_VERTS`, `ROAD_FURN_VERTS`, ...) are loaded
-  with the ELF and stay. They become the limit next: the 1.4 km city with kerbs
-  and furniture on every road was an 11.8 MB ELF at 30.7 MB, and with
-  pavements everywhere a 20.8 MB ELF that never reached a frame. Reading each
-  item's rows from a file when it is built is the next step (docs/backlog.md).
+- **The resident road is the limit now, not the ELF** (see "Tables on disk"):
+  each resident road vertex costs ~60 bytes plus ~8 of height index. With
+  pavements on every street the 1.4 km city keeps ~120 000 road vertices
+  resident and peaks at 26 MB driving downtown.
 - **One item is built in one frame.** A dense strip chunk (up to ~1 800
   vertices on hills) is a 4-6 ms frame however small the budget.
 - **Nothing is drawn past the radius**, so a radius inside the fog shows the
@@ -1431,7 +1430,115 @@ resident and after every step of a load/unload walk, and equal a rebuild from
 scratch), the ring (everything within the radius resident, nothing past the
 keep band, nearest first), the spill lift's arithmetic, and the codegen (every
 anchor matches, a streaming project gets every piece and hook, and streaming
-off generates no streaming code at all).
+off generates no streaming code at all). `--vehicle-check` "road tables on
+disk" generates a streamed project with every baked kind both ways and checks
+that every directory item's bytes, read from the file at its offset, are
+exactly the embedded table's floats for that item, with the same box and a
+valid checksum; that the directory holds exactly the items the embedded plan
+makes; that a file from another build fails the header hash; and the LRU
+cache.
+
+### Tables on disk (format 104)
+
+Streaming frees the expanded runtime copy of a road (~60 bytes a vertex), but
+the rows it is built from - the host-baked `ROAD_JUNCTION_VERTS` (node patches,
+paint, pavements, bridge decks), `ROAD_SPILL_VERTS`, `ROAD_EDGE_VERTS`,
+`ROAD_KERB_VERTS` (kerbs and rails), `ROAD_BRIDGE_VERTS`, `ROAD_DETAIL_VERTS`
+and `ROAD_FURN_VERTS`/`ROAD_FURN_RGB` - used to be `constexpr` tables, and the
+whole ELF is resident. They became the wall: the 1.4 km city with kerbs and
+furniture on every road was an 11.8 MB ELF, and with pavements everywhere a
+20.8 MB ELF that never reached a frame. So a streamed project now keeps them
+in a file and reads each item's rows when the ring wants it.
+
+- **The file.** The codegen writes `.res-baked/roadfile/roads.bin` on every
+  refresh; the Makefile's resources step copies it next to the ELF as
+  `bin/roadfile/roads.bin`, the game's asset root (host: in PCSX2 and over
+  ps2link, `cdrom0:\ROADFILE\ROADS.BIN;1` on a disc - an ISO export packs
+  `bin/`, and puts the file right behind the ELF). It is not written into
+  `bin/` directly because `--rebuild` drops `bin/` after the refresh. It is a
+  32-byte header (magic, version, item count, payload size, the payload's
+  checksum) and then every streaming item's rows back to back - the floats the
+  embedded table would have held, bit for bit: each value goes through the
+  literal the embedded table prints (most are 6-7 significant digits, not a
+  float's round trip) and back.
+- **The directory.** The ELF keeps `ROAD_FILE_ITEMS` (scene_data.hpp): per
+  item its kind, scene, row, first vertex, count, file offset and size,
+  checksum and XZ box - 44 bytes, which is everything the plan needs without
+  reading a byte. The row tables (`ROAD_JUNCTIONS`, `ROAD_KERBS`, ...) and the
+  collision boxes stay in the ELF: a box row IS its own directory entry, and
+  `ROAD_POINTS`/`ROAD_DEFS` (the EE tessellator's input, 10 KB in the 1.4 km
+  city) are too small to be worth a read. `ROAD_FILE_HASH` must match the
+  file's header.
+- **The read.** A reader thread (priority 0x30: above the game's 0x40, below
+  the audio threads) takes queued items from 8 slots, oldest first: one
+  absolute `lseek`, `read`s of at most 16 KB (the engine's proven pattern on
+  the PS2 host filesystem, and a short read keeps a main-thread file call - a
+  log line, a texture - from waiting behind a whole item), the checksum, done.
+  It blocks on the IOP the rest of the time, so the frame never waits for I/O.
+  The ring wants items within radius + 30 (`kPrefetch`, less than the 40-unit
+  keep band, so an item dropped behind is never read again on the way out); an
+  item inside the radius whose rows are not in yet is skipped this frame
+  (`late` in the log) and built when they are. Read rows wait in a cache
+  capped at 1 MB (least recently wanted first out) and are freed the moment
+  their item is built. At scene load the rows inside the radius are read
+  synchronously, with the reader idle. One semaphore and one thread for the
+  whole game - kernel semaphores are scarce on the EE.
+- **The build is the embedded build.** The cut upload text indexes
+  `ROAD_KERB_VERTS[kr.first * 4]` and so on; a file-backed build declares a
+  local pointer of that name over the item's bytes and sets the row's `first`
+  so the same index lands on them, so not one line of the upload changed.
+  buildRoads itself (never called by a streamed project) is not compiled.
+- **Spills** need every spill vertex's XZ, and every junction row under them,
+  before the strips are planned: the plan reads the scene's spill rows (one
+  per crossing decal) and the junction rows whose box overlaps them, once,
+  synchronously. A spill-free scene (the big city) reads nothing at plan time.
+- **When it fails, it says so.** A missing file, a stale one (header vs
+  `ROAD_FILE_HASH`), an unreadable one or an item whose checksum does not
+  match: a `ROADFILE ERROR ...` line in `bin/log.txt` naming the file and the
+  fix, and `ROAD DATA MISSING|STALE - REBUILD|READ ERROR - SEE LOG` drawn over
+  every frame in the debug font every build ships (release builds have no
+  log; the HUD line stays). The strips still stream; the baked rows are not
+  built. Never a crash (verified in PCSX2: a missing file and another build's
+  file both boot to a driveable city with the message). A failed read is
+  retried twice, then the item is given up.
+- **Off.** `roadStreamEmbedTables` (Project > Preferences > World > *Keep road
+  tables in the ELF*, saved only when on) restores the embedded tables, no
+  file and no thread. A project with streaming off (radius 0) never had a file
+  and still generates byte-identical sources (the Motor District, checked).
+  File-backed tables WITHOUT streaming would only save the ELF copy (~25% of
+  what a resident road costs) and are not implemented (docs/backlog.md).
+
+Log lines:
+
+```
+ROADFILE open host:/roadfile/roads.bin items 1370 KB 1953
+ROADFILE load reads 345 KB 524 read ms 59 KB/s 8787 errors 0
+ROADFILE reads 130 KB 164 reader ms 20 worst us 326 late 4 cached KB 19 errors 0
+```
+
+The second is the scene load's synchronous reads (throughput); the third is
+printed beside each `ROADSTREAM resident` line: what the reader read, its own
+wall time (off the frame), its slowest item, how many item-frames an item
+inside the radius waited for its rows, and what sits read ahead.
+
+**What it saves (PCSX2, the 1.4 km city, 2026-10-03, the same 30 s R2 drive
+from spawn, HUD `MEM`/`FPS`):**
+
+| | ELF | file | MEM spawn | MEM driving | FPS driving | worst stream frame |
+|---|---:|---:|---:|---:|---:|---:|
+| shipped roads, tables in the ELF | 6.86 MB | - | 18.2 | 16.6-18.9 | 40-60 | 5.5 ms |
+| shipped roads, tables on disk | 4.92 MB | 2.0 MB | 16.5 | 14.9-17.3 | 39-60 | 5.4 ms |
+| kerbs, pavement on lanes, details on every road | 5.10 MB | 6.0 MB | 19.0 | 16.7-19.8 | 38-60 | 6.1 ms |
+| plus pavements on every street | 5.19 MB | 16.4 MB | 22.5 | 20.1-26.2 | 32-60 | 6.3 ms |
+
+The embedded "every road" configurations were 11.8 MB (30.7 MB at spawn, with
+2 500 more trees and lamps) and 20.8 MB (never reached a frame). Read
+throughput in PCSX2 over host: 8.7-15.7 MB/s for the scene load's synchronous
+reads, 0.2-0.7 ms of reader time per item while driving, and the ring kept up
+at 26 units/s (4-10 late item-frames per 150 busy frames, all in the first
+seconds). A ps2link `host:` is a network round trip per read and a CD a seek
+per item (~100 ms on hardware, not measured): the read band is what hides
+them, and a disc layout ordered by position would help a CD.
 
 ## Physical-PS2 texture coordinates and the strip default
 
@@ -1556,6 +1663,7 @@ canonicalizes only that integer part; positions and fractional UVs remain exact.
 | `src/roadtex.cpp/.hpp`, `src/roadtex_ui.cpp` | The Road Texture Generator ([road-textures.md](road-textures.md)). |
 | `src/roaddetail.cpp/.hpp` | Road details: placement, the surface-following decal bake and the details atlas ("Road details"). |
 | `src/roadstream.cpp/.hpp`, `src/roadstream_core.inl` | Road streaming: the codegen that cuts the streaming runtime out of the non-streaming source, the template hooks, the core (item boxes, cell grid, per-chunk height index, ring) compiled into the editor AND pasted into the game, `--vehicle-check` "road streaming" ("Road streaming"). |
+| `src/roadfile.cpp/.hpp` | Tables on disk: the `roads.bin` builder, the `ROAD_FILE_ITEMS` directory and `--vehicle-check` "road tables on disk"; the reader runtime is the `kDisk*` text in `roadstream.cpp`, the header/checksum `RsFile` in the core ("Tables on disk"). |
 | `src/roadfurniture.cpp/.hpp`, `src/roadfurniture_ui.cpp` | Street furniture: placement, the built-in models, `.obj` instancing, the console tables and upload, `--vehicle-check` "road furniture", and the Properties section ("Street furniture"). |
 
 ## Adaptive street geometry budget (1.86.3)

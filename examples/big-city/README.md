@@ -9,7 +9,8 @@ anywhere inside the ring road (Square gets you out).
 
 It fits in the EE's 32 MB because almost nothing in it is resident at once:
 the roads stream by distance ([road streaming](../../docs/roads.md#road-streaming-format-102),
-260 units) and the buildings, trees, lamps and parked cars live in 200-unit
+260 units, their baked rows [read from a file](../../docs/roads.md#tables-on-disk-format-104)
+piece by piece instead of sitting in the ELF) and the buildings, trees, lamps and parked cars live in 200-unit
 district layers that load and unload around the car
 ([auto-streamed layers](../../docs/streaming-layers.md#a-city-districts-plus-road-streaming)).
 The first version of this city, 1 km across with everything resident, used
@@ -31,9 +32,11 @@ from one seed. With the shipped knobs:
   **park paths**, and a **double-track railway** arc outside the ring: Spur 2
   crosses it at a level crossing and Spur 1 flies over it on a **bridge** with
   piers.
-- **Kerbs, pavements, road details** (manholes, gullies, patches, cracks) and
-  zebra crossings on the *core* roads (the grid lines nearest the centre, the
-  tram diagonal and the downtown lanes); stop/edge-line paint downtown only.
+- **Kerbs and road details** (manholes, gullies, patches, cracks) on every
+  road, **pavements** along every lane and the diagonals, zebra crossings on
+  downtown roads; stop/edge-line paint downtown only. Until the road tables
+  moved out of the ELF (format 104) kerbs, pavements and details were on the
+  *core* roads only (`KERBS_DOWNTOWN_ONLY`).
 - **2 420 objects** (the roads among them): 1 462 buildings (lean
   Kenney-derived shells plus generated stacked towers up to 80 m downtown,
   tapering to lofts and workshops outside), 176 block plinths, 449 trees (parks,
@@ -88,6 +91,12 @@ is the one place a road's fields are written.
 
 ## Measured (PCSX2, 2026-10-03)
 
+The pose tables and the streaming paragraph below were taken on the city with
+kerbs on the core roads only and the road tables in the ELF (1.172-1.173). The
+shipped city (kerbs everywhere, tables on disk) is under **Tables on disk**
+further down: about 0.8 MB more at spawn than these, after the file took
+1.7 MB off.
+
 Debug build, NTSC progressive, HUD numbers after the scene settled. The parked
 poses are a frozen walker (`POSE`, eye 1.8, heading 0) with `interleavePasses`
 pinned off and three `--profile-frame` captures each (the profile drains the
@@ -126,16 +135,33 @@ wheels stayed on the asphalt the whole way (`VEHCONTACT ... roadlift1000
 119-140`), and districts load and unload around it (`LAYER 24 load`, `LAYER 18
 unload`, ...).
 
-**Boot**: the road plan takes 1.4 s and the first ring 0.3 s (`ROADSTREAM
-plan ... ms 1384`, `ROADSTREAM load ... ms 279`); the ELF is 6.9 MB.
+**Boot**: the road plan takes 1.4 s and the first ring 0.4 s (`ROADSTREAM
+plan ... ms 1376`, `ROADSTREAM load ... ms 443`, reading 588 items / 927 KB of
+road rows in 103 ms); the ELF is 5.1 MB plus a 6.0 MB `bin/roadfile/roads.bin`.
+
+**Tables on disk** (format 104, 2026-10-03, the same 30 s R2 drive from spawn
+for every arm, HUD readings; docs/roads.md "Tables on disk"):
+
+| configuration | ELF + road file | MEM spawn | MEM driving | FPS driving | worst stream frame |
+|---|---:|---:|---:|---:|---:|
+| core-road kerbs, tables in the ELF (the 1.173 city) | 6.86 MB | 18.2 | 16.6-18.9 | 40-60 | 5.5 ms |
+| core-road kerbs, tables on disk | 4.92 + 2.0 MB | 16.5 | 14.9-17.3 | 39-60 | 5.4 ms |
+| **shipped: kerbs and details on every road** | **5.10 + 6.0 MB** | **19.0** | **16.7-19.8** | **38-60** | **6.1 ms** |
+| plus pavements on every street | 5.19 + 16.4 MB | 22.5 | 20.1-26.2 | 32-60 | 6.3 ms |
+
+The reader kept up at 26 units/s: 4-10 item-frames late per 150 busy frames
+(all in the first seconds), 0.2-0.7 ms of reader time per item, 8.7-15.7 MB/s
+for the synchronous reads at load (PCSX2 host:).
 
 The acceptance lines from `bin/log.txt`:
 
 ```
-ROADS scene 0 chunks 1772 vertices 133746 (streamed)
-ROADSTRIP scene 0 strips 1 packages 2528 triangles 81651
-ROADSTREAM plan scene 0 items 2377 cells 29x29 radius 260 keep 300 spill vertices 0 ms 1384
-ROADSTREAM load resident 465/2377 vertices 35814 index KB 288 ms 279
+ROADFILE open host:/roadfile/roads.bin items 4488 KB 5893
+ROADS scene 0 chunks 2084 vertices 212514 (streamed)
+ROADSTRIP scene 0 strips 1 packages 3739 triangles 107907
+ROADSTREAM plan scene 0 items 5495 cells 29x29 radius 260 keep 300 spill vertices 0 ms 1376
+ROADSTREAM load resident 708/5495 vertices 58833 index KB 385 ms 443
+ROADFILE load reads 588 KB 927 read ms 103 KB/s 8952 errors 0
 ```
 
 ## Limits found
@@ -154,6 +180,9 @@ other emulator on the machine). The emulator's `MEM` readout, by configuration:
 | **shipped: 1.4 km, roads and districts streamed** | **15.8-21.6 MB** |
 | 1.4 km, kerbs and furniture on every road (4 946 objects, 212 514 road vertices, 11.8 MB ELF) | 30.7 MB at spawn |
 | 1.4 km, plus pavements on every street (659 334 road vertices, 20.8 MB ELF) | out of memory at load |
+| **format 104, tables on disk**: kerbs and furniture on every road (4 946 objects, 6.0 MB ELF) | 26.0 at spawn, 27.7 driving, 30 FPS downtown |
+| format 104: plus pavements on every street (730 014 road vertices, 6.1 MB ELF) | 29.5 at spawn, `std::bad_alloc` seconds into the drive |
+| format 104: pavements and kerbs everywhere, core-only trees and lamps (2 420 objects, 5.2 MB ELF) | 22.5 at spawn, 26.2 driving, 32 FPS downtown |
 | 1.4 km, everything resident | out of memory (the first version's finding) |
 | **1.173, shared model geometry**: shipped 1.4 km city, downtown walker / car at spawn / driving | **18.4 / 18.2 / 17.0-19.1 MB** (19.9 / 19.6 / 18.0-20.7 with `instanceSharing` off) |
 
@@ -165,12 +194,13 @@ frame time and picture.
 
 What that works out to:
 
-- **The ELF is the next wall.** Streaming frees the expanded runtime copies;
-  the baked road tables (`ROAD_JUNCTION_VERTS`, `ROAD_KERB_VERTS`,
-  `ROAD_FURN_VERTS`) and the scene table are `.rodata`, loaded with the ELF and
-  resident for good. Kerbs and furniture everywhere took the ELF from 6.9 to
-  11.8 MB; pavements everywhere to 20.8 MB. Loading the road tables per item
-  from a file is the next step (docs/backlog.md).
+- **The ELF was the next wall, and is gone for the roads.** Streaming freed
+  the expanded runtime copies, but the baked road tables were `.rodata`:
+  kerbs and furniture everywhere took the ELF from 6.9 to 11.8 MB, pavements
+  everywhere to 20.8 MB. Since format 104 they are read per item from
+  `bin/roadfile/roads.bin`, and the ELF stays at 5-6 MB whatever the roads
+  carry. The wall is now the RESIDENT road (pavements everywhere: ~120 000
+  resident road vertices downtown) and the per-object cost of 4 900 objects.
 - **A static object cost roughly 70-110 bytes of EE RAM per vertex it draws**
   before 1.173, whatever the object was: the 28-triangle tree about 9 KB, a
   22-triangle building about 6 KB, because each instance kept its own expanded

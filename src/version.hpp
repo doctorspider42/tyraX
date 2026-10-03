@@ -6178,7 +6178,11 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // v103 (docs/instance-sharing.md): settings.instanceSharing, written only
 // when false. Missing = on (the 1.173 default); a project that switched it
 // off says so. Additive; no migration step.
-inline constexpr int kFormatVersion = 103;
+// v104 (docs/roads.md, "Tables on disk"): the project setting
+// "roadStreamEmbedTables" (written only when true). Missing = false = a
+// streamed project's baked road tables go to bin/roadfile/roads.bin, read per item;
+// true keeps them in the ELF as v102 did. Additive; no migration step.
+inline constexpr int kFormatVersion = 104;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

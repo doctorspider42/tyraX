@@ -57,7 +57,21 @@ struct Sources {
 struct Params {
     float radius = 0.0f;
     bool vehicles = false;
+    // Tables on disk (docs/roads.md "Tables on disk", src/roadfile.hpp): the
+    // baked rows come from bin/roadfile/roads.bin through the ROAD_FILE_ITEMS directory
+    // instead of the embedded ROAD_*_VERTS tables. False generates exactly the
+    // embedded streaming runtime.
+    bool tablesOnDisk = false;
 };
+
+// Read ahead of the build radius by this much (tables on disk). Less than
+// kHysteresis on purpose: an item dropped at radius + kHysteresis is then out
+// of the read band too, so driving away never re-reads what it just dropped.
+inline constexpr float kPrefetch = 30.0f;
+// The cap on bytes read ahead and not yet built (LRU beyond it).
+inline constexpr int kCacheBytes = 1024 * 1024;
+// Reader slots: items being read (or read and waiting to be collected) at once.
+inline constexpr int kIoSlots = 8;
 
 struct Emitted {
     std::string members;  // class members (core + state + declarations)

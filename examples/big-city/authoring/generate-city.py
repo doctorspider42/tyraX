@@ -104,9 +104,11 @@ KERB_HEIGHT = 0.15
 KERB_WIDTH = 0.25
 ZEBRAS = True              # zebra crossings on downtown roads
 KERB_KINDS = ('avenue', 'street', 'local', 'ring', 'diagonal', 'boulevard', 'spur')
-KERBS_DOWNTOWN_ONLY = True # kerbs, pavements and details only on the 'core' roads:
+KERBS_DOWNTOWN_ONLY = False  # True = kerbs, pavements and details only on the 'core' roads:
 CORE_RADIUS = 100.0        # grid lines this close to the centre, the tram diagonal and
                            # the downtown lanes. Every vertex is EE RAM - see the README.
+                           # False since the road tables moved to a file (format 104):
+                           # kerbs everywhere cost ~2.5 MB, see the README.
 MARKINGS_OUTSIDE_DOWNTOWN = False  # node paint (stop/edge lines) outside downtown
 LOWPOLY_PROPS = True       # 20-30-triangle generated trees and lamps instead of
                            # the 152/192-triangle Kenney ones (RAM, see README)
@@ -114,7 +116,7 @@ LOWPOLY_PROPS = True       # 20-30-triangle generated trees and lamps instead of
 # Road features (docs/roads.md). Each is written only when its knob is set.
 PAVEMENT_WIDTH = 2.5       # raised pavement behind the kerb (needs the kerb), None = off
 PAVEMENT_MATERIAL = 'res/materials/roads/pavement-slabs.mtl'
-PAVEMENT_KINDS = ('diagonal', 'local')  # of the kerbed roads; the grid lines cost ~3.5 MB more
+PAVEMENT_KINDS = ('diagonal', 'local')  # of the kerbed roads; all kinds: +6-7 MB, 32 FPS downtown
 PAVEMENT_BOXES = True      # grey plinth under each block's buildings (inside the pavement)
 TRAM_TRACKS = 2            # tram tracks down the Diagonal boulevard (roadKind 2), 0 = none
 RAILWAY = True             # a double-track railway loop outside the ring (roadKind 1)

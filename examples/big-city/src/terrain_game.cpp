@@ -931,6 +931,7 @@ void TerrainGame::loop() {
     sequences::renderOverlay(engine, scriptCtx);
     renderGameMenu();
     renderSaveMenu();
+    roadStreamDrawError();  // a missing or stale bin/roadfile/roads.bin, loudly
     drawDebugHud(engine, cameraPosition, cameraLookAt);
     drawVideoConfirm(engine);
   }

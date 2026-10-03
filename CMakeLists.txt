@@ -348,6 +348,7 @@ add_executable(tyrax-editor
     src/roadfurniture.cpp
     src/roadfurniture_ui.cpp
     src/roadstream.cpp
+    src/roadfile.cpp
     src/roadtex.cpp
     src/roadtex_ui.cpp
     src/vehcheck.cpp

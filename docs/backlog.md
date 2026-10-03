@@ -13,15 +13,28 @@ streaming~~ and auto-streamed districts are DONE (format 102, docs/roads.md
 "Road streaming"): the shipped city is now 1.4 km at 16-22 MB. What is left, in
 order of payoff:
 
-- **The ELF's own tables are the next wall.** Road streaming frees the runtime
-  copies only; `ROAD_JUNCTION_VERTS`, `ROAD_KERB_VERTS`, `ROAD_FURN_VERTS` and
-  the scene table stay in `.rodata`, loaded with the ELF. Kerbs everywhere +
-  furniture on every road in the 1.4 km city made an 11.8 MB ELF and 30.7 MB at
-  spawn; pavements on every street a 20.8 MB ELF that never reached a frame.
-  Next step: write the baked road tables to a file under `bin/` and read each
-  item's rows from it when the item is built (host: now, CD later), keeping
-  only the item list resident. Test: the rsbc5 configuration of the big-city
-  README booting under 24 MB.
+- ~~The ELF's own road tables~~ DONE (format 104, docs/roads.md "Tables on
+  disk"): a streamed project reads each item's baked rows from
+  `bin/roadfile/roads.bin` on a reader thread. The shipped city's ELF went
+  6.86 -> 4.92 MB (-1.7 MB at every pose); kerbs everywhere now ships at
+  19-19.8 MB; pavements on every street boot at 22.5 and peak at 26.2 MB
+  (embedded: a 20.8 MB ELF that never reached a frame). What it left:
+  - **The resident road is the wall now**: pavements everywhere keep ~120 000
+    road vertices resident downtown (~60 B each + index) and run at 32 FPS.
+    A smaller radius for pavements and kerbs than for asphalt (they are drawn
+    to 60 units anyway) would cut most of it. Test: pavements everywhere under
+    23 MB driving downtown.
+  - **The ISO path is not verified end to end.** `--export-iso` packs
+    `ROADFILE/ROADS.BIN` behind the ELF, but the big-city ISO stopped before
+    the scene loaded (`libpng error: Not a PNG file` on the vehicle shadow
+    PNG over cdrom0:, before any road read). Fix that, then check the
+    `ROADFILE open cdrom0:...` and `ROADFILE reads` lines in the EE console,
+    and order the disc by position (each item is a seek on a real drive).
+  - **File-backed tables without streaming** (load every item at scene load)
+    would save only the ELF copy, ~25% of a resident road. Not done; worth it
+    only for a project that cannot stream.
+  - **ps2link throughput** is unmeasured (PCSX2 host: reads 9-16 MB/s
+    synchronous, 0.2-0.7 ms per item on the reader).
 - **A strip chunk is built in one frame.** The streaming budget bounds what a
   frame STARTS, not one item: the worst streaming frame while driving the city
   was 4-6 ms (one dense strip chunk). Splitting a replay across frames (resume

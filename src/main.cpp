@@ -26,6 +26,7 @@
 #include "elfsym.hpp"
 #include "gibake.hpp"
 #include "gigpu.hpp"
+#include "isoexport.hpp"  // --export-iso
 #include "impostorgpu.hpp"
 #include "litbake.hpp"
 #include "modelao.hpp"
@@ -1351,6 +1352,30 @@ static int refreshGenFromCli(int argc, char** argv) {
         return 1;
     }
     std::printf("refreshed generated files: %s\n", p.dir.c_str());
+    return 0;
+}
+
+// tyrax-editor.exe --export-iso <projectDir>
+// Project > Export PS2 ISO, headless: packs the already-built bin/ into
+// <projectDir>/<name>.iso (src/isoexport.cpp). Added so the cdrom0: path of a
+// file the game reads at run time (docs/roads.md "Tables on disk") can be
+// booted in PCSX2 without the GUI.
+static int exportIsoFromCli(int argc, char** argv) {
+    if (argc < 3) {
+        std::fprintf(stderr, "usage: tyrax-editor --export-iso <projectDir>\n");
+        return 2;
+    }
+    Project p;
+    if (std::string err = project::load(p, argv[2]); !err.empty()) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
+    if (std::string err = isoexport::build(
+            p, [](const std::string& l) { std::printf("%s\n", l.c_str()); });
+        !err.empty()) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
     return 0;
 }
 
@@ -5107,6 +5132,8 @@ int main(int argc, char** argv) {
         return applyGraphFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--refresh-gen") == 0)
         return refreshGenFromCli(argc, argv);
+    if (argc > 1 && std::strcmp(argv[1], "--export-iso") == 0)
+        return exportIsoFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--bake-object-light") == 0)
         return bakeObjectLightFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--bake-prelit") == 0)
@@ -5187,6 +5214,8 @@ int main(int argc, char** argv) {
             "  --migrate <projectDir>                  backup + apply pending "
             "format migrations (docs/format-versioning.md)\n"
             "  --refresh-gen <projectDir>\n"
+            "  --export-iso <projectDir>               pack the built bin/ into "
+            "<name>.iso (Project > Export PS2 ISO)\n"
             "  --bake-gi <projectDir>                  bake global "
             "illumination + light probes\n"
             "  --bake-status <projectDir>              is every bake cache "

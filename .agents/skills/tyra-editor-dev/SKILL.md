@@ -3160,6 +3160,29 @@ both patched only where they apply: auto-stream layer zones focus on the
 DRIVEN car in vehicle projects (they read the parked walker before), and
 auto-stream projects log `LAYER n load|unload`.
 
+**Road tables on disk (format 104, docs/roads.md "Tables on disk").** A
+streamed project (unless `ProjectSettings::roadStreamEmbedTables`) does not
+emit the per-vertex `ROAD_*_VERTS` / `ROAD_FURN_RGB` tables: the scene-data
+codegen feeds each streaming item's rows - every value parsed back from the
+literal the embedded table would have printed, so the bytes are bit-exact -
+into `roadfile::Builder` (`src/roadfile.cpp`), which writes
+`.res-baked/roadfile/roads.bin` (a generated `templates::File`, copied to
+`bin/roadfile/` by the Makefile's resources step - NOT straight into `bin/`,
+which `--rebuild` drops after the refresh) and the `ROAD_FILE_ITEMS`
+directory in scene_data.hpp. `roadstream::emit` with `Params::tablesOnDisk`
+splices a reader thread, a slot queue, an LRU read-ahead cache and the
+directory-driven plan into the streaming runtime at anchors of its OWN text
+(`kDisk*` in roadstream.cpp); the cut upload blocks read their rows through a
+local pointer named like the old table, so the cut text is unchanged.
+buildRoads is not compiled in that mode. The header layout and checksum are
+`RsFile` in roadstream_core.inl (host and console share them). texbake's
+sweep skips `roadfile/`; refreshGenerated deletes a leftover file;
+`--vehicle-check` "road tables on disk" proves item k's bytes equal the
+embedded slice. The EE side uses ONE semaphore and ONE thread for the whole
+game - semaphores are a scarce kernel resource (the instance-sharing branch
+lost all host: I/O to a few hundred `std::shared_ptr`s), so never add one per
+item.
+
 ## Vehicle HUD font preparation (1.150.1)
 
 `fontGlyphSprite` in the shared generated helpers owns one persistent sprite

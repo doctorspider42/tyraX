@@ -4082,6 +4082,24 @@ generating nothing). Then, in PCSX2:
   none while driving across districts = the focus is wrong.
 - **Out of memory** is a black screen after `VEH controls card` with nothing
   in the log, and `--capture-frame` times out ("no complete bin/frame.tga").
+  The cause is in the EE console only (`std::bad_alloc`): run your OWN PCSX2,
+  `pcsx2-qt.exe -batch -nogui -datapath <dir> -logfile <dir>\emulog.txt -elf
+  <abs elf>` with a copied `PCSX2\inis\PCSX2.ini` (HostFs, EnableEEConsole)
+  and BIOS under `<dir>`, and kill it by its PID only.
+- **Tables on disk (format 104)**: `--vehicle-check` "road tables on disk" is
+  the host layer (item k's bytes = the embedded slice, boxes, checksums, the
+  stale hash, the LRU cache). In PCSX2 read `ROADFILE open ...` (the file was
+  found and matches), `ROADFILE load reads ... KB/s` (synchronous throughput at
+  load) and `ROADFILE reads ... late N errors 0` beside each `ROADSTREAM
+  resident` line; the `ROADS`/`ROADSTRIP`/`ROADSTREAM plan` numbers must equal
+  the embedded build's (set `roadStreamEmbedTables` in a copy for that arm).
+  The failure path is a test too: rename `bin/roadfile/roads.bin` (or copy
+  another build's over it) and the game must boot with `ROADFILE ERROR` in
+  the log and `ROAD DATA MISSING|STALE` on screen. The file is written into
+  `.res-baked/roadfile/` by every refresh and copied by `make`, so a
+  `--refresh-gen` alone does not update `bin/`. `--export-iso <dir>` packs a
+  built `bin/` into `<name>.iso` headlessly (Project > Export PS2 ISO), for
+  the cdrom0: path; boot it with `-- <iso>` instead of `-elf`.
 - `Select-Object -First N` on a PowerShell script's output STOPS the script
   after N lines - a capture loop piped into it takes one shot and quits.
 

@@ -1933,6 +1933,10 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
                  ? "    \"roadStreamRadius\": " + fmtFloat(p.settings.roadStreamRadius) +
                        ",\n"
                  : std::string())
+         // Written only when true (format v104): the default keeps a streamed
+         // project's road tables in bin/roadfile/roads.bin (docs/roads.md "Tables on disk").
+         << (p.settings.roadStreamEmbedTables ? "    \"roadStreamEmbedTables\": true,\n"
+                                              : "")
          << "    \"reflectionReuseBudget\": "
          << fmtFloat(p.settings.reflectionReuseBudget) << ",\n"
          << (p.settings.reflectionGroundRadius > 0.0f
@@ -6592,6 +6596,10 @@ static void readSettingsSection(const json::Value& root, Project& out) {
             st.roadStreamRadius = (float)v->numberOr(0.0);
             if (!(st.roadStreamRadius > 0.0f)) st.roadStreamRadius = 0.0f;
         }
+        // v104 (docs/roads.md "Tables on disk"): missing = false = a streamed
+        // project's road tables go to bin/roadfile/roads.bin.
+        if (const auto* v = s->find("roadStreamEmbedTables"))
+            st.roadStreamEmbedTables = v->boolOr(false);
         // A project written before v55 has no key and keeps the default 1.0
         // pixel, which is sub-pixel on the 128-pixel target: the reuse is
         // enabled for old projects deliberately, because at that budget it
@@ -9053,6 +9061,10 @@ std::string refreshGenerated(const Project& p) {
             // directory". Exactly the live_pad.gen.cpp mistake noted below.
             f.relativePath == "inc\\bag_array.gen.hpp" ||
             f.relativePath == "inc\\scene_data.hpp" ||
+            // Road tables on disk (docs/roads.md "Tables on disk"): the rows the
+            // scene_data.hpp directory points into - they must always come
+            // from the same refresh, or the game reports a stale file.
+            f.relativePath == ".res-baked\\roadfile\\roads.bin" ||
             // Object table definitions accompany the declarations even in
             // projects created before the data was moved out of the header.
             f.relativePath == "src\\gen\\scene_objects.gen.cpp" ||
@@ -9227,6 +9239,21 @@ std::string refreshGenerated(const Project& p) {
 
         if (write) {
             if (auto err = writeFile(path, f.content); !err.empty()) return err;
+        }
+    }
+
+    // Road tables on disk: a project that stopped streaming (or keeps its
+    // tables in the ELF again) must not ship the old file - neither the baked
+    // copy nor the one the Makefile already put next to the ELF.
+    {
+        const bool roadFile = std::any_of(generated.begin(), generated.end(),
+            [](const templates::File& f) {
+                return f.relativePath == ".res-baked\\roadfile\\roads.bin";
+            });
+        if (!roadFile) {
+            std::error_code ec;
+            fs::remove_all(fs::path(p.dir) / ".res-baked" / "roadfile", ec);
+            fs::remove_all(fs::path(p.dir) / "bin" / "roadfile", ec);
         }
     }
 

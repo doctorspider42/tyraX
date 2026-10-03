@@ -1,7 +1,7 @@
 {
   "name": "big-city",
-  "formatVersion": 102,
-  "editorVersion": "1.172.0",
+  "formatVersion": 104,
+  "editorVersion": "1.173.0",
   "template": "fpp",
   "projectId": "629ae3673fbc0e7b",
   "settings": {
