@@ -460,6 +460,9 @@ it costs no texture and no VRAM, one bag per scene, and no work per frame.
 - **Zebra crossings** (opt-in): 0.5-unit stripes on a 1-unit pitch, 3 units
   long, across every arm just past the patch, on nodes of three or more arms.
 
+The stop-line rule is `roadgen::giveWayArms`, and it is also what decides who
+gives way in [road traffic](traffic.md): an AI car stops where the paint says.
+
 Each road chooses with **Markings** in Properties (`roadMarkings`, format 96,
 written only when not 1): *None*, *Stop lines* (the default, edge lines
 included) or *Stop lines + zebras*. A node paints edge lines only when every
@@ -1418,6 +1421,10 @@ distance, and strips instead of lists.
   is not lit by the light probes; its shade is baked.
 - The draw distance is a constant, not a project setting.
 - A lamp is not a light (see above).
+- Traffic lights are decoration unless the project runs
+  [road traffic](traffic.md): then each signal head shows its phase (the
+  built-in head's lenses are baked unlit and the console lights the current
+  one), and the AI cars obey it.
 
 `--vehicle-check` "road furniture" builds a kerbed T with pavements and zebras,
 a four-way crossing with lights, a give-way T and a lone kerbless street, and
@@ -1573,7 +1580,10 @@ worst frame is one dense strip chunk - see Limits.
 - **Nothing is drawn past the radius**, so a radius inside the fog shows the
   network ending. Use the suggestion.
 - **Far cars stop, they do not drive on.** An AI car on a waypoint loop outside
-  the ring stands still until the player comes back.
+  the ring stands still until the player comes back. [Road traffic](traffic.md)
+  never places a car where the ring has not built the road, and keeps its
+  radius 20 units inside the stream radius; its lane graph stays resident (Big
+  City: 56 800 points, about 1.1 MB of ELF).
 - Verified in PCSX2 only: the 1 km and 1.4 km big-city, and the Motor District
   forced to a radius of 80. Not on a physical PS2.
 

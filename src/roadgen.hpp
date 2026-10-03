@@ -360,6 +360,10 @@ struct CrossingRoad {
     // (project::crossingRoads reads it). edgeLine false = the texture has none.
     bool edgeLine = true;
     float edgeU0 = 5.0f / 128.0f, edgeU1 = 8.0f / 128.0f;
+    // How many lanes the texture paints (both directions together), from a
+    // generated texture's recipe; 0 = unknown, and the lane graph derives it
+    // from the width (src/roadlanes.cpp, docs/traffic.md).
+    int lanes = 0;
     // Kerbs (docs/roads.md "Kerbs"): only planKerbs reads these.
     bool kerb = false;
     float kerbHeight = 0.15f, kerbWidth = 0.25f;
@@ -509,6 +513,15 @@ CrossingPlan planCrossings(const std::vector<CrossingRoad>& roads,
 // the consumer gives them one colour. Deterministic, crossing order.
 void bakeMarkings(const CrossingPlan& plan, const std::vector<CrossingRoad>& roads,
                   const Surface& surface, std::vector<Vertex>& out);
+
+// WHO GIVES WAY at a node, per arm of `c.armList` (1 = that arm's incoming
+// lane yields): a road ending at a node another road runs through (a T), or at
+// a crossing of through roads the lower rank, then the narrower, then the
+// later one. The ONE rule - bakeMarkings paints its stop lines from it, the
+// street furniture stands its signs by them, and the lane graph
+// (src/roadlanes.cpp) gives those approaches the lower priority, so a car
+// stops exactly where the paint says.
+std::vector<unsigned char> giveWayArms(const Crossing& c, const std::vector<CrossingRoad>& roads);
 
 // The plan's patches and decals as drawn surface (the test drive, the check):
 // `terrain` is the bare ground height.

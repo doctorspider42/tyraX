@@ -3161,6 +3161,26 @@ both patched only where they apply: auto-stream layer zones focus on the
 DRIVEN car in vehicle projects (they read the parked walker before), and
 auto-stream projects log `LAYER n load|unload`.
 
+**Road traffic (format 106, docs/traffic.md) is the streaming arrangement a
+third time.** `ProjectSettings::traffic` (`TrafficSettings`, saved as an object
+of non-default keys, in `operator==` and `liveLinkContextHash`) turns it on.
+`roadlanes::build` (`src/roadlanes.cpp`) is the ONE lane graph - the codegen's
+road pass (it already holds each scene's roads, plan and furniture result),
+View > Lanes (`src/traffic_ui.cpp`), `--road-lanes` and the check all call it;
+its priorities come from `roadgen::giveWayArms` and its signals from
+`roadfurn::nodeSignalled`, the very functions the paint and the furniture use,
+so never re-derive either. The cars are Vehicle objects APPENDED in
+`templates::generate` (`roadlanes::withTrafficCars`, id prefix `~traffic-`,
+`VEHICLES.wpFirst == -2`, live-link id hash 0 - the scroller-clone idea); the
+runtime is `src/traffic_core.inl` (pasted verbatim, class-body rules) plus
+`roadlanes::implSource`, appended to `roadsImpl` OUTSIDE the tables-on-disk
+early path (that early return is how a streamed city first linked without
+it), and five hooks string-patched into the vehicle runtime by
+`roadlanes::patchTemplate` (setup, the per-frame ring, the driver branch, the
+far-car path, the sleep exclusion). A new anchor there needs a mark in
+`kHookMarks` - the check fails on a hook that did not land. Off = byte-identical
+sources.
+
 **Road tables on disk (format 104, docs/roads.md "Tables on disk").** A
 streamed project (unless `ProjectSettings::roadStreamEmbedTables`) does not
 emit the per-vertex `ROAD_*_VERTS` / `ROAD_FURN_RGB` tables: the scene-data

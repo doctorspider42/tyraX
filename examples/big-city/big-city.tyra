@@ -1,6 +1,6 @@
 {
   "name": "big-city",
-  "formatVersion": 104,
+  "formatVersion": 106,
   "editorVersion": "1.173.0",
   "template": "fpp",
   "projectId": "629ae3673fbc0e7b",
@@ -48,6 +48,7 @@
     "terrainViewDistance": 240,
     "terrainLodDistance": 110,
     "roadStreamRadius": 260,
+    "traffic": {"cars": 4},
     "reflectionReuseBudget": 1,
     "skyColor": [0.66, 0.72, 0.78],
     "skyTopColor": [0.22, 0.42, 0.66],

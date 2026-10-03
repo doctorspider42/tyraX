@@ -59,6 +59,15 @@ builds measured 6.7-7.6 s. This excludes editor generation/baking and cold setup
   a give-way sign at each of their stop lines and traffic lights on Garage
   boulevard's four-way nodes - 128 instances generated at build (none of
   them scene objects), merged into 23 chunks; the poles and trunks are solid.
+  **Road traffic** ([docs/traffic.md](../../docs/traffic.md)) drives the
+  streets: six AI cars (Ravager, Pica, Strix in turn) spawned out of view
+  around the player, stopping at the stop lines, giving way, and obeying the
+  three signalised nodes on Garage boulevard, whose heads show their phase.
+  View > Lanes draws the lane graph; `--road-lanes examples/vehicle-playground`
+  prints it. Measured in PCSX2: +2.2 MB of EE RAM for the six cars, the vehicle
+  step 0.5-0.6 ms a frame with the far cars on their cheap path, 60 FPS.
+
+  ![PCSX2, mirrored in X: traffic at the Garage boulevard x Foundry link signals](../../docs/img/road-traffic-pcsx2.png)
 
   ![PCSX2, mirrored in X: the Orchard fork between the ring road and Skyline avenue, the Service ramp leaving the ring, and the Quarry corner](../../docs/img/road-nodes-district.png)
 - **dense** adds buildings for a busier drive.

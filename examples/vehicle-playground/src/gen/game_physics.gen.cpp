@@ -2134,6 +2134,7 @@ void TerrainGame::renderScene() {
   }
   { const u32 ct=costStart(); renderVehicleWheels(); costEnd("Wheels",-1,ct); }
   renderVehicleDebris();
+  { const u32 ct=costStart(); renderTrafficLamps(); costEnd("Traffic_lights",-1,ct); }
 
 #if TYRA_FRAME_PROFILE
   stapip.core.setTelemetryProducer(Tyra::StaPipProducerEffects);

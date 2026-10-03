@@ -6185,9 +6185,13 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // v105 (docs/roads.md, "Road presets"): settings.roadPresets, the project's own
 // road presets saved from a road (every road field a preset owns, each key only
 // off its default), written only when there are any. Missing = none, as
-// before. Additive; no migration step. (103/104 were taken by parallel
-// branches; whoever merges keeps the highest number.)
-inline constexpr int kFormatVersion = 105;
+// before. Additive; no migration step.
+// v106 (docs/traffic.md): settings.traffic - ambient cars per scene, the
+// definitions they are drawn from, spawn radius, density, lane speed, signal
+// timing and left-hand traffic - an object of only the keys that differ from
+// the defaults, written only when any does. Missing = no traffic, as before.
+// Additive; no migration step.
+inline constexpr int kFormatVersion = 106;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

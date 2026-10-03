@@ -1770,6 +1770,9 @@ std::vector<roadgen::CrossingRoad> crossingRoads(const std::vector<SceneObject>&
             if (roadtex::readRecipe(projectDir, stem, &rp)) {
                 float u0 = 0.0f, u1 = 0.0f;
                 r.edgeLine = roadtex::edgeLineSpan(rp, &u0, &u1);
+                // The lanes it paints are the lanes traffic drives
+                // (docs/traffic.md). Track and isotropic surfaces paint none.
+                if (!rp.isotropic() && rp.surface != roadtex::kBallast) r.lanes = rp.lanes;
                 if (r.edgeLine) {
                     r.edgeU0 = u0;
                     r.edgeU1 = u1;
@@ -1812,6 +1815,35 @@ std::vector<roadgen::CrossingRoad> crossingRoads(const std::vector<SceneObject>&
 // a standalone JSON object - the collaboration wire format for project-wide
 // data. New manifest keys must join one of these writers (or become a new
 // Section) so they reach both the file and the wire.
+
+// Road traffic (docs/traffic.md, format v106): only the keys that differ from
+// TrafficSettings' defaults, and nothing at all when none does - a project
+// without traffic saves exactly what it did before.
+static std::string trafficJson(const TrafficSettings& t) {
+    const TrafficSettings d;
+    if (t == d) return std::string();
+    std::string s = "    \"traffic\": {";
+    bool first = true;
+    auto key = [&](const char* k, const std::string& v) {
+        s += std::string(first ? "" : ", ") + "\"" + k + "\": " + v;
+        first = false;
+    };
+    if (t.cars != d.cars) key("cars", std::to_string(t.cars));
+    if (t.vehicles != d.vehicles) {
+        std::string list = "[";
+        for (size_t i = 0; i < t.vehicles.size(); ++i)
+            list += std::string(i ? ", " : "") + "\"" + jsonEscape(t.vehicles[i]) + "\"";
+        key("vehicles", list + "]");
+    }
+    if (t.radius != d.radius) key("radius", fmtFloat(t.radius));
+    if (t.density != d.density) key("density", fmtFloat(t.density));
+    if (t.speed != d.speed) key("speed", fmtFloat(t.speed));
+    if (t.green != d.green) key("green", fmtFloat(t.green));
+    if (t.amber != d.amber) key("amber", fmtFloat(t.amber));
+    if (t.allRed != d.allRed) key("allRed", fmtFloat(t.allRed));
+    if (t.leftHand != d.leftHand) key("leftHand", t.leftHand ? "true" : "false");
+    return s + "},\n";
+}
 
 static void writeSettingsSection(std::ostream& json, const Project& p) {
     json << "\"settings\": {\n"
@@ -1942,6 +1974,7 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
          // project's road tables in bin/roadfile/roads.bin (docs/roads.md "Tables on disk").
          << (p.settings.roadStreamEmbedTables ? "    \"roadStreamEmbedTables\": true,\n"
                                               : "")
+         << trafficJson(p.settings.traffic)
          << "    \"reflectionReuseBudget\": "
          << fmtFloat(p.settings.reflectionReuseBudget) << ",\n"
          << (p.settings.reflectionGroundRadius > 0.0f
@@ -6607,6 +6640,26 @@ static void readSettingsSection(const json::Value& root, Project& out) {
         // project's road tables go to bin/roadfile/roads.bin.
         if (const auto* v = s->find("roadStreamEmbedTables"))
             st.roadStreamEmbedTables = v->boolOr(false);
+        // v106 (docs/traffic.md): missing = no traffic; missing keys = defaults.
+        if (const auto* t = s->find("traffic"); t && t->type == json::Value::Type::Object) {
+            TrafficSettings& tr = st.traffic;
+            if (const auto* v = t->find("cars")) tr.cars = std::clamp((int)v->numberOr(0.0), 0, 32);
+            if (const auto* v = t->find("vehicles"); v && v->type == json::Value::Type::Array) {
+                tr.vehicles.clear();
+                for (const auto& e : v->arr)
+                    if (!e.stringOr("").empty()) tr.vehicles.push_back(e.stringOr(""));
+            }
+            auto num = [&](const char* k, float& f, float lo, float hi) {
+                if (const auto* v = t->find(k)) f = std::clamp((float)v->numberOr(f), lo, hi);
+            };
+            num("radius", tr.radius, 20.0f, 2000.0f);
+            num("density", tr.density, 0.1f, 20.0f);
+            num("speed", tr.speed, 2.0f, 40.0f);
+            num("green", tr.green, 2.0f, 120.0f);
+            num("amber", tr.amber, 1.0f, 10.0f);
+            num("allRed", tr.allRed, 0.0f, 10.0f);
+            if (const auto* v = t->find("leftHand")) tr.leftHand = v->boolOr(false);
+        }
         // A project written before v55 has no key and keeps the default 1.0
         // pixel, which is sub-pixel on the 128-pixel target: the reuse is
         // enabled for old projects deliberately, because at that budget it
@@ -8733,6 +8786,16 @@ uint64_t liveLinkContextHash(const Project& p) {
     // and the baked streaming-layer tables (indices + zones).
     uint64_t h = kFnvSeed;
     fnvMix(h, p.scenes.size());
+    // Road traffic (docs/traffic.md) is baked - the cars appended to the
+    // scene tables, the lane graph, the signal timing - so a change reads as
+    // "rebuild". Mixed only when set, so every other project keeps its hash.
+    if (p.settings.traffic != TrafficSettings()) {
+        const TrafficSettings& t = p.settings.traffic;
+        fnvMix(h, 0x7F), fnvMix(h, (uint64_t)t.cars), fnvMix(h, t.leftHand ? 1 : 0);
+        for (const std::string& v : t.vehicles) fnvMixS(h, v);
+        fnvMixF(h, t.radius), fnvMixF(h, t.density), fnvMixF(h, t.speed);
+        fnvMixF(h, t.green), fnvMixF(h, t.amber), fnvMixF(h, t.allRed);
+    }
     for (const SceneData& sc : p.scenes) {
         fnvMix(h, 0x5C);  // scene separator
         fnvMix(h, sc.layers.size());

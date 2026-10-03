@@ -5518,6 +5518,7 @@ void TerrainGame::setupVehicles(int scene) {
       }
     }
   }
+  trafficSetup(scene);  // road traffic (docs/traffic.md)
 }
 
 // Per-frame twin of vehiclesim::step (src/vehiclesim.cpp). CHANGE ONE AND
@@ -5637,6 +5638,8 @@ void TerrainGame::stepVehicles(float dt) {
   if (n > 4) n = 4;
   const float h = dt / (float)n;
   vehFrameDt_ = dt;
+  tfStepT0_ = profTicks();
+  trafficFrame(dt);  // road traffic (docs/traffic.md)
   // A cache from an earlier frame must never serve this one: a car that
   // slept through the first sub-step (and so recorded nothing) could be
   // woken by a hit before the second.
@@ -5649,6 +5652,7 @@ void TerrainGame::stepVehicles(float dt) {
   vehSubStepRepeat_ = false;
   vehSubStepMore_ = false;
   updateVehicleTutorial(dt);
+  tfStepTicks_ += profTicks() - tfStepT0_;
 }
 
 // Speed feel (docs/vehicles.md, "Speed feel"): turns the driven car's speed
@@ -6084,6 +6088,10 @@ void TerrainGame::updateVehicles(float dt) {
         r = r * 0.65F + r * r * r * 0.35F;
         inSteer = inSteer < 0.0F ? -r : r;
       }
+    } else if (v.wpFirst == -2 && vi < (int)tfCarOf_.size() && tfCarOf_[(size_t)vi] >= 0) {
+      // ROAD TRAFFIC (docs/traffic.md): the lane graph's driver fills the
+      // same four numbers.
+      trafficDrive(vi, inThrottle, inBrake, inSteer);
     } else if (v.wpCount > 0 && (s.damageMechanical <= 0.5F || v.damage < 0.999F)) {
       // AI DRIVER (docs/vehicles.md): fills the IDENTICAL four numbers the
       // pad fills - the whole reason DriveInput is a struct and not a pad
@@ -6294,7 +6302,7 @@ void TerrainGame::updateVehicles(float dt) {
     // exiting car run once more while an audio channel is live so its loops
     // are silenced before it sleeps.
     const bool canSleep =
-        vi != vehicleDriver_ && v.wpCount <= 0 && v.grounded &&
+        vi != vehicleDriver_ && v.wpCount <= 0 && v.wpFirst != -2 && v.grounded &&
         v.speed > -0.001F && v.speed < 0.001F &&
         v.lateral > -0.001F && v.lateral < 0.001F &&
         v.engineCh < 0 && v.engineChHigh < 0 && v.screechCh < 0;
@@ -6313,6 +6321,9 @@ void TerrainGame::updateVehicles(float dt) {
       }
       continue;
     }
+    if (v.wpFirst == -2 && tfCarOf_[(size_t)vi] >= 0 &&
+        trafficKinematic(vi, dt, inThrottle, inBrake))
+      continue;  // road traffic, far from the camera (docs/traffic.md)
 
     // Steering, with the lock shrinking toward top speed: without the taper
     // a full-lock flick at speed spins the car on the spot, and a d-pad is
@@ -9876,6 +9887,426 @@ void TerrainGame::buildRoads(int scene) {
            (int)(y0 * 10.0F));
   TYRA_LOG("ROADSTRIP scene ", scene, " strips ", useStrips ? 1 : 0,
            " packages ", roadPackages, " triangles ", roadTriangles);
+}
+
+// --- road traffic (docs/traffic.md) -----------------------------------------
+
+// Defined further down the vehicle runtime (the vehiclesim::bodyRotation twin).
+static void vehBodyRotation(float pitch, float yaw, float roll, float out[3]);
+
+// Where the roads are not built (road streaming), a car is never spawned.
+bool TerrainGame::trafficGroundReady(float x, float z) const {
+  (void)x;
+  (void)z;
+  return true;
+}
+
+void TerrainGame::trafficSetup(int scene) {
+  tf_ = TfSim();
+  tfVehicle_.clear();
+  tfLamps_.clear();
+  tfLines_.clear();
+  tfCarOf_.assign(VEHICLE_COUNT > 0 ? VEHICLE_COUNT : 1, -1);
+  tfScene_ = scene;
+  tfLenT_ = tfLogT_ = tfLaneNear_ = 0.0F;
+  tfSpawned_ = tfRecycled_ = 0;
+  tfRunLine_ = -1;
+  tfLampSig_ = 0U;
+  tfLampCount_ = 0;
+  tfLampVerts_.resize(kTfLampMax * 12);
+  tfLampCols_.resize(kTfLampMax * 12);
+  const int* sc = TRAFFIC_SCENES[scene];
+  TfGraph& g = tf_.g;
+  g.green = TRAFFIC_GREEN;
+  g.amber = TRAFFIC_AMBER;
+  g.allRed = TRAFFIC_ALL_RED;
+  g.speed = TRAFFIC_SPEED;
+  // The scene's points are one contiguous run of TRAFFIC_PTS: point at it.
+  const int base = sc[1] > 0 ? TRAFFIC_SEGS[sc[0]].first : 0;
+  g.pts = &TRAFFIC_PTS[(size_t)base * 3];
+  g.pointCount = 0;
+  for (int k = 0; k < sc[1]; ++k) {
+    const TrafficSegData& d = TRAFFIC_SEGS[sc[0] + k];
+    TfSeg s;
+    s.first = d.first - base;
+    s.count = d.count;
+    g.pointCount = s.first + s.count > g.pointCount ? s.first + s.count : g.pointCount;
+    s.kind = d.kind;
+    s.node = d.node;
+    s.group = d.group;
+    s.rank = d.rank;
+    s.turn = d.turn;
+    s.nextFirst = (int)g.next.size();
+    s.nextCount = d.nextCount;
+    for (int i = 0; i < d.nextCount; ++i) g.next.push_back(TRAFFIC_NEXT[d.nextFirst + i]);
+    s.confFirst = (int)g.conf.size();
+    s.confCount = d.confCount;
+    for (int i = 0; i < d.confCount; ++i) g.conf.push_back(TRAFFIC_CONF[d.confFirst + i]);
+    g.segs.push_back(s);
+  }
+  const float cyc = 2.0F * (TRAFFIC_GREEN + TRAFFIC_AMBER + TRAFFIC_ALL_RED);
+  for (int k = 0; k < sc[3]; ++k) {
+    TfNode n;
+    n.signal = TRAFFIC_NODE_SIGNAL[sc[2] + k];
+    n.offset = fmodf((float)k * 7.31F, cyc);
+    g.nodes.push_back(n);
+  }
+  g.finish(3.0F);
+  for (int k = 0; k < sc[5]; ++k) {
+    const TrafficLampData& d = TRAFFIC_LAMPS[sc[4] + k];
+    tfLamps_.push_back({d.node, d.group, d.x, d.y, d.z, d.fx, d.fz, d.scale});
+  }
+  for (int si = 0; si < (int)g.segs.size(); ++si) {
+    const TfSeg& G = g.segs[(size_t)si];
+    if (G.kind != 0 || G.nextCount <= 0) continue;
+    const TfSeg& C = g.segs[(size_t)g.next[(size_t)G.nextFirst]];
+    if (C.kind == 1 && C.group >= 0 && C.node >= 0 && g.nodes[(size_t)C.node].signal)
+      tfLines_.push_back({si, C.node, C.group});
+  }
+  // The appended cars (VEHICLES rows with wpFirst -2): parked out of the
+  // world until the ring places them.
+  for (int vi = 0; vi < vehicleCount_; ++vi) {
+    VehicleRt& v = vehicles_[vi];
+    if (v.wpFirst != -2) continue;
+    tfCarOf_[(size_t)vi] = (int)tfVehicle_.size();
+    tfVehicle_.push_back(vi);
+    v.active = 0;
+    if (v.object >= 0 && v.object < (int)runtimeObjects.size())
+      runtimeObjects[v.object].visible = false;
+  }
+  tf_.reset((int)tfVehicle_.size());
+  int conns = 0, sig = 0;
+  for (const TfSeg& G : g.segs) conns += G.kind == 1;
+  for (const TfNode& n : g.nodes) sig += n.signal;
+  TYRA_LOG("TRAFFIC scene ", scene, " lanes ", (int)g.lanes.size(), " connections ", conns,
+           " points ", g.pointCount, " signals ", sig, " lamps ",
+           (int)tfLamps_.size(), " cars ", (int)tfVehicle_.size());
+}
+
+void TerrainGame::trafficPlace(int car, int seg, float s) {
+  const int vi = tfVehicle_[(size_t)car];
+  VehicleRt& v = vehicles_[vi];
+  if (v.damage > 0.0F || v.dentCount > 0 || v.piecesGone != 0U) repairVehicle(vi);
+  const int obj = v.object, def = v.def, drv = v.driveable;
+  const float scale = v.scale;
+  v = VehicleRt();
+  v.object = obj;
+  v.def = def;
+  v.driveable = drv;
+  v.scale = scale;
+  v.wpFirst = -2;
+  v.active = 1;
+  v.lightsOn = 0;
+  float p[5];
+  tf_.g.at(seg, s, p);
+  v.pos[0] = p[0];
+  v.pos[1] = p[1] + VEHICLE_DEFS[def].rideHeight * scale;
+  v.pos[2] = p[2];
+  v.yaw = atan2f(p[3], p[4]) * 57.29578F;
+  v.speed = TRAFFIC_SPEED * 0.6F;
+  v.aiPrevX = p[0];
+  v.aiPrevZ = p[2];
+  tf_.place(car, seg, s);
+  TfCar& c = tf_.cars[(size_t)car];
+  c.x = p[0];
+  c.z = p[2];
+  c.yaw = v.yaw;
+  c.speed = v.speed;
+  c.passed = 0;
+  if (obj >= 0 && obj < (int)runtimeObjects.size()) runtimeObjects[obj].visible = true;
+  ++tfSpawned_;
+}
+
+void TerrainGame::trafficRemove(int car) {
+  const int vi = tfVehicle_[(size_t)car];
+  VehicleRt& v = vehicles_[vi];
+  tf_.remove(car);
+  v.active = 0;
+  if (v.object >= 0 && v.object < (int)runtimeObjects.size())
+    runtimeObjects[v.object].visible = false;
+  ++tfRecycled_;
+}
+
+// Once a frame, before the vehicle sub-steps: the signal clock, who is in the
+// way, recycling the cars that fell behind and placing new ones out of view.
+void TerrainGame::trafficFrame(float dt) {
+  if (tfScene_ < 0 || tf_.g.segs.empty() || tfVehicle_.empty()) return;
+  const u32 tfT0 = profTicks();
+  ++tfFrames_;
+  tf_.clock += dt;
+  float fx = cameraLookAt.x, fz = cameraLookAt.z;
+  if (vehicleDriver_ >= 0 && vehicleDriver_ < vehicleCount_) {
+    fx = vehicles_[vehicleDriver_].pos[0];
+    fz = vehicles_[vehicleDriver_].pos[2];
+  } else if (PLAYER_INDEX >= 0) {
+    fx = players[0].x;
+    fz = players[0].z;
+  }
+  float cfx = cameraLookAt.x - cameraPosition.x, cfz = cameraLookAt.z - cameraPosition.z;
+  {
+    const float l = sqrtf(cfx * cfx + cfz * cfz);
+    if (l > 1e-3F) {
+      cfx /= l;
+      cfz /= l;
+    } else {
+      cfx = 0.0F;
+      cfz = 1.0F;
+    }
+  }
+  // Everything that is not traffic is in the way: other cars, and the player
+  // on foot.
+  tf_.obst.clear();
+  for (int vi = 0; vi < vehicleCount_; ++vi) {
+    const VehicleRt& v = vehicles_[vi];
+    if (!v.active || v.def < 0 || tfCarOf_[(size_t)vi] >= 0) continue;
+    const VehicleDefData& s = VEHICLE_DEFS[v.def];
+    tf_.obst.push_back({v.pos[0], v.pos[2], v.yaw, (0.5F * s.wheelBase + s.bodyOverhang) * v.scale});
+  }
+  if (vehicleDriver_ < 0 && PLAYER_INDEX >= 0)
+    tf_.obst.push_back({players[0].x, players[0].z, players[0].yaw * 57.29578F, 0.4F});
+  const float R = TRAFFIC_RADIUS;
+  int on = 0, atLine = 0;
+  for (int ci = 0; ci < (int)tf_.cars.size(); ++ci) {
+    TfCar& c = tf_.cars[(size_t)ci];
+    if (!c.on) continue;
+    const VehicleRt& v = vehicles_[tfVehicle_[(size_t)ci]];
+    c.x = v.pos[0];
+    c.z = v.pos[2];
+    c.yaw = v.yaw;
+    c.speed = v.speed;
+    c.stopT = (v.speed > 0.3F || v.speed < -0.3F) ? 0.0F : c.stopT + dt;
+    atLine += c.atLine;
+    const float dx = v.pos[0] - fx, dz = v.pos[2] - fz;
+    const float d = sqrtf(dx * dx + dz * dz);
+    const float vx = v.pos[0] - cameraPosition.x, vz = v.pos[2] - cameraPosition.z;
+    const float vd = sqrtf(vx * vx + vz * vz);
+    const bool seen = vd < 160.0F && (vd < 6.0F || (vx * cfx + vz * cfz) > 0.4F * vd);
+    const bool wrecked = VEHICLE_DEFS[v.def].damageMechanical > 0.5F && v.damage >= 0.999F;
+    if (d > R * 1.25F || (!seen && (c.stopT > 45.0F || wrecked))) {
+      trafficRemove(ci);
+      continue;
+    }
+    ++on;
+  }
+  tfLenT_ -= dt;
+  if (tfLenT_ <= 0.0F) {
+    tfLenT_ = 1.0F;
+    tfLaneNear_ = tf_.laneLengthNear(fx, fz, R);
+  }
+  int target = (int)(TRAFFIC_DENSITY * tfLaneNear_ / 100.0F + 0.5F);
+  if (target > (int)tf_.cars.size()) target = (int)tf_.cars.size();
+  tfTarget_ = target;
+  if (on < target) {
+    float s = 0.0F;
+    const int seg = tf_.spawnPick(tfRng_, fx, fz, cfx, cfz, 0.45F, R * 0.4F, R, 14.0F, &s);
+    if (seg >= 0) {
+      float p[5];
+      tf_.g.at(seg, s, p);
+      if (trafficGroundReady(p[0], p[2]))
+        for (int ci = 0; ci < (int)tf_.cars.size(); ++ci)
+          if (!tf_.cars[(size_t)ci].on) {
+            trafficPlace(ci, seg, s);
+            ++on;
+            break;
+          }
+    }
+  }
+  trafficRedLight();
+  tfCoreTicks_ += profTicks() - tfT0;
+  tfLogT_ += dt;
+  if (tfLogT_ >= 5.0F) {
+    tfLogT_ = 0.0F;
+    const int n = tfFrames_ > 0 ? tfFrames_ : 1;
+    TYRA_LOG("TRAFFIC cars ", on, "/", target, " lane ", (int)tfLaneNear_, " spawned ", tfSpawned_,
+             " recycled ", tfRecycled_, " at a line ", atLine, " red runs ", tfRedRuns_,
+             " clock ", (int)tf_.clock, " far ", tfKinematic_ / n,
+             " core us/frame ", (int)(tfCoreTicks_ / 295U / (u32)n),
+             " vehicles us/frame ", (int)(tfStepTicks_ / 295U / (u32)n));
+    tfSpawned_ = tfRecycled_ = 0;
+    tfCoreTicks_ = tfStepTicks_ = 0U;
+    tfFrames_ = 0;
+    tfKinematic_ = 0;
+  }
+}
+
+// The player's car crossing a stop line on red: no HUD, a log line (the
+// telemetry a flow node or a script can build on).
+void TerrainGame::trafficRedLight() {
+  if (vehicleDriver_ < 0 || vehicleDriver_ >= vehicleCount_ || tfLines_.empty()) {
+    tfRunLine_ = -1;
+    return;
+  }
+  const VehicleRt& v = vehicles_[vehicleDriver_];
+  const float hx = sinf(v.yaw * 0.017453293F), hz = cosf(v.yaw * 0.017453293F);
+  int best = -1;
+  float bestAlong = 0.0F;
+  for (int k = 0; k < (int)tfLines_.size(); ++k) {
+    const TfSeg& G = tf_.g.segs[(size_t)tfLines_[(size_t)k].lane];
+    const float* e = &tf_.g.pts[(size_t)(G.first + G.count - 1) * 3];
+    const float* q = &tf_.g.pts[(size_t)(G.first + G.count - 2) * 3];
+    float tx = e[0] - q[0], tz = e[2] - q[2];
+    const float tl = sqrtf(tx * tx + tz * tz);
+    if (tl < 1e-4F) continue;
+    tx /= tl;
+    tz /= tl;
+    const float rx = v.pos[0] - e[0], rz = v.pos[2] - e[2];
+    const float along = rx * tx + rz * tz, lat = rx * tz - rz * tx;
+    if (along > -8.0F && along < 4.0F && lat > -2.5F && lat < 2.5F && hx * tx + hz * tz > 0.6F) {
+      best = k;
+      bestAlong = along;
+    }
+  }
+  if (best >= 0 && best == tfRunLine_ && tfRunAlong_ < 0.0F && bestAlong >= 0.0F) {
+    const TfLine& l = tfLines_[(size_t)best];
+    if (tf_.g.light(l.node, l.group, tf_.clock) == 2) {
+      ++tfRedRuns_;
+      TYRA_LOG("TRAFFIC red light run ", tfRedRuns_, " at node ", l.node);
+    }
+  }
+  tfRunLine_ = best;
+  tfRunAlong_ = bestAlong;
+}
+
+// A traffic car's pedals and wheel, from the core - in place of the pad's or
+// the waypoint AI's, so the sim, the walls and the damage are untouched.
+void TerrainGame::trafficDrive(int vi, float& throttle, float& brake, float& steer) {
+  const int ci = tfCarOf_[(size_t)vi];
+  TfCar& c = tf_.cars[(size_t)ci];
+  const VehicleRt& v = vehicles_[vi];
+  const VehicleDefData& s = VEHICLE_DEFS[v.def];
+  c.x = v.pos[0];
+  c.z = v.pos[2];
+  c.yaw = v.yaw;
+  c.speed = v.speed;
+  c.half = (0.5F * s.wheelBase + s.bodyOverhang) * v.scale;
+  c.brake = s.brakeDecel;
+  if (s.damageMechanical > 0.5F && v.damage >= 0.999F) {
+    throttle = 0.0F;
+    brake = 1.0F;
+    steer = 0.0F;
+    return;
+  }
+  const u32 t0 = profTicks();
+  tf_.drive(ci, &throttle, &brake, &steer);
+  tfCoreTicks_ += profTicks() - t0;
+}
+
+// FAR CARS (docs/traffic.md "What it costs"): a traffic car this far from
+// the camera is drawn by its far tier, a few pixels tall - so it skips the
+// vehicle sim (tyres, suspension, walls) and slides along its lane at the
+// speed the core's pedals ask for, glued to the lane's own height. The full
+// sim takes over again as it comes near; the lane keeps the two consistent.
+bool TerrainGame::trafficKinematic(int vi, float dt, float throttle, float brake) {
+  VehicleRt& v = vehicles_[vi];
+  const VehicleDefData& s = VEHICLE_DEFS[v.def];
+  const float dx = v.pos[0] - cameraPosition.x, dz = v.pos[2] - cameraPosition.z;
+  const float nearD = s.trafficDistance + 30.0F > 45.0F ? s.trafficDistance + 30.0F : 45.0F;
+  if (dx * dx + dz * dz < nearD * nearD) return false;
+  TfCar& c = tf_.cars[(size_t)tfCarOf_[(size_t)vi]];
+  float spd = v.speed > 0.0F ? v.speed : 0.0F;
+  if (brake > 0.01F) spd -= s.brakeDecel * 0.6F * brake * dt;
+  else if (throttle > 0.01F) spd += s.accel * throttle * dt;
+  if (spd < 0.0F) spd = 0.0F;
+  float p[5];
+  tf_.ahead(c, spd * dt, p);
+  const float SC = v.scale;
+  v.pos[0] = p[0];
+  v.pos[1] = p[1] + s.rideHeight * SC;
+  v.pos[2] = p[2];
+  if (spd > 0.05F) v.yaw = atan2f(p[3], p[4]) * 57.29578F;
+  v.speed = spd;
+  v.lateral = 0.0F;
+  v.velY = 0.0F;
+  v.pitch = v.roll = v.leanPitch = v.leanRoll = 0.0F;
+  v.pitchVel = v.rollVel = 0.0F;
+  v.grounded = 1;
+  for (int k = 0; k < 4; ++k) v.wheelY[k] = p[1];
+  ++tfKinematic_;
+  if (v.object >= 0 && v.object < (int)runtimeObjects.size()) {
+    RuntimeObject& o = runtimeObjects[v.object];
+    o.data.position[0] = v.pos[0];
+    o.data.position[1] = v.pos[1];
+    o.data.position[2] = v.pos[2];
+    vehBodyRotation(0.0F, v.yaw, 0.0F, o.data.rotation);
+    if (vehSubStepMore_) {
+      v.objMatPending = true;
+    } else if (o.onMatrixPath) {
+      updateObjMat(v.object);
+      v.objMatPending = false;
+    } else {
+      o.dirty = true;
+      v.objMatPending = false;
+    }
+  }
+  return true;
+}
+
+// The lit lens of every signal head in reach: one quad (both windings) per
+// head over its baked, unlit lens. Rewritten only when a light changes or a
+// head comes into reach - otherwise the bag replays its stream.
+void TerrainGame::renderTrafficLamps() {
+  if (tfLamps_.empty()) return;
+  unsigned int sig = 2166136261U;
+  int count = 0;
+  int pick[kTfLampMax];
+  int lens[kTfLampMax];
+  for (int k = 0; k < (int)tfLamps_.size() && count < kTfLampMax; ++k) {
+    const TfLamp& l = tfLamps_[(size_t)k];
+    const float dx = l.x - cameraPosition.x, dz = l.z - cameraPosition.z;
+    if (dx * dx + dz * dz > 95.0F * 95.0F) continue;
+    const int st = tf_.g.light(l.node, l.group, tf_.clock);
+    pick[count] = k;
+    lens[count] = st == 2 ? 0 : (st == 1 ? 1 : 2);
+    sig = (sig ^ (unsigned int)(k * 4 + lens[count])) * 16777619U;
+    ++count;
+  }
+  if (count <= 0) return;
+  if (sig != tfLampSig_ || count != tfLampCount_) {
+    tfLampSig_ = sig;
+    tfLampCount_ = count;
+    for (int i = 0; i < count; ++i) {
+      const TfLamp& l = tfLamps_[(size_t)pick[i]];
+      const int k = lens[i];
+      const float sc = l.scale;
+      const float h = (TRAFFIC_LENS_HALF + 0.01F) * sc;
+      const float cz = (TRAFFIC_LENS_Z + 0.012F) * sc;
+      const float cx = l.x + l.fx * cz, cy = l.y + TRAFFIC_LENS_Y[k] * sc, czz = l.z + l.fz * cz;
+      const float rx = l.fz * h, rz = -l.fx * h;
+      auto g = tfLampVerts_.span((size_t)i * 12, 12);
+      auto c = tfLampCols_.span((size_t)i * 12, 12);
+      g[0].set(cx - rx, cy - h, czz - rz, 1.0F);
+      g[1].set(cx + rx, cy - h, czz + rz, 1.0F);
+      g[2].set(cx + rx, cy + h, czz + rz, 1.0F);
+      g[3] = g[0];
+      g[4] = g[2];
+      g[5].set(cx - rx, cy + h, czz - rz, 1.0F);
+      for (int j = 0; j < 6; ++j) g[6 + j] = g[5 - j];
+      const Tyra::Color col = k == 0 ? Tyra::Color(255.0F, 40.0F, 28.0F, 128.0F)
+                            : (k == 1 ? Tyra::Color(255.0F, 175.0F, 30.0F, 128.0F)
+                                      : Tyra::Color(70.0F, 255.0F, 120.0F, 128.0F));
+      for (int j = 0; j < 12; ++j) c[j] = col;
+    }
+    if (tfLampBag_) tfLampBag_->bboxVersion = ++g_bboxStamp;
+  }
+  if (!tfLampBag_) {
+    tfLampInfo_ = std::make_unique<StaPipInfoBag>();
+    tfLampInfo_->model = &model;
+    tfLampInfo_->shadingType = TyraShadingGouraud;
+    tfLampInfo_->fullClipChecks = true;
+    tfLampInfo_->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
+    tfLampInfo_->zTestType = PipelineZTest_Standard;
+    tfLampColorBag_ = std::make_unique<StaPipColorBag>();
+    tfLampCols_.bind(tfLampColorBag_);
+    tfLampBag_ = std::make_unique<StaPipBag>();
+    tfLampBag_->info = tfLampInfo_.get();
+    tfLampBag_->color = tfLampColorBag_.get();
+    tfLampBag_->lighting = nullptr;
+    tfLampBag_->texture = nullptr;
+    tfLampVerts_.bind(tfLampBag_);
+    tfLampBag_->bboxVersion = ++g_bboxStamp;
+  }
+  tfLampBag_->count = (u32)(tfLampCount_ * 12);
+  stapip.core.render(tfLampBag_.get());
 }
  */
 void TerrainGame::renderProcChunks() {

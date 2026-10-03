@@ -54,6 +54,7 @@
 #include "roaddraw.hpp"
 #include "roadpresets.hpp"
 #include "roadgen.hpp"
+#include "roadlanes.hpp"
 #include "roadrail.hpp"
 #include "roadtex.hpp"
 #include "shadowbake.hpp"
@@ -759,6 +760,41 @@ static int roadTextureFromCli(int argc, char** argv) {
     std::printf("road-texture: %s (%dx%d, %s recipe) -> %s\n", roadtex::fileStem(argv[3]).c_str(),
                 p.size, p.size, had ? "edited" : "new", mtl.c_str());
     return 0;
+}
+
+// tyrax-editor.exe --road-lanes <projectDir> [sceneIndex]
+// The lane graph traffic drives (docs/traffic.md): per scene the lanes per
+// road, per node every connection (from which arm, the turn, who gives way,
+// the signal phase, how many movements it crosses), then the warnings - dead
+// ends and lanes with no legal exit. roadlanes::buildScene, the codegen's own
+// graph. Exits 1 when a lane reaches a node with no legal exit.
+static int roadLanesFromCli(int argc, char** argv) {
+    if (argc < 3) {
+        std::fprintf(stderr, "usage: tyrax-editor --road-lanes <projectDir> [sceneIndex]\n");
+        return 2;
+    }
+    Project p;
+    if (std::string err = project::load(p, argv[2]); !err.empty()) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
+    const int only = argc > 3 ? std::atoi(argv[3]) : -1;
+    int stuck = 0;
+    for (size_t si = 0; si < p.scenes.size(); ++si) {
+        if (only >= 0 && (int)si != only) continue;
+        const SceneData& sc = p.scenes[si];
+        std::vector<int> idx;
+        const std::vector<roadgen::CrossingRoad> roads =
+            project::crossingRoads(sc.objects, &idx, p.dir, {});
+        if (roads.empty()) continue;
+        const roadlanes::Graph g = roadlanes::buildScene(p, (int)si);
+        std::printf("=== scene %zu: %s - %zu roads ===\n", si, sc.name.c_str(), roads.size());
+        std::printf("%s", roadlanes::describe(g, roads).c_str());
+        for (const std::string& w : g.warnings) stuck += w.find("no legal exit") != std::string::npos;
+    }
+    std::printf("traffic: %s (%d cars per scene)\n",
+                roadlanes::projectHasTraffic(p) ? "on" : "off", p.settings.traffic.cars);
+    return stuck ? 1 : 0;
 }
 
 // tyrax-editor.exe --draw-road <projectDir> <scene> "<x,z[,h] x,z[,h] ...>" [preset]
@@ -5278,6 +5314,8 @@ int main(int argc, char** argv) {
         return drawRoadFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--road-crossings") == 0)
         return roadCrossingsFromCli(argc, argv);
+    if (argc > 1 && std::strcmp(argv[1], "--road-lanes") == 0)
+        return roadLanesFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--dump-graph") == 0)
         return dumpGraphFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--apply-graph") == 0)
@@ -5446,6 +5484,12 @@ int main(int argc, char** argv) {
             "                                          and road details per road; "
             "exit 1 on an orphaned junction\n"
             "                                          override (docs/roads.md)\n"
+            "  --road-lanes <projectDir> [sceneIndex]\n"
+            "                                          the lane graph traffic drives: "
+            "lanes, every node's\n"
+            "                                          movements, dead ends; exit 1 on "
+            "a lane with no exit\n"
+            "                                          (docs/traffic.md)\n"
             "  --batch-report <projectDir> [sceneIndex]\n"
             "                                          how the static objects "
             "batch, and why each one that\n"

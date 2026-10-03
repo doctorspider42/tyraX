@@ -1841,6 +1841,29 @@ CrossingPlan planCrossings(const std::vector<CrossingRoad>& roads,
     return plan;
 }
 
+std::vector<unsigned char> giveWayArms(const Crossing& c, const std::vector<CrossingRoad>& roads) {
+    std::vector<unsigned char> out(c.armList.size(), 0);
+    bool through = false, anyEnds = false;
+    for (const NodeArm& a : c.armList) through |= !a.ends, anyEnds |= a.ends;
+    // The road that gives way at a crossing of through roads: lower rank,
+    // then narrower, then the later one (a deterministic tie-break).
+    int minor = -1;
+    if (!anyEnds)
+        for (int r : c.roads) {
+            if (minor < 0) { minor = r; continue; }
+            const CrossingRoad& R = roads[(size_t)r];
+            const CrossingRoad& M = roads[(size_t)minor];
+            if (R.rank < M.rank || (R.rank == M.rank && R.width < M.width) ||
+                (R.rank == M.rank && R.width == M.width))
+                minor = r;
+        }
+    for (size_t ai = 0; ai < c.armList.size(); ++ai) {
+        const NodeArm& a = c.armList[ai];
+        out[ai] = ((through && a.ends) || a.road == minor) ? 1 : 0;
+    }
+    return out;
+}
+
 void bakeMarkings(const CrossingPlan& plan, const std::vector<CrossingRoad>& roads,
                   const Surface& surface, std::vector<Vertex>& out) {
     out.clear();
@@ -1902,22 +1925,9 @@ void bakeMarkings(const CrossingPlan& plan, const std::vector<CrossingRoad>& roa
         bool railway = false;
         for (int r : c.roads) railway |= roads[(size_t)r].kind == 1;
         if (railway) continue;
-        bool through = false;
-        for (const NodeArm& a : c.armList) through |= !a.ends;
-        // The road that gives way at a crossing of through roads: lower rank,
-        // then narrower, then the later one (a deterministic tie-break).
-        int minor = -1;
-        bool anyEnds = false;
-        for (const NodeArm& a : c.armList) anyEnds |= a.ends;
-        if (!anyEnds)
-            for (int r : c.roads) {
-                if (minor < 0) { minor = r; continue; }
-                const CrossingRoad& R = roads[(size_t)r];
-                const CrossingRoad& M = roads[(size_t)minor];
-                if (R.rank < M.rank || (R.rank == M.rank && R.width < M.width) ||
-                    (R.rank == M.rank && R.width == M.width))
-                    minor = r;
-            }
+        // Who gives way: the ONE rule (giveWayArms), shared with the street
+        // furniture's signs and the lane graph's priorities.
+        const std::vector<unsigned char> yields = giveWayArms(c, roads);
         // EDGE LINES around the node: the road texture's own edge line (5..8
         // of 128 across the width) carried along every outline segment that
         // is a road edge or a fillet - never across a cap, where the road and
@@ -1964,10 +1974,11 @@ void bakeMarkings(const CrossingPlan& plan, const std::vector<CrossingRoad>& roa
                       {p1.x + nx * in1, p1.z + nz * in1}, {p0.x + nx * in1, p0.z + nz * in1});
             }
         }
-        for (const NodeArm& a : c.armList) {
+        for (size_t ai = 0; ai < c.armList.size(); ++ai) {
+            const NodeArm& a = c.armList[ai];
             const CrossingRoad& R = roads[(size_t)a.road];
             if (R.markings <= kMarkNone) continue;
-            const bool givesWay = (through && a.ends) || a.road == minor;
+            const bool givesWay = yields[ai] != 0;
             if (givesWay && a.h >= 1.5f)
                 quad(a, -0.7f, -0.25f, 0.15f, a.h - 0.35f);  // stop line, incoming lane
             if (R.markings >= kMarkCrossings && c.arms >= 3 && a.h >= 2.5f) {
