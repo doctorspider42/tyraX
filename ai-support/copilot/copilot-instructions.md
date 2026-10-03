@@ -79,6 +79,7 @@ The editor executable on this machine: `{TYRAX_EXE}`
 - `--bake-gi <projectDir>` - bake global illumination + light probes
 - `--bake-particles <projectDir>` - re-bake the particle library's generated textures (docs/particles.md)
 - `--road-texture <projectDir> <name> [key=value ...]` - generate a road material into `res/materials/roads/` (docs/road-textures.md)
+- `--draw-road <projectDir> <scene> "x,z x,z ..." [preset]` - draw a road with the editor's snapping (T, crossing, corner) and a preset; saves (docs/roads.md "Drawing roads")
 - `--bake-shadows <projectDir>` - bake the static shadow decals (docs/shadows.md)
   (explicit; a build only reads the cache in `.res-baked/gi/`, so editing
   a scene falls its lighting back to classic shading until you re-bake)

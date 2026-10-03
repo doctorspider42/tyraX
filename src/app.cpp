@@ -3194,7 +3194,7 @@ void App::drawViewportWindow() {
             }
             viewport_.setGsColorSim(quant, dith);
         }
-        viewport_.setRoadDragging(roadDragPoint_ >= 0);
+        viewport_.setRoadDragging(roadDragPoint_ >= 0 || bridgeDragPoint_ >= 0);
         viewport_.setRoadJunctions(project_.active().roadJunctions);
         uint32_t tex = viewport_.render((int)avail.x, (int)avail.y, renderObjects,
                                         renderSel, renderPrimary);
@@ -3329,13 +3329,34 @@ void App::drawViewportWindow() {
         drawScreenIconOverlay(imgPos, avail);
         // Road crossings (docs/roads.md, "Junction overrides"): a diamond per
         // crossing while a road or a junction is selected.
-        junctionMarkers(imgPos, avail, true, io.MousePos);
+        if (const int jh = junctionMarkers(imgPos, avail, true, io.MousePos);
+            jh != -1 && imageHovered) {
+            // In-place junction editing: say what a click on the diamond does.
+            const roadgen::CrossingPlan& jp = sceneCrossings();
+            if (jh >= 0 && jh < (int)jp.crossings.size()) {
+                const roadgen::Crossing& jc = jp.crossings[(size_t)jh];
+                ImGui::SetTooltip("%s node, %d arms - click to edit its overrides",
+                                  jc.transition ? "Transition"
+                                  : jc.arms == 2 ? "Corner"
+                                  : jc.arms == 3 ? "T / fork"
+                                                 : "Crossing",
+                                  jc.arms);
+            } else {
+                ImGui::SetTooltip("Orphaned junction override - click to show it");
+            }
+        }
 
         // --- Axis view gizmo (top-right corner) ---
         // Drawn before the input handling so its hover can veto the click that
         // would otherwise fall through and change the selection.
         const bool overAxisGizmo = drawAxisGizmo(imgPos, avail) |
                                    drawViewportGear(imgPos, avail);
+        // The Draw road tool and the bridge height handles (docs/roads.md
+        // "Drawing roads", "Bridges", src/roaddraw_ui.cpp). Each says when it
+        // owns the mouse, so the picker and the rubber band leave the click.
+        const bool roadDrawOwns = roadDrawViewport(imgPos, avail, imageHovered, overAxisGizmo);
+        const bool bridgeHot =
+            bridgeHandles(imgPos, avail, imageHovered && !overAxisGizmo && !roadDrawOwns);
 
         // --- Terrain sculpting / painting brush (shared raycast + ring) ---
         const bool brushMode = sculptMode_ || paintMode_;
@@ -3531,7 +3552,7 @@ void App::drawViewportWindow() {
         // --- Transform gizmo on the selection (disabled while sculpting;
         // objects on a hidden layer can't be grabbed either) ---
         bool objectSelected = !sculptMode_ && !paintMode_ && !measureMode_ &&
-                              !pastePending_ &&
+                              !pastePending_ && !roadDraw_.active &&
                               selectedObject_ >= 0 &&
                               selectedObject_ < (int)project_.objects().size() &&
                               project_.objects()[selectedObject_].type !=
@@ -3782,7 +3803,7 @@ void App::drawViewportWindow() {
             // Alt+LMB does) and we're not sculpting.
             const bool lmbCamera = (nav_.scheme == NavScheme::Maya) && alt;
             if (!sculptMode_ && !paintMode_ && !measureMode_ && !pastePending_ &&
-                !roadEdit_ && !lmbCamera && !overAxisGizmo &&
+                !roadEdit_ && !lmbCamera && !overAxisGizmo && !roadDrawOwns && !bridgeHot &&
                 ImGui::IsMouseClicked(ImGuiMouseButton_Left))
                 boxSelecting_ = true;
         }
@@ -3816,7 +3837,8 @@ void App::drawViewportWindow() {
             if (!roadOk || ImGui::IsKeyPressed(ImGuiKey_Escape)) {
                 roadEdit_ = false;
                 roadDragPoint_ = -1;
-            } else if ((imageHovered || roadDragPoint_ >= 0) && !gizmoBusy) {
+            } else if ((imageHovered || roadDragPoint_ >= 0) && !gizmoBusy &&
+                       !(bridgeHot && roadDragPoint_ < 0)) {
                 SceneObject& ro = project_.objects()[selectedObject_];
                 const float u = (io.MousePos.x - imgPos.x) / avail.x;
                 const float v = (io.MousePos.y - imgPos.y) / avail.y;
@@ -3862,9 +3884,42 @@ void App::drawViewportWindow() {
                                 }
                             }
                         }
+                        // A dragged END lands on the road under it, the Draw
+                        // road tool's own snap (docs/roads.md "Drawing
+                        // roads"): onto another road's end, or its centre
+                        // line - a clean T. Never onto the road itself.
+                        std::string snappedTo;
+                        if (!merged && !roadgen::isClosed(ro.roadPoints) &&
+                            (roadDragPoint_ == 0 || roadDragPoint_ == count - 1)) {
+                            std::vector<int> idx;
+                            std::vector<roadgen::CrossingRoad> roads = project::crossingRoads(
+                                project_.objects(), &idx, project_.dir,
+                                [this](float x, float z) { return viewport_.terrainHeight(x, z); });
+                            std::vector<int> keep;
+                            std::vector<roadgen::CrossingRoad> others;
+                            for (size_t k = 0; k < roads.size(); ++k)
+                                if (idx[k] != selectedObject_) {
+                                    others.push_back(std::move(roads[k]));
+                                    keep.push_back(idx[k]);
+                                }
+                            const roaddraw::Snapper snapper(std::move(others));
+                            roaddraw::Options so;
+                            so.angleSnap = false;
+                            const float px = ro.roadPoints[(size_t)roadDragPoint_ * 2];
+                            const float pz = ro.roadPoints[(size_t)roadDragPoint_ * 2 + 1];
+                            const roaddraw::Snap s = snapper.resolve({}, px, pz, so);
+                            if (!io.KeyShift && (s.kind == roaddraw::kEnd || s.kind == roaddraw::kCentre)) {
+                                roadgen::moveControl(ro.roadPoints, roadDragPoint_, s.x, s.z);
+                                snappedTo = project_.objects()[(size_t)keep[(size_t)s.road]].name;
+                                snappedTo = (s.kind == roaddraw::kEnd ? "the end of " : "the centre of ") +
+                                            snappedTo;
+                            }
+                        }
                         roadDragPoint_ = -1;
                         commitChange();
-                        statusMessage_ = merged ? "Road loop closed (Ctrl+Z to undo)" : "Road point moved";
+                        statusMessage_ = merged               ? "Road loop closed (Ctrl+Z to undo)"
+                                         : !snappedTo.empty() ? "Road end snapped to " + snappedTo
+                                                              : std::string("Road point moved");
                     }
                 } else if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && hit) {
                     const int np = roadgen::controlCount(ro.roadPoints);
@@ -4071,6 +4126,7 @@ void App::drawViewportWindow() {
         // Clicking the same spot again walks the stack under it (viewportPick).
         if (!procClick && imageHovered && (!gizmoBusy || gizmoClick) && !sculptMode_ &&
             !paintMode_ && !measureMode_ && !pastePending_ && !overAxisGizmo &&
+            !roadDraw_.active && !bridgeHot && bridgeDragPoint_ < 0 &&
             ImGui::IsMouseReleased(ImGuiMouseButton_Left) &&
             io.MouseDragMaxDistanceSqr[ImGuiMouseButton_Left] < 9.0f) {
             const float u = (io.MousePos.x - imgPos.x) / avail.x;
@@ -4471,6 +4527,7 @@ void App::drawViewportWindow() {
             measureMode_ = !measureMode_;
             measurePoints_ = 0;
             if (measureMode_) sculptMode_ = paintMode_ = false;
+            if (measureMode_ && roadDraw_.active) stopRoadDraw();
         }
         if (measureMode_) ImGui::PopStyleColor();
         if (ImGui::IsItemHovered())
@@ -4479,6 +4536,25 @@ void App::drawViewportWindow() {
                 "world units and in meters (Preferences > World > Units per\n"
                 "meter). Click again to start over, Esc clears, the button\n"
                 "or 7 leaves the tool.");
+
+        // Draw road (docs/roads.md "Drawing roads", src/roaddraw_ui.cpp).
+        ImGui::SameLine();
+        const bool drawing = roadDraw_.active;
+        if (drawing)
+            ImGui::PushStyleColor(ImGuiCol_Button,
+                                  ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+        if (ImGui::SmallButton("Draw road (8)")) {
+            if (drawing) stopRoadDraw();
+            else startRoadDraw();
+        }
+        if (drawing) ImGui::PopStyleColor();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Click the ground to place points of a new road; double-click\n"
+                "or Enter finishes it (one undo step), Esc cancels. Points snap\n"
+                "to existing roads' ends and centre lines (a T, a crossing, a\n"
+                "corner, or the road carried on) and to 15-degree steps -\n"
+                "hold Shift to place freely. The preset sets the road's look.");
 
         // While a paste is in flight, say so where the eye already is.
         if (pastePending_) {
@@ -4694,6 +4770,11 @@ void App::drawViewportWindow() {
                 measureMode_ = !measureMode_;
                 measurePoints_ = 0;
                 if (measureMode_) sculptMode_ = paintMode_ = false;
+                if (measureMode_ && roadDraw_.active) stopRoadDraw();
+            }
+            if (ImGui::IsKeyPressed(ImGuiKey_8)) {
+                if (roadDraw_.active) stopRoadDraw();
+                else startRoadDraw();
             }
             // Resize the brush without leaving the stroke ([ / ], 15% steps).
             if (sculptMode_ || paintMode_) {
@@ -9238,6 +9319,9 @@ void App::drawAddObjectMenu() {
                 r.roadIntersectionTexture = roadtex::kDefaultJunction;
             commitChange();
         }
+        // The Draw road tool (docs/roads.md "Drawing roads"): click the road
+        // out on the ground, snapped to the roads already there.
+        if (ImGui::MenuItem("Draw road...", "8")) startRoadDraw();
         // Linked pair of surfaces: a live view through to the target portal
         // plus a walk-through teleport that carries speed and view angle.
         if (ImGui::MenuItem("Portal")) addPortal();

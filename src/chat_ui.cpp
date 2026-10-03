@@ -756,6 +756,70 @@ std::string App::runChatTool(aichat::ToolCall& c) {
         return msg;
     }
 
+    // The Draw road tool's own path (docs/roads.md "Drawing roads"): the same
+    // roaddraw snapping, finish rule and preset as a click-drawn road.
+    if (c.name == "draw_road") {
+        const json::Value* pts = aichat::argValue(c, "points");
+        if (!pts || pts->type != json::Value::Type::Array || pts->arr.size() < 2)
+            return fail("\"points\" must be [[x, z], [x, z], ...] with at least two points.");
+        const std::string presetArg = aichat::argStr(c, "preset");
+        const roadpresets::Preset* pr = roadpresets::find(
+            project_.settings.roadPresets, presetArg.empty() ? "city-street" : presetArg);
+        if (!pr) {
+            std::string names;
+            for (const roadpresets::Preset* p : roadpresets::all(project_.settings.roadPresets))
+                names += (names.empty() ? "" : ", ") + p->key;
+            return fail("No road preset \"" + presetArg + "\". Presets: " + names + ".");
+        }
+        const bool active = si == project_.activeScene;
+        const roadgen::HeightFn ground = [&](float x, float z) {
+            if (active) return viewport_.terrainHeight(x, z);
+            return sc.terrain.enabled
+                       ? roadgen::terrainHeight(sc.heights, sc.hmW, sc.hmD, (float)sc.terrain.width,
+                                                (float)sc.terrain.depth, x, z)
+                       : 0.0f;
+        };
+        std::vector<int> idx;
+        const roaddraw::Snapper snapper(project::crossingRoads(sc.objects, &idx, project_.dir, ground));
+        roaddraw::Options opt;
+        opt.angleSnap = aichat::argBool(c, "angle_snap", false);
+        std::vector<roaddraw::Snap> placed;
+        for (const json::Value& p : pts->arr) {
+            if (p.type != json::Value::Type::Array || p.arr.size() < 2)
+                return fail("Every point is [x, z] or [x, z, h].");
+            roaddraw::Snap s = snapper.resolve(placed, (float)p.arr[0].numberOr(0.0),
+                                               (float)p.arr[1].numberOr(0.0), opt);
+            if (p.arr.size() >= 3) s.height = std::max(0.0f, (float)p.arr[2].numberOr(0.0));
+            placed.push_back(s);
+        }
+        const float upm = project_.settings.unitsPerMeter;
+        auto sameLook = [&](int r) {
+            const SceneObject& o = sc.objects[(size_t)idx[(size_t)r]];
+            SceneObject t = o;
+            roadpresets::apply(*pr, t, upm);
+            return t.roadWidth == o.roadWidth && t.roadTexture == o.roadTexture &&
+                   t.roadKind == o.roadKind;
+        };
+        const roaddraw::Plan plan = roaddraw::finish(snapper, placed, opt, sameLook);
+        if (!plan.ok) return fail("Nothing drawn: " + plan.error + ".");
+        const int oi = roaddraw::commit(sc.objects, idx, plan, *pr, project_.dir, upm);
+        if (oi < 0) return fail("The drawing could not be applied.");
+        materialAssetScanTime_ = -1.0;
+        if (active) selectOnly(oi);
+        commitChange();
+        if (roadDraw_.active) rebuildRoadSnapper();
+        std::string summary = plan.summary;
+        for (size_t k = 0; k < idx.size(); ++k) {
+            const std::string& id = snapper.road((int)k).id;
+            for (size_t at = summary.find(id); !id.empty() && at != std::string::npos;
+                 at = summary.find(id, at + 1))
+                summary.replace(at, id.size(), sc.objects[(size_t)idx[k]].name);
+        }
+        statusMessage_ = "AI: drew " + sc.objects[(size_t)oi].name;
+        return "Road \"" + sc.objects[(size_t)oi].name + "\" (preset " + pr->key + "): " + summary +
+               ". Junction nodes form where it meets other roads.";
+    }
+
     if (c.name == "delete_object") {
         const int oi = aichat::findObject(sc, aichat::argStr(c, "object"));
         if (oi < 0)

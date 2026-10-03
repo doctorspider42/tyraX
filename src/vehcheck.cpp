@@ -32,6 +32,7 @@
 #include "roadfile.hpp"
 #include "pngquant.hpp"
 #include "roaddetail.hpp"
+#include "roaddraw.hpp"
 #include "roadgen.hpp"
 #include "roadrail.hpp"
 #include "roadtex.hpp"
@@ -2160,6 +2161,7 @@ int run() {
     roadDetails();
     roadfurn::check(verdict);  // docs/roads.md "Street furniture"
     roadstream::check(verdict);  // docs/roads.md "Road streaming"
+    roaddraw::check(verdict);  // docs/roads.md "Drawing roads"
     roadfile::check(verdict);  // docs/roads.md "Tables on disk"
     damage();
     pieces();

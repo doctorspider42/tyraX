@@ -16,6 +16,7 @@
 #include "procgraph.hpp"
 #include "roadgen.hpp"  // JunctionOverride - SceneData stores them verbatim
 #include "roadfurniture.hpp"  // roadfurn::Settings - a road stores them verbatim
+#include "roadpresets.hpp"  // roadpresets::Preset - the project's own road presets
 #include "screenfx.hpp"
 #include "sequence.hpp"
 #include "vehiclesim.hpp"  // DriveSpec - a VehicleDef carries one verbatim
@@ -2104,6 +2105,10 @@ struct ProjectSettings {
     // is built at scene load and stays, and the generated sources are exactly
     // what they were before the setting existed. Saved only when > 0.
     float roadStreamRadius = 0.0f;  // world units, 0 = off
+    // Project road presets (docs/roads.md "Road presets", format v105): the
+    // ones saved from a road with "Save as project preset", listed after the
+    // built-ins in the Draw road tool and Properties. Written only when any.
+    std::vector<roadpresets::Preset> roadPresets;
     // Road tables on disk (docs/roads.md "Tables on disk", format v104): with
     // roads streaming, the baked per-vertex road tables (junction rows, spills,
     // edges, kerbs, bridges, details, furniture) go to bin/roadfile/roads.bin and the
@@ -2563,7 +2568,7 @@ struct ProjectSettings {
     bool highlightOverlay = false;
 };
 
-static_assert(sizeof(ProjectSettings) == 872,
+static_assert(sizeof(ProjectSettings) == 896,
               "ProjectSettings changed size - a field was added or removed. "
               "Add it to operator== below as well, or its Preferences widget "
               "will silently do nothing; then update this number.");
@@ -2632,7 +2637,7 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.terrainDetail == b.terrainDetail &&
            a.terrainViewDistance == b.terrainViewDistance &&
            a.terrainLodDistance == b.terrainLodDistance &&
-           a.roadStreamRadius == b.roadStreamRadius &&
+           a.roadStreamRadius == b.roadStreamRadius && a.roadPresets == b.roadPresets &&
            a.roadStreamEmbedTables == b.roadStreamEmbedTables &&
            a.reflectionReuseBudget == b.reflectionReuseBudget &&
            a.reflectionGroundRadius == b.reflectionGroundRadius &&

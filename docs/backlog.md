@@ -108,8 +108,8 @@ is not:
   ~~Collision with the structure~~ (oriented parapet and pier walls in
   procColliders). Still open: the deck **casting** baked shadows onto the terrain under it, capping
   `projSurfaceAt` so projected shadows and light pools under a deck stay on the
-  ground, a height **handle** in the viewport (today Properties > Points), and
-  nodes between two decks in the air.
+  ground, ~~a height **handle** in the viewport~~ (done: docs/roads.md
+  "Height handles"), and nodes between two decks in the air.
   onto them). Still open: **pavements** (a wide raised walk behind the kerb,
   the same sweep with a texture) and the draw distance as a project setting.
 - ~~**Road details**~~ (manholes, gullies, repair patches, cracks, oil stains):
@@ -129,9 +129,34 @@ is not:
   draw-distance setting, and a physical-PS2 pass.
 - **Overrides for nodes of more than two roads.** `JunctionOverride` is still
   a road PAIR, and the Junction panel's Winner combo offers only `c.a`/`c.b`.
-- **A per-node corner radius** (today 1.5 x the mean half width, 1..8).
-- **Snapping in the editor**: dragging a road end onto another road should
-  land it on that road's centre line, which is what makes a clean T.
+- **A per-node corner radius** (today 1.5 x the mean half width, 1..8). With
+  it, a fillet radius HANDLE on the selected node in the viewport (the
+  diamond already opens the node's overrides in place); it needs a radius
+  field in `JunctionOverride` and `nodeOutline` reading it, which is why the
+  Draw road work stopped short of it.
+- ~~**Snapping in the editor**~~ done: the Draw road tool snaps to ends and
+  centre lines, and releasing a dragged road END in Edit in viewport lands it
+  on the road under it (docs/roads.md "Drawing roads").
+
+## Road drawing: what the first version left out (2026-10-03)
+
+docs/roads.md, "Drawing roads" and "Road presets". Done: the Draw road tool
+(snapping to ends, centre lines, 15-degree steps, grid), eight data presets
+plus project presets (format 105), Apply preset, bridge height handles,
+`--draw-road`, the AI `draw_road` tool. Open:
+
+- **A visible `--ui-script` pass** of the tool (the script is in the commit
+  message of the work; the GUI was not opened on the author's machine).
+- **Snapping while dragging a MIDDLE point** (only a dragged end snaps), and
+  an angle step while dragging.
+- **Curves while drawing**: today a bend is more clicks; a tangent drag or an
+  arc-by-radius would draw a roundabout or a curved avenue in two clicks.
+- **Heights while drawing** a bridge (the CLI and the AI tool take `x,z,h`;
+  the viewport tool draws on the ground and the handles raise it afterwards).
+- **Asset renames** do not reach project presets' material or model paths
+  (they do reach roads).
+- **Preset thumbnails** in the combo, and lane-count presets that pick the
+  width from the texture's design width automatically.
 - **Price the patch cost on a console.** The Motor District main scene went
   from 1 362 to 4 314 patch vertices (triangle lists). Emitting the
   grid-cut patches as strips is the obvious lever if it shows up.

@@ -6182,7 +6182,12 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // "roadStreamEmbedTables" (written only when true). Missing = false = a
 // streamed project's baked road tables go to bin/roadfile/roads.bin, read per item;
 // true keeps them in the ELF as v102 did. Additive; no migration step.
-inline constexpr int kFormatVersion = 104;
+// v105 (docs/roads.md, "Road presets"): settings.roadPresets, the project's own
+// road presets saved from a road (every road field a preset owns, each key only
+// off its default), written only when there are any. Missing = none, as
+// before. Additive; no migration step. (103/104 were taken by parallel
+// branches; whoever merges keeps the highest number.)
+inline constexpr int kFormatVersion = 105;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

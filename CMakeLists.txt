@@ -345,8 +345,11 @@ add_executable(tyrax-editor
     src/roadgen.cpp
     src/roadrail.cpp
     src/roaddetail.cpp
+    src/roaddraw.cpp
+    src/roaddraw_ui.cpp
     src/roadfurniture.cpp
     src/roadfurniture_ui.cpp
+    src/roadpresets.cpp
     src/roadstream.cpp
     src/roadfile.cpp
     src/roadtex.cpp

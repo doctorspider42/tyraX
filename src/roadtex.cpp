@@ -359,7 +359,7 @@ bool RoadTexParams::operator==(const RoadTexParams& o) const {
            seed == o.seed && size == o.size && width == o.width &&
            raggedEdges == o.raggedEdges && intersection == o.intersection &&
            pavement == o.pavement && slabSize == o.slabSize && jointWidth == o.jointWidth &&
-           sleepers == o.sleepers && tracks == o.tracks;
+           sleepers == o.sleepers && tracks == o.tracks && shoulder == o.shoulder;
 }
 
 int quantizeDash(const LinePaint& l, float* dashOut, float* gapOut) {
@@ -446,6 +446,7 @@ std::vector<unsigned char> generate(const RoadTexParams& p) {
     const std::vector<Line> lines = markingLines(p, W, W / (float)n);
     const int lanes = std::clamp(p.lanes, 0, 6);
     const bool ragged = p.raggedEdges && surface == kDirt && !junction;
+    const float verge = junction ? 0.0f : std::clamp(p.shoulder, 0.0f, 0.45f * W);
 
     // Wheel paths (the polished / rutted tracks): two per lane, constant along
     // V so they tile trivially. A junction patch has no direction, so none.
@@ -707,6 +708,31 @@ std::vector<unsigned char> generate(const RoadTexParams& p) {
                 }
             }
 
+            // Verge (docs/road-textures.md "Verges"): dirt and gravel over
+            // the outer `shoulder` units, its inner border breathing along V
+            // (periodic noise, so the tile still repeats) - laid last, so it
+            // covers the edge of the asphalt and any line painted there.
+            if (verge > 0.0f) {
+                const float de = std::min(wx, W - wx);
+                const int cv = f.cells(L, 0.5f);
+                const float side = wx < 0.5f * W ? f.noise(113, 0.0f, v, 1, cv)
+                                                 : f.noise(127, 0.0f, v, 1, cv);
+                const float border = verge * (0.75f + 0.5f * side) + (grain - 0.5f) * 0.18f;
+                // (this smoothstep wants e0 < e1 - a reversed pair is a hard step)
+                const float t = 1.0f - smoothstep(border - texelU, border + texelU, de);
+                if (t > 0.0f) {
+                    const float k = 0.90f + (grain - 0.5f) * 0.34f + (mid - 0.5f) * 0.26f;
+                    Rgb dirt = scale(Rgb{0.42f, 0.36f, 0.27f}, k);
+                    float id = 0.0f, dome = 0.0f;
+                    const float cov = f.pebbles(131, u, v, 0.10f, 0.45f, &id, &dome);
+                    dirt = lerp(dirt,
+                                scale(lerp(Rgb{0.40f, 0.38f, 0.34f}, Rgb{0.62f, 0.58f, 0.52f}, id),
+                                      0.75f + 0.4f * dome),
+                                cov);
+                    c = lerp(c, Rgb{dirt.r * tint.r, dirt.g * tint.g, dirt.b * tint.b}, t);
+                }
+            }
+
             unsigned char* o = &px[((size_t)y * n + x) * 4];
             o[0] = (unsigned char)std::lround(clamp01(c.r) * 255.0f);
             o[1] = (unsigned char)std::lround(clamp01(c.g) * 255.0f);
@@ -761,6 +787,11 @@ std::string toText(const RoadTexParams& p) {
         const char* key;
         const LinePaint* l;
     } lines[] = {{"centre", &p.centre}, {"divider", &p.divider}, {"edge", &p.edge}};
+    // Verge only when set, so every older recipe re-saves byte-identical.
+    if (p.shoulder > 0.0f) {
+        std::snprintf(buf, sizeof buf, "shoulder=%.6g\n", p.shoulder);
+        out += buf;
+    }
     for (const auto& ln : lines) {
         const LinePaint& l = *ln.l;
         std::snprintf(buf, sizeof buf,
@@ -882,6 +913,9 @@ bool applyKey(RoadTexParams& p, const std::string& key, const std::string& value
         if (!parseFloat(value, &p.width) || p.width < 0.0f || p.width > 64.0f) return bad();
     } else if (key == "ragged") {
         if (!parseBool(value, &p.raggedEdges)) return bad();
+    } else if (key == "shoulder") {
+        if (!parseFloat(value, &p.shoulder) || p.shoulder < 0.0f || p.shoulder > 8.0f)
+            return bad();
     } else if (key == "intersection") {
         if (!parseBool(value, &p.intersection)) return bad();
     } else if (key == "pavement") {

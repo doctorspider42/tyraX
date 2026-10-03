@@ -207,6 +207,7 @@ TYRAX --list-nodes <projectDir>      # what the graph generator is told
 TYRAX --dump-graph <projectDir> <object> [scene]
 TYRAX --apply-graph <projectDir> <object> <g.json> [scene] [--append]
 TYRAX --vehicle-check                # drive-model property tests, exit 0 = pass
+TYRAX --draw-road <projectDir> <scene> "x,z x,z ..." [preset]  # the Draw road tool, headless
 TYRAX --pad <projectDir> "<script>"  # drive the RUNNING game's pad, no focus
 TYRAX --ui-script [projectDir] "<script>"  # drive the EDITOR's own UI, no focus
 TYRAX <projectDir|project.tyra>      # open GUI on a project
@@ -4051,6 +4052,32 @@ District's *Service lane flyover* from a frozen Player at (-82, 0, -70),
 rotation [-8, 38, 0], HUD off, with `picapark00000001` moved to (-62.5, 0.5,
 -50) - under the deck, on the West service lane (docs/img/road-bridge-pcsx2.png).
 The car must sit on the lane, not on the deck six units up.
+
+## Drawing roads and presets (format 105)
+
+`--vehicle-check` "road drawing" is the host layer for the Draw road tool, the
+presets and the bridge height handles (docs/roads.md "Drawing roads"): every
+snap kind, the angle and grid steps, a drawn T and a drawn crossing through
+`planCrossings` (3 and 4 arms), extension against a corner, the loop, every
+preset's fields AND its materials on disk in a temp project, the project-preset
+JSON round-trip, and the handle's ray arithmetic. The GUI tool is a thin layer
+over the same `roaddraw::` calls, and so is the headless twin:
+
+```
+TYRAX --draw-road <projectDir> <scene> "x,z[,h] x,z ..." [preset] [--angle] [--grid N]
+```
+
+It prints `[draw-road] point N: ... (road centre <name>)` per point, the plan
+summary and a `[draw-road] node at x,z: a x b, N arms, patch` line per node the
+road takes part in, then saves. Scratch towns for screenshots are a handful of
+these calls (docs/roads.md has one), then `--road-crossings` to read every node,
+then `--build --run` and `--capture-frame` from a Player with a big `eyeHeight`
+(22 for docs/img/road-drawing-town.png: position (-70, 0, -75), rotation
+[16, 45, 0], walk/look speed 0). The UI is reachable by name for a visible run:
+`Viewport/Draw road (8)`, the tool panel's `Viewport/Preset` combo, the canvas
+`Viewport canvas` with offsets for the clicks (`doubleclick` finishes, `key
+enter` / `key escape`), Properties' `Apply preset` / `Save as project preset`,
+and the bridge squares `Bridge height N` (`drag 'Bridge height 2' 0 -40`).
 
 ## Road streaming (format 102)
 

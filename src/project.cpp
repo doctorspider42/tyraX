@@ -1933,6 +1933,11 @@ static void writeSettingsSection(std::ostream& json, const Project& p) {
                  ? "    \"roadStreamRadius\": " + fmtFloat(p.settings.roadStreamRadius) +
                        ",\n"
                  : std::string())
+         // Written only when the project has any (format v105).
+         << (!p.settings.roadPresets.empty()
+                 ? "    \"roadPresets\": " + roadpresets::toJson(p.settings.roadPresets) +
+                       ",\n"
+                 : std::string())
          // Written only when true (format v104): the default keeps a streamed
          // project's road tables in bin/roadfile/roads.bin (docs/roads.md "Tables on disk").
          << (p.settings.roadStreamEmbedTables ? "    \"roadStreamEmbedTables\": true,\n"
@@ -6596,6 +6601,8 @@ static void readSettingsSection(const json::Value& root, Project& out) {
             st.roadStreamRadius = (float)v->numberOr(0.0);
             if (!(st.roadStreamRadius > 0.0f)) st.roadStreamRadius = 0.0f;
         }
+        // v105 (docs/roads.md "Road presets"): missing = none.
+        if (const auto* v = s->find("roadPresets")) roadpresets::fromJson(*v, st.roadPresets);
         // v104 (docs/roads.md "Tables on disk"): missing = false = a streamed
         // project's road tables go to bin/roadfile/roads.bin.
         if (const auto* v = s->find("roadStreamEmbedTables"))

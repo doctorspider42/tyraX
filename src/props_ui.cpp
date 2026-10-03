@@ -11,6 +11,7 @@
 #include "roadbridge.hpp"
 #include "roaddetail.hpp"
 #include "roadgen.hpp"
+#include "roadpresets.hpp"
 #include "roadrail.hpp"
 #include "theme.hpp"
 
@@ -107,36 +108,10 @@ static const char* typeLabel(PrimitiveType t) {
 // sleepers, rank Track so a street it crosses runs over it (the level
 // crossing), no spill onto that street, no kerbs, no markings, a gravel grip.
 // `full` false only follows a track-count change (material + width).
+// The body lives in roadpresets (the Railway preset shares it).
 static void applyRailwayPreset(SceneObject& o, const std::string& projectDir,
                                float unitsPerMeter, bool full = true) {
-    namespace fs = std::filesystem;
-    if (full && o.roadRailGauge == 1.435f && unitsPerMeter > 0.0f)
-        o.roadRailGauge = std::clamp(1.435f * unitsPerMeter, 0.3f, 3.0f);
-    const float s = o.roadRailGauge / roadrail::kStandardGauge;
-    for (const roadtex::Preset& pr : roadtex::presets()) {
-        if (std::string(pr.name).rfind("rail-", 0) != 0) continue;
-        std::error_code ec;
-        const fs::path mtl =
-            fs::path(projectDir) / roadtex::kDir / (std::string(pr.name) + ".mtl");
-        if (!projectDir.empty() && !fs::exists(mtl, ec)) {
-            std::string err;
-            roadtex::writeAssets(projectDir, pr.name, pr.params, &err);
-        }
-    }
-    const bool dbl = o.roadTracks >= 2;
-    const std::string single = roadtex::kDefaultBallast, twin = roadtex::kDefaultBallastDouble;
-    if (full || o.roadTexture == single || o.roadTexture == twin)
-        o.roadTexture = dbl ? twin : single;
-    o.roadWidth = std::clamp(
-        (roadtex::kSleeperLength + 1.0f + (dbl ? roadrail::kTrackSpacingRail : 0.0f)) * s,
-        1.0f, 24.0f);
-    if (!full) return;
-    o.roadIntersectionTexture = roadtex::kDefaultRailJunction;
-    o.roadRank = 0;
-    o.roadSpill = 0.0f;
-    o.roadKerb = false;
-    o.roadMarkings = 0;
-    o.roadGrip = 0.7f;
+    roadpresets::applyRailway(o, projectDir, unitsPerMeter, full);
 }
 
 static std::string blobShadowFileName(const SceneObject& o) {
@@ -800,6 +775,10 @@ void App::drawPropertiesWindow() {
         ImGui::TextDisabled(
             "Road: a spline through the points below, tessellated onto the "
             "terrain at boot.");
+        // Road presets (docs/roads.md "Road presets", src/roaddraw_ui.cpp).
+        if (ImGui::CollapsingHeader("Preset", ImGuiTreeNodeFlags_DefaultOpen) &&
+            drawRoadPresetControls(o))
+            committed = true;
         // Rails and tram tracks (docs/roads.md "Rails and tram tracks").
         {
             static const char* kKinds[] = {"Road", "Railway", "Tram street"};
@@ -1093,8 +1072,17 @@ void App::drawPropertiesWindow() {
                 committed = true;
             }
         }
-        if (ImGui::Button(roadEdit_ ? "Stop editing (Esc)" : "Edit in viewport"))
+        if (ImGui::Button(roadEdit_ ? "Stop editing (Esc)" : "Edit in viewport")) {
             roadEdit_ = !roadEdit_;
+            if (roadEdit_ && roadDraw_.active) stopRoadDraw();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Draw road...")) {
+            roadDraw_.preset = roadPresetPick_.empty() ? roadDraw_.preset : roadPresetPick_;
+            startRoadDraw();
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("The Draw road tool (8), with the preset picked above.");
         prefHelp(
             "Click the ground to APPEND a point, click a point to DRAG it,\n"
             "click the line between points to INSERT one there.\n"

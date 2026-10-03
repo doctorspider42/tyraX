@@ -44,6 +44,7 @@
 #include "livelogic.hpp"
 #include "placement.hpp"
 #include "roadgen.hpp"  // roadgen::Surface - the test drive stands on roads
+#include "roaddraw.hpp"  // the Draw road tool's snapping state
 #include "prefab.hpp"
 #include "vehbake.hpp"  // the import bake cached per vehicle definition
 #include "project.hpp"
@@ -435,6 +436,45 @@ private:
     // point, click a point = drag it, click the line = insert there.
     bool roadEdit_ = false;
     int roadDragPoint_ = -1;
+    // The Draw road tool (docs/roads.md "Drawing roads", src/roaddraw_ui.cpp):
+    // click the ground to place points, double-click / Enter finishes ONE road
+    // (one undo step), Esc cancels, Backspace drops the last point. Snapping is
+    // roaddraw::Snapper; nothing reaches the project until the road is done.
+    struct RoadDrawTool {
+        bool active = false;
+        std::vector<roaddraw::Snap> placed;
+        roaddraw::Options opt;
+        std::string preset = "city-street";  // roadpresets key
+        // The Snapper is built from the scene's roads when the tool starts and
+        // after each finished road, not per frame.
+        std::unique_ptr<roaddraw::Snapper> snapper;
+        std::vector<int> roadObject;  // snapper road -> object index
+        int scene = -1;
+        roaddraw::Snap hover;         // where the cursor snaps this frame
+        bool hoverValid = false;
+        ImVec4 panelRect{0, 0, 0, 0};  // the options panel, which owns its clicks
+    };
+    RoadDrawTool roadDraw_;
+    void startRoadDraw();
+    void stopRoadDraw();
+    void rebuildRoadSnapper();
+    void finishRoadDraw();
+    // The tool's per-frame work inside the viewport: input, snapping, preview,
+    // options panel. Returns true when it owns the mouse this frame (the
+    // picker and the rubber band must not see the click).
+    bool roadDrawViewport(ImVec2 imgPos, ImVec2 avail, bool imageHovered, bool overAxisGizmo);
+    // Bridge height handles on the selected bridge road (docs/roads.md
+    // "Bridges"): a vertical stem from the ground to the deck at every control
+    // point and a square handle at the deck that drags roadHeights[k], one undo
+    // step per drag. Returns true while a handle is hovered or dragged.
+    bool bridgeHandles(ImVec2 imgPos, ImVec2 avail, bool imageHovered);
+    int bridgeDragPoint_ = -1;
+    float bridgeDragGrab_ = 0.0f;  // cursor-to-handle height offset at the grab
+    // Road presets in Properties (docs/roads.md "Road presets"): the combo,
+    // Apply to every selected road and Save as project preset. True = changed.
+    bool drawRoadPresetControls(SceneObject& o);
+    std::string roadPresetPick_;            // Properties' chosen preset key
+    char roadPresetName_[64] = "My street";  // Save as project preset
     // Junction overrides (docs/roads.md, "Junction overrides"). A junction is
     // not an object: it is selected by its identity - the road-id pair and
     // where it was - and re-found in the plan every frame, so a road edit

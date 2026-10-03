@@ -199,6 +199,14 @@ void App::drawRoadTextureWindow() {
         prefHelp("Notches the sides (alpha 0 there only) - pairs with\n"
                  "the road's Edge fade.");
     }
+    if (p.surface != roadtex::kDirt && !p.isotropic()) {
+        ImGui::SetNextItemWidth(scaled(170));
+        ImGui::SliderFloat("Verge", &p.shoulder, 0.0f, 2.0f,
+                           p.shoulder > 0.0f ? "%.2f units" : "none");
+        prefHelp("Dirt and gravel this wide along both edges, with a ragged\n"
+                 "inner border - a country road's soft shoulders. Covers any\n"
+                 "edge line painted there.");
+    }
 
     if (!p.isotropic()) {
         ImGui::SeparatorText("Markings");

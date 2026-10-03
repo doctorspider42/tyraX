@@ -13,6 +13,143 @@ saddle — so projection, driving and the visible ground agree. The authored cos
 kilometre of road is a few hundred floats in the `.tyra` and ONE small texture
 in VRAM.** There is no baked geometry to store, ship or stream.
 
+## Drawing roads
+
+The fastest way to lay out a street network is the **Draw road** tool: the
+viewport toolbar's **Draw road (8)** button, the `8` key, Insert > Gameplay >
+**Draw road...**, or **Draw road...** in a road's Properties.
+
+1. **Pick a preset** in the tool's panel (top left of the viewport): City
+   street, Avenue with tram, Boulevard, Country road, Dirt track, Railway,
+   Highway, Alley, or one of the project's own ("Road presets" below). The
+   preset is the road's whole look.
+2. **Click the ground** to place points. The spline under the cursor is drawn
+   live, with a ghost of the preset's width.
+3. **Double-click or Enter** finishes the road: ONE undo step, and the new road
+   is selected. **Backspace** drops the last point, **Esc** cancels the drawing
+   (a second Esc leaves the tool). Click back on the first point to close a
+   loop.
+
+The junctions are not drawn: they form by themselves wherever the new road
+meets another (`roadgen::findNodes`, "Road nodes" below), and the snapping is
+what puts the points where findNodes forms the junction you meant. Each click is
+resolved in this order (`roaddraw::Snapper::resolve`, `src/roaddraw.cpp`):
+
+| Order | Snap | When | Lands | Makes |
+|---|---|---|---|---|
+| 0 | **Loop** | 3+ points placed, cursor within 1.5 units of the first | the first point | a closed loop, finished at once |
+| 1 | **Road end** | within the road's half width + the tolerance of an open end | exactly on the end point | a corner node, or the same road carried on (below) |
+| 2 | **Centre line** | within half width + tolerance of a road's centre line | on the centre line | a **T** when the drawing ends or starts there, a **crossing** when it carries on |
+| 3 | **Angle** | a point is already placed, Shift not held | a whole 15-degree step from the reference, at the cursor's distance | a square turn, a straight run |
+| 4 | **Grid** | the grid is on | the nearest grid node (or, with the angle step, a whole number of cells along it) | a planned layout |
+
+- **The tolerance** is about 14 pixels at the cursor, in world units, so a
+  road is as easy to hit zoomed out as zoomed in.
+- **The angle reference** is the previous segment; for the second point it is
+  the road the first one snapped to (so leaving a road at 90 degrees is one
+  step); otherwise world +X. When the cursor is near a centre line, the step is
+  measured from THAT road instead and the point lands where the stepped ray
+  meets its centre line, so a 90-degree T or crossing is exact, not merely
+  close.
+- **The road the drawing stands on is skipped** for the next point's centre
+  snap, so a road that starts on a street can leave it.
+- **Highlight**: the snapped road's centre line glows, the snap point is a
+  square (an end), a diamond (a centre line) or a ring (the loop), and a label
+  says what a click makes ("T / crossing on boulevard-1", "end of ...
+  (carry on / corner)", the angle, the segment length).
+- **Carried on, or a corner.** A drawing that starts (or ends) on a road END,
+  leaves it within 45 degrees of the road's own direction and has the same look
+  (the preset would leave the road's width, surface and kind as they are) is
+  **that road extended** - its points are appended (or prepended), its settings
+  kept, and a bridge's heights shifted with the points. Otherwise it is a new
+  road: at an angle that is a corner node, in line with a different width a
+  transition node. **Extend at ends** in the panel turns the rule off.
+- **Why the snaps make the right node.** findNodes forms a contact where an open
+  end lies within the other road's half width + 1, and where two centre lines
+  cross. A T end on the centre line is the first; a point on the centre line
+  with the road carried on past it is the second (its segments cross the other
+  road's polyline on both sides); an end on an end is both. The snapper samples
+  centre lines exactly as the planner does (the Catmull-Rom in `kSampleStep`
+  pieces), so a projected point is ON the polyline findNodes tests.
+- **Editing afterwards**: in **Edit in viewport**, releasing a dragged road
+  END snaps it the same way (to another road's end or centre line, never its
+  own; hold Shift to drop it freely).
+- Diamonds are shown on every node while the tool is active; hovering one says
+  what it is, and clicking one (outside the tool) opens its overrides in
+  Properties ("Junction overrides").
+
+**Headless**: `--draw-road <projectDir> <scene> "x,z x,z ..." [preset]
+[--angle] [--grid N] [--no-snap] [--no-extend] [--tolerance U]` runs the same
+snapping, finish rule and preset, saves, and prints what each point snapped to
+and the nodes the road takes part in. A third number on a point (`x,z,h`) is a
+bridge deck height there, which makes the road a bridge. Angle steps are off
+unless `--angle` (a script means its coordinates). The AI Assistant's
+`draw_road` tool is the same path. A small town in one go:
+
+```
+--draw-road P 0 "-60,0 0,0 60,0" boulevard
+--draw-road P 0 "-20,-55 -20,0.8 -20,50" city-street      # crosses it: 4 arms
+--draw-road P 0 "25,48 25.5,1" city-street --angle         # a square T: 3 arms
+--draw-road P 0 "60.5,0.5 60,-30 45,-60" country-road      # a corner off its end
+--draw-road P 0 "-20.3,30 10,30 12,42" alley               # a T off the street
+--draw-road P 0 "-75,-38 0,-38 75,-38" railway             # two level crossings
+--draw-road P 0 "-45,-75 -45,-50,6 -45,-26,6 -45,0.5" country-road  # over the railway
+```
+
+![PCSX2: the town above, drawn with --draw-road - a boulevard with trees and lamps, a city street crossing it and another T-ing into it, an alley, a country road off the boulevard's end, a railway with level crossings and a country-road bridge over it](img/road-drawing-town.png)
+
+`--vehicle-check` "road drawing" checks every rule: the end and centre snaps,
+the angle and grid steps, Shift, a drawn T making one three-armed patch node
+through `planCrossings`, a drawn crossing making four arms, extension in line
+(appended and prepended) against a corner off an end, the loop, a one-point
+double-click making nothing, every preset setting every field with its
+materials on disk, and the bridge handle's arithmetic.
+
+## Road presets
+
+A preset (`src/roadpresets.cpp`, a data table) sets **every** field a road's
+look is made of: width, the surface and intersection materials (the lanes are in
+the texture), kerbs, pavement and its material, details, the street-furniture
+lines, markings, kind and tracks, rank, grip, spill and edge fade. Points,
+bridge heights, the name and the id are left alone. A material a preset names is
+**generated on demand** into `res/materials/roads/` from its recipe when the
+project lacks it (an existing file is never overwritten, so a repainted
+material stays), with the node paint and the details atlas.
+
+| Preset | Width | Surface / junction | Kerb, pavement | Furniture | Other |
+|---|---:|---|---|---|---|
+| City street | 7.5 | road-2lane / road-junction | kerbs, 2.5 slabs | lamps every 16, staggered; give-way signs | zebras, details 0.5 |
+| Avenue with tram | 13.5 | road-4lane / road-junction | kerbs, 3 slabs | lamps every 14 both sides; give-way; traffic lights | tram street, 2 tracks, zebras, details 0.4 |
+| Boulevard | 13.5 | road-4lane / road-junction | kerbs, 4 slabs | trees every 10 both sides (offset 2.6), lamps every 20 staggered; give-way; lights | zebras, details 0.4 |
+| Country road | 8 | **road-country** / road-junction | none | give-way signs | edge fade 0.75, grip 0.95, details 0.3 |
+| Dirt track | 5 | road-dirt / **road-dirt-junction** | none | none | rank Track, spill 3, edge fade 1.5, grip 0.6, no markings |
+| Railway | 3.6 x gauge | rail-ballast / rail-junction | none | none | Kind Railway, rank Track, no spill, grip 0.7 |
+| Highway | 15 | **road-highway** / road-junction | none | lamps every 30 both sides | details 0.15 |
+| Alley | 4.5 | road-cobble / road-junction | none | none | no markings, grip 0.9, details 0.6 |
+
+The three **bold** materials are not seeded into a new project; the first road
+that asks writes them. `road-country` is worn two-lane asphalt with no edge
+lines and 0.9-unit **dirt-and-gravel verges** (the generator's Verge,
+[road-textures.md](road-textures.md#verges)); `road-highway` four lanes with a
+double yellow centre and 0.2-wide edge lines on a 15-unit design width;
+`road-dirt-junction` the isotropic dirt patch two tracks meet on.
+
+**Every paved preset is rank Local with the `road-junction` intersection
+material**, so any two of them meet in a node patch: a different rank or
+material would make the higher road run through instead ("Crossings"). Dirt
+tracks and railways are rank Track on purpose: a street runs over them (mud
+spills, a level crossing). The railway's gauge is the standard 1.435 m in the
+project's units per metre, and its bed scales with it (the Kind = Railway
+rule, which now lives in `roadpresets::applyRailway`).
+
+**In Properties** (a road's **Preset** section): the combo marks the preset the
+road already is; **Apply preset** applies the chosen one to every selected road
+(one undo step); **Save as project preset** captures this road's look under a
+name. Project presets are saved in the `.tyra` (`settings.roadPresets`, format
+105, written only when there are any) and listed after the built-ins in
+Properties, the Draw road tool, `--draw-road` and the AI tool; one of the same
+name is replaced, and **Delete preset** removes the one this road matches.
+
 ## Authoring
 
 ![Road surface and intersection material pickers](img/road-material-picker.png)
@@ -904,8 +1041,22 @@ An axis-aligned box round a 45-degree chord would cover most of the lane.
 - A bridge does not spill onto other roads, has no soft edge, and **Align
   terrain to road** is disabled for it (it would fill the gap under the deck).
 - The reflection probe's ground stand-in paints a bridge onto the ground map.
-- The editor's point markers sit at terrain + Height; the deck itself is drawn
-  exactly.
+
+### Height handles
+
+With a bridge road selected, every control point gets a **height handle** in
+the viewport: a dashed stem from the ground up to the DECK (terrain + the road
+lift + the rank lift + Height), the point's marker at the deck, and a small
+square with up/down chevrons just above it, labelled with the height. Drag the
+square up or down: the height follows the point on the stem nearest the mouse
+ray (`roaddraw::verticalHandleY`, the closest approach of the ray and the
+vertical line through the point), keeps the grab's offset so it does not jump,
+snaps to 0.1 (Ctrl: whole units) and is clamped to 0..30. One undo step per
+drag; the deck redraws live, and the crossing planner waits for the release, as
+it does for a point drag. The squares are named `Bridge height N` for
+`--ui-script`. Looking straight down reads nothing (the ray is parallel to the
+stem), so tilt the view to raise a deck. Properties > Points still has the
+numbers.
 
 `--vehicle-check` "road bridges" checks: the deck passes through terrain +
 height at a raised point with no overshoot and one quad per elevated station
@@ -1664,6 +1815,9 @@ canonicalizes only that integer part; positions and fractional UVs remain exact.
 | `src/roaddetail.cpp/.hpp` | Road details: placement, the surface-following decal bake and the details atlas ("Road details"). |
 | `src/roadstream.cpp/.hpp`, `src/roadstream_core.inl` | Road streaming: the codegen that cuts the streaming runtime out of the non-streaming source, the template hooks, the core (item boxes, cell grid, per-chunk height index, ring) compiled into the editor AND pasted into the game, `--vehicle-check` "road streaming" ("Road streaming"). |
 | `src/roadfile.cpp/.hpp` | Tables on disk: the `roads.bin` builder, the `ROAD_FILE_ITEMS` directory and `--vehicle-check` "road tables on disk"; the reader runtime is the `kDisk*` text in `roadstream.cpp`, the header/checksum `RsFile` in the core ("Tables on disk"). |
+| `src/roaddraw.cpp/.hpp` | The Draw road tool's decisions: `Snapper` (end, centre-line, angle and grid snaps), `finish` (a new road or one carried on), `commit`, the bridge handle arithmetic, `--vehicle-check` "road drawing" ("Drawing roads"). |
+| `src/roaddraw_ui.cpp` | The tool in the viewport (panel, preview, clicks), the bridge height handles and Properties' Preset section. |
+| `src/roadpresets.cpp/.hpp` | The preset table, the on-demand materials, `apply` / `fromRoad`, the project presets' JSON ("Road presets"). |
 | `src/roadfurniture.cpp/.hpp`, `src/roadfurniture_ui.cpp` | Street furniture: placement, the built-in models, `.obj` instancing, the console tables and upload, `--vehicle-check` "road furniture", and the Properties section ("Street furniture"). |
 
 ## Adaptive street geometry budget (1.86.3)

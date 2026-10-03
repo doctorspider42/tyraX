@@ -32,7 +32,7 @@ std::string fileStem(const std::string& path) {
 }  // namespace
 
 const roadgen::CrossingPlan& App::sceneCrossings() {
-    if (roadDragPoint_ >= 0 && crossingPlanSig_ != 0) return crossingPlan_;
+    if ((roadDragPoint_ >= 0 || bridgeDragPoint_ >= 0) && crossingPlanSig_ != 0) return crossingPlan_;
     const std::vector<SceneObject>& objs = project_.objects();
     std::vector<int> idx;
     std::vector<roadgen::CrossingRoad> roads = project::crossingRoads(
@@ -144,7 +144,7 @@ int App::junctionMarkers(ImVec2 imgPos, ImVec2 avail, bool draw, ImVec2 mouse) {
                               objs[(size_t)selectedObject_].type == PrimitiveType::Road;
     if (junctionSel_.active && junctionSel_.scene != project_.activeScene)
         junctionSel_.active = false;
-    if (!roadSelected && !junctionSel_.active) return -1;
+    if (!roadSelected && !junctionSel_.active && !roadDraw_.active) return -1;
     const roadgen::CrossingPlan& plan = sceneCrossings();
     const int sel = selectedCrossing();
     const theme::Semantics& sem = theme::semantics();

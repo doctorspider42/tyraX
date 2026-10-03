@@ -154,6 +154,27 @@ The grid is snapped so a whole number of slabs fits each axis of the tile
 half-brick offset wraps. The joint is never drawn under one texel. Surface
 numbers are stored in the recipe, which is why `kSlabs` / `kPavers` were
 appended (4 and 5) and not inserted.
+
+## Verges
+
+**Verge** (`shoulder=units`, 0..2 in the window, written to the recipe only when
+set) paints a dirt-and-gravel band that wide along BOTH edges of any directional
+surface except dirt: a country road's soft shoulders. Its inner border breathes
+along the road with periodic noise (so the tile still repeats in V) plus the
+surface grain, and it is laid last, so it covers the asphalt's edge and any edge
+line painted there - a verged recipe usually sets `edge=none`. Pair it with the
+road's **Edge fade** and the verge fades on into the terrain. The Country road
+preset's `road-country` uses 0.9 ([roads.md](roads.md), "Road presets").
+
+## Materials only presets write
+
+Three recipes are not seeded into a new project but written by the first road
+preset that names them (`roadpresets::materialRecipe`), with the same files as a
+seeded one: `road-country` (two worn lanes, dashed centre, no edge lines,
+0.9-unit verges, 8 wide), `road-highway` (four lanes, double yellow centre,
+0.2-wide edge lines, 15 wide) and `road-dirt-junction` (an isotropic dirt
+patch for two dirt tracks to meet on). Re-generate or repaint them freely: a
+preset never overwrites an existing file.
 ## The road details atlas
 
 Placed details - manhole covers, gullies, repair patches, cracks, oil stains -
@@ -195,6 +216,7 @@ the defaults. Keys are the recipe file's own:
 for it), `lanes=0..6`, `wear`,
 `grime`, `cracks`,
 `tint=r,g,b`, `seed`, `size=64|128|256`, `width` (0 = auto), `ragged=0|1`,
+`shoulder` (verge width, units),
 `intersection=0|1`, `pavement=0|1`, `slab` and `joint` (units), and per line `L` = `centre`,
 `divider` or `edge`: `L=none|dashed|solid|double|solid-dashed|dashed-solid`,
 `L.colour=white|yellow|r,g,b`, `L.width`, `L.dash`, `L.gap`. Exit 2 on a bad

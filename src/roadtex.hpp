@@ -98,6 +98,11 @@ struct RoadTexParams {
     int size = 128;         // 64 / 128 / 256, square
     float width = 0.0f;     // design road width in units (line placement); 0 = from lanes
     bool raggedEdges = false;   // dirt only: alpha-0 notches along U 0 and 1
+    // A dirt-and-gravel VERGE this many units wide along both edges of a
+    // directional (not isotropic) surface, with a ragged inner border - a
+    // country road's soft shoulders (docs/road-textures.md "Verges"). Painted
+    // over everything, edge lines included. 0 = none (and not written).
+    float shoulder = 0.0f;
     bool intersection = false;  // isotropic junction patch: no markings, tiles in U too
     bool pavement = false;      // 2 x 2-unit pavement tile: no markings, tiles both ways
     float slabSize = 0.5f;      // slab edge, units (pavers: brick = half x quarter of it)
