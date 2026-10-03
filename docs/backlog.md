@@ -425,9 +425,13 @@ recovered 0.50-0.72 ms of hardware `work`. What it did not do, ranked:
   now completes both PS2/PCSX2 orders:66 road chunks/198 ranges/1288080 used
   bytes, but zero copied-original-road bytes in every physical On sample.
   Its own observer adds1.073–1.076 ms; common untimed guards are not priced.
-  Do not implement original-road borrowing for this view. Next measure an
-  explicit static GeoPart subset; derived clipping and mutable producers remain
-  separate work before any seal/retirement or typed owner-bank trial.
+  Do not implement original-road borrowing for this view. The [selected static-base census](tyrax2-static-owner-census-2026-10-04.json)
+  qualifies both PS2/emulator orders: all seven parts admitted, 21 ranges and
+  22176 used bytes, but zero copied selected-base bytes. Its observer adds
+  0.978–1.044 ms; common off-span guard/snapshot cost remains unknown. This
+  is a seven-allocation subset result, not absence of static rendering. Next
+  partition actual copied Bag streams by producer, including Unknown/Mixed,
+  before proposing a seal/retirement or typed owner-bank optimization.
   Storage classification alone grants no immutable borrowing rights.
   The [resumed candidate audit](tyrax2-ee-vu0.md#next-60-hz-candidates-host-controls-2026-10-03)
   rejects the broad beam cache as a demonstrated driving gain, identifies

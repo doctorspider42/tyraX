@@ -1,5 +1,18 @@
 # TyraX2 EE preparation and VU0 audit
 
+## Selected static-base copied-REF census, 2026-10-04
+
+All seven whitelisted base parts (objects 21, 23, 25, 27, 29, 41 and 43) were admitted, with zero object or part skip reasons. Their 21 position/color/ST ranges represented 22,176 used bytes. Every physical On sample nevertheless published zero copied SelectedStaticBase REF bytes. BagDeclared remained 129,360 B/frame across 229 REFs; Pool contributed 39,840 B and UnknownOther 2,640 B, totaling 171,840 B across 421 copied REFs. This result applies to those seven admitted base allocations in the fixed view. It neither establishes zero static rendering nor identifies why those allocations did not reach the mutable-copy observer.
+
+Same-ELF nonpacing On-minus-Off contrasts were +1.043604533/+1.037487295 ms for Off/On/Off and +0.982720269/+0.977878835 ms for the reverse order. Outer same-state spreads were 0.006117238/0.004841434 ms. These inclusive serialized completion/wait/control measurements price this observer; the roughly 0.06 ms difference between boot contrasts also prevents treating it as a universal constant tax. Common 1,536 owner guard checks and seven authored SceneObjectData snapshots run outside the Count spans, so their absolute application cost remains unknown. No cross-ELF timing subtraction, pure EE/GPU cost or production gain is claimed.
+
+Both PS2 orders and both emulator orders completed 384 sample records with exact three-image RGB/converted-working-alpha parity within each boot. The independent pair audit verifies all 768 physical samples and all four source-launch attestations. Native exit 0, 495 inventoried inputs, 486 actual used native-mirror inputs and nine ancillary metadata files are separately pinned. The initial order-1 launch was explicitly rejected before freeze because root supplied the wrong configuration filename; its log is preserved and contributes no accepted samples. A fresh retry used the same frozen source/ELF and is archived separately.
+
+Actual EE metadata proof records 20,512 B of root tables, 256 B Metrics, 72 B SnapshotScope, 5,120 B atlas, 25,600 B part guards, 112 B object guards and 2,352 B authored snapshots. These are metadata layouts, not net Qbuffer-class ABI or whole-application footprint. Host/source/native/runtime qualifications and the preserved V1a/V2/V3 record hashes are linked in the [machine record](tyrax2-static-owner-census-2026-10-04.json).
+
+No production optimization or immutable lease was introduced. Raw unstamped writes and exact pointer/size/stamp ABA remain outside the private frozen-owner guard contract. Next partition actual copied Bag work/publication by emitted producer, including explicit Unknown and Mixed, instead of estimating savings from static allocation inventory. This result supports neither 60 FPS nor a universal static-owner conclusion.
+
+
 ## Road-owner copied-REF census and observer pricing, 2026-10-03
 
 The fixed physical night Scene0 workload published zero Road-class mutable REF bytes in every On sample (three On stages, 128 samples each). It still published 129,360 B/frame as BagDeclared, 39,840 B as Pool and 2,640 B as UnknownOther: 171,840 B across 421 copied REFs. The recorded ownership inventory was 66 road chunks, 198 ranges and 1,288,080 used bytes. That static inventory must not be substituted for copied volume. This negative result does not establish that roads were absent from rendering or that every Bag owner has been identified.

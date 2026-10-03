@@ -1275,7 +1275,14 @@ Rules the same evening paid for:
   adds1.073–1.076 ms inclusive; common pre/post owner guards sit outside the
   clock span and have unpriced absolute cost. Next qualify an explicit static
   GeoPart subset, without changing LOD/batching/materials to create traffic.
-  See `docs/tyrax2-road-owner-census-2026-10-03.json`.
+  See `docs/tyrax2-road-owner-census-2026-10-03.json`. The selected static-base
+  follow-up admits all seven whitelisted parts and records 21 ranges/22176
+  used bytes, yet zero selected mutable-copy traffic in both PS2 orders. This
+  bounds only those base allocations in that view: no all-static negative or
+  bake-path explanation follows. Its observer adds 0.978–1.044 ms inclusive;
+  common guard/snapshot absolute cost remains unpriced. Next partition actual
+  copied Bag streams by emitted producer, preserving Unknown/Mixed and original
+  Pool/UnknownOther categories. See `docs/tyrax2-static-owner-census-2026-10-04.json`.
 - **Renaming a private trial header affects generated translation units.**
   Check all local includes before freeze; scanning only API names misses stale
   include directives. Keep the failed build immutable and qualify a new fixture

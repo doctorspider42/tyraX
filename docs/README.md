@@ -435,8 +435,12 @@ about0.945–0.950 ms. These counts establish neither a gain nor borrowing right
 The [road-owner census](tyrax2-road-owner-census-2026-10-03.json) qualifies both
 physical/emulator orders with66 road chunks and198 recorded ranges, but zero
 copied-original-road bytes. Its own observer costs about1.073–1.076 ms; the
-common off-span owner guards have unpriced absolute cost. Selected static
-GeoPart volume remains the next gate; no borrowing optimization is accepted.
+common off-span owner guards have unpriced absolute cost. The [selected
+static-base census](tyrax2-static-owner-census-2026-10-04.json) also qualifies both
+orders: all seven parts admitted, 21 ranges/22176 used bytes, but zero selected
+copy traffic in the fixed view. Its own observer adds 0.978–1.044 ms, with
+common guard/snapshot cost unpriced. Next attribute actual Bag copies by
+producer; no borrowing optimization or universal static conclusion is accepted.
 
 The [one-search immutable-borrow trial](tyrax2-immutable-borrow-2026-10-02.json) preserves the narrow candidate, differential and integrated checks, and one physical baseline/candidate/baseline run. Its small apparent work saving overlaps control variation; the runtime remains unchanged.
 

@@ -1,0 +1,961 @@
+{
+  "schema": 1,
+  "date": "2026-10-04",
+  "status": "PASS_private_seven_static_base_owner_census_zero_copied_subset_and_observer_pricing",
+  "productionIntegrated": false,
+  "scope": "Same-ELF serialized frozen night Scene0 Off/On/Off and reverse; seven whitelisted admitted base subsets only; separate emulator protocol/raster controls",
+  "elfSha256": "3eddcf36a649a641f70d13cb20e1b9fd04c17fbcd57bf8fb49df401baf429f0f",
+  "sourceManifestSha256": "9165ddecbe8442cd04ce61536493b89e8db2a5340eaaf0e529f1218916ec7646",
+  "sourceInventory": {
+    "inventoried": 495,
+    "actualUsedMirror": 486,
+    "ancillaryMetadata": 9
+  },
+  "usedMirrorProofSha256": "c3db56e6dfde4a9f9f87f5522a670e872d3f986152a641e1106294b561788b8e",
+  "nativeExit": 0,
+  "archives": [
+    {
+      "environment": "emulator",
+      "order": 0,
+      "archive": "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-static-owner-v4-emulator0-evidence",
+      "records": 384,
+      "sourceLaunchQualified": true,
+      "independentReviewStatus": "PASS_independent_selected_static_owner_ref_census_archive"
+    },
+    {
+      "environment": "emulator",
+      "order": 1,
+      "archive": "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-static-owner-v4-emulator1-evidence",
+      "records": 384,
+      "sourceLaunchQualified": true,
+      "independentReviewStatus": "PASS_independent_selected_static_owner_ref_census_archive"
+    },
+    {
+      "environment": "physical",
+      "order": 0,
+      "archive": "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-static-owner-v4-physical0-evidence",
+      "records": 384,
+      "sourceLaunchQualified": true,
+      "independentReviewStatus": "PASS_independent_selected_static_owner_ref_census_archive"
+    },
+    {
+      "environment": "physical",
+      "order": 1,
+      "archive": "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-static-owner-v4-physical1-evidence",
+      "records": 384,
+      "sourceLaunchQualified": true,
+      "independentReviewStatus": "PASS_independent_selected_static_owner_ref_census_archive"
+    }
+  ],
+  "physicalPairAudit": {
+    "path": "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-static-owner-v4-runtime-independent-review\\physical-pair-audit.json",
+    "status": "PASS_independent_physical_raw_pair_and_four_attestation_contracts",
+    "sha256": "a642582c8d791f477f2d388bdcaf9d71b3fbe4b8d24c9224092a2a0899108343",
+    "summarySha256": "b1c0b54025384c27f0ed3b1ae162a02909d7aedd7f3f9e5154bee4c47e78f941",
+    "records": 768
+  },
+  "ownerInventories": [
+    {
+      "selectedObjectCount": 7,
+      "partCount": 7,
+      "admittedPartCount": 7,
+      "skippedPartCount": 0,
+      "objects": [
+        {
+          "slot": "0",
+          "object": "21",
+          "model": "0",
+          "reason": "0",
+          "parts": "1"
+        },
+        {
+          "slot": "1",
+          "object": "23",
+          "model": "0",
+          "reason": "0",
+          "parts": "1"
+        },
+        {
+          "slot": "2",
+          "object": "25",
+          "model": "1",
+          "reason": "0",
+          "parts": "1"
+        },
+        {
+          "slot": "3",
+          "object": "27",
+          "model": "1",
+          "reason": "0",
+          "parts": "1"
+        },
+        {
+          "slot": "4",
+          "object": "29",
+          "model": "2",
+          "reason": "0",
+          "parts": "1"
+        },
+        {
+          "slot": "5",
+          "object": "41",
+          "model": "2",
+          "reason": "0",
+          "parts": "1"
+        },
+        {
+          "slot": "6",
+          "object": "43",
+          "model": "1",
+          "reason": "0",
+          "parts": "1"
+        }
+      ],
+      "parts": [
+        {
+          "owner": "0",
+          "object": "21",
+          "part": "0",
+          "reason": "0",
+          "shownLod": "0",
+          "vertices": "66",
+          "colors": "66",
+          "sts": "66"
+        },
+        {
+          "owner": "1",
+          "object": "23",
+          "part": "0",
+          "reason": "0",
+          "shownLod": "0",
+          "vertices": "66",
+          "colors": "66",
+          "sts": "66"
+        },
+        {
+          "owner": "2",
+          "object": "25",
+          "part": "0",
+          "reason": "0",
+          "shownLod": "0",
+          "vertices": "66",
+          "colors": "66",
+          "sts": "66"
+        },
+        {
+          "owner": "3",
+          "object": "27",
+          "part": "0",
+          "reason": "0",
+          "shownLod": "0",
+          "vertices": "66",
+          "colors": "66",
+          "sts": "66"
+        },
+        {
+          "owner": "4",
+          "object": "29",
+          "part": "0",
+          "reason": "0",
+          "shownLod": "0",
+          "vertices": "66",
+          "colors": "66",
+          "sts": "66"
+        },
+        {
+          "owner": "5",
+          "object": "41",
+          "part": "0",
+          "reason": "0",
+          "shownLod": "0",
+          "vertices": "66",
+          "colors": "66",
+          "sts": "66"
+        },
+        {
+          "owner": "6",
+          "object": "43",
+          "part": "0",
+          "reason": "0",
+          "shownLod": "0",
+          "vertices": "66",
+          "colors": "66",
+          "sts": "66"
+        }
+      ],
+      "ranges": [
+        {
+          "i": "0",
+          "base": "16122656",
+          "qwords": "66",
+          "owner": "0",
+          "channel": "2",
+          "generation": "1"
+        },
+        {
+          "i": "1",
+          "base": "16140624",
+          "qwords": "66",
+          "owner": "0",
+          "channel": "0",
+          "generation": "1"
+        },
+        {
+          "i": "2",
+          "base": "16142688",
+          "qwords": "66",
+          "owner": "0",
+          "channel": "1",
+          "generation": "1"
+        },
+        {
+          "i": "3",
+          "base": "16148112",
+          "qwords": "66",
+          "owner": "1",
+          "channel": "2",
+          "generation": "1"
+        },
+        {
+          "i": "4",
+          "base": "16151040",
+          "qwords": "66",
+          "owner": "1",
+          "channel": "0",
+          "generation": "1"
+        },
+        {
+          "i": "5",
+          "base": "16153104",
+          "qwords": "66",
+          "owner": "1",
+          "channel": "1",
+          "generation": "1"
+        },
+        {
+          "i": "6",
+          "base": "16160608",
+          "qwords": "66",
+          "owner": "2",
+          "channel": "2",
+          "generation": "1"
+        },
+        {
+          "i": "7",
+          "base": "16163136",
+          "qwords": "66",
+          "owner": "2",
+          "channel": "0",
+          "generation": "1"
+        },
+        {
+          "i": "8",
+          "base": "16165200",
+          "qwords": "66",
+          "owner": "2",
+          "channel": "1",
+          "generation": "1"
+        },
+        {
+          "i": "9",
+          "base": "16172720",
+          "qwords": "66",
+          "owner": "3",
+          "channel": "2",
+          "generation": "1"
+        },
+        {
+          "i": "10",
+          "base": "16175616",
+          "qwords": "66",
+          "owner": "3",
+          "channel": "0",
+          "generation": "1"
+        },
+        {
+          "i": "11",
+          "base": "16177680",
+          "qwords": "66",
+          "owner": "3",
+          "channel": "1",
+          "generation": "1"
+        },
+        {
+          "i": "12",
+          "base": "16183600",
+          "qwords": "66",
+          "owner": "4",
+          "channel": "2",
+          "generation": "1"
+        },
+        {
+          "i": "13",
+          "base": "16186608",
+          "qwords": "66",
+          "owner": "4",
+          "channel": "0",
+          "generation": "1"
+        },
+        {
+          "i": "14",
+          "base": "16188672",
+          "qwords": "66",
+          "owner": "4",
+          "channel": "1",
+          "generation": "1"
+        },
+        {
+          "i": "15",
+          "base": "16195120",
+          "qwords": "66",
+          "owner": "5",
+          "channel": "1",
+          "generation": "1"
+        },
+        {
+          "i": "16",
+          "base": "16198352",
+          "qwords": "66",
+          "owner": "5",
+          "channel": "0",
+          "generation": "1"
+        },
+        {
+          "i": "17",
+          "base": "16200416",
+          "qwords": "66",
+          "owner": "5",
+          "channel": "2",
+          "generation": "1"
+        },
+        {
+          "i": "18",
+          "base": "16206000",
+          "qwords": "66",
+          "owner": "6",
+          "channel": "2",
+          "generation": "1"
+        },
+        {
+          "i": "19",
+          "base": "16208192",
+          "qwords": "66",
+          "owner": "6",
+          "channel": "0",
+          "generation": "1"
+        },
+        {
+          "i": "20",
+          "base": "16210256",
+          "qwords": "66",
+          "owner": "6",
+          "channel": "1",
+          "generation": "1"
+        }
+      ],
+      "generation": 1,
+      "registeredUsedBytes": 22176,
+      "registryCapacity": 256,
+      "registryMetadataBytes": 5120,
+      "partGuardMetadataBytes": 25600,
+      "objectGuardMetadataBytes": 112,
+      "authoredSceneObjectSnapshotsBytes": 2352,
+      "commonGuardChecks": 1536,
+      "objectReasonHistogram": {
+        "0": 7
+      },
+      "objectReasonBitCounts": {
+        "1": 0,
+        "2": 0,
+        "4": 0,
+        "8": 0,
+        "16": 0,
+        "32": 0,
+        "64": 0,
+        "128": 0,
+        "256": 0,
+        "512": 0
+      },
+      "partReasonHistogram": {
+        "0": 7
+      },
+      "partReasonBitCounts": {
+        "1": 0,
+        "2": 0,
+        "4": 0,
+        "8": 0,
+        "16": 0
+      },
+      "reasonCountsScope": "Bit counts overlap; object reason is shifted8 bits into each part. Stable skips restrict admission, not absence of static rendering.",
+      "scope": "Seven whitelisted admitted base subsets only; static registry/used bytes are not copied volume or borrowing eligibility"
+    },
+    {
+      "selectedObjectCount": 7,
+      "partCount": 7,
+      "admittedPartCount": 7,
+      "skippedPartCount": 0,
+      "objects": [
+        {
+          "slot": "0",
+          "object": "21",
+          "model": "0",
+          "reason": "0",
+          "parts": "1"
+        },
+        {
+          "slot": "1",
+          "object": "23",
+          "model": "0",
+          "reason": "0",
+          "parts": "1"
+        },
+        {
+          "slot": "2",
+          "object": "25",
+          "model": "1",
+          "reason": "0",
+          "parts": "1"
+        },
+        {
+          "slot": "3",
+          "object": "27",
+          "model": "1",
+          "reason": "0",
+          "parts": "1"
+        },
+        {
+          "slot": "4",
+          "object": "29",
+          "model": "2",
+          "reason": "0",
+          "parts": "1"
+        },
+        {
+          "slot": "5",
+          "object": "41",
+          "model": "2",
+          "reason": "0",
+          "parts": "1"
+        },
+        {
+          "slot": "6",
+          "object": "43",
+          "model": "1",
+          "reason": "0",
+          "parts": "1"
+        }
+      ],
+      "parts": [
+        {
+          "owner": "0",
+          "object": "21",
+          "part": "0",
+          "reason": "0",
+          "shownLod": "0",
+          "vertices": "66",
+          "colors": "66",
+          "sts": "66"
+        },
+        {
+          "owner": "1",
+          "object": "23",
+          "part": "0",
+          "reason": "0",
+          "shownLod": "0",
+          "vertices": "66",
+          "colors": "66",
+          "sts": "66"
+        },
+        {
+          "owner": "2",
+          "object": "25",
+          "part": "0",
+          "reason": "0",
+          "shownLod": "0",
+          "vertices": "66",
+          "colors": "66",
+          "sts": "66"
+        },
+        {
+          "owner": "3",
+          "object": "27",
+          "part": "0",
+          "reason": "0",
+          "shownLod": "0",
+          "vertices": "66",
+          "colors": "66",
+          "sts": "66"
+        },
+        {
+          "owner": "4",
+          "object": "29",
+          "part": "0",
+          "reason": "0",
+          "shownLod": "0",
+          "vertices": "66",
+          "colors": "66",
+          "sts": "66"
+        },
+        {
+          "owner": "5",
+          "object": "41",
+          "part": "0",
+          "reason": "0",
+          "shownLod": "0",
+          "vertices": "66",
+          "colors": "66",
+          "sts": "66"
+        },
+        {
+          "owner": "6",
+          "object": "43",
+          "part": "0",
+          "reason": "0",
+          "shownLod": "0",
+          "vertices": "66",
+          "colors": "66",
+          "sts": "66"
+        }
+      ],
+      "ranges": [
+        {
+          "i": "0",
+          "base": "16122656",
+          "qwords": "66",
+          "owner": "0",
+          "channel": "2",
+          "generation": "1"
+        },
+        {
+          "i": "1",
+          "base": "16140624",
+          "qwords": "66",
+          "owner": "0",
+          "channel": "0",
+          "generation": "1"
+        },
+        {
+          "i": "2",
+          "base": "16142688",
+          "qwords": "66",
+          "owner": "0",
+          "channel": "1",
+          "generation": "1"
+        },
+        {
+          "i": "3",
+          "base": "16148112",
+          "qwords": "66",
+          "owner": "1",
+          "channel": "2",
+          "generation": "1"
+        },
+        {
+          "i": "4",
+          "base": "16151040",
+          "qwords": "66",
+          "owner": "1",
+          "channel": "0",
+          "generation": "1"
+        },
+        {
+          "i": "5",
+          "base": "16153104",
+          "qwords": "66",
+          "owner": "1",
+          "channel": "1",
+          "generation": "1"
+        },
+        {
+          "i": "6",
+          "base": "16160608",
+          "qwords": "66",
+          "owner": "2",
+          "channel": "2",
+          "generation": "1"
+        },
+        {
+          "i": "7",
+          "base": "16163136",
+          "qwords": "66",
+          "owner": "2",
+          "channel": "0",
+          "generation": "1"
+        },
+        {
+          "i": "8",
+          "base": "16165200",
+          "qwords": "66",
+          "owner": "2",
+          "channel": "1",
+          "generation": "1"
+        },
+        {
+          "i": "9",
+          "base": "16172720",
+          "qwords": "66",
+          "owner": "3",
+          "channel": "2",
+          "generation": "1"
+        },
+        {
+          "i": "10",
+          "base": "16175616",
+          "qwords": "66",
+          "owner": "3",
+          "channel": "0",
+          "generation": "1"
+        },
+        {
+          "i": "11",
+          "base": "16177680",
+          "qwords": "66",
+          "owner": "3",
+          "channel": "1",
+          "generation": "1"
+        },
+        {
+          "i": "12",
+          "base": "16183600",
+          "qwords": "66",
+          "owner": "4",
+          "channel": "2",
+          "generation": "1"
+        },
+        {
+          "i": "13",
+          "base": "16186608",
+          "qwords": "66",
+          "owner": "4",
+          "channel": "0",
+          "generation": "1"
+        },
+        {
+          "i": "14",
+          "base": "16188672",
+          "qwords": "66",
+          "owner": "4",
+          "channel": "1",
+          "generation": "1"
+        },
+        {
+          "i": "15",
+          "base": "16195120",
+          "qwords": "66",
+          "owner": "5",
+          "channel": "1",
+          "generation": "1"
+        },
+        {
+          "i": "16",
+          "base": "16198352",
+          "qwords": "66",
+          "owner": "5",
+          "channel": "0",
+          "generation": "1"
+        },
+        {
+          "i": "17",
+          "base": "16200416",
+          "qwords": "66",
+          "owner": "5",
+          "channel": "2",
+          "generation": "1"
+        },
+        {
+          "i": "18",
+          "base": "16206000",
+          "qwords": "66",
+          "owner": "6",
+          "channel": "2",
+          "generation": "1"
+        },
+        {
+          "i": "19",
+          "base": "16208192",
+          "qwords": "66",
+          "owner": "6",
+          "channel": "0",
+          "generation": "1"
+        },
+        {
+          "i": "20",
+          "base": "16210256",
+          "qwords": "66",
+          "owner": "6",
+          "channel": "1",
+          "generation": "1"
+        }
+      ],
+      "generation": 1,
+      "registeredUsedBytes": 22176,
+      "registryCapacity": 256,
+      "registryMetadataBytes": 5120,
+      "partGuardMetadataBytes": 25600,
+      "objectGuardMetadataBytes": 112,
+      "authoredSceneObjectSnapshotsBytes": 2352,
+      "commonGuardChecks": 1536,
+      "objectReasonHistogram": {
+        "0": 7
+      },
+      "objectReasonBitCounts": {
+        "1": 0,
+        "2": 0,
+        "4": 0,
+        "8": 0,
+        "16": 0,
+        "32": 0,
+        "64": 0,
+        "128": 0,
+        "256": 0,
+        "512": 0
+      },
+      "partReasonHistogram": {
+        "0": 7
+      },
+      "partReasonBitCounts": {
+        "1": 0,
+        "2": 0,
+        "4": 0,
+        "8": 0,
+        "16": 0
+      },
+      "reasonCountsScope": "Bit counts overlap; object reason is shifted8 bits into each part. Stable skips restrict admission, not absence of static rendering.",
+      "scope": "Seven whitelisted admitted base subsets only; static registry/used bytes are not copied volume or borrowing eligibility"
+    }
+  ],
+  "physicalCountsPerSampledFrame": {
+    "sampleFrames": 128,
+    "classes": {
+      "UnknownOther": {
+        "workRefs": 11.0,
+        "workQwords": 165.0,
+        "publishedRefs": 11.0,
+        "publishedQwords": 165.0,
+        "primitiveCopyBytes": 2640.0,
+        "publishedMutableCopyBytes": 2640.0,
+        "unpublishedPrimitiveCopyRefs": 0.0,
+        "unpublishedPrimitiveCopyBytes": 0.0
+      },
+      "Pool": {
+        "workRefs": 181.0,
+        "workQwords": 2490.0,
+        "publishedRefs": 181.0,
+        "publishedQwords": 2490.0,
+        "primitiveCopyBytes": 39840.0,
+        "publishedMutableCopyBytes": 39840.0,
+        "unpublishedPrimitiveCopyRefs": 0.0,
+        "unpublishedPrimitiveCopyBytes": 0.0
+      },
+      "BagDeclared": {
+        "workRefs": 229.0,
+        "workQwords": 8085.0,
+        "publishedRefs": 229.0,
+        "publishedQwords": 8085.0,
+        "primitiveCopyBytes": 129360.0,
+        "publishedMutableCopyBytes": 129360.0,
+        "unpublishedPrimitiveCopyRefs": 0.0,
+        "unpublishedPrimitiveCopyBytes": 0.0
+      }
+    },
+    "snapshot": {
+      "snapshotAttemptsPerFrame": 106.0,
+      "snapshotPublishedPerFrame": 106.0,
+      "snapshotFailedPerFrame": 0.0,
+      "failedCopiesPerFrame": 0.0,
+      "publishedBytesPerFrame": 223328.0,
+      "publishedBorrowedBytesPerFrame": 2151152.0
+    },
+    "coverage": {
+      "foreignCopyRefsPerFrame": 0.0,
+      "stalePoolNotesPerFrame": 0.0,
+      "ownerNotesPerFrame": 410.0,
+      "observedPoolFractionOfPrimitiveCopyBytesLowerBound": 0.23184357541899442,
+      "observedPoolFractionOfPublishedMutableCopyBytesLowerBound": 0.23184357541899442,
+      "unknownPrimitiveCopyBytesPerFrame": 2640.0
+    },
+    "copiedBagOwnerSubsets": {
+      "SelectedStaticBase": {
+        "workRefs": 0.0,
+        "workQwords": 0.0,
+        "publishedRefs": 0.0,
+        "publishedQwords": 0.0,
+        "primitiveCopyBytes": 0.0,
+        "publishedMutableCopyBytes": 0.0,
+        "unpublishedPrimitiveCopyRefs": 0.0,
+        "unpublishedPrimitiveCopyBytes": 0.0
+      },
+      "OtherBagDeclared": {
+        "workRefs": 229.0,
+        "workQwords": 8085.0,
+        "publishedRefs": 229.0,
+        "publishedQwords": 8085.0,
+        "primitiveCopyBytes": 129360.0,
+        "publishedMutableCopyBytes": 129360.0,
+        "unpublishedPrimitiveCopyRefs": 0.0,
+        "unpublishedPrimitiveCopyBytes": 0.0
+      }
+    },
+    "selectedStaticFractionOfPublishedMutableCopyBytes": 0.0,
+    "atlasLookupsPerFrame": 229.0,
+    "selectedStaticSubsetScope": "Actual copied/published seven whitelisted admitted base subsets of Bag, not atlas allocation capacity, immutable eligibility or DMA/display volume",
+    "scope": "successful snapshot publication, NOT DMA submit/completion/presentation; Pool is storage category lowerbound, NOT immutable borrowing permission"
+  },
+  "physicalOnStagesIdentical": true,
+  "physicalOnSamplesWithZeroSelectedBase": 384,
+  "physicalStages": [
+    {
+      "order": 0,
+      "stage": 0,
+      "observerEnabled": false,
+      "observedTiming": {
+        "wallMeanMs": 33.15114370981852,
+        "pacingMeanMs": 6.729549566904704,
+        "nonpacingMeanMs": 26.42159414291382
+      }
+    },
+    {
+      "order": 0,
+      "stage": 1,
+      "observerEnabled": true,
+      "observedTiming": {
+        "wallMeanMs": 33.162734826405845,
+        "pacingMeanMs": 5.697536150614421,
+        "nonpacingMeanMs": 27.465198675791424
+      }
+    },
+    {
+      "order": 0,
+      "stage": 2,
+      "observerEnabled": false,
+      "observedTiming": {
+        "wallMeanMs": 33.15698215696547,
+        "pacingMeanMs": 6.729270776112874,
+        "nonpacingMeanMs": 26.427711380852593
+      }
+    },
+    {
+      "order": 1,
+      "stage": 0,
+      "observerEnabled": true,
+      "observedTiming": {
+        "wallMeanMs": 33.143116262223984,
+        "pacingMeanMs": 5.719150914086236,
+        "nonpacingMeanMs": 27.42396534813775
+      }
+    },
+    {
+      "order": 1,
+      "stage": 1,
+      "observerEnabled": false,
+      "observedTiming": {
+        "wallMeanMs": 33.16363843282064,
+        "pacingMeanMs": 6.72239335378011,
+        "nonpacingMeanMs": 26.441245079040527
+      }
+    },
+    {
+      "order": 1,
+      "stage": 2,
+      "observerEnabled": true,
+      "observedTiming": {
+        "wallMeanMs": 33.13711420694987,
+        "pacingMeanMs": 5.71799029244317,
+        "nonpacingMeanMs": 27.4191239145067
+      }
+    }
+  ],
+  "observerPriceOnMinusOffNonpacingMs": [
+    1.0436045328776054,
+    1.0374872949388312,
+    0.9827202690972214,
+    0.9778788354661714
+  ],
+  "outerNonpacingSpreadMs": [
+    0.006117237938774167,
+    0.004841433631050052
+  ],
+  "targetMetadataBytes": {
+    "rootTables": 20512,
+    "metrics": 256,
+    "snapshotScope": 72,
+    "atlasRanges": 5120,
+    "partGuardRecords": 25600,
+    "objectGuardRecords": 112,
+    "sevenAuthoredSceneObjectSnapshots": 2352,
+    "fullQbufferNetAbiVerified": false,
+    "layoutProofSha256": "2cfc1bd0b21cf67fa2ebb377735b86044b9391f02d190520c9ee7fe0b4cbc7c8"
+  },
+  "commonGuardAbsoluteApplicationTaxMeasured": false,
+  "previousPublicRecordsPreserved": {
+    "F:\\Projects\\tyra-editor\\docs\\tyrax2-mutable-ref-census-2026-10-03.json": "84ef1d4f1d93441c74cab29e67d9fd1129d75aecbed60d86c7f3202d47d318d4",
+    "F:\\Projects\\tyra-editor\\docs\\tyrax2-mutable-ref-retained-census-2026-10-03.json": "bad0d6735062305234eff934ee090d242dd76fe6fd197e96e3b2515848381be0",
+    "F:\\Projects\\tyra-editor\\docs\\tyrax2-road-owner-census-2026-10-03.json": "75a7cb3f9476b73698ff4faf2cd9627ce22df3036a76aa1ee40a8c8d256d7a54"
+  },
+  "countOnlyV2V3Comparison": {
+    "BagDeclaredPublishedBytesUnchanged": 129360,
+    "PoolPublishedBytesUnchanged": 39840,
+    "UnknownOtherPublishedBytesUnchanged": 2640,
+    "totalMutableCopiedBytesUnchanged": 171840,
+    "crossElfTimingSubtractionPerformed": false
+  },
+  "failedPhysical1InitialAttempt": {
+    "path": "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-static-owner-v4-physical1.log",
+    "sha256": "ac2fe6fa6540f74404f26c1a79c0368c450f469feea4326f3c2723da96605e15",
+    "actualMarker": "MCERROR config",
+    "beforeFreeze": true,
+    "formalRecordPath": "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-static-owner-v4-config-rejection.json",
+    "formalRecordSha256": "66144dcec85d1900610b9fa781be829c3683e9fe9fb5de08b7b67c3f62d25e9e",
+    "classification": "Ancillary launch/config naming failure before measurement; not accepted target workload. Frozen source/ELF were retained; accepted run is the separately archived retry.",
+    "acceptedRetryPath": "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-static-owner-v4-physical1-retry.log",
+    "acceptedRetrySha256": "71ccc18925fb4bbb303d2ac58798041c7e342d3bf0ae6c4e85eaff1e60d099c0"
+  },
+  "raster": "Exact RGB and converted working-alpha all3 exports per boot, with actual camera/light/object guard checks; crossboot equality informative only.",
+  "limits": [
+    "All seven whitelisted base parts were admitted with all object/part reasons0 and21ranges22176usedB. Zero copied subset applies only to these seven allocations in this fixed Scene workload, not all static geometry or absent rendering.",
+    "No producer-origin attribution to baked/retained/current-render route from zero membership alone.",
+    "Runtime subset derives accepted128sample copied/published QW, not static atlas allocation capacity/used bytes.",
+    "Common1536 guards and2352B authored SceneObjectData snapshots are outside Count spans; their absolute cost is unknown.",
+    "Private exact pointer/size/stamp guards cannot detect raw unstamped mutation or exact pointer ABA; no general lifetime/lease/immutable borrowing authorization.",
+    "Same-ELF observer price includes completion/waits/control effects; no pure EE/GPU cost, cross-ELF timing subtraction, production savings or60FPS claim.",
+    "Snapshot publication is not DMA/display; root, copied payload and external borrowed totals must not be blindly summed.",
+    "Metadata proof does not establish full Qbuffer-class net ABI or whole application heap footprint."
+  ],
+  "evidenceSha256": {
+    "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-static-owner-v4-summary-tools\\actual-physical-summary.json": "b1c0b54025384c27f0ed3b1ae162a02909d7aedd7f3f9e5154bee4c47e78f941",
+    "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-static-owner-v4-runtime-independent-review\\physical-pair-audit.json": "a642582c8d791f477f2d388bdcaf9d71b3fbe4b8d24c9224092a2a0899108343",
+    "F:\\Projects\\tyrax2-lab-20261001\\resumed-mutable-ref-static-owner-census-v4\\root-native-proof-census.json": "59318436f19c2df4c501b8eea803ff0ba0a704fe5a0556581cad8e6c06a6545e",
+    "F:\\Projects\\tyrax2-lab-20261001\\resumed-mutable-ref-static-owner-census-v4\\root-used-mirror-proof-confirmed.json": "c3db56e6dfde4a9f9f87f5522a670e872d3f986152a641e1106294b561788b8e",
+    "F:\\Projects\\tyrax2-lab-20261001\\resumed-mutable-ref-static-owner-census-v4\\target-source-manifest.json": "9165ddecbe8442cd04ce61536493b89e8db2a5340eaaf0e529f1218916ec7646",
+    "F:\\Projects\\tyrax2-lab-20261001\\resumed-mutable-ref-static-owner-census-v4\\root-freeze-review.json": "fe69df99e3580a32e3028436f68063e335f3097a2fdb3ee1b8751bddb038c094",
+    "F:\\Projects\\tyrax2-lab-20261001\\resumed-mutable-ref-static-owner-census-v4\\source-control.json": "18d8dfb4df0f0f5a7c8f15e6e35c368891a8a5bc5d4ffea9e48f2120541187fa",
+    "F:\\Projects\\tyrax2-lab-20261001\\resumed-mutable-ref-static-owner-census-v4\\source-proof.json": "6932feb61dbb6565442bbe714f8b87d9b59c7ab1ab97c59331410e26f21155b2",
+    "F:\\Projects\\tyrax2-lab-20261001\\resumed-mutable-ref-static-owner-census-v4\\README.md": "26f4c5aee4c12ce037b24f71069fc5abb9fc41ddd5b75fc53c24f2fad91683b4",
+    "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-static-owner-v4-root-abi\\proof.json": "2cfc1bd0b21cf67fa2ebb377735b86044b9391f02d190520c9ee7fe0b4cbc7c8",
+    "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-static-owner-v4-host-controls\\proof.json": "f6f78269b9830d7c4d61eb946ca151a413778aaf15a2f1167bf28ad2c899abfc",
+    "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-static-owner-v4-independent-review\\proof.json": "b5928348ca92112e541e6d380d5a97645a6713bc9f4aad6cfbe9cab7ab803449",
+    "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-static-owner-v4-publication-draft\\physical0-readonly-proof.json": "5a4b915d7bac613015e7425b91bf5edb3ed16219888ce79ea1d34a2dc1df465c",
+    "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-static-owner-v4-config-rejection.json": "66144dcec85d1900610b9fa781be829c3683e9fe9fb5de08b7b67c3f62d25e9e",
+    "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-static-owner-v4-emulator0-evidence\\artifact-hashes.json": "8debb8415151b03b02db8d98ad59d83978b942ba85df34e20a5e688936f3f147",
+    "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-static-owner-v4-emulator0-evidence\\strict-analysis.json": "a3599db10576cda469474e1016267ab6c86834f62e0c83e8c8a406c5672be859",
+    "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-static-owner-v4-emulator0-evidence\\source-launch-qualified.json": "1141b3be797abd9498591ce24a3424debc8a5bdaa8199d1f7c790015670883c5",
+    "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-static-owner-v4-runtime-independent-review\\emulator0-review.json": "87ce9c3002e81271ec5e388a7b78cfbe7404ab78136b1d26bfad7df8e28879bf",
+    "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-static-owner-v4-emulator1-evidence\\artifact-hashes.json": "f6642fae03c892ce69af8e1550a4059d716c4c441526cc728f8d7e0b60002484",
+    "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-static-owner-v4-emulator1-evidence\\strict-analysis.json": "4f787b2a1efdf52f5ffc6fdd838d0ca3deafb436bee4bf01787910a89ea4e5a4",
+    "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-static-owner-v4-emulator1-evidence\\source-launch-qualified.json": "ad403627fd3baaed8e52365a59f552e773f6868191b2f44ed6896f5bb5892c9a",
+    "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-static-owner-v4-runtime-independent-review\\emulator1-review.json": "95ccb8c0cd451074a5f667449f80e5a8f7d17df310632d054e7b31904a4090ab",
+    "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-static-owner-v4-physical0-evidence\\artifact-hashes.json": "c1a0f41b4914c1e5f69af508c949f02558d76c1a2f6063d304cfad07d17b87ef",
+    "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-static-owner-v4-physical0-evidence\\strict-analysis.json": "bffbf8e0e6499459706d7ed13a359c8eebf1208f1b202025cec08dfc273a5dc0",
+    "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-static-owner-v4-physical0-evidence\\source-launch-qualified.json": "d2c78c3baf40976e335a59dfa131f8702050e47f51a36fbdd3ffe734e740c0bb",
+    "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-static-owner-v4-runtime-independent-review\\physical0-review.json": "753ad92f99164e26099689584a5d9e6b8a44aa42659f6c5e68b8cc98e5b1727d",
+    "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-static-owner-v4-physical1-evidence\\artifact-hashes.json": "9ef4df1b5c37654915685d2c882496f379fde7d9832f7352f8ea57b1c6bfb4a7",
+    "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-static-owner-v4-physical1-evidence\\strict-analysis.json": "97b778abc1b66b8764df83205267ace6b86a710615d711a9b8bdad853ab1b0e8",
+    "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-static-owner-v4-physical1-evidence\\source-launch-qualified.json": "0e5bdb2970e5ec41e68c97b801f273e07d95ff7be2ac8db0b8e1c8c8533d075e",
+    "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-static-owner-v4-runtime-independent-review\\physical1-review.json": "ee0f16e5994ae33ad2ec2ccc24a57d9bbe62da17707f6f7f8a71135206ae2e6b",
+    "F:\\Projects\\tyra-editor\\docs\\tyrax2-mutable-ref-census-2026-10-03.json": "84ef1d4f1d93441c74cab29e67d9fd1129d75aecbed60d86c7f3202d47d318d4",
+    "F:\\Projects\\tyra-editor\\docs\\tyrax2-mutable-ref-retained-census-2026-10-03.json": "bad0d6735062305234eff934ee090d242dd76fe6fd197e96e3b2515848381be0",
+    "F:\\Projects\\tyra-editor\\docs\\tyrax2-road-owner-census-2026-10-03.json": "75a7cb3f9476b73698ff4faf2cd9627ce22df3036a76aa1ee40a8c8d256d7a54",
+    "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-static-owner-v4-physical1.log": "ac2fe6fa6540f74404f26c1a79c0368c450f469feea4326f3c2723da96605e15",
+    "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-static-owner-v4-physical1-retry.log": "71ccc18925fb4bbb303d2ac58798041c7e342d3bf0ae6c4e85eaff1e60d099c0"
+  }
+}
