@@ -2,7 +2,8 @@
 
 The Road Texture Generator (Tools > Road Texture Generator, or **Generate...**
 beside a Road's Surface material) bakes road surface materials procedurally -
-asphalt, cobble setts, gravel or dirt, with lane markings - into
+asphalt, cobble setts, gravel, dirt, paving slabs or brick pavers, with lane
+markings - into
 `res/materials/roads/`, so a road looks right the moment it is dropped instead
 of starting untextured grey.
 
@@ -10,7 +11,7 @@ of starting untextured grey.
 
 ## What a new project gets
 
-`project::create` seeds five ready materials, each a `.png`, a one-material
+`project::create` seeds six ready materials, each a `.png`, a one-material
 `.mtl` and the editor-only `.roadtex` recipe:
 
 | Material | What it is |
@@ -20,6 +21,7 @@ of starting untextured grey.
 | `road-dirt` | Dirt track with mud and ruts, ragged sides, no markings (5 units). |
 | `road-cobble` | Cobble setts, no markings (6 units). |
 | `road-junction` | Isotropic asphalt for the **Intersection material**. |
+| `pavement-slabs` | 0.5-unit concrete paving slabs for a pavement (2 x 2-unit tile). |
 
 A Road inserted from Insert > Gameplay > Road picks `road-2lane` as its
 surface and `road-junction` as its intersection material whenever those files
@@ -29,13 +31,18 @@ ignore `res/materials/`, so they are tracked.
 
 ## The window
 
-- **Load** re-opens a texture made here (it reads the `.roadtex` recipe).
-  **Name** is the file stem in `res/materials/roads`.
+- **Load** re-opens a texture made here (it reads the `.roadtex` recipe);
+  **Preset** starts from one of the seeded recipes. **Name** is the file stem
+  in `res/materials/roads`.
 - **Surface**, **Wear** (stains, cracks, wheel tracks, chipped paint), **Tint**
   (multiplies the surface colour), **Seed**, **Resolution** (64 / 128 / 256;
   2 / 8 / 32 KB at the default 4-bit quantization).
 - **Intersection patch** makes the junction variant: no markings, and it tiles
-  in both directions (see the layout contract below).
+  in both directions (see the layout contract below). **Pavement** is the same
+  on a 2 x 2-unit tile; the two are exclusive, and either one hides the line
+  controls.
+- **Slab size** and **Joint width** (Paving slabs and Brick pavers only): see
+  "Paving slabs" below.
 - **Ragged edges** (dirt only) notches both sides with alpha 0, which pairs
   with the road's Edge fade ([roads.md](roads.md), "Soft edges").
 - **Markings**: **Lanes** (0-6), **Design width** (the road width the lines are
@@ -48,10 +55,11 @@ ignore `res/materials/`, so they are tracked.
 - **Save** writes the files. **Apply to selected road** writes them and sets
   the selected Road's Surface material; with Intersection patch on it reads
   **Apply as intersection material** and sets that slot instead. Both are
-  ordinary undoable edits.
+  ordinary undoable edits. A pavement texture has no Road slot to apply to
+  here, so it is only saved.
 
 The preview shows the texture repeated as a strip of road at its design
-proportions (or 2 x 2 for a junction patch), on a grass-coloured ground so the
+proportions (or 2 x 2 for a junction patch or a pavement tile), on a grass-coloured ground so the
 ragged sides show.
 
 ## Layout contract
@@ -72,6 +80,10 @@ The texture follows the road tessellator's mapping ([roads.md](roads.md)):
   V. Its noise is sized in world units like the strip's, so the grain matches
   where an arm meets the patch; at 128 px a texel is 0.25 units, so setts
   turn into noise there - asphalt is the junction surface that reads well.
+- A pavement is mapped one repeat per **2** units across AND along (the
+  pavement strip's u = across / 2, v = along / 2), so `pavement=1` means: no
+  markings, no wheel tracks, laid out over a 2 x 2-unit tile that tiles both
+  ways. Alpha stays 255.
 - No line is drawn thinner than about one texel, and the two lines of a pair
   keep at least one clear texel between them, so a wide road at 64 px does not
   fade its lines to grey.
@@ -82,6 +94,24 @@ The texture follows the road tessellator's mapping ([roads.md](roads.md)):
 - Alpha is 255 everywhere except the ragged sides of a dirt track. StaPip
   discards alpha-0 texels (the GS alpha-test cutout trap), so alpha 0 is never
   written inside the road.
+
+## Paving slabs
+
+Two surfaces made for pavements, usable on a road strip too:
+
+- **Paving slabs** (`surface=slabs`): a square grid of concrete slabs with
+  darker joints, a per-slab tone and a softened arris. Wear adds grime that
+  ignores the slab edges, the odd stained slab and hairline cracks on a few
+  slabs - a crack stops at its slab's joint.
+- **Brick pavers** (`surface=pavers`): bricks half the slab size long and a
+  quarter wide, in a running bond (every other row offset half a brick).
+
+The grid is snapped so a whole number of slabs fits each axis of the tile
+(`roadtex::slabGrid`; the window prints it): on a 2-unit pavement tile 0.5 is
+4 x 4, 0.6 becomes 3 x 3 slabs of 0.667, and paver rows are kept even so the
+half-brick offset wraps. The joint is never drawn under one texel. Surface
+numbers are stored in the recipe, which is why `kSlabs` / `kPavers` were
+appended (4 and 5) and not inserted.
 
 ## Files and determinism
 
@@ -105,9 +135,10 @@ tyrax-editor --road-texture <projectDir> <name> [key=value ...]
 ```
 
 Starts from `<name>.roadtex` when it exists (so the keys edit it), else from
-the defaults. Keys are the recipe file's own: `surface=asphalt|cobble|gravel|dirt`,
-`lanes=0..6`, `wear`, `tint=r,g,b`, `seed`, `size=64|128|256`, `width`
-(0 = auto), `ragged=0|1`, `intersection=0|1`, and per line `L` = `centre`,
+the defaults. Keys are the recipe file's own:
+`surface=asphalt|cobble|gravel|dirt|slabs|pavers`, `lanes=0..6`, `wear`,
+`tint=r,g,b`, `seed`, `size=64|128|256`, `width` (0 = auto), `ragged=0|1`,
+`intersection=0|1`, `pavement=0|1`, `slab` and `joint` (units), and per line `L` = `centre`,
 `divider` or `edge`: `L=none|dashed|solid|double|solid-dashed|dashed-solid`,
 `L.colour=white|yellow|r,g,b`, `L.width`, `L.dash`, `L.gap`. Exit 2 on a bad
 key or value.

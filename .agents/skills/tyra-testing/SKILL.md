@@ -2815,12 +2815,14 @@ is the fixture: `--build --run` then `--capture-frame`.
 `--road-texture <projectDir> <name> [key=value ...]` writes
 `res/materials/roads/<name>.png/.mtl/.roadtex` (starting from an existing
 recipe, so keys edit it; exit 2 on a bad key). A `--new` project must already
-hold the five presets (`road-2lane`, `road-4lane`, `road-dirt`,
-`road-cobble`, `road-junction`). The pixels are a harness away:
+hold the six presets (`road-2lane`, `road-4lane`, `road-dirt`,
+`road-cobble`, `road-junction`, `pavement-slabs`). The pixels are a harness
+away:
 `roadtex.cpp` links alone with `-I src -I <vendor/stb>` plus a TU defining
 `STB_IMAGE_WRITE_IMPLEMENTATION` (`-static` from Git Bash). Write each recipe
 twice and `md5sum` (must be identical - the -O1 editor and an -O2 harness
-agreed byte for byte), stack each PNG on itself vertically to see the V seam,
+agreed byte for byte), stack each PNG on itself vertically to see the V seam (2 x 2 for a
+junction patch or a `pavement=1` tile, which must tile both ways),
 and quantize to 16 colours (PIL) before judging it - the build bakes 4-bit by
 default. In PCSX2: two crossing roads naming the same `road-junction`
 (`--road-crossings` must print the patch), a frozen high camera,

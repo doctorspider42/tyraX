@@ -37,8 +37,9 @@ for people building games with it. Internals live in code comments, the git log
   at scene load by a twin of the editor's own tessellator, shipped as triangle
   strips, and reduced laterally against a published surface and UV budget.
 - [Road textures](road-textures.md) — the Road Texture Generator: asphalt,
-  setts, gravel or dirt with lane markings laid out across the road, baked into
-  `res/materials/roads`; a new project starts with five ready materials, and
+  setts, gravel, dirt, paving slabs or brick pavers, with lane markings laid out
+  across the road (or none, for junction patches and pavements), baked into
+  `res/materials/roads`; a new project starts with six ready materials, and
   `--road-texture` is the headless twin.
 - [Areas (invisible volumes)](areas.md) — the box that replaces hand-typed
   distances: streaming zones, catch lists for mirrors/portals/feeds, the In
