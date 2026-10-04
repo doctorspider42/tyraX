@@ -361,6 +361,7 @@ struct ScriptContext {
   // to open it on that character (the game applies and clears it);
   // creatorOpen reads true while it is up.
   int openCreator = -1;
+  int openCreatorMenu = -1;  // with openCreator: the menu that is its screen
   bool creatorOpen = false;
   // A flow event queued from OUTSIDE a menu row - today a credits roll whose
   // finish action is "fire a flow event". updateGameMenu promotes it into
@@ -489,9 +490,11 @@ inline void setLook(ScriptContext& ctx, int objectIndex, int slot, int value) {
 
 /** Opens the in-game Character Creator on a generated character (one built
  * with creator options or colour variants; the player when the object is
- * neither). */
-inline void openCharacterCreator(ScriptContext& ctx, int objectIndex) {
+ * neither). `menu` (a menu_data index) makes that menu its screen - rows of
+ * the Character creator option kind - instead of the built-in one. */
+inline void openCharacterCreator(ScriptContext& ctx, int objectIndex, int menu = -1) {
   ctx.openCreator = objectIndex < 0 ? 0x7fffffff : objectIndex;
+  ctx.openCreatorMenu = menu;  // a menu (menu_data order) as its screen, -1 = built in
 }
 
 /** Freezes an animated model object on its current pose. */

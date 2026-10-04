@@ -98,10 +98,10 @@ class FlowGraphScript_0_0 : public Script {
     frame++;
     if (!started) {
       started = true;
-      openCharacterCreator(ctx, 0);
+      openCharacterCreator(ctx, 0, 1);  // menu "character"
     }
     if (ctx.engine->pad.getClicked().Select) {
-      openCharacterCreator(ctx, 0);
+      openCharacterCreator(ctx, 0, 1);  // menu "character"
     }
   }
 

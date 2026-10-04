@@ -278,11 +278,18 @@ bool TerrainGame::updateCharCreator() {
       creatorRow = 0;
       creatorYaw = 0.0F;
       for (int s = 0; s < 4; ++s) creatorRestore[s] = runtimeObjects[idx].look[s];
+      // A menu as its screen: open it (updateGameMenu takes it next frame)
+      // and let its rows do the dressing.
+      creatorMenu = scriptCtx.openCreatorMenu < MENU_COUNT ? scriptCtx.openCreatorMenu : -1;
+      creatorMenuSeen = false;
+      creatorMenuWait = 4;
+      if (creatorMenu >= 0) scriptCtx.openMenu = creatorMenu;
     } else {
       TYRA_WARN("Character Creator: no character with creator options or colour variants");
     }
   }
   scriptCtx.openCreator = -1;
+  scriptCtx.openCreatorMenu = -1;
   scriptCtx.creatorOpen = creatorObj >= 0;
   if (creatorObj < 0) return false;
   RuntimeObject& o = runtimeObjects[creatorObj];
@@ -290,51 +297,98 @@ bool TerrainGame::updateCharCreator() {
     creatorObj = -1;
     return false;
   }
-  const GameAnimModel& gam = gameAnimModels[o.data.animModel];
-  const int variants = ANIM_MODEL_VARIANTS[o.data.animModel];
   int rows[4];
   const int n = creatorRows(creatorObj, rows);
   Pad& pad = engine->pad;
   const auto& clicked = pad.getClicked();
   const auto& held = pad.getPressed();
+  auto turn = [&] {
+    if (held.L1) creatorYaw -= 2.2F * g_frameDt;
+    if (held.R1) creatorYaw += 2.2F * g_frameDt;
+    const float rx = ((float)pad.getRightJoyPad().h - 128.0F) / 128.0F;
+    if (rx > 0.25F || rx < -0.25F) creatorYaw += rx * 2.2F * g_frameDt;
+  };
+  auto finish = [&] {
+    if (creatorObj == PLAYER_INDEX) {
+      playerLook[0] = o.data.animModel;
+      for (int s = 0; s < 4; ++s) playerLook[1 + s] = o.look[s];
+    }
+    creatorObj = -1;
+    creatorMenu = -1;
+    scriptCtx.creatorOpen = false;
+  };
+  if (creatorMenu >= 0) {
+    // The menu is the screen: its rows dress (updateGameMenu), the camera
+    // still turns, and the creator ends when the menu goes away - by a Close
+    // row, Back, or the Undo row (which has put the old look back first).
+    turn();
+    if (gameMenuIndex == creatorMenu) creatorMenuSeen = true;
+    else if (creatorMenuSeen || --creatorMenuWait <= 0) finish();
+    return true;
+  }
   if (inputClicked(pad, IA_ROLE_MENU_UP) || clicked.DpadUp) creatorRow = (creatorRow + n - 1) % n;
   if (inputClicked(pad, IA_ROLE_MENU_DOWN) || clicked.DpadDown) creatorRow = (creatorRow + 1) % n;
   if (creatorRow >= n) creatorRow = 0;
   int step = 0;
   if (inputClicked(pad, IA_ROLE_MENU_LEFT) || clicked.DpadLeft) step = -1;
   if (inputClicked(pad, IA_ROLE_MENU_RIGHT) || clicked.DpadRight) step = 1;
-  if (step != 0) {
-    const int s = rows[creatorRow];
-    if (s == 0) {
-      // Look 1..variants+1 (the authored colours are Look 1)
-      int v = o.look[0] < 0 ? 0 : o.look[0];
-      v = (v + step + variants + 1) % (variants + 1);
-      o.look[0] = v;
-    } else {
-      // None, then each option
-      int v = o.look[s] == -2 ? gam.optDefault[s] : o.look[s];
-      const int count = gam.optCount[s] + 1;
-      v = ((v + 1 + step) % count + count) % count - 1;
-      o.look[s] = v;
-    }
-  }
-  if (held.L1) creatorYaw -= 2.2F * g_frameDt;
-  if (held.R1) creatorYaw += 2.2F * g_frameDt;
-  const float rx = ((float)pad.getRightJoyPad().h - 128.0F) / 128.0F;
-  if (rx > 0.25F || rx < -0.25F) creatorYaw += rx * 2.2F * g_frameDt;
+  if (step != 0) creatorStep(creatorObj, rows[creatorRow], step);
+  turn();
   const bool keep = inputClicked(pad, IA_ROLE_CONFIRM) || clicked.Cross || clicked.Start;
   const bool cancel = inputClicked(pad, IA_ROLE_BACK) || clicked.Circle;
   if (cancel)
     for (int s = 0; s < 4; ++s) o.look[s] = creatorRestore[s];
-  if (keep || cancel) {
-    if (creatorObj == PLAYER_INDEX) {
-      playerLook[0] = o.data.animModel;
-      for (int s = 0; s < 4; ++s) playerLook[1 + s] = o.look[s];
-    }
-    creatorObj = -1;
-    scriptCtx.creatorOpen = false;
-  }
+  if (keep || cancel) finish();
   return true;
+}
+
+int TerrainGame::creatorTarget() const {
+  return creatorObj >= 0 ? creatorObj : PLAYER_INDEX;
+}
+
+// One Left/Right on a creator row. Look: 1..variants+1 (the authored
+// colours are Look 1); hair, hat, glasses: None, then each option.
+void TerrainGame::creatorStep(int index, int slot, int dir) {
+  if (index < 0 || index >= (int)runtimeObjects.size() || slot < 0 || slot > 3) return;
+  RuntimeObject& o = runtimeObjects[index];
+  if (o.data.animModel < 0 || o.data.animModel >= (int)gameAnimModels.size()) return;
+  const GameAnimModel& gam = gameAnimModels[o.data.animModel];
+  if (slot == 0) {
+    const int variants = ANIM_MODEL_VARIANTS[o.data.animModel];
+    if (variants <= 0) return;
+    const int v = o.look[0] < 0 ? 0 : o.look[0];
+    o.look[0] = ((v + dir) % (variants + 1) + variants + 1) % (variants + 1);
+    return;
+  }
+  if (gam.optCount[slot] <= 0) return;
+  const int v = o.look[slot] == -2 ? gam.optDefault[slot] : o.look[slot];
+  const int count = gam.optCount[slot] + 1;
+  o.look[slot] = ((v + 1 + dir) % count + count) % count - 1;
+}
+
+// What a creator row shows: "2 / 4" for the colours, the option's label (or
+// "None") for the rest, "-" when the model has nothing for that row.
+void TerrainGame::creatorValueText(int index, int slot, char* out, int size) const {
+  snprintf(out, (size_t)size, "-");
+  if (index < 0 || index >= (int)runtimeObjects.size() || slot < 0 || slot > 3) return;
+  const RuntimeObject& o = runtimeObjects[index];
+  if (o.data.animModel < 0 || o.data.animModel >= (int)gameAnimModels.size()) return;
+  const GameAnimModel& gam = gameAnimModels[o.data.animModel];
+  if (slot == 0) {
+    const int variants = ANIM_MODEL_VARIANTS[o.data.animModel];
+    if (variants > 0)
+      snprintf(out, (size_t)size, "%d / %d", (o.look[0] < 0 ? 0 : o.look[0]) + 1, variants + 1);
+    return;
+  }
+  if (gam.optCount[slot] <= 0) return;
+  const int v = o.look[slot] == -2 ? gam.optDefault[slot] : o.look[slot];
+  const char* label = "None";
+  if (v >= 0 && v < (int)gam.optIds[slot].size()) {
+    label = gam.optIds[slot][v].c_str();
+    for (int k = 0; k < CREATOR_LABEL_COUNT; ++k)
+      if (gam.optIds[slot][v] == CREATOR_LABELS[k].id) label = CREATOR_LABELS[k].label;
+  }
+  snprintf(out, (size_t)size, "%s", label);
 }
 
 void TerrainGame::creatorCamera() {
@@ -357,10 +411,7 @@ void TerrainGame::creatorCamera() {
 }
 
 void TerrainGame::renderCharCreator() {
-  if (creatorObj < 0) return;
-  const RuntimeObject& o = runtimeObjects[creatorObj];
-  const GameAnimModel& gam = gameAnimModels[o.data.animModel];
-  const int variants = ANIM_MODEL_VARIANTS[o.data.animModel];
+  if (creatorObj < 0 || creatorMenu >= 0) return;  // a menu draws itself
   int rows[4];
   const int n = creatorRows(creatorObj, rows);
   const auto& scr = engine->renderer.core.getSettings();
@@ -386,18 +437,7 @@ void TerrainGame::renderCharCreator() {
   for (int r = 0; r < n; ++r, y += size * 1.8F) {
     const int s = rows[r];
     char value[48];
-    if (s == 0) {
-      snprintf(value, sizeof(value), "%d / %d", (o.look[0] < 0 ? 0 : o.look[0]) + 1, variants + 1);
-    } else {
-      const int v = o.look[s] == -2 ? gam.optDefault[s] : o.look[s];
-      const char* label = "None";
-      if (v >= 0 && v < (int)gam.optIds[s].size()) {
-        label = gam.optIds[s][v].c_str();
-        for (int k = 0; k < CREATOR_LABEL_COUNT; ++k)
-          if (gam.optIds[s][v] == CREATOR_LABELS[k].id) label = CREATOR_LABELS[k].label;
-      }
-      snprintf(value, sizeof(value), "%s", label);
-    }
+    creatorValueText(creatorObj, s, value, sizeof(value));
     const bool lit = r == creatorRow;
     char line[72];
     snprintf(line, sizeof(line), lit ? "- %s -" : "%s", kRow[s]);
@@ -3679,6 +3719,10 @@ bool TerrainGame::updateGameMenu() {
       if (inputClicked(engine->pad, IA_ROLE_MENU_LEFT)) cycleValue(cur, -1);
       if (inputClicked(engine->pad, IA_ROLE_MENU_RIGHT)) cycleValue(cur, 1);
     }
+    if (cur.action == 14) {  // a Character Creator row (docs/character-generator.md)
+      if (inputClicked(engine->pad, IA_ROLE_MENU_LEFT)) creatorStep(creatorTarget(), cur.param, -1);
+      if (inputClicked(engine->pad, IA_ROLE_MENU_RIGHT)) creatorStep(creatorTarget(), cur.param, 1);
+    }
     // A rebind row also accepts "clear back to the preset binding" sideways,
     // so a player can undo an override without hunting for the same button.
     if (cur.action == 10 && cur.param >= 0 && cur.param < SAVE_VALUE_COUNT &&
@@ -3801,6 +3845,20 @@ bool TerrainGame::updateGameMenu() {
           gameMenuStackDepth = 0;
           credits::play(e.param);
         }
+        break;
+      case 14:  // creator row: Cross steps forward like Right
+        creatorStep(creatorTarget(), e.param, 1);
+        break;
+      case 15:  // creator undo: the look it opened with, then close (the
+        // creator sees its menu gone and ends)
+        if (creatorObj >= 0)
+          for (int s = 0; s < 4; ++s) runtimeObjects[creatorObj].look[s] = creatorRestore[s];
+        if (m.closeSec > 0.0F) {
+          gameMenuClosing = gameMenuIndex;
+          gameMenuCloseT = 0.0F;
+        }
+        gameMenuIndex = -1;
+        gameMenuStackDepth = 0;
         break;
       case 13:  // confirm a cutscene skip: end it and close the menu. Anything
         // that dismisses the menu instead (a Close row, "back") declines and
@@ -4276,10 +4334,14 @@ void TerrainGame::renderGameMenu() {
     const int last = m.rowsVisible > 0 ? first + m.rowsVisible : m.entryCount;
     for (int i = first; i < last && i < m.entryCount; ++i) {
       const MenuEntryData& e = m.entries[i];
-      if (e.action != 10) continue;
+      if (e.action != 10 && e.action != 14) continue;
       const char* txt = "PRESS...";
       char iconTok[40];
-      if (menuRebindRow != i) {
+      char creatorTxt[48];
+      if (e.action == 14) {  // the choice a Character Creator row shows
+        creatorValueText(creatorTarget(), e.param, creatorTxt, sizeof(creatorTxt));
+        txt = creatorTxt;
+      } else if (menuRebindRow != i) {
         // The LIVE pad binding (inputRebuild already folded the player's
         // override in), shown as the button's ICON when the project has one and
         // as its name otherwise. Never the word "Default" - the row should say

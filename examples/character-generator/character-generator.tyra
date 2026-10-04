@@ -1,7 +1,7 @@
 {
   "name": "character-generator",
-  "formatVersion": 97,
-  "editorVersion": "1.176.0",
+  "formatVersion": 98,
+  "editorVersion": "1.178.0",
   "template": "fpp",
   "projectId": "8507910aa48421be",
   "settings": {
@@ -189,7 +189,16 @@
   "sequences": [],
   "menus": [
     { "name": "save", "title": "SAVE GAME", "saveMenu": true, "screenPos": [0.5, 0.45], "accent": [0.47, 0.82, 1],
-      "entries": [] }
+      "entries": [] },
+    { "name": "character", "title": "CHARACTER", "pause": false, "screenPos": [0.72, 0.5], "accent": [0.47, 0.82, 1],
+      "entries": [
+        { "label": "COLOURS", "action": "creator", "param": "look" },
+        { "label": "HAIR", "action": "creator", "param": "hair" },
+        { "label": "HAT", "action": "creator", "param": "hat" },
+        { "label": "GLASSES", "action": "creator", "param": "glasses" },
+        { "label": "DONE", "action": "close" },
+        { "label": "UNDO", "action": "creator-undo" }
+      ] }
   ],
   "input": {
     "activePreset": 0,

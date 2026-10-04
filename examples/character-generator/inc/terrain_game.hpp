@@ -536,6 +536,12 @@ class TerrainGame : public Tyra::Game {
   void creatorCamera();         // frames the character while it is open
   void renderCharCreator();
   int creatorRows(int index, int* rows) const;  // the rows it offers
+  int creatorTarget() const;  // who creator menu rows dress (the player if none)
+  void creatorStep(int index, int slot, int dir);  // one Left/Right on a row
+  void creatorValueText(int index, int slot, char* out, int size) const;
+  int creatorMenu = -1;       // the menu that is the creator's screen, -1 = built in
+  int creatorMenuWait = 0;    // frames until that menu must have opened
+  bool creatorMenuSeen = false;
   int creatorObj = -1;          // the object being dressed, -1 = closed
   int creatorRow = 0;
   int creatorRestore[4] = {-1, -2, -2, -2};  // its look when it opened (Circle)

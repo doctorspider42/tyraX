@@ -18,7 +18,12 @@ any time. That is the player's own flow graph (On Start and On Button Select
 into a Character Creator node), and `hero.chargen.json` lists the choices in
 its `"options"` (docs/character-generator.md, "In-game character creator").
 
-![The Character Creator in the example](../../docs/img/chargen-creator.png)
+The screen itself is the `character` **menu**, picked in the node's *Menu*:
+restyle it in *Tools > Menu Editor* like any other menu - stylesheet, labels,
+row order, position (docs/character-generator.md, "The creator as a menu").
+Clear the node's *Menu* and you get the built-in screen instead.
+
+![The Character Creator in the example](../../docs/img/chargen-creator-menu.png)
 
 You **are** a generated character. The third-person camera sits behind `hero`:
 walk (left stick) and he walks, push to full tilt and he runs, let go and he
