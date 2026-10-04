@@ -10,7 +10,7 @@
   "lipstick": 0.55, "lipColor": [0.62,0.1,0.15], "eyeShadow": 0.3, "eyeShadowColor": [0.25,0.18,0.3], "blush": 0.3,
   "textureSize": 128,
   "hair": "bun",
-  "outfit": [{"id": "felegant", "color": [-1,-1,-1], "color2": [1,1,1], "pattern": 0}, {"id": "shoes6", "color": [0.08,0.08,0.1], "color2": [1,1,1], "pattern": 0}, {"id": "glasses2", "color": [-1,-1,-1], "color2": [1,1,1], "pattern": 0}],
+  "outfit": [{"id": "fsuit", "color": [0.12,0.14,0.24], "color2": [1,1,1], "pattern": 0}, {"id": "tbar", "color": [0.08,0.08,0.1], "color2": [1,1,1], "pattern": 0}, {"id": "glasses2", "color": [-1,-1,-1], "color2": [1,1,1], "pattern": 0}],
   "defaultClips": true, "clips": [],
   "animFps": 15,
   "animSource": ""

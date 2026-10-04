@@ -33,7 +33,7 @@ tyrax-editor --chargen res/models/characters/hero.chargen.json res/models/charac
 | | Body | Wears | Atlas | Triangles |
 |---|---|---|---|---|
 | `hero` | man, 1.82 m, muscular | polo (recoloured navy), cargo pants, boots, short hair | 256 | 4237 |
-| `clerk` | woman, 1.65 m, mostly East Asian | elegant suit, pumps, square frames, a bun, lipstick | 128 | 4479 |
+| `clerk` | woman, 1.65 m, mostly East Asian | trouser suit (recoloured navy; the blouse and scarf keep theirs), T-bar shoes, square frames, a bun, lipstick | 128 | 4500 |
 | `dockhand` | man, 1.76 m, older, heavy | work overalls, ankle boots, newsboy cap, buzz cut, stubble | 128 | 4543 |
 | `kid` | child, 1.30 m | striped T-shirt (pattern), jean shorts, canvas shoes, ponytail | 128 | 4357 |
 | `punk` | man, 1.78 m | casual outfit, black hero boots, 3D glasses, green messy hair | 128 | 4374 |
