@@ -398,6 +398,17 @@ if TDIR:
     cheeks = region(*MASKS['cheeks'])
     beard = region(*MASKS['stubble'])
     beard = np.clip(beard - lips * 1.5, 0, 1)
+    # The jaw target also moves the neck (and a little of the chest), and a
+    # beard down to the collarbones reads as a rash: fade it out across the
+    # upper neck joint. (Subtracting the neck targets' own region does not
+    # work - they move the lower face too, and the beard vanishes.)
+    # Measured against the chin (the jaw bone's tail): a beard goes a little
+    # under it and stops; behind the jaw line it is neck.
+    chin = skel.joint('jaw____tail', avg)
+    fy = np.clip((avg[:, 1] - (chin[1] - 0.2)) / 0.2, 0, 1)
+    fz = np.clip((avg[:, 2] - (chin[2] - 0.6)) / 0.25, 0, 1)
+    fz = np.where(avg[:, 1] > chin[1] + 0.25, 1.0, fz)
+    beard = np.clip(beard * fy * fz, 0, 1)
     ca = hi.data.color_attributes.new('paint', 'FLOAT_COLOR', 'POINT')
     ca2 = hi.data.color_attributes.new('paint2', 'FLOAT_COLOR', 'POINT')
     ca.data.foreach_set('color', np.stack([lips, lids, cheeks, np.ones_like(lips)], 1)

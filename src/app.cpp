@@ -17787,6 +17787,11 @@ void App::drawCharacterGeneratorWindow() {
             dirty |= ImGui::SliderFloat("Muscle", &p.muscle, 0.0f, 1.0f, "%.2f");
             dirty |= ImGui::SliderFloat("Weight", &p.weight, 0.0f, 1.0f, "%.2f");
             dirty |= ImGui::SliderFloat("Height", &p.heightMeters, 0.6f, 2.4f, "%.2f m");
+            dirty |= ImGui::SliderFloat("Dimorphism", &p.dimorphism, 0.0f, 1.5f, "%.2f");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("How strongly gender reads in the face and build. MakeHuman's\n"
+                                  "average man and woman are alike in the face; this moves jaw,\n"
+                                  "brow ridge, chin, neck, lips and eyes along with Gender.");
             ImGui::SeparatorText("Ancestry");
             dirty |= ImGui::SliderFloat("African", &p.african, 0.0f, 1.0f, "%.2f");
             dirty |= ImGui::SliderFloat("Asian", &p.asian, 0.0f, 1.0f, "%.2f");

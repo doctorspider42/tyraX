@@ -49,7 +49,7 @@ for another), and **Open recipe...** loads a `.chargen.json`.
 
 | Tab | What is in it |
 |---|---|
-| Body | gender, age, muscle, weight, height in metres; the ancestry mix; body and proportion sliders (belly, waist, hips, bust, shoulders, V-shape, arm/leg fat and muscle, leg/torso/arm/neck length, head/hand/foot size) |
+| Body | gender, age, muscle, weight, height in metres, **dimorphism**; the ancestry mix; body and proportion sliders (belly, waist, hips, bust, shoulders, V-shape, arm/leg fat and muscle, leg/torso/arm/neck length, head/hand/foot size) |
 | Face | head shape, forehead, brows, eyes (size, height, spacing, tilt, opening, epicanthic fold, bags), nose (11), mouth (9), jaw and cheeks (9), ears (4). Right-click a slider to reset it |
 | Skin | tone, warmth, weathering; eye colour; 12 eyebrow and 4 eyelash styles, brow density; stubble; lipstick, eye shadow, blush; the atlas size |
 | Outfit | one item per slot - full outfit, top, bottom, shoes, hat, glasses, gloves - each with its own colours and, for clothes, a pattern |
@@ -128,6 +128,13 @@ into five pieces, because MakeHuman unwraps torso, arms and legs as one
 starfish no packer fits tightly. Fill went from 65% to 77% of the square, and
 the face is ~330 texels wide at the kit's 1024.
 
+**Dimorphism.** MakeHuman's average man and woman are close in the face, and
+a generated man read as soft. The *Dimorphism* slider (default 0.6) moves a
+profile of detail sliders WITH gender - jaw, brow ridge, chin, neck, shoulders
+up and lips, eye size, cheek volume down for a man, the reverse for a woman -
+scaled down for children. It is a layer on top of the sliders, so the Face tab
+still means what it says, and 0 gives MakeHuman's own bodies back.
+
 ## The texture
 
 The atlas is composed at 512 and box-filtered to the chosen size:
@@ -140,7 +147,10 @@ The atlas is composed at 512 and box-filtered to the chosen size:
    from MakeHuman's own detail targets - *lip volume* moves exactly the lips,
    *cheek volume* the cheeks - so each target's displacement, normalized, is a
    soft mask (`tools/chargen-kit/kit_body_masks.py`). Stubble is that region
-   broken up by fixed noise, so it reads as hair at 512 and as a shadow at 128.
+   faded out under the chin (the jaw target also moves the neck, and a beard
+   down to the collarbones reads as a rash), broken up by fixed noise so it
+   reads as hair at 512 and as a shadow at 128, and painted strong and dark -
+   a faint one is simply not there on the console.
 3. **Brows and lashes**: MakeHuman's alpha-card meshes, baked onto the skin as
    masks and tinted by the hair colour.
 4. **Ambient occlusion** from the 13k-quad reference body - nostrils, lips,

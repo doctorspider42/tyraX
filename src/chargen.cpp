@@ -444,9 +444,27 @@ std::map<std::string, float> targetWeights(const Params& p) {
                         w[std::string("universal-") + g.name + "-" + a.name + "-" + m.name + "-" +
                           wt.name] += x;
                 }
+    // Dimorphism: a profile of detail sliders that moves WITH gender, so the
+    // man gets a man's jaw and the woman a woman's mouth without anybody
+    // touching the face tab. Signed: below gender 0.5 the profile inverts.
+    std::map<std::string, float> shape = p.shape;
+    {
+        static const std::pair<const char*, float> kProfile[] = {
+            {"jaw", 0.55f},       {"browRidge", 0.5f},  {"chinWidth", 0.35f},
+            {"chinHeight", 0.2f}, {"neckWidth", 0.4f},  {"noseSize", 0.15f},
+            {"eyeSize", -0.2f},   {"upperLip", -0.25f}, {"lowerLip", -0.2f},
+            {"cheekVolume", -0.2f}, {"shoulders", 0.3f}, {"browHeight", -0.2f},
+        };
+        const float sex = (std::clamp(p.gender, 0.0f, 1.0f) - 0.5f) * 2.0f;
+        // Children: barely any (0 at the baby end, full from young adult on).
+        const float adult = std::clamp((p.age - 0.1875f) / (0.5f - 0.1875f), 0.0f, 1.0f);
+        const float k = std::clamp(p.dimorphism, 0.0f, 1.5f) * sex * adult;
+        if (k != 0.0f)
+            for (const auto& [id, v] : kProfile) shape[id] += v * k;
+    }
     for (const Kit::SliderDef& s : kit().sliders) {
-        auto it = p.shape.find(s.s.id);
-        if (it == p.shape.end() || it->second == 0.0f) continue;
+        auto it = shape.find(s.s.id);
+        if (it == shape.end() || it->second == 0.0f) continue;
         const float v = std::clamp(it->second, -1.0f, 1.0f);
         for (const std::string& t : v < 0 ? s.neg : s.pos) w[t] += std::fabs(v);
     }
@@ -603,7 +621,8 @@ float patternAt(int pattern, int x, int y) {
 bool Params::operator==(const Params& o) const {
     return gender == o.gender && age == o.age && muscle == o.muscle && weight == o.weight &&
            african == o.african && asian == o.asian && caucasian == o.caucasian &&
-           heightMeters == o.heightMeters && shape == o.shape && skinTone == o.skinTone &&
+           heightMeters == o.heightMeters && dimorphism == o.dimorphism && shape == o.shape &&
+           skinTone == o.skinTone &&
            skinWarmth == o.skinWarmth && aging == o.aging && brows == o.brows &&
            browDensity == o.browDensity && lashes == o.lashes && hairColor == o.hairColor &&
            eyeColor == o.eyeColor && stubble == o.stubble && lipstick == o.lipstick &&
@@ -854,8 +873,10 @@ bool build(const Params& p, glbparser::Skel& out, std::vector<std::string>& warn
         tintOver(cv, layer("mask/eyeshadow", keep), 0, p.eyeShadow * 0.8f, p.eyeShadowColor);
         tintOver(cv, layer("mask/cheeks", keep), 0, p.blush * 0.45f, Rgb{0.85f, 0.35f, 0.35f});
         {
-            const Rgb dark{p.hairColor.r * 0.55f, p.hairColor.g * 0.55f, p.hairColor.b * 0.55f};
-            blendOver(cv, layer("mask/stubble", keep), 0, p.stubble * 0.7f, dark);
+            // Strong and dark: at 256 and below stubble is a few texels, and a
+            // faint one simply is not there on the console.
+            const Rgb dark{p.hairColor.r * 0.4f, p.hairColor.g * 0.4f, p.hairColor.b * 0.4f};
+            blendOver(cv, layer("mask/stubble", keep), 0, p.stubble * 0.95f, dark);
         }
         if (p.brows >= 0 && p.brows < (int)k.brows.size()) {
             const Rgb c{p.hairColor.r * 0.75f, p.hairColor.g * 0.75f, p.hairColor.b * 0.75f};
@@ -1165,7 +1186,7 @@ std::string toJson(const Params& p) {
       << ", \"muscle\": " << num(p.muscle) << ", \"weight\": " << num(p.weight) << ",\n";
     o << "  \"african\": " << num(p.african) << ", \"asian\": " << num(p.asian)
       << ", \"caucasian\": " << num(p.caucasian) << ", \"height\": " << num(p.heightMeters)
-      << ",\n";
+      << ", \"dimorphism\": " << num(p.dimorphism) << ",\n";
     o << "  \"shape\": {";
     bool first = true;
     for (const auto& [id, v] : p.shape) {
@@ -1221,6 +1242,7 @@ bool fromJson(const std::string& text, Params& p, std::string& error) {
     f("asian", d.asian);
     f("caucasian", d.caucasian);
     f("height", d.heightMeters);
+    f("dimorphism", d.dimorphism);
     if (const json::Value* s = v.find("shape"))
         for (const auto& [id, val] : s->obj) d.shape[id] = (float)val.numberOr(0.0);
     f("skinTone", d.skinTone);

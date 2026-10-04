@@ -61,6 +61,11 @@ struct Params {
     float caucasian = 1.0f / 3.0f;
     // The finished body is scaled to stand this tall, feet on y = 0.
     float heightMeters = 1.75f;
+    // How strongly gender reads, on top of MakeHuman's own macro: its average
+    // man and woman are quite alike in the face. 0 = MakeHuman as is; at 1 a
+    // man gains jaw, brow ridge, chin and neck and a woman fuller lips, a
+    // softer jaw and larger eyes. Scaled down for children.
+    float dimorphism = 0.6f;
 
     // ---- detail sliders: slider id (see sliders()) -> -1..1 ----
     std::map<std::string, float> shape;
