@@ -110,3 +110,29 @@ The measured 10.643–10.698 ms Scene-minus-tail interval contains earlier head/
 ## Next work after the inner scopes
 
 Bracket the remaining preparation/head paths and wait seams under stable selected geometry and actual adaptive flags. Preserve explicit caller/ownership and dynamic read coverage, with fresh frozen source/native/runtime authority for every changed apparatus. Before selecting an offload kernel or optimization, qualify functional/raster behavior and compare both physical orders with equivalent instrumentation. Keep the inclusive residual separate from a claimed removable cost.
+
+## Core prefix and Core-owned submission
+
+The [new dated record](tyrax2-prefix-submit-scopes-2026-10-04.json) binds separate V8 prefix and V9 Core-owned submit fixtures to completed physical and emulator pairs. Earlier machine records remain unchanged.
+
+### V8 SceneWithCorePrefixWorkAggregate
+
+| Own On window | Scene mean, ms | Work sum mean, ms | Same-frame Scene minus Work, ms |
+| --- | ---: | ---: | ---: |
+| Off/On/Off, middle | 17.991494 | 7.102130 | 10.889365 |
+| On/Off/On, first | 18.172397 | 7.128648 | 11.043749 |
+| On/Off/On, last | 18.174108 | 7.116340 | 11.057767 |
+
+Core prefix after original Core owner through close before attribReplayStart, including both early-return paths; header eligible/close guards retained. Each pair has 768 records, 135 Core calls / 49,794 vertices and three own On windows. Dynamic counts and exact per-phase reads remain in the record. Nonpacing tax contrasts (ms per 320-loop window average): -0.014478 / +0.016366 / +0.097694 / +0.106677. Outer spreads: 0.030844 / 0.008983.
+
+### V9 SceneWithCoreOwnedSubmitWorkAggregate
+
+| Own On window | Scene mean, ms | Work sum mean, ms | Same-frame Scene minus Work, ms |
+| --- | ---: | ---: | ---: |
+| Off/On/Off, middle | 17.488532 | 3.486561 | 14.001971 |
+| On/Off/On, first | 17.632633 | 3.561884 | 14.070749 |
+| On/Off/On, last | 17.573719 | 3.574138 | 13.999581 |
+
+Actual Vif1Queue::submit intervals entered only with activeCore; outsideCore submits are excluded, invalid owner/context or nested eligible submissions reject records. Raw Work counts are dynamic. Each pair has 768 records, 135 Core calls / 49,794 vertices and three own On windows. Dynamic counts and exact per-phase reads remain in the record. Nonpacing tax contrasts (ms per 320-loop window average): -0.035391 / -0.030185 / +0.227367 / +0.189781. Outer spreads: 0.005206 / 0.037586.
+
+Both scopes include observer seams, waits and preemption. The common 12-byte records / 8,100-byte arrays and 116 bytes of actual aggregate symbols do not price common code/layout/reset/state cost or stack/padding/application footprint. Core-owned submit can occur during conditional program-set flushes in prefix preparation and during dispatch-tail flushes, so these intervals overlap in source. Uniform assembly through sendObjectData is inside prefix but does not itself imply submission. The V9 supplement covers three textual direct C/C++/header sites, including the inline adapter; its waitFor(sequence) after submit returns is outside Work. This is source reachability, not per-call runtime categorization or a complete semantic callgraph. Same-ELF control applies within each pair only: do not add prefix+submit or subtract V8/V9/earlier versions to isolate preparation, claim a gain or CPU/GPU decomposition. Sparse context endpoints do not prove interior route/full-state equality; no uniform observer fee or ordinary 60 FPS acceptance follows.

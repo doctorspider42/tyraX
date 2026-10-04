@@ -2909,3 +2909,5 @@ floor pass, `kSelfPiece`) and drop a piece whose points all have the caster
 BEHIND them along the light (a trace away from the sun hits the caster) and
 none has it toward the sun. Verify on a copy of examples/baked-shadows with
 post-5 back at y = 1.
+
+The [Core prefix and Core-owned submit record](tyrax2-prefix-submit-scopes-2026-10-04.json) qualifies separate V8/V9 both-order physical pairs and emulator controls. Own On windows, actual dynamic reads, tax/chunks and sparse contexts remain bound to each source/ELF. No cross-version subtraction, optimization gain, pure EE/GPU bill, common cost or ordinary 60 FPS acceptance.

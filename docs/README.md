@@ -469,3 +469,5 @@ The [inverse/key cost census record](tyrax2-ee-inverse-cost-2026-10-02.json)
 retains the private five-block native/emulator trial, strict activation/window
 checks and source/ELF/log provenance. Physical costs and any output-cache
 candidate remain separate gates; emulator clocks establish no EE speed gain.
+
+The [Core prefix and Core-owned submit record](tyrax2-prefix-submit-scopes-2026-10-04.json) qualifies separate V8/V9 both-order physical pairs and emulator controls. Own On windows, actual dynamic reads, tax/chunks and sparse contexts remain bound to each source/ELF. No cross-version subtraction, optimization gain, pure EE/GPU bill, common cost or ordinary 60 FPS acceptance.
