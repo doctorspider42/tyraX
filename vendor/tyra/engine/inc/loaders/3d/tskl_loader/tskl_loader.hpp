@@ -12,12 +12,15 @@
 
 #include <memory>
 #include <string>
+#include <memory>
 #include <vector>
 #include <tamtypes.h>
 
 #include "math/m4x4.hpp"
 
 namespace Tyra {
+
+struct SkelBindCache;  // skel_instance.hpp
 
 /** One node of the model's hierarchy with its bind-pose local transform. */
 struct SkelNode {
@@ -96,6 +99,10 @@ struct SkelModel {
   // find a rig's face or spring bones by name - "mixamorig:Jaw" - instead of
   // by an index that differs per model.
   std::vector<std::string> nodeNames;
+  // Modified by TyraX: skinning bind data, built by the first SkelInstance,
+  // which then frees `parts`' raw vertex arrays (skel_instance.cpp). Only the
+  // part metadata (name, texture, color, vertex counts) survives it.
+  mutable std::shared_ptr<SkelBindCache> bindCache;
 
   /** Node index by exact name, -1 when absent (or the file carries none). */
   s32 findNode(const char* name) const {

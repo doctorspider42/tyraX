@@ -104,14 +104,31 @@ Start with draw distance, then animation LOD. Enable mesh LOD where the reduced
 model is already small on screen. Per-object overrides let a hero stay full
 quality while crowds use the project defaults.
 
-Approximate skeletal memory:
+Approximate skeletal memory, once per MODEL however many objects use it:
 
 ```text
-bytes ~= vertices * 75 + keys * 18 + bones * 72
+bytes ~= unique vertices * 53 + vertices * 20 + keys * 18 + bones * 72
 ```
 
-Reported vertices are expanded triangle-list vertices, so the count is higher
-than an indexed Blender mesh.
+and per OBJECT, only for the LOD levels it actually skins:
+
+```text
+bytes ~= vertices of that level * 32
+```
+
+"Vertices" are expanded triangle-list vertices (a character's ~4400
+triangles are ~13 000 of them); "unique" are the ones the skinner really
+computes, about a fifth. The bind data is shared by every instance of a
+model and the loader's raw arrays are freed once it is built, so ten copies
+of a character cost little more than one plus their skin buffers - and an
+object that only ever follows another's pose (same clip, same time) never
+allocates even those. Before 1.171.0 all of it was per object (~2.4 MB a
+generated character), and twelve bystanders ran a game out of the EE's 32 MB.
+
+**Palette variants.** A model's object can draw its palettized textures
+through another palette (*Palette variant* in Properties, when the model has
+any): a recoloured copy for 1 KB of VRAM. The Character Generator's *Crowd*
+button makes them - see [character-generator.md](character-generator.md#crowds).
 
 ## Flow graph
 

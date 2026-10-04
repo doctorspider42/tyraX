@@ -102,7 +102,7 @@ class SkelInstance {
   struct LodArrays {
     Vec4* vertices;
     Vec4* normals;
-    Vec4* textureCoords;  // nullptr on untextured parts
+    Vec4* textureCoords;  // nullptr on untextured parts (shared, read-only)
     u32 count;
   };
   LodArrays lodArrays(size_t part, u8 lod);
@@ -113,18 +113,30 @@ class SkelInstance {
   // normals w = 0 so the translation column drops out; weights
   // pre-normalized to sum 1; joints re-sorted per vertex by descending
   // weight with the nonzero count in `influences`, so skinParts dispatches
-  // to a blend of exactly 0, 1, 2 or 4 matrices) plus the skin output.
-  // Level 0 outputs alias the mesh's frame arrays (ownVertices stays
-  // empty); deeper levels own theirs.
-  struct PartLod {
+  // to a blend of exactly 0, 1, 2 or 4 matrices), plus the uvs.
+  //
+  // Modified by TyraX: this is the SAME for every instance of a model, so it
+  // is built once per model and shared (BindCache in the .cpp). It used to be
+  // per instance - ~57 bytes a vertex per LOD level, ~1.1 MB for a 4400-
+  // triangle generated character - and a crowd of eighteen of them ran the
+  // EE out of its 32 MB before the first frame.
+  struct PartBind {
     std::vector<Vec4> bindPositions, bindNormals, skinWeights;
     std::vector<u8> sortedJoints, influences;
     std::vector<u32> skinSource;  // first identical corner, always <= this corner
-    std::vector<Vec4> ownVertices, ownNormals;  // levels > 0
-    std::vector<Vec4> uvs;  // packed texture coords, levels > 0 (static)
-    Vec4* outV = nullptr;   // skin destination (own or mesh frame)
+    std::vector<Vec4> uvs;        // packed texture coords (static)
+    u32 count = 0;
+  };
+  // Per instance, per part, per level: the skin output. Allocated the first
+  // time this instance skins at this level (ensurePose) - an instance that
+  // only ever follows another's pose (poseEquals) or only renders far away
+  // never pays for the levels it does not draw.
+  struct PartLod {
+    const PartBind* bind = nullptr;
+    std::vector<Vec4> ownVertices, ownNormals;
+    Vec4* outV = nullptr;   // skin destination (empty until first skinned)
     Vec4* outN = nullptr;
-    Vec4* uvPtr = nullptr;  // nullptr on untextured parts
+    const Vec4* uvPtr = nullptr;  // the shared uvs, nullptr on untextured parts
     u32 count = 0;
   };
 
@@ -187,12 +199,19 @@ class SkelInstance {
   std::vector<M4x4> palette;                 // per palette slot
 
   std::vector<std::vector<PartLod>> partLods;  // [part][lod]
+  std::shared_ptr<const SkelBindCache> binds;  // the model's (SkelModel::bindCache)
 
   void advanceLayer(Layer& layer, float dt);
   void evalLocals(Layer& layer, std::vector<float>& locals,
                   std::vector<u8>& animated);
   void evalPose();
   void skinParts(u8 lod);
+};
+
+/** Modified by TyraX: a model's skinning bind data, shared by its instances
+ * (see SkelInstance::PartBind). */
+struct SkelBindCache {
+  std::vector<std::vector<SkelInstance::PartBind>> parts;  // [part][lod]
 };
 
 }  // namespace Tyra

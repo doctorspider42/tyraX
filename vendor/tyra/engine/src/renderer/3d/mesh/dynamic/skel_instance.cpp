@@ -164,26 +164,35 @@ namespace {
  * comment on PartLod): aligned qwords, normalized weights, joints sorted by
  * descending weight, influence counts for the dispatch. */
 void repackBind(const float* positions, const float* normals, const u8* joints,
-                const u8* weights, u32 count, SkelInstance::PartLod& pl) {
+                const u8* weights, u32 count, SkelInstance::PartBind& pl) {
+  // Modified by TyraX: packed by UNIQUE corner. A triangle list repeats each
+  // vertex ~5 times, the skin loop computes it once (skinSource) and copies
+  // the rest - so only the first corner's bind data is ever read. Storing it
+  // per corner was ~4/5 dead weight in the EE's 32 MB.
   pl.count = count;
-  pl.bindPositions.resize(count);
-  pl.bindNormals.resize(count);
-  pl.skinWeights.resize(count);
-  pl.sortedJoints.resize((size_t)count * 4);
-  pl.influences.resize(count);
   pl.skinSource.resize(count);
   // Exact bind attributes only: UV seams can share skinning, hard normals
   // and different bone weights cannot. This temporary table dies at load.
   std::unordered_map<std::string, u32> firstCorner;
   firstCorner.reserve(count);
   for (u32 v = 0; v < count; v++) {
-    pl.bindPositions[v].set(positions[(size_t)v * 3],
-                            positions[(size_t)v * 3 + 1],
-                            positions[(size_t)v * 3 + 2], 1.0F);
-    pl.bindNormals[v].set(normals[(size_t)v * 3], normals[(size_t)v * 3 + 1],
-                          normals[(size_t)v * 3 + 2], 0.0F);
     const u8* jj = &joints[(size_t)v * 4];
     const u8* ww = &weights[(size_t)v * 4];
+    char key[32];
+    memcpy(key, positions + (size_t)v * 3, 12);
+    memcpy(key + 12, normals + (size_t)v * 3, 12);
+    memcpy(key + 24, jj, 4);
+    memcpy(key + 28, ww, 4);
+    const auto inserted = firstCorner.emplace(std::string(key, sizeof(key)), v);
+    pl.skinSource[v] = inserted.first->second;
+    if (!inserted.second) continue;  // a repeat: skinned once, copied
+    Vec4 bp, bn, bw;
+    bp.set(positions[(size_t)v * 3], positions[(size_t)v * 3 + 1],
+           positions[(size_t)v * 3 + 2], 1.0F);
+    bn.set(normals[(size_t)v * 3], normals[(size_t)v * 3 + 1],
+           normals[(size_t)v * 3 + 2], 0.0F);
+    pl.bindPositions.push_back(bp);
+    pl.bindNormals.push_back(bn);
     u8 idx[4] = {0, 1, 2, 3};  // slot order by descending weight
     for (int a = 1; a < 4; a++)
       for (int b = a; b > 0 && ww[idx[b]] > ww[idx[b - 1]]; b--) {
@@ -197,26 +206,77 @@ void repackBind(const float* positions, const float* normals, const u8* joints,
     u8 n = 0;
     for (int k = 0; k < 4; k++) {
       wf[k] = (float)ww[idx[k]] * inv;
-      pl.sortedJoints[(size_t)v * 4 + k] = jj[idx[k]];
+      pl.sortedJoints.push_back(jj[idx[k]]);
       if (ww[idx[k]] > 0) n++;
     }
-    pl.skinWeights[v].set(wf[0], wf[1], wf[2], wf[3]);
-    pl.influences[v] = n;
-    char key[32];
-    memcpy(key, positions + (size_t)v * 3, 12);
-    memcpy(key + 12, normals + (size_t)v * 3, 12);
-    memcpy(key + 24, jj, 4);
-    memcpy(key + 28, ww, 4);
-    const auto inserted = firstCorner.emplace(std::string(key, sizeof(key)), v);
-    pl.skinSource[v] = inserted.first->second;
+    bw.set(wf[0], wf[1], wf[2], wf[3]);
+    pl.skinWeights.push_back(bw);
+    pl.influences.push_back(n);
   }
+  pl.bindPositions.shrink_to_fit();
+  pl.bindNormals.shrink_to_fit();
+  pl.skinWeights.shrink_to_fit();
+  pl.sortedJoints.shrink_to_fit();
+  pl.influences.shrink_to_fit();
+}
+
+// One bind cache per model, built by its first instance and OWNED by the
+// model (SkelModel::bindCache), so it lives and dies with it. Building it
+// frees the model's raw part arrays: they are read here and nowhere else, and
+// keeping both was a second copy of every character in the EE's 32 MB.
+std::shared_ptr<const SkelBindCache> bindCacheFor(const SkelModel* model) {
+  if (model->bindCache) return model->bindCache;
+  auto cache = std::make_shared<SkelBindCache>();
+  cache->parts.resize(model->parts.size());
+  for (size_t pi = 0; pi < model->parts.size(); pi++) {
+    const SkelPart& part = model->parts[pi];
+    auto& chain = cache->parts[pi];
+    chain.resize(1 + part.lods.size());
+    auto uvs = [](const std::vector<float>& src, u32 count,
+                  std::vector<Vec4>& out) {
+      if (src.empty()) return;
+      out.resize(count);
+      for (u32 v = 0; v < count; v++)
+        out[v].set(src[(size_t)v * 2], src[(size_t)v * 2 + 1], 1.0F, 0.0F);
+    };
+    repackBind(part.positions.data(), part.normals.data(), part.joints.data(),
+               part.weights.data(), part.vertexCount, chain[0]);
+    if (!part.texturePath.empty()) uvs(part.uvs, part.vertexCount, chain[0].uvs);
+    for (size_t l = 0; l < part.lods.size(); l++) {
+      const SkelLod& src = part.lods[l];
+      repackBind(src.positions.data(), src.normals.data(), src.joints.data(),
+                 src.weights.data(), src.vertexCount, chain[1 + l]);
+      if (!part.texturePath.empty())
+        uvs(src.uvs, src.vertexCount, chain[1 + l].uvs);
+    }
+  }
+  model->bindCache = cache;
+  auto* raw = const_cast<SkelModel*>(model);  // the arrays only, never the shape
+  for (SkelPart& part : raw->parts) {
+    std::vector<float>().swap(part.positions);
+    std::vector<float>().swap(part.normals);
+    std::vector<float>().swap(part.uvs);
+    std::vector<u8>().swap(part.joints);
+    std::vector<u8>().swap(part.weights);
+    for (SkelLod& lod : part.lods) {
+      std::vector<float>().swap(lod.positions);
+      std::vector<float>().swap(lod.normals);
+      std::vector<float>().swap(lod.uvs);
+      std::vector<u8>().swap(lod.joints);
+      std::vector<u8>().swap(lod.weights);
+    }
+  }
+  return cache;
 }
 
 }  // namespace
 
 SkelInstance::SkelInstance(const SkelModel* t_model) : model(t_model) {
-  // Single-frame builder data in bind pose; the DynamicMesh takes ownership
-  // of the arrays, we keep the pointers and overwrite them every update.
+  binds = bindCacheFor(model);
+  // The DynamicMesh exists for its MATERIALS (ids for texture links, the
+  // part colour); its frames are one-vertex placeholders. What a renderer
+  // draws comes from lodArrays() - the shared uvs and this instance's own
+  // skin output, allocated on first use (see PartLod).
   MeshBuilderData data;
   data.loadNormals = true;
   data.loadLightmap = false;
@@ -233,50 +293,23 @@ SkelInstance::SkelInstance(const SkelModel* t_model) : model(t_model) {
 
     auto* frame = new MeshBuilderMaterialFrameData();
     material->frames.push_back(frame);
-    frame->count = part.vertexCount;
-    frame->vertices = new Vec4[part.vertexCount];
-    frame->normals = new Vec4[part.vertexCount];
-    for (u32 v = 0; v < part.vertexCount; v++) {
-      frame->vertices[v].set(part.positions[(size_t)v * 3],
-                             part.positions[(size_t)v * 3 + 1],
-                             part.positions[(size_t)v * 3 + 2], 1.0F);
-      frame->normals[v].set(part.normals[(size_t)v * 3],
-                            part.normals[(size_t)v * 3 + 1],
-                            part.normals[(size_t)v * 3 + 2], 1.0F);
-    }
+    frame->count = 1;
+    frame->vertices = new Vec4[1];
+    frame->normals = new Vec4[1];
+    frame->vertices[0].set(0.0F, 0.0F, 0.0F, 1.0F);
+    frame->normals[0].set(0.0F, 1.0F, 0.0F, 0.0F);
     if (!part.texturePath.empty()) {
-      frame->textureCoords = new Vec4[part.vertexCount];
-      for (u32 v = 0; v < part.vertexCount; v++)
-        frame->textureCoords[v].set(part.uvs[(size_t)v * 2],
-                                    part.uvs[(size_t)v * 2 + 1], 1.0F, 0.0F);
+      frame->textureCoords = new Vec4[1];
+      frame->textureCoords[0].set(0.0F, 0.0F, 1.0F, 0.0F);
     }
 
-    // level 0 = the full mesh, skinning straight into the frame arrays
     auto& chain = partLods[pi];
-    chain.resize(1 + part.lods.size());
-    repackBind(part.positions.data(), part.normals.data(), part.joints.data(),
-               part.weights.data(), part.vertexCount, chain[0]);
-    chain[0].outV = frame->vertices;
-    chain[0].outN = frame->normals;
-    chain[0].uvPtr = frame->textureCoords;  // nullptr when untextured
-
-    // deeper levels: baked decimated variants with their own skin buffers
-    for (size_t l = 0; l < part.lods.size(); l++) {
-      const SkelLod& src = part.lods[l];
-      PartLod& pl = chain[1 + l];
-      repackBind(src.positions.data(), src.normals.data(), src.joints.data(),
-                 src.weights.data(), src.vertexCount, pl);
-      pl.ownVertices.resize(src.vertexCount);
-      pl.ownNormals.resize(src.vertexCount);
-      pl.outV = pl.ownVertices.data();
-      pl.outN = pl.ownNormals.data();
-      if (!part.texturePath.empty()) {
-        pl.uvs.resize(src.vertexCount);
-        for (u32 v = 0; v < src.vertexCount; v++)
-          pl.uvs[v].set(src.uvs[(size_t)v * 2], src.uvs[(size_t)v * 2 + 1],
-                        1.0F, 0.0F);
-        pl.uvPtr = pl.uvs.data();
-      }
+    const auto& bchain = binds->parts[pi];
+    chain.resize(bchain.size());
+    for (size_t l = 0; l < bchain.size(); l++) {
+      chain[l].bind = &bchain[l];
+      chain[l].count = bchain[l].count;
+      chain[l].uvPtr = bchain[l].uvs.empty() ? nullptr : bchain[l].uvs.data();
     }
     if (chain.size() > maxLodLevels) maxLodLevels = (u8)chain.size();
   }
@@ -416,10 +449,30 @@ bool SkelInstance::update(float dt) {
 }
 
 SkelInstance::LodArrays SkelInstance::lodArrays(size_t part, u8 lod) {
-  const auto& chain = partLods[part];
+  auto& chain = partLods[part];
   if (lod >= chain.size()) lod = (u8)(chain.size() - 1);
-  const PartLod& pl = chain[lod];
-  return {pl.outV, pl.outN, pl.uvPtr, pl.count};
+  PartLod& pl = chain[lod];
+  if (pl.outV == nullptr) {
+    // asked for a level never skinned: hand out the bind pose rather than
+    // nothing (a renderer must still call ensurePose first to see a pose)
+    const PartBind& b = *pl.bind;
+    pl.ownVertices.resize(pl.count);
+    pl.ownNormals.resize(pl.count);
+    u32 c = 0;  // unpack the unique-corner bind data (see repackBind)
+    for (u32 v = 0; v < pl.count; v++) {
+      const u32 s = b.skinSource[v];
+      if (s == v) {
+        pl.ownVertices[v] = b.bindPositions[c];
+        pl.ownNormals[v] = b.bindNormals[c++];
+      } else {
+        pl.ownVertices[v] = pl.ownVertices[s];
+        pl.ownNormals[v] = pl.ownNormals[s];
+      }
+    }
+    pl.outV = pl.ownVertices.data();
+    pl.outN = pl.ownNormals.data();
+  }
+  return {pl.outV, pl.outN, const_cast<Vec4*>(pl.uvPtr), pl.count};
 }
 
 void SkelInstance::evalLocals(Layer& layer, std::vector<float>& locals,
@@ -534,6 +587,17 @@ void SkelInstance::skinParts(u8 lod) {
   // reason every M4x4/Vec4 helper is: GCC never emits COP2 code of its
   // own, and nothing else in the engine runs VU0 concurrently. Don't call
   // anything between these blocks.
+  // First skin at this level: its output buffers. HERE, before the AABB
+  // lives in $vf20/$vf21 - an allocation inside the loop below is a call
+  // the register state cannot survive (see above).
+  for (auto& chain : partLods) {
+    PartLod& pl = chain[lod < chain.size() ? lod : (u8)(chain.size() - 1)];
+    if (pl.outV != nullptr && pl.ownVertices.size() == pl.count) continue;
+    pl.ownVertices.resize(pl.count);
+    pl.ownNormals.resize(pl.count);
+    pl.outV = pl.ownVertices.data();
+    pl.outN = pl.ownNormals.data();
+  }
   float bmin[4] alignas(16) = {FLT_MAX, FLT_MAX, FLT_MAX, 1e-12F};
   float bmax[4] alignas(16) = {-FLT_MAX, -FLT_MAX, -FLT_MAX, 0.0F};
   asm volatile(
@@ -547,16 +611,18 @@ void SkelInstance::skinParts(u8 lod) {
     const auto& chain = partLods[pi];
     const PartLod& plod =
         chain[lod < chain.size() ? lod : (u8)(chain.size() - 1)];
+    const PartBind& bind = *plod.bind;
     Vec4* outV = plod.outV;
     Vec4* outN = plod.outN;
-    const Vec4* srcP = plod.bindPositions.data();
-    const Vec4* srcN = plod.bindNormals.data();
-    const Vec4* wq = plod.skinWeights.data();
-    const u8* joints = plod.sortedJoints.data();
-    const u8* infl = plod.influences.data();
+    const Vec4* srcP = bind.bindPositions.data();
+    const Vec4* srcN = bind.bindNormals.data();
+    const Vec4* wq = bind.skinWeights.data();
+    const u8* joints = bind.sortedJoints.data();
+    const u8* infl = bind.influences.data();
 
+    u32 c = 0;  // the unique-corner index the bind arrays are packed by
     for (u32 v = 0; v < plod.count; v++) {
-      const u32 source = plod.skinSource[v];
+      const u32 source = bind.skinSource[v];
       if (source != v) {
         // No Vec4 helper here: VU0's running AABB must survive the copy.
         asm volatile(
@@ -568,8 +634,9 @@ void SkelInstance::skinParts(u8 lod) {
                 [dstv] "r"(outV + v), [dstn] "r"(outN + v) : "memory");
         continue;
       }
-      const u8* j = &joints[(size_t)v * 4];
-      const u8 n = infl[v];
+      const u32 k = c++;
+      const u8* j = &joints[(size_t)k * 4];
+      const u8 n = infl[k];
 
       if (n == 2) {
         // two influences - the common case for smooth skinning
@@ -594,7 +661,7 @@ void SkelInstance::skinParts(u8 lod) {
             "vmulax.xyzw  $ACC, $vf1, $vf9         \n\t"
             "vmaddy.xyzw  $vf8, $vf2, $vf9         \n\t"
             :
-            : [wgt] "r"(wq + v), [p0] "r"(p0), [p1] "r"(p1)
+            : [wgt] "r"(wq + k), [p0] "r"(p0), [p1] "r"(p1)
             : "memory");
       } else if (n == 1) {
         // single influence - weight is exactly 1, use the matrix as-is
@@ -649,7 +716,7 @@ void SkelInstance::skinParts(u8 lod) {
             "vmaddaz.xyzw $ACC, $vf3, $vf9         \n\t"
             "vmaddw.xyzw  $vf8, $vf4, $vf9         \n\t"
             :
-            : [wgt] "r"(wq + v), [p0] "r"(p0), [p1] "r"(p1), [p2] "r"(p2),
+            : [wgt] "r"(wq + k), [p0] "r"(p0), [p1] "r"(p1), [p2] "r"(p2),
               [p3] "r"(p3)
             : "memory");
       } else {
@@ -691,8 +758,8 @@ void SkelInstance::skinParts(u8 lod) {
           "vmulw.w      $vf12, $vf0, $vf0        \n\t"
           "sqc2         $vf12, 0x00(%[outn])     \n\t"
           :
-          : [outv] "r"(outV + v), [outn] "r"(outN + v), [pos] "r"(srcP + v),
-            [nrm] "r"(srcN + v)
+          : [outv] "r"(outV + v), [outn] "r"(outN + v), [pos] "r"(srcP + k),
+            [nrm] "r"(srcN + k)
           : "memory");
     }
   }

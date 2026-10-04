@@ -677,6 +677,20 @@ void App::drawPropertiesWindow() {
                 ImGui::DragFloat("Speed", &o.animSpeed, 0.02f, 0.05f, 10.0f,
                                  "%.2fx");
                 committed |= ImGui::IsItemDeactivatedAfterEdit();
+                if (const int variants =
+                        project::paletteVariantCount(project_, o.modelPath);
+                    variants > 0 || o.paletteVariant > 0) {
+                    ImGui::SliderInt("Palette variant", &o.paletteVariant, 0, variants,
+                                     o.paletteVariant == 0 ? "as made" : "%d");
+                    committed |= ImGui::IsItemDeactivatedAfterEdit();
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip(
+                            "A recoloured copy of this character that shares\n"
+                            "its mesh, its pose and its texels: only a 1 KB\n"
+                            "palette differs (docs/character-generator.md,\n"
+                            "\"Crowds\"). Variants come from the Character\n"
+                            "Generator's Crowd button.");
+                }
                 committed |= drawLodOverrides(o);
                 ImGui::TextDisabled(
                     "Scripts/flow graph: the Animation node (play/stop),\n"

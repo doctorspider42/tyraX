@@ -878,6 +878,11 @@ struct SceneObject {
     bool animAutoplay = true;   // play the starting clip at scene start
     bool animLoop = true;       // starting clip loops
     float animSpeed = 1.0f;     // playback speed multiplier
+    // Crowd palette variant (docs/character-generator.md, "Crowds"): 0 = the
+    // model's own colours, k > 0 = draw its textures through the k-th
+    // "<texture>.v<k>.png" palette the Character Generator wrote beside it -
+    // a recoloured person sharing the mesh, the pose and the texels.
+    int paletteVariant = 0;
     // Per-object LOD overrides (animated models, incl. player avatars - each
     // of the two Player objects of a two-player scene carries its own set).
     // -1 = use the project preference (Preferences > Rendering), 0 = LOD off
@@ -1678,6 +1683,7 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.scrollOverlap == b.scrollOverlap &&
            a.scrollVarySeed == b.scrollVarySeed &&
            a.animClip == b.animClip && a.animAutoplay == b.animAutoplay &&
+           a.paletteVariant == b.paletteVariant &&
            a.animLoop == b.animLoop && a.animSpeed == b.animSpeed &&
            a.animLodOverride == b.animLodOverride &&
            a.meshLodOverride == b.meshLodOverride &&
@@ -4517,6 +4523,11 @@ void seedBuiltinLayouts(Project& p);
 // within a project with negligible collision odds; the merge/file-split layout
 // keys on it. See SceneObject::id.
 std::string newObjectId();
+
+// How many crowd palette variants sit beside an animated model: the highest k
+// with a "<model stem>_*.v<k>.png" next to it (0 = none). The Character
+// Generator's Crowd button writes them; texbake fits them into .pal files.
+int paletteVariantCount(const Project& p, const std::string& modelRel);
 
 // Assigns a stable id to every scene object that lacks one (empty id, e.g. an
 // object from a pre-id project or a fresh paste), and repairs any accidental

@@ -5515,7 +5515,17 @@
 // host-baked albedo map (REFL_GROUND_*): -2 ms a turning frame on the Motor
 // District's open road on a PS2.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 170
+#define TYRAX_VERSION_MINOR 171
+// 1.171.0: crowds (docs/character-generator.md, "Crowds"). The Character
+// Generator's Crowd button writes a character once plus N colour variants
+// ("<texture>.v<k>.png"); texbake fits each into a 1 KB palette against the
+// base's own quantization; objects pick one with Palette variant (format v96)
+// and the engine draws the base's texels through it (Texture palette
+// variants, RendererCoreTexture::useVariant - one copy of the texels in VRAM).
+// SkelInstance shares its bind data per model, packed by unique corner, frees
+// the loader's raw arrays and allocates skin buffers per level on first use:
+// a generated character went from ~2.4 MB per object to ~0.7 MB per model
+// plus its skin buffers - twelve bystanders no longer run the EE out of RAM.
 // 1.170.0: living faces (docs/character-generator.md, "A living face").
 // Generated characters get a jaw, eyes and upper lids (rig 35 -> 40 bones, the
 // mouth tube capped); the game blinks them, turns head and eyes to the player
@@ -6126,7 +6136,10 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // v95 (docs/character-generator.md, "A living face"): a sound emitter's
 // "speaker" (the name of the character it lip-syncs), written only when set.
 // Missing = nobody, as before. Additive; no migration step.
-inline constexpr int kFormatVersion = 95;
+// v96 (docs/character-generator.md, "Crowds"): a Model object's
+// anim.paletteVariant, written only when > 0. Missing = the model's own
+// colours, as before. Additive; no migration step.
+inline constexpr int kFormatVersion = 96;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

@@ -6080,10 +6080,29 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         // An animated part's Kd rides in the tint below, not in its vertex
         // colours - uKd stays neutral or it would land twice.
         kdDraw[0] = kdDraw[1] = kdDraw[2] = 1.0f;
-        for (const AnimModelDraw::Part& part : ad.parts)
+        for (size_t pi = 0; pi < ad.parts.size(); ++pi) {
+            const AnimModelDraw::Part& part = ad.parts[pi];
+            uint32_t tex = asLines ? 0 : part.tex;
+            // A crowd member's palette variant (docs/character-generator.md,
+            // "Crowds"): the game draws the base's texels through the k-th
+            // palette; the preview draws the variant image it was fitted from.
+            if (tex && receiver.paletteVariant > 0 && pi < ad.baked.parts.size()) {
+                const int img = ad.baked.parts[pi].image;
+                if (img >= 0 && img < (int)ad.baked.images.size()) {
+                    std::string name = ad.baked.images[(size_t)img].name;
+                    if (const size_t dot = name.rfind('.'); dot != std::string::npos)
+                        name.resize(dot);
+                    const std::filesystem::path m(receiver.modelPath);
+                    const std::string rel =
+                        (m.parent_path() / (m.stem().string() + "_" + name + ".v" +
+                                            std::to_string(receiver.paletteVariant) + ".png"))
+                            .generic_string();
+                    if (const uint32_t v = glTexture(rel)) tex = v;
+                }
+            }
             draw(part.mesh, GL_TRIANGLES, mvp, shade * part.kd[0],
-                 shade * part.kd[1], shade * part.kd[2],
-                 asLines ? 0 : part.tex, model);
+                 shade * part.kd[1], shade * part.kd[2], tex, model);
+        }
         if (pointLightCount > 0) glUniform1i(uLightCount_, pointLightCount);
         glUniform4f(uGiReceiver_, 0, 0, 0, 0);
     };

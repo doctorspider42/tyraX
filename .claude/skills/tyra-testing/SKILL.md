@@ -159,7 +159,8 @@ re-running setup, not by pulling in it.
 The Character Generator needs NO fetched data: its kit
 (`resources/chargen-kit.bin`) is committed and linked into the editor. Test it
 headless with `tyrax-editor --chargen <recipe.json|preset:N|random:SEED> out.glb`
-(prints triangles / parts / bones / clips / textures and the build time) and
+(prints triangles / parts / bones / clips / textures and the build time; add
+`--variants N` for crowd colour variants beside it) and
 LOOK at the result: import the .glb in Blender and render it (a contact sheet of
 several `random:N` characters catches most regressions - a shell that misses a
 crotch, a mesh item that crumbled, paint bleeding across atlas islands). For the

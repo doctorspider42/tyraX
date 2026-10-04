@@ -4761,7 +4761,7 @@ int main(int argc, char** argv) {
     if (argc > 1 && std::strcmp(argv[1], "--chargen") == 0) {
         if (argc < 4) {
             std::fprintf(stderr, "usage: --chargen <recipe.json|-|preset:N|random:SEED> <out.glb> "
-                                 "[--recipe-out <file.json>]\n");
+                                 "[--recipe-out <file.json>] [--variants N]\n");
             return 2;
         }
         chargen::Params params;
@@ -4803,11 +4803,20 @@ int main(int argc, char** argv) {
             std::fprintf(stderr, "%s\n", err.c_str());
             return 1;
         }
-        for (int i = 4; i + 1 < argc; ++i)
+        for (int i = 4; i + 1 < argc; ++i) {
             if (std::strcmp(argv[i], "--recipe-out") == 0) {
                 std::ofstream o(argv[i + 1], std::ios::binary);
                 o << chargen::toJson(params);
             }
+            // Crowd palette variants beside the .glb (docs/character-generator.md).
+            if (std::strcmp(argv[i], "--variants") == 0)
+                for (int k = 1; k <= std::atoi(argv[i + 1]) && k < 100; ++k)
+                    if (!chargen::writeVariantTextures(chargen::paletteVariant(params, (unsigned)k),
+                                                       argv[3], k, err)) {
+                        std::fprintf(stderr, "%s\n", err.c_str());
+                        return 1;
+                    }
+        }
         std::printf("%s: %d triangles, %d parts, %d bones, %d clips, %d textures (%.0f ms)\n",
                     argv[3], skel.totalVertexCount() / 3, (int)skel.parts.size(),
                     (int)skel.palette.size(), (int)skel.clips.size(), (int)skel.images.size(),

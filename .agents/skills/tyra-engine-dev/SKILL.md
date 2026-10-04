@@ -3208,6 +3208,31 @@ fails `poseEquals`, so it never shares a skinned mesh - drop them with
 does at 10 m). `nodeGlobal(i)` is the last EVALUATED pose: one frame old when
 read before `ensurePose`, garbage (zero) before the first skin.
 
+### Palette variants and shared skinning data (1.171.0)
+
+A `Texture(base, rgba, entries)` borrows `base->core` (never owns it - the
+destructor checks `paletteBase`) and carries its own CLUT, swizzled like
+PngLoader's. `useTexture` routes it to `useVariant`: bind the BASE first (it may
+upload or evict), then find or upload the variant's CLUT-only entry
+(`core == nullptr` in `currentAllocations`) with the base PINNED
+(`pinnedId`, skipped by `pickVictim`), and return the base's texels with the
+variant's CLUT. Every code path that reads an allocation's `core` must accept
+nullptr (`allocationWords`, `sender.deallocate`); `isResident` of a variant
+needs both halves. `Path3::sendClut` ends its chain exactly like
+`sendTexture` (wrap + flush) - keep the two tails identical.
+
+`SkelInstance` no longer owns bind data. `bindCacheFor` builds it once per
+model into `SkelModel::bindCache` - packed by UNIQUE corner (`skinSource`
+maps every corner to its first identical one; the skin loop indexes the bind
+arrays with a running counter of source corners) - and then FREES the model's
+raw `SkelPart`/`SkelLod` arrays. Skin outputs are allocated on the first
+`ensurePose` at a level, before `$vf20/$vf21` take the AABB (an allocation
+inside that asm span is a call the VU0 state cannot survive). The DynamicMesh
+frames are one-vertex placeholders: render through `lodArrays()` only. Under
+the old layout twelve 4400-triangle characters plus the example cast threw
+`bad_alloc` - PCSX2 shows that as an EE "Restart" in emulog.txt with nothing
+in the game's log.
+
 
 ### The slot pool is double-buffered (1.81.1) — the console-only sliver
 

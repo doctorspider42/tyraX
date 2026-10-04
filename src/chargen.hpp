@@ -180,4 +180,17 @@ const std::vector<Preset>& presets();
 // Random but plausible: a body, a face, colours and an outfit from a seed.
 Params randomize(unsigned seed, const Params& keep);
 
+// Crowds (docs/character-generator.md, "Crowds"): the same person in other
+// colours. Only what lives in the TEXTURES changes - skin tone and warmth,
+// hair and eye colour, every worn item's dye - never a shape, an item or a
+// clip, so a variant shares the base's mesh, rig, pose and texel layout and
+// costs the game nothing but a palette. Deterministic in `seed`.
+Params paletteVariant(const Params& base, unsigned seed);
+
+// Writes variant `k`'s textures beside the base's .glb as
+// "<glb stem>_<image>.v<k>.png" - the names texbake turns into the game's
+// "<texture>.v<k>.pal" palettes, fitted to the base's own quantization.
+bool writeVariantTextures(const Params& variant, const std::string& glbPath, int k,
+                          std::string& error);
+
 }  // namespace chargen

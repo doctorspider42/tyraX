@@ -81,6 +81,12 @@ VRAM.
 
 ## Colour depth
 
+A palettized texture can also have **palette variants** - the same texels
+drawn through another CLUT, 1 KB each, sharing the texels' allocation in the
+heap (`Texture(base, rgba, entries)`, `RendererCoreTexture::useVariant`). It is
+how a crowd of recoloured characters costs one atlas
+([character-generator.md](character-generator.md#crowds)).
+
 *Preferences > Display > Colour depth* picks the frame buffers' pixel format
 (`ProjectSettings::colorDepth`, `EngineOptions::colorDepth`):
 

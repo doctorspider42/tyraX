@@ -31,7 +31,22 @@ namespace Tyra {
 class Texture {
  public:
   Texture(TextureBuilderData* data);
+
+  /**
+   * Modified by TyraX: a PALETTE VARIANT of an 8-bit (or 4-bit) texture. It
+   * shares `base`'s texels - the same TextureData, and in GS VRAM the same
+   * upload - and brings only its own CLUT: `rgba` is the palette in PNG order
+   * (256 or 16 entries x r, g, b, a with a = 255 opaque), swizzled here the
+   * way PngLoader does. What a crowd of recoloured people costs: 1 KB of VRAM
+   * per extra person instead of a whole atlas (docs/character-generator.md,
+   * "Crowds"). `base` must outlive the variant.
+   */
+  Texture(const Texture* base, const unsigned char* rgba, int entries);
   ~Texture();
+
+  /** Modified by TyraX: the texture whose texels a palette variant borrows;
+   * nullptr for an ordinary texture. A variant never owns `core`. */
+  const Texture* paletteBase = nullptr;
 
   u32 id;
   std::string name;

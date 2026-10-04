@@ -156,6 +156,19 @@ should always equal the SHA in `deps.sh` — if it does not, that checkout
 predates the pinning and is stale. Fix it by deleting the directory and
 re-running setup, not by pulling in it.
 
+The Character Generator needs NO fetched data: its kit
+(`resources/chargen-kit.bin`) is committed and linked into the editor. Test it
+headless with `tyrax-editor --chargen <recipe.json|preset:N|random:SEED> out.glb`
+(prints triangles / parts / bones / clips / textures and the build time; add
+`--variants N` for crowd colour variants beside it) and
+LOOK at the result: import the .glb in Blender and render it (a contact sheet of
+several `random:N` characters catches most regressions - a shell that misses a
+crotch, a mesh item that crumbled, paint bleeding across atlas islands). For the
+console, the `examples/character-generator` copy + `--build --run` +
+`--capture-frame` recipe applies unchanged; the six characters there are
+regenerated from their `.chargen.json` recipes with the same command.
+Rebuilding the kit itself is tools/chargen-kit/README.md.
+
 So when a build dies with **`Cannot find source file: vendor/<something>`**
 (usually followed by `No SOURCES given to target: tyrax-editor`), it is not a
 corrupt checkout — that path simply isn't on disk yet. The build script

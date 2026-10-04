@@ -108,6 +108,28 @@ void Path3::clearScreen(zbuffer_t* z, const Color& color) {
   dma_channel_send_packet2(clearScreenPacket, DMA_CHANNEL_GIF, true);
 }
 
+void Path3::sendClut(const Texture* texture, const texbuffer_t* clutBuffer) {
+  packet2_reset(texturePacket, false);
+  auto* clut = texture->clut;
+  packet2_update(
+      texturePacket,
+      draw_texture_transfer(texturePacket->base, clut->data, clut->width,
+                            clut->height, clut->psm, clutBuffer->address,
+                            clutBuffer->width));
+  // the same chain tail as sendTexture: wrap state, then the flush - a chain
+  // that ends any other way is not a DMA chain the GIF channel finishes
+  packet2_chain_open_cnt(texturePacket, 0, 0, 0);
+  packet2_update(texturePacket,
+                 draw_texture_wrapping(
+                     texturePacket->next, 0,
+                     const_cast<texwrap_t*>(texture->getWrapSettings())));
+  packet2_chain_close_tag(texturePacket);
+  packet2_update(texturePacket, draw_texture_flush(texturePacket->next));
+  dma_channel_wait(DMA_CHANNEL_GIF, 0);
+  path3Fence();  // Modified by TyraX: path3_fence.hpp
+  dma_channel_send_packet2(texturePacket, DMA_CHANNEL_GIF, true);
+}
+
 void Path3::sendTexture(const Texture* texture,
                         const RendererCoreTextureBuffers& texBuffers) {
   packet2_reset(texturePacket, false);

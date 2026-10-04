@@ -1210,6 +1210,9 @@ private:
     // re-uploads. Cheap enough to run every frame while a clip plays.
     void refreshCharacterPose();
     void addCharacterToScene();
+    // The Crowd button (docs/character-generator.md, "Crowds"): the current
+    // character once, N palette variants beside it, `people` Model objects.
+    void addCrowdToScene(int people, int variants, float spread);
     // Tools > Mocap (docs/character-generator.md): a performer's motion driving
     // a character in the editor as it arrives. The source is either a recorded
     // `.tmocap` played back or the live phone link - deliberately the same
@@ -2535,6 +2538,9 @@ private:
     uint64_t charPreviewVersion_ = 0;
     bool charPreviewDirty_ = true;
     char charName_[64] = "character";
+    int charCrowdPeople_ = 12;
+    int charCrowdVariants_ = 6;
+    float charCrowdSpread_ = 6.0f;
     // Clip playback in the preview: which generated clip, where in it, and
     // whether it is running. Editor state only - it never reaches the asset.
     int charClip_ = 0;

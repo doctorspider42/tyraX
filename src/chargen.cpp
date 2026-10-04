@@ -1501,6 +1501,61 @@ const std::vector<Preset>& presets() {
     return list;
 }
 
+Params paletteVariant(const Params& base, unsigned seed) {
+    uint32_t s = seed * 2246822519u + 0x165667b1u;
+    auto rnd = [&] {
+        s ^= s << 13;
+        s ^= s >> 17;
+        s ^= s << 5;
+        return (s & 0xffffff) / (float)0x1000000;
+    };
+    Params v = base;
+    v.skinTone = std::clamp(base.skinTone + (rnd() - 0.5f) * 1.0f, -1.0f, 1.0f);
+    v.skinWarmth = std::clamp(base.skinWarmth + (rnd() - 0.5f) * 0.8f, -1.0f, 1.0f);
+    static const Rgb hairs[] = {{0.06f, 0.05f, 0.05f}, {0.18f, 0.11f, 0.07f},
+                                {0.35f, 0.22f, 0.12f}, {0.62f, 0.45f, 0.25f},
+                                {0.85f, 0.70f, 0.45f}, {0.55f, 0.22f, 0.10f}};
+    if (base.age < 0.85f) v.hairColor = hairs[(int)(rnd() * 6) % 6];
+    static const Rgb eyes[] = {{0.33f, 0.22f, 0.12f}, {0.18f, 0.12f, 0.07f},
+                               {0.25f, 0.42f, 0.62f}, {0.30f, 0.45f, 0.30f}};
+    v.eyeColor = eyes[(int)(rnd() * 4) % 4];
+    // Every item gets a dye - a variant left "as made" would look like its
+    // base. Earthy, believable street colours, not a rainbow.
+    static const Rgb pal[] = {{0.85f, 0.85f, 0.82f}, {0.15f, 0.15f, 0.18f},
+                              {0.25f, 0.32f, 0.55f}, {0.55f, 0.18f, 0.16f},
+                              {0.30f, 0.42f, 0.28f}, {0.62f, 0.55f, 0.40f},
+                              {0.40f, 0.40f, 0.42f}, {0.70f, 0.55f, 0.20f},
+                              {0.45f, 0.30f, 0.50f}, {0.20f, 0.45f, 0.55f},
+                              {0.48f, 0.33f, 0.22f}, {0.72f, 0.70f, 0.60f}};
+    for (Wear& w : v.outfit) {
+        w.color = pal[(int)(rnd() * 12) % 12];
+        if (w.pattern > 0) w.color2 = pal[(int)(rnd() * 12) % 12];
+    }
+    if (base.lipstick > 0.0f) v.lipColor = Rgb{0.45f + rnd() * 0.3f, 0.08f + rnd() * 0.1f, 0.12f + rnd() * 0.1f};
+    return v;
+}
+
+bool writeVariantTextures(const Params& variant, const std::string& glbPath, int k,
+                          std::string& error) {
+    namespace fs = std::filesystem;
+    glbparser::Skel skel;
+    std::vector<std::string> warnings;
+    if (!build(variant, skel, warnings, error)) return false;
+    const fs::path glb(glbPath);
+    for (const glbparser::Image& img : skel.images) {
+        std::string name = img.name;
+        if (const size_t dot = name.rfind('.'); dot != std::string::npos) name.resize(dot);
+        const fs::path out = glb.parent_path() /
+                             (glb.stem().string() + "_" + name + ".v" + std::to_string(k) + ".png");
+        std::ofstream f(out, std::ios::binary | std::ios::trunc);
+        if (!f.write((const char*)img.png.data(), (std::streamsize)img.png.size())) {
+            error = "Could not write " + out.generic_string();
+            return false;
+        }
+    }
+    return true;
+}
+
 Params randomize(unsigned seed, const Params& keep) {
     uint32_t s = seed * 2654435761u + 0x9e3779b9u;
     auto rnd = [&] {

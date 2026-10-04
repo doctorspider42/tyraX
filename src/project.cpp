@@ -1055,7 +1055,11 @@ std::string objectJson(const SceneObject& o) {
         json += ", \"anim\": { \"clip\": \"" + jsonEscape(o.animClip) +
                 "\", \"autoplay\": " + (o.animAutoplay ? "true" : "false") +
                 ", \"loop\": " + (o.animLoop ? "true" : "false") +
-                ", \"speed\": " + fmtFloat(o.animSpeed) + " }";
+                ", \"speed\": " + fmtFloat(o.animSpeed) +
+                (o.paletteVariant > 0
+                     ? ", \"paletteVariant\": " + std::to_string(o.paletteVariant)
+                     : std::string()) +
+                " }";
     }
     // Per-object LOD overrides (animated models + player avatars); omitted at
     // the -1 default = "use the project preference".
@@ -4219,6 +4223,31 @@ std::string save(const Project& p) {
     return writeFile(projectPath(p), manifestJson(p));
 }
 
+int paletteVariantCount(const Project& p, const std::string& modelRel) {
+    namespace fs = std::filesystem;
+    if (modelRel.empty()) return 0;
+    const fs::path model = fs::path(p.dir) / modelRel;
+    const std::string prefix = model.stem().string() + "_";
+    std::error_code ec;
+    int best = 0;
+    for (const auto& e : fs::directory_iterator(model.parent_path(), ec)) {
+        const std::string n = e.path().filename().string();
+        if (n.rfind(prefix, 0) != 0 || n.size() < 8 ||
+            n.compare(n.size() - 4, 4, ".png") != 0)
+            continue;
+        const size_t dot = n.rfind(".v", n.size() - 4);
+        if (dot == std::string::npos) continue;
+        int k = 0;
+        bool digits = dot + 2 < n.size() - 4;
+        for (size_t i = dot + 2; i < n.size() - 4; ++i) {
+            if (n[i] < '0' || n[i] > '9') { digits = false; break; }
+            k = k * 10 + (n[i] - '0');
+        }
+        if (digits && k > best && k < 100) best = k;
+    }
+    return best;
+}
+
 std::string newObjectId() {
     // 64 bits of randomness rendered as 16 hex chars. Seeded once from the
     // platform entropy source; the sequence is process-global, which is all we
@@ -6182,6 +6211,8 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
             if (const auto* v = an->find("speed")) o.animSpeed = (float)v->numberOr(1.0);
             if (o.animSpeed < 0.05f) o.animSpeed = 0.05f;
             if (o.animSpeed > 10.0f) o.animSpeed = 10.0f;
+            if (const auto* v = an->find("paletteVariant"))
+                o.paletteVariant = std::max(0, (int)v->numberOr(0.0));
         }
         if (const auto* v = jo.find("animLod")) {
             o.animLodOverride = (float)v->numberOr(-1.0);
@@ -8484,6 +8515,7 @@ uint64_t liveLinkRecipeHash(const SceneObject& o) {
                   ((uint64_t)(o.reverbPriority & 0xFFFF) << 16));
     fnvMixS(h, o.animClip);
     fnvMix(h, (o.animAutoplay ? 1 : 0) | (o.animLoop ? 2 : 0));
+    fnvMix(h, (unsigned)o.paletteVariant);
     fnvMixF(h, o.animSpeed);
     fnvMixF(h, o.animLodOverride), fnvMixF(h, o.meshLodOverride);
     fnvMixF(h, o.modelYawOffset);

@@ -18261,6 +18261,33 @@ void App::drawCharacterGeneratorWindow() {
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("Write the .glb (and its .chargen.json recipe) into\n"
                           "res/models/characters and drop a Model object into the scene.");
+    ImGui::SameLine();
+    ImGui::BeginDisabled(charPrevTris_.empty());
+    if (ImGui::Button("Crowd...")) ImGui::OpenPopup("##charcrowd");
+    ImGui::EndDisabled();
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Many people for the price of one: this character in\n"
+                          "other colours, sharing one mesh, one pose and one\n"
+                          "atlas - each extra person is a 1 KB palette.");
+    if (ImGui::BeginPopup("##charcrowd")) {
+        ImGui::SetNextItemWidth(scaled(160.0f));
+        ImGui::SliderInt("People", &charCrowdPeople_, 2, 40);
+        ImGui::SetNextItemWidth(scaled(160.0f));
+        ImGui::SliderInt("Colour variants", &charCrowdVariants_, 1, 15);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Different skin tone, hair and clothing colours.\n"
+                              "People beyond this number repeat a variant.");
+        ImGui::SetNextItemWidth(scaled(160.0f));
+        ImGui::SliderFloat("Spread", &charCrowdSpread_, 2.0f, 30.0f, "%.0f m");
+        ImGui::TextDisabled("Placed around the viewport's target. Everyone idles\n"
+                            "in a few groups that share their skinning, and\n"
+                            "distant people switch to the lighter mesh LODs.");
+        if (ImGui::Button("Add crowd to scene")) {
+            addCrowdToScene(charCrowdPeople_, charCrowdVariants_, charCrowdSpread_);
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
     ImGui::EndGroup();
 
     if (dirty) charPreviewDirty_ = true;
@@ -18297,6 +18324,77 @@ void App::addCharacterToScene() {
     statusMessage_ =
         "Added character '" + name + "' (" + std::to_string(tris) + " tris, " +
         std::to_string((int)charSkel_.palette.size()) + " bones)";
+}
+
+// The Crowd button. The base character is written once like "Add to scene";
+// its colour variants go beside it as "<name>_<image>.v<k>.png" (texbake fits
+// them into palettes against the base's own quantization), and every person
+// is an ordinary Model object naming its variant. Idle clips are dealt out
+// in a few groups so the game can skin each group once (pose sharing), and
+// a mesh-LOD override per person turns the decimated chain on for them.
+void App::addCrowdToScene(int people, int variants, float spread) {
+    std::string base = sanitizeAssetName(charName_);
+    if (base.empty()) base = "character";
+    base += "-crowd";
+    namespace fs = std::filesystem;
+    std::string name = base;
+    for (int n = 2; fs::exists(fs::path(project_.dir) / "res" / "models" / "characters" /
+                               (name + ".glb"));
+         ++n)
+        name = base + "-" + std::to_string(n);
+
+    std::string rel, err;
+    if (!chargen::writeAsset(project_.dir, name, charSkel_, charParams_, &rel, &err)) {
+        statusMessage_ = "Crowd export failed: " + err;
+        return;
+    }
+    variants = std::clamp(variants, 1, std::max(1, people - 1));
+    const std::string glb = (fs::path(project_.dir) / rel).string();
+    for (int k = 1; k <= variants; ++k)
+        if (!chargen::writeVariantTextures(chargen::paletteVariant(charParams_, (unsigned)k),
+                                           glb, k, err)) {
+            statusMessage_ = "Crowd variant failed: " + err;
+            return;
+        }
+    project_.textureQuality[rel] = "8bit";  // palettes need palettized textures
+
+    // the clips people idle in: every clip whose name says idle, else the first
+    std::vector<std::string> idles;
+    for (const auto& c : charSkel_.clips) {
+        std::string lower = c.name;
+        for (char& ch : lower) ch = (char)std::tolower((unsigned char)ch);
+        if (lower.find("idle") != std::string::npos) idles.push_back(c.name);
+    }
+    if (idles.empty() && !charSkel_.clips.empty()) idles.push_back(charSkel_.clips[0].name);
+    if (idles.size() > 3) idles.resize(3);  // a few groups: each skins once
+
+    float eye[3], target[3];
+    viewport_.currentCamera(eye, target);
+    uint32_t seed = 0x9e3779b9u ^ (uint32_t)project_.objects().size();
+    auto rnd = [&] {
+        seed ^= seed << 13;
+        seed ^= seed >> 17;
+        seed ^= seed << 5;
+        return (seed & 0xffffff) / (float)0x1000000;
+    };
+    // A jittered grid: people stand apart (0.9 m at least) without lining up.
+    const int cols = std::max(1, (int)std::ceil(std::sqrt((float)people)));
+    const float cell = std::max(0.9f, spread / (float)cols);
+    for (int i = 0; i < people; ++i) {
+        const float at[3] = {
+            target[0] + ((i % cols) - (cols - 1) * 0.5f + (rnd() - 0.5f) * 0.5f) * cell, 0.0f,
+            target[2] + ((i / cols) - (cols - 1) * 0.5f + (rnd() - 0.5f) * 0.5f) * cell};
+        addModelObject(rel, at, false);
+        SceneObject& o = project_.objects().back();
+        o.rotation[1] = rnd() * 360.0f;
+        o.paletteVariant = i % (variants + 1);  // person 0 wears the original
+        if (!idles.empty()) o.animClip = idles[(size_t)i % idles.size()];
+        o.meshLodOverride = 8.0f;  // half the mesh beyond 8 m, a quarter beyond 16
+    }
+    commitChange();
+    statusMessage_ = "Added a crowd of " + std::to_string(people) + " ('" + name + "', " +
+                     std::to_string(variants) + " colour variants, " +
+                     std::to_string(idles.size()) + " idle groups)";
 }
 
 void App::mocapRebind() {

@@ -1587,6 +1587,9 @@ class TerrainGame : public Tyra::Game {
     std::unique_ptr<Tyra::SkelModel> src;   // skeleton + mesh + clip tracks
     std::vector<Tyra::Texture*> textures;   // per part, nullptr = untextured
     std::vector<std::string> texPaths;      // texture-cache refs held
+    // Crowd palette variants: [k - 1][part] = textures[part]'s texels through
+    // the k-th .pal (nullptr = that part has none). Owned here.
+    std::vector<std::vector<Tyra::Texture*>> variants;
     Tyra::CoreBBox cullBox;  // local AABB over all clips + margin (see load)
   };
   std::vector<GameAnimModel> gameAnimModels;
@@ -3454,6 +3457,9 @@ class TerrainGame : public Tyra::Game {
     std::unique_ptr<Tyra::SkelModel> src;   // skeleton + mesh + clip tracks
     std::vector<Tyra::Texture*> textures;   // per part, nullptr = untextured
     std::vector<std::string> texPaths;      // texture-cache refs held
+    // Crowd palette variants: [k - 1][part] = textures[part]'s texels through
+    // the k-th .pal (nullptr = that part has none). Owned here.
+    std::vector<std::vector<Tyra::Texture*>> variants;
     Tyra::CoreBBox cullBox;  // local AABB over all clips + margin (see load)
   };
   std::vector<GameAnimModel> gameAnimModels;
@@ -8649,6 +8655,26 @@ static std::string sceneDataContent(const Project& p, const std::string& ns,
             << (n ? rows.str() : std::string("    {-1, -1, -1, 0, 0}")) << "\n};\n"
             << "constexpr unsigned char LIP_ENVELOPES[" << (total ? total : 1) << "] = {"
             << (total ? env.str() : std::string("0")) << "\n};\n\n";
+    }
+
+    // Crowd palette variants (docs/character-generator.md, "Crowds"): which
+    // authored objects draw their model through palette k instead of its own.
+    {
+        std::ostringstream rows;
+        int n = 0;
+        for (int si = 0; si < sceneCount; ++si) {
+            const auto& objs = p.scenes[(size_t)si].objects;
+            for (size_t oi = 0; oi < objs.size(); ++oi)
+                if (objs[oi].paletteVariant > 0 && objs[oi].type == PrimitiveType::Model) {
+                    rows << (n ? ",\n" : "") << "    {" << si << ", " << oi << ", "
+                         << objs[oi].paletteVariant << "}";
+                    ++n;
+                }
+        }
+        out << "struct ObjectPaletteData { int scene; int object; int variant; };\n"
+            << "constexpr int OBJECT_PALETTE_COUNT = " << n << ";\n"
+            << "constexpr ObjectPaletteData OBJECT_PALETTES[" << (n ? n : 1) << "] = {\n"
+            << (n ? rows.str() : std::string("    {-1, -1, 0}")) << "\n};\n\n";
     }
 
     // Stable per-object identity for Live Link (docs/live-link.md): FNV-1a 64
@@ -29788,6 +29814,20 @@ static std::string modelDataHeader(const Project& p) {
         for (const auto& key : animKeys)
             out << "    \"" << binPathOf(animBakedTsklRel(key.first, key.second))
                 << "\",\n";
+    }
+    // Crowd palette variants per animated model (loadAnimModelAsset reads
+    // "<texture>.v<k>.pal" for k = 1..n; docs/character-generator.md).
+    out << "};\n"
+        << "inline const int ANIM_MODEL_VARIANTS[ANIM_MODEL_COUNT > 0 ? "
+           "ANIM_MODEL_COUNT : 1] = {";
+    if (animKeys.empty()) {
+        out << "0";
+    } else {
+        bool first = true;
+        for (const auto& key : animKeys) {
+            out << (first ? "" : ", ") << project::paletteVariantCount(p, key.first);
+            first = false;
+        }
     }
     out << "};\n\n"
         << "// .mtl libraries assigned to primitives (first material = surface)\n"

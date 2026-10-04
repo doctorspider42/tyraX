@@ -65,7 +65,7 @@ produce byte-identical files.
 From the command line (the same code path, no GUI):
 
 ```
-tyrax-editor --chargen <recipe.json | - | preset:N | random:SEED> <out.glb> [--recipe-out <file>]
+tyrax-editor --chargen <recipe.json | - | preset:N | random:SEED> <out.glb> [--recipe-out <file>] [--variants N]
 ```
 
 ## The character kit
@@ -368,6 +368,44 @@ head. `build_kit.py` caps it (`cap_mouth`, a fan over the end loop, no new
 vertices - targets and weights are per vertex), wound to face the lips. Tyra
 draws no back-face culling, so what the corners of an open mouth show is the
 inside of the cheek, never the sky.
+
+## Crowds
+
+*Crowd...* (next to *Add to scene*) puts the current character into the scene
+many times over - in other colours, for almost nothing:
+
+- The character is written once, like *Add to scene*. Beside it go N **colour
+  variants**: the same person with a different skin tone and warmth, hair and
+  eye colour and every worn item re-dyed (`chargen::paletteVariant` - only
+  what lives in the textures, never a shape, an item or a clip), as
+  `<name>_<image>.v<k>.png`.
+- At build time texbake quantizes the base atlas as usual and then FITS each
+  variant to it: for every palette index, the variant image's average colour
+  over the texels that carry that index. The game gets
+  `<texture>.v<k>.pal` - 256 colours, 1 KB.
+- In the game a variant is a `Texture` that borrows the base's texels and
+  brings only its CLUT (`Texture(base, rgba, entries)`); the VRAM manager keeps
+  one copy of the texels for the base and every variant and uploads 1 KB per
+  extra person (`RendererCoreTexture::useVariant`).
+- Every person is an ordinary Model object naming its *Palette variant*.
+  They idle in at most three clip groups, so each group is skinned ONCE and
+  drawn for all of its members (pose sharing), and they get a mesh-LOD
+  override of 8 m: half the mesh beyond it, a quarter beyond 16 m.
+
+So a crowd of twelve is one mesh, one atlas, a few skins a frame and 12 KB of
+palettes. What it is not: twelve different BODIES - variants share the
+base's shape. Add a few crowds made from different characters for that.
+
+The palette fit is exact where the base's quantizer kept skin, cloth and hair
+in different palette entries, which a character atlas mostly does; where it
+merged two of them (a beige garment the colour of skin), the variant blends
+the two. Faces still work in a crowd: a person within 10 m gets its own pose
+for its blinks and its glance, and goes back to the group's beyond it.
+
+Verified in PCSX2: twelve palette variants of one character next to the
+example's cast. It is also what forced the shared bind data
+([animated-models.md](animated-models.md#performance-and-memory)) - the
+same scene ran the EE out of memory before it.
 
 ## Cost on the console
 
