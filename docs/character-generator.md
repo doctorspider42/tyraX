@@ -501,10 +501,14 @@ ids of hair, `head` and `face` items, the same list the AI Assistant's
 **How it is built.** An ordinary character puts every mesh item into one
 accessory atlas. Creator options cannot share it: the game must hide them one
 by one. So each option is its OWN part with its own texture, at half the atlas
-size, named `<stem>_opt-<slot>-<id>.png` (`_optd-` for the item worn at the
-start - a worn item in a slot that has options becomes one too). The name is
-the whole contract: `loadAnimModelAsset` reads slot and id back out of each
-part's texture path, so nothing new is stored in the `.tskl`. An option hides
+size: the part (material) is named `<kind>:opt-<slot>-<id>` and its texture
+`<stem>_opt-<slot>-<id>.png` (`optd-` for the item worn at the start - a worn
+item in a slot that has options becomes one too, and hat options make the
+worn hairstyle one). The part name is the whole contract: `loadAnimModelAsset`
+reads slot and id back out of it, so nothing new is stored in the `.tskl`, and
+the `.tskl` loader never merges a part with `:opt` in its name into another
+(it merges parts that share a texture, and a hairstyle and its hat twin do).
+An option hides
 no body triangles, pushes no shell and paints no scalp under itself - the
 player may take it off. Colour looks are the crowd's palette variants
 ([Crowds](#crowds)): `<texture>.v<k>.pal`, options included.
@@ -534,15 +538,39 @@ the file - but a hidden part is neither drawn nor skinned
 character as worn. VRAM pays for every option's texture (a 128x128 palette
 image each at a 256 atlas) and 1 KB per colour look per texture.
 
-**Known limit.** Big hair pokes through hats: an option rides the head on its
-own and nothing trims the hair under a hat. Offer hats with short hairstyles,
-or accept the 2002 look.
-
 Verified in PCSX2: the screen opened from a script, D-pad changes of every row
 (colours, hair, hat, glasses, None), the R1 turn, Cross keeping the look in
-gameplay, and a hidden-then-shown hairstyle re-skinned in the current pose.
+gameplay, a hidden-then-shown hairstyle re-skinned in the current pose, and a
+fedora switching the messy cut to its pressed twin and back.
 Not verified: a save/load round trip and a scene change carrying the look; the
 real console.
+
+## Hat hair
+
+A hat is a mesh item riding the skull on its own, and big hair used to poke
+straight through it - the crown of a messy cut sticking out of a fedora. The
+generator now presses hair under hats, the way a real hat does:
+
+![Before and after: messy hair under a fedora, in PCSX2](img/chargen-hat-hair.png)
+
+- `hatCap` measures, for every body vertex a hat rides (bary >= 0.15), how far
+  above the skin the hat's LOWEST surface sits there - the inside of the
+  crown. Body vertices no hat covers have no limit.
+- Hair keeps its binding (a body triangle, barycentrics, an offset along the
+  normal); only that offset changes. A hair vertex over covered skin is
+  pressed to 70% of the hat's limit there, and over the hat's edge the press
+  fades out with how much of its triangle the hat covers. What hangs below
+  the hat - a fringe, a ponytail, long hair - keeps its shape.
+- A **worn** hat fits the hair outright, in any character. With hat
+  **options** every hairstyle gets a second part, `hair:opth-hair-<id>`,
+  pressed under all of the optional hats at once and sharing the plain part's
+  texture; the game shows it instead of the plain one whenever a hat is on,
+  and `chargen::partsShownAsBuilt` makes the editor's viewport do the same.
+
+The press is under the union of the optional hats, so under a small cap the
+hair is flat where only a tall hat would reach - read as hat hair, it looks
+right. The cost is one more hidden part per hairstyle: file size, not frame
+time.
 
 ## Cost on the console
 

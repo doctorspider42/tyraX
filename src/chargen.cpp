@@ -828,6 +828,9 @@ bool build(const Params& p, glbparser::Skel& out, std::vector<std::string>& warn
             }
             slots.push_back(g->item.slot);
         }
+        // Optional hats switch the hair too (its pressed twin, see hatCap),
+        // so the worn hairstyle must be a part of its own as well.
+        if (std::find(slots.begin(), slots.end(), "head") != slots.end()) slots.push_back("hair");
         for (size_t gi = 0; gi < worn.size(); ++gi)
             if (!isOpt[gi] && worn[gi]->kind == "mesh" && std::find(slots.begin(), slots.end(), worn[gi]->item.slot) != slots.end())
                 isOpt[gi] = 2;
@@ -1077,10 +1080,47 @@ bool build(const Params& p, glbparser::Skel& out, std::vector<std::string>& warn
     // small texture named "opt-<slot>-<id>" ("optd-" for the one worn by
     // default), so the game can show one per slot and hide the rest
     // (docs/character-generator.md, "In-game character creator").
+    //
+    // Hat hair: a hat is a mesh item riding the skull on its own, and big hair
+    // used to poke straight through it. hatCap() measures, per body vertex,
+    // how far above the skin the hats' lowest surface sits there (the inside
+    // of the crown); emitItem then presses hair bound to that region under
+    // it, feathered over the hat's edge, while what hangs below the hat - a
+    // fringe, a ponytail - keeps its shape. A worn hat fits the hair outright;
+    // with hat OPTIONS every hairstyle gets a second, pressed part
+    // ("opth-hair-<id>", sharing its texture) the game shows under a hat.
+    constexpr float kNoCap = 1e30f;
+    auto hatCap = [&](bool options) {
+        std::vector<float> cap((size_t)b.verts, kNoCap);
+        bool any = false;
+        for (size_t gi = 0; gi < worn.size(); ++gi) {
+            const GarmentData* g = worn[gi];
+            if (g->item.slot != "head" || g->kind != "mesh" || (isOpt[gi] != 0) != options) continue;
+            const GarmentBody& gb = g->body[bi];
+            for (size_t v = 0; v < gb.bindTri.size(); ++v) {
+                const int t = gb.bindTri[v];
+                const float off = gb.bindOff[v * 3];
+                for (int c = 0; c < 3; ++c) {
+                    if (gb.bindBary[v * 3 + c] < 0.15f) continue;  // the corners it really rides
+                    float& m = cap[(size_t)b.tri[t * 3 + c]];
+                    m = std::min(m, std::max(off, 0.0f));
+                }
+                any = true;
+            }
+        }
+        if (!any) cap.clear();
+        return cap;
+    };
+    const std::vector<float> capWorn = hatCap(false), capOptions = hatCap(true);
+    std::vector<float> capUnder = capOptions;  // under an optional hat, a worn one too
+    for (size_t i = 0; i < capUnder.size() && i < capWorn.size(); ++i)
+        capUnder[i] = std::min(capUnder[i], capWorn[i]);
+
     auto emitItem = [&](size_t gi, glbparser::SkelPart& part, std::vector<uint8_t>& atlas, int A,
-                        int cx, int cy, int cw, int ch) {
+                        int cx, int cy, int cw, int ch, const std::vector<float>* cap) {
         const GarmentData* g = worn[gi];
         const GarmentBody& gb = g->body[bi];
+        if (g->item.slot != "hair" || (cap && cap->empty())) cap = nullptr;
         // Geometry, riding the body.
         const size_t gv = gb.bindTri.size();
         std::vector<float> gp(gv * 3), gn;
@@ -1132,8 +1172,25 @@ bool build(const Params& p, glbparser::Skel& out, std::vector<std::string>& warn
                     for (int a = 0; a < 3; ++a) x[a] = xl > 1e-6f ? x[a] / xl : 0.0f;
                 }
             }
+            float lift = off[0];
+            if (cap) {
+                // the hats' lowest surface over this vertex, from the corners
+                // they cover; partial cover feathers the press out at the edge
+                float lim = 0.0f, covered = 0.0f;
+                for (int c = 0; c < 3; ++c) {
+                    const float m = (*cap)[(size_t)b.tri[t * 3 + c]];
+                    if (m >= kNoCap) continue;
+                    const float bw = gb.bindBary[v * 3 + c];
+                    lim += m * bw;
+                    covered += bw;
+                }
+                if (covered > 0.0f) {
+                    const float pressed = std::min(lift, 0.7f * lim / covered);
+                    lift += (pressed - lift) * std::min(1.0f, covered * 1.5f);
+                }
+            }
             for (int a = 0; a < 3; ++a)
-                gp[v * 3 + a] = s[a] + (nn[a] * off[0] + u[a] * off[1] + w[a] * off[2]) * scale;
+                gp[v * 3 + a] = s[a] + (nn[a] * lift + u[a] * off[1] + w[a] * off[2]) * scale;
         }
         vertexNormals(gp, g->tri.data(), (int)g->tri.size() / 3, gn);
         const size_t gt = g->tri.size() / 3;
@@ -1198,7 +1255,7 @@ bool build(const Params& p, glbparser::Skel& out, std::vector<std::string>& warn
         for (int m = 0; m < count; ++m) {
             anyCutout |= worn[meshItems[m]]->cutout;
             emitItem(meshItems[m], part, atlas, A, (m % cols) * (A / cols), (m / cols) * (A / rows),
-                     cw, ch);
+                     cw, ch, &capWorn);
         }
         // The material name carries the kind: "hair:" means alpha-tested (the
         // editor preview draws it last), which is harmless for the opaque
@@ -1211,23 +1268,38 @@ bool build(const Params& p, glbparser::Skel& out, std::vector<std::string>& warn
         out.images.push_back(std::move(img));
         out.parts.push_back(std::move(part));
     }
+    std::vector<int> optImage(worn.size(), -1);
     for (size_t gi = 0; gi < worn.size(); ++gi) {
         if (!isOpt[gi] || worn[gi]->tri.empty()) continue;
         // Half the atlas size: an option is one item, not a grid of them.
         const int A = std::max(32, texSize / 2);
         std::vector<uint8_t> tex((size_t)A * A * 4, 0);
         glbparser::SkelPart part;
-        emitItem(gi, part, tex, A, 0, 0, A, A);
+        emitItem(gi, part, tex, A, 0, 0, A, A, &capWorn);
         const std::string tag = std::string(isOpt[gi] == 2 ? "optd-" : "opt-") +
                                 worn[gi]->item.slot + "-" + worn[gi]->item.id;
         part.material = std::string(worn[gi]->cutout ? "hair:" : "cloth:") + tag;
         glbparser::Image img;
         img.name = tag;
         img.png = encodePng(tex, A, A);
-        part.image = (int)out.images.size();
+        part.image = optImage[gi] = (int)out.images.size();
         out.images.push_back(std::move(img));
         out.parts.push_back(std::move(part));
     }
+    // ...and each hairstyle once more, pressed under the optional hats. After
+    // every option, so the game meets the plain part (and its index) first.
+    if (!capOptions.empty())
+        for (size_t gi = 0; gi < worn.size(); ++gi) {
+            if (optImage[gi] < 0 || worn[gi]->item.slot != "hair") continue;
+            const int A = 4;  // the texels are the plain part's: a throwaway target
+            std::vector<uint8_t> scratch((size_t)A * A * 4, 0);
+            glbparser::SkelPart part;
+            emitItem(gi, part, scratch, A, 0, 0, A, A, &capUnder);
+            part.material = std::string(worn[gi]->cutout ? "hair:" : "cloth:") + "opth-hair-" +
+                            worn[gi]->item.id;
+            part.image = optImage[gi];
+            out.parts.push_back(std::move(part));
+        }
 
     // --- bounds --------------------------------------------------------------------
     for (int a = 0; a < 3; ++a) {
@@ -1345,6 +1417,34 @@ bool build(const Params& p, glbparser::Skel& out, std::vector<std::string>& warn
         out.clips.push_back(std::move(sc));
     }
     return true;
+}
+
+std::vector<bool> partsShownAsBuilt(const std::vector<std::string>& materials) {
+    bool hat = false, twins = false;
+    for (const std::string& m : materials) {
+        hat |= m.find(":optd-head-") != std::string::npos;
+        twins |= m.find(":opth-") != std::string::npos;
+    }
+    const bool underHat = hat && twins;
+    std::vector<bool> shown(materials.size(), true);
+    for (size_t i = 0; i < materials.size(); ++i) {
+        const std::string& m = materials[i];
+        if (m.find(":opth-") != std::string::npos) {
+            // the twin of the hairstyle worn as built
+            shown[i] = false;
+            if (underHat) {
+                const std::string plain = ":optd-" + m.substr(m.find(":opth-") + 6);
+                for (const std::string& o : materials)
+                    if (o.find(plain) != std::string::npos && o.size() - o.find(plain) == plain.size())
+                        shown[i] = true;
+            }
+        } else if (m.find(":opt-") != std::string::npos) {
+            shown[i] = false;
+        } else if (underHat && m.find(":optd-hair-") != std::string::npos) {
+            shown[i] = false;
+        }
+    }
+    return shown;
 }
 
 // ---------------------------------------------------------------------------

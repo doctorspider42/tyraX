@@ -5515,7 +5515,14 @@
 // host-baked albedo map (REFL_GROUND_*): -2 ms a turning frame on the Motor
 // District's open road on a PS2.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 176
+#define TYRAX_VERSION_MINOR 177
+// 1.177.0: hat hair (docs/character-generator.md, "Hat hair"). Hats press the
+// hair under them instead of letting it poke through: a worn hat fits the
+// hairstyle outright, hat options give every hairstyle a pressed
+// "opth-hair-<id>" twin the game shows under a hat. Creator options are now
+// recognised by part name; TsklLoader never merges ":opt" parts; the
+// editor's viewport draws a creator character as it starts. Project format
+// unchanged.
 // 1.176.0: the in-game Character Creator (docs/character-generator.md,
 // "In-game character creator"). A recipe's "options" builds extra hair, hats
 // and glasses as separate parts; the generator's Player creator... writes

@@ -257,12 +257,19 @@ std::unique_ptr<SkelModel> TsklLoader::load(const std::string& relativePath) {
   // commonly split one material into several tiny parts. Merging is safe -
   // vertices carry their own joints/weights and draw order among equal
   // materials is irrelevant under z-testing.
+  // Modified by TyraX: except a Character Generator creator option ("...:opt"
+  // in the name) - the game shows and hides those one by one, and a hairstyle
+  // and its pressed under-a-hat twin share one texture.
+  auto switchable = [](const SkelPart& p) {
+    return p.name.find(":opt") != std::string::npos;
+  };
   for (size_t a = 0; a + 1 < model->parts.size(); a++) {
     SkelPart& dst = model->parts[a];
+    if (switchable(dst)) continue;
     for (size_t b = a + 1; b < model->parts.size();) {
       SkelPart& src = model->parts[b];
       const bool same =
-          dst.texturePath == src.texturePath &&
+          !switchable(src) && dst.texturePath == src.texturePath &&
           memcmp(dst.color, src.color, sizeof(dst.color)) == 0;
       if (!same) {
         ++b;

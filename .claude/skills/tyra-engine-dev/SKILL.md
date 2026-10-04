@@ -3240,6 +3240,10 @@ span. The part's arrays keep their last skin, so turning it back on sets
 draws its owner's arrays. An empty mask means "nothing skipped" - it is only
 allocated on the first skip.
 
+TsklLoader merges parts that share texture and colour - except a part with
+`:opt` in its name (1.177.0): creator options are shown one by one, and a
+hairstyle and its under-a-hat twin deliberately share one texture.
+
 
 ### The slot pool is double-buffered (1.81.1) — the console-only sliver
 

@@ -13,6 +13,7 @@
 #include <filesystem>
 
 #include "animedit.hpp"
+#include "chargen.hpp"  // partsShownAsBuilt: creator options draw as they start
 #include "aobake.hpp"
 #include "gl_loader.h"
 #include "menubake.hpp"  // bakeFlareRGBA: the light pools' corona pixels
@@ -6080,7 +6081,13 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
         // An animated part's Kd rides in the tint below, not in its vertex
         // colours - uKd stays neutral or it would land twice.
         kdDraw[0] = kdDraw[1] = kdDraw[2] = 1.0f;
+        // A character with in-game creator options draws as it starts, not
+        // with every hat at once (docs/character-generator.md).
+        std::vector<std::string> materials;
+        for (const auto& bp : ad.baked.parts) materials.push_back(bp.material);
+        const std::vector<bool> shown = chargen::partsShownAsBuilt(materials);
         for (size_t pi = 0; pi < ad.parts.size(); ++pi) {
+            if (pi < shown.size() && !shown[pi]) continue;
             const AnimModelDraw::Part& part = ad.parts[pi];
             uint32_t tex = asLines ? 0 : part.tex;
             // A crowd member's palette variant (docs/character-generator.md,

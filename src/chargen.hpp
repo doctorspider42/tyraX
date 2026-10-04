@@ -171,6 +171,13 @@ bool writeAsset(const std::string& projectDir, const std::string& name,
                 const glbparser::Skel& skel, const Params& p, std::string* outRelPath,
                 std::string* outError);
 
+// Which parts of a generated model draw when nothing has chosen otherwise -
+// ordinary parts and the creator options worn as built ("optd-"), the
+// hairstyle's pressed "opth-" twin instead of it under a hat worn as built.
+// The editor's twin of the game's applyLook with an untouched look; by
+// material name, so it works on any baked .glb.
+std::vector<bool> partsShownAsBuilt(const std::vector<std::string>& materials);
+
 // Params <-> JSON (the .chargen.json sidecar, the --chargen command line).
 std::string toJson(const Params& p);
 bool fromJson(const std::string& text, Params& p, std::string& error);
