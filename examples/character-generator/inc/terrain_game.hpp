@@ -512,12 +512,14 @@ class TerrainGame : public Tyra::Game {
     // the k-th .pal (nullptr = that part has none). Owned here.
     std::vector<std::vector<Tyra::Texture*>> variants;
     Tyra::CoreBBox cullBox;  // local AABB over all clips + margin (see load)
-    // In-game creator options (the generator's "opt-<slot>-<id>" textures;
+    // In-game creator options (the generator's "opt-<slot>-<id>" parts;
     // docs/character-generator.md, "In-game character creator"): per part
     // its slot (0 = always drawn, 1 hair, 2 hat, 3 glasses) and its index in
     // that slot; per slot the option count, the one worn as built (-1 =
     // none) and each option's kit id.
     std::vector<s8> optSlot, optIndex;
+    std::vector<s8> optUnderHat;  // the part is a hairstyle pressed under a hat
+    bool hatHair = false;         // the model has such twins
     int optCount[4] = {0, 0, 0, 0};
     int optDefault[4] = {-1, -1, -1, -1};
     std::vector<std::string> optIds[4];

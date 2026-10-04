@@ -1906,28 +1906,40 @@ void TerrainGame::loadAnimModelAsset(int i) {
   if (!model) return;  // stays empty - objects using it render nothing
   GameAnimModel& gam = gameAnimModels[i];
   gam.textures.assign(model->parts.size(), nullptr);
-  // Creator options: the generator names an option's texture
-  // "<stem>_opt-<slot>-<id>" ("_optd-" = worn as built).
+  // Creator options: the generator names an option's part (material)
+  // "<kind>:opt-<slot>-<id>" - "optd-" = worn as built, "opth-" = a
+  // hairstyle's twin pressed under a hat, which comes after its plain part.
   gam.optSlot.assign(model->parts.size(), 0);
   gam.optIndex.assign(model->parts.size(), -1);
+  gam.optUnderHat.assign(model->parts.size(), 0);
   for (size_t m = 0; m < model->parts.size(); ++m) {
-    const std::string& tp = model->parts[m].texturePath;
-    const size_t slash = tp.find_last_of("/\\");
-    size_t at = tp.find("_opt", slash == std::string::npos ? 0 : slash);
+    const std::string& nm = model->parts[m].name;
+    size_t at = nm.find(":opt");
     if (at == std::string::npos) continue;
     at += 4;
-    const bool worn = at < tp.size() && tp[at] == 'd';
-    if (worn) ++at;
-    if (at >= tp.size() || tp[at] != '-') continue;
-    const size_t dash = tp.find('-', at + 1), dot = tp.find('.', at + 1);
-    if (dash == std::string::npos || dot == std::string::npos || dot <= dash) continue;
-    const std::string slot = tp.substr(at + 1, dash - at - 1);
+    const char kind = at < nm.size() ? nm[at] : 0;
+    if (kind == 'd' || kind == 'h') ++at;
+    if (at >= nm.size() || nm[at] != '-') continue;
+    const size_t dash = nm.find('-', at + 1);
+    if (dash == std::string::npos) continue;
+    const std::string slot = nm.substr(at + 1, dash - at - 1);
+    const std::string id = nm.substr(dash + 1);
     const int s = slot == "hair" ? 1 : slot == "head" ? 2 : slot == "face" ? 3 : 0;
     if (s == 0) continue;
+    if (kind == 'h') {
+      for (int k = 0; k < gam.optCount[s]; ++k)
+        if (gam.optIds[s][k] == id) {
+          gam.optSlot[m] = (s8)s;
+          gam.optIndex[m] = (s8)k;
+          gam.optUnderHat[m] = 1;
+          gam.hatHair = true;
+        }
+      continue;
+    }
     gam.optSlot[m] = (s8)s;
     gam.optIndex[m] = (s8)gam.optCount[s];
-    if (worn) gam.optDefault[s] = gam.optCount[s];
-    gam.optIds[s].push_back(tp.substr(dash + 1, dot - dash - 1));
+    if (kind == 'd') gam.optDefault[s] = gam.optCount[s];
+    gam.optIds[s].push_back(id);
     ++gam.optCount[s];
   }
   for (size_t m = 0; m < model->parts.size(); ++m) {

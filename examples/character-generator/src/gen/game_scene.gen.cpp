@@ -226,12 +226,16 @@ void TerrainGame::applyLook(int index) {
     }
     g.animVariant = variant;
   }
-  // options: one per slot (or none)
+  // options: one per slot (or none) - and under a hat, the hairstyle's
+  // pressed twin instead of the plain one
+  const int hat = o.look[2] == -2 ? gam.optDefault[2] : o.look[2];
+  const bool underHat = gam.hatHair && hat >= 0;
   for (size_t m = 0; m < g.animParts.size() && m < gam.optSlot.size(); ++m) {
     const int s = gam.optSlot[m];
     if (s == 0) continue;
     const int pick = o.look[s] == -2 ? gam.optDefault[s] : o.look[s];
-    g.animParts[m].hidden = gam.optIndex[m] != pick;
+    g.animParts[m].hidden =
+        gam.optIndex[m] != pick || (s == 1 && (gam.optUnderHat[m] != 0) != underHat);
     g.animInst->setPartSkipped((u32)m, g.animParts[m].hidden);  // nor skinned
   }
 }
