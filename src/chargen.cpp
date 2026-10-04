@@ -56,7 +56,7 @@ struct GarmentBody {
     std::vector<float> inflDistM;  // measured on the average woman / man (blended by gender)
     std::vector<int32_t> bindTri;  // mesh: body triangle per vertex
     std::vector<float> bindBary;   // 3 per vertex
-    std::vector<float> bindOff;    // offset along the interpolated body normal
+    std::vector<float> bindOff;    // 3 per vertex: along the normal and the tangents u, w (kit_wear tangent_frame)
     std::vector<uint8_t> joints, weights;  // 4 per vertex
 };
 
@@ -314,7 +314,7 @@ bool parseKit(Kit& k) {
                 for (int32_t t : gb.cover) valid &= t >= 0 && t < b.tris;
                 for (int32_t vv : gb.inflIdx) valid &= vv >= 0 && vv < b.verts;
                 const size_t gv = gb.bindTri.size();
-                valid &= gb.bindBary.size() == gv * 3 && gb.bindOff.size() == gv;
+                valid &= gb.bindBary.size() == gv * 3 && gb.bindOff.size() == gv * 3;
                 for (int32_t t : gb.bindTri) valid &= t >= 0 && t < b.tris;
                 for (int32_t i : g.tri) valid &= i >= 0 && (size_t)i < gv;
                 valid &= gv == 0 || (gb.joints.size() == gv * 4 && gb.weights.size() == gv * 4);
@@ -1055,8 +1055,44 @@ bool build(const Params& p, glbparser::Skel& out, std::vector<std::string>& warn
                     }
                 }
                 const float l = std::sqrt(nn[0] * nn[0] + nn[1] * nn[1] + nn[2] * nn[2]);
+                for (int a = 0; a < 3; ++a) nn[a] = l > 1e-9f ? nn[a] / l : 0.0f;
+                // The offset is (normal, u, w) of the bound triangle - u and w
+                // are kit_wear.py's tangent_frame: the bisector and difference
+                // of the unit edges 0->1 and 0->2, projected off the normal. A
+                // skirt's hem hangs far below the hip triangle it rides; every
+                // other item has u = w = 0.
+                const float* off = &gb.bindOff[v * 3];
+                float u[3] = {0, 0, 0}, w[3] = {0, 0, 0};
+                if (off[1] != 0.0f || off[2] != 0.0f) {
+                    float e[2][3];
+                    for (int k = 0; k < 2; ++k) {
+                        const float* p0 = &pos[(size_t)b.tri[t * 3] * 3];
+                        const float* pk = &pos[(size_t)b.tri[t * 3 + 1 + k] * 3];
+                        float el = 0;
+                        for (int a = 0; a < 3; ++a) {
+                            e[k][a] = pk[a] - p0[a];
+                            el += e[k][a] * e[k][a];
+                        }
+                        el = std::sqrt(el);
+                        for (int a = 0; a < 3; ++a) e[k][a] = el > 1e-9f ? e[k][a] / el : 0.0f;
+                    }
+                    for (int a = 0; a < 3; ++a) {
+                        u[a] = e[0][a] + e[1][a];
+                        w[a] = e[0][a] - e[1][a];
+                    }
+                    for (float* x : {u, w}) {
+                        const float dn = x[0] * nn[0] + x[1] * nn[1] + x[2] * nn[2];
+                        float xl = 0;
+                        for (int a = 0; a < 3; ++a) {
+                            x[a] -= nn[a] * dn;
+                            xl += x[a] * x[a];
+                        }
+                        xl = std::sqrt(xl);
+                        for (int a = 0; a < 3; ++a) x[a] = xl > 1e-6f ? x[a] / xl : 0.0f;
+                    }
+                }
                 for (int a = 0; a < 3; ++a)
-                    gp[v * 3 + a] = s[a] + (l > 1e-9f ? nn[a] / l : 0.0f) * gb.bindOff[v] * scale;
+                    gp[v * 3 + a] = s[a] + (nn[a] * off[0] + u[a] * off[1] + w[a] * off[2]) * scale;
             }
             vertexNormals(gp, g->tri.data(), (int)g->tri.size() / 3, gn);
             const size_t gt = g->tri.size() / 3;

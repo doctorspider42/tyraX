@@ -387,7 +387,10 @@ def emit_body(W, stage, P, data, tdir, shared):
             W.add(pre + 'cover', z['cover'].astype(np.int32))
             W.add(pre + 'bindTri', btri.astype(np.int32))
             W.add(pre + 'bindBary', bary.astype(np.float32).ravel())
-            W.add(pre + 'bindOff', z['bindOff'].astype(np.float32))
+            off = z['bindOff'].astype(np.float32).reshape(-1, 3)
+            if flipped:  # swapping B and C negates kit_wear's tangent_frame w
+                off[:, 2] = -off[:, 2]
+            W.add(pre + 'bindOff', off.ravel())
             # Skinned like the body point it rides: the corners' weights
             # mixed by the same barycentrics.
             gw = (vw[tri[btri]] * bary[:, :, None]).sum(1)

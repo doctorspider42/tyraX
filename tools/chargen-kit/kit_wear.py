@@ -334,6 +334,26 @@ MESH_STYLE = {
 }
 
 
+def tangent_frame(n, A, B, C):
+    """Two unit tangents of triangle ABC around normal n: the bisector and the
+    difference of its unit edges AB and AC, projected off n. Orthogonal (up to
+    the projection) even on a sliver, where an AB/AC basis is near-singular and
+    its huge, cancelling coefficients spiked shoes and hair after a morph. No
+    cross product: build_kit.py swaps B and C, which only negates w. The
+    runtime (chargen.cpp) builds the same frame."""
+    a1, a2 = B - A, C - A
+    if a1.length < 1e-9 or a2.length < 1e-9:
+        return None
+    a1.normalize()
+    a2.normalize()
+    u, w = a1 + a2, a1 - a2
+    u -= n * u.dot(n)
+    w -= n * w.dot(n)
+    if u.length < 1e-6 or w.length < 1e-6:
+        return None
+    return u.normalized(), w.normalized()
+
+
 def make_mesh(gid, d, slot, extra):
     px, o, pos, tex = fitted_garment(d)
     if not tex:
@@ -384,7 +404,12 @@ def make_mesh(gid, d, slot, extra):
         lv = bmh.to_blender(prev['pos'] * 10.0)
     bind_tri = np.zeros(len(lv), np.int32)
     bind_bary = np.zeros((len(lv), 3), np.float32)
-    bind_off = np.zeros(len(lv), np.float32)
+    # The offset from the bound point: (normal, u, w) - see tangent_frame. A
+    # scalar along the normal is enough for a hat, but a long skirt's hem
+    # hangs 60 cm BELOW the hip triangle it rides, and pushed along that
+    # triangle's normal it came out as a mini skirt. Only skirts and dresses
+    # take the full vector: elsewhere it buys nothing.
+    bind_off = np.zeros((len(lv), 3), np.float32)
     for i, p in enumerate(lv):
         if style in ('skirt', 'dress'):
             loc, nrm, ti, dist = upper_tri_bvh.find_nearest(Vector(p))
@@ -408,7 +433,13 @@ def make_mesh(gid, d, slot, extra):
         n.normalize()
         bind_tri[i] = ti
         bind_bary[i] = bary
-        bind_off[i] = (Vector(p) - loc).dot(n)
+        d = Vector(p) - loc
+        fr = tangent_frame(n, A, B, C) if style in ('skirt', 'dress') else None
+        if fr is not None:
+            M = np.array([tuple(n), tuple(fr[0]), tuple(fr[1])]).T
+            bind_off[i] = np.linalg.solve(M, np.array(tuple(d)))
+        else:
+            bind_off[i] = (d.dot(n), 0.0, 0.0)
     ltri = np.array([list(t.vertices) for t in me.loop_triangles], np.int32)
     luv = np.zeros((len(ltri), 3, 2), np.float32)
     uvd = me.uv_layers['new'].data

@@ -76,3 +76,10 @@ program. Check a new source's licence file by file before adding it to
   cloth edge crossing mid-row either drops the row or keeps it. Demanding all
   four corners cut a square bib out of the man's crew neck; `make_shell` takes
   a quad with three covered corners, or two plus two within 4.5 cm of the cloth.
+- A mesh vertex's offset from the body point it rides is a VECTOR in that
+  triangle's frame for skirts and dresses: along the normal alone, a long skirt
+  bound to the hips folded up into a mini skirt. The tangents are the bisector
+  and difference of the unit edges (`tangent_frame`): a plain AB/AC basis is
+  near-singular on slivers and its cancelling coefficients spiked shoes after a
+  morph, and with no cross product the corner swap in `build_kit.py` only
+  negates the last one.

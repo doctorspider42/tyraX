@@ -208,14 +208,17 @@ morph as the body:
 hair are remeshed to a budget (hair 700, dress 560, skirt 360, shoes 320, hat
 260, glasses 160 triangles), unwrapped, and their look baked into their own
 256 texture. Each vertex is BOUND to the nearest point of the body surface -
-triangle, barycentric weights, offset along the interpolated normal - so it
+triangle, barycentric weights, and an offset in that triangle's own frame
+(along the interpolated normal, and for skirts and dresses two tangents too) - so it
 follows morphs and is skinned like the body point it rides, with no cloth
 solver. Shoes hide the feet they cover (196 triangles), so they cost ~120 net.
 Skirts and dresses bind only to the body above the crotch: bound to the
 nearest point, a hem 20 cm off the thigh rode the thigh's rotation like a
 lever and spiked out in a stride. Bound to the pelvis the skirt moves rigidly
 with the hips - the PS2-era choice: a leg passes through a long skirt, a skirt
-never tears.
+never tears. That is also why the offset is a full vector: a long skirt's hem
+hangs 60 cm below the hip triangle it rides, and an offset along the normal
+alone folded it up into a mini skirt.
 
 **Every worn mesh item shares ONE part and ONE texture.** At build time the
 items' textures are packed into an accessory atlas the size of the body's, as
