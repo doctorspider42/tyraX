@@ -9,7 +9,7 @@
   "hairColor": [0.15,0.6,0.25], "eyeColor": [0.45,0.45,0.42], "stubble": 0.2,
   "lipstick": 0, "lipColor": [0.65,0.12,0.16], "eyeShadow": 0, "eyeShadowColor": [0.25,0.18,0.3], "blush": 0,
   "textureSize": 128,
-  "hair": "shag",
+  "hair": "messy",
   "outfit": [{"id": "casual5", "color": [-1,-1,-1], "color2": [1,1,1], "pattern": 0}, {"id": "heroboots", "color": [0.1,0.1,0.1], "color2": [1,1,1], "pattern": 0}, {"id": "shades", "color": [-1,-1,-1], "color2": [1,1,1], "pattern": 0}],
   "defaultClips": false, "clips": ["Idle_Talking_Loop", "Idle_Loop"],
   "animFps": 15,

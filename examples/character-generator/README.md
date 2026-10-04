@@ -32,16 +32,18 @@ tyrax-editor --chargen res/models/characters/hero.chargen.json res/models/charac
 
 | | Body | Wears | Atlas | Triangles |
 |---|---|---|---|---|
-| `hero` | man, 1.82 m, muscular | polo (recoloured navy), cargo pants, boots, short hair | 256 | 4162 |
-| `clerk` | woman, 1.65 m, mostly East Asian | elegant suit, pumps, square frames, a bun, lipstick | 128 | 4324 |
-| `dockhand` | man, 1.76 m, older, heavy | work overalls, ankle boots, newsboy cap, buzz cut, stubble | 128 | 4388 |
-| `kid` | child, 1.30 m | striped T-shirt (pattern), jean shorts, canvas shoes, ponytail | 128 | 4248 |
-| `punk` | man, 1.78 m | casual outfit, black hero boots, 3D glasses, green shaggy hair | 128 | 4272 |
-| `elder` | woman, 1.58 m, 90 | sweater, long skirt, flats, round glasses, grey bob | 128 | 4458 |
+| `hero` | man, 1.82 m, muscular | polo (recoloured navy), cargo pants, boots, short hair | 256 | 4237 |
+| `clerk` | woman, 1.65 m, mostly East Asian | elegant suit, pumps, square frames, a bun, lipstick | 128 | 4479 |
+| `dockhand` | man, 1.76 m, older, heavy | work overalls, ankle boots, newsboy cap, buzz cut, stubble | 128 | 4543 |
+| `kid` | child, 1.30 m | striped T-shirt (pattern), jean shorts, canvas shoes, ponytail | 128 | 4357 |
+| `punk` | man, 1.78 m | casual outfit, black hero boots, 3D glasses, green messy hair | 128 | 4374 |
+| `elder` | woman, 1.58 m, 90 | sweater, long skirt, flats, round glasses, grey bob | 128 | 4840 |
 
 Shirts, trousers and suits are **shells** - the body itself, pushed out and
-painted - so they add no triangles; the counts above are a 3340-triangle body
-plus hair, shoes, hats, glasses and skirts. The hero carries a 256 atlas
+painted - so they add no triangles; the counts above are a 3340-triangle woman's body
+or a 3312-triangle man's, plus hair, shoes, hats, glasses and skirts. Those
+mesh items share ONE accessory texture, so each character is two draw parts:
+the body with its atlas, and everything else. The hero carries a 256 atlas
 because he is on screen up close; the rest are a crowd at 128, which is what
 keeps six characters well inside the GS VRAM budget. All six are pinned to
 8-bit textures in the project (`textureQuality`) - skin bands badly at the
