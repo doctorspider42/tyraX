@@ -1,0 +1,69 @@
+{
+  "status": "PASS_INDEPENDENT_POOL_BATCH_COLOR_SPLIT_SOURCE_AND_EXTRACTED_HOST_ORACLE_ONLY",
+  "blockers": [],
+  "compilerBlockers": [],
+  "sourceProofSha256": "bfd7ed25ed41ca0366b900b0173d86511b91801e59d00aedcae35e29e8fa6f37",
+  "baselineManifestSha256": "e2554b9621a392e03db2372d11fdc3ff7f4022cd2d8cca5ee240e8e1a39c6083",
+  "changedSourceFiles": [
+    "game/src/gen/game_lighting.gen.cpp"
+  ],
+  "onlyFunctionChanged": "TerrainGame::poolBatchFlush",
+  "outsideFunctionRawBytesExact": true,
+  "exactOriginalCandidateFunctionExtractionsVerified": true,
+  "actualBagArrayAndColorHeadersByteEqual": true,
+  "hostOptimizations": [
+    "O0",
+    "O2"
+  ],
+  "casesEach": 1322,
+  "checksEach": 11622,
+  "explicitColorOnlyCasesEach": 201,
+  "randomizedSequencesEach": 1000,
+  "hostRunsByReviewer": 0,
+  "sourceCorrectnessAssessment": [
+    "Seven-word member key construction unchanged; ordered identity and vertex/ST stamps independently determine geometry refresh. Cardinality/order/source geometry/ST changes rebuild all streams and advance bbox.",
+    "RGB/FIX-only changes preserve exact original arithmetic/order; only many-color bytes are rewritten/rebound with fresh BagArray color stamp. Geometry pointers/stamps/count/bbox remain stable by construction.",
+    "Actual baked payload key includes color content stamp and key match compares it; fixed geometry/ST stamps do not conceal bounded color-only updates. Odd multiplier makes distinct bounded color stamps injective with other streams fixed, until complete stamp collision.",
+    "Retained command references continue using current stream pointers/count; no new target borrowing, native lifetime, DMA/fence/lease claims. Color-buffer rewrite/reallocation follows original flush path.",
+    "Function-local key cardinality is a multiple of7 by unchanged closed construction; comparison indexing remains within bounds. Empty and scene-recreation paths retain original semantics."
+  ],
+  "limits": [
+    "Host oracle uses explicit renderer/Vec4/matrix/bag ABI shims; actual R5900 compilation, baked/direct/retained/partial-route runtime and pixel appearance remain pending.",
+    "Full 2^32 content stamp collision, unstamped writes and source metadata changes absent from original key remain inherited limits.",
+    "Host NaN/Inf/signed-zero byte parity is not PS2 floating-point proof.",
+    "No current color-only hit activation measured; broad Pools/light-effects cuts and historical census do not establish candidate gain.",
+    "Multiple queued submissions and DMA retirement correctness are not modelled by host capture."
+  ],
+  "nativeRuntimePixelPerformanceOr60Accepted": false,
+  "artifactSha256": {
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-physical-v2\\game\\src\\gen\\game_lighting.gen.cpp": "88552805fa1520c3caff7ff616926ef7e041d6bd665a2de404a42a25037e6f3e",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-physical-v2\\game\\inc\\terrain_game.hpp": "3550b0e0cfc2ae3c3e780d605ba226b74a2a49aaf3951ebbcf268e62b722fbbd",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-physical-v2\\game\\inc\\bag_array.gen.hpp": "997e644d615fe559bbc530751df7d019d84624473b1f980a53c94dd45c94a150",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-physical-v2\\tyra\\engine\\inc\\renderer\\models\\color.hpp": "2ccdf2b171fad8c4349cd1f8cb88d1c11a54cc554c416ed091d33f33a4afe588",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-physical-v2\\tyra\\engine\\src\\renderer\\3d\\pipeline\\static\\core\\stapip_qbuffer_renderer.cpp": "9fe550f3a3cc5ddc30b06a3cc69162f919f11614e59651a803d90b732a8ffb5d",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-physical-v2\\tyra\\engine\\inc\\renderer\\3d\\pipeline\\static\\core\\stapip_qbuffer_renderer.hpp": "d89fa588b2c73a86143c3e5b5ceea52c25850c0392b8b0eaba5a5ad95375f145",
+    "F:\\Projects\\tyrax2-lab-20261001\\ee-resumed-pool-reason-census\\report.md": "334d6dc8e70272afef072e6767aeea550be5956e6617df059edcb200c8917403",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-batch-color-split-proposal-v1\\source\\game\\src\\gen\\game_lighting.gen.cpp": "5a12df050da802d545bc742e916246e018f9e10f044d5c7bdceba52cab2990d1",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-batch-color-split-proposal-v1\\pool-color-split.patch": "57ed6967175cd04ac2577d35dc5f1441bc5f45facb3fc37eb7f7ace59a94e664",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-batch-color-split-proposal-v1\\run-host-oracle.py": "ccd673f2b3c8ad40bf597031bace003d7e1207029fb63d5416923d97a00e3d6a",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-batch-color-split-proposal-v1\\host\\bag_array.gen.hpp": "997e644d615fe559bbc530751df7d019d84624473b1f980a53c94dd45c94a150",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-batch-color-split-proposal-v1\\host\\math\\vec4.hpp": "285634435d7888a29defbddec63856d672959c97e5faa3b751d51eca1d31ce21",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-batch-color-split-proposal-v1\\host\\renderer\\models\\color.hpp": "2ccdf2b171fad8c4349cd1f8cb88d1c11a54cc554c416ed091d33f33a4afe588",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-batch-color-split-proposal-v1\\host\\tyra": "1307da4266daedde7acc44fa7aca637b88222bc5020c0a93a10f9da9d0743295",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-batch-color-split-proposal-v1\\host\\oracle.cpp": "8406cd471474d1effc4ca5220ea4c86e77e50cffd4420c934c2e8577a43665bf",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-batch-color-split-proposal-v1\\host\\original.inc": "7b4900111e54b6bd111e823846a8a80d30b99dbf3342d63254e60af7f47429a2",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-batch-color-split-proposal-v1\\host\\candidate.inc": "28346142071045a81d8b1789381341fc1848bf015148f19e837cfbfd33505b99",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-batch-color-split-proposal-v1\\host\\O0-compile.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-batch-color-split-proposal-v1\\host\\O0-run.log": "a20b1a8aa8108e3ed91284d447008114d372daca8d1c1f354c636a287210457a",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-batch-color-split-proposal-v1\\host\\O2-compile.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-batch-color-split-proposal-v1\\host\\O2-run.log": "a20b1a8aa8108e3ed91284d447008114d372daca8d1c1f354c636a287210457a",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-batch-color-split-proposal-v1\\host\\oracle-O0.exe": "ccfaad5152fa62c7a77d1a6d5d16fb4653c77e9d63961055e8d6e2b0a4f1a770",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-batch-color-split-proposal-v1\\host\\oracle-O2.exe": "4237dfe5808cfba3c8a0c56efa04f08c6a2f8a388bc8790908834ca7c0080eed",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pool-batch-color-split-proposal-v1/source-proof.json": "bfd7ed25ed41ca0366b900b0173d86511b91801e59d00aedcae35e29e8fa6f37",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pool-batch-color-split-proposal-v1/host-proof.json": "19c798e759539db55879c8a5b21cca5a8939c43025a5363053172db679fa0f4e",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pool-batch-color-split-proposal-v1/pool-color-split.patch": "57ed6967175cd04ac2577d35dc5f1441bc5f45facb3fc37eb7f7ace59a94e664",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pool-batch-color-split-proposal-v1/README.md": "d5f78aad3fdb7800a85bc75d718470bb9282dd70f6fb9e51798b8bdc052de7cf",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-physical-v2/target-source-manifest.json": "e2554b9621a392e03db2372d11fdc3ff7f4022cd2d8cca5ee240e8e1a39c6083"
+  },
+  "noBuildDeviceCandidateSourceRepositoryMutation": true
+}

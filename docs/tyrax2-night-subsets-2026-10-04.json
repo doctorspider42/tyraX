@@ -1,0 +1,98 @@
+{
+  "status": "PASS_PRIVATE_EMULATOR_SUBSET_PROTOCOL_AND_AVAILABLE_RASTERS",
+  "sourceManifestSha256": "3e895d8224297c66169bf2a01cabc0dfd1fd1e0c9fee8a77c3c77de88bb14dad",
+  "elfSha256": "6c8ca75370ed92d8825b84ec5db3ef00dd75ead6472e7f3f9c40c4df770b9d0b",
+  "runs": [
+    {
+      "stem": "night-ablation-emulator-v3-pools-order0",
+      "environment": "emulator",
+      "completeLoops": 5400,
+      "machineEvidenceSha256": "213eb89199612f345e2dbadfd57e9fe86d8516a7a23b7fdec7d54e978fc667d4",
+      "launchRecordSha256": "32c999c49355a0b9fdc90017b15172d886844ff0c30c80c56fd600ef0dfea2c2",
+      "externalEvidencePath": "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-emulator-v3-pools-order0-evidence/machine-evidence.json",
+      "rasterFiles": {
+        "restored-full.png": "cc69137c24450d02b88ff5e60d53c61f8f65ea66cc6eb8ebaa73440b0ca64082"
+      },
+      "physicalPerformanceAccepted": false
+    },
+    {
+      "stem": "night-ablation-emulator-v3-pools-order1",
+      "environment": "emulator",
+      "completeLoops": 5400,
+      "machineEvidenceSha256": "a214828601a954a7fa34c5dde123c152522d9f841721779941ac2a4a4447f02e",
+      "launchRecordSha256": "035c3d98eb9a732c800ae1015d79ece0ef007baa35a728d73bd53fde24c5e10d",
+      "externalEvidencePath": "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-emulator-v3-pools-order1-evidence/machine-evidence.json",
+      "rasterFiles": {
+        "phase-0.png": "8eaf59d02f4f5acb6ee9238455120a518138713b086dd863fca6db5095b87b81",
+        "phase-1.png": "9bafa070b5254f55d5b8d15160c5f801f9defeaf09b01b9225df8294e1005ae0",
+        "phase-2.png": "7b85867dc10bd221349adad366aad27c7d1409719519e75fc66e23b494d83cd3"
+      },
+      "physicalPerformanceAccepted": false
+    },
+    {
+      "stem": "night-ablation-emulator-v3-beams-order0",
+      "environment": "emulator",
+      "completeLoops": 5400,
+      "machineEvidenceSha256": "22e05de8b8bc9d188478d07b46302c250d8579222059860ad0928f60dc1bb6aa",
+      "launchRecordSha256": "c33e6aba3093ea410135415c8ea702704a7fce69babff376aa74c1026522e7a5",
+      "externalEvidencePath": "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-emulator-v3-beams-order0-evidence/machine-evidence.json",
+      "rasterFiles": {
+        "phase-0.png": "4a3153e11f3393911a5f9359c5a7a6aa07cbb7c20c0d61e7d8d279cb713675ec",
+        "phase-1.png": "3740f066c120fae5070d9ff61666816949bc9ce1dccc0ef52d3d629ca6ea3172",
+        "phase-2.png": "2a063f3d754df67a098f4d5431fcdb1cb678d7e11126bf94ee8c2fe728eab8c8"
+      },
+      "physicalPerformanceAccepted": false
+    },
+    {
+      "stem": "night-ablation-emulator-v3-beams-order1",
+      "environment": "emulator",
+      "completeLoops": 5400,
+      "machineEvidenceSha256": "4bb21ffb78fcbe6e4ccae38e7a114364b1c6261345cbd13dc52fbfceb7bc1d17",
+      "launchRecordSha256": "308b17b9e111a27e190b4dbe0dda3b717d18d8bfe6880ed524e8f6f7d4dc9a5d",
+      "externalEvidencePath": "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-emulator-v3-beams-order1-evidence/machine-evidence.json",
+      "rasterFiles": {
+        "phase-0.png": "6e274351ce7a43e907c739a0612f63c4c24baf89c59fb2df9fdf0607beba676b",
+        "phase-1.png": "158727be6f69877830d51372c62dc98151253f3d96e586cf9cb2a0b85ab7130b",
+        "phase-2.png": "b27d9d9ffeb3d7180e1a020548b7932707dcbb58ed300c130cbec35e516890b1"
+      },
+      "physicalPerformanceAccepted": false
+    },
+    {
+      "stem": "night-ablation-emulator-v3-glow-order0",
+      "environment": "emulator",
+      "completeLoops": 5400,
+      "machineEvidenceSha256": "c3b0ac821e8782a9993c33a27d7d15d3b37760b4e5ac441629a1c5d761017919",
+      "launchRecordSha256": "193102ebc2ffd945f9a18126004e27d71addaad0628aedc028697d417ff09e7e",
+      "externalEvidencePath": "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-emulator-v3-glow-order0-evidence/machine-evidence.json",
+      "rasterFiles": {
+        "phase-0.png": "06327eb157734cedad5bb90321ffcd0c56f1723553d38ad2d931749a2bbc0c53",
+        "phase-1.png": "7947b39e324c85fa2219353954a46148cd2da67135e082d04416ce21684cacd2",
+        "phase-2.png": "7b695035e0b1c948c6e0fd8270384bc0e1fc37216973062d5061806365918b6b"
+      },
+      "physicalPerformanceAccepted": false
+    },
+    {
+      "stem": "night-ablation-emulator-v3-glow-order1",
+      "environment": "emulator",
+      "completeLoops": 5400,
+      "machineEvidenceSha256": "a2e6eb5aeef6557cb47ef7496331876f1b662692e6ceb44b07c94ed10a4bdee0",
+      "launchRecordSha256": "244450c68e96baf0eaf93dbcb5369a5482d47b2640b37e2687d1c6ebbc8d47ed",
+      "externalEvidencePath": "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-emulator-v3-glow-order1-evidence/machine-evidence.json",
+      "rasterFiles": {
+        "phase-0.png": "84673314c61a2a104026e455d52be231903b27cf0e6b720b1e95d586bfb1f30c",
+        "phase-1.png": "1bfa68439224dadbf474778e4ba2a94af2b74e2ed5ee95633dcd7ed077d4a504",
+        "phase-2.png": "20a47be1a90156148221d43f3f88c4b76568e77e9463455bb4a0f29b691b8a07"
+      },
+      "physicalPerformanceAccepted": false
+    }
+  ],
+  "externalIndependentProofHashes": {
+    "beams-order0-proof.json": "80ec12f98fe7ada50c5a1c7ab9baa723bdd59d73ceac18bac5088e035c0ef868",
+    "beams-order1-proof.json": "7b47910fd5ac1cfa36428c27b41caee4f3da7e0129b0ee39f584561a91b6535d",
+    "glow-order0-proof.json": "d5dd492f2e7ae8762b1d2282ba520e06b46188448aac694d785e66e8aef0ef77",
+    "glow-order1-proof.json": "f58af2d299ba39ff1251b34b168e1a5fce9d0025db6d2505d55055263b2eacdd",
+    "pools-pair-proof.json": "3aaa147b9e728a517e9f55259b4f6571211b60723d40da211e549ea1e0a31e81"
+  },
+  "firstPoolsOrderHasOnlyRestoredFullRaster": true,
+  "physicalPerformanceAccepted": false
+}

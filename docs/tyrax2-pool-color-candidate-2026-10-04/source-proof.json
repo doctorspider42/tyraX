@@ -1,0 +1,40 @@
+{
+  "status": "READY_PRIVATE_POOL_BATCH_COLOR_SPLIT_SOURCE_HOST_ONLY_NOT_NATIVE_ACCEPTED",
+  "baselineManifestPath": "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-physical-v2\\target-source-manifest.json",
+  "baselineManifestSha256": "e2554b9621a392e03db2372d11fdc3ff7f4022cd2d8cca5ee240e8e1a39c6083",
+  "baselineSourceSha256": "88552805fa1520c3caff7ff616926ef7e041d6bd665a2de404a42a25037e6f3e",
+  "candidateSourcePath": "F:\\Projects\\tyrax2-lab-20261001\\pool-batch-color-split-proposal-v1\\source\\game\\src\\gen\\game_lighting.gen.cpp",
+  "candidateSourceSha256": "5a12df050da802d545bc742e916246e018f9e10f044d5c7bdceba52cab2990d1",
+  "changedSourceFiles": [
+    "game/src/gen/game_lighting.gen.cpp"
+  ],
+  "exactExtractedOriginalAndCandidateFunctions": true,
+  "outsideFunctionBytesEqual": true,
+  "actualBagArrayHeaderByteEqual": true,
+  "actualColorHeaderByteEqual": true,
+  "hostProofPath": "F:\\Projects\\tyrax2-lab-20261001\\pool-batch-color-split-proposal-v1\\host-proof.json",
+  "hostProofSha256": "19c798e759539db55879c8a5b21cca5a8939c43025a5363053172db679fa0f4e",
+  "sourceEvidencePins": {
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-physical-v2\\game\\src\\gen\\game_lighting.gen.cpp": "88552805fa1520c3caff7ff616926ef7e041d6bd665a2de404a42a25037e6f3e",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-physical-v2\\game\\inc\\terrain_game.hpp": "3550b0e0cfc2ae3c3e780d605ba226b74a2a49aaf3951ebbcf268e62b722fbbd",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-physical-v2\\game\\inc\\bag_array.gen.hpp": "997e644d615fe559bbc530751df7d019d84624473b1f980a53c94dd45c94a150",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-physical-v2\\tyra\\engine\\inc\\renderer\\models\\color.hpp": "2ccdf2b171fad8c4349cd1f8cb88d1c11a54cc554c416ed091d33f33a4afe588",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-physical-v2\\tyra\\engine\\src\\renderer\\3d\\pipeline\\static\\core\\stapip_qbuffer_renderer.cpp": "9fe550f3a3cc5ddc30b06a3cc69162f919f11614e59651a803d90b732a8ffb5d",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-physical-v2\\tyra\\engine\\inc\\renderer\\3d\\pipeline\\static\\core\\stapip_qbuffer_renderer.hpp": "d89fa588b2c73a86143c3e5b5ceea52c25850c0392b8b0eaba5a5ad95375f145",
+    "F:\\Projects\\tyrax2-lab-20261001\\ee-resumed-pool-reason-census\\report.md": "334d6dc8e70272afef072e6767aeea550be5956e6617df059edcb200c8917403"
+  },
+  "patchSha256": "57ed6967175cd04ac2577d35dc5f1441bc5f45facb3fc37eb7f7ace59a94e664",
+  "readmeSha256": "d5f78aad3fdb7800a85bc75d718470bb9282dd70f6fb9e51798b8bdc052de7cf",
+  "casesPerOptimization": 1322,
+  "checksPerOptimization": 11622,
+  "testedOptimizations": [
+    "O0",
+    "O2"
+  ],
+  "newNativeBuild": false,
+  "newDeviceRun": false,
+  "activationMeasured": false,
+  "performanceGainClaimed": false,
+  "nativeAccepted": false,
+  "runtimeAccepted": false
+}
