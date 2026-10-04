@@ -256,8 +256,9 @@ man in a dress.
 
 ## The rig
 
-40 bones: 35 with Mixamo names (`mixamorig:Hips`...), because that is what
-free animation libraries and retarget tools match on, plus five for the face:
+46 bones: 35 with Mixamo names (`mixamorig:Hips`...), because that is what
+free animation libraries and retarget tools match on, five for the face and
+six spring bones:
 
 ```
 Hips ─ Spine ─ Spine1 ─ Spine2 ─┬─ Neck ─ Head ─ HeadTop_End
@@ -270,7 +271,9 @@ Hips ─ Spine ─ Spine1 ─ Spine2 ─┬─ Neck ─ Head ─ HeadTop_End
 
 Head ─┬─ Jaw                       (the lower lip and the tongue hang below it)
       ├─ LeftEye,     RightEye     (the eyeballs)
-      └─ LeftEyelid,  RightEyelid  (the upper lids, pivoting on the eye's centre)
+      ├─ LeftEyelid,  RightEyelid  (the upper lids, pivoting on the eye's centre)
+      └─ HairTail1 ─ HairTail2     (a ponytail / braid / long hair, down the back)
+Hips ── SkirtFront, SkirtBack, SkirtLeft, SkirtRight   (a skirt's four panels)
 ```
 
 The face bones are APPENDED after the 35 so no older bone changes index
@@ -369,6 +372,36 @@ vertices - targets and weights are per vertex), wound to face the lips. Tyra
 draws no back-face culling, so what the corners of an open mouth show is the
 inside of the cheek, never the sky.
 
+## Spring bones
+
+Long hair and skirts move. A ponytail swings when its owner turns, a braid
+bounces in a run, and a skirt or a dress parts around the stepping leg instead
+of the leg going through it. Secondary motion, the 2004 trick - no cloth
+solver.
+
+- **The rig** carries a hair chain (`HairTail1` at the back of the skull,
+  `HairTail2` at the top of the back - affine mixes of MakeHuman joints, so
+  they follow every morph) and four skirt bones pivoting in the pelvis.
+- **The weights** go to them only for items that hang (`catalog.py`'s
+  `'spring': 'hair'` on long hair, ponytails and braids; every skirt and
+  dress): hair behind the skull base, along the chain - a fringe stays on the
+  face - and cloth a hand's breadth below the pelvis, by depth, split between
+  the four panels by which way it faces (`build_kit.spring_weights`).
+- **The game** (`updateSprings`) simulates each bone's TIP in world space: a
+  spring to where the bone's rest would put it, damping, a little gravity,
+  held at the bone's length - so walking, turning and the clip's own sway all
+  set it going. A skirt panel's target is DRIVEN by the legs: the front panel
+  follows whichever thigh is furthest forward, the back one the furthest back,
+  each side its own thigh, and the spring adds the lag and the bounce; the
+  tips are also pushed out of the thighs. A collision alone came too late -
+  the knee was gone before the hem reached it. The bone is then turned to
+  point at its tip (a rotation override, like the face).
+
+Same 10 m cut-off as the face, same cost model: a character with live springs
+is a pose of its own. Verified in PCSX2 on a runner in a midi dress with a
+ponytail: the dress flares with the legs through the run cycle, the legs stay
+mostly covered, the ponytail swings.
+
 ## Crowds
 
 *Crowd...* (next to *Add to scene*) puts the current character into the scene
@@ -410,7 +443,7 @@ same scene ran the EE out of memory before it.
 ## Cost on the console
 
 A dressed character is 4100-4500 triangles in 2 parts (body, accessories)
-and 40 bones - a hero budget. Crowds should use the `.tskl` distance
+and 46 bones - a hero budget. Crowds should use the `.tskl` distance
 LODs (*Mesh LOD* in Project Preferences) and a 128 atlas: four bystanders and a
 hero at 256 fit the example scene's VRAM with room to spare. Texture cost is
 the one to watch: GS VRAM is ~1.33 MB with no eviction
@@ -855,9 +888,8 @@ argument for having the live window at all:
 - **Expressions.** The face blinks, looks and talks, but does not smile or
   frown: MakeHuman's expression targets are CC0 and would fit the same delta
   scheme, as morph targets the EE blends - a cost the bones avoid.
-- **Cloth that moves.** Skirts are rigid with the pelvis and hair with the
-  head and shoulders; a secondary-motion bone or two per item is the next
-  step, at an EE cost per bone.
+- **Cloth that drapes.** Skirts swing as four panels and hair as one chain;
+  a coat's tails, a cape or a sleeve would need their own springs.
 
 ## Code map
 

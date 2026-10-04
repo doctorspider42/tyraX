@@ -210,6 +210,42 @@ def key_colour(rgb):
     return rgb[key == np.bincount(key, minlength=2400).argmax()].mean(0)
 
 
+def spring_weights(gw, pos, kind, heads):
+    """Hands part of a hanging item's skin to the spring bones (rig.py), so the
+    game can swing it. `pos` are the item's vertices and `heads` the rig's
+    joints, both in metres, MakeHuman axes (y up, z forward).
+
+    hair:  along the chain from the back of the skull (HairTail1) to the top
+           of the back (HairTail2), and only BEHIND the skull base - a fringe
+           over the eyes must stay where the face is.
+    skirt: everything a hand's breadth below the pelvis goes, by depth, to the
+           four skirt bones, split by which way it faces (front / back / left /
+           right) - the patch of cloth a leg pushes is the one that moves."""
+    gw = gw.copy()
+    if kind == 'hair':
+        p1, p2 = heads[rig.INDEX['HairTail1']], heads[rig.INDEX['HairTail2']]
+        skull_z = heads[rig.INDEX['Head']][2]
+        seg = p2 - p1
+        t = ((pos - p1) @ seg) / float(seg @ seg)
+        behind = np.clip((skull_z - pos[:, 2]) / 0.04, 0.0, 1.0)
+        s1 = np.clip((t + 0.25) / 0.35, 0.0, 1.0) * behind   # the whole tail's share
+        s2 = np.clip((t - 0.35) / 0.4, 0.0, 1.0)             # ...of which the lower bone
+        new = gw * (1.0 - s1)[:, None]
+        new[:, rig.INDEX['HairTail1']] += s1 * (1.0 - s2)
+        new[:, rig.INDEX['HairTail2']] += s1 * s2
+        return new
+    c = heads[rig.INDEX['Hips']]
+    depth = np.clip((c[1] - pos[:, 1] - 0.03) / 0.25, 0.0, 1.0)
+    ang = np.arctan2(pos[:, 0] - c[0], pos[:, 2] - c[2])  # 0 = front, +x = her left
+    lobes = np.stack([np.cos(ang), -np.cos(ang), np.sin(ang), -np.sin(ang)], 1)
+    lobes = np.maximum(lobes, 0.0) ** 2
+    lobes /= np.maximum(lobes.sum(1, keepdims=True), 1e-9)
+    new = gw * (1.0 - depth)[:, None]
+    for k, name in enumerate(rig.SKIRT_SPRINGS):
+        new[:, rig.INDEX[name]] += depth * lobes[:, k]
+    return new
+
+
 def boundary_loops(faces, part):
     """Open boundary loops of the body (part 0) as vertex lists."""
     count = {}
@@ -499,6 +535,13 @@ def emit_body(W, stage, P, data, tdir, shared):
             for fb in rig.FACE:
                 gw[:, rig.INDEX['Head']] += gw[:, rig.INDEX[fb]]
                 gw[:, rig.INDEX[fb]] = 0
+            # Spring bones (rig.HAIR_SPRINGS / SKIRT_SPRINGS): only for items
+            # that hang - long hair, braids, skirts, dresses.
+            style = cat[5].get('style', '') if cat else ''
+            spring = (cat[5].get('spring') if cat else None) or (
+                'skirt' if style in ('skirt', 'dress') else None)
+            if spring:
+                gw = spring_weights(gw, z['pos'].astype(np.float64), spring, shared['heads'] * DM)
             gj = np.argsort(-gw, axis=1)[:, :4]
             gwt = np.take_along_axis(gw, gj, 1)
             gwt[gwt < 0.02] = 0

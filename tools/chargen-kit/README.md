@@ -92,3 +92,6 @@ program. Check a new source's licence file by file before adding it to
   glasses bound by the eyes blinked with the lids.
 - The proxy's mouth tube is open at its inner end; with the jaw down the game
   looked through the head. `build_kit.cap_mouth` closes it without new vertices.
+- Spring bones (`rig.HAIR_SPRINGS`, `SKIRT_SPRINGS`) are appended after the
+  face. A rig head can be an affine mix of joints (`rig.heads`). Only catalog
+  items that hang take their weights (`build_kit.spring_weights`).

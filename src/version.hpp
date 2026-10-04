@@ -5515,7 +5515,12 @@
 // host-baked albedo map (REFL_GROUND_*): -2 ms a turning frame on the Motor
 // District's open road on a PS2.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 171
+#define TYRAX_VERSION_MINOR 172
+// 1.172.0: spring bones (docs/character-generator.md, "Spring bones"). The
+// generated rig gains a hair chain and four skirt panels (46 bones); long hair,
+// braids, skirts and dresses are weighted to them; the game's updateSprings
+// swings each tip in world space and drives a skirt's panels from the thighs,
+// so a dress flares with a running stride instead of the legs going through.
 // 1.171.0: crowds (docs/character-generator.md, "Crowds"). The Character
 // Generator's Crowd button writes a character once plus N colour variants
 // ("<texture>.v<k>.png"); texbake fits each into a 1 KB palette against the

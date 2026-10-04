@@ -65,6 +65,29 @@ BONES += [
 ]
 FACE = ['Jaw', 'LeftEye', 'RightEye', 'LeftEyelid', 'RightEyelid']
 
+# Spring bones (secondary motion - the game swings them, docs/character-
+# generator.md "Spring bones"), appended after the face for the same reason.
+# Only items that ask for them (catalog 'spring') take their weights. A head
+# here may be an affine mix of MakeHuman joints instead of one joint, so it
+# still follows every morph: the back of the skull is the skull base pushed
+# away from the eyes and up towards the crown; the chain's second joint drops
+# from there by the neck's own length to the top of the back. The skirt's four
+# bones all pivot in the pelvis - which patch of cloth each one carries is in
+# the weights, not in where it sits.
+_SKULL = [('head____head', 1.17), ('eye.L____head', -0.275), ('eye.R____head', -0.275),
+          ('head____tail', 0.38)]
+_UPPER_BACK = _SKULL + [('neck01____head', 1.3), ('head____head', -1.3)]
+BONES += [
+    ('HairTail1', 'Head', _SKULL, []),
+    ('HairTail2', 'HairTail1', _UPPER_BACK, []),
+    ('SkirtFront', 'Hips', 'spine05____head', []),
+    ('SkirtBack', 'Hips', 'spine05____head', []),
+    ('SkirtLeft', 'Hips', 'spine05____head', []),
+    ('SkirtRight', 'Hips', 'spine05____head', []),
+]
+HAIR_SPRINGS = ['HairTail1', 'HairTail2']
+SKIRT_SPRINGS = ['SkirtFront', 'SkirtBack', 'SkirtLeft', 'SkirtRight']
+
 NAMES = [b[0] for b in BONES]
 INDEX = {n: i for i, n in enumerate(NAMES)}
 PARENT = [INDEX[b[1]] if b[1] else -1 for b in BONES]
@@ -88,4 +111,9 @@ def collapse_map(mhskel_bones):
 
 def heads(skel, base):
     import numpy as np
-    return np.array([skel.joint(b[2], base) for b in BONES])
+
+    def at(spec):
+        if isinstance(spec, str):
+            return skel.joint(spec, base)
+        return sum(skel.joint(j, base) * w for j, w in spec)
+    return np.array([at(b[2]) for b in BONES])
