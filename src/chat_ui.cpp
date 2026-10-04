@@ -599,6 +599,81 @@ std::string App::runChatTool(aichat::ToolCall& c) {
                     "\"). Call set_scene first, then repeat this call.");
 
     // --- EDIT --------------------------------------------------------------
+    if (c.name == "create_character") {
+        // The recipe arrives as JSON; the generator's own reader validates it,
+        // so the AI and a hand-written .chargen.json are held to one standard.
+        const json::Value* rv = aichat::argValue(c, "recipe");
+        if (!rv || rv->type != json::Value::Type::Object)
+            return fail("\"recipe\" must be an object (call character_kit for its fields).");
+        chargen::Params params;
+        std::string err;
+        if (!chargen::fromJson(json::write(*rv), params, err))
+            return fail("The recipe was not accepted: " + err);
+        std::string name = aichat::argStr(c, "name");
+        if (name.empty()) name = params.name;
+        name = sanitizeAssetName(name.c_str());
+        if (name.empty()) name = "character";
+        int people = 1;
+        if (const json::Value* v = aichat::argValue(c, "crowd"))
+            people = std::clamp((int)v->numberOr(1.0), 1, 40);
+        if (people > 1) {
+            params.textureSize = std::min(params.textureSize, 128);  // a crowd's budget
+            name += "-crowd";
+        }
+        namespace fs = std::filesystem;
+        std::string unique = name;
+        for (int n = 2; fs::exists(fs::path(project_.dir) / "res" / "models" / "characters" /
+                                   (unique + ".glb"));
+             ++n)
+            unique = name + "-" + std::to_string(n);
+        glbparser::Skel skel;
+        std::vector<std::string> warnings;
+        if (!chargen::build(params, skel, warnings, err)) return fail("Could not build it: " + err);
+        std::string rel;
+        if (!chargen::writeAsset(project_.dir, unique, skel, params, &rel, &err))
+            return fail("Could not write it: " + err);
+        project_.textureQuality[rel] = "8bit";  // a face needs 256 colours
+        float pos[3] = {0.0f, 0.0f, 0.0f};
+        bool placed = false;
+        if (const json::Value* v = aichat::argValue(c, "position"))
+            placed = aichat::vec3(*v, pos);
+        int variants = 0;
+        if (people > 1) {
+            variants = std::min(people - 1, 6);
+            const std::string glb = (fs::path(project_.dir) / rel).string();
+            for (int k = 1; k <= variants; ++k)
+                if (!chargen::writeVariantTextures(chargen::paletteVariant(params, (unsigned)k),
+                                                   glb, k, err))
+                    return fail("Could not write colour variant " + std::to_string(k) + ": " + err);
+        }
+        const int cols = std::max(1, (int)std::ceil(std::sqrt((float)people)));
+        for (int i = 0; i < people; ++i) {
+            const float at[3] = {pos[0] + (people > 1 ? ((i % cols) - (cols - 1) * 0.5f) * 1.2f : 0.0f),
+                                 pos[1],
+                                 pos[2] + (people > 1 ? ((i / cols) - (cols - 1) * 0.5f) * 1.2f : 0.0f)};
+            addModelObject(rel, (placed || people > 1) ? at : nullptr, /*commit=*/false);
+            SceneObject& o = project_.objects().back();
+            if (people > 1) {
+                o.paletteVariant = i % (variants + 1);
+                o.rotation[1] = (float)((i * 137) % 360);
+                o.meshLodOverride = 8.0f;
+            }
+        }
+        commitChange();
+        statusMessage_ = "AI: generated " + unique;
+        std::string out = "Generated \"" + unique + "\" (" +
+                          std::to_string(skel.totalVertexCount() / 3) + " triangles, " +
+                          std::to_string((int)skel.palette.size()) + " bones) at " + rel;
+        if (people > 1)
+            out += " and placed a crowd of " + std::to_string(people) + " in " +
+                   std::to_string(variants + 1) + " colour schemes";
+        else
+            out += " and placed it; it is now selected";
+        for (const std::string& w : warnings) out += "\nnote: " + w;
+        return out + ". Its recipe is beside it (" + unique +
+               ".chargen.json) - Tools > Character Generator > Open recipe edits it.";
+    }
+
     if (c.name == "add_object") {
         PrimitiveType type;
         if (!parseObjectType(aichat::argStr(c, "type"), type))

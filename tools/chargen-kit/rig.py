@@ -88,6 +88,20 @@ BONES += [
 HAIR_SPRINGS = ['HairTail1', 'HairTail2']
 SKIRT_SPRINGS = ['SkirtFront', 'SkirtBack', 'SkirtLeft', 'SkirtRight']
 
+# Expression bones (the game's Emote: a smile, a frown, surprise - docs/
+# character-generator.md "Expressions"), appended after the springs. Both pairs
+# pivot DEEP in the head - the brows on the skull base, the mouth corners
+# behind the mouth - so a few degrees of turn moves the skin almost straight:
+# up, down, back. MakeHuman's oculi01 is the brow, levator05 + risorius03 the
+# corner of the mouth and the cheek it pulls.
+BONES += [
+    ('LeftBrow', 'Head', 'head____head', ['oculi01.L']),
+    ('RightBrow', 'Head', 'head____head', ['oculi01.R']),
+    ('LeftMouthCorner', 'Head', 'special03____head', ['levator05.L', 'risorius03.L']),
+    ('RightMouthCorner', 'Head', 'special03____head', ['levator05.R', 'risorius03.R']),
+]
+FACE += ['LeftBrow', 'RightBrow', 'LeftMouthCorner', 'RightMouthCorner']
+
 NAMES = [b[0] for b in BONES]
 INDEX = {n: i for i, n in enumerate(NAMES)}
 PARENT = [INDEX[b[1]] if b[1] else -1 for b in BONES]

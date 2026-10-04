@@ -163,7 +163,9 @@ A rig with face bones (the Character Generator's, or any `.glb` naming its
 bones `mixamorig:Jaw`, `mixamorig:LeftEye`/`RightEye`,
 `mixamorig:LeftEyelid`/`RightEyelid`) also blinks, looks at the player and
 talks on its own, on top of the clip; `talk(ctx, objectIndex, seconds)` makes
-it talk from a script. See
+it talk and `emote(ctx, objectIndex, expression, seconds)` pulls a face (0
+neutral, 1 smile, 2 angry, 3 surprised, 4 sad) from a script; the **Talk** and
+**Emote** nodes do the same from a graph. See
 [character-generator.md](character-generator.md#a-living-face).
 
 ## Build output

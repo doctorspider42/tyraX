@@ -1482,6 +1482,8 @@ class TerrainGame : public Tyra::Game {
     // without them simply keeps a still face), plus the smoothed state.
     s16 faceHead = -1, faceJaw = -1;
     s16 faceEye[2] = {-1, -1}, faceLid[2] = {-1, -1};
+    s16 faceBrow[2] = {-1, -1}, faceCorner[2] = {-1, -1};  // expressions
+    float emoteW[5] = {1.0F, 0.0F, 0.0F, 0.0F, 0.0F};       // eased weights
     bool faceLive = false;  // overrides set on animInst right now
     u32 faceSeed = 1;       // per-object LCG: blinks never synchronise
     float blinkIn = 2.0F;   // seconds to the next blink
@@ -3366,6 +3368,8 @@ class TerrainGame : public Tyra::Game {
     // without them simply keeps a still face), plus the smoothed state.
     s16 faceHead = -1, faceJaw = -1;
     s16 faceEye[2] = {-1, -1}, faceLid[2] = {-1, -1};
+    s16 faceBrow[2] = {-1, -1}, faceCorner[2] = {-1, -1};  // expressions
+    float emoteW[5] = {1.0F, 0.0F, 0.0F, 0.0F, 0.0F};       // eased weights
     bool faceLive = false;  // overrides set on animInst right now
     u32 faceSeed = 1;       // per-object LCG: blinks never synchronise
     float blinkIn = 2.0F;   // seconds to the next blink
@@ -5507,6 +5511,11 @@ struct RuntimeObject {
   // while > 0 (the talk() helper below). A playing clip whose name contains
   // "Talk" talks by itself; a sound emitter with a Speaker lip-syncs it.
   float talkTime = 0.0F;
+  // An expression on a generated character's face (the Emote node, the
+  // emote() helper): 0 neutral, 1 smile, 2 angry, 3 surprised, 4 sad - held
+  // for emoteTime seconds (< 0 = until changed), then back to neutral.
+  int emote = 0;
+  float emoteTime = 0.0F;
 };
 
 inline bool physAsleep(const RuntimeObject& o) {
@@ -5880,6 +5889,16 @@ inline void playAnimation(ScriptContext& ctx, int objectIndex,
 inline void talk(ScriptContext& ctx, int objectIndex, float seconds) {
   if (objectIndex < 0 || objectIndex >= ctx.objectCount) return;
   ctx.objects[objectIndex].talkTime = seconds > 0.0F ? seconds : 0.0F;
+}
+
+/** Puts an expression on a generated character's face: 0 neutral, 1 smile,
+ * 2 angry, 3 surprised, 4 sad, for `seconds` (<= 0 = until the next one).
+ * It eases in and out. Models without face bones ignore it. */
+inline void emote(ScriptContext& ctx, int objectIndex, int expression, float seconds) {
+  if (objectIndex < 0 || objectIndex >= ctx.objectCount) return;
+  RuntimeObject& o = ctx.objects[objectIndex];
+  o.emote = expression < 0 || expression > 4 ? 0 : expression;
+  o.emoteTime = seconds > 0.0F ? seconds : -1.0F;
 }
 
 /** Freezes an animated model object on its current pose. */
@@ -23818,6 +23837,14 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                     c << pad << "ctx.openMenu = " << mi << ";  // \"" << n.str
                       << "\"\n";
                 }
+            } else if (n.type == "Emote") {
+                // num[0] = expression (0 neutral .. 4 sad), num[1] = seconds
+                // (0 = until the next Emote)
+                c << pad << "emote(ctx, " << objIdx << ", " << (int)n.num[0] << ", "
+                  << floatLit(n.num[1]) << ");\n";
+            } else if (n.type == "Talk") {
+                c << pad << "talk(ctx, " << objIdx << ", "
+                  << (pin == 1 ? std::string("0.0F") : floatLit(n.num[0])) << ");\n";
             } else if (n.type == "Animation") {
                 if (pin == 1) {
                     c << pad << "stopAnimation(ctx, " << objIdx << ");\n";

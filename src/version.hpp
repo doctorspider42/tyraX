@@ -5515,7 +5515,12 @@
 // host-baked albedo map (REFL_GROUND_*): -2 ms a turning frame on the Motor
 // District's open road on a PS2.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 173
+#define TYRAX_VERSION_MINOR 174
+// 1.174.0: expressions and characters from words. The generated rig gains
+// brows and mouth corners (50 bones); the Emote node / emote() helper puts a
+// smile, anger, surprise or sadness on top of any clip, the Talk node starts
+// and stops the syllable jaw. The AI Assistant gains character_kit (the kit's
+// catalogue) and create_character (a recipe -> a character or a crowd).
 // 1.173.0: the Character Generator's window, redone (docs/character-
 // generator.md, "Using it"): thumbnail cards for clothes, hairstyles and the
 // starting bodies (built on a worker, rendered by Viewport::renderCharacterIcon,

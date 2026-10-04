@@ -75,6 +75,10 @@ parameter the character came from. *Open recipe...* rebuilds that exact
 character for editing; two recipes diff readably; and identical recipes always
 produce byte-identical files.
 
+Or ask the **AI Assistant** for one in plain words ("a tall woman in a green
+dress with a braid", "five tourists") - it reads the kit's catalogue and writes
+the recipe for you, a single character or a crowd ([ai-chat.md](ai-chat.md)).
+
 From the command line (the same code path, no GUI):
 
 ```
@@ -269,8 +273,8 @@ man in a dress.
 
 ## The rig
 
-46 bones: 35 with Mixamo names (`mixamorig:Hips`...), because that is what
-free animation libraries and retarget tools match on, five for the face and
+50 bones: 35 with Mixamo names (`mixamorig:Hips`...), because that is what
+free animation libraries and retarget tools match on, nine for the face and
 six spring bones:
 
 ```
@@ -285,6 +289,8 @@ Hips ─ Spine ─ Spine1 ─ Spine2 ─┬─ Neck ─ Head ─ HeadTop_End
 Head ─┬─ Jaw                       (the lower lip and the tongue hang below it)
       ├─ LeftEye,     RightEye     (the eyeballs)
       ├─ LeftEyelid,  RightEyelid  (the upper lids, pivoting on the eye's centre)
+      ├─ LeftBrow,    RightBrow    (pivoting on the skull base - a raise is a slide)
+      ├─ LeftMouthCorner, RightMouthCorner   (pivoting behind the mouth)
       └─ HairTail1 ─ HairTail2     (a ponytail / braid / long hair, down the back)
 Hips ── SkirtFront, SkirtBack, SkirtLeft, SkirtRight   (a skirt's four panels)
 ```
@@ -371,6 +377,16 @@ works over an idle, a walk or a dance alike.
 The game finds the bones **by name** (`mixamorig:Jaw`, `mixamorig:LeftEye`...;
 `.tskl` v3 carries node names, `SkelModel::findNode`), so any `.glb` with those
 bones gets the same face, and a rig without them simply keeps a still one.
+
+**Expressions.** The **Emote** node (Animation category; or
+`emote(ctx, objectIndex, expression, seconds)` from a script) puts a face on
+top of everything above: *Smile*, *Angry*, *Surprised*, *Sad* or back to
+*Neutral*, held for some seconds or until the next one, easing in and out. It
+moves four more bones - the brows and the corners of the mouth, both pivoting
+deep in the head so a few degrees of turn reads as a slide - plus the lids
+and the jaw. The values were tuned in Blender and then made about 30% bolder,
+because at 512x448 on PCSX2 the Blender ones read as a twitch. The **Talk**
+node starts and stops the syllable jaw (the `talk()` helper).
 
 **What it costs.** A face is a pose of its own: an instance with overrides
 never shares its skinned mesh with another in the same clip (the crowd trick
@@ -901,9 +917,10 @@ argument for having the live window at all:
 
 ## What is not here yet
 
-- **Expressions.** The face blinks, looks and talks, but does not smile or
-  frown: MakeHuman's expression targets are CC0 and would fit the same delta
-  scheme, as morph targets the EE blends - a cost the bones avoid.
+- **Fine expressions.** Four expressions on four bones - no cheek puff, no
+  sneer, no asymmetric smirk; MakeHuman's expression targets are CC0 and would
+  fit the same delta scheme, as morph targets the EE blends - a cost the bones
+  avoid.
 - **Cloth that drapes.** Skirts swing as four panels and hair as one chain;
   a coat's tails, a cape or a sleeve would need their own springs.
 

@@ -9255,6 +9255,11 @@ void TerrainGame::setupAnimObject(int index) {
   g.faceEye[1] = (s16)sm->findNode("mixamorig:RightEye");
   g.faceLid[0] = (s16)sm->findNode("mixamorig:LeftEyelid");
   g.faceLid[1] = (s16)sm->findNode("mixamorig:RightEyelid");
+  g.faceBrow[0] = (s16)sm->findNode("mixamorig:LeftBrow");
+  g.faceBrow[1] = (s16)sm->findNode("mixamorig:RightBrow");
+  g.faceCorner[0] = (s16)sm->findNode("mixamorig:LeftMouthCorner");
+  g.faceCorner[1] = (s16)sm->findNode("mixamorig:RightMouthCorner");
+  for (int e = 0; e < 5; ++e) g.emoteW[e] = e == 0 ? 1.0F : 0.0F;
   g.faceLive = false;
   g.faceSeed = 2654435761u * (u32)(index + 1);
   g.blinkIn = 0.5F + (float)(g.faceSeed >> 28) * 0.3F;  // never in unison
@@ -9610,6 +9615,31 @@ void TerrainGame::updateFace(int index, float dist2) {
   const float jawRate = dt * 22.0F < 1.0F ? dt * 22.0F : 1.0F;
   g.jawOpen += (wantJaw - g.jawOpen) * jawRate;
 
+  // Expressions: each one's weight eases towards 1 (the one shown) or 0, so
+  // a smile fades into surprise instead of snapping. Per expression, in
+  // radians on each bone's own axes (+X turns a point in front of the pivot
+  // DOWN, +Y turns it towards the character's left): brow raise and inward
+  // pull, mouth corner raise and outward pull, extra lid, extra jaw.
+  if (o.emoteTime > 0.0F) {
+    o.emoteTime -= dt;
+    if (o.emoteTime <= 0.0F) o.emote = 0, o.emoteTime = 0.0F;
+  }
+  static const float kEmote[5][6] = {
+      //  brow X, brow in, corner X, corner out, lid, jaw
+      {0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F},           // neutral
+      {-0.045F, 0.0F, -0.25F, 0.21F, 0.24F, 0.0F},    // smile
+      {0.12F, 0.09F, 0.11F, 0.0F, 0.36F, 0.0F},       // angry
+      {-0.16F, 0.0F, 0.0F, 0.0F, -0.24F, 0.21F},      // surprised
+      {-0.06F, -0.07F, 0.19F, -0.06F, 0.28F, 0.0F}};  // sad
+  // (measured in PCSX2 at 512x448: the Blender-tuned values read as a
+  // twitch at that size - these are ~30% bolder)
+  const float emoteRate = dt * 6.0F < 1.0F ? dt * 6.0F : 1.0F;
+  float ex[6] = {0, 0, 0, 0, 0, 0};
+  for (int e = 0; e < 5; ++e) {
+    g.emoteW[e] += ((e == o.emote ? 1.0F : 0.0F) - g.emoteW[e]) * emoteRate;
+    for (int k = 0; k < 6; ++k) ex[k] += kEmote[e][k] * g.emoteW[e];
+  }
+
   // Overrides, in each bone's own frame (the rig binds with identity
   // rotations: +X is the character's left-right axis, +Y up, +Z forward).
   float q[4];
@@ -9617,6 +9647,15 @@ void TerrainGame::updateFace(int index, float dist2) {
     q[0] = q[1] = q[2] = 0.0F;
     q[axis] = sinf(angle * 0.5F);
     q[3] = cosf(angle * 0.5F);
+  };
+  // a turn about +X, then about +Y (both in the bone's own frame)
+  auto xyQuat = [&q](float ax, float ay) {
+    const float sx = sinf(ax * 0.5F), cx = cosf(ax * 0.5F);
+    const float sy = sinf(ay * 0.5F), cy = cosf(ay * 0.5F);
+    q[0] = sx * cy;
+    q[1] = cx * sy;
+    q[2] = sx * sy;
+    q[3] = cx * cy;
   };
   auto yawPitchQuat = [&q](float yaw, float pitch) {
     // yaw about +Y, then pitch about +X (a positive X turn tips the face
@@ -9638,13 +9677,24 @@ void TerrainGame::updateFace(int index, float dist2) {
       inst->setRotationOverride((u32)g.faceEye[s], q);
     }
     if (g.faceLid[s] >= 0) {
-      // 54 degrees shuts it; the lid also rides the eye up and down a little
-      axisQuat(0, clampf(lid * 0.95F - eyePitch * 0.6F, -0.2F, 0.95F));
+      // 54 degrees shuts it; the lid also rides the eye up and down a little,
+      // and an expression narrows (or widens) it
+      axisQuat(0, clampf(ex[4] + lid * 0.95F - eyePitch * 0.6F, -0.25F, 0.95F));
       inst->setRotationOverride((u32)g.faceLid[s], q);
+    }
+    // s = 0 is the character's left: "inward" and "outward" mirror
+    const float side = s == 0 ? 1.0F : -1.0F;
+    if (g.faceBrow[s] >= 0) {
+      xyQuat(ex[0], -ex[1] * side);
+      inst->setRotationOverride((u32)g.faceBrow[s], q);
+    }
+    if (g.faceCorner[s] >= 0) {
+      xyQuat(ex[2], ex[3] * side);
+      inst->setRotationOverride((u32)g.faceCorner[s], q);
     }
   }
   if (g.faceJaw >= 0) {
-    axisQuat(0, g.jawOpen * 0.21F);  // 12 degrees: speech, not a yawn
+    axisQuat(0, g.jawOpen * 0.21F + ex[5]);  // 12 degrees: speech, not a yawn
     inst->setRotationOverride((u32)g.faceJaw, q);
   }
   g.faceLive = true;

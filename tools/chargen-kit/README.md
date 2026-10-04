@@ -95,3 +95,5 @@ program. Check a new source's licence file by file before adding it to
 - Spring bones (`rig.HAIR_SPRINGS`, `SKIRT_SPRINGS`) are appended after the
   face. A rig head can be an affine mix of joints (`rig.heads`). Only catalog
   items that hang take their weights (`build_kit.spring_weights`).
+- Expression bones (brows, mouth corners) are in `rig.FACE` too, so mesh items
+  never take their weights; they pivot deep in the head on purpose.
