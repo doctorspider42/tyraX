@@ -571,3 +571,5 @@ captures must reject invalid/overflow counts and reconcile flushes, rebuilds
 and mask-bin totals. The final root host qualification record is
 `resumed-60fps-20261003/root-host-qualification.json` (SHA256
 `8eeb2d5f9ff26290fca33ede58511f6ced89ea067f58ac43d9e804eb50826605`).
+
+The [same-frame Core follow-up](tyrax2-minimal-scopes.md#scene-completion-and-core-aggregate-follow-up) places13.905–14.153ms in135 disjoint Core calls inside Scene17.321–17.445ms. Remaining Scene time is3.284–3.540ms including observer seams. Source-qualified completion minus existing pacing averages0.003120ms inclusive; this is not VU/GS utilisation. Narrow Core internals before selecting an offload kernel. Adaptive contexts change and common instrumentation/layout remain unpriced; these figures are not an optimization gain.
