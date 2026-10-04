@@ -194,6 +194,22 @@ def jpg_bytes(img, q=90):
     return b.getvalue()
 
 
+LUMA_W = np.array([0.299, 0.587, 0.114], np.float32)
+
+
+def key_colour(rgb):
+    """The garment's dominant colour: the mean of the fullest bin of a
+    chromaticity x luma histogram over its texels (0..1 floats, N x 3). Not the
+    mean colour - a trouser suit's white shirt pulls that halfway to grey, and
+    the recolour (chargen.cpp dyeMask) dyes only texels near THIS colour."""
+    s = rgb.sum(1) + 1e-3
+    ch = np.clip((rgb[:, :2] / s[:, None] * 20).astype(int), 0, 19)
+    lum = rgb @ LUMA_W
+    lb = np.clip((np.log2(np.maximum(lum, 1e-3)) + 7) / 7 * 6, 0, 5).astype(int)
+    key = (ch[:, 0] * 20 + ch[:, 1]) * 6 + lb
+    return rgb[key == np.bincount(key, minlength=2400).argmax()].mean(0)
+
+
 def emit_body(W, stage, P, data, tdir, shared):
     """One game body under chunk prefix P ('' or 'm/'): its mesh, weights,
     targets, texture layers and its share of the wardrobe (shell layers and
@@ -371,12 +387,15 @@ def emit_body(W, stage, P, data, tdir, shared):
                 cov = Image.fromarray(np.where(island, c0, grown).astype(np.uint8), 'L')
             W.add(I + 'g/' + gid, jpg_bytes(col, 88), 'bytes')
             W.add(I + 'g/%s/a' % gid, png_bytes(cov), 'bytes')
+            texels = np.asarray(col, np.float32).reshape(-1, 3)[np.asarray(cov).ravel() > 128] / 255
         else:
             if gid not in shared['mesh']:
                 # The item's own mesh and texture are written once, by the
                 # first body; later bodies only bind to it.
                 shared['mesh'][gid] = (z['tri'].astype(np.int32), z['uv'].astype(np.float32).ravel(),
                                        os.path.join(wear_dir, gid + '_tex.png'))
+                tx = np.asarray(Image.open(shared['mesh'][gid][2]).convert('RGBA'), np.float32).reshape(-1, 4) / 255
+                texels = tx[tx[:, 3] > 0.5, :3]
             else:
                 assert len(shared['mesh'][gid][0]) == len(z['tri']), \
                     gid + ': a second body bound a different mesh (kit_wear.py --reuse-mesh)'
@@ -412,12 +431,18 @@ def emit_body(W, stage, P, data, tdir, shared):
                 sc.putalpha(Image.fromarray(a_.astype(np.uint8), 'L'))
                 W.add(I + 'g/%s/body' % gid, jpg_bytes(sc.convert('RGB'), 88), 'bytes')
                 W.add(I + 'g/%s/body/a' % gid, png_bytes(sc.getchannel('A')), 'bytes')
-        entry = {'id': gid, 'label': cat[1], 'slot': cat[2], 'sex': cat[5].get('sex', ''),
-                 'kind': meta['kind'], 'cutout': meta.get('cutout', False),
-                 'layer': meta.get('layer', 0), 'dyeable': True,
-                 'luma': float(z['mean_luma']),
-                 'color': [round(float(c), 3) for c in z['mean_rgb']]}
-        shared['wardrobe'].setdefault(gid, entry)
+        # The recolour pivots on the key colour: the chosen colour lands
+        # exactly on the garment's main fabric, and only texels near it move.
+        # The first body writes the entry (and a mesh item's texels are only
+        # gathered there); later bodies leave it alone.
+        if gid not in shared['wardrobe']:
+            key = key_colour(texels) if len(texels) >= 16 else np.asarray(z['mean_rgb'], np.float32)
+            shared['wardrobe'][gid] = {
+                'id': gid, 'label': cat[1], 'slot': cat[2], 'sex': cat[5].get('sex', ''),
+                'kind': meta['kind'], 'cutout': meta.get('cutout', False),
+                'layer': meta.get('layer', 0), 'dyeable': True,
+                'luma': round(float(key @ LUMA_W), 4),
+                'color': [round(float(c), 3) for c in key]}
         shared['wear_count'][gid] = shared['wear_count'].get(gid, 0) + 1
 
 

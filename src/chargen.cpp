@@ -67,7 +67,7 @@ struct GarmentData {
     std::vector<float> uv;         // 6 per triangle (Blender convention, v up)
     bool cutout = false;           // alpha-tested texture (hair)
     int layer = 0;                 // stacking order: higher is outer
-    float luma = 0.5f;             // mean luminance of its texture (the recolour pivot)
+    float luma = 0.5f;             // luminance of its key colour (item.color): the recolour pivot
     std::vector<GarmentBody> body; // one per Kit::bodies entry
 };
 
@@ -630,6 +630,23 @@ const GarmentData* garment(const std::string& id) {
 // `contrast` < 1 flattens the shading toward the dye: hair textures are
 // strands over near-black gaps, and at full contrast a recoloured braid comes
 // out in tiger stripes.
+// How much of a recolour a texel takes: 1 near the garment's key colour (its
+// main fabric), 0 away from it - the white shirt under a trouser suit, a tie,
+// stitching, a print. Distance in chromaticity, plus luma only past a factor
+// of two (folds and shading stay inside that). build_kit.py's key_colour.
+float dyeMask(const float* c, const Rgb& key) {
+    if (key.r < 0.0f) return 1.0f;
+    const float s = c[0] + c[1] + c[2] + 1e-3f, ks = key.r + key.g + key.b + 1e-3f;
+    const float dr = c[0] / s - key.r / ks, dg = c[1] / s - key.g / ks;
+    float d = std::sqrt(dr * dr + dg * dg);
+    const float l = 0.299f * c[0] + 0.587f * c[1] + 0.114f * c[2];
+    const float kl = 0.299f * key.r + 0.587f * key.g + 0.114f * key.b;
+    const float dl = std::fabs(std::log2(std::max(l, 1e-3f) / std::max(kl, 1e-3f)));
+    d += 0.15f * std::max(dl - 1.0f, 0.0f);
+    const float t = std::clamp((0.11f - d) / 0.06f, 0.0f, 1.0f);
+    return t * t * (3.0f - 2.0f * t);
+}
+
 void dye(float* c, float mask, float luma, const Rgb& to, float contrast = 1.0f) {
     if (to.r < 0.0f || mask <= 0.0f) return;
     float l = (0.299f * c[0] + 0.587f * c[1] + 0.114f * c[2]) / luma;
@@ -1003,7 +1020,7 @@ bool build(const Params& p, glbparser::Skel& out, std::vector<std::string>& warn
                         to = Rgb{to.r + (w.color2.r - to.r) * f, to.g + (w.color2.g - to.g) * f,
                                  to.b + (w.color2.b - to.b) * f};
                     }
-                    if (g->item.dyeable) dye(c, 1.0f, g->luma, to);
+                    if (g->item.dyeable) dye(c, dyeMask(c, g->item.color), g->luma, to);
                     for (int q = 0; q < 3; ++q) cv.rgb[i * 3 + q] += (c[q] - cv.rgb[i * 3 + q]) * ca;
                 }
         }
@@ -1130,7 +1147,8 @@ bool build(const Params& p, glbparser::Skel& out, std::vector<std::string>& warn
                             float c[3] = {px01(col->data(), i, 0), px01(col->data(), i, 1),
                                           px01(col->data(), i, 2)};
                             if (g->item.dyeable)
-                                dye(c, 1.0f, g->luma, choice.color, g->cutout ? 0.55f : 1.0f);
+                                dye(c, g->cutout ? 1.0f : dyeMask(c, g->item.color), g->luma, choice.color,
+                                    g->cutout ? 0.55f : 1.0f);
                             for (int q = 0; q < 3; ++q) s[q] += c[q];
                             s[3] += px01(col->data(), i, 3);
                         }

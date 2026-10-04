@@ -241,10 +241,15 @@ learned from a broken result (`kit_wear.py`):
   them first.
 
 **Recolouring.** Every item can keep its own colours (*as made*) or take yours:
-the texel's luminance against the garment's average becomes the shading, the
-dye the hue, so folds, seams and print survive a recolour (hair flattens that
+the texel's luminance against the garment's KEY colour becomes the shading, the
+dye the hue, so folds and seams survive a recolour (hair flattens that
 contrast first: its strands sit over near-black gaps, and at full contrast a
-recoloured braid came out in tiger stripes). Clothes also take a
+recoloured braid came out in tiger stripes). The key colour is the garment's
+main fabric - the fullest bin of a chromaticity x luma histogram, worked out
+when the kit is built - and only texels near it take the dye: the white shirt
+and tie under a trouser suit, stitching and prints keep their own colours. A
+plain uniform dye turned the clerk's blouse navy along with her suit. Hair
+takes the colour whole. Clothes also take a
 pattern (stripes, checks, plaid, diagonal) in two colours. Items cut for one
 body carry a `sex` tag that *Randomize* respects; nothing stops you putting a
 man in a dress.

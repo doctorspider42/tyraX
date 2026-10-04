@@ -83,3 +83,7 @@ program. Check a new source's licence file by file before adding it to
   near-singular on slivers and its cancelling coefficients spiked shoes after a
   morph, and with no cross product the corner swap in `build_kit.py` only
   negates the last one.
+- A recolour dyes only texels near the garment's KEY colour (`key_colour` in
+  `build_kit.py`, the fullest chromaticity x luma bin - not the mean, which a
+  white shirt pulls halfway to grey). A uniform dye painted a trouser suit's
+  blouse and scarf navy along with the suit.
