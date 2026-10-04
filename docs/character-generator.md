@@ -7,6 +7,10 @@ people: one carefully laid-out texture per body with the face given the
 texels, clothes that are part of the body instead of a second skin on top of it,
 real eyes, and motion-captured movement.
 
+![The six characters of examples/character-generator, each made from its recipe](img/character-generator-cast.png)
+
+![The same six in PCSX2, the hero walking among them](img/character-generator-ps2.png)
+
 | | |
 |---|---|
 | Body | 3340 triangles (body 3170 + eyeballs), quads with real edge loops round eyes and mouth |
