@@ -1,0 +1,17 @@
+{
+  "version": 2,
+  "name": "elder",
+  "gender": 0, "age": 0.96, "muscle": 0.3, "weight": 0.62,
+  "african": 0, "asian": 0, "caucasian": 1, "height": 1.58,
+  "shape": {"headFat": 0.3},
+  "skinTone": 0, "skinWarmth": 0, "aging": 0,
+  "brows": 3, "browDensity": 0.7, "lashes": 0,
+  "hairColor": [0.8,0.79,0.77], "eyeColor": [0.42,0.62,0.78], "stubble": 0,
+  "lipstick": 0.2, "lipColor": [0.65,0.12,0.16], "eyeShadow": 0, "eyeShadowColor": [0.25,0.18,0.3], "blush": 0,
+  "textureSize": 128,
+  "hair": "bob",
+  "outfit": [{"id": "sweater", "color": [0.45,0.28,0.42], "color2": [1,1,1], "pattern": 0}, {"id": "longskirt", "color": [0.22,0.25,0.3], "color2": [1,1,1], "pattern": 0}, {"id": "flats", "color": [0.3,0.2,0.15], "color2": [1,1,1], "pattern": 0}, {"id": "roundglasses", "color": [-1,-1,-1], "color2": [1,1,1], "pattern": 0}],
+  "defaultClips": true, "clips": [],
+  "animFps": 15,
+  "animSource": ""
+}

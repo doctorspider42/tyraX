@@ -1,0 +1,1 @@
+{ "id": "00000000000000a5", "name": "elder", "type": "model", "position": [-3, 0, 16], "rotation": [0, 165, 0], "scale": [1, 1, 1], "color": [1, 1, 1], "physics": false, "collision": "none", "model": "res/models/characters/elder.glb", "anim": { "clip": "idle", "autoplay": true, "loop": true, "speed": 1 } }

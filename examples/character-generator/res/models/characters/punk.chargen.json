@@ -1,0 +1,17 @@
+{
+  "version": 2,
+  "name": "punk",
+  "gender": 0.95, "age": 0.38, "muscle": 0.55, "weight": 0.4,
+  "african": 0, "asian": 0.25, "caucasian": 0.75, "height": 1.78,
+  "shape": {"cheekBones": 0.5, "chinOut": 0.3},
+  "skinTone": 0, "skinWarmth": 0, "aging": 0,
+  "brows": 0, "browDensity": 1, "lashes": 0,
+  "hairColor": [0.15,0.6,0.25], "eyeColor": [0.45,0.45,0.42], "stubble": 0.2,
+  "lipstick": 0, "lipColor": [0.65,0.12,0.16], "eyeShadow": 0, "eyeShadowColor": [0.25,0.18,0.3], "blush": 0,
+  "textureSize": 128,
+  "hair": "shag",
+  "outfit": [{"id": "casual5", "color": [-1,-1,-1], "color2": [1,1,1], "pattern": 0}, {"id": "heroboots", "color": [0.1,0.1,0.1], "color2": [1,1,1], "pattern": 0}, {"id": "shades", "color": [-1,-1,-1], "color2": [1,1,1], "pattern": 0}],
+  "defaultClips": false, "clips": ["Idle_Talking_Loop", "Idle_Loop"],
+  "animFps": 15,
+  "animSource": ""
+}
