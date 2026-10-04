@@ -1,0 +1,23 @@
+# Private same-ELF pool cache kind4 source publication
+
+This immutable diagnostic snapshot preserves four changed inputs against frozen nightV3 and current actual sampler/runtime/analyzer/source-oracle/root helper bytes. It includes no ELF, symbol payload, executable, object, native archive or asset. Source/native/host authorities are distinct. It is not a production optimization or portable build package.
+
+## Exact reconstruction
+
+First reconstruct frozenV3 from `night-ablation-publication-v3/README.md` (which references the V2 archive/fresh reference). Verify all497 inputs against `metadata/frozen-v3-source-manifest.json`. On a separate copy apply `patches/frozen-v3-to-pool-same-elf.patch` from the source root with `git -c core.autocrlf=false -c core.eol=lf apply --whitespace=nowarn /absolute/path/to/patch`. Preserve raw source bytes; do not let autocrlf rewrite LF or normalize files. The patch includes all four changes; the three changed-header postimages are redundant review copies. Verify all497 inputs against `metadata/frozen-pool-source-manifest.json`. A separate external reconstruction passes exact SHA256 for497 entries;493 inputs are unchanged. Newly authored prose/JSON uses UTF8 LF; copied originals retain exact bytes.
+
+## Arms, observer and oracle
+
+Config `4 order 0 0` selects baseline/candidate/baseline, with reverse order selecting candidate/baseline/candidate. Ordinary and extra masks stay0, samplerOn throughout. Kinds0..3 always force candidatefalse. Both arms retain original seven-word keys and common reason classification; the false arm executes the complete original pool rebuild and true arm may update colors without regenerating unchanged geometry. No cache/lifetime/key state is reset at phase boundaries. The original sampler and existing Count seams remain byte-identical.
+
+Three NIGHTPOOLPHASE rows and six untimed750/1155 NIGHTPOOLGATES rows bind actualflag and allnine counters. Changed reasons partition flushes; initial is included in geometry changes. Baseline geometryRebuilds=geometryChanged+colorOnlyEligible/colorOnlyUpdates0. Candidate geometryRebuilds=geometryChanged/colorOnlyUpdates=colorOnlyEligible. eligibleBatchVerts counts all nonempty source batches, not saved work. Invalid/overflow and malformed ownership/actions are rejected. Counter writes are absent from measured800..1119 and other non-witness loops. Numeric runtime printf arguments use unsigned casts for actual PS2 ABI. Sparse counters are nearby reason/action witnesses, not full-window hit rate, emitted DMA or raster equality.
+
+Fresh compact sampler host controls pass20 complete5400-loop O0/O2 both-order transcripts for kinds0..4,47 parser negatives,21 malformedconfigs per run and actual kind4 CLI. Allthree counter structures stay byte-identical outsidecollection; Countreads262/6 are checked. The actual dual-arm function oracle separately passes1329cases/11722checks per O0/O2, including byte/version/cache continuity, flag switching without reset and cold source-function witnesses. Renderer/Vec4 host shims are explicitly scoped and do not replace actual target/raster validation.
+
+## Authority and historical packaging boundary
+
+New kind4 native independent proof b66d4ecc... (full hash in excerpt), not an older V3 proof, accepts497source/488native mirrors+9ancillary, actual target ABI including PoolCacheCounter36, matching ELF/symbol text, assets and format-warning clearance. Source/host/integration preparation statuses are retained verbatim rather than rewritten as native/runtime acceptance. Full large native dependencies remain external and hash-bound. Root helpers retain actual private paths/toolchain assumptions and ownership; none were executed by packaging.
+
+At the requested packaging boundary root reported the first emulator order0 strict/raster pass and positive source activation. Its completed machine closure is copied without logs/ELF/assets; visual/activation notes are attributed to root. The emulator pair and physical measurements are outside this source package's acceptance. Later runtime directories are not promoted or copied as accepted future evidence. This historical boundary remains fixed even if later runs complete before packaging finishes.
+
+Common reason comparison, dual-arm code/layout, normal observer apparatus and sameELF bank/cache footprint remain unpriced. Only own completed sameELF/order-qualified intervals may be compared. No priorV3 subtraction, uniform fee, pureEE/GPU bill, production gain, additive group attribution or60FPS/TV cadence is claimed. SHA256.json covers every packaged file except itself, and original private paths/hashes are recorded in metadata.

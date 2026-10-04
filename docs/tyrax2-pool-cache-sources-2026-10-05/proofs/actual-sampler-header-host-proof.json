@@ -1,0 +1,559 @@
+{
+  "status": "PASS_PREPARED_SAME_ELF_POOL_CACHE_KIND4_ACTUAL_HEADER_HOST_CONTROLS_ONLY",
+  "positiveCompleteTranscripts": 20,
+  "negativeParserGuards": [
+    "oldKindExtraMustZero",
+    "extraUnknownPhaseField",
+    "extraUnknownGateField",
+    "extraMissingPhase",
+    "extraDuplicatePhase",
+    "extraMissingGate",
+    "extraDuplicateGate",
+    "extraWrongFirst",
+    "extraWrongApplied",
+    "extraWrongSubset",
+    "extraGateWrongMask",
+    "extraSelectedSubmit",
+    "extraPartition",
+    "extraEnabledSkip",
+    "extraWrongColdWindow",
+    "ordinaryMaskNonzeroKind3",
+    "samplerOffKind3",
+    "ordinaryReservedCounter",
+    "phaseWrongFirst",
+    "malformedPointer",
+    "driftPointer",
+    "missingRaw",
+    "unknownRawField",
+    "missingCamera",
+    "poolMissingPhase",
+    "poolDuplicatePhase",
+    "poolUnknownPhaseKey",
+    "poolAppliedFlagMismatch",
+    "poolWrongFirst",
+    "poolMissingGate",
+    "poolDuplicateGate",
+    "poolUnknownGateKey",
+    "poolWrongColdFrame",
+    "poolWrongGateCandidate",
+    "poolInvalidReasonOrOverflow",
+    "poolReasonPartition",
+    "poolInitialNotGeometrySubset",
+    "poolBaselineColorUpdateForbidden",
+    "poolBaselineGeometryActionMismatch",
+    "poolCandidateGeometryActionMismatch",
+    "poolCandidateColorUpdateMissing",
+    "poolNonemptyVolumeZero",
+    "poolMalformedCounter",
+    "poolOrdinaryMaskNonzero",
+    "poolSamplerOff",
+    "poolBadCompletionOwner",
+    "poolMalformedPointer"
+  ],
+  "runs": [
+    {
+      "plan": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "optimization": "O0",
+      "sampleRows": 128,
+      "extraMasks": [
+        0,
+        0,
+        0
+      ],
+      "checks": "HOSTCHECKS=21608",
+      "buildExit": 0,
+      "runExit": 0
+    },
+    {
+      "plan": [
+        0,
+        1,
+        0,
+        0
+      ],
+      "optimization": "O0",
+      "sampleRows": 256,
+      "extraMasks": [
+        0,
+        0,
+        0
+      ],
+      "checks": "HOSTCHECKS=21608",
+      "buildExit": 0,
+      "runExit": 0
+    },
+    {
+      "plan": [
+        1,
+        0,
+        31,
+        0
+      ],
+      "optimization": "O0",
+      "sampleRows": 384,
+      "extraMasks": [
+        0,
+        0,
+        0
+      ],
+      "checks": "HOSTCHECKS=21608",
+      "buildExit": 0,
+      "runExit": 0
+    },
+    {
+      "plan": [
+        1,
+        1,
+        31,
+        0
+      ],
+      "optimization": "O0",
+      "sampleRows": 384,
+      "extraMasks": [
+        0,
+        0,
+        0
+      ],
+      "checks": "HOSTCHECKS=21608",
+      "buildExit": 0,
+      "runExit": 0
+    },
+    {
+      "plan": [
+        2,
+        0,
+        31,
+        3
+      ],
+      "optimization": "O0",
+      "sampleRows": 384,
+      "extraMasks": [
+        0,
+        0,
+        0
+      ],
+      "checks": "HOSTCHECKS=21608",
+      "buildExit": 0,
+      "runExit": 0
+    },
+    {
+      "plan": [
+        2,
+        1,
+        31,
+        3
+      ],
+      "optimization": "O0",
+      "sampleRows": 384,
+      "extraMasks": [
+        0,
+        0,
+        0
+      ],
+      "checks": "HOSTCHECKS=21608",
+      "buildExit": 0,
+      "runExit": 0
+    },
+    {
+      "plan": [
+        3,
+        0,
+        0,
+        1
+      ],
+      "optimization": "O0",
+      "sampleRows": 384,
+      "extraMasks": [
+        0,
+        1,
+        0
+      ],
+      "checks": "HOSTCHECKS=21608",
+      "buildExit": 0,
+      "runExit": 0
+    },
+    {
+      "plan": [
+        3,
+        1,
+        0,
+        1
+      ],
+      "optimization": "O0",
+      "sampleRows": 384,
+      "extraMasks": [
+        1,
+        0,
+        1
+      ],
+      "checks": "HOSTCHECKS=21608",
+      "buildExit": 0,
+      "runExit": 0
+    },
+    {
+      "plan": [
+        4,
+        0,
+        0,
+        0
+      ],
+      "optimization": "O0",
+      "sampleRows": 384,
+      "extraMasks": [
+        0,
+        0,
+        0
+      ],
+      "checks": "HOSTCHECKS=21608",
+      "buildExit": 0,
+      "runExit": 0
+    },
+    {
+      "plan": [
+        4,
+        1,
+        0,
+        0
+      ],
+      "optimization": "O0",
+      "sampleRows": 384,
+      "extraMasks": [
+        0,
+        0,
+        0
+      ],
+      "checks": "HOSTCHECKS=21608",
+      "buildExit": 0,
+      "runExit": 0
+    },
+    {
+      "plan": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "optimization": "O2",
+      "sampleRows": 128,
+      "extraMasks": [
+        0,
+        0,
+        0
+      ],
+      "checks": "HOSTCHECKS=21608",
+      "buildExit": 0,
+      "runExit": 0
+    },
+    {
+      "plan": [
+        0,
+        1,
+        0,
+        0
+      ],
+      "optimization": "O2",
+      "sampleRows": 256,
+      "extraMasks": [
+        0,
+        0,
+        0
+      ],
+      "checks": "HOSTCHECKS=21608",
+      "buildExit": 0,
+      "runExit": 0
+    },
+    {
+      "plan": [
+        1,
+        0,
+        31,
+        0
+      ],
+      "optimization": "O2",
+      "sampleRows": 384,
+      "extraMasks": [
+        0,
+        0,
+        0
+      ],
+      "checks": "HOSTCHECKS=21608",
+      "buildExit": 0,
+      "runExit": 0
+    },
+    {
+      "plan": [
+        1,
+        1,
+        31,
+        0
+      ],
+      "optimization": "O2",
+      "sampleRows": 384,
+      "extraMasks": [
+        0,
+        0,
+        0
+      ],
+      "checks": "HOSTCHECKS=21608",
+      "buildExit": 0,
+      "runExit": 0
+    },
+    {
+      "plan": [
+        2,
+        0,
+        31,
+        3
+      ],
+      "optimization": "O2",
+      "sampleRows": 384,
+      "extraMasks": [
+        0,
+        0,
+        0
+      ],
+      "checks": "HOSTCHECKS=21608",
+      "buildExit": 0,
+      "runExit": 0
+    },
+    {
+      "plan": [
+        2,
+        1,
+        31,
+        3
+      ],
+      "optimization": "O2",
+      "sampleRows": 384,
+      "extraMasks": [
+        0,
+        0,
+        0
+      ],
+      "checks": "HOSTCHECKS=21608",
+      "buildExit": 0,
+      "runExit": 0
+    },
+    {
+      "plan": [
+        3,
+        0,
+        0,
+        1
+      ],
+      "optimization": "O2",
+      "sampleRows": 384,
+      "extraMasks": [
+        0,
+        1,
+        0
+      ],
+      "checks": "HOSTCHECKS=21608",
+      "buildExit": 0,
+      "runExit": 0
+    },
+    {
+      "plan": [
+        3,
+        1,
+        0,
+        1
+      ],
+      "optimization": "O2",
+      "sampleRows": 384,
+      "extraMasks": [
+        1,
+        0,
+        1
+      ],
+      "checks": "HOSTCHECKS=21608",
+      "buildExit": 0,
+      "runExit": 0
+    },
+    {
+      "plan": [
+        4,
+        0,
+        0,
+        0
+      ],
+      "optimization": "O2",
+      "sampleRows": 384,
+      "extraMasks": [
+        0,
+        0,
+        0
+      ],
+      "checks": "HOSTCHECKS=21608",
+      "buildExit": 0,
+      "runExit": 0
+    },
+    {
+      "plan": [
+        4,
+        1,
+        0,
+        0
+      ],
+      "optimization": "O2",
+      "sampleRows": 384,
+      "extraMasks": [
+        0,
+        0,
+        0
+      ],
+      "checks": "HOSTCHECKS=21608",
+      "buildExit": 0,
+      "runExit": 0
+    }
+  ],
+  "commands": [
+    [
+      "C:/Users/pawel/scoop/apps/mingw/current/bin/g++.exe",
+      "-std=c++17",
+      "-O0",
+      "-Wall",
+      "-Wextra",
+      "-Werror",
+      "-static",
+      "-I",
+      "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1",
+      "-I",
+      "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-proposal-v1\\source\\tyra\\engine\\inc",
+      "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\host-controls.cpp",
+      "-o",
+      "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\host\\controls-O0.exe"
+    ],
+    [
+      "C:/Users/pawel/scoop/apps/mingw/current/bin/g++.exe",
+      "-std=c++17",
+      "-O2",
+      "-Wall",
+      "-Wextra",
+      "-Werror",
+      "-static",
+      "-I",
+      "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1",
+      "-I",
+      "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-proposal-v1\\source\\tyra\\engine\\inc",
+      "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\host-controls.cpp",
+      "-o",
+      "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\host\\controls-O2.exe"
+    ],
+    [
+      "python",
+      "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\analyze-night-cli.py",
+      "--stdout",
+      "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\host\\O2-4-0-0-0-stdout.log",
+      "--artifact",
+      "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\host\\O2-4-0-0-0-artifact.log",
+      "--environment",
+      "host",
+      "--kind",
+      "4",
+      "--order",
+      "0",
+      "--joint",
+      "0",
+      "--restored",
+      "0",
+      "--report",
+      "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\host\\actual-cli-kind4.json"
+    ]
+  ],
+  "sourcePins": {
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\night_sampler.hpp": "b51b72a79d1ede2553d46fb9bf2fbe112fa5ad0796a8f88fb02dbec86464c7d6",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\night_plan.hpp": "19f1484f376dd5614ca28985cab2eb60cf9c802521c1b89d01c3cc0c7a30a037",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\night_runtime.hpp": "e67309ec355823c45f400066f396c1f342b8a725dcbd10b02ac2323965533538",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\quiet_runtime.hpp": "c2b93076926ced36b425bbf2cb5eea738650087192427a1088acbae0058ad07b",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\quiet_cadence.hpp": "c6c87c3d9cc6deb6e90fa01d91c86df5ee6be8979b4a8b734a35804d991be6f3",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\analyze-loop.py": "5f1e9756449a5d35e9ce9567ab87be9e4388ed98b777f3ff72622b0e71f7fa27",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\analyze-night.py": "a5557c0a57a82025c96c86d18ee0b370e3f719c7dc443edbcd30c1c88ee7579f",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\analyze-night-cli.py": "eadb1cc98e596b3c6e527bf0b397241d5555278eb12ce3f795898c1bcc9213f1",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\host-controls.cpp": "516bb4e57391e4472424f302b47797b4b79b729450401a7695bcfd50a4c7f456",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\run-host-controls.py": "3860c13bfa14b5804aeef71c399dae3183e1827afe55c40f24cc1ca207fb79cd",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\README.md": "514a9df2073ecbb7e878824258abed86b6c0b75167b33a5966cafcf1830c92b1",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-proposal-v1\\source\\tyra\\engine\\inc\\debug\\night_ablation.hpp": "61f7e7263290c01b8165384dbe5394a4dd075d8e6405aae7fc787738cc545646"
+  },
+  "artifactPins": {
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\host\\actual-cli-command.log": "b596b75467acff0277efb3eb43d866745aaf23848397ab2a016f5e54dce92bd0",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\host\\actual-cli-kind4.json": "3e094ddbe2ab088a3c353e34a0f9cb2671a0df26a3638dcf978696ecd6daca80",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\host\\build-O0.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\host\\build-O2.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\host\\controls-O0.exe": "96e403772cbfb1c80e06170eb92cdc86cd17aa85570118ba8b1910b56081d87f",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\host\\controls-O2.exe": "51cc85bf837ab131a99c9a6cf0884467cf6369cdc37c8f1d0c2cd85f9b3b4364",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\host\\O0-0-0-0-0-artifact.log": "70892abdbb70f7c3b4dcb0c5e03de4f59234bddc33e3ce56ba40ef9b052eeac0",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\host\\O0-0-0-0-0-run.txt": "3608fa8c6c57d8d6c669fd905ab23c9364cd2412b9a27472d17e33f8aa935a67",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\host\\O0-0-0-0-0-stdout.log": "f80a583302fc6fe96b01c24f9cc4dbfd4651ed0923dacb4ddf8585087761a552",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\host\\O0-0-1-0-0-artifact.log": "bed06a8a6c1d0b54e7d316ad1e36b4574ab8268ed965f4eea1f8b775f39c57d0",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\host\\O0-0-1-0-0-run.txt": "3608fa8c6c57d8d6c669fd905ab23c9364cd2412b9a27472d17e33f8aa935a67",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\host\\O0-0-1-0-0-stdout.log": "390c2a4822a54f368b866190538c600e1fa2f01e1b10a8f6e4f0c8e0c2f4fa97",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\host\\O0-1-0-31-0-artifact.log": "966e59d599cd9546f6557b5042668c6e085fb00eb1896b2da1d837208206fdb6",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\host\\O0-1-0-31-0-run.txt": "3608fa8c6c57d8d6c669fd905ab23c9364cd2412b9a27472d17e33f8aa935a67",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\host\\O0-1-0-31-0-stdout.log": "07d4f280d2fbfc5bde46fd5bba95ec1e7831d8ce9af8ed775ad9f704bc08da84",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\host\\O0-1-1-31-0-artifact.log": "966e59d599cd9546f6557b5042668c6e085fb00eb1896b2da1d837208206fdb6",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\host\\O0-1-1-31-0-run.txt": "3608fa8c6c57d8d6c669fd905ab23c9364cd2412b9a27472d17e33f8aa935a67",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\host\\O0-1-1-31-0-stdout.log": "8a96514de30d077dd4b880fd38a05aee853845bfbaf01ec4c04f5c2c228c92d7",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\host\\O0-2-0-31-3-artifact.log": "966e59d599cd9546f6557b5042668c6e085fb00eb1896b2da1d837208206fdb6",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\host\\O0-2-0-31-3-run.txt": "3608fa8c6c57d8d6c669fd905ab23c9364cd2412b9a27472d17e33f8aa935a67",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\host\\O0-2-0-31-3-stdout.log": "90ee556a7a5f5075952eb167a615a8306ed7c16900602d9ed2421191bdd4b313",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\host\\O0-2-1-31-3-artifact.log": "966e59d599cd9546f6557b5042668c6e085fb00eb1896b2da1d837208206fdb6",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\host\\O0-2-1-31-3-run.txt": "3608fa8c6c57d8d6c669fd905ab23c9364cd2412b9a27472d17e33f8aa935a67",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\host\\O0-2-1-31-3-stdout.log": "afd5ee96801f9ffa08f27af18ac2372b7e05ed8dfeefa47510a56fa05ce75532",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\host\\O0-3-0-0-1-artifact.log": "966e59d599cd9546f6557b5042668c6e085fb00eb1896b2da1d837208206fdb6",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\host\\O0-3-0-0-1-run.txt": "3608fa8c6c57d8d6c669fd905ab23c9364cd2412b9a27472d17e33f8aa935a67",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\host\\O0-3-0-0-1-stdout.log": "0b60ab315000f84966344cfcaeab949948dc90edb1bb1e195e14f556678eaa8a",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\host\\O0-3-1-0-1-artifact.log": "966e59d599cd9546f6557b5042668c6e085fb00eb1896b2da1d837208206fdb6",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\host\\O0-3-1-0-1-run.txt": "3608fa8c6c57d8d6c669fd905ab23c9364cd2412b9a27472d17e33f8aa935a67",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\host\\O0-3-1-0-1-stdout.log": "28bc696bfee3ed24fa07ca4914684b39d6e2fccc22871773492643e55559b89f",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\host\\O0-4-0-0-0-artifact.log": "966e59d599cd9546f6557b5042668c6e085fb00eb1896b2da1d837208206fdb6",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\host\\O0-4-0-0-0-run.txt": "3608fa8c6c57d8d6c669fd905ab23c9364cd2412b9a27472d17e33f8aa935a67",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\host\\O0-4-0-0-0-stdout.log": "a8b52dc661148f629011e6f992218ff2b1458cb2240be95e3c282fe50014b424",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\host\\O0-4-1-0-0-artifact.log": "966e59d599cd9546f6557b5042668c6e085fb00eb1896b2da1d837208206fdb6",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\host\\O0-4-1-0-0-run.txt": "3608fa8c6c57d8d6c669fd905ab23c9364cd2412b9a27472d17e33f8aa935a67",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\host\\O0-4-1-0-0-stdout.log": "f31b9e8751c2d3061a5a71ad680585861318b95124238d04b2a4e1ec29986fd4",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\host\\O2-0-0-0-0-artifact.log": "70892abdbb70f7c3b4dcb0c5e03de4f59234bddc33e3ce56ba40ef9b052eeac0",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\host\\O2-0-0-0-0-run.txt": "3608fa8c6c57d8d6c669fd905ab23c9364cd2412b9a27472d17e33f8aa935a67",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\host\\O2-0-0-0-0-stdout.log": "ffe9d3844fcf83b9bc6f529f6a8ef50686f50a2fbf227dcf891b64d986fd18f7",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\host\\O2-0-1-0-0-artifact.log": "bed06a8a6c1d0b54e7d316ad1e36b4574ab8268ed965f4eea1f8b775f39c57d0",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\host\\O2-0-1-0-0-run.txt": "3608fa8c6c57d8d6c669fd905ab23c9364cd2412b9a27472d17e33f8aa935a67",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\host\\O2-0-1-0-0-stdout.log": "064e4c11a8cc418a6cf0edca1dd8fbee7d5af17dfcac29d2264cc1f16a74959e",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\host\\O2-1-0-31-0-artifact.log": "966e59d599cd9546f6557b5042668c6e085fb00eb1896b2da1d837208206fdb6",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\host\\O2-1-0-31-0-run.txt": "3608fa8c6c57d8d6c669fd905ab23c9364cd2412b9a27472d17e33f8aa935a67",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\host\\O2-1-0-31-0-stdout.log": "366afd203829eb9f0cad109b860c2ad24a2d5f6c11ad3bd20e596c9671a3ece2",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\host\\O2-1-1-31-0-artifact.log": "966e59d599cd9546f6557b5042668c6e085fb00eb1896b2da1d837208206fdb6",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\host\\O2-1-1-31-0-run.txt": "3608fa8c6c57d8d6c669fd905ab23c9364cd2412b9a27472d17e33f8aa935a67",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\host\\O2-1-1-31-0-stdout.log": "c512c9c9c9d88886d98cedeadd16923a98c00c9e913297fe60642beaf2be898f",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\host\\O2-2-0-31-3-artifact.log": "966e59d599cd9546f6557b5042668c6e085fb00eb1896b2da1d837208206fdb6",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\host\\O2-2-0-31-3-run.txt": "3608fa8c6c57d8d6c669fd905ab23c9364cd2412b9a27472d17e33f8aa935a67",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\host\\O2-2-0-31-3-stdout.log": "7c85f48bd3e3c4d41391372a16f027b57c252df24dd61a9ec23e9255dbb2b63c",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\host\\O2-2-1-31-3-artifact.log": "966e59d599cd9546f6557b5042668c6e085fb00eb1896b2da1d837208206fdb6",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\host\\O2-2-1-31-3-run.txt": "3608fa8c6c57d8d6c669fd905ab23c9364cd2412b9a27472d17e33f8aa935a67",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\host\\O2-2-1-31-3-stdout.log": "e6c4d8d57d20b3507f09541b80e1e53351196c8ec2e12c247dc4c840a38a410b",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\host\\O2-3-0-0-1-artifact.log": "966e59d599cd9546f6557b5042668c6e085fb00eb1896b2da1d837208206fdb6",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\host\\O2-3-0-0-1-run.txt": "3608fa8c6c57d8d6c669fd905ab23c9364cd2412b9a27472d17e33f8aa935a67",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\host\\O2-3-0-0-1-stdout.log": "eaabb9eb26ee2ae563f0cb47da37adec785fe09d505f978d48c259a60ae7e1ae",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\host\\O2-3-1-0-1-artifact.log": "966e59d599cd9546f6557b5042668c6e085fb00eb1896b2da1d837208206fdb6",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\host\\O2-3-1-0-1-run.txt": "3608fa8c6c57d8d6c669fd905ab23c9364cd2412b9a27472d17e33f8aa935a67",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\host\\O2-3-1-0-1-stdout.log": "8ac9569c178a301f1bb8de8683ae3599d3de34f47648f3ae6277ad91cf0e5532",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\host\\O2-4-0-0-0-artifact.log": "966e59d599cd9546f6557b5042668c6e085fb00eb1896b2da1d837208206fdb6",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\host\\O2-4-0-0-0-run.txt": "3608fa8c6c57d8d6c669fd905ab23c9364cd2412b9a27472d17e33f8aa935a67",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\host\\O2-4-0-0-0-stdout.log": "bddb3cf19fdbf22946b63c9860d37e3b4899e1a141ceb3af5dc38d294d02ce37",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\host\\O2-4-1-0-0-artifact.log": "966e59d599cd9546f6557b5042668c6e085fb00eb1896b2da1d837208206fdb6",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\host\\O2-4-1-0-0-run.txt": "3608fa8c6c57d8d6c669fd905ab23c9364cd2412b9a27472d17e33f8aa935a67",
+    "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\host\\O2-4-1-0-0-stdout.log": "12f47660d257e65a5a36b3d0ff7945998817b3eb834800d4e4fa6e6253f8b824"
+  },
+  "sourceGateHeaderSha256": "61f7e7263290c01b8165384dbe5394a4dd075d8e6405aae7fc787738cc545646",
+  "samplerOnReads262OffReads6": true,
+  "oldKindsPoolCandidateFalse": true,
+  "allEventCountersUntimed7501155Only": true,
+  "actualCliKind4Accepted": true,
+  "nativeOrRuntimeAccepted": false,
+  "productionGainAccepted": false,
+  "notFullOldSuiteRerun": true
+}

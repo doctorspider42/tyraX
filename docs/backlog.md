@@ -445,8 +445,8 @@ recovered 0.50-0.72 ms of hardware `work`. What it did not do, ranked:
   The [joint night ablation](tyrax2-night-ablation.md) passed source/native,
   emulator restoration and both physical sampler/joint orders. The simplified
   five-family cut reduces elapsed-minus-pacing from approximately 18.8–18.9 to
-  13.37–13.39 ms and engine flip-return periods from 33.37 to 16.68 ms. Next
-  split receiver pools, beams/coronas and glow with the private V3 gates.
+  13.37–13.39 ms and engine flip-return periods from 33.37 to 16.68 ms.
+  The private V3 gates separately qualify receiver pools, beams/coronas and glow.
   First-order add-backs measured lighting/extras at +3.94–3.99 ms versus
   shadows/particles/post at +1.39–1.49 ms against their own controls;
   these are not additive bills. Reverse add-back orders remain open.
@@ -454,8 +454,11 @@ recovered 0.50-0.72 ms of hardware `work`. What it did not do, ranked:
   pool cuts save 0.875–0.968 ms, beams 0.681–0.782 ms, glow 0.296–0.530 ms
   against own controls; all individual cuts retain approximately 33.37 ms
   presentation periods. The private pool color-only candidate passed source/host review
-  and EE translation-unit compilation; linked runtime, activation and gain
-  are unqualified. Measure eligible hits before considering promotion.
+  and EE translation-unit compilation. Its later same-ELF kind4 trial passed
+  native/emulator/both physical protocols with positive color-only target
+  activation, but small mixed timing responses do not qualify a stable gain
+  or promotion. Keep it private; investigate a larger measured route before
+  further optimization work. Full-window hit rates remain unmeasured.
   Production full-night quality/performance and physical
   visual restoration remain unqualified; no observer fee is subtracted.
 

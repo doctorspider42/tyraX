@@ -1,0 +1,13 @@
+# Same-ELF pool cache diagnostic interface
+
+Root approved this external interface on 2026-10-05. Baseline is frozen night-ablation-physical-v3, not the earlier split-only proposal. Root owns integration, freezing, native compilation and all devices. Existing source fixtures remain unchanged.
+
+New NightPlan kind 4 config is `4 order 0 0`. It selects baseline/candidate/baseline for order 0 and candidate/baseline/candidate for order 1. All ordinary and extra masks are zero, sampler is On in every phase, and the existing 5,400-loop / 384-sample cadence, 800-loop warm region and post-window exports are retained. Kinds 0..3 force candidate=false. Selection is set once at each phase start before beginLoop, never from sampler state. Cache contents are not reset at an arm boundary.
+
+NightAblation exposes poolColorSplitCandidate and setPoolColorSplitCandidate(bool). poolBatchFlush retains the complete original rebuild branch when false and invokes the separately reviewed geometry/color split branch when true. Both arms construct the original seven-word key and classify its reason identically. Common reason-comparison/code/layout cost is unpriced and cannot be inferred from prior V3 timing.
+
+PoolCacheCounter has flushes, unchanged, initial, geometryChanged, colorOnlyEligible, geometryRebuilds, colorOnlyUpdates, eligibleBatchVerts and invalid. Collection and reset occur only on offsets 750/1155 with the existing collectCounters flag. Nonempty flushes partition into unchanged / geometryChanged / colorOnlyEligible. Initial is a subset of geometryChanged. Baseline rebuilds geometry for either changed reason; candidate rebuilds geometry only for geometryChanged and updates only colors for colorOnlyEligible. eligibleBatchVerts counts every nonempty eligible batch's emitted source vertex cardinality, not saved work or pixels. Counters guard overflow. Empty flush is not an eligible invocation and is not counted.
+
+Three NIGHTPOOLPHASE records bind intended/applied candidate state; six NIGHTPOOLGATES records bind actual arm, sparse frame identity and common reason/action counters. Untimed snapshots cannot establish full-window hit counts or constant workload. Both orders require same-ELF pricing, sparse activation witnesses and independent raw/source review. No per-object clocks, measured-window event writes, new waits or fences are added. Full night geometry/HUD/camera and existing lifetimes remain.
+
+This measures one eligible poolBatchFlush transformation, not the complete Pools/light-effects cut. Prior helper/rebuild notes and physical subset timings are context only. No positive benefit, 60 FPS, native/runtime acceptance or full-window activation is claimed by this source proposal.

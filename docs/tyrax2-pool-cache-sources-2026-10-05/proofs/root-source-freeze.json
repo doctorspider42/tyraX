@@ -1,0 +1,12 @@
+{
+  "status": "ROOT_SOURCE_FREEZE_ONLY",
+  "sourceManifestSha256": "685102d3e3f681cf52e538fa13ccad0d5ffd2ce86697bb10021603884f25bb3b",
+  "sourceFiles": 497,
+  "review": "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-independent-review-v1\\proof.json",
+  "reviewSha256": "f69692b30bbe4560436a1ba06bf1f25d35a3874d08d931de1eb99055275d078e",
+  "host": "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\final-proof.json",
+  "hostSha256": "01b0a05454ca4a13f65758cb32a6b4028de0b47390b9691fa68b62a36f2d874f",
+  "helperSha256": "77782bdac4362671e6a14a8078665eb541e7e19ffb73d1592388020d7fb97550",
+  "nativeAccepted": false,
+  "runtimeAccepted": false
+}

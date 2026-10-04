@@ -1,0 +1,30 @@
+{
+  "status": "ROOT_CREATED_PRIVATE_POOL_CACHE_SAME_ELF_INPUT_NOT_NATIVE_ACCEPTED",
+  "sourceFiles": 497,
+  "sourceProofSha256": "3ed22464c232386cc75006cf1d4fe0f7483a2ffc4658c9d520e17ee19bfeef3a",
+  "integrationScriptSha256": "e3d329caa1d07a8617ad474d7d183cef13cc7f646b5d05b680aafd1c7b64c9c9",
+  "baselineManifestSha256": "3e895d8224297c66169bf2a01cabc0dfd1fd1e0c9fee8a77c3c77de88bb14dad",
+  "outputPins": {
+    "game/src/gen/game_lighting.gen.cpp": "cdcacb7fe39db886a0421745d3875950fe3524683923aeb595de3b58febfede8",
+    "tyra/engine/inc/debug/night_ablation.hpp": "61f7e7263290c01b8165384dbe5394a4dd075d8e6405aae7fc787738cc545646",
+    "tyra/engine/inc/debug/night_plan.hpp": "19f1484f376dd5614ca28985cab2eb60cf9c802521c1b89d01c3cc0c7a30a037",
+    "tyra/engine/inc/debug/night_runtime.hpp": "e67309ec355823c45f400066f396c1f342b8a725dcbd10b02ac2323965533538",
+    "tyra/engine/inc/debug/night_sampler.hpp": "b51b72a79d1ede2553d46fb9bf2fbe112fa5ad0796a8f88fb02dbec86464c7d6",
+    "tyra/engine/inc/debug/quiet_cadence.hpp": "c6c87c3d9cc6deb6e90fa01d91c86df5ee6be8979b4a8b734a35804d991be6f3",
+    "tyra/engine/inc/debug/quiet_runtime.hpp": "c2b93076926ced36b425bbf2cb5eea738650087192427a1088acbae0058ad07b"
+  },
+  "requiredProofs": [
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-controls-v1\\final-proof.json",
+      "sha256": "01b0a05454ca4a13f65758cb32a6b4028de0b47390b9691fa68b62a36f2d874f",
+      "status": "PASS_PREPARED_SAME_ELF_POOL_CACHE_KIND4_ACTUAL_HEADER_HOST_CONTROLS_ONLY"
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\pool-cache-same-elf-proposal-v1\\host-proof.json",
+      "sha256": "a6c14aa0a5ac320d06da2b3f20dd0a6c850f6ad9315874859a6941f14dcffc26",
+      "status": "PASS_HOST_SAME_ELF_POOL_CACHE_EXTRACTED_DUAL_ARM_BYTE_VERSION_REASON_CONTROLS_ONLY"
+    }
+  ],
+  "nativeAccepted": false,
+  "runtimeAccepted": false
+}

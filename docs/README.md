@@ -411,7 +411,8 @@ and both physical calibration/joint orders passed. The simplified joint cut
   physical boots narrow the next subdivision to lighting/receiver extras;
   six further physical V3 boots qualify both orders of pool/beam/glow cuts.
   Individual cuts still show approximately 33.37 ms presentation periods.
-  Reverse V2 add-backs, candidate activation/pricing and production
+  The later pool-cache candidate runs correctly but its mixed small physical
+  responses do not qualify a stable gain. Reverse V2 add-backs and production
   full-night performance remain open.
 
 [Batch / texture / program scopes](tyrax2-batch-texture-scopes-2026-10-04.md)
