@@ -37,13 +37,25 @@ Only the first add-back order completed; reverse add-back orders remain open. Th
 
 Original raw evidence and failed attempts remain preserved. Clock intervals are modulo-qualified; old boots lack independent wide-clock wrap exclusion. A host-only arrival recorder on later boots timestamps unchanged untimed verification markers without adding console commands. Network arrival spans provide a sanity check, not an absolute hardware-clock proof.
 
-## Next subdivision
+## Extra subsets
 
-Private V3 splits extras into complete pool/receiver, beam/corona and vehicle/lamp glow entry gates while keeping the ordinary family mask zero. It retains the V2 sampler and quiet wrappers byte-for-byte and adds cold activation counters outside measurement windows. Its 497-input native build, target ABI, runtime assets, host controls and negative parser cases passed independent checks. All three extra subsets completed both emulator orders. Three phase captures are available for five boots; the first pool order has only a restored-full capture. Emulator rasters and timings do not qualify physical performance. V3 physical trials remain pending.
+Private V3 splits extras into complete pool/receiver, beam/corona and vehicle/lamp glow entry gates while keeping the ordinary family mask zero. It retains the V2 sampler and quiet wrappers byte-for-byte and adds cold activation counters outside measurement windows. Its 497-input native build, target ABI, runtime assets, host controls and negative parser cases passed independent checks. All three extra subsets completed both emulator orders. Three phase captures are available for five boots; the first pool order has only a restored-full capture. Emulator rasters and timings do not qualify physical performance.
 
 The [immutable V3 source archive](tyrax2-night-extras-sources-2026-10-04/README.md) reconstructs all 497 source inputs from V2 byte-for-byte. Its historical external `night-ablation-publication-v2` reference corresponds to the [V2 archive in this repository](tyrax2-night-ablation-sources-2026-10-04/README.md). Neither archive includes native ELF or runtime asset payloads. Archive metadata records the packaging-time state; later completed runs are qualified separately.
 
 The [six emulator qualification records](tyrax2-night-subsets-2026-10-04.json) bind completed source/ELF evidence and available raster hashes. Their original logs, images and full proofs remain external LAB artifacts. Rear-view glow intensity is subtle in the images; positive entry and suppression witnesses support activation without a pixel-equality claim.
+
+All six physical V3 boots completed on October 5, retaining the same ELF, ordinary masks zero and sampler On: 32,400 loops, 2,304 raw samples and 90 bounded chunks. The [dated physical record](tyrax2-night-extras-2026-10-05.json) binds their own full-night controls and sparse positive suppression/restoration witnesses.
+
+| Complete subgroup cut | Own cut-minus-full contrast range |
+|---|---:|
+| Pools/receivers | -0.968 to -0.875 ms |
+| Beams/coronas | -0.782 to -0.681 ms |
+| Vehicle/lamp glow | -0.530 to -0.296 ms |
+
+Engine flip-return periods remained approximately 33.367 ms in every arm: none of these individual cuts crossed the presentation threshold. The differences include existing waits and routing responses; they are not additive component bills, pure EE execution, GPU utilization or predicted cache gains. Glow varies more between orders; retain its full observed range rather than assigning one fixed cost. Sparse adaptive interleave choices differed despite matching camera/generation witnesses; their causal share is unmeasured. Common compiled observer work remains unpriced.
+
+During the series the user confirmed that the car, map and HUD looked normal without visible glitches. The exact phase of that observation is unspecified, so it does not prove every cut or post-test full restoration. After the final forward glow run, full night was left running without a network reset for inspection. Exact pixel identity and TV photon timing remain unqualified.
 
 ## Appearance-preserving candidate
 

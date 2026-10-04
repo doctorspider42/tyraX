@@ -450,8 +450,10 @@ recovered 0.50-0.72 ms of hardware `work`. What it did not do, ranked:
   First-order add-backs measured lighting/extras at +3.94–3.99 ms versus
   shadows/particles/post at +1.39–1.49 ms against their own controls;
   these are not additive bills. Reverse add-back orders remain open.
-  All three private V3 subsets passed both emulator orders; hardware pricing
-  is pending. The private pool color-only candidate passed source/host review
+  All three private V3 subsets passed both emulator and physical orders:
+  pool cuts save 0.875–0.968 ms, beams 0.681–0.782 ms, glow 0.296–0.530 ms
+  against own controls; all individual cuts retain approximately 33.37 ms
+  presentation periods. The private pool color-only candidate passed source/host review
   and EE translation-unit compilation; linked runtime, activation and gain
   are unqualified. Measure eligible hits before considering promotion.
   Production full-night quality/performance and physical

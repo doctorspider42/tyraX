@@ -409,7 +409,9 @@ source, emulator and physical acceptance gates. Source/native/emulator gates
 and both physical calibration/joint orders passed. The simplified joint cut
   has approximately 16.68 ms engine presentation periods. Eight completed
   physical boots narrow the next subdivision to lighting/receiver extras;
-  reverse add-backs, pool/beam/glow hardware isolation and production
+  six further physical V3 boots qualify both orders of pool/beam/glow cuts.
+  Individual cuts still show approximately 33.37 ms presentation periods.
+  Reverse V2 add-backs, candidate activation/pricing and production
   full-night performance remain open.
 
 [Batch / texture / program scopes](tyrax2-batch-texture-scopes-2026-10-04.md)

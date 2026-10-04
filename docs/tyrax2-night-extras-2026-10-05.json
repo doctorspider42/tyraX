@@ -1,0 +1,1494 @@
+{
+  "status": "PASS_INDEPENDENT_NIGHT_V3_SIX_PHYSICAL_RUN_OWN_CONTROL_PUBLICATION_SUMMARY",
+  "date": "2026-10-05",
+  "environment": "ps2",
+  "kind": 3,
+  "sourceManifestSha256": "3e895d8224297c66169bf2a01cabc0dfd1fd1e0c9fee8a77c3c77de88bb14dad",
+  "selectedElfSha256": "6c8ca75370ed92d8825b84ec5db3ef00dd75ead6472e7f3f9c40c4df770b9d0b",
+  "completedRuns": 6,
+  "loopsEach": 5400,
+  "rawRowsTotal": 2304,
+  "chunkRowsTotal": 90,
+  "ordinaryDisabledMasks": [
+    0,
+    0,
+    0
+  ],
+  "samplers": [
+    1,
+    1,
+    1
+  ],
+  "families": [
+    {
+      "family": "pools",
+      "extraSubset": 1,
+      "bothOrdersComplete": true,
+      "ownCutContrastRange_ms": [
+        -0.9681369145711258,
+        -0.8745082643297017
+      ],
+      "runs": [
+        {
+          "order": 0,
+          "stem": "night-ablation-ps2-v3-pools-order0-20261005",
+          "machineEvidenceSha256": "65509b18650d11642e86e4c309818c4a557b1d9b82ecd1f7585a2edad3d886f0",
+          "phases": [
+            {
+              "phase": 0,
+              "extraDisabledMask": 0,
+              "meanElapsedMinusPacing_ms": 18.541888194613986,
+              "meanFlipReturnPeriod_ms": 33.3666664759318,
+              "meanRenderedFlipReturnPeriod_ms": 33.3666664759318,
+              "periodEligibilityPercent": 100.0,
+              "renderedTaxCompletions": 320,
+              "syntheticTaxCompletions": 0
+            },
+            {
+              "phase": 1,
+              "extraDisabledMask": 1,
+              "meanElapsedMinusPacing_ms": 17.57375128004286,
+              "meanFlipReturnPeriod_ms": 33.36666536331177,
+              "meanRenderedFlipReturnPeriod_ms": 33.36666536331177,
+              "periodEligibilityPercent": 100.0,
+              "renderedTaxCompletions": 320,
+              "syntheticTaxCompletions": 0
+            },
+            {
+              "phase": 2,
+              "extraDisabledMask": 0,
+              "meanElapsedMinusPacing_ms": 18.526867039998372,
+              "meanFlipReturnPeriod_ms": 33.36666599909464,
+              "meanRenderedFlipReturnPeriod_ms": 33.36666599909464,
+              "periodEligibilityPercent": 100.0,
+              "renderedTaxCompletions": 320,
+              "syntheticTaxCompletions": 0
+            }
+          ],
+          "ownCutMinusEachFullControl_ms": [
+            -0.9681369145711258,
+            -0.9531157599555122
+          ],
+          "ownOuterControlSpread_ms": 0.015021154615613597,
+          "sparseSelectedFamilyWitnesses": [
+            {
+              "identity": "0:750",
+              "bit": 1,
+              "actualExtraMask": 0,
+              "counter": {
+                "attempted": 1,
+                "executed": 1,
+                "skipped": 0,
+                "submitted": 1,
+                "submissionAttemptWitness": true
+              }
+            },
+            {
+              "identity": "0:1155",
+              "bit": 1,
+              "actualExtraMask": 0,
+              "counter": {
+                "attempted": 1,
+                "executed": 1,
+                "skipped": 0,
+                "submitted": 1,
+                "submissionAttemptWitness": true
+              }
+            },
+            {
+              "identity": "1:750",
+              "bit": 1,
+              "actualExtraMask": 1,
+              "counter": {
+                "attempted": 1,
+                "executed": 0,
+                "skipped": 1,
+                "submitted": 0,
+                "submissionAttemptWitness": false
+              }
+            },
+            {
+              "identity": "1:1155",
+              "bit": 1,
+              "actualExtraMask": 1,
+              "counter": {
+                "attempted": 1,
+                "executed": 0,
+                "skipped": 1,
+                "submitted": 0,
+                "submissionAttemptWitness": false
+              }
+            },
+            {
+              "identity": "2:750",
+              "bit": 1,
+              "actualExtraMask": 0,
+              "counter": {
+                "attempted": 1,
+                "executed": 1,
+                "skipped": 0,
+                "submitted": 1,
+                "submissionAttemptWitness": true
+              }
+            },
+            {
+              "identity": "2:1155",
+              "bit": 1,
+              "actualExtraMask": 0,
+              "counter": {
+                "attempted": 1,
+                "executed": 1,
+                "skipped": 0,
+                "submitted": 1,
+                "submissionAttemptWitness": true
+              }
+            }
+          ],
+          "coldMarkerArrivalSpans": [
+            {
+              "phase": 0,
+              "offsets": [
+                750,
+                1155
+              ],
+              "loopSeparation": 405,
+              "arrivalSpanSeconds": 13.516
+            },
+            {
+              "phase": 1,
+              "offsets": [
+                750,
+                1155
+              ],
+              "loopSeparation": 405,
+              "arrivalSpanSeconds": 13.515
+            },
+            {
+              "phase": 2,
+              "offsets": [
+                750,
+                1155
+              ],
+              "loopSeparation": 405,
+              "arrivalSpanSeconds": 13.516
+            }
+          ],
+          "maximumModulo64LoopChunk_ms": 2135.4959513346353,
+          "sparseContextFlags": {
+            "0:750": {
+              "ilChoice": "0",
+              "ilProbing": "0",
+              "ilPipelined": "1",
+              "frameYield": "0",
+              "ilBlock": "0",
+              "ilFrame": "58",
+              "ilAccepted": "0"
+            },
+            "0:1155": {
+              "ilChoice": "0",
+              "ilProbing": "0",
+              "ilPipelined": "1",
+              "frameYield": "0",
+              "ilBlock": "0",
+              "ilFrame": "13",
+              "ilAccepted": "0"
+            },
+            "1:750": {
+              "ilChoice": "0",
+              "ilProbing": "0",
+              "ilPipelined": "1",
+              "frameYield": "0",
+              "ilBlock": "0",
+              "ilFrame": "58",
+              "ilAccepted": "0"
+            },
+            "1:1155": {
+              "ilChoice": "0",
+              "ilProbing": "0",
+              "ilPipelined": "1",
+              "frameYield": "0",
+              "ilBlock": "0",
+              "ilFrame": "13",
+              "ilAccepted": "0"
+            },
+            "2:750": {
+              "ilChoice": "0",
+              "ilProbing": "0",
+              "ilPipelined": "1",
+              "frameYield": "0",
+              "ilBlock": "0",
+              "ilFrame": "58",
+              "ilAccepted": "0"
+            },
+            "2:1155": {
+              "ilChoice": "0",
+              "ilProbing": "0",
+              "ilPipelined": "1",
+              "frameYield": "0",
+              "ilBlock": "0",
+              "ilFrame": "13",
+              "ilAccepted": "0"
+            }
+          },
+          "sparseCameraBitsEqualWithinRun": true
+        },
+        {
+          "order": 1,
+          "stem": "night-ablation-ps2-v3-pools-order1-20261005",
+          "machineEvidenceSha256": "8b377eceecea72358a90861374a0ec3f6ccf0f9f703773086fa64ec5caa40c88",
+          "phases": [
+            {
+              "phase": 0,
+              "extraDisabledMask": 1,
+              "meanElapsedMinusPacing_ms": 17.586848089430067,
+              "meanFlipReturnPeriod_ms": 33.36664501825968,
+              "meanRenderedFlipReturnPeriod_ms": 33.36664501825968,
+              "periodEligibilityPercent": 100.0,
+              "renderedTaxCompletions": 320,
+              "syntheticTaxCompletions": 0
+            },
+            {
+              "phase": 1,
+              "extraDisabledMask": 0,
+              "meanElapsedMinusPacing_ms": 18.46135635375977,
+              "meanFlipReturnPeriod_ms": 33.366667959425186,
+              "meanRenderedFlipReturnPeriod_ms": 33.366667959425186,
+              "periodEligibilityPercent": 100.0,
+              "renderedTaxCompletions": 320,
+              "syntheticTaxCompletions": 0
+            },
+            {
+              "phase": 2,
+              "extraDisabledMask": 1,
+              "meanElapsedMinusPacing_ms": 17.544575860765246,
+              "meanFlipReturnPeriod_ms": 33.36663103103638,
+              "meanRenderedFlipReturnPeriod_ms": 33.36663103103638,
+              "periodEligibilityPercent": 100.0,
+              "renderedTaxCompletions": 320,
+              "syntheticTaxCompletions": 0
+            }
+          ],
+          "ownCutMinusEachFullControl_ms": [
+            -0.8745082643297017,
+            -0.9167804929945227
+          ],
+          "ownOuterControlSpread_ms": 0.04227222866482094,
+          "sparseSelectedFamilyWitnesses": [
+            {
+              "identity": "0:750",
+              "bit": 1,
+              "actualExtraMask": 1,
+              "counter": {
+                "attempted": 1,
+                "executed": 0,
+                "skipped": 1,
+                "submitted": 0,
+                "submissionAttemptWitness": false
+              }
+            },
+            {
+              "identity": "0:1155",
+              "bit": 1,
+              "actualExtraMask": 1,
+              "counter": {
+                "attempted": 1,
+                "executed": 0,
+                "skipped": 1,
+                "submitted": 0,
+                "submissionAttemptWitness": false
+              }
+            },
+            {
+              "identity": "1:750",
+              "bit": 1,
+              "actualExtraMask": 0,
+              "counter": {
+                "attempted": 1,
+                "executed": 1,
+                "skipped": 0,
+                "submitted": 1,
+                "submissionAttemptWitness": true
+              }
+            },
+            {
+              "identity": "1:1155",
+              "bit": 1,
+              "actualExtraMask": 0,
+              "counter": {
+                "attempted": 1,
+                "executed": 1,
+                "skipped": 0,
+                "submitted": 1,
+                "submissionAttemptWitness": true
+              }
+            },
+            {
+              "identity": "2:750",
+              "bit": 1,
+              "actualExtraMask": 1,
+              "counter": {
+                "attempted": 1,
+                "executed": 0,
+                "skipped": 1,
+                "submitted": 0,
+                "submissionAttemptWitness": false
+              }
+            },
+            {
+              "identity": "2:1155",
+              "bit": 1,
+              "actualExtraMask": 1,
+              "counter": {
+                "attempted": 1,
+                "executed": 0,
+                "skipped": 1,
+                "submitted": 0,
+                "submissionAttemptWitness": false
+              }
+            }
+          ],
+          "coldMarkerArrivalSpans": [
+            {
+              "phase": 0,
+              "offsets": [
+                750,
+                1155
+              ],
+              "loopSeparation": 405,
+              "arrivalSpanSeconds": 13.5
+            },
+            {
+              "phase": 1,
+              "offsets": [
+                750,
+                1155
+              ],
+              "loopSeparation": 405,
+              "arrivalSpanSeconds": 13.516
+            },
+            {
+              "phase": 2,
+              "offsets": [
+                750,
+                1155
+              ],
+              "loopSeparation": 405,
+              "arrivalSpanSeconds": 13.516
+            }
+          ],
+          "maximumModulo64LoopChunk_ms": 2135.5033094618057,
+          "sparseContextFlags": {
+            "0:750": {
+              "ilChoice": "0",
+              "ilProbing": "0",
+              "ilPipelined": "1",
+              "frameYield": "0",
+              "ilBlock": "0",
+              "ilFrame": "58",
+              "ilAccepted": "0"
+            },
+            "0:1155": {
+              "ilChoice": "0",
+              "ilProbing": "0",
+              "ilPipelined": "1",
+              "frameYield": "0",
+              "ilBlock": "0",
+              "ilFrame": "13",
+              "ilAccepted": "0"
+            },
+            "1:750": {
+              "ilChoice": "1",
+              "ilProbing": "0",
+              "ilPipelined": "1",
+              "frameYield": "0",
+              "ilBlock": "0",
+              "ilFrame": "58",
+              "ilAccepted": "0"
+            },
+            "1:1155": {
+              "ilChoice": "1",
+              "ilProbing": "0",
+              "ilPipelined": "1",
+              "frameYield": "0",
+              "ilBlock": "0",
+              "ilFrame": "13",
+              "ilAccepted": "0"
+            },
+            "2:750": {
+              "ilChoice": "0",
+              "ilProbing": "0",
+              "ilPipelined": "1",
+              "frameYield": "0",
+              "ilBlock": "0",
+              "ilFrame": "58",
+              "ilAccepted": "0"
+            },
+            "2:1155": {
+              "ilChoice": "0",
+              "ilProbing": "0",
+              "ilPipelined": "1",
+              "frameYield": "0",
+              "ilBlock": "0",
+              "ilFrame": "13",
+              "ilAccepted": "0"
+            }
+          },
+          "sparseCameraBitsEqualWithinRun": true
+        }
+      ]
+    },
+    {
+      "family": "beams",
+      "extraSubset": 2,
+      "bothOrdersComplete": true,
+      "ownCutContrastRange_ms": [
+        -0.7815517531500937,
+        -0.6808877521091041
+      ],
+      "runs": [
+        {
+          "order": 0,
+          "stem": "night-ablation-ps2-v3-beams-order0-20261005",
+          "machineEvidenceSha256": "98845f97067f205f71e067990200dd8bb5d1f1b1c8725726cacd3fb9315ee92d",
+          "phases": [
+            {
+              "phase": 0,
+              "extraDisabledMask": 0,
+              "meanElapsedMinusPacing_ms": 18.58831803003947,
+              "meanFlipReturnPeriod_ms": 33.366664250691734,
+              "meanRenderedFlipReturnPeriod_ms": 33.366664250691734,
+              "periodEligibilityPercent": 100.0,
+              "renderedTaxCompletions": 320,
+              "syntheticTaxCompletions": 0
+            },
+            {
+              "phase": 1,
+              "extraDisabledMask": 2,
+              "meanElapsedMinusPacing_ms": 17.817537763383655,
+              "meanFlipReturnPeriod_ms": 33.36666965484619,
+              "meanRenderedFlipReturnPeriod_ms": 33.36666965484619,
+              "periodEligibilityPercent": 100.0,
+              "renderedTaxCompletions": 320,
+              "syntheticTaxCompletions": 0
+            },
+            {
+              "phase": 2,
+              "extraDisabledMask": 0,
+              "meanElapsedMinusPacing_ms": 18.49842551549276,
+              "meanFlipReturnPeriod_ms": 33.366666634877525,
+              "meanRenderedFlipReturnPeriod_ms": 33.366666634877525,
+              "periodEligibilityPercent": 100.0,
+              "renderedTaxCompletions": 320,
+              "syntheticTaxCompletions": 0
+            }
+          ],
+          "ownCutMinusEachFullControl_ms": [
+            -0.7707802666558159,
+            -0.6808877521091041
+          ],
+          "ownOuterControlSpread_ms": 0.08989251454671177,
+          "sparseSelectedFamilyWitnesses": [
+            {
+              "identity": "0:750",
+              "bit": 2,
+              "actualExtraMask": 0,
+              "counter": {
+                "attempted": 1,
+                "executed": 1,
+                "skipped": 0,
+                "submitted": 2,
+                "submissionAttemptWitness": true
+              }
+            },
+            {
+              "identity": "0:1155",
+              "bit": 2,
+              "actualExtraMask": 0,
+              "counter": {
+                "attempted": 1,
+                "executed": 1,
+                "skipped": 0,
+                "submitted": 2,
+                "submissionAttemptWitness": true
+              }
+            },
+            {
+              "identity": "1:750",
+              "bit": 2,
+              "actualExtraMask": 2,
+              "counter": {
+                "attempted": 1,
+                "executed": 0,
+                "skipped": 1,
+                "submitted": 0,
+                "submissionAttemptWitness": false
+              }
+            },
+            {
+              "identity": "1:1155",
+              "bit": 2,
+              "actualExtraMask": 2,
+              "counter": {
+                "attempted": 1,
+                "executed": 0,
+                "skipped": 1,
+                "submitted": 0,
+                "submissionAttemptWitness": false
+              }
+            },
+            {
+              "identity": "2:750",
+              "bit": 2,
+              "actualExtraMask": 0,
+              "counter": {
+                "attempted": 1,
+                "executed": 1,
+                "skipped": 0,
+                "submitted": 2,
+                "submissionAttemptWitness": true
+              }
+            },
+            {
+              "identity": "2:1155",
+              "bit": 2,
+              "actualExtraMask": 0,
+              "counter": {
+                "attempted": 1,
+                "executed": 1,
+                "skipped": 0,
+                "submitted": 2,
+                "submissionAttemptWitness": true
+              }
+            }
+          ],
+          "coldMarkerArrivalSpans": [
+            {
+              "phase": 0,
+              "offsets": [
+                750,
+                1155
+              ],
+              "loopSeparation": 405,
+              "arrivalSpanSeconds": 13.516
+            },
+            {
+              "phase": 1,
+              "offsets": [
+                750,
+                1155
+              ],
+              "loopSeparation": 405,
+              "arrivalSpanSeconds": 13.515
+            },
+            {
+              "phase": 2,
+              "offsets": [
+                750,
+                1155
+              ],
+              "loopSeparation": 405,
+              "arrivalSpanSeconds": 13.516
+            }
+          ],
+          "maximumModulo64LoopChunk_ms": 2135.5098402235244,
+          "sparseContextFlags": {
+            "0:750": {
+              "ilChoice": "1",
+              "ilProbing": "0",
+              "ilPipelined": "1",
+              "frameYield": "0",
+              "ilBlock": "0",
+              "ilFrame": "58",
+              "ilAccepted": "0"
+            },
+            "0:1155": {
+              "ilChoice": "0",
+              "ilProbing": "0",
+              "ilPipelined": "1",
+              "frameYield": "0",
+              "ilBlock": "0",
+              "ilFrame": "13",
+              "ilAccepted": "0"
+            },
+            "1:750": {
+              "ilChoice": "1",
+              "ilProbing": "0",
+              "ilPipelined": "1",
+              "frameYield": "0",
+              "ilBlock": "0",
+              "ilFrame": "58",
+              "ilAccepted": "0"
+            },
+            "1:1155": {
+              "ilChoice": "0",
+              "ilProbing": "0",
+              "ilPipelined": "1",
+              "frameYield": "0",
+              "ilBlock": "0",
+              "ilFrame": "13",
+              "ilAccepted": "0"
+            },
+            "2:750": {
+              "ilChoice": "1",
+              "ilProbing": "0",
+              "ilPipelined": "1",
+              "frameYield": "0",
+              "ilBlock": "0",
+              "ilFrame": "58",
+              "ilAccepted": "0"
+            },
+            "2:1155": {
+              "ilChoice": "0",
+              "ilProbing": "0",
+              "ilPipelined": "1",
+              "frameYield": "0",
+              "ilBlock": "0",
+              "ilFrame": "13",
+              "ilAccepted": "0"
+            }
+          },
+          "sparseCameraBitsEqualWithinRun": true
+        },
+        {
+          "order": 1,
+          "stem": "night-ablation-ps2-v3-beams-order1-20261005",
+          "machineEvidenceSha256": "931b47120804d1f624e2179fadf42c540d68344bbbd5a3867c01756731e864b7",
+          "phases": [
+            {
+              "phase": 0,
+              "extraDisabledMask": 2,
+              "meanElapsedMinusPacing_ms": 17.864728662702774,
+              "meanFlipReturnPeriod_ms": 33.366666316986084,
+              "meanRenderedFlipReturnPeriod_ms": 33.366666316986084,
+              "periodEligibilityPercent": 100.0,
+              "renderedTaxCompletions": 320,
+              "syntheticTaxCompletions": 0
+            },
+            {
+              "phase": 1,
+              "extraDisabledMask": 0,
+              "meanElapsedMinusPacing_ms": 18.592561954922147,
+              "meanFlipReturnPeriod_ms": 33.366670767466225,
+              "meanRenderedFlipReturnPeriod_ms": 33.366670767466225,
+              "periodEligibilityPercent": 100.0,
+              "renderedTaxCompletions": 320,
+              "syntheticTaxCompletions": 0
+            },
+            {
+              "phase": 2,
+              "extraDisabledMask": 2,
+              "meanElapsedMinusPacing_ms": 17.811010201772053,
+              "meanFlipReturnPeriod_ms": 33.36666711171468,
+              "meanRenderedFlipReturnPeriod_ms": 33.36666711171468,
+              "periodEligibilityPercent": 100.0,
+              "renderedTaxCompletions": 320,
+              "syntheticTaxCompletions": 0
+            }
+          ],
+          "ownCutMinusEachFullControl_ms": [
+            -0.7278332922193727,
+            -0.7815517531500937
+          ],
+          "ownOuterControlSpread_ms": 0.05371846093072108,
+          "sparseSelectedFamilyWitnesses": [
+            {
+              "identity": "0:750",
+              "bit": 2,
+              "actualExtraMask": 2,
+              "counter": {
+                "attempted": 1,
+                "executed": 0,
+                "skipped": 1,
+                "submitted": 0,
+                "submissionAttemptWitness": false
+              }
+            },
+            {
+              "identity": "0:1155",
+              "bit": 2,
+              "actualExtraMask": 2,
+              "counter": {
+                "attempted": 1,
+                "executed": 0,
+                "skipped": 1,
+                "submitted": 0,
+                "submissionAttemptWitness": false
+              }
+            },
+            {
+              "identity": "1:750",
+              "bit": 2,
+              "actualExtraMask": 0,
+              "counter": {
+                "attempted": 1,
+                "executed": 1,
+                "skipped": 0,
+                "submitted": 2,
+                "submissionAttemptWitness": true
+              }
+            },
+            {
+              "identity": "1:1155",
+              "bit": 2,
+              "actualExtraMask": 0,
+              "counter": {
+                "attempted": 1,
+                "executed": 1,
+                "skipped": 0,
+                "submitted": 2,
+                "submissionAttemptWitness": true
+              }
+            },
+            {
+              "identity": "2:750",
+              "bit": 2,
+              "actualExtraMask": 2,
+              "counter": {
+                "attempted": 1,
+                "executed": 0,
+                "skipped": 1,
+                "submitted": 0,
+                "submissionAttemptWitness": false
+              }
+            },
+            {
+              "identity": "2:1155",
+              "bit": 2,
+              "actualExtraMask": 2,
+              "counter": {
+                "attempted": 1,
+                "executed": 0,
+                "skipped": 1,
+                "submitted": 0,
+                "submissionAttemptWitness": false
+              }
+            }
+          ],
+          "coldMarkerArrivalSpans": [
+            {
+              "phase": 0,
+              "offsets": [
+                750,
+                1155
+              ],
+              "loopSeparation": 405,
+              "arrivalSpanSeconds": 13.516
+            },
+            {
+              "phase": 1,
+              "offsets": [
+                750,
+                1155
+              ],
+              "loopSeparation": 405,
+              "arrivalSpanSeconds": 13.515
+            },
+            {
+              "phase": 2,
+              "offsets": [
+                750,
+                1155
+              ],
+              "loopSeparation": 405,
+              "arrivalSpanSeconds": 13.516
+            }
+          ],
+          "maximumModulo64LoopChunk_ms": 2135.4896240234375,
+          "sparseContextFlags": {
+            "0:750": {
+              "ilChoice": "0",
+              "ilProbing": "0",
+              "ilPipelined": "1",
+              "frameYield": "0",
+              "ilBlock": "0",
+              "ilFrame": "58",
+              "ilAccepted": "0"
+            },
+            "0:1155": {
+              "ilChoice": "0",
+              "ilProbing": "0",
+              "ilPipelined": "1",
+              "frameYield": "0",
+              "ilBlock": "0",
+              "ilFrame": "13",
+              "ilAccepted": "0"
+            },
+            "1:750": {
+              "ilChoice": "0",
+              "ilProbing": "0",
+              "ilPipelined": "1",
+              "frameYield": "0",
+              "ilBlock": "0",
+              "ilFrame": "58",
+              "ilAccepted": "0"
+            },
+            "1:1155": {
+              "ilChoice": "0",
+              "ilProbing": "0",
+              "ilPipelined": "1",
+              "frameYield": "0",
+              "ilBlock": "0",
+              "ilFrame": "13",
+              "ilAccepted": "0"
+            },
+            "2:750": {
+              "ilChoice": "0",
+              "ilProbing": "0",
+              "ilPipelined": "1",
+              "frameYield": "0",
+              "ilBlock": "0",
+              "ilFrame": "58",
+              "ilAccepted": "0"
+            },
+            "2:1155": {
+              "ilChoice": "0",
+              "ilProbing": "0",
+              "ilPipelined": "1",
+              "frameYield": "0",
+              "ilBlock": "0",
+              "ilFrame": "13",
+              "ilAccepted": "0"
+            }
+          },
+          "sparseCameraBitsEqualWithinRun": true
+        }
+      ]
+    },
+    {
+      "family": "glow",
+      "extraSubset": 4,
+      "bothOrdersComplete": true,
+      "ownCutContrastRange_ms": [
+        -0.5299978680080812,
+        -0.2958423614501946
+      ],
+      "runs": [
+        {
+          "order": 0,
+          "stem": "night-ablation-ps2-v3-glow-order0-20261005",
+          "machineEvidenceSha256": "886b694cdd90b393e09b15e2d699a502927d7797e27072fdb4d5aea9caf1e5c5",
+          "phases": [
+            {
+              "phase": 0,
+              "extraDisabledMask": 0,
+              "meanElapsedMinusPacing_ms": 18.646831893920897,
+              "meanFlipReturnPeriod_ms": 33.36666695276896,
+              "meanRenderedFlipReturnPeriod_ms": 33.36666695276896,
+              "periodEligibilityPercent": 100.0,
+              "renderedTaxCompletions": 320,
+              "syntheticTaxCompletions": 0
+            },
+            {
+              "phase": 1,
+              "extraDisabledMask": 4,
+              "meanElapsedMinusPacing_ms": 18.127506457434762,
+              "meanFlipReturnPeriod_ms": 33.366670767466225,
+              "meanRenderedFlipReturnPeriod_ms": 33.366670767466225,
+              "periodEligibilityPercent": 100.0,
+              "renderedTaxCompletions": 320,
+              "syntheticTaxCompletions": 0
+            },
+            {
+              "phase": 2,
+              "extraDisabledMask": 0,
+              "meanElapsedMinusPacing_ms": 18.657504325442844,
+              "meanFlipReturnPeriod_ms": 33.36666933695475,
+              "meanRenderedFlipReturnPeriod_ms": 33.36666933695475,
+              "periodEligibilityPercent": 100.0,
+              "renderedTaxCompletions": 320,
+              "syntheticTaxCompletions": 0
+            }
+          ],
+          "ownCutMinusEachFullControl_ms": [
+            -0.5193254364861346,
+            -0.5299978680080812
+          ],
+          "ownOuterControlSpread_ms": 0.010672431521946635,
+          "sparseSelectedFamilyWitnesses": [
+            {
+              "identity": "0:750",
+              "bit": 4,
+              "actualExtraMask": 0,
+              "counter": {
+                "attempted": 2,
+                "executed": 2,
+                "skipped": 0,
+                "submitted": 2,
+                "submissionAttemptWitness": true
+              }
+            },
+            {
+              "identity": "0:1155",
+              "bit": 4,
+              "actualExtraMask": 0,
+              "counter": {
+                "attempted": 2,
+                "executed": 2,
+                "skipped": 0,
+                "submitted": 2,
+                "submissionAttemptWitness": true
+              }
+            },
+            {
+              "identity": "1:750",
+              "bit": 4,
+              "actualExtraMask": 4,
+              "counter": {
+                "attempted": 2,
+                "executed": 0,
+                "skipped": 2,
+                "submitted": 0,
+                "submissionAttemptWitness": false
+              }
+            },
+            {
+              "identity": "1:1155",
+              "bit": 4,
+              "actualExtraMask": 4,
+              "counter": {
+                "attempted": 2,
+                "executed": 0,
+                "skipped": 2,
+                "submitted": 0,
+                "submissionAttemptWitness": false
+              }
+            },
+            {
+              "identity": "2:750",
+              "bit": 4,
+              "actualExtraMask": 0,
+              "counter": {
+                "attempted": 2,
+                "executed": 2,
+                "skipped": 0,
+                "submitted": 2,
+                "submissionAttemptWitness": true
+              }
+            },
+            {
+              "identity": "2:1155",
+              "bit": 4,
+              "actualExtraMask": 0,
+              "counter": {
+                "attempted": 2,
+                "executed": 2,
+                "skipped": 0,
+                "submitted": 2,
+                "submissionAttemptWitness": true
+              }
+            }
+          ],
+          "coldMarkerArrivalSpans": [
+            {
+              "phase": 0,
+              "offsets": [
+                750,
+                1155
+              ],
+              "loopSeparation": 405,
+              "arrivalSpanSeconds": 13.516
+            },
+            {
+              "phase": 1,
+              "offsets": [
+                750,
+                1155
+              ],
+              "loopSeparation": 405,
+              "arrivalSpanSeconds": 13.516
+            },
+            {
+              "phase": 2,
+              "offsets": [
+                750,
+                1155
+              ],
+              "loopSeparation": 405,
+              "arrivalSpanSeconds": 13.5
+            }
+          ],
+          "maximumModulo64LoopChunk_ms": 2135.487589518229,
+          "sparseContextFlags": {
+            "0:750": {
+              "ilChoice": "1",
+              "ilProbing": "0",
+              "ilPipelined": "1",
+              "frameYield": "0",
+              "ilBlock": "0",
+              "ilFrame": "58",
+              "ilAccepted": "0"
+            },
+            "0:1155": {
+              "ilChoice": "0",
+              "ilProbing": "0",
+              "ilPipelined": "1",
+              "frameYield": "0",
+              "ilBlock": "0",
+              "ilFrame": "13",
+              "ilAccepted": "0"
+            },
+            "1:750": {
+              "ilChoice": "0",
+              "ilProbing": "0",
+              "ilPipelined": "1",
+              "frameYield": "0",
+              "ilBlock": "0",
+              "ilFrame": "58",
+              "ilAccepted": "0"
+            },
+            "1:1155": {
+              "ilChoice": "0",
+              "ilProbing": "0",
+              "ilPipelined": "1",
+              "frameYield": "0",
+              "ilBlock": "0",
+              "ilFrame": "13",
+              "ilAccepted": "0"
+            },
+            "2:750": {
+              "ilChoice": "1",
+              "ilProbing": "0",
+              "ilPipelined": "1",
+              "frameYield": "0",
+              "ilBlock": "0",
+              "ilFrame": "58",
+              "ilAccepted": "0"
+            },
+            "2:1155": {
+              "ilChoice": "0",
+              "ilProbing": "0",
+              "ilPipelined": "1",
+              "frameYield": "0",
+              "ilBlock": "0",
+              "ilFrame": "13",
+              "ilAccepted": "0"
+            }
+          },
+          "sparseCameraBitsEqualWithinRun": true
+        },
+        {
+          "order": 1,
+          "stem": "night-ablation-ps2-v3-glow-order1-20261005",
+          "machineEvidenceSha256": "f17ebdcac3230875fe21904be62c283026440be45895d6ecb7d60b095558b3f1",
+          "phases": [
+            {
+              "phase": 0,
+              "extraDisabledMask": 4,
+              "meanElapsedMinusPacing_ms": 18.276287862989637,
+              "meanFlipReturnPeriod_ms": 33.36666758855184,
+              "meanRenderedFlipReturnPeriod_ms": 33.36666758855184,
+              "periodEligibilityPercent": 100.0,
+              "renderedTaxCompletions": 320,
+              "syntheticTaxCompletions": 0
+            },
+            {
+              "phase": 1,
+              "extraDisabledMask": 0,
+              "meanElapsedMinusPacing_ms": 18.593911435869003,
+              "meanFlipReturnPeriod_ms": 33.36666742960612,
+              "meanRenderedFlipReturnPeriod_ms": 33.36666742960612,
+              "periodEligibilityPercent": 100.0,
+              "renderedTaxCompletions": 320,
+              "syntheticTaxCompletions": 0
+            },
+            {
+              "phase": 2,
+              "extraDisabledMask": 4,
+              "meanElapsedMinusPacing_ms": 18.29806907441881,
+              "meanFlipReturnPeriod_ms": 33.366854111353554,
+              "meanRenderedFlipReturnPeriod_ms": 33.366854111353554,
+              "periodEligibilityPercent": 100.0,
+              "renderedTaxCompletions": 320,
+              "syntheticTaxCompletions": 0
+            }
+          ],
+          "ownCutMinusEachFullControl_ms": [
+            -0.3176235728793664,
+            -0.2958423614501946
+          ],
+          "ownOuterControlSpread_ms": 0.021781211429171776,
+          "sparseSelectedFamilyWitnesses": [
+            {
+              "identity": "0:750",
+              "bit": 4,
+              "actualExtraMask": 4,
+              "counter": {
+                "attempted": 2,
+                "executed": 0,
+                "skipped": 2,
+                "submitted": 0,
+                "submissionAttemptWitness": false
+              }
+            },
+            {
+              "identity": "0:1155",
+              "bit": 4,
+              "actualExtraMask": 4,
+              "counter": {
+                "attempted": 2,
+                "executed": 0,
+                "skipped": 2,
+                "submitted": 0,
+                "submissionAttemptWitness": false
+              }
+            },
+            {
+              "identity": "1:750",
+              "bit": 4,
+              "actualExtraMask": 0,
+              "counter": {
+                "attempted": 2,
+                "executed": 2,
+                "skipped": 0,
+                "submitted": 2,
+                "submissionAttemptWitness": true
+              }
+            },
+            {
+              "identity": "1:1155",
+              "bit": 4,
+              "actualExtraMask": 0,
+              "counter": {
+                "attempted": 2,
+                "executed": 2,
+                "skipped": 0,
+                "submitted": 2,
+                "submissionAttemptWitness": true
+              }
+            },
+            {
+              "identity": "2:750",
+              "bit": 4,
+              "actualExtraMask": 4,
+              "counter": {
+                "attempted": 2,
+                "executed": 0,
+                "skipped": 2,
+                "submitted": 0,
+                "submissionAttemptWitness": false
+              }
+            },
+            {
+              "identity": "2:1155",
+              "bit": 4,
+              "actualExtraMask": 4,
+              "counter": {
+                "attempted": 2,
+                "executed": 0,
+                "skipped": 2,
+                "submitted": 0,
+                "submissionAttemptWitness": false
+              }
+            }
+          ],
+          "coldMarkerArrivalSpans": [
+            {
+              "phase": 0,
+              "offsets": [
+                750,
+                1155
+              ],
+              "loopSeparation": 405,
+              "arrivalSpanSeconds": 13.516
+            },
+            {
+              "phase": 1,
+              "offsets": [
+                750,
+                1155
+              ],
+              "loopSeparation": 405,
+              "arrivalSpanSeconds": 13.516
+            },
+            {
+              "phase": 2,
+              "offsets": [
+                750,
+                1155
+              ],
+              "loopSeparation": 405,
+              "arrivalSpanSeconds": 13.515
+            }
+          ],
+          "maximumModulo64LoopChunk_ms": 2135.496676974826,
+          "sparseContextFlags": {
+            "0:750": {
+              "ilChoice": "0",
+              "ilProbing": "0",
+              "ilPipelined": "1",
+              "frameYield": "0",
+              "ilBlock": "0",
+              "ilFrame": "58",
+              "ilAccepted": "0"
+            },
+            "0:1155": {
+              "ilChoice": "0",
+              "ilProbing": "0",
+              "ilPipelined": "1",
+              "frameYield": "0",
+              "ilBlock": "0",
+              "ilFrame": "13",
+              "ilAccepted": "0"
+            },
+            "1:750": {
+              "ilChoice": "0",
+              "ilProbing": "0",
+              "ilPipelined": "1",
+              "frameYield": "0",
+              "ilBlock": "0",
+              "ilFrame": "58",
+              "ilAccepted": "0"
+            },
+            "1:1155": {
+              "ilChoice": "0",
+              "ilProbing": "0",
+              "ilPipelined": "1",
+              "frameYield": "0",
+              "ilBlock": "0",
+              "ilFrame": "13",
+              "ilAccepted": "0"
+            },
+            "2:750": {
+              "ilChoice": "0",
+              "ilProbing": "0",
+              "ilPipelined": "1",
+              "frameYield": "0",
+              "ilBlock": "0",
+              "ilFrame": "58",
+              "ilAccepted": "0"
+            },
+            "2:1155": {
+              "ilChoice": "1",
+              "ilProbing": "0",
+              "ilPipelined": "1",
+              "frameYield": "0",
+              "ilBlock": "0",
+              "ilFrame": "13",
+              "ilAccepted": "0"
+            }
+          },
+          "sparseCameraBitsEqualWithinRun": true
+        }
+      ]
+    }
+  ],
+  "observedMeanFlipReturnPeriodRange_ms": [
+    33.36663103103638,
+    33.366854111353554
+  ],
+  "physicalVisualConfirmation": {
+    "status": "TRUSTED_PARENT_REPORT_OF_USER_DURING_SERIES_BASE_VISUAL_CONFIRMATION",
+    "scope": "User reported car/map/HUD normal with no visible glitches during the last Glow series; exact phase unspecified.",
+    "authority": "Parent explicitly clarified human answer timing. No image or phase-specific timestamp is supplied.",
+    "postDoneFullNightRestorationAccepted": false,
+    "exactCutOrFullPhaseAccepted": false,
+    "fullSourcePixelIdentityAccepted": false,
+    "allCutArmsVisualAccepted": false,
+    "physicalTvPhotonTimingAccepted": false,
+    "finalLeftFullNightFactSeparate": "Root completed final forward Glow run and intentionally left full-night source arm running without reset; user has not separately confirmed its post-DONE restoration."
+  },
+  "inclusiveOwnContrastsAccepted": true,
+  "additiveComponentBillAccepted": false,
+  "candidateOptimizationGainAccepted": false,
+  "pureEEOrGPUUtilizationAccepted": false,
+  "uniformObserverFee": null,
+  "commonObserverCostPriced": false,
+  "crossVersionOrEmulatorSubtractionAccepted": false,
+  "productionFullNight60Accepted": false,
+  "limitations": [
+    "Each complete subgroup cut is bracketed by its own full ordinary scene, with separate reverse order; differences cannot be added or sold as achievable cache optimization savings.",
+    "Cold counters750/1155 are positive source-entry/submission attempts, not full timed-window DMA/pixel/hit census.",
+    "Elapsed minus existing pacing includes stalls, scheduling and deferred work; hardware route/adaptive state can mediate results.",
+    "ModuloCount intervals use64-loop chunks; raw-bound host CAMERA arrival spans are end-to-end sanity and latency-qualified, not independent hardware-clock authority.",
+    "During-series phase-unspecified human base-visual acceptance does not establish exact pixels, all cut appearances or TV photon cadence.",
+    "Broad V2 joint/addback records remain separate own-source observations.",
+    "Glow direction contrasts differ; sparse adaptive changes and ordinary state prevent assigning one fixed component price."
+  ],
+  "artifactSha256": {
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-physical-review-v3/pools-paired-physical-summary.json": "b624c7200d9b82906938b7396e2ca949e603e203a26100b3c416f345103c0b91",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-physical-review-v3/night-ablation-ps2-v3-pools-order0-20261005-proof.json": "ebea54b5bce3c1b84dd6972c3d042546717f8ea320dd2a01ec2c74d0f66f11c5",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-physical-review-v3/night-ablation-ps2-v3-pools-order0-20261005-arrivals-proof.json": "3807dd6ac8a06fd27f3eb7c1653ee876732083f21625e089bd3592034b630f6a",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-pools-order0-20261005-evidence/machine-evidence.json": "65509b18650d11642e86e4c309818c4a557b1d9b82ecd1f7585a2edad3d886f0",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-pools-order0-20261005-evidence/analysis-command.json": "5d494637ecbd3f086d4ba767732556a9533e582a1687d91037e5db9ef4e2f75c",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-pools-order0-20261005-evidence/analyze-loop.py": "5f1e9756449a5d35e9ce9567ab87be9e4388ed98b777f3ff72622b0e71f7fa27",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-pools-order0-20261005-evidence/analyze-night-cli.py": "3bc1e85d9cc2464c1b41dce157ab4eb2ee65324ef891853a2e98aecfd8e3b198",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-pools-order0-20261005-evidence/analyze-night.py": "1501b41d9a0f169fd540f60e1839910e82c103734f03d9a5e7b4d56b6a8e60f8",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-pools-order0-20261005-evidence/client-process.json": "99a7a7316cc06a95785dd001101eb7ef20a46b9d8c870f46b72fcf48cdcac042",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-pools-order0-20261005-evidence/host-arrivals.jsonl": "0e3c5f08b62e890c09aadc2588659405286ea657b51eed9850138f1d3657e4e6",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-pools-order0-20261005-evidence/host-authority.json": "17d928aacd6a6b67fceda7b1026f35e947138191704b5bff035a03c0c74df081",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-pools-order0-20261005-evidence/native-build.log": "5a0dc413262aabe3b95dcf0d5d4b502c0045109eb453685859257e698ada53cb",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-pools-order0-20261005-evidence/night-ablation.cfg": "d5b445ea41521767d4562a2e2173478d998cfb0787a5fd4049d4af28029c9822",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-pools-order0-20261005-evidence/night-ablation.log": "6e1a348298126355c01e5660ba99dad113bc9871eaf3402e3a0acdd39a94e8d9",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-pools-order0-20261005-evidence/normalization-proof.json": "f4882da331609b091c4ff58aea927bc482d834fdeb03ec9256adba3b23e426e3",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-pools-order0-20261005-evidence/observed-launch.json": "b49634fe3c059cf2e24c5618d80560ae606ee7af6e901084791496226599db91",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-pools-order0-20261005-evidence/owned-launch.json": "3e39f552a75f648062710ff4f8f067c71b88df316e3501a5bdcbe78a2bd76a0a",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-pools-order0-20261005-evidence/owned-stop.json": "99a7a7316cc06a95785dd001101eb7ef20a46b9d8c870f46b72fcf48cdcac042",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-pools-order0-20261005-evidence/ps2client-raw.log": "28597aabc89620ed3cea540b9f8a08e361bfe9ad6dbd1b376d013e0e41d0e66f",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-pools-order0-20261005-evidence/ps2link.run": "290eb100acb0b408fab11ae3445233dd7409222008a8c4dc3d0cf49a2bc1208a",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-pools-order0-20261005-evidence/quiet-night.cfg": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-pools-order0-20261005-evidence/review-authority.json": "a7104ea8bfefa65b7065d45c87f8f71ce3b1246c81d023caa5c233fea329497f",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-pools-order0-20261005-evidence/root-native-provenance.json": "0d607fc572ed8e56ae261362e94793d647e61cea89fc4d5b3673854cac3a49c8",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-pools-order0-20261005-evidence/root-source-freeze.json": "e4a5aa367f75b2d9fcac3ba4ce21630bd77156e662ba5ba7e4f290d2f612ccac",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-pools-order0-20261005-evidence/runtime-assets-manifest.json": "172da3da52b28c099fb6a867c202412748565c22ace74188d5c4da6488b21603",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-pools-order0-20261005-evidence/stdout.log": "40574d0dec919fb853b72c5270b654a8283fa0a60e4017a33664fe5157a22d98",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-pools-order0-20261005-evidence/strict-analysis.json": "b5fd73f8b7849e368aa1b0c360ce894993d2c032bbd78921707034aba1e645c9",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-pools-order0-20261005-evidence/target-source-manifest.json": "3e895d8224297c66169bf2a01cabc0dfd1fd1e0c9fee8a77c3c77de88bb14dad",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-pools-order0-20261005-evidence/vehicle-playground.elf": "6c8ca75370ed92d8825b84ec5db3ef00dd75ead6472e7f3f9c40c4df770b9d0b",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-pools-order0-20261005-evidence/vehicle-playground.elf.sym": "769792d39fea45a28d1279fa3c5060817aaf3ec4752380e1a659cc28a19f3250",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-physical-review-v3/night-ablation-ps2-v3-pools-order1-20261005-proof.json": "d32b6c3a10b9f72526d8bfdb4d58ab992ecac19dc3573389372caf34bcf506be",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-physical-review-v3/night-ablation-ps2-v3-pools-order1-20261005-arrivals-proof.json": "bdbaa57b2aa87fc9b6da84d84b9bbd0d07753a36890dc6e6bd532470509c0df3",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-pools-order1-20261005-evidence/machine-evidence.json": "8b377eceecea72358a90861374a0ec3f6ccf0f9f703773086fa64ec5caa40c88",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-pools-order1-20261005-evidence/analysis-command.json": "44abc4610655fa09729595f7f18d21f10999b604ab1a9cb23fb5534f30464644",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-pools-order1-20261005-evidence/analyze-loop.py": "5f1e9756449a5d35e9ce9567ab87be9e4388ed98b777f3ff72622b0e71f7fa27",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-pools-order1-20261005-evidence/analyze-night-cli.py": "3bc1e85d9cc2464c1b41dce157ab4eb2ee65324ef891853a2e98aecfd8e3b198",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-pools-order1-20261005-evidence/analyze-night.py": "1501b41d9a0f169fd540f60e1839910e82c103734f03d9a5e7b4d56b6a8e60f8",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-pools-order1-20261005-evidence/client-process.json": "1b43fd4093e222b8570ca799ea00f616582f74de97496bfb5390ff1ad0370acb",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-pools-order1-20261005-evidence/host-arrivals.jsonl": "8bcceb4a60e933a413673135f8f73e2f3f4bc3cdaa88c0fffc9d37516e061233",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-pools-order1-20261005-evidence/host-authority.json": "17d928aacd6a6b67fceda7b1026f35e947138191704b5bff035a03c0c74df081",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-pools-order1-20261005-evidence/native-build.log": "5a0dc413262aabe3b95dcf0d5d4b502c0045109eb453685859257e698ada53cb",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-pools-order1-20261005-evidence/night-ablation.cfg": "8a3013aa399dd00681ab26adc4457e3ccb383c8fe35565fdaeecd43740992d08",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-pools-order1-20261005-evidence/night-ablation.log": "4e20473776cacc0cd1c64992810a1b26b7454a98cbc0ddc4c71cb3ad5b2bbd21",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-pools-order1-20261005-evidence/normalization-proof.json": "db4542f00ea5e13da0cd818ee4390a36a7f7ddb9a714be0415740d7f03ef64a3",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-pools-order1-20261005-evidence/observed-launch.json": "b20a19945ea61a8ded6e7984814d569795d60a62f78d94aeaf2c985b0f313a17",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-pools-order1-20261005-evidence/owned-launch.json": "b926345760c4b2077d809f85cae4c4eaaef3a63ca6d233bf597c61f4f27eec0b",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-pools-order1-20261005-evidence/owned-stop.json": "1b43fd4093e222b8570ca799ea00f616582f74de97496bfb5390ff1ad0370acb",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-pools-order1-20261005-evidence/ps2client-raw.log": "93ef1472aad6c920e6e553eb9393b9f526c0ee353a350fc631a6f5790f1cbafe",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-pools-order1-20261005-evidence/ps2link.run": "290eb100acb0b408fab11ae3445233dd7409222008a8c4dc3d0cf49a2bc1208a",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-pools-order1-20261005-evidence/quiet-night.cfg": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-pools-order1-20261005-evidence/review-authority.json": "a7104ea8bfefa65b7065d45c87f8f71ce3b1246c81d023caa5c233fea329497f",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-pools-order1-20261005-evidence/root-native-provenance.json": "0d607fc572ed8e56ae261362e94793d647e61cea89fc4d5b3673854cac3a49c8",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-pools-order1-20261005-evidence/root-source-freeze.json": "e4a5aa367f75b2d9fcac3ba4ce21630bd77156e662ba5ba7e4f290d2f612ccac",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-pools-order1-20261005-evidence/runtime-assets-manifest.json": "172da3da52b28c099fb6a867c202412748565c22ace74188d5c4da6488b21603",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-pools-order1-20261005-evidence/stdout.log": "9996f921d58cfbb79789b6348cb41f34663c0141110c844e7c853528d5de4ab2",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-pools-order1-20261005-evidence/strict-analysis.json": "e73f727fd2c81776a38f926a4c40578095d80a756ff317a0ad9de803fa4a1136",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-pools-order1-20261005-evidence/target-source-manifest.json": "3e895d8224297c66169bf2a01cabc0dfd1fd1e0c9fee8a77c3c77de88bb14dad",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-pools-order1-20261005-evidence/vehicle-playground.elf": "6c8ca75370ed92d8825b84ec5db3ef00dd75ead6472e7f3f9c40c4df770b9d0b",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-pools-order1-20261005-evidence/vehicle-playground.elf.sym": "769792d39fea45a28d1279fa3c5060817aaf3ec4752380e1a659cc28a19f3250",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-physical-review-v3/beams-paired-physical-summary.json": "5e7ea3d2edf277654415fcbb655fdfd0835dc95b91a8e16880c5d7f8e40df098",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-physical-review-v3/night-ablation-ps2-v3-beams-order0-20261005-proof.json": "99496b9af952d1fb62065771b588bfad2eadd30fbcadd2890898c47b14b3a2fc",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-physical-review-v3/night-ablation-ps2-v3-beams-order0-20261005-arrivals-proof.json": "5b7b9f57668320755f9bf44ea00d31e185d8234f2a8ceceab84a6260008ee015",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-beams-order0-20261005-evidence/machine-evidence.json": "98845f97067f205f71e067990200dd8bb5d1f1b1c8725726cacd3fb9315ee92d",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-beams-order0-20261005-evidence/analysis-command.json": "77e88d73cb86c13d5ad3438df3ad4f27a4f81b452509f739a9d18f93e021fcb3",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-beams-order0-20261005-evidence/analyze-loop.py": "5f1e9756449a5d35e9ce9567ab87be9e4388ed98b777f3ff72622b0e71f7fa27",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-beams-order0-20261005-evidence/analyze-night-cli.py": "3bc1e85d9cc2464c1b41dce157ab4eb2ee65324ef891853a2e98aecfd8e3b198",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-beams-order0-20261005-evidence/analyze-night.py": "1501b41d9a0f169fd540f60e1839910e82c103734f03d9a5e7b4d56b6a8e60f8",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-beams-order0-20261005-evidence/client-process.json": "7337f66a0f42db300ce64878b95a0ddbc2457a6854c51b44ed5a8595971cabd4",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-beams-order0-20261005-evidence/host-arrivals.jsonl": "b52a27ed5ee3f666011e600cff1ab6cbba8705c98c7bcc95fa80e3f8335728d9",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-beams-order0-20261005-evidence/host-authority.json": "17d928aacd6a6b67fceda7b1026f35e947138191704b5bff035a03c0c74df081",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-beams-order0-20261005-evidence/native-build.log": "5a0dc413262aabe3b95dcf0d5d4b502c0045109eb453685859257e698ada53cb",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-beams-order0-20261005-evidence/night-ablation.cfg": "22c53c9742387bd9a027ddd4cb060ae6aa5ad1989ab20117bf744ee90a9c4462",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-beams-order0-20261005-evidence/night-ablation.log": "fc5678f819ef780b4a60d4c7db594e562ac14840559c53d9b459919e1bf56d6d",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-beams-order0-20261005-evidence/normalization-proof.json": "dbd624fa9c39d982e1056fa76c1f7d2b321eb1710da7e1cfbdd9b9ff22697dfb",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-beams-order0-20261005-evidence/observed-launch.json": "546812c0d0f5a15b07466c9246c8acf09026eeccc5e9cec9b984ea14aaa4e967",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-beams-order0-20261005-evidence/owned-launch.json": "c34b54335ae1e7f098fe11e6a0f9090a2745fc6c2bdaa66069ee063aee12eca1",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-beams-order0-20261005-evidence/owned-stop.json": "7337f66a0f42db300ce64878b95a0ddbc2457a6854c51b44ed5a8595971cabd4",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-beams-order0-20261005-evidence/ps2client-raw.log": "abf7716a5a24e2e383a3457f2e266389e4e11bb3698105d5a950f17eaf4b9401",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-beams-order0-20261005-evidence/ps2link.run": "290eb100acb0b408fab11ae3445233dd7409222008a8c4dc3d0cf49a2bc1208a",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-beams-order0-20261005-evidence/quiet-night.cfg": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-beams-order0-20261005-evidence/review-authority.json": "a7104ea8bfefa65b7065d45c87f8f71ce3b1246c81d023caa5c233fea329497f",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-beams-order0-20261005-evidence/root-native-provenance.json": "0d607fc572ed8e56ae261362e94793d647e61cea89fc4d5b3673854cac3a49c8",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-beams-order0-20261005-evidence/root-source-freeze.json": "e4a5aa367f75b2d9fcac3ba4ce21630bd77156e662ba5ba7e4f290d2f612ccac",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-beams-order0-20261005-evidence/runtime-assets-manifest.json": "172da3da52b28c099fb6a867c202412748565c22ace74188d5c4da6488b21603",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-beams-order0-20261005-evidence/stdout.log": "0f44775db5d9381e4f1b29f6b63ff52cea37428bbeae6ee2760c50b6ba82611e",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-beams-order0-20261005-evidence/strict-analysis.json": "b6117f046f505ced2b33f61c950e96b9adf13a47c50a16f7a2bf97f4e5fb0d94",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-beams-order0-20261005-evidence/target-source-manifest.json": "3e895d8224297c66169bf2a01cabc0dfd1fd1e0c9fee8a77c3c77de88bb14dad",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-beams-order0-20261005-evidence/vehicle-playground.elf": "6c8ca75370ed92d8825b84ec5db3ef00dd75ead6472e7f3f9c40c4df770b9d0b",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-beams-order0-20261005-evidence/vehicle-playground.elf.sym": "769792d39fea45a28d1279fa3c5060817aaf3ec4752380e1a659cc28a19f3250",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-physical-review-v3/night-ablation-ps2-v3-beams-order1-20261005-proof.json": "ed3ebd8e3a0d55cca23311d378affe633da715177cd2007f4c1c249d7a6ef840",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-physical-review-v3/night-ablation-ps2-v3-beams-order1-20261005-arrivals-proof.json": "00efa424673b3857eaecc6301a472bf8737aa47a097ba683158d51f0621c804c",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-beams-order1-20261005-evidence/machine-evidence.json": "931b47120804d1f624e2179fadf42c540d68344bbbd5a3867c01756731e864b7",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-beams-order1-20261005-evidence/analysis-command.json": "424ad17ef095b39c878e343e1968d5285b87dbf5ba025eadd61a6747c2323326",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-beams-order1-20261005-evidence/analyze-loop.py": "5f1e9756449a5d35e9ce9567ab87be9e4388ed98b777f3ff72622b0e71f7fa27",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-beams-order1-20261005-evidence/analyze-night-cli.py": "3bc1e85d9cc2464c1b41dce157ab4eb2ee65324ef891853a2e98aecfd8e3b198",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-beams-order1-20261005-evidence/analyze-night.py": "1501b41d9a0f169fd540f60e1839910e82c103734f03d9a5e7b4d56b6a8e60f8",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-beams-order1-20261005-evidence/client-process.json": "5b6e08dfe48947184e9e07047ff0355f76fd4a5ceb8b637547b29ba7a28bcb9c",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-beams-order1-20261005-evidence/host-arrivals.jsonl": "703c669a1d6393636f99247e4804ed7c7ea3bc8ba759fd20c5e91fa20f2c8cad",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-beams-order1-20261005-evidence/host-authority.json": "17d928aacd6a6b67fceda7b1026f35e947138191704b5bff035a03c0c74df081",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-beams-order1-20261005-evidence/native-build.log": "5a0dc413262aabe3b95dcf0d5d4b502c0045109eb453685859257e698ada53cb",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-beams-order1-20261005-evidence/night-ablation.cfg": "99d306323566612e8eda82b0d7fc6a58cc4b5ff1ac7edec0860b2fc10451e256",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-beams-order1-20261005-evidence/night-ablation.log": "45d7fd8370436e3c053eb118448a222d65a499173b33a26af80cd58ff8232d62",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-beams-order1-20261005-evidence/normalization-proof.json": "29dd4f594bc002b9761bb5ed649b7f69d4224dbd90d65b45d367d638bd326a59",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-beams-order1-20261005-evidence/observed-launch.json": "ffcec3eb3982adcee2df98a07b6298275d3d791d92bf186974ffdcc532f1b240",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-beams-order1-20261005-evidence/owned-launch.json": "f92d511bfdbbe4eeb1658cac03853837c1a9a6629cb51b974d496264f928f0d1",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-beams-order1-20261005-evidence/owned-stop.json": "5b6e08dfe48947184e9e07047ff0355f76fd4a5ceb8b637547b29ba7a28bcb9c",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-beams-order1-20261005-evidence/ps2client-raw.log": "b7819fc013e668735f20cff5577f3fe8c7ba24f41d638c829a68648f4698f5be",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-beams-order1-20261005-evidence/ps2link.run": "290eb100acb0b408fab11ae3445233dd7409222008a8c4dc3d0cf49a2bc1208a",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-beams-order1-20261005-evidence/quiet-night.cfg": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-beams-order1-20261005-evidence/review-authority.json": "a7104ea8bfefa65b7065d45c87f8f71ce3b1246c81d023caa5c233fea329497f",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-beams-order1-20261005-evidence/root-native-provenance.json": "0d607fc572ed8e56ae261362e94793d647e61cea89fc4d5b3673854cac3a49c8",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-beams-order1-20261005-evidence/root-source-freeze.json": "e4a5aa367f75b2d9fcac3ba4ce21630bd77156e662ba5ba7e4f290d2f612ccac",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-beams-order1-20261005-evidence/runtime-assets-manifest.json": "172da3da52b28c099fb6a867c202412748565c22ace74188d5c4da6488b21603",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-beams-order1-20261005-evidence/stdout.log": "5b87af5bce1186bf4bce25af3549ef380b2af6b963ef15c8d9c414ac7c1b561c",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-beams-order1-20261005-evidence/strict-analysis.json": "b3f6602cb34e9c17d37c3f0a753cbbf49254531acd2ed545e0d536099bc93d0c",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-beams-order1-20261005-evidence/target-source-manifest.json": "3e895d8224297c66169bf2a01cabc0dfd1fd1e0c9fee8a77c3c77de88bb14dad",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-beams-order1-20261005-evidence/vehicle-playground.elf": "6c8ca75370ed92d8825b84ec5db3ef00dd75ead6472e7f3f9c40c4df770b9d0b",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-beams-order1-20261005-evidence/vehicle-playground.elf.sym": "769792d39fea45a28d1279fa3c5060817aaf3ec4752380e1a659cc28a19f3250",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-physical-review-v3/glow-paired-physical-summary.json": "d134cefc6c5a869537513c769bc6954e7748d63a0c49ac3e436fcf4e95f4edb2",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-physical-review-v3/night-ablation-ps2-v3-glow-order0-20261005-proof.json": "473819d4f9c10218e991db763e581b6c396959df90248c200ec59a35c9b290ff",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-physical-review-v3/night-ablation-ps2-v3-glow-order0-20261005-arrivals-proof.json": "fc1aab867ba65f3f3220e8ae1351416b5a6c95fdd389214ebe43c9a20659d0d9",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-glow-order0-20261005-evidence/machine-evidence.json": "886b694cdd90b393e09b15e2d699a502927d7797e27072fdb4d5aea9caf1e5c5",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-glow-order0-20261005-evidence/analysis-command.json": "6944ef0a3bce62f304680171d12b728cce0beb85fc7ff4cdc4e9e01d63d80bc6",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-glow-order0-20261005-evidence/analyze-loop.py": "5f1e9756449a5d35e9ce9567ab87be9e4388ed98b777f3ff72622b0e71f7fa27",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-glow-order0-20261005-evidence/analyze-night-cli.py": "3bc1e85d9cc2464c1b41dce157ab4eb2ee65324ef891853a2e98aecfd8e3b198",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-glow-order0-20261005-evidence/analyze-night.py": "1501b41d9a0f169fd540f60e1839910e82c103734f03d9a5e7b4d56b6a8e60f8",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-glow-order0-20261005-evidence/client-process.json": "9f04b24bae145f0f3acec420e87e38b6b64573f727aef5583e1d99b04f0d4e37",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-glow-order0-20261005-evidence/finish-no-reset-source-proof.json": "0df7ee87a9a1050ba55977c2ccca8b43e4df03ef7cec0ab5dddc93161cc6a203",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-glow-order0-20261005-evidence/finish-physical-no-reset.ps1": "ffbdf79ed66cb8f579535bf0a41023b26b5cf00b77fedd1a23f684273805a09a",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-glow-order0-20261005-evidence/host-arrivals.jsonl": "dca91e93ed4c909217a96c1b158848b947fc69e87cc404076a63e37909d32f27",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-glow-order0-20261005-evidence/host-authority.json": "17d928aacd6a6b67fceda7b1026f35e947138191704b5bff035a03c0c74df081",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-glow-order0-20261005-evidence/native-build.log": "5a0dc413262aabe3b95dcf0d5d4b502c0045109eb453685859257e698ada53cb",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-glow-order0-20261005-evidence/night-ablation.cfg": "c3695c199f97831625423661d2a126ea33cc05ada6737e264114b6c0e470f31f",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-glow-order0-20261005-evidence/night-ablation.log": "6599f6aaac98ebcbf75041f8cd66865093dcc6646da9c1347ef721fe3daf5221",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-glow-order0-20261005-evidence/normalization-proof.json": "3f24404290ff8131d6c38bc1f1cdfdd1c236b3ddb5ebb0cb29da56dc8eb0227d",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-glow-order0-20261005-evidence/observed-launch.json": "4c62d5020fb91a2ff646237ed773dd73835f55af812bd9d76e313ce9d4b55f10",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-glow-order0-20261005-evidence/owned-launch.json": "d1a8d0209c4f3cc5731e87e65396ded8ac8b86aad1bcdf189090810a69542030",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-glow-order0-20261005-evidence/owned-stop.json": "9f04b24bae145f0f3acec420e87e38b6b64573f727aef5583e1d99b04f0d4e37",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-glow-order0-20261005-evidence/ps2client-raw.log": "a081d3cc098acd0d57892549efad2bee7198310b0a88cb23d2a1dfbc8aa8083c",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-glow-order0-20261005-evidence/ps2link.run": "290eb100acb0b408fab11ae3445233dd7409222008a8c4dc3d0cf49a2bc1208a",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-glow-order0-20261005-evidence/quiet-night.cfg": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-glow-order0-20261005-evidence/review-authority.json": "a7104ea8bfefa65b7065d45c87f8f71ce3b1246c81d023caa5c233fea329497f",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-glow-order0-20261005-evidence/root-native-provenance.json": "0d607fc572ed8e56ae261362e94793d647e61cea89fc4d5b3673854cac3a49c8",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-glow-order0-20261005-evidence/root-source-freeze.json": "e4a5aa367f75b2d9fcac3ba4ce21630bd77156e662ba5ba7e4f290d2f612ccac",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-glow-order0-20261005-evidence/runtime-assets-manifest.json": "172da3da52b28c099fb6a867c202412748565c22ace74188d5c4da6488b21603",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-glow-order0-20261005-evidence/stdout.log": "15d72247753362eea55a468f47a69f4cb3949abb07fa0f980d2f5408b879e770",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-glow-order0-20261005-evidence/strict-analysis.json": "2f4231dbfbf5c5302d34d59888f2554957dba3287fb436ea6beecdd58e56030b",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-glow-order0-20261005-evidence/target-source-manifest.json": "3e895d8224297c66169bf2a01cabc0dfd1fd1e0c9fee8a77c3c77de88bb14dad",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-glow-order0-20261005-evidence/vehicle-playground.elf": "6c8ca75370ed92d8825b84ec5db3ef00dd75ead6472e7f3f9c40c4df770b9d0b",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-glow-order0-20261005-evidence/vehicle-playground.elf.sym": "769792d39fea45a28d1279fa3c5060817aaf3ec4752380e1a659cc28a19f3250",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-physical-review-v3/night-ablation-ps2-v3-glow-order1-20261005-proof.json": "da14181f688769977e075055dfbae08b99323a77c3f77db8d5bed69610697844",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-physical-review-v3/night-ablation-ps2-v3-glow-order1-20261005-arrivals-proof.json": "221397e5f6a9f72cccd355577647df9e049b3cd9c8f74750da8d23f390519c1e",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-glow-order1-20261005-evidence/machine-evidence.json": "f17ebdcac3230875fe21904be62c283026440be45895d6ecb7d60b095558b3f1",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-glow-order1-20261005-evidence/analysis-command.json": "d96b91e2bfddad5061466c9878e0581203a9c13893c06e8a2a63a456b012c409",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-glow-order1-20261005-evidence/analyze-loop.py": "5f1e9756449a5d35e9ce9567ab87be9e4388ed98b777f3ff72622b0e71f7fa27",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-glow-order1-20261005-evidence/analyze-night-cli.py": "3bc1e85d9cc2464c1b41dce157ab4eb2ee65324ef891853a2e98aecfd8e3b198",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-glow-order1-20261005-evidence/analyze-night.py": "1501b41d9a0f169fd540f60e1839910e82c103734f03d9a5e7b4d56b6a8e60f8",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-glow-order1-20261005-evidence/client-process.json": "6ba916f0afdf4788e5c6b01a9f4d3f2ec54a692579dd5f5034ea3cb9c85db0d9",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-glow-order1-20261005-evidence/host-arrivals.jsonl": "a56a8fca200d666ece5c754c176e8c2dd748c7a2ff801e22e4c8b3a5d1c98393",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-glow-order1-20261005-evidence/host-authority.json": "17d928aacd6a6b67fceda7b1026f35e947138191704b5bff035a03c0c74df081",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-glow-order1-20261005-evidence/native-build.log": "5a0dc413262aabe3b95dcf0d5d4b502c0045109eb453685859257e698ada53cb",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-glow-order1-20261005-evidence/night-ablation.cfg": "c18a8b93ab7dea2441c187cafe5859f86b5249feb228c7f59bffe7d57811ad71",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-glow-order1-20261005-evidence/night-ablation.log": "2a2cb44077b1a434bd8e5405f23c90d3d1458a90fbaef00de8bd4fd7601744e7",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-glow-order1-20261005-evidence/normalization-proof.json": "deaa1f10abac9782d3c0a03edba4a7d08a7be4bd5162b4279f34978ae40b9d9d",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-glow-order1-20261005-evidence/observed-launch.json": "212292af3410a45e862ca1eac5451e691bc125e31592c8637da1ea080dfa0e4b",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-glow-order1-20261005-evidence/owned-launch.json": "d80bd36c5f8e3abe43681e65ec25cba3d1673d9fad7bf4d93b8fd4ffede95a81",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-glow-order1-20261005-evidence/owned-stop.json": "6ba916f0afdf4788e5c6b01a9f4d3f2ec54a692579dd5f5034ea3cb9c85db0d9",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-glow-order1-20261005-evidence/ps2client-raw.log": "83895b1efa0647f8ba6e5be3add3db3468ec96254c7133afc1a0a0801054138e",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-glow-order1-20261005-evidence/ps2link.run": "290eb100acb0b408fab11ae3445233dd7409222008a8c4dc3d0cf49a2bc1208a",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-glow-order1-20261005-evidence/quiet-night.cfg": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-glow-order1-20261005-evidence/review-authority.json": "a7104ea8bfefa65b7065d45c87f8f71ce3b1246c81d023caa5c233fea329497f",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-glow-order1-20261005-evidence/root-native-provenance.json": "0d607fc572ed8e56ae261362e94793d647e61cea89fc4d5b3673854cac3a49c8",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-glow-order1-20261005-evidence/root-source-freeze.json": "e4a5aa367f75b2d9fcac3ba4ce21630bd77156e662ba5ba7e4f290d2f612ccac",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-glow-order1-20261005-evidence/runtime-assets-manifest.json": "172da3da52b28c099fb6a867c202412748565c22ace74188d5c4da6488b21603",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-glow-order1-20261005-evidence/stdout.log": "c47919c8ffe782d115051402242f6cc2f3a97471e88db1eb3a6c31ff1a1edc13",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-glow-order1-20261005-evidence/strict-analysis.json": "02dc522d40d8f00d8d1917b91e0998569619ff4700f554d6357a8f1547697964",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-glow-order1-20261005-evidence/target-source-manifest.json": "3e895d8224297c66169bf2a01cabc0dfd1fd1e0c9fee8a77c3c77de88bb14dad",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-glow-order1-20261005-evidence/vehicle-playground.elf": "6c8ca75370ed92d8825b84ec5db3ef00dd75ead6472e7f3f9c40c4df770b9d0b",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-ps2-v3-glow-order1-20261005-evidence/vehicle-playground.elf.sym": "769792d39fea45a28d1279fa3c5060817aaf3ec4752380e1a659cc28a19f3250",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-extras-v3-publication-draft-v2/glow-direction-qualification.json": "faffdf3591d5652e55ed8642c6f9f86a03aed7ec3dc77281525b2278ecfa645c"
+  },
+  "sourceDeviceBuildRepositoryMutation": false,
+  "supersedesDraftV1Sha256": "8fb2c4f302971b5e6fadfe7562a72ca52d4de3daf79b660c51845d134e6f7081",
+  "visualChronologyCorrection": "DraftV1 overstated user confirmation as after final full restoration; preserved immutable history superseded by phase-unspecified during-series confirmation.",
+  "glowDirectionQualificationSha256": "faffdf3591d5652e55ed8642c6f9f86a03aed7ec3dc77281525b2278ecfa645c",
+  "glowDirectionFixedCostAccepted": false
+}
