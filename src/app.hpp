@@ -2538,6 +2538,23 @@ private:
     uint64_t charPreviewVersion_ = 0;
     bool charPreviewDirty_ = true;
     char charName_[64] = "character";
+    // The generator's thumbnails (item, hairstyle and preset cards): a worker
+    // builds the character, the main thread renders it into a texture
+    // (Viewport::renderCharacterIcon). Asked for by charIcon(), kept for the
+    // session. Key: "w:<item>", "h:<hair>", "p:<preset>".
+    struct CharIconJob;
+    static void buildCharIcon(CharIconJob& j);  // on a worker thread
+    std::map<std::string, uint32_t> charIcons_;
+    std::vector<std::string> charIconWanted_;
+    std::vector<std::shared_ptr<CharIconJob>> charIconJobs_;
+    uint32_t charIcon(const std::string& key);
+    void pumpCharIcons();
+    // Undo/redo inside the generator: every settled change (mouse up) is a step.
+    std::vector<chargen::Params> charHistory_;
+    int charHistoryAt_ = -1;
+    // What Randomize keeps.
+    bool charKeepBody_ = false, charKeepFace_ = false, charKeepOutfit_ = false,
+         charKeepColours_ = false;
     int charCrowdPeople_ = 12;
     int charCrowdVariants_ = 6;
     float charCrowdSpread_ = 6.0f;

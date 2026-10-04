@@ -556,6 +556,10 @@ public:
         int displayMode = 0;  // 0 solid, 1 solid + wireframe overlay
     };
     uint32_t renderCharacterPreview(int width, int height, const CharPreviewDesc& d);
+    // A one-off render of `d` into a NEW size x size texture the caller owns
+    // (glDeleteTextures when done) - the Character Generator's item and preset
+    // thumbnails. Same backdrop, floor and shading as the live preview.
+    uint32_t renderCharacterIcon(int size, const CharPreviewDesc& d);
     // Non-destructive animation-clip edits (Tools > Animation Editor). The app
     // owns the Project, so it pushes the list plus the project's fps ratio in
     // once per frame - the same pattern the nav overlay and projected decals

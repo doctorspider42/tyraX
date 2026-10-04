@@ -5,6 +5,7 @@
 
 #include "mocap.hpp"
 
+#include <future>
 #include <algorithm>
 #include <cfloat>
 #include <cmath>
@@ -17664,6 +17665,143 @@ void App::refreshCharacterPose() {
     ++charPreviewVersion_;
 }
 
+// ---- the generator's thumbnails ------------------------------------------------
+// One job per card: the worker builds a mannequin wearing that one item (or
+// that hairstyle, or that preset body), poses it and decodes its textures;
+// the main thread turns the result into a texture. Framed per slot - a hat is
+// shown at the head, shoes at the feet - so a card shows the item, not a
+// tiny whole person.
+struct App::CharIconJob {
+    std::string key;
+    std::future<void> done;
+    bool ok = false;
+    std::vector<std::vector<float>> tris;
+    struct Tex {
+        std::vector<unsigned char> rgba;
+        int w = 0, h = 0;
+    };
+    std::vector<Tex> tex;
+    std::vector<bool> cutout;
+    float center[3] = {0, 0, 0};
+    float minY = 0.0f, radius = 1.0f;
+};
+
+void App::buildCharIcon(CharIconJob& j) {
+    chargen::Params m;
+    m.textureSize = 128;
+    m.defaultClips = false;  // the bind pose is all a card shows
+    m.clips.clear();
+    m.gender = 0.5f;
+    std::string slot = "full";
+    auto sexToGender = [](const std::string& sex) {
+        return sex == "m" ? 1.0f : (sex == "f" ? 0.0f : 0.15f);
+    };
+    if (j.key.rfind("w:", 0) == 0) {
+        for (const chargen::Item& it : chargen::wardrobe())
+            if (it.id == j.key.substr(2)) {
+                chargen::Wear w;
+                w.id = it.id;
+                m.outfit.push_back(w);
+                m.gender = sexToGender(it.sex);
+                slot = it.slot;
+            }
+    } else if (j.key.rfind("h:", 0) == 0) {
+        m.hair = j.key.substr(2);
+        for (const chargen::Item& it : chargen::hairstyles())
+            if (it.id == m.hair) m.gender = sexToGender(it.sex);
+        slot = "head";
+    } else if (j.key.rfind("p:", 0) == 0) {
+        const int i = std::atoi(j.key.c_str() + 2);
+        if (i >= 0 && i < (int)chargen::presets().size()) m = chargen::presets()[i].params;
+        m.textureSize = 128;
+        m.defaultClips = false;
+        m.clips.clear();
+    }
+    glbparser::Skel s;
+    std::vector<std::string> warnings;
+    std::string err;
+    if (!chargen::build(m, s, warnings, err) || s.parts.empty()) return;
+    charanim::poseMesh(s, -1, 0.0f, j.tris);
+    j.tex.resize(s.parts.size());
+    j.cutout.resize(s.parts.size());
+    for (size_t i = 0; i < s.parts.size(); ++i) {
+        j.cutout[i] = s.parts[i].material.rfind("hair:", 0) == 0;
+        const int img = s.parts[i].image;
+        if (img < 0 || img >= (int)s.images.size()) continue;
+        int w = 0, h = 0, comp = 0;
+        unsigned char* px = stbi_load_from_memory(s.images[img].png.data(),
+                                                  (int)s.images[img].png.size(), &w, &h, &comp, 4);
+        if (!px) continue;
+        j.tex[i].rgba.assign(px, px + (size_t)w * h * 4);
+        j.tex[i].w = w;
+        j.tex[i].h = h;
+        stbi_image_free(px);
+    }
+    const float H = s.max[1] - s.min[1];
+    j.center[0] = (s.min[0] + s.max[0]) * 0.5f;
+    j.center[2] = (s.min[2] + s.max[2]) * 0.5f;
+    j.minY = s.min[1];
+    float cy = s.min[1] + H * 0.58f, r = H * 0.34f;  // knees up: a person, not a dot
+    if (slot == "head" || slot == "face") cy = s.max[1] - H * 0.09f, r = H * 0.085f;
+    else if (slot == "feet") cy = s.min[1] + H * 0.06f, r = H * 0.10f;
+    else if (slot == "top") cy = s.min[1] + H * 0.70f, r = H * 0.19f;
+    else if (slot == "bottom") cy = s.min[1] + H * 0.36f, r = H * 0.27f;
+    j.center[1] = cy;
+    j.radius = r;
+    j.ok = true;
+}
+
+uint32_t App::charIcon(const std::string& key) {
+    if (auto it = charIcons_.find(key); it != charIcons_.end()) return it->second;
+    for (const auto& j : charIconJobs_)
+        if (j->key == key) return 0;
+    if (std::find(charIconWanted_.begin(), charIconWanted_.end(), key) == charIconWanted_.end())
+        charIconWanted_.push_back(key);
+    return 0;
+}
+
+void App::pumpCharIcons() {
+    for (size_t i = 0; i < charIconJobs_.size();) {
+        CharIconJob& j = *charIconJobs_[i];
+        if (j.done.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
+            ++i;
+            continue;
+        }
+        uint32_t tex = 0;
+        if (j.ok) {
+            Viewport::CharPreviewDesc d;
+            for (size_t k = 0; k < j.tris.size() && d.partCount < d.kMaxParts; ++k) {
+                auto& dp = d.parts[d.partCount++];
+                dp.tris = &j.tris[k];
+                if (k < j.tex.size() && !j.tex[k].rgba.empty()) {
+                    dp.rgba = j.tex[k].rgba.data();
+                    dp.texW = j.tex[k].w;
+                    dp.texH = j.tex[k].h;
+                }
+                dp.cutout = k < j.cutout.size() && j.cutout[k];
+            }
+            for (int a = 0; a < 3; ++a) d.center[a] = j.center[a];
+            d.minY = j.minY;
+            d.radius = j.radius;
+            d.angleDeg = 60.0f;  // three-quarters from the front
+            d.pitchDeg = 4.0f;
+            tex = viewport_.renderCharacterIcon(96, d);
+        }
+        charIcons_[j.key] = tex;  // 0 = the build failed: a plain card
+        charIconJobs_.erase(charIconJobs_.begin() + (long)i);
+    }
+    // two in flight: enough to fill a tab in a couple of seconds without
+    // taking every core from the editor
+    while (charIconJobs_.size() < 2 && !charIconWanted_.empty()) {
+        auto j = std::make_shared<CharIconJob>();
+        j->key = charIconWanted_.front();
+        charIconWanted_.erase(charIconWanted_.begin());
+        CharIconJob* raw = j.get();
+        j->done = std::async(std::launch::async, [raw] { buildCharIcon(*raw); });
+        charIconJobs_.push_back(std::move(j));
+    }
+}
+
 // Tools > Character Generator: a rigged, skinned, textured human from the
 // embedded character kit (docs/character-generator.md). Every control edits
 // charParams_; the preview rebuilds when they change, and "Add to scene" writes
@@ -17671,7 +17809,7 @@ void App::refreshCharacterPose() {
 // animated model with nothing downstream aware it was generated.
 void App::drawCharacterGeneratorWindow() {
     if (!showCharGenerator_ || !hasProject_) return;
-    ImGui::SetNextWindowSize(ImVec2(scaled(980.0f), scaled(680.0f)), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(scaled(1060.0f), scaled(720.0f)), ImGuiCond_FirstUseEver);
     if (!ImGui::Begin("Character Generator", &showCharGenerator_)) {
         ImGui::End();
         return;
@@ -17690,6 +17828,48 @@ void App::drawCharacterGeneratorWindow() {
     ImGuiIO& io = ImGui::GetIO();
     chargen::Params& p = charParams_;
     bool dirty = false;
+    pumpCharIcons();
+
+    // A card: the thumbnail (a plain button until it is rendered) with the
+    // name under it, outlined when chosen. Cards flow left to right and wrap.
+    const float cardSize = scaled(64.0f);
+    auto card = [&](const std::string& key, const char* label, bool selected) {
+        ImGui::BeginGroup();
+        ImGui::PushID(key.c_str());
+        const uint32_t tex = key.empty() ? 0 : charIcon(key);
+        if (selected) {
+            ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_ButtonActive));
+            ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, scaled(2.0f));
+            ImGui::PushStyleColor(ImGuiCol_Border, ImGui::GetStyleColorVec4(ImGuiCol_CheckMark));
+        }
+        bool clicked;
+        if (tex)
+            clicked = ImGui::ImageButton("##card", (ImTextureID)(intptr_t)tex,
+                                         ImVec2(cardSize, cardSize), ImVec2(0, 1), ImVec2(1, 0));
+        else
+            clicked = ImGui::Button(key.empty() ? "-" : "...",
+                                    ImVec2(cardSize + ImGui::GetStyle().FramePadding.x * 2,
+                                           cardSize + ImGui::GetStyle().FramePadding.y * 2));
+        if (selected) {
+            ImGui::PopStyleColor(2);
+            ImGui::PopStyleVar();
+        }
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", label);
+        // the name, cut to the card's width
+        const float w = cardSize + ImGui::GetStyle().FramePadding.x * 2;
+        std::string shown = label;
+        while (shown.size() > 3 && ImGui::CalcTextSize(shown.c_str()).x > w)
+            shown = shown.substr(0, shown.size() - 4) + "..";
+        ImGui::TextDisabled("%s", shown.c_str());
+        ImGui::PopID();
+        ImGui::EndGroup();
+        // flow: next card on this line if it fits
+        const float next = ImGui::GetItemRectMax().x + ImGui::GetStyle().ItemSpacing.x + w;
+        if (next < ImGui::GetWindowPos().x + ImGui::GetWindowContentRegionMax().x)
+            ImGui::SameLine();
+        return clicked;
+    };
+    auto endCards = [&]() { ImGui::NewLine(); };
 
     auto color = [&](const char* label, chargen::Rgb& c) {
         float v[3] = {c.r, c.g, c.b};
@@ -17729,7 +17909,7 @@ void App::drawCharacterGeneratorWindow() {
         {0.42f, 0.28f, 0.50f}, {0.20f, 0.45f, 0.55f}, {0.85f, 0.45f, 0.55f}};
 
     // ---- left: parameter panel ---------------------------------------------
-    ImGui::BeginChild("charparams", ImVec2(scaled(380.0f), 0), true);
+    ImGui::BeginChild("charparams", ImVec2(scaled(440.0f), 0), true);
 
     const std::vector<chargen::Preset>& presets = chargen::presets();
     ImGui::SetNextItemWidth(scaled(150.0f));
@@ -17748,12 +17928,64 @@ void App::drawCharacterGeneratorWindow() {
     }
     ImGui::SameLine();
     if (ImGui::Button("Randomize")) {
+        const chargen::Params was = p;
         p = chargen::randomize(charSeed_++, p);
+        // what the locks keep
+        auto isBodySlider = [](const chargen::Slider& s) {
+            return s.group == "Body" || s.group == "Proportions";
+        };
+        if (charKeepBody_) {
+            p.gender = was.gender, p.age = was.age, p.muscle = was.muscle, p.weight = was.weight;
+            p.african = was.african, p.asian = was.asian, p.caucasian = was.caucasian;
+            p.heightMeters = was.heightMeters, p.dimorphism = was.dimorphism;
+        }
+        for (const chargen::Slider& s : chargen::sliders())
+            if ((charKeepBody_ && isBodySlider(s)) || (charKeepFace_ && !isBodySlider(s))) {
+                if (was.shape.count(s.id)) p.shape[s.id] = was.shape.at(s.id);
+                else p.shape.erase(s.id);
+            }
+        if (charKeepFace_) {
+            p.brows = was.brows, p.browDensity = was.browDensity, p.lashes = was.lashes;
+        }
+        if (charKeepOutfit_) p.outfit = was.outfit, p.hair = was.hair;
+        if (charKeepColours_) {
+            p.skinTone = was.skinTone, p.skinWarmth = was.skinWarmth;
+            p.hairColor = was.hairColor, p.eyeColor = was.eyeColor;
+            p.lipstick = was.lipstick, p.lipColor = was.lipColor;
+            p.eyeShadow = was.eyeShadow, p.blush = was.blush, p.stubble = was.stubble;
+            if (charKeepOutfit_) p.outfit = was.outfit;
+        }
         dirty = true;
     }
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("A plausible stranger: body, face, colours, outfit and hair.\n"
-                          "Click again for another one.");
+                          "Click again for another one. The locks (right) keep parts.");
+    ImGui::SameLine();
+    if (ImGui::Button("Locks...")) ImGui::OpenPopup("##charlocks");
+    if (ImGui::BeginPopup("##charlocks")) {
+        ImGui::TextDisabled("Randomize keeps:");
+        ImGui::Checkbox("Body", &charKeepBody_);
+        ImGui::Checkbox("Face", &charKeepFace_);
+        ImGui::Checkbox("Outfit and hair", &charKeepOutfit_);
+        ImGui::Checkbox("Colours", &charKeepColours_);
+        ImGui::EndPopup();
+    }
+    ImGui::SameLine();
+    ImGui::BeginDisabled(charHistoryAt_ <= 0);
+    if (ImGui::ArrowButton("##charundo", ImGuiDir_Left)) {
+        p = charHistory_[(size_t)--charHistoryAt_];
+        dirty = true;
+    }
+    ImGui::EndDisabled();
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Undo");
+    ImGui::SameLine(0, scaled(2.0f));
+    ImGui::BeginDisabled(charHistoryAt_ + 1 >= (int)charHistory_.size());
+    if (ImGui::ArrowButton("##charredo", ImGuiDir_Right)) {
+        p = charHistory_[(size_t)++charHistoryAt_];
+        dirty = true;
+    }
+    ImGui::EndDisabled();
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Redo");
     ImGui::SameLine();
     if (ImGui::Button("Open recipe...")) {
         const std::string file = platform::pickFile(
@@ -17780,6 +18012,20 @@ void App::drawCharacterGeneratorWindow() {
     if (ImGui::BeginTabBar("chartabs")) {
         // -- Body --------------------------------------------------------------
         if (ImGui::BeginTabItem("Body")) {
+            if (ImGui::CollapsingHeader("Start from", ImGuiTreeNodeFlags_DefaultOpen)) {
+                for (int i = 0; i < (int)presets.size(); ++i)
+                    if (card("p:" + std::to_string(i), presets[i].name, charPreset_ == i)) {
+                        charPreset_ = i;
+                        const chargen::Params keep = p;
+                        p = presets[i].params;
+                        p.outfit = keep.outfit;  // a preset is a body, not a wardrobe
+                        p.hair = keep.hair;
+                        p.textureSize = keep.textureSize;
+                        dirty = true;
+                    }
+                endCards();
+            }
+            ImGui::SeparatorText("Build");
             dirty |= ImGui::SliderFloat("Gender", &p.gender, 0.0f, 1.0f, "%.2f");
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip("0 = female, 1 = male.\n"
@@ -17825,12 +18071,17 @@ void App::drawCharacterGeneratorWindow() {
         if (ImGui::BeginTabItem("Face")) {
             ImGui::TextDisabled("Right-click a slider to reset it.");
             std::string last;
+            bool open = true;
             for (const chargen::Slider& s : chargen::sliders()) {
                 if (s.group == "Body" || s.group == "Proportions") continue;
                 if (s.group != last) {
-                    ImGui::SeparatorText(s.group.c_str());
+                    // one folding section per feature: 60 sliders in a row is
+                    // a form, not a face editor
+                    open = ImGui::CollapsingHeader(s.group.c_str(),
+                                                   last.empty() ? ImGuiTreeNodeFlags_DefaultOpen : 0);
                     last = s.group;
                 }
+                if (!open) continue;
                 float v = p.shape.count(s.id) ? p.shape[s.id] : 0.0f;
                 if (ImGui::SliderFloat(s.label.c_str(), &v, -1.0f, 1.0f, "%.2f")) {
                     p.shape[s.id] = v;
@@ -17950,15 +18201,14 @@ void App::drawCharacterGeneratorWindow() {
                         cur = it->label;
                         curItem = it;
                     }
-                ImGui::SetNextItemWidth(scaled(220.0f));
-                if (ImGui::BeginCombo("##item", cur.c_str())) {
-                    if (ImGui::Selectable("None", worn < 0) && worn >= 0) {
+                {
+                    if (card("", "None", worn < 0) && worn >= 0) {
                         p.outfit.erase(p.outfit.begin() + worn);
                         worn = -1;
                         dirty = true;
                     }
                     for (const chargen::Item* it : items)
-                        if (ImGui::Selectable(it->label.c_str(), curItem == it)) {
+                        if (card("w:" + it->id, it->label.c_str(), curItem == it)) {
                             chargen::Wear w;
                             w.id = it->id;
                             if (worn >= 0) {
@@ -17981,7 +18231,7 @@ void App::drawCharacterGeneratorWindow() {
                             }
                             dirty = true;
                         }
-                    ImGui::EndCombo();
+                    endCards();
                 }
                 worn = -1;
                 for (int i = 0; i < (int)p.outfit.size(); ++i)
@@ -17993,18 +18243,27 @@ void App::drawCharacterGeneratorWindow() {
                     for (const chargen::Item& o : chargen::wardrobe())
                         if (o.id == w.id) it = &o;
                     if (it && it->dyeable) {
-                        bool recolour = w.color.r >= 0.0f;
-                        if (ImGui::Checkbox("Recolour", &recolour)) {
-                            w.color = recolour ? it->color : chargen::Rgb{-1, -1, -1};
+                        // one row: "as made", the street colours, any colour
+                        const bool recolour = w.color.r >= 0.0f;
+                        if (ImGui::RadioButton("As made", !recolour) && recolour) {
+                            w.color = chargen::Rgb{-1, -1, -1};
                             dirty = true;
                         }
                         if (ImGui::IsItemHovered())
-                            ImGui::SetTooltip("Off: the garment's own colours. On: its shading is\n"
-                                              "kept and the colour is yours.");
-                        if (recolour) {
-                            color("Colour", w.color);
-                            ImGui::SameLine();
-                            swatches("c1", w.color, kCloth);
+                            ImGui::SetTooltip("The garment's own colours. A swatch recolours its main\n"
+                                              "fabric - shirts under it, prints and stitching stay.");
+                        ImGui::SameLine();
+                        swatches("c1", w.color, kCloth);
+                        ImGui::SameLine();
+                        if (!recolour) {
+                            chargen::Rgb pick = it->color;
+                            float v[3] = {pick.r, pick.g, pick.b};
+                            if (ImGui::ColorEdit3("##c1any", v, ImGuiColorEditFlags_NoInputs)) {
+                                w.color = chargen::Rgb{v[0], v[1], v[2]};
+                                dirty = true;
+                            }
+                        } else {
+                            color("##c1any", w.color);
                         }
                         if (it->twoTone || w.pattern > 0) {
                             color("Second", w.color2);
@@ -18014,14 +18273,13 @@ void App::drawCharacterGeneratorWindow() {
                         if (slot[0] == std::string("top") || slot[0] == std::string("bottom") ||
                             slot[0] == std::string("full")) {
                             const std::vector<std::string>& pats = chargen::patterns();
-                            ImGui::SetNextItemWidth(scaled(150.0f));
-                            if (ImGui::BeginCombo("Pattern", pats[std::clamp(w.pattern, 0, (int)pats.size() - 1)].c_str())) {
-                                for (int i = 0; i < (int)pats.size(); ++i)
-                                    if (ImGui::Selectable(pats[i].c_str(), w.pattern == i)) {
-                                        w.pattern = i;
-                                        dirty = true;
-                                    }
-                                ImGui::EndCombo();
+                            for (int i = 0; i < (int)pats.size(); ++i) {
+                                if (i) ImGui::SameLine(0, scaled(3.0f));
+                                if (ImGui::RadioButton(pats[i].c_str(), w.pattern == i)) {
+                                    w.pattern = i;
+                                    if (i > 0 && w.color.r < 0.0f) w.color = it->color;
+                                    dirty = true;
+                                }
                             }
                         }
                     }
@@ -18037,19 +18295,18 @@ void App::drawCharacterGeneratorWindow() {
             std::string cur = "Bald";
             for (const chargen::Item& h : hs)
                 if (h.id == p.hair) cur = h.label;
-            ImGui::SetNextItemWidth(scaled(220.0f));
-            if (ImGui::BeginCombo("Style", cur.c_str())) {
-                if (ImGui::Selectable("Bald", p.hair.empty())) {
-                    p.hair.clear();
+            (void)cur;
+            if (card("", "Bald", p.hair.empty())) {
+                p.hair.clear();
+                dirty = true;
+            }
+            for (const chargen::Item& h : hs)
+                if (card("h:" + h.id, h.label.c_str(), h.id == p.hair)) {
+                    p.hair = h.id;
                     dirty = true;
                 }
-                for (const chargen::Item& h : hs)
-                    if (ImGui::Selectable(h.label.c_str(), h.id == p.hair)) {
-                        p.hair = h.id;
-                        dirty = true;
-                    }
-                ImGui::EndCombo();
-            }
+            endCards();
+            ImGui::Spacing();
             color("Hair colour", p.hairColor);
             ImGui::SameLine();
             swatches("hair", p.hairColor, kHair);
@@ -18292,6 +18549,14 @@ void App::drawCharacterGeneratorWindow() {
 
     if (dirty) charPreviewDirty_ = true;
     if (charPreviewDirty_) rebuildCharacterPreview();
+    // undo history: a step per SETTLED change - a slider drag is one step
+    if (!ImGui::IsMouseDown(ImGuiMouseButton_Left) &&
+        (charHistory_.empty() || charHistory_[(size_t)charHistoryAt_] != p)) {
+        charHistory_.resize((size_t)(charHistoryAt_ + 1));
+        charHistory_.push_back(p);
+        if (charHistory_.size() > 64) charHistory_.erase(charHistory_.begin());
+        charHistoryAt_ = (int)charHistory_.size() - 1;
+    }
 
     ImGui::End();
 }

@@ -42,18 +42,31 @@ a **plain glTF binary**, which is exactly where
 
 ## Using it
 
+![The Character Generator: item cards on the left, the live preview on the right](img/character-generator-window.png)
+
 The window has a parameter panel and a live, animated preview. Along the top,
 **Preset** loads a tuned starting body, **Randomize** produces a plausible
 stranger (body, face, colours, an outfit cut for that body, hair - click again
-for another), and **Open recipe...** loads a `.chargen.json`.
+for another) and **Locks...** says what it must keep (body, face, outfit and
+hair, colours); the arrows **undo and redo** - every settled change is a step,
+a slider drag is one; **Open recipe...** loads a `.chargen.json`.
+
+Clothes, hairstyles and the starting bodies are **cards with thumbnails**, not
+lists of names. Each thumbnail is the item on a mannequin, framed where it is
+worn (a hat at the head, shoes at the feet), built on a worker thread by the
+generator itself and rendered by the preview's renderer
+(`Viewport::renderCharacterIcon`) the first time the tab is open - so a card
+is exactly what the item looks like, and a new kit item gets its card with no
+art step. A garment's colour row is *As made*, the street-colour swatches and a
+picker; patterns are one click each.
 
 | Tab | What is in it |
 |---|---|
-| Body | gender, age, muscle, weight, height in metres, **dimorphism**; the ancestry mix; body and proportion sliders (belly, waist, hips, bust, shoulders, V-shape, arm/leg fat and muscle, leg/torso/arm/neck length, head/hand/foot size) |
-| Face | head shape, forehead, brows, eyes (size, height, spacing, tilt, opening, epicanthic fold, bags), nose (11), mouth (9), jaw and cheeks (9), ears (4). Right-click a slider to reset it |
+| Body | the starting bodies as cards; gender, age, muscle, weight, height in metres, **dimorphism**; the ancestry mix; body and proportion sliders (belly, waist, hips, bust, shoulders, V-shape, arm/leg fat and muscle, leg/torso/arm/neck length, head/hand/foot size) |
+| Face | head shape, forehead, brows, eyes (size, height, spacing, tilt, opening, epicanthic fold, bags), nose (11), mouth (9), jaw and cheeks (9), ears (4) - one folding section per feature. Right-click a slider to reset it |
 | Skin | tone, warmth, weathering; eye colour; 12 eyebrow and 4 eyelash styles, brow density; stubble; lipstick, eye shadow, blush; the atlas size |
-| Outfit | one item per slot - full outfit, top, bottom, shoes, hat, glasses, gloves - each with its own colours and, for clothes, a pattern |
-| Hair | 19 styles and a colour; brows and stubble follow it |
+| Outfit | one card per item, per slot - full outfit, top, bottom, shoes, hat, glasses, gloves - each with its own colours and, for clothes, a pattern |
+| Hair | 19 styles as cards and a colour; brows and stubble follow it |
 | Animation | the standard locomotion set, or any of the 87 clips; key rate; or *Import clips...* from a Mixamo-named library or a phone take |
 
 **Add to scene** writes `res/models/characters/<name>.glb` and drops in a

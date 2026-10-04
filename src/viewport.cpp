@@ -7657,6 +7657,59 @@ uint32_t Viewport::renderCharacterPreview(int width, int height, const CharPrevi
     return charTex_;
 }
 
+uint32_t Viewport::renderCharacterIcon(int size, const CharPreviewDesc& d) {
+    if (!program_ || size < 8) return 0;
+    ensurePreviewBackdrop();
+    GLuint tex = 0, fbo = 0, depth = 0;
+    glGenTextures(1, &tex);
+    glBindTexture(GL_TEXTURE_2D, tex);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, size, size, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glGenRenderbuffers(1, &depth);
+    glBindRenderbuffer(GL_RENDERBUFFER, depth);
+    glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT24, size, size);
+    glGenFramebuffers(1, &fbo);
+    glBindFramebuffer(GL_FRAMEBUFFER, fbo);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, tex, 0);
+    glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, depth);
+
+    Mesh meshes[CharPreviewDesc::kMaxParts];
+    GLuint texs[CharPreviewDesc::kMaxParts] = {};
+    PreviewDraw draws[CharPreviewDesc::kMaxParts];
+    int count = 0;
+    for (int i = 0; i < d.partCount && i < CharPreviewDesc::kMaxParts; ++i) {
+        const CharPreviewDesc::Part& p = d.parts[i];
+        if (!p.tris || p.tris->empty()) continue;
+        std::vector<float> il;
+        il.reserve(p.tris->size());
+        for (size_t k = 0; k + 7 < p.tris->size(); k += 8) {
+            const Vec3 s =
+                shadeOf(normalize({(*p.tris)[k + 3], (*p.tris)[k + 4], (*p.tris)[k + 5]}));
+            il.insert(il.end(), {(*p.tris)[k], (*p.tris)[k + 1], (*p.tris)[k + 2], s.x, s.y, s.z,
+                                 (*p.tris)[k + 6], (*p.tris)[k + 7]});
+        }
+        meshes[i] = uploadMesh(il);
+        if (p.rgba && p.texW > 0 && p.texH > 0) {
+            glGenTextures(1, &texs[i]);
+            glBindTexture(GL_TEXTURE_2D, texs[i]);
+            glUploadTexRgba(p.texW, p.texH, p.rgba);
+        }
+        draws[count++] = {&meshes[i], texs[i], p.cutout};
+    }
+    glBindTexture(GL_TEXTURE_2D, 0);
+    drawToolPreview(fbo, size, size, draws, count, d.center, d.minY, d.radius, d.angleDeg,
+                    d.pitchDeg, d.zoom, 0);
+    for (int i = 0; i < CharPreviewDesc::kMaxParts; ++i) {
+        destroyMesh(meshes[i]);
+        if (texs[i]) glDeleteTextures(1, &texs[i]);
+    }
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glDeleteFramebuffers(1, &fbo);
+    glDeleteRenderbuffers(1, &depth);
+    return tex;
+}
+
 void Viewport::drawToolPreview(uint32_t fbo, int width, int height, const PreviewDraw* draws,
                                int count, const float center3[3], float minY, float radiusIn,
                                float angleDeg, float pitchDeg, float zoomIn, int displayMode) {
