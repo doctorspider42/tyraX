@@ -2,7 +2,7 @@
   "version": 2,
   "name": "hero",
   "gender": 1, "age": 0.45, "muscle": 0.85, "weight": 0.55,
-  "african": 0.15, "asian": 0.1, "caucasian": 0.75, "height": 1.82,
+  "african": 0.15, "asian": 0.1, "caucasian": 0.75, "height": 1.82, "dimorphism": 0.6,
   "shape": {"bust": -0.6, "chest": 0.4, "jaw": 0.5, "neckWidth": 0.4, "noseDepth": 0.2, "shoulders": 0.5, "vshape": 0.7},
   "skinTone": 0, "skinWarmth": 0, "aging": 0,
   "brows": 2, "browDensity": 1, "lashes": 0,

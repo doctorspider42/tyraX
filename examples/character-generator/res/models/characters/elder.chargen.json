@@ -2,7 +2,7 @@
   "version": 2,
   "name": "elder",
   "gender": 0, "age": 0.96, "muscle": 0.3, "weight": 0.62,
-  "african": 0, "asian": 0, "caucasian": 1, "height": 1.58,
+  "african": 0, "asian": 0, "caucasian": 1, "height": 1.58, "dimorphism": 0.6,
   "shape": {"headFat": 0.3},
   "skinTone": 0, "skinWarmth": 0, "aging": 0,
   "brows": 3, "browDensity": 0.7, "lashes": 0,

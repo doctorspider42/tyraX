@@ -2,7 +2,7 @@
   "version": 2,
   "name": "kid",
   "gender": 0.3, "age": 0.21, "muscle": 0.4, "weight": 0.45,
-  "african": 0, "asian": 0, "caucasian": 1, "height": 1.3,
+  "african": 0, "asian": 0, "caucasian": 1, "height": 1.3, "dimorphism": 0.6,
   "shape": {"eyeSize": 0.3, "noseSize": -0.4},
   "skinTone": 0, "skinWarmth": 0, "aging": 0,
   "brows": 8, "browDensity": 0.6, "lashes": 0,

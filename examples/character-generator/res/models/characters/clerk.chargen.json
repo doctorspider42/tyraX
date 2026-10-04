@@ -2,7 +2,7 @@
   "version": 2,
   "name": "clerk",
   "gender": 0, "age": 0.42, "muscle": 0.45, "weight": 0.45,
-  "african": 0.1, "asian": 0.6, "caucasian": 0.3, "height": 1.65,
+  "african": 0.1, "asian": 0.6, "caucasian": 0.3, "height": 1.65, "dimorphism": 0.6,
   "shape": {"cheekBones": 0.3, "eyeSize": 0.2, "noseSize": -0.3, "upperLip": 0.3},
   "skinTone": 0, "skinWarmth": 0, "aging": 0,
   "brows": 4, "browDensity": 0.9, "lashes": 1,

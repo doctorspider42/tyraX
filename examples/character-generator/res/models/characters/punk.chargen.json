@@ -2,7 +2,7 @@
   "version": 2,
   "name": "punk",
   "gender": 0.95, "age": 0.38, "muscle": 0.55, "weight": 0.4,
-  "african": 0, "asian": 0.25, "caucasian": 0.75, "height": 1.78,
+  "african": 0, "asian": 0.25, "caucasian": 0.75, "height": 1.78, "dimorphism": 0.6,
   "shape": {"cheekBones": 0.5, "chinOut": 0.3},
   "skinTone": 0, "skinWarmth": 0, "aging": 0,
   "brows": 0, "browDensity": 1, "lashes": 0,

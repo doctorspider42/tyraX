@@ -2,7 +2,7 @@
   "version": 2,
   "name": "dockhand",
   "gender": 1, "age": 0.76, "muscle": 0.55, "weight": 0.92,
-  "african": 0.85, "asian": 0, "caucasian": 0.15, "height": 1.76,
+  "african": 0.85, "asian": 0, "caucasian": 0.15, "height": 1.76, "dimorphism": 0.6,
   "shape": {"belly": 0.6, "doubleChin": 0.5, "neckWidth": 0.5, "noseWidth": 0.4},
   "skinTone": 0, "skinWarmth": 0, "aging": 0,
   "brows": 6, "browDensity": 1.1, "lashes": 0,
