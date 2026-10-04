@@ -17623,7 +17623,12 @@ void App::rebuildCharacterPreview() {
     charPrevTex_.clear();
     ++charPreviewVersion_;
 
-    if (!chargen::build(charParams_, charSkel_, charWarnings_, charBuildError_)) {
+    // In-game creator options are left out of the preview, which shows the
+    // character as it starts - every option at once would be a hat on a hat.
+    // Writing the asset builds again with them (exportCharacterSkel).
+    chargen::Params shown = charParams_;
+    shown.options.clear();
+    if (!chargen::build(shown, charSkel_, charWarnings_, charBuildError_)) {
         charSkel_ = glbparser::Skel();
         return;
     }
@@ -18551,6 +18556,70 @@ void App::drawCharacterGeneratorWindow() {
         }
         ImGui::EndPopup();
     }
+    ImGui::SameLine();
+    ImGui::BeginDisabled(charPrevTris_.empty());
+    if (ImGui::Button("Player creator...")) ImGui::OpenPopup("##charcreator");
+    ImGui::EndDisabled();
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Make this character the player, with an in-game\n"
+                          "Character Creator: the player picks colours, hair,\n"
+                          "a hat and glasses from the ones you tick here.");
+    if (ImGui::BeginPopup("##charcreator")) {
+        ImGui::TextDisabled("What the player may choose from. What the character\n"
+                            "wears now is where they start; each tick adds a\n"
+                            "part with its own small texture (the preview shows\n"
+                            "only the start).");
+        auto has = [&](const std::string& id) {
+            return std::find(p.options.begin(), p.options.end(), id) != p.options.end();
+        };
+        auto tick = [&](const chargen::Item& it, bool worn) {
+            bool on = worn || has(it.id);
+            ImGui::BeginDisabled(worn);
+            if (ImGui::Checkbox((it.label + (worn ? " (worn)" : "") + "##opt" + it.id).c_str(), &on)) {
+                if (on)
+                    p.options.push_back(it.id);
+                else
+                    p.options.erase(std::remove(p.options.begin(), p.options.end(), it.id),
+                                    p.options.end());
+            }
+            ImGui::EndDisabled();
+        };
+        auto wearing = [&](const std::string& id) {
+            for (const chargen::Wear& w : p.outfit)
+                if (w.id == id) return true;
+            return false;
+        };
+        if (ImGui::BeginTable("##optcols", 3, ImGuiTableFlags_SizingStretchSame,
+                              ImVec2(scaled(600.0f), 0.0f))) {
+            ImGui::TableNextColumn();
+            ImGui::SeparatorText("Hair");
+            ImGui::BeginChild("##opthair", ImVec2(0, scaled(220.0f)));
+            for (const chargen::Item& it : chargen::hairstyles()) tick(it, it.id == p.hair);
+            ImGui::EndChild();
+            ImGui::TableNextColumn();
+            ImGui::SeparatorText("Hats");
+            for (const chargen::Item& it : chargen::wardrobe())
+                if (it.slot == "head") tick(it, wearing(it.id));
+            ImGui::TableNextColumn();
+            ImGui::SeparatorText("Glasses");
+            for (const chargen::Item& it : chargen::wardrobe())
+                if (it.slot == "face") tick(it, wearing(it.id));
+            ImGui::EndTable();
+        }
+        ImGui::SetNextItemWidth(scaled(160.0f));
+        ImGui::SliderInt("Colour looks", &charCreatorLooks_, 0, 7);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Other skin, hair and clothing colours to choose from,\n"
+                              "beside the character's own - a 1 KB palette each.");
+        ImGui::TextDisabled("Opens in the game with the Character Creator flow\n"
+                            "node (Animation category). The choice survives\n"
+                            "scene changes and is saved with the game.");
+        if (ImGui::Button("Make it the player")) {
+            makeCreatorPlayer();
+            ImGui::CloseCurrentPopup();
+        }
+        ImGui::EndPopup();
+    }
     ImGui::EndGroup();
 
     if (dirty) charPreviewDirty_ = true;
@@ -18581,7 +18650,18 @@ void App::addCharacterToScene() {
         name = base + "-" + std::to_string(n);
 
     std::string rel, err;
-    if (!chargen::writeAsset(project_.dir, name, charSkel_, charParams_, &rel, &err)) {
+    // The preview leaves creator options out; the asset carries them.
+    glbparser::Skel full;
+    const glbparser::Skel* skel = &charSkel_;
+    if (!charParams_.options.empty()) {
+        std::vector<std::string> warnings;
+        if (!chargen::build(charParams_, full, warnings, err)) {
+            statusMessage_ = "Character export failed: " + err;
+            return;
+        }
+        skel = &full;
+    }
+    if (!chargen::writeAsset(project_.dir, name, *skel, charParams_, &rel, &err)) {
         statusMessage_ = "Character export failed: " + err;
         return;
     }
@@ -18615,14 +18695,18 @@ void App::addCrowdToScene(int people, int variants, float spread, bool wander) {
         name = base + "-" + std::to_string(n);
 
     std::string rel, err;
-    if (!chargen::writeAsset(project_.dir, name, charSkel_, charParams_, &rel, &err)) {
+    // A crowd is the preview's character: no creator options (they are for
+    // the player), so its recipe must not claim any either.
+    chargen::Params params = charParams_;
+    params.options.clear();
+    if (!chargen::writeAsset(project_.dir, name, charSkel_, params, &rel, &err)) {
         statusMessage_ = "Crowd export failed: " + err;
         return;
     }
     variants = std::clamp(variants, 1, std::max(1, people - 1));
     const std::string glb = (fs::path(project_.dir) / rel).string();
     for (int k = 1; k <= variants; ++k)
-        if (!chargen::writeVariantTextures(chargen::paletteVariant(charParams_, (unsigned)k),
+        if (!chargen::writeVariantTextures(chargen::paletteVariant(params, (unsigned)k),
                                            glb, k, err)) {
             statusMessage_ = "Crowd variant failed: " + err;
             return;
@@ -18670,6 +18754,58 @@ void App::addCrowdToScene(int people, int variants, float spread, bool wander) {
     statusMessage_ = "Added a crowd of " + std::to_string(people) + " ('" + name + "', " +
                      std::to_string(variants) + " colour variants, " +
                      std::to_string(idles.size()) + " idle groups)";
+}
+
+// "Player creator..." (docs/character-generator.md, "In-game character
+// creator"): the character is written WITH its creator options and colour
+// looks, and the active scene's Player object wears it - or a Player is added
+// when the scene has none.
+void App::makeCreatorPlayer() {
+    std::string base = sanitizeAssetName(charName_);
+    if (base.empty()) base = "player";
+    namespace fs = std::filesystem;
+    std::string name = base;
+    for (int n = 2; fs::exists(fs::path(project_.dir) / "res" / "models" / "characters" /
+                               (name + ".glb"));
+         ++n)
+        name = base + "-" + std::to_string(n);
+    glbparser::Skel skel;
+    std::vector<std::string> warnings;
+    std::string rel, err;
+    if (!chargen::build(charParams_, skel, warnings, err) ||
+        !chargen::writeAsset(project_.dir, name, skel, charParams_, &rel, &err)) {
+        statusMessage_ = "Player export failed: " + err;
+        return;
+    }
+    const std::string glb = (fs::path(project_.dir) / rel).string();
+    for (int k = 1; k <= charCreatorLooks_; ++k)
+        if (!chargen::writeVariantTextures(chargen::paletteVariant(charParams_, (unsigned)k), glb,
+                                           k, err)) {
+            statusMessage_ = "Player colour look failed: " + err;
+            return;
+        }
+    project_.textureQuality[rel] = "8bit";
+    SceneObject* player = nullptr;
+    for (SceneObject& o : project_.objects())
+        if (o.type == PrimitiveType::Player) {
+            player = &o;
+            break;
+        }
+    if (player) {
+        player->modelPath = rel;
+        player->playerMode = 2;  // third person: the avatar is what they dressed
+        commitChange();
+    } else {
+        addModelObject(rel, nullptr, false);
+        SceneObject& o = project_.objects().back();
+        o.type = PrimitiveType::Player;
+        o.playerMode = 2;
+        o.name = "player";
+        commitChange();
+    }
+    statusMessage_ = "The player is now '" + name + "' (" +
+                     std::to_string((int)charParams_.options.size()) + " creator options, " +
+                     std::to_string(charCreatorLooks_ + 1) + " colour looks)";
 }
 
 void App::mocapRebind() {

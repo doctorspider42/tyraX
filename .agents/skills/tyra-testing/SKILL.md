@@ -167,6 +167,11 @@ crotch, a mesh item that crumbled, paint bleeding across atlas islands). For the
 console, the `examples/character-generator` copy + `--build --run` +
 `--capture-frame` recipe applies unchanged; the six characters there are
 regenerated from their `.chargen.json` recipes with the same command.
+The in-game creator is tested the same way: add `"options": [...]` to a
+recipe, `--chargen ... --variants 3`, open the screen from a scratch script
+(`openCharacterCreator(ctx, -1)` at frame 60; log `ctx.objects[i].look` on
+change) and drive it with `--pad "press right; wait 0.3; press down; ..."` -
+the D-pad works there, unlike in the walkers.
 Rebuilding the kit itself is tools/chargen-kit/README.md.
 
 So when a build dies with **`Cannot find source file: vendor/<something>`**

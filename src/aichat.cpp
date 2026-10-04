@@ -2086,7 +2086,9 @@ std::string runReadTool(const Project& p, const ToolCall& c, bool& failed) {
              "slider id -> -1..1. An outfit entry's color [-1,-1,-1] = the item's "
              "own colours, anything else recolours its main fabric; pattern 0 "
              "none, 1 stripes, 2 checks, 3 plaid, 4 diagonal (color2 = its second "
-             "colour). One item per slot; a 'full' item replaces top and bottom.\n"
+             "colour). One item per slot; a 'full' item replaces top and bottom. "
+             "\"options\": [ids] (hair, head and face items) makes them choices for "
+             "the in-game Character Creator - meant for the player.\n"
           << "\nWARDROBE (id: label, slot, sex m/f/any):\n";
         for (const chargen::Item& it : chargen::wardrobe())
             o << "  " << it.id << ": " << it.label << ", " << it.slot << ", "

@@ -344,7 +344,8 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
   poke-through) or bound to its surface, recolourable with patterns, and 87
   motion-captured clips - and a face that blinks, looks at you and lip-syncs
   its sound, hair and skirts that swing. Crowds in other colours cost one mesh and one atlas plus 1 KB a
-  person. Randomize, a recipe beside every model, and
+  person, and an in-game creator lets the player pick colours, hair, a hat
+  and glasses. Randomize, a recipe beside every model, and
   `--chargen` for the command line. All CC0, embedded in the editor.
 - **[World scale](docs/world-scale.md)** — one number that keeps imported reality
   the size your own content is.

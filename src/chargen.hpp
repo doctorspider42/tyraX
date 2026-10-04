@@ -90,6 +90,11 @@ struct Params {
     // ---- outfit ----
     std::vector<Wear> outfit;
     std::string hair;         // kit hair id, "" = bald
+    // In-game creator options: extra hair / head / face item ids built as
+    // SEPARATE parts the game can switch (docs/character-generator.md,
+    // "In-game character creator"). A worn item in a slot that has options
+    // becomes that slot's default choice. Empty = an ordinary character.
+    std::vector<std::string> options;
 
     // ---- animation ----
     // Kit clip names to include ("" list = the default locomotion set). The

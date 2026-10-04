@@ -1029,6 +1029,14 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
          .desc = "Makes a character from the Character Generator talk: its "
                  "jaw moves in syllables over whatever clip plays. For a real "
                  "voice, set the sound emitter's Speaker instead."},
+        {.key = "CharacterCreator", .title = "Character Creator", .category = "Animation",
+         .idIn = true, .idOut = true,
+         .desc = "Opens the in-game Character Creator on a character from the "
+                 "Character Generator built with creator options or colour "
+                 "variants (the player when the target is neither): the player "
+                 "picks colours, hair, hat and glasses with the D-pad, Cross "
+                 "keeps it, Circle undoes it. The player's choice survives scene "
+                 "changes and is saved with the game."},
         // AI (docs/navigation-ai.md). NPCs walk the nav grid baked at build
         // time (navmesh.cpp -> nav_data.gen.hpp); paths come from A* on the
         // EE (navigation.gen.cpp), agents snap to the terrain and turn to

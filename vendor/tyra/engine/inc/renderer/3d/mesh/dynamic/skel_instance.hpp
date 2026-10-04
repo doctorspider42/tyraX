@@ -149,8 +149,17 @@ class SkelInstance {
   bool poseEquals(const SkelInstance& other) const {
     return model == other.model && cur.clip == other.cur.clip &&
            cur.time == other.cur.time && fadeT >= 1.0F && other.fadeT >= 1.0F &&
-           overrideCount == 0 && other.overrideCount == 0;
+           overrideCount == 0 && other.overrideCount == 0 &&
+           partSkipped == other.partSkipped;
   }
+
+  /**
+   * Modified by TyraX: a part that is not drawn (a creator option the
+   * character is not wearing) is not skinned either - its arrays keep their
+   * last skin. Turning a part back on re-skins on the next ensurePose().
+   * Instances skipping different parts never share a pose.
+   */
+  void setPartSkipped(u32 part, bool skip);
 
   /**
    * Modified by TyraX: a procedural layer over the clip - a node's local
@@ -190,6 +199,7 @@ class SkelInstance {
   u32 overrideCount = 0;          // nodes with a live rotation override
   std::vector<float> overrideRot;   // nodes * 4 (x, y, z, w)
   std::vector<u8> overrideOn;       // per node
+  std::vector<u8> partSkipped;      // per part (empty = none skipped)
   u8 maxLodLevels = 1;            // longest per-part chain incl. the base
 
   // scratch buffers, sized once in the constructor

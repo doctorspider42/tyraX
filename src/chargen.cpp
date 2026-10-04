@@ -685,6 +685,7 @@ bool Params::operator==(const Params& o) const {
            lipColor == o.lipColor && eyeShadow == o.eyeShadow &&
            eyeShadowColor == o.eyeShadowColor && blush == o.blush &&
            textureSize == o.textureSize && outfit == o.outfit && hair == o.hair &&
+           options == o.options &&
            clips == o.clips && defaultClips == o.defaultClips && animFps == o.animFps &&
            animSource == o.animSource && retarget.fps == o.retarget.fps &&
            retarget.inPlace == o.retarget.inPlace &&
@@ -801,9 +802,41 @@ bool build(const Params& p, glbparser::Skel& out, std::vector<std::string>& warn
         worn.push_back(g);
         all.push_back(w);
     }
+    // Creator options (Params::options): 1 = an extra choice, 2 = the worn
+    // item of a slot that has options - it becomes the default choice. Neither
+    // hides body triangles, pushes the body or paints the scalp: the game may
+    // take it off.
+    std::vector<char> isOpt(worn.size(), 0);
+    {
+        auto optionSlot = [](const std::string& slot) {
+            return slot == "hair" || slot == "head" || slot == "face";
+        };
+        std::vector<std::string> slots;
+        for (const std::string& id : p.options) {
+            const GarmentData* g = garment(id);
+            if (!g || !optionSlot(g->item.slot) || g->kind != "mesh") {
+                warnings.push_back("'" + id + "' cannot be a creator option (hair, hats and glasses can)");
+                continue;
+            }
+            bool have = false;
+            for (const GarmentData* w : worn) have |= w == g;
+            if (!have) {
+                worn.push_back(g);
+                all.push_back(Wear{id, g->item.slot == "hair" ? p.hairColor : Rgb{-1, -1, -1},
+                                   Rgb{1, 1, 1}, 0});
+                isOpt.push_back(1);
+            }
+            slots.push_back(g->item.slot);
+        }
+        for (size_t gi = 0; gi < worn.size(); ++gi)
+            if (!isOpt[gi] && worn[gi]->kind == "mesh" && std::find(slots.begin(), slots.end(), worn[gi]->item.slot) != slots.end())
+                isOpt[gi] = 2;
+    }
     std::vector<char> hidden((size_t)b.tris, 0);
     std::vector<float> push((size_t)b.verts, 0.0f);
-    for (const GarmentData* g : worn) {
+    for (size_t gi = 0; gi < worn.size(); ++gi) {
+        if (isOpt[gi]) continue;
+        const GarmentData* g = worn[gi];
         const GarmentBody& gb = g->body[bi];
         for (int32_t t : gb.cover) hidden[t] = 1;
         const float male = std::clamp(p.gender, 0.0f, 1.0f);
@@ -984,6 +1017,7 @@ bool build(const Params& p, glbparser::Skel& out, std::vector<std::string>& warn
         // Paint a mesh item leaves on the body: hair colours the scalp under
         // itself, so the gaps between its strands show hair, not a bald head.
         for (size_t gi = 0; gi < worn.size(); ++gi) {
+            if (isOpt[gi]) continue;
             const GarmentData* g = worn[gi];
             std::shared_ptr<std::vector<uint8_t>> kb;
             const uint8_t* paint = L("g/" + g->item.id + "/body", kb);
@@ -1038,9 +1072,120 @@ bool build(const Params& p, glbparser::Skel& out, std::vector<std::string>& warn
     // body's surface, and all of them share a single accessory atlas laid out
     // as a grid of cells - a dressed character is two GS allocations and two
     // submits, not five. The atlas is the body's size; a cell is a fraction.
+    //
+    // Creator options are the exception: each is its own part with its own
+    // small texture named "opt-<slot>-<id>" ("optd-" for the one worn by
+    // default), so the game can show one per slot and hide the rest
+    // (docs/character-generator.md, "In-game character creator").
+    auto emitItem = [&](size_t gi, glbparser::SkelPart& part, std::vector<uint8_t>& atlas, int A,
+                        int cx, int cy, int cw, int ch) {
+        const GarmentData* g = worn[gi];
+        const GarmentBody& gb = g->body[bi];
+        // Geometry, riding the body.
+        const size_t gv = gb.bindTri.size();
+        std::vector<float> gp(gv * 3), gn;
+        for (size_t v = 0; v < gv; ++v) {
+            const int t = gb.bindTri[v];
+            float s[3] = {0, 0, 0}, nn[3] = {0, 0, 0};
+            for (int c = 0; c < 3; ++c) {
+                const int bv = b.tri[t * 3 + c];
+                const float w = gb.bindBary[v * 3 + c];
+                for (int a = 0; a < 3; ++a) {
+                    s[a] += pos[(size_t)bv * 3 + a] * w;
+                    nn[a] += nrm[(size_t)bv * 3 + a] * w;
+                }
+            }
+            const float l = std::sqrt(nn[0] * nn[0] + nn[1] * nn[1] + nn[2] * nn[2]);
+            for (int a = 0; a < 3; ++a) nn[a] = l > 1e-9f ? nn[a] / l : 0.0f;
+            // The offset is (normal, u, w) of the bound triangle - u and w
+            // are kit_wear.py's tangent_frame: the bisector and difference
+            // of the unit edges 0->1 and 0->2, projected off the normal. A
+            // skirt's hem hangs far below the hip triangle it rides; every
+            // other item has u = w = 0.
+            const float* off = &gb.bindOff[v * 3];
+            float u[3] = {0, 0, 0}, w[3] = {0, 0, 0};
+            if (off[1] != 0.0f || off[2] != 0.0f) {
+                float e[2][3];
+                for (int k = 0; k < 2; ++k) {
+                    const float* p0 = &pos[(size_t)b.tri[t * 3] * 3];
+                    const float* pk = &pos[(size_t)b.tri[t * 3 + 1 + k] * 3];
+                    float el = 0;
+                    for (int a = 0; a < 3; ++a) {
+                        e[k][a] = pk[a] - p0[a];
+                        el += e[k][a] * e[k][a];
+                    }
+                    el = std::sqrt(el);
+                    for (int a = 0; a < 3; ++a) e[k][a] = el > 1e-9f ? e[k][a] / el : 0.0f;
+                }
+                for (int a = 0; a < 3; ++a) {
+                    u[a] = e[0][a] + e[1][a];
+                    w[a] = e[0][a] - e[1][a];
+                }
+                for (float* x : {u, w}) {
+                    const float dn = x[0] * nn[0] + x[1] * nn[1] + x[2] * nn[2];
+                    float xl = 0;
+                    for (int a = 0; a < 3; ++a) {
+                        x[a] -= nn[a] * dn;
+                        xl += x[a] * x[a];
+                    }
+                    xl = std::sqrt(xl);
+                    for (int a = 0; a < 3; ++a) x[a] = xl > 1e-6f ? x[a] / xl : 0.0f;
+                }
+            }
+            for (int a = 0; a < 3; ++a)
+                gp[v * 3 + a] = s[a] + (nn[a] * off[0] + u[a] * off[1] + w[a] * off[2]) * scale;
+        }
+        vertexNormals(gp, g->tri.data(), (int)g->tri.size() / 3, gn);
+        const size_t gt = g->tri.size() / 3;
+        for (size_t t = 0; t < gt; ++t)
+            for (int c = 0; c < 3; ++c) {
+                const int v = g->tri[t * 3 + c];
+                for (int a = 0; a < 3; ++a) part.positions.push_back(gp[(size_t)v * 3 + a]);
+                for (int a = 0; a < 3; ++a) part.normals.push_back(gn[(size_t)v * 3 + a]);
+                // Into this item's cell, half a texel in from each edge so
+                // bilinear filtering never reads the neighbouring cell.
+                const float u = g->uv[t * 6 + c * 2], vv = 1.0f - g->uv[t * 6 + c * 2 + 1];
+                part.uvs.push_back((cx + 0.5f + u * (cw - 1.0f)) / (float)A);
+                part.uvs.push_back((cy + 0.5f + vv * (ch - 1.0f)) / (float)A);
+                for (int i = 0; i < kMaxInfluences; ++i) part.joints.push_back(gb.joints[(size_t)v * 4 + i]);
+                for (int i = 0; i < kMaxInfluences; ++i) part.weights.push_back(gb.weights[(size_t)v * 4 + i]);
+                ++part.vertexCount;
+            }
+
+        // Its texture into the cell: dyed, alpha binary for cutouts and
+        // opaque for everything else (StaPip alpha-tests "pass when alpha
+        // != 0", and the CLUT path loses soft gradients).
+        int w = 0, h = 0;
+        std::shared_ptr<std::vector<uint8_t>> col = image("g/" + g->item.id, &w, &h);
+        if (!col || w <= 0 || h <= 0) return;
+        const Wear& choice = all[gi];
+        for (int y = 0; y < ch; ++y)
+            for (int x = 0; x < cw; ++x) {
+                // Box-filter the source footprint of this cell texel.
+                const int x0 = x * w / cw, x1 = std::max(x0 + 1, (x + 1) * w / cw);
+                const int y0 = y * h / ch, y1 = std::max(y0 + 1, (y + 1) * h / ch);
+                float s[4] = {0, 0, 0, 0};
+                for (int sy = y0; sy < y1; ++sy)
+                    for (int sx = x0; sx < x1; ++sx) {
+                        const size_t i = (size_t)sy * w + sx;
+                        float c[3] = {px01(col->data(), i, 0), px01(col->data(), i, 1),
+                                      px01(col->data(), i, 2)};
+                        if (g->item.dyeable)
+                            dye(c, g->cutout ? 1.0f : dyeMask(c, g->item.color), g->luma, choice.color,
+                                g->cutout ? 0.55f : 1.0f);
+                        for (int q = 0; q < 3; ++q) s[q] += c[q];
+                        s[3] += px01(col->data(), i, 3);
+                    }
+                const float inv = 1.0f / (float)((x1 - x0) * (y1 - y0));
+                uint8_t* o = &atlas[((size_t)(cy + y) * A + (cx + x)) * 4];
+                for (int q = 0; q < 3; ++q)
+                    o[q] = (uint8_t)std::clamp((int)std::lround(s[q] * inv * 255.0f), 0, 255);
+                o[3] = g->cutout ? (s[3] * inv >= 0.5f ? 255 : 0) : 255;
+            }
+    };
     std::vector<size_t> meshItems;
     for (size_t gi = 0; gi < worn.size(); ++gi)
-        if (worn[gi]->kind == "mesh" && !worn[gi]->tri.empty()) meshItems.push_back(gi);
+        if (worn[gi]->kind == "mesh" && !worn[gi]->tri.empty() && !isOpt[gi]) meshItems.push_back(gi);
     if (!meshItems.empty()) {
         const int count = (int)meshItems.size();
         const int cols = (int)std::ceil(std::sqrt((float)count));
@@ -1051,113 +1196,9 @@ bool build(const Params& p, glbparser::Skel& out, std::vector<std::string>& warn
         glbparser::SkelPart part;
         bool anyCutout = false;
         for (int m = 0; m < count; ++m) {
-            const size_t gi = meshItems[m];
-            const GarmentData* g = worn[gi];
-            const GarmentBody& gb = g->body[bi];
-            anyCutout |= g->cutout;
-            const int cx = (m % cols) * cw, cy = (m / cols) * ch;
-
-            // Geometry, riding the body.
-            const size_t gv = gb.bindTri.size();
-            std::vector<float> gp(gv * 3), gn;
-            for (size_t v = 0; v < gv; ++v) {
-                const int t = gb.bindTri[v];
-                float s[3] = {0, 0, 0}, nn[3] = {0, 0, 0};
-                for (int c = 0; c < 3; ++c) {
-                    const int bv = b.tri[t * 3 + c];
-                    const float w = gb.bindBary[v * 3 + c];
-                    for (int a = 0; a < 3; ++a) {
-                        s[a] += pos[(size_t)bv * 3 + a] * w;
-                        nn[a] += nrm[(size_t)bv * 3 + a] * w;
-                    }
-                }
-                const float l = std::sqrt(nn[0] * nn[0] + nn[1] * nn[1] + nn[2] * nn[2]);
-                for (int a = 0; a < 3; ++a) nn[a] = l > 1e-9f ? nn[a] / l : 0.0f;
-                // The offset is (normal, u, w) of the bound triangle - u and w
-                // are kit_wear.py's tangent_frame: the bisector and difference
-                // of the unit edges 0->1 and 0->2, projected off the normal. A
-                // skirt's hem hangs far below the hip triangle it rides; every
-                // other item has u = w = 0.
-                const float* off = &gb.bindOff[v * 3];
-                float u[3] = {0, 0, 0}, w[3] = {0, 0, 0};
-                if (off[1] != 0.0f || off[2] != 0.0f) {
-                    float e[2][3];
-                    for (int k = 0; k < 2; ++k) {
-                        const float* p0 = &pos[(size_t)b.tri[t * 3] * 3];
-                        const float* pk = &pos[(size_t)b.tri[t * 3 + 1 + k] * 3];
-                        float el = 0;
-                        for (int a = 0; a < 3; ++a) {
-                            e[k][a] = pk[a] - p0[a];
-                            el += e[k][a] * e[k][a];
-                        }
-                        el = std::sqrt(el);
-                        for (int a = 0; a < 3; ++a) e[k][a] = el > 1e-9f ? e[k][a] / el : 0.0f;
-                    }
-                    for (int a = 0; a < 3; ++a) {
-                        u[a] = e[0][a] + e[1][a];
-                        w[a] = e[0][a] - e[1][a];
-                    }
-                    for (float* x : {u, w}) {
-                        const float dn = x[0] * nn[0] + x[1] * nn[1] + x[2] * nn[2];
-                        float xl = 0;
-                        for (int a = 0; a < 3; ++a) {
-                            x[a] -= nn[a] * dn;
-                            xl += x[a] * x[a];
-                        }
-                        xl = std::sqrt(xl);
-                        for (int a = 0; a < 3; ++a) x[a] = xl > 1e-6f ? x[a] / xl : 0.0f;
-                    }
-                }
-                for (int a = 0; a < 3; ++a)
-                    gp[v * 3 + a] = s[a] + (nn[a] * off[0] + u[a] * off[1] + w[a] * off[2]) * scale;
-            }
-            vertexNormals(gp, g->tri.data(), (int)g->tri.size() / 3, gn);
-            const size_t gt = g->tri.size() / 3;
-            for (size_t t = 0; t < gt; ++t)
-                for (int c = 0; c < 3; ++c) {
-                    const int v = g->tri[t * 3 + c];
-                    for (int a = 0; a < 3; ++a) part.positions.push_back(gp[(size_t)v * 3 + a]);
-                    for (int a = 0; a < 3; ++a) part.normals.push_back(gn[(size_t)v * 3 + a]);
-                    // Into this item's cell, half a texel in from each edge so
-                    // bilinear filtering never reads the neighbouring cell.
-                    const float u = g->uv[t * 6 + c * 2], vv = 1.0f - g->uv[t * 6 + c * 2 + 1];
-                    part.uvs.push_back((cx + 0.5f + u * (cw - 1.0f)) / (float)A);
-                    part.uvs.push_back((cy + 0.5f + vv * (ch - 1.0f)) / (float)A);
-                    for (int i = 0; i < kMaxInfluences; ++i) part.joints.push_back(gb.joints[(size_t)v * 4 + i]);
-                    for (int i = 0; i < kMaxInfluences; ++i) part.weights.push_back(gb.weights[(size_t)v * 4 + i]);
-                    ++part.vertexCount;
-                }
-
-            // Its texture into the cell: dyed, alpha binary for cutouts and
-            // opaque for everything else (StaPip alpha-tests "pass when alpha
-            // != 0", and the CLUT path loses soft gradients).
-            int w = 0, h = 0;
-            std::shared_ptr<std::vector<uint8_t>> col = image("g/" + g->item.id, &w, &h);
-            if (!col || w <= 0 || h <= 0) continue;
-            const Wear& choice = all[gi];
-            for (int y = 0; y < ch; ++y)
-                for (int x = 0; x < cw; ++x) {
-                    // Box-filter the source footprint of this cell texel.
-                    const int x0 = x * w / cw, x1 = std::max(x0 + 1, (x + 1) * w / cw);
-                    const int y0 = y * h / ch, y1 = std::max(y0 + 1, (y + 1) * h / ch);
-                    float s[4] = {0, 0, 0, 0};
-                    for (int sy = y0; sy < y1; ++sy)
-                        for (int sx = x0; sx < x1; ++sx) {
-                            const size_t i = (size_t)sy * w + sx;
-                            float c[3] = {px01(col->data(), i, 0), px01(col->data(), i, 1),
-                                          px01(col->data(), i, 2)};
-                            if (g->item.dyeable)
-                                dye(c, g->cutout ? 1.0f : dyeMask(c, g->item.color), g->luma, choice.color,
-                                    g->cutout ? 0.55f : 1.0f);
-                            for (int q = 0; q < 3; ++q) s[q] += c[q];
-                            s[3] += px01(col->data(), i, 3);
-                        }
-                    const float inv = 1.0f / (float)((x1 - x0) * (y1 - y0));
-                    uint8_t* o = &atlas[((size_t)(cy + y) * A + (cx + x)) * 4];
-                    for (int q = 0; q < 3; ++q)
-                        o[q] = (uint8_t)std::clamp((int)std::lround(s[q] * inv * 255.0f), 0, 255);
-                    o[3] = g->cutout ? (s[3] * inv >= 0.5f ? 255 : 0) : 255;
-                }
+            anyCutout |= worn[meshItems[m]]->cutout;
+            emitItem(meshItems[m], part, atlas, A, (m % cols) * (A / cols), (m / cols) * (A / rows),
+                     cw, ch);
         }
         // The material name carries the kind: "hair:" means alpha-tested (the
         // editor preview draws it last), which is harmless for the opaque
@@ -1166,6 +1207,23 @@ bool build(const Params& p, glbparser::Skel& out, std::vector<std::string>& warn
         glbparser::Image img;
         img.name = "accessories";
         img.png = encodePng(atlas, A, A);
+        part.image = (int)out.images.size();
+        out.images.push_back(std::move(img));
+        out.parts.push_back(std::move(part));
+    }
+    for (size_t gi = 0; gi < worn.size(); ++gi) {
+        if (!isOpt[gi] || worn[gi]->tri.empty()) continue;
+        // Half the atlas size: an option is one item, not a grid of them.
+        const int A = std::max(32, texSize / 2);
+        std::vector<uint8_t> tex((size_t)A * A * 4, 0);
+        glbparser::SkelPart part;
+        emitItem(gi, part, tex, A, 0, 0, A, A);
+        const std::string tag = std::string(isOpt[gi] == 2 ? "optd-" : "opt-") +
+                                worn[gi]->item.slot + "-" + worn[gi]->item.id;
+        part.material = std::string(worn[gi]->cutout ? "hair:" : "cloth:") + tag;
+        glbparser::Image img;
+        img.name = tag;
+        img.png = encodePng(tex, A, A);
         part.image = (int)out.images.size();
         out.images.push_back(std::move(img));
         out.parts.push_back(std::move(part));
@@ -1341,7 +1399,14 @@ std::string toJson(const Params& p) {
           << rgb(w.color) << ", \"color2\": " << rgb(w.color2) << ", \"pattern\": " << w.pattern
           << "}";
     }
-    o << "],\n  \"defaultClips\": " << (p.defaultClips ? "true" : "false") << ", \"clips\": [";
+    o << "],\n";
+    if (!p.options.empty()) {  // written only when used: older sidecars stay byte-identical
+        o << "  \"options\": [";
+        for (size_t i = 0; i < p.options.size(); ++i)
+            o << (i ? ", " : "") << "\"" << json::escape(p.options[i]) << "\"";
+        o << "],\n";
+    }
+    o << "  \"defaultClips\": " << (p.defaultClips ? "true" : "false") << ", \"clips\": [";
     for (size_t i = 0; i < p.clips.size(); ++i)
         o << (i ? ", " : "") << "\"" << json::escape(p.clips[i]) << "\"";
     o << "],\n  \"animFps\": " << num(p.animFps) << ",\n  \"animSource\": \""
@@ -1399,6 +1464,9 @@ bool fromJson(const std::string& text, Params& p, std::string& error) {
             if (const json::Value* x = w.find("pattern")) we.pattern = (int)x->numberOr(0);
             if (!we.id.empty()) d.outfit.push_back(we);
         }
+    if (const json::Value* o = v.find("options"))
+        for (const json::Value& x : o->arr)
+            if (!x.stringOr("").empty()) d.options.push_back(x.stringOr(""));
     if (const json::Value* x = v.find("defaultClips")) d.defaultClips = x->boolOr(true);
     if (const json::Value* c = v.find("clips"))
         for (const json::Value& s : c->arr) d.clips.push_back(s.stringOr(""));

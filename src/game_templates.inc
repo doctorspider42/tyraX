@@ -4623,6 +4623,10 @@ void TerrainGame::loop() {
   const bool saveMenuActive = updateSaveMenu();
   const bool gameMenuWasOpen = gameMenuIndex >= 0;  // before updateGameMenu()
   const bool gameMenuPausing = updateGameMenu();  // false for overlay menus
+  // The in-game Character Creator owns the pad but not the clock: the world
+  // (and the character being dressed) keeps moving behind it.
+  const bool creatorWasOpen = creatorObj >= 0;
+  const bool creatorOwnsPad = updateCharCreator() || creatorWasOpen;
   // Live Debugger (docs/live-debugger.md): the pump runs before anything reads
   // the halt, and a halt then freezes the world exactly the way a pausing menu
   // does - scripts, walker, particles and animation stop while frames keep
@@ -4639,7 +4643,8 @@ void TerrainGame::loop() {
   // menus, and the frame X closes a pausing menu): gameplay must not read that
   // same press too, or the X that drives the menu also makes the player jump.
   const bool menuOwnsPad =
-      saveMenuActive || gameMenuWasOpen || gameMenuIndex >= 0 || dbgHalted;
+      saveMenuActive || gameMenuWasOpen || gameMenuIndex >= 0 || dbgHalted ||
+      creatorOwnsPad;
   g_gameplayPaused = menuActive;  // freezes particles + animation playback
   // Option-block menu rows drive their bound engine settings every frame
   // (volume, deadzone, curve, display) - runs regardless of pause so a saved
@@ -4876,6 +4881,7 @@ void TerrainGame::loop() {
   } else {
     cameraUp = Tyra::Vec4(0.0F, 1.0F, 0.0F);  // a cutscene ending un-tilts
   }
+  creatorCamera();  // the Character Creator frames who it dresses
   // Camera Shake (flow node): arm, then decay. Both the eye AND the look-at
   // move by the same offset, so the shot wobbles without swinging the aim -
   // shaking only the eye would read as a lurching pan.
@@ -5163,6 +5169,7 @@ void TerrainGame::loop() {
     // scene and HUD (texts included), under the pause menus (no-op unless a
     // cutscene draws).
     sequences::renderOverlay(engine, scriptCtx);
+    renderCharCreator();
     renderGameMenu();
     renderSaveMenu();
     drawDebugHud(engine, cameraPosition, cameraLookAt);
@@ -6138,6 +6145,30 @@ void TerrainGame::loadAnimModelAsset(int i) {
   if (!model) return;  // stays empty - objects using it render nothing
   GameAnimModel& gam = gameAnimModels[i];
   gam.textures.assign(model->parts.size(), nullptr);
+  // Creator options: the generator names an option's texture
+  // "<stem>_opt-<slot>-<id>" ("_optd-" = worn as built).
+  gam.optSlot.assign(model->parts.size(), 0);
+  gam.optIndex.assign(model->parts.size(), -1);
+  for (size_t m = 0; m < model->parts.size(); ++m) {
+    const std::string& tp = model->parts[m].texturePath;
+    const size_t slash = tp.find_last_of("/\\");
+    size_t at = tp.find("_opt", slash == std::string::npos ? 0 : slash);
+    if (at == std::string::npos) continue;
+    at += 4;
+    const bool worn = at < tp.size() && tp[at] == 'd';
+    if (worn) ++at;
+    if (at >= tp.size() || tp[at] != '-') continue;
+    const size_t dash = tp.find('-', at + 1), dot = tp.find('.', at + 1);
+    if (dash == std::string::npos || dot == std::string::npos || dot <= dash) continue;
+    const std::string slot = tp.substr(at + 1, dash - at - 1);
+    const int s = slot == "hair" ? 1 : slot == "head" ? 2 : slot == "face" ? 3 : 0;
+    if (s == 0) continue;
+    gam.optSlot[m] = (s8)s;
+    gam.optIndex[m] = (s8)gam.optCount[s];
+    if (worn) gam.optDefault[s] = gam.optCount[s];
+    gam.optIds[s].push_back(tp.substr(dash + 1, dot - dash - 1));
+    ++gam.optCount[s];
+  }
   for (size_t m = 0; m < model->parts.size(); ++m) {
     const std::string& path = model->parts[m].texturePath;
     if (path.empty()) continue;
@@ -6953,6 +6984,10 @@ void TerrainGame::loop() {
   const bool saveMenuActive = updateSaveMenu();
   const bool gameMenuWasOpen = gameMenuIndex >= 0;  // before updateGameMenu()
   const bool gameMenuPausing = updateGameMenu();  // false for overlay menus
+  // The in-game Character Creator owns the pad but not the clock: the world
+  // (and the character being dressed) keeps moving behind it.
+  const bool creatorWasOpen = creatorObj >= 0;
+  const bool creatorOwnsPad = updateCharCreator() || creatorWasOpen;
   // Live Debugger (docs/live-debugger.md): the pump runs before anything reads
   // the halt, and a halt then freezes the world exactly the way a pausing menu
   // does - scripts, walker, particles and animation stop while frames keep
@@ -6969,7 +7004,8 @@ void TerrainGame::loop() {
   // menus, and the frame X closes a pausing menu): gameplay must not read that
   // same press too, or the X that drives the menu also makes the player jump.
   const bool menuOwnsPad =
-      saveMenuActive || gameMenuWasOpen || gameMenuIndex >= 0 || dbgHalted;
+      saveMenuActive || gameMenuWasOpen || gameMenuIndex >= 0 || dbgHalted ||
+      creatorOwnsPad;
   g_gameplayPaused = menuActive;  // freezes particles + animation playback
   // Option-block menu rows drive their bound engine settings every frame
   // (volume, deadzone, curve, display) - runs regardless of pause so a saved
@@ -7261,6 +7297,7 @@ void TerrainGame::loop() {
   } else {
     cameraUp = Tyra::Vec4(0.0F, 1.0F, 0.0F);  // a cutscene ending un-tilts
   }
+  creatorCamera();  // the Character Creator frames who it dresses
   // Camera Shake (flow node): arm, then decay. Both the eye AND the look-at
   // move by the same offset, so the shot wobbles without swinging the aim -
   // shaking only the eye would read as a lurching pan.
@@ -7550,6 +7587,7 @@ void TerrainGame::loop() {
     // scene and HUD (texts included), under the pause menus (no-op unless a
     // cutscene draws).
     sequences::renderOverlay(engine, scriptCtx);
+    renderCharCreator();
     renderGameMenu();
     renderSaveMenu();
     drawDebugHud(engine, cameraPosition, cameraLookAt);
@@ -8525,6 +8563,30 @@ void TerrainGame::loadAnimModelAsset(int i) {
   if (!model) return;  // stays empty - objects using it render nothing
   GameAnimModel& gam = gameAnimModels[i];
   gam.textures.assign(model->parts.size(), nullptr);
+  // Creator options: the generator names an option's texture
+  // "<stem>_opt-<slot>-<id>" ("_optd-" = worn as built).
+  gam.optSlot.assign(model->parts.size(), 0);
+  gam.optIndex.assign(model->parts.size(), -1);
+  for (size_t m = 0; m < model->parts.size(); ++m) {
+    const std::string& tp = model->parts[m].texturePath;
+    const size_t slash = tp.find_last_of("/\\");
+    size_t at = tp.find("_opt", slash == std::string::npos ? 0 : slash);
+    if (at == std::string::npos) continue;
+    at += 4;
+    const bool worn = at < tp.size() && tp[at] == 'd';
+    if (worn) ++at;
+    if (at >= tp.size() || tp[at] != '-') continue;
+    const size_t dash = tp.find('-', at + 1), dot = tp.find('.', at + 1);
+    if (dash == std::string::npos || dot == std::string::npos || dot <= dash) continue;
+    const std::string slot = tp.substr(at + 1, dash - at - 1);
+    const int s = slot == "hair" ? 1 : slot == "head" ? 2 : slot == "face" ? 3 : 0;
+    if (s == 0) continue;
+    gam.optSlot[m] = (s8)s;
+    gam.optIndex[m] = (s8)gam.optCount[s];
+    if (worn) gam.optDefault[s] = gam.optCount[s];
+    gam.optIds[s].push_back(tp.substr(dash + 1, dot - dash - 1));
+    ++gam.optCount[s];
+  }
   for (size_t m = 0; m < model->parts.size(); ++m) {
     const std::string& path = model->parts[m].texturePath;
     if (path.empty()) continue;
@@ -9293,6 +9355,231 @@ void TerrainGame::setupAnimObject(int index) {
   g.legNode[1] = (s16)sm->findNode("mixamorig:LeftLeg");
   g.legNode[2] = (s16)sm->findNode("mixamorig:RightUpLeg");
   g.legNode[3] = (s16)sm->findNode("mixamorig:RightLeg");
+
+  // The look: as authored, unless this is the player and the creator dressed
+  // them in this model before (playerLook survives scene loads and saves).
+  g.animVariant = variant;
+  for (int s = 0; s < 4; ++s) g.lookShown[s] = -9;
+  if (index == PLAYER_INDEX && playerLook[0] == o.data.animModel)
+    for (int s = 0; s < 4; ++s) o.look[s] = playerLook[1 + s];
+  applyLook(index);
+}
+
+
+
+// RuntimeObject::look -> what draws: options not chosen are hidden, and the
+// texture bags point at the chosen palette variant. Cheap when nothing
+// changed (four compares), so it runs every frame for every drawn model.
+void TerrainGame::applyLook(int index) {
+  RuntimeObject& o = runtimeObjects[index];
+  ObjectGeometry& g = objectGeometry[index];
+  if (!g.animInst || o.data.animModel < 0 || o.data.animModel >= (int)gameAnimModels.size())
+    return;
+  if (o.look[0] == g.lookShown[0] && o.look[1] == g.lookShown[1] &&
+      o.look[2] == g.lookShown[2] && o.look[3] == g.lookShown[3])
+    return;
+  GameAnimModel& gam = gameAnimModels[o.data.animModel];
+  for (int s = 0; s < 4; ++s) g.lookShown[s] = o.look[s];
+  // palette: -1 = the authored crowd variant
+  int variant = o.look[0];
+  if (variant < 0) {
+    variant = 0;
+    for (int k = 0; k < OBJECT_PALETTE_COUNT; ++k)
+      if (OBJECT_PALETTES[k].scene == g_activeScene && OBJECT_PALETTES[k].object == index)
+        variant = OBJECT_PALETTES[k].variant;
+  }
+  if (variant > (int)gam.variants.size()) variant = 0;
+  DynamicMesh* mesh = g.animInst->mesh.get();
+  if (variant != g.animVariant) {
+    for (size_t m = 0; m < g.animParts.size() && m < gam.textures.size(); ++m) {
+      ObjectGeometry::AnimPart& ap = g.animParts[m];
+      if (!ap.texBag) continue;
+      Texture* want = gam.textures[m];
+      if (variant > 0 && gam.variants[variant - 1][m]) want = gam.variants[variant - 1][m];
+      if (!want || want == ap.texBag->texture) continue;
+      const u32 id = mesh->materials[m]->id;
+      if (ap.texBag->texture && ap.texBag->texture->isLinkedWith(id))
+        ap.texBag->texture->removeLinkById(id);
+      if (!want->isLinkedWith(id)) want->addLink(id);
+      ap.texBag->texture = want;
+    }
+    g.animVariant = variant;
+  }
+  // options: one per slot (or none)
+  for (size_t m = 0; m < g.animParts.size() && m < gam.optSlot.size(); ++m) {
+    const int s = gam.optSlot[m];
+    if (s == 0) continue;
+    const int pick = o.look[s] == -2 ? gam.optDefault[s] : o.look[s];
+    g.animParts[m].hidden = gam.optIndex[m] != pick;
+    g.animInst->setPartSkipped((u32)m, g.animParts[m].hidden);  // nor skinned
+  }
+}
+
+
+
+// In-game Character Creator (docs/character-generator.md, "In-game character
+// creator"). Rows: Look (the colour variants) and Hair / Hat / Glasses - only
+// the ones the model has. Up/Down picks a row, Left/Right the choice, L1/R1
+// or the right stick turn them round, Cross keeps it, Circle puts back what
+// they wore when it opened. The world keeps running behind it: they idle,
+// blink and look at the camera while being dressed.
+int TerrainGame::creatorRows(int index, int* rows) const {
+  const RuntimeObject& o = runtimeObjects[index];
+  if (o.data.animModel < 0 || o.data.animModel >= (int)gameAnimModels.size()) return 0;
+  const GameAnimModel& gam = gameAnimModels[o.data.animModel];
+  const int variants = ANIM_MODEL_VARIANTS[o.data.animModel];
+  int n = 0;
+  if (variants > 0) rows[n++] = 0;
+  for (int s = 1; s <= 3; ++s)
+    if (gam.optCount[s] > 0) rows[n++] = s;
+  return n;
+}
+
+bool TerrainGame::updateCharCreator() {
+  if (scriptCtx.openCreator != -1 && creatorObj < 0) {
+    int idx = scriptCtx.openCreator;
+    auto dressable = [&](int i) {
+      if (i < 0 || i >= (int)runtimeObjects.size()) return false;
+      const RuntimeObject& o = runtimeObjects[i];
+      if (o.data.animModel < 0 || o.data.animModel >= (int)gameAnimModels.size() ||
+          !objectGeometry[i].animInst)
+        return false;
+      int rows[4];
+      return creatorRows(i, rows) > 0;
+    };
+    if (!dressable(idx)) idx = PLAYER_INDEX;
+    if (dressable(idx)) {
+      creatorObj = idx;
+      creatorRow = 0;
+      creatorYaw = 0.0F;
+      for (int s = 0; s < 4; ++s) creatorRestore[s] = runtimeObjects[idx].look[s];
+    } else {
+      TYRA_WARN("Character Creator: no character with creator options or colour variants");
+    }
+  }
+  scriptCtx.openCreator = -1;
+  scriptCtx.creatorOpen = creatorObj >= 0;
+  if (creatorObj < 0) return false;
+  RuntimeObject& o = runtimeObjects[creatorObj];
+  if (!objectGeometry[creatorObj].animInst || o.data.animModel < 0) {
+    creatorObj = -1;
+    return false;
+  }
+  const GameAnimModel& gam = gameAnimModels[o.data.animModel];
+  const int variants = ANIM_MODEL_VARIANTS[o.data.animModel];
+  int rows[4];
+  const int n = creatorRows(creatorObj, rows);
+  Pad& pad = engine->pad;
+  const auto& clicked = pad.getClicked();
+  const auto& held = pad.getPressed();
+  if (inputClicked(pad, IA_ROLE_MENU_UP) || clicked.DpadUp) creatorRow = (creatorRow + n - 1) % n;
+  if (inputClicked(pad, IA_ROLE_MENU_DOWN) || clicked.DpadDown) creatorRow = (creatorRow + 1) % n;
+  if (creatorRow >= n) creatorRow = 0;
+  int step = 0;
+  if (inputClicked(pad, IA_ROLE_MENU_LEFT) || clicked.DpadLeft) step = -1;
+  if (inputClicked(pad, IA_ROLE_MENU_RIGHT) || clicked.DpadRight) step = 1;
+  if (step != 0) {
+    const int s = rows[creatorRow];
+    if (s == 0) {
+      // Look 1..variants+1 (the authored colours are Look 1)
+      int v = o.look[0] < 0 ? 0 : o.look[0];
+      v = (v + step + variants + 1) % (variants + 1);
+      o.look[0] = v;
+    } else {
+      // None, then each option
+      int v = o.look[s] == -2 ? gam.optDefault[s] : o.look[s];
+      const int count = gam.optCount[s] + 1;
+      v = ((v + 1 + step) % count + count) % count - 1;
+      o.look[s] = v;
+    }
+  }
+  if (held.L1) creatorYaw -= 2.2F * g_frameDt;
+  if (held.R1) creatorYaw += 2.2F * g_frameDt;
+  const float rx = ((float)pad.getRightJoyPad().h - 128.0F) / 128.0F;
+  if (rx > 0.25F || rx < -0.25F) creatorYaw += rx * 2.2F * g_frameDt;
+  const bool keep = inputClicked(pad, IA_ROLE_CONFIRM) || clicked.Cross || clicked.Start;
+  const bool cancel = inputClicked(pad, IA_ROLE_BACK) || clicked.Circle;
+  if (cancel)
+    for (int s = 0; s < 4; ++s) o.look[s] = creatorRestore[s];
+  if (keep || cancel) {
+    if (creatorObj == PLAYER_INDEX) {
+      playerLook[0] = o.data.animModel;
+      for (int s = 0; s < 4; ++s) playerLook[1 + s] = o.look[s];
+    }
+    creatorObj = -1;
+    scriptCtx.creatorOpen = false;
+  }
+  return true;
+}
+
+void TerrainGame::creatorCamera() {
+  if (creatorObj < 0) return;
+  const RuntimeObject& o = runtimeObjects[creatorObj];
+  const GameAnimModel& gam = gameAnimModels[o.data.animModel];
+  const float h = gam.src ? (gam.src->max[1] - gam.src->min[1]) * o.data.scale[1] : 1.8F;
+  // in front of them, a little to their left, and turned by L1/R1
+  const float yaw = o.data.rotation[1] * PI / 180.0F + 0.35F + creatorYaw;
+  const float dist = h * 1.25F;
+  // aimed past their side, so they stand in the left half and the rows
+  // have the right half to themselves
+  const float side = dist * 0.32F;
+  cameraLookAt = Vec4(o.data.position[0] + cosf(yaw) * side, o.data.position[1] + h * 0.55F,
+                      o.data.position[2] - sinf(yaw) * side);
+  cameraPosition = Vec4(o.data.position[0] + sinf(yaw) * dist,
+                        o.data.position[1] + h * 0.68F,
+                        o.data.position[2] + cosf(yaw) * dist);
+  cameraUp = Vec4(0.0F, 1.0F, 0.0F);
+}
+
+void TerrainGame::renderCharCreator() {
+  if (creatorObj < 0) return;
+  const RuntimeObject& o = runtimeObjects[creatorObj];
+  const GameAnimModel& gam = gameAnimModels[o.data.animModel];
+  const int variants = ANIM_MODEL_VARIANTS[o.data.animModel];
+  int rows[4];
+  const int n = creatorRows(creatorObj, rows);
+  const auto& scr = engine->renderer.core.getSettings();
+  const float w = (float)scr.getWidth(), hgt = (float)scr.getHeight();
+  static const char* const kRow[4] = {"Look", "Hair", "Hat", "Glasses"};
+  // The project's first font when it has one, the built-in 8x8 HUD strip
+  // (capitals, digits, a few symbols) when it does not.
+  auto text = [&](const char* s, float cx, float cy, float size, bool lit) {
+    if (FONT_COUNT > 0) {
+      drawFontText(engine, 0, s, cx, cy, size, 1.0F, lit ? 128.0F : 72.0F);
+      return;
+    }
+    char up[64];
+    int k = 0;
+    for (; s[k] && k < 63; ++k) up[k] = (s[k] >= 'a' && s[k] <= 'z') ? (char)(s[k] - 32) : s[k];
+    up[k] = 0;
+    drawHudText(engine, up, cx - hudTextWidth(up) * 0.5F, cy - 8.0F);
+  };
+  const float size = hgt * 0.045F;
+  const float x = w * 0.74F;
+  float y = hgt * 0.5F - (float)n * size * 0.9F;
+  text("CHARACTER", x, y - size * 1.6F, size * 1.1F, true);
+  for (int r = 0; r < n; ++r, y += size * 1.8F) {
+    const int s = rows[r];
+    char value[48];
+    if (s == 0) {
+      snprintf(value, sizeof(value), "%d / %d", (o.look[0] < 0 ? 0 : o.look[0]) + 1, variants + 1);
+    } else {
+      const int v = o.look[s] == -2 ? gam.optDefault[s] : o.look[s];
+      const char* label = "None";
+      if (v >= 0 && v < (int)gam.optIds[s].size()) {
+        label = gam.optIds[s][v].c_str();
+        for (int k = 0; k < CREATOR_LABEL_COUNT; ++k)
+          if (gam.optIds[s][v] == CREATOR_LABELS[k].id) label = CREATOR_LABELS[k].label;
+      }
+      snprintf(value, sizeof(value), "%s", label);
+    }
+    const bool lit = r == creatorRow;
+    char line[72];
+    snprintf(line, sizeof(line), lit ? "- %s -" : "%s", kRow[s]);
+    text(line, x, y, size * 0.8F, lit);
+    text(value, x, y + size * 0.8F, size, lit);
+  }
+  text("X KEEP   O UNDO   L1 R1 TURN", w * 0.5F, hgt * 0.92F, size * 0.7F, false);
 }
 
 
@@ -10080,9 +10367,10 @@ void TerrainGame::updateAndRenderAnimObjects() {
             128.0F * (amb[2] + dl[2]) * base[2], 128.0F);
       }
     }
+    applyLook(i);  // a script or the creator may have changed it
     for (size_t p = 0; p < g.animParts.size(); ++p) {
       ObjectGeometry::AnimPart& ap = g.animParts[p];
-      if (!ap.bag) continue;
+      if (!ap.bag || ap.hidden) continue;
       // bags may point at another frame's group leader or tier - re-aim
       const SkelInstance::LodArrays la = ownerInst->lodArrays(p, meshLod);
       ap.bag->vertices = la.vertices;
@@ -12235,6 +12523,7 @@ void TerrainGame::captureState(SaveGameData& d) {
     for (int a = 0; a < 3; ++a) st.color[a] = runtimeObjects[i].data.color[a];
     st.visible = runtimeObjects[i].visible ? 1 : 0;
   }
+  for (int a = 0; a < 5; ++a) d.playerLook[a] = playerLook[a];
 }
 
 
@@ -12311,6 +12600,7 @@ void TerrainGame::applyState(SaveGameData& d) {
   scriptCtx.teleport = true;
   scriptCtx.teleportPos = Vec4(d.playerPos[0], d.playerPos[1], d.playerPos[2]);
   scriptCtx.teleportYaw = d.playerYaw;
+  for (int a = 0; a < 5; ++a) playerLook[a] = d.playerLook[a];
   if (d.scene != currentScene)
     scriptCtx.requestScene = d.scene;  // object state applies after the load
   else
@@ -12333,6 +12623,9 @@ void TerrainGame::applySavedObjects() {
   }
   pendingObjState.clear();
   pendingObjScene = -1;
+  // the creator's look on the player, when it was chosen in this model
+  if (PLAYER_INDEX >= 0 && playerLook[0] == runtimeObjects[PLAYER_INDEX].data.animModel)
+    for (int s = 0; s < 4; ++s) runtimeObjects[PLAYER_INDEX].look[s] = playerLook[1 + s];
 }
 
 
@@ -17728,7 +18021,8 @@ void TerrainGame::renderProjShadows() {
 #endif
     };
     if (anim) {
-      for (auto& ap : g.animParts) renderAtFloor(ap.bag.get());
+      for (auto& ap : g.animParts)
+        if (!ap.hidden) renderAtFloor(ap.bag.get());
     } else {
       for (GeoPart& part : g.parts)
         if (!part.lodHidden) renderAtFloor(casterBag(part));
@@ -24707,7 +25001,7 @@ void TerrainGame::renderMirroredObject(int index) {
     mirrorAnimMat = mirrorMat * g.animMat;
     g.animInfoBag->model = &mirrorAnimMat;
     for (ObjectGeometry::AnimPart& ap : g.animParts)
-      if (ap.bag && ap.bag->count > 0) stapip.core.render(ap.bag.get());
+      if (ap.bag && !ap.hidden && ap.bag->count > 0) stapip.core.render(ap.bag.get());
     g.animInfoBag->model = &g.animMat;
   }
 }
@@ -25091,7 +25385,7 @@ void TerrainGame::renderFeedObject(int index) {
     if (part.bag && !part.lodHidden) stapip.core.render(part.bag.get());
   if (og.animInfoBag && !og.animParts.empty())
     for (ObjectGeometry::AnimPart& ap : og.animParts)
-      if (ap.bag && ap.bag->count > 0) stapip.core.render(ap.bag.get());
+      if (ap.bag && !ap.hidden && ap.bag->count > 0) stapip.core.render(ap.bag.get());
 }
 
 
@@ -25767,7 +26061,7 @@ bool TerrainGame::renderOnePortalView(int pi) {
     }
     if (g.animInfoBag)
       for (ObjectGeometry::AnimPart& ap : g.animParts)
-        if (ap.bag && ap.bag->count > 0) stapip.core.render(ap.bag.get());
+        if (ap.bag && !ap.hidden && ap.bag->count > 0) stapip.core.render(ap.bag.get());
   };
   // Two-sided carry: if the object in the hands is passing through THIS
   // portal, its through-view draws it mapped to the FAR side - the half that

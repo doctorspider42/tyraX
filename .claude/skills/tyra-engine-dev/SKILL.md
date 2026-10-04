@@ -3233,6 +3233,13 @@ the old layout twelve 4400-triangle characters plus the example cast threw
 `bad_alloc` - PCSX2 shows that as an EE "Restart" in emulog.txt with nothing
 in the game's log.
 
+`setPartSkipped(part, skip)` (1.176.0, the in-game Character Creator) makes
+`skinParts` `continue` past a part - a plain branch, legal inside the VU0 asm
+span. The part's arrays keep their last skin, so turning it back on sets
+`poseDirty`; and `poseEquals` compares the skip masks, because a follower
+draws its owner's arrays. An empty mask means "nothing skipped" - it is only
+allocated on the first skip.
+
 
 ### The slot pool is double-buffered (1.81.1) — the console-only sliver
 

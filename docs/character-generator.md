@@ -70,7 +70,8 @@ picker; patterns are one click each.
 | Animation | the standard locomotion set, or any of the 87 clips; key rate; or *Import clips...* from a Mixamo-named library or a phone take |
 
 **Add to scene** writes `res/models/characters/<name>.glb` and drops in a
-Model object. It also writes **`<name>.chargen.json`** beside it - every
+Model object (*Crowd...* drops in many, *Player creator...* makes it the
+player with an [in-game creator](#in-game-character-creator)). It also writes **`<name>.chargen.json`** beside it - every
 parameter the character came from. *Open recipe...* rebuilds that exact
 character for editing; two recipes diff readably; and identical recipes always
 produce byte-identical files.
@@ -476,6 +477,72 @@ Verified in PCSX2: twelve palette variants of one character next to the
 example's cast. It is also what forced the shared bind data
 ([animated-models.md](animated-models.md#performance-and-memory)) - the
 same scene ran the EE out of memory before it.
+
+## In-game character creator
+
+The player can dress their own character in the game, create-a-skater style:
+colours, hair, a hat and glasses, picked on a screen that shows them turning
+in front of the camera.
+
+![The in-game Character Creator in PCSX2](img/chargen-creator.png)
+
+**Making one.** *Player creator...* (next to *Crowd...*) lists every
+hairstyle, hat and glasses in the kit; tick what the player may choose from
+and set *Colour looks*. *Make it the player* writes the character and makes it
+the active scene's Player model (third person), adding a Player when the scene
+has none. What the character wears in the generator is where the player
+starts. The preview shows only that start: every option at once would be a hat
+on a hat.
+
+In the recipe this is one field, `"options": ["afro", "fedora", ...]` - kit
+ids of hair, `head` and `face` items, the same list the AI Assistant's
+`create_character` takes.
+
+**How it is built.** An ordinary character puts every mesh item into one
+accessory atlas. Creator options cannot share it: the game must hide them one
+by one. So each option is its OWN part with its own texture, at half the atlas
+size, named `<stem>_opt-<slot>-<id>.png` (`_optd-` for the item worn at the
+start - a worn item in a slot that has options becomes one too). The name is
+the whole contract: `loadAnimModelAsset` reads slot and id back out of each
+part's texture path, so nothing new is stored in the `.tskl`. An option hides
+no body triangles, pushes no shell and paints no scalp under itself - the
+player may take it off. Colour looks are the crowd's palette variants
+([Crowds](#crowds)): `<texture>.v<k>.pal`, options included.
+
+**In the game.** The **Character Creator** flow node (Animation) opens it on
+its target - or on the player, when the target is not a character with options
+or colour looks, so a node on a trigger needs no link. Scripts call
+`openCharacterCreator(ctx, object)` and read `ctx.creatorOpen`. Up/Down picks a
+row (Look, Hair, Hat, Glasses - only the ones the model has), Left/Right the
+choice ("None" included), L1/R1 or the right stick turn the camera, Cross keeps
+it, Circle puts back what they wore when it opened. The screen owns the pad
+but not the clock: the character idles, blinks and looks at the camera while
+being dressed, and the world goes on behind it. Text uses the project's first
+font, or the built-in HUD glyphs when it has none.
+
+The choice is `RuntimeObject::look[4]` - palette variant, then the hair, hat
+and glasses option (-2 as built, -1 none) - and `setLook()` sets it from a
+script. `applyLook` turns it into hidden parts and re-pointed texture bags, and
+costs four compares on a frame where nothing changed. The player's look is
+kept in `TerrainGame::playerLook`, so it survives scene changes (it applies
+whenever the Player wears the same model), and is saved with the game
+(`SaveGameData::playerLook`, save format 5).
+
+**Cost.** Eight options took the example hero from 4245 to 7341 triangles in
+the file - but a hidden part is neither drawn nor skinned
+(`SkelInstance::setPartSkipped`), so what the console pays per frame is the
+character as worn. VRAM pays for every option's texture (a 128x128 palette
+image each at a 256 atlas) and 1 KB per colour look per texture.
+
+**Known limit.** Big hair pokes through hats: an option rides the head on its
+own and nothing trims the hair under a hat. Offer hats with short hairstyles,
+or accept the 2002 look.
+
+Verified in PCSX2: the screen opened from a script, D-pad changes of every row
+(colours, hair, hat, glasses, None), the R1 turn, Cross keeping the look in
+gameplay, and a hidden-then-shown hairstyle re-skinned in the current pose.
+Not verified: a save/load round trip and a scene change carrying the look; the
+real console.
 
 ## Cost on the console
 
@@ -942,7 +1009,8 @@ argument for having the live window at all:
 | `src/phonecam.cpp` | the link the phone joins: `bodyrest` / `body` messages into `bodySkeleton()` and `drainBodyFrames()`, alongside the camera app's own traffic. |
 | `src/gltfwrite.cpp` | `Skel` → `.glb` bytes; the exact inverse of `glbparser::parseSkel`. |
 | `src/texbake.cpp` | an override on a `.glb` claims its extracted textures - how a character's atlas gets 8 bits. |
-| `src/app.cpp` | `drawCharacterGeneratorWindow` / `rebuildCharacterPreview` / `addCharacterToScene`, and the Mocap window. |
+| `src/app.cpp` | `drawCharacterGeneratorWindow` / `rebuildCharacterPreview` / `addCharacterToScene` / `addCrowdToScene` / `makeCreatorPlayer`, and the Mocap window. |
+| `src/game_templates.inc` | the game side: `setupAnimObject`, `updateFace`, `updateSprings`, `applyLook` and the creator screen (`updateCharCreator` / `creatorCamera` / `renderCharCreator`). |
 | `src/main.cpp` | `--chargen`. |
 | `src/viewport.cpp` | `renderCharacterPreview` on its **own** framebuffer, sharing `drawToolPreview` with the Tree Generator. |
 | `tools/chargen-kit/` | the offline kit build: `fetch_sources.py`, `kit_body.py`, `kit_wear.py`, `anim_retarget.py`, `build_kit.py`, `make_kit.py`; data in `catalog.py`, `rig.py`, `kit_body_masks.py`. See its README. |

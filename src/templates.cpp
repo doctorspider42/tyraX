@@ -20,6 +20,7 @@
 #include <map>
 
 #include "animedit.hpp"
+#include "chargen.hpp"  // creator option labels
 #include "aobake.hpp"
 #include "blss.hpp"  // the neural upscaler: scale factors + the net emitter
 #include "gibake.hpp"
@@ -1471,8 +1472,15 @@ class TerrainGame : public Tyra::Game {
       std::unique_ptr<Tyra::PipelineDirLightsBag> animLights;
       Tyra::Vec4 litColors[4];
       Tyra::Vec4 litDirs[3];
+      // A creator option this object is not wearing (applyLook): skinned
+      // with the rest, never drawn.
+      bool hidden = false;
     };
     std::vector<AnimPart> animParts;
+    // What applyLook last applied: the palette variant the texture bags point
+    // at, and RuntimeObject::look as of then (-9 = apply on the next frame).
+    int animVariant = 0;
+    int lookShown[4] = {-9, -9, -9, -9};
     std::unique_ptr<Tyra::StaPipInfoBag> animInfoBag;
     Tyra::M4x4 animMat;
     Tyra::M4x4 animLightMat;  // rotation/reflection only; scale is not light gain
@@ -1606,6 +1614,15 @@ class TerrainGame : public Tyra::Game {
     // the k-th .pal (nullptr = that part has none). Owned here.
     std::vector<std::vector<Tyra::Texture*>> variants;
     Tyra::CoreBBox cullBox;  // local AABB over all clips + margin (see load)
+    // In-game creator options (the generator's "opt-<slot>-<id>" textures;
+    // docs/character-generator.md, "In-game character creator"): per part
+    // its slot (0 = always drawn, 1 hair, 2 hat, 3 glasses) and its index in
+    // that slot; per slot the option count, the one worn as built (-1 =
+    // none) and each option's kit id.
+    std::vector<s8> optSlot, optIndex;
+    int optCount[4] = {0, 0, 0, 0};
+    int optDefault[4] = {-1, -1, -1, -1};
+    std::vector<std::string> optIds[4];
   };
   std::vector<GameAnimModel> gameAnimModels;
   void loadAnimModelAsset(int index);
@@ -1613,6 +1630,19 @@ class TerrainGame : public Tyra::Game {
   void setupAnimObject(int index);  // per-object instance + playback state
   void updateFace(int index, float dist2);  // blinks, look-at, talking jaw
   void updateSprings(int index, float dist2);  // ponytails and skirts swing
+  // In-game Character Creator (the Character Creator flow node).
+  void applyLook(int index);    // RuntimeObject::look -> hidden parts + palette
+  bool updateCharCreator();     // true while the creator screen owns the pad
+  void creatorCamera();         // frames the character while it is open
+  void renderCharCreator();
+  int creatorRows(int index, int* rows) const;  // the rows it offers
+  int creatorObj = -1;          // the object being dressed, -1 = closed
+  int creatorRow = 0;
+  int creatorRestore[4] = {-1, -2, -2, -2};  // its look when it opened (Circle)
+  float creatorYaw = 0.0F;      // the camera's turn around them, radians
+  // The PLAYER's look, kept across scene loads and saved with the game:
+  // [0] = the animated model it belongs to (-1 = none chosen), [1..4] = look.
+  int playerLook[5] = {-1, -1, -2, -2, -2};
   void updateAndRenderAnimObjects();
   // Dynamic lighting (docs/global-illumination.md): refills the light bag
   // of every opt-in object from the probe grid, once per frame.
@@ -3357,8 +3387,15 @@ class TerrainGame : public Tyra::Game {
       std::unique_ptr<Tyra::PipelineDirLightsBag> animLights;
       Tyra::Vec4 litColors[4];
       Tyra::Vec4 litDirs[3];
+      // A creator option this object is not wearing (applyLook): skinned
+      // with the rest, never drawn.
+      bool hidden = false;
     };
     std::vector<AnimPart> animParts;
+    // What applyLook last applied: the palette variant the texture bags point
+    // at, and RuntimeObject::look as of then (-9 = apply on the next frame).
+    int animVariant = 0;
+    int lookShown[4] = {-9, -9, -9, -9};
     std::unique_ptr<Tyra::StaPipInfoBag> animInfoBag;
     Tyra::M4x4 animMat;
     Tyra::M4x4 animLightMat;  // rotation/reflection only; scale is not light gain
@@ -3492,6 +3529,15 @@ class TerrainGame : public Tyra::Game {
     // the k-th .pal (nullptr = that part has none). Owned here.
     std::vector<std::vector<Tyra::Texture*>> variants;
     Tyra::CoreBBox cullBox;  // local AABB over all clips + margin (see load)
+    // In-game creator options (the generator's "opt-<slot>-<id>" textures;
+    // docs/character-generator.md, "In-game character creator"): per part
+    // its slot (0 = always drawn, 1 hair, 2 hat, 3 glasses) and its index in
+    // that slot; per slot the option count, the one worn as built (-1 =
+    // none) and each option's kit id.
+    std::vector<s8> optSlot, optIndex;
+    int optCount[4] = {0, 0, 0, 0};
+    int optDefault[4] = {-1, -1, -1, -1};
+    std::vector<std::string> optIds[4];
   };
   std::vector<GameAnimModel> gameAnimModels;
   void loadAnimModelAsset(int index);
@@ -3499,6 +3545,19 @@ class TerrainGame : public Tyra::Game {
   void setupAnimObject(int index);  // per-object instance + playback state
   void updateFace(int index, float dist2);  // blinks, look-at, talking jaw
   void updateSprings(int index, float dist2);  // ponytails and skirts swing
+  // In-game Character Creator (the Character Creator flow node).
+  void applyLook(int index);    // RuntimeObject::look -> hidden parts + palette
+  bool updateCharCreator();     // true while the creator screen owns the pad
+  void creatorCamera();         // frames the character while it is open
+  void renderCharCreator();
+  int creatorRows(int index, int* rows) const;  // the rows it offers
+  int creatorObj = -1;          // the object being dressed, -1 = closed
+  int creatorRow = 0;
+  int creatorRestore[4] = {-1, -2, -2, -2};  // its look when it opened (Circle)
+  float creatorYaw = 0.0F;      // the camera's turn around them, radians
+  // The PLAYER's look, kept across scene loads and saved with the game:
+  // [0] = the animated model it belongs to (-1 = none chosen), [1..4] = look.
+  int playerLook[5] = {-1, -1, -2, -2, -2};
   void updateAndRenderAnimObjects();
   // Dynamic lighting (docs/global-illumination.md): refills the light bag
   // of every opt-in object from the probe grid, once per frame.
@@ -5516,6 +5575,11 @@ struct RuntimeObject {
   // for emoteTime seconds (< 0 = until changed), then back to neutral.
   int emote = 0;
   float emoteTime = 0.0F;
+  // A generated character's look (the in-game Character Creator, setLook()):
+  // look[0] = palette variant (-1 = as authored), look[1..3] = the hair /
+  // hat / glasses option worn (-2 = as built, -1 = none, k = the slot's k-th
+  // option). docs/character-generator.md, "In-game character creator".
+  int look[4] = {-1, -2, -2, -2};
 };
 
 inline bool physAsleep(const RuntimeObject& o) {
@@ -5784,6 +5848,11 @@ struct ScriptContext {
   // drives the "On Menu Event" trigger.
   int openMenu = -1;
   int menuEvent = -1;
+  // The in-game Character Creator: write an object index into openCreator
+  // to open it on that character (the game applies and clears it);
+  // creatorOpen reads true while it is up.
+  int openCreator = -1;
+  bool creatorOpen = false;
   // A flow event queued from OUTSIDE a menu row - today a credits roll whose
   // finish action is "fire a flow event". updateGameMenu promotes it into
   // menuEvent (the one place that clears it), so the trigger side needs to
@@ -5899,6 +5968,21 @@ inline void emote(ScriptContext& ctx, int objectIndex, int expression, float sec
   RuntimeObject& o = ctx.objects[objectIndex];
   o.emote = expression < 0 || expression > 4 ? 0 : expression;
   o.emoteTime = seconds > 0.0F ? seconds : -1.0F;
+}
+
+/** A generated character's look: slot 0 = palette variant (-1 = as
+ * authored), 1 hair, 2 hat, 3 glasses (-2 = as built, -1 = none, k = the
+ * slot's k-th creator option). docs/character-generator.md. */
+inline void setLook(ScriptContext& ctx, int objectIndex, int slot, int value) {
+  if (objectIndex < 0 || objectIndex >= ctx.objectCount || slot < 0 || slot > 3) return;
+  ctx.objects[objectIndex].look[slot] = value;
+}
+
+/** Opens the in-game Character Creator on a generated character (one built
+ * with creator options or colour variants; the player when the object is
+ * neither). */
+inline void openCharacterCreator(ScriptContext& ctx, int objectIndex) {
+  ctx.openCreator = objectIndex < 0 ? 0x7fffffff : objectIndex;
 }
 
 /** Freezes an animated model object on its current pose. */
@@ -23842,6 +23926,10 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                 // (0 = until the next Emote)
                 c << pad << "emote(ctx, " << objIdx << ", " << (int)n.num[0] << ", "
                   << floatLit(n.num[1]) << ");\n";
+            } else if (n.type == "CharacterCreator") {
+                // the target is the character; an object that is not one
+                // (self on a trigger) falls back to the player at runtime
+                c << pad << "openCharacterCreator(ctx, " << objIdx << ");\n";
             } else if (n.type == "Talk") {
                 c << pad << "talk(ctx, " << objIdx << ", "
                   << (pin == 1 ? std::string("0.0F") : floatLit(n.num[0])) << ");\n";
@@ -29888,8 +29976,46 @@ static std::string modelDataHeader(const Project& p) {
             first = false;
         }
     }
-    out << "};\n\n"
-        << "// .mtl libraries assigned to primitives (first material = surface)\n"
+    out << "};\n\n";
+    // In-game creator option labels (kit id -> what the creator screen shows),
+    // for the kit items some character in this project was built with as an
+    // option ("<stem>_opt-<slot>-<id>.png" beside its .glb).
+    {
+        std::set<std::string> ids;
+        for (const auto& key : animKeys) {
+            const std::filesystem::path glb = std::filesystem::path(p.dir) / key.first;
+            const std::string prefix = glb.stem().string() + "_opt";
+            std::error_code ec;
+            for (const auto& e : std::filesystem::directory_iterator(glb.parent_path(), ec)) {
+                std::string n = e.path().filename().string();
+                if (n.rfind(prefix, 0) != 0 || e.path().extension() != ".png") continue;
+                n = n.substr(prefix.size());
+                if (!n.empty() && n[0] == 'd') n = n.substr(1);
+                const size_t a = n.find('-', 1), b = n.find('.');
+                if (n.empty() || n[0] != '-' || a == std::string::npos || b == std::string::npos || b <= a)
+                    continue;
+                ids.insert(n.substr(a + 1, b - a - 1));
+            }
+        }
+        out << "struct CreatorLabel {\n  const char* id;\n  const char* label;\n};\n"
+            << "constexpr int CREATOR_LABEL_COUNT = " << ids.size() << ";\n"
+            << "inline const CreatorLabel CREATOR_LABELS[CREATOR_LABEL_COUNT > 0 ? "
+               "CREATOR_LABEL_COUNT : 1] = {";
+        if (ids.empty()) out << "{\"\", \"\"}";
+        bool first = true;
+        for (const std::string& id : ids) {
+            std::string label = id;
+            for (const chargen::Item& it : chargen::wardrobe())
+                if (it.id == id) label = it.label;
+            for (const chargen::Item& it : chargen::hairstyles())
+                if (it.id == id) label = it.label;
+            out << (first ? "\n" : ",\n") << "    {\"" << escapeCString(id) << "\", \""
+                << escapeCString(label) << "\"}";
+            first = false;
+        }
+        out << "};\n\n";
+    }
+    out << "// .mtl libraries assigned to primitives (first material = surface)\n"
         << "constexpr int MATERIAL_COUNT = " << materials.size() << ";\n"
         << "inline const char* MATERIAL_PATHS[MATERIAL_COUNT > 0 ? MATERIAL_COUNT : 1] = {\n";
     if (materials.empty()) {
@@ -33025,10 +33151,11 @@ SaveSizeInfo saveSizeInfo(const Project& p) {
         if (flagged > maxObjects) maxObjects = flagged;
     }
     s.objectSlots = (int)maxObjects;
-    // magic + version + scene + playerPos[3] + playerYaw + the 4 counters
+    // magic + version + scene + playerPos[3] + playerYaw + playerLook[5] +
+    // the 4 counters
     // (the fourth is factCount - keep this in step with SaveGameData in
     // saveSystemHeader below, which is the whole reason this function exists).
-    s.headerBytes = 4 + 4 + 4 + 12 + 4 + 4 + 4 + 4 + 4;
+    s.headerBytes = 4 + 4 + 4 + 12 + 4 + 20 + 4 + 4 + 4 + 4;
     s.valuesBytes = 4 * (s.values > 0 ? s.values : 1);
     s.textsBytes = 32 * (s.texts > 0 ? s.texts : 1);  // SAVE_TEXT_LEN
     s.objectsBytes = 32 * s.objectSlots;
@@ -33119,7 +33246,9 @@ static std::string saveSystemHeader(const Project& p) {
            "// renaming, reordering or deleting a fact leaves an existing\n"
            "// card readable - the rows that still match are restored and the\n"
            "// rest are ignored (docs/world-facts.md \"Saving\").\n"
-           "constexpr int SAVE_VERSION = 4;\n"
+           "// v5: playerLook - the look the in-game Character Creator gave\n"
+           "// the player (docs/character-generator.md).\n"
+           "constexpr int SAVE_VERSION = 5;\n"
            "\n"
            "// Runtime state of one save-flagged object (SceneObjectData.saveState).\n"
            "struct SaveObjectState {\n"
@@ -33137,6 +33266,7 @@ static std::string saveSystemHeader(const Project& p) {
            "  int scene;\n"
            "  float playerPos[3];  // feet position\n"
            "  float playerYaw;     // degrees\n"
+           "  int playerLook[5];   // TerrainGame::playerLook\n"
            "  int valueCount;\n"
            "  float values[SAVE_VALUE_COUNT > 0 ? SAVE_VALUE_COUNT : 1];\n"
            "  int textCount;\n"

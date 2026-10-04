@@ -168,6 +168,13 @@ neutral, 1 smile, 2 angry, 3 surprised, 4 sad) from a script; the **Talk** and
 **Emote** nodes do the same from a graph. See
 [character-generator.md](character-generator.md#a-living-face).
 
+A character built with creator options also has a **look**:
+`setLook(ctx, objectIndex, slot, value)` picks its colours (slot 0, a palette
+variant) or its hair, hat and glasses (slots 1-3; -1 = none), and
+`openCharacterCreator(ctx, objectIndex)` - or the **Character Creator** node -
+lets the player choose. See
+[character-generator.md](character-generator.md#in-game-character-creator).
+
 ## Build output
 
 Builds write:

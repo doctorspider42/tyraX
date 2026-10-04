@@ -350,6 +350,17 @@ void SkelInstance::clearRotationOverrides() {
   poseDirty = true;
 }
 
+void SkelInstance::setPartSkipped(u32 part, bool skip) {
+  if (part >= partLods.size()) return;
+  if (partSkipped.size() != partLods.size()) {
+    if (!skip) return;  // nothing skipped yet: nothing to turn back on
+    partSkipped.assign(partLods.size(), 0);
+  }
+  if ((partSkipped[part] != 0) == skip) return;
+  partSkipped[part] = skip ? 1 : 0;
+  if (!skip) poseDirty = true;  // its arrays hold an old skin
+}
+
 void SkelInstance::play(u32 clip, bool loop, float fadeSeconds) {
   if (clip >= model->clips.size()) clip = 0;
   if (model->clips.empty()) return;
@@ -608,6 +619,7 @@ void SkelInstance::skinParts(u8 lod) {
 
   const M4x4* pal = palette.data();
   for (size_t pi = 0; pi < partLods.size(); pi++) {
+    if (pi < partSkipped.size() && partSkipped[pi]) continue;  // not drawn
     const auto& chain = partLods[pi];
     const PartLod& plod =
         chain[lod < chain.size() ? lod : (u8)(chain.size() - 1)];

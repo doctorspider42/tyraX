@@ -5515,7 +5515,15 @@
 // host-baked albedo map (REFL_GROUND_*): -2 ms a turning frame on the Motor
 // District's open road on a PS2.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 175
+#define TYRAX_VERSION_MINOR 176
+// 1.176.0: the in-game Character Creator (docs/character-generator.md,
+// "In-game character creator"). A recipe's "options" builds extra hair, hats
+// and glasses as separate parts; the generator's Player creator... writes
+// them plus colour looks onto the scene's Player; the Character Creator flow
+// node (openCharacterCreator()) opens a D-pad screen in the game; the choice
+// is RuntimeObject::look, kept across scenes and saved (SAVE_VERSION 5).
+// Hidden parts are not skinned (SkelInstance::setPartSkipped). Project
+// format unchanged.
 // 1.175.0: pedestrians (docs/navigation-ai.md, "Wandering"). An animated
 // model's Wander property (format v97) walks it around its spot on the nav
 // grid - walk/idle clips, random stops, passing others on the right; the
