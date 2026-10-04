@@ -5713,6 +5713,10 @@ struct ScriptContext {
   int requestDisplayMode = -1;
   float displayConfirmSec = 0.0F;
   int widescreen = -1;
+  // Set Frame Pipeline is deferred until applyVideoRequests, before the next
+  // beginFrame. -1 = leave, 0 = Off, 1 = On; last request wins. The getter
+  // reads RendererCore's applied requested state, not this pending request.
+  int requestFramePipeline = -1;
 
   // Master sound-effect volume as a percentage (0..100), driven by a menu
   // "Sound volume" option block (applyMenuBindings). 100 = unscaled. Applied
@@ -22567,6 +22571,8 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
             if (const FlowNodeType* t = flowNodeType(n.type);
                 t && t->boolOut && flowCustomNode(n.type))
                 return "boolOut" + std::to_string(n.id);
+            if (n.type == "GetFramePipeline")
+                return "(ctx.engine && ctx.engine->renderer.core.getFramePipeline())";
             if (n.type == "IsVisible") {
                 const std::string dyn = targetExpr(n);
                 if (!dyn.empty())
@@ -23367,6 +23373,10 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                 c << pad << "ctx.requestDisplayMode = " << mode << ";\n";
                 c << pad << "ctx.displayConfirmSec = " << floatLit(confirm)
                   << ";\n";
+            } else if (n.type == "SetFramePipeline") {
+                c << pad << "ctx.requestFramePipeline = "
+                  << (n.num[0] != 0.0f ? "1" : "0") << ";\n";
+                c << branch(0, pad);
             } else if (n.type == "SetFrameExtrapolation") {
                 int m = (int)(n.num[0] + 0.5f);
                 if (m < 0) m = 0;

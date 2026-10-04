@@ -2325,7 +2325,7 @@ struct VideoConfirm {
 };
 inline VideoConfirm g_videoConfirm;
 
-/** Applies the Set Display Mode / Set Widescreen flow-node requests and
+/** Applies the display, widescreen and frame pipeline flow-node requests and
  * ticks the confirm countdown. Must run between frames (before
  * beginFrame): a scan-mode switch rebuilds the VRAM layout. Returns true
  * the frame a scan-mode switch happens - the caller closes any open game
@@ -2334,6 +2334,13 @@ inline VideoConfirm g_videoConfirm;
 inline bool applyVideoRequests(Engine* engine, ScriptContext& ctx) {
   auto& core = engine->renderer.core;
   bool switched = false;
+  if (ctx.requestFramePipeline >= 0) {
+    const bool requested = ctx.requestFramePipeline != 0;
+    // Even an unchanged engine setter completes a pending frame. Consume
+    // repeated graph requests without presenting early and losing overlap.
+    if (core.getFramePipeline() != requested) core.setFramePipeline(requested);
+    ctx.requestFramePipeline = -1;
+  }
   if (ctx.widescreen >= 0) {
     core.setDisplayOutput(core.getSettings().getDisplayMode(),
                           ctx.widescreen != 0);
@@ -4931,7 +4938,7 @@ void TerrainGame::loop() {
   if (players[1].objIndex >= 0 && PP_MODE(1) == 2)
     runtimeObjects[players[1].objIndex].visible =
         !scriptCtx.hidePlayer && playerTwoActive;
-  // Runtime video output (Set Display Mode / Set Widescreen flow nodes) +
+  // Runtime video output and deferred Frame Pipeline flow-node requests +
   // the keep-or-revert countdown. Must run before beginFrame - a scan-mode
   // switch rebuilds the VRAM layout between frames. A switch closes any
   // open game menu: the player judges the new picture unobstructed and the
@@ -7287,7 +7294,7 @@ void TerrainGame::loop() {
   if (players[1].objIndex >= 0 && PP_MODE(1) == 2)
     runtimeObjects[players[1].objIndex].visible =
         !scriptCtx.hidePlayer && playerTwoActive;
-  // Runtime video output (Set Display Mode / Set Widescreen flow nodes) +
+  // Runtime video output and deferred Frame Pipeline flow-node requests +
   // the keep-or-revert countdown. Must run before beginFrame - a scan-mode
   // switch rebuilds the VRAM layout between frames. A switch closes any
   // open game menu: the player judges the new picture unobstructed and the

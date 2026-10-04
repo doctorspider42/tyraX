@@ -355,8 +355,10 @@ recovered 0.50-0.72 ms of hardware `work`. What it did not do, ranked:
   Standard flow nodes/generated loops already use engine ordering and resource
   fences; custom DMA/readback guidance is now linked from authoring/AI guides.
   Legal Set Display Mode 4 now survives codegen; FPP/ORBIT native builds and
-  emulator mode4/timeout rollback pass. Optional pipeline setter/query nodes
-  remain separate conveniences; requested state is not active overlap.
+  emulator mode4/timeout rollback pass. Pipeline setter/query nodes
+  are implemented in 1.172.0: deferred boundary application, unchanged-request
+  no-op, and requested-state getter. Both require rebuild; requested state is
+  not active overlap. See [flow nodes](frame-pipeline-flow-nodes.md).
   See [integration audit](tyrax2.md#authoring-integration-audit-2026-10-02).
 - **Automatic interleave selection under TyraX2 — settled-block correction
   integrated in 1.171.0; historical attribution limits retained.**

@@ -3183,3 +3183,14 @@ cameras and sequence ownership; ordinary camera animation must not reset probes.
 See `docs/interleaved-passes.md` and `docs/tyrax2-interleave.md`.
 
 Adaptive host acceptance now checks successful/failed synthetic warp generation, recurring interrupted epochs retaining both verdicts without clocks, exact frameYield changes, same-count portal-live identity swaps, and diagnostic HWT/serialized-cost exclusion. One dedicated ordered COP0 read preserves compiler memory ordering; no new waits. Run tools/verify-tyrax2-host.py (host only).
+
+Frame pipeline flow nodes (1.172.0, format v95 unchanged): `SetFramePipeline`
+queues a ScriptContext request; its after output continues immediately.
+`GetFramePipeline` reads the engine requested state, excluding the pending
+request and active fallback status. Both FPP/ORBIT apply requests before
+next beginFrame. Skip an unchanged request against getFramePipeline(): even
+an unchanged engine setter completes a pending frame and loses overlap.
+Both nodes remain unsupported in Live Logic and require a rebuild. Verify
+authored chained graphs through --apply-graph and actual generated output;
+registry execThrough alone does not emit downstream actions. See
+docs/frame-pipeline-flow-nodes.md.

@@ -4577,3 +4577,14 @@ cycle intervals only rank suspects, never hardware milliseconds or FPS.
 See docs/tyrax2-pcsx2-debugger.md and its dated machine record before reuse.
 
 Selected physical scopes (2026-10-04): ordinary night both-order controls now price one terrain/wheel/core invocation with four diagnostic Count reads per timed loop. See docs/tyrax2-minimal-scopes.md and its machine pins. Keep raw ps2client banner bytes; a separate byte-bijective Latin1-to-UTF8 copy is acceptable only with ASCII protocol controls and both hashes. Reject inherited periodic arena host reports inside quiet apparatus. Common1536-byte ring/counters/layout remain unpriced, and sign-changing phase contrasts do not permit uniform subtraction. Wheel whole-stage0.304–0.306ms is smaller priority than the first terrain core1.103–1.113ms; neither is pure EE or a new60FPS gain.
+
+Frame pipeline flow nodes (1.172.0, format v95 unchanged): `SetFramePipeline`
+queues a ScriptContext request; its after output continues immediately.
+`GetFramePipeline` reads the engine requested state, excluding the pending
+request and active fallback status. Both FPP/ORBIT apply requests before
+next beginFrame. Skip an unchanged request against getFramePipeline(): even
+an unchanged engine setter completes a pending frame and loses overlap.
+Both nodes remain unsupported in Live Logic and require a rebuild. Verify
+authored chained graphs through --apply-graph and actual generated output;
+registry execThrough alone does not emit downstream actions. See
+docs/frame-pipeline-flow-nodes.md.

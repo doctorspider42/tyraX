@@ -362,6 +362,8 @@ Developer design docs (internals, not user guides):
 
 ## TyraX2 frame pipeline
 
+[Frame pipeline flow nodes](frame-pipeline-flow-nodes.md) expose a deferred setter and a getter for the engine request. Requests apply before the next frame, repeated values skip the engine setter, and compatibility fallback can keep overlap inactive. Both nodes require a game rebuild.
+
 [TyraX2](tyrax2.md) documents the ordered frame recorder, enabled for new
 projects since 1.171.0 with explicit legacy preservation and opt-out,
 two owned banks for EE/GPU overlap, compatibility and overflow fences, chain

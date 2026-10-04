@@ -1,5 +1,8 @@
 #pragma once
 
+// 1.172.0: deferred Set Frame Pipeline and requested-state getter flow nodes.
+// Repeated requests preserve overlap; project format remains v95.
+
 // 1.171.0: default TyraX2 for new projects; preserve legacy and explicit opt-out.
 // Reuse owned snapshot tag counts for native sizing; settled adaptive interleave.
 // Format v95 always writes framePipeline; missing v94-or-older requests stay off.
@@ -5532,7 +5535,7 @@
 // host-baked albedo map (REFL_GROUND_*): -2 ms a turning frame on the Motor
 // District's open road on a PS2.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 171
+#define TYRAX_VERSION_MINOR 172
 // 1.169.0: the vehicle controls card - getting into a car for the first time
 // shows what to press, built at runtime from the LIVE bindings and from what
 // that car has (nitrous, lamps), with button glyphs; rows dim as they are
