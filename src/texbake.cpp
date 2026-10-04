@@ -214,6 +214,27 @@ std::string bake(const Project& p,
             }
         }
     }
+    // animated models (.glb / .fbx): the animated-model bake extracts their
+    // embedded images next to the .tskl as "<stem>_<image>.png" (also with a
+    // material-override suffix), so an override of the MODEL claims every PNG
+    // carrying its stem. This is how a generated character's skin atlas gets
+    // the 8 bits a face needs (docs/character-generator.md) while the project
+    // stays at 4.
+    for (const auto& e : fs::recursive_directory_iterator(res / "models", ec)) {
+        if (!e.is_regular_file()) continue;
+        const std::string ext = lowerExt(e.path());
+        if (ext != ".glb" && ext != ".fbx") continue;
+        const std::string q =
+            assetQuality(fs::relative(e.path(), fs::path(p.dir), ec).generic_string());
+        if (q.empty()) continue;
+        const std::string prefix = e.path().stem().string() + "_";
+        for (const auto& s : fs::directory_iterator(e.path().parent_path(), ec)) {
+            const std::string name = s.path().filename().string();
+            if (s.is_regular_file() && lowerExt(s.path()) == ".png" &&
+                name.compare(0, prefix.size(), prefix) == 0)
+                claim(fs::relative(s.path(), fs::path(p.dir), ec).generic_string(), q);
+        }
+    }
     // standalone material libraries (res/materials + mtls next to models)
     for (const char* sub : {"materials", "models"}) {
         for (const auto& e : fs::recursive_directory_iterator(res / sub, ec)) {

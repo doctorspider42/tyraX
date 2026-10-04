@@ -24,6 +24,10 @@ tools/*
 # compile" is a claim, and this is what makes somebody watch the compiler refuse
 # it - so it ships with the repo rather than living in a scratch directory.
 !tools/bag-array-enforcement.sh
+# The Character Generator's kit build (tools/chargen-kit/README.md): the source
+# of resources/chargen-kit.bin, so it lives with the repo.
+!tools/chargen-kit/
+tools/chargen-kit/__pycache__/
 !tools/ps2client/
 tools/ps2client/*
 !tools/ps2client/bin/

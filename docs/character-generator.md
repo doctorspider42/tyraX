@@ -1,244 +1,279 @@
 # Character generator
 
-*Tools > Character Generator* builds a **rigged, skinned, textured human** at
-the PS2's budget - 1460 triangles, 23 bones, one 256² skin - from a handful of
-sliders, and drops it into the scene as an ordinary animated model.
+*Tools > Character Generator* builds a **rigged, skinned, dressed and animated
+human** from sliders and drops it into the scene as an ordinary animated model.
+It is built for the PS2 the way that console's best-looking games built their
+people: one carefully laid-out texture per body with the face given the
+texels, clothes that are part of the body instead of a second skin on top of it,
+real eyes, and motion-captured movement.
+
+| | |
+|---|---|
+| Body | 3340 triangles (body 3170 + eyeballs), quads with real edge loops round eyes and mouth |
+| Rig | 35 Mixamo-named bones: spine, neck, head, arms, legs, two-bone thumb, index and fingers |
+| Texture | one atlas, 128 / 256 / 512 square, 8-bit on the console; face ≈ 80 px wide at 256 |
+| Shape | 96 macro targets (gender, age, muscle, weight, ancestry) + 76 detail sliders |
+| Wardrobe | 85 items: 31 body-shell garments, 11 skirts and dresses, 12 shoes, 5 hats, 5 glasses, 21 hairstyles |
+| Motion | 87 clips from Quaternius' Universal Animation Library, retargeted onto the rig |
+| A dressed character | 4100-4500 triangles, 3-5 textures, built in ~70 ms |
 
 ```
-macro sliders (gender / age / muscle / weight / ethnicity)
-   │  weighted sum of MakeHuman's CC0 morph targets
+the character kit (resources/chargen-kit.bin, embedded in the editor)
+   │  base mesh + ~290 targets as deltas on its own vertices
    ▼
-19158-vertex reference body (deformed)
-   │  proxy741 barycentric fit          │  joint cubes -> 23 Mixamo bones
-   ▼                                     ▼
-741-vertex body + UVs  ────skin weights transferred────>  rigged mesh
-   │  gltfwrite
+blend targets → body + joints      outfit: shells push the body out,
+   │                               meshes ride its surface
    ▼
-res/models/characters/<name>.glb   ← body + clothes + hair, idle/walk/run/jump
+compose one atlas: skin mix, AO, brows, lashes, eyes, makeup, stubble,
+   │               every shell garment painted in, hair's scalp paint
+   ▼
+res/models/characters/<name>.glb  + <name>.chargen.json (the recipe)
    │  the existing animated-model chain: import, preview, Animation Editor,
    ▼  .tskl bake with LODs, player avatars, NPC AI, Live Link
 ```
 
-Nothing downstream knows a character was generated. That is the whole design:
-the generator's output is a **plain glTF binary**, which is exactly where
+Nothing downstream knows a character was generated. The generator's output is
+a **plain glTF binary**, which is exactly where
 [animated models](animated-models.md) already begin.
 
-## Where the data comes from
+## Using it
 
-The bodies are **MakeHuman's CC0 data set**, not MakeHuman the program. The
-program is AGPL and none of it is used here; the base mesh, morph targets,
-proxy meshes, rig, vertex weights and skins were explicitly released as CC0 in
-2020, and the project [says outright](https://static.makehumancommunity.org/mpfb/faq/build_other_chargen.html)
-that building your own character generator on them is fine. Credits are in
-[README.md](../README.md#credits).
+The window has a parameter panel and a live, animated preview. Along the top,
+**Preset** loads a tuned starting body, **Randomize** produces a plausible
+stranger (body, face, colours, an outfit cut for that body, hair - click again
+for another), and **Open recipe...** loads a `.chargen.json`.
 
-`setup.ps1` / `setup.sh` fetch about 80 MB into `vendor/mh-assets`
-(git-ignored, listed in `deps.ps1` and `deps.sh` - the two lists must describe
-the same files; see the tyra-testing skill for the one-liner that diffs them):
-
-| File | What it is |
+| Tab | What is in it |
 |---|---|
-| `base.obj` | the hm08 reference mesh: 19158 vertices, 18486 quads, in decimetres |
-| `targets/*.target` | 96 macro morph targets (sparse per-vertex offsets) |
-| `proxy741.obj` / `.proxy` | the low-poly body and its binding to the base mesh |
-| `default.mhskel` | the 163-bone reference rig |
-| `default_weights.mhw` | per-bone vertex weights on the base mesh |
-| `skins/*.png` | six 2048² CC0 diffuse maps |
-| `clothes/*.mhclo` + `.obj` + `_diffuse.png` | five suits and a pair of shoes |
-| `hair/*.mhclo` + `.obj` + `_diffuse.png` | four hairstyles (alpha-cutout cards) |
+| Body | gender, age, muscle, weight, height in metres; the ancestry mix; body and proportion sliders (belly, waist, hips, bust, shoulders, V-shape, arm/leg fat and muscle, leg/torso/arm/neck length, head/hand/foot size) |
+| Face | head shape, forehead, brows, eyes (size, height, spacing, tilt, opening, epicanthic fold, bags), nose (11), mouth (9), jaw and cheeks (9), ears (4). Right-click a slider to reset it |
+| Skin | tone, warmth, weathering; eye colour; 12 eyebrow and 4 eyelash styles, brow density; stubble; lipstick, eye shadow, blush; the atlas size |
+| Outfit | one item per slot - full outfit, top, bottom, shoes, hat, glasses, gloves - each with its own colours and, for clothes, a pattern |
+| Hair | 21 styles and a colour; brows and stubble follow it |
+| Animation | the standard locomotion set, or any of the 87 clips; key rate; or *Import clips...* from a Mixamo-named library or a phone take |
 
-The editor never downloads anything itself. With the directory missing the
-window explains how to get it and does nothing else.
+**Add to scene** writes `res/models/characters/<name>.glb` and drops in a
+Model object. It also writes **`<name>.chargen.json`** beside it - every
+parameter the character came from. *Open recipe...* rebuilds that exact
+character for editing; two recipes diff readably; and identical recipes always
+produce byte-identical files.
 
-## The three tricks that make it fit on a PS2
-
-**1. The macro sliders are corners, not targets.** MakeHuman does not have a
-"muscle" morph - it has targets for every *combination* of the macro axes, and a
-setting is the product of one factor per axis. Gender has two levels, age four
-(baby 1 year / child 10 / young 25 / old 90), muscle and weight three each, so a
-body is a blend of up to 16 `universal-*` targets plus 12 `<ethnicity>-*` ones.
-`chargen.cpp` reimplements that composition; the targets are loaded lazily and
-cached, so a slider drag re-blends about 28 sparse arrays and nothing else.
-
-**2. The low-poly body rides the high-poly one.** `proxy741` is a 741-vertex
-mesh whose every vertex is expressed as *three base-mesh vertices with
-barycentric weights, plus an offset measured in units of the base mesh's own
-proportions*. Evaluate it against the deformed reference body and it follows
-every morph exactly - no decimation, no re-fitting, and the UVs (which the CC0
-skins are painted for) come along untouched. This is why the generator can hit
-a PS2 budget without a quadric collapse melting the face.
-
-**3. The rig is derived from the morphed mesh, not fitted to it.** MakeHuman
-defines each joint as a *cube of base-mesh vertices*; the joint's position is
-their centroid. Deform the body and the skeleton moves with it for free - a
-child and a heavy-set adult get correctly placed hips without anything
-resembling an IK solve.
-
-## The rig
-
-23 bones, named the way Mixamo names them (`mixamorig:Hips`,
-`mixamorig:LeftForeArm`, ...). Nothing in this pipeline needs the names - the
-matrix palette and every animation channel address nodes by index - but they
-are what free animation libraries and retarget tools match on, and renaming a
-rig afterwards is far more annoying than naming it right once.
+From the command line (the same code path, no GUI):
 
 ```
-Hips ─ Spine ─ Spine1 ─ Spine2 ─┬─ Neck ─ Head ─ HeadTop_End
-  │                             ├─ LeftShoulder  ─ LeftArm  ─ LeftForeArm  ─ LeftHand
-  │                             └─ RightShoulder ─ RightArm ─ RightForeArm ─ RightHand
-  ├─ LeftUpLeg  ─ LeftLeg  ─ LeftFoot  ─ LeftToeBase
-  └─ RightUpLeg ─ RightLeg ─ RightFoot ─ RightToeBase
+tyrax-editor --chargen <recipe.json | - | preset:N | random:SEED> <out.glb> [--recipe-out <file>]
 ```
 
-The reference rig has 163 bones (fingers, toes, eyes, jaw, twist bones); each
-one's weights fold into the nearest ancestor that survived, so nothing is
-dropped - a finger's influence simply becomes the hand's. The toe chains are
-the one exception to the ancestor walk: MakeHuman parents all five straight to
-the foot, so they are matched by name onto the toe bone instead, which keeps
-the ball of the foot animated.
+## The character kit
 
-Every bone keeps **identity rotation** at bind, so a bone's local space is world
-space and the inverse bind matrix is a pure translation. That makes the rig
-trivial to author against and to reason about. It also means a clip authored
-for MakeHuman's own bone axes would need converting - which is fine, because
-clips do not come from there.
+Everything the generator reads is ONE file, `resources/chargen-kit.bin`
+(~12 MB), linked into the editor by `src/chargen_kit.cpp` with the assembler's
+`.incbin`. Nothing is downloaded and nothing is read from disk at runtime, so
+the generator works the same on every machine and every platform the editor
+builds on - the previous version fetched ~80 MB of MakeHuman files at setup,
+half of which had moved off GitHub.
 
-## What the sliders do
+The kit is **built offline** by `tools/chargen-kit/` (Python + Blender, see its
+README) from CC0 sources only:
 
-| Control | Effect |
-|---|---|
-| Gender | 0 female … 1 male |
-| Age | MakeHuman's scale: 0 = baby, 0.19 = child, 0.5 = young adult, 1 = old |
-| Muscle / Weight | 0 min … 0.5 average … 1 max |
-| Ethnicity | a 3-way mix, normalized to 1 inside the generator |
-| Height | scales the finished body; feet land on `y = 0` |
-| Skin | one of the CC0 diffuse maps, box-filtered to 64 / 128 / 256 |
+| Source | Licence | What the kit takes from it |
+|---|---|---|
+| [MakeHuman](http://www.makehumancommunity.org/) data - `makehuman/data` and the *system assets* pack | CC0 1.0 | the `female1605` game topology, the reference mesh it rides, macro + detail targets, rig joints and weights, low-poly eyes, 12 eyebrows, 4 eyelashes, 18 skins, system clothes and hair |
+| MakeHuman community asset packs (`*_cc0` builds only) | CC0 1.0 | shirts, pants, suits, dresses, skirts, shoes, hats, glasses, gloves, hair |
+| [Quaternius - Universal Animation Library 1 + 2](https://quaternius.com/packs/universalanimationlibrary.html) | CC0 1.0 | 87 motion clips |
 
-**Height is a scale, not a morph.** MakeHuman's height and body-proportion
-targets are two further 144-file sets (~120 MB) whose effect at this polygon
-budget is mostly overall size, and a game wants a metre value anyway. The cost
-is honest: a 1.25 m "child" preset is a child-shaped body (the age targets do
-that) scaled to 1.25 m, not a separately authored short adult.
+**MakeHuman's data is CC0 while the MakeHuman *program* is AGPL-3.0, and none
+of the program is used** - not read, linked, copied or translated. MakeHuman
+says outright that building your own character generator on the data is fine,
+and that it claims nothing over a character made from it. Some community packs
+are CC-BY (`hair02`, `shirts02`...); the kit uses none of them, and
+`tools/chargen-kit/catalog.py` is the place to check before adding anything.
 
-The **skin texture is forced opaque**. StaPip draws with the GS alpha test set
-to "pass only when alpha != 0", so a transparent texel in a body skin would
-punch a hole straight through the character - see the lightmap trap in
-[ambient-occlusion.md](ambient-occlusion.md) for the same rule biting elsewhere.
+### Why the runtime never sees MakeHuman's files
 
-Everything is **deterministic in the parameters**: identical sliders produce
-byte-identical files, which is what makes a rebuild-on-drag preview cheap to
-reason about and a generated character reproducible from its numbers.
+A MakeHuman target is a sparse delta on the 19158-vertex reference mesh, and
+the game body is a proxy that RIDES that mesh (three reference vertices and
+barycentric weights per vertex, plus an offset scaled by three reference
+distances). That fit is linear in the reference positions apart from those
+three scale factors, so a target's effect on OUR vertices can be computed once,
+offline, and stored as a delta - with its effect on every rig joint beside it.
+The runtime blends ~200 small int16 arrays instead of carrying the reference
+mesh and the fitting code. Measured: the kit's blend agrees with fitting the
+proxy to the fully morphed reference to **2.6 µm**.
+
+## The body
+
+**The topology is MakeHuman's `female1605`**, a 1584-quad proxy authored for
+low-poly characters: edge loops round the eyes and the mouth, a real nose and
+ears, separate fingers. One topology serves every gender, age and build - it
+is a proxy, so the male and child targets move it like they move the reference.
+The previous generator used `proxy741` (730 quads, a face of a dozen polygons)
+and decimated the garments; this one is four times the face for twice the
+triangles.
+
+**The eyes are geometry** - MakeHuman's 86-quad low-poly eyeballs - with the
+iris painted into the atlas and recoloured by the *Eye colour* control. The old
+body had holes where the eyes go, which is why its characters stared white.
+
+**The atlas is re-packed for the PS2.** MakeHuman's UV layout is made for
+2048-square photo skins and gives the face a fifth of the width - a 50-pixel
+face at 256. `kit_body.py` keeps every island's SHAPE (so a MakeHuman skin
+still maps onto it) but rescales them before packing - head ×1.55, arms ×1.25,
+hands ×0.9, feet ×0.8, the mouth cavity ×0.3 - and cuts the torso/limbs island
+into five pieces, because MakeHuman unwraps torso, arms and legs as one
+starfish no packer fits tightly. Fill went from 65% to 77% of the square, and
+the face is ~330 texels wide at the kit's 1024.
+
+## The texture
+
+The atlas is composed at 512 and box-filtered to the chosen size:
+
+1. **Skin**: the 18 CC0 skins (young / middle-aged / old × three ancestries ×
+   two genders), re-sampled into the atlas and mixed by the ancestry, gender
+   and age sliders - so a 30% Asian, 70% European woman of 40 gets exactly that
+   blend - then tone and warmth as multipliers, which keep the painted detail.
+2. **Face paint**: lipstick, eye shadow, blush and stubble. Their regions come
+   from MakeHuman's own detail targets - *lip volume* moves exactly the lips,
+   *cheek volume* the cheeks - so each target's displacement, normalized, is a
+   soft mask (`tools/chargen-kit/kit_body_masks.py`). Stubble is that region
+   broken up by fixed noise, so it reads as hair at 512 and as a shadow at 128.
+3. **Brows and lashes**: MakeHuman's alpha-card meshes, baked onto the skin as
+   masks and tinted by the hair colour.
+4. **Ambient occlusion** from the 13k-quad reference body - nostrils, lips,
+   ears and the gaps between fingers keep their shading though the low-poly
+   mesh cannot.
+5. **Eyes**: the eyeball layer, iris desaturated in the kit and tinted here.
+6. **Clothes**: every shell garment painted in (next section), and a hairstyle's
+   scalp paint, so the gaps between low-poly strands show hair, not skin.
+
+"Add to scene" pins the model to **8-bit** (`Project::textureQuality`): skin is
+one long gradient and bands into stripes in the project's default 16 colours.
+A 256 atlas is 64 KB of GS VRAM at 8 bits; texbake claims a `.glb`'s extracted
+images through an override on the model.
 
 ## The wardrobe
 
-Clothes, shoes and hair come from the same CC0 asset packs and fit through
-**the same mechanism the body does**: a `.mhclo` file is byte-for-byte the same
-barycentric binding as a `.proxy`, so a shirt is bound to the reference mesh's
-shoulder vertices and therefore follows every morph, and the *same* skin
-weights transfer gives it the same skeleton. There is no cloth solver and no
-per-body refitting; a shirt on a heavy-set character is the same shirt.
+Every item is a CC0 garment converted offline into one of two shapes.
 
-Each garment becomes its own mesh part with its own texture, and the body
-underneath is **removed**: every `.mhclo` lists the base-mesh vertices it
-covers, and a body vertex whose three reference vertices are all covered drops
-out with its faces. A shirt-and-trousers pass takes the body from 1460 to about
-750 triangles, so a dressed character costs far less than body + garment.
+**Shells - the body IS the garment.** Shirts, sweaters, trousers, suits and
+gloves are not kept as geometry. The body's own vertices under the garment are
+pushed out along their normals onto its surface, and its texture is baked into
+the body's atlas. A shell costs **no triangles at all**, cannot let skin poke
+through (there is no skin under it - it is the skin, moved), fits every morph
+and is skinned identically, because it is the body. This is how PS2 games
+dressed people, and it is why a dressed character is not "body + suit".
 
-Three things about the source assets shape what the generator does with them:
+Two measurements decide a shell, both against the garment fitted to the same
+morph as the body:
 
-**They are 3.5k-16k triangles.** These are offline-render meshes. The *Detail*
-setting decimates each garment to a budget (~500 / 1100 / 2200), and the slots
-do not share it equally - a suit is most of the silhouette, shoes are two small
-blocks at the bottom of the screen. Measured: the suits stop simplifying around
-1000 triangles and start tearing holes instead, so *Low* is for crowds, not for
-a hero.
+- **Which body faces it covers**: the garment's own `delete_verts` declaration,
+  plus every vertex whose outward ray meets the garment's outside within 7 cm
+  (a loose trouser leg stands 3-6 cm off the shin); then a closing pass takes in
+  faces with some coverage and covered neighbours on at least half their sides,
+  which is exactly a crotch or an armpit - their normals point at the other leg
+  or the arm, and the rays miss.
+- **How far out**: measured on the average **woman and man separately** and
+  blended by gender at runtime. Measured once on an androgynous body, a T-shirt
+  bridging under the breasts carried that gap onto a flat male chest as two
+  bumps. The push is smoothed along the surface and is zero on the border, so a
+  shell meets the skin it does not cover without a crack.
 
-Two caveats on those numbers, both real:
+**Meshes - what leaves the body.** Skirts, dresses, shoes, hats, glasses and
+hair are remeshed to a budget (hair 700, dress 560, skirt 360, shoes 320, hat
+260, glasses 160 triangles), unwrapped, and their look baked into their own
+256 texture. Each vertex is BOUND to the nearest point of the body surface -
+triangle, barycentric weights, offset along the interpolated normal - so it
+follows morphs and is skinned like the body point it rides, with no cloth
+solver. Shoes hide the feet they cover (196 triangles), so they cost ~120 net.
 
-- **For a closed garment the budget behaves as a VERTEX count, not a triangle
-  count.** `decimateSkinned` forwards it to `meshlod::decimate`, whose target is
-  welded vertices, so a garment asked for 1100 lands nearer 2200 triangles.
-  Hair is the exception - `thinCards` really does count triangles. The two
-  readings sit ten lines apart in `chargen.cpp` and have not been reconciled;
-  treat the table above as the *hair* budget and roughly double it for
-  everything else.
-- **Nothing clamps the total.** Each slot is decimated against its own budget
-  with no view of the sum, and the body's 1460 is simply whatever `proxy741.obj`
-  contains. A dressed character on *High* is comfortably over 3000 triangles.
-  The generator now **warns** when the finished character passes ~3000 rather
-  than only showing the count, because the readout looked the same whether you
-  were inside the budget or several times outside it. It is a warning and not a
-  refusal: which garment to thin, or whether to spend it on a hero character, is
-  yours to decide.
+Getting a clean low-poly stand-in out of a CC0 garment took three rules, each
+learned from a broken result (`kit_wear.py`):
 
-**Hair does not decimate at all.** It is a pile of separate quads with a uv
-seam around every one, and the quadric collapse locks seam and border vertices
-by construction - a 3678-triangle hairstyle asked for 550 came back at 2696.
-Hair is thinned by dropping whole **cards**, smallest first, which is both what
-actually shrinks it and what a low-poly hairstyle is: fewer, bigger strands.
+- **Thicken first, by at least twice the voxel.** Cloth and hair cards have no
+  thickness; a sheet thinner than a voxel voxelizes into hundreds of
+  disconnected crumbs.
+- **QuadriFlow, not a quadric collapse.** Collapsing a voxel mesh to 2% of its
+  triangles does not simplify it, it crumples it into overlapping shards.
+  QuadriFlow lays an even quad grid at the asked density.
+- **Fill the bake's misses.** Texels the bake rays missed are black, and a
+  recolour (below) turns black into streaks; the hit colours are grown into
+  them first.
 
-**Hair is an alpha cutout**, so its texture keeps its alpha channel while the
-body skin's is forced opaque - and that alpha is made **binary** with the
-opaque colors dilated outward, the same rule the tree generator's leaf card
-follows, because the engine's palettized tRNS→CLUT path loses a soft gradient
-and bilinear filtering would ring dark fringes through it. Parts are tagged by
-material prefix (`hair:` / `cloth:`) so the preview knows which to draw last;
-the console needs no tag, it gets the cutout from the texture itself.
+**Recolouring.** Every item can keep its own colours (*as made*) or take yours:
+the texel's luminance against the garment's average becomes the shading, the
+dye the hue, so folds, seams and print survive a recolour. Clothes also take a
+pattern (stripes, checks, plaid, diagonal) in two colours. Items cut for one
+body carry a `sex` tag that *Randomize* respects; nothing stops you putting a
+man in a dress.
 
-## Cost on the console
+## The rig
 
-An undressed generated character is ~400 KB of PS2 RAM (a dressed one ~830 KB) (model data plus one instance's
-skinned output buffers) and skins on VU0 like any other animated model. The
-`.tskl` bake adds the usual two distance LODs on top. Budget guidance from
-[animated models](animated-models.md) applies unchanged: a few instances are
-comfortable, and the texture is the thing to watch in a crowd - GS VRAM is
-~1.33 MB with no eviction, so drop the skin to 128 or 64 before dropping
-triangles (see [gs-vram.md](gs-vram.md)).
+35 bones with Mixamo names (`mixamorig:Hips`...), because that is what free
+animation libraries and retarget tools match on:
+
+```
+Hips ─ Spine ─ Spine1 ─ Spine2 ─┬─ Neck ─ Head ─ HeadTop_End
+  │                             ├─ LeftShoulder ─ LeftArm ─ LeftForeArm ─ LeftHand ─┬─ Thumb1 ─ Thumb2
+  │                             │                                                   ├─ Index1 ─ Index2
+  │                             │                                                   └─ Middle1 ─ Middle2
+  │                             └─ (the same on the right)
+  ├─ LeftUpLeg ─ LeftLeg ─ LeftFoot ─ LeftToeBase
+  └─ RightUpLeg ─ RightLeg ─ RightFoot ─ RightToeBase
+```
+
+MakeHuman's reference rig has 163 bones; each one's weights fold into the
+bone that stands for it, or its nearest kept ancestor (`tools/chargen-kit/rig.py`).
+The fingers are cut down to what an animation can show at this budget: the
+thumb and the index finger get two bones each and the other three fingers
+SHARE two - enough for a fist, a pistol grip, a pointing hand and a relaxed one.
+
+Each bone's head comes from a MakeHuman joint, a cube of reference vertices, so
+the skeleton follows every morph - a child and a heavy-set adult get correctly
+placed hips with nothing resembling a fitting step. Every bone binds with
+**identity rotation**, so a bone's local space is world space and the inverse
+bind is a translation; that is what lets one set of clips drive every body.
 
 ## Animation
 
-Every generated character ships with **idle / walk / run / jump**, generated
-analytically by `charanim.cpp` - no motion library, no licence, no download.
-Those are exactly the clip names the generated game's third-person locomotion
-looks for, so a generated character dropped in as a Player avatar walks, runs
-and idles with cross-fades and **no further setup**. `idle` is written first,
-so a plain Model object (which autoplays the model's first clip) idles rather
-than standing in the bind pose.
+Every character ships with **motion-captured clips**: Quaternius' Universal
+Animation Library 1 and 2 (CC0), 87 clips - locomotion, jumps, crouches,
+idles with character (talking, folded arms, on the phone), punches, sword
+combos, pistol, sitting, swimming, farming, zombie walks, deaths.
 
-Two decisions carry the whole module:
+They are retargeted **offline** onto the rig (`tools/chargen-kit/anim_retarget.py`)
+and stored in the kit as local rotations plus a hips track. Because every bind
+rotation is identity, a local rotation means the same thing on every body, so
+the clips are proportion-independent; the hips track is scaled by the
+character's hip height. The retarget aligns each bone's rest DIRECTION (the
+library rests in a T-pose, the rig in an A-pose) and keeps the source's twist;
+hands and fingers also align the knuckle line, or a fist closes only halfway.
+Measured: every bone points where its source bone points to within 0.05°, and
+the soles stay on the floor within 0.3 mm.
 
-**Bones are found by name, poses are composed in world space.** A `Frame`
-holds one *world* rotation per bone role and `buildClip` converts to the local
-rotations glTF stores (`local = inverse(parent world) * world`). That is what
-makes the cycles readable: "the shin follows the thigh plus a knee bend" is a
-statement about world orientation, and expressing it as a chain of
-parent-relative frames instead is how animation code becomes unreadable.
+The **standard set** is written under the names the generated game's
+third-person player looks for: `idle`, `walk`, `run`, `sprint`, `jump`
+(+ `jump_start`, `jump_land`), `crouch`, `crouch_walk`, `interact`. `idle` comes
+first, so a plain Model object (which autoplays its first clip) idles. Untick
+*Standard set* to pick any clips; a clip outside the set keeps its library name
+(`Idle_FoldArms_Loop`). Keys are resampled to the *Key rate* (default 15/s) -
+the EE evaluates them, and all-identity channels are dropped.
 
-**The rest stance is derived, not hardcoded.** MakeHuman's arms bind straight
-out to the sides, and diagonally - down, out and slightly forward, at an angle
-that changes with the body's proportions. The first attempt rotated them down
-by a fixed angle and folded both elbows across the chest. `alignTo(bind
-direction, target direction)` builds the minimal rotation instead, so "the
-upper arm hangs down and a little out" means that for every body.
+The old analytic idle/walk/run/jump generator is gone; a motion library made by
+an animator beats any sine wave.
 
-The cycles themselves are ordinary keyframe animation - sinusoidal hip and arm
-swing in counterphase, a knee that only folds backward and only through the
-back half of the swing, an ankle that rolls the foot off at toe-off, a lean and
-counter-rotation up the spine that grow with speed, and two hip rises per
-stride. Sampled at 15 keys/second and written as LINEAR quaternion channels,
-with consecutive keys sign-corrected (interpolating between `q` and `-q` takes
-the long way round, which reads as a limb snapping through the body).
-An all-identity channel is dropped rather than written - the EE pays per
-channel.
+## Cost on the console
 
-`charanim::poseMesh` does linear-blend skinning on the host, which is what lets
-the editor preview PLAY a cycle: it is the same evaluation the console does on
-VU0, at a scale where a full re-skin per frame is free.
+A dressed character is 4100-4500 triangles in 3-5 parts (body, then one per
+mesh item) and 35 bones - a hero budget. Crowds should use the `.tskl` distance
+LODs (*Mesh LOD* in Project Preferences) and a 128 atlas: four bystanders and a
+hero at 256 fit the example scene's VRAM with room to spare. Texture cost is
+the one to watch: GS VRAM is ~1.33 MB with no eviction
+([gs-vram.md](gs-vram.md)).
 
 ## Importing animation (Mixamo and friends)
 
-*Import clips...* retargets an existing `.glb`/`.fbx` animation library onto the
-generated rig, replacing the procedural cycles. Any rig that names its bones
+*Import clips...* (Animation tab) retargets an existing `.glb`/`.fbx` animation
+library onto the generated rig, instead of the kit's clips. Any rig that names its bones
 the Mixamo way works - which is the whole reason the generated rig carries
 those names.
 
@@ -491,11 +526,11 @@ The peak sole angle stays at 61° because that is the single frame of first
 contact, before the ease-in has run - which is the intent, not a shortfall.
 
 Two boundaries worth stating. The solve runs on the **retarget** path, so it
-covers Mixamo imports, `.tmocap` files and the live link, but **not the
-procedural idle/walk/run/jump**, which are authored analytically by a different
-function; those measure 22.7 mm of slide and 20 mm through the floor, and
-running a stateful plant over a clip that has to loop seamlessly is a way to
-break a working feature for a gain nobody can see at PS2 range. And a foot the
+covers Mixamo imports, `.tmocap` files and the live link, but **not the kit's
+own clips**, which are retargeted offline with their own floor correction
+(the hips are moved per frame so the lowest sole matches the source's, within
+0.3 mm) - running a stateful plant over a clip that has to loop seamlessly is
+a way to break a working feature for a gain nobody can see at PS2 range. And a foot the
 performer never puts down never plants - correctly. In the take above the left
 foot stayed bent the whole time and the character's left foot never came within
 94 mm of the floor; the hips bob 177 mm in that recording, which is enough for a
@@ -671,27 +706,30 @@ argument for having the live window at all:
 
 ## What is not here yet
 
-- **Face detail.** The 96 macro targets carry the face's overall character;
-  the per-feature targets (nose, chin, ears, mouth - another ~1000 files) are
-  not fetched, and at 1460 triangles most of them would not survive anyway.
-- **Body proportions and height targets** - see above.
+- **A male game topology.** One topology serves every body, and it is
+  MakeHuman's female-optimized proxy; its chest loops round a man's pectorals
+  more than a male-cut mesh would. `male1591` is in the same CC0 pack; using
+  it means a second set of shells.
+- **Facial animation.** The rig has no jaw or eyelids; MakeHuman's expression
+  targets are CC0 and would fit the same delta scheme.
+- **Atlasing the mesh items.** Each mesh item (hair, shoes, a hat) is its own
+  part and texture; packing them into one page would cut a dressed character
+  from 3-5 GS allocations to 2.
 
 ## Code map
 
 | File | Role |
 |---|---|
-| `src/mhdata.cpp` | readers for the CC0 data (base mesh, targets, proxies, rig, weights). Host-only, no GL. |
-| `src/chargen.cpp` | `Params` → `glbparser::Skel`: macro blend, proxy fit, rig, weight transfer, skin bake. Host-only, no GL, no `Project`. |
-| `src/charanim.cpp` | procedural idle/walk/run/jump on a Mixamo-named rig, retargeting from an imported library, and host linear-blend skinning for the preview. Host-only, no GL. |
+| `src/chargen.cpp` | the kit reader and `Params` → `glbparser::Skel`: target blend, shells and mesh items, atlas composition, rig, clip resampling, recipe JSON. Host-only, no GL, no `Project`. |
+| `src/chargen_kit.cpp` | links `resources/chargen-kit.bin` in with `.incbin`. |
+| `src/charanim.cpp` | retargeting an imported library or a phone take onto the rig, the live-link retarget, and host linear-blend skinning for the preview. Host-only, no GL. |
 | `src/mocap.cpp` | reads `.tmocap` phone takes into a source `Skel` (ARKit joint names renamed to the rig's), and writes them - `buildSource` is shared by the file and live-link paths. Host-only, no GL. |
-| `src/posefilter.cpp` | the one-euro jitter filter over a frame of joint rotations. Host-only, no GL; the sweep that set its constants is scratchpad/filter_check.cpp. |
-| `src/visionpose.cpp` | head and wrist orientation from Vision's landmarks - the geometry the phone deliberately does not do. Host-only, no GL, harness-tested against synthetic poses. |
+| `src/posefilter.cpp` | the one-euro jitter filter over a frame of joint rotations. Host-only, no GL. |
+| `src/visionpose.cpp` | head and wrist orientation from Vision's landmarks - the geometry the phone deliberately does not do. Host-only, no GL. |
 | `src/phonecam.cpp` | the link the phone joins: `bodyrest` / `body` messages into `bodySkeleton()` and `drainBodyFrames()`, alongside the camera app's own traffic. |
-| `src/app.cpp` (mocap window) | `drawMocapWindow` / `mocapRebind` / `mocapApplyFrame` - both sources end in the same `charanim::applyLive`. |
 | `src/gltfwrite.cpp` | `Skel` → `.glb` bytes; the exact inverse of `glbparser::parseSkel`. |
-| `src/app.cpp` | `drawCharacterGeneratorWindow` / `rebuildCharacterPreview` / `addCharacterToScene`. |
-| `src/viewport.cpp` | `renderCharacterPreview` on its **own** framebuffer (`charFbo_`), sharing `drawToolPreview` with the Tree Generator. |
-
-The first three link into a host harness without ImGui or GL - the
-treegen/matbake pattern - which is how the generator was developed and is the
-cheap way to test a change to it.
+| `src/texbake.cpp` | an override on a `.glb` claims its extracted textures - how a character's atlas gets 8 bits. |
+| `src/app.cpp` | `drawCharacterGeneratorWindow` / `rebuildCharacterPreview` / `addCharacterToScene`, and the Mocap window. |
+| `src/main.cpp` | `--chargen`. |
+| `src/viewport.cpp` | `renderCharacterPreview` on its **own** framebuffer, sharing `drawToolPreview` with the Tree Generator. |
+| `tools/chargen-kit/` | the offline kit build: `fetch_sources.py`, `kit_body.py`, `kit_wear.py`, `anim_retarget.py`, `build_kit.py`, `make_kit.py`; data in `catalog.py`, `rig.py`, `kit_body_masks.py`. See its README. |

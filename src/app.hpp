@@ -2540,6 +2540,8 @@ private:
     int charClip_ = 0;
     float charAnimTime_ = 0.0f;
     bool charPlaying_ = true;
+    unsigned charSeed_ = 1;   // the Randomize button's next seed
+    char charClipFilter_[48] = "";
     // Mocap (Tools > Mocap). mocapSkel_ is the character being puppeted - its
     // NODE transforms are overwritten every frame, which is what
     // charanim::poseMesh reads when no clip is playing.

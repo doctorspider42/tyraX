@@ -1,5 +1,6 @@
 #pragma once
 
+#include <map>
 #include <string>
 #include <vector>
 
@@ -8,66 +9,92 @@
 
 // Procedural character generator (Tools > Character Generator,
 // docs/character-generator.md). Host-only, no GL, no Project dependency - the
-// treegen/matbake pattern, so the whole thing is exercisable from a small host
-// harness instead of by clicking the GUI.
+// treegen/matbake pattern, so the whole thing is exercisable from the
+// --chargen command line instead of by clicking the GUI.
 //
-// What it is: MakeHuman's *data* driven by our own code. A macro blend over
-// the CC0 base mesh (gender / age / muscle / weight / ethnicity) deforms the
-// 19158-vertex reference body; the CC0 proxy mesh rides that deformation down
-// to a **741-vertex PS2-budget body**; the rig is re-derived from the morphed
-// mesh (MakeHuman defines each joint as a cube of base-mesh vertices, so the
-// skeleton follows the morph instead of being fitted to it) and collapsed to
-// ~23 Mixamo-named bones; the CC0 skin texture is box-filtered down to 256.
-// The result is written as a plain .glb, which is where the editor's existing
-// animated-model chain already begins.
-//
-// Deliberately NOT here: MakeHuman's height and body-proportion target sets
-// (288 files, ~120 MB) - `heightMeters` scales the mesh instead, which is what
-// a game actually wants. See the docs for what that costs.
+// Everything it reads is the CHARACTER KIT (resources/chargen-kit.bin), a
+// single file built offline by tools/chargen-kit/ from CC0 sources and embedded
+// into the editor. Nothing is fetched and nothing is read from disk at runtime.
+// The kit holds:
+//   - a 1701-vertex game body (MakeHuman's CC0 female1605 topology plus
+//     low-poly eyeballs) on a PS2 texture atlas where the face gets the texels
+//   - ~290 morph targets (MakeHuman's macro corners, face and body details)
+//     already projected onto those vertices, with their effect on the rig
+//   - skin weights for the 35-bone Mixamo-named rig
+//   - texture layers in the atlas: 18 skins, AO, eyes, 12 eyebrows, lashes
+//   - the wardrobe and hair (meshes bound to the body + their textures)
+//   - motion-captured clips (Quaternius' CC0 Universal Animation Library)
+//     already retargeted onto the rig
+// A build blends targets, composes one texture, assembles the parts and
+// writes a plain .glb - where the editor's animated-model chain begins.
 namespace chargen {
 
-// Every slider is 0..1 like MakeHuman's own macro modifiers, so the values
-// mean the same thing they do in that program's UI.
-struct Params {
-    float gender = 0.5f;  // 0 female .. 1 male
-    // Maps onto MakeHuman's four age levels: 0 = baby (1 year),
-    // 0.1875 = child (10), 0.5 = young (25), 1 = old (90).
-    float age = 0.5f;
-    float muscle = 0.5f;  // 0 min .. 0.5 average .. 1 max
-    float weight = 0.5f;  // 0 min .. 0.5 average .. 1 max
+struct Rgb {
+    float r = 1.0f, g = 1.0f, b = 1.0f;
+    bool operator==(const Rgb& o) const { return r == o.r && g == o.g && b == o.b; }
+};
 
-    // Ethnicity is a 3-way mix; the generator normalizes it to sum to 1, so
-    // the caller can just raise one and let the others give way.
+// One worn item: a kit garment id plus how it is dyed.
+struct Wear {
+    std::string id;
+    // The dye. A negative red means "as made": the garment keeps its own
+    // colours. Otherwise the garment is RECOLOURED - its shading (luminance
+    // against its own average) is kept and the hue comes from here.
+    Rgb color{-1, -1, -1};
+    Rgb color2{1, 1, 1};   // the pattern's second colour
+    int pattern = 0;       // 0 = none, others: see patterns()
+    bool operator==(const Wear& o) const {
+        return id == o.id && color == o.color && color2 == o.color2 && pattern == o.pattern;
+    }
+};
+
+struct Params {
+    // ---- macro body: MakeHuman's own scales, 0..1 ----
+    float gender = 0.5f;   // 0 female .. 1 male
+    // 0 = baby (1 year), 0.1875 = child (10), 0.5 = young adult (25), 1 = old (90).
+    float age = 0.5f;
+    float muscle = 0.5f;   // 0 min .. 0.5 average .. 1 max
+    float weight = 0.5f;   // 0 min .. 0.5 average .. 1 max
+    // A 3-way mix, normalized inside the generator.
     float african = 1.0f / 3.0f;
     float asian = 1.0f / 3.0f;
     float caucasian = 1.0f / 3.0f;
-
-    // The generated body is scaled so it stands this tall, feet on y = 0.
+    // The finished body is scaled to stand this tall, feet on y = 0.
     float heightMeters = 1.75f;
 
-    int skin = 0;        // index into skins(), -1 = untextured
-    int textureSize = 256;  // power of two, 32..256 (PS2 VRAM budget)
+    // ---- detail sliders: slider id (see sliders()) -> -1..1 ----
+    std::map<std::string, float> shape;
 
-    // Wearables: indices into clothesList() / shoesList() / hairList(), -1 =
-    // none. Each becomes its own mesh part with its own texture, and the body
-    // it covers is dropped rather than left to poke through.
-    int clothes = -1;
-    int shoes = -1;
-    int hair = -1;
-    // Triangle budget for the wearables: 0 low, 1 medium, 2 high. The source
-    // garments are 3.5k-16k triangles - offline-render meshes - so this is the
-    // difference between a character that fits a PS2 and one that does not.
-    int clothingDetail = 1;
+    // ---- skin and face paint ----
+    float skinTone = 0.0f;    // -1 paler .. +1 darker, on top of the ethnicity mix
+    float skinWarmth = 0.0f;  // -1 rosier .. +1 more golden
+    float aging = 0.0f;       // extra skin age (wrinkles) on top of the age slider, 0..1
+    int brows = 2;            // index into browList(), -1 = none
+    float browDensity = 1.0f;
+    int lashes = 0;           // index into lashList(), -1 = none
+    Rgb hairColor{0.23f, 0.15f, 0.09f};  // hair, brows and stubble
+    Rgb eyeColor{0.33f, 0.22f, 0.12f};
+    float stubble = 0.0f;     // 0..1
+    float lipstick = 0.0f;    // 0..1 strength of lipColor over the lips
+    Rgb lipColor{0.65f, 0.12f, 0.16f};
+    float eyeShadow = 0.0f;   // 0..1
+    Rgb eyeShadowColor{0.25f, 0.18f, 0.30f};
+    float blush = 0.0f;       // 0..1
+    int textureSize = 256;    // 128 / 256 / 512 (the atlas; see docs for VRAM)
 
-    // Procedural idle/walk/run/jump (charanim). On by default: a character
-    // with no clips is a statue, and these are the clip names the generated
-    // game's third-person locomotion already looks for.
-    bool animations = true;
-    charanim::Params anim;
-    // A .glb/.fbx whose clips are retargeted onto the generated rig instead of
-    // the procedural ones ("" = procedural). Any Mixamo-named rig works - that
-    // is what the bone naming is for. The file is read at build time, so a
-    // character is deterministic in (Params + that file).
+    // ---- outfit ----
+    std::vector<Wear> outfit;
+    std::string hair;         // kit hair id, "" = bald
+
+    // ---- animation ----
+    // Kit clip names to include ("" list = the default locomotion set). The
+    // locomotion clips are renamed idle / walk / run / sprint / jump, the names
+    // the generated game's third-person player looks for.
+    std::vector<std::string> clips;
+    bool defaultClips = true;  // when true `clips` is ignored and the default set is used
+    float animFps = 15.0f;     // keys per second the clips are resampled to
+    // A .glb/.fbx (Mixamo-named rig) or .tmocap whose clips are retargeted onto
+    // the rig INSTEAD of the kit's. "" = kit clips.
     std::string animSource;
     charanim::RetargetOptions retarget;
 
@@ -77,40 +104,66 @@ struct Params {
     bool operator!=(const Params& o) const { return !(*this == o); }
 };
 
-// Skin textures found in the data directory (file stems, sorted). Empty when
-// the data is missing.
-const std::vector<std::string>& skins();
+// The detail sliders the kit carries, in display order.
+struct Slider {
+    std::string id, label, group;
+};
+const std::vector<Slider>& sliders();
 
-// The CC0 wardrobe found in the data directory, by slot (asset stems, sorted).
-// Clothes and shoes both live in `clothes/` upstream and are split by name.
-const std::vector<std::string>& clothesList();
-const std::vector<std::string>& shoesList();
-const std::vector<std::string>& hairList();
+// Eyebrow / eyelash styles (display names).
+const std::vector<std::string>& browList();
+const std::vector<std::string>& lashList();
 
-// Absolute path to the MakeHuman CC0 data (vendor/mh-assets next to the
-// editor's own directory), or "" when it is not there. setup.ps1 fetches it.
-std::string dataDir();
-bool dataAvailable();
+// Wardrobe and hair in the kit.
+struct Item {
+    std::string id, label;
+    std::string slot;      // "top", "bottom", "full", "feet", "head", "face", "hands", "hair"
+    bool dyeable = true;
+    bool twoTone = false;  // carries a secondary dye region
+    Rgb color{0.5f, 0.5f, 0.5f};  // its own average colour (where a recolour starts)
+    // "f" / "m" for items cut for one body, "" for either. Nothing stops a man
+    // wearing a dress; Randomize just does not do it for him.
+    std::string sex;
+};
+const std::vector<Item>& wardrobe();
+const std::vector<Item>& hairstyles();
+const std::vector<std::string>& patterns();
 
-// Bone names of the generated rig, in palette order: Mixamo's naming
-// ("mixamorig:Hips", ...), because that is what every free animation library
-// and every retarget tool keys off.
+// Clips in the kit (source names) and whether each loops.
+struct ClipInfo {
+    std::string name;
+    bool loop = false;
+    float seconds = 0.0f;
+};
+const std::vector<ClipInfo>& kitClips();
+// The default set and the names they are written under.
+const std::vector<std::pair<std::string, std::string>>& defaultClipSet();
+
+// The rig's bone names in palette order (Mixamo naming, "mixamorig:Hips", ...).
 const std::vector<std::string>& boneNames();
 
-// Builds a character. Returns false with `error` set when the data directory
-// is missing or unreadable; `warnings` collects non-fatal notes (a skin that
-// would not decode, a bone whose joint the rig could not find).
+// True when the embedded kit parsed. (It always should; false means a broken
+// build, and build() reports why.)
+bool kitAvailable();
+
+// Builds a character. Returns false with `error` set when the kit is unusable;
+// `warnings` collects non-fatal notes.
 //
-// Deterministic: the same Params always produce the same bytes, which is what
-// makes a rebuild-on-slider-drag preview cheap to reason about.
+// Deterministic: identical Params produce identical bytes.
 bool build(const Params& p, glbparser::Skel& out, std::vector<std::string>& warnings,
            std::string& error);
 
-// Writes a built character into <projectDir>/res/models/characters/<name>.glb.
-// On success `outRelPath` holds the project-relative path with forward
-// slashes, ready for App::addModelObject.
+// Writes a built character into <projectDir>/res/models/characters/<name>.glb,
+// plus <name>.chargen.json - the Params it came from, so the character can be
+// reopened in the generator and edited. On success `outRelPath` holds the
+// project-relative .glb path with forward slashes.
 bool writeAsset(const std::string& projectDir, const std::string& name,
-                const glbparser::Skel& skel, std::string* outRelPath, std::string* outError);
+                const glbparser::Skel& skel, const Params& p, std::string* outRelPath,
+                std::string* outError);
+
+// Params <-> JSON (the .chargen.json sidecar, the --chargen command line).
+std::string toJson(const Params& p);
+bool fromJson(const std::string& text, Params& p, std::string& error);
 
 // Tuned starting points for the UI (index 0 = the default).
 struct Preset {
@@ -118,5 +171,8 @@ struct Preset {
     Params params;
 };
 const std::vector<Preset>& presets();
+
+// Random but plausible: a body, a face, colours and an outfit from a seed.
+Params randomize(unsigned seed, const Params& keep);
 
 }  // namespace chargen

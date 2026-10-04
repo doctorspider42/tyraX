@@ -17656,36 +17656,31 @@ void App::refreshCharacterPose() {
     // apart because that is what both the .glb writer and the .tskl bake want.
     // Skinning it here is the host twin of what the console does on VU0 - at
     // 4380 vertices it is far cheaper than the upload that follows.
-    const int clip = charParams_.animations && charClip_ >= 0 &&
-                             charClip_ < (int)charSkel_.clips.size()
-                         ? charClip_
-                         : -1;
+    const int clip =
+        charClip_ >= 0 && charClip_ < (int)charSkel_.clips.size() ? charClip_ : -1;
     charanim::poseMesh(charSkel_, clip, charAnimTime_, charPrevTris_);
     ++charPreviewVersion_;
 }
 
-// Tools > Character Generator: a rigged, skinned human built from the
-// MakeHuman CC0 data set (docs/character-generator.md). The macro sliders are
-// MakeHuman's own, the body comes out at the PS2's budget (1460 triangles, 23
-// Mixamo-named bones), and "Add to scene" writes a plain .glb - from there it
-// is an ordinary animated model with nothing downstream aware it was
-// generated.
+// Tools > Character Generator: a rigged, skinned, textured human from the
+// embedded character kit (docs/character-generator.md). Every control edits
+// charParams_; the preview rebuilds when they change, and "Add to scene" writes
+// a plain .glb plus its .chargen.json recipe - from there it is an ordinary
+// animated model with nothing downstream aware it was generated.
 void App::drawCharacterGeneratorWindow() {
     if (!showCharGenerator_ || !hasProject_) return;
-    ImGui::SetNextWindowSize(ImVec2(scaled(880.0f), scaled(600.0f)), ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(scaled(980.0f), scaled(680.0f)), ImGuiCond_FirstUseEver);
     if (!ImGui::Begin("Character Generator", &showCharGenerator_)) {
         ImGui::End();
         return;
     }
 
-    if (!chargen::dataAvailable()) {
-        ImGui::TextWrapped(
-            "The MakeHuman CC0 data set is not installed.\n\n"
-            "It is not part of the repository (about 45 MB of base mesh, morph targets, rig and "
-            "skins), so setup.ps1 fetches it into vendor/mh-assets. Run setup.ps1 in the editor "
-            "repository and reopen this window.");
-        ImGui::Spacing();
-        ImGui::TextDisabled("Everything it downloads is CC0 - see README.md > Credits.");
+    if (!chargen::kitAvailable()) {
+        std::string err;
+        glbparser::Skel dummy;
+        std::vector<std::string> w;
+        chargen::build(charParams_, dummy, w, err);
+        ImGui::TextWrapped("The character kit in this build is unusable: %s", err.c_str());
         ImGui::End();
         return;
     }
@@ -17694,211 +17689,451 @@ void App::drawCharacterGeneratorWindow() {
     chargen::Params& p = charParams_;
     bool dirty = false;
 
+    auto color = [&](const char* label, chargen::Rgb& c) {
+        float v[3] = {c.r, c.g, c.b};
+        if (ImGui::ColorEdit3(label, v, ImGuiColorEditFlags_NoInputs)) {
+            c = chargen::Rgb{v[0], v[1], v[2]};
+            dirty = true;
+        }
+    };
+    // Swatches: one click is how people actually pick hair and eye colours.
+    auto swatches = [&](const char* id, chargen::Rgb& c, const std::vector<chargen::Rgb>& list) {
+        ImGui::PushID(id);
+        for (size_t i = 0; i < list.size(); ++i) {
+            if (i) ImGui::SameLine(0, scaled(3.0f));
+            const ImVec4 col(list[i].r, list[i].g, list[i].b, 1.0f);
+            ImGui::PushID((int)i);
+            if (ImGui::ColorButton("##sw", col, ImGuiColorEditFlags_NoTooltip,
+                                   ImVec2(scaled(18.0f), scaled(18.0f)))) {
+                c = list[i];
+                dirty = true;
+            }
+            ImGui::PopID();
+        }
+        ImGui::PopID();
+    };
+    static const std::vector<chargen::Rgb> kHair = {
+        {0.05f, 0.04f, 0.04f}, {0.16f, 0.10f, 0.06f}, {0.32f, 0.20f, 0.11f},
+        {0.55f, 0.38f, 0.20f}, {0.85f, 0.70f, 0.45f}, {0.55f, 0.20f, 0.08f},
+        {0.78f, 0.77f, 0.75f}, {0.95f, 0.95f, 0.95f}};
+    static const std::vector<chargen::Rgb> kEyes = {
+        {0.33f, 0.22f, 0.12f}, {0.16f, 0.10f, 0.06f}, {0.25f, 0.42f, 0.62f},
+        {0.42f, 0.62f, 0.78f}, {0.30f, 0.45f, 0.30f}, {0.45f, 0.45f, 0.42f},
+        {0.50f, 0.38f, 0.18f}};
+    static const std::vector<chargen::Rgb> kCloth = {
+        {0.90f, 0.90f, 0.88f}, {0.12f, 0.12f, 0.14f}, {0.40f, 0.40f, 0.42f},
+        {0.20f, 0.27f, 0.50f}, {0.55f, 0.15f, 0.14f}, {0.27f, 0.40f, 0.25f},
+        {0.62f, 0.52f, 0.36f}, {0.42f, 0.28f, 0.18f}, {0.75f, 0.58f, 0.18f},
+        {0.42f, 0.28f, 0.50f}, {0.20f, 0.45f, 0.55f}, {0.85f, 0.45f, 0.55f}};
+
     // ---- left: parameter panel ---------------------------------------------
-    ImGui::BeginChild("charparams", ImVec2(scaled(330.0f), 0), true);
+    ImGui::BeginChild("charparams", ImVec2(scaled(380.0f), 0), true);
 
     const std::vector<chargen::Preset>& presets = chargen::presets();
-    ImGui::SetNextItemWidth(scaled(180.0f));
-    if (ImGui::BeginCombo("Preset", presets[charPreset_].name)) {
+    ImGui::SetNextItemWidth(scaled(150.0f));
+    if (ImGui::BeginCombo("##preset", presets[charPreset_].name)) {
         for (int i = 0; i < (int)presets.size(); ++i)
             if (ImGui::Selectable(presets[i].name, charPreset_ == i)) {
                 charPreset_ = i;
-                const int keepSkin = p.skin;
-                const int keepTex = p.textureSize;
+                const chargen::Params keep = p;
                 p = presets[i].params;
-                p.skin = keepSkin;  // a preset is a body, not a skin
-                p.textureSize = keepTex;
+                p.outfit = keep.outfit;  // a preset is a body, not a wardrobe
+                p.hair = keep.hair;
+                p.textureSize = keep.textureSize;
                 dirty = true;
             }
         ImGui::EndCombo();
     }
-
-    if (ImGui::CollapsingHeader("Body", ImGuiTreeNodeFlags_DefaultOpen)) {
-        dirty |= ImGui::SliderFloat("Gender", &p.gender, 0.0f, 1.0f, "%.2f");
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("0 = female, 1 = male");
-        dirty |= ImGui::SliderFloat("Age", &p.age, 0.0f, 1.0f, "%.2f");
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip(
-                "MakeHuman's age scale: 0 = baby (1 year), 0.19 = child (10),\n"
-                "0.5 = young adult (25), 1 = old (90).");
-        dirty |= ImGui::SliderFloat("Muscle", &p.muscle, 0.0f, 1.0f, "%.2f");
-        dirty |= ImGui::SliderFloat("Weight", &p.weight, 0.0f, 1.0f, "%.2f");
-        dirty |= ImGui::SliderFloat("Height", &p.heightMeters, 0.6f, 2.4f, "%.2f m");
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip(
-                "Scales the finished body, feet on y = 0.\n"
-                "MakeHuman's height targets are a separate 144-file set the\n"
-                "editor does not ship - see docs/character-generator.md.");
+    ImGui::SameLine();
+    if (ImGui::Button("Randomize")) {
+        p = chargen::randomize(charSeed_++, p);
+        dirty = true;
     }
-
-    if (ImGui::CollapsingHeader("Ethnicity", ImGuiTreeNodeFlags_DefaultOpen)) {
-        // The three normalize to 1 inside the generator, so a slider raised
-        // here simply takes share from the others.
-        dirty |= ImGui::SliderFloat("African", &p.african, 0.0f, 1.0f, "%.2f");
-        dirty |= ImGui::SliderFloat("Asian", &p.asian, 0.0f, 1.0f, "%.2f");
-        dirty |= ImGui::SliderFloat("Caucasian", &p.caucasian, 0.0f, 1.0f, "%.2f");
-        if (ImGui::SmallButton("Even mix")) {
-            p.african = p.asian = p.caucasian = 1.0f / 3.0f;
-            dirty = true;
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("A plausible stranger: body, face, colours, outfit and hair.\n"
+                          "Click again for another one.");
+    ImGui::SameLine();
+    if (ImGui::Button("Open recipe...")) {
+        const std::string file = platform::pickFile(
+            "Open character recipe",
+            {{"Character recipe (*.chargen.json)", {"*.chargen.json", "*.json"}},
+             {"All files (*)", {"*"}}});
+        if (!file.empty()) {
+            std::ifstream in(file, std::ios::binary);
+            std::stringstream ss;
+            ss << in.rdbuf();
+            std::string err;
+            if (chargen::fromJson(ss.str(), p, err)) {
+                std::snprintf(charName_, sizeof(charName_), "%s", p.name.c_str());
+                dirty = true;
+            } else {
+                statusMessage_ = "Not a character recipe: " + err;
+            }
         }
     }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Load a .chargen.json - every generated character has one\n"
+                          "beside its .glb - to edit that character again.");
 
-    if (ImGui::CollapsingHeader("Skin", ImGuiTreeNodeFlags_DefaultOpen)) {
-        const std::vector<std::string>& list = chargen::skins();
-        const char* current = p.skin >= 0 && p.skin < (int)list.size() ? list[p.skin].c_str()
-                                                                      : "(none)";
-        ImGui::SetNextItemWidth(scaled(220.0f));
-        if (ImGui::BeginCombo("Texture", current)) {
-            if (ImGui::Selectable("(none)", p.skin < 0)) {
-                p.skin = -1;
+    if (ImGui::BeginTabBar("chartabs")) {
+        // -- Body --------------------------------------------------------------
+        if (ImGui::BeginTabItem("Body")) {
+            dirty |= ImGui::SliderFloat("Gender", &p.gender, 0.0f, 1.0f, "%.2f");
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("0 = female, 1 = male");
+            dirty |= ImGui::SliderFloat("Age", &p.age, 0.0f, 1.0f, "%.2f");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("0 = baby (1 year), 0.19 = child (10),\n"
+                                  "0.5 = young adult (25), 1 = old (90).");
+            dirty |= ImGui::SliderFloat("Muscle", &p.muscle, 0.0f, 1.0f, "%.2f");
+            dirty |= ImGui::SliderFloat("Weight", &p.weight, 0.0f, 1.0f, "%.2f");
+            dirty |= ImGui::SliderFloat("Height", &p.heightMeters, 0.6f, 2.4f, "%.2f m");
+            ImGui::SeparatorText("Ancestry");
+            dirty |= ImGui::SliderFloat("African", &p.african, 0.0f, 1.0f, "%.2f");
+            dirty |= ImGui::SliderFloat("Asian", &p.asian, 0.0f, 1.0f, "%.2f");
+            dirty |= ImGui::SliderFloat("European", &p.caucasian, 0.0f, 1.0f, "%.2f");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("The three are a mix - they shape the face and pick the\n"
+                                  "skin, and normalize to 1 inside the generator.");
+            for (const char* group : {"Body", "Proportions"}) {
+                ImGui::SeparatorText(group);
+                for (const chargen::Slider& s : chargen::sliders()) {
+                    if (s.group != group) continue;
+                    float v = p.shape.count(s.id) ? p.shape[s.id] : 0.0f;
+                    if (ImGui::SliderFloat(s.label.c_str(), &v, -1.0f, 1.0f, "%.2f")) {
+                        p.shape[s.id] = v;
+                        dirty = true;
+                    }
+                    if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
+                        p.shape.erase(s.id);
+                        dirty = true;
+                    }
+                }
+            }
+            ImGui::EndTabItem();
+        }
+        // -- Face ----------------------------------------------------------------
+        if (ImGui::BeginTabItem("Face")) {
+            ImGui::TextDisabled("Right-click a slider to reset it.");
+            std::string last;
+            for (const chargen::Slider& s : chargen::sliders()) {
+                if (s.group == "Body" || s.group == "Proportions") continue;
+                if (s.group != last) {
+                    ImGui::SeparatorText(s.group.c_str());
+                    last = s.group;
+                }
+                float v = p.shape.count(s.id) ? p.shape[s.id] : 0.0f;
+                if (ImGui::SliderFloat(s.label.c_str(), &v, -1.0f, 1.0f, "%.2f")) {
+                    p.shape[s.id] = v;
+                    dirty = true;
+                }
+                if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) {
+                    p.shape.erase(s.id);
+                    dirty = true;
+                }
+            }
+            if (ImGui::Button("Reset face")) {
+                for (const chargen::Slider& s : chargen::sliders())
+                    if (s.group != "Body" && s.group != "Proportions") p.shape.erase(s.id);
                 dirty = true;
             }
-            for (int i = 0; i < (int)list.size(); ++i)
-                if (ImGui::Selectable(list[i].c_str(), p.skin == i)) {
-                    p.skin = i;
+            ImGui::EndTabItem();
+        }
+        // -- Skin & makeup ---------------------------------------------------------
+        if (ImGui::BeginTabItem("Skin")) {
+            dirty |= ImGui::SliderFloat("Skin tone", &p.skinTone, -1.0f, 1.0f, "%.2f");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("-1 paler ... +1 darker, on top of what ancestry gives.");
+            dirty |= ImGui::SliderFloat("Warmth", &p.skinWarmth, -1.0f, 1.0f, "%.2f");
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("-1 rosier ... +1 more golden");
+            dirty |= ImGui::SliderFloat("Weathering", &p.aging, 0.0f, 1.0f, "%.2f");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Older skin (wrinkles, blotches) without an older body.");
+            ImGui::SeparatorText("Eyes");
+            color("Eye colour", p.eyeColor);
+            ImGui::SameLine();
+            swatches("eyes", p.eyeColor, kEyes);
+            ImGui::SeparatorText("Brows and lashes");
+            {
+                const std::vector<std::string>& b = chargen::browList();
+                const std::string cur = p.brows >= 0 && p.brows < (int)b.size()
+                                            ? "Style " + std::to_string(p.brows + 1)
+                                            : "None";
+                ImGui::SetNextItemWidth(scaled(150.0f));
+                if (ImGui::BeginCombo("Eyebrows", cur.c_str())) {
+                    if (ImGui::Selectable("None", p.brows < 0)) {
+                        p.brows = -1;
+                        dirty = true;
+                    }
+                    for (int i = 0; i < (int)b.size(); ++i)
+                        if (ImGui::Selectable(("Style " + std::to_string(i + 1)).c_str(),
+                                              p.brows == i)) {
+                            p.brows = i;
+                            dirty = true;
+                        }
+                    ImGui::EndCombo();
+                }
+                dirty |= ImGui::SliderFloat("Brow density", &p.browDensity, 0.0f, 1.5f, "%.2f");
+                const std::vector<std::string>& l = chargen::lashList();
+                const std::string curl = p.lashes >= 0 && p.lashes < (int)l.size()
+                                             ? "Style " + std::to_string(p.lashes + 1)
+                                             : "None";
+                ImGui::SetNextItemWidth(scaled(150.0f));
+                if (ImGui::BeginCombo("Eyelashes", curl.c_str())) {
+                    if (ImGui::Selectable("None", p.lashes < 0)) {
+                        p.lashes = -1;
+                        dirty = true;
+                    }
+                    for (int i = 0; i < (int)l.size(); ++i)
+                        if (ImGui::Selectable(("Style " + std::to_string(i + 1)).c_str(),
+                                              p.lashes == i)) {
+                            p.lashes = i;
+                            dirty = true;
+                        }
+                    ImGui::EndCombo();
+                }
+            }
+            dirty |= ImGui::SliderFloat("Stubble", &p.stubble, 0.0f, 1.0f, "%.2f");
+            ImGui::SeparatorText("Makeup");
+            dirty |= ImGui::SliderFloat("Lipstick", &p.lipstick, 0.0f, 1.0f, "%.2f");
+            ImGui::SameLine();
+            color("##lip", p.lipColor);
+            dirty |= ImGui::SliderFloat("Eye shadow", &p.eyeShadow, 0.0f, 1.0f, "%.2f");
+            ImGui::SameLine();
+            color("##shadow", p.eyeShadowColor);
+            dirty |= ImGui::SliderFloat("Blush", &p.blush, 0.0f, 1.0f, "%.2f");
+            ImGui::SeparatorText("Texture");
+            int sizeIdx = p.textureSize >= 512 ? 2 : (p.textureSize >= 256 ? 1 : 0);
+            ImGui::SetNextItemWidth(scaled(120.0f));
+            if (ImGui::Combo("Atlas size", &sizeIdx, "128\0" "256\0" "512\0")) {
+                p.textureSize = sizeIdx == 2 ? 512 : (sizeIdx == 1 ? 256 : 128);
+                dirty = true;
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "The body's one texture - skin, face, eyes and the clothes painted\n"
+                    "on it. GS VRAM is ~1.33 MB with no eviction: 512 is for a hero,\n"
+                    "128 for a crowd (docs/gs-vram.md).");
+            ImGui::EndTabItem();
+        }
+        // -- Outfit ------------------------------------------------------------------
+        if (ImGui::BeginTabItem("Outfit")) {
+            static const char* kSlots[][2] = {{"full", "Outfit (full)"}, {"top", "Top"},
+                                              {"bottom", "Bottom"},      {"feet", "Shoes"},
+                                              {"head", "Hat"},           {"face", "Glasses"},
+                                              {"hands", "Gloves"}};
+            for (const auto& slot : kSlots) {
+                // What is worn in this slot, if anything.
+                int worn = -1;
+                for (int i = 0; i < (int)p.outfit.size(); ++i)
+                    for (const chargen::Item& it : chargen::wardrobe())
+                        if (it.id == p.outfit[i].id && it.slot == slot[0]) worn = i;
+                std::vector<const chargen::Item*> items;
+                for (const chargen::Item& it : chargen::wardrobe())
+                    if (it.slot == slot[0]) items.push_back(&it);
+                if (items.empty()) continue;
+                ImGui::PushID(slot[0]);
+                ImGui::SeparatorText(slot[1]);
+                std::string cur = "None";
+                const chargen::Item* curItem = nullptr;
+                for (const chargen::Item* it : items)
+                    if (worn >= 0 && it->id == p.outfit[worn].id) {
+                        cur = it->label;
+                        curItem = it;
+                    }
+                ImGui::SetNextItemWidth(scaled(220.0f));
+                if (ImGui::BeginCombo("##item", cur.c_str())) {
+                    if (ImGui::Selectable("None", worn < 0) && worn >= 0) {
+                        p.outfit.erase(p.outfit.begin() + worn);
+                        worn = -1;
+                        dirty = true;
+                    }
+                    for (const chargen::Item* it : items)
+                        if (ImGui::Selectable(it->label.c_str(), curItem == it)) {
+                            chargen::Wear w;
+                            w.id = it->id;
+                            if (worn >= 0) {
+                                w.color = p.outfit[worn].color;
+                                w.color2 = p.outfit[worn].color2;
+                                w.pattern = p.outfit[worn].pattern;
+                                p.outfit[worn] = w;
+                            } else {
+                                p.outfit.push_back(w);
+                            }
+                            // A full outfit replaces top and bottom, and the
+                            // other way round.
+                            const std::string s = slot[0];
+                            for (int i = (int)p.outfit.size() - 1; i >= 0; --i) {
+                                for (const chargen::Item& o : chargen::wardrobe())
+                                    if (o.id == p.outfit[i].id && o.id != it->id &&
+                                        ((s == "full" && (o.slot == "top" || o.slot == "bottom")) ||
+                                         ((s == "top" || s == "bottom") && o.slot == "full")))
+                                        p.outfit.erase(p.outfit.begin() + i);
+                            }
+                            dirty = true;
+                        }
+                    ImGui::EndCombo();
+                }
+                worn = -1;
+                for (int i = 0; i < (int)p.outfit.size(); ++i)
+                    for (const chargen::Item& it : chargen::wardrobe())
+                        if (it.id == p.outfit[i].id && it.slot == slot[0]) worn = i;
+                if (worn >= 0) {
+                    chargen::Wear& w = p.outfit[worn];
+                    const chargen::Item* it = nullptr;
+                    for (const chargen::Item& o : chargen::wardrobe())
+                        if (o.id == w.id) it = &o;
+                    if (it && it->dyeable) {
+                        bool recolour = w.color.r >= 0.0f;
+                        if (ImGui::Checkbox("Recolour", &recolour)) {
+                            w.color = recolour ? it->color : chargen::Rgb{-1, -1, -1};
+                            dirty = true;
+                        }
+                        if (ImGui::IsItemHovered())
+                            ImGui::SetTooltip("Off: the garment's own colours. On: its shading is\n"
+                                              "kept and the colour is yours.");
+                        if (recolour) {
+                            color("Colour", w.color);
+                            ImGui::SameLine();
+                            swatches("c1", w.color, kCloth);
+                        }
+                        if (it->twoTone || w.pattern > 0) {
+                            color("Second", w.color2);
+                            ImGui::SameLine();
+                            swatches("c2", w.color2, kCloth);
+                        }
+                        if (slot[0] == std::string("top") || slot[0] == std::string("bottom") ||
+                            slot[0] == std::string("full")) {
+                            const std::vector<std::string>& pats = chargen::patterns();
+                            ImGui::SetNextItemWidth(scaled(150.0f));
+                            if (ImGui::BeginCombo("Pattern", pats[std::clamp(w.pattern, 0, (int)pats.size() - 1)].c_str())) {
+                                for (int i = 0; i < (int)pats.size(); ++i)
+                                    if (ImGui::Selectable(pats[i].c_str(), w.pattern == i)) {
+                                        w.pattern = i;
+                                        dirty = true;
+                                    }
+                                ImGui::EndCombo();
+                            }
+                        }
+                    }
+                }
+                ImGui::PopID();
+            }
+            if (chargen::wardrobe().empty()) ImGui::TextDisabled("This kit has no wardrobe.");
+            ImGui::EndTabItem();
+        }
+        // -- Hair ---------------------------------------------------------------------
+        if (ImGui::BeginTabItem("Hair")) {
+            const std::vector<chargen::Item>& hs = chargen::hairstyles();
+            std::string cur = "Bald";
+            for (const chargen::Item& h : hs)
+                if (h.id == p.hair) cur = h.label;
+            ImGui::SetNextItemWidth(scaled(220.0f));
+            if (ImGui::BeginCombo("Style", cur.c_str())) {
+                if (ImGui::Selectable("Bald", p.hair.empty())) {
+                    p.hair.clear();
                     dirty = true;
                 }
-            ImGui::EndCombo();
-        }
-        const int sizes[] = {64, 128, 256};
-        int sizeIdx = p.textureSize >= 256 ? 2 : (p.textureSize >= 128 ? 1 : 0);
-        ImGui::SetNextItemWidth(scaled(120.0f));
-        if (ImGui::Combo("Size", &sizeIdx, "64\0" "128\0" "256\0")) {
-            p.textureSize = sizes[sizeIdx];
-            dirty = true;
-        }
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip(
-                "Baked into the .glb. GS VRAM is ~1.33 MB with no eviction,\n"
-                "so a crowd wants 64 or 128 (see docs/gs-vram.md).");
-    }
-
-    if (ImGui::CollapsingHeader("Wardrobe", ImGuiTreeNodeFlags_DefaultOpen)) {
-        // Each garment is its own mesh part with its own texture, and the body
-        // it covers is dropped rather than left to poke through.
-        auto slot = [&](const char* label, const std::vector<std::string>& list, int& index) {
-            const char* current =
-                index >= 0 && index < (int)list.size() ? list[index].c_str() : "(none)";
-            ImGui::SetNextItemWidth(scaled(200.0f));
-            if (ImGui::BeginCombo(label, current)) {
-                if (ImGui::Selectable("(none)", index < 0)) {
-                    index = -1;
-                    dirty = true;
-                }
-                for (int i = 0; i < (int)list.size(); ++i)
-                    if (ImGui::Selectable(list[i].c_str(), index == i)) {
-                        index = i;
+                for (const chargen::Item& h : hs)
+                    if (ImGui::Selectable(h.label.c_str(), h.id == p.hair)) {
+                        p.hair = h.id;
                         dirty = true;
                     }
                 ImGui::EndCombo();
             }
-        };
-        slot("Clothes", chargen::clothesList(), p.clothes);
-        slot("Shoes", chargen::shoesList(), p.shoes);
-        slot("Hair", chargen::hairList(), p.hair);
-        ImGui::SetNextItemWidth(scaled(200.0f));
-        if (ImGui::Combo("Detail", &p.clothingDetail, "Low\0" "Medium\0" "High\0"))
-            dirty = true;
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip(
-                "Triangle budget per garment (~500 / 1100 / 2200).\n"
-                "The source meshes are 3.5k-16k triangles - built for offline\n"
-                "rendering - and they start tearing below about 1000, so Low\n"
-                "is for crowds, not for a hero.");
-        if (chargen::clothesList().empty())
-            ImGui::TextDisabled("No wardrobe installed - re-run setup.ps1.");
-    }
-
-    if (ImGui::CollapsingHeader("Animation", ImGuiTreeNodeFlags_DefaultOpen)) {
-        if (ImGui::Checkbox("Procedural clips", &p.animations)) dirty = true;
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip(
-                "Generate idle / walk / run / jump on the rig.\n"
-                "Those are the clip names the generated game's third-person\n"
-                "locomotion looks for, so a character used as a Player avatar\n"
-                "walks and runs with no further setup.");
-        ImGui::BeginDisabled(!p.animations);
-        charanim::Params& a = p.anim;
-        dirty |= ImGui::SliderFloat("Walk cycle", &a.walkSeconds, 0.5f, 2.0f, "%.2f s");
-        dirty |= ImGui::SliderFloat("Run cycle", &a.runSeconds, 0.3f, 1.2f, "%.2f s");
-        dirty |= ImGui::SliderFloat("Stride", &a.stride, 0.3f, 1.8f, "%.2f");
-        dirty |= ImGui::SliderFloat("Arm swing", &a.armSwing, 0.0f, 2.0f, "%.2f");
-        dirty |= ImGui::SliderFloat("Posture", &a.posture, -1.0f, 1.0f, "%.2f");
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("-1 slouched ... +1 upright");
-        dirty |= ImGui::SliderFloat("Idle motion", &a.idleMotion, 0.0f, 2.0f, "%.2f");
-        ImGui::EndDisabled();
-
-        ImGui::Spacing();
-        // An imported library replaces the procedural clips. Any rig whose
-        // bones carry Mixamo names works - which is the whole reason the
-        // generated rig carries them.
-        if (ImGui::Button("Import clips...")) {
-            const std::string file = pickPath(PickKind::ObjModel);
-            if (!file.empty()) {
-                p.animSource = file;
-                dirty = true;
-            }
-        }
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip(
-                "Retarget a .glb/.fbx animation library (Mixamo and anything\n"
-                "else that names its bones the same way) onto this character.\n"
-                "Replaces the procedural clips.");
-        if (!p.animSource.empty()) {
+            color("Hair colour", p.hairColor);
             ImGui::SameLine();
-            if (ImGui::SmallButton("Clear##animsrc")) {
-                p.animSource.clear();
-                dirty = true;
-            }
-            const size_t slash = p.animSource.find_last_of("/\\");
-            ImGui::TextWrapped(
-                "%s", slash == std::string::npos ? p.animSource.c_str()
-                                                 : p.animSource.c_str() + slash + 1);
-            ImGui::SetNextItemWidth(scaled(120.0f));
-            if (ImGui::SliderFloat("Key rate", &p.retarget.fps, 8.0f, 30.0f, "%.0f fps"))
-                dirty = true;
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip(
-                    "Mixamo exports a key per frame for every bone; the EE\n"
-                    "evaluates those, so resampling is most of the saving.");
-            if (ImGui::Checkbox("In place", &p.retarget.inPlace)) dirty = true;
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("Strip horizontal root motion - the game moves the character.");
-            if (ImGui::Checkbox("Feet on the floor", &p.retarget.ground.enabled)) dirty = true;
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip(
-                    "Plant a standing foot and level its sole.\n"
-                    "Rotations alone do not know where the floor is: a source rig\n"
-                    "of different proportions puts the foot through it or above it,\n"
-                    "and a source that never solves the ankle (ARKit does not)\n"
-                    "points the toe at whatever the shin is doing.");
+            swatches("hair", p.hairColor, kHair);
+            ImGui::TextDisabled("The brows and stubble follow the hair colour.");
+            ImGui::EndTabItem();
         }
+        // -- Animation -----------------------------------------------------------------
+        if (ImGui::BeginTabItem("Animation")) {
+            if (ImGui::Checkbox("Standard set", &p.defaultClips)) dirty = true;
+            if (ImGui::IsItemHovered()) {
+                std::string tip = "Locomotion under the names the third-person player looks for:\n";
+                for (const auto& [src, dst] : chargen::defaultClipSet())
+                    tip += "  " + dst + "  (" + src + ")\n";
+                ImGui::SetTooltip("%s", tip.c_str());
+            }
+            ImGui::SetNextItemWidth(scaled(120.0f));
+            dirty |= ImGui::SliderFloat("Key rate", &p.animFps, 8.0f, 30.0f, "%.0f fps");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Keys per second written into the clips. The EE evaluates\n"
+                                  "them, so lower is cheaper; 15 is plenty at PS2 range.");
+            if (!p.defaultClips) {
+                ImGui::SetNextItemWidth(scaled(200.0f));
+                ImGui::InputTextWithHint("##clipfilter", "filter", charClipFilter_,
+                                         sizeof(charClipFilter_));
+                ImGui::BeginChild("clips", ImVec2(0, scaled(260.0f)), true);
+                std::string filter = charClipFilter_;
+                std::transform(filter.begin(), filter.end(), filter.begin(), ::tolower);
+                for (const chargen::ClipInfo& c : chargen::kitClips()) {
+                    std::string low = c.name;
+                    std::transform(low.begin(), low.end(), low.begin(), ::tolower);
+                    if (!filter.empty() && low.find(filter) == std::string::npos) continue;
+                    bool on = std::find(p.clips.begin(), p.clips.end(), c.name) != p.clips.end();
+                    char label[96];
+                    std::snprintf(label, sizeof(label), "%s  (%.1f s%s)", c.name.c_str(),
+                                  c.seconds, c.loop ? ", loop" : "");
+                    if (ImGui::Checkbox(label, &on)) {
+                        if (on)
+                            p.clips.push_back(c.name);
+                        else
+                            p.clips.erase(std::remove(p.clips.begin(), p.clips.end(), c.name),
+                                          p.clips.end());
+                        dirty = true;
+                    }
+                }
+                ImGui::EndChild();
+                if (ImGui::SmallButton("Start from the standard set")) {
+                    p.clips.clear();
+                    for (const auto& [src, dst] : chargen::defaultClipSet()) p.clips.push_back(src);
+                    dirty = true;
+                }
+            }
+            ImGui::TextDisabled("Motion: Quaternius, Universal Animation Library (CC0).");
+            ImGui::Spacing();
+            // An imported library replaces the kit's clips. Any rig whose bones
+            // carry Mixamo names works - that is what the bone naming is for.
+            if (ImGui::Button("Import clips...")) {
+                const std::string file = pickPath(PickKind::ObjModel);
+                if (!file.empty()) {
+                    p.animSource = file;
+                    dirty = true;
+                }
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Retarget a .glb/.fbx animation library (Mixamo-named) or a\n"
+                                  "phone .tmocap take onto this character, instead of the kit's.");
+            if (!p.animSource.empty()) {
+                ImGui::SameLine();
+                if (ImGui::SmallButton("Clear##animsrc")) {
+                    p.animSource.clear();
+                    dirty = true;
+                }
+                const size_t slash = p.animSource.find_last_of("/\\");
+                ImGui::TextWrapped("%s", slash == std::string::npos
+                                             ? p.animSource.c_str()
+                                             : p.animSource.c_str() + slash + 1);
+                if (ImGui::Checkbox("In place", &p.retarget.inPlace)) dirty = true;
+                if (ImGui::Checkbox("Feet on the floor", &p.retarget.ground.enabled)) dirty = true;
+            }
+            ImGui::EndTabItem();
+        }
+        ImGui::EndTabBar();
     }
 
     ImGui::Separator();
     if (!charBuildError_.empty()) {
         ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f), "%s", charBuildError_.c_str());
     } else if (!charSkel_.parts.empty()) {
-        ImGui::Text("%d triangles, %d bones, %d texture%s",
+        ImGui::Text("%d triangles, %d bones, %d texture%s, %d clips",
                     charSkel_.totalVertexCount() / 3, (int)charSkel_.palette.size(),
-                    (int)charSkel_.images.size(), charSkel_.images.size() == 1 ? "" : "s");
-        if (charSkel_.parts.size() > 1) {
-            // Worth breaking out: a garment can easily outweigh the body.
-            std::string per;
-            for (const glbparser::SkelPart& sp : charSkel_.parts) {
-                const size_t colon = sp.material.find(':');
-                per += (per.empty() ? "" : ", ") +
-                       (colon == std::string::npos ? sp.material : sp.material.substr(colon + 1)) +
-                       " " + std::to_string(sp.vertexCount / 3);
-            }
-            ImGui::TextDisabled("%s", per.c_str());
-        }
+                    (int)charSkel_.images.size(), charSkel_.images.size() == 1 ? "" : "s",
+                    (int)charSkel_.clips.size());
         ImGui::Text("~%d KB of PS2 RAM", (int)(charSkel_.ps2Bytes() / 1024));
         if (ImGui::IsItemHovered())
-            ImGui::SetTooltip(
-                "Model data plus one instance's skinned output buffers.\n"
-                "Each texture is a separate GS VRAM allocation - the budget\n"
-                "is ~1.33 MB with no eviction (docs/gs-vram.md).");
+            ImGui::SetTooltip("Model data plus one instance's skinned output buffers.");
     }
     for (const std::string& w : charWarnings_)
         ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.35f, 1.0f), "%s", w.c_str());
@@ -17907,7 +18142,7 @@ void App::drawCharacterGeneratorWindow() {
     // ---- right: live preview ------------------------------------------------
     ImGui::SameLine();
     ImGui::BeginGroup();
-    const bool hasClips = charParams_.animations && !charSkel_.clips.empty();
+    const bool hasClips = !charSkel_.clips.empty();
     const float footer = ImGui::GetFrameHeightWithSpacing() * (hasClips ? 3.0f : 2.0f) +
                          scaled(8.0f);
     const int pw = (int)std::max(64.0f, ImGui::GetContentRegionAvail().x);
@@ -17915,8 +18150,6 @@ void App::drawCharacterGeneratorWindow() {
 
     if (charGenSpin_) charGenAngle_ += io.DeltaTime * 26.0f;
 
-    // Clip playback. Posing is a few hundred microseconds; the version bump it
-    // does is what makes the viewport re-upload the skinned mesh.
     if (hasClips) {
         if (charClip_ < 0 || charClip_ >= (int)charSkel_.clips.size()) charClip_ = 0;
         const float duration = std::max(0.001f, charSkel_.clips[charClip_].duration);
@@ -17937,7 +18170,6 @@ void App::drawCharacterGeneratorWindow() {
             dp.texW = charPrevTex_[i].w;
             dp.texH = charPrevTex_[i].h;
         }
-        // chargen tags the alpha-tested parts by material prefix.
         dp.cutout = i < charSkel_.parts.size() &&
                     charSkel_.parts[i].material.rfind("hair:", 0) == 0;
     }
@@ -17972,7 +18204,7 @@ void App::drawCharacterGeneratorWindow() {
     }
 
     if (hasClips) {
-        ImGui::SetNextItemWidth(scaled(110.0f));
+        ImGui::SetNextItemWidth(scaled(140.0f));
         if (ImGui::BeginCombo("##charclip", charSkel_.clips[charClip_].name.c_str())) {
             for (int i = 0; i < (int)charSkel_.clips.size(); ++i)
                 if (ImGui::Selectable(charSkel_.clips[i].name.c_str(), charClip_ == i)) {
@@ -17998,6 +18230,12 @@ void App::drawCharacterGeneratorWindow() {
     bool wire = charGenDisplayMode_ == 1;
     if (ImGui::Checkbox("Wireframe", &wire)) charGenDisplayMode_ = wire ? 1 : 0;
     ImGui::SameLine();
+    if (ImGui::SmallButton("Face")) {
+        charGenAngle_ = 0.0f;
+        charGenPitch_ = 0.0f;
+        charGenZoom_ = 4.5f;
+    }
+    ImGui::SameLine();
     if (ImGui::SmallButton("Reset view")) {
         charGenAngle_ = 20.0f;
         charGenPitch_ = 6.0f;
@@ -18011,8 +18249,8 @@ void App::drawCharacterGeneratorWindow() {
     if (ImGui::Button("Add to scene")) addCharacterToScene();
     ImGui::EndDisabled();
     if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Write the .glb into res/models/characters and drop a\n"
-                          "Model object into the current scene.");
+        ImGui::SetTooltip("Write the .glb (and its .chargen.json recipe) into\n"
+                          "res/models/characters and drop a Model object into the scene.");
     ImGui::EndGroup();
 
     if (dirty) charPreviewDirty_ = true;
@@ -18035,10 +18273,15 @@ void App::addCharacterToScene() {
         name = base + "-" + std::to_string(n);
 
     std::string rel, err;
-    if (!chargen::writeAsset(project_.dir, name, charSkel_, &rel, &err)) {
+    if (!chargen::writeAsset(project_.dir, name, charSkel_, charParams_, &rel, &err)) {
         statusMessage_ = "Character export failed: " + err;
         return;
     }
+    // A face does not survive the project's default 4-bit palette - skin is
+    // one long gradient and bands into stripes at 16 colours. 8 bits is the
+    // same 256x256 atlas at 64 KB of GS VRAM (texbake claims the .glb's
+    // extracted images through this override).
+    project_.textureQuality[rel] = "8bit";
     addModelObject(rel);  // creates the Model object + commitChange()
     const int tris = charSkel_.totalVertexCount() / 3;
     statusMessage_ =
