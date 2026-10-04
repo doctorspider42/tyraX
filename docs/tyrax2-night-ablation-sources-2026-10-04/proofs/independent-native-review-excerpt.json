@@ -1,0 +1,134 @@
+{
+  "excerptOnly": true,
+  "originalPath": "F:/Projects/tyrax2-lab-20261001/night-ablation-native-review-v2/proof.json",
+  "originalSha256": "b12b9774a8fe3b6957c8969fded6e3bc4d237f3196e198bfcca52f9c41ac5ff3",
+  "verbatimFields": {
+    "status": "PASS_INDEPENDENT_V2_NATIVE_BUILD_SOURCE_MIRRORS_ABI_ASSETS_FORMAT_CLEAR",
+    "blockers": [],
+    "compilerBlockers": [],
+    "launchBlockers": [],
+    "sourceManifestSha256": "e2554b9621a392e03db2372d11fdc3ff7f4022cd2d8cca5ee240e8e1a39c6083",
+    "actualMirroredNativeInputs": 488,
+    "sourceManifestInputs": 497,
+    "formatWarningCount": 0,
+    "actualELFSha256": "e637894e74faec5a4c0cc5d852039ed9e8d15f194b1b89291ea73e0022205b25",
+    "actualSymbolSha256": "cdf66bcb72c38e7efe069f2adb966fb5ead023f331685bb6cdde713b2b1c1eb5",
+    "matchingTextSha256": "655e3a7828c66dcf1521dd6355a80ba4a71e40ec5dd14a3a187877d25bbe82c1",
+    "matchingTextBytes": 2962304,
+    "matchingTextAddress": 1048576,
+    "actualAbiAccepted": true,
+    "headerBoundV1TargetAbiReuse": true,
+    "actualTargetAbi": {
+      "status": "PASS_ACTUAL_R5900_COMPILE_ONLY_NIGHT_LAYOUT",
+      "sizes": {
+        "Sample": 48,
+        "samples": 6144,
+        "Chunk": 28,
+        "chunks": 420,
+        "Counter": 16,
+        "commonCounter": 112
+      },
+      "commands": [
+        [
+          "/home/spider/.cache/tyrax/native/toolchains/eff2c8918589264d49aa9a0f/ee/bin/mips64r5900el-ps2-elf-g++",
+          "-std=c++17",
+          "-O2",
+          "-G0",
+          "-I",
+          "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-physical-v1/tyra/engine/inc",
+          "-c",
+          "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-target-abi-v1/layout.cpp",
+          "-o",
+          "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-target-abi-v1/layout.o"
+        ],
+        [
+          "/home/spider/.cache/tyrax/native/toolchains/eff2c8918589264d49aa9a0f/ee/bin/mips64r5900el-ps2-elf-objcopy",
+          "-O",
+          "binary",
+          "-j",
+          ".rodata",
+          "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-target-abi-v1/layout.o",
+          "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-target-abi-v1/layout.bin"
+        ]
+      ],
+      "inputHashes": {
+        "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-physical-v1/tyra/engine/inc/debug/night_sampler.hpp": "b51b72a79d1ede2553d46fb9bf2fbe112fa5ad0796a8f88fb02dbec86464c7d6",
+        "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-physical-v1/tyra/engine/inc/debug/night_ablation.hpp": "c7719fa677b55c246624419b32e457f66d28a5965e074f31980a6e610149d5eb",
+        "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-target-abi-v1/layout.cpp": "9bd198682d20fe6bbb555fadb1e28a842fe40f0e7ace55f5d5c770fb1f8a8f4c",
+        "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-target-abi-v1/layout.o": "61120f043bf929c7c08f4010d4457e55961dd1c4051125010a49db2b3405e839",
+        "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-target-abi-v1/layout.bin": "e84cf16a2843312801b47838996fdccd76f3a21997abc7a3376d22011227d140",
+        "/home/spider/.cache/tyrax/native/toolchains/eff2c8918589264d49aa9a0f/ee/bin/mips64r5900el-ps2-elf-g++": "04212da9b41c83d31f478060b3af9619fcadb8d0381187006ee0df388e118f6d",
+        "/home/spider/.cache/tyrax/native/toolchains/eff2c8918589264d49aa9a0f/ee/bin/mips64r5900el-ps2-elf-objcopy": "f7851bf0575b53aae768fdb522e4f9a09d37371bdab3aa19533327b91c7e2553"
+      },
+      "runtimeOrFullApplicationFootprintAccepted": false,
+      "helperSha256": "59c994e63eb20d147997158e93fd705981d938388abea82b075869c21622b2cb"
+    },
+    "nativeExitProvenanceConfirmed": true,
+    "baselineSPRCallFootprintAbsent": true,
+    "runtimeRasterGainOr60FPSAccepted": false,
+    "commonApparatusOrApplicationFootprintPriced": false,
+    "limits": [
+      ".d covers actual C++ dependencies; absence in .d does not prove unused VU/include/system context.",
+      "Actual ABI type/array bytes are not full application footprint or common-cost pricing.",
+      "Actual hardware gate activation, restore visuals, both-order elapsed comparison and modulo-duration sanity remain separate runtime gates."
+    ]
+  },
+  "archivedSourceNativeMappings": {
+    "game/inc/game_runtime.gen.hpp": {
+      "actualPath": "/home/spider/.cache/tyrax/native/projects/ffd9d57414cd4ece1279e865/inc/game_runtime.gen.hpp",
+      "sha256": "adea1c59013f8a163a1642a8465a5c0645c2fea636515aca45a8ee6714613b8f"
+    },
+    "game/src/gen/game_collision.gen.cpp": {
+      "actualPath": "/home/spider/.cache/tyrax/native/projects/ffd9d57414cd4ece1279e865/src/gen/game_collision.gen.cpp",
+      "sha256": "e4979af1242d71541c27bd0c19d2894c97cb12e8568e7603fd5d41d4bab06737"
+    },
+    "game/src/gen/game_lighting.gen.cpp": {
+      "actualPath": "/home/spider/.cache/tyrax/native/projects/ffd9d57414cd4ece1279e865/src/gen/game_lighting.gen.cpp",
+      "sha256": "88552805fa1520c3caff7ff616926ef7e041d6bd665a2de404a42a25037e6f3e"
+    },
+    "game/src/gen/game_physics.gen.cpp": {
+      "actualPath": "/home/spider/.cache/tyrax/native/projects/ffd9d57414cd4ece1279e865/src/gen/game_physics.gen.cpp",
+      "sha256": "1dadb1af0699eae6a761026ebeee4ceaaa6b8305571cfc1e78f92ac4726b30b6"
+    },
+    "game/src/gen/game_scene.gen.cpp": {
+      "actualPath": "/home/spider/.cache/tyrax/native/projects/ffd9d57414cd4ece1279e865/src/gen/game_scene.gen.cpp",
+      "sha256": "64f897d08ecddf064fbc5c0d6567070754c3de417133d20c40971dabaaf9ae3a"
+    },
+    "game/src/gen/game_vehicles.gen.cpp": {
+      "actualPath": "/home/spider/.cache/tyrax/native/projects/ffd9d57414cd4ece1279e865/src/gen/game_vehicles.gen.cpp",
+      "sha256": "48741694a7d7fcab5a4c51782cb3f647f5c4263b1434a4b1acf4cd5a49aad8cf"
+    },
+    "game/src/terrain_game.cpp": {
+      "actualPath": "/home/spider/.cache/tyrax/native/projects/ffd9d57414cd4ece1279e865/src/terrain_game.cpp",
+      "sha256": "3b794b119af9ed8f7a89e68832abf39db4313e34945d7c7d71017ebd18d1048b"
+    },
+    "tyra/engine/inc/debug/night_ablation.hpp": {
+      "actualPath": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/debug/night_ablation.hpp",
+      "sha256": "c7719fa677b55c246624419b32e457f66d28a5965e074f31980a6e610149d5eb"
+    },
+    "tyra/engine/inc/debug/night_plan.hpp": {
+      "actualPath": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/debug/night_plan.hpp",
+      "sha256": "cc3a59f8d8291f51f08284ffef2aa34e1c73bfca0599cbc94b905f1084707c6d"
+    },
+    "tyra/engine/inc/debug/night_runtime.hpp": {
+      "actualPath": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/debug/night_runtime.hpp",
+      "sha256": "a54fd47eb42bce56e434edb8ccb54bb266a32f639453b1d6c5d295e55a991eb5"
+    },
+    "tyra/engine/inc/debug/night_sampler.hpp": {
+      "actualPath": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/debug/night_sampler.hpp",
+      "sha256": "b51b72a79d1ede2553d46fb9bf2fbe112fa5ad0796a8f88fb02dbec86464c7d6"
+    },
+    "tyra/engine/inc/debug/quiet_cadence.hpp": {
+      "actualPath": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/debug/quiet_cadence.hpp",
+      "sha256": "c6c87c3d9cc6deb6e90fa01d91c86df5ee6be8979b4a8b734a35804d991be6f3"
+    },
+    "tyra/engine/inc/debug/quiet_runtime.hpp": {
+      "actualPath": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/inc/debug/quiet_runtime.hpp",
+      "sha256": "c2b93076926ced36b425bbf2cb5eea738650087192427a1088acbae0058ad07b"
+    },
+    "tyra/engine/src/renderer/core/renderer_core.cpp": {
+      "actualPath": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/core/renderer_core.cpp",
+      "sha256": "3b182efa6acbfa4636afbf1bcc28f4493c4ed3d357878f00ed03c0a3e702f83c"
+    }
+  }
+}

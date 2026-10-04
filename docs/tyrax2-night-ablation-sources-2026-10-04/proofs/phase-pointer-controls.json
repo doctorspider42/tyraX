@@ -1,0 +1,21 @@
+{
+  "status": "PASS_EXISTING_STRICT_PHASE_FIRST_AND_SHARED_POINTER_GUARDS",
+  "results": [
+    {
+      "guard": "wrongPhaseFirst",
+      "rejected": true,
+      "reason": "phase first"
+    },
+    {
+      "guard": "malformedSamplePointer",
+      "rejected": true,
+      "reason": "sample pointer"
+    },
+    {
+      "guard": "driftingSamplePointer",
+      "rejected": true,
+      "reason": "common sample buffer drift"
+    }
+  ],
+  "newParserChanges": false
+}

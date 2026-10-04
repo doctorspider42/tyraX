@@ -1,0 +1,2 @@
+
+Final CLI correction: the inherited draft limited --kind to0..2. Its bytes and original host proof are preserved under host; they are historical, not final acceptance. Current authoritative host controls are host-cli-v2/proof.json, including fresh28 complete transcripts,24 parser rejects and an actual --kind3 CLI invocation. The gate header and five native sampler/runtime headers did not change for this correction.

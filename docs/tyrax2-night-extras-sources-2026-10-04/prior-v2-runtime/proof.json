@@ -1,0 +1,8 @@
+{
+  "status": "PASS_INDEPENDENT_COMPLETED_NIGHT_OWN_CONTRAST_AGGREGATION",
+  "completedRuns": 8,
+  "machineBundleSha256": "7d6be7c4d73ff1c0da95ccd20d06ea9508d1778ed3497de11f92f4c0c81be9f5",
+  "reportSha256": "387ec4f5dbfd5570f0fb5f3c8c5ebdc56f91bc3660542e6baf91014ebe9c7152",
+  "helperSha256": "14059b4e92fa5b66fe4a1c97873b09d4f1e1774216938306d37a77a693e15f02",
+  "performanceGainAccepted": false
+}

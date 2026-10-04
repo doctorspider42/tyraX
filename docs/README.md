@@ -403,6 +403,15 @@ October 4 physical experiments: direct SPR construction regresses by
 The page links the immutable prototype sources and compact evidence record;
 neither policy is promoted to production.
 
+[Joint night ablation](tyrax2-night-ablation.md) describes the next private
+same-ELF joint removal/add-back experiment, its observer controls and separate
+source, emulator and physical acceptance gates. Source/native/emulator gates
+and both physical calibration/joint orders passed. The simplified joint cut
+  has approximately 16.68 ms engine presentation periods. Eight completed
+  physical boots narrow the next subdivision to lighting/receiver extras;
+  reverse add-backs, pool/beam/glow hardware isolation and production
+  full-night performance remain open.
+
 [Batch / texture / program scopes](tyrax2-batch-texture-scopes-2026-10-04.md)
 qualify the V10 inclusive physical interval at 0.751–0.788 ms, with explicit
 observer contrasts and rejected attempts. This interval includes dispatch and

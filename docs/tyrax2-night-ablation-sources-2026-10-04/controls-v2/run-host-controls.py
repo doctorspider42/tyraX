@@ -1,0 +1,19 @@
+from pathlib import Path
+import subprocess,json,importlib.util,hashlib
+p=Path(__file__).parent;host=p/'host';host.mkdir(exist_ok=False)
+sp=importlib.util.spec_from_file_location('night',p/'analyze-night.py');m=importlib.util.module_from_spec(sp);sp.loader.exec_module(m)
+sourceHeader=p.parent/'night-ablation-physical-v2/tyra/engine/inc';commands=[];positives=[];negatives=[]
+plans=[(0,0,0),(1,31,0)]+[(2,31,g)for g in (1,2,4,8,16,14)]
+for opt in ('O0','O2'):
+ exe=host/f'controls-{opt}.exe';cmd=['C:/Users/pawel/scoop/apps/mingw/current/bin/g++.exe','-std=c++17','-'+opt,'-Wall','-Wextra','-Werror','-static','-I',str(p),'-I',str(sourceHeader),str(p/'host-controls.cpp'),'-o',str(exe)];r=subprocess.run(cmd,capture_output=True,text=True);(host/f'build-{opt}.txt').write_text(r.stdout+r.stderr);assert r.returncode==0,r.stderr;commands.append(cmd)
+ for kind,joint,restored in plans:
+  for order in (0,1):
+   stem=f'{opt}-{kind}-{order}-{joint}-{restored}';artifact=host/(stem+'-artifact.log');r=subprocess.run([str(exe),str(kind),str(order),str(joint),str(restored),str(artifact)],cwd=host,capture_output=True,text=True);(host/(stem+'-stdout.log')).write_text(r.stdout,encoding='utf8');(host/(stem+'-run.txt')).write_text(r.stderr);assert r.returncode==0,r.stderr;v=m.analyze(r.stdout,artifact.read_text(), 'host',kind,order,joint,restored);positives.append({'plan':[kind,order,joint,restored],'optimization':opt,'sampleRows':v['sample_rows'],'status':v['status']})
+   if opt=='O0' and(kind,order,joint,restored)==(1,0,31,0):
+    text=r.stdout;art=artifact.read_text();mutants={'unknownPlanField':(text.replace('NIGHTPLAN schema=1','NIGHTPLAN extra=0 schema=1',1),art),'unknownGateField':(text.replace('NIGHTGATES phase=0','NIGHTGATES extra=0 phase=0',1),art),'reservedCounter':(text.replace('attempted32=0','attempted32=1',1),art),'missingCamera':('\n'.join(x for x in text.splitlines()if not x.startswith('LOG: NIGHTCAMERA phase=2 offset=1155 ')),art),'cameraMaskMismatch':(text.replace('sceneGeneration=0 mask=31','sceneGeneration=0 mask=0',1),art),'unknownRawField':(text,art.replace('NIGHTRAW phase=0','NIGHTRAW extra=0 phase=0',1)),'wrongMask':(text.replace('appliedMask=31','appliedMask=0',1),art),'offSamplerJoint':(text.replace('sampler=1','sampler=0',1),art),'badReadCount':(text.replace('countReads=262','countReads=261',1),art),'missingGate':('\n'.join(x for x in text.splitlines()if not x.startswith('LOG: NIGHTGATES phase=2 ')),art),'duplicatePhase':(text+'\n'+next(x for x in text.splitlines()if x.startswith('LOG: NIGHTPHASE ')),art),'missingRaw':(text,'\n'.join(x for x in art.splitlines()if not x.startswith('LOG: NIGHTRAW phase=2 i=127 '))),'wrongFrame':(text,art.replace('frame=900','frame=901',1)),'selectedSubmission':(text.replace('submitted1=0','submitted1=1',1),art),'badGatePartition':(text.replace('skipped1=1','skipped1=0',1),art),'wrongGateWindow':(text.replace('frames=1','frames=2',1),art)}
+    for name,(a,b)in mutants.items():
+     try:m.analyze(a,b,'host',kind,order,joint,restored)
+     except(ValueError,KeyError):negatives.append(name)
+     else:raise AssertionError(name)
+sha=lambda f:hashlib.sha256(f.read_bytes()).hexdigest();r={'status':'PASS_ACTUAL_NIGHT_HEADERS_AND_PROPOSAL_GATE_HEADER_HOST_ONLY','sourceBaselineProductionHEAD':'54b7e03','positiveCompleteTranscripts':len(positives),'positives':positives,'negativeParserGuards':negatives,'commands':commands,'sourcePins':{str(f):sha(f)for f in (p/'night_sampler.hpp',p/'night_plan.hpp',p/'night_runtime.hpp',sourceHeader/'debug/night_ablation.hpp')},'nativeOrRuntimeAccepted':False,'perObjectClocks':False,'samplerOnReads262OffReads6':True,'proposalGateCountersAreAttemptNotEligibility':True}
+(host/'proof.json').write_text(json.dumps(r,indent=2)+'\n');print('PASS',len(positives),len(negatives),sha(host/'proof.json'))

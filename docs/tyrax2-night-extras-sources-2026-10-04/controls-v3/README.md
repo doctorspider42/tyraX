@@ -1,0 +1,9 @@
+# Night V3 extra subset proposal and host controls
+
+New kind3 preserves ordinary mask0 and samplerOn for all three phases. Config `3 order 0 extraDisabled` selects a nonzero subset1..7 of Pools1, BeamsCoronas2, VehicleLampGlow4. Order0 uses Full/Cut/Full and order1 Cut/Full/Cut. Old kinds retain their original ordinary masks, sampler schedules and extraMask0. The same sampler header and original Count seams are retained; no fences, fixed timestep or per-object clocks are added.
+
+Runtime applies ordinary and extra masks together before the loop. It emits three exact NIGHTEXTRAPHASE records and six exact NIGHTEXTRAGATES one-frame witnesses at untimed750/1155. Counter collection remains disabled inside800..1119 and every other loop. All numeric printf/fprintf arguments use explicit unsigned casts for the PS2 uint32_t ABI. Reserved ordinary32/64 remainzero.
+
+Fresh compact O0/O2 controls run complete5400-loop transcripts for old observer/joint/addback smoke cases plus all three individual extras and their combined subset, both orders. Controls check actual262/6 Count reads and byte-identical ordinary/extra counters on every non-witness loop. Parser rejects exact-schema drift, mask/ownership/partition errors, bad config, raw and pointer failures. This is a new proposal/host closure; old V2 artifacts remain untouched and the full older suite is not claimed rerun.
+
+Sparse submitted counters are submission-attempt witnesses, not DMA emissions or full-window eligibility. Changed effects and adaptive routing may change cadence. Own Full/Cut comparisons include existing waits and timing response; no universal observer correction, group additivity, pure EE cost, physical gain or visual/runtime authority is supplied by these host controls. Root owns fresh source freeze, actual native ABI/build and target qualification.

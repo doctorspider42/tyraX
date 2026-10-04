@@ -1,0 +1,24 @@
+{
+  "status": "PASS_INDEPENDENT_V2_ENGINE_GATE_OBJECTS_ACTUAL_LINK_ARCHIVE_BYTE_MEMBERSHIP",
+  "blockers": [],
+  "nativeProofSha256": "b12b9774a8fe3b6957c8969fded6e3bc4d237f3196e198bfcca52f9c41ac5ff3",
+  "actualArchivePath": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/bin/libtyra.a",
+  "actualArchiveSha256": "24a36ef030d88899ecae6f0089b7a33ff7a9907c6b450a76df18b3127aa4255a",
+  "engineGateObjects": [
+    {
+      "source": "tyra/engine/src/engine.cpp",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/engine.o",
+      "sha256": "189ef3db0a2c6eec78ad8e2ce6e54dee436bf43373d3820040087d6f29c0c5ac",
+      "actualArchiveMemberBytesExact": true
+    },
+    {
+      "source": "tyra/engine/src/renderer/core/renderer_core.cpp",
+      "actualObject": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/core/renderer_core.o",
+      "sha256": "13107e12a2af0092a07895055090d296087c336d0d29a44700b3bc9fa7b26818",
+      "actualArchiveMemberBytesExact": true
+    }
+  ],
+  "qualification": "Actual V2 ar command assembles libtyra.a and V2 link uses exact engine bin -ltyra. Reused renderer object is byte-identical to a member of this actual archive; unchanged .d/source and prior V1 compile authority are bound in native proof. No fresh recompilation asserted.",
+  "nativeAccepted": true,
+  "runtimeOrRasterAccepted": false
+}

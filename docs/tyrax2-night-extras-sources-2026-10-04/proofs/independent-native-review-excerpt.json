@@ -1,0 +1,77 @@
+{
+  "fullExternalProofPath": "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-native-review-v3\\proof.json",
+  "fullExternalProofSha256": "db931089f77d0cac76e71de32b71fb4f6a720adedc0af6a181fc2a2d6bdb171a",
+  "excerpt": {
+    "status": "PASS_INDEPENDENT_V3_NATIVE_BUILD_ACTUAL_SOURCE_MIRRORS_ABI_ASSETS_FORMAT_CLEAR",
+    "blockers": [],
+    "compilerBlockers": [],
+    "launchBlockers": [],
+    "newV3TargetAbiCompileAccepted": true,
+    "formatWarningCount": 0,
+    "actualAbiAccepted": true,
+    "sourceManifestSha256": "3e895d8224297c66169bf2a01cabc0dfd1fd1e0c9fee8a77c3c77de88bb14dad",
+    "actualMirroredNativeInputs": 488,
+    "sourceManifestInputs": 497,
+    "actualELFSha256": "6c8ca75370ed92d8825b84ec5db3ef00dd75ead6472e7f3f9c40c4df770b9d0b",
+    "actualSymbolSha256": "769792d39fea45a28d1279fa3c5060817aaf3ec4752380e1a659cc28a19f3250",
+    "matchingTextSha256": "12f9ec5b3d3976f46570435d600331248f7582ccc639b675d654e0253d62e2e0",
+    "matchingTextBytes": 2963112,
+    "matchingTextAddress": 1048576,
+    "actualTargetAbi": {
+      "status": "PASS_ACTUAL_R5900_COMPILE_ONLY_NIGHT_LAYOUT",
+      "sizes": {
+        "Sample": 48,
+        "samples": 6144,
+        "Chunk": 28,
+        "chunks": 420,
+        "Counter": 16,
+        "commonCounter": 112,
+        "extraCounter": 48
+      },
+      "commands": [
+        [
+          "/home/spider/.cache/tyrax/native/toolchains/eff2c8918589264d49aa9a0f/ee/bin/mips64r5900el-ps2-elf-g++",
+          "-std=c++17",
+          "-O2",
+          "-G0",
+          "-I",
+          "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-physical-v3/tyra/engine/inc",
+          "-c",
+          "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-target-abi-v3/layout.cpp",
+          "-o",
+          "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-target-abi-v3/layout.o"
+        ],
+        [
+          "/home/spider/.cache/tyrax/native/toolchains/eff2c8918589264d49aa9a0f/ee/bin/mips64r5900el-ps2-elf-objcopy",
+          "-O",
+          "binary",
+          "-j",
+          ".rodata",
+          "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-target-abi-v3/layout.o",
+          "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-target-abi-v3/layout.bin"
+        ]
+      ],
+      "inputHashes": {
+        "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-physical-v3/tyra/engine/inc/debug/night_sampler.hpp": "b51b72a79d1ede2553d46fb9bf2fbe112fa5ad0796a8f88fb02dbec86464c7d6",
+        "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-physical-v3/tyra/engine/inc/debug/night_ablation.hpp": "afac4fddf3c41977f22e64a00c15cdbf0e17342de49149fb529bc533a3fb54c3",
+        "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-physical-v3/tyra/engine/inc/debug/night_plan.hpp": "01b144f310cea1dc01df440001b127ff5f69b2f0d83db635dd9d44af105a48ca",
+        "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-target-abi-v3/layout.cpp": "fb95e67af0a4c0367bf462e917e3f9b294d97705f0788691d5b0a72d56eba3d8",
+        "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-target-abi-v3/layout.o": "36df40055589f89f87599813b201f1d6be1ca5722c7f21e24d9fe733650bbdd9",
+        "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-target-abi-v3/layout.bin": "3a6955309c687994f5b4ff0469830cfa2153fd0a04c2fb3acd9e9c3be4fae243",
+        "/home/spider/.cache/tyrax/native/toolchains/eff2c8918589264d49aa9a0f/ee/bin/mips64r5900el-ps2-elf-g++": "04212da9b41c83d31f478060b3af9619fcadb8d0381187006ee0df388e118f6d",
+        "/home/spider/.cache/tyrax/native/toolchains/eff2c8918589264d49aa9a0f/ee/bin/mips64r5900el-ps2-elf-objcopy": "f7851bf0575b53aae768fdb522e4f9a09d37371bdab3aa19533327b91c7e2553"
+      },
+      "runtimeOrFullApplicationFootprintAccepted": false,
+      "helperSha256": "4228700b0135c38a1a25f1936df06556a3c18f8fb5dd00a505e9709af38639c4"
+    },
+    "nativeExitProvenanceConfirmed": true,
+    "baselineSPRCallFootprintAbsent": true,
+    "runtimeRasterGainOr60FPSAccepted": false,
+    "commonApparatusOrApplicationFootprintPriced": false,
+    "limits": [
+      ".d covers actual C++ dependencies; absence in .d does not prove unused VU/include/system context.",
+      "Actual ABI type/array bytes are not full application footprint or common-cost pricing.",
+      "Actual hardware gate activation, restore visuals, both-order elapsed comparison and modulo-duration sanity remain separate runtime gates."
+    ]
+  }
+}

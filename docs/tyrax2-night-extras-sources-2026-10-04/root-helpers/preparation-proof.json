@@ -1,0 +1,18 @@
+{
+  "status": "PREPARED_ROOT_V3_HELPERS_NOT_EXECUTED_ON_RUNTIME",
+  "sourceHelper": "8278502737f8d9882d8490b417cb1880fe09061f51aca3501e4770851dae11ce",
+  "files": {
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-root-v3\\build-native.ps1": "f1ba782eff8a5db613b028b30f9d93b90452eec15890770de00c18679dcf2255",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-root-v3\\compile-abi.py": "4228700b0135c38a1a25f1936df06556a3c18f8fb5dd00a505e9709af38639c4",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-root-v3\\complete-native-provenance.py": "a70636f6d3da4c37052b241e396cc2e072b54bc963b4f809d2fefc70da6fccda",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-root-v3\\finish-physical.ps1": "5c7210868ac07661d7c0caab25a9eb9d5bcc38bdb3dabcfe17cbc67028b630b1",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-root-v3\\freeze-input.py": "77782bdac4362671e6a14a8078665eb541e7e19ffb73d1592388020d7fb97550",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-root-v3\\launch-emulator.py": "05ea639479dd1d7abd7b9b3f0ba37c53d168ed2fe494d8017c90d2fe949c7e54",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-root-v3\\launch-physical-observed.py": "ce00cde47e44dcaa1d4ab79f04d4458594a4e901dd23500fffee50807e6a7838",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-root-v3\\prepare-physical.py": "ee38d971ef20525464a0981945a0b4259b954f5482ef3479a351be66719af518",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-root-v3\\stop-emulator.py": "c50fcd43b02e253014de9c3e3cdb3d09b3e16d59a49a3503e0e61961e4745597",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-runtime-tools-v3\\freeze-completed.py": "43cf77805cf3f93642e41bf00e75c9c5385057f5a08b788cf7c836c2a5b0fb10",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-runtime-tools-v3\\normalize-physical.py": "8fabee7d7ee6c471b1f9e782eb727a6902a0a53a31dbbb4058b11c351e7cdad1"
+  },
+  "originalV2Untouched": true
+}

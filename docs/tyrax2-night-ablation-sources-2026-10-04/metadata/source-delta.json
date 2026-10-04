@@ -1,0 +1,112 @@
+{
+  "status": "EXACT_FROZEN_V2_SOURCE_DELTA_FROM_FRESH_REFERENCE",
+  "referenceManifestSha256": "880b100f80e2c6ffac1e627c1a56258cc755c68d7c5e13f419d981f485bb3d92",
+  "frozenManifestSha256": "e2554b9621a392e03db2372d11fdc3ff7f4022cd2d8cca5ee240e8e1a39c6083",
+  "referenceFiles": 493,
+  "frozenFiles": 497,
+  "changedExistingFiles": 10,
+  "newHeaders": 4,
+  "removedFiles": [],
+  "changes": {
+    "game/inc/game_runtime.gen.hpp": {
+      "beforeSha256": "2ece5c35ef41a10eceb6a6b6cba37375eaf15d74a70735e7c07a6cf50ae98ccb",
+      "afterSha256": "adea1c59013f8a163a1642a8465a5c0645c2fea636515aca45a8ee6714613b8f",
+      "beforeBytes": 200610,
+      "afterBytes": 200891,
+      "afterCRBytes": 0
+    },
+    "game/src/gen/game_collision.gen.cpp": {
+      "beforeSha256": "577719ae1cb0ce88194802d4e852de115f21a83336df71296d222ab13e76c20d",
+      "afterSha256": "e4979af1242d71541c27bd0c19d2894c97cb12e8568e7603fd5d41d4bab06737",
+      "beforeBytes": 442110,
+      "afterBytes": 442682,
+      "afterCRBytes": 0
+    },
+    "game/src/gen/game_lighting.gen.cpp": {
+      "beforeSha256": "f333064891fc7d0a05ea3b8a53066c6985d000cc4fc9ef733b3d5dc1faf8787d",
+      "afterSha256": "88552805fa1520c3caff7ff616926ef7e041d6bd665a2de404a42a25037e6f3e",
+      "beforeBytes": 217284,
+      "afterBytes": 218868,
+      "afterCRBytes": 0
+    },
+    "game/src/gen/game_physics.gen.cpp": {
+      "beforeSha256": "7dd7f34e84d2621d038238043d17b236f13788e0881083bc7c684ebdb7cf81bb",
+      "afterSha256": "1dadb1af0699eae6a761026ebeee4ceaaa6b8305571cfc1e78f92ac4726b30b6",
+      "beforeBytes": 276535,
+      "afterBytes": 276796,
+      "afterCRBytes": 0
+    },
+    "game/src/gen/game_scene.gen.cpp": {
+      "beforeSha256": "5e9b633e3ec65e8630995667c24b6eaaddfb3fa96a563ff6f6dc935c45c836ed",
+      "afterSha256": "64f897d08ecddf064fbc5c0d6567070754c3de417133d20c40971dabaaf9ae3a",
+      "beforeBytes": 206900,
+      "afterBytes": 206997,
+      "afterCRBytes": 0
+    },
+    "game/src/gen/game_vehicles.gen.cpp": {
+      "beforeSha256": "5a9bcb2452897d4eb85df67c4dbfb1e623549203a340212cb1d7b7a36844a1b6",
+      "afterSha256": "48741694a7d7fcab5a4c51782cb3f647f5c4263b1434a4b1acf4cd5a49aad8cf",
+      "beforeBytes": 338572,
+      "afterBytes": 339144,
+      "afterCRBytes": 0
+    },
+    "game/src/terrain_game.cpp": {
+      "beforeSha256": "b60acc4f1658a11ea4db742c6ff5167e40c92aeb5374bcef6fe7d03747bdfb2c",
+      "afterSha256": "3b794b119af9ed8f7a89e68832abf39db4313e34945d7c7d71017ebd18d1048b",
+      "beforeBytes": 115688,
+      "afterBytes": 116831,
+      "afterCRBytes": 0
+    },
+    "tyra/engine/inc/debug/night_ablation.hpp": {
+      "beforeSha256": null,
+      "afterSha256": "c7719fa677b55c246624419b32e457f66d28a5965e074f31980a6e610149d5eb",
+      "beforeBytes": null,
+      "afterBytes": 1109,
+      "afterCRBytes": 0
+    },
+    "tyra/engine/inc/debug/night_plan.hpp": {
+      "beforeSha256": null,
+      "afterSha256": "cc3a59f8d8291f51f08284ffef2aa34e1c73bfca0599cbc94b905f1084707c6d",
+      "beforeBytes": null,
+      "afterBytes": 1435,
+      "afterCRBytes": 12
+    },
+    "tyra/engine/inc/debug/night_runtime.hpp": {
+      "beforeSha256": null,
+      "afterSha256": "a54fd47eb42bce56e434edb8ccb54bb266a32f639453b1d6c5d295e55a991eb5",
+      "beforeBytes": null,
+      "afterBytes": 5415,
+      "afterCRBytes": 23
+    },
+    "tyra/engine/inc/debug/night_sampler.hpp": {
+      "beforeSha256": null,
+      "afterSha256": "b51b72a79d1ede2553d46fb9bf2fbe112fa5ad0796a8f88fb02dbec86464c7d6",
+      "beforeBytes": null,
+      "afterBytes": 5440,
+      "afterCRBytes": 77
+    },
+    "tyra/engine/inc/debug/quiet_cadence.hpp": {
+      "beforeSha256": "548f31732e18a93fc901980578cc92bc4b774674019fcf391d935954d6966d56",
+      "afterSha256": "c6c87c3d9cc6deb6e90fa01d91c86df5ee6be8979b4a8b734a35804d991be6f3",
+      "beforeBytes": 5018,
+      "afterBytes": 82,
+      "afterCRBytes": 3
+    },
+    "tyra/engine/inc/debug/quiet_runtime.hpp": {
+      "beforeSha256": "196c91a946536edeff95f410bbdaad756cb4652832291247feb212add45ff23e",
+      "afterSha256": "c2b93076926ced36b425bbf2cb5eea738650087192427a1088acbae0058ad07b",
+      "beforeBytes": 4051,
+      "afterBytes": 120,
+      "afterCRBytes": 4
+    },
+    "tyra/engine/src/renderer/core/renderer_core.cpp": {
+      "beforeSha256": "1089effbc4d0f5d13f4bbef6e588eea3efccccc39cb997d0fc8109b8fde810ab",
+      "afterSha256": "3b182efa6acbfa4636afbf1bcc28f4493c4ed3d357878f00ed03c0a3e702f83c",
+      "beforeBytes": 31366,
+      "afterBytes": 31623,
+      "afterCRBytes": 0
+    }
+  },
+  "patchSha256": "b5a1392366cab78cd013c495ed52edd40d2e84f548877710cbc2361a7b303560",
+  "patchEncoding": "UTF-8; source-line terminators retained, no universal-newline decoding"
+}

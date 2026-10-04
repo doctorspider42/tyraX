@@ -1,0 +1,55 @@
+{
+  "status": "SOURCE_ARCHIVE_NATIVE_PASSED_EMULATOR_PRELIMINARY_PHYSICAL_PENDING",
+  "actualELFSha256": "e637894e74faec5a4c0cc5d852039ed9e8d15f194b1b89291ea73e0022205b25",
+  "actualSymbolSha256": "cdf66bcb72c38e7efe069f2adb966fb5ead023f331685bb6cdde713b2b1c1eb5",
+  "frozenManifestSha256": "e2554b9621a392e03db2372d11fdc3ff7f4022cd2d8cca5ee240e8e1a39c6083",
+  "independentNativeReviewSha256": "b12b9774a8fe3b6957c8969fded6e3bc4d237f3196e198bfcca52f9c41ac5ff3",
+  "preliminaryEmulatorReportPath": "F:/Projects/tyrax2-lab-20261001/night-ablation-emulator-joint-v2-attempt2-launch/preliminary-report.json",
+  "preliminaryEmulatorReportSha256": "0992fa21ea890de1dc0dfcb082d8fd949704bb52eacac4eb4c7051bd4bf3f785",
+  "preliminaryEmulatorStatus": "PASS_STRICT_NIGHT_MASKED_LOOP_CAPTURE",
+  "preliminaryEmulatorLoops": 5400,
+  "preliminaryEmulatorOrder": 0,
+  "preliminaryEmulatorMasks": [
+    0,
+    31,
+    0
+  ],
+  "physicalAccepted": false,
+  "newHardwareVisualAccepted": false,
+  "performanceGainAccepted": false,
+  "missingIntegrationPrelaunchAttempt": "Root reported a first preparation rejected for missing expected integration proof, before emulator start; no owned-launch record in that first staging directory. This archive does not invent a runtime result for it.",
+  "originalIntegrationScriptExecutedBytesAccepted": false,
+  "rootHelperPins": {
+    "root-helpers/build-native.ps1": {
+      "path": "F:/Projects/tyrax2-lab-20261001/night-ablation-root-v1/build-native.ps1",
+      "sha256": "f1ba782eff8a5db613b028b30f9d93b90452eec15890770de00c18679dcf2255",
+      "bytes": 1967
+    },
+    "root-helpers/compile-abi.py": {
+      "path": "F:/Projects/tyrax2-lab-20261001/night-ablation-root-v1/compile-abi.py",
+      "sha256": "59c994e63eb20d147997158e93fd705981d938388abea82b075869c21622b2cb",
+      "bytes": 1984
+    },
+    "root-helpers/complete-native-provenance.py": {
+      "path": "F:/Projects/tyrax2-lab-20261001/night-ablation-root-v1/complete-native-provenance.py",
+      "sha256": "a70636f6d3da4c37052b241e396cc2e072b54bc963b4f809d2fefc70da6fccda",
+      "bytes": 3993
+    },
+    "root-helpers/freeze-input.py": {
+      "path": "F:/Projects/tyrax2-lab-20261001/night-ablation-root-v1/freeze-input.py",
+      "sha256": "77782bdac4362671e6a14a8078665eb541e7e19ffb73d1592388020d7fb97550",
+      "bytes": 1868
+    },
+    "root-helpers/launch-emulator.py": {
+      "path": "F:/Projects/tyrax2-lab-20261001/night-ablation-root-v1/launch-emulator.py",
+      "sha256": "526ba694cfed8c69ccad2a9ffd612bde39cd14f9ed5cfb987749191eff87dfc4",
+      "bytes": 3505
+    },
+    "root-helpers/prepare-physical.py": {
+      "path": "F:/Projects/tyrax2-lab-20261001/night-ablation-root-v1/prepare-physical.py",
+      "sha256": "24c9f09d66312d8a94af6eb5a19c2fe3bed072fd709076e6b8e3bef395ca8584",
+      "bytes": 2352
+    }
+  },
+  "runtimeHelperProofSha256": "bc1b7b1c94b17b11d712e4390b93f81cec52f3000d4d5c5a3b43cc9962893e7f"
+}

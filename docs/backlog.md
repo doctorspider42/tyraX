@@ -442,6 +442,17 @@ recovered 0.50-0.72 ms of hardware `work`. What it did not do, ranked:
 
   The [inner-work scopes](tyrax2-minimal-scopes.md#selected-inner-work-stripped-packages) and [dated record](tyrax2-inner-work-scopes-2026-10-04.json) qualify V5 stripped-package Work (1.126–1.149 ms) and V6 list-package Work (0.827–0.831 ms), plus the V7 dispatch tail. V7 dispatch-tail Work averages 7.167–7.329 ms; same-frame Scene minus that tail is 10.643–10.698 ms inclusive. Narrow the remaining routes using their own source/caller and dynamic clock controls before selecting an optimization. These are different intervals and apparatus versions: no cross-version gain, pure EE/GPU bill, uniform observer fee or ordinary 60 FPS acceptance.
 
+  The [joint night ablation](tyrax2-night-ablation.md) passed source/native,
+  emulator restoration and both physical sampler/joint orders. The simplified
+  five-family cut reduces elapsed-minus-pacing from approximately 18.8–18.9 to
+  13.37–13.39 ms and engine flip-return periods from 33.37 to 16.68 ms. Next
+  split receiver pools, beams/coronas and glow with the private V3 gates.
+  First-order add-backs measured lighting/extras at +3.94–3.99 ms versus
+  shadows/particles/post at +1.39–1.49 ms against their own controls;
+  these are not additive bills. Reverse add-back orders remain open.
+  Production full-night quality/performance and physical
+  visual restoration remain unqualified; no observer fee is subtracted.
+
   Storage classification alone grants no immutable borrowing rights.
   The [resumed candidate audit](tyrax2-ee-vu0.md#next-60-hz-candidates-host-controls-2026-10-03)
   rejects the broad beam cache as a demonstrated driving gain, identifies

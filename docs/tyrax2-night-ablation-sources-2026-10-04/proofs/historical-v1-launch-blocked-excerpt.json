@@ -1,0 +1,15 @@
+{
+  "excerptOnly": true,
+  "originalPath": "F:/Projects/tyrax2-lab-20261001/night-ablation-native-review-v1/v1-build-only-proof.json",
+  "originalSha256": "4465b73149dc396fa3d9182eb7e1a9dc98eef1fa3172b7a27cccb7702db9a722",
+  "verbatimFields": {
+    "status": "PASS_INDEPENDENT_V1_NATIVE_BUILD_SOURCE_MIRRORS_FORMAT_LAUNCH_BLOCKED",
+    "blockers": [],
+    "compilerBlockers": [],
+    "launchBlockers": [
+      "PS2 uint32_t/unsigned long passed to printf %u; root V2 format-only correction required"
+    ],
+    "formatWarningCount": 54
+  },
+  "qualification": "V1 native build completed; target printf format warnings blocked device launch. No V1 runtime acceptance."
+}

@@ -1,0 +1,12 @@
+{
+  "status": "PASS_EXACT_497_SOURCE_RECONSTRUCTION_FROM_FROZEN_V2_WITH_V3_SEVEN_FILE_PATCH",
+  "sourceFiles": 497,
+  "changedFiles": 7,
+  "unchangedFiles": 490,
+  "baselineSourceManifestSha256": "e2554b9621a392e03db2372d11fdc3ff7f4022cd2d8cca5ee240e8e1a39c6083",
+  "targetSourceManifestSha256": "3e895d8224297c66169bf2a01cabc0dfd1fd1e0c9fee8a77c3c77de88bb14dad",
+  "patchSha256": "4abdae80020ca7ff8952106477a5c2febd2661eaefe293108ce9d64ac2d3ec43",
+  "copiedAssetsOrElf": false,
+  "buildOrDeviceRun": false,
+  "helperSha256": "4d0b785541071badd3b1f2efc9d65d8c4594076c71948cc39681bdd3ef357c20"
+}

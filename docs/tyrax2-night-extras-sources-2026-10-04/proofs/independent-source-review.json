@@ -1,0 +1,264 @@
+{
+  "status": "PASS_INDEPENDENT_NIGHT_V3_EXTRA_SUBDIVISION_PROPOSAL_SOURCE_AND_HOST",
+  "blockers": [],
+  "compilerBlockers": [],
+  "sourceManifestSha256": "9d0ea036c406df72f1fe960a99bc7c7a2f2b18eb1b23f4cf8bdb2dd122023418",
+  "sourceProofSha256": "47bae8a0dec65e646f173b4a805a4a8f657288dad9fdce63165e3b5ff96735d4",
+  "baselineFrozenManifestSha256": "e2554b9621a392e03db2372d11fdc3ff7f4022cd2d8cca5ee240e8e1a39c6083",
+  "sourceFiles": 497,
+  "changedInputs": [
+    "game/src/gen/game_collision.gen.cpp",
+    "game/src/gen/game_lighting.gen.cpp",
+    "game/src/gen/game_vehicles.gen.cpp",
+    "game/src/terrain_game.cpp",
+    "tyra/engine/inc/debug/night_ablation.hpp",
+    "tyra/engine/inc/debug/night_plan.hpp",
+    "tyra/engine/inc/debug/night_runtime.hpp"
+  ],
+  "unchangedInputs": 490,
+  "freshHostTranscriptsReparsed": 28,
+  "freshHostRunsByReviewer": 0,
+  "parserNegativeControlsBound": 24,
+  "ordinaryKinds012PlanSemanticsPreserved": true,
+  "samplerAndQuietAliasesByteIdentical": true,
+  "kind3Semantics": "Ordinary mask0 and samplerOn in all phases; extra subset1..7 only. Own full/extra-cut/full or reverse controls. No cross-V2/V3 contrast accepted.",
+  "sourceSafety": [
+    "Pools cut is function entry before any producer/pass changes; before-basegeometry cleanup clears prior receiver lighting flags while Pools suppressed.",
+    "Pool-owned embedded shadow volumes are removed with their full enclosing pool routine, preserving complete alpha/DATE brackets on executed paths; original Shadows witnesses retain ownership.",
+    "Beams/coronas complete function entry cut, not a partial native submission bypass.",
+    "Vehicle glow/lamp complete entry cuts applied to both generated duplicate definitions. Stale retained buffers are not emitted while cut; ordinary reconstruction/version logic remains on restoration.",
+    "Gate counters still collect only sparse untimed offsets750/1155 and disable outside those loops; no new Count calls, fences or cache ownership changes.",
+    "Only cold phase/counter printf rows added; existing sample/chunk clock math and presentation remain byte-identical."
+  ],
+  "sourceAttemptSites": {
+    "Pools": 9,
+    "BeamsCoronas": 4,
+    "VehicleLampGlowPerDuplicate": 3
+  },
+  "limits": [
+    "Sparse source attempts are not per-window native/pixel emission counts; no work-removal pricing accepted for inactive groups.",
+    "Full restoration and no corruption still require actual source-bound native/runtime raster evidence.",
+    "New extra counters/branch apparatus remain common and unpriced; source equality of old plan logic is not cross-ELF timing equivalence.",
+    "Proposal acceptance does not prove root integration execution or actual native compilation."
+  ],
+  "nativeRuntimeRasterOrPerformanceGainAccepted": false,
+  "artifactSha256": {
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\night_sampler.hpp": "b51b72a79d1ede2553d46fb9bf2fbe112fa5ad0796a8f88fb02dbec86464c7d6",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\night_plan.hpp": "01b144f310cea1dc01df440001b127ff5f69b2f0d83db635dd9d44af105a48ca",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\night_runtime.hpp": "9d0c22a1e27a2c37ce37c235e8a757db9251566bcdb959e6bde89921d30070fc",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\quiet_runtime.hpp": "c2b93076926ced36b425bbf2cb5eea738650087192427a1088acbae0058ad07b",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\quiet_cadence.hpp": "c6c87c3d9cc6deb6e90fa01d91c86df5ee6be8979b4a8b734a35804d991be6f3",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\analyze-loop.py": "5f1e9756449a5d35e9ce9567ab87be9e4388ed98b777f3ff72622b0e71f7fa27",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\analyze-night.py": "1501b41d9a0f169fd540f60e1839910e82c103734f03d9a5e7b4d56b6a8e60f8",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\analyze-night-cli.py": "3bc1e85d9cc2464c1b41dce157ab4eb2ee65324ef891853a2e98aecfd8e3b198",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\host-controls.cpp": "4ceeee362d5eba05176288e4562f3f3a5f721764ef494a76c7e038776e20594a",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\run-host-controls.py": "eb5ccafd76a8a1855e1883183331ba053cc4eb46d308da06f64cc879f3f06cf4",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-controls-v3\\README.md": "c52bad193b69480ccea221b7f7a244be3308d7b8bc103810eea05364330e4ea6",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-extra-v3-proposal\\source\\tyra\\engine\\inc\\debug\\night_ablation.hpp": "afac4fddf3c41977f22e64a00c15cdbf0e17342de49149fb529bc533a3fb54c3",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-extra-v3-proposal/source-proof.json": "47bae8a0dec65e646f173b4a805a4a8f657288dad9fdce63165e3b5ff96735d4",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-extra-v3-proposal/target-source-manifest.json": "9d0ea036c406df72f1fe960a99bc7c7a2f2b18eb1b23f4cf8bdb2dd122023418",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-extra-v3-proposal/subgroup-source.patch": "4abdae80020ca7ff8952106477a5c2febd2661eaefe293108ce9d64ac2d3ec43",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-controls-v3/final-proof-v3.json": "17d928aacd6a6b67fceda7b1026f35e947138191704b5bff035a03c0c74df081",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-controls-v3/host-cli-v2/proof.json": "1096f4f666a29e57fb53facee3dc7db5d73f46521609b3540c397d96f42f68fb",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-physical-v2/target-source-manifest.json": "e2554b9621a392e03db2372d11fdc3ff7f4022cd2d8cca5ee240e8e1a39c6083"
+  },
+  "transcripts": [
+    {
+      "transcript": "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-controls-v3/host-cli-v2/O0-0-0-0-0-stdout.log",
+      "kind": 0,
+      "order": 0,
+      "restoredExtraOrOrdinary": 0,
+      "sampleRows": 128
+    },
+    {
+      "transcript": "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-controls-v3/host-cli-v2/O0-0-1-0-0-stdout.log",
+      "kind": 0,
+      "order": 1,
+      "restoredExtraOrOrdinary": 0,
+      "sampleRows": 256
+    },
+    {
+      "transcript": "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-controls-v3/host-cli-v2/O0-1-0-31-0-stdout.log",
+      "kind": 1,
+      "order": 0,
+      "restoredExtraOrOrdinary": 0,
+      "sampleRows": 384
+    },
+    {
+      "transcript": "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-controls-v3/host-cli-v2/O0-1-1-31-0-stdout.log",
+      "kind": 1,
+      "order": 1,
+      "restoredExtraOrOrdinary": 0,
+      "sampleRows": 384
+    },
+    {
+      "transcript": "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-controls-v3/host-cli-v2/O0-2-0-31-3-stdout.log",
+      "kind": 2,
+      "order": 0,
+      "restoredExtraOrOrdinary": 3,
+      "sampleRows": 384
+    },
+    {
+      "transcript": "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-controls-v3/host-cli-v2/O0-2-1-31-3-stdout.log",
+      "kind": 2,
+      "order": 1,
+      "restoredExtraOrOrdinary": 3,
+      "sampleRows": 384
+    },
+    {
+      "transcript": "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-controls-v3/host-cli-v2/O0-3-0-0-1-stdout.log",
+      "kind": 3,
+      "order": 0,
+      "restoredExtraOrOrdinary": 1,
+      "sampleRows": 384
+    },
+    {
+      "transcript": "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-controls-v3/host-cli-v2/O0-3-0-0-2-stdout.log",
+      "kind": 3,
+      "order": 0,
+      "restoredExtraOrOrdinary": 2,
+      "sampleRows": 384
+    },
+    {
+      "transcript": "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-controls-v3/host-cli-v2/O0-3-0-0-4-stdout.log",
+      "kind": 3,
+      "order": 0,
+      "restoredExtraOrOrdinary": 4,
+      "sampleRows": 384
+    },
+    {
+      "transcript": "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-controls-v3/host-cli-v2/O0-3-0-0-7-stdout.log",
+      "kind": 3,
+      "order": 0,
+      "restoredExtraOrOrdinary": 7,
+      "sampleRows": 384
+    },
+    {
+      "transcript": "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-controls-v3/host-cli-v2/O0-3-1-0-1-stdout.log",
+      "kind": 3,
+      "order": 1,
+      "restoredExtraOrOrdinary": 1,
+      "sampleRows": 384
+    },
+    {
+      "transcript": "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-controls-v3/host-cli-v2/O0-3-1-0-2-stdout.log",
+      "kind": 3,
+      "order": 1,
+      "restoredExtraOrOrdinary": 2,
+      "sampleRows": 384
+    },
+    {
+      "transcript": "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-controls-v3/host-cli-v2/O0-3-1-0-4-stdout.log",
+      "kind": 3,
+      "order": 1,
+      "restoredExtraOrOrdinary": 4,
+      "sampleRows": 384
+    },
+    {
+      "transcript": "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-controls-v3/host-cli-v2/O0-3-1-0-7-stdout.log",
+      "kind": 3,
+      "order": 1,
+      "restoredExtraOrOrdinary": 7,
+      "sampleRows": 384
+    },
+    {
+      "transcript": "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-controls-v3/host-cli-v2/O2-0-0-0-0-stdout.log",
+      "kind": 0,
+      "order": 0,
+      "restoredExtraOrOrdinary": 0,
+      "sampleRows": 128
+    },
+    {
+      "transcript": "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-controls-v3/host-cli-v2/O2-0-1-0-0-stdout.log",
+      "kind": 0,
+      "order": 1,
+      "restoredExtraOrOrdinary": 0,
+      "sampleRows": 256
+    },
+    {
+      "transcript": "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-controls-v3/host-cli-v2/O2-1-0-31-0-stdout.log",
+      "kind": 1,
+      "order": 0,
+      "restoredExtraOrOrdinary": 0,
+      "sampleRows": 384
+    },
+    {
+      "transcript": "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-controls-v3/host-cli-v2/O2-1-1-31-0-stdout.log",
+      "kind": 1,
+      "order": 1,
+      "restoredExtraOrOrdinary": 0,
+      "sampleRows": 384
+    },
+    {
+      "transcript": "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-controls-v3/host-cli-v2/O2-2-0-31-3-stdout.log",
+      "kind": 2,
+      "order": 0,
+      "restoredExtraOrOrdinary": 3,
+      "sampleRows": 384
+    },
+    {
+      "transcript": "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-controls-v3/host-cli-v2/O2-2-1-31-3-stdout.log",
+      "kind": 2,
+      "order": 1,
+      "restoredExtraOrOrdinary": 3,
+      "sampleRows": 384
+    },
+    {
+      "transcript": "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-controls-v3/host-cli-v2/O2-3-0-0-1-stdout.log",
+      "kind": 3,
+      "order": 0,
+      "restoredExtraOrOrdinary": 1,
+      "sampleRows": 384
+    },
+    {
+      "transcript": "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-controls-v3/host-cli-v2/O2-3-0-0-2-stdout.log",
+      "kind": 3,
+      "order": 0,
+      "restoredExtraOrOrdinary": 2,
+      "sampleRows": 384
+    },
+    {
+      "transcript": "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-controls-v3/host-cli-v2/O2-3-0-0-4-stdout.log",
+      "kind": 3,
+      "order": 0,
+      "restoredExtraOrOrdinary": 4,
+      "sampleRows": 384
+    },
+    {
+      "transcript": "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-controls-v3/host-cli-v2/O2-3-0-0-7-stdout.log",
+      "kind": 3,
+      "order": 0,
+      "restoredExtraOrOrdinary": 7,
+      "sampleRows": 384
+    },
+    {
+      "transcript": "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-controls-v3/host-cli-v2/O2-3-1-0-1-stdout.log",
+      "kind": 3,
+      "order": 1,
+      "restoredExtraOrOrdinary": 1,
+      "sampleRows": 384
+    },
+    {
+      "transcript": "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-controls-v3/host-cli-v2/O2-3-1-0-2-stdout.log",
+      "kind": 3,
+      "order": 1,
+      "restoredExtraOrOrdinary": 2,
+      "sampleRows": 384
+    },
+    {
+      "transcript": "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-controls-v3/host-cli-v2/O2-3-1-0-4-stdout.log",
+      "kind": 3,
+      "order": 1,
+      "restoredExtraOrOrdinary": 4,
+      "sampleRows": 384
+    },
+    {
+      "transcript": "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-controls-v3/host-cli-v2/O2-3-1-0-7-stdout.log",
+      "kind": 3,
+      "order": 1,
+      "restoredExtraOrOrdinary": 7,
+      "sampleRows": 384
+    }
+  ],
+  "noSourceBuildDeviceRepositoryMutation": true
+}
