@@ -20,8 +20,16 @@ The five bystanders are ordinary **Model** objects, each autoplaying a
 different clip from the library: the dockhand stands with his arms folded, the
 kid dances, the punk talks with his hands, the clerk and the elder idle.
 Walk up to any of them and they look at you, blinking as they do; the punk's
-jaw moves with his talking clip. Nothing scripts that either: it is the
-generated rig's face (docs/character-generator.md, "A living face").
+jaw moves with his talking clip, the kid's ponytail and the elder's long skirt
+swing. Nothing scripts that either: it is the generated rig's face and spring
+bones (docs/character-generator.md, "A living face", "Spring bones").
+
+Behind them stands a **crowd of eight commuters**: one character
+(`commuter.glb`) in six colour schemes, made with the generator's *Crowd...*
+button. They share one mesh, one atlas and one skin per frame; each colour
+scheme is a 1 KB palette (`commuter_skin.v<k>.png` beside the model, fitted at
+build time - docs/character-generator.md, "Crowds"). Pick one and look at
+*Palette variant* in Properties.
 
 ## The cast
 
@@ -41,6 +49,7 @@ tyrax-editor --chargen res/models/characters/hero.chargen.json res/models/charac
 | `kid` | child, 1.30 m | striped T-shirt (pattern), jean shorts, canvas shoes, ponytail | 128 | 4365 |
 | `punk` | man, 1.78 m | casual outfit, black hero boots, 3D glasses, green messy hair | 128 | 4382 |
 | `elder` | woman, 1.58 m, 90 | sweater, long skirt, flats, round glasses, grey bun | 128 | 4848 |
+| `commuter` x 8 | man, 1.78 m | T-shirt, trousers, sneakers, short hair - five palette variants plus the original | 128 | 4211 |
 
 Shirts, trousers and suits are **shells** - the body itself, pushed out and
 painted - so they add no triangles; the counts above are a 3348-triangle woman's body

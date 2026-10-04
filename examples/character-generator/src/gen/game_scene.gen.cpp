@@ -37,11 +37,22 @@ void TerrainGame::setupAnimObject(int index) {
 
   g.animInst = std::make_unique<SkelInstance>(gam.src.get());
   DynamicMesh* mesh = g.animInst->mesh.get();
+  // A crowd member draws through its palette variant (OBJECT_PALETTES).
+  int variant = 0;
+  for (int k = 0; k < OBJECT_PALETTE_COUNT; ++k)
+    if (OBJECT_PALETTES[k].scene == g_activeScene && OBJECT_PALETTES[k].object == index)
+      variant = OBJECT_PALETTES[k].variant;
+  auto partTexture = [&](size_t m) -> Texture* {
+    if (m >= gam.textures.size()) return nullptr;
+    if (variant > 0 && variant <= (int)gam.variants.size() &&
+        gam.variants[variant - 1][m])
+      return gam.variants[variant - 1][m];
+    return gam.textures[m];
+  };
   for (size_t m = 0; m < mesh->materials.size(); ++m) {
     MeshMaterial* mat = mesh->materials[m];
     // texture links are per material id and every instance has fresh ids
-    if (m < gam.textures.size() && gam.textures[m])
-      gam.textures[m]->addLink(mat->id);
+    if (partTexture(m)) partTexture(m)->addLink(mat->id);
     // material albedo (glTF baseColorFactor). The lit VU1 programs ignore
     // this single color - it rides in the per-part light colors below - but
     // it is kept in sync for any single-color path that may read it.
@@ -97,9 +108,9 @@ void TerrainGame::setupAnimObject(int index) {
     ap.bag->vertices = frame->vertices;
     ap.bag->count = frame->count;
     ap.bag->lighting = ap.lightBag.get();
-    if (m < gam.textures.size() && gam.textures[m] && frame->textureCoords) {
+    if (partTexture(m) && frame->textureCoords) {
       ap.texBag = std::make_unique<StaPipTextureBag>();
-      ap.texBag->texture = gam.textures[m];
+      ap.texBag->texture = partTexture(m);
       ap.texBag->coordinates = frame->textureCoords;
       ap.bag->texture = ap.texBag.get();
     }
@@ -134,6 +145,224 @@ void TerrainGame::setupAnimObject(int index) {
   g.lookYaw = g.lookPitch = g.jawOpen = g.talkPhase = 0.0F;
   g.lipEnv = nullptr;
   g.lipLen = 0;
+
+  // Spring bones, also by name: a ponytail's chain and a skirt's panels.
+  static const char* const kSpringNames[6] = {
+      "mixamorig:HairTail1", "mixamorig:HairTail2", "mixamorig:SkirtFront",
+      "mixamorig:SkirtBack", "mixamorig:SkirtLeft", "mixamorig:SkirtRight"};
+  // Where each tip rests in its bone's frame (metres; the rig binds with
+  // identity rotations, so +X is the character's left and +Z forward): the
+  // hair hangs down the back, a skirt panel reaches its hem 35 cm down and a
+  // hand's breadth out in its own direction.
+  static const float kSpringRest[6][3] = {
+      {0.0F, -0.14F, -0.01F}, {0.0F, -0.16F, -0.02F}, {0.0F, -0.35F, 0.14F},
+      {0.0F, -0.35F, -0.14F}, {0.14F, -0.35F, 0.0F},  {-0.14F, -0.35F, 0.0F}};
+  for (int s = 0; s < 6; ++s) {
+    ObjectGeometry::Spring& sp = g.springs[s];
+    sp = ObjectGeometry::Spring();
+    sp.node = (s16)sm->findNode(kSpringNames[s]);
+    if (sp.node >= 0) sp.parent = (s16)sm->nodes[sp.node].parent;
+    for (int a = 0; a < 3; ++a) sp.rest[a] = kSpringRest[s][a];
+  }
+  // HairTail1's tip is where HairTail2 begins, when the rig has both
+  if (g.springs[0].node >= 0 && g.springs[1].node >= 0)
+    for (int a = 0; a < 3; ++a) g.springs[0].rest[a] = sm->nodes[g.springs[1].node].t[a];
+  g.legNode[0] = (s16)sm->findNode("mixamorig:LeftUpLeg");
+  g.legNode[1] = (s16)sm->findNode("mixamorig:LeftLeg");
+  g.legNode[2] = (s16)sm->findNode("mixamorig:RightUpLeg");
+  g.legNode[3] = (s16)sm->findNode("mixamorig:RightLeg");
+}
+
+
+
+// Spring bones: a ponytail and a skirt swing with what the body does. Each
+// spring is a TIP point simulated in WORLD space (so walking, turning and the
+// clip's own sway all set it moving) - pulled back to where the bone's rest
+// would put it, damped, a little gravity, held at the bone's length - and the
+// bone is then turned to point at it (a rotation override, like the face).
+// Skirt tips are pushed out of the thighs, which is what makes a long skirt
+// part around a stepping leg instead of the leg going through it. Same
+// 10 m cut-off as the face: beyond it the bones rest and the pose is shared.
+void TerrainGame::updateSprings(int index, float dist2) {
+  ObjectGeometry& g = objectGeometry[index];
+  SkelInstance* inst = g.animInst.get();
+  if (!inst || g.animLastTick == 0) return;
+  bool any = false;
+  for (const auto& sp : g.springs) any |= sp.node >= 0;
+  if (!any) return;
+  if (dist2 > 10.0F * 10.0F) {
+    for (auto& sp : g.springs) sp.live = false;  // restarts from rest
+    return;  // updateFace drops the overrides with the face's
+  }
+  const float dt = (splitSecondPass || g_gameplayPaused) ? 0.0F : g_frameDt;
+  const M4x4& m = g.animMat;
+
+  auto toWorld = [&m](const float* p, float* o) {
+    for (int a = 0; a < 3; ++a)
+      o[a] = m.data[a] * p[0] + m.data[4 + a] * p[1] + m.data[8 + a] * p[2] +
+             m.data[12 + a];
+  };
+  auto dirToModel = [&m](const float* d, float* o) {  // orthogonal columns
+    for (int a = 0; a < 3; ++a) {
+      const float* c = &m.data[a * 4];
+      const float l2 = c[0] * c[0] + c[1] * c[1] + c[2] * c[2];
+      o[a] = l2 > 1e-12F ? (d[0] * c[0] + d[1] * c[1] + d[2] * c[2]) / l2 : 0.0F;
+    }
+  };
+  // a node's frame: rotation columns + origin, model space, column-major
+  auto apply = [](const float* g16, const float* v, float w, float* o) {
+    for (int a = 0; a < 3; ++a)
+      o[a] = g16[a] * v[0] + g16[4 + a] * v[1] + g16[8 + a] * v[2] + g16[12 + a] * w;
+  };
+  auto applyT = [](const float* g16, const float* v, float* o) {  // R^T v
+    for (int a = 0; a < 3; ++a)
+      o[a] = g16[a * 4] * v[0] + g16[a * 4 + 1] * v[1] + g16[a * 4 + 2] * v[2];
+  };
+  auto norm = [](float* v) {
+    const float l = sqrtf(v[0] * v[0] + v[1] * v[1] + v[2] * v[2]);
+    if (l > 1e-9F)
+      for (int a = 0; a < 3; ++a) v[a] /= l;
+    return l;
+  };
+
+  // The thighs, as world-space capsules (hip -> knee), for the skirt.
+  float thigh[2][2][3];
+  const bool legs = g.legNode[0] >= 0 && g.legNode[1] >= 0 &&
+                    g.legNode[2] >= 0 && g.legNode[3] >= 0;
+  if (legs)
+    for (int s = 0; s < 2; ++s)
+      for (int e = 0; e < 2; ++e)
+        toWorld(&inst->nodeGlobal((u32)g.legNode[s * 2 + e]).data[12], thigh[s][e]);
+  const float scale = sqrtf(m.data[0] * m.data[0] + m.data[1] * m.data[1] +
+                            m.data[2] * m.data[2]);
+
+  // How far each thigh swings forward (+) or back (-), radians, in the hips'
+  // frame: a skirt panel is DRIVEN by the legs (the front one by whichever
+  // thigh reaches furthest forward, the back one by the one furthest back,
+  // each side by its own) and the spring only adds the lag and the bounce. A
+  // collision alone came too late - the knee is gone before the hem hits it.
+  float thighSwing[2] = {0.0F, 0.0F};
+  if (legs && g.springs[2].parent >= 0) {
+    const float* hipsG = inst->nodeGlobal((u32)g.springs[2].parent).data;
+    for (int leg = 0; leg < 2; ++leg) {
+      const float* hip = &inst->nodeGlobal((u32)g.legNode[leg * 2]).data[12];
+      const float* knee = &inst->nodeGlobal((u32)g.legNode[leg * 2 + 1]).data[12];
+      const float dm[3] = {knee[0] - hip[0], knee[1] - hip[1], knee[2] - hip[2]};
+      float dl[3];
+      applyT(hipsG, dm, dl);
+      thighSwing[leg] = atan2f(dl[2], -dl[1]);
+    }
+  }
+
+  float hair1G[16];  // HairTail1's global this frame (HairTail2's parent)
+  bool haveHair1 = false;
+  for (int s = 0; s < 6; ++s) {
+    ObjectGeometry::Spring& sp = g.springs[s];
+    if (sp.node < 0 || sp.parent < 0) continue;
+    const bool hair = s < 2;
+    const float* parentG = (s == 1 && haveHair1)
+                               ? hair1G
+                               : inst->nodeGlobal((u32)sp.parent).data;
+    // The bone's origin and rest tip (its local rotation is identity in every
+    // clip - no clip animates a spring bone - so its frame is its parent's).
+    const float* t = inst->model->nodes[sp.node].t;
+    float origin[3], restTip[3], tipLocal[3];
+    apply(parentG, t, 1.0F, origin);
+    // the target the spring pulls to: the rest tip, swung by the legs for a
+    // skirt panel (about the hips' X axis; a positive swing is forward)
+    float drive = 0.0F;
+    if (s == 2) drive = fmaxf(fmaxf(thighSwing[0], thighSwing[1]), 0.0F) * 0.85F;
+    if (s == 3) drive = fminf(fminf(thighSwing[0], thighSwing[1]), 0.0F) * 0.85F;
+    if (s == 4) drive = thighSwing[0] * 0.7F;
+    if (s == 5) drive = thighSwing[1] * 0.7F;
+    const float cd = cosf(drive), sd = sinf(drive);
+    const float driven[3] = {sp.rest[0], sp.rest[1] * cd + sp.rest[2] * sd,
+                             -sp.rest[1] * sd + sp.rest[2] * cd};
+    for (int a = 0; a < 3; ++a) tipLocal[a] = t[a] + driven[a];
+    apply(parentG, tipLocal, 1.0F, restTip);
+    float originW[3], restW[3];
+    toWorld(origin, originW);
+    toWorld(restTip, restW);
+    float len = 0.0F;
+    for (int a = 0; a < 3; ++a) len += (restW[a] - originW[a]) * (restW[a] - originW[a]);
+    len = sqrtf(len);
+    if (!sp.live) {
+      for (int a = 0; a < 3; ++a) sp.tip[a] = restW[a], sp.vel[a] = 0.0F;
+      sp.live = true;
+    }
+    // Hair is lighter and livelier than a skirt panel.
+    const float k = hair ? 45.0F : 70.0F, damp = hair ? 5.0F : 9.0F;
+    const float grav = (hair ? 3.0F : 2.0F) * scale;
+    const int steps = dt > 0.0F ? (int)(dt / 0.0167F) + 1 : 0;
+    const float h = steps ? dt / (float)steps : 0.0F;
+    for (int it = 0; it < steps; ++it) {
+      for (int a = 0; a < 3; ++a) {
+        const float acc = k * (restW[a] - sp.tip[a]) - damp * sp.vel[a] -
+                          (a == 1 ? grav : 0.0F);
+        sp.vel[a] += acc * h;
+        sp.tip[a] += sp.vel[a] * h;
+      }
+      // out of the thighs (skirt panels only)
+      if (!hair && legs)
+        for (int leg = 0; leg < 2; ++leg) {
+          const float* a0 = thigh[leg][0];
+          const float* a1 = thigh[leg][1];
+          float ab[3], ap[3];
+          for (int a = 0; a < 3; ++a) ab[a] = a1[a] - a0[a], ap[a] = sp.tip[a] - a0[a];
+          const float abab = ab[0] * ab[0] + ab[1] * ab[1] + ab[2] * ab[2];
+          float u = abab > 1e-9F ? (ap[0] * ab[0] + ap[1] * ab[1] + ap[2] * ab[2]) / abab : 0.0F;
+          u = u < 0.0F ? 0.0F : (u > 1.0F ? 1.0F : u);
+          float d[3];
+          for (int a = 0; a < 3; ++a) d[a] = sp.tip[a] - (a0[a] + ab[a] * u);
+          const float r = 0.11F * scale;
+          const float dl = sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+          if (dl < r && dl > 1e-6F)
+            for (int a = 0; a < 3; ++a) sp.tip[a] += d[a] / dl * (r - dl);
+        }
+      // held at the bone's length
+      float d[3];
+      for (int a = 0; a < 3; ++a) d[a] = sp.tip[a] - originW[a];
+      const float dl = sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+      if (dl > 1e-6F)
+        for (int a = 0; a < 3; ++a) sp.tip[a] = originW[a] + d[a] / dl * len;
+    }
+    // Point the bone at the tip: the rotation taking its rest direction to the
+    // simulated one, expressed in the bone's own (= parent's) frame.
+    float simW[3], simM[3], simL[3], restL[3];
+    for (int a = 0; a < 3; ++a) simW[a] = sp.tip[a] - originW[a];
+    dirToModel(simW, simM);
+    applyT(parentG, simM, simL);
+    for (int a = 0; a < 3; ++a) restL[a] = sp.rest[a];
+    norm(simL);
+    norm(restL);
+    float q[4] = {restL[1] * simL[2] - restL[2] * simL[1],
+                  restL[2] * simL[0] - restL[0] * simL[2],
+                  restL[0] * simL[1] - restL[1] * simL[0],
+                  1.0F + restL[0] * simL[0] + restL[1] * simL[1] + restL[2] * simL[2]};
+    if (q[3] < 1e-4F) {  // opposite: no swing that big is plausible - rest
+      q[0] = q[1] = q[2] = 0.0F;
+      q[3] = 1.0F;
+    }
+    const float ql = sqrtf(q[0] * q[0] + q[1] * q[1] + q[2] * q[2] + q[3] * q[3]);
+    for (int a = 0; a < 4; ++a) q[a] /= ql;
+    inst->setRotationOverride((u32)sp.node, q);
+    if (s == 0) {
+      // HairTail1's global for its child: parent * T(t) * R(q)
+      const float x = q[0], y = q[1], z = q[2], w = q[3];
+      const float r[9] = {1 - 2 * (y * y + z * z), 2 * (x * y + z * w), 2 * (x * z - y * w),
+                          2 * (x * y - z * w), 1 - 2 * (x * x + z * z), 2 * (y * z + x * w),
+                          2 * (x * z + y * w), 2 * (y * z - x * w), 1 - 2 * (x * x + y * y)};
+      for (int c = 0; c < 3; ++c) {
+        const float col[3] = {r[c * 3], r[c * 3 + 1], r[c * 3 + 2]};
+        apply(parentG, col, 0.0F, &hair1G[c * 4]);
+        hair1G[c * 4 + 3] = 0.0F;
+      }
+      for (int a = 0; a < 3; ++a) hair1G[12 + a] = origin[a];
+      hair1G[15] = 1.0F;
+      haveHair1 = true;
+    }
+  }
+  g.faceLive = true;  // updateFace's far branch clears these overrides too
 }
 
 
@@ -582,6 +811,7 @@ void TerrainGame::updateAndRenderAnimObjects() {
     SkelInstance* inst = g.animInst.get();
     // before the pose-sharing test: a live face is a pose of its own
     updateFace(i, va.dist2);
+    updateSprings(i, va.dist2);
 
     // mesh LOD tier: which baked variant this instance renders (the .tskl
     // clamps per part - a file without chains always renders the full mesh).

@@ -259,6 +259,17 @@ inline constexpr LipSyncData LIP_SYNCS[1] = {
 inline constexpr unsigned char LIP_ENVELOPES[1] = {0
 };
 
+struct ObjectPaletteData { int scene; int object; int variant; };
+inline constexpr int OBJECT_PALETTE_COUNT = 6;
+inline constexpr ObjectPaletteData OBJECT_PALETTES[6] = {
+    {0, 7, 1},
+    {0, 8, 2},
+    {0, 9, 3},
+    {0, 10, 4},
+    {0, 11, 5},
+    {0, 13, 1}
+};
+
 extern const unsigned long long SCENE_0_OBJECT_ID_HASHES[];
 inline const unsigned long long* SCENE_OBJECT_ID_TABLES[SCENE_COUNT] = {SCENE_0_OBJECT_ID_HASHES};
 

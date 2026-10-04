@@ -1909,6 +1909,27 @@ void TerrainGame::loadAnimModelAsset(int i) {
     else  // missing texture degrades the part to its plain color
       model->parts[m].texturePath.clear();
   }
+  // Crowd palette variants: "<texture>.v<k>.pal" beside each palettized
+  // texture - a Texture that borrows the base's texels and brings only its
+  // CLUT (1 KB of VRAM per person; docs/character-generator.md, "Crowds").
+  for (int v = 1; v <= ANIM_MODEL_VARIANTS[i]; ++v) {
+    std::vector<Texture*> vt(model->parts.size(), nullptr);
+    for (size_t m = 0; m < model->parts.size(); ++m) {
+      Texture* base = gam.textures[m];
+      if (!base || !base->clut || base->clut->width == 0) continue;
+      const std::string& tp = model->parts[m].texturePath;
+      if (tp.size() < 4) continue;
+      const std::string pal =
+          tp.substr(0, tp.size() - 4) + ".v" + std::to_string(v) + ".pal";
+      unsigned char rgba[1024];
+      FILE* f = fopen(FileUtils::fromCwd(pal).c_str(), "rb");
+      if (!f) continue;
+      const size_t got = fread(rgba, 1, sizeof(rgba), f);
+      fclose(f);
+      if (got >= 64) vt[m] = new Texture(base, rgba, (int)(got / 4));
+    }
+    gam.variants.push_back(std::move(vt));
+  }
   // Local-space cull box: the .tskl AABB is a union over every clip
   // (sampled by the baker), padded 10% per axis for pose positions
   // between the bake samples. Culling skips pose+skin+submit entirely,
@@ -1936,6 +1957,14 @@ void TerrainGame::loadAnimModelAsset(int i) {
 void TerrainGame::freeAnimModelAsset(int i) {
   if (i < 0 || i >= ANIM_MODEL_COUNT || !animModelLoaded[i]) return;
   GameAnimModel& gam = gameAnimModels[i];
+  // variants first: each borrows its base's texels
+  for (auto& vt : gam.variants)
+    for (Texture* t : vt)
+      if (t) {
+        engine->renderer.core.texture.freeTextureBuffers(t->id);
+        delete t;
+      }
+  gam.variants.clear();
   for (const std::string& path : gam.texPaths) releaseTexture(path);
   gam = GameAnimModel();
   animModelLoaded[i] = 0;

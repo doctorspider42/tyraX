@@ -16,6 +16,10 @@
 *.tanm
 *.tmdl
 /models/characters/*.png
+# ...except a crowd's colour variants: SOURCES the generator wrote, which
+# texbake fits into palettes (docs/character-generator.md, "Crowds").
+!/models/characters/*.v[0-9].png
+!/models/characters/*.v[0-9][0-9].png
 
 # Baked credits page strips - regenerated on every build (docs/credits.md).
 # The images an Image block points at live in res/credits/ and stay checked in.

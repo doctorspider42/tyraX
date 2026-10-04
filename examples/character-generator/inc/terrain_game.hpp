@@ -391,6 +391,19 @@ class TerrainGame : public Tyra::Game {
     const unsigned char* lipEnv = nullptr;  // a speaking sound's envelope
     int lipLen = 0;         // its length, LIP_SYNC_RATE samples a second
     float lipT = 0.0F;      // seconds since that sound started
+    // Spring bones (updateSprings): a ponytail's two links, a skirt's four
+    // panels. Each swings a TIP point in world space - so walking, turning
+    // and the clip's own motion all set it going - and the bone is turned to
+    // point at it. -1 = this rig has no such bone.
+    struct Spring {
+      s16 node = -1, parent = -1;
+      float rest[3] = {0.0F, -0.15F, 0.0F};  // tip offset in the bone's frame
+      float tip[3] = {0.0F, 0.0F, 0.0F};     // world
+      float vel[3] = {0.0F, 0.0F, 0.0F};
+      bool live = false;
+    };
+    Spring springs[6];
+    s16 legNode[4] = {-1, -1, -1, -1};  // LeftUpLeg, LeftLeg, RightUpLeg, RightLeg
     // Usable-object highlight: terrain-hugging glow ring around the base,
     // built when first highlighted, cleared whenever the object rebuilds
     // (see buildHighlightApron)
@@ -486,6 +499,9 @@ class TerrainGame : public Tyra::Game {
     std::unique_ptr<Tyra::SkelModel> src;   // skeleton + mesh + clip tracks
     std::vector<Tyra::Texture*> textures;   // per part, nullptr = untextured
     std::vector<std::string> texPaths;      // texture-cache refs held
+    // Crowd palette variants: [k - 1][part] = textures[part]'s texels through
+    // the k-th .pal (nullptr = that part has none). Owned here.
+    std::vector<std::vector<Tyra::Texture*>> variants;
     Tyra::CoreBBox cullBox;  // local AABB over all clips + margin (see load)
   };
   std::vector<GameAnimModel> gameAnimModels;
@@ -493,6 +509,7 @@ class TerrainGame : public Tyra::Game {
   void freeAnimModelAsset(int index);
   void setupAnimObject(int index);  // per-object instance + playback state
   void updateFace(int index, float dist2);  // blinks, look-at, talking jaw
+  void updateSprings(int index, float dist2);  // ponytails and skirts swing
   void updateAndRenderAnimObjects();
   // Dynamic lighting (docs/global-illumination.md): refills the light bag
   // of every opt-in object from the probe grid, once per frame.

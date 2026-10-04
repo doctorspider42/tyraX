@@ -21,7 +21,7 @@ inline const char* MODEL_SOURCES[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {
 };
 inline constexpr bool MODEL_NEEDS_COLLIDER[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {false};
 
-inline constexpr int ANIM_MODEL_COUNT = 6;
+inline constexpr int ANIM_MODEL_COUNT = 7;
 inline const char* ANIM_MODEL_PATHS[ANIM_MODEL_COUNT > 0 ? ANIM_MODEL_COUNT : 1] = {
     "models/characters/hero.tskl",
     "models/characters/clerk.tskl",
@@ -29,7 +29,9 @@ inline const char* ANIM_MODEL_PATHS[ANIM_MODEL_COUNT > 0 ? ANIM_MODEL_COUNT : 1]
     "models/characters/kid.tskl",
     "models/characters/punk.tskl",
     "models/characters/elder.tskl",
+    "models/characters/commuter.tskl",
 };
+inline const int ANIM_MODEL_VARIANTS[ANIM_MODEL_COUNT > 0 ? ANIM_MODEL_COUNT : 1] = {0, 0, 0, 0, 0, 0, 5};
 
 // .mtl libraries assigned to primitives (first material = surface)
 inline constexpr int MATERIAL_COUNT = 0;
