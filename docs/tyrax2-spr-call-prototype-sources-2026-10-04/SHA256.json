@@ -1,0 +1,23 @@
+{
+  "status": "EXACT_SOURCE_ARCHIVE_SHA256_MANIFEST",
+  "files": {
+    "comparison/v2/engine/inc/renderer/core/paths/path1/native_call_cache.hpp": "f56a92fb059c108fcc74efa02d2d571af680772282ccceece7b6488343917b3d",
+    "harness/engine/inc/debug/quiet_cadence.hpp": "f4c7a6a1e9a5bae6a54fc85814b3998ba1b847b8813fb354f2b17a32db410148",
+    "harness/engine/inc/debug/quiet_runtime.hpp": "5a1177f7e792f6eee1c2fd041e127a502d2cee3fa719838c22da124fda8910e6",
+    "harness/engine/inc/debug/quiet_scope.hpp": "b1ec980175686c78042a23801bd5ce9d20e605e86692f8cdaf1fa760de253be5",
+    "harness/game/src/proto_benchmark.cpp": "ad6d7989dff3e1b62042a5d6ad93ecb0b90e418051f1b0066c193c7a04405e3e",
+    "metadata/merged-source-proof.json": "4216653c5980fbd99f6baba0c00d01f94b95bc62749f158d167fa62be02bedcb",
+    "metadata/provenance.json": "a5b025a03a07ad535035b542907c1213093785896f585b8a4c04e66a77c47e0e",
+    "metadata/root-native-command-exit.json": "18b7695f4ba1fe38b354a6e9a995697f017ffb6bfa4ba08c6efbb8d5a34f8212",
+    "metadata/root-native-provenance.json": "6f1f0df72e7063e8f9832bdb737464e7d624f4db4f36ce427146154911cde769",
+    "metadata/root-source-freeze.json": "1f3e374702f243b92654f11329f87a12185d0ab30c688931a7ac90df1b9d8355",
+    "README.md": "cd48855ef97608a78e9d45b0b40830792215a4d536b7bab24bef7869dd4f9664",
+    "v3/engine/inc/renderer/core/paths/path1/frame_vif_writer.hpp": "9d91c71e2579ad4b478ec9d6e43bb29888acc1ac19b9dd9f2e767f8b92ddcf3e",
+    "v3/engine/inc/renderer/core/paths/path1/native_call_cache.hpp": "17e1f84b243bc9c3e6b390a738a65aca394d5728621953e993846eecd7722456",
+    "v3/engine/inc/renderer/core/paths/path1/native_call_check.hpp": "5e81c0b2511527e8a9108b012f5e2fbaa846b28b20a101c79ecc6bde3d65d3c7",
+    "v3/engine/inc/renderer/core/paths/path1/spr_prefix_stager.hpp": "d80c90f12ba7d95e7fa64b8220be75ca42ad093f12eefcf03381793d54efa48a",
+    "v3/engine/inc/renderer/core/paths/path1/spr_transaction_storage.hpp": "9562fc30b95a8876b475b024cfcb0aff56598ef9ca769cf61d9c62089ec729dc",
+    "v3/engine/inc/renderer/core/paths/path1/vif1_queue.hpp": "c5531f85187e4dcb97aacdb7d457761edb26b1dae6293926a51f8ecf8d586fdc",
+    "v3/engine/src/renderer/core/paths/path1/vif1_queue.cpp": "af4cdc4204c2e689b48c5fd3f46b191b8f65504d6e931dfce89c3ddf2a93dcff"
+  }
+}

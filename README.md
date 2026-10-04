@@ -443,7 +443,7 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
 - [Not re-baking wheels that did not move](docs/wheel-rebake-skip.md): the vehicle wheel batch skips a rig whose inputs did not change, and keeps its `bboxVersion` when the vertices are byte-identical.
 - A [physical PS2 timeline](docs/hardware-profiler.md) in the editor and HTML/Perfetto, with hierarchical EE scopes, actual render jobs and explicit observer-cost controls.
 - [Frame pipeline flow nodes](docs/frame-pipeline-flow-nodes.md): deferred runtime switching and a requested-state getter, with repeated requests preserving overlap.
-- [TyraX2 frame pipeline](docs/tyrax2.md): ordered frame recording and EE/GPU overlap, enabled for new projects with explicit legacy opt-out and reproducible hardware controls.
+- [TyraX2 frame pipeline](docs/tyrax2.md): ordered frame recording and EE/GPU overlap, enabled for new projects with explicit legacy opt-out and reproducible hardware controls; [private SPR/CALL trials](docs/tyrax2-spr-call-runtime-2026-10-04.md) preserve measured results and exact prototype sources.
 - [On-demand render costs](docs/profiling.md#on-demand-render-cost-178): debugger phase/object timings, sortable by name, cost or delta, with baseline comparison and CSV export on PCSX2 and PS2.
 - The [VU framework](docs/vu-framework.md): describe a microprogram in C++,
   generate both sides of it and run it in a host simulator with no PS2 —

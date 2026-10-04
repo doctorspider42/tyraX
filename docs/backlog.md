@@ -249,12 +249,13 @@ a success metric of fewer submissions/MSCAL boundaries plus lower hardware
   waiting, and some of that wait was recoverable.
 - **Scratchpad staging** is already covered by S1 in
   [ee-submission-rearchitecture.md](ee-submission-rearchitecture.md).
-  [The post-TyraX2 audit](tyrax2-spr-staging.md) now has a completed host-only
-  finalized-prefix experiment: 40 variants preserve actual writer bytes and
-  exercise delayed-copy/window/bank bookkeeping. Next use private SPR→RAM
-  staging with the existing flush retained. Cache-flush removal remains gated
-  by the corrupt arm's dirty-source inventory and barrier proof. CALL/RET is
-  separate and has no demonstrated advantage over current whole-bag REF replay.
+  [The post-TyraX2 audit](tyrax2-spr-staging.md) retains its host finalized-prefix
+  byte-preservation control. The [October 4 private runtime experiments](tyrax2-spr-call-runtime-2026-10-04.md)
+  now close direct SPR construction and CALL/RET trials: both physical orders
+  regress, by +0.178–0.389 ms for SPR and +3.332–3.532 ms for corrected CALL.
+  Preserve the prototypes as source snapshots; do not promote these policies.
+  Finalized-prefix copy-only staging has no physical price from these trials.
+  Cache-flush removal remains gated by dirty-source inventory and barrier proof.
 
 Do not re-add the article's already-done or already-refuted suggestions as new
 tasks: primitive state already rides GIFtag PRE; VU1 clip programs already patch
@@ -854,8 +855,10 @@ Two hypotheses, not separated:
 **S1 cache-flush removal stays gated until this is answered.** The 1.09 ms
 measurement belongs to this older architecture, not the current single-chain
 runtime. The 2026-10-02 [SPR audit and host experiment](tyrax2-spr-staging.md)
-allow a narrower finalized-prefix staging control with flush retained;
-no SPR runtime or hardware gain is accepted yet. Re-run with `--keep-routes`:
+allow a narrower finalized-prefix staging control with flush retained. The
+[October 4 private direct-SPR runtime](tyrax2-spr-call-runtime-2026-10-04.md)
+passed its byte guard and visual check but regressed on hardware; no SPR gain
+or production promotion is accepted. Re-run with `--keep-routes`:
 a parked fixture cannot see a per-frame rebake writing the same bytes each frame.
 
 Evidence, arms and recipe:

@@ -1,0 +1,1250 @@
+{
+  "status": "PASS_COMPACT_V10_COMPLETED_EVIDENCE_SOURCE_BOUND_REPARSE",
+  "runs": [
+    {
+      "stem": "minimal-scope-v10-batch-emulator0-attempt1",
+      "environment": "emulator",
+      "order": 0,
+      "sourceManifestSha256": "697059b63686344fd9770f27a8fc5776cefd03c1da694ce548f785721b26644b",
+      "selectedElfSha256": "a0903ebaa303012bce4d977d31aa34fd22e8c75bea7aa945deb58c70a7daaf41",
+      "ownOnWindows": [
+        {
+          "phase": 1,
+          "batchTextureProgramInclusive_ms": 0.13687682151794434,
+          "batchMedian_ms": 0.12464396158854167,
+          "batchP95_ms": 0.17231920030381945,
+          "sceneInclusive_ms": 7.4226842986212835,
+          "sameFrameSceneMinusB_ms": 7.285807477103339,
+          "existingWholeLoopPacing_ms": 8.46815628475613,
+          "workCallsMin": 134,
+          "workCallsMax": 134,
+          "workCallsTotal": 17152,
+          "scopeReads": 34560,
+          "totalReads": 34822
+        }
+      ],
+      "sameFixtureSamplerOnMinusOff_msPer320LoopWindowMean": [
+        0.019532563951280224,
+        0.004615444607205532
+      ],
+      "outerWindowSpread_ms": 0.014917119344074692,
+      "byPhase": {
+        "0": {
+          "sampler": 0,
+          "tax_loop_count": 320,
+          "elapsed_ticks_u64": 1574438397,
+          "pacing_ticks_u64": 806194933,
+          "non_pacing_ticks_u64": 768243464,
+          "mean_non_pacing_ms": 8.140600670708551,
+          "rendered_completions": 320,
+          "synthetic_completions": 0,
+          "sample_stats": {},
+          "presentation_ineligible": {
+            "present": 0,
+            "rendered": 0,
+            "zero": 0,
+            "multiple": 0,
+            "synthetic": 0
+          }
+        },
+        "1": {
+          "sampler": 1,
+          "tax_loop_count": 320,
+          "elapsed_ticks_u64": 1574438401,
+          "pacing_ticks_u64": 804351613,
+          "non_pacing_ticks_u64": 770086788,
+          "mean_non_pacing_ms": 8.160133234659831,
+          "rendered_completions": 320,
+          "synthetic_completions": 0,
+          "sample_stats": {
+            "entryPeriod": {
+              "samples": 128,
+              "mean_ticks": 4920122.5625,
+              "median_ticks": 4920120.0,
+              "p95_ticks": 4924239,
+              "max_ticks": 4928842,
+              "mean_ms": 16.68335829840766,
+              "above_16_667ms": 126,
+              "above_33_333ms": 0
+            },
+            "wholeLoop": {
+              "samples": 128,
+              "mean_ticks": 4919849.4296875,
+              "median_ticks": 4919847.0,
+              "p95_ticks": 4923966,
+              "max_ticks": 4928569,
+              "mean_ms": 16.682432148191666,
+              "above_16_667ms": 125,
+              "above_33_333ms": 0
+            },
+            "pacing": {
+              "samples": 128,
+              "mean_ticks": 2497360.90625,
+              "median_ticks": 2509261.0,
+              "p95_ticks": 2518367,
+              "max_ticks": 2522037,
+              "mean_ms": 8.46815628475613,
+              "above_16_667ms": 0,
+              "above_33_333ms": 0
+            },
+            "nonPacing": {
+              "samples": 128,
+              "mean_ticks": 2422488.5234375,
+              "median_ticks": 2410861.5,
+              "p95_ticks": 2505051,
+              "max_ticks": 2517345,
+              "mean_ms": 8.214275863435534,
+              "above_16_667ms": 0,
+              "above_33_333ms": 0
+            },
+            "presentPeriod": {
+              "samples": 128,
+              "mean_ticks": 4920120.0078125,
+              "median_ticks": 4920120.0,
+              "p95_ticks": 4921746,
+              "max_ticks": 4924830,
+              "mean_ms": 16.68334963586595,
+              "above_16_667ms": 128,
+              "above_33_333ms": 0
+            },
+            "renderedPeriod": {
+              "samples": 128,
+              "mean_ticks": 4920120.0078125,
+              "median_ticks": 4920120.0,
+              "p95_ticks": 4921746,
+              "max_ticks": 4924830,
+              "mean_ms": 16.68334963586595,
+              "above_16_667ms": 128,
+              "above_33_333ms": 0
+            }
+          },
+          "presentation_ineligible": {
+            "present": 0,
+            "rendered": 0,
+            "zero": 0,
+            "multiple": 0,
+            "synthetic": 0
+          }
+        },
+        "2": {
+          "sampler": 0,
+          "tax_loop_count": 320,
+          "elapsed_ticks_u64": 1574438401,
+          "pacing_ticks_u64": 804787181,
+          "non_pacing_ticks_u64": 769651220,
+          "mean_non_pacing_ms": 8.155517790052626,
+          "rendered_completions": 320,
+          "synthetic_completions": 0,
+          "sample_stats": {},
+          "presentation_ineligible": {
+            "present": 0,
+            "rendered": 0,
+            "zero": 0,
+            "multiple": 0,
+            "synthetic": 0
+          }
+        }
+      },
+      "actualScopeCountReadsByPhase": {
+        "0": 0,
+        "1": 34560,
+        "2": 0
+      },
+      "actualTotalCountReadsByPhase": {
+        "0": 6,
+        "1": 34822,
+        "2": 6
+      },
+      "archivedAnalysisSha256": "b852a45eecb9bbb8d1b838b5f537c260c3789bc9b2b0ce80e5245301d2f2f415",
+      "machineEvidenceSha256": "e51877403ba5d06cb11ef99677ddaa274067157c27f7b7290179efd09cd03e2f"
+    },
+    {
+      "stem": "minimal-scope-v10-batch-emulator1-attempt2",
+      "environment": "emulator",
+      "order": 1,
+      "sourceManifestSha256": "697059b63686344fd9770f27a8fc5776cefd03c1da694ce548f785721b26644b",
+      "selectedElfSha256": "a0903ebaa303012bce4d977d31aa34fd22e8c75bea7aa945deb58c70a7daaf41",
+      "ownOnWindows": [
+        {
+          "phase": 0,
+          "batchTextureProgramInclusive_ms": 0.1374056339263916,
+          "batchMedian_ms": 0.12464396158854167,
+          "batchP95_ms": 0.171875,
+          "sceneInclusive_ms": 7.41793778207567,
+          "sameFrameSceneMinusB_ms": 7.280532148149279,
+          "existingWholeLoopPacing_ms": 8.483225848939684,
+          "workCallsMin": 134,
+          "workCallsMax": 134,
+          "workCallsTotal": 17152,
+          "scopeReads": 34560,
+          "totalReads": 34822
+        },
+        {
+          "phase": 2,
+          "batchTextureProgramInclusive_ms": 0.13525742954678005,
+          "batchMedian_ms": 0.12464396158854167,
+          "batchP95_ms": 0.1592034233940972,
+          "sceneInclusive_ms": 7.422793043984307,
+          "sameFrameSceneMinusB_ms": 7.287535614437527,
+          "existingWholeLoopPacing_ms": 8.46819676293267,
+          "workCallsMin": 134,
+          "workCallsMax": 134,
+          "workCallsTotal": 17152,
+          "scopeReads": 34560,
+          "totalReads": 34822
+        }
+      ],
+      "sameFixtureSamplerOnMinusOff_msPer320LoopWindowMean": [
+        -0.01230818430582481,
+        0.0022645420498328406
+      ],
+      "outerWindowSpread_ms": 0.01457272635565765,
+      "byPhase": {
+        "0": {
+          "sampler": 1,
+          "tax_loop_count": 320,
+          "elapsed_ticks_u64": 1574438405,
+          "pacing_ticks_u64": 805889653,
+          "non_pacing_ticks_u64": 768548752,
+          "mean_non_pacing_ms": 8.143835618760852,
+          "rendered_completions": 320,
+          "synthetic_completions": 0,
+          "sample_stats": {
+            "entryPeriod": {
+              "samples": 128,
+              "mean_ticks": 4920122.5625,
+              "median_ticks": 4920120.0,
+              "p95_ticks": 4924263,
+              "max_ticks": 4924967,
+              "mean_ms": 16.68335829840766,
+              "above_16_667ms": 128,
+              "above_33_333ms": 0
+            },
+            "wholeLoop": {
+              "samples": 128,
+              "mean_ticks": 4919849.4375,
+              "median_ticks": 4919847.0,
+              "p95_ticks": 4923990,
+              "max_ticks": 4924694,
+              "mean_ms": 16.682432174682617,
+              "above_16_667ms": 127,
+              "above_33_333ms": 0
+            },
+            "pacing": {
+              "samples": 128,
+              "mean_ticks": 2501805.1015625,
+              "median_ticks": 2512374.5,
+              "p95_ticks": 2521355,
+              "max_ticks": 2524251,
+              "mean_ms": 8.483225848939684,
+              "above_16_667ms": 0,
+              "above_33_333ms": 0
+            },
+            "nonPacing": {
+              "samples": 128,
+              "mean_ticks": 2418044.3359375,
+              "median_ticks": 2407473.5,
+              "p95_ticks": 2502406,
+              "max_ticks": 2505875,
+              "mean_ms": 8.199206325742933,
+              "above_16_667ms": 0,
+              "above_33_333ms": 0
+            },
+            "presentPeriod": {
+              "samples": 128,
+              "mean_ticks": 4920120.015625,
+              "median_ticks": 4920120.0,
+              "p95_ticks": 4920123,
+              "max_ticks": 4924641,
+              "mean_ms": 16.683349662356907,
+              "above_16_667ms": 128,
+              "above_33_333ms": 0
+            },
+            "renderedPeriod": {
+              "samples": 128,
+              "mean_ticks": 4920120.015625,
+              "median_ticks": 4920120.0,
+              "p95_ticks": 4920123,
+              "max_ticks": 4924641,
+              "mean_ms": 16.683349662356907,
+              "above_16_667ms": 128,
+              "above_33_333ms": 0
+            }
+          },
+          "presentation_ineligible": {
+            "present": 0,
+            "rendered": 0,
+            "zero": 0,
+            "multiple": 0,
+            "synthetic": 0
+          }
+        },
+        "1": {
+          "sampler": 0,
+          "tax_loop_count": 320,
+          "elapsed_ticks_u64": 1574438397,
+          "pacing_ticks_u64": 804728099,
+          "non_pacing_ticks_u64": 769710298,
+          "mean_non_pacing_ms": 8.156143803066676,
+          "rendered_completions": 320,
+          "synthetic_completions": 0,
+          "sample_stats": {},
+          "presentation_ineligible": {
+            "present": 0,
+            "rendered": 0,
+            "zero": 0,
+            "multiple": 0,
+            "synthetic": 0
+          }
+        },
+        "2": {
+          "sampler": 1,
+          "tax_loop_count": 320,
+          "elapsed_ticks_u64": 1574436079,
+          "pacing_ticks_u64": 804512072,
+          "non_pacing_ticks_u64": 769924007,
+          "mean_non_pacing_ms": 8.15840834511651,
+          "rendered_completions": 320,
+          "synthetic_completions": 0,
+          "sample_stats": {
+            "entryPeriod": {
+              "samples": 128,
+              "mean_ticks": 4920122.578125,
+              "median_ticks": 4920120.0,
+              "p95_ticks": 4924417,
+              "max_ticks": 4927284,
+              "mean_ms": 16.68335835138957,
+              "above_16_667ms": 126,
+              "above_33_333ms": 0
+            },
+            "wholeLoop": {
+              "samples": 128,
+              "mean_ticks": 4919849.4296875,
+              "median_ticks": 4919847.0,
+              "p95_ticks": 4924144,
+              "max_ticks": 4927011,
+              "mean_ms": 16.682432148191666,
+              "above_16_667ms": 124,
+              "above_33_333ms": 0
+            },
+            "pacing": {
+              "samples": 128,
+              "mean_ticks": 2497372.84375,
+              "median_ticks": 2509560.0,
+              "p95_ticks": 2517503,
+              "max_ticks": 2521942,
+              "mean_ms": 8.46819676293267,
+              "above_16_667ms": 0,
+              "above_33_333ms": 0
+            },
+            "nonPacing": {
+              "samples": 128,
+              "mean_ticks": 2422476.5859375,
+              "median_ticks": 2410094.5,
+              "p95_ticks": 2502081,
+              "max_ticks": 2510908,
+              "mean_ms": 8.214235385258993,
+              "above_16_667ms": 0,
+              "above_33_333ms": 0
+            },
+            "presentPeriod": {
+              "samples": 128,
+              "mean_ticks": 4920120.0078125,
+              "median_ticks": 4920120.0,
+              "p95_ticks": 4920124,
+              "max_ticks": 4924492,
+              "mean_ms": 16.68334963586595,
+              "above_16_667ms": 128,
+              "above_33_333ms": 0
+            },
+            "renderedPeriod": {
+              "samples": 128,
+              "mean_ticks": 4920120.0078125,
+              "median_ticks": 4920120.0,
+              "p95_ticks": 4920124,
+              "max_ticks": 4924492,
+              "mean_ms": 16.68334963586595,
+              "above_16_667ms": 128,
+              "above_33_333ms": 0
+            }
+          },
+          "presentation_ineligible": {
+            "present": 0,
+            "rendered": 0,
+            "zero": 0,
+            "multiple": 0,
+            "synthetic": 0
+          }
+        }
+      },
+      "actualScopeCountReadsByPhase": {
+        "0": 34560,
+        "1": 0,
+        "2": 34560
+      },
+      "actualTotalCountReadsByPhase": {
+        "0": 34822,
+        "1": 6,
+        "2": 34822
+      },
+      "archivedAnalysisSha256": "aba1da575f3331cd78ff0bb01ca0e9b9f0f5c74744cd2345662d36bfe59e6483",
+      "machineEvidenceSha256": "ced1404e1dc438ec0a5abef36546a60d41749957f85e345b0310fa2afee6ad6f"
+    },
+    {
+      "stem": "minimal-scope-v10-batch-ps2-0-attempt3",
+      "environment": "ps2",
+      "order": 0,
+      "sourceManifestSha256": "697059b63686344fd9770f27a8fc5776cefd03c1da694ce548f785721b26644b",
+      "selectedElfSha256": "a0903ebaa303012bce4d977d31aa34fd22e8c75bea7aa945deb58c70a7daaf41",
+      "ownOnWindows": [
+        {
+          "phase": 1,
+          "batchTextureProgramInclusive_ms": 0.7880599763658311,
+          "batchMedian_ms": 0.7753075493706597,
+          "batchP95_ms": 0.918487548828125,
+          "sceneInclusive_ms": 17.929321871863472,
+          "sameFrameSceneMinusB_ms": 17.14126189549764,
+          "existingWholeLoopPacing_ms": 13.59046549267239,
+          "workCallsMin": 134,
+          "workCallsMax": 134,
+          "workCallsTotal": 17152,
+          "scopeReads": 34560,
+          "totalReads": 34822
+        }
+      ],
+      "sameFixtureSamplerOnMinusOff_msPer320LoopWindowMean": [
+        0.0647402445475258,
+        0.03590384589301365
+      ],
+      "outerWindowSpread_ms": 0.028836398654512152,
+      "byPhase": {
+        "0": {
+          "sampler": 0,
+          "tax_loop_count": 320,
+          "elapsed_ticks_u64": 3148873758,
+          "pacing_ticks_u64": 1310770020,
+          "non_pacing_ticks_u64": 1838103738,
+          "mean_non_pacing_ms": 19.47724806467692,
+          "rendered_completions": 320,
+          "synthetic_completions": 0,
+          "sample_stats": {},
+          "presentation_ineligible": {
+            "present": 0,
+            "rendered": 0,
+            "zero": 0,
+            "multiple": 0,
+            "synthetic": 0
+          }
+        },
+        "1": {
+          "sampler": 1,
+          "tax_loop_count": 320,
+          "elapsed_ticks_u64": 3148873808,
+          "pacing_ticks_u64": 1304660414,
+          "non_pacing_ticks_u64": 1844213394,
+          "mean_non_pacing_ms": 19.541988309224447,
+          "rendered_completions": 320,
+          "synthetic_completions": 0,
+          "sample_stats": {
+            "entryPeriod": {
+              "samples": 128,
+              "mean_ticks": 9840241.0625,
+              "median_ticks": 9840243.0,
+              "p95_ticks": 9848340,
+              "max_ticks": 9850092,
+              "mean_ms": 33.36670282151964,
+              "above_16_667ms": 128,
+              "above_33_333ms": 125
+            },
+            "wholeLoop": {
+              "samples": 128,
+              "mean_ticks": 9838846.765625,
+              "median_ticks": 9839066.0,
+              "p95_ticks": 9847137,
+              "max_ticks": 9848919,
+              "mean_ms": 33.361974981096054,
+              "above_16_667ms": 128,
+              "above_33_333ms": 115
+            },
+            "pacing": {
+              "samples": 128,
+              "mean_ticks": 4007991.359375,
+              "median_ticks": 3986790.5,
+              "p95_ticks": 4290566,
+              "max_ticks": 4361948,
+              "mean_ms": 13.59046549267239,
+              "above_16_667ms": 0,
+              "above_33_333ms": 0
+            },
+            "nonPacing": {
+              "samples": 128,
+              "mean_ticks": 5830855.40625,
+              "median_ticks": 5850819.5,
+              "p95_ticks": 6004030,
+              "max_ticks": 6065313,
+              "mean_ms": 19.771509488423664,
+              "above_16_667ms": 128,
+              "above_33_333ms": 0
+            },
+            "presentPeriod": {
+              "samples": 128,
+              "mean_ticks": 9840230.0234375,
+              "median_ticks": 9840242.0,
+              "p95_ticks": 9845833,
+              "max_ticks": 9846577,
+              "mean_ms": 33.36666538980272,
+              "above_16_667ms": 128,
+              "above_33_333ms": 128
+            },
+            "renderedPeriod": {
+              "samples": 128,
+              "mean_ticks": 9840230.0234375,
+              "median_ticks": 9840242.0,
+              "p95_ticks": 9845833,
+              "max_ticks": 9846577,
+              "mean_ms": 33.36666538980272,
+              "above_16_667ms": 128,
+              "above_33_333ms": 128
+            }
+          },
+          "presentation_ineligible": {
+            "present": 0,
+            "rendered": 0,
+            "zero": 0,
+            "multiple": 0,
+            "synthetic": 0
+          }
+        },
+        "2": {
+          "sampler": 0,
+          "tax_loop_count": 320,
+          "elapsed_ticks_u64": 3148873860,
+          "pacing_ticks_u64": 1308048778,
+          "non_pacing_ticks_u64": 1840825082,
+          "mean_non_pacing_ms": 19.506084463331433,
+          "rendered_completions": 320,
+          "synthetic_completions": 0,
+          "sample_stats": {},
+          "presentation_ineligible": {
+            "present": 0,
+            "rendered": 0,
+            "zero": 0,
+            "multiple": 0,
+            "synthetic": 0
+          }
+        }
+      },
+      "actualScopeCountReadsByPhase": {
+        "0": 0,
+        "1": 34560,
+        "2": 0
+      },
+      "actualTotalCountReadsByPhase": {
+        "0": 6,
+        "1": 34822,
+        "2": 6
+      },
+      "archivedAnalysisSha256": "54bac6e3ec0ece7dfc64c01de01758e6bf2264e0979455000ba63e702b81da5e",
+      "machineEvidenceSha256": "7a006500350f5afcd177ff64c98ded14d2da3f3e3d7975cc3dbd4800dd259bde"
+    },
+    {
+      "stem": "minimal-scope-v10-batch-ps2-1",
+      "environment": "ps2",
+      "order": 1,
+      "sourceManifestSha256": "697059b63686344fd9770f27a8fc5776cefd03c1da694ce548f785721b26644b",
+      "selectedElfSha256": "a0903ebaa303012bce4d977d31aa34fd22e8c75bea7aa945deb58c70a7daaf41",
+      "ownOnWindows": [
+        {
+          "phase": 0,
+          "batchTextureProgramInclusive_ms": 0.7511680126190186,
+          "batchMedian_ms": 0.7386254204644097,
+          "batchP95_ms": 0.881805419921875,
+          "sceneInclusive_ms": 17.98821348614163,
+          "sameFrameSceneMinusB_ms": 17.23704547352261,
+          "existingWholeLoopPacing_ms": 13.529739273918999,
+          "workCallsMin": 134,
+          "workCallsMax": 134,
+          "workCallsTotal": 17152,
+          "scopeReads": 34560,
+          "totalReads": 34822
+        },
+        {
+          "phase": 2,
+          "batchTextureProgramInclusive_ms": 0.7858557966020372,
+          "batchMedian_ms": 0.7930484347873263,
+          "batchP95_ms": 0.9046257866753472,
+          "sceneInclusive_ms": 17.84280072318183,
+          "sameFrameSceneMinusB_ms": 17.056944926579792,
+          "existingWholeLoopPacing_ms": 13.678701453738743,
+          "workCallsMin": 134,
+          "workCallsMax": 134,
+          "workCallsTotal": 17152,
+          "scopeReads": 34560,
+          "totalReads": 34822
+        }
+      ],
+      "sameFixtureSamplerOnMinusOff_msPer320LoopWindowMean": [
+        0.30106444888644646,
+        0.1531256993611656
+      ],
+      "outerWindowSpread_ms": 0.14793874952528085,
+      "byPhase": {
+        "0": {
+          "sampler": 1,
+          "tax_loop_count": 320,
+          "elapsed_ticks_u64": 3148868150,
+          "pacing_ticks_u64": 1297836820,
+          "non_pacing_ticks_u64": 1851031330,
+          "mean_non_pacing_ms": 19.614233758714462,
+          "rendered_completions": 320,
+          "synthetic_completions": 0,
+          "sample_stats": {
+            "entryPeriod": {
+              "samples": 128,
+              "mean_ticks": 9840308.296875,
+              "median_ticks": 9840300.0,
+              "p95_ticks": 9848862,
+              "max_ticks": 9853986,
+              "mean_ms": 33.36693080266317,
+              "above_16_667ms": 128,
+              "above_33_333ms": 126
+            },
+            "wholeLoop": {
+              "samples": 128,
+              "mean_ticks": 9839141.546875,
+              "median_ticks": 9839151.0,
+              "p95_ticks": 9847669,
+              "max_ticks": 9852801,
+              "mean_ms": 33.36297453774346,
+              "above_16_667ms": 128,
+              "above_33_333ms": 116
+            },
+            "pacing": {
+              "samples": 128,
+              "mean_ticks": 3990082.46875,
+              "median_ticks": 3962067.5,
+              "p95_ticks": 4296764,
+              "max_ticks": 4357396,
+              "mean_ms": 13.529739273918999,
+              "above_16_667ms": 0,
+              "above_33_333ms": 0
+            },
+            "nonPacing": {
+              "samples": 128,
+              "mean_ticks": 5849059.078125,
+              "median_ticks": 5877176.5,
+              "p95_ticks": 6031813,
+              "max_ticks": 6045817,
+              "mean_ms": 19.833235263824463,
+              "above_16_667ms": 128,
+              "above_33_333ms": 0
+            },
+            "presentPeriod": {
+              "samples": 128,
+              "mean_ticks": 9840230.625,
+              "median_ticks": 9840239.5,
+              "p95_ticks": 9845239,
+              "max_ticks": 9846175,
+              "mean_ms": 33.36666742960612,
+              "above_16_667ms": 128,
+              "above_33_333ms": 128
+            },
+            "renderedPeriod": {
+              "samples": 128,
+              "mean_ticks": 9840230.625,
+              "median_ticks": 9840239.5,
+              "p95_ticks": 9845239,
+              "max_ticks": 9846175,
+              "mean_ms": 33.36666742960612,
+              "above_16_667ms": 128,
+              "above_33_333ms": 128
+            }
+          },
+          "presentation_ineligible": {
+            "present": 0,
+            "rendered": 0,
+            "zero": 0,
+            "multiple": 0,
+            "synthetic": 0
+          }
+        },
+        "1": {
+          "sampler": 0,
+          "tax_loop_count": 320,
+          "elapsed_ticks_u64": 3148864602,
+          "pacing_ticks_u64": 1326245278,
+          "non_pacing_ticks_u64": 1822619324,
+          "mean_non_pacing_ms": 19.313169309828016,
+          "rendered_completions": 320,
+          "synthetic_completions": 0,
+          "sample_stats": {},
+          "presentation_ineligible": {
+            "present": 0,
+            "rendered": 0,
+            "zero": 0,
+            "multiple": 0,
+            "synthetic": 0
+          }
+        },
+        "2": {
+          "sampler": 1,
+          "tax_loop_count": 320,
+          "elapsed_ticks_u64": 3148873766,
+          "pacing_ticks_u64": 1311803688,
+          "non_pacing_ticks_u64": 1837070078,
+          "mean_non_pacing_ms": 19.46629500918918,
+          "rendered_completions": 320,
+          "synthetic_completions": 0,
+          "sample_stats": {
+            "entryPeriod": {
+              "samples": 128,
+              "mean_ticks": 9840240.046875,
+              "median_ticks": 9840285.0,
+              "p95_ticks": 9849030,
+              "max_ticks": 9851910,
+              "mean_ms": 33.36669937769572,
+              "above_16_667ms": 128,
+              "above_33_333ms": 127
+            },
+            "wholeLoop": {
+              "samples": 128,
+              "mean_ticks": 9838994.65625,
+              "median_ticks": 9839094.0,
+              "p95_ticks": 9847863,
+              "max_ticks": 9850723,
+              "mean_ms": 33.36247645484077,
+              "above_16_667ms": 128,
+              "above_33_333ms": 116
+            },
+            "pacing": {
+              "samples": 128,
+              "mean_ticks": 4034013.203125,
+              "median_ticks": 3990075.5,
+              "p95_ticks": 4317022,
+              "max_ticks": 4360503,
+              "mean_ms": 13.678701453738743,
+              "above_16_667ms": 0,
+              "above_33_333ms": 0
+            },
+            "nonPacing": {
+              "samples": 128,
+              "mean_ticks": 5804981.453125,
+              "median_ticks": 5849124.0,
+              "p95_ticks": 5998253,
+              "max_ticks": 6049360,
+              "mean_ms": 19.683775001102024,
+              "above_16_667ms": 128,
+              "above_33_333ms": 0
+            },
+            "presentPeriod": {
+              "samples": 128,
+              "mean_ticks": 9840230.484375,
+              "median_ticks": 9840228.0,
+              "p95_ticks": 9845881,
+              "max_ticks": 9846497,
+              "mean_ms": 33.36666695276896,
+              "above_16_667ms": 128,
+              "above_33_333ms": 128
+            },
+            "renderedPeriod": {
+              "samples": 128,
+              "mean_ticks": 9840230.484375,
+              "median_ticks": 9840228.0,
+              "p95_ticks": 9845881,
+              "max_ticks": 9846497,
+              "mean_ms": 33.36666695276896,
+              "above_16_667ms": 128,
+              "above_33_333ms": 128
+            }
+          },
+          "presentation_ineligible": {
+            "present": 0,
+            "rendered": 0,
+            "zero": 0,
+            "multiple": 0,
+            "synthetic": 0
+          }
+        }
+      },
+      "actualScopeCountReadsByPhase": {
+        "0": 34560,
+        "1": 0,
+        "2": 34560
+      },
+      "actualTotalCountReadsByPhase": {
+        "0": 34822,
+        "1": 6,
+        "2": 34822
+      },
+      "archivedAnalysisSha256": "fac97558e5ad9219d6f9a43ae58c7044fa8e2807aba168ba3a2220feaa7b30ba",
+      "machineEvidenceSha256": "bf869fd346cabcff902ea916617901a3095a12f6eb545ec94a23ae586a6aa026"
+    }
+  ],
+  "sharedSourceManifestSha256": "697059b63686344fd9770f27a8fc5776cefd03c1da694ce548f785721b26644b",
+  "sharedSelectedElfSha256": "a0903ebaa303012bce4d977d31aa34fd22e8c75bea7aa945deb58c70a7daaf41",
+  "rejectedAttempts": [
+    "concurrent emulator1 attempt1 / ps2-0 first simultaneous attempt",
+    "ps2-0 attempt2 no-network"
+  ],
+  "rejectedAttemptsNotUsed": true,
+  "prototypeReadiness": {
+    "v1NativeFailed": true,
+    "v2FullNativeRuntimeAcceptedByThisReport": false,
+    "merged-source-proof.json": {
+      "sha256": "2c1899ba46bd392118ba6edf5bad41105f68120f1997920483a908478459a574",
+      "data": {
+        "status": "ROOT_EXECUTED_PRIVATE_SPR2_CALL_NATIVE_TYPE_FIXED_NOT_NATIVE_ACCEPTED",
+        "files": {
+          "inc/renderer/core/paths/path1/frame_vif_writer.hpp": "9d91c71e2579ad4b478ec9d6e43bb29888acc1ac19b9dd9f2e767f8b92ddcf3e",
+          "inc/renderer/core/paths/path1/native_call_cache.hpp": "f56a92fb059c108fcc74efa02d2d571af680772282ccceece7b6488343917b3d",
+          "inc/renderer/core/paths/path1/native_call_check.hpp": "5e81c0b2511527e8a9108b012f5e2fbaa846b28b20a101c79ecc6bde3d65d3c7",
+          "inc/renderer/core/paths/path1/spr_prefix_stager.hpp": "d80c90f12ba7d95e7fa64b8220be75ca42ad093f12eefcf03381793d54efa48a",
+          "inc/renderer/core/paths/path1/spr_transaction_storage.hpp": "9562fc30b95a8876b475b024cfcb0aff56598ef9ca769cf61d9c62089ec729dc",
+          "inc/renderer/core/paths/path1/vif1_queue.hpp": "c5531f85187e4dcb97aacdb7d457761edb26b1dae6293926a51f8ecf8d586fdc",
+          "src/renderer/core/paths/path1/vif1_queue.cpp": "af4cdc4204c2e689b48c5fd3f46b191b8f65504d6e931dfce89c3ddf2a93dcff"
+        },
+        "before": {
+          "inc/renderer/core/paths/path1/frame_vif_writer.hpp": "0ee77091872dca566a642212fbaad2dc19e6c7202ff73917feef6fc61211ce5d",
+          "inc/renderer/core/paths/path1/native_call_cache.hpp": null,
+          "inc/renderer/core/paths/path1/native_call_check.hpp": null,
+          "inc/renderer/core/paths/path1/spr_prefix_stager.hpp": null,
+          "inc/renderer/core/paths/path1/spr_transaction_storage.hpp": null,
+          "inc/renderer/core/paths/path1/vif1_queue.hpp": "e57d16610a17615a808ae78764bd40bc5c514dc6cb67705f60cad578fc7bfe6e",
+          "src/renderer/core/paths/path1/vif1_queue.cpp": "e8c727329ec2dfa157ca55dce44d8f06c3126c3c72457be92e8255cdac9c6dfd"
+        },
+        "reconstructedBeforeFromFrozenFixture": "F:\\Projects\\tyrax2-lab-20261001\\minimal-stage-stapip-physical-v8",
+        "reconstructedBaseManifestSha256": "b3d806f6ee2731d87d23f803cc83edf1ce00dde0a56d4099b19986517bede501",
+        "callManifestSha256": "79fe820ddd6a3ec9e6b834225acd81c792f729af9674e8aceab01d089ffdad1a",
+        "callHostProofSha256": "880e9a61a831de90078ef5ae135dd0897fb4882850b8c72cae886a18f38de6f9",
+        "sprHostProofSha256": "fa154e26d4befcd25903e15f073a8c6cde542aec5cf0d4cc806b575bc55e1602",
+        "mergerSha256": "16f3494cc87c6d5e1c0b9f8c5887e3f9c351b77f6e4695d4f773c97b8fe5b17e",
+        "recoveryScriptSha256": "46012fd6617f3b4e256a90794d02b3c820675cb1b766012a4fd2b37b9d41a68c",
+        "failedOriginalExecution": {
+          "sourceFilesWritten": 7,
+          "failure": "sha(__file__) passed str to lambda expecting Path; AttributeError: str has no read_bytes",
+          "failureOccurredBeforeSourceProofAndHostControls": true,
+          "originalMergerPreserved": true
+        },
+        "sourceRewrittenByRecovery": false,
+        "boolSharedSetter": true,
+        "modeMask": 7,
+        "storageAwareCalledVifPreserved": true,
+        "quietQueueSuppressionPreserved": true,
+        "nativeAccepted": false,
+        "runtimeAccepted": false,
+        "priorV1MergedSourceProofSha256": "30dd34c561723aac5e2f9ba269e0a19256906ebba77deef9faff3d9cf073a87e",
+        "priorV1FailedNativeExitSha256": "7f27b84edb6933f7d73a31086de3f161e086a5d71c23ecf49e8ccdb25665053c",
+        "nativeTypeFixProofSha256": "3d86e11cad988e00cc960c5ba34210e50e1a909786bdb31cae52c0a89e354b76",
+        "nativeTypeFixChangedInputs": [
+          "src/renderer/core/paths/path1/vif1_queue.cpp"
+        ]
+      }
+    },
+    "root-native-command-exit.json": {
+      "sha256": "ece849e0ffa21cb495a6104cfa3efd794c95ebccb8b08a73b7c0ca791656796e",
+      "data": {
+        "buildLog": "F:/Projects/tyrax2-lab-20261001/spr-call-bench-native-v2.log",
+        "actualCommandParameters": {
+          "Toolchain": "C:/Users/pawel/AppData/Local/tyra-editor/toolchain/ps2dev",
+          "Engine": "F:/Projects/tyrax2-lab-20261001/spr-call-benchmark-v2/tyra",
+          "Cache": "F:/Projects/tyrax2-lab-20261001/native-cache",
+          "Project": "F:/Projects/tyrax2-lab-20261001/spr-call-benchmark-v2/game"
+        },
+        "status": "ROOT_observed_native_child_process_completion",
+        "childProcessId": 31500,
+        "errorLog": "F:/Projects/tyrax2-lab-20261001/spr-call-bench-native-v2.err",
+        "processExitCode": 0,
+        "sourceManifestSha256": "fca4fd5eedcaeddb9f0d71a989e59c434049cbe3925c7d1534502539c7996bb2"
+      }
+    },
+    "root-native-provenance.json": {
+      "sha256": "1a4d5ce52f36178862051e55c03199ecf3ef2458bb02c1bb2f9f8f3fa31cc1b0",
+      "data": {
+        "status": "quiet_native_build_and_assets_verified",
+        "build_backend": "native",
+        "build_exit_code": 0,
+        "exit_code_source": "root process result; exact build log preserved",
+        "selected_elf_sha256": "acfe06dbe21f82b5635f58b66bb4bdd7777e024aaad5c53102f59ddb6c443bb6",
+        "selected_symbol_sha256": "09ed06440d6ddc294bdde19450a6c427ac9167d73e31b74fac3c67e6e921b844",
+        "target_source_manifest_sha256": "fca4fd5eedcaeddb9f0d71a989e59c434049cbe3925c7d1534502539c7996bb2",
+        "build_log": "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-bench-native-v2.log",
+        "build_log_sha256": "b033975872be36e15bc75732f4f47e1c3402305e77d730c9336ecf26bbe5c27a",
+        "verified_source_files": 475,
+        "runtime_assets": 298,
+        "current_authored_baked_byte_equal_assets": 294,
+        "converted_audio_assets": 4,
+        "asset_report_sha256": "3c4d2e3c8d27fed9308135669be790b7936c450957e480c16a1852445facdf4d",
+        "quiet_profile0_hardware_trace0": true,
+        "ordinary_clocks": true
+      }
+    },
+    "patch-proof.json": {
+      "sha256": "3d86e11cad988e00cc960c5ba34210e50e1a909786bdb31cae52c0a89e354b76",
+      "data": {
+        "status": "PRIVATE_V2_CANONICAL_SNAPSHOT_WORD_TYPE_PATCH_PREPARED",
+        "changedFile": "tyra/engine/src/renderer/core/paths/path1/vif1_queue.cpp",
+        "beforeSha256": "991b505f750f2343a68267099652fe9899c375f9fe05e17538c1801a9b1764be",
+        "afterSha256": "af4cdc4204c2e689b48c5fd3f46b191b8f65504d6e931dfce89c3ddf2a93dcff",
+        "patchSha256": "ff79f5120010db5b98436a55a138da2fe45a39bb5300b9f5e2c992afa6033836",
+        "changedDeclarations": 2,
+        "layoutOrRuntimeLogicChanged": false,
+        "nativeFullBuildAccepted": false,
+        "v1FailedNativeErrSha256": "97d28ede438514df9a4512874c426cd2cac42dc35c240ad35673e324d68c6aa4",
+        "canonicalWriterProof": {
+          "snapshotFixupWordType": "uint32_t*",
+          "nativeWriterWordType": "uint32_t*",
+          "cacheValidatorWordType": "uint32_t*",
+          "addressConversionRemains": "u32 numeric EE DMA address, no pointer read alias cast"
+        }
+      }
+    },
+    "compile-proof.json": {
+      "sha256": "80090cfa4b294b88c1f60468e2b33d25f71b56c778d90a59a15de6f0d6458c1d",
+      "data": {
+        "status": "PASS_ACTUAL_EE_COMPILE_ONLY_CANONICAL_SNAPSHOT_WORD_TYPE",
+        "commands": [
+          {
+            "label": "typedefs",
+            "command": [
+              "/home/spider/.cache/tyrax/native/toolchains/eff2c8918589264d49aa9a0f/ee/bin/mips64r5900el-ps2-elf-g++",
+              "-D_EE",
+              "-G0",
+              "-Wall",
+              "-O3",
+              "-I/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc",
+              "-I/home/spider/.cache/tyrax/native/toolchains/eff2c8918589264d49aa9a0f/ps2sdk/ee/include",
+              "-I/home/spider/.cache/tyrax/native/toolchains/eff2c8918589264d49aa9a0f/ps2sdk/common/include",
+              "-I/home/spider/.cache/tyrax/native/toolchains/eff2c8918589264d49aa9a0f/ps2sdk/ports/include",
+              "-c",
+              "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-uint32-native-fix-v2/typedefs.cpp",
+              "-o",
+              "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-uint32-native-fix-v2/typedefs.o"
+            ],
+            "processExitCode": 0,
+            "logSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "objectSha256": "0970cfabc0a73dd4e9ee405073e1dfb1b2ea31d1ae68bb04e3cc6d435968b333"
+          },
+          {
+            "label": "queue-guard0",
+            "command": [
+              "/home/spider/.cache/tyrax/native/toolchains/eff2c8918589264d49aa9a0f/ee/bin/mips64r5900el-ps2-elf-g++",
+              "-D_EE",
+              "-G0",
+              "-Wall",
+              "-O3",
+              "-I/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc",
+              "-I/home/spider/.cache/tyrax/native/toolchains/eff2c8918589264d49aa9a0f/ps2sdk/ee/include",
+              "-I/home/spider/.cache/tyrax/native/toolchains/eff2c8918589264d49aa9a0f/ps2sdk/common/include",
+              "-I/home/spider/.cache/tyrax/native/toolchains/eff2c8918589264d49aa9a0f/ps2sdk/ports/include",
+              "-DTYRA_VIF1_CHAIN_CHECK=0",
+              "-c",
+              "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-uint32-native-fix-v2/vif1_queue.cpp",
+              "-o",
+              "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-uint32-native-fix-v2/queue-guard0.o"
+            ],
+            "processExitCode": 0,
+            "logSha256": "132b61df1f672e01e64db69c69c0abe6a6501a298d3c64a3107f2d195f64bc24",
+            "objectSha256": "3a701a1ff21c88ebf4eeeb220546cf3c72a2108f693a8cd3b10acadb2a751f7a"
+          },
+          {
+            "label": "queue-guard1",
+            "command": [
+              "/home/spider/.cache/tyrax/native/toolchains/eff2c8918589264d49aa9a0f/ee/bin/mips64r5900el-ps2-elf-g++",
+              "-D_EE",
+              "-G0",
+              "-Wall",
+              "-O3",
+              "-I/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc",
+              "-I/home/spider/.cache/tyrax/native/toolchains/eff2c8918589264d49aa9a0f/ps2sdk/ee/include",
+              "-I/home/spider/.cache/tyrax/native/toolchains/eff2c8918589264d49aa9a0f/ps2sdk/common/include",
+              "-I/home/spider/.cache/tyrax/native/toolchains/eff2c8918589264d49aa9a0f/ps2sdk/ports/include",
+              "-DTYRA_VIF1_CHAIN_CHECK=1",
+              "-c",
+              "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-uint32-native-fix-v2/vif1_queue.cpp",
+              "-o",
+              "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-uint32-native-fix-v2/queue-guard1.o"
+            ],
+            "processExitCode": 0,
+            "logSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "objectSha256": "f73589c0957431973f0e42724446941d8e5d73a9bc3cd04577df2228e30efaf0"
+          }
+        ],
+        "inputPins": {
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-uint32-native-fix-v2/vif1_queue.cpp": "af4cdc4204c2e689b48c5fd3f46b191b8f65504d6e931dfce89c3ddf2a93dcff",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-uint32-native-fix-v2/source.patch": "ff79f5120010db5b98436a55a138da2fe45a39bb5300b9f5e2c992afa6033836",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-uint32-native-fix-v2/patch-proof.json": "3d86e11cad988e00cc960c5ba34210e50e1a909786bdb31cae52c0a89e354b76",
+          "/home/spider/.cache/tyrax/native/toolchains/eff2c8918589264d49aa9a0f/ee/bin/mips64r5900el-ps2-elf-g++": "04212da9b41c83d31f478060b3af9619fcadb8d0381187006ee0df388e118f6d"
+        },
+        "actualHeaderPins": {
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/engine.hpp": "f7929fab7c654d2855de721b9c3f88a1be1000ea3050e2ff61a6938df1cebd2c",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/game.hpp": "1275c04cdbad120815cf6ffd6b86a3b400e3a8e528a4d9f17d295ea5564c0705",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/tyra": "5256ada452c60a76703d586eec2c506111017df615f083573809b87049e53fab",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/audio/adpcm_result.hpp": "36da9a006af422a98ea57d6547c6b6286390a1143ff2ff884032451ba9ac0dd1",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/audio/audio.hpp": "6fae9018e22327deb6926a9bdb3be96ad7aedb5aa1b5931d7d448950dd3d82e7",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/audio/audio_adpcm.hpp": "ff2be56d40766037b4b9ab1dba1688a8a703eef1ad895f61d0f031166bb87298",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/audio/audio_listener.hpp": "d5ff98eebef8f6f5f399594f44f6257b710e1d478bf06084e73554827389de8b",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/audio/audio_listener_ref.hpp": "969647e075f481550cd9da9ce58e236ac8b45827a6fd5d8afb9b9e36ccad33b9",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/audio/audio_reverb.hpp": "b182243453782b1232b4c68217649e12ee58596ca8d9c5016fa4675587bc1593",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/audio/audio_song.hpp": "7a1364a71defd36153a5458763f11cd2f7a4e399ffe8daf9abb9a4d5cec8895a",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/debug/crash_handler.hpp": "a6a7344257fc53d06819da5c3fbc7f0ccbfe1929aa54df44df556fff27e2aca1",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/debug/debug.hpp": "975b8daf20a77f863c27abfcc363000b87af51e98c87bf27348fd4190f1f632c",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/debug/frame_profile.hpp": "40d0b23c7b0a08aa2804f45b5de48a2179ae6cfd7e9a72980c7745c521e6a09e",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/debug/hardware_trace.hpp": "296d3f68fa50c2b5aaa147046a438d0d0235bc14b45cf6293311f23253f21de7",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/debug/quiet_cadence.hpp": "f4c7a6a1e9a5bae6a54fc85814b3998ba1b847b8813fb354f2b17a32db410148",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/debug/quiet_runtime.hpp": "5a1177f7e792f6eee1c2fd041e127a502d2cee3fa719838c22da124fda8910e6",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/debug/quiet_scope.hpp": "b1ec980175686c78042a23801bd5ce9d20e605e86692f8cdaf1fa760de253be5",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/debug/sifrpc_guard.hpp": "ada49667dfbdbfa05ca9ec56a0f568837aea58631d7083ed2cec3c6160f1ac29",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/file/file_utils.hpp": "290c8c93dc588f46736ec9b143b7209e5997d36ea4bbdecc5dcdde9eff23e059",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/info/banner.hpp": "c647c6d3301adb0ae20f8c42df995c26011a428eabf528daa0be00307be69ee1",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/info/info.hpp": "d615bddc5bb4af7720c619e2e6916ffbc41a6f9937782091deb7a432f3e8f2a3",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/info/version.hpp": "e25a43e7e9510e0f9385977225580ec7ec35e46acd6a1ce152b2d605f97f5a17",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/irx/irx_loader.hpp": "a96f7f620313eeace4f4fa13aaf3b9bf024bb1a25dd3ec87253486f15f127648",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/loaders/3d/builder/mesh_builder_data.hpp": "c57447ed55e74b164ee32d5d171f19b906dcf4291b6a2ccd34151704fadfbec0",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/loaders/3d/builder/mesh_builder_material_data.hpp": "a48cf9409e96b9ab0cee3bb4c75222473ae96790832b3524f7168ccccbf5ce52",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/loaders/3d/builder/mesh_builder_material_frame_data.hpp": "916556a296651358a82434658ed5dd249c14ef2f4773cdb3ea3d71e4a1ad17b1",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/loaders/3d/md2_loader/anorms.hpp": "424df6cb90700fa6fa107ed391253116f521ced42bcf5f59ed8412b19c44910d",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/loaders/3d/md2_loader/md2_loader.hpp": "8d9339a55fcb7132aeea8cf7395e92ffd6f8584819de8abb5f7e5efd7d99e717",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/loaders/3d/obj_loader/lean_obj_loader.hpp": "cac82edcbb546659ce625cc5ceaf5618a054cdaecfe070f776109cc903caf45c",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/loaders/3d/obj_loader/obj_loader.hpp": "4e88af7d31d93f2cfd23d31fd2d4d624b9122af41d238e6752610c27578908d3",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/loaders/3d/obj_loader/tiny_obj_loader.hpp": "885e15ae60b05a71b4ff5ed6ed2374515ddc59d3dedd06edb26c2883c07883d8",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/loaders/3d/obj_loader/mapbox/earcut.hpp": "fc2ee704ecd625e3600767863facd9a7b8086c50c87356f6cd2f100fb6a67ce8",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/loaders/3d/tanm_loader/tanm_loader.hpp": "2d3d7362c1e3fe68e181c086103dc23a77267b1eba79b13cd02cf9222f9f56c9",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/loaders/3d/tmdl_loader/tmdl_loader.hpp": "68d4b1cd3c5997861dccb099fcfa0cdf2b38a0a859a76aca0356e805ff1c6887",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/loaders/3d/tskl_loader/tskl_loader.hpp": "1ec923cc16e3e0a6fa2c52415eeed353b6b54f24e2ce9769a24ecf10643d9226",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/loaders/texture/png_loader.hpp": "209ffd73f134abf03b40b35364cae3100971652d53b083f3bb7e585f44dbeb6e",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/loaders/texture/base/texture_loader.hpp": "85d6419d1ee0503f6c90761713d3bb2fe9b83b3450ba6c0bcfdc2063092344ed",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/loaders/texture/base/texture_loader_selector.hpp": "8f5b2e3b6178401122ce90768eb2672e8ba5cb41b7cf759c31d7093e1e672707",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/loaders/texture/builder/texture_builder_data.hpp": "05dd95a6ee50a9ee61b0b7da8d503319b56b4aaeead3efa0878f8c4a1c2ac282",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/math/m4x4.hpp": "77d536ec355062e7ecb52db9d1051c3e381303f0ce6e4de8a49d144a1f4b0224",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/math/math.hpp": "87fefd0df58d2c0d9cdb9b3e16a32a4da2678ab45e89e6eee0e813258ef950da",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/math/plane.hpp": "f8ac2888daf4249d80c29b85f2124e83b058a54ac06befeb30655534814ddc7d",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/math/vec2.hpp": "63942169e060422f20ff4bca7ff446fb5e65a2d5690872a751847515f7c67009",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/math/vec4.hpp": "5c9ba35c45c7928239ccac2ebe09c74efe3084fded2f905ca76b1a5cbb0b95be",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/packet2/packet2_tyra_utils.hpp": "4d8ee2c7ba69f54e1164f6225e4f3b673ab974d7f089de7251eedfaa48e4ab0a",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/pad/kbd_mouse.hpp": "e4884f552a0523484c619f5f2fcdb6125ded29fd9249cae972b39b0024ebc52d",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/pad/pad.hpp": "86c9025bb41287c47442e2d2dae3063c0b0c9f642ecd63c3329ef41ae1886304",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/physics/collision_mesh.hpp": "f0578664de2d4f2f8414e5b6bd6076c0770712d52a552ecd926bb034fe28e517",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/physics/ray.hpp": "9354a01b43d9489cb308dd075d80a6a189c3614f35d4696803d5e9a4c9438fc2",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/renderer.hpp": "0fbc04825a96d886511d51ba1a6060a0879c07a03f2d7ff19abb28365750e00c",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/renderer_settings.hpp": "dcbd4120f971b14ebfb7a94956d79cd95fbee508708f8f1718d9d3cf541ee866",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/2d/renderer_2d.hpp": "a91e96a25cea1b8888111fe712cb83560b15daa14308b066065b184e54b61549",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/renderer_3d.hpp": "4f3b61e27153ce456951b58541076f21f3b8e02aeee96f26292416034ed74ed2",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/renderer_3d_utility.hpp": "8c866dd2c4c3caded43c839b4b296bb8d9d2dba3ed044f82268f133cdd0f3b9d",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/bbox/bbox.hpp": "ed53b4bf64759ba32e14692fa03240ed388d8d44df437bbd11950e905db1b080",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/bbox/bbox_face.hpp": "9d06fa765fddd18209f3554bfb81d162035d4e2a74e3e11184582e5faab1073c",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/mesh/mesh.hpp": "542449f0ab8cc8dbd0ea427263e12391efedd54939de7912f4249eb1591e8a8b",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/mesh/mesh_frame.hpp": "2d137f3a93d0fdf2cd9574fd305bb2b416f45eb0fc22320769c8db35588cf686",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/mesh/mesh_material.hpp": "9784cbfab19a0c1d1c3bc4c72341f410cf8bcbbb2184888bacccf07d61ab0dc5",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/mesh/mesh_material_frame.hpp": "0dcd337d296e0589de037172425be4258ca91d9b7c5a40bc72a5277748a3924f",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/mesh/dynamic/animation_sequence_callback.hpp": "0448eea753d3811b2fd1807e9a00531ca8a2e12b720a45076ca0c739c91ee202",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/mesh/dynamic/dynamic_mesh.hpp": "91d13987925a4da7878c5531ede20d0758cd00bc8be5b8f88e3dd4ec63bede2c",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/mesh/dynamic/dynamic_mesh_animation.hpp": "94f1102c12c68f9af5a65e02e48c41cdf9529f148f0f117277818b977985709c",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/mesh/dynamic/dynamic_mesh_anim_state.hpp": "a9b25fe69368b0295a49143625c5d99ba81665934ed8ce339afd92c33c16e65b",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/mesh/dynamic/skel_instance.hpp": "ac04f202b64092611cd104ba94b59f3ff8f5b1c2f5aae574f2a32e68f99a9076",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/mesh/static/static_mesh.hpp": "82679a2ebf09e077b9978b580f689f000c581f4274da599aa675547fafbee422",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/pipeline/renderer_3d_pipeline.hpp": "aa9a808944fc21d4ec195c1db457f0cd944a7cf72d0eb33cd4748bd076c4d4f9",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/pipeline/dynamic/dynamic_pipeline.hpp": "46f8ffba27f6d5caa39f8124f21c0c0a7ee5bb1a3c4fe12e0bac4db97de7a22f",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/pipeline/dynamic/dynpip_options.hpp": "2e6a30a7f1b51d83a210413a13995d5d31246f78dd48a48b1ae4bda3f3afdcfd",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/pipeline/dynamic/core/dynpip_core.hpp": "e023220d086d5d5be3fa70712ecff804b7ad614eeab34cb31a32926d1d5e70e9",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/pipeline/dynamic/core/dynpip_programs_repository.hpp": "65054f51bbb3ab6479de3c075d140dc1a46e2d08acaa1eedf4938a0df925d0b7",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/pipeline/dynamic/core/dynpip_program_name.hpp": "8c8d0e086ba6aae4183c84f49ca60575343d3453750e854cee0effe9e58f5f9b",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/pipeline/dynamic/core/dynpip_renderer.hpp": "05849d20e1691d15d01fb259d9249ef97ac4b9f570e12a2e3167fa0d62904247",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/pipeline/dynamic/core/dynpip_vu1_program.hpp": "056cf0fea5be5f0c1012975238231bd1b57be04fdde00c127d44f7f2279286d8",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/pipeline/dynamic/core/bag/dynpip_bag.hpp": "6f644dfd55bd256ef70d19da4e8ae818b52395e04abd66067b76fb60bf8dd8ba",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/pipeline/dynamic/core/bag/dynpip_color_bag.hpp": "3ca80981b3cab691a8740cc79fcab8d2742898b5422e42b964f570c7d59d2b15",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/pipeline/dynamic/core/bag/dynpip_info_bag.hpp": "24b5f6c30880e55578c398808efa028d8d1e42e1319ff6b05438dac62e9c39c0",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/pipeline/dynamic/core/bag/dynpip_lighting_bag.hpp": "014cdc6dcf75e014e5838ff30ad0b8e72f1ffb52d2426be613d8f905cbe58ad6",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/pipeline/dynamic/core/bag/dynpip_texture_bag.hpp": "90f59440fde7acd267942233a6cd2aba4aefd849c3e6373576360bd5da6c6a4e",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/pipeline/dynamic/core/programs/dynpip_c_vu1_program.hpp": "fa07930e00e4d7e01ecc6b88b2b67d38cca9f4df99d9bdca721fa762b77808ea",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/pipeline/dynamic/core/programs/dynpip_d_vu1_program.hpp": "3208de993897d7411926942ba242a6fb3fa68831d5e93297ec70f8df94b9d41c",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/pipeline/dynamic/core/programs/dynpip_tc_vu1_program.hpp": "4b56145c7c9ac0f0532d671f43672a61edef1f5f949382a36795bdf69321cb99",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/pipeline/dynamic/core/programs/dynpip_td_vu1_program.hpp": "617ac729512e0ad3a3a03f44f8c91572c67a2388980b88203afdc6791e16e098",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/pipeline/dynamic/core/programs/dynpip_vu1_shared_defines.h": "e63846f138a7b1af918dd144914c92ad0d98d92880f35586264721674f1e6d29",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/pipeline/minecraft/mcpip_block.hpp": "b4e62aa78ce4cfeb863c365b360f90012d62a1d289b17d46a2695e6d6a432c8b",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/pipeline/minecraft/minecraft_pipeline.hpp": "fe1cecaf1c29c499cf94c3f45c73dc2c55b67031a8f4e8116ceca0b0784eaf7c",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/pipeline/minecraft/data/mcpip_block_data.hpp": "eb38fd55c3c8876e964ceff6ee077647a69eba7ccee764dbaf3ad46e17079d18",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/pipeline/minecraft/data/mcpip_multi_tex_block_data.hpp": "31c2c0421003afef848cde4e928d0939eae43b979e7d3130e49da90a725ee676",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/pipeline/minecraft/data/mcpip_single_tex_block_data.hpp": "ec32d0eb35a94bb584875cc8eda240a90ab2c4311b25bd6ea7a394d80b9b8c98",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/pipeline/minecraft/programs/mcpip_program.hpp": "69e67986034dd469a8f6c0fed25aa9b0509024ef48ead77ff2225ea908624554",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/pipeline/minecraft/programs/mcpip_programs_manager.hpp": "fb14b814f980cd5cba49216f1c793eaf938eff07939073d386d55c114da17466",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/pipeline/minecraft/programs/mcpip_programs_repository.hpp": "cee648e9f59c93747c49b9b914998a0a81bebc5c040cffb153fa3d93a96cae23",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/pipeline/minecraft/programs/mcpip_program_name.hpp": "61896a7d3ef93ef0462a531525375f40f5ab83d693e86dbbdbe42f6883d1241f",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/pipeline/minecraft/programs/as_is/mcpip_as_is_vu1_program.hpp": "d8908737a909de820af9d11bd40ee46ea2ebe5b3737f2a72575130e3f2b608a7",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/pipeline/minecraft/programs/as_is/mcpip_clip.hpp": "5c1167cab3ed0d8303500ff44d20de6d977c2c085f5f85a02337022b70322759",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/pipeline/minecraft/programs/as_is/mcpip_vu1_as_is_shared_defines.h": "de67ab7206af6ffae46c09afe106ed91e9aca7c5c7cead76358f2457b5b3bf7b",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/pipeline/minecraft/programs/cull/mcpip_cull.hpp": "d951c652dd1e6f05eab98c3d5295f63e98741172a447400ff571645003e197ec",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/pipeline/minecraft/programs/cull/mcpip_cull_vu1_program.hpp": "75202b5991e349b6d5cf29af08d3391b2a06e03388d63533c778c87965eb399a",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/pipeline/minecraft/programs/cull/mcpip_vu1_cull_shared_defines.h": "096cfcbb29e7188a678743139f1912af11caa64c72345432132d9383ad6d7168",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/pipeline/shared/pipeline_frustum_culling.hpp": "062eec9efdba25a1cd4abb416da4da4afade18522758a66e629f027b2363b80d",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/pipeline/shared/pipeline_lighting_options.hpp": "1e0bbf7d967be7e28a781495c26a08f47d1a154d4ff99357fd4cf3f0ec339164",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/pipeline/shared/pipeline_options.hpp": "fbbf7acd4dbfd3e7a70ab5fd1bd3d2671b9c112bc7eee818ddadc1a9086b7c24",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/pipeline/shared/pipeline_shading_type.hpp": "485f78b0338bea3a1663981e76860b229618edae421a81d52f23c6071f99f7c7",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/pipeline/shared/pipeline_texture_mapping_type.hpp": "687a0df16149353d4b48d27c5d897610d35c20b67f09983c56661909639a5248",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/pipeline/shared/pipeline_transformation_type.hpp": "86154f4d524d890eb7e419e098b6c8fa2c3dd2d7366e9a060f57efbbdfed8b73",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/pipeline/shared/pipeline_z_test.hpp": "dd2054b7fbd6fee8fd3743aab85f544bc2e0499b63788f017314f950809ac223",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/pipeline/shared/bag/pipeline_dir_lights_bag.hpp": "e0660321ebdfdda70d8db370603c49ebbbad6a20cfc38b997bb3e46a23de7a19",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/pipeline/shared/bag/pipeline_info_bag.hpp": "37e5454dc7ed6f8999b10c206b7d50485a69a247148e7fe1193899e14acee328",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/pipeline/shared/bag/pipeline_info_bag_frustum_culling.hpp": "033c704c891c67cfa74f96e43519d32c8b1f29c7b48404ecd72e6ea0b499aaae",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/pipeline/static/stapip_options.hpp": "1a52651023a5d864bf783520da474011bd789c27a3710ea9a1b55ed0df258d0a",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/pipeline/static/static_pipeline.hpp": "1b721b54811be2baed779e7c6c57370566ed566646c33490fdb595e5e4b7dd2e",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_attrib.hpp": "404b4c1542bc870794e4e678490e268c58b0b8b9735c2d62084c97811755661c",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_bag_bboxes_cacher.hpp": "13c0cb01a7c7c24acf7ec5bc75bd358b763694cde8ba9ff65246f84d75f255e3",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_clipper.hpp": "d93df3e5efbaeec278de63112f40626516780ab0813573523a6749cf7a0c1f1f",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_core.hpp": "fb6edec612f4919f4ad45c71ddbb6bf9113d193f3d213b5c42c820c57400f06c",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_probes.hpp": "f3e6d12885263194ac2f4861dde12c99999f7e9460e43db6693135626e3ba9aa",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_programs_repository.hpp": "93ff90005a02a5bd07609532b21df64ae533b433b822da5308fc875d5114d3e2",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_program_name.hpp": "63e93af0fb6e19392f9c3e949e2376cf31d000d86a01d9d22117618915790af3",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_program_type.hpp": "3b5cb0dd7b8c867213bd55b04013e0174f19877e9f9958c3a5fe7279335b93b8",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_qbuffer.hpp": "e2b73d7845243135495fea98c20e81f46f978d970a322ec187e5d8f6d2c3d863",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.hpp": "d89fa588b2c73a86143c3e5b5ceea52c25850c0392b8b0eaba5a5ad95375f145",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_spot_bounds.hpp": "12f608e80f16ca73209c01160b92afda971f6a93203e4e08b40399fe84493344",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_telemetry.hpp": "cbaaaedf369173f6145e24c088955fd78ef6f34494b010ad7a363bd58a962d06",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_vif_hash.hpp": "cfb70ab100779d7ba7c42267bb8549d2cd9fa29fa719bb6805a5dd572a027bd0",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_vu1_experiments.hpp": "894df7665fa666f7b932dd6d607f462c01bc32924f153b9563d7b5bc9c23d170",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_vu1_program.hpp": "c6fc69a42c52ae2fa87c508b3600d9772d5dba1f2ab412907284c63c193586b2",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_vu_tap.hpp": "07b1ae5b16a42d99bb1c1f2aaeecb90bc7ff6f77fdfdd2d893fd376493ea9ffd",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/pipeline/static/core/bag/stapip_bag.hpp": "70acb7183b0dfbf919905d8553e632b3f4211a28179c2f82a1d4657b26299c41",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/pipeline/static/core/bag/stapip_billboard_bag.hpp": "0e8049bcd122d336a77752e033b8e29c7d32c763cc2b525e6c8ccb289cd59bf1",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/pipeline/static/core/bag/stapip_color_bag.hpp": "d96f31a6dd159742249200b06f78a871ac96bf5108a54da51bd28d206e189714",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/pipeline/static/core/bag/stapip_info_bag.hpp": "b96a32546abcd29dd310dd0601a81f0100f9a102dbf3a3253d78b4311eb35787",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/pipeline/static/core/bag/stapip_lighting_bag.hpp": "e5ed03de9fd363bcef7d3c0c174cab871796c59ac0b28a93da56ec575075738f",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/pipeline/static/core/bag/stapip_texture_bag.hpp": "42fc9803c4666f6d086cac55fb667ad5d5bac6625cda311d02089605b383ef42",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/pipeline/static/core/bag/packaging/stapip_bag_package.hpp": "565797938866fb900689b5134c67601fb240e0e0c1b4795723c4474557eea371",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/pipeline/static/core/bag/packaging/stapip_bag_packager.hpp": "b6750cdf419ff4f96ea0d59cecce650b2d365351e7dc349388ee5fa932b01933",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/pipeline/static/core/bag/packaging/stapip_bag_packages_bbox.hpp": "eedaa8a2dd35c4e50a3145bb680263c8837cdfd1b10eb744e5507544ca2c8909",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/pipeline/static/core/programs/stapip_vu1_shared_defines.h": "85f7f7164fbafbb96dde9b6590748a3f94bbf8fa91e23de929aea48aa3f10d71",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_c_vu1_program.hpp": "d263ea1731c43c5d047fe3cc9e2b322a42a40567d96f7884216271a2812250e6",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_d_vu1_program.hpp": "45b991440a8ff92b2129bd92be9d7bf49c27fc1283911b424bec66ec74001c03",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_tce_vu1_program.hpp": "bff32ea3c522b7b04deaf290b72dcdc0a2b43f7f3b460721255cb9c32b5d3e34",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_tc_vu1_program.hpp": "1246a92d41545f405ee359e6613785cc6e24eaba05debb1acf66e3ed8dcba614",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_td_vu1_program.hpp": "3ae8e00a69eb82bf7192f688558ac6e9b259f499111651d73946885c3be03c00",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/pipeline/static/core/programs/billboard/stapip_billboard_c_vu1_program.hpp": "33fd62694702817649885390ae17c9a69cc7d872adba3e2c4eadfb8e25b31792",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/pipeline/static/core/programs/billboard/stapip_billboard_t_vu1_program.hpp": "4686731cecb2df19c5bc6069f76cfe4cdecaf25d62d78ab49b3608daa03eaecc",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_c_vu1_program.hpp": "ddce74881d0fe35176d850ae9324e2f9cdc544bbe21e74307e40a714a2786010",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_d_vu1_program.hpp": "a953f3307aefaf6db4ce1a15a333ed55b1060c3354da89df072609ce58aeec54",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_tce_vu1_program.hpp": "e264062d501110a52ff2ccf17e8f6504ecb4f43d0006d164bbd48249310810be",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_tc_vu1_program.hpp": "7287dee19df86bb49b391acd04e1ce6abef78a0634d3f93faa70fdb751837fb7",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_td_vu1_program.hpp": "63ee1fb8b3f44aa4a3bb9363154b52e86af5d2698f7b15339a7a1dc778439503",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_c_vu1_program.hpp": "8cda3909f45b9c7602b406b2b5a7f3d5da8b7c36186bac4ad13c37889c7e3ba0",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_d_vu1_program.hpp": "b0f6b2e4dd4f874037ce8eb34eae40893afa61506d7d9829f5528e4d72ff4b41",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_tce_vu1_program.hpp": "a23a9fc231125d6b392a88d92018f9a75293caa4ef10df1d79666f148fd8ddf5",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_tc_vu1_program.hpp": "3d26fcc475d9f55bba1ac49aa4dbc8d49006e69aeb3d4e09ffbb74ffbb2b92a5",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_td_vu1_program.hpp": "41c3ecb2739fc1a09774fda56d4fc0a80ecad11428b00d647ece395b131008de",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/core/renderer_core.hpp": "4e295cd961be4d8f8d32a18d831b90c0bab534b200986fc692d1130a3a1f9a65",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/core/renderer_core_sync.hpp": "b3eb780c23e52e5220360f239bf24b759c6e03f340720b2ad9e46a8cd5c3a29f",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/core/2d/renderer_core_2d.hpp": "05d111c60b78e78d06d7bdebfe30af842f2b8482b0b4bea8d67313339850cc08",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/core/2d/sprite/sprite.hpp": "366b5e9a837a6557494138fafc5f84b258702d704993ab95bcfb5fa4d31de274",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/core/2d/sprite/sprite_mode.hpp": "98075e061b17b834c8f0697ead7e6961309087ac2c71cd839410f8198dbce3e9",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/core/3d/camera_info_3d.hpp": "92299cfd59a9754dda300222aba04db1d60411107ce9a00c31bcfa0aa7c624be",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/core/3d/renderer_3d_frustum_planes.hpp": "d9ae6555779e93d2f061a9ab17b8ddd04a11fc9022fda09cec28938bc7d3c494",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/core/3d/renderer_core_3d.hpp": "a5af47bd828e0ca482d808227db0f06cda9369f7096f31443c1bb43baa633d08",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/core/3d/bbox/core_bbox.hpp": "cb177ba085b3f4afed9723d133c03e238b8007c293c8a9deb6f6bf3da756a568",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/core/3d/bbox/core_bbox_frustum.hpp": "b790c2c8da307d9d46b5bf53b420065880e313daffab9f7228ef9c9b60c29290",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/core/3d/bbox/render_bbox.hpp": "7d085ae67765e6aa872613bde3d76e0fd875cf564047ab71750cb7ac4e47196b",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/core/3d/clipper/planes_clip_algorithm.hpp": "f9de5072144093cff98ca78ef317be9b472be4bf7ee38c0d7a3fbea709723b3f",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/core/3d/clipper/planes_clip_vertex.hpp": "3c09fbf8bd7ac2e35075e1d715ff539b5268fc57dfbaea342b0f2fe933f549fa",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/core/alphamask/renderer_core_alpha_mask.hpp": "26baba9e20fb7dcfbe9848879622250c3017b054d762367fa8e1336f5f4b1534",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/core/blss/renderer_core_blss.hpp": "9531cff008ecf06811886534d70b7bd2464b52f629859b81e800eb2a71bc2105",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/core/envmap/renderer_core_envmap.hpp": "aa66cc1b0b510ae0e13e926d6d6fbc053b93fb16f9636da855c3a5c035366357",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/core/gs/renderer_core_depth.hpp": "cb2542fd861f16656a6872b0ca6b45fbeedac3d43082a49c28da170160874c00",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/core/gs/renderer_core_gs.hpp": "f3ed4de6f8c0bb6ec6f15cbbb70d360ac156abe92edd889bb59743b35308914c",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/core/gs/renderer_core_gs_vram.hpp": "6d5db6a5abf32c98d2b16c64506e5f5852e39cb33d20f7e5ed18048c046a44de",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/core/paths/path1/frame_chain_arena.hpp": "d2cf31629c1f3c8127cec7d9590632ed3a7e82af7049c04b2e533d015615970b",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/core/paths/path1/frame_submission.hpp": "275f51290e00bb4901ad0d9c396a2cbe19072b1481d46d2eaef9ee2b8b5eb9a0",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/core/paths/path1/frame_vif_writer.hpp": "9d91c71e2579ad4b478ec9d6e43bb29888acc1ac19b9dd9f2e767f8b92ddcf3e",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/core/paths/path1/native_call_cache.hpp": "f56a92fb059c108fcc74efa02d2d571af680772282ccceece7b6488343917b3d",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/core/paths/path1/native_call_check.hpp": "5e81c0b2511527e8a9108b012f5e2fbaa846b28b20a101c79ecc6bde3d65d3c7",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/core/paths/path1/path1.hpp": "292d2a7c53f960ba2d7bfe1f95f278a16b2842f1405877a3a04efc7a23b83a93",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/core/paths/path1/spr_prefix_stager.hpp": "d80c90f12ba7d95e7fa64b8220be75ca42ad093f12eefcf03381793d54efa48a",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/core/paths/path1/spr_transaction_storage.hpp": "9562fc30b95a8876b475b024cfcb0aff56598ef9ca769cf61d9c62089ec729dc",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/core/paths/path1/vif1_chain_check.hpp": "50c38ed615b8285d10d8cc9aa75c370012efbf54c051eff1c10827b1f7faa660",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/core/paths/path1/vif1_queue.hpp": "c5531f85187e4dcb97aacdb7d457761edb26b1dae6293926a51f8ecf8d586fdc",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/core/paths/path1/vu1_program.hpp": "e6a947b9c9e62340814095eb64b09e9e90ab293e63c4023cc4ed4185116752bc",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/core/paths/path3/path3.hpp": "b0bee84ef825f956831b10ccaa7030f7d241c371be81b91cf5327aeaf8c0790f",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/core/paths/path3/path3_fence.hpp": "339eb9e9088191422b2befe83a70c216708a1353b4f2b2eefc9b116f430a6136",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/core/postfx/renderer_core_postfx.hpp": "f07c014f3f417358968ae6b39aa2b99bb8a26ef58b47caec4c4e4480224efd26",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/core/shadowmap/renderer_core_shadow_map.hpp": "28fb19e2a1507e66a764711600e139605ac9f52fdbff076a354336df50704a26",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/core/splitview/renderer_core_splitview.hpp": "e392ae7545ac24ec4dc0c1eda94f759321ec6d34f62af654290c2efda0c270e7",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/core/texture/renderer_core_texture.hpp": "d4d26a85e482ce39e09dcb053a3334ead528550419d015bf6b3e0a89e80fc74c",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/core/texture/renderer_core_texture_buffers.hpp": "a4e43c7f3b172de831e9263d8ecc64e03d6fed27cb570d6d977f8b8289a1bd49",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/core/texture/renderer_core_texture_sender.hpp": "c396b8c3efd77e53dc8145b43d3e9b37b8b5b40c74bf2b90960dc64939aaf43d",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/core/texture/texture_data.hpp": "6d304d8ffbc4bbd4918d8f7b3d02f70411385cd99838cce4eb18aa03360a526e",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/core/texture/texture_repository.hpp": "8f6c8ab40099e59d9f07c2d84ca4ca510831745c22a252f8ebadfc992e45d5a0",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/core/texture/models/texture.hpp": "d996e9129fc1ccb645f03d5e4863559d6554f954492f157ca0475bb5076a0d72",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/core/texture/models/texture_bpp.hpp": "500b5ba1c852ff74654aec5359fd3f5fab3f5efa0745fd8239da3356669e7906",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/core/texture/models/texture_link.hpp": "46587a9ac62df195bfbeb2c7a7a3b952da3025e99f2b0a65e7e2befb48567472",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/core/texture/models/texture_wrap.hpp": "8a2e7bfade745807fdbd6fe3a5b33d0fc16a6aeb210fa909cb60b823a54b3778",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/core/warp/renderer_core_warp.hpp": "98d494d1b5446e9ed12b2936dc390d9a906e6c2e7cd496afbf9970b1158441c5",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/models/color.hpp": "2ccdf2b171fad8c4349cd1f8cb88d1c11a54cc554c416ed091d33f33a4afe588",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/models/unique_id.hpp": "3b67f7c2768ab75e2b43aa4c04fee398778b5adc84a9c86f071fdf2e2ad8fed3",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/renderer/rt/vu0_raytracer.hpp": "12b8e071317dcf64255147b05fe32adf72b1901779126844fe6230a66b7b9902",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/thread/threading.hpp": "4c55e1f2b3cc04173a0890840befbf90d9c8a14e021aac2c9b19722687549575",
+          "/mnt/f/Projects/tyrax2-lab-20261001/spr-call-benchmark-v1/tyra/engine/inc/time/timer.hpp": "449eb96c6094f90976dd316cf16be7b322facba84ae63710f026ec8925f315d6"
+        },
+        "actualTypedefsDistinctAndBoth32Bit": true,
+        "queueGuardModesCompiled": [
+          0,
+          1
+        ],
+        "fullNativeBuildAccepted": false,
+        "linkOrRuntimeAccepted": false,
+        "warningFreeClaim": false
+      }
+    }
+  },
+  "artifactSha256": {
+    "F:\\Projects\\tyrax2-lab-20261001\\minimal-scope-v10-batch-emulator0-attempt1-evidence\\machine-evidence.json": "e51877403ba5d06cb11ef99677ddaa274067157c27f7b7290179efd09cd03e2f",
+    "F:\\Projects\\tyrax2-lab-20261001\\minimal-scope-v10-batch-emulator0-attempt1-evidence\\strict-analysis.json": "b852a45eecb9bbb8d1b838b5f537c260c3789bc9b2b0ce80e5245301d2f2f415",
+    "F:\\Projects\\tyrax2-lab-20261001\\minimal-scope-v10-batch-emulator0-attempt1-evidence\\stdout.log": "30985ae7495b5a74c2babbf99eba572ee4cf3c7eb0e60a67ca73da4cf86e827f",
+    "F:\\Projects\\tyrax2-lab-20261001\\minimal-scope-v10-batch-emulator0-attempt1-evidence\\quiet-cadence.log": "c0337a89b30733c47b63e6a97fe775677fb446af23d31f70ae791fc017129a5a",
+    "F:\\Projects\\tyrax2-lab-20261001\\minimal-scope-v10-batch-emulator0-attempt1-evidence\\target-source-manifest.json": "697059b63686344fd9770f27a8fc5776cefd03c1da694ce548f785721b26644b",
+    "F:\\Projects\\tyrax2-lab-20261001\\minimal-scope-v10-batch-emulator0-attempt1-evidence\\native-provenance.json": "45417992763616c2075d66ca2e2121eeea0cfeea48ff1ba6b17341cb7064e4d3",
+    "F:\\Projects\\tyrax2-lab-20261001\\minimal-scope-v10-batch-emulator0-attempt1-evidence\\selected.elf": "a0903ebaa303012bce4d977d31aa34fd22e8c75bea7aa945deb58c70a7daaf41",
+    "F:\\Projects\\tyrax2-lab-20261001\\minimal-scope-v10-batch-emulator0-attempt1-evidence\\selected.elf.sym": "6dd55c019e3e6bd21b0589597e3e6ccdef5d04afd2efa7e8766f6eaceb1de602",
+    "F:\\Projects\\tyrax2-lab-20261001\\minimal-scope-v10-batch-emulator0-attempt1-evidence\\check-minimal-scope.py": "fc4849c23308bc9821fbe48fff58bdc869642ddc08d503955fd47051c00feaa1",
+    "F:\\Projects\\tyrax2-lab-20261001\\minimal-scope-v10-batch-emulator0-attempt1-evidence\\analyze-quiet.py": "86f9a6e13221aa7decf23dd18949f79ec3d953e7042ac1cb4557a48cb63ddeb7",
+    "F:\\Projects\\tyrax2-lab-20261001\\minimal-scope-v10-batch-emulator0-attempt1-evidence\\raster.png": "cbc5b7b30a681bb8c0b2d8620872c5bd23c256b7ae63f4a4a1a3cffcf918e71b",
+    "F:\\Projects\\tyrax2-lab-20261001\\minimal-scope-v10-batch-emulator1-attempt2-evidence\\machine-evidence.json": "ced1404e1dc438ec0a5abef36546a60d41749957f85e345b0310fa2afee6ad6f",
+    "F:\\Projects\\tyrax2-lab-20261001\\minimal-scope-v10-batch-emulator1-attempt2-evidence\\strict-analysis.json": "aba1da575f3331cd78ff0bb01ca0e9b9f0f5c74744cd2345662d36bfe59e6483",
+    "F:\\Projects\\tyrax2-lab-20261001\\minimal-scope-v10-batch-emulator1-attempt2-evidence\\stdout.log": "92fb2cc1bc05d8690924c500c3db0f735fb754383fbb4e785ec62756ae5dfabe",
+    "F:\\Projects\\tyrax2-lab-20261001\\minimal-scope-v10-batch-emulator1-attempt2-evidence\\quiet-cadence.log": "c334a66ed326ec96cbdc7139fd1b2d9ab8fdfcb4e0225edd03363f7061653f88",
+    "F:\\Projects\\tyrax2-lab-20261001\\minimal-scope-v10-batch-emulator1-attempt2-evidence\\target-source-manifest.json": "697059b63686344fd9770f27a8fc5776cefd03c1da694ce548f785721b26644b",
+    "F:\\Projects\\tyrax2-lab-20261001\\minimal-scope-v10-batch-emulator1-attempt2-evidence\\native-provenance.json": "45417992763616c2075d66ca2e2121eeea0cfeea48ff1ba6b17341cb7064e4d3",
+    "F:\\Projects\\tyrax2-lab-20261001\\minimal-scope-v10-batch-emulator1-attempt2-evidence\\selected.elf": "a0903ebaa303012bce4d977d31aa34fd22e8c75bea7aa945deb58c70a7daaf41",
+    "F:\\Projects\\tyrax2-lab-20261001\\minimal-scope-v10-batch-emulator1-attempt2-evidence\\selected.elf.sym": "6dd55c019e3e6bd21b0589597e3e6ccdef5d04afd2efa7e8766f6eaceb1de602",
+    "F:\\Projects\\tyrax2-lab-20261001\\minimal-scope-v10-batch-emulator1-attempt2-evidence\\check-minimal-scope.py": "fc4849c23308bc9821fbe48fff58bdc869642ddc08d503955fd47051c00feaa1",
+    "F:\\Projects\\tyrax2-lab-20261001\\minimal-scope-v10-batch-emulator1-attempt2-evidence\\analyze-quiet.py": "86f9a6e13221aa7decf23dd18949f79ec3d953e7042ac1cb4557a48cb63ddeb7",
+    "F:\\Projects\\tyrax2-lab-20261001\\minimal-scope-v10-batch-emulator1-attempt2-evidence\\raster.png": "49de75d53852410d3ee869b048b2b0a7dac3f04bac0786438e8750f1eb87cebe",
+    "F:\\Projects\\tyrax2-lab-20261001\\minimal-scope-v10-batch-ps2-0-attempt3-evidence\\machine-evidence.json": "7a006500350f5afcd177ff64c98ded14d2da3f3e3d7975cc3dbd4800dd259bde",
+    "F:\\Projects\\tyrax2-lab-20261001\\minimal-scope-v10-batch-ps2-0-attempt3-evidence\\strict-analysis.json": "54bac6e3ec0ece7dfc64c01de01758e6bf2264e0979455000ba63e702b81da5e",
+    "F:\\Projects\\tyrax2-lab-20261001\\minimal-scope-v10-batch-ps2-0-attempt3-evidence\\stdout.log": "59e4a7cde269d19e383d31ef216d05ae98654ffe6e9327a2d0fce1ad16ccf768",
+    "F:\\Projects\\tyrax2-lab-20261001\\minimal-scope-v10-batch-ps2-0-attempt3-evidence\\quiet-cadence.log": "296d5cdf3382bcd48fbf1b662fc61e2e669a8c7a3c96eea9cde211497dd6bc39",
+    "F:\\Projects\\tyrax2-lab-20261001\\minimal-scope-v10-batch-ps2-0-attempt3-evidence\\target-source-manifest.json": "697059b63686344fd9770f27a8fc5776cefd03c1da694ce548f785721b26644b",
+    "F:\\Projects\\tyrax2-lab-20261001\\minimal-scope-v10-batch-ps2-0-attempt3-evidence\\native-provenance.json": "45417992763616c2075d66ca2e2121eeea0cfeea48ff1ba6b17341cb7064e4d3",
+    "F:\\Projects\\tyrax2-lab-20261001\\minimal-scope-v10-batch-ps2-0-attempt3-evidence\\selected.elf": "a0903ebaa303012bce4d977d31aa34fd22e8c75bea7aa945deb58c70a7daaf41",
+    "F:\\Projects\\tyrax2-lab-20261001\\minimal-scope-v10-batch-ps2-0-attempt3-evidence\\selected.elf.sym": "6dd55c019e3e6bd21b0589597e3e6ccdef5d04afd2efa7e8766f6eaceb1de602",
+    "F:\\Projects\\tyrax2-lab-20261001\\minimal-scope-v10-batch-ps2-0-attempt3-evidence\\check-minimal-scope.py": "fc4849c23308bc9821fbe48fff58bdc869642ddc08d503955fd47051c00feaa1",
+    "F:\\Projects\\tyrax2-lab-20261001\\minimal-scope-v10-batch-ps2-0-attempt3-evidence\\analyze-quiet.py": "86f9a6e13221aa7decf23dd18949f79ec3d953e7042ac1cb4557a48cb63ddeb7",
+    "F:\\Projects\\tyrax2-lab-20261001\\minimal-scope-v10-batch-ps2-1-evidence\\machine-evidence.json": "bf869fd346cabcff902ea916617901a3095a12f6eb545ec94a23ae586a6aa026",
+    "F:\\Projects\\tyrax2-lab-20261001\\minimal-scope-v10-batch-ps2-1-evidence\\strict-analysis.json": "fac97558e5ad9219d6f9a43ae58c7044fa8e2807aba168ba3a2220feaa7b30ba",
+    "F:\\Projects\\tyrax2-lab-20261001\\minimal-scope-v10-batch-ps2-1-evidence\\stdout.log": "5a99d93d60043b79fabd0e18c65619ad5319d6d0a2896571b94687ccb8ae723d",
+    "F:\\Projects\\tyrax2-lab-20261001\\minimal-scope-v10-batch-ps2-1-evidence\\quiet-cadence.log": "24ed6c8c2da606bfa5f014298fe768d5384362b65c06807db450792dc4703265",
+    "F:\\Projects\\tyrax2-lab-20261001\\minimal-scope-v10-batch-ps2-1-evidence\\target-source-manifest.json": "697059b63686344fd9770f27a8fc5776cefd03c1da694ce548f785721b26644b",
+    "F:\\Projects\\tyrax2-lab-20261001\\minimal-scope-v10-batch-ps2-1-evidence\\native-provenance.json": "45417992763616c2075d66ca2e2121eeea0cfeea48ff1ba6b17341cb7064e4d3",
+    "F:\\Projects\\tyrax2-lab-20261001\\minimal-scope-v10-batch-ps2-1-evidence\\selected.elf": "a0903ebaa303012bce4d977d31aa34fd22e8c75bea7aa945deb58c70a7daaf41",
+    "F:\\Projects\\tyrax2-lab-20261001\\minimal-scope-v10-batch-ps2-1-evidence\\selected.elf.sym": "6dd55c019e3e6bd21b0589597e3e6ccdef5d04afd2efa7e8766f6eaceb1de602",
+    "F:\\Projects\\tyrax2-lab-20261001\\minimal-scope-v10-batch-ps2-1-evidence\\check-minimal-scope.py": "fc4849c23308bc9821fbe48fff58bdc869642ddc08d503955fd47051c00feaa1",
+    "F:\\Projects\\tyrax2-lab-20261001\\minimal-scope-v10-batch-ps2-1-evidence\\analyze-quiet.py": "86f9a6e13221aa7decf23dd18949f79ec3d953e7042ac1cb4557a48cb63ddeb7",
+    "F:\\Projects\\tyrax2-lab-20261001\\spr-call-benchmark-v2\\merged-source-proof.json": "2c1899ba46bd392118ba6edf5bad41105f68120f1997920483a908478459a574",
+    "F:\\Projects\\tyrax2-lab-20261001\\spr-call-benchmark-v2\\root-native-command-exit.json": "ece849e0ffa21cb495a6104cfa3efd794c95ebccb8b08a73b7c0ca791656796e",
+    "F:\\Projects\\tyrax2-lab-20261001\\spr-call-benchmark-v2\\root-native-provenance.json": "1a4d5ce52f36178862051e55c03199ecf3ef2458bb02c1bb2f9f8f3fa31cc1b0",
+    "F:\\Projects\\tyrax2-lab-20261001\\spr-call-uint32-native-fix-v2\\patch-proof.json": "3d86e11cad988e00cc960c5ba34210e50e1a909786bdb31cae52c0a89e354b76",
+    "F:\\Projects\\tyrax2-lab-20261001\\spr-call-uint32-native-fix-v2\\compile-proof.json": "80090cfa4b294b88c1f60468e2b33d25f71b56c778d90a59a15de6f0d6458c1d"
+  },
+  "rootViewedRastersReported": true,
+  "independentVisualRasterReviewPerformed": false,
+  "crossV8V9SubtractionPerformed": false,
+  "uniformObserverSubtractionPerformed": false,
+  "pureEECostAccepted": false,
+  "gainOr60FPSAccepted": false
+}

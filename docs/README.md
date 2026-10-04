@@ -397,6 +397,17 @@ physical costs and records diagnostic preparation/submission brackets and cache 
 cache publication and CALL/RET. It records the completed host byte-preservation
 experiment and the remaining physical DMA/cache/performance gates.
 
+[Private SPR/CALL runtime trials](tyrax2-spr-call-runtime-2026-10-04.md) close the
+October 4 physical experiments: direct SPR construction regresses by
+0.178–0.389 ms and corrected CALL by 3.332–3.532 ms in their own controls.
+The page links the immutable prototype sources and compact evidence record;
+neither policy is promoted to production.
+
+[Batch / texture / program scopes](tyrax2-batch-texture-scopes-2026-10-04.md)
+qualify the V10 inclusive physical interval at 0.751–0.788 ms, with explicit
+observer contrasts and rejected attempts. This interval includes dispatch and
+wait seams and cannot be added to earlier overlapping scopes as a pure EE bill.
+
 ## TyraX2 EE and VU0 audit
 
 [Scene preparation isolation](tyrax2-scene-isolation.md) describes a private

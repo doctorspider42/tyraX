@@ -7,6 +7,14 @@ hardware experiment stages a **finalized prefix** through SPR into frame-owned
 RAM while retaining current publication of every other DMA-readable source.
 No SPR runtime or performance improvement ships with this audit.
 
+The [October 4 private runtime follow-up](tyrax2-spr-call-runtime-2026-10-04.md)
+implemented direct SPR prefix construction and native CALL/RET replay. Guarded
+SPR bytes and the physical images passed, but both candidates increased elapsed
+time in both physical orders. Their [immutable source archive](tyrax2-spr-call-prototype-sources-2026-10-04/README.md)
+preserves the actual implementation without adding a production renderer mode.
+The finalized-prefix copy-only arm described below remains unpriced on hardware;
+the direct-construction experiment does not close cache-flush removal gates.
+
 ## Host experiment completed
 
 `tools/verify-spr-prefix-staging.cpp` uses the actual `FrameVifWriter` and current

@@ -1,0 +1,20 @@
+{
+  "status": "PASS_ROOT_REVIEWED_MERGED_INPUT_FREEZE",
+  "frozenManifestSha256": "2c0f97c4d03d97656e8ddbd9a120622729c061a06183437dc1268c92f7d15e9a",
+  "inputValidation": {
+    "inheritedV2NativeTypeFixProofSha256": "3d86e11cad988e00cc960c5ba34210e50e1a909786bdb31cae52c0a89e354b76",
+    "inheritedV2TypeBoundaryCompileProofSha256": "80090cfa4b294b88c1f60468e2b33d25f71b56c778d90a59a15de6f0d6458c1d",
+    "freshV3MergedHeaderHostControls": true,
+    "reusedV1HostMechanicsOnly": true,
+    "freshFullSuiteRerun": false,
+    "inputManifestSha256": "fba3affc1780e3031d4fc2d4db2b2c0ee23fc92c080401d06a22417f7c1b104d",
+    "nativeInputs": 475,
+    "rootReviewSha256": "a6c570a5c7603936fd1d281668005b28de0e113debc28e6d5c29d0305edcf68a",
+    "hostProofSha256": "203462a5273c1c92d0e41c493bfe002b7319f551aa5795a01039d1091f8529e2",
+    "mergedSourceProofSha256": "4216653c5980fbd99f6baba0c00d01f94b95bc62749f158d167fa62be02bedcb",
+    "mergedHostProofSha256": "a1f3866c713493a92b37959e7a2193b5e0a6cfe72ab0642289788cc634d5cfb9",
+    "protoControlsSha256": "71186e2898652117aaf7a47334686a81c75440350b9ba505b57faf27425b3e89"
+  },
+  "nativeAccepted": false,
+  "runtimeAccepted": false
+}

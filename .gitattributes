@@ -24,6 +24,12 @@ examples/** text=auto eol=lf
 # Keep their bytes stable across Windows/Linux checkouts.
 docs/*.json text eol=lf
 
+# Experimental source snapshots carry hashes of exact compiled input bytes.
+# Preserve every archived byte instead of applying checkout normalization.
+docs/tyrax2-spr-call-prototype-sources-2026-10-04/** -text whitespace=trailing-space,space-before-tab,cr-at-eol
+docs/tyrax2-spr-call-runtime-2026-10-04.json -text whitespace=trailing-space,space-before-tab,cr-at-eol
+docs/tyrax2-batch-texture-scopes-2026-10-04.json -text whitespace=trailing-space,space-before-tab,cr-at-eol
+
 # The neural upscaler's network and its provenance sidecar. The `.net` is 500
 # bytes of floats and must never be line-ending-normalised; the `.meta` is text
 # the TRAINER writes with LF, and the check that guards the shipped default is
