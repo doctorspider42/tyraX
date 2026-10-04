@@ -1434,6 +1434,8 @@ traffic light fast enough knocks it over. The prop snaps off and tumbles away.
 The car loses a little speed instead of stopping dead. Dust and sparks fly and
 a hit sound plays. A slow bump still stops the car, as before.
 
+![Properties > Street furniture > Breakable in the editor: per kind on/off, break speed (u/s and km/h), speed lost, and the hit sound](img/road-furniture-breakable-editor.png)
+
 ![PCSX2, Motor District: the Ravager on Garage boulevard's pavement - left, the lamp post ahead at 47 km/h; middle, the hit: the post tipping over forward; right, the post lying on the road with its arm and head, the car stopped beside it (left and middle from one run, right from another run of the same fixture)](img/road-furniture-breakable-pcsx2.png)
 
 **Authoring.** The Street furniture section has a **Breakable** block:

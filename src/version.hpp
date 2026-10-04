@@ -5515,7 +5515,12 @@
 // host-baked albedo map (REFL_GROUND_*): -2 ms a turning frame on the Motor
 // District's open road on a PS2.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 175
+#define TYRAX_VERSION_MINOR 176
+// 1.176.0: BREAKABLE STREET FURNITURE (v109). A car over a per-kind speed
+// knocks a lamp, sign, bollard or signal pole over, Need for Speed style: the
+// prop's vertices collapse in its merged chunk (one write), a copy tumbles
+// off through the debris pool, the car keeps most of its speed, dust, sparks
+// and a clank, the lamp's light goes out. On Prop Broken flow node.
 // 1.175.0: TRAFFIC AND WEATHER, FINISHED. An On Red Light Run flow node, AI
 // lane changes (to the turn's lane, past a stopped car), signals at T nodes
 // and a per-junction control override (v108), traffic headlights at night;
