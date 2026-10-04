@@ -191,6 +191,16 @@ over guessing from this file.
   World > Traffic, Ambient cars above 0) and a signalled node; without them it
   never fires. Hang a fine, a wanted level or a HUD warning off it (On Red
   Light Run -> Show Text). See `docs/traffic.md` in the TyraX repo.
+  **On Prop Broken** (Player category) fires when the PLAYER's car knocks over
+  a piece of street furniture - a lamp post, a sign, a bollard, a traffic
+  light, or a tree when its road lets trees break - once per prop. Ambient and
+  AI cars break props too but never trigger it. Its number output is the car's
+  speed at the hit (units/s). Params: Kind (-1 = any, 0 lamp, 1 tree, 2
+  bollard, 3 sign, 4 traffic light) and Min speed (0 = any break). It needs a
+  road whose Street furniture has Breakable on and a vehicle in the project;
+  without them it never fires. Use it for scoring (On Prop Broken -> Add To
+  Save Value) or a "property damage" HUD line. See `docs/roads.md`
+  ("Breakable furniture") in the TyraX repo.
   **Play Credits** rolls a credits screen (Tools > Credits Editor) by name: it
   takes over the screen and the pad - this graph included - until it ends or the
   player skips it, then runs the ROLL's own finish action (resume / switch scene

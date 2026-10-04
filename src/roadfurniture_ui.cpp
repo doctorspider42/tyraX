@@ -11,6 +11,7 @@
 #include "app.hpp"
 #include "app_internal.hpp"
 
+#include <cstdio>
 #include <filesystem>
 #include <string>
 #include <vector>
@@ -118,6 +119,65 @@ bool App::drawRoadFurniture(SceneObject& o) {
              "in place of the signs there. A junction's own Control (select\n"
              "its diamond) can turn them on or off at that node alone.");
     if (s.signals && modelCombo("Signal model", s.signalModel)) changed = true;
+    // Breakable furniture (docs/roads.md "Breakable furniture", format v109).
+    ImGui::SeparatorText("Breakable");
+    if (ImGui::Checkbox("Cars knock it over", &s.breakable)) changed = true;
+    prefHelp("Need for Speed style: a car that hits a lamp post, a sign,\n"
+             "a bollard or a traffic light at least as fast as its kind's\n"
+             "Break speed knocks it over - it snaps off and tumbles away,\n"
+             "its light goes out, and the car keeps going a little slower.\n"
+             "Slower bumps stop the car as before. Needs a vehicle in the\n"
+             "project; the props stand again on a scene load.");
+    if (s.breakable) {
+        const char* kinds[roadfurn::kKindCount] = {"Lamps", "Trees", "Bollards", "Signs",
+                                                    "Traffic lights"};
+        for (int k = 0; k < roadfurn::kKindCount; ++k) {
+            roadfurn::Break& b = s.brk[k];
+            ImGui::PushID(k);
+            if (ImGui::Checkbox(kinds[k], &b.on)) changed = true;
+            if (k == roadfurn::kTree)
+                prefHelp("Off by default: a tree is what stops a car.");
+            if (b.on) {
+                ImGui::Indent();
+                ImGui::SetNextItemWidth(propFieldWidth());
+                char fmtBuf[48];
+                std::snprintf(fmtBuf, sizeof(fmtBuf), "%%.1f u/s (%.0f km/h)", b.speed * 3.6f);
+                if (ImGui::SliderFloat("Break speed", &b.speed, 1.0f, 40.0f, fmtBuf)) changed = true;
+                prefHelp("The car must be at least this fast (units per second;\n"
+                         "1 unit = 1 metre) or the prop is a wall, as before.");
+                ImGui::SetNextItemWidth(propFieldWidth());
+                float pct = b.loss * 100.0f;
+                if (ImGui::SliderFloat("Speed lost", &pct, 0.0f, 90.0f, "%.0f%%")) {
+                    b.loss = pct / 100.0f;
+                    changed = true;
+                }
+                prefHelp("The share of the car's speed the hit takes. Small for a\n"
+                         "sign, more for a lamp post.");
+                ImGui::Unindent();
+            }
+            ImGui::PopID();
+        }
+        const std::string current = s.breakSound.empty()
+                                        ? "<auto>"
+                                        : std::filesystem::path(s.breakSound).filename().string();
+        ImGui::SetNextItemWidth(propFieldWidth());
+        if (ImGui::BeginCombo("Hit sound", current.c_str())) {
+            if (ImGui::Selectable("<auto>", s.breakSound.empty()) && !s.breakSound.empty()) {
+                s.breakSound.clear();
+                changed = true;
+            }
+            for (const std::string& snd : project_.sounds)
+                if (ImGui::Selectable(snd.c_str(), snd == s.breakSound) && snd != s.breakSound) {
+                    s.breakSound = snd;
+                    changed = true;
+                }
+            ImGui::EndCombo();
+        }
+        prefHelp("A project sound (Project > Sounds). <auto> picks the first\n"
+                 "one named like a crash (break, crash, impact, hit, smash,\n"
+                 "clank, thud, knock) - none: the hit is silent, the dust and\n"
+                 "sparks still fly.");
+    }
     ImGui::TextDisabled("Baked at build: merged chunks (a few draws), solid poles and trunks,");
     ImGui::TextDisabled("hidden past ~%.0f units. Not scene objects.", roadfurn::kDrawDistance);
     return changed;

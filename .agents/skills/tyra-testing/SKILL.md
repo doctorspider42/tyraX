@@ -4207,6 +4207,44 @@ in PCSX2 (docs/weather.md "What it costs" is the recipe):
   other `--vehicle-check` running at the same time and can fail spuriously;
   rerun alone before believing it.
 
+## Breakable street furniture (format 109)
+
+`--vehicle-check` "breakable furniture" is the host layer: a host `vehiclesim`
+drive into a lamp at speed (it breaks, the box goes, the car keeps exactly
+its share and drives on), a 4 u/s cruise into the same pole (no break, the car
+stops), a tree (stops a fast car), the piece table against every instance's
+vertex run, a collapse that moves nothing else, determinism, the JSON, and the
+codegen hooks (`roadfurnbreak::kHookMarks`; embedded, lit, streamed, traffic).
+`TYRAX_FURNBREAK_DUMP=<dir>` writes its generated sources as gen<N>.txt. Then,
+in PCSX2:
+
+- **Fixture**: a short-path copy of `examples/vehicle-playground`
+  (`%TEMP%\tyra-editor-test\<short>`), with `ravagerpark00001.json`'s
+  `position` set to `[6.7, 0.6, -60]` (or 6.9): the Ravager is seated by its
+  own flow graph, faces +z, and lamp piece 89 at (7.1, -42) is straight
+  ahead on Garage boulevard's pavement. 6.7 keeps the car clear of the tree
+  at (8.4, -36), which otherwise stops it right after the hit. To find other
+  props, read `ROAD_FURN_BOXES` and `ROAD_FURN_PIECES` from the generated
+  `inc/scene_data.hpp` (box i is piece i; the centre of the box is the prop).
+- **Drive**: `--pad <dir> "hold r2; wait 2.3; release all; wait 3"` breaks it
+  at about 13.9 u/s: `FURN break kind lamp speed 13.9 piece 89 ... lamp 30
+  pool 60 ...` in `bin/log.txt`. Do not `hold l2` to stop afterwards: at a
+  standstill L2 reverses, and the car drives back to the start.
+- **Pictures**: `--capture-frame` takes 0.5 to 20 s per call in PCSX2 (the
+  game stalls while it writes, more with another emulator running), so a
+  capture started 1.7 s after the pad call usually lands on the hit, the
+  next one is late. Take several runs and pick.
+- **Streaming**: `"roadStreamRadius": 40` in the copy's `.tyra` settings,
+  start at x 6.7, `--pad <dir> "hold r2; wait 9; release all; wait 2; hold
+  l2; wait 20; release all"`: the car breaks the lamp, drives to z 125
+  (everything behind drops), reverses back, and the log says `FURN restreamed
+  row 30 kept 1 broken piece(s) down` (the pool chunk) and `row 16` (the
+  furniture chunk).
+- **Cost**: `TRAFFIC ... vehicles us/frame` at the same clocks of two fresh
+  boots (breakable on / off in the copy's four district roads) - the render
+  rows do not move without a hit, and their noise with traffic moving is
+  about 1-2 ms of `Total`.
+
 ## Exact first-entry HUD acceptance (1.150.1)
 
 Use the stationary night fixture and record every frame through the exact

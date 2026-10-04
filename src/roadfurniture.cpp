@@ -503,6 +503,63 @@ void lineFrom(const json::Value* v, Line& l) {
 }
 }  // namespace
 
+namespace {
+// The "breakable" object (format v109): "on", the sound and one object per
+// kind, each holding only what differs from defaultBreak.
+const char* const kBreakKeys[kKindCount] = {"lamps", "trees", "bollards", "signs", "signals"};
+bool breakDefault(const Settings& s) {
+    if (s.breakable || !s.breakSound.empty()) return false;
+    for (int k = 0; k < kKindCount; ++k)
+        if (!(s.brk[k] == defaultBreak(k))) return false;
+    return true;
+}
+std::string breakJson(const Settings& s) {
+    std::string body;
+    auto add = [&](std::string& to, const std::string& kv) { to += (to.empty() ? "" : ", ") + kv; };
+    if (s.breakable) add(body, "\"on\": true");
+    if (!s.breakSound.empty()) add(body, "\"sound\": \"" + json::escape(s.breakSound) + "\"");
+    for (int k = 0; k < kKindCount; ++k) {
+        const Break& b = s.brk[k];
+        const Break d = defaultBreak(k);
+        if (b == d) continue;
+        std::string kb;
+        if (b.on != d.on) add(kb, std::string("\"on\": ") + (b.on ? "true" : "false"));
+        if (b.speed != d.speed) add(kb, "\"speed\": " + fmt(b.speed));
+        if (b.loss != d.loss) add(kb, "\"loss\": " + fmt(b.loss));
+        add(body, std::string("\"") + kBreakKeys[k] + "\": {" + kb + "}");
+    }
+    return "{" + body + "}";
+}
+void breakFrom(const json::Value* v, Settings& s) {
+    if (!v || v->type != json::Value::Type::Object) return;
+    if (const auto* x = v->find("on")) s.breakable = x->boolOr(false);
+    if (const auto* x = v->find("sound")) s.breakSound = x->stringOr("");
+    for (int k = 0; k < kKindCount; ++k) {
+        const json::Value* kv = v->find(kBreakKeys[k]);
+        if (!kv || kv->type != json::Value::Type::Object) continue;
+        Break& b = s.brk[k];
+        if (const auto* x = kv->find("on")) b.on = x->boolOr(b.on);
+        if (const auto* x = kv->find("speed"))
+            b.speed = std::clamp((float)x->numberOr(b.speed), 0.5f, 200.0f);
+        if (const auto* x = kv->find("loss"))
+            b.loss = std::clamp((float)x->numberOr(b.loss), 0.0f, 1.0f);
+    }
+}
+}  // namespace
+
+Break breakOf(const Settings& s, int kind) {
+    if (!s.breakable || kind < 0 || kind >= kKindCount) return {false, 0.0f, 0.0f};
+    return s.brk[kind];
+}
+
+bool anyBreakable(const std::vector<Settings>& settings) {
+    for (const Settings& s : settings)
+        if (s.breakable)
+            for (int k = 0; k < kKindCount; ++k)
+                if (s.brk[k].on) return true;
+    return false;
+}
+
 std::string toJson(const Settings& s) {
     const Settings d;
     if (s == d) return "";
@@ -516,6 +573,7 @@ std::string toJson(const Settings& s) {
     if (s.signals) add("\"signals\": true");
     if (!s.signModel.empty()) add("\"signModel\": \"" + json::escape(s.signModel) + "\"");
     if (!s.signalModel.empty()) add("\"signalModel\": \"" + json::escape(s.signalModel) + "\"");
+    if (!breakDefault(s)) add("\"breakable\": " + breakJson(s));
     return "{" + body + "}";
 }
 
@@ -530,6 +588,7 @@ void fromJson(const json::Value& v, Settings& out) {
     if (const auto* x = v.find("signals")) out.signals = x->boolOr(false);
     if (const auto* x = v.find("signModel")) out.signModel = x->stringOr("");
     if (const auto* x = v.find("signalModel")) out.signalModel = x->stringOr("");
+    breakFrom(v.find("breakable"), out);
 }
 
 uint64_t signature(const Settings& s) {
@@ -551,6 +610,18 @@ uint64_t signature(const Settings& s) {
     const int sg = s.signals ? 1 : 0;
     mixB(&sg, sizeof(int));
     mixS(s.signModel), mixS(s.signalModel);
+    // Breakable furniture (v109): mixed only when set, so every signature
+    // taken before it existed is unchanged.
+    if (!breakDefault(s)) {
+        const int on = s.breakable ? 1 : 0;
+        mixB(&on, sizeof(int));
+        mixS(s.breakSound);
+        for (int k = 0; k < kKindCount; ++k) {
+            const int bon = s.brk[k].on ? 1 : 0;
+            mixB(&bon, sizeof(int)), mixB(&s.brk[k].speed, sizeof(float));
+            mixB(&s.brk[k].loss, sizeof(float));
+        }
+    }
     return h ? h : 1;
 }
 
@@ -671,6 +742,13 @@ Result build(const SceneInput& in) {
         inst.scale = scale;
         inst.radius = kSize[kind].solid * scale;
         inst.height = kSize[kind].height * scale;
+        // Breakable furniture: the placing road's rule (a sign's or a
+        // signal's road is the arm it stands on).
+        const Break br = breakOf(sets[(size_t)road], kind);
+        if (br.on) {
+            inst.breakSpeed = br.speed;
+            inst.breakKeep = 1.0f - br.loss;
+        }
         placed.add(x, z, kSize[kind].solid * placeScale, kSize[kind].place * placeScale,
                    kind != kBollard);
         res.instances.push_back(inst);
@@ -928,11 +1006,32 @@ SceneInput prepare(const std::vector<roadgen::CrossingRoad>& roads,
 
 // --- the console tables ---------------------------------------------------------------
 
-void Tables::add(int scene, const Result& r) {
+int Tables::rowOf(int v) const {
+    for (size_t i = 0; i < rows.size(); ++i)
+        if (v >= rows[i].first && v < rows[i].first + rows[i].count) return (int)i;
+    return -1;
+}
+
+void Tables::add(int scene, const Result& r, const std::vector<int>& breakSnd) {
     int at = (int)(verts.size() / 3);
+    const int vertBase = at;
+    lastBoxBase = (int)(boxes.size() / 7);
     for (int sz : r.chunkSizes) {
         rows.push_back({scene, at, sz});
         at += sz;
+    }
+    // One piece per instance, in box order (instance i owns box i).
+    for (const Instance& in : r.instances) {
+        Piece pc;
+        const int g = vertBase + in.firstVertex;
+        pc.row = rowOf(g);
+        pc.first = pc.row >= 0 ? g - rows[(size_t)pc.row].first : 0;
+        pc.count = in.vertexCount;
+        pc.kind = in.kind;
+        pc.snd = in.road >= 0 && (size_t)in.road < breakSnd.size() ? breakSnd[(size_t)in.road] : -1;
+        pc.speed = in.breakSpeed;
+        pc.keep = in.breakKeep;
+        pieces.push_back(pc);
     }
     for (const Vertex& v : r.tris) {
         verts.insert(verts.end(), {v.x, v.y, v.z});
@@ -951,8 +1050,11 @@ void Tables::add(int scene, const Result& r) {
 }
 
 void Tables::addLight(int scene, const std::vector<float>& xyz, const std::vector<uint32_t>& uv,
-                      const std::vector<int>& chunkSizes, const std::string& note) {
+                      const std::vector<int>& chunkSizes, const std::string& note,
+                      const std::vector<int>& lampInstance, const std::vector<int>& poolFirst,
+                      const std::vector<int>& poolCount, int lampBase) {
     int at = (int)(verts.size() / 3);
+    const int vertBase = at;
     for (int sz : chunkSizes) {
         Row r{scene, at, sz};
         r.light = 1;
@@ -962,6 +1064,21 @@ void Tables::addLight(int scene, const std::vector<float>& xyz, const std::vecto
     verts.insert(verts.end(), xyz.begin(), xyz.end());
     rgb.insert(rgb.end(), uv.begin(), uv.end());
     notes += note;
+    // Breakable furniture: each lamp's piece learns its ROAD_LAMPS row and
+    // where its pool lies, so a knocked-down lamp's light goes out too.
+    for (size_t li = 0; li < lampInstance.size(); ++li) {
+        const size_t piece = (size_t)lastBoxBase + (size_t)lampInstance[li];
+        if (lampInstance[li] < 0 || piece >= pieces.size()) continue;
+        Piece& pc = pieces[piece];
+        pc.lamp = lampBase + (int)li;
+        if (li < poolFirst.size() && li < poolCount.size() && poolFirst[li] >= 0 &&
+            poolCount[li] > 0) {
+            const int g = vertBase + poolFirst[li];
+            pc.poolRow = rowOf(g);
+            pc.poolFirst = pc.poolRow >= 0 ? g - rows[(size_t)pc.poolRow].first : 0;
+            pc.poolCount = poolCount[li];
+        }
+    }
 }
 
 std::string Tables::source(bool embedVerts) const {
@@ -991,6 +1108,27 @@ std::string Tables::source(bool embedVerts) const {
             for (size_t j = 0; j < 7; ++j) out << " " << lit(boxes[k + j]) << ",";
             out << "\n";
         }
+        out << "};\n";
+    }
+    if (breakable) {
+        // Breakable furniture (docs/roads.md "Breakable furniture"): per
+        // instance (= per box), its vertices' place in its ROAD_FURN row, its
+        // lamp and pool, its sound, its threshold and what the car keeps.
+        out << "// Breakable furniture (docs/roads.md \"Breakable furniture\"): per box, the\n"
+               "// ROAD_FURN row and range of its vertices, its kind (0 lamp, 1 tree, 2\n"
+               "// bollard, 3 sign, 4 signal), its ROAD_LAMPS row and pool range (-1 =\n"
+               "// none), its sound (SND_PATHS, -1 = none), the speed that breaks it (0 =\n"
+               "// never) and the share of the car's speed a hit keeps.\n"
+               "struct RoadFurnPieceRt { int row; int first; int count; int kind; int lamp;\n"
+               "  int poolRow; int poolFirst; int poolCount; int snd; float speed; float keep; };\n"
+            << "constexpr int ROAD_FURN_PIECE_COUNT = " << pieces.size() << ";\n"
+            << "constexpr RoadFurnPieceRt ROAD_FURN_PIECES[" << std::max<size_t>(1, pieces.size())
+            << "] = {\n";
+        if (pieces.empty()) out << "    {-1, 0, 0, 0, -1, -1, 0, 0, -1, 0.0F, 1.0F},\n";
+        for (const Piece& pc : pieces)
+            out << "    {" << pc.row << ", " << pc.first << ", " << pc.count << ", " << pc.kind << ", "
+                << pc.lamp << ", " << pc.poolRow << ", " << pc.poolFirst << ", " << pc.poolCount
+                << ", " << pc.snd << ", " << lit(pc.speed) << ", " << lit(pc.keep) << "},\n";
         out << "};\n";
     }
     if (rows.empty()) {

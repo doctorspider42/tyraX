@@ -62,6 +62,7 @@ inline constexpr float kPoolMaxRadius = 9.0f;
 // it, that surface's slope there (for the wet streak) and its pool radius.
 struct Lamp {
     int road = -1;
+    int instance = -1;             // its roadfurn::Result::instances index
     float hx = 0, hy = 0, hz = 0;  // the head / lens centre
     float gx = 0, gy = 0, gz = 0;  // the surface under it
     float sx = 0, sz = 0;          // dy/dx, dy/dz of the surface around it
@@ -77,6 +78,10 @@ struct Pools {
     std::vector<roadgen::Vertex> tris;  // triangle list, x y z + u v (0..1 over the pool)
     std::vector<int> chunkSizes;        // whole pools per kPoolCell cell
     int lamps = 0;
+    // Per lamp (the bakePools argument's order): its pool's first vertex in
+    // `tris` and its vertex count (-1 / 0 = no pool) - breakable furniture
+    // puts a knocked-down lamp's pool out.
+    std::vector<int> first, count;
 };
 // `top` = the highest drawn surface at (x, z) (roads, patches, pavements and
 // the terrain under them). Fills each lamp's gy/sx/sz/radius and bakes the

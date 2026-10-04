@@ -62,6 +62,7 @@
 #include "roadrail.hpp"  // rails + tram tracks, baked into the kerb tables
 #include "roaddetail.hpp"  // road details: host-baked decals (docs/roads.md)
 #include "roadfurniture.hpp"  // street furniture: host-baked lamps, trees, signs
+#include "roadfurnbreak.hpp"  // breakable street furniture (docs/roads.md)
 #include "roadlight.hpp"  // lit street lamps + weather (docs/weather.md)
 #include "roadstream.hpp"  // road streaming: the runtime cut from buildRoads' own text
 #include "roadlanes.hpp"   // road traffic: the lane graph and the traffic core (docs/traffic.md)
@@ -226,6 +227,40 @@ static bool projectHasRoadFurniture(const Project& p) {
                 roadfurn::any({o.roadFurniture}))
                 return true;
     return false;
+}
+
+// Breakable furniture (docs/roads.md "Breakable furniture"): a road with
+// furniture that breaks, in a project with something to break it (a car).
+// The gate of ROAD_FURN_PIECES and of the whole break runtime - a project
+// without it keeps its exact source.
+bool projectHasBreakableFurniture(const Project& p) {
+    if (!projectHasVehicles(p)) return false;
+    for (const SceneData& sc : p.scenes)
+        for (const SceneObject& o : sc.objects)
+            if (o.type == PrimitiveType::Road && o.roadPoints.size() >= 4 &&
+                roadfurn::any({o.roadFurniture}) && roadfurn::anyBreakable({o.roadFurniture}))
+                return true;
+    return false;
+}
+
+// The hit sound of a breakable road's furniture: its own choice (a project
+// sound path), else the first project sound whose file name says it is a
+// crash, else none (-1). docs/roads.md "Breakable furniture".
+int furnBreakSound(const Project& p, const std::string& want) {
+    if (!want.empty()) {
+        for (size_t i = 0; i < p.sounds.size(); ++i)
+            if (p.sounds[i] == want) return (int)i;
+        return -1;
+    }
+    static const char* const kWords[] = {"break", "crash", "impact", "hit", "smash",
+                                         "clank", "thud", "knock"};
+    for (size_t i = 0; i < p.sounds.size(); ++i) {
+        std::string n = std::filesystem::path(p.sounds[i]).stem().string();
+        for (char& c : n) c = (char)tolower((unsigned char)c);
+        for (const char* w : kWords)
+            if (n.find(w) != std::string::npos) return (int)i;
+    }
+    return -1;
 }
 
 // Lit street lamps (docs/weather.md): a road with furniture lamps in a scene
@@ -5842,6 +5877,14 @@ struct ScriptContext {
   int redLightRuns = 0;
   int redLightNode = -1;
   float redLightSpeed = 0.0F;
+  // Breakable street furniture (docs/roads.md "Breakable furniture"): the
+  // props the PLAYER's car knocked over - the count, the last one's kind (0
+  // lamp, 1 tree, 2 bollard, 3 sign, 4 signal) and the car's speed then
+  // (units/s). The On Prop Broken flow node watches the count. A project
+  // without breakable furniture never writes them.
+  int propBreaks = 0;
+  int propBreakKind = -1;
+  float propBreakSpeed = 0.0F;
 
   // Index of the usable object the player pressed BTN_USE on this frame
   // (-1 = none). Drives the flow graph "On Used" trigger.
@@ -9401,6 +9444,10 @@ static std::string sceneDataContent(const Project& p, const std::string& ns,
             // furniture's own table, ROAD_LAMPS beside it.
             const bool litLamps = projectHasLitLamps(p);
             furnTables.lit = litLamps;
+            // Breakable furniture (docs/roads.md "Breakable furniture"): the
+            // ROAD_FURN_PIECES table, only when a car can break something.
+            const bool breakableFurn = projectHasBreakableFurniture(p);
+            furnTables.breakable = breakableFurn;
             std::vector<std::pair<int, roadlight::Lamp>> litLampRows;
             for (size_t si = 0; si < p.scenes.size(); ++si)
                 for (const SceneObject& o : p.scenes[si].objects) {
@@ -9734,7 +9781,12 @@ static std::string sceneDataContent(const Project& p, const std::string& ns,
                         const roadfurn::Result fr = roadfurn::build(fi);
                         for (const roadfurn::Instance& in : fr.instances)
                             if (in.kind == roadfurn::kSignal) furnSignals.push_back(in);
-                        furnTables.add((int)si, fr);
+                        // Breakable furniture: each road's hit sound.
+                        std::vector<int> breakSnd;
+                        if (breakableFurn)
+                            for (const roadfurn::Settings& s : fs)
+                                breakSnd.push_back(furnBreakSound(p, s.breakSound));
+                        furnTables.add((int)si, fr, breakSnd);
                         // Lit street lamps (docs/weather.md): a pool of light
                         // under every lamp, laid on the drawn surface, as more
                         // ROAD_FURN rows (the furniture's cells, its streaming
@@ -9765,7 +9817,11 @@ static std::string sceneDataContent(const Project& p, const std::string& ns,
                                      << " lit lamps, pools " << pools.tris.size()
                                      << " vertices in " << pools.chunkSizes.size()
                                      << " chunks\n";
-                            furnTables.addLight((int)si, xyz, uv, pools.chunkSizes, note.str());
+                            std::vector<int> lampInstance;
+                            for (const roadlight::Lamp& L : lamps) lampInstance.push_back(L.instance);
+                            furnTables.addLight((int)si, xyz, uv, pools.chunkSizes, note.str(),
+                                                lampInstance, pools.first, pools.count,
+                                                (int)litLampRows.size());
                             for (const roadlight::Lamp& L : lamps) litLampRows.push_back({(int)si, L});
                         }
                     }
@@ -19075,8 +19131,12 @@ static std::string roadsMembers(const Project& p) {
 
 static std::string roadsSetupCall(const Project& p) {
     if (!projectHasRoads(p)) return "";
-    if (projectStreamsRoads(p)) return roadStreamEmit(p).setup;
-    return "  buildRoads(sceneIndex);\n";
+    // Breakable furniture (docs/roads.md "Breakable furniture"): every prop
+    // stands again on a scene load, before the furniture is built.
+    const std::string reset =
+        projectHasBreakableFurniture(p) ? "  furnBreakReset();  // breakable furniture\n" : "";
+    if (projectStreamsRoads(p)) return reset + roadStreamEmit(p).setup;
+    return reset + "  buildRoads(sceneIndex);\n";
 }
 
 // Bridges (docs/roads.md "Bridges"): the same zero-cost rule - no bridge road,
@@ -20389,6 +20449,17 @@ static std::string fillTemplate(const Project& p, const char* tpl) {
             for (const SceneObject& o : sc.objects)
                 g.roads = g.roads || (o.type == PrimitiveType::Road && o.roadPoints.size() >= 4);
         s = roadlight::patchTemplate(s, g);
+    }
+    // Breakable street furniture (docs/roads.md "Breakable furniture"):
+    // after the lamp patch, because it reaches into renderRoadLamps too, and
+    // after streaming, whose cut copies of the furniture upload take the same
+    // replacements. A project without it keeps its exact source.
+    if (projectHasBreakableFurniture(p)) {
+        roadfurnbreak::Gates g;
+        g.streamed = projectStreamsRoads(p);
+        g.lamps = projectHasLitLamps(p);
+        g.traffic = roadlanes::projectHasTraffic(p);
+        s = roadfurnbreak::patchTemplate(s, g);
     }
     return s;
 }
@@ -23637,6 +23708,8 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
             }
             // The car's speed at the player's latest red-light run (units/s).
             if (n.type == "OnRedLightRun") return "ctx.redLightSpeed";
+            // The car's speed when the player's latest prop broke (units/s).
+            if (n.type == "OnPropBroken") return "ctx.propBreakSpeed";
             if (n.type == "RollRandom") return "rnd" + std::to_string(n.id);
             if (n.type == "PlayerFallSpeed")
                 // Already units/second - the walker keeps the PLAYER's
@@ -26132,6 +26205,27 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                               "ctx.redLightSpeed >= " + floatLit(n.num[1]);
                 clsOut << "    if (ctx.redLightRuns != " << flag << ") {\n"
                        << "      " << flag << " = ctx.redLightRuns;\n";
+                if (filter.empty())
+                    clsOut << body;
+                else
+                    clsOut << "      if (" << filter << ") {\n" << body << "      }\n";
+                clsOut << "    }\n";
+            } else if (n.type == "OnPropBroken") {
+                // Breakable street furniture (docs/roads.md "Breakable
+                // furniture"): the On Red Light Run shape - the game counts
+                // the player's knocked-over props, the node fires when its
+                // own copy of the count falls behind.
+                const std::string flag = "propBreaks" + std::to_string(n.id);
+                addMember("int", flag, "0", 'i', 1);
+                flagResets << "      " << flag << " = ctx.propBreaks;\n";
+                std::string filter;
+                if (n.num[0] >= 0.0f)
+                    filter += "ctx.propBreakKind == " + std::to_string((int)std::lround(n.num[0]));
+                if (n.num[1] > 0.0f)
+                    filter += std::string(filter.empty() ? "" : " && ") +
+                              "ctx.propBreakSpeed >= " + floatLit(n.num[1]);
+                clsOut << "    if (ctx.propBreaks != " << flag << ") {\n"
+                       << "      " << flag << " = ctx.propBreaks;\n";
                 if (filter.empty())
                     clsOut << body;
                 else

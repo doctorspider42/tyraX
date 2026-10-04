@@ -68,6 +68,30 @@ struct Line {
     bool operator==(const Line&) const = default;
 };
 
+// Breakable furniture (docs/roads.md "Breakable furniture", format v109): a
+// car that hits one of this kind at `speed` units/s or faster knocks it over
+// - the prop snaps off as debris, its collision box goes, and the car keeps
+// (1 - loss) of its speed instead of stopping dead. Slower, it is a wall, as
+// it always was.
+struct Break {
+    bool on = true;      // this kind breaks (when the road's Breakable is on)
+    float speed = 9.0f;  // units/s - the threshold
+    float loss = 0.15f;  // share of the car's speed the hit takes
+    bool operator==(const Break&) const = default;
+};
+// The per-kind defaults: lamps, signs, signals and bollards break, trees do
+// not (a tree is what stops a car in every racer of the era). Thresholds in
+// units/s (9 = 32 km/h at 1 unit = 1 m).
+inline Break defaultBreak(int kind) {
+    switch (kind) {
+    case kTree: return {false, 14.0f, 0.45f};
+    case kBollard: return {true, 7.0f, 0.10f};
+    case kSign: return {true, 6.0f, 0.08f};
+    case kSignal: return {true, 9.0f, 0.18f};
+    default: return {true, 9.0f, 0.15f};  // lamp
+    }
+}
+
 // A road's furniture settings (SceneObject::roadFurniture).
 struct Settings {
     Line lamps{"", 0.0f, kBoth, 0.6f, 0.0f, 1.0f, 0.0f};
@@ -78,10 +102,24 @@ struct Settings {
     bool signals = false;       // traffic lights at this road's three- and four-way nodes
     std::string signModel;      // "" = built-in (the sign kind picks it)
     std::string signalModel;    // "" = built-in
+    // Breakable furniture (format v109): the road's switch, one Break per
+    // kind (lamps, trees, bollards, signs, signals) and the hit's sound - a
+    // project .wav, "" = the project sound whose name says break / crash /
+    // impact / hit / smash / clank / thud / knock, or none.
+    bool breakable = false;
+    Break brk[kKindCount] = {defaultBreak(kLamp), defaultBreak(kTree), defaultBreak(kBollard),
+                             defaultBreak(kSign), defaultBreak(kSignal)};
+    std::string breakSound;
     bool operator==(const Settings&) const = default;
     const Line& line(int kind) const { return kind == kTree ? trees : kind == kBollard ? bollards : lamps; }
     Line& line(int kind) { return kind == kTree ? trees : kind == kBollard ? bollards : lamps; }
 };
+// The Break that applies to an instance of `kind` placed by road `s`, or a
+// Break with on = false when the road is not breakable.
+Break breakOf(const Settings& s, int kind);
+// Any road in the list breakable with at least one kind on (the codegen gate,
+// together with "the project has vehicles").
+bool anyBreakable(const std::vector<Settings>& settings);
 
 bool isDefault(const Settings& s);
 // The "roadFurniture" object value (only its non-default keys), "" when the
@@ -123,6 +161,10 @@ struct Instance {
     float radius = 0.2f;        // footprint (placement and collision)
     float height = 1.0f;        // collision height above the base
     int firstVertex = 0, vertexCount = 0;  // its run of Result::tris
+    // Breakable furniture: the threshold (units/s, 0 = never breaks) and the
+    // share of the car's speed it keeps (1 - Break::loss).
+    float breakSpeed = 0.0f;
+    float breakKeep = 1.0f;
 };
 
 struct Vertex {
@@ -233,11 +275,36 @@ struct Tables {
     // a light row's colour word is its texture coordinate (roadlight::packUv).
     // False = the tables print exactly as they did before lamps lit.
     bool lit = false;
-    void add(int scene, const Result& r);
+    // Breakable furniture (docs/roads.md "Breakable furniture"): one
+    // ROAD_FURN_PIECES row per instance (= per box, the same index), saying
+    // where its vertices are in which ROAD_FURN row, where its lamp's pool
+    // is, its ROAD_LAMPS row, its sound and its threshold. False = none of it
+    // is printed (every other project keeps its exact tables).
+    bool breakable = false;
+    struct Piece {
+        int row = -1, first = 0, count = 0;  // ROAD_FURN row, first vertex in it, count
+        int kind = kLamp;
+        int lamp = -1;                       // ROAD_LAMPS row, -1 = none
+        int poolRow = -1, poolFirst = 0, poolCount = 0;
+        int snd = -1;                        // SND_PATHS index, -1 = silent
+        float speed = 0.0f, keep = 1.0f;     // Instance::breakSpeed / breakKeep
+    };
+    std::vector<Piece> pieces;
+    // `breakSnd`: the sound index per road of the scene (CrossingRoad order),
+    // empty = none.
+    void add(int scene, const Result& r, const std::vector<int>& breakSnd = {});
     // One scene's lamp pools (roadlight::bakePools): x y z per vertex, the
-    // packed UV in the colour word, whole chunks.
+    // packed UV in the colour word, whole chunks. With `breakable`, also
+    // each pool's vertex range (`poolFirst`/`poolCount` per lamp, indices into
+    // xyz / 3; `lampInstance` the furniture instance of the scene each lamp
+    // is, from the LAST add()) and the ROAD_LAMPS row of the first lamp.
     void addLight(int scene, const std::vector<float>& xyz, const std::vector<uint32_t>& uv,
-                  const std::vector<int>& chunkSizes, const std::string& note);
+                  const std::vector<int>& chunkSizes, const std::string& note,
+                  const std::vector<int>& lampInstance = {}, const std::vector<int>& poolFirst = {},
+                  const std::vector<int>& poolCount = {}, int lampBase = 0);
+    // Which row holds global vertex `v` (-1 = none), for the piece ranges.
+    int rowOf(int v) const;
+    int lastBoxBase = 0;  // the first box (= piece) of the last add()
     // embedVerts false (docs/roads.md "Tables on disk"): the rows, boxes and
     // counts only - the vertices and colours are in bin/roadfile/roads.bin.
     std::string source(bool embedVerts = true) const;

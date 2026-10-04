@@ -111,6 +111,14 @@ bool projectUsesBeams(const Project& p);
 bool projectHasLitLamps(const Project& p);
 // Weather (docs/weather.md): a scene that rains or a Set Weather node.
 bool projectUsesWeather(const Project& p);
+// Breakable street furniture (docs/roads.md "Breakable furniture"): a road
+// whose furniture breaks, in a project with vehicles. Gates ROAD_FURN_PIECES
+// and the whole break runtime.
+bool projectHasBreakableFurniture(const Project& p);
+// The project sound a breakable road's hit plays: its own choice, else the
+// first sound named like a crash (break, crash, impact, hit, smash, clank,
+// thud, knock), else -1 = silent.
+int furnBreakSound(const Project& p, const std::string& want);
 // Puddles (docs/weather.md "Puddles"): weather AND a road with details. Gates
 // the puddle decals, their `wet` column, ROAD_PUDDLE_TEX and the
 // res/materials/roads/road-puddles.png bake.

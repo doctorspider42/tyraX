@@ -28,6 +28,7 @@
 #include "project.hpp"
 #include "roadbridge.hpp"
 #include "roadfurniture.hpp"
+#include "roadfurnbreak.hpp"
 #include "roadstream.hpp"
 #include "roadlanes.hpp"
 #include "roadlight.hpp"
@@ -2162,6 +2163,7 @@ int run() {
     roadbridge::check(verdict);  // docs/roads.md "Bridges"
     roadDetails();
     roadfurn::check(verdict);  // docs/roads.md "Street furniture"
+    roadfurnbreak::check(verdict);  // docs/roads.md "Breakable furniture"
     roadstream::check(verdict);  // docs/roads.md "Road streaming"
     roaddraw::check(verdict);  // docs/roads.md "Drawing roads"
     roadlanes::check(verdict);  // docs/traffic.md

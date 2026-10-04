@@ -71,7 +71,9 @@ head is the built-in lamp's unshaded lens, found by its colour among the
 instance's own triangles; for an `.obj` lamp it is the furthest reach of the
 model's top quarter. The pool is a disc of radius 1.1 x the head's height above
 the surface (2..9 units), laid out to 85% of that radius, because the corona
-sprite it is drawn with is black beyond.
+sprite it is drawn with is black beyond. A lamp a car knocks over (roads.md,
+"Breakable furniture") goes dark: its pool collapses in its chunk and its
+halo and streak are skipped.
 
 The disc lies 0.05 above the drawn surface, the highest of the road, junction
 patches, pavements and terrain under it. That puts it over the node paint (0.02)

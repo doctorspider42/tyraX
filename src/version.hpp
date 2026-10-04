@@ -6213,7 +6213,12 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // v108 (docs/traffic.md, "Signals"): a junction override's "control" (1 no
 // lights or signs, 2 traffic lights, 3 stop signs; written only when not 0 =
 // auto, the roads' street furniture decides). Additive; no migration step.
-inline constexpr int kFormatVersion = 108;
+// v109 (docs/roads.md, "Breakable furniture"): a road's roadFurniture gains a
+// "breakable" object - "on", "sound" and per kind (lamps, trees, bollards,
+// signs, signals) "on" / "speed" / "loss" - holding only what differs from
+// the defaults and written only when any does. Missing = nothing breaks, as
+// before. Additive; no migration step.
+inline constexpr int kFormatVersion = 109;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

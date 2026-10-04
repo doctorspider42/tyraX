@@ -1124,6 +1124,25 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
                  "(Preferences > World > Traffic) and a signalled node; "
                  "ambient cars never trigger it. A fine, a wanted level or a "
                  "HUD warning hangs off it: On Red Light Run -> Show Text."},
+        // Breakable street furniture (docs/roads.md "Breakable furniture"):
+        // the game counts the props the player's car knocks over into
+        // ScriptContext::propBreaks; the node watches the count.
+        {.key = "OnPropBroken", .title = "On Prop Broken",
+         .category = "Player", .trigger = true, .numCount = 2,
+         .numLabels = {"Kind", "Min speed"},
+         .numTips = {"Only this kind: 0 lamp, 1 tree, 2 bollard, 3 sign, "
+                     "4 traffic light. -1 = any.",
+                     "Only when the car hit it at least this fast, units per "
+                     "second. 0 = any break."},
+         .numOut = true,
+         .desc = "Fires when the PLAYER's car knocks over a piece of street "
+                 "furniture - a lamp post, a sign, a bollard, a traffic light "
+                 "(or a tree, if its road lets trees break) - once per prop. "
+                 "Its number output is the car's speed then (units/s). Needs "
+                 "a road with Street furniture > Breakable on; ambient cars "
+                 "break props too but never trigger it. Scoring, a combo "
+                 "counter or a 'Property damage' HUD line hangs off it: On "
+                 "Prop Broken -> Add To Save Value."},
         // The hit object is a runtime reference (-1 = none) - actions fed it
         // are guarded like Spawn Object clones.
         {.key = "Raycast", .title = "Raycast", .category = "Player",

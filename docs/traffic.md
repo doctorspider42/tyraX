@@ -82,7 +82,9 @@ through a node; a point at least every 24 units).
 
 ## Signals
 
-Which nodes have traffic lights, and how they cycle:
+Which nodes have traffic lights, and how they cycle (a signal a car knocks
+over - roads.md, "Breakable furniture" - loses its lit lens, and the node
+keeps cycling):
 
 - **Auto** (every node, unless overridden): a patch node of three or four arms -
   not a transition, not one a railway crosses - where any of its roads ticks

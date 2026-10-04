@@ -186,6 +186,14 @@ repaired. The HUD shows damage when relevant.
 
 ![Vehicle damage controls](img/vehicle-damage-dents.png)
 
+**Street furniture can break too.** On a road whose Street furniture is
+Breakable, a car at its kind's break speed knocks a lamp post, a sign, a
+bollard or a traffic light over instead of stopping at it. It keeps most of its
+speed, and the prop flies off as one of the debris pieces lost panels use (the
+same 8-slot pool, physics and batch). The speed the hit takes counts as an
+impact like any other, so a hard one can dent. See
+[roads.md, "Breakable furniture"](roads.md#breakable-furniture-format-109).
+
 ## Effects and display
 
 Headlights project pools onto the ground; lamp glow follows the authored lamp

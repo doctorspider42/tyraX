@@ -67,10 +67,12 @@ constexpr float kLensRgb[3] = {1.0f, 0.93f, 0.72f};
 
 std::vector<Lamp> lampsOf(const roadfurn::Result& furniture) {
     std::vector<Lamp> out;
-    for (const roadfurn::Instance& inst : furniture.instances) {
+    for (size_t ii = 0; ii < furniture.instances.size(); ++ii) {
+        const roadfurn::Instance& inst = furniture.instances[ii];
         if (inst.kind != roadfurn::kLamp || inst.vertexCount <= 0) continue;
         Lamp L;
         L.road = inst.road;
+        L.instance = (int)ii;
         float sx = 0, sy = 0, sz = 0;
         int lens = 0;
         float maxH = 0.0f;
@@ -205,6 +207,8 @@ Pools bakePools(std::vector<Lamp>& lamps, const roadgen::HeightFn& top) {
     }
     // Chunks: whole pools per kPoolCell cell (the cull and streaming
     // granularity), within the furniture's vertex budget.
+    res.first.assign(lamps.size(), -1);
+    res.count.assign(lamps.size(), 0);
     std::map<std::pair<int, int>, std::vector<size_t>> cells;
     for (size_t i = 0; i < lamps.size(); ++i)
         cells[{(int)std::floor(lamps[i].gx / kPoolCell),
@@ -220,6 +224,8 @@ Pools bakePools(std::vector<Lamp>& lamps, const roadgen::HeightFn& top) {
                 res.chunkSizes.push_back(chunk);
                 chunk = 0;
             }
+            res.first[i] = (int)res.tris.size();
+            res.count[i] = n;
             res.tris.insert(res.tris.end(), meshes[i].begin(), meshes[i].end());
             chunk += n;
             ++res.lamps;

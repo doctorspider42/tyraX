@@ -381,6 +381,7 @@ add_executable(tyrax-editor
     src/roaddraw.cpp
     src/roaddraw_ui.cpp
     src/roadfurniture.cpp
+    src/roadfurnbreak.cpp
     src/roadfurniture_ui.cpp
     src/roadlight.cpp
     src/roadpresets.cpp

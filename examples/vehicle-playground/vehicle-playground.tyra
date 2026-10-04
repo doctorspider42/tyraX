@@ -1,6 +1,6 @@
 {
   "name": "vehicle-playground",
-  "formatVersion": 108,
+  "formatVersion": 109,
   "editorVersion": "1.175.0",
   "template": "fpp",
   "projectId": "99089f551e395d01",
@@ -175,7 +175,7 @@
   "hudGrainLayer": -1,
   "hudMotionBlurLayer": 0,
   "music": [],
-  "sounds": ["res/sfx/engine_idle.wav", "res/sfx/engine_high.wav", "res/sfx/tires_screech.wav", "res/sfx/gear-shift.wav"],
+  "sounds": ["res/sfx/engine_idle.wav", "res/sfx/engine_high.wav", "res/sfx/tires_screech.wav", "res/sfx/gear-shift.wav", "res/sfx/prop-break.wav"],
   "textureQuality": { "res/materials/particles/rally-dust-f1.mtl": "none", "res/materials/particles/rally-dust.mtl": "none", "res/models/pica.glb": "8bit", "res/models/ravager.glb": "8bit", "res/models/strix.glb": "8bit" },
   "saveValues": [
     { "name": "district-night", "default": 0 }

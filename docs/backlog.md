@@ -168,6 +168,24 @@ is not:
   furniture models, furniture as baked-shadow casters, lighter or stripped
   models if the cost shows on a console, left-hand traffic for the signs, a
   draw-distance setting, and a physical-PS2 pass.
+- ~~**Breakable furniture**~~ (Need for Speed style): done (format 109,
+  docs/roads.md "Breakable furniture"; per kind threshold and speed loss, the
+  piece's range collapsed in its merged chunk, the prop thrown as vehicle
+  debris, lamps and signal lenses dark, broken state kept across streaming, On
+  Prop Broken). Still open:
+  - a **respawn** after N seconds out of view (a setting; today a prop stays
+    down until the scene loads again);
+  - a debris pool of its own, or a larger shared one: the 8 slots are shared
+    with lost car panels, so a ninth piece removes the oldest;
+  - debris that collides with other furniture and procColliders, not only
+    with object boxes;
+  - a sound and an effect per kind (a project particle effect instead of the
+    car's smoke puffs, a sound per kind on a voice of its own);
+  - the walker breaking a bollard on foot (not wanted yet);
+  - a night picture in PCSX2 of a knocked-down lamp's pool and halo going out
+    (the codegen check and the log prove it, no screenshot yet);
+  - a physical-PS2 pass of a hit (the EE time of the break, the chunk's
+    re-send).
 - **Overrides for nodes of more than two roads.** `JunctionOverride` is still
   a road PAIR, and the Junction panel's Winner combo offers only `c.a`/`c.b`.
 - **A per-node corner radius** (today 1.5 x the mean half width, 1..8). With

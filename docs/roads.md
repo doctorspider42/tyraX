@@ -1427,6 +1427,165 @@ streaming and Big City are in weather.md, "What it costs".
 
 ![PCSX2, Motor District at night: the lamps' pools on Garage boulevard's pavements and road, their halos down the street](img/road-night-lamps-pcsx2.png)
 
+### Breakable furniture (format 109)
+
+Need for Speed style: a car that hits a lamp post, a sign, a bollard or a
+traffic light fast enough knocks it over. The prop snaps off and tumbles away.
+The car loses a little speed instead of stopping dead. Dust and sparks fly and
+a hit sound plays. A slow bump still stops the car, as before.
+
+![PCSX2, Motor District: the Ravager on Garage boulevard's pavement - left, the lamp post ahead at 47 km/h; middle, the hit: the post tipping over forward; right, the post lying on the road with its arm and head, the car stopped beside it (left and middle from one run, right from another run of the same fixture)](img/road-furniture-breakable-pcsx2.png)
+
+**Authoring.** The Street furniture section has a **Breakable** block:
+
+- **Cars knock it over** is the road's switch.
+- Each kind (lamps, trees, bollards, signs, traffic lights) has its own check
+  box, a **Break speed** (units/s; the field also shows km/h) and a **Speed
+  lost** (the share of the car's speed the hit takes).
+- Lamps, signs, signals and bollards break when the switch is on. Trees do not
+  (a tree is what stops a car).
+- The defaults are: lamps 9 u/s and 15%, bollards 7 and 10%, signs 6 and 8%,
+  signals 9 and 18%, trees 14 and 45% when switched on.
+- A sign's or a signal's rule is the road of the arm it stands on.
+- **Hit sound** is a project sound. `<auto>` takes the first one named like a
+  crash (break, crash, impact, hit, smash, clank, thud, knock). With none, the
+  hit is silent and the dust and sparks still fly.
+
+All of it is saved as a `breakable` object inside `roadFurniture`, holding only
+what differs from the defaults (format 109). The whole runtime exists only in
+a project with a vehicle and a breakable road (`projectHasBreakableFurniture`).
+Every other project generates byte for byte what it did before.
+
+**How it runs.**
+
+- **The table.** `ROAD_FURN_PIECES` has one row per furniture box (the
+  instance index), 44 bytes each. A row holds the ROAD_FURN row and the vertex
+  range of the instance's triangles in it, its kind, its `ROAD_LAMPS` row and
+  pool range, its sound, its threshold and what the car keeps. The Motor
+  District needs 132 rows, 5.8 KB of ELF.
+- **The decision is in the car's collider gather.** `considerProc` normally
+  turns a furniture box near the car into a wall. If the car is at or above the
+  piece's threshold, it sets the box aside instead (at most four a frame).
+  After the wall pass, `furnBreakContacts` tests the car's body rectangle
+  against each set-aside box: where the car is now, where it was, and half way
+  between. A box it touches **breaks**. Below the threshold the box is a wall
+  as it always was. The host twin of both rules is `roadfurnbreak::breaks` /
+  `touches`.
+- **The geometry: one write, no rebuild.** The broken instance's vertex range
+  in its merged chunk collapses onto its first vertex. The triangles have no
+  area and the GS draws nothing. It is one write of at most a few hundred
+  vertices (a lamp is 162), through `BagArray::span`, which stamps the chunk's
+  content, plus a new `bboxVersion`.
+  - The alternative was to draw every breakable prop as its own bag. That
+    costs a submit per prop every frame, and on the console furniture already
+    costs about 1 ms ("Cost on a real PS2"). The collapse costs nothing per
+    frame: a broken prop costs exactly what it cost standing.
+  - The chunk knows its row through `ProcChunk::furnRow`. Both fields this
+    adds (`furnRow`, `StaticBox::furn`) exist only in a breakable project.
+- **The collider goes at once.** The box stays in `procColliders` but is moved
+  out of reach (`furnBoxInert`). An erase would shift the indices that the
+  sub-step gather cache and the streaming tags hold.
+- **The falling prop** is a **vehicle debris piece** (docs/vehicles.md,
+  "Damage"): the pool of 8 slots that lost car panels use, round robin.
+  - The piece's own vertices and colours are copied out of the chunk before the
+    collapse, around their centre, into an untextured debris batch (one more
+    submit while any piece is in flight or lying).
+  - It is thrown along the car's way at 0.55 x speed + 1, up at 2.5 + 0.12 x
+    speed, and spins forward about the axis up x forward.
+  - The debris pass does the rest. It kicks the piece out of the car's
+    footprint, bounces it and lays it flat. A car that drives over it later
+    scatters it again.
+  - The piece goes when it is more than 60 units from the camera, or when the
+    pool needs its slot for a newer one.
+  - The slots' vectors are reserved at scene load (192 vertices each), so a hit
+    allocates nothing.
+- **The prop stays down for the rest of the scene.** There is no respawn
+  timer (docs/backlog.md). A scene load stands everything up again
+  (`furnBreakReset`, before the furniture is built).
+- **Effects.** The hitting car's own smoke pool (every vehicle project has one)
+  puffs 8 dust clouds at the foot of the pole and, unless it is a tree, 10
+  small bright sparks along the car's way. The hit sound plays on the drive's
+  reserved one-shot voice (base+20, the gear shift's), quieter with distance
+  and silent past 60 units.
+- **Lamps and signals go dark.**
+  - A broken lamp's `ROAD_LAMPS` row is skipped by `renderRoadLamps` (no halo,
+    no wet streak). Its pool collapses in its own light chunk, the same way as
+    the post.
+  - With road traffic, a broken signal's head is moved out of
+    `renderTrafficLamps`' reach, so its lit lens goes out. The junction keeps
+    its phases, and the AI cars still obey them.
+- **Streaming.** The broken flags are per piece (per box), so they belong to
+  the scene, not to a chunk. When a cell streams back in, its rebuilt box comes
+  back inert (`furnBrokenAt` in the box build) and its rebuilt chunk is
+  collapsed again (`furnBreakApplyChunk` after `roadStreamFinish`). So a prop
+  stays down when its cell unloads and reloads, and stands again only on a
+  scene load. In PCSX2, with a radius of 40, the Ravager broke the lamp, drove
+  167 units away and reversed back. The log said `FURN restreamed row 30 kept 1
+  broken piece(s) down` (the pool chunk) and `row 16` (the furniture chunk).
+- **AI cars** run the same vehicle update, so traffic and waypoint cars near
+  the camera break props too, at no extra cost. A far traffic car takes the
+  kinematic path and does not collide with furniture at all, as before. In the
+  PCSX2 runs no AI car happened to hit a prop.
+- **The flow node.** **On Prop Broken** (Player category) fires when the
+  player's car knocks something over. It has a Kind filter (-1 any) and a Min
+  speed, and its number output is the speed. It is the On Red Light Run shape:
+  the game counts `ScriptContext::propBreaks`. Use it for scoring.
+- **The log line**, one per break:
+  `FURN break kind lamp speed 13.9 piece 89 car 0 keep 85% debris 162 lamp 30
+  pool 60 broken 1 us 279`. The last field is the EE time of the break itself.
+
+**What it costs (PCSX2, Motor District, the Ravager parked on Garage
+boulevard, 6 traffic cars, 2026-10-04).**
+
+| | breakable off | breakable on |
+|---|---:|---:|
+| `TRAFFIC ... vehicles us/frame` at clock 10 / 15 / 20 / 25 (fresh boots) | 627 / 821 / 842 / 788 | 612 / 819 / 834 / 788 |
+| `--profile-frame` `Procedural`, 3 captures | 0.98-1.02 ms | 0.99-1.18 ms |
+
+- **With no hit there is no cost.** The vehicle EE time is the same within
+  15 us. The render path has no new draw, so the render rows differ only by
+  noise: `Total` read 11.1-12.8 off and 13.2-14.0 on, with the traffic cars
+  moving and another session's PCSX2 running on the machine.
+- **A hit** costs 252-313 us of EE time in its frame (five runs; the 162-vertex
+  copy and the collapse). The chunk is sent again once, for its new content
+  stamp.
+- **After a hit** the debris adds one untextured bag of 162 vertices while it
+  lies within 60 units of the camera.
+- Not measured on a physical PS2.
+
+**Limits.**
+
+- A broken prop never stands up again before a scene load (no respawn timer).
+- The debris collides with object boxes and the ground, not with other
+  furniture.
+- The 8 debris slots are shared with lost car panels. The ninth piece takes the
+  oldest slot, and that piece vanishes.
+- A prop's collision is still only its pole box. The arm of a lamp never
+  collided and still does not.
+- The walker cannot break anything: a standing prop is a wall for it, and a
+  broken one is gone for it too.
+- The sound shares the gear-shift voice: a shift in the same instant is cut.
+- Dust and sparks are puffs of the car's own smoke texture, not particle
+  effects of their own.
+
+`--vehicle-check` "breakable furniture" checks:
+
+- every instance gets its kind's rule from its road, and trees stay solid;
+- every `ROAD_FURN_PIECES` row is exactly its instance's vertex run of its row;
+- every lamp row names its `ROAD_LAMPS` row and its pool's run;
+- collapsing a piece moves no other vertex and leaves its triangles no area;
+- a host `vehiclesim` drive at a lamp breaks it at 16.7 u/s, keeps exactly 85%
+  of the speed and drives on past the pole; the debris is the piece's own 162
+  vertices, thrown forward;
+- a car cruising at 4 u/s stops at the pole and breaks nothing;
+- the same drive breaks on the same step, bit for bit;
+- a tree stops a fast car;
+- the settings round-trip and save nothing at their defaults;
+- the codegen: every hook in a vehicle project with breakable furniture
+  (`roadfurnbreak::kHookMarks`, plus the lamp, traffic and streaming hooks,
+  embedded and with tables on disk), and none of it without a car or with
+  nothing breakable.
+
 ### What it costs
 
 The Motor District main scene: Skyline avenue, Garage boulevard, Market cross
@@ -1932,6 +2091,7 @@ power cycle.
 | `src/roaddraw_ui.cpp` | The tool in the viewport (panel, preview, clicks), the bridge height handles and Properties' Preset section. |
 | `src/roadpresets.cpp/.hpp` | The preset table, the on-demand materials, `apply` / `fromRoad`, the project presets' JSON ("Road presets"). |
 | `src/roadfurniture.cpp/.hpp`, `src/roadfurniture_ui.cpp` | Street furniture: placement, the built-in models, `.obj` instancing, the console tables and upload, `--vehicle-check` "road furniture", and the Properties section ("Street furniture"). |
+| `src/roadfurnbreak.cpp/.hpp` | Breakable furniture: the generated break runtime (a template patch applied after the lamp patch), the host twins of its two rules and `--vehicle-check` "breakable furniture" ("Breakable furniture"). |
 | `src/roadlight.cpp/.hpp`, `src/weather_core.inl` | Lit street lamps and weather ([weather.md](weather.md)): the lamp pools' bake, `ROAD_LAMPS`, the generated lamp/rain/wet-tint runtime and its template hooks, the weather state machine shared with the game, `--vehicle-check` "wet roads and lamps". |
 
 ## Adaptive street geometry budget (1.86.3)

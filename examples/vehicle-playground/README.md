@@ -61,6 +61,14 @@ builds measured 6.7-7.6 s. This excludes editor generation/baking and cold setup
   two T's where it ends at the ring road - 132 instances generated at build
   (none of them scene objects), merged into 26 chunks; the poles and trunks
   are solid.
+  The lamps, signs and traffic lights are [breakable](../../docs/roads.md#breakable-furniture-format-109)
+  (Street furniture > Breakable on all four streets): hit one in a car at 9
+  units/s (32 km/h) or faster - 6 for a sign - and it snaps off and tumbles
+  away, its light goes out, and the car keeps 82-92% of its speed and drives
+  on. Slower, it stops you as before. The trees stay solid. The hit plays
+  `res/sfx/prop-break.wav` (a synthesised clank, found by its name), and
+  `bin/log.txt` says `FURN break kind lamp speed 13.9 ...`. The props stand
+  again when the scene loads.
   At night (pause menu > TIME OF DAY) the 50 lamps [light the street](../../docs/weather.md):
   a baked pool of light under each, a halo round each head. Set a scene's
   weather to Rain in Scene Preferences (or fire a Set Weather node) for wet
