@@ -1,5 +1,15 @@
 # TyraX2 EE preparation and VU0 audit
 
+## Copied Bag producer partition, 2026-10-04
+
+The private V5 census completes both PS2 observer orders and both emulator orders: 384 records, 768 frozen Scene loops and three exact RGB/converted-alpha rasters per boot. Its twelve origin buckets partition the existing 129,360 copied Bag bytes per frame: UnknownBag86,448, LightReceiverBatch34,272, TerrainRoadBatch2,304, BeamCone1,728, Corona2,304 and ParticleFX2,304; the other six buckets are zero. UnknownBag means producer coverage remains incomplete. It is distinct from the storage category UnknownOther, which remains2,640 bytes. Pool remains39,840 bytes, and the original copied total remains171,840 bytes across421 REFs.
+
+All26 original V4 counters match V5 in all24 warm/sample windows. Labels describe successful copied snapshot publication; they grant no immutable lifetime or borrowing permission and zero tagged volume does not prove a producer absent. A follow-up source audit finds active untagged wheel/debris and material-pass constructors, but source presence does not attribute the86,448 bytes to them.
+
+The observer adds1.525626–1.532746ms of inclusive nonpacing time in this serialized fixture, against0.000899/0.001596ms outer spreads. Stage wall means remain33.32655–33.32797ms. These are this observer's paired results, not an optimization or an ordinary production FPS result. Common descriptor initialization, tagging, resets and compiled-on layout remain unpriced. Actual EE layouts are Bag48bytes/Qbuffer76bytes/Metrics616bytes/Scope248bytes, versus compiled-out Bag44/Qbuffer44; class counts and full application footprint are unknown. The [machine record](tyrax2-producer-origin-census-2026-10-04.json) pins the independent four-archive/pair proof and preserves all earlier machine-record hashes.
+
+The copied-byte partition is complete at its declared coverage. Next rank actual execution with debugger scopes, then validate selected intervals and observer cost on PS2; another broader producer census is not the current next step.
+
 ## Selected static-base copied-REF census, 2026-10-04
 
 All seven whitelisted base parts (objects 21, 23, 25, 27, 29, 41 and 43) were admitted, with zero object or part skip reasons. Their 21 position/color/ST ranges represented 22,176 used bytes. Every physical On sample nevertheless published zero copied SelectedStaticBase REF bytes. BagDeclared remained 129,360 B/frame across 229 REFs; Pool contributed 39,840 B and UnknownOther 2,640 B, totaling 171,840 B across 421 copied REFs. This result applies to those seven admitted base allocations in the fixed view. It neither establishes zero static rendering nor identifies why those allocations did not reach the mutable-copy observer.
@@ -10,7 +20,7 @@ Both PS2 orders and both emulator orders completed 384 sample records with exact
 
 Actual EE metadata proof records 20,512 B of root tables, 256 B Metrics, 72 B SnapshotScope, 5,120 B atlas, 25,600 B part guards, 112 B object guards and 2,352 B authored snapshots. These are metadata layouts, not net Qbuffer-class ABI or whole-application footprint. Host/source/native/runtime qualifications and the preserved V1a/V2/V3 record hashes are linked in the [machine record](tyrax2-static-owner-census-2026-10-04.json).
 
-No production optimization or immutable lease was introduced. Raw unstamped writes and exact pointer/size/stamp ABA remain outside the private frozen-owner guard contract. Next partition actual copied Bag work/publication by emitted producer, including explicit Unknown and Mixed, instead of estimating savings from static allocation inventory. This result supports neither 60 FPS nor a universal static-owner conclusion.
+No production optimization or immutable lease was introduced. Raw unstamped writes and exact pointer/size/stamp ABA remain outside the private frozen-owner guard contract. The subsequent producer partition above completes that next step, preserving explicit Unknown and Mixed instead of estimating savings from static allocation inventory. This result supports neither 60 FPS nor a universal static-owner conclusion.
 
 
 ## Road-owner copied-REF census and observer pricing, 2026-10-03

@@ -1,0 +1,369 @@
+{
+  "schema": 1,
+  "status": "PASS_private_V5_copied_Bag_producer_partition_and_observer_pricing",
+  "productionIntegrated": false,
+  "sourceScope": "Serialized fixed night Scene0; exact same ELF per Off/On/Off and reverse boot; not ordinary overlap timing",
+  "elfSha256": "d2191bf469f183ac392de046527cf7a6a4d88b87495ffd7df8de9436cf89a445",
+  "sourceManifestSha256": "6500cd5b05a80912a018f4def7daa81923db76f6f370f690ad77439d558c3285",
+  "sourceInventory": {
+    "inventoried": 495,
+    "actualUsedMirror": 486,
+    "ancillaryMetadata": 9
+  },
+  "copiedBagProducerOriginsPerFrame": {
+    "UnknownBag": {
+      "workRefs": 143.0,
+      "workQwords": 5403.0,
+      "publishedRefs": 143.0,
+      "publishedQwords": 5403.0,
+      "primitiveCopyBytes": 86448.0,
+      "publishedMutableCopyBytes": 86448.0,
+      "unpublishedPrimitiveCopyRefs": 0.0,
+      "unpublishedPrimitiveCopyBytes": 0.0
+    },
+    "ModelGeometry": {
+      "workRefs": 0.0,
+      "workQwords": 0.0,
+      "publishedRefs": 0.0,
+      "publishedQwords": 0.0,
+      "primitiveCopyBytes": 0.0,
+      "publishedMutableCopyBytes": 0.0,
+      "unpublishedPrimitiveCopyRefs": 0.0,
+      "unpublishedPrimitiveCopyBytes": 0.0
+    },
+    "TerrainRoadBatch": {
+      "workRefs": 8.0,
+      "workQwords": 144.0,
+      "publishedRefs": 8.0,
+      "publishedQwords": 144.0,
+      "primitiveCopyBytes": 2304.0,
+      "publishedMutableCopyBytes": 2304.0,
+      "unpublishedPrimitiveCopyRefs": 0.0,
+      "unpublishedPrimitiveCopyBytes": 0.0
+    },
+    "VehicleGeometry": {
+      "workRefs": 0.0,
+      "workQwords": 0.0,
+      "publishedRefs": 0.0,
+      "publishedQwords": 0.0,
+      "primitiveCopyBytes": 0.0,
+      "publishedMutableCopyBytes": 0.0,
+      "unpublishedPrimitiveCopyRefs": 0.0,
+      "unpublishedPrimitiveCopyBytes": 0.0
+    },
+    "HeadlightReceiver": {
+      "workRefs": 0.0,
+      "workQwords": 0.0,
+      "publishedRefs": 0.0,
+      "publishedQwords": 0.0,
+      "primitiveCopyBytes": 0.0,
+      "publishedMutableCopyBytes": 0.0,
+      "unpublishedPrimitiveCopyRefs": 0.0,
+      "unpublishedPrimitiveCopyBytes": 0.0
+    },
+    "LightReceiverBatch": {
+      "workRefs": 51.0,
+      "workQwords": 2142.0,
+      "publishedRefs": 51.0,
+      "publishedQwords": 2142.0,
+      "primitiveCopyBytes": 34272.0,
+      "publishedMutableCopyBytes": 34272.0,
+      "unpublishedPrimitiveCopyRefs": 0.0,
+      "unpublishedPrimitiveCopyBytes": 0.0
+    },
+    "BeamCone": {
+      "workRefs": 6.0,
+      "workQwords": 108.0,
+      "publishedRefs": 6.0,
+      "publishedQwords": 108.0,
+      "primitiveCopyBytes": 1728.0,
+      "publishedMutableCopyBytes": 1728.0,
+      "unpublishedPrimitiveCopyRefs": 0.0,
+      "unpublishedPrimitiveCopyBytes": 0.0
+    },
+    "Corona": {
+      "workRefs": 12.0,
+      "workQwords": 144.0,
+      "publishedRefs": 12.0,
+      "publishedQwords": 144.0,
+      "primitiveCopyBytes": 2304.0,
+      "publishedMutableCopyBytes": 2304.0,
+      "unpublishedPrimitiveCopyRefs": 0.0,
+      "unpublishedPrimitiveCopyBytes": 0.0
+    },
+    "ParticleFX": {
+      "workRefs": 9.0,
+      "workQwords": 144.0,
+      "publishedRefs": 9.0,
+      "publishedQwords": 144.0,
+      "primitiveCopyBytes": 2304.0,
+      "publishedMutableCopyBytes": 2304.0,
+      "unpublishedPrimitiveCopyRefs": 0.0,
+      "unpublishedPrimitiveCopyBytes": 0.0
+    },
+    "AuxMaterial": {
+      "workRefs": 0.0,
+      "workQwords": 0.0,
+      "publishedRefs": 0.0,
+      "publishedQwords": 0.0,
+      "primitiveCopyBytes": 0.0,
+      "publishedMutableCopyBytes": 0.0,
+      "unpublishedPrimitiveCopyRefs": 0.0,
+      "unpublishedPrimitiveCopyBytes": 0.0
+    },
+    "ShadowVolume": {
+      "workRefs": 0.0,
+      "workQwords": 0.0,
+      "publishedRefs": 0.0,
+      "publishedQwords": 0.0,
+      "primitiveCopyBytes": 0.0,
+      "publishedMutableCopyBytes": 0.0,
+      "unpublishedPrimitiveCopyRefs": 0.0,
+      "unpublishedPrimitiveCopyBytes": 0.0
+    },
+    "MixedBag": {
+      "workRefs": 0.0,
+      "workQwords": 0.0,
+      "publishedRefs": 0.0,
+      "publishedQwords": 0.0,
+      "primitiveCopyBytes": 0.0,
+      "publishedMutableCopyBytes": 0.0,
+      "unpublishedPrimitiveCopyRefs": 0.0,
+      "unpublishedPrimitiveCopyBytes": 0.0
+    }
+  },
+  "originalStorageClassesPerFrame": {
+    "UnknownOther": {
+      "workRefs": 11.0,
+      "workQwords": 165.0,
+      "publishedRefs": 11.0,
+      "publishedQwords": 165.0,
+      "primitiveCopyBytes": 2640.0,
+      "publishedMutableCopyBytes": 2640.0,
+      "unpublishedPrimitiveCopyRefs": 0.0,
+      "unpublishedPrimitiveCopyBytes": 0.0
+    },
+    "Pool": {
+      "workRefs": 181.0,
+      "workQwords": 2490.0,
+      "publishedRefs": 181.0,
+      "publishedQwords": 2490.0,
+      "primitiveCopyBytes": 39840.0,
+      "publishedMutableCopyBytes": 39840.0,
+      "unpublishedPrimitiveCopyRefs": 0.0,
+      "unpublishedPrimitiveCopyBytes": 0.0
+    },
+    "BagDeclared": {
+      "workRefs": 229.0,
+      "workQwords": 8085.0,
+      "publishedRefs": 229.0,
+      "publishedQwords": 8085.0,
+      "primitiveCopyBytes": 129360.0,
+      "publishedMutableCopyBytes": 129360.0,
+      "unpublishedPrimitiveCopyRefs": 0.0,
+      "unpublishedPrimitiveCopyBytes": 0.0
+    }
+  },
+  "snapshotPerFrame": {
+    "snapshotAttemptsPerFrame": 106.0,
+    "snapshotPublishedPerFrame": 106.0,
+    "snapshotFailedPerFrame": 0.0,
+    "failedCopiesPerFrame": 0.0,
+    "publishedBytesPerFrame": 223328.0,
+    "publishedBorrowedBytesPerFrame": 2151152.0
+  },
+  "observerContrasts": [
+    {
+      "order": 0,
+      "onStage": 1,
+      "offStage": 0,
+      "onMinusOffNonpacingMs": 1.5327462620205345,
+      "onMinusOffWallMs": 0.00039368205599998873,
+      "interpretation": "inclusive observer impact under serialized fixed Scene; not optimization gain or pure EE/GPU work"
+    },
+    {
+      "order": 0,
+      "onStage": 1,
+      "offStage": 2,
+      "onMinusOffNonpacingMs": 1.531847026613022,
+      "onMinusOffWallMs": -0.0003646744622116671,
+      "interpretation": "inclusive observer impact under serialized fixed Scene; not optimization gain or pure EE/GPU work"
+    },
+    {
+      "order": 1,
+      "onStage": 0,
+      "offStage": 1,
+      "onMinusOffNonpacingMs": 1.525625917646618,
+      "onMinusOffWallMs": -0.0003476937611850417,
+      "interpretation": "inclusive observer impact under serialized fixed Scene; not optimization gain or pure EE/GPU work"
+    },
+    {
+      "order": 1,
+      "onStage": 2,
+      "offStage": 1,
+      "onMinusOffNonpacingMs": 1.5272219975789376,
+      "onMinusOffWallMs": 0.0004377630021821233,
+      "interpretation": "inclusive observer impact under serialized fixed Scene; not optimization gain or pure EE/GPU work"
+    }
+  ],
+  "outerControlSpreads": [
+    {
+      "order": 0,
+      "sameOuterObserverState": false,
+      "absoluteOuterNonpacingSpreadMs": 0.0008992354075125775,
+      "absoluteOuterWallSpreadMs": 0.0007583565182116558
+    },
+    {
+      "order": 1,
+      "sameOuterObserverState": true,
+      "absoluteOuterNonpacingSpreadMs": 0.001596079932319583,
+      "absoluteOuterWallSpreadMs": 0.000785456763367165
+    }
+  ],
+  "physicalStages": [
+    {
+      "order": 0,
+      "stage": 0,
+      "observerEnabled": false,
+      "wallMeanMs": 33.32721217473348,
+      "pacingMeanMs": 6.588856776555379,
+      "nonpacingMeanMs": 26.7383553981781
+    },
+    {
+      "order": 0,
+      "stage": 1,
+      "observerEnabled": true,
+      "wallMeanMs": 33.32760585678948,
+      "pacingMeanMs": 5.056504196590847,
+      "nonpacingMeanMs": 28.271101660198635
+    },
+    {
+      "order": 0,
+      "stage": 2,
+      "observerEnabled": false,
+      "wallMeanMs": 33.327970531251694,
+      "pacingMeanMs": 6.588715897666083,
+      "nonpacingMeanMs": 26.739254633585613
+    },
+    {
+      "order": 1,
+      "stage": 0,
+      "observerEnabled": true,
+      "wallMeanMs": 33.32654971546597,
+      "pacingMeanMs": 5.054785172144572,
+      "nonpacingMeanMs": 28.271764543321396
+    },
+    {
+      "order": 1,
+      "stage": 1,
+      "observerEnabled": false,
+      "wallMeanMs": 33.32689740922716,
+      "pacingMeanMs": 6.5807587835523815,
+      "nonpacingMeanMs": 26.746138625674778
+    },
+    {
+      "order": 1,
+      "stage": 2,
+      "observerEnabled": true,
+      "wallMeanMs": 33.32733517222934,
+      "pacingMeanMs": 5.053974548975627,
+      "nonpacingMeanMs": 28.273360623253716
+    }
+  ],
+  "targetMetadataBytes": {
+    "rootTables": 20512,
+    "metrics": 616,
+    "snapshotScope": 248,
+    "StaPipBag": 48,
+    "StaPipQBuffer": 76,
+    "classCountsUnknown": true,
+    "fullQbufferNetAbiVerified": true,
+    "v5MinusV4OnBytes": {
+      "bag": 4,
+      "qbuffer": 8,
+      "metrics": 360,
+      "scope": 176
+    },
+    "v5OnMinusCompiledOutClassBytes": {
+      "bag": 4,
+      "qbuffer": 32
+    },
+    "scope": "Actual EE compile-only layout; absolute class-count footprint, constructor cost and runtime cost unknown",
+    "layoutProofSha256": "162b0297da797dc20488f42b0c2167294ad10902a719d0a15ca162ab0e36e19e"
+  },
+  "independentQualification": {
+    "status": "PASS_INDEPENDENT_V5_FOUR_ARCHIVES_TWO_PAIRS_ORIGINAL_COUNTERS",
+    "blockers": [],
+    "inputs": {
+      "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-producer-origin-v5-summary-tools\\actual-physical-summary.json": "b2d3b31d41686bddbe5d75f4d61dd2fd6daac4d8be15b37db085400910a3e49a",
+      "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-producer-origin-v5-summary-tools\\actual-emulator-summary.json": "022fdbc7bf0eb7caccf69b5139e4dd09867212564b2bdebe07b0cd980f14acc0",
+      "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-producer-origin-v5-runtime-independent-review\\physical-raw-pair.json": "c2530a428661b402a8df25bbdbf5278169b6404ed01ed3f838eb1ab441164812",
+      "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-producer-origin-v5-runtime-independent-review\\emulator-raw-pair.json": "0bf25ca88d7542b6c8bfe2fefb9af210bce053232d6ef974a04af2d425625acc",
+      "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-producer-origin-v5-runtime-independent-review\\physical-summary-audit.json": "c82d157df99e0705ca93cf8e2db1ed15d397cadc34bc863e145f911cac7b4627",
+      "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-producer-origin-v5-runtime-independent-review\\emulator-summary-audit.json": "b467f08c446e8490738220f3db57528b4859dbaaae0eb56faf360bc5d5e1db86",
+      "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-producer-origin-v5-runtime-independent-review\\four-attestation-contract-audit.json": "7941a11f529ffa5545be62d21378dc29d433b8f3c706fda444ce5148d46dd2c0",
+      "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-producer-origin-v5-runtime-independent-review\\original-v4-counter-invariance.json": "2ce0df1a2faafa7327e812af668c591ec1628011d6c42a776e373065fa66463b"
+    },
+    "frozenSourceManifestSha256": "6500cd5b05a80912a018f4def7daa81923db76f6f370f690ad77439d558c3285",
+    "sourceFiles": 495,
+    "actualUsedMirrorInputs": 486,
+    "explicitAncillaryInputs": 9,
+    "fourSourceLaunchContracts": true,
+    "physicalPairRawArithmetic": true,
+    "emulatorPairRawArithmetic": true,
+    "all26OriginalCountersMatchV4All24WarmSampleWindows": true,
+    "qualifiedRecordsPerBoot": 384,
+    "qualifiedLoopsPerBoot": 768,
+    "actualBoots": 4,
+    "preservedRejectedAbiSchemaReport": "emulator0-review.json",
+    "abiSchemaIssueResolved": true,
+    "nativeBuildOrDevicesOrUiOrRepoMutationsByReviewer": false,
+    "claims": {
+      "borrowPermission": false,
+      "optimizationGain": false,
+      "pureProducerCost": false,
+      "ordinaryFPSGain": false,
+      "crossFixtureTimingTransfer": false,
+      "commonApparatusCostPriced": false
+    },
+    "proofPath": "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-producer-origin-v5-runtime-independent-review\\final-qualified-proof.json",
+    "proofSha256": "17c7b769418b1e1c6586180254945d11daa12f4f5e4bb995181f91377b7e066c"
+  },
+  "sourceInputs": {
+    "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-producer-origin-v5-physical0-evidence\\strict-analysis.json": "431e1b87be4c6a1f3faee221ff504851a0b19104e7f6b580d22fb232a08ec5ce",
+    "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-producer-origin-v5-physical1-evidence\\strict-analysis.json": "ed118a1e79fd726210e171f83a197ffe38ab7967daaef34fa06072f5a39d0111",
+    "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-producer-origin-v5-physical0-evidence\\source-launch-qualified.json": "db1330245dce982b10bbf113e126a200bb1d2097ff3aefe0920be0936cdf994d",
+    "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-producer-origin-v5-physical1-evidence\\source-launch-qualified.json": "0565318011a583eb38d5cd992e16ce832aa60e08fcf4ad08debfc231248cc754",
+    "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-producer-origin-v5-physical0-evidence\\artifact-hashes.json": "a86b11a82b358b0e5d366375123153355b2376b813661c047a5f02a530fe5c3a",
+    "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-producer-origin-v5-physical1-evidence\\artifact-hashes.json": "97ee2323475dbc9cd74309c0f4111c5cf6f0691a30f034380a59fd8e93a8ca75",
+    "F:\\Projects\\tyrax2-lab-20261001\\resumed-mutable-ref-producer-origin-census-v5\\root-native-proof-census.json": "142356b6bfa3b2dd2fdae64be9b39e207669c12abdf5798a7e8a2e4278db825c",
+    "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-producer-origin-v5-root-abi\\proof.json": "162b0297da797dc20488f42b0c2167294ad10902a719d0a15ca162ab0e36e19e"
+  },
+  "physicalSummaryPath": "F:\\Projects\\tyrax2-lab-20261001\\mutable-ref-producer-origin-v5-summary-tools\\actual-physical-summary.json",
+  "physicalSummarySha256": "b2d3b31d41686bddbe5d75f4d61dd2fd6daac4d8be15b37db085400910a3e49a",
+  "claims": {
+    "borrowPermission": false,
+    "optimizationGain": false,
+    "pureProducerCost": false,
+    "ordinaryFPSGain": false,
+    "crossFixtureTimingTransfer": false,
+    "commonApparatusCostPriced": false
+  },
+  "limits": [
+    "Warm counters never mixed into128 sample volume.",
+    "Primitive successful copies can be discarded by later failure or repeated retry; publication is snapshot success, not final frame/DMA/display acceptance.",
+    "Whole publishedBytes includes root/CNT/alignment; copied mutable class bytes and borrowed bytes are different overlapping accountings and must not be added.",
+    "UnknownOther/foreign/stale coverage is reported; observed Pool fraction is lowerbound storage classification, not safely borrowable lifetime.",
+    "Common compiled1 Off layout/scaffold remains. On-Off prices observer together with any workload/layout/control drift; no constant tax subtraction or optimization claim.",
+    "Twelve origin buckets exactly partition Bag work/publication. UnknownBag and MixedBag are producer coverage, UnknownOther is a separate storage category; zero origin volume does not prove absent producer work.",
+    "Common descriptor init/tagging/reset, compiled-on layout and call-site cost is outside incremental On pricing; V4 selected observer was removed, so no cross-fixture timing subtraction.",
+    "Within-boot3 rasters are exact; crossboot equality is informative only.",
+    "Native/source/launch authority is separately supplied by root after actual checks; this tool does not fabricate it or independently launch a target."
+  ],
+  "historicalMachineRecordHashes": {
+    "docs\\tyrax2-mutable-ref-census-2026-10-03.json": "84ef1d4f1d93441c74cab29e67d9fd1129d75aecbed60d86c7f3202d47d318d4",
+    "docs\\tyrax2-mutable-ref-retained-census-2026-10-03.json": "bad0d6735062305234eff934ee090d242dd76fe6fd197e96e3b2515848381be0",
+    "docs\\tyrax2-road-owner-census-2026-10-03.json": "75a7cb3f9476b73698ff4faf2cd9627ce22df3036a76aa1ee40a8c8d256d7a54",
+    "docs\\tyrax2-static-owner-census-2026-10-04.json": "9137ffbdf6ebc7f3615c20b5df05ce1bead232b5d419d3dff6f1a149988f8d00"
+  }
+}

@@ -3806,3 +3806,12 @@ starts. Changing that depth/ownership requires revisiting selector settling;
 Adaptive observation epochs also increment on successful warp render starts after early returns (warp deliberately skips beginFrame). Failed warp attempts do not increment. This counter is not a job ID; recurring synthetic/helper gaps retain the prior choice without clocks and discard partial probe evidence. The host runner compiles the actual warp prefix and checks both failed branches.
 
 Engine-known snapshot REF memo requires a pure stable RAM resolver and idempotent same-bank immutable readers-OR with no registry/source mutation during copy. Generic copy/copyCounted callback behavior must remain unchanged; local first16 nonempty refs spill normally. The integrated path has paired private physical controls in docs/tyrax2-native-reference-memo-2026-10-03.json; their diagnostic gain is not an ordinary-clock production gain or 60 FPS. Host parity alone remains insufficient.
+
+Producer-origin V5 closure (2026-10-04): both PS2/emulator orders qualify384
+records each, preserving all26 original V4 counters across24 warm/sample
+windows. Twelve origin buckets partition Bag129360B/frame, including explicit
+UnknownBag86448B; labels never grant an immutable lease. Its incremental
+serialized observer costs1.526–1.533ms; common tags/reset/layout remain unpriced.
+Use docs/tyrax2-producer-origin-census-2026-10-04.json. Next rank execution
+intervals and price a minimal selected physical scope; another broader byte
+census is not automatically the next step.

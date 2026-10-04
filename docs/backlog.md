@@ -429,9 +429,13 @@ recovered 0.50-0.72 ms of hardware `work`. What it did not do, ranked:
   qualifies both PS2/emulator orders: all seven parts admitted, 21 ranges and
   22176 used bytes, but zero copied selected-base bytes. Its observer adds
   0.978–1.044 ms; common off-span guard/snapshot cost remains unknown. This
-  is a seven-allocation subset result, not absence of static rendering. Next
-  partition actual copied Bag streams by producer, including Unknown/Mixed,
-  before proposing a seal/retirement or typed owner-bank optimization.
+  is a seven-allocation subset result, not absence of static rendering. The
+  [producer partition](tyrax2-producer-origin-census-2026-10-04.json) now completes
+  both PS2/emulator orders: UnknownBag86448, LightReceiver34272, Terrain2304,
+  Beam1728, Corona2304 and Particle2304 bytes partition Bag129360. Original
+  counters match V4; its own observer adds1.526–1.533ms, common costs unpriced.
+  Unknown producer coverage remains; no seal/retirement or borrowing is granted.
+  Next use debugger execution scopes and minimal paired physical validation.
   Storage classification alone grants no immutable borrowing rights.
   The [resumed candidate audit](tyrax2-ee-vu0.md#next-60-hz-candidates-host-controls-2026-10-03)
   rejects the broad beam cache as a demonstrated driving gain, identifies

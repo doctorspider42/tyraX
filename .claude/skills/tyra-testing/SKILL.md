@@ -4559,3 +4559,12 @@ host controls; no extra fence/wait/register read is inserted.
 The source identity hashes every file in engine/game source and include trees, engine resources and the optional game `vugen` framework, without an extension whitelist (including embedded `.irx-em`). Root build recipes/helpers and project data are also covered; generated `obj`/`bin` outputs are excluded. Runtime assets are recorded separately. PS2DEV/SDK/VCL/compiler binaries and SDK IRX modules named by `.irx-em` recipes remain external build dependencies and require separate native provenance; the manifest does not claim to hash those installed tools. Missing required source trees or recipes reject preparation.
 
 Host VU dependency validation follows the native recipe exactly: only direct lowercase `.cpp` files in `game/src/vu` or `game/src/vu0` activate compilation of `game/vugen/*.cpp`. Active recipes require framework implementations and the literal quoted include closure resolved through source-local paths or `game/vugen`; unresolved or out-of-manifest local includes reject preparation. Empty, nested-only and name-only VU directories do not impose a framework requirement. Installed standard-library/compiler dependencies remain external native provenance.
+
+Producer-origin V5 closure (2026-10-04): both PS2/emulator orders qualify384
+records each, preserving all26 original V4 counters across24 warm/sample
+windows. Twelve origin buckets partition Bag129360B/frame, including explicit
+UnknownBag86448B; labels never grant an immutable lease. Its incremental
+serialized observer costs1.526–1.533ms; common tags/reset/layout remain unpriced.
+Use docs/tyrax2-producer-origin-census-2026-10-04.json. Next rank execution
+intervals and price a minimal selected physical scope; another broader byte
+census is not automatically the next step.
