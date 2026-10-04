@@ -883,6 +883,12 @@ struct SceneObject {
     // "<texture>.v<k>.png" palette the Character Generator wrote beside it -
     // a recoloured person sharing the mesh, the pose and the texels.
     int paletteVariant = 0;
+    // A pedestrian (docs/navigation-ai.md, "Wandering"): > 0 = the animated
+    // model walks the nav grid by itself - to random spots within this many
+    // units of where it was placed, its "walk" clip while moving, "idle" while
+    // it stands a while, giving way to whoever is in front. 0 = it stays put.
+    float wanderRadius = 0.0f;
+    float wanderSpeed = 1.3f;  // units per second
     // Per-object LOD overrides (animated models, incl. player avatars - each
     // of the two Player objects of a two-player scene carries its own set).
     // -1 = use the project preference (Preferences > Rendering), 0 = LOD off
@@ -1683,7 +1689,8 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.scrollOverlap == b.scrollOverlap &&
            a.scrollVarySeed == b.scrollVarySeed &&
            a.animClip == b.animClip && a.animAutoplay == b.animAutoplay &&
-           a.paletteVariant == b.paletteVariant &&
+           a.paletteVariant == b.paletteVariant && a.wanderRadius == b.wanderRadius &&
+           a.wanderSpeed == b.wanderSpeed &&
            a.animLoop == b.animLoop && a.animSpeed == b.animSpeed &&
            a.animLodOverride == b.animLodOverride &&
            a.meshLodOverride == b.meshLodOverride &&

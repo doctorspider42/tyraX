@@ -457,6 +457,11 @@ many times over - in other colours, for almost nothing:
   drawn for all of its members (pose sharing), and they get a mesh-LOD
   override of 8 m: half the mesh beyond it, a quarter beyond 16 m.
 
+*Walk around* (on by default) makes them **pedestrians**: each wanders the
+nav grid within the crowd's spread, walking and stopping, passing others on
+the right ([navigation-ai.md](navigation-ai.md#wandering-pedestrians)). Off,
+they stand and idle in their groups.
+
 So a crowd of twelve is one mesh, one atlas, a few skins a frame and 12 KB of
 palettes. What it is not: twelve different BODIES - variants share the
 base's shape. Add a few crowds made from different characters for that.

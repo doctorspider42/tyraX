@@ -1212,7 +1212,7 @@ private:
     void addCharacterToScene();
     // The Crowd button (docs/character-generator.md, "Crowds"): the current
     // character once, N palette variants beside it, `people` Model objects.
-    void addCrowdToScene(int people, int variants, float spread);
+    void addCrowdToScene(int people, int variants, float spread, bool wander);
     // Tools > Mocap (docs/character-generator.md): a performer's motion driving
     // a character in the editor as it arrives. The source is either a recorded
     // `.tmocap` played back or the live phone link - deliberately the same
@@ -2558,6 +2558,7 @@ private:
     int charCrowdPeople_ = 12;
     int charCrowdVariants_ = 6;
     float charCrowdSpread_ = 6.0f;
+    bool charCrowdWander_ = true;
     // Clip playback in the preview: which generated clip, where in it, and
     // whether it is running. Editor state only - it never reaches the asset.
     int charClip_ = 0;

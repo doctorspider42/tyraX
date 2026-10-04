@@ -5515,7 +5515,11 @@
 // host-baked albedo map (REFL_GROUND_*): -2 ms a turning frame on the Motor
 // District's open road on a PS2.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 174
+#define TYRAX_VERSION_MINOR 175
+// 1.175.0: pedestrians (docs/navigation-ai.md, "Wandering"). An animated
+// model's Wander property (format v97) walks it around its spot on the nav
+// grid - walk/idle clips, random stops, passing others on the right; the
+// Crowd button's Walk around and the AI's create_character set it.
 // 1.174.0: expressions and characters from words. The generated rig gains
 // brows and mouth corners (50 bones); the Emote node / emote() helper puts a
 // smile, anger, surprise or sadness on top of any clip, the Talk node starts
@@ -6154,7 +6158,10 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // v96 (docs/character-generator.md, "Crowds"): a Model object's
 // anim.paletteVariant, written only when > 0. Missing = the model's own
 // colours, as before. Additive; no migration step.
-inline constexpr int kFormatVersion = 96;
+// v97 (docs/navigation-ai.md, "Wandering"): a Model object's anim.wander
+// { radius, speed }, written only when the radius is > 0. Missing = it stays
+// put, as before. Additive; no migration step.
+inline constexpr int kFormatVersion = 97;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

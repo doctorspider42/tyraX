@@ -30074,6 +30074,10 @@ static bool anyNavAiNode(const Project& p) {
                     n.type == "FleePlayer" || n.type == "StopAi" ||
                     n.type == "OnPlayerSeen")
                     return true;
+    // ...or a pedestrian: Wander is an object property, not a node
+    for (const SceneData& sc : p.scenes)
+        for (const SceneObject& o : sc.objects)
+            if (o.wanderRadius > 0.0f && o.type == PrimitiveType::Model) return true;
     return false;
 }
 
@@ -30367,6 +30371,10 @@ void navChase(ScriptContext& ctx, int obj, float speed, float stopDist,
               float giveUpDist);
 void navFlee(ScriptContext& ctx, int obj, float speed, float safeDist);
 void navStop(ScriptContext& ctx, int obj);
+// A pedestrian: walks to random spots within `radius` of where it stands now,
+// "walk" while moving, "idle" while it pauses, yielding to anyone in front.
+// Objects with the Wander property start it by themselves (WANDERERS).
+void navWander(ScriptContext& ctx, int obj, float radius, float speed);
 
 // True while `obj` sees the player: within range, inside the vision cone of
 // fovDeg around the object's facing (+Z rotated by its Y rotation), and with
@@ -30396,6 +30404,23 @@ static std::string navigationSource(const Project& p) {
            "#include <string.h>\n\n"
            "namespace "
         << ns << " {\n";
+    // Pedestrians (the Wander property): started by the tick on scene load.
+    {
+        std::ostringstream rows;
+        int n = 0;
+        for (size_t si = 0; si < p.scenes.size(); ++si)
+            for (size_t oi = 0; oi < p.scenes[si].objects.size(); ++oi) {
+                const SceneObject& o = p.scenes[si].objects[oi];
+                if (o.wanderRadius <= 0.0f || o.type != PrimitiveType::Model) continue;
+                rows << (n ? ",\n" : "") << "    {" << si << ", " << oi << ", "
+                     << floatLit(o.wanderRadius) << ", " << floatLit(o.wanderSpeed) << "}";
+                ++n;
+            }
+        out << "\nstruct WandererData { int scene; int object; float radius; float speed; };\n"
+            << "constexpr int WANDERER_COUNT = " << n << ";\n"
+            << "constexpr WandererData WANDERERS[" << (n ? n : 1) << "] = {\n"
+            << (n ? rows.str() : std::string("    {-1, -1, 0.0F, 0.0F}")) << "\n};\n";
+    }
     out << R"(
 namespace {
 
@@ -30516,7 +30541,7 @@ inline unsigned short navHeuristic(int x0, int z0, int x1, int z1) {
 // One AI agent per runtime object. The flow-node commands fill this in; the
 // per-frame tick below moves the object along its path.
 struct NavAgent {
-  unsigned char mode = 0;  // 0 idle, 1 patrol, 2 chase, 3 flee
+  unsigned char mode = 0;  // 0 idle, 1 patrol, 2 chase, 3 flee, 4 wander
   unsigned char wantPath = 0;
   unsigned char once = 0;      // patrol: stop after the last waypoint
   unsigned char pathLen = 0, pathPos = 0;
@@ -30530,8 +30555,14 @@ struct NavAgent {
   float pauseLeft = 0.0F;
   float yOff = 0.0F;           // authored height above the terrain
   float repathLeft = 0.0F;     // seconds until the next repath (chase/flee)
+  // wander: home and radius, the clip it is showing, its own dice
+  float homeX = 0.0F, homeZ = 0.0F, radius = 0.0F;
+  unsigned char walking = 0;   // 1 = "walk" is playing, 0 = "idle"
+  unsigned int seed = 1;
+  float stuck = 0.0F;          // seconds spent giving way
   unsigned short path[NAV_PATH_MAX];
 };
+unsigned int navWanderGeneration = 0xFFFFFFFFu;
 
 NavAgent navAgents[NAV_MAX_AGENTS];
 unsigned int navGeneration = 0xFFFFFFFFu;
@@ -30712,6 +30743,18 @@ void navFlee(ScriptContext& ctx, int obj, float speed, float safeDist) {
   a->p0 = safeDist > 0.01F ? safeDist : 15.0F;
 }
 
+void navWander(ScriptContext& ctx, int obj, float radius, float speed) {
+  NavAgent* a = navBegin(ctx, obj, 4, speed > 0.05F ? speed : 1.3F);
+  if (!a) return;
+  a->homeX = ctx.objects[obj].data.position[0];
+  a->homeZ = ctx.objects[obj].data.position[2];
+  a->radius = radius > 0.5F ? radius : 0.5F;
+  a->seed = 2654435761u * (unsigned int)(obj + 1);
+  // a first pause of 0-3 s, so a crowd does not set off in step
+  a->pauseLeft = (float)((a->seed >> 20) & 1023) * (3.0F / 1023.0F);
+  a->walking = 1;  // forces the idle clip on the first tick
+}
+
 void navStop(ScriptContext& ctx, int obj) {
   navSyncGeneration(ctx);
   if (obj < 0 || obj >= ctx.objectCount || obj >= NAV_MAX_AGENTS) return;
@@ -30806,6 +30849,13 @@ class NavAiScript : public Script {
  public:
   void update(ScriptContext& ctx) override {
     navSyncGeneration(ctx);
+    // pedestrians of this scene start walking once per scene (re)load
+    if (navWanderGeneration != ctx.sceneGeneration) {
+      navWanderGeneration = ctx.sceneGeneration;
+      for (int k = 0; k < WANDERER_COUNT; ++k)
+        if (WANDERERS[k].scene == ctx.scene)
+          navWander(ctx, WANDERERS[k].object, WANDERERS[k].radius, WANDERERS[k].speed);
+    }
     float px, py, pz;
     navPlayerPos(ctx, &px, &py, &pz);
     const int count =
@@ -30882,6 +30932,96 @@ class NavAiScript : public Script {
           }
           a.repathLeft = 1.0F;
         }
+        navMoveAgent(ctx, i);
+      } else if (a.mode == 4) {  // wander: a pedestrian
+        auto rnd = [&a]() {
+          a.seed = a.seed * 1664525u + 1013904223u;
+          return (float)((a.seed >> 8) & 0xFFFF) / 65535.0F;
+        };
+        auto show = [&](bool walk) {  // switch clips on the transitions only
+          if ((a.walking != 0) == walk) return;
+          a.walking = walk ? 1 : 0;
+          playAnimation(ctx, i, walk ? "walk" : "idle", true,
+                        walk ? a.speed / 1.3F : 1.0F, 0.25F);
+        };
+        if (a.pauseLeft > 0.0F) {
+          a.pauseLeft -= g_frameDt;
+          show(false);
+          continue;
+        }
+        if (a.pathPos >= a.pathLen && !a.wantPath) {
+          if (a.goalCell >= 0) {
+            // arrived: stand a while (now and then a long one)
+            a.goalCell = -1;
+            a.pauseLeft = rnd() < 0.2F ? 5.0F + rnd() * 6.0F : 1.0F + rnd() * 3.0F;
+            show(false);
+            continue;
+          }
+          // somewhere new within the radius of home, on walkable ground
+          for (int tries = 0; tries < 4; ++tries) {
+            const float ang = rnd() * 2.0F * NAV_PI;
+            const float r = a.radius * sqrtf(rnd());
+            int gx = navCellX(a.homeX + sinf(ang) * r);
+            int gz = navCellZ(a.homeZ + cosf(ang) * r);
+            if (navNearestWalkable(&gx, &gz, 2)) {
+              a.goalCell = gz * navW() + gx;
+              a.wantPath = 1;
+              break;
+            }
+          }
+          if (!a.wantPath) a.pauseLeft = 2.0F;  // nowhere to go: wait, retry
+          continue;
+        }
+        // Give way: someone within ~1 unit ahead (another walker, the
+        // player) - stop and let them pass rather than walk through them.
+        bool blocked = false;
+        {
+          const float yaw = o.data.rotation[1] * NAV_PI / 180.0F;
+          const float fx = sinf(yaw), fz = cosf(yaw);
+          auto ahead = [&](float x, float z) {
+            const float dx = x - o.data.position[0], dz = z - o.data.position[2];
+            const float d2 = dx * dx + dz * dz;
+            return d2 < 1.0F && d2 > 1e-6F && (dx * fx + dz * fz) > 0.5F * sqrtf(d2);
+          };
+          blocked = ahead(px, pz);
+          for (int j = 0; j < count && !blocked; ++j)
+            if (j != i && navAgents[j].mode != 0 && ctx.objects[j].active)
+              blocked = ahead(ctx.objects[j].data.position[0],
+                              ctx.objects[j].data.position[2]);
+        }
+        if (blocked) {
+          // Pass them on the right, slowing down: two walkers meeting head
+          // on both step right and slide past - stopping instead (the first
+          // version) left a knot of people each waiting for the other.
+          a.stuck += g_frameDt;
+          const float yaw = o.data.rotation[1] * NAV_PI / 180.0F;
+          const float rx = -cosf(yaw), rz = sinf(yaw);  // the walker's right
+          const float side = a.speed * 0.7F * g_frameDt;
+          const float nx = o.data.position[0] + rx * side;
+          const float nz = o.data.position[2] + rz * side;
+          if (navWalkableCell(navCellX(nx), navCellZ(nz))) {
+            o.data.position[0] = nx;
+            o.data.position[2] = nz;
+            o.dirty = true;
+          }
+          if (a.stuck > 4.0F) {  // wedged for good: somewhere else
+            a.stuck = 0.0F;
+            a.pathLen = a.pathPos = 0;
+            a.goalCell = -1;
+            a.pauseLeft = 0.3F + rnd();
+            show(false);
+            continue;
+          }
+          const float full = a.speed;
+          a.speed = full * 0.35F;
+          show(true);
+          navMoveAgent(ctx, i);
+          a.speed = full;
+          continue;
+        }
+        if (a.stuck > 0.0F) a.stuck -= g_frameDt * 0.5F;
+        if (a.stuck < 0.0F) a.stuck = 0.0F;
+        show(true);
         navMoveAgent(ctx, i);
       } else if (a.mode == 1) {  // patrol
         if (!a.wps || a.wpCount <= 0) { a.mode = 0; continue; }

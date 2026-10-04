@@ -691,6 +691,27 @@ void App::drawPropertiesWindow() {
                             "\"Crowds\"). Variants come from the Character\n"
                             "Generator's Crowd button.");
                 }
+                bool wander = o.wanderRadius > 0.0f;
+                if (ImGui::Checkbox("Wander (a pedestrian)", &wander)) {
+                    o.wanderRadius = wander ? 5.0f : 0.0f;
+                    committed = true;
+                }
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip(
+                        "Walks the nav grid by itself: to random spots near where it\n"
+                        "was placed, its \"walk\" clip while moving and \"idle\" while it\n"
+                        "stands a while, giving way to whoever is in front\n"
+                        "(docs/navigation-ai.md). Needs a terrain - that is what the\n"
+                        "grid is baked from - and collision \"none\" on the walker, or\n"
+                        "it blocks its own cells.");
+                if (wander) {
+                    ImGui::DragFloat("Wander radius", &o.wanderRadius, 0.1f, 0.5f, 100.0f,
+                                     "%.1f units");
+                    committed |= ImGui::IsItemDeactivatedAfterEdit();
+                    ImGui::DragFloat("Walk speed", &o.wanderSpeed, 0.02f, 0.2f, 6.0f,
+                                     "%.2f units/s");
+                    committed |= ImGui::IsItemDeactivatedAfterEdit();
+                }
                 committed |= drawLodOverrides(o);
                 ImGui::TextDisabled(
                     "Scripts/flow graph: the Animation node (play/stop),\n"

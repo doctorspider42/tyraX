@@ -658,6 +658,11 @@ std::string App::runChatTool(aichat::ToolCall& c) {
                 o.rotation[1] = (float)((i * 137) % 360);
                 o.meshLodOverride = 8.0f;
             }
+            if (const json::Value* wv = aichat::argValue(c, "wander");
+                wv && wv->type == json::Value::Type::Bool && wv->boolean) {
+                o.wanderRadius = std::max(3.0f, 1.2f * (float)cols);
+                o.collisionMode = 2;  // none: it must not block its own path
+            }
         }
         commitChange();
         statusMessage_ = "AI: generated " + unique;

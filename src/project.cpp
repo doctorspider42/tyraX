@@ -1059,6 +1059,10 @@ std::string objectJson(const SceneObject& o) {
                 (o.paletteVariant > 0
                      ? ", \"paletteVariant\": " + std::to_string(o.paletteVariant)
                      : std::string()) +
+                (o.wanderRadius > 0.0f
+                     ? ", \"wander\": { \"radius\": " + fmtFloat(o.wanderRadius) +
+                           ", \"speed\": " + fmtFloat(o.wanderSpeed) + " }"
+                     : std::string()) +
                 " }";
     }
     // Per-object LOD overrides (animated models + player avatars); omitted at
@@ -6213,6 +6217,12 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
             if (o.animSpeed > 10.0f) o.animSpeed = 10.0f;
             if (const auto* v = an->find("paletteVariant"))
                 o.paletteVariant = std::max(0, (int)v->numberOr(0.0));
+            if (const auto* wv = an->find("wander"); wv && wv->type == json::Value::Type::Object) {
+                if (const auto* v = wv->find("radius"))
+                    o.wanderRadius = std::max(0.0f, (float)v->numberOr(0.0));
+                if (const auto* v = wv->find("speed"))
+                    o.wanderSpeed = std::clamp((float)v->numberOr(1.3), 0.2f, 6.0f);
+            }
         }
         if (const auto* v = jo.find("animLod")) {
             o.animLodOverride = (float)v->numberOr(-1.0);
@@ -8516,6 +8526,7 @@ uint64_t liveLinkRecipeHash(const SceneObject& o) {
     fnvMixS(h, o.animClip);
     fnvMix(h, (o.animAutoplay ? 1 : 0) | (o.animLoop ? 2 : 0));
     fnvMix(h, (unsigned)o.paletteVariant);
+    fnvMixF(h, o.wanderRadius), fnvMixF(h, o.wanderSpeed);
     fnvMixF(h, o.animSpeed);
     fnvMixF(h, o.animLodOverride), fnvMixF(h, o.meshLodOverride);
     fnvMixF(h, o.modelYawOffset);

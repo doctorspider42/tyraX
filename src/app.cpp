@@ -18536,11 +18536,17 @@ void App::drawCharacterGeneratorWindow() {
                               "People beyond this number repeat a variant.");
         ImGui::SetNextItemWidth(scaled(160.0f));
         ImGui::SliderFloat("Spread", &charCrowdSpread_, 2.0f, 30.0f, "%.0f m");
+        ImGui::Checkbox("Walk around", &charCrowdWander_);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Pedestrians: each one walks to random spots within the\n"
+                              "spread and stands a while (Wander, docs/navigation-ai.md).\n"
+                              "Needs the scene's terrain. Off = they stand and idle.");
         ImGui::TextDisabled("Placed around the viewport's target. Everyone idles\n"
                             "in a few groups that share their skinning, and\n"
                             "distant people switch to the lighter mesh LODs.");
         if (ImGui::Button("Add crowd to scene")) {
-            addCrowdToScene(charCrowdPeople_, charCrowdVariants_, charCrowdSpread_);
+            addCrowdToScene(charCrowdPeople_, charCrowdVariants_, charCrowdSpread_,
+                            charCrowdWander_);
             ImGui::CloseCurrentPopup();
         }
         ImGui::EndPopup();
@@ -18597,7 +18603,7 @@ void App::addCharacterToScene() {
 // is an ordinary Model object naming its variant. Idle clips are dealt out
 // in a few groups so the game can skin each group once (pose sharing), and
 // a mesh-LOD override per person turns the decimated chain on for them.
-void App::addCrowdToScene(int people, int variants, float spread) {
+void App::addCrowdToScene(int people, int variants, float spread, bool wander) {
     std::string base = sanitizeAssetName(charName_);
     if (base.empty()) base = "character";
     base += "-crowd";
@@ -18655,6 +18661,10 @@ void App::addCrowdToScene(int people, int variants, float spread) {
         o.paletteVariant = i % (variants + 1);  // person 0 wears the original
         if (!idles.empty()) o.animClip = idles[(size_t)i % idles.size()];
         o.meshLodOverride = 8.0f;  // half the mesh beyond 8 m, a quarter beyond 16
+        if (wander) {
+            o.wanderRadius = std::max(2.0f, spread * 0.6f);
+            o.collisionMode = 2;  // none: a walker must not block its own nav cells
+        }
     }
     commitChange();
     statusMessage_ = "Added a crowd of " + std::to_string(people) + " ('" + name + "', " +

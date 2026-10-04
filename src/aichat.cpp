@@ -405,7 +405,9 @@ const std::vector<Tool>& tools() {
           {"position", "object", false, "[x, y, z] world units; omitted = origin"},
           {"crowd", "number", false,
            "2..40 = that many people in up to 6 colour variants around the "
-           "position; omitted = one character"}}},
+           "position; omitted = one character"},
+          {"wander", "bool", false,
+           "true = they walk around as pedestrians (needs the scene's terrain)"}}},
         {"add_object", ToolKind::Edit,
          "Add an object to the active scene. It lands where you put it, then rests on "
          "whatever surface is under it (the editor's placement snap), and becomes "
