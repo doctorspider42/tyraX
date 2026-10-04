@@ -4575,3 +4575,5 @@ version/layout/text/ZIP controls and actual SP/RA close135 core calls; count
 all tail calls and reject orphan returns. SaveState drains VU/GS, so decoded
 cycle intervals only rank suspects, never hardware milliseconds or FPS.
 See docs/tyrax2-pcsx2-debugger.md and its dated machine record before reuse.
+
+Selected physical scopes (2026-10-04): ordinary night both-order controls now price one terrain/wheel/core invocation with four diagnostic Count reads per timed loop. See docs/tyrax2-minimal-scopes.md and its machine pins. Keep raw ps2client banner bytes; a separate byte-bijective Latin1-to-UTF8 copy is acceptable only with ASCII protocol controls and both hashes. Reject inherited periodic arena host reports inside quiet apparatus. Common1536-byte ring/counters/layout remain unpriced, and sign-changing phase contrasts do not permit uniform subtraction. Wheel whole-stage0.304–0.306ms is smaller priority than the first terrain core1.103–1.113ms; neither is pure EE or a new60FPS gain.

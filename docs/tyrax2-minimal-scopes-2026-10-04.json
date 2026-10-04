@@ -1,0 +1,391 @@
+{
+  "schema": 1,
+  "status": "qualified_selected_physical_scopes_no_optimization_gain",
+  "date": "2026-10-04",
+  "environment": "PS2",
+  "fixture": "minimal-stage-stapip-physical-v2",
+  "externalArchive": "F:/Projects/tyrax2-lab-20261001",
+  "selectedElfSha256": "f81057d422e85618a3a85c1f9d2d4d0a92c2e8afd319b6c17ccd95a01c1ea0d1",
+  "symbolElfSha256": "dddc1ad32163ac3b91dec1d9d92c79627c3ba6868b22afcb158522764c7c44a8",
+  "frozenSourceManifestSha256": "927e0358ef47b9fa149caa2ee8e21e7c77f66eac4df718751415d0a8ddbfc387",
+  "nativeProvenanceSha256": "3f207b61ccbbf8fdc942196e9e18ffa93eb8dd5163088573612cbcca98521b75",
+  "nativeIndependentProofSha256": "5c78b642fcf912813b9f2649e50c9573a167d159b280ebf1a18267077db08cc8",
+  "nativeInputs": 470,
+  "authoredBakedByteEqualAssets": 294,
+  "nativeConvertedAudioAssets": 4,
+  "ordinaryClocks": true,
+  "fixedDt": false,
+  "night": 1,
+  "scene": 0,
+  "requestedFramePipeline": true,
+  "raster": [
+    448,
+    448
+  ],
+  "refreshMilliHz": 60000,
+  "boots": 6,
+  "engineLoops": 32400,
+  "scopeRecords": 2304,
+  "timedScopeRecords": 1152,
+  "coreCallsPerSampleLoop": 135,
+  "recordBytes": 12,
+  "commonAddedBytes": 1536,
+  "commonTotalSampleChunkBytes": 8100,
+  "diagnosticReadsPerTimedLoop": 4,
+  "scopeReadsPerTimedLoop": 2,
+  "diagnosticReadsPerOnPhase": 518,
+  "commonAddedCostPriced": false,
+  "uniformObserverSubtractionAccepted": false,
+  "allBagAggregateAccepted": false,
+  "ordinarySceneFullStateEqualityAccepted": false,
+  "optimizationGainAccepted": false,
+  "ordinary60FPSAccepted": false,
+  "freshPS2RasterAcceptance": false,
+  "selectedScopes": [
+    {
+      "target": "TerrainSubmit",
+      "scopeConfig": {
+        "schema": "1",
+        "mode": "0",
+        "selector": "1",
+        "ordinal": "0",
+        "expectedCount": "0",
+        "recordBytes": "12",
+        "ringBytes": "1536",
+        "commonBytes": "8100",
+        "scopeReadsPerHit": "2",
+        "scopeSampleFirst": "900",
+        "scopeSampleCount": "128",
+        "warmExcluded": "1",
+        "commonRecordsAllPhases": "1"
+      },
+      "inclusiveOnStats": [
+        {
+          "samples": 128,
+          "mean_ticks": 842872.375,
+          "median_ticks": 843997.0,
+          "p95_ticks": 860570,
+          "max_ticks": 868400,
+          "mean_ms": 2.8580470614963107,
+          "above_16_667ms": 0,
+          "above_33_333ms": 0
+        },
+        {
+          "samples": 128,
+          "mean_ticks": 845364.453125,
+          "median_ticks": 845297.0,
+          "p95_ticks": 862796,
+          "max_ticks": 866748,
+          "mean_ms": 2.8664973047044544,
+          "above_16_667ms": 0,
+          "above_33_333ms": 0
+        },
+        {
+          "samples": 128,
+          "mean_ticks": 842925.453125,
+          "median_ticks": 843080.0,
+          "p95_ticks": 859166,
+          "max_ticks": 867722,
+          "mean_ms": 2.8582270410325794,
+          "above_16_667ms": 0,
+          "above_33_333ms": 0
+        }
+      ],
+      "meanRangeMs": [
+        2.8580470614963107,
+        2.8664973047044544
+      ],
+      "observerContrasts": [
+        {
+          "order": 0,
+          "onPhase": 1,
+          "offPhase": 0,
+          "onMinusOffMeanNonPacingPerTaxLoopMs": -0.07329335742526766
+        },
+        {
+          "order": 0,
+          "onPhase": 1,
+          "offPhase": 2,
+          "onMinusOffMeanNonPacingPerTaxLoopMs": -0.032342974344889086
+        },
+        {
+          "order": 1,
+          "onPhase": 0,
+          "offPhase": 1,
+          "onMinusOffMeanNonPacingPerTaxLoopMs": 0.029968526628280756
+        },
+        {
+          "order": 1,
+          "onPhase": 2,
+          "offPhase": 1,
+          "onMinusOffMeanNonPacingPerTaxLoopMs": -0.17972527609931177
+        }
+      ],
+      "outerControlSpreads": [
+        {
+          "order": 0,
+          "sameStateOuterSpreadMs": 0.04095038308037857
+        },
+        {
+          "order": 1,
+          "sameStateOuterSpreadMs": 0.20969380272759253
+        }
+      ],
+      "summarySha256": "040583d4d875b8cca37f181bde6cde3f3edb6468af17a8bb2cfa649bc0228e10",
+      "independentProofSha256": "eb3a4f9e708b25aec9be3c5f6ffba493a0a0f32789dbc2c5305142e574be7abb",
+      "boots": [
+        {
+          "order": 0,
+          "rawLogSha256": "9312bf7663929d682a9d0bb06b375033d064a930c94d52ab26cc0ae2a0a512c9",
+          "utf8LogSha256": "18c27d63fc534fe20adbd42621b79aeb275bf09364b34716b5c27423ffed3b10",
+          "encodingRecordSha256": "51dd9a0d9bf6ab42e5137c301e036de24f79a9925bba5b3049caa52c25a12472",
+          "launchSha256": "715a74e78e1ebb8dfd822b159270efc8fdb603df10bd00501f30bee180dc2e1e",
+          "runtimeEvidenceSha256": "c5a470b66df7ee34563c026c6913617e00ea7181ff88bd2144f7012614ebef01",
+          "artifactSha256": "917b663e748c04f0d45559277aeb9b73a8d0c7fd1d1403809d018c4f23ada5c8"
+        },
+        {
+          "order": 1,
+          "rawLogSha256": "4a672c83e321891b1e088629857a008612989f082a5d79d99e88679d238c2e40",
+          "utf8LogSha256": "d5feca5d4285adf76012f7084cf3a06d552f75f872711ecc1d4651a4e537dcb7",
+          "encodingRecordSha256": "60a85bb593be12e5fea0ed1bb5bb7f4a1dcfaedf2b5eb59044dc2e8b655e1c31",
+          "launchSha256": "fbf4a7aa4860d73e797b88fa5045803333fff10be084caab429fe5a4ae97bdfb",
+          "runtimeEvidenceSha256": "ac3e3074e08d427a1ee605de8a64c2471fcd670008e45bb0824b2373cc428666",
+          "artifactSha256": "6c43a258f8128ccd91f57b3da0456c568d2f6e980530a4eb41500038de2ef4a1"
+        }
+      ]
+    },
+    {
+      "target": "WheelsPrepareAndSubmit",
+      "scopeConfig": {
+        "schema": "1",
+        "mode": "0",
+        "selector": "3",
+        "ordinal": "0",
+        "expectedCount": "0",
+        "recordBytes": "12",
+        "ringBytes": "1536",
+        "commonBytes": "8100",
+        "scopeReadsPerHit": "2",
+        "scopeSampleFirst": "900",
+        "scopeSampleCount": "128",
+        "warmExcluded": "1",
+        "commonRecordsAllPhases": "1"
+      },
+      "inclusiveOnStats": [
+        {
+          "samples": 128,
+          "mean_ticks": 90386.9921875,
+          "median_ticks": 93976.0,
+          "p95_ticks": 106434,
+          "max_ticks": 118429,
+          "mean_ms": 0.3064880106184218,
+          "above_16_667ms": 0,
+          "above_33_333ms": 0
+        },
+        {
+          "samples": 128,
+          "mean_ticks": 89721.5390625,
+          "median_ticks": 93512.0,
+          "p95_ticks": 106726,
+          "max_ticks": 119728,
+          "mean_ms": 0.30423156420389813,
+          "above_16_667ms": 0,
+          "above_33_333ms": 0
+        },
+        {
+          "samples": 128,
+          "mean_ticks": 90172.7109375,
+          "median_ticks": 94216.0,
+          "p95_ticks": 106938,
+          "max_ticks": 130030,
+          "mean_ms": 0.3057614167531331,
+          "above_16_667ms": 0,
+          "above_33_333ms": 0
+        }
+      ],
+      "meanRangeMs": [
+        0.30423156420389813,
+        0.3064880106184218
+      ],
+      "observerContrasts": [
+        {
+          "order": 0,
+          "onPhase": 1,
+          "offPhase": 0,
+          "onMinusOffMeanNonPacingPerTaxLoopMs": 0.037223233117000376
+        },
+        {
+          "order": 0,
+          "onPhase": 1,
+          "offPhase": 2,
+          "onMinusOffMeanNonPacingPerTaxLoopMs": 0.07877311706542756
+        },
+        {
+          "order": 1,
+          "onPhase": 0,
+          "offPhase": 1,
+          "onMinusOffMeanNonPacingPerTaxLoopMs": 0.019675011105011464
+        },
+        {
+          "order": 1,
+          "onPhase": 2,
+          "offPhase": 1,
+          "onMinusOffMeanNonPacingPerTaxLoopMs": -0.04984823862711707
+        }
+      ],
+      "outerControlSpreads": [
+        {
+          "order": 0,
+          "sameStateOuterSpreadMs": 0.04154988394842718
+        },
+        {
+          "order": 1,
+          "sameStateOuterSpreadMs": 0.06952324973212853
+        }
+      ],
+      "summarySha256": "715d8b96ca5d0b9ac3b98954fcf29e0bb0232ea0f297d9bb2f7dba4ab3206f41",
+      "independentProofSha256": "d9e982f6d1020683bde04ce8840a22760cb836f2fb42b75e737f64c9fe3bbf80",
+      "boots": [
+        {
+          "order": 0,
+          "rawLogSha256": "56178ef83af0eb183ed7a2b1220beeb5a8cd515e1575465fad6cfc284c328ffd",
+          "utf8LogSha256": "62f318db94067cd295b86005b3233a39ba07a925ef0f2be4f3bf643fc190173f",
+          "encodingRecordSha256": "433f25b5ef5d9395dd965c841208daae3612bc296daa62d10f0bd123e62c3cb5",
+          "launchSha256": "7d83286120ac572f598c3d62be56a84730fb039f55cdf8794ffd088316daeb2f",
+          "runtimeEvidenceSha256": "41f4396d2797ca577628b6c9c90b4d79cc1f0ebcb34f2f0ece54cedf1112182c",
+          "artifactSha256": "5a0715ea019a57f87a8124c5341701b247b08f6a3c69754f730d4f34bb58f75e"
+        },
+        {
+          "order": 1,
+          "rawLogSha256": "fb9e9f07c701ca629dc3640ad6d30a027c529ec7cbc2e89cfd684c2b11b787aa",
+          "utf8LogSha256": "a8e5287328ed6d352928b72482af5a8074627e2bf844d4b89eddb38be8a89364",
+          "encodingRecordSha256": "7d0e08f9f217dae5b10f2f0d4575ae89d270acd256e0a5bf8f9e7b99a5ba9eca",
+          "launchSha256": "b3d65e732fd204afe68e5878ac71e537ea476cc7774a188bb6ee5812ba1de482",
+          "runtimeEvidenceSha256": "eec349f5392a3419c39cb5d9e9d1c2e16fee24237e9f0486023c5f1a173b21fe",
+          "artifactSha256": "04b0d43190509a7fc19c9fa5d89495b3300c1bfb6417f6dc3642f145238c8676"
+        }
+      ]
+    },
+    {
+      "target": "StaPipCoreSelectedOrdinal",
+      "scopeConfig": {
+        "schema": "1",
+        "mode": "1",
+        "selector": "1",
+        "ordinal": "6",
+        "expectedCount": "588",
+        "recordBytes": "12",
+        "ringBytes": "1536",
+        "commonBytes": "8100",
+        "scopeReadsPerHit": "2",
+        "scopeSampleFirst": "900",
+        "scopeSampleCount": "128",
+        "warmExcluded": "1",
+        "commonRecordsAllPhases": "1"
+      },
+      "inclusiveOnStats": [
+        {
+          "samples": 128,
+          "mean_ticks": 326866.890625,
+          "median_ticks": 327107.0,
+          "p95_ticks": 341724,
+          "max_ticks": 348758,
+          "mean_ms": 1.1083539856804743,
+          "above_16_667ms": 0,
+          "above_33_333ms": 0
+        },
+        {
+          "samples": 128,
+          "mean_ticks": 328291.34375,
+          "median_ticks": 328167.0,
+          "p95_ticks": 343298,
+          "max_ticks": 348152,
+          "mean_ms": 1.1131840811835394,
+          "above_16_667ms": 0,
+          "above_33_333ms": 0
+        },
+        {
+          "samples": 128,
+          "mean_ticks": 325363.75,
+          "median_ticks": 326336.0,
+          "p95_ticks": 337724,
+          "max_ticks": 342898,
+          "mean_ms": 1.103257073296441,
+          "above_16_667ms": 0,
+          "above_33_333ms": 0
+        }
+      ],
+      "meanRangeMs": [
+        1.103257073296441,
+        1.1131840811835394
+      ],
+      "observerContrasts": [
+        {
+          "order": 0,
+          "onPhase": 1,
+          "offPhase": 0,
+          "onMinusOffMeanNonPacingPerTaxLoopMs": -0.06804902818467795
+        },
+        {
+          "order": 0,
+          "onPhase": 1,
+          "offPhase": 2,
+          "onMinusOffMeanNonPacingPerTaxLoopMs": -0.12692227893405317
+        },
+        {
+          "order": 1,
+          "onPhase": 0,
+          "offPhase": 1,
+          "onMinusOffMeanNonPacingPerTaxLoopMs": 0.1055740992228209
+        },
+        {
+          "order": 1,
+          "onPhase": 2,
+          "offPhase": 1,
+          "onMinusOffMeanNonPacingPerTaxLoopMs": -0.020657380421955196
+        }
+      ],
+      "outerControlSpreads": [
+        {
+          "order": 0,
+          "sameStateOuterSpreadMs": 0.05887325074937522
+        },
+        {
+          "order": 1,
+          "sameStateOuterSpreadMs": 0.1262314796447761
+        }
+      ],
+      "summarySha256": "07621be407ce6ce0becf773f8909fb0f3792c77dce48be5b974a9e7f1b89bc83",
+      "independentProofSha256": "b0e58478eea7573d737ce291069df0b89f7024a644107798cd3b5c617155e662",
+      "boots": [
+        {
+          "order": 0,
+          "rawLogSha256": "c7724a0e6136be76077c90808509e93bc8f5cb98b9e6812e1e358cb62559dd46",
+          "utf8LogSha256": "2b03c3698599c0afab54e0598e326c8ff698f9d8bcf5df22913b0b6f5871e686",
+          "encodingRecordSha256": "054c79a1813949de66c7a3ff1974803346d492c715d4be8b2c76c27944f2be98",
+          "launchSha256": "8d835af1ee63ed70f45f080fda2736ec41ea5e559a96a8fa10808e0ecaf9c1da",
+          "runtimeEvidenceSha256": "c29eb06870d58501e0cd8d01b3bffc32b7cc9378a4d0aada0a36d9883501572d",
+          "artifactSha256": "9a0df6279a36adb7a297ebe18a88342bc937df13ee95888f11ba8e002f73e432"
+        },
+        {
+          "order": 1,
+          "rawLogSha256": "bb7b07cbd35913ab7bf8c7d7d078aac1ecb3664c9959110cbf6c723d010fc722",
+          "utf8LogSha256": "3d2292359ecdee8d06633f0be51e356338dd5414c724a946c3e43aba343674a3",
+          "encodingRecordSha256": "37edb42a886da73da10d4c2397c4134902f886ee723b8bd6d7ed93111b62b071",
+          "launchSha256": "bf66c87e38196e4f0941d285731d7da2a39ede8ab0a60e0f9c83d58c4a6f7450",
+          "runtimeEvidenceSha256": "c6cf4097c2d14800ed7d1976f85db860d72695c5b8edc172b9d77f293d720b14",
+          "artifactSha256": "b6f78c2493eeda870fa9141cbb389c56a3558c91bb775dce3f73fd92942990f8"
+        }
+      ]
+    }
+  ],
+  "limitations": [
+    "Inclusive elapsed COP0 Count includes existing waits/preemption; it is not pure EE assembly or GPU/VU time.",
+    "Same-ELF Off/On/Off and reverse controls retain common ring/counters/selection/reset/layout; their total cost is unpriced.",
+    "Tax contrasts average the320-loop tax window, not every individual selected invocation; phase drift and adaptive selection remain possible.",
+    "No subtraction between paused emulator protocols, no extrapolation to all bags, no uniform observer fee.",
+    "Original ps2client logs preserved; ISO8859-1-to-UTF8 conversion is byte-bijective and all protocol rows are ASCII.",
+    "Inherited periodic arena host reporting is suppressed in both arms; boot/resource/context/export writes outside windows remain.",
+    "No target raster captured here. The corresponding private emulator night image was inspected; source rendering and authored baked resources are unchanged."
+  ]
+}

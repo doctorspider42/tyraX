@@ -435,7 +435,7 @@ recovered 0.50-0.72 ms of hardware `work`. What it did not do, ranked:
   Beam1728, Corona2304 and Particle2304 bytes partition Bag129360. Original
   counters match V4; its own observer adds1.526–1.533ms, common costs unpriced.
   Unknown producer coverage remains; no seal/retirement or borrowing is granted.
-  Next use debugger execution scopes and minimal paired physical validation.
+  The [minimal physical scopes](tyrax2-minimal-scopes.md) now qualify both orders: terrain2.858–2.866ms, wheels0.304–0.306ms and first terrain core1.103–1.113ms inclusive. Wheel preparation is a smaller priority; next split whole Scene/end-frame/completion and audit the first terrain route. Common observer work remains unpriced and phase contrasts change sign; no uniform subtraction or60FPS gain is accepted.
   Storage classification alone grants no immutable borrowing rights.
   The [resumed candidate audit](tyrax2-ee-vu0.md#next-60-hz-candidates-host-controls-2026-10-03)
   rejects the broad beam cache as a demonstrated driving gain, identifies

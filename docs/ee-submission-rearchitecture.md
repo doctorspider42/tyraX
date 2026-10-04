@@ -1685,3 +1685,7 @@ to draw, because those are two different questions as well.** The map-wide road
 count promoted the wrong front; the submission inventory that replaced it
 promoted item 5 on a population that turned out to be almost entirely visible.
 Each step was a real measurement of the wrong quantity.
+
+## Selected ordinary physical scopes (2026-10-04)
+
+The [new minimal scope record](tyrax2-minimal-scopes.md) checks debugger suspects on PS2: terrain2.858–2.866ms, wheel preparation/submit0.304–0.306ms and the first terrain core1.103–1.113ms, all inclusive. Wheel CPU preparation is a smaller60Hz priority. Audit the first terrain route and split whole Scene/completion/end-frame before choosing the next redesign. Common apparatus remains unpriced; no uniform observer subtraction or new FPS gain is accepted. These ordinary night measurements do not revise the historical pose table above.

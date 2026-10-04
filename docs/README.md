@@ -426,7 +426,7 @@ nonpacing work, about 29.97 Hz rendered completion. Live state is provenance,
 not exact parity; no optimization is promoted.
 The [debugger execution map](tyrax2-pcsx2-debugger.md) records automated WSL/Xvfb
 control, exact raw-state register/call topology and terrain/road/wheel suspects.
-SaveState drains prevent hardware timing or FPS claims; paired PS2 scopes follow.
+SaveState drains prevent hardware timing or FPS claims. The [selected physical scopes](tyrax2-minimal-scopes.md) qualify six ordinary PS2 boots: terrain2.858–2.866ms, wheels0.304–0.306ms and first terrain core1.103–1.113ms. Common observer work remains unpriced; no60FPS gain is accepted.
 The [producer partition](tyrax2-producer-origin-census-2026-10-04.json) qualifies
 both PS2/emulator orders with unchanged original copied counters, an explicit
 UnknownBag bucket and separately priced incremental observer; labels do not
