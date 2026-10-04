@@ -9,7 +9,7 @@ real eyes, and motion-captured movement.
 
 ![The six characters of examples/character-generator, each made from its recipe](img/character-generator-cast.png)
 
-![The same six in PCSX2, the hero walking among them](img/character-generator-ps2.png)
+![The same six in PCSX2, the hero walking towards them and the crowd of commuters behind](img/character-generator-ps2.png)
 
 | | |
 |---|---|
