@@ -1,0 +1,1 @@
+{ "id": "railr", "name": "rail-right", "type": "box", "position": [4.7, 0.7, 0], "rotation": [0, 0, 0], "scale": [0.35, 0.8, 6], "color": [0.3, 0.32, 0.36], "physics": false }

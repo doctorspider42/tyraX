@@ -1,0 +1,1 @@
+{ "id": "prop000000000007", "name": "table-1", "type": "model", "position": [-3, 4, 6.5], "rotation": [0, 10, 0], "scale": [1, 1, 1], "color": [1, 1, 1], "physics": true, "physMass": 2, "physBounce": 0.2, "physFriction": 0.6, "physTumble": true, "physSleep": 3, "model": "res/models/table.obj" }

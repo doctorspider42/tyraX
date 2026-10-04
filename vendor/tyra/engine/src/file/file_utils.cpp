@@ -51,7 +51,9 @@ void FileUtils::setPathInfo(const char* path) {
 std::string FileUtils::getCwd() {
   std::string result;
   char _cwd[NAME_MAX];
-  getcwd(_cwd, sizeof(_cwd));
+  // On failure getcwd() leaves the buffer untouched, so reading it would hand
+  // every caller a path made of stack garbage.
+  if (getcwd(_cwd, sizeof(_cwd)) == nullptr) return result;
   result = _cwd;
   return result;
 }
@@ -62,6 +64,16 @@ std::string FileUtils::fromCwd(const std::string& relativePath) {
 
 std::string FileUtils::fromCwd(const char* file) {
   auto cwd = getCwd();
+  // Whether getcwd() ends with a separator is not something to rely on: the
+  // ps2sdk the stock Tyra image carries returns "host:/dir/bin/", a current one
+  // returns "host:/dir/bin" - and this used to be a plain concatenation, so on
+  // the newer SDK every path came out as ".../binlivepad.bin" and PCSX2 refused
+  // it ("Denying access to path outside of ELF directory"), which reads as a
+  // sandbox problem rather than a missing slash. A trailing ':' is left alone:
+  // "host:" + "file.txt" is a valid path and must not gain one.
+  if (!cwd.empty() && cwd.back() != '/' && cwd.back() != '\\' &&
+      cwd.back() != ':')
+    cwd += '/';
   auto path = cwd + file;
 
   // ISO9660 (cdrom0:) stores names upper-case with a ";1" version suffix and

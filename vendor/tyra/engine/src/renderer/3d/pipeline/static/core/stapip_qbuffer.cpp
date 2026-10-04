@@ -14,6 +14,9 @@
 #include <sstream>
 #include <iomanip>
 
+#include "debug/hardware_trace.hpp"
+#include "renderer/core/paths/path1/vif1_queue.hpp"
+
 namespace Tyra {
 
 namespace {
@@ -28,23 +31,56 @@ struct QBufferPool {
 };
 
 constexpr int kMaxPools = 32;
-QBufferPool pools[kMaxPools];
 
-QBufferPool* poolFor(const void* owner) {
+// Modified by TyraX: TWO pools per slot, used alternately. A slot's arrays are
+// what the packet's REF tags point at, and the renderer hands the slot to the
+// next bag as soon as its packet is SENT - the DMA is still reading the arrays
+// while the next bag's copy lands in them. The side flips together with the
+// renderer's packet double buffer (StaPipQBufferRenderer::sendPacket flips
+// both), and that send waits for the previous DMA first, so the side being
+// written is always the one whose transfer has finished. Same guarantee the
+// packet buffers already had, extended to the data they reference. Measured
+// on a real PS2: without it the last small bag of a run (a lamp's corona) came
+// out as a sliver to the screen corner in 4-19 of 30 frames, with an EE-side
+// wait per bag it cost 4 FPS; this costs nothing (docs/vu1-clipping.md).
+// Modified by TyraX: one side per packet buffer. With the VIF1 queue
+// (vif1_queue.hpp) up to kDepth packets are in flight, so the side being
+// written must be the one belonging to the packet buffer the renderer is about
+// to reuse - the renderer waits for THAT packet's chain before flipping here.
+constexpr int kPoolSides = TYRA_VIF1_QUEUE ? static_cast<int>(Vif1Queue::kDepth) : 2;
+QBufferPool pools[kPoolSides][kMaxPools];
+int g_poolSide = 0;
+
+QBufferPool* poolFor(const void* owner, int side) {
+  QBufferPool* set = pools[side];
   for (int i = 0; i < kMaxPools; i++)
-    if (pools[i].owner == owner) return &pools[i];
+    if (set[i].owner == owner) return &set[i];
   for (int i = 0; i < kMaxPools; i++)
-    if (pools[i].owner == nullptr) {
-      pools[i].owner = owner;
-      return &pools[i];
+    if (set[i].owner == nullptr) {
+      set[i].owner = owner;
+      return &set[i];
     }
   return nullptr;  // more buffers than pools - fall back to plain new[]
 }
+
+QBufferPool* poolFor(const void* owner) { return poolFor(owner, g_poolSide); }
 
 }  // namespace
 
 StaPipQBuffer::StaPipQBuffer() {
   size = 0;
+  // Modified by TyraX: was left uninitialised until the renderer's first
+  // setMaxVertCount fan-out. That fan-out now skips a no-op propagation
+  // (StaPipQBufferRenderer::setMaxVertCount), so a defined starting value is
+  // part of the invariant rather than tidiness.
+  maxVertCount = 0;
+  clipPlaneMask = 0;
+  stripped = false;
+  retainIndex = -1;  // Modified by TyraX: see the field's comment.
+  bakeIndex = -1;    // Modified by TyraX: see the field's comment.
+#if TYRA_STAPIP_PROBE_UNCACHED_CHAIN
+  probeCopyFilled = false;  // Probe B, see stapip_probes.hpp.
+#endif
   _isDynamicallyAllocated = false;
   _stAllocated = false;
   _colorAllocated = false;
@@ -57,6 +93,37 @@ StaPipQBuffer::StaPipQBuffer() {
 }
 
 StaPipQBuffer::~StaPipQBuffer() { deallocateDynamicData(); }
+
+void StaPipQBuffer::flipPoolSide() { g_poolSide = (g_poolSide + 1) % kPoolSides; }
+
+// Modified by TyraX: is this address inside one of the copy pools?
+//
+// Diagnostic only, and it exists for one question. The acceptance gate's
+// geometry hash is not reproducible between two boots of ONE ELF at a frozen
+// pose, while the VIFcodes, the uniforms and the picture all are
+// (docs/baked-stream-acceptance-gate.md). The suspect is these pools: a slot
+// keeps its arrays between bags and only the first `size` vertices of each are
+// rewritten, so anything transferred past that is whatever the pool held last.
+// This lets the hash fold pool-sourced payload separately from bag-sourced
+// payload and settle it by measurement instead of by reading the writers.
+bool StaPipQBuffer::isPoolAddress(const void* addr) {
+  if (addr == nullptr) return false;
+  const u8* a = static_cast<const u8*>(addr);
+  for (int side = 0; side < kPoolSides; ++side) {
+    for (int i = 0; i < kMaxPools; ++i) {
+      const QBufferPool& p = pools[side][i];
+      if (p.capacity == 0) continue;
+      const u32 bytes = static_cast<u32>(p.capacity) * sizeof(Vec4);
+      const Vec4* arrays[4] = {p.vertices, p.sts, p.colors, p.normals};
+      for (int k = 0; k < 4; ++k) {
+        if (arrays[k] == nullptr) continue;
+        const u8* base = reinterpret_cast<const u8*>(arrays[k]);
+        if (a >= base && a < base + bytes) return true;
+      }
+    }
+  }
+  return false;
+}
 
 void StaPipQBuffer::setMaxVertCount(const u32& count) { maxVertCount = count; }
 
@@ -73,12 +140,39 @@ void StaPipQBuffer::fillByPointer(const StaPipBagPackage& pkg) {
   colors = const_cast<Vec4*>(pkg.colors);
   normals = const_cast<Vec4*>(pkg.normals);
   size = pkg.size;
+  clipPlaneMask = pkg.clipPlaneMask;
+  // Modified by TyraX: a package handed over whole keeps the bag's topology.
+  stripped = pkg.bag->stripped;
   bag = pkg.bag;
+}
+
+void StaPipQBuffer::fillByPointer(StaPipBag* source, u32 offset, u32 count) {
+  TYRA_ASSERT(count <= maxVertCount, "VU1 buffer supports only ",
+              maxVertCount, " verts. Provided: ", count);
+
+  deallocateDynamicData();
+  vertices = source->vertices + offset;
+  sts = source->texture ? source->texture->coordinates + offset : nullptr;
+  colors = source->color->many
+               ? const_cast<Vec4*>(reinterpret_cast<const Vec4*>(
+                     source->color->many + offset))
+               : nullptr;
+  normals = source->lighting ? source->lighting->normals + offset : nullptr;
+  size = count;
+  clipPlaneMask = 0;
+  stripped = source->stripped;
+  bag = source;
 }
 
 void StaPipQBuffer::fillByCopyMax(const StaPipBagPackage& pkg1,
                                   const StaPipBagPackage& pkg2,
                                   const StaPipBagPackage& pkg3) {
+  HardwareTrace::Scope trace("QBuffer_copy");
+#if TYRA_STAPIP_PROBE_UNCACHED_CHAIN
+  // Probe B: this buffer's REF tags will name the copy pool, whose cached
+  // stores only FlushCache writes back. See stapip_probes.hpp.
+  probeCopyFilled = true;
+#endif
   TYRA_ASSERT(pkg1.size <= maxVertCount / 3,
               "Wrong package size (1). Provided: ", pkg1.size);
   TYRA_ASSERT(pkg2.size <= maxVertCount / 3,
@@ -88,6 +182,8 @@ void StaPipQBuffer::fillByCopyMax(const StaPipBagPackage& pkg1,
 
   deallocateDynamicData();
   size = pkg1.size + pkg2.size + pkg3.size;
+  clipPlaneMask =
+      pkg1.clipPlaneMask | pkg2.clipPlaneMask | pkg3.clipPlaneMask;
   allocateDynamicData(size, pkg1.bag);
 
   const StaPipBagPackage* pkgs[3] = {&pkg1, &pkg2, &pkg3};
@@ -101,11 +197,18 @@ void StaPipQBuffer::fillByCopyMax(const StaPipBagPackage& pkg1,
     offset += pkg->size;
   }
 
+  stripped = false;
   bag = pkg1.bag;
 }
 
 void StaPipQBuffer::fillByCopy1By2(const StaPipBagPackage& pkg1,
                                    const StaPipBagPackage& pkg2) {
+  HardwareTrace::Scope trace("QBuffer_copy");
+#if TYRA_STAPIP_PROBE_UNCACHED_CHAIN
+  // Probe B: this buffer's REF tags will name the copy pool, whose cached
+  // stores only FlushCache writes back. See stapip_probes.hpp.
+  probeCopyFilled = true;
+#endif
   TYRA_ASSERT(pkg1.size <= maxVertCount / 3,
               "Wrong package size (1). Provided: ", pkg1.size);
   TYRA_ASSERT(pkg2.size <= maxVertCount / 3,
@@ -113,6 +216,7 @@ void StaPipQBuffer::fillByCopy1By2(const StaPipBagPackage& pkg1,
 
   deallocateDynamicData();
   size = pkg1.size + pkg2.size;
+  clipPlaneMask = pkg1.clipPlaneMask | pkg2.clipPlaneMask;
   allocateDynamicData(size, pkg1.bag);
 
   const StaPipBagPackage* pkgs[2] = {&pkg1, &pkg2};
@@ -126,15 +230,23 @@ void StaPipQBuffer::fillByCopy1By2(const StaPipBagPackage& pkg1,
     offset += pkg->size;
   }
 
+  stripped = false;
   bag = pkg1.bag;
 }
 
 void StaPipQBuffer::fillByCopy1By3(const StaPipBagPackage& pkg) {
+  HardwareTrace::Scope trace("QBuffer_copy");
+#if TYRA_STAPIP_PROBE_UNCACHED_CHAIN
+  // Probe B: this buffer's REF tags will name the copy pool, whose cached
+  // stores only FlushCache writes back. See stapip_probes.hpp.
+  probeCopyFilled = true;
+#endif
   TYRA_ASSERT(pkg.size <= maxVertCount / 3,
               "Wrong package size (1). Provided: ", pkg.size);
 
   deallocateDynamicData();
   size = pkg.size;
+  clipPlaneMask = pkg.clipPlaneMask;
   allocateDynamicData(size, pkg.bag);
 
   const u32 bytes = pkg.size * sizeof(Vec4);
@@ -143,6 +255,54 @@ void StaPipQBuffer::fillByCopy1By3(const StaPipBagPackage& pkg) {
   if (pkg.bag->color->many) memcpy(colors, pkg.colors, bytes);
   if (pkg.bag->lighting) memcpy(normals, pkg.normals, bytes);
 
+  stripped = false;
+  bag = pkg.bag;
+}
+
+// Modified by TyraX: strip -> list expansion for the clip route. See the
+// header for why it exists and what the caller owes.
+void StaPipQBuffer::fillByStripExpand(const StaPipBagPackage& pkg,
+                                      u32 firstTri, u32 triCount) {
+  HardwareTrace::Scope trace("QBuffer_copy");
+#if TYRA_STAPIP_PROBE_UNCACHED_CHAIN
+  // Probe B: this buffer's REF tags will name the copy pool, whose cached
+  // stores only FlushCache writes back. See stapip_probes.hpp.
+  probeCopyFilled = true;
+#endif
+  TYRA_ASSERT(triCount * 3 <= maxVertCount,
+              "Strip expansion does not fit the VU1 buffer. Triangles: ",
+              triCount);
+  TYRA_ASSERT(firstTri + triCount + 2 <= pkg.size,
+              "Strip expansion runs past the package. First: ", firstTri,
+              " count: ", triCount, " size: ", pkg.size);
+
+  deallocateDynamicData();
+  size = triCount * 3;
+  clipPlaneMask = pkg.clipPlaneMask;
+  allocateDynamicData(static_cast<u16>(size), pkg.bag);
+
+  const bool wantSts = pkg.bag->texture != nullptr;
+  const bool wantColors = pkg.bag->color->many != nullptr;
+  const bool wantNormals = pkg.bag->lighting != nullptr;
+
+  u32 out = 0;
+  for (u32 t = 0; t < triCount; t++) {
+    const u32 base = firstTri + t;
+    // A triangle strip flips its effective winding on every primitive. Once
+    // expanded to PRIM_TRIANGLE, odd triangles must carry that flip explicitly.
+    // Otherwise the clipper receives an inside-out polygon and can grow it
+    // into a giant textured wedge at the near plane.
+    for (u32 k = 0; k < 3; k++, out++) {
+      const u32 local = ((base & 1U) && k < 2U) ? 1U - k : k;
+      const u32 src = base + local;
+      vertices[out] = pkg.vertices[src];
+      if (wantSts) sts[out] = pkg.sts[src];
+      if (wantColors) colors[out] = pkg.colors[src];
+      if (wantNormals) normals[out] = pkg.normals[src];
+    }
+  }
+
+  stripped = false;
   bag = pkg.bag;
 }
 
@@ -150,14 +310,28 @@ void StaPipQBuffer::reallocateManually(const u16& t_size) {
   deallocateDynamicData();
   allocateDynamicData(t_size, bag);
   size = t_size;
+  clipPlaneMask = 0;
+  stripped = false;
 }
 
 void StaPipQBuffer::deallocateDynamicData() {
   if (!_isDynamicallyAllocated) return;
 
   // Pooled arrays are kept for reuse - only true heap fallbacks are freed.
-  QBufferPool* pool = poolFor(this);
-  const bool pooled = pool && vertices == pool->vertices;
+  // The arrays may belong to ANY side: the side has usually moved on since
+  // this slot was filled. Modified by TyraX: this used to test sides 0 and 1
+  // only, which was the whole pool while there were two sides. With the VIF1
+  // queue's four, a slot filled from side 2 or 3 read as "not pooled", its
+  // arrays were delete[]d while the pool still owned them, and the next copy
+  // into that pool landed in whatever the heap had handed out since - the
+  // retained command cache, on the Motor District, so VIF1 met vertex floats
+  // where DMA tags belonged ("Unknown VifCmd 3f"). Every loop over sides runs
+  // to kPoolSides; there is no "the other side" any more.
+  bool pooled = false;
+  for (int side = 0; side < kPoolSides && !pooled; ++side) {
+    const QBufferPool* pool = poolFor(this, side);
+    pooled = pool && vertices == pool->vertices;
+  }
 
   if (!pooled) {
     delete[] vertices;

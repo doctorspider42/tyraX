@@ -110,9 +110,19 @@ done
 # is a stale/partial directory that predates the full clone above (no probe
 # file, so the clone step skips it). Back-fill any missing header directly,
 # from the SAME commit deps.sh pins - see the STB_HEADERS comment there.
+#
+# `if` rather than `[ ... ] && echo`, and the difference is the whole script:
+# a `&&` list whose test is false returns 1, a loop returns the status of its
+# LAST iteration, and a command substitution returns the status of what it ran.
+# vendor/stb is fifth of eight in VENDOR_DEPS, so the last iteration is always
+# a non-match - which made this assignment fail under `set -e` and killed
+# setup.sh right here, silently, with no message and no failing command to
+# point at. It only ever surfaced when CI ran ./setup.sh --deps, because that
+# is the only caller that treats the exit status as a verdict. An `if` with a
+# false condition and no else returns 0, which is the property being relied on.
 STB_COMMIT="$(for d in "${VENDOR_DEPS[@]}"; do
     IFS='|' read -r _u _m c _r dir _p _b <<<"$d"
-    [ "$dir" = "vendor/stb" ] && echo "$c"
+    if [ "$dir" = "vendor/stb" ]; then echo "$c"; fi
 done)"
 for h in "${STB_HEADERS[@]}"; do
     if [ ! -e "vendor/stb/$h" ]; then

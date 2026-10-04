@@ -34,15 +34,20 @@ build. Two kinds of files coexist here:
 | `res/hud`, `res/fonts` | HUD sprites, menu fonts | Yes |
 | `flow-nodes/*.flownode` | Project-defined custom flow-graph nodes | Yes - see the tyra-scripting skill |
 | `screen-effects/*.screenfx` | Custom full-screen post effects | Yes - see the tyra-scripting skill |
+| `menu-styles/*.menustyle` | Menu stylesheets: what a menu LOOKS like, CSS-shaped | Yes - a menu names one in its `"style"` key; the editor's Menu Editor > Style edits the same file with widgets |
 | `src/scripts/*.cpp` (non-`.gen`) | Your custom object scripts (`TYRA_OBJECT_SCRIPT`) | Yes - this is where game code goes |
+| `src/vu/*.cpp`, `src/vu0/*.cpp` | Your own VU1 programs (`vu::Program`) and VU0 compute kernels (`vu::Kernel`), against `vugen/vushader.hpp`. **HOST C++**: compiled and RUN at build time inside the build container, leaving a microprogram in the ELF - not PS2 code, and excluded from the PS2 compile | Yes - `New script...` writes a working stub for each |
 | `inc/scripts/flow_nodes.hpp` | Bodies for `call = fn` custom flow nodes | Yes |
 | `src/terrain_game.cpp`, `inc/terrain_game.hpp`, `inc/controls.hpp`, `inc/scripts/script.hpp` | Game template sources. `controls.hpp`'s `BTN_*`/`KEY_*` are generated from the project's **Input Map** (named actions + binding presets) - rebind buttons there, not here | Only after deleting the ownership marker line |
-| `*.gen.cpp`, `*.gen.hpp`, `inc/scene_data.hpp`, `inc/terrain_config.hpp`, `Dockerfile`, `docker-compose.yml`, `Makefile` | Regenerated on every build | **Never** |
+| `*.gen.cpp`, `*.gen.hpp`, `inc/scene_data.hpp`, `inc/terrain_config.hpp`, `docker-compose.yml`, `Makefile` | Regenerated on every build | **Never** |
 | `src/gen/livelogic.built` | Live Logic record of the graphs this build compiled natively (the editor patches only what differs) | No - regenerated |
 | `src/gen/livedbg.sym` | Live Debugger symbol map (node keys -> object ids), written by codegen for the editor | No - regenerated |
 | `bin/` | Build output: `<name>.elf`, runtime assets, `log.txt` (game log) | No |
 | `bin/livelogic.bin` | Live Logic patch: flow graphs the editor compiled and streamed into the running game (no rebuild) | No - runtime file |
 | `bin/livedbg.bin`, `bin/livedbg.cmd` | Live Debugger channel while a debug build runs (game -> editor telemetry, editor -> game commands) | No - runtime files |
+| `bin/frame.tga` | The last frame the game photographed of ITSELF, on request (Debugger > Screen). A 32-bit TGA of the console's own frame buffer, deleted at every launch | No - runtime file |
+| `screenshots/` | Those captures kept as PNGs, one per capture, named by the clock. Yours to keep or delete | No - git-ignored |
+| `logs/` | One `ps2-<date>-<time>-<ms>.log` per Run on PS2 session: the console's log, flushed line by line, bounded by Preferences (last N lines, last K sessions) | No - git-ignored |
 | `run.sh`, `run.ps1`, `windows-pcsx2.ps1` | Launch the built game in PCSX2 (`run.sh` on Linux/macOS, the `.ps1` pair on Windows) | Rarely |
 
 **Ownership markers.** The first line of a generated file tells you its rule:
@@ -71,9 +76,13 @@ tyrax-editor binary lives.)
 | `--ai-graph <projectDir> <object> <prompt\|file> [scene] [...]` | Generate a flow graph with an AI backend (see tyra-flowgraph) |
 | `--refresh-gen <projectDir>` | Regenerate the game sources from the data, without building (fast codegen check, no Docker) |
 | `--bake-gi <projectDir>` | Bake global illumination + light probes into `.res-baked/gi/` (explicit, never part of a build - a build only READS the cache, so a scene edit falls the lighting back to the classic ambient/directional until you re-bake) |
+| `--bake-particles <projectDir>` | Re-bake every particle-library effect's procedural texture into `res/materials/particles/` (docs/particles.md), re-sync linked emitters, save and regenerate. Writes nothing for an unchanged recipe |
+| `--bake-shadows <projectDir>` | Bake the static shadow decals into `.res-baked/shadow/` (explicit, like `--bake-gi` - a build only READS the cache). Prints draws, atlas pages, triangles, VRAM and ELF bytes per scene, plus every caster that asked for a shadow and could not have one, by name. Seconds, not minutes |
+| `--bake-model-ao <projectDir> [--texbake]` | Bake every eligible `.obj` model's own ambient occlusion into `.res-baked/modelao/` and report what was skipped and why. A build does this itself; the verb is how you see it without Docker. `--texbake` also runs the texture bake, i.e. the multiply into `.res-baked` |
+| `--bake-prelit <projectDir> [sceneName]` | Re-bake every object marked to ship pre-lit whose baked texture no longer matches the scene (it moved, or the light did), then save + regenerate. Prints `baked` / `fresh` per object; a second run bakes nothing. Never part of a build - a pre-lit bake is explicit |
 | `--resave <projectDir>` | Load + save (runs all format migrations, validates) |
 | `--new <name> <parentDir> [w] [d] [empty\|fpp\|thirdperson] [unitsPerMeter] [--no-terrain]` | Create a fresh project (defaults: `empty` preset - the editor's dialog starts on `fpp` - 100x100 terrain, 1 unit = 1 m, debug profile + Live Link, keyboard/mouse off). The preset is fixed for the project's life - it picks the generated game sources, which you may own. `--no-terrain` starts the scene with no ground at all (see below) |
-| `--build <projectDir> [--run]` | Full Docker build; `--run` launches PCSX2 |
+| `--build <projectDir> [--run] [--docker]` | Full native build; `--run` launches PCSX2, `--docker` selects the fallback |
 | `--add-ai-support <projectDir> [claude] [copilot]` | (Re)install these AI skill files |
 
 Typical inspection flow: `--dump` to see the world, `--dump-graph` to read
@@ -106,10 +115,50 @@ to see exactly what the game will compile.
 - Object references (in graphs, sequences, menus) are **by name**; keep names
   unique and stable. Object *ids* (`objects/<id>.json` filenames) are internal
   merge keys - never reference or reuse them.
+- A menu's **look** is a stylesheet, not fields: `menu-styles/<key>.menustyle`
+  (CSS-shaped - `panel`, `title`, `row`, `row:selected`, `row.myclass`, `list`,
+  `value`, `description`, `hint`, plus `@transition`), named by the menu's
+  `"style"` key. An empty `"style"` is the built-in Classic look. The menu's own
+  `accent` / `titleSize` / `entrySize` / `panelW` / `font` are the BASE the sheet
+  overrides, so a sheet only has to say what differs. A row may also carry
+  `"class"`, `"icon"`, `"desc"` and `"enabledWhen"` (a save value that greys the
+  row out and makes the cursor skip it), and the `"label"` action is a
+  non-selectable header/spacer row. Everything static is baked into
+  `res/menus/*.png` at build; menus scale themselves to the display mode.
 - Project-wide collections: music/sound lists, save values + save texts, menus,
-  HUD images/texts, color gradings, ambience presets, loading screens,
+  HUD images/texts/**live bars**, color gradings, ambience presets, loading screens,
   cutscene sequences, **credits rolls** and the **input map** (named input
   actions + binding presets). `--dump` lists all of their names.
+- **A cutscene sequence carries presentation switches** (docs/cutscenes.md):
+  `"hideHud"` takes the HUD, the USE prompt AND the USE interaction off for the
+  duration (leave it off for a cutscene the player keeps playing under;
+  Display Text still draws, so subtitles keep working), and `"skippable"` makes
+  the `menu` action end it - which that cutscene then OWNS, so the pause menu
+  does not open on top of it. `"skipMode": 1` opens the project's skip screen
+  first: the one menu with `"skipMenu": true`, whose confirming row carries the
+  `"skip-cutscene"` action (anything that dismisses the menu declines).
+- **HUD elements can move without game code.** Images, baked texts and live
+  bars each carry an optional looped animation plus a show/hide transition;
+  bars can follow a numeric save value or be driven by **Set HUD Bar**. Use
+  **Set HUD Element Visible** for one element and **Play HUD Effect** for a
+  flash, bounce or shake. See `docs/hud-animation.md` for the fields and
+  runtime behaviour.
+- **Baked shadow decals** are the static directional shadow: an object's
+  `"shadowMode": 4` asks for one, and the editor traces it into a shared atlas
+  page and projects it onto whatever is under the caster. It is the only
+  shadow that reaches textured walls and imported models, it costs one draw
+  call per atlas page however many shadows there are, and it needs an explicit
+  bake (*Ambience Editor > Baked lighting*, or `--bake-shadows`) cached in
+  `.res-baked/shadow/`. The caster and its receivers must stand still; a
+  physics body, a carryable or an animated model is refused by name. The six
+  `bakedShadow*` keys in the project settings are the quality and the
+  pre-build opt-in. See `docs/shadows.md`.
+- **Ambience presets** may carry a **day/night cycle** (`"cycle"` inside the
+  preset in the `.tyra`): a time-of-day hour, sun and moon arcs, and a list of
+  colour keyframes. When enabled it OVERWRITES the preset's sky, light
+  direction/colour and fog colour at that hour - so editing `cycle.time` moves
+  every baked shadow, the AO bake and the GI bake, and stales the GI cache on
+  purpose. The moon disc and sun disc are baked into `res/hud/` at build.
 - **Credits rolls** (Tools > Credits Editor) are the end-credits screen: a flow
   of headings, role/name rows, lines, images and page breaks that scrolls (or
   plays as cards) over music, is skippable, and finishes by resuming, switching
@@ -117,6 +166,11 @@ to see exactly what the game will compile.
   "Play credits") or the Play Credits node; a roll owns the screen and the pad
   while it plays, so nothing else runs behind it. A long roll can also be
   imported from a plain text file.
+- **Comments** (type `comment`) are editor-only notes pinned to a place in the
+  scene: the prose lives in the object's `"comment"` key and reaches NOTHING -
+  no generated file, no bake, no asset. Read them (they usually say why
+  something in the scene is the way it is) and leave them alone unless asked;
+  the object itself is inert, with no geometry, collision or behaviour.
 - **Procedural volumes** (type `scatter` in the file - the display name changed,
   the key did not) are procedural authoring regions: the object carries a node
   graph (`procGraph` in its `objects/<id>.json`) that fills its box - scattered,
@@ -151,3 +205,28 @@ to see exactly what the game will compile.
   and/or keyboard key and/or mouse button per preset, and a menu "Rebind key"
   row lets the player override one at runtime (the override persists in a save
   value). In graphs use the **On Action** trigger so logic follows the binding.
+
+### Static foliage impostors
+
+A static model object may store `impostor` (project-relative far OBJ) and
+`impostorDistance` (world units, 0 disables). The Tree Generator authors eight-view billboards automatically and sets
+`impostorBillboard: true` (format v40). This mode requires eight ordered view
+parts, upright rotation and equal positive X/Z scale. Leave the flag false for
+ordinary replacement meshes. The original `model` still owns collision. Far assets keep
+their own materials and must travel with the project. Do not replace `model` to
+change the distant appearance. Runtime geometry switches with 10% hysteresis.
+
+Properties > Bake impostor captures any supported static OBJ with its material
+override, Kd colours and cutout textures. Missing inputs and reflective/emissive
+materials fail visibly. Rebuild the game after baking; exported files are assets.
+
+Impostor format v41 adds `impostorViews` (4/8/16, defaults to 8). It must match
+the baked model part count; rebake and rebuild after changing it.
+
+## Object groups
+
+An optional `editorGroup` string on each object (format 43) identifies a flat,
+scene-local editor group. Equal nonempty names select and transform together.
+Groups have no runtime parent: position/rotation/scale remain world transforms.
+Use a fresh group name when duplicating an assembly; remap internal object
+references to its copies and retain external references.

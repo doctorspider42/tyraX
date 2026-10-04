@@ -1,5 +1,7 @@
 # Remote Pad — hold the running game's controller from the editor (or a script)
 
+![Remote Pad](img/remote-pad.png)
+
 Live Link streams edits *into* the running game, the Live Debugger reads *out* of
 it, the time machine rewinds it. The Remote Pad answers the question none of
 those can: **who is pressing the buttons.**
@@ -126,6 +128,28 @@ Torn writes are rejected by the exact-size + footer-echo check on both ends, the
 same guard the other channels use, and the editor writes through a sibling tmp +
 rename.
 
+**That replace races the reader on Windows**, which is worth knowing because the
+symptom looks like a dead channel. The game re-opens `livepad.bin` about every
+frame through PCSX2's Host Filesystem, and Windows refuses to rename over — or
+delete — a file another process has open, so a replace occasionally comes back
+`Access is denied` (measured: one denial per ~200 replaces at the driver's 40 Hz
+refresh, none at all with the emulator stopped; POSIX `rename` is immune, so
+Linux never sees it). The reader holds the file only for the length of one
+`fopen`/`fread`/`fclose`, so `livepad::write` simply retries — five spare tries
+4 ms apart, enough to absorb an exclusive 60 ms hold in testing.
+
+If a write does lose the file for longer than that, **what happens depends on
+what the write carried**: a *step* (a new state — the button you asked for) is an
+error and stops the run, while a *refresh* (the same state again, ~25 of them a
+second, only there to keep the seq moving) is a warning and the run carries on to
+the next one 40 ms later. `--pad` prints the first three such warnings and counts
+the rest into its summary line (`done - 7 step(s) in 9.1s, pad released (27
+refresh write(s) lost to the reader)`), so a disturbed run says so instead of
+looking clean. Before this split a single denied refresh aborted the whole
+script, which is what made long Windows holds unreliable: one 9 s script in five
+died with nothing but `error: cannot replace ...livepad.bin: Permission denied`
+to show for it.
+
 The game side is `livepad::tick(engine, pad2)`, called at the top of
 `TerrainGame::loop()` **after** both pads were refreshed from hardware —
 `Pad::update()` rebuilds the pad state from the console, so an overlay applied
@@ -159,3 +183,9 @@ the audit can see it even though the PS2 toolchain strips symbols).
   used at the same time.
 - A pause/step from the Live Debugger freezes the world; the pad state still
   arrives, it just has no frames to act on until the game resumes.
+- An [input replay](input-replay.md) **overrides** this channel completely. The
+  recorder is the last stage of a frame's input and it *overwrites* the pad
+  rather than merging, so a `--pad` script running against a replaying game
+  changes nothing. The reverse is what makes `--record --pad` work: the
+  recorder reads the pad after the overlay has been folded in, so whatever the
+  Remote Pad presses is recorded as though a person had pressed it.

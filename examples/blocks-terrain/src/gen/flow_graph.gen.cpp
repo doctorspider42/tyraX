@@ -2,8 +2,11 @@
 // edit - regenerated on every build. Edit the graphs in the editor.
 #include "scripts/script.hpp"
 #include "scripts/sequences.gen.hpp"  // Play/Stop Sequence nodes
+#include "scripts/scroller.gen.hpp"  // Start/Stop Scroller nodes
+#include "scripts/credits.gen.hpp"  // Play/Stop Credits, On Credits Finished
 #include "scripts/flow_nodes.hpp"  // custom-node C++ bodies
 #include "input_map.gen.hpp"  // On Action / Set Input Preset
+#include "facts.gen.hpp"  // World Facts store + save walks
 #include "scripts/live_debug.gen.hpp"  // Live Debugger hits / halt / force-fire
 #include "scripts/live_logic.gen.hpp"  // Live Logic: a patched graph runs on the interpreter
 
@@ -13,6 +16,76 @@
 #include <string>
 
 namespace Blocks_terrain {
+
+// World Facts (docs/world-facts.md): the declared state of
+// the game world. One float array for every scalar fact, one
+// for positions; a computed fact has no slot because it IS a
+// query. factWrite() is the only door in - it exists so the
+// Live Debugger can record WHO changed a fact, and folds to a
+// plain store when the debugger is off.
+float factNum[1] = {0.0F};
+float factPos[1][3] = {{0.0F, 0.0F, 0.0F}};
+
+static inline void factWrite(int slot, float v, int src) {
+  if (factNum[slot] != v) livedbg::factWrite(slot, v, src);
+  factNum[slot] = v;
+}
+static inline void factWritePos(int slot, float x, float y,
+                                float z, int src) {
+  if (factPos[slot][0] != x || factPos[slot][1] != y ||
+      factPos[slot][2] != z)
+    livedbg::factWritePos(slot, x, y, z, src);
+  factPos[slot][0] = x;
+  factPos[slot][1] = y;
+  factPos[slot][2] = z;
+}
+
+void factResetAll() {
+  for (int i = 0; i < FACT_NUM_COUNT; ++i)
+    factNum[i] = FACT_NUM_DEFAULT[i];
+  for (int i = 0; i < FACT_POS_COUNT; ++i)
+    for (int a = 0; a < 3; ++a)
+      factPos[i][a] = FACT_POS_DEFAULT[i][a];
+}
+
+void factResetScene() {
+  for (int i = 0; i < FACT_NUM_COUNT; ++i)
+    if (FACT_NUM_SCENE[i]) factNum[i] = FACT_NUM_DEFAULT[i];
+  for (int i = 0; i < FACT_POS_COUNT; ++i)
+    if (FACT_POS_SCENE[i])
+      for (int a = 0; a < 3; ++a)
+        factPos[i][a] = FACT_POS_DEFAULT[i][a];
+}
+
+int factSaveCapture(FactSaveRow* out, int max) {
+  int n = 0;
+  return n;
+}
+
+void factSaveRestore(const FactSaveRow* rows, int count) {
+  for (int i = 0; i < count; ++i) {
+    switch (rows[i].id) {
+      default: break;  // a fact this build no longer has
+    }
+  }
+}
+
+int factProfileCapture(FactSaveRow* out, int max) {
+  int n = 0;
+  return n;
+}
+
+void factProfileRestore(const FactSaveRow* rows, int count) {
+  for (int i = 0; i < count; ++i) {
+    switch (rows[i].id) {
+      default: break;  // a fact this build no longer has
+    }
+  }
+}
+
+bool factProfileDirty() {
+  return false;
+}
 class FlowGraphScript_0_2;
 FlowGraphScript_0_2* g_time_FlowGraphScript_0_2 = nullptr;
 
@@ -37,12 +110,12 @@ class FlowGraphScript_0_2 : public Script {
     if (livedbg::forced(0)) {  // Live Debugger: fired from the editor
       livedbg::hit(0);
       livedbg::hit(1);
-      if (ctx.generateVolume) ctx.generateVolume(0, -1, false);
+      if (ctx.generateVolume) ctx.generateVolume(0, (int)lroundf(-1.0F), false);
     }
     if (ctx.engine->pad.getClicked().Triangle) {
       livedbg::hit(0);
       livedbg::hit(1);
-      if (ctx.generateVolume) ctx.generateVolume(0, -1, false);
+      if (ctx.generateVolume) ctx.generateVolume(0, (int)lroundf(-1.0F), false);
     }
   }
 
@@ -87,7 +160,7 @@ void flowTimeScriptRestore(const unsigned char* p) {
   p += FlowGraphScript_0_2::kTimeBytes;
 }
 
-// Time machine (docs/time-machine.md): the flow variables, both directions.
+// Time machine (docs/time-machine.md): the flow variables and the event bus, both directions.
 int flowTimeVarCount() { return 0; }
 void flowTimeRead(int index, float* out3) {
   out3[0] = out3[1] = out3[2] = 0.0F;

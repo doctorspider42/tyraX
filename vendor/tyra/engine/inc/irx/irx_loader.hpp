@@ -37,6 +37,7 @@ class IrxLoader {
   void loadSio2man(const bool& verbose);
   void loadPadman(const bool& verbose);
   void loadLibsd(const bool& verbose);
+  void loadPs2snd(const bool& verbose);
   void loadIO(const bool& verbose);
   void loadUsbd(const bool& verbose);
   void loadUsbMassModules(const bool& verbose);

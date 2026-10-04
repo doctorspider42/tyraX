@@ -23,6 +23,8 @@ StaPipBagPackage::StaPipBagPackage() {
   sts = nullptr;
   normals = nullptr;
   colors = nullptr;
+  isInFrustum = OUTSIDE_FRUSTUM;
+  clipPlaneMask = 0;
   indexOf1By3BBox = 0;
   endIndexOf1By3BBox = 0;
 }

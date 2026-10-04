@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 
+#include "animmerge.hpp"
 #include "glbparser.hpp"
 #include "project.hpp"
 
@@ -11,7 +12,7 @@
 // The source .glb/.fbx is never rewritten. The user's per-clip edits live in
 // Project::animClipEdits and are folded into the parsed skeleton on its way
 // into the .tskl at build time (templates.cpp bakeAnimAssets), so the console
-// receives clips that are already trimmed, retimed and renamed and pays
+// receives clips that are already trimmed, retimed, made in-place and renamed and pays
 // nothing at runtime. The editor's viewport preview applies the same numbers
 // through the sampling helpers below, which is what keeps "what you scrub is
 // what ships" true - change the math here and both sides move together.
@@ -29,6 +30,14 @@ namespace animedit {
 // Every multiplier in this header is a speed, so an output duration is always
 // the input duration DIVIDED by it.
 float projectTimeScale(const ProjectSettings& st);
+
+// The Project::animImports rows belonging to `modelRel`, turned into what the
+// merger takes: donor paths made ABSOLUTE against the project, flags mapped
+// onto animmerge::MergeOptions. The single translation from project data to
+// the retarget, so the preview and the .tskl bake cannot resolve a donor
+// differently (docs/animation-import.md).
+std::vector<animmerge::ImportSpec> importsFor(const Project& p,
+                                              const std::string& modelRel);
 
 // The user's entry for one source clip of one model, or nullptr when the clip
 // has never been touched (which means "bake it exactly as authored").
@@ -61,8 +70,9 @@ std::string sourceName(const Project& p, const std::string& modelRel,
 
 // Applies every edit belonging to `modelRel` to a parsed skeleton, in place:
 // per clip, trim (inserting interpolated boundary keys and rebasing to 0),
-// then scale time, then rename. Clips with no entry still get the project fps
-// ratio applied. Safe to call on a model with no edits at all.
+// optionally pin the motion root horizontally for in-place playback, then
+// scale time, then rename. Clips with no entry still get the project fps ratio
+// applied. Safe to call on a model with no edits at all.
 void applyClipEdits(const Project& p, const std::string& modelRel,
                     glbparser::Skel& skel);
 

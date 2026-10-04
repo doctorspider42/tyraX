@@ -13,8 +13,12 @@
 #include "aobake.hpp"    // model AO sidecars (<model>.aov)
 #include "gibake.hpp"    // the baked global-illumination cache
 #include "menubake.hpp"  // atlasFileName - which res/fonts PNGs are atlases
+#include "menulayout.hpp"  // per-menu texture list + its `quant`
+#include "modelao.hpp"   // automatic per-asset model AO, multiplied into the PNG
 #include "objparser.hpp"
 #include "pngquant.hpp"
+#include "shadowbake.hpp"  // baked shadow decals - the atlas pages
+#include "skytex.hpp"      // the painted sky's crop (docs/sky-texture.md)
 #include "stochtile.hpp"
 #include "texatlas.hpp"  // shared texture atlas plan (docs/texture-atlasing.md)
 
@@ -84,8 +88,14 @@ bool rewriteMtlForAtlas(const fs::path& src, const fs::path& dst,
             std::string tex = toks.empty() ? "" : toks.back();
             for (char& c : tex)
                 if (c == '\\') c = '/';
-            if (!tex.empty() && tex.find('/') == std::string::npos) {
-                if (const texatlas::Entry* en = plan.find(dirRel + "/" + tex)) {
+            // Resolve the token against the .mtl's directory - a
+            // subdirectory reference ("Textures/wall.png") is an ordinary
+            // member now, and the page it is redirected to still sits in
+            // this .mtl's own folder, so the line stays same-directory.
+            if (!tex.empty()) {
+                const std::string rel =
+                    (fs::path(dirRel) / tex).lexically_normal().generic_string();
+                if (const texatlas::Entry* en = plan.find(rel)) {
                     // eligibility rejected tiling/options, so the line can
                     // be regenerated plain
                     out << "map_Kd "
@@ -241,6 +251,13 @@ std::string bake(const Project& p,
     }
     for (const SplashScreen& s : p.splashScreens)
         if (!s.image.imagePath.empty()) hudBake[s.image.imagePath] = &s.image;
+    // HUD bars: an optional fill image and frame image, baked like the rest.
+    for (const HudBar& b : p.hudBars) {
+        if (!b.fillImage.imagePath.empty())
+            hudBake[b.fillImage.imagePath] = &b.fillImage;
+        if (!b.frameImage.imagePath.empty())
+            hudBake[b.frameImage.imagePath] = &b.frameImage;
+    }
 
     // Font atlases (res/fonts/atlas-<name>.png, baked by refreshGenerated for
     // the fonts a Display Text node uses): quantized per Font Manager entry
@@ -266,6 +283,26 @@ std::string bake(const Project& p,
                 r.quant;
     }
 
+    // Menu textures (res/menus/*.png, baked by refreshGenerated): the panel and
+    // everything that goes with it follow the stylesheet's `quant`, for the same
+    // reason a credits page does. Menu art is flat colour and text, so 4-bit is
+    // nearly lossless - and it is the difference between a full-screen 512x512
+    // panel costing 93% of the GS texture heap and costing 12% (docs/gs-vram.md).
+    // Default (unset) leaves them full colour, which is what every existing
+    // project already ships.
+    std::map<std::string, std::string> menuQuant;
+    for (const GameMenu& m : p.menus) {
+        const menulayout::Layout ml = menulayout::compute(m, p);
+        const char* q = ml.panel.quant == 1   ? "4bit"
+                        : ml.panel.quant == 2 ? "8bit"
+                                              : "";
+        if (!*q) continue;
+        for (const menulayout::Texture& t : ml.textures)
+            menuQuant["menus/" + t.file] = q;
+        if (menubake::menuHasValueEntries(m))
+            menuQuant["menus/" + menulayout::valueStripFileName(m.name)] = q;
+    }
+
     // --- mirror res/ into .res-baked/ --------------------------------------
     // Editor-only assets never ship: paint brushes (res/brushes), the Material
     // Editor's paint-layer sidecars (`<texture>.layers/` dirs - the game loads
@@ -285,6 +322,9 @@ std::string bake(const Project& p,
         // generated; the game only ever streams the WAV.
         if (lowerExt(rel) == ".drone") return true;
         const std::string top = rel.begin()->generic_string();
+        // res/sky/ holds the painted skies' SOURCE panoramas; the game loads
+        // only the crop baked into .res-baked/sky/ (docs/sky-texture.md).
+        if (top == "sky") return true;
         if (top == "fonts") {
             const std::string ext = lowerExt(rel);
             return ext == ".ttf" || ext == ".otf";
@@ -324,6 +364,21 @@ std::string bake(const Project& p,
     // plan - members skip their individual bake (the composited pages are
     // written after the loop) and their .mtl consumers are rewritten.
     const texatlas::Plan atlasPlan = texatlas::plan(p);
+    // Automatic model AO (docs/ambient-occlusion.md, "Model AO"): make sure
+    // every eligible model asset has a fresh AO map, then multiply it into the
+    // texture as it is mirrored. Baking here rather than relying on the editor
+    // is what makes a headless `--build` correct with no editor running; the
+    // cache means a build that changed nothing pays a hash, not a raytrace.
+    const modelao::Params aoParams = modelao::paramsOf(p.settings);
+    std::map<std::string, std::string> aoMaps;
+    if (aoParams.enabled || !p.modelAoMode.empty()) {
+        const modelao::Plan aoPlan = modelao::plan(p, aoParams);
+        aoMaps = modelao::ensureAll(p, aoParams, aoPlan, log);
+        for (const modelao::Skipped& s : aoPlan.skipped)
+            if (s.reason == "shared texture" || s.reason == "pre-lit")
+                log("[editor] model AO: " + s.textureRel + " skipped (" +
+                    s.reason + ")");
+    }
     int quantized = 0, copied = 0;
     for (const auto& e : fs::recursive_directory_iterator(res, ec)) {
         if (!e.is_regular_file()) continue;
@@ -397,7 +452,51 @@ std::string bake(const Project& p,
                 q = it->second;
             }
         }
+        if (top == "menus" && lowerExt(e.path()) == ".png") {
+            if (auto it = menuQuant.find(relRes); it != menuQuant.end()) {
+                quantizable = true;
+                q = it->second;
+            }
+        }
         const int colors = quantizable ? colorsOf(q) : 0;
+
+        // Model AO: multiply the asset's own occlusion into this texture's RGB
+        // (alpha untouched - the GS cutout rule). It happens BEFORE the resize
+        // and the quantization below, so a palette is computed from the pixels
+        // the console will actually display. res/ is never written.
+        if (auto aoIt = aoMaps.find(relRes); aoIt != aoMaps.end()) {
+            int sw = 0, sh = 0, comp = 0;
+            unsigned char* px =
+                stbi_load(e.path().string().c_str(), &sw, &sh, &comp, 4);
+            if (px) {
+                std::vector<unsigned char> buf(px, px + (size_t)sw * sh * 4);
+                stbi_image_free(px);
+                if (modelao::applyMapFile(aoIt->second, buf.data(), sw, sh,
+                                          aoParams.strength)) {
+                    const int tw = nearestValidDim(sw), th = nearestValidDim(sh);
+                    std::vector<unsigned char> resized;
+                    const unsigned char* pixels = buf.data();
+                    if (tw != sw || th != sh) {
+                        resized = pngquant::resizeRGBA(buf.data(), sw, sh, tw, th);
+                        pixels = resized.data();
+                    }
+                    std::string err;
+                    const bool ok =
+                        colors > 0
+                            ? pngquant::quantizeRGBA(dst.string(), pixels, tw, th,
+                                                     colors, err)
+                            : pngquant::writePngRGBA(dst.string(), pixels, tw, th,
+                                                     err);
+                    if (ok) {
+                        log("[editor] model AO: multiplied into " + relRes);
+                        ++quantized;
+                        continue;
+                    }
+                    log("[editor] model AO: " + relRes + ": " + err +
+                        " - shipped without it");
+                }
+            }
+        }
 
         // Scene textures must be PS2-valid (power-of-two, max 512 per axis -
         // the engine asserts otherwise). An oversized/odd import (a "1k"
@@ -468,9 +567,21 @@ std::string bake(const Project& p,
         // aomap/ + aoatlas/ (textured AO) are regenerated wholesale too, and
         // gi/ holds the global-illumination bake cache - written by an
         // explicit bake, never by a build, so a build must not sweep it away.
+        // modelao/ is the model-AO cache: content-hashed maps with no res/
+        // source, kept across builds precisely so a build that changed nothing
+        // does not re-raytrace them.
+        // vehicles/ is the vehicle import bake (docs/vehicles.md): a body and
+        // wheel .tmdl plus a colour palette, produced from a .glb/.fbx by the
+        // Vehicle Editor and having no res/ source of their own. Sweeping them
+        // deletes the geometry the game loads, with nothing to say so.
+        // shadow/ is the baked-shadow cache - an explicit bake like gi/, so a
+        // build must not sweep it - and shadowatlas/ its pages, regenerated
+        // wholesale from that cache below.
         const std::string top0 = rel.begin()->generic_string();
         if (top0 == "stoch" || top0 == "aomap" || top0 == "aoatlas" ||
-            top0 == "gi")
+            top0 == "gi" || top0 == "modelao" || top0 == "vehicles" ||
+            top0 == "shadow" || top0 == "shadowatlas" || top0 == "sky" ||
+            top0 == "gshadow")
             continue;
         // atlas pages have no res/ source; the atlas block below removes the
         // ones the current plan no longer produces
@@ -529,10 +640,27 @@ std::string bake(const Project& p,
                     log("[editor] texture atlas: cannot decode " + en.resRel);
                     continue;
                 }
+                // An atlas member is composited from its res/ source, so it
+                // never passes the mirror loop's AO branch above - the multiply
+                // has to happen here too or atlasing silently deletes the
+                // model's self-occlusion.
+                std::vector<unsigned char> aoBuf;
+                if (auto aoIt = aoMaps.find(en.resRel); aoIt != aoMaps.end()) {
+                    aoBuf.assign(px, px + (size_t)sw * sh * 4);
+                    if (modelao::applyMapFile(aoIt->second, aoBuf.data(), sw, sh,
+                                              aoParams.strength)) {
+                        log("[editor] model AO: multiplied into " + en.resRel +
+                            " (atlas page)");
+                        stbi_image_free(px);
+                        px = nullptr;
+                    } else {
+                        aoBuf.clear();
+                    }
+                }
                 std::vector<unsigned char> buf;
-                const unsigned char* pix = px;
+                const unsigned char* pix = aoBuf.empty() ? px : aoBuf.data();
                 if (sw != en.w || sh != en.h) {
-                    buf = pngquant::resizeRGBA(px, sw, sh, en.w, en.h);
+                    buf = pngquant::resizeRGBA(pix, sw, sh, en.w, en.h);
                     pix = buf.data();
                 }
                 for (int y = 0; y < en.h; ++y)
@@ -565,12 +693,17 @@ std::string bake(const Project& p,
                 baked / fs::path(atlasPlan.pages[pi].substr(4));
             fs::create_directories(dst.parent_path(), ec);
             std::string err;
+            // A page is quantized AS ONE IMAGE, at the depth its group asked
+            // for (docs/texture-atlasing.md): 4 bits is half the VRAM of 8 and
+            // is what makes atlasing pay in a 4-bit project, at the price of
+            // one 16-colour palette for everything on the page.
+            const int bits = atlasPlan.bitsOf((int)pi);
             const bool ok =
-                atlasPlan.fullColor
+                bits == 32
                     ? pngquant::writePngRGBA(dst.string(), page.data(), S, S,
                                              err)
                     : pngquant::quantizeRGBA(dst.string(), page.data(), S, S,
-                                             256, err);
+                                             bits == 4 ? 16 : 256, err);
             if (!ok)
                 log("[editor] texture atlas: " + atlasPlan.pages[pi] + ": " +
                     err);
@@ -663,6 +796,113 @@ std::string bake(const Project& p,
         if (aoTexCount)
             log("[editor] Ambient occlusion: baked " + std::to_string(aoTexCount) +
                 " AO texture(s)");
+    }
+
+    // The painted skies (docs/sky-texture.md): one crop per scene whose
+    // resolved sky names a panorama, always 8-bit whatever the project's
+    // texture default - a 16-colour sky bands into stripes. Regenerated
+    // wholesale like the lightmaps; codegen asks skySceneBaked() the same
+    // question, so a panorama that cannot be read drops both sides together.
+    fs::remove_all(baked / "sky", ec);
+    for (size_t si = 0; si < p.scenes.size(); ++si) {
+        const ProjectSettings srs = project::resolvedSettings(p, p.scenes[si]);
+        if (!srs.skyDome || srs.skyTexture.empty()) continue;
+        std::string err;
+        const std::vector<unsigned char> px =
+            skytex::crop(p.filePath(srs.skyTexture), err);
+        const fs::path dst = baked / "sky" / ("scene" + std::to_string(si) + ".png");
+        fs::create_directories(dst.parent_path(), ec);
+        if (px.empty() || !pngquant::quantizeRGBA(dst.string(), px.data(),
+                                                  skytex::kWidth, skytex::kHeight,
+                                                  256, err))
+            log("[editor] sky texture: " + srs.skyTexture + ": " + err);
+    }
+
+    // Baked shadow decals (docs/shadows.md): the atlas pages, written from the
+    // SAME cached bake codegen reads its meshes and UVs out of - one bake, so
+    // the pixels and the texture coordinates cannot point at different cells.
+    // Regenerated wholesale like the lightmaps above, so a caster switched off
+    // leaves nothing behind.
+    fs::remove_all(baked / "shadowatlas", ec);
+    fs::remove_all(baked / "gshadow", ec);
+    if (p.settings.bakedShadows) {
+        int shadowPages = 0, groundMaps = 0;
+        for (size_t si = 0; si < p.scenes.size(); ++si) {
+            const shadowbake::Bake sb = shadowbake::load(p, (int)si);
+            if (!sb.valid) continue;
+            // Every shadow image is ONE colour - the bake's tint, what a fully
+            // shadowed texel blends toward - at sixteen alpha levels: 4 bits a
+            // texel. The ramp is written by hand, never through the colour
+            // quantizer, which merges alpha levels (that, not the engine, is
+            // why these used to be RGBA32: the engine's loader keeps tRNS alpha
+            // per CLUT entry). A 256x256 atlas page is 32 KB of GS VRAM instead
+            // of 256 KB. A 4x4 ordered dither spreads the step between two
+            // levels over the texels instead of banding.
+            static const int kBayer[16] = {0, 8, 2, 10, 12, 4, 14, 6,
+                                           3, 11, 1, 9, 15, 7, 13, 5};
+            unsigned char pal[64];
+            for (int k = 0; k < 16; ++k) {
+                pal[k * 4 + 0] = sb.tint[0];
+                pal[k * 4 + 1] = sb.tint[1];
+                pal[k * 4 + 2] = sb.tint[2];
+                pal[k * 4 + 3] = (unsigned char)(k * 17);
+            }
+            const auto toRamp = [&](const std::vector<uint8_t>& alpha, int size) {
+                std::vector<unsigned char> idx((size_t)size * size, 0);
+                for (int y = 0; y < size; ++y)
+                    for (int x = 0; x < size; ++x) {
+                        const uint8_t a = alpha[(size_t)y * size + x];
+                        if (!a) continue;  // fully lit stays exactly 0: the GS
+                                           // alpha test drops it, no blend paid
+                        const float v = a / 17.0f +
+                                        (kBayer[(y & 3) * 4 + (x & 3)] + 0.5f) / 16.0f -
+                                        0.5f;
+                        int k = (int)(v + 0.5f);
+                        idx[(size_t)y * size + x] =
+                            (unsigned char)(k < 1 ? 1 : (k > 15 ? 15 : k));
+                    }
+                return idx;
+            };
+            for (size_t pi = 0; pi < sb.pages.size(); ++pi) {
+                const int size = shadowbake::kPageSize;
+                const std::vector<unsigned char> idx = toRamp(sb.pages[pi].alpha, size);
+                const fs::path dst =
+                    baked / "shadowatlas" /
+                    ("scene" + std::to_string(si) + "-" + std::to_string(pi) + ".png");
+                fs::create_directories(dst.parent_path(), ec);
+                std::string err;
+                if (pngquant::writeIndexed4(dst.string(), idx.data(), size, size, pal,
+                                            err))
+                    ++shadowPages;
+                else
+                    log("[editor] baked shadows: " + dst.filename().string() +
+                        ": " + err);
+            }
+            // Ground shadow maps (docs/shadows.md, "Ground shadow maps"): the
+            // same ramp, one map per terrain chunk - a 128^2 map is 8 KB.
+            const int gres = sb.groundRes;
+            for (const shadowbake::GroundMap& gm : sb.ground) {
+                const std::vector<unsigned char> idx = toRamp(gm.alpha, gres);
+                const fs::path dst = baked / "gshadow" /
+                                     ("s" + std::to_string(si) + "_" +
+                                      std::to_string(gm.cx) + "_" +
+                                      std::to_string(gm.cz) + ".png");
+                fs::create_directories(dst.parent_path(), ec);
+                std::string err;
+                if (pngquant::writeIndexed4(dst.string(), idx.data(), gres, gres, pal,
+                                            err))
+                    ++groundMaps;
+                else
+                    log("[editor] ground shadows: " + dst.filename().string() +
+                        ": " + err);
+            }
+        }
+        if (shadowPages)
+            log("[editor] Baked shadows: " + std::to_string(shadowPages) +
+                " atlas page(s)");
+        if (groundMaps)
+            log("[editor] Ground shadows: " + std::to_string(groundMaps) +
+                " chunk map(s)");
     }
 
     // Stochastic-tiling supertiles (docs/terrain-painting.md): one

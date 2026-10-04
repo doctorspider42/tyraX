@@ -11,6 +11,11 @@
 
 #pragma once
 
+// Optional per-instance pose/skin timings; zero instructions in normal builds.
+#ifndef TYRA_SKEL_PROFILE
+#define TYRA_SKEL_PROFILE 0
+#endif
+
 #include <memory>
 #include <vector>
 
@@ -114,6 +119,7 @@ class SkelInstance {
   struct PartLod {
     std::vector<Vec4> bindPositions, bindNormals, skinWeights;
     std::vector<u8> sortedJoints, influences;
+    std::vector<u32> skinSource;  // first identical corner, always <= this corner
     std::vector<Vec4> ownVertices, ownNormals;  // levels > 0
     std::vector<Vec4> uvs;  // packed texture coords, levels > 0 (static)
     Vec4* outV = nullptr;   // skin destination (own or mesh frame)
@@ -141,6 +147,9 @@ class SkelInstance {
     std::vector<u32> cursors;  // per-channel last key index (times ascend)
   };
 
+#if TYRA_SKEL_PROFILE
+  u32 profileCount = 0, profilePose = 0, profileSkin = 0;
+#endif
   Layer cur, prev;                // prev is only alive during a crossfade
   float fadeDuration = 0.0F;
   float fadeT = 1.0F;             // 0 = all prev, 1 = all cur (fade done)

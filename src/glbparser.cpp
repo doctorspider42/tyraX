@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <climits>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
@@ -266,8 +267,8 @@ struct Node {
     bool hasMatrix = false;
     M16 matrix = identity();
     int mesh = -1, skin = -1;
-    std::string name;
     std::vector<int> children;
+    std::string name;  // authored name, host-side only (see SkelNode::name)
 };
 
 // One animation channel with its keyframes decoded up front.
@@ -392,6 +393,83 @@ void computeGlobals(const std::vector<Node>& pose, const std::vector<int>& order
         const M16 local = n.hasMatrix ? n.matrix : fromTrs(n.t, n.r, n.s);
         globals[i] = parent[i] >= 0 ? mul(globals[parent[i]], local) : local;
     }
+}
+
+bool nodeOwns(int ancestor, int node, const std::vector<int>& parent) {
+    while (node >= 0 && node < (int)parent.size()) {
+        if (node == ancestor) return true;
+        node = parent[node];
+    }
+    return false;
+}
+
+int nodeDepth(int node, const std::vector<int>& parent) {
+    int depth = 0;
+    while (node >= 0 && node < (int)parent.size()) {
+        ++depth;
+        node = parent[node];
+    }
+    return depth;
+}
+
+bool channelMovesHorizontally(const Channel& ch, const M16& parentBasis) {
+    if (ch.path != 0 || ch.times.empty()) return false;
+    const size_t stride = ch.interpolation == 2 ? 9u : 3u;
+    const size_t offset = ch.interpolation == 2 ? 3u : 0u;
+    if (ch.values.size() < ch.times.size() * stride) return false;
+    const float* base = &ch.values[offset];
+    for (size_t k = 1; k < ch.times.size(); ++k) {
+        const float* v = &ch.values[k * stride + offset];
+        const float dx = v[0] - base[0], dy = v[1] - base[1],
+                    dz = v[2] - base[2];
+        const float modelX = parentBasis.m[0] * dx + parentBasis.m[4] * dy +
+                             parentBasis.m[8] * dz;
+        const float modelZ = parentBasis.m[2] * dx + parentBasis.m[6] * dy +
+                             parentBasis.m[10] * dz;
+        if (std::fabs(modelX) >= 1e-6f || std::fabs(modelZ) >= 1e-6f)
+            return true;
+    }
+    return false;
+}
+
+// Preview twin of animedit.cpp's motion-root selection. The parsed source has
+// skins/primitives rather than a finished matrix palette, so assemble the
+// palette's node set here and apply the same shallowest-common rule.
+int motionRootForClip(const ParsedGlb& p, const ClipSrc& clip) {
+    std::vector<int> targets;
+    for (const PrimRef& ref : p.prims) {
+        if (ref.skin >= 0 && ref.skin < (int)p.skins.size()) {
+            for (int joint : p.skins[ref.skin].joints)
+                if (std::find(targets.begin(), targets.end(), joint) ==
+                    targets.end())
+                    targets.push_back(joint);
+        } else if (std::find(targets.begin(), targets.end(), ref.node) ==
+                   targets.end()) {
+            targets.push_back(ref.node);
+        }
+    }
+
+    int bestCommon = -1;
+    int commonDepth = INT_MAX;
+    std::vector<M16> bindGlobals;
+    computeGlobals(p.nodes, p.order, p.parent, bindGlobals);
+    for (const Channel& ch : clip.channels) {
+        if (ch.node < 0 || ch.node >= (int)p.nodes.size())
+            continue;
+        const int parent = p.parent[ch.node];
+        const M16 basis = parent >= 0 ? bindGlobals[parent] : identity();
+        if (!channelMovesHorizontally(ch, basis)) continue;
+        const int depth = nodeDepth(ch.node, p.parent);
+        bool common = !targets.empty();
+        for (int target : targets)
+            if (!nodeOwns(ch.node, target, p.parent)) {
+                common = false;
+                break;
+            }
+        if (common && depth < commonDepth)
+            bestCommon = ch.node, commonDepth = depth;
+    }
+    return bestCommon;
 }
 
 bool parseGlb(const std::string& path, ParsedGlb& P, std::vector<Image>& images,
@@ -901,11 +979,13 @@ bool bake(const std::string& path, float fps, Baked& out, std::string& error) {
     int framesBaked = 0;
     if (clipSrcs.empty()) {
         computeGlobals(pose, P.order, P.parent, globals);
+        out.rootMotion.push_back({});
         appendFrame(true);
         out.clips.push_back({"default", 0, 1});
         framesBaked = 1;
     } else {
         for (const ClipSrc& clip : clipSrcs) {
+            const int motionRoot = motionRootForClip(P, clip);
             const float duration = clip.end - clip.start;
             int samples =
                 duration <= 0.0f
@@ -931,6 +1011,12 @@ bool bake(const std::string& path, float fps, Baked& out, std::string& error) {
                     else sampleChannel(ch, t, n.s);
                 }
                 computeGlobals(pose, P.order, P.parent, globals);
+                Baked::RootMotionSample root;
+                if (motionRoot >= 0) {
+                    root.x = globals[motionRoot].m[12];
+                    root.z = globals[motionRoot].m[14];
+                }
+                out.rootMotion.push_back(root);
                 appendFrame(framesBaked + f == 0);
             }
             std::string name = clip.name;
@@ -1048,14 +1134,15 @@ bool parseSkel(const std::string& path, Skel& out, std::string& error) {
     for (size_t i = 0; i < P.nodes.size(); ++i) {
         const Node& src = P.nodes[i];
         SkelNode& dst = out.nodes[i];
-        dst.name = src.name;
         dst.parent = P.parent[i];
         dst.hasMatrix = src.hasMatrix;
         std::memcpy(dst.matrix, src.matrix.m, sizeof(dst.matrix));
         std::memcpy(dst.t, src.t, sizeof(dst.t));
         std::memcpy(dst.r, src.r, sizeof(dst.r));
         std::memcpy(dst.s, src.s, sizeof(dst.s));
+        dst.name = src.name;
     }
+    uniqueNodeNames(out);
 
     // --- matrix palette ------------------------------------------------------
     // Skins referenced by prims contribute their joint lists (with IBMs);
@@ -1372,6 +1459,24 @@ SkelLod unweld(const meshlod::Mesh& w) {
 }
 
 }  // namespace
+
+void uniqueNodeNames(Skel& skel) {
+    std::map<std::string, int> seen;  // name -> how many already used
+    for (size_t i = 0; i < skel.nodes.size(); ++i) {
+        SkelNode& n = skel.nodes[i];
+        if (n.name.empty()) n.name = "node_" + std::to_string(i);
+        const int prior = seen[n.name]++;
+        if (prior == 0) continue;
+        // Suffix until free: "Hips_1" may itself already be an authored name.
+        std::string candidate;
+        int suffix = prior;
+        do {
+            candidate = n.name + "_" + std::to_string(suffix++);
+        } while (seen.count(candidate));
+        seen[candidate] = 1;
+        n.name = candidate;
+    }
+}
 
 void generateSkelLods(Skel& skel) {
     // The tier policy (ratios, size floor, shrink slack) is shared with the

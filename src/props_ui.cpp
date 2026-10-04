@@ -8,8 +8,11 @@
 // -------------------------------------------------------------------------
 #include "app.hpp"
 #include "app_internal.hpp"
+#include "roadgen.hpp"
+#include "theme.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <cfloat>
 #include <cmath>
 #include <cstdint>
@@ -26,6 +29,7 @@
 
 #include "aisupport.hpp"
 #include "animedit.hpp"
+#include "blobshadowbake.hpp"
 #include "decalproj.hpp"
 #include "devsession.hpp"
 #include "editorcfg.hpp"
@@ -35,9 +39,13 @@
 #include "json.hpp"
 #include "menubake.hpp"
 #include "objparser.hpp"
+#include "impostorbake.hpp"
+#include "modelproxy.hpp"
 #include "pngquant.hpp"
+#include "reflscenery.hpp"
 #include "uvunwrap.hpp"
 #include "stochtile.hpp"
+#include "scrollsim.hpp"
 #include "templates.hpp"
 #include "wavconvert.hpp"
 
@@ -82,8 +90,143 @@ static const char* typeLabel(PrimitiveType t) {
         // naming it after one source node is what made people expect the
         // object to choose the generation mode.
         case PrimitiveType::Scatter: return "Procedural volume";
+        case PrimitiveType::Scroller: return "Scroller";
+        case PrimitiveType::Road: return "Road";
+        case PrimitiveType::Vehicle: return "Vehicle";
+        case PrimitiveType::Comment: return "Comment";
     }
     return "Object";
+}
+
+static std::string blobShadowFileName(const SceneObject& o) {
+    std::string id = o.id.empty() ? o.name : o.id;
+    for (char& c : id)
+        if (!std::isalnum((unsigned char)c) && c != '-' && c != '_') c = '-';
+    if (id.empty()) id = "object";
+    return "res/textures/blob-shadows/" + id + ".png";
+}
+
+// One control for every SceneObject kind. A Vehicle already owns an automatic
+// import-time mask, but may override it here; ordinary renderables may bake
+// directly from their mesh or choose any project PNG.
+static bool drawBlobShadowShape(Project& project, SceneObject& o,
+                                std::string& status) {
+    bool changed = false;
+    const char* fallback = o.type == PrimitiveType::Vehicle
+                               ? "<automatic vehicle silhouette>"
+                               : "<round fallback>";
+    const char* shown = o.blobShadowTexture.empty()
+                            ? fallback
+                            : o.blobShadowTexture.c_str();
+    if (ImGui::BeginCombo("Blob shape", shown)) {
+        std::vector<std::string> pngs;
+        const std::filesystem::path root =
+            std::filesystem::path(project.dir) / "res";
+        std::error_code ec;
+        for (std::filesystem::recursive_directory_iterator it(root, ec), end;
+             it != end && !ec; it.increment(ec)) {
+            if (!it->is_regular_file(ec)) continue;
+            std::string ext = it->path().extension().string();
+            for (char& c : ext) c = (char)std::tolower((unsigned char)c);
+            if (ext != ".png") continue;
+            pngs.push_back(std::filesystem::relative(it->path(), project.dir, ec)
+                               .generic_string());
+            if (ec) break;
+        }
+        std::sort(pngs.begin(), pngs.end());
+        if (ImGui::Selectable(fallback, o.blobShadowTexture.empty()) &&
+            !o.blobShadowTexture.empty()) {
+            o.blobShadowTexture.clear();
+            o.blobShadowSize[0] = o.blobShadowSize[1] = 0.0f;
+            changed = true;
+        }
+        for (const std::string& path : pngs)
+            if (ImGui::Selectable(path.c_str(), path == o.blobShadowTexture) &&
+                path != o.blobShadowTexture) {
+                o.blobShadowTexture = path; changed = true;
+                o.blobShadowSize[0] = o.blobShadowSize[1] = 0.0f;
+            }
+        ImGui::EndCombo();
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "Alpha mask sampled by the single runtime quad. Pick an existing\n"
+            "project PNG or bake the object's top-down mesh below. This does\n"
+            "not add another model render on the console.");
+
+    if (blobshadowbake::canBake(o)) {
+        if (ImGui::Button("Bake blob shape")) {
+            const std::string path = blobShadowFileName(o);
+            std::string error;
+            float footprint[2] = {};
+            if (blobshadowbake::bake(project, o, path, footprint, error)) {
+                o.blobShadowTexture = path;
+                o.blobShadowSize[0] = footprint[0];
+                o.blobShadowSize[1] = footprint[1];
+                status = "Baked blob-shadow shape for '" + o.name + "'";
+                changed = true;
+            } else {
+                status = "Blob-shadow bake failed: " + error;
+            }
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Bake a soft 128x128 top-down silhouette from this mesh.\n"
+                "Animated models use frame zero; the mask then follows the\n"
+                "object's position and yaw at runtime.");
+    } else if (o.type == PrimitiveType::Vehicle) {
+        ImGui::TextDisabled("Vehicle import already bakes this shape");
+    } else {
+        ImGui::TextDisabled("No drawable mesh to bake; choose a PNG if needed");
+    }
+    return changed;
+}
+
+// Moving vehicles support runtime shadows; baked decals cannot follow them.
+static bool drawDynamicShadowControls(SceneObject& o) {
+    bool changed = false;
+    const char* shadowNames[] = {"Default (follow the project)", "None",
+                                 "Blob (baked shape)",
+                                 "Projected silhouette"};
+    int mode = o.shadowMode;
+    if (mode < 0 || mode > 3) mode = 0;
+    if (ImGui::Combo("Dynamic shadow", &mode, shadowNames, 4)) {
+        o.shadowMode = mode;
+        changed = true;
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "What this object casts while the game runs.\n"
+            "DEFAULT - the project decides: a blob under the moving\n"
+            "things (avatar, animated models, physics) if Preferences\n"
+            "has blob shadows on, plus the silhouette below if it is\n"
+            "ticked.\n"
+            "NONE - nothing, whatever the project says.\n"
+            "BLOB - one soft dark quad that follows the ground under\n"
+            "it. A baked top-down mask rotates with the object without\n"
+            "another model render; vehicles receive one on import.\n"
+            "Cheap enough for traffic and crowds.\n"
+            "PROJECTED - the real silhouette: the object renders a\n"
+            "second time each frame (64x64, from the sun). The 4\n"
+            "casters largest on screen are active at a time, so use it\n"
+            "for the player's car and other hero objects.\n"
+            "Game-only (no preview). 'Cast shadow' is the BAKED, static\n"
+            "shadow - a different thing entirely.");
+    // The old flag still means "projected" while the mode follows the
+    // project, so it stays reachable for existing projects.
+    if (o.shadowMode == 0) {
+        if (ImGui::Checkbox("Projected shadow (live)", &o.projShadow))
+            changed = true;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "The project-default form of the choice above. Pick\n"
+                "\"Projected silhouette\" in the combo to say it on the\n"
+                "object instead.\n"
+                "With a GI bake a static object's sun shadow is already\n"
+                "baked: the live one then draws only while the day/night\n"
+                "clock runs or under a torch. The combo forces it.");
+    }
+    return changed;
 }
 
 // Area reference picker (docs/areas.md): the scene's Area objects plus
@@ -186,6 +329,11 @@ void App::drawPropertiesWindow() {
         ImGui::End();
         return;
     }
+    if (junctionSel_.active) {
+        drawJunctionProperties();
+        ImGui::End();
+        return;
+    }
     if (selectedObject_ < 0 || selectedObject_ >= (int)project_.objects().size()) {
         ImGui::TextDisabled("No object selected.\nPick one in the Project panel or in "
                             "the viewport.");
@@ -210,7 +358,15 @@ void App::drawPropertiesWindow() {
         o.type == PrimitiveType::Plane;
     const bool isSolid =
         isShape || o.type == PrimitiveType::Model || o.type == PrimitiveType::SavePoint;
+    // An editor note (docs/comments.md). Declared up here with isSolid because
+    // it is a NEGATIVE gate as much as a positive one: a comment is not a game
+    // object, so the sections that describe behaviour are skipped for it.
+    const bool isComment = o.type == PrimitiveType::Comment;
 
+    if (!o.editorGroup.empty()) {
+        ImGui::Text("Group: %s", o.editorGroup.c_str());
+        if (ImGui::Button("Ungroup objects")) ungroupSelection();
+    }
     char nameBuf[128];
     std::snprintf(nameBuf, sizeof(nameBuf), "%s", o.name.c_str());
     if (ImGui::InputText("Name", nameBuf, sizeof(nameBuf))) o.name = nameBuf;
@@ -225,53 +381,10 @@ void App::drawPropertiesWindow() {
         const std::string from =
             objRenameIdx_ == selectedObject_ ? objRenameFrom_ : std::string();
         objRenameIdx_ = -1;
-        if (!from.empty() && from != o.name) {
-            for (Sequence& s : project_.sequences) {
-                for (SeqTrack& tr : s.tracks)
-                    if (tr.target == from) tr.target = o.name;
-                for (SeqCameraKey& k : s.cameraKeys)
-                    if (k.camera == from) k.camera = o.name;
-            }
-            if (lookThroughCam_ == from) lookThroughCam_ = o.name;
-            // Mirror target lists reference objects by name too.
-            for (SceneObject& m : project_.objects())
-                if (m.type == PrimitiveType::Mirror)
-                    for (std::string& t : m.mirrorObjects)
-                        if (t == from) t = o.name;
-            // Camera feed view lists + per-object texture-feed refs
-            // ("camera:<name>" / "mirror:<name>").
-            for (SceneObject& m : project_.objects()) {
-                if (m.type == PrimitiveType::Camera)
-                    for (std::string& t : m.camFeedObjects)
-                        if (t == from) t = o.name;
-                if (m.textureFeed == "camera:" + from)
-                    m.textureFeed = "camera:" + o.name;
-                else if (m.textureFeed == "mirror:" + from)
-                    m.textureFeed = "mirror:" + o.name;
-            }
-            // Portal links + view lists likewise.
-            for (SceneObject& m : project_.objects())
-                if (m.type == PrimitiveType::Portal) {
-                    if (m.portalTarget == from) m.portalTarget = o.name;
-                    for (std::string& t : m.portalObjects)
-                        if (t == from) t = o.name;
-                }
-            // Area references (docs/areas.md): catch areas, streaming-layer
-            // zones and In Area nodes all point at an area by name.
-            if (o.type == PrimitiveType::Area) {
-                for (SceneObject& m : project_.objects()) {
-                    if (m.catchArea == from) m.catchArea = o.name;
-                    for (FlowNode& fn : m.flowGraph.nodes) {
-                        const FlowNodeType* t = flowNodeType(fn.type);
-                        if (t && t->strKind == FlowParamKind::AreaName &&
-                            fn.str == from)
-                            fn.str = o.name;
-                    }
-                }
-                for (SceneLayer& l : project_.active().layers)
-                    if (l.streamArea == from) l.streamArea = o.name;
-            }
-        }
+        // One remap for every by-name reference in the project (app.cpp) - the
+        // AI Assistant's set_object renames through the same function.
+        if (!from.empty() && from != o.name)
+            renameObjectRefs(project_.active(), o, from);
     }
 
     // Provenance. Stated once, right under the name, because "where did this
@@ -326,6 +439,52 @@ void App::drawPropertiesWindow() {
         }
     }
 
+    // --- The note itself (docs/comments.md) ---------------------------------
+    // First, and given as much room as it has text: the viewport shows an icon
+    // and the opening lines, so this is where a long note is actually read,
+    // written and copied out of. The field grows with the text up to 24 rows
+    // and scrolls after that, and it has no length limit at all - a note is
+    // prose, and a truncating buffer would silently eat the end of one.
+    if (isComment) {
+        ImGui::SeparatorText("Note");
+        ImGui::SetNextItemWidth(-FLT_MIN);
+        // A note that was just created is empty and is the only thing anyone
+        // wants to do with it, so addComment() hands the field the keyboard.
+        // SetWindowFocus() is applied at the end of drawUI, after this window
+        // has already been submitted. An inactive dock tab still runs this
+        // body with SkipItems set, so consuming the flag there would focus
+        // nothing and leave the newly-created note empty when the user starts
+        // typing. Keep it armed until Properties is actually the front tab.
+        if (commentFocus_ &&
+            ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)) {
+            ImGui::SetKeyboardFocusHere();
+            commentFocus_ = false;
+        }
+        inputTextProse("##commenttext", o.commentText, &committed, 24);
+        if (ImGui::SmallButton("Copy text")) {
+            ImGui::SetClipboardText(o.commentText.c_str());
+            statusMessage_ = "Note copied to the clipboard";
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Puts the whole note on the clipboard, including\n"
+                              "the part the viewport bubble does not show.");
+        ImGui::SameLine();
+        {
+            int lines = o.commentText.empty() ? 0 : 1;
+            for (char c : o.commentText)
+                if (c == '\n') ++lines;
+            ImGui::TextDisabled("%d characters, %d line%s",
+                                (int)o.commentText.size(), lines,
+                                lines == 1 ? "" : "s");
+        }
+        ImGui::TextDisabled("Editor only - notes never reach the game.");
+        prefHelp(
+            "A comment is pinned to a place in the scene and drawn as a\n"
+            "message icon over the viewport; selecting it shows the text\n"
+            "there too. View > Comments hides them all while you work.\n"
+            "Nothing about a note is generated, baked or shipped.");
+    }
+
     if (isShape) {
         // Plane's enum value isn't contiguous with the other shapes, so map
         // combo indices through an explicit list instead of casting directly.
@@ -361,7 +520,80 @@ void App::drawPropertiesWindow() {
             o.primDetail = clampPrimDetail(o.type, detail);
         committed |= ImGui::IsItemDeactivatedAfterEdit();
         ImGui::SameLine();
-        ImGui::TextDisabled("(%d tris)", primTriangleCount(o.type, o.primDetail));
+        ImGui::TextDisabled("(%d tris)",
+                            primTriangleCount(o.type, o.primDetail, o.primRings));
+        // Cylinders get a second tessellation axis, because Detail alone only
+        // adds vertices AROUND the shape - see the tooltip.
+        if (o.type == PrimitiveType::Cylinder) {
+            if (ImGui::Checkbox("Vertical rings", &o.primRings)) committed = true;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Subdivide the side along the axis too (one ring per four "
+                    "segments).\nTurn this on when something lights the "
+                    "cylinder from above or below: without\nrings the side is "
+                    "one quad tall at any Detail, so a lamp overhead bakes "
+                    "into\nfull-height diagonal stripes that more Detail only "
+                    "makes narrower.\nLeave it off otherwise - the rings are "
+                    "then triangles nothing shades.");
+        }
+    }
+    if (o.type == PrimitiveType::Vehicle) {
+        // An instance names its definition; everything else about the vehicle
+        // lives there (docs/vehicles.md). A dangling name is REPORTED here
+        // rather than repaired, because deleting a definition must not
+        // silently edit scenes.
+        const std::string current = o.vehicleDef.empty() ? "<none>" : o.vehicleDef;
+        if (ImGui::BeginCombo("Vehicle", current.c_str())) {
+            for (size_t i = 0; i < project_.vehicles.size(); ++i) {
+                const std::string& n = project_.vehicles[i].name;
+                // Explicit ##id: a Selectable's LABEL is its ImGui id, and a
+                // definition being renamed can momentarily collide.
+                if (ImGui::Selectable((n + "##vehpick" + std::to_string(i)).c_str(),
+                                      n == o.vehicleDef) &&
+                    n != o.vehicleDef) {
+                    o.vehicleDef = n;
+                    committed = true;
+                }
+            }
+            if (project_.vehicles.empty())
+                ImGui::TextDisabled("None - make one in Tools > Vehicle Editor.");
+            ImGui::EndCombo();
+        }
+        bool known = o.vehicleDef.empty();
+        for (const VehicleDef& v : project_.vehicles)
+            if (v.name == o.vehicleDef) known = true;
+        if (!known) {
+            ImGui::PushStyleColor(ImGuiCol_Text, theme::semantics().danger);
+            ImGui::TextWrapped("No vehicle called \"%s\" - pick another.",
+                               o.vehicleDef.c_str());
+            ImGui::PopStyleColor();
+        }
+        if (ImGui::Checkbox("Player can drive it", &o.vehicleDriveable))
+            committed = true;
+        prefHelp(
+            "Off makes it scenery that still collides and can still be moved by\n"
+            "a script - what parked traffic wants.");
+        {
+            char rt[96];
+            std::snprintf(rt, sizeof(rt), "%s", o.vehicleRoute.c_str());
+            ImGui::SetNextItemWidth(scaled(200));
+            if (ImGui::InputText("AI route prefix", rt, sizeof(rt))) {
+                o.vehicleRoute = rt;
+            }
+            if (ImGui::IsItemDeactivatedAfterEdit()) committed = true;
+            prefHelp(
+                "An AI drives this car around every object whose name starts\n"
+                "with this prefix, sorted by name - place Areas as the\n"
+                "corners (invisible, no collider). Empty = parked until the\n"
+                "player takes it. The player taking THIS car pauses its AI.");
+        }
+        ImGui::SeparatorText("Rendering");
+        if (drawDynamicShadowControls(o)) committed = true;
+        if (o.shadowMode == 2 &&
+            drawBlobShadowShape(project_, o, statusMessage_))
+            committed = true;
+        ImGui::TextDisabled(
+            "Blob suits traffic; projected silhouette suits the hero car.");
     }
     if (o.type == PrimitiveType::Model) {
         // model file: pick among the project's res/models assets
@@ -404,6 +636,7 @@ void App::drawPropertiesWindow() {
                 for (const std::string& w : info.warnings)
                     ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.3f, 1.0f), "%s",
                                        w.c_str());
+                committed |= drawModelFacing(o);
                 // (The model's built-in materials aren't listed here: they're
                 // authored in the modelling tool and the Material picker below
                 // is how you override/edit them - see drawMaterialCombo.)
@@ -446,7 +679,7 @@ void App::drawPropertiesWindow() {
                 committed |= ImGui::IsItemDeactivatedAfterEdit();
                 committed |= drawLodOverrides(o);
                 ImGui::TextDisabled(
-                    "Scripts/flow graph: Play Animation, Stop Animation,\n"
+                    "Scripts/flow graph: the Animation node (play/stop),\n"
                     "On Animation Finished.");
             } else if (!o.modelPath.empty()) {
                 ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f),
@@ -517,6 +750,188 @@ void App::drawPropertiesWindow() {
     // the Y rotation yaws the footprint. Everything else about it lives in the
     // graph (Tools > Procedural), so no game-state fields apply.
     const bool isScatter = o.type == PrimitiveType::Scatter;
+    // Scroller: position is the belt origin, rotation aims the belt axis
+    // (local +Z); the scroller-specific block (segments, speed) sits below.
+    // Scale/color are the marker's own - it has no geometry in the game.
+    const bool isScroller = o.type == PrimitiveType::Scroller;
+    const bool isRoad = o.type == PrimitiveType::Road;
+    if (isRoad) {
+        ImGui::TextDisabled(
+            "Road: a spline through the points below, tessellated onto the "
+            "terrain at boot.");
+        ImGui::SetNextItemWidth(scaled(220));
+        ImGui::SliderFloat("Width", &o.roadWidth, 1.0f, 24.0f, "%.1f");
+        prefHelp("Full width of the surface, world units.");
+        ImGui::SetNextItemWidth(scaled(220));
+        if (ImGui::SliderFloat("Longitudinal spacing", &o.roadSampleStep,
+                               1.0f, 2.0f, "%.2f m"))
+            committed = true;
+        prefHelp(
+            "Distance between geometry rows along the spline. 1 m follows\n"
+            "sharp terrain folds most closely; up to 2 m reduces road\n"
+            "triangles and VU1 packages. Inspect crests and tight bends.");
+        ImGui::SetNextItemWidth(scaled(220));
+        if (ImGui::SliderFloat("Surface grip", &o.roadGrip, 0.1f, 1.5f, "%.2f"))
+            committed = true;
+        prefHelp(
+            "Tyre grip on this road, multiplying every vehicle's own grip:\n"
+            "1 = asphalt, ~0.7 gravel, ~0.3 ice. A junction takes the lower\n"
+            "of its two roads. Terrain off the road uses each vehicle's\n"
+            "Off-road grip instead.");
+        if (drawRoadSurfaceCombo("Surface material", "road-surface",
+                                 o.roadTexture))
+            committed = true;
+        prefHelp(
+            "A project material; its first map_Kd is tiled along the road -\n"
+            "one repeat per 4 units, so one small texture carries a street of\n"
+            "any length. Direct PNG references from older projects still work.\n"
+            "Empty = untextured grey.");
+        if (drawRoadSurfaceCombo("Intersection material", "road-intersection",
+                                 o.roadIntersectionTexture))
+            committed = true;
+        prefHelp(
+            "When two roads of the SAME rank cross and both name this same\n"
+            "non-empty material, TyraX generates a terrain-hugging junction\n"
+            "patch at build time. Different ranks never make a patch: the\n"
+            "higher road runs through. Old direct PNG references remain\n"
+            "supported.");
+        {
+            static const char* kRanks[] = {"Track", "Local", "Main"};
+            ImGui::SetNextItemWidth(scaled(220));
+            if (ImGui::Combo("Rank", &o.roadRank, kRanks, 3)) committed = true;
+            prefHelp(
+                "Which road wins a crossing. A higher rank runs straight\n"
+                "through and covers the lower one - a mud track stops at the\n"
+                "asphalt's edge instead of fighting it. Equal ranks meet in\n"
+                "an intersection-material junction, as before.");
+            ImGui::SetNextItemWidth(scaled(220));
+            if (ImGui::SliderFloat("Spill onto higher roads", &o.roadSpill, 0.0f,
+                                   8.0f, "%.1f units"))
+                committed = true;
+            prefHelp(
+                "Where this road crosses a higher-rank one, its surface carries\n"
+                "on over the higher road's edge for this far and fades out -\n"
+                "mud trailed onto the asphalt. Grip fades with it. 0 = a clean\n"
+                "edge. No effect against equal or lower ranks.");
+            ImGui::SetNextItemWidth(scaled(220));
+            if (ImGui::SliderFloat("Edge fade", &o.roadEdgeFade, 0.0f, 4.0f,
+                                   "%.1f units"))
+                committed = true;
+            prefHelp(
+                "Soft edges: the outer this-many units on each side fade into\n"
+                "the terrain instead of ending in a hard line - a dirt track.\n"
+                "Snaps to the road's 0.5-unit lateral grid; the grip fades to\n"
+                "the terrain's with it. A texture whose alpha is ragged at the\n"
+                "edges makes it look organic. 0 = the hard edge.");
+        }
+        // This road's crossings (docs/roads.md, "Junction overrides"): the
+        // plan the build uses, one button each - the same junction the
+        // viewport diamond selects.
+        if (ImGui::CollapsingHeader("Crossings")) {
+            const roadgen::CrossingPlan& plan = sceneCrossings();
+            const auto& objs = project_.objects();
+            int shown = 0;
+            for (size_t ci = 0; ci < plan.crossings.size(); ++ci) {
+                const roadgen::Crossing& c = plan.crossings[ci];
+                const bool mineA = crossingRoadList_[(size_t)c.a].id == o.id;
+                const bool mineB = crossingRoadList_[(size_t)c.b].id == o.id;
+                if (!mineA && !mineB) continue;
+                ++shown;
+                const SceneObject& other =
+                    objs[(size_t)crossingRoadObj_[(size_t)(mineA ? c.b : c.a)]];
+                const char* what = c.kind == roadgen::kCrossPatch     ? "patch"
+                                   : c.kind == roadgen::kCrossThrough
+                                       ? (c.winner == (mineA ? c.a : c.b) ? "runs through"
+                                                                          : "covered")
+                                       : "overlap";
+                const std::string label = "Junction with " + other.name + " (" + what +
+                                          (c.override >= 0 ? ", override" : "") +
+                                          ")##junction" + std::to_string(ci);
+                if (ImGui::Button(label.c_str())) selectJunction((int)ci);
+            }
+            const auto& ovs = project_.active().roadJunctions;
+            for (size_t oi = 0; oi < ovs.size() && oi < plan.overrideCrossing.size(); ++oi) {
+                if (plan.overrideCrossing[oi] >= 0) continue;
+                if (ovs[oi].roadA != o.id && ovs[oi].roadB != o.id) continue;
+                ++shown;
+                ImGui::TextColored(theme::semantics().danger, "Orphaned junction override");
+                ImGui::SameLine();
+                if (ImGui::SmallButton(("Show##orphan" + std::to_string(oi)).c_str()))
+                    selectJunction(-2 - (int)oi);
+            }
+            if (shown == 0) ImGui::TextDisabled("No crossings on this road");
+        }
+        // The points, world-space XZ. A table, not a gizmo (yet): blunt but
+        // complete - insert after, remove, drag both axes.
+        if (ImGui::CollapsingHeader("Points", ImGuiTreeNodeFlags_DefaultOpen)) {
+            bool loop = roadgen::isClosed(o.roadPoints);
+            if (roadgen::controlCount(o.roadPoints) >= 3 && ImGui::Checkbox("Closed loop", &loop)) {
+                if (loop) {
+                    const float x = o.roadPoints[0], z = o.roadPoints[1];
+                    o.roadPoints.insert(o.roadPoints.end(), {x, z});
+                } else {
+                    o.roadPoints.resize(o.roadPoints.size() - 2);
+                }
+                o.roadHeights.clear();
+                committed = true;
+            }
+            int removeAt = -1, insertAfter = -1;
+            const int np = roadgen::controlCount(o.roadPoints);
+            for (int i = 0; i < np; ++i) {
+                ImGui::PushID(i);
+                float* px = &o.roadPoints[(size_t)i * 2];
+                ImGui::SetNextItemWidth(scaled(170));
+                if (ImGui::DragFloat2(("Point " + std::to_string(i + 1)).c_str(), px,
+                                      0.25f, 0.0f, 0.0f, "%.1f")) {
+                    if (loop && i == 0) {
+                        o.roadPoints[o.roadPoints.size() - 2] = o.roadPoints[0];
+                        o.roadPoints.back() = o.roadPoints[1];
+                    }
+                    o.roadHeights.clear();
+                }
+                committed |= ImGui::IsItemDeactivatedAfterEdit();
+                ImGui::SameLine();
+                if (ImGui::SmallButton("+")) insertAfter = i;
+                ImGui::SameLine();
+                if (np > (roadgen::isClosed(o.roadPoints) ? 3 : 2) && ImGui::SmallButton("-")) removeAt = i;
+                ImGui::PopID();
+            }
+            if (insertAfter >= 0) {
+                // Midway to the next point (or extended past the end).
+                const size_t at = (size_t)(insertAfter + 1) * 2;
+                float nx, nz;
+                if (insertAfter + 1 < np || roadgen::isClosed(o.roadPoints)) {
+                    nx = 0.5f * (o.roadPoints[at - 2] + o.roadPoints[at]);
+                    nz = 0.5f * (o.roadPoints[at - 1] + o.roadPoints[at + 1]);
+                } else {
+                    nx = 2.0f * o.roadPoints[at - 2] - o.roadPoints[at - 4];
+                    nz = 2.0f * o.roadPoints[at - 1] - o.roadPoints[at - 3];
+                }
+                o.roadPoints.insert(o.roadPoints.begin() + at, {nx, nz});
+                o.roadHeights.clear();
+                committed = true;
+            }
+            if (removeAt >= 0 && roadgen::removeControl(o.roadPoints, removeAt)) {
+                o.roadHeights.clear();
+                committed = true;
+            }
+        }
+        if (ImGui::Button(roadEdit_ ? "Stop editing (Esc)" : "Edit in viewport"))
+            roadEdit_ = !roadEdit_;
+        prefHelp(
+            "Click the ground to APPEND a point, click a point to DRAG it,\n"
+            "click the line between points to INSERT one there.\n"
+            "Shift+click a marker to DELETE it. Drag the final point onto\n"
+            "the first and release to CLOSE a loop. Uncheck Closed loop\n"
+            "to reopen it. Esc stops; Ctrl+Z undoes each operation.");
+        ImGui::SameLine();
+        if (ImGui::Button("Align terrain to road"))
+            alignTerrainToRoad(selectedObject_);
+        prefHelp(
+            "Flattens the heightfield to the road's interpolated line -\n"
+            "the surface under the asphalt becomes the asphalt's own grade,\n"
+            "with a smooth shoulder falloff. Undoable like any edit.");
+    }
     if (isScatter) {
         ImGui::TextDisabled(
             "Procedural region: position and scale are the box the graph fills.");
@@ -535,7 +950,8 @@ void App::drawPropertiesWindow() {
     committed |= ImGui::IsItemDeactivatedAfterEdit();
     // custom emitters rotate too - the rotation aims the emission direction
     if (isSolid || isEmpty || isDecal || isCamera || isMirror || isPortal || isArea ||
-        isScatter || (o.type == PrimitiveType::Emitter && o.emitterKind == 5)) {
+        isScatter || isScroller ||
+        (o.type == PrimitiveType::Emitter && o.emitterKind == 5)) {
         ImGui::DragFloat3("Rotation", o.rotation, 1.0f, -360.0f, 360.0f, "%.0f deg");
         committed |= ImGui::IsItemDeactivatedAfterEdit();
     }
@@ -565,10 +981,13 @@ void App::drawPropertiesWindow() {
     // Color: mesh tint for solids, particle tint for emitters, light color
     // for point lights, marker tint + free per-object parameter for empties,
     // texture tint for decals, marker/frustum tint for camera entities, glass
-    // tint for mirrors, inactive-surface tint for portals. The remaining
-    // markers draw in fixed colors.
+    // tint for mirrors, inactive-surface tint for portals, and the icon tint
+    // for a comment (which is how a scene full of notes gets categories -
+    // red for a bug, green for something settled). The remaining markers draw
+    // in fixed colors.
     if (isSolid || isEmpty || isDecal || isCamera || isMirror || isPortal || isArea ||
-        o.type == PrimitiveType::Emitter || o.type == PrimitiveType::PointLight) {
+        isComment || o.type == PrimitiveType::Emitter ||
+        o.type == PrimitiveType::PointLight) {
         ImGui::ColorEdit3("Color", o.color);
         committed |= ImGui::IsItemDeactivatedAfterEdit();
     }
@@ -586,15 +1005,6 @@ void App::drawPropertiesWindow() {
         // a replacement. An animated override is resolved into the .tskl at
         // build time (docs/animated-models.md).
         if (drawMaterialCombo(o)) committed = true;
-        if (!o.materialPath.empty()) {
-            ImGui::SameLine();
-            if (ImGui::SmallButton("Edit..."))
-                // preview the material on the object's own mesh (static .obj
-                // AND animated .glb/.fbx); primitives leave the hint off
-                openMaterialEditor(o.materialPath,
-                                   o.type == PrimitiveType::Model ? o.modelPath
-                                                                  : "");
-        }
         if (!o.materialPath.empty() && o.type != PrimitiveType::Model) {
             const ModelInfo& mat = materialInfo(o.materialPath);
             if (mat.ok && !mat.materials.empty()) {
@@ -632,17 +1042,17 @@ void App::drawPropertiesWindow() {
             committed |= ImGui::IsItemDeactivatedAfterEdit();
             ImGui::DragFloat("Friction", &o.physFriction, 0.01f, 0.0f, 1.0f, "%.2f");
             committed |= ImGui::IsItemDeactivatedAfterEdit();
-            if (ImGui::Checkbox("Tumble (impacts add spin)", &o.physTumble))
+            if (ImGui::Checkbox("Tumble (can rotate)", &o.physTumble))
                 committed = true;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Off = the body slides but never turns.");
             ImGui::DragFloat("Sleep after (s)", &o.physSleep, 0.1f, 0.1f, 60.0f,
                              "%.1f");
             committed |= ImGui::IsItemDeactivatedAfterEdit();
-            ImGui::TextDisabled(
-                "Falls, bounces off slopes and objects, slides with friction\n"
-                "and can be shoved by the player / Apply Impulse nodes.\n"
-                "Mass is relative - it matters only against other bodies.\n"
-                "Sleep after: seconds of near-rest before the body freezes\n"
-                "(a sleeping body costs nothing until something wakes it).");
+            ImGui::TextDisabled("Collides as its convex hull.");
+            prefHelp("A rigid body: it tips, rolls and rests on the corners of\n"
+                     "its shape's convex hull (docs/physics.md). Mass is relative.\n"
+                     "A sleeping body costs nothing until something wakes it.");
             ImGui::Unindent();
         }
         if (o.type == PrimitiveType::SavePoint) {
@@ -682,6 +1092,15 @@ void App::drawPropertiesWindow() {
 
     // Player collision. Solid geometry only - markers/emitters never collide.
     if (isSolid) {
+        if (o.type == PrimitiveType::Box) {
+            bool invisible = o.collisionMode == 3;
+            if (ImGui::Checkbox("Invisible wall", &invisible)) {
+                o.collisionMode = invisible ? 3 : 0;
+                committed = true;
+            }
+            if (invisible)
+                ImGui::TextDisabled("Blocks movement; editor outline only, no shadows.");
+        }
         if (animatedModel) {
             // mesh collision is a static-model feature; animated models
             // collide as their baked all-clips AABB or not at all
@@ -697,6 +1116,89 @@ void App::drawPropertiesWindow() {
             if (ImGui::Combo("Collision", &o.collisionMode, modes, 3)) committed = true;
             if (o.collisionMode == 1)
                 ImGui::TextDisabled("Player walks the model's surface (ramps, stairs).");
+            if (o.collisionMode == 0 && !o.modelPath.empty()) {
+                // The MODEL's own box (docs/collision-boxes.md, "A smaller
+                // box"): one setting per asset, so every lamp made from this
+                // model shrinks together. In mesh units, before scale - the
+                // same frame as the bounds it replaces.
+                int users = 0;
+                for (const SceneData& sc : project_.scenes)
+                    for (const SceneObject& so : sc.objects)
+                        if (so.type == PrimitiveType::Model && so.modelPath == o.modelPath &&
+                            so.collisionMode == 0)
+                            ++users;
+                auto it = project_.modelCollision.find(o.modelPath);
+                bool own = it != project_.modelCollision.end();
+                char label[96];
+                std::snprintf(label, sizeof label, "Own collision box (this model, %d object%s)",
+                              users, users == 1 ? "" : "s");
+                float bmn[3] = {-0.5f, -0.5f, -0.5f}, bmx[3] = {0.5f, 0.5f, 0.5f};
+                const bool haveBounds = viewport_.modelLocalBounds(o, bmn, bmx);
+                if (ImGui::Checkbox(label, &own)) {
+                    if (own) {
+                        ModelCollisionBox b;
+                        for (int k = 0; k < 3; ++k) b.mn[k] = bmn[k], b.mx[k] = bmx[k];
+                        project_.modelCollision[o.modelPath] = b;
+                    } else {
+                        project_.modelCollision.erase(o.modelPath);
+                    }
+                    committed = true;
+                    it = project_.modelCollision.find(o.modelPath);
+                }
+                prefHelp("Replaces the mesh's bounding box as what the player, the camera, "
+                           "cars, physics bodies and navigation collide with - for a model "
+                           "whose box is much bigger than its solid part, like a street lamp "
+                           "whose arm reaches over the pavement. Shared by every object made "
+                           "from this model. View > Collision boxes shows it.");
+                if (it != project_.modelCollision.end()) {
+                    ModelCollisionBox& b = it->second;
+                    const float span = haveBounds
+                        ? std::max({bmx[0] - bmn[0], bmx[1] - bmn[1], bmx[2] - bmn[2], 0.01f})
+                        : 1.0f;
+                    const float speed = span * 0.002f;
+                    // A corner dragged past the other one stops there rather
+                    // than swapping them under the mouse.
+                    if (ImGui::DragFloat3("Box min", b.mn, speed, 0.0f, 0.0f, "%.3f"))
+                        for (int k = 0; k < 3; ++k) b.mn[k] = std::min(b.mn[k], b.mx[k]);
+                    if (ImGui::IsItemDeactivatedAfterEdit()) committed = true;
+                    if (ImGui::DragFloat3("Box max", b.mx, speed, 0.0f, 0.0f, "%.3f"))
+                        for (int k = 0; k < 3; ++k) b.mx[k] = std::max(b.mx[k], b.mn[k]);
+                    if (ImGui::IsItemDeactivatedAfterEdit()) committed = true;
+                    if (ImGui::Button("Fit to post")) {
+                        // The vertices of the lower 40% of the model give the
+                        // footprint; the height stays the whole model's. A
+                        // lamp, a sign, a tree: the post, not the arm.
+                        objparser::Model m;
+                        if (objparser::load(project_.filePath(o.modelPath), m)) {
+                            float lo = 1e30f, hi = -1e30f;
+                            for (const objparser::Submesh& sm : m.submeshes)
+                                for (size_t v = 0; v + 2 < sm.verts.size(); v += 8)
+                                    lo = std::min(lo, sm.verts[v + 1]),
+                                    hi = std::max(hi, sm.verts[v + 1]);
+                            const float cut = lo + 0.4f * (hi - lo);
+                            float fmn[2] = {1e30f, 1e30f}, fmx[2] = {-1e30f, -1e30f};
+                            for (const objparser::Submesh& sm : m.submeshes)
+                                for (size_t v = 0; v + 2 < sm.verts.size(); v += 8) {
+                                    if (sm.verts[v + 1] > cut) continue;
+                                    const float x = sm.verts[v], z = sm.verts[v + 2];
+                                    fmn[0] = std::min(fmn[0], x), fmx[0] = std::max(fmx[0], x);
+                                    fmn[1] = std::min(fmn[1], z), fmx[1] = std::max(fmx[1], z);
+                                }
+                            if (lo <= hi && fmn[0] <= fmx[0]) {
+                                b.mn[0] = fmn[0], b.mx[0] = fmx[0];
+                                b.mn[2] = fmn[1], b.mx[2] = fmx[1];
+                                b.mn[1] = lo, b.mx[1] = hi;
+                                committed = true;
+                            }
+                        }
+                    }
+                    ImGui::SameLine();
+                    if (ImGui::Button("Reset to mesh bounds")) {
+                        for (int k = 0; k < 3; ++k) b.mn[k] = bmn[k], b.mx[k] = bmx[k];
+                        committed = true;
+                    }
+                }
+            }
         } else {
             // primitives collide as their scale box or not at all
             bool solid = o.collisionMode != 2;
@@ -704,6 +1206,116 @@ void App::drawPropertiesWindow() {
                 o.collisionMode = solid ? 0 : 2;
                 committed = true;
             }
+        }
+    }
+
+    // The four numbers this mesh hands the project's own VU1 microprogram.
+    // Shown ONLY when the project has such a program: otherwise they are four
+    // sliders that do nothing, on every object, forever. Which stage reads
+    // which slot is a property of the program, so the labels come from the
+    // stage list rather than being named here.
+    if (isSolid && !project_.vu.programs.empty()) {
+        ImGui::SeparatorText("VU program");
+        // A program is installed over a material CLASS, so the only thing that
+        // decides whether it touches this object is which class the object is
+        // in. Labelling the four slots from every program in the project - as
+        // this did at first - is worse than saying nothing: an untextured box
+        // would show "Scroll UV Speed U" on its X slot, from a program that
+        // will never draw it.
+        const unsigned cls = project::vuClassOfObject(project_, o);
+        const VuProgram* mine = nullptr;
+        for (const VuProgram& pr : project_.vu.programs)
+            if (pr.enabled && (pr.classes & cls) != 0) { mine = &pr; break; }
+
+        ImGui::Text("Class: %s%s%s", project::vuClassName(cls),
+                    mine ? "   look: " : "", mine ? mine->name.c_str() : "");
+        prefHelp(
+            "Which VU1 microprogram draws this object, decided by what it\n"
+            "carries: a texture puts it in Textured, a material with a refl\n"
+            "map in Reflective, Dynamic lighting in one of the lit classes.\n"
+            "A program is installed over a CLASS, so it reaches this object\n"
+            "only if it was built on this one.");
+
+        if (!mine) {
+            ImGui::PushStyleColor(ImGuiCol_Text, theme::semantics().warn);
+            ImGui::TextWrapped(
+                "No look covers this class, so these numbers do nothing here.");
+            ImGui::PopStyleColor();
+            const bool set = o.vuParams[0] || o.vuParams[1] || o.vuParams[2] ||
+                             o.vuParams[3];
+            if (set)
+                ImGui::TextDisabled(
+                    "It carries values anyway - either tick %s on a look in\n"
+                    "Tools > VU Programs, or clear them.",
+                    project::vuClassName(cls));
+            ImGui::TextDisabled(
+                "Objects merged into one static batch share a bag, and\n"
+                "therefore share these numbers.");
+        } else {
+            std::string uses[4];
+            for (const VuStage& st : mine->stages) {
+                const vugen::StageDef* def = vugen::stageDef(st.kind);
+                if (!def || !st.enabled) continue;
+                for (int i = 0; i < def->paramCount; ++i)
+                    if (st.bind[i] >= 0 && st.bind[i] < 4) {
+                        std::string& u = uses[st.bind[i]];
+                        if (!u.empty()) u += ", ";
+                        u += std::string(def->title) + " " + def->params[i].name;
+                    }
+            }
+            static const char* kAxis[4] = {"X", "Y", "Z", "W"};
+            for (int i = 0; i < 4; ++i) {
+                ImGui::PushID(i);
+                const std::string label =
+                    uses[i].empty()
+                        ? std::string(kAxis[i]) + " (nothing reads this)"
+                        : uses[i] + "##vu" + kAxis[i];
+                ImGui::BeginDisabled(uses[i].empty());
+                ImGui::DragFloat(label.c_str(), &o.vuParams[i], 0.01f);
+                committed |= ImGui::IsItemDeactivatedAfterEdit();
+                ImGui::EndDisabled();
+                ImGui::PopID();
+            }
+            // An object is drawn by several bags and they are NOT all in the
+            // same material class: a baked lightmap pass carries the AO atlas,
+            // so it is a TEXTURED bag even on an untextured mesh. Displace the
+            // main bag and not that one and the lightmap stays behind as a
+            // translucent ghost of the undeformed shape - which is exactly what
+            // it looked like on the console before anyone worked out why.
+            // A baked lightmap on a mesh that moves is wrong anyway: it was
+            // baked for a shape the mesh no longer has.
+            std::vector<vugen::Stage> probe;
+            for (const VuStage& st : mine->stages) {
+                vugen::Stage g = vugen::makeStage(st.kind);
+                g.enabled = st.enabled;
+                for (int i = 0; i < 4; ++i) {
+                    g.params[i].value = st.params[i];
+                    g.params[i].meshSlot = st.bind[i];
+                }
+                probe.push_back(g);
+            }
+            const unsigned texCls = 1u << 3;
+            bool texCovered = false;
+            for (const VuProgram& pr : project_.vu.programs)
+                if (pr.enabled && (pr.classes & texCls) && &pr == mine)
+                    texCovered = true;
+            if (o.bakedLighting && vugen::stagesMoveGeometry(probe) &&
+                !texCovered && cls != texCls) {
+                ImGui::PushStyleColor(ImGuiCol_Text, theme::semantics().warn);
+                ImGui::TextWrapped(
+                    "This look MOVES the geometry, and this object has a baked "
+                    "lightmap. That pass carries the AO atlas, so it is a "
+                    "Textured bag - a different class, drawn by a different "
+                    "program - and it will stay behind as a ghost of the "
+                    "undeformed shape. Turn Baked lighting off here (a lightmap "
+                    "baked for a shape the mesh no longer has is wrong anyway), "
+                    "or give the look the Textured class too.");
+                ImGui::PopStyleColor();
+            }
+            ImGui::TextDisabled(
+                "All zero = this mesh renders exactly as it would with no\n"
+                "custom program at all. Objects merged into one static batch\n"
+                "share a bag, and therefore share these numbers.");
         }
     }
 
@@ -717,11 +1329,51 @@ void App::drawPropertiesWindow() {
         if (o.drawDistance > 0.0f)
             ImGui::TextDisabled(
                 "Skipped at draw time when the camera is farther than this;\n"
-                "collision and logic still run. 0 = always drawn.");
+                "collision and logic still run. 0 = always drawn.\n"
+                "Objects merged into one static batch share a cut-off and\n"
+                "switch off together, so a batched object can stay visible\n"
+                "a little past its own distance - never less.");
+
+        // The one per-object static-batching lever (docs/static-batching.md).
+        // Everything else about batching is inferred by the build; this is a
+        // decision the author makes, for the case the rules cannot see - a
+        // member whose position widens its batch's merged box enough to keep
+        // the whole group drawn past what the scene would cull. Tools >
+        // Static Batches is where that is visible.
+        if (ImGui::Checkbox("Exclude from static batch", &o.batchExclude))
+            committed = true;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Keep this object out of every static batch - it submits its\n"
+                "own bag, as it did before batching existed. A batch is culled\n"
+                "as a UNIT against the union of its members, so one outlying\n"
+                "member can keep the rest drawn; excluding it is the fix.\n"
+                "Tools > Static Batches shows the merged boxes and the cost.");
+
+        if (ImGui::Checkbox("Never occlude other objects", &o.occluderExclude))
+            committed = true;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Opt out of the build-time occluder proxy. Moving, open,\n"
+                "non-manifold and alpha-textured geometry is rejected\n"
+                "automatically even when this remains unchecked.");
+        if (ImGui::Checkbox("Can be occlusion culled", &o.occlusionCull))
+            committed = true;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Allow this object's complete bounds to be skipped when they\n"
+                "are safely behind the conservative visibility buffer.");
 
         // Rendered into the dynamic ("@sky") environment map, so reflective
         // materials mirror this object - costs a second small render per frame.
         if (ImGui::Checkbox("Show in reflections", &o.reflected)) committed = true;
+        if (o.reflected) {
+            if (ImGui::Checkbox("Reflection box proxy", &o.reflectionProxy))
+                committed = true;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Draw one 12-triangle, one-material box in 128px environment maps.\n"
+                                  "The main view, collision and picking keep the full object.");
+        }
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip(
                 "Materials with a <dynamic - live sky> sphere map will mirror\n"
@@ -729,21 +1381,106 @@ void App::drawPropertiesWindow() {
                 "Mark the few props that sell the effect - each one costs a\n"
                 "second small render per frame. Editor preview shows the sky\n"
                 "only; check reflections in the game.");
+        // Project > Preferences > Rendering > Reflect static scenery as boxes:
+        // what that switch does with THIS object. The verdict walks the scene's
+        // runtime references, so it is recomputed only when the model changes.
+        if (project_.settings.reflectionScenery && !o.reflected) {
+            static uint64_t verdictSerial = ~0ull;
+            static int verdictIndex = -1, verdictScene = -1;
+            static reflscenery::Verdict verdict = reflscenery::Verdict::NotSolid;
+            if (verdictSerial != modelEditSerial_ || verdictIndex != selectedObject_ ||
+                verdictScene != project_.activeScene) {
+                verdictSerial = modelEditSerial_;
+                verdictIndex = selectedObject_;
+                verdictScene = project_.activeScene;
+                verdict = reflscenery::verdictFor(project_, project_.active(),
+                                                  selectedObject_);
+            }
+            ImGui::TextDisabled("In reflections: %s", reflscenery::verdictText(verdict));
+        }
 
-        // Real-shape projected shadow - the RUNTIME one, distinct from the
-        // baked ambient-occlusion "Cast shadow" below: a silhouette
-        // rendered from the sun into a small VRAM target and projected onto
-        // the terrain. The caster pays a second render, hence opt-in.
-        if (ImGui::Checkbox("Projected shadow (live)", &o.projShadow))
-            committed = true;
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip(
-                "Real silhouette shadow on the terrain: the object renders a\n"
-                "second time each frame (64x64, from the sun) and the shape\n"
-                "is projected under it. The 4 casters nearest the camera are\n"
-                "active at a time - mark hero objects, not everything.\n"
-                "Follows animation and movement; game-only (no preview).\n"
-                "'Cast shadow' below is the baked, static one.");
+        // THE RUNTIME shadow, distinct from the baked ambient-occlusion
+        // "Cast shadow" below - and a choice per object rather than a
+        // project-wide one (docs/shadows.md): a blob is one soft quad that
+        // costs almost nothing and has no shape, a projected silhouette is a
+        // second 64x64 render of this object every frame. "Default" is what
+        // every project did before the choice existed, so an untouched object
+        // behaves exactly as it always has.
+        {
+            const char* shadowNames[] = {"Default (follow the project)",
+                                         "None", "Blob (soft quad)",
+                                         "Projected silhouette",
+                                         "Baked (decal)"};
+            int mode = o.shadowMode;
+            if (mode < 0 || mode > 4) mode = 0;
+            // A real label rather than "##dynshadow" plus a SameLine caption:
+            // it is the idiom the rest of these panels use, and a hidden label
+            // is a widget no UI script can name (docs/ui-scripting.md).
+            if (ImGui::Combo("Dynamic shadow", &mode, shadowNames, 5)) {
+                o.shadowMode = mode;
+                committed = true;
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "What this object casts while the game runs.\n"
+                    "DEFAULT - the project decides: a blob under the moving\n"
+                    "things (avatar, animated models, physics) if Preferences\n"
+                    "has blob shadows on, plus the silhouette below if it is\n"
+                    "ticked.\n"
+                    "NONE - nothing, whatever the project says.\n"
+                    "BLOB - one soft dark quad that follows the ground under\n"
+                    "it. Bake or pick a top-down mask below; vehicles also\n"
+                    "receive one automatically during import.\n"
+                    "Cheap enough for traffic and crowds.\n"
+                    "PROJECTED - the real silhouette: the object renders a\n"
+                    "second time each frame (64x64, from the sun) and the\n"
+                    "shape is projected under it. The 4 casters nearest the\n"
+                    "camera are active at a time, so mark hero objects.\n"
+                    "Game-only (no preview).\n"
+                    "BAKED - the real shape, traced once and projected onto\n"
+                    "whatever is under it. Costs no slot and nothing per\n"
+                    "frame, reaches textured walls and models the lightmap\n"
+                    "cannot, and needs a bake (Ambience Editor > Baked\n"
+                    "lighting). The caster and what it falls on must stay\n"
+                    "put. 'Cast shadow' below is the ambient-occlusion one -\n"
+                    "a different thing entirely.");
+            // A baked shadow needs two things this panel can say straight
+            // away: the project switch, and a caster that stands still. The
+            // sentence comes from shadowbake itself (quickRefusal), so the
+            // panel and the bake cannot end up disagreeing about which objects
+            // qualify. Everything else - whether it lands on anything, how
+            // many triangles it costs - needs the bake and is reported there.
+            if (o.shadowMode == 4) {
+                const std::string why = shadowbake::quickRefusal(o);
+                if (!why.empty())
+                    ImGui::TextColored(ImVec4(0.95f, 0.75f, 0.30f, 1.0f),
+                                       "No baked shadow: %s", why.c_str());
+                else if (!project_.settings.bakedShadows)
+                    ImGui::TextColored(
+                        ImVec4(0.95f, 0.75f, 0.30f, 1.0f),
+                        "Baked shadows are off for this project");
+                else
+                    ImGui::TextDisabled("Bake it in Ambience Editor > Baked lighting");
+            }
+            if (o.shadowMode == 2 &&
+                drawBlobShadowShape(project_, o, statusMessage_))
+                committed = true;
+            // The old flag still means "projected" while the mode follows the
+            // project, so it stays reachable - and stays the thing every
+            // existing .tyra carries.
+            if (o.shadowMode == 0) {
+                if (ImGui::Checkbox("Projected shadow (live)", &o.projShadow))
+                    committed = true;
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip(
+                        "The project-default form of the choice above. Pick\n"
+                        "\"Projected silhouette\" in the combo to say it on the\n"
+                        "object instead.\n"
+                        "With a GI bake a static object's sun shadow is already\n"
+                        "baked: the live one then draws only while the day/night\n"
+                        "clock runs or under a torch. The combo forces it.");
+            }
+        }
         // Baked ambient occlusion: whether this object darkens nearby
         // terrain/objects (docs/ambient-occlusion.md; global strength in
         // the Ambience Editor).
@@ -768,6 +1505,76 @@ void App::drawPropertiesWindow() {
                 "moves. The bake already excludes anything it can prove moves\n"
                 "(physics, pickable, usable, save-state, streamed, or moved by\n"
                 "a flow graph) - this is for the rest.");
+
+        // Pre-lit models (docs/prelit-models.md). Only a MODEL: an untextured
+        // primitive already has the per-texel lightmap route, which costs no
+        // extra texture at all.
+        if (o.type == PrimitiveType::Model && !o.modelPath.empty()) {
+            const int myIndex = selectedObject_;
+            const bool mine = litBaker_.objectIndex() == myIndex &&
+                              litBaker_.sceneIndex() == project_.activeScene;
+            if (litBaker_.running() && mine) {
+                ImGui::ProgressBar(litBaker_.progress(), ImVec2(-FLT_MIN, 0.0f));
+                ImGui::TextUnformatted(litBaker_.status().c_str());
+                if (ImGui::Button("Cancel##prelit")) litBaker_.cancel();
+            } else {
+                if (ImGui::Button("Bake lighting into texture")) {
+                    saveProject();  // the bake reads the model off disk
+                    litBaker_.start(project_, project_.activeScene, myIndex,
+                                    litBakeParams_);
+                }
+                ImGui::SameLine();
+                ImGui::SetNextItemWidth(scaled(90.0f));
+                ImGui::DragInt("##prelitsize", &litBakeParams_.size, 8.0f, 32,
+                               512, "%d px");
+                ImGui::SameLine();
+                ImGui::SetNextItemWidth(scaled(90.0f));
+                ImGui::DragInt("##prelitrays", &litBakeParams_.rays, 1.0f, 8,
+                               512, "%d rays");
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Bakes the scene's light INTO this object's texture and\n"
+                    "gives it its own material - the only way a TEXTURED\n"
+                    "surface gets per-pixel static light on this hardware (the\n"
+                    "lightmap is additive and the GS cannot multiply a texture\n"
+                    "by a second one in a later pass).\n"
+                    "Its vertex light then goes neutral; the flashlight and\n"
+                    "live point lights still land on top.\n"
+                    "Costs one texture per object, and goes STALE if you move\n"
+                    "the object or change the scene's lighting - re-bake it.");
+            // Fresh or stale, from the signature - the same answer the Baked
+            // lighting tab gives, out of the same cached table (asking
+            // litbake::signature per frame would content-hash every file the
+            // GI bake reads).
+            if (o.prelit) {
+                const PrelitStatus* st = prelitStatusFor(myIndex);
+                if (st && st->fresh)
+                    ImGui::TextColored(ImVec4(0.45f, 0.85f, 0.45f, 1.0f),
+                                       "Pre-lit: its texture carries its light");
+                else
+                    ImGui::TextColored(
+                        ImVec4(0.95f, 0.75f, 0.30f, 1.0f),
+                        "Pre-lit, but STALE: the scene or this object has "
+                        "moved since the bake");
+                if (ImGui::Button("Revert to source material"))
+                    revertPrelit(myIndex);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip(
+                        "Puts back the material this object had before its\n"
+                        "first bake and stops shipping it pre-lit. The baked\n"
+                        "-lit.png/.mtl are left on disk (the Asset Browser\n"
+                        "lists them as unused).");
+            }
+            ImGui::TextDisabled(
+                "Every pre-lit object in this scene: Tools > Baked Lighting");
+            if (!litBaker_.error().empty() && mine)
+                ImGui::TextColored(ImVec4(0.95f, 0.5f, 0.4f, 1.0f), "%s",
+                                   litBaker_.error().c_str());
+            // The result is applied by App::litBakerPoll, not here: a bake
+            // that finishes has to land whether or not this object is still
+            // the selected one.
+        }
     }
 
     if (isArea) {
@@ -779,6 +1586,7 @@ void App::drawPropertiesWindow() {
         ImGui::BulletText("A streaming layer's zone (Project panel > Layers)");
         ImGui::BulletText("A mirror / portal / camera feed's target list");
         ImGui::BulletText("The In Area flow trigger (Triggers > In Area)");
+        ImGui::BulletText("A reverb room for the sound effects (below)");
         // What references it, so deleting/resizing one is not a guess.
         std::vector<std::string> users;
         for (const SceneObject& t : project_.objects())
@@ -809,6 +1617,86 @@ void App::drawPropertiesWindow() {
             for (size_t i = 0; i < caught.size(); ++i)
                 list += (i ? "\n" : "") + project_.objects()[caught[i]].name;
             ImGui::SetTooltip("%s", list.c_str());
+        }
+
+        ImGui::SeparatorText("Reverb zone");
+        if (ImGui::Checkbox("This area is a room for the sound effects",
+                            &o.reverbZone))
+            committed = true;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Sound effects played while the player stands inside this box\n"
+                "go through the SPU2's hardware reverb unit. Costs no EE time -\n"
+                "the sound chip does the mixing. Music stays dry.");
+        if (o.reverbZone) {
+            {
+                const std::vector<ReverbPresetInfo>& presets = reverbPresets();
+                if (o.reverbPreset < 0 || o.reverbPreset >= (int)presets.size())
+                    o.reverbPreset = 1;
+                if (ImGui::BeginCombo("Preset",
+                                      presets[o.reverbPreset].label)) {
+                    for (int i = 0; i < (int)presets.size(); ++i) {
+                        if (ImGui::Selectable(presets[i].label,
+                                              i == o.reverbPreset)) {
+                            o.reverbPreset = i;
+                            committed = true;
+                        }
+                        if (ImGui::IsItemHovered())
+                            ImGui::SetTooltip("%s", presets[i].desc);
+                    }
+                    ImGui::EndCombo();
+                }
+            }
+            ImGui::SliderFloat("Amount", &o.reverbAmount, 0.0f, 1.0f, "%.2f");
+            committed |= ImGui::IsItemDeactivatedAfterEdit();
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "How wet the effects get, 0..1. This is the one value that\n"
+                    "moves smoothly - entering and leaving the box ramps it, so\n"
+                    "two overlapping zones sharing a preset cross-fade.");
+            if (reverbUsesEcho(o.reverbPreset)) {
+                ImGui::SliderInt("Delay", &o.reverbDelay, 0, 127);
+                committed |= ImGui::IsItemDeactivatedAfterEdit();
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Time between repeats. Echo/Delay only.");
+                ImGui::SliderInt("Feedback", &o.reverbFeedback, 0, 127);
+                committed |= ImGui::IsItemDeactivatedAfterEdit();
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip(
+                        "How much of each repeat feeds the next - how many times\n"
+                        "it echoes before dying. Echo/Delay only.");
+            }
+            // No "why is Delay missing" paragraph here: each preset's own
+            // entry in the combo says whether it reads them.
+            ImGui::DragInt("Priority", &o.reverbPriority, 0.1f, -100, 100);
+            committed |= ImGui::IsItemDeactivatedAfterEdit();
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Overlapping zones do not mix - the console has ONE reverb\n"
+                    "unit. The highest priority inside wins, so a closet placed\n"
+                    "inside a hall needs a higher number than the hall.");
+
+            // The count is the useful glance - how the transitions behave
+            // is a paragraph, and a paragraph belongs behind a (?).
+            int zones = 0;
+            for (const SceneObject& t : project_.objects())
+                if (t.type == PrimitiveType::Area && t.reverbZone) ++zones;
+            ImGui::TextDisabled("%d reverb zone%s in this scene", zones,
+                                zones == 1 ? "" : "s");
+            if (zones > 1)
+                prefHelp(
+                    "Crossing into another zone cross-fades, whatever presets\n"
+                    "the two use: the console has two reverb units and the\n"
+                    "game hands the incoming room the free one.\n"
+                    "\n"
+                    "Only TWO rooms can be live at once, so a third entered\n"
+                    "while a fade is still running waits for the first to\n"
+                    "finish leaving - it waits rather than glitching.\n"
+                    "\n"
+                    "A sound is heard in the room it STARTED in: a reverb unit\n"
+                    "is per sound-chip core, so a voice is committed the "
+                    "moment\nit plays. Carry a long sound out of a hall and "
+                    "its tail\ncomes with you.");
         }
     }
 
@@ -905,6 +1793,248 @@ void App::drawPropertiesWindow() {
             ImGui::TextDisabled("Nothing listed - the mirror shows only glass.");
     }
 
+    if (isScroller) {
+        const SceneData& scene = project_.active();
+        ImGui::SeparatorText("Endless scroller");
+        ImGui::TextDisabled(
+            "Tiles named segments of scene objects forever along the belt\n"
+            "axis (this object's local +Z - use Rotation to aim it). The\n"
+            "segment members are templates: they are hidden in-game and\n"
+            "cloned down the belt. Great for tunnels, roads, terrain strips.");
+
+        ImGui::DragFloat("Speed (units/s)", &o.scrollSpeed, 0.1f, -200.0f, 200.0f,
+                         "%.1f");
+        committed |= ImGui::IsItemDeactivatedAfterEdit();
+        ImGui::SetItemTooltip("Belt speed along +Z. Negative reverses the flow.");
+        ImGui::DragFloat("Populate ahead", &o.scrollAhead, 0.5f, 0.0f, 2000.0f,
+                         "%.1f");
+        committed |= ImGui::IsItemDeactivatedAfterEdit();
+        ImGui::DragFloat("Keep behind", &o.scrollBehind, 0.5f, 0.0f, 2000.0f,
+                         "%.1f");
+        committed |= ImGui::IsItemDeactivatedAfterEdit();
+        if (ImGui::Checkbox("Run at start", &o.scrollAutostart)) committed = true;
+        ImGui::SetItemTooltip(
+            "Off = the belt is frozen until a Start Scroller flow node runs.");
+        ImGui::DragInt("Max clones", &o.scrollMaxClones, 1.0f, 1, 2000);
+        committed |= ImGui::IsItemDeactivatedAfterEdit();
+        ImGui::SetItemTooltip(
+            "Safety cap on baked clone objects. Past it the belt recycles\n"
+            "fewer copies (a visible gap may appear).");
+        ImGui::DragFloat("Seam overlap", &o.scrollOverlap, 0.005f, 0.0f, 1.0f,
+                         "%.3f");
+        committed |= ImGui::IsItemDeactivatedAfterEdit();
+        ImGui::SetItemTooltip(
+            "Each clone is stretched this much along the belt so consecutive\n"
+            "pieces interpenetrate slightly - exactly-coplanar end faces\n"
+            "z-fight (flickering seams). 0 = exact tiling.");
+        ImGui::DragInt("Variation seed", &o.scrollVarySeed, 1.0f, 0, 1000000);
+        committed |= ImGui::IsItemDeactivatedAfterEdit();
+        ImGui::SetItemTooltip(
+            "Seeds the per-cell variation set up on each segment member below\n"
+            "(Appears in / Variant group / the jitters). Changing it deals a\n"
+            "different infinite level from the same pieces.");
+        // THIS belt's ghosts only - a checkbox inside one scroller's properties
+        // that silenced every scroller in the scene reads as a bug. View >
+        // Scroller preview is the all-at-once switch, and it wins while it is
+        // off. Editor-only and deliberately NOT part of the object: no
+        // commitChange(), because hiding a preview is not an edit to the scene.
+        bool beltGhosts = !scrollGhostsOff_.count(o.id);
+        ImGui::BeginDisabled(!showScrollerPreview_);
+        if (ImGui::Checkbox("Show belt preview", &beltGhosts)) {
+            if (beltGhosts) scrollGhostsOff_.erase(o.id);
+            else scrollGhostsOff_.insert(o.id);
+        }
+        ImGui::EndDisabled();
+        ImGui::SetItemTooltip(
+            showScrollerPreview_
+                ? "Draw THIS belt's sliding ghost copies in the viewport. Off\n"
+                  "leaves the belt marker and every readout below alone - it\n"
+                  "only stops the copies from covering the member objects you\n"
+                  "are editing. An editor setting, not project data.\n"
+                  "View > Scroller preview does the same for every belt."
+                : "View > Scroller preview is off, which already hides every\n"
+                  "belt. Turn it back on to hide belts one at a time.");
+
+        // Cost readout: how many clone objects this belt bakes into the scene.
+        if (!o.scrollSegments.empty()) {
+            const int clones = scrollsim::cloneCount(scene.objects, o);
+            const int cells = scrollsim::cellsPerSegment(scene.objects, o);
+            const float pat = scrollsim::patternLength(scene.objects, o);
+            ImGui::Text("Belt: %d clone objects (%d copies/segment, period %.1f)",
+                        clones, cells, pat);
+            if (scrollsim::hasVariation(o))
+                ImGui::TextColored(ImVec4(0.5f, 0.85f, 0.55f, 1.0f),
+                                   "Per-cell variation on - the belt does not repeat.");
+            else
+                ImGui::TextDisabled(
+                    "Plain tiling: the belt repeats every %.1f units. Fold a member "
+                    "open to vary it.",
+                    cells * pat);
+            if (scrollsim::cloneCapped(scene.objects, o))
+                ImGui::TextColored(ImVec4(1.0f, 0.7f, 0.2f, 1.0f),
+                                   "Clone cap hit - raise Max clones or shorten the "
+                                   "window to close the gap.");
+        }
+
+        ImGui::Spacing();
+        ImGui::TextUnformatted("Segments (tiled in order):");
+
+        int removeSeg = -1;
+        for (size_t s = 0; s < o.scrollSegments.size(); ++s) {
+            ScrollSegment& seg = o.scrollSegments[s];
+            ImGui::PushID((int)s);
+            // Reorder + delete controls
+            const bool canUp = s > 0;
+            const bool canDown = s + 1 < o.scrollSegments.size();
+            ImGui::BeginDisabled(!canUp);
+            if (ImGui::ArrowButton("##segup", ImGuiDir_Up)) {
+                std::swap(o.scrollSegments[s], o.scrollSegments[s - 1]);
+                committed = true;
+            }
+            ImGui::EndDisabled();
+            ImGui::SameLine(0.0f, 2.0f);
+            ImGui::BeginDisabled(!canDown);
+            if (ImGui::ArrowButton("##segdown", ImGuiDir_Down)) {
+                std::swap(o.scrollSegments[s], o.scrollSegments[s + 1]);
+                committed = true;
+            }
+            ImGui::EndDisabled();
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Delete segment")) removeSeg = (int)s;
+
+            char segName[96];
+            std::snprintf(segName, sizeof(segName), "%s", seg.name.c_str());
+            ImGui::SetNextItemWidth(scaled(180));
+            if (ImGui::InputText("Name", segName, sizeof(segName))) seg.name = segName;
+            committed |= ImGui::IsItemDeactivatedAfterEdit();
+
+            ImGui::SetNextItemWidth(scaled(120));
+            ImGui::DragFloat("Length", &seg.length, 0.1f, 0.0f, 2000.0f,
+                             seg.length > 0.0f ? "%.1f" : "auto");
+            committed |= ImGui::IsItemDeactivatedAfterEdit();
+            ImGui::SameLine();
+            ImGui::TextDisabled("(0 = auto: %.1f)",
+                                scrollsim::segmentLength(scene.objects, o, seg));
+
+            // Member object list (add / remove by name, like Mirror). Each row
+            // folds open into that member's per-cell variation.
+            int removeAt = -1;
+            for (size_t i = 0; i < seg.objects.size(); ++i) {
+                ScrollMember& m = seg.objects[i];
+                ImGui::PushID((int)i);
+                if (ImGui::SmallButton("x")) removeAt = (int)i;
+                ImGui::SameLine();
+                bool exists = false;
+                for (const SceneObject& t : scene.objects)
+                    if (t.name == m.name) { exists = true; break; }
+                // Folded rows still have to say what varies, or a belt's whole
+                // behavior hides behind closed triangles.
+                std::string summary;
+                if (m.variant > 0)
+                    summary += "  [variant " + std::to_string(m.variant) + "]";
+                else if (m.chance < 1.0f) {
+                    char pct[16];
+                    std::snprintf(pct, sizeof(pct), "%.0f%%", m.chance * 100.0f);
+                    summary += std::string("  [") + pct + "]";
+                }
+                if (m.yawVary != 0.0f || m.offsetVary != 0.0f || m.scaleVary != 0.0f)
+                    summary += "  [jitter]";
+                if (!exists) ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(1, 0.4f, 0.3f, 1));
+                const bool open = ImGui::TreeNodeEx(
+                    "##member", ImGuiTreeNodeFlags_SpanAvailWidth, "%s%s%s",
+                    m.name.c_str(), exists ? "" : " (missing)", summary.c_str());
+                if (!exists) ImGui::PopStyleColor();
+                if (open) {
+                    ImGui::SetNextItemWidth(scaled(120));
+                    ImGui::BeginDisabled(m.variant > 0);
+                    ImGui::SliderFloat("Appears in", &m.chance, 0.0f, 1.0f, "%.2f");
+                    committed |= ImGui::IsItemDeactivatedAfterEdit();
+                    ImGui::EndDisabled();
+                    ImGui::SetItemTooltip(
+                        "Fraction of belt cells this member shows up in.\n"
+                        "1 = every cell (the plain tiling). 0.35 = roughly a\n"
+                        "third of them, drawn from the cell's own hash - so the\n"
+                        "belt stops repeating without any extra geometry.");
+                    ImGui::SetNextItemWidth(scaled(120));
+                    ImGui::DragInt("Variant group", &m.variant, 0.1f, 0, 16);
+                    committed |= ImGui::IsItemDeactivatedAfterEdit();
+                    ImGui::SetItemTooltip(
+                        "0 = off. Members of this segment sharing a group number\n"
+                        "are alternatives: exactly ONE of them shows per cell\n"
+                        "(three obstacle shapes in one lane, say). A grouped\n"
+                        "member ignores Appears in - the group always fills.");
+                    ImGui::SetNextItemWidth(scaled(120));
+                    ImGui::DragFloat("Yaw jitter", &m.yawVary, 0.5f, 0.0f, 180.0f,
+                                     "+-%.0f deg");
+                    committed |= ImGui::IsItemDeactivatedAfterEdit();
+                    ImGui::SetItemTooltip(
+                        "Random spin around Y, per cell. Free variety for rocks,\n"
+                        "trees and debris; leave at 0 for anything that has to\n"
+                        "line up with its neighbour (floors, rails, walls).");
+                    ImGui::SetNextItemWidth(scaled(120));
+                    ImGui::DragFloat("Side jitter", &m.offsetVary, 0.05f, 0.0f, 50.0f,
+                                     "+-%.2f");
+                    committed |= ImGui::IsItemDeactivatedAfterEdit();
+                    ImGui::SetItemTooltip(
+                        "Random offset across the belt (world units,\n"
+                        "perpendicular to the axis and horizontal), per cell.");
+                    ImGui::SetNextItemWidth(scaled(120));
+                    ImGui::DragFloat("Scale jitter", &m.scaleVary, 0.005f, 0.0f, 0.9f,
+                                     "+-%.2f");
+                    committed |= ImGui::IsItemDeactivatedAfterEdit();
+                    ImGui::SetItemTooltip(
+                        "Random uniform scale, per cell, as a fraction of the\n"
+                        "authored size (0.20 = +-20%%). Keep it off for tiling\n"
+                        "surfaces - a resized floor slab opens a gap.");
+                    ImGui::TreePop();
+                }
+                ImGui::PopID();
+            }
+            if (removeAt >= 0) {
+                seg.objects.erase(seg.objects.begin() + removeAt);
+                committed = true;
+            }
+            ImGui::SetNextItemWidth(scaled(200));
+            if (ImGui::BeginCombo("##segAdd", "+ Add object...")) {
+                for (const SceneObject& t : scene.objects) {
+                    // scenery only - not markers or the scroller itself
+                    const bool ok =
+                        t.type != PrimitiveType::Scroller &&
+                        t.type != PrimitiveType::Comment &&
+                        t.type != PrimitiveType::Player &&
+                        t.type != PrimitiveType::Camera &&
+                        t.type != PrimitiveType::SpawnPoint && t.name != o.name;
+                    if (!ok) continue;
+                    bool listed = false;
+                    for (const ScrollMember& n : seg.objects)
+                        if (n.name == t.name) { listed = true; break; }
+                    if (listed) continue;
+                    if (ImGui::Selectable(t.name.c_str())) {
+                        seg.objects.push_back(ScrollMember{t.name});
+                        committed = true;
+                    }
+                }
+                ImGui::EndCombo();
+            }
+            if (seg.objects.empty())
+                ImGui::TextDisabled("Empty segment - add scene objects above.");
+            ImGui::Separator();
+            ImGui::PopID();
+        }
+        if (removeSeg >= 0) {
+            o.scrollSegments.erase(o.scrollSegments.begin() + removeSeg);
+            committed = true;
+        }
+        if (ImGui::Button("+ Add segment")) {
+            ScrollSegment seg;
+            seg.name = "segment-" + std::to_string(o.scrollSegments.size() + 1);
+            o.scrollSegments.push_back(seg);
+            committed = true;
+        }
+        if (o.scrollSegments.empty())
+            ImGui::TextDisabled("No segments yet - add one, then assign objects.");
+    }
+
     if (isPortal) {
         ImGui::SeparatorText("Portal");
         // Destination link: another Portal in this scene. One-way by design -
@@ -989,15 +2119,15 @@ void App::drawPropertiesWindow() {
         }
         if (ImGui::BeginCombo("##portalAdd", "+ Add object...")) {
             for (const SceneObject& t : project_.objects()) {
-                // same set the mirror can reflect: types the game draws as
-                // static geometry (animated models re-pose in the main view
-                // only; through a portal they would show a stale pose)
+                // Geometry and Point Light beam effects supported by the
+                // through-view (animated models reuse their latest pose).
                 const bool viewable =
                     t.type == PrimitiveType::Box || t.type == PrimitiveType::Sphere ||
                     t.type == PrimitiveType::Cylinder ||
                     t.type == PrimitiveType::Cone || t.type == PrimitiveType::Plane ||
                     t.type == PrimitiveType::SavePoint ||
-                    t.type == PrimitiveType::Model || t.type == PrimitiveType::Decal;
+                    t.type == PrimitiveType::Model || t.type == PrimitiveType::Decal ||
+                    t.type == PrimitiveType::PointLight;
                 if (!viewable || t.name == o.name) continue;
                 bool listed = false;
                 for (const std::string& n : o.portalObjects)
@@ -1019,18 +2149,41 @@ void App::drawPropertiesWindow() {
 
     if (o.type == PrimitiveType::Emitter) {
         ImGui::SeparatorText("Particle emitter");
+        // The particle library (docs/particles.md): a linked emitter wears the
+        // effect's look, copied in by project::applyParticleEffects on commit.
+        const ParticleEffect* linked = project::findParticleEffect(project_, o.particleEffect);
+        if (ImGui::BeginCombo("Library", o.particleEffect.empty()
+                                             ? "(own settings)"
+                                             : o.particleEffect.c_str())) {
+            if (ImGui::Selectable("(own settings)##fxnone", o.particleEffect.empty())) {
+                o.particleEffect.clear();
+                committed = true;
+            }
+            for (size_t k = 0; k < project_.particleEffects.size(); ++k) {
+                const ParticleEffect& fx = project_.particleEffects[k];
+                const std::string label = fx.name + "##fx" + std::to_string(k);
+                if (ImGui::Selectable(label.c_str(), fx.name == o.particleEffect)) {
+                    o.particleEffect = fx.name;
+                    committed = true;
+                }
+            }
+            ImGui::EndCombo();
+        }
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Edit...##fxedit")) openParticleEditor(o.particleEffect);
+        if (!o.particleEffect.empty() && !linked)
+            ImGui::TextColored(theme::semantics().warn, "No effect named \"%s\".",
+                               o.particleEffect.c_str());
+        if (linked) ImGui::BeginDisabled();
         const char* kinds[] = {"Fire", "Smoke", "Fog", "Sparks", "Rain", "Custom"};
         if (ImGui::Combo("Effect", &o.emitterKind, kinds, 6)) committed = true;
+        if (ImGui::Checkbox("Additive (glows)", &o.emitterAdditive)) committed = true;
         if (ImGui::DragInt("Density (count)", &o.emitterCount, 1.0f, 1, 256)) {}
         committed |= ImGui::IsItemDeactivatedAfterEdit();
         ImGui::DragFloat("Particle size", &o.emitterSize, 0.02f, 0.05f, 8.0f, "%.2f");
         committed |= ImGui::IsItemDeactivatedAfterEdit();
         // optional texture: the material's map_Kd, tinted by the color
         if (drawMaterialCombo(o)) committed = true;
-        if (!o.materialPath.empty()) {
-            ImGui::SameLine();
-            if (ImGui::SmallButton("Edit...")) openMaterialEditor(o.materialPath);
-        }
         if (o.emitterKind == 2) {  // fog density
             ImGui::DragFloat("Opacity", &o.emitterOpacity, 0.01f, 0.0f, 1.0f,
                              "%.2f");
@@ -1068,6 +2221,7 @@ void App::drawPropertiesWindow() {
                 "Rotation to aim (90 deg X = a horizontal pipe leak).\n"
                 "Negative gravity rises (steam); low weight = air drag.");
         }
+        if (linked) ImGui::EndDisabled();
         if (ImGui::Checkbox("Enabled", &o.emitterEnabled)) committed = true;
         if (ImGui::Checkbox("Follow player", &o.emitterFollowPlayer)) committed = true;
         if (o.emitterFollowPlayer)
@@ -1075,7 +2229,7 @@ void App::drawPropertiesWindow() {
                                 "X/Z near 0 and Y = height above the player.");
         ImGui::TextDisabled("Color tints the particles; scale X/Z = spawn area.\n"
                             "Rain falls from the emitter down to the terrain.\n"
-                            "Show/Hide Object nodes switch the emitter on/off.");
+                            "Set Object Visible switches the emitter on/off.");
     }
 
     if (o.type == PrimitiveType::SoundEmitter) {
@@ -1109,14 +2263,36 @@ void App::drawPropertiesWindow() {
         }
         ImGui::DragFloat("Interval", &o.soundInterval, 0.1f, 0.0f, 60.0f, "%.1f s");
         committed |= ImGui::IsItemDeactivatedAfterEdit();
+        if (ImGui::Checkbox("Reverb (rooms affect this sound)", &o.soundReverb))
+            committed = true;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "On: this emitter is heard through whatever reverb zone the\n"
+                "player is standing in (docs/reverb.md).\n"
+                "Off: it stays dry everywhere - a UI beep, a voice line, or a\n"
+                "sample that was recorded with its own room already on it.\n"
+                "The send is one bit per voice in hardware, so there is no\n"
+                "per-emitter wet amount - only the zone's own.");
+        ImGui::DragInt("Priority", &o.soundPriority, 0.1f, -10, 10);
+        committed |= ImGui::IsItemDeactivatedAfterEdit();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Which emitters win when more of them are audible than the\n"
+                "sound chip has voices (docs/sound.md). Eight emitters can be\n"
+                "heard at once; a ninth has to lose a channel, and the one\n"
+                "that loses is the lowest priority - among equals, the\n"
+                "quietest.\n"
+                "0 is ordinary ambience. Raise it for the one sound a scene\n"
+                "cannot afford to drop (an alarm, a boss loop, a hint the\n"
+                "player is waiting on).");
         if (o.soundOnPlayer) {
             ImGui::TextDisabled("Plays centered at full volume everywhere -\n"
                                 "no distance falloff, no panning (dialogs,\n"
-                                "narration). Hide Object mutes.");
+                                "narration). Set Object Visible (hide) mutes.");
         } else {
             ImGui::TextDisabled("Volume fades with distance to the player.\n"
                                 "Interval 0 loops the sample seamlessly; > 0\n"
-                                "retriggers it every N seconds. Hide Object mutes.");
+                                "retriggers it every N seconds. Hiding the object mutes.");
         }
     }
 
@@ -1136,6 +2312,51 @@ void App::drawPropertiesWindow() {
                 "object and be switched by the Set Light flow node.\n"
                 "The engine lights each mesh with its strongest dynamic\n"
                 "light (one slot per mesh; max 8 per scene).");
+        if (o.lightDynamic) {
+            committed |= ImGui::Checkbox("Spot (cone)", &o.lightSpot);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "The light becomes a cone down the object's local -Y\n"
+                    "(unrotated = straight down; rotate the object to aim).\n"
+                    "Nearby meshes take the cone per vertex, and on the\n"
+                    "ground its footprint is PROJECTED per pixel with the\n"
+                    "flashlight's gobo - a street lamp that really lights\n"
+                    "the street (docs/flashlight.md).");
+            if (o.lightSpot) {
+                ImGui::DragFloat("Cone half-angle", &o.lightSpotAngle, 0.2f,
+                                 5.0f, 60.0f, "%.0f deg");
+                committed |= ImGui::IsItemDeactivatedAfterEdit();
+                // Whether this cone carves shadow volumes, said on the light
+                // rather than for the whole project - the "Dynamic shadow"
+                // idiom further up this panel. A real label, not a "##id":
+                // a hidden label is a widget no UI script can name
+                // (docs/ui-scripting.md). The name does not collide with
+                // "Dynamic shadow" above, and there is no other "Shadow
+                // volumes" widget in this window - a label IS the ImGui id.
+                const char* volNames[] = {"Default (follow the project)",
+                                          "Off", "On"};
+                int vol = o.lightShadowVolumes;
+                if (vol < 0 || vol > 2) vol = 0;
+                if (ImGui::Combo("Shadow volumes", &vol, volNames, 3)) {
+                    o.lightShadowVolumes = vol;
+                    committed = true;
+                }
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip(
+                        "Whether this spot light's cone is occluded per pixel\n"
+                        "by the solids inside it, the way the player's torch\n"
+                        "can be (docs/shadows.md).\n"
+                        "DEFAULT - the project decides (Preferences >\n"
+                        "Rendering > Spot light shadow volumes).\n"
+                        "OFF - this lamp shines through everything, whatever\n"
+                        "the project says.\n"
+                        "ON - this lamp casts, even in a project that leaves\n"
+                        "the rest of them off.\n"
+                        "Only ONE spot light casts volumes per frame - the\n"
+                        "nearest to the camera. Setting this to On is how you\n"
+                        "say which lamp deserves it. Game-only (no preview).");
+            }
+        }
         if (o.lightDynamic) {
             ImGui::DragFloat("Flicker", &o.lightFlicker, 0.01f, 0.0f, 1.0f, "%.2f");
             committed |= ImGui::IsItemDeactivatedAfterEdit();
@@ -1253,8 +2474,39 @@ void App::drawPropertiesWindow() {
         ImGui::SeparatorText("Player");
         const char* modes[] = {"Walk (FPP)", "Noclip (fly)", "Third person"};
         if (ImGui::Combo("Mode", &o.playerMode, modes, 3)) committed = true;
-        walkSpeedDrag("Walk speed", o.playerWalkSpeed,
-                      project_.settings.unitsPerMeter, &committed);
+        // The three speed tiers (docs/player-speeds.md). Walk is what a gentle
+        // stick gives, Run what a full one gives - the deflection ramps between
+        // them - and Sprint pins the top flat while the sprint action is held.
+        // Run and Sprint resolve through project::playerRunSpeed/
+        // playerSprintSpeed, the same functions codegen bakes with, so an unset
+        // tier displays the number the console will really run.
+        const float ups = project_.settings.unitsPerMeter;
+        walkSpeedDrag("Walk speed", o.playerWalkSpeed, ups, &committed);
+        prefHelp(
+            "Speed at a gentle stick, and the bottom of the walk -> run ramp.\n"
+            "With no Run speed set this is the only speed there is, which is\n"
+            "how every project behaved before the tiers existed.");
+        speedTierDrag("Run speed", o.playerRunSpeed,
+                      project::playerRunSpeed(o), ups, "same as walk",
+                      &committed);
+        prefHelp(
+            "Speed at FULL stick. The stick's deflection ramps the speed from\n"
+            "Walk up to Run, so easing the stick walks and pushing it all the\n"
+            "way runs.\n\n"
+            "A digital source - the d-pad, or the keyboard - always reads full\n"
+            "deflection, so it always moves at the Run speed.\n\n"
+            "This is also what the avatar's Run clip is measured against: the\n"
+            "'Run at' fraction below is a fraction of THIS speed.");
+        speedTierDrag("Sprint speed", o.playerSprintSpeed,
+                      project::playerSprintSpeed(o, project_.settings), ups,
+                      "run x sprint multiplier", &committed);
+        prefHelp(
+            "Speed while the 'sprint' action is held (Tools > Input Map).\n"
+            "It pins the top speed flat, ignoring the stick ramp - a\n"
+            "deliberate go-fast modifier rather than a third analog tier.\n\n"
+            "Left unset it is the Run speed times Preferences > Input >\n"
+            "Sprint speed, which is exactly what sprinting did before this\n"
+            "field existed. Set it to state the speed outright instead.");
         ImGui::DragFloat("Look speed", &o.playerLookSpeed, 0.05f, 0.1f, 5.0f, "%.2f");
         committed |= ImGui::IsItemDeactivatedAfterEdit();
         ImGui::DragFloat(o.playerMode == 2 ? "Body height" : "Eye height",
@@ -1317,6 +2569,7 @@ void App::drawPropertiesWindow() {
                         o.playerIdleClip.clear();
                         o.playerWalkClip.clear();
                         o.playerRunClip.clear();
+                        o.playerSprintClip.clear();
                         o.playerJumpClip.clear();
                         o.playerBackClip.clear();
                         o.playerStrafeLeftClip.clear();
@@ -1344,6 +2597,7 @@ void App::drawPropertiesWindow() {
                 } else {
                     ImGui::TextDisabled("%d verts, %d clip(s)", info.vertexCount,
                                         (int)info.clips.size());
+                    committed |= drawModelFacing(o);
                     // Locomotion clip mapping. Idle/Walk are required (fall back
                     // to the first clip); Run/Jump are optional (<none>).
                     // Effective (post-rename) names, like every other clip ref.
@@ -1378,13 +2632,31 @@ void App::drawPropertiesWindow() {
                     clipCombo("Idle clip", o.playerIdleClip, false);
                     clipCombo("Walk clip", o.playerWalkClip, false);
                     clipCombo("Run clip", o.playerRunClip, true);
+                    clipCombo("Sprint clip", o.playerSprintClip, true);
+                    prefHelp(
+                        "Played while the 'sprint' action is held and the\n"
+                        "avatar is past 'Run at' below. <none> = the run clip\n"
+                        "covers sprinting too.\n\n"
+                        "Chosen from the sprint BUTTON, not from a speed - so\n"
+                        "it works even when the sprint and run speeds are a\n"
+                        "hair apart. Its playback is matched to the sprint\n"
+                        "speed, so a clip authored at sprint pace plays at 1x\n"
+                        "when the player is actually sprinting.");
                     clipCombo("Jump clip", o.playerJumpClip, true);
+                    // A fraction of the RUN speed - which is the walk speed
+                    // until one is set, so the number means what it always did
+                    // while now tracking the tier the stick actually tops out
+                    // at (docs/player-speeds.md).
                     ImGui::DragFloat("Run at", &o.playerRunThreshold, 0.01f, 0.1f,
-                                     1.0f, "%.2f of walk speed");
+                                     1.0f, "%.2f of run speed");
                     committed |= ImGui::IsItemDeactivatedAfterEdit();
+                    prefHelp(
+                        "Fraction of the full-stick Run speed at which the Run\n"
+                        "clip replaces the Walk clip. Sprinting is above the\n"
+                        "run speed, so it always plays the run clip.");
                     ImGui::TextDisabled(
                         "Clip auto-selected from real speed; a script/flow\n"
-                        "\"Play Animation\" one-shot plays to the end first.");
+                        "an Animation one-shot plays to the end first.");
                     // Directional locomotion: only meaningful with the avatar
                     // facing the camera - otherwise it turns into the movement
                     // and every step is a forward step.
@@ -1483,6 +2755,27 @@ void App::drawPropertiesWindow() {
             ImGui::DragFloat("Cone half-angle (deg)", &o.flashlightAngle, 0.5f, 2.0f,
                              80.0f, "%.1f");
             committed |= ImGui::IsItemDeactivatedAfterEdit();
+            // Where the torch is HELD. At 0,0 the light sits exactly in the
+            // eye, which is what a first-person torch did until now - and a
+            // light on the view axis lights precisely the surfaces it hides,
+            // so its shadows fall behind their casters where nobody can see
+            // them.
+            ImGui::DragFloat("Held right (units)", &o.flashlightOffsetRight,
+                             0.01f, -1.0f, 1.0f, "%.2f");
+            committed |= ImGui::IsItemDeactivatedAfterEdit();
+            ImGui::DragFloat("Held below eye (units)", &o.flashlightOffsetDown,
+                             0.01f, -1.0f, 1.0f, "%.2f");
+            committed |= ImGui::IsItemDeactivatedAfterEdit();
+            ImGui::TextDisabled("0,0 = the light is your eye (no visible shadows).");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Moves the beam origin off the view axis, like a torch\n"
+                    "in a hand: the pool shifts a little and the shadows\n"
+                    "it casts stop hiding behind whatever casts them.\n"
+                    "The AIM still follows where you look. About 0.2\n"
+                    "right and 0.3 down reads as hand-held; past a\n"
+                    "metre it is a lamp on a pole and the cone stops\n"
+                    "agreeing with it.");
         }
         // Optional pad button the player presses to turn the beam on/off. The
         // on/off state only shows while Enabled (it respects Enabled), and the
@@ -1560,8 +2853,10 @@ void App::drawPropertiesWindow() {
     // src/scripts/*.cpp with TYRA_OBJECT_SCRIPT(Name). The game creates one
     // instance per attachment at scene load - the same class on five objects
     // runs as five independent instances, each seeing its object as `self`.
-    ImGui::SeparatorText("Scripts");
-    {
+    // ...but not on a comment: an editor note has no behaviour to attach
+    // anything to, and the game never sees the object at all.
+    if (!isComment) {
+        ImGui::SeparatorText("Scripts");
         const std::vector<std::string> registered = objectScriptNames();
         auto isRegistered = [&](const std::string& n) {
             for (const std::string& r : registered)
@@ -1642,6 +2937,27 @@ void App::drawMultiProperties() {
         if (i >= 0 && i < (int)project_.objects().size())
             objs.push_back(&project_.objects()[i]);
     if (objs.size() < 2) return;
+    const std::string group = selectedGroup();
+    if (group.empty()) {
+        if (ImGui::Button("Group objects")) { groupSelection(); return; }
+    } else {
+        char name[256];
+        std::snprintf(name, sizeof(name), "%s", group.c_str());
+        if (ImGui::InputText("Group name", name, sizeof(name), ImGuiInputTextFlags_EnterReturnsTrue) && name[0]) {
+            bool taken = false;
+            for (const auto& o : project_.objects())
+                taken |= o.editorGroup == name && o.editorGroup != group;
+            if (!taken) {
+                for (auto* o : objs) o->editorGroup = name;
+                commitChange();
+            } else statusMessage_ = "A group with this name already exists";
+        }
+        if (ImGui::Button("Ungroup objects")) { ungroupSelection(); return; }
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Copy objects")) copyObject();
+    ImGui::SameLine();
+    if (ImGui::Button("Delete objects")) { deleteSelectedObjects(); return; }
     SceneObject& primary = *objs.back();  // anchor: seeds the transform values
     bool committed = false;
 
@@ -1676,6 +2992,38 @@ void App::drawMultiProperties() {
             }
         }
     }
+    ImGui::Separator();
+
+    // Turn the selection into one endless scroller: a new Scroller object at the
+    // group's centroid whose first segment lists every selected object. (Creates
+    // and re-selects the scroller, so we return right after - `objs` is stale.)
+    if (ImGui::Button("Make endless scroller from selection")) {
+        float c[3] = {0, 0, 0};
+        std::vector<std::string> names;
+        for (auto* p : objs) {
+            if (p->type == PrimitiveType::Scroller ||
+                p->type == PrimitiveType::Comment)
+                continue;
+            names.push_back(p->name);
+            for (int a = 0; a < 3; ++a) c[a] += p->position[a];
+        }
+        if (!names.empty()) {
+            for (int a = 0; a < 3; ++a) c[a] /= (float)names.size();
+            addScroller();  // appends + selects the new scroller, commits
+            SceneObject& sc = project_.objects().back();
+            for (int a = 0; a < 3; ++a) sc.position[a] = c[a];
+            ScrollSegment seg;
+            seg.name = "segment-1";
+            for (const std::string& n : names) seg.objects.push_back(ScrollMember{n});
+            sc.scrollSegments.push_back(seg);
+            commitChange();
+        }
+        // Selection is now the single new scroller; the caller (drawProperties-
+        // Window) owns the Properties Begin/End, so just stop drawing this frame.
+        return;
+    }
+    ImGui::SetItemTooltip(
+        "Groups the selected objects into a new Scroller's first segment.");
     ImGui::Separator();
 
     // Which field groups apply = the intersection over the whole selection.
@@ -1786,7 +3134,33 @@ void App::drawMultiProperties() {
     // --- transforms (relative) ---
     relDrag3("Position", [](SceneObject& o) -> float* { return o.position; }, 0.1f, 0.0f,
              0.0f, "%.3f");
-    if (allRot)
+    if (!group.empty()) {
+        // Use the primary orientation as the numerical handle, but rotate every
+        // position and orientation rigidly around the same centroid as the gizmo.
+        float angle[3] = {primary.rotation[0], primary.rotation[1], primary.rotation[2]};
+        if (ImGui::DragFloat3("Rotation", angle, 1.0f, -360.0f, 360.0f, "%.0f deg")) {
+            float pivot[3] = {}, zero[3] = {}, unit[3] = {1, 1, 1};
+            for (auto* o : objs) for (int k = 0; k < 3; ++k) pivot[k] += o->position[k] / (float)objs.size();
+            float before[16], after[16], delta[16] = {};
+            ImGuizmo::RecomposeMatrixFromComponents(zero, primary.rotation, unit, before);
+            ImGuizmo::RecomposeMatrixFromComponents(zero, angle, unit, after);
+            for (int c = 0; c < 3; ++c) for (int r = 0; r < 3; ++r)
+                for (int k = 0; k < 3; ++k) delta[c*4+r] += after[k*4+r] * before[k*4+c];
+            delta[15] = 1;
+            for (int r = 0; r < 3; ++r) {
+                delta[12+r] = pivot[r];
+                for (int k = 0; k < 3; ++k) delta[12+r] -= delta[k*4+r] * pivot[k];
+            }
+            for (auto* o : objs) {
+                float model[16], result[16] = {};
+                ImGuizmo::RecomposeMatrixFromComponents(o->position, o->rotation, o->scale, model);
+                for (int c = 0; c < 4; ++c) for (int r = 0; r < 4; ++r)
+                    for (int k = 0; k < 4; ++k) result[c*4+r] += delta[k*4+r] * model[c*4+k];
+                ImGuizmo::DecomposeMatrixToComponents(result, o->position, o->rotation, o->scale);
+            }
+        }
+        if (ImGui::IsItemDeactivatedAfterEdit()) committed = true;
+    } else if (allRot)
         relDrag3("Rotation", [](SceneObject& o) -> float* { return o.rotation; }, 1.0f,
                  -360.0f, 360.0f, "%.0f deg");
     if (allScale) {
@@ -1853,6 +3227,8 @@ void App::drawMultiProperties() {
         if (d != primary.primDetail)
             for (auto* p : objs) p->primDetail = clampPrimDetail(p->type, d);
         if (ImGui::IsItemDeactivatedAfterEdit()) committed = true;
+        if (primary.type == PrimitiveType::Cylinder)
+            multiCheck("Vertical rings", &SceneObject::primRings);
     }
 
     // --- solid geometry fields ---
@@ -1860,6 +3236,9 @@ void App::drawMultiProperties() {
         multiDragF("Draw distance", &SceneObject::drawDistance, 0.5f, 0.0f, 2000.0f,
                    "%.0f units");
         multiCheck("Show in reflections", &SceneObject::reflected);
+        multiCheck("Reflection box proxy", &SceneObject::reflectionProxy);
+        multiCheck("Never occlude other objects", &SceneObject::occluderExclude);
+        multiCheck("Can be occlusion culled", &SceneObject::occlusionCull);
         multiCheck("Projected shadow (live)", &SceneObject::projShadow);
         multiCheck("Cast shadow", &SceneObject::castShadow);
         multiCheck("Physics (rigid body)", &SceneObject::physics);
@@ -1896,7 +3275,18 @@ void App::drawMultiProperties() {
         const char* kinds[] = {"Fire", "Smoke", "Fog", "Sparks", "Rain", "Custom"};
         multiCombo("Effect", &SceneObject::emitterKind, kinds, 6);
         multiDragF("Particle size", &SceneObject::emitterSize, 0.02f, 0.05f, 8.0f, "%.2f");
-        multiDragF("Opacity", &SceneObject::emitterOpacity, 0.01f, 0.0f, 1.0f, "%.2f");
+        // Opacity only exists for the kinds that read it - fog (peak alpha =
+        // Opacity x 60) and custom (x 128); fire/smoke/sparks/rain have fixed
+        // peak alphas, and the value is not even stored for them. Offering the
+        // slider there was an edit that went nowhere, which is the same bug the
+        // single-object inspector already avoids by asking the kind first.
+        bool allOpacityKind = true;
+        for (auto* p : objs)
+            allOpacityKind =
+                allOpacityKind && (p->emitterKind == 2 || p->emitterKind == 5);
+        if (allOpacityKind)
+            multiDragF("Opacity", &SceneObject::emitterOpacity, 0.01f, 0.0f, 1.0f,
+                       "%.2f");
         multiCheck("Enabled", &SceneObject::emitterEnabled);
         multiCheck("Follow player", &SceneObject::emitterFollowPlayer);
     }
@@ -1918,6 +3308,46 @@ void App::drawMultiProperties() {
         return;
     }
     if (committed) commitChange();
+}
+
+// The skeletal runtime treats +Z as forward. Source files do not necessarily
+// agree, and object rotation is the wrong fix for an avatar because the walker
+// owns that rotation at runtime. Present the four useful authored axes instead
+// of making an artist discover what "model yaw offset" means. The Custom entry
+// keeps arbitrary existing values editable and preserves project compatibility.
+bool App::drawModelFacing(SceneObject& o) {
+    float yaw = std::fmod(o.modelYawOffset, 360.0f);
+    if (yaw > 180.0f) yaw -= 360.0f;
+    if (yaw < -180.0f) yaw += 360.0f;
+    auto near = [&](float want) { return std::fabs(yaw - want) < 0.01f; };
+    int facing = near(0.0f) ? 0
+                 : near(180.0f) || near(-180.0f) ? 1
+                 : near(-90.0f) ? 2
+                 : near(90.0f) ? 3
+                               : 4;
+    const char* choices[] = {
+        "+Z (already forward)", "-Z (backwards - turn 180 deg)",
+        "+X (turn 90 deg left)", "-X (turn 90 deg right)",
+        "Custom (fine tune below)"};
+    bool committed = false;
+    ImGui::SetNextItemWidth(scaled(250));
+    if (ImGui::Combo("Model faces", &facing, choices, 5)) {
+        constexpr float offsets[] = {0.0f, 180.0f, -90.0f, 90.0f};
+        if (facing < 4) {
+            o.modelYawOffset = offsets[facing];
+            committed = true;
+        }
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "Choose the direction the imported mesh faces in its own file.\n"
+            "The editor turns only the mesh to +Z; player and AI facing stay\n"
+            "correct. Pick -Z when the character walks backwards.");
+    ImGui::SetNextItemWidth(scaled(110));
+    ImGui::DragFloat("Yaw correction", &o.modelYawOffset, 1.0f, -180.0f,
+                     180.0f, "%.0f deg");
+    committed |= ImGui::IsItemDeactivatedAfterEdit();
+    return committed;
 }
 
 // Per-object LOD override rows (animated models + player avatars). Each
@@ -1953,21 +3383,89 @@ bool App::drawLodOverrides(SceneObject& o, bool animated) {
     if (animated)
         row("animation LOD", o.animLodOverride, project_.settings.animLodDistance);
     row("mesh LOD", o.meshLodOverride, project_.settings.meshLodDistance);
-    if (!animated) return committed;  // yaw offset drives the skeletal path
-
-    // Content-forward correction: a model authored facing +-X (instead of
-    // the +Z the avatar drive / AI turn-to-face expect) renders turned by
-    // this many degrees while every logic yaw stays pure. Applied between
-    // scale and rotation, mirrored in the viewport preview.
-    ImGui::SetNextItemWidth(scaled(110));
-    ImGui::DragFloat("Model yaw offset", &o.modelYawOffset, 1.0f, -180.0f,
-                     180.0f, "%.0f deg");
-    committed |= ImGui::IsItemDeactivatedAfterEdit();
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip(
-            "Model faces sideways in game? The content was authored\n"
-            "X-forward (common Blender habit: facing the red axis).\n"
-            "Set +90 or -90 - the mesh turns, facing logic stays intact.");
+    if (!animated && o.type == PrimitiveType::Model) {
+        const bool supported = !o.physics && !o.modelPath.empty() &&
+            std::fabs(o.rotation[0]) < .001f && std::fabs(o.rotation[2]) < .001f &&
+            o.scale[0] > 0 && o.scale[1] > 0 && std::fabs(o.scale[0]-o.scale[2]) < .0001f;
+        if (modelImpostorObject_ != o.id) {
+            modelImpostorObject_ = o.id;
+            modelImpostorViews_ = o.impostorViews;
+        }
+        int captureChoice = modelImpostorViews_ == 4 ? 0 : modelImpostorViews_ == 16 ? 2 : 1;
+        if (ImGui::Combo("Capture views", &captureChoice, "4 views\0" "8 views\0" "16 views\0"))
+            modelImpostorViews_ = 4 << captureChoice;
+        ImGui::Checkbox("Impostor", &impostorGpu_);
+        ImGui::TextDisabled("Applied on bake; captured on the GPU, falling\n"
+                            "back to the CPU if unavailable.");
+        ImGui::BeginDisabled(!supported);
+        if (ImGui::Button("Bake impostor")) {
+            std::string key = o.id;
+            for (char& c : key)
+                if (!((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
+                      (c >= '0' && c <= '9') || c == '-')) c = '_';
+            std::string path, error, backend;
+            float extent = 0;
+            if (impostorbake::model(project_.dir, o.modelPath, o.materialPath,
+                    "res/models/impostors/model-"+key, &path, &extent, &error, 128, modelImpostorViews_, impostorGpu_, &backend)) {
+                o.impostorPath = path;
+                o.impostorBillboard = true;
+                o.impostorViews = modelImpostorViews_;
+                if (o.impostorDistance <= 0)
+                    o.impostorDistance = std::max(1.0f, extent*std::max(o.scale[0],o.scale[1])*6.0f);
+                viewport_.invalidateAssets();
+                committed = true;
+                statusMessage_ = "Baked " + std::to_string(o.impostorViews) + "-view impostor (" + backend + ") for '" + o.name + "'";
+            } else statusMessage_ = "Impostor bake failed: " + error;
+        }
+        ImGui::EndDisabled();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip("Bake this OBJ and its material into the selected number of 128px views.\n"
+                              "Requires a static, upright object with equal positive X/Z scale.\n"
+                              "Reflection and emission are unsupported. Rebuild the game after baking.");
+        ImGui::SameLine();
+        ImGui::BeginDisabled(!supported);
+        if (ImGui::Button("Bake hull proxy")) {
+            std::string key = o.id;
+            for (char& c : key)
+                if (!std::isalnum((unsigned char)c) && c != '-') c = '_';
+            std::string path, error;
+            float extent = 0.0f;
+            int triangles = 0;
+            if (modelproxy::bakeHull(project_.dir, o.modelPath, o.materialPath,
+                    "res/models/proxies/model-" + key, &path, &extent,
+                    &triangles, &error)) {
+                o.impostorPath = path;
+                o.impostorBillboard = false;
+                if (o.impostorDistance <= 0)
+                    o.impostorDistance = std::max(1.0f, extent *
+                        std::max(o.scale[0], o.scale[1]) * 6.0f);
+                viewport_.invalidateAssets();
+                committed = true;
+                statusMessage_ = "Baked " + std::to_string(triangles) +
+                    "-triangle hull proxy for '" + o.name + "'";
+            } else statusMessage_ = "Hull proxy bake failed: " + error;
+        }
+        ImGui::EndDisabled();
+        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+            ImGui::SetTooltip("Build one-material geometry from the model's convex XZ silhouette and height.\n"
+                              "Useful for distant buildings and rocks; collision keeps the original mesh.\n"
+                              "Requires the same upright/equal-XZ transform as a captured impostor.");
+    }
+    if (!animated && !o.impostorPath.empty()) {
+        if (o.impostorBillboard)
+            ImGui::TextWrapped("Distant representation: captured impostor (%d views)\n%s",
+                               o.impostorViews, o.impostorPath.c_str());
+        else
+            ImGui::TextWrapped("Distant representation: hull proxy\n%s",
+                               o.impostorPath.c_str());
+        ImGui::DragFloat("Switch distance", &o.impostorDistance, 1.0f,
+                          0.0f, 2000.0f, "%.0f units");
+        committed |= ImGui::IsItemDeactivatedAfterEdit();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Camera distance at which the distant representation replaces the model.\n"
+                              "0 disables the swap. Collision always keeps the original mesh;\n"
+                              "the visual transition is not blended.");
+    }
     return committed;
 }
 
@@ -2042,4 +3540,96 @@ std::vector<std::string> App::flowVarNames(const std::string& nodeType) const {
                 if (!seen) names.push_back(n.str);
             }
     return names;
+}
+
+
+// Align the terrain to the selected road (docs/roads.md). The GRADE is
+// snapshotted FIRST - the spline's height read off the terrain as it is now,
+// smoothed along the line - and only then flattened toward, so the pass
+// cannot chase its own edits. One undo step, like a brush stroke.
+void App::alignTerrainToRoad(int objIndex) {
+    if (objIndex < 0 || objIndex >= (int)project_.objects().size()) return;
+    SceneObject& o = project_.objects()[objIndex];
+    if (o.type != PrimitiveType::Road || o.roadPoints.size() < 4) return;
+
+    // Dense stations along the spline, ~1 unit apart.
+    float total = 0.0f;
+    for (size_t k = 2; k + 1 < o.roadPoints.size(); k += 2) {
+        const float dx = o.roadPoints[k] - o.roadPoints[k - 2];
+        const float dz = o.roadPoints[k + 1] - o.roadPoints[k - 1];
+        total += std::sqrt(dx * dx + dz * dz);
+    }
+    const int stations = std::max(8, (int)(total / 1.0f));
+    struct St { float x, z, h; };
+    std::vector<St> line((size_t)stations + 1);
+    for (int i = 0; i <= stations; ++i) {
+        St& st = line[(size_t)i];
+        roadgen::splineAt(o.roadPoints, (float)i / (float)stations, &st.x, &st.z);
+        st.h = project::heightAtWorld(project_, st.x, st.z);
+    }
+    // Smooth the grade (a 5-tap box) so the road never inherits a single
+    // cell's spike - the whole point of aligning is a drivable surface.
+    for (int pass = 0; pass < 2; ++pass) {
+        std::vector<float> sm((size_t)stations + 1);
+        for (int i = 0; i <= stations; ++i) {
+            float acc = 0.0f;
+            int n = 0;
+            for (int k = -2; k <= 2; ++k) {
+                const int j = i + k;
+                if (j < 0 || j > stations) continue;
+                acc += line[(size_t)j].h;
+                ++n;
+            }
+            sm[(size_t)i] = acc / (float)n;
+        }
+        for (int i = 0; i <= stations; ++i) line[(size_t)i].h = sm[(size_t)i];
+    }
+    // FLAT under the asphalt, falloff only on the SHOULDERS: the first cut
+    // ran the flatten brush (cosine from the centre) per station, which
+    // crowned the road - the surface must be level across its own width.
+    // Direct heightfield pass: every cell within reach of the line takes the
+    // height of its NEAREST station, full strength inside halfWidth, cosine
+    // out to the shoulder edge.
+    {
+        SceneData& sc = project_.active();
+        if (sc.hmW >= 2 && sc.hmD >= 2) {
+            const float w = (float)sc.terrain.width, d = (float)sc.terrain.depth;
+            const float stepX = w / (sc.hmW - 1), stepZ = d / (sc.hmD - 1);
+            const float halfW = 0.5f * o.roadWidth + 0.4f;
+            const float shoulder = 3.0f;
+            const float reach = halfW + shoulder;
+            for (int z = 0; z < sc.hmD; ++z) {
+                for (int x = 0; x < sc.hmW; ++x) {
+                    const float vx = -w * 0.5f + x * stepX;
+                    const float vz = -d * 0.5f + z * stepZ;
+                    float best = 1e30f;
+                    float bh = 0.0f;
+                    for (const St& st : line) {
+                        const float dx = vx - st.x, dz = vz - st.z;
+                        const float d2 = dx * dx + dz * dz;
+                        if (d2 < best) {
+                            best = d2;
+                            bh = st.h;
+                        }
+                    }
+                    const float dist = std::sqrt(best);
+                    if (dist >= reach) continue;
+                    float k = 1.0f;
+                    if (dist > halfW) {
+                        const float t = (dist - halfW) / shoulder;
+                        k = 0.5f + 0.5f * std::cos(t * 3.14159265f);
+                    }
+                    float& h = sc.heights[(size_t)z * sc.hmW + x];
+                    h += (bh - h) * k;
+                }
+            }
+        }
+    }
+    const float radius = 0.5f * o.roadWidth + 3.0f;  // viewport rebuild reach
+    // Rebuild the viewport terrain under the whole line (region updates per
+    // station - the sculpt brush's own path, so chunk rebuilds stay local).
+    for (const St& st : line)
+        viewport_.updateTerrainRegion(project_.active().heights, st.x, st.z, radius);
+    commitChange();
+    statusMessage_ = "Terrain aligned to the road";
 }

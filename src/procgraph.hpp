@@ -132,6 +132,9 @@ struct ProcGraph {
     // baking a runtime volume would defeat the point, and running a baked one
     // would need nodes the console has no data for.
     bool runtime = false;
+    // Keep the last baked chunks until explicitly unfrozen. Graph edits stay
+    // staged; build/preview must not evaluate a frozen volume.
+    bool frozen = false;
     // Generate during the scene load, inside the loading screen's progress
     // pump. Off = nothing appears until a Generate Volume flow node fires,
     // which is how you regenerate on a button or stage a world in pieces.
@@ -161,6 +164,7 @@ inline bool operator==(const ProcLink& a, const ProcLink& b) {
 
 inline bool operator==(const ProcGraph& a, const ProcGraph& b) {
     return a.nextId == b.nextId && a.seed == b.seed && a.runtime == b.runtime &&
+           a.frozen == b.frozen &&
            a.runAtStart == b.runAtStart && a.seedMode == b.seedMode &&
            a.nodes == b.nodes && a.links == b.links &&
            a.overrides == b.overrides && a.bakedHash == b.bakedHash;
@@ -178,6 +182,11 @@ enum class ProcParamKind {
     ObjectName,  // scene object name (empty = the terrain / the volume)
     Attr,        // per-point attribute name (see procattr)
     Text,
+    // A terrain material: -1 = the terrain's base material, 0..N-1 = a painted
+    // layer (docs/terrain-painting.md). Stored as that index, picked by NAME -
+    // an index typed into a box is unreadable the moment a scene has more than
+    // one layer, and reordering the stack would silently retarget it anyway.
+    TerrainLayer,
 };
 
 struct ProcParamDef {

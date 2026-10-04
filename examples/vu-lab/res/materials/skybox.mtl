@@ -1,0 +1,4 @@
+newmtl skybox
+# tyra-brightness 1
+Kd 1.0000 1.0000 1.0000
+map_Kd sunset-sky.png

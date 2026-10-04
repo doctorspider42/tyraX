@@ -115,14 +115,38 @@ enum : int {
 constexpr int kSeqBarsStyleCount = 5;
 constexpr float kSeqBarsSlideDefault = 0.4f;  // default bars slide time, seconds
 
+// What the "menu" action (START by default) does while a skippable cutscene is
+// playing. Either way the press never reaches the pause menu: a cutscene that
+// declares itself skippable owns that button for its duration, which is the
+// whole reason a skippable cutscene is skippable at all in a project that has
+// a pause menu (see docs/cutscenes.md, "Skipping").
+enum : int {
+    kSeqSkipInstant = 0,  // the cutscene ends on the press
+    kSeqSkipConfirm = 1,  // open the project's skip-confirmation menu first
+};
+constexpr int kSeqSkipModeCount = 2;
+
 struct Sequence {
     std::string name = "Cutscene";
     float duration = 5.0f;         // seconds; playback ends (or loops) here
     bool loop = false;             // restart at 0 instead of ending
     bool cameraEnabled = false;    // drive the game camera from cameraKeys
     bool hidePlayer = false;       // hide the third-person avatar while playing
+    // Hide the whole HUD (every HUD image, live bar and baked text) while the
+    // cutscene plays, and with it the USE prompt - AND the USE interaction
+    // itself. Use targeting is a distance-and-facing test run from the PLAYER
+    // every frame and it knows nothing about cutscenes, so a player left
+    // standing in front of a usable prop - usually the very prop whose On Used
+    // started the cutscene - keeps "press to use" on screen over the cinematic,
+    // and the button keeps working. It is deliberately tied to THIS flag and not to
+    // playback: a cutscene that only animates something while the player keeps
+    // the camera is a real use case, and there the HUD and USE must keep
+    // working. Runtime text (Display Text) is NOT hidden - that is where
+    // subtitles live.
+    bool hideHud = false;
     int bars = kSeqBarsNone;       // widescreen mask style while playing
-    bool skippable = false;        // START ends the cutscene early
+    bool skippable = false;        // the "menu" action ends the cutscene early
+    int skipMode = kSeqSkipInstant;  // ...at once, or after a confirmation menu
     float fadeIn = 0.0f;           // seconds: fade from black at the start
     float fadeOut = 0.0f;          // seconds: fade to black before the end
     // Widescreen bars slide-in/out times (seconds). 0 = the bars snap to full
@@ -137,8 +161,9 @@ struct Sequence {
 inline bool operator==(const Sequence& a, const Sequence& b) {
     return a.name == b.name && a.duration == b.duration && a.loop == b.loop &&
            a.cameraEnabled == b.cameraEnabled && a.hidePlayer == b.hidePlayer &&
-           a.bars == b.bars &&
-           a.skippable == b.skippable && a.fadeIn == b.fadeIn &&
+           a.hideHud == b.hideHud && a.bars == b.bars &&
+           a.skippable == b.skippable && a.skipMode == b.skipMode &&
+           a.fadeIn == b.fadeIn &&
            a.fadeOut == b.fadeOut && a.barsSlideIn == b.barsSlideIn &&
            a.barsSlideOut == b.barsSlideOut && a.tracks == b.tracks &&
            a.cameraKeys == b.cameraKeys;
@@ -177,16 +202,33 @@ inline float seqSample(const float* times, const float* values, const int* easin
     return values[i] + (values[i + 1] - values[i]) * e;
 }
 
-// Screen fraction each widescreen mask covers per edge, assuming the 4:3
-// display the PS2 outputs. Cinema/Wide letterbox to 2.39:1 / 16:9 inside the
-// 4:3 image; Pillar/Frame are stylistic. Codegen bakes these numbers into the
-// generated player, the editor overlays them on the viewport - one source.
-inline void seqBarsFractions(int style, float& top, float& bottom, float& left,
-                             float& right) {
+// The 4:3 picture the PS2 outputs unless the project asks for widescreen.
+constexpr float kSeqAspect43 = 4.0f / 3.0f;
+
+// Screen fraction each widescreen mask covers per edge on a display of the
+// given PHYSICAL aspect (`kSeqAspect43`, 16/9 anamorphic, or the pillarboxed
+// widescreen 1080i window). Cinema/Wide letterbox to 2.39:1 / 16:9 INSIDE that
+// picture, so the answer depends on what shape the picture already is - on a
+// 16:9 output the Wide mask covers nothing and Cinema is thinner than it is on
+// 4:3. Pillar/Frame are stylistic and do not target an aspect at all.
+//
+// The display aspect is only known at RUNTIME (Set Widescreen, and the
+// widescreen option row, flip it mid-game), so unlike every other cutscene
+// number this one is NOT baked: the generated player carries a twin of this
+// function and the sequence table carries the style. The editor's viewport
+// overlay reads the project's own aspect.
+inline void seqBarsFractions(int style, float displayAspect, float& top,
+                             float& bottom, float& left, float& right) {
     top = bottom = left = right = 0.0f;
+    // A mask that would come out negative means the picture is already wider
+    // than the format asks for - no bars, rather than bars that add picture.
+    auto letterbox = [&](float target) {
+        const float f = 0.5f * (1.0f - displayAspect / target);
+        return f > 0.0f ? f : 0.0f;
+    };
     switch (style) {
-        case kSeqBarsCinema: top = bottom = 0.5f * (1.0f - (4.0f / 3.0f) / 2.39f); break;
-        case kSeqBarsWide: top = bottom = 0.5f * (1.0f - (4.0f / 3.0f) / (16.0f / 9.0f)); break;
+        case kSeqBarsCinema: top = bottom = letterbox(2.39f); break;
+        case kSeqBarsWide: top = bottom = letterbox(16.0f / 9.0f); break;
         case kSeqBarsPillar: left = right = 0.13f; break;
         case kSeqBarsFrame: top = bottom = left = right = 0.08f; break;
         default: break;

@@ -1,0 +1,20 @@
+openvcl
+.tundra*
+t2-output
+
+*.o
+*.vo
+*.elf
+*.vsm
+!test/fixtures/
+!test/fixtures/vsm_cost/
+!test/fixtures/vsm_cost/*.vsm
+*.a
+
+# CMake out-of-source builds
+/build/
+test/build/
+
+# Legacy Makefile artefacts (no longer generated)
+.depend
+obj/

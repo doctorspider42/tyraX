@@ -1,12 +1,14 @@
 # Material map baking (matbake)
 
-`src/matbake.cpp/.hpp` is the Material Editor's UV-space raytraced baker:
-it turns a mesh (a preview primitive or one of the project's `.obj` models)
+![Material Editor](img/material-editor.png)
+
+`src/matbake.cpp/.hpp` is the Material Editor's UV-space raytraced baker: it
+turns a mesh (a preview primitive or one of the project's `.obj` models)
 into a set of texture-space maps - ambient occlusion, bent normals,
 thickness, curvature, position and object-space normals - in one pass.
-Host-only, no GL (the decalproj pattern); this is a different animal from
+Host-only, no GL (the decalproj pattern). Don't confuse it with
 `aobake.cpp`, which bakes *scene* occlusion (terrain grids + analytic
-occluder atlases). matbake bakes *one model's own* surface detail.
+occluder atlases); matbake bakes *one model's own* surface detail.
 
 ## Using it (Material Editor > Bake maps)
 
@@ -35,12 +37,27 @@ The property column of the Material Editor ends in a **Bake maps** block:
   (`<file>-<entry>-ao.png`, `-curvature`, `-thickness`, `-bent`, `-normal`,
   `-position`) - mask sources for wear/dirt or exports for external tools.
 
+## The automatic path
+
+Everything above is the **hand** bake: one material, once, by choice. The same
+occlusion is also available for **every** `.obj` model in the project without
+anybody asking — *Tools > Baked Lighting > Model AO*
+([ambient-occlusion.md](ambient-occlusion.md#model-ao)). It runs this same
+raytracer per model asset, caches the result by content hash, and multiplies it
+into the model's shipped texture at build; the source in `res/` is untouched,
+so the hand bake and the automatic one do not collide.
+
+Reach for the hand bake when you want the maps themselves (masks, exports, a
+cage projection from a high-poly mesh) or a per-material result you can paint
+over. Reach for the automatic one when you just want every model to occlude
+itself.
+
 ## Smart masks (procedural wear & dirt)
 
 With the paint tool open, **+ Mask** (next to the layer buttons) adds a
-**smart mask layer**: its pixels are a fill color drawn through a
-procedural mask driven by the baked map set. Select the layer and tune the
-generator that appears under the list:
+**smart mask layer**: a fill color drawn through a procedural mask driven by
+the baked map set. Select the layer and tune the generator that appears
+under the list:
 
 - **Sources**: *Edge wear* / *Cavity grime* (baked curvature), *Occlusion
   dirt* (1−AO), *Thin rims* (thickness), *Height (Y)* and *Facing up*

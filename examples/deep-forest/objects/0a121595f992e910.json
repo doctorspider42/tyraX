@@ -1,0 +1,1 @@
+{ "id": "0a121595f992e910", "name": "pines#rock-x2z2", "type": "model", "position": [262.5, 0, 262.5], "rotation": [0, 0, 0], "scale": [1, 1, 1], "color": [0.6, 0.6, 0.6], "physics": false, "collision": "none", "drawDistance": 210, "castShadow": false, "model": "res/models/procgen-5c17a90e-rock-x2z2.obj", "meshLod": 70, "procSource": "5c17a90e63b84d21" }

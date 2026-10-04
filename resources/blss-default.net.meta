@@ -1,0 +1,21 @@
+# BLSS net provenance (docs/neural-upscaler.md). Written beside the net
+# it describes; the net's own bytes carry only magic + net-version, so
+# everything here is what a consumer needs to know that a net which
+# LOADS is also the right net. No timestamp and no editor version on
+# purpose - re-running `command` must reproduce this file byte for byte.
+blss-provenance 1
+net-version 3
+features 6
+hidden 12
+outputs 3
+tile 32
+act-table 512
+scale 2x2
+jitter 0
+sharpen 0.5
+frames 660
+shots 55
+epochs 400
+seed 0xB1557
+corpus examples/upscaler-lab examples/material-lab examples/endless-runner examples/cube examples/save-points examples/procedural examples/endless-scroller bestiary
+command tyrax-editor --blss-train examples/upscaler-lab examples/material-lab examples/endless-runner examples/cube examples/save-points examples/procedural examples/endless-scroller bestiary --all-shots --frames 660 --no-jitter -o resources/blss-default.net

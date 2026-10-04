@@ -55,6 +55,7 @@ bool memberIsMarker(const SceneObject& o) {
         case PrimitiveType::Camera:
         case PrimitiveType::Area:
         case PrimitiveType::Scatter:
+        case PrimitiveType::Comment:
             return true;
         default:
             return false;
@@ -119,6 +120,7 @@ Prefab capture(const SceneData& s, const std::vector<int>& sel,
         // it IS the prefab now, and the outliner grouping would otherwise put
         // every instance of the new one under the old one's name.
         o.prefabSource.clear();
+        o.editorGroup.clear();  // a prefab stamp must not join an existing group
         o.position[0] -= ox;
         o.position[1] -= oy;
         o.position[2] -= oz;
@@ -281,7 +283,7 @@ std::vector<float> unitMeshFor(const SceneObject& o) {
     const int d = clampPrimDetail(o.type, o.primDetail);
     switch (o.type) {
         case PrimitiveType::Sphere: return primmesh::unitSphere(d);
-        case PrimitiveType::Cylinder: return primmesh::unitCylinder(d);
+        case PrimitiveType::Cylinder: return primmesh::unitCylinder(d, o.primRings);
         case PrimitiveType::Cone: return primmesh::unitCone(d);
         case PrimitiveType::Plane: return primmesh::unitPlane();
         default: return primmesh::unitBox(d);

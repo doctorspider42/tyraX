@@ -126,13 +126,88 @@ enum class FlowParamKind {
     SequenceName,  // name of a Project::sequences entry (Cutscene Director)
     CreditsName,   // name of a Project::credits roll (Tools > Credits Editor)
     HudTextName,  // name of a Project::hudTexts entry (baked text sprite)
+    HudBarName,   // name of a Project::hudBars entry (a live bar)
+    // name of ANY HUD element - an image, a text or a bar (Tools > UI Editor).
+    // Resolved image first, then text, then bar, so a name shared across kinds
+    // reaches the image.
+    HudElementName,
     FontName,  // name of a Project::fonts entry (Tools > Font Manager)
     InputActionName,  // name of a Project::input action (Tools > Input Map)
     KeyName,   // a keyboard key label from inputKeyNames() ("Space", "F1")
     PrefabName,  // name of a Project::prefabs entry (Tools > Prefabs)
     EventName,  // name of a graph event (free text; exists by being named)
+    FactName,   // name of a Project::facts entry (Tools > World Facts)
+    FactQueryName,  // name of a Project::factQueries entry (a named condition)
     ScreenFxName,  // key of a Project::screenFx placement (custom .screenfx)
+    ReverbPreset,  // key of a reverbPresets() entry - a closed list, like
+                   // SaveSlotMode below, not a project lookup
+    // Which slot a Commit Checkpoint writes: "" / "fixed" = the Slot number
+    // below it, "autosave" = the project's autosave slot, "next" = the next
+    // free one. "" is fixed so a graph written before this existed is
+    // unchanged. A closed list, not a project lookup - see saveSlotModes().
+    SaveSlotMode,
 };
+
+// The SaveSlotMode choices. Order is cosmetic; the KEY is what a graph stores.
+struct SaveSlotModeInfo {
+    const char* key;
+    const char* label;
+    const char* desc;
+};
+inline const std::vector<SaveSlotModeInfo>& saveSlotModes() {
+    static const std::vector<SaveSlotModeInfo> modes = {
+        {"fixed", "This slot",
+         "Always the Slot number below. What every Commit Checkpoint did "
+         "before there was a choice."},
+        {"autosave", "Autosave slot",
+         "The slot set aside for autosaves in Tools > Save Editor. With none "
+         "set this writes nothing at all, rather than guessing at a slot."},
+        {"next", "Next free slot",
+         "The first slot with nothing in it, so a run leaves a trail instead "
+         "of one save. When they are all full it cycles through them, oldest "
+         "of this session first. The autosave slot is never picked."},
+    };
+    return modes;
+}
+
+// The SPU2 reverb presets (docs/reverb.md). Unlike the list above, ORDER IS
+// LOAD-BEARING: the index is Tyra::AudioReverb::Preset, which is libsd's
+// SD_EFFECT_MODE_*, and it is what gets baked into REVERB_ZONES and written to
+// the hardware. Append only, never reorder. This is the single source for the
+// Area properties combo, the Set Reverb node and codegen alike; the node
+// stores the KEY, an area stores the INDEX.
+struct ReverbPresetInfo {
+    const char* key;
+    const char* label;
+    const char* desc;
+};
+inline const std::vector<ReverbPresetInfo>& reverbPresets() {
+    static const std::vector<ReverbPresetInfo> presets = {
+        {"off", "Off", "No reverb - a dry pocket. Useful INSIDE another zone."},
+        {"room", "Room", "A small, tight room. The subtle one."},
+        {"studioA", "Studio A", "A treated room, short tail."},
+        {"studioB", "Studio B", "Studio A, bigger."},
+        {"studioC", "Studio C", "The biggest of the studio three."},
+        {"hall", "Hall", "A large hall - the obvious cave/church/hangar."},
+        {"space", "Space echo", "A long, washed-out ambience. Very wet."},
+        {"echo", "Echo", "Discrete repeats. Delay and feedback apply."},
+        {"delay", "Delay", "A single delay line. Delay and feedback apply."},
+        {"pipe", "Pipe", "A resonant tube - metallic, narrow."},
+    };
+    return presets;
+}
+// Index of a preset key. An unknown or empty key reads as Room, so a node
+// dropped and not yet configured does something audible rather than nothing.
+inline int reverbPresetIndex(const std::string& key) {
+    const std::vector<ReverbPresetInfo>& ps = reverbPresets();
+    for (size_t i = 0; i < ps.size(); ++i)
+        if (key == ps[i].key) return (int)i;
+    return 1;
+}
+// Delay and feedback are read by Echo and Delay ONLY - libsd folds them into
+// that line's taps and zeroes both for every other preset. Pipe looks like an
+// echo and is not one.
+inline bool reverbUsesEcho(int preset) { return preset == 7 || preset == 8; }
 
 struct FlowNodeType {
     const char* key = "";
@@ -161,6 +236,25 @@ struct FlowNodeType {
     // drag labelled "Seed" wanting to know what 0 and -1 mean). A trap about
     // one parameter belongs in its tip; a trap about the node stays in `desc`.
     const char* numTips[4] = {};
+    // A numeric parameter that is really a CHOICE: a '|'-separated list of
+    // option labels, in value order (index 0 = 0.0, 1 = 1.0, ...). When set,
+    // the editor draws a dropdown instead of a number field, which is the only
+    // way a reader can tell what "2" means without hovering. The stored value
+    // is still num[], so codegen, links and every existing project are
+    // untouched. Leave null for a genuine number.
+    const char* numChoices[4] = {};
+    // A numeric parameter that is a FRACTION: stored 0..1, drawn as a 0..100%
+    // slider. Two things come with the flag and both were asked for. The
+    // percentage is how such a knob READS - "0.200" says nothing about how
+    // strong the effect is - and the slider BOUNDS it, where the generic drag
+    // below happily takes a parameter to -4 or 900, neither of which means
+    // anything and both of which codegen then silently clamps away.
+    //
+    // Declared rather than guessed from the label, for the reason numChoices
+    // is: "Amount" names four different ranges across this registry (bloom
+    // goes to 2, a distance to hundreds), so a heuristic on that word can only
+    // be wrong somewhere.
+    bool numPercent[4] = {};
     FlowParamKind numKind = FlowParamKind::None;  // Color = picker for num[0..2]
     bool idIn = false;    // accepts an object id from a data link (object-param nodes)
     bool idOut = false;   // exposes its resolved object as an id output
@@ -283,13 +377,16 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
          .strTip = "The object to measure the distance FROM. Empty = the object "
                    "this graph belongs to.",
          .numCount = 1, .numLabels = {"Radius"},
-         .numTips = {"How close the player has to get, in world units. A sphere "
-                     "around the object's origin - it does not follow the "
-                     "object's shape."},
+         .numTips = {"How close the player has to get, in world units. Measured "
+                     "in the XZ plane only - a circle around the object's "
+                     "origin, not a sphere, so height does not matter and it "
+                     "does not follow the object's shape."},
          .idIn = true, .idOut = true,
-         .desc = "Fires EVERY FRAME the player is close enough to the target - "
-                 "a proximity state, not an entry event. Put a Do Once after it "
-                 "for a one-shot, or use In Area when the region has a shape."},
+         .desc = "Fires the frame the player comes INSIDE the radius - a rising "
+                 "edge, like In Area and On Player Seen. Walking out and back "
+                 "in fires it again; standing still inside does not. Add a Do "
+                 "Once for once-per-scene rather than once-per-entry, or use In "
+                 "Area when the region has a shape and needs to bound Y."},
         // Volume trigger: the Area object's box instead of Near Object's
         // radius (docs/areas.md). Read live, so a moving area drags its
         // trigger along.
@@ -985,6 +1082,31 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
          .idIn = true, .idOut = true, .posIn = true,
          .desc = "Moves the player to a point instantly. A linked position "
                  "overrides the object's."},
+        // Requests carried out by the game's vehicle update (a graph cannot
+        // call the game - ScriptContext::vehicleRequest). docs/vehicles.md,
+        // "From a flow graph".
+        {.key = "EnterVehicle", .title = "Enter Vehicle",
+         .category = "Player", .strKind = FlowParamKind::ObjectName,
+         .strTip = "The Vehicle object to put the player in. Empty = this "
+                   "graph's own object.",
+         .idIn = true,
+         .desc = "Seats the player in a vehicle at once, from anywhere - no "
+                 "walking up, no USE press, and the Driveable flag is not "
+                 "asked. Already driving another car = out of that one first. "
+                 "On Start -> Enter Vehicle starts a scene behind the wheel."},
+        {.key = "ExitVehicle", .title = "Exit Vehicle",
+         .category = "Player",
+         .desc = "Puts the player out at the driver's door, exactly as the USE "
+                 "button does. Nothing happens on foot."},
+        {.key = "RepairVehicle", .title = "Repair Vehicle",
+         .category = "Player", .strKind = FlowParamKind::ObjectName,
+         .strTip = "The Vehicle object to repair. Empty, or anything that is "
+                   "not a vehicle = the car the player is driving (nothing "
+                   "happens on foot).",
+         .idIn = true,
+         .desc = "Puts a damaged vehicle right: dents out, smoke gone, full "
+                 "power back (docs/vehicles.md, \"Damage\"). A garage is an "
+                 "Area with On Enter -> Repair Vehicle."},
         // The hit object is a runtime reference (-1 = none) - actions fed it
         // are guarded like Spawn Object clones.
         {.key = "Raycast", .title = "Raycast", .category = "Player",
@@ -1071,6 +1193,7 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
          .desc = "Rumbles the pad. Big 0 with Small off is the stop - there is "
                  "no separate node for it."},
         // Scene
+
         {.key = "SetSky", .title = "Set Sky Color", .category = "Scene",
          .numCount = 3,
          .numTips = {"The sky's RGB, each channel 0..1. It repaints the dome "
@@ -1134,6 +1257,21 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
                      "replaces it."},
          .numIn = true,
          .desc = "Controls the film-grain overlay."},
+        {.key = "SetMotionBlur", .title = "Set Motion Blur",
+         .category = "Scene",
+         .numCount = 1, .numLabels = {"Amount"},
+         .numTips = {"How much of the previous frame is blended over this "
+                     "one, 0% off to 100%. The trail compounds frame after "
+                     "frame, so 20-40% is already a long smear, and 100% is "
+                     "capped short of freezing the picture. A wired number "
+                     "replaces it (0..1, not 0..100), so a Tween can ramp the "
+                     "blur into a sprint or a hit."},
+         .numPercent = {true},
+         .numIn = true,
+         .desc = "Controls the motion blur - the previous frame smeared over "
+                 "this one. Costs no VRAM and no EE time (the other display "
+                 "buffer IS the last frame), so it is the cheap way to sell "
+                 "speed, a dash or a daze."},
         {.key = "SetFlare", .title = "Set Lens Flare", .category = "Scene",
          .numCount = 1, .numLabels = {"Amount"},
          .numTips = {"Flare brightness, 0 off to 1. A wired number replaces "
@@ -1182,6 +1320,21 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
                      "back on its own. 0 = switch blind, which strands the "
                      "player on a black screen if the TV cannot show the mode."},
          .desc = "Switches the console's video mode at runtime."},
+        {.key = "SetFrameExtrapolation", .title = "Set Frame Extrapolation",
+         .category = "Scene", .numCount = 1, .numLabels = {"Mode"},
+         .numTips = {"0 = off, 1 = on but only while it pays for itself, "
+                     "2 = on always. Mode 1 is what the project setting does: "
+                     "the game synthesises a frame only while its work already "
+                     "overruns a field, so a fast scene loses nothing. Mode 2 "
+                     "overrides that - use it for a cutscene, where the camera "
+                     "is doing the moving and a smoother picture is worth "
+                     "letting the world run slower."},
+         .numChoices = {"Off|On (only when it pays)|On (always)"},
+         .desc = "Turns frame extrapolation on or off while the game runs "
+                 "(docs/frame-extrapolation.md). Needs the project's Frame "
+                 "extrapolation preference on - that is what compiles the "
+                 "feature in; this only steers it. Fire it at the start of a "
+                 "cutscene and again at the end."},
         {.key = "SetWidescreen", .title = "Set Widescreen", .category = "Scene",
          .numCount = 1, .numLabels = {"On"},
          .numTips = {"On = fit the projection for 16:9, off = 4:3. This "
@@ -1248,12 +1401,16 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
         {.key = "SetBars", .title = "Set Letterbox Bars", .category = "Camera",
          .numCount = 2, .numLabels = {"Style", "Amount"},
          .numTips = {"Which mask: 0 none, 1 cinema 2.39:1, 2 wide 16:9, 3 "
-                     "pillarbox, 4 frame.",
+                     "pillarbox, 4 frame. Cinema and wide letterbox INSIDE the "
+                     "picture, so on a 16:9 game wide covers nothing and "
+                     "cinema is thinner.",
                      "How far the chosen style is deployed, 0..1 of its full "
                      "coverage - wire a Tween into it to slide the bars in."},
          .numIn = true,
          .desc = "Masks the frame with black bars. A playing cutscene's own "
-                 "bars win over this."},
+                 "bars win over this. The coverage follows the aspect the "
+                 "console is outputting, so it stays right when Set Widescreen "
+                 "or the player's own widescreen option changes it."},
         {.key = "SetPlayerVisible", .title = "Set Player Visible",
          .category = "Camera", .execInCount = 2,
          .execInLabels = {"show", "hide"},
@@ -1278,6 +1435,40 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
                  "you carry on afterwards."},
         {.key = "StopSequence", .title = "Stop Sequence", .category = "Scene",
          .desc = "Stops the active cutscene."},
+        // Endless scroller (Insert > World > Scroller, docs/endless-scroller.md).
+        // The target is the Scroller MARKER itself, never one of its segment
+        // members - the members are hidden templates and the baked clones are
+        // not addressable from a graph.
+        {.key = "StartScroller", .title = "Start Scroller", .category = "Scroller",
+         .strKind = FlowParamKind::ObjectName,
+         .strTip = "The Scroller object whose belt to run. Empty = this "
+                   "graph's own object.",
+         .idIn = true, .idOut = true,
+         .desc = "Runs a stopped endless-scroller belt, from wherever it was "
+                 "frozen. A belt with 'Run at start' ticked is already "
+                 "running, so this only matters after a Stop Scroller (or for "
+                 "a belt authored to start still)."},
+        {.key = "StopScroller", .title = "Stop Scroller", .category = "Scroller",
+         .strKind = FlowParamKind::ObjectName,
+         .strTip = "The Scroller object whose belt to freeze. Empty = this "
+                   "graph's own object.",
+         .idIn = true, .idOut = true,
+         .desc = "Freezes an endless-scroller belt in place. The tiled pieces "
+                 "stay exactly where they are and cost nothing per frame; "
+                 "Start Scroller resumes from the same spot."},
+        {.key = "SetScrollerSpeed", .title = "Set Scroller Speed",
+         .category = "Scroller", .strKind = FlowParamKind::ObjectName,
+         .strTip = "The Scroller object to re-speed. Empty = this graph's own "
+                   "object.",
+         .numCount = 1, .numLabels = {"Speed"},
+         .numTips = {"Belt units per second along the scroller's axis. "
+                     "Negative reverses the belt; 0 stalls it without "
+                     "stopping it (Stop Scroller is the cheaper freeze)."},
+         .idIn = true, .idOut = true, .numIn = true,
+         .desc = "Changes a belt's speed while the game runs - accelerating "
+                 "scenery as a train pulls away, or reversing it. Takes "
+                 "effect on the next frame; the belt keeps its current "
+                 "position."},
         // Credits (docs/credits.md). A rolling credits screen owns the whole
         // frame, so unlike a cutscene it is not something the graph keeps
         // driving: it starts here and reports back through On Credits Finished.
@@ -1298,6 +1489,7 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
          .desc = "Fires the frame a credits roll stops - whether it ran out, "
                  "was skipped or was stopped by a node. Its bool output is "
                  "\"credits are rolling right now\"."},
+
         // HUD (all HUD images at once; the USE prompt is unaffected)
         {.key = "SetHudVisible", .title = "Set HUD Visible", .category = "HUD",
          .execInCount = 3, .execInLabels = {"show", "hide", "toggle"},
@@ -1324,6 +1516,57 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
                         "Hides it now, whatever the countdown was doing."},
          .desc = "Shows or hides a pre-baked text sprite. Nothing is drawn "
                  "glyph by glyph here, so it costs one textured quad."},
+        // Animated HUD (docs/hud-animation.md): per-element visibility with
+        // the element's own transition, live bars, and one-shot effects. The
+        // LOOPED motion (pulse, bob, ...) is authored on the element in the UI
+        // Editor and needs no node at all.
+        {.key = "SetHudElementVisible", .title = "Set HUD Element Visible",
+         .category = "HUD", .strKind = FlowParamKind::HudElementName,
+         .strTip = "Any HUD element from Tools > UI Editor: an image in the "
+                   "screen stack, a bar, or a text (a text here is the same "
+                   "as Set Text Visible without the auto-hide).",
+         .execInCount = 3, .execInLabels = {"show", "hide", "toggle"},
+         .execInTips = {"Shows it, playing the element's own show transition "
+                        "(Fade, Slide, Pop - set in the UI Editor).",
+                        "Hides it through the same transition in reverse.",
+                        "Flips it - one button that opens and closes a map."},
+         .desc = "Shows or hides ONE HUD element - an image, a bar or a text - "
+                 "through the transition authored on it. Set HUD Visible "
+                 "still hides the whole stack at once; this is the per-element "
+                 "half."},
+        {.key = "SetHudBar", .title = "Set HUD Bar", .category = "HUD",
+         .strKind = FlowParamKind::HudBarName,
+         .strTip = "The bar from Tools > UI Editor > Bars. A bar bound to a "
+                   "save value follows that value every frame; this node then "
+                   "writes the save value, so the two never disagree.",
+         .numCount = 1, .numLabels = {"Value"},
+         .numTips = {"The new value in the bar's own units (its Min..Max map it "
+                     "to the fill; 0..100 for a default bar). A wired number "
+                     "replaces it."},
+         .numIn = true,
+         .execInCount = 2, .execInLabels = {"set", "set instantly"},
+         .execInTips = {"The fill EASES to the new value over the bar's "
+                        "Smoothing time, and the ghost strip lingers where it "
+                        "was - the usual damage/heal feel.",
+                        "Jumps the fill there at once, ghost included - for a "
+                        "respawn or a scene start."},
+         .desc = "Sets a HUD bar's value - health after a hit, stamina while "
+                 "sprinting, coins collected. Wire a Get Save Value or any "
+                 "Math node into Value for a computed one."},
+        {.key = "PlayHudEffect", .title = "Play HUD Effect", .category = "HUD",
+         .strKind = FlowParamKind::HudElementName,
+         .strTip = "The element to play it on: an image, a bar or a text from "
+                   "Tools > UI Editor.",
+         .numCount = 2, .numLabels = {"Effect", "Seconds"},
+         .numTips = {"Flash brightens and fades back, Bounce pops the scale, "
+                     "Shake jitters the position. All are one-shots layered "
+                     "over the element's looped animation.",
+                     "How long the effect runs. 0.3-0.5 reads as a hit; a "
+                     "second or more reads as an alarm."},
+         .numChoices = {"Flash|Bounce|Shake"},
+         .desc = "Plays a one-shot effect on a HUD element - a flash on the "
+                 "health bar when it drops, a bounce on the coin counter when "
+                 "one is collected. Costs nothing while idle."},
         // Runtime text: the string is only known while the game runs, so it
         // draws glyph by glyph from a Font Manager font's atlas instead of a
         // pre-baked sprite. The atlas only reaches VRAM once shown.
@@ -1380,16 +1623,50 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
          .desc = "The one place to duck all the sound effects at once - under "
                  "a cutscene, under dialogue. Music has its own Set Music "
                  "Volume."},
+        {.key = "SetReverb", .title = "Set Reverb", .category = "Audio",
+         .strKind = FlowParamKind::ReverbPreset,
+         .strTip = "Which room the effects are heard in. \"Off\" silences the "
+                   "reverb without handing control back to the zones.",
+         .numCount = 3, .numLabels = {"Amount", "Delay", "Feedback"},
+         .numTips = {"How wet, 0..100. A wired number replaces it, so a Tween "
+                     "into this ramps a room up or down.",
+                     "Time between repeats, 0..127. Echo and Delay presets "
+                     "only - the room presets have fixed geometry.",
+                     "How much of each repeat feeds the next, 0..127. Echo and "
+                     "Delay presets only."},
+         .numIn = true,
+         .execInCount = 2, .execInLabels = {"set", "clear"},
+         .execInTips = {"Force this reverb everywhere, whatever area the "
+                        "player is standing in.",
+                        "Hand control back to the reverb zones (docs/"
+                        "reverb.md). Without this the override stays in force."},
+         .desc = "Overrides the reverb for the whole game - a scripted moment "
+                 "that should sound like a cathedral wherever it happens, or "
+                 "an underwater stretch. Rooms placed as Areas cover the "
+                 "ordinary case and need no node at all. The console has ONE "
+                 "reverb unit, so this REPLACES the zones rather than adding "
+                 "to them; changing preset fades out and back in (~0.3 s) "
+                 "because switching the algorithm zeroes its work area."},
         {.key = "PlaySound", .title = "Play Sound", .category = "Audio",
          .strKind = FlowParamKind::SoundTrack,
          .strTip = "The sound effect to play (imported in the Project panel > "
                    "Sounds). One-shot ADPCM - for looping background audio use "
                    "Play Music.",
-         .numCount = 2, .numLabels = {"Volume", "Channel"},
+         .numCount = 4, .numLabels = {"Volume", "Channel", "Dry", "Priority"},
          .numTips = {"How loud, 0..100. Set Sound Volume scales this on top.",
-                     "Which of the SPU's 24 voices to use, or auto to rotate "
-                     "through them. Pinning a channel is how you make a new "
-                     "trigger CUT OFF the previous one instead of layering."},
+                     "Which voice to use, or auto to rotate through them. "
+                     "Auto cycles 0-15 and layers; 16-23 belong to the sound "
+                     "emitters. A PINNED channel CUTS OFF its own previous "
+                     "sample instead of layering - pin a footstep, a UI beep "
+                     "or a weapon so the new one replaces the old one.",
+                     "1 = never send this sound through a reverb zone - a menu "
+                     "beep or a voice line that must sound the same in a cave "
+                     "as outdoors. 0 (the default) = the room applies.",
+                     "Who wins when all sixteen voices are busy: a sound cuts "
+                     "off the LOWEST priority strictly below its own, and is "
+                     "dropped when nothing playing is less important. 0 is "
+                     "ordinary; raise it for a gunshot or a line of dialogue, "
+                     "lower it for chatter you would rather lose."},
          .desc = "Fires a one-shot sound effect."},
         // Save data: named values persisted in memory card slots (Project
         // panel, "Save data"); every save slot stores a snapshot.
@@ -1460,6 +1737,38 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
         // The same 3-slot menu a Save point object opens on USE.
         {.key = "OpenSaveMenu", .title = "Open Save Menu", .category = "Save",
          .desc = "Opens the in-game 3-slot save/load menu."},
+        // Checkpoints (docs/save-editor.md). Exactly ONE checkpoint exists at
+        // a time, deliberately: it costs a few KB of RAM that never grows,
+        // instead of a stack of snapshots nobody budgeted for.
+        {.key = "SaveCheckpoint", .title = "Save Checkpoint", .category = "Save",
+         .desc = "Snapshots the current save payload into a RAM buffer - "
+                 "instant, and nothing touches the memory card. Use it at the "
+                 "points a death should send the player back to. Overwrites "
+                 "any previous checkpoint."},
+        {.key = "LoadCheckpoint", .title = "Load Checkpoint", .category = "Save",
+         .desc = "Restores the save values and texts from the checkpoint "
+                 "buffer. Does nothing at all if no checkpoint has been taken "
+                 "yet, so it is safe to wire unconditionally - guard it with "
+                 "Has Checkpoint when the player should be told."},
+        {.key = "CommitCheckpoint", .title = "Commit Checkpoint",
+         .category = "Save", .strKind = FlowParamKind::SaveSlotMode,
+         .strTip = "Which slot to write. \"This slot\" uses the number below; "
+                   "the other two are decided at runtime.",
+         .numCount = 1, .numLabels = {"Slot"},
+         .numTips = {"Memory card slot 0-2, the same three the save menu "
+                     "shows. Out-of-range values are ignored. Only read when "
+                     "the mode above is \"This slot\"."},
+         .numIn = true,
+         .desc = "Writes the checkpoint buffer to a real memory card slot. "
+                 "This is the one checkpoint node that touches the card, so "
+                 "it is the one that can be slow - a chapter break, not a "
+                 "death. (Save Editor > Write in the background takes the "
+                 "pause out of it.)"},
+        {.key = "HasCheckpoint", .title = "Has Checkpoint", .category = "Save",
+         .pure = true, .boolOut = true,
+         .desc = "True once a checkpoint has been taken this session. A pure "
+                 "bool source: wire it into a gate or On Condition to offer "
+                 "\"continue\" only when there is something to continue from."},
         // Variables: named game-global values (one namespace per type),
         // zeroed at boot, kept across scene switches, NOT saved to the
         // memory card (use Save data for persistence).
@@ -1539,6 +1848,140 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
          .pure = true, .textOut = true,
          .desc = "Pure text: a global int variable, printed. Number To Text "
                  "(formatted) is the version with padding and decimals."},
+        // World Facts (docs/world-facts.md): the DECLARED half of the same
+        // idea as the Variables nodes above. A fact is picked from the
+        // catalog rather than typed, carries a type, a default and a
+        // lifetime, and is visible in the World Blackboard while the game
+        // runs. The Variables nodes keep working and are a separate
+        // namespace - one is a scratch value, the other is game state
+        // someone wrote down.
+        {.key = "SetFact", .title = "Set Fact", .category = "Facts",
+         .strKind = FlowParamKind::FactName,
+         .strTip = "The fact to write, from the catalog (Tools > World "
+                   "Facts). A computed fact cannot be written - it is derived "
+                   "from others.",
+         .numCount = 1, .numLabels = {"Value"},
+         .numTips = {"What to assign or add, depending on which pin fired. "
+                     "For a yes/no fact anything other than 0 is true; for a "
+                     "one-of-several fact this is the option's position in the "
+                     "list. A wired number replaces it."},
+         .numIn = true, .execInCount = 3,
+         .execInLabels = {"set", "add", "toggle"},
+         .execInTips = {"Assigns Value, discarding whatever was there.",
+                        "ADDS Value to what is there - a counter is On Button "
+                        "-> add with Value 1, and needs no read at all.",
+                        "Flips a yes/no fact without reading it first. On any "
+                        "other type this sets 0 when it was non-zero and 1 "
+                        "when it was 0."},
+         .desc = "Writes a fact in the World Facts catalog. Unlike a "
+                 "variable, the write is checked against the fact's declared "
+                 "type at build time and shows up in the blackboard's change "
+                 "history with this node's name against it."},
+        {.key = "SetFactPos", .title = "Set Fact Position",
+         .category = "Facts", .strKind = FlowParamKind::FactName,
+         .strTip = "The position fact to write.",
+         .numCount = 3, .numLabels = {"X", "Y", "Z"},
+         .numTips = {"The X to store. A linked position replaces all three.",
+                     "The Y to store.", "The Z to store."},
+         .posIn = true,
+         .desc = "Writes a position fact - a remembered spawn point, the "
+                 "place the player last died, where the boat was left."},
+        {.key = "ClearFact", .title = "Clear Fact", .category = "Facts",
+         .strKind = FlowParamKind::FactName,
+         .strTip = "The fact to put back to the value it starts a new game "
+                   "at.",
+         .desc = "Resets one fact to its declared default. What 'start this "
+                 "puzzle again' is made of - and the honest version of it, "
+                 "because the default lives in the catalog rather than being "
+                 "retyped at every reset site."},
+        {.key = "GetFact", .title = "Get Fact", .category = "Facts",
+         .strKind = FlowParamKind::FactName,
+         .strTip = "The fact to read. A yes/no fact reads 1 or 0.",
+         .pure = true, .numOut = true,
+         .desc = "Pure number: a fact's value. Wire it into a Math node or "
+                 "straight into any number input."},
+        {.key = "GetFactBool", .title = "Fact Is True", .category = "Facts",
+         .strKind = FlowParamKind::FactName,
+         .strTip = "The fact to test. Anything other than 0 is true, so this "
+                   "reads a count as 'at least one'.",
+         .pure = true, .boolOut = true,
+         .desc = "Pure bool: is this fact set? The usual way into a gate or "
+                 "an On Condition."},
+        {.key = "GetFactPos", .title = "Get Fact Position",
+         .category = "Facts", .strKind = FlowParamKind::FactName,
+         .strTip = "The position fact to read. One never written reads its "
+                   "declared default.",
+         .posOut = true, .pure = true,
+         .desc = "Pure position: a position fact, ready to wire into a "
+                 "Teleport or a Move Object To."},
+        {.key = "GetFactText", .title = "Get Fact As Text",
+         .category = "Facts", .strKind = FlowParamKind::FactName,
+         .strTip = "The fact to print.",
+         .pure = true, .textOut = true,
+         .desc = "Pure text: a fact printed for the player. A one-of-several "
+                 "fact prints its OPTION NAME, not its number - which is the "
+                 "reason to declare one instead of using a bare int."},
+        {.key = "FactAtLeast", .title = "Fact At Least", .category = "Facts",
+         .strKind = FlowParamKind::FactName,
+         .strTip = "The fact to test.",
+         .numCount = 1, .numLabels = {"Threshold"},
+         .numTips = {"The value it has to reach or beat. A wired number "
+                     "replaces it, so one fact can be compared against "
+                     "another."},
+         .pure = true, .boolOut = true, .numIn = true,
+         .desc = "Pure bool: is the fact at or above the threshold? Evaluated "
+                 "fresh every frame, so wire it into On Condition or a gate "
+                 "rather than expecting it to fire."},
+        {.key = "FactAtMost", .title = "Fact At Most", .category = "Facts",
+         .strKind = FlowParamKind::FactName,
+         .strTip = "The fact to test.",
+         .numCount = 1, .numLabels = {"Threshold"},
+         .numTips = {"The value it must not exceed. A wired number replaces "
+                     "it."},
+         .pure = true, .boolOut = true, .numIn = true,
+         .desc = "Pure bool: is the fact at or below the threshold?"},
+        {.key = "FactIs", .title = "Fact Is", .category = "Facts",
+         .strKind = FlowParamKind::FactName,
+         .strTip = "The fact to test.",
+         .numCount = 1, .numLabels = {"Value"},
+         .numTips = {"The value it must equal. For a one-of-several fact this "
+                     "is the option's position in the list - the editor shows "
+                     "the names beside it. Compared with a small tolerance, "
+                     "because the plane is float."},
+         .pure = true, .boolOut = true, .numIn = true,
+         .desc = "Pure bool: does the fact hold exactly this value? The node "
+                 "for a one-of-several fact - 'power.state is Overloaded'."},
+        {.key = "FactQuery", .title = "Query", .category = "Facts",
+         .strKind = FlowParamKind::FactQueryName,
+         .strTip = "The named condition to evaluate (Tools > World Facts > "
+                   "Queries).",
+         .pure = true, .boolOut = true,
+         .desc = "Pure bool: a reusable named condition - CanEnterBasement, "
+                 "MartaWillTalk. The same query gates a door, a dialogue line "
+                 "and an NPC's behaviour, so the design changes in one place "
+                 "instead of in every graph that happened to copy it."},
+        {.key = "OnFactChanged", .title = "On Fact Changed",
+         .category = "Facts", .trigger = true,
+         .strKind = FlowParamKind::FactName,
+         .strTip = "The fact to watch. Fires on the frame its value differs "
+                   "from the frame before - whoever wrote it, graph or rule.",
+         .execOutCount = 3,
+         .execOutLabels = {"changed", "became true", "became false"},
+         .desc = "Trigger: the fact changed. The reactive door into a graph - "
+                 "no polling, no On Condition that has to describe the state "
+                 "you are already storing.\n"
+                 "Three outputs off ONE node rather than three node types: "
+                 "\"changed\" fires on any move, \"became true\" on the "
+                 "0 -> non-zero edge and \"became false\" on the way back, so "
+                 "\"when the generator is repaired\" needs no Fact Is True "
+                 "and no On Condition beside it. A POSITION fact only has "
+                 "\"changed\" - three coordinates have no truth to cross - "
+                 "and the other two outputs are left unwired for one.\n"
+                 "For anything more than a yes/no edge (a threshold, several "
+                 "facts at once) reach for a Query wired into On Condition "
+                 "instead: the condition is then authored once in the World "
+                 "Facts window rather than restated in every graph."},
+
         // The number plane. Sources (Number, Get Int, Get Save Value) feed
         // these, they feed each other, and a consumer's num[0] gives way to
         // the wire. Every one of them is PURE - a number is an expression
@@ -2040,42 +2483,6 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
 }
 
 // ---------------------------------------------------------------------------
-// Node types retired by the exec-pin merge: each Show*/Hide*/Toggle* family
-// collapsed into one node carrying a labeled exec pin per branch. A pre-merge
-// graph would otherwise lose those nodes outright (readFlowGraph drops unknown
-// types), so project::readFlowGraph rewrites the type and retargets every exec
-// link landing on the node to `pin`.
-struct FlowLegacyNode {
-    const char* from;  // the retired FlowNode::type
-    const char* to;    // its replacement
-    int pin;           // exec input the old node's behavior now lives on
-};
-
-inline const std::vector<FlowLegacyNode>& flowLegacyNodes() {
-    static const std::vector<FlowLegacyNode> v = {
-        {"ShowObject", "SetObjectVisible", 0},
-        {"HideObject", "SetObjectVisible", 1},
-        {"ToggleObject", "SetObjectVisible", 2},
-        {"ShowHud", "SetHudVisible", 0},
-        {"HideHud", "SetHudVisible", 1},
-        {"ToggleHud", "SetHudVisible", 2},
-        {"ShowText", "SetTextVisible", 0},
-        {"HideText", "SetTextVisible", 1},
-        {"LoadLayer", "SetLayerLoaded", 0},
-        {"UnloadLayer", "SetLayerLoaded", 1},
-        {"PlayAnimation", "Animation", 0},
-        {"StopAnimation", "Animation", 1},
-    };
-    return v;
-}
-
-inline const FlowLegacyNode* flowLegacyNode(const std::string& type) {
-    for (const FlowLegacyNode& m : flowLegacyNodes())
-        if (type == m.from) return &m;
-    return nullptr;
-}
-
-// ---------------------------------------------------------------------------
 // Project-defined custom nodes (see flownode.cpp).
 //
 // A custom node is a user-authored *action* node loaded from a .flownode text
@@ -2234,9 +2641,13 @@ inline int flowExecOutIndex(int slot) {
 // two different questions.
 inline int flowExecOutCount(const FlowNodeType& t) {
     if (t.pure) return 0;
-    if (t.trigger) return 1;
+    // A TRIGGER may declare several outputs too (On Fact Changed's changed /
+    // became true / became false). It used to be capped at one, which is why
+    // output 0 keeps the plain "then" slot: a trigger that grows outputs later
+    // does not move the pin every existing graph is already linked to.
     if (t.execOutCount > 0)
         return t.execOutCount > kFlowMaxExecOut ? kFlowMaxExecOut : t.execOutCount;
+    if (t.trigger) return 1;
     return t.execThrough ? 1 : 0;
 }
 
@@ -2299,11 +2710,15 @@ inline const char* flowStrLabel(const FlowNodeType& t) {
         case FlowParamKind::CreditsName: return "Credits";
         case FlowParamKind::MenuName: return "Menu";
         case FlowParamKind::HudTextName: return "Text";
+        case FlowParamKind::HudBarName: return "Bar";
+        case FlowParamKind::HudElementName: return "Element";
         case FlowParamKind::FontName: return "Font";
         case FlowParamKind::ScreenFxName: return "Effect";
         case FlowParamKind::PrefabName: return "Prefab";
         case FlowParamKind::VarName: return "Variable";
         case FlowParamKind::EventName: return "Event";
+        case FlowParamKind::FactName: return "Fact";
+        case FlowParamKind::FactQueryName: return "Query";
         default: return "";
     }
 }

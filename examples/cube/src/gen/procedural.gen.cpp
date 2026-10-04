@@ -112,7 +112,7 @@ float remap01(float v, float lo, float hi) {
 
 void clearPt(Pt& p) {
   p.x = p.y = p.z = 0.0F; p.rx = p.ry = p.rz = 0.0F; p.sc = 1.0F;
-  p.key = 0ULL; p.asset = -1; p.prefab = -1; p.faces = 63;
+  p.key = 0ULL; p.asset = -1; p.prefab = -1; p.faces = 63; p.block = 0;
   for (int i = 0; i < PROC_ATTR_SLOTS; ++i) p.a[i] = 0.0F;
 }
 // Volume local -> world, the twin of procgen's Volume::localToWorld.
@@ -176,7 +176,7 @@ static int pgen_0(procrt::Ctx& c) {
       procrt::Pt& P = c.buf[c.count++];
       procrt::clearPt(P);
       P.key = key; P.x = px; P.z = pz;
-      P.y = c.volPos[1] + (float)iy * 14.0f;
+      P.y = c.volPos[1] + 0.0f + (float)iy * 14.0f;
       float nx = 0.0F, ny = 1.0F, nz = 0.0F;
     P.a[2] = nx;
     P.a[3] = ny;

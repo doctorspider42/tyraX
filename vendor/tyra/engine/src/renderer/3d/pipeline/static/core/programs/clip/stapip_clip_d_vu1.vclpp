@@ -88,6 +88,8 @@ begin:
 
     iaddiu  vertexData,         buffer,         VU1_STAPIP_VERT_DATA_ADDR
     ilw.w   vertexCount,        0(buffer)
+    iaddiu  countMask,          vi00,           VU1_STAPIP_COUNT_MASK
+    iand    vertexCount,        vertexCount,    countMask
     iadd    normalData,         vertexData,     vertexCount
     iadd    destAddress,        normalData,     vertexCount
 
@@ -117,34 +119,27 @@ triLoop:
         MatrixMultiplyVertex{ vertex3, mvp, vertex3 }
 
         ; --- crossing judgement (see stapip_clip_c_vu1.vclpp) ---
+        ; Modified by TyraX: batch the six retained CLIP judgements into two
+        ; reads; sjudge.w remains the guard initialized from cvec above begin:.
         clipw.xyz   vertex1,    vertex1
-        fcand       VI01,       0xF
-        iadd        triOr,      VI01,       vi00
         sub.x       sjudge,     cvec,       vertex1[z]
         add.y       sjudge,     cvec,       vertex1[z]
-        mul.w       sjudge,     vf00,       cvec[w]
         clipw.xyz   sjudge,     sjudge
-        fcand       VI01,       0xA
-        ior         triOr,      triOr,      VI01
 
         clipw.xyz   vertex2,    vertex2
-        fcand       VI01,       0xF
-        ior         triOr,      triOr,      VI01
         sub.x       sjudge,     cvec,       vertex2[z]
         add.y       sjudge,     cvec,       vertex2[z]
-        mul.w       sjudge,     vf00,       cvec[w]
         clipw.xyz   sjudge,     sjudge
-        fcand       VI01,       0xA
-        ior         triOr,      triOr,      VI01
+
+        fcand       VI01,       0x3CA3CA
+        iadd        triOr,      VI01,       vi00
 
         clipw.xyz   vertex3,    vertex3
-        fcand       VI01,       0xF
-        ior         triOr,      triOr,      VI01
         sub.x       sjudge,     cvec,       vertex3[z]
         add.y       sjudge,     cvec,       vertex3[z]
-        mul.w       sjudge,     vf00,       cvec[w]
         clipw.xyz   sjudge,     sjudge
-        fcand       VI01,       0xA
+
+        fcand       VI01,       0x3CA
         ior         triOr,      triOr,      VI01
 
         ; --- clip-space triangle to the scratch polygon (stride 2) ---
@@ -162,10 +157,16 @@ triLoop:
         ibeq    triOr,      vi00,       fanStart
 
         ; --- Sutherland-Hodgman against the 6 planes ---
+        ; buffer base is dead until the kick's xtop: reuse its VI for the mask
+        xtop    buffer
+        ilw.w   buffer,     0(buffer)
         iaddiu  planePtr,   vi00,       VU1_CLIP_PLANES_ADDR
         iaddiu  dstBase,    vi00,       VU1_CLIP_POLY_B_ADDR
 
 planeLoop:
+        ibltz   buffer,     planeActive
+        b       planeAdvance
+planeActive:
         lq      planeV,     0(planePtr)
         lq      planeE,     1(planePtr)
 
@@ -195,7 +196,6 @@ edgeLoop:
         add.x   sjudge,     vf00,       pd[x]
         add.y   sjudge,     vf00,       cd[x]
         sub.xy  sjudge,     sjudge,     cvec[w]
-        mul.w   sjudge,     vf00,       cvec[w]
         clipw.xyz sjudge,   sjudge
         fcand   VI01,       0x2                         ; prev outside?
         iadd    vertMask,   VI01,       vi00
@@ -238,7 +238,9 @@ edgeAdvance:
         iadd    vertMask,   srcBase,    vi00
         iadd    srcBase,    dstBase,    vi00
         iadd    dstBase,    vertMask,   vi00
+planeAdvance:
         iaddiu  planePtr,   planePtr,   2
+        iadd    buffer,     buffer,     buffer
         iaddiu  vertMask,   vi00,       VU1_CLIP_PLANES_ADDR+12
         ibne    planePtr,   vertMask,   planeLoop
 
@@ -278,12 +280,8 @@ triNext:
         iaddi   vertexCounter,  vertexCounter,  -3
         ibgtz   vertexCounter,  triLoop
 
-    ; rebuild the kick address and patch the prim giftag NLOOP
-    xtop    buffer
-    iaddiu  vertexData, buffer,     VU1_STAPIP_VERT_DATA_ADDR
-    ilw.w   vertexCount, 0(buffer)
-    iadd    vertexData, vertexData, vertexCount
-    iadd    vertexData, vertexData, vertexCount
+    ; normalData advanced to the tag block while consuming the input
+    iadd    vertexData, normalData, vi00
     iaddiu  vertMask,   outCount,   0x4000
     iaddiu  vertMask,   vertMask,   0x4000
     isw.x   vertMask,   6(vertexData)

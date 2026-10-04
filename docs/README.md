@@ -1,250 +1,361 @@
 # TyraX documentation
 
-User-facing guides for editor features. Written for people building games
-with the editor; internals live in code comments, `PROGRESS.md` (feature log
-+ verification notes) and the `.claude/skills/` developer guides.
+![TyraX editor overview](img/editor-overview.png)
 
-- [Animated models (.glb)](animated-models.md) - authoring animations in
-  Blender, importing them, clip playback, flow-graph nodes and the script
-  API, PS2 memory budget, troubleshooting.
-- [Static models: the .tmdl pipeline and mesh LOD](model-pipeline.md) - why
-  the game reads a binary model instead of your `.obj`, what that means for
-  your files and the disc, distance mesh LOD for static geometry, and
-  authoring your own LOD meshes instead of letting the build decimate.
-- [World scale: units, meters and imports](world-scale.md) - what a unit is
-  worth in this project, why a model or a camera take can land several times
-  too small, the per-asset real-world size recorded at import, the viewport
-  measuring tape and the object Size readout, and how to work out the scale
-  your world is actually at.
-- [Object scripts (Unity-style components)](object-scripts.md) - writing
-  C++ scripts and attaching them to objects, the ObjectScript lifecycle
-  (`self`, onStart/onUpdate/onUsed), ScriptContext reference, Empty
-  objects, global scripts, performance, troubleshooting.
-- [Streaming layers](streaming-layers.md) - grouping objects into layers
-  the game loads/unloads from memory at runtime (GTA3-style interior
-  streaming): the Layers panel, the Load / Unload / Is Layer Loaded flow
-  nodes, the corridor trigger pattern, what gets freed, troubleshooting.
-- [Areas (invisible volumes)](areas.md) - the box-shaped object that has no
-  geometry in the game and replaces hand-typed distances: streaming-layer
-  zones that bound height too, mirror / portal / camera-feed target lists
-  picked up by volume instead of one name at a time (optionally re-tested
-  every frame, so things that move join and leave), and the In Area trigger
-  (rising edge + a live "inside" bool). Also: which radii deliberately stay
-  radii.
-- [Orthographic and axis views](orthographic-views.md) - the viewport's
-  parallel projection and the six locked Top/Bottom/Front/Back/Right/Left
-  views: the clickable axis gizmo in the corner, the other three ways to
-  switch (button, View menu, numpad), what orbiting an axis view does, and
-  why a parallel view draws what is behind the camera.
-- [PS2 output in the viewport](ps2-viewport.md) - looking at the scene the way
-  the console draws it: rasterized at the GS framebuffer size of the display
-  mode, point scaled into the TV's 4:3 / 16:9 picture, field rendering's halved
-  vertical resolution, and why GS pixels are 16.7% too wide. Pairs with the
-  [safe areas](safe-areas.md), which draw the same rectangle as a guide.
-- [Placing objects: surface snapping and deferred paste](object-placement.md) -
-  inserted and pasted objects resting on the terrain or on the object below
-  instead of sinking into it, the `End` drop-to-floor command, and the paste
-  that follows the cursor until you click it down.
-- [Custom flow-graph nodes](custom-flow-nodes.md) - defining your own Flow
-  Graph action nodes in `.flownode` text files (no editor rebuild): inline C++
-  snippets with `{placeholders}`, or `call = fn` nodes backed by a real
-  function in `flow_nodes.hpp` with input/output pins of any kind (object
-  outputs work as runtime refs into built-in nodes), and how to copy a node to
-  another project.
-- [Loading screens](loading-screens.md) - defining named loading screens
-  (background, images, baked texts, continuous/quantized progress bars),
-  assigning them per scene or as the project default, how the progress bar
-  tracks real load work, and the built-in fallback.
-- [Credits rolls](credits.md) - end-credits screens: headings, role/name rows,
-  wrapped lines, images and page breaks, scrolled or shown as cards over music,
-  with a skip button and a finish action (resume / scene / menu / flow event);
-  importing a roll from a text file, and the page-texture VRAM budget that
-  decides how long a roll can be.
-- [Custom screen effects](custom-screen-effects.md) - defining your own
-  full-screen post effects (like the built-in bloom / film grain) in
-  `.screenfx` text files (no editor rebuild): a small manifest plus a raw
-  low-level GS-blit body, positioned in the UI Editor screen stack with numeric
-  parameters, and how to copy an effect to another project.
-- [Emissive materials (glow)](emissive-materials.md) - making a material light
-  itself so it keeps its own color in a pitch-black scene: the `Ke` brightness
-  floor baked into the vertex colors (free at runtime), the white-hot core (why
-  "more glow" past full strength can only mean whiter), the bloom
-  **bright-pass threshold** and **spread** that turn the frame-wide soft glow
-  into a halo, and **baked emissive light** - the emitter lighting the terrain,
-  walls and props around it, the ambient-occlusion machinery in reverse.
-- [Drone Generator (ambient music)](drone-generator.md) - the built-in
-  ambient/drone generator: the oscillator/air/bell signal chain, chord
-  progressions that glide, the LFO + arc modulation matrix, the FDN reverb and
-  its shimmer, why a seamless loop ADDS the tail over the head instead of
-  crossfading, the **timeline** (keyframes written by turning a knob, one lane
-  per parameter, a playhead that seeks the audition), live audition and the
-  UI/audio-thread hand-off, and the re-editable `.drone` patch sidecar.
-- [Asset Browser](asset-browser.md) - the file manager over the project's
-  `res/` tree: folders, thumbnails, type filters and search, the reference
-  census that says who uses an asset (and which ones nothing does), moving
-  files with their references following, drag & drop into the scene, safe
-  renames, and why a texture never moves away from its material.
-- [Materials: model preview, duplication and texture painting](material-painting.md) -
-  the Material Editor's live preview on your own .obj models, duplicating a
-  material together with its textures, and painting color or tiled-pattern
-  strokes straight onto the mesh through its UVs (the flat PNG is the bake).
-- [The terrain, and building without one](terrain.md) - the per-scene ground
-  plane is optional: the New Project / New scene "Create terrain" checkbox and
-  the Terrain Editor's toggle, what "removed" means in the editor and in the
-  game (no mesh, no ground textures, no lightmap - and no floor: things stand
-  on the geometry you place and fall through the void), what the scene size
-  still means, and the limits (navigation AI needs a terrain).
-- [Terrain painting](terrain-painting.md) - blending several terrain layers
-  (grass/rock/path, each an `.mtl`) by painting their weights with a brush on
-  the terrain in the Terrain Editor; two-pass GS splatting (vertex-alpha, full
-  tiled texture detail, cost only on painted chunks), stochastic tiling
-  (build-time texture bombing that breaks the tiled-grid repetition), the
-  storage/undo model, and why the baked-composite approach was abandoned.
-- [Procedural generation (scatter graphs)](procedural-generation.md) - the
-  node graph that fills a region with instances (forests, rock fields, fence
-  posts, a ring of columns): the Procedural volume, the node library
-  (surface/grid/volume/curve sources and a single placed point, noise and
-  terrain masks, slope/mask/distance/avoid filters, Array / Radial Array for
-  exact repetition, weighted asset pools, transform variation), the Object
-  Settings node that applies properties to everything the volume bakes,
-  per-instance hand edits that survive re-evaluation, the live triangle budget,
-  and the bake that merges instances into ordinary static chunk meshes so the
-  PS2 never sees a graph.
-- [Runtime procedural generation](procedural-runtime.md) - the same graph
-  compiled into the game and evaluated on the EE instead: what the console can
-  and cannot run (and why the window says so up front), what a runtime volume
-  costs in load time and RAM, where the per-run randomness actually comes from,
-  the Generate Volume node, and Blocks Fill - the block-world source that emits
-  only visible blocks, tells the merge which faces to draw, and publishes its
-  solid field as the world's collision.
-- [Prefabs](prefabs.md) - reusable groups of scene objects (their flow graphs
-  included) stamped by hand, scattered by a graph or spawned at runtime: the
-  local-frame model, why instances are not linked back, and the merge/spawn
-  split that decides what an instance costs on this machine.
-- [The VS Code extension](vscode-extension.md) - syntax highlighting, snippets
-  and validation for the `.flownode` and `.screenfx` text files: what it does,
-  how the editor installs it automatically (and how to package a `.vsix` by
-  hand), and how to keep it in sync when you add header keys or placeholders.
-- [Live Link (edit the running game)](live-link.md) - streaming object
-  moves/rotations/scales/recolors AND object adds/deletes into the game
-  running in PCSX2 or on a real PS2, with no rebuild: the debug-profile
-  requirement, the clickable LIVE toolbar chip (per-project on/off), what
-  updates live vs what needs a build, and how the host-filesystem transport
-  and the spawn-pool cloning work.
-- [Running and debugging on a real PS2](ps2link-setup.md) - the one-time
-  console setup for the F6 network deploy: building the TyraX ps2link (the only
-  one supported - a pinned upstream plus our patch, built in Docker), flashing
-  it with an `IPCONFIG.DAT`, the editor's IP preference, what the deploy
-  actually does step by step, the ports a firewall has to let through, what
-  differs from PCSX2 when debugging, and a table of every failure message. Plus
-  the loop for changing the patch, because we will.
-- [The devkit, and its zero-cost promise](devkit.md) - the live channels, the
-  crash reporting, the VU1 packet inspector, and the release audit; the live
-  channels (Live Link / Live Debugger / Live Logic / Remote Pad) as one
-  development kit, what a debug
-  build actually costs in code and RAM, and the release audit that PROVES a
-  shipped ELF carries none of it (`--audit-release`, run automatically after
-  every release build).
-- [The time machine (put the running game back)](time-machine.md) - the game
-  captures everything it mutates a few times a second, the editor keeps a
-  history of those captures in memory, and pushing one back puts the console
-  where it was: what a capture holds (and what it does not yet), why the history
-  never touches the disk, and the layout hash that stops a capture from landing
-  in a differently built world. With Live Logic below: rewind, fix the graph,
-  watch the fix play out on the situation that broke.
-- [Live Logic (edit a flow graph with no rebuild)](live-logic.md) - the
-  flow-graph interpreter debug builds carry: what the editor can hot-patch into
-  a running game and what still needs a build, the pre-resolved instruction
-  format, how a patched graph shares state (and debugger keys) with compiled
-  ones, and the cost.
-- [Live Debugger (step through the running game's logic)](live-debugger.md) -
-  breakpoints on flow-graph nodes, pause/step/step-node of a game running on
-  the console, the live node highlighting and hit counters in the Flow Graph,
-  the watch table (flow variables + save values), the rewindable execution
-  timeline, firing a trigger from the editor, and the file channel + symbol
-  table it all rides on.
-- [UI scripting (drive the editor without a human)](ui-scripting.md) - the same
-  idea one level up: `--ui-script` runs the real editor and holds its mouse and
-  keyboard itself, naming WIDGETS instead of pixels (`click "Remote Pad/Cross"`),
-  with no window focus, no DPI arithmetic and assertions on widget state. How the
-  item registry falls out of ImGui's own test-engine hooks (no imgui_test_engine
-  dependency), why `dump` is where every script starts, and what it cannot reach
-  (the viewport, imnodes, the gizmo).
-- [Remote Pad (hold the running game's controller)](remote-pad.md) - the input
-  direction of the same channel: a clickable DualShock in the editor (plus a
-  keyboard mode) and a scriptable `--pad` CLI that drive the game **with no
-  window focus anywhere** - what the little script language does, why the state
-  expires when a driver stops refreshing it, the second `injectVirtual` overlay
-  slot, and how to write an unattended input test around it.
-- [Live collaboration sessions](collaboration.md) - real-time multi-user
-  editing: hosting a project, joining over the LAN with a code, what syncs
-  live and how conflicts resolve (host-ordered last-write-wins), presence
-  highlights, the joined-project cache and mid-session file refresh, the
-  host-owns-saving rule, and the trust model / v1 limitations.
-- [NavMesh + NPC AI](navigation-ai.md) - the build-time navigation-grid bake
-  (walkability rules, the AI navigation preferences, the viewport overlay),
-  the A*-on-EE runtime, and the AI flow nodes (Patrol Waypoints / Chase
-  Player / Flee From Player / Stop AI / On Player Seen) with the classic
-  guard wiring, plus the deliberate era-appropriate limitations.
-- [Configurable buttons & keys](input-bindings.md) - the Input Map: named
-  actions instead of hardcoded pad buttons, per-project binding presets, the
-  in-game *Rebind key* menu row (capture mode, overrides persisted in save
-  values), the configurable sprint, and the On Action / On Key / Set Input
-  Preset flow nodes. Pairs with [keyboard & mouse](keyboard-mouse.md).
-- [Text icons (button glyphs in text)](text-icons.md) - `{{cross}}` /
-  `{{action:jump}}` placeholders that draw a pad-button glyph inside any text:
-  the seeded DualShock set the editor draws itself, overriding one with your own
-  PNG, and the two paths (composited into baked sprites, blitted from a sheet in
-  runtime text).
-- [The editor's look: themes and the interface font](editor-theme.md) - the four
-  interface themes (three of them PS2 nods) in *View > Theme*, why the choice is
-  machine-global rather than project data, the system UI font the editor picks
-  instead of ImGui's built-in bitmap one, and - for developers - the
-  "ask for a meaning, not a colour" rule that keeps a status chip's green from
-  staying green in a violet editor.
-- [TV safe areas](safe-areas.md) - the viewport guides (behind the gear) for
-  framing something a television will not crop: the console's picture rectangle,
-  action- and title-safe insets, and the one case where PAL really does show more
-  than NTSC.
-- [Camera takes (phone-recorded 6DoF moves)](camera-takes.md) - importing a
-  real ARKit camera move (CamTrackAR `.hfcs` or the app-agnostic CSV) into a
-  Cutscene Director camera track: the canonical take space, the mapping and
-  decimation controls in the import modal, and the acquisition/bake split the
-  live link below plugs into.
-- [Character generator](character-generator.md) - the *Tools > Character
-  Generator* window: how a handful of macro sliders become a rigged, skinned
-  1460-triangle human, where the MakeHuman CC0 data comes from and what is in
-  it, the three tricks that make it fit a PS2 (corner-blended macro targets, a
-  proxy body riding the reference mesh, a rig re-derived from the morph), the
-  Mixamo-named bone list, and what is deliberately not there yet.
-- [Phone camera (live viewfinder)](phone-camera.md) - the companion iOS app as
-  a viewfinder: the editor hosts a LAN link, the phone shows a live JPEG stream
-  of the viewport and its ARKit pose drives that camera, and the Cutscene
-  Director records the move into keyframes at a chosen density. Covers pairing
-  and firewall, the mapping controls, the recording options and table-size
-  budget, the WebSocket protocol, and the built-in browser test client.
-- [AI flow-graph generation](ai-flow-graph.md) - describing game logic in
-  plain language and letting an AI backend (Claude CLI, Copilot CLI or the
-  OpenAI API) build the graph: backend/model/thinking preferences, what the
-  model is told, validation, and the cancelable in-editor flow.
-- [AI-agent CLI tools](ai-tools.md) - the headless commands
-  (`--dump`, `--list-nodes`, `--dump-graph`, `--apply-graph`,
-  `--refresh-gen`, `--ai-graph`) that let an AI assistant or script inspect
-  and modify a project without the GUI.
-- [AI support in projects](ai-support.md) - the "Add AI support" option
-  (New Project / Project Preferences): assistant guidance files (Claude Code
-  skills + `CLAUDE.md`, Copilot instructions) installed into a project, and
-  the marker-based ownership rule for refreshing them.
+User-facing guides for what TyraX — the engine and its editor — can do, written
+for people building games with it. Internals live in code comments, the git log
+(commit messages carry what changed and how it was verified) and the
+`.claude/skills/` developer guides. What's queued is in [Backlog](backlog.md).
+
+**World & objects**
+
+- [Animated models (.glb / .fbx)](animated-models.md) — authoring in Blender, import,
+  clip playback, flow nodes and the script API, the PS2 memory budget.
+- [Importing animation from another file](animation-import.md) — borrow clips
+  from a second rigged file (a Mixamo download, another export) onto a model you
+  already have: name-based bone matching, the translation policy that keeps your
+  character's proportions instead of the source's, root-motion retargeting.
+- [Static models: the .tmdl pipeline and mesh LOD](model-pipeline.md) — why the
+  game reads a binary model instead of your `.obj`, distance LOD with authored
+  or auto-decimated tiers, and the triangle strips the build ships beside the
+  triangle list so a shared corner costs one VU1 package instead of three.
+- [Seeing how static objects batch](static-batching.md) — which objects merged
+  into one submission and which did not, with the reason named for every object
+  that stayed solo; what a batch costs in VU1 packages against its members
+  drawn separately, why the merged box is the number to look at, and the
+  per-object opt-out for when one outlying member keeps a whole group drawn.
+- [World scale: units, meters and imports](world-scale.md) — what a unit is
+  worth, why imports land several times too small, and the tools that tell you.
+- [The terrain, and building without one](terrain.md) — the per-scene ground
+  plane is optional; what "no terrain" means in the editor and in the game.
+- [Terrain painting](terrain-painting.md) — blending grass/rock/path layers
+  with a brush, two-pass GS splatting, stochastic tiling.
+- [Terrain distance detail (LOD)](terrain-lod.md) — far tiles built from fewer
+  heightmap samples, stitched so no crack shows; what makes a big map drawable.
+- [Roads](roads.md) — spline streets glued to the terrain: a handful of authored
+  points and one texture become a tessellated, terrain-projected ribbon, built
+  at scene load by a twin of the editor's own tessellator, shipped as triangle
+  strips, and reduced laterally against a published surface and UV budget.
+- [Areas (invisible volumes)](areas.md) — the box that replaces hand-typed
+  distances: streaming zones, catch lists for mirrors/portals/feeds, the In
+  Area trigger, reverb rooms.
+- [Comments (editor notes)](comments.md) — a note pinned to a place in the
+  scene, drawn as an always-visible message icon; editor-only, any length.
+- [Selecting objects](object-selection.md) — visible mesh priority, AABB fallback, full-model selection outlines, and reaching an object inside or behind another (click cycling, the right-click stack menu, the status line).
+- [Placing objects: surface snapping and deferred paste](object-placement.md) —
+  objects that rest on what's below them, `End` to drop, paste that follows the
+  cursor.
+- [Orthographic and axis views](orthographic-views.md) — the six locked views,
+  the axis gizmo, and why a parallel view draws what's behind the camera.
+- [PS2 output in the viewport](ps2-viewport.md) — see the scene the way the
+  console rasterizes it, field rendering included.
+- [TV safe areas](safe-areas.md) — viewport guides for what a real television
+  will not crop, plus the one case where PAL shows more than NTSC.
+- [Rigid-body physics](physics.md) — physics bodies as real rigid bodies: a baked
+  convex hull per mesh, contact points, impulses with friction and restitution,
+  and what it costs on the EE.
+- [Particle library](particles.md) — particle effects defined once in the Particle
+  Editor and linked from emitters and vehicle tyre smoke, additive fire and
+  sparks, and procedural smoke / flame / glow textures.
+- [Collision boxes](collision-boxes.md) — what actually stops the player, why
+  it's nowhere near the object's centre, how to see it, a model's own smaller
+  box (a lamp's post) and what mesh collision costs.
+- [Prefabs](prefabs.md) — reusable object groups (flow graphs included),
+  stamped, scattered or spawned.
+- [Asset Browser](asset-browser.md) — a real file manager over `res/` that
+  knows who references every asset and moves files with their references.
+
+**Materials & look**
+
+- [Materials: model preview, duplication and texture painting](material-painting.md) —
+  the Material Editor's live preview, duplicating with textures, painting
+  straight onto the mesh through its UVs.
+- [Material map baking (matbake)](material-baking.md) — the UV-space raytraced
+  baker (AO, bent normals, thickness, curvature...) and the high-poly cage.
+- [Texture atlasing](texture-atlasing.md) — packing small textures into shared
+  256x256 pages and what that reclaims in GS VRAM.
+- [Emissive materials (glow)](emissive-materials.md) — self-lit materials, the
+  white-hot core, bloom threshold and spread, and baked emissive light.
+- [Pre-lit models (light baked into the texture)](prelit-models.md) — per-pixel
+  static light on a TEXTURED model, the way the PS2 era did it, why the lightmap
+  cannot do it, and how a scene's pre-lit objects are tracked, batch-baked and
+  reverted.
+- [The flashlight](flashlight.md) — the player's torch: the per-vertex cone, the
+  projected ground pool, and the gobo texture that decides its shape.
+- [Shadows](shadows.md) — the three shadows an object can cast (a blob, a real
+  projected silhouette, or one **baked into a projected decal** — the static
+  one that reaches textured walls and imported models, and costs one draw call
+  per atlas page however many you have), and the shadow volumes a scene's spot
+  lights can carve — with the reason only one spot casts per frame, and how the
+  four silhouette slots change hands without blinking.
+- [Reflective materials (sphere-mapped "chrome")](reflective-materials.md) —
+  the PS2-era fake for car paint, static or re-rendered from the live sky, with
+  a reuse budget stated in pixels of the probe's own target.
+- [Raytraced reflections (VU0, experimental PoC)](raytraced-reflections.md) — a
+  Mirror whose reflection is actually ray-traced per pixel, and what it costs.
+- [Live texture feeds (CCTV + mirror streams)](texture-feeds.md) — any surface
+  showing a live camera render or a mirror's image.
+- [Portals](portals.md) — the linkable surface that shows a live through-view
+  and teleports whatever walks in, velocity included.
+- [Baked ambient occlusion (contact shadows)](ambient-occlusion.md) — soft
+  shadows where geometry meets, and the knobs; plus **Model AO**, each `.obj`
+  model's own self-occlusion baked automatically into the texture it already
+  ships, for no extra VRAM.
+- [Interleaved passes](interleaved-passes.md) - the static batch and road
+  draws fed into the object loop so EE and VU1 work overlap; Auto / Always /
+  Off, the whole-loop auto tuner, the blend gate and the PS2 numbers.
+- [Conservative occlusion culling](occlusion-culling.md) — build-time inner
+  proxy boxes, the runtime CPU visibility buffer, safety refusals and per-object
+  opt-outs.
+- [Baked global illumination + light probes](global-illumination.md) — a
+  multi-bounce lightmap plus a probe grid, traced on your desktop so the
+  console pays nothing.
+- [Day / night cycle](day-night-cycle.md) — the time-of-day slider the whole
+  bake follows, sun and moon arcs, the runtime clock.
+- [Painted sky](sky-texture.md) — a 360-degree panorama on the sky dome, tinted
+  by the day/night cycle and reflected in car paint.
+- [Motion blur](motion-blur.md) — the previous frame smeared over this one, for
+  one full-screen blend and no VRAM; what the amount means, why it belongs under
+  the HUD, and the Set Motion Blur node.
+- [Custom screen effects](custom-screen-effects.md) — your own full-screen post
+  effects in `.screenfx` text files, no editor rebuild.
+- [The neural upscaler (BLSS)](neural-upscaler.md) — reduce the 3D raster and
+  reconstruct it in plain or neural mode; includes the measured break-even and
+  training workflow.
+
+**Gameplay & logic**
+
+- [Object scripts (Unity-style components)](object-scripts.md) — C++ scripts on
+  objects: lifecycle, ScriptContext reference, globals, performance.
+- [Custom flow-graph nodes](custom-flow-nodes.md) — your own action nodes in
+  `.flownode` text files: inline C++ or a real function with typed pins.
+- [Streaming layers](streaming-layers.md) — GTA3-style interior streaming:
+  layers the game loads and unloads at runtime.
+- [World Facts](world-facts.md) — named, typed, documented game state in one
+  catalog: fact types, four persistence tiers, queries, rules, live watch.
+- [Endless scroller](endless-scroller.md) — the conveyor belt that tiles
+  authored segments forever; the train-window level generator.
+- [Two-player games](multiplayer.md) — shared or split screen, pad-2 hot-join,
+  and what the second player costs.
+- [Vehicles](vehicles.md) — model import, the Vehicle Editor, driving, sounds,
+  damage, effects and verification.
+- [Bring a vehicle from Blender into TyraX](blender-vehicle-modeling.md) — a
+  short visual checklist for adapting an existing model, exporting it, and
+  checking the import; the editable Ravager scene is an example.
+- [NavMesh + NPC AI](navigation-ai.md) — the host-side navigation bake, A* on
+  the EE, and the guard-wiring flow nodes.
+- [Configurable buttons & keys](input-bindings.md) — named actions, binding
+  presets, the in-game rebind menu, the On Action / On Key nodes.
+- [Where the player starts](player-start.md) — position, starting height, and
+  heading + pitch from the Player object's rotation; how to freeze the camera
+  for a repeatable screenshot.
+- [Player speeds: walk, run and sprint](player-speeds.md) — the three movement
+  tiers of a Player object, how the stick's deflection ramps walk into run while
+  the sprint button pins the top flat, and what an unset tier inherits.
+- [Text icons (button glyphs in text)](text-icons.md) — `{{cross}}` /
+  `{{action:jump}}` placeholders that draw pad glyphs inside any text.
+- [Keyboard & mouse](keyboard-mouse.md) — USB keyboard and mouse on the
+  console, editor-side preferences and the flow nodes.
+- [Sound: voices, priority and who gets cut off](sound.md) — the SPU2's fixed
+  voice budget and what happens when it runs out.
+- [Reverb (rooms for the sound effects)](reverb.md) — the console's hardware
+  reverb wired to an Area: presets, transitions, dry pockets.
+
+**Generators & cinematics**
+
+- [Procedural generation (scatter graphs)](procedural-generation.md) — the node
+  graph that fills a region with instances and bakes them to ordinary chunk
+  meshes; the PS2 never sees a graph.
+- [Runtime procedural generation](procedural-runtime.md) — the same graph
+  evaluated on the EE at load, plus Blocks Fill for block worlds.
+- [Distant model impostors](impostors.md) - offline tree captures and distance-based model replacement.
+- [Rendering directions](rendering-directions.md) - assessed priorities for a PS2 visual showcase.
+- [Tree Generator](tree-generator.md) — procedural low-poly trees baked to
+  ordinary `.obj` + textures.
+- [Drone Generator (ambient music)](drone-generator.md) — the built-in ambient
+  generator: signal chain, gliding chords, timeline automation, seamless loops.
+- [Cutscenes](cutscenes.md) — the Cutscene Director's sequence options: hiding
+  the HUD (and the USE prompt with it), widescreen bars and fades, and skipping
+  — instantly or through an authored confirmation screen.
+- [Camera takes (phone-recorded 6DoF moves)](camera-takes.md) — importing a
+  real ARKit camera move into a Cutscene Director track.
+- [Phone camera (live viewfinder)](phone-camera.md) — the companion iOS app:
+  live viewport stream on the phone, its pose driving the editor camera,
+  recorded straight into keyframes.
+
+**The game around the game**
+
+- [Animated HUD](hud-animation.md) — live health/stamina/progress bars,
+  per-element looped motion, show/hide transitions and one-shot effects.
+- [Loading screens](loading-screens.md) — named screens with real progress
+  bars, per-scene or project-default, and the start scene.
+- [Credits rolls](credits.md) — scrolled or card-mode credits from a text file,
+  and the VRAM budget that decides how long a roll can be.
+- [Menu stylesheets](menu-styles.md) — a menu's look as a CSS-shaped
+  `.menustyle` file, baked to sprites on the host.
+- [Save Editor](save-editor.md) — memory card saves in one window: browser
+  title, real 3D icon, slot sizes, save values, RAM checkpoints.
+
+**Iterating on a running game**
+
+- [Full-asset PS2 performance recheck](performance-hardware-recheck.md) — corrected
+  hardware tests after detecting missing textures and models in agent fixtures.
+- [Static submission batching](static-submission-batching.md) — the
+  retained-stream ownership contract, safe resident-texture boundaries and the
+  physical-PS2 measurements, image checks and eviction/pipeline stress behind
+  bounded StaPip DMA submission.
+- [Retained static geometry command data](retained-static-commands.md) — a
+  wholly visible static bag's VU1 command block and the clipping constants are
+  captured once and replayed with a memcpy, so only the MVP, the picked light
+  and the visibility classification stay per-frame; why copying finished DMA
+  tags is safe, and what invalidates a block.
+
+- [The devkit, and its zero-cost promise](devkit.md) — the live channels, crash
+  reporting, the VU1 inspector, and the release audit that PROVES a shipped ELF
+  carries none of it.
+- [Live Link (edit the running game)](live-link.md) — moves, recolors, adds and
+  deletes streamed into the running game, no rebuild.
+- [Live Logic (edit a flow graph with no rebuild)](live-logic.md) — the
+  flow-graph interpreter debug builds carry, and what still needs a build.
+- [Live Debugger (step through the running game's logic)](live-debugger.md) —
+  breakpoints on flow nodes, pause/step, watches, the execution timeline.
+- [The time machine (put the running game back)](time-machine.md) — periodic
+  captures of everything the game mutates, pushed back on demand.
+- [Remote Pad (hold the running game's controller)](remote-pad.md) — a
+  clickable DualShock in the editor and a scriptable `--pad` CLI, no window
+  focus needed anywhere.
+- [Input recorder (record a session, perform it again)](input-replay.md) —
+  every frame's input written to a small committable file, replayed over the top
+  of a real controller; `--replay` exits 0 when the run reproduced exactly.
+- [UI scripting (drive the editor without a human)](ui-scripting.md) —
+  `--ui-script` clicks widgets by name, with assertions; where every unattended
+  editor test starts.
+- [The log panels (errors, warnings, verbose)](log-panels.md) — Output and
+  Debug classify every line by severity, count them, and let you hide a level.
+- [Running and debugging on a real PS2](ps2link-setup.md) — the one-time
+  console setup for F6: our patched ps2link, flashing, ports, and a table of
+  every failure message.
+
+**Team, AI & housekeeping**
+
+- [Live collaboration sessions](collaboration.md) — multi-user editing over the
+  LAN: join codes, what syncs, how conflicts resolve, the trust model.
+- [The AI Assistant window](ai-chat.md) — the in-editor chat that answers from
+  these very pages and edits the project with tools.
+- [AI flow-graph generation](ai-flow-graph.md) — describe game logic in plain
+  language, let a backend build the graph.
+- [AI-agent CLI tools](ai-tools.md) — the headless commands that let an AI
+  assistant inspect and modify a project without the GUI.
+- [AI support in projects](ai-support.md) — the assistant guidance files
+  installed into generated projects, and their ownership rule.
+- [The VS Code extension](vscode-extension.md) — highlighting, snippets and
+  validation for `.flownode` / `.screenfx`.
+- [The editor's look: themes and the interface font](editor-theme.md) — the
+  four themes (three of them PS2 nods), and why the choice is machine-global.
+- [Project format versioning & migrations](format-versioning.md) — what happens
+  when you open an older or newer project, `--migrate`, and the bump rules.
+- [Installing TyraX and keeping it up to date](updates.md) — the Windows
+  installer, the Linux tarball/`.deb`/`.rpm` and which of them can update
+  itself, the layout they all lay down, the startup update check and how to
+  switch it off, and how every push to `main` becomes a release.
 
 Developer design docs (internals, not user guides):
 
-- [Profiling the generated game](profiling.md) - the built-in debug frame
-  profiler (per-phase EE time), and the manual COP0/HUD deep-dive technique
-  behind it (deterministic camera orbit, in-run A/B, engine-side counters)
-  with the gotchas from the usable-highlight investigation.
-- [VU1 clipping plan](vu1-clipping-plan.md) - measured EE-clipper cost on
-  real hardware (2026-07-11) and the design + milestones for moving StaPip
-  clipping into a VU1 microprogram.
-- [GS VRAM residency](gs-vram.md) - where the 4 MB goes, what a texture
-  really costs, the free-list texture heap and its eviction policy, the
-  `VRAMSTAT` counters, and the measured before/after numbers.
+- [Physical PS2 hardware timeline](hardware-profiler.md) — bounded RAM captures of EE scopes, DMA waits and VIF/GIF state, viewed directly in the editor or exported to interactive HTML and Perfetto JSON.
+- [Hardware profiler findings](hardware-profiler-results.md) — seven full-asset physical PS2 controls separating host I/O, framebuffer depth, raster area and additional-pass costs.
+- [VU1 arithmetic and DMA cache-flush cost](vu1-and-dma-cache-cost.md) — what a
+  VU1 cycle per triangle is worth in frame time on real hardware, why ps2sdk's
+  two cache primitives are both wrong for a DMA packet, and why neither answer
+  is a reason to fork the SDK.
+- [The EE pays 147 cycles per triangle](ee-submission-rearchitecture.md) — the
+  plan for the next round: why an immediate-mode static pipeline cannot reach
+  60 Hz whatever its constants are, the baked VIF stream that would replace it,
+  and what is already measured NOT to be the lever. The two bounding probes
+  have now been RUN on hardware and both capped what they were aimed at:
+  per-package frustum rejection buys more than it costs so the redesign must
+  keep it, coarsening the classification is a net loss, and dropping
+  `FlushCache` corrupted the picture even with the packet allocated uncached.
+- [A baked VIF stream per mesh](baked-vif-stream.md) — the spike behind that
+  plan's central change: the exact quadword layout of a package's pure-VIFcode
+  block, why one DMA `REF` may replay it, the three facts that turn out to be
+  bake-time (the GIFtag, the Z scale and the `MSCAL`), and the memory it costs
+  — about as much again as the vertex arrays it duplicates.
+- [The content version](bag-content-version.md) — the contract that unparked
+  that spike, and the reason it is a TYPE rather than a rule. The baked
+  stream's cache key could not see a caller re-shading per-vertex colours in
+  place, because `bboxVersion` is a statement about the bounding box; the
+  adversarial arm caught it 1 438 times, only while the camera moved. The
+  generated game's arrays are now a `BagArray<T>` whose `data()` is const and
+  whose every mutation stamps, so a write that forgets to invalidate does not
+  compile — with a negative test that was falsified before it was believed, the
+  one engine exception named rather than implied away, and the second caller
+  the arm then found (the vehicle paint pass, `const_cast`-ing past the array).
+- [The acceptance gate for a restructured static pipeline](baked-stream-acceptance-gate.md)
+  — the gate every earlier renderer round used pins `packetFlushes`, and a run
+  of packages under one `REF` tag cannot cross a flush boundary, so that gate
+  pins the prize. This designs the replacement: a canonical, NOP-normalised hash
+  of the word stream VIF1 actually receives, with texture mutations interleaved,
+  plus byte-identical pixels over a pose sweep — why the VU1 packet tap is the
+  right seam but the wrong shape, and the one hole (DMA lifetime on a frozen
+  fixture, which PCSX2 cannot see at all) that no gate on this fixture closes.
+- [Does the renderer work generalise?](engine-performance-on-a-second-map.md) —
+  the control for six rounds of performance work driven by one scene: a second
+  map with no content in common gains 8.9% of its work from the same engine.
+- [Attributing render submission](render-submission-attribution.md) — the
+  opt-in counters that close the gap between the static pipeline's three
+  telemetry brackets and the whole `beginFrame`..`endFrame` block, what the
+  unmeasured remainder turned out to be, and what the hooks themselves cost.
+  Round two splits `bounds` and the package-creation box the same way: it
+  exonerates the bbox cacher, prices a caller's per-frame `bboxVersion` bump at
+  0.618 ms, and finds 22% of `bounds` in a per-bag fan-out to thirty-two
+  qbuffers that reads as three stores.
+- [Not re-baking wheels that did not move](wheel-rebake-skip.md) — the vehicle
+  wheel batch keeps the vertices of a rig whose inputs did not change and stops
+  bumping `bboxVersion` when its buffer is byte-identical, plus the fixture
+  hazard that makes a parked benchmark flatter any skip-when-unchanged change.
+- [Profiling the generated game](profiling.md) — the built-in frame profiler,
+  the COP0 deep-dive technique, and the frame-timing rig.
+- [Emulator captures](emulator-captures.md) — unattended PCSX2 savestates and
+  GS dumps from a private emulator instance (no focus, no global input), the
+  analysers that read them (GS buffer formats, dithering, fill per target, DMA
+  chains left in EE RAM), and a 60 Hz commercial title's measured frame shape
+  as a yardstick.
+- [The VU framework](vu-framework.md) — describe a microprogram in C++,
+  generate both sides, run it in the host simulator with no PS2.
+- [Authoring VU programs](vu-authoring.md) — composing VU1 programs and VU0
+  kernels out of stages, no assembly.
+- [The native PS2 toolchain](native-toolchain.md) — the default Docker-free
+  build, first-run setup, caches, vendored sources, licences and Docker fallback.
+- [The toolchain image](toolchain-image.md) — where the optional Docker image is
+  compiled in comes from, and the long measured account of replacing Sony's
+  unlicensed `vcl` with `openvcl` so the image can be published at all:
+  seventeen miscompiles, what each one broke, and the VU1 latencies measured on
+  a real console rather than assumed.
+- [What to send upstream to openvcl](upstream-openvcl.md) — the openvcl defects
+  that work found, each with the mechanism and a reproducer that fires on the
+  stock commit, plus the density flags, ready to hand over.
+- [VU1 clipping and the guard band](vu1-clipping.md) — how the static pipeline
+  routes geometry between the cull and clip programs, why edge-of-screen
+  geometry needs no clipping at all (the GS scissor crops it), and the measured
+  cost of getting that decision wrong.
+- [GS VRAM residency](gs-vram.md) — where the 4 MB goes, 16-bit frame buffers
+  and dithering, the hybrid mode (draw 32-bit, show a dithered 16-bit copy,
+  optionally queued through two display buffers), what a texture really costs, the texture heap and its eviction
+  policy, the residency census that names what is resident, the Motor District
+  garage inventory, measured before/after numbers.
+- [Frame extrapolation](frame-extrapolation.md) — synthesising an extra frame
+  by re-drawing the last one under a newer camera: 25 Hz world, 50 Hz picture.
+- [Frame pacing](frame-pacing.md) — the vsync cliff and the triple-buffered
+  present that removes it.
+- [A binary format for static models (.tmdl) + static mesh LODs](static-model-format-plan.md) —
+  the design behind the format; the user guide is [model-pipeline.md](model-pipeline.md).
+- [BLSS reconstruction math](blss-reconstruction.md) — the twin contract
+  between the upscaler's host trainer and its PS2 runtime, byte for byte.
+
+## Object groups
+
+[Object groups](object-groups.md) keep assemblies together for selection, rigid transforms, independent copying, deletion and ungrouping.
+
+## Editor viewport performance
+
+[Editor viewport performance](editor-performance.md) explains conservative offscreen model rejection and how to compare navigation costs without changing visual quality.

@@ -1,0 +1,1 @@
+{ "id": "dense0005eed0037", "name": "Dense Workshop 56", "type": "model", "position": [-49.97, 0, 125.83], "rotation": [0, 176.1, 0], "scale": [1, 1, 1], "color": [1, 1, 1], "physics": false, "drawDistance": 145, "castShadow": false, "model": "res/models/urban/district-workshop.obj" }

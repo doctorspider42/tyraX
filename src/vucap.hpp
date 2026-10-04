@@ -154,4 +154,13 @@ struct Capture {
 /** Reads and decodes bin/vucap.bin. */
 bool load(const std::string& path, Capture& out);
 
+/** Scans a block of VU1 data memory (1024 quadwords as words) for the GIF
+ * packets a microprogram staged, and decodes their vertices.
+ *
+ * Public because the HOST VU1 SIMULATOR (src/vusim.cpp) ends a run with exactly
+ * this memory image, and a simulated run is only comparable to a captured one if
+ * both go through the same decoder. Do not reimplement it on the simulator side. */
+void scanGifPackets(const std::vector<uint32_t>& vuMem,
+                    std::vector<GifPacket>& out);
+
 }  // namespace vucap

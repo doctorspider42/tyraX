@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <filesystem>
 #include <map>
@@ -8,12 +9,16 @@
 #include <vector>
 
 #include "ambience.hpp"
+#include "facts.hpp"
 #include "flowgraph.hpp"
 #include "grading.hpp"
 #include "input.hpp"
 #include "procgraph.hpp"
+#include "roadgen.hpp"  // JunctionOverride - SceneData stores them verbatim
 #include "screenfx.hpp"
 #include "sequence.hpp"
+#include "vehiclesim.hpp"  // DriveSpec - a VehicleDef carries one verbatim
+#include "version.hpp"
 
 struct TerrainConfig {
     int width = 100;  // world units, X axis
@@ -47,11 +52,15 @@ struct TerrainLayer {
     // organic textures (grass/sand/rock); leave off for anything with fixed
     // seams (bricks, tiles). No effect on a flat layer.
     bool stochastic = false;
+    // Tyre grip on this layer (1.142.0, docs/vehicles.md "Off-road grip"): a
+    // multiplier on top of each vehicle's Off-road grip wherever the layer is
+    // painted, blended by its weight. 1 = the bare terrain; mud ~0.5.
+    float grip = 1.0f;
 };
 
 inline bool operator==(const TerrainLayer& a, const TerrainLayer& b) {
     return a.name == b.name && a.material == b.material && a.scale == b.scale &&
-           a.stochastic == b.stochastic;
+           a.stochastic == b.stochastic && a.grip == b.grip;
 }
 
 enum class PrimitiveType {
@@ -130,11 +139,42 @@ enum class PrimitiveType {
     // bakes them into ordinary static chunk meshes, so the console never
     // learns a graph existed. See docs/procedural-generation.md.
     Scatter = 18,
+    // Endless scroller: a conveyor-belt marker that streams authored
+    // "segments" (named groups of scene objects) past itself forever - the
+    // train-window level generator. The belt runs along the object's local +Z
+    // (rotated by its rotation); segments spawn scrollAhead units in front
+    // and retire scrollBehind units past the origin, repositioned each frame
+    // by a generated runtime script. Codegen bakes extra copies of each
+    // segment's objects into the scene tables so the same tunnel piece can be
+    // on screen several times at once. See scrollSegments below and
+    // docs/endless-scroller.md.
+    Scroller = 19,
+    // Comment: an editor-only note pinned to a place in the scene
+    // (docs/comments.md). It draws as a message icon over the viewport - never
+    // as geometry - and its text is in commentText below. Nothing reads that
+    // text: no codegen, no bake, no runtime. The object itself still occupies
+    // a scene-table row like an Area or a procedural volume does, because
+    // object INDICES are baked into every generated table and dropping one
+    // type from the emitted list would retarget all of them.
+    Comment = 20,
+    // Vehicle instance (docs/vehicles.md): a driveable car. The object is only
+    // a PLACEMENT - everything the vehicle is (its model, its wheels, how it
+    // drives) lives in a project-wide VehicleDef the object names in
+    // `vehicleDef`, so one definition can be dropped into as many scenes as
+    // you like and tuned in one place. The editor draws the definition's body
+    // and wheels; the game builds two bags out of it and drives it.
+    Vehicle = 21,
+    // Road (docs/roads.md): a Catmull-Rom spline through authored points,
+    // tessellated into terrain-hugging textured chunks AT BOOT - the object
+    // stores only the points, the width and a texture, so a kilometre of
+    // road costs a handful of floats in the .tyra and ONE tiled texture in
+    // VRAM. The editor can also flatten the terrain to the road's line.
+    Road = 22,
 };
 
 // One past the last PrimitiveType value - loops over "every object type" (the
 // multi-select tally) bound on this instead of a hardcoded member.
-constexpr int kPrimitiveTypeCount = (int)PrimitiveType::Scatter + 1;
+constexpr int kPrimitiveTypeCount = (int)PrimitiveType::Road + 1;
 
 // Tessellation detail for the geometry primitives, stored per object in
 // SceneObject::primDetail. Its meaning depends on the shape: for the curved
@@ -171,19 +211,87 @@ inline int primSphereStacks(int detail) {
     const int s = detail * 5 / 7;
     return s < 2 ? 2 : s;
 }
+// Cylinder rings ALONG THE AXIS, same idea. Without them the side is one quad
+// tall however high the detail goes, so anything that varies vertically - a
+// lamp above the pillar, the contact darkening at its foot, a probe gradient -
+// can only be a linear ramp between the top and bottom rims, and every segment
+// shows that ramp's diagonal seam as a full-height stripe. Measured on the
+// PS2: raising detail 4 -> 32 multiplied the stripes (0 -> 15 reversals across
+// the silhouette) without shrinking their amplitude at all, because the added
+// vertices all went AROUND the cylinder and none of them went up it.
+// One ring per four radial segments keeps a side quad roughly square at the
+// default 16 and leaves detail < 8 emitting exactly what it emitted before.
+// Opt-in per object (SceneObject::primRings): the rings only pay for
+// themselves when something lights the cylinder from above or below, so a
+// fencepost under a plain sun keeps the classic single-quad side.
+inline int primCylinderStacks(int detail, bool rings) {
+    if (!rings) return 1;
+    const int s = detail / 4;
+    return s < 1 ? 1 : s;
+}
 // Triangles a primitive tessellates to at the given detail - for the UI
 // readout. Marker/geometry-less types report 0.
-inline int primTriangleCount(PrimitiveType type, int detail) {
+inline int primTriangleCount(PrimitiveType type, int detail, bool rings = false) {
     const int d = clampPrimDetail(type, detail);
     switch (type) {
         case PrimitiveType::Box:
         case PrimitiveType::SavePoint:
             return 12 * d * d;  // 6 faces * 2 * d^2 subquads
         case PrimitiveType::Sphere: return primSphereStacks(d) * d * 2;
-        case PrimitiveType::Cylinder: return d * 4;  // side (2/seg) + 2 caps
+        // side (2 per seg per ring) + 2 caps (1 per seg each)
+        case PrimitiveType::Cylinder:
+            return d * 2 * (primCylinderStacks(d, rings) + 1);
         case PrimitiveType::Cone: return d * 2;      // side + base (1/seg each)
         default: return 0;
     }
+}
+
+// One segment of an endless Scroller (type 19): a named group of scene objects
+// (referenced by name, like Mirror::mirrorObjects) that the belt treats as one
+// rigid "chunk" and tiles along its axis. `length` is the belt-space the chunk
+// occupies before the next segment starts; <= 0 means auto-measure from the
+// members' extent along the belt axis (see scrollsim::segmentLength). Segments
+// repeat in list order forever. A dangling name is skipped (the chunk just
+// carries fewer objects).
+// One member of a segment: the scene object it clones, plus how that clone is
+// allowed to differ from CELL to CELL. A belt cell is one pass of the pattern
+// past the window (scrollsim::Placement::cell, a monotonically increasing
+// integer), and every field below is resolved from a hash of (belt seed, cell,
+// member) - so the variation is deterministic, costs no geometry, and does not
+// repeat with the belt's period. Defaults = the plain tiling this feature
+// shipped with. See docs/endless-scroller.md.
+struct ScrollMember {
+    std::string name;         // scene object cloned down the belt
+    float chance = 1.0f;      // 0..1 = fraction of cells this member appears in
+    int variant = 0;          // >0: members of one segment sharing this id are
+                              // alternatives - exactly one shows per cell
+    float yawVary = 0.0f;     // +- degrees of random yaw around the authored one
+    float offsetVary = 0.0f;  // +- world units perpendicular to the belt
+    float scaleVary = 0.0f;   // +- fraction of the authored scale (0.2 = +-20%)
+};
+
+inline bool operator==(const ScrollMember& a, const ScrollMember& b) {
+    return a.name == b.name && a.chance == b.chance && a.variant == b.variant &&
+           a.yawVary == b.yawVary && a.offsetVary == b.offsetVary &&
+           a.scaleVary == b.scaleVary;
+}
+
+// True when a member is a plain always-there clone. The serializer writes those
+// as a bare name string (the pre-variation format), so a belt that varies
+// nothing produces a byte-identical .tyra.
+inline bool scrollMemberIsPlain(const ScrollMember& m) {
+    return m.chance >= 1.0f && m.variant == 0 && m.yawVary == 0.0f &&
+           m.offsetVary == 0.0f && m.scaleVary == 0.0f;
+}
+
+struct ScrollSegment {
+    std::string name = "segment";
+    float length = 0.0f;  // belt units; <= 0 = auto from member extent
+    std::vector<ScrollMember> objects;
+};
+
+inline bool operator==(const ScrollSegment& a, const ScrollSegment& b) {
+    return a.name == b.name && a.length == b.length && a.objects == b.objects;
 }
 
 // Unit primitives fit a 1x1x1 cube centered at origin and are transformed by
@@ -221,7 +329,8 @@ struct SceneObject {
     bool pickThrow = false;   // carried object can be thrown with BTN_THROW
     bool saveState = false;   // position/color/visibility persisted in save slots
     // Player collision: 0 = box (models use their real mesh AABB), 1 = mesh
-    // (models only: per-triangle - ramps/stairs are walkable), 2 = none
+    // (models only: per-triangle - ramps/stairs are walkable), 2 = none,
+    // 3 = invisible wall (Box only): collision without rendered/baked geometry.
     int collisionMode = 0;
     // Streaming layer this object belongs to (SceneData::layers entry name).
     // Empty = no layer: always resident in the game, always shown in the
@@ -232,15 +341,56 @@ struct SceneObject {
     // more triangles. Type-dependent range/default - see clampPrimDetail /
     // defaultPrimDetail / primTriangleCount.
     int primDetail = kDefaultPrimDetail;
+    // Cylinders only: subdivide the side ALONG THE AXIS too (see
+    // primCylinderStacks). Off = the classic side, one quad tall however high
+    // the detail goes - cheapest, and correct whenever nothing lights the
+    // object from above or below, because then there is no vertical gradient
+    // to resolve and the rings are pure triangle cost. On = one ring per four
+    // radial segments, which is what a baked point light overhead or a probe
+    // gradient needs to stop showing up as full-height diagonal stripes.
+    // Defaults OFF so that opening an old project changes no geometry and no
+    // frame budget; App::addObject turns it on for newly created cylinders.
+    bool primRings = false;
     // Rendering cut-off: farther than this from the camera the object is not
     // drawn at all (collision, sounds and scripts still run). 0 = unlimited.
     // The cheapest LOD there is - era-correct for dense scenes.
     float drawDistance = 0.0f;
+    // Keep this object OUT of static batching, whatever the automatic rules
+    // decide (Tools > Static Batches, or Properties > Exclude from static
+    // batch). It is the only per-object lever there is: `batchStatic` in the
+    // generated scene table is a build-time VERDICT computed by
+    // templates.cpp's staticBatchEligible, not an authored field, so before
+    // this the only way to refuse one batch was to switch batching off for
+    // the entire project.
+    //
+    // The case it serves is the merged-box regression (docs/static-batching.md):
+    // a batch is culled as a unit against the union of its members, so one
+    // outlying member can keep the whole group drawn - measured once as 400
+    // pixels of geometry the unbatched scene culled. Excluding that one
+    // member is the surgical fix; the alternatives are re-authoring the scene
+    // or losing batching everywhere.
+    //
+    // Written to the .tyra only when true, so every project that never
+    // touches it resaves byte for byte.
+    bool batchExclude = false;
+    // Conservative software occlusion (docs/occlusion-culling.md). Static,
+    // opaque geometry may contribute an inward proxy unless excluded.
+    bool occluderExclude = false;
+    // Receiving is separate: glass may be hidden by a wall without ever
+    // pretending to be that wall.
+    bool occlusionCull = true;
+    std::string impostorPath; // optional static far model; collision stays original
+    float impostorDistance = 0.0f; // 0 disables, world units
+    bool impostorBillboard = false; // ordered view parts, upright/equal XZ scale
+    int impostorViews = 8; // baked capture count: 4/8/16; legacy assets default to 8
     // Show in reflections: this object is also rendered into the dynamic
     // ("@sky") environment map, so reflective materials mirror it - the GT3
     // trick's second half. Each marked object costs a second (128x128,
     // wide-FOV) render per frame; mark the few props that sell the effect.
     bool reflected = false;
+    // Use one cheap box in dynamic environment maps. Main-view geometry,
+    // collision and picking keep the full object.
+    bool reflectionProxy = false;
     // Ambient occlusion: this object darkens nearby terrain and objects
     // (a baked contact shadow - docs/ambient-occlusion.md). Off = the object
     // casts nothing; it still receives shadows from others.
@@ -278,6 +428,44 @@ struct SceneObject {
     // For things that TUMBLE it is worth all of that; for things that merely
     // slide, leaving bakedLighting off is cheaper and looks better.
     bool dynamicLighting = false;
+    // The object's TEXTURE already contains its lighting (docs/prelit-models.md
+    // - litbake bakes the scene's gathered light into a per-object map_Kd and
+    // sets this). Its vertex colours then go NEUTRAL: no ambient, no N.L, no
+    // baked point lights, no emissive pools, because every one of those is
+    // already in the albedo and adding them again lights the surface twice.
+    //
+    // This is the only route to per-PIXEL static light on a textured surface -
+    // the lightmap atlas is additive and cannot multiply a texture (see the
+    // module header) - and it is what the survival-horror games of the era did.
+    // It costs the object its own texture, so it is a per-object decision.
+    //
+    // The DYNAMIC light still lands on top: the flashlight's projected pool,
+    // its cone, and the live point lights are all added at run time.
+    bool prelit = false;
+    // --- pre-lit BOOKKEEPING (docs/prelit-models.md, "Managing pre-lit
+    // objects"). None of this reaches the game: it is what turns a one-shot
+    // button into a managed mechanism - the author's intent, what the last bake
+    // saw, and the way back.
+    //
+    // The author's statement "this object should ship pre-lit". Set by a
+    // successful bake, cleared by Revert. It is what "Bake pending" and
+    // --bake-prelit iterate: `prelit` says the texture carries light TODAY,
+    // this says it is supposed to.
+    bool prelitWanted = false;
+    // litbake::signature at the last bake - the scene's light, this object's
+    // transform, the model, the source material and the bake parameters, in one
+    // number. Fresh = it still equals the signature computed now; 0 = never
+    // baked. Serialized as a hex STRING (the ProcGraph::bakedHash precedent):
+    // a JSON number loses 64-bit precision above 2^53, which would make a
+    // freshly baked object read as stale the moment it was re-loaded.
+    uint64_t prelitSig = 0;
+    // The materialPath this object had BEFORE its first bake, so Revert can put
+    // it back. "" is a legitimate value (the model's own mtllib) and is exactly
+    // what an un-overridden model reverts to, which is why the writer may omit
+    // it at "" without losing anything. Filled on the FIRST bake only - a
+    // re-bake must never overwrite it with the -lit path it just assigned.
+    // An ASSET PATH, so it joins App::retargetAssetPath.
+    std::string prelitSource;
     // Projected silhouette shadow (runtime, NOT the baked AO above): the
     // game renders this object's silhouette from the sun into a small VRAM
     // target every frame and projects it onto the terrain under it - a
@@ -285,6 +473,30 @@ struct SceneObject {
     // casters are active at a time, each costing a 64x64 silhouette render
     // plus a small terrain patch.
     bool projShadow = false;
+    // Which DYNAMIC shadow this object casts, chosen on the object rather than
+    // for the whole project (docs/shadows.md): 0 = follow the project - which
+    // is exactly what every file written before this key did, i.e. a blob if
+    // Preferences has blob shadows on and the object is one of the moving
+    // things that get them, and a projected silhouette if projShadow is set;
+    // 1 = none; 2 = blob; 3 = projected silhouette; 4 = baked into a decal. A
+    // mode other than 0 OVERRIDES both, so "a model with a blob instead of the
+    // full cast" is one combo away and costs one quad instead of a 64x64
+    // silhouette render.
+    //
+    // 4 is the odd one out and the only one that is not a runtime shadow at
+    // all: the host bakes the shadow into an atlas tile and projects it with
+    // decalproj, so the console draws static triangles and the object takes no
+    // silhouette slot. It needs a bake (shadowbake.hpp) and it requires the
+    // caster AND its receivers to stand still - a moving one is refused by
+    // shadowbake::plan with its name said out loud.
+    int shadowMode = 0;
+    // Optional baked alpha mask for the cheap one-quad blob. Project-relative
+    // PNG; empty keeps the round fallback (or a vehicle definition's automatic
+    // body mask). The runtime rotates it with the object's yaw.
+    std::string blobShadowTexture;
+    // Local X/Z footprint captured with the mask. Zero means infer from the
+    // runtime model/primitive (also the value for hand-picked legacy masks).
+    float blobShadowSize[2] = {0.0f, 0.0f};
     std::string modelPath;    // for PrimitiveType::Model, e.g. "res/models/tree.obj"
     // Material library (.mtl) assigned to the object, e.g.
     // "res/materials/walls.mtl". Primitives take the file's FIRST material
@@ -310,6 +522,25 @@ struct SceneObject {
     // shows and edits this in units per SECOND; only the file and the game
     // see the step form.
     float playerWalkSpeed = 0.1f;
+    // The two speed tiers above the walk (docs/player-speeds.md), in the same
+    // per-1/50 s step unit. Both are 0 by default, which means "inherit", and
+    // that is what keeps every project written before they existed moving
+    // EXACTLY as it did: run resolves to the walk speed (so the ramp below is
+    // flat) and sprint to walk x ProjectSettings::sprintMultiplier, which is
+    // the constant the walkers used to apply on their own.
+    //
+    // How the three are selected at runtime, all in updatePlayerWalker:
+    //   - the left stick's deflection ramps the speed WALK -> RUN, so a gentle
+    //     stick walks and a full stick runs. A digital source (d-pad, keyboard)
+    //     always reads full deflection and therefore always runs.
+    //   - holding the "sprint" input action pins the speed at SPRINT instead,
+    //     flat, ignoring the ramp - a deliberate "go fast" modifier rather than
+    //     a third analog tier.
+    // The avatar's locomotion clip is chosen from the fraction of the RUN
+    // speed, so playerRunThreshold keeps meaning "fraction of full-stick
+    // speed" whether or not a run speed was set.
+    float playerRunSpeed = 0.0f;    // 0 = same as walk (no ramp)
+    float playerSprintSpeed = 0.0f; // 0 = run x settings.sprintMultiplier
     float playerLookSpeed = 1.0f;  // multiplier
     float playerEyeHeight = 1.8f;
     float playerJumpSpeed = 4.5f;  // units/s (walk mode, X button)
@@ -326,6 +557,14 @@ struct SceneObject {
     std::string playerIdleClip;       // clip name; "" = the model's first clip
     std::string playerWalkClip;       // "" = the model's first clip
     std::string playerRunClip;        // "" = never runs (walk covers all speeds)
+    // The clip for the sprint TIER (docs/player-speeds.md): played while the
+    // sprint action is held and the avatar is above the run threshold.
+    // "" = the run clip covers sprinting too, which is what every project did
+    // before this existed. Chosen from the sprint BUTTON rather than from a
+    // speed fraction - sprint is a binary modifier, and inferring it from speed
+    // would need a second threshold that could never be set reliably (sprint
+    // and run speeds may be a hair apart, or identical).
+    std::string playerSprintClip;
     std::string playerJumpClip;       // "" = no airborne clip (holds walk/idle)
     // Directional locomotion (all optional; "" = the walk clip covers that
     // direction). Only visible with playerFaceCamera on: facing then stays on
@@ -369,6 +608,14 @@ struct SceneObject {
     float flashlightRange = 30.0f;  // world units
     float flashlightAngle = 20.0f;  // cone half-angle, degrees
     std::string flashlightToggleButton;  // pad button name, e.g. "Circle"; "" = none
+    // Where the torch is HELD, relative to the eye, in world units: right of
+    // the view axis and below it. 0,0 puts the light exactly in the eye,
+    // which is what every project did before this existed - and what makes a
+    // torch light precisely the surfaces it hides (docs/flashlight.md, "How
+    // much of a volume shadow you will actually SEE"). A small offset gives
+    // the beam a hand and its shadows somewhere to fall.
+    float flashlightOffsetRight = 0.0f;
+    float flashlightOffsetDown = 0.0f;
     // Texture of the beam's ground pool (res-relative PNG, e.g.
     // "res/hud/beam.png"). Empty = the built-in procedural corona. The
     // shape must live in the RGB channels: the pool draws additively and
@@ -395,9 +642,29 @@ struct SceneObject {
                                   // and drift, heavy ones keep their velocity
     float emitterLife = 1.5f;     // particle lifetime, seconds (+-25% jitter)
     float emitterGrow = 1.0f;     // size multiplier reached at end of life
-    float emitterOpacity = 0.6f;  // base alpha 0..1 (fades out near death)
+    // Base alpha 0..1 (fades out near death). NOT custom-only despite sitting
+    // in this block: FOG reads it too (peak alpha = opacity x 60, vs custom's
+    // x 128), it is authored for both in the inspector, and save() writes it
+    // for both. The other four kinds have hardcoded peak alphas and ignore it.
+    float emitterOpacity = 0.6f;
     bool emitterDieOnGround = false;  // particle dies when it hits the terrain
                                       // (water soaking in instead of clipping)
+    // Additive blending (docs/particles.md): the particles ADD light instead
+    // of covering what is behind them - fire, sparks, magic. Depth-tested,
+    // never writes depth. Off = ordinary alpha-over (smoke, dust, fog).
+    bool emitterAdditive = false;
+    // Particle library link (docs/particles.md): the NAME of a
+    // Project::particleEffects entry, "" = the emitter's own settings. While
+    // linked, project::applyParticleEffects copies the effect's look and
+    // physics into the emitter fields above on every commit and on load, so
+    // everything downstream (codegen, the viewport preview, Live Link) keeps
+    // reading ordinary emitter fields.
+    std::string particleEffect;
+    // Flipbook (docs/particles.md): materialPath is frame 0 and frames 1..N-1
+    // are particletex::framePath(materialPath, k), swapped at emitterFps.
+    // Copied from the linked effect; 1 = a still texture.
+    int emitterFrames = 1;
+    float emitterFps = 12.0f;
 
     // Sound emitter parameters (used when type == SoundEmitter)
     std::string soundPath;      // one of Project::sounds ("res/sfx/x.wav")
@@ -406,6 +673,18 @@ struct SceneObject {
     float soundInterval = 0.0f; // seconds between retriggers; 0 = loop seamlessly
     bool soundOnPlayer = false; // plays centered on the player (plain stereo,
                                 // full volume, no distance/pan) - e.g. dialogs
+    // Send this emitter into the SPU2 reverb bus (docs/reverb.md). The send is
+    // one BIT per voice in hardware - there is no per-emitter wet amount, only
+    // the zone's global depth. Off = this emitter stays dry wherever the
+    // listener stands (a UI beep, a sound already recorded with its own room).
+    bool soundReverb = true;
+    // Which emitters win when there are more audible ones than voices
+    // (docs/sound.md). The SPU2 gives the emitters EIGHT channels per reverb
+    // bus, so a ninth audible emitter has to lose one; higher priority wins,
+    // and among equals the loudest does. 0 is "ordinary ambience" - raise it
+    // for the one sound a scene cannot afford to drop (an alarm, a boss's
+    // loop, a hint the player is waiting on).
+    int soundPriority = 0;
 
     // Point light parameters (used when type == PointLight). The light color
     // is the shared `color` field above.
@@ -417,6 +696,26 @@ struct SceneObject {
     // by the Set Light flow node. Max 8 dynamic lights per scene.
     bool lightDynamic = false;
     float lightFlicker = 0.0f;  // 0 = steady .. 1 = full torch-like flicker
+    // Spot style (dynamic lights only): the light becomes a CONE down the
+    // object's local -Y - unrotated it points straight down, a ceiling lamp
+    // or a street light; rotate the object to aim it. The cone lights
+    // nearby meshes per vertex through the same engine slot the flashlight
+    // uses, and its footprint on the ground is drawn like the flashlight's
+    // pool: the gobo texture projected per pixel from the light's own
+    // frustum (docs/flashlight.md, "A scene light with the same trick").
+    bool lightSpot = false;
+    float lightSpotAngle = 25.0f;  // cone half-angle, degrees
+    // Whether THIS spot light carves shadow volumes (docs/shadows.md,
+    // "Spot-light shadow volumes"), said on the light rather than for the
+    // whole project - the SceneObject::shadowMode idiom: 0 = follow the
+    // project (ProjectSettings::spotShadowVolumes), which is what every file
+    // written before this key meant; 1 = off; 2 = on. Only read while
+    // `lightSpot` is set - a point light has no cone to carve.
+    //
+    // A scene may hold more shadow-casting spots than the count band can
+    // serve, so only ONE is active per frame (the nearest to the camera).
+    // Setting 2 on the lamp that matters is how you say which.
+    int lightShadowVolumes = 0;
     // Visible beam drawn at the light source (additive, follows the light's
     // runtime state incl. flicker/Set Light): 0 = none, 1 = glow corona
     // (camera-facing halo), 2 = corona + a cone shaft pointing down (street
@@ -458,6 +757,25 @@ struct SceneObject {
     // is by construction the set static batching already refuses). Ignored by
     // raytraced mirrors: their proxy meshes are baked per mirror at build.
     bool catchAreaLive = false;
+
+    // Reverb zone (docs/reverb.md): make this Area a room for the SPU2's
+    // hardware reverb. While the listener stands inside it, the sound effects
+    // play through `reverbPreset` at `reverbAmount`.
+    // The console has ONE reverb unit, so zones do not mix: the highest
+    // `reverbPriority` inside wins (ties: the later object). A move between
+    // two zones of the same preset is a smooth ramp of the amount; a move
+    // between different presets ramps to zero, swaps, and ramps back, because
+    // switching the algorithm means zeroing its work area in SPU2 RAM.
+    // Outside every zone the reverb is off.
+    bool reverbZone = false;
+    int reverbPreset = 1;        // 0 off, 1 room, 2-4 studio A/B/C, 5 hall,
+                                 // 6 space echo, 7 echo, 8 delay, 9 pipe
+                                 // (the values ARE AudioReverb::Preset)
+    float reverbAmount = 0.5f;   // 0..1, wet return level
+    int reverbDelay = 64;        // 0..127, read by echo/delay/pipe only
+    int reverbFeedback = 64;     // 0..127, read by echo/delay only
+    int reverbPriority = 0;      // overlapping zones: the highest wins, so a
+                                 // small closet inside a hall can override it
 
     // Mirror parameters (used when type == Mirror). An explicit list of scene
     // object names this mirror reflects (renames remap; a dangling name is
@@ -504,6 +822,51 @@ struct SceneObject {
     // shipping. Mirrors' reflections and particles still don't show.
     bool portalViewAll = false;
 
+    // Vehicle instance (used when type == Vehicle, docs/vehicles.md): the NAME
+    // of the Project::vehicles definition this is an instance of. Everything
+    // expensive - the model, the wheel table, the driving - belongs to the
+    // definition; an instance carries only its placement and the short list of
+    // overrides below. The split is the whole point: the moment a top speed can
+    // be set in two places, two cars of one name drive differently and nobody
+    // knows which is real.
+    std::string vehicleDef;
+    // AI route: a NAME PREFIX. Codegen collects every object in the scene
+    // whose name starts with it, sorted by name, and bakes their positions as
+    // this instance's waypoint loop - an Area per corner is the natural
+    // authoring (invisible at runtime, no collider). Empty = parked until the
+    // player takes it.
+    std::string vehicleRoute;
+    // Can the player get in? Off makes it scenery that still collides and can
+    // still be driven by a script, which is what parked traffic wants.
+    bool vehicleDriveable = true;
+    // Endless scroller parameters (used when type == Scroller). The belt runs
+    // along the object's local +Z (its forward, rotated by `rotation`). It
+    // tiles `scrollSegments` in order and slides them along the axis at
+    // scrollSpeed units/s. Objects are kept populated from scrollBehind units
+    // behind the scroller origin to scrollAhead units in front; a segment
+    // instance leaving the back is recycled to the front (see scrollsim). Its
+    // authored member objects are the templates: the editor hides their raw
+    // selves and previews scrolling ghosts, the build bakes enough clones to
+    // fill the window into the scene tables and a generated ScrollerDirector
+    // repositions them each frame. See docs/endless-scroller.md.
+    std::vector<ScrollSegment> scrollSegments;
+    float scrollSpeed = 6.0f;    // belt units/s along +Z; negative = reverse
+    float scrollAhead = 40.0f;   // populate this far in front of the origin
+    float scrollBehind = 10.0f;  // keep instances this far behind before retiring
+    bool scrollAutostart = true; // belt runs at scene start (else Start Scroller)
+    // Safety cap on baked clones per scroller (build drops extra copies and
+    // warns past this). Guards against a huge window * tiny segment blowing up
+    // the scene table / per-frame repositioning cost.
+    int scrollMaxClones = 120;
+    // Anti-z-fighting seam overlap (world units): every baked clone is
+    // stretched this much along the belt axis, so consecutive pieces slightly
+    // interpenetrate instead of butting up with exactly coplanar end faces
+    // (coplanar faces flicker on the GS). 0 = exact tiling.
+    float scrollOverlap = 0.02f;
+    // Seed of the belt's per-cell variation (ScrollMember above). Changing it
+    // reshuffles the whole infinite stream without touching any member.
+    int scrollVarySeed = 1;
+
     // Animated model parameters (Model objects whose modelPath ends in .glb;
     // the editor bakes the file's clips to morph frames - see glbparser.hpp).
     std::string animClip;       // starting clip name ("" = the file's first)
@@ -532,6 +895,40 @@ struct SceneObject {
     // gizmo moves and resizes it. Evaluated in the editor (procgen), baked to
     // static geometry at build (procbake); nothing of it reaches the PS2.
     ProcGraph procGraph;
+    // Road payload (type Road): the polyline the spline threads, XZ pairs in
+    // world space (the object's own position is cosmetic for roads - points
+    // are absolute, which is what lets "align terrain" mean one thing).
+    std::vector<float> roadPoints;
+    // Per-point LIFT above the terrain (units; empty = all glued flat).
+    // Catmull-Rom interpolated along the spline like the XZ, so a ramp
+    // climbs smoothly between anchors - dunes-jump material.
+    std::vector<float> roadHeights;
+    float roadWidth = 6.0f;
+    // Longitudinal geometry spacing. 1 preserves the dense terrain-following
+    // surface; 2 halves the stations for broad, gently varying streets.
+    float roadSampleStep = 1.0f;
+    // Tyre grip on this road, a multiplier on every vehicle's grip (1.137.0,
+    // docs/vehicles.md "Surface grip"): 1 = asphalt, lower = gravel, ice.
+    // Junctions take the lower of their two roads.
+    float roadGrip = 1.0f;
+    // Crossing rules (1.143.0, docs/roads.md "Crossings"). RANK: 0 track, 1
+    // local, 2 main - the higher road runs through a crossing and covers the
+    // lower; equal ranks get the intersection-material junction as before.
+    // SPILL: how far this road's surface trails onto a HIGHER-rank road it
+    // crosses, fading out (units, 0 = a clean edge).
+    int roadRank = 1;
+    float roadSpill = 1.5f;
+    // Soft edges (1.144.0, docs/roads.md "Soft edges"): the outer this-many
+    // units on each side fade into the terrain (0 = the hard edge).
+    float roadEdgeFade = 0.0f;
+    // Road surface asset. New authoring points at a .mtl (its first map_Kd);
+    // direct PNG paths remain accepted for projects authored before the
+    // material picker existed. Empty = untextured grey.
+    std::string roadTexture;
+    // Optional overlay shared by two crossing roads. A junction is generated
+    // only when both roads name the same non-empty texture, which keeps an
+    // ambiguous crossing deterministic and costs no per-frame detection.
+    std::string roadIntersectionTexture;
     // Set on the chunk objects a Scatter bake produced: the id of the Scatter
     // object that owns them. They are real scene objects (so codegen,
     // culling, LOD and the disc layout need no special case) but the editor
@@ -549,13 +946,139 @@ struct SceneObject {
     // a room is still a room); dropped by prefab::capture, which must not
     // record where its own members came from.
     std::string prefabSource;
+    // Scene-local, editor-only rigid selection group; empty = independent.
+    std::string editorGroup;
+
+    // The note a Comment object carries (docs/comments.md): free text, any
+    // length, editor-only. Nothing downstream reads it - not codegen, not a
+    // bake, not the console - so it is deliberately NOT part of
+    // liveLinkRecipeHash either: rewriting a note must not ask for a rebuild.
+    // It lives on SceneObject rather than in a side list so a note is an
+    // ordinary object with a name, a place, undo, layers and selection.
+    std::string commentText;
 
     // Attached object scripts: class names registered in src/scripts/*.cpp
     // with TYRA_OBJECT_SCRIPT(Name). Each attachment becomes its own script
     // instance in the game (Unity-style components); the same class can be
     // attached to any number of objects across scenes.
     std::vector<std::string> scripts;
+
+    // The four numbers this mesh hands to the project's own VU1 microprogram
+    // (docs/vu-authoring.md). A custom program replaces a whole MATERIAL CLASS
+    // - VU1 micro memory has no room for one program per object - so the kind
+    // of effect is per class and its STRENGTH is per mesh, and these are that
+    // strength. All zero means "this mesh wants nothing", which every stage is
+    // required to render bit-identically to the untouched program.
+    //
+    // They are uploaded per bag, so BATCHED objects share them: the generated
+    // game merges compatible non-moving primitives and model parts into
+    // combined bags, and one bag is one upload. Objects with non-zero custom
+    // parameters therefore stay on the solo path.
+    float vuParams[4] = {0.0f, 0.0f, 0.0f, 0.0f};
 };
+
+// ---------------------------------------------------------------------------
+// The project's own VU programs (docs/vu-authoring.md)
+// ---------------------------------------------------------------------------
+
+// One authored stage. `kind` is a key from vugen::stageDefs(); an unknown one
+// is DROPPED on load rather than guessed at, the readFlowGraph rule - a
+// project written by a newer editor must not silently compile to a different
+// microprogram here.
+struct VuStage {
+    std::string kind;
+    bool enabled = true;
+    float params[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+    // -1 = the literal above, which means EVERY MESH of the claimed classes -
+    // and that is the common case, because a look is a whole-scene treatment.
+    // 0..3 names a field of the per-mesh quadword instead, for the rarer "this
+    // prop, that much" case. Any such binding restricts the look to the classes
+    // that carry no lighting: the quadword lives in the directional-lights
+    // colour block (see vuClassCanBind).
+    int bind[4] = {-1, -1, -1, -1};
+};
+
+inline bool operator==(const VuStage& a, const VuStage& b) {
+    for (int i = 0; i < 4; ++i)
+        if (a.params[i] != b.params[i] || a.bind[i] != b.bind[i]) return false;
+    return a.kind == b.kind && a.enabled == b.enabled;
+}
+inline bool operator!=(const VuStage& a, const VuStage& b) { return !(a == b); }
+
+// A LOOK: one stage list, installed over every material class it claims.
+//
+// It is a look and not "a program" because that is what the feature is for. A
+// VU program is how you give a whole scene a treatment - cell shading, an
+// underwater wobble - not how you wiggle one barrel; a barrel is an animation's
+// job. And a treatment has to reach every class the scene draws with, or it
+// stops halfway: cell shading that covers untextured props and not textured
+// ones is not cell shading.
+//
+// `classes` is a StaPipProgramClass bit mask. Codegen emits ONE microprogram
+// per claimed class, all from this one list - so authoring is done once. At
+// most one enabled look may claim a given class: setProgramOverride replaces a
+// slot, and two programs cannot occupy one.
+struct VuProgram {
+    std::string name = "look";
+    unsigned classes = 1u << 0;
+    bool enabled = true;
+    std::vector<VuStage> stages;
+};
+
+inline bool operator==(const VuProgram& a, const VuProgram& b) {
+    return a.name == b.name && a.classes == b.classes &&
+           a.enabled == b.enabled && a.stages == b.stages;
+}
+inline bool operator!=(const VuProgram& a, const VuProgram& b) { return !(a == b); }
+
+// A VU0 compute kernel: the same stages, on the other vector unit, with no
+// rendering around them. Reaches the game as a driver class a user script
+// calls; nothing in the scene pipeline knows it exists.
+struct VuKernel {
+    bool enabled = false;
+    std::string name = "kernel";
+    int maxElements = 112;  // VU0 has 256 quadwords TOTAL - see buildKernel
+    std::vector<VuStage> stages;
+};
+
+inline bool operator==(const VuKernel& a, const VuKernel& b) {
+    return a.enabled == b.enabled && a.name == b.name &&
+           a.maxElements == b.maxElements && a.stages == b.stages;
+}
+inline bool operator!=(const VuKernel& a, const VuKernel& b) { return !(a == b); }
+
+struct VuSettings {
+    // Several looks may claim the same material class. Only ONE is installed
+    // at a time, but they all reach the ELF - microcode is a byte range in EE
+    // memory and only the active set is uploaded to VU1, so an alternative
+    // look costs EE RAM and nothing in micro memory. That is what makes
+    // switching a whole look at run time affordable (vuprog::activate).
+    std::vector<VuProgram> programs;
+    // Which one is installed at boot. Out of range = the first enabled one.
+    int activeLook = 0;
+    VuKernel kernel;
+    // Which material classes keep a resident VU1 program
+    // (StaPipQBufferRenderer::StaPipProgramClass; 0x1F = all five). Dropping
+    // one buys ~380 instructions of micro memory for a program the user wrote.
+    unsigned residentClasses = 0x1F;
+    // Let the editor derive the mask from what the scenes actually draw,
+    // instead of trusting a hand-set one to stay right as the project grows.
+    bool residentAuto = true;
+    // Which C++ SCRIPTS (src/vu/*.cpp) start switched on, by script name. Only
+    // a DEFAULT: a script that overrides activeAtBoot() answers for itself and
+    // this is not consulted - which is why it is a plain list of choices with
+    // no "unset", and why an unlisted script starts on. The names come from the
+    // manifest the last build wrote, since the editor cannot compile a script
+    // to ask it anything.
+    std::vector<std::pair<std::string, bool>> scriptBoot;
+};
+
+inline bool operator==(const VuSettings& a, const VuSettings& b) {
+    return a.programs == b.programs && a.kernel == b.kernel &&
+           a.residentClasses == b.residentClasses &&
+           a.residentAuto == b.residentAuto && a.scriptBoot == b.scriptBoot;
+}
+inline bool operator!=(const VuSettings& a, const VuSettings& b) { return !(a == b); }
 
 // A reusable group of scene objects - their flow graphs included - stamped
 // into the world by hand, by a procedural graph, or by the Spawn Prefab flow
@@ -587,6 +1110,437 @@ inline bool operator==(const Prefab& a, const Prefab& b) {
 }
 inline bool operator!=(const Prefab& a, const Prefab& b) { return !(a == b); }
 
+// One wheel of a vehicle definition, as the AUTHOR decided it (docs/vehicles.md).
+// Deliberately not the wheel's geometry: the anchor, the radius and the width
+// are re-measured from the model, because they are facts about the asset and
+// storing a copy of a fact is how a definition goes stale against its own file.
+// What is stored is only what a person can disagree with the detector about.
+struct VehicleWheel {
+    // The model node this wheel is. parseSkel uniquifies node names, so this
+    // identifies a wheel across re-imports of an edited model.
+    std::string node;
+    bool steered = false;
+    bool driven = false;
+};
+
+inline bool operator==(const VehicleWheel& a, const VehicleWheel& b) {
+    return a.node == b.node && a.steered == b.steered && a.driven == b.driven;
+}
+inline bool operator!=(const VehicleWheel& a, const VehicleWheel& b) { return !(a == b); }
+
+// A vehicle, defined once per project and placed as many times as you like
+// (docs/vehicles.md). Project-wide like a Prefab or an AmbiencePreset, and
+// referenced BY NAME from SceneObject::vehicleDef.
+//
+// It is project data rather than a file in res/ on purpose: the file route
+// (.mtl, .flownode, .screenfx, .drone) is for things that honour somebody
+// else's format or carry C++, and this is neither. Being a Section buys the
+// collaboration wire, the AI Assistant's get_section/set_section and the
+// sectionJson edit guard with no code of its own.
+// A procedural particle texture recipe (docs/particles.md): the editor bakes
+// it into res/materials/particles/<effect>.png + a one-line .mtl, which the
+// effect then uses like any other material. kind 0 = none (the effect names a
+// material of its own), 1 smoke puff, 2 flame, 3 glow/spark.
+struct ParticleTexGen {
+    int kind = 0;
+    int size = 64;           // texels per side, 32 / 64 / 128
+    int seed = 1;
+    float softness = 0.6f;   // edge falloff 0..1 (0 = hard disc)
+    float detail = 0.5f;     // noise contrast 0..1
+    float scale = 1.0f;      // noise feature size multiplier
+    float turbulence = 0.5f; // flame: how far the tongues lick sideways
+    float heat = 0.5f;       // flame: white core size / glow: core size
+    float color[3] = {1.0f, 1.0f, 1.0f};  // smoke / glow tint baked in
+    // Flipbook (docs/particles.md): frames of the same recipe with the noise
+    // moving through a seamless loop, swapped at `fps` on the console - one
+    // bag, one submit, only the texture pointer changes. Each frame is its own
+    // texture in GS VRAM, so 4 x 64x64 RGBA32 = 64 KB.
+    int frames = 1;          // 1 / 2 / 4 / 8
+    float fps = 12.0f;
+    bool operator==(const ParticleTexGen& o) const {
+        return kind == o.kind && size == o.size && seed == o.seed &&
+               frames == o.frames && fps == o.fps &&
+               softness == o.softness && detail == o.detail && scale == o.scale &&
+               turbulence == o.turbulence && heat == o.heat &&
+               color[0] == o.color[0] && color[1] == o.color[1] &&
+               color[2] == o.color[2];
+    }
+    bool operator!=(const ParticleTexGen& o) const { return !(*this == o); }
+};
+
+// One EMITTER's worth of a particle effect (docs/particles.md): motion, look
+// and texture. The fields mirror SceneObject's emitter* fields one for one,
+// and project::applyParticleLayer is the ONE place that copies them across.
+struct ParticleLayer {
+    std::string label;  // "Embers", "Glow" ... (extra layers; the main one is "Main")
+    int kind = 1;       // emitterKind semantics: 0 fire .. 4 rain, 5 custom
+    int count = 24;
+    float size = 0.5f;
+    float color[3] = {1.0f, 1.0f, 1.0f};
+    float speed = 3.0f, spread = 20.0f, gravity = 9.8f, weight = 1.0f;
+    float life = 1.5f, grow = 1.0f, opacity = 0.6f;
+    bool dieOnGround = false;
+    bool additive = false;
+    std::string materialPath;  // texture (.mtl, first material's map_Kd)
+    ParticleTexGen texGen;     // how materialPath's texture was generated
+    // Extra layers only: where the layer sits relative to its emitter (world
+    // axes) and its spawn area as a multiple of the emitter's scale. The main
+    // layer IS the emitter, so it has neither.
+    float offset[3] = {0.0f, 0.0f, 0.0f};
+    float area[3] = {1.0f, 1.0f, 1.0f};
+    bool operator==(const ParticleLayer& o) const {
+        return label == o.label && kind == o.kind &&
+               count == o.count && size == o.size && color[0] == o.color[0] &&
+               color[1] == o.color[1] && color[2] == o.color[2] &&
+               speed == o.speed && spread == o.spread && gravity == o.gravity &&
+               weight == o.weight && life == o.life && grow == o.grow &&
+               opacity == o.opacity && dieOnGround == o.dieOnGround &&
+               additive == o.additive && materialPath == o.materialPath &&
+               texGen == o.texGen && offset[0] == o.offset[0] &&
+               offset[1] == o.offset[1] && offset[2] == o.offset[2] &&
+               area[0] == o.area[0] && area[1] == o.area[1] && area[2] == o.area[2];
+    }
+    bool operator!=(const ParticleLayer& o) const { return !(*this == o); }
+};
+
+// One entry of the project's particle library (Tools > Particle Editor,
+// docs/particles.md). Emitters and vehicle tyre smoke reference an effect by
+// NAME. The effect's own ParticleLayer fields are its MAIN layer - the one
+// copied into a linked emitter's own fields - and `layers` are the further
+// emitters it adds around that one (a campfire's flame + embers + glow +
+// smoke), which codegen bakes into EMITTER_LAYERS and the viewport previews.
+struct ParticleEffect : ParticleLayer {
+    std::string id;    // stable identity (collaboration merge key)
+    std::string name;  // what references use
+    std::vector<ParticleLayer> layers;
+    bool operator==(const ParticleEffect& o) const {
+        return id == o.id && name == o.name && layers == o.layers &&
+               ParticleLayer::operator==(o);
+    }
+    bool operator!=(const ParticleEffect& o) const { return !(*this == o); }
+};
+
+struct VehicleDef {
+    // Stable, opaque identity - the collaboration merge key, like Prefab::id.
+    // Every REFERENCE to a vehicle is by name.
+    std::string id;
+    std::string name;
+    std::string notes;
+
+    // The authored model: ONE .glb or .fbx holding the body and the wheels.
+    // An asset path, so it must appear in App::retargetAssetPath.
+    std::string modelPath;
+
+    // Import (see vehbake::Options - these are its authored twin).
+    int bodyTriBudget = 2400;
+    int wheelTriBudget = 700;
+    bool mergeUntextured = true;
+    // Definition-wide paint colour. Textured cars use paintMask (white =
+    // paintable atlas texels, black = lamps/glass/trim/wheels); untextured
+    // paint-named materials can be coloured without a mask.
+    bool paintEnabled = false;
+    float paintColor[3] = {1.0f, 1.0f, 1.0f};
+    std::string paintMask;
+    // Paint shine 0..1: a reflection pass on the baked body's paint (the
+    // matte merge - rubber, near-black trim - is left out, and so are the
+    // wheels). 0 = matte and writes nothing, so an existing definition
+    // resaves byte for byte.
+    float bodyShine = 0.0f;
+    // What the paint mirrors: a res/ image used as a SPHERE MAP, or "" for
+    // the engine's dynamic "@sky" env map. An asset path - it joins
+    // App::retargetAssetPath and rebuildAssetUsage.
+    std::string bodyReflMap;
+    // The panel's answer when the importer could not tell which end is the
+    // nose. Flips the resolved forward axis and nothing else.
+    bool flipFront = false;
+
+    // Per-wheel author overrides, matched to the detection by node name. A
+    // wheel the detector finds and this list does not mention keeps the
+    // detector's seeding (front steers, rear drives).
+    std::vector<VehicleWheel> wheels;
+
+    // How it drives. Carried verbatim rather than flattened, so vehiclesim
+    // stays the one definition of what a vehicle's tuning IS.
+    vehiclesim::DriveSpec drive;
+    // New definitions inherit; legacy local tuning is migrated to field overrides.
+    bool inheritDefaults = true;
+    std::vector<std::string> tuningOverrides;
+
+    // The camera while the player is driving. Same rig shape as the
+    // third-person player camera, which is what the spring arm already knows.
+    float camDist = 6.5f;
+    float camHeight = 2.2f;
+    float camPitch = 12.0f;
+
+    // Where the player is put down on getting out, relative to the chassis in
+    // the canonical frame (x = right, y = up, z = forward): the driver's door.
+    float exitOffset[3] = {-1.4f, 0.0f, 0.0f};
+
+    // The distance (world units, camera to car) past which the body swaps to
+    // its far tier - the decimated paint with the wheels baked in, ONE submit
+    // for the whole car - and the wheel bag stops. Twice that reaches the
+    // coarser tier. 0 = never (the wheel bag still stops at 70 units, the
+    // pre-tier rule). Baked into the body row's meshLod at codegen.
+    float farDistance = 40.0f;
+
+    // An AUTHORED far tier (docs/vehicles.md, "An authored far model"): a
+    // second .glb/.fbx built in the SAME space as modelPath - same origin,
+    // same scale, wheels in place - that replaces the decimated tiers above.
+    // Its textured materials must sample an image the body already uses
+    // (pixel-equal) and its untextured ones join the palette, so the swap
+    // costs no VRAM. The whole model, wheels included, becomes the far tier
+    // of the body part it samples, and the body parts it does not reach are
+    // hidden while it shows - except the lamps, which stay drawn and lit, so
+    // the far model leaves room for them. "" = the decimated tiers. An
+    // asset path, so it belongs in App::retargetAssetPath and
+    // App::rebuildAssetUsage.
+    std::string farModel;
+    // Cars NOBODY drives (parked, AI rivals) swap to the far tier from this
+    // distance instead of farDistance - a traffic tier. 0 = farDistance for
+    // every car.
+    float trafficDistance = 0.0f;
+    // Measured by the bake, never authored (vehbake::adoptMeasured): the body
+    // part that carries the far tier (-1 = the body has none) and a bit per
+    // body part the runtime hides while that tier shows.
+    int farPart = -1;
+    int farHideMask = 0;
+
+    // The FAST wheel (docs/vehicles.md, "A fast wheel"): a second wheel model
+    // the game swaps all four wheels to while they spin faster than
+    // drive.fastWheelSpeed. "" = none; "@auto" = the ordinary wheel again at
+    // fastWheelTriBudget triangles (a lower-resolution copy); anything else
+    // names a mesh NODE of modelPath - an artist's motion-blurred wheel - which
+    // the import then leaves out of the body and of the wheel detection. It
+    // bakes into the same palette as the rest of the car, so the four wheels
+    // stay one submit.
+    std::string fastWheel;
+    int fastWheelTriBudget = 120;
+
+    // Lamp clusters, measured off the model's own MATERIALS by the import
+    // (names saying head/tail/brake/lamp/light - docs/vehicles.md, "The
+    // visual pack"): {sideways |x| offset, y, z, half-size}, canonical frame.
+    // size 0 = the model marked no lamps and the runtime falls back to its
+    // shape-blind heuristic positions. This is what makes the glow fit EVERY
+    // body: the material says where the lamps are on THIS shape.
+    float lampRear[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+    float lampFront[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+    // The emissive lamp PART of the baked body (-1 = none) and the corner
+    // count of its rear range (the front lamps follow it): the runtime
+    // brightens the two ranges' vertex colors per instance - lamps that are
+    // body mesh stick to every shape by construction. Measured by the bake,
+    // never authored (vehbake::adoptMeasured).
+    int lampPart = -1;
+    int lampRearVerts = 0;
+    // Translucent glass (docs/vehicles.md, "See-through glass"): below 1 the
+    // bake keeps glass-named untextured materials out of the palette merge as
+    // their own body part, and the runtime draws that part with this vertex
+    // alpha at the frame's translucent tail - so a modelled interior shows
+    // through. 1 (the default) is the old opaque merge, one submit fewer.
+    // glassPart is that part's index, MEASURED by the bake like lampPart.
+    float glassOpacity = 1.0f;
+    int glassPart = -1;
+    // Loose panels and windows, MEASURED by the bake (vehbake::adoptMeasured,
+    // docs/vehicles.md "Loose panels and glass"): each a vertex range of one
+    // body part the runtime can take off. Written only when non-empty.
+    std::vector<vehiclesim::Piece> pieces;
+    // {part, vertices}: MEASURED like the pieces - the reflection pass of that
+    // body part covers only its first `vertices` (the matte cabin after them).
+    std::vector<std::pair<int, int>> envLimits;
+    // The lamp glow's lamps, MEASURED by the bake (vehbake::Result::lampGlows):
+    // centre xyz, half extents xyz, front 1 / rear 0. Written only when set.
+    std::vector<std::array<float, 7>> lampGlows;
+    // Exhaust pipes MARKED in the model (vehbake::Result::exhausts, docs/
+    // vehicles.md "Exhaust pipes"): position xyz + unit direction xyz in the
+    // canonical body frame. Empty = the runtime's guessed rear pipes. Written
+    // only when set.
+    std::vector<std::array<float, 6>> exhausts;
+
+    // The engine note (docs/vehicles.md, "Engine sound"). A path into the
+    // project's own sound list, NOT an index: an index would retarget itself
+    // the moment somebody reordered the Sounds panel. It names a
+    // project WAV: selecting it declares encoded loop intent (adpenc -L).
+    // Nothing at runtime can make a one-shot repeat. An asset path, so it
+    // belongs in App::retargetAssetPath and App::rebuildAssetUsage.
+    std::string engineSound;
+    // The pitch the sample plays at, as a multiple of its own encoded rate, at
+    // idle and at the redline. The runtime interpolates between them on the
+    // engine speed the powertrain already computes.
+    float enginePitchIdle = 0.75f;
+    float enginePitchRedline = 2.4f;
+    float engineVolume = 70.0f;  // 0..100, audsrv's own scale
+    // The second engine loop, for HIGH revs ("" = single-sample mode, exactly
+    // the behavior above). With one set, the runtime CROSSFADES the two loops
+    // on the engine speed - the era's two-sample engine - both riding the
+    // same authored pitch curve.
+    std::string engineHighSound;
+    bool engineHighEnabled = true;   // false keeps the selection but plays only idle
+    float engineHighStart = 0.55f; // fraction of idle-to-redline range where crossfade starts
+    float engineHighPitchStart = 0.85f;
+    float engineHighPitchEnd = 1.7f;
+    // Tyre squeal: a loop whose volume rides DriveState::slip - the same one
+    // number the smoke and the telemetry already read, so they can never
+    // disagree about when a tyre lets go. "" = no squeal.
+    std::string screechSound;
+    // A one-shot played on every gear change while driving. "" = silent.
+    std::string shiftSound;
+    float screechVolume = 80.0f;  // 0..100
+    float shiftVolume = 80.0f;    // 0..100
+    // Headlight pools: two additive beams painted on the terrain ahead.
+    // Off by default - they read as light, so a day map opts in knowingly.
+    bool headlights = false;
+
+    // Tyre effects (docs/vehicles.md, "Skid marks and smoke"): an .mtl
+    // (res/...) whose texture and Kd colour the skid ribbon / smoke puffs
+    // take. Empty = the built-in tread and puff textures the vehicle bake
+    // generates.
+    std::string skidMaterial;
+    std::string smokeMaterial;
+
+    // The driver's readout (docs/vehicles.md, "The HUD"). Off by default, so a
+    // vehicle authored before it existed still shows nothing.
+    bool showHud = false;
+    // A font NAME, like every other font reference in the project ("" = the
+    // default entry). It needs a glyph ATLAS, which is why a vehicle with the
+    // HUD on joins Project::atlasFontIndices().
+    std::string hudFont;
+    // Speed is in world units per second, and a unit is whatever the project
+    // decided it is - so what the number should READ as is an authoring
+    // question, not one this code can answer. 3.6 turns metres per second into
+    // km/h, which is the common case.
+    float hudSpeedScale = 3.6f;
+    // The controls card shown on getting in (docs/vehicles.md, "Controls
+    // card"): seconds it stays up, 0 = never. Built at RUNTIME from the live
+    // bindings and from what this car has (nitrous, lights), and drawn in the
+    // HUD font - which is why a car with it on joins atlasFontIndices().
+    float tutorialSeconds = 0.0f;
+    // Tyre smoke look (docs/particles.md): the NAME of a particle-library
+    // effect, "" = the built-in grey puffs. The effect's colour, opacity,
+    // size, growth, life and texture drive the puffs; the SPAWNING stays the
+    // sim's (slip decides when, the rear wheels decide where).
+    std::string smokeEffect;
+
+    bool valid() const { return !name.empty(); }
+};
+
+inline bool operator==(const VehicleDef& a, const VehicleDef& b) {
+    if (a.inheritDefaults != b.inheritDefaults ||
+        a.tuningOverrides != b.tuningOverrides ||
+        a.id != b.id || a.name != b.name || a.notes != b.notes ||
+        a.modelPath != b.modelPath || a.bodyTriBudget != b.bodyTriBudget ||
+        a.wheelTriBudget != b.wheelTriBudget || a.mergeUntextured != b.mergeUntextured ||
+        a.paintEnabled != b.paintEnabled || a.paintMask != b.paintMask ||
+        a.paintColor[0] != b.paintColor[0] ||
+        a.paintColor[1] != b.paintColor[1] ||
+        a.paintColor[2] != b.paintColor[2] ||
+        a.bodyShine != b.bodyShine || a.bodyReflMap != b.bodyReflMap ||
+        a.flipFront != b.flipFront || a.wheels != b.wheels || a.camDist != b.camDist ||
+        a.camHeight != b.camHeight || a.camPitch != b.camPitch ||
+        a.engineSound != b.engineSound ||
+        a.enginePitchIdle != b.enginePitchIdle ||
+        a.enginePitchRedline != b.enginePitchRedline ||
+        a.engineVolume != b.engineVolume || a.showHud != b.showHud ||
+        a.engineHighSound != b.engineHighSound ||
+        a.engineHighEnabled != b.engineHighEnabled ||
+        a.engineHighStart != b.engineHighStart ||
+        a.engineHighPitchStart != b.engineHighPitchStart ||
+        a.engineHighPitchEnd != b.engineHighPitchEnd ||
+        a.screechSound != b.screechSound || a.shiftSound != b.shiftSound ||
+        a.screechVolume != b.screechVolume || a.shiftVolume != b.shiftVolume ||
+        a.headlights != b.headlights ||
+        a.skidMaterial != b.skidMaterial || a.smokeMaterial != b.smokeMaterial ||
+        a.headlights != b.headlights || a.smokeEffect != b.smokeEffect ||
+        a.lampRear[0] != b.lampRear[0] || a.lampRear[1] != b.lampRear[1] ||
+        a.lampRear[2] != b.lampRear[2] || a.lampRear[3] != b.lampRear[3] ||
+        a.lampFront[0] != b.lampFront[0] || a.lampFront[1] != b.lampFront[1] ||
+        a.lampFront[2] != b.lampFront[2] || a.lampFront[3] != b.lampFront[3] ||
+        a.lampPart != b.lampPart || a.lampRearVerts != b.lampRearVerts ||
+        a.glassOpacity != b.glassOpacity || a.glassPart != b.glassPart ||
+        a.hudFont != b.hudFont || a.hudSpeedScale != b.hudSpeedScale ||
+        a.tutorialSeconds != b.tutorialSeconds ||
+        a.farDistance != b.farDistance || a.farModel != b.farModel ||
+        a.trafficDistance != b.trafficDistance || a.farPart != b.farPart ||
+        a.farHideMask != b.farHideMask || a.fastWheel != b.fastWheel ||
+        a.fastWheelTriBudget != b.fastWheelTriBudget || a.pieces != b.pieces ||
+        a.envLimits != b.envLimits || a.lampGlows != b.lampGlows ||
+        a.exhausts != b.exhausts)
+        return false;
+    for (int i = 0; i < 3; ++i)
+        if (a.exitOffset[i] != b.exitOffset[i]) return false;
+    // The spec is compared through its own field list, so a tunable added to
+    // DriveSpec joins undo's equality test by appearing in specFields() - the
+    // same single-list rule that makes it saveable.
+    vehiclesim::DriveSpec ca = a.drive, cb = b.drive;
+    const std::vector<vehiclesim::SpecField> fa = vehiclesim::specFields(ca);
+    const std::vector<vehiclesim::SpecField> fb = vehiclesim::specFields(cb);
+    if (fa.size() != fb.size()) return false;
+    for (size_t i = 0; i < fa.size(); ++i)
+        if (*fa[i].value != *fb[i].value) return false;
+    return true;
+}
+inline bool operator!=(const VehicleDef& a, const VehicleDef& b) { return !(a == b); }
+
+inline VehicleDef defaultVehicleTuning() {
+    VehicleDef v;
+    v.name = "Global defaults";
+    v.inheritDefaults = false;
+    v.drive.damage = 1.0f;
+    v.drive.lampGlow = 1.0f;
+    return v;
+}
+
+// Import measurements always stay local, even on an inheriting definition.
+inline bool vehicleGeometryKey(const std::string& key) {
+    return key == "wheelBase" || key == "track" || key == "wheelRadius" ||
+           key == "bodyOverhang" || key == "rideHeight";
+}
+inline bool vehicleTuningOverride(const VehicleDef& v, const std::string& key) {
+    for (const auto& k : v.tuningOverrides) if (k == key) return true;
+    return false;
+}
+
+// One registry for resolution, legacy migration and the editor's automatic
+// overrides. Geometry and import/paint settings deliberately stay local.
+template <class Fn>
+inline void visitVehicleTuning(VehicleDef& v, const VehicleDef& defaults, Fn fn) {
+    auto baseDrive = defaults.drive;
+    const auto base = vehiclesim::specFields(baseDrive);
+    const auto fields = vehiclesim::specFields(v.drive);
+    for (size_t k = 0; k < fields.size(); ++k) {
+        const std::string key = fields[k].key;
+        if (vehicleGeometryKey(key)) continue;
+        const char* section = key.rfind("damage", 0) == 0 ? "damage" :
+            (key.rfind("lamp", 0) == 0 || key.rfind("feel", 0) == 0 ||
+             key.rfind("exhaust", 0) == 0) ? "effects" : "driving";
+        fn(key, section, *fields[k].value, *base[k].value);
+    }
+#define VEH_TUNING(section, member) fn(std::string(#member), section, v.member, defaults.member)
+    VEH_TUNING("driver", camDist);
+    VEH_TUNING("driver", camHeight);
+    VEH_TUNING("driver", camPitch);
+    VEH_TUNING("driver", showHud);
+    VEH_TUNING("driver", hudFont);
+    VEH_TUNING("driver", hudSpeedScale);
+    VEH_TUNING("driver", tutorialSeconds);
+    VEH_TUNING("sounds", engineSound);
+    VEH_TUNING("sounds", engineHighSound);
+    VEH_TUNING("sounds", engineHighEnabled);
+    VEH_TUNING("sounds", engineHighStart);
+    VEH_TUNING("sounds", engineHighPitchStart);
+    VEH_TUNING("sounds", engineHighPitchEnd);
+    VEH_TUNING("sounds", screechSound);
+    VEH_TUNING("sounds", shiftSound);
+    VEH_TUNING("sounds", enginePitchIdle);
+    VEH_TUNING("sounds", enginePitchRedline);
+    VEH_TUNING("sounds", engineVolume);
+    VEH_TUNING("sounds", screechVolume);
+    VEH_TUNING("sounds", shiftVolume);
+    VEH_TUNING("effects", headlights);
+    VEH_TUNING("effects", skidMaterial);
+    VEH_TUNING("effects", smokeMaterial);
+    VEH_TUNING("effects", smokeEffect);
+#undef VEH_TUNING
+}
+
 const char* primitiveTypeName(PrimitiveType t);
 
 // Animated models are .glb or .fbx files (serialized to .tskl at build);
@@ -611,15 +1565,32 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.pickable == b.pickable && a.pickThrow == b.pickThrow &&
            a.saveState == b.saveState && a.collisionMode == b.collisionMode &&
            a.layer == b.layer &&
-           a.primDetail == b.primDetail && a.drawDistance == b.drawDistance &&
-           a.reflected == b.reflected && a.castShadow == b.castShadow &&
-           a.projShadow == b.projShadow &&
+           a.primDetail == b.primDetail && a.primRings == b.primRings &&
+           a.drawDistance == b.drawDistance &&
+           a.batchExclude == b.batchExclude &&
+           a.occluderExclude == b.occluderExclude &&
+           a.occlusionCull == b.occlusionCull &&
+           a.impostorPath == b.impostorPath &&
+           a.impostorDistance == b.impostorDistance &&
+           a.impostorBillboard == b.impostorBillboard &&
+           a.impostorViews == b.impostorViews &&
+           a.reflected == b.reflected &&
+           a.reflectionProxy == b.reflectionProxy &&
+           a.castShadow == b.castShadow &&
+           a.projShadow == b.projShadow && a.shadowMode == b.shadowMode &&
+           a.blobShadowTexture == b.blobShadowTexture &&
+           a.blobShadowSize[0] == b.blobShadowSize[0] &&
+           a.blobShadowSize[1] == b.blobShadowSize[1] &&
            a.bakedLighting == b.bakedLighting &&
-           a.dynamicLighting == b.dynamicLighting &&
+           a.dynamicLighting == b.dynamicLighting && a.prelit == b.prelit &&
+           a.prelitWanted == b.prelitWanted && a.prelitSig == b.prelitSig &&
+           a.prelitSource == b.prelitSource &&
            a.modelPath == b.modelPath &&
            a.materialPath == b.materialPath && a.decalProject == b.decalProject &&
            a.playerMode == b.playerMode &&
            a.playerWalkSpeed == b.playerWalkSpeed &&
+           a.playerRunSpeed == b.playerRunSpeed &&
+           a.playerSprintSpeed == b.playerSprintSpeed &&
            a.playerLookSpeed == b.playerLookSpeed &&
            a.playerEyeHeight == b.playerEyeHeight &&
            a.playerJumpSpeed == b.playerJumpSpeed &&
@@ -631,6 +1602,7 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.playerIdleClip == b.playerIdleClip &&
            a.playerWalkClip == b.playerWalkClip &&
            a.playerRunClip == b.playerRunClip &&
+           a.playerSprintClip == b.playerSprintClip &&
            a.playerJumpClip == b.playerJumpClip &&
            a.playerRunThreshold == b.playerRunThreshold &&
            a.playerCamDist == b.playerCamDist &&
@@ -646,6 +1618,8 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.flashlightRange == b.flashlightRange &&
            a.flashlightAngle == b.flashlightAngle &&
            a.flashlightToggleButton == b.flashlightToggleButton &&
+           a.flashlightOffsetRight == b.flashlightOffsetRight &&
+           a.flashlightOffsetDown == b.flashlightOffsetDown &&
            a.flashlightTexture == b.flashlightTexture &&
            a.emitterKind == b.emitterKind &&
            a.emitterCount == b.emitterCount && a.emitterSize == b.emitterSize &&
@@ -656,10 +1630,16 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.emitterWeight == b.emitterWeight && a.emitterLife == b.emitterLife &&
            a.emitterGrow == b.emitterGrow && a.emitterOpacity == b.emitterOpacity &&
            a.emitterDieOnGround == b.emitterDieOnGround &&
+           a.emitterAdditive == b.emitterAdditive &&
+           a.particleEffect == b.particleEffect &&
+           a.emitterFrames == b.emitterFrames && a.emitterFps == b.emitterFps &&
            a.soundPath == b.soundPath && a.soundAuto == b.soundAuto &&
            a.soundRange == b.soundRange && a.soundInterval == b.soundInterval &&
-           a.soundOnPlayer == b.soundOnPlayer &&
+           a.soundOnPlayer == b.soundOnPlayer && a.soundReverb == b.soundReverb &&
+           a.soundPriority == b.soundPriority &&
            a.lightBright == b.lightBright && a.lightRadius == b.lightRadius &&
+           a.lightSpot == b.lightSpot && a.lightSpotAngle == b.lightSpotAngle &&
+           a.lightShadowVolumes == b.lightShadowVolumes &&
            a.lightDynamic == b.lightDynamic && a.lightFlicker == b.lightFlicker &&
            a.lightBeam == b.lightBeam &&
            a.cameraFov == b.cameraFov &&
@@ -668,6 +1648,10 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.textureFeed == b.textureFeed &&
            a.catchArea == b.catchArea &&
            a.catchAreaLive == b.catchAreaLive &&
+           a.reverbZone == b.reverbZone && a.reverbPreset == b.reverbPreset &&
+           a.reverbAmount == b.reverbAmount && a.reverbDelay == b.reverbDelay &&
+           a.reverbFeedback == b.reverbFeedback &&
+           a.reverbPriority == b.reverbPriority &&
            a.mirrorObjects == b.mirrorObjects &&
            a.mirrorReflectPlayer == b.mirrorReflectPlayer &&
            a.mirrorOpacity == b.mirrorOpacity &&
@@ -678,6 +1662,16 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.portalShowTerrain == b.portalShowTerrain &&
            a.portalTeleportObjects == b.portalTeleportObjects &&
            a.portalViewAll == b.portalViewAll &&
+           a.vehicleDef == b.vehicleDef &&
+           a.vehicleDriveable == b.vehicleDriveable &&
+           a.vehicleRoute == b.vehicleRoute &&
+           a.scrollSegments == b.scrollSegments &&
+           a.scrollSpeed == b.scrollSpeed && a.scrollAhead == b.scrollAhead &&
+           a.scrollBehind == b.scrollBehind &&
+           a.scrollAutostart == b.scrollAutostart &&
+           a.scrollMaxClones == b.scrollMaxClones &&
+           a.scrollOverlap == b.scrollOverlap &&
+           a.scrollVarySeed == b.scrollVarySeed &&
            a.animClip == b.animClip && a.animAutoplay == b.animAutoplay &&
            a.animLoop == b.animLoop && a.animSpeed == b.animSpeed &&
            a.animLodOverride == b.animLodOverride &&
@@ -685,7 +1679,16 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.modelYawOffset == b.modelYawOffset &&
            a.flowGraph == b.flowGraph && a.scripts == b.scripts &&
            a.procGraph == b.procGraph && a.procSource == b.procSource &&
-           a.prefabSource == b.prefabSource;
+           a.roadPoints == b.roadPoints && a.roadHeights == b.roadHeights &&
+           a.roadWidth == b.roadWidth && a.roadSampleStep == b.roadSampleStep &&
+           a.roadGrip == b.roadGrip && a.roadRank == b.roadRank &&
+           a.roadSpill == b.roadSpill && a.roadEdgeFade == b.roadEdgeFade &&
+           a.roadTexture == b.roadTexture &&
+           a.roadIntersectionTexture == b.roadIntersectionTexture &&
+           a.vuParams[0] == b.vuParams[0] && a.vuParams[1] == b.vuParams[1] &&
+           a.vuParams[2] == b.vuParams[2] && a.vuParams[3] == b.vuParams[3] &&
+           a.prefabSource == b.prefabSource && a.editorGroup == b.editorGroup &&
+           a.commentText == b.commentText;
 }
 
 // General project preferences (Project > Preferences in the editor).
@@ -716,6 +1719,15 @@ struct ProjectSettings {
         "interlaced";  // "interlaced" | "interlaced-field" | "progressive" |
                        // "1080i" | "pal576"
 
+    // Which scan modes this game supports (mode keys as above). Empty = only
+    // `displayMode`, which is what every project meant before the field
+    // existed. It is a DECLARATION, not a runtime switch: it is what the Menu
+    // Editor's preview offers, what "+ Option block > Display mode" scaffolds
+    // its options from, and what the per-mode fit check in the Menu Editor
+    // measures against (docs/menu-styles.md "Resolutions"). Menus scale to
+    // whichever mode the player ends up in either way.
+    std::vector<std::string> supportedModes;
+
     // PAL handling of the region-following "interlaced" mode: false = the
     // letterboxed NTSC-size picture (stock), true = a PAL console (or a
     // forced-PAL videoSystem) boots the full-height 576i frame instead
@@ -723,11 +1735,75 @@ struct ProjectSettings {
     // engine init; fixed display modes ignore it.
     bool palFullHeight = false;
 
+    // Framebuffer colour depth (docs/gs-vram.md). "32bit" is PSMCT32, the
+    // stock 8-8-8-8 buffer. "16bit" is PSMCT16 (5-5-5-1), which HALVES what
+    // the two frame buffers cost in GS memory - 458 KB -> 229 KB at 512x448,
+    // and more at the taller scan modes - and hands all of it to the texture
+    // heap, roughly doubling it. The price is 32 levels per channel instead
+    // of 256: banding in skies, fog and the post-fx blur, which `dither`
+    // exists to break up. The z buffer FOLLOWS it (PSMZ16 over a PSMCT16
+    // frame - the GS needs the pair to share page geometry), so depth
+    // precision drops with it: keep the near plane up.
+    // "hybrid": the scene draws into ONE 32-bit buffer over a 32-bit z and one
+    // dithered blit per frame copies it into ONE 16-bit display buffer - full
+    // precision blending with half a buffer back (ColorDepth::Hybrid in the
+    // engine; no motion blur, no upscaler temporal pass, no frame
+    // extrapolation; triple buffering adds a second 16-bit display buffer).
+    std::string colorDepth = "32bit";  // "32bit" | "16bit" | "hybrid"
+
+    // GS ordered dithering (the DTHE + DIMX registers). The GS only dithers
+    // when it writes a 16-bit destination, so this does nothing at "32bit"
+    // and is what makes "16bit" look graded rather than posterized. On by
+    // default; off is for anyone who wants the flat bands on purpose.
+    bool dither = true;
+
     // 16:9 anamorphic output: widens the projection so proportions are
     // correct on a widescreen TV (the framebuffer stays the same; in 1080i
     // the GS display window widens instead). Also switchable at runtime
     // via the Set Widescreen flow node.
     bool widescreen = false;
+
+    // Triple buffering (docs/frame-pacing.md): present through a vblank
+    // interrupt instead of stalling the EE on vsync, so a frame that misses
+    // its field by a little is shown one field late rather than halving the
+    // rate. Costs a THIRD full display buffer of GS VRAM - 0.875 MB of the
+    // ~1.08 MB texture heap at 512x448x32, half that in interlaced-field -
+    // Hybrid adds a 16-bit display target (0.4375 MB at 512x448).
+    // It is off by default and the engine falls back to two buffers when
+    // it does not fit. Decided at engine init; no runtime switch.
+    bool tripleBuffering = false;
+
+    // Frame extrapolation (docs/frame-extrapolation.md): after each rendered
+    // frame the game presents a SYNTHESISED one, re-drawing it under the
+    // camera extrapolated from its own motion - so the world runs at half the
+    // field rate while the picture keeps it. Experimental: camera rotation
+    // reprojects exactly, translation is approximated by a single plane, and
+    // dynamic objects plus the HUD freeze for the synthesised frame.
+    bool frameExtrapolation = false;
+
+    // Frame extrapolation: how camera TRANSLATION is reprojected when no
+    // per-tile depth is available (i.e. the neural upscaler is off - with it
+    // on, its real depth wins and this is ignored). 0 = rotation only, the
+    // default: a walk in a straight line then reproduces the previous frame
+    // exactly. A positive distance assumes the world sits on one plane that far
+    // away, which moves the whole picture uniformly and reads as a lens ZOOM -
+    // wrong, but it is MOTION, and on some content that beats a duplicated
+    // frame. 12 is the value the first version shipped with. World units.
+    float frameExtrapolationPlane = 0.0f;
+
+    // Ignore the per-frame gate and always synthesise. The gate declines
+    // whenever the EE is not what is slow - a GS-bound scene can sit at 26 fps
+    // with the gate shut - so this is how a scene gets tested at all without
+    // placing a Set Frame Extrapolation node.
+    bool frameExtrapolationForce = false;
+
+    // Use the analytic GROUND plane instead of a fixed distance: a corner's
+    // view ray meets the floor at w = h / -dir.y, so depth grows toward the
+    // horizon on its own and anything at or above it does not move at all.
+    // Strictly better than a constant for a game with a floor, and free.
+    // Outranks frameExtrapolationPlane; the upscaler's real depth outranks
+    // both.
+    bool frameExtrapolationGround = true;
 
     // Texture quantization at build (the PS2-native "compression": palettized
     // PSMT8/PSMT4 textures). Applied to res/models|materials|textures PNGs
@@ -749,11 +1825,25 @@ struct ProjectSettings {
     // is exactly why "why did the layer not unload / why is that not
     // reflecting" is hard to see - this puts the volume back on screen.
     bool showAreas = false;
+    // Debug profile only: draw every collider's COLLISION BOX in the game as a
+    // red wireframe (docs/collision-boxes.md). What the walker and the
+    // third-person camera boom test is that box, not the mesh - so a prop that
+    // blocks short of its surface, or a camera that pulls in early, cannot be
+    // explained by what is on screen until the box is too.
+    bool showCollision = false;
     // Debug profile only: compile the Live Link poller into the game, so the
     // editor can stream scene edits into the running game (docs/live-link.md).
     // Off = the game never reads livelink.bin and the editor never writes it -
     // for anyone who does not want their debug builds patched from outside.
     bool liveLink = true;
+
+    // Devkit cadence in game updates: 0 = platform defaults, 1..120 = override.
+    int liveLinkPollFrames = 0;
+    int liveLogicPollFrames = 0;
+    int liveDebugPollFrames = 0;
+    int liveDebugSnapshotFrames = 0;
+    int timeMachineFrames = 0;
+
 
     // Debug profile only: compile the Live Debugger runtime into the game -
     // the flow graphs report every node they run to the editor, and the editor
@@ -783,6 +1873,15 @@ struct ProjectSettings {
     // and scriptable for unattended tests. Off = the game never looks for the
     // file and the generated runtime is an empty translation unit.
     bool remotePad = true;
+
+    // Debug profile only: compile the input recorder into the game
+    // (docs/input-replay.md). Every frame's pad, keyboard and mouse state - and
+    // the frame's own dt - is written to bin/replay.out, and feeding one of
+    // those recordings back makes the game perform the same run again, with the
+    // Live Debugger and the time machine available throughout. Off by default,
+    // unlike the other four: a recording is a file that GROWS while the game
+    // runs, so it is opt-in rather than something a build quietly starts doing.
+    bool inputRecorder = false;
 
     // Debug profile only, EXPERIMENTAL and off by default: install the engine's
     // EE crash handler, which turns a real CPU exception (bad pointer, address
@@ -827,7 +1926,7 @@ struct ProjectSettings {
     // costs EE time. "fast": VU1 cull only - fastest, may drop triangles
     // that extend far beyond the screen.
     // Triangle handling: "vu1" (default - precise clipping in the VU1 clip
-    // programs, no EE cost), "precise" (the legacy EE clipper) or "fast"
+    // programs, no EE cost), "precise" (the older EE clipper) or "fast"
     // (cull-only). Projects saved before the vu1 default keep their value.
     std::string clipping = "vu1";
 
@@ -856,15 +1955,34 @@ struct ProjectSettings {
     // distance the 25% one. 0 = off (no LODs baked or kept in RAM).
     float meshLodDistance = 0.0f;
 
-    // Static batching: the generated game merges non-moving primitive
-    // objects that share a material into combined world-space bags at scene
-    // load, paying the fixed per-bag submit cost (~1 ms/object on real
-    // hardware) once per batch instead of once per object. Objects with
+    // Static batching: the generated game merges non-moving primitives and
+    // compact imported-model parts that share a texture into combined
+    // world-space bags at scene load, paying the fixed per-bag submit cost
+    // (~1 ms/object on real hardware) once per batch instead of per object.
+    // Large models keep their own spatial bounds. Objects with
     // physics, scripts, flow-graph references, save-state or a streaming
     // layer stay individual; runtime edits (Live Link, Raycast-driven
     // actions) trigger a batch rebuild. Off = every object submits its own
     // bag (pre-batching behavior; the A/B lever for profiling).
     bool staticBatching = true;
+
+    // Interleaved passes (docs/interleaved-passes.md): the generated game
+    // feeds the static batch and road bags into the object loop so the EE's
+    // object work overlaps VU1's batch and road work. "auto" = the game times
+    // both orders every few seconds and keeps the faster one, "always",
+    // "off" = the plain order.
+    std::string interleavePasses = "auto";
+
+    // The shine budget (docs/vehicles.md): how many vehicles draw the
+    // body-shine pass in one view - the driven one first, then the nearest.
+    // 0 = every vehicle within the pass's 35 units (the look before format
+    // v66).
+    int vehicleShineBudget = 2;
+
+    // Build conservative inner proxies for opaque static objects and use a
+    // tiny CPU depth buffer to reject fully hidden objects/chunks before they
+    // enter StaPip. Off by default until measured on target hardware.
+    bool occlusionCulling = false;
 
     // Dynamic reflection probe aim (docs/reflective-materials.md). false =
     // the classic GT3 aim: the env camera looks level along the player
@@ -907,9 +2025,101 @@ struct ProjectSettings {
     // like the layer streaming). 0 = whole map resident. Large maps at high
     // detail NEED this - the full mesh would not fit in the PS2's 32 MB.
     float terrainViewDistance = 0.0f;  // world units, 0 = off
+    // Distance detail (docs/terrain-lod.md): beyond this range the game builds
+    // terrain chunks from every 2nd heightmap sample, and beyond 2.2x it from
+    // every 4th - a quarter and a sixteenth of the triangles, stitched to their
+    // neighbours so no crack shows. It is the OTHER half of the answer to a big
+    // map: the view distance decides how much terrain exists at all, this
+    // decides what the part you can see costs. 0 = every chunk at full detail,
+    // which is what every project did before the setting existed.
+    // Gameplay is unaffected - collision and every height query read the
+    // heightmap, never the mesh.
+    float terrainLodDistance = 0.0f;  // world units, 0 = off
+    // Shared reflection probe: how far the captured image may be out of date
+    // before the probe re-renders, IN PIXELS OF ITS OWN 128-pixel target
+    // (docs/reflective-materials.md, "The reuse budget"). The probe already
+    // refreshes only every SECOND frame and already retains the basis that
+    // produced the image; this adds the other half Task 5 of the Motor
+    // District plan asked for - do not capture at all while nothing that feeds
+    // the capture has moved. The budget is the whole quality contract, and it
+    // is paid on top of a lag that already existed: the image was always up to
+    // one cadence beat old, so this is how many EXTRA target pixels of lag are
+    // accepted - and NONE at all while nothing moves, where the skipped
+    // capture would have produced the same image (measured: 0.000 px on a
+    // parked Motor District pose, 0.91 driving straight, 4.19 in a 90 deg/s
+    // turn, which is why a hard turn still captures every beat). 1.0 is one
+    // pixel of 128 and is the default; 0 disables the reuse and restores
+    // exactly the pre-1.106 behaviour. Every non-geometric input - the sky tint, the sun
+    // and moon, a reflected object moving, appearing or vanishing, a scene
+    // load - invalidates outright and is not traded against the budget.
+    float reflectionReuseBudget = 1.0f;  // target pixels, 0 = always capture
+    // Shared reflection probe: how far from the eye the terrain and road
+    // chunks it redraws may be (docs/reflective-materials.md, "The ground in
+    // the probe"). The probe renders the resident ground into its 128-pixel
+    // target on every capture, and a turning camera captures every second
+    // frame: on a physical PS2 that was 10-15 ms of the frame that captured.
+    // Distant chunks are a few pixels at the horizon there. 0 = every
+    // resident chunk, which is what the probe always did.
+    float reflectionGroundRadius = 0.0f;  // world units, 0 = no limit
+    // Shared reflection probe: draw every static object of the scene into it
+    // as one untextured box in its material's average colour
+    // (docs/reflective-materials.md, "Static scenery in the probe";
+    // reflscenery.cpp decides which objects). Objects with "Show in
+    // reflections" keep their own path. Off (the default) = only those. On
+    // costs 1.2-1.7 ms of every capturing frame on the Motor District (PS2).
+    bool reflectionScenery = false;
+    // Shared reflection probe: draw the ground as a coarse height-following
+    // grid in the terrain's painted colours and the roads' mean colour
+    // (docs/reflective-materials.md, "The ground stand-in") instead of the
+    // resident terrain and road chunks - which were 4.65 ms of every capture
+    // on the Motor District's outer road (PS2). Off = the real chunks.
+    bool reflectionGroundProxy = false;
+    // The flashlight's shadow technique (docs/flashlight.md, "The shadow").
+    // false = silhouette slots: the caster's mesh silhouette from the torch,
+    // sampled on a ground patch and painted on the wall behind - mesh-accurate
+    // SHAPES, but light still leaks through unflagged casters and the four
+    // shadow-map slots are the ceiling. true = SHADOW VOLUMES: extruded
+    // occluder boxes stencil-counted in the framebuffer's destination alpha
+    // (the survival-horror era's own arrangement), and every torch light pass
+    // draws only where the mask says lit - occlusion exact per pixel against
+    // the real z buffer, for EVERY solid in the beam, no caster flag needed.
+    // Costs the volume fill and box-shaped (not mesh-shaped) silhouettes.
+    bool flashShadowVolumes = false;
+    // HIDDEN diagnostic for the count bracket on real hardware ("shadowVolumesDebug"
+    // in the .tyra, no UI, never written unless set). Bisects "who wrote that
+    // pixel" on a console, one boot per mode, with --capture-frame [--alpha]:
+    //   0 normal
+    //   1 count, never resolve (no mask written; dither restored)
+    //   2 clear + resolve, no volumes drawn
+    //   3 resolve draws the band's texels on screen instead of the mask
+    //   5 like 3 but WITH the alpha test (does TEXA.AEM zero a zero texel?)
+    //   6 the real masked write with the alpha test OFF (does FBMSK hold?)
+    //   7 clear only (countBegin, then abort)
+    //   8 no bracket at all (maskClear + repaint only)
+    //   9 countBegin with no clear sprite, then abort
+    // docs/flashlight.md keeps the findings each of these produced.
+    int shadowVolumesDebug = 0;
+    // The same technique offered to the scene's SPOT LIGHTS (docs/shadows.md,
+    // "Spot-light shadow volumes"): a placed light with `lightSpot` on carves
+    // its own occlusion instead of leaving the street lamp shining through the
+    // wall beside it. Project-wide default; a light overrides it on itself
+    // through SceneObject::lightShadowVolumes. false is what every earlier
+    // file did - spot lights took no part in the volume machinery at all.
+    //
+    // The count band it needs is the SAME buffer the torch's volumes use (one
+    // per frame, whoever is counting into it), so switching this on next to
+    // the flashlight costs no second allocation - which is why
+    // textureHeapEstimate charges the band once for the pair.
+    bool spotShadowVolumes = false;
     float skyColor[3] = {0.25f, 0.55f, 0.78f};   // horizon / clear color
     float skyTopColor[3] = {0.08f, 0.3f, 0.65f};  // zenith (gradient dome)
     bool skyDome = true;  // render a gradient sky dome (vs flat clear color)
+    // A painted sky on the dome (docs/sky-texture.md): a res/ equirectangular
+    // panorama, "" = the gradient alone. The build crops its upper part into a
+    // 256x128 texture; the gradient colours then only TINT it (neutral at the
+    // authored hour). skyTextureYaw turns it about the vertical axis, degrees.
+    std::string skyTexture;
+    float skyTextureYaw = 0.0f;
     // How much of the dome the zenith color fills. 0.5 = linear (color scales
     // linearly with elevation); higher = zenith reaches lower toward the
     // horizon (bigger zenith cap); lower = zenith stays near the top. Both the
@@ -926,11 +2136,18 @@ struct ProjectSettings {
     // it is why projects tended to get built several times larger than metric
     // (docs/world-scale.md). Existing projects keep whatever they saved.
     float walkSpeed = 0.1f;
+    // The full-stick tier for the same fallback walker, mirroring
+    // SceneObject::playerRunSpeed: 0 = no ramp, the walk speed IS the top
+    // speed (what every project did before this existed).
+    float runSpeed = 0.0f;
     float lookSpeed = 1.0f;  // multiplier
 
     // Sprint: while the "sprint" input action (Tools > Input Map) is held, the
-    // walkers multiply their walk speed by this. 1.0 = sprinting does nothing
-    // (the switch that turns the feature off without unbinding the button).
+    // walkers multiply their RUN speed by this (the run speed is the walk speed
+    // unless one was set, so this keeps meaning exactly what it always did).
+    // 1.0 = sprinting does nothing - the switch that turns the feature off
+    // without unbinding the button. A Player object can override the result
+    // outright with SceneObject::playerSprintSpeed.
     float sprintMultiplier = 1.8f;  // 1..4
 
     // Analog sticks: offsets below this fraction of full deflection read as
@@ -999,7 +2216,7 @@ struct ProjectSettings {
     // directly; it drives the host bake in gibake, whose OUTPUT ships as the
     // scene lightmap's RGB channel plus inc/probe_data.gen.hpp.
     //
-    // The bake is explicit (Tools > Bake Global Illumination) and cached in
+    // The bake is explicit (Tools > Global Illumination) and cached in
     // .res-baked/gi/ - a build never silently re-bakes it. A stale or missing
     // cache simply falls the scene back to the pre-GI emissive-only lighting.
     bool giEnabled = false;
@@ -1015,6 +2232,90 @@ struct ProjectSettings {
     float giProbeSpacing = 3.0f; // world units between probes, horizontally
     float giProbeHeight = 2.0f;  // ...and between vertical levels
     int giProbeLevels = 4;       // vertical levels above the lowest ground
+
+    // Automatic model AO (docs/ambient-occlusion.md, "Model AO"). Project-wide
+    // for the same reason the GI knobs above are: these are bake quality, not
+    // part of the ambience-preset mood overlay. Nothing here reaches the game -
+    // the occlusion is multiplied into the model's own texture at build
+    // (modelao + texbake), so it costs no extra GS VRAM at all.
+    //
+    // FALSE in the struct, TRUE in project::create (the aoEnabled precedent):
+    // a project saved before this existed must keep its look, a new one should
+    // have it out of the box.
+    bool modelAo = false;
+    // ao' = 1 - strength * (1 - ao). An apply-time remap, so changing it
+    // re-multiplies rather than re-baking.
+    float modelAoStrength = 0.7f;
+    int modelAoRays = 64;      // hemisphere rays per texel
+    float modelAoDist = 0.0f;  // occlusion reach in world units; 0 = auto
+                               // (25% of the model's bounding-box diagonal)
+    // Pre-lit objects (docs/prelit-models.md, "Managing pre-lit objects"):
+    // re-bake every prelitWanted object whose texture went STALE right before
+    // a build, the way stale procedural volumes are baked. Off by default and
+    // deliberately so - the gibake rule is that a bake taking seconds is
+    // pressed, not implied; this is the opt-in for a project whose author
+    // would rather never see a stale texture ship. Only stale objects are
+    // touched, so a build with everything fresh costs nothing.
+    bool prelitAutoBake = false;
+    // The same opt-in for global illumination (docs/global-illumination.md,
+    // "The bake is explicit, and cached"): re-bake every scene whose GI cache
+    // is absent or STALE right before a build. Off by default for the same
+    // reason - and because a GI bake is minutes on a big scene - but the
+    // silent alternative is worse than it looks: a stale cache drops the whole
+    // scene back to the pre-GI lighting without a word, and both GI examples
+    // shipped that way for a while before anyone noticed. Only stale scenes are
+    // touched (content-hashed cache), so a build with everything fresh costs one
+    // signature pass. Requires giEnabled; does nothing otherwise.
+    bool giAutoBake = false;
+
+    // Baked shadow decals (docs/shadows.md, "Baked (decal)"). The static
+    // directional shadow: the host renders each marked caster's shadow into a
+    // small tile, packs the tiles into shared atlas pages and projects them
+    // onto the receivers with decalproj - so the console draws ordinary
+    // textured triangles and pays nothing per frame beyond one blended pass.
+    //
+    // Project-wide because they are bake QUALITY, not part of the ambience
+    // preset's mood overlay - the same call the GI knobs above make. The
+    // direction is not here: it is resolvedSettings().lightDir at the baked
+    // hour, i.e. exactly the sun gibake uses, so the two cannot disagree.
+    //
+    // All of these are written to the .tyra only when they are not the struct
+    // default, so a project that never touches the feature resaves byte for
+    // byte.
+    bool bakedShadows = false;
+    // Tile edge in texels: 32 / 64 / 128. A page is 256x256, so 64 gives 16
+    // shadows per page and 128 gives 4 - and a page is 23% of the 32-bit GS
+    // texture heap ([gs-vram.md](gs-vram.md)), which is the real budget here.
+    int bakedShadowRes = 64;
+    // Angular diameter of the light, in degrees, i.e. how fast the penumbra
+    // opens up with distance from the contact. The real sun is 0.53; 2 is a
+    // softer default because a PS2 scene reads better with it and because it
+    // hides the tile's own texel count.
+    float bakedShadowSunAngle = 2.0f;
+    // How much light a fully occluded texel loses, 0..1. The tile is near
+    // black and blends alpha-over, so this is a per-pixel MULTIPLY: the
+    // receiver keeps its own colour and gets darker, which is why shaded grass
+    // stays green instead of turning grey. 0 is no shadow; 1 takes the surface
+    // down to the shade tint itself. 0.55 is about what an outdoor shadow
+    // loses when only the sky still lights it.
+    float bakedShadowStrength = 0.55f;
+    // How far a shadow is allowed to stretch from its caster, in multiples of
+    // the caster's own height. A low sun throws a shadow hundreds of units
+    // long, and the tile's texels would all be spent on it; past this the
+    // projector is cut. 0 = no limit.
+    float bakedShadowMaxLength = 4.0f;
+    // The same pre-build opt-in giAutoBake and prelitAutoBake are: re-bake
+    // every scene whose shadow cache is absent or STALE right before a build.
+    // Off by default on the same terms - a bake is pressed, not implied - but
+    // this one costs seconds rather than minutes, so it is the cheap switch of
+    // the three. Requires bakedShadows; does nothing otherwise.
+    bool bakedShadowAutoBake = false;
+    // Ground shadow maps (docs/shadows.md, "Ground shadow maps"): 0 = off, the
+    // casters' decals land on the terrain as before; 64 or 128 = one 4-bit
+    // mask of that many texels per side for every terrain chunk, traced from
+    // the ground up against ALL casters and drawn as one more pass of the
+    // chunk. Then the decals skip the terrain. Written only when non-zero.
+    int bakedShadowGround = 0;
 
     // Terrain material (.mtl asset; empty = checker greens). The first
     // material's Kd tints the terrain; its map_Kd (when present) textures it,
@@ -1035,6 +2336,22 @@ struct ProjectSettings {
     // tight fringe; raise it for a real corona around emissive surfaces.
     float bloomSpread = 0.0f;
     float grain = 0.0f;  // animated film grain noise overlay
+    // Motion blur (docs/motion-blur.md): how much of the PREVIOUS rendered
+    // frame is blended over this one. 0 = off, 1 = the strongest the editor
+    // offers - which is deliberately NOT the GS's full weight, see
+    // kMotionBlurMaxFix. Costs no VRAM (the other display buffer IS the
+    // previous frame) and the trail decays geometrically, because every frame
+    // blends a predecessor that blended its own. Presented everywhere as a
+    // percentage: this is a fraction of the effect's own range, not a
+    // distance or a count. The Set Motion Blur flow node overrides it at
+    // runtime.
+    float motionBlur = 0.0f;
+    // Clear the temporal history ONCE after the view settles. That one
+    // unblended frame replaces the 16-bit accumulator and its quantized ghost;
+    // the authored blur then comes straight back, so an object moving past a
+    // parked camera still blurs. Off preserves a completely uninterrupted
+    // accumulator (useful for a drugged/dazed look, but rougher at 16-bit).
+    bool motionBlurIdleClear = true;
     // Depth of field: the image blurs progressively past dofFocus (world
     // units from the camera), reaching the full dofAmount blur at
     // dofFocus + dofRange. Composites right after the 3D scene (per-pixel
@@ -1043,6 +2360,90 @@ struct ProjectSettings {
     float dofAmount = 0.0f;  // far-blur strength, 0 = off
     float dofFocus = 20.0f;  // sharp up to this camera distance
     float dofRange = 15.0f;  // full blur reached at dofFocus + dofRange
+
+    // The neural upscaler (docs/neural-upscaler.md). The 3D scene renders into
+    // a reduced-resolution GS target and a small MLP - trained on the host,
+    // baked into the game - decides per 32x32 screen tile how to blow it back
+    // up to the display buffer. Baked at build time, like custom screen
+    // effects: no flow-graph control.
+    //
+    // THE PROJECT DEFAULT, which a scene may override for `blssEnabled` and
+    // `blssNetwork` (SceneOverrides::upscaler - see the note there for why
+    // those two and not the other four). Read the resolved answer with
+    // project::resolvedSettings(p, scene); reading p.settings.blssEnabled
+    // directly asks "what does a scene that inherits do", which is a different
+    // question and is almost never the one being asked.
+    //
+    // Off by default, and deliberately so: it is a proof of concept, and it is
+    // incompatible with depth of field, portals and split-screen (all three
+    // need real GS depth at display resolution, which a low-res z cannot give).
+    bool blssEnabled = false;
+    int blssScale = 0;         // 0 = 2x2 (quarter the pixels), 1 = 1x2 (half height)
+    // WHETHER THE NETWORK RUNS AT ALL. true (the default, and what every
+    // project written before this key existed reads as) is the neural
+    // reconstruction; false is PLAIN MODE - the reduced raster blown back up
+    // by one bilinear pass, with no bag proxies, no reprojection, no feature
+    // grid and no MLP.
+    //
+    // ITS OWN SWITCH RATHER THAN A THIRD VALUE OF blssEnabled OR blssScale,
+    // and the reason is that it is a third question. `blssEnabled` asks
+    // whether the 3D scene is rasterised at a reduced size - which is where
+    // the VRAM saving comes from, and plain mode keeps ALL of it. `blssScale`
+    // asks how much smaller, and plain mode is as meaningful at 1x2 as at 2x2,
+    // so folding it into that combo would forbid half the real combinations.
+    // This asks what reconstructs the result, which is orthogonal to both. It
+    // is also the shape that costs nothing on disk: an additive bool defaulting
+    // to true regenerates every existing project byte for byte, where a
+    // tri-state replacing blssEnabled would change the serialized shape of
+    // every BLSS project and need a migration step to say what `true` meant.
+    //
+    // Why anyone would want it: on every project measured so far the trained
+    // net asks for NOTHING - all three outputs quantise under the deadzone and
+    // BLSSFILL reports 1.00 passes, i.e. the composite is already a single
+    // bilinear pass - while the frame still pays 4.60 ms of EE to reach that
+    // conclusion. Plain mode is that same picture without the bill, which
+    // moves the break-even from ~13 full-screen coverages to low single digits
+    // (blssui::fill::breakEven, docs/profiling.md).
+    bool blssNetwork = true;
+    // Adaptive plain BLSS starts at the native raster and falls back to the
+    // configured reduced raster only after sustained missed fields. The
+    // low-res target and a full-size z buffer are reserved at boot, so a
+    // runtime switch never reallocates GS VRAM or evicts textures.
+    bool blssAdaptive = false;
+    float blssSharpen = 0.5f;  // 0..1, the unsharp-mask strength k of passes 4/5
+    bool blssTemporal = true;  // allow the history pass (off = no AA, no ghosting)
+    // The +-1/4-pixel raster jitter that alternates every frame (the temporal
+    // supersampling half of the feature).
+    //
+    // OFF BY DEFAULT since 2026-08-08, and the reason is the only kind that
+    // settles this question: a human looked at three builds of
+    // examples/upscaler-lab that differed in nothing else (docs/
+    // neural-upscaler.md, "The oscillation"). BLSS off - steady. BLSS on with
+    // jitter on - "like an earthquake". BLSS on with jitter off - steady. The
+    // jitter is the cause and turning it off is the cure.
+    //
+    // Why it happens: jittered sampling is SUPPOSED to produce a different
+    // image every frame, and the only thing entitled to fuse the two phases
+    // back together is the temporal accumulator. It does not - measured, on a
+    // net that puts 72-78% of its weight on the temporal pass. So the
+    // alternation reaches the screen as a period-2 flicker on every textured
+    // surface, at the field rate.
+    //
+    // The price of the default is measured and real: on examples/upscaler-lab
+    // it takes the trained margin from +0.69 to +0.26 dB and the scene's own
+    // oracle ceiling from +0.84 to +0.27 - roughly two thirds of the available
+    // reconstruction, given up for a picture a user can look at. That is the
+    // right trade for a default and the wrong one to force, which is why the
+    // setting stays: a project that has judged the shake acceptable (or whose
+    // content does not show it) turns it back on and gets the samples back.
+    // Note that the host trainer reads this field, so a net is fitted for the
+    // sampler its project will ship with - flipping it on an existing project
+    // means retraining that project's blss.net.
+    bool blssJitter = false;
+    // 0 = off, 1 = tint by winning kernel, 2 = log the per-frame feature and
+    // output SPREAD into the game's bin/log.txt (the panel offers 0 and 1;
+    // 2 is a developer instrument, set by hand in the .tyra - see project.cpp).
+    int blssDebugView = 0;
 
     // GS hardware distance fog (atmospheric fade-out). Geometry blends
     // toward fogColor between fogStart and fogEnd view distances; free on the
@@ -1063,6 +2464,12 @@ struct ProjectSettings {
     // the object rises. Project-wide; grounds objects visually for almost
     // nothing (one quad per object).
     bool blobShadows = false;
+    // How far from the camera a PROJECTED silhouette shadow is still drawn,
+    // in world units (docs/shadows.md, "Distance"). A caster past it takes no
+    // slot; the shadow dissolves over the last 30 % of the way there, so the
+    // edge is never a pop. Used to be a constant 50 (fading from 35); the
+    // four slots are a project-wide budget, so the reach is project-wide too.
+    float projShadowDistance = 50.0f;
 
     // In-game outline around usable objects while the player is within
     // highlightDistance (fading silhouette shells drawn after the scene).
@@ -1080,18 +2487,55 @@ struct ProjectSettings {
     bool highlightOverlay = false;
 };
 
+static_assert(sizeof(ProjectSettings) == 864,
+              "ProjectSettings changed size - a field was added or removed. "
+              "Add it to operator== below as well, or its Preferences widget "
+              "will silently do nothing; then update this number.");
+
+// EVERY FIELD MUST BE LISTED HERE. This is not tidiness: Project Preferences
+// edits a COPY of this struct and writes it back only when this operator says
+// something changed, so a field missing here makes its widget DEAD - the click
+// registers, the copy changes, the comparison says "no", and the next frame
+// re-seeds the widget from the unchanged model. It looks exactly like a
+// checkbox that does not work, with nothing in any log.
+//
+// It happened: `textureQuant` and `textureAtlas` were never added when texture
+// atlasing landed, so *Preferences > Rendering > Texture atlasing* and the
+// texture-quality combo beside it could not be changed from the UI at all -
+// only by editing the .tyra. Reported as "I click it and nothing happens".
+//
+// The static_assert below is the guard that outlives this comment: add a field
+// to ProjectSettings and the size changes, the assert fires, and you are made
+// to come here. It is a REMINDER, not a proof - if you have added your field to
+// this operator and the number is merely stale, update it.
 inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
     auto eq3 = [](const float* x, const float* y) {
         return x[0] == y[0] && x[1] == y[1] && x[2] == y[2];
     };
     return a.videoSystem == b.videoSystem && a.buildProfile == b.buildProfile &&
+           a.textureQuant == b.textureQuant &&
+           a.textureAtlas == b.textureAtlas &&
            a.displayMode == b.displayMode &&
-           a.palFullHeight == b.palFullHeight && a.widescreen == b.widescreen &&
+           a.palFullHeight == b.palFullHeight &&
+           a.colorDepth == b.colorDepth && a.dither == b.dither &&
+           a.supportedModes == b.supportedModes && a.widescreen == b.widescreen &&
+           a.tripleBuffering == b.tripleBuffering &&
+           a.frameExtrapolation == b.frameExtrapolation &&
+           a.frameExtrapolationPlane == b.frameExtrapolationPlane &&
+           a.frameExtrapolationForce == b.frameExtrapolationForce &&
+           a.frameExtrapolationGround == b.frameExtrapolationGround &&
            a.showFps == b.showFps && a.showMemory == b.showMemory &&
            a.showProfiler == b.showProfiler && a.showAreas == b.showAreas &&
+           a.showCollision == b.showCollision &&
            a.liveLink == b.liveLink && a.liveDebug == b.liveDebug &&
            a.liveLogic == b.liveLogic && a.timeMachine == b.timeMachine &&
+           a.liveLinkPollFrames == b.liveLinkPollFrames &&
+           a.liveLogicPollFrames == b.liveLogicPollFrames &&
+           a.liveDebugPollFrames == b.liveDebugPollFrames &&
+           a.liveDebugSnapshotFrames == b.liveDebugSnapshotFrames &&
+           a.timeMachineFrames == b.timeMachineFrames &&
            a.remotePad == b.remotePad &&
+           a.inputRecorder == b.inputRecorder &&
            a.eeCrashHandler == b.eeCrashHandler &&
            a.keyboardMouse == b.keyboardMouse &&
            a.keyboardMousePs2Link == b.keyboardMousePs2Link &&
@@ -1101,16 +2545,29 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.animSourceFps == b.animSourceFps &&
            a.animPlayFps == b.animPlayFps &&
            a.staticBatching == b.staticBatching &&
+           a.interleavePasses == b.interleavePasses &&
+           a.vehicleShineBudget == b.vehicleShineBudget &&
+           a.occlusionCulling == b.occlusionCulling &&
            a.envProbeReflected == b.envProbeReflected &&
            a.navCellSize == b.navCellSize && a.navMaxSlope == b.navMaxSlope &&
            a.navAgentRadius == b.navAgentRadius &&
            a.unitsPerMeter == b.unitsPerMeter &&
            a.terrainDetail == b.terrainDetail &&
            a.terrainViewDistance == b.terrainViewDistance &&
+           a.terrainLodDistance == b.terrainLodDistance &&
+           a.reflectionReuseBudget == b.reflectionReuseBudget &&
+           a.reflectionGroundRadius == b.reflectionGroundRadius &&
+           a.reflectionScenery == b.reflectionScenery &&
+           a.reflectionGroundProxy == b.reflectionGroundProxy &&
+           a.flashShadowVolumes == b.flashShadowVolumes &&
+           a.shadowVolumesDebug == b.shadowVolumesDebug &&
+           a.spotShadowVolumes == b.spotShadowVolumes &&
            eq3(a.skyColor, b.skyColor) && eq3(a.skyTopColor, b.skyTopColor) &&
            a.skyDome == b.skyDome && a.zenithSize == b.zenithSize &&
+           a.skyTexture == b.skyTexture && a.skyTextureYaw == b.skyTextureYaw &&
            a.eyeHeight == b.eyeHeight &&
-           a.walkSpeed == b.walkSpeed && a.lookSpeed == b.lookSpeed &&
+           a.walkSpeed == b.walkSpeed && a.runSpeed == b.runSpeed &&
+           a.lookSpeed == b.lookSpeed &&
            a.sprintMultiplier == b.sprintMultiplier &&
            a.stickDeadzoneL == b.stickDeadzoneL &&
            a.stickDeadzoneR == b.stickDeadzoneR &&
@@ -1131,13 +2588,39 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.giProbeSpacing == b.giProbeSpacing &&
            a.giProbeHeight == b.giProbeHeight &&
            a.giProbeLevels == b.giProbeLevels &&
+           a.modelAo == b.modelAo &&
+           a.modelAoStrength == b.modelAoStrength &&
+           a.modelAoRays == b.modelAoRays && a.modelAoDist == b.modelAoDist &&
+           a.prelitAutoBake == b.prelitAutoBake &&
+           a.giAutoBake == b.giAutoBake &&
+           a.bakedShadows == b.bakedShadows &&
+           a.bakedShadowRes == b.bakedShadowRes &&
+           a.bakedShadowSunAngle == b.bakedShadowSunAngle &&
+           a.bakedShadowStrength == b.bakedShadowStrength &&
+           a.bakedShadowMaxLength == b.bakedShadowMaxLength &&
+           a.bakedShadowAutoBake == b.bakedShadowAutoBake &&
+           a.bakedShadowGround == b.bakedShadowGround &&
            a.terrainMaterial == b.terrainMaterial && a.bloom == b.bloom &&
            a.bloomThreshold == b.bloomThreshold &&
            a.bloomSpread == b.bloomSpread &&
-           a.grain == b.grain && a.dofAmount == b.dofAmount &&
+           a.grain == b.grain && a.motionBlur == b.motionBlur &&
+           a.motionBlurIdleClear == b.motionBlurIdleClear &&
+           a.dofAmount == b.dofAmount &&
            a.dofFocus == b.dofFocus && a.dofRange == b.dofRange &&
            a.flare == b.flare && a.godRays == b.godRays &&
            a.blobShadows == b.blobShadows &&
+           a.projShadowDistance == b.projShadowDistance &&
+           a.blssEnabled == b.blssEnabled && a.blssScale == b.blssScale &&
+           a.blssNetwork == b.blssNetwork &&
+           a.blssAdaptive == b.blssAdaptive &&
+           a.blssSharpen == b.blssSharpen &&
+           a.blssTemporal == b.blssTemporal &&
+           // blssJitter was missing from this list until plain mode added the
+           // field above it. Harmless so far - the BLSS group is project-wide
+           // and edited outside undo - but a field absent from an operator==
+           // is the exact shape of bug this list exists to prevent.
+           a.blssJitter == b.blssJitter &&
+           a.blssDebugView == b.blssDebugView &&
            a.fogEnabled == b.fogEnabled &&
            eq3(a.fogColor, b.fogColor) && a.fogStart == b.fogStart &&
            a.fogEnd == b.fogEnd &&
@@ -1151,6 +2634,47 @@ inline bool operator==(const ProjectSettings& a, const ProjectSettings& b) {
            a.highlightOverlay == b.highlightOverlay;
 }
 
+// The GS blend weight that motion blur 1.0 actually asks for, out of the 128
+// the hardware FIX byte can carry (docs/motion-blur.md).
+//
+// 128 is "the previous frame, entirely", and the arithmetic is exact - the
+// destination becomes its own predecessor and the picture stops updating FOR
+// EVER while the game runs on behind it. That is not a strong setting, it is a
+// broken one, and a slider whose top end is broken is a slider nobody can use
+// the top half of. 115 (90%) is the strongest weight that still lets the
+// picture through, so the authored range 0..1 maps onto 0..115 and the top of
+// the slider is a usable value.
+//
+// Read by every site that turns the authored amount into a weight: the scene
+// table, the Set Motion Blur node's codegen and the Live Logic interpreter.
+// They must not each carry a number.
+inline constexpr int kMotionBlurMaxFix = 115;
+
+// ...and the same question answered again for a 16-BIT frame buffer, where the
+// answer is much lower and for a second reason.
+//
+// The blend truncates on every write, always downward, and an accumulator at
+// weight f multiplies any per-frame bias by 1/(1-f). At PSMCT16 a write drops
+// three bits, so that bias is eight times what it is at PSMCT32 and the picture
+// visibly BLEEDS BRIGHTNESS - it is not a tint, the whole image goes dark and
+// stays dark. Dithering only pays part of it back: the offsets have to stay
+// non-negative (1.70.4) and DIMX entries are 3-bit SIGNED, so 0..3 is all the
+// hardware offers and its mean of 1.5 is less than half the 3.5 unbiased
+// rounding would want.
+//
+// Measured on the fpp fixture, settled green against the same scene with the
+// blur off - 16-bit: -4.2% at 35%, -8.3% at 60%, -11.3% at 75%, -43.1% at 100%;
+// 32-bit at 100%: -10.4%. So the top of the slider is unusable at 16-bit and
+// merely dim at 32-bit, and the fix is the same one the constant above already
+// is: make the top of the range a value somebody can actually use. 80 puts the
+// 16-bit maximum at about the loss 32-bit takes at ITS maximum.
+inline constexpr int kMotionBlurMaxFix16 = 80;
+
+// The blend weight motion blur 1.0 asks for in a given project.
+inline int motionBlurMaxFix(const ProjectSettings& s) {
+    return s.colorDepth == "16bit" ? kMotionBlurMaxFix16 : kMotionBlurMaxFix;
+}
+
 // Per-scene override switches (Scene > Preferences). Each "scene-visual"
 // category can override the project defaults; when a flag is off, the scene
 // inherits Project::settings for that category (see project::resolvedSettings).
@@ -1160,18 +2684,66 @@ struct SceneOverrides {
     bool sky = false;         // skyColor, skyTopColor, skyDome
     bool clipping = false;    // clipping mode
     bool terrainMat = false;  // terrainMaterial
-    bool postFx = false;      // bloom, grain, depth of field, flare, god rays
+    bool postFx = false;      // bloom, grain, motion blur, depth of field,
+                              // flare, god rays
     bool fog = false;         // fogEnabled, fogColor, fogStart, fogEnd
     bool highlight = false;   // highlightUsable + distance/color/width/steps
+    // The neural upscaler: blssEnabled + blssNetwork ONLY (docs/
+    // neural-upscaler.md, "Per scene"). The other four BLSS settings stay
+    // project-wide and the reasons are different for each pair:
+    //
+    //   blssScale sizes the two PERMANENT GS allocations - the low-res colour
+    //   target and, through it, the z buffer - and the permanent region cannot
+    //   be re-laid after init without evicting every resident texture. It is
+    //   also recorded in a net's provenance sidecar and REFUSED on mismatch
+    //   (blss::checkProvenance), so a per-scene scale would need a net per
+    //   scale, not a setting.
+    //
+    //   blssJitter is the sampler the net was FITTED for, recorded in the same
+    //   sidecar. Sharpen and temporal are that net's tuning, and the debug view
+    //   is a developer instrument. A per-scene value for any of them would be a
+    //   knob on a network that does not vary with it.
+    //
+    // What DOES vary per scene is the pair of questions that have a per-scene
+    // answer: does this scene rasterise reduced at all, and does the MLP
+    // reconstruct it or does one bilinear pass. Both are free at a fixed scale.
+    bool upscaler = false;    // blssEnabled, blssNetwork
 };
 
 inline bool operator==(const SceneOverrides& a, const SceneOverrides& b) {
     return a.lighting == b.lighting && a.sky == b.sky && a.clipping == b.clipping &&
            a.terrainMat == b.terrainMat && a.postFx == b.postFx &&
-           a.fog == b.fog && a.highlight == b.highlight;
+           a.fog == b.fog && a.highlight == b.highlight &&
+           a.upscaler == b.upscaler;
 }
 
 class History;
+
+// A looped animation on a HUD element (docs/hud-animation.md). Sprite
+// properties only - position, scale, alpha - so it costs a few floats per
+// frame and never re-bakes anything. `kind` is hudanim::Kind (0 = none);
+// `period` is seconds per cycle; `amount` is pixels for the moving kinds, a
+// 0..1 depth for Pulse/Blink, a scale fraction for Breathe.
+struct HudAnim {
+    int kind = 0;
+    float period = 1.0f;
+    float amount = 4.0f;
+};
+
+inline bool operator==(const HudAnim& a, const HudAnim& b) {
+    return a.kind == b.kind && a.period == b.period && a.amount == b.amount;
+}
+
+// How a HUD element arrives and leaves when a flow node shows or hides it.
+// `kind` is hudanim::Transition (0 = cut, the classic behaviour).
+struct HudTransition {
+    int kind = 0;
+    float duration = 0.25f;  // seconds
+};
+
+inline bool operator==(const HudTransition& a, const HudTransition& b) {
+    return a.kind == b.kind && a.duration == b.duration;
+}
 
 // A HUD image (PNG sprite) drawn on top of the 3D scene.
 struct HudImage {
@@ -1194,13 +2766,23 @@ struct HudImage {
     // 16-color. Lets an important HUD element keep full color while the rest
     // of the project runs quantized (or vice versa).
     std::string texQuant;
+
+    // Motion (docs/hud-animation.md). Only the HUD stack reads these - a
+    // loading-screen or splash image carries them at their defaults and
+    // ignores them. `visibleAtStart` false = hidden until a Set HUD Element
+    // Visible node shows it; the classic default is shown.
+    HudAnim anim;
+    HudTransition transition;
+    bool visibleAtStart = true;
 };
 
 inline bool operator==(const HudImage& a, const HudImage& b) {
     return a.name == b.name && a.imagePath == b.imagePath &&
            a.pos[0] == b.pos[0] && a.pos[1] == b.pos[1] &&
            a.size[0] == b.size[0] && a.size[1] == b.size[1] &&
-           a.texW == b.texW && a.texH == b.texH && a.texQuant == b.texQuant;
+           a.texW == b.texW && a.texH == b.texH && a.texQuant == b.texQuant &&
+           a.anim == b.anim && a.transition == b.transition &&
+           a.visibleAtStart == b.visibleAtStart;
 }
 
 // The built-in "USE" prompt as a customizable HUD element (Tools > UI
@@ -1392,6 +2974,11 @@ struct HudText {
     std::string font;
     bool shadow = true;           // 1px dark offset behind the glyphs
     bool visibleAtStart = false;  // shown when the scene starts
+    // Motion (docs/hud-animation.md): a loop while shown, and how the text
+    // arrives/leaves when Set Text Visible fires. Loading-screen texts and
+    // the prompts ignore both.
+    HudAnim anim;
+    HudTransition transition;
 };
 
 inline bool operator==(const HudText& a, const HudText& b) {
@@ -1399,7 +2986,69 @@ inline bool operator==(const HudText& a, const HudText& b) {
            a.pos[1] == b.pos[1] && a.size == b.size &&
            a.color[0] == b.color[0] && a.color[1] == b.color[1] &&
            a.color[2] == b.color[2] && a.font == b.font &&
-           a.shadow == b.shadow && a.visibleAtStart == b.visibleAtStart;
+           a.shadow == b.shadow && a.visibleAtStart == b.visibleAtStart &&
+           a.anim == b.anim && a.transition == b.transition;
+}
+
+// A live bar on the HUD (Tools > UI Editor > Bars, docs/hud-animation.md): a
+// health bar, a stamina bar, a "3 of 5 keys" strip. Nothing is baked for it -
+// the fill is a tinted white quad (or a cropped image) sized every frame from
+// a value the game owns, so it costs 2-4 sprites and no texture. The value
+// comes from a save value read every frame (`source`), or from the Set HUD
+// Bar flow node when there is none; either way it is mapped through
+// min/max to a 0..1 fill. The fill EASES toward the new value (`smoothing`)
+// and an optional ghost strip lingers where the fill used to be - the classic
+// "damage just taken" chip.
+struct HudBar {
+    std::string name = "bar";
+    int kind = 0;                    // 0 = continuous fill, 1 = quantized segments
+    float pos[2] = {0.5f, 0.08f};    // normalized screen position (center anchor)
+    float size[2] = {160.0f, 12.0f}; // total on-screen size in px (512x448 screen)
+    float bgColor[3] = {0.12f, 0.12f, 0.12f};   // track / unlit segment tint
+    float fillColor[3] = {0.85f, 0.2f, 0.15f};  // fill / lit segment tint
+    float ghostColor[3] = {1.0f, 0.85f, 0.35f}; // the lingering "just lost" strip
+    bool ghost = true;               // draw the ghost strip at all
+    bool rightToLeft = false;        // fill anchored on the right (a mirrored P2 bar)
+    float smoothing = 0.25f;         // seconds the fill takes to reach a new value (0 = snap)
+    float lowFraction = 0.25f;       // below this fill the bar pulses (0 = never)
+    int segments = 5;                // quantized only (2..16)
+    float spacing = 4.0f;            // quantized: gap between segments, px
+    // Value: a save value name read every frame ("" = the Set HUD Bar node
+    // alone drives it, starting at startValue). min/max map it to the fill.
+    std::string source;
+    float minValue = 0.0f;
+    float maxValue = 100.0f;
+    float startValue = 100.0f;
+    // Optional images, both baked like any HUD image (pow2 + quantization):
+    // fillImage replaces the flat fill (cropped to the fraction, tinted by
+    // fillColor - white = untinted; a quantized bar draws it per segment);
+    // frameImage is drawn over the bar at the bar's position with its own
+    // size, so a decorated border can wrap the fill. Their pos is ignored.
+    HudImage fillImage;
+    HudImage frameImage;
+    // Motion, like a HUD image: a loop, a show/hide transition, and whether
+    // it is on screen when the scene starts.
+    HudAnim anim;
+    HudTransition transition;
+    bool visibleAtStart = true;
+};
+
+inline bool operator==(const HudBar& a, const HudBar& b) {
+    auto eq3 = [](const float* x, const float* y) {
+        return x[0] == y[0] && x[1] == y[1] && x[2] == y[2];
+    };
+    return a.name == b.name && a.kind == b.kind && a.pos[0] == b.pos[0] &&
+           a.pos[1] == b.pos[1] && a.size[0] == b.size[0] &&
+           a.size[1] == b.size[1] && eq3(a.bgColor, b.bgColor) &&
+           eq3(a.fillColor, b.fillColor) && eq3(a.ghostColor, b.ghostColor) &&
+           a.ghost == b.ghost && a.rightToLeft == b.rightToLeft &&
+           a.smoothing == b.smoothing && a.lowFraction == b.lowFraction &&
+           a.segments == b.segments && a.spacing == b.spacing &&
+           a.source == b.source && a.minValue == b.minValue &&
+           a.maxValue == b.maxValue && a.startValue == b.startValue &&
+           a.fillImage == b.fillImage && a.frameImage == b.frameImage &&
+           a.anim == b.anim && a.transition == b.transition &&
+           a.visibleAtStart == b.visibleAtStart;
 }
 
 // A prompt text's starting state. HudText's own default is "New text" (right
@@ -1640,7 +3289,8 @@ struct WindowLayout {
     std::string name;
     std::string ini;                       // ImGui docking dump; empty = use recipe
     int recipe = -1;                       // -1 none, 0 default, 1 director, 2 material,
-                                           // 3 debugger, 4 procedural, 5 mocap
+                                           // 3 debugger, 4 procedural, 5 menu designer,
+                                           // 6 mocap
     std::vector<std::string> openWindows;  // optional-window keys (see App::layoutWindowKeys)
 };
 
@@ -1653,10 +3303,11 @@ enum class LayoutRecipe {
     Material = 2,
     Debugger = 3,
     Procedural = 4,
-    // 5, not 3 and not 4: main's Debugger took 3 and its Procedural layout took
-    // 4 while this branch was out, and the id is written into every .tyra file.
+    MenuDesigner = 5,
+    // 6: main's Debugger took 3, its Procedural layout 4 and its Menu Designer
+    // 5 while this branch was out, and the id is written into every .tyra file.
     // Whoever lands second renumbers, or old projects open the wrong layout.
-    Mocap = 5
+    Mocap = 6
 };
 
 // One custom screen effect placed in the screen stack. The effect body lives
@@ -1767,6 +3418,11 @@ struct SceneData {
     // Project::loadingScreens). Empty = the project default
     // (Project::defaultLoadingScreen); a dangling name also falls back there.
     std::string loadingScreen;
+
+    // Per-junction road overrides (docs/roads.md, "Junction overrides"):
+    // matched to a computed crossing by road-id pair + nearest position
+    // (roadgen::planCrossings). Empty in every scene that never used one.
+    std::vector<roadgen::JunctionOverride> roadJunctions;
 };
 
 inline bool operator==(const SceneData& a, const SceneData& b) {
@@ -1781,10 +3437,19 @@ inline bool operator==(const SceneData& a, const SceneData& b) {
            a.terrainTintScale == b.terrainTintScale &&
            a.overrides == b.overrides && a.settings == b.settings &&
            a.ambiencePreset == b.ambiencePreset &&
-           a.loadingScreen == b.loadingScreen;
+           a.loadingScreen == b.loadingScreen &&
+           a.roadJunctions == b.roadJunctions;
 }
 
 // One selectable row of a generated in-game menu.
+// Memory card save slots. The upper bound is a sanity limit, not a console
+// one - every slot is its own file and costs a whole 1 KB cluster, so a
+// hundred of them is ~100 KB of an 8 MB card (the Save Editor does that sum).
+// The per-page cap must stay <= menubake::kMaxEntries, which is what the panel
+// bake can lay out; a static_assert in menubake.cpp holds the two together.
+constexpr int kMaxSaveSlots = 100;
+constexpr int kMaxSaveSlotsPerPage = 8;
+
 struct MenuEntry {
     std::string label = "New entry";
     // What Cross does on this row. Close/scene/save-menu also dismiss the
@@ -1825,6 +3490,16 @@ struct MenuEntry {
         // menu first, so a title screen's CREDITS row hands the screen over and
         // the roll's own finish action decides what comes back.
         PlayCredits = 11,
+        // Draws its label and does nothing: a section header, or - with an
+        // empty label - a spacer. The cursor skips it (the FIRST row of a menu
+        // being a header is the common case, so skipping happens on open too).
+        // Style it with a class: `row.header { ... }`.
+        Label = 12,
+        // Confirms a cutscene skip: ends the running cutscene and closes the
+        // menu. Only meaningful on the project's skip-confirmation menu (see
+        // GameMenu::skipMenu); elsewhere it is a Stop Sequence with no
+        // graph - harmless, and a no-op when nothing is playing.
+        SkipCutscene = 13,
     };
     int action = Close;
     std::string param;
@@ -1835,8 +3510,9 @@ struct MenuEntry {
     // BindDisplayMode rows only: the Tyra::DisplayMode each option drives
     // (parallel to `options`, values 0..4; -1 = the project-default mode,
     // resolved at boot on the player's console - region + the PAL-picture
-    // preference). Empty = the option index itself (the legacy positional
-    // mapping), so old projects behave unchanged.
+    // preference). The Menu Editor keeps it the same length as `options`;
+    // codegen fills a short one in positionally so the generated table always
+    // has an entry per option.
     std::vector<int> optionModes;
     // Ready-made "option block" binding (Menu Editor > Insert option block).
     // On a Toggle/Choice row this makes the generated game map the row's
@@ -1862,13 +3538,31 @@ struct MenuEntry {
     // field on purpose - the positional MenuEntry{...} initializers in app.cpp
     // predate it and must keep meaning what they say.
     std::string bindAction;
+
+    // --- styling (docs/menu-styles.md) --------------------------------------
+    // Style class: `row.danger { color: #f88 }` in the menu's stylesheet then
+    // styles this row alone. Free text, no registry - a class nothing defines
+    // simply styles like any other row.
+    std::string styleClass;
+    // Shown in the panel's description area while this row is selected (the
+    // area only exists when the sheet gives `description` a height).
+    std::string description;
+    // A Tools > UI Editor button icon name, drawn in the row's icon column
+    // (`row { icon-size: 18px }`). A {{token}} inside the LABEL still works and
+    // needs nothing here - this one is for an aligned column.
+    std::string icon;
+    // Save value that decides whether the row is usable: 0 = the row draws in
+    // its `:disabled` style and the cursor skips it. Empty = always enabled.
+    std::string enabledWhen;
 };
 
 inline bool operator==(const MenuEntry& a, const MenuEntry& b) {
     return a.label == b.label && a.action == b.action && a.param == b.param &&
            a.bindAction == b.bindAction && a.amount == b.amount &&
            a.options == b.options && a.optionModes == b.optionModes &&
-           a.settingBind == b.settingBind;
+           a.settingBind == b.settingBind && a.styleClass == b.styleClass &&
+           a.description == b.description && a.icon == b.icon &&
+           a.enabledWhen == b.enabledWhen;
 }
 
 // One image composited into a menu's baked panel (see GameMenu::images).
@@ -1905,6 +3599,18 @@ struct GameMenu {
     // The Start button opens this menu in-game and closes it again (the
     // classic pause menu; one per project).
     bool pauseMenu = false;
+    // THIS is the memory card save menu (one per project). Its rows are the
+    // save slots, so `entries` is not authored and not read: the panel is
+    // baked with Project::saveSlotsPerPage blank rows and the game draws
+    // "SLOT n" into them at runtime, which is the only way a slot count in
+    // the dozens can work - a baked label per slot cannot page.
+    bool saveMenu = false;
+    // THIS is the "skip the cutscene?" confirmation screen (one per project).
+    // A skippable cutscene set to Ask first opens it instead of ending on the
+    // spot; a Skip cutscene row confirms, anything that dismisses the menu
+    // declines and the cutscene resumes. Ordinary menu in every other respect -
+    // authored, styled and previewed like the rest.
+    bool skipMenu = false;
     float accent[3] = {0.47f, 0.82f, 1.0f};  // border/title tint
     // Images composited into the baked panel. Flow slots (AboveTitle /
     // AboveEntries / BelowEntries) are blocks in the panel's vertical flow -
@@ -1919,8 +3625,18 @@ struct GameMenu {
     bool showTitle = true;  // off = logo-only menus (skips title + separator)
     // Which Project::fonts entry the panel is baked with ("" = the default
     // entry). Only the typeface is taken from it - the panel's colors come
-    // from `accent` and the bake itself.
+    // from `accent` and the stylesheet below.
     std::string font;
+    // The stylesheet this menu is baked with: a menu-styles/<key>.menustyle
+    // file or one of the built-ins (docs/menu-styles.md). Empty = the Classic
+    // look, which the sheet defaults reproduce exactly - so an existing project
+    // bakes byte-identically whether it names "classic" or nothing.
+    //
+    // The fields around it (accent, titleSize, entrySize, panelW, font) are the
+    // BASE of the cascade: a sheet that says nothing about a colour keeps
+    // taking it from here, and one that does wins. That is the whole
+    // compatibility story - there is no second source of truth, only an order.
+    std::string style;
     int titleSize = 18;  // px; entrySize also drives the row pitch (and the
     int entrySize = 15;  // cursor geometry) through menubake::panelLayout.
     std::vector<MenuEntry> entries;
@@ -1929,14 +3645,28 @@ struct GameMenu {
 inline bool operator==(const GameMenu& a, const GameMenu& b) {
     return a.name == b.name && a.title == b.title &&
            a.titleScreen == b.titleScreen && a.pauseGame == b.pauseGame &&
-           a.pauseMenu == b.pauseMenu && a.accent[0] == b.accent[0] &&
+           a.pauseMenu == b.pauseMenu && a.saveMenu == b.saveMenu &&
+           a.skipMenu == b.skipMenu && a.accent[0] == b.accent[0] &&
            a.accent[1] == b.accent[1] && a.accent[2] == b.accent[2] &&
            a.images == b.images && a.panelW == b.panelW &&
            a.screenPos[0] == b.screenPos[0] && a.screenPos[1] == b.screenPos[1] &&
            a.showTitle == b.showTitle && a.font == b.font &&
-           a.titleSize == b.titleSize && a.entrySize == b.entrySize &&
-           a.entries == b.entries;
+           a.style == b.style && a.titleSize == b.titleSize &&
+           a.entrySize == b.entrySize && a.entries == b.entries;
 }
+
+// The display modes a project can pick, with the geometry each one implies.
+// ONE table: the editor's PS2 viewport, the Menu Editor's per-resolution
+// preview, the Preferences list and the menu fit check all read it, and it is
+// the host twin of Tyra::RendererSettings::updateGeometry - change one and the
+// other must follow (docs/menu-styles.md "Resolutions").
+struct DisplayModeInfo {
+    const char* key;    // ProjectSettings::displayMode value
+    const char* label;  // what the UI calls it
+    int bufW;           // logical framebuffer width
+    int logicalH;       // logical framebuffer height
+    bool halfHeight;    // true field rendering: the real buffer is half as tall
+};
 
 // A named value persisted on the memory card (project-wide, not per scene).
 // Flow graph Save nodes read/write these; every save slot stores a snapshot.
@@ -1966,8 +3696,9 @@ inline bool operator==(const SaveTextValue& a, const SaveTextValue& b) {
 // and the editor's preview applies the identical math (animedit.hpp).
 //
 // Order of operations, both here and in the preview: trim in SOURCE seconds,
-// then rebase the trimmed range to start at 0, then scale time. The clip the
-// game sees is `rename` (when set) with duration
+// then rebase the trimmed range to start at 0, remove horizontal root motion
+// when `inPlace` is set, then scale time. The clip the game sees is `rename`
+// (when set) with duration
 // (trimEnd - trimStart) / (timeScale * project fps ratio).
 struct AnimClipEdit {
     std::string model;   // project-relative asset, e.g. "res/models/hero.glb"
@@ -1976,20 +3707,188 @@ struct AnimClipEdit {
     float timeScale = 1.0f;   // >1 plays faster; on top of the project fps ratio
     float trimStart = 0.0f;   // seconds into the source clip; 0 = from the start
     float trimEnd = 0.0f;     // seconds into the source clip; 0 = to the end
+    bool inPlace = false;      // pin the motion root's X/Z to the trimmed start
     bool loop = true;         // default Loop for objects that pick this clip
 
     // True when this entry changes nothing - the Animation Editor drops such
     // entries on save so an untouched project keeps an empty list.
     bool isDefault() const {
         return rename.empty() && timeScale == 1.0f && trimStart == 0.0f &&
-               trimEnd == 0.0f && loop;
+               trimEnd == 0.0f && !inPlace && loop;
     }
 };
 
 inline bool operator==(const AnimClipEdit& a, const AnimClipEdit& b) {
     return a.model == b.model && a.clip == b.clip && a.rename == b.rename &&
            a.timeScale == b.timeScale && a.trimStart == b.trimStart &&
-           a.trimEnd == b.trimEnd && a.loop == b.loop;
+           a.trimEnd == b.trimEnd && a.inPlace == b.inPlace &&
+           a.loop == b.loop;
+}
+
+// ---------------------------------------------------------------------------
+// Animation imported from ANOTHER model file (docs/animation-import.md,
+// Tools > Animation Editor > Imported clips).
+//
+// One row = "take these clips out of `source` and put them on `model`". The
+// donor file is never merged into the target on disk and neither file is
+// rewritten: the merge happens on the parsed skeleton, at preview time and
+// again on the way into the .tskl, exactly like AnimClipEdit's trims and
+// renames. So the record of what was imported stays legible and reversible,
+// re-exporting either asset picks the change up, and the console pays nothing.
+//
+// The imported clips land in the model's clip list under their donor names
+// (plus `prefix`), which means every existing mechanism applies to them with
+// no further work - they can be renamed, trimmed, retimed and made in-place by
+// an AnimClipEdit, picked in any clip combo, and mapped to Player locomotion.
+struct AnimImport {
+    std::string model;   // target asset, e.g. "res/models/hero.glb"
+    std::string source;  // donor asset, e.g. "res/models/anim/run.fbx"
+    // Which of the donor's clips to take. EMPTY MEANS ALL, and that is the
+    // useful default: a Mixamo download is one clip per file.
+    std::vector<std::string> clips;
+    std::string prefix;  // prepended to each imported name; "" = keep them
+
+    // Hand-made donor-bone -> target-bone pairs from the bone-mapping editor
+    // (Map bones... in the Animation Editor). Wins over name matching; empty
+    // for the common same-rig case.
+    std::vector<std::pair<std::string, std::string>> boneMap;
+
+    // World-yaw of the source rig, degrees; -1 = auto from both rigs' feet.
+    // And the mirrored import (walk_right out of walk_left) - see
+    // docs/animation-import.md.
+    int facing = -1;
+    bool mirror = false;
+    // Posture fine-tune, degrees: + leans the torso forward, - back. The
+    // knob for a retarget that walks well but stands a few degrees off.
+    float lean = 0.0f;
+
+    // The retarget policy - animmerge::MergeOptions, stored as plain fields so
+    // the model does not depend on that header. The defaults are what makes a
+    // merge safe: root-only translation is what stops a donor's bone lengths
+    // from stretching the target.
+    int translation = 0;  // 0 root bones only, 1 animated only, 2 copy all
+    bool ignoreScale = true;
+    bool retargetRoot = true;
+    bool stripNamespace = true;
+    bool caseInsensitive = true;
+    bool skeletonTracksOnly = true;
+};
+
+inline bool operator==(const AnimImport& a, const AnimImport& b) {
+    return a.model == b.model && a.source == b.source && a.clips == b.clips &&
+           a.boneMap == b.boneMap &&
+           a.facing == b.facing && a.mirror == b.mirror &&
+           a.lean == b.lean &&
+           a.prefix == b.prefix && a.translation == b.translation &&
+           a.ignoreScale == b.ignoreScale && a.retargetRoot == b.retargetRoot &&
+           a.stripNamespace == b.stripNamespace &&
+           a.caseInsensitive == b.caseInsensitive &&
+           a.skeletonTracksOnly == b.skeletonTracksOnly;
+}
+
+// ---------------------------------------------------------------------------
+// WHAT THE NEURAL UPSCALER'S TRAINING CORPUS IS ALLOWED TO SEE
+// (Tools > Neural Upscaler (BLSS) > Training shots, docs/neural-upscaler.md).
+//
+// WHY THIS EXISTS. The corpus shoots a project from six camera moves derived
+// from the scene's bounds and the player start, plus any authored Cutscene
+// Director track, and until now the user had no say in any of it. That matters
+// because the failure this feature keeps producing is a DISTRIBUTION MISMATCH:
+// a net fitted to frames the game does not draw scored -0.40 dB on a real
+// project - worse than leaving the feature off - and the diagnosis was that
+// its most predictive channels were out of range on the content the console
+// runs. A corpus is only as good as its coverage of the content the PLAYER
+// will look at, and the person who knows where the player stands is the author.
+//
+// So: this is the author's statement of which frames get fitted. It is
+// PROJECT-WIDE (like sequences and prefabs) rather than per scene, because a
+// shot names the scene it belongs to and a plan spanning scenes is one thing to
+// read; it is persisted through save() but is NOT part of undo/redo, for the
+// same reason a prefab is not - it is a build input, not a scene edit.
+//
+// COMPATIBILITY: a default plan writes NOTHING to the .tyra, so an untouched
+// project is byte-identical and the trainer keeps doing exactly what it did.
+
+// The six automatic camera moves blssscene::autoShots derives, in the order it
+// derives them. The order is the serialized order - APPEND ONLY.
+enum class BlssAutoMove { Walk = 0, Pan, Orbit, Whip, Pitch, Strafe, Count };
+enum : int { kBlssAutoMoveCount = (int)BlssAutoMove::Count };
+// The three tables that name a move (label/.tyra key, the corpus' own `move`
+// string, and what the move is for) live in `namespace project` further down,
+// next to blssResolveShot - one home for everything that reads the plan.
+
+// One authored training vantage. Deliberately a two-key polyline and nothing
+// more: `SceneShot` is a polyline of (eye, look-at) keys and every move the
+// corpus already produces reduces to one, so an author who can place two
+// vantages can express a still standpoint, a walk, a strafe or a push-in
+// without a second parameterisation for anybody to keep in step.
+struct BlssShot {
+    std::string name;   // "" = named from its scene and its index
+    std::string scene;  // scene NAME; "" = the project's first scene
+    // A placed Camera object, by name, instead of raw numbers - "aim it where
+    // the player actually stands" is the whole point, and the editor already
+    // has a way to put a camera there. Non-empty WINS over eye/look, and a
+    // camera that is not in the shot's scene drops the shot rather than
+    // silently shooting the origin.
+    std::string camera, cameraTo;
+    float eye[3] = {0.0f, 2.0f, 0.0f};
+    float look[3] = {0.0f, 2.0f, 1.0f};
+    // A second key. Off = a still standpoint, which is a legitimate shot (the
+    // history is perfect and the net has to learn not to spend passes on it).
+    bool move = false;
+    float eye2[3] = {0.0f, 2.0f, 0.0f};
+    float look2[3] = {0.0f, 2.0f, 1.0f};
+    float fovDeg = 60.0f;
+    // How many corpus frames this shot gets. 0 = its equal share of --frames,
+    // which is what every shot has always had. A number here is how an author
+    // says "the corridor matters more than the skybox pan".
+    int frames = 0;
+    bool enabled = true;
+};
+
+inline bool operator==(const BlssShot& a, const BlssShot& b) {
+    for (int k = 0; k < 3; ++k)
+        if (a.eye[k] != b.eye[k] || a.look[k] != b.look[k] || a.eye2[k] != b.eye2[k] ||
+            a.look2[k] != b.look2[k])
+            return false;
+    return a.name == b.name && a.scene == b.scene && a.camera == b.camera &&
+           a.cameraTo == b.cameraTo && a.move == b.move && a.fovDeg == b.fovDeg &&
+           a.frames == b.frames && a.enabled == b.enabled;
+}
+
+struct BlssShotPlan {
+    // Which of the six automatic moves survive, per move, for every scene.
+    bool autoMove[kBlssAutoMoveCount] = {true, true, true, true, true, true};
+    // Per-move frame count; 0 = the equal share.
+    int autoFrames[kBlssAutoMoveCount] = {0, 0, 0, 0, 0, 0};
+    // Cutscene Director camera tracks. On by default and worth keeping on: a
+    // take is the author having already said which frame matters.
+    bool authoredTakes = true;
+    std::vector<BlssShot> shots;
+
+    // Nothing has been authored - the plan the trainer has always followed.
+    // writeBlssShotsSection emits nothing for this, so an untouched project's
+    // .tyra does not change shape.
+    bool isDefault() const {
+        for (int i = 0; i < kBlssAutoMoveCount; ++i)
+            if (!autoMove[i] || autoFrames[i] != 0) return false;
+        return authoredTakes && shots.empty();
+    }
+};
+
+// One model's own collision box (Project::modelCollision): local min / max
+// corners in the mesh's units, the same frame as the mesh AABB it replaces.
+struct ModelCollisionBox {
+    float mn[3] = {-0.5f, 0.0f, -0.5f};
+    float mx[3] = {0.5f, 1.0f, 0.5f};
+};
+inline bool operator==(const ModelCollisionBox& a, const ModelCollisionBox& b) {
+    for (int k = 0; k < 3; ++k)
+        if (a.mn[k] != b.mn[k] || a.mx[k] != b.mx[k]) return false;
+    return true;
+}
+inline bool operator!=(const ModelCollisionBox& a, const ModelCollisionBox& b) {
+    return !(a == b);
 }
 
 struct Project {
@@ -2016,6 +3915,12 @@ struct Project {
     ProjectSettings settings;
     std::vector<SceneData> scenes{SceneData{}};
     int activeScene = 0;  // scene edited in the editor (not persisted in json)
+
+    // Format version read from the .tyra manifest by load() (0 = a file from
+    // before versioning existed). Pure transport for the open-time migration
+    // gate (migrations::stepsFor) - save() always writes the current
+    // version::kFormatVersion, and load() refuses files newer than it.
+    int formatVersionOnDisk = version::kFormatVersion;
 
     // The active scene - what the editor UI operates on.
     SceneData& active() {
@@ -2097,16 +4002,27 @@ struct Project {
     // On-screen texts baked to sprites at build, triggered by the Show Text /
     // Hide Text flow nodes (Tools > UI Editor > Texts).
     std::vector<HudText> hudTexts;
+    // Live bars - health, stamina, progress (Tools > UI Editor > Bars,
+    // docs/hud-animation.md). Drawn above the HUD stack, under the texts.
+    std::vector<HudBar> hudBars;
     // Where the full-screen post effects sit in the screen stack (Tools > UI
-    // Editor). Bloom (with color grading) and film grain are placed
-    // independently: the effect applies right before the HUD sprite at that
-    // index, so sprites with a lower index get the effect and higher ones draw
-    // crisp on top. -1 = apply at the very end of the frame, over everything
-    // including menus (the classic behavior, and the default). Typical split:
-    // bloom under the HUD so it does not blur the crosshair, grain at -1 as a
-    // filmic overlay over the whole screen. Grading rides with bloom.
+    // Editor). Bloom (with color grading), film grain and motion blur are
+    // placed independently: the effect applies right before the HUD sprite at
+    // that index, so sprites with a lower index get the effect and higher ones
+    // draw crisp on top. -1 = apply at the very end of the frame, over
+    // everything including menus (the classic behavior, and the default).
+    // Typical split: bloom under the HUD so it does not blur the crosshair,
+    // grain at -1 as a filmic overlay over the whole screen. Grading rides
+    // with bloom.
+    //
+    // Motion blur defaults to 0 (under the whole HUD stack) rather than -1,
+    // and that is not cosmetic: its source is the finished previous frame,
+    // HUD and menus included, so applied at the top a MOVING HUD element
+    // smears over the picture. Under the stack the trail is the scene's and
+    // the UI redraws crisp on top of it every frame.
     int hudBloomLayer = -1;
     int hudGrainLayer = -1;
+    int hudMotionBlurLayer = 0;
     // Custom screen effects placed in the screen stack (Tools > UI Editor).
     // Each placement references a <project>/screen-effects/*.screenfx file by
     // its key ("custom:<stem>") and carries the effect's per-placement param
@@ -2132,10 +4048,71 @@ struct Project {
     // Sound effects (16-bit 22kHz WAV in res/sfx/, converted to ADPCM by the
     // toolchain at build). One-shots via the flow graph Play Sound action.
     std::vector<std::string> sounds;
-    // Custom values persisted in memory card saves (Project panel, Save data).
+    // Custom values persisted in memory card saves (Tools > Save Editor).
     std::vector<SaveValue> saveValues;
-    // Custom text values persisted in memory card saves (same panel).
+    // Custom text values persisted in memory card saves (same window).
     std::vector<SaveTextValue> saveTexts;
+    // Memory card save appearance (Tools > Save Editor): the PS2 browser
+    // shows this title + icon for the game's save directory. Baked into
+    // res/save/icon.sys + list.icn on every build (savebake). Title breaks
+    // to a second line at '|'; "" falls back to the project name. saveIcon
+    // is a project-relative image path ("res/...", any stb-readable format,
+    // resampled to the 128x128 icon texture); "" = built-in placeholder.
+    std::string saveTitle;
+    std::string saveIcon;
+    // 3D icon: a project model shown instead of the flat image quad -
+    // res/models .obj (static, gently swaying) or .glb (saveIconClip
+    // sampled into saveIconFrames morph shapes: a real animated icon).
+    // "" = the flat quad. See savebake::iconInfo.
+    std::string saveIconModel;
+    std::string saveIconClip;   // .glb clip name ("" = the first clip)
+    int saveIconFrames = 6;     // animation shapes, 1..kMaxIconShapes
+    // Idle motion baked into the shapes for a source that carries no
+    // animation of its own - the flat quad, an .obj, or a .glb with no clips
+    // (a .glb WITH a clip plays the clip and ignores this). A stable string
+    // key, not an index: see savebake::iconMotions(). "" reads as "sway",
+    // which is what every icon did before the setting existed.
+    std::string saveIconMotion;
+    float saveIconMotionAmount = 1.0f;  // amplitude scale, 0.25..2
+    // What the in-game save menu writes to a slot. false = a fresh snapshot of
+    // the player's current state (the default, and what a menu usually means);
+    // true = the last checkpoint, i.e. the same buffer Commit Checkpoint
+    // writes - the "you resume from the last shrine, not from here" model.
+    // With no checkpoint taken yet it falls back to a fresh snapshot, so the
+    // menu is never dead at the start of a game.
+    bool saveMenuWritesCheckpoint = false;
+    // The slot a Commit Checkpoint in "autosave" mode writes, and the one the
+    // "next free slot" mode never picks - so a rotating autosave cannot eat
+    // the game's own. -1 = no autosave slot, which makes that mode a no-op
+    // rather than a guess. This is a DESIGNATION, not a lock: the in-game menu
+    // can still save over it and load from it like any other slot.
+    int saveAutosaveSlot = -1;
+    // How many memory card slots the game offers, and how many of them the
+    // save menu shows at once. With more slots than fit, the menu pages: the
+    // cursor walking off the bottom row turns to the next page. Rows per page
+    // is capped by menubake::kMaxEntries (the panel bake's row limit).
+    int saveSlotCount = 3;
+    int saveSlotsPerPage = 3;
+    // Write to the card WITHOUT freezing the game behind the "do not remove
+    // the memory card" overlay: the transfer is driven a step per frame and
+    // the player keeps playing. Loads stay blocking (the world is being
+    // replaced, there is nothing to keep playing). See docs/save-editor.md
+    // for what this costs.
+    bool saveAsync = false;
+    // The little activity indicator an async write shows instead of the
+    // overlay. Corner: 0 = top-left, 1 = top-right, 2 = bottom-left,
+    // 3 = bottom-right. Margin is in 512x448 pixels.
+    bool saveSpinner = true;
+    // The sheet the spinner is drawn from: "" = the built-in one baked to
+    // res/hud/save-spinner.png, otherwise any project image laid out as a
+    // horizontal strip of saveSpinnerFrames equal cells. Validated by
+    // savebake::spinnerInfo, which falls back to the built-in rather than
+    // letting a bad sheet halt the game.
+    std::string saveSpinnerImage;
+    int saveSpinnerFrames = 8;
+    int saveSpinnerCorner = 3;
+    float saveSpinnerMargin = 20.0f;
+    float saveSpinnerScale = 1.0f;
     // Per-asset texture-quality overrides of ProjectSettings::textureQuant,
     // keyed by asset path (a res/models .obj or a .mtl library): "none" /
     // "8bit" / "4bit". Textures referenced by several assets take the
@@ -2151,6 +4128,45 @@ struct Project {
     // Only used when a mesh LOD distance is in play (Preferences > Rendering
     // or a per-object override) - see docs/model-pipeline.md.
     std::map<std::string, std::vector<std::string>> modelLods;
+    // Per-asset override of ProjectSettings::modelAo, keyed by the model's
+    // asset path ("res/models/shed.obj"): 1 = always bake its self-AO into its
+    // texture, 2 = never. Absent (or 0) follows the project default, which is
+    // why an untouched project writes no key at all. See modelao.hpp.
+    // Deliberately NOT part of rebuildAssetUsage - it is a SETTING keyed by an
+    // asset, not a reference to one, and counting it as a use would make every
+    // imported model read as used.
+    std::map<std::string, int> modelAoMode;
+    // Per-model collision box (docs/collision-boxes.md, "A smaller box"),
+    // keyed by the model's asset path like modelAoMode: the box every object
+    // made from that model collides as in BOX mode, in the mesh's own units
+    // (before the object's scale) - a street lamp's post instead of the box
+    // around its arm. Absent = the mesh's own bounds, as before. Mesh-mode
+    // objects ignore it (their triangles are the shape). A setting keyed by
+    // an asset, so like modelAoMode it is not part of rebuildAssetUsage.
+    std::map<std::string, ModelCollisionBox> modelCollision;
+    // Per-TEXTURE atlas control (docs/texture-atlasing.md), keyed by the
+    // texture's res-relative path ("res/models/kenney/Textures/wall.png").
+    // Two independent decisions, both absent by default:
+    //   keepOut - never pack this texture into a page. The escape hatch for
+    //     a texture whose colours must not share a page's palette, or that a
+    //     streamed layer should be able to drop on its own. (Pinning a
+    //     per-asset textureQuality has always had this side effect; this is
+    //     the same decision said out loud.)
+    //   group - pack it with everything carrying the SAME group name instead
+    //     of with its .mtl's directory. A page is one allocation and one
+    //     shared palette, so grouping should follow what is on screen
+    //     together - which the folder layout only approximates.
+    struct AtlasControl {
+        bool keepOut = false;
+        std::string group;
+        // Requested page depth for the GROUP this texture lands in: 0 = follow
+        // the project's texture quality, else 4 / 8 / 32 bits per pixel. A
+        // group takes the HIGHEST depth any member asks for - the same
+        // "highest wins" rule textureQuality uses - so pinning one texture
+        // lifts the page it shares instead of splitting it.
+        int pageBits = 0;
+    };
+    std::map<std::string, AtlasControl> atlasControl;
     // Real-world size of an imported model, keyed by its asset path:
     // how many METERS one unit of the file measures. An entry exists only
     // for models whose real size is known - written when a model is imported
@@ -2174,6 +4190,17 @@ struct Project {
     // presets at runtime (the switch persists across scene changes).
     std::vector<ColorGradingPreset> gradings;
     int defaultGrading = -1;
+    // The scene the GAME boots into (index into `scenes`). Until this existed
+    // the runtime hardcoded scene 0 and the editor merely LABELLED it "(start)",
+    // so the only way to change it was to reorder the list - and scene indices
+    // are baked into every generated table, so reordering is the one thing that
+    // must not be casual. An index costs nothing and shifts nothing.
+    //
+    // Travels in the scene TABLE rather than a Section, because it is
+    // structural scene data: that is what puts it on the collaboration wire
+    // alongside the scene list it indexes.
+    int startScene = 0;
+
     // Ambience presets (Tools > Ambience Editor): project-wide sky/lighting/fog
     // "mood" bundles. defaultAmbience is the preset a scene uses when it names
     // none (-1 = fall back to the raw project/scene settings). A scene picks
@@ -2212,6 +4239,12 @@ struct Project {
     // but are not part of undo/redo.
     std::vector<AnimClipEdit> animClipEdits;
 
+    // Clips borrowed from other model files (docs/animation-import.md). Folded
+    // into the parsed skeleton BEFORE animClipEdits, so an imported clip is
+    // trimmed, retimed and renamed by exactly the same machinery as a native
+    // one. Same lifetime rules as the list above: saved, outside undo.
+    std::vector<AnimImport> animImports;
+
     // Prefabs (Tools > Prefabs, docs/prefabs.md): reusable groups of scene
     // objects - their flow graphs included - stamped into the world by hand,
     // by a procedural graph, or by the Spawn Prefab node while the game runs.
@@ -2219,6 +4252,43 @@ struct Project {
     // scene is available in all of them) and persisted through save(), but not
     // part of undo/redo. Members carry transforms LOCAL to the prefab origin.
     std::vector<Prefab> prefabs;
+    // The particle library (Tools > Particle Editor, docs/particles.md).
+    std::vector<ParticleEffect> particleEffects;
+
+    // Vehicle definitions (Tools > Vehicle Editor, docs/vehicles.md). Defined
+    // once, placed as often as you like: a Vehicle scene object names one of
+    // these. Project-wide like the prefabs above, so - as with them - editing
+    // one dirties the project and syncs to session peers but takes no undo
+    // step, because History carries the scenes alone.
+    std::vector<VehicleDef> vehicles;
+    VehicleDef vehicleDefaults = defaultVehicleTuning();
+
+    // World Facts (Tools > World Facts, docs/world-facts.md): the project's
+    // central memory of game state - the declared catalog, the reusable named
+    // conditions over it, the rules that react to it and the saved fact sets
+    // the devkit pushes into a running game. Project-wide like the preset
+    // collections above and persisted through save(), but not part of
+    // undo/redo: a fact is a declaration, and undoing one halfway through a
+    // scene edit would leave graphs referencing something that stopped
+    // existing. `factScenarios` is editing/test data and never reaches the
+    // console; the other three are compiled into the game.
+    std::vector<facts::Fact> facts;
+    std::vector<facts::Query> factQueries;
+    std::vector<facts::Rule> factRules;
+    std::vector<facts::Scenario> factScenarios;
+
+    // The project's own VU1 microprograms and its VU0 kernel
+    // (docs/vu-authoring.md). Project-wide like the preset collections above,
+    // persisted through save(), not part of undo/redo - a microprogram is a
+    // build artefact, and undoing one halfway through a scene edit would mean
+    // the running game and the editor disagree about what is installed.
+    VuSettings vu;
+
+    // What the neural upscaler's training corpus is allowed to see
+    // (Tools > Neural Upscaler (BLSS) > Training shots). Project-wide like the
+    // collections above, persisted through save(), not part of undo/redo - it
+    // is a build input, not a scene edit. A default plan writes nothing.
+    BlssShotPlan blssShots;
 
     // --- Editor-side state, persisted in the .tyra project file ------------
     // Not game data and not part of undo/redo (undo lives in the history
@@ -2230,6 +4300,26 @@ struct Project {
     // Viewport camera projection (Viewport::Projection): 0 perspective,
     // 1 ortho (free), 2..7 the locked Top/Bottom/Front/Back/Right/Left views.
     int viewProjection = 0;
+    // Where the viewport camera was pointing, so reopening a project puts you
+    // back where you left off instead of at a default that is usually outside
+    // the scene's own fog. The orbit camera IS these five numbers (yaw, pitch,
+    // distance, pivot) - the same ones Viewport::camState reads - so there is
+    // nothing to reconstruct and no matrix to keep in sync.
+    //
+    // Editor state, exactly like viewMode above: read off the viewport at save
+    // time, never dirties the project and never enters undo. Defaults match
+    // the viewport's own, so a project that predates the key opens where it
+    // always did.
+    float viewCamYaw = 0.8f;
+    float viewCamPitch = 0.6f;
+    float viewCamDist = 90.0f;
+    float viewCamTarget[3] = {0.0f, 0.0f, 0.0f};
+    // View > Distance fog: the viewport's own fog switch, which is NOT the
+    // scene's fogEnabled - it suppresses the preview of a fog the game still
+    // has, so you can see past it while authoring. Persisted for the same
+    // reason as the camera above: it is where you left the viewport, and a
+    // view setting that resets on every open reads as one that was not saved.
+    bool viewShowFog = true;
     // Live Debugger breakpoints (docs/live-debugger.md), as
     // "<objectId>:<nodeId>" - the owning object's stable id and the flow-graph
     // node id, so they survive renames, reorders and rebuilds. Personal
@@ -2238,7 +4328,7 @@ struct Project {
     std::vector<std::string> debugBreakpoints;
     // Named window layouts (docking arrangements), switchable from the Layout
     // menu and edited by simply rearranging windows. Every project keeps at
-    // least one; seedBuiltinLayouts() fills a fresh/legacy project with the
+    // least one; seedBuiltinLayouts() fills a project that carries none with the
     // Default/Director/Material built-ins. activeLayout indexes into this list.
     std::vector<WindowLayout> windowLayouts;
     int activeLayout = 0;
@@ -2249,12 +4339,38 @@ struct Project {
     // headless --build path (main.cpp) also sets ps2LinkIp here directly.
     std::string emulatorPath;  // PCSX2 exe; empty = auto-detect under Program Files
     std::string ps2LinkIp;     // ps2link IP for "Run on PS2"; empty = disabled
+    // The console session log (sessionlog.hpp): lines kept per file (0 = no
+    // file) and session files kept in <project>/logs/. Machine-global like the
+    // IP above, copied in from editor.ini the same way.
+    int consoleLogLines = 20000;
+    int consoleLogFiles = 10;
+    // Docker image the game compiles in. Empty = say nothing and let the
+    // generated compose file's `${TYRAX_IMAGE:-h4570/tyra}` resolve from the
+    // project's own .env, which is how this worked before the setting existed.
+    std::string toolchainImage;
+    // Machine-local build transport. "native" uses the bundled PS2DEV/OpenVCL
+    // toolchain; "docker" preserves the old container path as a fallback.
+    std::string buildBackend = "native";
 
     bool valid() const { return !name.empty() && !dir.empty(); }
     std::string elfName() const { return name + ".elf"; }
     // Handed to PCSX2 (and ps2client) on a command line, so it must come out
-    // natively separated - see filePath().
-    std::string elfPath() const { return filePath("bin/" + elfName()); }
+    // natively separated - see filePath() - AND ABSOLUTE.
+    //
+    // Absolute because PCSX2 derives the `host:` filesystem root from the boot
+    // ELF's own path: hand it a relative one and the game boots but every
+    // asset it opens resolves somewhere else, so the scene comes up untextured
+    // with no baked shadows and nothing in any log says why. `--build
+    // examples/<name> --run` from the repo root is exactly how the examples
+    // are documented to be run, so this is the common case, not a corner.
+    std::string elfPath() const {
+        const std::string rel = filePath("bin/" + elfName());
+        std::error_code ec;
+        std::filesystem::path abs = std::filesystem::absolute(rel, ec);
+        if (ec) return rel;
+        abs.make_preferred();
+        return abs.string();
+    }
 
     // A project-relative path (always stored forward-slashed: "res/models/x.obj")
     // as a real filesystem path in the platform's OWN separators. ALWAYS use
@@ -2278,6 +4394,96 @@ struct Project {
 
 namespace project {
 
+// --- display modes -----------------------------------------------------------
+const std::vector<DisplayModeInfo>& displayModes();
+
+// The mode a project actually boots in: `displayMode`, except that a PAL
+// console with the PAL-picture preference promotes "interlaced" to "pal576"
+// (the generated main.cpp does the same before engine init).
+std::string bootDisplayMode(const ProjectSettings& s);
+
+// The modes a project supports, in table order: `supportedModes` when it names
+// any, otherwise just the boot mode.
+std::vector<std::string> supportedDisplayModes(const ProjectSettings& s);
+
+// The modes a PREVIEW should offer: the boot mode first, then the rest of the
+// declared set - and when nothing is declared, ALL of them rather than the boot
+// mode alone. The reason is that the boot mode is a GUESS whenever the region
+// is Auto: a new project has palFullHeight on, so it "boots" as 576i (512x512)
+// here while PCSX2 runs the same ELF as NTSC 480i (512x448), and a preview that
+// offers no way to look at the other one just quietly disagrees with the screen
+// (which is exactly how it was reported).
+std::vector<std::string> previewDisplayModes(const ProjectSettings& s);
+
+// One entry of displayModes() by key; an unknown key resolves to "interlaced".
+const DisplayModeInfo& displayModeInfo(const std::string& key);
+
+// Whether a third display buffer would actually fit in GS VRAM at the
+// project's boot display mode (docs/frame-pacing.md). The HOST TWIN of
+// RendererCoreGS::allocateVramBuffers' headroom check - the engine refuses the
+// buffer and stays double buffered when the numbers do not work, and without
+// this the editor would offer a setting whose failure only shows up in the
+// running game's log. Change one, change the other.
+//
+// It takes the PROJECT and not only the settings because the two things that
+// move the answer - whether the z buffer shrinks, and whether a BLSS low-res
+// target is allocated at all - are per-scene questions now (project::blssUse):
+// a project whose scenes disagree pins z at the full raster and gets none of
+// the saving. `s` is the staged settings, so the Preferences modal can ask
+// about a default it has not committed yet (the blssUse(p, defaults) idiom).
+struct TripleBufferFit {
+    bool fits = false;
+    int bufferWords = 0;  // what a third display buffer costs
+    int leftWords = 0;    // what would remain after taking it
+    int needWords = 0;    // what the rest of the renderer + textures need
+    std::string mode;     // the display-mode key this answer is for
+};
+TripleBufferFit tripleBufferingFit(const Project& p, const ProjectSettings& s);
+
+// What is left for TEXTURES after the renderer has taken its permanent region,
+// in KB, for the project's boot display mode. The same arithmetic the fit
+// above runs, asked the other way round - because the question an author hits
+// in practice is not "does a third buffer fit" but "why is my scene suddenly
+// re-uploading textures every frame". Flashlight shadow volumes are the usual
+// answer: their count band is 512 KB at 32-bit colour, and a 512x512 project
+// has about that much left in the first place (measured on a hand-made scene:
+// 0.375 MB free with the volumes off, 0.000 MB and ~1.6 texture re-uploads per
+// FRAME with them on). Preferences shows this beside the switch.
+struct TextureHeapEstimate {
+    int freeKb = 0;      // with the current settings
+    int withoutKb = 0;   // the same project with shadow volumes off
+    int countBandKb = 0; // what the volumes' count band takes
+};
+TextureHeapEstimate textureHeapEstimate(const Project& p,
+                                        const ProjectSettings& s);
+// The same question for an EXPLICIT display mode, which is the form that
+// matters: the boot mode is not the only one the game runs in.
+// RendererCore::setDisplayOutput re-lays the whole VRAM region on a runtime
+// scan-mode switch, so allocateVramBuffers asks again with the new framebuffer
+// size and a project may get three buffers in one mode and two in another.
+TripleBufferFit tripleBufferingFit(const Project& p, const ProjectSettings& s,
+                                   const std::string& modeKey);
+
+// Every mode this project can end up in - the boot mode plus everything
+// `supportedModes` declares - split by whether a third buffer fits. This is
+// what makes the setting honest: it is a REQUEST, granted per mode at runtime,
+// and a project whose modes disagree changes its frame pacing when the player
+// changes resolution. Empty `fitting` means the tick buys nothing anywhere,
+// which is what the Preferences window greys the checkbox on.
+struct TripleBufferModes {
+    std::string boot;
+    bool bootFits = false;
+    std::vector<TripleBufferFit> fitting;
+    std::vector<TripleBufferFit> notFitting;
+    // Modes the project does NOT declare that would have room - the actionable
+    // half of a refusal. Computed rather than asserted: which modes those are
+    // depends on the upscaler's z shrink, so "try field rendering" is a
+    // statement about this project's settings and not a general fact.
+    std::vector<TripleBufferFit> roomElsewhere;
+};
+TripleBufferModes tripleBufferingModes(const Project& p,
+                                       const ProjectSettings& s);
+
 // Creates the project directory, generates all Tyra game sources / build files
 // and the <name>.tyra project file. `preset` picks the starting content, and it
 // is the project's permanent game template (Project::gameTemplate):
@@ -2298,9 +4504,8 @@ std::string create(Project& out, const std::string& name, const std::string& par
 
 // Fills p.windowLayouts with the three built-in layouts (Default, Director,
 // Material Designer) as recipe-backed entries with empty ini, and resets
-// activeLayout to 0. Used for fresh projects and to migrate older projects that
-// predate named layouts. A pre-existing single "layout" dump can be preserved
-// by the caller by assigning it into windowLayouts[0].ini after seeding.
+// activeLayout to 0. Used for a fresh project and for one whose manifest
+// carries no "layouts" array.
 void seedBuiltinLayouts(Project& p);
 
 // A fresh opaque object id (16 hex chars from a 64-bit random value). Unique
@@ -2319,6 +4524,70 @@ void ensureObjectIds(Project& p);
 // before project ids existed). Idempotent; persisted on the next save.
 void ensureProjectId(Project& p);
 
+// Assigns a stable id to every fact that lacks one and repairs duplicates.
+// A fact's id is what a PLAYER'S SAVE FILE stores, so it must exist before
+// anything is written and must never be reused - which is why this runs on
+// load and on create like ensureObjectIds, and why the save payload is keyed
+// by it instead of by position (docs/world-facts.md "Saving").
+void ensureFactIds(Project& p);
+
+// The particle library (docs/particles.md). findParticleEffect answers by
+// name (nullptr = none / stale). applyParticleEffects copies every linked
+// effect into the emitters that name it (scenes + prefab members) - called by
+// load() and by App::commitChange, so a linked emitter's own fields are
+// always the effect's; returns true when anything changed. particlePreset is
+// the starting point "New effect" offers for each emitterKind.
+const ParticleEffect* findParticleEffect(const Project& p, const std::string& name);
+bool applyParticleEffects(Project& p);
+void applyVehicleDefaults(Project& p);
+void applyParticleEffect(const ParticleEffect& fx, SceneObject& o);
+void applyParticleLayer(const ParticleLayer& L, SceneObject& o);
+// The EXTRA layers of a linked emitter as ordinary emitter objects: a copy of
+// `o` wearing each layer, moved by its offset and its spawn area scaled. Empty
+// for an unlinked emitter or an effect with one layer. The ONE expansion
+// codegen (EMITTER_LAYERS) and the viewport preview read.
+std::vector<SceneObject> emitterLayerObjects(const Project& p, const SceneObject& o);
+// The file stem a layer's generated texture is baked under.
+std::string particleLayerStem(const ParticleEffect& fx, int layer);
+ParticleEffect particlePreset(int kind);
+// Retargets every emitter and vehicle that names `from` to `to` ("" = unlink).
+void renameParticleEffectRefs(Project& p, const std::string& from, const std::string& to);
+
+// Where one fact is used. `graphs` names owning objects as "scene / object",
+// the rest name the query, rule or scenario. The single answer to "what
+// breaks if I change this" - read by the Facts window's Used by list and by
+// the delete confirmation.
+struct FactUsage {
+    std::vector<std::string> graphs;     // "Main / Door" (flow-graph nodes)
+    std::vector<std::string> queries;    // query names
+    std::vector<std::string> rules;      // rule names
+    std::vector<std::string> scenarios;  // scenario names
+    std::vector<std::string> computed;   // facts computed from a query using it
+    bool any() const {
+        return !graphs.empty() || !queries.empty() || !rules.empty() ||
+               !scenarios.empty() || !computed.empty();
+    }
+    int count() const {
+        return (int)(graphs.size() + queries.size() + rules.size() +
+                     scenarios.size() + computed.size());
+    }
+};
+FactUsage factUsage(const Project& p, const std::string& factName);
+
+// Same question for a query - which facts compute from it, which rules and
+// queries name it, which graph nodes evaluate it.
+FactUsage queryUsage(const Project& p, const std::string& queryName);
+
+// Renames a fact everywhere it is referenced: flow-graph node params, query
+// leaves, rule conditions and actions, scenario rows, and the `computed` link.
+// The renameObjectRefs contract - a by-name reference that does not join this
+// goes stale on the first rename.
+void renameFactRefs(Project& p, const std::string& from, const std::string& to);
+// The same for a query name (fact.computed, Condition::query, the FactQuery
+// flow node's param).
+void renameFactQueryRefs(Project& p, const std::string& from,
+                         const std::string& to);
+
 // Fills in the built-in input actions and the "Default" preset (Tools > Input
 // Map) with the bindings that were hardcoded before the Input Map existed, so
 // a project from an older TyraX plays identically. Only ADDS what is missing:
@@ -2326,16 +4595,77 @@ void ensureProjectId(Project& p);
 // a no-op. Called from create() and at the end of load().
 void ensureInputActions(Project& p);
 
+// Guarantees exactly one GameMenu::saveMenu, seeded to look like the built-in
+// save panel every project shipped before the menu was editable, so opening an
+// old project changes nothing on screen. Also clamps the extras to one - two
+// save menus would bake two panels and the game would pick arbitrarily.
+// Called from create() and at the end of load(); re-running is a no-op.
+void ensureSaveMenu(Project& p);
+
+// Index of the save menu in Project::menus, or -1. Cheap; call it rather than
+// caching, since the Menu Editor can reorder the list.
+int saveMenuIndex(const Project& p);
+
+// Index of the cutscene skip-confirmation menu in Project::menus, or -1 when
+// the project has not designated one - in which case a cutscene set to "Ask
+// first" falls back to skipping on the spot rather than swallowing the press
+// (docs/cutscenes.md). Same caveat as above: do not cache it.
+int skipMenuIndex(const Project& p);
+
 // The built-in action name for a role (InputAction::Role), e.g. "jump" - what
 // ensureInputActions seeds and what the codegen role slots look for. Empty for
 // RoleNone / out-of-range values.
 const char* inputRoleName(int role);
+
+// --- The neural upscaler's training-shot plan --------------------------------
+//
+// ONE RESOLUTION, READ BY BOTH SIDES. The editor previews an authored shot and
+// `blssscene::loadProject` shoots it, and if those two derived a camera
+// differently the window would be drawing a frame the corpus never renders -
+// which is precisely the class of bug (host describes one frame, console runs
+// another) that cost this feature eleven commits. So the arithmetic lives here,
+// in the module that owns the data, and both callers ask it.
+
+// The label the UI shows and the key the .tyra stores ("walk", "pan", ...).
+const char* blssAutoMoveName(int move);
+// The `SceneShot::move` string the corpus tags that move with
+// ("dolly-forward", "pan", "orbit", "whip", "pitch-up", "dolly-lateral") - the
+// twin of the literals in blssscene.cpp, so a rename cannot drift between the
+// window's per-shot table and the trainer's own output.
+const char* blssAutoMoveKind(int move);
+// One line saying what that move is FOR, in the terms the corpus was built in.
+const char* blssAutoMoveWhy(int move);
+
+// Which scene a shot belongs to, as an index into Project::scenes. Matches by
+// NAME (an index would rot the moment a scene is deleted); an empty
+// BlssShot::scene means the first scene, and a name matching nothing is -1,
+// which the corpus must read as "drop this shot" rather than as scene 0.
+int blssShotScene(const Project& p, const BlssShot& s);
+
+// Resolve one authored shot into the two (eye, look-at) keys a `SceneShot`
+// carries. `eyeB`/`lookB` are filled with a copy of the first key for a still
+// shot, so a caller can always emit two keys and let the corpus collapse them.
+// Returns false when the shot is disabled, names no scene this project has, or
+// names a Camera object that scene does not contain - all three of which are
+// "do not shoot this", never "shoot the origin".
+bool blssResolveShot(const Project& p, const BlssShot& s, float eyeA[3], float lookA[3],
+                     float eyeB[3], float lookB[3], float* fovDeg = nullptr);
+
+// The name a shot is shown and reported under - its own `name`, or one derived
+// from its scene and index the way the automatic moves are named. Never empty,
+// because a fold table row with no label is a measurement nobody can act on.
+std::string blssShotLabel(const Project& p, const BlssShot& s, int index);
 
 // Fills in the pad-button text icons (Tools > UI Editor > Button icons) so
 // {{cross}} and {{action:jump}} resolve in a fresh or older project. Only ADDS
 // missing entries - a renamed/repointed/deleted icon stays as the user left it.
 // Their PNGs are generated into res/hud/ when absent (saveAssets).
 void ensureTextIcons(Project& p);
+// Adds the two analog-stick icons ({{lstick}}, {{rstick}}) when missing. Not
+// part of ensureTextIcons on purpose: every project would grow two entries and
+// two sheet cells for glyphs only the vehicle controls card asks for. True when
+// anything was added.
+bool ensureStickIcons(Project& p);
 
 // --- Per-object / per-section (de)serialization ------------------------------
 // The building blocks of both the on-disk format and the collaboration wire
@@ -2352,16 +4682,27 @@ std::string objectJson(const SceneObject& o);
 // (same reader the project load uses).
 bool parseObject(const std::string& body, SceneObject& out);
 
+// One Procedural volume's scatter graph as the JSON the object body carries,
+// and back. Public for the same reason objectJson is: the AI Assistant's
+// get_proc_graph / set_proc_graph hand a graph to a model and take one back,
+// and a second serializer for it would drift from the file format the day
+// anything in ProcNode changed. Reading is TOTAL (`out` is replaced) and drops
+// nodes of unknown types plus the links that touched them, exactly as loading a
+// project does; it returns false only when `body` is not a JSON object.
+std::string procGraphJson(const ProcGraph& g);
+bool parseProcGraph(const std::string& body, ProcGraph& out);
+
 // Project-wide manifest sections (everything in the .tyra except the scene
 // table, the per-object bodies and the editor-side state). Each serializes
 // independently so the collaboration layer can diff and ship them one at a
 // time; save()/load() are recomposed from the same writers/readers.
 enum class Section {
     Settings = 0,    // "settings" (project preferences)
-    Hud,             // "hud", "usePrompt", "hudTexts", bloom/grain layers, "screenFx"
+    Hud,             // "hud", "usePrompt", "hudTexts", the post-fx layers, "screenFx"
     Audio,           // "music", "musicBuild", "sounds"
     TexQuality,      // "textureQuality" (per-asset overrides)
     ModelLods,       // "modelLods" (per-model custom LOD meshes)
+    ModelAo,         // "modelAoMode" (per-model automatic-AO overrides)
     SaveData,        // "saveValues", "saveTexts"
     Gradings,        // "gradings", "defaultGrading"
     Ambience,        // "ambience", "defaultAmbience"
@@ -2371,15 +4712,32 @@ enum class Section {
     Sequences,       // "sequences"
     Menus,           // "menus"
     AnimEdits,       // "animClipEdits"
+    AnimImports,     // "animImports" (clips borrowed from other model files)
     ModelUnits,      // "modelUnits" (per-model real-world size)
     Input,           // "input" (actions + binding presets)
     Prefabs,         // "prefabs" (reusable object groups)
+    Vehicles,        // "vehicles" (driveable-car definitions)
+    VuPrograms,      // "vu" (the project's own VU1 programs and VU0 kernel)
+    Facts,           // "facts", "factQueries", "factRules", "factScenarios"
+    BlssShots,       // "blssShots" (the neural upscaler's training-shot plan)
+    Atlas,           // "atlasControl" (per-texture atlas keep-out / group)
+    Particles,       // "particleEffects" (the particle library)
+    ModelCollision,  // "modelCollision" (per-model collision boxes)
+    Count            // not a section - the enum size, see kSectionCount below
 };
 // KEEP THIS EQUAL TO THE ENUM SIZE. save() loops sections by index, so a count
 // one short silently stops writing the LAST section to the .tyra - and parallel
-// branches keep adding sections (ModelLods, ModelUnits and Input all arrived
-// while this one was open), which is exactly how it drifts.
-constexpr int kSectionCount = 16;
+// branches keep adding sections (ModelLods, ModelUnits, Input and VuPrograms all
+// arrived while this one was open), which is exactly how it drifts. It DID drift:
+// with 17 sections and a count of 16, `--resave` on examples/cube dropped the
+// whole "prefabs" section - no error, the prefabs were simply gone. The
+// static_assert below is the fix that outlives the comment: Section::Count is
+// maintained by the compiler, so the next section to arrive cannot repeat this.
+enum : int { kSectionCount = (int)Section::Count };
+static_assert(kSectionCount == 26,
+              "A section was added or removed - check that everything which "
+              "loops sections by index (save(), the collaboration shadow) "
+              "still means what it says, then update this number.");
 
 // Stable lowercase identifier for a section (wire format / diagnostics).
 const char* sectionName(Section s);
@@ -2426,7 +4784,79 @@ bool applyScenesLayout(Project& p, const std::string& body);
 // category (lighting, sky, clipping, terrain material, post-FX, highlight)
 // replaced by the scene's own values where its override flag is set. All
 // codegen and viewport code reads scene-visual settings through this.
+//
+// When the resolved ambience preset carries an enabled day/night cycle
+// (docs/day-night-cycle.md), the cycle is evaluated at its authored hour and
+// OVERWRITES the sky, light direction/colour and fog colour on the way out.
+// That is the single hook through which the time-of-day slider reaches the
+// vertex bake, the AO bake, the GI bake, codegen's SCENE_LIGHT_* and every
+// runtime consumer of them (projected shadows, flare, god rays).
 ProjectSettings resolvedSettings(const Project& p, const SceneData& s);
+
+// The Player speed tiers with the "0 = inherit" rule already applied, in the
+// stored per-1/50 s step unit (docs/player-speeds.md). ONE answer to "how fast
+// does this player actually move", read by codegen's PLAYER_*_SPEEDS tables AND
+// by the Properties readout - a second copy of the fallback chain is exactly how
+// a panel comes to promise a number the console does not run.
+//
+// Sprint falls back to run x sprintMultiplier rather than to walk x, which is
+// the same number whenever no run speed was set and is what makes an existing
+// project's sprint byte-identical.
+float playerRunSpeed(const SceneObject& o);
+float playerSprintSpeed(const SceneObject& o, const ProjectSettings& st);
+// The same pair for the fallback walker of a scene with no Player object,
+// which is driven by ProjectSettings instead (Preferences > Player).
+float settingsRunSpeed(const ProjectSettings& st);
+float settingsSprintSpeed(const ProjectSettings& st);
+
+// What the neural upscaler resolves to across the WHOLE project (docs/
+// neural-upscaler.md, "Per scene"). One answer, read by codegen, by the build
+// interlock, by the editor's clash warning and by the BLSS window - so none of
+// them can decide "does this project mix" differently, which is exactly how the
+// old dialog-vs-build split drifted.
+//
+// `mixed` is decided on the RESOLVED values, never on the override flags: a
+// project whose every scene overrides to the same answer is not mixed, and it
+// keeps generating the sources a project-wide setting generated. That is what
+// makes byte-identical regeneration a property of the OUTCOME rather than of
+// how somebody happened to author it.
+struct BlssUse {
+    bool any = false;         // some scene rasterises reduced
+    bool anyNative = false;   // some scene renders at the full raster
+    bool anyNetwork = false;  // some scene reconstructs with the MLP
+    bool mixed = false;       // the scenes do not all resolve alike
+};
+BlssUse blssUse(const Project& p);
+// The same answer for a project DEFAULT that is not (yet) `p.settings` - what
+// Project > Preferences is staging while the modal is open. It exists because
+// that dialog now states what mixing costs (docs/neural-upscaler.md, "What it
+// costs"), and it has to state it about the settings the reader is editing
+// rather than about the ones on disk; computing "does this project mix"
+// separately there would have been a second answer to the question this
+// function exists to be the only one of.
+BlssUse blssUse(const Project& p, const ProjectSettings& defaults);
+
+// Fold the editable ranges onto a cycle / one of its keys. Called by the
+// .tyra reader (a hand-edited file is not to be trusted) and by the Ambience
+// Editor after every edit, so both agree on what is representable.
+// A user-owned script left in a stale C++ namespace by a project rename cannot
+// possibly compile, and the PS2 toolchain's error for it says nothing useful.
+// Empty when everything lines up; otherwise a one-line explanation naming the
+// file and both namespaces. A build calls this BEFORE contacting Docker.
+std::string checkScriptNamespaces(const Project& p);
+
+// Folds Project::startScene back into range. Called after a load and after a
+// collaboration scene-layout apply - it indexes the array the GAME boots from,
+// so out of range is a console crash, not a cosmetic problem.
+void clampStartScene(Project& p);
+
+void clampDayKey(DayKey& k);
+void clampDayCycle(DayCycle& c);
+
+// Sort a cycle's keys by hour. ambience::sampleKeys sorts defensively anyway,
+// but the editor's key table reads in stored order, so an edited hour has to
+// re-settle the list for the UI to make sense.
+void sortDayKeys(DayCycle& c);
 
 // Index into Project::ambiencePresets of the preset a scene resolves to:
 // its named preset if it exists, otherwise the project default. -1 = none
@@ -2452,6 +4882,20 @@ struct TerrainMaterial {
 // .mtl is unreadable. Codegen, the editor viewport and the ISO planner resolve
 // through this so they agree on the terrain's texture, color and tiling.
 TerrainMaterial resolveTerrainMaterial(const Project& p, const std::string& matRel);
+
+// Resolves a road surface reference to the texture the runtime needs. A .mtl
+// uses its first material's map_Kd (relative to the material and normalized);
+// legacy direct image paths pass through unchanged.
+std::string resolveRoadTexture(const std::string& projectDir,
+                               const std::string& surfaceRel);
+std::string resolveRoadTexture(const Project& p, const std::string& surfaceRel);
+
+// The crossing planner's view of a scene's roads (roadgen::planCrossings),
+// in object order - the ONE conversion the codegen, the viewport, the test
+// drive and the Properties panel share. `objectIndex`, when given, receives
+// each road's index in sc.objects.
+std::vector<roadgen::CrossingRoad> crossingRoads(
+    const std::vector<SceneObject>& objects, std::vector<int>* objectIndex = nullptr);
 
 // Loads the single <name>.tyra project file from an existing project
 // directory (game data + editor-side state + window layout).
@@ -2528,6 +4972,46 @@ const SceneObject* findArea(const std::vector<SceneObject>& objs,
 // Is the world point inside the area's box?
 bool areaContainsPoint(const SceneObject& area, float x, float y, float z);
 
+// Which StaPip material classes the project's scenes and prefabs actually
+// draw, as a StaPipProgramClass bit mask (docs/vu-authoring.md). ONE answer,
+// used by the VU panel's budget bar and by codegen's setResidentClasses call -
+// a second implementation would let the editor promise room the build does not
+// make. Colour is always set: it is what everything else falls back to.
+unsigned vuNeededClasses(const Project& p);
+// Which single class ONE object draws with, as a StaPipProgramClass bit. The
+// host twin of the engine's `getDrawProgramTypeByBag`, and the answer to the
+// question the authoring UI kept failing to ask: a program is installed over a
+// CLASS, so "will this program touch this object" is exactly "is this the
+// object's class". Returns 0 for anything with no geometry.
+unsigned vuClassOfObject(const Project& p, const SceneObject& o);
+// Whether a class can carry a look with PER-MESH parameters. The four numbers
+// and the clock live in the directional-lights colour block, so a lit class
+// needs those addresses for its light colours - but a look made only of
+// literals never reads them, and may go anywhere. That distinction is what
+// lets a global treatment reach lit geometry at all.
+bool vuClassCanBind(unsigned classBit);
+// True when any stage of the look binds a parameter to a mesh slot.
+bool vuLookBindsPerMesh(const VuProgram& look);
+// True when any stage displaces the vertex - such a look cannot cover a package
+// the frustum cut (docs/vu-authoring.md, "One class is two programs").
+bool vuLookMovesGeometry(const VuProgram& look);
+// True when the project carries at least one hand-written VU1 program
+// (src/vu/*.cpp).
+bool hasVuScripts(const Project& p);
+// ... and the VU0 half: at least one hand-written kernel (src/vu0/*.cpp).
+bool hasVuKernels(const Project& p);
+// Either of the above. THIS is the one the build asks: both directories are
+// compiled and RUN inside the build container by the same generator, so one
+// file in either means the runner has an extra step to take and the framework
+// has to travel with the project (docs/vu-authoring.md).
+bool hasVuSources(const Project& p);
+// "Untextured (vertex colour)", "Textured", ... - one label for the panel, the
+// inspector and the diagnostics.
+const char* vuClassName(unsigned classBit);
+// What the build will actually install: the auto-detected set, or the mask the
+// project pinned by hand.
+unsigned vuResidentClasses(const Project& p);
+
 // Types an area may catch: everything the game draws as static geometry (the
 // same set the mirror/portal pickers offer). Markers have nothing to render or
 // reflect, so an area never picks them up.
@@ -2578,7 +5062,7 @@ std::string saveHistory(const Project& p, const History& h);
 std::string loadHistory(const Project& p, History& h);
 
 // Rewrites editor-owned files from the current templates and project data:
-// docker infra (Dockerfile, docker-compose.yml) and generated headers
+// docker infra (docker-compose.yml) and generated headers
 // (terrain_config.hpp, scene_data.hpp) are always rewritten; game sources
 // are rewritten only while they still carry the "Generated by TyraX"
 // marker in the first line (delete it to take ownership of a file).
@@ -2609,5 +5093,15 @@ bool liveLinkCanSpawnLive(const SceneObject& o);
 uint64_t liveLinkContextHash(const Project& p);
 // The whole as-built record written to bin/livelink.sig.
 std::string liveLinkSigFile(const Project& p);
+
+// --- Input recorder (docs/input-replay.md) ----------------------------------
+// Identity of the world a recording was made against: scene shapes, the input
+// map, and the settings that decide which input SOURCES exist. A replay whose
+// hash disagrees still runs - the fingerprint check is what reports the actual
+// divergence - but the mismatch is worth a line in the log, because "somebody
+// edited the scene" is by far the commonest reason a replay stops matching.
+// Baked into the recording's header by the game and re-derived here for the
+// warning, so there is exactly one definition of what "the same world" means.
+uint64_t inputLayoutHash(const Project& p);
 
 }  // namespace project

@@ -34,13 +34,15 @@ struct CamKey { float t; float eye[3]; float at[3]; float fov;
                 int camObj; };
 struct Seq { const char* name; float duration; int loop; int camEnabled;
              int hidePlayer;  // hide the third-person avatar while playing
-             int bars; int skippable; float fadeIn; float fadeOut;
+             int hideHud;     // hide the HUD, the USE prompt and USE itself
+             int bars; int skippable;
+             int skipMode;    // 0 skip at once, 1 ask first (SKIP_MENU)
+             float fadeIn; float fadeOut;
              float barsSlideIn; float barsSlideOut;  // bars reveal, s
-             float barTB; float barLR;  // mask coverage per edge
              const Track* tracks; int trackCount;
              const CamKey* camKeys; int camKeyCount; };
 
-static const Seq kSeqs[] = {{"", 0.0F, 0, 0, 0, 0, 0, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, 0.0F, nullptr, 0, nullptr, 0}
+static const Seq kSeqs[] = {{"", 0.0F, 0, 0, 0, 0, 0, 0, 0, 0.0F, 0.0F, 0.0F, 0.0F, nullptr, 0, nullptr, 0}
 };
 static const int kSeqCount = 0;
 
@@ -93,6 +95,7 @@ class SequenceDirector : public Script {
   void release(ScriptContext& ctx) {
     ctx.cameraOverride = false;
     ctx.hidePlayer = false;
+    ctx.hudSuppressed = false;
     ctx.barsStyle = 0;
     ctx.barsAmount = 0.0F;
     ctx.fadeAlpha = 0.0F;
@@ -114,6 +117,17 @@ class SequenceDirector : public Script {
     active_ = -1;
   }
   int activeIndex() const { return active_; }
+  // "The player may skip what is on screen right now". Asked by the game loop
+  // BEFORE the pause menu gets a look at the "menu" action - the skip itself is
+  // then an ordinary end(), fired from there (docs/cutscenes.md). It used to be
+  // a raw Start test in update() below, which never ran: updateGameMenu had
+  // already opened the pause menu and paused the scripts.
+  bool skippable() const {
+    return active_ >= 0 && active_ < kSeqCount && kSeqs[active_].skippable != 0;
+  }
+  int skipMode() const {
+    return active_ >= 0 && active_ < kSeqCount ? kSeqs[active_].skipMode : 0;
+  }
 
   void update(ScriptContext& ctx) override {
     if (active_ < 0 || active_ >= kSeqCount) {
@@ -121,13 +135,10 @@ class SequenceDirector : public Script {
       return;
     }
     const Seq& s = kSeqs[active_];
-    // A skippable cutscene ends early on START.
-    if (s.skippable && ctx.engine && ctx.engine->pad.getClicked().Start) {
-      active_ = -1;
-      release(ctx);
-      return;
-    }
     ctx.hidePlayer = s.hidePlayer != 0;
+    // The whole HUD, the USE prompt and the USE interaction. Written every
+    // frame and cleared by release(), like hidePlayer beside it.
+    ctx.hudSuppressed = s.hideHud != 0;
     for (int i = 0; i < s.trackCount; ++i) {
       const Track& tr = s.tracks[i];
       if (tr.scene != ctx.scene || tr.obj < 0 || tr.obj >= ctx.objectCount) continue;
@@ -329,6 +340,44 @@ static const bool g_seqRegistered = []() {
 namespace sequences {
 void play(int index) { g_seqDirector.begin(index); }
 void stop() { g_seqDirector.end(); }
+bool playing() { return g_seqDirector.activeIndex() >= 0; }
+bool skippable() { return g_seqDirector.skippable(); }
+int skipMode() { return g_seqDirector.skipMode(); }
+
+// Set Letterbox Bars (flow graph): the mask style in force while NO cutscene is
+// active. A cutscene's own style wins, because it writes barsAmount every frame
+// and clears everything on release.
+int g_flowBarStyle = 0;
+
+// Style -> coverage per edge, the runtime twin of seqBarsFractions in
+// src/sequence.hpp (the editor's viewport overlay reads that one). It cannot be
+// baked like the rest of a cutscene: Cinema and Wide letterbox INSIDE the
+// picture the console is currently outputting, and Set Widescreen / the
+// widescreen option row change that shape while the game runs. On a 16:9 output
+// the Wide mask therefore covers nothing at all, which is the correct answer
+// and not a missing feature.
+static void barsFractions(int style, float displayAspect, float* tb,
+                          float* lr) {
+  *tb = 0.0F;
+  *lr = 0.0F;
+  float target = 0.0F;
+  if (style == 1) {
+    target = 2.39F;  // cinema scope
+  } else if (style == 2) {
+    target = 16.0F / 9.0F;  // TV widescreen
+  } else if (style == 3) {
+    *lr = 0.13F;  // pillarbox
+    return;
+  } else if (style == 4) {
+    *tb = 0.08F;  // vintage frame, all four edges
+    *lr = 0.08F;
+    return;
+  } else {
+    return;
+  }
+  const float f = 0.5F * (1.0F - displayAspect / target);
+  *tb = f > 0.0F ? f : 0.0F;
+}
 
 // Solid black quads: the widescreen mask edges (coverage from the active
 // sequence's style scaled by the slide envelope) and the fade overlay. One
@@ -355,10 +404,17 @@ void renderOverlay(Tyra::Engine* engine, const ScriptContext& ctx) {
     quad.color.a = 128.0F * (alpha > 1.0F ? 1.0F : alpha);
     engine->renderer.renderer2D.render(quad);
   };
+  // A cutscene's style, or the flow node's when none is playing - the two never
+  // both apply, so one pair of fractions is enough. Resolved against the shape
+  // of the picture on the TV, which widescreen changes without touching the
+  // framebuffer these quads are measured in.
   const int idx = g_seqDirector.activeIndex();
-  if (ctx.barsAmount > 0.0F && idx >= 0) {
-    const float tb = kSeqs[idx].barTB * ctx.barsAmount * H;
-    const float lr = kSeqs[idx].barLR * ctx.barsAmount * W;
+  const int barStyle = idx >= 0 ? kSeqs[idx].bars : g_flowBarStyle;
+  float barTB = 0.0F, barLR = 0.0F;
+  barsFractions(barStyle, scr.getWindowAspect(), &barTB, &barLR);
+  if (ctx.barsAmount > 0.0F && (barTB > 0.0F || barLR > 0.0F)) {
+    const float tb = barTB * ctx.barsAmount * H;
+    const float lr = barLR * ctx.barsAmount * W;
     fill(0.0F, 0.0F, W, tb, 1.0F);
     fill(0.0F, H - tb, W, tb, 1.0F);
     fill(0.0F, 0.0F, lr, H, 1.0F);

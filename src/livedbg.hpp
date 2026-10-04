@@ -57,6 +57,28 @@ struct Event {
     uint32_t frame = 0;
 };
 
+/** One World Fact change, with the frame it happened on and WHO did it
+ * (docs/world-facts.md). `slot` indexes the fact store the same way the watch
+ * table does - scalars first, then positions - and `src` is an instrumented
+ * node's key, or -(rule + 1) for the fact rule engine, or -1 for a write with
+ * nothing to attribute it to. That one number is the whole "which graph
+ * changed this, and when" answer. */
+struct FactEvent {
+    int slot = 0;
+    int src = -1;
+    float value = 0.0f;
+    uint32_t frame = 0;
+};
+
+/** One manual override the editor is asserting on the running game. Re-sent
+ * every command until the author clears it, because a fact a rule rewrites
+ * every frame would otherwise flicker back before it could be seen. */
+struct FactSet {
+    int slot = 0;
+    bool isPosition = false;
+    float v[3] = {0, 0, 0};
+};
+
 /** One frame of a watched object's runtime state. */
 struct ObjSample {
     uint32_t frame = 0;
@@ -88,7 +110,16 @@ struct FlushInfo {
  * computed - the engine, the tap, the scene - and nobody carried across. */
 struct Stats {
     bool valid = false;
+    // Frames per second the GAME measured, on its own COP0 clock, averaged
+    // over its stated 0.5 s window. `fps` is the whole number an older editor
+    // reads; the two X10 fields are tenths and are 0 from a game built before
+    // they existed. `presentedX10` counts BUFFER FLIPS - about twice `fpsX10`
+    // on a game with frame extrapolation on, since it presents a synthesised
+    // frame per rendered one (docs/profiling.md, "The three frame rate
+    // counters").
     int fps = 0;
+    int fpsX10 = 0;
+    int presentedX10 = 0;
     int flushes = 0;      // bag flushes in the last complete frame
     uint32_t qw = 0;      // quadwords sent to VU1 in that frame
     uint32_t verts = 0;   // position items sent in that frame
@@ -125,6 +156,10 @@ struct Snapshot {
     // draw a real 50 Hz curve (and a trail in the viewport), not the 8 Hz the
     // flush cadence would give. Oldest sample first.
     std::vector<ObjWatch> objects;
+    // World Fact changes, oldest first (v5). Empty from a game built before
+    // the facts block existed, which is not an error - the blackboard simply
+    // shows values without a history.
+    std::vector<FactEvent> factEvents;
     Stats stats;                    // v4
     std::vector<FlushInfo> flushes;  // v4: the last complete frame's draws
 };
@@ -133,6 +168,18 @@ struct Snapshot {
  * return false, which the caller simply retries on its next tick. */
 bool parseSnapshot(const std::vector<unsigned char>& bytes, Snapshot& out);
 bool readSnapshot(const std::string& path, Snapshot& out);
+
+// On-demand, synchronized render-cost capture. Separate file so normal
+// snapshots stay small. Object rows are children of the Objects phase.
+struct RenderCostRow { int object = -1; std::string label; double ms = 0; };
+struct RenderCost {
+    uint32_t seq = 0;
+    int scene = -1;
+    double totalMs = 0;
+    std::vector<RenderCostRow> rows;
+};
+bool readRenderCost(const std::string& path, RenderCost& out);
+std::string renderCostCsv(const RenderCost& report);
 
 // ---------------------------------------------------------------- command ---
 
@@ -160,15 +207,27 @@ struct Command {
     // engine's measurement allocates every free block and frees the chain, so
     // it happens when asked and never on a timer.
     bool measureRam = false;
+    // Ask the game to photograph ITSELF: read the last finished frame out of
+    // GS VRAM and write bin/frame.tga (docs/devkit.md, "The game's own
+    // screenshot"). One-shot, like `fire`. This is the only capture path that
+    // works on real hardware - and on a locked or disconnected desktop, where
+    // every host-side one (PCSX2's F8, GDI, PrintWindow) is blind.
+    bool captureFrame = false;
+    bool captureRenderCost = false;  // one synchronized render pass, bit 7
     int stepFrames = 0;        // run exactly this many frames, then freeze
     std::vector<uint16_t> breakpoints;  // node keys that halt the game
     std::vector<uint16_t> fire;         // node keys to force-fire once
     // Runtime object indices to sample every frame (see Snapshot::objects).
     std::vector<uint16_t> watchObjects;
+    // World Facts the editor is holding at a value (Blackboard > Override).
+    std::vector<FactSet> factSets;
 
     /** Everything except `seq` - the editor rewrites the file only when this
      * changes (a resend of the same state would re-run a step). */
     bool sameStateAs(const Command& o) const;
+
+ private:
+    bool sameFactSets(const Command& o) const;
 };
 
 std::vector<unsigned char> encodeCommand(const Command& c);
@@ -213,6 +272,8 @@ constexpr int kMaxBreakpoints = 64;   // breakpoints the game tracks at once
 constexpr int kMaxForced = 8;         // force-fire keys per command
 constexpr int kMaxEvents = 192;       // event ring the game flushes
 constexpr int kMaxWatchObjects = 8;   // objects sampled per frame
+constexpr int kMaxFactEvents = 128;   // World Fact changes the game rings
+constexpr int kMaxFactSets = 32;      // manual fact overrides per command
 constexpr int kObjRing = 32;          // per-object sample ring in the game
 
 }  // namespace livedbg

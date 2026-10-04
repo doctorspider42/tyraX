@@ -31,10 +31,13 @@
 #include "devsession.hpp"
 #include "editorcfg.hpp"
 #include "gl_loader.h"
+#include "hudanim.hpp"
 #include "fbxparser.hpp"
+#include "gigpu.hpp"
 #include "glbparser.hpp"
 #include "json.hpp"
 #include "menubake.hpp"
+#include "theme.hpp"
 #include "objparser.hpp"
 #include "pngquant.hpp"
 #include "uvunwrap.hpp"
@@ -384,6 +387,10 @@ void App::drawTextIconsModal() {
     if (!ImGui::BeginPopupModal("Button icons")) return;
 
     bool changed = false;
+    // Icons ride in the Hud section (project.cpp writeHudSection), so the same
+    // belt-and-braces comparison the UI Editor uses covers this popup too.
+    const std::string beforeSection =
+        project::sectionJson(project_, project::Section::Hud);
     ImGui::TextWrapped(
         "Write {{name}} in any text to splice an icon in. {{action:jump}} draws "
         "whatever that action is bound to right now (Tools > Input Map), so a "
@@ -547,8 +554,9 @@ void App::drawTextIconsModal() {
     if (ImGui::Button("Close")) ImGui::CloseCurrentPopup();
 
     // Not on the undo stack (like the rest of the UI Editor), but still unsaved
-    // work - dirty, not an immediate write.
-    if (changed) setDirty(true);
+    // work - marked, not an immediate write.
+    if (changed || project::sectionJson(project_, project::Section::Hud) != beforeSection)
+        commitChange();
     ImGui::EndPopup();
 }
 
@@ -570,6 +578,10 @@ void App::drawFontManagerWindow() {
     if (fontSel_ < 0 || fontSel_ >= (int)project_.fonts.size()) fontSel_ = 0;
 
     bool changed = false;
+    // Belt and braces: fonts ride in the Hud section (writeHudSection), and a
+    // rename retargets references in the SCENES, which undo covers on its own.
+    const std::string beforeSection =
+        project::sectionJson(project_, project::Section::Hud);
 
     ImGui::BeginChild("fontlist", ImVec2(scaled(170.0f), 0), true);
     for (size_t i = 0; i < project_.fonts.size(); ++i) {
@@ -740,7 +752,8 @@ void App::drawFontManagerWindow() {
                           "every unset font reference resolves to.");
     ImGui::EndGroup();
 
-    if (changed) commitChange();
+    if (changed || project::sectionJson(project_, project::Section::Hud) != beforeSection)
+        commitChange();
     ImGui::End();
 }
 
@@ -813,6 +826,11 @@ void App::drawInputMapWindow() {
         im.activePreset = 0;
 
     bool changed = false;
+    // Belt and braces, as elsewhere: the window edits the Input section AND
+    // one Settings field (sprint speed), so both go into the comparison.
+    const std::string beforeSection =
+        project::sectionJson(project_, project::Section::Input) +
+        project::sectionJson(project_, project::Section::Settings);
 
     // --- left: the action list -------------------------------------------
     ImGui::BeginChild("##inputactions", ImVec2(scaled(200.0f), 0),
@@ -1035,7 +1053,11 @@ void App::drawInputMapWindow() {
                           "unbinding the button.");
     ImGui::EndGroup();
 
-    if (changed) commitChange();
+    if (changed ||
+        project::sectionJson(project_, project::Section::Input) +
+                project::sectionJson(project_, project::Section::Settings) !=
+            beforeSection)
+        commitChange();
     ImGui::End();
 }
 
@@ -1047,7 +1069,7 @@ void App::rebuildTreePreview() {
     treePreviewDirty_ = false;
 }
 
-// Tools > Bake Global Illumination (docs/global-illumination.md).
+// Tools > Global Illumination (docs/global-illumination.md).
 //
 // The bake is deliberately NOT part of the build: it takes seconds to minutes,
 // and a build that silently re-bakes lighting is a build nobody runs. So this
@@ -1074,8 +1096,9 @@ void App::drawGiBakeSection() {
     ProjectSettings& st = project_.settings;
     bool changed = false;
 
+    bool giSwitched = false;
     if (ImGui::Checkbox("Enable baked global illumination", &st.giEnabled))
-        changed = true;
+        changed = giSwitched = true;
     prefHelp(
         "Static geometry gets a baked multi-bounce lightmap; everything that "
         "moves gets its light from a probe grid. Off = the classic ambient + "
@@ -1133,6 +1156,13 @@ void App::drawGiBakeSection() {
     ImGui::EndDisabled();
 
     if (changed) commitChange();
+    // The switch is the one setting here that changes the PICTURE rather than
+    // the next bake, and commitChange does not touch the viewport - so
+    // unticking the box used to leave the baked light on screen until the
+    // scene changed, which reads as the preference doing nothing at all. The
+    // rays/bounces sliders deliberately do not refresh: they alter what a
+    // re-bake would produce, not what is on screen now.
+    if (giSwitched) applyProjectToViewport();
 
     ImGui::SeparatorText("Scenes");
     const gibake::Settings gst = gibake::settingsOf(st);
@@ -1182,39 +1212,861 @@ void App::drawGiBakeSection() {
         if (ImGui::Button("Cancel", ImVec2(scaled(140.0f), 0)))
             giBaker_.cancel();
     } else {
+        // Which engine will gather the light. RESOLVED before the buttons and
+        // DRAWN after them, so the two Bake buttons keep the exact position
+        // they had before this switch existed - a widget inserted above them
+        // moves everything below, and the panel is already at the bottom of its
+        // window. gigpu::available() is cached after its first call and must be
+        // reached from the main thread, which a window body is.
+        std::string gpuWhy;
+        const bool gpuHere = gigpu::available(&gpuWhy);
+        const bool useGpu = giGpuBake_ && gpuHere;
+
         ImGui::BeginDisabled(!st.giEnabled);
         if (ImGui::Button("Bake this scene", ImVec2(scaled(140.0f), 0))) {
             saveProject();  // the bake reads the project from disk-backed state
-            giBaker_.start(project_, {project_.activeScene});
+            giBaker_.start(project_, {project_.activeScene}, useGpu);
         }
         ImGui::SameLine();
         if (ImGui::Button("Bake all scenes", ImVec2(scaled(140.0f), 0))) {
             saveProject();
-            giBaker_.start(project_, {});
+            giBaker_.start(project_, {}, useGpu);
         }
         ImGui::EndDisabled();
-        if (st.giEnabled && staleCount > 0) {
+        // ON THE SAME LINE as the buttons, and that is not cosmetic: this panel
+        // already ends within a few pixels of its window's bottom edge, so a
+        // widget that adds a ROW pushes the one below it OUTSIDE the window -
+        // where ImGui still submits it and --ui-script still reports a rect for
+        // it, but no label arrives and a click at those coordinates goes
+        // through to whatever is behind. That is what an added row did to the
+        // two Bake buttons here, and it is invisible until something tries to
+        // press them.
+        //
+        // Asked here rather than in the Preferences modal because this is where
+        // a person is standing when the question matters - the errorPopup
+        // precedent: still a machine-global setting, still saved through
+        // saveGlobalConfig().
+        ImGui::SameLine();
+        ImGui::BeginDisabled(!gpuHere);
+        bool wantGpu = useGpu;
+        if (ImGui::Checkbox("Bake on the GPU", &wantGpu)) {
+            giGpuBake_ = wantGpu;
+            saveGlobalConfig();
+        }
+        ImGui::EndDisabled();
+        prefHelp(
+            gpuHere
+                ? "Gathers the light on a GL 4.3 compute shader instead of the "
+                  "CPU cores. The two lightmap passes run about 8-10x faster; "
+                  "the totals gain less, because starting the backend costs "
+                  "~0.9s once per session.\n\n"
+                  "The two engines agree to a tolerance, not exactly - the "
+                  "light channels differ by at most 2 levels out of 255, and "
+                  "the atlas layout and the occlusion are identical. Off by "
+                  "default so a re-bake does not rewrite a cache that is "
+                  "checked into a repository."
+                : ("No GPU bake on this machine: " + gpuWhy +
+                   "\n\nThe CPU integrator is the reference and bakes "
+                   "everything the GPU would - this only costs wall clock.")
+                      .c_str());
+        if (st.giEnabled && staleCount > 0)
+            ImGui::TextColored(ImVec4(0.95f, 0.75f, 0.30f, 1.0f),
+                               "%d scene(s) need a bake", staleCount);
+
+    }
+    // The same switch Project Preferences > Build carries, offered where the
+    // staleness it answers is on screen. Only stale scenes, so a build with
+    // everything fresh costs one signature pass.
+    ImGui::BeginDisabled(!st.giEnabled);
+    if (ImGui::Checkbox("Re-bake stale scenes before every build",
+                        &st.giAutoBake))
+        commitChange();
+    ImGui::EndDisabled();
+    prefHelp("Only the scenes whose cache no longer matches them; a changed big "
+             "scene can cost minutes. Also in Project > Preferences > Build.");
+
+    // No "what this does not do" wall here. It was five lines of routing
+    // caveats in a settings tab, it went stale the moment the ground's route
+    // changed, and docs/global-illumination.md is where that story belongs -
+    // the in-editor assistant reads it from there.
+}
+
+// --- Baked lighting tab ------------------------------------------------------
+
+// Everything the project's model-AO state depends on, in one number: the
+// project-wide knobs plus every per-asset override. Cheap - it never touches
+// the file system, which is the point (the SCAN parses every .obj).
+static uint64_t modelAoIntentOf(const Project& p) {
+    uint64_t h = 0xcbf29ce484222325ull;
+    auto mix = [&h](uint64_t v) {
+        h ^= v + 0x9e3779b97f4a7c15ull + (h << 6) + (h >> 2);
+    };
+    const modelao::Params prm = modelao::paramsOf(p.settings);
+    mix(prm.enabled ? 1 : 0);
+    mix((uint64_t)prm.rays);
+    uint32_t bits = 0;
+    std::memcpy(&bits, &prm.strength, sizeof bits);
+    mix(bits);
+    std::memcpy(&bits, &prm.dist, sizeof bits);
+    mix(bits);
+    for (const auto& [asset, mode] : p.modelAoMode) {
+        for (unsigned char c : asset) mix(c);
+        mix((uint64_t)mode);
+    }
+    return h;
+}
+
+// Polled every frame from drawUI and from nowhere else - the giBakerPoll rule:
+// a bake that finishes has to reach the VIEWPORT whether or not the tab is
+// open, and toggling the setting has to invalidate the textures it affects
+// even if the panel was never looked at.
+//
+// It starts a run only when the INTENT changes, because a scan parses every
+// .obj under res/models. That is also why the worker owns the plan: the UI
+// thread never walks the project's models.
+void App::modelAoPoll() {
+    if (!hasProject_) return;
+    const modelao::Params prm = modelao::paramsOf(project_.settings);
+    const uint64_t intent = modelAoIntentOf(project_);
+    if (intent != modelAoIntent_) {
+        modelAoIntent_ = intent;
+        if (prm.enabled || !project_.modelAoMode.empty())
+            modelAoBaker_.start(project_, prm);
+        else
+            viewport_.setModelAoMaps({}, 0.0f);
+        // A strength edit changes nothing on disk, so no bake will land to
+        // push it - the table is re-set here with the new strength, and
+        // setModelAoMaps is a no-op when neither actually moved.
+        if (modelAoSeen_ == modelAoBaker_.version() && !modelAoBaker_.running())
+            viewport_.setModelAoMaps(modelAoBaker_.maps(), prm.strength);
+    }
+    if (modelAoSeen_ == modelAoBaker_.version()) return;
+    modelAoSeen_ = modelAoBaker_.version();
+    viewport_.setModelAoMaps(modelAoBaker_.maps(), prm.strength);
+}
+
+// The "Baked lighting" tab of the Ambience Editor (drawAmbienceWindow):
+// everything whose light is computed on the HOST at build and ships as pixels
+// rather than as a scene table. It lives beside the GI tab because that window
+// is where a scene's light is authored.
+//
+// Its sections do NOT share a scope, and pretending they did is what this tab
+// used to get wrong: model AO is a property of an ASSET and pre-lit is per
+// OBJECT, while scene AO belongs to an ambience PRESET. They are together
+// because they answer one question - "what is baked into this project's
+// light" - which is the question somebody opens this tab with. Each section
+// names whose setting it is in its own header, so the scope is on screen
+// instead of implied by which tab you are on.
+//
+// A list of sections on purpose. Add the next one by appending a call here.
+void App::drawBakedLightingSection() {
+    drawSceneAoSection();
+    ImGui::Spacing();
+    drawModelAoSection();
+    ImGui::Spacing();
+    drawPrelitSection();
+    ImGui::Spacing();
+    drawShadowBakeSection();
+}
+
+// Baked shadow decals (docs/shadows.md). Per OBJECT, like pre-lit above it -
+// an object asks for one in Properties > Dynamic shadow and this is where the
+// project-wide quality and the bake itself live. Built as a near-twin of
+// drawGiBakeSection, deliberately: it is the same shape of thing (an explicit,
+// content-hashed, cached bake with a stale readout and a pre-build opt-in), and
+// a second vocabulary for it would read as a second mechanism.
+void App::drawShadowBakeSection() {
+    ProjectSettings& st = project_.settings;
+    bool changed = false;
+    ImGui::SeparatorText("Baked shadows (projected decals)");
+
+    bool switched = false;
+    if (ImGui::Checkbox("Enable baked shadow decals", &st.bakedShadows))
+        changed = switched = true;
+    prefHelp(
+        "The static directional shadow: traced once on this machine, projected "
+        "onto whatever is under the caster and drawn as ordinary triangles. "
+        "Mark a caster with Properties > Dynamic shadow > Baked.");
+    ImGui::TextDisabled(
+        "Reaches textured walls and models, which a lightmap cannot.\n"
+        "One submit per atlas page, whatever the shadow count.");
+
+    ImGui::BeginDisabled(!st.bakedShadows || shadowBaker_.running());
+    ImGui::SeparatorText("Quality");
+    {
+        // The tile size decides BOTH the sharpness and how many shadows fit on
+        // a page, so the combo says the second number rather than making
+        // anyone work it out: 256/res squared per page.
+        const int sizes[] = {32, 64, 128};
+        const char* labels[] = {"32 px (64 per page)", "64 px (16 per page)",
+                                "128 px (4 per page)"};
+        int sel = st.bakedShadowRes == 32 ? 0 : (st.bakedShadowRes == 128 ? 2 : 1);
+        ImGui::SetNextItemWidth(scaled(180.0f));
+        if (ImGui::Combo("Shadow detail", &sel, labels, 3)) {
+            st.bakedShadowRes = sizes[sel];
+            changed = true;
+        }
+    }
+    prefHelp("Texels per shadow. A page is 256x256 and costs 32 KB of the "
+             "~1 MB texture budget whatever is on it, so this is really a "
+             "choice of how many shadows one page holds.");
+    {
+        const int sizes[] = {0, 64, 128};
+        const char* labels[] = {"Off (decals on the ground)", "64 px per chunk",
+                                "128 px per chunk"};
+        int sel = st.bakedShadowGround == 64 ? 1 : (st.bakedShadowGround == 128 ? 2 : 0);
+        ImGui::SetNextItemWidth(scaled(180.0f));
+        if (ImGui::Combo("Ground shadows", &sel, labels, 3)) {
+            st.bakedShadowGround = sizes[sel];
+            changed = true;
+        }
+    }
+    prefHelp("Every caster's shadow on the terrain as one 4-bit map per\n"
+             "terrain chunk - sharp and cheap in VRAM - instead of decals.\n"
+             "Decals still land on walls, slabs and models.");
+    ImGui::SetNextItemWidth(scaled(180.0f));
+    if (ImGui::SliderFloat("Softness", &st.bakedShadowSunAngle, 0.5f, 8.0f,
+                           "%.1f deg"))
+        changed = true;
+    prefHelp("The light's angular size - how fast the edge opens up as the "
+             "shadow gets further from what casts it. The real sun is 0.5; 2 "
+             "reads better on a PS2 and hides the tile's own texel count.");
+    ImGui::SetNextItemWidth(scaled(180.0f));
+    if (ImGui::SliderFloat("Strength", &st.bakedShadowStrength, 0.0f, 1.0f, "%.2f"))
+        changed = true;
+    prefHelp("How dark full shadow gets. Never black: the shadow is tinted "
+             "with the scene's own sky colour, so this is how much of the sky "
+             "is left in it.");
+    ImGui::SetNextItemWidth(scaled(180.0f));
+    if (ImGui::SliderFloat("Max length", &st.bakedShadowMaxLength, 0.0f, 12.0f,
+                           "%.1f x height"))
+        changed = true;
+    prefHelp("How far a shadow stretches, in multiples of the caster's own "
+             "height. A low sun throws one hundreds of units long and every "
+             "texel of the tile goes into it. The shadow FADES OUT over this "
+             "distance rather than stopping on it, and the search runs on "
+             "further still, so one that leaves a quay edge carries on down "
+             "instead of ending on a straight line. 0 = across the map.");
+    ImGui::EndDisabled();
+
+    if (changed) commitChange();
+    // The switch changes the PICTURE rather than the next bake, and
+    // commitChange does not touch the viewport - unticking it has to take the
+    // shadows off screen now, not at the next scene change (the giEnabled
+    // precedent). The quality sliders deliberately do not refresh: they alter
+    // what a re-bake would produce.
+    if (switched) applyProjectToViewport();
+
+    ImGui::SeparatorText("Scenes");
+    const shadowbake::Options opt = shadowbake::optionsOf(st);
+    int staleCount = 0, totalCasters = 0;
+    // Casters that asked for a shadow and did not get one. The bake has always
+    // recorded these; only the CLI ever said so, which left the panel showing
+    // a clean green "baked" for a scene where a caster silently cast nothing.
+    std::vector<std::string> refusals;
+    if (ImGui::BeginTable("shadowscenes", 3,
+                          ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
+                              ImGuiTableFlags_SizingStretchProp)) {
+        ImGui::TableSetupColumn("Scene");
+        ImGui::TableSetupColumn("Bake");
+        ImGui::TableSetupColumn("Contents");
+        ImGui::TableHeadersRow();
+        for (int si = 0; si < (int)project_.scenes.size(); ++si) {
+            // How many objects ASKED, straight off the model - cheap, and it is
+            // what makes "not baked" readable: a scene nobody marked is not a
+            // scene with a missing bake.
+            int asked = 0;
+            for (const SceneObject& o : project_.scenes[si].objects)
+                if (o.shadowMode == 4) ++asked;
+            totalCasters += asked;
+            shadowbake::Bake b;
+            const bool present =
+                shadowbake::read(shadowbake::cachePath(project_, si), b);
+            const bool fresh =
+                present && st.bakedShadows &&
+                b.signature ==
+                    shadowbake::signature(project_, project_.scenes[si], opt);
+            if (asked > 0 && !fresh) ++staleCount;
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            ImGui::TextUnformatted(project_.scenes[si].name.c_str());
+            ImGui::TableNextColumn();
+            if (asked == 0)
+                ImGui::TextDisabled("no casters");
+            else if (fresh)
+                ImGui::TextColored(ImVec4(0.45f, 0.85f, 0.45f, 1.0f), "baked");
+            else if (present)
+                ImGui::TextColored(ImVec4(0.95f, 0.75f, 0.30f, 1.0f), "stale");
+            else
+                ImGui::TextDisabled("not baked");
+            ImGui::TableNextColumn();
+            // The budget, and all three numbers that can run out: VRAM pages,
+            // ELF bytes and the submit count. This is the panel's job - the
+            // feature's whole cost story is "which of these do I hit first".
+            if (present && fresh) {
+                // How many casters the bake actually PRODUCED, not how many
+                // asked. They differ whenever one is refused, and reporting
+                // `asked` here said "5 caster(s), baked" for a scene where two
+                // of the five cast nothing at all - which is the one reading
+                // that makes a refusal impossible to notice.
+                int made = 0;
+                for (const shadowbake::Group& g : b.groups) made += g.casters;
+                if (made < asked)
+                    ImGui::TextColored(
+                        ImVec4(0.95f, 0.75f, 0.30f, 1.0f),
+                        "%d of %d caster(s), %d draw(s), %d KB VRAM, %d KB ELF",
+                        made, asked, (int)b.groups.size(),
+                        b.vramWords() * 4 / 1024, b.elfBytes() / 1024);
+                else
+                    ImGui::Text(
+                        "%d caster(s), %d draw(s), %d KB VRAM, %d KB ELF", made,
+                        (int)b.groups.size(), b.vramWords() * 4 / 1024,
+                        b.elfBytes() / 1024);
+                for (const shadowbake::Refusal& r : b.truncated)
+                    refusals.push_back(project_.scenes[si].name + " / " +
+                                       r.name + ": " + r.why);
+            }
+            else if (asked > 0)
+                ImGui::Text("%d caster(s)", asked);
+            else
+                ImGui::TextDisabled("-");
+        }
+        ImGui::EndTable();
+    }
+
+    // Named, never silently dropped - the rule the bake log already followed.
+    // A caster is refused when its projection would cost more triangles than
+    // one shadow may, which a big composite model (a whole street block, lamps
+    // included) hits easily under a low sun: the reach is long, so the shadow
+    // lands on a lot of geometry.
+    if (!refusals.empty()) {
+        ImGui::Spacing();
+        ImGui::TextColored(ImVec4(0.95f, 0.55f, 0.35f, 1.0f),
+                           "%d caster(s) cast nothing:", (int)refusals.size());
+        for (const std::string& r : refusals)
+            ImGui::TextWrapped("  %s", r.c_str());
+        ImGui::TextDisabled(
+            "Lower Max length, or split the model so each piece casts its "
+            "own.");
+    }
+
+    ImGui::Spacing();
+    if (shadowBaker_.running()) {
+        ImGui::ProgressBar(shadowBaker_.progress(), ImVec2(-FLT_MIN, 0.0f));
+        ImGui::TextUnformatted(shadowBaker_.status().c_str());
+        if (ImGui::Button("Cancel##shadowbake", ImVec2(scaled(140.0f), 0)))
+            shadowBaker_.cancel();
+    } else {
+        ImGui::BeginDisabled(!st.bakedShadows);
+        if (ImGui::Button("Bake this scene##shadow", ImVec2(scaled(140.0f), 0))) {
+            saveProject();  // the bake reads the project from disk-backed state
+            shadowBaker_.start(project_, {project_.activeScene});
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Bake all scenes##shadow", ImVec2(scaled(140.0f), 0))) {
+            saveProject();
+            shadowBaker_.start(project_, {});
+        }
+        ImGui::EndDisabled();
+        if (st.bakedShadows && staleCount > 0) {
             ImGui::SameLine();
             ImGui::TextColored(ImVec4(0.95f, 0.75f, 0.30f, 1.0f),
                                "%d scene(s) need a bake", staleCount);
         }
     }
+    ImGui::BeginDisabled(!st.bakedShadows);
+    if (ImGui::Checkbox("Re-bake automatically (while editing and before every build)##shadow",
+                        &st.bakedShadowAutoBake))
+        commitChange();
+    ImGui::EndDisabled();
+    prefHelp("Any edit to a caster or anything a shadow lands on makes the\n"
+             "scene's bake stale, and a stale bake draws nothing. With this on,\n"
+             "the active scene re-bakes in the background a second after your\n"
+             "last edit (the old shadows stay on screen meanwhile), and every\n"
+             "stale scene re-bakes before a build. A bake takes seconds.");
+    if (totalCasters == 0 && st.bakedShadows)
+        ImGui::TextDisabled(
+            "Nothing casts one yet: pick Baked in Properties > Dynamic shadow.");
+    // The one thing that makes a perfectly good bake look wrong in the game,
+    // and it cannot be seen from the bake itself. Asked cheaply - a preset
+    // lookup, not a plan() - so it can sit here every frame; plan() carries
+    // the same sentence for the CLI.
+    if (st.bakedShadows && totalCasters > 0) {
+        const int ai = project::ambienceIndexFor(project_, project_.active());
+        if (ai >= 0 && project_.ambiencePresets[ai].cycle.enabled)
+            ImGui::TextColored(ImVec4(0.95f, 0.75f, 0.30f, 1.0f),
+                               "The day/night cycle moves the sun; these "
+                               "shadows stay at the baked hour.");
+    }
+}
+
+// Scene ambient occlusion (docs/ambient-occlusion.md). Per ambience PRESET,
+// which is why the header names the one being edited - the same preset the
+// Presets tab has selected. Moved here from that tab so every baked-light
+// control is in one place; the numbers and their meaning are unchanged.
+void App::drawSceneAoSection() {
+    ImGui::SeparatorText("Scene AO (contact shadows)");
+    if (project_.ambiencePresets.empty()) {
+        ImGui::TextDisabled("This project has no ambience preset to hold it.");
+        return;
+    }
+    // Self-contained on purpose: the tab must say something the moment it is
+    // opened. With nothing selected in the Presets tab it edits the project's
+    // DEFAULT preset - the one a scene gets unless it asks for another - and
+    // the combo is here so switching never means leaving the tab you came to.
+    int sel = selectedAmbience_;
+    if (sel < 0 || sel >= (int)project_.ambiencePresets.size())
+        sel = (project_.defaultAmbience >= 0 &&
+               project_.defaultAmbience < (int)project_.ambiencePresets.size())
+                  ? project_.defaultAmbience
+                  : 0;
+    AmbiencePreset& a = project_.ambiencePresets[sel];
+    bool changed = false;
+
+    ImGui::SetNextItemWidth(scaled(180.0f));
+    if (ImGui::BeginCombo("Preset", a.name.c_str())) {
+        for (int i = 0; i < (int)project_.ambiencePresets.size(); ++i) {
+            const bool cur = i == sel;
+            if (ImGui::Selectable(project_.ambiencePresets[i].name.c_str(), cur))
+                selectedAmbience_ = i;
+            if (cur) ImGui::SetItemDefaultFocus();
+        }
+        ImGui::EndCombo();
+    }
+    prefHelp("Scene AO is one of an ambience preset's settings, so a scene "
+             "picks it up with the rest of its mood. This is the same "
+             "selection the Presets tab shows.");
+    if (ImGui::Checkbox("Bake ambient occlusion", &a.aoEnabled)) changed = true;
+    prefHelp(
+        "Soft contact shadows where geometry meets: terrain self-shadowing "
+        "(ravines, the foot of hills) and darkening where objects touch the "
+        "ground and each other - baked at build into per-pixel AO textures (a "
+        "terrain map + a primitive lightmap atlas) and drawn as extra blended "
+        "passes. Which objects cast is per object: Properties > Cast shadow. "
+        "Imported models cast but do not receive; their own self-occlusion is "
+        "Model AO below.");
+
+    ImGui::BeginDisabled(!a.aoEnabled);
+    ImGui::SetNextItemWidth(scaled(180.0f));
+    if (ImGui::SliderFloat("AO strength", &a.aoStrength, 0.0f, 1.0f, "%.2f"))
+        changed = true;
+    prefHelp("How dark full occlusion gets (0 = invisible).");
+    ImGui::SetNextItemWidth(scaled(180.0f));
+    if (ImGui::DragFloat("AO radius", &a.aoRadius, 0.05f, 0.1f, 50.0f, "%.2f"))
+        changed = true;
+    prefHelp(
+        "World units the contact darkening reaches from an occluder; terrain "
+        "self-shadowing scans 3x this. Set it larger than the things receiving "
+        "it and they darken as a lump instead of at their base.");
+    if (a.aoRadius < 0.1f) a.aoRadius = 0.1f;
+    ImGui::EndDisabled();
+
+    if (a.aoEnabled)
+        ImGui::TextDisabled(
+            "Static bake: a moved object re-shades itself at runtime, but its "
+            "cast shadow stays where the scene was built.");
+    if (changed) commitChange();
+}
+
+void App::drawModelAoSection() {
+    ProjectSettings& st = project_.settings;
+    bool changed = false;
+
+    ImGui::SeparatorText("Model AO");
+    if (ImGui::Checkbox("Bake model AO into textures", &st.modelAo))
+        changed = true;
+    prefHelp(
+        "Each .obj model's own surface occlusion, multiplied into the texture "
+        "it already ships. Transform-invariant, so every instance shares it - "
+        "and it costs no extra VRAM.");
+
+    ImGui::BeginDisabled(!st.modelAo);
+    ImGui::SetNextItemWidth(scaled(180.0f));
+    if (ImGui::SliderFloat("Strength", &st.modelAoStrength, 0.0f, 1.0f, "%.2f"))
+        changed = true;
+    prefHelp("How dark full occlusion gets. Changing it re-multiplies; it does "
+             "not re-bake.");
+    ImGui::SetNextItemWidth(scaled(180.0f));
+    if (ImGui::SliderInt("Rays per texel", &st.modelAoRays, 8, 512))
+        changed = true;
+    prefHelp("More = less noise, linearly more bake time.");
+    ImGui::SetNextItemWidth(scaled(180.0f));
+    if (ImGui::SliderFloat("Distance", &st.modelAoDist, 0.0f, 20.0f,
+                           st.modelAoDist > 0.0f ? "%.2f u" : "auto"))
+        changed = true;
+    prefHelp("How far the occlusion reaches, in world units. 0 = a quarter of "
+             "the model's own size.");
+    ImGui::EndDisabled();
+
+    if (changed) commitChange();
 
     ImGui::Spacing();
-    ImGui::SeparatorText("What this does not do");
-    // Said out loud in the UI rather than in a changelog - every one of these
-    // is a question someone would otherwise file as a bug.
-    ImGui::TextWrapped(
-        "Nothing here is real time. Moving a crate does not move its light "
-        "until the next bake.\n"
-        "GI does not buy more dynamic lights: the flashlight and live point "
-        "lights are unchanged.\n"
-        "Textured surfaces and imported models take their light from the "
-        "probe grid, not the lightmap - a flat additive term over a texture "
-        "would blow out its dark texels.\n"
-        "The editor preview evaluates the probe grid per pixel, so the "
-        "console's per-texel contact shadows are sharper than what you see "
-        "here.");
+    if (modelAoBaker_.running()) {
+        ImGui::ProgressBar(modelAoBaker_.progress(), ImVec2(-FLT_MIN, 0.0f));
+        ImGui::TextUnformatted(modelAoBaker_.status().c_str());
+        if (ImGui::Button("Cancel##modelao", ImVec2(scaled(140.0f), 0)))
+            modelAoBaker_.cancel();
+    } else if (ImGui::Button("Re-scan##modelao", ImVec2(scaled(140.0f), 0))) {
+        modelAoBaker_.start(project_, modelao::paramsOf(st));
+    }
+
+    const modelao::Report rep = modelAoBaker_.report();
+    if (rep.rows.empty()) {
+        ImGui::TextDisabled("No model assets scanned yet.");
+        return;
+    }
+    if (ImGui::BeginTable("modelao", 3,
+                          ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
+                              ImGuiTableFlags_SizingStretchProp)) {
+        ImGui::TableSetupColumn("Asset");
+        ImGui::TableSetupColumn("AO");
+        ImGui::TableSetupColumn("Bake");
+        ImGui::TableHeadersRow();
+        std::string lastModel;
+        for (size_t i = 0; i < rep.rows.size(); ++i) {
+            const modelao::Row& r = rep.rows[i];
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            ImGui::TextUnformatted(r.modelRel.c_str());
+            ImGui::TableNextColumn();
+            if (r.baked)
+                ImGui::TextColored(ImVec4(0.45f, 0.85f, 0.45f, 1.0f), "baked");
+            else if (r.eligible)
+                ImGui::TextColored(ImVec4(0.95f, 0.75f, 0.30f, 1.0f), "%s",
+                                   r.status.c_str());
+            else
+                ImGui::TextDisabled("%s", r.status.c_str());
+            if (ImGui::IsItemHovered() && !r.textureRel.empty())
+                ImGui::SetTooltip("%s", r.textureRel.c_str());
+            ImGui::TableNextColumn();
+            // One combo per MODEL, on its first row: the override is keyed by
+            // the asset, so a model with two textures must not offer two.
+            if (r.modelRel == lastModel) {
+                ImGui::TextDisabled("-");
+                continue;
+            }
+            lastModel = r.modelRel;
+            auto it = project_.modelAoMode.find(r.modelRel);
+            int mode = it == project_.modelAoMode.end() ? 0 : it->second;
+            const char* kModes[] = {"Default", "On", "Off"};
+            ImGui::PushID((int)i);
+            ImGui::SetNextItemWidth(scaled(100.0f));
+            if (ImGui::Combo("##mode", &mode, kModes, 3)) {
+                if (mode == 0)
+                    project_.modelAoMode.erase(r.modelRel);
+                else
+                    project_.modelAoMode[r.modelRel] = mode;
+                commitChange();
+            }
+            ImGui::PopID();
+        }
+        ImGui::EndTable();
+    }
+    ImGui::TextDisabled("%d baked, %d pending, %d skipped", rep.baked,
+                        rep.pending, rep.skipped);
+}
+
+// --- Pre-lit models (docs/prelit-models.md, "Managing pre-lit objects") ------
+
+// Everything the two panels draw from, computed at most once per edit.
+//
+// It cannot be computed per frame: litbake::signature's scene half is
+// gibake::signature, which content-hashes the heightmap and every model and
+// material file the bake reads. So the answer is cached against the one key
+// that can change it - the scene, the model serial and the bake parameters -
+// and, while a widget is being dragged, not recomputed at all.
+const std::vector<App::PrelitStatus>& App::prelitStatuses() {
+    if (!hasProject_ || project_.scenes.empty()) {
+        prelitStatus_.clear();
+        prelitStatusKey_ = ~0ull;
+        return prelitStatus_;
+    }
+    uint64_t key = 0xcbf29ce484222325ull;
+    auto mix = [&key](uint64_t v) {
+        key ^= v + 0x9e3779b97f4a7c15ull + (key << 6) + (key >> 2);
+    };
+    mix((uint64_t)project_.activeScene);
+    mix(modelEditSerial_);
+    mix((uint64_t)litBakeParams_.size);
+    mix((uint64_t)litBakeParams_.rays);
+    if (key == prelitStatusKey_) return prelitStatus_;
+    // A drag bumps one of those every frame. Answer when the hand comes off.
+    if (ImGui::IsAnyItemActive() && prelitStatusKey_ != ~0ull)
+        return prelitStatus_;
+    prelitStatusKey_ = key;
+    prelitStatus_.clear();
+
+    const SceneData& sc = project_.active();
+    const std::set<std::string> refs =
+        project::runtimeRefNames(project_, sc.objects);
+    const std::vector<char> flags =
+        litbake::freshFlags(project_, sc, litBakeParams_);
+    for (size_t i = 0; i < sc.objects.size(); ++i) {
+        const SceneObject& o = sc.objects[i];
+        // Eligible = a STATIC model, which is what litbake bakes. An object
+        // that is already pre-lit is listed whatever it is now, or turning a
+        // model into something else would hide the row that reverts it.
+        const bool eligible = o.type == PrimitiveType::Model &&
+                              !o.modelPath.empty() &&
+                              !isAnimatedModelPath(o.modelPath);
+        if (!eligible && !o.prelit && !o.prelitWanted) continue;
+        PrelitStatus st;
+        st.index = (int)i;
+        st.prelit = o.prelit;
+        st.fresh = i < flags.size() && flags[i] != 0;
+        st.movable = project::objectRuntimeMovable(o, refs);
+        if (o.prelit) {
+            int w = 0, h = 0, comp = 0;
+            const std::string png =
+                (std::filesystem::path(project_.dir) / litbake::outputPngRel(o))
+                    .string();
+            if (stbi_info(png.c_str(), &w, &h, &comp)) st.texSize = w;
+        }
+        prelitStatus_.push_back(st);
+    }
+    return prelitStatus_;
+}
+
+const App::PrelitStatus* App::prelitStatusFor(int objIndex) {
+    for (const PrelitStatus& s : prelitStatuses())
+        if (s.index == objIndex) return &s;
+    return nullptr;
+}
+
+// Polled every frame from drawUI, never from a window body: a batch started
+// from the tab must land even if the tab was closed, the selection moved or
+// the object's Properties panel is showing something else entirely.
+//
+// The whole batch is ONE undo step - it is one operation the user asked for.
+void App::litBakerPoll() {
+    if (!hasProject_) return;
+    std::vector<litbake::Baker::Done> done;
+    if (!litBaker_.take(done)) return;
+    const int si = litBaker_.sceneIndex();
+    if (si < 0 || si >= (int)project_.scenes.size()) return;
+    int ok = 0;
+    std::string firstErr, lastName;
+    for (litbake::Baker::Done& d : done) {
+        const std::string e = litbake::applyToObject(
+            project_, project_.scenes[si], d.objectIndex, d.result, d.sig);
+        if (!e.empty()) {
+            if (firstErr.empty()) firstErr = e;
+            continue;
+        }
+        ++ok;
+        if (d.objectIndex >= 0 &&
+            d.objectIndex < (int)project_.scenes[si].objects.size())
+            lastName = project_.scenes[si].objects[d.objectIndex].name;
+    }
+    if (ok) {
+        commitChange();
+        prelitStatusKey_ = ~0ull;
+        // A RE-bake writes the same file with new pixels, so the viewport's
+        // cached texture is now a lie. (A first bake writes a new path and
+        // would have been picked up anyway.)
+        viewport_.invalidateAssets();
+    }
+    if (!firstErr.empty())
+        statusMessage_ = "Pre-light failed: " + firstErr;
+    else if (ok == 1)
+        statusMessage_ = "Pre-lit " + lastName;
+    else if (ok > 1)
+        statusMessage_ = "Pre-lit " + std::to_string(ok) + " objects";
+}
+
+void App::revertPrelit(int objIndex) {
+    if (!hasProject_ || project_.scenes.empty()) return;
+    SceneData& sc = project_.active();
+    if (objIndex < 0 || objIndex >= (int)sc.objects.size()) return;
+    litbake::revertObject(sc.objects[objIndex]);
+    commitChange();
+    prelitStatusKey_ = ~0ull;
+    viewport_.invalidateAssets();
+    statusMessage_ = "Reverted " + sc.objects[objIndex].name +
+                     " to its source material";
+}
+
+// The second section of the "Baked lighting" tab: the scene's pre-lit objects,
+// what their textures still agree with, and the batch bake.
+//
+// It is per SCENE where Model AO above is per ASSET, and that is the whole
+// difference between the two mechanisms: a model's self-occlusion is
+// transform-invariant and free, a pre-lit texture is particular to where the
+// object stands and costs one texture each.
+void App::drawPrelitSection() {
+    ImGui::SeparatorText("Pre-lit models");
+    if (!hasProject_ || project_.scenes.empty()) {
+        ImGui::TextDisabled("No scene.");
+        return;
+    }
+    SceneData& sc = project_.active();
+    ImGui::TextDisabled(
+        "Scene \"%s\". The scene's light baked INTO an object's own texture -\n"
+        "the only per-pixel static light a TEXTURED surface can take here.",
+        sc.name.c_str());
+
+    // Both labels are unique IN THE WHOLE TAB on purpose: Model AO above has a
+    // "Rays per texel" of its own, a label IS an ImGui id, and a duplicate is
+    // additionally a name --ui-script could never tell apart.
+    ImGui::SetNextItemWidth(scaled(110.0f));
+    ImGui::DragInt("Pre-lit size", &litBakeParams_.size, 8.0f, 32, 512, "%d px");
+    prefHelp(
+        "Output texture size. Each pre-lit object costs size^2 x 4 bytes of "
+        "GS VRAM. Changing it makes every baked object stale.");
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(scaled(110.0f));
+    ImGui::DragInt("Pre-lit rays", &litBakeParams_.rays, 1.0f, 8, 512,
+                   "%d rays");
+    prefHelp("Hemisphere rays per texel. More = less noise, linearly more "
+             "bake time.");
+
+    const std::vector<PrelitStatus>& rows = prelitStatuses();
+    if (rows.empty()) {
+        ImGui::TextDisabled("No static models in this scene.");
+        return;
+    }
+
+    int wanted = 0, pending = 0, prelitCount = 0;
+    double vramKb = 0.0;
+    for (const PrelitStatus& r : rows) {
+        const SceneObject& o = sc.objects[r.index];
+        if (o.prelitWanted) ++wanted;
+        if (o.prelitWanted && !(r.prelit && r.fresh)) ++pending;
+        if (r.prelit) {
+            ++prelitCount;
+            const double px = r.texSize > 0 ? r.texSize : litBakeParams_.size;
+            vramKb += px * px * 4.0 / 1024.0;
+        }
+    }
+
+    if (ImGui::BeginTable("prelitobjects", 3,
+                          ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
+                              ImGuiTableFlags_SizingStretchProp)) {
+        ImGui::TableSetupColumn("Ship pre-lit");
+        ImGui::TableSetupColumn("Status");
+        ImGui::TableSetupColumn("VRAM", ImGuiTableColumnFlags_WidthFixed,
+                                scaled(60.0f));
+        ImGui::TableHeadersRow();
+        for (const PrelitStatus& r : rows) {
+            SceneObject& o = sc.objects[r.index];
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            // The checkbox carries the object's NAME as its label, ##-suffixed
+            // by index so two objects called the same thing are still two
+            // widgets. A label-less checkbox would have been an untargetable
+            // row for --ui-script, i.e. a control nothing but a human can ever
+            // press - and unticking this one runs a Revert.
+            const std::string rowLabel =
+                o.name + "##prelitrow" + std::to_string(r.index);
+            bool want = o.prelitWanted;
+            if (ImGui::Checkbox(rowLabel.c_str(), &want)) {
+                // Ticking states an intention and bakes nothing - the bake is
+                // minutes and belongs on a button. UNticking is the Revert:
+                // the object goes back to its source material immediately,
+                // because leaving a pre-lit texture on an object nobody wants
+                // pre-lit is exactly the state this panel exists to end.
+                if (!want && o.prelit) {
+                    revertPrelit(r.index);
+                } else {
+                    o.prelitWanted = want;
+                    commitChange();
+                }
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Ship this object pre-lit. Ticking only says so - press "
+                    "Bake pending below.\nUnticking reverts it to its source "
+                    "material.");
+
+            ImGui::TableNextColumn();
+            if (r.prelit && r.fresh)
+                ImGui::TextColored(ImVec4(0.45f, 0.85f, 0.45f, 1.0f), "pre-lit");
+            else if (r.prelit)
+                ImGui::TextColored(ImVec4(0.95f, 0.75f, 0.30f, 1.0f), "stale");
+            else
+                ImGui::TextDisabled("not baked");
+            if (r.movable) {
+                ImGui::SameLine();
+                ImGui::TextColored(ImVec4(0.95f, 0.75f, 0.30f, 1.0f),
+                                   "moves at runtime");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip(
+                        "A pre-lit texture GLUES the light to the surface.\n"
+                        "This object can be moved at run time, so it would\n"
+                        "carry contact shadows that match nothing.");
+            }
+
+            ImGui::TableNextColumn();
+            if (r.prelit) {
+                const double px = r.texSize > 0 ? r.texSize : litBakeParams_.size;
+                ImGui::Text("%.0f KB", px * px * 4.0 / 1024.0);
+            } else {
+                ImGui::TextDisabled("-");
+            }
+        }
+        ImGui::EndTable();
+    }
+
+    ImGui::Spacing();
+    if (litBaker_.running()) {
+        ImGui::ProgressBar(litBaker_.progress(), ImVec2(-FLT_MIN, 0.0f));
+        ImGui::TextUnformatted(litBaker_.status().c_str());
+        if (ImGui::Button("Cancel##prelitbatch", ImVec2(scaled(140.0f), 0)))
+            litBaker_.cancel();
+    } else {
+        auto startBatch = [&](bool onlyStale) {
+            std::vector<int> objs;
+            for (const PrelitStatus& r : rows) {
+                if (!sc.objects[r.index].prelitWanted) continue;
+                if (onlyStale && r.prelit && r.fresh) continue;
+                objs.push_back(r.index);
+            }
+            if (objs.empty()) return;
+            saveProject();  // the bake reads the models off disk
+            litBaker_.start(project_, project_.activeScene, objs,
+                            litBakeParams_);
+        };
+        char lbl[64];
+        std::snprintf(lbl, sizeof lbl, "Bake pending (%d)###prelitpending",
+                      pending);
+        ImGui::BeginDisabled(pending == 0);
+        if (ImGui::Button(lbl, ImVec2(scaled(160.0f), 0))) startBatch(true);
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        std::snprintf(lbl, sizeof lbl, "Re-bake all (%d)###prelitall", wanted);
+        ImGui::BeginDisabled(wanted == 0);
+        if (ImGui::Button(lbl, ImVec2(scaled(160.0f), 0))) startBatch(false);
+        ImGui::EndDisabled();
+        if (wanted == 0) {
+            ImGui::SameLine();
+            ImGui::TextDisabled("tick an object above first");
+        } else if (pending == 0) {
+            ImGui::SameLine();
+            ImGui::TextColored(ImVec4(0.45f, 0.85f, 0.45f, 1.0f),
+                               "everything is fresh");
+        }
+        if (!litBaker_.error().empty())
+            ImGui::TextColored(ImVec4(0.95f, 0.5f, 0.4f, 1.0f), "%s",
+                               litBaker_.error().c_str());
+    }
+
+    // The cost, stated where the decision is made. ~1.33 MB is the GS budget
+    // (docs/gs-vram.md) and every one of these textures is pinned for good.
+    if (prelitCount)
+        ImGui::TextDisabled("%d pre-lit texture(s) ~ %.0f KB of the ~1.33 MB "
+                            "GS budget",
+                            prelitCount, vramKb);
+    else
+        ImGui::TextDisabled("Nothing pre-lit in this scene - 0 KB.");
+    // The same switch Project Preferences > Build carries, offered where the
+    // person is looking at the staleness it answers. Project-wide, not per
+    // scene - a build compiles every scene.
+    if (ImGui::Checkbox("Re-bake stale objects before every build",
+                        &project_.settings.prelitAutoBake))
+        commitChange();
+    prefHelp("Only the stale ones, all scenes; a build with everything fresh "
+             "costs nothing. Also in Project > Preferences > Build.");
+    ImGui::TextDisabled("Headless: --bake-prelit <projectDir> [scene]");
 }
 
 // Tools > Tree Generator: author a low-poly tree procedurally (treegen) with a
@@ -1386,7 +2238,7 @@ void App::drawTreeGeneratorWindow() {
     }
 
     const ImVec2 avail = ImGui::GetContentRegionAvail();
-    const float footer = scaled(96.0f);
+    const float footer = ImGui::GetFrameHeightWithSpacing() * (treeGenImpostor_ ? 5.0f : 3.0f) + scaled(12.0f);
     const int pw = (int)avail.x < 1 ? 1 : (int)avail.x;
     const int ph = (int)(avail.y - footer) < 1 ? 1 : (int)(avail.y - footer);
 
@@ -1461,6 +2313,17 @@ void App::drawTreeGeneratorWindow() {
 
     ImGui::SetNextItemWidth(scaled(180.0f));
     ImGui::InputText("Name", treeName_, sizeof(treeName_));
+    ImGui::Checkbox("Bake distant impostor", &treeGenImpostor_);
+    if (treeGenImpostor_) {
+        int choice = treeImpostorViews_ == 4 ? 0 : treeImpostorViews_ == 16 ? 2 : 1;
+        ImGui::SetNextItemWidth(scaled(180.0f));
+        if (ImGui::Combo("Tree capture views", &choice, "4 views\0" "8 views\0" "16 views\0"))
+            treeImpostorViews_ = 4 << choice;
+        ImGui::Checkbox("Impostor", &impostorGpu_);
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Selected views on a camera-facing card (2 triangles) beyond six tree heights.\n"
+                          "GPU capture falls back to CPU if unavailable. Adjust distance in LOD properties.");
     ImGui::SameLine();
     ImGui::BeginDisabled(treeMesh_.bark.empty());
     if (ImGui::Button("Add to scene")) addTreeToScene();
@@ -1498,9 +2361,25 @@ void App::addTreeToScene() {
         statusMessage_ = "Tree export failed: " + err;
         return;
     }
-    addModelObject(objRel);        // creates the Model object + commitChange()
+    std::string impostorRel, impostorBackend;
+    if (treeGenImpostor_ &&
+        !treegen::writeImpostor(project_.dir, name, treeMesh_, treeBarkTex_,
+                                treeLeafTex_, &impostorRel, &err, 128, treeImpostorViews_, impostorGpu_, &impostorBackend)) {
+        statusMessage_ = "Impostor export failed: " + err;
+        return;
+    }
+    addModelObject(objRel, nullptr, false);
+    if (!impostorRel.empty()) {
+        SceneObject& o = project_.objects().back();
+        o.impostorPath = impostorRel;
+        o.impostorBillboard = true;
+        o.impostorViews = treeImpostorViews_;
+        o.impostorDistance = treeParams_.height * 6.0f;
+    }
+    commitChange();
     statusMessage_ = "Added tree '" + name + "' (" +
-                     std::to_string(treeMesh_.triangles()) + " tris)";
+                     std::to_string(treeMesh_.triangles()) + " tris)" +
+                     (impostorRel.empty() ? "" : " - impostor " + impostorBackend);
 }
 
 // Picks one of the project's Font Manager entries by name. An empty reference
@@ -1642,18 +2521,20 @@ bool App::hudBakeControls(HudImage& h) {
 }
 
 // UI Editor window (Tools > UI Editor): everything composited over the 3D
-// scene, as one reorderable "screen stack" - the HUD images plus two effect
-// layers (bloom+grading, and film grain). The stack order is the game's draw
-// order: entries above an effect layer stay crisp (e.g. the crosshair over the
-// bloom), entries below are composited with it. Bloom and grain are separate
-// entries so, say, bloom can sit under the HUD while grain overlays the whole
-// screen.
+// scene, as one reorderable "screen stack" - the HUD images plus three effect
+// layers (bloom+grading, film grain and motion blur). The stack order is the
+// game's draw order: entries above an effect layer stay crisp (e.g. the
+// crosshair over the bloom), entries below are composited with it. They are
+// separate entries so, say, bloom can sit under the HUD while grain overlays
+// the whole screen.
 namespace {
 constexpr int kBloomMark = -2;
 constexpr int kGrainMark = -3;
+constexpr int kMotionBlurMark = -4;
 // Custom screen effect placements in the stack encode as kFxMarkBase - index
 // (index into Project::screenFx). Any entry <= kFxMarkBase is a custom effect;
-// bloom/grain (-2/-3) and HUD sprites (>= 0) stay clear of this range.
+// the built-in effect marks (-2..-4) and HUD sprites (>= 0) stay clear of this
+// range.
 constexpr int kFxMarkBase = -100;
 constexpr bool isFxMark(int e) { return e <= kFxMarkBase; }
 constexpr int fxMarkIndex(int e) { return kFxMarkBase - e; }
@@ -1671,6 +2552,10 @@ void App::drawUiEditorWindow() {
     }
 
     bool changed = false;
+    // Belt and braces (the Animation/Loading Screen idiom): a hand-set flag is
+    // forgettable by the next widget added here, a section comparison is not.
+    const std::string beforeSection =
+        project::sectionJson(project_, project::Section::Hud);
     const int n = (int)project_.hud.size();
 
     // Render-order stack (bottom of the screen list = drawn first): hud indices
@@ -1681,6 +2566,9 @@ void App::drawUiEditorWindow() {
     const int nFx = (int)project_.screenFx.size();
     auto topmost = [&](int L) { return L < 0 || L >= n; };
     auto emitMarkers = [&](std::vector<int>& s, int layer) {
+        // Motion blur first: it smears the SCENE, so this frame's own glow and
+        // grain go on top of it (the generated loop composites in this order).
+        if (project_.hudMotionBlurLayer == layer) s.push_back(kMotionBlurMark);
         if (project_.hudBloomLayer == layer) s.push_back(kBloomMark);
         if (project_.hudGrainLayer == layer) s.push_back(kGrainMark);
         for (int fi = 0; fi < nFx; ++fi)
@@ -1695,6 +2583,7 @@ void App::drawUiEditorWindow() {
         }
         // Topmost markers (layer -1 or >= n): bloom, grain, then effects in
         // placement order.
+        if (topmost(project_.hudMotionBlurLayer)) s.push_back(kMotionBlurMark);
         if (topmost(project_.hudBloomLayer)) s.push_back(kBloomMark);
         if (topmost(project_.hudGrainLayer)) s.push_back(kGrainMark);
         for (int fi = 0; fi < nFx; ++fi)
@@ -1711,10 +2600,11 @@ void App::drawUiEditorWindow() {
         std::vector<ScreenFxPlacement> newFx;
         newHud.reserve(n);
         newFx.reserve(nFx);
-        int before = 0, bl = -1, gr = -1;
+        int before = 0, bl = -1, gr = -1, mb = -1;
         for (int e : s) {
             if (e == kBloomMark) bl = before;
             else if (e == kGrainMark) gr = before;
+            else if (e == kMotionBlurMark) mb = before;
             else if (isFxMark(e)) {
                 ScreenFxPlacement pl = project_.screenFx[fxMarkIndex(e)];
                 pl.layer = before;
@@ -1727,6 +2617,7 @@ void App::drawUiEditorWindow() {
         const int newN = (int)newHud.size();
         project_.hudBloomLayer = bl >= newN ? -1 : bl;
         project_.hudGrainLayer = gr >= newN ? -1 : gr;
+        project_.hudMotionBlurLayer = mb >= newN ? -1 : mb;
         for (ScreenFxPlacement& f : newFx)
             if (f.layer >= newN) f.layer = -1;
         project_.hud = std::move(newHud);
@@ -1777,7 +2668,47 @@ void App::drawUiEditorWindow() {
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip(
             "Baked to PNG sprites at build (the PS2 engine has no font).\n"
-            "Show/hide them from the flow graph: Show Text / Hide Text.");
+            "Show/hide them from the flow graph: Set Text Visible.");
+
+    // Live bars (docs/hud-animation.md). They draw above the whole stack,
+    // under the texts, so like the texts they sit outside the reorderable list.
+    ImGui::SeparatorText("Bars");
+    for (int i = 0; i < (int)project_.hudBars.size(); ++i) {
+        ImGui::PushID(2000 + i);
+        if (ImGui::Selectable(project_.hudBars[i].name.c_str(),
+                              uiFxSel_ == 9 && selectedBar_ == i)) {
+            uiFxSel_ = 9;
+            selectedBar_ = i;
+        }
+        ImGui::PopID();
+    }
+    if (ImGui::SmallButton("+ Add bar")) {
+        HudBar b;
+        int suffix = 1;
+        auto taken = [&](const std::string& n) {
+            for (const HudBar& e : project_.hudBars)
+                if (e.name == n) return true;
+            return false;
+        };
+        while (taken(suffix == 1 ? "bar" : "bar-" + std::to_string(suffix)))
+            ++suffix;
+        b.name = suffix == 1 ? "bar" : "bar-" + std::to_string(suffix);
+        // Stack new bars down the top-left corner instead of on top of each
+        // other, so three "+ Add bar" clicks are three visible bars.
+        b.pos[0] = 0.22f;
+        b.pos[1] = 0.08f + 0.05f * (float)project_.hudBars.size();
+        project_.hudBars.push_back(std::move(b));
+        uiFxSel_ = 9;
+        selectedBar_ = (int)project_.hudBars.size() - 1;
+        hudBarPreview_ = -1.0f;
+        changed = true;
+    }
+    ImGui::SameLine();
+    ImGui::TextDisabled("(?)");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "Health, stamina, progress: a fill sized from a save value or the\n"
+            "Set HUD Bar node every frame. Nothing is baked - 2-4 sprites each.");
 
     // Inline text icons. They belong to no single element - ANY text in the
     // project can splice one in - so they get their own modal rather than a
@@ -1890,6 +2821,9 @@ void App::drawUiEditorWindow() {
         } else if (id == kGrainMark) {
             isSel = uiFxSel_ == 2;
             label = "[ Film grain ]";
+        } else if (id == kMotionBlurMark) {
+            isSel = uiFxSel_ == 9;
+            label = "[ Motion blur ]";
         } else if (isFxMark(id)) {
             const int fi = fxMarkIndex(id);
             const ScreenFxPlacement& pl = project_.screenFx[fi];
@@ -1907,6 +2841,7 @@ void App::drawUiEditorWindow() {
         if (ImGui::Selectable(label.c_str(), isSel)) {
             if (id == kBloomMark) uiFxSel_ = 1;
             else if (id == kGrainMark) uiFxSel_ = 2;
+            else if (id == kMotionBlurMark) uiFxSel_ = 9;
             else if (isFxMark(id)) { uiFxSel_ = 5; selectedFx_ = fxMarkIndex(id); }
             else { uiFxSel_ = 0; selectedHud_ = id; }
         }
@@ -2027,6 +2962,48 @@ void App::drawUiEditorWindow() {
         ImGui::TextDisabled(
             "Per-scene grain strength: Scene > Scene Preferences > Post "
             "effects.");
+    } else if (uiFxSel_ == 9) {
+        ImGui::SeparatorText("Motion blur");
+        // Stored 0..1, shown as a percentage: it is a fraction of the effect's
+        // own range, and "0.20" says nothing about how strong that is.
+        float blurPct = project_.settings.motionBlur * 100.0f;
+        if (ImGui::SliderFloat("Motion blur", &blurPct, 0.0f, 100.0f, "%.0f%%",
+                               ImGuiSliderFlags_AlwaysClamp))
+            project_.settings.motionBlur = blurPct * 0.01f;
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "How much of the PREVIOUS frame is blended over this one.\n"
+                "Each frame smears the one before it, which had already\n"
+                "smeared its own, so the trail compounds: 20-40%% is already\n"
+                "a long smear.\n\n"
+                "100%% is capped short of the hardware's full weight - at that\n"
+                "weight the frame IS its predecessor and the picture stops\n"
+                "updating for ever, which is not a strong setting but a\n"
+                "broken one.");
+        if (ImGui::Checkbox("Clear trail when camera settles",
+                            &project_.settings.motionBlurIdleClear))
+            changed = true;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Clears the accumulated history once after the camera stops.\n"
+                "The blur immediately comes back at its authored strength, so\n"
+                "objects moving past a parked camera still leave a trail.\n"
+                "Recommended at 16-bit colour to remove quantized ghosts.");
+        ImGui::TextDisabled(
+            "One full-screen GS blend of the last frame. No VRAM (the other\n"
+            "display buffer IS that frame) and negligible EE time.");
+        ImGui::Spacing();
+        ImGui::TextWrapped(
+            "Keep this UNDER the HUD entries. The blur's source is the "
+            "finished previous frame, menus and HUD included, so from the top "
+            "of the stack a moving HUD element smears over the picture; "
+            "underneath it, the trail is the scene's and the UI redraws crisp "
+            "on top every frame.");
+        ImGui::Spacing();
+        ImGui::TextDisabled(
+            "Per-scene strength: Scene > Scene Preferences > Post effects.\n"
+            "Runtime control: the Set Motion Blur flow node.");
     } else if (uiFxSel_ == 6) {
         ImGui::SeparatorText("Depth of field");
         ImGui::SliderFloat("Amount", &project_.settings.dofAmount, 0.0f, 1.0f,
@@ -2244,6 +3221,7 @@ void App::drawUiEditorWindow() {
                                 fn.str == oldName)
                                 fn.str = t.name;
                         }
+                renameHudElementRefs(oldName, t.name, false);
             }
             changed |= ImGui::IsItemDeactivatedAfterEdit();
         }
@@ -2275,6 +3253,7 @@ void App::drawUiEditorWindow() {
             "(the show pin takes an optional auto-hide after N\n"
             "seconds). This string is baked at build - for one that\n"
             "changes while the game runs, use a Display Text node.");
+        changed |= hudMotionControls(t.anim, t.transition, nullptr);
 
         // Live preview: the exact sprite the build will bake.
         {
@@ -2309,6 +3288,144 @@ void App::drawUiEditorWindow() {
         if (ImGui::Button("Delete text")) {
             project_.hudTexts.erase(project_.hudTexts.begin() + selectedText_);
             selectedText_ = -1;
+            uiFxSel_ = 0;
+            changed = true;
+        }
+    } else if (uiFxSel_ == 9 && selectedBar_ >= 0 &&
+               selectedBar_ < (int)project_.hudBars.size()) {
+        // --- a live bar (docs/hud-animation.md) ------------------------------
+        HudBar& b = project_.hudBars[selectedBar_];
+        ImGui::SeparatorText(b.name.c_str());
+        {
+            char nameBuf[64];
+            std::snprintf(nameBuf, sizeof(nameBuf), "%s", b.name.c_str());
+            ImGui::SetNextItemWidth(scaled(160.0f));
+            if (ImGui::InputText("Name##bar", nameBuf, sizeof(nameBuf))) {
+                const std::string oldName = b.name;
+                b.name = nameBuf;
+                renameHudElementRefs(oldName, b.name, true);
+            }
+            changed |= ImGui::IsItemDeactivatedAfterEdit();
+        }
+        const char* kinds[] = {"Continuous (fill)", "Quantized (segments)"};
+        ImGui::SetNextItemWidth(scaled(200));
+        if (ImGui::Combo("Type##bar", &b.kind, kinds, 2)) changed = true;
+        ImGui::DragFloat2("Position##bar", b.pos, 0.005f, 0.0f, 1.0f, "%.3f");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        ImGui::DragFloat2("Size (px)##bar", b.size, 1.0f, 2.0f, 512.0f, "%.0f");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        if (ImGui::Checkbox("Fill from the right", &b.rightToLeft)) changed = true;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("The fill is anchored on the right edge - a\n"
+                              "mirrored bar for a second player.");
+        if (ImGui::Checkbox("Visible at game start##bar", &b.visibleAtStart))
+            changed = true;
+
+        ImGui::SeparatorText("Value");
+        {
+            // The save value it follows. Empty = the Set HUD Bar node alone.
+            const char* cur = b.source.empty() ? "(Set HUD Bar node only)"
+                                               : b.source.c_str();
+            ImGui::SetNextItemWidth(scaled(200));
+            if (ImGui::BeginCombo("Follows save value", cur)) {
+                if (ImGui::Selectable("(Set HUD Bar node only)", b.source.empty())) {
+                    b.source.clear();
+                    changed = true;
+                }
+                for (const SaveValue& sv : project_.saveValues) {
+                    ImGui::PushID(sv.name.c_str());
+                    if (ImGui::Selectable(sv.name.c_str(), sv.name == b.source)) {
+                        b.source = sv.name;
+                        changed = true;
+                    }
+                    ImGui::PopID();
+                }
+                if (project_.saveValues.empty())
+                    ImGui::TextDisabled("Add save values in the\nProject panel (Save data).");
+                ImGui::EndCombo();
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Read every frame, so Add To Save Value from any graph\n"
+                    "moves the bar with no node of its own. Set HUD Bar\n"
+                    "writes this value too.");
+        }
+        ImGui::SetNextItemWidth(scaled(90));
+        ImGui::DragFloat("Min##bar", &b.minValue, 0.5f, -1e6f, 1e6f, "%.1f");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(scaled(90));
+        ImGui::DragFloat("Max##bar", &b.maxValue, 0.5f, -1e6f, 1e6f, "%.1f");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        if (b.source.empty()) {
+            ImGui::SetNextItemWidth(scaled(90));
+            ImGui::DragFloat("Start##bar", &b.startValue, 0.5f, -1e6f, 1e6f, "%.1f");
+            changed |= ImGui::IsItemDeactivatedAfterEdit();
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("The value at scene start. A bar following a\n"
+                                  "save value starts at that value instead.");
+        }
+        ImGui::SetNextItemWidth(scaled(120));
+        ImGui::DragFloat("Smoothing (s)", &b.smoothing, 0.01f, 0.0f, 3.0f, "%.2f");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Seconds the fill takes to ease to a new value.\n"
+                              "0 = jumps.");
+        if (ImGui::Checkbox("Ghost strip", &b.ghost)) changed = true;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Lingers where the fill was after a drop, then\n"
+                              "slides down after it - the damage chip.");
+        ImGui::SetNextItemWidth(scaled(120));
+        ImGui::SliderFloat("Low pulse below", &b.lowFraction, 0.0f, 1.0f,
+                           b.lowFraction <= 0.0f ? "never" : "%.2f");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Under this fraction the fill breathes - low\n"
+                              "health asking for attention. 0 = never.");
+
+        ImGui::SeparatorText("Look");
+        if (ImGui::ColorEdit3("Track color", b.bgColor)) changed = true;
+        if (ImGui::ColorEdit3("Fill color", b.fillColor)) changed = true;
+        if (b.ghost && ImGui::ColorEdit3("Ghost color", b.ghostColor)) changed = true;
+        if (b.kind == 1) {
+            ImGui::SetNextItemWidth(scaled(120));
+            if (ImGui::DragInt("Segments##bar", &b.segments, 0.1f, 2, 16))
+                b.segments = b.segments < 2 ? 2 : b.segments > 16 ? 16 : b.segments;
+            changed |= ImGui::IsItemDeactivatedAfterEdit();
+            ImGui::SetNextItemWidth(scaled(120));
+            ImGui::DragFloat("Spacing (px)##bar", &b.spacing, 0.2f, 0.0f, 64.0f, "%.0f");
+            changed |= ImGui::IsItemDeactivatedAfterEdit();
+        }
+        changed |= hudBarImageControls("fillimg", "Fill image (optional)",
+                                       b.fillImage, false);
+        changed |= hudBarImageControls("frameimg", "Frame image (optional)",
+                                       b.frameImage, true);
+        changed |= hudMotionControls(b.anim, b.transition, nullptr);
+
+        ImGui::SeparatorText("Preview");
+        {
+            const float start = b.source.empty()
+                                    ? b.startValue
+                                    : [&]() {
+                                          for (const SaveValue& sv : project_.saveValues)
+                                              if (sv.name == b.source) return sv.value;
+                                          return b.minValue;
+                                      }();
+            float frac = hudBarPreview_ < 0.0f
+                             ? hudanim::fraction(start, b.minValue, b.maxValue)
+                             : hudBarPreview_;
+            ImGui::SetNextItemWidth(scaled(160));
+            if (ImGui::SliderFloat("Preview fill", &frac, 0.0f, 1.0f, "%.2f"))
+                hudBarPreview_ = frac;
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Reset##barprev")) hudBarPreview_ = -1.0f;
+            ImGui::TextDisabled("Editor only - fills the bar in the viewport overlay.");
+        }
+
+        ImGui::Spacing();
+        if (ImGui::Button("Delete bar")) {
+            project_.hudBars.erase(project_.hudBars.begin() + selectedBar_);
+            selectedBar_ = -1;
             uiFxSel_ = 0;
             changed = true;
         }
@@ -2370,6 +3487,7 @@ void App::drawUiEditorWindow() {
         changed |= ImGui::IsItemDeactivatedAfterEdit();
 
         changed |= hudBakeControls(h);
+        changed |= hudMotionControls(h.anim, h.transition, &h.visibleAtStart);
 
         ImGui::Spacing();
         if (ImGui::Button("Delete HUD image"))
@@ -2381,10 +3499,160 @@ void App::drawUiEditorWindow() {
     ImGui::EndChild();
 
     // UI edits are not on the undo stack, but they ARE unsaved work: mark the
-    // project dirty like every other editor instead of writing to disk behind
-    // the user's back, so the save icon lights up and closing asks.
-    if (changed) setDirty(true);
+    // project instead of writing to disk behind the user's back, so the save
+    // icon lights up and closing asks. commitChange() rather than a bare
+    // setDirty() because that is the ONE verb for a model edit (app.hpp) -
+    // for project-wide data it pushes no undo step, so nothing is spammed.
+    if (changed || project::sectionJson(project_, project::Section::Hud) != beforeSection)
+        commitChange();
     ImGui::End();
+}
+
+// The Motion block every HUD element ends with (docs/hud-animation.md): a
+// looped animation (previewed live in the viewport overlay) and the show/hide
+// transition (runtime only). `visibleAtStart` is drawn when given - images and
+// bars have one here, a text draws its own beside the other text settings.
+bool App::hudMotionControls(HudAnim& anim, HudTransition& trans, bool* visibleAtStart) {
+    bool changed = false;
+    ImGui::SeparatorText("Motion");
+    if (visibleAtStart && ImGui::Checkbox("Visible at game start##motion", visibleAtStart))
+        changed = true;
+    {
+        const char* names[hudanim::KindCount];
+        for (int i = 0; i < hudanim::KindCount; ++i) names[i] = hudanim::kindName(i);
+        ImGui::SetNextItemWidth(scaled(140));
+        if (ImGui::Combo("Animation", &anim.kind, names, hudanim::KindCount)) {
+            // Each kind reads `amount` in its own unit, so switching kinds
+            // re-seeds it with something that looks like that kind.
+            switch (anim.kind) {
+                case hudanim::Pulse: anim.amount = 0.6f; anim.period = 1.2f; break;
+                case hudanim::Breathe: anim.amount = 0.12f; anim.period = 1.6f; break;
+                case hudanim::Blink: anim.amount = 0.5f; anim.period = 0.8f; break;
+                case hudanim::Shake: anim.amount = 2.0f; anim.period = 0.05f; break;
+                case hudanim::None: break;
+                default: anim.amount = 4.0f; anim.period = 1.2f; break;
+            }
+            changed = true;
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "A loop on the sprite's position, scale or alpha - no rebake,\n"
+                "a few floats per frame. Previewed live in the viewport.");
+    }
+    if (anim.kind != hudanim::None) {
+        ImGui::SetNextItemWidth(scaled(100));
+        ImGui::DragFloat(anim.kind == hudanim::Shake ? "Step (s)" : "Period (s)",
+                         &anim.period, 0.01f, 0.01f, 30.0f, "%.2f");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        if (anim.period < 0.01f) anim.period = 0.01f;
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(scaled(100));
+        const bool unit01 = anim.kind == hudanim::Pulse || anim.kind == hudanim::Blink ||
+                            anim.kind == hudanim::Breathe;
+        ImGui::DragFloat(anim.kind == hudanim::Pulse     ? "Depth"
+                         : anim.kind == hudanim::Blink   ? "On share"
+                         : anim.kind == hudanim::Breathe ? "Grow"
+                                                         : "Amount (px)",
+                         &anim.amount, unit01 ? 0.01f : 0.2f, 0.0f,
+                         unit01 ? 1.0f : 200.0f, "%.2f");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                anim.kind == hudanim::Pulse     ? "How far the alpha dips (1 = to invisible)."
+                : anim.kind == hudanim::Blink   ? "Fraction of each period the element is drawn."
+                // %% - SetTooltip is printf-style, so a literal percent has to
+                // be escaped or it reads "%)" as a conversion and mangles the
+                // rest of the line.
+                : anim.kind == hudanim::Breathe ? "How much bigger it grows (0.1 = 10%%)."
+                : anim.kind == hudanim::Shake   ? "Jitter radius in pixels; a new offset every Step."
+                                                : "Travel in screen pixels (512x448 space).");
+    }
+    {
+        const char* names[hudanim::TransitionCount];
+        for (int i = 0; i < hudanim::TransitionCount; ++i)
+            names[i] = hudanim::transitionName(i);
+        ImGui::SetNextItemWidth(scaled(140));
+        if (ImGui::Combo("Show / hide", &trans.kind, names, hudanim::TransitionCount))
+            changed = true;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Played when a flow node shows or hides this element (in\n"
+                "reverse on hide). Runtime only - not previewed here.");
+        if (trans.kind != 0) {
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(scaled(90));
+            ImGui::DragFloat("s##trans", &trans.duration, 0.01f, 0.0f, 5.0f, "%.2f");
+            changed |= ImGui::IsItemDeactivatedAfterEdit();
+            if (trans.duration < 0.0f) trans.duration = 0.0f;
+        }
+    }
+    return changed;
+}
+
+// One of a bar's optional images. `withSize` = the image keeps its own
+// on-screen size (the frame); a fill is stretched into the bar's box.
+bool App::hudBarImageControls(const char* id, const char* title, HudImage& img,
+                              bool withSize) {
+    bool changed = false;
+    ImGui::PushID(id);
+    ImGui::SeparatorText(title);
+    if (img.imagePath.empty()) {
+        if (ImGui::Button("Set image (PNG)...")) {
+            std::vector<HudImage> tmp;
+            const int i = importHudImageInto(tmp);
+            if (i >= 0) {
+                img.imagePath = tmp[i].imagePath;
+                if (const HudTexture* t = hudTexture(img.imagePath)) {
+                    img.size[0] = (float)t->w;
+                    img.size[1] = (float)t->h;
+                }
+                changed = true;
+            }
+        }
+    } else {
+        ImGui::TextDisabled("%s", img.imagePath.c_str());
+        if (ImGui::Button("Replace...")) {
+            std::vector<HudImage> tmp;
+            const int i = importHudImageInto(tmp);
+            if (i >= 0) {
+                img.imagePath = tmp[i].imagePath;
+                changed = true;
+            }
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Clear image")) {
+            img.imagePath.clear();
+            changed = true;
+        }
+        if (withSize) {
+            ImGui::DragFloat2("Size (px)##barimg", img.size, 1.0f, 1.0f, 512.0f, "%.0f");
+            changed |= ImGui::IsItemDeactivatedAfterEdit();
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Drawn centred on the bar at this size, over the fill.");
+        } else {
+            ImGui::TextDisabled("Cropped to the fill and tinted by the fill color\n"
+                                "(white = as painted).");
+        }
+        if (!img.imagePath.empty()) changed |= hudBakeControls(img);
+    }
+    ImGui::PopID();
+    return changed;
+}
+
+// Renames follow into the flow graphs like text renames do: Set HUD Bar names
+// a bar, Set HUD Element Visible / Play HUD Effect name any element.
+void App::renameHudElementRefs(const std::string& from, const std::string& to,
+                               bool isBar) {
+    if (from == to) return;
+    for (SceneData& sc : project_.scenes)
+        for (SceneObject& o : sc.objects)
+            for (FlowNode& fn : o.flowGraph.nodes) {
+                const FlowNodeType* ft = flowNodeType(fn.type);
+                if (!ft || fn.str != from) continue;
+                if (ft->strKind == FlowParamKind::HudElementName ||
+                    (isBar && ft->strKind == FlowParamKind::HudBarName))
+                    fn.str = to;
+            }
 }
 
 // Property editor for one progress bar (Loading Screens). Returns true when a
@@ -2531,7 +3799,9 @@ void App::drawLoadingPreview(const LoadingScreenDef& ls, float fraction) {
 // a scene loads. Each has a background color, image + text elements (baked like
 // the HUD) and progress bars (continuous or quantized). Scenes pick one in
 // Scene > Preferences; one can be the project default. Like the other preset
-// collections these live outside undo, so edits save immediately (saveAll).
+// collections these live outside undo - commitChange() therefore pushes no
+// undo step here, it marks the project dirty and advances the session serial,
+// and the bytes reach disk on the next ordinary save (see app.hpp).
 // Boot splash screens: a collapsing section at the top of the Loading Screens
 // window. Images shown in order at startup (after the Tyra logo, before the
 // loading screen), each for its own duration. Self-contained (balanced
@@ -2657,7 +3927,9 @@ bool App::drawSplashSection() {
 // the source .glb/.fbx: every control edits an AnimClipEdit row, which the
 // build folds into the .tskl (animedit::applyClipEdits) and the viewport
 // preview applies to the placed objects. Project-wide data like the presets
-// and sequences - saved through saveAll, outside undo.
+// and sequences: outside undo, but marked with commitChange() like every other
+// edit (app.hpp) - history_.push carries no project-wide collection, so the
+// commit dirties and bumps the session serial without pushing an undo step.
 
 AnimClipEdit& App::animEditFor(const std::string& model,
                                const std::string& clip) {
@@ -2690,6 +3962,7 @@ void App::renameAnimClipRefs(const std::string& model, const std::string& from,
             swap(o.playerIdleClip);
             swap(o.playerWalkClip);
             swap(o.playerRunClip);
+            swap(o.playerSprintClip);
             swap(o.playerJumpClip);
             // Animation nodes in this object's own graph default to "self",
             // so their Clip param names a clip of THIS model. A node whose
@@ -2761,6 +4034,1001 @@ bool App::previewLightCombo(const char* label, std::string& sel) {
     return changed;
 }
 
+const App::AnimImportProbe& App::animImportProbe(
+    const std::string& modelRel, const std::string& sourceRel,
+    const std::vector<std::pair<std::string, std::string>>& boneMap) {
+    std::string key = modelRel + "|" + sourceRel;
+    for (const auto& [a, b] : boneMap) key += "|" + a + ">" + b;
+    if (auto it = animProbeCache_.find(key); it != animProbeCache_.end())
+        return it->second;
+
+    // ONE pair of parseSkel calls answers everything the panel shows: whether
+    // the file is usable, how many clips it holds and how well the rigs match.
+    // It deliberately does NOT go through glbInfo, which bakes every clip of
+    // the file into morph frames - that is the single most expensive thing the
+    // editor can do to a model, and picking a file from a combo must not cost
+    // it just to print "3 clips".
+    AnimImportProbe probe;
+    std::string err;
+    const glbparser::Skel* donor =
+        skelCache_.get(project_.filePath(sourceRel), err);
+    const glbparser::Skel* target =
+        donor ? skelCache_.get(project_.filePath(modelRel), err) : nullptr;
+    if (!donor || !target) {
+        probe.error = err;
+    } else {
+        probe.ok = true;
+        probe.clipCount = (int)donor->clips.size();
+        animmerge::MergeOptions opts;
+        opts.boneMap = boneMap;
+        probe.match = animmerge::compatibility(*target, *donor, opts);
+        probe.retarget = animmerge::retargetInfo(*target, *donor, opts);
+        // Bones with a home - the number the mapping editor moves.
+        std::set<int> boneNodes;
+        for (const glbparser::SkelJoint& j : donor->palette)
+            boneNodes.insert(j.node);
+        for (int n : boneNodes) {
+            if (n < 0 || n >= (int)donor->nodes.size()) continue;
+            ++probe.bonesTotal;
+            if (animmerge::resolveBoneName(*target,
+                                           donor->nodes[(size_t)n].name,
+                                           opts) >= 0)
+                ++probe.bonesMapped;
+        }
+    }
+    return animProbeCache_.emplace(key, std::move(probe)).first->second;
+}
+
+void App::invalidateAnimCaches(const std::string& modelRel) {
+    // Every one of these holds a clip list derived from a parse of the model,
+    // and an import changes which clips exist - so they all go together. The
+    // model-info pair is always evicted as a unit (app.cpp precedent).
+    // NOT skelCache_: files did not change (size+mtime revalidation covers
+    // the case where they did), and keeping it is what makes the re-derive
+    // below a merge instead of a parse.
+    if (modelRel.empty()) {
+        glbInfoCache_.clear();
+        modelInfoCache_.clear();
+        animProbeCache_.clear();
+    } else {
+        // One model changed - dropping the whole zoo re-baked EVERY animated
+        // model on each mapper Apply (reported as "baking more than needed").
+        glbInfoCache_.erase(modelRel);
+        modelInfoCache_.erase(modelRel);
+        for (auto it = animProbeCache_.begin(); it != animProbeCache_.end();)
+            it = it->first.rfind(modelRel + "|", 0) == 0
+                     ? animProbeCache_.erase(it)
+                     : std::next(it);
+    }
+    viewport_.invalidateAnimatedModels(modelRel);
+}
+
+// Tools > Animation Editor > Imported clips (docs/animation-import.md).
+//
+// One row per donor file. The compatibility number is the thing to read before
+// anything else: it is the fraction of the donor's animated bones that have a
+// counterpart on this model, so a rig mismatch shows as a low percentage here
+// rather than as a character folded inside out in the preview.
+// --- the bone-mapping editor (docs/animation-import.md, "Mapping bones") ---
+//
+// Two skeletons drawn side by side from their bind poses, donor left, target
+// right. Click a red donor joint, then the target joint it should drive - the
+// pair lands in the import row's boneMap, which the merge consults before any
+// name matching. The fuzzy suggestions (animmerge::suggestBoneMap) are drawn
+// amber and applied only through the Accept button: a wrong guess bends the
+// wrong limb, so a person confirms them.
+
+void App::loadBoneAliases() {
+    if (boneAliasesLoaded_) return;
+    boneAliasesLoaded_ = true;
+    std::ifstream f(platform::configDir() / "bone-aliases.ini");
+    std::string line;
+    while (std::getline(f, line)) {
+        const size_t eq = line.find('=');
+        if (eq == std::string::npos || eq == 0) continue;
+        boneAliases_[line.substr(0, eq)] = line.substr(eq + 1);
+    }
+}
+
+void App::saveBoneAliases() {
+    std::ofstream f(platform::configDir() / "bone-aliases.ini",
+                    std::ios::trunc);
+    int count = 0;
+    for (const auto& [k, v] : boneAliases_) {
+        if (++count > 800) break;  // a vocabulary, not a log
+        f << k << "=" << v << "\n";
+    }
+}
+
+// One driver per donor AND per target bone: adding a pair evicts any
+// earlier pair claiming either end. Without this, pairs accepted across
+// sessions could both claim one target - the resolver gave it to the first,
+// the second died silently, and the bone the second SHOULD have freed held
+// its bind pose (reported as a spine segment diving under the pelvis).
+static void upsertPair(
+    std::vector<std::pair<std::string, std::string>>& pairs,
+    const std::string& from, const std::string& to) {
+    pairs.erase(std::remove_if(pairs.begin(), pairs.end(),
+                               [&](const auto& pr) {
+                                   return pr.first == from || pr.second == to;
+                               }),
+                pairs.end());
+    pairs.emplace_back(from, to);
+}
+
+void App::openAnimBoneMap(int importRow) {
+    if (importRow < 0 || importRow >= (int)project_.animImports.size()) return;
+    const AnimImport& a = project_.animImports[(size_t)importRow];
+    std::string err;
+    // Through the cache: the probe just parsed both files, so opening the
+    // window is a copy, not a parse (the "Map bones stalls" report).
+    const glbparser::Skel* t = skelCache_.get(project_.filePath(a.model), err);
+    const glbparser::Skel* d =
+        t ? skelCache_.get(project_.filePath(a.source), err) : nullptr;
+    animMapParsed_ = t && d;
+    if (animMapParsed_) {
+        animMapTarget_ = *t;
+        animMapDonor_ = *d;
+    }
+    animMapSuggValid_ = false;
+    animMapHiD_ = animMapHiT_ = -1;
+    animMapZoom_ = 1.0f;
+    animMapPanX_ = animMapPanY_ = 0.0f;
+    animMapPoseClip_ = -1;
+    animMapPosePlay_ = false;
+    animMapPoseT_ = 0.0f;
+    animMapAffixOk_ = false;
+    if (animMapAiGen_) animMapAiGen_->cancel();
+    animMapAiGen_.reset();
+    animMapAiSugg_.clear();
+    animMapAiErr_.clear();
+    loadBoneAliases();
+    if (animMapParsed_) {
+        animmerge::bindGlobals(animMapTarget_, animMapTPos_);
+        animmerge::bindGlobals(animMapDonor_, animMapDPos_);
+    }
+    // Replay the stored pairs through the hygiene rule, so duplicates from
+    // sessions before it existed collapse to the LATEST intent.
+    animMapPairs_.clear();
+    for (const auto& [from, to] : a.boneMap)
+        upsertPair(animMapPairs_, from, to);
+    animMapSelDonor_ = -1;
+    animMapRow_ = importRow;
+    ImGui::SetWindowFocus("Map bones");
+}
+
+bool App::drawAnimBoneMapWindow() {
+    if (animMapRow_ < 0 || !hasProject_) return false;
+    if (animMapRow_ >= (int)project_.animImports.size()) {
+        animMapRow_ = -1;
+        return false;
+    }
+    AnimImport& row = project_.animImports[(size_t)animMapRow_];
+
+    bool openFlag = true;
+    ImGui::SetNextWindowSize(ImVec2(scaled(760), scaled(560)),
+                             ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin("Map bones", &openFlag)) {
+        ImGui::End();
+        if (!openFlag) animMapRow_ = -1;
+        return false;
+    }
+    if (!animMapParsed_) {
+        ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f),
+                           "A file would not parse.");
+        ImGui::End();
+        if (!openFlag) animMapRow_ = -1;
+        return false;
+    }
+
+    const glbparser::Skel& tgt = animMapTarget_;
+    const glbparser::Skel& don = animMapDonor_;
+
+    // Per-frame state derived from the staged pairs. Cheap (name lookups over
+    // <100 bones), so recomputing beats caching + invalidation here. The
+    // row's own switches ride along, so the test pose shows what the BAKE
+    // will do with them (facing, mirror, lean - it used to ignore them).
+    animmerge::MergeOptions opts;
+    opts.boneMap = animMapPairs_;
+    opts.facingOverride = row.facing;
+    opts.mirror = row.mirror;
+    opts.tuneLean = row.lean;
+    opts.translation = row.translation == 2
+                           ? animmerge::TranslationMode::CopyAll
+                       : row.translation == 1
+                           ? animmerge::TranslationMode::AnimatedOnly
+                           : animmerge::TranslationMode::RootBonesOnly;
+    opts.ignoreScale = row.ignoreScale;
+    opts.retargetRoot = row.retargetRoot;
+    // Which donor nodes are bones, and where each resolves.
+    std::set<int> donorBones, targetBones;
+    for (const glbparser::SkelJoint& j : don.palette) donorBones.insert(j.node);
+    for (const glbparser::SkelJoint& j : tgt.palette) targetBones.insert(j.node);
+    std::map<int, int> resolved;  // donor node -> target node (-1 = none)
+    std::map<int, bool> explicitPair;
+    int mapped = 0;
+    for (int n : donorBones) {
+        if (n < 0 || n >= (int)don.nodes.size()) continue;
+        const std::string& name = don.nodes[(size_t)n].name;
+        resolved[n] = animmerge::resolveBoneName(tgt, name, opts);
+        bool exp = false;
+        for (const auto& [from, to] : animMapPairs_)
+            if (from == name) exp = true;
+        explicitPair[n] = exp;
+        if (resolved[n] >= 0) ++mapped;
+    }
+    if (!animMapSuggValid_ || animMapSuggFor_ != animMapPairs_) {
+        animMapSugg_ = animmerge::suggestBoneMap(tgt, don, opts, &boneAliases_);
+        animMapAffixOk_ = animmerge::detectAffixRule(tgt, don, opts,
+                                                     animMapAffix_);
+        // AI proposals for donors that got resolved meanwhile drop out.
+        animMapAiSugg_.erase(
+            std::remove_if(animMapAiSugg_.begin(), animMapAiSugg_.end(),
+                           [&](const auto& pr) {
+                               return animmerge::resolveBoneName(
+                                          tgt, pr.first, opts) >= 0;
+                           }),
+            animMapAiSugg_.end());
+        animMapSuggFor_ = animMapPairs_;
+        animMapSuggValid_ = true;
+    }
+    std::map<int, int> suggested;  // donor node -> target node
+    for (const animmerge::BoneSuggestion& sg : animMapSugg_)
+        for (int n : donorBones)
+            if (don.nodes[(size_t)n].name == sg.donor)
+                for (size_t t = 0; t < tgt.nodes.size(); ++t)
+                    if (tgt.nodes[t].name == sg.target) suggested[n] = (int)t;
+
+    // --- header: the numbers and the verbs, one line ------------------------
+    ImGui::Text("%d/%d bones", mapped, (int)donorBones.size());
+    ImGui::SameLine();
+    if (!animMapSugg_.empty()) {
+        char lbl[48];
+        snprintf(lbl, sizeof lbl, "Accept %d suggestion%s",
+                 (int)animMapSugg_.size(),
+                 animMapSugg_.size() == 1 ? "" : "s");
+        if (ImGui::SmallButton(lbl))
+            for (const animmerge::BoneSuggestion& sg : animMapSugg_)
+                upsertPair(animMapPairs_, sg.donor, sg.target);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Turn the amber guesses into real pairs.");
+        ImGui::SameLine();
+    }
+    if (!animMapPairs_.empty()) {
+        if (ImGui::SmallButton("Clear pairs")) animMapPairs_.clear();
+        ImGui::SameLine();
+    }
+    if (animMapAffixOk_) {
+        char lbl[96];
+        snprintf(lbl, sizeof lbl, "Apply rule: %s (%d)",
+                 animMapAffix_.describe().c_str(), animMapAffix_.matches);
+        if (ImGui::SmallButton(lbl))
+            for (const auto& pr :
+                 animmerge::applyAffixRule(tgt, don, opts, animMapAffix_))
+                upsertPair(animMapPairs_, pr.first, pr.second);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "One rename rule covers these bones - the two rigs are\n"
+                "identical modulo this prefix/suffix.");
+        ImGui::SameLine();
+    }
+    {
+        const animmerge::RetargetInfo ri =
+            animmerge::retargetInfo(tgt, don, opts);
+        ImGui::TextDisabled(ri.full ? "full retarget (%.0f deg)" : "copy",
+                            ri.bindGapDeg);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                ri.full ? "Bind poses differ - clips resample through the\n"
+                          "retargeter; the test pose shows exactly that."
+                        : "Identical binds - channels copy verbatim.");
+        ImGui::SameLine();
+    }
+    // Legend - the canvas colors, named once, tersely.
+    ImGui::TextColored(ImVec4(0.4f, 0.9f, 0.4f, 1.0f), "matched");
+    ImGui::SameLine();
+    ImGui::TextColored(ImVec4(0.95f, 0.8f, 0.3f, 1.0f), "suggested");
+    ImGui::SameLine();
+    ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f), "unmatched");
+    ImGui::SameLine();
+    ImGui::TextDisabled("- click a joint, then its match on the right");
+
+    // The list pane's hover from LAST frame - the canvas draws before the
+    // list is laid out, so it highlights with one frame of lag.
+    const int hiD = animMapHiD_, hiT = animMapHiT_;
+    animMapHiD_ = animMapHiT_ = -1;
+
+    // --- row 2: the test pose and the AI assist ----------------------------
+    ImGui::SetNextItemWidth(scaled(170));
+    const char* poseLbl = animMapPoseClip_ >= 0 &&
+                                  animMapPoseClip_ < (int)don.clips.size()
+                              ? don.clips[(size_t)animMapPoseClip_].name.c_str()
+                              : "Test pose: off";
+    if (ImGui::BeginCombo("##posec", poseLbl)) {
+        if (ImGui::Selectable("off", animMapPoseClip_ < 0))
+            animMapPoseClip_ = -1;
+        for (size_t c = 0; c < don.clips.size(); ++c)
+            if (ImGui::Selectable(don.clips[c].name.c_str(),
+                                  (int)c == animMapPoseClip_)) {
+                animMapPoseClip_ = (int)c;
+                animMapPoseT_ = 0.0f;
+            }
+        ImGui::EndCombo();
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "Pose both rigs through the current mapping. A wrong pair\n"
+            "shows as a folded limb long before any percentage does.");
+    const bool poseOn =
+        animMapPoseClip_ >= 0 && animMapPoseClip_ < (int)don.clips.size();
+    if (poseOn) {
+        const float dur =
+            don.clips[(size_t)animMapPoseClip_].duration;
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(scaled(140));
+        ImGui::SliderFloat("##poset", &animMapPoseT_, 0.0f,
+                           dur > 0.01f ? dur : 0.01f, "%.2fs");
+        ImGui::SameLine();
+        ImGui::Checkbox("Play", &animMapPosePlay_);
+        if (animMapPosePlay_ && dur > 0.01f) {
+            animMapPoseT_ += ImGui::GetIO().DeltaTime;
+            while (animMapPoseT_ > dur) animMapPoseT_ -= dur;
+        }
+        animmerge::posedPreview(tgt, don, opts, animMapPoseClip_,
+                                animMapPoseT_, animMapDPosed_, animMapTPosed_);
+    }
+    ImGui::SameLine();
+    if (animMapAiGen_ && animMapAiGen_->busy()) {
+        ImGui::TextColored(ImVec4(0.95f, 0.8f, 0.3f, 1.0f), "%c AI...",
+                           "|/-\\"[(int)(ImGui::GetTime() * 8.0) & 3]);
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Cancel")) animMapAiGen_->cancel();
+    } else {
+        if (ImGui::SmallButton("Ask AI")) {
+            animMapAiErr_.clear();
+            animMapAiGen_ = std::make_unique<aigen::Generator>();
+            animMapAiGen_->start(
+                globalAi_, animmerge::aiMapPrompt(tgt, don, opts),
+                "Map the bones now. Reply with the JSON only.");
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Send both skeletons (hierarchy + bind positions) to the\n"
+                "AI backend from Edit > Preferences. Proposals land below\n"
+                "for you to accept - nothing is applied on its own.");
+    }
+    if (animMapAiGen_ && !animMapAiGen_->busy()) {
+        if (animMapAiGen_->state() == aigen::Generator::State::Success) {
+            animMapAiSugg_ =
+                animmerge::parseAiBoneMap(animMapAiGen_->reply(), tgt, don);
+            animMapAiSugg_.erase(
+                std::remove_if(animMapAiSugg_.begin(), animMapAiSugg_.end(),
+                               [&](const auto& pr) {
+                                   return animmerge::resolveBoneName(
+                                              tgt, pr.first, opts) >= 0;
+                               }),
+                animMapAiSugg_.end());
+            if (animMapAiSugg_.empty())
+                animMapAiErr_ = "AI proposed nothing usable.";
+        } else if (animMapAiGen_->state() == aigen::Generator::State::Failed) {
+            animMapAiErr_ = animMapAiGen_->error();
+        }
+        animMapAiGen_.reset();
+    }
+    if (!animMapAiErr_.empty()) {
+        ImGui::SameLine();
+        ImGui::TextDisabled("%s", animMapAiErr_.c_str());
+    }
+
+    // --- the canvas ---------------------------------------------------------
+    const float footerH = ImGui::GetFrameHeightWithSpacing() + scaled(8);
+    const float listW = scaled(230);
+    ImGui::BeginChild("##bonecanvas", ImVec2(-listW, -footerH),
+                      ImGuiChildFlags_Borders);
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    const ImVec2 cMin = ImGui::GetCursorScreenPos();
+    const ImVec2 cSize = ImGui::GetContentRegionAvail();
+    // The child must claim its input region or clicks fall through to
+    // whatever is under the canvas.
+    ImGui::InvisibleButton("##bonehit", ImVec2(cSize.x > 1 ? cSize.x : 1,
+                                               cSize.y > 1 ? cSize.y : 1));
+    const bool canvasHover = ImGui::IsItemHovered();
+    // The canvas owns the wheel while hovered - without this the same wheel
+    // that zooms the skeletons also scrolled the window around them.
+    ImGui::SetItemKeyOwner(ImGuiKey_MouseWheelY);
+    const ImVec2 mouse = ImGui::GetIO().MousePos;
+
+    // View input first, so this frame already draws the moved view: wheel
+    // zooms around the cursor, middle-drag pans (the viewport's gestures).
+    const ImVec2 cCenter(cMin.x + cSize.x * 0.5f, cMin.y + cSize.y * 0.5f);
+    if (canvasHover) {
+        const float wheel = ImGui::GetIO().MouseWheel;
+        if (wheel != 0.0f) {
+            const float oldZoom = animMapZoom_;
+            animMapZoom_ = std::clamp(animMapZoom_ * std::pow(1.15f, wheel),
+                                      0.5f, 12.0f);
+            const float k = animMapZoom_ / oldZoom;
+            animMapPanX_ = mouse.x - cCenter.x - (mouse.x - cCenter.x - animMapPanX_) * k;
+            animMapPanY_ = mouse.y - cCenter.y - (mouse.y - cCenter.y - animMapPanY_) * k;
+        }
+    }
+    if (canvasHover && ImGui::IsMouseDragging(ImGuiMouseButton_Middle, 0.0f)) {
+        const ImVec2 d = ImGui::GetIO().MouseDelta;
+        animMapPanX_ += d.x;
+        animMapPanY_ += d.y;
+    }
+    if (canvasHover && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Middle)) {
+        animMapZoom_ = 1.0f;
+        animMapPanX_ = animMapPanY_ = 0.0f;
+    }
+    auto view = [&](ImVec2 pt) {
+        return ImVec2(cCenter.x + (pt.x - cCenter.x) * animMapZoom_ + animMapPanX_,
+                      cCenter.y + (pt.y - cCenter.y) * animMapZoom_ + animMapPanY_);
+    };
+
+    // Fit each skeleton into its half: front view (x right, y up).
+    struct Fit {
+        float minX = 0, maxX = 0, minY = 0, maxY = 0;
+        ImVec2 org;  // screen-space origin
+        float scale = 1.0f;
+    };
+    auto fitOf = [&](const std::vector<float>& pos, const std::set<int>& bones,
+                     float x0, float x1) {
+        Fit f;
+        bool first = true;
+        for (int n : bones) {
+            if (n < 0 || (size_t)(n * 3 + 2) >= pos.size()) continue;
+            const float x = pos[(size_t)n * 3], y = pos[(size_t)n * 3 + 1];
+            if (first || x < f.minX) f.minX = x;
+            if (first || x > f.maxX) f.maxX = x;
+            if (first || y < f.minY) f.minY = y;
+            if (first || y > f.maxY) f.maxY = y;
+            first = false;
+        }
+        const float w = f.maxX - f.minX, h = f.maxY - f.minY;
+        const float availW = (x1 - x0) - scaled(40);
+        const float availH = cSize.y - scaled(56);
+        const float sx = w > 1e-6f ? availW / w : 1.0f;
+        const float sy = h > 1e-6f ? availH / h : 1.0f;
+        f.scale = sx < sy ? sx : sy;
+        // center the box in its half; y flipped (screen y grows down)
+        f.org.x = cMin.x + x0 + ((x1 - x0) - w * f.scale) * 0.5f -
+                  f.minX * f.scale;
+        f.org.y = cMin.y + scaled(36) + (availH - h * f.scale) * 0.5f +
+                  f.maxY * f.scale;
+        return f;
+    };
+    const float half = cSize.x * 0.5f;
+    // Framing always comes from the BIND pose (stable), the drawn points from
+    // the test pose when one is on - so the figures move inside a calm frame.
+    const Fit dFit = fitOf(animMapDPos_, donorBones, scaled(8), half - scaled(8));
+    const Fit tFit = fitOf(animMapTPos_, targetBones, half + scaled(8),
+                           cSize.x - scaled(8));
+    const std::vector<float>& dCur =
+        poseOn && animMapDPosed_.size() == animMapDPos_.size() ? animMapDPosed_
+                                                               : animMapDPos_;
+    const std::vector<float>& tCur =
+        poseOn && animMapTPosed_.size() == animMapTPos_.size() ? animMapTPosed_
+                                                               : animMapTPos_;
+    auto place = [&](const Fit& f, const std::vector<float>& pos, int n) {
+        return view(ImVec2(f.org.x + pos[(size_t)n * 3] * f.scale,
+                           f.org.y - pos[(size_t)n * 3 + 1] * f.scale));
+    };
+
+    const theme::Semantics& sem = theme::semantics();
+    dl->AddText(ImVec2(cMin.x + scaled(8), cMin.y + scaled(8)),
+                ImGui::GetColorU32(sem.textDim), "source");
+    dl->AddText(ImVec2(cMin.x + half + scaled(8), cMin.y + scaled(8)),
+                ImGui::GetColorU32(sem.textDim), "this model");
+    dl->AddLine(ImVec2(cMin.x + half, cMin.y),
+                ImVec2(cMin.x + half, cMin.y + cSize.y),
+                ImGui::GetColorU32(sem.border));
+
+    // Bone lines: to the nearest BONE ancestor, so helper nodes between two
+    // bones do not break the figure apart.
+    auto boneParent = [](const glbparser::Skel& sk, const std::set<int>& bones,
+                         int n) {
+        int p = sk.nodes[(size_t)n].parent;
+        while (p >= 0 && p < (int)sk.nodes.size() && !bones.count(p))
+            p = sk.nodes[(size_t)p].parent == p ? -1 : sk.nodes[(size_t)p].parent;
+        return p >= 0 && p < (int)sk.nodes.size() ? p : -1;
+    };
+    for (int n : donorBones)
+        if (int p = boneParent(don, donorBones, n); p >= 0)
+            dl->AddLine(place(dFit, dCur, n), place(dFit, dCur, p),
+                        ImGui::GetColorU32(sem.border), 1.5f);
+    for (int n : targetBones)
+        if (int p = boneParent(tgt, targetBones, n); p >= 0)
+            dl->AddLine(place(tFit, tCur, n), place(tFit, tCur, p),
+                        ImGui::GetColorU32(sem.border), 1.5f);
+
+    // Selection line: the selected donor joint to its current home.
+    if (animMapSelDonor_ >= 0 && resolved.count(animMapSelDonor_) &&
+        resolved[animMapSelDonor_] >= 0)
+        dl->AddLine(place(dFit, dCur, animMapSelDonor_),
+                    place(tFit, tCur, resolved[animMapSelDonor_]),
+                    ImGui::GetColorU32(sem.accentMuted), 1.0f);
+
+    // Joints + hit test. Donor colors: green = matched by name, cyan ring =
+    // explicit pair, amber = suggested, red = unmatched.
+    const float R = scaled(4.0f);
+    int hoverDonor = -1, hoverTarget = -1;
+    float bestD = R * 2.5f;
+    for (int n : donorBones) {
+        const ImVec2 pt = place(dFit, dCur, n);
+        const float d = std::hypot(mouse.x - pt.x, mouse.y - pt.y);
+        if (canvasHover && d < bestD) bestD = d, hoverDonor = n;
+    }
+    if (hoverDonor < 0) {
+        bestD = R * 2.5f;
+        for (int n : targetBones) {
+            const ImVec2 pt = place(tFit, tCur, n);
+            const float d = std::hypot(mouse.x - pt.x, mouse.y - pt.y);
+            if (canvasHover && d < bestD) bestD = d, hoverTarget = n;
+        }
+    }
+    const ImU32 cGreen = IM_COL32(90, 210, 110, 255);
+    const ImU32 cAmber = IM_COL32(235, 190, 80, 255);
+    const ImU32 cRed = IM_COL32(240, 90, 70, 255);
+    for (int n : donorBones) {
+        const ImVec2 pt = place(dFit, dCur, n);
+        ImU32 col = cRed;
+        if (resolved[n] >= 0) col = cGreen;
+        else if (suggested.count(n)) col = cAmber;
+        dl->AddCircleFilled(pt, R, col);
+        if (explicitPair[n])
+            dl->AddCircle(pt, R + scaled(2), ImGui::GetColorU32(sem.accent), 0, 2.0f);
+        if (n == animMapSelDonor_)
+            dl->AddCircle(pt, R + scaled(4), ImGui::GetColorU32(sem.text), 0, 2.0f);
+        if (n == hoverDonor)
+            dl->AddCircle(pt, R + scaled(2), ImGui::GetColorU32(sem.text));
+    }
+    // Target joints: used ones dim green, free ones gray; amber when it is
+    // the suggestion for the selected donor joint.
+    std::set<int> usedTargets;
+    for (auto& [dn, tn] : resolved)
+        if (tn >= 0) usedTargets.insert(tn);
+    for (int n : targetBones) {
+        const ImVec2 pt = place(tFit, tCur, n);
+        ImU32 col = usedTargets.count(n) ? IM_COL32(80, 140, 90, 255)
+                                         : ImGui::GetColorU32(sem.textDim);
+        if (animMapSelDonor_ >= 0 && suggested.count(animMapSelDonor_) &&
+            suggested[animMapSelDonor_] == n)
+            col = cAmber;
+        dl->AddCircleFilled(pt, R, col);
+        if (n == hoverTarget)
+            dl->AddCircle(pt, R + scaled(2), ImGui::GetColorU32(sem.text));
+    }
+
+    // Hovering a JOINT shows its link at once: ring the other end and tie
+    // them with a line - accent for a real mapping (by name or by hand),
+    // amber for a pending suggestion. Same for hovering a target joint,
+    // which points back at whatever lands on it.
+    if (hoverDonor >= 0) {
+        const ImVec2 dp = place(dFit, dCur, hoverDonor);
+        int tn = resolved.count(hoverDonor) ? resolved[hoverDonor] : -1;
+        bool isSugg = false;
+        if (tn < 0 && suggested.count(hoverDonor)) {
+            tn = suggested[hoverDonor];
+            isSugg = true;
+        }
+        if (tn >= 0 && targetBones.count(tn)) {
+            const ImVec2 tp = place(tFit, tCur, tn);
+            const ImU32 col =
+                isSugg ? cAmber : ImGui::GetColorU32(sem.accent);
+            dl->AddCircle(tp, R + scaled(3), col, 0, 2.0f);
+            dl->AddLine(dp, tp, col, 1.5f);
+        }
+    } else if (hoverTarget >= 0) {
+        const ImVec2 tp = place(tFit, tCur, hoverTarget);
+        for (auto& [dn, tn] : resolved) {
+            if (tn != hoverTarget) continue;
+            const ImVec2 dp = place(dFit, dCur, dn);
+            dl->AddCircle(dp, R + scaled(3), ImGui::GetColorU32(sem.accent), 0,
+                          2.0f);
+            dl->AddLine(dp, tp, ImGui::GetColorU32(sem.accent), 1.5f);
+        }
+        for (auto& [dn, tn] : suggested) {
+            if (tn != hoverTarget) continue;
+            const ImVec2 dp = place(dFit, dCur, dn);
+            dl->AddCircle(dp, R + scaled(3), cAmber, 0, 2.0f);
+            dl->AddLine(dp, tp, cAmber, 1.5f);
+        }
+    }
+
+    // The list pane's hover: ring both ends and tie them with a line, so
+    // "which joint is this row" needs no reading of coordinates.
+    if (hiD >= 0 && donorBones.count(hiD)) {
+        const ImVec2 pt = place(dFit, dCur, hiD);
+        dl->AddCircle(pt, R + scaled(3), ImGui::GetColorU32(sem.accent), 0, 2.0f);
+        if (hiT >= 0 && targetBones.count(hiT)) {
+            const ImVec2 tp = place(tFit, tCur, hiT);
+            dl->AddCircle(tp, R + scaled(3), ImGui::GetColorU32(sem.accent), 0,
+                          2.0f);
+            dl->AddLine(pt, tp, ImGui::GetColorU32(sem.accent), 1.5f);
+        }
+    }
+
+    // Hover name + click actions.
+    if (hoverDonor >= 0) {
+        ImGui::SetTooltip("%s", don.nodes[(size_t)hoverDonor].name.c_str());
+        if (ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+            animMapSelDonor_ = hoverDonor;
+        // Right-click drops the hand-made pair for that joint.
+        if (ImGui::IsMouseClicked(ImGuiMouseButton_Right)) {
+            const std::string& name = don.nodes[(size_t)hoverDonor].name;
+            for (size_t k = 0; k < animMapPairs_.size(); ++k)
+                if (animMapPairs_[k].first == name) {
+                    animMapPairs_.erase(animMapPairs_.begin() + (int)k);
+                    break;
+                }
+        }
+    } else if (hoverTarget >= 0) {
+        ImGui::SetTooltip("%s", tgt.nodes[(size_t)hoverTarget].name.c_str());
+        if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) &&
+            animMapSelDonor_ >= 0) {
+            const std::string& from = don.nodes[(size_t)animMapSelDonor_].name;
+            const std::string& to = tgt.nodes[(size_t)hoverTarget].name;
+            upsertPair(animMapPairs_, from, to);
+            animMapSelDonor_ = -1;
+        }
+    }
+    ImGui::EndChild();
+    ImGui::SameLine();
+    // --- the pair list: what is mapped onto what, hover = show me ----------
+    ImGui::BeginChild("##bonelist", ImVec2(0, -footerH),
+                      ImGuiChildFlags_Borders);
+    {
+        auto nodeByName = [](const glbparser::Skel& sk, const std::string& nm) {
+            for (size_t k = 0; k < sk.nodes.size(); ++k)
+                if (sk.nodes[k].name == nm) return (int)k;
+            return -1;
+        };
+        auto hoverRow = [&](int dNode, int tNode) {
+            if (!ImGui::IsItemHovered()) return;
+            animMapHiD_ = dNode;
+            animMapHiT_ = tNode;
+        };
+        int removePair = -1;
+        if (!animMapPairs_.empty()) {
+            ImGui::SeparatorText("Pairs");
+            for (size_t k = 0; k < animMapPairs_.size(); ++k) {
+                ImGui::PushID((int)k);
+                if (ImGui::SmallButton("x")) removePair = (int)k;
+                ImGui::SameLine();
+                ImGui::TextUnformatted(animMapPairs_[k].first.c_str());
+                hoverRow(nodeByName(don, animMapPairs_[k].first),
+                         nodeByName(tgt, animMapPairs_[k].second));
+                ImGui::Indent(scaled(18));
+                ImGui::TextDisabled("> %s", animMapPairs_[k].second.c_str());
+                hoverRow(nodeByName(don, animMapPairs_[k].first),
+                         nodeByName(tgt, animMapPairs_[k].second));
+                ImGui::Unindent(scaled(18));
+                ImGui::PopID();
+            }
+        }
+        if (removePair >= 0)
+            animMapPairs_.erase(animMapPairs_.begin() + removePair);
+        if (!animMapSugg_.empty()) {
+            ImGui::SeparatorText("Suggestions");
+            int accept = -1;
+            for (size_t k = 0; k < animMapSugg_.size(); ++k) {
+                const animmerge::BoneSuggestion& sg = animMapSugg_[k];
+                ImGui::PushID(1000 + (int)k);
+                if (ImGui::SmallButton("+")) accept = (int)k;
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("Accept.");
+                ImGui::SameLine();
+                ImGui::TextColored(ImVec4(0.95f, 0.8f, 0.3f, 1.0f), "%s",
+                                   sg.donor.c_str());
+                hoverRow(nodeByName(don, sg.donor), nodeByName(tgt, sg.target));
+                ImGui::Indent(scaled(18));
+                ImGui::TextDisabled("~ %s  %d%%", sg.target.c_str(),
+                                    (int)(sg.score * 100.0f + 0.5f));
+                hoverRow(nodeByName(don, sg.donor), nodeByName(tgt, sg.target));
+                ImGui::Unindent(scaled(18));
+                ImGui::PopID();
+            }
+            if (accept >= 0)
+                upsertPair(animMapPairs_, animMapSugg_[(size_t)accept].donor,
+                           animMapSugg_[(size_t)accept].target);
+        }
+        if (!animMapAiSugg_.empty()) {
+            ImGui::SeparatorText("AI");
+            if (ImGui::SmallButton("Accept all AI")) {
+                for (const auto& pr : animMapAiSugg_)
+                    upsertPair(animMapPairs_, pr.first, pr.second);
+                animMapAiSugg_.clear();
+            }
+            int acceptAi = -1;
+            for (size_t k = 0; k < animMapAiSugg_.size(); ++k) {
+                const auto& pr = animMapAiSugg_[k];
+                ImGui::PushID(3000 + (int)k);
+                if (ImGui::SmallButton("+")) acceptAi = (int)k;
+                ImGui::SameLine();
+                ImGui::TextColored(ImVec4(0.55f, 0.75f, 1.0f, 1.0f), "%s",
+                                   pr.first.c_str());
+                hoverRow(nodeByName(don, pr.first), nodeByName(tgt, pr.second));
+                ImGui::Indent(scaled(18));
+                ImGui::TextDisabled("~ %s", pr.second.c_str());
+                hoverRow(nodeByName(don, pr.first), nodeByName(tgt, pr.second));
+                ImGui::Unindent(scaled(18));
+                ImGui::PopID();
+            }
+            if (acceptAi >= 0) {
+                upsertPair(animMapPairs_, animMapAiSugg_[(size_t)acceptAi].first,
+                           animMapAiSugg_[(size_t)acceptAi].second);
+                animMapAiSugg_.erase(animMapAiSugg_.begin() + acceptAi);
+            }
+        }
+        // Unmatched and unsuggested: the ones only a human can place.
+        std::vector<int> orphans;
+        for (int nd : donorBones)
+            if (resolved.count(nd) && resolved[nd] < 0 && !suggested.count(nd))
+                orphans.push_back(nd);
+        if (!orphans.empty()) {
+            ImGui::SeparatorText("Unmatched");
+            for (int nd : orphans) {
+                ImGui::PushID(2000 + nd);
+                if (ImGui::Selectable(don.nodes[(size_t)nd].name.c_str(),
+                                      animMapSelDonor_ == nd))
+                    animMapSelDonor_ = nd;
+                hoverRow(nd, -1);
+                ImGui::PopID();
+            }
+        }
+        if (animMapPairs_.empty() && animMapSugg_.empty() && orphans.empty())
+            ImGui::TextDisabled("all bones matched by name");
+    }
+    ImGui::EndChild();
+
+    // --- footer -------------------------------------------------------------
+    bool applied = false;
+    const bool dirty = animMapPairs_ != row.boneMap;
+    ImGui::BeginDisabled(!dirty);
+    if (ImGui::Button("Apply")) {
+        row.boneMap = animMapPairs_;
+        // The book learns every accepted pair, so the same rename suggests
+        // itself in the next file from the same pack.
+        for (const auto& [from, to] : animMapPairs_)
+            boneAliases_[animmerge::canonicalBoneKey(from)] = to;
+        saveBoneAliases();
+        applied = true;
+    }
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    if (ImGui::Button("Close")) animMapRow_ = -1;
+    ImGui::SameLine();
+    ImGui::TextDisabled(
+        "wheel zoom - middle-drag pan - right-click removes a pair");
+
+    ImGui::End();
+    if (!openFlag) animMapRow_ = -1;
+    return applied;
+}
+
+bool App::drawAnimImportSection(const std::string& modelRel) {
+    bool changed = false;
+    int rows = 0;
+    for (const AnimImport& a : project_.animImports)
+        if (a.model == modelRel) ++rows;
+
+    const std::string header =
+        rows ? "Imported clips (" + std::to_string(rows) + ")###animimp"
+             : std::string("Imported clips###animimp");
+    // Interface text stays terse (the skill rule): facts in the panel, the
+    // explanation - short - in tooltips. The old version opened with a
+    // three-line paragraph nobody came here to read.
+    const bool open = ImGui::CollapsingHeader(header.c_str());
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Borrow clips from another rigged file.");
+    if (!open) return false;
+
+    std::vector<std::string> candidates;
+    for (const std::string& m : listAnimatedModelFiles()) {
+        const std::string rel = "res/models/" + m;
+        if (rel != modelRel) candidates.push_back(rel);
+    }
+    ImGui::SetNextItemWidth(scaled(280));
+    const char* preview =
+        animImpSource_.empty() ? "Pick a file..." : animImpSource_.c_str();
+    if (ImGui::BeginCombo("##impsrc", preview)) {
+        for (const std::string& c : candidates)
+            if (ImGui::Selectable(c.c_str(), c == animImpSource_))
+                animImpSource_ = c;
+        if (candidates.empty())
+            ImGui::TextDisabled("No other animated model in the project.");
+        ImGui::EndCombo();
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("Import file...")) {
+        const size_t before = listAnimatedModelFiles().size();
+        importModelAsset();
+        const std::vector<std::string> after = listAnimatedModelFiles();
+        if (after.size() > before) {
+            for (const std::string& m : after) {
+                const std::string rel = "res/models/" + m;
+                if (rel == modelRel) continue;
+                bool known = false;
+                for (const std::string& c : candidates)
+                    if (c == rel) known = true;
+                if (!known) animImpSource_ = rel;
+            }
+        }
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Copy a .glb/.fbx into res/models/ and select it.");
+
+    if (!animImpSource_.empty()) {
+        const AnimImportProbe& probe =
+            animImportProbe(modelRel, animImpSource_, {});
+        if (!probe.ok) {
+            ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f), "Unusable: %s",
+                               probe.error.c_str());
+        } else {
+            ImGui::SameLine();
+            if (ImGui::Button("Add clips")) {
+                AnimImport a;
+                a.model = modelRel;
+                a.source = animImpSource_;
+                project_.animImports.push_back(std::move(a));
+                // A poor name match is exactly what the mapper is for - open
+                // it on the fresh row instead of leaving a red number.
+                if (probe.bonesMapped < probe.bonesTotal)
+                    openAnimBoneMap((int)project_.animImports.size() - 1);
+                animImpSource_.clear();
+                changed = true;
+            }
+            ImGui::SameLine();
+            const float match = probe.match;
+            const ImVec4 col = match > 0.85f ? ImVec4(0.4f, 0.9f, 0.4f, 1.0f)
+                               : match > 0.4f ? ImVec4(0.95f, 0.8f, 0.3f, 1.0f)
+                                              : ImVec4(1.0f, 0.4f, 0.3f, 1.0f);
+            ImGui::TextColored(col, "%d/%d bones", probe.bonesMapped,
+                               probe.bonesTotal);
+            ImGui::SameLine();
+            ImGui::TextDisabled("- %d clip%s", probe.clipCount,
+                                probe.clipCount == 1 ? "" : "s");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Bones matched by name. Fix the rest in Map bones.");
+        }
+    }
+
+    if (rows) ImGui::Separator();
+    int removeAt = -1;
+    for (size_t i = 0; i < project_.animImports.size(); ++i) {
+        AnimImport& a = project_.animImports[i];
+        if (a.model != modelRel) continue;
+        ImGui::PushID((int)i);
+        ImGui::Bullet();
+        ImGui::SameLine();
+        ImGui::TextUnformatted(a.source.c_str());
+        ImGui::SameLine();
+        {
+            const AnimImportProbe& probe =
+                animImportProbe(a.model, a.source, a.boneMap);
+            if (probe.ok) {
+                const bool full = probe.bonesMapped == probe.bonesTotal;
+                ImGui::TextColored(full ? ImVec4(0.4f, 0.9f, 0.4f, 1.0f)
+                                        : ImVec4(0.95f, 0.8f, 0.3f, 1.0f),
+                                   "%d/%d", probe.bonesMapped, probe.bonesTotal);
+                if (ImGui::IsItemHovered()) ImGui::SetTooltip("Bones mapped.");
+                ImGui::SameLine();
+                ImGui::TextDisabled(probe.retarget.full ? "retarget" : "copy");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip(
+                        probe.retarget.full
+                            ? "Bind poses differ %.0f deg (facing %.0f) - "
+                              "clips are resampled through the full "
+                              "retargeter."
+                            : "Identical binds - channels copy verbatim.",
+                        probe.retarget.bindGapDeg, probe.retarget.facingDeg);
+            } else {
+                ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f), "!");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("%s", probe.error.c_str());
+            }
+        }
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Map bones...")) openAnimBoneMap((int)i);
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Remove")) removeAt = (int)i;
+
+        ImGui::Indent();
+        // Prefix is STAGED and committed when the edit ends - a committed
+        // change re-parses, re-merges and re-bakes the model, and doing that
+        // per keystroke stalled the editor once per character.
+        const bool editingThis = animImpEditRow_ == (int)i;
+        char prefix[64];
+        snprintf(prefix, sizeof prefix, "%s",
+                 editingThis ? animImpPrefix_ : a.prefix.c_str());
+        ImGui::SetNextItemWidth(scaled(110));
+        if (ImGui::InputText("Prefix", prefix, sizeof prefix)) {
+            animImpEditRow_ = (int)i;
+            snprintf(animImpPrefix_, sizeof animImpPrefix_, "%s", prefix);
+        }
+        if (ImGui::IsItemDeactivatedAfterEdit() && animImpEditRow_ == (int)i) {
+            if (a.prefix != animImpPrefix_) {
+                a.prefix = animImpPrefix_;
+                changed = true;
+            }
+            animImpEditRow_ = -1;
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Prepended to the imported clip names.");
+        ImGui::SameLine();
+        const char* modes[] = {"Root bones only", "Only where animated",
+                               "Copy everything"};
+        ImGui::SetNextItemWidth(scaled(150));
+        const int tSel =
+            a.translation >= 0 && a.translation < 3 ? a.translation : 0;
+        if (ImGui::BeginCombo("Translation", modes[tSel])) {
+            for (int m = 0; m < 3; ++m)
+                if (ImGui::Selectable(modes[m], m == a.translation) &&
+                    m != a.translation) {
+                    a.translation = m;
+                    changed = true;
+                }
+            ImGui::EndCombo();
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Which bones keep the source's positions.\n"
+                "Root only = keep this model's own proportions (default).");
+        if (ImGui::Checkbox("Retarget root motion", &a.retargetRoot))
+            changed = true;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Scale hip travel to this rig's hip height.");
+        ImGui::SameLine();
+        if (ImGui::Checkbox("Ignore scale", &a.ignoreScale)) changed = true;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Drop the source's scale tracks (export noise).");
+        ImGui::SameLine();
+        {
+            const char* faces[] = {"Auto", "0", "90", "180", "270"};
+            const int fi = a.facing < 0 ? 0
+                           : a.facing < 45 ? 1
+                           : a.facing < 135 ? 2
+                           : a.facing < 225 ? 3 : 4;
+            ImGui::SetNextItemWidth(scaled(70));
+            if (ImGui::BeginCombo("Facing", faces[fi])) {
+                for (int m = 0; m < 5; ++m)
+                    if (ImGui::Selectable(faces[m], m == fi) && m != fi) {
+                        a.facing = m == 0 ? -1 : (m - 1) * 90;
+                        changed = true;
+                    }
+                ImGui::EndCombo();
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "World yaw of the source rig, degrees. Auto reads both\n"
+                    "rigs' facing from their feet (ankles -> toes).");
+        }
+        ImGui::SameLine();
+        if (ImGui::Checkbox("Mirror", &a.mirror)) changed = true;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Import the clips mirrored left<->right - walk_right out\n"
+                "of walk_left.");
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(scaled(80));
+        ImGui::DragFloat("Lean", &a.lean, 0.2f, -30.0f, 30.0f, "%.1f deg");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Posture fine-tune: + leans the torso forward, - back.\n"
+                "For a retarget that walks well but stands a bit off.");
+        ImGui::Unindent();
+        ImGui::PopID();
+    }
+    if (removeAt >= 0) {
+        project_.animImports.erase(project_.animImports.begin() + removeAt);
+        if (animMapRow_ == removeAt) animMapRow_ = -1;
+        changed = true;
+    }
+    return changed;
+}
+
 void App::drawAnimEditorWindow() {
     if (!showAnimEditor_ || !hasProject_) return;
 
@@ -2779,6 +5047,29 @@ void App::drawAnimEditorWindow() {
     };
 
     bool changed = false;
+    // Belt and braces: `changed` is set by hand at each widget, so a newly
+    // added one silently forgets it (that is how the Menu Editor came to leave
+    // the save icon dark). Comparing the section's serialized form across the
+    // whole body cannot be forgotten. Clip renames also retarget references in
+    // the SCENES, which the undo snapshot covers on its own.
+    // Two sections are owned by this window now, so the guard covers both -
+    // concatenated, which is the documented answer for a panel that spans more
+    // than one (app.hpp rule 1).
+    const std::string beforeSection =
+        project::sectionJson(project_, project::Section::AnimEdits) +
+        project::sectionJson(project_, project::Section::AnimImports);
+    // This window has early returns (an unusable model, a model with no clips
+    // of its own), and the import block above them can edit - so the commit
+    // has to be reachable from every exit, not only the bottom. The
+    // drawCreditsWindow / drawGradingWindow idiom.
+    auto commitIfEdited = [&] {
+        if (changed ||
+            project::sectionJson(project_, project::Section::AnimEdits) +
+                    project::sectionJson(project_,
+                                         project::Section::AnimImports) !=
+                beforeSection)
+            commitChange();
+    };
     // listAnimatedModelFiles returns names relative to res/models; every other
     // API here (glbInfo, the viewport cache, AnimClipEdit::model) speaks
     // project-relative paths, which is also what SceneObject::modelPath holds.
@@ -2789,6 +5080,7 @@ void App::drawAnimEditorWindow() {
         ImGui::TextDisabled(
             "No animated models in this project.\n\n"
             "Project > Assets > Import model... and pick a .glb or .fbx.");
+        commitIfEdited();
         ImGui::End();
         return;
     }
@@ -2811,6 +5103,15 @@ void App::drawAnimEditorWindow() {
         ImGui::EndCombo();
     }
     ImGui::SameLine();
+    // Background preview bakes in flight (the async viewport rebake). The
+    // work is off the UI thread now, so the panel STAYS interactive - this
+    // is the "it is still working" signal, not a stall.
+    if (viewport_.animBakesPending() > 0) {
+        ImGui::TextColored(
+            ImVec4(0.95f, 0.8f, 0.3f, 1.0f), "%c baking preview",
+            "|/-\\"[(int)(ImGui::GetTime() * 8.0) & 3]);
+        ImGui::SameLine();
+    }
     const float projScale = animedit::projectTimeScale(project_.settings);
     if (std::fabs(projScale - 1.0f) > 0.001f)
         ImGui::TextDisabled("project fps: %.0f -> %.0f (%.3fx)",
@@ -2824,15 +5125,35 @@ void App::drawAnimEditorWindow() {
             "Multiplies every clip of every model; the per-clip time\n"
             "scale below stacks on top of it.");
 
+    // Imported clips, BEFORE the parse below and before its early returns: an
+    // import changes what clips this model has, and a character with none of
+    // its own - a bare rigged T-pose plus a folder of downloaded moves - is
+    // precisely the case this feature exists for. Drawn first, so that model
+    // can still reach the picker instead of hitting "no animation clips".
+    if (drawAnimImportSection(animEdModel_)) {
+        invalidateAnimCaches(animEdModel_);
+        changed = true;
+    }
+    // The bone-mapping window is a satellite of this one and commits through
+    // the same section guard. Its rows all belong to the current model, so
+    // the targeted invalidation is correct for it too.
+    if (drawAnimBoneMapWindow()) {
+        invalidateAnimCaches(animEdModel_);
+        changed = true;
+    }
+    ImGui::Separator();
+
     const GlbInfo& info = glbInfo(animEdModel_);
     if (!info.ok) {
         ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.3f, 1.0f), "Unusable model: %s",
                            info.error.c_str());
+        commitIfEdited();
         ImGui::End();
         return;
     }
     if (info.clips.empty()) {
         ImGui::TextDisabled("This model has no animation clips.");
+        commitIfEdited();
         ImGui::End();
         return;
     }
@@ -2848,6 +5169,11 @@ void App::drawAnimEditorWindow() {
 
     const AnimClipEdit* cur =
         animedit::findEdit(project_, animEdModel_, animEdClip_);
+    // Snapshot the staged values before any widget can append/prune the vector
+    // and invalidate `cur` during this frame.
+    const float curTimeScale = cur ? cur->timeScale : 1.0f;
+    const bool curInPlace = cur && cur->inPlace;
+    const bool curLoop = cur ? cur->loop : true;
     const float srcDur =
         viewport_.animClipDuration(animEdModel_, std::string(), animEdClip_);
     float trimA = 0.0f, trimB = srcDur;
@@ -2861,7 +5187,20 @@ void App::drawAnimEditorWindow() {
     // --- left: the model's clips -------------------------------------------
     ImGui::BeginChild("##ae_clips", ImVec2(scaled(210), -scaled(4)),
                       ImGuiChildFlags_Borders);
+    ImGui::SetNextItemWidth(-FLT_MIN);
+    ImGui::InputTextWithHint("##ae_filter", "Filter", animEdFilter_,
+                             sizeof animEdFilter_);
+    auto passesFilter = [&](const std::string& name) {
+        if (!animEdFilter_[0]) return true;
+        // case-insensitive substring
+        std::string a = name, b = animEdFilter_;
+        for (char& ch : a) ch = (char)std::tolower((unsigned char)ch);
+        for (char& ch : b) ch = (char)std::tolower((unsigned char)ch);
+        return a.find(b) != std::string::npos;
+    };
     for (const std::string& c : info.clips) {
+        if (!passesFilter(animedit::effectiveName(project_, animEdModel_, c)))
+            continue;
         const AnimClipEdit* e = animedit::findEdit(project_, animEdModel_, c);
         std::string label = animedit::effectiveName(project_, animEdModel_, c);
         if (e && !e->isDefault()) label += "  *";
@@ -2908,7 +5247,10 @@ void App::drawAnimEditorWindow() {
         d.angleDeg = animEdYaw_;
         d.pitchDeg = animEdPitch_;
         d.zoom = animEdZoom_;
+        d.panX = animEdPanX_;
+        d.panY = animEdPanY_;
         d.wireframe = animEdWireframe_;
+        d.inPlace = curInPlace;
         d.light = previewLight(animEdLight_);
         const int pw = (int)std::max(scaled(240), ImGui::GetContentRegionAvail().x);
         const int ph = (int)scaled(300);
@@ -2918,19 +5260,42 @@ void App::drawAnimEditorWindow() {
             ImGui::Image((ImTextureID)(intptr_t)tex,
                          ImVec2((float)pw, (float)ph), ImVec2(0, 1),
                          ImVec2(1, 0));
-            // Drag to orbit, wheel to dolly - the Material Editor's gesture.
-            if (ImGui::IsItemHovered()) {
-                const float wheel = ImGui::GetIO().MouseWheel;
-                if (wheel != 0.0f)
-                    animEdZoom_ = std::clamp(animEdZoom_ * (1.0f + wheel * 0.1f),
-                                             0.1f, 8.0f);
+            // Image() is display-only and does not reliably become active on
+            // a drag. Put a real input item over it, as the Material Editor
+            // does, so every mouse button has a deterministic owner.
+            ImGui::SetCursorScreenPos(origin);
+            ImGui::InvisibleButton(
+                "Animation preview##ae_view", ImVec2((float)pw, (float)ph),
+                ImGuiButtonFlags_MouseButtonRight |
+                    ImGuiButtonFlags_MouseButtonMiddle);
+            const bool hovered = ImGui::IsItemHovered();
+            const bool active = ImGui::IsItemActive();
+            ImGuiIO& io = ImGui::GetIO();
+
+            if (hovered && io.MouseWheel != 0.0f) {
+                animEdZoom_ *= std::pow(1.15f, io.MouseWheel);
+                animEdZoom_ = std::clamp(animEdZoom_, 0.1f, 8.0f);
             }
-            if (ImGui::IsItemActive() && ImGui::IsMouseDragging(ImGuiMouseButton_Left)) {
-                const ImVec2 dlt = ImGui::GetIO().MouseDelta;
-                animEdYaw_ += dlt.x * 0.4f;
-                animEdPitch_ = std::clamp(animEdPitch_ - dlt.y * 0.3f, -30.0f, 85.0f);
+
+            if (active) {
+                if (ImGui::IsMouseDown(ImGuiMouseButton_Right)) {
+                    animEdYaw_ += io.MouseDelta.x * 0.4f;
+                    animEdPitch_ = std::clamp(
+                        animEdPitch_ - io.MouseDelta.y * 0.3f, -30.0f, 85.0f);
+                } else if (ImGui::IsMouseDown(ImGuiMouseButton_Middle)) {
+                    // Keep the visual travel per pixel stable as zoom changes.
+                    const float s = 0.0065f / std::max(animEdZoom_, 0.1f);
+                    animEdPanX_ = std::clamp(animEdPanX_ - io.MouseDelta.x * s,
+                                             -5.0f, 5.0f);
+                    animEdPanY_ = std::clamp(animEdPanY_ + io.MouseDelta.y * s,
+                                             -5.0f, 5.0f);
+                }
             }
-            (void)origin;
+
+            ImGui::GetWindowDrawList()->AddText(
+                ImVec2(origin.x + scaled(8), origin.y + scaled(8)),
+                ImGui::GetColorU32(ImGuiCol_TextDisabled),
+                "RMB rotate  |  MMB pan  |  wheel zoom");
         }
     }
 
@@ -2949,6 +5314,15 @@ void App::drawAnimEditorWindow() {
     ImGui::Checkbox("Wireframe", &animEdWireframe_);
     ImGui::SameLine();
     if (previewLightCombo("##ae_light", animEdLight_)) saveGlobalConfig();
+
+    if (ImGui::SmallButton("Reset view")) {
+        animEdYaw_ = 40.0f;
+        animEdPitch_ = 15.0f;
+        animEdZoom_ = 1.0f;
+        animEdPanX_ = animEdPanY_ = 0.0f;
+    }
+    ImGui::SameLine();
+    ImGui::TextDisabled("RMB rotate; MMB pan; wheel zoom");
 
     // --- the edit itself ----------------------------------------------------
     ImGui::SeparatorText("Clip");
@@ -2993,7 +5367,7 @@ void App::drawAnimEditorWindow() {
         "their own graphs; a node that drives another object through an\n"
         "object link keeps its text and may need updating by hand.");
 
-    float timeScale = cur ? cur->timeScale : 1.0f;
+    float timeScale = curTimeScale;
     ImGui::SetNextItemWidth(scaled(240));
     if (ImGui::DragFloat("Time scale", &timeScale, 0.01f, 0.05f, 10.0f,
                          "%.2fx")) {
@@ -3041,7 +5415,21 @@ void App::drawAnimEditorWindow() {
             "boundary poses, so it starts and ends exactly where you cut.");
     }
 
-    bool loop = cur ? cur->loop : true;
+    bool inPlace = curInPlace;
+    if (ImGui::Checkbox("In place", &inPlace)) {
+        animEditFor(animEdModel_, animEdClip_).inPlace = inPlace;
+        pruneAnimEdits();
+        changed = true;
+    }
+    ImGui::SameLine();
+    helpMarker(
+        "Removes horizontal root motion from this clip, pinning the character\n"
+        "to its position at the trimmed start while keeping vertical bob and\n"
+        "all limb animation. This is per clip: an object playing a different\n"
+        "Start clip is unaffected. Use it when the Player object already moves\n"
+        "the avatar through the world; rebuild before testing in the game.");
+
+    bool loop = curLoop;
     if (ImGui::Checkbox("Loop by default", &loop)) {
         animEditFor(animEdModel_, animEdClip_).loop = loop;
         pruneAnimEdits();
@@ -3060,7 +5448,9 @@ void App::drawAnimEditorWindow() {
     else
         ImGui::TextDisabled("static clip (no motion to retime)");
 
-    if (cur && !cur->isDefault()) {
+    const AnimClipEdit* finalEdit =
+        animedit::findEdit(project_, animEdModel_, animEdClip_);
+    if (finalEdit && !finalEdit->isDefault()) {
         if (ImGui::Button("Reset this clip")) {
             const std::string before =
                 animedit::effectiveName(project_, animEdModel_, animEdClip_);
@@ -3083,7 +5473,7 @@ void App::drawAnimEditorWindow() {
 
     ImGui::EndChild();  // ae_right
 
-    if (changed) saveAll("Saved");
+    commitIfEdited();
     ImGui::End();
 }
 
@@ -3100,6 +5490,21 @@ void App::drawLoadingScreenWindow() {
     bool changed = false;
     auto& screens = project_.loadingScreens;
     if (selectedLoadingScreen_ >= (int)screens.size()) selectedLoadingScreen_ = -1;
+
+    // Belt and braces, as in the Animation Editor: a hand-set `changed` flag is
+    // forgettable, a section comparison across the whole body is not. This
+    // window owns TWO sections - the screens and the boot splashes it hosts -
+    // and the delete path also clears scene references, which undo covers.
+    const std::string beforeSection =
+        project::sectionJson(project_, project::Section::LoadingScreens) +
+        project::sectionJson(project_, project::Section::Splash);
+    auto commitIfEdited = [&] {
+        if (changed ||
+            project::sectionJson(project_, project::Section::LoadingScreens) +
+                    project::sectionJson(project_, project::Section::Splash) !=
+                beforeSection)
+            commitChange();
+    };
 
     changed |= drawSplashSection();
 
@@ -3154,7 +5559,7 @@ void App::drawLoadingScreenWindow() {
             "\"Loading screen between scenes\".");
         ImGui::EndChild();
         ImGui::EndChild();  // ls_top
-        if (changed) saveAll("Saved");
+        commitIfEdited();
         ImGui::End();
         return;
     }
@@ -3200,7 +5605,7 @@ void App::drawLoadingScreenWindow() {
         selectedLoadingScreen_ = -1;
         ImGui::EndChild();       // ls_stack
         ImGui::EndChild();       // ls_top
-        saveAll("Saved");
+        commitIfEdited();
         ImGui::End();
         return;
     }
@@ -3365,6 +5770,6 @@ void App::drawLoadingScreenWindow() {
     ImGui::TextDisabled("(simulated load fraction)");
     drawLoadingPreview(ls, lsPreviewProgress_);
 
-    if (changed) saveAll("Saved");  // project-wide data, outside undo
+    commitIfEdited();  // project-wide data: marks dirty, pushes no undo step
     ImGui::End();
 }

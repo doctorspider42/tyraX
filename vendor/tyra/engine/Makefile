@@ -20,7 +20,7 @@ LIBDIRS     :=
 INC         := -I$(INCDIR)
 INCDEP      := -I$(INCDIR)
 
-include ../Makefile.base
-
-$(TARGET): $(OBJECTS) $(VCL_OBJECTS) $(VU_OBJECTS_VCL) $(VU_OBJECTS_VSM) $(IRXEM_OBJECTS)
-	$(AR) rcs $(TARGETDIR)/$(TARGET) $(OBJECTS) $(VCL_OBJECTS) $(VU_OBJECTS_VCL) $(VU_OBJECTS_VSM) $(IRXEM_OBJECTS)
+# Modified by TyraX: the shared rule archives .a targets and tracks bin/libtyra.a.
+# A second recipe here used to emit overriding/ignoring-recipe warnings.
+TYRA_MAKEFILE := ../Makefile.base
+include $(TYRA_MAKEFILE)

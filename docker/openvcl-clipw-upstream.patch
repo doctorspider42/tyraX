@@ -1,0 +1,59 @@
+diff --git a/src/Token.cpp b/src/Token.cpp
+index 586585b..606b02d 100644
+--- a/src/Token.cpp
++++ b/src/Token.cpp
+@@ -367,9 +367,25 @@ bool Token::processOperand( const Operand* operand, bool newSyntax, Token::Argum
+ 
+ 						(*i).setFields( fields );
+ 
++						// A 'wcomp' operand (CLIPw's second source, and the
++						// other ...w forms) can only ever mean the w component -
++						// the ISA offers no alternative - so an omitted selector
++						// is not ambiguous. Default it to w and accept, which is
++						// what the original VCL does: sources in the wild write
++						// `clipw.xyz vertex, vertex`, and rejecting that form
++						// dropped the whole instruction while the fcand reading
++						// its clip flags stayed, i.e. a frustum test against
++						// flags nobody set.
++
++						if( hasModifier( WCOMP, modifiers ) && !countFields( fields ) )
++						{
++							fields = W;
++							(*i).setFields( fields );
++						}
++
+ 						// if flag hasn't been specified, fail
+ 
+-						if( hasModifier( FLAG, modifiers ) )
++						if( hasModifier( FLAG, modifiers ) && !( hasModifier( WCOMP, modifiers ) && fields == W ) )
+ 							match = false;
+ 
+ 						if( hasModifier( BROADCAST, modifiers ) && !activeBroadcast )
+@@ -547,8 +563,11 @@ unsigned int Token::extractModifiers( const std::string& list )
+ 		else if( name == "bc" )
+ 			modifiers |= (1<<BROADCAST);
+ 		else if( name == "wcomp" )
+-			// treat 'wcomp' like a single-component selector requirement
+-			modifiers |= (1<<FLAG);
++			// treat 'wcomp' like a single-component selector requirement, but
++			// keep it distinguishable from a plain 'flag': the component is not
++			// a free choice for these operands, it is always w, so an omitted
++			// selector can be defaulted instead of rejected (see process()).
++			modifiers |= (1<<FLAG) | (1<<WCOMP);
+ 		else if( name == "noalias" )
+ 			modifiers |= (1<<NOALIAS);
+ 		else if( name == "write" )
+diff --git a/src/Token.h b/src/Token.h
+index ba4e871..6403fbc 100644
+--- a/src/Token.h
++++ b/src/Token.h
+@@ -156,7 +156,8 @@ public:
+ 		EVALUATE,
+ 		ROTATE,
+ 		RAW,
+-		RANGE     // operand template accepts a register-range (e.g. vf01-vf04)
++		RANGE,    // operand template accepts a register-range (e.g. vf01-vf04)
++		WCOMP     // operand is "the w component of this register" (CLIPw et al)
+ 	};
+ 
+ 	enum

@@ -41,6 +41,23 @@
 // (billboard bags never carry lighting); kept as a LITERAL for the same
 // vclpp one-level-#define reason.
 #define VU1_BILLBOARD_BASIS_ADDR 4
+// Modified by TyraX: two quadwords a project's OWN VU1 program reads
+// (docs/vu-authoring.md). They sit in the directional-lights colour block,
+// which is free in exactly the programs that can carry a custom stage list -
+// the colour ones - so the engine only uploads them for a bag with no
+// lighting. A lit bag fills 15..18 with light colours and must never see these.
+//   VU1_CUSTOM_PARAMS_ADDR  the mesh's four numbers (StaPipCore::setVuParams)
+//   VU1_CUSTOM_TIME_ADDR    (time, sin time, cos time, 1.0)
+// Kept as LITERALS for the same reason VU1_ENV_BASIS_ADDR is: vclpp expands
+// #defines only one level and an alias reaches dvp-as unresolved.
+// The mesh's four numbers (StaPipCore::setVuParams). All zero means "this mesh
+// wants nothing", which every stage is required to render bit-identically to
+// the untouched program.
+#define VU1_CUSTOM_PARAMS_ADDR 15
+// (time, sin time, cos time, 1.0) - StaPipCore::setVuTime. WRAP the seconds:
+// the generated sine's range reduction folds through a 2^23 add and loses the
+// fraction long before a float would.
+#define VU1_CUSTOM_TIME_ADDR 16
 #define VU1_STAPIP_LAST_ITEM_ADDR 21
 
 // Bias used to turn the constant near/far plane tests into clipw judgements
@@ -48,16 +65,33 @@
 // plane may classify either way, which is harmless. C++ side only.
 #define VU1_CLIP_GUARD 4096.0F
 
-// X/Y band the clip programs cut to, as a fraction of w. Must be < 1.0:
-// a vertex at exactly |x| = w scales to GS coordinate 4096.0, one past the
-// 12.4 XYZ2 maximum - it wraps to the far side of the raster window and
-// smears a wedge across the screen. 0.9 stays well inside (coord 3891)
-// while still covering the whole visible frustum (screen edge = 0.5 w),
-// so the GS scissor produces pixel-identical output. C++ side only.
+// X/Y band the clip programs cut to, as a fraction of w - the GUARD BAND
+// (docs/vu1-clipping.md). Must be < 1.0: a vertex at exactly |x| = w scales to
+// GS coordinate 4096.0, one past the 12.4 XYZ2 maximum - it wraps to the far
+// side of the raster window and smears a wedge across the screen. 0.9 stays
+// well inside (coord 3891).
+//
+// The visible frustum is far narrower than that. The projection divides by
+// RendererSettings::projectionScale (4096), so the screen edge sits at
+// width/4096 of w - 0.125 at 512 px, 0.109 vertically at 448 - and the band is
+// about SEVEN times that: a triangle may hang ~1590 px past either edge of a
+// 512x448 picture before anything is cut, and the GS scissor crops the raster
+// instead. Do not read 0.9 as "just inside the screen". C++ side only.
 #define VU1_CLIP_XY_BAND 0.9F
 
 // Buffer data (xtop)
 #define VU1_STAPIP_VERT_DATA_ADDR 2
+
+// The clip family packs its conservative six-plane mask into the unused high
+// bits of the 16-bit vertex-count word. Counts are always far below 1024.
+// Cull/as_is/billboard buffers keep the original raw count ABI.
+#define VU1_STAPIP_COUNT_MASK 0x03FF
+#define VU1_STAPIP_CLIP_MASK_SHIFT 10
+// TyraX: supported non-clip textured programs use the otherwise-unused sign
+// bit to tell VU1 whether this package must emit the per-material GS state.
+// The count itself remains in bits 0-9; clip programs keep all six high bits
+// for their plane mask.
+#define VU1_STAPIP_EMIT_STATE_FLAG 0x8000
 
 // Modified by TyraX: VU1 clipping scratch at the top of VU1 data memory
 // (1024 qwords total). The double buffer is capped at VU1_STAPIP_DBUFFER_END
@@ -71,3 +105,9 @@
 #define VU1_CLIP_PLANES_ADDR 944
 #define VU1_CLIP_POLY_A_ADDR 956
 #define VU1_CLIP_POLY_B_ADDR 986
+// Modified by TyraX: 1016..1018 hold three copies of the single colour,
+// written by the cull programs once per batch so their vertex loops read
+// colours through one pointer in both modes (stride 0 here, 3 over the
+// colour array). Like the clip scratch it is transient per program run.
+// 1019..1023 are still free. A literal, like the rest (see above).
+#define VU1_SINGLE_COLOR_COPIES_ADDR 1016

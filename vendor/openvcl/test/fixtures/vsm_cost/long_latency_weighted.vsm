@@ -1,0 +1,7 @@
+		.vu
+		.align 4
+weighted_lid:
+                    add.xyz VF05, VF05, VF00        div Q, VF01w, VF02w
+                    mul.xyz VF06, VF06, VF00        esin P, VF03x
+                    add.xyz VF07, VF07, VF00        waitp
+                    nop                             waitq

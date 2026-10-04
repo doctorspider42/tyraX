@@ -1,0 +1,1 @@
+{ "id": "4cec070a53cd9eef", "name": "Painted district scatter#district-loft-x1z0", "type": "model", "position": [96, 0, 32], "rotation": [0, 0, 0], "scale": [1, 1, 1], "color": [0.6, 0.6, 0.6], "physics": false, "collision": "none", "castShadow": false, "model": "res/models/urban/procgen-procpain-district-loft-x1z0.obj", "procSource": "procpaint00000001" }

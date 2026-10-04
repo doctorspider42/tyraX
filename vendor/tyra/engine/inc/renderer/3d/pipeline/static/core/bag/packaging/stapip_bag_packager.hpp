@@ -24,6 +24,7 @@
 #include "./stapip_bag_packages_bbox.hpp"
 #include "./stapip_bag_package.hpp"
 #include "../stapip_bag.hpp"
+#include "../../stapip_attrib.hpp"
 
 namespace Tyra {
 
@@ -35,6 +36,9 @@ class StaPipBagPackager {
   void init(Renderer3DFrustumPlanes* frustumPlanes);
   void setRenderBBox(StaPipBagPackagesBBox* bbox) { renderBBox = bbox; }
   void setMaxVertCount(const u32& count);
+  void setCapturePlaneMasks(const bool& enabled) {
+    capturePlaneMasks = enabled;
+  }
 
   /**
    * Modified by TyraX. Frustum planes pre-transformed into the current
@@ -45,6 +49,9 @@ class StaPipBagPackager {
    * bag skips frustum culling (packages are then never classified).
    */
   void setObjectSpacePlanes(const Plane* planes) { objectSpacePlanes = planes; }
+  void setClipObjectSpacePlanes(const Plane* planes) {
+    clipObjectSpacePlanes = planes;
+  }
 
   /**
    * @brief Create render packages from provided render data
@@ -59,13 +66,43 @@ class StaPipBagPackager {
    */
   StaPipBagPackage* create(u16* o_size, const StaPipBagPackage& pkg, u16 size);
 
-  CoreBBoxFrustum checkFrustum(const StaPipBagPackage& pkg);
+  /**
+   * `o_guardBandOnly` (Modified by TyraX) answers the guard-band routing
+   * question: the box left the view frustum but is inside every VU clip plane
+   * AND inside the exact near/far pair, so it needs no clipping at all. It is
+   * only ever true with VU1 clipping on - clipObjectSpacePlanes carries the
+   * two extra half-spaces at indices 6 and 7.
+   */
+  CoreBBoxFrustum checkFrustum(const StaPipBagPackage& pkg,
+                               u8* crossingMask = nullptr,
+                               bool* o_guardBandOnly = nullptr);
+
+#if TYRA_STAPIP_ATTRIB
+  /**
+   * Added by TyraX: attribution counters
+   * (docs/render-submission-attribution.md), compiled out by default.
+   *
+   * `classifyTicks` is the one EXCLUSIVE bracket in the dispatch split - the
+   * classification measured on its own rather than as a residual - and
+   * `packages` is its denominator. StaPipCore folds both into
+   * StaPipTelemetry::attrib in takeTelemetry() and clears them there.
+   */
+  struct Stats {
+    u32 classifyTicks = 0;
+    u32 packages = 0;
+    u32 mergeParts = 0;
+    u32 maskCalls = 0;
+  };
+  Stats stats;
+#endif
 
  private:
   u32 maxVertCount;
   Renderer3DFrustumPlanes* frustumPlanes;
   StaPipBagPackagesBBox* renderBBox;
   const Plane* objectSpacePlanes = nullptr;
+  const Plane* clipObjectSpacePlanes = nullptr;
+  bool capturePlaneMasks = false;
   // Two pools because a bag-level package array is still in use while one of
   // its partial packages is split into subpackages (StaPipCore::renderPkgs).
   std::vector<StaPipBagPackage> bagPackagesPool;

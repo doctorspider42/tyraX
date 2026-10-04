@@ -56,13 +56,19 @@ static std::string orderFiles(const Project& p, std::vector<OrderedFile>& out,
         if (rel.empty() || fs::path(rel).filename().string().front() == '.') continue;
         if (fs::path(rel).extension() == ".iso") continue;
         // runtime artifacts of previous host runs - never ship them
-        if (rel == "log.txt" || rel == "ps2link.run") continue;
+        if (rel == "log.txt" || rel == "ps2link.run" || rel == "launch.scene") continue;
         // Devkit runtime files + the unstripped symbol copy: work artifacts of
         // a debug session, never disc content (docs/devkit.md).
         if (rel == "livedbg.bin" || rel == "livedbg.cmd" ||
             rel == "livelink.bin" || rel == "livelink.sig" ||
             rel == "livelogic.bin" || rel == "crash.txt")
             continue;
+        // Host bake caches that a build no longer copies into bin/ (the
+        // Makefile skips them), but an older bin/ still carries: the GI solve
+        // and the baked shadow decals. Nothing on the console reads either -
+        // what ships is the PIXELS they produce, in aomap/, aoatlas/ and
+        // shadowatlas/ - and a GI cache is megabytes of disc for nothing.
+        if (rel.rfind("gi/", 0) == 0 || rel.rfind("shadow/", 0) == 0) continue;
         if (rel.size() > 4 && rel.compare(rel.size() - 4, 4, ".sym") == 0)
             continue;
         remaining.insert(rel);
@@ -80,6 +86,12 @@ static std::string orderFiles(const Project& p, std::vector<OrderedFile>& out,
 
     take(p.elfName(), "boot");
     for (const HudImage& h : p.hud) take(binPathOf(h.imagePath), "startup");
+    for (const HudBar& b : p.hudBars) {
+        if (!b.fillImage.imagePath.empty())
+            take(binPathOf(b.fillImage.imagePath), "startup");
+        if (!b.frameImage.imagePath.empty())
+            take(binPathOf(b.frameImage.imagePath), "startup");
+    }
     take("hud/use.png", "startup");
     take("hud/loading.png", "startup");
     take("hud/loading-white.png", "startup");

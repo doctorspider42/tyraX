@@ -1,5 +1,7 @@
 # Camera takes: phone-recorded 6DoF camera moves
 
+![A camera track in Cutscene Director](img/cutscene-director.png)
+
 Record a real camera move on a phone (ARKit world tracking — walk around a
 room looking around), then import it as keyframes on a **Cutscene Director**
 camera track. The handheld motion becomes a PS2 cutscene camera move.

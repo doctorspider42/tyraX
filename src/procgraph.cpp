@@ -261,18 +261,21 @@ const std::vector<ProcNodeType>& procNodeTypes() {
          .params =
              {{.key = "source", .label = "Source", .kind = PK::Enum,
                .def = 1.0f, .lo = 0.0f, .hi = 3.0f,
-               .choices = "Height|Slope|Curvature|Painted layer",
+               .choices = "Height|Slope|Curvature|Terrain material",
                .tip = "What the mask reads off the terrain. Curvature is "
-                      "positive on ridges, negative in valleys."},
-              {.key = "layer", .label = "Layer", .kind = PK::Int, .def = 0.0f,
-               .lo = 0.0f, .hi = 7.0f,
-               .tip = "Painted layer index (Source = Painted layer): 0 = the "
-                      "first layer above the terrain base material."},
+                      "positive on ridges, negative in valleys; Terrain "
+                      "material reads how much of the chosen material the "
+                      "ground actually shows."},
+              {.key = "layer", .label = "Material", .kind = PK::TerrainLayer,
+               .def = 0.0f, .lo = -1.0f, .hi = 7.0f,
+               .tip = "Which painted terrain material to read (Source = "
+                      "Terrain material). Base material = the ground under "
+                      "everything you painted."},
               {.key = "min", .label = "Range min", .kind = PK::Float,
                .def = 0.0f, .lo = -2000.0f, .hi = 2000.0f,
                .tip = "Source value that starts the band (world units for "
                       "height, degrees for slope, -1..1 for curvature, 0..1 "
-                      "for a painted layer)."},
+                      "for a material's coverage)."},
               {.key = "max", .label = "Range max", .kind = PK::Float,
                .def = 25.0f, .lo = -2000.0f, .hi = 2000.0f},
               {.key = "falloff", .label = "Falloff", .kind = PK::Float,
@@ -281,9 +284,13 @@ const std::vector<ProcNodeType>& procNodeTypes() {
                       "cutting on a line."},
               {.key = "invert", .label = "Invert", .kind = PK::Bool}},
          .desc = "Turns the terrain itself into a mask: height bands, slope "
-                 "bands, ridges vs valleys, or the weight of a hand-painted "
-                 "terrain layer. Grass in the valleys, rocks on the ridges, "
-                 "vegetation only where you painted soil - no manual work."},
+                 "bands, ridges vs valleys, or how much of one painted "
+                 "material the ground shows. Trees only on the grass and "
+                 "never on the rock you painted over it, boulders only on "
+                 "the ridges - no manual work. Feed it to a Filter by Mask "
+                 "(or straight into a scatter's density input) and set the "
+                 "band to 0.5..1 to mean \"where this material is what you "
+                 "see\"."},
 
         {.key = "MaskCombine",
          .title = "Combine Masks",
@@ -413,6 +420,39 @@ const std::vector<ProcNodeType>& procNodeTypes() {
                  "This is how a path stays walkable and how props stop growing "
                  "through the house."},
 
+        {.key = "FilterPlacement",
+         .title = "Validate Placement",
+         .category = "Filters",
+         .ins = {{.label = "points", .type = ProcType::Points}},
+         .outs = {{.label = "points", .type = ProcType::Points}},
+         .params = {
+             {.key = "roads", .label = "Roads", .kind = PK::Enum, .def = 1,
+              .lo = 0, .hi = 2, .choices = "Ignore roads|Avoid roads|Only on roads",
+              .tip = "Ignore = unrestricted. Avoid = reject full footprints touching roads. Only = keep model origins on road ribbons, including soft edges; does not snap height or heading."},
+             {.key = "roadtarget", .label = "Road", .kind = PK::ObjectName,
+              .emptyLabel = "(every road)",
+              .tip = "Optional road object name. Empty checks every road; selecting a non-road or missing name produces a warning."},
+             {.key = "collisions", .label = "Avoid model overlap", .kind = PK::Bool, .def = 1,
+              .tip = "Reject overlaps with earlier accepted instances. Use after Merge to check different species together."},
+             {.key = "scene", .label = "Avoid scene models", .kind = PK::Bool, .def = 1,
+              .tip = "Also check placed models and solid primitives. Baked procedural chunks are excluded."},
+             {.key = "clearance", .label = "Clearance", .kind = PK::Float,
+              .def = 0, .lo = 0, .hi = 64,
+              .tip = "Extra space in world units around each candidate."},
+             {.key = "material", .label = "Restrict terrain material", .kind = PK::Bool,
+              .tip = "Require the entire conservative XZ footprint to stay on the selected visible terrain material."},
+             {.key = "layer", .label = "Material", .kind = PK::TerrainLayer, .def = -1,
+              .tip = "Allowed painted layer, or the base material."},
+             {.key = "coverage", .label = "Min coverage", .kind = PK::Float,
+              .def = 0.95f, .lo = 0.01f, .hi = 1,
+              .tip = "Minimum visible material coverage throughout the footprint. 1 requires fully painted ground."}},
+         .desc = "Build-time placement check using transformed model bounds and a spatial hash. "
+                 "Put after Pick Asset and Vary, before Output. Ignores roads, omits road overlaps or "
+                 "keeps origins on a selected road ribbon. Also checks model "
+                 "collisions and footprints crossing painted material borders. Conservative "
+                 "world AABBs include rotation and scale; missing assets and prefabs are rejected. "
+                 "Merge branches before a final overlap check to prevent trees and buildings intersecting."},
+
         {.key = "Merge",
          .title = "Merge Points",
          .category = "Filters",
@@ -469,7 +509,13 @@ const std::vector<ProcNodeType>& procNodeTypes() {
                  "prefab or a model, never both; whichever of these nodes runs "
                  "last wins. Costs one draw call per instance plus one spawn "
                  "slot per member that keeps an identity - Tools > Prefabs "
-                 "shows that split for each prefab."},
+                 "shows that split for each prefab. That pool is 48 records "
+                 "TOTAL, so a few dozen instances is the ceiling here however "
+                 "cheap each one is: to scatter hundreds, use Tools > Prefabs > "
+                 "Bake to model and feed the resulting .obj to Pick Asset "
+                 "instead - a model takes no record and merges straight into "
+                 "the chunk meshes, at the price of being dumb geometry (no "
+                 "scripts, lights, physics or per-member identity)."},
 
         {.key = "Vary",
          .title = "Vary Transform",

@@ -30,6 +30,7 @@ EXTERN_IRX(sio2man_irx);
 EXTERN_IRX(padman_irx);
 EXTERN_IRX(audsrv_irx);
 EXTERN_IRX(libsd_irx);
+EXTERN_IRX(ps2snd_irx);
 EXTERN_IRX(fileXio_irx);
 EXTERN_IRX(iomanX_irx);
 EXTERN_IRX(bdm_irx);
@@ -81,6 +82,7 @@ void IrxLoader::loadAll(const bool& withUsb, const bool& withKbdMouse,
   loadSio2man(!isLoggingToFile);
   loadPadman(!isLoggingToFile);
   loadLibsd(!isLoggingToFile);
+  loadPs2snd(!isLoggingToFile);
 
   // usbd: load it whenever any USB path is active. Under ps2link this loads a
   // usbd onto the live IOP, which is correct for a NETWORK-booted ps2link
@@ -142,6 +144,21 @@ void IrxLoader::loadLibsd(const bool& verbose) {
   TYRA_ASSERT(ret >= 0, "Failed to load module: libsd_irx");
 
   if (verbose) TYRA_LOG("IRX: Libsd loaded!");
+}
+
+// TyraX: ps2snd is the EE-side RPC server over libsd - the only way the EE can
+// reach the SPU2's registers, which is what the hardware reverb needs
+// (AudioReverb). audsrv talks to libsd directly on the IOP and is unaffected;
+// the two are ordinary co-clients of the same module. Must load AFTER libsd,
+// whose exports it imports.
+void IrxLoader::loadPs2snd(const bool& verbose) {
+  if (verbose) TYRA_LOG("IRX: Loading ps2snd...");
+
+  int ret;
+  SifExecModuleBuffer(&ps2snd_irx, size_ps2snd_irx, 0, nullptr, &ret);
+  TYRA_ASSERT(ret >= 0, "Failed to load module: ps2snd_irx");
+
+  if (verbose) TYRA_LOG("IRX: ps2snd loaded!");
 }
 
 void IrxLoader::loadIO(const bool& verbose) {

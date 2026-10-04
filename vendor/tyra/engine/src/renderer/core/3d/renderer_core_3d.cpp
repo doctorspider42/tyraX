@@ -6,6 +6,7 @@
 # Copyright 2022, tyra - https://github.com/h4570/tyra
 # Licensed under Apache License 2.0
 # Sandro Sobczyński <sandro.sobczynski@gmail.com>
+# Modified by TyraX: env/portal views save and restore the frustum planes.
 */
 
 #include "renderer/core/3d/renderer_core_3d.hpp"
@@ -59,12 +60,17 @@ void RendererCore3D::setFov(const float& t_fov) {
 }
 
 void RendererCore3D::setProjection() {
-  // Modified by TyraX: the height passed here only sets the RASTER scale of
-  // the projection (the world-space frustum comes from fov + aspectRatio),
+  // Modified by TyraX: the width/height passed here only set the RASTER scale
+  // of the projection (the world-space frustum comes from fov + aspectRatio),
   // so field rendering (InterlacedField) squeezes the scene into the
-  // half-height buffer by building the projection at the render height.
+  // half-height buffer by building the projection at the render height - and
+  // the BLSS neural upscaler squeezes it further into its low-res target by
+  // dividing again with the raster scale (RendererSettings::setRasterScale;
+  // 1,1 when BLSS is off, so this is bit-identical to the old call then).
+  // Everything else - clears, 2D/HUD, post fx, the env-map/shadow-map
+  // restores - keeps the DISPLAY-sized accessors.
   projection = M4x4::perspective(
-      fov, settings->getWidth(), settings->getRenderHeightF(),
+      fov, settings->getRasterWidthF(), settings->getRasterHeightF(),
       settings->getProjectionScale(), settings->getAspectRatio(),
       settings->getNear(), settings->getFar());
 }
@@ -79,6 +85,8 @@ void RendererCore3D::pushEnvView(const Vec4& position, const Vec4& lookAt,
   savedView = view;
   savedProjection = projection;
   savedViewProj = viewProj;
+  savedFrustumPlanes = frustumPlanes;  // Modified by TyraX: see popEnvView
+  foreignView = true;  // Modified by TyraX (see isForeignViewActive)
   projection = M4x4::perspective(envFov, size, size,
                                  settings->getProjectionScale(), 1.0F,
                                  settings->getNear(), settings->getFar());
@@ -98,6 +106,8 @@ void RendererCore3D::pushPortalView(const Vec4& position, const Vec4& lookAt) {
   savedView = view;
   savedProjection = projection;
   savedViewProj = viewProj;
+  savedFrustumPlanes = frustumPlanes;  // Modified by TyraX: see popEnvView
+  foreignView = true;  // Modified by TyraX (see isForeignViewActive)
   Vec4 pos = position;
   Vec4 look = lookAt;
   M4x4::lookAt(&view, pos, look);
@@ -106,10 +116,16 @@ void RendererCore3D::pushPortalView(const Vec4& position, const Vec4& lookAt) {
 }
 
 void RendererCore3D::popEnvView(const CameraInfo3D& cameraInfo) {
+  (void)cameraInfo;  // Modified by TyraX: see the header - no longer read
+  foreignView = false;  // Modified by TyraX (see isForeignViewActive)
   view = savedView;
   projection = savedProjection;
   viewProj = savedViewProj;
-  frustumPlanes.update(cameraInfo, fov);
+  // Modified by TyraX: the planes the saved view was classified with, not
+  // planes rebuilt from the caller's camera - the two must describe the same
+  // view, or the rest of the frame classifies against a camera it is not
+  // drawing with (the projected-shadow pass passed no `up`).
+  frustumPlanes = savedFrustumPlanes;
 }
 
 u32 RendererCore3D::uploadVU1Program(VU1Program* program, const u32& address) {

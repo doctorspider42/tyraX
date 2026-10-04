@@ -12,12 +12,33 @@
 
 namespace Tyra {
 
-StaPipProgramsRepository::StaPipProgramsRepository() {}
+StaPipProgramsRepository::StaPipProgramsRepository() {
+  // TyraX addition: no game-supplied programs until one is installed.
+  for (int i = 0; i < kOverrideSlots; i++) overrides[i] = nullptr;
+}
+
+// TyraX addition: see the header - this is how an editor-generated program
+// reaches the pipeline.
+void StaPipProgramsRepository::setOverride(const StaPipProgramName& name,
+                                           StaPipVU1Program* program) {
+  const int slot = static_cast<int>(name);
+  if (slot < 0 || slot >= kOverrideSlots) return;
+  if (overrides[slot] == nullptr && program != nullptr)
+    ++overrideCount;
+  else if (overrides[slot] != nullptr && program == nullptr)
+    --overrideCount;
+  overrides[slot] = program;
+}
 
 StaPipProgramsRepository::~StaPipProgramsRepository() {}
 
 StaPipVU1Program* StaPipProgramsRepository::getProgram(
     const StaPipProgramName& name) {
+  // TyraX addition: a game-supplied program wins over the built-in one.
+  const int slot = static_cast<int>(name);
+  if (slot >= 0 && slot < kOverrideSlots && overrides[slot] != nullptr)
+    return overrides[slot];
+
   switch (name) {
     case StaPipProgramName::StaPipAsIsColor:
       return &asIsColor;
@@ -67,6 +88,12 @@ StaPipVU1Program* StaPipProgramsRepository::getProgram(
       TYRA_TRAP("Unknown VU1 program name");
       return &cullTextureDirLights;
   }
+}
+
+bool StaPipProgramsRepository::hasOverride(
+    const StaPipProgramName& name) const {
+  const int slot = static_cast<int>(name);
+  return slot >= 0 && slot < kOverrideSlots && overrides[slot] != nullptr;
 }
 
 }  // namespace Tyra

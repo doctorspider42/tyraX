@@ -17,6 +17,10 @@ struct SceneObjectData {
              //    layer zones, In Area triggers - pointInArea below)
              // 18=scatter volume (procedural authoring region; its
              //    instances are baked to static chunk meshes)
+             // 19=scroller (endless belt marker; invisible - drives
+             //    baked clone objects via SCROLLERS/SCROLLER_CLONES)
+             // 20=comment (an editor-only note: no geometry, no
+             //    collision, and its text never leaves the editor)
   float position[3];
   float rotation[3];  // degrees
   float scale[3];
@@ -37,7 +41,7 @@ struct SceneObjectData {
                   // 5 custom (physics below)
   int emitCount;  // emitters: particle pool size (density)
   float emitSize; // emitters: base particle size
-  int emitEnabled; // emitters: 0 = starts disabled (Show Object enables)
+  int emitEnabled; // emitters: 0 = off (Set Object Visible enables)
   int emitFollow;  // emitters: 1 = position is an offset from the player
   float emitSpeed;   // custom: emission speed along rotated +Y, units/s
   float emitSpread;  // custom: cone half-angle, degrees
@@ -45,7 +49,7 @@ struct SceneObjectData {
   float emitWeight;  // custom: air drag ~ 1/weight
   float emitLife;    // custom: particle lifetime, seconds
   float emitGrow;    // custom: size multiplier at end of life
-  float emitOpacity; // custom: base alpha 0..1
+  float emitOpacity; // fog/custom: base alpha 0..1
   int emitDieGround; // custom: 1 = particle dies on the terrain
   int snd;        // sound emitters: index into SND_PATHS, -1 = none
   int sndAuto;    // sound emitters: 1 = plays while in range
@@ -53,23 +57,45 @@ struct SceneObjectData {
   float sndInterval; // sound emitters: retrigger period (s), 0 = loop
   int sndOnPlayer;   // sound emitters: 1 = centered on the player
                      // (plain stereo, full volume, no distance/pan)
+  int sndReverb;     // sound emitters: 1 = heard through the reverb
+                     // zone the player is in (REVERB_ZONES below);
+                     // 0 = always dry
+  int sndPriority;   // sound emitters: who keeps a channel when more
+                     // are audible than there are voices - higher
+                     // wins, equals go to the loudest (docs/sound.md)
   float lightBright; // point lights (type 9): baked intensity
   float lightRadius; // point lights (type 9): falloff radius
   int lightDynamic;  // point lights: 1 = live (engine-lit each frame,
                      // Set Light / flicker work) instead of baked
   float lightFlicker; // dynamic lights: 0 steady .. 1 full wobble
+  int lightSpot;     // dynamic lights: 1 = cone down local -Y
+  float lightSpotAngle; // spot lights: cone half-angle, degrees
+  int lightShadowVolumes; // spot lights: does this one carve
+                     // shadow volumes? 0 = follow the project
+                     // (SPOT_SHADOW_VOLUMES), 1 = off, 2 = on.
+                     // Only one spot casts per frame - the count
+                     // band is one buffer (docs/shadows.md)
   int lightBeam;     // point lights: 0 none, 1 glow corona,
                      // 2 corona + cone shaft (additive, at the source)
   int saveState;  // 1 = position/color/visibility persisted in saves
-  int collision;  // 0 = box (models: mesh AABB), 1 = mesh, 2 = none
+  int collision;  // 0 = box, 1 = mesh, 2 = none, 3 = invisible Box
   float drawDistance;  // not drawn farther than this from the camera;
                        // 0 = unlimited (collision/logic always run)
   int reflected;  // 1 = rendered into the dynamic ("@sky") env map
+  int reflectionProxy; // 1 = one-material box in env maps only
   int projShadow; // 1 = live projected silhouette shadow (the
                   // per-object AO 'castShadow' is baked, not here)
+  int shadowMode; // which DYNAMIC shadow this object casts:
+                  // 0 = follow the project (a blob if BLOB_SHADOWS
+                  // is on and the object is one of the moving
+                  // things that get one, a projected silhouette if
+                  // projShadow), 1 = none, 2 = blob, 3 = projected
   int dynLit;     // 1 = lit by the LIT VU1 program from the probe
                   // grid every frame instead of baked vertex colors
                   // (docs/global-illumination.md)
+  int prelit;     // 1 = the object's TEXTURE already carries its
+                  // light, so its vertex colors go neutral and no
+                  // baked term is added (docs/prelit-models.md)
   int animModel;  // animated models: index into ANIM_MODEL_PATHS, -1 = none
   const char* animClip;  // animated models: starting clip ("" = first)
   int animAutoplay;      // animated models: 1 = play at scene start
@@ -82,11 +108,28 @@ struct SceneObjectData {
                   // between scale and rotation - X-forward-authored models
                   // set +-90; runtime facing (faceYaw/AI) stays pure
   int primDetail;        // segments (curved) or box subdivisions/edge
+  int primRings;  // cylinders: 1 = also subdivide the side along
+                  // the axis (one ring per four segments), which is
+                  // what a light overhead needs to shade smoothly
   int layer;      // streaming layer (SCENE_LAYER_* tables), -1 = none:
                   // always resident, never streamed out
   int batchStatic; // 1 = may merge into a combined static batch bag
-                   // (build-time verdict: non-moving primitive with
-                   // no physics/logic/graph refs/save-state/layer)
+                   // (build-time verdict: non-moving primitive or
+                   // compact model with no special runtime path)
+  float vuParams[4]; // the four numbers this mesh hands to the
+                   // project's own VU1 microprogram, if it has one
+                   // (docs/vu-authoring.md). All zero = no effect,
+                   // which every stage is required to render
+                   // bit-identically to the untouched program.
+                   // Uploaded per BAG, so batched objects share one
+                   // set - one bag is one sendObjectData.
+  int impostorModel = -1; // optional far representation, original owns collision
+  float impostorDistance = 0.0F; // disabled at zero
+  bool impostorBillboard = false; // ordered view parts
+  int impostorViews = 8; // 4, 8 or 16 baked captures
+  int emitAdditive = 0; // emitters: 1 = additive blending (fire)
+  int emitFrames = 1;   // flipbook frames: MATERIAL_PATHS material..+N-1
+  float emitFps = 0.0F; // flipbook frames per second
 };
 
 // An Area object's box (type 17): the unit cube under
@@ -190,50 +233,67 @@ inline bool areaHoldsObject(const AreaBasis& b,
          r * r;
 }
 
-constexpr int SCENE_COUNT = 1;
+inline constexpr int SCENE_COUNT = 1;
+inline constexpr int START_SCENE = 0;
 
-// scene "main"
-constexpr SceneObjectData SCENE_0_OBJECTS[25] = {
-    {6, {0.0F, 0.0F, 0.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.15F, 0.9F, 0.9F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // player-1
-    {18, {0.0F, 12.0F, 0.0F}, {0.0F, 0.0F, 0.0F}, {138.0F, 60.0F, 138.0F}, {0.45F, 0.8F, 0.55F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 2, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // forest
-    {18, {0.0F, 10.0F, 0.0F}, {0.0F, 0.0F, 0.0F}, {60.0F, 40.0F, 60.0F}, {0.45F, 0.8F, 0.55F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 2, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // colonnade
-    {18, {22.0F, 10.0F, -20.0F}, {0.0F, 0.0F, 0.0F}, {16.0F, 40.0F, 16.0F}, {0.45F, 0.8F, 0.55F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 2, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // cairn
-    {18, {0.0F, 12.0F, 30.0F}, {0.0F, 0.0F, 0.0F}, {120.0F, 40.0F, 70.0F}, {0.45F, 0.8F, 0.55F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 2, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // fence
-    {18, {-44.0F, 12.0F, -34.0F}, {0.0F, 0.0F, 0.0F}, {46.0F, 40.0F, 40.0F}, {0.45F, 0.8F, 0.55F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 2, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // orchard
-    {18, {40.0F, 5.5F, 34.0F}, {0.0F, 0.0F, 0.0F}, {40.0F, 9.0F, 34.0F}, {0.45F, 0.8F, 0.55F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 2, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // crystals
-    {0, {0.0F, 0.15F, 0.0F}, {0.0F, 0.0F, 0.0F}, {26.0F, 0.3F, 26.0F}, {0.66F, 0.62F, 0.53F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 0, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 1, -1, 0},  // plaza
-    {5, {-35.0F, 0.0F, -35.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 0, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 2, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, 55.0F, 0.0F, 16, -1, 0},  // forest#pine-xm1zm1
-    {5, {-35.0F, 0.0F, 35.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 2, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, 55.0F, 0.0F, 16, -1, 0},  // forest#pine-xm1z0
-    {5, {35.0F, 0.0F, -35.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 2, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 2, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, 55.0F, 0.0F, 16, -1, 0},  // forest#pine-x0zm1
-    {5, {35.0F, 0.0F, 35.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 3, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 2, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, 55.0F, 0.0F, 16, -1, 0},  // forest#pine-x0z0
-    {5, {-35.0F, 0.0F, -35.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 4, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 2, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, 55.0F, 0.0F, 16, -1, 0},  // forest#rock-xm1zm1
-    {5, {-35.0F, 0.0F, 35.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 5, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 2, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, 55.0F, 0.0F, 16, -1, 0},  // forest#rock-xm1z0
-    {5, {35.0F, 0.0F, -35.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 6, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 2, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, 55.0F, 0.0F, 16, -1, 0},  // forest#rock-x0zm1
-    {5, {35.0F, 0.0F, 35.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 7, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 2, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, 55.0F, 0.0F, 16, -1, 0},  // forest#rock-x0z0
-    {5, {-32.0F, 0.0F, -32.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 8, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 2, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, 45.0F, 0.0F, 16, -1, 0},  // colonnade#pillar-xm1zm1
-    {5, {-32.0F, 0.0F, 32.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 9, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 2, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, 45.0F, 0.0F, 16, -1, 0},  // colonnade#pillar-xm1z0
-    {5, {32.0F, 0.0F, -32.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 10, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 2, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, 45.0F, 0.0F, 16, -1, 0},  // colonnade#pillar-x0zm1
-    {5, {32.0F, 0.0F, 32.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 11, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 2, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, 45.0F, 0.0F, 16, -1, 0},  // colonnade#pillar-x0z0
-    {5, {48.0F, 0.0F, -48.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 12, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 2, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // cairn#rock-x0zm1
-    {5, {-48.0F, 0.0F, 48.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 13, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 2, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // fence#post-xm1z0
-    {5, {48.0F, 0.0F, 48.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 14, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 2, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // fence#post-x0z0
-    {5, {-48.0F, 0.0F, -48.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 15, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 2, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, -1, 0},  // orchard#pine-xm1zm1
-    {5, {48.0F, 0.0F, 48.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, 16, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1.0F, 8.0F, 0, 0.0F, 0, 0, 2, 0.0F, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, 40.0F, 0.0F, 16, -1, 0},  // crystals#crystal-x0z0
-};
+extern const SceneObjectData SCENE_0_OBJECTS[];
 
-constexpr int SCENE_OBJECT_COUNTS[SCENE_COUNT] = {25};
+extern const int SCENE_OBJECT_COUNTS[SCENE_COUNT];
 inline const SceneObjectData* SCENE_OBJECT_TABLES[SCENE_COUNT] = {SCENE_0_OBJECTS};
 
-constexpr unsigned long long SCENE_0_OBJECT_ID_HASHES[25] = {0x52c006de58aeff5fULL, 0xfc2ed8ad6641c67cULL, 0xe4a799329fd6e632ULL, 0xa3260fe423f1f2a8ULL, 0x559584bbede0346eULL, 0xdf7f3a0183a92542ULL, 0xedecee712fad9020ULL, 0xa5b7698e36922f64ULL, 0x74c6cbf7ffcadc68ULL, 0x73ccc40bca115797ULL, 0x5338251220fd51cfULL, 0x04a4d671d981f067ULL, 0xe9d46ec0fc623e14ULL, 0x7e953e0b96714484ULL, 0xaf40160299ad0679ULL, 0x2a1916c0f923e0c2ULL, 0x165df1304d1f7f21ULL, 0xf0d6c190f3443e39ULL, 0x4a9f1b0a5a869e7bULL, 0x72d5e6796d5a980dULL, 0x732d7da4f111e310ULL, 0x6ea302b480c523b1ULL, 0xbc3d7ccde9c572dcULL, 0x80266cdcac8da3b3ULL, 0x8143ea1ba2ccaa52ULL};
+struct EmitterLayerData { int scene; int object; float offset[3]; float area[3]; };
+inline constexpr int EMITTER_LAYER_COUNT = 0;
+inline constexpr EmitterLayerData EMITTER_LAYERS[1] = {
+    {-1, -1, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}}
+};
+inline constexpr SceneObjectData EMITTER_LAYER_OBJECTS[1] = {
+    {0, {0.0F, 0.5F, 0.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0, 0.0F, 0, 0, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}, -1, 0.0F, false, 8, 0, 1, 12.0F},
+};
+
+extern const unsigned long long SCENE_0_OBJECT_ID_HASHES[];
 inline const unsigned long long* SCENE_OBJECT_ID_TABLES[SCENE_COUNT] = {SCENE_0_OBJECT_ID_HASHES};
 
-constexpr int SCENE_LAYER_COUNTS[SCENE_COUNT] = {0};
-constexpr int SCENE_MAX_LAYERS = 1;
-constexpr bool SCENE_LAYER_STARTS[SCENE_COUNT][SCENE_MAX_LAYERS] = {{true}};
-constexpr float SCENE_LAYER_STREAM_XS[SCENE_COUNT][SCENE_MAX_LAYERS] = {{0.0F}};
-constexpr float SCENE_LAYER_STREAM_ZS[SCENE_COUNT][SCENE_MAX_LAYERS] = {{0.0F}};
-constexpr float SCENE_LAYER_STREAM_RADII[SCENE_COUNT][SCENE_MAX_LAYERS] = {{0.0F}};
-constexpr int SCENE_LAYER_STREAM_AREAS[SCENE_COUNT][SCENE_MAX_LAYERS] = {{-1}};
+// Endless scrollers (type 19). SCROLLERS holds per-belt state;
+// SCROLLER_CLONES maps each baked clone object to its scroller +
+// belt phase; SCROLLER_HIDDEN lists the authored member templates
+// the director deactivates. Object indices are into the clone's
+// own scene table (SCENE_*_OBJECTS).
+// `cells` and the per-clone `copy` are the cell arithmetic that
+// makes an endless belt stop repeating: together with the belt's
+// fold counter they give each instance an absolute cell index,
+// which the per-cell variation fields hash on (see
+// docs/endless-scroller.md and src/scrollsim.cpp).
+struct ScrollerData {
+  int scene; int object; float axis[3]; float side[3]; float speed;
+  float windowMin; float windowMax; float span; int autostart;
+  int cells; int varySeed;
+};
+struct ScrollerClone {
+  int scene; int object; int scroller; float phase; float segLen;
+  float home[3]; float homeRotY; float homeScale[3];
+  int copy; unsigned varyKey; float chance;
+  int variantIndex; int variantCount; unsigned variantKey;
+  float yawVary; float offsetVary; float scaleVary;
+};
+struct ScrollerHidden { int scene; int object; };
+inline constexpr int SCROLLER_COUNT = 0;
+inline constexpr ScrollerData SCROLLERS[1] = {
+    {0, -1, {0,0,1}, {1,0,0}, 0.0F, 0.0F, 0.0F, 1.0F, 0, 1, 1}
+};
+inline constexpr int SCROLLER_CLONE_COUNT = 0;
+inline constexpr ScrollerClone SCROLLER_CLONES[1] = {
+    {0, -1, 0, 0.0F, 1.0F, {0,0,0}, 0.0F, {1,1,1}, 0, 0U, 1.0F, 0, 0, 0U, 0.0F, 0.0F, 0.0F}
+};
+inline constexpr int SCROLLER_HIDDEN_COUNT = 0;
+inline constexpr ScrollerHidden SCROLLER_HIDDEN[1] = {{0, -1}};
+
+inline constexpr int SCENE_LAYER_COUNTS[SCENE_COUNT] = {0};
+inline constexpr int SCENE_MAX_LAYERS = 1;
+inline constexpr bool SCENE_LAYER_STARTS[SCENE_COUNT][SCENE_MAX_LAYERS] = {{true}};
+inline constexpr float SCENE_LAYER_STREAM_XS[SCENE_COUNT][SCENE_MAX_LAYERS] = {{0.0F}};
+inline constexpr float SCENE_LAYER_STREAM_ZS[SCENE_COUNT][SCENE_MAX_LAYERS] = {{0.0F}};
+inline constexpr float SCENE_LAYER_STREAM_RADII[SCENE_COUNT][SCENE_MAX_LAYERS] = {{0.0F}};
+inline constexpr int SCENE_LAYER_STREAM_AREAS[SCENE_COUNT][SCENE_MAX_LAYERS] = {{-1}};
 
 // Mirrors (type 15): each entry re-draws its target objects
 // reflected across the mirror plane (renderMirrors in the game
@@ -251,11 +311,33 @@ struct MirrorData {
   int firstCand;      // first entry in CATCH_CANDIDATES
   int candCount;
 };
-constexpr int MIRROR_COUNT = 0;
-constexpr MirrorData MIRRORS[1] = {
+inline constexpr int MIRROR_COUNT = 0;
+inline constexpr MirrorData MIRRORS[1] = {
     {0, -1, 0.0F, 0, 0, 0, 0, 64, -1, 0, 0}
 };
-constexpr int MIRROR_TARGETS[1] = {-1};
+inline constexpr int MIRROR_TARGETS[1] = {-1};
+
+// A room for the sound effects. While the player stands inside
+// the area, the SPU2's reverb unit runs `preset` at `amount`.
+// There is ONE such unit on the console, so zones never mix:
+// the highest `priority` inside wins, and the game ramps the
+// amount rather than cutting (see TerrainGame::updateReverb).
+struct ReverbZoneData {
+  int scene;     // scene index
+  int object;    // the area's index in its scene table
+  int preset;    // 0 off, 1 room, 2-4 studio, 5 hall,
+                 // 6 space echo, 7 echo, 8 delay, 9 pipe
+                 // (these ARE libsd's SD_EFFECT_MODE_*)
+  int amount;    // wet level, 0..100
+  int delay;     // 0..127, echo/delay presets only
+  int feedback;  // 0..127, echo/delay presets only
+  int priority;  // overlapping zones: the highest wins
+};
+inline constexpr int REVERB_ZONE_COUNT = 0;
+inline constexpr bool REVERB_HAS_NODE = false;
+inline constexpr ReverbZoneData REVERB_ZONES[1] = {
+    {0, -1, 0, 0, 0, 0, 0}
+};
 
 // Raytraced-mirror model proxies: decimated triangle lists
 // in MODEL LOCAL space, 15 floats per triangle (pos + uv
@@ -269,11 +351,11 @@ struct RtProxyData {
   int firstFloat;  // offset into RT_PROXY_VERTS
   int triCount;
 };
-constexpr int RT_PROXY_COUNT = 0;
-constexpr RtProxyData RT_PROXIES[1] = {
+inline constexpr int RT_PROXY_COUNT = 0;
+inline constexpr RtProxyData RT_PROXIES[1] = {
     {0, -1, -1, 0, 0, 0}
 };
-constexpr float RT_PROXY_VERTS[1] = {
+inline constexpr float RT_PROXY_VERTS[1] = {
   0.0F
 };
 // Animated-model proxies: fixed VERTEX indices (3 per
@@ -290,11 +372,11 @@ struct RtAnimProxyData {
   int firstIdx;   // offset into RT_ANIM_PROXY_TRIS (3/tri)
   int triCount;
 };
-constexpr int RT_ANIM_PROXY_COUNT = 0;
-constexpr RtAnimProxyData RT_ANIM_PROXIES[1] = {
+inline constexpr int RT_ANIM_PROXY_COUNT = 0;
+inline constexpr RtAnimProxyData RT_ANIM_PROXIES[1] = {
     {0, -1, -1, 0, 0, 0}
 };
-constexpr int RT_ANIM_PROXY_TRIS[1] = {
+inline constexpr int RT_ANIM_PROXY_TRIS[1] = {
   0
 };
 
@@ -310,11 +392,11 @@ struct CamFeedData {
   int firstCand;    // first entry in CATCH_CANDIDATES
   int candCount;
 };
-constexpr int CAM_FEED_COUNT = 0;
-constexpr CamFeedData CAM_FEEDS[1] = {
+inline constexpr int CAM_FEED_COUNT = 0;
+inline constexpr CamFeedData CAM_FEEDS[1] = {
     {0, -1, 60.0F, 1, 0, 0, -1, 0, 0}
 };
-constexpr int CAM_FEED_VIEWS[1] = {-1};
+inline constexpr int CAM_FEED_VIEWS[1] = {-1};
 // Surfaces showing a live feed: kind 0 = the scene's camera
 // feed, kind 1 = a raytraced mirror's traced image (src =
 // the mirror's scene-table index).
@@ -324,8 +406,8 @@ struct ObjectFeedData {
   int kind;
   int src;
 };
-constexpr int OBJECT_FEED_COUNT = 0;
-constexpr ObjectFeedData OBJECT_FEEDS[1] = {
+inline constexpr int OBJECT_FEED_COUNT = 0;
+inline constexpr ObjectFeedData OBJECT_FEEDS[1] = {
     {0, -1, 0, -1}
 };
 
@@ -348,136 +430,196 @@ struct PortalData {
   int firstCand;        // first entry in CATCH_CANDIDATES
   int candCount;
 };
-constexpr int PORTAL_COUNT = 0;
-constexpr PortalData PORTALS[1] = {
+inline constexpr int PORTAL_COUNT = 0;
+inline constexpr PortalData PORTALS[1] = {
     {0, -1, -1, 0, 0, 0, 0, 0, -1, 0, 0}
 };
-constexpr int PORTAL_VIEW_OBJECTS[1] = {-1};
+inline constexpr int PORTAL_VIEW_OBJECTS[1] = {-1};
 
 // Objects a live catch area re-tests every frame (collectLiveCaught
 // in the game cpp). Indices are scene-table indices, sliced per
 // owner by MirrorData/CamFeedData/PortalData::firstCand.
-constexpr int CATCH_CANDIDATES[1] = {-1};
+inline constexpr int CATCH_CANDIDATES[1] = {-1};
 
-constexpr int SND_COUNT = 0;
+inline constexpr int SND_COUNT = 0;
 inline const char* SND_PATHS[1] = {""};
 
-constexpr int PLAYER_INDEXES[SCENE_COUNT] = {0};
-constexpr int PLAYER_MODES[SCENE_COUNT] = {0};
-constexpr float PLAYER_WALK_SPEEDS[SCENE_COUNT] = {0.1F};
-constexpr float PLAYER_LOOK_SPEEDS[SCENE_COUNT] = {1.0F};
-constexpr float PLAYER_EYE_HEIGHTS[SCENE_COUNT] = {1.8F};
-constexpr float PLAYER_JUMP_SPEEDS[SCENE_COUNT] = {4.5F};
-constexpr bool PLAYER_CAN_JUMPS[SCENE_COUNT] = {true};
-constexpr float PLAYER_RUN_THRESHOLDS[SCENE_COUNT] = {0.55F};
-constexpr float PLAYER_CAM_DISTS[SCENE_COUNT] = {6.0F};
-constexpr float PLAYER_CAM_HEIGHTS[SCENE_COUNT] = {1.6F};
-constexpr float PLAYER_CAM_SHOULDERS[SCENE_COUNT] = {0.0F};
-constexpr float PLAYER_TURN_RATES[SCENE_COUNT] = {0.25F};
-constexpr int PLAYER_CAM_STYLES[SCENE_COUNT] = {0};
-constexpr float PLAYER_CAM_PITCHES[SCENE_COUNT] = {0.959931F};
-constexpr float PLAYER_CAM_YAWS[SCENE_COUNT] = {0.785398F};
-constexpr bool PLAYER_CAM_YAW_ROTATES[SCENE_COUNT] = {false};
-constexpr const char* PLAYER_IDLE_CLIPS[SCENE_COUNT] = {""};
-constexpr const char* PLAYER_WALK_CLIPS[SCENE_COUNT] = {""};
-constexpr const char* PLAYER_RUN_CLIPS[SCENE_COUNT] = {""};
-constexpr const char* PLAYER_JUMP_CLIPS[SCENE_COUNT] = {""};
-constexpr const char* PLAYER_BACK_CLIPS[SCENE_COUNT] = {""};
-constexpr const char* PLAYER_STRAFE_L_CLIPS[SCENE_COUNT] = {""};
-constexpr const char* PLAYER_STRAFE_R_CLIPS[SCENE_COUNT] = {""};
-constexpr bool PLAYER_FACE_CAMERAS[SCENE_COUNT] = {false};
-constexpr int PLAYER2_INDEXES[SCENE_COUNT] = {-1};
-constexpr int PLAYER2_MODES[SCENE_COUNT] = {0};
-constexpr float PLAYER2_WALK_SPEEDS[SCENE_COUNT] = {0.1F};
-constexpr float PLAYER2_LOOK_SPEEDS[SCENE_COUNT] = {1.0F};
-constexpr float PLAYER2_EYE_HEIGHTS[SCENE_COUNT] = {1.8F};
-constexpr float PLAYER2_JUMP_SPEEDS[SCENE_COUNT] = {4.5F};
-constexpr bool PLAYER2_CAN_JUMPS[SCENE_COUNT] = {true};
-constexpr float PLAYER2_RUN_THRESHOLDS[SCENE_COUNT] = {0.55F};
-constexpr float PLAYER2_CAM_DISTS[SCENE_COUNT] = {6.0F};
-constexpr float PLAYER2_CAM_HEIGHTS[SCENE_COUNT] = {1.6F};
-constexpr float PLAYER2_CAM_SHOULDERS[SCENE_COUNT] = {0.0F};
-constexpr float PLAYER2_TURN_RATES[SCENE_COUNT] = {0.25F};
-constexpr int PLAYER2_CAM_STYLES[SCENE_COUNT] = {0};
-constexpr float PLAYER2_CAM_PITCHES[SCENE_COUNT] = {0.959931F};
-constexpr float PLAYER2_CAM_YAWS[SCENE_COUNT] = {0.785398F};
-constexpr bool PLAYER2_CAM_YAW_ROTATES[SCENE_COUNT] = {false};
-constexpr const char* PLAYER2_IDLE_CLIPS[SCENE_COUNT] = {""};
-constexpr const char* PLAYER2_WALK_CLIPS[SCENE_COUNT] = {""};
-constexpr const char* PLAYER2_RUN_CLIPS[SCENE_COUNT] = {""};
-constexpr const char* PLAYER2_JUMP_CLIPS[SCENE_COUNT] = {""};
-constexpr const char* PLAYER2_BACK_CLIPS[SCENE_COUNT] = {""};
-constexpr const char* PLAYER2_STRAFE_L_CLIPS[SCENE_COUNT] = {""};
-constexpr const char* PLAYER2_STRAFE_R_CLIPS[SCENE_COUNT] = {""};
-constexpr bool PLAYER2_FACE_CAMERAS[SCENE_COUNT] = {false};
+inline constexpr int PLAYER_INDEXES[SCENE_COUNT] = {0};
+inline constexpr int PLAYER_MODES[SCENE_COUNT] = {0};
+inline constexpr float PLAYER_WALK_SPEEDS[SCENE_COUNT] = {0.1F};
+inline constexpr float PLAYER_RUN_SPEEDS[SCENE_COUNT] = {0.1F};
+inline constexpr float PLAYER_SPRINT_SPEEDS[SCENE_COUNT] = {0.18F};
+inline constexpr float PLAYER_LOOK_SPEEDS[SCENE_COUNT] = {1.0F};
+inline constexpr float PLAYER_EYE_HEIGHTS[SCENE_COUNT] = {1.8F};
+inline constexpr float PLAYER_JUMP_SPEEDS[SCENE_COUNT] = {4.5F};
+inline constexpr bool PLAYER_CAN_JUMPS[SCENE_COUNT] = {true};
+inline constexpr float PLAYER_RUN_THRESHOLDS[SCENE_COUNT] = {0.55F};
+inline constexpr float PLAYER_CAM_DISTS[SCENE_COUNT] = {6.0F};
+inline constexpr float PLAYER_CAM_HEIGHTS[SCENE_COUNT] = {1.6F};
+inline constexpr float PLAYER_CAM_SHOULDERS[SCENE_COUNT] = {0.0F};
+inline constexpr float PLAYER_TURN_RATES[SCENE_COUNT] = {0.25F};
+inline constexpr int PLAYER_CAM_STYLES[SCENE_COUNT] = {0};
+inline constexpr float PLAYER_CAM_PITCHES[SCENE_COUNT] = {0.959931F};
+inline constexpr float PLAYER_CAM_YAWS[SCENE_COUNT] = {0.785398F};
+inline constexpr bool PLAYER_CAM_YAW_ROTATES[SCENE_COUNT] = {false};
+inline constexpr const char* PLAYER_IDLE_CLIPS[SCENE_COUNT] = {""};
+inline constexpr const char* PLAYER_WALK_CLIPS[SCENE_COUNT] = {""};
+inline constexpr const char* PLAYER_RUN_CLIPS[SCENE_COUNT] = {""};
+inline constexpr const char* PLAYER_SPRINT_CLIPS[SCENE_COUNT] = {""};
+inline constexpr const char* PLAYER_JUMP_CLIPS[SCENE_COUNT] = {""};
+inline constexpr const char* PLAYER_BACK_CLIPS[SCENE_COUNT] = {""};
+inline constexpr const char* PLAYER_STRAFE_L_CLIPS[SCENE_COUNT] = {""};
+inline constexpr const char* PLAYER_STRAFE_R_CLIPS[SCENE_COUNT] = {""};
+inline constexpr bool PLAYER_FACE_CAMERAS[SCENE_COUNT] = {false};
+inline constexpr int PLAYER2_INDEXES[SCENE_COUNT] = {-1};
+inline constexpr int PLAYER2_MODES[SCENE_COUNT] = {0};
+inline constexpr float PLAYER2_WALK_SPEEDS[SCENE_COUNT] = {0.1F};
+inline constexpr float PLAYER2_RUN_SPEEDS[SCENE_COUNT] = {0.1F};
+inline constexpr float PLAYER2_SPRINT_SPEEDS[SCENE_COUNT] = {0.18F};
+inline constexpr float PLAYER2_LOOK_SPEEDS[SCENE_COUNT] = {1.0F};
+inline constexpr float PLAYER2_EYE_HEIGHTS[SCENE_COUNT] = {1.8F};
+inline constexpr float PLAYER2_JUMP_SPEEDS[SCENE_COUNT] = {4.5F};
+inline constexpr bool PLAYER2_CAN_JUMPS[SCENE_COUNT] = {true};
+inline constexpr float PLAYER2_RUN_THRESHOLDS[SCENE_COUNT] = {0.55F};
+inline constexpr float PLAYER2_CAM_DISTS[SCENE_COUNT] = {6.0F};
+inline constexpr float PLAYER2_CAM_HEIGHTS[SCENE_COUNT] = {1.6F};
+inline constexpr float PLAYER2_CAM_SHOULDERS[SCENE_COUNT] = {0.0F};
+inline constexpr float PLAYER2_TURN_RATES[SCENE_COUNT] = {0.25F};
+inline constexpr int PLAYER2_CAM_STYLES[SCENE_COUNT] = {0};
+inline constexpr float PLAYER2_CAM_PITCHES[SCENE_COUNT] = {0.959931F};
+inline constexpr float PLAYER2_CAM_YAWS[SCENE_COUNT] = {0.785398F};
+inline constexpr bool PLAYER2_CAM_YAW_ROTATES[SCENE_COUNT] = {false};
+inline constexpr const char* PLAYER2_IDLE_CLIPS[SCENE_COUNT] = {""};
+inline constexpr const char* PLAYER2_WALK_CLIPS[SCENE_COUNT] = {""};
+inline constexpr const char* PLAYER2_RUN_CLIPS[SCENE_COUNT] = {""};
+inline constexpr const char* PLAYER2_SPRINT_CLIPS[SCENE_COUNT] = {""};
+inline constexpr const char* PLAYER2_JUMP_CLIPS[SCENE_COUNT] = {""};
+inline constexpr const char* PLAYER2_BACK_CLIPS[SCENE_COUNT] = {""};
+inline constexpr const char* PLAYER2_STRAFE_L_CLIPS[SCENE_COUNT] = {""};
+inline constexpr const char* PLAYER2_STRAFE_R_CLIPS[SCENE_COUNT] = {""};
+inline constexpr bool PLAYER2_FACE_CAMERAS[SCENE_COUNT] = {false};
 
-constexpr float TERRAIN_WIDTHS[SCENE_COUNT] = {140.0F};
-constexpr float TERRAIN_DEPTHS[SCENE_COUNT] = {140.0F};
-constexpr float SCENE_LIGHT_XS[SCENE_COUNT] = {0.369465F};
-constexpr float SCENE_LIGHT_YS[SCENE_COUNT] = {0.818814F};
-constexpr float SCENE_LIGHT_ZS[SCENE_COUNT] = {0.439363F};
-constexpr float SCENE_AMBIENTS[SCENE_COUNT] = {0.55F};
-constexpr float SCENE_DIFFUSES[SCENE_COUNT] = {0.45F};
-constexpr float SCENE_LIGHT_COL_RS[SCENE_COUNT] = {1.0F};
-constexpr float SCENE_LIGHT_COL_GS[SCENE_COUNT] = {1.0F};
-constexpr float SCENE_LIGHT_COL_BS[SCENE_COUNT] = {1.0F};
-constexpr float SCENE_BRIGHTNESSES[SCENE_COUNT] = {1.0F};
-constexpr bool SCENE_AO_ENABLEDS[SCENE_COUNT] = {true};
-constexpr float SCENE_AO_STRENGTHS[SCENE_COUNT] = {0.55F};
-constexpr float SCENE_AO_RADII[SCENE_COUNT] = {2.5F};
-constexpr bool CLIP_PRECISES[SCENE_COUNT] = {true};
-constexpr bool CLIP_VU1S[SCENE_COUNT] = {true};
-constexpr float SKY_RS[SCENE_COUNT] = {63.75F};
-constexpr float SKY_GS[SCENE_COUNT] = {140.25F};
-constexpr float SKY_BS[SCENE_COUNT] = {198.9F};
-constexpr bool SKY_DOMES[SCENE_COUNT] = {true};
-constexpr float SKY_ZENITH_EXPS[SCENE_COUNT] = {1.0F};
-constexpr float SKY_TOP_RS[SCENE_COUNT] = {20.4F};
-constexpr float SKY_TOP_GS[SCENE_COUNT] = {76.5F};
-constexpr float SKY_TOP_BS[SCENE_COUNT] = {165.75F};
-constexpr int POSTFX_BLOOMS[SCENE_COUNT] = {0};
-constexpr int POSTFX_BLOOM_CUTS[SCENE_COUNT] = {0};
-constexpr int POSTFX_BLOOM_SPREADS[SCENE_COUNT] = {1};
-constexpr int POSTFX_GRAINS[SCENE_COUNT] = {0};
-constexpr int POSTFX_FLARES[SCENE_COUNT] = {0};
-constexpr int POSTFX_GODRAYS_ARR[SCENE_COUNT] = {0};
-constexpr int FLARE_USED = 0;
-constexpr int BEAMS_USED = 0;
-constexpr int BLOB_SHADOWS = 0;
-constexpr int PROJ_SHADOWS_USED = 0;
-constexpr int POSTFX_DOFS[SCENE_COUNT] = {0};
-constexpr float POSTFX_DOF_FOCUSES[SCENE_COUNT] = {20.0F};
-constexpr float POSTFX_DOF_RANGES[SCENE_COUNT] = {15.0F};
-constexpr bool FOG_ENABLEDS[SCENE_COUNT] = {false};
-constexpr float FOG_RS[SCENE_COUNT] = {127.5F};
-constexpr float FOG_GS[SCENE_COUNT] = {127.5F};
-constexpr float FOG_BS[SCENE_COUNT] = {140.25F};
-constexpr float FOG_STARTS[SCENE_COUNT] = {15.0F};
-constexpr float FOG_ENDS[SCENE_COUNT] = {120.0F};
-constexpr bool FLASHLIGHT_ENABLEDS[SCENE_COUNT] = {false};
-constexpr float FLASHLIGHT_RS[SCENE_COUNT] = {96.0F};
-constexpr float FLASHLIGHT_GS[SCENE_COUNT] = {96.0F};
-constexpr float FLASHLIGHT_BS[SCENE_COUNT] = {79.36F};
-constexpr float FLASHLIGHT_RANGES[SCENE_COUNT] = {30.0F};
-constexpr float FLASHLIGHT_ANGLES[SCENE_COUNT] = {20.0F};
-constexpr const char* FLASHLIGHT_TEXS[SCENE_COUNT] = {""};
-constexpr bool HIGHLIGHT_USABLES[SCENE_COUNT] = {false};
-constexpr float HIGHLIGHT_DISTANCES[SCENE_COUNT] = {6.0F};
-constexpr float HIGHLIGHT_RS[SCENE_COUNT] = {255.0F};
-constexpr float HIGHLIGHT_GS[SCENE_COUNT] = {216.75F};
-constexpr float HIGHLIGHT_BS[SCENE_COUNT] = {38.25F};
-constexpr float HIGHLIGHT_WIDTHS[SCENE_COUNT] = {0.35F};
-constexpr int HIGHLIGHT_STEPS_S[SCENE_COUNT] = {4};
-constexpr float HIGHLIGHT_OPACITIES[SCENE_COUNT] = {0.56F};
-constexpr bool HIGHLIGHT_OVERLAYS[SCENE_COUNT] = {false};
+inline constexpr float TERRAIN_WIDTHS[SCENE_COUNT] = {140.0F};
+inline constexpr float TERRAIN_DEPTHS[SCENE_COUNT] = {140.0F};
+inline constexpr float TERRAIN_VOID_Y = -1000000.0F;
+inline constexpr bool TERRAIN_ENABLEDS[SCENE_COUNT] = {true};
+inline constexpr float SCENE_LIGHT_XS[SCENE_COUNT] = {0.369465F};
+inline constexpr float SCENE_LIGHT_YS[SCENE_COUNT] = {0.818814F};
+inline constexpr float SCENE_LIGHT_ZS[SCENE_COUNT] = {0.439363F};
+inline constexpr float SCENE_AMBIENTS[SCENE_COUNT] = {0.55F};
+inline constexpr float SCENE_DIFFUSES[SCENE_COUNT] = {0.45F};
+inline constexpr float SCENE_LIGHT_COL_RS[SCENE_COUNT] = {1.0F};
+inline constexpr float SCENE_LIGHT_COL_GS[SCENE_COUNT] = {1.0F};
+inline constexpr float SCENE_LIGHT_COL_BS[SCENE_COUNT] = {1.0F};
+inline constexpr float SCENE_BRIGHTNESSES[SCENE_COUNT] = {1.0F};
+inline constexpr float SCENE_SUN_XS[SCENE_COUNT] = {0.0F};
+inline constexpr float SCENE_SUN_YS[SCENE_COUNT] = {1.0F};
+inline constexpr float SCENE_SUN_ZS[SCENE_COUNT] = {0.0F};
+inline constexpr float SCENE_MOON_XS[SCENE_COUNT] = {0.0F};
+inline constexpr float SCENE_MOON_YS[SCENE_COUNT] = {1.0F};
+inline constexpr float SCENE_MOON_ZS[SCENE_COUNT] = {0.0F};
+inline constexpr float SCENE_SUN_RS[SCENE_COUNT] = {0.0F};
+inline constexpr float SCENE_MOON_RS[SCENE_COUNT] = {0.0F};
+inline constexpr bool DAYCYCLE_RUNTIMES[SCENE_COUNT] = {false};
+inline constexpr bool DAYCYCLE_GRADES[SCENE_COUNT] = {false};
+inline constexpr float DAYCYCLE_STARTS[SCENE_COUNT] = {12.0F};
+inline constexpr float DAYCYCLE_BAKEDS[SCENE_COUNT] = {12.0F};
+inline constexpr float DAYCYCLE_DAYLENS[SCENE_COUNT] = {240.0F};
+inline constexpr float DAYCYCLE_SUN_AZS[SCENE_COUNT] = {90.0F};
+inline constexpr float DAYCYCLE_SUN_TILTS[SCENE_COUNT] = {25.0F};
+inline constexpr float DAYCYCLE_SUNRISES[SCENE_COUNT] = {6.0F};
+inline constexpr float DAYCYCLE_SUNSETS[SCENE_COUNT] = {18.0F};
+inline constexpr float DAYCYCLE_MOON_AZS[SCENE_COUNT] = {90.0F};
+inline constexpr float DAYCYCLE_MOON_TILTS[SCENE_COUNT] = {35.0F};
+inline constexpr float DAYCYCLE_MOON_OFFS[SCENE_COUNT] = {12.0F};
+inline constexpr float DAYCYCLE_SUN_RADS[SCENE_COUNT] = {0.0F};
+inline constexpr float DAYCYCLE_MOON_RADS[SCENE_COUNT] = {0.0F};
+inline constexpr float DAYCYCLE_MOON_ALPHAS[SCENE_COUNT] = {1.0F};
+inline constexpr float DAYCYCLE_TWINKLES[SCENE_COUNT] = {0.0F};
+struct DayKeyData { float hour; float sky[3], top[3], lit[3], fog[3]; float amb, dif, bright, stars; };
+inline constexpr int DAY_KEY_TOTAL = 0;
+inline constexpr DayKeyData DAY_KEYS[1] = {{0,{0,0,0},{0,0,0},{0,0,0},{0,0,0},0,0,0,0}};
+inline constexpr int DAYCYCLE_KEY_FIRSTS[SCENE_COUNT] = {0};
+inline constexpr int DAYCYCLE_KEY_COUNTS[SCENE_COUNT] = {0};
+inline constexpr float SCENE_STARS_BRIGHTS[SCENE_COUNT] = {0.0F};
+inline constexpr float SCENE_STARS_TWINKLES[SCENE_COUNT] = {0.0F};
+inline constexpr float SCENE_MOON_ALPHAS[SCENE_COUNT] = {1.0F};
+inline constexpr float SCENE_MOON_ROLLS[SCENE_COUNT] = {0.0F};
+inline constexpr bool SCENE_AO_ENABLEDS[SCENE_COUNT] = {true};
+inline constexpr float SCENE_AO_STRENGTHS[SCENE_COUNT] = {0.55F};
+inline constexpr float SCENE_AO_RADII[SCENE_COUNT] = {2.5F};
+inline constexpr bool CLIP_PRECISES[SCENE_COUNT] = {true};
+inline constexpr bool CLIP_VU1S[SCENE_COUNT] = {true};
+inline constexpr float SKY_RS[SCENE_COUNT] = {63.75F};
+inline constexpr float SKY_GS[SCENE_COUNT] = {140.25F};
+inline constexpr float SKY_BS[SCENE_COUNT] = {198.9F};
+inline constexpr bool SKY_DOMES[SCENE_COUNT] = {true};
+inline constexpr float SKY_ZENITH_EXPS[SCENE_COUNT] = {1.0F};
+inline constexpr float SKY_TOP_RS[SCENE_COUNT] = {20.4F};
+inline constexpr float SKY_TOP_GS[SCENE_COUNT] = {76.5F};
+inline constexpr float SKY_TOP_BS[SCENE_COUNT] = {165.75F};
+inline constexpr int POSTFX_BLOOMS[SCENE_COUNT] = {0};
+inline constexpr int POSTFX_BLOOM_CUTS[SCENE_COUNT] = {0};
+inline constexpr int POSTFX_BLOOM_SPREADS[SCENE_COUNT] = {1};
+inline constexpr int POSTFX_GRAINS[SCENE_COUNT] = {0};
+inline constexpr int POSTFX_MOTIONBLURS[SCENE_COUNT] = {0};
+inline constexpr int POSTFX_FLARES[SCENE_COUNT] = {0};
+// Clear motion-blur history once after the camera settles. The
+// authored blur returns on the next frame, even if it stays parked.
+inline constexpr int POSTFX_MOTIONBLUR_IDLE_CLEAR = 1;
+inline constexpr int POSTFX_GODRAYS_ARR[SCENE_COUNT] = {0};
+inline constexpr int FLARE_USED = 0;
+inline constexpr int BEAMS_USED = 0;
+inline constexpr int FLASHLIGHT_USED = 0;
+inline constexpr int VEHICLE_HEADLIGHTS_USED = 0;
+inline constexpr int DAYCYCLE_USED = 0;
+inline constexpr int STAR_COUNT = 0;
+struct StarData { float x, y, z, size; unsigned char r, g, b, tier; };
+inline constexpr StarData STARS[1] = {{0,0,0,0,0,0,0,0}};
+inline constexpr int STAR_TIERS = 3;
+inline constexpr int BLOB_SHADOWS = 0;
+inline constexpr float PROJ_SHADOW_DISTANCE = 50.0F;
+inline constexpr int BLOB_SHADOWS_USED = 0;
+inline constexpr int BLSS_ADAPTIVE = 0;
+#define BLSS_SCENE_ON 0
+#define BLSS_SCENE_NET 0
+inline constexpr int PROJ_SHADOWS_USED = 0;
+inline constexpr bool SPOT_SHADOW_VOLUMES_USED = false;
+inline constexpr int POSTFX_DOFS[SCENE_COUNT] = {0};
+inline constexpr float POSTFX_DOF_FOCUSES[SCENE_COUNT] = {20.0F};
+inline constexpr float POSTFX_DOF_RANGES[SCENE_COUNT] = {15.0F};
+inline constexpr bool FOG_ENABLEDS[SCENE_COUNT] = {false};
+inline constexpr float FOG_RS[SCENE_COUNT] = {127.5F};
+inline constexpr float FOG_GS[SCENE_COUNT] = {127.5F};
+inline constexpr float FOG_BS[SCENE_COUNT] = {140.25F};
+inline constexpr float FOG_STARTS[SCENE_COUNT] = {15.0F};
+inline constexpr float FOG_ENDS[SCENE_COUNT] = {120.0F};
+inline constexpr bool FLASHLIGHT_ENABLEDS[SCENE_COUNT] = {false};
+inline constexpr float FLASHLIGHT_RS[SCENE_COUNT] = {96.0F};
+inline constexpr float FLASHLIGHT_GS[SCENE_COUNT] = {96.0F};
+inline constexpr float FLASHLIGHT_BS[SCENE_COUNT] = {79.36F};
+inline constexpr float FLASHLIGHT_RANGES[SCENE_COUNT] = {30.0F};
+inline constexpr float FLASHLIGHT_ANGLES[SCENE_COUNT] = {20.0F};
+inline constexpr float FLASHLIGHT_OFF_RIGHTS[SCENE_COUNT] = {0.0F};
+inline constexpr float FLASHLIGHT_OFF_DOWNS[SCENE_COUNT] = {0.0F};
+inline constexpr const char* FLASHLIGHT_TEXS[SCENE_COUNT] = {""};
+inline constexpr bool HIGHLIGHT_USABLES[SCENE_COUNT] = {false};
+inline constexpr float HIGHLIGHT_DISTANCES[SCENE_COUNT] = {6.0F};
+inline constexpr float HIGHLIGHT_RS[SCENE_COUNT] = {255.0F};
+inline constexpr float HIGHLIGHT_GS[SCENE_COUNT] = {216.75F};
+inline constexpr float HIGHLIGHT_BS[SCENE_COUNT] = {38.25F};
+inline constexpr float HIGHLIGHT_WIDTHS[SCENE_COUNT] = {0.35F};
+inline constexpr int HIGHLIGHT_STEPS_S[SCENE_COUNT] = {4};
+inline constexpr float HIGHLIGHT_OPACITIES[SCENE_COUNT] = {0.56F};
+inline constexpr bool HIGHLIGHT_OVERLAYS[SCENE_COUNT] = {false};
 
-constexpr int GRADING_COUNT = 0;
+inline constexpr int GRADING_COUNT = 0;
 inline const char* GRADING_NAMES[GRADING_COUNT > 0 ? GRADING_COUNT : 1] = {""};
-constexpr unsigned char GRADING_GAINS[GRADING_COUNT > 0 ? GRADING_COUNT : 1][3] = {{0, 0, 0}};
-constexpr short GRADING_LIFTS[GRADING_COUNT > 0 ? GRADING_COUNT : 1][3] = {{0, 0, 0}};
-constexpr unsigned char GRADING_MIX_COLORS[GRADING_COUNT > 0 ? GRADING_COUNT : 1][3] = {{0, 0, 0}};
-constexpr unsigned char GRADING_MIX_AMTS[GRADING_COUNT > 0 ? GRADING_COUNT : 1] = {0};
-constexpr int GRADING_DEFAULT = -1;
+inline constexpr unsigned char GRADING_GAINS[GRADING_COUNT > 0 ? GRADING_COUNT : 1][3] = {{0, 0, 0}};
+inline constexpr short GRADING_LIFTS[GRADING_COUNT > 0 ? GRADING_COUNT : 1][3] = {{0, 0, 0}};
+inline constexpr unsigned char GRADING_MIX_COLORS[GRADING_COUNT > 0 ? GRADING_COUNT : 1][3] = {{0, 0, 0}};
+inline constexpr unsigned char GRADING_MIX_AMTS[GRADING_COUNT > 0 ? GRADING_COUNT : 1] = {0};
+inline constexpr int GRADING_DEFAULT = -1;
 
 // Template so this header stays engine-include-free; instantiated
 // where Tyra::Engine is complete. index -1 (or any out of range)
@@ -490,14 +632,18 @@ inline void applySceneGrading(TEngine* engine, int index) {
       GRADING_MIX_COLORS[index], GRADING_MIX_AMTS[index]);
 }
 
-constexpr int SAVE_VALUE_COUNT = 0;
+// Commit Checkpoint slot modes decided at runtime (-1 = no request)
+inline constexpr int SAVE_COMMIT_AUTOSAVE = -2;
+inline constexpr int SAVE_COMMIT_NEXT = -3;
+
+inline constexpr int SAVE_VALUE_COUNT = 0;
 inline const char* SAVE_VALUE_NAMES[SAVE_VALUE_COUNT > 0 ? SAVE_VALUE_COUNT : 1] = {""};
-constexpr float SAVE_VALUE_DEFAULTS[SAVE_VALUE_COUNT > 0 ? SAVE_VALUE_COUNT : 1] = {0.0F};
-constexpr int SAVE_TEXT_COUNT = 0;
-constexpr int SAVE_TEXT_LEN = 32;  // incl. the terminating NUL
+inline constexpr float SAVE_VALUE_DEFAULTS[SAVE_VALUE_COUNT > 0 ? SAVE_VALUE_COUNT : 1] = {0.0F};
+inline constexpr int SAVE_TEXT_COUNT = 0;
+inline constexpr int SAVE_TEXT_LEN = 32;  // incl. the terminating NUL
 inline const char* SAVE_TEXT_NAMES[SAVE_TEXT_COUNT > 0 ? SAVE_TEXT_COUNT : 1] = {""};
 inline const char* SAVE_TEXT_DEFAULTS[SAVE_TEXT_COUNT > 0 ? SAVE_TEXT_COUNT : 1] = {""};
-constexpr int SAVE_OBJECT_MAX = 25;
+inline constexpr int SAVE_OBJECT_MAX = 1;
 
 }  // namespace Procedural
 
@@ -554,6 +700,8 @@ inline int everyFrames(float seconds) {
 #define PLAYER_INDEX PLAYER_INDEXES[g_activeScene]
 #define PLAYER_MODE PLAYER_MODES[g_activeScene]
 #define PLAYER_WALK_SPEED PLAYER_WALK_SPEEDS[g_activeScene]
+#define PLAYER_RUN_SPEED PLAYER_RUN_SPEEDS[g_activeScene]
+#define PLAYER_SPRINT_SPEED PLAYER_SPRINT_SPEEDS[g_activeScene]
 #define PLAYER_LOOK_SPEED PLAYER_LOOK_SPEEDS[g_activeScene]
 #define PLAYER_EYE_HEIGHT PLAYER_EYE_HEIGHTS[g_activeScene]
 #define PLAYER_JUMP_SPEED PLAYER_JUMP_SPEEDS[g_activeScene]
@@ -570,6 +718,7 @@ inline int everyFrames(float seconds) {
 #define PLAYER_IDLE_CLIP PLAYER_IDLE_CLIPS[g_activeScene]
 #define PLAYER_WALK_CLIP PLAYER_WALK_CLIPS[g_activeScene]
 #define PLAYER_RUN_CLIP PLAYER_RUN_CLIPS[g_activeScene]
+#define PLAYER_SPRINT_CLIP PLAYER_SPRINT_CLIPS[g_activeScene]
 #define PLAYER_JUMP_CLIP PLAYER_JUMP_CLIPS[g_activeScene]
 #define PLAYER2_INDEX PLAYER2_INDEXES[g_activeScene]
 // Per-player table selection for the shared walker (pi: 0 = P1, 1 = P2).
@@ -578,6 +727,8 @@ inline int everyFrames(float seconds) {
 #define PP_INDEX(pi) PP_TBL(pi, INDEXES)
 #define PP_MODE(pi) PP_TBL(pi, MODES)
 #define PP_WALK_SPEED(pi) PP_TBL(pi, WALK_SPEEDS)
+#define PP_RUN_SPEED(pi) PP_TBL(pi, RUN_SPEEDS)
+#define PP_SPRINT_SPEED(pi) PP_TBL(pi, SPRINT_SPEEDS)
 #define PP_LOOK_SPEED(pi) PP_TBL(pi, LOOK_SPEEDS)
 #define PP_EYE_HEIGHT(pi) PP_TBL(pi, EYE_HEIGHTS)
 #define PP_JUMP_SPEED(pi) PP_TBL(pi, JUMP_SPEEDS)
@@ -594,6 +745,7 @@ inline int everyFrames(float seconds) {
 #define PP_IDLE_CLIP(pi) PP_TBL(pi, IDLE_CLIPS)
 #define PP_WALK_CLIP(pi) PP_TBL(pi, WALK_CLIPS)
 #define PP_RUN_CLIP(pi) PP_TBL(pi, RUN_CLIPS)
+#define PP_SPRINT_CLIP(pi) PP_TBL(pi, SPRINT_CLIPS)
 #define PP_JUMP_CLIP(pi) PP_TBL(pi, JUMP_CLIPS)
 // Directional locomotion (face-camera / strafe mode).
 #define PP_BACK_CLIP(pi) PP_TBL(pi, BACK_CLIPS)
@@ -602,6 +754,7 @@ inline int everyFrames(float seconds) {
 #define PP_FACE_CAMERA(pi) PP_TBL(pi, FACE_CAMERAS)
 #define TERRAIN_WIDTH TERRAIN_WIDTHS[g_activeScene]
 #define TERRAIN_DEPTH TERRAIN_DEPTHS[g_activeScene]
+#define TERRAIN_ENABLED TERRAIN_ENABLEDS[g_activeScene]
 #define SCENE_LIGHT_X SCENE_LIGHT_XS[g_activeScene]
 #define SCENE_LIGHT_Y SCENE_LIGHT_YS[g_activeScene]
 #define SCENE_LIGHT_Z SCENE_LIGHT_ZS[g_activeScene]
@@ -611,6 +764,22 @@ inline int everyFrames(float seconds) {
 #define SCENE_LIGHT_COL_G SCENE_LIGHT_COL_GS[g_activeScene]
 #define SCENE_LIGHT_COL_B SCENE_LIGHT_COL_BS[g_activeScene]
 #define SCENE_BRIGHTNESS SCENE_BRIGHTNESSES[g_activeScene]
+// Day/night cycle sky bodies (docs/day-night-cycle.md). Directions to the sun
+// and the moon, their apparent radius as a fraction of the dome radius (0 = the
+// body is down, draw nothing) and the moon disc's roll so its lit limb faces
+// the sun. All resolved at build - the game places two quads and no more.
+#define SCENE_SUN_X SCENE_SUN_XS[g_activeScene]
+#define SCENE_SUN_Y SCENE_SUN_YS[g_activeScene]
+#define SCENE_SUN_Z SCENE_SUN_ZS[g_activeScene]
+#define SCENE_SUN_R SCENE_SUN_RS[g_activeScene]
+#define SCENE_MOON_X SCENE_MOON_XS[g_activeScene]
+#define SCENE_MOON_Y SCENE_MOON_YS[g_activeScene]
+#define SCENE_MOON_Z SCENE_MOON_ZS[g_activeScene]
+#define SCENE_MOON_R SCENE_MOON_RS[g_activeScene]
+#define SCENE_MOON_ROLL SCENE_MOON_ROLLS[g_activeScene]
+#define SCENE_MOON_ALPHA SCENE_MOON_ALPHAS[g_activeScene]
+#define SCENE_STARS_BRIGHT SCENE_STARS_BRIGHTS[g_activeScene]
+#define SCENE_STARS_TWINKLE SCENE_STARS_TWINKLES[g_activeScene]
 // Baked ambient occlusion (docs/ambient-occlusion.md)
 #define SCENE_AO_ENABLED SCENE_AO_ENABLEDS[g_activeScene]
 #define SCENE_AO_STRENGTH SCENE_AO_STRENGTHS[g_activeScene]
@@ -647,6 +816,7 @@ inline int everyFrames(float seconds) {
 #define POSTFX_BLOOM_CUT POSTFX_BLOOM_CUTS[g_activeScene]
 #define POSTFX_BLOOM_SPREAD POSTFX_BLOOM_SPREADS[g_activeScene]
 #define POSTFX_GRAIN POSTFX_GRAINS[g_activeScene]
+#define POSTFX_MOTIONBLUR POSTFX_MOTIONBLURS[g_activeScene]
 #define POSTFX_DOF POSTFX_DOFS[g_activeScene]
 #define POSTFX_DOF_FOCUS POSTFX_DOF_FOCUSES[g_activeScene]
 #define POSTFX_DOF_RANGE POSTFX_DOF_RANGES[g_activeScene]
@@ -662,6 +832,8 @@ inline int everyFrames(float seconds) {
 #define FLASHLIGHT_B FLASHLIGHT_BS[g_activeScene]
 #define FLASHLIGHT_RANGE FLASHLIGHT_RANGES[g_activeScene]
 #define FLASHLIGHT_ANGLE FLASHLIGHT_ANGLES[g_activeScene]
+#define FLASHLIGHT_OFF_RIGHT FLASHLIGHT_OFF_RIGHTS[g_activeScene]
+#define FLASHLIGHT_OFF_DOWN FLASHLIGHT_OFF_DOWNS[g_activeScene]
 #define FLASHLIGHT_TEX FLASHLIGHT_TEXS[g_activeScene]
 #define HIGHLIGHT_USABLE HIGHLIGHT_USABLES[g_activeScene]
 #define HIGHLIGHT_DISTANCE HIGHLIGHT_DISTANCES[g_activeScene]

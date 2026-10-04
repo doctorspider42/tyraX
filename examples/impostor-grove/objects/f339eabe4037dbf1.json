@@ -1,0 +1,1 @@
+{ "id": "f339eabe4037dbf1", "name": "Fallen stone 2", "type": "box", "position": [7.13209, 0.2, 14.1074], "rotation": [0, 81, 8], "scale": [0.446801, 0.4, 0.809365], "color": [0.49, 0.53, 0.39], "physics": false, "material": "res/materials/stone.mtl" }

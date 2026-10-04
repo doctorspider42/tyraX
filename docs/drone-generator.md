@@ -1,5 +1,7 @@
 # Drone Generator
 
+![Drone Generator with live controls](img/drone-generator.png)
+
 *Tools > Drone Generator* is an ambient / drone music generator built into the
 editor. You dial a piece in against **live playback** — the knobs are heard as you
 turn them — and **Render** writes `res/audio/<name>.wav` plus a re-editable

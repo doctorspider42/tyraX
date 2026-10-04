@@ -1,0 +1,164 @@
+# Collision boxes
+
+What stops the player, and what the third-person camera's spring arm stops
+against, is **a box** — not the mesh you see. This page says which box, where
+it comes from, and how to look at it, in the editor and in the running game.
+
+Mesh-accurate collision exists and is opt-in per object (*Collision: mesh*, a
+static `.obj` feature — see [Rigid-body physics](physics.md)). The player and,
+since 1.83.0, rigid bodies collide with such a model's triangles; the camera
+boom and the carried/thrown-arc sweep still use the box described here, and so
+does everything without the option.
+
+## Which box
+
+| Object | Box |
+|---|---|
+| Box, sphere, cylinder, cone, plane, save point, mirror, portal | the unit cube under the object's position/rotation/**scale** |
+| Static model (`.obj` → `.tmdl`) | the **mesh's own bounds**, scaled |
+| Animated model (`.glb`/`.fbx` → `.tskl`) | the **baked all-clips pose bounds**, scaled |
+| Spawn point, player marker, emitter, sound emitter, point light, empty, decal, camera, area, procedural volume, scroller belt | none — they block nothing |
+| Anything with *Collision: none* | none |
+
+Two consequences worth having in your head:
+
+- **A model's box is not centred on the object.** A character or tree
+  authored standing on its own origin has its bounds entirely *above* that
+  origin, so the box sits above it too. That is what makes it right — the box
+  covers the model — and why the box moves when you scale the object rather
+  than growing symmetrically.
+- **The box is oriented, not axis-aligned.** It is tested in the object's own
+  frame, so a wall rotated 30° blocks along its real faces instead of a
+  bigger axis-aligned stand-in that juts into the room at the corners. One
+  deliberate simplification survives in the walker: the *footprint* uses the
+  object's **yaw only**, so a pitched or rolled box still collides upright
+  (physics bodies tumble, and projecting a pitched frame onto the ground
+  plane is not an isometry — doing it anyway used to teleport the player
+  inside thrown crates). Mesh collision is the escape hatch for geometry that
+  has to block while tilted. The camera boom does test the full 3D
+  orientation.
+
+**Model yaw offset rides along.** An animated model authored X-forward
+carries a content-forward correction (*Properties > Model yaw offset*, ±90)
+that turns the mesh without touching the facing logic. It turns the **box**
+with it. Before, it did not: an X-forward character collided and blocked the
+camera across its own body, at 90° to what was on screen — invisible unless
+you drew the box, which is half the reason this page and the two overlays
+exist.
+
+## A smaller box
+
+A model whose bounds are much bigger than its solid part - a street lamp
+whose arm reaches over the pavement, a sign, a tree - can have **its own
+collision box**. Select any object made from it, keep *Collision* on
+*Box*, and tick **Own collision box** in Properties. The box starts as the
+mesh bounds; **Box min** / **Box max** edit it in the mesh's own units,
+before the object's scale. **Fit to post** takes the footprint of the
+model's lower 40% and keeps its full height, so the lamp collides as its
+post. **Reset to mesh bounds** puts it back.
+
+It is a setting of the MODEL, keyed by its asset path
+(`Project::modelCollision`, `"modelCollision"` in the .tyra, format 92): every
+box-mode object made from it changes together, and renaming the file in
+the asset browser carries it along. The player, the camera boom, cars, rigid
+bodies (as an obstacle), navigation and both overlays all use it, because
+they all go through the one builder (`MODEL_COLL_BOX` in the generated
+`model_data.gen.hpp`, emitted only when some model has a box, so a project
+without one generates byte-identical headers). Mesh-mode objects ignore it -
+their triangles are the shape. Animated models do not offer it. Dropping
+objects onto others in the editor (End, paste) still rests them on the mesh
+bounds, because that is about where things visually sit.
+
+Prefer this to mesh mode for a post-like prop: a box costs one test, a
+collision mesh several queries (see below).
+
+## What mesh mode costs
+
+A collision mesh is a triangle soup in an XZ grid of up to 32 x 32 cells.
+The walker asks it three things a frame - a sphere push-out and two vertical
+rays - so a query costs the triangles under the player, not the whole mesh.
+Two rejects keep objects far from the player at nearly zero (1.166.0):
+`collidePlayer` skips a mesh whose bounding sphere about its origin, plus the
+player's reach, cannot reach the player horizontally, and `CollisionMesh`
+itself tests its own box before the grid. Before that, every mesh-mode object
+in the scene paid the full queries every frame, and the grid CLAMPED a far
+query onto its edge cells, so they cost a closest-point test per border
+triangle. Memory is 48 bytes a triangle plus the grid, once per model.
+
+## Invisible boundary walls
+
+Use **Scene > Add > Object > Simple > Invisible wall**, or enable **Invisible wall**
+on a Box in Properties. Move, scale and rotate it like an ordinary box. The
+editor draws a cyan outline; the game keeps its collision without drawing its
+surface. Player movement, the camera boom, navigation and rigid-body obstacles
+use the same box as before. The wall casts no AO, GI or projected shadow and
+does not appear in reflections. It remains an active object: hiding it through
+gameplay is different from making its surface invisible.
+
+In the viewport the wall is picked like the other wire boxes (areas, procedural
+volumes): a click aimed through it selects what it fences in, and the wall
+itself is reached by clicking the same spot again or from the right-click list
+([Selecting objects](object-selection.md)). Surface snapping and the drag/paste
+raycast ignore it — a prop dropped on top of one would hang in the air in the
+game.
+
+This is `"collision": "invisible"` on a Box (format 32). Existing box, mesh and
+none modes retain their behavior. Making a wall visible again restores box
+collision. Aster uses four tall walls just outside the island's paving. Its
+surface portal stays inside that perimeter; the underground cellar is enclosed
+by its own collidable floor, walls and vault.
+
+## Seeing them
+
+**In the editor** — *View > Collision boxes*. Every collider gets a red
+wireframe of exactly the box above. Session state, not project data, and it
+costs one wireframe draw per object.
+
+Without the overlay, you only see the scene geometry:
+
+![The physics playground with collision boxes hidden.](img/collision-boxes-off.png)
+
+Turn it on to see the boxes the player and camera actually hit:
+
+![The same scene with collision boxes shown as red wireframes.](img/collision-boxes-on.png)
+
+**In the game** — *Project > Preferences > Build > Show collision boxes*
+(**debug** build profile only, exactly like *Show areas*). Red wireframes
+drawn in the running game, following anything that moves — a tumbling physics
+body, a prop a flow node slides. It is a **look, not a census**: the nearest
+24 colliders within 60 units of the camera are drawn (`COLLISION_BOX_LIMIT` /
+`COLLISION_BOX_RANGE` in the generated `terrain_config.hpp`), because each
+box is 144 vertices the EE rebuilds every frame. A release build emits none
+of it — the flag is a `constexpr`, so the whole pass folds away.
+
+Both overlays and every collision consumer read **one builder**:
+`placement::collisionBox` on the host, `TerrainGame::objectCollisionBox` in
+the generated game, which are twins. The editor cannot show you a box the
+console does not use.
+
+## What has no box
+
+**Runtime-generated geometry** — a procedural volume's merged chunks, a
+spawned prefab's static members (docs/procedural-runtime.md,
+docs/prefabs.md) — has no scene object behind it, so it has no object box and
+neither overlay draws it. It collides through its own conservative world
+AABBs (`procColliders`) and a block world through its solid field. Same for
+the **terrain**, which is a heightfield and not a box.
+
+**A model still streaming in** collides as a unit cube for the frame or two
+before its bounds arrive (assets load one per frame at scene start). It
+settles by itself; a wrong box for a moment right after a load is that.
+
+## Where it lives
+
+| Layer | Code |
+|---|---|
+| Host (editor overlay, placement snapping, the drag/paste raycast) | `placement::collisionBox` / `placement::collides` (`src/placement.cpp`) |
+| Generated game (walker, spring arm, split-screen cull, the overlay) | `TerrainGame::objectCollisionBox` / `objectCollides` (`templates.cpp`) |
+| Editor overlay draw | `Viewport::setCollisionOverlay` (`src/viewport.cpp`) |
+| Game overlay draw | `TerrainGame::renderCollisionBoxes` |
+
+The two builders are a twin pair: change one and the other must follow, or
+the editor starts drawing a box the console does not collide with.
+`src/placement.cpp` is host-only and links on its own, so the box is
+checkable from a ~40-line harness rather than by eye.

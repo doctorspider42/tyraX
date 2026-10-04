@@ -1,11 +1,29 @@
 build/
-build-dev/
+# Every other build tree too: build.ps1 -Dev writes build-dev/, and a session
+# that compares two configurations invents its own (build-demo/, build-rig/...).
+# None of them are ever tracked, and an unignored one is ~1300 artifacts that a
+# `git add -A` will happily stage. Checked against `git ls-files | grep build`:
+# no tracked path starts with "build-", and build.ps1/build.sh/build.cmd are
+# files, which this pattern (directories only) cannot match.
+build-*/
+# Packaged installers (installer/build-installer.ps1 and the release workflow
+# both write here, as does installer/build-package.sh). The published copy of
+# one of these is a GitHub release asset, never a tracked file.
+dist/
 .vs/
 *.user
 imgui.ini
 
 # PS2 network-deploy tools, fetched by setup.ps1 (ps2client)...
 tools/*
+!tools/hardware-trace.py
+!tools/hardware-probe.py
+!tools/instrument-frame-cost.py
+# The BagArray enforcement check (docs/bag-content-version.md). It is the
+# NEGATIVE test behind the whole content-version design - "a raw write does not
+# compile" is a claim, and this is what makes somebody watch the compiler refuse
+# it - so it ships with the repo rather than living in a scratch directory.
+!tools/bag-array-enforcement.sh
 !tools/ps2client/
 tools/ps2client/*
 !tools/ps2client/bin/
@@ -31,9 +49,32 @@ tools/ps2link/*
 !tools/ps2link/build.ps1
 !tools/ps2link/build.sh
 !tools/ps2link/tyrax.patch
+# ...plus the host harness for the host: protocol code (its own .gitignore drops
+# the compiled binary and the pristine-upstream scratch copy).
+!tools/ps2link/test/
+!tools/ps2link/test/.gitignore
+!tools/ps2link/test/run.ps1
+!tools/ps2link/test/run.sh
+!tools/ps2link/test/test_net_fio.c
+!tools/ps2link/test/shim/
+!tools/ps2link/test/shim/*.h
 # ...and the VS Code extension for .flownode/.screenfx files (see
 # tools/vscode-tyrax/README.md; its own .gitignore drops *.vsix + node_modules).
 !tools/vscode-tyrax/
+# Docker-free PS2 toolchain bootstrap/build scripts and the vendored historical
+# bin2s source. Downloaded compilers live in the user cache, never here.
+!tools/toolchain/
+tools/toolchain/*
+!tools/toolchain/setup.ps1
+!tools/toolchain/setup.sh
+!tools/toolchain/prepare-host.ps1
+!tools/toolchain/prepare-host.sh
+!tools/toolchain/native-build.ps1
+!tools/toolchain/native-build.sh
+!tools/toolchain/bin2s/
+!tools/toolchain/bin2s/bin2s.c
+!tools/toolchain/bin2s/LICENSE
+tools/toolchain/.cache/
 
 # Vendored dependencies are fetched separately (see README)...
 vendor/*
@@ -51,9 +92,22 @@ vendor/tyra/*
 # restored, so this copy is recovered verbatim from h4570/tyra@68eb496 - the
 # last commit that had it. See THIRD-PARTY-LICENSES.md.
 !vendor/tyra/LICENSE
-# Prebuilt audsrv with L/R panning, overlaid onto the container's PS2SDK at
-# build time (see vendor/tyra/audsrv-pan/README.md).
-!vendor/tyra/audsrv-pan/
+# ...and the audsrv fork, which is maintained in-tree the same way: sources
+# plus the built module that gets overlaid onto the container's PS2SDK at build
+# time (LGPL v2 - see vendor/tyra/audsrv/README.md).
+!vendor/tyra/audsrv/
+
+# ...but not its build work tree: a pinned ps2sdk clone the build script
+# overlays our sources onto. The sources and the built module are committed;
+# that scratch clone is not.
+vendor/tyra/audsrv/.work/
+# The exact TyraX OpenVCL fork and vclpp source are build inputs now. Unlike
+# editor-only dependencies fetched by setup, these must travel with a release:
+# a game build is not allowed to depend on a Git host for our modified compiler.
+!vendor/openvcl/
+!vendor/openvcl/**
+!vendor/vclpp/
+!vendor/vclpp/**
 vendor/tyra/engine/obj/
 vendor/tyra/engine/bin/
 
@@ -72,3 +126,15 @@ examples/*/.res-baked/*
 # with the lighting silently switched off.
 !examples/*/.res-baked/gi/
 examples/*/*.history
+
+# The same devkit channel files, but dropped in the REPO ROOT: they land here
+# whenever the editor or the Live Debugger is run with the repo as its working
+# directory, which is what a headless CLI invocation does. Root-anchored, so a
+# project that legitimately tracks one is unaffected. livedbg.bin was committed
+# by accident before this rule existed and is untracked in the same commit.
+/live*.bin
+/livelink.*
+/vucap.bin
+/crash.txt
+
+__pycache__/

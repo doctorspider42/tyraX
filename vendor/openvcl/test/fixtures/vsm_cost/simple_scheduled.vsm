@@ -1,0 +1,8 @@
+		.vu
+		.align 4
+entry_lid:
+                    nop                             lq VF01, 0(VI00)
+                    add.xyz VF02, VF01, VF00        iaddiu VI01, VI00, 1
+                    nop                             nop
+                    nop                             waitq
+                    nop[E]                          b entry_lid

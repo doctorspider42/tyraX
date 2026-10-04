@@ -1,0 +1,1 @@
+{ "id": "vulablitball0000", "name": "lit-ball", "type": "sphere", "position": [2, 1, 4], "rotation": [0, 0, 0], "scale": [1.2, 1.2, 1.2], "color": [0.35, 0.7, 0.95], "physics": false, "dynamicLighting": true }

@@ -1,0 +1,3 @@
+newmtl prop-13
+Kd 1.0 1.0 1.0
+map_Kd prop-13.png

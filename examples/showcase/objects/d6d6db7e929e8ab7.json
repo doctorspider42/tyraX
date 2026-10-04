@@ -1,1 +1,0 @@
-{ "id": "d6d6db7e929e8ab7", "name": "ruins-sparks", "type": "emitter", "position": [-40, 2.4659, -40], "rotation": [0, 0, 0], "scale": [1.5, 1, 1.5], "color": [0.6, 1, 0.7], "physics": false, "layer": "ruins", "emitter": { "kind": "sparks", "count": 40, "size": 0.14, "enabled": true, "followPlayer": false } }

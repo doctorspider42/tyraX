@@ -12,10 +12,11 @@ re-read that dependency's license file — upstreams do relicense (miniaudio mov
 from MIT to MIT-0, MakeHuman's assets moved from AGPL to CC0), and a bump is the
 only moment anyone would notice.
 
-Attribution and links for the wider project live in the **Credits** section of
-[`README.md`](README.md); this file is the legal text those credits point at.
-TyraX's own license — Apache-2.0, the same terms as the engine — is in
-[`LICENSE`](LICENSE), with the summary notice in [`NOTICE`](NOTICE).
+General project acknowledgements live in the **Credits** section of
+[`README.md`](README.md). Attribution for redistributed assets lives here,
+beside the dependency notices. TyraX's own license — Apache-2.0, the same terms
+as the engine — is in [`LICENSE`](LICENSE), with the summary notice in
+[`NOTICE`](NOTICE).
 
 ## Summary
 
@@ -30,11 +31,40 @@ TyraX's own license — Apache-2.0, the same terms as the engine — is in
 | [ufbx](https://github.com/ufbx/ufbx) | `fcc5d6ba` | MIT **or** public domain | No — fetched |
 | [miniaudio](https://github.com/mackron/miniaudio) | `9634bedb` | Public domain **or** MIT-0 | No — fetched |
 | [ps2client](https://github.com/ps2dev/ps2client) | v1.3.0 | no explicit license — see below | **Yes** (Windows binary only) |
-| [PS2SDK](https://github.com/ps2dev/ps2sdk) `audsrv` | see `vendor/tyra/audsrv-pan` | Academic Free License v2.0 | **Yes** (prebuilt module) |
-| [MakeHuman](http://www.makehumancommunity.org/) **data** | `master` (see `deps.ps1` / `deps.sh`) | CC0 1.0 (assets only — the *program* is AGPL and unused) | No — fetched into `vendor/mh-assets` |
+| [PS2SDK](https://github.com/ps2dev/ps2sdk) `audsrv` | `e78a9cb2`, forked in `vendor/tyra/audsrv` | **GNU Library GPL v2** (not AFL - see below) | **Yes** (source + built module) |
+| [OpenVCL](https://github.com/ps2dev/openvcl) | TyraX fork snapshot `89efa51e`, based on upstream `a5867c3` | AFL-2.0 | **Yes** — `vendor/openvcl`, modified sources tracked |
+| [vclpp](https://github.com/glampert/vclpp) | `00e44ecf` | MIT | **Yes** — `vendor/vclpp`, sources tracked |
+| PS2SDK `bin2s` | `8f397576` | AFL-2.0 | **Yes** — `tools/toolchain/bin2s`, source tracked |
+| [PS2DEV toolchain](https://github.com/ps2dev/ps2dev/releases/tag/v2.0.0) | v2.0.0 Linux release, SHA-256 pinned | component licences shipped by PS2DEV | No — downloaded directly to the user's cache |
 
 For the dual-licensed entries (stb, ufbx, miniaudio) TyraX makes no election —
 both alternatives are reproduced below, as the upstream files present them.
+
+**This file covers what the repository and the editor binary ship.** The default
+native setup downloads PS2DEV v2.0.0 directly from the official release and
+verifies its SHA-256; the archive is not copied into this repository or editor
+packages. The optional from-source **toolchain image** redistributes PS2DEV and
+therefore separately carries the GCC/binutils source-offer duty and PS2SDK terms.
+The inherited comparison image additionally contains Sony's unlicensed `vcl` and
+must never be published. The inventory and reasoning are in
+[docs/toolchain-image.md](docs/toolchain-image.md#licensing-of-the-published-image).
+
+**Our copy of openvcl is vendored in `vendor/openvcl`** and developed at
+[doctorspider42/openvcl-tyrax](https://github.com/doctorspider42/openvcl-tyrax) —
+upstream's full history with our changes on top, so the base and diff remain
+reviewable. openvcl is **AFL-2.0**, which grants copying,
+derivative works and redistribution outright (its §5 — the clause AFL 3.0 uses to
+make derivatives stay under the same terms — is intentionally omitted, so it is
+permissive, not copyleft). The two obligations it does impose are met there: §6
+*Attribution Rights* by that repo's `README.md`, which retains every upstream notice
+and states in its opening paragraphs that the Original Work was modified, and §4
+*Exclusions* by not using the authors' names to endorse the copy. Nothing has been
+submitted upstream.
+
+Both native setup and the from-source image compile that same vendored tree and
+run its test suite. `vendor/vclpp/LICENSE` carries the MIT notice; the AFL-2.0
+text for the retained PS2SDK `bin2s` source travels beside it under
+`tools/toolchain/bin2s/LICENSE`.
 
 ---
 
@@ -314,13 +344,40 @@ patch, and its build clones ps2link from upstream itself.
 If the ps2dev project ever states an explicit license, this entry should be
 replaced with it.
 
-## PS2SDK `audsrv` — Academic Free License v2.0
+## PS2SDK `audsrv` — GNU Library General Public License v2
 
-`vendor/tyra/audsrv-pan` is a prebuilt module derived from the PS2SDK `audsrv`
-sources ([`ps2dev/ps2sdk`](https://github.com/ps2dev/ps2sdk)), with L/R panning
-added — see [`vendor/tyra/audsrv-pan/README.md`](vendor/tyra/audsrv-pan/README.md).
-PS2SDK is distributed under the Academic Free License version 2.0; the full text
-is at <https://opensource.org/license/afl-2-0-php> and in the PS2SDK repository.
+**`audsrv` is the one part of PS2SDK that is not AFL**, and it is worth being
+precise about because a generated game ships it.
+
+[`vendor/tyra/audsrv`](vendor/tyra/audsrv/README.md) is a **source fork** of the
+PS2SDK `audsrv` module ([`ps2dev/ps2sdk`](https://github.com/ps2dev/ps2sdk)),
+pinned at commit `e78a9cb2` — the last one carrying the per-channel L/R panning
+API that still builds with the toolchain image. The sources are in-tree; the
+built `audsrv.irx` / `libaudsrv.a` / `audsrv.h` are committed beside them and are
+what a generated game embeds and links.
+
+Every file of that module, IOP and EE alike, carries:
+
+> Copyright 2005, ps2dev — *Licenced under GNU Library General Public License
+> version 2*
+
+while ps2sdk's own `README` and `LICENSE` place the SDK under the Academic Free
+License 2.0. Upstream contradicts itself here (those same headers add "Review
+ps2sdk README & LICENSE files for further details"). TyraX takes the stricter and
+more specific reading — the per-file notice — and treats audsrv as
+**LGPL-2.0-only** (the headers carry no "or later").
+
+Practically: the LGPL is not "publish your game" copyleft — the *Library* GPL
+covers the library, not the application that links it. It does ask for more than
+attribution, namely that the library's own source be available and that a
+recipient be able to relink against a modified copy. TyraX satisfies that by
+carrying the fork's full source in this repository. The full licence text is at
+<https://www.gnu.org/licenses/old-licenses/lgpl-2.0.html>.
+
+The **rest** of PS2SDK — everything else a generated game links, `libsd` and the
+`ps2snd` RPC client the reverb uses included — is Academic Free License version
+2.0; the full text is at <https://opensource.org/license/afl-2-0-php> and in the
+PS2SDK repository.
 
 ---
 
@@ -367,10 +424,66 @@ ships, and asset collections are routinely *mixed* — most files under one
 license, a long tail under another. MakeHuman is the exact illustration: its
 assets are CC0 while the application around them is AGPL.
 
-TyraX **commits** no third-party assets — the MakeHuman set is an optional
-fetch into a git-ignored directory, and the editor builds and runs without it
-(the Character Generator window explains how to get it rather than failing).
-The policy for adding any is in the "Dependency policy" section of
-[`README.md`](README.md); the short version is that an asset pack has to be
-verified file-by-file, not project-by-project, before anything from it is
-committed here.
+The policy: an asset pack is verified file-by-file, not project-by-project,
+before anything from it is committed here, and anything that cannot be
+redistributed must be an optional download whose absence disables one feature.
+The third-party assets currently shipped with TyraX are listed below.
+
+### `cat Rigged` — Creative Commons Attribution 4.0
+
+`examples/gi-showcase/res/models/cat.glb` and
+`examples/two-players/res/models/cat.glb` are copies of
+[`cat Rigged`](https://sketchfab.com/3d-models/cat-rigged-eccebebd5a60484eaa49036f8a4b6ed7)
+by [Vr-cvantorium](https://sketchfab.com/Vr-cvantorium).
+
+The model is licensed under the
+[Creative Commons Attribution 4.0 International license](https://creativecommons.org/licenses/by/4.0/).
+
+### Medieval Village MegaKit — CC0 1.0 (public domain dedication)
+
+`examples/ambient-occlusion/res/models/*.obj` (and their `.mtl` files and the
+five `*.png` textures beside them) are a slice of the
+[Medieval Village MegaKit](https://quaternius.com) by
+[Quaternius](https://www.patreon.com/quaternius), from the free Standard
+version of the pack.
+
+Released under
+[CC0 1.0 Universal](https://creativecommons.org/publicdomain/zero/1.0/), which
+waives copyright entirely — no attribution is required. It is recorded here
+anyway, because knowing where a shipped file came from is the point of this
+list.
+
+**Modified**: the base-colour textures are downsampled to 128x128 (the whole
+GS texture budget is ~1.33 MB), the roughness/normal maps are dropped, and the
+`map_Kd` lines are rewritten from the author's absolute Windows paths to bare
+sibling names — the PS2 resolves a Wavefront reference next to the file that
+named it and cannot walk `..`.
+
+### NASA lunar colour map — public domain
+
+`resources/moon-lroc-color-1k.jpg` is the 2019 colour map from NASA's
+Scientific Visualization Studio "CGI Moon Kit"
+(<https://svs.gsfc.nasa.gov/4720>, visualization by Ernie Wright), assembled
+from Lunar Reconnaissance Orbiter Camera data. 1024x512, unmodified.
+
+NASA content "generally [is] not subject to copyright in the United States"
+and asks only that **NASA be acknowledged as the source**
+(<https://www.nasa.gov/nasa-brand-center/images-and-media/>). Note that the NASA
+insignia and logotypes are *not* public domain and are not used here.
+
+The editor projects this map into the moon disc of a day/night cycle
+([`docs/day-night-cycle.md`](docs/day-night-cycle.md)). The map itself is
+embedded in the editor binary and is **never copied into a generated game** —
+only the small baked disc ships, so a game built with TyraX carries a derived
+image, not this file.
+
+
+### Quaternius Universal Animation Library character — CC0
+
+`examples/probe-lighting/res/models/UAL1_Standard.fbx` is the rigged humanoid
+from Quaternius's **Universal Animation Library [Standard]**, released under
+[CC0 1.0 Universal](https://creativecommons.org/publicdomain/zero/1.0/).
+Models by [Quaternius](https://quaternius.com). The unchanged source FBX was
+copied from `examples/foot-ik-stairs` on branch
+`claude/foot-ik-animations-feature-e56306`; that example records the pack's
+CC0 license. The GI example uses its Idle_Loop and Walk_Loop animations.

@@ -1,5 +1,9 @@
 # Live collaboration sessions
 
+![Host Session dialog](img/collaboration-host.png)
+
+![Join Session dialog](img/collaboration-join.png)
+
 One editor **hosts** its open project; other editors **join** over the LAN and
 everyone edits the same project at the same time. The host is authoritative:
 it applies every edit in a single order, decides who is in the session (kick /

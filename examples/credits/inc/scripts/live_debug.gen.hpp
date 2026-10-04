@@ -20,12 +20,18 @@ namespace livedbg {
 /** An instrumented node ran. Bumps its counter, records it in the event ring
  * and stops the game when the editor has a breakpoint on it. */
 void hit(int key);
+unsigned int takeRenderCostRequest();
 
 /** True while the game is stopped by the debugger. The generated loop folds
  * this into its "a menu is pausing the world" condition, so a halt freezes
  * scripts, the walker, particles and animation while frames keep presenting.
  */
 bool halted();
+
+/** True once the editor has attached (a valid livedbg.cmd was read). The
+ * game keeps the renderer's frame yield on while it is - see
+ * RendererCore::setFrameYield. */
+bool attached();
 
 /** True for the one frame in which the editor asked to force-fire this node
  * (Debugger > "Fire"), OR'd into the node's own trigger condition. */
@@ -35,6 +41,20 @@ bool forced(int key);
  * left" instead of leaving you wondering why nothing happened. Called once per
  * frame per Delay node with its current counter; 0 = not armed. */
 void timer(int key, int framesLeft);
+
+/** A World Fact changed (docs/world-facts.md). `src` is WHO changed it - an
+ * instrumented node's key, or -(rule + 1) for the fact rule engine - which is
+ * what lets the blackboard's history say "Set Fact in Main / Door" rather than
+ * just showing a number that moved. Called only from the fact store's
+ * factWrite(), which already compared old against new, so every call here is
+ * a real change. */
+void factWrite(int slot, float v, int src);
+void factWritePos(int slot, float x, float y, float z, int src);
+
+/** The editor's manual overrides, applied once per frame after the graphs and
+ * rules have run - so what the author typed wins over what the world computed
+ * for exactly the frame they typed it, and the world takes over again. */
+void applyFactOverrides();
 
 /** Per-frame pump. The generated loop calls tickFromLoop() before anything
  * reads halted(); tickFromScript() is the fallback for projects that took

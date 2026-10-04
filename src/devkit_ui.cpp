@@ -8,6 +8,7 @@
 // -------------------------------------------------------------------------
 #include "app.hpp"
 #include "app_internal.hpp"
+#include "hardware_timeline.hpp"
 
 #include <algorithm>
 #include <cfloat>
@@ -65,10 +66,8 @@
 // vendor/tyra/engine/inc/debug/debug.hpp). Matched as substrings so a leading
 // log prefix (the Debug window's nothing, or the runner's "[ps2] "/timestamp)
 // does not defeat detection.
-// The engine's delimited error block. TyraX-built games print TYRAX; the old
-// TYRA banner is still accepted so an ELF built before the rename still reports.
+// The engine's delimited error block.
 static const char kTyraAssertBanner[] = "==============  TYRAX  =============";
-static const char kTyraAssertBannerLegacy[] = "==============  TYRA  ==============";
 static const char kTyraAssertClose[] = "====================================";
 
 // Returns the last complete TYRA assertion block in `text` (from its banner
@@ -76,7 +75,6 @@ static const char kTyraAssertClose[] = "====================================";
 // still being written.
 static std::string extractLastTyraAssert(const std::string& text) {
     size_t banner = text.rfind(kTyraAssertBanner);
-    if (banner == std::string::npos) banner = text.rfind(kTyraAssertBannerLegacy);
     if (banner == std::string::npos) return "";
     // Back up to the start of the banner's line so a log prefix is dropped and
     // the dump reads cleanly in the dialog.
@@ -221,11 +219,11 @@ void App::liveLinkTick() {
     }
     liveLinkState_ = LiveLinkState::Live;
 
-    // Snapshot body: scene + count + one 64-byte record per object (id +
-    // template + 12 floats). Deletions are implicit - the game hides whatever
-    // is absent.
+    // Snapshot body: scene + count + one 80-byte record per object (id +
+    // template + 12 floats + the resolved player speeds + pad). Deletions are
+    // implicit - the game hides whatever is absent.
     std::vector<unsigned char> body;
-    body.reserve(8 + recs.size() * 64);
+    body.reserve(8 + recs.size() * 80);
     auto put = [&](const void* v, size_t n) {
         const unsigned char* b = static_cast<const unsigned char*>(v);
         body.insert(body.end(), b, b + n);
@@ -243,6 +241,26 @@ void App::liveLinkTick() {
         put(r.o->rotation, 12);
         put(r.o->scale, 12);
         put(r.o->color, 12);
+        // Player records carry the RESOLVED speed tiers (the same functions
+        // codegen bakes with), so a speed edit streams instead of flipping
+        // the chip amber. DYNAMIC LIGHT records reuse the same slot (their
+        // types never collide) for brightness/radius/flicker, and the record
+        // tail carries the spot angle (0 = keep). Zeros on everything else.
+        float extra[3] = {0.0f, 0.0f, 0.0f};
+        float tail = 0.0f;
+        if (r.o->type == PrimitiveType::Player) {
+            extra[0] = r.o->playerWalkSpeed;
+            extra[1] = project::playerRunSpeed(*r.o);
+            extra[2] = project::playerSprintSpeed(*r.o, project_.settings);
+        } else if (r.o->type == PrimitiveType::PointLight &&
+                   r.o->lightDynamic) {
+            extra[0] = r.o->lightBright;
+            extra[1] = r.o->lightRadius;
+            extra[2] = r.o->lightFlicker;
+            tail = r.o->lightSpot ? r.o->lightSpotAngle : 0.0f;
+        }
+        put(extra, 12);
+        put(&tail, 4);
     }
     if (body == liveLinkLastPayload_) return;  // nothing to stream
 
@@ -253,7 +271,7 @@ void App::liveLinkTick() {
     const uint32_t seq = liveLinkSeq_ + 1;
     std::vector<unsigned char> file;
     file.reserve(24 + body.size() - 8 + 4);
-    const uint32_t magic = 0x4C4C5854, version = 2, reserved = 0;
+    const uint32_t magic = 0x4C4C5854, version = 4, reserved = 0;
     const uint32_t footer = seq ^ 0x5A5A5A5AU;
     auto app32 = [&](const void* v) {
         const unsigned char* b = static_cast<const unsigned char*>(v);
@@ -337,6 +355,141 @@ void App::dbgReadVuCapture() {
         statusMessage_ = "VU capture: frame " + std::to_string(dbgVuCap_.frame) +
                          ", " + std::to_string(dbgVuCap_.qw) + " quadwords, " +
                          std::to_string(dbgVuCap_.triangleCount()) + " triangles";
+}
+
+// bin/frame.tga: the picture the game took OF ITSELF (docs/devkit.md). Same
+// change-detection rule as the VU capture above - the timestamp, never the
+// size, because two shots of one scene are the same length to the byte.
+//
+// The TGA is decoded BY HAND rather than through stbi_load, and that is not
+// avoidance of a library: the editor's stb_image is built `STBI_ONLY_PNG` +
+// `STBI_ONLY_JPEG`, so it answers *unknown image type* to every TGA there is
+// (which is how this was found - on screen, in the error text below). Adding
+// TGA to it would widen what every OTHER stbi_load in the editor accepts - the
+// asset importer above all - for the sake of one debug preview, where the
+// format has exactly ONE writer whose source is known (ps2sdk libdebug): an
+// 18-byte header, image type 2, always 32 bits whatever the GS pixel format
+// was, uncompressed, BGRA, bottom row first. Two dozen lines, and they can be
+// exact about the two things a general decoder has to guess at - the row order
+// and the alpha.
+void App::dbgReadFrameShot() {
+    namespace fs = std::filesystem;
+    if (!hasProject_) return;
+    const fs::path path = fs::path(project_.dir) / "bin" / "frame.tga";
+    std::error_code ec;
+    const auto sz = fs::file_size(path, ec);
+    const size_t size = ec ? 0 : (size_t)sz;
+    std::error_code wec;
+    const auto wt = fs::last_write_time(path, wec);
+    const long long stamp = wec ? 0 : (long long)wt.time_since_epoch().count();
+    if (size == dbgShotSize_ && stamp == dbgShotStamp_) return;
+    if (!size) {  // the Runner deleted it, or the game has just truncated it
+        dbgShotSize_ = 0;
+        dbgShotStamp_ = stamp;
+        dbgShotTorn_ = 0;
+        dbgShotPartial_ = 0;
+        return;
+    }
+    // The game writes the header and then ~900 KB of pixels, a line at a time,
+    // over host: - so a poll lands mid-write often, not rarely. The file is
+    // exactly 18 + w*h*4 bytes and its header says w and h, which makes "is
+    // this file finished" answerable before reading any of it.
+    //
+    // WAITING IS DECIDED BY PROGRESS, NOT BY A NUMBER OF TRIES. A short file
+    // that is still GROWING is a write in flight and the wait restarts; only a
+    // short file that has stopped growing for six polls (~2.4 s) is a truncated
+    // write, and that is what gets reported. The count alone was an emulator
+    // assumption: PCSX2 finishes the megabyte between two polls, while over
+    // ps2link it is a network round trip per 1.4 KB and takes about three
+    // seconds - so the six tries ran out DURING a perfectly good capture and
+    // the panel called it malformed.
+    std::ifstream f(path, std::ios::binary);
+    if (!f) return;
+    unsigned char head[18] = {};
+    f.read(reinterpret_cast<char*>(head), sizeof(head));
+    if (f.gcount() != (std::streamsize)sizeof(head)) return;
+    const int w = (int)head[12] | ((int)head[13] << 8);
+    const int h = (int)head[14] | ((int)head[15] << 8);
+    const bool shaped = head[2] == 2 && head[16] == 32 && w > 0 && h > 0;
+    const size_t want = 18 + (size_t)w * (size_t)h * 4;
+    if (shaped && size < want) {
+        if (size != dbgShotPartial_) {  // it grew: the game is still writing
+            dbgShotPartial_ = size;
+            dbgShotTorn_ = 0;
+            return;
+        }
+        if (++dbgShotTorn_ < 6) return;
+    }
+
+    dbgShotSize_ = size;
+    dbgShotStamp_ = stamp;
+    dbgShotTorn_ = 0;
+    dbgShotPartial_ = 0;
+    dbgShotWaiting_ = false;
+    if (!shaped || size < want) {
+        dbgShotError_ =
+            "bin/frame.tga is not the 32-bit TGA the game writes (" +
+            std::to_string(size) + " bytes, header says " + std::to_string(w) +
+            "x" + std::to_string(h) + " at " + std::to_string(head[16]) +
+            " bpp)";
+        return;
+    }
+    std::vector<unsigned char> src((size_t)w * (size_t)h * 4);
+    f.read(reinterpret_cast<char*>(src.data()), (std::streamsize)src.size());
+    if (f.gcount() != (std::streamsize)src.size()) return;  // lost the race
+
+    std::vector<unsigned char> rgba(src.size());
+    for (int y = 0; y < h; ++y) {
+        // Bottom row first (descriptor bit 5 clear), and BGRA - so the copy
+        // both flips and swizzles. Alpha is FORCED opaque: the GS stores it
+        // 0..128 and a frame buffer's alpha is a working channel, not
+        // coverage, so taken literally the preview comes out half transparent
+        // or (where the game left it at zero) invisible. Only the colour here
+        // is a picture.
+        const unsigned char* s = &src[(size_t)(h - 1 - y) * (size_t)w * 4];
+        unsigned char* d = &rgba[(size_t)y * (size_t)w * 4];
+        for (int x = 0; x < w; ++x, s += 4, d += 4) {
+            d[0] = s[2];
+            d[1] = s[1];
+            d[2] = s[0];
+            d[3] = 255;
+        }
+    }
+    if (!dbgShotTex_) glGenTextures(1, &dbgShotTex_);
+    glBindTexture(GL_TEXTURE_2D, dbgShotTex_);
+    glUploadTexRgba(w, h, rgba.data());
+    dbgShotW_ = w;
+    dbgShotH_ = h;
+    dbgShotPixels_ = rgba;
+    dbgShotError_.clear();
+
+    // KEEP THE PICTURE. bin/frame.tga is a CHANNEL, not an album: one file,
+    // overwritten by the next capture and deleted by every launch (a stale
+    // shot is a perfectly valid-looking answer to the next session's first
+    // one). So a decoded capture is also written out as an ordinary PNG under
+    // the project's own screenshots/ - one file per capture, named by the
+    // clock so the folder sorts itself, outside bin/ so a Clean does not take
+    // the lot, and in a format anything can open. Nothing new is linked for
+    // it: stb_image_write is already here.
+    dbgShotFile_.clear();
+    const fs::path shots = fs::path(project_.dir) / "screenshots";
+    std::error_code sec;
+    fs::create_directories(shots, sec);
+    const std::string when = platform::fileTimeStamp();
+    fs::path png = shots / ("frame-" + when + ".png");
+    for (int n = 2; n < 100 && fs::exists(png, sec); ++n)  // twice in a second
+        png = shots / ("frame-" + when + "-" + std::to_string(n) + ".png");
+    if (stbi_write_png(png.string().c_str(), w, h, 4, rgba.data(), w * 4))
+        dbgShotFile_ = png.string();
+    else
+        dbgShotError_ = "could not write " + png.string();
+
+    statusMessage_ = "Frame capture: " + std::to_string(w) + "x" +
+                     std::to_string(h) + " from the running game" +
+                     (dbgShotFile_.empty()
+                          ? std::string()
+                          : " - saved as screenshots/" +
+                                fs::path(dbgShotFile_).filename().string());
 }
 
 void App::dbgReadCrashReport() {
@@ -643,6 +796,288 @@ void App::drawTimeMachinePanel() {
         "latches.\n\n"
         "NOT put back: sequences mid-play, menus, audio and particles.\n"
         "See docs/time-machine.md.");
+    ImGui::TextDisabled("Rewinding during a replay diverges it");
+    prefHelp(
+        "A recording is a list of INPUTS, not of states - it reproduces a run\n"
+        "by performing it again. Moving the world out from under it makes\n"
+        "every following frame describe a different situation, which the\n"
+        "Replay tab will report as a divergence. That is often exactly what\n"
+        "you want (rewind, patch a graph, watch the fix) - just do not read\n"
+        "the divergence count as a bug afterwards.");
+}
+
+// --- The input recorder -----------------------------------------------------
+// docs/input-replay.md. Almost everything here is about the NEXT run: the
+// mode is staged into the Runner, which prepares bin/ before it launches. The
+// only thing that talks to a running game is replayTick(), which reads the
+// status the game writes.
+
+void App::replayRescan(bool force) {
+    namespace fs = std::filesystem;
+    const double now = ImGui::GetTime();
+    if (!force && now < replayScanAt_) return;
+    replayScanAt_ = now + 1.0;
+    replayFiles_.clear();
+    if (!hasProject_) return;
+    std::error_code ec;
+    const fs::path dir = fs::path(project_.dir) / "recordings";
+    if (!fs::is_directory(dir, ec)) return;
+    for (const auto& e : fs::directory_iterator(dir, ec)) {
+        if (!e.is_regular_file(ec)) continue;
+        if (e.path().extension() != ".tyrarep") continue;
+        replayFiles_.push_back(e.path().filename().string());
+    }
+    std::sort(replayFiles_.begin(), replayFiles_.end());
+}
+
+void App::replayTick() {
+    namespace fs = std::filesystem;
+    const bool on = hasProject_ && project_.settings.inputRecorder &&
+                    project_.settings.buildProfile == "debug";
+    // Keep the Runner's staging in step with the radio button rather than
+    // setting it at each of the fifteen places a build or a run starts. The
+    // worker only READS it while a launch is in flight and the UI thread only
+    // writes it while the Runner is idle, which is the same contract every
+    // other launch input here has.
+    if (!runner_.busy()) {
+        Runner::ReplayLaunch want;
+        if (on && replayArm_ == ReplayArm::Record) {
+            want.mode = Runner::ReplayLaunch::Record;
+        } else if (on && replayArm_ == ReplayArm::Play && !replayFile_.empty()) {
+            want.mode = Runner::ReplayLaunch::Play;
+            want.file = (fs::path(project_.dir) / "recordings" / replayFile_)
+                            .string();
+        }
+        runner_.replay_ = want;
+    }
+    if (!on) {
+        replayHaveStatus_ = false;
+        return;
+    }
+    const double now = ImGui::GetTime();
+    if (now < replayNextTick_) return;
+    // The game rewrites replay.st on chunk boundaries - once or twice a second
+    // at the PCSX2 cadence - so reading faster only costs disk hits.
+    replayNextTick_ = now + 0.25;
+    livereplay::Status s;
+    if (!livereplay::readStatus(
+            (fs::path(project_.dir) / "bin" / "replay.st").string(), s))
+        return;  // not running, or a torn write - retry next tick
+    replayStatus_ = s;
+    replayHaveStatus_ = true;
+}
+
+std::string App::replayStopAndSave(const std::string& name) {
+    namespace fs = std::filesystem;
+    if (!hasProject_) return "no project is open";
+    std::string clean = sanitizeAssetName(name);
+    if (clean.empty()) return "give the recording a name first";
+    const fs::path binDir = fs::path(project_.dir) / "bin";
+    const fs::path raw = binDir / "replay.out";
+    std::error_code ec;
+    if (!fs::exists(raw, ec))
+        return "there is no recording in bin/ - was this run recorded?";
+
+    // Ask the game to finish cleanly, then give it a moment to write its
+    // terminal chunk. Not waiting is survivable (the parser tolerates a
+    // truncated tail and Save canonicalizes what parsed), so a game that has
+    // already exited costs a short pause and nothing else.
+    {
+        std::ofstream f(binDir / "replay.stop");
+        if (f) f << "stop\n";
+    }
+    const auto sizeOf = [&](const fs::path& p) -> uintmax_t {
+        std::error_code e;
+        const uintmax_t n = fs::file_size(p, e);
+        return e ? 0 : n;
+    };
+    uintmax_t last = sizeOf(raw);
+    for (int i = 0; i < 20; ++i) {  // up to ~2 s
+        platform::sleepMs(100);
+        livereplay::Status s;
+        if (livereplay::readStatus((binDir / "replay.st").string(), s) && s.done)
+            break;
+        const uintmax_t now = sizeOf(raw);
+        if (now == last && i >= 5) break;  // the game is not writing any more
+        last = now;
+    }
+    fs::remove(binDir / "replay.stop", ec);
+
+    const fs::path dest =
+        fs::path(project_.dir) / "recordings" / (clean + ".tyrarep");
+    const std::string err = livereplay::finalize(raw.string(), dest.string());
+    if (!err.empty()) return err;
+    replayRescan(true);
+    replayFile_ = dest.filename().string();
+    return "";
+}
+
+void App::drawReplayPanel() {
+    namespace fs = std::filesystem;
+    if (project_.settings.buildProfile != "debug") {
+        ImGui::TextDisabled(
+            "Recording and replaying need the debug build profile\n"
+            "(Project > Preferences > Build).");
+        return;
+    }
+    if (!project_.settings.inputRecorder) {
+        ImGui::TextDisabled(
+            "The input recorder is off for this project\n"
+            "(Project > Preferences > Build > Input recorder).");
+        return;
+    }
+    replayRescan(false);
+
+    // What the NEXT run does. Staged into the Runner, which prepares bin/
+    // before it launches - so a choice made here needs a Build & Run (F5) or a
+    // Run to take effect, and says so.
+    ImGui::TextDisabled("Next run");
+    int arm = (int)replayArm_;
+    bool changed = ImGui::RadioButton("Live", &arm, 0);
+    ImGui::SameLine();
+    changed |= ImGui::RadioButton("Record", &arm, 1);
+    ImGui::SameLine();
+    ImGui::BeginDisabled(replayFiles_.empty());
+    // "Play back", not "Replay": the TAB is called Replay, and an ImGui label
+    // IS its id - two widgets sharing one makes the radio unreachable from
+    // --ui-script (there is no way to say which of the two you meant) and
+    // reads ambiguously to a person as well.
+    changed |= ImGui::RadioButton("Play back", &arm, 2);
+    ImGui::EndDisabled();
+    if (replayFiles_.empty() && ImGui::IsItemHovered())
+        ImGui::SetTooltip("No recordings yet - record a run and Save it.");
+    if (changed) replayArm_ = (ReplayArm)arm;
+
+    if (replayArm_ == ReplayArm::Play) {
+        if (replayFile_.empty() && !replayFiles_.empty())
+            replayFile_ = replayFiles_.front();
+        ImGui::SetNextItemWidth(scaled(260));
+        if (ImGui::BeginCombo("##replayfile", replayFile_.c_str())) {
+            for (size_t i = 0; i < replayFiles_.size(); ++i) {
+                const bool sel = replayFiles_[i] == replayFile_;
+                // An explicit id: two recordings can share a display name only
+                // by accident, but a Selectable's LABEL is its id and a
+                // collision breaks the click silently.
+                if (ImGui::Selectable(
+                        (replayFiles_[i] + "##rep" + std::to_string(i)).c_str(),
+                        sel))
+                    replayFile_ = replayFiles_[i];
+                if (sel) ImGui::SetItemDefaultFocus();
+            }
+            ImGui::EndCombo();
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("Show file")) {
+            platform::revealInFileManager(
+                (fs::path(project_.dir) / "recordings" / replayFile_).string());
+        }
+        // What the file itself says, so a mismatch is visible before the run
+        // rather than as a hundred divergences during it.
+        livereplay::Recording rec;
+        std::string err;
+        if (!replayFile_.empty() &&
+            livereplay::read((fs::path(project_.dir) / "recordings" /
+                              replayFile_).string(), rec, err)) {
+            const float hz = rec.header.frameRate ? (float)rec.header.frameRate
+                                                  : 50.0f;
+            ImGui::TextDisabled("%u frames, %.1f s at %u Hz%s",
+                                (unsigned)rec.frames.size(),
+                                (float)rec.frames.size() / hz,
+                                rec.header.frameRate,
+                                rec.truncated ? " (truncated)" : "");
+            const float projHz =
+                project_.settings.videoSystem == "ntsc" ? 60.0f : 50.0f;
+            if ((float)rec.header.frameRate != projHz)
+                ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.35f, 1.0f),
+                                   "This project runs at %.0f Hz - the game "
+                                   "will refuse this recording.",
+                                   projHz);
+            else if (rec.header.layout != project::inputLayoutHash(project_))
+                ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.3f, 1.0f),
+                                   "The project changed since this was "
+                                   "recorded - expect divergences.");
+        } else if (!replayFile_.empty()) {
+            ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.35f, 1.0f), "%s",
+                               err.c_str());
+        }
+    }
+    ImGui::TextDisabled("Takes effect on the next Build & Run (F5) or Run.");
+
+    ImGui::Separator();
+
+    // What the RUNNING game is doing, straight out of bin/replay.st.
+    if (!replayHaveStatus_) {
+        ImGui::TextDisabled("The game is not recording or replaying.");
+    } else if (replayStatus_.mode == livereplay::Status::Record) {
+        ImGui::Text("Recording: frame %u", replayStatus_.frame);
+        if (replayStatus_.done) ImGui::TextDisabled("(stopped)");
+    } else if (replayStatus_.mode == livereplay::Status::Replay) {
+        if (replayStatus_.done)
+            ImGui::Text("Replay finished: %u frames, %u divergence(s)",
+                        replayStatus_.frame, replayStatus_.divergences);
+        else
+            ImGui::Text("Replay: %u / %u", replayStatus_.frame,
+                        replayStatus_.total);
+        if (replayStatus_.divergences)
+            ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.3f, 1.0f),
+                               "Diverged at frame %u (%u frame(s) differ)",
+                               replayStatus_.firstDivergent,
+                               replayStatus_.divergences);
+        else if (replayStatus_.done)
+            ImGui::TextColored(ImVec4(0.45f, 0.85f, 0.5f, 1.0f),
+                               "Reproduced exactly.");
+    } else {
+        ImGui::TextDisabled("The game is not recording or replaying.");
+    }
+
+    ImGui::Separator();
+
+    // Saving is what turns bin/replay.out - a raw, possibly half-written
+    // append log - into a canonical file worth committing.
+    ImGui::SetNextItemWidth(scaled(200));
+    char buf[128];
+    std::snprintf(buf, sizeof(buf), "%s", replaySaveName_.c_str());
+    if (ImGui::InputTextWithHint("##repname", "recording name", buf,
+                                 sizeof(buf)))
+        replaySaveName_ = buf;
+    ImGui::SameLine();
+    const bool haveRaw = hasProject_ &&
+                         fs::exists(fs::path(project_.dir) / "bin" / "replay.out");
+    ImGui::BeginDisabled(!haveRaw || replaySaveName_.empty());
+    if (ImGui::Button("Save recording")) {
+        const std::string err = replayStopAndSave(replaySaveName_);
+        replayMsg_ = err.empty()
+                         ? "Saved recordings/" + replayFile_
+                         : "Save failed: " + err;
+    }
+    ImGui::EndDisabled();
+    if (!haveRaw && ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "Nothing to save: bin/replay.out does not exist, so this run was\n"
+            "not recorded. Pick Record above and run again.");
+    if (ImGui::IsItemHovered() && haveRaw)
+        ImGui::SetTooltip(
+            "Asks the game to finish the recording, then writes it into the\n"
+            "project's recordings/ folder - whole chunks, a frame count and a\n"
+            "clean end. A recording killed with the emulator still saves: the\n"
+            "unfinished tail is dropped and everything before it is kept.");
+
+    if (!replayMsg_.empty()) {
+        ImGui::Separator();
+        ImGui::TextDisabled("%s", replayMsg_.c_str());
+    }
+
+    ImGui::Separator();
+    ImGui::TextDisabled("What a replay reproduces");
+    prefHelp(
+        "Both pads (buttons, click edges and stick axes), the USB keyboard\n"
+        "and mouse, the frame time, and the seed of every runtime procedural\n"
+        "volume. That is everything the game's own behaviour depends on, so\n"
+        "the run repeats itself.\n\n"
+        "NOT reproduced: memory-card saves (PCSX2 keeps its card between\n"
+        "runs) and anything you change while it plays - a rewind, a Live\n"
+        "Logic patch or a Live Link edit all move the world out from under\n"
+        "the recording on purpose. See docs/input-replay.md.");
 }
 
 void App::livedbgTick() {
@@ -662,6 +1097,7 @@ void App::livedbgTick() {
         dbgCrashNextRead_ = now + 0.4;
         dbgReadCrashReport();
         dbgReadVuCapture();
+        dbgReadFrameShot();
     }
 
     // The symbol table is a build artifact of codegen (src/gen/livedbg.sym).
@@ -689,6 +1125,33 @@ void App::livedbgTick() {
     }
 
     const fs::path binDir = fs::path(project_.dir) / "bin";
+
+    // How old the snapshot FILE is, which is a different question from
+    // "did a new snapshot arrive". The two channels this rides on fail
+    // differently and only one of them is visible from here: a ps2link
+    // session's file server is a ps2client the editor spawned, and when it
+    // goes the console keeps running while every devkit file freezes at its
+    // last write. That leaves a valid, parseable, permanently stale
+    // livedbg.bin - which without this reads exactly like "no data yet".
+    if (now >= dbgSnapFileNextStat_) {
+        dbgSnapFileNextStat_ = now + 0.5;
+        std::error_code ec;
+        const fs::path snapPath = binDir / "livedbg.bin";
+        const fs::file_time_type t = fs::last_write_time(snapPath, ec);
+        if (ec) {
+            dbgSnapFileAge_ = -1.0;  // not there at all
+        } else {
+            // NEVER against the system clock: file_clock's epoch is
+            // implementation-defined and on this libstdc++ sits in the
+            // future, so a system_clock difference is nonsense. Its own
+            // clock's now() is the only correct comparand.
+            const auto d = fs::file_time_type::clock::now() - t;
+            dbgSnapFileAge_ =
+                std::chrono::duration<double>(d).count();
+            if (dbgSnapFileAge_ < 0.0) dbgSnapFileAge_ = 0.0;
+        }
+    }
+
     livedbg::Snapshot snap;
     if (livedbg::readSnapshot((binDir / "livedbg.bin").string(), snap) &&
         (snap.seq != dbgSnap_.seq || snap.frame != dbgSnap_.frame)) {
@@ -750,7 +1213,15 @@ void App::livedbgTick() {
 
     // The game is "there" while its snapshots keep arriving. A halted game
     // still flushes (its loop keeps running), so silence means gone, not paused.
-    const bool reporting = dbgSnapTime_ > 0.0 && now - dbgSnapTime_ < 2.0;
+    // Allow several report intervals at the observed game rate. A deliberately
+    // slow report channel must not look like a crash every two seconds.
+    const double reportFps = dbgSnap_.stats.fpsX10 > 0
+                                 ? dbgSnap_.stats.fpsX10 / 10.0
+                                 : std::max(1, dbgSnap_.stats.fps);
+    const int reportFrames = project_.settings.liveDebugSnapshotFrames > 0
+                                 ? project_.settings.liveDebugSnapshotFrames : 25;
+    const double silenceLimit = std::max(2.0, 1.0 + 3.0 * reportFrames / reportFps);
+    const bool reporting = dbgSnapTime_ > 0.0 && now - dbgSnapTime_ < silenceLimit;
     // A game that WAS reporting and stopped, with no crash report and no
     // assertion, is a hang (or an exception nobody caught): the devkit
     // heartbeat is the only witness. Remember where it died - the fire history,
@@ -789,6 +1260,11 @@ void App::livedbgTick() {
     const bool missing = !fs::exists(binDir / "livedbg.cmd");
     if (!dbgCmdWritten_ || missing || !want.sameStateAs(dbgCmd_)) {
         want.seq = dbgCmd_.seq + 1;
+        if (want.captureRenderCost) {
+            want.seq = (uint32_t)std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::system_clock::now().time_since_epoch()).count();
+            if (!want.seq) want.seq = 1;
+        }
         if (livedbg::writeCommand((binDir / "livedbg.cmd").string(), want)
                 .empty()) {
             dbgCmd_ = want;
@@ -802,6 +1278,9 @@ void App::livedbgTick() {
             dbgCmd_.fireAndRun = false;
             dbgCmd_.captureVu = false;
             dbgCmd_.measureRam = false;
+            dbgCmd_.captureFrame = false;
+            if (dbgCmd_.captureRenderCost) dbgRenderCostSeq_ = want.seq;
+            dbgCmd_.captureRenderCost = false;
         }
     }
 }
@@ -813,9 +1292,50 @@ void App::livedbgTick() {
 // ---------------------------------------------------------------------------
 void App::liveLogicTick() {
     namespace fs = std::filesystem;
-    if (!hasProject_ || !project_.settings.liveLogic ||
-        project_.settings.buildProfile != "debug") {
+    if (!hasProject_ || project_.settings.buildProfile != "debug") {
         liveLogicState_ = LogicState::Off;
+        return;
+    }
+    // Live Logic OFF still owes one answer: "are my graph edits in the running
+    // game?" - and the honest answer is no. Nothing else says it. Live Link is
+    // the chip people watch and it stays green, correctly, because it streams
+    // OBJECT edits and has never carried flow-graph logic; the editor used to
+    // return here and show nothing at all, so an edited graph that needs a
+    // rebuild was indistinguishable from one already running. Compare the
+    // hashes (cheap - no compile, no capability check) and let the chip say so.
+    if (!project_.settings.liveLogic) {
+        const double nowOff = ImGui::GetTime();
+        // The throttle must LEAVE the last answer standing. Clearing the state
+        // here and re-deciding only every half second made the chip correct
+        // for one frame in thirty and invisible in practice - the state is
+        // what the toolbar reads every frame, not a scratch variable.
+        if (nowOff < liveLogicNextTick_) return;
+        liveLogicNextTick_ = nowOff + 0.5;
+        liveLogicState_ = LogicState::Off;
+        livelogic::BuiltList list;
+        if (!livelogic::loadBuiltList(
+                (fs::path(project_.dir) / "src" / "gen" / "livelogic.built")
+                    .string(),
+                list))
+            return;
+        for (size_t si = 0; si < project_.scenes.size(); ++si) {
+            const SceneData& sc = project_.scenes[si];
+            for (const SceneObject& o : sc.objects) {
+                if (o.flowGraph.empty()) continue;
+                const uint64_t live = livelogic::graphHash(o.flowGraph);
+                bool wasBuilt = false;
+                for (const livelogic::BuiltGraph& g : list.graphs)
+                    if (g.scene == (int)si && g.objectId == o.id) {
+                        wasBuilt = true;
+                        if (g.hash != live) liveLogicState_ = LogicState::OffStale;
+                        break;
+                    }
+                // A graph the build never saw (a new object, or one that had
+                // no graph then) is the same answer: nothing in the running
+                // game runs it.
+                if (!wasBuilt) liveLogicState_ = LogicState::OffStale;
+            }
+        }
         return;
     }
     const double now = ImGui::GetTime();
@@ -987,6 +1507,50 @@ static void dbgVuDrawFindings(const vucap::Capture& c) {
     ImGui::Separator();
 }
 
+// Why the panel is empty, in ONE line, with the remedy. An empty panel is the
+// single most expensive failure this channel has: a dead transport and a game
+// that has not booted yet look identical, and the difference is on disk the
+// whole time (see livedbgTick's file-age stat). Called by the Debugger's state
+// block AND the Stats tab, so the two cannot tell different stories.
+//
+// It used to say all of that inline, and the panel opened on a paragraph nobody
+// reads under stress. The rest lives in dbgSilenceDetail(), one hover away.
+std::string App::dbgSilenceReason() const {
+    if (dbgState_ == DbgState::Running || dbgState_ == DbgState::Halted)
+        return {};
+    if (dbgState_ == DbgState::Off || dbgState_ == DbgState::NoBuild) return {};
+    if (dbgSnapFileAge_ < 0.0)
+        return "Nothing is reporting yet - Build & Run (F5 / F6).";
+    // Running/Waiting already accounts for the configured report interval and
+    // observed frame rate in livedbgTick. File age adds transport context here.
+    const double age = dbgSnapFileAge_;
+    std::string when;
+    if (age < 90.0)
+        when = std::to_string((int)(age + 0.5)) + "s";
+    else
+        when = std::to_string((int)(age / 60.0 + 0.5)) + " min";
+    return "No new data for " + when + " - run it again (F5 / F6).";
+}
+
+// The long version of the above, for a (?) next to it. Everything the sentence
+// had to drop: which file, and why a console that is still visibly running can
+// stop reporting without anything having crashed.
+const char* App::dbgSilenceDetail() const {
+    if (dbgSnapFileAge_ < 0.0)
+        return "F5 builds and runs it in PCSX2, F6 deploys it to a console.\n"
+               "bin/livedbg.bin has not appeared yet. If the game IS running,\n"
+               "it was built before the Live Debugger preference was switched\n"
+               "on: rebuild it.";
+    return "F5 for PCSX2, F6 for a console. That session is OVER:\n"
+           "bin/livedbg.bin stopped changing, so what is on disk is a snapshot\n"
+           "of a session that is over. The game may still be running: over\n"
+           "ps2link the file server is a ps2client this editor spawned, and\n"
+           "closing the editor, stopping the game or redeploying THIS project\n"
+           "takes it down - the console then keeps running with no host: to\n"
+           "write to. The cure is a redeploy (Run on PS2, F6), not a retry.\n"
+           "Under PCSX2 it means the game itself stopped.";
+}
+
 // Tools > Debugger (F9). The state of the running game's logic: what fired,
 // what the variables hold, where it is stopped - plus the transport controls
 // and the breakpoint list. The graph itself is the other half of this UI (the
@@ -1051,7 +1615,13 @@ void App::drawDebuggerWindow() {
             chip = {IM_COL32(140, 140, 140, 255), "NO SYMBOLS"};
             break;
         case DbgState::Waiting:
-            chip = {IM_COL32(150, 170, 200, 255), "WAITING FOR THE GAME"};
+            // A frozen file is a DIFFERENT thing from an absent one and must
+            // not share a chip with it: one is "not started yet", the other is
+            // "the transport died and the console is still running".
+            if (dbgSnapFileAge_ >= 0.0)
+                chip = {IM_COL32(240, 175, 70, 255), "STALE SNAPSHOT"};
+            else
+                chip = {IM_COL32(150, 170, 200, 255), "WAITING FOR THE GAME"};
             break;
         case DbgState::Stale:
             chip = {IM_COL32(240, 175, 70, 255), "STALE (rebuild)"};
@@ -1083,15 +1653,21 @@ void App::drawDebuggerWindow() {
     }
     if (dbgState_ == DbgState::Running || dbgState_ == DbgState::Halted) {
         ImGui::SameLine(0.0f, scaled(12.0f));
-        ImGui::TextDisabled("frame %u \xc2\xb7 %.0f fps \xc2\xb7 scene %d",
+        // "rendered" is not decoration: this is the game's frame counter over
+        // the EDITOR's wall clock, and the frame counter counts loop
+        // iterations - so on a game with frame extrapolation on, the picture
+        // changes about twice as often as this says. The Stats tab has the
+        // game's own measurement of both.
+        ImGui::TextDisabled("frame %u \xc2\xb7 %.1f fps rendered \xc2\xb7 scene %d",
                             dbgSnap_.frame, dbgFps_, dbgSnap_.scene);
     }
 
     switch (dbgState_) {
         case DbgState::Off:
-            ImGui::TextWrapped(
-                "The Live Debugger is compiled only into debug builds with the "
-                "\"Live Debugger\" preference on.");
+            textWrappedHelp(
+                "Needs a debug build with the preference on.",
+                "The Live Debugger runtime is compiled only into debug builds\n"
+                "that have the \"Live Debugger\" preference switched on.");
             if (project_.settings.buildProfile != "debug")
                 ImGui::TextDisabled(
                     "This project builds in the release profile "
@@ -1101,22 +1677,23 @@ void App::drawDebuggerWindow() {
                 commitChange();
             break;
         case DbgState::NoBuild:
-            ImGui::TextWrapped(
-                "No symbol table yet. Build & Run (F5) once - codegen writes "
-                "src/gen/livedbg.sym next to the generated sources, and the "
-                "game starts reporting as soon as it boots.");
+            textWrappedHelp(
+                "No symbol table yet - Build & Run (F5) once.",
+                "Codegen writes src/gen/livedbg.sym next to the generated\n"
+                "sources; the game reports as soon as it boots.");
             break;
         case DbgState::Waiting:
-            ImGui::TextWrapped(
-                "Symbols loaded (%d nodes). Waiting for a game to report - "
-                "Build & Run (F5) for PCSX2, or F6 for a real console.",
-                (int)dbgSyms_.nodes.size());
+            textWrappedHelp(dbgSilenceReason().c_str(), dbgSilenceDetail());
+            if (dbgSnapFileAge_ < 0.0)
+                ImGui::TextDisabled("Symbols loaded (%d nodes).",
+                                    (int)dbgSyms_.nodes.size());
             break;
         case DbgState::Stale:
-            ImGui::TextWrapped(
-                "The running game was built from different graphs, so its node "
-                "numbering no longer matches the project. Build & Run (F5) to "
-                "resync - nothing is highlighted until then.");
+            textWrappedHelp(
+                "The running game was built from different graphs - Build & Run "
+                "(F5) to resync.",
+                "Its node numbering no longer matches the project, so nothing\n"
+                "is highlighted until you rebuild.");
             break;
         default: break;
     }
@@ -1205,7 +1782,8 @@ void App::drawDebuggerWindow() {
             dbgCrash_ = DbgCrash();
             dbgCrashSize_ = 0;
             if (onPs2)
-                runner_.buildAndRunPs2(projectForBuild(), false);
+                runner_.buildAndRunPs2(projectForBuild(), false, false,
+                                       project_.activeScene);
             else
                 runner_.buildAndRun(projectForBuild(), false);
         }
@@ -1274,11 +1852,14 @@ void App::drawDebuggerWindow() {
     } else if (dbgLostGame_) {
         ImGui::Separator();
         ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.95f, 0.7f, 0.35f, 1.0f));
-        ImGui::TextWrapped(
-            "The game stopped reporting at frame %u - no crash report and no "
-            "assertion, so it hung (or took an exception with the crash handler "
-            "off).",
-            dbgLostAtFrame_);
+        char lost[96];
+        std::snprintf(lost, sizeof(lost),
+                      "The game stopped reporting at frame %u - it hung.",
+                      dbgLostAtFrame_);
+        textWrappedHelp(
+            lost,
+            "No crash report and no assertion came with it: either a real\n"
+            "hang, or an exception taken with the EE crash handler off.");
         ImGui::PopStyleColor();
         const auto& frames = dbgTimeline_.frames();
         if (!frames.empty()) {
@@ -1326,7 +1907,7 @@ void App::drawDebuggerWindow() {
     }
 
     // --- tabs --------------------------------------------------------------
-    if (!ImGui::BeginTabBar("##dbgtabs")) {
+    if (!ImGui::BeginTabBar("##dbgtabs", ImGuiTabBarFlags_TabListPopupButton)) {
         ImGui::End();
         return;
     }
@@ -1338,50 +1919,148 @@ void App::drawDebuggerWindow() {
         if (dbgScrub_ >= 0 && dbgScrub_ < (int)frames.size() &&
             !frames[dbgScrub_].vars.empty())
             vals = &frames[dbgScrub_].vars;
+        // What a row's Kind column says - and one of the two things the search
+        // below matches against, so it stays in one place.
+        //
+        // Four sources share this table and the symbol file distinguishes all
+        // of them: the Variables nodes ('i'/'b'/'p'), save values ('s') and
+        // World Facts, which come in scalar ('f') and POSITION ('F') flavours.
+        // Everything but the first three used to fall through to "save value"
+        // and one %g - which is why a position fact read as a lone float that
+        // happened to be its X.
+        auto kindOf = [](char k) {
+            switch (k) {
+                case 'i': return "int";
+                case 'b': return "bool";
+                case 'p': return "position";
+                case 'f': return "fact";
+                case 'F': return "fact (position)";
+                default: return "save value";
+            }
+        };
+        // A scalar fact is one float in the game and a TYPE in the catalog, so
+        // the editor can print it the way the catalog means it - true/false,
+        // an enum's option name - instead of the number the console stores.
+        // The blackboard already does this; the watch had no reason not to.
+        auto factNamed = [&](const std::string& n) -> const facts::Fact* {
+            for (const facts::Fact& f : project_.facts)
+                if (f.name == n) return &f;
+            return nullptr;
+        };
+        auto lower = [](std::string s) {
+            std::transform(s.begin(), s.end(), s.begin(),
+                           [](unsigned char c) { return (char)std::tolower(c); });
+            return s;
+        };
+        const std::string needle = lower(dbgWatchFilter_);
+        auto matches = [&](const livedbg::VarSym& v) {
+            if (needle.empty()) return true;
+            return lower(v.name + " " + kindOf(v.kind)).find(needle) !=
+                   std::string::npos;
+        };
+
         if (dbgSyms_.vars.empty()) {
-            ImGui::TextDisabled(
-                "This project has no flow variables and no save values.");
-            ImGui::TextWrapped(
-                "Variables nodes (Set/Get Int, Bool, Position) and Save values "
+            ImGui::PushStyleColor(ImGuiCol_Text,
+                                  ImGui::GetStyle().Colors[ImGuiCol_TextDisabled]);
+            textWrappedHelp(
+                "This project has no flow variables and no save values.",
+                "Variables nodes (Set/Get Int, Bool, Position) and Save values\n"
                 "show up here automatically.");
-        } else if (ImGui::BeginTable("##watch", 3,
-                                     ImGuiTableFlags_RowBg |
-                                         ImGuiTableFlags_SizingStretchProp |
-                                         ImGuiTableFlags_ScrollY)) {
+            ImGui::PopStyleColor();
+        } else {
+        // A search box, because a fact catalog puts EVERY declared fact in
+        // here: past a dozen rows the panel is a list to scroll rather than a
+        // reading. It matches the name and the Kind text together, so "marta"
+        // narrows to a character and "bool" or "save" narrows to a column's
+        // worth - one field instead of a filter row of checkboxes.
+        {
+            char fbuf[128];
+            std::snprintf(fbuf, sizeof(fbuf), "%s", dbgWatchFilter_.c_str());
+            ImGui::SetNextItemWidth(scaled(220));
+            if (ImGui::InputTextWithHint("##watchfilter", "Filter...", fbuf,
+                                         sizeof(fbuf)))
+                dbgWatchFilter_ = fbuf;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Matches the name and the kind: \"marta\", \"bool\", "
+                    "\"save\".");
+            int shown = 0;
+            for (const livedbg::VarSym& v : dbgSyms_.vars)
+                if (matches(v)) ++shown;
+            ImGui::SameLine();
+            if (dbgWatchFilter_.empty()) {
+                ImGui::TextDisabled("%d row(s)", (int)dbgSyms_.vars.size());
+            } else {
+                if (ImGui::SmallButton("Clear##watchfilter"))
+                    dbgWatchFilter_.clear();
+                ImGui::SameLine();
+                ImGui::TextDisabled("%d of %d", shown,
+                                    (int)dbgSyms_.vars.size());
+            }
+            // Say so rather than showing an empty table, which reads as "the
+            // game stopped reporting" - the one thing this panel must never be
+            // ambiguous about.
+            if (shown == 0)
+                ImGui::TextDisabled("Nothing matches \"%s\".",
+                                    dbgWatchFilter_.c_str());
+        }
+
+        if (ImGui::BeginTable("##watch", 3,
+                              ImGuiTableFlags_RowBg |
+                                  ImGuiTableFlags_SizingStretchProp |
+                                  ImGuiTableFlags_ScrollY)) {
             ImGui::TableSetupColumn("Name", ImGuiTableColumnFlags_WidthStretch, 0.5f);
             ImGui::TableSetupColumn("Kind", ImGuiTableColumnFlags_WidthStretch, 0.2f);
             ImGui::TableSetupColumn("Value", ImGuiTableColumnFlags_WidthStretch, 0.3f);
             ImGui::TableHeadersRow();
             for (size_t i = 0; i < dbgSyms_.vars.size(); ++i) {
                 const livedbg::VarSym& v = dbgSyms_.vars[i];
+                // The VALUE index is the row's position in the symbol table,
+                // not its position on screen - filtering hides rows, it does
+                // not renumber them.
+                if (!matches(v)) continue;
                 ImGui::TableNextRow();
                 ImGui::TableSetColumnIndex(0);
                 ImGui::TextUnformatted(v.name.c_str());
                 ImGui::TableSetColumnIndex(1);
-                const char* kind = v.kind == 'i'   ? "int"
-                                   : v.kind == 'b' ? "bool"
-                                   : v.kind == 'p' ? "position"
-                                                   : "save value";
-                ImGui::TextDisabled("%s", kind);
+                ImGui::TextDisabled("%s", kindOf(v.kind));
                 ImGui::TableSetColumnIndex(2);
                 const size_t o = i * 3;
+                const ImVec4 kTrue(0.45f, 0.85f, 0.5f, 1.0f);
+                const ImVec4 kFalse(0.6f, 0.6f, 0.6f, 1.0f);
+                const facts::Fact* fact =
+                    (v.kind == 'f' || v.kind == 'F') ? factNamed(v.name)
+                                                     : nullptr;
                 if (o + 2 >= vals->size()) {
                     ImGui::TextDisabled("-");
                 } else if (v.kind == 'b') {
-                    ImGui::TextColored((*vals)[o] != 0.0f
-                                           ? ImVec4(0.45f, 0.85f, 0.5f, 1.0f)
-                                           : ImVec4(0.6f, 0.6f, 0.6f, 1.0f),
-                                       "%s", (*vals)[o] != 0.0f ? "true" : "false");
-                } else if (v.kind == 'p') {
+                    ImGui::TextColored((*vals)[o] != 0.0f ? kTrue : kFalse, "%s",
+                                       (*vals)[o] != 0.0f ? "true" : "false");
+                } else if (v.kind == 'p' || v.kind == 'F') {
+                    // Three floats, which is what a position IS. It reaches the
+                    // editor as three slots of the same row, so printing one of
+                    // them was printing X and calling it the position.
                     ImGui::Text("%.2f, %.2f, %.2f", (*vals)[o], (*vals)[o + 1],
                                 (*vals)[o + 2]);
                 } else if (v.kind == 'i') {
                     ImGui::Text("%d", (int)(*vals)[o]);
+                } else if (fact && fact->type == facts::Type::Bool) {
+                    ImGui::TextColored((*vals)[o] != 0.0f ? kTrue : kFalse, "%s",
+                                       (*vals)[o] != 0.0f ? "true" : "false");
+                } else if (fact && fact->type == facts::Type::Enum) {
+                    const int idx = (int)lroundf((*vals)[o]);
+                    if (idx >= 0 && idx < (int)fact->options.size())
+                        ImGui::Text("%s", fact->options[(size_t)idx].c_str());
+                    else  // out of range: say WHICH number, not "?"
+                        ImGui::TextDisabled("%d (no option)", idx);
+                } else if (fact && fact->type == facts::Type::Int) {
+                    ImGui::Text("%d", (int)lroundf((*vals)[o]));
                 } else {
                     ImGui::Text("%g", (*vals)[o]);
                 }
             }
             ImGui::EndTable();
+        }
         }
         ImGui::EndTabItem();
     }
@@ -1494,6 +2173,13 @@ void App::drawDebuggerWindow() {
         ImGui::EndTabItem();
     }
 
+    // Replay: the other axis again. Rewind moves the world back; this makes
+    // the game DO the same thing again from the boot (docs/input-replay.md).
+    if (ImGui::BeginTabItem("Replay")) {
+        drawReplayPanel();
+        ImGui::EndTabItem();
+    }
+
     // Nodes: everything instrumented in the graph currently being edited, with
     // its hit count, a breakpoint toggle and (for triggers) a Fire button.
     if (ImGui::BeginTabItem("Nodes")) {
@@ -1577,14 +2263,51 @@ void App::drawDebuggerWindow() {
     if (ImGui::BeginTabItem("Stats")) {
         const livedbg::Stats& st = dbgSnap_.stats;
         if (!live || !st.valid) {
-            ImGui::TextDisabled("No stats yet.");
-            prefHelp(
-                "They arrive with the game's snapshots - run a debug build with\n"
-                "the Live Debugger on. A game built before this panel existed\n"
-                "reports none: rebuild it.");
+            // "No stats yet." was the whole message here, and it was the same
+            // message whether the game had not booted, the build carried no
+            // debugger runtime, or the file server had died half an hour ago
+            // with the console still running. Say WHICH.
+            const std::string why = dbgSilenceReason();
+            if (!why.empty()) {
+                ImGui::PushStyleColor(ImGuiCol_Text,
+                                      ImVec4(0.94f, 0.75f, 0.35f, 1.0f));
+                textWrappedHelp(why.c_str(), dbgSilenceDetail());
+                ImGui::PopStyleColor();
+            } else if (!live) {
+                ImGui::TextDisabled("No stats yet.");
+                prefHelp(
+                    "They arrive with the game's snapshots - run a debug build\n"
+                    "with the Live Debugger on.");
+            } else {
+                // Reporting, but the stats block is empty: an older ELF.
+                ImGui::TextDisabled(
+                    "This game reports no stats block - it was built before "
+                    "the Stats tab existed. Rebuild it (F5 / F6).");
+            }
         } else {
             ImGui::SeparatorText("Frame");
-            ImGui::Text("%d FPS", st.fps);
+            // The game's OWN measurement, on its COP0 clock, over its stated
+            // 0.5 s window - a different instrument from the header's
+            // frames-over-the-editor's-wall-clock, and the two should agree.
+            // A game built before the tenths existed reports only whole
+            // frames per second, so fall back rather than printing 0.0.
+            if (st.fpsX10 > 0)
+                ImGui::Text("%.1f FPS rendered", st.fpsX10 / 10.0f);
+            else
+                ImGui::Text("%d FPS rendered", st.fps);
+            if (st.presentedX10 > st.fpsX10 * 115 / 100) {
+                ImGui::SameLine();
+                ImGui::Text("\xc2\xb7 %.1f presented", st.presentedX10 / 10.0f);
+            }
+            prefHelp(
+                "Measured by the game itself: rendered = game loops per\n"
+                "second, presented = buffer flips. Frame extrapolation\n"
+                "synthesises a frame per rendered one, so it shows about\n"
+                "twice as often as it renders and both numbers are quoted.\n"
+                "The number beside the frame counter above is the same\n"
+                "rendered rate timed against this editor's wall clock -\n"
+                "they should agree. Neither is the frame-timing rig, which\n"
+                "measures sub-frame WORK in milliseconds (docs/profiling.md).");
             ImGui::SameLine();
             ImGui::TextDisabled("|  %d bag flush(es) to VU1, %u quadwords, "
                                 "%u vertices",
@@ -1619,9 +2342,22 @@ void App::drawDebuggerWindow() {
                                    "fit, so textures are re-uploaded.");
 
             ImGui::SeparatorText("EE memory");
+            // ramFrame is the "it answered" signal: the game stamps it with
+            // the frame it measured on. Zero KB with a frame behind it is a
+            // FAILED measurement, and saying "not measured yet" for it is how
+            // this read as "Measure now does nothing" - the button worked, the
+            // probe came back empty, and the panel showed the same line as
+            // before (the engine's probe used to collapse to 0, see
+            // Info::allocateLargestFreeRAMBlock).
             if (st.ramFreeKB)
                 ImGui::Text("%.2f MB free at frame %u", st.ramFreeKB / 1024.0f,
                             st.ramFrame);
+            else if (st.ramFrame)
+                ImGui::TextColored(ImVec4(0.94f, 0.75f, 0.35f, 1.0f),
+                                   "measured at frame %u and found 0 MB free - "
+                                   "the game is either out of memory or the "
+                                   "probe failed",
+                                   st.ramFrame);
             else
                 ImGui::TextDisabled("not measured yet");
             ImGui::BeginDisabled(!live);
@@ -1640,6 +2376,273 @@ void App::drawDebuggerWindow() {
             ImGui::SeparatorText("Scene");
             ImGui::Text("%d objects: %d active, %d visible", st.objects,
                         st.objActive, st.objVisible);
+        }
+        ImGui::EndTabItem();
+    }
+
+    if (ImGui::BeginTabItem("Hardware timeline")) {
+        hardware_timeline::draw(project_.dir);
+        ImGui::EndTabItem();
+    }
+
+    if (ImGui::BeginTabItem("Render cost")) {
+        if (dbgRenderCostProject_ != project_.dir) {
+            dbgRenderCostProject_ = project_.dir;
+            dbgRenderCost_ = {}; dbgRenderBaseline_ = {};
+            dbgRenderCostWaiting_ = false; dbgRenderCostSeq_ = 0;
+        }
+        ImGui::TextWrapped("On-demand render-pass attribution. Synchronizes VU/GS between stages; "
+                           "the measured pass is slower than normal. It excludes update, vsync and file transfer.");
+        ImGui::BeginDisabled(!live || dbgRenderCostWaiting_);
+        if (ImGui::Button("Measure render cost")) {
+            dbgCmd_.captureRenderCost = true; dbgCmdWritten_ = false;
+            dbgRenderCostWaiting_ = true; dbgRenderCostSeq_ = 0;
+        }
+        ImGui::EndDisabled();
+        if (dbgRenderCostWaiting_) {
+            ImGui::SameLine(); ImGui::TextDisabled("Waiting for game...");
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Cancel measurement")) dbgRenderCostWaiting_ = false;
+        }
+        const double costNow = ImGui::GetTime();
+        if (dbgRenderCostWaiting_ && dbgRenderCostSeq_ && costNow >= dbgRenderCostPoll_) {
+            dbgRenderCostPoll_ = costNow + 0.5;
+            livedbg::RenderCost result;
+            if (livedbg::readRenderCost((std::filesystem::path(project_.dir)/"bin"/"rendercost.txt").string(),result) &&
+                result.seq == dbgRenderCostSeq_) {
+                dbgRenderCost_ = std::move(result); dbgRenderCostWaiting_ = false;
+            }
+        }
+        if (!dbgRenderCost_.seq)
+            ImGui::TextDisabled("Requires a rebuilt debug game with Live Debugger enabled (1.80+).");
+        else {
+            ImGui::Text("Synchronized render pass: %.3f ms (scene %d)",dbgRenderCost_.totalMs,dbgRenderCost_.scene);
+            if (dbgRenderBaseline_.seq && dbgRenderBaseline_.scene==dbgRenderCost_.scene)
+                ImGui::Text("Total delta: %+.3f ms",dbgRenderCost_.totalMs-dbgRenderBaseline_.totalMs);
+            if (ImGui::Button("Keep as baseline")) dbgRenderBaseline_ = dbgRenderCost_;
+            ImGui::SameLine();
+            if (ImGui::Button("Copy render cost CSV"))
+                ImGui::SetClipboardText(livedbg::renderCostCsv(dbgRenderCost_).c_str());
+            ImGui::TextDisabled("Object rows belong to Objects. Engine counters overlap phases; do not sum them.");
+            // The Obj_* rows are ~15 per drawn object: the answer to "why is
+            // THIS object dear", and noise in every other reading.
+            ImGui::Checkbox("Per-object pipeline detail", &dbgRenderCostDetail_);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Adds each object's own counters (Obj_ rows): EE time of its\n"
+                                  "main and companion passes, bounds/prepare/dispatch/DMA, and\n"
+                                  "package counts (cull/guard/clip/outside, as whole numbers).");
+            // Resolve the label and the baseline delta ONCE, before sorting:
+            // both are what the table shows, so both are what it has to sort
+            // on, and the delta is a lookup a comparator would otherwise
+            // repeat on every comparison.
+            struct CostView {
+                std::string label;
+                double ms = 0;
+                double delta = 0;
+                bool hasDelta = false;
+                bool object = false;
+            };
+            const bool haveBase = dbgRenderBaseline_.seq &&
+                                  dbgRenderBaseline_.scene == dbgRenderCost_.scene;
+            std::vector<CostView> view;
+            view.reserve(dbgRenderCost_.rows.size());
+            for (const auto& row : dbgRenderCost_.rows) {
+                const bool detail = row.label.rfind("Obj_", 0) == 0;
+                if (detail && !dbgRenderCostDetail_) continue;
+                CostView v;
+                v.ms = row.ms;
+                v.object = row.object >= 0;
+                std::string label = row.label;
+                std::replace(label.begin(), label.end(), '_', ' ');
+                if (v.object) {
+                    label = "Object #" + std::to_string(row.object);
+                    const int si = dbgRenderCost_.scene;
+                    if (si >= 0 && si < (int)project_.scenes.size() &&
+                        row.object < (int)project_.scenes[si].objects.size())
+                        label += " " + project_.scenes[si].objects[row.object].name;
+                    if (detail) {
+                        std::string stage = row.label.substr(4);
+                        std::replace(stage.begin(), stage.end(), '_', ' ');
+                        label += " - " + stage;
+                    }
+                }
+                v.label = std::move(label);
+                if (haveBase)
+                    for (const auto& old : dbgRenderBaseline_.rows)
+                        if (old.object == row.object && old.label == row.label) {
+                            v.delta = row.ms - old.ms;
+                            v.hasDelta = true;
+                            break;
+                        }
+                view.push_back(std::move(v));
+            }
+            if (ImGui::BeginTable("Render cost results", 3,
+                                  ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
+                                      ImGuiTableFlags_Sortable |
+                                      ImGuiTableFlags_SortTristate)) {
+                ImGui::TableSetupColumn("Stage / object");
+                // Both cost columns prefer descending - the question this table
+                // answers is always "what is dearest" - but neither carries
+                // DefaultSort: with SortTristate that leaves the fresh table
+                // unsorted, so an untouched capture still reads in the grouping
+                // it always had.
+                ImGui::TableSetupColumn("ms",
+                                        ImGuiTableColumnFlags_PreferSortDescending);
+                ImGui::TableSetupColumn("Delta ms",
+                                        ImGuiTableColumnFlags_PreferSortDescending);
+                ImGui::TableHeadersRow();
+                int sortCol = -1;
+                bool sortAsc = false;
+                if (const ImGuiTableSortSpecs* specs = ImGui::TableGetSortSpecs())
+                    if (specs->SpecsCount > 0) {
+                        sortCol = specs->Specs[0].ColumnIndex;
+                        sortAsc = specs->Specs[0].SortDirection ==
+                                  ImGuiSortDirection_Ascending;
+                    }
+                std::stable_sort(
+                    view.begin(), view.end(),
+                    [&](const CostView& a, const CostView& b) {
+                        // Tristate: a third click clears the sort and the list
+                        // falls back to the grouping it had before it was
+                        // sortable - phases first and dearest first, objects
+                        // after them.
+                        if (sortCol < 0) {
+                            if (a.object != b.object) return !a.object;
+                            return a.ms > b.ms;
+                        }
+                        if (sortCol == 0) {
+                            std::string la = a.label, lb = b.label;
+                            auto lower = [](std::string& t) {
+                                std::transform(t.begin(), t.end(), t.begin(),
+                                               [](unsigned char c) {
+                                                   return (char)std::tolower(c);
+                                               });
+                            };
+                            lower(la);
+                            lower(lb);
+                            if (la == lb) return false;
+                            return sortAsc ? la < lb : lb < la;
+                        }
+                        if (sortCol == 2) {
+                            // A row the baseline does not carry has no delta
+                            // at all; it sorts last in both directions rather
+                            // than pretending to be a zero.
+                            if (a.hasDelta != b.hasDelta) return a.hasDelta;
+                            if (!a.hasDelta || a.delta == b.delta) return false;
+                            return sortAsc ? a.delta < b.delta : a.delta > b.delta;
+                        }
+                        if (a.ms == b.ms) return false;
+                        return sortAsc ? a.ms < b.ms : a.ms > b.ms;
+                    });
+                for (const auto& v : view) {
+                    ImGui::TableNextRow();
+                    ImGui::TableSetColumnIndex(0);
+                    ImGui::TextUnformatted(v.label.c_str());
+                    ImGui::TableSetColumnIndex(1);
+                    ImGui::Text("%.3f", v.ms);
+                    ImGui::TableSetColumnIndex(2);
+                    if (v.hasDelta) ImGui::Text("%+.3f", v.delta);
+                }
+                ImGui::EndTable();
+            }
+        }
+        ImGui::EndTabItem();
+    }
+
+    // Screen: the picture the game took of ITSELF. Every host-side capture
+    // needs a desktop and a window on top of it, and none of them exists on a
+    // console - this one reads the frame buffer out of GS VRAM and hands over a
+    // TGA (docs/devkit.md, "The game's own screenshot").
+    if (ImGui::BeginTabItem("Screen")) {
+        if (!live) dbgShotWaiting_ = false;  // nobody left to answer
+        ImGui::BeginDisabled(!live);
+        if (ImGui::Button("Capture frame")) {
+            dbgCmd_.captureFrame = true;
+            dbgCmdWritten_ = false;
+            dbgShotWaiting_ = true;
+        }
+        ImGui::EndDisabled();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Asks the game to read its last finished frame out of GS VRAM. "
+                "Works on a\nreal PlayStation 2, and on a locked or remote "
+                "desktop where the emulator's\nown screenshot key cannot.\n\n"
+                "Kept as a PNG in the project's screenshots/ folder.\n\n"
+                "One shot: ~900 KB over host:, so it costs the game a visible "
+                "hitch -\nabout three seconds of it over ps2link.");
+        if (dbgShotWaiting_) {
+            ImGui::SameLine();
+            ImGui::TextDisabled("waiting for the game...");
+        }
+        if (dbgShotTex_) {
+            ImGui::SameLine();
+            // This reveals the SAVED PNG rather than bin/frame.tga: the
+            // channel file is overwritten by the next capture and deleted by
+            // every launch, so pointing the file manager at it opened a path
+            // that was usually gone - and a missing path is answered by
+            // explorer with the user's Documents folder, which reads as a
+            // broken button. The PNG is the copy that lasts.
+            if (ImGui::Button("Show file")) {
+                std::error_code ec;
+                if (!dbgShotFile_.empty() &&
+                    std::filesystem::exists(dbgShotFile_, ec)) {
+                    dbgShotError_.clear();
+                    platform::revealInFileManager(dbgShotFile_);
+                } else {
+                    dbgShotError_ =
+                        "the saved PNG is gone - capture again to write one.";
+                }
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Copy image")) {
+                if (platform::copyImageToClipboard(
+                        dbgShotPixels_.data(), dbgShotW_, dbgShotH_,
+                        dbgShotFile_)) {
+                    dbgShotError_.clear();
+                    statusMessage_ = "Frame image copied to the clipboard";
+                } else {
+                    dbgShotError_ =
+                        "could not put the frame image on the clipboard.";
+                }
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Copies the actual bitmap, ready to paste into chat or an "
+                    "image editor.");
+        }
+
+        if (!dbgShotError_.empty()) {
+            // Wrapped: this panel is a narrow dock column and an unwrapped
+            // line simply runs off its right edge, taking the half of the
+            // sentence that says what to do about it.
+            ImGui::PushTextWrapPos(0.0f);
+            ImGui::TextColored(ImVec4(0.94f, 0.55f, 0.45f, 1.0f), "%s",
+                               dbgShotError_.c_str());
+            ImGui::PopTextWrapPos();
+        }
+        if (!dbgShotTex_) {
+            ImGui::TextWrapped(
+                "No capture yet. The frame comes back over the same host: "
+                "channel everything else here rides on - a real PlayStation 2 "
+                "included - and is kept as a PNG in the project's "
+                "screenshots/ folder.");
+        } else {
+            ImGui::TextDisabled("%dx%d - the frame buffer as the GS holds it",
+                                dbgShotW_, dbgShotH_);
+            if (!dbgShotFile_.empty())
+                ImGui::TextDisabled(
+                    "screenshots/%s",
+                    std::filesystem::path(dbgShotFile_).filename().string().c_str());
+            // Fit the width and keep the buffer's own aspect: this is the
+            // GS RASTER, not the television picture, so a 512x448 frame is
+            // shown as 512x448 rather than stretched to 4:3 - the point of
+            // looking at it here is to see what the console drew.
+            const float avail = ImGui::GetContentRegionAvail().x;
+            const float scale =
+                dbgShotW_ > 0 ? ImMin(1.0f, avail / (float)dbgShotW_) : 1.0f;
+            ImGui::Image((ImTextureID)(intptr_t)dbgShotTex_,
+                         ImVec2((float)dbgShotW_ * scale,
+                                (float)dbgShotH_ * scale));
         }
         ImGui::EndTabItem();
     }
@@ -2331,6 +3334,17 @@ void App::uiScriptTick() {
         }
         uiTargetX_ = (it->x0 + it->x1) * 0.5f;
         uiTargetY_ = (it->y0 + it->y1) * 0.5f;
+        // The pointing steps' optional offset from that centre (Drag and Wheel
+        // read dx/dy as their own motion, so they are left alone). It is how a
+        // script reaches something DRAWN over a widget instead of submitted as
+        // one - the viewport being one huge item.
+        if (s.kind == uiscript::Step::Click ||
+            s.kind == uiscript::Step::RightClick ||
+            s.kind == uiscript::Step::DoubleClick ||
+            s.kind == uiscript::Step::Hover) {
+            uiTargetX_ += s.dx;
+            uiTargetY_ += s.dy;
+        }
         if (s.kind == uiscript::Step::Expect) {
             finishStep();
             uiscript::beginFrame();
@@ -2385,10 +3399,12 @@ void App::uiScriptTick() {
         case uiscript::Step::Click:
             io.AddMousePosEvent(uiTargetX_, uiTargetY_);
             if (uiStepPhase_ == 1) {
+                if (s.shiftClick) io.AddKeyEvent(ImGuiMod_Shift, true);
                 io.AddMouseButtonEvent(0, true);
                 uiStepPhase_ = 2;
             } else if (uiStepPhase_ == 2) {
                 io.AddMouseButtonEvent(0, false);
+                if (s.shiftClick) io.AddKeyEvent(ImGuiMod_Shift, false);
                 uiStepPhase_ = 3;
             } else {
                 finishStep();  // one settle frame, so the UI has reacted
@@ -2563,6 +3579,25 @@ void App::uiScriptTick() {
 // emulator. The same file is what the --pad CLI writes from a script.
 // -------------------------------------------------------------------------
 
+// One step of a running pad script. A step with no duration is applied and the
+// next one taken in the same frame ("press" is a state change plus a wait);
+// a step with a duration holds until its deadline.
+void App::padScriptTick() {
+    if (!padScriptRunning_) return;
+    const double now = ImGui::GetTime();
+    while (padScriptRunning_ && now >= padScriptUntil_) {
+        if (padScriptStep_ >= padScript_.size()) {
+            padScriptRunning_ = false;
+            padState_.clear();  // never leave the game holding a button
+            break;
+        }
+        const livepad::Step& s = padScript_[padScriptStep_++];
+        padState_ = s.state;
+        padScriptUntil_ = now + s.seconds;
+        if (s.seconds > 0.0) break;
+    }
+}
+
 void App::remotePadTick() {
     namespace fs = std::filesystem;
     const bool usable = hasProject_ && project_.settings.remotePad &&
@@ -2570,7 +3605,9 @@ void App::remotePadTick() {
     // "Driving" means the window is open. Anything else (window closed, project
     // closed, preference off) has to let go explicitly - a game left holding a
     // direction because a panel was closed would look exactly like a stuck pad.
-    const bool want = usable && showRemotePad_;
+    // A script drives the pad with no panel open: the assistant is holding the
+    // controller, and the panel is a different way of holding the same one.
+    const bool want = usable && (showRemotePad_ || padScriptRunning_);
     if (!want) {
         if (padAttached_) {
             padState_.clear();
@@ -2590,6 +3627,10 @@ void App::remotePadTick() {
         padSeq_ = (uint32_t)std::time(nullptr);
         padAttached_ = true;
     }
+    // Advance a script EVERY frame, not at the write cadence: a `press cross 0.1`
+    // is shorter than two writes apart, and a step resolved late would be
+    // announced late or not at all.
+    padScriptTick();
     const double now = ImGui::GetTime();
     if (now < padNextWrite_) return;
     padNextWrite_ = now + 0.04;  // ~25 Hz: keeps the game's stale watchdog fed

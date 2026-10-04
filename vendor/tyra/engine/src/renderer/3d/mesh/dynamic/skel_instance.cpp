@@ -19,6 +19,14 @@
 #include <float.h>
 #include <math.h>
 #include <string.h>
+#include <stdio.h>
+#include <unordered_map>
+#include <string>
+#include "debug/debug.hpp"
+
+#if TYRA_SKEL_PROFILE
+static unsigned skelTicks() { unsigned t; asm volatile("mfc0 %0, $9" : "=r"(t)); return t; }
+#endif
 
 #include "loaders/3d/builder/mesh_builder_data.hpp"
 
@@ -163,6 +171,11 @@ void repackBind(const float* positions, const float* normals, const u8* joints,
   pl.skinWeights.resize(count);
   pl.sortedJoints.resize((size_t)count * 4);
   pl.influences.resize(count);
+  pl.skinSource.resize(count);
+  // Exact bind attributes only: UV seams can share skinning, hard normals
+  // and different bone weights cannot. This temporary table dies at load.
+  std::unordered_map<std::string, u32> firstCorner;
+  firstCorner.reserve(count);
   for (u32 v = 0; v < count; v++) {
     pl.bindPositions[v].set(positions[(size_t)v * 3],
                             positions[(size_t)v * 3 + 1],
@@ -189,6 +202,13 @@ void repackBind(const float* positions, const float* normals, const u8* joints,
     }
     pl.skinWeights[v].set(wf[0], wf[1], wf[2], wf[3]);
     pl.influences[v] = n;
+    char key[32];
+    memcpy(key, positions + (size_t)v * 3, 12);
+    memcpy(key + 12, normals + (size_t)v * 3, 12);
+    memcpy(key + 24, jj, 4);
+    memcpy(key + 28, ww, 4);
+    const auto inserted = firstCorner.emplace(std::string(key, sizeof(key)), v);
+    pl.skinSource[v] = inserted.first->second;
   }
 }
 
@@ -340,8 +360,27 @@ bool SkelInstance::ensurePose(u8 lod) {
   if (lod >= maxLodLevels) lod = maxLodLevels - 1;
   if (!poseDirty && lod == lastSkinnedLod) return false;
   // a pure LOD switch reuses the current palette - only the skin reruns
+#if TYRA_SKEL_PROFILE
+  const u32 t0 = skelTicks();
+#endif
   if (poseDirty) evalPose();
+#if TYRA_SKEL_PROFILE
+  const u32 t1 = skelTicks();
+#endif
   skinParts(lod);
+#if TYRA_SKEL_PROFILE
+  const u32 t2 = skelTicks();
+  profilePose += t1 - t0;
+  profileSkin += t2 - t1;
+  if (++profileCount == 100) {
+    char msg[192];
+    snprintf(msg, sizeof(msg), "SKELTIME instance=%p nodes=%u lod=%u pose=%.3f skin=%.3f ms",
+             this, (unsigned)model->nodes.size(), lod,
+             profilePose / 29491200.0, profileSkin / 29491200.0);
+    TYRA_LOG(msg);
+    profileCount = profilePose = profileSkin = 0;
+  }
+#endif
   poseDirty = false;
   lastSkinnedLod = lod;
   return true;
@@ -478,6 +517,18 @@ void SkelInstance::skinParts(u8 lod) {
     const u8* infl = plod.influences.data();
 
     for (u32 v = 0; v < plod.count; v++) {
+      const u32 source = plod.skinSource[v];
+      if (source != v) {
+        // No Vec4 helper here: VU0's running AABB must survive the copy.
+        asm volatile(
+            "lqc2 $vf1, 0(%[srcv]) \n\t"
+            "lqc2 $vf2, 0(%[srcn]) \n\t"
+            "sqc2 $vf1, 0(%[dstv]) \n\t"
+            "sqc2 $vf2, 0(%[dstn]) \n\t"
+            : : [srcv] "r"(outV + source), [srcn] "r"(outN + source),
+                [dstv] "r"(outV + v), [dstn] "r"(outN + v) : "memory");
+        continue;
+      }
       const u8* j = &joints[(size_t)v * 4];
       const u8 n = infl[v];
 

@@ -105,13 +105,22 @@ texelLoop:
     mulq.xyz    rd,     d,          q
 
     ;--- nearest-sphere state: bT=0 + bHit=0 ("no hit yet"), center/color
-    ; zeroed (self-sub is a true zero even over saturated garbage; a fully
-    ; selected mix (m=1.0 exactly) then reproduces the folded values with
-    ; no cancellation error)
-    sub.x       bT,     bT,         bT
-    sub.x       bHit,   bHit,       bHit
-    sub.xyzw    bC,     bC,         bC
-    sub.xyz     bCol,   bCol,       bCol
+    ; zeroed (a fully selected mix (m=1.0 exactly) then reproduces the folded
+    ; values with no cancellation error).
+    ;
+    ; Zeroed as vf00-vf00, not as the self-sub (`sub.x bT, bT, bT`) this used
+    ; to be. Self-sub reads a register nothing has written yet: harmless on
+    ; hardware (x-x is a true zero even over saturated garbage, which is why it
+    ; was written that way) but openvcl REFUSES the whole program for it -
+    ; "Read-attempt from uninitialized float register". vf00 is hardwired
+    ; (0,0,0,1), so vf00-vf00 is the same zero with no phantom dependency, and
+    ; Sony's vcl 1.4beta7 emits a byte-identical instruction stream for both
+    ; spellings (verified: 483 instructions, zero diff). See
+    ; docs/toolchain-image.md.
+    sub.x       bT,     vf00,       vf00
+    sub.x       bHit,   vf00,       vf00
+    sub.xyzw    bC,     vf00,       vf00
+    sub.xyz     bCol,   vf00,       vf00
 
     iadd        si,     vi00,       sphCount
     iaddiu      cAddr,  vi00,       12
@@ -197,11 +206,11 @@ sphDone:
     ;--- AABB slab proxies (flat objects): nearest slab hit, branchless.
     ; State zeroed even when no slabs were sent - the merge below mixes
     ; with mask 0 and VCL's path analysis stays happy.
-    sub.x       bTb,    bTb,        bTb
-    sub.x       bHb,    bHb,        bHb
-    sub.xyz     bN3,    bN3,        bN3
-    sub.xyz     bColB,  bColB,      bColB
-    sub.xyz     boxCol, boxCol,     boxCol
+    sub.x       bTb,    vf00,       vf00
+    sub.x       bHb,    vf00,       vf00
+    sub.xyz     bN3,    vf00,       vf00
+    sub.xyz     bColB,  vf00,       vf00
+    sub.xyz     boxCol, vf00,       vf00
     ibeq        slabCount, vi00,    boxDone
     ; per-texel inverse ray (a zero component saturates - the slab
     ; min/max folds absorb the huge values)
@@ -309,13 +318,13 @@ boxDone:
     ; cross-multiplication (denominators are |det| >= 0), one division at
     ; the end for the winner only. bDA.y folds the winning record's qword
     ; address as a float (exact - addresses are < 256).
-    sub.xyz     bNum,   bNum,       bNum
-    sub.xy      bDA,    bDA,        bDA
-    sub.x       bHt,    bHt,        bHt
-    sub.x       triShd, triShd,     triShd
-    sub.x       triT,   triT,       triT
-    sub.x       triU,   triU,       triU
-    sub.x       triV,   triV,       triV
+    sub.xyz     bNum,   vf00,       vf00
+    sub.xy      bDA,    vf00,       vf00
+    sub.x       bHt,    vf00,       vf00
+    sub.x       triShd, vf00,       vf00
+    sub.x       triT,   vf00,       vf00
+    sub.x       triU,   vf00,       vf00
+    sub.x       triV,   vf00,       vf00
     ibeq        grpCount, vi00,     triDone
 
     ; groups are UNROLLED (VCL's optimizer failed to build its table

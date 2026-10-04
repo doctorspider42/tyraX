@@ -9,7 +9,7 @@
 // glTF 2.0, format "glTF Binary") because OBJ has no notion of animation.
 // The PS2 engine's dynamic pipeline (DynPip) renders MD2-style morph frames
 // (two vertex arrays + VU1 interpolation), so instead of teaching the PS2
-// about skeletons (stage 2, see PROGRESS.md backlog), every animation clip
+// about skeletons (stage 2, see docs/backlog.md), every animation clip
 // is SAMPLED here on the PC: node TRS channels are evaluated at a fixed
 // rate, vertices are CPU-skinned, and the resulting per-frame vertex/normal
 // arrays are what the game (and the viewport preview) consume.
@@ -55,9 +55,18 @@ struct Image {
 };
 
 struct Baked {
+    struct RootMotionSample {
+        // Motion-root position in model space. Storing the global result (not
+        // local X/Z) handles FBX rigs whose parent maps forward travel onto
+        // local Y or another arbitrarily oriented axis.
+        float x = 0.0f, z = 0.0f;
+    };
     std::vector<Part> parts;
     std::vector<Clip> clips;  // >= 1; a static .glb gets one 1-frame "default"
     std::vector<Image> images;
+    // Host-preview-only data. One sample per baked frame lets the viewport
+    // remove the same root channel the .tskl bake pins for an in-place edit.
+    std::vector<RootMotionSample> rootMotion;
     int frameCount = 1;   // total baked frames (all clips, concatenated)
     float fps = 12.0f;    // bake sample rate the clips were sampled at
     float min[3] = {0, 0, 0}, max[3] = {0, 0, 0};  // frame-0 AABB, all parts
@@ -93,18 +102,21 @@ std::string writeTanm(const Baked& baked,
 
 // One node of the glTF hierarchy with its bind-pose local transform.
 struct SkelNode {
-    // The authored node/bone name. Nothing on the PS2 side needs it (channels
-    // and the palette address nodes by index, and .tskl does not store it),
-    // but it is what identifies a bone to everything OUTSIDE this pipeline -
-    // Blender when the user opens a generated .glb, and any future retarget
-    // that matches a Mixamo rig by name. gltfwrite round-trips it.
-    std::string name;
     int parent = -1;
     bool hasMatrix = false;  // matrix nodes are never animated (glTF spec)
     float matrix[16] = {};
     float t[3] = {0, 0, 0};
     float r[4] = {0, 0, 0, 1};  // x, y, z, w quaternion
     float s[3] = {1, 1, 1};
+    // The authored node/bone name. HOST-SIDE ONLY - writeTskl does not
+    // serialize it and the console never sees it, so this costs the PS2
+    // nothing and needs no .tskl version bump. It exists because a channel
+    // addresses its node by INDEX, and an index is meaningless across two
+    // different files: importing animation from another model
+    // (docs/animation-import.md) matches bones by this name and nothing else.
+    // Duplicates are made unique at parse time ("Hips", "Hips_1", ...) - two
+    // nodes sharing a name would silently cross-wire a merge.
+    std::string name;
 };
 
 // One matrix-palette slot: joint global * ibm skins the verts bound to it.
@@ -177,6 +189,13 @@ struct Skel {
 // Parses a .glb into the skeletal representation above. Same support matrix
 // and failure conditions as bake().
 bool parseSkel(const std::string& path, Skel& out, std::string& error);
+
+// Names every node exactly once: an unnamed node becomes "node_<index>" and a
+// repeated name gains a "_1", "_2" suffix. Called at the end of BOTH parseSkel
+// implementations, because animation import resolves bones by name and two
+// nodes answering to one name would cross-wire the merge silently. Purely
+// host-side (the name never reaches the .tskl).
+void uniqueNodeNames(Skel& skel);
 
 // Generates the distance LODs (SkelPart::lods) by quadric-error half-edge
 // collapse on the bind-pose mesh: ~50% and ~25% of the base vertex count.

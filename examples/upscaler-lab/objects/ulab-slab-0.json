@@ -1,0 +1,1 @@
+{ "id": "ulab-slab-0", "name": "slab-0", "type": "box", "position": [-10, 0.15, -18], "rotation": [0, 0, 0], "scale": [9, 0.3, 6], "color": [0.72, 0.7, 0.66], "physics": false, "castShadow": false, "material": "res/materials/stone.mtl" }

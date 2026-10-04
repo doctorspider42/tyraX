@@ -1,5 +1,6 @@
 TARGET      := large-terrain.elf
-ENGINEDIR	:= /tyra/engine
+ENGINEDIR	?= /tyra/engine
+TYRA_MAKEFILE ?= /tyra/Makefile.base
 
 #The Directories, Source, Includes, Objects, Binary and Resources
 SRCDIR      := src
@@ -18,10 +19,15 @@ DEPEXT      := d
 OBJEXT      := o
 
 #Flags, Libraries and Includes
-CFLAGS      :=
-LIB         := -ltyra
+# Debug builds carry -g (for the crash reporter's addr2line lookups) and link
+# ps2sdk's libeedebug, which the engine's crash handler uses to hook the EE
+# exception vectors. Release builds carry neither, and KEEPSYM off means no
+# unstripped copy of the ELF is kept - see docs/devkit.md.
+CFLAGS      := -g
+KEEPSYM     := 1
+LIB         := -ltyra -leedebug
 LIBDIRS     := -L$(ENGINEDIR)/bin
 INC         := -I$(INCDIR) -I$(ENGINEDIR)/inc
 INCDEP      := -I$(INCDIR) -I$(ENGINEDIR)/inc
 
-include /tyra/Makefile.base
+include $(TYRA_MAKEFILE)

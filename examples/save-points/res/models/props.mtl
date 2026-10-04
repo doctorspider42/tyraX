@@ -1,0 +1,4 @@
+# Materials for crystal.obj. Kd only - no textures, so the model ships as
+# vertex colours and the memory card icon it bakes into needs no image.
+newmtl crystal
+Kd 0.350 0.750 0.850

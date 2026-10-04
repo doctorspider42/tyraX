@@ -6,7 +6,7 @@
 namespace Global_illumination {
 
 // scene "main"
-constexpr float HM_0_HEIGHTS[1089] = {
+inline constexpr float HM_0_HEIGHTS[1089] = {
     0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,
     0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,
     0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,
@@ -100,19 +100,27 @@ constexpr float HM_0_HEIGHTS[1089] = {
     0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,0.0F,
 };
 
-constexpr int HM_WS[SCENE_COUNT] = {33};
-constexpr int HM_DS[SCENE_COUNT] = {33};
-constexpr float HM_ORIGIN_XS[SCENE_COUNT] = {-16.0F};
-constexpr float HM_ORIGIN_ZS[SCENE_COUNT] = {-16.0F};
-constexpr float HM_STEP_XS[SCENE_COUNT] = {1.0F};
-constexpr float HM_STEP_ZS[SCENE_COUNT] = {1.0F};
+inline constexpr int HM_WS[SCENE_COUNT] = {33};
+inline constexpr int HM_DS[SCENE_COUNT] = {33};
+inline constexpr float HM_ORIGIN_XS[SCENE_COUNT] = {-16.0F};
+inline constexpr float HM_ORIGIN_ZS[SCENE_COUNT] = {-16.0F};
+inline constexpr float HM_STEP_XS[SCENE_COUNT] = {1.0F};
+inline constexpr float HM_STEP_ZS[SCENE_COUNT] = {1.0F};
 inline const float* TERRAIN_HEIGHTS_TABLES[SCENE_COUNT] = {HM_0_HEIGHTS};
 
 inline const unsigned char* TERRAIN_SPLAT_TABLES[SCENE_COUNT] = {nullptr};
 
-/** Bilinear terrain height at world coordinates in a scene. The
- * game maps terrainHeightAt(x, z) to the active scene. */
+/** Rendered-triangle terrain height at world coordinates in a scene. The
+ * game maps terrainHeightAt(x, z) to the active scene.
+ *
+ * A scene whose terrain was removed in the editor has NO ground
+ * (docs/terrain.md): this answers TERRAIN_VOID_Y everywhere, so
+ * every caller that treats it as the floor - the walkers, the
+ * physics bodies, the blob shadows, the camera spring arm, the
+ * raycasts - agrees that there is nothing to stand on, and the
+ * floors are whatever geometry the scene places. */
 inline float terrainHeightAtScene(int scene, float x, float z) {
+  if (!TERRAIN_ENABLEDS[scene]) return TERRAIN_VOID_Y;
   const float* hm = TERRAIN_HEIGHTS_TABLES[scene];
   const int hw = HM_WS[scene];
   const int hd = HM_DS[scene];
@@ -126,11 +134,17 @@ inline float terrainHeightAtScene(int scene, float x, float z) {
   const int iz = (int)gz;
   const float fx = gx - ix;
   const float fz = gz - iz;
-  const float t = hm[iz * hw + ix] * (1.0F - fx) +
-                  hm[iz * hw + ix + 1] * fx;
-  const float b = hm[(iz + 1) * hw + ix] * (1.0F - fx) +
-                  hm[(iz + 1) * hw + ix + 1] * fx;
-  return t * (1.0F - fz) + b * fz;
+  const float h00 = hm[iz * hw + ix];
+  const float h10 = hm[iz * hw + ix + 1];
+  const float h01 = hm[(iz + 1) * hw + ix];
+  const float h11 = hm[(iz + 1) * hw + ix + 1];
+  // The terrain mesh splits each cell along 10 -> 01. Sampling
+  // those same two planes keeps roads, wheels and raycasts on the
+  // surface that the GS actually draws instead of a bilinear saddle.
+  if (fx + fz <= 1.0F)
+    return h00 + fx * (h10 - h00) + fz * (h01 - h00);
+  return h11 + (1.0F - fz) * (h10 - h11) +
+         (1.0F - fx) * (h01 - h11);
 }
 
 }  // namespace Global_illumination

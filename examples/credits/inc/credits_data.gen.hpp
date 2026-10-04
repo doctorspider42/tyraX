@@ -37,8 +37,8 @@ struct CreditsRollData {
   int finish, finishScene, finishMenu, finishEvent;
 };
 
-constexpr int CREDITS_COUNT = 2;
-constexpr int CREDITS_PAGE_TOTAL = 6;
+inline constexpr int CREDITS_COUNT = 2;
+inline constexpr int CREDITS_PAGE_TOTAL = 6;
 inline const char* const CREDITS_PAGES[CREDITS_PAGE_TOTAL > 0 ? CREDITS_PAGE_TOTAL : 1] = {
     "credits/pages/end-credits-0.png",  // end-credits page 0
     "credits/pages/end-credits-1.png",  // end-credits page 1

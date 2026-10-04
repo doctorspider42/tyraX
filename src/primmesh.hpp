@@ -20,7 +20,10 @@ namespace primmesh {
 // subdivisions per edge; Sphere/Cylinder/Cone = radial segments.
 std::vector<float> unitBox(int detail);
 std::vector<float> unitSphere(int detail);
-std::vector<float> unitCylinder(int detail);
+// rings = SceneObject::primRings: also subdivide the side along the axis
+// (primCylinderStacks). false reproduces the classic one-quad-tall side
+// vertex for vertex.
+std::vector<float> unitCylinder(int detail, bool rings);
 std::vector<float> unitCone(int detail);
 std::vector<float> unitPlane();
 

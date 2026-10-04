@@ -1,6 +1,7 @@
 #pragma once
 
 #include <filesystem>
+#include <functional>
 #include <string>
 
 // WAV inspection + in-place conversion used by the audio import/rescan flow.
@@ -23,5 +24,15 @@ bool readFormat(const std::string& path, int& audioFormat, int& channels,
 // left untouched and `error` says why.
 bool convertTo16(const std::filesystem::path& path, int targetRate,
                  std::string& error, bool toMono = false);
+
+// SFX use one SPU2 voice: mono PCM16/22050 with a canonical RIFF header.
+// Unlike music, stereo ADPCM is not playable by audsrv's single-voice API.
+std::string soundIssue(const std::filesystem::path& path);
+
+// Prepare .res-baked/sfx for BOTH build backends. Preserve res/ originals,
+// normalize existing/hand-dropped WAVs and fail rather than encode noise.
+// Returns an empty string on success; unchanged copies retain their mtime.
+std::string bakeSounds(const std::filesystem::path& projectDir,
+                      const std::function<void(const std::string&)>& log);
 
 }  // namespace wavconvert

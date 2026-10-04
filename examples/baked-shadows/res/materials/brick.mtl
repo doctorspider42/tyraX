@@ -1,0 +1,7 @@
+# The wall the shadows climb. It is TEXTURED, and that is the whole reason it
+# is here: a baked lightmap receiver has to be untextured (the lightmap needs
+# the texture slot), so this surface can take no static shadow at all except a
+# baked shadow decal - see docs/shadows.md.
+newmtl brick
+Kd 1.0000 1.0000 1.0000
+map_Kd brick.png

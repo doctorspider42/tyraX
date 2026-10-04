@@ -1,0 +1,7 @@
+# Kit-bashed from Kenney's Retro Urban Kit (CC0 1.0).
+# www.kenney.nl - see THIRD-PARTY-NOTICES.txt
+
+newmtl truck
+Kd 1 1 1
+map_Kd Textures/truck.png
+

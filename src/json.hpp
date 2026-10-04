@@ -34,4 +34,16 @@ struct Value {
 // Parses a complete JSON document. Returns false on malformed input.
 bool parse(const std::string& src, Value& out);
 
+// `s` escaped for a JSON string body (no surrounding quotes). Most JSON in this
+// editor is built by hand (the project serializer, codegen, the AI prompts), and
+// escaping is the one part of that which is easy to get subtly wrong, so it
+// exists once.
+std::string escape(const std::string& s);
+
+// One value back to compact JSON text. Exists for the case hand-building cannot
+// cover: round-tripping a value we did NOT author - the AI Assistant stores a
+// model's tool-call arguments with a saved conversation, and it has no schema for
+// them. Numbers are written with %.17g so a parse/write/parse cycle is exact.
+std::string write(const Value& v);
+
 }  // namespace json

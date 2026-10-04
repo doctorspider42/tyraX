@@ -1,0 +1,10 @@
+# The haze billboard. An emitter's material supplies only the map (its Kd is
+# ignored - the emitter object's colour is the tint), and the corner UVs are
+# fixed in the VU1 billboard program, so this file is one line that matters.
+#
+# puff.png is kept at RGBA32 by a per-asset textureQuality override in the
+# .tyra: palettizing it would take the soft alpha through the tRNS->CLUT path
+# and lose the gradient, leaving a hundred hard-edged squares.
+newmtl haze
+Kd 1 1 1
+map_Kd puff.png

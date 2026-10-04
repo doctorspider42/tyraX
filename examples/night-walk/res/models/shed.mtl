@@ -1,0 +1,7 @@
+newmtl planks
+Kd 1 1 1
+map_Kd shed-planks.png
+
+newmtl roof
+Kd 0.75 0.78 0.82
+map_Kd shed-planks.png

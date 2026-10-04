@@ -6,6 +6,7 @@
 # Copyright 2022, tyra - https://github.com/h4570/tyra
 # Licensed under Apache License 2.0
 # Sandro Sobczyński <sandro.sobczynski@gmail.com>
+# Modified by TyraX: Texture::linkGeneration (the repository lookup cache).
 */
 
 #pragma once
@@ -53,8 +54,23 @@ class Texture {
    */
   std::string sourcePath;
 
-  /** Array of texture links with sprites/meshes */
+  /** Array of texture links with sprites/meshes.
+   * Modified by TyraX: change it through addLink()/removeLink*() only - they
+   * bump linkGeneration, which is what keeps TextureRepository's lookup cache
+   * honest. A direct push_back here would leave that cache stale. */
   std::vector<TextureLink> links;
+
+  /** Modified by TyraX: bumped by every change to any texture's links and to
+   * the repository's texture list; TextureRepository's id -> texture cache is
+   * valid only for the generation it was filled in. Starts at 1, so a
+   * zero-initialised cache entry never matches. */
+  static u32 linkGeneration;
+
+  /** Modified by TyraX: where this texture's entry sat in
+   * RendererCoreTexture's resident list the last time it was looked up - a
+   * HINT, checked against the entry's id before it is trusted, so a list that
+   * moved since only costs the scan it replaced. */
+  mutable u32 residentHint = 0;
 
   inline const int& getWidth() const { return core->width; }
 

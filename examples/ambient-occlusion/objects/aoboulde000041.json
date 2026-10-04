@@ -1,0 +1,1 @@
+{ "id": "aoboulde000041", "name": "boulder-1", "type": "sphere", "position": [-30, -0.303, 16], "rotation": [0, 0, 0], "scale": [3.4, 2.6, 3], "color": [1, 1, 1], "physics": false, "material": "res/materials/terrace.mtl" }

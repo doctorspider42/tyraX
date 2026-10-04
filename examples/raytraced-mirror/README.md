@@ -18,8 +18,8 @@ pad) and watch the glass: every ball reflects as a real traced sphere with
 its own lambert shading, **your reflection follows you** (the *Reflect
 player* switch — the beige blob is you), and the whole image re-traces from
 your actual eye position every frame, so the parallax is correct as you
-move. The yellow ball floats high — you can see both the ball itself
-against the glass and its traced reflection below it.
+move. The yellow ball floats high — you can see both the ball against the
+glass and its traced reflection below it.
 
 ## How it is wired
 
@@ -30,8 +30,8 @@ against the glass and its traced reflection below it.
   ignored.
 - **`ball-red` / `ball-green` / `ball-blue` / `ball-sun`** — plain sphere
   primitives; sphere proxies match sphere objects exactly, so these reflect
-  true to shape. (Try adding a pillar to the list to see the PoC trade:
-  curved shapes proxy as spheres, so a cylinder reflects as a ball.)
+  true to shape. (Add a pillar to the list to see the PoC trade: curved
+  shapes proxy as spheres, so a cylinder reflects as a ball.)
 - **`crate`** — a textured `.obj` model (`res/models/crate.obj`), also
   listed: static models trace as REAL TRIANGLE MESHES with their texture —
   the kernel returns barycentric hits and the EE samples `crate.png` per
@@ -39,10 +39,10 @@ against the glass and its traced reflection below it.
   reflection is the exact mesh — rotated 25° like the object itself
   (triangle proxies honor rotation; slabs and spheres don't).
 - **`wobbler`** — an ANIMATED `.glb` (the Twist clip, autoplaying), also
-  listed: skeletal models reflect as a coarse 18-triangle medoid mesh
-  whose corners read the LIVE skinned vertices every frame — watch the
-  glass, the reflection twists along with the model. Untextured, so it
-  shades with its material color under the tracer's lambert.
+  listed: skeletal models reflect as a coarse 18-triangle medoid mesh whose
+  corners read the LIVE skinned vertices every frame — watch the glass, the
+  reflection twists along with the model. Untextured, so it shades with its
+  material color under the tracer's lambert.
 - **`floor`** — a thin box slab, listed too: flat objects (boxes, planes,
   decals) trace as **axis-aligned slab proxies**, so the floor reflects as
   an actual floor under the balls. (A flat object as a bounding *sphere*
@@ -65,3 +65,13 @@ image (and a live camera view) onto ordinary surfaces, and
 - Move a ball in the editor and rebuild — reflections read live positions,
   so anything that moves at runtime (physics, flow graphs) moves in the
   glass too.
+
+Generated object values live in `src/gen/scene_objects.gen.cpp`;
+`inc/scene_data.hpp` keeps stable declarations. Counts and object IDs live in
+the same data file, so ordinary moves, color edits, additions and removals can
+rebuild it alone. Changes to features or derived tables can still rebuild consumers.
+
+Generated game methods are split between `src/terrain_game.cpp` and the
+`src/gen/game_*.gen.cpp` subsystems, with shared inline helpers/state in
+`inc/game_runtime.gen.hpp`. Header changes can compile these units in parallel.
+The main file remains user-ownable; generated subsystem files refresh on build.

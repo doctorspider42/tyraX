@@ -1,0 +1,3 @@
+newmtl stone
+Kd 1 1 1
+map_Kd -s 1 1 1 stone.png

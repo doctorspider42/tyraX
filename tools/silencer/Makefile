@@ -1,6 +1,10 @@
-# Built inside the h4570/tyra toolchain container (PS2SDK). The editor's
-# "Stop on PS2" execee's the resulting silencer.elf after resetting ps2link
-# to key off the SPU2 voices the reset alone cannot touch.
+# Built inside the h4570/tyra toolchain container (PS2SDK).
+#
+# MANUAL FALLBACK ONLY since ps2link r3, which silences the SPU2 itself on both
+# sides of its reset (spu2Silence() in tools/ps2link/tyrax.patch). "Stop on PS2"
+# no longer deploys this. Keep it for a console still running a pre-r3 ps2link:
+#   ps2client -h <ip> execee host:silencer.elf     # cwd = tools/silencer
+# See docs/ps2link-setup.md.
 EE_BIN = silencer.elf
 EE_OBJS = main.o libsd_irx.o audsrv_irx.o
 EE_LIBS = -laudsrv -lpatches

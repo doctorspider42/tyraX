@@ -20,11 +20,20 @@
 #include <tyra>
 #include <cstdio>
 #include <cstring>
+#include <string>
+// ps2sdk libdebug (already on every generated game's link line, -ldebug): reads
+// a GS frame buffer back over the VIF1 reverse FIFO. That readback is what lets
+// the game photograph ITSELF; the FILE is written by writeFrameCapture below,
+// which explains why libdebug's own writer cannot be used over ps2link.
+#include <screenshot.h>
+#include <kernel.h>  // FlushCache - the readback lands behind the data cache
 
 #include "debug/crash_handler.hpp"  // EE exception -> crash report
+#include "debug/hardware_trace.hpp"  // opt-in physical-console timeline scopes
 #include "renderer/3d/pipeline/static/core/stapip_vu_tap.hpp"  // VU1 packet tap
 #include "scripts/script.hpp"
 #include "scripts/live_debug.gen.hpp"
+#include "facts.gen.hpp"  // the World Facts store, for the blackboard
 
 namespace Cube {
 namespace livedbg {
@@ -34,10 +43,10 @@ namespace {
 const char kDevkitMarker[] __attribute__((used)) = "TXDEVKIT-livedbg";
 
 const unsigned int SNAP_MAGIC = 0x42445854U;  // "TXDB"
-const unsigned int SNAP_VERSION = 4U;  // v4 appends the stats + flush map
+const unsigned int SNAP_VERSION = 5U;  // v5 appends the fact block
 const int SNAP_HEADER = 64;
 const unsigned int CMD_MAGIC = 0x43445854U;  // "TXDC"
-const unsigned int CMD_VERSION = 1U;
+const unsigned int CMD_VERSION = 2U;  // v2 appends fact overrides
 const int CMD_HEADER = 32;
 const unsigned int FOOTER_XOR = 0x5A5A5A5AU;
 
@@ -54,7 +63,9 @@ const int OBJ_RING = 32;    // samples kept per watched object
 // moved since this build, so node keys would point at the wrong nodes.
 const unsigned int HASH_LO = 534725904U, HASH_HI = 730965255U;
 
-unsigned int hits[NODES] = {};
+// A project with no flow graph instruments no node, and a zero-length array is
+// not a C++ array - the runtime is still built for everything else it carries.
+unsigned int hits[NODES > 0 ? NODES : 1] = {};
 unsigned short evKey[EVENTS] = {};
 unsigned int evFrame[EVENTS] = {};
 int evCount = 0;  // valid ring entries
@@ -91,6 +102,33 @@ ObjSample watchRing[MAX_WATCH][OBJ_RING];
 int watchRingNext[MAX_WATCH] = {};
 int watchRingCount[MAX_WATCH] = {};
 
+// World Facts (docs/world-facts.md). The blackboard reads the live values out
+// of the watch table like any other variable; what needs state HERE is the
+// change history - a small ring of (slot, value, who, age) that answers "when
+// did this become true, and what did it" without the author having to guess
+// which graph to breakpoint. Positions ride the same ring as their X, which is
+// enough to see one move; the value itself is in the watch table.
+const int FACT_EVENTS = 128;
+struct FactEvent {
+  unsigned short slot;
+  short src;          // node key, or -(rule + 1)
+  unsigned int frame;
+  float value;
+};
+FactEvent factEv[FACT_EVENTS > 0 ? FACT_EVENTS : 1] = {};
+int factEvCount = 0, factEvNext = 0;
+// Manual overrides: the editor's "make it so" list, re-applied every frame it
+// stays in the command file. Not one-shot on purpose - a fact a rule rewrites
+// every frame would otherwise flicker back before anyone could see it.
+const int MAX_FACT_SET = 32;
+struct FactSet {
+  unsigned short slot;
+  unsigned char isPos;
+  float v[3];
+};
+FactSet factSets[MAX_FACT_SET > 0 ? MAX_FACT_SET : 1] = {};
+int factSetCount = 0;
+
 int lastScene = 0;  // for the crash report
 // VU1 packet capture state (the buffer + the tap live further down).
 bool vuCapArmed = false;   // set by a command, cleared once one is grabbed
@@ -126,22 +164,40 @@ unsigned short frameMaxChunk = 0, lastMaxChunk = 0;
 // the chain - honest, but a heap storm nobody wants once per frame.
 bool ramMeasureWanted = false;
 unsigned int ramFreeKB = 0, ramFrame = 0;
-void writeCrashReport(const Tyra::CrashInfo& ci);  // defined below
+// The game's own screenshot (docs/devkit.md). One-shot, like the VU capture:
+// reading a whole frame buffer back out of GS VRAM is a ~900 KB DMA plus a
+// ~900 KB host: write, which is not something to do on a timer.
+bool frameShotWanted = false;
+unsigned int renderCostRequest = 0;
+// __attribute__((unused)): the EE crash handler is opt-in (Preferences >
+// Build), and with it off nothing references this - it sits in an anonymous
+// namespace so the compiler drops it, but it would warn on the way past.
+void writeCrashReport(const Tyra::CrashInfo& ci) __attribute__((unused));  // defined below
 void vuPacketTap(const void* data, unsigned int qwc, const char* name);
 void vuMemTap(const void* mem, unsigned int bytes);
 void writeVuCapture(ScriptContext& ctx);  // both defined below
+void writeFrameCapture(ScriptContext& ctx);
 unsigned int cmdSeq = 0;  // last applied command
 unsigned int outSeq = 0;  // snapshots written
-int pollCooldown = 1;
+// The first snapshot is always written as the runner's game-is-up marker.
+// After that, do not keep paying for synchronous host: writes until a valid
+// command proves an editor is actually consuming them.
+bool editorAttached = false;
+int pollCooldown = 21;  // poll phase - see docs/devkit.md
+// The FLUSH deliberately keeps phase 1 and is the one that must not be moved:
+// it is the editor's liveness signal, and delaying it delays "the game is up".
 int flushCooldown = 1;
 bool flushNow = true;  // first frame: tell the editor we are alive
 bool loopHook = false;  // the generated loop is driving the pump
 
 // One static snapshot buffer - the EE has no business allocating per flush.
-// The v4 tail is 64 bytes of stats + 2 + 8 per flush-map entry.
+// The v4 tail is 64 bytes of stats + 2 + 8 per flush-map entry; v5 adds 2 +
+// 12 per fact change. A buffer one entry short here is a stack smash on a
+// console, so every block that can grow is in this sum.
 unsigned char snapBuf[SNAP_HEADER + NODES * 4 + EVENTS * 4 + VARS * 12 +
                       MAX_BP * 4 + MAX_WATCH * (4 + OBJ_RING * 56) +
-                      64 + 2 + MAX_FLUSHMAP * 8 + 4];
+                      64 + 2 + MAX_FLUSHMAP * 8 +
+                      2 + (FACT_EVENTS > 0 ? FACT_EVENTS : 1) * 12 + 4];
 
 inline void put32(unsigned char* p, unsigned int v) { memcpy(p, &v, 4); }
 inline void put16(unsigned char* p, unsigned short v) { memcpy(p, &v, 2); }
@@ -153,11 +209,30 @@ void readVar(ScriptContext& ctx, int i, float* out) {
     return;
   }
   const int s = i - FLOW_VARS;
-  if (ctx.saveValues && s < ctx.saveValueCount) out[0] = ctx.saveValues[s];
+  if (s < ctx.saveValueCount) {
+    if (ctx.saveValues) out[0] = ctx.saveValues[s];
+    return;
+  }
+  // World Facts share the watch table with everything else, in catalog order:
+  // scalars first, then positions. The editor builds the same order from
+  // facts::layoutOf, so a slot means the same thing on both ends.
+  int f = s - ctx.saveValueCount;
+  if (f < FACT_NUM_COUNT) {
+    out[0] = factNum[f];
+    return;
+  }
+  f -= FACT_NUM_COUNT;
+  if (f < FACT_POS_COUNT) {
+    out[0] = factPos[f][0];
+    out[1] = factPos[f][1];
+    out[2] = factPos[f][2];
+  }
 }
 
 void pollCommand() {
-  static unsigned char c[CMD_HEADER + MAX_BP * 2 + MAX_FIRE * 2 + 4];
+  Tyra::HardwareTrace::Scope trace("Live_debug_poll");
+  static unsigned char c[CMD_HEADER + MAX_BP * 2 + MAX_FIRE * 2 +
+                        MAX_WATCH * 2 + MAX_FACT_SET * 16 + 4];
   FILE* f = fopen(Tyra::FileUtils::fromCwd("livedbg.cmd").c_str(), "rb");
   if (!f) return;  // no editor attached (or a shipped build)
   const size_t got = fread(c, 1, sizeof(c), f);
@@ -179,12 +254,18 @@ void pollCommand() {
   int watchLen;
   memcpy(&watchLen, c + 28, 4);
   if (watchLen < 0 || watchLen > MAX_WATCH) return;
-  if (got != (size_t)(CMD_HEADER + bpc * 2 + firec * 2 + watchLen * 2 + 4))
-    return;
+  // Fact overrides ride the top byte of `flags`: the header is full, and a
+  // count that small has nowhere better to live. An editor that predates
+  // them sets those bits to 0, which reads as "no overrides".
+  int factc = (int)((flags >> 24) & 0xFFU);
+  if (factc > MAX_FACT_SET) return;
+  const int listLen = bpc * 2 + firec * 2 + watchLen * 2;
+  if (got != (size_t)(CMD_HEADER + listLen + factc * 16 + 4)) return;
   unsigned int foot;
-  memcpy(&foot, c + CMD_HEADER + bpc * 2 + firec * 2 + watchLen * 2, 4);
+  memcpy(&foot, c + CMD_HEADER + listLen + factc * 16, 4);
   if (foot != (seq ^ FOOTER_XOR)) return;  // torn write
 
+  editorAttached = true;
   cmdSeq = seq;
   int watchc;
   memcpy(&watchc, c + 28, 4);
@@ -212,6 +293,15 @@ void pollCommand() {
       }
     }
   }
+  {
+    const unsigned char* fs = c + CMD_HEADER + listLen;
+    factSetCount = factc;
+    for (int i = 0; i < factc; ++i, fs += 16) {
+      memcpy(&factSets[i].slot, fs, 2);
+      factSets[i].isPos = fs[2];
+      memcpy(factSets[i].v, fs + 4, 12);
+    }
+  }
   const bool halt = (flags & 1U) != 0;
   stepUntilFire = (flags & 2U) != 0;
   fireAndRun = (flags & 4U) != 0;
@@ -221,6 +311,9 @@ void pollCommand() {
   // leaves the index at 0 - the behaviour they expect.
   // Bit 5: measure free EE RAM once (a heap storm - see ramMeasureWanted).
   if ((flags & 32U) != 0) ramMeasureWanted = true;
+  // Bit 6: photograph the last finished frame into frame.tga (one-shot).
+  if ((flags & 64U) != 0) frameShotWanted = true;
+  if ((flags & 128U) != 0) renderCostRequest = seq;
   if ((flags & 8U) != 0) {
     vuCapArmed = true;
     vuCapExplicit = (flags & 16U) != 0;
@@ -236,6 +329,7 @@ void pollCommand() {
 }
 
 void flush(ScriptContext& ctx) {
+  Tyra::HardwareTrace::Scope trace("Live_debug_flush");
   unsigned char* p = snapBuf;
   ++outSeq;
   put32(p + 0, SNAP_MAGIC);
@@ -307,8 +401,18 @@ void flush(ScriptContext& ctx) {
   unsigned int fps = 0, vramFreeKB = 0, vramMinKB = 0, vramLargestKB = 0;
   unsigned int binds = 0, hits = 0, uploads = 0, evictions = 0;
   unsigned short resident = 0, peak = 0;
+  // Tenths of a frame per second, in the four spare bytes at the end of the
+  // stats block: the whole-number field above cannot say 19.6, and it cannot
+  // say whether the game PRESENTS more often than it renders. Additive, so an
+  // editor that predates them reads the same block it always did and a game
+  // that predates them leaves the zeros memset put there.
+  unsigned short fpsX10 = 0, fpsShownX10 = 0;
   if (ctx.engine) {
-    fps = ctx.engine->info.getFps();
+    const float renderedFps = ctx.engine->info.getFps();
+    const float shownFps = ctx.engine->info.getPresentedFps();
+    fps = (unsigned int)(renderedFps + 0.5F);
+    fpsX10 = (unsigned short)(renderedFps * 10.0F + 0.5F);
+    fpsShownX10 = (unsigned short)(shownFps * 10.0F + 0.5F);
     Tyra::RendererCore& rc = ctx.engine->renderer.core;
     const Tyra::RendererCoreVRamStats& vs = rc.texture.stats;
     binds = vs.binds;
@@ -345,6 +449,8 @@ void flush(ScriptContext& ctx) {
   put32(st + 48, ramFrame);
   put32(st + 52, binds);
   put32(st + 56, hits);
+  put16(st + 60, fpsX10);
+  put16(st + 62, fpsShownX10);
   p += 64;
   put16(p, (unsigned short)flushMapCount);
   p += 2;
@@ -353,6 +459,26 @@ void flush(ScriptContext& ctx) {
     put16(p + 2, flushMap[i].unpacks);
     put16(p + 4, flushMap[i].verts);
     put16(p + 6, flushMap[i].program);
+  }
+
+  // --- v5: the World Facts change ring -------------------------------------
+  // Oldest first, each with its AGE in frames like the node events above, so
+  // the editor rebuilds absolute frame numbers from the header's counter.
+  put16(p, (unsigned short)factEvCount);
+  p += 2;
+  {
+    const int start = factEvCount == FACT_EVENTS ? factEvNext : 0;
+    for (int i = 0; i < factEvCount; ++i, p += 12) {
+      const FactEvent& e = factEv[(start + i) % FACT_EVENTS];
+      put16(p + 0, e.slot);
+      short src = e.src;
+      memcpy(p + 2, &src, 2);
+      unsigned int age = frameNo - e.frame;
+      if (age > 65535U) age = 65535U;
+      put16(p + 4, (unsigned short)age);
+      put16(p + 6, 0);
+      memcpy(p + 8, &e.value, 4);
+    }
   }
 
   put32(p, outSeq ^ FOOTER_XOR);
@@ -365,7 +491,13 @@ void flush(ScriptContext& ctx) {
 }
 
 void tickImpl(ScriptContext& ctx) {
+  Tyra::HardwareTrace::Scope trace("Live_debug");
   lastScene = ctx.scene;
+  // The editor's manual fact overrides, re-asserted at the top of the frame so
+  // the graphs and rules that run after this SEE them. Re-applied every frame
+  // the command file still lists them, which is what makes overriding a fact a
+  // rule rewrites continuously actually visible.
+  applyFactOverrides();
   // Install the EE crash handler on the first tick (idempotent). This call is
   // ALSO what pulls the engine's crash-handler object out of libtyra.a - a
   // release build never reaches it, so it links none of it.
@@ -410,13 +542,21 @@ void tickImpl(ScriptContext& ctx) {
     ramFrame = frameNo;
   }
   if (vuCapPending) writeVuCapture(ctx);
+  // The self-screenshot runs HERE for the same reason the VU capture's write
+  // does: the tick sits between frames, so the buffer it reads is finished and
+  // no renderer DMA is in flight to race the reverse FIFO.
+  if (frameShotWanted) {
+    frameShotWanted = false;
+    writeFrameCapture(ctx);
+  }
   forcedCount = 0;  // force-fires live for exactly one frame
 
   // Over ps2link every fopen is a network round-trip, so poll sparsely there.
   // While the game is stopped the editor is waiting on us: poll fast.
   const bool ps2link = Tyra::IrxLoader::keepIopResident;
+  if (haltRequested && pollCooldown > 2) pollCooldown = 2;
   if (--pollCooldown <= 0) {
-    pollCooldown = ps2link ? 25 : (haltRequested ? 2 : 6);
+    pollCooldown = haltRequested ? 2 : (ps2link ? 25 : 6);
     pollCommand();
   }
 
@@ -468,8 +608,9 @@ void tickImpl(ScriptContext& ctx) {
 
   if (--flushCooldown <= 0 || flushNow) {
     flushCooldown = ps2link ? 25 : 6;
+    const bool shouldFlush = flushNow || editorAttached;
     flushNow = false;
-    flush(ctx);
+    if (shouldFlush) flush(ctx);
   }
   // Clear the armed-timer list only AFTER the flush: the graphs report their
   // countdowns while they run, i.e. after this pump - so at flush time the list
@@ -663,6 +804,151 @@ void writeVuCapture(ScriptContext& ctx) {
            " referenced block(s) written to vucap.bin");
 }
 
+// The game photographs ITSELF: ps2sdk's libdebug reads the frame buffer back
+// out of GS VRAM over the VIF1 reverse FIFO, and this writes what comes back as
+// an uncompressed 32-bit TGA. Every host-side capture path (PCSX2's F8, GDI,
+// PrintWindow) needs a desktop that is unlocked and a window that is on top,
+// and NONE of them exists on real hardware - this one works on both, which is
+// the whole point.
+//
+// THE FILE IS WRITTEN HERE RATHER THAN BY libdebug, AND THAT IS WHAT MAKES IT
+// WORK ON A CONSOLE. ps2_screenshot_file() creates its output with
+// open(name, O_CREAT|O_WRONLY) - no mode argument, no O_TRUNC - and over
+// ps2link that create arrives at the host: server as a MKDIR OF THE TARGET
+// NAME. The host ends up with a DIRECTORY called frame.tga, the open that
+// follows returns -1, and the function reports nothing, because it has no
+// failure path at all. Measured on hardware, twice, byte for byte the same:
+//
+//     remove file host:frame.tga
+//     mkdir name host:frame.tga
+//     mkdir wrong mode, using fallback value 493
+//     open name host:frame.tga flag 202  ->  open fd = -1
+//
+// Every other devkit channel writes through fopen(name, "wb") - flags 0x602,
+// WRONLY|CREAT|TRUNC on the wire - and none of them has ever had the problem,
+// in the same session, over the same server. So the fix is to keep the half of
+// libdebug that carries the value (ps2_screenshot, the VRAM readback) and hand
+// the bytes to the stdio path everything else here already uses. PCSX2's own
+// host: server accepts libdebug's spelling, which is exactly why this shipped
+// as an emulator-only feature without anybody noticing.
+//
+// Five more things decide whether it produces a picture at all, and each of
+// them fails SILENTLY - which is why they are written down rather than trusted:
+//
+//  * the buffer must be the PREVIOUS REAL one. getCurrentFrameBuffer() is the
+//    one the next frame draws into (a half-composed image, or the frame before
+//    last), and getPreviousFrameBuffer() can be a synthesised extrapolated
+//    frame - getPreviousRealFrameBuffer() is the last thing the SCENE drew.
+//  * `address` is in GS WORDS and the API wants BLOCKS. Handing it words
+//    overflows SBP's 14 bits, so the read silently lands on buffer 0 with its
+//    pages scrambled into bands - it looks like a corrupt renderer and is a
+//    missing division by 64.
+//  * the readback lands a LINE at a time in a static buffer, so a frame buffer
+//    wider than 1024 pixels would overrun it. No display mode this engine
+//    offers comes near that, but the guard costs one comparison.
+//  * THE DMA WRITES RAM BEHIND THE EE'S DATA CACHE. Nothing invalidates it for
+//    us, so the line is flushed after every transfer; without that a cached
+//    line hands over the PREVIOUS row and the picture comes out striped with
+//    repeats - on hardware only, since PCSX2 emulates no cache.
+//  * ps2_screenshot REFUSES to run while VIF1's DMA channel is busy, and says
+//    so only through its return value (0). The line is then whatever was in
+//    the buffer before, so the refusals are counted and reported rather than
+//    written out as if they were picture.
+//
+// The verdict is the byte count actually written - 18 bytes of TGA header plus
+// 4 bytes per pixel - and never a return value.
+void writeFrameCapture(ScriptContext& ctx) {
+  if (!ctx.engine) return;
+  framebuffer_t* fb = ctx.engine->renderer.core.gs.getPreviousRealFrameBuffer();
+  if (!fb || fb->width == 0 || fb->height == 0) return;
+  if (fb->width > 1024) {
+    TYRA_WARN("Frame capture: ", fb->width, " px is wider than the capture "
+              "line buffer - skipped");
+    return;
+  }
+  const unsigned int w = fb->width, h = fb->height;
+  const std::string path = Tyra::FileUtils::fromCwd("frame.tga");
+  FILE* f = fopen(path.c_str(), "wb");
+  if (!f) {
+    TYRA_WARN("Frame capture: cannot open frame.tga for writing");
+    return;
+  }
+  // Uncompressed true-colour TGA, bottom row first, 32 bpp - what the editor's
+  // Screen tab decodes (docs/devkit.md).
+  unsigned char header[18];
+  memset(header, 0, sizeof(header));
+  header[2] = 2;
+  header[12] = (unsigned char)(w & 255U);
+  header[13] = (unsigned char)((w >> 8) & 255U);
+  header[14] = (unsigned char)(h & 255U);
+  header[15] = (unsigned char)((h >> 8) & 255U);
+  header[16] = 32;
+  header[17] = 8;
+  unsigned int wrote = (unsigned int)fwrite(header, 1, sizeof(header), f);
+  // The DMA destination has to be quadword aligned; 1024 words covers the
+  // widest line the guard above lets through, at any of the three pixel
+  // formats a frame buffer can be in.
+  static unsigned int lineIn[1024] __attribute__((aligned(16)));
+  static unsigned int lineOut[1024];
+  unsigned int refused = 0;
+  // The Hybrid colour depth's present blit (ColorDepth::Hybrid) is a PATH3
+  // packet the flip sends WITHOUT waiting, so between frames the GS can still
+  // be copying - and the reverse-FIFO download below then hangs on it (it did,
+  // in PCSX2, every time). A PATH3 FINISH round trip proves the GS idle. In
+  // the other modes the flip already waited, and this returns at once.
+  ctx.engine->renderer.core.sync.align2D();
+  for (unsigned int y = 0; y < h; ++y) {
+    // Bottom row first, so the TGA needs no flip on either side.
+    if (!ps2_screenshot(lineIn, fb->address / 64, 0, (h - 1U) - y, w, 1,
+                        fb->psm))
+      ++refused;
+    FlushCache(0);  // the line was written by DMA - see above
+    // Alpha is the frame buffer's OWN alpha, doubled to 0..255 (the GS
+    // keeps 0..128; a 16-bit frame keeps one bit): it is a working channel
+    // - the shadow mask, and on interlaced SDTV the CRTC's flicker-filter
+    // blend weight - so a picture of it is what shows an alpha-shaped
+    // artifact the RGB cannot. Every reader that wants a PICTURE forces it
+    // opaque itself (the Debugger's Screen tab, --capture-frame's PNG);
+    // --capture-frame --alpha writes it as a grey image.
+    if (fb->psm == 2) {  // PSMCT16
+      const unsigned short* in = (const unsigned short*)lineIn;
+      for (unsigned int x = 0; x < w; ++x) {
+        const unsigned int r = (unsigned int)((in[x] & 31U) << 3);
+        const unsigned int g = (unsigned int)(((in[x] >> 5) & 31U) << 3);
+        const unsigned int b = (unsigned int)(((in[x] >> 10) & 31U) << 3);
+        const unsigned int a = (in[x] & 0x8000U) ? 0xFFU : 0U;
+        lineOut[x] = (a << 24) | (r << 16) | (g << 8) | b;
+      }
+    } else if (fb->psm == 1) {  // PSMCT24
+      const unsigned char* in = (const unsigned char*)lineIn;
+      for (unsigned int x = 0; x < w; ++x, in += 3)
+        lineOut[x] = 0xFF000000U | ((unsigned int)in[0] << 16) |
+                     ((unsigned int)in[1] << 8) | (unsigned int)in[2];
+    } else {  // PSMCT32
+      const unsigned char* in = (const unsigned char*)lineIn;
+      for (unsigned int x = 0; x < w; ++x, in += 4) {
+        unsigned int a = (unsigned int)in[3] * 2U;
+        if (a > 255U) a = 255U;
+        lineOut[x] = (a << 24) | ((unsigned int)in[0] << 16) |
+                     ((unsigned int)in[1] << 8) | (unsigned int)in[2];
+      }
+    }
+    wrote += (unsigned int)fwrite(lineOut, 1, w * 4U, f);
+  }
+  fclose(f);
+  const unsigned int want = 18U + w * h * 4U;
+  if (wrote != want)
+    TYRA_WARN("Frame capture: wrote ", wrote, " of ", want,
+              " bytes - the host: write did not complete");
+  else if (refused > 0)
+    TYRA_WARN("Frame capture: ", refused, " of ", h,
+              " lines came back while VIF1 was busy - the picture repeats "
+              "rows there");
+  else
+    TYRA_LOG("Frame capture: ", w, "x", h, " psm ", (unsigned int)fb->psm,
+             " at frame ", frameNo, " written to frame.tga");
+}
+
 // A real EE exception (bad pointer, address error, reserved instruction...) is
 // not a TYRA_ASSERT: nothing prints it and the game just stops. The engine's
 // crash handler (vendor/tyra, linked only because this file calls install())
@@ -724,6 +1010,42 @@ const bool g_pumpRegistered = []() {
 }  // namespace
 
 
+void factWrite(int slot, float v, int src) {
+  FactEvent& e = factEv[factEvNext];
+  e.slot = (unsigned short)slot;
+  e.src = (short)src;
+  e.frame = frameNo;
+  e.value = v;
+  factEvNext = (factEvNext + 1) % FACT_EVENTS;
+  if (factEvCount < FACT_EVENTS) ++factEvCount;
+}
+
+void factWritePos(int slot, float x, float y, float z, int src) {
+  (void)y;
+  (void)z;
+  // One ring entry per position write, carrying X: the point of the history
+  // is WHEN and BY WHAT, and the full value is a watch-table read away.
+  factWrite(FACT_NUM_COUNT + slot, x, src);
+}
+
+void applyFactOverrides() {
+  for (int i = 0; i < factSetCount; ++i) {
+    const FactSet& f = factSets[i];
+    if (f.isPos) {
+      if (f.slot < FACT_POS_COUNT)
+        for (int a = 0; a < 3; ++a) factPos[f.slot][a] = f.v[a];
+    } else if (f.slot < FACT_NUM_COUNT) {
+      factNum[f.slot] = f.v[0];
+    }
+  }
+}
+
+unsigned int takeRenderCostRequest() {
+  const unsigned int result = renderCostRequest;
+  renderCostRequest = 0;
+  return result;
+}
+
 void hit(int key) {
   if (key < 0 || key >= NODES) return;
   ++hits[key];
@@ -753,6 +1075,7 @@ void hit(int key) {
 }
 
 bool halted() { return haltedFrame; }
+bool attached() { return editorAttached; }
 
 bool forced(int key) {
   for (int i = 0; i < forcedCount; ++i)

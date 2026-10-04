@@ -33,10 +33,19 @@ Audio::~Audio() {
 }
 
 void Audio::init() {
+  // TyraX: the reverb binds libsd's RPC, which ends in sceSdInit() - and that
+  // clears libsd's transfer callbacks, the ones audsrv's streaming ring
+  // installs. So it goes FIRST; doing it afterwards silences the music.
+  reverb.init();
+
   initAUDSRV();
 
   song.init();
   adpcm.init();
+
+  // ...and the effect bit goes on only after audsrv's own sceSdInit() has
+  // reset the core attributes.
+  reverb.enable();
 
   initThread();
 

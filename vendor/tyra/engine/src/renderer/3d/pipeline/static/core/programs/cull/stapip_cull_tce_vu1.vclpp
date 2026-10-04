@@ -35,14 +35,23 @@
 #vuprog StaPipVU1CullTCE
 
     ResetClipFlags{ }
-    LoadTyraStaticData{ gifSetTag }
     MatrixLoad{ mvp, VU1_MVP_MATRIX_ADDR, vi00 }
-    LoadTyraSingleColor{ singleColor, singleColorEnabled, VU1_SINGLE_COLOR_ADDR, VU1_OPTIONS_ADDR }
-    LoadTyraTagsTexture{ lodGifTag, testsTag, texBufferClutGifTag, VU1_LOD_ADDR, VU1_Z_TESTS_ADDR, VU1_CLUT_ADDR }
-    LoadTyraAlphaTag{ alphaGifTag, VU1_ALPHA_ADDR }
+    ; Modified by TyraX: only the flag here - the colour itself is loaded
+    ; per batch, where it is replicated (setDestAddr).
+    ilw.x   singleColorEnabled, VU1_OPTIONS_ADDR(vi00)
     LoadTyraFogParams{ fogParams, VU1_OPTIONS_ADDR }
     MakeTyraAdcMask{ adcMask }
-    LoadTyraEnvBasis{ envRight, envUp, envConsts }
+    LoadTyraEnvBasis{ envBasisX, envBasisY, envBasisZ }
+
+    ; Modified by TyraX: the GIF-tag registers are loaded INSIDE the batch loop
+    ; (below, next to the store that is their only reader) rather than here.
+    ; `begin:` is a loop, so a register loaded above it has to stay live across the
+    ; whole body - and the from-source assembler reuses these four for per-vertex
+    ; values instead, so every batch after the first one stored GARBAGE GIF TAGS and
+    ; its geometry never reached the GS. Free either way: the tag block is written
+    ; once per batch, so the loads simply moved to their reader, and peak register
+    ; pressure drops with them. Three sibling programs already carry this change;
+    ; see "A miscompile this uncovered" in docs/toolchain-image.md.
 
 begin:
     xtop buffer
@@ -54,32 +63,42 @@ begin:
     iadd    colorData,          stqData,        vertexCount
     iblez   singleColorEnabled, setDestAddrMultiColor
     iadd    kickAddress,        stqData,        vertexCount
+    ; Modified by TyraX: one colour, three copies at
+    ; VU1_SINGLE_COLOR_COPIES_ADDR and a stride-0 colour pointer, so the
+    ; vertex loops below load their colours the same way in both modes
+    ; instead of branching on the flag at the top of every body.
+    lq      singleColor,        VU1_SINGLE_COLOR_ADDR(vi00)
+    ; the loop used to build each corner as vf00 + singleColor, which
+    ; adds vf00.w = 1.0 to the alpha - kept, so the output is bit-identical
+    add     singleColor,        vf00,           singleColor
+    sq      singleColor,        VU1_SINGLE_COLOR_COPIES_ADDR(vi00)
+    sq      singleColor,        VU1_SINGLE_COLOR_COPIES_ADDR+1(vi00)
+    sq      singleColor,        VU1_SINGLE_COLOR_COPIES_ADDR+2(vi00)
+    iaddiu  colorData,          vi00,           VU1_SINGLE_COLOR_COPIES_ADDR
+    iaddiu  colorStride,        vi00,           0
     b       setDestAddr
 setDestAddrMultiColor:
     iadd    kickAddress,        colorData,      vertexCount
+    iaddiu  colorStride,        vi00,           3
 setDestAddr:
     iaddiu  destAddress,        kickAddress,    0
 
+    ; Modified by TyraX: loaded here, not above `begin:` - see the note there.
+    LoadTyraStaticData{ gifSetTag }
+    LoadTyraTagsTexture{ lodGifTag, testsTag, texBufferClutGifTag, VU1_LOD_ADDR, VU1_Z_TESTS_ADDR, VU1_CLUT_ADDR }
+    LoadTyraAlphaTag{ alphaGifTag, VU1_ALPHA_ADDR }
     StoreTyraGifTagsTextureAlpha{ gifSetTag, lodGifTag, texBufferClutGifTag, alphaGifTag, primTag, testsTag, destAddress }
 
     ;--- Loop
     iadd vertexCounter, buffer, vertexCount
 vertexLoop:
 
-        iblez  singleColorEnabled, multiColor
-        ;--- Load vertices single color
-        add      color1,    vf00,   singleColor
-        add      color2,    vf00,   singleColor
-        add      color3,    vf00,   singleColor
-        b processing
-
-multiColor:
-        ;--- Load vertices colors
+        ;--- Load vertices colors (a single colour reads three copies,
+        ;--- stride 0 - see setDestAddr)
         lq      color1,   (colorData)
         lq      color2,   1(colorData)
         lq      color3,   2(colorData)
 
-processing:
         ;--- Load vertex1 (stq slot = object-space normal)
         lq      vertex1,  (vertexData)
         lq      stq1,     (stqData)
@@ -93,7 +112,7 @@ processing:
         lq      stq3,     2(stqData)
 
         ;--- Calculate vertex1
-        CalculateTyraEnvStq{ stq1, envRight, envUp, envConsts }
+        CalculateTyraEnvStq{ stq1, envBasisX, envBasisY, envBasisZ }
         MatrixMultiplyVertex{ vertex1, mvp, vertex1 }
         CalculateTyraFog{ fogInt, vertex1, fogParams }
         PerformTyraFogClipCheck{ vertex1, destAddress, XYZ2_STORE_OFFSET, fogInt, adcMask }
@@ -103,7 +122,7 @@ processing:
         FixColor{ color1 }
 
         ;--- Calculate vertex2
-        CalculateTyraEnvStq{ stq2, envRight, envUp, envConsts }
+        CalculateTyraEnvStq{ stq2, envBasisX, envBasisY, envBasisZ }
         MatrixMultiplyVertex{ vertex2, mvp, vertex2 }
         CalculateTyraFog{ fogInt, vertex2, fogParams }
         PerformTyraFogClipCheck{ vertex2, destAddress, XYZ2_STORE_OFFSET+3, fogInt, adcMask }
@@ -113,7 +132,7 @@ processing:
         FixColor{ color2 }
 
         ;--- Calculate vertex3
-        CalculateTyraEnvStq{ stq3, envRight, envUp, envConsts }
+        CalculateTyraEnvStq{ stq3, envBasisX, envBasisY, envBasisZ }
         MatrixMultiplyVertex{ vertex3, mvp, vertex3 }
         CalculateTyraFog{ fogInt, vertex3, fogParams }
         PerformTyraFogClipCheck{ vertex3, destAddress, XYZ2_STORE_OFFSET+6, fogInt, adcMask }
@@ -141,7 +160,7 @@ processing:
 
         iaddiu  vertexData,     vertexData,     3
         iaddiu  stqData,        stqData,        3
-        iaddiu  colorData,      colorData,      3
+        iadd    colorData,      colorData,      colorStride
         iaddiu  destAddress,    destAddress,    9
 
         ;--- Fix loop

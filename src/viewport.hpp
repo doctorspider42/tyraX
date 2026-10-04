@@ -1,19 +1,40 @@
 #pragma once
 
 #include <array>
+#include <atomic>
 #include <cmath>
+#include <memory>
+#include <thread>
 #include <cstdint>
 #include <map>
 #include <string>
 #include <utility>
 #include <vector>
 
+#include "animmerge.hpp"
 #include "aobake.hpp"
 #include "gibake.hpp"
 #include "glbparser.hpp"
 #include "navmesh.hpp"
 #include "procgen.hpp"
 #include "project.hpp"
+#include "tmdl.hpp"  // vehicles draw from the import bake, not from an asset path
+#include "objparser.hpp"
+
+// One world-space wire box of the static-batch overlay (Viewport::
+// setBatchOverlay). Axis-aligned, because every box this overlay draws
+// already is: a batch's merged bounds, its grouping cell, and a member's own
+// world AABB.
+struct BatchOverlayBox {
+    float min[3] = {0, 0, 0};
+    float max[3] = {0, 0, 0};
+    float color[3] = {1, 1, 1};
+    // A member's box is drawn thin and a batch's merged box twice as thick,
+    // because the merged one is the thing worth looking at - it is what the
+    // frustum and the draw-distance test are applied to, and an over-wide one
+    // is the regression this overlay exists to make visible.
+    bool thick = false;
+};
 
 // 3D preview of the project terrain and scene objects, rendered into an
 // offscreen texture shown inside an ImGui window. Orbit camera (drag+scroll).
@@ -25,6 +46,44 @@ public:
         SolidWireframe = 2,  // solid shading with a dark wireframe overlay
     };
 
+    // View > Collision boxes: draw the box the GAME collides with over every
+    // collider (docs/collision-boxes.md). Editor state, no project data.
+    // The orbit camera as the five numbers it actually is, so the project can
+    // store where you were looking (project.hpp viewCam*). Read at save time
+    // and applied on open; neither dirties anything.
+    void camState(float& yaw, float& pitch, float& dist, float t[3]) const {
+        yaw = yaw_, pitch = pitch_, dist = distance_;
+        t[0] = target_[0], t[1] = target_[1], t[2] = target_[2];
+    }
+    void setCamState(float yaw, float pitch, float dist, const float t[3]) {
+        yaw_ = yaw;
+        pitch_ = pitch < -kOrbitPitchLimit
+                     ? -kOrbitPitchLimit
+                     : (pitch > kOrbitPitchLimit ? kOrbitPitchLimit : pitch);
+        distance_ = dist > 0.01f ? dist : 0.01f;
+        target_[0] = t[0], target_[1] = t[1], target_[2] = t[2];
+    }
+
+    void setCollisionOverlay(bool on) { collisionOverlay_ = on; }
+    // Project::modelCollision, so the overlay draws a model's own box.
+    void setModelCollision(const std::map<std::string, ModelCollisionBox>* m) {
+        modelCollision_ = m;
+    }
+    bool collisionOverlay() const { return collisionOverlay_; }
+
+    // Static-batch overlay (Tools > Static Batches, View > Static batches).
+    // The app computes the grouping - staticbatch::compute, whose answer the
+    // panel and the generated game share - and pushes a flat list of world
+    // boxes in once per frame; the viewport only draws them. Deliberately
+    // dumb: a viewport that re-derived the grouping would be a third
+    // implementation of it, and the whole point of the feature is that there
+    // are two and they are checked against each other.
+    //
+    // Empty = the overlay is off.
+    void setBatchOverlay(std::vector<BatchOverlayBox> boxes) {
+        batchOverlay_ = std::move(boxes);
+    }
+
     void setViewMode(ViewMode m) { viewMode_ = m; }
     ViewMode viewMode() const { return viewMode_; }
 
@@ -33,8 +92,9 @@ public:
     // projection (no foreshortening, so equal sizes read equal anywhere on
     // screen) and the six axis modes additionally lock the camera onto that
     // world axis - the Top/Front/Side views of a CAD or level editor.
-    // Orbiting out of an axis view keeps the parallel projection and falls
-    // back to Ortho (free), so a drag never feels dead.
+    // Orbiting out of an axis view drops the lock and returns to whatever the
+    // camera was before that view was picked (see setProjection/orbit), so a
+    // drag never feels dead and a look from one axis stays an interlude.
     enum class Projection {
         Perspective = 0,
         Ortho = 1,        // parallel, free orbit direction
@@ -46,7 +106,17 @@ public:
         OrthoLeft = 7,    // looks along +X (from -X)
     };
     static constexpr int kProjectionCount = 8;
-    void setProjection(Projection p) { projection_ = p; }
+    void setProjection(Projection p) {
+        // Remember what orbiting out of a locked axis view should return to:
+        // the mode the camera was in before that view was picked. An axis view
+        // is a glance, not a new home - perspective is what a user who never
+        // asked for a parallel projection expects to get their scene back in -
+        // while someone who deliberately chose Ortho (free) keeps it. Stepping
+        // from one axis view straight to another keeps the earlier base.
+        if (p <= Projection::Ortho) orbitBase_ = p;
+        else if (projection_ <= Projection::Ortho) orbitBase_ = projection_;
+        projection_ = p;
+    }
     Projection projection() const { return projection_; }
     bool orthographic() const { return projection_ != Projection::Perspective; }
     // Display name of a projection mode ("Perspective", "Top", ...).
@@ -78,15 +148,19 @@ public:
     // Objects on hidden layers are excluded like they are for picking.
     // Returns false when the ray leaves the scene without hitting anything.
     bool placementRaycast(float u, float v, const std::vector<SceneObject>& objects,
-                          const std::vector<char>& skip, float outPoint[3]) const;
+                          const std::vector<char>& skip, float outPoint[3]);
 
     // Inverse of camRay: a world point -> normalized image coords (u, v in
     // [0,1], origin top-left) of the LAST rendered frame. False when the point
     // is behind a perspective camera. App-side ImDrawList overlays that have
     // to sit on world geometry (the measuring tape) place themselves with
     // this, so they agree with the image under every projection instead of
-    // rebuilding a camera of their own.
-    bool projectToImage(const float world[3], float& outU, float& outV) const;
+    // rebuilding a camera of their own. `outDepth`, when given, receives the
+    // point's distance ALONG the view direction - what an overlay drawing
+    // several world-anchored markers needs to order them back to front (the
+    // comment icons), and the one thing a u/v pair cannot say.
+    bool projectToImage(const float world[3], float& outU, float& outV,
+                        float* outDepth = nullptr) const;
 
     // Local-space AABB of what an object DRAWS as a model: static .obj bounds
     // (GL-free, cached) or an animated model's baked pose bounds. False for
@@ -98,6 +172,10 @@ public:
     // terrain REMOVED (TerrainConfig::enabled false) - callers that must not
     // treat that as a floor ask the model, not this (App::placementHeight).
     float terrainHeight(float x, float z) const;
+    // The painted layers' tyre grip at (x, z) (1.142.0): the layers composited
+    // bottom-up by their weights on the drawn triangles, the generated
+    // TerrainGame::terrainGripAt's twin. `grips` is one value per layer.
+    float terrainLayerGrip(float x, float z, const std::vector<float>& grips) const;
 
     // The camera ray through normalized image coords - the same one pick() and
     // terrainRaycast() build. Exposed so the app can hit-test things the
@@ -108,6 +186,49 @@ public:
     // horizon + zenith colors; gradient=false renders a flat horizon color
     void setSky(const float* horizonRgb, const float* topRgb, bool gradient,
                 float zenithSize = 0.5f);
+    // "" = the gradient alone. absPath is the res/ panorama (docs/sky-texture.md).
+    void setSkyTexture(const std::string& absPath, float yawDeg);
+
+    // Day/night cycle sky bodies (docs/day-night-cycle.md). The editor's twin of
+    // the generated game's renderSkyBodies: two camera-facing quads on the sky
+    // dome, placed from the SAME ambience::evaluate the codegen bakes
+    // SCENE_SUN_* / SCENE_MOON_* from - so dragging the time slider previews
+    // exactly what the console will draw.
+    struct SkyBodies {
+        bool enabled = false;
+        float sunDir[3] = {0.0f, 1.0f, 0.0f};
+        float moonDir[3] = {0.0f, -1.0f, 0.0f};
+        // Apparent radius as a fraction of the dome radius, tan(size/2).
+        // 0 = the body is below the horizon; draw nothing.
+        float sunRadius = 0.0f;
+        float moonRadius = 0.0f;
+        float moonRoll = 0.0f;  // keeps the lit limb pointing at the sun
+        float moonOpacity = 1.0f;
+        float sunColor[3] = {1.0f, 1.0f, 1.0f};
+        // Cancels the drift grade on the discs, which are hour-correct already
+        // (ambience::driftCompensation). 1,1,1 without a runtime grade.
+        float compensation[3] = {1.0f, 1.0f, 1.0f};
+    };
+    void setSkyBodies(const SkyBodies& b) { skyBodies_ = b; }
+    // Sprite pixels, pushed by the app straight from menubake's RGBA bakes (the
+    // same ones refreshGenerated PNG-encodes) so a phase edit previews without a
+    // build. 0 = the sun disc, 1 = the moon disc, 2 = the star dot (the soft
+    // radial corona - a hard-edged quad is exactly the "grey pixel" a starfield
+    // must not look like).
+    enum SkySprite { SkySun = 0, SkyMoon = 1, SkyStarDot = 2, SkySpriteCount = 3 };
+    void setSkyBodyTexture(int which, int w, int h, const unsigned char* rgba);
+
+    // Procedural night sky (starfield.hpp). The app hands over the generated
+    // star list and a 0..1 brightness; the viewport turns each star into an
+    // additive camera-facing quad, exactly as the generated game does. An empty
+    // list or brightness 0 draws nothing.
+    // `timeSec` drives the twinkle - the viewport owns no clock, and taking one
+    // would be a second answer to "what time is it" next to ImGui's.
+    void setStarField(const std::vector<starfield::Star>& stars, float brightness,
+                      float twinkle, float timeSec);
+    // The uploaded moon disc, for the Ambience Editor's own preview - the SAME
+    // texture the viewport draws, so the panel cannot show a different moon.
+    uint32_t moonDiscTexture() const { return skySpriteTex_[SkyMoon]; }
 
     // directional light baked into mesh shading (matches the PS2 output)
     void setLighting(const float* dir, float ambient, float diffuse, const float* color,
@@ -139,6 +260,12 @@ public:
     // its dark texels) and stays on the probe route in both.
     void setGiTerrain(const aobake::AoImage& img);
     void clearGiTerrain() { setGiTerrain(aobake::AoImage()); }
+    // The primitives' baked lightmap atlas (aobake::SceneLightAtlas, from the
+    // same GI cache): every lit region is drawn from the atlas per PIXEL,
+    // exactly as the console's two atlas passes draw it, instead of from the
+    // probe grid. An empty atlas puts those objects back on the probes.
+    void setGiAtlas(const aobake::SceneLightAtlas& atlas);
+    void clearGiAtlas() { setGiAtlas(aobake::SceneLightAtlas()); }
 
     // Baked ambient occlusion preview (docs/ambient-occlusion.md): terrain
     // self-occlusion is multiplied into the terrain vertex colors (the same
@@ -157,6 +284,11 @@ public:
     // from the editor camera, the exact formula the PS2 runs on VU1.
     void setFlashlight(bool enabled, const float* rgb, float range,
                        float halfAngleDeg);
+    // Preferences > Spot light shadow volumes: the project-wide default a
+    // spot light's "Shadow volumes" override falls back to (docs/shadows.md).
+    // Decides which casters the preview shadows a spot through, and that one
+    // spot per frame - the nearest to the camera - carves at all.
+    void setSpotShadowVolumes(bool on) { spotShadowVolumes_ = on; }
 
     // project root for resolving relative model paths (clears the model cache)
     void setProjectDir(const std::string& dir);
@@ -205,6 +337,21 @@ public:
     // rebuilds the mask each frame from the scene's layer eye toggles.
     void setHiddenMask(std::vector<char> mask) { hiddenMask_ = std::move(mask); }
 
+    // Which endless scrollers draw their ghost belts, one flag per object
+    // (indices parallel the objects passed to render, like hiddenMask_). A belt
+    // fills its whole window with semi-transparent copies, which is exactly
+    // what you cannot see past while editing the member objects those copies
+    // are made of - so it is hideable per belt (Properties) and all at once
+    // (View > Scroller preview). ONE mask for both, because "hide this one" and
+    // "hide every one" are the same question asked at different scopes.
+    // Anything not in the mask draws its ghosts: an empty mask is "show all",
+    // which is what a caller that never sets it should get.
+    // The belt origin MARKERS are drawn either way - they are how an invisible,
+    // intangible object is found and selected, not part of its output.
+    void setScrollerGhosts(std::vector<char> mask) {
+        scrollerGhosts_ = std::move(mask);
+    }
+
     // Nav-mesh overlay (View > Nav Mesh Overlay): translucent green quads
     // over the walkable cells of the app-baked grid (navmesh::bake - the app
     // owns the Project). The GL mesh is rebuilt only when `version` changes,
@@ -231,6 +378,8 @@ public:
         // world would not produce). A Pick Prefab point carries no asset, so
         // without these such an instance draws as nothing at all.
         std::vector<SceneObject> prefabObjects;
+        // Frozen volumes draw their saved chunks instead of live instances.
+        std::vector<std::string> frozenSources;
         // An isolated node's own output, shown instead of instances: a mask
         // draped over the terrain, or a curve as a polyline (UX-01).
         std::shared_ptr<const procgen::Mask> mask;
@@ -254,6 +403,26 @@ public:
     // draws it instead of the flat quad.
     void setProjectedDecals(const std::map<std::string, std::vector<float>>& meshes,
                             uint64_t version);
+
+    // Baked shadow decals (docs/shadows.md). The app hands over exactly what
+    // the console gets - the merged world-space meshes with their atlas UVs,
+    // and the atlas pages as RGBA - so the preview is the same triangles
+    // sampling the same texels, not a second idea of what a shadow looks like.
+    // `pageRgba` is one kPageSize^2 RGBA block per page; `meshes` is one entry
+    // per merged draw, 5 floats a vertex (pos3 + uv2), paired with its page
+    // index. Rebuilt only when `version` changes, so this can be called every
+    // frame.
+    struct ShadowPreview {
+        int pageSize = 0;
+        std::vector<std::vector<unsigned char>> pages;
+        struct Draw {
+            std::vector<float> verts;
+            int page = 0;
+        };
+        std::vector<Draw> draws;
+        uint64_t version = 0;
+    };
+    void setShadowDecals(const ShadowPreview& p);
 
     // Renders terrain + objects at the given pixel size, returns GL texture id.
     // selection: indices outlined; primary (the anchor, usually selection.back())
@@ -282,6 +451,13 @@ public:
         std::vector<int> indices;
     };
     void setPeerSelections(std::vector<PeerSel> sels) { peerSels_ = std::move(sels); }
+    // The active scene's per-junction road overrides (SceneData::roadJunctions),
+    // pushed by the app every frame; the crossing draws rebuild when they change.
+    void setRoadJunctions(const std::vector<roadgen::JunctionOverride>& j) {
+        if (j != roadJunctions_) roadJunctions_ = j;
+    }
+    void setRoadDragging(bool dragging) { roadDragging_ = dragging; }
+    const std::vector<roadgen::Vertex>& roadOutline(const std::string& id) const;
 
     // Material Editor live preview: a lit primitive OR one of the project's
     // .obj models over a checker floor, rendered into its own framebuffer
@@ -388,6 +564,17 @@ public:
         animEdits_ = std::move(edits);
         animProjectScale_ = projectScale > 0.001f ? projectScale : 1.0f;
     }
+    // Clips borrowed from other model files (docs/animation-import.md), pushed
+    // in the same way and for the same reason: the merge has to happen on this
+    // side too, or an imported clip would exist on the console and nowhere the
+    // author can see it. Keyed by project-relative model path, and a model
+    // absent from the map takes the untouched parser path.
+    void setAnimImports(
+        std::map<std::string, std::vector<animmerge::ImportSpec>> imports) {
+        if (imports == animImports_) return;  // nothing changed, keep the cache
+        animImports_ = std::move(imports);
+        invalidateAnimatedModels();
+    }
 
     // Animation Editor live preview: one animated model on a checker floor,
     // posed at an explicit time so the panel owns play/pause/scrub. Times are
@@ -404,7 +591,13 @@ public:
         float angleDeg = 40.0f;   // turntable yaw
         float pitchDeg = 15.0f;   // camera elevation
         float zoom = 1.0f;        // dolly multiplier
+        // Camera-target offset in preview-radius units, expressed in the
+        // current camera's screen plane. This keeps panning equally useful on
+        // a centimetre prop and a ten-metre character.
+        float panX = 0.0f;
+        float panY = 0.0f;
         bool wireframe = false;   // overlay the triangles
+        bool inPlace = false;     // remove horizontal root motion
         PreviewLight light;       // off = the scene's ambience
     };
     uint32_t renderAnimPreview(int width, int height, const AnimPreviewDesc& d);
@@ -460,10 +653,40 @@ public:
     void updateTexturePixels(const std::string& relPath, int w, int h,
                              const unsigned char* rgba);
 
+    // Automatic model AO (docs/ambient-occlusion.md, "Model AO"): project-
+    // relative texture path -> the baked AO map that gets multiplied into it
+    // as it is uploaded, plus the strength that multiply uses. The multiply
+    // itself is modelao's, which is also what texbake calls for the shipped
+    // PNG - so the preview and the console cannot disagree about it.
+    // Changing the table (or the strength) invalidates every disk-derived
+    // cache, exactly like an asset changing on disk - and it must, because a
+    // cached ModelDraw/MaterialDraw part holds the GL texture NAME. Dropping
+    // one texture on its own leaves those parts pointing at a deleted name,
+    // which OpenGL is free to hand to the next glGenTextures: measured as an
+    // altar rendering flat white with a stray decal from another image on it.
+    void setModelAoMaps(std::map<std::string, std::string> maps,
+                        float strength);
+
     // Drops every disk-derived cache (models, materials, GL textures). Call
-    // after an asset file changed on disk (e.g. the Material Editor saved a
-    // .mtl) so the next frame re-reads it.
+    // after a broad asset change so the next frame re-reads it.
+    // Material setting saves use invalidateMaterial to preserve unrelated assets.
     void invalidateAssets();
+    void invalidateMaterial(const std::string& relPath);
+    // docs/particles.md: the extra layers of every linked emitter in the scene.
+    struct EmitterLayerPreview {
+        SceneObject look;  // the emitter wearing the layer
+        float offset[3] = {0, 0, 0};
+        float area[3] = {1, 1, 1};
+    };
+    void setEmitterLayers(std::map<int, std::vector<EmitterLayerPreview>> layers) {
+        emitterLayers_ = std::move(layers);
+    }
+    // Re-bakes cached animated models IN THE BACKGROUND: entries are marked
+    // stale and keep drawing their old bake until the fresh one lands. An
+    // import change alters the CLIP LIST of a model, which is baked into the
+    // cache entry - unlike a clip edit, which is applied per pose. `relPath`
+    // limits it to one model's entries ("" = all).
+    void invalidateAnimatedModels(const std::string& relPath = std::string());
 
     // Camera controls, driven by the UI layer. The camera orbits a movable
     // target point: pan slides it in the view plane (middle mouse drag),
@@ -471,6 +694,12 @@ public:
     void orbit(float dxPixels, float dyPixels);
     void zoom(float wheel);
     void pan(float dxPixels, float dyPixels);
+    // Moves the pivot ALONG the view direction - a forward/back pan rather than
+    // a zoom: the eye travels with the target instead of closing in on it, so
+    // the framing keeps its perspective and the distance is untouched. Bound to
+    // a right+middle drag (down = forward, the pan sense), and the natural way
+    // to lift the pivot off the ground so the sky comes into view.
+    void dolly(float dPixels);
     void fly(float forward, float strafe, float dt);
 
     // Snap the orbit pivot to a world-space point (e.g. the selected object),
@@ -543,11 +772,58 @@ public:
     void setPs2Output(const Ps2Output& o) { ps2_ = o; }
     const Ps2Output& ps2Output() const { return ps2_; }
 
+    // PS2 shading simulation (docs/ps2-viewport.md): shade the scene the way
+    // the console does - every lighting term (GI probes, AO, point lights,
+    // emissive lights, flashlight, fog) evaluated per VERTEX with the
+    // triangle's own flat normal, and static geometry flat-shaded (one corner
+    // colour per triangle, TyraShadingFlat). Independent of the Ps2Output
+    // resolution mode - triangle shading is visible at any raster.
+    void setPs2Shading(bool on) { ps2Shade_ = on; }
+    bool ps2Shading() const { return ps2Shade_; }
+
+    // GS colour depth simulation (docs/ps2-viewport.md): show the picture at
+    // the 5 bits per channel a PSMCT16 framebuffer keeps, optionally through
+    // the GS's 4x4 ordered dither (the DIMX matrix the engine programs). The
+    // app resolves "match project" against ProjectSettings before calling.
+    void setGsColorSim(bool quantize, bool dither) {
+        gsQuant_ = quantize;
+        gsDither_ = quantize && dither;
+    }
+
     // Returns the index of the frontmost object under the given normalized
     // image coordinates (u, v in [0,1], origin top-left), or -1.
-    int pick(float u, float v, const std::vector<SceneObject>& objects) const;
+    int pick(float u, float v, const std::vector<SceneObject>& objects);
+
+    // Every object under those coordinates, front to back - the click order
+    // pick() returns the first of. Exact hits come first, then hits within the
+    // grab margin, then the wire boxes (areas, procedural volumes, invisible
+    // walls), which enclose or fence whole rooms and would otherwise swallow
+    // every click inside them. Repeated clicks at the same spot walk this
+    // list and the viewport's right-click menu shows it, which is how
+    // something standing inside or behind another object is reached with the
+    // mouse alone (App::viewportPick).
+    void pickAll(float u, float v, const std::vector<SceneObject>& objects,
+                 std::vector<int>& out);
+
+    // The box a click tests against, in the object's own rotated frame and in
+    // WORLD units - i.e. what the object DRAWS as, not the unit cube: a
+    // model's mesh bounds, a marker's own extents, a primitive's unit box.
+    // The object's scale is already folded in, because a fixed-size marker
+    // (an emitter cone, a scroller origin) draws the same whatever the scale
+    // says. Shared by pick() and placementRaycast() so what the cursor rests
+    // on stays what a click would select.
+    void pickBounds(const SceneObject& o, float mn[3], float mx[3]);
 
 private:
+    const objparser::Model* pickModel(const std::string& path, const std::string& material);
+    int pickVisual(const SceneObject& o, const float* eye, SceneObject& visual);
+    void selectionBounds(const SceneObject& o, float mn[3], float mx[3]);
+    float pickModelSurface(const SceneObject& visual, int capture,
+                           const float* origin, const float* direction);
+    std::map<std::string, objparser::Model> pickModelCache_;
+    struct PickAlpha { int w = 0, h = 0; std::vector<unsigned char> values; };
+    std::map<std::string, PickAlpha> pickAlphaCache_;
+
     struct Mesh {
         uint32_t vao = 0, vbo = 0;
         int vertexCount = 0;
@@ -573,10 +849,15 @@ private:
     int hmW_ = 0, hmD_ = 0;
 
     // Nav-mesh overlay mesh (see setNavOverlay)
+    bool collisionOverlay_ = false;
+    const std::map<std::string, ModelCollisionBox>* modelCollision_ = nullptr;
+    std::vector<BatchOverlayBox> batchOverlay_;
     bool navOverlayOn_ = false;
+    std::vector<char> scrollerGhosts_;
     uint64_t navOverlayVersion_ = 0;
     bool navOverlayHasVersion_ = false;
     Mesh navOverlayMesh_;
+    Mesh collisionCube_;  // exact unit wire cube for the collision overlay
 
     // Scatter preview (see setScatterPreview): the pushed result plus the GL
     // meshes for its mask / curve overlays, rebuilt only when version changes.
@@ -592,20 +873,64 @@ private:
     std::map<std::string, Mesh> projectedDecalMeshes_;
     uint64_t projectedDecalVersion_ = 0;
     bool projectedDecalHasVersion_ = false;
+    // Baked shadow decals (see setShadowDecals): one GL mesh per merged draw
+    // plus the atlas pages they sample, rebuilt only when the version moves.
+    struct ShadowDrawGl {
+        Mesh mesh;
+        int page = 0;
+    };
+    std::vector<ShadowDrawGl> shadowDraws_;
+    std::vector<uint32_t> shadowPageTex_;
+    uint64_t shadowVersion_ = 0;
+    bool shadowHasVersion_ = false;
     float sky_[3] = {0.25f, 0.55f, 0.78f};
     float skyTop_[3] = {0.08f, 0.3f, 0.65f};
     bool skyGradient_ = true;
     float skyZenithSize_ = 0.5f;  // gradient bias, see setSky / the dome build
     Mesh skyQuad_;
+    // Painted sky (docs/sky-texture.md): the SAME crop texbake ships
+    // (skytex::crop), uploaded once per panorama. Shown at the authored hour -
+    // the console's day/night tint is not previewed.
+    std::string skyTexAbs_, skyTexLoaded_;
+    float skyTexYaw_ = 0.0f;
+    uint32_t skyTexGl_ = 0;
+    // Day/night cycle discs: one shared unit quad, oriented per body by a
+    // billboard model matrix (see drawSkyBodies).
+    SkyBodies skyBodies_;
+    Mesh skyBodyQuad_;
+    uint32_t skySpriteTex_[SkySpriteCount] = {0, 0, 0};
+    // Night sky: one mesh per magnitude tier, rebuilt only when the star list
+    // itself changes (the brightness fade is a uniform, not a rebuild - the
+    // same split the console makes with the bags' additive FIX).
+    std::vector<starfield::Star> stars_;
+    Mesh starMesh_[starfield::kTiers];
+    bool starMeshDirty_ = false;
+    float starBrightness_ = 0.0f;
+    float starTwinkle_ = 0.0f;
+    float starTime_ = 0.0f;
+    void drawStarField(const float* viewProj16, const float* eye,
+                       const float* right, const float* up, float domeRadius);
+    // Plain floats rather than the internal Mat4/CamView: both are declared
+    // below this point (Mat4 lives in viewport.cpp's anonymous namespace).
+    void drawSkyBodies(const float* viewProj16, const float* eye,
+                       const float* right, const float* up, float domeRadius);
     bool skyQuadDirty_ = true;
     ViewMode viewMode_ = ViewMode::Solid;
 
     // camera (orbit around a movable target, initially the terrain center)
+    // How far the orbit camera may tip, in radians, above AND below its pivot
+    // (85.9 deg). The limit exists because camView's up vector is world +Y: at
+    // exactly +/-90 deg it aligns with the view axis, the basis degenerates and
+    // yaw stops meaning anything.
+    static constexpr float kOrbitPitchLimit = 1.5f;
     float yaw_ = 0.8f;
     float pitch_ = 0.6f;
     float distance_ = 90.0f;
     float target_[3] = {0.0f, 0.0f, 0.0f};
     Projection projection_ = Projection::Perspective;
+    // What orbit() falls back to when it leaves a locked axis view; only ever
+    // Perspective or Ortho, maintained by setProjection().
+    Projection orbitBase_ = Projection::Perspective;
     // The camera a render() draws with: eye + orthonormal basis plus the
     // projection extents. ONE source for render(), pick(), the terrain
     // raycast and the placement raycast - those used to rebuild the same
@@ -651,6 +976,47 @@ private:
     }
 
     uint32_t program_ = 0;
+    // PS2 shading simulation: the same vertex + fragment sources with a
+    // geometry stage between them that runs the whole lighting stack per
+    // triangle corner (the console's per-vertex shading). The u*_ location
+    // members below are re-queried against whichever of the two programs is
+    // active (useSceneProgram), so every existing uniform-setting site works
+    // unchanged for both.
+    uint32_t vtxProgram_ = 0;
+    uint32_t sceneProgActive_ = 0;  // program_ or vtxProgram_
+    bool ps2Shade_ = false;
+    void querySceneLocations(uint32_t prog);
+    void useSceneProgram(bool ps2Vertex);
+    int uFoliageImpostor_ = -1;
+    int uPs2Flat_ = -1;   // vtx program only: TyraShadingFlat per draw
+    int uPs2NoDyn_ = -1;  // vtx program only: dynLightPick=false per draw
+    int uAoPerPixel_ = -1;  // vtx program only: terrain AO in the fragment stage
+    // GL_LINES cannot pass through a triangles geometry shader, so when the
+    // vtx program is active the draw helpers detour lines through program_
+    // with this small location set (unlit geometry reads nothing else).
+    struct LineLocs {
+        int mvp = -1, model = -1, tint = -1, lit = -1, useTex = -1, alpha = -1,
+            opacity = -1, emissive = -1, reflOn = -1;
+    } lineLocs_;
+    // GS colour depth simulation (setGsColorSim) - applied in the grade pass.
+    bool gsQuant_ = false, gsDither_ = false;
+    // Dynamic lights' ground pools, PS2-shading mode only: the console's
+    // terrain-conforming additive corona patch under every dynamic point
+    // light (the generated game's updateAndRenderLightPools).
+    void drawLightPools(const std::vector<SceneObject>& objects,
+                        const float* viewProj);
+    // Visible light beams (Point Light > Beam): the console's additive corona
+    // billboard and, for kind 2, its cone shaft - the twin of the generated
+    // game's updateAndRenderLightBeams. Drawn whatever the shading mode: a
+    // beam is scene CONTENT the game always renders, not a shading simulation.
+    void drawLightBeams(const std::vector<SceneObject>& objects,
+                        const float* viewProj, const float* fwdP,
+                        const float* eyeP);
+    // The corona pixels both of those draw through - the same bake the game
+    // ships as hud/flare-corona.png (menubake::bakeFlareRGBA kind 2, at
+    // kCoronaSpriteSize). Uploaded once, on the first frame that needs it.
+    uint32_t coronaTex();
+    uint32_t coronaTex_ = 0;
     int uMvp_ = -1;
     int uTint_ = -1;
     int uUseTex_ = -1;
@@ -661,6 +1027,8 @@ private:
     int uLit_ = -1;
     int uLightCount_ = -1;
     int uLightPos_ = -1;
+    int uLightDir_ = -1;   // spot dir + style channel (see the shader)
+    int uLightOcc_ = -1;   // per-light shadow-caster AO slots, game rules
     int uLightCol_ = -1;
     // GS hardware fog preview
     int uFogOn_ = -1, uFogColor_ = -1, uFogStart_ = -1, uFogEnd_ = -1;
@@ -671,12 +1039,13 @@ private:
     // Camera flashlight preview
     int uFlashOn_ = -1, uFlashCol_ = -1, uFlashInvR2_ = -1, uFlashCut2_ = -1;
     int uFlashSoft_ = -1;
+    bool spotShadowVolumes_ = false;
     bool flashOn_ = false;
     float flashColor_[3] = {0.75f, 0.75f, 0.62f};
     float flashRange_ = 30.0f, flashAngle_ = 20.0f;
     // Spherical environment map (refl) preview - matcap on texture unit 1;
     // "@sky" dynamic mode approximated by the analytic sky gradient
-    int uReflOn_ = -1, uRefl_ = -1, uReflStrength_ = -1;
+    int uReflOn_ = -1, uRefl_ = -1, uReflStrength_ = -1, uPaintFx_ = -1;
     int uReflSkyHorizon_ = -1, uReflSkyTop_ = -1;
     int uReflRounded_ = -1, uReflCenter_ = -1;
     int uEmissive_ = -1;  // Ke floor, premultiplied by the object tint
@@ -690,7 +1059,7 @@ private:
     int uAoHeight_ = -1, uAoHmRect_ = -1, uAoHmOn_ = -1;
     // Baked GI probe grid (see setGiProbes)
     int uGiOn_ = -1, uGiProbes_ = -1, uGiOrigin_ = -1, uGiStep_ = -1,
-        uGiDim_ = -1, uGiScale_ = -1;
+        uGiDim_ = -1, uGiScale_ = -1, uGiReceiver_ = -1;
     uint32_t giTex_ = 0;
     float giOrigin_[3] = {0, 0, 0};
     float giStep_[3] = {1, 1, 1};
@@ -705,9 +1074,36 @@ private:
     // for those draws.
     int uGiSkipProbe_ = -1;
     std::vector<uint8_t> giTerrLight_;  // size*size*3, empty = no lit map
+    // The MULTIPLY route (aobake::AoImage::giLumAlpha): a textured ground
+    // takes the light as a per-pixel attenuation in the alpha channel
+    // instead of an additive RGB pass it would blow out.
+    std::vector<uint8_t> giTerrAlpha_;
+    bool giTerrLum_ = false;  // size*size*3, empty = no lit map
     int giTerrSize_ = 0;
     bool giUploadPending_ = false;
     void uploadGiProbes();
+    // The two baked lightmaps, read PER PIXEL by the fragment shader
+    // (docs/global-illumination.md, "The editor viewport"): the terrain map
+    // (setGiTerrain) sampled by world position, the primitive atlas
+    // (setGiAtlas) through a per-object mesh whose UV slot carries the atlas
+    // ST - a lit receiver is never textured, so the slot is free. uLmMode is
+    // the route: 0 none, 1 atlas (RGB light + occlusion alpha), 2 terrain map
+    // RGB (+ occlusion alpha), 3 terrain map alpha as the light's intensity.
+    int uLmMode_ = -1, uLmTex_ = -1, uLmRect_ = -1;
+    int uPrelit_ = -1;
+    int uKd_ = -1;
+    uint32_t giTerrTex_ = 0, giAtlasTex_ = 0;
+    bool giMapsUploadPending_ = false;
+    int giAtlasSize_ = 0;
+    bool giAtlasGi_ = false;
+    std::vector<uint8_t> giAtlasPixels_;  // size*size*4, staged like giPixels_
+    std::vector<aobake::AtlasRect> giAtlasRects_;
+    std::vector<int> giAtlasFirst_;
+    std::vector<char> giAtlasLit_;
+    std::map<uint64_t, Mesh> lmMeshes_;  // object index + tessellation -> mesh
+    const Mesh* lmMeshFor(size_t oi, const SceneObject& o);
+    void uploadGiMaps();
+    void clearLmMeshes();
     bool aoOn_ = false;
     float aoStrength_ = 0.55f;
     float aoRadius_ = 2.5f;
@@ -738,18 +1134,49 @@ private:
     Mesh box_, sphere_, cylinder_, cone_, plane_, decal_, spawnMarker_, playerMarker_;
     Mesh lightGizmo_;  // small unshaded bulb marking a point light
     Mesh wireSphere_;  // unit-radius ring sphere, scaled to a light's radius
+    Mesh wireCone_;    // unit spot cone: apex origin, base ring at y = -1
     Mesh cameraBody_;     // Camera entity marker (film camera, lens = +Z)
     Mesh cameraFrustum_;  // FOV wedge lines, scaled to the entity's FOV
+    // Roads are real depth-tested viewport geometry, not a translucent ImGui
+    // overlay. The cache follows authored points and the terrain revision so
+    // sculpting under a road rebuilds exactly the strip that moved.
+    struct RoadDraw {
+        Mesh mesh;
+        Mesh edgeMesh;   // the soft-edge bands (1.144.0), alpha-faded
+        std::vector<roadgen::Vertex> outline;
+        std::string texture, material;
+        uint64_t signature = 0;
+    };
+    std::map<std::string, RoadDraw> roadDraws_;  // keyed by stable object id
+    // The scene's crossings (roadgen::planCrossings, 1.145.0): junction
+    // patches (opaque, drawn with their road A) and the overlay/spill decals
+    // (blended, drawn after the scene in plan order), rebuilt together.
+    struct RoadCrossDraw {
+        Mesh mesh;
+        std::string texture, material;
+        std::string owner;  // road key: a patch's road A, a decal's own road
+        float color[3] = {1.0f, 1.0f, 1.0f};
+        bool blended = false;
+    };
+    std::vector<RoadCrossDraw> roadCross_;
+    uint64_t roadCrossSig_ = 0;
+    bool roadDragging_ = false;
+    std::vector<roadgen::JunctionOverride> roadJunctions_;
+    uint64_t roadTerrainRevision_ = 1;
+    void syncRoadDraws(const std::vector<SceneObject>& objects);
+    void drawRoadSpills(const float* viewProj);
+    void clearRoadDraws();
     // Per-detail primitive meshes (Box/Sphere/Cylinder/Cone), built lazily and
     // shared across objects with the same detail. The fixed box_ / sphere_ /
     // cylinder_ / cone_ above stay at the default detail (markers, previews).
     std::map<int, Mesh> boxMeshes_, sphereMeshes_, cylinderMeshes_, coneMeshes_;
-    const Mesh& primMesh(PrimitiveType type, int detail);
+    const Mesh& primMesh(PrimitiveType type, int detail, bool rings = false);
     void clearPrimMeshCache();
     std::string projectDir_;
     // .obj models split per material (MTL): each part carries its own GL mesh
     // (Kd baked into the vertex colors) and map_Kd texture.
     struct ModelPart {
+        std::string bakedTextureRel;  // vehicle part; resolved at draw time
         Mesh mesh;
         uint32_t tex = 0;  // GL texture from map_Kd (0 = untextured)
         // map_Kd carries transparency: draw this part cutout + blended, the
@@ -763,12 +1190,67 @@ private:
         bool reflSky = false;      // refl "@sky" - live sky gradient
         bool reflRounded = false;  // refl "-rounded" env normals
         float centroid[3] = {0, 0, 0};  // model-space, for the rounded mode
+        // The submesh Kd. It is ALSO folded into this mesh's vertex
+        // colours (modelDraw), which is enough while the shade is only
+        // SCALED - but the GI probe branch REPLACES it, and the albedo
+        // went with it: an untextured model drew in the light's own
+        // colour, grey, while the console drew it green. Kept here so the
+        // shader can put it back the way the generated game does
+        // (`shade *= kd`, after the GI branch). The animated path already
+        // learned this - see AnimModelDraw::Part::kd.
+        float kd[3] = {1.0f, 1.0f, 1.0f};
     };
     struct ModelDraw {
         std::vector<ModelPart> parts;  // empty = missing/unparseable model
+        std::vector<std::string> materialFiles;  // normalized absolute dependencies
         float mn[3] = {0, 0, 0};       // model-space AABB (AO occluder shape)
         float mx[3] = {0, 0, 0};
     };
+    // Vehicles (docs/vehicles.md). A vehicle's geometry does not come from an
+    // asset path but from the IMPORT BAKE, which only the App has - so the App
+    // pushes the baked models in (setVehicleDraw) rather than the viewport
+    // resolving anything. That also keeps the preview and the console reading
+    // one bake instead of two: what is drawn here IS what ships.
+    struct VehicleDraw {
+        ModelDraw body;
+        ModelDraw wheel;  // ONE wheel, hub at the origin - drawn four times
+        // The palette's project-relative PATH, not its GL name: texCache_ is
+        // wiped (and its textures deleted) by invalidateAssets, so an id
+        // stored here goes dangling and samples black.
+        std::string palette;
+        float wheelBase = 2.0f, track = 1.4f, wheelRadius = 0.32f;
+        float rideHeight = 0.32f;
+    };
+    std::map<std::string, VehicleDraw> vehicleDraws_;  // by definition NAME
+
+   public:
+    // Publishes one definition's baked geometry. Cheap to call only when a
+    // bake changes - it uploads meshes.
+    // lampPart/lampRearVerts: the body's emissive lamp part and its rear
+    // corner range (docs/vehicles.md) - drawn in the console's lights-off
+    // colours, so the preview shows the car the way it parks.
+    void setVehicleDraw(const std::string& name, const tmdl::Model& body,
+                        const tmdl::Model& wheel, const std::string& paletteRel,
+                        float wheelBase, float track, float wheelRadius,
+                        float rideHeight, int lampPart = -1, int lampRearVerts = 0);
+    void clearVehicleDraws();
+    // Tool-only animation; the scene viewport leaves the pose at zero.
+    void setVehiclePreviewPose(float spin, float steer, const bool steered[4]) {
+        vehiclePreviewSpin_ = spin; vehiclePreviewSteer_ = steer;
+        for (int i = 0; i < 4; ++i) vehiclePreviewSteered_[i] = steered[i];
+    }
+    void setGuidesVisible(bool visible) { guidesVisible_ = visible; }
+    // World-space bounds of a placed vehicle, body and wheels together - what
+    // a click tests against and what the selection outline wraps.
+    bool vehicleLocalBounds(const SceneObject& o, float mn[3], float mx[3]) const;
+
+   private:
+    float vehiclePreviewSpin_ = 0, vehiclePreviewSteer_ = 0;
+    bool guidesVisible_ = true;
+    bool vehiclePreviewSteered_[4] = {true, true, false, false};
+    ModelDraw uploadTmdl(const tmdl::Model& m, const std::string& paletteRel,
+                         int lampPart = -1, int lampRearVerts = 0);
+
     // keyed by "<modelPath>|<materialPath>" - an .mtl override changes the draw
     std::map<std::string, ModelDraw> modelCache_;
     const ModelDraw* modelDraw(const std::string& relPath,
@@ -790,21 +1272,53 @@ private:
         struct Part {
             Mesh mesh;
             uint32_t tex = 0;
+            // glTF baseColorFactor. An animated model with no texture carries
+            // its whole colour here (the wobbler is teal by this and nothing
+            // else), and dropping it drew every such model in the scene light
+            // alone - green in the game, orange in the viewport.
+            float kd[3] = {1.0f, 1.0f, 1.0f};
         };
         std::vector<Part> parts;  // parallel to baked.parts
+        bool stale = false;  // a rebake is in flight; keep drawing this one
     };
     // keyed by "modelPath|materialOverride" (an assigned .mtl overrides the
     // model's own materials, resolved into the bake - same as the game)
     std::map<std::string, AnimModelDraw> animModelCache_;
+    // The bake runs on a WORKER (parse + merge + skinning cost seconds on a
+    // real character, and it used to run inline on the first frame that drew
+    // the model - the "opening the project stalls" report). A stale entry
+    // keeps drawing its old bake until the fresh one lands; a brand-new model
+    // draws the box placeholder for the moment the bake needs.
+    struct AnimBakeJob {
+        std::string key, relPath, materialRel;
+        glbparser::Baked baked;
+        bool ok = false;
+        // An invalidation that arrives while this job is in flight: the job
+        // was started with the OLD imports, so its result must land already
+        // stale and re-bake. Without it a rapid pair of edits could keep the
+        // first edit's preview forever.
+        bool restale = false;
+        std::atomic<bool> done{false};
+        std::thread worker;
+    };
+    std::vector<std::unique_ptr<AnimBakeJob>> animBakeJobs_;
+    void animBakeStart(const std::string& key, const std::string& relPath,
+                       const std::string& materialRel);
+    void animBakeCollect();  // GL thread: finished jobs -> cache + uploads
     AnimModelDraw* animModelDraw(const std::string& relPath,
                                  const std::string& materialRel);
+    // How many bakes are in flight - the Animation Editor's spinner reads it.
+   public:
+    int animBakesPending() const { return (int)animBakeJobs_.size(); }
+
+   private:
     // Uploads the object's current pose (clip + preview clock) into the VBOs.
     void updateAnimPose(AnimModelDraw& draw, const SceneObject& o);
     // Uploads one explicit pose: `frame` is a fractional index into the whole
     // baked frame list, wrapped inside [first, first + count). The shared
     // worker behind updateAnimPose and the Animation Editor preview.
     void uploadAnimPose(AnimModelDraw& draw, int firstFrame, int frameCount,
-                        float frame);
+                        float frame, bool inPlace = false);
     double animClock_ = 0.0;  // preview time in seconds (advanced per render)
     // Non-destructive clip edits pushed in by the app (it owns the Project).
     // The preview applies the same trim/retime the build bakes, so a placed
@@ -813,6 +1327,12 @@ private:
     float animProjectScale_ = 1.0f;  // project fps ratio (animedit.hpp)
     const AnimClipEdit* animEditFor(const std::string& modelRel,
                                     const std::string& sourceClip) const;
+    // Clips borrowed from other files, pushed in by the app alongside the
+    // edits above. Keyed by project-relative model path; a model with no entry
+    // returns an empty list and therefore takes the untouched parser bake.
+    std::map<std::string, std::vector<animmerge::ImportSpec>> animImports_;
+    const std::vector<animmerge::ImportSpec>& animImportsFor(
+        const std::string& modelRel) const;
 
     // Primitive materials: first entry of an assigned .mtl (Kd tint + map_Kd)
     struct MaterialDraw {
@@ -835,6 +1355,9 @@ private:
     // fully opaque), filled as they load - the cutout/blend decision, so a
     // draw site never has to re-read the file.
     std::map<std::string, bool> texAlpha_;
+    // Model AO maps by texture path + the apply strength (see setModelAoMaps).
+    std::map<std::string, std::string> modelAoMaps_;
+    float modelAoStrength_ = 0.0f;
     uint32_t glTexture(const std::string& relPath);
     bool texHasAlpha(const std::string& relPath) const;
     void clearTexCache();
@@ -856,6 +1379,9 @@ private:
         std::vector<PreviewParticle> parts;
     };
     std::map<int, EmitterPreview> emitterPreviews_;
+    // A linked emitter's extra particle layers by object index (pushed by the
+    // app from project::emitterLayerObjects - the viewport has no Project).
+    std::map<int, std::vector<EmitterLayerPreview>> emitterLayers_;
     double particleClock_ = 0.0;  // last sim time (advances with animClock_)
     uint32_t particleProgram_ = 0;
     int uPartMvp_ = -1, uPartUseTex_ = -1;
@@ -1043,7 +1569,8 @@ private:
     CompiledGrading grading_;
     uint32_t gradeProgram_ = 0, gradeFbo_ = 0, gradeTex_ = 0, gradeVao_ = 0;
     int uGradeSrc_ = -1, uGradeGain_ = -1, uGradeLiftPos_ = -1,
-        uGradeLiftNeg_ = -1, uGradeMixCol_ = -1, uGradeMixAmt_ = -1;
+        uGradeLiftNeg_ = -1, uGradeMixCol_ = -1, uGradeMixAmt_ = -1,
+        uGradeQuant_ = -1, uGradeDither_ = -1;
 
     float viewM_[16] = {};
     float projM_[16] = {};

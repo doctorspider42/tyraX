@@ -91,6 +91,7 @@ const std::vector<ActionMap>& actionMap() {
         {"RotateObjectBy", OP_RotateObjectBy},
         {"SetRotation", OP_SetRotation},
         {"SpinObject", OP_SpinObject},
+        {"SetMotionBlur", OP_SetMotionBlur},
     };
     return v;
 }
@@ -431,6 +432,15 @@ Capability capability(const Project& p, const SceneData& sc,
         const FlowNodeType* t = flowNodeType(n.type);
         if (!t) {
             reject("an unknown node type (" + n.type + ")");
+            continue;
+        }
+        // World Facts are rejected as a family rather than one title at a
+        // time: the store lives in the compiled game (flow_graph.gen.cpp) and
+        // the IR has no way to reach it, so "Set Fact" on its own would read
+        // as an oversight instead of a property of the interpreter.
+        if (t->strKind == FlowParamKind::FactName ||
+            t->strKind == FlowParamKind::FactQueryName) {
+            reject("World Facts (the fact store lives in the compiled game)");
             continue;
         }
         const bool supported = triggerFor(n.type) || actionFor(n.type) ||

@@ -50,12 +50,15 @@ std::vector<float> unitBox(int detail) {
                 const float s0 = (float)i / n, s1 = (float)(i + 1) / n;
                 const float t0 = (float)j / n, t1 = (float)(j + 1) / n;
                 const V3 a = P(s0, t0), b = P(s1, t0), c = P(s1, t1), d = P(s0, t1);
-                pushRaw(v, a, nrm, s0, t0);
-                pushRaw(v, b, nrm, s1, t0);
-                pushRaw(v, c, nrm, s1, t1);
-                pushRaw(v, a, nrm, s0, t0);
-                pushRaw(v, c, nrm, s1, t1);
-                pushRaw(v, d, nrm, s0, t1);
+                // PNG rows run top to bottom; signs on front/back stay upright.
+                const float v0 = nrm.z != 0 ? 1.0f - t0 : t0;
+                const float v1 = nrm.z != 0 ? 1.0f - t1 : t1;
+                pushRaw(v, a, nrm, s0, v0);
+                pushRaw(v, b, nrm, s1, v0);
+                pushRaw(v, c, nrm, s1, v1);
+                pushRaw(v, a, nrm, s0, v0);
+                pushRaw(v, c, nrm, s1, v1);
+                pushRaw(v, d, nrm, s0, v1);
             }
     };
     face({h, -h, -h}, {0, H, 0}, {0, 0, H}, {1, 0, 0});    // +X
@@ -96,9 +99,10 @@ std::vector<float> unitSphere(int detail) {
     return v;
 }
 
-std::vector<float> unitCylinder(int detail) {
+std::vector<float> unitCylinder(int detail, bool axialRings) {
     std::vector<float> v;
     const int seg = clampPrimDetail(PrimitiveType::Cylinder, detail);
+    const int rings = primCylinderStacks(seg, axialRings);
     const float r = 0.5f, h = 0.5f;
     for (int i = 0; i < seg; ++i) {
         const float a0 = 2 * kPi * i / seg, a1 = 2 * kPi * (i + 1) / seg;
@@ -107,12 +111,19 @@ std::vector<float> unitCylinder(int detail) {
         const V3 n0 = {std::cos(a0), 0, std::sin(a0)};
         const V3 n1 = {std::cos(a1), 0, std::sin(a1)};
         const float u0 = (float)i / seg, u1 = (float)(i + 1) / seg;
-        pushRaw(v, {x0, -h, z0}, n0, u0, 1);
-        pushRaw(v, {x0, h, z0}, n0, u0, 0);
-        pushRaw(v, {x1, h, z1}, n1, u1, 0);
-        pushRaw(v, {x0, -h, z0}, n0, u0, 1);
-        pushRaw(v, {x1, h, z1}, n1, u1, 0);
-        pushRaw(v, {x1, -h, z1}, n1, u1, 1);
+        // Side, ring by ring from the top rim down. v runs 0 at the top to 1
+        // at the bottom, as the single-quad side always did - rings == 1
+        // reproduces the old emission vertex for vertex.
+        for (int k = 0; k < rings; ++k) {
+            const float tt = (float)k / rings, tb = (float)(k + 1) / rings;
+            const float yt = h - 2 * h * tt, yb = h - 2 * h * tb;
+            pushRaw(v, {x0, yb, z0}, n0, u0, tb);
+            pushRaw(v, {x0, yt, z0}, n0, u0, tt);
+            pushRaw(v, {x1, yt, z1}, n1, u1, tt);
+            pushRaw(v, {x0, yb, z0}, n0, u0, tb);
+            pushRaw(v, {x1, yt, z1}, n1, u1, tt);
+            pushRaw(v, {x1, yb, z1}, n1, u1, tb);
+        }
         pushRaw(v, {0, h, 0}, {0, 1, 0}, 0.5f, 0.5f);
         pushRaw(v, {x1, h, z1}, {0, 1, 0}, x1 + 0.5f, z1 + 0.5f);
         pushRaw(v, {x0, h, z0}, {0, 1, 0}, x0 + 0.5f, z0 + 0.5f);
@@ -146,12 +157,15 @@ std::vector<float> unitCone(int detail) {
 }
 
 // Flat unit square in the XZ plane, double-sided (top +Y and bottom -Y faces)
-// so it is visible from both above and below.
+// so it is visible from both above and below. The underside sits slightly
+// below the top face - neither the PS2 nor the viewport backface-culls, so
+// two exactly coplanar faces with different shades would z-fight (dithered
+// flicker across the whole plane). Twin: templates.cpp addPlane.
 std::vector<float> unitPlane() {
     std::vector<float> v;
-    const float h = 0.5f;
+    const float h = 0.5f, b = -0.01f;
     pushQuadRaw(v, {-h, 0, -h}, {-h, 0, h}, {h, 0, h}, {h, 0, -h}, {0, 1, 0});
-    pushQuadRaw(v, {-h, 0, h}, {-h, 0, -h}, {h, 0, -h}, {h, 0, h}, {0, -1, 0});
+    pushQuadRaw(v, {-h, b, h}, {-h, b, -h}, {h, b, -h}, {h, b, h}, {0, -1, 0});
     return v;
 }
 

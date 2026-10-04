@@ -108,6 +108,23 @@ over guessing from this file.
   On Clamp / Lerp / Remap / the comparators the wired number is the SUBJECT and
   the num params stay separate config - unlike the usual "a wired number
   replaces num[0]".
+- **The Facts category is the game's DECLARED state, and it is the one to reach
+  for over Variables.** A fact is picked from a catalog (Tools > World Facts)
+  and carries a type, a default and a lifetime - session, checkpoint, save game
+  or profile - so `Set Fact` on a save-lived fact IS the persistence, with no
+  Set Save Value beside it. **Set Fact** has `set` / `add` / `toggle` exec pins
+  (a counter is On Button -> add with Value 1 and needs no read), **Clear Fact**
+  restores the CATALOG's default rather than a retyped number, **Fact Is True /
+  Fact At Least / At Most / Is** are the pure comparisons, **Get Fact As Text**
+  prints a one-of-several fact by NAME, and **On Fact Changed** is the reactive
+  trigger, with THREE exec outputs - `changed` on any move, `became true` on
+  the 0 -> non-zero edge, `became false` on the way back - so "when X is
+  repaired" is one node and needs no Fact Is True + On Condition beside it
+  (a position fact only has `changed`). It fires whoever wrote the fact, a
+  graph or a rule, so it beats polling. **Query** evaluates a named condition authored once
+  in the Facts window; prefer it over restating the same ALL/ANY of comparisons
+  in five graphs. Never invent a fact name: a node whose fact is not in the
+  catalog compiles to nothing.
 - **The Vector category computes positions.** A position input takes exactly one
   link, so these are all unary and COMPOSE by chaining: **Position** (a literal),
   **Offset Position**, **Scale Position**, **Rotate Around Y**, **With X / With
@@ -149,9 +166,12 @@ over guessing from this file.
   applies to whatever camera is in force. **Set Screen Fade** and **Set
   Letterbox Bars** take a 0..1 amount - wire a **Tween** into either for a real
   fade or slide-in, and use the Tween's `finished` output to switch scenes at
-  full black. **Set Player Visible** drops the third-person avatar for a
+  full black. A letterbox is measured inside the picture the console outputs, so
+  on a 16:9 project the wide (16:9) style covers nothing and cinema 2.39:1 is
+  thinner - that is correct, not a broken node. **Set Player Visible** drops the third-person avatar for a
   free-flying camera move. **On Sequence Finished** fires when a cutscene stops
-  for ANY reason (ran out, Stop Sequence, player skipped) - the way to chain
+  for ANY reason (ran out, Stop Sequence, player skipped - a skip is a stop, so
+  there is nothing extra to wire for one) - the way to chain
   "play the cutscene, then carry on"; its bool output is "a cutscene is playing
   right now", for gating gameplay logic out while one runs.
   **Set Sound Volume** ducks all sound effects (music has its own node).
@@ -161,6 +181,12 @@ over guessing from this file.
   / open menu / fire a flow event), so the graph usually needs nothing after it.
   **Stop Credits** ends one early, and **On Credits Finished** fires the frame a
   roll stops for any reason.
+  **Set HUD Element Visible** shows, hides or toggles one named HUD image,
+  baked text or live bar through its configured transition. **Set HUD Bar**
+  writes a bar value (and its backing save value when it has one), while
+  **Play HUD Effect** adds a one-shot flash, bounce or shake without replacing
+  the element's looped animation. These target the element name configured in
+  Tools > UI Editor; see `docs/hud-animation.md`.
 - **Graphs talk to each other with EVENTS, not with polled variables.**
   **Send Event** broadcasts a name (plus an optional number payload) to every
   graph in the game; every **On Event** of that name fires on the NEXT frame,

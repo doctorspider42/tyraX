@@ -20,8 +20,41 @@ constexpr int TERRAIN_MAX_CELLS = 32;
 constexpr int TERRAIN_CHUNK_CELLS = 16;
 constexpr float TERRAIN_VIEW_DISTANCE = 0.0F;
 
+// Distance detail (Preferences > World, docs/terrain-lod.md). Beyond this
+// range a tile is built from every 2nd heightmap sample, and beyond 2.2x it
+// from every 4th - a quarter and a sixteenth of the triangles. Edges are
+// stitched to the neighbouring tile's stride, so the drop in detail costs no
+// crack. 0 = every tile at full detail. Gameplay reads TERRAIN_HEIGHTS and is
+// never affected.
+constexpr float TERRAIN_LOD_DISTANCE = 0.0F;
+
+// The flashlight's shadow technique (Preferences > Rendering,
+// docs/flashlight.md "The shadow"). 0 = silhouette slots (mesh-accurate
+// shapes, four-caster ceiling, light leaks through unflagged solids);
+// 1 = shadow volumes (occlusion exact per pixel against the real z buffer,
+// every solid in the beam occludes): model casters silhouette-extrude their
+// REAL triangles, counted in a dedicated GS target and resolved into the
+// destination-alpha mask; primitives extrude their boxes.
+constexpr int FLASH_SHADOW_VOLUMES = 0;
+// Hidden console diagnostic (project.hpp shadowVolumesDebug): 1 = count but
+// never resolve, 2 = clear + resolve with no volume drawn.
+constexpr int SHADOW_VOLUMES_DEBUG = 0;
+
+// The same technique offered to the scene's SPOT LIGHTS (docs/shadows.md,
+// "Spot-light shadow volumes"). This is the project-wide DEFAULT; a light can
+// say otherwise on itself through SceneObjectData::lightShadowVolumes, and
+// SPOT_SHADOW_VOLUMES_USED in scene_data.hpp is what the two resolve to for
+// the project as a whole. Only ONE spot casts volumes per frame - the count
+// band is a single buffer, shared with the torch's.
+constexpr int SPOT_SHADOW_VOLUMES = 0;
+
 constexpr float EYE_HEIGHT = 1.8F;
 constexpr float WALK_SPEED = 0.4F;
+// The full-stick tier and the sprint tier, already resolved (0 = inherit is
+// applied by the editor, docs/player-speeds.md): with no run speed set these
+// are WALK_SPEED and WALK_SPEED x the sprint multiplier.
+constexpr float RUN_SPEED = 0.4F;
+constexpr float SPRINT_SPEED = 0.72F;
 constexpr float LOOK_SPEED = 1.0F;    // multiplier
 // Stick offsets below this fraction of full deflection read as zero
 // (worn pads rest off-center); motion rescales smoothly above it.
@@ -53,9 +86,32 @@ constexpr bool P2_JOIN_ON_START = true;
 // Scene switches show res/hud/loading.png on black for a moment
 constexpr bool LOADING_SCREEN = true;
 
-// Experimental (Preferences > Build > Disable VSync): false skips the vsync
+// Experimental (Preferences > Display > Disable VSync): false skips the vsync
 // wait before the flip - continuous frame rate, screen tearing possible.
 constexpr bool FRAME_LIMIT = true;
+
+// Experimental (Preferences > Display > Frame delivery,
+// docs/frame-extrapolation.md): present one SYNTHESISED frame after each
+// rendered one, by re-drawing it under the camera extrapolated from its own
+// motion. The world then runs at half the field rate while the picture keeps
+// it. Camera rotation reprojects exactly; translation is approximated by one
+// plane, dynamic objects and the HUD freeze for the synthesised frame, and the
+// frame edge stretches where the source has no pixels.
+constexpr bool FRAME_EXTRAPOLATION = false;
+
+// Frame extrapolation, translation model (Preferences > Display): 0 = rotation
+// only; a positive distance folds camera translation in through a single plane
+// that far away, which reads as a lens zoom but IS motion. Ignored while the
+// neural upscaler supplies real per-tile depth.
+constexpr float FRAME_EXTRAPOLATION_PLANE = 0.0F;
+
+// Ignore the per-frame gate and always synthesise. The gate measures EE work,
+// so a GS-bound scene keeps it shut; this is how such a scene gets tested.
+constexpr bool FRAME_EXTRAPOLATION_FORCE = false;
+
+// Use the analytic ground plane rather than the fixed distance above: depth
+// grows toward the horizon by itself and the sky does not move at all.
+constexpr bool FRAME_EXTRAPOLATION_GROUND = true;
 
 // Animation LOD (Preferences > Rendering): animated instances farther than
 // this refresh pose/skinning every 2nd frame, every 4th beyond twice the
@@ -67,14 +123,46 @@ constexpr float ANIM_LOD_DISTANCE = 0.0F;
 // the ~25% one. 0 = off (the build then bakes no LOD chains at all).
 constexpr float MESH_LOD_DISTANCE = 0.0F;
 
-// Static batching (Preferences > Rendering): merge non-moving primitive
-// objects sharing a material into combined world-space bags at scene load -
+// Shared reflection probe reuse (Preferences > Rendering,
+// docs/reflective-materials.md "The reuse budget"): how far the retained
+// 128x128 target may be out of date, IN PIXELS OF ITSELF, before the probe
+// re-renders. The probe already runs only every second frame and already
+// retains the basis that produced the image; this is the other half - do not
+// capture at all while nothing that feeds the capture has moved. 0 = capture
+// on every cadence beat, i.e. exactly the pre-1.106 behaviour.
+constexpr float REFLECTION_REUSE_BUDGET = 1.0F;
+// How far from the eye the shared probe redraws terrain and road chunks
+// (Preferences > Rendering, docs/reflective-materials.md "The ground in the
+// probe"). 0 = every resident chunk.
+constexpr float REFLECTION_GROUND_RADIUS = 0.0F;
+// The probe's own raster, in pixels across, and its horizontal field of view
+// in degrees - the two numbers that turn an angle into a pixel count. They
+// must match the pushEnvView call in renderScene; both are compile-time facts
+// of RendererCoreEnvMap and of that call, not settings.
+constexpr float REFLECTION_PROBE_PIXELS = 128.0F;
+constexpr float REFLECTION_PROBE_FOV_DEG = 110.0F;
+
+// Static batching (Preferences > Rendering): merge non-moving primitives and
+// compact imported-model parts sharing a texture into world-space bags -
 // each StaPip submit costs ~0.7-1.5 ms of fixed EE overhead on real
 // hardware regardless of size, so many small separate objects dominate the
 // frame (twice over in split screen). Eligibility is decided at build time
-// (SceneObjectData::batchStatic); runtime edits to a batched member rebuild
-// its batch. false = every object submits its own bag.
+// (SceneObjectData::batchStatic); runtime edits demote that member and rebuild
+// its former batches. false = every object submits its own bag.
 constexpr bool STATIC_BATCHING = true;
+
+// Interleaved passes (Preferences > Rendering, docs/interleaved-passes.md):
+// the static batch and road bags are EE-cheap and GPU-heavy, the object loop
+// the opposite, and drawn one after the other the EE waits for VU1 in the
+// first and VU1 idles in the second. Interleaving feeds the batch and road
+// bags into the object loop instead. 0 = off, 1 = auto (the game times both
+// orders every few seconds and keeps the faster), 2 = always.
+constexpr int INTERLEAVE_PASSES = 1;
+
+// Shiny vehicles at once (Preferences > Rendering, docs/vehicles.md, "The
+// shine budget"): how many vehicles draw the body-shine pass in one view, the
+// driven one first and then the nearest. 0 = every vehicle within 35 units.
+constexpr int VEHICLE_SHINE_BUDGET = 2;
 
 // Dynamic reflection probe aim (Preferences > Rendering): false = the
 // classic GT3 level-forward aim; true = a camera ray is intersected with
@@ -98,5 +186,17 @@ constexpr bool DEBUG_SHOW_PROFILER = false;
 // diagnose from inside the game. Guarded by this constexpr, so a build with it
 // false emits no vertices at all (see rebuildObjectGeometry case 17).
 constexpr bool DEBUG_SHOW_AREAS = false;
+// Draw the COLLISION BOX of every collider (docs/collision-boxes.md) as a red
+// wireframe. The volume the walker and the third-person camera boom test is
+// not the mesh - a model collides as its bounding box - so a prop that blocks
+// the player short of its surface, or a camera that pulls in early, is
+// invisible until you can see the box. Guarded by this constexpr, so a build
+// with it false emits nothing (see renderCollisionBoxes).
+constexpr bool DEBUG_SHOW_COLLISION = false;
+// How far from the camera the overlay reaches, and how many boxes it will draw
+// (nearest first). Both are frame-budget caps, not authoring limits: an edge is
+// 12 vertices, so the whole overlay costs at most COLLISION_BOX_LIMIT * 144.
+constexpr float COLLISION_BOX_RANGE = 60.0F;
+constexpr int COLLISION_BOX_LIMIT = 24;
 
 }  // namespace Portals

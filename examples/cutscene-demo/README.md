@@ -2,13 +2,13 @@
 
 A 14-second in-engine cutscene ("The Reveal") that exercises the full range of
 the **Cutscene Director** (*Tools > Cutscene Director*): five camera entities,
-hard cuts *and* a smooth blend between cameras, a dolly and a crane (two
-cameras moving on their own tracks), per-shot FOV and handheld shake, object
-tracks animating position/rotation and scale/colour and visibility, Cinema
-2.39:1 widescreen bars that slide in/out, and a fade-in/out — all running on
-the PS2.
+hard cuts *and* a smooth blend, a dolly and a crane (two cameras moving on
+their own tracks), per-shot FOV and handheld shake, object tracks animating
+position/rotation, scale/colour and visibility, Cinema 2.39:1 widescreen bars
+that slide in/out, a fade-in/out, a hidden HUD and a skip screen — all running
+on the PS2. See [docs/cutscenes.md](../../docs/cutscenes.md).
 
-![The Cutscene Director editing "The Reveal": sequence options (14 s duration, Cinema 2.39:1 bars, fades, skippable) above a dopesheet with a camera track and one lane per animated object (hero, obelisk, sparks, cam-dolly, cam-crane). Keyframes are draggable diamonds; the red playhead scrubs the whole scene live in the viewport.](../../docs/img/cutscene-director.png)
+![The Cutscene Director editing "The Reveal": sequence options (14 s duration, Skippable with On skip set to Ask first through the skip-cutscene screen, Camera track, Hide HUD, Cinema 2.39:1 bars, fades) above a dopesheet with a camera track and one lane per animated object (hero, obelisk, sparks, cam-dolly, cam-crane). Keyframes are draggable diamonds; the red playhead scrubs the whole scene live in the viewport.](../../docs/img/cutscene-director.png)
 
 Open `cutscene-demo.tyra` in the editor and Build & Run (`F5`), or build
 headless: `tyrax-editor.exe --build <this folder> --run`.
@@ -16,9 +16,19 @@ headless: `tyrax-editor.exe --build <this folder> --run`.
 ## What to do
 
 The cutscene plays automatically on boot (**On Start**). When it ends the
-camera is handed back to you; walk to the gold **pedestal** and press the
-USE button to replay it (**On Used → Play Sequence**). It is **skippable**
-— press START while it plays to end it early.
+camera is handed back to you; walk to the gold **pedestal** and press the USE
+button to replay it (**On Used → Play Sequence**).
+
+It is **skippable**, and set to *ask first*: press START while it plays and the
+cutscene freezes behind a **SKIP CUTSCENE?** panel. *NO, KEEP WATCHING* (or
+Triangle) resumes it; *YES, SKIP* ends it. That panel is an ordinary menu
+carrying the project's *Cutscene skip screen* role — restyle it in *Tools >
+Menu Editor* like any other.
+
+The cutscene also has **Hide HUD** on. Without it the pedestal's *press to use*
+prompt stays on screen right through the cinematic — you are still standing in
+front of the thing you just used — and the button still works. Untick it in the
+Director and re-run to see the difference.
 
 The shot list (one sequence, "The Reveal"):
 
@@ -32,8 +42,9 @@ The shot list (one sequence, "The Reveal"):
    across the plaza. Meanwhile the **obelisk** swells and heats from gold to
    molten orange (a scale + colour track) and the hero keeps spinning.
 4. **10.0 s** — cut to `cam-hero`, a low angle looking up as the hero
-   **ascends** spinning and the `sparks` emitter on the obelisk switches on
-   (a visibility track). This shot **blends** (Smooth easing) into the finale…
+   **ascends** spinning. The `sparks` emitter on the obelisk has already
+   switched on half a second earlier: its visibility key sits at 9.5 s, still
+   inside the dolly shot. This shot **blends** (Smooth easing) into the finale…
 5. **13.0 s** — `cam-crane`, itself craning up and back on its own object
    track, pulls away for the climax as the picture fades to black; the bars
    slide out and the game camera returns to the player.
@@ -54,10 +65,24 @@ The shot list (one sequence, "The Reveal"):
   `cam-hero → cam-crane` transition uses Smooth easing, so the camera flies
   between the two entities' poses.
 - **Sequence options** — *Widescreen bars: Cinema 2.39:1* (slide-in 0.6 s /
-  slide-out 1.0 s), *Skippable*, *Fade in 0.8 s*, *Fade out 1.0 s*, no loop.
+  slide-out 1.0 s), *Skippable* with *On skip: Ask first*, *Hide HUD*,
+  *Fade in 0.8 s*, *Fade out 1.0 s*, no loop.
+- **Skip screen** — the `skip-cutscene` menu, marked *Cutscene skip screen* in
+  the Menu Editor. Its second row uses the **Skip cutscene** action; declining
+  needs no action at all, so the first row is a plain *Close menu*.
 - **Trigger** — the pedestal's flow graph fires **Play Sequence** from both
   **On Start** and **On Used** (the pedestal is marked *Usable*).
 
-Everything compiles into `src/scripts/sequences.gen.cpp` (keyframe tables +
-the director script + the bars/fade compositor) on every build — open the
-file to see what the editor generates from the timeline.
+Everything compiles into `src/gen/sequences.gen.cpp` (keyframe tables +
+the director script + the bars/fade compositor) on every build — open the file
+to see what the editor generates from the timeline.
+
+Generated object values live in `src/gen/scene_objects.gen.cpp`;
+`inc/scene_data.hpp` keeps stable declarations. Counts and object IDs live in
+the same data file, so ordinary moves, color edits, additions and removals can
+rebuild it alone. Changes to features or derived tables can still rebuild consumers.
+
+Generated game methods are split between `src/terrain_game.cpp` and the
+`src/gen/game_*.gen.cpp` subsystems, with shared inline helpers/state in
+`inc/game_runtime.gen.hpp`. Header changes can compile these units in parallel.
+The main file remains user-ownable; generated subsystem files refresh on build.

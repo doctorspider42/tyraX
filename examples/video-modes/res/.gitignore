@@ -7,3 +7,11 @@
 # Baked static-model output (the .obj next to it is the source;
 # regenerated on every build - docs/model-pipeline.md).
 /models/*.tmdl
+
+# Baked credits page strips - regenerated on every build (docs/credits.md).
+# The images an Image block points at live in res/credits/ and stay checked in.
+/credits/pages/
+
+# Baked memory card icon - icon.sys + list.icn, regenerated on every
+# build from the Save Editor's settings (docs/save-editor.md).
+/save/

@@ -248,6 +248,22 @@ float terrainLayerWeight(const SceneData& s, int layer, float x, float z) {
     return t * (1.0f - fz) + b * fz;
 }
 
+// How much of ONE terrain material the ground actually SHOWS at a world
+// position: -1 = the base material, 0..N-1 = a painted layer. The layers are
+// drawn in order, each alpha-over the last (viewport.cpp `terrainLayerMeshes_`,
+// buildTerrainChunk in templates.cpp), so a layer is covered by whatever was
+// painted ON TOP of it - which is exactly the difference between "I painted
+// grass here" and "you can see grass here". Scattering wants the latter: with
+// the raw weight, rock painted over grass still scatters trees.
+float terrainMaterialCoverage(const SceneData& s, int layer, float x, float z) {
+    const int n = (int)s.terrainLayers.size();
+    if (layer >= n) return 0.0f;
+    float cov = layer < 0 ? 1.0f : terrainLayerWeight(s, layer, x, z);
+    for (int j = std::max(0, layer + 1); j < n; ++j)
+        cov *= 1.0f - terrainLayerWeight(s, j, x, z);
+    return std::clamp(cov, 0.0f, 1.0f);
+}
+
 // --- scene objects ---------------------------------------------------------
 
 bool isSolidBlocker(const SceneObject& o) {
@@ -261,6 +277,7 @@ bool isSolidBlocker(const SceneObject& o) {
         case PrimitiveType::Decal:
         case PrimitiveType::Camera:
         case PrimitiveType::Scatter:
+        case PrimitiveType::Comment:
             return false;
         default: return true;
     }
@@ -445,7 +462,11 @@ std::shared_ptr<const AssetMesh> assetMesh(const Project& p,
     }
     auto out = std::make_shared<AssetMesh>();
     objparser::Model m;
-    if (!objparser::load(p.dir + "\\" + relPath, m)) {
+    // filePath(), never a hand-joined "\\": outside Windows a backslash is an
+    // ordinary filename character, so the join named a file that does not
+    // exist and EVERY asset-scattering volume baked zero chunks in silence
+    // (bakeVolume skips an instance whose mesh will not load).
+    if (!objparser::load(p.filePath(relPath), m)) {
         std::lock_guard<std::mutex> lock(mu);
         cache[key] = nullptr;
         return nullptr;
@@ -621,7 +642,8 @@ TriSoup objectTriangles(const Project& p, const SceneObject& o) {
                 src = primmesh::unitSphere(clampPrimDetail(o.type, o.primDetail));
                 break;
             case PrimitiveType::Cylinder:
-                src = primmesh::unitCylinder(clampPrimDetail(o.type, o.primDetail));
+                src = primmesh::unitCylinder(clampPrimDetail(o.type, o.primDetail),
+                                             o.primRings);
                 break;
             case PrimitiveType::Cone:
                 src = primmesh::unitCone(clampPrimDetail(o.type, o.primDetail));
@@ -1380,7 +1402,7 @@ Mask genTerrainMask(Ctx& ctx, const ProcNode& n) {
                     break;
                 }
                 case 2: v = terrainCurvature(ctx.s, wx, wz); break;
-                case 3: v = terrainLayerWeight(ctx.s, layer, wx, wz); break;
+                case 3: v = terrainMaterialCoverage(ctx.s, layer, wx, wz); break;
                 default: v = terrainHeight(ctx.s, wx, wz); break;
             }
             const float b = band(v, lo, hi, falloff);
@@ -1577,6 +1599,204 @@ Points filterAvoid(Ctx& ctx, const ProcNode& n, const Points& in, const Curve* c
         if (mode == 1) p = 1.0f - p;
         keep[i] = rand01(ctx.seed, n.id, out.pts[i].key, 12) < p ? 1 : 0;
     }
+    out.compact(keep);
+    return out;
+}
+
+// Conservative world bounds, including the rotated offset of off-centre meshes.
+ObjBox placementBox(const float mn[3], const float mx[3], const float pos[3],
+                    const float rot[3], const float scale[3]) {
+    ObjBox b{1e30f, -1e30f, 1e30f, -1e30f, 1e30f, -1e30f};
+    for (int c = 0; c < 8; ++c) {
+        float v[3], w[3];
+        for (int a = 0; a < 3; ++a) v[a] = ((c & (1 << a)) ? mx[a] : mn[a]) * scale[a];
+        rotateVec(v, rot, w);
+        b.minX = std::min(b.minX, w[0] + pos[0]);
+        b.maxX = std::max(b.maxX, w[0] + pos[0]);
+        b.minZ = std::min(b.minZ, w[2] + pos[2]);
+        b.maxZ = std::max(b.maxZ, w[2] + pos[2]);
+        b.bottom = std::min(b.bottom, w[1] + pos[1]);
+        b.top = std::max(b.top, w[1] + pos[1]);
+    }
+    return b;
+}
+
+bool overlapXZ(const ObjBox& a, const ObjBox& b) {
+    return a.minX <= b.maxX && a.maxX >= b.minX && a.minZ <= b.maxZ && a.maxZ >= b.minZ;
+}
+
+// Insert every covered cell rather than just the centre: large buildings must
+// find small neighbours too. Very large bounds use an overflow list, avoiding
+// unbounded grid allocation. Duplicate cell hits are harmless for rejection.
+struct PlacementIndex {
+    std::vector<ObjBox> boxes;
+    std::unordered_map<uint64_t, std::vector<int>> cells;
+    std::vector<int> large;
+    static int cell(float x) { return (int)std::floor(x / 16.0f); }
+    static uint64_t key(int x, int z) { return ((uint64_t)(uint32_t)x << 32) | (uint32_t)z; }
+    static bool oversized(const ObjBox& b) {
+        return (int64_t)(cell(b.maxX) - cell(b.minX) + 1) *
+               (cell(b.maxZ) - cell(b.minZ) + 1) > 4096;
+    }
+    void add(const ObjBox& b) {
+        const int i = (int)boxes.size();
+        boxes.push_back(b);
+        if (oversized(b)) { large.push_back(i); return; }
+        for (int z = cell(b.minZ); z <= cell(b.maxZ); ++z)
+            for (int x = cell(b.minX); x <= cell(b.maxX); ++x) cells[key(x,z)].push_back(i);
+    }
+    template<class Test> bool any(const ObjBox& b, Test test) const {
+        auto hit = [&](int i) { return overlapXZ(b, boxes[i]) && test(i); };
+        if (oversized(b)) {
+            for (int i = 0; i < (int)boxes.size(); ++i) if (hit(i)) return true;
+            return false;
+        }
+        for (int i : large) if (hit(i)) return true;
+        for (int z = cell(b.minZ); z <= cell(b.maxZ); ++z)
+            for (int x = cell(b.minX); x <= cell(b.maxX); ++x) {
+                auto it = cells.find(key(x,z));
+                if (it != cells.end()) for (int i : it->second) if (hit(i)) return true;
+            }
+        return false;
+    }
+};
+
+bool roadTriangleOverlap(const ObjBox& b, const roadgen::Vertex* t) {
+    // X/Z axes were checked by the index; the three edge normals complete SAT.
+    for (int e = 0; e < 3; ++e) {
+        const auto& a = t[e]; const auto& c = t[(e+1)%3];
+        const float nx = -(c.z-a.z), nz = c.x-a.x;
+        float lo = 1e30f, hi = -1e30f;
+        for (int j = 0; j < 3; ++j) {
+            const float v = nx*t[j].x + nz*t[j].z;
+            lo = std::min(lo,v); hi = std::max(hi,v);
+        }
+        const float centre = nx*(b.minX+b.maxX)*0.5f + nz*(b.minZ+b.maxZ)*0.5f;
+        const float radius = std::fabs(nx)*(b.maxX-b.minX)*0.5f + std::fabs(nz)*(b.maxZ-b.minZ)*0.5f;
+        if (centre+radius < lo || centre-radius > hi) return false;
+    }
+    return true;
+}
+
+bool materialFits(Ctx& ctx, const ObjBox& b, int layer, float threshold) {
+    const auto& s = ctx.s;
+    if (!s.terrain.enabled || layer < -1 || layer >= (int)s.terrainLayers.size() ||
+        b.minX < -s.terrain.width*0.5f || b.maxX > s.terrain.width*0.5f ||
+        b.minZ < -s.terrain.depth*0.5f || b.maxZ > s.terrain.depth*0.5f) return false;
+    // Bilinear weights reach their extrema at the corners of each clipped
+    // splat cell. Include every grid line inside the box, plus its borders.
+    auto samples = [](float lo, float hi, int count, float extent) {
+        std::vector<float> v{lo, hi};
+        if (count > 1) {
+            const float step = extent/(count-1);
+            const int first = std::max(0, (int)std::ceil((lo+extent*0.5f)/step));
+            const int last = std::min(count-1, (int)std::floor((hi+extent*0.5f)/step));
+            for (int i = first; i <= last; ++i) v.push_back(i*step-extent*0.5f);
+            // Match terrainLayerWeight's clamped final-cell coordinate.
+            const float edge = (count-1.001f)*step-extent*0.5f;
+            if (edge > lo && edge < hi) v.push_back(edge);
+        }
+        return v;
+    };
+    const auto xs = samples(b.minX,b.maxX,s.splatW,(float)s.terrain.width);
+    const auto zs = samples(b.minZ,b.maxZ,s.splatD,(float)s.terrain.depth);
+    float coverage = 1;
+    for (int l = std::max(0,layer); l < (int)s.terrainLayers.size(); ++l) {
+        float low = 1, high = 0;
+        for (float z : zs) for (float x : xs) {
+            if (ctx.canceled()) return false;
+            const float w = terrainLayerWeight(s,l,x,z);
+            low = std::min(low,w); high = std::max(high,w);
+        }
+        coverage *= l == layer ? low : 1-high;
+        if (coverage + 1e-6f < threshold) return false;
+    }
+    return coverage + 1e-6f >= threshold;
+}
+
+Points filterPlacement(Ctx& ctx, const ProcNode& n, const Points& in) {
+    Points out = in;
+    const int roads = std::clamp(procgraph::inum(n,"roads"),0,2);
+    const std::string& roadTarget = procgraph::str(n,"roadtarget");
+    const bool collisions = procgraph::flag(n,"collisions");
+    const bool scene = procgraph::flag(n,"scene");
+    const bool material = procgraph::flag(n,"material");
+    const float gap = std::max(0.0f,procgraph::num(n,"clearance"));
+    PlacementIndex solids, roadIndex;
+    std::vector<std::shared_ptr<const AssetMesh>> meshes;
+    for (const auto& path : ctx.assets) meshes.push_back(assetMesh(ctx.p,path));
+    std::vector<roadgen::Vertex> triangles;
+    bool foundRoad = false;
+    for (const auto& o : ctx.s.objects) {
+        if (ctx.canceled()) break;
+        if (o.type == PrimitiveType::Road) {
+            if (!roads || (!roadTarget.empty() && o.name != roadTarget)) continue;
+            foundRoad = true;
+            std::vector<roadgen::Vertex> verts;
+            roadgen::tessellate(o.roadPoints,o.roadWidth,[](float,float){ return 0.0f; },
+                                verts,{},o.roadSampleStep);
+            for (size_t j = 0; j+2 < verts.size(); j += 3) {
+                ObjBox b{1e30f,-1e30f,1e30f,-1e30f,0,0};
+                for (int k = 0; k < 3; ++k) {
+                    b.minX = std::min(b.minX,verts[j+k].x); b.maxX = std::max(b.maxX,verts[j+k].x);
+                    b.minZ = std::min(b.minZ,verts[j+k].z); b.maxZ = std::max(b.maxZ,verts[j+k].z);
+                }
+                roadIndex.add(b);
+                triangles.insert(triangles.end(),verts.begin()+j,verts.begin()+j+3);
+            }
+        } else if (scene && o.procSource.empty() && isSolidBlocker(o) &&
+                   (o.type == PrimitiveType::Model || o.type == PrimitiveType::Box ||
+                    o.type == PrimitiveType::Sphere || o.type == PrimitiveType::Cylinder ||
+                    o.type == PrimitiveType::Cone || o.type == PrimitiveType::Plane)) {
+            float mn[3]{-.5f,-.5f,-.5f}, mx[3]{.5f,.5f,.5f};
+            if (o.type == PrimitiveType::Model) {
+                auto mesh = assetMesh(ctx.p,o.modelPath);
+                if (!mesh) continue;
+                std::copy(mesh->min,mesh->min+3,mn); std::copy(mesh->max,mesh->max+3,mx);
+            }
+            solids.add(placementBox(mn,mx,o.position,o.rotation,o.scale));
+        }
+    }
+    if (roads && !roadTarget.empty() && !foundRoad)
+        ctx.res->warnings.push_back("Validate Placement: no road named '" + roadTarget + "'.");
+    else if (roads == 2 && triangles.empty())
+        ctx.res->warnings.push_back("Validate Placement: Only on roads requires a road surface.");
+    std::vector<char> keep(out.pts.size(),0);
+    int missing = 0;
+    for (size_t i = 0; i < out.pts.size(); ++i) {
+        if (ctx.canceled()) break;
+        const auto& inst = out.pts[i];
+        if (inst.asset < 0 || inst.asset >= (int)ctx.assets.size()) { ++missing; continue; }
+        const auto& mesh = meshes[inst.asset];
+        if (!mesh) { ++missing; continue; }
+        const float scale[3]{inst.scale,inst.scale,inst.scale};
+        ObjBox b = placementBox(mesh->min,mesh->max,inst.pos,inst.rot,scale);
+        b.minX -= gap; b.maxX += gap; b.minZ -= gap; b.maxZ += gap;
+        b.bottom -= gap; b.top += gap;
+        if (material && !materialFits(ctx,b,procgraph::inum(n,"layer"),procgraph::num(n,"coverage"))) continue;
+        if (roads == 1 && roadIndex.any(b,[&](int j){ return roadTriangleOverlap(b,&triangles[j*3]); })) continue;
+        if (roads == 2) {
+            // A path constrains the anchor, not the canopy or the whole model.
+            // Clearance still applies to model/material checks, not the path.
+            const ObjBox anchor{inst.pos[0],inst.pos[0],inst.pos[2],inst.pos[2],0,0};
+            if (!roadIndex.any(anchor,[&](int j){
+                const auto* t = &triangles[j*3];
+                const float area = (t[1].x-t[0].x)*(t[2].z-t[0].z) -
+                                   (t[1].z-t[0].z)*(t[2].x-t[0].x);
+                return std::fabs(area) > 1e-8f && roadTriangleOverlap(anchor,t);
+            })) continue;
+        }
+        if (solids.any(b,[&](int j){ return b.bottom < solids.boxes[j].top && b.top > solids.boxes[j].bottom; })) continue;
+        keep[i] = 1;
+        // Store unpadded accepted bounds: clearance is paid once per pair.
+        if (collisions) {
+            b.minX += gap; b.maxX -= gap; b.minZ += gap; b.maxZ -= gap;
+            b.bottom += gap; b.top -= gap;
+            solids.add(b);
+        }
+    }
+    if (missing) ctx.res->warnings.push_back("Validate Placement: rejected " + std::to_string(missing) +
+        " instances without a readable model. Use Pick Asset before this filter (prefabs are unsupported).");
     out.compact(keep);
     return out;
 }
@@ -1864,6 +2084,9 @@ Value evalNode(Ctx& ctx, int nodeId) {
     } else if (n.type == "FilterDistance") {
         if (const Points* a = pointsIn(0))
             out.points = std::make_shared<Points>(filterDistance(ctx, n, *a));
+    } else if (n.type == "FilterPlacement") {
+        if (const Points* a = pointsIn(0))
+            out.points = std::make_shared<Points>(filterPlacement(ctx, n, *a));
     } else if (n.type == "FilterAvoid") {
         if (const Points* a = pointsIn(0))
             out.points = std::make_shared<Points>(
@@ -2063,8 +2286,16 @@ Result evaluate(const Project& p, const SceneData& s, const SceneObject& volume,
 }
 
 uint64_t bakeHash(const Project& p, const SceneData& s, const SceneObject& volume) {
-    uint64_t h = 0x243f6a8885a308d3ULL;
+    uint64_t h = 0x243f6a8885a308d4ULL;  // upright box front/back UVs
     const ProcGraph& g = volume.procGraph;
+    bool placement = false;
+    for (const auto& node : g.nodes) placement |= node.type == "FilterPlacement";
+    if (placement) {
+        h = hashCombine(h, s.terrain.enabled);
+        h = hashCombine(h, s.splatW);
+        h = hashCombine(h, s.splatD);
+        h = hashCombine(h, s.terrainLayers.size());
+    }
     h = hashCombine(h, g.seed);
     // Flipping a volume between baked and runtime changes what the build has
     // to produce, so it has to read as stale (the bake then clears its chunks).
@@ -2114,6 +2345,12 @@ uint64_t bakeHash(const Project& p, const SceneData& s, const SceneObject& volum
             h = hashFloat(h, o.scale[a]);
         }
         h = hashStr(h, o.modelPath);
+        // Placement reads road geometry, not its generic object transform.
+        if (placement && o.type == PrimitiveType::Road) {
+            for (float v : o.roadPoints) h = hashFloat(h, v);
+            h = hashFloat(h, o.roadWidth);
+            h = hashFloat(h, o.roadSampleStep);
+        }
     }
     // A Pick Prefab graph also depends on what those prefabs CONTAIN - editing
     // a prefab has to make every volume that scatters it stale.

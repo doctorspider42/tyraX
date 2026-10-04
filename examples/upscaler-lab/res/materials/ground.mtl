@@ -1,0 +1,8 @@
+# The terrain diffuse. -s 0.3 0.3 repeats the 256 image every ~3.3 units, so a
+# cobble is about a screen pixel wide out past ~30 units: the grazing-angle
+# aliasing a half-resolution render has the most to lose to, and the most to
+# win back. The PS2 has no mipmaps on this path - one bilinear tap is the whole
+# filter, which is exactly the case BLSS is fitted against.
+newmtl ground
+Kd 1 1 1
+map_Kd -s 0.3 0.3 gravel.png

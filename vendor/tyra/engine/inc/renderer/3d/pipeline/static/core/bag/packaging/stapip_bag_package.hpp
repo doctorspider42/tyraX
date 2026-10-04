@@ -32,6 +32,24 @@ class StaPipBagPackage {
   CoreBBoxFrustum isInFrustum;
 
   /**
+   * Modified by TyraX: conservative mask of frustum planes crossed by this
+   * package's AABB. With VU1 clipping it is in the clip table's exact order
+   * (near, far, right, left, bottom, top); with EE clipping it follows
+   * Renderer3DFrustumPlanes for telemetry only. False-positive bits cost work,
+   * but a missing bit must never reach VU1.
+   */
+  u8 clipPlaneMask;
+
+  /**
+   * Modified by TyraX: this package leaves the VIEW frustum (it is
+   * PARTIALLY_IN_FRUSTUM) but crosses no VU1 clip plane and no exact near/far
+   * half-space, so nothing needs cutting - every vertex passes the cull
+   * program's clipw judgement and the GS scissor crops the raster.
+   * Only ever set with VU1 clipping on; see StaPipCore::isGuardBandOnly.
+   */
+  bool guardBandOnly;
+
+  /**
    * We are creating StaPipBagPackagesBBox which checks CoreBBox for every
    * maxVertCount / 3. So this variable is index of starting
    * StaPipBagPackagesBBox's CoreBBox. If package have <= maxVertCount / 3

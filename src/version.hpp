@@ -1,0 +1,6133 @@
+#pragma once
+
+// 1.162.3: merge native build caching, scene-data separation, parallel game
+// compilation and OpenVCL output checks with painted sky/shadow/handbrake fixes.
+// Project format remains v89 from vehicles.
+// 1.161.5: report buffered OpenVCL assembly output failures instead of
+// silently succeeding with missing/truncated output. No format change.
+// 1.161.4: compile generated game subsystems in parallel with shared inline
+// helpers/state and preserve owned legacy/modern mains. No format change.
+// 1.161.3: compile authored scene object values in one generated TU, avoiding
+// full-game recompilation after ordinary moves/additions/removals. Visibility
+// proxies, counts and identity hashes follow the same split. No format change.
+// 1.161.2: track real native build outputs, share path-independent toolchain
+// identities and match embedded IRX ABI flags without changing their payloads.
+// Editor and project-format versioning. Two independent numbers:
+//
+// - The editor version (semver, for humans): every feature bumps MINOR, every
+//   fix bumps PATCH, a breaking change bumps MAJOR. Shown in the title bar and
+//   written into the .tyra manifest as "editorVersion" - purely informational
+//   ("which editor wrote this file"), never used for decisions.
+//
+// - kFormatVersion (a monotonic int, for machines): the on-disk project format
+//   contract. Bump it on EVERY change to what project::save() writes - new
+//   fields included - so an older editor can refuse a newer file instead of
+//   silently dropping the fields it does not know and destroying them on its
+//   next save. When old files additionally need active transformation (a
+//   rename, a semantic/unit change, moved data), register a migration step in
+//   migrations.cpp for the same bump; purely additive bumps need no step and
+//   open silently. See docs/format-versioning.md.
+
+// 1.129.0: TEXTURED SKID MARKS AND SMOKE.
+// Vehicle Editor > Effects names a material for the skid marks and one for
+// the tyre smoke (format v65); unset = built-in tread and puff textures the
+// vehicle bake generates. The mark is a continuous ribbon now, and it shows
+// in handbrake slides and on roads, where the old one had no area or sat
+// under the asphalt. MINOR.
+//
+// 1.128.3: NO FRAME SLEEPS UNLESS THE LIVE DEBUGGER IS ATTACHED.
+// beginFrame/endFrame slept 0.5 ms each (Threading::switchThread) since
+// upstream; RendererCore::setFrameYield now gates them and the generated game
+// keeps them only while livedbg is attached (a sleepless loop hung the console
+// there). PS2: work -1.03..-1.05 ms in every pose. PATCH.
+//
+// 1.128.2: THE LOG SAYS WHEN STREAMED MUSIC IS STARVING.
+// A debug build warns (at most once per 5 s) when an audsrv refill finds the
+// ring over 70% empty - measured to be music streamed over ps2link, where
+// the IOP runs the network; from a disc it does not happen. PATCH.
+//
+// 1.128.1: HUD SPRITES SKIP THE STATE THE CHAIN ALREADY HOLDS.
+// Sprites in the VIF1 DIRECT chain no longer each carry a whole PATH3 packet:
+// XYOFFSET/TEX1/ALPHA/TEX0 are written only when they change, the rectangle
+// goes straight into the chain (TYRA_2D_CHAIN_FAST). PS2: work -0.06..-0.08 ms.
+// PATCH.
+//
+// 1.128.0: INTERLEAVED PASSES.
+// Preferences > Rendering > Interleave batches and roads with objects
+// (Auto / Always / Off, format v64): the generated game feeds the static
+// batch and road bags into the object loop so EE and VU1 work overlap. Auto
+// times both orders over the whole loop and keeps the faster; a blend gate
+// flushes them before the first object that may blend. Physical PS2, one
+// ELF: work -0.48..-0.50 ms in the garage, +0.01..+0.04 outside (Always:
+// -0.56 / +0.08..+0.20). Engine: RendererCore::getStallTotal(). MINOR.
+//
+// 1.127.6: OFFSCREEN STATIC BATCHES NEVER ENTER STAPIP.
+// Generated game: renderStaticBatches frustum-tests each batch's world box
+// itself, as the road chunks already did. Same verdict StaPip reached, 14
+// render() calls a garage-day frame fewer. Regenerate to pick it up. PATCH.
+//
+// 1.127.5: THE SHARED CLIP BLOCK IS REFERENCED, NOT COPIED.
+// Every bag used to copy the same 15-qword VU1 clip block into its packet; it
+// now REFs one VIF-stream copy (identical VU1 input, VIF-hash gate). One-ELF
+// A/B on a PS2: work -0.03..-0.13 ms. PATCH.
+//
+// 1.127.4: ONE SUBMISSION FOR EVERY LIGHT BEAM.
+// Generated game: the visible coronas are one bag and the cone shafts another,
+// per view, with the lamp brightness in the vertex colours instead of each
+// bag's FIX, and offscreen lamps left out by an EE frustum test. Physical PS2,
+// one ELF toggled at boot: work -0.26 (garage night) / -0.20 (outer night),
+// day poses unchanged. Regenerate a project to pick it up. PATCH.
+//
+// 1.127.3: THE OPTIONS BLOCK TAKES THE FAST PATH TOO.
+// TEX1/TEST/TEX0 as whole qwords behind the cached header - identical bytes
+// (VIF-hash gate), work -0.08..-0.09 ms on a PS2. PATCH.
+//
+// 1.127.2: PER-BAG UNIFORMS WITHOUT PACKET2'S PER-CALL COST.
+// sendObjectData writes each uniform block as a cached header qword plus
+// whole-qword copies instead of packet2 open/add/close calls - the same bytes
+// (VIF-hash gate, 24/24 frames), prepare -0.06..-0.17 ms on a PS2. PATCH.
+//
+// 1.127.1: NO MORE HOLES IN THE ROADS.
+// A retained command block replayed its header's "resend the GS state" flag
+// from wherever it was captured; right after a clip-routed LIST a strip road
+// package was drawn as a list - holes and slivers, per camera. Replays now
+// re-flag the header for their position. And popEnvView restores the frustum
+// planes it saved instead of rebuilding them from a camera without `up`.
+// PATCH.
+//
+// 1.127.0: A CONSOLE SESSION LEAVES A LOG ON DISK.
+// Run on PS2 writes the console's output to <project>/logs/ps2-<stamp>.log as
+// well as the Output panel, flushed per line, so a crash or an unwatched run
+// still leaves a record. Bounded by Edit > Preferences > Real PS2: the last N
+// lines per file (default 20 000, 0 = off) and the last K sessions (default
+// 10). logs/ is git-ignored. MINOR.
+//
+// 1.126.3: A TEXTURE WRAP SWITCH NO LONGER STOPS THE EE.
+// A bag that samples a clamped render target (lamp pools, projected shadows)
+// writes CLAMP_1 into its own VIF1 chain (FLUSH + DIRECT) instead of the EE
+// draining the whole 3D frame first - 1.28 ms of waiting in Motor District's
+// garage night, work -0.29 ms there and -0.10 in outer night. And a textured
+// bag finds its resident VRAM entry through a checked index hint instead of
+// two list scans: work -0.03..-0.09 ms. PATCH.
+//
+// 1.126.2: A SPRITE STOPS SEARCHING THE WHOLE TEXTURE REPOSITORY.
+// getBySpriteId walked every texture's link list for every sprite drawn - 0.97
+// ms of an 85-sprite HUD on a PS2, because the repository also holds every
+// scene material. A generation-checked id -> texture cache returns the same
+// answer: work -1.05 / -0.81 / -0.95 / -0.94 ms in Motor District. PATCH.
+//
+// 1.126.1: THE HUD RIDES VIF1 BEHIND THE 3D INSTEAD OF WAITING FOR IT.
+// Once VU1 is up, 2D sprites are appended as DIRECT (PATH2) data to a VIF1
+// chain that queues behind the 3D chains and opens with FLUSHA, instead of
+// the EE draining PATH1 before the first sprite and sending each one over
+// PATH3 (TYRA_2D_VIF1_DIRECT). Every GIF-channel send fences on it first.
+// Physical PS2, Motor District: work -0.45 / -0.37 / -0.48 / -0.48 ms,
+// picture unchanged. PATCH.
+//
+// 1.126.0: HYBRID COLOUR DEPTH, AND ONE CACHE WRITE-BACK FOR SEVERAL PACKETS.
+// Preferences > Colour depth > Hybrid (format v63): the frame draws into one
+// 32-bit buffer over a 32-bit z and one dithered blit per frame copies it into
+// one 16-bit display buffer - half a buffer of VRAM back (512 KB at 512x512)
+// without 16-bit banding in the blends. vehicle-playground now uses it. The
+// VIF1 queue writes the data cache back only when it starts a chain submitted
+// since the last write-back: work -0.47 / -0.51 / -0.26 / -0.28 ms on a PS2.
+// The frame capture waits for the GS first (the hybrid blit is not waited on).
+// And a vehicle definition can carry a FAST wheel model (Vehicle Editor >
+// Model > Fast wheel; Driving > Fast wheel above) that all four wheels swap to
+// above a spin rate - a lower-resolution copy or an artist's node, one submit
+// either way. vehicle-playground's CC96 and Rally 04 use it. MINOR.
+//
+// 1.125.3: THE EE STOPS WAITING FOR VU1 BEFORE EVERY STATIC PACKET.
+// The static pipeline keeps up to four packets in flight on VIF1 (Vif1Queue)
+// instead of waiting for each transfer before building the next. Each packet
+// is still its own chain; the EE starts the next one when it finds the channel
+// idle. Physical PS2, Motor District: work -0.72 / -0.63 / -0.55 / -0.50 ms,
+// triangles and flushes identical. Every VIF1 user drains the queue first,
+// the generated projected-shadow barrier included. PATCH.
+//
+// 1.125.2: A CAR, A BODY AND AN OCCLUDER COST LESS PER OBJECT IN THE SCENE.
+// The vehicle contact gather reads one compact collider list built per frame
+// instead of walking every object per car (4 AI cars: veh 2.28 -> 1.09 ms);
+// the physics passes walk an index list of the bodies (0.51 -> 0.013 ms with
+// none awake in the dense scene); the occlusion buffer rasterises one span per
+// row, caches occluder corners and candidate boxes and skips occluders outside
+// the view. New FTOCC / FTPHYS / FTVEH lines under TYRA_FRAME_PROFILE. Motor
+// District gains a `dense` scene with 107 more buildings. PATCH.
+//
+// 1.125.1: THE UPDATE HALF OF PRE, TIMED (FTUPD).
+// With TYRA_FRAME_PROFILE on, the FPP loop laps its update into ten sections
+// and prints FTUPD beside FRAMETIME. First reading: at Motor District's old
+// 25 FPS spot the devkit's host polling was 1.6-2.4 ms of pre; with it off the
+// frame is pre 1.01 + work 18.26 ms and holds 50 FPS (1-2 misses per 50).
+// Measurement-only; the ordinary build is unchanged. PATCH.
+//
+// 1.125.0: A TURNING CAMERA STOPS COSTING A THIRD OF THE FRAME.
+// Three things fired every frame the view turned. The shared reflection probe
+// recaptures every second frame in a turn and redrew the whole resident
+// terrain and road ring into its 128-pixel target: 10-15 ms of each capturing
+// frame on a physical PS2. Preferences > Rendering > Reflection ground radius
+// (format v62) keeps only the chunks near the eye. The vehicle paint pass
+// rewrote its colours every frame and the baked VIF cache rebuilt the whole
+// env payload for it, 0.85 -> 5.0 ms: the cache now stops baking a bag whose
+// payload moves on consecutive frames and lets the retained route draw it
+// until it settles, and the paint evaluates each distinct normal once
+// (4212 -> 2106 on the CC96). MINOR.
+//
+// 1.124.3: TERRAIN UVS ARE CHUNK-RELATIVE.
+// World-space tiling put the far side of a big map at thousands of texels,
+// where the GS's reduced STQ precision smeared the ground into streaks that
+// swam with the camera (Motor District eastern crests, physical PS2). Each
+// chunk subtracts whole repeats taken at its centre, base and layers alike;
+// the same spot then renders the texture's own noise. PATCH.
+//
+// 1.124.2: WHOLE BAGS INSIDE THE GUARD BAND TAKE THE DIRECT ROUTE.
+// A bag that only straddles the screen edge - its box inside all eight VU1
+// planes - used to go through the packager and per-package classification
+// only for every package to come out "cull whole" or "drop". It is promoted
+// to IN_FRUSTUM instead (TYRA_STAPIP_GUARD_BAND_BAGS). Physical PS2, Motor
+// District 25 FPS spot: 36 bags promoted, ordinary-frame work 20.02 -> 19.19
+// ms, the picture identical below the HUD. Also: the car's glance camera
+// reads the project's right deadzone instead of its own 0.15 (a drifting pad
+// held it turned for a whole boot, which spoiled the first A/B), Motor
+// District's right deadzone is 0.3, and the capture's package counts stop
+// adding the guard subset into cull. PATCH.
+//
+// 1.124.1: EVERY OBJECT GETS THE COARSE FRUSTUM BOX.
+// The whole-object AABB reject was reserved for models of three or more
+// parts ("a one-part primitive has nothing to amortize"). On a physical PS2
+// StaPip spends ~17 us classifying one off-screen bag - and again for each
+// companion bag - against ~2 us for the box test. Motor District start pose:
+// 64 of 77 objects entering the pipeline drew nothing; with the box for all,
+// off-screen packages 216 -> 0, drawn cull/guard/vertices identical, the
+// ordinary frame's work 14.20 -> 13.80 ms. Impostors are excluded (a billboard
+// rewrites its vertices every frame). The render-cost capture also laps the
+// game side of the object loop and bills each object (Loop_* / Obj_* rows,
+// Obj_ shown behind "Per-object pipeline detail"). PATCH.
+//
+// 1.124.0: ENTER VEHICLE / EXIT VEHICLE FLOW NODES.
+// A graph can seat the player in a vehicle (and put them out at the driver's
+// door) without a USE press, so a driving test case starts behind the wheel:
+// On Start -> Enter Vehicle. The node leaves ScriptContext::vehicleRequest
+// and updateVehicles carries it out; the USE exit and the node share one
+// door formula. PCSX2: seated on frame one, drove to 24.7 u/s, USE got out.
+// MINOR.
+//
+// 1.123.11: THE RENDER-COST CAPTURE SPLITS OUT THE OBJECTS PHASE.
+// --profile-frame / Measure render cost now also reports the pipeline counters
+// of the Objects phase alone (Objects_*_included, package and flush counts,
+// Objects_attrib_* under TYRA_STAPIP_ATTRIB). On a physical PS2 it showed that
+// half of the per-object bill is the generated game's own loop, not render()
+// (docs/profiling.md, "Where a solo object's time goes"). Capture-only; the
+// ordinary frame is unchanged. PATCH.
+//
+// 1.123.10: THE HUD'S MEM READOUT STOPS HITCHING.
+// Info::getFreeRAMSize measured free RAM by allocating the largest free block,
+// then the next, until malloc failed - a cost that grows with heap
+// fragmentation. The debug HUD asks every two seconds, and on a physical PS2
+// that was one 30-75 ms frame every two seconds. It now reads the allocator's
+// books: mallinfo().fordblks plus EndOfHeap() - sbrk(0). Agrees with the old
+// probe to 544-1806 bytes of ~19 MB across 13 readings (TYRA_MEM_VERIFY, the
+// old probe kept as the oracle); periodic spikes with the readout on, paired
+// emulator runs: 8 before, 0 after. The Live Debugger's on-request RAM
+// measurement uses the same call and gets cheaper too. PATCH.
+//
+// 1.123.9: WHAT THE DEVKIT COSTS, WRITTEN DOWN.
+// docs/devkit.md and the tyra-testing skill record the three debug-only
+// costs that sat inside two days of console measurements: Remote Pad's and
+// Live Debugger's host: polls over ps2link (day frame 26.3 ms / 15 of 50
+// misses with them, 20.4 ms / 0-1 without), and the HUD MEM readout, whose
+// malloc-probe of the heap every two seconds is a 30-75 ms hitch (8 periodic
+// spikes against 0 in a paired emulator run). Plus the clean-measurement
+// recipe and the console-reset procedure. Docs only. PATCH.
+//
+// 1.123.8: A FRAME-TIMING RIG THAT TIMES THE FRAME THE PLAYER GETS.
+// TYRA_FRAME_PROFILE 2 is FRAMETIME alone: no static-pipeline telemetry and
+// no packet-structure walker, which at level 1 parses every DMA tag and VIF
+// code of every packet every frame. Physical PS2, parked Motor District
+// vantage: HUD SCENE 13.21 ms uninstrumented, 17.70 at level 1, 13.04 at
+// level 2. And FRAMETIME gains pre/stall/period/miss - the previous present to
+// beginFrame(), the present itself, present-to-present, and frames that took a
+// second field - because `work` starts at beginFrame() and cannot see a game's
+// update. pre + work + stall closes to the measured period within ~0.2 ms.
+// First result: the district's day frame holds 50 FPS once Remote Pad and
+// Live Debugger are compiled out (period 20.4 ms, 0-1 misses per 50, against
+// 26.3 ms / 15 of 50 with them polling host: over ps2link). Level 1 is
+// unchanged. Project format stays 61. PATCH.
+//
+// 1.123.7: THE HARDWARE NUMBERS THE LAST FOUR ENTRIES OWED.
+// Physical PS2, parked street vantage, six --profile-frame samples per arm,
+// paired against the baselines stored before the run. Day renderScene total
+// 17.341 -> 16.938 ms, night 20.819 -> 19.908. Attributed by row: Terrain
+// 2.909 -> 2.650 and Roads 3.407 -> 3.182 (detail distance + the two frustum
+// rejects, 1.123.4/5/6), and at night Light_beams 1.240 -> 0.852, which is the
+// cone-shaft cache of 1.123.3 - the one change whose ceiling I had called
+// small, and it turned out to be 31% of its own row. Nothing else touches
+// beams. The street vantage is the WEAK case for the terrain LOD, so -0.40 /
+// -0.91 ms is a floor rather than the headline. Docs only. PATCH.
+//
+// 1.123.6: TERRAIN CHUNKS GET THE SAME FRUSTUM REJECT.
+// renderTerrain handed every RESIDENT chunk to StaPip to be classified package
+// by package, and residency only means "inside the streaming ring" - it says
+// nothing about being behind the camera. The chunk now takes the same
+// conservative whole-box reject every other generated chunk has, against the
+// box outsideSplitBand already trusts (real minY/maxY, so a chunk underfoot
+// contains the eye and comes back INTERSECTS). PCSX2, parked street vantage:
+// packages rejected 13200 -> 10500 per 50 frames, and 24850 -> 10500 (-58%)
+// counting the road half of 1.123.5, with cull, clip, guard, verts and flush
+// identical to the digit and 0 pixels differing on both DAY benchmark poses.
+// Project format stays 61. PATCH.
+//
+// 1.123.5: ROADS GET THEIR COARSE FRUSTUM REJECT BACK.
+// 1.122.2 removed two coarse rejects from renderRoadChunks in one commit after
+// false-hidden asphalt gaps, and only one of them can produce a false
+// negative. The software-depth test is approximate and stays out; the frustum
+// one is CoreBBox::frustumCheckAABB against the chunk's own exact world box -
+// the identical call renderProcChunks and renderVehicleWheels already make at
+// the same point in the frame off the same planes. Without it all 54 district
+// chunks were classified package by package every frame. PCSX2, parked street
+// vantage: packages rejected 24850 -> 13200 per 50 frames (-47%) with cull,
+// clip, guard, verts and flush identical to the digit; 0 pixels differ on both
+// DAY benchmark poses, both arms byte-identical within themselves. The night
+// poses are not readable - their own repeats disagree. Format stays 61. PATCH.
+//
+// 1.123.4: THE MOTOR DISTRICT TURNS ON TERRAIN DETAIL DISTANCE.
+// examples/vehicle-playground shipped with terrainLodDistance 0 while its
+// terrain was the frame's largest geometry producer. 70 is the largest band
+// arrangement its own quality oracles accept: the every-4th-sample band rises
+// 0.3807 units above the dense surface against the road's 0.12 lift and would
+// bury the asphalt, and it starts at 2.2x the distance, so 70 keeps it past
+// the 150-unit terrain view distance for ever. The every-2nd band rises
+// 0.0175 and subtends 1.3 pixels. PCSX2 counts on the example, parked street
+// vantage, day: triangles -18.5%, VU1 packages -13.3%, submitted vertices
+// -12.1%. Two fixtures differing in that constant alone, three byte-identical
+// captures each, differ in 1743 pixels of 180224 (0.97%) in one horizon band.
+// The inventory tool's stale anchors were repaired in the same commit.
+// Project format stays 61. PATCH.
+//
+// 1.123.3: CACHE THE LIGHT CONE'S SHAFT.
+// Every visible cone lamp rebuilt its 24-vertex shaft and 24 colours from
+// scratch every frame - 16 cosf/sinf calls apiece - although the geometry is a
+// pure function of the lamp's position and radius and the colours of its
+// colour, all static for an authored lamp. Only the flicker's
+// additiveBlendFix moves. The shaft is now rebuilt on a (position, radius,
+// colour) key, the same shape LightPool has cached its receiver patch with
+// since 1.122.2, and the bag's bboxVersion is stamped only when the shaft
+// really moved instead of every frame (a stamp costs the retained-command
+// block a rebuild). Geometry is bit-identical. The console millisecond is
+// owed: the hardware rig was unavailable when this landed, and the change is
+// EE work, which PCSX2 cannot price. Project format stays 61. PATCH.
+//
+// 1.123.2: THE RELEASE AUDIT CATCHES A MEASUREMENT BUILD.
+// --audit-release proved a release ELF carried no devkit code and said nothing
+// about an opt-in profiling macro left switched on - a different failure and a
+// worse one to miss, because the game looks and runs normally and the only
+// symptom is host writes inside a sampling window. It now scans .rodata for
+// the tags those macros own (FTCLIP, FTPKT, STAPIPRET, STAPIPMISS, STAPIPBAKE,
+// VRAMRES, VRAMEVICT, ROADINDEXVERIFY, WHEELBAKE) and reports each as
+// "measurement build". Each tag exists only while its macro is 1, so a hit is
+// proof. Falsified both ways on examples/vehicle-playground: the ordinary
+// build reports five devkit strings and no measurement finding,
+// TYRA_WHEEL_REBUILD_REPORT=1 adds WHEELBAKE, TYRA_FRAME_PROFILE=1 adds FTCLIP
+// and FTPKT. Project format stays 61. PATCH.
+//
+// 1.123.1: LAZY TEXTURE-WRAP BRACKET.
+// A bag whose texture is not REPEAT used to cost two unconditional PATH1
+// drains - one to program GS_REG_CLAMP, one to put REPEAT back - so a run of
+// bags sampling the same clamped render target paid two barriers each. The
+// bracket is lazy on both sides now: the write and its drain are skipped when
+// the wrap already is what the bag wants, and the restore is deferred to the
+// next bag that needs REPEAT, to Renderer2D's first sprite (already drained
+// once a frame) or to RendererCore::endFrame before the post-fx blits.
+// Physical PS2, frozen Motor District night vantage: Light_pools 1.605 ->
+// 1.342 ms, six samples per arm with no overlap; whole render 20.900 ->
+// 20.819, inside that row's noise. The backlog priced this at 1.730 ms from
+// PCSX2 and the console pays a sixth of it. Project format stays 61. PATCH.
+//
+// 1.123.0: ROAD HEIGHT GRID.
+// roadSurfaceAt walked every triangle of every road chunk whose XZ box held
+// the point - about 2,100 triangles per query on the Motor District - and the
+// blob shadow, the light pools, the vehicle glow and the projected-shadow
+// receivers each sample a 4x4 lattice, so one parked car paid 0.91 ms for its
+// shadow alone. The road triangles are now bucketed into a uniform ~4-unit XZ
+// grid built once after buildRoads, and a query tests one cell. Physical PS2,
+// parked day vantage: Blob_shadows 1.148 -> 0.383 ms, Vehicle_lights 1.436 ->
+// 0.524, Particles 1.453 -> 0.542, whole render 18.708 -> 17.341. The grid
+// must be a no-op, and TYRA_ROAD_INDEX_VERIFY (default 0) answers every query
+// both ways to say so: 140,000 queries, 0 mismatches, day and night, with the
+// gate falsified first. Project format stays 61. MINOR.
+//
+// 1.122.3: MOTOR DISTRICT REFLECTION PROXIES.
+// The seven reflected workshop/loft/tower models in vehicle-playground now
+// feed the shared 128px environment target through their existing one-bag,
+// 12-triangle box proxies, while the main view, collision and picking retain
+// the complete models. The fixture's reflection reuse budget rises from one
+// to four target pixels; the published motion oracle permits 84.2% reuse on a
+// straight run and 80% at 20 deg/s, while a 90 deg/s turn still forces every
+// cadence capture. Generated project structure reduces the garage-night probe
+// from 10,704 to 375 triangles and from 196 to 47 packages per refresh. Native
+// PS2 build and PCSX2 boot/capture pass; the physical-console millisecond A/B
+// remains pending after its resident IOP was lost during the test session.
+// Project format stays 61. PATCH.
+//
+// 1.122.2: STABLE ROADS + CACHED NIGHT LIGHTS + COPY FRAME IMAGE.
+// Road chunks no longer use the coarse whole-AABB frustum or software-occlusion
+// pre-tests, eliminating false-hidden gaps while StaPip clips them precisely.
+// Static authored light pools cache their road/terrain patch
+// and reject off-screen receivers; physical-PS2 samples fell from 17.740 ms to
+// 2.538-2.835 ms for Light_pools. Debugger > Screen can copy the decoded bitmap
+// directly to the desktop clipboard. Project format stays 61. PATCH.
+//
+// 1.122.1: STRIP CLIP WINDING + CHEAPER VEHICLE HEADLIGHTS.
+// Strip-to-list expansion now preserves odd-triangle winding, preventing giant
+// textured wedges when stripped geometry crosses a clip plane. Bounded vehicle
+// headlights cache their 4x4 receiver lattice instead of repeating expensive
+// road-surface queries per cell, and render-cost captures expose their own
+// Vehicle_lights row. Project format stays 61. PATCH.
+//
+// 1.122.0: INTRA-BAG GS STATE REUSE.
+// Consecutive cull/as-is textured colour and directional-light packages now
+// emit TEST/TEX1/TEX0/ALPHA once per material bag, then retain one-loop GIFtags
+// and send only PRIM plus vertices. A packed VU header flag keeps the choice
+// explicit without changing clip packets. Physical-PS2 profiling reports the
+// reuse count per producer and verified bad=0 with a small 0.04-0.20 ms gain.
+// Project format stays 61. MINOR.
+//
+// 1.121.0: STATIC PACKET STRUCTURE PROFILER.
+// Opt-in frame profiling now walks each completed static-pipeline DMA/VIF chain
+// and attributes DMA tags, REF alignment, VIF commands, derived GIFtags, A+D
+// writes, GS payload and XGKICKs to the generated game's render producers.
+// The release build compiles the counters and parser out. A companion script
+// summarizes captured FTPKT logs for the four Motor District benchmark poses.
+// Project format stays 61. MINOR.
+//
+// 1.120.0: CONSERVATIVE SOFTWARE OCCLUSION CULLING.
+// An opt-in 48x42 CPU depth buffer rejects complete object, static-batch,
+// road and procedural bounds before StaPip. Build-time proxies are inward
+// boxes: plain Box primitives use an inset cube; static OBJ models must be
+// opaque, geometrically closed and retain a one-cell-eroded sampled interior;
+// otherwise they are refused. Per-object switches independently opt out of
+// occluding and receiving. The profiler prices the pass as Occlusion and the
+// debug log reports proxy/test/reject counts. Format 61 adds the two object
+// booleans and the project-wide opt-in. MINOR.
+//
+// 1.119.0: AUTHORED ROAD LONGITUDINAL SPACING.
+// Each road can choose a 1..2 metre geometry-row spacing. Texture arc length
+// keeps the original one-metre integration cadence so changing detail cannot
+// slide lane markings. Motor District uses 2 m on five measured gentle roads
+// and retains 1 m on the looping ring and eastern crest. The mixed network
+// falls from 21,286 to 18,750 road triangles and 338 to 297 packages in the
+// host oracle. A physical-console four-pose A/B retained the same FPS medians,
+// accepting stability but not a frame-time win. Format 60 adds the optional
+// roadSampleStep object field. MINOR.
+//
+// 1.118.0: BOUNDED PROJECTED VEHICLE HEADLIGHTS.
+// Vehicle headlights now draw through the flashlight gobo in their own capped,
+// textured receiver bag. Entering a vehicle suppresses the player's camera
+// flashlight without changing its toggle state, and grazing flashlight floor
+// receivers have absolute length/width caps after one physical-PS2 view priced
+// an otherwise small scene at 125 ms. Project format stays 59. MINOR.
+//
+// 1.117.7: MOVING ROAD EFFECTS SAMPLE INSIDE THEIR FOOTPRINT.
+// Vehicle headlight beams and runtime blob shadows use compact 3x3 receiver
+// grids instead of one quad. Interior samples see a raised road even when the
+// four outside corners remain on terrain, preventing asphalt from depth-testing
+// the middle of the beam or shadow away. Both grids remain one VU1 package.
+// Project format stays 59. PATCH.
+//
+// 1.117.6: ROAD EFFECTS LAND ON THE SURFACE THAT IS ACTUALLY DRAWN.
+// Blob shadows, point-light pools, flashlight floor pools and projected-shadow
+// patches now sample the baked road triangles as well as terrain, including
+// junction fans and sloped/laterally tessellated asphalt. Shaped blob quads use
+// the flattened full object basis, so a pitched/rolled vehicle keeps its true
+// heading past the Euler 90-degree fold. The render-cost profiler reports road
+// cull/submission as Roads and reserves Procedural for volumes/prefabs. Motor
+// District's canonical example now contains the one-vehicle optimization map
+// and names the CC96 strip-study asset directly. Project format stays 59. PATCH.
+//
+// 1.117.4: SHARED VERTICES REACH VEHICLE BODY TRIANGLE STRIPS.
+// vehbake now tries the full position+normal+UV strip weld on every non-lamp
+// body part; legacy flat-shaded bodies keep their lists, while the indexed CC96
+// study falls from 11,058 to 4,212 submitted paint vertices and 148 to 57 VU1
+// packages. Lamp corner ranges stay ordered lists. The importer also separates
+// rigid triangles by their identity-IBM palette owner before wheel detection,
+// so one atlas/material shared by four wheel nodes no longer folds them into
+// the body. The reference asset now bakes as 3,782 body + 76 wheel triangles.
+// On a physical PAL PS2, an otherwise identical 24-frame A/B reduced the CC96
+// object's median render cost from 3.827 ms to 1.509 ms and non-vsync frame work
+// from 24.690 ms to 22.202 ms. That is real headroom, though still above the
+// 20 ms rung needed to leave 25 fps in this full scene.
+// Project format stays 59. PATCH.
+//
+// 1.117.3: IDLE DEBUG TOOLS AND PARKED VEHICLES STOP BURNING THE FRAME.
+// The boot snapshot remains the runner's liveness marker and command polling
+// remains the attach path. Periodic reports now start only after a valid editor
+// command. A 24-frame physical PAL trace showed ordinary work at 13.5-13.9 ms,
+// a command poll at 15.95 ms, and the old unconsumed report at 20.05 ms / one
+// 40 ms presented frame. Hardware traces now name the debugger tick, poll and
+// flush scopes directly. Settled grounded non-AI vehicles also sleep past their
+// ground/collider/suspension work until entered or moved by another car; prompt,
+// audio shutdown and car-to-car wake-up remain live. Three parked cars in the
+// five-car physical-console fixture cut vehicle update from 2.14 to 0.95 ms.
+// Blob shadows now reject caster draw distance and a conservative whole-footprint
+// frustum AABB before rebuilding or sampling terrain. Project format stays 59.
+// PATCH.
+//
+// 1.117.2: ROAD STRIPS SHIP AGAIN AFTER THE PHYSICAL-GS UV FIX.
+// TYRA_STRIP_ROADS now defaults to 1. The earlier hardware smear survived the
+// triangle-list control and was fixed by 1.117's per-chunk whole-repeat V
+// rebasing, so topology was innocent. On the physical PAL road-only district,
+// strips reduce 63,966 vertices / 880 packages / 83 chunks to 24,576 / 347 / 68
+// with the same 21,322 surface triangles. Three matched captures reduce median
+// procedural cost 7.782 -> 4.149 ms and total 17.020 -> 13.611 ms; lane marks
+// survive default, junction, long-road and moving views. Project format stays 59.
+// PATCH.
+//
+// 1.117.1: STATIC CHUNKS STOP AT THE CAMERA, AND BAKED VIF STREAMS SHIP.
+// Generated road/prefab/procedural chunks use their existing world AABB for a
+// cheap caller-side frustum reject before entering StaPip; the pipeline still
+// performs precise clipping for intersecting chunks. The same reject applies
+// to road-only reflection submissions. TYRA_STAPIP_BAKED_STREAM now defaults
+// to 1 after physical PAL PS2 measurements on the 83-chunk road-only district.
+// The coarse reject cut about 1.48 ms in comparable (not pixel-matched) parked
+// views; the separate stream-replay A/B cut 1.77 ms in one identical view, with
+// 0 changed non-HUD pixels and about 1.4 MB extra EE RAM.
+// Project JSON stays format 59. PATCH.
+//
+// 1.117.0: LIVE PAINT REFLECTIONS INCLUDE THE GROUND UNDER THE VEHICLE.
+// Both shared and per-object dynamic probes submit the already-resident terrain
+// plus road-only procedural chunks before reflected props; unrelated runtime
+// geometry stays out of the 128x128 pass. Runtime road UVs are also
+// rebased by whole texture repeats per chunk, keeping identical tiling while
+// preventing long-road ST values from overflowing the physical GS precision
+// path (the triangle-list fallback alone did not cure the stretched texel).
+// Project JSON stays format 59; no engine or VU1 program change. MINOR.
+//
+// 1.116.0: BAKED BLOB SHAPES ARE PER OBJECT, NOT A VEHICLE PRIVILEGE.
+// Every renderable SceneObject can bake a soft 128x128 top-down silhouette or
+// choose an existing PNG in Properties; the generated runtime still draws one
+// yaw-following, terrain-conforming quad. Animated GLB/FBX models bake frame
+// zero. SceneObject gains blobShadowTexture and blobShadowSize, so project
+// format 58 -> 59; purely additive, no migration step.
+//
+// 1.115.0: ROAD SURFACES KEEP THEIR LANE MARKINGS ON PHYSICAL PS2 HARDWARE:
+// runtime roads default to the proven triangle-list arm while the strip
+// producer remains available to its host oracle. Vehicle imports also bake a
+// soft 128x128 top-down silhouette for one-quad moving blob shadows, PS2-shaded
+// vehicle paint previews reproduce the runtime HIGHLIGHT2 Fresnel/specular
+// terms, and distant impostor/hull-proxy switch distance is named explicitly
+// in Properties. Generated vehicle data gains a derived shadow-texture path;
+// project JSON is unchanged (kFormatVersion stays 58), no VU1 change.
+//
+// 1.114.3: Motor District's efficient CC96/Tristar variants preserve the near
+// body and lamp geometry, with regular 76-triangle textured wheels. Rally's
+// already-small wheels stay unchanged. Asset-only; no format change.
+//
+// 1.114.2: Motor District buildings use 22-triangle exterior shells with one
+// shared facade atlas and one material; original bounds and pitched roofs stay.
+// Asset-only content change; no project format change.
+//
+// 1.114.1: STATIC BATCHING NO LONGER HOLLOWS OUT MULTI-MATERIAL MODELS. A
+// model now enters the batched path only when every material part survives
+// grouping; otherwise all of its parts fall back to the solo renderer. The
+// pruning reaches a fixed point because removing one incomplete model can turn
+// another group into a singleton. No serialized field changed, so
+// kFormatVersion stays 58.
+//
+// 1.114.0: ROAD SURFACES ARE MATERIAL ASSETS, NOT PATH-TYPING EXERCISES. The
+// Properties panel lists project .mtl files for both the road and its automatic
+// junction, opens the chosen one in the Material Editor, and codegen plus the
+// viewport resolve its first map_Kd. Existing direct PNG references remain
+// valid and live in a clearly labelled legacy section. Asset move/rename and
+// reference census now cover both road fields. No serialized field changed, so
+// kFormatVersion stays 58.
+//
+// 1.113.0: MOTOR DISTRICT NOW DEMONSTRATES AUTOMATIC ROAD JUNCTIONS. Three
+// eastern crossings share district-asphalt.png and therefore generate the
+// cheap four-triangle junction patches; the authoring script persists the same
+// setup on future rebuilds. Example/data only: no project-format or runtime
+// behavior change, so kFormatVersion stays 58.
+//
+// 1.112.0: merge this branch with main's motion blur. The generated runtime
+// now carries the one-pass previous-frame blend, its explicit idle history
+// break and the legal DTHE restores for 16-bit targets alongside the branch's
+// proxy/junction work. Main's additive format v48 fields are renumbered to v58
+// here because this branch had already published distinct v48..v57 fields.
+// MINOR.
+//
+// 1.111.0: CHEAP GEOMETRY WHERE THE PIXELS CANNOT JUSTIFY THE REAL MODEL.
+// Properties > Bake hull proxy writes a one-material convex XZ footprint
+// prism and assigns it through the existing far-model path: the authored OBJ,
+// collision and gameplay identity stay intact while distant buildings/rocks
+// stop paying for their source topology. This is a silhouette approximation,
+// not another decimator. A reflected object can additionally opt into a
+// reflection-only box proxy: one 12-triangle bag is drawn into the 128px env
+// target while the main view, collision and picking retain full geometry.
+//
+// Static-model baking now coalesces usemtl groups whose FINAL resolved state
+// is identical (atlas page, Kd/Ke, reflection state and every LOD tier). An
+// override MTL can therefore truly reduce bags instead of merely repainting
+// the old splits. Ordered billboard-impostor parts are explicitly exempt.
+// SceneObject::reflectionProxy is format v57, additive and written only when
+// true. No engine/VU change. MINOR.
+// Roads with the same non-empty intersection texture now get host-detected,
+// terrain-projected four-triangle junction patches. Generated data stores the
+// centre/corners, so the EE does no pair search and the frame has no junction
+// branch. roadIntersectionTexture shares additive format v57.
+// Road data emission is also no longer accidentally nested under the vehicle
+// feature gate, so road-only projects produce the tables their runtime uses.
+
+// 1.110.0: YOU CAN SEE HOW STATIC OBJECTS BATCH, AND EXCLUDE ONE
+// (docs/static-batching.md). Tools > Static Batches lists every batch with
+// its members, texture, cell, merged box and VU1 packages against what those
+// members would cost solo, and - the half that earns its keep - names the
+// reason FOR EVERY OBJECT THAT IS NOT BATCHED. The generated game already
+// logs the two totals ("Static batching: eligible 87, solo 22"); what it
+// cannot say is which objects and why each one, which is exactly the question
+// that took three rounds of measurement in 1.98.0, when 111 of the Motor
+// District's 142 objects were batchable shapes and 27 carried the flag
+// because one build-time rule rejected every imported model.
+//
+// THE GROUPING IS A TWIN, NOT A SHARED FUNCTION, and that is forced rather
+// than chosen. buildStaticBatchList is generated code that runs on the EE and
+// reads loaded models, materials, g_dynLights and the engine's own Texture*
+// pointers; moving it host-side would mean baking a batch table into
+// scene_data.hpp, i.e. changing the generated output of every project. So
+// src/staticbatch.{hpp,cpp} is a host twin in the scrollsim/livelogic/
+// menulayout tradition, and examples/vehicle-playground/authoring/
+// verify-batch-twins.py is its ORACLE: it lifts buildStaticBatchList verbatim
+// out of templates.cpp, compiles it beside the twin and diffs the assignment
+// member for member, the way verify-road-twins.py does for roadgen. The
+// eligibility half gets a second free check - `batchStatic` in any generated
+// scene_data.hpp is that verdict, 87 of 142 on the district.
+//
+// The oracle carries a deliberate MISSING-TEXTURE fixture, because the
+// subtlest thing a reimplementation gets wrong here is that acquireTexture
+// hands back a null pointer for a file that is not on disk - so every missing
+// texture groups with every untextured primitive. That is the engine's
+// behaviour, it looks like a bug, and "fixing" it in the twin would make the
+// panel confidently wrong.
+//
+// THE EXCLUSION NEEDED NEW STATE, contrary to how it was first specified.
+// `batchStatic` is not an authored flag: it is a build-time verdict computed
+// by staticBatchEligible, and the only authored lever was the project-wide
+// ProjectSettings::staticBatching. SceneObject::batchExclude (format v56,
+// written only when true, no migration step) is the per-object one, and it
+// acts as a single line at the top of staticBatchEligible - so it shows up in
+// the generated column and the oracle covers it for nothing. Deliberately a
+// bool and not a group id: the case it serves is the merged-box regression
+// (one outlying member keeping a whole batch drawn, measured once at 400
+// pixels the unbatched scene culled), and no case was found that the existing
+// cell key does not already cover. MINOR.
+
+// 1.109.1: every fixed-capacity vehicle-effect BagArray is now sized during
+// scene setup: smoke, skid vertices/colours and glow vertices/colours. The
+// content-version conversion had left resize in each lazy render-bag path,
+// although smoke updates and glow/skid geometry writes happen before those
+// paths initialise their bags. The first write therefore called Vec4::set
+// through an empty vector's null data pointer. PCSX2 maps RAM at zero and hid
+// it, while physical hardware raised a cause-3 TLB store miss at BadAddr 0
+// immediately after the loading screen.
+//
+// 1.106.0: THE SHARED REFLECTION PROBE NOW HAS A REUSE BUDGET, AND THE
+// BUDGET IS THE QUALITY CONTRACT (docs/reflective-materials.md, "The reuse
+// budget"). Measured on hardware the probe costs 2.07 ms of Motor District
+// garage day and 2.56 ms at night, adding 10 572 triangles and 26 packet
+// flushes on every second frame for a 128x128 target - the largest unclaimed
+// saving on docs/ee-submission-rearchitecture.md. Task 5 of the Motor District
+// plan asked for two halves: retain the capture BASIS with the target (done in
+// 1.85.0) and detect the conditions under which the image can be reused. This
+// is the second half.
+//
+// The probe now skips its cadence beat while nothing that feeds the capture
+// has moved, and "moved" is stated as a NUMBER rather than as a cadence: how
+// far the image may be out of date IN PIXELS OF ITS OWN 128-PIXEL TARGET. Aim,
+// camera travel seen as parallax on the nearest reflected object, the sun and
+// moon directions, their radii and the moon's roll all convert through one
+// pixels-per-radian factor and are SUMMED, so the figure bounds the worst
+// displacement. Colour is NOT traded: the sky tint, the grade compensation,
+// the star fade and the moon's opacity are compared at the 8-bit precision the
+// GS actually stores, so a capture is skipped only when the colours would come
+// out bit-identical. Neither is content: a reflected object that moves,
+// rotates, scales, appears, vanishes or dirties its geometry invalidates
+// outright, as do a scene load and a teleport (which the travel term sees).
+//
+// It can only ever REDUCE captures - the every-second-frame cadence stays the
+// ceiling - so the worst case is exactly the old behaviour, which is what
+// makes the default of 1.0 pixel safe to enable for projects that predate the
+// setting. The three options the plan left open were priced against a
+// per-producer frame inventory first: a coarser LOD for the probe pass needs
+// the models re-baked with tiers AND a second resident bag set per reflected
+// part (swapping the live bag's tier bumps bboxVersion twice a frame and
+// throws away the bbox and retained-command caches), and dropping objects buys
+// almost nothing in the pose that is slow, because four near buildings are all
+// the probe draws there. See
+// examples/vehicle-playground/authoring/reflection-probe-2026-09-16/README.md.
+//
+// 1.105.0: THE ROAD LATERAL REDUCTION WAS ALL-OR-NOTHING, AND THAT IS WHY IT
+// BOUGHT ALMOST NOTHING (docs/roads.md, "The lateral budget"). A station pair
+// collapsed to ONE full-width quad or kept all `crossSteps` lateral cells. The
+// Motor District's terrain cell is 4 world units and a road samples across at
+// 0.5, so a 13-unit street is 26 cells over three or four terrain triangles:
+// the full width is almost never one plane, and all 26 cells survived even
+// though runs of eight of them sit inside one terrain triangle and are exactly
+// coplanar. `spanCuts` now merges maximal runs instead, greedily; a single cell
+// is the untested fallback, so the old behaviour is the reduction's lower
+// bound.
+//
+// The merge is governed by two budgets that are NOT the same kind of number.
+// `kSpanFlatness` bounds the surface error - and, because neighbouring station
+// pairs cut the row they share independently, the T-vertex seam as well. It
+// STAYS at the float noise floor, so the asphalt and every seam are exactly
+// unchanged: a row's samples are a straight line in XZ, and coplanar plus
+// straight-in-XZ is straight in 3-D, so the shared segment has one
+// representation. `kSpanShear` bounds the parallelogram defect, which is a
+// pure UV error - and it was the veto that mattered, because the two triangles
+// of a trapezoid interpolate ST with two different affine maps, so a BEND
+// could never merge and six of the district's seven streets are curved
+// splines. Relaxed to 0.05, the measured knee.
+//
+// Measured over the whole district against the branch-tip surface, at every
+// dense sample: road triangles 31 050 -> 21 252 (-31.6%) and VU1 packages
+// 470 -> 337 (-28.3%), with worst surface error and worst seam both zero and
+// the worst UV drift 0.36 of a texel on the 128-pixel road texture. The sweep
+// behind the constant, and the costed next step (kSpanFlatness 0.02 reaches
+// 7 428 triangles but opens a 0.028-unit seam against the road's 0.12 lift),
+// are in examples/vehicle-playground/authoring/road-lod-2026-09-16.
+//
+// verify-road-twins.py grew the fixtures that can exercise this at all - the
+// original eight are analytic surfaces, curved everywhere, with no coplanar
+// runs to find - plus an exact T-VERTEX seam test, because sampling a surface
+// at its own vertices has a barycentric noise floor larger than the seams
+// worth finding. `crown with equal shoulders` and `saddle` still measure
+// 1.000x. No project format change (kFormatVersion stays 54), no engine
+// change, no VU1 change. MINOR.
+//
+// 1.104.0: THE VU1 PACKAGE CEILING IS 75, NOT 72, AND THE BAKED STRIP RUN
+// MOVES WITH IT (docs/render-submission-attribution.md, "Round four").
+// `StaPipVU1Program::getMaxVertCount` rounded down to a multiple of NINE so
+// the 1/3 subpackage split would divide by three again; no live path needs
+// that - both places that actually cut triangles round for themselves, and
+// `maxVertCount / 3` survives elsewhere only as a conservative bbox
+// granularity. Rounding to a multiple of 3 takes the class every textured
+// scene runs from 72 to 75 vertices a package, which is -4.0% of the packages,
+// and almost every term left in StaPipCore::dispatch is per-package.
+//
+// `meshstrip::kRun`, `roadgen::kStripRun` and the generated road/terrain run
+// constants go to 75 with it, because a run IS a package. Nothing needed a
+// format bump: `.tmdl` already stores `stripRun` per part, and every consumer
+// GUARDS (`stripRun <= minPackageSize()`), so a model baked by an older editor
+// falls back to the triangle list instead of rendering wrong.
+//
+// The part round three did not price: raising the ceiling also raises
+// `clipPackageSize()`, and at the old `clipDivisor` of 5 that left the
+// untextured single-colour clip class 459 of 460 quadwords - a ONE quadword
+// margin on the one path PCSX2 cannot verify. `clipDivisor` is 6 now, which
+// puts every reachable class back above 91 (better than the 35 the textured
+// single-colour class was already shipping on) and leaves the clip package
+// size of the three classes a textured scene uses unchanged at 12.
+//
+// 1.103.0: THE STATIC-BATCH CELL IS BOUNDED BY THE DRAW DISTANCE, SO BATCHING
+// STOPS COSTING MORE THAN IT SAVES ON A BIG MAP (docs/model-pipeline.md, "Why
+// the cell is bounded by the draw distance"). The grouping cell was
+// `max(mapW / 4, 48)` - a fraction of the MAP, so it grew with the world and
+// made the cull coarser the bigger the map got. A 320-unit district got 80; a
+// 2048-unit map got 512, merged 1,100 objects into FOUR batches, and lost
+// +3.20 ms (29% of the frame) where the same feature wins 0.46 ms on the
+// district (docs/engine-performance-on-a-second-map.md).
+//
+// The dominant mechanism was NOT the frustum widening #269 predicted: it was
+// the DRAW-DISTANCE test, which renderStaticBatches applies once per batch to
+// the nearest point of the member-centre box. large-terrain's cones vanish at
+// 60 units and were held drawn by a 512-unit box. Both widen with the cell, so
+// bounding the cell fixes both.
+//
+// The cell is now never wider than the draw distance its members share.
+// drawDistance is ALREADY a group key, so it is a per-group length the scene
+// states about itself rather than a constant anyone tuned - the grid is per
+// draw-distance class and classes cannot merge. The Motor District is
+// unchanged BY CONSTRUCTION (min(80, 145) is still 80): 65 objects in 48
+// batches, identical counters, identical captures.
+//
+// Measured in PCSX2, counts and pixels only - the milliseconds are the
+// console's. large-terrain per frame, batching off / before / after:
+// triangles 10,297 / 12,392 / 10,297; packet flushes 21 / 33 / 21; VU1
+// packages 320 / 825 / 320; objects batched - / 1,100 in 4 / 1,085 in 198.
+// The counts return EXACTLY to the unbatched numbers while 1,085 objects still
+// merge. The pixel row is the finding that outranks the timing: the old cell
+// drew 400 pixels of cones the unbatched scene culls, and the bounded cell is
+// byte-identical to no batching at all (three captures per arm, repeats
+// byte-identical, all ELFs hashed and distinct).
+//
+// A tightness/occupancy test was considered and rejected with a number: the
+// district's win comes from merging props that are SPARSE in their cell (three
+// boxes of span 12 in an 80-unit cell fill 6.7%), so any ratio strict enough to
+// catch a 512-unit cell also discards the batches that pay.
+//
+// The uncovered case is stated rather than hidden: drawDistance 0 states no
+// length and keeps the base cell. Measured on an adversarial large-terrain with
+// every cut-off zeroed, batching there is a TRADE (+23.5% triangles, -43%
+// packet flushes), not the dominated loss the draw-distance case was - it was
+// worse on both axes at once. A new second "Static batching:" log line reports
+// eligible/solo/base cell/widest cell so the grouping decision is readable from
+// the game's own log. No project format change (kFormatVersion stays 54), no
+// engine change, no VU1 change. PATCH.
+//
+// 1.102.1: THE VU1 PACKAGE SIZE IS AT ITS CEILING, AND THE CEILING IS 81
+// (docs/render-submission-attribution.md, "Round three"). Almost every term
+// left in the static pipeline's `dispatch` bracket is per-package, the garage
+// frame is cut into 572.5 packages, and static geometry ships as 72-vertex
+// strip runs that ARE the packages - so "make the package bigger" is the
+// obvious next attack. It does not exist.
+//
+// setDoubleBuffer splits VU1 data memory 22..944 in two for 460 quadwords a
+// half; getMaxVertCount takes 9 for the GIF tag block and divides the
+// remaining 451 by elementsPerVertex + reglistCount - what the EE uploads plus
+// what the program writes. The textured, per-vertex-coloured class the scene
+// runs gets 451/6 = 75, rounded down to 72 by the multiple-of-9 step. So 72 is
+// 96% of its class's raw figure and 89% of the 81 that the WHOLE of VU1 data
+// memory allows at six quadwords per vertex; 144 - the number that would halve
+// the package count - wants 1 770 of 1 024 quadwords, because the double
+// buffer is exactly the factor of two that makes a doubling impossible.
+//
+// Three things this also settles. The per-class pin costs this frame nothing:
+// every class in it derives exactly 72, by two independent routes (cull_tc /
+// cull_tce with per-vertex colours, cull_td with a single colour), so a
+// per-class run length would buy nothing. Moving the clip plane table down
+// into the per-mesh constants is worth exactly zero, since the double buffer
+// pays twice below it and gains twice above it. And the packages really are
+// full runs - 70.75 GS primitives each against 70 for a full 72-vertex strip
+// run and 24 for a list package - so the count is vertices/72 with no short
+// tails to reclaim.
+//
+// NO CODE CHANGED. The two costed ways past 72 are in the backlog: reclaim the
+// clipping scratch for 81 (-11.1% of the packages, and the non-obvious part is
+// that a clip buffer's layout is dynamic, leaving 162 spare quadwords in its
+// own half), or relax the multiple-of-9 rounding for 75 (-4.0%, free in the
+// engine and a full re-bake outside it). Verified by a native harness that
+// runs both functions verbatim and by re-reading the previous round's per-frame
+// counters, both archived in
+// examples/vehicle-playground/authoring/package-ceiling-2026-09-16/. No project
+// format change (kFormatVersion stays 54), no codegen change, no VU1 change.
+//
+// 1.102.0: THE WHEEL BATCH STOPS RE-BAKING RIGS THAT DID NOT MOVE, AND STOPS
+// LYING TO TWO CACHES ABOUT IT (docs/wheel-rebake-skip.md). 1.99.0's
+// attribution named renderVehicleWheels as the largest single item left in a
+// Motor District frame - 2.962 ms, a fifth of render submission, of which
+// 1.970 is the generated game rebuilding every wheel vertex on the EE. It then
+// handed the bag bboxVersion = ++g_bboxStamp unconditionally, which by
+// construction discards the package bounding boxes AND the retained command
+// blocks for those packages, every frame, including the frames it had just
+// rebuilt byte-identical vertices.
+//
+// Three things, and the one the backlog did not name turned out to matter most
+// for traffic that MOVES. (1) The batch is addressed by SLOT instead of being
+// cleared and refilled: car k owns its own span, an exact 9-float signature
+// plus the source-part address decides whether it moved, and an unchanged rig
+// is not touched. No hash - a collision here is a wheel frozen one frame behind
+// its car. (2) The stamp is sticky: bboxVersion is bumped only when a slot was
+// rewritten, the car count changed, or the buffer moved. All three are
+// required, because StapipBagBBoxesCacher keys on (vertex pointer, version) and
+// stores no count. (3) The body attitude, its six sines and cosines, the local
+// up and the steer basis were recomputed PER WHEEL; they are per car and per
+// steer pair. Counted: 176 transcendental calls per car per frame become 22, an
+// 8x cut paid by every car that is re-baked, moving or not - and rotated() is
+// now rotatedBy(v, rotTrigOf(rotDeg)) so the lifted arithmetic is
+// BIT-IDENTICAL, not merely equivalent.
+//
+// Verified natively before any emulator: 200 000 random rigs bake
+// BIT-IDENTICALLY through the hoisted path, and 4 000 scripted frames plus
+// 60 000 frames of participant churn hold zero stale buffers against a
+// full-rebake oracle. The churn harness was mutation-tested and its first
+// version passed with the slot-trim rule DELETED - the adversarial schedule
+// that turns that mutant into 999 stale frames out of 1 000 is committed
+// beside it. No millisecond is claimed here: the two levers have opposite
+// dependence on traffic (the skip pays only for parked cars, the hoist only
+// for re-baked ones), so they are reported as counts, and the frame time is
+// being taken on the physical console.
+//
+// NOT MERGEABLE AS IT STANDS, and the reason is in the page. On the console the
+// garage wins -1.838 / -1.810 ms but the OUTER poses regress +0.408 / +0.549,
+// entirely inside `bounds`, in a pose where WHEELBAKE reports cars=0 batches=0
+// - the wheel bag is never submitted there, under release as well as debug. So
+// it is not the bag's own bounds work; the only state crossing the pose
+// boundary is the package-bbox cacher's. The hypothesis is the EE data cache: a
+// fresh stamp recomputes boxes from a vertex array still hot, a sticky one
+// reads boxes hundreds of frames cold, and PCSX2 reads those poses -0.07, a
+// WIN, where the console reads +0.42, a loss - a sign disagreement, which is
+// what a cache effect looks like. TYRA_WHEEL_STICKY_BBOX (default 1) exists to
+// price that lever alone: at 0 it keeps the skip and the hoist and restores the
+// unconditional bump, so three arms separate the three levers.
+//
+// PCSX2, parked fixture, two arms differing in ONE generated file: triangles
+// (40502/41176/16386/16720), packet flushes, uploads, re-uploads and the
+// retained-command TOTALS are identical to the unit, and twelve frozen-camera
+// captures - three per pose, two day poses, two arms - hash to exactly two
+// values. So the change adds NOTHING to submission, and a triangle-count
+// difference between two arms is a stale fixture rather than this code.
+// Counters: parked, 0 of 900 car-submits rebuild and 0 stamp once the
+// suspension settles; driven, 300 of 300 frames rebuild, all four wheels,
+// which is the skip correctly not firing. Retained hit rate 67.9% -> 74.3%
+// at the garage, unchanged in the outer pose because it draws no wheel bag.
+// A new opt-in TYRA_WHEEL_REBUILD_VERIFY runs the pre-change arithmetic as an
+// oracle INSIDE the game: 5085 car-checks over 4500 frames of real driving,
+// 0 stale wheels.
+//
+// benchmark-district.py grew --keep-routes, because the benchmark PARKS the
+// traffic and a skip-when-unchanged change measured on parked traffic flatters
+// itself absolutely. Both fixtures are quoted, and the district has only five
+// vehicles of which two are routed, so even the moving one is a mixed
+// population. New opt-in counters WHEELBAKE (TYRA_WHEEL_REBUILD_REPORT,
+// default 0, in the GENERATED game) report cars/wheels rebuilt against skipped
+// and how many submits stamped. No project format change (kFormatVersion stays
+// 54), no engine change, no VU1 change, and nothing new in a shipped ELF.
+// MINOR.
+//
+// 1.100.0: THE `bounds` BUCKET, ATTRIBUTED AND THEN CUT BY 17% - AND THE
+// SUSPECT THE LAST ROUND NOMINATED IS INNOCENT (docs/render-submission-
+// attribution.md, "Round two"). This is the third attempt at this bucket. The
+// first two were plausible, careful and worth 2% between them: a branchless
+// `CoreBBox::frustumCheckAABB` (4.132 -> 4.073 ms on the console) and a
+// compacted `partBounds` stride (4.073 -> 4.051). So this round measured
+// before it optimised, and the measurement contradicted the page that ordered
+// it.
+//
+// `TYRA_STAPIP_ATTRIB` (still default 0, still the explicit gate rather than
+// `#ifndef NDEBUG`, which no game build defines) now splits `bounds` five ways
+// and the "package creation and classification" residual inside `dispatch`,
+// plus the bbox cacher's own hit/recalculate/fresh/probe counters and its
+// per-frame expiry scan - which lives outside `render()` and therefore lands in
+// `finish`, which is why nothing had ever measured it. Both levels close:
+// residuals of 0.050 of 2.055 and 0.023 of 5.835 on garage day, in all four
+// poses of every arm.
+//
+// THE CACHER IS NOT THE COST. All 226.5 lookups are 0.118 ms (0.52 us each),
+// the 256-bucket index runs 1.44 probes per lookup, the expiry scan is 0.011 ms
+// and NOTHING allocates - zero fresh entries in every pose. What costs 0.618 ms
+// is 10.5 forced `recalculate()` calls at 58.8 us, i.e. callers bumping
+// `bboxVersion` on geometry they could declare unchanged; that is the
+// `renderVehicleWheels` finding priced from the other side and it belongs to
+// the generated game, not here. And the package box's NAME is half wrong: 53.5
+// of the submitted bags take the wholly-visible route and are never classified
+// at all, while the 1.401 ms that IS classification is honest 6-plus-8-plane
+// arithmetic over 572.5 packages with a 2.31-part merge walk.
+//
+// WHAT WAS FIXED is the thing that looked like three stores.
+// `StaPipQBufferRenderer::setMaxVertCount` fans one u32 out to all 32 qbuffers
+// and the clipper once per bag - 7 474 out-of-line stores per garage-day frame
+// to write the number already there, because the package size is a property of
+// the PROGRAM CLASS and consecutive bags share one. It returns early when the
+// value has not moved; `allocateOnUse()` resets the cached value to 0 and
+// StaPipQBuffer's constructor initialises its own copy, because the one thing
+// the early-out depends on is that the cache cannot outlive the buffers.
+// Shipped configuration, counters compiled out, two boots per arm: `bounds`
+// 1.933 -> 1.593 (garage day), 2.370 -> 1.996 (garage night), 0.950 -> 0.699
+// (outer day), 1.332 -> 1.039 (outer night) - -0.25 to -0.37 ms, ~1.4 us per
+// bag, against a same-ELF repeatability of 0.000-0.004 ms. `prepare`,
+// `dispatch`, `finish` and every count are unchanged and TWELVE captures across
+// both day poses and both arms are byte-identical. These hooks, unlike the last
+// round's, are measurable (+0.122 ms on `bounds`), so the control arm is run
+// every time and the children are quoted net of it. PCSX2 only; it models no EE
+// data cache, so the shares travel to hardware and the milliseconds do not. No
+// project format change (kFormatVersion stays 54), no codegen change, no VU1
+// change, and the shipped ELF carries none of the counters. MINOR.
+
+// 1.99.0: THE 7.5 ms THAT WAS IN NO BUCKET, ATTRIBUTED - AND THE FIRST THING
+// IT SAYS IS THAT THE QUESTION WAS MIS-POSED (docs/render-submission-
+// attribution.md). Five rounds of Motor District work quoted `submit` against
+// `bounds` + `prepare` + `dispatch` and called the difference unmeasured
+// pipeline overhead. It is not the same quantity: `submit` is the whole
+// `beginFrame()`..`endFrame()` block - the post-process passes, the 2D HUD and
+// every line of the generated game's own renderScene - while the three
+// brackets only ever covered `StaPipCore::render`. Comparing them compares a
+// frame to a function.
+//
+// Two opt-in instruments, both defaulting to OFF, now close it to zero.
+// `TYRA_STAPIP_ATTRIB` (vendor/tyra/.../static/core/stapip_attrib.hpp) brackets
+// the WHOLE of StaPipCore::render plus a six-way split of `prepare` and the
+// GIF wait that lived inside no bracket at all;
+// `instrument-frame-cost.py --attribute` brackets every renderScene phase, the
+// object loop's tests against its submits, and the post-fx and HUD blocks, into
+// `bin/frame-attrib.csv`. `#ifndef NDEBUG` is NOT the gate - a game build never
+// defines NDEBUG, which is how a VRAM census once shipped live at ~1 ms a frame
+// - so both are explicit macros at 0.
+//
+// PCSX2, release profile, garage day, 240 warmed rows: submit 14.592 ms, and
+// the four phase levels add up with a residual of 0.000. Three of the listed
+// suspects are now falsified: the per-object visibility/distance/LOD/split-band
+// tests the whole Objects loop runs are 0.149 ms (3% of that loop), the thirteen
+// TYRA_ASSERTs that a release game really does execute are 0.072 ms, and
+// ensureProgramSet is 0.010. What the numbers DID name: renderVehicleWheels at
+// 2.983 ms (a fifth of render submission, and it rebakes every wheel vertex on
+// the EE every frame), sendObjectData at 46% of `prepare`, and - only at night -
+// 1.57 ms of garage-night spent in the two pipeline drains a non-REPEAT texture
+// wrap costs per bag. The hooks themselves are not measurable: the instrumented
+// build reads 0.125 ms FASTER than the control against a 0.056 ms same-ELF
+// repeatability. Every number here is the emulator, which models no EE data
+// cache; the shares travel to hardware and the milliseconds do not. No project
+// format change (kFormatVersion stays 54), no codegen change, no VU1 change and
+// nothing new in a shipped ELF. MINOR.
+
+// 1.98.0: A DRAW DISTANCE NO LONGER KEEPS AN OBJECT OUT OF A STATIC BATCH
+// (docs/model-pipeline.md, "Draw distance on a batch"). This started as a
+// census rather than an idea, and the census is the point: on the Motor
+// District, 142 authored objects, 111 of them batchable shapes, exactly 27
+// carried batchStatic = 1 - all primitives - and NOT ONE of the 70 imported
+// models, the entire population #269's compact model batching exists to
+// serve. Every one of those models carries drawDistance = 145, and
+// `if (o.drawDistance != 0.0f) return false;` was rejecting them wholesale.
+// (The suspected culprit, `dynamicLighting`, rejects nothing at all here - no
+// object in the scene sets it, matching the +0.000 ms cull_td probe in
+// docs/vu1-and-dma-cache-cost.md. The ~61% of colour-program triangles that
+// have a light picked get it from StaPipCore::render's RUNTIME per-bag pick,
+// which is a different mechanism and never consults batching eligibility.)
+// The cut-off moves from the member to the batch: it joins the group key
+// beside the loaded Texture* and the coarse world cell, so every member of a
+// batch shares one number, and renderStaticBatches tests it once per batch
+// against the nearest point of the box over its members' POSITIONS - the same
+// centres beyondDrawDistance() measures on the solo path - rebuilt whenever
+// the batch is, demotion included. It is deliberately NOT routed through the
+// `shown` snapshot: a cut-off crossed while the player drives is a per-frame
+// flip, and re-baking a batch every frame costs far more than the submit it
+// saves. The trade, stated plainly: a member can outlive its own draw
+// distance by at most the spread of its batch (bounded by the grouping cell)
+// and can NEVER disappear early - over-draw costs fill, an early pop is a
+// visible bug, and these frames are bag-bound. The half-cell footprint guard
+// that protects frustum culling from the widened-bounds regression is
+// untouched; no cell was resized. Regenerating the district moves
+// batchStatic = 1 from 27 objects to 87, and the running game from 18 objects
+// in 8 batches to 65 in 48.
+//
+// THE BAKED TRIANGLE STRIP JOINS THE KEY TOO, and finding out why is what the
+// PCSX2 A/B was for. rebuildStaticBatch re-emitted every member from
+// GameModelPart::verts - the LIST twin - so batching a stripped model undid
+// its strip bake. Measured in the garage-day pose, that alone made the whole
+// feature a net LOSS: +3.3% vertices per frame and +1.7% packet flushes,
+// with `strip` packages down 3 900 per 50-frame window as the fingerprint.
+// (trianglesCull FELL 5.8% at the same time and means nothing: a strip counts
+// size-2 primitives including its degenerates, a list size/3. Read verts.)
+// A baked strip is already chopped into self-contained runs of exactly
+// stripRun vertices, so members sharing a run length concatenate and
+// pinPackageSize pins the batch to that number - every package is then
+// exactly one run of one member, the same contract a solo stripped bag keeps.
+// stripRun is therefore part of the group key, and the strip/list decision is
+// all-or-nothing per batch: one array carries one topology, and emitting one
+// member's strip beside another's list would hand the strip to a list walk.
+//
+// THE REACHING LAMP JOINS THE KEY FOR THE SAME REASON, and this half is a
+// correctness fix rather than a saving. A bag gets ONE dynamic light slot,
+// picked by StaPipCore::render from the bag's world bounding sphere, so
+// merging a lamp-lit prop with an unlit one shades both from whatever the
+// merged sphere picks. Letting the models batch put 7 of 49 batches in that
+// state (a streetlight under its own lamp merged with one under nothing -
+// same texture, same cell); keying on the lamp takes it to 0 of 50, at a cost
+// of six objects that then fall into singleton groups and go back to the solo
+// path (71 in 49 without the key, 65 in 48 with it and the strip key).
+// The key is
+// centre-vs-authored-radius, nearest wins, -1 for none: it only has to
+// separate "a lamp reaches this" from "nothing does", and in daylight every
+// lamp is off so every member agrees anyway.
+//
+// WHAT IT MEASURES, STATED PLAINLY: on the two garage poses this does NOT
+// pay yet. Keeping the strips takes cull packages 0.6% BELOW the baseline,
+// but packet flushes - bags - go UP by two per frame (118 -> 120 day,
+// 140 -> 142 night) and vertices by 1.2%. Merging 65 objects into 48 batches
+// is fewer bags in total and yet more bags SUBMITTED, because a batch's
+// bounds are the union of its members and pass the frustum where the members
+// individually would not. That is the widened-bounds effect the cross-
+// district experiment found, at a smaller scale inside the existing 80-unit
+// cell. The cell is deliberately not changed here; a finer one is the next
+// lever and needs its own measurement. Pixels: each arm repeats
+// byte-identically in daylight, and control-vs-change differs in ~0.4% of
+// pixels confined to sub-pixel-thin poles and tree trunks - the strip/list
+// rasterisation edge, not shading. At night, where a merged bag's single
+// light pick would show, 58 pixels exceed a delta of 10 and no light pool
+// moves. No project format change (kFormatVersion stays 54), no engine
+// change, no VU1 change. MINOR.
+//
+// 1.97.0: RETAINED STATIC COMMAND DATA (docs/retained-static-commands.md). A
+// wholly visible static bag hands VU1 the same DMA/VIF command block every
+// frame - a CNT tag with the scale quadword and the prim GIFtag, then one DMA
+// REF per vertex stream - and the same fifteen quadwords of VU1 clipping
+// constants. Both are now CAPTURED out of the packet the ordinary builders
+// just wrote them into, and replayed with a memcpy; only the MVP, the picked
+// dynamic light and the frustum classification stay per-frame. Capturing
+// rather than re-deriving is what makes the replay byte-identical by
+// construction, for every program class and for a game-supplied program too.
+// The retained storage is EE-private and never referenced by DMA - its REF
+// tags name the bag's own arrays exactly as before - so the packet's lifetime
+// contract is literally unchanged and the double-buffered qbuffer slot pool is
+// untouched (a copied or clip-routed buffer never gets a block). Every input
+// the block encodes is in the key: stream pointers, count, package size,
+// bboxVersion, the resolved program, the prim state, the Z scale and the
+// single-colour/strip flags; a teardown or a clipping-mode switch clears the
+// cache outright. Bounded at 128 KB of EE RAM with 250-frame expiry.
+// TYRA_STAPIP_RETAINED_COMMANDS = 0 restores the previous construction exactly,
+// which is the A/B control arm. Engine only: no project format change
+// (kFormatVersion stays 54), no codegen change, no VU1 instruction change, and
+// VU1 packages / submitted vertices / packet flushes are identical by
+// construction. Measured in PCSX2 on the Motor District benchmark fixture,
+// three boots per arm: EIGHTEEN --capture-frame images hash to one value, and
+// the only unsaturated pose (garage day - the other three sit on a vsync
+// division in both arms) goes 27.889 -> 30.769 median FPS, 35.86 -> 32.50 ms,
+// -3.36 ms, against a 0.222 FPS control spread and a 0.001 FPS same-build
+// repeatability. 76% of the frame's package command blocks replay
+// (retained=772 rebuilt=246, cache 106 of 128 KB). PCSX2 emulates no EE data
+// cache and this change trades computing bytes for reading them out of a cold
+// arena, so that is an UPPER BOUND on the hardware saving. MINOR.
+//
+// 1.96.0: ROADS AND TERRAIN reach VU1 as triangle strips too, which is where
+// the geometry actually is - the Motor District is 93 150 road vertices in 90
+// chunks against 13 176 in all its models. Both are GRIDS, and a grid strips
+// properly: the measured fixtures come out at 0.355-0.374x where the flat-
+// shaded baked models only reached 0.732x (a flat-shaded strip cannot cross a
+// face boundary; a grid has none to cross). No general stripifier is involved
+// and none would help - the ribbon's rows ARE the strip, and the road half has
+// to run on the EE at scene load, where meshstrip's weld hash and six-
+// orientation walk could not. Two directions, because the road's own planar
+// reduction changes which axis is long: dense spans strip ACROSS the road,
+// collapsed full-width spans strip ALONG it (taken laterally a collapsed span
+// is exactly break-even and triples the GS primitives). The runtime contract
+// is the models': StaPipBag::stripped with packageSize pinned to the 72-vertex
+// run, so the packages ARE the runs. Terrain strips only with a terrain
+// MATERIAL - the untextured checker is a per-quad colour and a strip vertex
+// belongs to two quads. roadgen.cpp and its generated buildRoads twin move
+// together and verify-road-twins.py now compares the strip output vertex for
+// vertex, chunk for chunk, plus an exact triangle-set equality against the
+// list. No project format change, so kFormatVersion stays 54 and there is no
+// migration. MINOR.
+//
+// 1.95.0: static models ship as TRIANGLE STRIPS beside their triangle list,
+// and the static pipeline draws the strip (StaPipBag::stripped,
+// docs/model-pipeline.md "Triangle strips"). The EE's whole per-frame bill -
+// bounds, per-bag preparation, package creation and classification, packet
+// construction, the send bracket - scales with the VU1 package count, which
+// scales with the vertex count, so this is an EE saving first. Zero VU1
+// instructions: the cull programs' per-vertex ADC judgement was already the
+// right one for a strip, and micro memory is unchanged at 1862 of 2042 words.
+// The district's eleven models go 13 176 -> 9 648 vertices; the garage-day view
+// submits 76 951 -> 68 235 vertices a frame in 56 625 -> 50 525 VU1 packages
+// (PCSX2, one engine, one editor, the .tmdl the only knob). `tmdl::kVersion`
+// 3 -> 4, additive and read as a range by the loader, so an older .tmdl still
+// loads; the PROJECT format is untouched, so kFormatVersion stays 54 and there
+// is no migration. Pixel-compared in PCSX2 against the same fixture without
+// the strips. MINOR.
+//
+// 1.94.1: the spot-light gate again, in the shape a console measurement asked
+// for - two whole cull loops picked once per batch (the lit one byte-for-byte
+// the original body) and a duplicated clamp in the clip pair, so a LIT mesh
+// pays 0 and 2 cycles a triangle instead of 11 and 7.
+//
+// 1.94.0: the VU1 colour programs branch over the per-vertex spot-light
+// arithmetic when no dynamic light reaches the mesh (VU1_OPTIONS_ADDR.y is
+// three-state now). No project format change, and no image change either way.
+//
+// 1.93.0: explicit resident static submission batches in generated object draws.
+// No project format change.
+//
+// 1.92.0: native hardware timeline and detailed static submission scopes.
+// No project format change.
+//
+// 1.91.0: bounded physical PS2 hardware timelines and offline HTML/Perfetto export.
+// No project format change.
+//
+// 1.90.0: configurable per-channel devkit cadence and indexed engine bounds
+// lookup. Format 54 adds cadence fields; the bounds cache API is unchanged.
+//
+// 1.89.1: lean Motor District vehicle assets and isolated frame-cost measurement.
+// No engine behavior or project format change.
+//
+// 1.89.0: merge the vehicle/road branch with main's adaptive plain BLSS budget
+// and spatial static-part batching. The tree now carries features neither
+// parent had alone, so the MINOR goes above both rather than picking a side.
+// Format 52 -> 53: main's blssAdaptive arrives as v53 here, because this
+// branch had already published a different v47..v52 (see kFormatVersion).
+//
+// 1.88.0: plain BLSS can adapt each scene between native and reduced 3D
+// resolution from sustained whole-frame timing. Hysteresis, scene warm-up and
+// allocation-free switches avoid oscillation, streaming false positives and GS
+// texture eviction. While reduced, the generated runtime also budgets optional
+// overdraw: distant particles, light shafts, emission/reflection shells and
+// dynamic environment-map refreshes become cheaper. Physical PS2 A/B on
+// upscaler-lab measured 16.1 -> 44.0 FPS and 60.76 -> 22.06 ms in the same
+// camera pose; scene CPU stayed 5.67 -> 5.44 ms. ProjectSettings gains the
+// opt-in blssAdaptive field, written only when true. kFormatVersion 46 -> 47
+// on main, renumbered to 53 here; additive, no migration step. MINOR.
+//
+// 1.87.0: static batching accepts compact immutable imported-model parts,
+// grouped by loaded texture and coarse world cell. Singleton groups, large
+// footprints, mesh-LOD/impostor models and special runtime draw paths remain
+// solo, preserving the spatial culling that an earlier material-only prototype
+// lost. Five PCSX2 debug captures of three visible repeated props measured mean
+// Total 21.970 -> 21.608 ms and Objects 15.081 -> 13.839 ms; an off-screen group
+// measured Total 23.256 -> 21.494 ms. A separate 30-box atlas fixture grouped
+// distinct materials sharing one loaded texture into two batches: five PCSX2
+// captures measured Total 4.58 -> 2.38 ms and model work 2.39 -> 0.44 ms.
+// On physical PS2, the three-crate median was Total 34.317 -> 34.166 ms and
+// direct crate work 0.853 -> 0.714 ms. The 30-box atlas stress test measured
+// median Total 6.468 -> 3.281 ms and object work 4.063 -> 0.873 ms; its GS
+// capture was correct. MINOR; no format change.
+//
+// 1.86.5: Integrate vehicle wheel/capture fixes and planar road reduction
+// with main static submission improvements and baked shadow decals.
+// Combined format 52 preserves both additive field sets.
+//
+// 1.86.3: Reuse per-definition wheel attributes, reject off-screen wheel rigs,
+// and retain the shared reflection capture basis between updates. Extend road
+// reduction to safe planar slopes. No serialized field changes.
+//
+// 1.86.2: Combine Motor District road packing with the static-model performance
+// branch: conservative whole-model rejection and cached cross-material
+// transforms. Retain the vehicle texture, reflection and handling fixes.
+// No additional project-format change.
+//
+// 1.86.4: StaPip builds per-bag uniforms at the head of the first geometry
+// DMA chain instead of launching and waiting for a separate uniform chain.
+// The packet is constructed natively from the beginning (no byte append and no
+// DMA NEXT), retains the leading FLUSHE barrier, and uses one END tag. Five
+// settled physical-Aster captures moved median DMA submit 3.034 -> 2.029 ms,
+// Dispatch 16.827 -> 15.544 ms and VU1 wait 5.847 -> 5.130 ms; Total remained
+// GS-bound at about 34.3 ms. The real console ran beyond 2100 frames and its GS
+// capture was correct; PCSX2 and the split/static-batch example also passed.
+// PATCH; no format change.
+//
+// 1.86.3: a wholly visible StaPip bag feeds contiguous source ranges straight
+// to qbuffers instead of constructing unused package descriptors after its
+// bag-level box has already classified all geometry as visible. Partial and EE
+// clipping paths are unchanged. Physical Aster medians were neutral (Total
+// 34.349 -> 34.342 ms, Objects 25.051 -> 24.951 ms) across five settled
+// captures; the candidate ran beyond 3360 frames. A one-kick DMA NEXT
+// experiment was rejected: it passed PCSX2 but froze a physical PS2 on the
+// first gameplay frame. PATCH; no format change.
+//
+// 1.86.2: consecutive StaPip bags sharing one model transform and camera reuse
+// their MVP and object-space frustum planes. The frame-local cache compares
+// matrix values, so in-place motion and portal/split cameras stay exact. Six
+// alternating PCSX2 debug boots on portal/mirror-free Aster measured median
+// serialized Total 21.322 -> 19.172 ms and Objects 14.102 -> 12.425 ms; the
+// directly attributed Prepare counter moved only 1.375 -> 1.341 ms, so real
+// hardware still owes the final size of the win. PATCH; no format change.
+//
+// 1.86.1: multi-part static models cache one conservative whole-object box and
+// reject against it before their material parts enter StaPip in the main or a
+// portal view. Aster's settled PCSX2 entrance pass measured Objects 15.011 ->
+// 13.723 ms and Bounds 1.971 -> 1.846 ms; the ordinary scene read 18.67 ->
+// 18.03 ms. Material-only model batching was tried and rejected: widened batch
+// bounds cost more fill than the submits saved. MINOR: generated games gain a
+// new rendering optimization; project format is unchanged.
+//
+// 1.86.0 (baked shadow decals, docs/shadows.md): a fourth *Dynamic shadow*
+// mode, and the only one that is not a runtime shadow at all. The host traces
+// each marked caster's shadow into a small tile, packs the tiles into shared
+// 256x256 atlas pages and projects them onto the receivers with the existing
+// decalproj machinery - so the console draws ordinary static triangles and
+// pays one blended pass, with no silhouette slot and no per-frame render.
+//
+// The load-bearing decision is that the atlas is not a VRAM optimisation but
+// the thing that makes the feature affordable at all: a bag is one texture, so
+// one shared page is what lets every shadow in a layer merge into ONE submit.
+// Unmerged they would cost ~1 ms of EE each (docs/prefabs.md), which is the
+// difference between "a few hero objects" and "dozens". Folding the atlas rect
+// costs nothing at run time either - decalproj clips to the projector's unit
+// cube, so its UVs are in [0,1] by construction and the rect is an affine
+// remap at bake time, unlike the runtime multiply texatlas needs.
+//
+// Two interlocks are code, not prose: a receiver that already carries a GI
+// lightmap is left out of the projection (the sun shadow is in the lightmap
+// there, and a decal on top would darken it twice), and a caster that can move
+// is refused by name rather than silently baked. kFormatVersion 45 -> 46,
+// purely additive - every new key is written only when it is not the default,
+// so an untouched project resaves byte for byte.
+//
+// MINOR above 1.85.2, the 1.10.0 and 1.84.0 precedent: this branch grew from
+// 1.81.0 and numbered itself 1.82.0 while main went on to 1.85.2, so the two
+// disagreed about what 1.82..1.85 mean. A number strictly greater than either
+// parent is the only one that keeps "which editor wrote this file" answerable.
+// The FORMAT collided the same way and is settled the same way - both lines
+// had claimed v45 for different fields, so main's published v45 (invisible box
+// collisions, scene-local editorGroup) keeps its number and this half
+// renumbers to v46. The later arrival renumbers, always.
+//
+
+
+// 1.85.2: the render cost table sorts. It listed phases first and object
+// draws after them, each group dearest first, which answers "what is the most
+// expensive thing in this frame" and nothing else - finding one named object
+// among eighty rows, or the rows a change actually moved, was a scroll and a
+// squint. Every column header is now a sort: by name (case-insensitive), by ms
+// or by delta, ascending or descending, and a third click clears it and puts
+// the original grouping back, so the reading nobody asked to reorder is still
+// the one the table opens with. A row the baseline does not carry has no
+// delta at all rather than a zero, so it sorts last in both directions instead
+// of pretending to be unchanged. Label and delta are resolved once, before the
+// sort, because both are what the table shows and the delta is a baseline
+// lookup that a comparator would otherwise repeat on every comparison. PATCH.
+//
+// 1.85.1: the HUD's memory reading is a reading again. Reported as "the
+// showcase says MEM 32.0/32 on the console", with two details that turned out
+// to be the same bug: the Debugger's Measure now appeared to do nothing, and
+// it used to work. PCSX2 shows it too, so it was never about hardware.
+//
+// The engine finds free RAM the only way this allocator allows - claim every
+// free block until malloc refuses, sum, give it all back. The search for each
+// block started at the TOP BIT of size_t (malloc(2 GB) on the EE, eight
+// refusals before the first success), then freed the block that worked,
+// refined the size upward, and allocated the refined size AGAIN - and that
+// re-allocation can fail where the first succeeded, because the refinement's
+// own churn moved the heap. Its recovery clears the LOWEST SET BIT of the
+// size, which for a single-bit size - the everyday case - is not a smaller
+// size, it is ZERO. So the block search returned "nothing", the sum stopped at
+// the first block, and 0 free printed as 32.0/32 used. Measured on the
+// showcase mid-run: malloc(16 MB) succeeded at the same instant the probe
+// reported 0, and with the search logged it walks 13.5 MB + 64 KB + 10 KB +
+// ... = 13.6 MB free, which is the honest number.
+//
+// The search now starts at the console's 32 MB and never frees the block that
+// worked: it refines by keeping each better allocation and dropping the
+// previous one, which removes the re-allocation and its bit-clearing recovery
+// entirely. The sum is clamped to 32 MB, because a probe claiming more than
+// the machine has is a bug report rather than a reading. And the Debugger
+// separates "measured 0" from "not measured yet" - showing the second for the
+// first is what made a working button look dead. PATCH.
+//
+// 1.85.0 (recordings carry EVENTS, docs/input-replay.md): a .tyrarep was
+// input plus a position fingerprint, and the fingerprint says only where the
+// player ENDED UP - so every report started with archaeology. "Something threw
+// me across the room" plus a position delta names no cause; it took a log line
+// added by hand, two PCSX2 runs and a frame-by-frame dump to find the last one
+// (1.84.2). The frames that matter now also carry what the GAME did on them -
+// grabbed, dropped, threw, lost mid-carry, a walker or a body crossing a
+// portal - five bytes on the frames that have one, capped at eight per frame,
+// written last in the record so every earlier field keeps its offset. Two
+// things fall out. `--replay-dump` prints them without running anything, so a
+// session is readable in a second rather than a boot. And a REPLAY compares
+// them: a mismatch reports "event mismatch at frame 390: 0 raised, 1 expected"
+// with both lists, which is a debugging sentence where "pos differs by 0.31"
+// is a puzzle. Format v1 -> v2; v1 files still open and simply carry no
+// events, because a recording is worth keeping next to the bug it reproduces
+// and that outlives a format revision. The kinds are the format - appended to,
+// never renumbered - and an unknown kind prints as its number rather than
+// being swallowed. MINOR: the capability is new, nothing changes for a project
+// that never records.
+//
+// 1.84.2: picking an object up no longer launches the player across the room.
+// The report was "throw the ball into the cellar, pick it up down there, and
+// some unknown force moves me into the corner"; the second recording
+// (portal-ball-new.tyrarep, 1352 frames, replays with 0 divergences) shows it
+// exactly - USE at frame 390, then seventeen frames of 0.75 of a unit each,
+// dead straight, stick CENTRED, ending against the back wall, and again at
+// 712. 0.75 is not a coincidence: it is applyCarryWhisker's `need`, 0.55 plus
+// the weight's 0.2 radius. The whisker pushes the walker back by need - d
+// whenever the carried object does not fit in front of the face, and a swept
+// sphere that STARTS inside geometry returns d = 0 - which is what a room
+// modelled as one collision mesh does to a probe standing in it
+// (docs/backlog.md, "Only the player and rigid bodies have mesh collision").
+// So the push fired every frame, at full strength, whatever the player did.
+// It is capped at the step actually taken now: the whisker blocks a step, it
+// never adds one, so standing still takes back nothing. The root gap -
+// sweepSphere collides against the whole-mesh BOX while the walker gets
+// triangles - is unchanged and still in the backlog.
+// Verified on that recording: before the cap it replays with 0
+// divergences (the bug reproduces), after it the run diverges at frame
+// 391 and nowhere earlier - the player stays at (-1.44 -10.2 -15.01)
+// where the grab happened, against the recording's (-1.14 -10.2 -15.70),
+// which is the first slid step. Also in this commit: --replay-dump, the
+// verb that reads a recording without running it (docs/input-replay.md),
+// and the Pick lines now print the EYE - the simple FPP template never
+// fills players[0], so that column was a constant -12. PATCH.
+//
+// 1.84.1: the game logs picking an object up, dropping it, throwing it and
+// losing it mid-carry (`Pick: ...` in bin/log.txt, beside the `Portal: ...`
+// lines that were already there). Asked for while chasing "throw the ball
+// through the portal, pick it up in the cellar, and some force moves me into
+// the corner": the recording replays that session exactly, the portal hops
+// are in the log - and nothing said WHEN the grab happened, so the one thing
+// needed to tie the two together was missing. docs/devkit.md lists them.
+// PATCH: a debugging aid, no behaviour change. The raw-string trap bit once
+// on the way in - a ')' immediately before a '"' closes the literal the whole
+// generated game lives in, so log text never ends in a parenthesis.
+//
+// 1.84.0: merge the Aster line (portal physics, the pre-lit/GI preview fixes,
+// invisible box collisions, scene-local groups) with main's cutscene HUD and
+// skip screen. MINOR above both parents, the 1.10.0 precedent: the tree now
+// carries features neither side had alone, and a number strictly greater than
+// either parent is the only one that keeps "which editor wrote this file"
+// answerable. The format collided too - both lines had claimed v44 for
+// different fields - so this branch's half renumbers to v45 and main's
+// published v44 keeps its number (see kFormatVersion below).
+//
+// 1.83.1: two pre-lit defects a reporter's screenshot caught in one picture.
+// (1) The editor viewport did not know the `prelit` flag at all - no branch in
+// viewport.cpp, while the generated game sets shade = {1,1,1} for it - so the
+// preview multiplied a pre-lit object's baked light by the scene's shade a
+// SECOND time. Measured on the reporter's terrace: the floor drew at mean
+// luminance 31 where it now draws at 79, 2.5x too dark, which reads as "the
+// bake ruined it". `uPrelit` is now staged per object beside aoReceive, at
+// every site that stages one, because those uniforms leak into the next draw.
+// (2) litbake accepted a TILING model and silently produced nonsense: it
+// rasterizes one 0..1 canvas, and a terrace whose UVs run 0..17 has 319 tiles
+// of UV area, so 3% of the mesh painted the canvas and the mesh then repeated
+// it 289 times - a flat, 2x darkened texture in which no shadow can vary. It
+// is refused now, with the measured range in the message and the alternatives
+// named. 160 of the 236 example .obj models still pass, so this is a guard on
+// the broken case, not a new restriction. PATCH: nothing new appears.
+// (3) And the reason the scene looked grey in the first place, found from the
+// same screenshot: the GI probe branch REPLACES the shade, and a model mesh
+// carries its material Kd folded into its vertex colours - so the albedo went
+// with it and every untextured model drew in the light's own colour. Measured
+// on a cypress (leaves Kd 0.13 0.3 0.22) in a GI-baked fixture: 754
+// green-dominant pixels in the viewport before, 23672 after, and the frame's
+// mean stopped being exactly neutral (84.5/84.4/85.0). The game multiplies it
+// back after that branch (`if (kd) shade *= kd`); the viewport now does too,
+// through uKd. The animated path had learned this already
+// (AnimModelDraw::Part::kd) - the static one had not.
+//
+// 1.83.0: a thrown ball goes through a portal cut into a merged mesh and a
+// player arriving through one stays on the floor. Two defects, one fixture
+// (a saved showcase recording replayed in PCSX2 with --replay; not checked in).
+// Rigid bodies collided with a collision-mesh model as its whole-mesh AABB:
+// the pavilion's box, jambs protruding 0.35 in front of the portal plane,
+// bounced every throw before the doorway rule's 0.1 of slack could arm, and
+// a body that did get inside the cellar - one merged mesh whose box encloses
+// its own rooms - read as penetrating that box and was ejected along the
+// shortest axis, through the floor. The physics pass now collides such a
+// model per triangle with the same CollisionMesh the walker uses (vertical
+// floor ray from the previous underside to the current one, side-aware
+// sphere push off steep faces, bounce along the push). And the doorway rule
+// opened the WHOLE obstacle while the walker stood in a wall portal's zone,
+// floor included - the cellar mesh is its own floor, the arrival terrace
+// holds the pierce point on its top face - so the ground vanished on
+// arrival: for an upright portal plane the obstacle keeps its ground response
+// in collidePlayer and in the physics pass; a floor portal still opens all.
+// Third: the ball then VANISHED at the plane for the thrower - the surface
+// gate's authored view list names the cellar and its lamps, never the weight
+// that just flew into it - so every object remembers the portal it last
+// hopped through, that portal's through-view draws it on top of its list and
+// portalShowsObject/portalCanCross agree (the converse of "whatever a portal
+// shows can go through it"). The game logs every portal hop (Portal:
+// player/object crossed), --replay no longer refuses an "auto" video-system
+// project's 60 Hz recording as 50 Hz, and the native build gets an absolute
+// project path (a relative --replay used to cd into examples/x/examples/x).
+// Replay: three "object crossed" lines and the player
+// landing at y=-12 (the cellar floor) where the recording had bounces and a
+// fall; the same recording diverges at frame 230 with the OLD codegen too
+// (identical numbers), so that divergence is the fixture's, not this
+// change's. PCSX2 only; sweepSphere is still box-only (docs/backlog.md).
+// MINOR: runtime behaviour changes, the project format does not.
+//
+// 1.82.0: an object standing inside, behind or right next to another one can
+// be selected with the mouse. Three things were in the way. Invisible walls
+// (Box, collision "invisible") were picked as SOLID boxes, and showcase's
+// boundary-south - 36 x 14 units, between the default camera and the pool -
+// took every click aimed at the pool, the curbs and the crossing; a wire box
+// now ranks behind everything like an area does, and the placement raycast
+// skips it. A press on the transform gizmo released without moving the mouse
+// was swallowed as a gizmo edit (and dirtied the project without changing
+// anything): the big merged meshes have their origin in the middle of the
+// map, so the first click on the pool parked their gizmo on the very spot and
+// the second click - the one that cycles the stack - never reached the
+// picker. Such a press is a click now, the commit on release runs only when
+// the anchor's TRS actually changed, and the same reasoning frees the
+// right-click. And the stack was invisible: the menu bar now says what was
+// picked, its place in the stack and what the next click there gives, and
+// right-click opens the stack as a menu by name and type. For unattended
+// tests the Project panel's object rows report their selection to the UI
+// script hook (uiscript::markLastItemChecked), so `expect-checked` asserts
+// what a viewport click picked. Verified with --ui-script on examples/showcase:
+// a click on the crossing picks the crossing (1/9, boundary-south last), the
+// same spot again cycles to tidal-channel, the right-click menu opens over
+// the gizmo and choosing a row selects it. MINOR: new user-visible actions,
+// nothing on disk changes shape.
+//
+// 1.81.1: the console-only rendering corruption filed against openvcl's VU1
+// clipper was an engine DMA race, and it is fixed in the engine. A lamp's
+// corona (a small textured clip bag) came out as a sliver to the screen
+// corner in some frames on a real PS2 - 4 of 24 with Sony's vcl, up to 19 of
+// 30 with openvcl - and the EE clipper drew screen-sized slabs; PCSX2 showed
+// neither. StaPipQBufferRenderer::flushBuffers() hands the slot pool to the
+// next bag the moment a packet is SENT, and fillByCopyMax/fillByCopy1By2 (both
+// clipping modes) and the EE clipper copy vertex data into that pool, which
+// the packet's REF tags then read asynchronously: the next bag's copy landed
+// under the transfer and the DMA picked up a vertex of the NEXT lamp. The
+// pool is now double-buffered alongside the packet double buffer
+// (StaPipQBuffer::flipPoolSide in sendPacket): on the console 30 of 30 frames
+// at 0 pixels in vu1 mode and 24 of 24 identical with the EE clipper, at the
+// FPS it had before, where an EE-side wait per bag cost 4 FPS. Also: a FLUSHE at the head of the StaPip/DynPip
+// uniform chains (their absolute-address unpacks could land while the previous
+// batch still ran), a VIF1 wait before the projected-shadow pass rewrites its
+// shared projClamp buffer, and the ps2link deploy note that blamed openvcl is
+// gone. The Docker backend also stops hiding a failed engine make: it used to
+// leave the previous libtyra.a in the volume beside the freshly synced
+// sources, so the next build skipped make, linked the stale library and said
+// "Build OK" (four console runs in a row tested nothing). Method and
+// bisection: docs/vu1-clipping.md, "Real hardware: the slot-pool race".
+// PATCH: a fix, no format change.
+//
+// 1.81.0: a thrown or physics-driven object can cross a portal whose opening
+// is cut into an imported mesh. The doorway rule - "while a body's motion
+// pierces a linked opening, stop colliding with the geometry that opening was
+// cut into" - existed as FOUR hand-copied snippets (collidePlayer, sweepSphere,
+// the physics static-solid pass, and the render side's exit test), and every
+// one of the three collision copies computed the obstacle's extent from
+// 0.5 * scale and its centre from the object's position. That is the extent of
+// a unit primitive; an imported model's mesh box has its own size and its own
+// off-origin centre, so a district-sized mesh read as a small box at its
+// origin and the wall it was standing in never opened. The render side had
+// already been corrected this way (renderOnePortalView, mesh-aware exit
+// culling); the collision side had not.
+//
+// Fixing that alone was not enough, and the second half is the interesting
+// one. examples/showcase's district-pavilion is ONE merged mesh holding the
+// back wall, the side walls, the door jambs AND the roof, so its box reaches
+// about two units in FRONT of the portal plane and can never be "fully
+// behind" it, while sealing the 2.3 x 3.3 opening (verified with
+// showCollision). So the rule grew a second way to qualify: the obstacle's
+// box CONTAINS the point where the motion pierces the authored opening.
+// portalCarryAim already computed that point and threw it away - it now
+// publishes it (portalAimPoint), armSweepPass and the physics pass carry it
+// beside their plane, and updatePortalPass publishes the walker's own probe
+// pushed onto the portal plane as the matching point.
+//
+// The three collision copies are now calls to ONE private helper,
+// TerrainGame::portalDoorwayOpens(obstacle, plane, pierce), which implements
+// both halves over objectCollisionBox + boxRotate. The rule stays as narrow
+// as it was: it is still only consulted while the body's motion segment
+// actually pierces a linked, crossable opening.
+// MINOR: runtime behaviour changes, the project format does not.
+//
+// 1.80.1: the native build survives a project an earlier Docker build wrote.
+// Docker Desktop's container writes into the project through a Windows bind
+// mount as root and WSL keeps that ownership in the file's metadata, so the
+// native backend - which runs as the ordinary user - could not delete bin/ and
+// obj/ on a toolchain change or a rebuild: `rm` failed with "Permission
+// denied" on every file and the build died on its first clean step. The clean
+// now falls back to a Windows-side delete, which ignores that metadata.
+// The same clean now also puts the dropped tree's own .gitignore back:
+// bin/.gitignore and obj/.gitignore are COMMITTED (they keep those empty
+// directories in git), and both this clean and Build > Clean deleted them,
+// so every wipe left the checkout showing a deleted tracked file.
+// PATCH: nothing new appears, a broken path starts working.
+//
+// 1.80.0: merge Aster, grouping and render-cost diagnostics with main.
+//
+// 1.78.0: Render-cost debugger/CLI; pipelined static submission, coarse
+// package culling, hardware-tuned Aster, and raised-platform player spawns.
+//
+// 1.77.2: Cache portal exit-clipped geometry between frames; Aster uses
+// bounded destination lists instead of redrawing the island into the cellar.
+//
+// 1.77.1: Mesh-aware portal exit culling and interpolated static shading.
+// Aster refreshes stale GI on build and ships a reusable ambience preset.
+//
+// 1.77.0: Reject offscreen static models before viewport material submissions;
+// expanded group rows inspect/edit individual members without ungrouping.
+//
+// 1.76.0: Persistent object groups with rigid transforms, independent copies
+// and ungrouping; Aster's portal pavilion is a ready-to-move group.
+//
+// 1.59.0: Portal views render listed Point Light coronas/shafts with the virtual
+// camera and destination depth. Aster's entrance sits on the sea edge.
+//
+// 1.58.2: Aster's small, sea-facing portal opens into a much larger cellar.
+//
+// 1.58.1: Aster's portal connects a screened vestibule to a vaulted instrument
+// cellar below the rotunda, with bounded view lists and underground support.
+//
+// 1.58.0: Box collision mode "invisible" adds authorable boundary walls without
+// rendered geometry or baked shadows. Format 32 adds the new collision value.
+// Aster clears its portals, seats its lighthouse and tessellates the sea.
+//
+// 1.57.0: Aster replaces the old showcase with an authored coastal observatory,
+// playable lens hunt and bounded optical experiments. See examples/showcase.
+// The project format and generated runtime behavior are unchanged.
+// 1.81.0 (explicit WSL host bootstrap): native builds now share a dedicated
+// prerequisite checker/installer, setup can opt into apt-based preparation,
+// and the Windows installer offers the operation as an unchecked task that is
+// not inherited by updates. FEATURE: no project-format change.
+//
+// 1.83.0 (merge cutscene control with the vehicle/road stack): cutscenes can
+// hide the complete HUD including USE prompts/interactions, claim the menu
+// action before the pause menu, and optionally open an authored confirmation
+// menu before skipping. Renumbered from main's 1.80.0 because this branch had
+// already shipped distinct 1.80-1.82 features. kFormatVersion 50, additive.
+//
+// 1.82.2: vehicle-local bank orientation, stable heave without clearance
+// feedback, missing-contact filtering, and composed wheel-batch transforms.
+//
+// 1.82.1 (analytic wheel rig): wheel contact hardpoints and rendered wheel
+// centres now inherit the chassis' full pitch/yaw/roll transform, suspension
+// travels along chassis-up instead of world Y, and six body-overhang probes
+// impose a hard terrain-clearance floor at sharp crests. The separately
+// batched wheels therefore stay in their arches without requiring a skeleton
+// or IK. PATCH: simulation and generated-runtime geometry fix only.
+//
+// 1.82.0 (vehicle shadows): Vehicle properties expose the same None / Blob /
+// Projected silhouette choice as ordinary geometry. Blob footprint and
+// projected-shadow framing use a loaded model's real bounds instead of its
+// unit-cube transform, so cars get full-body shadows and compete fairly for
+// the four projected slots. FEATURE: no project-format change; shadowMode was
+// already serialized for every scene object.
+//
+// 1.81.4 (exact road projection + surface picking): terrain height queries now
+// interpolate the same two triangles that are rendered instead of a bilinear
+// saddle. Roads sample at 1.0 x 0.5 units with a 0.12 lift, and their final
+// tangent is one-sided instead of falling back to a world axis. Viewport
+// picking tests the full tessellated road surface and hides its meaningless
+// transform gizmo. PATCH: rendering and authoring fixes only, no format change.
+//
+// 1.81.3 (road skin + wheel arches): roads gain one-unit lateral
+// subdivisions and a slightly safer terrain offset, so rolling heightfields
+// cannot punch grass triangles through a wide two-edge strip. Runtime wheel
+// hubs use the body's full rotated anchor and upward compression is bounded by
+// tyre radius as well as suspension travel. New vehicle imports and the
+// playground use a 2400-triangle body baseline instead of the visibly harsh
+// 1500 cut. PATCH: presentation fixes only, no format change.
+//
+// 1.81.2 (PCSX2 launch path): Build & Run resolves bin/<project>.elf to a
+// native absolute path before passing it to `-elf`. A relative project opened
+// from the CLI previously made PCSX2 rebase the same path below its bin/
+// directory, so the emulator showed a black window and the game never wrote a
+// log. The same absolute spelling now identifies the project's emulator when
+// stopping or relaunching it. PATCH: launch fix only, no format change.
+//
+// 1.81.0 (the distant one-submit tier - docs/vehicles.md): the body's paint
+// part gets its two ordinary distance tiers, and each carries the four
+// WHEELS baked in at their rest anchors, hard-decimated; the matte trim
+// tiers itself, the lamps stay tier 0. At VehicleDef::farDistance (default
+// 40, baked into the body row's meshLod) the generic model machinery swaps
+// the body to the tier and renderVehicleWheels stops submitting the wheel
+// bag - a distant car is ONE submit, with wheels, instead of two to four
+// without. What made it possible: matrix-path objects were excluded from
+// LOD outright because tiers were baked world-space; a tier is baked LOCAL
+// for a matrixMode object now (applyGeoLod stages g_bakeLocal), and a
+// rebuild already drops every tier. kFormatVersion 49, additive. MINOR.
+//
+// 1.80.0 (vehicles - the drive owes less, docs/vehicles.md): car vs PHYSICS
+// BODY is a shove, not a wall - the collider gather sets bodies aside and the
+// car brings each one its rectangle reaches up to its own per-frame speed
+// along the push direction (a deficit, never an accumulation: the first cut
+// added a kick per overlapping frame and three crates left the arena at the
+// physics clamp), with a hop so a crate tumbles. AI TRAFFIC: a rival reads
+// the other cars, steers off one ahead within a speed-scaled lookahead,
+// lifts the throttle and brakes when closing - `av` in the VEHAI line is
+// the proof it fires. The editor's test drive takes the instance SCALE
+// (vehiclesim::step's new argument, scaled on a copy - the runtime's exact
+// set of terms). The Runner names the other emulators it leaves alone. The
+// example gains a second rival and three crates. MINOR.
+//
+// 1.79.0 (the lamps, finished - docs/vehicles.md): the reference CC96 DOES
+// name its lamp materials ("headlights", "headlights2", "rear lights"), and
+// two things kept that from reaching the console. The editor adopted the
+// lamp measurements only while the drive spec still sat at its defaults, so
+// a car whose wheelbase had been adopted long before never received a lamp
+// part index; and the build bake ran AFTER refreshGenerated, so a headless
+// build wrote the lamp part and then emitted -1 for it. vehbake::adoptMeasured
+// is the one adoption now (unconditional, from the editor tick, the Runner
+// and --refresh-gen), and the bake runs before codegen. The two lamp parts
+// became ONE ("lamps": rear corners, then front, split recorded as
+// lampRearVerts; never decimated) - a submit is ~1 ms and the pair cost a
+// driven frame a fifth of its budget for a few dozen triangles. Gated on the
+// merge rather than on shine (a matte car has lamps too); the viewport draws
+// the part in the console's lights-off colours. lampRearPart/lampFrontPart
+// (v47, never shipped in an example) give way to lampPart/lampRearVerts:
+// kFormatVersion 48, additive. MINOR.
+//
+// 1.78.0 (lamps ARE the body - docs/vehicles.md): lamp-material geometry
+// splits out of the palette merge into its own parts (lamp-rear/lamp-front,
+// fixed order so the recorded indices survive rebakes), baked FULLBRIGHT
+// (ke = kd), and the runtime writes those parts' vertex colors PER INSTANCE
+// every frame - dark red, lit red, brake flare; warm white headlamps. Mesh
+// lamps stick to every shape by construction; the heuristic glow quads
+// remain the fallback for models with no lamp materials (regression-booted
+// on the CC96). This is the one thing the engine asks of a model: name
+// your lamp materials. kFormatVersion 47. MINOR.
+//
+// 1.77.0 (roads, second pass): the road OBJECT no longer collides (its box
+// was an invisible wall), align-terrain is FLAT across the width (the
+// flatten brush's cosine crowned it - shoulders keep the falloff),
+// per-point LIFT above the terrain (Catmull-Rom along the spline, ramps
+// climb smoothly; ROAD_LIFT table + twin arithmetic in buildRoads), every
+// road previews as a FILLED strip (selected gets edges/markers), a
+// viewport EDIT mode (click ground = append, click point = drag, click
+// line = insert; Esc stops; one undo step per operation), and the engine
+// sound moved from Driver into the Sounds tab where the rest of the pack
+// lives. kFormatVersion 46 (roadHeights, additive). MINOR.
+//
+// 1.76.0 (lamps off the materials - docs/vehicles.md): "zalatwic swiatla
+// materialem, bo kazdy pojazd ma inny ksztalt". The import pools the
+// canonical AABBs of lamp-named materials (lamp/light/brake/tail/stop/head,
+// vertex-end split when the name does not say which end) into rear and
+// front clusters on the definition; the tail-lamp glow draws AT the
+// measured spots and the headlight beam starts from the measured front.
+// Pure measurement, re-seeded on every re-import; size 0 = the shape-blind
+// heuristic stays the fallback (verified on-console: the CC96 has no lamp
+// materials and its lamps look exactly as before, on the new road no
+// less). kFormatVersion 45, additive. MINOR.
+//
+// 1.75.0 (roads - docs/roads.md): a Road object is a polyline, a width and
+// ONE texture; a Catmull-Rom spline threads the points and the surface is
+// tessellated AT BOOT into procChunks (owner -3, ~24 stations each) - the
+// proc pipeline's AABB culling and bag economy for free, and a kilometre of
+// road costs a few hundred .tyra floats plus one texture in VRAM. The
+// tessellator is a twin (src/roadgen.* on the host, its raw-string copy in
+// buildRoads - CHANGE ONE CHANGE BOTH); the editor previews the exact strip
+// and edits points in the panel; "Align terrain to road" flattens the
+// heightfield to the smoothed grade along the line, one undo step. Three
+// integration lessons paid for on-console: the object type must be
+// authoring-only in rebuildObjectGeometry (it rendered as a white box), the
+// setup call must run AFTER the proc build (which clears procChunks - five
+// chunks built and wiped ten lines later), and ROAD_TEXTURE_PATHS strip the
+// res/ prefix (the game's asset root is bin/ - "Texture missing" named it).
+// kFormatVersion 44. MINOR.
+//
+// 1.74.2 (the lamps light up - docs/backlog.md entry closed): two stacked
+// causes, neither of them the suspected blend path. (1) The lights
+// bookkeeping sat inside the smoke's SLIP-GATED block, so a car that never
+// slipped never initialised its lights - the numeric probe showed the
+// drifting rival lit while the parked player stayed dark, which named it.
+// Moved to once-per-vehicle-per-frame, before anything mutates inBrake.
+// (2) The lamp quads were sized entirely under the rear trim's black band -
+// a giant-quad probe proved vertical quads render fine, so they are sized
+// past the trim now, with the brake flare growing them again. Verified on
+// camera: dim slivers + beam pool with the lights on, unmistakable red
+// flares while braking. The glow bag stays on standard z from the bisect -
+// TestOnly was exonerated but never needed. PATCH.
+//
+// 1.74.1 (tail lamps in the dark - docs/backlog.md): tail/brake lamps and
+// the DpadUp lights toggle are IN (red quads on the rear face past
+// bodyOverhang, flared by inBrake, per-vehicle lightsOn seeded from the
+// definition), the d-pad lost its driving fallbacks by the author's call,
+// and all light points moved past the bumper overhang (they rendered
+// INSIDE the body mesh - z-tested away, "no lights" while the bag
+// submitted). What still does not show is the lamps themselves: the glow
+// bag provably submits them (telemetry probe) through three blend/winding
+// variants - filed OPEN in the backlog with the evidence and the next
+// probes. PATCH.
+//
+// 1.74.0 (the visual pack - docs/vehicles.md, "The visual pack"): skid
+// marks (a 96-quad terrain-flat ring under slipping rear wheels, distance
+// paced, colors-only fade so bboxVersion bumps only on spawn), backfire
+// (an upshift pops an additive quad at the exhaust for 0.09 s - the shift
+// sound's visual twin), and headlight beam pools (an additive trapezoid on
+// the terrain ahead, gouraud falloff, per-definition toggle, the example's
+// CC96 has them on). Skids are one alpha-over submit, backfire+headlights
+// share one additive glow submit; all skipped when idle. Both bags ride
+// Precise culling with full clip checks - the engine ASSERTS on the None
+// combination, which the first boot found the honest way. kFormatVersion
+// 43 (headlights bool, additive). Verified on PCSX2: the beam pool visible
+// on camera ahead of the nose, launches and drifts with zero asserts.
+// MINOR.
+//
+// 1.73.0 (the sound pack - docs/vehicles.md, "The sound pack"): a vehicle
+// definition can now author a HIGH-REV loop (crossfaded with the base one
+// on the engine speed - the era's two-sample engine, volumes quantised and
+// written on change like the pitch), a TYRE SQUEAL loop (volume rides
+// DriveState::slip, the same number the smoke and telemetry read), and a
+// GEAR-SHIFT one-shot - all in the Vehicle Editor's new Sounds tab, all
+// silent until authored. Vehicle projects reserve four voices per core
+// (base+20..23); the emitter bank runs four slots short there. The example
+// ships a deterministic set (tools/veh-sound-pack.py). kFormatVersion 42,
+// additive. Verified on PCSX2: boots with the pack wired, drives through
+// gear changes and a drift with zero asserts - the ear test is the
+// author's. MINOR.
+//
+// 1.72.0 (trading paint - docs/vehicles.md): car vs car stopped being a
+// wall ("nieklimatyczne jeb i oba stoja w miejscu") and became momentum.
+// Vehicles leave each other's wall gather; a pair pass after the vehicle
+// loop tests two-disc capsules and answers in two modes: a closing hit is
+// an impulse along the contact normal (authored masses, restitution 0.35 -
+// a thump with bounce), a resting contact velocity-matches the pair
+// (e = 0), because the bouncy impulse plus full separation acted as glue
+// and stalled a pusher nose-to-tail with the gas held. Separation resolves
+// 60% per frame, inverse-mass weighted; both matrix paths are notified.
+// Verified on PCSX2 against a parked rival: the hit exchanges 8.8 -> 4.1
+// u/s and launches it, and holding the gas bulldozes it 28 units to the
+// platform with the pair rolling at ~8 u/s - tyre smoke off the shove for
+// free, since the slip consumer never knew where the slip came from.
+// MINOR.
+//
+// 1.71.0 (the sprung rig - docs/vehicles.md): the recurring "car breaks
+// apart on a bump" had ONE structural cause, not many small ones: the body
+// SNAPPED to the contact plane (pos = restY every frame - the four-sample
+// mean jumps across a ridge, so the body teleported vertically) while a
+// rate-limited pitch/roll hung mid-swing, wheels riding their own samples.
+// The body is a damped spring rig now, in both twins: heave at wn 14 (0.9
+// critical) with plane-velocity feed-forward (a plain spring rode half a
+// unit under every climb), attitude at wn 11 (0.8 - a crest gets the small
+// overshoot a snap never had), airborne glide at wn 4, landings keep their
+// fall speed for the spring to absorb, and grounded gained slack (the
+// binary test dropped steering and grip for a frame on every bump). The
+// planar handling - speed, grip, yaw, walls - is untouched, and the
+// pre-powertrain regression stays bit-exact (flat ground is the springs'
+// equilibrium). New vehicle-check property: full throttle across a
+// washboard keeps the frame height step under 0.3 (measured 0.097, the old
+// rig teleported ~0.5), attitude sane, pace kept. MINOR.
+//
+// 1.70.0 (the bumper exists - docs/vehicles.md): the wall test sampled the
+// AXLE rectangle, so a car stopped when its axles met the wall and the
+// bonnet clipped a bumper's length inside ("dalej sie da wjechac w sciane
+// maska"). DriveSpec grew bodyOverhang - the bumpers' reach past the axle
+// line, measured off the BAKED body by the import (max extent vs half the
+// wheelbase), seeded like the other measured geometry, editable in the
+// panel like everything in specFields - and both twins sample the body
+// rectangle now. kFormatVersion 41, additive (no migration step: a missing
+// key reads as the 0.3 default, which is a typical sedan). Verified on
+// PCSX2: nose-first into the north wall stops with the bonnet clear.
+// MINOR.
+//
+// 1.69.0 (the car rides the world - docs/vehicles.md): the dig-in bug and
+// the driver's seat rearranged. (1) Wheels (and the chassis) ride OBJECT
+// floors: each ground sample is the max of the terrain and any mountable
+// object top there (box tops within half a unit of the feet, mesh props'
+// walkable faces), gathered in the same one-pass collider sweep the walls
+// use. Before, a mesh slope was answered with "wall": the car nosed in, the
+// wheel read as buried in the ground, and the head-on refusal braked it
+// every frame ("kolo sie wbija w glebe, zostaje i hamuje"). (2) The default
+// drive is R2 gas / L2 brake / Cross nitrous / Circle handbrake - and the
+// throttle is ANALOG through the DualShock 2 button pressure (inputAnalog,
+// new engine Pad::rawButtons()); digital sources read as 1. (3) The first
+// REAL migration: v39 -> v40 rewrites bindings still at the old defaults,
+// with the editor's backup + prompt machinery exercised end to end.
+// Verified on PCSX2: R2 crosses a 0.45-high platform ON its top at full
+// speed, Cross drains the tank, the migration rewrote exactly the three
+// rows. MINOR.
+//
+// 1.68.0 (the driver's seat is rebindable - docs/vehicles.md,
+// docs/input-bindings.md): three fixes and the backlog's Input Map item.
+// (1) The wheel-arch clamp is measured from the TILTED body plane (terrain
+// pitch + lean), not the flat pos[1]: on a climb the front arch rides ~0.4
+// above the centre, so the window pinned the wheels - the front pair sank
+// into the slope, the rear pair floated over the deck, and the whole car
+// read as sheared ("co sie odpierdala, jak sie pod gorke jedzie"). This
+// subsumes 1.65.3's lean-only term. (2) Engine: Pad::reset() never cleared
+// pressed.L3/R3/Start/Select - the very four a previous fix ADDED to the
+// pressed set - so the first R3 latched the rear view for the rest of the
+// run. (3) Six Input Map roles cover every vehicle button (throttle, brake,
+// handbrake, nitrous, camera, rear view), seeds matching the old hardcoded
+// pads, per-role constexpr fallback for maps that deleted an action; the
+// analog reads stay hardwired (an axis is not an action). Proven by
+// rebinding the fixture's throttle to L2 and driving on it. kFormatVersion
+// 39: the seeded vehicle actions are new .tyra content an older editor
+// would round-trip into role-less custom actions. MINOR.
+//
+// 1.67.1 (al dente - docs/vehicles.md, "The three cameras"): the glance
+// capped at +-60 degrees and R3 held = an instant rear view. The full orbit
+// tanked the frame rate exactly broadside - the widest view of the map is
+// also the most expensive one - and the only thing it bought over a glance,
+// looking straight back, is now a cut that never sweeps through those views
+// at all. The rear view takes the BODY yaw, not the lagging boom: mid-slide,
+// "what is behind the car" is a question about the car. Verified on PCSX2:
+// the glance stops at the three-quarter view, R3 mid-drive shows the grille
+// and the road falling away behind. PATCH.
+//
+// 1.67.0 (the glance - docs/vehicles.md, "The three cameras"): the right
+// stick orbits the chase/far camera around the car (X, a full circle in ~2 s)
+// and lifts or sinks the boom (Y); both offsets spring back to zero on
+// release, so the stick is a glance at a rival or an apex, never a re-aim.
+// The car stays the look-at, the bumper cam stays bolted to the body on
+// purpose, and the signs follow the steering stick's convention. Verified on
+// PCSX2: mid-drive front-quarter view under stick right, sprung back behind
+// the tail on release. MINOR.
+//
+// 1.66.0 (the world got solid - docs/vehicles.md): four driver reports, one
+// round. (1) Cars no longer drive INSIDE objects: the wall test grew from
+// four corners to eight points (a pillar narrower than the corner spacing
+// drove between four), an object floor >0.5 over the car's feet blocks (a
+// mesh prop's walkable face was a door into its inside), and the overlapped
+// case moves only AWAY from the blocked points' centroid - which also closes
+// the backlog's arena-escape bug, reproduced live (x 232, wall at 152) before
+// closing. Colliders gather once per vehicle per frame; the runtime is now
+// structurally the host twin. (2) Tyre smoke stopped punching holes in the
+// car: the billboard submit moved to the frame's translucent tail and never
+// writes Z (PipelineZTest_TestOnly). (3) The wheel-arch clamp tightened to
+// 65% in compression (wheels rode through the bonnet at full travel).
+// (4) The AI rival un-sticks itself (reverse-out + waypoint advance) - the
+// walls holding is what parked it against a pillar forever - and far
+// vehicles skip their shine pass (35u), wheels and smoke (70u). Verified on
+// PCSX2 GS captures + telemetry; --vehicle-check grew pillar/overlapped/
+// thin-wall properties. MINOR.
+//
+// 1.65.3 (the wheels lean WITH the car - docs/vehicles.md): the droop clamp
+// was the right cap but the wrong diagnosis - the daylight in the report came
+// from the LEAN, not the travel. The weight-transfer squat/roll rotates the
+// body while the wheels stayed glued to flat ground, so a corner exit lifted
+// an arch ~0.18 units off its own wheel. Each hub now adds the body plane's
+// lean offset at its anchor (lz*sin(leanPitch) - lx*sin(leanRoll), signs
+// mirroring the render's rotX/rotZ exactly); terrain pitch/roll stay out - the
+// wheels answer those with their own ground sampling, which IS the suspension
+// look. Verified on GS frame captures mid-donut: wheels tucked at full lean.
+// PATCH.
+//
+// 1.65.2 (the wheel stays owned - docs/vehicles.md): the suspension's visual
+// clamp was symmetric, so on a crest a wheel could hang a FULL
+// suspensionTravel below the body (x1.5 instance scale = 0.27 units of
+// daylight) - "kolo za bardzo potrafi odejsc od karoserii". The clamp is
+// asymmetric now: full travel in compression, 45% in droop - real suspension
+// droops less than it compresses, a tyre still shows daylight on a crest, the
+// wheel just keeps reading as part of the car. One line, verified on a dune
+// saddle capture. PATCH.
+//
+// 1.65.1 (the body finally lifts its nose - docs/vehicles.md): the sim's
+// pitch is "positive = front higher" (slope gravity reads sin(pitch) with
+// that sign and has decelerated every climb correctly since day one), but a
+// positive rotX takes a point at +Z toward -Y - nose DOWN. The unnegated
+// write had the BODY pitching into every hill while the wheels rode up it
+// ("przod sie nie podnosi... dziwnie to wyglada"), and it survived until the
+// map grew dunes because a flat arena never pitches anything. Negated at both
+// writers - the runtime's transform write and the editor test drive's - so
+// the weight transfer now reads correctly on screen too: squat is nose-up,
+// brake dive and the wall-hit dip are nose-down. Found by the user's eye;
+// verified by a dune climb capture and by the rollback physics (a car
+// released mid-climb rolls back down and the reverse gear engages - the
+// slope gravity sign was always right, only the picture lied). PATCH.
+//
+// 1.65.0 (AI drivers - docs/vehicles.md, "AI drivers"): a second car drives
+// itself. The whole feature is proof of one architectural bet placed on day
+// one: `DriveInput` is a struct a CALLER fills, never a pad read - so the AI
+// is ~25 lines that fill the identical four numbers, and the gearbox, the
+// kickdown, the wall grind, the tyre smoke and the weight transfer all come
+// along for free, because the AI is just another caller of the same sim.
+//
+// Authoring is a NAME PREFIX (SceneObject::vehicleRoute): codegen collects
+// every object in the scene whose name starts with it, sorted by name, and
+// bakes their positions as the instance's waypoint loop - an Area per corner
+// is the natural marker (invisible at runtime, no collider), and the baked
+// table means no runtime name matching at all. The controller is pure
+// pursuit: steer from the heading error, throttle backed off in tight
+// corners, advance within a radius. A player can HIJACK a patrolling car -
+// the pad branch simply outranks the AI branch while they drive, and getting
+// out resumes the patrol where it stood.
+//
+// The acceptance line is VEHAI telemetry every ~2 s (position, waypoint,
+// speed), so `grep VEHAI` proves a patrol advanced its loop with no pad
+// attached - the backlog's own "done when" criterion, machine-checked.
+//
+// kFormatVersion 37 -> 38: "route" inside the object's vehicle block, written
+// only when non-empty. Additive, reader defaults, no migration step. MINOR.
+//
+// 1.64.0 (tyre smoke - docs/vehicles.md): DriveState::slip finally has its
+// consumer. Past 0.35 the rear anchors feed a 48-puff ring at a rate
+// proportional to the slip - burnouts, handbrake slides and wall grinds all
+// smoke, because they all ARE slip, and one number feeding both the smoke and
+// the telemetry is what keeps them from disagreeing. Camera-facing billboards
+// in ONE submit (the particle system's exact bag shape - VU1 expands centre +
+// 2x2 basis weights into a quad), untextured grey with per-puff alpha,
+// swirling and swelling as they fade (the fog puff's recipe). A dead puff is a
+// degenerate quad and the bag is skipped when the pool is empty, so a clean
+// drive pays nothing. Ticks under the same !menuActive gate as the emitters,
+// so puffs hang frozen behind the pause menu. Verified mid-handbrake-spin on
+// PCSX2: a grey trail behind the sliding car. No format change. MINOR.
+//
+// 1.63.0 (the wet lacquer - docs/vehicles.md, "A shiny body"): the NFS paint
+// pass, and WITHOUT the dedicated VU1 program everyone assumed it needed. A
+// fresnel rim (0.3 + 0.7*(1-|N.V|)) rides the env pass's per-vertex RGB and a
+// Blinn-Phong (N.H)^8 white specular rides the per-vertex ALPHA, drawn with
+// the GS's HIGHLIGHT2 texture function - RGB = Tex*Cv>>7 + Av - so both
+// effects share the ONE existing env submit and the additive FIX blend still
+// carries the authored Body shine. HIGHLIGHT2 was always in the GS; the
+// engine just never selected it. One new engine field
+// (StaPipTextureBag::textureFunction, per-bag TFX - safe on a shared texture
+// because TEX0 is re-emitted per bag) and a per-frame EE loop over the env
+// colours, the wheel-bag precedent, ~1100 vertices of a few flops each.
+//
+// Scoped to vehicles (vehiclePaintFor), so chrome and mirror balls elsewhere
+// keep their exact look. Three rules from the fields underneath: write through
+// envColorBag->many (LOD tiers re-aim it), never bump bboxVersion (the env
+// bag shares the base pass's frustum cache entry - worth 4-6% of frame rate),
+// and alpha >= 1, because the GS alpha test is NOTEQUAL 0 and a zero specular
+// would erase the reflection with it. Also --vehicle-check (the sim's
+// property tests as a CLI verb, CI-ready) and the suspension the wheels now
+// actually DRAW (each hub rides its own wheel's sampled ground within the
+// travel). Viewport per-pixel program mirrors the paint terms; the
+// PS2-shading GS variant keeps plain reflection, stated in the doc.
+//
+// No format change. MINOR.
+//
+// 1.62.0 (the shine you can SEE - docs/vehicles.md, "A shiny body"): the
+// user's verdict on 1.60's reflection was "szczerze to nie widze, zeby sie
+// cokolwiek odbijalo", and they were right for a structural reason: the
+// "@sky" env map is a SMOOTH GRADIENT, and a gradient reflection is nearly
+// invisible by construction - there are no features to see move. The era's
+// answer was a static high-contrast sphere map (Underground's wet lacquer is
+// vertical light streaks in exactly such a texture), so a vehicle's paint
+// now mirrors an AUTHORED map: VehicleDef::bodyReflMap, a res/ image, with
+// tools/nfs-streak-map.py generating the classic streaks (deterministic, no
+// RNG - a re-run is byte-identical). Empty keeps "@sky".
+//
+// MATTE TYRES, because the user asked whether the engine even allows it: it
+// does - tmdl reflection is PER PART - and the bake now uses that. The
+// untextured merge splits into "merged" (paint) and "merged-matte" (rubber
+// and near-black trim, by name first and luminance under 0.12 second; glass
+// forces shiny by name, or a deep-blue window would land under the
+// threshold). The reflection pass attaches to the paint alone. One more
+// submit, paid only when shine is on, and the Cost tab reports it.
+//
+// THE WHEELS WERE OFF because the body kept the EXPORTER's origin: the sim
+// places wheel anchors at +-wheelBase/2 around the chassis origin, and the
+// reference car's pivot sat 0.25 behind the axle midpoint - every wheel rode
+// visibly forward of its arch. The bake re-origins the body to the AXLE
+// CENTRE at HUB HEIGHT (mean of the detected wheel centres in the canonical
+// frame), which also makes rideHeight = wheelRadius put the tyres exactly on
+// the ground.
+//
+// Also: the D-PAD drives (a keyboard emulating a stick - PCSX2 in a VM above
+// all - can drop chorded key events, and full-lock-plus-throttle is exactly a
+// chord; the d-pad is independent booleans end to end), and the body lean got
+// a knob (DriveSpec::leanAmount, a spec field, so it serializes and edits by
+// existing) plus a stiffer 35 deg/s follow - 25 read as a boat from the
+// driver's seat.
+//
+// kFormatVersion 36 -> 37: bodyReflMap plus leanAmount (which rides
+// specFields, the one list). Additive, readers default, no migration step.
+// MINOR.
+//
+// 1.61.0 (four reports from the driver's seat - docs/vehicles.md): the
+// steering was INVERTED, cornering killed the throttle, hills swallowed the
+// car, and the wheels rode outside the arches. All four were real.
+//
+// THE STEERING: in the canonical frame (forward +Z, up +Y, right-handed) the
+// body's right is -X - cross(forward, up) - while positive steerAngle turns
+// the yaw toward +X, and screen X runs opposite world X besides. So "stick
+// left" turned the car screen-right, and the original acceptance test never
+// saw it because it only proved yaw MOVED under stick input, not which way
+// the car went on screen. DriveInput.steer keeps its "positive = the
+// driver's right" meaning and is negated once, inside the sim (both twins),
+// so the test drive's A/D and the pad fix together. The doc's telemetry
+// samples flip their yaw signs with it.
+//
+// CORNERING-KILLS-THE-GAS was an input truth, not a physics bug: the stick's
+// throttle is its vertical deflection, and a stick at full lock has none
+// left - so a stick-only driver lost the gas exactly when steering hard,
+// then engine braking ground them to zero. R2 is a second throttle button
+// now (the era's racers put the gas on a button for exactly this reason).
+//
+// HILLS: with gearTorque 1 the top gear pulls 0.43x, which loses to a
+// 15-degree dune, and the passive downshift waits for 50% of redline - the
+// car wallowed through two gears before any torque came back. KICKDOWN: flat
+// out with the engine under 72% of redline drops a gear immediately. The
+// landing guard leaves 0.15 of headroom under the up-shift point, not 0.05,
+// because the shift CUT itself decays the speed - with the tighter margin
+// the box kicked down into its own up-shift for ever and the harness car
+// crawled 170 units in 50 seconds ON THE FLAT. Harness: launch to top gear
+// on the flat, kick down on a 15-degree ramp, hold >= 5 u/s, climb 314
+// units - PASS, with the pre-powertrain regression still 0.000000000.
+//
+// THE WHEELS: the example's .tyra carried the struct DEFAULTS (track 1.40
+// against a 1.414-wide body - wheel centres exactly on the paint, tyres
+// fully outside the arches; radius 0.32 against a 0.232 baked wheel - the
+// car floated). The editor adopts measured geometry on import but only in
+// the GUI tick, and this example was authored headless, so nothing ever
+// said so. The build log states the measurement now ("[vehicle] ...
+// measured wheelBase 2.066 track 1.248 radius 0.232 ...") and the example
+// carries the measured numbers. gearTorque softened 1 -> 0.6 while there,
+// so the top gear holds the dunes it drives on.
+//
+// No format change. MINOR for the kickdown and R2.
+//
+// 1.60.0 (the drive, perfected - docs/vehicles.md): an adversarial review of
+// the whole vehicle branch plus the fixes it demanded, three physics upgrades,
+// a reflective paint option and a four-times-bigger playground.
+//
+// THE REVIEW (an agent told to refute, then everything verified here) found
+// ten real defects. The ones worth remembering: the engine note's voice
+// base+23 was EMITTER SLOT 7 - all 24 SPU2 voices of a bus were already spoken
+// for, so a continuous loop could only get a channel by taking one, and the
+// emitter bank is now generated one slot short in a vehicle project
+// ({{SND_SLOTS}}); the HUD font was emitted in the WRONG INDEX SPACE (project
+// fonts index where FONTS[] is indexed by atlas position - it worked only
+// because the example has one font); setupVehicles REUSED array slots across
+// scenes without a reset, so a revisited scene's car kept the previous
+// scene's gear, nitrous and - because the scene-load mute had zeroed that
+// voice - a stale engineCh that suppressed the re-play and left the engine
+// permanently silent; the pause menu froze the engine note at its last pitch
+// (updateVehicles is gated on !menuActive and was the only volume writer);
+// shiftTimer never ticked in reverse, so a car that rolled backwards
+// mid-shift kept its throttle cut; and the adpenc cache was mtime-only, so a
+// bin/sfx/x-loop.adpcm encoded BEFORE -L existed would never re-encode - the
+// staleness test now reads the encoded header's own loop byte back.
+//
+// PHYSICS: walls SLIDE now - axis-separated, the grind scrubbing speed by
+// impact angle, with "a slide is only a slide if that axis carries real
+// motion" (the first cut let a head-on grind in place at a phantom 5 u/s -
+// the harness caught it); weight transfer (squat/dive/lean, presentation-only
+// and deliberately never fed back into the pitch the slope gravity reads);
+// and five host/runtime divergences closed - the handbrake now actually
+// SLOWS the car on the console, maxSlopeCos stopped being a slider that did
+// nothing there, pitch/roll are rate-limited (they feed sin(pitch) gravity,
+// so this is longitudinal behaviour, not cosmetics), and airborne attitude
+// settles level.
+//
+// THE PAINT: VehicleDef::bodyShine bakes refl "@sky" into the body's .tmdl
+// parts - fields the format already carried. What made it POSSIBLE is an
+// engine-side change: reflective parts were banned from the matrix fast path
+// because their env normals were baked in world space, frozen at the
+// promotion pose. The local bake captures LOCAL normals now and renderEnvPass
+// folds the object's rotation into the env camera basis (dot(R n, e) =
+// dot(n, R^T e) - a constant per mesh per frame, zero per-vertex work), so a
+// shiny car keeps both its two submits and a correct reflection while
+// yawing. The viewport preview reads the same tmdl fields, so the editor
+// shows the shine the console draws.
+//
+// kFormatVersion 35 -> 36: "bodyShine" plus writers that no longer DROP
+// authored values when their switch is off (unticking the HUD used to reset
+// hudSpeedScale on the next load). All additive, readers default, no
+// migration step. MINOR.
+//
+// 1.59.0 (the driver gets instruments - docs/vehicles.md, "The HUD"): speed,
+// gear and the nitrous tank on screen while driving. The powertrain already
+// supplied every input, so this is the drawing and nothing else.
+//
+// It is RUNTIME text, so a vehicle with the HUD on joins
+// Project::atlasFontIndices() - without that the font ships no glyph atlas and
+// the readout draws nothing at all, which reads as a broken feature rather than
+// as a missing asset. Horizontal positions carry the widescreen squeeze, the
+// same 4:3-over-window-aspect factor the menus use, because anamorphic
+// widescreen keeps the framebuffer's shape and lets the TV stretch it.
+//
+// The trap worth keeping: the first version put the nitrous line at 0.945 of the
+// frame height, where a screenshot showed the EMULATOR'S OWN picture cutting it
+// in half - on a CRT it would not have been there at all. Layout is title-safe
+// now (docs/safe-areas.md) and the bottom row is what to re-check. Verified on
+// PCSX2 reading 88 / gear 5 / NOS 3 at top speed under nitrous.
+//
+// kFormatVersion 34 -> 35: `hud`, `hudFont` and `hudSpeedScale`, written only
+// when a definition HAS the HUD on, so a project without it resaves byte for
+// byte. No migration step. MINOR.
+//
+// 1.58.0 (a drive is no longer silent - docs/vehicles.md, "Engine sound"): a
+// looping engine note whose SPU2 PITCH follows the engine speed the powertrain
+// computes. It closes the oldest entry on the vehicles backlog.
+//
+// The blocker was never the pitch. SD_VPARAM_PITCH is reachable, libsd is
+// already linked into the engine and logVoiceState already READS that very
+// register - what was missing was that nothing could LOOP. The loop turns out
+// to live in the encoded sample rather than in the play call: `adpenc -L` sets
+// the SPU2 block loop flags, so the build now encodes any `res/sfx/*-loop.wav`
+// that way and the convention is in the file name because adpenc runs over a
+// directory and has no access to the model (the *-lit.png arrangement). The
+// engine fork gains exactly one function, AudioAdpcm::setPitch.
+//
+// Two costs shape the runtime. sceSdSetParam is a BLOCKING SifCallRpc, so the
+// register is quantised to 32 steps and written only when it moves - no calls
+// at all at a steady cruise. And a looping voice cannot be stopped (audsrv's
+// own doc comment), so getting out sets the volume to zero.
+//
+// Verified on PCSX2 two ways. The telemetry proves the tracking: idle 800 rpm
+// -> pitch 1408 (the sample's own 1881 times the authored 0.75), 6585 rpm ->
+// 4192, and the register DROPS at every upshift. And PCSX2's own audio output,
+// captured and analysed, proves it is audible: the spectral centroid runs
+// 194 Hz at idle -> 417 Hz at the first-gear redline -> 243 Hz once it has
+// changed up, i.e. the RPM sawtooth, heard.
+//
+// kFormatVersion 33 -> 34: `engineSound` plus its pitch pair and volume, all
+// written only when a definition HAS a sound, so a project without one resaves
+// byte for byte - the bump is so an older editor refuses a file carrying them
+// rather than dropping them on its next save. No migration step. MINOR.
+//
+// 1.57.0 (the powertrain - docs/vehicles.md, "The gearbox"): a driven car now
+// has a GEARBOX, an engine speed and nitrous, which is what everything an
+// arcade racer is made of hangs off - the engine sound's pitch, a tacho, and
+// the shift the player hears.
+//
+// The load-bearing decision is that the gearbox is DERIVED, not simulated. The
+// gear and the RPM are computed from the speed the existing longitudinal model
+// already produces and feed nothing back, so `accel` means exactly what it
+// meant before and every vehicle authored without a gearbox accelerates
+// identically with one - checked by a harness that reproduces the
+// pre-powertrain arithmetic independently and reads a worst-case difference of
+// 0.000000000 over 14 s of full throttle. Two knobs let it bite and BOTH
+// default to off: `shiftTime` (a throttle cut between gears) and `gearTorque`
+// (the ratio shaping acceleration, geometric and centred on the middle gear so
+// it changes a car's character rather than its performance - the geometric mean
+// of the multipliers is 1.0000). Nitrous is gated on `nosCapacity`, seconds of
+// boost, defaulting to 0: the TANK is the switch, so there is no second flag
+// that could disagree with it.
+//
+// The down-shift threshold is COMPUTED rather than validated (`safeShiftDownFrac`
+// / `vehShiftDownFrac`): an author is free to dial shift-up and shift-down into
+// a contradiction, and the point is held below where an up-shift lands so the
+// box cannot hunt between two gears for ever. Measured with deliberately
+// contradictory thresholds: 4 gear changes over 14 s, which is a clean climb.
+//
+// kFormatVersion 32 -> 33, purely additive: twelve new keys inside a vehicle's
+// existing "drive" object. The writer emits every specFields() entry, so a
+// project WITH a vehicle gains those keys on its next save - which is the whole
+// reason for the bump, so an older editor refuses the file instead of silently
+// dropping them. The reader defaults each one to the struct's own value, so an
+// older file opens unchanged and needs no migration step. A project with no
+// vehicle still resaves byte for byte. MINOR by this file's own rule.
+//
+// 1.56.0 (cars you can drive - docs/vehicles.md): a Vehicle object type, a
+// project-wide VehicleDef the instances name, and an importer that takes one
+// authored .glb/.fbx and finds the wheels in it.
+//
+// The wheels are found by GEOMETRY, not by node name. The reference asset
+// (CC96/car1.fbx, CC0) names its nodes Cube and Cylinder.001..003 - Blender
+// defaults - so a name-matching importer fails on the first real model. Mesh
+// nodes are clustered by shape and clusters of 2/4/6 scored on roundness,
+// thinness, height in the model and size; names and materials are a bonus
+// only. The vehicle's own frame falls out of the cluster (the axle is the axis
+// a wheel is thinnest along; of the rest, the one the centres barely spread
+// along is up), so no exporter axis metadata is read anywhere. What the
+// importer CANNOT decide is which end is the nose, and it says so rather than
+// guessing quietly - there is a flip in the panel.
+//
+// The reference car is 40 materials and 36 mesh parts, and a .tmdl part is one
+// bag at ~1 ms of fixed EE time: 36 submits is nearly two PAL frames for one
+// parked car. Because pushVert folds a material's kd into the vertex colours,
+// untextured materials merge losslessly - they become one part whose vertices
+// point at cells of a generated palette texture. 36 parts -> 2 submits.
+//
+// kFormatVersion 31 -> 32, purely additive: PrimitiveType::Vehicle (21 after
+// the merge with editor comments), the
+// per-object "vehicle" block and Section::Vehicles, all of which an existing
+// project simply does not carry - a project with no vehicles resaves byte for
+// byte. MINOR by this file's own rule. (Authored as 1.55.0; renumbered in the
+// merge - main had independently taken 1.55 for the packaging fixes below.)
+// 1.79.0 (native PS2 builds): Build & Run now provisions the pinned official
+// PS2DEV v2.0.0 release and compiles the vendored OpenVCL, vclpp, bin2s and
+// audsrv sources locally; Windows uses the same Linux toolchain through WSL.
+// Docker remains an explicit fallback and builds those same vendored VU tools.
+// OpenVCL's stale register-identity regression now checks the real no-clobber
+// scheduling invariant, and all 419 tests gate installation.
+//
+// 1.78.0 (comments in the editor, docs/comments.md): a note pinned to a place
+// in the scene - why this prop is here, what is still to do, what broke last
+// time. It is an ordinary scene object (PrimitiveType::Comment) so it gets a
+// name, a place, undo, layers, selection, the outliner and multi-user merge
+// for nothing; what it does NOT get is geometry. The viewport skips the type
+// entirely and the app draws a message icon over the finished image instead
+// (App::commentIcons / drawCommentOverlay), which is what keeps a note the
+// same size at any distance and stops it hiding the thing it is about.
+// Selecting one shows its opening beside the icon and the whole of it - any
+// length, wrapped, with a Copy button - in Properties. The icons are always
+// visible and clickable; View > Comments is off by default and only controls
+// whether every note's text is expanded or just the selected note's. ONE
+// function decides where an icon is, so the thing you
+// see and the thing a click selects cannot disagree (the axis-gizmo
+// arrangement); the icon is hit-tested in SCREEN space because a distant
+// note's 3D box shrinks below its own icon. Nothing about a note is
+// generated, baked or shipped - the object still takes a scene-table row like
+// an Area does, because object indices are baked into every generated table.
+// kFormatVersion 42 -> 43. Verified by --resave round-trips (a note with
+// newlines, quotes and 4 KB of text comes back byte for byte), --refresh-gen
+// on the examples (no generated file moves) and a --ui-script run that adds a
+// comment, types into it, screenshots both text modes and toggles View > Comments.
+//
+// 1.72.1 (the projected silhouette stops at the floor, and stays out of a
+// GI bake's way): the same wall as 1.72.0, in the game, threw a shadow on
+// BOTH sides of itself while the editor drew one. Two things, both in
+// renderProjShadows. The wall is planted 4.5 of its 10 units under the
+// terrain, and projecting a texture cannot tell a receiver point in front of
+// the caster from one behind it along the light ray - the ray from a sunlit
+// ground point, carried on underground, meets the buried part, which is a
+// full-length shadow on the lit side (the bake's rays only go up, so the
+// editor never had it). The silhouette render now lifts every caster vertex
+// below its floor (projSurfaceAt under the caster, collected before the
+// render) up to the floor, through a scratch copy the bag is aimed at for one
+// submit - the torch wall-patch precedent; a LOD tier re-aims the bag, so the
+// copy reads the bag's own pointer. And under a GI bake a static Default-mode
+// caster draws no live sun silhouette at all: its shadow is in the bake, per
+// texel, and the live copy landed the same shadow twice, darker, on a slot
+// something moving could use - it still draws under a live day/night clock,
+// a torch or a dynamic spot, and "Projected silhouette" forces it. Verified
+// by --refresh-gen (the fixture regenerates and the change is only in
+// renderProjShadows); the PCSX2 run of the reporter's scene is the remaining
+// human step.
+//
+// 1.72.0 (the viewport draws the baked lightmaps, and the ground grid of
+// the GI bake follows the objects): reported from a two-sphere-and-a-wall
+// scene with GI on - a row of pale blotches along the wall's foot in the
+// game, and an editor preview that looked nothing like it. The blotches were
+// IN THE BAKE, on both big faces of the box, at the cell period of the
+// terrain: the solve keeps one bounce value per ground triangle, taken at
+// its centroid, and a 3.1-unit ground triangle running under a 1-unit wall
+// carries the sunlit side's light to the shadowed side and vice versa, which
+// the face's lowest texels - seeing nothing but the ground under them - read
+// as teeth (row spread 47; halved cell = half the period, a wall thicker
+// than a cell = no teeth). gibake::build now tessellates the objects FIRST
+// and lays the ground's grid lines through every grounded object's
+// footprint edges (Scene::groundX/groundZ/groundH replace the uniform
+// coarseH; groundSurfaceY searches the non-uniform grid), so no triangle
+// straddles an axis-aligned object; kCacheVersion 6, the example caches are
+// re-baked, --gi-gpu-check still agrees to 0.0001 %. The preview half:
+// Viewport::setGiAtlas hands the primitives' atlas to the viewport and the
+// fragment shader samples both baked maps per pixel (uLmMode / lmApply -
+// the terrain map by world position, the atlas through a per-object mesh
+// whose UV slot carries the atlas ST, a lit receiver being untextured by
+// construction), composed in the console's pass order: base x (1 - a),
+// then + RGB. The probes stay for what the atlas does not cover. Verified
+// with --ui-script shots of the reporter's scene against the console
+// screenshot, in both shading modes (identical: the maps are per pixel in
+// both), and on three examples for no regression without GI.
+//
+// 1.71.1 (the four projected-shadow slots go to what is IN THE FRAME):
+// the distance setting at 250 changed nothing at the yard - a step away from
+// the lamp post and its shadow was gone - and the slot log (PROJDBG, a
+// debug-build print) said why: the four slots held casters at 5.6, 7.4, 8.5
+// and 9.7 units from the camera, three of them behind the player, all lit
+// by the moon, while the post at twelve units in front of the camera had no
+// slot. The candidate order was raw camera distance. A caster is a candidate
+// now only inside the camera's view cone (a radius and a half of margin - the
+// patch's full 3.5-radius reach still let a tree five units behind the
+// camera through), and candidates rank by distance over bounding radius - what is
+// big on screen holds a slot - with the hysteresis and the dissolve comparing
+// that same key. Verified on the console at the same vantage: the slots hold
+// the post and the pallets, the moon shadows are there.
+//
+// 1.71.0 (Projected shadow distance is a setting): the projected
+// silhouettes' far cull was a built-in 50 units from the camera, dissolving
+// from 35, and a question from the yard - "the shed's shadow only shows when
+// I stand near the lamp; is the distance configurable?" - had two answers.
+// The first is not this setting: a placed lamp can only throw a caster's
+// shadow inside its own Radius (the shadow fades over the outer quarter of
+// it), so a shed ten units from a nine-unit lamp is lit by the torch instead,
+// and a torch held at the eye hides its shadows behind their casters. The
+// second was the constant, which is now Preferences > Shadows > Projected
+// shadow distance (ProjectSettings::projShadowDistance, 10..500, default 50;
+// written only when it is not 50 - format v38, additive), and the dissolve
+// is the last 30 % of it so the default reproduces 35..50 exactly. Generated
+// as PROJ_SHADOW_DISTANCE and read in renderProjShadows for both the
+// candidate cull and the fade. Project-wide, because the four slots are.
+//
+// 1.70.5 (32-bit shadow volumes on a console: the rect was never clamped):
+// beside the lamp post at 32-bit colour the console ran at 12 FPS and drew
+// a dark line through the pool that moved with the camera. RECTDBG (a
+// debug-build print of the count rect) read 0,0 - 5115,3792: the rect's far
+// edge was never clamped to the raster, so a volume vertex projecting off
+// the bottom of the screen (every close caster in front of the near plane)
+// sent the band loop to row 3792 - fifteen clear + count + resolve brackets
+// a frame instead of two - and every band past the raster slid FRAME.FBP
+// by its page rows below address 0, writing wherever the wrap took it. That
+// is the likeliest author of the earlier report's ground texture eaten into
+// holes after a walk, which never reproduced over host:. Clamped now, and a
+// rect wholly off the raster counts nothing; countBegin/countResolve assert
+// a band inside the raster as the belt to those braces. The dark line was
+// the rect's own top row - the resolve's sprite sampled the texel above the
+// cleared area on a console (stale from an earlier rect, read as a count) -
+// so countBegin clears one pixel wider than the rect on every side and
+// countResolve samples at texel centres. Measured on the console at the
+// same vantage: two bands, SCENE ms and FPS in the console's normal range
+// over host:, no dark row.
+//
+// 1.70.4 (the dark rectangle was the dither, not the volumes): the last
+// item of the console report - a rectangle of sky a step darker round the
+// lamp at 16-bit colour - survived every diagnostic mode of the count
+// bracket, mode 8 (no bracket at all) included, measured on a frozen frame
+// through --capture-frame: identical to the block. Switching the lamp's Beam
+// off removed it, so the rectangle was the corona billboard's quad, and the
+// mechanism is the GS blender at 16-bit: read v << 3, add the source (zero
+// over the corona's black margin), store (sum + dimx) >> 3 - with the dither
+// matrix's 0..7 entries being -4..+3 in the signed 3-bit field, so every
+// negative entry stored v - 1. Every additive pass darkened its whole quad by
+// half a step: the corona, the pool canvas (the "dark rectangle where the
+// shadow falls"), the wall pass. The matrix is Bayer 4x4 >> 2 now, 0..3 -
+// exact for an unchanged pixel, half the dither amplitude. The diagnostic
+// modes that bisected it (shadowVolumesDebug 5..9, countAbort,
+// debugShowCount 1..4) stay in; project.hpp lists them. The three earlier
+// faces (dither in the count 1.69.1, the band slide 1.70.2, PMODE 1.70.3)
+// were each real; this is the one the report's rectangle actually was.
+//
+// 1.70.3 (the television never reads the frame's alpha): the console
+// report's last face. With the dashes gone (1.70.2) the picture still had
+// an outline round every shadow - moire in a volume's shape round the lamp
+// post, a dark rectangle under a projected shadow - and the RGB capture was
+// clean. --capture-frame --alpha (new: the game writes the frame's own alpha
+// into frame.tga now, the readers force it opaque for a picture) showed why:
+// the alpha channel is a working channel - the mask, repaint, HUD text at 0,
+// shadow patches at 0, pools at 0x80 - and differs from frame to frame
+// (8,811 zero pixels in one capture, 197,181 in the next). ps2sdk's flicker
+// filter (graph_set_framebuffer_filtered) blends the two read circuits by
+// THAT alpha (PMODE.MMOD = 0), so every alpha-shaped write reached the TV as
+// a shape; PCSX2 does not model the blend. presentFrameBuffer programs
+// PMODE.MMOD = 1 with ALP = 0x80 after the ps2sdk call - a constant 50/50,
+// which is all the filter is for. repaintAlpha stays. Verified by the
+// reporter on the console's own television, since no capture can see it.
+//
+// 1.70.2 (16-bit shadow volumes on a console, second half): the 1.69.1
+// dither fix was real and the marks came back - a fresh capture from the
+// console with that engine in showed dashed green pixels along STRAIGHT
+// lines (a vertical column and a horizontal row: the count rect's own
+// borders) plus a dark rectangle wherever a volume fell, PCSX2 clean as ever.
+// What the emulator cannot vouch for is the count band's page-row slide:
+// FRAME.FBP for the lower band is the band's base minus four page rows,
+// which at 16-bit colour lands inside the scene's z buffer (page 174 of a z
+// at 128..191) - the arithmetic says the rows still land in the band, the
+// console's page caches say otherwise. At 16-bit the whole raster is only
+// 512 KB, so allocateCount takes it whenever the texture heap keeps 1 MB
+// after it, and the bracket runs once with bandY0 = 0 and no slide; 32-bit
+// keeps the band (a full raster is 1 MB there). Verified on the console over
+// ps2link with --capture-frame: the lamp-post vantage and fourteen captures
+// along a walk of the yard at 0 green pixels, plain pools on the truck, the
+// carved shadows present. The band shape is in the boot log
+// ("512x512 CT16, 512 KB" is the full raster). Left open: a 16-bit project
+// too tight for the full raster gets the band back, slide included.
+//
+// 1.70.1 (projected shadows stop blinking: a slot is HELD, and a hand-over
+// is a dissolve): reported from examples/night-walk as "shadows disappear at
+// a certain distance, and walking around they flicker badly - one vanishes
+// while another appears", easiest to see on the shed. Not the far cull and
+// not the light: there are FOUR shadow-map slots
+// (RendererCoreShadowMap::slots) and that project marks TWELVE casters, and
+// renderProjShadows answered "which four" from scratch every frame - sort by
+// distance to the camera, fill slot 0, 1, 2, 3. So two casters at nearly
+// equal distance traded a slot frame to frame, and a caster that lost one
+// went from full alpha to nothing between two frames; the 35..50 unit fade
+// only ever smoothed the FAR cull, never an eviction. Measured on the
+// vantage line before the fix: the shed's ground shadow is a hard-edged
+// black quad at x = 0 / 4 / 6 / 7 / 7.5 and is entirely GONE at x = 8.0 -
+// half a step sideways - because tree-4, fence-east, tree-2 and tree-1 had
+// become the nearest four (whole-frame luma 0.10289 -> 0.11360, centre
+// 0.187 -> 0.216: the picture got BRIGHTER, which is the shadow leaving).
+// A slot is held now, on the count band's own terms (docs/shadows.md, "Only
+// one spot casts per frame"): a holder that stops qualifying releases at
+// once, a challenger must be 15 % or 1.5 units nearer for ten consecutive
+// frames, and the exchange is a cross-dissolve IN TIME - the outgoing shadow
+// keeps its slot while it fades out and only then does the challenger move
+// in and fade up (kProjFadeStep, ~0.3 s each way). Two things that fell out
+// of it. The old loop got "skip a caster that cannot cast" for free by
+// walking on to the next candidate, and a held slot does not, so a holder
+// that draws nothing for kProjBarrenFrames lets go. And the LIGHT the
+// silhouette is thrown from is picked by score with the same bare
+// highest-wins rule - a torch walking past a lamp crosses that line twice in
+// a couple of steps, which swings the shadow to the other side of the prop
+// and back - so the slot remembers its light as an IDENTITY (sun / torch /
+// a placed light by position; the torch moves every frame and cannot be
+// recognised by coordinates) and keeps it unless a challenger is a fifth
+// better for ten frames. After: the shadow is present and steady at every
+// vantage of the same line. PATCH: no capability appears, a defect goes
+// away, nothing on disk changes shape.
+//
+// 1.70.0 (a spot light's shadow lands on walls): the receiver pass the
+// 1.67.0 entry left on the backlog, unblocked by the lever it asked for.
+// PipelineInfoBag::dynLightSkipSlot names one scene light a bag's per-vertex
+// slot must ignore; RendererCore::pickDynLight skips that dynLights index and
+// picks the next best (or the torch). The generated game remembers each
+// light's engine slot per frame (DynLightRt::slot, from addDynSpotLight), and
+// the carving lamp's receiver pass - the torch's wall pass with the lamp's
+// origin, aim, cone and reach, its own sW* buffers on the torch's pool,
+// inside the lamp's bracket after its pool - sets the skip on every
+// wall-sized receiver it lit (setDynLightSkip, the torch's 1.4 u rule and
+// its lone-batch rule) and hands the lamp back next frame. Two things found
+// on the way: a 0.4 u thick wall is "thin" to the torch's receiver rules
+// (half-extent < 0.25) and gets nothing, which is the rule working; and the
+// torch's reach term (1 - fwd / range) on a lamp whose pool has no reach
+// term at all left the wall a quarter as bright as the floor at its foot -
+// the pass was drawing and invisible (proved with a debug build at full
+// colour and no DATE), so the wall takes half the torch's slope. A/B on the
+// spotvol fixture, wall 0.8 u thick 9 u down the cone: override on draws
+// the lamp's gobo on the wall with the slot skipped, off keeps the old
+// per-vertex wash; the caster's shadow on the floor unchanged. 50/50.
+//
+// 1.69.1 (shadow volumes on a real console: the GS dither was counting):
+// the 16-bit report - green dashes along silhouette edges, a dark halo in
+// the volume's shape - plus a one-pixel checkerboard carved out of the pool
+// at 32-bit, all on hardware and none in PCSX2. Bisected live over ps2link
+// with a hidden project key, shadowVolumesDebug (project.hpp; never in the
+// UI): 1 = count without the resolve (clean), 2 = resolve without the
+// volumes (clean), 3 = draw the band's texels on screen instead of the mask
+// (RendererCoreAlphaMask::debugShowCount) - which showed residues of 4,0,4,0
+// down columns that must be all zero, and the project's `dither: false`
+// cleared them in one boot. The real GS applies DTHE to the count band's
+// +N / -N writes with a different matrix offset each, so the pair no longer
+// cancels; PCSX2 never dithers there. countBegin writes DTHE = 0 for the
+// bracket and countResolve restores the project's value. Verified on the
+// console at both depths: the pool on the wall smooth again at 32-bit
+// (neighbour-pixel difference 52 -> 10), and at 16-bit a lamp-post vantage
+// with the volume across the whole screen at 0 green pixels where the
+// report's frame had 216, the pole's shadow carved on the wall. The
+// blue-spotted ground texture from the same report did not reproduce in
+// this session and stays open. --capture-frame did every picture.
+//
+// 1.69.0 (--capture-frame: the game's own screenshot from a shell): the
+// test enabler for a console report (docs/devkit.md). A 16-bit night-walk on
+// real hardware showed green dashes in fixed columns, a dark halo in the
+// shape of a shadow volume and, after a while, a ground texture eaten into
+// blue-spotted holes - three faces of something writing VRAM it does not own.
+// PCSX2 at 16-bit on the same vantage is clean, so the only picture that
+// counts is the console's, and the Debugger's Capture frame was a button.
+// It is a command now: write bin/livedbg.cmd with captureFrame and a
+// clock-derived seq, wait for bin/frame.tga by its PROGRESS (the GUI's rule:
+// a growing file is a write in flight, ~3 s a shot over ps2link), decode the
+// TGA to PNG. With it: deployed to the console over ps2link, a frozen yard
+// vantage at 0/60/120 s and two pad-driven walks (1.5 and 5 minutes, 9
+// captures, pixel-counted for green dashes and blue spots) came back CLEAN
+// on 1.68.0 at 16-bit with the torch's volumes on - so the report is not
+// reproduced over host:, where the game runs at 24-44 FPS instead of 50. The
+// difference left to test is speed: a USB/ISO run at full frame rate, A/B
+// with flashShadowVolumes off, is the next step and needs the console's own
+// display.
+//
+// 1.68.0 (a spot light's carved shadow previews in the viewport): the
+// viewport already shadowed every dynamic light per pixel through the
+// analytic box/sphere occluders (the AO shapes), hard-edged and quantized to
+// the silhouette's coarseness - so the whole change is in WHICH casters and
+// WHICH light. The spot that would hold the game's slot (nearest to the
+// camera among the dynamic spots resolving to "on" - the light's override,
+// or the project switch when it says follow) picks its casters the way the
+// game's pickVolCasters does: everything solid in the cone, nearest four to
+// the light, nothing grouping-cell sized, nothing whose Dynamic shadow is
+// None. Every other light keeps its nearest-four Cast-shadow-projected rule.
+// No hysteresis - an editor camera does not drift between lamps.
+//
+// Two preview holes surfaced on the way and are closed here. The occluders
+// were uploaded only with ambient occlusion on (or an emissive light in the
+// scene), so with AO off every lamp previewed shadowless; a dynamic light in
+// the scene uploads them now. And the terrain's "never probe-lit" flag set
+// giHere, which the per-pixel path reads as "the baked answer has the lights
+// already" - true with GI on, and with GI OFF it meant the ground took no
+// point or spot light at all (a lamp over a field previewed as darkness while
+// the console drew its pool). giHere now follows uGiOn there.
+//
+// Tried and reverted: giving the slot spot a per-pixel cone with the same
+// shadow test in PS2 shading. The terrain is shaded flat per cell in that
+// mode (as the console shades it), so the cone came out as metre-wide
+// tiles - worse than the mode's honest "a spot's gobo pool is not drawn".
+// A/B on the spotvol fixture through --ui-script `shot`: the switch on
+// carves the caster's shadow under the lamp holding the slot and leaves the
+// other lamp's caster alone; off draws both pools whole; Solid shading is
+// byte-identical before and after the PS2-mode revert.
+//
+// 1.67.0 (a scene's spot lights carve their own shadows): the setting, the
+// per-light override, the codegen AND the runtime that draws them. The
+// torch has carved real per-pixel occlusion since 1.62.0
+// (docs/flashlight.md, "The shadow") and the scene's own spot lights have
+// not: a street lamp bolted to a wall lit the wall and the alley behind it
+// equally, and the flashlight tooltip said so in as many words - "scene
+// lights are not affected: they cast through the four projected-shadow slots
+// in both modes and never use volumes". The slots are the wrong instrument
+// for a lamp with a cone: four for every light in the scene TOGETHER, each
+// caster needing its own flag, and the leak everywhere a flag is missing.
+// This is the switch that hands a spot the machinery the torch already has.
+//
+// Two settings, because the answer is not the same for every lamp in a
+// project. ProjectSettings::spotShadowVolumes is the project-wide default,
+// false - which is precisely what every existing file did. SceneObject::
+// lightShadowVolumes is the per-light override, and it is deliberately the
+// shadowMode idiom rather than a bool: 0 = follow the project, 1 = off,
+// 2 = on. A tri-state costs nothing on disk (both keys are written only when
+// they are not their default) and it is what makes the interesting cases
+// sayable in one combo - "this lamp, in a project that leaves the rest
+// alone", and "every lamp but this one".
+//
+// The reason a per-light override is not a luxury is the COUNT BAND. Volumes
+// are counted in a dedicated GS buffer (1.62.1 has the format story), there
+// is ONE of it, and a bracket is per light per frame - so a scene can hold
+// more shadow-casting spots than a frame can serve, and only one of them is
+// active at a time (the nearest to the camera). A project with six lamps
+// therefore costs what one lamp costs, and which one it is, is an authoring
+// question. Setting 2 on the lamp that matters is the answer to it; the
+// combo's tooltip and docs/shadows.md both say so, because a feature whose
+// selection rule is invisible reads as a feature that half works.
+//
+// What it costs in VRAM is nothing that was not already spent: the band is
+// the SAME buffer the torch's volumes count into. So the boot allocation is
+// `(FLASH_SHADOW_VOLUMES && FLASHLIGHT_USED) || SPOT_SHADOW_VOLUMES_USED`
+// rather than a second allocateCount, project::textureHeapEstimate charges
+// the band once for the pair (its "without" arm clears BOTH switches, or a
+// project with the torch off and spots on would report a 0 KB band), and the
+// Preferences warning is shown for either user, once, worded for the pair.
+//
+// SPOT_SHADOW_VOLUMES_USED is RESOLVED rather than read off the project
+// switch, and that is the load-bearing half of the codegen: the two disagree
+// in both directions. A light with the override ON in a project with the
+// setting OFF still needs the band; a project with the setting ON but no spot
+// light anywhere must not allocate one. So it is "any scene holds a spot light
+// for which lightShadowVolumes == 2 || (lightShadowVolumes == 0 &&
+// spotShadowVolumes)" - the PROJ_SHADOWS_USED / FLASHLIGHT_USED discipline,
+// which is what keeps a project that uses none of this paying for none of it.
+//
+// The per-light field rides in liveLinkRecipeHash and NOT in the streaming
+// record, which is the honest reading of what it is rather than an omission.
+// A light's brightness, radius, flicker and spot angle stream (livelink v4)
+// because the game reads them out of object data every frame; whether the
+// light carves volumes decides what the BOOT path allocates and which spot
+// the frame counts into the band, so an edit of it is a rebuild. The record
+// is also full - 16 floats, v[15] is the spot angle - so carrying it would
+// have meant a stride bump for a value that must not be live anyway.
+//
+// That half was the contract. THE RUNTIME is the rest of this release, and it
+// is mostly a refactor: the torch's "candidates -> volumes -> mask bracket" was
+// one 200-line block inside the flashlight's branch of
+// updateAndRenderLightPools, written in terms of `torch`, `dx/dy/dz`,
+// FLASHLIGHT_RANGE and FLASHLIGHT_ANGLE. It is now two lambdas at the top of
+// that function - pickVolCasters and buildVolMask - taking a light's origin,
+// aim, cone tangent, reach and the buffers to fill, and the torch calls them
+// with exactly the numbers it used to inline. That is why the flashlight A/B
+// below could come out BYTE-IDENTICAL rather than merely similar, and it is
+// the whole reason to refactor before adding a second caller: a second copy
+// of this block would have been a second answer to every trap the first one
+// paid for (the screen rect is not NDC, front faces before back faces, the
+// mask is cleared once per light and repainted before anything else touches
+// alpha).
+//
+// ONE spot carves per frame, and the choice is made once, before the pool
+// loop: among the lights that are active, visible, spot, asked for volumes and
+// LIT (lightBright * the live g_dynLights level > 0.01 - a lamp a flow node
+// switched off must not hold the slot against one that is on), the nearest to
+// the camera whose sphere is not wholly behind the eye. The hand-over is
+// HYSTERESIS and not a plain minimum: a challenger has to be 15 % or 1.5 units
+// nearer, whichever it reaches first, for ten consecutive frames. Without it
+// two lamps at nearly equal distance trade the slot on the frame the camera
+// drifts between them and the scene's shadows blink; with it, three captures a
+// second apart at a deliberately near-equidistant vantage are identical inside
+// the game raster. A holder that loses its qualification hands over at once -
+// there is nothing left to flicker against.
+//
+// Three things differ from the torch, and all three follow from a lamp not
+// being in the eye. (1) The extrusion origin is the LIGHT ITSELF, where the
+// torch uses a virtual origin pushed a metre or two down the beam - that push
+// exists only because a light held at the eye hides every shadow behind its
+// caster, and a lamp on a wall has real parallax already. (2) The eye can be
+// INSIDE a volume, which z-PASS counting cannot answer (it asks how many
+// volume faces sit in front of the scene's depth, which is the shadow depth
+// only if the ray starts outside every volume). So pickVolCasters takes an
+// optional eye guard and drops the caster whose shadow the camera is standing
+// in - your own shadow fading as you step into it is a far smaller lie than
+// the whole mask inverting, and the torch passes no guard because its volumes
+// always point away from it. (3) There is no 1-bit fallback for a spot: that
+// path's correctness comes from interleaving each receiver's light with the
+// volumes in front of it, and a spot's receiver is one ground patch, so with
+// the count target refused the lamp lights its cone plainly.
+//
+// One gate had to be widened, and it is the "test enablers first" rule in
+// miniature: a SCENE spot's pool is projected through the flashlight's gobo,
+// and the gobo was baked and loaded only when the project had a flashlight.
+// So the first fixture - a lamp, a box, no torch - drew a soft corona blob
+// with nothing to carve, and the feature looked broken while the code was
+// right. projectUsesSpotVolumes is now the ONE answer to "does this project
+// carve spot shadows": scene_data.hpp's SPOT_SHADOW_VOLUMES_USED, the gobo
+// bake in refreshGenerated and the runtime load all read it. Nothing existing
+// moves - a project would have to have turned the new setting on to reach it.
+//
+// The shadowMode disagreement is fixed in the same place. An object whose
+// Dynamic shadow is None was out of the blob and silhouette systems and NOT
+// out of the torch's volumes; pickVolCasters skips it now, for both lights,
+// which is what "None" has always claimed to mean.
+//
+// Verified. Codegen: --refresh-gen on a scratch project emits
+// SPOT_SHADOW_VOLUMES_USED = true and bakes res/hud/flashlight-gobo.png in a
+// project with no flashlight at all, and the generated game compiles clean in
+// Docker. Flashlight regression: the frozen-camera night-walk fixture (Player
+// at [0,0,0] rotation [4,180,0], facing the yard's wall, truck and pallets,
+// clipping vu1, the lamp's flicker turned off so the fixture is deterministic
+// - two captures two seconds apart differ only in PCSX2's own FPS overlay)
+// built with the 1.66.3 editor and with this one is BYTE-IDENTICAL inside the
+// game raster; 50.0/50 both ways. The feature: a scratch fpp fixture with a
+// grazing spot, a 1.5 u box under it and a frozen camera carves a plainly
+// visible trapezoid of shadow into the ground pool, and the same fixture with
+// that light's override set to Off draws the pool with no shadow and nothing
+// else changed. With a second lamp beside the first, only the nearer one's
+// caster has a shadow; walk the camera over to the second and the shadow
+// moves with the slot. 50.0/50 in every arm (PCSX2 software renderer).
+//
+// What is NOT in this: the receiver (wall) second pass, and the reason is
+// worth writing down because it is not effort. The torch draws its light on
+// solid geometry through wBag/wTexBag/wColorBag with the shared 3997-vertex
+// budget, and it can do that honestly only because it turns its OWN cone off
+// on each receiver first (setFlashSpotOff -> PipelineInfoBag::spotLit). There
+// is no per-object way to say "not this SCENE light": dynLightPick is the only
+// lever and it drops every dynamic light from the bag. So a spot's wall pass
+// as written would light the wall twice - once per vertex through the engine's
+// slot, once projected - and the carved shadow would darken only half of that,
+// which reads as a bug rather than as a shadow. It is closer than it sounds,
+// because the engine picks ONE light per bag and a wall inside a lamp's cone
+// is usually lit by that lamp alone; but which light a bag picked is decided
+// on the console, so switching the pick off from the host can darken a wall
+// that some other lamp was lighting. A spot's shadow therefore lands on its
+// GROUND POOL and nowhere else, and docs/shadows.md says so plainly.
+//
+// A pre-existing bug in the same area went with it: SceneObject::shadowMode
+// was missing from SceneObject::operator==, so the undo system could not see
+// a per-object dynamic-shadow edit at all - switching an object from Default
+// to Blob compared equal to what it replaced, nothing was pushed, and the
+// change read as "undo drops my shadow edits". The field has been in the
+// comparison since this commit; nothing else about it moves.
+//
+// The other sibling is a REPEATABLE A/B for anything that changes how a
+// dynamic shadow is drawn, because "look at these two screenshots" is not a
+// verification and the runtime half needs one:
+// .claude/skills/tyra-testing/scripts/make-shadow-fixture.ps1 builds a
+// two-lamp, two-caster fixture headlessly and shadow-ab.ps1 runs ONE command
+// per switch - patch, build, boot, screenshot the emulator that is running
+// this project BY PID, grep the game's own bin/log.txt, and write a report.md
+// whose numbers say where the picture changed. It was proven on
+// flashShadowVolumes, whose volumes already work, so it is trusted before the
+// spot runtime exists; the tyra-testing skill has the one-liner, the numbers
+// and the traps.
+
+// 1.66.3 (the pool still cut off along a straight line when the torch was
+// aimed FAR, flat ground included): 1.66.2's hull was real but not the
+// report. Logged from the game and projected with the view-proj, the cut's
+// screen row was the canvas's NEAR row to the pixel: the near edge sat a
+// fixed `along` behind the canvas's centre, and aimed far (2 degrees of
+// pitch: the axis lands 25 u out, the centre 15 u past that, `along` capped
+// at 35) that put it 5.5 u in front of the player while the cone's lower edge
+// had been on the ground since 3.9 u - bright gobo with no canvas under it.
+// The lower edge is marched every frame now and the near edge goes a unit
+// short of its floor hit (the feet when it never lands). The canvas is also
+// a trapezoid, each row as wide as the cone at its own distance, instead of
+// a strip as wide as the cone at the landing: aimed far the strip's straight
+// sides were the light's sides. Two dead ends, both measured on the same
+// frozen frame: the VU1 and EE clippers draw it identically (the "ee" value
+// is not a clipping mode - it silently falls back to vu1; "precise" is the
+// EE clipper), and the hull alone changed nothing there. A/B at (-6, 14)
+// pitch 2 on night-walk: a hard line at screen row 612 before, a pool fading
+// toward the feet after; (12, 74) aimed 1 up unchanged.
+//
+// 1.66.2 (the pool cut off square across the screen when the torch was aimed
+// UPHILL): reported with three screenshots from night-walk - fine at the
+// feet, a dead-straight horizontal line through the pool the moment the
+// player walks up a slope, the near half dark. The canvas follows the relief
+// per VERTEX, and its cells are metres long: on a convex slope (a hill
+// flattening toward its crest) the chord between two vertices dives under the
+// ground and the z test eats it, along the straight line where the chord
+// plane meets the ground plane. The lift was the only defence, and 1.66.0
+// capped it at half the torch's height over the landing - which is NEGATIVE
+// when the beam lands up a hill, so uphill meant 2 cm of lift over 10-unit
+// chords, and at a grazing view 5 cm of dip is half a unit of depth, past
+// the view-ray bias. Every cell now measures the ground's BULGE above the
+// bilinear sheet through its corners and raises the corners by the largest
+// bulge around them, so every chord clears the relief by construction; a
+// planar slope lifts nothing. The first attempt took the plain highest
+// ground within a cell instead and the canvas floated at the lens's height,
+// glowing in the sky over the crest - the bulge is the right quantity.
+// Frozen-camera A/B on night-walk at (12, 74) aimed 1 degree up a hill and
+// at (12, 64) aimed 5 up: a dark band the width of the screen before, the
+// pool fading out to the crest after. ~300 height reads per frame.
+//
+// 1.66.1 (the pool cut off along a straight line as the torch was raised
+// across open ground): reported with two screenshots right after 1.66.0, and
+// it was 1.66.0's own mistake. The cone's lower edge is its STEEP edge, so
+// where it meets the floor is the footprint's NEAR end - everything beyond,
+// out to the reach, is inside the cone - and the canvas was laid toward the
+// player from it, exactly where the gobo is black. The wall fixture hid it
+// (the wall bounded the far side). Laid outward now; and the canvas's far
+// edge fades over its last quarter, so the along backstop (across * 8) never
+// shows as a hard edge when a flat beam's light outruns it. Open ground at
+// 2 and 4 degrees of pitch: a soft tail to the horizon, no edge.
+//
+// 1.66.0 (the torch's pool no longer snaps off at a wall's foot, and a
+// fixture can author the player's pitch): reported with four screenshots -
+// "I shine at the corner of the wall and the ground; move a pixel up so the
+// centre aims above the wall/ground edge and the blob on the ground is gone,
+// same at the edge of an object".
+//
+// The pool's patch is a CANVAS - the gobo is projected per pixel wherever it
+// lies - and it was landed by marching the beam's AXIS alone, against surface
+// heights that know nothing of walls. So a centre just above the edge marched
+// through the wall and landed on the ground behind it, where the z test hid
+// the canvas; aimed level it never landed at all. Three landings now, in
+// order: the axis meets the floor; the axis meets a wall first (projWallHit
+// already knew) and the canvas goes to the wall's FOOT, a step short of the
+// face; the axis misses the floor and the cone's LOWER EDGE is marched
+// instead, its hit being the footprint's far end, from which the canvas is
+// laid back toward the player over the span to the wall or the edge's own
+// reach. A/B at a 2-degree pitch toward a wall 6 u away: the old build drew
+// nothing on the ground, the new one spills the pool over the wall's foot.
+// The relief lift is also capped at half the torch's height over the landing
+// (a hand-low torch had its canvas floating above the lens, covering no
+// ground pixel).
+//
+// The fixture for that A/B did not exist and was built first, per the new
+// testing rule (tyra-testing skill): the Player object's ROTATION X is its
+// start pitch now (positive = down), and heading + pitch both come from the
+// rotated forward vector like every other object's transform - which also
+// reads a gizmo-wrapped [-180, 89, -180] as heading 91, not 89
+// (docs/player-start.md). Before, the pitch was unauthorable and every
+// "aim just above the edge" shot was a pad-driven guess.
+//
+// And the count rect's vertical flip from 1.65.0 is gone (1.65.1 proved the
+// convention against the sun disc; three engine sites agree). The rect in
+// that fixture was the whole raster either way - the far extrusions spread
+// it - so the sign rests on the measurement, not on a shadow that moved.
+//
+// 1.65.1 (the god rays and the lens flare radiate from the sun again):
+// reported over a dusk shot with the shafts converging on nothing in
+// particular near the middle of the picture while the sun sat up in the
+// corner - "the rays don't come from the sun".
+//
+// The same mistake 1.65.0 found in the flashlight's count rect, one function
+// over and one worse. updateSunFx projected the sun with
+// px = (x/w * 0.5 + 0.5) * W and py = (0.5 - y/w * 0.5) * H, but Tyra's
+// perspective matrix is built for the VU1 pipeline's fixed 2048 scale - the
+// frustum edge is at |x| = w * rasterW / 4096, and the matrix already carries
+// the GS's downward y in its data[5] = -h. So the reported position was
+// 4096/rasterW (8x at 512 px) too close to the centre of the screen AND
+// mirrored across it. Measured on the dawn plaza of examples/day-night in
+// PCSX2: the sun disc the 3D pipeline itself drew at (410, 127) of a 512x512
+// raster was reported at (275, 272). The god rays zoom toward that point, the
+// four flare ghosts walk the sun -> screen-centre axis through it, and the
+// 80 px / 220 px edge bands decide from it when the sun has left the screen -
+// so all three were aimed at a point that had nothing to do with the sun. It
+// is normalised against getRasterWidthF/getRasterHeightF now (the raster the
+// projection was built for) and landed on the display size both consumers
+// want. After the fix the same frame reports (410.3, 126.3): the glow sits on
+// the disc and the ghosts march down the axis, checked against their
+// predicted centres to within 2 px on the isolated ring.
+//
+// The A/B also caught a second space mismatch under it, which only a
+// non-448-row scan mode shows: RendererCore2D authors sprites in the stock
+// 512x448 layout and letterboxes THAT into the raster, so a flare ghost given
+// a display row lands (renderHeight - 448) / 2 rows too low - 32 in Pal576i,
+// 46 in HiDef1080i, 0 in the stock modes, which is why it had never been
+// seen. The god rays keep taking display pixels (RendererCorePostFx divides by
+// getHeight()); only the sprites take the offset back off.
+//
+// 1.65.0 (primitives cast their own shape under the torch, and the count
+// rect stops slicing shadows flat): "add it to the primitives too - and tell
+// me why a primitive has a different set of rights at all, this is the n-th
+// time we step on that mine".
+//
+// The why: a model is a shared LOCAL-space asset (gameModels) with triangles
+// the volume code can read; a primitive has no asset - addBox/addSphere/
+// addCylinder/addCone emit its triangles straight into WORLD space, per
+// object, shaded, through pushVert, and that is the only copy. Every feature
+// that reads geometry back (collision mesh, shadow mesh, highlight proxy,
+// now this) trips on it. Here the same generators run once per (type,
+// detail, rings) on an identity object (primShadowMesh), which IS the unit
+// mesh in local space, and emitMeshShadowVolume places it with the caster's
+// basis and scale exactly like a model. Detail steps down until the mesh fits
+// kShadowMeshMaxTris (a detail-64 sphere is 5760 triangles). Planes and
+// decals stay on boxes: one-sided, no unlit face to cap on.
+//
+// Measuring that exposed an older bug the rectangle had hidden: the count
+// bracket's scissor rect took the casters' BOX corners through x/w as if it
+// were NDC. Tyra's projection is built for the VU1 pipeline's fixed 2048
+// scale - the frustum edge is at |x| = w * rasterW / 4096 - so the rect was
+// shrunk toward the centre by 4096 / rasterW, and the mask only ever covered
+// that rect: a sphere's shadow was a circle with its top and bottom sliced
+// flat (logged rect rows 226-328 of 512 for a caster sitting at rows
+// 245-371). A box shadow that fit inside the shrunken rect never showed it.
+// The rect is now the bbox of the volume vertices themselves, mapped through
+// the 2048 scale (the portal carve already did it right).
+//
+// 1.64.0 (a big model's torch shadow is its OUTLINE now, not its box):
+// reported over a shot of a rifle on a wall wearing a hard-edged rectangle,
+// with the reminder that "this whole feature was only ever for the pretty
+// Silent Hill shadows".
+//
+// The shadow volumes classify a model's real triangles on the EE every frame,
+// and past kShadowMeshMaxTris (1200) that stops being cheap - so a big model
+// extruded its bounding sub-boxes instead, and a 6194-triangle rifle cast a
+// box. The build now bakes a SHADOW PROXY for such a model: every part welded
+// together by position (a shadow has no uv seams), decimated by the mesh-LOD
+// quadric collapse with open borders UNLOCKED (a game prop is mostly open
+// borders; locked, the collapse stalls far above any useful budget - they
+// carry Garland's perpendicular-plane penalty instead, so an outline edge is
+// dear to break but free to slide along itself) until the triangle count fits,
+// stored positions-only in the .tmdl (format 3, trailing section, ~40 KB; v2
+// files read as before). The game tries the real mesh first and reaches for
+// the proxy only over budget; a model the decimator cannot bring under budget
+// warns in the build log and keeps the boxes. The budget is one constant,
+// meshlod::kShadowProxyMaxTris, spliced into the game's kShadowMeshMaxTris.
+// Baked only while the preference is on. Measured: rifle 6194 -> 877,
+// barrel 4180 -> 1167, trilobite 8338 -> 1022; the rifle's shadow shows its
+// sight, grip and the hole in the trigger guard in PCSX2.
+//
+// 1.63.1 (the torch's SILHOUETTE shadow was thrown from the eye too):
+// reported as "the torch shadow is not as nice as the moon's" over a shot of a
+// sphere wearing a hard-edged rectangle, with the helpful question - "could the
+// flashlight shadow not be drawn the same way as the moon's?"
+//
+// It already can: that IS the default mode (Preferences > Rendering >
+// Flashlight shadow volumes, OFF), and the rectangle is the volume mode being
+// honest about a PRIMITIVE, which always extrudes its bounding box. But
+// switching the preference off drew nothing at all, which measured worse than
+// the rectangle - and worse than doing nothing, because the torch WINS the
+// scoring for the slot and the moon's perfectly good shadow stopped being
+// drawn.
+//
+// renderProjShadows still lit from cameraPosition. 1.63.0 moved the torch off
+// the view axis for the pool, the receivers, the volumes and the cone, and
+// missed this path; a light AT the eye lands its silhouette exactly behind its
+// caster on screen, so the slot held a correct round shadow that no vantage
+// could ever show. It takes the same held origin now - the cone test, the
+// line-of-sight query, the consider() call and the fromTorch identity test,
+// which compares the very floats consider() stored.
+//
+// Measured on the reporter's scene, one vantage, three builds: volumes = a
+// hard rectangle; silhouette from the eye = nothing (and no moon shadow
+// either); silhouette from the held torch = the soft round shadow the moon
+// makes, at 0.2 / 0.25. docs/flashlight.md says up front that BOTH modes need
+// the torch off the eye before either is worth judging.
+//
+// 1.63.0 (the torch is HELD now, not implanted in the eye - format v36):
+// asked for as "could we give the flashlight a slight offset, so it does not
+// shoot from the eye but a little lower and to the side?" - and it is also the
+// answer to the shadow report of 1.62.1, which ended in "a light on the view
+// axis casts every shadow exactly behind its caster".
+//
+// The player's flashlight gains an offset: Held right / Held below eye, world
+// units, clamped to a metre either way, default 0,0 - which returns the eye
+// exactly, so every existing project is untouched until someone moves it. The
+// offset is taken in the BEAM's frame, never the world's (right = beam x world
+// up, down = the beam's own up negated), so the light never slides ALONG the
+// beam: sliding would change its reach and could drop it past a caster, where
+// a shadow volume points back at the eye and z-pass counting is wrong.
+//
+// One origin feeds everything the torch does - the gobo projection that shapes
+// the pool, the receiver collection, the wall hit, the march that lands the
+// pool, the shadow volumes AND the per-vertex cone in both game templates.
+// Three uses of the camera stay the camera on purpose: the aim direction (a
+// torch points where you look), the receiver height cap (a wall taller than
+// the PLAYER is not a floor), and the volume's front/back classification,
+// which is a question about the eye and not about the light.
+//
+// 1.62.1 (the torch's shadow mask was never written at 32-bit colour):
+// reported as "still no shadows" on a hand-made scene, with a screenshot
+// showing only the moon's. The mask was being BUILT - four casters picked,
+// 144 volume vertices submitted, mask=1 in the game's own log - and not one
+// bit of it reached the framebuffer.
+//
+// countResolve() turns "this pixel has a non-zero count" into the mask bit
+// through TEXA's AEM expansion, and the GS applies TEXA only to formats whose
+// alpha it has to INVENT: PSMCT16 (one bit) and PSMCT24 (none). The count band
+// is PSMCT32 at 32-bit colour - for page-geometry parity with the scene z it
+// is tested against - and a PSMCT32 texel carries its own alpha, which the
+// count pass deliberately leaves at 0 so the band's A bit can never trip the
+// resolve. So the resolve sampled alpha 0 everywhere, failed its ATEST on
+// every pixel, and wrote nothing: no shadow at 32-bit, ever. 16-bit projects,
+// where AEM does apply, worked - which is exactly why this survived a console
+// pass, since every shot that proved the feature was taken at 16-bit while
+// chasing the FBA bug. The resolve now binds PSMCT24 when the band is 32-bit:
+// the same memory, minus the byte we do not want. Found with one probe -
+// skipping maskClear() for one build, so a live gate must discard everything.
+//
+// Fixing it exposed a second fault that had never been visible: the volume's
+// near caps sat on the caster's LIT faces, so the volume CONTAINED its own
+// occluder. Every surface the real mesh recesses behind the hull that stands
+// in for it counted as shadow - a barrel came back striped along its panel
+// lines - and because a model past 1200 triangles is represented by a BOX, a
+// hard-edged rectangle of that box's footprint sat on the ground around it,
+// which reads as the shadow and is not one. The caps go on the UNLIT faces
+// now: the volume starts at the caster's far side, and the silhouette ring is
+// shared by both halves, so the shape on screen does not move.
+//
+// Measured on the reporter's own scene, one word apart, same pad script and a
+// fresh boot per arm: dark pixels inside the pool 622 (mask dead) -> 1538 (lit
+// caps: shadow plus the box artifact) -> 896 (shipped: the honest rim, no
+// self-shadowing). docs/flashlight.md gained "How much of a volume shadow you
+// will actually SEE", because the answer to the report is finally geometry
+// and not a bug: a torch held at the eye hides its shadows behind whatever
+// casts them. Two ways to widen that rim were tried and measured as dead ends
+// - dropping the virtual torch to chest height moves a few degrees, and
+// widening volPush past a caster's distance disqualifies that caster outright.
+//
+// 1.62.0 (a dynamic shadow is chosen on the OBJECT now - docs/shadows.md):
+// "I put in a model that has a dynamic shadow, but instead of the full cast I
+// pick the blob option." Blob shadows were a project-wide switch that only
+// ever applied to the things that MOVE (the third-person avatar, animated
+// models, physics bodies), and the projected silhouette was a per-object flag;
+// there was no way to say "this one, cheaply".
+//
+// SceneObject::shadowMode says it per object: Default / None / Blob /
+// Projected, in Properties, with the project switch left as the default for
+// everything that does not override. Blob mode works on a STATIC prop too -
+// the moving-things rule only gates the default - and it is one soft quad
+// against a projected caster's second 64x64 render per frame, which is the
+// trade the tooltip states.
+//
+// Three things had to follow the object rather than the project: the sprite
+// bake (the blob's alpha mask is the flare glow, and one object asking for a
+// blob is enough to need it), BLOB_SHADOWS_USED (the new codegen constant that
+// gates the texture load and the setup, where BLOB_SHADOWS alone used to), and
+// PROJ_SHADOWS_USED (which decides whether the engine's shadow-map VRAM is
+// claimed at boot at all). The spawn-recipe hash takes the mode too - two
+// objects that differ only in what they cast are not interchangeable
+// templates.
+//
+// 1.61.4 (one prop in the beam took every other receiver's torch light):
+// reported from a hand-made scene - two models with "Cast shadow (projected)"
+// on, flashlight shadow volumes on, and no torch shadows anywhere; plus "when
+// I shine at the robot the light on the wall disappears".
+//
+// The flashlight's second pass - the one that lands the projected pool on
+// solid geometry - fills ONE 3997-vertex buffer, and the receivers are walked
+// nearest first. The backstop tested the whole buffer, so the nearest receiver
+// could consume all of it: measured in that scene as recv[0] (a barrel model)
+// sliceVerts=3999 and recv[1] (the wall behind it) sliceVerts=0. The wall got
+// no torch light at all - and therefore no shadow either, because the volume
+// mask can only darken light that is drawn. Each receiver now gets an equal
+// share plus whatever the ones in front left unused, so a heavy model lights
+// partially (its far triangles fall back to the per-vertex cone) instead of
+// starving the surface the pool exists for.
+//
+// HOW IT WAS FOUND, because the method is worth more than the fix and is
+// written up in the tyra-engine-dev skill: the mask machinery was cleared
+// step by step with probes that each answered ONE question - forcing the
+// resolve to paint alpha 0x80 over its rect (the pool vanished: DATE gating
+// works), then painting the count band's texels as COLOUR into the frame (the
+// counts were there, hugging each caster), then logging the receiver slices
+// (recvN, per-slice vertex counts) - which named the buffer in one line.
+// Two of my own probes were inconclusive by construction and are recorded
+// with the rest: forcing the resolve's ATEST to pass does not change the
+// alpha it WRITES (that comes from the texel), and a probe that skips a pass
+// also skips whatever state that pass restores.
+//
+// 1.61.3 (the atlas window draws the page it is TALKING about): the preview
+// was the PNG the last build wrote, so it lagged every edit - group two
+// textures and page 0 kept showing its previous thirty members above a list
+// of two, while the page the plan had just invented showed nothing at all
+// ("build the project to see the page"). A preview that contradicts the list
+// beside it is worse than no preview, and the plan is computable now, so the
+// window composites each page from the member PNGs itself: correct before any
+// build, and correct the instant a group or a keep-out changes. Reported from
+// the window, with a screenshot of exactly that mismatch.
+//
+// 1.61.2 (a scene where atlasing actually pays, and the bug building it found
+// - examples/texture-atlas): thirty crates, each with its own 32x32 texture,
+// packed onto ONE 256x256 4-bit page. Measured from the game's own VRAMSTAT,
+// both ways: 0.234863 MB free with atlasing off and 0.298584 with it on - 65.3
+// KB back, against the 65 KB --atlas-report predicted, and 34 resident texture
+// allocations down to 5. The example exists because the feature is easy to
+// switch on and hard to judge: this is the arithmetic in a form you can walk
+// around in, and the README says why small palettized textures are so wasteful
+// alone (the GS rounds a 4-bit texture's width up to 128 texels, so a 32x32
+// prop holds 512 bytes and occupies 3.25 KB).
+//
+// THE BUG IT FOUND. The first cut kept its props in res/props/ and came back
+// as thirty WHITE boxes. texbake only rewrites a .mtl and quantizes a .png
+// under res/models, res/materials and res/textures, while the atlas plan
+// packed from anywhere - so the member's own PNG was dropped from the bake
+// (correctly: it ships inside the page) while its .mtl was copied verbatim,
+// still pointing at the file that no longer existed. Worse than not atlasing,
+// and silent. The plan refuses those folders now, with that sentence as the
+// reason in the report and the window. Nothing in-tree hit it, because every
+// project so far kept materials where the convention says.
+//
+// Two authoring points the fixture makes on purpose: every prop is drawn from
+// ONE 16-colour palette, which is what makes a 4-bit page free of quality cost
+// (art with thirty independent palettes is what makes it lossy), and every
+// texture carries its own number, so a mis-mapped UV reads as the wrong crate
+// rather than as a subtle shift. That is also how the box primitive's V
+// orientation was found: an upside-down "5" is a convincing "2".
+//
+// 1.61.1 (two Preferences widgets were dead on arrival, and the reason
+// generalises): clicking *Project > Preferences > Rendering > Texture
+// atlasing* did nothing - the tick appeared and was gone on the next frame,
+// with nothing in any log. The combo beside it, *Textures* (the 4/8-bit/full
+// quantization), was the same.
+//
+// Preferences edits a COPY of ProjectSettings and writes it back only when
+// `operator==` says something changed. `textureQuant` and `textureAtlas` were
+// never added to that operator when texture atlasing landed, so the comparison
+// answered "identical", the model was never updated, and the next frame
+// re-seeded the widget from it. The settings could only be changed by editing
+// the .tyra by hand - which is exactly what every test of atlasing on this
+// branch had done, so nothing caught it until someone clicked the box.
+//
+// Both fields are in the operator now, and a static_assert on
+// sizeof(ProjectSettings) sits above it: add a field and the size changes, the
+// assert fires, and the next person is made to read the comment instead of
+// shipping another widget that does nothing. It is a reminder, not a proof -
+// the message says so, and says to update the number once the field is listed.
+//
+// Verified with --ui-script on a copy of examples/night-walk: click, then
+// `expect-checked` (which FAILED before the fix and passes after), then ctrl+s
+// and the key in the .tyra - "textureAtlas": true and "textureQuant": "8bit".
+//
+// 1.61.0 (the atlas page has a depth now, and it is the setting that decides
+// whether atlasing is worth anything in a palettized project -
+// docs/texture-atlasing.md): a page was always quantized to 256 colours, so in
+// a 4-bit project its members went UP to 8 bits per pixel and the page cost
+// 65 KB - which is why 1.60.0 measured night-walk's atlas as costing 57 KB.
+// The page's depth follows the project's texture quality now (4-bit project ->
+// 4-bit page, 32.25 KB), and a member may ask for more through
+// AtlasControl::pageBits, the group taking the HIGHEST request - the rule
+// textureQuality already uses.
+//
+// WHAT IT BUYS, measured on night-walk and checked against the running game:
+// the page halves, 65 -> 32.25 KB, the atlas's net cost falls 57 -> 24 KB, and
+// VRAMSTAT reports free 0.115234 (no atlas) / 0.0600586 (8-bit page) /
+// 0.092041 MB (4-bit page) - 56.5 and 23.7 KB against predictions of 57 and 24.
+// The break-even moves with it: about EIGHT 64x64 members instead of about
+// sixteen, and sixteen is a full page, i.e. atlasing a palettized project
+// could not pay for itself before.
+//
+// WHAT IT COSTS, measured per texture as mean absolute error against the
+// source art (not asserted - a 16-colour page shared by a red door and a blue
+// garage door is the worst case, and this fixture is exactly that):
+//   ship it alone at the project's own 4 bits ... 6.2 / 6.4
+//   4-bit page (16 colours shared) ............. 10.6 / 9.9
+//   8-bit page (256 colours shared) ............  1.4 / 1.4
+// So the default is a modest loss against shipping the texture alone, and the
+// 8-bit page is actually a quality UPGRADE over a 4-bit project's own textures
+// - at twice the page. Both are one combo away per texture, the window and
+// --atlas-report print the depth per page, and the hue bucketing from 1.60.0
+// is what keeps a shared palette survivable (it does not split a group below
+// one page's worth of content, which is why this two-member fixture shows the
+// trade at its worst).
+//
+// 1.60.0 (texture atlasing gets a window, a report and two knobs -
+// docs/texture-atlasing.md): the feature was one checkbox and one line in the
+// boot log. Nothing said which textures shared a page, so nothing warned that
+// a page had merged two rooms' props into one allocation both must then keep
+// resident; nothing said when a texture was silently disqualified; and the
+// claim it saves VRAM was never measured.
+//
+// Measured now, on examples/night-walk (a 4-bit project): its members cost
+// 8 KB unpacked and 65 KB as a page - atlasing COSTS 57 KB there, because a
+// page is quantized as ONE image (members go 4 -> 8 bpp) and is a full
+// allocation whatever it holds. It still buys fewer allocations and fewer
+// texture switches; it does not buy bytes in that project, and the window and
+// --atlas-report print both sides in green or amber instead of asserting a
+// saving. The old "+~8 KB overhead per texture" line in the docs and the
+// tooltip described an engine that has not charged that padding since
+// getSize() was fixed.
+//
+// The estimate is the engine's own getSize PORTED rather than approximated
+// (GS memory is paged and swizzled, so an image occupies up to the highest
+// block its texels reach), and it was checked against the running game:
+// VRAMSTAT reads 0.115 MB free with atlasing off and 0.060 MB with it on -
+// 56.5 KB against the predicted 57. The first version of the estimator
+// rounded a texture to whole PAGES; a page is whole by construction, so
+// that error landed entirely on the "unpacked" side and flattered atlasing
+// (16 KB where the console charges 8).
+//
+// Four things landed with it:
+//  - Tools > Texture Atlas (src/atlas_ui.cpp): pages with a preview and their
+//    members, every refused texture WITH THE REASON, the VRAM arithmetic, and
+//    a warning when one page's members are used by more than one scene - the
+//    "different parish" case, where a page is one allocation and both scenes
+//    hold each other's textures resident.
+//  - tyrax-editor --atlas-report <dir>: the same, headless, plus a
+//    machine-readable [atlas] line.
+//  - Per-texture control (Project::atlasControl, format v33): KEEP OUT (never
+//    pack it) and GROUP (pack it with everything of the same name instead of
+//    with its .mtl's folder), both authored in that window.
+//  - Packing rules: a SUBDIRECTORY map_Kd token is a member now (refusing
+//    those silently disqualified every asset pack with a Textures/ folder -
+//    night-walk atlased NOTHING with the feature on, and said so nowhere);
+//    members are bucketed by average hue within a group so one page's shared
+//    CLUT is not split between clashing images; and a page that ends up with a
+//    single member is dropped, because a lone texture on a 256x256 page pays a
+//    whole page and loses its own palette for nothing.
+//
+// 1.59.2 (mesh shadow volumes come back to 16-bit colour, and the reason they
+// left was a misdiagnosis): 1.59.0 refused the counting path at 16-bit because
+// the resolve laid dashed green marks down two fixed screen columns, and blamed
+// the masked write at a PSMCT16 destination. Both halves of that are now
+// MEASURED ON A CONSOLE and it is neither.
+//
+// First, an FBMSK probe with no shadows in it: one flat sprite drawn into a
+// PSMCT16 frame through 0xFFFFFFFF / 0x00FFFFFF / 0x7FFF7FFF / 0, plus a strip
+// per mask whose alpha is cleared, half-set and revealed with a DATE-gated
+// sprite. The console reads EXACTLY like PCSX2 - 0x00FFFFFF is colour-neutral
+// and its alpha half reaches the mask bit per pixel - so the constant is right
+// and the destination format is innocent.
+//
+// Second, a paired sweep one knob apart, eight vantages of night-walk at
+// 16-bit, same pad script, fresh boot per arm: countResolve() binding TEX0 to
+// the SLID band base scores green on 8 of 8 frames (800-4800 px); binding it to
+// the band's OWN base scores 0 of 8; flipping back scores 8 of 8 (A-B-A). That
+// register was fixed in 1.59.1 as an arithmetic correction with no picture to
+// show for it - this is the picture. The fault was double compensation: the
+// count pass writes pixel (x, y) through a FRAME slid by bandY0 page rows, so
+// the texel lives at the band's own base with V = y - bandY0; sliding the read
+// too made every band but the first sample 256 KB below itself (the top of the
+// z buffer and the projected-shadow slots).
+//
+// So allocateCount() no longer refuses at 16-bit: the band follows the frame's
+// PSM (PSMCT32 512 KB / PSMCT16 256 KB, page geometry matching the z buffer as
+// it has since 1.58.0) and a 16-bit project gets mesh-shaped volumes like any
+// other. Verified on the console: eight vantages clean, VRAM 2.18, pools and
+// shadows drawing; PCSX2 shows nothing in either arm at any vantage, which is
+// what made the first diagnosis so easy to get wrong. STILL OPEN, and written
+// down rather than glossed: why texels sampled by a pass that only writes alpha
+// tint the picture at all, and why the marks also appear ABOVE the band
+// boundary where the slide is zero. The tooltip and docs/flashlight.md carry
+// the same account.
+//
+// 1.59.1 (the 16-bit torch pool, for the second time - and the last, because
+// the cause is NAMED now): after 1.59.0 sent every 16-bit project down the
+// convex 1-bit path, the flashlight drew no pool again on examples/night-walk
+// at 16-bit colour while the per-vertex cone still lit the bin and the shed
+// (it is not DATE-gated; the pool and the wall passes are). The FBA re-assert
+// that 1.58.0 added lived in maskClear() ALONE - the counting bracket - so the
+// convex begin() still cleared the mask under FBA = 1 and the GS stored SHADOW
+// over the whole raster. Who sets FBA was "whatever the environment left" in
+// 1.58.0; it is ps2sdk's draw_setup_environment, read off libdraw.a's
+// disassembly: the register at 0x4A + context gets `(psm & ~8) == 2`, i.e. 1
+// for PSMCT16/16S and 0 for PSMCT32, which is the whole reason only 16-bit
+// projects ever met it. The engine zeroes it right after that call now
+// (RendererCoreGS::initDrawingEnvironment, the REPEAT re-assert's twin), and
+// begin() carries the same qword maskClear() does, so the 16-bit frame
+// follows the 32-bit contract the rest of the engine was written against:
+// alpha lands as written. The colour-depth combo also drops its "(2x VRAM)"
+// tag (the buffers HALVE; the tooltip says what actually doubles) and stops
+// claiming the z buffer stays 32-bit - it has followed the colour depth since
+// 1.58.0. VERIFIED on a 16-bit copy of night-walk in PCSX2 (software
+// renderer) AND on the console (the game's own frame.tga over ps2link): the
+// pool is back on the wall and on the ground, VRAM 1.93; the 32-bit copy is
+// unchanged (FBA was already 0 there - the write is a no-op).
+//
+// One more thing found by READING the counting path while here, fixed, and
+// NOT demonstrated with a before/after picture: countResolve() bound its
+// texture to the SLID band base and ALSO subtracted bandY0 from V, so every
+// band but the first sampled the memory below the band instead of the band
+// (at 32-bit: the top of the z buffer plus the post-fx / shadow-map slots). It
+// samples at the band's own base now. A first-person torch hides most of a
+// shadow behind its caster, so "no shadow below screen row 256" was never
+// going to be reported; the fix is by arithmetic (FRAME at slid + pageRow(y)
+// == countAddress + pageRow(y - bandY0)) and the build that carries it boots
+// and draws the 32-bit pool as before. Worth a deliberate look on the console
+// with a low caster in the bottom half of the picture.
+//
+// 1.59.0 (mesh shadow volumes are 32-bit-colour only): with 16-bit colour, the
+// flashlight's shadow-volume COUNT RESOLVE - an alpha-only masked sprite over
+// the volumes' screen rect - is not colour-neutral at a PSMCT16 destination. It
+// laid dashed green marks down two fixed screen columns over whatever the torch
+// lit, standing still in screen space as the camera moved; reported from a
+// console and reproducible in PCSX2 (a 24-vantage sweep scores 14-17 hits, and
+// a narrow sweep scores 0 and "proves" it is hardware-only).
+//
+// Bisected to that one pass: forcing its alpha test to fail - same packet, same
+// registers, same raster restore, everything else drawing - takes the sweep to
+// 0 of 24. Excluded by their own A/Bs and NOT the cause: the silhouette draws,
+// the count bracket's clear, the band's format and page slide, DATE, FBA, the
+// FBMSK constant (0x00FFFFFF protects every colour bit in the RGBA8 positions
+// FBMSK is always specified in; the 16-bit pixel-layout mask 0x7FFF7FFF floods
+// the frame instead - 115 893 pixels against ~2 000), ordered dithering,
+// protecting the colour with the blend equation instead of a mask, the
+// interlaced flicker filter and PMODE.MMOD.
+//
+// So allocateCount() refuses at 16-bit colour: countReady() answers false and
+// the generated game takes the convex sub-box path it already has - real
+// shadows from fitted boxes rather than silhouettes, no green, and the band's
+// 0.25 MB back (VRAM 1.93 against 2.18, measured on the console). 32-bit
+// projects are untouched. What a masked write actually does to a PSMCT16 pixel
+// - the console and PCSX2 disagree about 0x7FFF7FFF - is open, and mesh volumes
+// can come back to 16-bit once it is answered (docs/flashlight.md).
+//
+// 1.58.0 (16-bit colour stops being broken on hardware - docs/gs-vram.md): a
+// project switched to 16-bit colour rendered dark parallelogram BANDS across
+// ground and walls on a console while PCSX2 showed it perfectly. The rule
+// behind it applies to every render target this engine will ever depth-test: a
+// colour buffer and its z buffer must share PAGE GEOMETRY (32/24-bit pages are
+// 64x32 pixels, 16-bit ones 64x64), so a PSMCT16 frame over the PSMZ32 z was a
+// pair the GS cannot address consistently. The z format follows the colour
+// depth now, which also hands back 229 376 words.
+//
+// The vertex path had to follow, and that turned out to be the reason a first
+// attempt made models read INSIDE-OUT: packed XYZF2 carries a 24-BIT Z field,
+// so the scale is 24-bit whatever the buffer holds, and 24-bit Z sent into a
+// 16-bit buffer wraps. That range was FIVE hardcoded copies of 0xFFFFFF
+// (StaPip, DynPip, the depth-of-field solve, the generated portal mask, plus
+// two stale /32 ones in the Minecraft pipeline and the debug draw that predate
+// the XYZF2 switch and still sit in the bottom sixteenth of the range). It is
+// one place now - RendererCoreDepth - and the four live sites read it.
+//
+// The price is precision, stated in units because it decides whether a project
+// may use the mode at all: the world step at distance d is d^2/(maxZ*near), so
+// 16 bits at near 0.1 resolves 1.53 units at d=100 against 0.006 for 24. On a
+// console at near 0.1 the scene is band-free and correctly sorted, and fine
+// geometry at middle distance z-fights - night-walk's procedural trees show a
+// bright wedge across the crown where a tier's own cone faces fight. Raising
+// near buys it back linearly but is capped near 0.3 by the walker's own
+// clearance (clipMargin is -(near + 0.15) against playerRadius 0.35), so a
+// project-declared near/far is the next step and deliberately NOT in this
+// change. Measured VRAM on the fixture: 1.93 MB used at 16-bit against 3.95 at
+// 32-bit.
+//
+// 1.57.0 (a caster's shadow IS its mesh now): the flashlight's shadow
+// volumes stop being cut from boxes - a model caster classifies its REAL
+// triangles against the torch, extrudes the silhouette edges to the light's
+// range (caps from the lit faces, pushed 0.05, plus their far projection;
+// open edges - these models are not watertight - silhouette whenever their
+// one face is lit), and the volume is COUNTED per pixel the way the era
+// actually did it: the GS cannot count in 1-bit destination alpha (blending
+// never writes A), so camera-front faces ADD +32 and back faces SUBTRACT it
+// (new PipelineInfoBag::subtractiveBlendFix, the additive qword's twin) in
+// a dedicated raster-sized PSMCT16 target that shares the scene's z buffer
+// (FRAME and ZBUF are independent addresses on one pixel grid), and ONE
+// resolve per frame samples that target with TEXA.AEM = 1 (all-zero texel
+// = alpha 0, anything else = 0x80) and ORs count>0 into the mask through
+// ATEST != 0 - RendererCoreAlphaMask::allocateCount/countBegin/countResolve.
+// Counting also retires the sub-box overlap sliver: EVERY caster's volume
+// goes through ONE bracket per FRAME - one clear, one resolve, scissored
+// to the volumes' projected screen bbox, entered in a single drain (the
+// alpha clear folded into countBegin's packet), with the far caps skipped
+// outright (they only subtract at pixels beyond the reach, where the
+// falloff already zeroed the light). Each of those was measured against
+// the pre-change baseline in PCSX2's software renderer: per-caster
+// brackets with full-raster passes read 25 FPS on the night yard's
+// four-caster boot vantage against the baseline's 50; the single scissored
+// bracket reads 50. The interleave (light before its own volume) survives
+// only in the 1-bit fallback - under counting a caster's lit surface sits
+// outside its exact volume by construction (near caps are its own faces
+// pushed 0.05 down their rays), so the mask is built whole before any
+// light draws. Two decisions that took derivation
+// rather than code: the volumes extrude from a VIRTUAL torch pushed
+// 0.05 x range (clamped 0.5..2) down the beam, because the real torch sits
+// exactly in the eye and a light in the eye casts shadows exactly hidden
+// behind their casters (the proud BOXES were the only reason anything was
+// ever visible); and self-shadow safety is structural per mode, as above.
+// Face orientation for the
+// front/back split is GEOMETRIC (caps toward/away from the light, side
+// quads via an interior sample), never winding-trusted - a globally flipped
+// mesh degrades to casting from its back faces, whose silhouette is the
+// same. Sub-boxes remain for models past 1200 triangles and, per convex
+// piece with the old 1-bit brackets, for the graceful fallback when the
+// count target's 448 KB of VRAM is refused (allocateBuffer returns -1; the
+// generated init claims it right after the shadow-map slots, and
+// project::tripleBufferingFit subtracts it like the upscaler's low-res
+// target). VRAM cost is the one number worth stating twice: 512x448 CT16 =
+// 448 KB, opt-in with the technique itself. The count value 32 rides above
+// the 16-bit channel's 8-step quantization plus dithering's +-4, so DTHE
+// needs no save/restore; and the resolve restores CLAMP to REPEAT itself,
+// because emitRasterRestore does not know about texture state. Docs:
+// TWO MORE GS RULES CAME OUT OF 16-BIT, and the first was reported from the
+// console as "the flashlight's sprite is not visible where it falls on objects
+// or the ground". It was: `FBA` - the GS's alpha correction - forces the MSB of
+// every written alpha to 1 when set, which is a convenience for 1-bit-alpha
+// targets and death to a mask that lives in that bit. The per-frame clear wrote
+// alpha 0, the GS stored 1, DATE read SHADOW over the whole raster and every
+// DATE-gated torch pass was discarded, so a 16-bit project drew no pool at all.
+// Nothing else in the engine programs FBA, so maskClear re-asserts 0 once per
+// frame (the Path3::clearScreen REPEAT-contract pattern). MEASURED, not
+// guessed: the pool came back with DATM flipped to 1, which said the
+// destination alpha was 1 where the clear should have left 0; and a probe
+// exposing only BLUE proved FBMSK does map per RGBA8 channel on a 16-bit
+// target, which is what ruled the mask itself out. Two of my own experiments
+// on the way were WRONG and are recorded so nobody repeats them: skipping
+// countResolve also skips the raster restore in the same packet (so the rest
+// of the frame drew into the count band and the result meant nothing), and
+// COLCLAMP was never involved.
+//
+// AND THE SECOND GS RULE THIS COST: FBMSK's bit positions are ALWAYS 32-bit
+// RGBA8 - R 0..7, G 8..15, B 16..23, A 24..31 - whatever PSM the framebuffer
+// is in, because the GS maps them onto a 16-bit target's 5551 layout itself.
+// The mask passes reasoned from the 16-bit PIXEL layout instead (two pixels
+// per word, alpha at bit 15 of each half) and used 0x7FFF7FFF there, which
+// exposes bit 15 - the TOP BIT OF GREEN - so every "alpha only" write also
+// halved green wherever the torch lit something: a 16-bit project came back
+// magenta, (208, 56, 144) measured on a warm cream lamp post, while the same
+// project in silhouette mode was pixel-clean. One constant (0x00FFFFFF) is
+// right at both depths, and the engine's own post-fx passes were the evidence
+// (kKeepAlpha = 0xFF000000 and per-channel BYTE masks, used on work buffers
+// that are PSMCT16 in a 16-bit project). Verified in PCSX2 on a 16-bit copy of
+// night-walk: 0 hue-shifted pixels against 4115 before, the torch's light back
+// (5.2% of the frame changes when it is toggled) and no checkerboard; the
+// briefly-shipped 32-bit-only gate is gone with the cause. COLCLAMP was the
+// obvious suspect on the way and measurably was NOT it - that speculative
+// register write was reverted rather than left in.
+//
+// docs/flashlight.md "The shadow" rewritten around the counting
+// arrangement; no format change (the technique flag is v27's).
+//
+// VERIFIED ON A PHYSICAL CONSOLE and CORRECTED there, which is the part of
+// this entry worth reading. The count target was PSMCT16 to fit VRAM, and a
+// GS colour buffer must share PAGE GEOMETRY with the z buffer it is
+// depth-tested against - 32/24-bit pages are 64x32 pixels, 16-bit ones 64x64.
+// Over the scene's 32-bit z the depth comparison therefore read shifted words
+// for half of every page, and the torch's light landed in a CHECKERBOARD of
+// 32-pixel screen-aligned tiles wherever a volume was counted. PCSX2
+// addresses each buffer from its own PSM and showed nothing - a 12-toggle
+// F8 histogram, a 63:63 codegen check and five merges' worth of emulator
+// runs all passed on a build that was broken on every console. The target is
+// PSMCT32 now, and because a full raster at 32 bits is 1 MB it is a BAND
+// (kCountBandRows = 256 rows = 512 KB, exactly what the broken target cost)
+// that FRAME.FBP slides over the rect by whole page ROWS while ZBP stays put,
+// so the 1:1 correspondence with the scene depth is exact; a taller shadow
+// region is counted band by band, and since the mask is an OR the bands
+// compose. The alpha clear moved out of countBegin into maskClear() for the
+// same reason - it must happen once per frame, not once per band.
+// Re-verified on the console at the exact composition that produced the
+// artefact (torch on the truck's side at close range, wall behind): smooth
+// pool, parity-contrast 2.0% against 7.8% before, and 22.0 FPS with the torch
+// on against 24.1 with it off at the same parked vantage - the scene's own
+// ~24 FPS is the ceiling there, not the volumes.
+// 1.56.0 (the console can be switched off from the desk - Build > Power Off
+// PS2, docs/ps2link-setup.md): the capability was there the whole time and
+// nothing exposed it. ps2link answers PKO_POWEROFF_CMD (0xbabe0204) on the same
+// UDP command port `reset` arrives on, with PoweroffShutdown() out of the
+// resident poweroff.irx - the registered shutdown callbacks (ps2dev9 parks the
+// expansion bay) and then the CDVD registers that drop the power rails, i.e.
+// the power button's own shutdown. Upstream ps2link, untouched by tyrax.patch;
+// the r4 priority fix is what makes it reach a console with a game on it,
+// because the command thread sits above the host: server a game polls ten times
+// a frame. So this is one Runner verb and one menu item, not a patch revision -
+// no r7, and every flashed card that can be Stopped can be powered off.
+//
+// Runner::powerOffPs2 clears the file server through claimPs2Channel first and
+// refuses on the same ownership rule as Stop, with more reason: a console
+// another editor is deploying to cannot be recovered from this PC once it is
+// off. The report is deliberately not a success claim - the command is
+// fire-and-forget UDP like every other one, so a console that was already off
+// answers identically, and the log says the standby light is the confirmation.
+//
+// Verified in three layers. The wire: a UDP listener bound to 127.0.0.1:18194
+// received `ba be 02 04 00 06` from the exact command line the Runner builds -
+// the command byte ps2link's cmdListener switches on. The editor:
+// `--ui-script "click Build; click 'Power Off PS2'"` against a scratch project
+// pointed at loopback put the same six bytes on that listener and logged
+// "[editor] Power-off sent...". THE CONSOLE: on real hardware, with an EE
+// payload resident (tools/silencer, deployed by execee) and a stray ps2client
+// holding the channel, the button reaped the orphan by its command line, sent
+// the command, and the PS2 went dark - `execee` returned ZERO console output
+// afterwards (the only liveness check that means anything here), ping went from
+// replying to "destination host unreachable" and the ARP entry vanished, which
+// is a machine with its NIC unpowered and not a wedge. What is still untested
+// is the same thing against a full game deploy, i.e. an EE polling host: ten
+// times a frame: that is the case the r4 priority fix is for, and the argument
+// for it is the source, not a measurement.
+//
+// MINOR: a new user-visible action, nothing on disk changes shape.
+//
+// 1.55.3 (an INSTALLED TyraX could not build a game at all - docs/updates.md):
+// both packagers staged vendor/tyra minus "*.o", "*.a" and "*.elf", meaning "a
+// dev checkout's build leftovers are not content" - and
+// vendor/tyra/audsrv/bin/libaudsrv.a is not a leftover. It is a COMMITTED
+// artifact of the in-tree audsrv fork (the per-channel L/R panning sound
+// emitters need), which runner.cpp overlays onto the build image's PS2SDK
+// together with audsrv.irx and audsrv.h. Those two matched no pattern and
+// travelled, so the hole was exactly one file wide and the failure wore
+// somebody else's face: the overlay is a `cp a && cp b && cp c`, it died on the
+// missing lib BEFORE reaching the header, the game then compiled against the
+// image's stock PS2SDK copy, and every build ended
+//
+//     md5sum: /engine-src/audsrv/bin/libaudsrv.a: No such file or directory
+//     inc/audio/audio_adpcm.hpp:108:5: error:
+//         'audsrv_adpcm_set_volume_and_pan' was not declared
+//
+// on EVERY project, for everyone who installed the editor and for nobody who
+// built it from a checkout - where the file is present and the same build is
+// clean. That asymmetry is why it survived two releases: the only people who
+// could reproduce it were the ones who could not debug it.
+//
+// Both packagers now exclude by DIRECTORY, and the list is exactly what
+// .gitignore drops under vendor/tyra (engine/obj, engine/bin, audsrv/.work):
+// what git keeps, the package ships. runner.cpp additionally checks the three
+// overlay files before it starts and names the missing one, because an editor
+// packaged before this fix stays broken until it updates - and the message it
+// used to give pointed at the engine's audio code, which was never wrong.
+//
+// Verified on both halves of the pair. Linux: stage_tree's find expression over
+// this tree stages 402 files where the old one staged 401, and the difference
+// is libaudsrv.a. Windows: ISCC compiles tyrax.iss with all three
+// audsrv/bin files in its "Compressing:" list and zero paths under engine/obj,
+// engine/bin or audsrv/.work. PATCH: no capability appears, nothing changes
+// shape on disk, a build that could not run starts running.
+//
+// 1.55.2 (the clipper stops clipping what the scissor would crop -
+// docs/vu1-clipping.md): the static pipeline classified a package against the
+// VIEW frustum and read PARTIALLY_IN_FRUSTUM as "needs clipping", which it is
+// not. VU1 cuts against the near/far pair and an X/Y band at 0.9 of w, and the
+// projection divides by projectionScale 4096, so the screen edge is at 0.125 of
+// w and the band is SEVEN times that - a triangle may hang ~1590 px past either
+// edge of a 512x448 picture before anything is cut, and the GS scissor crops
+// the raster during DDA. So a package straddling the screen border crossed no
+// clip plane at all, and it was still split into thirds (3x the DMA chains and
+// VU1 kicks), memcpy-ed stream by stream where the cull route hands VU1 a
+// POINTER, and run through Sutherland-Hodgman with an empty plane mask.
+//
+// The packager already computed that mask; it now answers the routing question
+// in the same pass (StaPipBagPackage::guardBandOnly) and such a package is
+// culled whole and by pointer. Over EIGHT planes, not six: the cull programs'
+// fcand 0x3FFFF tests z against +/-w too, while the guard band's near constant
+// is deliberately looser (PlanesClipAlgorithm::clipMargin), and that gap is a
+// thin shell in front of the near plane where the clipper draws a triangle the
+// cull program would ADC away - a hole at point-blank range. The two exact
+// near/far half-spaces live at indices 6..7, on the EE only, never uploaded.
+//
+// MEASURED on examples/large-terrain (2048x2048 terrain, 1181 props), PCSX2
+// software renderer, a frame-indexed script camera, one line differing between
+// the arms, 2922 PAIRED frames: work 6.887 -> 4.670 ms, d = -2.217 ms, 95% CI
+// [-2.258, -2.175], 1.475x, 2864/2922 frames faster. Clip-routed packages
+// 11 164 -> 2 127 per 50-frame window, clipped triangles 68 456 -> 13 264,
+// qbuffer flushes 1 287 -> 756 - five sixths of the clipper's load was geometry
+// that needed no clipping. The picture is unchanged, and the CONTROL is what
+// says so: two boots of the same build differ on this fixture (it streams
+// terrain chunks), and an A-arm boot and a B-arm boot came back BYTE-IDENTICAL
+// over four parked poses - the arm is not what sorts the images.
+//
+// Also here: StaPipTelemetry gets its first reader after a year with none. The
+// generated game enables it and prints an FTCLIP line beside FRAMETIME, but
+// only under TYRA_FRAME_PROFILE (default 0), so a shipped build carries none of
+// it. PATCH: no capability appears, frames get shorter, nothing on disk changes
+// shape.
+// 1.55.1 (the self-screenshot reaches the console it was built for -
+// docs/devkit.md): the feature below shipped WORKING IN THE EMULATOR ONLY, and
+// nothing said so. On hardware the picture never came back, deterministically,
+// and the cause is one call inside ps2sdk's libdebug: `ps2_screenshot_file()`
+// creates its output with `open(name, O_CREAT|O_WRONLY)`, and over ps2link that
+// create arrives at the `host:` server as a MKDIR OF THE TARGET NAME. The host
+// ends up with a DIRECTORY called frame.tga, the open that follows returns -1,
+// and the function reports nothing at all - it has no failure path. Measured on
+// a real PS2, twice, byte for byte the same:
+//
+//     remove file host:frame.tga
+//     mkdir name host:frame.tga
+//     mkdir wrong mode, using fallback value 493
+//     open name host:frame.tga flag 202  ->  open fd = -1
+//
+// while livedbg.bin, livetime.bin and every other devkit file - all written
+// through fopen(name, "wb"), flags 0x602 on the wire - succeeded in the same
+// session over the same server. So the runtime keeps the half of libdebug that
+// carries the value (ps2_screenshot, the VRAM readback) and writes the file
+// itself. PCSX2's own host: server accepts libdebug's spelling, which is
+// exactly why this could ship as emulator-only without anybody noticing.
+//
+// Two hardware-only traps came with owning the write, and both are guarded:
+// the readback lands in RAM BEHIND THE EE'S DATA CACHE (each line is flushed
+// after its transfer, or the picture repeats rows - invisible in an emulator
+// that emulates no cache), and ps2_screenshot REFUSES to run while VIF1's DMA
+// channel is busy, saying so only through its return value, so refusals are
+// counted and reported rather than written out as picture. A third bug was on
+// the EDITOR side and needed no console to be wrong: the panel gave a capture
+// six polls (~2.4 s) to finish before calling the file malformed, which PCSX2
+// meets between two frames and ps2link cannot - one capture is ~900 KB at a
+// network round trip per 1.4 KB, measured at about three seconds. It now waits
+// on PROGRESS (the file still growing) and reports only a write that has
+// stalled.
+//
+// Also here, from the same session: every capture is kept as a PNG under the
+// project's screenshots/ folder, and *Show file* reveals THAT rather than
+// bin/frame.tga - the channel file is overwritten by the next capture and
+// deleted by every launch, and explorer answers a path that does not exist by
+// opening the user's Documents folder, which reads as a broken button (it was
+// reported as one). platform::revealInFileManager now walks up to the nearest
+// ancestor that exists, so no caller can reproduce that. The picture is written
+// opaque, so nothing downstream has to know that a frame buffer's alpha is a
+// working channel rather than coverage.
+//
+// VERIFIED on the user's PlayStation 2 over ps2link, unattended: the capture
+// comes back 512x512, 1048594 bytes = 18 + 512*512*4, exactly the expected
+// size, with 0 repeated rows and no VIF1 refusals; it agrees with the same
+// scene captured in PCSX2 to 2.0/255 mean absolute difference; a second capture
+// after a --pad camera turn shows the turned view, so it is live rather than a
+// stale buffer; and the whole user-facing loop (menu > Run on PS2 > Debugger >
+// Screen > Capture frame > the picture on screen) was driven with --ui-script
+// and asserted with expect, exit 0. The PNG that lands in screenshots/ is
+// pixel-identical to the TGA it came from.
+//
+// PATCH: a fix. The generated devkit runtime changes, so a project must be
+// rebuilt to get it; nothing on disk changes shape.
+
+// 1.55.0 (the game photographs itself - docs/devkit.md, "The game's own
+// screenshot"): a sixth one-shot on the Live Debugger's command channel (flags
+// bit 6, beside the VU1 capture and the RAM measurement). The game reads its
+// last finished frame out of GS VRAM through ps2sdk libdebug's VIF1 reverse
+// FIFO, writes bin/frame.tga over the same host: channel every other devkit
+// file uses, and the Debugger's new Screen tab decodes and shows it.
+//
+// IT IS THE ONLY CAPTURE PATH THAT DOES NOT NEED A DESKTOP, which is the whole
+// argument for it: the emulator's F8 key, a GDI grab and PrintWindow all need
+// the window present and unoccluded on an unlocked session, and none of them
+// exists on a console at all. This one answers from hardware, from a locked
+// machine and from an unattended script.
+//
+// Four traps, each of which fails silently and three of which were found by
+// measuring rather than by reading. `fb->address` is in GS WORDS while the API
+// wants BLOCKS, so a missing /64 overflows SBP's 14 bits and reads buffer 0 with
+// its pages scrambled. The buffer must be getPreviousRealFrameBuffer(), never
+// the current one (half-composed) or getPreviousFrameBuffer() (which can be a
+// synthesised extrapolated frame). libdebug opens the file O_CREAT|O_WRONLY with
+// NO O_TRUNC, so a shorter capture over a longer one leaves the previous
+// picture's tail behind and still decodes - the runtime deletes first. And
+// ps2_screenshot_file's RETURN VALUE IS NOT A VERDICT: upstream returns 0 both
+// when open() fails and when everything worked, so the first version logged
+// "capture failed" over a perfectly good 1 MB picture. The check is the file's
+// own size against 18 + w*h*4.
+//
+// The panel decodes the TGA by hand rather than through stbi_load, and that is
+// deliberate: the editor's stb_image is built STBI_ONLY_PNG + STBI_ONLY_JPEG and
+// answers "unknown image type" to every TGA (which is how this was caught, on
+// screen, in the honest-failure text). Adding TGA would widen what every other
+// stbi_load in the editor accepts - the asset importer above all - for one debug
+// preview, where the format has exactly one writer whose source is known.
+//
+// Verified end to end in PCSX2 on an fpp fixture: the self-capture agrees with
+// PrintWindow's grab of the emulator's own render area to **0.91/255 mean
+// absolute difference** with the horizon at the same fraction (0.531 vs 0.530),
+// which is what says the address, the row order and the channel order are all
+// right. The Runner's stale-delete was checked by looking for the file after a
+// relaunch, and the whole loop - tab, button, command, capture, preview - was
+// driven with --ui-script and no human. --audit-release fails on the debug ELF
+// naming `frame.tga` among six findings and comes back clean on the release one,
+// whose devkit TU is three lines.
+//
+// MINOR: a capability appears, nothing changes shape on disk. (Authored as
+// 1.54.0 and RENUMBERED on the merge, this file's standing arrive-second rule -
+// main took 1.54.0 with #245 while this branch was open. Two of the entries
+// below are the argument for this one: 1.53.1 was diagnosed with every capture
+// taken by the GAME ITSELF, by hand, because the desktop was locked all night;
+// and 1.54.1 is a fault PCSX2 structurally cannot show, which is the other half
+// of the same problem - when only the console can reproduce something, only the
+// console can photograph it.)
+//
+// 1.54.1 (the flashlight's wall patch stops killing the game on real
+// hardware): setupLightPools set the wall slice's shading type thirty lines
+// BEFORE it allocated the bag holding it - a store through a null unique_ptr
+// at offset +4, which is where StaPipInfoBag::shadingType sits. Every project
+// with a torch took it during scene setup, i.e. the instant the loading screen
+// ended. It was invisible for a release and a half because PCSX2 has main RAM
+// at address 0, so the write landed in low memory and every emulator test
+// passed; a console has nothing mapped there and raises a TLB refill on store
+// (cause 3, BadAddr 0x00000004). The write now happens after the make_unique,
+// which also makes the wall patch Gouraud as the surrounding code always
+// intended - the per-vertex reach falloff renderSlice has been feeding it all
+// along. Cause 3 is handed back to the kernel by the crash handler on purpose
+// (see crash_handler.cpp), so this class of fault produces ps2link's raw
+// register dump and no crash.txt - docs/devkit.md says so now.
+//
+// 1.54.0 (the viewport draws the light beams too - docs/flashlight.md): a
+// scene with Point Light > Beam used to look materially different in the
+// editor than in PCSX2, because the editor drew neither half of it. It draws
+// both now, from the game's own numbers: the additive corona billboard with
+// the camera pull (a quarter of the light radius, capped at three quarters of
+// the camera distance, size-compensated - without the pull the editor shows
+// the very z-fight seam 1.53.1 removed from the console), and the eight-
+// segment apex-to-black cone shaft for Beam: corona + shaft. One sprite bake
+// serves the beams, the ground pools and the night sky's star dot
+// (Viewport::coronaTex, at menubake::kCoronaSpriteSize - the pools were still
+// uploading it at the flare size after 1.53.1 moved kind 2 to 128, i.e. a
+// quarter of the image). Beams draw in EVERY shading mode, unlike the ground
+// pools: a beam is geometry the game submits, not a simulation of how the
+// console shades. The runtime LEVEL is deliberately not reproduced - flicker,
+// Set Light and a streamed-out light are runtime state, and a glow pulsing
+// over a rock-steady pool of light would be a new lie rather than less of one.
+// Verified against PCSX2 on examples/night-walk's street lamp by differencing
+// beam-on against beam-off in each renderer (which cancels the editor's
+// gizmos and every shading difference) at a matched eye/aim/FOV from three
+// vantages: the added light lands within 0.17 % of picture width and 0.64 % of
+// height, its area agrees to 8 %, and the editor's amplitude tracks the
+// sprite's own alpha curve to 3 % at two brightnesses. Behind a wall both add
+// exactly zero, so the depth test still hides a glow the way it should. Also
+// corrected on the way through: the console capped the pull at HALF the camera
+// distance while its own commit message, docs and this file all said three
+// quarters - the measurement that picked the value is in 1.53.1's entry, and
+// the code kept the value it rejected. MINOR: the viewport gains a capability,
+// nothing changes shape on disk.
+//
+// 1.53.1 (a lamp's glow stops sawing its own pole): reported from
+// examples/night-walk with a screenshot - a hard, stair-stepped lit/dark
+// boundary running up the street lamp's pole. Diagnosed in PCSX2 by bisection
+// at the reporter's own vantage (torch toggled: unchanged; light removed:
+// gone; Beam set to 0: gone - so the corona), with every capture taken by the
+// GAME ITSELF (ps2sdk's ps2_screenshot_file into host:, VIF1 reverse FIFO),
+// because the desktop was locked all night and no host-side capture can see a
+// window there. Two causes, two fixes, both in the generated
+// updateAndRenderLightBeams/menubake pair:
+//
+// THE SEAM IS A Z-FIGHT WITH ITS OWN FIXTURE. The corona is a depth-tested
+// additive billboard centred exactly on the bulb, so it slices through the
+// lamp's own pole and arm, and the GS's fixed-point z cuts the soft sprite on
+// a chunky seam that wanders as the camera moves. The sprite is now PULLED
+// toward the camera (a quarter of the light radius, capped at three quarters
+// of the camera distance - a half-distance cap measurably parked the seam at
+// the pole's base when looking steeply up, which is how the cap value was
+// chosen) and shrunk by the same fraction, so its apparent size is untouched:
+// the glow blooms OVER the thin fixture the way a real lens does, and a wall
+// between camera and lamp still occludes it. The cone shaft (Beam: shaft)
+// stays at the true position - it is world geometry.
+//
+// AND THE CORONA WAS 64 TEXELS ACROSS A THIRD OF THE SCREEN. Up close the
+// radial gradient's texels are ~4 px, so its rim contours in visible steps
+// whatever the z does. Kind 2 - the beam corona, which the star field also
+// draws through - bakes at 128 now (menubake::kCoronaSpriteSize; the 2D
+// lens-flare sprites stay 64, they draw small). The file is rewritten on
+// every refreshGenerated, so existing projects pick it up on their next
+// build; the editor viewport's star-dot upload follows the same constant.
+//
+// What this deliberately does NOT fix, measured so it is not re-chased: the
+// few-pixel stepping that remains at the pole's base is the pole model's own
+// edge aliasing at native resolution - identical with the corona's z-test
+// off, identical at 64 and 128, present with the beam entirely removed once
+// the contrast is matched - and would need AA or a higher raster, not a pass
+// change. PATCH: no capability appears, a defect goes away; the format is
+// untouched.
+//
+// 1.53.0 (the viewport learns to lie less - docs/ps2-viewport.md): two new
+// look simulations beside the PS2 output mode, both machine-global. "PS2
+// shading" re-runs the viewport's ONE lighting chunk per triangle corner in a
+// geometry stage - the console's per-vertex shading, with TyraShadingFlat
+// mirrored per draw, dynamic lights on the VU1 slot formula (radial, no N.L),
+// the terrain's dynamic light drawn as the console's ground POOL (same corona
+// pixels, same FIX scale) and the flashlight kept per-pixel like its projected
+// pool. "GS colour" quantizes the picture to PSMCT16's 5 bits through the
+// engine's own DIMX dither matrix, following the project's Colour depth by
+// default. Verified A/B against a PCSX2 frame of a lamp + sphere fixture
+// (savestate-embedded screenshot; the pool, the lit ball and the banding
+// match). MINOR: two capabilities appear, nothing changes shape on disk.
+//
+// 1.52.1 (the .rpm stops being twice its own size): v1.52.0 shipped a 31 MB
+// rpm of a tree that packs into 13, because a spec that says nothing about its
+// payload gets the BUILDER's default - and the CI runner's rpmbuild (Ubuntu
+// 22.04, rpm 4.17) reaches for gzip where a modern one reaches for zstd. It is
+// stated now, as xz: rpm 4.8 (2010) on the installing machine rather than zstd's
+// 4.14, and Debian-family rpm links liblzma for certain, which is not something
+// to bet a release job on. Verified by packing the same tree both ways and
+// reading %{PAYLOADCOMPRESSOR} back off the result - and the shrunken rpm's
+// payload was extracted and its editor run (--vu-check) out of it.
+//
+// Also here: the repository was renamed tyra-editor -> tyraX, so the four
+// tracked strings that still named the old one follow (the generated
+// THIRD-PARTY-NOTICES, the VS Code extension's README, package.json and its
+// packager). GitHub redirects the old URL, so nothing was broken - it was
+// merely lying about where this comes from. The committed .vsix still carries
+// the old URL in its manifest and is deliberately NOT repackaged for a metadata
+// string; the next real extension change picks it up.
+//
+// 1.52.0 (Linux gets packages of its own, and one of them updates itself):
+// docs/updates.md. `installer/build-package.sh` is the POSIX twin of
+// build-installer.ps1 - it stages the repo-shaped tree ONCE (bin/, vendor/tyra,
+// tools/, the nine VU sources, examples, the licence files) and emits three
+// formats from it, so they cannot disagree about their contents:
+// `tyrax-<v>-linux-x86_64.tar.gz`, `tyrax_<v>_amd64.deb` and
+// `tyrax-<v>-1.x86_64.rpm`. The release workflow gained a build-linux job that
+// attaches all three - stamping the released PATCH into this file's workspace
+// copy exactly as the Windows job does, or a tarball install would report the
+// file's number, disagree with its own release and offer itself an update for
+// ever. It runs on ubuntu-22.04 ON PURPOSE, because a binary runs
+// on a newer glibc than it was built against and never an older one, so the
+// runner image IS the compatibility floor.
+//
+// THE TARBALL IS THE PRIMARY FORMAT AND THE OTHER TWO ARE A CONVENIENCE LAYER,
+// which is a statement about what made the Windows installer good: not that it
+// is an installer, but that it installs PER USER, without root - which is the
+// only reason an update can install itself with nothing to authenticate
+// against. A .deb or .rpm cannot do that, so those are handed to the package
+// manager, out loud: `update::installKind` reads a one-word `.tyrax-package`
+// marker at the install root (absent = a source checkout) and
+// `selfInstallBlocked` turns each answer into either the install button or ONE
+// sentence naming what to do instead. `update::parseRelease` now picks its
+// asset by `platformAssetSuffix()` rather than by `.exe`, and the Linux half of
+// `runInstaller` writes a small detached script that waits for the editor to
+// exit, unpacks over the install root and starts it again - the same overlay
+// semantics tyrax.iss has always had.
+//
+// The .deb/.rpm live in /opt/tyrax with a /usr/bin symlink, which works because
+// platform::exePath resolves /proc/self/exe through canonical() - so the
+// editor's four exe-relative lookups land in the real tree. Verified: all three
+// packages built and inspected, a project created by the unpacked tarball's
+// binary bind-mounts ITS OWN vendor/tyra, and a full self-update (refuse for
+// deb/rpm/checkout/read-only, unpack, relaunch) driven from a harness.
+//
+// MINOR: a capability appears, nothing changes shape for an existing project.
+//
+// 1.51.0 (TyraX ships as an installer, and tells you when there is a newer
+// one): three pieces that only make sense together - docs/updates.md.
+//
+// AN INNO SETUP 7 INSTALLER (installer/tyrax.iss + build-installer.ps1). What
+// it packages is not just the .exe: the editor resolves the Tyra engine, the
+// PS2 tools, the VS Code extension and the VU framework sources RELATIVE TO
+// ITS OWN BINARY, one directory up, so the installed layout reproduces the
+// shape a development checkout has (bin/tyrax-editor.exe beside vendor/, tools/
+// and src/) - a bare .exe would install an editor that cannot compile a game.
+// Per-user by default (%LOCALAPPDATA%\Programs\TyraX), which is what lets an
+// update install itself without a UAC prompt.
+//
+// EVERY PUSH TO main IS A RELEASE (.github/workflows/release.yml). The version
+// is authored HERE, and the TAGS record which patches are spent: CI reads these
+// three macros, releases them as they stand if v<that> is untagged, and
+// otherwise goes one PATCH past the highest v<MAJOR>.<MINOR>.* tag - stamping
+// that number into a workspace copy of this file before it compiles, so the
+// binary, the installer and the tag cannot disagree. It never writes to main
+// (the branch ruleset forbids it; tags are exempt), which means that between
+// releases the PATCH below is a FLOOR rather than a fact. A human bumping MINOR
+// for a feature (with the paragraph above it, as here) is what SHOULD happen
+// and resets that sequence; the automatic patch is only the floor that stops
+// main from sitting unreleased.
+//
+// AND THE EDITOR CHECKS FOR ITSELF (update.cpp / update_ui.cpp, Help > Check
+// for updates). One HTTPS request to the repository's releases at startup, on a
+// worker thread, through curl the way aigen.cpp already reaches the OpenAI API;
+// a modal only appears when there IS something newer, "Download and install"
+// runs the new installer silently and comes back, and the whole thing is one
+// checkbox away from off in Edit > Preferences. The failure of a startup check
+// is deliberately silent - an editor that opens a dialog because the machine is
+// offline is an editor people turn the check off in.
+//
+// MINOR by this file's own rule: three capabilities appear, nothing changes
+// shape for an existing project (both new settings are editor.ini, not the
+// .tyra - kFormatVersion is untouched).
+//
+// 1.50.0 (the ground bake stops shadowing itself, and three switches start
+// doing what they say): a round of reports off the 1.49.0 build.
+//
+// THE GROUND WAS SHADOWING ITSELF, in a lattice of dark blotches nobody could
+// place. Two causes, both the same mistake - a gather ray fired from a point
+// that is not on the surface the rays are traced against.
+//   1. The terrain map's SUB-SAMPLES inherited the texel centre's height while
+//      moving up to half a texel horizontally. On any slope that puts the
+//      sample under the ground; the whole hemisphere hits terrain and the texel
+//      bakes black. Re-sampled now (aobake::terrainAOMap).
+//   2. The traced ground is a DECIMATED mesh (gibake caps it at 96x96 cells)
+//      while the bake hands out points on the fine bilinear heightfield the
+//      game walks on. Wherever the decimation cuts a bump, the point sits under
+//      the triangles - and the residue showed up along the coarse cells'
+//      DIAGONALS, which is what named the cause. Scene::coarseH keeps those
+//      corner heights and gibake::groundSurfaceY reads the traced height back,
+//      so the ground's light function snaps its origin onto the surface the
+//      BVH actually has.
+// Measured on the reporter's showcase: texels under 8/255 went 0.1% -> 0.5% ->
+// 0.0% across the two fixes (the middle number is fix 1 alone uncovering the
+// second cause), map alpha mean 95.5 -> 86.7, and the map now reads as relief
+// shading plus real tree and village shadows with no lattice in it.
+//
+// A CHECKBOX NEVER REPORTS IsItemDeactivatedAfterEdit, and three of them were
+// asking. A checkbox activates on mouse-down and both edits and deactivates on
+// mouse-up, so "was edited while active in a previous frame" can never be true.
+// Fog enabled, Gradient sky dome and the VU stage's Enabled were all relying on
+// it. The Ambience window's section-JSON comparison happened to catch the first
+// two, so nothing was lost - but that is a backstop, not the contract.
+//
+// GI OFF NOW LOOKS LIKE GI OFF. gibake::load already refuses to answer while
+// the switch is off, but nothing asked it again: the viewport's cache key had
+// scene / model-edit / bake-version in it and not the preference, and
+// commitChange does not touch the viewport. Unticking the box left the baked
+// light on screen until the scene changed. Measured: 66.7% of the viewport
+// changes across the toggle now, 0.08% before.
+//
+// AND View > DISTANCE FOG IS PROJECT STATE, like the camera in 1.47.0 - the
+// same report, and the same answer. It is the VIEWPORT's fog switch, not the
+// scene's fogEnabled: it suppresses the preview of a fog the game still has, so
+// you can author past it. Resetting it on every open reads exactly like a
+// setting that was not saved. kFormatVersion 30 -> 31, purely additive.
+//
+// The Ambience Editor also loses two paragraphs it should not have had: the
+// "What this does not do" wall in the GI tab (five lines of routing caveats
+// that went stale the day the ground's route changed - that story lives in
+// docs/global-illumination.md, which the in-editor assistant reads), and the
+// read-only "Ambient occlusion - edit it in the Baked lighting tab" echo left
+// behind by the 1.48.0 move. Moved is moved.
+//
+// 1.49.0 (a textured ground takes its GI as a MULTIPLY): the last third of the
+// black-hills report - the peaks stopped being black in 1.47.1, the grid
+// stopped clipping them in 1.48.0, and what was left was a ground that BANDED
+// along contour lines because a volume probe grid was being asked to light a
+// surface. A probe sample crosses a level as the terrain rises, and the probe
+// just above the grass sees mostly ground bounce where the next one up sees
+// sky. No amount of grid tuning fixes that; the surface wants a surface answer.
+//
+// It could not have one, because the ground's per-texel light is an ADDITIVE
+// pass and a flat add over a texture blows out its dark texels. The way
+// through is a frequency split, and its shape is forced by the hardware:
+// GS_SET_ALPHA(A,B,C,D,FIX) computes (A-B)*C>>7 + D, and C may only be As, Ad
+// or FIX - never a colour - so Cs*Cd is inexpressible and no pass can multiply
+// the frame buffer by a coloured lightmap. But the OCCLUSION pass already
+// multiplies by an alpha. So the bake writes the gathered light's luminance
+// into that alpha (AoImage::giLumAlpha) and the terrain keeps its ordinary
+// directional shade for colour: intensity per pixel, colour per vertex, no new
+// table, no new pass, no pixels on the EE. SCENE_AO_MAP_GILUM says which
+// meaning the channel carries, and it opens the occlusion pass on its own -
+// the pass must run even with ambient occlusion switched off, because there
+// the channel is light.
+//
+// THE TWO ROUTES ARE EXCLUSIVE, and the flags are where that is enforced
+// (mapLit/mapGi are written off `&& !giLumAlpha`). Shipping both at once is not
+// a subtle bug: LIT still on runs the additive pass over the texture and washes
+// the ground to a flat wash with no texture left in it, which is exactly what
+// the first console boot of this route showed. On the multiply route the map's
+// RGB is never read, the emitters are not collected per chunk, and the point
+// lights and emissive pools are skipped - the gather already contains them.
+// The terrain's own AO goes with them, in the viewport too: that alpha channel
+// is the light now, and the gather answered the sky-visibility question AO
+// approximates.
+//
+// Verified on the reporter's saved showcase, rebaked: viewport and PCSX2 agree,
+// the ground is textured and softly shaded across an eight-frame turn-and-walk,
+// no black patch, no banding, 50.0/50 FPS held, VRAM 3.11/4 MB (+0.23 MB - the
+// AO map, now uploaded in a scene whose ambient occlusion is off). The two GI
+// examples are untextured ground and take the RGB route unchanged; their bakes
+// are re-run only because the cache version moved 4 -> 5.
+//
+// 1.48.0 (the probe grid reaches the top of its terrain, and every bake is in
+// one tab): the black hills, and the AO controls' new home.
+//
+// THE GRID. probeLevels was taken literally - anchored half a step above the
+// LOWEST ground and rising a fixed levels*probeHeight from there, whatever the
+// terrain did. On real relief the hills came out ABOVE the whole grid, the
+// sampler clamped them onto its top layer (over a hill: buried inside that
+// hill) and the ground shaded BLACK. Measured on examples/showcase: terrain
+// -6.45..+7.88, grid -5.3..+0.7, 15.9% of the ground surface sampling to zero;
+// after, 33x9x65 and 0.0%. The count is decided BEFORE the kMaxProbes cap, so
+// a tall terrain thins X and Z rather than silently losing the levels that
+// stopped the ground being black.
+//
+// SCENE AO MOVES to Ambience Editor > Baked lighting, beside model AO and
+// pre-lit. It is still a per-PRESET setting and the section carries its own
+// preset picker so that stays visible; the Presets tab keeps a one-line
+// On/Off pointer. The tab's premise is rewritten with it - its sections do not
+// share a scope and never did, they share the question "what is baked into
+// this project's light".
+//
+// STILL WRONG, and written down in docs/global-illumination.md rather than
+// left as a surprise: a volume probe grid lighting a SURFACE bands along
+// contour lines. The ground sample crosses a probe level as the terrain rises,
+// and a probe just above the grass sees mostly ground bounce where the next
+// one up sees sky. The black is gone; the banding is not. (Fixed in 1.49.0 -
+// by taking the ground off the probe grid entirely, not by tuning it.)
+//
+// 1.47.1 (the ground never takes probe light): reported as "with GI on the
+// peaks are pitch black", and it was the editor preview alone - the generated
+// game never had it.
+//
+// A TEXTURED terrain deliberately gets no GI lightmap: the ground pass is
+// additive and would blow out the texture's dark texels, so gibake passes no
+// light function for one, and with the scene's ambient occlusion also off
+// terrainAOMap returns an EMPTY image. Correct so far. What was wrong is that
+// the viewport only skipped the probe grid when a ground lightmap existed, so
+// such a terrain fell through to giProbe - which REPLACES the shade instead of
+// adding to it, and which is a grid built for objects, a few levels a few
+// units apart. Handed a 192x192 landscape it has nothing to say, so every hill
+// went black. Measured on the reporter's own saved project: viewport mean RGB
+// 114/80/33 with GI off, 85/54/30 with GI on, and 114/80/33 after.
+//
+// The diagnosis is worth more than the fix. gibake::load returned valid=1 with
+// terrain size 0 / hasLight 0, which is what said the map was absent BY DESIGN
+// rather than broken - and the generated game reads terrainGi = terrainMapLit
+// && SCENE_AO_MAP_GI and never consults the probes for ground, which is what
+// said the console was fine. PATCH: no capability changes, a preview stops
+// lying.
+//
+// 1.47.0 (the viewport remembers where you were looking, and stops repainting
+// untextured models): two reports, both about the editor disagreeing with
+// itself or with the console.
+//
+// THE VIEWPORT CAMERA IS NOW PROJECT STATE. The .tyra carried the render mode,
+// the projection, the selection and the gizmo - everything about the viewport
+// except where it was pointing - so every reopen started at a default 90 units
+// out, which on a scene with distance fog ending at 82 is a flat wall of fog
+// colour. It is the five numbers the orbit camera IS (yaw, pitch, distance,
+// pivot), read off the viewport at save time exactly like viewMode, never
+// dirtying the project and never entering undo. kFormatVersion 29 -> 30,
+// purely additive: a file without the key opens at the viewport's own
+// defaults, which is where it always opened.
+//
+// It also makes a scene SETTABLE from outside the GUI, which is what it was
+// asked for: an agent or a script can put the camera on the thing it needs to
+// photograph instead of describing where to drag.
+//
+// AND AN UNTEXTURED ANIMATED MODEL KEEPS ITS OWN COLOUR. AnimModelDraw::Part
+// carried a mesh and a texture and nothing else, so glTF baseColorFactor was
+// dropped and the model was drawn in the scene light alone. On
+// examples/showcase - whose wobbler is teal by that factor and has no texture
+// at all (baseColorFactor [0.15, 0.72, 0.62], images: none) - it came out
+// ORANGE in the editor under a sunset preset while the console drew it green.
+// Reported as exactly that. The parser already read the factor; only the
+// viewport's own Part struct threw it away.
+//
+// MINOR: one new persisted key and a preview that changes colour.
+//
+// 1.46.0 (one occlusion model, two regimes, one constant): the response
+// finished in 1.45.0 was a disc, and a disc has to be TOLD WHICH WAY TO POINT.
+// Both ways of telling it fail on real geometry, and both were measured on
+// examples/ambient-occlusion: aimed at the shape's nearest point the floor
+// beside a wall reads 0.000 occluded (the wall touches it edge-on and the
+// cosine falls out), and aimed at the shape's centre a crate standing on a
+// 30x24 terrace reads 0.66 occluded ON ITS SIDES, because that terrace's
+// centre is ten units sideways. The second one is what the 1.45.0 shipped, and
+// this fixes it.
+//
+// Near and large, a shape is not a disc - it is a HALF-SPACE, and a half-space
+// needs no aiming: it blocks the hemisphere behind its face, (1 + n.toOcc)/2.
+// The two regimes blend on k = sin(alpha) = r/(r + dist), scaled by k*k, the
+// solid angle. BOTH FACTORS ARE NEEDED: blending on k alone let a crate 0.6
+// units away - 27 degrees, a speck - hand a horizontal surface the plane's
+// 0.5, and a ring of neighbours summed to half the sky gone on a crate top
+// with nothing above it (0.500 measured; 0.140 now).
+//
+// THE GROUND TERM TURNS OUT TO BE THAT SAME HALF-SPACE with toOcc pointing
+// down - (1 + n.toOcc)/2 is (1 - n.y)/2, exactly the 0.5 - 0.5*n.y it always
+// carried. It was never a separate model, only a separate spelling with its
+// own constant, which is how the two drifted. One shape, one spelling, and one
+// number left between the geometry and the picture: kAoBounce (0.7), applied
+// once over everything, replacing the ground term's 0.7 AND the occluder
+// term's unrelated 0.35 facing floor.
+//
+// The reported case, on the console at one frozen vantage - brightness of a
+// crate with another crate on it against its uncovered neighbour: 0.87 with AO
+// off (the natural difference), 0.78 before this branch, 1.04 with the disc
+// alone, 0.98 now. 50 FPS. MINOR: every scene with AO looks different again.
+//
+// 1.45.0 (an occluder darkens you by how much sky it takes, not by how close
+// it is): occluderOcclusionAt was (1 - dist/radius)^2 times a facing weight
+// with a 0.35 FLOOR, so a surface turned away from a shape it can barely see
+// kept a third of the term, and anything smaller than the AO radius darkened
+// over its whole height as a lump. It is now the solid angle the shape
+// subtends - cos(theta) * (r/d)^2 with r from the projected area and the disc
+// placed tangent to the nearest surface point - and blockers combine as
+// VISIBILITY, 1 - prod(1 - occ), instead of a clamped sum that saturates.
+//
+// Measured on the console, examples/ambient-occlusion: a crate with another
+// crate resting on it read 0.78 of its uncovered neighbour's brightness where
+// the AO-off scene reads 0.87 - a visible step between two crates 20 cm apart.
+// It now reads 1.04. The covered crate's SIDES went 0.22 -> 0.000, which is
+// the right answer rather than a suppression: the crate above lies entirely
+// behind the plane of those faces. Contact shadows got stronger where they
+// belong (floor beside a wall 0.247 -> 0.603). Existing scenes barely move:
+// gi-showcase terrain alpha mean 60.9 -> 59.6.
+//
+// TWO OF MY OWN ERRORS, both caught by measuring rather than by reading the
+// formula: aiming the disc at the shape's nearest point reads the floor beside
+// a wall as 0.000 occluded (the wall touches it edge-on and the cosine falls
+// out) - it is aimed at the midpoint of the nearest point and the centre; and
+// an uncapped disc collapses a 26-unit wall into radius 5.15 against the
+// surface for 0.70, where a half-plane at contact can block about 0.45 - r is
+// capped at the AO radius, which is also the radius the bake prunes by.
+//
+// The GROUND term is deliberately untouched and is now what decides how dark a
+// small prop gets; docs/backlog.md says why going fully physical there needs
+// measuring first. MINOR: every scene with AO looks different.
+//
+// 1.44.0 (ambient occlusion: runtime blocks, and a terrain scan that stops
+// shading bare slopes). Three things, and the number is a MERGE renumber - the
+// branch stood at 1.35.0 while main took 1.42.0 and then 1.43.0, and the rule
+// of this block takes the MINOR above both rather than picking a side.
+//
+// Runtime blocks self-occlude off the solid-cell field a Blocks Fill volume
+// already publishes: 26 bit tests per block at generation time, reduced per
+// visible face to four corner levels, riding the selfAo byte pushVert already
+// takes - so the scene's own AO strength scales it and a scene with AO off
+// computes none of it. THE TRAP WAS THE SHADING, NOT THE AO: generated chunks
+// draw TyraShadingFlat, which takes one corner of a triangle and paints the
+// whole triangle, so the first console build split every block face into two
+// flat plateaus 42 levels apart. Hard adjacent-pixel steps over the frame read
+// 2783 / 6964 / 2868 for AO-off / AO-on-flat / AO-on-Gouraud.
+//
+// The terrain horizon scan gets the term that stops a BARE SLOPE shading
+// itself - the horizon measured above the surface's own tangent plane rather
+// than above the horizontal - because every uphill sample is higher than the
+// last and a smooth open hillside was darkening for being a hillside: 16% at
+// 30 degrees, 30% at 60, no occluder anywhere. Both read open now while the
+// foot of a step is unchanged. Also 16 azimuths instead of 8 (a lone spire's
+// ring standard deviation 91% -> 30% of the mean) and an occluder GRID instead
+// of scanning every occluder per sub-sample (32.0 s -> 61 ms on 1100 casters,
+// and byte-identical output on every existing example).
+//
+// A per-texel azimuth rotation was implemented, measured and REMOVED - the
+// scan is one sample per texel with nothing downstream to average it, so it
+// decorrelates the error without reducing it. MINOR: behaviour changes for any
+// project with sculpted terrain, and examples/ambient-occlusion is the first
+// one in the tree that has any.
+//
+// 1.43.0 (the pre-release legacy comes out, and version::kMinFormatVersion is
+// what replaces it): TyraX has never shipped publicly, so every translation the
+// reader carried for a shape that changed on its way to v1 was weight nobody
+// could ever spend - objects inline in the manifest instead of objects/<id>.json,
+// a single "layout" dump, a project-level terrain block and flow graph, raw TTF
+// paths where a font name now goes, "terrainTex", "stickDeadzone",
+// "hudPostFxLayer", the one-day-old VU "programs" key, and the twelve retired
+// Show*/Hide* flow-node types (flowLegacyNodes). Gone with them: the verbatim v1
+// game templates kept only so matchesLegacy could recognise an unedited copy,
+// the "Generated by tyra-editor" pre-rebrand ownership marker, the pre-rename
+// TYRA assert banner, objparser's unused flat loader and the one-number
+// "# tyra-glow" hint. The removal is DELIBERATE rather than silent: a file below
+// kMinFormatVersion is refused by name, because a reader that recognises nothing
+// in it would otherwise open an empty project and say nothing about why.
+// Verified by resaving all 34 examples - byte-identical apart from the version
+// stamps - and by A/B-ing --refresh-gen against a pre-change binary in the SAME
+// directory (docker-compose.yml embeds the project path, so two directories
+// manufacture a false diff): the only generated change anywhere is that a
+// display-mode menu row now always carries its option->mode table instead of
+// falling back to the positional map when the table was absent, and the table
+// codegen emits for such a row is exactly that map. MINOR: the Cutscene
+// Director's "Shot from" combo gains the Free shot entry it never had - free
+// shots are what the take importer and the phone-camera recorder write, so
+// calling them legacy and offering no way back to them was a one-way mis-click,
+// not a deprecation. (Authored as 1.34.0 against a 1.33.0 main and RENUMBERED
+// TWICE on the way in, which is this file's own rule and not an accident: main
+// reached 1.33.1 and then 1.42.0 while this branch was open, so the MINOR
+// strictly above both parents is 1.43.0. The format number moved under it the
+// same way - see kMinFormatVersion's note.)
+// 1.42.0 (the editor stops flattering you about lights): three preview
+// gaps, all reported with a screenshot. The bulb gizmo is a small constant
+// MARKER now instead of a unit-sized glow that hid the very point it marks;
+// a spot light draws its actual CONE (apex at the light, opening down the
+// aimed -Y for the reach) instead of a radius sphere that said nothing
+// about direction; and the viewport lights shade the GAME's way - spots
+// use the cone term with no N.L (exactly the VU1 slot's trade), and a
+// dynamic light darkens only through its nearest FOUR Cast-shadow
+// (projected) objects, hard-edged and quantized to the coarseness of the
+// 64x64 silhouette the console samples. The editor used to raytrace
+// nothing for scene lights and everything for emissives, which is how "it
+// looks amazing in the editor, then surprise" happened. And Live Link
+// learns lights: protocol v4 streams a DYNAMIC light's pose, color,
+// brightness, radius, flicker and spot angle (the record's player-speeds
+// slot, reused - types never collide - plus the tail pad), so aiming a
+// lamp is a live drag instead of an amber chip. Baked lights still
+// rebuild (vertex colors own them), as do the dynamic flag, the beam and
+// the spot style (setup-time bags/textures).
+//
+// 1.41.0 (a scene light can be the flashlight's kind of light): dynamic
+// point lights gain a SPOT style (format v29: "spot" + "spotAngle" in the
+// light object, written only when on - old files resave byte for byte).
+// The cone points down the object's local -Y (unrotated = straight down, a
+// street lamp; the rotation gizmo aims it), lights nearby meshes per vertex
+// through the same engine slot the camera torch uses (new
+// RendererCore::addDynSpotLight - the registry entry always carried the
+// cone constants, nothing changed on VU1), and its footprint on the ground
+// is the flashlight's projection on a scene light: the pool patch takes
+// the gobo's projective STQ from the LIGHT's frustum instead of the round
+// corona, so a lamp's pool is per-pixel however coarse the ground is.
+// night-walk's street lamp now actually lights its street (with a 0.12
+// flicker and a corona). Spot pools march the cone axis to the ground and
+// size the patch from the cone's footprint at the landing.
+//
+// 1.40.0 (a caster's shadow follows its shape, not its bounding box): a
+// model now casts from up to three TIGHT sub-boxes fitted to its triangles
+// - median split on the longest axis, twice, then leaves greedily merge
+// back wherever the split bought nothing (a solid crate collapses to one
+// box; an L-shape stays a pole and an arm). Built lazily per model asset,
+// local space, shared by instances (g_shadowSubBoxes). This retires the
+// volume pick's thin-skip: a tight thin box (a sign, a pole) casts its
+// honest stripe now - the street lamp's shadow is its POLE again, not the
+// pole-plus-arm slab of air that blotted out a facade. Each sub-box gets
+// its own mask bracket because set/clear is only sound inside one CONVEX
+// volume - the GS cannot count like a stencil, which is also why true
+// mesh-shaped volumes (a bed's slats) need the era's full arrangement
+// (count in a spare color channel with add/sub blending + a resolve pass)
+// and are left as the named next step (landed in 1.57.0, further up this file).
+//
+// 1.39.3 (thin things are transparent to the torch, in all three systems):
+// stand exactly on the street lamp's axis and the light died completely -
+// half a step sideways brought it back (reported, with the exact spot). The
+// lamp is a thin POLE, but its AABB - pole plus arm - is a big slab of
+// mostly air, and two systems still trusted that box: the volume pick cut a
+// shadow from it (on-axis, a slab three units from the lens blots out the
+// whole facade), and projWallHit called it "the wall the beam hits", which
+// then stuffed it into a guaranteed receiver slot. The 0.25 thin rule the
+// receiver scan already had now applies to all three: thin boxes cast no
+// volume, projWallHit sees through them to the surface behind, and the
+// guaranteed hit-slot inserts at its SORTED position (the interleaved walk
+// merges the receiver and caster lists by distance - an unsorted insert
+// drew a nearer light after farther volumes).
+//
+// 1.39.2 (nothing can shadow itself, and the toggle stops strobing the old
+// look): two more reports from the same yard. The shed went black in the
+// beam ("swallows the light like a black hole") because a model's AABB
+// stands proud of its real walls - the roof overhang - so the shed's own
+// volume's near cap floated in front of the wall the beam lit; no cap
+// geometry fixes that (the radial push is tangent to a big face up close),
+// so the ORDER does: casters and receivers walk together sorted by distance
+// and each receiver's light draws BEFORE its own volume enters the mask
+// (RendererCoreAlphaMask::beginKeep - one bracket per caster, only the
+// first clears). A volume only shadows what is behind its caster, so
+// nearest-first is the dependency order and self-shadowing is structurally
+// impossible; the truck still carves the facade behind it. And spamming the
+// torch toggle strobed the OLD per-vertex look for one frame per enable:
+// the receivers' cone-off flags are computed in the light-pool pass, AFTER
+// the scene has drawn, so the enable frame hit every big receiver with the
+// full blocky cone once. The engine spot now arms one frame after the
+// toggle - the projected pool lights the same frame, only the cheap cone
+// waits, and on the props that keep it one frame is invisible. Verified in
+// PCSX2: 12 toggles x 70 snapshots, four tight byte-size clusters, zero
+// outliers - and the shed takes the full gobo in volumes mode.
+//
+// 1.39.1 (the volumes learn who actually casts, and the mask stops leaking
+// onto the screen; renumbered from 1.38.1 when the lighting redesign took
+// its slot): three reports from the reworked backlot. Volume slots
+// go NEAREST-FIRST (they went in object-table order, and the scene's three
+// merged facades - each huge enough to intersect the cone whenever the beam
+// faced them - ate all of them, so the dumpster and the truck never cast:
+// "no dynamic shadows at all"); a THIN receiver (the street lamp) no longer
+// claims a light slot nor gives up its cone, and the box the beam actually
+// HITS is guaranteed one (standing by the lamp used to unlight the facade
+// behind it); and the destination-alpha mask is REPAINTED to neutral 0x80
+// after the last DATE pass - the SDTV flicker filter blends its two read
+// circuits by per-pixel framebuffer alpha, so a mask left in the channel
+// was shown by the CRTC as translucent wedges (the "broken triangles" at
+// torch toggles, caught by frame-stepping PCSX2). The repaint runs from its
+// OWN packet2: sharing begin()'s buffer let a FINISH-parity slip rebuild a
+// packet the GIF was still fetching, which killed the light entirely.
+//
+// 1.39.0 (the lighting redesign: baked light gets one home, and a textured
+// model finally occludes itself; authored as 1.38.0 - the examples split
+// took that number first, and the claim that arrives second renumbers).
+// Lighting had accumulated four separate
+// places - AO in the ambience presets, model AO by hand in the Material
+// Editor, GI in its own tab, and a per-object pre-lit button in Properties -
+// and the automatic half of that did the least for the thing a real game is
+// mostly made of, TEXTURED MODELS. The engine's lightmap route refuses them
+// (it is additive, and an additive term over a texture blows out its dark
+// texels) and GI reaches them only as flat per-vertex probe light, so an
+// imported model has never had any self-occlusion at all.
+//
+// AUTOMATIC MODEL AO (docs/ambient-occlusion.md, "Model AO", format v28 -
+// authored as v26; this branch's base took v26 and then v27 while the
+// redesign was in flight, and the claim that arrives second renumbers): the
+// Material Editor's matbake AO, run per model ASSET without anybody asking,
+// and multiplied into the texture that model ships anyway. Two properties are
+// what make it affordable, and both fall out of WHAT is being baked rather
+// than out of any cleverness: a model's own surface occlusion is
+// TRANSFORM-INVARIANT, so every instance of the asset shares one map wherever
+// it stands; and the pixels ride in an existing texture, so it costs ZERO
+// extra GS VRAM - against one unique texture per object for the pre-lit route
+// next to it. src/modelao.cpp owns the bake, the content-hash cache in
+// .res-baked/modelao/ (the gibake rule: never mtimes, and never the texture's
+// PIXELS - AO is a function of geometry and UVs, so repainting must not throw
+// a bake away), and - the part that matters most - the MULTIPLY. That one
+// function is called by texbake for the shipped PNG and by the viewport for
+// the uploaded pixels, so what the editor shows and what the console draws
+// cannot drift.
+//
+// WHAT IT REFUSES TO DO IS THE DESIGN. A texture referenced by more than one
+// model asset is skipped and SAID SO, because two UV layouts over one image
+// make a single multiply wrong for both; so is a pre-lit material, whose
+// gather already contains occlusion and would be darkened twice. Both show up
+// as a named row in the panel and a line in the build log - an AO map that
+// silently is not there is indistinguishable from a broken feature. And
+// litbake now multiplies the same map into the albedo it reads, so an object
+// does not lose its self-AO the moment it goes pre-lit.
+//
+// PRE-LIT MANAGEMENT (docs/prelit-models.md, "Managing pre-lit objects", the
+// same format v28): 1.35.0 gave a textured model per-pixel static light through
+// one button per object, and left everything around that button to memory - no
+// record of which objects were supposed to ship pre-lit, no way to know that a
+// texture had stopped agreeing with the scene, no bulk operation, no way back.
+// Three SceneObject fields close that: prelitWanted (the author's statement),
+// prelitSig (what the last bake SAW) and prelitSource (the material to revert
+// to, recorded on the FIRST bake only, an asset path that joins
+// retargetAssetPath). All three are written only when they say something, so an
+// object that never met the baker resaves byte for byte.
+//
+// THE SIGNATURE IS THE FEATURE, and the load-bearing decision in it is what it
+// deliberately does NOT see. It mixes gibake's own scene signature, the
+// object's transform, the model and its .mtl libraries by content, the bake
+// parameters and - when Model AO resolves on for the asset - that map's
+// signature, since it is multiplied into the albedo. But the scene half hashes
+// the scene AS AUTHORED, with every pre-lit override normalized back to its
+// source material: gibake::signature hashes each object's materialPath and that
+// file's bytes, so without the normalization applying a bake would change the
+// scene signature and make the object it just baked read STALE on the next
+// frame, together with every other pre-lit object beside it. The price is that
+// bounce light off a neighbour's new pre-lit texture stales nothing, a
+// second-order term nobody would want a re-bake storm for.
+//
+// The batch baker builds and solves the gibake scene ONCE per scene and bakes N
+// objects from it (that solve is nearly all of the wall clock), reports "2/7:
+// crate-3", cancels, and lands as one undo step through App::litBakerPoll -
+// polled from drawUI, so a batch started from the tab arrives whether or not
+// the tab, the selection or Properties is still showing it. --bake-prelit is
+// its headless twin: it re-bakes every stale wanted object and says `fresh` for
+// the rest, so running it twice is the check that the tracking is honest. The
+// three of them - the tab's button, the verb and the OPT-IN pre-build pass
+// (ProjectSettings::prelitAutoBake, Preferences > Build) - are one loop,
+// litbake::bakeStale, so a build cannot bake something the tab would have
+// called fresh. Off by default: the gibake rule that an expensive bake is
+// pressed, not implied, still stands, and only STALE objects are ever touched.
+// GI gets the SAME opt-in (ProjectSettings::giAutoBake, gibake::bakeStale -
+// stale scene caches re-baked before the pre-lit pass), because the silent
+// alternative had already bitten twice: a stale cache drops a whole scene to
+// the pre-GI lighting without a word. And gibake now reads a pre-lit object's
+// SOURCE material (albedoMaterial) in both build() and signature(): a -lit
+// texture is albedo x light, reading it as albedo doubled the light in the
+// bounce, and every pre-lit bake used to stale the GI cache by repointing the
+// object's materialPath.
+//
+// ONE HOME: a "Baked lighting" tab in the Ambience Editor, reachable from
+// Tools > Baked Lighting..., which is where the scene's light was already
+// authored - Model AO (per ASSET, free) and the pre-lit table (per SCENE, one
+// texture each, with the VRAM line stating what that costs) as two sections of
+// it. The Material Editor's manual bake is untouched and gains one line
+// pointing at the automatic path.
+//
+// MINOR: capabilities appear (a textured model can occlude itself, for free;
+// pre-lit objects gain staleness, batch baking and a Revert; --bake-model-ao
+// and --bake-prelit are new headless verbs). No existing project's look moves -
+// modelAo is false in the struct, which is what every file saved before it
+// loads as, and true only for projects created from here on; the three pre-lit
+// fields are pure bookkeeping and reach no codegen at all.
+//
+// 1.34.0 (the flashlight stops being drawn by the terrain's vertex grid, and
+// the ground gets distance detail): two halves of one report - a torch on a big
+// map looked bad, and the proposed cure was a finer heightmap near the player.
+// The second half is built here as its own feature, because it is a good answer
+// to a big map and NOT the answer to the torch.
+//
+// WHY NOT: a terrain cell can never be finer than one world unit
+// (sceneGridDims caps cells at the map's own width in units), and the VU1 spot
+// is per vertex with no N.L, so the cone on the ground is a Gouraud diamond
+// whatever the detail cap says. A footprint two units across gets two vertices.
+// Aiming at your own feet had lit nothing at all, which is why the ground POOL
+// existed in the first place - a flat round patch under the beam's terrain hit,
+// textured with the lens-flare corona, radius capped at 8 units.
+//
+// THE FIX IS PROJECTION, and every part of it was already in the tree: the
+// receiver patch now takes its STs from the beam's own frustum, exactly the way
+// renderProjShadows samples a silhouette through a light view-proj, so the
+// light's SHAPE is a texture and the ground's tessellation stops being able to
+// decide it. With that, three long-standing approximations go: the patch is
+// laid out along the beam's ground run instead of axis-aligned (a grazing beam
+// really does reach four times further than it is wide), the radius cap is gone,
+// and it lands on placed geometry as well as terrain via projCollectReceivers -
+// so a torch works in a room built out of floors, where a scene with no terrain
+// at all used to have no pool by construction. The image itself is a baked
+// 128x128 gobo (menubake::bakeFlashGoboRGBA - hotspot, penumbra, reflector ring,
+// two low-frequency lobes so the circle is not perfect) instead of the corona
+// sprite, gated by FLASHLIGHT_USED so a project without a flashlight pays no GS
+// VRAM, and the authored Pool texture override keeps working - as a real gobo
+// now, which is what its own documentation always claimed it was.
+//
+// DISTANCE DETAIL (docs/terrain-lod.md, ProjectSettings::terrainLodDistance,
+// format v25): beyond the set range a terrain tile is built from every 2nd
+// heightmap sample and beyond 2.2x it from every 4th - a quarter and a
+// sixteenth of the triangles. The load-bearing decision is that the stride is a
+// PURE function of the snapped view focus, so a tile can work out what its
+// neighbours are doing without asking whether they are resident, and the finer
+// side of a shared edge interpolates its vertices onto the coarser side's
+// segment. That is what makes cracks impossible rather than merely rare, and it
+// adds no geometry - skirts, the usual cure, add a quarter as much again to the
+// tiles that can least afford it. The shade is interpolated with the height,
+// or the closed hole leaves a colour seam in its place. Collision is untouched:
+// every height query reads TERRAIN_HEIGHTS, never the mesh.
+//
+// MINOR: capabilities appear (a setting that did not exist, and a flashlight
+// that can light a floor). The gobo is not a default change - it replaces a
+// sprite that was never the right one - but the LOD key IS written into every
+// project's settings block on its next save, hence the format bump.
+//
+// 1.38.0 (one example was proving two features, so now there are two): the
+// night-walk example is split. deep-forest takes the scale story - the same
+// 2048x2048 map in daylight with 2800 scattered spruces, held at 50 FPS by
+// terrain detail distance + mesh LOD + chunk draw distance (2800 is measured:
+// 3777 instances died in the chunk build's loading peak, 3100 ran at
+// 30.7/32 MB, 2800 ships with headroom at 28.1). night-walk keeps the torch
+// and becomes a dark kenney-kit backlot (CC0 Retro Urban Kit) built to be
+// read by torchlight: brick facades, a dumpster and a truck for casters, the
+// pre-lit shed pair, the west facade turned 24 degrees for the oriented-box
+// receivers. The facades are kit tiles MERGED into one .obj each, because
+// the torch lights the nearest three solids in its cone - a wall of twelve
+// tile objects would light in patches. No engine or format change.
+//
+// 1.37.0 (the torch's shadows learn self-shadowing, and the technique becomes
+// a choice): ProjectSettings::flashShadowVolumes (format v27) picks how the
+// flashlight occludes. OFF keeps the silhouette slots below; ON is the
+// survival-horror era's own arrangement, built on its own hardware trick:
+// every occluder box in the beam is extruded away from the torch into a
+// closed volume, the volume's camera-front faces SET the framebuffer's
+// DESTINATION-ALPHA MSB where they beat the scene's depth and its back faces
+// CLEAR it where they do - plain TestOnly z is the entire algorithm - and
+// every torch light pass then draws with the GS's destination-alpha test
+// (TEST.DATE), i.e. only where the mask says lit. The mask gates LIGHT;
+// nothing ever paints darkness. Occlusion is exact per pixel against the
+// real z buffer, for EVERY solid in the beam, self-shadowing included, with
+// no caster flag and no four-slot budget; the price is the volume fill and
+// box-shaped rather than mesh-shaped silhouettes. Engine: a new
+// RendererCoreAlphaMask bracket (FBMSK to alpha-only + full-raster alpha
+// clear with z writes masked) and PipelineInfoBag::dateLit riding the same
+// in-band TEST qword every mesh already emits. Both re-render passes also
+// gained a per-triangle FACING cull (orientation from the object's centre -
+// an .obj's winding is nobody's promise), which is what stopped a box's far
+// side sampling a lit texel and a wall's inner face taking the silhouette.
+// MINOR: a capability and a setting appear; the default reproduces 1.36.0.
+//
+// 1.36.0 (the torch throws shadows, and its light stops picking favourites):
+// the flashlight becomes a candidate light in the projected-shadow system - a
+// caster in the beam renders its silhouette FROM THE TORCH'S POSITION into a
+// shadow-map slot, the ground patch samples it as always, and the wall behind
+// the caster is re-rendered with the silhouette through the light's view-proj,
+// per pixel: the survival-horror composition, on the machinery that was already
+// there. Three findings paid for it: the torch needed a laxer elevation bar
+// than fixed lights (it is carried level with everything, and its shadow's
+// whole point is the WALL - the ground patch is simply skipped when the ray is
+// too flat); it needed a LINE-OF-SIGHT check, because a light that walks
+// around routinely stands on the wrong side of a wall from a caster, and the
+// silhouette painted straight through; and the light pass had to stop lighting
+// only the object the beam HITS - the wall behind a caster stayed dark (a
+// shadow with nothing to be carved from), and a shed with the beam at its feet
+// took no projected light at all and fell back to the per-vertex cone's hard
+// triangles. Receivers are now the nearest three solids whose oriented boxes
+// the CONE touches, drawn from one bag. MINOR: capabilities appear; no default
+// moves; the format is untouched by it.
+//
+// 1.35.0 (per-pixel static light on a TEXTURED model; authored as 1.33.0 and
+// renumbered on the merge below - main took 1.32.0 with #230 while this branch
+// was away, so both entries here move up one, the standing arrive-second
+// rule): the answer to "the era's games had textured models and it looked
+// fine", which is a fair objection to
+// everything the flashlight work had said up to then. The engine's lightmap
+// route is per texel and refuses textured surfaces, and that refusal is
+// hardware: the GS blend unit computes (A - B) * C + D with C always an ALPHA,
+// so "texture times lightmap" cannot be expressed in a second pass at all, and
+// the additive atlas this engine does have blows out a texture's dark texels.
+//
+// Which leaves the era's own answer: bake the light INTO the albedo and ship a
+// unique pre-lit texture for that surface. Both halves of the machine were
+// already here - gibake computes the light over a triangle BVH of the whole
+// scene, matbake showed how to rasterize a model's UV space - and what was
+// missing was the join. src/litbake.cpp walks the object's UV islands, turns
+// each texel into a WORLD position and normal through the object's transform,
+// asks gibake what arrives there, multiplies it into the albedo and writes the
+// object its own material. SceneObject::prelit (format v26) then switches that
+// object's vertex colours to neutral, because every term they used to carry is
+// in the texture now and adding it again lights the surface twice.
+//
+// The dynamic half still lands on top, which is the whole arrangement: static
+// light per pixel in the map, the flashlight's projected pool and cone added
+// over it at run time.
+//
+// MINOR: a capability appears (--bake-object-light, and a route to per-pixel
+// static light that textured geometry never had). No default moves - prelit is
+// false everywhere until a bake sets it.
+//
+// 1.24.4 (--vu-check says when its two halves are not from one commit): every
+// comparison it makes diffs a program GENERATED from the descriptions compiled
+// into the binary against the HANDWRITTEN .vclpp on disk, so the two are only
+// comparable at one revision - and the documented attribution trick of pointing
+// it at another commit's engine swaps exactly ONE of them. Against a stale exe
+// that MANUFACTURES failures rather than attributing them: measured, a pre-#218
+// editor on post-#218 engine sources reports 7 DIFFERENT programs plus the
+// matcap identity-at-zero, every one of which passes when each half runs against
+// its own peer. It now prints `note: FOREIGN engine` when the engine is not the
+// one beside the executable, `note: ... is NEWER than this executable` when a
+// framework source outran the build, and a paragraph under FAIL naming the skew.
+// PATCH: no capability appears, a failure becomes readable.
+//
+// 1.24.3 (the shipped default net is refitted, and CI stops asserting a
+// property of one machine): the net embedded in the editor was fitted before
+// examples/upscaler-lab was rebuilt on CC0 assets - and upscaler-lab is one of
+// the seven projects in its corpus, so the recipe stopped producing the shipped
+// bytes the moment the geometry changed. It was a KNOWN deferral (docs/
+// backlog.md said so, and the PR description listed it as owed); what is new is
+// that the blss-default-net workflow's first run collected the debt by failing.
+// Refitted with the identical recorded command: md5 879146bd -> 6a93196c, final
+// loss 0.042956, and the .meta came back byte-identical - the recipe never
+// moved, only the corpus content under it.
+//
+// AND THE CHECK THAT CAUGHT IT CANNOT BE THE CHECK CI RUNS. Same tree, same
+// command, three md5s: 6a93196c on MinGW g++ (Windows, twice - so the trainer
+// IS deterministic) and d817c318 on the ubuntu runner, with losses 0.042956 and
+// 0.042761 - 0.45 % apart. The bytes are toolchain-bound and the nets are
+// equivalent, so a byte anchor pinned in a workflow that runs on ubuntu asserts
+// a property of a machine that is not that runner.
+//
+// The assertion is aimed rather than deleted: CI now checks the final loss
+// within 5 % (ten times the measured toolchain spread) plus the sidecar
+// reproducing byte for byte - it is pure recipe text, so a changed corpus path,
+// topology, epoch count or seed still lands there. Exact-byte identity stays a
+// local check on the fitting machine, which is what caught this in the first
+// place. Still owed: the published leave-one-project-out fold table was
+// measured with the OLD net and needs its own round.
+//
+// 1.24.2 (a texture allocation is whole PAGES, and a menu stopped eating the
+// HUD's letters): reported as "opening the menu makes some letters disappear -
+// R is gone from VRAM", with a screenshot reading `V AM 3.81/4 MB`.
+//
+// getSize() counted a texture's PIXELS. The GS stores one in whole 8 KB pages,
+// a row of pages at a time, so a texture that does not fill its last page row
+// still OWNS those pages. The debug HUD font is 512x16 PSMCT32: 8192 words of
+// pixels (+ upstream's 2048-word pad) against a footprint of ceil(512/64) x
+// ceil(16/32) = 8 x 1 pages = 16384 words. The next texture was therefore
+// placed 10240 words in - page 5 of the font's own 8 - and overwrote pages
+// 5..7, which is every glyph from x=320 rightwards. R lives at x=480 and was
+// the only glyph past that line on screen; T, at 496, was equally gone and
+// simply not being drawn. The allocation that lands there is the menu's own
+// font atlas, which is why opening a menu is what triggers it.
+//
+// THE DIAGNOSIS IS THE GLYPH POSITIONS. Every letter that still rendered (V, A,
+// M, F, P, S, E, B) sits at x <= 288 and every one that did not sits past 320 -
+// a boundary that falls exactly on a page edge, from one screenshot.
+//
+// getSize() now returns at least the page footprint. Upstream's
+// "TODO: Without this hack, textures are overlapping ourselves" sat on the pad,
+// which covers width 128 and nothing wider. Nothing changes for the frame and z
+// buffers (page-aligned already - all five display modes come out identical) or
+// for textures 32 rows or taller. Measured cost: the font grows 24 KB, which
+// the HUD's own VRAM line shows as 3.21 -> 3.23 MB.
+//
+// 1.24.1 (the Display tab loses the VRAM line 1.23.0 gave it): the readout was
+// correct and unwanted. It answered "what does this mode cost" as a wall of
+// small print under the mode picker - three lines, two of them explaining that
+// a DIFFERENT number elsewhere is a different pool - which is a footnote about
+// the HUD parked in a settings dialog. Removed on request, without a
+// replacement: the question it answered is a game-runtime question and the
+// game's own HUD answers it (`VRAM 3.21/4 MB`, still there, docs/gs-vram.md).
+// The per-mode figures it computed are not lost either - they are written down
+// in that doc's table, where they can be read without switching modes to watch
+// a number move. PATCH: one thing comes off the screen, no behaviour changes.
+//
+// 1.24.0 (the Debug button becomes a build-profile dropdown): "run and open the
+// debugger" stops being a thing to remember and becomes what running a debug
+// build does. The button was Run plus opening the Debugger panel, which meant
+// the ordinary Run - the F5 every muscle memory reaches for - silently started
+// a debug session with nowhere to watch it. Now every launch path opens the
+// panel when the profile is debug, Live Debugger is on and the panel is closed;
+// only when closed, so one shut mid-session stays shut, and never re-docking or
+// stealing focus from one already open.
+//
+// THE HOOK IS ITS OWN CALL (App::openDebuggerForLaunch) BECAUSE THE PATHS DO NOT
+// SHARE ONE. Putting it in runSelectedTarget looked complete and was not: the
+// F5/F6 chords name their target rather than taking the toolbar's, so they reach
+// runner_ directly and every one of them would have slipped past it. Caught by
+// driving the built editor with --ui-script rather than by reading the diff.
+// Ctrl+Shift+B is deliberately excluded - it builds without running.
+//
+// IN THE BUTTON'S PLACE, THE BUILD PROFILE. The toolbar was missing the switch
+// that every chip to its right depends on - Live Link, the Live Debugger and
+// Live Logic exist in debug builds only, and their dimmed tooltips all ended by
+// naming a Preferences page. A labelled combo rather than another drawn glyph:
+// this is the one control on the bar whose current VALUE has to be readable at
+// a glance, and "why is there no LIVE chip" is answered by seeing "Release".
+//
+// AND NEW PROJECTS DOCK THE DEBUGGER BEHIND PROPERTIES, so the first run has
+// somewhere to report. Properties stays the selected tab, which is decided by
+// ImGui submission order (drawUI draws it first) and not by docking order -
+// noted where a future reader would otherwise "fix" it by swapping two lines.
+//
+// 1.23.0 (three readings that answered the wrong question): all three came from
+// one session of using the editor rather than from a test, and each is a
+// surface saying something true about a quantity nobody asked about.
+//
+// MEM DID NOT MOVE WITH THE DISPLAY MODE, because it is the EE's 32 MB and a
+// display mode never touches it. The pool that moves is the GS' separate 4 MB,
+// where the two frame buffers and the z buffer live, and nothing showed it at
+// all. Both surfaces now do: the game's debug HUD prints `VRAM 3.21/4 MB`
+// under `MEM`, and Preferences > Display prints the same figure for the mode
+// being picked, off `project::tripleBufferingFit`'s own arithmetic, before a
+// build exists. Measured: 1080i leaves 0.79 MB for textures, 480p 1.24 MB -
+// HD costs a third of the texture budget, which is worth seeing while choosing.
+//
+// THE FPS LINE READ 25 IN 576i AND 30-40 IN HD and looked like a counting bug.
+// It was not: those modes refresh at 50 and 60 Hz, so one missed field halves
+// to 25 and to 30 respectively. The rate is now printed over its cap
+// (`FPS 25.0/50`, `FPS 30.0/60`) - the same result in both modes, and legible
+// as such only with the denominator there.
+//
+// THE BOOT LOGO SAT LOW IN 1080i, and the first fix moved it 25 rows high
+// instead, because the vertical centre of a raw sprite is neither half the
+// buffer nor half the 448-row sprite space: render() shifts that space up by
+// (renderHeight - 448) / 2, so the visible centre is (renderHeight + 448) / 4.
+// The three candidates coincide at 448 rows and separate by 46 in 1080i, which
+// is why it survived until a mode taller than the authored space shipped.
+// Measured in PCSX2 with the HUD's 20-row line pitch as a ruler.
+//
+// MINOR rather than PATCH: two readouts that did not exist appear, in the game
+// and in the editor. The logo alone would have been a PATCH.
+//
+// 1.22.0 (a deploy stops killing every other PS2 session on the machine):
+// reported from use, and diagnosed the hard way an hour earlier - `Run on PS2`
+// of one project froze another project's Live Debugger, its Live Link and its
+// time machine, all at the same second, while the `[ps2]` log kept scrolling.
+// Both halves of that are now fixed rather than merely diagnosable.
+//
+// THE CAUSE WAS ONE VERB, USED TWICE. `Runner::deployToPs2`, `stopPs2` and
+// `clean` each ran `platform::killByName({"ps2client"})` - `taskkill /F /IM
+// ps2client.exe`, machine-wide, by name - so a deploy of ANY project took down
+// the file server of every OTHER ps2link session; and `launchPCSX2` /
+// `stopEmulator` did the same to every emulator, which had already interrupted
+// measurements repeatedly on this branch. This repo is routinely driven with
+// several editors from several worktrees at once, so neither was an edge case.
+// `killByName` is deleted, not narrowed: a by-name kill is the wrong primitive
+// and leaving it in the platform layer leaves it there to be reached for.
+//
+// OWNERSHIP IS READ OFF THE PROCESS'S OWN COMMAND LINE, and the ordering is the
+// design: the handle first (the Process we spawned, killed as a tree - the
+// common case and the only certain one), then a search for what the handle
+// cannot reach. `-h <ip>` says which console and `execee host:<name>.elf` says
+// which game, so a stale server from a crashed run of the SAME project is still
+// reaped - without that the fix would have traded one bug for "only one deploy
+// per boot works" - while one a RUNNING editor owns is refused with that
+// project named and one no editor claims at all is reaped as an orphan. Two
+// rules hold it up: a process whose command line cannot be read is never a
+// target, and "is that editor alive" is answered by devsession's heartbeat OR a
+// live editor pid, because the heartbeat stops while an editor sits in a native
+// file dialog and the direction that must not fail is the one ending in a kill.
+// The discriminator is deliberately the command line and not the working
+// directory, which would be sharper (the deploy runs its server with cwd =
+// <project>/bin): Linux answers cwd with one readlink and Windows has no
+// supported way to ask, and a key only one platform can compute would make the
+// two behave differently.
+//
+// Measured against the reporter's own live session (their editor open on
+// F:\Tyra-Projects\display-modes, its game running on the console at
+// 192.168.100.150): a deploy of a different project REFUSED, naming that
+// project and the remedy; their ps2client survived; their bin/livedbg.bin kept
+// advancing across the whole operation - which is the exact file that froze in
+// the original incident. In the same run a stale server of the deploying
+// project and an orphan nobody owned were both reaped. On the emulator side,
+// two instances differing only in their -elf path: the project's own was
+// closed, the other left running.
+//
+// MINOR: a capability appears - the editor can tell one file server from
+// another, name the session that owns one, and refuse rather than steal it, and
+// `--debug-state` now prints that inventory (emulators and file servers with
+// the console and game each is serving) instead of a PowerShell incantation for
+// the reader to run. No default moves and the format is untouched (still v17).
+//
+// 1.21.2 (two silences: the Live Debugger reported nothing for a project with
+// no flow graph, and the HD HUD was drawn above the picture). Two independent
+// fixes, no setting moves, the format is untouched: PATCH.
+//
+// (1) The Live Debugger's whole runtime was gated on there being at least one
+// instrumented flow-graph NODE (`liveDebugOn` = the preference AND a node to
+// instrument), so a project without a graph generated an empty
+// live_debug.gen.cpp, wrote no bin/livedbg.bin at all, and the panel waited
+// forever. But the channel carries far more than node hits: the Stats tab's
+// frame rate, bag flushes, GS VRAM and free EE RAM, the VU1 capture and the
+// crash report are properties of the FRAME and have nothing to do with
+// anybody's logic - and a bare fixture with no graph is exactly the kind of
+// project somebody opens the Debugger on. Codegen now emits the runtime for
+// any debug build with the preference on (`liveDebugEnabled`); the zero-cost
+// rule is untouched, because that predicate still requires the debug profile,
+// and a release build still gets the empty TU and the no-op header.
+//
+// (2) The same report had a second half nobody could separate from the first:
+// the panel says the identical "No stats yet." whether the game has not
+// booted, the build carries no runtime, or the file server died half an hour
+// ago with the console still running. That last one is the ps2link failure
+// mode - `bin/livedbg.bin` is a perfectly valid snapshot frozen at its last
+// write - and it is now named as such, with the file's age and the remedy (a
+// redeploy, not a retry), from ONE string both the Debugger's state block and
+// the Stats tab read.
+//
+// 1.21.1 (the upscaler DELETED the terrain of any project with post fx): a
+// second instance of the shrunken-z-buffer hazard 1.19.x fixed in
+// RendererCoreBlss::configure, this time in the post-fx pass, and reported as
+// "forcing the upscaler on in examples/showcase makes the ground disappear".
+// Engine only, one register field, no setting moves, the format is untouched:
+// PATCH.
+//
+// RendererCorePostFx::apply()'s restore block re-programmed ZBUF with a
+// HARDCODED mask of 0 - "z writes enabled" - which was right for every project
+// until the upscaler sized the z buffer from the raster instead of the display.
+// ps2sdk's draw_enable_tests() on the next line writes TEST_1 and nothing else
+// (disassembled from libdraw.a: one A+D qword at GS_REG_TEST_1), so that qword
+// was the last word on ZBUF for the rest of the frame AND the next one - and
+// the following frame's full-screen clearScreen sprite, which
+// draw_disable_tests leaves at ZTE=1/ZTST=ALWAYS, then stamped 512x448 words of
+// depth from ZBP at the display stride, across a 256x224 allocation, straight
+// through the post-fx buffers, the env map, the camera feed, the low-res target
+// and into the TEXTURE HEAP. Whichever textures landed in that window drew
+// nothing at all: a zeroed 4-bit CLUT has alpha 0 and ATEST NOTEQUAL/AREF 0
+// discards every fragment.
+//
+// So the projects it hit are exactly the ones that RUN post fx, which is why
+// `examples/upscaler-lab` (bloom 0, grain 0) never showed it and
+// `examples/showcase` (bloom 0.16 + grain 0.09 + colour grading) lost its whole
+// ground - showcase has exactly one texture in the project, the terrain's, so
+// the damage read as "BLSS deletes the terrain" rather than as texture
+// corruption. Measured on a scratch copy of showcase with nothing changed but
+// `blssEnabled`, PCSX2 software renderer, 2x2 neural: the ground is absent at
+// every distance and every angle (looking straight down at ground 1.8 units
+// away shows sky), the crosshair sprite is absent, and film grain reads
+// sd 1.80/255 in the sky against 4.51 with the upscaler off. After the fix, on
+// the same fixture: crosshair back (peak 253,239,195 against the control's
+// 253,236,193), grain sd 4.20, and a ground patch means (112,100,24) - the
+// control's value exactly. Two configurations that hid it and are now
+// explained rather than mysterious: `blssScale` 1 (1x2) draws correctly because
+// the twice-as-large low-res target absorbs the overshoot before the heap, and
+// an untextured terrain draws because it has no texture to lose (its crosshair
+// was still missing).
+//
+// 1.21.0 (main's animation and loading work arrives): three landings come in
+// from origin/main - the terrain wrap fix (#211), the audsrv music-stream fix
+// (#213, both PATCH there) and the animation/loading workflow set (#214, which
+// main numbered 1.13.0). The merge takes ONE MINOR above both parents rather
+// than picking a side, the 1.10.0 precedent below: the tree now carries a
+// capability neither parent had on its own, and a number strictly greater than
+// either is the only one that keeps "which editor wrote this file" answerable.
+//
+// What arrives: 3D finally owns the texture wrap mode, so a tiling ground
+// texture repeats again instead of smearing its edge texels along the world
+// axes (the CLAMP register is written once per frame by Path3::clearScreen and
+// bracketed per bag for the render targets that genuinely want clamping);
+// AudioSong::work polls audsrv_available() instead of blocking inside audsrv's
+// single RPC handler, so a sound emitter beside a music track stops costing
+// ~10 ms a frame; and the editor gains a project-opening screen, asynchronous
+// model import with cached bounds, a Model faces selector, an Animation Editor
+// preview camera, and IN-PLACE clips (below).
+//
+// Nothing on this branch moves. The one file both sides changed for real is
+// RendererCoreGS - main added setTextureWrap/repeatWrap beside setAlpha while
+// this branch rewrote the display queue around them - and the two are disjoint:
+// the black-frame fix in 1.20.1 is intact, `(context + 1) % bufferCount` and
+// all, and reallocateBuffers() still re-presents. Checked rather than assumed
+// (see the commit message for the boot line and the capture counts).
+//
+// 1.20.1 (the upscaler with triple buffering presented BLACK frames): reported
+// from use as the emulator "flickering badly", isolated to the PAIR of features
+// - either one alone is clean - and fixed in the engine. No editor behaviour
+// changes, no setting moves, the format is untouched: PATCH.
+//
+// One display buffer of the three was being PRESENTED without ever having been
+// drawn - a fully black frame, no debug HUD either, at a third of the field
+// rate. The cause is one expression. `RendererCoreGS::allocateVramBuffers()`
+// arms the display queue with `displayedBuffer = context ^ 1`, which means "the
+// other buffer" only when there are TWO. That function runs a SECOND time in
+// any game that re-lays the permanent VRAM region after boot, and the neural
+// upscaler is the only thing that asks for one (`configure()` sizes the z
+// buffer from the raster, so it calls RendererCore::rebuildPermanentBuffers).
+// By then the ~2 s boot banner has flipped ~120 times and `context` is wherever
+// the three-buffer rotation left it; land on 2 and `context ^ 1` is **3**, one
+// past the end of frameBuffers[]. flipBuffers' `3 - shown - finished` then goes
+// negative and wraps in its u8 cast, so the rotation ran on indices 254 and 3
+// and both DREW and PRESENTED through framebuffer_t's read past the array.
+//
+// That is why it needed both features and neither alone: triple buffering to
+// make 2 a reachable value of `context`, and the upscaler to re-arm the queue
+// after boot instead of only at init with `context` still 0. Measured on the
+// reporter's fixture, progressive 480p, PCSX2 software renderer, one build
+// changing only these lines: the boot log reads `drawing into 2, showing 3`
+// before and `drawing into 2, showing 0` after; 12 back-to-back PrintWindow
+// captures go from black (mean 0.64/255, PCSX2 losing its GS device seconds
+// later) to 12 frames of the scene within 0.019 % of each other.
+//
+// Two smaller holes in the same seam went with it: `reallocateBuffers()` never
+// re-programmed DISPFB although the third buffer's ADDRESS moves when the z
+// buffer shrinks (602112 -> 458752 at 448x448 2x2), so the television scanned
+// the texture heap for a frame; and a rebuild that comes back with FEWER
+// buffers left `context` naming one that no longer exists.
+//
+// 1.20.0 (Project Preferences becomes a window, and triple buffering stops
+// promising what the console will not do): two more defects reported from use,
+// and as in 1.18.0 the fixes are structural.
+//
+// "CLICKING ADVANCED CLOSES PROJECT PREFERENCES COMPLETELY - COULD IT BE A
+// WINDOW INSTEAD OF A MODAL?" The apply-and-close of 1.18.0 was the right answer
+// FOR A MODAL - ImGui blocks every click behind one, so a window raised from
+// inside it is untouchable - but it was a workaround for the modality rather
+// than a fix, and the report is asking for the modality to go. It does, and both
+// windows now sit open with both usable, which is the whole point.
+//
+// STAGING COULD NOT SURVIVE THAT, so OK/Cancel are gone and the window applies
+// live like every other panel in the editor (rule 1: mutate, then
+// commitChange()). This is the decision in the change, and it is forced rather
+// than chosen: a non-modal window means the project can be edited underneath
+// while staged edits wait - by undo, a session peer, the AI Assistant, or the
+// very windows these buttons open - so an OK pressed afterwards would overwrite
+// all of it with minutes-old values; and prefTerrain_ staged the ACTIVE SCENE's
+// terrain, so a scene switch with the window open would have written scene A's
+// size onto scene B. `prefSettings_` is a one-frame copy now, re-seeded from the
+// model at the top of the body and compared back at the bottom, which covers
+// every widget in every tab by construction. What Cancel bought is not lost so
+// much as unified with the rest of the editor: nothing reaches disk until an
+// explicit Save, and project-wide settings were never in the undo stack anyway
+// (History::push carries the scenes only), so Cancel WAS the only way back and
+// is now "close without saving" - said in the footer.
+//
+// ONE control in there is genuinely dangerous to apply per keystroke, and it is
+// treated specially rather than holding the whole dialog modal for its sake: the
+// terrain grid. Width, depth and the detail cap all change the heightmap's
+// dimensions, and project::ensureHeightmap answers that with a
+// NEAREST-NEIGHBOUR RESAMPLE - so typing "128" over "64" would pass through 1
+// and 12 and flatten a sculpted map on the way, and dragging the detail slider
+// to its left stop would destroy it outright. Those three keep a scratch written
+// back only on IsItemDeactivatedAfterEdit, and re-seeded from the model on any
+// frame the widget is not being edited so undo and a scene switch still show
+// through. Verified: an uncommitted "2" in Width leaves the stored 100 alone;
+// the slider applies once, on release (32 -> 431).
+//
+// AND TRIPLE BUFFERING IS GATED, ACROSS EVERY MODE THE PROJECT SUPPORTS. The
+// checkbox stayed tickable in a display mode with no VRAM for a third buffer -
+// the engine then silently stays double buffered and says so only in the game's
+// log - and the amber warning that named the numbers was answering for
+// bootDisplayMode ALONE. That is the substantive half: ProjectSettings::
+// supportedModes declares the scan modes a player can switch INTO, and
+// RendererCore::setDisplayOutput re-runs allocateVramBuffers on every such
+// switch, so the engine grants a third buffer in one mode and refuses it in the
+// next. The setting is a REQUEST, not a state, and the dialog now says so:
+// project::tripleBufferingFit takes an explicit mode, project::
+// tripleBufferingModes asks it of the boot mode plus every declared one, the
+// tick is greyed out with the reason IN LINE when none of them has room (only
+// the tick, never the untick - the BLSS x frame-extrapolation rule, so a project
+// that arrives with the flag on can always clear it), and when the modes
+// disagree it names them: "Fits in 512x224, not in 512x512 (boot mode 576i full
+// PAL: does not)". Measured at a new project's defaults: room in 512x224 and
+// 448x448, none in 512x448, 448x540 or 512x512. The way OUT is computed and
+// never asserted, which is the trap this avoided: "turn the upscaler on" frees
+// enough at 512x448 and is short by 0.12 MB at 512x512, so the dialog probes a
+// blssEnabled copy of the staged settings rather than printing a general hint.
+//
+// MINOR: capabilities appear - Preferences and the upscaler window are usable at
+// the same time, and the editor can now answer "does a third buffer fit in every
+// mode this project supports", which nothing could ask before. No default moves
+// and the format is untouched (still v16, no new field, no migration step; the
+// window's open state rides the existing per-layout openWindows list as the new
+// key "projectprefs").
+//
+// 1.19.0 (the FPS counter reads the wrong clock, and nobody said which frames
+// it counts): reported from use as "the editor's debug panel shows 19 FPS while
+// the game's own HUD shows 10". Both numbers were describing the same game at
+// the same moment. The HUD was wrong, and by an exactly reproducible factor.
+//
+// `Info::calcFps` divided a hardcoded 15625.0 into a single frame's delta of EE
+// **Timer 3** - the kernel's alarm timer, which is clocked by H-BLNK. T3 counts
+// SCANLINES, so its rate is a property of the VIDEO MODE while the constant is
+// PAL 576i's line rate. Measured on one fixture and one build, changing only
+// displayMode: PAL 576i reads 15 626 Hz and the old formula was exact (48.00
+// against a true 48.00); progressive 480p reads 31 470 Hz and it printed 29.76
+// against a true 59.94, i.e. 0.4965x. Every progressive project read HALF its
+// frame rate, on the HUD and in the Live Debugger's Stats tab, which relays the
+// same field. NTSC interlaced is 15 734 Hz - the same bug at 0.7 %.
+//
+// It reads COP0 `Count` now - the clock the frame-timing rig uses, a property
+// of the CPU and not of the signal - averaged over a STATED 0.5 s window and
+// returned as a float rather than as a `const u32&` fed from one (19.6 used to
+// display as 19). The constant was not assumed: on the PAL arm the H-BLNK and
+// COP0 clocks independently give 48.00, and on the progressive arm COP0 (59.94)
+// matches the editor's host clock over 8 s (59.94) and PCSX2's own status bar
+// (59.92).
+//
+// AND THE COUNTER NOW SAYS WHICH FRAMES IT COUNTS, because with frame
+// extrapolation on that is a second factor of two nobody was reporting. The
+// warp presents a synthesised frame after endFrame() returns, so the game shows
+// about twice the rate it renders; every counter in the repo counted rendered
+// frames. `Info::getPresentedFps` counts buffer flips, the HUD prints
+// `FPS 30.0 SHOWN 59.9` when the two differ and the plain line when they do
+// not, and the Live Debugger carries both. Measured: 15 rendered against 30
+// presented per window, PCSX2's own counter 59.89. On the reporter's
+// configuration the old number was therefore **4x low** against what the eye
+// sees - 2.014x of scanline clock times 2x of rendered-versus-presented, two
+// independent faults that happened to stack.
+//
+// MINOR: a capability appears - the presented rate is measurable for the first
+// time - while the format is untouched (still v16). The two tenths-of-a-frame
+// fields ride the four spare bytes at the end of the Live Debugger's existing
+// 64-byte stats block, so an older editor reads the block it always did and an
+// older game leaves the zeros memset already put there; neither needs a
+// snapshot version bump. No published figure moves: every headline on this
+// branch (1.96x, 1.63x, 4.58 ms) came off the COP0 rig, and the three places
+// that did quote this HUD were all PAL interlaced fixtures where its constant
+// was correct. docs/profiling.md, "The three frame rate counters".
+//
+// 1.18.0 (Project Preferences gets a shape, and the refused pair becomes
+// unreachable): two defects reported from use, and the fixes to both are
+// structural rather than cosmetic.
+//
+// THE ADVANCED... BUTTON DID NOTHING, and so did Open Ambience Editor. A modal
+// blocks every click on anything behind it, so raising a window from inside one
+// leaves it visible, inactive and untouchable - the button looked broken because
+// functionally it was. Open Loading Screens editor had the other half of the
+// bug: it closed the dialog and silently DISCARDED the staged edits. All three
+// are one helper now, over the same apply the OK button uses. It APPLIES rather
+// than cancels, for a reason specific to what it opens: those windows edit
+// project_.settings LIVE, so a cancelled dialog would show them the values on
+// disk while the user is looking at the ones they just set, and the tick made on
+// the way to pressing Advanced... would vanish. It says so on the line under
+// each button, in the tooltip, and in the status bar afterwards.
+//
+// THE OK BUTTON WAS AT THE BOTTOM OF A VERY LONG SCROLL. The dialog was one
+// vertical stack of a dozen sections with the footer inside it, so confirming
+// meant scrolling past everything - and every setting anybody added made that
+// worse. Two fixes, and the first matters more than the one that was asked for:
+// the footer is PINNED OUTSIDE the scrolling region (each tab body reserves it),
+// which is what stops the next setting putting the dialog back where it was; and
+// then five TABS - Display, World, Rendering, Player, Build - derived from the
+// sections that were already there. The old "Build" section was doing two jobs,
+// the video signal and the ELF's contents, and splitting it is most of the
+// regrouping: "how does a frame reach the screen" is now one tab, holding the
+// signal, the presentation and BOTH reconstruction features. The dialog is also
+// 720 px rather than 560, which is the cheap half of the wrapping complaint.
+//
+// AND THE INCOMPATIBLE PAIR IS NOW UNREACHABLE rather than refused four minutes
+// later in Docker. BLSS x frame extrapolation is the only one of the five
+// clashes that CAN be prevented - it is setting against setting, and both
+// switches are in one block - so whichever is already on greys the other out
+// with the reason in line (a greyed control that explains itself only on hover
+// reads as a bug). The other four are setting against scene CONTENT and keep the
+// warning; you cannot grey out a portal somebody placed. Only the TICK is ever
+// blocked, never the untick, so a project that arrives with both on - a
+// hand-edited .tyra, an older editor, a Set Frame Extrapolation node - can
+// always turn one off. The build interlock STAYS as the backstop for exactly
+// those three routes.
+//
+// The interlock's own two defects, also reported from use, are fixed with it: it
+// was emitted into inc/scene_data.hpp, which fourteen translation units include,
+// so one clash printed one 340-character paragraph forty-two times (GCC prints
+// an #error three times over) and the reporter's whole build log was that wall;
+// and the authored words "the upscaler's temporal pass" are an unterminated
+// character constant to the preprocessor, so every one of those TUs also carried
+// a bogus "missing terminating ' character" warning. The messages are one short
+// line each now - the pair, the scene, one place to fix it, and the doc page for
+// the why - errorSafe() covers the whole line rather than only the interpolated
+// names, and the refusal lives in src/gen/blss_interlock.gen.cpp, a TU of its
+// own that refreshGenerated DELETES when the project stops clashing. Measured:
+// 42 diagnostic lines plus 14 warnings became 3 lines and no warning.
+//
+// MINOR: a capability appears - the editor now refuses to let an invalid
+// combination be authored at all, which it previously only complained about -
+// while no default moves and the format is untouched (still v16, no new field,
+// no migration step). The reorganisation on its own would have been PATCH.
+//
+// 1.17.1 (the upscaler and frame extrapolation refuse each other): a user
+// reported that turning both on makes the picture disintegrate, and it does -
+// but only IN MOTION, which is why nothing on this branch had seen it. Every
+// automated gate here freezes the camera and the emitters on purpose, because
+// that is what made them reproducible, so a motion-only fault is precisely what
+// they were built not to see.
+//
+// Reproduced on the reporter's own project (progressive, three display buffers,
+// neural mode at 2x2), PCSX2 software renderer, player driven by --pad. Parked,
+// all four arms are indistinguishable. Walking: the upscaler alone is clean,
+// extrapolation alone is clean, and the pair tears the frame into cells that
+// disagree - a second displaced copy of near geometry, hard rectangular seams
+// across the sky, silhouettes pasted at 32-pixel granularity.
+//
+// The mechanism is not a bug in either feature's bookkeeping. Both rebuild a
+// frame by reprojecting the previous one through the camera delta, and
+// extrapolation presents twice per loop - so the world runs at half the field
+// rate and the camera moves TWICE as far between two RENDERED frames, which is
+// exactly the interval the upscaler's temporal pass reprojects across. Measured:
+// BLSS' own per-corner reprojection offset peaks at 158 px of a 448 px raster
+// with extrapolation off and 201 px with it on, while the warp's grid is
+// displaced by the same doubled delta at the same time. Two approximations of
+// one displacement, each fed twice its design input.
+//
+// TWO EARLIER THEORIES WERE DISPROVED BY MEASUREMENT AND ARE RECORDED SO THEY
+// ARE NOT RE-OPENED. It is NOT the two-buffer history degeneration composite()
+// guards: with three buffers the rotation was LOGGED frame by frame, and the
+// history is always the previous RENDERED frame, intact and never a synthesised
+// one - the guard is correct and simply never fires here. And it is NOT raster
+// state leaking across the warp: a leaked SCISSOR/XYOFFSET/FRAME is static
+// register state and would wreck a parked frame too, and parked frames are
+// clean.
+//
+// Refused rather than degraded, because no partial measure fixed it: dropping
+// the temporal pass - the strongest single contributor - reduced the tearing but
+// left the warp's own grid coming apart under the same doubled delta. Either
+// feature alone is clean, so the honest answer is that a project picks one.
+// blssClashes() gains its fifth condition beside depth of field, portals and
+// split view, per scene like the rest; the dialog says the same thing live, at
+// both points of choice.
+//
+// AND FRAME EXTRAPOLATION MOVES TO WHERE THAT CHOICE IS MADE. It used to sit
+// under "Build" beside triple buffering; it now sits in the same block as the
+// upscaler, retitled "Frame delivery (upscaler, extrapolation)", because the two
+// are siblings - each reconstructs part of what the player sees instead of
+// rendering it - and a mutual exclusion is only useful said at the point of
+// choice rather than discovered as a build error.
+//
+// PATCH: no capability appears and no default moves; a combination that never
+// worked stops compiling, and a control moves. The format is untouched (still
+// v16, no new field, no migration step) - a project carrying both switches
+// still loads, and is refused with a sentence instead of a broken picture.
+//
+// 1.17.0 (the upscaler stops requiring a hacker): BLSS' user interface becomes
+// two layers. Project > Preferences now asks the three questions a person
+// switching the feature on actually has to answer - use it, which
+// reconstruction, which raster - and states ONE LINE of verdict measured by
+// blss::measureCoverage in about a second, with no network, no training and
+// nothing written to disk. Everything else - Train, Evaluate, Cross-validate,
+// Compare, Inputs, Training shots, Console probe - is behind an "Advanced..."
+// button and is UNCHANGED IN SUBSTANCE. None of that instrumentation is
+// deleted: every performance and quality number this feature has published came
+// out of it, and removing it would make the feature unfalsifiable. It simply
+// stops being what a user meets.
+//
+// The reduction is a consequence of plain mode and would have been wrong before
+// it. Until 1.12.0, BLSS MEANT "fit a network to your scene", so the window had
+// to be the whole feature. It is not the mainstream path any more: plain mode's
+// break-even is 2.6 full-screen coverages against the neural path's 13.1, a
+// trained default network ships embedded in the editor so no project is built
+// with random weights, and on every project measured that net chooses nothing
+// anyway (all three outputs 0.000, one bilinear pass). So training is genuinely
+// advanced, and the ordinary interaction is a checkbox, a mode and a sentence.
+//
+// A SIMPLER UI MUST NOT BECOME A MORE CONFIDENT ONE, which is the specific
+// failure this had to avoid: the one-line verdict goes through the same
+// blssui::speedFrom() / blssui::recommend() the window's own answer does, so
+// "TOO CLOSE TO CALL" still quotes no multiplier when the estimate is inside
+// what the counter cannot see, the picture half is still named as UNMEASURED
+// rather than assumed absent, and the emitter share is still labelled estimated
+// rather than counted. The dialog also states, once and where it is being done,
+// what MIXING costs: a project whose scenes disagree pins the z buffer at the
+// full display raster and gives up the memory saving (measured free heap at
+// 512x512: 0.375 MB native, 0.875 MB uniform, 0.125 MB mixed).
+//
+// MINOR: a capability appears - the project's speed verdict is reachable from
+// Preferences, and project::blssUse() can now answer for a project default a
+// modal has not committed yet - while no default moves and the format does not
+// change (still v16 after the merge below, no migration step).
+//
+// (AUTHORED AS 1.14.0 AND RENUMBERED HERE. The frame-pacing branch reached
+// three landings of its own from the same 1.13.0 parent, and the earliest of
+// them - and every one of its three format numbers - was published before this
+// one. One number per landing, and the branch that arrives second renumbers:
+// the rule this file already applied to v8-v10 and to v14-v16 below. Nothing
+// else moves; this landing never claimed a format version, so there is no
+// on-disk consequence at all.)
+//
+// 1.16.0 (frame extrapolation, the ground plane): the synthesised frame takes
+// its depth from the FLOOR instead of a fixed distance -
+// ProjectSettings::frameExtrapolationGround, format v16. A view ray meets the
+// ground at w = h / -dir.y, so depth grows toward the horizon on its own and a
+// ray at or above it never meets the floor: the sky stops moving, which is the
+// worst artefact of a single plane. MINOR because a capability appears (the
+// third translation model, and the first analytic one); it is also the one
+// default in this file's history that does NOT preserve what an older file was
+// saved with, on the v9 blssJitter precedent - the behaviour it declines to
+// preserve is a picture whose horizon slides.
+//
+// 1.15.0 (frame extrapolation, the translation model as a control):
+// ProjectSettings::frameExtrapolationPlane and frameExtrapolationForce, format
+// v15, plus the Set Frame Extrapolation flow node and the numeric flow
+// parameter that can declare its own choices. The plane went to 0 - rotation
+// only - after the fixed 12 units read as a lens zoom, and the force switch
+// exists because the per-frame gate measures EE work and therefore stays shut
+// on a GS-bound scene that would still like to be tested. MINOR: capabilities
+// appear, both defaults reproduce what the previous version did.
+//
+// 1.14.0 (frame pacing and frame extrapolation, docs/frame-pacing.md and
+// docs/frame-extrapolation.md): ProjectSettings::tripleBuffering presents from
+// a vblank interrupt instead of stalling the EE on vsync, so a frame that
+// overruns its field by a hair is shown one field late rather than halving the
+// rate; ProjectSettings::frameExtrapolation makes the generated game present
+// one synthesised frame - the last rendered one, re-drawn under a newer camera
+// by the new renderer_core_warp - after each rendered one. Format v14. MINOR,
+// and both default to false, so an existing project regenerates byte for byte.
+//
+// 1.13.0 (the upscaler is a property of a SCENE): BLSS gains a per-scene
+// override - SceneOverrides::upscaler, format v13 - carrying blssEnabled and
+// blssNetwork. A scene with a portal can refuse the upscaler while the scene
+// next door keeps it, which is the half of this that matters most: the build
+// interlock (blssClashes) was project-wide, so ONE portal anywhere disabled the
+// feature for every scene in the project, including scenes that had neither.
+// It is now asked per scene and the remedy is local too.
+//
+// The switch is FREE, and that is a measured claim, not a hopeful one. The
+// blocker on the rejected per-frame toggle was that configure() re-lays the
+// permanent VRAM region and evicts every texture - and a scene change does NOT
+// re-lay VRAM (it frees and re-acquires per asset, ref-counted), so doing it
+// there would have been the same problem in a quieter place. The fix is not to
+// do it at all: a project whose scenes disagree pins the z buffer at the FULL
+// display raster once, at init (RendererCoreGS::setZRasterScale), and
+// RendererCoreBlss::setScene() then flips two flags and re-derives the
+// projection. No eviction, no vram.reset(), no re-placement, nothing to
+// measure at the transition.
+//
+// The price is paid only by a project that actually mixes, and it is the z
+// saving: such a project keeps the low-res colour target as overhead (224 KB at
+// 512x448, 2x2) instead of trading it for 672 KB of z. A project whose scenes
+// all resolve alike is untouched and regenerates byte for byte - the per-scene
+// tables, the eighth configure() argument and the setScene() call are emitted
+// only when the resolved answers actually differ.
+//
+// MINOR: a capability appears, no default moves, and blssScale / blssJitter /
+// blssSharpen / blssTemporal / blssDebugView stay project-wide on purpose (one
+// project ships one net, and its provenance sidecar records the scale and the
+// sampler it was fitted for).
+//
+// 1.12.1 (the flagship demo on assets we may actually ship): every art asset
+// in examples/upscaler-lab is now CC0 1.0. The cottage and the animated spider
+// went in with UNVERIFIED redistribution terms and a banner in the project's
+// THIRD-PARTY-NOTICES.txt admitting it, which is not a state the feature's own
+// demo should be in; they are replaced by buildings kit-bashed from Kenney's
+// Retro Urban Kit (CC0) and by wobbler.glb, which five other examples already
+// ship. PATCH by this file's own rule - no capability appears or disappears,
+// the format does not move, and the editor is not touched. What DID move is
+// measured rather than assumed: the GS fill the example exists to demonstrate
+// is unchanged (--blss-coverage 72.63 -> 72.23, the emitters untouched at
+// 6 x 32 haze billboards), the oracle ceiling went UP (+1.058 -> +1.108 dB,
+// jitter off, 2x2) and the EE got 4 ms cheaper per frame in PCSX2, almost all
+// of it the animated model (2 x 1092 spider vertices -> 2 x 123 wobbler ones).
+// That last one moves the published hardware A/B, which CANNOT be re-measured
+// here - the console is unreachable - so 52.95 -> 32.42 ms / 1.63x is now
+// labelled as a measurement of the PREVIOUS geometry and the re-run is owed.
+//
+// 1.12.0 (the upscaler without the upscaler): BLSS gains a PLAIN mode -
+// ProjectSettings::blssNetwork, format v12 - which keeps the reduced raster and
+// the VRAM it hands back and deletes everything between: no bag proxies, no
+// reprojection, no feature grid, no MLP, and one full-screen sprite instead of
+// the Gouraud grid. It exists because on every project measured the trained net
+// already asks for NOTHING (all three outputs under the deadzone, BLSSFILL
+// 1.00 passes) while the frame pays the full EE bill to find that out. MINOR
+// because a new mode appears in the editor and in the generated game; the
+// default is unchanged, so an existing project regenerates byte for byte.
+//
+// 1.11.0 (the feature grid can describe particles): the SIXTH rule of the BLSS
+// twin contract. An emitter bag used to contribute no proxy at all - a
+// billboard bag runs frustumCulling None, so StaPipCore had no package bbox,
+// fell to a radius-0 sphere and addBag threw it away, and bagList() only walked
+// geometry - so on examples/upscaler-lab the network chose its kernels over
+// 98.7 % of the frame's fill from the geometry behind it. Now an emitter is
+// described by one box: the AABB over the centres it submits, grown by the
+// widest quad they expand into. BOTH HALVES SHIP OFF (TYRA_BLSS_EMITTER_PROXY
+// and --emitter-proxy), so no fold table and no shipped net moves; MINOR
+// because --emitter-proxy is a new verb-level capability, not because anything
+// changed by default. Measured before the flip and not after: it works
+// (147 -> 224 of 224 covered tiles, texDetail finally reports puff.png) and it
+// costs (coverage becomes a CONSTANT, +0.88 ms of EE, break-even 13.1 -> 15.3),
+// so it stays off. The spatial-split follow-up this line used to point at has
+// since been implemented on both twins, measured and REJECTED - it leaves all
+// 224 tiles covered and both channels constant for another +1.18 ms - because a
+// partition of a solid region is a tiling of it, and an emitter's pool is
+// always solid. docs/blss-reconstruction.md section 2 and docs/backlog.md.
+//
+// 1.10.3 (three things that were wrong, none of them a new capability): a FOG
+// emitter's Opacity survives a save (format v11 - it was written only inside
+// the custom block, so the one non-custom kind that reads the value reloaded
+// at the 0.6 default and the game was built with it); --blss-train and
+// --blss-emit print ABSOLUTE paths for the net, its .meta and the emitted
+// header; and an --blss-eval run on a project with enabled emitters ends in
+// NO VERDICT rather than a confident sentence about a frame the corpus does
+// not render. PATCH by this file's own rule, the 1.10.1 precedent: nothing new
+// appears in the editor, three wrong behaviours become right. A format bump
+// does not force MINOR - the two numbers are independent by design, and the
+// semver is informational.
+//
+// 1.10.2 (the corpus says what it does not draw): a project with enabled
+// emitters gets a warning from --blss-train / --blss-eval, because the corpus
+// renderer draws none of them and the PSNR table therefore describes a frame
+// the game never displays - on examples/upscaler-lab, measured at 1.63x on real
+// hardware, it printed "THIS SCENE WILL NOT BENEFIT". Drawing them is filed in
+// docs/backlog.md; this is the caveat, not the fix.
+//
+// 1.10.1 (two things hardware testing found, both fixes rather than features):
+// `--blss-train <projectDir>` writes its net into the PROJECT instead of the
+// current directory, so the documented "train, then rebuild" flow stops
+// silently rebuilding with the shipped default; and the GS fill price is per
+// PIXEL rather than one scalar measured at 512x512, which moves the published
+// break-even to 13.1 coverages at an ordinary PAL raster. PATCH by this file's
+// own rule - no capability appears, two published numbers become right.
+//
+// 1.10.0 (the neural upscaler, docs/neural-upscaler.md): the BLSS branch and
+// main both climbed from 1.3.0 while they were apart and both arrived at 1.9.x
+// - a collision, since 1.9.0 on one side names the widescreen/World Facts set
+// and on the other the upscaler's last patch. The merge takes the MINOR above
+// both rather than picking a side: the tree now carries a feature main did not
+// have, which is what MINOR means, and a number that is strictly greater than
+// either parent is the only one that keeps "which editor wrote this file"
+// answerable.
+// 1.76.0: merge configurable GPU impostors with full RGB SH receivers,
+// duplicate-corner skinning reuse and DMA-safe lighting payloads.
+// 1.77.0: merge animated HUD elements with the 1.76 rendering stack.
+// 1.78.0: editor comments pinned to scenes.
+// 1.79.0: merge native PS2DEV/OpenVCL builds with editor comments.
+// 1.80.0: cutscenes can hide the HUD and own the skip button.
+// 1.81.0: explicit WSL host toolchain bootstrap for native builds.
+// 1.86.0: merge baked shadow decals with main's render-cost table and
+// object-group line.
+// 1.98.0: the GS VRAM instrument names what is resident (VRAMRES/VRAMEVICT).
+// 1.101.0: vehicle body textures obey the project's texture depth.
+//
+// 1.99.0: render submission is attributed to zero residual; the "gap" was
+// mostly the post-fx, HUD and game-side phases that `submit` always included.
+// 1.104.1: the baked VIF stream spike (TYRA_STAPIP_BAKED_STREAM, default 0) -
+// a wholly visible static bag's whole per-frame VIF1 command stream replayed by
+// one DMA REF tag. Format proven and memory priced; docs/baked-vif-stream.md.
+// 1.104.2: archive the baked-VIF-stream evidence, re-measure it on a fixture
+// built by THIS worktree's editor (the first pass' was cut at the 72-vertex
+// strip run), and attribute the cache churn with STAPIPMISS.
+// 1.104.3: design the acceptance gate the EE submission rearchitecture needs -
+// the counter gate every earlier renderer round used pins packetFlushes, and a
+// run of packages under one REF tag cannot cross a flush boundary, so it pins
+// the prize. docs/baked-stream-acceptance-gate.md replaces it with a canonical
+// hash of the word stream VIF1 actually receives. Docs only; no code, no format
+// change (kFormatVersion stays 54), no codegen change, no VU1 change.
+// 1.105.0: the EE submission rearchitecture behind TYRA_STAPIP_BAKED_STREAM -
+// a complete baked bag is replayed by ONE DMA REF tag and skips the qbuffer
+// ring entirely, which the spike could not do because the counter gate pinned
+// the flush cadence. Plus TYRA_STAPIP_VIFHASH (default 0), the gate that
+// replaces those counters, and a fix for the `prim` half of the cache churn.
+// No project format change (kFormatVersion stays 54), no codegen change, no
+// VU1 instruction change; both switches ship at 0.
+// 1.105.1: measure the EE submission rearchitecture on the physical PS2 -
+// garage-day work -1.287 ms against a 0.012 ms floor, a fifth of what the plan
+// budgeted, with total_ms unchanged in garage day and garage night's judder
+// removed. Adds the two adversarial modes (TYRA_STAPIP_BAKED_VERIFY,
+// TYRA_STAPIP_BAKED_POISON) and TYRA_STAPIP_BAKED_BUDGET_QW, all default off.
+// Otherwise docs, evidence and harness; no project format change
+// (kFormatVersion stays 54), no codegen change, no VU1 change.
+// 1.107.0: THE FRAME'S TWO WORST-PACKED PRODUCERS ARE STRIPS NOW, and finding
+// out why they were lists is worth more than the packages. The garage-day
+// inventory named `wheels` and `proj_shadows` as 16% of the frame's VU1
+// packages for 7.6% of its triangles, on the theory that both "are generated at
+// runtime and never got a strip". Neither half of that was right.
+//
+// `proj_shadows` is 87% of its packages the CASTER's own model bags,
+// re-submitted from the light's point of view - geometry the feature neither
+// builds nor owns. And those bags are lists because vehbake had never called
+// meshstrip at ALL, so no vehicle model in the district carries a strip; when
+// you do call it, it REFUSES, because an imported car is flat-shaded and 2 242
+// of a body part's 2 280 corners are unique (the strip is 1.65x the list).
+//
+// What made the wheel possible is that a weld key is a property of the BAG:
+// the wheel batch has no lighting bag and one flat colour, so its vertex is
+// position and UV only. meshstrip::Weld::kNoNormal says that out loud (the
+// emitted vertex still keeps its source corner's normal, so the array stays a
+// well-formed mesh - it is simply not the array to shade), and on that key the
+// three refused wheels strip to 0.64-0.76x. The BODY is lit and is NOT
+// stripped; meshstrip's refusal of it is the right answer, and the backlog now
+// carries the two costed ways past it.
+//
+// Measured in PCSX2, one editor and one generated source with the consumers'
+// two `#define`s as the only difference: the wheel batch 79 packages -> 60,
+// the projected-shadow receiver patch 9 -> 2 (more than halving the vertices
+// suggests, because a stripped package is never sub-split into thirds by the
+// partial-frustum route), additively -23 of the garage frame's 711 and -22 of
+// garage night's 763, with the outer poses untouched because neither producer
+// submits anything there.
+//
+// THE PICTURE, separated by a one-knob arm rather than assumed: the receiver
+// patch is BYTE-IDENTICAL, and the wheels differ in 54 pixels of 512x512 at one
+// channel step, in one of two day poses, all of them on the two side cars'
+// tyres. That is not a defect and it cannot be driven to zero - the GS derives a
+// triangle's ST gradients and its equal-z tie-break from the triangle ORDER, and
+// a strip is a different order over the same vertices; on a palettized texture
+// one texel is a whole colour index. The geometry is proved unchanged on the
+// host instead (stripcheck-wheels.cpp: the identical 314/28/139 surface
+// triangles, none lost, none invented). NOTE also that `triangles` RISES,
+// 1 506 -> 3 285 for the wheels, which is the documented behaviour of a strip's
+// degenerate seams and padding under `size - 2` - the vertex count is the honest
+// column. No project format change (kFormatVersion stays 54) and no VU1 change;
+// the .tmdl gains a strip for the wheel part, which is an existing v4 field.
+//
+// AND THE HARDWARE NUMBER, which outlives the change: on the physical PS2 the
+// garage-day frame's `work` falls 0.449 ms and garage night's 0.699, against a
+// two-ELF floor of 0.064 ms (the outer poses, where neither producer submits
+// anything, so the candidate differs only in dead code). That is 19.5 and
+// 31.8 us per package removed - EIGHT TIMES what the 2.362 us packet-
+// construction figure predicts, and close to the whole `dispatch` bracket's
+// 19.0 us per-package average. The round was priced at 0.054 ms or 0.43 ms
+// depending on which term followed; the generous estimate was right to 4%.
+// Do NOT carry 19.5 us as a constant: packet construction itself did not move,
+// `bounds` rose 0.087, the StaPipCore brackets explain only 0.072 of the 0.434
+// in `submit`, and part of the win is the 2.5% fewer VERTICES a strip submits.
+// `total_ms` is unchanged - two PAL fields either way, the saving in `present`.
+
+// 1.108.0: THE BAKED VIF STREAM SHIPS, AND THE CONTRACT THAT UNPARKED IT IS A
+// TYPE RATHER THAN A RULE (docs/bag-content-version.md).
+// TYRA_STAPIP_BAKED_STREAM has been measured at -1.287 ms of Motor District
+// garage-day `work` on the physical PS2 since 1.105.1 and shipped at 0 for one
+// reason: its cache key could not see a caller REWRITING a bag's array in
+// place. The key held each array's pointer plus `bboxVersion`, and
+// `bboxVersion` is a statement about the bounding BOX - so a per-vertex
+// re-shade changed what the inlined block must contain while every field the
+// key could see stayed put. The adversarial arm caught it 1 438 times, and
+// ONLY while the camera moved, so the parked fixture and both hash legs of the
+// acceptance gate all agreed the renderer was fine.
+//
+// The decision hung on a census, and the census was wrong in the direction
+// that mattered. Not "roughly 110 unenforced obligations" but **280 write
+// sites in 42 generated functions behind 108 array declarations** - and every
+// one GENERATOR-EMITTED: fixed template text in src/templates.cpp, zero in
+// other editor sources, zero in checked-in example game sources, and zero
+// reachable from user-authored code (ScriptContext carries no geometry pointer
+// and objectGeometry is private). A closed population in one file is a TYPE
+// problem, not a discipline problem.
+//
+// So `StaPipBag::contentVersion` is a second stamp - about CONTENTS, never
+// widening bboxVersion, because that conflation IS the defect - and the
+// generated game owns it structurally. Every bag-backing array is a
+// `BagArray<T>` (inc/bag_array.gen.hpp): `data()` is const, no public member
+// hands out a writable pointer, the four bind() overloads aim the stream
+// pointer AND the stamp together, and every mutating member stamps. The 280
+// write sites did not change - they keep their syntax and gain the obligation,
+// and a raw write no longer compiles. tools/bag-array-enforcement.sh is the
+// negative test, and it was FALSIFIED before it was believed (make data()
+// non-const and it goes red on exactly the two cases that property guards).
+//
+// The one exception is named rather than implied away: SkelInstance::skinParts
+// skins LOD 0 in place into engine-owned mesh-frame arrays, which no generated
+// wrapper can own - and which bboxVersion already covers correctly, because
+// skinning moves positions and normals.
+//
+// ACCEPTANCE, on the arm that found the defect: --keep-routes with the traffic
+// MOVING, 169 843 blocks checked, failed=0, over ~12 600 frames. Against the
+// control on a parked fixture (two real ELFs, 827C5B90 vs 9385E57D): cull,
+// clip, guard, out, strip, sexp and verts identical TO THE DIGIT, captures
+// byte-identical, and only the two numbers the change exists to move - packet
+// flushes -300 per 50 frames and chainQw -26.0%.
+//
+// The arm then found a SECOND caller of a different shape, which is the whole
+// argument for running it rather than reasoning about the contract: the
+// VEHICLE PAINT PASS recomputes a per-vertex fresnel and specular from the
+// camera every frame and wrote them by const_cast-ing the bag's own pointer,
+// bypassing the array. It now writes through the BagArray via one span(). That
+// also answers the backlog's "name the bag rewritten every frame on a frozen
+// scene", which had suspected the lamp/beam family; and STAPIPMISS now splits
+// bbox= from content=, so "a mesh moved" and "a mesh was re-shaded" stop
+// reading as one counter. No project format change (kFormatVersion stays 55),
+// no VU1 change. NOT re-measured on hardware: the contract adds one global RMW
+// per mutating call and one u32 to the key, and PCSX2 can price neither.
+// 1.109.0 - THE PROJECTED SILHOUETTE STOPS PAYING FOR ATTRIBUTES IT DOES NOT
+// READ. The garage-day inventory found that 87% of the `proj_shadows` bracket
+// is the caster's own model bags re-submitted from the light: 60 VU1 packages,
+// 4 440 vertices, 4 bags, all of it two car bodies. They were submitted exactly
+// as the object loop submits them - textured, per-vertex colours - which is the
+// 75-vertices-a-package class, and the 64x64 shadow map reads neither attribute,
+// only alpha coverage. TYRA_CHEAP_PROJ_CASTER (generated, DEFAULT 0) submits the
+// same vertices through the single-colour untextured class at 150.
+//
+// MEASURED in PCSX2 (counters exact, milliseconds not; no console this round):
+// silhouette 60 -> 32 packages per frame in garage day AND garage night, with
+// vertices (4 440), bags (4) and the receiver patch all unchanged. Outer day and
+// outer night hold no caster and are structurally 0 in both arms. With a MOVING
+// caster the vertices match to the digit between arms (132.7) and packages fall
+// 1.8 -> 1.0, so the bag tracks a caster that is driving.
+//
+// TWO TRAPS, both of which cost an arm. The package size must NOT be copied from
+// the base bag: pinPackageSize gives it the MINIMUM over its coplanar companions
+// and a car body is reflective, so the first arm inherited the env pass's pin and
+// moved literally nothing. And the silhouette shares the base bag's BINDING -
+// pointer, count and contentVersion - rather than binding an array, because a LOD
+// tier re-aims the base bag.
+//
+// WHY 0: the colour half is exact (pushVert writes alpha 128 for every model
+// vertex) but the texture half is not - the GS modulates alpha, so an
+// alpha-tested caster would cast a solid blob. That wants a per-material gate,
+// which is NOT built; see docs/backlog.md.
+//
+// The picture gate needed building before it could be read: the shipped garage
+// pose shows NO car shadow at all (the receiver patch is depth-rejected under the
+// road it stands on), so a known-bad arm that removes the silhouette entirely
+// leaves the capture byte-identical. On a fixture where the shadow IS visible the
+// gate separates 113 levels for "shadow removed" from 2 for this change. No
+// project format change (kFormatVersion stays 55), no VU1 change, no bake change.
+// 1.117.5 - Vehicle paint keeps its baked VIF payload while the relative view
+// stays inside a small hysteresis window; physical-PS2 chase captures reduced
+// the strip-study vehicle row 5.586 -> 2.379 ms without disabling reflections.
+// Matrix-path owners are also excluded defensively from world-space static
+// batches, and the Motor District night script addresses dressing by stable
+// object-ID hash rather than mutable scene row.
+// 1.150.0 - Per-definition body paint colour, with an authored atlas mask that
+// protects lamps, glass, trim and wheel art. The bake shares one recoloured
+// texture with the full and authored far tiers. Project format v81 adds
+// vehicle paintColor and paintMask; missing fields keep original paint. MINOR.
+// 1.149.3 - Resolve palette UVs on the optional @auto fast wheel before its
+// mesh is decimated, so the speed swap keeps visible, correctly coloured tyres.
+// The Motor District enables that variant on its sixth car. Format stays 80. PATCH.
+// 1.149.2 - Vehicle exit faces the car's travel direction (nose at rest). Full damage stops player/AI
+// drive and nitrous in both the generated runtime and host simulator, while
+// collisions can still push the wreck. The nitrous flame anchors beyond the
+// rear face without the lamp halo's camera pull. Format stays 80. PATCH.
+// 1.149.1 - StaPip omits inactive spot-light quads and clip constants for bags
+// that cannot use them (project program overrides keep the uploads). One-ELF
+// physical-PS2 A/B, two boots: combined work -0.04..-0.13 ms across four
+// Motor District poses. Retained per-bag uniform copies were +0.30..+0.80 ms
+// and remain unshipped. Project format stays 80. PATCH.
+// 1.149.0 - The measured VU1 winners ship: light directions folded on the EE
+// and env normals normalized once per unchanged bag. Physical PS2, augmented
+// Motor District: garage work -0.23..-0.25 ms and -0.14..-0.16 ms respectively;
+// the k255/ADC-table candidate slowed every pose and was removed. Format 80.
+// 1.148.1 - The static-batch report (staticbatch.cpp, the Rendering panel) now
+// prunes a multi-part model that has a lonely part, as the runtime has since
+// its all-or-nothing rule ("a part is alone"); both twin oracles compile again
+// (their stubs lacked the 1.137-1.144 road fields and wantsMatrixPath). PATCH.
+// 1.148.0 - Speed feel (docs/vehicles.md): the driven car shakes the camera
+// (road rumble, mostly vertical), raises a motion-blur floor under the scene's
+// own blur and widens the FOV as it nears its top speed; nitrous kicks the FOV
+// wider, adds shake and blur, and lights a flicking blue flame at two exhaust
+// pipes, drawn in the lamp-glow batch (no submit of its own). Six "feel*"
+// drive-spec keys on the Effects tab; every existing car gets the defaults.
+// Presentation only - the drive model is untouched. kFormatVersion
+// 79 -> 80 (the branch shipped it as v77, renumbered at the merge). MINOR.
+// 1.147.0 - Vehicle pedals (docs/vehicles.md, "Driving it"): R2 is the only
+// gas, L2 brakes while rolling forward and reverses once stopped (R2 brakes a
+// car rolling backwards); the left stick only steers. One rule,
+// vehiclesim::pedals, read by the editor's test drive (W / S) and twinned in
+// the console's player controller; --vehicle-check "pedals".
+// No format change. MINOR.
+// 1.146.0 - VU1 audit: the billboard programs are resident whenever they fit
+// (no program-set swap), clip TD rides the TC image (clip_td unlinked), and
+// output-preserving trims (fog one multiply, no double clamp, no single-colour
+// branch in the cull loops). Resident VU1-clipping set 1944 -> 1698 words
+// (+206 billboards). Physical PS2: -0.38..-0.50 ms work on all four district
+// poses. MINOR.
+// 1.145.1 - Per-car EE cuts (docs/vehicles.md "Per-car EE cuts"): the
+// headlight pools and lamp halos are kept per car (-0.27..-0.30 ms on the
+// district, -0.32..-0.47 on the orbit), undriven paint re-colours by distance,
+// one car a frame (-0.15..-0.40 together), beams write only changed bytes,
+// and later vehicle sub-steps in a frame reuse the first one's gather (a 25
+// FPS frame's second step ~0.5 -> ~0.3 ms). Physical PS2 medians. PATCH.
+// 1.145.0 - Junction overrides (docs/roads.md): a scene stores per-crossing
+// overrides (SceneData::roadJunctions: road-id pair + position + winner /
+// patch material / grip), matched to the computed crossing of the same pair
+// nearest the stored spot within the narrower road's width; an unmatched one
+// is kept and reported as orphaned. roadgen::planCrossings is now the ONE
+// crossing decision - codegen, viewport and test drive read it. A chosen
+// winner the rank lift does not already put on top is drawn as an OVERLAY
+// decal (its own surface over the loser, a spill row with alpha 1) and the
+// loser spills onto it one kSpillLift higher; RoadSpillRt gains grip + lift.
+// Viewport diamonds + a Junction section in Properties, --road-crossings.
+// kFormatVersion 78 -> 79, additive. MINOR.
+// 1.144.0 - Soft road edges: Edge fade splits a road into a core (narrowed,
+// U-inset) and two blended bands baked by roadgen::tessellateEdges, alpha 1
+// at the core to 0 at the edge; spills from a faded road carry the lateral
+// fade. roadSurfaceAt reports a cover and the tyre grip blends into the
+// terrain's (SurfaceSample::cover). Spills/edges V-rebased per chunk.
+// kFormatVersion 77 -> 78, additive. MINOR.
+// 1.143.0 - Road crossings: a road Rank (Track/Local/Main) lifts the higher
+// road over the lower one (roadgen::rankLift) so it runs through, junction
+// patches only between equal ranks, and a Spill: the lower road's surface
+// fades onto the higher one (roadgen::tessellateSpill baked by the codegen,
+// lifted and blended on the EE), grip fading with it. kFormatVersion 76 ->
+// 77, additive. MINOR.
+// 1.142.0 - Terrain layer grip: a painted layer's Grip multiplies each
+// vehicle's offroadGrip where it is painted, composited bottom-up on the
+// drawn triangles (TerrainGame::terrainGripAt / Viewport::terrainLayerGrip).
+// Zero cost without one (TERRAIN_LAYER_GRIP_ANY). The VEH line gains grip100.
+// SurfaceFn returns a SurfaceSample. kFormatVersion 75 -> 76, additive. MINOR.
+// 1.141.1 - The skid-mark ring starts degenerate: resize() left Vec4/Color
+// uninitialised and the whole ring is submitted, so unused slots drew as a
+// black sliver across the screen. Plus the Motor District night dressing
+// hashes (they never matched, so the night boxes showed by day). PATCH.
+// 1.141.0 - Lamp glow (docs/vehicles.md): a soft additive corona over every
+// lamp the vehicle bake measures (each lamp its own box, so a round headlamp
+// and a tail-lamp bar get their own halo), following the lamps' state -
+// headlights, brake (brighter, wider), broken - fading edge-on and with
+// distance. One submit for every car through the corona texture the light
+// beams already load; the driver's car always first under a 40-halo budget.
+// Drive-spec "lampGlow" on the Effects tab, 0 for every older definition.
+// MINOR. (Shipped on the vehicle-lamp-glow branch as 1.140.0 / v74.)
+// 1.140.0 - Vehicle debris stays physical: cars kick lying pieces away
+// (velocity, lift and spin from the car's speed), flying pieces bounce off
+// collision boxes and (rationed) mesh props, and a piece 60 units from the
+// camera is deleted. The Blender-built cars get an engine bay under the
+// bonnet (texture only) and a darker, more detailed cabin. MINOR.
+// 1.139.0 - Loose panels and glass (docs/vehicles.md): the vehicle bake sorts
+// the body into the shell, bonnet, boot, two doors and four window groups by
+// position, facing and glass material - no model authoring - and gives each
+// piece whole strip runs of its part. A hit knocks a panel off (collapsed in
+// the body, thrown as tumbling debris that lands flat, one submit per texture
+// for all debris) and shatters a window (collapsed, a spray of shards). The
+// Damage tab previews it; a "Loose parts" tunable scales it. MINOR.
+// 1.138.0 - Vehicle damage (docs/vehicles.md, "Damage"): a crash dents the
+// body's own vertices where it hit (matrix-path local frame, measured from a
+// rest copy so welded corners never tear), scuffs the paint, smashes the lamps
+// at a hard end-on hit, costs power, and smokes the engine past a threshold.
+// Six drive-spec tunables on a new Damage tab (with test hits previewed in the
+// viewport, and dents during a test drive), a Repair Vehicle flow node and a
+// DMG readout on the vehicle HUD. The per-frame cost is a velocity difference
+// per car; a hit rewrites one car's tier-0 vertices once (1.2-2.3 ms in
+// PCSX2, measured). MINOR. (1.138.0-1.140.0 shipped on the vehicle-damage
+// branch as 1.137.0-1.139.0 and its formats as v71-v73; renumbered by the
+// merge into vehicles, where 1.137.0 and v71 are the per-road grip.)
+// 1.137.0 - Per-road surface grip: roadGrip on a Road object (Properties >
+// Surface grip), carried by RoadDefRt into the road chunks so roadSurfaceAt
+// returns the answering triangle's grip; junctions take the lower road. The
+// four tyres' multipliers (road grip, offroadGrip, 1 on a floor) average into
+// the grip in both twins; the AI plans with it. kFormatVersion 70 -> 71,
+// additive. MINOR.
+// 1.136.1 - AI drivers: path pursuit (a point on the leg, look ahead of
+// the car) and planned corner speed; unstick reads covered distance; a
+// wedge stops the car in both twins; VEHAILAP lap telemetry. Two Motor
+// District trees moved off the Ring road. PATCH.
+// 1.136.0 - Off-road grip: three vehicle definition fields (offroadGrip,
+// offroadAccel, offroadDrag) blend the grip, the handbrake grip and the
+// acceleration, and add a rolling drag, by the share of tyres off the paved
+// surface (a road, or on the console an object floor). Defaults 1/1/0 drive
+// exactly as before. Both twins; --vehicle-check "offroad". kFormatVersion
+// 69 -> 70, additive (the drive block writes every field). MINOR.
+// 1.135.7 - Car-car hits spin: the impulse lands at the contact point and
+// turns each body by (r x J) / I, damped by the tyres; VEHHIT logs it. PATCH.
+// 1.135.6 - The console steps vehicles at a fixed 1/50 s too (stepVehicles:
+// two sub-steps on a 25 fps frame, one at 50 fps); edge input fires once.
+// PATCH.
+// 1.135.5 - The corner lean is clamped to the effective grip (a slide no
+// longer leans the body into a corner it is not taking). Both twins. PATCH.
+// 1.135.4 - The editor's vehicle test drive steps the sim at a fixed 1/50 s
+// (an accumulator), the PAL console's own step. PATCH.
+// 1.135.3 - Swept wall steps (a move over 1 unit is walked in pieces), and
+// the stick deadzones are rescaled with a gentle steering expo. PATCH.
+// 1.135.2 - The handbrake rotates the car into a drift (full-grip cap on
+// ground speed plus 30 deg/s of steering yaw) and grip returns over 0.35 s;
+// a softened friction circle takes up to half the cornering grip under
+// braking or throttle. Both twins. PATCH.
+// 1.135.1 - Walls redirect the car (normal from the blocked points, tangent
+// kept and scrubbed by angle, 0.15 bounce, heading realigned), and the
+// test drive uses the runtime's wall rules. PATCH.
+// 1.135.0 - Handling: the body yaws no faster than grip allows (grip / |v|),
+// so full lock at speed pushes wide instead of spinning; a car above its top
+// speed coasts down instead of being clamped; the ride spring is one-sided
+// above rest. Both twins (vehiclesim + the generated runtime); new
+// --vehicle-check "handling" properties. MINOR (the car drives differently).
+// 1.134.5 - The pools of scene spots that are not carving a shadow draw as
+// one bag (docs/flashlight.md, "One bag for the still pools"). PS2: garage
+// night -0.15 ms, outer night +0.04. PATCH.
+// 1.134.4 - A still scene spot keeps its ground landing and its projective
+// STQ (docs/flashlight.md, "Scene spot pools that do not move"): no cone
+// march and no stamped STQ rewrite a frame. PS2: garage night -0.50 ms.
+// PATCH.
+// 1.134.3 - The fog gate (docs/vu1-and-dma-cache-cost.md, "The fog gate"):
+// a bag whose fog coefficient is 255 at every vertex (fog off, or its box
+// inside the fog start) sends fog scale 0 / offset 255, and cull_tc takes a
+// fog-free copy of its unlit loop (61 cycles a batch against 73), output
+// bit-identical. PS2: garage day -0.24 ms, outer -0.04, garage night +0.02.
+// PATCH.
+// 1.134.2 - Vehicle wheels no longer sink into the ground (docs/vehicles.md,
+// "Wheels on the road surface"). Measured with the new VEHCONTACT telemetry
+// (lowest drawn tyre vertex minus the rendered surface): -119/-127 mm on the
+// playground's spawn road, -7 mm for the CC96 on bare terrain, 0 on every row
+// after. Two causes: both twins stood the car on the TERRAIN, 0.12 under every
+// road mesh (the runtime now samples groundSurfaceAt, the test drive a new
+// host roadgen::Surface); and a definition's wheelRadius drifted from its
+// baked wheel (CC96 0.232 vs 0.240) because the editor adopted it only while
+// the definition held the defaults - vehbake::adoptMeasured now takes the
+// drawn radius on every bake and moves rideHeight by the same amount. No
+// format change. Regenerate to pick it up. PATCH.
+// 1.134.1 - A still caster keeps its blob patch (no rebuild, no stamp, baked
+// replay) and vehicle lamp parts are re-coloured only on a change. PS2:
+// -0.02..-0.09 and ~-0.07 ms a parked car. PATCH.
+// 1.134.0 - An AUTHORED far model per vehicle definition (Vehicle Editor >
+// Cost > Far model, format v69): a hand-built low-poly twin in the same space
+// and texture as the car replaces the decimated far tier - wheels baked in,
+// the glass hidden, one texture - and "Parked / AI cars from"
+// (trafficDistance) swaps every car the player is not in at its own distance.
+// The swap has a 10% hysteresis (vehicleLodTier) and a far car gives up the
+// shine. New example model: res/models/ravager-far.glb (708 triangles against
+// 1938 + 4 x 160, authoring/make-ravager-far.py). Fixes found on the way: the
+// wheel bag read parts[0] (the lamps, which never tier) to decide the far
+// tier was showing, so every far tier drew a second set of wheels; and a
+// stripped body kept its strip flag on a LIST tier. MINOR.
+// 1.133.0 - Merge of the particle-library branch (below, shipped there as
+// 1.124.0) into vehicles. Its format change is renumbered v62 -> v68 (v62..v67
+// were already this branch's). The vehicle tyre smoke keeps this branch's
+// pool per definition, so the library's shared-pool compromise (one texture
+// and blend for every car, VEHICLE_SMOKE_MATERIAL) is gone: each definition's
+// smoke takes its look, texture, blend and flipbook from its own effect.
+// Vehicle Editor > Effects picks the smoke from the library or a material,
+// and the built-in puff (vehicles/fx-smoke.png) is now baked by the
+// library's smoke generator (particletex) from a fixed recipe - one
+// procedural smoke texture generator instead of two. MINOR.
+// 1.132.0 - The shine budget: Preferences > Rendering > "Shiny vehicles at
+// once" (settings.vehicleShineBudget, format v67, default 2, 0 = all) limits
+// the body-shine pass to the driven car and the nearest others. On a PS2 a
+// second car's shine measured 0.67-0.71 ms parked and 1.12-1.20 ms with the
+// camera turning, of the 2.1-2.6 ms the whole car costs. MINOR.
+// 1.131.0 - Merge of the rigid-body physics branch (below, shipped there as
+// 1.123.0) into vehicles; the solver keeps this branch's cached list of
+// physics objects (0.51 ms on a PS2 with nothing awake). MINOR.
+// 1.123.0 - Physics bodies are real rigid bodies (docs/physics.md): a convex
+// hull + solid inertia baked per model (src/physhull.cpp, PHYS_HULLS in
+// model_data.gen.hpp), quaternion orientation, corner contacts against
+// terrain / rotated collision boxes / collision meshes / other hulls, and
+// sequential impulses with Coulomb friction and a split impulse. Player and
+// car shoves land at a point and can tip a body over. Measured in PCSX2 on
+// examples/physics-playground: the same ~0.9-1.0 ms/frame as the old solver
+// with ~30 bodies awake, 0.07 ms settled against 0.33. No format change.
+// 1.130.0 - See-through vehicle glass: a definition's Glass opacity below 1
+// splits glass-named materials into a "glass" body part the game draws at the
+// translucent tail with a vertex alpha (one extra submit), so a modelled
+// interior shows. The Vehicle Editor also exposes the model's Texture depth
+// (the per-asset textureQuality override), which the vehicle bake now obeys.
+// New example body: the Ravager (authoring/make-ravager.py, run in Blender).
+// 1.124.0 - Particle library (Tools > Particle Editor, docs/particles.md):
+// effects defined once and linked from emitters and from a vehicle's tyre
+// smoke, additive blending for fire and sparks, and procedural smoke / flame /
+// glow textures generated in the editor (src/particletex.cpp), with looping
+// flipbooks. Particle quads were turned 180 degrees since the billboard
+// pipeline existed (a round texture hid it) and now render upright. An effect
+// can hold several emitters (layers: flame + embers + glow + smoke placed as
+// one), and emitters show as clickable screen-space badges instead of cones.
+// The Fire motion got buoyancy, a tapering column, a whole-flame sway and
+// flicker, an unfurl/fade-in and taller quads (game and viewport twins).
+// Particles face the camera a pass DRAWS with (cutscene override, shake,
+// split half) - they used to face the player's camera during cutscenes.
+// 1.161.0 - Static scenery in the reflection probe: one Rendering preference
+// draws every static object into the shared @sky probe as a box in its
+// material's average colour, merged into one bag per 96-unit cell and layer
+// (src/reflscenery.cpp picks the objects, codegen emits REFL_SCENERY). A
+// second one swaps the probe's terrain and road chunks for a 21x21 grid in a
+// host-baked albedo map (REFL_GROUND_*): -2 ms a turning frame on the Motor
+// District's open road on a PS2.
+#define TYRAX_VERSION_MAJOR 1
+#define TYRAX_VERSION_MINOR 169
+// 1.169.0: the vehicle controls card - getting into a car for the first time
+// shows what to press, built at runtime from the LIVE bindings and from what
+// that car has (nitrous, lamps), with button glyphs; rows dim as they are
+// tried. Vehicle Editor > Driver > Controls card on entry (format v94). New
+// optional {{lstick}} / {{rstick}} built-in icons.
+// Also: a repaired car no longer shows full reflection until the camera
+// turns (the rebuild now invalidates the paint pass's cached view key).
+// 1.168.0: Use enters the car you LOOK at (in reach + under the camera aim,
+// vehicleUseTarget), not whichever is near; the prompt follows it. Exiting
+// picks the first spot clear of every collision box - a walker placed
+// inside one (a neighbouring car) could not move until it jumped.
+// 1.167.1: merged with this side's 1.166.1-1.166.3. The Docker fallback
+// (Sony's vcl) builds the engine again - the TC clip image loads its GIF tag
+// constants per buffer, output bit-identical. RendererCore::endFrame drains
+// the VIF1 queue - a frame with no 2D left its last StaPip chains unstarted
+// until the next frame's clear, so baked shadow decals and blob shadows drew
+// under the next frame's terrain. PS2 shading applies the terrain's AO per
+// pixel - per corner it printed dark flat cells round every object.
+// 1.167.0: exhaust pipes marked in the model - an empty named "exhaust" at
+// each opening (any number, up to six), arrow pointing out of the pipe. The
+// nitrous flame, the shift backfire and a new constant exhaust smoke
+// (Effects > Exhaust smoke, format v93) come out of them; a model without
+// markers keeps the old guessed pipes under the rear bumper.
+// 1.166.1: merged with the GI line-ending fix shipped on this side as 1.164.2 -
+// the GI, pre-lit and model-AO signatures ignore line endings in asset files
+// (GI cache v8, lit sig v2, model AO v2) and --bake-status reports every
+// cache's freshness without baking.
+// 1.166.0: a model's own collision box (Properties > Own collision box, "Fit
+// to post"; format v92) - a street lamp collides as its post, not the box
+// around its arm. Mesh-mode collision rejects far objects before any work:
+// CollisionMesh tests its own box first (its grid clamped a far query onto
+// the edge cells) and the walker skips a mesh it cannot reach.
+// 1.165.0: an optional rev limiter - flat out at the redline the engine note
+// bounces off it (revLimiter depth, revLimiterRate bounces/s; format v91). A
+// car's bumper hop is divided by the body's mass like the rest of its push,
+// so a heavy body no longer tips and spins as if it weighed nothing.
+// 1.164.2: the GI, pre-lit and model-AO signatures ignore line endings in
+// asset files (GI cache v8, lit sig v2, model AO v2); the four GI examples are
+// re-baked; --bake-status reports every cache's freshness without baking.
+// 1.164.1: the shadow bake is 13x faster on Motor District (13.3 s -> 1.0 s):
+// decalproj caches parsed models and road triangles; --bake-shadows prints a
+// per-stage time split.
+// 1.164.0: baked shadows re-bake themselves in the background after an edit
+// (with the auto-bake switch on) and the old bake stays on screen meanwhile.
+// 1.163.4: the baked shadow signature ignores line endings in model files
+// (a CRLF checkout read the checked-in cache as stale); shadow cache v8.
+// 1.163.3: the viewport previews ground shadow maps (it showed only decals).
+// 1.163.2: a caster's own plinth takes its real soft shadow - the tile column
+// stops at the caster's floor face, and plinth pieces are kept on any blocked
+// sun-disk ray; the hard 1 m triangles are gone. Shadow cache v7.
+// 1.163.1: ground shadow maps draw only the cells they shade (a baked row
+// mask per chunk) - Terrain 2.42 -> 1.73 ms on a PS2 at the garage pose.
+// 1.163.0: ground shadow maps - with Baked lighting > Ground shadows on, the
+// terrain takes every caster's baked shadow from one 4-bit map per terrain
+// chunk instead of decals; decal atlas pages are 4-bit too (256 KB -> 32 KB).
+// 1.162.2: a held handbrake stops the car - the throttle drives nothing while
+// it is held and the slide scrubs the whole ground velocity.
+// 1.162.1: baked shadows start at the wall (per-column start), reach a
+// model's own plinth and land on roads; shadow cache v6.
+// 1.162.0: painted skies - an equirectangular panorama on the sky dome, per
+// ambience preset, baked into a 256x128 8-bit crop (docs/sky-texture.md).
+// 1.161.2: vehicle paint no longer shows its triangles on the console - the
+// env/paint bag was flat-shaded, so each triangle took one corner's fresnel.
+// 1.161.1: the viewport sky no longer turns pink with PS2 shading on - the
+// PS2-shading program kept the previous frame's paint-pass uniforms.
+// 1.160.0: editor Play boots the selected scene for one run, vehicle exit
+// clears the chassis, and the vehicle release docs and example are pared down.
+// No project-format change.
+// 1.159.0: independent cosmetic/mechanical vehicle damage, a tunable partial
+// power-loss curve and a per-vehicle high-rev sound switch. Format v87.
+// 1.158.0: speed-dependent vehicle power fade, separate high-rev sound onset
+// and pitch range, and a live preview of both curves. Format v86.
+// 1.157.0 is the first combined vehicles + procedural build; format v85.
+// 1.157.0: normalize sound effects to mono PCM16/22050 at import and build;
+// Convert fixes stereo/extended-header WAVs, and build copies preserve sources.
+// 1.156.0: vehicle sound pickers accept every imported WAV; native/Docker
+// builds encode continuous vehicle roles as loops. Headlights move to Effects.
+// 1.155.1: Vehicle Editor belongs to Tools' Assets group; all tool groups
+// keep their entries alphabetical.
+// 1.155.0 (vehicles branch): automatic per-field vehicle defaults and section
+// resets; tyre-safe wheel simplification and authored motion-blur wheels.
+// 1.154.0: live vehicle/wheel preview, engine audition, guided Cost controls,
+// reflection texture picker and compact import/help UX.
+// 1.153.0: global vehicle tuning with local overrides, explicit nitrous
+// enable control, and final chase/far camera collision.
+// 1.156.0: frozen procedural volumes retain their baked output until unfrozen.
+// 1.155.1: procedural output labels align beside their right-hand pins.
+// 1.155.0: placement road modes include origin-on-road path scattering and
+// an optional road target; old roads=0/1 retain ignore/avoid semantics.
+// 1.154.0: host placement filter skips road footprints, rejects model overlaps
+// with a spatial hash and keeps complete transformed bounds on painted terrain.
+// 1.153.0: Hybrid triple buffering keeps one PSMCT32 draw target and queues
+// finished copies through two PSMCT16 display targets; depth stays PSMZ32.
+// 1.152.0: direct material editing, searchable cached asset list, selective
+// material refresh and cached PNG metadata; upright box front/back UVs.
+// 1.151.2: bound junction clearance against actual road triangles; adaptive
+// conforming patches are baked once on the host and uploaded unchanged on PS2.
+// 1.151.1: clip road handles to the scene canvas; wheel zoom cannot scroll
+// the viewport panel or expose overlays outside its image.
+// 1.151.0: collapsible road controls, reversible smooth loops, Shift-click
+// point deletion and cached editing outlines with deferred junction rebuilds.
+// 1.150.2: preserve light selection but skip zero-influence bags in the
+// existing unlit VU1 path; conservative local bounds, custom stages unchanged.
+// 1.150.1: prepare driveable vehicle HUD fonts during scene loading; plain
+// runtime text no longer loads the icon sheet before drawing an actual icon.
+#define TYRAX_VERSION_PATCH 0
+
+#define TYRAX_STR2(x) #x
+#define TYRAX_STR(x) TYRAX_STR2(x)
+#define TYRAX_EDITOR_VERSION            \
+    TYRAX_STR(TYRAX_VERSION_MAJOR)      \
+    "." TYRAX_STR(TYRAX_VERSION_MINOR) "." TYRAX_STR(TYRAX_VERSION_PATCH)
+
+namespace version {
+
+inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
+
+// Current on-disk project format. Files with no "formatVersion" field (every
+// project saved before versioning existed) read as 0.
+// v2 (Save Editor): the memory card appearance (saveTitle / saveIcon* /
+// saveIconMotion*), the save behaviour (saveMenuWritesCheckpoint, saveAsync,
+// saveSpinner*, saveAutosaveSlot, saveSlotCount, saveSlotsPerPage) and
+// GameMenu::saveMenu. Purely additive with safe defaults, so no migration step
+// - an older file opens silently and project::ensureSaveMenu backfills the
+// save menu the same way ensureInputActions backfills the input map.
+// v3 (menu stylesheets, docs/menu-styles.md): GameMenu::style names the
+// menu-styles/*.menustyle file a panel is baked with, MenuEntry gains
+// styleClass / description / icon / enabledWhen and the `label` action, and
+// ProjectSettings::supportedModes declares which scan modes a game supports.
+// Purely additive with safe defaults - an empty `style` IS the old look, byte
+// for byte (checked by diffing the baked panels of every example against the
+// previous baker), so no migration step.
+// v4 (SPU2 reverb, docs/reverb.md): an Area's reverb zone (the "reverb" object
+// on an Area: preset / amount / delay / feedback / priority) and the sound
+// emitter's "reverb" send flag. Purely additive - an older file has no zones,
+// which reads as a dry game exactly as it was - so no migration step. (This
+// was authored as v3 on its own branch and renumbered on the merge: menu
+// stylesheets took that number first.)
+// v5 (sound priority, docs/sound.md): a sound emitter's "priority" - who
+// keeps one of the eight emitter voices when more emitters are audible than
+// there are channels. Purely additive and it defaults to 0, which is what
+// every emitter in an older file gets, so the ranking then falls back to
+// loudness alone - no migration step. (The Play Sound node's matching
+// Priority parameter is a flow-node param and rides the existing num array,
+// which needs no format bump of its own.)
+// v6 (collision-box overlay, docs/collision-boxes.md):
+// ProjectSettings::showCollision - the debug-profile preference that draws
+// every collider's box in the running game, next to showAreas. Purely additive
+// and it defaults to false, which is what every older file gets and what the
+// game did before, so no migration step.
+// v7 (World Facts, docs/world-facts.md): the "facts" section - the declared
+// fact catalog, the named queries over it, the reaction rules and the saved
+// test scenarios. Purely additive: a project with no facts writes no section
+// and behaves exactly as it did, so no migration step. A fact's `id` is
+// stamped by project::ensureFactIds on load, which is what lets a player's
+// save survive renames and reordering later. (Authored as v4 on its own branch
+// and renumbered TWICE on the way in - the reverb and sound-priority bumps took
+// 4 and 5, then the collision-box overlay landed on main and took 6. A branch
+// that lives a while renumbers rather than argues; the number means "what the
+// file may contain", and only main gets to say which is which.)
+// v8 (the neural upscaler, docs/neural-upscaler.md): ProjectSettings gains
+// blssEnabled / blssScale / blssSharpen / blssTemporal / blssDebugView, the
+// project-wide BLSS group. Purely additive - blssEnabled defaults to false, so
+// an older file opens as "no upscaler", which is exactly what it was, and the
+// codegen is byte-identical while the flag is off. No migration step.
+// v9 (the upscaler's jitter kill switch): ProjectSettings gains blssJitter,
+// the +-1/4-pixel per-frame raster jitter that is the confirmed cause of the
+// screen shake (docs/neural-upscaler.md, "The oscillation"). Purely additive,
+// and since 2026-08-08 it defaults to FALSE - so a file saved before the key
+// existed opens with the jitter OFF rather than with the behaviour it was
+// saved with. That is the one deliberate exception to "an older file opens
+// byte-identical" in this list, and it is deliberate because the behaviour it
+// declines to preserve is a visibly shaking picture. Nothing else about the
+// project changes and no migration step is needed: the codegen difference is
+// one constant, and a project that wants the samples back sets the key.
+// v10 (the upscaler's training-shot plan, docs/neural-upscaler.md): Project
+// gains blssShots - which of the six automatic camera moves the corpus shoots,
+// how many frames each gets, whether Cutscene Director takes join, and the
+// author's own vantages (typed, grabbed from the viewport, or bound to a placed
+// Camera object). Purely additive, and additive in a stronger sense than the
+// entries above: a DEFAULT plan writes nothing at all, so every project saved
+// before the key existed round-trips byte-identically and every published fold
+// table stays reproducible. No migration step.
+// (v8-v10 were authored as v4-v6 on the upscaler's branch and renumbered on
+// this merge - reverb, sound priority, the collision-box overlay and World
+// Facts had taken 4 through 7 on main while it was away. Three numbers for one
+// branch rather than one, because each was a separate landing with its own
+// meaning and the list is what an older editor's refusal is read against; two
+// features may never share a number. Nothing on disk changes: every one of them
+// is additive, so a project written at the old v6 opens at v10 unchanged and no
+// migration step is needed for the renumber either - a file claiming 6 now
+// means "collision-box overlay", which a BLSS-less project is.)
+// v11 (a fog emitter's Opacity is stored): save() wrote "opacity" only inside
+// the custom (kind 5) block, but FOG reads it too - peak alpha = opacity x 60 -
+// and the inspector offers it there, so an authored 0.3 came back 0.6 on the
+// next load and the game was built with 0.6. It is now written for fog as well;
+// the other four kinds have hardcoded peak alphas and still store nothing.
+// Additive, and NO migration step - deliberately, because there is nothing to
+// transform: the file never held the value, so 0.6 (the reader's default) is
+// not a guess at what the author meant, it is exactly what that file has always
+// meant to both codegen and the viewport. A step could only invent a number.
+// The author's 0.3 was destroyed by the save that dropped it and no migration
+// can bring it back; what the bump buys is that an older editor now refuses the
+// file instead of dropping the key on ITS next save, which is the whole job of
+// this number.
+// v12 (the upscaler's plain mode, docs/neural-upscaler.md):
+// ProjectSettings::blssNetwork - false renders at the reduced raster and blows
+// it back up with one bilinear pass, with no network, no bag proxies, no
+// reprojection and no feature grid. Purely additive and it defaults to TRUE,
+// which is the only thing a project saved before the key existed can have
+// meant: the reconstruction it shipped with is the one its blss.net was fitted
+// for. So an older file opens as the neural mode it already was and regenerates
+// byte for byte, and no migration step is needed. (Note the deliberate contrast
+// with v9's blssJitter, which does NOT preserve what it was saved with - that
+// exception was bought by a visibly shaking picture, and there is no equivalent
+// argument here.)
+// v13 (the upscaler per scene, docs/neural-upscaler.md, "Per scene"):
+// SceneOverrides::upscaler plus a scene-local blssEnabled/blssNetwork pair.
+// Additive AND INHERITING, which is a stronger property than merely additive: a
+// scene with the flag off resolves to the project value, i.e. to exactly what
+// the file meant before the key existed. So a v12 file opens as the project-wide
+// setting it already was, and - because both the flag and the values are WRITTEN
+// ONLY when the override is on - resaves byte for byte. There is nothing for a
+// migration step to do: it could only write the inherited answer into every
+// scene, which is the same behaviour spelled out at the cost of never being able
+// to change a project default again.
+// v14 (frame pacing + frame extrapolation, docs/frame-pacing.md and
+// docs/frame-extrapolation.md): ProjectSettings::tripleBuffering, which decides
+// whether the renderer presents from a vblank interrupt instead of stalling the
+// EE on vsync, and ProjectSettings::frameExtrapolation, which makes the
+// generated game present one synthesised frame after each rendered one. Both
+// purely additive and both default to false - which is exactly what every
+// project did before - so an older file opens unchanged and regenerates byte
+// for byte while they are off. No migration step.
+// (Authored as v5 and v6 on the frame-pacing branch and renumbered to ONE
+// number on this merge, the same way v8-v10 above were: the upscaler had taken
+// 4 through 12 while this branch was away. They collapse into one entry rather
+// than two because they landed as one feature set with one meaning - "the
+// pacing work" - which is the test this list applies. Nothing on disk changes;
+// both are additive, so a project written at the old v6 opens at v14 unchanged.)
+// v15 (frame extrapolation, the translation model as a control):
+// ProjectSettings::frameExtrapolationPlane and frameExtrapolationForce. Both
+// additive and both default to what the previous version did - plane 0 is
+// rotation only, force off leaves the gate in charge - so an older file opens
+// unchanged and regenerates byte for byte. No migration step.
+// v16 (frame extrapolation, the ground plane):
+// ProjectSettings::frameExtrapolationGround. Additive, and it defaults to TRUE
+// - the one entry in this list that does not preserve what an older file was
+// saved with, deliberately: the fixed plane it replaces moves the sky, and the
+// ground plane is the same model with the horizon handled correctly. A project
+// that wants the old look sets the key false. NO migration step, on the v9
+// blssJitter precedent and for the same reason: a step could only write the
+// old constant back into every file, which is exactly the look the default was
+// changed to stop producing. The bump's job is done by an older editor now
+// refusing the file rather than dropping the key on its next save.
+
+// (This branch's three entries were authored as v13-v15 and renumbered to
+// v14-v16 on this merge: the upscaler's per-scene work took 13 while this
+// branch was away. Same rule as the v8-v10 renumber above - two features may
+// never share a number, and every one of these is additive, so nothing on
+// disk changes. Checked rather than assumed on the merge that brought them
+// here: all five keys are read behind a find() with the default the entry
+// names, none of them renames, moves or reinterprets an existing key, and
+// migrations::stepsFor therefore has nothing to register for any of the three
+// - which is what makes a v13 project open silently at v16.)
+// v17 (Animation Editor in-place clips, docs/animated-models.md):
+// AnimClipEdit::inPlace removes horizontal root motion during the .tskl bake.
+// Purely additive: it is WRITTEN only when true and read behind a find() that
+// defaults to false, so a project saved before the key existed keeps its exact
+// authored animation and resaves byte for byte. No migration step - checked,
+// not assumed: main's #214 changes nothing else that project::save() writes
+// (the only other new state is the Model faces selector, which rides the
+// existing per-object rotation, and the import/opening screens, which persist
+// nothing), and src/migrations.cpp is untouched on both sides, so
+// migrations::stepsFor has nothing to register and a v16 project opens
+// silently at v17.
+// (Authored as v8 on main and renumbered here. Two features may never share a
+// number, and 8 has been this branch's neural-upscaler entry since well before
+// #214 landed - it is quoted by the entries above, by docs/neural-upscaler.md
+// and by an example .tyra on disk. So the claim that arrives second renumbers,
+// which is the same rule the v8-v10 and v14-v16 notes above applied to this
+// branch's own entries when main got somewhere first. Nothing on disk changes:
+// the entry is additive, so a project written on main at v8 opens at v17
+// unchanged, and no migration step is needed for the renumber either - a file
+// claiming 8 now means "the neural upscaler", which an animation-only project
+// simply does not use.)
+// v18 (Player speed tiers, docs/player-speeds.md): SceneObject::playerRunSpeed
+// and playerSprintSpeed, plus ProjectSettings::runSpeed for the fallback
+// walker. All three are additive AND are written only when non-zero, so a
+// project that never opens the new fields resaves byte for byte - checked, not
+// assumed: `--resave` on examples/cube, showcase, two-players, weapons-arena
+// and endless-runner produced no runSpeed/sprintSpeed key anywhere. (That
+// weapons-arena was never a project - PR #203 committed three ignored build
+// artifacts under the name and nothing else; the directory has since been
+// removed. The other four still make the point.)
+//
+// No migration step, and the reason is the "0 = inherit" default rather than
+// mere additivity: 0 resolves to the numbers the walkers used to compute
+// inline (run = walk, sprint = walk x sprintMultiplier), so an old project is
+// not merely readable, it MOVES identically. Verified on the generated side -
+// examples/script-demo regenerated RUN_SPEED == WALK_SPEED == 0.4 and
+// SPRINT_SPEED == 0.72 == 0.4 x 1.8.
+// v19 (animation import, docs/animation-import.md): Project::animImports and
+// its "animImports" manifest section - clips borrowed from another model file.
+// A whole new section rather than a field, so a project that has imported
+// nothing emits no key at all and resaves byte for byte; every retarget flag
+// inside a row is likewise written only when it differs from its default.
+//
+// No migration step: nothing existing is renamed, moved or reinterpreted, and
+// the feature is inert without a row. The one thing that DID change shape for
+// every model is host-side only - SkelNode::name, which writeTskl does not
+// serialize - so no .tskl version moved either and an unimported model bakes
+// the same bytes it did before.
+// v20 (sprint clip + live speeds, docs/player-speeds.md): SceneObject::
+// playerSprintClip - the third-person avatar clip for the sprint tier, stored
+// in the thirdPerson object and written only when set, so an untouched project
+// resaves byte for byte. No migration step: "" means "the run clip covers
+// sprinting", which is what every project did. The same commit moves the
+// walkers onto PlayerCtl::speeds and streams speed edits over Live Link
+// record v3 - channel-internal, not project format.
+// v21 (bone mapping, docs/animation-import.md): AnimImport::boneMap - the
+// hand-made donor->target bone pairs from the Map bones editor, an array of
+// {s, t} objects written only when non-empty. Additive with a safe default
+// (empty = pure name matching, the previous behaviour), so no migration step.
+// v22 (the full retargeter, docs/animation-import.md): AnimImport::facing
+// (world yaw of the source, -1 = auto from the rigs' feet) and ::mirror
+// (left<->right flipped import). Written only when set and true respectively,
+// so untouched projects resave byte for byte; no migration step. The
+// retarget path itself is chosen automatically and stores nothing.
+// v23 (posture fine-tune, docs/animation-import.md): AnimImport::lean -
+// degrees of torso pitch applied by the retargeter. Written only when
+// non-zero; no migration step.
+// v24 (VRAM options, docs/gs-vram.md): ProjectSettings::colorDepth picks the
+// frame buffers' pixel format (PSMCT32 or the half-size PSMCT16) and
+// ProjectSettings::dither drives the GS's ordered dither. Both are written
+// only when set away from their defaults, and those defaults are exactly what
+// every older project already did, so no migration step. (The two optional
+// render targets that landed with them are NOT in the format at all - they
+// are derived at build time from what the project ships, not stored.
+// Authored as v9 on this branch, renumbered to v18 at the first merge and to
+// v24 at this one, the same rule every note above applied to itself: main's
+// neural-upscaler batch took 8 through 17 and its speed/animation-import batch
+// 18 through 23 while this branch was open, and the claim that arrives second
+// renumbers.)
+// v25 (terrain distance detail, docs/terrain-lod.md):
+// ProjectSettings::terrainLodDistance - beyond it the ground is built from
+// every 2nd heightmap sample, beyond 2.2x it from every 4th. It defaults to 0,
+// which builds every tile at full detail, i.e. exactly what every project did
+// before the key existed, so an older file opens and RUNS unchanged and no
+// migration step is needed. It is written unconditionally, like the
+// terrainViewDistance beside it in that flat settings block, so an untouched
+// project does gain the key on its next save - which is precisely what this
+// number exists to make safe. (Authored as v24; main's VRAM options took that
+// number first, and the claim that arrives second renumbers.)
+// v26 (pre-lit models, docs/prelit-models.md): SceneObject::prelit - the
+// object's texture already carries its light, so its vertex colours go
+// neutral. Written only when true, so a project that has never baked one
+// resaves byte for byte; it defaults to false, which is what every existing
+// object is. No migration step. (Authored as v25, renumbered with v25 above.)
+// v27 (flashlight shadow volumes, docs/flashlight.md "The shadow"):
+// ProjectSettings::flashShadowVolumes - written only when true, so an
+// untouched project resaves byte for byte; false (the default) is the
+// silhouette-slot behaviour every earlier file had. No migration step.
+// v28 (the lighting redesign - automatic model AO + pre-lit management;
+// authored as v26, renumbered twice as this branch's base took v26 and then
+// v27 while the redesign was in flight - the arrive-second rule):
+// ProjectSettings::modelAo / modelAoStrength / modelAoRays / modelAoDist - the
+// project-wide bake knobs - plus the "modelAoMode" section, the per-asset
+// force-on/force-off override keyed by a model's asset path; and the three
+// pre-lit bookkeeping fields on SceneObject - prelitWanted (the author's
+// statement that the object ships pre-lit), prelitSig (a hex-string hash of
+// what the last bake saw) and prelitSource (the materialPath to revert to,
+// recorded on the first bake only); plus ProjectSettings::prelitAutoBake and
+// giAutoBake, the opt-in "re-bake what went stale before every build"
+// switches for pre-lit objects and for the GI caches. Every one
+// of them is written ONLY when it
+// differs from its default and the modelAoMode section is omitted entirely
+// while empty, so a project that never touches either feature resaves byte for
+// byte; the struct defaults reproduce what an older file did (no model AO at
+// all), while project::create turns modelAo on for new projects. Purely
+// additive - no migration step.
+// v29 (spot-style dynamic lights, docs/flashlight.md "A scene light with the
+// same trick"): "spot" + "spotAngle" on a light object's light block -
+// written only when the style is on, so an untouched project resaves byte
+// for byte; off (the default) is the point light every earlier file had.
+// v32 (Input recorder, docs/input-replay.md): ProjectSettings::inputRecorder,
+// the fifth devkit channel's own switch. Always written (it sits in the same
+// always-emitted block as liveLink/liveDebug/timeMachine/remotePad), defaults
+// to FALSE both in the struct and on read - the recorder writes a growing file,
+// so a project that predates the key must not silently start doing that.
+// Purely additive: no migration step, and an older editor refuses the file
+// rather than dropping the field on its next save.
+// RENUMBERED on the merge of main's v32 (the input recorder landed on main
+// while this branch carried its own v32..v36): every format this branch
+// introduced moved up by one - atlas control v33, page depth v34, dynamic
+// shadow mode v35, the held torch v36, spot shadow volumes v37. All of them
+// are purely additive with no migration step, so a file written under the
+// old numbering opens by its keys exactly as before; only the gate moved.
+// v33 (per-texture atlas control, docs/texture-atlasing.md): the
+// "atlasControl" section - per texture, an optional "keepOut" (never pack it
+// into a page) and an optional "group" (pack it with everything carrying the
+// same name instead of with its .mtl's directory). A page is ONE VRAM
+// allocation and ONE shared palette, so what shares one is a judgement about
+// the scene, and it used to be inferred from the folder layout alone. Written
+// only for textures that carry a decision and the whole section is omitted
+// while empty, so a project that never opens the Texture Atlas window resaves
+// byte for byte. Purely additive - no migration step.
+// v34 (the atlas page's depth, docs/texture-atlasing.md): "pageBits" joins the
+// atlasControl entry - a per-texture REQUEST for how deep the page it lands on
+// is quantized (4 / 8 / 32; absent = follow the project's texture quality), and
+// the group takes the highest request any member makes. Written only when a
+// texture asks, so a project that never opens the window resaves byte for byte.
+// Purely additive - no migration step. (v33, this branch's own, shipped hours
+// earlier with keepOut/group; the same section gains a key rather than changing
+// one, so an older reader drops a request it never honoured anyway.)
+// v35 (a dynamic shadow is a per-OBJECT choice, docs/shadows.md):
+// SceneObject::shadowMode - 0 = follow the project (which is what every file
+// written before this key meant: a blob under the moving things while the
+// preference is on, a projected silhouette where projShadow is set), 1 = none,
+// 2 = blob, 3 = projected. Written only when it is not 0 and the key is absent
+// otherwise, so an untouched project resaves byte for byte and an older editor
+// reading a newer file simply falls back to the flag it already knows. Purely
+// additive - no migration step.
+// v37 (spot-light shadow volumes, docs/shadows.md "Spot-light shadow
+// volumes"): ProjectSettings::spotShadowVolumes - the project-wide switch that
+// lets a placed SPOT light carve its own occlusion the way the torch already
+// can - plus "shadowVolumes" on a light object's light block, the per-light
+// override (SceneObject::lightShadowVolumes: 0 = follow the project, 1 = off,
+// 2 = on - the shadowMode idiom). The setting is written only when true and
+// the per-light key only when it is not 0, so a project that touches neither
+// resaves byte for byte; both defaults reproduce exactly what every earlier
+// file did, which is spot lights taking no part in the volume machinery at
+// all. An older editor reading a newer file drops two keys whose absence is
+// the old behaviour. Purely additive - no migration step.
+// v38 (projected shadow distance, docs/shadows.md "Distance"):
+// ProjectSettings::projShadowDistance - how far from the camera a projected
+// silhouette shadow is still drawn; written only when it is not the old
+// built-in 50, so an untouched project resaves byte for byte and an older
+// editor reading a newer file falls back to exactly the number it always had.
+// Purely additive - no migration step.
+// v39/v40: optional impostor path, distance and cylindrical billboard flag.
+// v41: impostorViews (4/8/16), defaults to 8 for existing captures.
+// v42 (animated HUD, docs/hud-animation.md): `anim` / `transition` objects on
+// HUD images and texts, `visibleAtStart` on images, and the `hudBars` array
+// (live health/stamina/progress bars). Every key is omitted at its default,
+// so the feature adds no noise to an unchanged HUD definition; an older
+// editor reading a newer file drops the motion and draws the classic static
+// HUD. Purely additive - no migration step.
+// v43 (editor comments, docs/comments.md): the new PrimitiveType::Comment
+// (serialized type name "comment") and SceneObject::commentText, written only
+// when a note has text. An older editor reads an unknown type name as a Box,
+// which is why this is a version bump and not just a new key - the refusal is
+// the point. Purely additive - no migration step.
+// v50 (cutscene HUD + skip screen, docs/cutscenes.md): Sequence::hideHud and
+// Sequence::skipMode (always written), plus GameMenu::skipMenu and the
+// MenuEntry action "skip-cutscene" (both written only when set). An older
+// editor reads the unknown action word as Close, which would turn a confirm
+// row into a decline row - the refusal is the point. Purely additive - no
+// migration step. Vehicle/road fields occupy v44-v50 on this branch.
+// v51 adds optional editorGroup and invisible box fields from main.
+// v52 adds baked shadow decals: shadowMode 4 and optional bakedShadow*
+// settings (main v46), without transforming any existing values.
+// v53 (adaptive plain BLSS, docs/neural-upscaler.md): ProjectSettings gains the
+// optional blssAdaptive boolean. Missing means false and the key is written
+// only when enabled, so older projects still resave byte-for-byte. Purely
+// additive - no migration step. Main published this as v47; this branch had
+// already claimed v47..v52, so the LATER arrival renumbers - the same rule the
+// v51 and v52 entries above were written under.
+// v54: five devkit cadence overrides; missing values retain platform defaults.
+// v55: ProjectSettings::reflectionReuseBudget. Purely additive - a file
+// without the key reads the default 1.0 pixel, which is sub-pixel on the
+// 128-pixel probe target and therefore cannot change what it draws - so no
+// migration step is registered.
+// v56: SceneObject::batchExclude, the per-object static-batch opt-out
+// (docs/static-batching.md). Written only when TRUE, so a project that never
+// uses it resaves byte for byte and regenerates byte for byte; missing reads
+// as false, which is exactly the behaviour every existing project has. Purely
+// additive - no migration step.
+// v57: SceneObject::reflectionProxy and roadIntersectionTexture. Missing means
+// the historical full-model env submission / no automatic junctions. Both are
+// additive; the boolean is written only when true. No migration step.
+// v58 (motion blur, docs/motion-blur.md): ProjectSettings gains motionBlur and
+// optional motionBlurIdleClear, while the manifest gains hudMotionBlurLayer.
+// This is main's additive v48 change renumbered after this branch's v57.
+// No migration step.
+// v59: SceneObject::blobShadowTexture and blobShadowSize. Missing means the
+// historical round fallback (or the vehicle definition's derived mask), so
+// this is additive and needs no migration step.
+// v60: SceneObject::roadSampleStep. Missing retains the historical 1 m road
+// station spacing. Additive; no migration step.
+// v61 (docs/occlusion-culling.md): ProjectSettings::occlusionCulling plus
+// SceneObject::occluderExclude and occlusionCull. Missing keeps the feature
+// off project-wide, allows receiving and lets safe geometry be considered if
+// the project is later enabled. All keys are additive; no migration step.
+// v62 (docs/reflective-materials.md, "The ground in the probe"):
+// ProjectSettings::reflectionGroundRadius. Written only when non-zero, so a
+// project that never sets it resaves byte for byte; missing reads as 0 - every
+// resident chunk, what the probe always drew. Additive; no migration step.
+// v63: settings.colorDepth may be "hybrid" (a 32-bit draw buffer shown through
+// one dithered 16-bit display buffer). An older editor reads any unknown value
+// as "32bit" and would silently resave it that way, which is why this is a
+// bump. The same version adds a vehicle definition's "fastWheel" +
+// "fastWheelTris" and drive.fastWheelSpeed (docs/vehicles.md, "A fast wheel"),
+// all written only when set. Additive; no migration step.
+// v64 (docs/interleaved-passes.md): settings.interleavePasses, "auto" /
+// "always" / "off". Written only when not "auto", so a project that never
+// sets it resaves byte for byte; missing reads as "auto". Additive; no
+// migration step.
+// v65 (docs/vehicles.md, "Skid marks and smoke"): VehicleDef::skidMaterial
+// and smokeMaterial, written only when set; missing = the built-in textures.
+// Additive; no migration step.
+// v66 (docs/vehicles.md, "See-through glass"): VehicleDef::glassOpacity
+// (written only below 1) and the bake-measured glassPart (written only when
+// >= 0). Missing = opaque glass merged into the palette, as before. Additive;
+// no migration step.
+// v67 (docs/vehicles.md, "The shine budget"): settings.vehicleShineBudget,
+// written only when not 2; missing reads as 2. A project saved before it with
+// three or more cars inside 35 units of the camera now shows two of them shiny
+// (0 restores every car). Additive; no migration step.
+// v68 (docs/particles.md): the particle library - the "particleEffects"
+// section, an emitter's "effect" link and "additive" flag, and a vehicle's
+// "smokeEffect", flipbook "frames"/"fps" on a recipe and an emitter, and an
+// effect's extra "layers" (label, offset, area + a layer's own fields). All
+// written only when set, so an older project resaves byte for byte;
+// additive, no migration step. Shipped on the particle branch as v62 and
+// renumbered by the merge into vehicles (v62..v67 were taken there). A
+// file that branch saved says 62..67 and holds these keys: every one is
+// read whatever the stamp says, so it loads; its next save stamps 68.
+// A smokeEffect wins over smokeMaterial when a definition has both.
+// v69 (docs/vehicles.md, "An authored far model"): VehicleDef::farModel
+// (written only when set), trafficDistance (only when not 0) and the
+// bake-measured farPart + farHideMask (only when farPart >= 0). Missing = the
+// decimated tiers at farDistance for every car, as before. Additive; no
+// migration step.
+// v70 (off-road grip) and v71 (per-road grip): see docs/format-versioning.md.
+// v72..v74 shipped on the vehicle-damage branch as v71..v73 (renumbered by
+// the merge; every key is additive and read whatever the stamp says).
+// v72 (docs/vehicles.md, "Damage"): six drive-spec keys - damage,
+// damageThreshold, damageMaxDent, damageRadius, damagePerfLoss, damageSmoke -
+// written with the rest of the spec. Missing = damage 0, i.e. the car cannot
+// be hurt, which is exactly how every definition saved before drove. Additive;
+// no migration step.
+// v73 (docs/vehicles.md, "Loose panels and glass"): drive.damageLoose, and a
+// definition's bake-measured "pieces" list (written only when non-empty).
+// Missing = Loose parts 1 and no pieces until the next bake measures them.
+// Additive; no migration step.
+// v74: a definition's bake-measured "envLimits" (the shine's matte suffix,
+// docs/vehicles.md "Loose panels and glass"), written only when non-empty.
+// Missing = the reflection covers the whole part until the next bake.
+// Additive; no migration step.
+// v75 (docs/vehicles.md, "Lamp glow"): drive.lampGlow and a definition's
+// bake-measured "lampGlows" (written only when non-empty). Missing = no halo.
+// Additive; no migration step. (Shipped on its branch as v74.)
+// v79 (docs/roads.md, "Junction overrides"): a scene's "roadJunctions" list,
+// written only when non-empty, each field at its Auto value omitted. Missing =
+// no overrides, i.e. every crossing follows the rank rule as before. Additive;
+// no migration step.
+// v80 (docs/vehicles.md, "Speed feel"): six drive-spec keys - feelFrom,
+// feelShake, feelBlur, feelFov, feelNosFov, feelFlame - written with the rest
+// of the spec. Missing = the defaults, so a car saved before it gets the speed
+// feel too (it is presentation, and 0 switches each part off). Additive; no
+// migration step.
+// v81 (docs/vehicles.md, "Paint colour"): optional vehicle paintColor and
+// paintMask. Missing keys preserve the source model. Additive; no migration.
+// v82-v83 on vehicles introduced global defaults and per-field overrides.
+// v82-v84 on the procedural branch added placement options and frozen graphs.
+// Both branches used v82/v83 independently; v85 unifies the two schemas.
+// Explicit vehicle inheritance flags keep earlier branch projects readable.
+// v86: vehicle powerFade and optional engineHighCurve, additive.
+// v87: damageVisual, damageMechanical, damagePerfCurve and optional
+// engineHighEnabled. Missing values preserve the prior behavior; additive.
+// v88 (docs/reflective-materials.md, "Static scenery in the probe"):
+// ProjectSettings::reflectionScenery, written only when true. Missing = off,
+// i.e. only "Show in reflections" objects reach the probe as before. Also
+// ProjectSettings::reflectionGroundProxy ("The ground stand-in"), written only
+// when true; missing = the real terrain and road chunks. Additive; no
+// migration step.
+// v89 (docs/sky-texture.md): skyTexture + skyTextureYaw on ProjectSettings,
+// on a scene's sky override ("texture"/"textureYaw") and on each ambience
+// preset, each written only when set. Missing = the gradient sky as before.
+// Additive; no migration step.
+// v90 (docs/shadows.md, "Ground shadow maps"): ProjectSettings::
+// bakedShadowGround (64 or 128), written only when non-zero. Missing = off,
+// i.e. decals on the terrain as before. Additive; no migration step.
+// v91 (docs/vehicles.md, "Rev limiter"): drive-spec keys revLimiter and
+// revLimiterRate, written with the rest of the spec. Missing = 0 / 9, i.e.
+// no limiter as before. Additive; no migration step.
+// v92 (docs/collision-boxes.md, "A smaller box"): Project::modelCollision,
+// a per-model collision box keyed by asset path, written only when set.
+// Missing = the mesh bounds as before. Additive; no migration step.
+// v93 (docs/vehicles.md, "Exhaust pipes"): a definition's bake-measured
+// "exhausts" (written only when non-empty) and drive-spec key exhaustSmoke,
+// written with the rest of the spec. Missing = no markers (the guessed pipes)
+// and smoke 1, i.e. an older car smokes too - it is presentation. Additive;
+// no migration step.
+// v94 (docs/vehicles.md, "Controls card"): a definition's "tutorial" seconds,
+// written only when non-zero. Missing = no card, as before. Additive; no
+// migration step.
+inline constexpr int kFormatVersion = 94;
+
+// The OLDEST format this editor reads. v0 is "saved before versioning existed"
+// - a handful of shapes that were renamed or moved on their way to v1 (objects
+// inline in the manifest instead of objects/<id>.json, a single "layout" dump,
+// a project-level terrain block and flow graph, raw TTF paths where a font name
+// now goes, ...). TyraX has never shipped publicly, so nothing on anyone's disk
+// is written that way and the translations for it were pure weight; they are
+// gone. The gate exists so such a file is REFUSED by name rather than opening
+// as an empty project - the reader would find no scene it recognises and say
+// nothing about why.
+//
+// Raising this is the same kind of decision as a migration step and wants the
+// same note above kFormatVersion: it drops support for everything below it.
+inline constexpr int kMinFormatVersion = 1;
+
+}  // namespace version

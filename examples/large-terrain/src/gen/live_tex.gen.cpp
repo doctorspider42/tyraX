@@ -43,18 +43,53 @@ class LiveTex : public Script {
     memcpy(&foot, buf + 16 + count * LT_STRIDE, 4);
     if (foot != (seq ^ 0x5A5A5A5AU)) return;
 
+    // Per-group tally: one paint announces every path the
+    // texture may have shipped under, so a record matching no
+    // loaded texture is ordinary - a group matching none is the
+    // reload silently not happening.
+    static unsigned char fresh[LT_MAX];  // applied in this pass
+    static u32 grpId[LT_MAX];
+    static int grpHit[LT_MAX];
+    int groups = 0;
     for (u32 i = 0; i < count; ++i) {
+      fresh[i] = 0;
       const unsigned char* r = buf + 16 + i * LT_STRIDE;
       char path[LT_PATH];
       memcpy(path, r, LT_PATH);
       path[LT_PATH - 1] = 0;
-      u32 gen;
+      u32 gen, group;
       memcpy(&gen, r + LT_PATH, 4);
+      memcpy(&group, r + LT_PATH + 4, 4);
       const int slot = genSlot(path);
       if (slot < 0 || applied_[slot] >= gen) continue;
       applied_[slot] = gen;  // even on failure - a broken file
                              // must not be retried every poll
-      reload(ctx, path);
+      fresh[i] = 1;
+      int g = -1;
+      for (int j = 0; j < groups; ++j)
+        if (grpId[j] == group) g = j;
+      if (g < 0) {
+        g = groups++;
+        grpId[g] = group;
+        grpHit[g] = 0;
+      }
+      grpHit[g] += reload(ctx, path);
+    }
+    for (u32 i = 0; i < count; ++i) {
+      if (!fresh[i]) continue;
+      const unsigned char* r = buf + 16 + i * LT_STRIDE;
+      char path[LT_PATH];
+      memcpy(path, r, LT_PATH);
+      path[LT_PATH - 1] = 0;
+      u32 group;
+      memcpy(&group, r + LT_PATH + 4, 4);
+      for (int j = 0; j < groups; ++j)
+        if (grpId[j] == group && grpHit[j] == 0)
+          TYRA_SOFT_ERROR("Live texture reload: nothing loaded "
+                          "from ", path,
+                          " - the repaint reached no texture in "
+                          "this scene; rebuild if the model or "
+                          "its material is new");
     }
     lastSeq_ = seq;
   }
@@ -64,12 +99,17 @@ class LiveTex : public Script {
   // repository texture loaded from that path, then re-send them
   // to the already-allocated VRAM address. Never touches the
   // allocation itself, so it is safe against the bump allocator.
-  void reload(ScriptContext& ctx, const char* relPath) {
+  // Returns how many loaded textures the path MATCHED - a
+  // size/format mismatch counts (it reported itself already);
+  // zero is the caller's business.
+  int reload(ScriptContext& ctx, const char* relPath) {
     auto& repo = ctx.engine->renderer.getTextureRepository();
     auto& core = ctx.engine->renderer.core.texture;
     const std::string full = Tyra::FileUtils::fromCwd(relPath);
+    int matched = 0;
     for (Tyra::Texture* t : *repo.getAll()) {
       if (t->vramResident || t->sourcePath != full) continue;
+      ++matched;
       Tyra::PngLoader loader;
       Tyra::TextureBuilderData* d = loader.load(full);
       if (!d) continue;
@@ -107,6 +147,7 @@ class LiveTex : public Script {
       if (d->clut) delete[] d->clut;
       delete d;
     }
+    return matched;
   }
 
   // per-path applied generation, keyed by an FNV-1a hash
@@ -124,7 +165,7 @@ class LiveTex : public Script {
     return n_++;
   }
 
-  int cooldown_ = 3;  // offset from LiveLink's poll frame
+  int cooldown_ = 17;  // poll phase - see docs/devkit.md
   u32 lastSeq_ = 0;
   u32 hash_[LT_MAX];
   u32 applied_[LT_MAX];

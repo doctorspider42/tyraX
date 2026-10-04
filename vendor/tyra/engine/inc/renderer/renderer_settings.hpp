@@ -39,6 +39,68 @@ enum class VideoMode { Auto, NTSC, PAL };
  * Values are serialized in projects and flow graphs - append only. */
 enum class DisplayMode { Interlaced, Progressive480p, HiDef1080i, InterlacedField, Pal576i };
 
+/** Framebuffer colour depth (TyraX fork). Bits32 is PSMCT32, the stock
+ * 8-8-8-8 buffer. Bits16 is PSMCT16, the 5-5-5-1 buffer every other PS2
+ * generation shipped: it HALVES what the two frame buffers cost in GS
+ * memory (458 KB -> 229 KB at 512x448, more at the taller scan modes),
+ * which is the single biggest lever on a 4 MB GS - the texture heap roughly
+ * doubles. The price is 32 levels per channel instead of 256, i.e. banding
+ * in gradients, skies and post-fx blur, which is what the GS's ordered
+ * dither exists to break up (RendererOptions::dither).
+ * Values are serialized in projects - append only.
+ *
+ * Hybrid (TyraX fork): the scene, post fx and 2D all draw into ONE PSMCT32
+ * buffer over a 32-bit z, so every blend and every z test is full precision;
+ * with two buffers, after vsync a single blit copies it into ONE PSMCT16 buffer,
+ * and that is what the display scans. The copy is what the TV sees, so the GS
+ * can start drawing the next frame into the 32-bit buffer at once - the same
+ * overlap two display buffers give - while the pair costs a 32-bit buffer plus
+ * half of one instead of two (512 KB back at 512x512). No previous 32-bit frame
+ * exists to read, so motion blur, the upscaler's temporal pass and frame
+ * extrapolation do not run in this mode. Triple buffering adds a second
+ * PSMCT16 display buffer: one is scanned out, one queues the finished copy,
+ * while the same PSMCT32 buffer renders the next frame.
+ */
+enum class ColorDepth { Bits32, Bits16, Hybrid };
+
+/**
+ * Everything the renderer needs to know at init time (TyraX fork). It used
+ * to be three positional arguments; VRAM-shaping options pushed that past
+ * what a signature should carry.
+ */
+struct RendererOptions {
+  VideoMode videoMode = VideoMode::Auto;
+  DisplayMode displayMode = DisplayMode::Interlaced;
+  bool widescreen = false;
+
+  /** Framebuffer pixel format - see ColorDepth. */
+  ColorDepth colorDepth = ColorDepth::Bits32;
+
+  /**
+   * GS ordered dithering (DTHE + the DIMX matrix). The GS only dithers when
+   * it writes a 16-bit destination, so this is a no-op at Bits32 and is what
+   * makes Bits16 look like a graded image instead of a posterized one.
+   */
+  bool dither = true;
+
+  /**
+   * Reserve the dynamic env-map target (128x128 + its z, 128 KB). Only a
+   * project with a reflective "@sky" material ever reads it; off by default
+   * would break every existing caller, so RendererCore turns it off only
+   * when the game says so.
+   */
+  bool envMap = true;
+
+  /** Reserve the camera-feed target (another 128 KB) - texture feeds. */
+  bool camFeed = true;
+
+  /** Triple buffering (docs/frame-pacing.md): a third full display buffer,
+   * presented from a vblank handler instead of stalling the EE on vsync.
+   * The most expensive option in this struct - and the cheapest to afford
+   * at ColorDepth::Bits16 or Hybrid, whose display buffer is half the size. */
+  bool tripleBuffering = false;
+};
+
 class RendererSettings {
  public:
   RendererSettings()
@@ -49,6 +111,7 @@ class RendererSettings {
         far(51200.0F),
         projectionScale(4096.0F),
         aspectRatio(width / height),
+        windowAspect(4.0F / 3.0F),
         interlacedHeightUI(static_cast<unsigned int>(interlacedHeightF)),
         videoMode(VideoMode::Auto),
         displayMode(DisplayMode::Interlaced) {}
@@ -60,6 +123,36 @@ class RendererSettings {
   void setVideoMode(const VideoMode& mode) { videoMode = mode; }
   const DisplayMode& getDisplayMode() const { return displayMode; }
   const bool& getWidescreen() const { return widescreen; }
+  /** Framebuffer colour depth (TyraX fork) - see ColorDepth. Set before
+   * RendererCoreGS allocates buffers; it decides their pixel format. */
+  const ColorDepth& getColorDepth() const { return colorDepth; }
+  void setColorDepth(const ColorDepth& depth) { colorDepth = depth; }
+  /** GS ordered dithering, only meaningful at Bits16 (TyraX fork). */
+  const bool& getDither() const { return dither; }
+  void setDither(const bool& on) { dither = on; }
+  /** What may actually be written to DTHE. The GS manual requires dithering
+   * OFF for PSMCT32/24; real hardware leaves that result unspecified while
+   * PCSX2 commonly treats it as inert. */
+  bool isDitherActive() const {
+    return dither && colorDepth == ColorDepth::Bits16;
+  }
+  /** Hybrid colour depth (TyraX fork, see ColorDepth): a 32-bit draw buffer
+   * presented through one dithered blit into a 16-bit display buffer. */
+  bool isHybridOutput() const { return colorDepth == ColorDepth::Hybrid; }
+  /** Whether that present blit dithers. DTHE stays OFF for everything drawn
+   * into the 32-bit buffer (isDitherActive() is false in Hybrid) and is armed
+   * only for the blit, whose destination is the 16-bit display buffer. */
+  bool isHybridDitherActive() const { return dither && isHybridOutput(); }
+  /** The GS pixel storage mode of the frame buffers (TyraX fork): the
+   * one place that maps colour depth onto a PSM. Everything that writes a
+   * FRAME register for the screen - the drawing environment, the post-fx
+   * blits, the env-map and shadow-map restores - must use this and not
+   * assume GS_PSM_32, or it writes the frame in the wrong format. */
+  int getFrameBufferPsm() const {
+    // GS_PSM_32 = 0, GS_PSM_16 = 2 (gs_psm.h); spelled out to keep this
+    // header free of the ps2sdk include.
+    return colorDepth == ColorDepth::Bits16 ? 2 : 0;
+  }
   /** Selects the scan mode and its framebuffer size (TyraX fork).
    * When (re)selected before RendererCoreGS allocates buffers, sizes them;
    * at runtime RendererCore::setDisplayOutput drives the re-allocation. */
@@ -91,6 +184,25 @@ class RendererSettings {
   bool isFieldRendering() const {
     return displayMode == DisplayMode::InterlacedField;
   }
+
+  /**
+   * Triple buffering (TyraX fork, docs/frame-pacing.md). Must be set before
+   * RendererCoreGS allocates buffers - it decides how many frame buffers the
+   * permanent VRAM region holds, and the third one is not cheap (a full
+   * display buffer: 229 376 words at 512x448x32, half that in
+   * InterlacedField or with Bits16/Hybrid output). Off by default, and the engine falls back to two
+   * buffers when the third does not fit.
+   */
+  const bool& getTripleBuffering() const { return tripleBuffering; }
+  void setTripleBuffering(const bool& on) { tripleBuffering = on; }
+
+  /** Frame buffers the renderer wants: 3 with triple buffering on, else 2.
+   * What it actually GOT is RendererCoreGS::getFrameBufferCount(). */
+  unsigned int getFrameBufferCount() const {
+    // Modified by TyraX: Hybrid's third buffer is another 16-bit display
+    // target; its 32-bit draw target remains at index 0.
+    return tripleBuffering ? 3u : 2u;
+  }
   /** Height of the physical frame/z buffers - half the logical height when
    * field rendering, the logical height otherwise (TyraX fork). Everything
    * that sizes or addresses the framebuffer (allocation, XYOFFSET/SCISSOR,
@@ -102,10 +214,60 @@ class RendererSettings {
   unsigned int getRenderHeightUI() const {
     return static_cast<unsigned int>(getRenderHeightF());
   }
+
+  /**
+   * Modified by TyraX (BLSS neural upscaler, docs/neural-upscaler.md):
+   * the 3D pass' RASTER scale divisor. 1,1 (the default) means the 3D scene
+   * rasterises straight into the display buffer; 2,2 or 1,2 means it
+   * rasterises into RendererCoreBlss' low-res target and the reconstruction
+   * passes blow it back up.
+   *
+   * It composes with the field-rendering split above: the raster height is
+   * getRenderHeightF() / sy, so InterlacedField's already-halved buffer is
+   * halved again rather than fought with.
+   *
+   * ONLY the projection's raster scale reads these (see
+   * RendererCore3D::setProjection). The world-space frustum planes come from
+   * fov + aspectRatio and are deliberately untouched - exactly the invariant
+   * InterlacedField already relies on. Everything that sizes or addresses the
+   * DISPLAY buffer (clears, 2D/HUD, post fx, env-map/shadow-map restores)
+   * keeps getWidth()/getRenderHeightF(); getting that split wrong draws half
+   * the frame off-screen.
+   */
+  void setRasterScale(const int& sx, const int& sy) {
+    rasterScaleX = sx < 1 ? 1 : sx;
+    rasterScaleY = sy < 1 ? 1 : sy;
+  }
+  const int& getRasterScaleX() const { return rasterScaleX; }
+  const int& getRasterScaleY() const { return rasterScaleY; }
+  bool isRasterScaled() const {
+    return rasterScaleX != 1 || rasterScaleY != 1;
+  }
+  /** Width of the raster the 3D projection is built for (TyraX fork). */
+  float getRasterWidthF() const {
+    return width / static_cast<float>(rasterScaleX);
+  }
+  /** Height of the raster the 3D projection is built for (TyraX fork) -
+   * the physical render height divided by the raster scale. */
+  float getRasterHeightF() const {
+    return getRenderHeightF() / static_cast<float>(rasterScaleY);
+  }
+  unsigned int getRasterWidthUI() const {
+    return static_cast<unsigned int>(getRasterWidthF());
+  }
+  unsigned int getRasterHeightUI() const {
+    return static_cast<unsigned int>(getRasterHeightF());
+  }
   const float& getNear() const { return near; }
   const float& getFar() const { return far; }
   const float& getProjectionScale() const { return projectionScale; }
   const float& getAspectRatio() const { return aspectRatio; }
+  /** Physical shape of the display window on the TV (TyraX fork): 4:3, 16:9
+   * when widescreen is on, and the pillarboxed 1792/1920 window in widescreen
+   * 1080i. The framebuffer is NOT this shape - widescreen is anamorphic - so
+   * anything 2D that must keep its authored proportions (a baked menu panel,
+   * a letterbox mask) divides its HORIZONTAL scale by this over 4:3. */
+  const float& getWindowAspect() const { return windowAspect; }
   const float& getInterlacedHeightF() const { return interlacedHeightF; }
   const unsigned int& getInterlacedHeightUI() const {
     return interlacedHeightUI;
@@ -119,11 +281,19 @@ class RendererSettings {
 
  private:
   float width, height, interlacedHeightF, near, far, projectionScale,
-      aspectRatio;
+      aspectRatio, windowAspect;
   unsigned int interlacedHeightUI;
   VideoMode videoMode;
   DisplayMode displayMode;
   bool widescreen = false;
+  ColorDepth colorDepth = ColorDepth::Bits32;  // Modified by TyraX
+  bool dither = true;                          // Modified by TyraX
+  // Modified by TyraX: BLSS raster scale (1,1 = off - no project pays for it).
+  int rasterScaleX = 1;
+  int rasterScaleY = 1;
+  // Modified by TyraX: triple buffering (docs/frame-pacing.md). Off by
+  // default - the third buffer is a full display buffer of GS VRAM.
+  bool tripleBuffering = false;
 
   /** Framebuffer size per scan mode + projection aspect (TyraX fork).
    * The projection aspect keeps the stock 512/448 value as the 4:3 baseline
@@ -155,7 +325,7 @@ class RendererSettings {
     // stretches the same signal to 16:9. 1080i's raster is natively 16:9:
     // 4:3 games get a pillarboxed 1344-VCK window, widescreen ones a
     // 1792/1920 window (the widest 448 * integer-magh fit).
-    float windowAspect = widescreen ? (16.0F / 9.0F) : (4.0F / 3.0F);
+    windowAspect = widescreen ? (16.0F / 9.0F) : (4.0F / 3.0F);
     if (displayMode == DisplayMode::HiDef1080i && widescreen)
       windowAspect = (1792.0F / 1920.0F) * (16.0F / 9.0F);
     aspectRatio = (512.0F / 448.0F) * windowAspect / (4.0F / 3.0F);

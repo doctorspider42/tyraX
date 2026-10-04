@@ -1,0 +1,1 @@
+{ "id": "hzt", "name": "hazard-tall", "type": "box", "position": [2.4, 1.35, 0], "rotation": [0, 0, 0], "scale": [1.4, 2.3, 1.1], "color": [0.95, 0.55, 0.15], "physics": false }

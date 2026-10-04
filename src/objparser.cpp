@@ -348,15 +348,6 @@ bool load(const std::string& path, Model& out, const std::string& overrideMtl) {
     return !out.submeshes.empty();
 }
 
-bool load(const std::string& path, std::vector<float>& out) {
-    Model model;
-    if (!load(path, model)) return false;
-    out.clear();
-    for (const Submesh& s : model.submeshes)
-        out.insert(out.end(), s.verts.begin(), s.verts.end());
-    return !out.empty();
-}
-
 template <class Model>
 bool applyMaterialOverride(Model& model, const std::string& overrideMtlPath,
                            std::vector<std::string>* warnings) {

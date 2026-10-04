@@ -15,9 +15,15 @@
 #include <shellapi.h>
 #include <shlobj.h>
 #include <shobjidl.h>
+#include <tlhelp32.h>
 #include <GLFW/glfw3.h>
 #define GLFW_EXPOSE_NATIVE_WIN32
 #include <GLFW/glfw3native.h>
+// Guarded because MinGW only declares it at _WIN32_WINNT >= 0x0600 and this
+// tree sets no target version; the value is fixed in the ABI.
+#ifndef PROCESS_QUERY_LIMITED_INFORMATION
+#define PROCESS_QUERY_LIMITED_INFORMATION 0x1000
+#endif
 #else
 #include <fcntl.h>
 #include <pwd.h>
@@ -209,6 +215,21 @@ std::string logTimeStamp() {
     return stamp;
 }
 
+std::string fileTimeStamp() {
+    const std::time_t t = std::time(nullptr);
+    std::tm tm{};
+#ifdef _WIN32
+    localtime_s(&tm, &t);
+#else
+    ::localtime_r(&t, &tm);
+#endif
+    char stamp[24];
+    std::snprintf(stamp, sizeof(stamp), "%04d%02d%02d-%02d%02d%02d",
+                  tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour,
+                  tm.tm_min, tm.tm_sec);
+    return stamp;
+}
+
 // ---------------------------------------------------------------------------
 // Shell command fragments
 // ---------------------------------------------------------------------------
@@ -250,26 +271,184 @@ std::string envPrefix(const std::string& name, const std::string& value) {
 #endif
 }
 
-std::string killByName(const std::vector<std::string>& processNames) {
-    std::string cmd;
-    for (const std::string& raw : processNames) {
-        if (raw.empty()) continue;
+// ---------------------------------------------------------------------------
+// Looking at other processes
+// ---------------------------------------------------------------------------
+
+namespace {
+
 #ifdef _WIN32
-        std::string name = raw;
-        if (name.size() < 4 || name.compare(name.size() - 4, 4, ".exe") != 0)
-            name += ".exe";
-        cmd += "taskkill /F /IM " + name + " 2>nul & ";
-#else
-        // -x: exact process name. A wrapper (a PCSX2 AppImage, a flatpak
-        // launcher) shows up under its own name, which is why callers pass the
-        // basename of whatever they actually launched alongside the standard
-        // names rather than relying on a fuzzy -f match that could just as
-        // easily match the editor's own command line.
-        cmd += "pkill -x " + shQuote(raw) + " >/dev/null 2>&1; ";
+// Windows compares both process names and paths case-insensitively; nothing
+// off it does, which is why this is not defined there.
+std::string lowerAscii(std::string s) {
+    for (char& c : s)
+        if (c >= 'A' && c <= 'Z') c = (char)(c - 'A' + 'a');
+    return s;
+}
 #endif
+
+// The basename with the platform's executable suffix removed, lowercased on
+// Windows (where process names are compared case-insensitively) and left alone
+// elsewhere - so "PCSX2.exe", "pcsx2" and "pcsx2.EXE" are one name on Windows
+// while "Pcsx2" and "pcsx2" stay two on Linux, which is what those file systems
+// mean.
+std::string processKey(const std::string& raw) {
+#ifdef _WIN32
+    std::string s = lowerAscii(raw);
+    if (s.size() > 4 && s.compare(s.size() - 4, 4, ".exe") == 0) s.resize(s.size() - 4);
+    return s;
+#else
+    return raw;
+#endif
+}
+
+#ifdef _WIN32
+
+// Another process's command line, straight from the kernel:
+// NtQueryInformationProcess(ProcessCommandLineInformation), which needs only
+// PROCESS_QUERY_LIMITED_INFORMATION and reads no remote memory. Windows 8.1 and
+// up; anything older (or a process we may not open) answers "" and the caller
+// treats it as unidentified rather than as a target.
+std::string remoteCommandLine(DWORD pid) {
+    struct UniStr {  // UNICODE_STRING, spelled locally so winternl stays out
+        USHORT Length;
+        USHORT MaximumLength;
+        PWSTR Buffer;
+    };
+    using NtQip = LONG(WINAPI*)(HANDLE, ULONG, PVOID, ULONG, PULONG);
+    static NtQip query = [] {
+        HMODULE nt = GetModuleHandleW(L"ntdll.dll");
+        return nt ? (NtQip)(void*)GetProcAddress(nt, "NtQueryInformationProcess")
+                  : nullptr;
+    }();
+    if (!query) return "";
+    HANDLE h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+    if (!h) return "";
+    constexpr ULONG kProcessCommandLineInformation = 60;
+    constexpr LONG kInfoLengthMismatch = (LONG)0xC0000004L;
+    std::vector<unsigned char> buf(1024);
+    ULONG need = 0;
+    LONG st = query(h, kProcessCommandLineInformation, buf.data(),
+                    (ULONG)buf.size(), &need);
+    if (st == kInfoLengthMismatch && need > buf.size()) {
+        buf.assign(need, 0);
+        st = query(h, kProcessCommandLineInformation, buf.data(),
+                   (ULONG)buf.size(), &need);
     }
-    cmd += "exit 0";
-    return cmd;
+    std::string out;
+    if (st >= 0) {
+        const UniStr* s = (const UniStr*)buf.data();
+        if (s->Buffer && s->Length) {
+            const std::wstring w(s->Buffer, s->Length / sizeof(wchar_t));
+            out = wideToUtf8(w.c_str());
+        }
+    }
+    CloseHandle(h);
+    return out;
+}
+
+#else
+
+std::string readProcFile(const fs::path& p) {
+    std::string out;
+    FILE* f = std::fopen(p.c_str(), "rb");
+    if (!f) return out;
+    char buf[4096];
+    size_t n;
+    while ((n = std::fread(buf, 1, sizeof(buf), f)) > 0) out.append(buf, n);
+    std::fclose(f);
+    return out;
+}
+
+#endif
+
+}  // namespace
+
+std::vector<RunningProcess> processesNamed(const std::string& name) {
+    std::vector<RunningProcess> out;
+    if (name.empty()) return out;
+    const std::string want = processKey(name);
+#ifdef _WIN32
+    HANDLE snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
+    if (snap == INVALID_HANDLE_VALUE) return out;
+    PROCESSENTRY32W e{};
+    e.dwSize = sizeof(e);
+    if (Process32FirstW(snap, &e)) {
+        do {
+            const std::string key = processKey(wideToUtf8(e.szExeFile));
+            if (key != want) continue;
+            RunningProcess p;
+            p.pid = e.th32ProcessID;
+            p.name = key;
+            p.commandLine = remoteCommandLine(e.th32ProcessID);
+            out.push_back(std::move(p));
+        } while (Process32NextW(snap, &e));
+    }
+    CloseHandle(snap);
+#else
+    std::error_code ec;
+    for (const auto& entry : fs::directory_iterator("/proc", ec)) {
+        const std::string leaf = entry.path().filename().string();
+        if (leaf.empty() || leaf.find_first_not_of("0123456789") != std::string::npos)
+            continue;
+        // The exe symlink first: /proc/<pid>/comm truncates at 15 characters,
+        // which a PCSX2 AppImage's file name passes comfortably.
+        std::string exe;
+        std::error_code lec;
+        const fs::path target = fs::read_symlink(entry.path() / "exe", lec);
+        if (!lec) exe = target.filename().string();
+        if (exe.empty()) {
+            exe = readProcFile(entry.path() / "comm");
+            while (!exe.empty() && (exe.back() == '\n' || exe.back() == '\r'))
+                exe.pop_back();
+        }
+        if (processKey(exe) != want) continue;
+        RunningProcess p;
+        p.pid = (unsigned long long)std::strtoull(leaf.c_str(), nullptr, 10);
+        p.name = exe;
+        // argv, NUL-separated. Joined with spaces so both platforms hand the
+        // caller one string to look through.
+        std::string cmd = readProcFile(entry.path() / "cmdline");
+        for (char& c : cmd)
+            if (c == '\0') c = ' ';
+        while (!cmd.empty() && cmd.back() == ' ') cmd.pop_back();
+        p.commandLine = cmd;
+        out.push_back(std::move(p));
+    }
+#endif
+    return out;
+}
+
+bool commandLineNamesPath(const std::string& commandLine, const std::string& path) {
+    if (commandLine.empty() || path.empty()) return false;
+#ifdef _WIN32
+    // Windows path comparison is case-insensitive, and the launcher quotes the
+    // argument, so a plain substring test over both lowercased is exactly the
+    // question - the quotes sit outside the path, never inside it.
+    return lowerAscii(commandLine).find(lowerAscii(path)) != std::string::npos;
+#else
+    return commandLine.find(path) != std::string::npos;
+#endif
+}
+
+bool killProcess(unsigned long long pid) {
+    if (pid == 0) return false;
+#ifdef _WIN32
+    HANDLE h = OpenProcess(PROCESS_TERMINATE | SYNCHRONIZE, FALSE, (DWORD)pid);
+    // ERROR_INVALID_PARAMETER is what OpenProcess says about a pid that no
+    // longer exists, which is success as far as the caller is concerned.
+    if (!h) return GetLastError() == ERROR_INVALID_PARAMETER;
+    const BOOL ok = TerminateProcess(h, 1);
+    // Wait for it to actually go: on Windows the handles it holds (the project's
+    // bin\ as a working directory, above all) are released on exit, not on the
+    // TerminateProcess call, and the Clean path deletes exactly those files.
+    if (ok) WaitForSingleObject(h, 3000);
+    CloseHandle(h);
+    return ok != 0;
+#else
+    if (::kill((pid_t)pid, SIGKILL) == 0) return true;
+    return errno == ESRCH;  // already gone
+#endif
 }
 
 bool commandExists(const std::string& name) {
@@ -284,6 +463,31 @@ bool commandExists(const std::string& name) {
     capture("command -v " + shQuote(name) + " 2>/dev/null", &code);
     return code == 0;
 #endif
+}
+
+std::string commandPath(const std::string& name) {
+    if (name.empty()) return "";
+    std::string out;
+#ifdef _WIN32
+    // `capture` above is the POSIX half's helper (it is inside the #else), so
+    // the Windows branch reads the pipe itself. `where` prints one match per
+    // line and may find several - a shim plus the real binary - and the first
+    // is the one the shell would run.
+    if (FILE* p = ::_popen(("where " + name + " 2>nul").c_str(), "r")) {
+        char buf[1024];
+        size_t n;
+        while ((n = std::fread(buf, 1, sizeof(buf), p)) > 0) out.append(buf, n);
+        if (::_pclose(p) != 0) return "";
+    }
+#else
+    int code = -1;
+    out = capture("command -v " + shQuote(name) + " 2>/dev/null", &code);
+    if (code != 0) return "";
+#endif
+    const size_t nl = out.find_first_of("\r\n");
+    if (nl != std::string::npos) out.resize(nl);
+    while (!out.empty() && (out.back() == ' ' || out.back() == '\t')) out.pop_back();
+    return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -626,14 +830,68 @@ void errorBox(const std::string& title, const std::string& message) {
 #endif
 }
 
+bool confirmBox(const std::string& title, const std::string& message) {
+#ifdef _WIN32
+    // Default button is No: the caller is about to do something irreversible,
+    // so a stray Enter must not be the one that agrees to it.
+    return MessageBoxA(g_dialogOwner, message.c_str(), title.c_str(),
+                       MB_ICONWARNING | MB_YESNO | MB_DEFBUTTON2) == IDYES;
+#else
+    int code = -1;
+    // zenity/kdialog both exit 0 for yes and non-zero for no/closed.
+    if (commandExists("zenity")) {
+        capture("zenity --question --title=" + shQuote(title) + " --text=" +
+                    shQuote(message) + " >/dev/null 2>&1",
+                &code);
+        return code == 0;
+    }
+    if (commandExists("kdialog")) {
+        capture("kdialog --title " + shQuote(title) + " --yesno " +
+                    shQuote(message) + " >/dev/null 2>&1",
+                &code);
+        return code == 0;
+    }
+    // No dialog tool: answer No rather than assume consent (see the header).
+    std::fprintf(stderr, "[editor] %s: %s\n  -> no dialog available, answering No\n",
+                 title.c_str(), message.c_str());
+    return false;
+#endif
+}
+
+void openUrl(const std::string& url) {
+    // Only http(s), and that is a security decision rather than tidiness: this
+    // is handed URLs that came off the network (a release's html_url), and the
+    // shells below would just as happily launch a "file:" or an executable.
+    if (url.rfind("http://", 0) != 0 && url.rfind("https://", 0) != 0) return;
+#ifdef _WIN32
+    ShellExecuteA(nullptr, "open", url.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+#else
+    Process::startDetached("xdg-open " + shQuote(url) + " >/dev/null 2>&1");
+#endif
+}
+
 void revealInFileManager(const std::string& path) {
     if (path.empty()) return;
     std::error_code ec;
-    const bool isFile = fs::is_regular_file(path, ec);
+    // A path that does not exist must never reach the file manager. explorer
+    // answers one by opening the user's DEFAULT folder - Documents - which
+    // reads as the button having gone somewhere random rather than as "what
+    // you asked for is not there any more" (reported against the Debugger's
+    // *Show file*, whose frame.tga the Runner deletes on every launch). Walk up
+    // to the nearest ancestor that does exist and open THAT instead; a caller
+    // that wants to say more should check the file itself first.
+    fs::path target(path);
+    for (int guard = 0; guard < 64 && !fs::exists(target, ec); ++guard) {
+        const fs::path up = target.parent_path();
+        if (up.empty() || up == target) return;
+        target = up;
+    }
+    if (!fs::exists(target, ec)) return;
+    const bool isFile = fs::is_regular_file(target, ec);
 #ifdef _WIN32
     // explorer.exe wants '\' - it silently opens the default folder instead of
     // selecting anything when handed a mixed path the file APIs accept.
-    const std::string native = fs::path(path).make_preferred().string();
+    const std::string native = target.make_preferred().string();
     const std::string arg =
         isFile ? "/select,\"" + native + "\"" : "\"" + native + "\"";
     ShellExecuteA(nullptr, "open", "explorer.exe", arg.c_str(), nullptr, SW_SHOWNORMAL);
@@ -642,14 +900,75 @@ void revealInFileManager(const std::string& path) {
     // (Nautilus, Dolphin, Nemo and Thunar all implement it). Fall back to
     // xdg-open on the containing folder when nothing answers on the bus - the
     // folder still opens, just without the file highlighted.
-    const std::string uri = "file://" + path;
+    const std::string uri = "file://" + target.string();
     std::string cmd =
         "dbus-send --session --print-reply --dest=org.freedesktop.FileManager1 "
         "/org/freedesktop/FileManager1 org.freedesktop.FileManager1.ShowItems "
         "array:string:" + shQuote(uri) + " string:'' >/dev/null 2>&1 || "
         "xdg-open " +
-        shQuote(isFile ? fs::path(path).parent_path().string() : path) + " >/dev/null 2>&1";
+        shQuote(isFile ? target.parent_path().string() : target.string()) +
+        " >/dev/null 2>&1";
     Process::startDetached(cmd);
+#endif
+}
+
+bool copyImageToClipboard(const unsigned char* rgba, int width, int height,
+                          const std::string& pngPath) {
+    if (!rgba || width <= 0 || height <= 0) return false;
+#ifdef _WIN32
+    const size_t pixels = (size_t)width * (size_t)height * 4;
+    const size_t bytes = sizeof(BITMAPV5HEADER) + pixels;
+    HGLOBAL memory = GlobalAlloc(GMEM_MOVEABLE, bytes);
+    if (!memory) return false;
+    unsigned char* dst = static_cast<unsigned char*>(GlobalLock(memory));
+    if (!dst) {
+        GlobalFree(memory);
+        return false;
+    }
+    BITMAPV5HEADER* head = reinterpret_cast<BITMAPV5HEADER*>(dst);
+    std::memset(head, 0, sizeof(*head));
+    head->bV5Size = sizeof(*head);
+    head->bV5Width = width;
+    head->bV5Height = -height;  // top-down, like the decoded debugger pixels
+    head->bV5Planes = 1;
+    head->bV5BitCount = 32;
+    head->bV5Compression = BI_BITFIELDS;
+    head->bV5SizeImage = (DWORD)pixels;
+    head->bV5RedMask = 0x00FF0000;
+    head->bV5GreenMask = 0x0000FF00;
+    head->bV5BlueMask = 0x000000FF;
+    head->bV5AlphaMask = 0xFF000000;
+    unsigned char* bgra = dst + sizeof(*head);
+    for (size_t i = 0; i < pixels; i += 4) {
+        bgra[i + 0] = rgba[i + 2];
+        bgra[i + 1] = rgba[i + 1];
+        bgra[i + 2] = rgba[i + 0];
+        bgra[i + 3] = rgba[i + 3];
+    }
+    GlobalUnlock(memory);
+    if (!OpenClipboard(g_dialogOwner)) {
+        GlobalFree(memory);
+        return false;
+    }
+    EmptyClipboard();
+    const bool ok = SetClipboardData(CF_DIBV5, memory) != nullptr;
+    CloseClipboard();
+    if (!ok) GlobalFree(memory);  // ownership transfers only on success
+    return ok;
+#else
+    if (pngPath.empty()) return false;
+    std::error_code ec;
+    if (!fs::is_regular_file(pngPath, ec)) return false;
+    if (commandExists("wl-copy")) {
+        Process::startDetached("wl-copy --type image/png < " + shQuote(pngPath));
+        return true;
+    }
+    if (commandExists("xclip")) {
+        Process::startDetached("xclip -selection clipboard -t image/png -i " +
+                               shQuote(pngPath));
+        return true;
+    }
+    return false;
 #endif
 }
 

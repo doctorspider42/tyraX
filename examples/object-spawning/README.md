@@ -41,6 +41,17 @@ spawning past the cap simply fails until a slot frees — no allocation at
 runtime. A clone inherits its template's streaming layer, so unloading that
 layer despawns it too.
 
-See [docs/object-scripts.md](../../docs/object-scripts.md) for the flow
-graph, and [docs/animated-models.md](../../docs/animated-models.md) for the
-skeletal model.
+See [docs/animated-models.md](../../docs/animated-models.md) for the skeletal
+model. The spawn nodes themselves are documented where they live: hover
+**Spawn Object** / **Despawn Object** in the flow-graph palette for the pin
+tips.
+
+Generated object values live in `src/gen/scene_objects.gen.cpp`;
+`inc/scene_data.hpp` keeps stable declarations. Counts and object IDs live in
+the same data file, so ordinary moves, color edits, additions and removals can
+rebuild it alone. Changes to features or derived tables can still rebuild consumers.
+
+Generated game methods are split between `src/terrain_game.cpp` and the
+`src/gen/game_*.gen.cpp` subsystems, with shared inline helpers/state in
+`inc/game_runtime.gen.hpp`. Header changes can compile these units in parallel.
+The main file remains user-ownable; generated subsystem files refresh on build.

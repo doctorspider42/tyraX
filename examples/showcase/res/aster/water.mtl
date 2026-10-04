@@ -1,0 +1,4 @@
+newmtl water
+Kd 1 1 1
+map_Kd water.png
+refl -type sphere -mm 0 0.32 @sky

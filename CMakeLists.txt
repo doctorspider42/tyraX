@@ -102,6 +102,23 @@ add_custom_command(
     DEPENDS ${AI_SUPPORT_SOURCES} ${CMAKE_SOURCE_DIR}/cmake/embed_ai_support.cmake
     COMMENT "Embedding ai-support/ skills")
 
+# --- Embedded documentation (docs/*.md -> generated header) ---
+# The in-editor AI assistant answers from the editor's own docs (docs/ai-chat.md):
+# it gets an index of every page in its system prompt and pulls one in with its
+# read_doc tool. Baked into the exe because an installed editor has no repo next
+# to it - and because docs/ is then the single source for humans and assistant
+# alike, so the standing docs-in-the-same-commit rule keeps both current.
+file(GLOB TYRAX_DOC_SOURCES CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/docs/*.md)
+set(DOCS_GEN ${CMAKE_BINARY_DIR}/generated/docs_gen.hpp)
+add_custom_command(
+    OUTPUT ${DOCS_GEN}
+    COMMAND ${CMAKE_COMMAND}
+            -DSRC_DIR=${CMAKE_SOURCE_DIR}/docs
+            -DOUT_FILE=${DOCS_GEN}
+            -P ${CMAKE_SOURCE_DIR}/cmake/embed_docs.cmake
+    DEPENDS ${TYRAX_DOC_SOURCES} ${CMAKE_SOURCE_DIR}/cmake/embed_docs.cmake
+    COMMENT "Embedding docs/ pages")
+
 # --- Embedded app icon (resources/icon.png -> generated header) ---
 # Windows gets its icon from the GLFW_ICON resource in resources/app.rc above.
 # Every other platform needs the same image at RUNTIME - GLFW wants decoded
@@ -113,42 +130,120 @@ add_custom_command(
     COMMAND ${CMAKE_COMMAND}
             -DSRC_FILE=${CMAKE_SOURCE_DIR}/resources/icon.png
             -DOUT_FILE=${APP_ICON_GEN}
-            -P ${CMAKE_SOURCE_DIR}/cmake/embed_icon.cmake
+            -DNAMESPACE=appicon -DSYMBOL=kIconPng
+            -P ${CMAKE_SOURCE_DIR}/cmake/embed_binary.cmake
     DEPENDS ${CMAKE_SOURCE_DIR}/resources/icon.png
-            ${CMAKE_SOURCE_DIR}/cmake/embed_icon.cmake
+            ${CMAKE_SOURCE_DIR}/cmake/embed_binary.cmake
     COMMENT "Embedding resources/icon.png")
 
-# Own target for the two generators. If the headers were listed straight in
+# --- Embedded lunar colour map (resources/moon-lroc-color-1k.jpg) ---
+# NASA SVS "CGI Moon Kit", LRO/LROC 2019 colour map (1024x512, public domain -
+# see THIRD-PARTY-LICENSES.md). menubake::bakeMoonPNG projects it into the small
+# moon disc a day/night cycle ships; the map itself never reaches the PS2, so it
+# is baked into the editor rather than copied into every project.
+set(MOON_MAP_GEN ${CMAKE_BINARY_DIR}/generated/moonmap_gen.hpp)
+add_custom_command(
+    OUTPUT ${MOON_MAP_GEN}
+    COMMAND ${CMAKE_COMMAND}
+            -DSRC_FILE=${CMAKE_SOURCE_DIR}/resources/moon-lroc-color-1k.jpg
+            -DOUT_FILE=${MOON_MAP_GEN}
+            -DNAMESPACE=moonmap -DSYMBOL=kMoonJpg
+            -P ${CMAKE_SOURCE_DIR}/cmake/embed_binary.cmake
+    DEPENDS ${CMAKE_SOURCE_DIR}/resources/moon-lroc-color-1k.jpg
+            ${CMAKE_SOURCE_DIR}/cmake/embed_binary.cmake
+    COMMENT "Embedding resources/moon-lroc-color-1k.jpg")
+
+# --- Embedded default BLSS network (resources/blss-default.net + .meta) ---
+# The neural upscaler's shipped network (docs/neural-upscaler.md, "Can one net
+# ship for every project?"): 500 bytes of weights fitted on seven example
+# projects AND the procedural bestiary, plus its provenance sidecar. Baked into
+# the editor rather than shipped loose for the same reason the app icon is - a
+# default that is only there when someone remembered to copy a data file is
+# worse than no default - and templates.cpp falls back to it whenever a project
+# has BLSS on and no blss.net of its own.
+#
+# REBUILD BOTH FILES WHENEVER THE CORPUS, THE TOPOLOGY OR blss::kNetVersion
+# MOVES. The net carries no topology beyond that version number, so a stale
+# asset is refused at bake time (the build then falls back to random weights and
+# says so) rather than silently mis-shaped. `tyrax-editor --blss-emit -o <tmp>`
+# in a directory with no blss.net is the cheap check: it loads the embedded net
+# and fails when this build cannot read it. The command that produces them is
+# recorded in the .meta file itself.
+set(BLSS_NET_GEN ${CMAKE_BINARY_DIR}/generated/blssnet_gen.hpp)
+add_custom_command(
+    OUTPUT ${BLSS_NET_GEN}
+    COMMAND ${CMAKE_COMMAND}
+            -DSRC_FILE=${CMAKE_SOURCE_DIR}/resources/blss-default.net
+            -DOUT_FILE=${BLSS_NET_GEN}
+            -DNAMESPACE=blssdefault -DSYMBOL=kDefaultNet
+            -P ${CMAKE_SOURCE_DIR}/cmake/embed_binary.cmake
+    DEPENDS ${CMAKE_SOURCE_DIR}/resources/blss-default.net
+            ${CMAKE_SOURCE_DIR}/cmake/embed_binary.cmake
+    COMMENT "Embedding resources/blss-default.net")
+
+set(BLSS_META_GEN ${CMAKE_BINARY_DIR}/generated/blssmeta_gen.hpp)
+add_custom_command(
+    OUTPUT ${BLSS_META_GEN}
+    COMMAND ${CMAKE_COMMAND}
+            -DSRC_FILE=${CMAKE_SOURCE_DIR}/resources/blss-default.net.meta
+            -DOUT_FILE=${BLSS_META_GEN}
+            -DNAMESPACE=blssdefault -DSYMBOL=kDefaultNetMeta
+            -P ${CMAKE_SOURCE_DIR}/cmake/embed_binary.cmake
+    DEPENDS ${CMAKE_SOURCE_DIR}/resources/blss-default.net.meta
+            ${CMAKE_SOURCE_DIR}/cmake/embed_binary.cmake
+    COMMENT "Embedding resources/blss-default.net.meta")
+
+# Own target for the generators. If the headers were listed straight in
 # tyrax-editor's sources, CMake would attach their custom commands to that
-# target and give them order-only deps on everything it LINKS - so both
+# target and give them order-only deps on everything it LINKS - so the
 # generators (0.1 s of work) waited for libimgui.a, and with them every editor
 # .obj. That serialised ~17 s of imgui.cpp in front of the whole editor build.
-add_custom_target(tyrax-generated DEPENDS ${AI_SUPPORT_GEN} ${APP_ICON_GEN})
+add_custom_target(tyrax-generated
+    DEPENDS ${AI_SUPPORT_GEN} ${DOCS_GEN} ${APP_ICON_GEN} ${MOON_MAP_GEN}
+            ${BLSS_NET_GEN} ${BLSS_META_GEN})
 
 # --- Editor ---
 add_executable(tyrax-editor
     src/main.cpp
+    src/aichat.cpp
     src/aigen.cpp
     src/aisupport.cpp
+    src/ambience.cpp
     src/animedit.cpp
+    src/animmerge.cpp
     src/aobake.cpp
     src/app.cpp
     src/audiopreview.cpp
     src/assetbrowser.cpp
+    src/blss.cpp
+    src/blsscorpus.cpp
+    src/blssscene.cpp
+    src/blss_ui.cpp
+    src/blss_window.cpp
+    src/blobshadowbake.cpp
     src/camtake.cpp
     src/charanim.cpp
     src/chargen.cpp
+    src/chat_ui.cpp
     src/credits_ui.cpp
     src/cutscene_ui.cpp
     src/devkit_ui.cpp
+    src/hardware_timeline.cpp
     src/devsession.cpp
+    src/facts.cpp
+    src/facts_ui.cpp
     src/flowgraph_ui.cpp
     src/flownode.cpp
     src/hud_ui.cpp
     src/mateditor_ui.cpp
     src/prefab_ui.cpp
+    src/particle_ui.cpp
+    src/atlas_ui.cpp
+    src/batch_ui.cpp
     src/procui.cpp
+    src/vu_ui.cpp
     src/props_ui.cpp
+    src/junction_ui.cpp
     src/fbxparser.cpp
     src/gl_loader.cpp
     src/glbparser.cpp
@@ -162,16 +257,37 @@ add_executable(tyrax-editor
     src/livedbg.cpp
     src/livelogic.cpp
     src/livepad.cpp
+    src/livereplay.cpp
     src/livetime.cpp
+    src/logview.cpp
     src/vucap.cpp
     src/bvh.cpp
     src/gibake.cpp
+    src/gigpu.cpp
+    src/litbake.cpp
+    src/vuir.cpp
+    src/vuasm.cpp
+    src/vusim.cpp
+    src/vugen.cpp
+    src/vushader.cpp
+    src/vushader_sample.cpp
+    src/vushader_snap_sample.cpp
+    src/vushader_wobble_sample.cpp
+    src/vushader_palette_sample.cpp
+    src/vukernel_sample.cpp
     src/matbake.cpp
+    src/modelao.cpp
     src/objparser.cpp
+    src/occlusionbake.cpp
     src/iso9660.cpp
     src/isoexport.cpp
     src/menubake.cpp
+    src/menulayout.cpp
+    src/menustyle.cpp
+    src/menustyle_ui.cpp
     src/meshlod.cpp
+    src/meshstrip.cpp
+    src/migrations.cpp
     src/pcsx2_config.cpp
     src/phonecam.cpp
     src/placement.cpp
@@ -179,31 +295,53 @@ add_executable(tyrax-editor
     src/pngquant.cpp
     src/prefab.cpp
     src/primmesh.cpp
+    src/physhull.cpp
+    src/particletex.cpp
     src/procgraph.cpp
     src/procgen.cpp
     src/procbake.cpp
     src/procrt.cpp
+    src/reflscenery.cpp
     src/decalproj.cpp
     src/dronegen.cpp
     src/droneui.cpp
     src/navmesh.cpp
     src/project.cpp
+    src/savebake.cpp
+    src/scrollsim.cpp
+    src/shadowbake.cpp
+    src/skytex.cpp
     src/screenfx.cpp
     src/session.cpp
+    src/starfield.cpp
+    src/staticbatch.cpp
+    src/staticbatchdisk.cpp
     src/stochtile.cpp
     src/texatlas.cpp
     src/texbake.cpp
     src/theme.cpp
     src/tmdl.cpp
     src/treegen.cpp
+    src/treeimpostor.cpp
+    src/impostorgpu.cpp
+    src/modelimpostor.cpp
+    src/modelproxy.cpp
     src/uiscript.cpp
+    src/update.cpp
+    src/update_ui.cpp
     src/uvunwrap.cpp
+    src/vehbake.cpp
+    src/vehicle_ui.cpp
+    src/roadgen.cpp
+    src/vehcheck.cpp
+    src/vehiclesim.cpp
     src/save_assets.cpp
     src/templates.cpp
     src/viewport.cpp
     src/wavconvert.cpp
     src/wire.cpp
     src/runner.cpp
+    src/sessionlog.cpp
     vendor/imguizmo/src/ImGuizmo.cpp
     vendor/imnodes/imnodes.cpp
     vendor/ufbx/ufbx.c

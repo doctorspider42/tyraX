@@ -1,0 +1,1 @@
+{ "id": "d95b91f38240951a", "name": "west-promenade", "type": "model", "position": [-10, -2.5, 0], "rotation": [0, 0, 0], "scale": [1, 1, 1], "color": [1, 1, 1], "physics": false, "model": "res/aster/west-promenade.obj" }

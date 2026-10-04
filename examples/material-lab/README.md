@@ -1,13 +1,15 @@
 # material-lab — the material pipeline on one pedestal
 
-A small diorama built to show the whole Material Editor toolchain in one
-place: a stone **altar** whose texture is a live **layer stack** (base stone
-→ **Baked AO** → **smart masks**), brick **pillars** and tiled **orbs**
-whose textures ship inside a shared **texture atlas**, a big **paint
-canvas** wall wired for **live texture hot reload**, and a reusable
-**material preset**. The project opens with the **Material Editor already
-docked** (every window layout requests it), and ships in the **debug**
-profile so Live Link + hot reload work straight after F5.
+A small diorama showing the whole Material Editor toolchain in one place: a
+stone **altar** whose texture is a live **layer stack** (base stone →
+**Baked AO** → **smart masks**), brick **pillars** and tiled **orbs** whose
+textures ship inside a shared **texture atlas**, a big **paint canvas** wall
+wired for **live texture hot reload**, and a reusable **material preset**.
+The project opens with the **Material Editor already docked** (every window
+layout requests it) and ships in the **debug** profile so Live Link + hot
+reload work straight after F5.
+
+![The altar material with baked AO, edge wear, cavity grime and the live model preview.](../../docs/img/material-editor.png)
 
 ## What to look at in the game (Build & Run)
 
@@ -25,12 +27,11 @@ profile so Live Link + hot reload work straight after F5.
 
 1. Open the project, then **Tools > Material Editor** and pick
    `models/altar.mtl` — the preview lands on the altar model.
-2. The **Layers** list (always visible — *Paint* only arms the brush)
-   shows the full stack —
-   `Background`, `Baked AO` (multiply), `Cavity grime *` and `Edge wear *`
-   (the `*` marks generated smart-mask layers). Select a mask layer and
-   tune the generator that appears below (Range, Breakup, Seed…) — the
-   masks regenerate live from the bake.
+2. The **Layers** list (always visible — *Paint* only arms the brush) shows
+   the full stack: `Background`, `Baked AO` (multiply), `Cavity grime *` and
+   `Edge wear *` (the `*` marks generated smart-mask layers). Select a mask
+   layer and tune the generator below (Range, Breakup, Seed…) — the masks
+   regenerate live from the bake.
 3. The **Bake maps** block already carries this material's parameters
    (persisted in the `.mtl` as `# tyra-bake`): set *Preview* to
    `AO on material` or `Map view` and drag *Max distance* to watch the
@@ -44,15 +45,25 @@ profile so Live Link + hot reload work straight after F5.
    hover sync; **Validate UVs** reports the box primitives' by-design
    overlaps.
 6. **Paint the canvas while the game runs**: Build & Run (F5), open
-   `materials/canvas.mtl` in the Material Editor, tick **Paint** and draw
-   on the big wall behind the altar — every released stroke lands on the
-   console **within a fraction of a second** (texture hot reload,
-   docs/live-link.md). The canvas texture is 256×256 *on purpose*: too big
-   for the atlas, so it stays an individual hot-reloadable file. The
-   atlased textures (altar/pillars/orbs) need a rebuild to repaint — try
-   one and watch the editor quietly skip it, as documented.
+   `materials/canvas.mtl`, tick **Paint** and draw on the big wall behind
+   the altar — every released stroke lands on the console **within a
+   fraction of a second** (texture hot reload, docs/live-link.md). The
+   canvas texture is 256×256 *on purpose*: too big for the atlas, so it
+   stays an individual hot-reloadable file. The atlased textures
+   (altar/pillars/orbs) need a rebuild to repaint — try one and watch the
+   editor quietly skip it, as documented.
 
 Docs: [material-baking.md](../../docs/material-baking.md),
 [material-painting.md](../../docs/material-painting.md),
 [texture-atlasing.md](../../docs/texture-atlasing.md),
 [live-link.md](../../docs/live-link.md).
+
+Generated object values live in `src/gen/scene_objects.gen.cpp`;
+`inc/scene_data.hpp` keeps stable declarations. Counts and object IDs live in
+the same data file, so ordinary moves, color edits, additions and removals can
+rebuild it alone. Changes to features or derived tables can still rebuild consumers.
+
+Generated game methods are split between `src/terrain_game.cpp` and the
+`src/gen/game_*.gen.cpp` subsystems, with shared inline helpers/state in
+`inc/game_runtime.gen.hpp`. Header changes can compile these units in parallel.
+The main file remains user-ownable; generated subsystem files refresh on build.

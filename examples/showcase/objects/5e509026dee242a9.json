@@ -1,0 +1,1 @@
+{ "id": "5e509026dee242a9", "name": "survey-crate-1", "type": "model", "position": [-9.1, 0.02, 26], "rotation": [0, 8, 0], "scale": [0.75, 0.75, 0.75], "color": [1, 1, 1], "physics": false, "model": "res/aster/supply-crate.obj" }

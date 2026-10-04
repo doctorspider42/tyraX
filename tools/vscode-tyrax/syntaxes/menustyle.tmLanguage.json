@@ -1,0 +1,141 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "TyraX Menu Stylesheet",
+  "scopeName": "source.tyrax-menustyle",
+  "comment": "Menu stylesheets (docs/menu-styles.md). Deliberately generic: property and element NAMES are not listed here, because the authoritative list is menustyle::propSpecs() in src/menustyle.cpp and a copy in this file would drift. Anything before a ':' inside a block highlights as a property, so a new property is coloured the day it exists.",
+  "patterns": [
+    { "include": "#comment" },
+    { "include": "#atrule" },
+    { "include": "#variable-decl" },
+    { "include": "#selector" },
+    { "include": "#declaration" }
+  ],
+  "repository": {
+    "comment": {
+      "patterns": [
+        {
+          "begin": "/\\*",
+          "end": "\\*/",
+          "name": "comment.block.tyrax-menustyle"
+        },
+        {
+          "match": "//.*$",
+          "name": "comment.line.double-slash.tyrax-menustyle"
+        }
+      ]
+    },
+    "atrule": {
+      "patterns": [
+        {
+          "comment": "@style \"Name\"",
+          "begin": "^\\s*(@style)\\b",
+          "beginCaptures": {
+            "1": { "name": "keyword.control.at-rule.style.tyrax-menustyle" }
+          },
+          "end": "$",
+          "patterns": [
+            { "match": "\"[^\"]*\"", "name": "string.quoted.double.tyrax-menustyle" }
+          ]
+        },
+        {
+          "comment": "@transition open|close|cursor { ... }",
+          "begin": "^\\s*(@transition)\\s+([A-Za-z-]+)",
+          "beginCaptures": {
+            "1": { "name": "keyword.control.at-rule.transition.tyrax-menustyle" },
+            "2": { "name": "entity.name.function.tyrax-menustyle" }
+          },
+          "end": "\\}",
+          "patterns": [
+            { "include": "#comment" },
+            {
+              "match": "\\b(fade|linear|ease-out|ease-in-out|translate-x|translate-y|scale)\\b",
+              "name": "support.constant.tyrax-menustyle"
+            },
+            { "include": "#numbers" }
+          ]
+        }
+      ]
+    },
+    "variable-decl": {
+      "comment": "--name: value; inside :root",
+      "begin": "(--[A-Za-z0-9_-]+)\\s*(:)",
+      "beginCaptures": {
+        "1": { "name": "variable.other.custom-property.tyrax-menustyle" },
+        "2": { "name": "punctuation.separator.key-value.tyrax-menustyle" }
+      },
+      "end": ";",
+      "patterns": [{ "include": "#values" }]
+    },
+    "selector": {
+      "patterns": [
+        {
+          "comment": "menu#name { ... } - a per-menu scope",
+          "match": "\\b(menu)(#)([A-Za-z0-9_-]+)",
+          "captures": {
+            "1": { "name": "entity.name.tag.tyrax-menustyle" },
+            "2": { "name": "punctuation.definition.entity.tyrax-menustyle" },
+            "3": { "name": "entity.other.attribute-name.id.tyrax-menustyle" }
+          }
+        },
+        {
+          "match": ":root",
+          "name": "entity.name.tag.tyrax-menustyle"
+        },
+        {
+          "comment": "element[.class][:state] at the head of a block",
+          "match": "^\\s*([A-Za-z-]+)(?:(\\.)([A-Za-z0-9_-]+))?(?:(:)(selected|disabled))?(?=[\\s,{])",
+          "captures": {
+            "1": { "name": "entity.name.tag.tyrax-menustyle" },
+            "2": { "name": "punctuation.definition.entity.tyrax-menustyle" },
+            "3": { "name": "entity.other.attribute-name.class.tyrax-menustyle" },
+            "4": { "name": "punctuation.definition.entity.tyrax-menustyle" },
+            "5": { "name": "entity.other.attribute-name.pseudo-class.tyrax-menustyle" }
+          }
+        }
+      ]
+    },
+    "declaration": {
+      "begin": "([A-Za-z-]+)\\s*(:)",
+      "beginCaptures": {
+        "1": { "name": "support.type.property-name.tyrax-menustyle" },
+        "2": { "name": "punctuation.separator.key-value.tyrax-menustyle" }
+      },
+      "end": "(;|(?=\\}))",
+      "endCaptures": {
+        "1": { "name": "punctuation.terminator.tyrax-menustyle" }
+      },
+      "patterns": [{ "include": "#values" }]
+    },
+    "values": {
+      "patterns": [
+        { "include": "#comment" },
+        {
+          "match": "\\b(var)\\s*\\(\\s*(--[A-Za-z0-9_-]+)\\s*\\)",
+          "captures": {
+            "1": { "name": "support.function.tyrax-menustyle" },
+            "2": { "name": "variable.other.custom-property.tyrax-menustyle" }
+          }
+        },
+        {
+          "match": "\\b(linear-gradient|rgba|rgb|url)\\b",
+          "name": "support.function.tyrax-menustyle"
+        },
+        {
+          "match": "#[0-9A-Fa-f]{3,8}\\b",
+          "name": "constant.other.color.rgb-value.tyrax-menustyle"
+        },
+        {
+          "match": "\\b(auto|none|screen|transparent|left|center|right|below|yes|no|uppercase|text|bar|solid|default|4bit|8bit|32bit|9-slice)\\b",
+          "name": "support.constant.tyrax-menustyle"
+        },
+        { "include": "#numbers" },
+        { "match": "\"[^\"]*\"", "name": "string.quoted.double.tyrax-menustyle" },
+        { "match": "\\{\\{[A-Za-z0-9_:-]+\\}\\}", "name": "constant.character.escape.tyrax-menustyle" }
+      ]
+    },
+    "numbers": {
+      "match": "[-+]?[0-9]*\\.?[0-9]+(px|deg|ms|s)?\\b",
+      "name": "constant.numeric.tyrax-menustyle"
+    }
+  }
+}

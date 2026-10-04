@@ -87,6 +87,7 @@ bool saveInit() {
       mcReady = fd >= 0;
     }
   }
+  if (mcReady) saveEnsureIcons();
   TYRA_LOG("Save system: ", mcReady ? "memory card ready"
                                     : "no memory card - using host files");
   return mcReady;
@@ -95,6 +96,60 @@ bool saveInit() {
 bool saveMcReady() { return mcReady; }
 
 const int* saveInitCodes() { return initCodes; }
+
+// --- Save icon (icon.sys + list.icn) ----------------------------------------
+// The editor bakes both into res/save/ (savebake.cpp) and the Makefile ships
+// them next to the ELF as save/icon.sys + save/list.icn; here they are copied
+// into the save directory so the PS2 browser shows the game's title and icon.
+// mcWrite DMAs straight from the buffer - same 64-byte alignment rule as the
+// slot payload. The buffer is sized by codegen to this build's baked icon.
+alignas(64) static unsigned char iconBuf[33792];
+
+static bool mcCopyToCard(const char* hostRel, const char* cardName) {
+  FILE* f = fopen(Tyra::FileUtils::fromCwd(hostRel).c_str(), "rb");
+  if (!f) return false;
+  fseek(f, 0, SEEK_END);
+  const long n = ftell(f);
+  fseek(f, 0, SEEK_SET);
+  if (n <= 0 || n > (long)sizeof(iconBuf)) {
+    fclose(f);
+    return false;
+  }
+  const size_t got = fread(iconBuf, 1, (size_t)n, f);
+  fclose(f);
+  if ((long)got != n) return false;
+  std::string path = std::string(SAVE_MC_DIR) + "/" + cardName;
+  int fd = -1;
+  mcOpen(0, 0, path.c_str(), kMcWronly | kMcCreat);
+  mcSync(MC_WAIT, nullptr, &fd);
+  if (fd < 0) return false;
+  int wrote = -1, ret = 0;
+  mcWrite(fd, iconBuf, (int)n);
+  mcSync(MC_WAIT, nullptr, &wrote);
+  mcClose(fd);
+  mcSync(MC_WAIT, nullptr, &ret);
+  return wrote == (int)n;
+}
+
+void saveEnsureIcons() {
+  static bool tried = false;
+  if (!mcReady || tried) return;
+  tried = true;
+  // Already iconized by a previous boot - skip the ~33KB rewrite.
+  int fd = -100;
+  std::string probe = std::string(SAVE_MC_DIR) + "/icon.sys";
+  mcOpen(0, 0, probe.c_str(), kMcRdonly);
+  mcSync(MC_WAIT, nullptr, &fd);
+  if (fd >= 0) {
+    int r = 0;
+    mcClose(fd);
+    mcSync(MC_WAIT, nullptr, &r);
+    return;
+  }
+  const bool sys = mcCopyToCard("save/icon.sys", "icon.sys");
+  const bool icn = mcCopyToCard("save/list.icn", "list.icn");
+  TYRA_LOG("Save icons: ", sys && icn ? "written to the card" : "copy failed");
+}
 
 static std::string mcSlotName(int slot) {
   char buf[96];
@@ -106,6 +161,79 @@ static std::string hostSlotPath(int slot) {
   char buf[32];
   snprintf(buf, sizeof(buf), "save%d.sav", slot);  // next to the ELF
   return Tyra::FileUtils::fromCwd(buf);
+}
+
+// --- The profile file (docs/world-facts.md "Saving") -------------------------
+// Same two transports as a slot, one fixed name, no slot index. Deliberately
+// blocking: the payload is a few dozen bytes and it is written when a profile
+// fact moves, which is rare - the async machinery below exists for the
+// slot-sized transfers and would be pure complication here.
+static std::string mcProfileName() {
+  char buf[96];
+  snprintf(buf, sizeof(buf), "%s/profile.sav", SAVE_MC_DIR);
+  return std::string(buf);
+}
+
+static std::string hostProfilePath() {
+  return Tyra::FileUtils::fromCwd("profile.sav");
+}
+
+bool profileWrite(const SaveProfileData& data) {
+  if (mcReady) {
+    int fd = -1;
+    mcOpen(0, 0, mcProfileName().c_str(), kMcWronly | kMcCreat);
+    mcSync(MC_WAIT, nullptr, &fd);
+    if (fd < 0) return false;
+    int wrote = -1, ret = 0;
+    mcWrite(fd, &data, sizeof(data));
+    mcSync(MC_WAIT, nullptr, &wrote);
+    mcClose(fd);
+    mcSync(MC_WAIT, nullptr, &ret);
+    return wrote == (int)sizeof(data);
+  }
+  FILE* f = fopen(hostProfilePath().c_str(), "wb");
+  if (!f) return false;
+  const size_t written = fwrite(&data, 1, sizeof(data), f);
+  fclose(f);
+  return written == sizeof(data);
+}
+
+bool profileRead(SaveProfileData& out) {
+  SaveProfileData d;
+  bool got = false;
+  if (mcReady) {
+    int fd = -1;
+    mcOpen(0, 0, mcProfileName().c_str(), kMcRdonly);
+    mcSync(MC_WAIT, nullptr, &fd);
+    if (fd >= 0) {
+      int read = -1, ret = 0;
+      mcRead(fd, &d, sizeof(d));
+      mcSync(MC_WAIT, nullptr, &read);
+      mcClose(fd);
+      mcSync(MC_WAIT, nullptr, &ret);
+      // A card read reports FEWER bytes than it delivered for a payload this
+      // small - measured: a 1 KiB profile came back with the whole header and
+      // its rows intact and a reported count of less than sizeof(d), so an
+      // exact-size test rejected a perfectly good profile and the tier read as
+      // "never persists". The payload is self-describing (magic + version +
+      // factCount), so validate THAT and treat a short count as a delivered
+      // read. The slot payload is kilobytes and never hit this.
+      got = read > 0 || d.magic == SAVE_MAGIC;
+    }
+  } else {
+    FILE* f = fopen(hostProfilePath().c_str(), "rb");
+    if (f) {
+      got = fread(&d, 1, sizeof(d), f) == sizeof(d);
+      fclose(f);
+    }
+  }
+  // A profile from a build with a different layout is not migrated, it is
+  // ignored: every row is id-keyed, so the honest answer to "I cannot read
+  // this" is a fresh profile rather than half of an old one.
+  if (!got || d.magic != SAVE_MAGIC || d.version != SAVE_VERSION) return false;
+  if (d.factCount < 0 || d.factCount > FACT_PROFILE_MAX) return false;
+  out = d;
+  return true;
 }
 
 bool saveWrite(int slot, const SaveGameData& data) {
@@ -127,6 +255,80 @@ bool saveWrite(int slot, const SaveGameData& data) {
   const size_t written = fwrite(&data, 1, sizeof(data), f);
   fclose(f);
   return written == sizeof(data);
+}
+
+// --- Asynchronous write (docs/save-editor.md) --------------------------------
+// Every libmc call is asynchronous already - the blocking saveWrite above just
+// answers each one with mcSync(MC_WAIT). Here the same open/write/close chain
+// is driven ONE STEP PER FRAME with mcSync(MC_NOWAIT), whose contract is:
+// 0 = still executing, 1 = finished (result written out), -1 = nothing
+// registered. The game keeps running in between.
+//
+// The payload is copied into asyncData up front, so nothing the player does
+// during the transfer can change the bytes being written.
+static SaveGameData asyncData;
+static int asyncStage = 0;  // 0 idle, 1 open, 2 write, 3 close, 4 host one-shot
+static int asyncSlot = -1, asyncFd = -1;
+static bool asyncOk = false;
+
+bool saveWriteBusy() { return asyncStage != 0; }
+
+bool saveWriteBegin(int slot, const SaveGameData& data) {
+  if (asyncStage != 0) return false;  // one transfer at a time
+  if (slot < 0 || slot >= SAVE_SLOTS) return false;
+  asyncData = data;
+  asyncSlot = slot;
+  asyncOk = false;
+  asyncFd = -1;
+  if (!mcReady) {
+    // The host fallback is a plain fwrite next to the ELF - microseconds, and
+    // there is no libmc chain to step through. Finish it on the next poll so
+    // both paths look identical to the caller.
+    asyncStage = 4;
+    return true;
+  }
+  mcOpen(0, 0, mcSlotName(slot).c_str(), kMcWronly | kMcCreat);
+  asyncStage = 1;
+  return true;
+}
+
+bool saveWritePoll(bool* okOut) {
+  if (asyncStage == 0) return true;
+  if (asyncStage == 4) {  // host fallback
+    asyncOk = saveWrite(asyncSlot, asyncData);
+    asyncStage = 0;
+    if (okOut) *okOut = asyncOk;
+    return true;
+  }
+  int cmd = 0, res = -1;
+  const int sync = mcSync(MC_NOWAIT, &cmd, &res);
+  if (sync == 0) return false;  // still executing - come back next frame
+  if (sync < 0) {               // nothing registered: the chain is broken
+    asyncStage = 0;
+    if (okOut) *okOut = false;
+    return true;
+  }
+  if (asyncStage == 1) {
+    asyncFd = res;
+    if (asyncFd < 0) {
+      asyncStage = 0;
+      if (okOut) *okOut = false;
+      return true;
+    }
+    mcWrite(asyncFd, &asyncData, sizeof(asyncData));
+    asyncStage = 2;
+    return false;
+  }
+  if (asyncStage == 2) {
+    asyncOk = res == (int)sizeof(asyncData);
+    mcClose(asyncFd);
+    asyncStage = 3;
+    return false;
+  }
+  // stage 3: the close landed, so the slot is on the card
+  asyncStage = 0;
+  if (okOut) *okOut = asyncOk;
+  return true;
 }
 
 bool saveRead(int slot, SaveGameData& out) {

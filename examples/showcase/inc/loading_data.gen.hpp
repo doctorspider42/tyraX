@@ -32,10 +32,10 @@ struct LoadingScreenData {
   int barFirst, barCount;
 };
 
-constexpr int LS_COUNT = 0;
-constexpr int LS_IMAGE_TOTAL = 0;
-constexpr int LS_TEXT_TOTAL = 0;
-constexpr int LS_BAR_TOTAL = 0;
+inline constexpr int LS_COUNT = 0;
+inline constexpr int LS_IMAGE_TOTAL = 0;
+inline constexpr int LS_TEXT_TOTAL = 0;
+inline constexpr int LS_BAR_TOTAL = 0;
 inline const LoadingScreenData LS_SCREENS[LS_COUNT > 0 ? LS_COUNT : 1] = {
     {{0, 0, 0}, 0, 0, 0, 0, 0, 0},
 };
@@ -52,8 +52,8 @@ inline const LoadingBarData LS_BARS[1] = {
     {0, 0, 0, 0, 0, {0, 0, 0}, {0, 0, 0}, 0, 0, ""},
 };
 
-constexpr int LS_DEFAULT = -1;  // -1 = built-in fallback
-inline const int SCENE_LOADING_SCREEN[2] = {-1, -1};
+inline constexpr int LS_DEFAULT = -1;  // -1 = built-in fallback
+inline const int SCENE_LOADING_SCREEN[1] = {-1};
 
 struct SplashData {
   const char* path;      // relative to the game binary
@@ -62,7 +62,7 @@ struct SplashData {
   float seconds;         // time on screen
 };
 
-constexpr int SPLASH_COUNT = 0;
+inline constexpr int SPLASH_COUNT = 0;
 inline const SplashData SPLASHES[SPLASH_COUNT > 0 ? SPLASH_COUNT : 1] = {
     {"", 0, 0, 0, 0, {0, 0, 0}, 0},
 };

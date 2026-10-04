@@ -42,6 +42,12 @@ struct Item {
     uint32_t id = 0;
     std::string label;   // "Cross", "Live Link", "Pad 1" - as authored
     std::string window;  // the ImGui window it was submitted in
+    // Id of that window, which is the SEED ImGui hashed the widget's label with.
+    // It is what lets a label be found even when ImGui never reported one - see
+    // the id-hash fallback in find(). Combos are the whole reason: BeginCombo
+    // does not call the test-engine's ItemInfo hook at all, so every combo in
+    // the editor was nameless (and therefore unscriptable) until this.
+    uint32_t windowId = 0;
     float x0 = 0, y0 = 0, x1 = 0, y1 = 0;
     // The WINDOW itself, which ImGui registers as an item covering the whole
     // window. Findable on purpose (an existence check wants it) but never
@@ -80,12 +86,29 @@ const Item* find(const std::string& target, bool clickable = false);
  * not know what a panel's buttons are called runs a script of just
  * `dump; quit`. */
 std::string dumpText();
+/** Reports the widget submitted LAST (ImGui::GetItemID()) as a checkable item
+ * in the given state. ImGui::Selectable tells the hook nothing about whether it
+ * is selected (only MenuItem and Checkbox do), so a list row - the Project
+ * panel's scene objects above all - would dump with no state and a script
+ * could never assert WHICH object a viewport click picked. The row calls this
+ * right after its Selectable; `dump` then shows `[checked]` on the selected
+ * row and `expect-checked "Project/crossing  (model)"` asserts the selection.
+ * A no-op while collection is off. */
+void markLastItemChecked(bool checked);
+
+/** Name an already submitted item by id. BeginCombo omits ItemInfo; callers
+ * inside PushID scopes must provide its label for scripts to find it. */
+void nameItem(uint32_t id, const char* label);
 
 // ------------------------------------------------------------------ script ---
 
 struct Step {
     enum Kind {
-        Click,        // arg = target
+        // The pointing steps take an optional dx/dy offset from the target's
+        // centre, which is the only way to reach something the editor DRAWS
+        // over a widget rather than submitting as one (the viewport is a
+        // single item, so an icon or a handle inside it has no name).
+        Click,        // arg = target, dx/dy = offset from its centre
         RightClick,   // arg = target - the context-menu button
         DoubleClick,  // arg = target
         HoldClick,    // arg = target, seconds = how long to keep the button down
@@ -109,6 +132,7 @@ struct Step {
     Kind kind = Click;
     std::string arg;
     float dx = 0, dy = 0;
+    bool shiftClick = false;
     double seconds = 0;
     int n = 0;
     std::string source;  // the line it came from, for the log

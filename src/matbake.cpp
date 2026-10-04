@@ -427,7 +427,9 @@ MeshInput fromPrimitive(int shape, int detail) {
     MeshInput out;
     switch (shape) {
         case 0: out.verts = primmesh::unitBox(detail); break;
-        case 2: out.verts = primmesh::unitCylinder(detail); break;
+        // The preview shape carries no scene lighting, so axial rings would be
+        // triangles nothing reads - the bake samples the surface, not vertices.
+        case 2: out.verts = primmesh::unitCylinder(detail, false); break;
         case 3: out.verts = primmesh::unitCone(detail); break;
         default: out.verts = primmesh::unitSphere(detail); break;
     }

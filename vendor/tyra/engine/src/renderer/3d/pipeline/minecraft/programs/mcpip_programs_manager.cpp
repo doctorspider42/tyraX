@@ -6,9 +6,13 @@
 # Copyright 2022, tyra - https://github.com/h4570/tyra
 # Licensed under Apache License 2.0
 # Sandro Sobczyński <sandro.sobczynski@gmail.com>
+# Modified by TyraX: VIF1 waits go through Vif1Queue::drain(), so a chain
+# queued by the static pipeline is finished before this code takes the channel
+# (renderer/core/paths/path1/vif1_queue.hpp).
 */
 
 #include "renderer/3d/pipeline/minecraft/programs/mcpip_programs_manager.hpp"
+#include "renderer/core/paths/path1/vif1_queue.hpp"
 
 namespace Tyra {
 
@@ -55,9 +59,9 @@ void BlockizerProgramsManager::setProgramsCache() {
 }
 
 void BlockizerProgramsManager::uploadVU1Programs() {
-  dma_channel_wait(DMA_CHANNEL_VIF1, 0);
+  Vif1Queue::drain();
   dma_channel_send_packet2(programsPacket, DMA_CHANNEL_VIF1, true);
-  dma_channel_wait(DMA_CHANNEL_VIF1, 0);
+  Vif1Queue::drain();
   lastProgramName = UndefinedMcpipProgram;
   vu1BlockData = BlockNotUploaded;
 }
@@ -86,7 +90,7 @@ void BlockizerProgramsManager::uploadBlock(bool isMulti) {
   packet2_utils_vu_add_end_tag(staticPacket);
 
   vu1BlockData = isMulti ? BlockMultiUploaded : BlockSingleUploaded;
-  dma_channel_wait(DMA_CHANNEL_VIF1, 0);
+  Vif1Queue::drain();
   dma_channel_send_packet2(staticPacket, DMA_CHANNEL_VIF1, true);
 }
 
@@ -167,7 +171,7 @@ void BlockizerProgramsManager::sendPacket(McpipProgram* program) {
 
   packet2_utils_vu_add_end_tag(currentPacket);
 
-  dma_channel_wait(DMA_CHANNEL_VIF1, 0);
+  Vif1Queue::drain();
   dma_channel_wait(DMA_CHANNEL_GIF, 0);  // Wait for texture. Issue #182.
 
   // dma_wait_fast(); // This have no impact on performance

@@ -1,5 +1,7 @@
 #include "app.hpp"
 #include "app_internal.hpp"
+#include "roadgen.hpp"
+#include "hudanim.hpp"
 
 #include "mocap.hpp"
 
@@ -29,11 +31,15 @@
 #include "gltfwrite.hpp"
 #include "json.hpp"
 #include "menubake.hpp"
+#include "migrations.hpp"
 #include "objparser.hpp"
 #include "pngquant.hpp"
 #include "uvunwrap.hpp"
+#include "savebake.hpp"
 #include "stochtile.hpp"
+#include "scrollsim.hpp"
 #include "templates.hpp"
+#include "version.hpp"
 #include "wavconvert.hpp"
 
 #define STB_IMAGE_IMPLEMENTATION
@@ -57,8 +63,8 @@
 #include "platform.hpp"
 
 // PickKind + the pick*() wrappers, fileSizeOr0, readTextFileTail,
-// sanitizeAssetName, prefHelp and walkSpeedDrag now live in app_internal.hpp -
-// the subsystem TUs split out of this file call them too.
+// sanitizeAssetName, prefHelp, inputTextProse and walkSpeedDrag now live in
+// app_internal.hpp - the subsystem TUs split out of this file call them too.
 
 // ---------------------------------------------------------------------------
 // Global editor config. These are machine/muscle-memory properties (a 4K laptop
@@ -73,6 +79,15 @@ struct EditorConfig {
     NavConfig nav;
     std::string emulatorPath;  // pcsx2-qt.exe; empty = auto-detect
     std::string ps2LinkIp;     // LAN IP of a PS2 running ps2link; empty = disabled
+    // Docker image the game is COMPILED in (docs/toolchain-image.md). Empty =
+    // decide nothing: the generated compose file's own `${TYRAX_IMAGE:-h4570/tyra}`
+    // applies, so a project's hand-written .env keeps winning exactly as before.
+    // Non-empty = the Runner exports TYRAX_IMAGE for its compose commands, which
+    // outranks .env. Machine config, not project data: which images this PC has
+    // pulled or built is a property of the PC, and a value baked into a shared
+    // .tyra would name an image a teammate does not have.
+    std::string toolchainImage;
+    std::string buildBackend = "native";
     // When true (default), a TYRA assertion from the running game pops up a
     // copyable error dialog. When false, errors go only to the console / Debug
     // window (the game already logs them there either way).
@@ -111,6 +126,11 @@ struct EditorConfig {
     // The axis-view gizmo in the viewport's top-right corner. On by default;
     // it can be turned off because it sits where HUD authoring wants space.
     bool axisGizmo = true;
+    // View > Comments (docs/comments.md): are all comment texts expanded?
+    // Icons are always drawn; when this is off only the selected note expands.
+    // A workflow preference like placementSnap, and one people stay in - the
+    // session-only Preview toggles beside it in the menu are the exception.
+    bool showCommentText = false;
     // Phone camera link (docs/phone-camera.md). Which port is free and how
     // much the Wi-Fi here can carry are properties of this machine, so the
     // whole thing is machine config rather than project data. The pairing code
@@ -140,10 +160,60 @@ struct EditorConfig {
     // A way of looking at the scene, like the safe areas and the axis gizmo,
     // so it belongs to the installation rather than to the project.
     bool viewportPs2 = false;
+    // PS2 shading in the viewport (docs/ps2-viewport.md): the console's
+    // per-vertex lighting and flat-shaded triangles instead of the editor's
+    // per-pixel preview. A way of looking, like viewportPs2, and independent
+    // of it - triangle shading is visible at any raster.
+    bool viewportPs2Shade = false;
+    // GS colour simulation (docs/ps2-viewport.md): 0 = follow the project's
+    // Preferences > Colour depth + dithering, 1 = force full 32-bit, 2 =
+    // force 16-bit, 3 = force 16-bit + dithering. Follow-project is the
+    // default so the viewport shows the truth with nothing configured.
+    int viewportGsColor = 0;
     // Toolbar run target: false = the emulator (PCSX2), true = a real console
     // over ps2link. Which machine is on the desk is a property of this PC, not
     // of the game, so it lives here rather than in the .tyra.
     bool runOnPs2 = false;
+    // Log panels (docs/log-panels.md): which severity levels the Output and
+    // Debug windows show, as a logview level bitmask, plus their selectable-text
+    // toggles. Both default to everything visible, so the split changes nothing
+    // until someone hides a level - and which noise a person wants hidden is a
+    // property of how they work, not of the project.
+    unsigned logMaskOutput = logview::kAll;
+    unsigned logMaskDebug = logview::kAll;
+    bool logSelectOutput = false;
+    bool logSelectDebug = false;
+    // AI Assistant: may it run the tools that CHANGE things (docs/ai-chat.md)?
+    // A workflow preference like placementSnap - how a person wants to work,
+    // not a property of any project.
+    bool chatAllowEdits = true;
+    // ...and whether it may spend a Docker container and several minutes on a
+    // build. Off by default: everything else the assistant does is instant and
+    // one Ctrl+Z away, this is neither.
+    bool chatAllowBuild = false;
+    // Bake global illumination on the GPU when this machine has one
+    // (docs/global-illumination.md, "The GPU backend"). Machine-global for the
+    // same reason the emulator path is: whether there is a usable GPU here is a
+    // fact about the box, not about any project.
+    //
+    // OFF by default, and deliberately matching the CLI's --gpu rather than
+    // being helpful: the two backends agree to a tolerance, not bit-for-bit, so
+    // switching backends rewrites every byte of a scene's cached bake. The
+    // repo's own GI examples SHIP that cache, so a default-on would turn a
+    // contributor's first bake into a binary diff nobody asked for.
+    bool giGpuBake = false;
+    // Update check (docs/updates.md): whether the editor asks GitHub for a
+    // newer release at startup, and one version somebody has told it to stop
+    // mentioning. Which build is installed is a property of this machine, so
+    // both belong here rather than in any .tyra.
+    bool updateCheck = true;
+    std::string updateSkipVersion;
+    // The console session log (sessionlog.hpp, docs/ps2link-setup.md): lines
+    // kept per session file (0 = do not write one) and session files kept in a
+    // project's logs/. How much disk this machine spends on it is a property of
+    // the machine.
+    int consoleLogLines = 20000;
+    int consoleLogFiles = 10;
     // Project folders opened most recently, most-recent first (the welcome
     // screen's list). Machine-global like everything else here: which projects
     // this PC has seen is a property of the PC, not of any one project.
@@ -183,13 +253,18 @@ static EditorConfig loadEditorConfig() {
         else if (match("navMoveKeys", v)) cfg.nav.moveKeys = toI(v, 0) == 1 ? NavMoveKeys::Arrows : NavMoveKeys::WASD;
         else if (match("navOrbitSens", v)) cfg.nav.orbitSensitivity = toF(v, 1.0f);
         else if (match("navPanSens", v)) cfg.nav.panSensitivity = toF(v, 1.0f);
+        else if (match("navDollySens", v)) cfg.nav.dollySensitivity = toF(v, 1.0f);
         else if (match("navZoomSens", v)) cfg.nav.zoomSensitivity = toF(v, 1.0f);
         else if (match("navInvertX", v)) cfg.nav.invertX = toI(v, 0) != 0;
         else if (match("navInvertY", v)) cfg.nav.invertY = toI(v, 0) != 0;
         else if (match("navOrbitSelection", v)) cfg.nav.orbitAroundSelection = toI(v, 1) != 0;
         else if (match("emulatorPath", v)) cfg.emulatorPath = v;
         else if (match("ps2LinkIp", v)) cfg.ps2LinkIp = v;
+        else if (match("toolchainImage", v)) cfg.toolchainImage = v;
+        else if (match("buildBackend", v))
+            cfg.buildBackend = v == "docker" ? "docker" : "native";
         else if (match("errorPopup", v)) cfg.errorPopup = toI(v, 1) != 0;
+        else if (match("giGpuBake", v)) cfg.giGpuBake = toI(v, 0) != 0;
         else if (match("defaultProjectsDir", v)) cfg.defaultProjectsDir = v;
         else if (match("displayName", v)) cfg.displayName = v;
         else if (match("sessionCacheDir", v)) cfg.sessionCacheDir = v;
@@ -203,6 +278,8 @@ static EditorConfig loadEditorConfig() {
         else if (match("animEdLight", v)) cfg.animEdLight = v;
         else if (match("placementSnap", v)) cfg.placementSnap = toI(v, 1) != 0;
         else if (match("axisGizmo", v)) cfg.axisGizmo = toI(v, 1) != 0;
+        else if (match("showCommentText", v))
+            cfg.showCommentText = toI(v, 0) != 0;
         else if (match("phoneCamPort", v)) cfg.phoneCamPort = toI(v, cfg.phoneCamPort);
         else if (match("phoneCamCode", v)) cfg.phoneCamCode = v;
         else if (match("phoneCamRequireCode", v)) cfg.phoneCamRequireCode = toI(v, 1) != 0;
@@ -220,11 +297,35 @@ static EditorConfig loadEditorConfig() {
         else if (match("safeOpacity", v)) cfg.safeOpacity = toF(v, 0.55f);
         else if (match("theme", v)) cfg.theme = v;
         else if (match("viewportPs2", v)) cfg.viewportPs2 = toI(v, 0) != 0;
+        else if (match("viewportPs2Shade", v))
+            cfg.viewportPs2Shade = toI(v, 0) != 0;
+        else if (match("viewportGsColor", v)) {
+            cfg.viewportGsColor = toI(v, 0);
+            if (cfg.viewportGsColor < 0 || cfg.viewportGsColor > 3)
+                cfg.viewportGsColor = 0;
+        }
         else if (match("runOnPs2", v)) cfg.runOnPs2 = toI(v, 0) != 0;
         else if (match("timeMachineBudgetMb", v))
             cfg.timeMachineBudgetMb = toI(v, 128);
         else if (match("phoneCamSmoothing", v))
             cfg.phoneCam.smoothing = toI(v, cfg.phoneCam.smoothing);
+        // An out-of-range mask (a config written by a newer editor with more
+        // levels) is clamped to the levels this build has, never to zero - an
+        // empty mask would look like an empty log.
+        else if (match("logMaskOutput", v))
+            cfg.logMaskOutput = (unsigned)toI(v, (int)logview::kAll) & logview::kAll;
+        else if (match("logMaskDebug", v))
+            cfg.logMaskDebug = (unsigned)toI(v, (int)logview::kAll) & logview::kAll;
+        else if (match("logSelectOutput", v)) cfg.logSelectOutput = toI(v, 0) != 0;
+        else if (match("logSelectDebug", v)) cfg.logSelectDebug = toI(v, 0) != 0;
+        else if (match("chatAllowEdits", v)) cfg.chatAllowEdits = toI(v, 1) != 0;
+        else if (match("chatAllowBuild", v)) cfg.chatAllowBuild = toI(v, 0) != 0;
+        else if (match("updateCheck", v)) cfg.updateCheck = toI(v, 1) != 0;
+        else if (match("updateSkipVersion", v)) cfg.updateSkipVersion = v;
+        else if (match("consoleLogLines", v))
+            cfg.consoleLogLines = std::max(0, toI(v, cfg.consoleLogLines));
+        else if (match("consoleLogFiles", v))
+            cfg.consoleLogFiles = std::max(1, toI(v, cfg.consoleLogFiles));
         // One line per entry, written in list order (most recent first).
         else if (match("recentProject", v)) {
             if (!v.empty() && cfg.recentProjects.size() < kMaxRecentProjects)
@@ -250,13 +351,17 @@ static void saveEditorConfig(const EditorConfig& cfg) {
       << "navMoveKeys=" << (int)n.moveKeys << "\n"
       << "navOrbitSens=" << n.orbitSensitivity << "\n"
       << "navPanSens=" << n.panSensitivity << "\n"
+      << "navDollySens=" << n.dollySensitivity << "\n"
       << "navZoomSens=" << n.zoomSensitivity << "\n"
       << "navInvertX=" << (n.invertX ? 1 : 0) << "\n"
       << "navInvertY=" << (n.invertY ? 1 : 0) << "\n"
       << "navOrbitSelection=" << (n.orbitAroundSelection ? 1 : 0) << "\n"
       << "emulatorPath=" << cfg.emulatorPath << "\n"
       << "ps2LinkIp=" << cfg.ps2LinkIp << "\n"
+      << "toolchainImage=" << cfg.toolchainImage << "\n"
+      << "buildBackend=" << cfg.buildBackend << "\n"
       << "errorPopup=" << (cfg.errorPopup ? 1 : 0) << "\n"
+      << "giGpuBake=" << (cfg.giGpuBake ? 1 : 0) << "\n"
       << "defaultProjectsDir=" << cfg.defaultProjectsDir << "\n"
       << "displayName=" << cfg.displayName << "\n"
       << "sessionCacheDir=" << cfg.sessionCacheDir << "\n"
@@ -269,6 +374,7 @@ static void saveEditorConfig(const EditorConfig& cfg) {
       << "animEdLight=" << cfg.animEdLight << "\n"
       << "placementSnap=" << (cfg.placementSnap ? 1 : 0) << "\n"
       << "axisGizmo=" << (cfg.axisGizmo ? 1 : 0) << "\n"
+      << "showCommentText=" << (cfg.showCommentText ? 1 : 0) << "\n"
       << "phoneCamPort=" << cfg.phoneCamPort << "\n"
       << "phoneCamCode=" << cfg.phoneCamCode << "\n"
       << "phoneCamRequireCode=" << (cfg.phoneCamRequireCode ? 1 : 0) << "\n"
@@ -286,9 +392,21 @@ static void saveEditorConfig(const EditorConfig& cfg) {
       << "safeOpacity=" << cfg.safeOpacity << "\n"
       << "theme=" << cfg.theme << "\n"
       << "viewportPs2=" << (cfg.viewportPs2 ? 1 : 0) << "\n"
+      << "viewportPs2Shade=" << (cfg.viewportPs2Shade ? 1 : 0) << "\n"
+      << "viewportGsColor=" << cfg.viewportGsColor << "\n"
       << "runOnPs2=" << (cfg.runOnPs2 ? 1 : 0) << "\n"
       << "timeMachineBudgetMb=" << cfg.timeMachineBudgetMb << "\n"
-      << "phoneCamSmoothing=" << cfg.phoneCam.smoothing << "\n";
+      << "phoneCamSmoothing=" << cfg.phoneCam.smoothing << "\n"
+      << "logMaskOutput=" << cfg.logMaskOutput << "\n"
+      << "logMaskDebug=" << cfg.logMaskDebug << "\n"
+      << "logSelectOutput=" << (cfg.logSelectOutput ? 1 : 0) << "\n"
+      << "logSelectDebug=" << (cfg.logSelectDebug ? 1 : 0) << "\n"
+      << "chatAllowEdits=" << (cfg.chatAllowEdits ? 1 : 0) << "\n"
+      << "chatAllowBuild=" << (cfg.chatAllowBuild ? 1 : 0) << "\n"
+      << "updateCheck=" << (cfg.updateCheck ? 1 : 0) << "\n"
+      << "consoleLogLines=" << cfg.consoleLogLines << "\n"
+      << "consoleLogFiles=" << cfg.consoleLogFiles << "\n"
+      << "updateSkipVersion=" << cfg.updateSkipVersion << "\n";
     for (const std::string& dir : cfg.recentProjects) f << "recentProject=" << dir << "\n";
 }
 
@@ -451,8 +569,12 @@ int App::run(const std::string& initialProjectDir) {
     glfwWindowHintString(GLFW_X11_CLASS_NAME, kAppId);
     glfwWindowHintString(GLFW_X11_INSTANCE_NAME, kAppId);
 
-    // Size is the restore-size when the user un-maximizes.
-    window_ = glfwCreateWindow(1600, 900, "TyraX", nullptr, nullptr);
+    // Size is the restore-size when the user un-maximizes. The title carries
+    // the editor version from the start: updateWindowTitle() short-circuits
+    // while nothing it watches has changed, so the welcome screen would
+    // otherwise keep a bare "TyraX" until the first project is opened.
+    const std::string initialTitle = std::string("TyraX ") + version::kEditorVersion;
+    window_ = glfwCreateWindow(1600, 900, initialTitle.c_str(), nullptr, nullptr);
     if (window_) platform::setDialogOwner(window_);
     if (!window_) {
         glfwTerminate();
@@ -503,7 +625,10 @@ int App::run(const std::string& initialProjectDir) {
         nav_ = cfg.nav;
         globalEmulatorPath_ = cfg.emulatorPath;
         globalPs2Ip_ = cfg.ps2LinkIp;
+        globalToolchainImage_ = cfg.toolchainImage;
+        globalBuildBackend_ = cfg.buildBackend;
         errorPopupEnabled_ = cfg.errorPopup;
+        giGpuBake_ = cfg.giGpuBake;
         globalDefaultProjectsDir_ = cfg.defaultProjectsDir;
         globalDisplayName_ = cfg.displayName;
         globalSessionCacheDir_ = cfg.sessionCacheDir;
@@ -514,6 +639,7 @@ int App::run(const std::string& initialProjectDir) {
         animEdLight_ = cfg.animEdLight;
         placementSnap_ = cfg.placementSnap;
         showAxisGizmo_ = cfg.axisGizmo;
+        showCommentText_ = cfg.showCommentText;
         phoneCamPrefs_ = cfg.phoneCam;
         phoneCamPort_ = cfg.phoneCamPort;
         phoneCamCode_ = cfg.phoneCamCode;
@@ -527,8 +653,20 @@ int App::run(const std::string& initialProjectDir) {
         safeArea_.aspect = cfg.safeAspect;
         safeArea_.opacity = cfg.safeOpacity;
         viewportPs2_ = cfg.viewportPs2;
+        viewportPs2Shade_ = cfg.viewportPs2Shade;
+        viewportGsColor_ = cfg.viewportGsColor;
         runOnPs2_ = cfg.runOnPs2;
         timeBudgetMb_ = cfg.timeMachineBudgetMb;
+        logOut_.mask = cfg.logMaskOutput;
+        logDbg_.mask = cfg.logMaskDebug;
+        logOut_.selectText = cfg.logSelectOutput;
+        logDbg_.selectText = cfg.logSelectDebug;
+        chatAllowEdits_ = cfg.chatAllowEdits;
+        chatAllowBuild_ = cfg.chatAllowBuild;
+        globalUpdateCheck_ = cfg.updateCheck;
+        globalConsoleLogLines_ = cfg.consoleLogLines;
+        globalConsoleLogFiles_ = cfg.consoleLogFiles;
+        globalUpdateSkip_ = cfg.updateSkipVersion;
         // Probe the recent projects once, here: the welcome screen draws this
         // list every frame and must not scan the disk to do it.
         for (const std::string& dir : cfg.recentProjects) {
@@ -565,8 +703,17 @@ int App::run(const std::string& initialProjectDir) {
         std::string dir = initialProjectDir;
         if (std::filesystem::path(dir).extension() == ".tyra")
             dir = std::filesystem::path(dir).parent_path().string();
+        // openProjectAt is the single funnel for every local open path, and it
+        // owns the format-version gate + migration prompt.
         openProjectAt(dir);  // failure leaves the welcome screen up
     }
+
+    // Is there a newer TyraX? (docs/updates.md) A worker thread and one HTTPS
+    // request, so nothing here waits on it - the answer lands in updateTick()
+    // whenever it arrives, and a modal only appears if there IS something newer.
+    // Never during a UI script: an unattended run must not have a dialog open
+    // itself in the middle of somebody's step list.
+    if (globalUpdateCheck_ && !uiScriptActive_) startUpdateCheck(false);
 
     // UI scripting (docs/ui-scripting.md): collect ImGui's item boxes so a
     // script can name widgets, and stop pacing to the monitor - an unattended
@@ -654,9 +801,22 @@ int App::run(const std::string& initialProjectDir) {
     droneAudition(false);
     droneRenderCancel_.store(true);
     if (droneRenderThread_.joinable()) droneRenderThread_.join();
+    // ...and the BLSS coverage estimate, for the plainer reason that a joinable
+    // std::thread destroyed at exit calls std::terminate.
+    blssCovCancel_.store(true);
+    if (blssCovThread_.joinable()) blssCovThread_.join();
+    // The importer publishes a result into App members, which must outlive it.
+    if (modelImportThread_.joinable()) modelImportThread_.join();
+    // The update check writes into App members too, and its curl may be sitting
+    // on a 20-second timeout - kill it rather than making the exit wait for a
+    // network that is not answering.
+    update::cancel();
+    if (updateThread_.joinable()) updateThread_.join();
 
     devsession::retire(devsession::selfPid());  // stop claiming to be live
     viewport_.shutdown();
+    if (vehicleEnginePreview_) vehicleEnginePreview_->stop();
+    if (vehiclePreview_) vehiclePreview_->shutdown();
     if (flowEditorCtx_) ImNodes::EditorContextFree((ImNodesEditorContext*)flowEditorCtx_);
     if (procEditorCtx_) ImNodes::EditorContextFree((ImNodesEditorContext*)procEditorCtx_);
     flowEditorCtx_ = procEditorCtx_ = nullptr;
@@ -719,6 +879,15 @@ bool App::captureFrameTo(const std::string& path, int w, int h) {
 }
 
 void App::drawUI() {
+    // Project opening is staged so this cover reaches the framebuffer before
+    // synchronous file parsing / viewport preparation begins. The loader must
+    // stay on this thread: it replaces the custom-node/style registries.
+    projectLoadTick();
+    if (projectLoading_) {
+        drawProjectLoadingScreen();
+        return;
+    }
+
     ImGuizmo::BeginFrame();
     ImGuiID dockspace = ImGui::DockSpaceOverViewport(0, ImGui::GetMainViewport());
 
@@ -777,6 +946,7 @@ void App::drawUI() {
     // breakpoint / halt / step commands back to it (throttled).
     livedbgTick();
     livetimeTick();
+    replayTick();     // what the input recorder is doing (docs/input-replay.md)
     remotePadTick();  // the editor holds the controller (docs/remote-pad.md)
 
     // Hot-patch edited flow graphs into the running game (throttled; writes
@@ -792,6 +962,16 @@ void App::drawUI() {
     // link data meets project_/ImGui.
     phoneCamTick();
 
+    // Consume a finished AI Assistant reply: run the tool calls it asked for and
+    // send their results back for the next step (docs/ai-chat.md). Same contract
+    // again - the only place chat data meets project_/ImGui - and it runs whether
+    // or not the window is open, so a reply is never stranded by closing it.
+    aiChatTick();
+
+    // The importer never touches ImGui/project_/viewport_ from its worker.
+    // This is the one main-thread handoff point for its finished asset.
+    modelImportTick();
+
     drawMenuBar();
     drawViewportWindow();
     drawProjectWindow();
@@ -801,6 +981,8 @@ void App::drawUI() {
     drawDebugWindow();
     drawDiscLayoutWindow();
     drawMenusWindow();
+    drawMenuPreviewWindow();
+    drawSaveEditorWindow();
     drawGradingWindow();
     drawAmbienceWindow();
     drawCutsceneWindow();
@@ -810,13 +992,27 @@ void App::drawUI() {
     drawFontManagerWindow();
     drawInputMapWindow();
     drawAssetBrowserWindow();
+    drawAiChatWindow();
     drawTreeGeneratorWindow();
     drawProceduralWindow();
     drawPrefabsWindow();
+    drawParticleEditorWindow();
+    vehicleTick();
+    vehicleDriveTick();
+    drawVehicleWindow();
+    drawTextureAtlasWindow();
+    drawStaticBatchesWindow();
+    drawWorldFactsWindow();
+    drawVuProgramsWindow();
     drawDroneGeneratorWindow();
     giBakerPoll();
     drawCharacterGeneratorWindow();
     drawMocapWindow();
+    shadowBakerPoll();
+    modelAoPoll();
+    litBakerPoll();
+    blssPoll();
+    drawBlssWindow();
     drawLoadingScreenWindow();
     drawCreditsWindow();
     drawAnimEditorWindow();
@@ -825,8 +1021,13 @@ void App::drawUI() {
     drawSessionWindow();
     drawPhoneLinkWindow();
     drawPhoneCamWindow();
+    // The update check's answer, collected here and not from the modal's body:
+    // a check started at startup has to land whether or not anything about it
+    // is on screen (the giBakerPoll rule).
+    updateTick();
+    drawUpdateModal();
     drawNewProjectModal();
-    drawPreferencesModal();
+    drawPreferencesWindow();
     drawEditorPreferencesModal();
     drawAiGenerateModal();
     drawErrorModal();
@@ -836,6 +1037,7 @@ void App::drawUI() {
     drawNewSceneModal();
     drawDeleteSceneModal();
     drawDeleteAssetModal();
+    drawModelImportModal();
     drawModelSizeModal();
     drawDiscardModal();
     drawLayoutModals();
@@ -867,16 +1069,29 @@ void App::drawUI() {
     // Run shortcuts. IsKeyChordPressed matches the modifier state exactly, so
     // plain F5 and Ctrl+F5 stay distinct: F5/F6 build && run, Ctrl+F5/Ctrl+F6
     // run the existing ELF without building.
+    // Each launching chord calls openDebuggerForLaunch() first - the four here
+    // are the paths that do NOT go through runSelectedTarget (they name their
+    // target rather than taking the toolbar's), so this is where a launch would
+    // otherwise slip past it. Ctrl+Shift+B is deliberately not among them: it
+    // builds and does not run, and there is nothing to watch.
     if (hasProject_ && !runner_.busy()) {
         const bool ps2Ready = !project_.ps2LinkIp.empty();
-        if (ImGui::IsKeyChordPressed(ImGuiKey_F5))
-            runner_.buildAndRun(projectForBuild(), true);
-        if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_F5))
-            runner_.runEmulatorOnly(project_);
-        if (ps2Ready && ImGui::IsKeyChordPressed(ImGuiKey_F6))
-            runner_.buildAndRunPs2(projectForBuild(), true);
-        if (ps2Ready && ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_F6))
-            runner_.buildAndRunPs2(projectForBuild(), false);
+        if (ImGui::IsKeyChordPressed(ImGuiKey_F5)) {
+            openDebuggerForLaunch();
+            runner_.buildAndRun(projectForBuild(), true, false, project_.activeScene);
+        }
+        if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_F5)) {
+            openDebuggerForLaunch();
+            runner_.runEmulatorOnly(project_, project_.activeScene);
+        }
+        if (ps2Ready && ImGui::IsKeyChordPressed(ImGuiKey_F6)) {
+            openDebuggerForLaunch();
+            runner_.buildAndRunPs2(projectForBuild(), true, false, project_.activeScene);
+        }
+        if (ps2Ready && ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_F6)) {
+            openDebuggerForLaunch();
+            runner_.buildAndRunPs2(projectForBuild(), false, false, project_.activeScene);
+        }
         if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_B))
             runner_.buildAndRun(projectForBuild(), false);
     }
@@ -909,11 +1124,8 @@ void App::drawUI() {
         if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_S) &&
             session_.role() != session::Session::Role::Client)
             saveAll("Saved");
-        if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_Comma)) {
-            prefTerrain_ = project_.active().terrain;
-            prefSettings_ = project_.settings;
-            openPreferencesPopup_ = true;
-        }
+        if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_Comma))
+            openProjectPreferences();
         if (!io.WantTextInput) {
             // While the Material Editor has focus, Ctrl+Z drives ITS undo
             // stack (paint strokes + material edits, saved straight to disk) -
@@ -929,6 +1141,8 @@ void App::drawUI() {
             // While the Flow Graph window has focus, Ctrl+C/V act on its nodes
             // (handled in drawFlowGraphWindow); otherwise they copy scene objects.
             if (!flowGraphFocused_) {
+                if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiMod_Shift | ImGuiKey_G)) ungroupSelection();
+                else if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_G)) groupSelection();
                 if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_C)) copyObject();
                 if (ImGui::IsKeyChordPressed(ImGuiMod_Ctrl | ImGuiKey_V)) pasteObject();
             }
@@ -970,16 +1184,22 @@ void App::saveGlobalConfig() {
     recent.reserve(recentProjects_.size());
     for (const RecentProject& r : recentProjects_) recent.push_back(r.dir);
     saveEditorConfig({uiScaleUser_, nav_, globalEmulatorPath_, globalPs2Ip_,
+                      globalToolchainImage_, globalBuildBackend_,
                       errorPopupEnabled_, globalDefaultProjectsDir_,
                       globalDisplayName_, globalSessionCacheDir_, globalAi_,
                       matEdSplit_, creditsSplit_, matEdLight_, animEdLight_,
-                      placementSnap_, showAxisGizmo_,
+                      placementSnap_, showAxisGizmo_, showCommentText_,
                       phoneCamPrefs_, phoneCamPort_, phoneCamCode_,
                       phoneCamRequireCode_, showSafeArea_, safeArea_.frame,
                       safeArea_.action, safeArea_.title, safeArea_.centre,
                       safeArea_.bothRegions, safeArea_.aspect,
                       safeArea_.opacity, timeBudgetMb_,
-                      theme::info(theme_).key, viewportPs2_, runOnPs2_,
+                      theme::info(theme_).key, viewportPs2_,
+                      viewportPs2Shade_, viewportGsColor_, runOnPs2_,
+                      logOut_.mask, logDbg_.mask, logOut_.selectText,
+                      logDbg_.selectText, chatAllowEdits_, chatAllowBuild_,
+                      giGpuBake_, globalUpdateCheck_, globalUpdateSkip_,
+                      globalConsoleLogLines_, globalConsoleLogFiles_,
                       std::move(recent)});
 }
 
@@ -1041,6 +1261,8 @@ void App::drawMenuBar() {
         if (ImGui::BeginMenu("File")) {
             if (ImGui::MenuItem("New Project...", "Ctrl+N")) requestNewProject();
             if (ImGui::MenuItem("Open Project...", "Ctrl+O")) requestOpenProject();
+            drawRecentProjectsMenu();
+            ImGui::Separator();
             const bool sessionClient =
                 session_.role() == session::Session::Role::Client;
             if (ImGui::MenuItem("Save", "Ctrl+S", false, hasProject_ && !sessionClient))
@@ -1050,6 +1272,11 @@ void App::drawMenuBar() {
                     "You joined this project as a session participant -\n"
                     "the HOST owns saving and committing. Leave the session\n"
                     "to keep your local copy and save it yourself.");
+            // No keyboard shortcut on purpose: Ctrl+W is one slip away from the
+            // W that flies the viewport camera, and this throws the project out
+            // of the editor.
+            if (ImGui::MenuItem("Close Project", nullptr, false, hasProject_))
+                requestCloseProject();
             ImGui::Separator();
             if (ImGui::MenuItem("Exit")) requestExit();
             ImGui::EndMenu();
@@ -1071,6 +1298,8 @@ void App::drawMenuBar() {
             const char* pasteLabel = pastePending_ ? "Place paste"
                                      : clipboard_.size() > 1 ? "Paste objects"
                                                              : "Paste object";
+            if (ImGui::MenuItem("Group objects", "Ctrl+G", false, selection_.size() > 1 && selectedGroup().empty())) groupSelection();
+            if (ImGui::MenuItem("Ungroup objects", "Ctrl+Shift+G", false, objectSelected)) ungroupSelection();
             if (ImGui::MenuItem(copyLabel, "Ctrl+C", false, objectSelected)) copyObject();
             if (ImGui::MenuItem(pasteLabel, "Ctrl+V", false,
                                 hasProject_ && (pastePending_ || !clipboard_.empty())))
@@ -1080,6 +1309,11 @@ void App::drawMenuBar() {
                 snprintf(prefEmulatorPath_, sizeof(prefEmulatorPath_), "%s",
                          globalEmulatorPath_.c_str());
                 snprintf(prefPs2Ip_, sizeof(prefPs2Ip_), "%s", globalPs2Ip_.c_str());
+                prefConsoleLogLines_ = globalConsoleLogLines_;
+                prefConsoleLogFiles_ = globalConsoleLogFiles_;
+                snprintf(prefToolchainImage_, sizeof(prefToolchainImage_), "%s",
+                         globalToolchainImage_.c_str());
+                prefBuildBackend_ = globalBuildBackend_ == "docker" ? 1 : 0;
                 snprintf(prefDefaultProjectsDir_, sizeof(prefDefaultProjectsDir_), "%s",
                          globalDefaultProjectsDir_.c_str());
                 snprintf(prefDisplayName_, sizeof(prefDisplayName_), "%s",
@@ -1122,6 +1356,21 @@ void App::drawMenuBar() {
             ImGui::TextDisabled("Current: %d%%%s", (int)std::lround(uiScaleApplied_ * 100.0f),
                                 uiScaleUser_ == 0.0f ? " (auto)" : "");
             ImGui::Separator();
+            // The one navigation setting worth reaching without opening a
+            // modal: it changes what a click DOES to the camera, so it gets
+            // toggled far more often than sensitivities are tuned. Same field
+            // the Navigation controls popup edits - one setting, two doors.
+            if (ImGui::MenuItem("Orbit around selected object", nullptr,
+                                nav_.orbitAroundSelection)) {
+                nav_.orbitAroundSelection = !nav_.orbitAroundSelection;
+                saveGlobalConfig();
+                navFocusedIndex_ = -1;  // re-snap next frame if something is selected
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Selecting an object moves the camera pivot onto it, so a\n"
+                    "right-drag orbits around that object instead of the terrain\n"
+                    "centre. Pan, zoom and the forward drag still move freely.");
             if (ImGui::MenuItem("Navigation controls...")) openNavigationPopup_ = true;
 
             // Theme next to the interface scale: both are "how the editor
@@ -1174,25 +1423,62 @@ void App::drawMenuBar() {
                     ImGui::TextDisabled("  %dx%d, %s", o.bufW, o.bufH,
                                         project_.settings.widescreen ? "16:9" : "4:3");
                 }
+                // The two look simulations compose with either output mode:
+                // triangle shading and 16-bit banding are visible (and true)
+                // at any raster.
+                if (ImGui::MenuItem("PS2 shading", nullptr, viewportPs2Shade_,
+                                    hasProject_)) {
+                    viewportPs2Shade_ = !viewportPs2Shade_;
+                    saveGlobalConfig();
+                }
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip(
+                        "Shade the way the console does: lights, occlusion and\n"
+                        "fog per VERTEX, most surfaces flat-shaded - one colour\n"
+                        "per triangle. Off = the editor's smooth per-pixel look.");
+                if (ImGui::BeginMenu("GS colour", hasProject_)) {
+                    static const char* kGsColorNames[] = {
+                        "Match project", "Full 32-bit", "16-bit",
+                        "16-bit + dithering"};
+                    for (int i = 0; i < 4; ++i) {
+                        if (ImGui::MenuItem(kGsColorNames[i], nullptr,
+                                            viewportGsColor_ == i) &&
+                            viewportGsColor_ != i) {
+                            viewportGsColor_ = i;
+                            saveGlobalConfig();
+                        }
+                    }
+                    ImGui::EndMenu();
+                }
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip(
+                        "The framebuffer depth the picture is shown at. Match\n"
+                        "project follows Preferences > Colour depth (and its\n"
+                        "dithering); the forced modes answer \"what if\" without\n"
+                        "touching the project.");
             }
 
             ImGui::Separator();
             ImGui::TextDisabled("Render mode");
             const char* modeNames[] = {"Solid", "Wireframe", "Wire + Solid"};
+            // Switching costs no write and no dirty flag: the render mode is
+            // VIEW state, not content, and saveProject() reads it off the
+            // viewport at save time - exactly like the projection below. This
+            // used to call saveAll(), which silently committed every pending
+            // scene edit and cleared the save icon along the way.
             for (int i = 0; i < 3; ++i) {
                 const bool active = (int)viewport_.viewMode() == i;
-                if (ImGui::MenuItem(modeNames[i], nullptr, active, hasProject_) && !active) {
+                if (ImGui::MenuItem(modeNames[i], nullptr, active, hasProject_) && !active)
                     viewport_.setViewMode((Viewport::ViewMode)i);
-                    saveAll("Saved");  // persist the view mode in the project file
-                }
             }
 
             ImGui::Separator();
             ImGui::TextDisabled("Projection");
             {
                 // Perspective + the parallel views. The axis entries also aim
-                // the camera down that world axis; orbiting afterwards keeps
-                // the parallel projection and returns to "Orthographic".
+                // the camera down that world axis; orbiting afterwards drops
+                // the lock and returns to whichever free mode was in use
+                // before the axis view was picked.
                 struct ProjItem {
                     Viewport::Projection p;
                     const char* label;
@@ -1240,6 +1526,19 @@ void App::drawMenuBar() {
 
             ImGui::Separator();
             ImGui::TextDisabled("Preview");
+            // Editor notes (docs/comments.md). Icons are always present; this
+            // persisted option expands every note instead of only the selected
+            // one.
+            if (ImGui::MenuItem("Comments", nullptr, showCommentText_, hasProject_)) {
+                showCommentText_ = !showCommentText_;
+                saveGlobalConfig();
+            }
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip(
+                    "Expand every comment's text in the viewport. When off,\n"
+                    "the message icons stay visible and clickable, but only\n"
+                    "the selected comment shows its text. Off by default.\n"
+                    "Notes are editor-only either way: nothing reaches the game.");
             if (ImGui::MenuItem("Distance fog", nullptr, showFog_, hasProject_)) {
                 showFog_ = !showFog_;
                 applyProjectToViewport();  // suppress/restore fog in the viewport now
@@ -1256,6 +1555,30 @@ void App::drawMenuBar() {
                     "Show the baked navigation grid the AI flow nodes walk on "
                     "(green = walkable). Tune it in Project > Preferences > "
                     "AI navigation.");
+            if (ImGui::MenuItem("Collision boxes", nullptr, showCollisionBoxes_,
+                                hasProject_))
+                showCollisionBoxes_ = !showCollisionBoxes_;
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip(
+                    "Draw the box the GAME blocks the player and the "
+                    "third-person\ncamera with (red). A model collides as its "
+                    "bounding box, not its\nmesh, so this is what explains a "
+                    "prop you cannot walk up to or a\ncamera that pulls in "
+                    "early. The running game can draw the same\nboxes - "
+                    "Preferences > Build > Show collision boxes.");
+            if (ImGui::MenuItem("Static batches", nullptr, showBatchOverlay_,
+                                hasProject_)) {
+                showBatchOverlay_ = !showBatchOverlay_;
+                batchDirty_ = true;
+            }
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip(
+                    "Colour every static object by the batch it merges into, "
+                    "with\nsolo objects in grey, and draw each batch's MERGED "
+                    "BOX. That box\nis what the frustum and the draw-distance "
+                    "test are applied to -\na batch draws as a unit - so an "
+                    "over-wide one is geometry the\nunbatched scene would "
+                    "cull. Tools > Static Batches lists them.");
             if (ImGui::MenuItem("Procedural preview", nullptr, showProcPreview_,
                                 hasProject_))
                 showProcPreview_ = !showProcPreview_;
@@ -1266,6 +1589,17 @@ void App::drawMenuBar() {
                     "ground it grows on.\nThe graph keeps being evaluated, so "
                     "the budget readout and the seed\nsimulator stay live; only "
                     "the geometry goes.");
+            if (ImGui::MenuItem("Scroller preview", nullptr, showScrollerPreview_,
+                                hasProject_))
+                showScrollerPreview_ = !showScrollerPreview_;
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip(
+                    "Draw the sliding ghost copies of EVERY endless scroller's\n"
+                    "segments. Turn it off to work on the member objects the\n"
+                    "copies are made of - a running belt fills its whole window\n"
+                    "with them. One belt at a time is 'Show belt preview' in\n"
+                    "that scroller's Properties. The belt markers stay either\n"
+                    "way, and the clone count and warnings stay live.");
 
             ImGui::Separator();
             ImGui::TextDisabled("TV safe frame");
@@ -1296,11 +1630,8 @@ void App::drawMenuBar() {
         }
         if (ImGui::BeginMenu("Project", hasProject_)) {
             const bool busy = runner_.busy();
-            if (ImGui::MenuItem("Preferences...", "Ctrl+,")) {
-                prefTerrain_ = project_.active().terrain;
-                prefSettings_ = project_.settings;
-                openPreferencesPopup_ = true;
-            }
+            if (ImGui::MenuItem("Preferences...", "Ctrl+,"))
+                openProjectPreferences();
             ImGui::Separator();
             if (ImGui::MenuItem("Export PS2 ISO", nullptr, false, !busy))
                 runner_.exportIso(projectForBuild());
@@ -1315,16 +1646,25 @@ void App::drawMenuBar() {
             const bool busy = runner_.busy();
             if (ImGui::MenuItem("Build", "Ctrl+Shift+B", false, !busy))
                 runner_.buildAndRun(projectForBuild(), false);
+            if (ImGui::MenuItem("Rebuild", nullptr, false, !busy))
+                runner_.buildAndRun(projectForBuild(), false, true);
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip(
+                    "Full rebuild: recreates the build container, then compiles "
+                    "the engine\n(VU1 microprograms included) and every game "
+                    "source from scratch.\nSlow on purpose - it is the way out "
+                    "when an incremental build\nmisbehaves. Clean also wipes "
+                    "bin\\ on this machine; Rebuild does not.");
             if (ImGui::MenuItem("Build && Run in PCSX2", "F5", false, !busy))
-                runner_.buildAndRun(projectForBuild(), true);
+                runner_.buildAndRun(projectForBuild(), true, false, project_.activeScene);
             if (ImGui::MenuItem("Run in PCSX2 (no build)", "Ctrl+F5", false, !busy))
-                runner_.runEmulatorOnly(project_);
+                runner_.runEmulatorOnly(project_, project_.activeScene);
             ImGui::Separator();
             const bool ps2Ready = !project_.ps2LinkIp.empty();
             if (ImGui::MenuItem("Build && Run on PS2", "F6", false, !busy && ps2Ready))
-                runner_.buildAndRunPs2(projectForBuild(), true);
+                runner_.buildAndRunPs2(projectForBuild(), true, false, project_.activeScene);
             if (ImGui::MenuItem("Run on PS2 (no build)", "Ctrl+F6", false, !busy && ps2Ready))
-                runner_.buildAndRunPs2(projectForBuild(), false);
+                runner_.buildAndRunPs2(projectForBuild(), false, false, project_.activeScene);
             if (!ps2Ready && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
                 ImGui::SetTooltip("Set 'PS2 (ps2link) IP' in Edit > Preferences first.");
             if (ImGui::MenuItem("Stop on PS2", nullptr, false, !busy && ps2Ready))
@@ -1332,6 +1672,13 @@ void App::drawMenuBar() {
             if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
                 ImGui::SetTooltip("Kills the file server and resets ps2link - the "
                                   "console reboots back to its listening state.");
+            if (ImGui::MenuItem("Power Off PS2", nullptr, false, !busy && ps2Ready))
+                runner_.powerOffPs2(project_);
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip(
+                    "Switches the console off - ps2link's own poweroff command,\n"
+                    "the same shutdown its power button performs. Nothing on the\n"
+                    "network can switch it back on again.");
             ImGui::Separator();
             if (ImGui::MenuItem("Live Link", nullptr,
                                 project_.settings.liveLink)) {
@@ -1400,30 +1747,143 @@ void App::drawMenuBar() {
             ImGui::EndMenu();
         }
 
+        // One flat list under labelled headers rather than submenus: every
+        // doc page, tooltip and AI prompt in the repo names a tool as
+        // "Tools > X", and a submenu would put a word into all of those
+        // paths. Groups answer "what am I working on"; inside a group the
+        // items are ALPHABETICAL, so a tool is found by reading, not by
+        // remembering where it landed the day it was added.
         if (hasProject_ && ImGui::BeginMenu("Tools")) {
+            ImGui::SeparatorText("Assets");
+            if (ImGui::MenuItem("Animation Editor...")) showAnimEditor_ = true;
             if (ImGui::MenuItem("Asset Browser...")) {
                 showAssetBrowser_ = true;
                 scanAssetTree();
             }
-            ImGui::Separator();
-            if (ImGui::MenuItem("Material Editor...")) showMaterialEditor_ = true;
-            if (ImGui::MenuItem("Terrain Editor...")) showTerrainEditor_ = true;
-            if (ImGui::MenuItem("Menu Editor...")) showMenusEditor_ = true;
-            if (ImGui::MenuItem("Color Grading...")) showGradingEditor_ = true;
-            if (ImGui::MenuItem("Ambience Editor...")) showAmbienceEditor_ = true;
-            if (ImGui::MenuItem("Cutscene Director...")) showCutsceneEditor_ = true;
-            if (ImGui::MenuItem("Animation Editor...")) showAnimEditor_ = true;
-            if (ImGui::MenuItem("UI Editor...")) showUiEditor_ = true;
+            if (ImGui::MenuItem("Character Generator...")) {
+                showCharGenerator_ = true;
+                charPreviewDirty_ = true;
+            }
+            if (ImGui::MenuItem("Drone Generator...")) showDroneGenerator_ = true;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Ambient / drone music generator: audition a patch live,\n"
+                    "render it into res/audio as a looping background track.");
             if (ImGui::MenuItem("Font Manager...")) showFontManager_ = true;
-            if (ImGui::MenuItem("Input Map...")) showInputMap_ = true;
-            if (ImGui::MenuItem("Loading Screens...")) showLoadingEditor_ = true;
+            if (ImGui::MenuItem("Material Editor...")) showMaterialEditor_ = true;
+            if (ImGui::MenuItem("Particle Editor...")) showParticles_ = true;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("The particle library: effects defined once, used by\n"
+                                  "emitters and vehicle tyre smoke.");
+            if (ImGui::MenuItem("Texture Atlas...")) {
+                showTextureAtlas_ = true;
+                atlasPlanDirty_ = true;
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "What the build packed into shared texture pages, what it\n"
+                    "refused and why, and what it costs in GS VRAM - plus the\n"
+                    "per-texture keep-out and grouping controls. A page is ONE\n"
+                    "allocation and ONE palette, so what shares one is worth\n"
+                    "looking at.");
+            if (ImGui::MenuItem("Tree Generator...")) {
+                showTreeGenerator_ = true;
+                treePreviewDirty_ = true;
+            }
+
+            if (ImGui::MenuItem("Vehicle Editor...")) showVehicles_ = true;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Driveable cars. Define one - model, wheels, how it drives -\n"
+                    "and place it in as many scenes as you like. The wheels are\n"
+                    "found in the model by their geometry, so their names in\n"
+                    "Blender do not matter.");
+
+            ImGui::SeparatorText("Scene");
+            if (ImGui::MenuItem("Cutscene Director...")) showCutsceneEditor_ = true;
+            if (ImGui::MenuItem("Mocap...")) showMocap_ = true;
+            if (ImGui::MenuItem("Phone Camera...")) showPhoneCamWindow_ = true;
+            if (ImGui::MenuItem("Phone Link...")) showPhoneLinkWindow_ = true;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Host the session a phone joins - one link,\n"
+                                  "shared by the camera and by body capture.");
+            if (ImGui::MenuItem("Prefabs...")) showPrefabs_ = true;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Reusable groups of objects - a hut, a room, a lamp post\n"
+                    "with its light and its script. Stamp them by hand, scatter\n"
+                    "them with a procedural graph, or spawn them at runtime.");
+            if (ImGui::MenuItem("Procedural...")) showProcedural_ = true;
+            if (ImGui::MenuItem("Terrain Editor...")) showTerrainEditor_ = true;
+
+            ImGui::SeparatorText("Lighting & rendering");
+            if (ImGui::MenuItem("Ambience Editor...")) showAmbienceEditor_ = true;
+            if (ImGui::MenuItem("Baked Lighting...")) {
+                showAmbienceEditor_ = true;
+                showBakedLighting_ = true;
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Light baked on the host and shipped as pixels: automatic\n"
+                    "model AO multiplied into each model's own texture.");
+            if (ImGui::MenuItem("Color Grading...")) showGradingEditor_ = true;
+            // The two bakes live in the Ambience Editor now; the menu items
+            // still work and simply open that window on their tab.
+            if (ImGui::MenuItem("Global Illumination...")) {
+                showAmbienceEditor_ = true;
+                showGiBake_ = true;
+            }
+            if (ImGui::MenuItem("Neural Upscaler (BLSS)...")) showBlss_ = true;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Train, cross-validate and inspect the reduced-resolution\n"
+                    "reconstruction network, and look at the pictures it makes.\n"
+                    "Everything --blss-train / --blss-eval / --blss-emit can do,\n"
+                    "without a terminal. Proof of concept - read the notes.");
+            if (ImGui::MenuItem("Static Batches...")) {
+                showStaticBatches_ = true;
+                batchDirty_ = true;
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Which static objects merged into one submit, what each\n"
+                    "batch costs in VU1 packages against drawing its members\n"
+                    "solo, and WHY every object that is not batched is not.\n"
+                    "A batch is culled as a unit, so its merged box is worth\n"
+                    "looking at.");
+            if (ImGui::MenuItem("VU Programs...")) showVuPrograms_ = true;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Compose a VU1 microprogram out of stages - wobble, twist,\n"
+                    "posterize - and see the micro memory it costs, the VCL it\n"
+                    "generates and what it computes, without a console. Also\n"
+                    "VU0 compute kernels.");
+
+            ImGui::SeparatorText("Screens & menus");
             if (ImGui::MenuItem("Credits Editor...")) showCreditsEditor_ = true;
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip(
                     "End credits: headings, role/name pairs, images and page\n"
                     "breaks, imported from a text file if you like, scrolling\n"
                     "over music with a skip button and somewhere to go after.");
-            ImGui::Separator();
+            if (ImGui::MenuItem("Loading Screens...")) showLoadingEditor_ = true;
+            if (ImGui::MenuItem("Menu Editor...")) showMenusEditor_ = true;
+            if (ImGui::MenuItem("Menu Preview...")) showMenuPreview_ = true;
+            if (ImGui::MenuItem("UI Editor...")) showUiEditor_ = true;
+
+            ImGui::SeparatorText("Gameplay");
+            if (ImGui::MenuItem("Input Map...")) showInputMap_ = true;
+            if (ImGui::MenuItem("Save Editor...")) showSaveEditor_ = true;
+            if (ImGui::MenuItem("World Facts...")) showWorldFacts_ = true;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "The game's central memory: named, typed facts like\n"
+                    "\"the generator is repaired\" or \"marta.trust\", the\n"
+                    "reusable conditions over them, the rules that react,\n"
+                    "and a live blackboard of every one of them while the\n"
+                    "game runs.");
+
+            ImGui::SeparatorText("Running game");
             if (ImGui::MenuItem("Debugger...", "F9")) showDebugger_ = true;
             if (ImGui::MenuItem("Remote Pad...")) showRemotePad_ = true;
             if (ImGui::IsItemHovered())
@@ -1432,40 +1892,39 @@ void App::drawMenuBar() {
                     "buttons or drive it with the editor's keyboard. PCSX2 does\n"
                     "not need the focus, and the same channel is scriptable\n"
                     "(tyrax-editor --pad). Debug builds only.");
-            ImGui::Separator();
-            if (ImGui::MenuItem("Tree Generator...")) {
-                showTreeGenerator_ = true;
-                treePreviewDirty_ = true;
-            }
-            if (ImGui::MenuItem("Prefabs...")) showPrefabs_ = true;
+
+            ImGui::SeparatorText("AI");
+            if (ImGui::MenuItem("AI Assistant...")) showAiChat_ = true;
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip(
-                    "Reusable groups of objects - a hut, a room, a lamp post\n"
-                    "with its light and its script. Stamp them by hand, scatter\n"
-                    "them with a procedural graph, or spawn them at runtime.");
-            if (ImGui::MenuItem("Procedural...")) showProcedural_ = true;
-            if (ImGui::MenuItem("Drone Generator...")) showDroneGenerator_ = true;
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip(
-                    "Ambient / drone music generator: audition a patch live,\n"
-                    "render it into res/audio as a looping background track.");
-            if (ImGui::MenuItem("Character Generator...")) {
-                showCharGenerator_ = true;
-                charPreviewDirty_ = true;
-            }
-            if (ImGui::MenuItem("Mocap...")) showMocap_ = true;
-            if (ImGui::MenuItem("Phone Link...")) showPhoneLinkWindow_ = true;
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("Host the session a phone joins - one link,\n"
-                                  "shared by the camera and by body capture.");
-            if (ImGui::MenuItem("Phone Camera...")) showPhoneCamWindow_ = true;
+                    "Ask about the editor - it answers from the editor's own\n"
+                    "documentation - or ask for something to be done: it can\n"
+                    "add and change objects, write flow graphs, switch scenes\n"
+                    "and open windows. Uses the AI backend from Edit >\n"
+                    "Preferences; every change it makes is one Ctrl+Z away.");
+            ImGui::EndMenu();
+        }
+        // Deliberately outside the project gate: which build this is, and
+        // whether there is a newer one, are questions somebody has on the
+        // welcome screen too (docs/updates.md).
+        if (ImGui::BeginMenu("Help")) {
+            ImGui::MenuItem(("TyraX " + std::string(version::kEditorVersion)).c_str(),
+                            nullptr, false, false);
             ImGui::Separator();
-            // Lives in the Ambience Editor now; the menu item still works
-            // and simply opens that window on its GI tab.
-            if (ImGui::MenuItem("Bake Global Illumination...")) {
-                showAmbienceEditor_ = true;
-                showGiBake_ = true;
-            }
+            const bool updateBusy = updateChecking_ || updateDownloading_;
+            if (ImGui::MenuItem("Check for updates...", nullptr, false, !updateBusy))
+                startUpdateCheck(true);
+            if (!updateStatus_.empty()) ImGui::TextDisabled("%s", updateStatus_.c_str());
+            ImGui::Separator();
+            if (ImGui::MenuItem("Documentation"))
+                platform::openUrl(std::string("https://github.com/") +
+                                  update::kRepo + "/blob/main/docs/README.md");
+            if (ImGui::MenuItem("Releases"))
+                platform::openUrl(std::string("https://github.com/") +
+                                  update::kRepo + "/releases");
+            if (ImGui::MenuItem("Report an issue"))
+                platform::openUrl(std::string("https://github.com/") +
+                                  update::kRepo + "/issues");
             ImGui::EndMenu();
         }
 
@@ -1496,10 +1955,29 @@ void App::drawMenuBar() {
 // Runs the toolbar's selected target (runOnPs2_). One place, so the Play
 // button, its dropdown and anything else that grows later cannot disagree
 // about what "Run" means.
+// A game launched WITH the debugger opens the Debugger panel if it is closed.
+// This is the whole of what the old Debug toolbar button did on top of Run, and
+// having it as a separate button meant the ordinary Run silently started a debug
+// session with nowhere to watch it: the game reported every node it fired and
+// the editor put that on a panel nobody had opened. Two conditions, both already
+// meaningful on their own - the debug build profile, and the Live Debugger
+// project setting - so nothing pops up in a release build or for anyone who
+// turned the debugger off.
+//
+// Only when CLOSED, and never the reverse: a panel the user closed mid-session
+// stays closed until the next launch, and a launch never steals focus from or
+// re-docks a panel that is already open.
+void App::openDebuggerForLaunch() {
+    if (!showDebugger_ && project_.settings.buildProfile == "debug" &&
+        project_.settings.liveDebug)
+        showDebugger_ = true;
+}
+
 void App::runSelectedTarget(bool build) {
-    if (runOnPs2_) runner_.buildAndRunPs2(projectForBuild(), build);
-    else if (build) runner_.buildAndRun(projectForBuild(), true);
-    else runner_.runEmulatorOnly(project_);
+    openDebuggerForLaunch();
+    if (runOnPs2_) runner_.buildAndRunPs2(projectForBuild(), build, false, project_.activeScene);
+    else if (build) runner_.buildAndRun(projectForBuild(), true, false, project_.activeScene);
+    else runner_.runEmulatorOnly(project_, project_.activeScene);
 }
 
 // Icon toolbar drawn inline in the main menu bar, after the menus. Layout:
@@ -1673,16 +2151,6 @@ void App::drawToolbar() {
     const bool debugProfile = project_.settings.buildProfile == "debug";
     const ImU32 colTarget = runOnPs2_ ? colInfo : colOk;
     const char* noIpTip = "Set 'PS2 (ps2link) IP' in Edit > Preferences first.";
-    // Debug is Run plus opening the Debugger panel. It needs the debug build
-    // profile - Live Link, the Live Debugger and Live Logic exist nowhere else -
-    // but it stays on the bar either way, dimmed, saying where to switch it on.
-    const char* debugTip =
-        !debugProfile ? "Debug needs the Debug build profile (Project > "
-                        "Preferences > Build > Profile).\nLive Link, the Live "
-                        "Debugger and Live Logic only exist in debug builds."
-        : runOnPs2_   ? "Debug on PS2: build && run, and open the Debugger (F9)"
-                      : "Debug in PCSX2: build && run, and open the Debugger (F9)";
-    const bool debugEnabled = !busy && targetReady && debugProfile;
     if (iconButton("##tb_run", gapGroup, !busy && targetReady,
                    !targetReady    ? noIpTip
                    : runOnPs2_     ? "Build && Run on PS2 (F6)"
@@ -1695,28 +2163,11 @@ void App::drawToolbar() {
     if (button("##tb_run_more", 1.0f, h * 0.55f, true,
                "Run target and options...", paintCaret(colText)))
         ImGui::OpenPopup("run_menu");
-    // Debug: the Play triangle in the target color with a breakpoint dot on its
-    // lower-left vertex - "run, with the debugger attached" said in two symbols
-    // the toolbar already uses. The dot sits ON the vertex so the two read as
-    // one mark, and both survive being 10 px wide the way a drawn bug would not.
-    if (iconButton("##tb_debug", gapPair, debugEnabled, debugTip,
-                   [&](ImDrawList* dl, ImVec2 a, ImVec2 b, bool en) {
-                       const float w = b.x - a.x, hh = b.y - a.y;
-                       const float x0 = a.x + w * 0.16f, y1 = b.y - hh * 0.12f;
-                       dl->AddTriangleFilled(
-                           ImVec2(x0, a.y), ImVec2(x0, y1),
-                           ImVec2(b.x, (a.y + y1) * 0.5f),
-                           en ? colTarget : colDim);
-                       dl->AddCircleFilled(ImVec2(x0, y1), w * 0.22f,
-                                           en ? colStop : colDim);
-                   })) {
-        runSelectedTarget(true);
-        showDebugger_ = true;
-    }
     // Stop: cancels a running build, else stops the selected target - closes
     // PCSX2, or on the console kills the file server + resets ps2link. The
-    // emulator side is always available (a stray PCSX2 can't be detected, and
-    // the kill is a no-op when none runs).
+    // emulator side is always available: it looks for the instance booting THIS
+    // project's ELF, which is a no-op when there is none and leaves the other
+    // worktrees' emulators alone.
     const bool stopEnabled = busy || targetReady;
     if (iconButton("##tb_stop", gapPair, stopEnabled,
                    busy            ? "Cancel build"
@@ -1726,7 +2177,41 @@ void App::drawToolbar() {
                    paintStop(stopEnabled ? colStop : colDim))) {
         if (busy) runner_.cancel();
         else if (runOnPs2_) runner_.stopPs2(project_);
-        else runner_.stopEmulator();
+        else runner_.stopEmulator(project_);
+    }
+
+    // Build profile, where the Debug button used to be. That button was "Run,
+    // and also open the Debugger panel" - which is now what Run itself does
+    // whenever the project is built with the debugger on (runSelectedTarget),
+    // so the button had nothing left of its own to do. What the toolbar was
+    // missing instead is the switch every one of the chips to its right
+    // depends on: Live Link, the Live Debugger and Live Logic exist only in a
+    // debug build, and their dimmed tooltips all ended in "...switch the
+    // profile in Project > Preferences > Build". It is one click from here now,
+    // and the chips appear and disappear as it moves.
+    //
+    // Deliberately a labelled combo rather than another drawn glyph: this is
+    // the one control on the bar whose CURRENT VALUE has to be readable at a
+    // glance - "why is there no LIVE chip" is answered by seeing "Release"
+    // sitting here, and no icon says that.
+    {
+        int profileIdx = debugProfile ? 1 : 0;
+        const char* profileNames[2] = {"Release", "Debug"};
+        ImGui::SameLine(0.0f, gapGroup);
+        ImGui::SetNextItemWidth(ImGui::CalcTextSize("Release").x + h +
+                                ImGui::GetStyle().FramePadding.x * 2.0f);
+        if (ImGui::Combo("##tb_profile", &profileIdx, profileNames, 2)) {
+            project_.settings.buildProfile = profileIdx == 1 ? "debug" : "release";
+            commitChange();
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Build profile (same setting as Project > Preferences > "
+                "Build).\n"
+                "Debug carries the devkit channels, the overlays, -g and the "
+                "unstripped\nELF the crash reporter needs - Live Link, the Live "
+                "Debugger and Live\nLogic exist in debug builds only. Release "
+                "carries none of it.");
     }
 
     // Live Link chip: a dot + label after the run group, ALSO the on/off
@@ -1750,9 +2235,15 @@ void App::drawToolbar() {
                 case LiveLinkState::Live:
                     c = colOk;
                     label = "LIVE";
+                    // Say what it does NOT carry. This is the chip people
+                    // watch, and green here was being read as "everything I
+                    // change is live" - a flow-graph edit is Live LOGIC's job
+                    // (its own chip), and with that off it needs a rebuild.
                     tip = "Live Link: object edits (move/rotate/scale/recolor,"
-                          " add/delete) stream\ninto the running game. Click "
-                          "to turn off (project setting).";
+                          " add/delete) stream\ninto the running game. Flow "
+                          "GRAPHS are not object edits - those are\nLive "
+                          "Logic's (the LOGIC chip). Click to turn off "
+                          "(project setting).";
                     break;
                 case LiveLinkState::RebuildNeeded:
                     c = colWarn;
@@ -1852,25 +2343,38 @@ void App::drawToolbar() {
     // something the interpreter cannot run. Clicking opens the Debugger's
     // Logic tab.
     if (project_.settings.buildProfile == "debug" &&
-        project_.settings.liveLogic &&
         (liveLogicState_ == LogicState::Patched ||
-         liveLogicState_ == LogicState::Blocked)) {
+         liveLogicState_ == LogicState::Blocked ||
+         liveLogicState_ == LogicState::OffStale)) {
+        const bool offStale = liveLogicState_ == LogicState::OffStale;
         const bool blocked = liveLogicState_ == LogicState::Blocked;
         char label[48];
-        if (blocked)
+        if (offStale)
+            std::snprintf(label, sizeof(label), "LOGIC (off)");
+        else if (blocked)
             std::snprintf(label, sizeof(label), "LOGIC (rebuild)");
         else
             std::snprintf(label, sizeof(label), "LOGIC (%d)",
                           liveLogicPatchCount_);
-        const ImU32 c = blocked ? colWarn
-                                : colInfo;
+        const ImU32 c = (blocked || offStale) ? colWarn
+                                              : colInfo;
+        // The off-stale line is the one people arrive at from the GREEN LIVE
+        // chip: Live Link streams object edits and has never carried graph
+        // logic, so it stays green while a graph edit sits in the editor only.
+        // Say both halves - what is not live, and the two ways out.
         const char* tip =
-            blocked ? "Live Logic: an edited graph uses nodes the interpreter "
-                      "cannot run\n(audio, AI, animation, spawning, runtime "
-                      "text...) - Build & Run (F5).\nClick for the list."
-                    : "Live Logic: these graphs were compiled by the editor and "
-                      "are running\nin the game right now, with no rebuild. "
-                      "Click to see them.";
+            offStale  ? "A flow graph changed since the build, and Live Logic "
+                        "is OFF - the\nrunning game is still on its compiled "
+                        "graphs. (LIVE stays green:\nLive Link streams object "
+                        "edits, never graph logic.)\nBuild & Run (F5), or turn "
+                        "Live Logic on in Project Preferences > Build."
+            : blocked ? "Live Logic: an edited graph uses nodes the interpreter "
+                        "cannot run\n(audio, AI, animation, spawning, runtime "
+                        "text, branching nodes...)\n- Build & Run (F5). Click "
+                        "for the list."
+                      : "Live Logic: these graphs were compiled by the editor and "
+                        "are running\nin the game right now, with no rebuild. "
+                        "Click to see them.";
         ImGui::SameLine(0.0f, gapPair);
         ImDrawList* dl = ImGui::GetWindowDrawList();
         const ImVec2 p = ImGui::GetCursorScreenPos();
@@ -1935,6 +2439,53 @@ void App::drawToolbar() {
         }
     }
 
+    // Build status, last on the bar. It lived in the Project panel, which is
+    // the least likely place for it to be seen - that panel is routinely docked
+    // behind another tab, while this bar carries every other build control and
+    // is always on screen. Hidden while idle and after a clean build, like the
+    // SESSION chip: a permanent "ready" chip is one more thing to read and says
+    // nothing. Clicking brings the Output panel forward, which is where both
+    // the progress and the failure are. The hit box carries a REAL label rather
+    // than a "##" id (the chat window's "Copy message" precedent): an
+    // InvisibleButton draws nothing either way, and a label-less widget is one
+    // --ui-script can never target.
+    {
+        const bool failed = runner_.state() == Runner::State::Failed;
+        if (busy || failed) {
+            const char* label = busy ? "BUILDING" : "BUILD FAILED";
+            const ImU32 c = busy ? colInfo : colStop;
+            ImGui::SameLine(0.0f, gapGroup);
+            ImDrawList* dl = ImGui::GetWindowDrawList();
+            const ImVec2 p = ImGui::GetCursorScreenPos();
+            const float r = h * 0.18f;
+            const float textW = ImGui::CalcTextSize(label).x;
+            const float chipW = r * 2.0f + 4.0f + textW;
+            if (ImGui::InvisibleButton("Build status", ImVec2(chipW, h)))
+                pendingFocusWindow_ = "Output";
+            chipHover(dl, p, chipW);
+            const ImVec2 mid(p.x + r, p.y + h * 0.5f);
+            if (busy) {
+                // A drawn arc rather than the "|/-\" it replaces: a spinning
+                // ASCII character is indistinguishable from a stuck one at this
+                // size, and the rest of the bar is vector glyphs anyway.
+                const float t = (float)ImGui::GetTime() * 5.0f;
+                dl->PathArcTo(mid, r, t, t + 4.2f, 20);
+                dl->PathStroke(c, 0, ImMax(1.5f, h * 0.07f));
+            } else {
+                dl->AddCircleFilled(mid, h * 0.14f, c);
+            }
+            dl->AddText(ImVec2(p.x + r * 2.0f + 4.0f,
+                               p.y + (h - ImGui::GetTextLineHeight()) * 0.5f),
+                        c, label);
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    busy ? "Building - Stop cancels it (or Build > Cancel "
+                           "Build).\nClick for the Output panel."
+                         : "The last build failed. Click for the Output "
+                           "panel - the first error is in there.");
+        }
+    }
+
     // The Play caret's dropdown (anchored just under the caret): which machine
     // to run on, then the run variants for it. Debug needs the debug build
     // profile - Live Link, the Debugger and Live Logic only exist there - so
@@ -1960,14 +2511,179 @@ void App::drawToolbar() {
         if (ImGui::MenuItem("Run without build", noBuildKey, false,
                             !busy && targetReady))
             runSelectedTarget(false);
-        if (ImGui::MenuItem("Debug", nullptr, false, debugEnabled)) {
-            runSelectedTarget(true);
-            showDebugger_ = true;
-        }
-        if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-            ImGui::SetTooltip("%s", debugTip);
+        // No "Debug" entry: it was Run plus opening the Debugger panel, and Run
+        // now opens it by itself whenever the project is built with the
+        // debugger on (runSelectedTarget). Leaving it here would be a second
+        // name for the same action - and the one that used to be different is
+        // now the default. F9 and Window > Debugger still open the panel
+        // by hand, in a release build too.
         ImGui::EndPopup();
     }
+}
+
+// Baked shadow decals (docs/shadows.md): push the CACHED bake into the
+// viewport. The editor never bakes here - a bake is pressed, not implied - so
+// this is a cache read keyed on what could have invalidated it: the active
+// scene, the model's edit serial (which moves when a caster or a receiver
+// does, staling the signature), the project switch, and the baker's own
+// version so a finished bake appears without anyone touching the scene.
+void App::updateShadowDecals() {
+    uint64_t key = 1469598103934665603ull;
+    const auto mix = [&](uint64_t v) { key = (key ^ v) * 1099511628211ull; };
+    mix((uint64_t)project_.activeScene);
+    mix(modelEditSerial_);
+    mix(project_.settings.bakedShadows ? 1u : 0u);
+    mix(shadowBaker_.version());
+    mix(project_.settings.bakedShadowAutoBake ? 1u : 0u);
+    if (key == shadowPreviewKey_) return;
+    shadowPreviewKey_ = key;
+
+    Viewport::ShadowPreview pv;
+    pv.version = ++shadowPreviewVersion_;
+    // With the background re-bake on, the last bake stays on screen until the
+    // new one lands - a moved caster's shadow trails it for a few seconds
+    // instead of every shadow in the scene blinking out. Without it, a stale
+    // bake shows nothing, exactly as the game would get nothing.
+    const shadowbake::Bake b =
+        project_.settings.bakedShadowAutoBake
+            ? shadowbake::loadAny(project_, project_.activeScene)
+            : shadowbake::load(project_, project_.activeScene);
+    if (b.valid && (!b.groups.empty() || !b.ground.empty())) {
+        pv.pageSize = shadowbake::kPageSize;
+        // The pages as the console samples them: the bake's own tint in RGB,
+        // its alpha in A. Expanded here rather than stored that way, for the
+        // reason the cache stores one byte a texel - the tint is one colour
+        // per scene, not per pixel.
+        for (const shadowbake::Page& pg : b.pages) {
+            std::vector<unsigned char> rgba((size_t)pv.pageSize * pv.pageSize * 4, 0);
+            for (size_t i = 0; i < pg.alpha.size() && i * 4 + 3 < rgba.size(); ++i) {
+                rgba[i * 4 + 0] = b.tint[0];
+                rgba[i * 4 + 1] = b.tint[1];
+                rgba[i * 4 + 2] = b.tint[2];
+                rgba[i * 4 + 3] = pg.alpha[i];
+            }
+            pv.pages.push_back(std::move(rgba));
+        }
+        for (const shadowbake::Group& g : b.groups) {
+            Viewport::ShadowPreview::Draw d;
+            d.verts = g.verts;
+            d.page = g.page;
+            pv.draws.push_back(std::move(d));
+        }
+        // Ground shadow maps (docs/shadows.md, "Ground shadow maps"): packed
+        // into extra preview pages and drawn over the cells the game draws
+        // them on - the same cell masks, the same chunk-square STs and the
+        // same quad diagonal, lifted a little more than the game's 0.02 for
+        // the GL depth buffer.
+        const SceneData& sc = project_.scenes[project_.activeScene];
+        const int res = b.groundRes;
+        if (!b.ground.empty() && res > 0 && res <= pv.pageSize && sc.hmW >= 2 &&
+            sc.hmD >= 2 && (int)sc.heights.size() == sc.hmW * sc.hmD) {
+            const int C = shadowbake::kGroundChunkCells;
+            const int per = pv.pageSize / res;
+            const int cellsX = sc.hmW - 1, cellsZ = sc.hmD - 1;
+            const float W = (float)sc.terrain.width, D = (float)sc.terrain.depth;
+            const float stepX = W / (float)cellsX, stepZ = D / (float)cellsZ;
+            const float lift = 0.05f;
+            const auto hAt = [&](int ix, int iz) {
+                return sc.heights[(size_t)iz * sc.hmW + ix] + lift;
+            };
+            int slot = 0, page = -1;
+            for (const shadowbake::GroundMap& gm : b.ground) {
+                if ((int)gm.alpha.size() != res * res) continue;
+                if (slot % (per * per) == 0) {
+                    pv.pages.emplace_back((size_t)pv.pageSize * pv.pageSize * 4, 0);
+                    page = (int)pv.pages.size() - 1;
+                }
+                const int sl = slot++ % (per * per);
+                const int ox = (sl % per) * res, oy = (sl / per) * res;
+                std::vector<unsigned char>& px = pv.pages[(size_t)page];
+                for (int y = 0; y < res; ++y)
+                    for (int x = 0; x < res; ++x) {
+                        unsigned char* t =
+                            &px[((size_t)(oy + y) * pv.pageSize + ox + x) * 4];
+                        t[0] = b.tint[0], t[1] = b.tint[1], t[2] = b.tint[2];
+                        t[3] = gm.alpha[(size_t)y * res + x];
+                    }
+                // Half a texel in from the slot's edge: the filter must not
+                // reach the neighbouring slot.
+                const float ps = (float)pv.pageSize;
+                const float u0 = (ox + 0.5f) / ps, v0 = (oy + 0.5f) / ps;
+                const float du = (res - 1.0f) / ps, dv = (res - 1.0f) / ps;
+                const std::vector<uint16_t> rows = shadowbake::groundCellMask(gm, res);
+                const int gx0 = gm.cx * C, gz0 = gm.cz * C;
+                Viewport::ShadowPreview::Draw d;
+                d.page = page;
+                for (int r = 0; r < C && gz0 + r < cellsZ; ++r)
+                    for (int c = 0; c < C && gx0 + c < cellsX; ++c) {
+                        if (!(rows[r] & (1u << c))) continue;
+                        const int x = gx0 + c, z = gz0 + r;
+                        const float x0 = -W * 0.5f + x * stepX, x1 = x0 + stepX;
+                        const float z0 = -D * 0.5f + z * stepZ, z1 = z0 + stepZ;
+                        const float u_0 = u0 + du * (float)c / C, u_1 = u0 + du * (float)(c + 1) / C;
+                        const float v_0 = v0 + dv * (float)r / C, v_1 = v0 + dv * (float)(r + 1) / C;
+                        const float q[6][5] = {
+                            {x0, hAt(x, z), z0, u_0, v_0},
+                            {x1, hAt(x + 1, z), z0, u_1, v_0},
+                            {x0, hAt(x, z + 1), z1, u_0, v_1},
+                            {x1, hAt(x + 1, z), z0, u_1, v_0},
+                            {x1, hAt(x + 1, z + 1), z1, u_1, v_1},
+                            {x0, hAt(x, z + 1), z1, u_0, v_1}};
+                        for (const auto& v : q) d.verts.insert(d.verts.end(), v, v + 5);
+                    }
+                if (!d.verts.empty()) pv.draws.push_back(std::move(d));
+            }
+        }
+    }
+    viewport_.setShadowDecals(pv);
+}
+
+// Drains shadowBaker_. Unlike the GI and pre-lit polls there is nothing to
+// apply back onto the model - the bake lives entirely on disk - so this only
+// has to make the finished result visible. Called every frame from drawUI and
+// from nowhere else (the giBakerPoll rule): a bake started from the Ambience
+// Editor has to land whether or not that tab is still open when it ends.
+void App::shadowBakerPoll() {
+    if (!hasProject_) return;
+    // Re-baked while you edit (docs/shadows.md): any edit makes the WHOLE
+    // scene's cache stale - the signature covers every caster and receiver -
+    // and a stale cache draws nothing, so one moved crate used to take every
+    // shadow in the scene with it until someone pressed Bake. With the
+    // auto-bake switch on, wait for the edits to settle (a gizmo drag is many
+    // edits), then re-bake the active scene in the background. The other
+    // scenes are left to the build's pre-bake.
+    {
+        const ProjectSettings& st = project_.settings;
+        const bool autoOn = st.bakedShadows && st.bakedShadowAutoBake;
+        const uint64_t key = modelEditSerial_ * 31u + (uint64_t)project_.activeScene;
+        if (!shadowBaker_.running()) shadowAutoRunning_ = false;
+        if (key != shadowAutoKey_) {
+            shadowAutoKey_ = key;
+            shadowAutoEditTime_ = ImGui::GetTime();
+            shadowAutoPending_ = autoOn;
+            // Baking a scene the next edit already invalidated is wasted time.
+            if (shadowAutoRunning_) {
+                shadowBaker_.cancel();
+                shadowAutoRunning_ = false;
+            }
+        }
+        if (autoOn && shadowAutoPending_ && !shadowBaker_.running() &&
+            ImGui::GetTime() - shadowAutoEditTime_ > 1.0) {
+            shadowAutoPending_ = false;
+            if (!shadowbake::isFresh(project_, project_.activeScene)) {
+                shadowBaker_.start(project_, {project_.activeScene});
+                shadowAutoRunning_ = true;
+            }
+        }
+    }
+    const uint64_t v = shadowBaker_.version();
+    if (v == shadowBakeVersion_) return;
+    shadowBakeVersion_ = v;
+    // updateShadowDecals folds the baker's version into its own key, so the
+    // next frame re-reads the cache on its own. What it cannot see is the
+    // terrain mesh and the GI textures the viewport holds, which a bake does
+    // not touch - hence no applyProjectToViewport here.
+    shadowPreviewKey_ = 0;
 }
 
 void App::updateProjectedDecals() {
@@ -1994,6 +2710,7 @@ void App::updateProjectedDecals() {
             mix((uint64_t)o.type);
             for (int k = 0; k < 3; ++k) { mixf(o.position[k]); mixf(o.rotation[k]); mixf(o.scale[k]); }
             mix((uint64_t)o.primDetail);
+            mix(o.primRings ? 1u : 0u);
             for (char c : o.id) mix((uint8_t)c);
             for (char c : o.modelPath) mix((uint8_t)c);
             if (o.type == PrimitiveType::Decal) {
@@ -2069,6 +2786,10 @@ void App::updateNavOverlay() {
         mix((uint64_t)o.collisionMode);
         for (int k = 0; k < 3; ++k) { mixf(o.position[k]); mixf(o.scale[k]); }
         for (char c : o.modelPath) mix((uint8_t)c);
+    }
+    for (const auto& [asset, b] : project_.modelCollision) {  // models' own boxes
+        for (char c : asset) mix((uint8_t)c);
+        for (int k = 0; k < 3; ++k) { mixf(b.mn[k]); mixf(b.mx[k]); }
     }
     for (float h : sc.heights) mixf(h);
 
@@ -2183,16 +2904,10 @@ void App::drawWelcomeScreen() {
     // An open wins over a drop in the same frame (they can't both be clicked,
     // but the drop would shift the index the open reads).
     if (openIndex < 0 && forgetIndex >= 0) forgetRecentProject(forgetIndex);
-    if (openIndex >= 0) {
-        const std::string dir = recentProjects_[openIndex].dir;
-        const std::string err = openProjectAt(dir);
-        if (!err.empty()) {
-            // Moved/deleted since it was probed: say so and mark the row, but
-            // keep it - the user decides whether it is worth forgetting.
-            probeRecentProject(recentProjects_[openIndex]);
-            platform::errorBox("Open Project", err);
-        }
-    }
+    // Nothing is open here, so there is never anything to discard - straight to
+    // the shared open path (which reports a folder that vanished since it was
+    // probed and re-marks the row).
+    if (openIndex >= 0) openRecentProject(recentProjects_[openIndex].dir);
 }
 
 void App::drawViewportWindow() {
@@ -2201,7 +2916,10 @@ void App::drawViewportWindow() {
     // arrow keys cycle focus through the overlay tool buttons (Move/Rotate/...)
     // instead of - or on top of - flying the camera when arrow-key movement is
     // selected. The buttons all have 1/2/3/5 hotkeys, so nothing is lost.
-    ImGui::Begin("Viewport", nullptr, ImGuiWindowFlags_NoNav);
+    // The scene canvas owns the wheel for camera zoom, not window scrolling.
+    // The welcome screen still needs its ordinary scrolling project list.
+    ImGui::Begin("Viewport", nullptr, ImGuiWindowFlags_NoNav |
+        (hasProject_ ? ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse : 0));
     ImGui::PopStyleVar();
 
     if (!hasProject_) {
@@ -2209,6 +2927,8 @@ void App::drawViewportWindow() {
         ImGui::End();
         return;
     }
+    ImGui::SetScrollX(0.0f);
+    ImGui::SetScrollY(0.0f);
 
     ImVec2 avail = ImGui::GetContentRegionAvail();
     if (avail.x >= 8 && avail.y >= 8) {
@@ -2231,16 +2951,71 @@ void App::drawViewportWindow() {
                                  selectedAmbience_ < (int)project_.ambiencePresets.size();
             if (preview) {
                 const AmbiencePreset& a = project_.ambiencePresets[selectedAmbience_];
-                viewport_.setSky(a.skyColor, a.skyTopColor, a.skyDome, a.zenithSize);
-                viewport_.setLighting(a.lightDir, a.ambient, a.diffuse, a.lightColor,
-                                      a.brightness);
+                // A cycle owns the sky, the light and the fog colour at its
+                // authored hour - exactly the overlay project::resolvedSettings
+                // applies for the bake, so dragging the time slider previews
+                // the light the build will actually use.
+                ambience::Resolved d{};
+                if (a.cycle.enabled) {
+                    d = ambience::evaluate(a.cycle, a.cycle.time);
+                    viewport_.setSky(d.skyColor, d.skyTopColor, a.skyDome,
+                                     a.zenithSize);
+                    viewport_.setLighting(d.lightDir, d.ambient, d.diffuse,
+                                          d.lightColor, d.brightness);
+                    viewport_.setFog(a.fogEnabled && showFog_, d.fogColor,
+                                     a.fogStart, a.fogEnd);
+                } else {
+                    viewport_.setSky(a.skyColor, a.skyTopColor, a.skyDome, a.zenithSize);
+                    viewport_.setLighting(a.lightDir, a.ambient, a.diffuse, a.lightColor,
+                                          a.brightness);
+                    viewport_.setFog(a.fogEnabled && showFog_, a.fogColor, a.fogStart, a.fogEnd);
+                }
                 viewport_.setAmbientOcclusion(a.aoEnabled, a.aoStrength, a.aoRadius);
-                viewport_.setFog(a.fogEnabled && showFog_, a.fogColor, a.fogStart, a.fogEnd);
+                viewport_.setSkyTexture(
+                    a.skyTexture.empty() ? std::string() : project_.filePath(a.skyTexture),
+                    a.skyTextureYaw);
                 ambiencePreviewPushed_ = true;
+                // With the runtime half on, the console also applies a drift
+                // grade every frame (docs/day-night-cycle.md). The slider is how
+                // you author that, so the preview has to include it - otherwise
+                // the editor shows a brightly lit midnight the game will not.
+                if (a.cycle.enabled && a.cycle.runtime && a.cycle.runtimeGrade) {
+                    const ambience::Resolved now =
+                        ambience::evaluate(a.cycle, a.cycle.time);
+                    const ambience::Resolved baked =
+                        ambience::evaluate(a.cycle, ambience::bakedHour(a.cycle));
+                    const ambience::Grade g = ambience::driftGrade(now, baked);
+                    ColorGradingPreset cg;
+                    for (int i = 0; i < 3; ++i) {
+                        cg.gain[i] = g.gain[i];
+                        cg.lift[i] = g.lift[i];
+                        cg.tint[i] = g.mixColor[i];
+                    }
+                    cg.tintAmount = g.mixAmount;
+                    viewport_.setGrading(true, compileGrading(cg));
+                    // Pre-compensate the sky the same way the game does, or the
+                    // preview shows a night the console will not.
+                    ambience::driftCompensation(g, skyBodyComp_);
+                    float sky[3], top[3], fog[3];
+                    for (int i = 0; i < 3; ++i) {
+                        sky[i] = std::min(1.0f, d.skyColor[i] * skyBodyComp_[i]);
+                        top[i] = std::min(1.0f, d.skyTopColor[i] * skyBodyComp_[i]);
+                        fog[i] = std::min(1.0f, d.fogColor[i] * skyBodyComp_[i]);
+                    }
+                    viewport_.setSky(sky, top, a.skyDome, a.zenithSize);
+                    viewport_.setFog(a.fogEnabled && showFog_, fog, a.fogStart,
+                                     a.fogEnd);
+                } else {
+                    skyBodyComp_[0] = skyBodyComp_[1] = skyBodyComp_[2] = 1.0f;
+                }
             } else if (ambiencePreviewPushed_) {
                 ambiencePreviewPushed_ = false;
                 applyProjectToViewport();  // restore the scene's own ambience
             }
+            // The sun/moon discs follow whichever cycle is being shown: the
+            // previewed preset while the editor is open, the scene's own
+            // otherwise - so they are visible during ordinary scene work too.
+            updateSkyBodyPreview(preview ? selectedAmbience_ : -1);
         }
         // Layer eye toggles: objects on hidden layers vanish from the render
         // and the click picking (mask indices parallel project_.objects()).
@@ -2250,10 +3025,66 @@ void App::drawViewportWindow() {
                 hidden[i] = isObjectHiddenInEditor(project_.objects()[i]) ? 1 : 0;
             viewport_.setHiddenMask(std::move(hidden));
         }
+        // Scroller ghost belts: the View toggle covers every belt, the
+        // per-object set covers the ones switched off in their own Properties.
+        {
+            std::vector<char> ghosts(project_.objects().size(), 1);
+            for (size_t i = 0; i < project_.objects().size(); ++i) {
+                const SceneObject& o = project_.objects()[i];
+                if (o.type != PrimitiveType::Scroller) continue;
+                ghosts[i] = (showScrollerPreview_ && !scrollGhostsOff_.count(o.id))
+                                ? (char)1
+                                : (char)0;
+            }
+            viewport_.setScrollerGhosts(std::move(ghosts));
+        }
         // Non-destructive clip edits + the project's animation-fps ratio, so
         // the scene preview retimes and trims exactly like the build bakes.
         viewport_.setAnimEdits(project_.animClipEdits,
                                animedit::projectTimeScale(project_.settings));
+        // A linked emitter's extra particle layers (docs/particles.md), rebuilt
+        // only when the model or the scene changes; the viewport places them
+        // on the live emitter every frame.
+        if (emitterLayersSerial_ != modelEditSerial_ ||
+            emitterLayersScene_ != project_.activeScene) {
+            std::map<int, std::vector<Viewport::EmitterLayerPreview>> m;
+            const auto& objs = project_.objects();
+            for (size_t i = 0; i < objs.size(); ++i) {
+                const ParticleEffect* fx =
+                    objs[i].type == PrimitiveType::Emitter
+                        ? project::findParticleEffect(project_, objs[i].particleEffect)
+                        : nullptr;
+                if (!fx || fx->layers.empty()) continue;
+                const std::vector<SceneObject> ls = project::emitterLayerObjects(project_, objs[i]);
+                for (size_t k = 0; k < ls.size(); ++k) {
+                    Viewport::EmitterLayerPreview L;
+                    L.look = ls[k];
+                    for (int a = 0; a < 3; ++a) {
+                        L.offset[a] = fx->layers[k].offset[a];
+                        L.area[a] = fx->layers[k].area[a];
+                    }
+                    m[(int)i].push_back(std::move(L));
+                }
+            }
+            viewport_.setEmitterLayers(std::move(m));
+            emitterLayersSerial_ = modelEditSerial_;
+            emitterLayersScene_ = project_.activeScene;
+        }
+        // Clips borrowed from other model files, grouped per target model - the
+        // preview merges them exactly as bakeAnimAssets does, so an imported
+        // clip is visible in the editor and not only on the console. Built only
+        // when the project has any, and setAnimImports compares before it
+        // drops the bake cache, so this costs a project without imports one
+        // empty map per frame.
+        if (!project_.animImports.empty()) {
+            std::map<std::string, std::vector<animmerge::ImportSpec>> imports;
+            for (const AnimImport& a : project_.animImports)
+                if (!imports.count(a.model))
+                    imports[a.model] = animedit::importsFor(project_, a.model);
+            viewport_.setAnimImports(std::move(imports));
+        } else {
+            viewport_.setAnimImports({});
+        }
         // Cutscene Director preview: pose the objects (and maybe fly the
         // camera) at the playhead. Returns the raw objects when not previewing.
         const std::vector<SceneObject>& posedObjects = cutscenePosedObjects();
@@ -2289,7 +3120,17 @@ void App::drawViewportWindow() {
         // track wins while it previews; reading the POSED objects means a
         // dollied camera entity is followed live. A stale name (deleted
         // entity) falls back to the free orbit camera.
-        if (!seqCameraPushed_ && !phoneCamPushed_) {
+        // "Look through this shot" (Tools > Neural Upscaler (BLSS) > Training
+        // shots): park the editor camera at an authored training vantage so the
+        // author can SEE the frame the corpus will render. It has to be pushed
+        // every frame like the others - the branch below CLEARS the override
+        // when nothing claims it, so a one-shot call would last exactly one
+        // frame. Below the cutscene and the phone, above the look-through
+        // camera: it is a deliberate, explicit act and it should win over a
+        // camera somebody left selected.
+        if (!seqCameraPushed_ && !phoneCamPushed_ && blssLookThrough_)
+            viewport_.setCameraOverride(blssLookEye_, blssLookAt_, blssLookFov_, 0.0f);
+        if (!seqCameraPushed_ && !phoneCamPushed_ && !blssLookThrough_) {
             const SceneObject* cam = nullptr;
             if (!lookThroughCam_.empty())
                 for (const SceneObject& o : renderObjects)
@@ -2332,12 +3173,37 @@ void App::drawViewportWindow() {
             viewport_.setHiddenCameras(std::move(hideCams));
         }
         updateProjectedDecals();
+        updateShadowDecals();
         updateNavOverlay();
+        viewport_.setCollisionOverlay(showCollisionBoxes_);
+        viewport_.setModelCollision(&project_.modelCollision);
+        updateBatchOverlay();
         updateProcPreview();
         // Pushed every frame rather than on change: the geometry follows the
         // project's display settings, which the Preferences dialog can change
         // under us, and resolving it is a handful of comparisons.
         viewport_.setPs2Output(ps2ViewportOutput());
+        viewport_.setPs2Shading(viewportPs2Shade_);
+        // GS colour: resolve "match project" against the project's own
+        // Preferences here, so the viewport stays settings-blind and a
+        // colour-depth edit shows the moment it is made.
+        {
+            bool quant = false, dith = false;
+            switch (viewportGsColor_) {
+                case 0:
+                    // Hybrid's OUTPUT is a dithered 16-bit buffer, so that
+                    // is what the viewport shows for it.
+                    quant = project_.settings.colorDepth != "32bit";
+                    dith = project_.settings.dither;
+                    break;
+                case 2: quant = true; break;
+                case 3: quant = dith = true; break;
+                default: break;  // 1 = full 32-bit
+            }
+            viewport_.setGsColorSim(quant, dith);
+        }
+        viewport_.setRoadDragging(roadDragPoint_ >= 0);
+        viewport_.setRoadJunctions(project_.active().roadJunctions);
         uint32_t tex = viewport_.render((int)avail.x, (int)avail.y, renderObjects,
                                         renderSel, renderPrimary);
         // Phone camera link: stream THIS frame to the connected device, so the
@@ -2346,6 +3212,14 @@ void App::drawViewportWindow() {
         phoneCamPushPreview();
         // Flip vertically: GL texture origin is bottom-left
         ImGui::Image((ImTextureID)(intptr_t)tex, avail, ImVec2(0, 1), ImVec2(1, 0));
+#ifdef IMGUI_ENABLE_TEST_ENGINE
+        // Image has no item ID: expose its rectangle to unattended picking tests.
+        if (GImGui->TestEngineHookItems) {
+            const ImGuiID id = ImGui::GetID("Viewport canvas");
+            ImGuiTestEngineHook_ItemAdd(GImGui, id, GImGui->LastItemData.Rect, nullptr);
+            ImGuiTestEngineHook_ItemInfo(GImGui, id, "Viewport canvas", 0);
+        }
+#endif
 
         const ImVec2 imgPos = ImGui::GetItemRectMin();
         const bool imageHovered = ImGui::IsItemHovered();
@@ -2372,7 +3246,11 @@ void App::drawViewportWindow() {
             const ImU32 black = IM_COL32(0, 0, 0, 255);
             if (seqBarsNow_ > 0.0f) {
                 float ft, fb, fl, fr;
-                seqBarsFractions(seqBarsStyleNow_, ft, fb, fl, fr);
+                // A letterbox is measured against the picture the console
+                // outputs, so a widescreen project gets thinner Cinema bars and
+                // no Wide ones at all - exactly what the game will composite.
+                seqBarsFractions(seqBarsStyleNow_, ps2ViewportOutput().tvAspect,
+                                 ft, fb, fl, fr);
                 const float t = ft * seqBarsNow_ * avail.y;
                 const float b = fb * seqBarsNow_ * avail.y;
                 const float l = fl * seqBarsNow_ * avail.x;
@@ -2452,6 +3330,14 @@ void App::drawViewportWindow() {
 
         // TV safe-area guides, over the image like the cutscene bars.
         drawSafeAreaOverlay(imgPos, avail);
+
+        // Editor notes (docs/comments.md): a message icon per comment, and the
+        // text of the selected one. Under the axis gizmo and the transform
+        // gizmo below, which both own their pixels.
+        drawScreenIconOverlay(imgPos, avail);
+        // Road crossings (docs/roads.md, "Junction overrides"): a diamond per
+        // crossing while a road or a junction is selected.
+        junctionMarkers(imgPos, avail, true, io.MousePos);
 
         // --- Axis view gizmo (top-right corner) ---
         // Drawn before the input handling so its hover can veto the click that
@@ -2546,15 +3432,128 @@ void App::drawViewportWindow() {
             }
         }
 
+        // --- Road preview (docs/roads.md): the SELECTED road's tessellated
+        // edges plus a marker per authored point - the exact SURFACE the game
+        // will build, because it comes from the same roadgen::tessellate the
+        // runtime twin transcribes. The game submits that surface as triangle
+        // STRIPS (roadgen::tessellateStrips, same rows, same diagonals, only
+        // the vertex order differs); the list is what the preview, the picker
+        // and the align pass read, and it stays the source of truth for the
+        // shape. Selected-only: a map of roads as permanent overlays would be
+        // noise.
+        for (size_t roi = 0; roi < project_.objects().size(); ++roi) {
+            const SceneObject& ro = project_.objects()[roi];
+            if (ro.type != PrimitiveType::Road || ro.roadPoints.size() < 4)
+                continue;
+            const bool roSel = (int)roi == selectedObject_;
+            if (!roSel) continue;
+            auto worldToImage = [&](float wx, float wy, float wz, ImVec2& out) {
+                const float* V = viewport_.viewMatrix();
+                const float* P = viewport_.projMatrix();
+                const float vx = V[0] * wx + V[4] * wy + V[8] * wz + V[12];
+                const float vy = V[1] * wx + V[5] * wy + V[9] * wz + V[13];
+                const float vz = V[2] * wx + V[6] * wy + V[10] * wz + V[14];
+                const float cx = P[0] * vx + P[4] * vy + P[8] * vz + P[12];
+                const float cy = P[1] * vx + P[5] * vy + P[9] * vz + P[13];
+                const float cw = P[3] * vx + P[7] * vy + P[11] * vz + P[15];
+                if (cw <= 0.001f) return false;
+                out = ImVec2(imgPos.x + (cx / cw * 0.5f + 0.5f) * avail.x,
+                             imgPos.y + (1.0f - (cy / cw * 0.5f + 0.5f)) * avail.y);
+                return true;
+            };
+            const auto& strip = viewport_.roadOutline(
+                ro.id.empty() ? ("road-" + std::to_string(roi)) : ro.id);
+            ImDrawList* dl = ImGui::GetWindowDrawList();
+            // The filled, textured strip is real viewport geometry now. This
+            // overlay owns only the selected road's handles and crisp edges.
+            if (roSel) {
+                dl->PushClipRect(imgPos, ImVec2(imgPos.x + avail.x, imgPos.y + avail.y), true);
+                const ImU32 edgeCol = IM_COL32(90, 200, 255, 220);
+                // The two authored borders, found by U rather than by
+                // counting. A station pair emits SIX vertices per lateral
+                // span - A, B, C, A, C, D - but how many spans it emits is
+                // the lateral reduction's business and has not been a fixed
+                // `crossSteps` since the flat collapse existed
+                // (docs/roads.md, "The lateral budget", where a pair can now
+                // be cut anywhere). Walking in strides of `crossSteps * 6`
+                // therefore drifts off the station grid and draws the cyan
+                // border through the middle of the asphalt. U is exactly 0 on
+                // the left shoulder and exactly 1 on the right, by
+                // construction in buildRows, so the spans that own a border
+                // say so themselves: A->D is a border when A's u is 0, and
+                // B->C is one when B's u is 1. Drawing both sides of every
+                // lateral cell instead would expose the tessellation as a
+                // cyan comb.
+                for (size_t s = 0; s + 5 < strip.size(); s += 6) {
+                    ImVec2 a, b;
+                    if (strip[s].u == 0.0f &&
+                        worldToImage(strip[s].x, strip[s].y + 0.05f,
+                                     strip[s].z, a) &&
+                        worldToImage(strip[s + 5].x, strip[s + 5].y + 0.05f,
+                                     strip[s + 5].z, b))
+                        dl->AddLine(a, b, edgeCol, 2.0f);
+                    if (strip[s + 1].u == 1.0f &&
+                        worldToImage(strip[s + 1].x, strip[s + 1].y + 0.05f,
+                                     strip[s + 1].z, a) &&
+                        worldToImage(strip[s + 2].x, strip[s + 2].y + 0.05f,
+                                     strip[s + 2].z, b))
+                        dl->AddLine(a, b, edgeCol, 2.0f);
+                }
+                for (size_t k = 0; k < (size_t)roadgen::controlCount(ro.roadPoints) * 2; k += 2) {
+                    const float px = ro.roadPoints[k], pz = ro.roadPoints[k + 1];
+                    ImVec2 pt;
+                    if (worldToImage(
+                            px, viewport_.terrainHeight(px, pz) + 0.15f, pz,
+                            pt)) {
+                        const float rr = roadEdit_ ? 7.0f : 5.0f;
+                        dl->AddCircleFilled(pt, rr,
+                                            roadEdit_
+                                                ? IM_COL32(255, 130, 40, 245)
+                                                : IM_COL32(255, 220, 60, 235));
+                        dl->AddCircle(pt, rr, IM_COL32(20, 20, 20, 235), 0,
+                                      1.5f);
+                        if (roadEdit_) {
+                            // Off-canvas ItemSize calls grow the window's scroll
+                            // extent even when the draw list clips their pixels.
+                            const ImVec2 a(std::max(pt.x - 12, imgPos.x),
+                                           std::max(pt.y - 12, imgPos.y));
+                            const ImVec2 b(std::min(pt.x + 12, imgPos.x + avail.x),
+                                           std::min(pt.y + 12, imgPos.y + avail.y));
+                            if (b.x > a.x && b.y > a.y) {
+                                const ImVec2 cursor = ImGui::GetCursorScreenPos();
+                                ImGui::SetCursorScreenPos(a);
+                                ImGui::InvisibleButton(("Road point " + std::to_string(k / 2 + 1)).c_str(),
+                                                       ImVec2(b.x - a.x, b.y - a.y));
+                                ImGui::SetCursorScreenPos(cursor);
+                            }
+                        }
+                    }
+                }
+                dl->PopClipRect();
+            }
+        }
+
         // --- Transform gizmo on the selection (disabled while sculpting;
         // objects on a hidden layer can't be grabbed either) ---
         bool objectSelected = !sculptMode_ && !paintMode_ && !measureMode_ &&
                               !pastePending_ &&
                               selectedObject_ >= 0 &&
                               selectedObject_ < (int)project_.objects().size() &&
+                              project_.objects()[selectedObject_].type !=
+                                  PrimitiveType::Road &&
                               !isObjectHiddenInEditor(project_.objects()[selectedObject_]);
         if (objectSelected) {
             SceneObject& o = project_.objects()[selectedObject_];
+            // Whether the drag EDITED anything is decided by comparing the
+            // anchor's TRS before and after, not by ImGuizmo's return value:
+            // it reports a manipulation on a press that never moved too (its
+            // last-delta memory is not reset between drags), and a click that
+            // moved nothing must not become an undo step, a dirty flag or an
+            // auto-key - it is a click, and falls through to the picker below.
+            float trsBefore[9];
+            std::memcpy(trsBefore, o.position, sizeof(o.position));
+            std::memcpy(trsBefore + 3, o.rotation, sizeof(o.rotation));
+            std::memcpy(trsBefore + 6, o.scale, sizeof(o.scale));
 
             ImGuizmo::SetOrthographic(viewport_.orthographic());
             ImGuizmo::SetDrawlist();
@@ -2698,18 +3697,33 @@ void App::drawViewportWindow() {
             }
             for (float& s : o.scale)
                 if (s < 0.01f) s = 0.01f;
+            gizmoEdited_ |= std::memcmp(trsBefore, o.position, sizeof(o.position)) != 0 ||
+                            std::memcmp(trsBefore + 3, o.rotation, sizeof(o.rotation)) != 0 ||
+                            std::memcmp(trsBefore + 6, o.scale, sizeof(o.scale)) != 0;
         }
 
-        // Commit once per completed gizmo drag (not every frame). Auto-key
-        // first: the dropped cutscene keys share the drag's undo snapshot.
+        // Commit once per completed gizmo drag (not every frame), and only
+        // when the drag moved something. Auto-key first: the dropped cutscene
+        // keys share the drag's undo snapshot.
         const bool usingGizmo = ImGuizmo::IsUsing();
-        if (gizmoWasUsing_ && !usingGizmo) {
+        const bool gizmoDragEdited = gizmoEdited_;  // before the reset below
+        if (gizmoWasUsing_ && !usingGizmo && gizmoEdited_) {
             cutsceneAutoKey();
             commitChange();
         }
+        if (!usingGizmo) gizmoEdited_ = false;
         gizmoWasUsing_ = usingGizmo;
 
         const bool gizmoBusy = usingGizmo || (objectSelected && ImGuizmo::IsOver());
+        // A press on the gizmo that is released without moving the mouse is a
+        // CLICK, and a click selects what is under the cursor - the gizmo only
+        // owns a drag. Without this the gizmo of a large object (a merged
+        // district mesh whose origin sits in the middle of the map) parks
+        // itself on the very spot just clicked and eats every further click
+        // there, so the stack under it can never be cycled through.
+        const bool gizmoClick = gizmoBusy && !gizmoDragEdited &&
+                                ImGui::IsMouseReleased(ImGuiMouseButton_Left) &&
+                                io.MouseDragMaxDistanceSqr[ImGuiMouseButton_Left] < 9.0f;
 
         // --- Camera + selection input ---
         if (imageHovered && !gizmoBusy) {
@@ -2723,6 +3737,11 @@ void App::drawViewportWindow() {
             const bool alt = io.KeyAlt, shift = io.KeyShift;
             bool doOrbit = false, doPan = false;
             float dolly = 0.0f;  // extra wheel-equivalent zoom from a drag
+            // Right + middle together: pan the pivot FORWARD/BACK along the view
+            // direction. Checked before the scheme switch because it has to beat
+            // whatever those two buttons mean on their own - and it is scheme
+            // independent, since every scheme leaves the pair unused.
+            const bool doDollyPan = rmb && mmb;
             switch (nav_.scheme) {
                 case NavScheme::Blender:
                     doOrbit = mmb && !shift;
@@ -2745,6 +3764,13 @@ void App::drawViewportWindow() {
                     doPan = mmb;
                     break;
             }
+            if (doDollyPan) {
+                doOrbit = doPan = false;  // the pair is its own gesture
+                // Dragging DOWN moves forward. That is the pan sense, not the
+                // zoom sense: a pan drags the WORLD under the cursor, so pulling
+                // the mouse toward you pulls the scene toward you.
+                viewport_.dolly(io.MouseDelta.y * nav_.dollySensitivity);
+            }
             if (doOrbit) {
                 const float sx = nav_.orbitSensitivity * (nav_.invertX ? -1.0f : 1.0f);
                 const float sy = nav_.orbitSensitivity * (nav_.invertY ? -1.0f : 1.0f);
@@ -2761,7 +3787,7 @@ void App::drawViewportWindow() {
             // Alt+LMB does) and we're not sculpting.
             const bool lmbCamera = (nav_.scheme == NavScheme::Maya) && alt;
             if (!sculptMode_ && !paintMode_ && !measureMode_ && !pastePending_ &&
-                !lmbCamera && !overAxisGizmo &&
+                !roadEdit_ && !lmbCamera && !overAxisGizmo &&
                 ImGui::IsMouseClicked(ImGuiMouseButton_Left))
                 boxSelecting_ = true;
         }
@@ -2782,6 +3808,137 @@ void App::drawViewportWindow() {
                     commitPastePlacement();
             }
             if (ImGui::IsKeyPressed(ImGuiKey_Escape)) cancelPastePlacement();
+        }
+
+        // --- Road viewport editing (docs/roads.md): append / drag / insert.
+        // Every finished operation is ONE commitChange, so Ctrl+Z peels them
+        // point by point like any other edit.
+        if (roadEdit_) {
+            const bool roadOk =
+                selectedObject_ >= 0 &&
+                selectedObject_ < (int)project_.objects().size() &&
+                project_.objects()[selectedObject_].type == PrimitiveType::Road;
+            if (!roadOk || ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+                roadEdit_ = false;
+                roadDragPoint_ = -1;
+            } else if ((imageHovered || roadDragPoint_ >= 0) && !gizmoBusy) {
+                SceneObject& ro = project_.objects()[selectedObject_];
+                const float u = (io.MousePos.x - imgPos.x) / avail.x;
+                const float v = (io.MousePos.y - imgPos.y) / avail.y;
+                float ground[3];
+                std::vector<char> skipAll(project_.objects().size(), 1);
+                const bool hit = viewport_.placementRaycast(
+                    u, v, project_.objects(), skipAll, ground);
+                auto toScreen = [&](float wx, float wz, ImVec2& out) {
+                    const float wy = viewport_.terrainHeight(wx, wz) + 0.15f;
+                    const float* V = viewport_.viewMatrix();
+                    const float* P = viewport_.projMatrix();
+                    const float vx = V[0] * wx + V[4] * wy + V[8] * wz + V[12];
+                    const float vy = V[1] * wx + V[5] * wy + V[9] * wz + V[13];
+                    const float vz = V[2] * wx + V[6] * wy + V[10] * wz + V[14];
+                    const float cx = P[0] * vx + P[4] * vy + P[8] * vz + P[12];
+                    const float cyw = P[1] * vx + P[5] * vy + P[9] * vz + P[13];
+                    const float cw = P[3] * vx + P[7] * vy + P[11] * vz + P[15];
+                    if (cw <= 0.001f) return false;
+                    out = ImVec2(imgPos.x + (cx / cw * 0.5f + 0.5f) * avail.x,
+                                 imgPos.y + (1.0f - (cyw / cw * 0.5f + 0.5f)) * avail.y);
+                    return true;
+                };
+                if (roadDragPoint_ >= 0) {
+                    // Dragging: the point follows the ground hit.
+                    if (hit && ImGui::IsMouseHoveringRect(imgPos, ImVec2(imgPos.x + avail.x, imgPos.y + avail.y)) &&
+                        (size_t)roadDragPoint_ * 2 + 1 < ro.roadPoints.size()) {
+                        roadgen::moveControl(ro.roadPoints, roadDragPoint_, ground[0], ground[2]);
+                        ro.roadHeights.clear();
+                    }
+                    if (!ImGui::IsMouseDown(ImGuiMouseButton_Left)) {
+                        bool merged = false;
+                        const int count = roadgen::controlCount(ro.roadPoints);
+                        if (!roadgen::isClosed(ro.roadPoints) && count >= 4 &&
+                            roadDragPoint_ == count - 1) {
+                            ImVec2 first, last;
+                            if (toScreen(ro.roadPoints[0], ro.roadPoints[1], first) &&
+                                toScreen(ro.roadPoints[ro.roadPoints.size() - 2], ro.roadPoints.back(), last)) {
+                                const float dx = first.x - last.x, dy = first.y - last.y;
+                                if (dx * dx + dy * dy <= 14.0f * 14.0f) {
+                                    ro.roadPoints[ro.roadPoints.size() - 2] = ro.roadPoints[0];
+                                    ro.roadPoints.back() = ro.roadPoints[1];
+                                    merged = true;
+                                }
+                            }
+                        }
+                        roadDragPoint_ = -1;
+                        commitChange();
+                        statusMessage_ = merged ? "Road loop closed (Ctrl+Z to undo)" : "Road point moved";
+                    }
+                } else if (ImGui::IsMouseClicked(ImGuiMouseButton_Left) && hit) {
+                    const int np = roadgen::controlCount(ro.roadPoints);
+                    // 1) an existing point under the cursor? drag it.
+                    int grab = -1;
+                    for (int i = 0; i < np; ++i) {
+                        ImVec2 pt;
+                        if (!toScreen(ro.roadPoints[(size_t)i * 2],
+                                      ro.roadPoints[(size_t)i * 2 + 1], pt))
+                            continue;
+                        const float dx = pt.x - io.MousePos.x;
+                        const float dy = pt.y - io.MousePos.y;
+                        if (dx * dx + dy * dy < 12.0f * 12.0f) {
+                            grab = i;
+                            break;
+                        }
+                    }
+                    if (grab >= 0 && io.KeyShift) {
+                        if (roadgen::removeControl(ro.roadPoints, grab)) {
+                            ro.roadHeights.clear();
+                            commitChange();
+                            statusMessage_ = "Road point removed";
+                        } else {
+                            statusMessage_ = "Keep at least two points (three for a loop)";
+                        }
+                    } else if (grab >= 0) {
+                        roadDragPoint_ = grab;
+                    } else if (!io.KeyShift) {
+                        // 2) near the LINE? insert there. Sample the spline
+                        // densely in screen space and find the closest station.
+                        int insertSeg = -1;
+                        float bestD = 10.0f * 10.0f;
+                        const int dense = np * 12;
+                        for (int k = 0; k <= dense; ++k) {
+                            float sx, sz;
+                            roadgen::splineAt(ro.roadPoints,
+                                              (float)k / (float)dense, &sx, &sz);
+                            ImVec2 pt;
+                            if (!toScreen(sx, sz, pt)) continue;
+                            const float dx = pt.x - io.MousePos.x;
+                            const float dy = pt.y - io.MousePos.y;
+                            const float d2 = dx * dx + dy * dy;
+                            if (d2 < bestD) {
+                                bestD = d2;
+                                insertSeg =
+                                    std::min((int)((float)k / (float)dense *
+                                        (ro.roadPoints.size() / 2 - 1)),
+                                        (int)(ro.roadPoints.size() / 2) - 2);
+                            }
+                        }
+                        if (insertSeg >= 0) {
+                            const size_t at = (size_t)(insertSeg + 1) * 2;
+                            ro.roadPoints.insert(ro.roadPoints.begin() + at,
+                                                 {ground[0], ground[2]});
+                            ro.roadHeights.clear();
+                            roadDragPoint_ = insertSeg + 1;
+                            statusMessage_ = "Road point inserted";
+                        } else if (!roadgen::isClosed(ro.roadPoints)) {
+                            // 3) open ground: append.
+                            ro.roadPoints.push_back(ground[0]);
+                            ro.roadPoints.push_back(ground[2]);
+                            ro.roadHeights.clear();
+                            roadDragPoint_ =
+                                (int)(ro.roadPoints.size() / 2) - 1;
+                            statusMessage_ = "Road point added";
+                        }
+                    }
+                }
+            }
         }
 
         // --- Measuring tape: click a point, then a second one. The end
@@ -2914,18 +4071,83 @@ void App::drawViewportWindow() {
 
         // Click (no drag) = pick object under cursor. Ctrl toggles it in the
         // current selection; a plain click replaces (empty click clears).
-        if (!procClick && imageHovered && !gizmoBusy && !sculptMode_ && !paintMode_ &&
-            !measureMode_ && !pastePending_ && !overAxisGizmo &&
+        // Clicking the same spot again walks the stack under it (viewportPick).
+        if (!procClick && imageHovered && (!gizmoBusy || gizmoClick) && !sculptMode_ &&
+            !paintMode_ && !measureMode_ && !pastePending_ && !overAxisGizmo &&
             ImGui::IsMouseReleased(ImGuiMouseButton_Left) &&
             io.MouseDragMaxDistanceSqr[ImGuiMouseButton_Left] < 9.0f) {
             const float u = (io.MousePos.x - imgPos.x) / avail.x;
             const float v = (io.MousePos.y - imgPos.y) / avail.y;
-            const int hit = viewport_.pick(u, v, project_.objects());
-            if (io.KeyCtrl) {
+            bool cycled = false;
+            // A junction diamond wins over whatever is under it (it is only
+            // drawn while a road or a junction is selected).
+            const int junctionHit = junctionMarkers(imgPos, avail, false, io.MousePos);
+            const int hit = junctionHit != -1
+                                ? -1
+                                : viewportPick(u, v, io.MousePos, imgPos, avail, &cycled);
+            if (junctionHit != -1) {
+                selectJunction(junctionHit);
+            } else if (io.KeyCtrl) {
                 if (hit >= 0) toggleSelect(hit);
             } else {
                 selectOnly(hit);
             }
+            // Say what the click found and that there is more under it: the
+            // stack is invisible otherwise, and "click again" is the only way
+            // to reach an object standing inside or behind another one.
+            if (junctionHit == -1) statusMessage_ = pickStackStatus(hit);
+            // A cycle click is hunting through a stack, not a new framing:
+            // leave the orbit pivot where it is (the block below re-snaps it
+            // to the selection otherwise), or the camera walks away under the
+            // cursor while you are still clicking the same spot.
+            if (cycled) navFocusedIndex_ = selectedObject_;
+        }
+
+        // Right-click (no drag) lists everything under the cursor by name -
+        // the same stack a repeated click walks, but visible, so an object
+        // standing inside or behind another one is picked by reading rather
+        // than by counting clicks. A right DRAG stays with the navigation
+        // schemes that orbit or fly on it. The gizmo does not veto it: the
+        // gizmo owns left drags only, and it sits exactly where the object it
+        // belongs to was just clicked.
+        if (!procClick && imageHovered && !usingGizmo && !sculptMode_ && !paintMode_ &&
+            !measureMode_ && !pastePending_ && !overAxisGizmo &&
+            ImGui::IsMouseReleased(ImGuiMouseButton_Right) &&
+            io.MouseDragMaxDistanceSqr[ImGuiMouseButton_Right] < 9.0f) {
+            const float u = (io.MousePos.x - imgPos.x) / avail.x;
+            const float v = (io.MousePos.y - imgPos.y) / avail.y;
+            viewport_.pickAll(u, v, project_.objects(), pickMenu_);
+            // A comment's icon is hit in screen space and is not in that list.
+            for (const ScreenIcon& ic : screenIcons(imgPos, avail)) {
+                if (std::fabs(io.MousePos.x - ic.center.x) > ic.w * 0.5f) continue;
+                if (std::fabs(io.MousePos.y - ic.center.y) > ic.h * 0.5f) continue;
+                pickMenu_.insert(pickMenu_.begin(), ic.index);
+                break;
+            }
+            if (!pickMenu_.empty()) ImGui::OpenPopup("##pickmenu");
+        }
+        if (ImGui::BeginPopup("##pickmenu")) {
+            const int n = (int)project_.objects().size();
+            ImGui::TextDisabled("Under the cursor, front to back");
+            for (size_t k = 0; k < pickMenu_.size(); ++k) {
+                const int i = pickMenu_[k];
+                if (i < 0 || i >= n) continue;  // shortened since (undo, delete)
+                const SceneObject& o = project_.objects()[i];
+                const std::string label = o.name + "  (" + primitiveTypeName(o.type) + ")" +
+                                          "##pick" + std::to_string(k);
+                if (ImGui::MenuItem(label.c_str(), nullptr, isSelected(i))) {
+                    if (io.KeyCtrl) toggleSelect(i);
+                    else selectOnly(i);
+                    // Selecting from the menu is also where a later click at
+                    // this spot continues cycling from.
+                    pickCycle_ = pickMenu_;
+                    pickCyclePos_ = io.MousePos;
+                    pickCycleLast_ = i;
+                    navFocusedIndex_ = selectedObject_;  // no re-framing, as a cycle click
+                    statusMessage_ = pickStackStatus(i);
+                }
+            }
+            ImGui::EndPopup();
         }
 
         // Orbit around the selected object: snap the pivot to it whenever the
@@ -3009,15 +4231,116 @@ void App::drawViewportWindow() {
                 pMin = ImVec2(c.x - w * 0.5f, c.y - h * 0.5f);
                 pMax = ImVec2(c.x + w * 0.5f, c.y + h * 0.5f);
             };
+            // The looped animation an element carries is previewed live
+            // through hudanim::evaluate - the same formula the generated game
+            // runs (docs/hud-animation.md), on the editor's clock. A Blink's
+            // off phase draws nothing, like the console.
+            const float hudNow = (float)ImGui::GetTime();
+            auto animRect = [&](const float* pos, const float* size,
+                                const HudAnim& anim, ImVec2& pMin, ImVec2& pMax,
+                                float& alpha) {
+                const hudanim::Motion m =
+                    hudanim::evaluate(anim.kind, anim.period, anim.amount, hudNow);
+                if (!m.visible) return false;
+                const float sz[2] = {size[0] * m.scale, size[1] * m.scale};
+                const float ps[2] = {pos[0] + m.dx / 512.0f, pos[1] + m.dy / 448.0f};
+                screenRect(ps, sz, pMin, pMax);
+                alpha = m.alpha;
+                return true;
+            };
+            auto tintOf = [](float alpha) {
+                return IM_COL32(255, 255, 255, (int)(alpha * 255.0f + 0.5f));
+            };
             for (int i = 0; i < (int)project_.hud.size(); ++i) {
                 const HudImage& hi = project_.hud[i];
+                const bool isSel = showUiEditor_ && uiFxSel_ == 0 && i == selectedHud_;
+                // Hidden-at-start images show only while the editor is open,
+                // dimmed, so they can still be placed.
+                if (!hi.visibleAtStart && !showUiEditor_) continue;
                 ImVec2 pMin, pMax;
-                screenRect(hi.pos, hi.size, pMin, pMax);
+                float alpha = 1.0f;
+                if (!animRect(hi.pos, hi.size, hi.anim, pMin, pMax, alpha)) continue;
+                if (!hi.visibleAtStart) alpha *= 0.35f;
                 if (const HudTexture* t = hudTexture(hi.imagePath))
-                    dl->AddImage((ImTextureID)(intptr_t)t->tex, pMin, pMax);
+                    dl->AddImage((ImTextureID)(intptr_t)t->tex, pMin, pMax,
+                                 ImVec2(0, 0), ImVec2(1, 1), tintOf(alpha));
                 else
                     dl->AddRect(pMin, pMax, IM_COL32(255, 100, 100, 200));
-                if (showUiEditor_ && uiFxSel_ == 0 && i == selectedHud_)
+                if (isSel)
+                    dl->AddRect(pMin, pMax, IM_COL32(255, 160, 30, 255), 0.0f, 0, 2.0f);
+            }
+            // Live bars, at their start value (or the UI Editor's preview
+            // fill for the selected one). Drawn above the stack like the game.
+            for (int i = 0; i < (int)project_.hudBars.size(); ++i) {
+                const HudBar& hb = project_.hudBars[i];
+                const bool isSel = showUiEditor_ && uiFxSel_ == 9 && i == selectedBar_;
+                if (!hb.visibleAtStart && !showUiEditor_) continue;
+                ImVec2 pMin, pMax;
+                float alpha = 1.0f;
+                if (!animRect(hb.pos, hb.size, hb.anim, pMin, pMax, alpha)) continue;
+                if (!hb.visibleAtStart) alpha *= 0.35f;
+                float start = hb.startValue;
+                if (!hb.source.empty()) {
+                    start = hb.minValue;
+                    for (const SaveValue& sv : project_.saveValues)
+                        if (sv.name == hb.source) start = sv.value;
+                }
+                const float frac = (isSel && hudBarPreview_ >= 0.0f)
+                                       ? hudBarPreview_
+                                       : hudanim::fraction(start, hb.minValue, hb.maxValue);
+                auto col = [&](const float* c) {
+                    return IM_COL32((int)(c[0] * 255.0f + 0.5f), (int)(c[1] * 255.0f + 0.5f),
+                                    (int)(c[2] * 255.0f + 0.5f), (int)(alpha * 255.0f + 0.5f));
+                };
+                const float bw = pMax.x - pMin.x, bh = pMax.y - pMin.y;
+                const HudTexture* fillTex =
+                    hb.fillImage.imagePath.empty() ? nullptr : hudTexture(hb.fillImage.imagePath);
+                if (hb.kind == 0) {
+                    dl->AddRectFilled(pMin, pMax, col(hb.bgColor));
+                    const float fw = bw * frac;
+                    const float fx = hb.rightToLeft ? pMax.x - fw : pMin.x;
+                    if (fw > 0.5f) {
+                        if (fillTex)
+                            dl->AddImage((ImTextureID)(intptr_t)fillTex->tex,
+                                         ImVec2(fx, pMin.y), ImVec2(fx + fw, pMax.y),
+                                         ImVec2(hb.rightToLeft ? 1.0f - frac : 0.0f, 0),
+                                         ImVec2(hb.rightToLeft ? 1.0f : frac, 1),
+                                         col(hb.fillColor));
+                        else
+                            dl->AddRectFilled(ImVec2(fx, pMin.y), ImVec2(fx + fw, pMax.y),
+                                              col(hb.fillColor));
+                    }
+                } else {
+                    const int segs = hb.segments < 1 ? 1 : hb.segments;
+                    const int lit = (int)(frac * segs + 0.001f);
+                    const float gap = hb.spacing / 512.0f * frameSize.x;
+                    const float segW = (bw - gap * (segs - 1)) / segs;
+                    for (int k = 0; k < segs; ++k) {
+                        const int kk = hb.rightToLeft ? segs - 1 - k : k;
+                        const float sx = pMin.x + kk * (segW + gap);
+                        const float* c = (k < lit) ? hb.fillColor : hb.bgColor;
+                        if (fillTex)
+                            dl->AddImage((ImTextureID)(intptr_t)fillTex->tex,
+                                         ImVec2(sx, pMin.y), ImVec2(sx + segW, pMax.y),
+                                         ImVec2(0, 0), ImVec2(1, 1), col(c));
+                        else
+                            dl->AddRectFilled(ImVec2(sx, pMin.y), ImVec2(sx + segW, pMax.y),
+                                              col(c));
+                    }
+                }
+                if (!hb.frameImage.imagePath.empty()) {
+                    if (const HudTexture* t = hudTexture(hb.frameImage.imagePath)) {
+                        const float k = hb.size[0] > 0.0f ? bw / (hb.size[0] / 512.0f * frameSize.x) : 1.0f;
+                        const float fw = hb.frameImage.size[0] / 512.0f * frameSize.x * k;
+                        const float fh = hb.frameImage.size[1] / 448.0f * frameSize.y * k;
+                        const ImVec2 c(pMin.x + bw * 0.5f, pMin.y + bh * 0.5f);
+                        dl->AddImage((ImTextureID)(intptr_t)t->tex,
+                                     ImVec2(c.x - fw * 0.5f, c.y - fh * 0.5f),
+                                     ImVec2(c.x + fw * 0.5f, c.y + fh * 0.5f),
+                                     ImVec2(0, 0), ImVec2(1, 1), tintOf(alpha));
+                    }
+                }
+                if (isSel)
                     dl->AddRect(pMin, pMax, IM_COL32(255, 160, 30, 255), 0.0f, 0, 2.0f);
             }
             // The USE prompt (custom image or the embedded built-in sprite);
@@ -3059,8 +4382,10 @@ void App::drawViewportWindow() {
                 if (const HudTexture* t = hudTextTexture(ht)) {
                     const float size[2] = {(float)t->w, (float)t->h};
                     ImVec2 pMin, pMax;
-                    screenRect(ht.pos, size, pMin, pMax);
-                    dl->AddImage((ImTextureID)(intptr_t)t->tex, pMin, pMax);
+                    float alpha = 1.0f;
+                    if (!animRect(ht.pos, size, ht.anim, pMin, pMax, alpha)) continue;
+                    dl->AddImage((ImTextureID)(intptr_t)t->tex, pMin, pMax,
+                                 ImVec2(0, 0), ImVec2(1, 1), tintOf(alpha));
                     if (isSel)
                         dl->AddRect(pMin, pMax, IM_COL32(255, 160, 30, 255),
                                     0.0f, 0, 2.0f);
@@ -3207,8 +4532,8 @@ void App::drawViewportWindow() {
                     "Camera projection. Orthographic drops the perspective\n"
                     "foreshortening; the axis views also aim the camera down\n"
                     "a world axis (Num 1/3/7, Ctrl for the opposite side,\n"
-                    "Num 5 toggles perspective). Orbiting an axis view keeps\n"
-                    "the parallel projection.");
+                    "Num 5 toggles perspective). Orbiting an axis view drops\n"
+                    "the lock and goes back to the projection you came from.");
             if (ImGui::BeginPopup("##projection")) {
                 for (int i = 0; i < Viewport::kProjectionCount; ++i) {
                     const Viewport::Projection p = (Viewport::Projection)i;
@@ -3424,28 +4749,16 @@ Viewport::Ps2Output App::ps2ViewportOutput() const {
     Viewport::Ps2Output o;
     o.on = viewportPs2_ && hasProject_;
     const ProjectSettings& s = project_.settings;
-    std::string mode = s.displayMode;
-    if (mode == "interlaced" && s.palFullHeight && s.videoSystem != "ntsc")
-        mode = "pal576";
-
-    int logicalH = 448;
-    if (mode == "progressive") {
-        o.bufW = 448;
-        logicalH = 448;
-    } else if (mode == "1080i") {
-        o.bufW = 448;
-        logicalH = 540;
-    } else if (mode == "pal576") {
-        o.bufW = 512;
-        logicalH = 512;
-    } else {  // interlaced and interlaced-field share the logical 512x448
-        o.bufW = 512;
-        logicalH = 448;
-    }
+    // The geometry per mode lives in ONE table (project::displayModes, the host
+    // twin of RendererSettings::updateGeometry) - the Menu Editor's
+    // per-resolution preview reads the same rows.
+    const std::string mode = project::bootDisplayMode(s);
+    const DisplayModeInfo& dm = project::displayModeInfo(mode);
+    o.bufW = dm.bufW;
     // True field rendering draws into a half-height buffer and the scan-out
     // spreads it over the full number of lines: the vertical resolution really
     // is halved, which is the whole point of seeing it here.
-    o.bufH = mode == "interlaced-field" ? logicalH / 2 : logicalH;
+    o.bufH = dm.halfHeight ? dm.logicalH / 2 : dm.logicalH;
 
     // Projection aspect, verbatim from the engine: the stock 512/448 is the
     // 4:3 baseline, scaled by the physical shape of the display window.
@@ -3613,6 +4926,28 @@ bool App::drawViewportGear(const ImVec2& pos, const ImVec2& size) {
             ImGui::TextDisabled("%dx%d into %s", o.bufW, o.bufH,
                                 project_.settings.widescreen ? "16:9" : "4:3");
         }
+        if (ImGui::Checkbox("PS2 shading", &viewportPs2Shade_)) saveGlobalConfig();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Shade the way the console does: lights, occlusion\n"
+                              "and fog per VERTEX, most surfaces flat-shaded -\n"
+                              "one colour per triangle. Off = the editor's\n"
+                              "smooth per-pixel look.");
+        {
+            static const char* kGsColorNames[] = {"Match project", "Full 32-bit",
+                                                  "16-bit", "16-bit + dithering"};
+            ImGui::SetNextItemWidth(scaled(150.0f));
+            int gc = viewportGsColor_;
+            if (ImGui::Combo("GS colour", &gc, kGsColorNames, 4) &&
+                gc != viewportGsColor_) {
+                viewportGsColor_ = gc;
+                saveGlobalConfig();
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("The framebuffer depth the picture is shown at.\n"
+                                  "Match project follows Preferences > Colour\n"
+                                  "depth (and its dithering); the forced modes\n"
+                                  "answer \"what if\" without touching the project.");
+        }
 
         ImGui::SeparatorText("TV safe areas");
         ImGui::Checkbox("Show guides", &showSafeArea_);
@@ -3728,6 +5063,196 @@ void App::drawMeasureOverlay(ImVec2 imgPos, ImVec2 avail) {
     ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.35f, 1.0f), "Measure: %s   (%s)%s",
                        line1, line2,
                        measurePoints_ == 1 ? "  - click the second point" : "");
+}
+
+// --- Screen-space icons: comments and emitters --------------------------------
+// Where every visible note's and particle emitter's icon sits on screen,
+// farthest first (docs/comments.md, docs/particles.md). The overlay draws this
+// list and viewportPick walks it backwards, so the icon you can see is the
+// icon you click - there is no second answer to "where is that object".
+std::vector<App::ScreenIcon> App::screenIcons(ImVec2 imgPos, ImVec2 avail) {
+    std::vector<ScreenIcon> out;
+    if (!hasProject_ || avail.x < 1.0f || avail.y < 1.0f) return out;
+    const std::vector<SceneObject>& objs = project_.objects();
+    for (size_t i = 0; i < objs.size(); ++i) {
+        const SceneObject& o = objs[i];
+        const bool emitter = o.type == PrimitiveType::Emitter;
+        if (o.type != PrimitiveType::Comment && !emitter) continue;
+        if (isObjectHiddenInEditor(o)) continue;  // hidden layer
+        float u = 0.0f, v = 0.0f, depth = 0.0f;
+        if (!viewport_.projectToImage(o.position, u, v, &depth)) continue;
+        ScreenIcon ic;
+        ic.index = (int)i;
+        ic.emitter = emitter;
+        ic.w = scaled(emitter ? 22.0f : 30.0f);
+        ic.h = scaled(22.0f);
+        ic.anchor = ImVec2(imgPos.x + u * avail.x, imgPos.y + v * avail.y);
+        // The bubble floats above the anchor with its tail on the point, so
+        // the note never covers the spot it is pinned to. An emitter's badge
+        // sits ON its point: that is where the particles come from, and a
+        // small round icon hides far less than the cone it replaced.
+        ic.center = emitter ? ic.anchor
+                            : ImVec2(ic.anchor.x, ic.anchor.y - ic.h * 0.5f - scaled(8.0f));
+        ic.depth = depth;
+        // One icon of slack around the image, so a note just off the edge is
+        // neither drawn nor clickable.
+        if (ic.center.x < imgPos.x - ic.w || ic.center.x > imgPos.x + avail.x + ic.w)
+            continue;
+        if (ic.center.y < imgPos.y - ic.h || ic.center.y > imgPos.y + avail.y + ic.h)
+            continue;
+        out.push_back(ic);
+    }
+    std::stable_sort(out.begin(), out.end(),
+                     [](const ScreenIcon& a, const ScreenIcon& b) {
+                         return a.depth > b.depth;  // far first: near draws over
+                     });
+    return out;
+}
+
+void App::drawScreenIconOverlay(ImVec2 imgPos, ImVec2 avail) {
+    const std::vector<ScreenIcon> icons = screenIcons(imgPos, avail);
+    if (icons.empty()) return;
+    const std::vector<SceneObject>& objs = project_.objects();
+    const theme::Semantics& sem = theme::semantics();
+    ImDrawList* dl = ImGui::GetWindowDrawList();
+    dl->PushClipRect(imgPos, ImVec2(imgPos.x + avail.x, imgPos.y + avail.y), true);
+
+    // How much of a note the viewport shows. The whole thing lives in
+    // Properties (with a Copy button); a bubble that grew with the text would
+    // cover the scene the note is about, which is the one thing it must not do.
+    constexpr size_t kPreviewChars = 420;
+    const ImVec2 mouse = ImGui::GetIO().MousePos;
+
+    for (const ScreenIcon& ic : icons) {
+        const SceneObject& o = objs[(size_t)ic.index];
+        const bool selected = isSelected(ic.index);
+        const bool hovered = std::fabs(mouse.x - ic.center.x) <= ic.w * 0.5f &&
+                             std::fabs(mouse.y - ic.center.y) <= ic.h * 0.5f;
+        if (ic.emitter) {
+            // A particle emitter: a dark round badge with a flame glyph, dimmed
+            // while the emitter starts disabled. Drawn, not an asset - the
+            // comment bubble's reason.
+            const float rad = ic.w * 0.5f;
+            const int a = o.emitterEnabled ? 255 : 120;
+            dl->AddCircleFilled(ic.center, rad, IM_COL32(24, 24, 30, selected || hovered ? 235 : 190));
+            dl->AddCircle(ic.center, rad,
+                          selected ? ImGui::GetColorU32(sem.accent)
+                                   : IM_COL32(255, 150, 60, hovered ? 255 : 170),
+                          0, scaled(selected ? 2.0f : 1.2f));
+            // flame: an outer orange teardrop and an inner yellow one
+            auto flame = [&](float s, ImU32 col) {
+                const ImVec2 c(ic.center.x, ic.center.y + scaled(2.5f) * s);
+                ImVec2 pts[9];
+                const float r = scaled(4.6f) * s, h = scaled(10.5f) * s;
+                pts[0] = ImVec2(c.x, c.y - h);                          // tip
+                pts[1] = ImVec2(c.x + r * 0.55f, c.y - h * 0.45f);
+                pts[2] = ImVec2(c.x + r, c.y - r * 0.2f);
+                pts[3] = ImVec2(c.x + r * 0.75f, c.y + r * 0.7f);
+                pts[4] = ImVec2(c.x, c.y + r);
+                pts[5] = ImVec2(c.x - r * 0.75f, c.y + r * 0.7f);
+                pts[6] = ImVec2(c.x - r, c.y - r * 0.2f);
+                pts[7] = ImVec2(c.x - r * 0.55f, c.y - h * 0.45f);
+                pts[8] = pts[0];
+                dl->AddConvexPolyFilled(pts, 8, col);
+            };
+            // Selected: the emission direction the cone used to show - the
+            // object's +Y through Rz*Ry*Rx, one unit long.
+            if (selected) {
+                const float d2r = 3.14159265f / 180.0f;
+                const float cx = std::cos(o.rotation[0] * d2r), sx = std::sin(o.rotation[0] * d2r);
+                const float cy = std::cos(o.rotation[1] * d2r), sy = std::sin(o.rotation[1] * d2r);
+                const float cz = std::cos(o.rotation[2] * d2r), sz = std::sin(o.rotation[2] * d2r);
+                float x = 0.0f, y = cx, z = sx;             // X
+                const float x2 = x * cy + z * sy; z = -x * sy + z * cy; x = x2;  // Y
+                const float x3 = x * cz - y * sz; y = x * sz + y * cz; x = x3;   // Z
+                const float tip[3] = {o.position[0] + x, o.position[1] + y, o.position[2] + z};
+                float tu = 0.0f, tv = 0.0f;
+                if (viewport_.projectToImage(tip, tu, tv, nullptr)) {
+                    const ImVec2 t(imgPos.x + tu * avail.x, imgPos.y + tv * avail.y);
+                    dl->AddLine(ic.center, t, ImGui::GetColorU32(sem.accent), scaled(2.0f));
+                    dl->AddCircleFilled(t, scaled(3.0f), ImGui::GetColorU32(sem.accent));
+                }
+            }
+            flame(1.0f, IM_COL32(255, 120, 30, a));
+            flame(0.55f, IM_COL32(255, 225, 90, a));
+            if (hovered && !selected)
+                dl->AddText(ImVec2(ic.center.x + rad + scaled(4.0f), ic.center.y - scaled(7.0f)),
+                            IM_COL32(230, 230, 236, 230), o.name.c_str());
+            continue;
+        }
+        // The note's own colour tints the bubble - that is what turns a scene
+        // full of notes into categories (a red one is a problem, a green one
+        // is settled). Kept light enough for dark glyphs to read on it.
+        const ImU32 fill = IM_COL32((int)(o.color[0] * 255.0f),
+                                    (int)(o.color[1] * 255.0f),
+                                    (int)(o.color[2] * 255.0f),
+                                    selected || hovered ? 255 : 215);
+        const ImU32 edge = selected ? ImGui::GetColorU32(sem.accent)
+                                    : IM_COL32(20, 20, 24, hovered ? 235 : 180);
+        const ImVec2 tl(ic.center.x - ic.w * 0.5f, ic.center.y - ic.h * 0.5f);
+        const ImVec2 br(ic.center.x + ic.w * 0.5f, ic.center.y + ic.h * 0.5f);
+        const float rounding = scaled(5.0f);
+        // Tail first, so the bubble's own outline closes over its top edge.
+        const float tw = scaled(5.0f);
+        dl->AddTriangleFilled(ImVec2(ic.center.x - tw, br.y - scaled(1.0f)),
+                              ImVec2(ic.center.x + tw, br.y - scaled(1.0f)),
+                              ImVec2(ic.anchor.x, ic.anchor.y), fill);
+        dl->AddRectFilled(tl, br, fill, rounding);
+        dl->AddRect(tl, br, edge, rounding, 0, scaled(selected ? 2.0f : 1.0f));
+        // Three dots: the message glyph, drawn rather than shipped as an asset
+        // (the editor has no icon font, and one PNG for one icon is a file to
+        // keep in step with a theme it would not follow).
+        const ImU32 dot = IM_COL32(25, 25, 30, 255);
+        const float r = scaled(1.6f);
+        for (int k = -1; k <= 1; ++k)
+            dl->AddCircleFilled(
+                ImVec2(ic.center.x + (float)k * scaled(6.0f), ic.center.y), r, dot);
+        // The anchor point itself: without it a note pinned high above a prop
+        // reads as floating for no reason.
+        dl->AddCircleFilled(ic.anchor, scaled(2.0f), fill);
+
+        if (!showCommentText_ && !selected) continue;
+
+        // --- The note's text, beside its bubble ---
+        std::string body = o.commentText;
+        bool clipped = false;
+        if (body.size() > kPreviewChars) {
+            body.resize(kPreviewChars);
+            body += " ...";
+            clipped = true;
+        }
+        if (body.empty()) body = "(empty note - type it in Properties)";
+        const std::string title = o.name;
+        const float wrap = scaled(300.0f);
+        const float pad = scaled(6.0f);
+        const ImVec2 ts = ImGui::CalcTextSize(body.c_str(), nullptr, false, wrap);
+        const ImVec2 tts = ImGui::CalcTextSize(title.c_str());
+        const float boxW = std::max(ts.x, tts.x) + pad * 2.0f;
+        // A clipped note reserves the row its "there is more" line goes in,
+        // or that line lands on top of the last line of the text.
+        const float boxH = ts.y + tts.y + pad * 2.0f + scaled(2.0f) +
+                           (clipped ? tts.y + scaled(2.0f) : 0.0f);
+        // To the right of the bubble, flipped to the left when that would run
+        // off the image - the note has to be readable wherever it is pinned.
+        float bx = br.x + scaled(6.0f);
+        if (bx + boxW > imgPos.x + avail.x) bx = tl.x - scaled(6.0f) - boxW;
+        if (bx < imgPos.x) bx = imgPos.x + scaled(2.0f);
+        float by = tl.y;
+        if (by + boxH > imgPos.y + avail.y) by = imgPos.y + avail.y - boxH;
+        if (by < imgPos.y) by = imgPos.y + scaled(2.0f);
+        const ImVec2 bmin(bx, by), bmax(bx + boxW, by + boxH);
+        dl->AddRectFilled(bmin, bmax, IM_COL32(18, 18, 22, 232), scaled(4.0f));
+        dl->AddRect(bmin, bmax, ImGui::GetColorU32(sem.accent), scaled(4.0f));
+        dl->AddText(ImVec2(bmin.x + pad, bmin.y + pad),
+                    ImGui::GetColorU32(sem.accent), title.c_str());
+        dl->AddText(ImGui::GetFont(), ImGui::GetFontSize(),
+                    ImVec2(bmin.x + pad, bmin.y + pad + tts.y + scaled(2.0f)),
+                    IM_COL32(226, 226, 232, 255), body.c_str(), nullptr, wrap);
+        if (clipped)
+            dl->AddText(ImVec2(bmin.x + pad, bmax.y - pad - tts.y),
+                        IM_COL32(150, 150, 160, 255), "(full text in Properties)");
+    }
+    dl->PopClipRect();
 }
 
 bool App::objectWorldSize(const SceneObject& o, float out[3]) {
@@ -3942,7 +5467,8 @@ void App::drawProjectWindow() {
         for (int i = 0; i < (int)project_.scenes.size(); ++i) {
             ImGui::PushID(i + 3000);
             const std::string label =
-                project_.scenes[i].name + (i == 0 ? "  (start)" : "") + "##scene";
+                project_.scenes[i].name +
+                (i == project_.startScene ? "  (start)" : "") + "##scene";
             if (ImGui::Selectable(label.c_str(), project_.activeScene == i,
                                   ImGuiSelectableFlags_AllowOverlap) &&
                 project_.activeScene != i) {
@@ -3967,21 +5493,12 @@ void App::drawProjectWindow() {
     drawAssetsSection();
     drawMusicSection();
     drawSoundsSection();
-    drawSaveDataSection();
     drawScriptsSection();
 
-    // Building lives in the top-level Build menu (F5 / F6 / Ctrl+Shift+B);
-    // the panel only mirrors the runner state so a build's progress is
-    // visible without the Output window.
-    if (runner_.busy()) {
-        ImGui::Separator();
-        ImGui::Text("Building... %c", "|/-\\"[(int)(ImGui::GetTime() * 8) & 3]);
-        ImGui::SameLine();
-        if (ImGui::SmallButton("Cancel")) runner_.cancel();
-    } else if (runner_.state() == Runner::State::Failed) {
-        ImGui::Separator();
-        ImGui::TextColored(ImVec4(1.0f, 0.4f, 0.4f, 1.0f), "Last build failed - see Output.");
-    }
+    // Build state is NOT mirrored here any more - it is the toolbar's BUILDING /
+    // BUILD FAILED chip (drawToolbar), which is on screen whether or not this
+    // panel is the front tab of its dock node. Cancelling is the toolbar's Stop
+    // button and Build > Cancel Build.
 
     ImGui::End();
 }
@@ -3993,6 +5510,9 @@ void App::saveProject() {
     project_.gizmoSpace = gizmoSpace_;
     project_.viewMode = (int)viewport_.viewMode();
     project_.viewProjection = (int)viewport_.projection();
+    viewport_.camState(project_.viewCamYaw, project_.viewCamPitch,
+                       project_.viewCamDist, project_.viewCamTarget);
+    project_.viewShowFog = showFog_;  // View > Distance fog
     // Fold the live docking arrangement + open windows into the active layout.
     // While a switch is still settling (load or rebuild pending) the on-screen
     // layout doesn't yet belong to the active layout - keep the stored one
@@ -4032,6 +5552,8 @@ bool* App::showFlagForKey(const std::string& key) {
     if (key == "fonts") return &showFontManager_;
     if (key == "input") return &showInputMap_;
     if (key == "menus") return &showMenusEditor_;
+    if (key == "menupreview") return &showMenuPreview_;
+    if (key == "save") return &showSaveEditor_;
     if (key == "grading") return &showGradingEditor_;
     if (key == "ambience") return &showAmbienceEditor_;
     if (key == "loading") return &showLoadingEditor_;
@@ -4041,6 +5563,10 @@ bool* App::showFlagForKey(const std::string& key) {
     if (key == "tree") return &showTreeGenerator_;
     if (key == "proc") return &showProcedural_;
     if (key == "prefabs") return &showPrefabs_;
+    if (key == "particles") return &showParticles_;
+    if (key == "vehicles") return &showVehicles_;
+    if (key == "facts") return &showWorldFacts_;
+    if (key == "vu") return &showVuPrograms_;
     if (key == "drone") return &showDroneGenerator_;
     if (key == "gibake") return &showGiBake_;
     if (key == "chargen") return &showCharGenerator_;
@@ -4050,6 +5576,11 @@ bool* App::showFlagForKey(const std::string& key) {
     if (key == "pad") return &showRemotePad_;
     if (key == "phonecam") return &showPhoneCamWindow_;
     if (key == "assets") return &showAssetBrowser_;
+    if (key == "chat") return &showAiChat_;
+    if (key == "blss") return &showBlss_;
+    if (key == "atlas") return &showTextureAtlas_;
+    if (key == "batches") return &showStaticBatches_;
+    if (key == "projectprefs") return &showProjectPrefs_;
     return nullptr;
 }
 
@@ -4065,10 +5596,34 @@ bool* App::showFlagForKey(const std::string& key) {
 // keys by name (project.cpp writes them as a JSON string array), so the order
 // is cosmetic - append rather than insert to keep saved files diff-friendly.
 static const char* const kLayoutWindowKeys[] = {
-    "cutscene", "material", "terrain", "ui", "fonts", "menus",
-    "grading", "ambience", "loading", "disc", "anim", "tree",
-    "debugger", "phonecam", "assets", "gibake", "input", "drone",
-    "pad", "proc", "prefabs", "chargen", "mocap", "phonelink"};
+    "cutscene", "material", "terrain",  "ui",       "fonts",  "menus",
+    "menupreview", "grading", "ambience", "loading", "disc",  "anim",
+    "tree",     "debugger", "phonecam", "assets",   "gibake", "input",
+    "drone",    "pad",      "proc",     "prefabs",  "save",    "facts",
+    // "credits" was missing here while showFlagForKey knew it - exactly the
+    // leak the note above describes (the Credits Editor stayed open across
+    // every layout switch while every other window reset).
+    "credits",  "vu",       "chat",     "blss",     "atlas",   "batches",
+    // Project Preferences stopped being a modal in 1.20.0 and became an
+    // ordinary window, so it needs the same deterministic open/close every
+    // other optional window has.
+    "projectprefs",
+    // Tools > Vehicle Editor (docs/vehicles.md).
+    "vehicles",
+    // Tools > Particle Editor (docs/particles.md).
+    "particles",
+    // Tools > Character Generator / Mocap / Phone Link
+    // (docs/character-generator.md).
+    "chargen", "mocap", "phonelink"};
+
+// The same keys, for the AI Assistant's open_window tool (chat_ui.cpp). Defined
+// here rather than there because kLayoutWindowKeys is private to this TU, and
+// because "what windows can be opened" must have one answer.
+std::vector<std::string> App::chatWindowKeys() {
+    std::vector<std::string> keys;
+    for (const char* k : kLayoutWindowKeys) keys.emplace_back(k);
+    return keys;
+}
 
 void App::applyOpenWindows(const std::vector<std::string>& keys) {
     // Deterministic layouts: every optional window's open flag is set to whether
@@ -4215,6 +5770,37 @@ void App::buildLayoutRecipe(int recipe, unsigned int dockspace) {
         pendingFocusWindow_ = "Procedural";
         break;
     }
+    case LayoutRecipe::MenuDesigner: {
+        // Menu desk. The Menu Editor and the preview are used TOGETHER - you
+        // drag a colour and watch the panel - so the preview gets a real column
+        // of its own rather than being the small copy inside the editor, and the
+        // editor keeps the width its Style tab needs (a two-column property row
+        // truncates below ~460 px). The Font Manager is a tab behind the editor
+        // because a typeface change is the other half of restyling a menu.
+        // Output/Debug along the bottom: a bad stylesheet reports there.
+        ImGuiID right =
+            ImGui::DockBuilderSplitNode(center, ImGuiDir_Right, 0.42f, nullptr, &center);
+        ImGuiID bottom =
+            ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, 0.20f, nullptr, &center);
+        // The right column is the preview ALONE. Sharing it with Properties (the
+        // obvious thing, and what every other recipe does with a side column)
+        // put Properties on top whichever order they were docked in - a fresh
+        // dock node activates whichever of its windows is submitted first in the
+        // frame, and Properties is drawn early in drawUI. The preview being
+        // visible is the whole point of the layout, so it gets the node and
+        // Properties becomes a centre tab like the rest.
+        ImGui::DockBuilderDockWindow("Menu Preview", right);
+        ImGui::DockBuilderDockWindow("Output", bottom);
+        ImGui::DockBuilderDockWindow("Debug", bottom);
+        ImGui::DockBuilderDockWindow("Viewport", center);
+        ImGui::DockBuilderDockWindow("Flow Graph", center);
+        ImGui::DockBuilderDockWindow("Project", center);
+        ImGui::DockBuilderDockWindow("Properties", center);
+        ImGui::DockBuilderDockWindow("Font Manager", center);
+        ImGui::DockBuilderDockWindow("Menu Editor", center);
+        pendingFocusWindow_ = "Menu Editor";
+        break;
+    }
     case LayoutRecipe::Default:
     default: {
         ImGuiID left =
@@ -4225,6 +5811,18 @@ void App::buildLayoutRecipe(int recipe, unsigned int dockspace) {
             ImGui::DockBuilderSplitNode(center, ImGuiDir_Down, 0.26f, nullptr, &center);
         ImGui::DockBuilderDockWindow("Project", left);
         ImGui::DockBuilderDockWindow("Properties", right);
+        // The Debugger is a TAB BEHIND Properties rather than a panel of its
+        // own: a new project should have somewhere for the debugger to appear
+        // the first time it runs the game (Run opens it - runSelectedTarget),
+        // without spending a second column on a panel that is empty until then.
+        //
+        // Properties wins the tab because drawUI submits it first (it is drawn
+        // ~30 lines before drawDebuggerWindow) - a fresh dock node activates
+        // whichever of its windows is submitted first in the frame, which is
+        // the same mechanism documented on the Menu Designer recipe above.
+        // Docking order here does NOT decide it, so do not "fix" this by
+        // swapping these two lines.
+        ImGui::DockBuilderDockWindow("Debugger", right);
         ImGui::DockBuilderDockWindow("Output", bottom);
         ImGui::DockBuilderDockWindow("Debug", bottom);
         ImGui::DockBuilderDockWindow("Flow Graph", center);
@@ -4244,7 +5842,7 @@ void App::applyActiveLayout() {
         // Load the saved dump at the run() frame boundary.
         layoutLoadPending_ = true;
         recipeRebuildPending_ = false;
-        // Legacy dumps predating the Properties window lack a slot for it; carve
+        // A dump saved while Properties was closed has no slot for it; carve
         // one once the load settles (drawUI waits for the Project dock node).
         dockPropertiesPending_ = L.ini.find("[Window][Properties]") == std::string::npos;
     } else {
@@ -4419,9 +6017,22 @@ void App::commitChange() {
     // Push an undo snapshot; mark the project dirty only when the edit actually
     // changed something. No disk write - saving is on demand (see saveAll).
     layerRamCache_.clear();  // objects/layers may have changed - re-estimate
+    // The static-batch grouping is a function of the scene, so any commit can
+    // move it: a transform crosses a cell boundary, a material changes the
+    // texture key, a flow-graph reference makes an object ineligible. Cheap
+    // to invalidate, expensive to recompute, so it is recomputed lazily by
+    // whoever next needs it (the panel or the overlay).
+    batchDirty_ = true;
     // Stamp ids on any freshly inserted / pasted object before it enters an
     // undo snapshot or hits disk, so every persisted object has a stable id.
     project::ensureObjectIds(project_);
+    // Same contract for a freshly added fact: its id is what a player's save
+    // file is keyed by, so it must exist before the fact can be persisted.
+    project::ensureFactIds(project_);
+    // A linked emitter wears its library effect (docs/particles.md): copy the
+    // effect in before the snapshot, so undo and the session see the result.
+    project::applyVehicleDefaults(project_);
+    project::applyParticleEffects(project_);
     ++modelEditSerial_;  // let the session diff pick up this edit (see sessionTick)
     // The undo snapshot only carries the SCENES, so push() returns false for an
     // edit to any project-wide collection - menus, the Input Map, gradings,
@@ -4453,7 +6064,7 @@ void App::updateWindowTitle() {
     titleShowsDirty_ = dirty_;
     titleShowsJoined_ = joined;
     titleName_ = project_.name;
-    std::string title = "TyraX";
+    std::string title = std::string("TyraX ") + version::kEditorVersion;
     if (hasProject_)
         title += " - " + project_.name + (joined ? " [joined]" : "") +
                  (dirty_ ? " *" : "");
@@ -4508,17 +6119,189 @@ void App::forgetRecentProject(int index) {
     saveGlobalConfig();  // the list only ever lives in editor.ini
 }
 
-std::string App::openProjectAt(const std::string& dir) {
+void App::openRecentProject(const std::string& dir) {
+    openProjectAt(dir, true);
+}
+
+void App::requestOpenRecent(const std::string& dir) {
+    if (hasProject_ && dirty_) {
+        pendingAction_ = PendingAction::OpenRecent;
+        pendingRecentDir_ = dir;
+        openDiscardPopup_ = true;
+    } else {
+        openRecentProject(dir);
+    }
+}
+
+// File > Recent Projects: the same list the welcome screen draws, reachable
+// while a project is open - "switch back to yesterday's project" is otherwise
+// close-then-file-dialog. Entries stay clickable when they probed as missing:
+// the probe is from startup, and the drive may well be back.
+void App::drawRecentProjectsMenu() {
+    if (!ImGui::BeginMenu("Recent Projects", !recentProjects_.empty())) return;
+
+    // Resolved after the loop: opening (or clearing) rewrites recentProjects_,
+    // which we are iterating.
+    std::string pick;
+    bool clear = false;
+    for (int i = 0; i < (int)recentProjects_.size(); ++i) {
+        const RecentProject& r = recentProjects_[i];
+        ImGui::PushID(i);
+        // Two projects can share a name, so the full folder rides in the
+        // tooltip rather than in the label - a path in a menu item makes the
+        // whole menu as wide as the deepest project on the machine.
+        const std::string label = r.valid ? r.name : r.name + "  (missing)";
+        if (ImGui::MenuItem(label.c_str())) pick = r.dir;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("%s%s", r.dir.c_str(),
+                              r.valid ? "" : "\n(no .tyra project file here)");
+        ImGui::PopID();
+    }
+    ImGui::Separator();
+    if (ImGui::MenuItem("Clear list")) clear = true;
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Forgets the shortcuts only - nothing on disk is touched");
+    ImGui::EndMenu();
+
+    if (!pick.empty()) requestOpenRecent(pick);
+    else if (clear) {
+        recentProjects_.clear();
+        saveGlobalConfig();  // the list only ever lives in editor.ini
+    }
+}
+
+void App::openProjectAt(const std::string& dir, bool fromRecent) {
+    if (projectLoading_) return;
+
+    projectLoadDir_ = dir;
+    projectLoadName_ = std::filesystem::path(dir).filename().string();
+    if (projectLoadName_.empty()) projectLoadName_ = dir;
+    projectLoadFromRecent_ = fromRecent;
+    projectLoading_ = true;
+    // Even a tiny project gets a readable transition instead of a one-frame
+    // flash. A genuinely large one simply keeps the same screen animating.
+    projectLoadShowUntil_ = glfwGetTime() + 0.25;
+}
+
+void App::projectLoadTick() {
+    if (!projectLoading_ || glfwGetTime() < projectLoadShowUntil_) return;
+
     Project p;
-    std::string err = project::load(p, dir);
-    if (!err.empty()) return err;
+    std::string err = project::load(p, projectLoadDir_);
+
+    // Format gate. load() already refused a file from a NEWER editor (the
+    // message names both versions), so every open path that funnels through
+    // here - the CLI argument, the Open dialog, the recent list - inherits it.
+    //
+    // An OLDER file is silent when only additive changes happened since: the
+    // tolerant reader already handled them and the version is re-stamped on the
+    // next save. A prompt + backup appear exactly when registered migration
+    // steps will transform the data, which is the irreversible part.
+    if (const auto steps = migrations::stepsFor(p.formatVersionOnDisk);
+        err.empty() && !steps.empty()) {
+        std::string msg = "This project uses an older format (v" +
+                          std::to_string(p.formatVersionOnDisk) +
+                          "; this editor writes v" +
+                          std::to_string(version::kFormatVersion) +
+                          ").\n\nOpening it will apply:\n";
+        for (const auto* m : steps)
+            msg += "  v" + std::to_string(m->from) + " -> v" +
+                   std::to_string(m->from + 1) + ": " + m->summary + "\n";
+        msg += "\nThis cannot be undone. A backup of the project files will be "
+               "created in _backup/ first.\n\nMigrate and open?";
+        if (!platform::confirmBox("Project Migration", msg))
+            err = "Migration declined - \"" + p.name + "\" was not opened.";
+
+        if (err.empty()) {
+            std::string backupDir;
+            if (std::string e =
+                    migrations::backup(p, p.formatVersionOnDisk, backupDir);
+                !e.empty())
+                err = "Backup failed - migration aborted, the project was not "
+                      "modified.\n\n" + e;
+            if (err.empty())
+                if (std::string e = migrations::run(p, p.formatVersionOnDisk);
+                    !e.empty())
+                    err = "This project cannot be migrated.\n\n" + e +
+                          "\n\nThe project on disk was not modified. The backup in " +
+                          backupDir + " is intact.";
+            if (err.empty()) {
+                p.formatVersionOnDisk = version::kFormatVersion;
+                // Persist the migrated format right away so disk, undo history
+                // and every later save share one baseline.
+                std::string e = project::save(p);
+                if (e.empty()) e = project::saveHeights(p);
+                if (e.empty()) e = project::saveSplat(p);
+                if (!e.empty())
+                    err = "Migration succeeded but saving failed:\n" + e +
+                          "\n\nThe backup in " + backupDir + " is intact.";
+            }
+        }
+    }
+
+    if (!err.empty()) {
+        // A missing recent entry stays in the list, but refresh its badge now:
+        // an unplugged drive may return later and forgetting it is the user's call.
+        if (projectLoadFromRecent_) {
+            const std::string key = recentProjectKey(projectLoadDir_);
+            for (RecentProject& r : recentProjects_)
+                if (recentProjectKey(r.dir) == key) probeRecentProject(r);
+        }
+        projectLoading_ = false;
+        platform::errorBox("Open Project", err);
+        return;
+    }
+
     project_ = p;
     hasProject_ = true;
     applyProjectToViewport();
     attachProject();  // resets dirty + window title
-    // project_.dir, not `dir`: load normalizes it (and accepts a .tyra path).
+    // project_.dir, not the requested spelling: load normalizes it.
     rememberRecentProject(project_.dir);
-    return {};
+    projectLoading_ = false;
+}
+
+void App::drawProjectLoadingScreen() {
+    const ImGuiViewport* vp = ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos(vp->Pos);
+    ImGui::SetNextWindowSize(vp->Size);
+    ImGui::SetNextWindowViewport(vp->ID);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.035f, 0.045f, 0.065f, 1.0f));
+    const ImGuiWindowFlags flags =
+        ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove |
+        ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoBringToFrontOnFocus |
+        ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoInputs;
+    ImGui::Begin("Opening Project##project_load", nullptr, flags);
+
+    const char spinner[] = {'|', '/', '-', '\\'};
+    const char spin = spinner[(int)(ImGui::GetTime() * 10.0) & 3];
+    const char* phase = "Reading project and preparing workspace...";
+    const std::string heading = "Opening " + projectLoadName_;
+    const float panelW = scaled(440.0f);
+    const float panelH = scaled(150.0f);
+    ImGui::SetCursorPos(ImVec2((vp->Size.x - panelW) * 0.5f,
+                               (vp->Size.y - panelH) * 0.5f));
+    ImGui::BeginGroup();
+    const float headingW = ImGui::CalcTextSize(heading.c_str()).x;
+    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (panelW - headingW) * 0.5f);
+    ImGui::TextUnformatted(heading.c_str());
+    ImGui::Spacing();
+    const std::string status = std::string(1, spin) + "  " + phase;
+    const float statusW = ImGui::CalcTextSize(status.c_str()).x;
+    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + (panelW - statusW) * 0.5f);
+    ImGui::TextDisabled("%s", status.c_str());
+    ImGui::Spacing();
+    // The loader cannot report truthful byte counts, so animate an explicitly
+    // indeterminate bar instead of inventing a percentage.
+    const float wave = (float)std::fmod(ImGui::GetTime() * 0.55, 1.0);
+    ImGui::ProgressBar(wave, ImVec2(panelW, scaled(8.0f)), "");
+    ImGui::EndGroup();
+
+    ImGui::End();
+    ImGui::PopStyleColor();
+    ImGui::PopStyleVar(2);
 }
 
 void App::requestOpenProject() {
@@ -4539,6 +6322,135 @@ void App::requestNewProject() {
     }
 }
 
+void App::requestCloseProject() {
+    if (hasProject_ && dirty_) {
+        pendingAction_ = PendingAction::Close;
+        openDiscardPopup_ = true;
+    } else {
+        closeProject();
+    }
+}
+
+// Back to the screen the editor boots on: the project is released and the
+// Viewport draws the welcome screen (New / Open / recent projects) again. The
+// unsaved-edit guard already ran in requestCloseProject().
+//
+// Most of the teardown is free: the per-frame channels (Live Link, the
+// debugger, Live Logic, the Remote Pad) and every tool window stand down on
+// their own the moment hasProject_ is false. What is left is the state that
+// would otherwise outlive the project - worker threads still writing into it,
+// and the disk-derived caches a DIFFERENT project must not inherit.
+void App::closeProject() {
+    if (!hasProject_) return;
+
+    // Stopping the link also stops a recording in progress, which bakes its
+    // keys into the sequence first - so a close never silently eats a take.
+    if (phoneCam_.listening()) stopPhoneCam();
+    if (giBaker_.running()) giBaker_.cancel();
+    // The model-AO baker is the same shape: a worker holding a COPY of the
+    // project, writing into ITS cache directory. Its results must not land in
+    // whichever project opens next, so the intent is reset with it.
+    modelAoBaker_.cancel();
+    modelAoIntent_ = 0;
+    modelAoSeen_ = modelAoBaker_.version();
+    viewport_.setModelAoMaps({}, 0.0f);
+    // A build has no UI left once the toolbar goes away (Stop lives there), so
+    // it would run to completion with no way to cancel it.
+    if (runner_.busy()) runner_.cancel();
+    // The input recorder's staging is keyed by a path INSIDE this project, so
+    // it must not survive into whichever project opens next.
+    replayArm_ = ReplayArm::None;
+    replayFile_.clear();
+    replayFiles_.clear();
+    replayScanAt_ = 0.0;
+    replayHaveStatus_ = false;
+    replayMsg_.clear();
+    replaySaveName_.clear();
+    runner_.replay_ = Runner::ReplayLaunch();
+    // The Drone Generator, in the same order the shutdown path uses (audio
+    // first: the device callback holds the LiveSynth, and the render thread
+    // writes into droneRenderResult_). The audition has to stop because its
+    // window - and with it Stop - hides on !hasProject_, so a drone would play
+    // on over the welcome screen with no control left. The offline render has
+    // to be cancelled because droneTickRender() deliberately runs BEFORE that
+    // same guard (so a render survives closing the window), and its completion
+    // path appends the track to project_.music and calls saveAll() - after a
+    // close that writes into an empty Project, or into whichever project is
+    // opened next.
+    if (droneAuditioning_) droneStop();
+    if (droneRendering_) {
+        droneRenderCancel_.store(true);
+        if (droneRenderThread_.joinable()) droneRenderThread_.join();
+        droneRendering_ = false;
+        droneRenderDone_.store(false);
+        droneRenderResult_ = dronegen::RenderResult();
+        droneStatus_ = "Render cancelled - the project was closed.";
+    }
+    if (session_.active()) {
+        session_.close();
+        peerPresence_.clear();
+        viewport_.setPeerSelections({});
+    }
+    // The BLSS coverage estimate is a worker thread reading project_.dir off
+    // the disk; it must not outlive the project, and its result must not land
+    // in whichever project is opened next. The subprocess half (blssJob_)
+    // already stands down on its own - it holds no reference to the model - so
+    // only this one needs cancelling here.
+    blssCovCancel_.store(true);
+    if (blssCovThread_.joinable()) blssCovThread_.join();
+    blssCovRunning_.store(false);
+    blssCovSeen_ = blssCovVersion_.load();
+    blssCov_ = blss::CoverageReport{};
+    blssSpeed_ = blssui::SpeedEstimate{};
+
+    project_ = Project();  // one empty scene - objects() stays safe to call
+    hasProject_ = false;
+    dirty_ = false;
+    history_.reset({project_.scenes});
+    clearSelection();
+    pastePending_ = false;
+    pasteStaged_.clear();
+    flowGraphObject_ = -1;
+    flowPositionsApplied_ = false;
+    // Every one of these is keyed by a project-relative path.
+    viewport_.invalidateAssets();
+    // The baked shadows are THIS project's geometry and THIS project's atlas
+    // pages, uploaded to the GPU. updateShadowDecals only runs while a project
+    // is open, so nothing would clear them on its own and the next project
+    // would open over somebody else's shadows.
+    shadowBaker_.cancel();
+    shadowPreviewKey_ = 0;
+    viewport_.setShadowDecals(Viewport::ShadowPreview{});
+    layerRamCache_.clear();
+    wavIssueCache_.clear();
+    modelInfoCache_.clear();
+    glbInfoCache_.clear();  // always invalidated with modelInfoCache_
+    // The devkit self-screenshot is a picture of THIS project's game; the next
+    // one must not open the Debugger on somebody else's frame. The texture is
+    // kept (uploading into it again is free) and only its content forgotten.
+    dbgShotW_ = dbgShotH_ = 0;
+    dbgShotSize_ = 0;
+    dbgShotStamp_ = 0;
+    dbgShotTorn_ = 0;
+    dbgShotPartial_ = 0;
+    dbgShotWaiting_ = false;
+    dbgShotFile_.clear();
+    dbgShotError_.clear();
+    if (dbgShotTex_) {
+        glDeleteTextures(1, &dbgShotTex_);
+        dbgShotTex_ = 0;
+    }
+    // The error catcher tails the open project's logs; the next open baselines
+    // it again (attachProject). The runner log survives the close, so its size
+    // has to stay honest or the next poll reads a shrink that never happened.
+    errorSeenSig_.clear();
+    errorGameLogSize_ = 0;
+    errorRunnerLogSize_ = runner_.log().size();
+    openErrorPopup_ = false;
+    statusMessage_ = "Project closed";
+    updateWindowTitle();
+}
+
 void App::performPendingAction() {
     const PendingAction action = pendingAction_;
     pendingAction_ = PendingAction::None;
@@ -4550,8 +6462,17 @@ void App::performPendingAction() {
         case PendingAction::Open:
             openProjectDialog();
             break;
+        case PendingAction::OpenRecent: {
+            const std::string dir = std::move(pendingRecentDir_);
+            pendingRecentDir_.clear();
+            openRecentProject(dir);
+            break;
+        }
         case PendingAction::New:
             openNewProjectPopup_ = true;
+            break;
+        case PendingAction::Close:
+            closeProject();
             break;
         case PendingAction::JoinSession:
             openJoinSessionPopup_ = true;
@@ -4841,7 +6762,28 @@ void App::closeSession() {
 
 void App::openRemoteProject(const std::string& dir) {
     Project p;
-    const std::string err = project::load(p, dir);
+    std::string err = project::load(p, dir);
+
+    // The remote twin of openProjectAt's format gate, and the one place that
+    // must NOT offer to migrate. load() already refused a project from a NEWER
+    // editor; this catches the other direction - a host on an OLDER editor whose
+    // format needs registered steps. The join is refused instead:
+    //   - the project belongs to the HOST, and migrating is irreversible;
+    //   - a client migrates only its own materialized replica, so host and
+    //     client would then disagree about the format while diffModel keeps
+    //     syncing edits over fields one of them does not have.
+    // Same reasoning as the headless commands (see refuseUnmigrated in
+    // main.cpp): migrating is an explicit act, by the owner, at home.
+    if (err.empty()) {
+        if (const auto steps = migrations::stepsFor(p.formatVersionOnDisk);
+            !steps.empty())
+            err = "the host's project is in format v" +
+                  std::to_string(p.formatVersionOnDisk) + " and this editor writes v" +
+                  std::to_string(version::kFormatVersion) +
+                  ". The HOST has to migrate it first (open it locally, or run "
+                  "tyrax-editor --migrate <projectDir>) and host the session "
+                  "again - a participant must not rewrite someone else's project.";
+    }
     if (!err.empty()) {
         session_.close();
         sessionEndedText_ = "Failed to open the synced project: " + err;
@@ -5124,25 +7066,156 @@ void App::redo() {
     statusMessage_ = "Redo";
 }
 
+// One viewport click -> one object index (-1 for empty space). Clicking the
+// same spot AGAIN steps to the next object stacked under the cursor and wraps
+// at the end, so props standing inside each other - and the areas and
+// procedural volumes enclosing them, which the pick order deliberately ranks
+// last - can all be reached without leaving the viewport. Any click a few
+// pixels away starts a fresh cycle at the frontmost hit.
+int App::viewportPick(float u, float v, ImVec2 mouse, ImVec2 imgPos, ImVec2 avail,
+                      bool* cycled) {
+    if (cycled) *cycled = false;
+    // A comment's icon wins over everything under it, and it is tested in
+    // screen space: the icon is a fixed size whatever the distance, so the
+    // small 3D box the note also carries stops being clickable long before
+    // the thing you can see does. Nearest first (screenIcons sorts far to
+    // near for drawing, so the last one drawn is the first one hit) - the
+    // note on top is the note you clicked.
+    {
+        const std::vector<ScreenIcon> icons = screenIcons(imgPos, avail);
+        for (size_t k = icons.size(); k-- > 0;) {
+            const ScreenIcon& ic = icons[k];
+            if (std::fabs(mouse.x - ic.center.x) > ic.w * 0.5f) continue;
+            if (std::fabs(mouse.y - ic.center.y) > ic.h * 0.5f) continue;
+            pickCycle_.clear();  // an icon is one target, never a stack
+            pickCyclePos_ = mouse;
+            pickCycleLast_ = ic.index;
+            return ic.index;
+        }
+    }
+    const float kSameSpot = 4.0f;  // a click, not a nudge of the mouse
+    const bool sameSpot = std::fabs(mouse.x - pickCyclePos_.x) < kSameSpot &&
+                          std::fabs(mouse.y - pickCyclePos_.y) < kSameSpot;
+    const int n = (int)project_.objects().size();
+    if (sameSpot && pickCycle_.size() > 1) {
+        for (size_t k = 0; k < pickCycle_.size(); ++k) {
+            if (pickCycle_[k] != pickCycleLast_) continue;
+            // Next still-existing candidate, wrapping (an undo or a delete may
+            // have shortened the scene since the cycle started).
+            for (size_t s = 1; s <= pickCycle_.size(); ++s) {
+                const int cand = pickCycle_[(k + s) % pickCycle_.size()];
+                if (cand < 0 || cand >= n) continue;
+                pickCycleLast_ = cand;
+                if (cycled) *cycled = true;
+                return cand;
+            }
+            break;
+        }
+    }
+    viewport_.pickAll(u, v, project_.objects(), pickCycle_);
+    pickCyclePos_ = mouse;
+    pickCycleLast_ = pickCycle_.empty() ? -1 : pickCycle_[0];
+    return pickCycleLast_;
+}
+
+std::string App::pickStackStatus(int hit) const {
+    const int n = (int)project_.objects().size();
+    if (hit < 0 || hit >= n) return {};
+    const SceneObject& o = project_.objects()[hit];
+    // Kept short: it shares the menu bar with the toolbar chips.
+    std::string s = o.name + "  (" + primitiveTypeName(o.type) + ")";
+    // Place in the stack, and what the next click at this spot would pick
+    // (the same walk viewportPick makes: the next still-existing candidate).
+    int live = 0, at = -1, k = -1;
+    for (size_t j = 0; j < pickCycle_.size(); ++j) {
+        const int i = pickCycle_[j];
+        if (i < 0 || i >= n) continue;
+        if (i == hit) at = live, k = (int)j;
+        ++live;
+    }
+    if (live < 2 || at < 0) return s;
+    int next = -1;
+    for (size_t step = 1; step < pickCycle_.size() && next < 0; ++step) {
+        const int cand = pickCycle_[((size_t)k + step) % pickCycle_.size()];
+        if (cand >= 0 && cand < n && cand != hit) next = cand;
+    }
+    s += " - " + std::to_string(at + 1) + "/" + std::to_string(live) + " here";
+    if (next >= 0) s += ", click again: " + project_.objects()[next].name;
+    return s;
+}
+
 // --- Selection set -------------------------------------------------------
 // selectedObject_ is kept in sync as the primary (anchor) of the set: the
 // last-clicked object, which drives the orbit pivot, the single-object gizmo
 // path and the anchor value shown in the multi-edit panel.
-void App::selectOnly(int i) {
+void App::expandSelectionGroups() {
+    std::vector<std::string> groups;
+    for (int i : selection_)
+        if (!project_.objects()[i].editorGroup.empty())
+            groups.push_back(project_.objects()[i].editorGroup);
+    for (int i = 0; i < (int)project_.objects().size(); ++i)
+        if (!isSelected(i) && std::find(groups.begin(), groups.end(),
+                project_.objects()[i].editorGroup) != groups.end())
+            selection_.push_back(i);
+}
+
+std::string App::selectedGroup() const {
+    if (selection_.empty()) return {};
+    const std::string group = project_.objects()[selection_.front()].editorGroup;
+    for (int i : selection_)
+        if (project_.objects()[i].editorGroup != group) return {};
+    return group;
+}
+
+void App::groupSelection() {
+    if (selection_.size() < 2 || !selectedGroup().empty()) return;
+    expandSelectionGroups();
+    std::string name = "Group";
+    for (int n = 2; std::any_of(project_.objects().begin(), project_.objects().end(),
+             [&](const SceneObject& o) { return o.editorGroup == name; }); ++n)
+        name = "Group " + std::to_string(n);
+    for (int i : selection_) project_.objects()[i].editorGroup = name;
+    commitChange();
+    statusMessage_ = "Created " + name;
+}
+
+void App::ungroupSelection() {
+    expandSelectionGroups();
+    bool changed = false;
+    for (int i : selection_) {
+        changed |= !project_.objects()[i].editorGroup.empty();
+        project_.objects()[i].editorGroup.clear();
+    }
+    if (changed) { commitChange(); statusMessage_ = "Ungrouped objects"; }
+}
+
+void App::selectOnly(int i, bool expandGroups) {
+    junctionSel_.active = false;  // a junction is a selection of its own
+    selectionGroupMember_ = !expandGroups;
     selection_.clear();
     if (i >= 0 && i < (int)project_.objects().size()) selection_.push_back(i);
+    if (expandGroups) expandSelectionGroups();
     selectedObject_ = selection_.empty() ? -1 : selection_.back();
 }
 
 void App::toggleSelect(int i) {
+    junctionSel_.active = false;
+    selectionGroupMember_ = false;
     if (i < 0 || i >= (int)project_.objects().size()) return;
-    auto it = std::find(selection_.begin(), selection_.end(), i);
-    if (it != selection_.end()) selection_.erase(it);
-    else selection_.push_back(i);
+    const std::string group = project_.objects()[i].editorGroup;
+    if (isSelected(i)) {
+        selection_.erase(std::remove_if(selection_.begin(), selection_.end(),
+            [&](int j) { return j == i || (!group.empty() &&
+                project_.objects()[j].editorGroup == group); }), selection_.end());
+    } else {
+        selection_.push_back(i);
+        expandSelectionGroups();
+    }
     selectedObject_ = selection_.empty() ? -1 : selection_.back();
 }
 
 void App::clearSelection() {
+    selectionGroupMember_ = false;
     selection_.clear();
     selectedObject_ = -1;
 }
@@ -5157,10 +7230,12 @@ void App::pruneSelection() {
         std::remove_if(selection_.begin(), selection_.end(),
                        [n](int i) { return i < 0 || i >= n; }),
         selection_.end());
+    if (!selectionGroupMember_) expandSelectionGroups();
     selectedObject_ = selection_.empty() ? -1 : selection_.back();
 }
 
 void App::selectObjectsInBox(ImVec2 a, ImVec2 b, ImVec2 imgPos, ImVec2 avail, bool add) {
+    selectionGroupMember_ = false;
     const float rMinX = std::min(a.x, b.x), rMaxX = std::max(a.x, b.x);
     const float rMinY = std::min(a.y, b.y), rMaxY = std::max(a.y, b.y);
 
@@ -5192,10 +7267,14 @@ void App::selectObjectsInBox(ImVec2 a, ImVec2 b, ImVec2 imgPos, ImVec2 avail, bo
         const float cz = std::cos(o.rotation[2] * d2r), sz = std::sin(o.rotation[2] * d2r);
         float oMinX = 1e30f, oMinY = 1e30f, oMaxX = -1e30f, oMaxY = -1e30f;
         bool anyFront = false;
+        // The box the object DRAWS as, scale folded in - the same bounds a
+        // click tests, so a marquee over a model's upper half catches it.
+        float bmn[3], bmx[3];
+        viewport_.pickBounds(o, bmn, bmx);
         for (int s = 0; s < 8; ++s) {
-            const float lx = ((s & 1) ? 0.5f : -0.5f) * o.scale[0];
-            const float ly = ((s & 2) ? 0.5f : -0.5f) * o.scale[1];
-            const float lz = ((s & 4) ? 0.5f : -0.5f) * o.scale[2];
+            const float lx = (s & 1) ? bmx[0] : bmn[0];
+            const float ly = (s & 2) ? bmx[1] : bmn[1];
+            const float lz = (s & 4) ? bmx[2] : bmn[2];
             const float y1 = ly * cx - lz * sx, z1 = ly * sx + lz * cx, x1 = lx;  // Rx
             const float x2 = x1 * cy + z1 * sy, z2 = -x1 * sy + z1 * cy, y2 = y1;  // Ry
             const float x3 = x2 * cz - y2 * sz, y3 = x2 * sz + y2 * cz, z3 = z2;  // Rz
@@ -5211,6 +7290,7 @@ void App::selectObjectsInBox(ImVec2 a, ImVec2 b, ImVec2 imgPos, ImVec2 avail, bo
             oMinX <= rMaxX && oMaxX >= rMinX && oMinY <= rMaxY && oMaxY >= rMinY;
         if (overlap && !isSelected(i)) selection_.push_back(i);
     }
+    expandSelectionGroups();
     selectedObject_ = selection_.empty() ? -1 : selection_.back();
 }
 
@@ -5280,6 +7360,9 @@ void App::pasteObject() {
 
 aobake::ModelAabbFn App::placementModelAabb() {
     return [this](const SceneObject& o, float mn[3], float mx[3]) {
+        // A Vehicle's bounds come from its DEFINITION's baked body, which only
+        // the App can resolve - the viewport knows models, not definitions.
+        if (o.type == PrimitiveType::Vehicle) return vehicleBodyBounds(o, mn, mx);
         return viewport_.modelLocalBounds(o, mn, mx);
     };
 }
@@ -5360,6 +7443,44 @@ void App::beginPastePlacement() {
         o.name = name;
         pasteStaged_.push_back(std::move(o));
     }
+    // Only references between copied members are redirected. External targets
+    // (such as the cellar behind a copied pavilion) retain their authored link.
+    std::map<std::string, std::string> names;
+    for (size_t i = 0; i < pasteStaged_.size(); ++i) names[clipboard_[i].name] = pasteStaged_[i].name;
+    auto remap = [&](std::string& name) { auto it = names.find(name); if (it != names.end()) name = it->second; };
+    for (auto& o : pasteStaged_) {
+        remap(o.portalTarget); remap(o.catchArea);
+        for (auto& n : o.portalObjects) remap(n);
+        for (auto& n : o.mirrorObjects) remap(n);
+        for (auto& n : o.camFeedObjects) remap(n);
+        for (auto& seg : o.scrollSegments) for (auto& m : seg.objects) remap(m.name);
+        for (auto& node : o.flowGraph.nodes) {
+            const auto* type = flowNodeType(node.type);
+            if (type && (type->strKind == FlowParamKind::ObjectName || type->strKind == FlowParamKind::AreaName)) remap(node.str);
+        }
+        for (const std::string prefix : {std::string("camera:"), std::string("mirror:")})
+            if (o.textureFeed.rfind(prefix, 0) == 0) {
+                std::string name = o.textureFeed.substr(prefix.size()); remap(name); o.textureFeed = prefix + name;
+            }
+    }
+    std::map<std::string, std::string> groups;
+    for (SceneObject& o : pasteStaged_) {
+        if (o.editorGroup.empty()) continue;
+        auto it = groups.find(o.editorGroup);
+        if (it == groups.end()) {
+            const std::string base = o.editorGroup + " copy";
+            std::string name = base;
+            for (int n = 2; ; ++n) {
+                bool taken = false;
+                for (const auto& t : project_.objects()) taken |= t.editorGroup == name;
+                for (const auto& t : groups) taken |= t.second == name;
+                if (!taken) break;
+                name = base + " " + std::to_string(n);
+            }
+            it = groups.emplace(o.editorGroup, name).first;
+        }
+        o.editorGroup = it->second;
+    }
     if (pasteStaged_.empty()) return;
     pastePending_ = true;
     pasteMoved_ = false;
@@ -5433,22 +7554,15 @@ void App::attachProject() {
     }
 
     // Emulator path and PS2 IP are machine-global editor settings (editor.ini),
-    // not project data. Migrate any value carried by an older .tyra file into
-    // the global config the first time such a project is opened, then feed the
-    // global values into this project - project_ is the Runner's runtime
+    // not project data - the .tyra neither carries nor reads them. Feed the
+    // global values into this project: project_ is the Runner's runtime
     // transport for them (see Project::emulatorPath / ps2LinkIp).
-    bool migrated = false;
-    if (globalEmulatorPath_.empty() && !project_.emulatorPath.empty()) {
-        globalEmulatorPath_ = project_.emulatorPath;
-        migrated = true;
-    }
-    if (globalPs2Ip_.empty() && !project_.ps2LinkIp.empty()) {
-        globalPs2Ip_ = project_.ps2LinkIp;
-        migrated = true;
-    }
-    if (migrated) saveGlobalConfig();
     project_.emulatorPath = globalEmulatorPath_;
     project_.ps2LinkIp = globalPs2Ip_;
+    project_.toolchainImage = globalToolchainImage_;
+    project_.buildBackend = globalBuildBackend_;
+    project_.consoleLogLines = globalConsoleLogLines_;
+    project_.consoleLogFiles = globalConsoleLogFiles_;
 
     flowGraphObject_ = -1;
     flowPositionsApplied_ = false;
@@ -5525,6 +7639,12 @@ void App::attachProject() {
                              ? project_.viewProjection
                              : 0;
     viewport_.setProjection((Viewport::Projection)viewProj);
+    // ...and where the camera was pointing. A project saved before this key
+    // existed carries the viewport's own defaults, so it opens exactly where
+    // it always did.
+    viewport_.setCamState(project_.viewCamYaw, project_.viewCamPitch,
+                          project_.viewCamDist, project_.viewCamTarget);
+    showFog_ = project_.viewShowFog;
     // Window layouts arrived with the .tyra. Guard against an empty/out-of-range
     // set (hand-edited or very old file), then apply the active one. Applying is
     // deferred to a frame boundary: loading ImGui settings mid-frame is
@@ -5557,8 +7677,13 @@ void App::attachProject() {
     openErrorPopup_ = false;
 }
 
+// The Insert-menu presets: a default object from addObject(), then the preset's
+// own field tweaks, then ONE commitChange() covering both. They used to end in
+// saveAll(), which wrote the whole project to disk and cleared the save icon -
+// so inserting a point light behaved differently from inserting a box, and the
+// tweaks landed outside the undo snapshot addObject() had already pushed.
 void App::addEmitter(int kind) {
-    addObject(PrimitiveType::Emitter);
+    addObject(PrimitiveType::Emitter, /*commit=*/false);
     SceneObject& o = project_.objects().back();
     o.emitterKind = kind;
     // preset tints (the color tints the particles / their texture)
@@ -5586,67 +7711,77 @@ void App::addEmitter(int kind) {
         o.emitterCount = 64;
         o.emitterSize = 0.3f;
     }
-    saveAll("Saved");
+    commitChange();
 }
 void App::addSoundEmitter() {
-    addObject(PrimitiveType::SoundEmitter);
+    addObject(PrimitiveType::SoundEmitter, /*commit=*/false);
     SceneObject& o = project_.objects().back();
     o.position[1] = 1.0f;
     o.color[0] = 0.65f, o.color[1] = 0.3f, o.color[2] = 0.9f;  // violet marker
     o.scale[0] = o.scale[1] = o.scale[2] = 0.5f;
     if (!project_.sounds.empty()) o.soundPath = project_.sounds.front();
-    saveAll("Saved");
+    commitChange();
 }
 void App::addPointLight() {
-    addObject(PrimitiveType::PointLight);
+    addObject(PrimitiveType::PointLight, /*commit=*/false);
     SceneObject& o = project_.objects().back();
     o.position[1] = 3.0f;  // hovers above the ground by default
     o.color[0] = 1.0f, o.color[1] = 0.95f, o.color[2] = 0.8f;  // warm white
     o.scale[0] = o.scale[1] = o.scale[2] = 0.4f;  // small bulb gizmo
     o.lightBright = 1.0f;
     o.lightRadius = 8.0f;
-    saveAll("Saved");
+    commitChange();
 }
 void App::addEmpty() {
-    addObject(PrimitiveType::Empty);
+    addObject(PrimitiveType::Empty, /*commit=*/false);
     SceneObject& o = project_.objects().back();
     // small neutral sphere marker, floats where scripts expect an anchor
     o.position[1] = 1.0f;
     o.scale[0] = o.scale[1] = o.scale[2] = 0.5f;
     o.color[0] = o.color[1] = o.color[2] = 0.75f;
     o.collisionMode = 2;  // pure transform - never blocks the player
-    saveAll("Saved");
+    commitChange();
 }
 void App::addDecal() {
-    addObject(PrimitiveType::Decal);
+    addObject(PrimitiveType::Decal, /*commit=*/false);
     SceneObject& o = project_.objects().back();
     o.position[1] = 1.5f;  // eye height on a wall
     // white so the texture shows untinted (color modulates the map_Kd)
     o.color[0] = o.color[1] = o.color[2] = 1.0f;
     o.collisionMode = 2;  // visual overlay - never blocks the player
-    saveAll("Saved");
+    commitChange();
 }
 void App::addMirror() {
-    addObject(PrimitiveType::Mirror);
+    addObject(PrimitiveType::Mirror, /*commit=*/false);
     SceneObject& o = project_.objects().back();
     // an upright dressing-mirror rectangle at standing height, cool glass tint
     o.position[1] = 1.2f;
     o.scale[0] = 1.4f, o.scale[1] = 2.2f, o.scale[2] = 1.0f;
     o.color[0] = 0.62f, o.color[1] = 0.78f, o.color[2] = 0.88f;
-    saveAll("Saved");
+    commitChange();
+}
+void App::addScroller() {
+    addObject(PrimitiveType::Scroller, /*commit=*/false);
+    SceneObject& o = project_.objects().back();
+    // an invisible belt marker; a bright arrow gizmo shows the scroll axis
+    o.position[1] = 1.0f;
+    o.color[0] = 0.2f, o.color[1] = 0.85f, o.color[2] = 1.0f;
+    o.collisionMode = 2;   // pure marker - never blocks the player
+    o.castShadow = false;  // no geometry - nothing to occlude with
+    commitChange();
 }
 void App::addPortal() {
-    addObject(PrimitiveType::Portal);
+    addObject(PrimitiveType::Portal, /*commit=*/false);
     SceneObject& o = project_.objects().back();
     // a door-sized upright frame at standing height, warm energy tint
     o.position[1] = 1.2f;
     o.scale[0] = 1.6f, o.scale[1] = 2.4f, o.scale[2] = 1.0f;
     o.color[0] = 0.95f, o.color[1] = 0.55f, o.color[2] = 0.2f;
     o.collisionMode = 2;  // walk-through surface - the teleport is the "wall"
-    saveAll("Saved");
+    commitChange();
 }
 void App::addArea() {
-    addObject(PrimitiveType::Area);
+    addObject(PrimitiveType::Area, /*commit=*/false);
     SceneObject& o = project_.objects().back();
     // A room-sized box resting on the ground, cool green so the wireframe
     // reads as "volume", not "prop".
@@ -5655,10 +7790,27 @@ void App::addArea() {
     o.color[0] = 0.3f, o.color[1] = 0.95f, o.color[2] = 0.5f;
     o.collisionMode = 2;  // a volume, never a wall
     o.castShadow = false;  // no geometry - nothing to occlude with
-    saveAll("Saved");
+    commitChange();
+}
+void App::addComment() {
+    addObject(PrimitiveType::Comment, /*commit=*/false);
+    SceneObject& o = project_.objects().back();
+    // Head height above whatever it was dropped on, so the icon reads as
+    // pinned to that spot rather than lying on it.
+    o.position[1] += 1.5f;
+    // A warm note-paper yellow: it is a piece of paper stuck on the scene, and
+    // the colour is editable per note (Properties) so a project can grow its
+    // own code - red for a problem, green for something settled.
+    o.color[0] = 0.98f, o.color[1] = 0.86f, o.color[2] = 0.42f;
+    o.collisionMode = 2;   // no geometry at all - never a wall
+    o.castShadow = false;  // ...and nothing to occlude with
+    commitChange();
+    pendingFocusWindow_ = "Properties";  // it may be a tab behind another panel
+    commentFocus_ = true;
+    statusMessage_ = "Comment added - type the note in Properties";
 }
 void App::addSavePoint() {
-    addObject(PrimitiveType::SavePoint);
+    addObject(PrimitiveType::SavePoint, /*commit=*/false);
     SceneObject& o = project_.objects().back();
     // a slim cyan pillar - reads as a save terminal, box collision in game
     o.position[1] = 0.75f;
@@ -5666,9 +7818,9 @@ void App::addSavePoint() {
     o.color[0] = 0.25f, o.color[1] = 0.85f, o.color[2] = 0.95f;
     o.usable = true;  // implicit in the game; mirrored here for the viewport
     snapInsertedObject();  // re-snap: the pillar's real height is set here
-    saveAll("Saved");
+    commitChange();
 }
-void App::addObject(PrimitiveType type) {
+void App::addObject(PrimitiveType type, bool commit) {
     // Unique default name: box-1, box-2, ...
     int counter = 0;
     std::string name;
@@ -5683,6 +7835,11 @@ void App::addObject(PrimitiveType type) {
     o.name = name;
     o.type = type;
     o.primDetail = defaultPrimDetail(type);  // box-like baseline 1, curved 16
+    // A cylinder placed today gets the axial rings; one loaded from a project
+    // that predates them does not (project.cpp's "rings" key defaults off), so
+    // no existing scene silently grows triangles. The tri readout next to the
+    // Properties checkbox is what an author reads before deciding otherwise.
+    o.primRings = type == PrimitiveType::Cylinder;
     if (type == PrimitiveType::SpawnPoint) {
         o.position[1] = 0.0f;  // marker sits on the ground
         o.color[0] = 0.15f, o.color[1] = 0.9f, o.color[2] = 0.9f;
@@ -5700,177 +7857,437 @@ void App::addObject(PrimitiveType type) {
     // Rest it on whatever is under the spawn spot instead of spawning inside
     // it (the marker types have no volume, so this is a no-op for them).
     snapInsertedObject();
-    commitChange();
+    if (commit) commitChange();
 }
 
-std::string App::importModelAsset() {
+// Retargets every BY-NAME reference to `renamed` after its name changed from
+// `from`. Object references are names, not ids (only the merge machinery uses
+// the id), so a rename that stops here leaves cutscene tracks, mirror lists,
+// scroller members, camera feeds, portal links and area references pointing at a
+// name nothing answers to - and a flow graph's In Area at a missing volume. One
+// function because there are now two renamers: the Properties field and the AI
+// Assistant's set_object. `sc` is the scene the object lives in; sequences are
+// project-wide.
+void App::renameObjectRefs(SceneData& sc, const SceneObject& renamed,
+                           const std::string& from) {
+    if (from.empty() || from == renamed.name) return;
+    const std::string& to = renamed.name;
+    // Cutscene tracks and camera-shot bindings (project-wide).
+    for (Sequence& q : project_.sequences) {
+        for (SeqTrack& tr : q.tracks)
+            if (tr.target == from) tr.target = to;
+        for (SeqCameraKey& k : q.cameraKeys)
+            if (k.camera == from) k.camera = to;
+    }
+    // Neural-upscaler training shots that borrow a placed Camera object. Same
+    // rule as a cutscene shot's camera binding: a shot whose camera name went
+    // stale is silently dropped by blssResolveShot, so the corpus would quietly
+    // stop covering the vantage the author asked for.
+    for (BlssShot& b : project_.blssShots.shots) {
+        if (b.camera == from) b.camera = to;
+        if (b.cameraTo == from) b.cameraTo = to;
+    }
+    if (lookThroughCam_ == from) lookThroughCam_ = to;
+    for (SceneObject& m : sc.objects) {
+        // Mirror target lists.
+        if (m.type == PrimitiveType::Mirror)
+            for (std::string& t : m.mirrorObjects)
+                if (t == from) t = to;
+        // Scroller segment member lists.
+        if (m.type == PrimitiveType::Scroller)
+            for (ScrollSegment& seg : m.scrollSegments)
+                for (ScrollMember& t : seg.objects)
+                    if (t.name == from) t.name = to;
+        // Camera feed view lists.
+        if (m.type == PrimitiveType::Camera)
+            for (std::string& t : m.camFeedObjects)
+                if (t == from) t = to;
+        // Portal links + their view lists.
+        if (m.type == PrimitiveType::Portal) {
+            if (m.portalTarget == from) m.portalTarget = to;
+            for (std::string& t : m.portalObjects)
+                if (t == from) t = to;
+        }
+        // Per-object texture-feed refs ("camera:<name>" / "mirror:<name>").
+        if (m.textureFeed == "camera:" + from) m.textureFeed = "camera:" + to;
+        else if (m.textureFeed == "mirror:" + from) m.textureFeed = "mirror:" + to;
+    }
+    // Area references (docs/areas.md): catch areas, streaming-layer zones and
+    // In Area nodes all point at an area by name.
+    if (renamed.type == PrimitiveType::Area) {
+        for (SceneObject& m : sc.objects) {
+            if (m.catchArea == from) m.catchArea = to;
+            for (FlowNode& fn : m.flowGraph.nodes) {
+                const FlowNodeType* t = flowNodeType(fn.type);
+                if (t && t->strKind == FlowParamKind::AreaName && fn.str == from)
+                    fn.str = to;
+            }
+        }
+        for (SceneLayer& l : sc.layers)
+            if (l.streamArea == from) l.streamArea = to;
+    }
+}
+
+void App::importModelAsset(const std::string& targetFolder) {
+    if (modelImporting_) return;
     const std::string src = pickModelFile();
-    if (src.empty()) return "";
+    if (src.empty()) return;
 
-    const std::filesystem::path srcPath(src);
-    const std::filesystem::path srcDir = srcPath.parent_path();
-    const std::string fileName = sanitizeAssetName(srcPath.filename().string());
-    const std::filesystem::path destDir = std::filesystem::path(project_.dir) / "res" / "models";
-    std::error_code ec;
-    std::filesystem::create_directories(destDir, ec);
+    if (modelImportThread_.joinable()) modelImportThread_.join();
+    modelImportName_ = sanitizeAssetName(
+        std::filesystem::path(src).filename().string());
+    modelImportResult_ = ModelImportResult{};
+    modelImportProgress_.store(0.0f, std::memory_order_relaxed);
+    modelImportStage_.store(0, std::memory_order_relaxed);
+    modelImportDone_.store(false, std::memory_order_relaxed);
+    modelImporting_ = true;
+    modelImportOpen_ = true;
+    modelImportClose_ = false;
+    modelImportThread_ = std::thread(&App::modelImportWorker, this, src,
+                                     project_.dir, targetFolder);
+}
 
-    // Animated models (.glb/.fbx): copy, then a validation bake for early
-    // feedback. The .tskl the game loads is serialized from the copy on
-    // every build. A .glb is self-contained; an .fbx may reference textures
-    // as separate files, so those are copied next to it.
-    if (isAnimatedModelPath(fileName)) {
-        std::filesystem::copy_file(srcPath, destDir / fileName,
-                                   std::filesystem::copy_options::overwrite_existing, ec);
+void App::modelImportWorker(std::string src, std::string projectDir,
+                            std::string targetFolder) {
+    ModelImportResult result;
+    result.projectDir = projectDir;
+    result.targetFolder = targetFolder;
+    auto progress = [&](int stage, float fraction) {
+        modelImportStage_.store(stage, std::memory_order_relaxed);
+        modelImportProgress_.store(fraction, std::memory_order_relaxed);
+    };
+    auto finish = [&]() {
+        modelImportResult_ = std::move(result);
+        modelImportDone_.store(true, std::memory_order_release);
+    };
+
+    try {
+        const std::filesystem::path srcPath(src);
+        const std::filesystem::path srcDir = srcPath.parent_path();
+        const std::string fileName =
+            sanitizeAssetName(srcPath.filename().string());
+        const std::filesystem::path destDir =
+            std::filesystem::path(projectDir) / "res" / "models";
+        const std::filesystem::path destPath = destDir / fileName;
+        result.relPath = "res/models/" + fileName;
+        result.animated = isAnimatedModelPath(fileName);
+        std::error_code ec;
+        std::filesystem::create_directories(destDir, ec);
         if (ec) {
-            statusMessage_ = "Model import failed: " + ec.message();
-            return "";
+            result.status = "Model import failed: " + ec.message();
+            finish();
+            return;
         }
-        if (fileName.size() > 4 && fileName.compare(fileName.size() - 4, 4, ".fbx") == 0)
-            fbxparser::copyExternalTextures(srcPath.string(), destDir.string());
-        glbparser::Baked baked;
-        std::string error;
-        if (!animimport::bake((destDir / fileName).string(), 12.0f, baked, error)) {
-            statusMessage_ = "Imported " + fileName + " - UNUSABLE: " + error;
-            return "res/models/" + fileName;
+        ec.clear();
+        if (std::filesystem::exists(destPath, ec) && !ec &&
+            std::filesystem::equivalent(srcPath, destPath, ec) && !ec) {
+            // Opening the destination below truncates it. A picker aimed at a
+            // file already inside res/models must never eat the source asset.
+            result.status =
+                "Model import skipped: the selected file is already in res/models";
+            finish();
+            return;
         }
-        statusMessage_ = "Imported " + fileName + " (" +
-                         std::to_string(baked.clips.size()) + " clip(s), " +
-                         std::to_string(baked.totalVertexCount()) + " verts, " +
-                         std::to_string(baked.frameCount) + " baked frames)";
-        // Rough PS2 memory estimate: the skeletal runtime keeps one bind-pose
-        // mesh + keyframe tracks (+ per-instance skinned buffers), not baked
-        // frames - parseSkel knows the actual footprint.
-        glbparser::Skel skel;
-        std::string skelError;
-        const size_t bytes = animimport::parseSkel((destDir / fileName).string(),
-                                                   skel, skelError)
-                                 ? skel.ps2Bytes()
-                                 : 0;
-        if (bytes > 8u * 1024 * 1024)
-            statusMessage_ += " - WARNING: ~" + std::to_string(bytes >> 20) +
-                              " MB on the PS2 (32 MB total) - reduce the mesh";
-        if (!baked.warnings.empty())
-            statusMessage_ += " - " + baked.warnings.front() +
-                              (baked.warnings.size() > 1
-                                   ? " (+" + std::to_string(baked.warnings.size() - 1) +
-                                         " more warning(s), see build log)"
-                                   : "");
-        glbInfoCache_.erase("res/models/" + fileName);
-        beginModelSizing("res/models/" + fileName);
-        modelSizeFresh_ = true;  // ask how big it is in the real world
-        return "res/models/" + fileName;
-    }
+        ec.clear();
 
-    // Parse the source model to find its material libraries and textures -
-    // they get flattened next to the .obj in res/models/. Sanitized names may
-    // differ from the originals, so the mtllib/map_Kd references are rewritten
-    // while copying instead of copying the files verbatim.
-    objparser::Model parsed;
-    const bool parseOk = objparser::load(src, parsed);
+        // Animated models are copied with byte-level progress. Parsing and
+        // baking expose no inner callback, so those phases keep the spinner
+        // moving while the bar holds at its honest stage boundary.
+        if (result.animated) {
+            progress(0, 0.02f);
+            std::ifstream in(srcPath, std::ios::binary | std::ios::ate);
+            std::ofstream out(destPath, std::ios::binary | std::ios::trunc);
+            if (!in || !out) {
+                result.status = "Model import failed: cannot copy " + fileName;
+                finish();
+                return;
+            }
+            const std::streamoff total = in.tellg();
+            in.seekg(0, std::ios::beg);
+            std::vector<char> chunk(4u * 1024u * 1024u);
+            std::streamoff copied = 0;
+            while (in) {
+                in.read(chunk.data(), (std::streamsize)chunk.size());
+                const std::streamsize got = in.gcount();
+                if (got <= 0) break;
+                out.write(chunk.data(), got);
+                if (!out) break;
+                copied += got;
+                const float part = total > 0
+                                       ? (float)((double)copied / (double)total)
+                                       : 1.0f;
+                modelImportProgress_.store(0.02f + part * 0.18f,
+                                           std::memory_order_relaxed);
+            }
+            out.close();
+            if (!in.eof() || !out) {
+                result.status = "Model import failed while copying " + fileName;
+                finish();
+                return;
+            }
+            result.installed = true;
 
-    // texture file (relative to the .obj) -> sanitized basename in res/models
-    std::map<std::string, std::string> textureNames;
-    for (const objparser::Submesh& s : parsed.submeshes)
-        for (const std::string& tex : {s.texture, s.refl})
-            if (!tex.empty() && tex != "@sky")  // @sky = dynamic env map, no file
-                textureNames.emplace(
-                    tex,
-                    sanitizeAssetName(std::filesystem::path(tex).filename().string()));
-    std::map<std::string, std::string> mtlNames;
-    for (const std::string& m : parsed.mtlLibs)
-        mtlNames.emplace(
-            m, sanitizeAssetName(std::filesystem::path(m).filename().string()));
+            if (fileName.size() > 4 &&
+                fileName.compare(fileName.size() - 4, 4, ".fbx") == 0) {
+                progress(1, 0.22f);
+                fbxparser::copyExternalTextures(srcPath.string(), destDir.string());
+            }
 
-    int missing = 0;
+            progress(2, 0.34f);
+            glbparser::Baked baked;
+            std::string error;
+            if (!animimport::bake(destPath.string(), 12.0f, baked, error)) {
+                result.status = "Imported " + fileName + " - UNUSABLE: " + error;
+                progress(4, 1.0f);
+                finish();
+                return;
+            }
+            result.measured = true;
+            for (int k = 0; k < 3; ++k) {
+                result.bounds[k] = baked.min[k];
+                result.bounds[k + 3] = baked.max[k];
+            }
+            result.status = "Imported " + fileName + " (" +
+                            std::to_string(baked.clips.size()) + " clip(s), " +
+                            std::to_string(baked.totalVertexCount()) + " verts, " +
+                            std::to_string(baked.frameCount) + " baked frames)";
 
-    // .obj: rewrite mtllib lines to the sanitized library names
-    {
-        std::ifstream in(srcPath);
-        std::ofstream out(destDir / fileName, std::ios::trunc);
-        if (!in || !out) {
-            statusMessage_ = "Model import failed: cannot copy " + fileName;
-            return "";
+            // Rough PS2 memory estimate: the skeletal runtime keeps one
+            // bind-pose mesh + keyframe tracks, not the baked preview frames.
+            progress(3, 0.76f);
+            glbparser::Skel skel;
+            std::string skelError;
+            const size_t bytes = animimport::parseSkel(destPath.string(), skel,
+                                                       skelError)
+                                     ? skel.ps2Bytes()
+                                     : 0;
+            if (bytes > 8u * 1024 * 1024)
+                result.status += " - WARNING: ~" +
+                                 std::to_string(bytes >> 20) +
+                                 " MB on the PS2 (32 MB total) - reduce the mesh";
+            if (!baked.warnings.empty())
+                result.status +=
+                    " - " + baked.warnings.front() +
+                    (baked.warnings.size() > 1
+                         ? " (+" + std::to_string(baked.warnings.size() - 1) +
+                               " more warning(s), see build log)"
+                         : "");
+            progress(4, 1.0f);
+            finish();
+            return;
         }
-        std::string line;
-        while (std::getline(in, line)) {
-            std::istringstream ss(line);
-            std::string tag;
-            ss >> tag;
-            if (tag == "mtllib") {
-                out << "mtllib";
-                std::string name;
-                while (ss >> name) out << " " << mtlNames[name];
-                out << "\n";
-            } else {
-                out << line << "\n";
+
+        // Wavefront import parses the source once, then rewrites the copied
+        // .obj/.mtl references to their sanitized, flattened dependency names.
+        progress(2, 0.08f);
+        objparser::Model parsed;
+        const bool parseOk = objparser::load(src, parsed);
+
+        std::map<std::string, std::string> textureNames;
+        for (const objparser::Submesh& s : parsed.submeshes)
+            for (const std::string& tex : {s.texture, s.refl})
+                if (!tex.empty() && tex != "@sky")
+                    textureNames.emplace(
+                        tex, sanitizeAssetName(
+                                 std::filesystem::path(tex).filename().string()));
+        std::map<std::string, std::string> mtlNames;
+        for (const std::string& m : parsed.mtlLibs)
+            mtlNames.emplace(
+                m, sanitizeAssetName(std::filesystem::path(m).filename().string()));
+
+        int missing = 0;
+        progress(0, 0.42f);
+        {
+            std::ifstream in(srcPath);
+            std::ofstream out(destPath, std::ios::trunc);
+            if (!in || !out) {
+                result.status = "Model import failed: cannot copy " + fileName;
+                finish();
+                return;
+            }
+            std::string line;
+            while (std::getline(in, line)) {
+                std::istringstream ss(line);
+                std::string tag;
+                ss >> tag;
+                if (tag == "mtllib") {
+                    out << "mtllib";
+                    std::string name;
+                    while (ss >> name) out << " " << mtlNames[name];
+                    out << "\n";
+                } else {
+                    out << line << "\n";
+                }
             }
         }
-    }
+        result.installed = true;
 
-    // .mtl libraries: rewrite map_Kd to the sanitized (flattened) texture names
-    for (const auto& [mtlRef, mtlDest] : mtlNames) {
-        std::ifstream in(srcDir / mtlRef);
-        if (!in) {
-            ++missing;
-            continue;
+        progress(1, 0.64f);
+        size_t finishedDeps = 0;
+        const size_t totalDeps = mtlNames.size() + textureNames.size();
+        auto dependencyDone = [&]() {
+            ++finishedDeps;
+            if (totalDeps)
+                modelImportProgress_.store(
+                    0.64f + 0.30f * (float)finishedDeps / (float)totalDeps,
+                    std::memory_order_relaxed);
+        };
+        for (const auto& [mtlRef, mtlDest] : mtlNames) {
+            std::ifstream in(srcDir / mtlRef);
+            if (!in) {
+                ++missing;
+                dependencyDone();
+                continue;
+            }
+            std::ofstream out(destDir / mtlDest, std::ios::trunc);
+            if (!out) {
+                dependencyDone();
+                continue;
+            }
+            std::string line;
+            while (std::getline(in, line)) {
+                std::istringstream ss(line);
+                std::string tag;
+                ss >> tag;
+                if (tag == "map_Kd" || tag == "refl") {
+                    std::vector<std::string> toks;
+                    for (std::string t; ss >> t;) toks.push_back(t);
+                    std::string last = toks.empty() ? "" : toks.back();
+                    for (char& c : last)
+                        if (c == '\\') c = '/';
+                    auto it = textureNames.find(last);
+                    out << tag;
+                    if (tag == "refl")
+                        for (size_t ti = 0; ti + 1 < toks.size(); ++ti)
+                            out << " " << toks[ti];
+                    out << " "
+                        << (it != textureNames.end() ? it->second : last) << "\n";
+                } else {
+                    out << line << "\n";
+                }
+            }
+            dependencyDone();
         }
-        std::ofstream out(destDir / mtlDest, std::ios::trunc);
-        if (!out) continue;
-        std::string line;
-        while (std::getline(in, line)) {
-            std::istringstream ss(line);
-            std::string tag;
-            ss >> tag;
-            if (tag == "map_Kd" || tag == "refl") {
-                // last token = filename, remapped to its flattened name; the
-                // refl options (-type/-mm, the strength) are preserved.
-                std::vector<std::string> toks;
-                for (std::string t; ss >> t;) toks.push_back(t);
-                std::string last = toks.empty() ? "" : toks.back();
-                for (char& c : last)
-                    if (c == '\\') c = '/';
-                auto it = textureNames.find(last);
-                out << tag;
-                if (tag == "refl")
-                    for (size_t ti = 0; ti + 1 < toks.size(); ++ti)
-                        out << " " << toks[ti];
-                out << " " << (it != textureNames.end() ? it->second : last)
-                    << "\n";
-            } else {
-                out << line << "\n";
+
+        for (const auto& [texRef, texDest] : textureNames) {
+            std::filesystem::copy_file(
+                srcDir / texRef, destDir / texDest,
+                std::filesystem::copy_options::overwrite_existing, ec);
+            if (ec) {
+                ++missing;
+                ec.clear();
+            }
+            dependencyDone();
+        }
+
+        result.status = "Imported " + fileName;
+        if (!parseOk)
+            result.status +=
+                " (unparseable - it will render as a placeholder box)";
+        else if (!mtlNames.empty())
+            result.status += " + " + std::to_string(mtlNames.size()) +
+                             " mtl, " + std::to_string(textureNames.size()) +
+                             " texture(s)";
+        if (missing > 0)
+            result.status += " - " + std::to_string(missing) +
+                             " referenced file(s) missing next to the .obj";
+        if (parseOk) {
+            result.measured = true;
+            for (int k = 0; k < 3; ++k) {
+                result.bounds[k] = parsed.min[k];
+                result.bounds[k + 3] = parsed.max[k];
             }
         }
+        progress(4, 1.0f);
+    } catch (const std::exception& e) {
+        result.status = "Model import failed: " + std::string(e.what());
+    } catch (...) {
+        result.status = "Model import failed: unexpected importer error";
+    }
+    finish();
+}
+
+void App::modelImportTick() {
+    if (!modelImporting_ ||
+        !modelImportDone_.load(std::memory_order_acquire))
+        return;
+
+    if (modelImportThread_.joinable()) modelImportThread_.join();
+    modelImporting_ = false;
+    modelImportClose_ = true;
+
+    ModelImportResult& result = modelImportResult_;
+    // The modal prevents normal project switching, but keep the handoff
+    // guarded for shutdown/automation paths too: a worker result belongs only
+    // to the project directory it started from.
+    if (!hasProject_ || project_.dir != result.projectDir) return;
+
+    statusMessage_ = result.status;
+    if (!result.installed) return;
+
+    std::string imported = result.relPath;
+    const std::string modelRoot = "res/models";
+    const bool targetInsideModels =
+        result.targetFolder.size() > modelRoot.size() &&
+        result.targetFolder.compare(0, modelRoot.size(), modelRoot) == 0 &&
+        result.targetFolder[modelRoot.size()] == '/';
+    if (targetInsideModels) {
+        // moveAssets needs the just-created root asset in its fresh inventory;
+        // it carries .obj dependencies and retargets existing references.
+        scanAssetTree();
+        const std::string moveError =
+            moveAssets({result.relPath}, result.targetFolder);
+        if (moveError.empty())
+            imported = result.targetFolder + "/" +
+                       std::filesystem::path(result.relPath).filename().string();
+        else
+            statusMessage_ += " - could not move it into " +
+                              result.targetFolder + ": " + moveError;
+    } else {
+        assetsChanged();
     }
 
-    // referenced textures, flattened into res/models/
-    for (const auto& [texRef, texDest] : textureNames) {
-        std::filesystem::copy_file(srcDir / texRef, destDir / texDest,
-                                   std::filesystem::copy_options::overwrite_existing, ec);
-        if (ec) {
-            ++missing;
-            ec.clear();
-        }
+    assetSelection_.assign(1, imported);
+    if (result.measured) {
+        beginModelSizing(imported, result.bounds.data(),
+                         result.bounds.data() + 3);
+        modelSizeFresh_ = true;
+    }
+}
+
+void App::drawModelImportModal() {
+    if (modelImportOpen_) {
+        ImGui::OpenPopup("Importing model");
+        modelImportOpen_ = false;
+    }
+    const ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    if (!ImGui::BeginPopupModal("Importing model", nullptr,
+                                ImGuiWindowFlags_AlwaysAutoResize |
+                                    ImGuiWindowFlags_NoSavedSettings))
+        return;
+
+    if (modelImportClose_) {
+        modelImportClose_ = false;
+        ImGui::CloseCurrentPopup();
+        ImGui::EndPopup();
+        return;
     }
 
-    // The cache is keyed "<model>|<material override>", so erasing the bare
-    // path missed every entry of a re-imported model (its summary stayed
-    // stale until a project reload) - drop the whole map, it is cheap to
-    // refill and the Assets panel refills it the same frame.
-    modelInfoCache_.clear();
-    statusMessage_ = "Imported " + fileName;
-    if (!parseOk)
-        statusMessage_ += " (unparseable - it will render as a placeholder box)";
-    else if (!mtlNames.empty())
-        statusMessage_ += " + " + std::to_string(mtlNames.size()) + " mtl, " +
-                          std::to_string(textureNames.size()) + " texture(s)";
-    if (missing > 0)
-        statusMessage_ += " - " + std::to_string(missing) +
-                          " referenced file(s) missing next to the .obj";
-    if (parseOk) {
-        beginModelSizing("res/models/" + fileName);
-        modelSizeFresh_ = true;  // an .obj carries no unit at all - ask
-    }
-    return "res/models/" + fileName;
+    static const char* kStages[] = {
+        "Copying model", "Copying materials and textures",
+        "Reading and validating model", "Estimating runtime memory",
+        "Finishing import"};
+    const int stage = std::clamp(modelImportStage_.load(std::memory_order_relaxed),
+                                 0, (int)(std::size(kStages) - 1));
+    const float fraction = std::clamp(
+        modelImportProgress_.load(std::memory_order_relaxed), 0.0f, 1.0f);
+    ImGui::Text("%c  %s", "|/-\\"[(int)(ImGui::GetTime() * 10.0) & 3],
+                kStages[stage]);
+    ImGui::TextDisabled("%s", modelImportName_.c_str());
+    ImGui::Spacing();
+    ImGui::ProgressBar(fraction, ImVec2(scaled(380), 0));
+    ImGui::EndPopup();
 }
 
 // --- model real-world size (docs/world-scale.md) ---------------------------
@@ -5890,19 +8307,39 @@ void App::beginModelSizing(const std::string& relPath) {
     modelSizePath_ = relPath;
     modelSizeApplyExisting_ = false;
     modelSizeFresh_ = false;  // the import path raises it after this call
-    // Re-importing over an existing file keeps its name, so the viewport's
-    // path-keyed caches would hand back the OLD geometry's bounds.
-    viewport_.invalidateAssets();
-    // What the file is authored as. modelLocalBounds covers both formats
-    // (static .obj bounds and an animated model's baked pose bounds) and is
-    // the same measurement the placement snapping uses.
-    SceneObject probe;
-    probe.type = PrimitiveType::Model;
-    probe.modelPath = relPath;
-    float mn[3] = {0.0f, 0.0f, 0.0f}, mx[3] = {0.0f, 0.0f, 0.0f};
-    modelSizeMeasured_ = viewport_.modelLocalBounds(probe, mn, mx);
+    // The Asset Browser inspector has already parsed this exact asset to show
+    // its stats. Reuse that parse's bounds: going through modelLocalBounds()
+    // here used to parse/bake a large model all over again on the UI thread,
+    // which made the editor appear frozen immediately after clicking Size.
+    // Imports use the bounds overload below and likewise never pay twice.
+    const float* mn = nullptr;
+    const float* mx = nullptr;
+    if (isAnimatedModelPath(relPath)) {
+        const auto it = glbInfoCache_.find(relPath);
+        if (it != glbInfoCache_.end() && it->second.ok)
+            mn = it->second.min, mx = it->second.max;
+    } else {
+        const auto it = modelInfoCache_.find(relPath + "|");
+        if (it != modelInfoCache_.end() && it->second.ok)
+            mn = it->second.min, mx = it->second.max;
+    }
+    modelSizeMeasured_ = mn && mx;
     for (int c = 0; c < 3; ++c)
         modelSizeSrc_[c] = modelSizeMeasured_ ? mx[c] - mn[c] : 0.0f;
+    auto it = project_.modelUnitMeters.find(relPath);
+    modelSizeMeters_ = it != project_.modelUnitMeters.end() ? it->second : 1.0f;
+    modelSizeUnit_ = unitPresetIndex(modelSizeMeters_);
+    modelSizeOpen_ = true;
+}
+
+void App::beginModelSizing(const std::string& relPath, const float mn[3],
+                           const float mx[3]) {
+    modelSizePath_ = relPath;
+    modelSizeApplyExisting_ = false;
+    modelSizeFresh_ = false;
+    viewport_.invalidateAssets();
+    modelSizeMeasured_ = true;
+    for (int c = 0; c < 3; ++c) modelSizeSrc_[c] = mx[c] - mn[c];
     auto it = project_.modelUnitMeters.find(relPath);
     modelSizeMeters_ = it != project_.modelUnitMeters.end() ? it->second : 1.0f;
     modelSizeUnit_ = unitPresetIndex(modelSizeMeters_);
@@ -6011,16 +8448,17 @@ void App::drawModelSizeModal() {
                         o.scale[0] = o.scale[1] = o.scale[2] = insertScale;
             commitChange();  // object scales are an undoable scene edit
         }
-        // The asset size itself lives in the manifest, not in a scene, so an
-        // undo snapshot would not carry it - write it out like the LOD and
-        // texture-quality overrides do. setDirty first: that is what advances
-        // the session serial, so a peer sees the section change too.
-        setDirty(true);
+        // The asset size itself lives in the manifest, not in a scene, so
+        // history_.push() carries nothing - but commitChange() still marks the
+        // project dirty and advances the session serial, which is what a
+        // project-wide edit needs (see the editing model in app.hpp). No disk
+        // write: like the LOD and texture-quality overrides, this waits for a
+        // real save.
+        commitChange();
         char msg[192];
         std::snprintf(msg, sizeof msg, "%s: 1 unit = %g m, inserted at scale %g",
                       std::filesystem::path(modelSizePath_).filename().string().c_str(),
                       modelSizeMeters_, insertScale);
-        saveAll("Saved");
         statusMessage_ = msg;
         modelSizePath_.clear();
         modelSizeFresh_ = false;
@@ -6185,6 +8623,73 @@ bool App::pickProjectTexture(const char* popupId, std::string& path) {
     return changed;
 }
 
+bool App::drawRoadSurfaceCombo(const char* label, const char* id,
+                               std::string& surfacePath, const char* noneLabel) {
+    if (!noneLabel) noneLabel = "<none - untextured grey>";
+    std::string current = surfacePath.empty() ? noneLabel : surfacePath;
+    if (current.rfind("res/", 0) == 0) current = current.substr(4);
+
+    bool changed = false;
+    ImGui::SetNextItemWidth(scaled(300));
+    if (ImGui::BeginCombo(label, current.c_str())) {
+        if (ImGui::Selectable(noneLabel, surfacePath.empty()) &&
+            !surfacePath.empty()) {
+            surfacePath.clear();
+            changed = true;
+        }
+
+        ImGui::SeparatorText("Materials");
+        const std::vector<std::string> materials = listMaterialAssets();
+        for (const std::string& rel : materials) {
+            const std::string item = rel.rfind("res/", 0) == 0 ? rel.substr(4) : rel;
+            if (ImGui::Selectable(item.c_str(), rel == surfacePath) &&
+                rel != surfacePath) {
+                surfacePath = rel;
+                changed = true;
+            }
+        }
+        if (materials.empty()) ImGui::TextDisabled("No .mtl assets yet.");
+
+        ImGui::SeparatorText("Direct textures (legacy)");
+        const std::vector<std::string> textures =
+            listAssetFiles("textures", ".png");
+        for (const std::string& name : textures) {
+            const std::string rel = "res/textures/" + name;
+            if (ImGui::Selectable(name.c_str(), rel == surfacePath) &&
+                rel != surfacePath) {
+                surfacePath = rel;
+                changed = true;
+            }
+        }
+        ImGui::Separator();
+        if (ImGui::MenuItem("Import material (.mtl)...")) {
+            const std::string imported = importMaterialAsset();
+            if (!imported.empty()) {
+                surfacePath = imported;
+                changed = true;
+            }
+        }
+        if (ImGui::MenuItem("Import texture (.png, legacy)...")) {
+            const std::string imported = importTextureAsset();
+            if (!imported.empty()) {
+                surfacePath = imported;
+                changed = true;
+            }
+        }
+        ImGui::EndCombo();
+    }
+    std::string ext = std::filesystem::path(surfacePath).extension().string();
+    for (char& c : ext) c = (char)std::tolower((unsigned char)c);
+    if (ext == ".mtl") {
+        ImGui::SameLine();
+        if (ImGui::SmallButton((std::string("Edit...##") + id).c_str()))
+            activateAsset(surfacePath);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Open this road material in the Material Editor.");
+    }
+    return changed;
+}
+
 const App::ModelInfo& App::modelInfo(const std::string& relPath,
                                      const std::string& materialRel) {
     const std::string key = relPath + "|" + materialRel;
@@ -6203,6 +8708,10 @@ const App::ModelInfo& App::modelInfo(const std::string& relPath,
         info.verts = model.vertexCount();
         info.tris = info.verts / 3;
         info.positions = model.positionCount;
+        for (int c = 0; c < 3; ++c) {
+            info.min[c] = model.min[c];
+            info.max[c] = model.max[c];
+        }
         // texture paths resolve relative to the file that defined them: the
         // override .mtl when one is assigned, the model otherwise
         const std::filesystem::path texBase =
@@ -6246,13 +8755,51 @@ const App::GlbInfo& App::glbInfo(const std::string& relPath) {
     if (it != glbInfoCache_.end()) return it->second;
 
     GlbInfo info;
-    glbparser::Baked baked;
     const std::filesystem::path full = std::filesystem::path(project_.dir) / relPath;
+    const auto imports = animedit::importsFor(project_, relPath);
+    if (!imports.empty()) {
+        // Clips borrowed from other files count as this model's clips
+        // everywhere the editor asks "what can this model play". Everything
+        // this summary holds lives on the SKELETON, so it is read off the
+        // cache-assisted merge - never the morph-frame bake, whose skinning
+        // pass is what made Add clips and a prefix commit stall the editor.
+        glbparser::Skel skel;
+        if (animmerge::mergedSkel(full.string(), imports, skel, info.error,
+                                  &skelCache_)) {
+            info.ok = true;
+            for (const auto& c : skel.clips) info.clips.push_back(c.name);
+            info.vertexCount = skel.totalVertexCount();
+            // Nominal frames at the preview rate - display only.
+            float dur = 0.0f;
+            for (const auto& c : skel.clips) dur += c.duration;
+            info.frameCount = (int)(dur * 12.0f) + (int)skel.clips.size();
+            for (int c = 0; c < 3; ++c) {
+                info.min[c] = skel.min[c];
+                info.max[c] = skel.max[c];
+            }
+            info.warnings = skel.warnings;
+            for (const glbparser::SkelPart& p : skel.parts) {
+                GlbInfo::Material mat;
+                mat.name = p.material.empty() ? "material" : p.material;
+                mat.color[0] = p.baseColor[0];
+                mat.color[1] = p.baseColor[1];
+                mat.color[2] = p.baseColor[2];
+                mat.textured = p.image >= 0;
+                info.materials.push_back(std::move(mat));
+            }
+        }
+        return glbInfoCache_.emplace(relPath, std::move(info)).first->second;
+    }
+    glbparser::Baked baked;
     if (animimport::bake(full.string(), 12.0f, baked, info.error)) {
         info.ok = true;
         for (const auto& c : baked.clips) info.clips.push_back(c.name);
         info.vertexCount = baked.totalVertexCount();
         info.frameCount = baked.frameCount;
+        for (int c = 0; c < 3; ++c) {
+            info.min[c] = baked.min[c];
+            info.max[c] = baked.max[c];
+        }
         info.warnings = baked.warnings;
         for (const glbparser::Part& p : baked.parts) {
             GlbInfo::Material mat;
@@ -6295,13 +8842,19 @@ const App::ModelInfo& App::materialInfo(const std::string& relPath) {
     return modelInfoCache_.emplace(key, std::move(info)).first->second;
 }
 
-std::vector<std::string> App::listMaterialAssets() {
-    std::vector<std::string> result;
+const std::vector<std::string>& App::listMaterialAssets() {
+    const double now = ImGui::GetTime();
+    if (materialAssetProject_ == project_.dir && materialAssetScanTime_ >= 0 &&
+        now - materialAssetScanTime_ < 1.5) return materialAssetCache_;
+    materialAssetCache_.clear();
     for (const std::string& m : listAssetFiles("materials", ".mtl"))
-        result.push_back("res/materials/" + m);
+        materialAssetCache_.push_back("res/materials/" + m);
     for (const std::string& m : listAssetFiles("models", ".mtl"))
-        result.push_back("res/models/" + m);
-    return result;
+        materialAssetCache_.push_back("res/models/" + m);
+    std::sort(materialAssetCache_.begin(), materialAssetCache_.end());
+    materialAssetProject_ = project_.dir;
+    materialAssetScanTime_ = now;
+    return materialAssetCache_;
 }
 
 // Material combo shared by every solid object. Lists the project's .mtl
@@ -6314,6 +8867,11 @@ bool App::drawMaterialCombo(SceneObject& o) {
     if (current.rfind("res/", 0) == 0) current = current.substr(4);
 
     bool changed = false;
+    const bool canEdit = !o.materialPath.empty();
+    if (canEdit)
+        ImGui::SetNextItemWidth(std::max(scaled(60.0f), ImGui::CalcItemWidth() -
+            ImGui::CalcTextSize("Edit...").x - ImGui::GetStyle().FramePadding.x * 2 -
+            ImGui::GetStyle().ItemSpacing.x));
     if (ImGui::BeginCombo("Material", current.c_str())) {
         if (ImGui::Selectable(noneLabel, o.materialPath.empty()) &&
             !o.materialPath.empty()) {
@@ -6344,6 +8902,14 @@ bool App::drawMaterialCombo(SceneObject& o) {
                     "this model.");
         }
         ImGui::EndCombo();
+    }
+
+    if (!o.materialPath.empty()) {
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Edit...##material"))
+            openMaterialEditor(o.materialPath, isModel ? o.modelPath : "");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Open this material in the Material Editor.");
     }
 
     // Live texture feed: override the surface with a feed camera's view
@@ -6434,7 +9000,7 @@ void App::drawAssetQualityCombo(const std::string& assetRel) {
         else
             project_.textureQuality[assetRel] =
                 cur == 1 ? "none" : cur == 2 ? "8bit" : "4bit";
-        saveAll("Saved");
+        commitChange();
     }
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("Texture quality of this asset's textures\n"
@@ -6510,7 +9076,7 @@ void App::drawAssetLodButton(const std::string& assetRel) {
             project_.modelLods.erase(assetRel);
         else
             project_.modelLods[assetRel] = tiers;
-        saveAll("Saved");
+        commitChange();
     }
     ImGui::EndPopup();
 }
@@ -6553,10 +9119,11 @@ void App::drawAssetsSection() {
         ImGui::SetTooltip("Asset Browser: folders, thumbnails, filters,\n"
                           "drag & drop into the scene, safe move/rename/delete.");
     ImGui::SameLine();
+    ImGui::BeginDisabled(modelImporting_);
     if (ImGui::SmallButton("Import model...")) {
         importModelAsset();
-        assetsChanged();
     }
+    ImGui::EndDisabled();
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip(".obj = static geometry (+ .mtl/textures)\n"
                           ".glb/.fbx = animated model (Blender/Maya/Max export;\n"
@@ -6596,7 +9163,8 @@ void App::drawAssetsSection() {
 // Creates a scene object for a model that is already inside the project
 // (res/models/...) - the "no-copy" path used by the From-project menu and
 // after an import has placed the files.
-void App::addModelObject(const std::string& relPath, const float* at) {
+void App::addModelObject(const std::string& relPath, const float* at,
+                         bool commit) {
     SceneObject o;
     o.type = PrimitiveType::Model;
     o.modelPath = relPath;
@@ -6624,7 +9192,7 @@ void App::addModelObject(const std::string& relPath, const float* at) {
     project_.objects().push_back(std::move(o));
     selectOnly((int)project_.objects().size() - 1);
     snapInsertedObject();  // stand the model on the surface, not inside it
-    commitChange();
+    if (commit) commitChange();
 }
 
 // Categorized object palette, shared by the Scene menu and the "+ Add"
@@ -6633,9 +9201,24 @@ void App::drawAddObjectMenu() {
     // Pure transform without game geometry - a scene anchor for attached
     // scripts, waypoints and flow-graph logic (sphere marker in the editor).
     if (ImGui::MenuItem("Empty")) addEmpty();
+    // An editor note pinned to this spot (docs/comments.md). Top level next to
+    // Empty rather than inside a category: it is not a kind of game object,
+    // and it is reached while thinking about the scene, not about the game.
+    if (ImGui::MenuItem("Comment")) addComment();
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+        ImGui::SetTooltip(
+            "A note pinned to a place in the scene - why this prop is here,\n"
+            "what still has to be done, what broke last time. Shows as a\n"
+            "message icon in the viewport and reads in full in Properties.\n"
+            "Editor only: nothing about it reaches the game.");
     if (ImGui::BeginMenu("Object")) {
         if (ImGui::BeginMenu("Simple")) {
             if (ImGui::MenuItem("Box")) addObject(PrimitiveType::Box);
+            if (ImGui::MenuItem("Invisible wall")) {
+                addObject(PrimitiveType::Box, /*commit=*/false);
+                project_.objects().back().collisionMode = 3;
+                commitChange();
+            }
             if (ImGui::MenuItem("Sphere")) addObject(PrimitiveType::Sphere);
             if (ImGui::MenuItem("Cylinder")) addObject(PrimitiveType::Cylinder);
             if (ImGui::MenuItem("Cone")) addObject(PrimitiveType::Cone);
@@ -6662,10 +9245,33 @@ void App::drawAddObjectMenu() {
         // Rectangle that re-draws its listed objects mirrored across its
         // plane (real geometry behind the glass - build it into a wall).
         if (ImGui::MenuItem("Mirror")) addMirror();
+        // Endless conveyor: tiles named segments of scene objects forever
+        // along its axis (the train-window level generator).
+        if (ImGui::MenuItem("Scroller (endless)")) addScroller();
         ImGui::EndMenu();
     }
     if (ImGui::BeginMenu("Gameplay")) {
         if (ImGui::MenuItem("Player")) addObject(PrimitiveType::Player);
+        // A driveable car. The object is only the placement - what the vehicle
+        // IS lives in a definition (Tools > Vehicle Editor, docs/vehicles.md),
+        // and a fresh instance adopts the first one so it is never nameless.
+        if (ImGui::MenuItem("Vehicle")) {
+            addObject(PrimitiveType::Vehicle, /*commit=*/false);
+            if (!project_.vehicles.empty())
+                project_.objects().back().vehicleDef = project_.vehicles.front().name;
+            commitChange();
+        }
+        // A spline road (docs/roads.md): points in, terrain-hugging textured
+        // chunks at boot. A fresh one gets three points around the placement
+        // spot so there is something to see and grab immediately.
+        if (ImGui::MenuItem("Road")) {
+            addObject(PrimitiveType::Road, /*commit=*/false);
+            SceneObject& r = project_.objects().back();
+            r.roadPoints = {r.position[0] - 12.0f, r.position[2],
+                            r.position[0],         r.position[2],
+                            r.position[0] + 12.0f, r.position[2]};
+            commitChange();
+        }
         // Linked pair of surfaces: a live view through to the target portal
         // plus a walk-through teleport that carries speed and view angle.
         if (ImGui::MenuItem("Portal")) addPortal();
@@ -6731,6 +9337,58 @@ void App::drawSceneSection() {
         // layer (plus an Unassigned group); without layers it stays flat.
         const bool grouped = !sc.layers.empty();
 
+        // --- filters: name search + object type ------------------------------
+        // A scene outgrows a 130 px list long before it outgrows a PS2, so the
+        // list carries the Asset Browser's two filters. Both are pure view
+        // state - nothing below edits the model, and the selection is left
+        // alone (a filtered-out object stays selected and stays editable in
+        // Properties).
+        ImGui::SetNextItemWidth(-scaled(112.0f));
+        char search[128];
+        std::snprintf(search, sizeof(search), "%s", sceneFilterName_.c_str());
+        if (ImGui::InputTextWithHint("##objsearch", "Search name...", search,
+                                     sizeof(search)))
+            sceneFilterName_ = search;
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(-FLT_MIN);
+        // Only the types the scene actually contains are offered, each with its
+        // count - a filter that can only come back empty is not worth a row.
+        // The names are the ones the object rows print, so the two agree.
+        const char* typePreview =
+            sceneFilterType_ < 0 ? "All types"
+                                 : primitiveTypeName((PrimitiveType)sceneFilterType_);
+        if (ImGui::BeginCombo("##objtype", typePreview)) {
+            int counts[kPrimitiveTypeCount] = {};
+            for (const SceneObject& o : sc.objects) {
+                const int t = (int)o.type;
+                if (t >= 0 && t < kPrimitiveTypeCount) ++counts[t];
+            }
+            if (ImGui::Selectable("All types", sceneFilterType_ < 0))
+                sceneFilterType_ = -1;
+            for (int t = 0; t < kPrimitiveTypeCount; ++t) {
+                if (!counts[t]) continue;
+                const std::string lbl =
+                    std::string(primitiveTypeName((PrimitiveType)t)) + "  (" +
+                    std::to_string(counts[t]) + ")##objtype" + std::to_string(t);
+                if (ImGui::Selectable(lbl.c_str(), sceneFilterType_ == t))
+                    sceneFilterType_ = t;
+            }
+            ImGui::EndCombo();
+        }
+
+        const bool filtering = !sceneFilterName_.empty() || sceneFilterType_ >= 0;
+        auto lowered = [](std::string s) {
+            for (char& c : s) c = (char)tolower((unsigned char)c);
+            return s;
+        };
+        const std::string needle = lowered(sceneFilterName_);
+        auto passesFilter = [&](const SceneObject& o) {
+            if (sceneFilterType_ >= 0 && (int)o.type != sceneFilterType_) return false;
+            return needle.empty() ||
+                   lowered(o.name).find(needle) != std::string::npos ||
+                   lowered(o.editorGroup).find(needle) != std::string::npos;
+        };
+
         auto layerExists = [&](const std::string& name) {
             for (const SceneLayer& l : sc.layers)
                 if (l.name == name) return true;
@@ -6761,9 +9419,14 @@ void App::drawSceneSection() {
                 ImGui::PushStyleColor(ImGuiCol_Text,
                                       ImGui::GetStyle().Colors[ImGuiCol_TextDisabled]);
             if (ImGui::Selectable(label.c_str(), isSelected(i))) {
-                if (ImGui::GetIO().KeyCtrl || ImGui::GetIO().KeyShift) toggleSelect(i);
+                if (inPrefabGroup && !o.editorGroup.empty()) selectOnly(i, false);
+                else if (ImGui::GetIO().KeyCtrl || ImGui::GetIO().KeyShift) toggleSelect(i);
                 else selectOnly(i);
             }
+            // The row's selection is what a UI script asserts a viewport pick
+            // by (`expect-checked "Project/<name>  (<type>)"`); a Selectable
+            // reports none of it on its own.
+            uiscript::markLastItemChecked(isSelected(i));
             if (hidden) ImGui::PopStyleColor();
             // Session presence: a colored dot per participant who has this
             // object selected (their peer color), right-aligned on the row.
@@ -6815,21 +9478,24 @@ void App::drawSceneSection() {
         // the label to select the whole instance, the arrow to open it.
         auto selectAll = [&](const std::vector<int>& ms) {
             clearSelection();
-            for (int j : ms) toggleSelect(j);
+            for (int j : ms) if (!isSelected(j)) toggleSelect(j);
         };
         auto emitRows = [&](const std::vector<int>& idxs) {
             std::vector<std::string> done;
             for (int i : idxs) {
-                const std::string src = project_.objects()[i].prefabSource;
+                const bool persistent = !project_.objects()[i].editorGroup.empty();
+                const std::string src = persistent ? project_.objects()[i].editorGroup : project_.objects()[i].prefabSource;
+                const std::string key = (persistent ? "group:" : "prefab:") + src;
                 if (src.empty()) {
                     objectRow(i);
                     continue;
                 }
-                if (std::find(done.begin(), done.end(), src) != done.end()) continue;
-                done.push_back(src);
+                if (std::find(done.begin(), done.end(), key) != done.end()) continue;
+                done.push_back(key);
                 std::vector<int> members;
                 for (int j : idxs)
-                    if (project_.objects()[j].prefabSource == src) members.push_back(j);
+                    if (persistent ? project_.objects()[j].editorGroup == src :
+                        (project_.objects()[j].editorGroup.empty() && project_.objects()[j].prefabSource == src)) members.push_back(j);
                 bool allSel = true;
                 for (int j : members) allSel &= isSelected(j);
                 ImGuiTreeNodeFlags pflags = ImGuiTreeNodeFlags_SpanAvailWidth |
@@ -6848,7 +9514,9 @@ void App::drawSceneSection() {
                     else
                         selectAll(members);
                 }
-                if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                if (persistent && ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
+                    ImGui::SetTooltip("Click the header to select the group; expand it and click a member to edit that object. Ctrl+Shift+G ungroups it.");
+                if (!persistent && ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip))
                     ImGui::SetTooltip(
                         "Inserted from the prefab \"%s\" (Tools > Prefabs).\n"
                         "These are ordinary objects - editing the prefab does not\n"
@@ -6872,26 +9540,36 @@ void App::drawSceneSection() {
             }
         };
 
-        // Indices of the scene's objects, in order, that pass `keep`.
+        // Indices of the scene's objects, in order, that pass `keep` AND the
+        // search/type filters - one place, so every group is filtered the same
+        // way and the counts below cannot disagree with the rows.
         auto indicesWhere = [&](auto keep) {
             std::vector<int> out;
-            for (int i = 0; i < (int)project_.objects().size(); ++i)
-                if (keep(project_.objects()[i])) out.push_back(i);
+            for (int i = 0; i < (int)project_.objects().size(); ++i) {
+                const SceneObject& o = project_.objects()[i];
+                if (passesFilter(o) && keep(o)) out.push_back(i);
+            }
             return out;
         };
 
         ImGui::BeginChild("##objects", ImVec2(0, grouped ? 220 : 130),
                           ImGuiChildFlags_Borders);
         if (!grouped) {
-            emitRows(indicesWhere([](const SceneObject&) { return true; }));
+            const std::vector<int> rows =
+                indicesWhere([](const SceneObject&) { return true; });
+            if (rows.empty()) ImGui::TextDisabled("No object matches the filter.");
+            emitRows(rows);
         } else {
             const ImGuiTreeNodeFlags gflags = ImGuiTreeNodeFlags_DefaultOpen |
                                               ImGuiTreeNodeFlags_SpanAvailWidth;
             for (int li = 0; li < (int)sc.layers.size(); ++li) {
                 const SceneLayer& l = sc.layers[li];
+                // The count follows the filter, so an open group and its header
+                // tell the same story. Empty groups stay listed: they are still
+                // drop targets for a layer reassignment.
                 int count = 0;
                 for (const SceneObject& o : sc.objects)
-                    if (o.layer == l.name) ++count;
+                    if (o.layer == l.name && passesFilter(o)) ++count;
                 std::string header = l.name + "  (" + std::to_string(count) + ")" +
                                      (l.editorVisible ? "" : "  [hidden]") +
                                      "##layergrp" + std::to_string(li);
@@ -6912,7 +9590,8 @@ void App::drawSceneSection() {
             // Unassigned: no layer, or a stale name left by a deleted layer.
             int count = 0;
             for (const SceneObject& o : sc.objects)
-                if (o.layer.empty() || !layerExists(o.layer)) ++count;
+                if ((o.layer.empty() || !layerExists(o.layer)) && passesFilter(o))
+                    ++count;
             std::string header =
                 "Unassigned  (" + std::to_string(count) + ")##layergrp_none";
             const bool open = ImGui::TreeNodeEx(header.c_str(), gflags);
@@ -6925,6 +9604,20 @@ void App::drawSceneSection() {
             }
         }
         ImGui::EndChild();
+
+        // What a filter hides has to be stated, or a scene reads as smaller
+        // than it is - with the way back out on the same line.
+        if (filtering) {
+            const int shown =
+                (int)indicesWhere([](const SceneObject&) { return true; }).size();
+            ImGui::TextDisabled("%d of %d objects shown", shown,
+                                (int)sc.objects.size());
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Clear filters")) {
+                sceneFilterName_.clear();
+                sceneFilterType_ = -1;
+            }
+        }
 
         if (grouped)
             ImGui::TextDisabled("Drag objects onto a layer to assign them.");
@@ -7060,7 +9753,7 @@ void App::drawLayersSection() {
         ImGui::SetTooltip(
             "Streaming layers (per scene). Assign objects to a layer in\n"
             "Properties; the game can then drop the whole layer from memory\n"
-            "and stream it back with the Load / Unload Layer flow nodes -\n"
+            "and stream it back with the Set Layer Loaded flow node -\n"
             "GTA3-style interior streaming. The eye hides the layer in the\n"
             "editor only; \"start\" = in memory when the scene starts.\n"
             "Deleting a layer keeps its objects (they become unassigned).");
@@ -7249,13 +9942,25 @@ std::string App::installVsCodeExtension() {
     std::error_code ec;
     const std::filesystem::path dir = std::filesystem::weakly_canonical(
         std::filesystem::path(exePath).parent_path() / ".." / "tools" / "vscode-tyrax", ec);
+    // The NEWEST .vsix, not the first one the directory happens to hand back.
+    // A leftover package is the documented trap here and it has already been
+    // paid for once: the committed 0.2.0 predated the whole VU1 language
+    // support, so for two releases the extension people actually installed had
+    // none of it while the source and the docs said otherwise. Deleting the old
+    // file is still the rule; this makes forgetting it harmless rather than
+    // silent.
     std::filesystem::path vsix;
+    std::filesystem::file_time_type newest{};
     if (std::filesystem::exists(dir, ec))
-        for (const auto& e : std::filesystem::directory_iterator(dir, ec))
-            if (e.path().extension() == ".vsix") {
+        for (const auto& e : std::filesystem::directory_iterator(dir, ec)) {
+            if (e.path().extension() != ".vsix") continue;
+            const auto when = std::filesystem::last_write_time(e.path(), ec);
+            if (ec) continue;
+            if (vsix.empty() || when > newest) {
                 vsix = e.path();
-                break;
+                newest = when;
             }
+        }
     if (vsix.empty())
         return "VS Code extension package not found (tools/vscode-tyrax/*.vsix)";
 
@@ -7455,12 +10160,7 @@ const std::string& App::wavIssue(const std::string& relPath, bool sfx) {
     if (!readWavFormat(full, audioFormat, channels, rate, bits)) {
         issue = "unreadable WAV";
     } else if (sfx) {
-        if (audioFormat != 1 || rate != 22050 || bits != 16)
-            issue = std::string(audioFormat != 1 ? "non-PCM" : "") +
-                    (audioFormat == 1 ? std::to_string(bits) + "-bit " +
-                                            std::to_string(rate) + " Hz"
-                                      : "") +
-                    " - adpenc needs 16-bit 22050 Hz";
+        issue = wavconvert::soundIssue(full);
     } else {
         if (audioFormat != 1 || (bits != 8 && bits != 16) || channels > 2 ||
             rate < 11025 || rate > 48000)
@@ -7582,7 +10282,13 @@ void App::drawMusicSection() {
                     project_.musicBuild.erase(project_.music[i]);
                 else
                     project_.musicBuild[project_.music[i]] = opt;
-                saveAll("Music build settings saved - rebuild to apply");
+                // A widget like any other: mark, don't write. Nothing reads
+                // these from disk - projectForBuild() hands the build the
+                // in-memory model - so the old saveAll() bought nothing and
+                // cost a full project + history rewrite per click, plus a
+                // cleared save icon (the editing model in app.hpp).
+                commitChange();
+                statusMessage_ = "Music build settings changed - rebuild to apply";
             }
         }
         ImGui::PopID();
@@ -7594,8 +10300,7 @@ void App::importSoundEffect() {
     const std::string src = pickWavFile();
     if (src.empty()) return;
 
-    // adpenc (runs in the toolchain container at build) expects 16-bit PCM
-    // 22 kHz. Anything else is converted in place right after the copy.
+    // Effects occupy one SPU2 voice, so stereo must be downmixed too.
     int audioFormat = 0, channels = 0, rate = 0, bits = 0;
     if (!readWavFormat(src, audioFormat, channels, rate, bits)) {
         statusMessage_ = "Sound import failed: not a readable WAV file";
@@ -7615,10 +10320,11 @@ void App::importSoundEffect() {
     }
 
     std::string warning;
-    if (audioFormat != 1 || rate != 22050 || bits != 16) {
+    const bool needsConversion = !wavconvert::soundIssue(destDir / fileName).empty();
+    if (needsConversion) {
         std::string convErr;
-        if (!wavconvert::convertTo16(destDir / fileName, 22050, convErr))
-            warning = "adpenc expects 16-bit PCM 22050 Hz and the converter "
+        if (!wavconvert::convertTo16(destDir / fileName, 22050, convErr, true))
+            warning = "PS2 sounds need mono 16-bit PCM 22050 Hz and the converter "
                       "failed (" + convErr + ") - the sound may play wrong";
     }
     wavIssueCache_.clear();
@@ -7641,8 +10347,8 @@ void App::importSoundEffect() {
     for (const std::string& s : project_.sounds) exists |= (s == relPath);
     if (!exists) project_.sounds.push_back(relPath);
     const std::string status =
-        (audioFormat != 1 || rate != 22050 || bits != 16) && warning.empty()
-            ? "Imported " + fileName + " - converted to 16-bit PCM 22050 Hz"
+        needsConversion && warning.empty()
+            ? "Imported " + fileName + " - converted to mono 16-bit PCM 22050 Hz"
         : warning.empty() ? "Imported " + fileName
                           : "Imported " + fileName + " - WARNING: " + warning;
     saveAll(status.c_str());
@@ -7659,8 +10365,9 @@ void App::drawSoundsSection() {
     ImGui::SameLine();
     ImGui::TextDisabled("(?)");
     if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Short one-shot SFX for sound emitters and the Flow Graph\n"
-                          "Play Sound node. Best as mono 16-bit 22050 Hz WAV.\n"
+        ImGui::SetTooltip("Effects and vehicle sounds use mono 16-bit 22050 Hz WAV.\n"
+                          "Import converts automatically. Convert fixes existing files;\n"
+                          "builds also convert a copy, keeping the source untouched.\n"
                           "All sounds are loaded into SPU2's ~2 MB sample RAM at\n"
                           "scene start, so keep them short - use Music for full tracks.");
 
@@ -7688,8 +10395,8 @@ void App::drawSoundsSection() {
                 std::string err;
                 const std::filesystem::path full =
                     std::filesystem::path(project_.dir) / project_.sounds[i];
-                statusMessage_ = wavconvert::convertTo16(full, 22050, err)
-                                     ? name + " converted to 16-bit PCM 22050 Hz"
+                statusMessage_ = wavconvert::convertTo16(full, 22050, err, true)
+                                     ? name + " converted to mono 16-bit PCM 22050 Hz"
                                      : name + ": conversion failed - " + err;
                 wavIssueCache_.clear();
             }
@@ -7723,12 +10430,663 @@ void App::drawSoundsSection() {
     }
 }
 
+// Save Editor (Tools > Save Editor): everything about memory card saves in
+// one place - how the save presents in the PS2 browser (title + icon, baked
+// to res/save/ by refreshGenerated), an exact byte breakdown of what one
+// slot stores (the same fixed payload the in-RAM checkpoint buffer holds),
+// and the custom save values/texts (drawSaveDataSection below).
+//
+// The icon preview is rendered at the card icon's own texture resolution and
+// shown smaller, so the model's edges stay clean on a HiDPI panel.
+static constexpr int kSaveIconPreviewPx = 128;
+static constexpr double kSaveIconLoopSeconds = 2.0;
+
+// The spinner sheet as the game will use it: one cell at a time, cycled at the
+// console's own rate. Whatever spinnerInfo settled on is what is drawn - so a
+// rejected custom sheet previews as the built-in, exactly like it will ship.
+void App::drawSaveSpinnerPreview(const savebake::SpinnerInfo& spin) {
+    namespace fs = std::filesystem;
+    const std::string key = project_.dir + "|" + spin.resPath + "|" +
+                            std::to_string(spin.frames);
+    if (saveSpinnerPreviewKey_ != key || !saveSpinnerPreviewTex_) {
+        const fs::path full = fs::path(project_.dir) / spin.resPath;
+        int w = 0, h = 0, comp = 0;
+        unsigned char* px = stbi_load(full.string().c_str(), &w, &h, &comp, 4);
+        if (px) {
+            if (!saveSpinnerPreviewTex_) glGenTextures(1, &saveSpinnerPreviewTex_);
+            glBindTexture(GL_TEXTURE_2D, saveSpinnerPreviewTex_);
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, w, h, 0, GL_RGBA,
+                         GL_UNSIGNED_BYTE, px);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+            stbi_image_free(px);
+            saveSpinnerPreviewW_ = w;
+            saveSpinnerPreviewH_ = h;
+            saveSpinnerPreviewKey_ = key;
+        } else {
+            saveSpinnerPreviewW_ = saveSpinnerPreviewH_ = 0;
+        }
+    }
+    if (!saveSpinnerPreviewTex_ || saveSpinnerPreviewW_ <= 0) return;
+    // SAVE_SPINNER_HOLD frames a cell at 50 Hz - the same cadence the game
+    // uses, so what you see here is the speed that ships.
+    const double cellsPerSecond = 50.0 / 4.0;
+    const int cell =
+        (int)((long long)(ImGui::GetTime() * cellsPerSecond) % spin.frames);
+    const float u0 = (float)(cell * spin.cellW) / (float)saveSpinnerPreviewW_;
+    const float u1 =
+        (float)((cell + 1) * spin.cellW) / (float)saveSpinnerPreviewW_;
+    const float side = scaled(48.0f);
+    const float aspect = spin.cellH > 0 ? (float)spin.cellH / (float)spin.cellW
+                                        : 1.0f;
+    ImGui::Image((ImTextureID)(intptr_t)saveSpinnerPreviewTex_,
+                 ImVec2(side, side * aspect), ImVec2(u0, 0.0f),
+                 ImVec2(u1, 1.0f));
+    // What the sheet IS lives on the preview rather than in a paragraph under
+    // it: the numbers matter when you are choosing a sheet and are noise the
+    // rest of the time.
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "%s\n%dx%d, %d cell%s of %dx%d.\n\n"
+            "Any project PNG works as a spinner as long as BOTH its sides are\n"
+            "8/16/32/64/128/256/512 - that is the console's own rule, and a\n"
+            "sheet that breaks it is rejected here rather than shipped.",
+            spin.custom ? spin.resPath.c_str()
+                        : "Built-in (res/hud/save-spinner.png)",
+            spin.sheetW, spin.sheetH, spin.frames, spin.frames == 1 ? "" : "s",
+            spin.cellW, spin.cellH);
+    ImGui::SameLine();
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextDisabled("cell %d/%d", cell + 1, spin.frames);
+}
+
+void App::drawSaveEditorWindow() {
+    if (!showSaveEditor_ || !hasProject_) return;
+    ImGui::SetNextWindowSize(ImVec2(scaled(460.0f), scaled(760.0f)),
+                             ImGuiCond_FirstUseEver);
+    if (!ImGui::Begin("Save Editor", &showSaveEditor_)) {
+        ImGui::End();
+        return;
+    }
+    // Same guarantee the Menu Editor gets: a widget that forgets to mark the
+    // edit cannot make it losable. These panels used to call saveAll(), which
+    // WROTE THE PROJECT on every slider release - against the editing model in
+    // app.hpp ("saving is on demand; there is no autosave") and the reason the
+    // save icon never lit for them: the edit was already on disk.
+    const std::string saveDataBefore =
+        project::sectionJson(project_, project::Section::SaveData);
+
+    // --- Memory card appearance --------------------------------------------
+    ImGui::SeparatorText("Memory card appearance");
+    char titleBuf[68];
+    std::snprintf(titleBuf, sizeof(titleBuf), "%s", project_.saveTitle.c_str());
+    ImGui::SetNextItemWidth(scaled(240.0f));
+    if (ImGui::InputTextWithHint("Save title", project_.name.c_str(), titleBuf,
+                                 sizeof(titleBuf)))
+        project_.saveTitle = titleBuf;
+    if (ImGui::IsItemDeactivatedAfterEdit()) commitChange();
+    ImGui::SameLine();
+    ImGui::TextDisabled("(?)");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("The name the PS2 browser shows for this game's\n"
+                          "saves (icon.sys). '|' breaks it onto a second\n"
+                          "line; empty = the project name. ASCII only.");
+
+    // Geometry: the flat image quad, or a 3D icon from a project model -
+    // .obj (static, gently swaying) / .glb (a clip sampled into morph
+    // shapes: a real animated icon, like retail games).
+    namespace fs = std::filesystem;
+    if (ImGui::BeginCombo("Icon model",
+                          project_.saveIconModel.empty()
+                              ? "(flat image quad)"
+                              : project_.saveIconModel.c_str())) {
+        if (ImGui::Selectable("(flat image quad)",
+                              project_.saveIconModel.empty()) &&
+            !project_.saveIconModel.empty()) {
+            project_.saveIconModel.clear();
+            commitChange();
+        }
+        std::error_code ec;
+        const fs::path models = fs::path(project_.dir) / "res" / "models";
+        for (fs::directory_iterator it(models, ec), end; it != end;
+             it.increment(ec)) {
+            if (ec) break;
+            if (!it->is_regular_file(ec)) continue;
+            std::string ext = it->path().extension().string();
+            for (char& c : ext) c = (char)tolower((unsigned char)c);
+            if (ext != ".obj" && ext != ".glb") continue;
+            const std::string rel =
+                "res/models/" + it->path().filename().generic_string();
+            if (ImGui::Selectable(rel.c_str(), rel == project_.saveIconModel)) {
+                project_.saveIconModel = rel;
+                commitChange();
+            }
+        }
+        ImGui::EndCombo();
+    }
+
+    std::string modelExt =
+        fs::path(project_.saveIconModel).extension().string();
+    for (char& c : modelExt) c = (char)tolower((unsigned char)c);
+    if (modelExt == ".glb") {
+        // Clip picker: parse the model's clip list once per picked file.
+        if (saveIconClipsModel_ != project_.saveIconModel) {
+            saveIconClips_.clear();
+            glbparser::Baked baked;
+            std::string err;
+            if (glbparser::bake((fs::path(project_.dir) /
+                                 project_.saveIconModel).string(),
+                                12.0f, baked, err))
+                for (const glbparser::Clip& c : baked.clips)
+                    saveIconClips_.push_back(c.name);
+            saveIconClipsModel_ = project_.saveIconModel;
+        }
+        const char* shown = project_.saveIconClip.empty()
+                                ? "(first clip)"
+                                : project_.saveIconClip.c_str();
+        if (ImGui::BeginCombo("Clip", shown)) {
+            if (ImGui::Selectable("(first clip)",
+                                  project_.saveIconClip.empty()) &&
+                !project_.saveIconClip.empty()) {
+                project_.saveIconClip.clear();
+                commitChange();
+            }
+            for (const std::string& c : saveIconClips_)
+                if (ImGui::Selectable(c.c_str(), c == project_.saveIconClip)) {
+                    project_.saveIconClip = c;
+                    commitChange();
+                }
+            ImGui::EndCombo();
+        }
+    }
+    // A .glb with a clip plays that clip, so the idle motion below would mean
+    // nothing for it. saveIconClips_ is already the cached clip list.
+    const bool clipDriven = modelExt == ".glb" && !saveIconClips_.empty();
+
+    ImGui::SetNextItemWidth(scaled(120.0f));
+    ImGui::SliderInt("Frames", &project_.saveIconFrames, 1,
+                     savebake::kMaxIconShapes);
+    if (ImGui::IsItemDeactivatedAfterEdit()) commitChange();
+    ImGui::SameLine();
+    ImGui::TextDisabled("(?)");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "Animation shapes baked into the icon. A .glb clip is sampled\n"
+            "into this many morph frames; everything else gets this many\n"
+            "steps of the Motion below. More frames = smoother motion but\n"
+            "a bigger icon file (each shape is another copy of every vertex).");
+
+    // Idle motion: what a source with no animation of its own does.
+    {
+        const std::vector<savebake::IconMotion>& motions = savebake::iconMotions();
+        const int cur = savebake::iconMotionIndex(project_.saveIconMotion);
+        ImGui::BeginDisabled(clipDriven);
+        if (ImGui::BeginCombo("Motion", motions[cur].label)) {
+            for (size_t i = 0; i < motions.size(); ++i) {
+                if (ImGui::Selectable(motions[i].label, (int)i == cur) &&
+                    (int)i != cur) {
+                    project_.saveIconMotion = motions[i].key;
+                    commitChange();
+                }
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("%s", motions[i].desc);
+            }
+            ImGui::EndCombo();
+        }
+        // The (?) sits OUTSIDE the disabled block on purpose: a disabled item
+        // takes no hover, and the .glb case - the one where the picker is
+        // greyed out - is exactly when someone wants to know why.
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        ImGui::TextDisabled("(?)");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("%s",
+                              clipDriven
+                                  ? "The .glb clip drives this icon's motion,\n"
+                                    "so these presets do not apply to it."
+                                  : motions[cur].desc);
+        ImGui::BeginDisabled(clipDriven);
+        if (savebake::iconMotionIndex(project_.saveIconMotion) != 5) {
+            ImGui::SetNextItemWidth(scaled(120.0f));
+            ImGui::SliderFloat("Amount", &project_.saveIconMotionAmount, 0.25f,
+                               2.0f, "%.2fx");
+            if (ImGui::IsItemDeactivatedAfterEdit()) commitChange();
+        }
+        ImGui::EndDisabled();
+    }
+
+    // Icon image: any res/ PNG/JPG, resampled to the 128x128 icon texture
+    // (a model with its own texture ships that instead).
+    if (ImGui::BeginCombo("Icon image",
+                          project_.saveIcon.empty() ? "(built-in placeholder)"
+                                                    : project_.saveIcon.c_str())) {
+        if (ImGui::Selectable("(built-in placeholder)",
+                              project_.saveIcon.empty()) &&
+            !project_.saveIcon.empty()) {
+            project_.saveIcon.clear();
+            commitChange();
+        }
+        std::error_code ec;
+        const fs::path res = fs::path(project_.dir) / "res";
+        for (fs::recursive_directory_iterator it(res, ec), end; it != end;
+             it.increment(ec)) {
+            if (ec) break;
+            if (!it->is_regular_file(ec)) continue;
+            std::string ext = it->path().extension().string();
+            for (char& c : ext) c = (char)tolower((unsigned char)c);
+            if (ext != ".png" && ext != ".jpg" && ext != ".jpeg") continue;
+            const std::string rel =
+                "res/" + fs::relative(it->path(), res, ec).generic_string();
+            if (ImGui::Selectable(rel.c_str(), rel == project_.saveIcon)) {
+                project_.saveIcon = rel;
+                commitChange();
+            }
+        }
+        ImGui::EndCombo();
+    }
+
+    // Preview: the baked GEOMETRY rendered the way the browser draws it
+    // (texture x vertex colour, shaded), one image per animation shape. The
+    // same bake fills the stats line below, so the picture and the numbers can
+    // never describe different icons.
+    // project_.dir is in the key because two projects can carry identical icon
+    // settings ("" everywhere is the default), and without it opening the
+    // second one would keep showing the first one's render.
+    const std::string previewKey = project_.dir + "|" + project_.saveIcon +
+                                   "|" + project_.saveIconModel + "|" +
+                                   project_.saveIconClip + "|" +
+                                   std::to_string(project_.saveIconFrames) +
+                                   "|" + project_.saveIconMotion + "|" +
+                                   std::to_string(project_.saveIconMotionAmount);
+    if (saveIconPreviewKey_ != previewKey || saveIconPreviewTex_.empty()) {
+        saveIconInfo_ = savebake::iconInfo(project_);  // stats line, same bake
+        const std::vector<std::vector<unsigned char>> frames =
+            savebake::iconPreviewFrames(project_, kSaveIconPreviewPx);
+        if (!saveIconPreviewTex_.empty()) {
+            glDeleteTextures((GLsizei)saveIconPreviewTex_.size(),
+                             saveIconPreviewTex_.data());
+            saveIconPreviewTex_.clear();
+        }
+        for (const std::vector<unsigned char>& f : frames) {
+            unsigned tex = 0;
+            glGenTextures(1, &tex);
+            glBindTexture(GL_TEXTURE_2D, tex);
+            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, kSaveIconPreviewPx,
+                         kSaveIconPreviewPx, 0, GL_RGBA, GL_UNSIGNED_BYTE,
+                         f.data());
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+            saveIconPreviewTex_.push_back(tex);
+        }
+        saveIconPreviewKey_ = previewKey;
+    }
+    if (!saveIconPreviewTex_.empty()) {
+        // One loop every kSaveIconLoopSeconds, however many shapes there are -
+        // so raising Frames makes the SAME motion smoother rather than faster,
+        // which is what the slider means.
+        const size_t n = saveIconPreviewTex_.size();
+        const double phase =
+            ImGui::GetTime() / kSaveIconLoopSeconds * (double)n;
+        const size_t f = (size_t)((long long)phase % (long long)n);
+        ImGui::Image((ImTextureID)(intptr_t)saveIconPreviewTex_[f],
+                     ImVec2(scaled(96.0f), scaled(96.0f)));
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "The baked icon, rendered the way the PS2 browser draws it:\n"
+                "the model's triangles with texture x vertex colour, cycling\n"
+                "through the %d animation shape%s that ship in list.icn.\n"
+                "The browser's own lighting and camera differ slightly.",
+                (int)n, n == 1 ? "" : "s");
+    }
+    ImGui::SameLine();
+    ImGui::BeginGroup();
+    std::string title = savebake::displayTitle(project_);
+    for (char& c : title)
+        if (c == '|') c = '\n';
+    ImGui::TextUnformatted(title.c_str());
+    ImGui::TextDisabled("Card folder: %s",
+                        templates::saveDirName(project_).c_str());
+    ImGui::TextDisabled("%s - %d tris, %d shape%s, %.1f KB",
+                        saveIconInfo_.source.c_str(), saveIconInfo_.triangles,
+                        saveIconInfo_.shapes, saveIconInfo_.shapes == 1 ? "" : "s",
+                        saveIconInfo_.bytes / 1024.0);
+    if (!saveIconInfo_.warning.empty())
+        ImGui::TextColored(theme::semantics().warn, "%s",
+                           saveIconInfo_.warning.c_str());
+    ImGui::TextDisabled("Written to the card with the first save.");
+    ImGui::EndGroup();
+
+    // --- How a save behaves --------------------------------------------------
+    ImGui::SeparatorText("Saving");
+    {
+        // Settled up front: the Size readout, the preview and the warning all
+        // have to describe the sheet that will actually ship.
+        const savebake::SpinnerInfo spin = savebake::spinnerInfo(project_);
+        const char* srcLabel = project_.saveMenuWritesCheckpoint
+                                   ? "the last checkpoint"
+                                   : "a live snapshot";
+        if (ImGui::BeginCombo("Save menu writes", srcLabel)) {
+            if (ImGui::Selectable("a live snapshot",
+                                  !project_.saveMenuWritesCheckpoint) &&
+                project_.saveMenuWritesCheckpoint) {
+                project_.saveMenuWritesCheckpoint = false;
+                commitChange();
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "The slot records where the player is standing right now.");
+            if (ImGui::Selectable("the last checkpoint",
+                                  project_.saveMenuWritesCheckpoint) &&
+                !project_.saveMenuWritesCheckpoint) {
+                project_.saveMenuWritesCheckpoint = true;
+                commitChange();
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "The slot records the last Save Checkpoint instead - the\n"
+                    "\"you resume from the shrine, not from here\" model.\n"
+                    "Before the first checkpoint it writes a live snapshot, so\n"
+                    "the menu is never dead at the start of a game.");
+            ImGui::EndCombo();
+        }
+
+        ImGui::SetNextItemWidth(scaled(120.0f));
+        ImGui::SliderInt("Slots", &project_.saveSlotCount, 1, kMaxSaveSlots);
+        if (ImGui::IsItemDeactivatedAfterEdit()) {
+            if (project_.saveAutosaveSlot >= project_.saveSlotCount)
+                project_.saveAutosaveSlot = -1;  // it no longer exists
+            commitChange();
+        }
+        ImGui::SameLine();
+        ImGui::TextDisabled("(?)");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "How many memory card slots the game offers. Each one is its\n"
+                "own file and costs a whole 1 KB cluster even when nearly\n"
+                "empty - the table below does that sum for the count you pick.");
+        ImGui::SetNextItemWidth(scaled(120.0f));
+        ImGui::SliderInt("Rows per page", &project_.saveSlotsPerPage, 1,
+                         kMaxSaveSlotsPerPage);
+        if (ImGui::IsItemDeactivatedAfterEdit()) commitChange();
+        ImGui::SameLine();
+        ImGui::TextDisabled("(?)");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "How many slots the save menu shows at once. With more slots\n"
+                "than this the menu PAGES: the cursor walking off the bottom\n"
+                "row turns to the next page, and left/right jump a whole page.\n"
+                "The panel is baked with this many rows, so it is also what\n"
+                "decides the menu's height.");
+        {
+            const int pages = templates::saveSlotPages(project_);
+            ImGui::PushStyleColor(
+                ImGuiCol_Text, ImGui::GetStyle().Colors[ImGuiCol_TextDisabled]);
+            ImGui::TextWrapped("%d slot%s over %d page%s.",
+                               templates::saveSlotCount(project_),
+                               templates::saveSlotCount(project_) == 1 ? "" : "s",
+                               pages, pages == 1 ? "" : "s");
+            ImGui::PopStyleColor();
+        }
+
+        // The slot Commit Checkpoint's "autosave" mode targets, and the one
+        // its "next free slot" mode leaves alone.
+        {
+            char cur[32];
+            if (project_.saveAutosaveSlot < 0)
+                std::snprintf(cur, sizeof(cur), "(none)");
+            else
+                std::snprintf(cur, sizeof(cur), "Slot %d",
+                              project_.saveAutosaveSlot + 1);
+            if (ImGui::BeginCombo("Autosave slot", cur)) {
+                if (ImGui::Selectable("(none)", project_.saveAutosaveSlot < 0) &&
+                    project_.saveAutosaveSlot >= 0) {
+                    project_.saveAutosaveSlot = -1;
+                    commitChange();
+                }
+                for (int i = 0; i < templates::saveSlotCount(project_); ++i) {
+                    char label[32];
+                    std::snprintf(label, sizeof(label), "Slot %d", i + 1);
+                    if (ImGui::Selectable(label, project_.saveAutosaveSlot == i) &&
+                        project_.saveAutosaveSlot != i) {
+                        project_.saveAutosaveSlot = i;
+                        commitChange();
+                    }
+                }
+                ImGui::EndCombo();
+            }
+            ImGui::SameLine();
+            ImGui::TextDisabled("(?)");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Sets one slot aside for the game's own saves. A Commit\n"
+                    "Checkpoint set to \"Autosave slot\" writes it, and one set\n"
+                    "to \"Next free slot\" never picks it - so a rotating\n"
+                    "autosave cannot eat the one the game relies on.\n\n"
+                    "It is a designation, not a lock: the in-game menu can\n"
+                    "still save over it and load from it like any other slot.");
+        }
+
+        if (ImGui::Checkbox("Write in the background", &project_.saveAsync))
+            commitChange();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "The card transfer is stepped one call per frame while the\n"
+                "game keeps running: no pause, and no \"do not remove the\n"
+                "memory card\" overlay. Best for Commit Checkpoint, which is\n"
+                "meant to be unobtrusive. LOADING still blocks - the world is\n"
+                "being replaced, so there is nothing to keep playing.");
+
+        ImGui::BeginDisabled(!project_.saveAsync);
+        if (ImGui::Checkbox("Show a spinner while writing", &project_.saveSpinner))
+            commitChange();
+        ImGui::BeginDisabled(!project_.saveSpinner);
+        const char* kCorners[] = {"Top left", "Top right", "Bottom left",
+                                  "Bottom right"};
+        int corner = project_.saveSpinnerCorner;
+        if (corner < 0 || corner > 3) corner = 3;
+        ImGui::SetNextItemWidth(scaled(150.0f));
+        if (ImGui::Combo("Corner", &corner, kCorners, 4)) {
+            project_.saveSpinnerCorner = corner;
+            commitChange();
+        }
+        ImGui::SetNextItemWidth(scaled(120.0f));
+        ImGui::SliderFloat("Margin", &project_.saveSpinnerMargin, 0.0f, 96.0f,
+                           "%.0f px");
+        if (ImGui::IsItemDeactivatedAfterEdit()) commitChange();
+        ImGui::SameLine();
+        ImGui::TextDisabled("(?)");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Distance from the screen edges, in the console's 512x448\n"
+                "pixels. Keep it clear of the TV-safe area if the game is\n"
+                "meant for a CRT (docs/safe-areas.md).");
+        ImGui::SetNextItemWidth(scaled(120.0f));
+        ImGui::SliderFloat("Size", &project_.saveSpinnerScale, 0.4f, 3.0f,
+                           "%.2fx");
+        if (ImGui::IsItemDeactivatedAfterEdit()) commitChange();
+        ImGui::SameLine();
+        ImGui::TextDisabled("%.0fx%.0f px", spin.cellW * project_.saveSpinnerScale,
+                            spin.cellH * project_.saveSpinnerScale);
+        // The sheet itself: any project image laid out as a horizontal strip.
+        if (ImGui::BeginCombo("Spinner sheet",
+                              project_.saveSpinnerImage.empty()
+                                  ? "(built-in)"
+                                  : project_.saveSpinnerImage.c_str())) {
+            if (ImGui::Selectable("(built-in)",
+                                  project_.saveSpinnerImage.empty()) &&
+                !project_.saveSpinnerImage.empty()) {
+                project_.saveSpinnerImage.clear();
+                commitChange();
+            }
+            std::error_code ec;
+            const fs::path res = fs::path(project_.dir) / "res";
+            for (fs::recursive_directory_iterator it(res, ec), end; it != end;
+                 it.increment(ec)) {
+                if (ec) break;
+                if (!it->is_regular_file(ec)) continue;
+                std::string ext = it->path().extension().string();
+                for (char& c : ext) c = (char)tolower((unsigned char)c);
+                if (ext != ".png") continue;
+                const std::string rel =
+                    "res/" + fs::relative(it->path(), res, ec).generic_string();
+                if (ImGui::Selectable(rel.c_str(),
+                                      rel == project_.saveSpinnerImage)) {
+                    project_.saveSpinnerImage = rel;
+                    commitChange();
+                }
+            }
+            ImGui::EndCombo();
+        }
+        if (!project_.saveSpinnerImage.empty()) {
+            ImGui::SetNextItemWidth(scaled(120.0f));
+            ImGui::SliderInt("Cells", &project_.saveSpinnerFrames, 1, 32);
+            if (ImGui::IsItemDeactivatedAfterEdit()) commitChange();
+            ImGui::SameLine();
+            ImGui::TextDisabled("(?)");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "How many animation cells the strip is cut into. The\n"
+                    "sheet is one ROW, so a cell is (width / cells) x height.");
+        }
+        drawSaveSpinnerPreview(spin);
+        ImGui::EndDisabled();
+        ImGui::EndDisabled();
+        if (!spin.warning.empty()) {
+            ImGui::PushStyleColor(ImGuiCol_Text, theme::semantics().warn);
+            ImGui::TextWrapped("Using the built-in instead: %s.",
+                               spin.warning.c_str());
+            ImGui::PopStyleColor();
+        }
+    }
+
+    // --- What lands in a save slot ------------------------------------------
+    ImGui::SeparatorText("What a save slot stores");
+    const templates::SaveSizeInfo sz = templates::saveSizeInfo(project_);
+    if (ImGui::BeginTable("savesize", 2, ImGuiTableFlags_SizingStretchProp)) {
+        auto row = [](const char* label, const std::string& value) {
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            ImGui::TextUnformatted(label);
+            ImGui::TableNextColumn();
+            ImGui::TextUnformatted(value.c_str());
+        };
+        auto bytes = [](int b) {
+            char buf[32];
+            if (b >= 1024)
+                std::snprintf(buf, sizeof(buf), "%.1f KB", b / 1024.0);
+            else
+                std::snprintf(buf, sizeof(buf), "%d B", b);
+            return std::string(buf);
+        };
+        row("Header (scene, player position, facing)", bytes(sz.headerBytes));
+        row(("Save values (" + std::to_string(sz.values) + ")").c_str(),
+            bytes(sz.valuesBytes));
+        row(("Save texts (" + std::to_string(sz.texts) + " x 32 B)").c_str(),
+            bytes(sz.textsBytes));
+        row(("Object states (" + std::to_string(sz.objectSlots) +
+             " slots x 32 B)")
+                .c_str(),
+            bytes(sz.objectsBytes));
+        // World Facts (docs/world-facts.md). Only the ones that RIDE a slot -
+        // a computed or scene-scoped fact stores nothing, and a session-lived
+        // one is not in a save at all.
+        row(("World Facts (" + std::to_string(sz.facts) + " x 16 B)").c_str(),
+            bytes(sz.factsBytes));
+        ImGui::TableNextRow();
+        ImGui::TableNextColumn();
+        ImGui::Text("Save slot file (64-byte aligned)");
+        ImGui::TableNextColumn();
+        ImGui::Text("%s", bytes(sz.payloadBytes).c_str());
+        row("Card icon (icon.sys + list.icn, once)", bytes(sz.iconBytes));
+        if (sz.profileBytes > 0) {
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            ImGui::Text("Profile (%d fact(s), once per card)", sz.profileFacts);
+            ImGui::SameLine();
+            ImGui::TextDisabled("(?)");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Facts kept in the PROFILE live in their own file beside\n"
+                    "the slots, shared by every save - unlocks, a best time,\n"
+                    "'has seen the intro'. It is padded to a whole cluster\n"
+                    "because a smaller payload did not round-trip through the\n"
+                    "card, so it costs the same 1 KB whatever is in it.");
+            ImGui::TableNextColumn();
+            ImGui::Text("%s", bytes(sz.profileBytes).c_str());
+        }
+        row("All data (slots + icon + profile, raw bytes)",
+            bytes(sz.payloadBytes * templates::saveSlotCount(project_) +
+                  sz.iconBytes + sz.profileBytes));
+        // What the card actually loses, which is the number that matters and
+        // is always bigger: files are allocated in whole 1 KB clusters and
+        // the save directory costs one of its own.
+        ImGui::TableNextRow();
+        ImGui::TableNextColumn();
+        ImGui::Text("Card space used (1 KB clusters)");
+        // Why this row disagrees with the one above it belongs ON this row -
+        // it is the only place the question comes up. The (?) is there because
+        // a bare line of table text advertises no tooltip.
+        ImGui::SameLine();
+        ImGui::TextDisabled("(?)");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "A PS2 card allocates whole %d-byte clusters and no two files\n"
+                "share one, so each of the %d slots costs at least one cluster\n"
+                "however small it is - plus one for icon.sys, one or more for\n"
+                "list.icn, and one for the save's own directory. That rounding\n"
+                "is why this row and \"All data\" differ.",
+                sz.cardClusterBytes, templates::saveSlotCount(project_));
+        ImGui::TableNextColumn();
+        // The number to quote, so it gets the theme's one bright colour -
+        // emphasis, not a warning (nothing here is wrong).
+        ImGui::TextColored(theme::semantics().accent, "%s",
+                           bytes(sz.cardFootprintBytes).c_str());
+        ImGui::EndTable();
+    }
+    ImGui::TextDisabled("(?)");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "A slot stores the scene index, the player position/facing,\n"
+            "every save value and text below, and position/color/visibility\n"
+            "of objects with \"Save state\" enabled (sized by the largest\n"
+            "per-scene count of such objects). The in-game checkpoint\n"
+            "(Save Checkpoint flow node) keeps exactly ONE copy of this\n"
+            "payload in RAM until it is committed to the card.");
+    ImGui::Text("Checkpoint buffer in game RAM: %d KB",
+                (sz.payloadBytes + 1023) / 1024);
+
+    // Save-flagged objects, per scene - "what is actually in my save?"
+    if (ImGui::TreeNode("Save-flagged objects")) {
+        for (const SceneData& sc : project_.scenes) {
+            int flagged = 0;
+            for (const SceneObject& o : sc.objects)
+                if (o.saveState) ++flagged;
+            if (ImGui::TreeNode(sc.name.c_str(), "%s (%d)", sc.name.c_str(),
+                                flagged)) {
+                for (const SceneObject& o : sc.objects)
+                    if (o.saveState) ImGui::BulletText("%s", o.name.c_str());
+                if (flagged == 0)
+                    ImGui::TextDisabled("None - enable \"Save state\" in an\n"
+                                        "object's properties to persist it.");
+                ImGui::TreePop();
+            }
+        }
+        ImGui::TreePop();
+    }
+
+    // --- Save data -----------------------------------------------------------
+    ImGui::SeparatorText("Save data");
+    drawSaveDataSection();
+    ImGui::End();
+    if (project::sectionJson(project_, project::Section::SaveData) !=
+        saveDataBefore)
+        commitChange();
+}
+
 // Custom values persisted in memory card save slots. Flow graph "Save"
 // nodes (Set/Add/Value At Least) reference them by name; the defaults are
-// the fresh-game state.
+// the fresh-game state. Drawn inside the Save Editor window.
 void App::drawSaveDataSection() {
-    if (!ImGui::CollapsingHeader("Save data")) return;
-
     if (ImGui::SmallButton("+ Value")) {
         // unique default name: value-1, value-2, ...
         int counter = 0;
@@ -7740,7 +11098,7 @@ void App::drawSaveDataSection() {
             if (!taken) break;
         }
         project_.saveValues.push_back(SaveValue{name, 0.0f});
-        saveAll("Saved");
+        commitChange();
     }
     ImGui::SameLine();
     ImGui::TextDisabled("(?)");
@@ -7806,7 +11164,7 @@ void App::drawSaveDataSection() {
             if (!taken) break;
         }
         project_.saveTexts.push_back(SaveTextValue{name, ""});
-        saveAll("Saved");
+        commitChange();
     }
     ImGui::SameLine();
     ImGui::TextDisabled("(?)");
@@ -8037,6 +11395,17 @@ void App::drawGradingWindow() {
     }
 
     bool changed = false;
+    // Belt and braces (the Save/Menu Editor idiom): `changed` is set by hand at
+    // each widget, so the next one added here can forget it. The section
+    // comparison cannot be forgotten. Per-scene grading assignments also live
+    // in project_.scenes, which the undo snapshot covers on its own.
+    const std::string beforeSection =
+        project::sectionJson(project_, project::Section::Gradings);
+    auto commitIfEdited = [&] {
+        if (changed ||
+            project::sectionJson(project_, project::Section::Gradings) != beforeSection)
+            commitChange();
+    };
 
     // --- left: preset list -------------------------------------------------
     ImGui::BeginChild("##grading_list", ImVec2(scaled(170), 0), ImGuiChildFlags_Borders);
@@ -8080,6 +11449,7 @@ void App::drawGradingWindow() {
         ImGui::BulletText("the Set Color Grading flow node (category \"Scene\")");
         ImGui::EndChild();
         ImGui::End();
+        commitIfEdited();
         return;
     }
     ColorGradingPreset& g = project_.gradings[selectedGrading_];
@@ -8243,7 +11613,7 @@ void App::drawGradingWindow() {
     ImGui::EndChild();
     ImGui::End();
 
-    if (changed) commitChange();
+    commitIfEdited();
 }
 
 // Ambience Editor (Tools > Ambience Editor): preset list on the left, the
@@ -8267,11 +11637,22 @@ void App::drawAmbienceWindow() {
     // standalone window open.
     const bool wantGi = showGiBake_;
     showGiBake_ = false;
+    const bool wantBaked = showBakedLighting_;
+    showBakedLighting_ = false;
     bool changed = false;
+    // Belt and braces: the presets and the day/night cycle both hand their
+    // edits back through the `changed` out-param, which any new control in
+    // either tab can forget to set. The section comparison cannot be forgotten.
+    const std::string beforeSection =
+        project::sectionJson(project_, project::Section::Ambience);
 
     if (ImGui::BeginTabBar("##ambience_tabs")) {
         if (ImGui::BeginTabItem("Presets")) {
             drawAmbiencePresets(changed);
+            ImGui::EndTabItem();
+        }
+        if (ImGui::BeginTabItem("Day / night")) {
+            drawAmbienceDayCycle(changed);
             ImGui::EndTabItem();
         }
         if (ImGui::BeginTabItem("Global illumination", nullptr,
@@ -8279,10 +11660,19 @@ void App::drawAmbienceWindow() {
             drawGiBakeSection();
             ImGui::EndTabItem();
         }
+        // The light that is computed on the host and ships as PIXELS rather
+        // than as a scene table - model AO today, and whatever else joins it.
+        if (ImGui::BeginTabItem("Baked lighting", nullptr,
+                                wantBaked ? ImGuiTabItemFlags_SetSelected : 0)) {
+            drawBakedLightingSection();
+            ImGui::EndTabItem();
+        }
         ImGui::EndTabBar();
     }
     ImGui::End();
-    if (changed) commitChange();
+    if (changed ||
+        project::sectionJson(project_, project::Section::Ambience) != beforeSection)
+        commitChange();
 }
 
 // The preset half of the Ambience Editor (see drawAmbienceWindow).
@@ -8408,8 +11798,12 @@ void App::drawAmbiencePresets(bool& changed) {
     changed |= ImGui::IsItemDeactivatedAfterEdit();
     ImGui::ColorEdit3("Sky zenith color", a.skyTopColor);
     changed |= ImGui::IsItemDeactivatedAfterEdit();
-    ImGui::Checkbox("Gradient sky dome", &a.skyDome);
-    changed |= ImGui::IsItemDeactivatedAfterEdit();
+    // A CHECKBOX NEVER REPORTS IsItemDeactivatedAfterEdit. It activates on
+    // mouse-down and both edits and deactivates on mouse-up, so the
+    // "was edited while active in a PREVIOUS frame" test it runs can never
+    // be true - the edit silently never reached the project, and the change
+    // survived only until the next reload. Use the return value.
+    if (ImGui::Checkbox("Gradient sky dome", &a.skyDome)) changed = true;
     ImGui::BeginDisabled(!a.skyDome);
     ImGui::SliderFloat("Zenith size", &a.zenithSize, 0.05f, 0.95f, "%.2f");
     changed |= ImGui::IsItemDeactivatedAfterEdit();
@@ -8417,6 +11811,49 @@ void App::drawAmbiencePresets(bool& changed) {
         ImGui::SetTooltip("How much of the sky the zenith color fills.\n"
                           "0.5 = linear; higher spreads the zenith color down\n"
                           "toward the horizon, lower keeps it near the top.");
+    // Painted sky (docs/sky-texture.md): an equirectangular panorama copied
+    // into res/sky/ (a folder that never ships - only its baked crop does).
+    if (ImGui::Button(a.skyTexture.empty() ? "Sky texture (PNG)..."
+                                           : "Replace sky texture...")) {
+        const std::string src = pickPngFile();
+        if (!src.empty()) {
+            const std::filesystem::path srcPath(src);
+            const std::string fileName = sanitizeAssetName(srcPath.filename().string());
+            const std::filesystem::path destDir =
+                std::filesystem::path(project_.dir) / "res" / "sky";
+            std::error_code ec;
+            std::filesystem::create_directories(destDir, ec);
+            if (std::filesystem::absolute(srcPath, ec) !=
+                std::filesystem::absolute(destDir / fileName, ec))
+                std::filesystem::copy_file(
+                    srcPath, destDir / fileName,
+                    std::filesystem::copy_options::overwrite_existing, ec);
+            if (!ec) {
+                a.skyTexture = "res/sky/" + fileName;
+                changed = true;
+            } else {
+                statusMessage_ = "Sky texture import failed: " + ec.message();
+            }
+        }
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("A 360-degree equirectangular panorama. The build keeps\n"
+                          "its upper part as a 256x128 texture; the colors above\n"
+                          "then only tint it (darker at night).");
+    if (!a.skyTexture.empty()) {
+        ImGui::SameLine();
+        if (ImGui::Button("Remove##skytex")) {
+            a.skyTexture.clear();
+            changed = true;
+        }
+        ImGui::TextDisabled("%s", a.skyTexture.c_str());
+        ImGui::SliderFloat("Sky rotation", &a.skyTextureYaw, -180.0f, 180.0f,
+                           "%.0f deg");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Turns the panorama around you - line its sun up\n"
+                              "with the scene's light direction.");
+    }
     ImGui::EndDisabled();
 
     ImGui::SeparatorText("Lighting");
@@ -8433,38 +11870,11 @@ void App::drawAmbiencePresets(bool& changed) {
     ImGui::SliderFloat("Diffuse", &a.diffuse, 0.0f, 1.0f, "%.2f");
     changed |= ImGui::IsItemDeactivatedAfterEdit();
 
-    ImGui::SeparatorText("Ambient occlusion");
-    ImGui::Checkbox("Bake ambient occlusion", &a.aoEnabled);
-    changed |= ImGui::IsItemDeactivatedAfterEdit();
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip(
-            "Soft contact shadows where geometry meets: terrain\n"
-            "self-shadowing (ravines, foot of hills) and darkening where\n"
-            "objects touch the ground and each other - baked into per-pixel\n"
-            "AO textures at build (a terrain map + a primitive lightmap\n"
-            "atlas), drawn as extra blended passes. Which objects cast is\n"
-            "per object: Properties > Cast shadow. Imported and animated\n"
-            "models cast but don't receive.");
-    if (a.aoEnabled) {
-        ImGui::SliderFloat("AO strength", &a.aoStrength, 0.0f, 1.0f, "%.2f");
-        changed |= ImGui::IsItemDeactivatedAfterEdit();
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("How dark full occlusion gets (0 = invisible).");
-        ImGui::DragFloat("AO radius", &a.aoRadius, 0.05f, 0.1f, 50.0f, "%.2f");
-        changed |= ImGui::IsItemDeactivatedAfterEdit();
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip(
-                "World units the contact darkening reaches from an\n"
-                "occluder. Terrain self-shadowing scans 3x this.");
-        if (a.aoRadius < 0.1f) a.aoRadius = 0.1f;
-        ImGui::TextDisabled("Static bake: moved objects re-shade themselves at "
-                            "runtime, but\nthe shadow they cast stays where the "
-                            "scene was built.");
-    }
-
+    // Scene AO lives in the Baked lighting tab now, beside model AO and
+    // pre-lit - moved, not mirrored. A read-only echo of a setting that is
+    // edited elsewhere is a second place to look for one answer.
     ImGui::SeparatorText("Distance fog");
-    ImGui::Checkbox("Fog enabled", &a.fogEnabled);
-    changed |= ImGui::IsItemDeactivatedAfterEdit();
+    if (ImGui::Checkbox("Fog enabled", &a.fogEnabled)) changed = true;
     if (a.fogEnabled) {
         ImGui::ColorEdit3("Fog color", a.fogColor);
         changed |= ImGui::IsItemDeactivatedAfterEdit();
@@ -8476,6 +11886,486 @@ void App::drawAmbiencePresets(bool& changed) {
     }
 
     ImGui::EndChild();
+}
+
+// The day/night half of the Ambience Editor (docs/day-night-cycle.md). Edits
+// the SELECTED preset's cycle: a preset is a scene's mood bundle, so "which
+// preset" doubles as "which time of day", and a scene picks one already.
+void App::drawAmbienceDayCycle(bool& changed) {
+    if (selectedAmbience_ < 0 ||
+        selectedAmbience_ >= (int)project_.ambiencePresets.size()) {
+        ImGui::TextDisabled("Select a preset on the Presets tab first.");
+        ImGui::TextDisabled(
+            "\nA day/night cycle belongs to a preset: the sun and moon arcs,\n"
+            "the colours through the day, and the hour the scene is built at.");
+        return;
+    }
+    AmbiencePreset& a = project_.ambiencePresets[selectedAmbience_];
+    DayCycle& c = a.cycle;
+
+    ImGui::Text("Preset: %s", a.name.c_str());
+    // Which preset the ACTIVE SCENE actually resolves to. Without this line the
+    // tab is genuinely misleading: the viewport previews whatever preset is
+    // selected here, and closing the window puts the SCENE's preset back - which
+    // reads exactly like the edit having been thrown away when the two differ.
+    {
+        const int sceneIdx = project::ambienceIndexFor(project_, project_.active());
+        if (sceneIdx != selectedAmbience_) {
+            ImGui::SameLine(0.0f, scaled(12.0f));
+            ImGui::TextColored(theme::semantics().warn, "(not this scene's)");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Scene \"%s\" is lit by %s, so the viewport goes back to that\n"
+                    "when this window closes. Edits here are NOT lost - the title\n"
+                    "bar shows the project unsaved until you save - they just are\n"
+                    "not what this scene uses.",
+                    project_.active().name.c_str(),
+                    sceneIdx >= 0 && sceneIdx < (int)project_.ambiencePresets.size()
+                        ? project_.ambiencePresets[sceneIdx].name.c_str()
+                        : "no preset");
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Use for this scene")) {
+                project_.active().ambiencePreset = a.name;
+                changed = true;
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Point scene \"%s\" at this preset, so what you\n"
+                                  "author here is what it is lit by.",
+                                  project_.active().name.c_str());
+        }
+    }
+    ImGui::SameLine(0.0f, scaled(24.0f));
+    if (ImGui::Checkbox("Enable day/night cycle", &c.enabled)) {
+        // First enable with nothing authored would resolve every hour to one
+        // default key, i.e. a flat sky - seed a real day instead.
+        if (c.enabled && c.keys.empty()) c.keys = ambience::defaultKeys();
+        changed = true;
+    }
+    prefHelp(
+        "Replaces this preset's sky, light direction/colour and fog colour with\n"
+        "whatever the cycle resolves to at the hour below.\n\n"
+        "It is not a screen tint: the resolved direction is what the vertex\n"
+        "shading, the AO bake, the GI bake and the runtime projected shadows,\n"
+        "lens flare and god rays are all built from.");
+    if (!c.enabled) {
+        ImGui::TextDisabled(
+            "\nOff - the preset's own sky/lighting/fog on the Presets tab is used.");
+        return;
+    }
+
+    // --- the slider --------------------------------------------------------
+    ImGui::SeparatorText("Time of day");
+    const ambience::Resolved now = ambience::evaluate(c, c.time);
+    {
+        char label[32];
+        std::snprintf(label, sizeof(label), "%02d:%02d", (int)c.time,
+                      (int)((c.time - (float)(int)c.time) * 60.0f));
+        ImGui::SetNextItemWidth(-scaled(120.0f));
+        ImGui::SliderFloat("##tod", &c.time, 0.0f, 24.0f, label);
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+    }
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Noon")) { c.time = 12.0f; changed = true; }
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Midnight")) { c.time = 0.0f; changed = true; }
+
+    // A 24-hour strip of the horizon colour, with the current hour marked. It
+    // is the fastest way to see that a key list has a hole in it.
+    {
+        const ImVec2 p0 = ImGui::GetCursorScreenPos();
+        const float w = ImGui::GetContentRegionAvail().x;
+        const float h = scaled(22.0f);
+        ImDrawList* dl = ImGui::GetWindowDrawList();
+        const int steps = 96;
+        for (int i = 0; i < steps; ++i) {
+            const float t0 = (float)i / steps, t1 = (float)(i + 1) / steps;
+            const DayKey k = ambience::sampleKeys(c, t0 * 24.0f);
+            dl->AddRectFilled(
+                ImVec2(p0.x + w * t0, p0.y), ImVec2(p0.x + w * t1 + 1.0f, p0.y + h),
+                IM_COL32((int)(k.skyColor[0] * 255), (int)(k.skyColor[1] * 255),
+                         (int)(k.skyColor[2] * 255), 255));
+        }
+        const theme::Semantics& sem = theme::semantics();
+        for (const DayKey& k : c.keys) {
+            const float x = p0.x + w * (k.hour / 24.0f);
+            dl->AddLine(ImVec2(x, p0.y), ImVec2(x, p0.y + h * 0.35f),
+                        ImGui::GetColorU32(sem.textDim), 1.0f);
+        }
+        const float sx = p0.x + w * (ambience::wrap24(c.time) / 24.0f);
+        dl->AddLine(ImVec2(sx, p0.y), ImVec2(sx, p0.y + h),
+                    ImGui::GetColorU32(sem.accent), scaled(2.0f));
+        ImGui::Dummy(ImVec2(w, h));
+    }
+    ImGui::TextDisabled(
+        "Sun %+.0f deg, moon %+.0f deg above the horizon - %s is lighting the "
+        "scene.",
+        now.sunElevation, now.moonElevation,
+        now.sunElevation >= now.moonElevation ? "the sun" : "the moon");
+    prefHelp(
+        "The baked light direction never dips below +5 degrees, whichever body\n"
+        "is up: a light at the horizon gives flat ground no diffuse at all, and\n"
+        "one below it lights the world from underneath. Night gets dark from\n"
+        "the key colours, not from aiming the sun into the floor.");
+
+    // --- sun ---------------------------------------------------------------
+    ImGui::SeparatorText("Sun");
+    ImGui::SliderFloat("Rises at (bearing)", &c.sunAzimuth, 0.0f, 360.0f, "%.0f deg");
+    changed |= ImGui::IsItemDeactivatedAfterEdit();
+    prefHelp("Compass bearing of sunrise: 0 = +Z, 90 = +X.");
+    ImGui::SliderFloat("Arc tilt", &c.sunTilt, -89.0f, 89.0f, "%.0f deg");
+    changed |= ImGui::IsItemDeactivatedAfterEdit();
+    prefHelp("How far the arc leans off the zenith. 0 puts the sun straight\n"
+             "overhead at midday; 60 is a low winter sun with long shadows.");
+    ImGui::SliderFloat("Sunrise", &c.sunrise, 0.0f, 24.0f, "%.1f h");
+    changed |= ImGui::IsItemDeactivatedAfterEdit();
+    ImGui::SliderFloat("Sunset", &c.sunset, 0.0f, 24.0f, "%.1f h");
+    changed |= ImGui::IsItemDeactivatedAfterEdit();
+    ImGui::SliderFloat("Sun size", &c.sunSize, 0.25f, 30.0f, "%.1f deg");
+    changed |= ImGui::IsItemDeactivatedAfterEdit();
+    prefHelp("Apparent diameter of the disc. The real sun is about 0.5 deg,\n"
+             "which is almost invisible on a 512x448 frame - 3 reads better.");
+
+    // --- moon --------------------------------------------------------------
+    ImGui::SeparatorText("Moon");
+    ImGui::SliderFloat("Moon bearing", &c.moonAzimuth, 0.0f, 360.0f, "%.0f deg");
+    changed |= ImGui::IsItemDeactivatedAfterEdit();
+    ImGui::SliderFloat("Moon arc tilt", &c.moonTilt, -89.0f, 89.0f, "%.0f deg");
+    changed |= ImGui::IsItemDeactivatedAfterEdit();
+    ImGui::SliderFloat("Hours behind the sun", &c.moonOffset, 0.0f, 24.0f, "%.1f h");
+    changed |= ImGui::IsItemDeactivatedAfterEdit();
+    prefHelp("12 puts the moon up exactly while the sun is down, which is what\n"
+             "you want unless you are after a moon visible in daylight.");
+    ImGui::SliderFloat("Moon size", &c.moonSize, 0.25f, 30.0f, "%.1f deg");
+    changed |= ImGui::IsItemDeactivatedAfterEdit();
+    ImGui::SliderFloat("Phase", &c.moonPhase, 0.0f, 1.0f, "%.2f");
+    changed |= ImGui::IsItemDeactivatedAfterEdit();
+    ImGui::SliderFloat("Opacity", &c.moonOpacity, 0.0f, 1.0f, "%.2f");
+    changed |= ImGui::IsItemDeactivatedAfterEdit();
+    prefHelp(
+        "How solid the disc is. Applied when it is DRAWN, not baked into the\n"
+        "texture, so dragging this needs no re-bake and one texture serves\n"
+        "every value.\n\n"
+        "Below 1 the sky shows through - which is what a moon behind thin cloud\n"
+        "or a daytime moon actually looks like. 0 draws nothing at all.");
+    prefHelp("0 = new, 0.5 = full, 1 = new again. Baked into the disc as a\n"
+             "terminator, so it costs the console nothing.");
+    {
+        ImGui::Text("Moon texture: %s",
+                    c.moonTexture.empty() ? "built-in (NASA LRO colour map)"
+                                          : c.moonTexture.c_str());
+        if (ImGui::Button("Import moon texture...")) {
+            // Same import shape as the HUD image pickers: copy into res/ and
+            // store the project-relative path.
+            const std::string src = pickPngFile();
+            if (!src.empty()) {
+                const std::filesystem::path srcPath(src);
+                const std::string fileName =
+                    sanitizeAssetName(srcPath.filename().string());
+                const std::filesystem::path destDir =
+                    std::filesystem::path(project_.dir) / "res" / "textures";
+                std::error_code ec;
+                std::filesystem::create_directories(destDir, ec);
+                std::filesystem::copy_file(
+                    srcPath, destDir / fileName,
+                    std::filesystem::copy_options::overwrite_existing, ec);
+                if (!ec) {
+                    c.moonTexture = "res/textures/" + fileName;
+                    skyBodyMoonSig_.clear();  // force a re-bake
+                    changed = true;
+                } else {
+                    statusMessage_ = "Moon texture import failed: " + ec.message();
+                }
+            }
+        }
+        if (!c.moonTexture.empty()) {
+            ImGui::SameLine();
+            if (ImGui::Button("Reset to built-in")) {
+                c.moonTexture.clear();
+                skyBodyMoonSig_.clear();
+                changed = true;
+            }
+        }
+        prefHelp(
+            "Empty = NASA's Lunar Reconnaissance Orbiter colour map, built into\n"
+            "the editor. A 2:1 image is treated as an equirectangular map of the\n"
+            "sphere and projected; anything else is used as the disc face.\n\n"
+            "The map itself never ships - only the small baked disc does.");
+    }
+    // The disc as it will be baked, at the size it is baked (the preview and
+    // the shipped texture are the same pixels - see menubake::bakeMoonRGBA).
+    if (uint32_t t = viewport_.moonDiscTexture())
+        ImGui::Image((ImTextureID)(intptr_t)t, ImVec2(scaled(96), scaled(96)));
+
+    // --- the runtime half ----------------------------------------------------
+    ImGui::SeparatorText("Let the clock run (hybrid)");
+    if (ImGui::Checkbox("Advance the time in game", &c.runtime)) changed = true;
+    prefHelp(
+        "The half of the cycle that costs nothing per frame follows a live\n"
+        "clock: the sun and moon move, the sky dome and the fog retint, the\n"
+        "projected shadows swing, the flare and god rays track the sun and the\n"
+        "stars fade in.\n\n"
+        "What does NOT follow is the BAKED half - vertex shading, the AO\n"
+        "lightmap, any GI. Those stay at the hour above, because re-baking them\n"
+        "is ~170 ms of EE work. That is what the colour grade below is for.");
+    if (c.runtime) {
+        ImGui::SliderFloat("Day length", &c.dayLength, 8.0f, 1800.0f, "%.0f s");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        prefHelp("Real seconds for a whole 24 hours. The time above is where\n"
+                 "the clock STARTS (and still the hour everything bakes at).");
+        ImGui::TextDisabled("%.1f s per in-game hour; sunrise to sunset takes %.0f s.",
+                            c.dayLength / 24.0f,
+                            c.dayLength * ambience::wrap24(c.sunset - c.sunrise) / 24.0f);
+        if (ImGui::Checkbox("Drift a colour grade with the clock", &c.runtimeGrade))
+            changed = true;
+        prefHelp(
+            "Without this, geometry baked at noon stays brightly lit under a\n"
+            "midnight sky. The grade carries the world's overall level and\n"
+            "warmth per frame - one postFx call, no re-bake - and is identity\n"
+            "when the clock sits on the hour the scene was baked at.\n\n"
+            "Turn it off if the project drives its own grading and you would\n"
+            "rather bake several times of day as separate scenes.");
+        ImGui::SliderFloat("Bake lighting at", &c.bakeHour, 0.0f, 24.0f, "%.1f h");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        prefHelp(
+            "The hour shadows, AO and GI are baked at - a separate question from\n"
+            "where the clock starts, once it moves. Noon is usually the right\n"
+            "answer: it is the most neutral light for a lightmap, and the drift\n"
+            "grade measures every other hour against it.");
+        ImGui::TextDisabled("Clock starts %02d:%02d, geometry baked %02d:%02d.",
+                            (int)c.time,
+                            (int)((c.time - (float)(int)c.time) * 60.0f),
+                            (int)c.bakeHour,
+                            (int)((c.bakeHour - (float)(int)c.bakeHour) * 60.0f));
+    }
+
+    // --- stars ---------------------------------------------------------------
+    ImGui::SeparatorText("Stars");
+    if (ImGui::Checkbox("Night sky", &c.starsEnabled)) changed = true;
+    prefHelp(
+        "Real glowing points, not a sky texture: the field is drawn through\n"
+        "ADDITIVE bags, so each star ADDS its colour to the sky behind it and a\n"
+        "bright one saturates and blooms.\n\n"
+        "One bag per magnitude tier = 3 submits for the whole sky, and the\n"
+        "brightness rides the bags' additive FIX - so fading the stars in at\n"
+        "dusk costs three bytes a frame, not a rebuild. How bright they get at\n"
+        "each hour is the Stars column in the key table below.");
+    if (c.starsEnabled) {
+        starfield::Params& sp = c.starField;
+        ImGui::SetNextItemWidth(scaled(120.0f));
+        if (ImGui::InputInt("Seed", &sp.seed)) changed = true;
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Reroll")) {
+            sp.seed = (int)(ImGui::GetTime() * 1000.0) & 0x7fffffff;
+            changed = true;
+        }
+        prefHelp("The same seed is the same sky, always - so nudging a slider\n"
+                 "adjusts the sky instead of reshuffling it.");
+        ImGui::SliderInt("Star count", &sp.count, 0, starfield::kMaxStars);
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        ImGui::SliderFloat("Magnitude spread", &sp.magnitudeSpread, 0.0f, 1.0f, "%.2f");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        prefHelp("0 = every star equally bright; 1 = a realistic long tail of\n"
+                 "faint stars under a handful of bright ones.");
+        ImGui::SliderFloat("Milky Way", &sp.milkyWay, 0.0f, 1.0f, "%.2f");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        prefHelp("Density along a band. Without it a random sky reads as\n"
+                 "uniform noise rather than as a sky.");
+        ImGui::SliderFloat("Band tilt", &sp.milkyWayTilt, -89.0f, 89.0f, "%.0f deg");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        ImGui::SliderFloat("Star size", &sp.sizeScale, 0.25f, 4.0f, "%.2f");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        ImGui::SliderFloat("Twinkle", &c.starTwinkle, 0.0f, 1.0f, "%.2f");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        prefHelp("Each magnitude tier shimmers at its own rate. Per BAG, not\n"
+                 "per star - three multiplies a frame for the whole sky.");
+        ImGui::TextDisabled("%d stars = %d vertices in %d submits (the sky dome "
+                            "next to it is 504).",
+                            sp.count, sp.count * 6, starfield::kTiers);
+    }
+
+    // --- keys --------------------------------------------------------------
+    ImGui::SeparatorText("Colours through the day");
+    if (ImGui::Button("Seed a default day")) {
+        c.keys = ambience::defaultKeys();
+        selectedDayKey_ = -1;
+        changed = true;
+    }
+    prefHelp("Replaces the key list with a night/dawn/day/dusk/night set.");
+    ImGui::SameLine();
+    if (ImGui::Button("+ Key at current time")) {
+        DayKey k = ambience::sampleKeys(c, c.time);  // continue the curve
+        k.hour = ambience::wrap24(c.time);
+        c.keys.push_back(k);
+        project::sortDayKeys(c);
+        selectedDayKey_ = -1;
+        changed = true;
+    }
+    ImGui::SameLine();
+    ImGui::BeginDisabled(selectedDayKey_ < 0 || selectedDayKey_ >= (int)c.keys.size());
+    if (ImGui::Button("Remove key")) {
+        c.keys.erase(c.keys.begin() + selectedDayKey_);
+        selectedDayKey_ = -1;
+        changed = true;
+    }
+    ImGui::EndDisabled();
+
+    if (c.keys.empty()) {
+        ImGui::TextDisabled("No keys - every hour resolves to the same neutral sky.");
+        return;
+    }
+    if (ImGui::BeginTable("##daykeys", 8,
+                          ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg |
+                              ImGuiTableFlags_SizingFixedFit |
+                              ImGuiTableFlags_ScrollY,
+                          ImVec2(0, scaled(200)))) {
+        ImGui::TableSetupColumn("Hour");
+        ImGui::TableSetupColumn("Horizon");
+        ImGui::TableSetupColumn("Zenith");
+        ImGui::TableSetupColumn("Light");
+        ImGui::TableSetupColumn("Fog");
+        ImGui::TableSetupColumn("Amb");
+        ImGui::TableSetupColumn("Diff");
+        ImGui::TableSetupColumn("Stars");
+        ImGui::TableSetupScrollFreeze(0, 1);
+        ImGui::TableHeadersRow();
+        bool resort = false;
+        for (int i = 0; i < (int)c.keys.size(); ++i) {
+            DayKey& k = c.keys[i];
+            ImGui::PushID(i);
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+            ImGui::SetNextItemWidth(scaled(64));
+            if (ImGui::DragFloat("##h", &k.hour, 0.05f, 0.0f, 24.0f, "%.2f"))
+                selectedDayKey_ = i;
+            if (ImGui::IsItemDeactivatedAfterEdit()) {
+                resort = true;
+                changed = true;
+            }
+            if (ImGui::IsItemActivated()) selectedDayKey_ = i;
+            const ImGuiColorEditFlags cf =
+                ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_NoLabel;
+            auto colCell = [&](const char* id, float* rgb) {
+                ImGui::TableNextColumn();
+                if (ImGui::ColorEdit3(id, rgb, cf)) selectedDayKey_ = i;
+                changed |= ImGui::IsItemDeactivatedAfterEdit();
+            };
+            colCell("##sky", k.skyColor);
+            colCell("##top", k.skyTopColor);
+            colCell("##lit", k.lightColor);
+            colCell("##fog", k.fogColor);
+            auto numCell = [&](const char* id, float* v, float hi) {
+                ImGui::TableNextColumn();
+                ImGui::SetNextItemWidth(scaled(52));
+                if (ImGui::DragFloat(id, v, 0.01f, 0.0f, hi, "%.2f"))
+                    selectedDayKey_ = i;
+                changed |= ImGui::IsItemDeactivatedAfterEdit();
+            };
+            numCell("##amb", &k.ambient, 1.0f);
+            numCell("##dif", &k.diffuse, 1.0f);
+            numCell("##str", &k.stars, 1.0f);
+            ImGui::PopID();
+        }
+        ImGui::EndTable();
+        if (resort) {
+            project::sortDayKeys(c);
+            selectedDayKey_ = -1;
+        }
+    }
+    ImGui::TextDisabled(
+        "Keys interpolate cyclically, so the last key of the day carries "
+        "through\nmidnight into the first. Two keys holding the same colour "
+        "are how you\nkeep night looking like night instead of ramping into "
+        "dawn from 00:00.");
+
+    if (changed) project::clampDayCycle(c);
+}
+
+// Pushes the sun/moon discs into the viewport, re-baking the moon only when its
+// inputs moved. `presetIndex` >= 0 = preview that preset (the Ambience Editor is
+// showing it); -1 = whatever the active scene resolves to.
+void App::updateSkyBodyPreview(int presetIndex) {
+    const DayCycle* c = nullptr;
+    if (presetIndex >= 0 && presetIndex < (int)project_.ambiencePresets.size()) {
+        const DayCycle& pc = project_.ambiencePresets[presetIndex].cycle;
+        if (pc.enabled) c = &pc;
+    } else {
+        c = templates::sceneDayCycle(project_, project_.active());
+    }
+    if (!c) {
+        viewport_.setSkyBodies(Viewport::SkyBodies{});
+        viewport_.setStarField({}, 0.0f, 0.0f, 0.0f);
+        return;
+    }
+
+    // The sun sprite is fixed, so it uploads once per session.
+    if (!skyBodySunUploaded_) {
+        std::vector<unsigned char> rgba;
+        menubake::bakeSunRGBA(rgba);
+        viewport_.setSkyBodyTexture(Viewport::SkySun, menubake::kSunDiscSize,
+                                    menubake::kSunDiscSize, rgba.data());
+        // The star dot rides along - it is fixed too, and it is what keeps a
+        // star from drawing as a hard little square.
+        menubake::bakeFlareRGBA(2, rgba);
+        viewport_.setSkyBodyTexture(Viewport::SkyStarDot,
+                                    menubake::kCoronaSpriteSize,
+                                    menubake::kCoronaSpriteSize, rgba.data());
+        skyBodySunUploaded_ = true;
+    }
+    // The moon is a real image projection - only re-bake when its inputs move.
+    {
+        char sig[64];
+        std::snprintf(sig, sizeof(sig), "%.4f|", c->moonPhase);
+        const std::string want = std::string(sig) + c->moonTexture;
+        if (want != skyBodyMoonSig_) {
+            std::vector<unsigned char> rgba;
+            const std::string srcAbs = c->moonTexture.empty()
+                                           ? std::string()
+                                           : project_.filePath(c->moonTexture);
+            if (menubake::bakeMoonRGBA(c->moonPhase, srcAbs, rgba)) {
+                viewport_.setSkyBodyTexture(Viewport::SkyMoon,
+                                            menubake::kMoonDiscSize,
+                                            menubake::kMoonDiscSize, rgba.data());
+                skyBodyMoonSig_ = want;
+            }
+        }
+    }
+
+    // The night sky. Regenerated only when its Params change - generate() is
+    // deterministic, so the same seed is always the same sky and there is
+    // nothing to gain from re-rolling it every frame.
+    if (c->starsEnabled && c->starField.count > 0) {
+        if (c->starField != skyBodyStarParams_) {
+            skyBodyStarParams_ = c->starField;
+            skyBodyStars_ = starfield::generate(c->starField);
+        }
+    } else if (!skyBodyStars_.empty()) {
+        skyBodyStars_.clear();
+        skyBodyStarParams_ = starfield::Params{};
+    }
+
+    const ambience::Resolved d = ambience::evaluate(*c, c->time);
+    Viewport::SkyBodies b;
+    b.enabled = true;
+    for (int i = 0; i < 3; ++i) {
+        b.sunDir[i] = d.sunDir[i];
+        b.moonDir[i] = d.moonDir[i];
+        b.sunColor[i] = d.lightColor[i];
+    }
+    // Same "keep drawing a little below the horizon" rule codegen bakes, so a
+    // setting body slides out of view here too instead of vanishing whole.
+    const float kDeg = 3.14159265f / 180.0f;
+    b.sunRadius =
+        d.sunElevation < -10.0f ? 0.0f : std::tan(c->sunSize * 0.5f * kDeg);
+    b.moonRadius =
+        d.moonElevation < -10.0f ? 0.0f : std::tan(c->moonSize * 0.5f * kDeg);
+    b.moonRoll = d.moonUpAngle;
+    b.moonOpacity = c->moonOpacity;
+    for (int i = 0; i < 3; ++i) b.compensation[i] = skyBodyComp_[i];
+    viewport_.setStarField(skyBodyStars_,
+                           d.stars * (skyBodyComp_[0] + skyBodyComp_[1] +
+                                      skyBodyComp_[2]) / 3.0f,
+                           c->starTwinkle, (float)ImGui::GetTime());
+    viewport_.setSkyBodies(b);
 }
 
 // --- Options-menu "option blocks" ------------------------------------------
@@ -8654,6 +12544,33 @@ int addOptionsMenuPages(Project& p) {
     p.menus.push_back(std::move(root));
     return (int)p.menus.size() - 1;
 }
+
+// Scaffold the cutscene skip-confirmation screen (docs/cutscenes.md): a small
+// two-row menu already marked as the project's skip screen. NO is first and is
+// an ordinary Close row - declining needs no action of its own, and putting the
+// cursor on it means a stray Cross does not throw the cutscene away. Returns
+// the new menu's index, or the existing one when the project already has one
+// (the role is per project, so a second would be clamped away on load anyway).
+int addSkipScreen(Project& p) {
+    const int have = project::skipMenuIndex(p);
+    if (have >= 0) return have;
+    GameMenu m;
+    std::string name = "skip-cutscene";
+    for (int n = 2;; ++n) {
+        bool taken = false;
+        for (const GameMenu& o : p.menus) taken |= (o.name == name);
+        if (!taken) break;
+        name = "skip-cutscene-" + std::to_string(n);
+    }
+    m.name = name;
+    m.title = "SKIP CUTSCENE?";
+    m.skipMenu = true;
+    m.panelW = 256;
+    m.entries.push_back(MenuEntry{"NO, KEEP WATCHING", MenuEntry::Close, "", 0.0f});
+    m.entries.push_back(MenuEntry{"YES, SKIP", MenuEntry::SkipCutscene, "", 0.0f});
+    p.menus.push_back(std::move(m));
+    return (int)p.menus.size() - 1;
+}
 }  // namespace
 
 // Menu Editor window: menu list on the left, the selected menu's properties,
@@ -8670,6 +12587,13 @@ void App::drawMenusWindow() {
     }
 
     bool changed = false;
+    // Belt and braces. `changed` is set by hand at each widget and was missed
+    // by most of them, which left menu edits with a dark save icon and NO
+    // prompt on exit - quietly losable, the exact failure commitChange's own
+    // comment warns about. Comparing the section's serialized form across the
+    // window body cannot be forgotten by a new widget, and it is what decides.
+    const std::string menusBefore =
+        project::sectionJson(project_, project::Section::Menus);
 
     // --- left: menu list -------------------------------------------------
     ImGui::BeginChild("##menu_list", ImVec2(scaled(170), 0), ImGuiChildFlags_Borders);
@@ -8704,12 +12628,22 @@ void App::drawMenusWindow() {
             "does). Style and edit them like any menu. Key rebinding is\n"
             "NOT included - add it deliberately with + Option block >\n"
             "Key bindings.");
+    if (ImGui::Button("+ Skip screen", ImVec2(-1, 0))) {
+        selectedMenu_ = addSkipScreen(project_);
+        changed = true;
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "A NO / YES confirmation, already marked as the project's\n"
+            "skip screen. One per project - selects the existing one.");
     ImGui::Separator();
     for (int i = 0; i < (int)project_.menus.size(); ++i) {
         ImGui::PushID(i);
         std::string tag;
         if (project_.menus[i].titleScreen) tag += "  [title]";
         if (project_.menus[i].pauseMenu) tag += "  [start]";
+        if (project_.menus[i].saveMenu) tag += "  [save]";
+        if (project_.menus[i].skipMenu) tag += "  [skip]";
         if (ImGui::Selectable((project_.menus[i].name + tag).c_str(),
                               selectedMenu_ == i))
             selectedMenu_ = i;
@@ -8759,8 +12693,10 @@ void App::drawMenusWindow() {
     ImGui::SameLine();
     if (ImGui::SmallButton("Duplicate")) {
         GameMenu copy = m;
-        copy.titleScreen = false;  // the boot/Start slots stay unique
+        copy.titleScreen = false;  // the boot/Start/save/skip roles stay unique
         copy.pauseMenu = false;
+        copy.saveMenu = false;
+        copy.skipMenu = false;
         std::string base = copy.name;
         for (int n = 2;; ++n) {
             copy.name = base + "-" + std::to_string(n);
@@ -8773,6 +12709,13 @@ void App::drawMenusWindow() {
         changed = true;
     }
     ImGui::SameLine();
+    // The save menu is the save system's own screen: the generated game opens it
+    // by role, not by name, and no button here could bring it back once gone
+    // (project::ensureSaveMenu only re-seeds it when the project is next
+    // LOADED, so deleting it leaves the session running without one). It is not
+    // a menu you own, so it is not one you can delete - restyle it on the Style
+    // tab, and change what it DOES in Tools > Save Editor.
+    ImGui::BeginDisabled(m.saveMenu);
     if (ImGui::SmallButton("Delete")) {
         for (SceneData& sc : project_.scenes)
             for (SceneObject& o : sc.objects)
@@ -8785,717 +12728,726 @@ void App::drawMenusWindow() {
         project_.menus.erase(project_.menus.begin() + selectedMenu_);
         selectedMenu_ = -1;
         commitChange();
+        ImGui::EndDisabled();
         ImGui::EndChild();
         ImGui::End();
         return;
     }
-
-    char titleBuf[64];
-    std::snprintf(titleBuf, sizeof(titleBuf), "%s", m.title.c_str());
-    ImGui::SetNextItemWidth(scaled(180.0f));
-    if (ImGui::InputText("Title", titleBuf, sizeof(titleBuf))) m.title = titleBuf;
-    changed |= ImGui::IsItemDeactivatedAfterEdit();
-    ImGui::SameLine();
-    changed |= textTokenPicker("titletok", m.title);
-    ImGui::SameLine();
-    ImGui::ColorEdit3("Accent", m.accent, ImGuiColorEditFlags_NoInputs);
-    changed |= ImGui::IsItemDeactivatedAfterEdit();
-
-    if (ImGui::Checkbox("Title screen (opens at game start)", &m.titleScreen)) {
-        if (m.titleScreen)  // only one menu can own the boot slot
-            for (int i = 0; i < (int)project_.menus.size(); ++i)
-                if (i != selectedMenu_) project_.menus[i].titleScreen = false;
-        changed = true;
-    }
-    if (ImGui::Checkbox("Open on Start button (pause menu)", &m.pauseMenu)) {
-        if (m.pauseMenu)  // only one menu answers the Start button
-            for (int i = 0; i < (int)project_.menus.size(); ++i)
-                if (i != selectedMenu_) project_.menus[i].pauseMenu = false;
-        changed = true;
-    }
-    if (ImGui::Checkbox("Pauses the game", &m.pauseGame)) changed = true;
-    ImGui::SameLine();
-    ImGui::TextDisabled("(?)");
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("On: gameplay freezes under a dim overlay while the\n"
-                          "menu is open. Off: the menu floats over the running\n"
-                          "game - note that pad presses then reach both the\n"
-                          "menu and the game (X also jumps etc.).");
-
-    // --- panel geometry: width, screen position, presets ------------------
-    ImGui::SeparatorText("Layout");
-    struct LayoutPreset {
-        const char* name;
-        int panelW;
-        float x, y;
-    };
-    static const LayoutPreset kPresets[] = {
-        {"Centered dialog", 256, 0.5f, 0.45f},
-        {"Title at the bottom", 256, 0.5f, 0.72f},
-        {"Corner card", 256, 0.78f, 0.74f},
-        {"Wide banner", 512, 0.5f, 0.5f},
-    };
-    ImGui::SetNextItemWidth(scaled(180.0f));
-    if (ImGui::BeginCombo("Preset", "apply a preset...")) {
-        for (const LayoutPreset& pr : kPresets) {
-            if (ImGui::Selectable(pr.name)) {
-                m.panelW = pr.panelW;
-                m.screenPos[0] = pr.x;
-                m.screenPos[1] = pr.y;
-                changed = true;
-            }
-        }
-        ImGui::EndCombo();
-    }
-    ImGui::SameLine();
-    ImGui::TextDisabled("(?)");
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Presets only set the width and screen position -\n"
-                          "images and entries stay. Fine-tune below.");
-    {
-        int wIdx = m.panelW == 128 ? 0 : m.panelW == 512 ? 2 : 1;
-        ImGui::SetNextItemWidth(scaled(100.0f));
-        if (ImGui::Combo("Panel width", &wIdx, "128 px\000256 px\000512 px\000")) {
-            m.panelW = wIdx == 0 ? 128 : wIdx == 2 ? 512 : 256;
-            changed = true;
-        }
-    }
-    ImGui::SetNextItemWidth(scaled(180.0f));
-    ImGui::DragFloat2("Screen position", m.screenPos, 0.005f, 0.0f, 1.0f, "%.3f");
-    changed |= ImGui::IsItemDeactivatedAfterEdit();
-    if (ImGui::Checkbox("Show title", &m.showTitle)) changed = true;
-
-    // Font: default chain / fonts imported into the project / a curated set
-    // of stock Windows fonts (existence-checked) / import a new TTF.
-    changed |= fontCombo(m.font);
-    {
-        ImGui::SetNextItemWidth(scaled(110.0f));
-        if (ImGui::DragInt("Title size", &m.titleSize, 0.2f, 10, 48, "%d px"))
-            changed = true;
+    ImGui::EndDisabled();
+    if (m.saveMenu) {
         ImGui::SameLine();
-        ImGui::SetNextItemWidth(scaled(110.0f));
-        if (ImGui::DragInt("Row size", &m.entrySize, 0.2f, 8, 32, "%d px"))
-            changed = true;
+        ImGui::TextDisabled("(?)");
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip(
-                "Entry text height, and with it the row pitch and the cursor.\n"
-                "Any {{glyph}} in a label scales with it too.");
-        if (m.titleSize < 10) m.titleSize = 10;
-        if (m.titleSize > 48) m.titleSize = 48;
-        if (m.entrySize < 8) m.entrySize = 8;
-        if (m.entrySize > 32) m.entrySize = 32;
+                "The save menu cannot be deleted - the game opens it by role and\n"
+                "nothing here could put it back. Restyle it like any other menu\n"
+                "(Style tab); what it DOES lives in Tools > Save Editor.");
     }
 
-    if (menuPreviewClipped_)
-        ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.4f, 1.0f),
-                           "Panel taller than 512 px - the bottom gets clipped."
-                           " Shrink or remove images.");
+    // The preview sits above the tabs and stays on screen while either of
+    // them is being edited - the Credits Editor arrangement, for the same
+    // reason: what you are changing and what it looks like belong together.
+    drawMenuPreview(m);
 
-    // --- images composited into the panel ---------------------------------
-    ImGui::SeparatorText("Images");
-    static const char* kSlotNames[] = {"Above title", "Above entries",
-                                       "Below entries", "Background", "Overlay"};
-    for (int i = 0; i < (int)m.images.size(); ++i) {
-        MenuImage& img = m.images[i];
-        ImGui::PushID(i);
-        const bool canUp = i > 0;
-        const bool canDown = i + 1 < (int)m.images.size();
-        ImGui::BeginDisabled(!canUp);
-        if (ImGui::ArrowButton("##imgup", ImGuiDir_Up)) {
-            std::swap(m.images[i], m.images[i - 1]);
-            changed = true;
-        }
-        ImGui::EndDisabled();
-        ImGui::SameLine(0.0f, 2.0f);
-        ImGui::BeginDisabled(!canDown);
-        if (ImGui::ArrowButton("##imgdown", ImGuiDir_Down)) {
-            std::swap(m.images[i], m.images[i + 1]);
-            changed = true;
-        }
-        ImGui::EndDisabled();
-        ImGui::SameLine();
-        const std::string fileName =
-            std::filesystem::path(img.path).filename().string();
-        ImGui::TextUnformatted(fileName.c_str());
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", img.path.c_str());
-        ImGui::SameLine(scaled(190.0f));
-        ImGui::SetNextItemWidth(scaled(120.0f));
-        if (ImGui::Combo("##slot", &img.slot,
-                         "Above title\0Above entries\0Below entries\0"
-                         "Background\0Overlay\0"))
-            changed = true;
-        ImGui::SameLine();
-        if (ImGui::SmallButton("x##imgdel")) {
-            m.images.erase(m.images.begin() + i);
-            changed = true;
-            ImGui::PopID();
-            break;
-        }
-        // second row: size + position nudge (Background stretches, no knobs)
-        if (img.slot != MenuImage::Background) {
-            ImGui::Indent(scaled(46.0f));
-            ImGui::SetNextItemWidth(scaled(90.0f));
-            ImGui::DragFloat("scale##img", &img.scale, 0.02f, 0.05f, 4.0f, "%.2fx");
-            changed |= ImGui::IsItemDeactivatedAfterEdit();
-            ImGui::SameLine();
-            ImGui::SetNextItemWidth(scaled(120.0f));
-            ImGui::DragFloat2("offset##img", img.offset, 1.0f, -512.0f, 512.0f,
-                              "%.0f px");
-            changed |= ImGui::IsItemDeactivatedAfterEdit();
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip(img.slot == MenuImage::Overlay
-                                      ? "Top-left position inside the panel."
-                                      : "Nudge from the centered flow position.");
-            ImGui::Unindent(scaled(46.0f));
-        }
-        ImGui::PopID();
-    }
-    if (ImGui::SmallButton("+ Image (PNG)...")) {
-        const std::string src = pickPngFile();
-        if (!src.empty()) {
-            const std::filesystem::path srcPath(src);
-            const std::string fileName = sanitizeAssetName(srcPath.filename().string());
-            const std::filesystem::path destDir =
-                std::filesystem::path(project_.dir) / "res" / "hud";
-            std::error_code ec;
-            std::filesystem::create_directories(destDir, ec);
-            std::filesystem::copy_file(srcPath, destDir / fileName,
-                                       std::filesystem::copy_options::overwrite_existing,
-                                       ec);
-            if (!ec) {
-                MenuImage img;
-                img.path = "res/hud/" + fileName;
-                m.images.push_back(std::move(img));
-                changed = true;
-            }
-        }
-    }
-    ImGui::SameLine();
-    ImGui::TextDisabled("(?)");
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Baked into the panel sprite - free at runtime.\n"
-                          "Flow slots stack in list order and push the text\n"
-                          "down; Background stretches under everything;\n"
-                          "Overlay draws over the text at its offset.");
-
-    ImGui::SeparatorText("Entries (dpad rows)");
-    static const char* kActionNames[] = {
-        "Close menu",     "Switch scene",      "Open save menu", "Open menu",
-        "Set save value", "Add to save value", "Flow event",     "Toggle",
-        "Choice",         "Apply video mode",  "Rebind key",     "Play credits"};
-    for (int e = 0; e < (int)m.entries.size(); ++e) {
-        MenuEntry& en = m.entries[e];
-        ImGui::PushID(e);
-
-        // reorder arrows (rows = dpad order in the game)
-        const bool canUp = e > 0;
-        const bool canDown = e + 1 < (int)m.entries.size();
-        ImGui::BeginDisabled(!canUp);
-        if (ImGui::ArrowButton("##up", ImGuiDir_Up)) {
-            std::swap(m.entries[e], m.entries[e - 1]);
-            changed = true;
-        }
-        ImGui::EndDisabled();
-        ImGui::SameLine(0.0f, 2.0f);
-        ImGui::BeginDisabled(!canDown);
-        if (ImGui::ArrowButton("##down", ImGuiDir_Down)) {
-            std::swap(m.entries[e], m.entries[e + 1]);
-            changed = true;
-        }
-        ImGui::EndDisabled();
-        ImGui::SameLine();
-
-        char labelBuf[64];
-        std::snprintf(labelBuf, sizeof(labelBuf), "%s", en.label.c_str());
-        ImGui::SetNextItemWidth(scaled(140.0f));
-        if (ImGui::InputText("##label", labelBuf, sizeof(labelBuf))) en.label = labelBuf;
+    if (ImGui::BeginTabBar("##menu_tabs")) {
+        if (ImGui::BeginTabItem("Content")) {
+        char titleBuf[64];
+        std::snprintf(titleBuf, sizeof(titleBuf), "%s", m.title.c_str());
+        ImGui::SetNextItemWidth(scaled(180.0f));
+        if (ImGui::InputText("Title", titleBuf, sizeof(titleBuf))) m.title = titleBuf;
         changed |= ImGui::IsItemDeactivatedAfterEdit();
         ImGui::SameLine();
-        changed |= textTokenPicker("labeltok", en.label);
+        changed |= textTokenPicker("titletok", m.title);
         ImGui::SameLine();
-        ImGui::SetNextItemWidth(scaled(150.0f));
-        if (ImGui::Combo("##action", &en.action, kActionNames,
-                         IM_ARRAYSIZE(kActionNames))) {
-            en.param.clear();
-            en.optionModes.clear();
-            // Stateful rows start with a sensible option set; everything
-            // else drops the list so it does not linger in the file.
-            if (en.action == MenuEntry::Toggle)
-                en.options = {"Off", "On"};
-            else if (en.action == MenuEntry::Choice)
-                en.options = {"Low", "Medium", "High"};
-            else
-                en.options.clear();
+        ImGui::ColorEdit3("Accent", m.accent, ImGuiColorEditFlags_NoInputs);
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+
+        if (ImGui::Checkbox("Title screen (opens at game start)", &m.titleScreen)) {
+            if (m.titleScreen)  // only one menu can own the boot slot
+                for (int i = 0; i < (int)project_.menus.size(); ++i)
+                    if (i != selectedMenu_) project_.menus[i].titleScreen = false;
+            changed = true;
+        }
+        if (ImGui::Checkbox("Open on Start button (pause menu)", &m.pauseMenu)) {
+            if (m.pauseMenu)  // only one menu answers the Start button
+                for (int i = 0; i < (int)project_.menus.size(); ++i)
+                    if (i != selectedMenu_) project_.menus[i].pauseMenu = false;
+            changed = true;
+        }
+        if (ImGui::Checkbox("Cutscene skip screen", &m.skipMenu)) {
+            if (m.skipMenu)  // one confirmation screen per project
+                for (int i = 0; i < (int)project_.menus.size(); ++i)
+                    if (i != selectedMenu_) project_.menus[i].skipMenu = false;
             changed = true;
         }
         ImGui::SameLine();
-
-        // Action target inline (scene / menu / value / event)
-        auto paramCombo = [&](const char* comboId, const char* hint, auto&& items,
-                              auto&& nameOf) {
-            ImGui::SetNextItemWidth(scaled(120.0f));
-            if (ImGui::BeginCombo(comboId,
-                                  en.param.empty() ? hint : en.param.c_str())) {
-                for (const auto& item : items) {
-                    const std::string& n = nameOf(item);
-                    if (ImGui::Selectable(n.c_str(), n == en.param)) {
-                        en.param = n;
-                        changed = true;
-                    }
-                }
-                ImGui::EndCombo();
-            }
-            ImGui::SameLine();
-        };
-        if (en.action == MenuEntry::SwitchScene) {
-            paramCombo("##scene", "<scene>", project_.scenes,
-                       [](const SceneData& s) -> const std::string& { return s.name; });
-        } else if (en.action == MenuEntry::OpenMenu) {
-            paramCombo("##menu", "<menu>", project_.menus,
-                       [](const GameMenu& gm) -> const std::string& { return gm.name; });
-        } else if (en.action == MenuEntry::SetValue ||
-                   en.action == MenuEntry::AddValue) {
-            paramCombo("##value", "<value>", project_.saveValues,
-                       [](const SaveValue& v) -> const std::string& { return v.name; });
-            ImGui::SetNextItemWidth(scaled(70.0f));
-            ImGui::DragFloat("##amount", &en.amount, 0.1f, 0.0f, 0.0f, "%.2f");
-            changed |= ImGui::IsItemDeactivatedAfterEdit();
-            ImGui::SameLine();
-        } else if (en.action == MenuEntry::FlowEvent) {
-            char eventBuf[64];
-            std::snprintf(eventBuf, sizeof(eventBuf), "%s", en.param.c_str());
-            ImGui::SetNextItemWidth(scaled(120.0f));
-            if (ImGui::InputText("##event", eventBuf, sizeof(eventBuf)))
-                en.param = eventBuf;
-            changed |= ImGui::IsItemDeactivatedAfterEdit();
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip("Event name for the On Menu Event flow trigger.");
-            ImGui::SameLine();
-        } else if (en.action == MenuEntry::Toggle ||
-                   en.action == MenuEntry::Choice) {
-            paramCombo("##togglevalue", "<value>", project_.saveValues,
-                       [](const SaveValue& v) -> const std::string& { return v.name; });
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip(
-                    "Save value holding the state (the option index).\n"
-                    "Its default is the initial state; flow graphs react\n"
-                    "via Value At Least -> On Condition.");
-        } else if (en.action == MenuEntry::PlayCredits) {
-            paramCombo("##credits", "<roll>", project_.credits,
-                       [](const CreditsRoll& r) -> const std::string& { return r.name; });
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip(
-                    "Credits roll to play (Tools > Credits Editor). The menu\n"
-                    "closes first; where the player ends up afterwards is the\n"
-                    "roll's own finish action.");
-        } else if (en.action == MenuEntry::RebindKey) {
-            // Two references: WHICH action to rebind, and the save value the
-            // player's override is persisted in (docs/input-bindings.md).
-            ImGui::SetNextItemWidth(scaled(110.0f));
-            if (ImGui::BeginCombo("##rebindaction", en.bindAction.empty()
-                                                        ? "<action>"
-                                                        : en.bindAction.c_str())) {
-                for (const InputAction& a : project_.input.actions) {
-                    if (!a.rebindable) continue;  // not offered to the player
-                    if (ImGui::Selectable(a.name.c_str(), a.name == en.bindAction)) {
-                        en.bindAction = a.name;
-                        if (en.label == "New entry" || en.label.empty())
-                            en.label = a.label;
-                        // Give the row its backing save value straight away -
-                        // without one the override cannot persist.
-                        if (en.param.empty())
-                            en.param =
-                                ensureSaveValue(project_, "bind-" + a.name, 0.0f);
-                        changed = true;
-                    }
-                }
-                ImGui::EndCombo();
-            }
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip(
-                    "Input Map action this row rebinds. Only actions marked\n"
-                    "\"Player may rebind it in-game\" are listed.\n"
-                    "The row covers the PAD button only - keyboard/mouse keys\n"
-                    "stay as the Input Map authored them (that support is\n"
-                    "experimental and gets its own menu later).");
-            ImGui::SameLine();
-            paramCombo("##rebindvalue", "<value>", project_.saveValues,
-                       [](const SaveValue& v) -> const std::string& { return v.name; });
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip(
-                    "Save value the override is stored in (an inputCodes\n"
-                    "index; 0 = the project's preset binding). Persists in\n"
-                    "memory card saves like every other menu state.");
-        } else if (en.action == MenuEntry::ApplyVideo) {
-            ImGui::TextDisabled("(?)");
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip(
-                    "Commits the display-mode row's staged selection (any\n"
-                    "menu's). While a menu has this row, the display-mode\n"
-                    "row only cycles its value - the screen switches when\n"
-                    "the player picks APPLY (with the keep-or-revert\n"
-                    "prompt). Without one, the display row switches on\n"
-                    "every change, closing the menu each time.");
-            ImGui::SameLine();
-        }
-
-        if (ImGui::SmallButton("x##delete")) {
-            m.entries.erase(m.entries.begin() + e);
-            changed = true;
-            ImGui::PopID();
-            break;
-        }
-
-        // Option labels on their own row (Toggle: off/on pair; Choice: a
-        // reorderable-by-editing list). Cross / dpad cycle these in-game.
-        if (en.action == MenuEntry::Toggle || en.action == MenuEntry::Choice) {
-            ImGui::Indent(scaled(46.0f));
-            if (en.settingBind == MenuEntry::BindDisplayMode) {
-                // Display-mode rows: each option picks an engine scan mode
-                // from a dropdown, with a free-text label next to it (rename
-                // "480i" to "576i" for a PAL release). The mode drives the
-                // generated game (MenuEntryData::optModes); the label is
-                // only what the row draws. Index 0 is the -1 sentinel: the
-                // project-default mode, resolved at boot on the player's
-                // console (region + the PAL-picture preference).
-                static const char* kDispModeNames[] = {"DEFAULT", "480i",
-                                                       "480p",    "1080i",
-                                                       "480i FIELD", "576i"};
-                static const char* kDispModeDescs[] = {
-                    "Default (project) - the mode the game boots in",
-                    "480i - interlaced (stock, letterboxed 576i on PAL)",
-                    "480p - progressive (component, 60 Hz)",
-                    "1080i - HD (component, 60 Hz)",
-                    "480i FIELD - field rendering (half VRAM)",
-                    "576i - full-height PAL (always 50 Hz)"};
-                if (en.options.empty()) {
-                    en.options = {"DEFAULT", "480p"};
-                    en.optionModes = {-1, 1};
-                }
-                if (en.optionModes.size() != en.options.size()) {
-                    en.optionModes.resize(en.options.size());
-                    for (size_t o = 0; o < en.optionModes.size(); ++o)
-                        en.optionModes[o] = (int)(o < 4 ? o : 4);
-                }
-                for (int o = 0; o < (int)en.options.size(); ++o) {
-                    ImGui::PushID(o);
-                    int mode = en.optionModes[o];  // dropdown index = mode + 1
-                    if (mode < -1) mode = -1;
-                    if (mode > 4) mode = 4;
-                    ImGui::SetNextItemWidth(scaled(230.0f));
-                    if (ImGui::BeginCombo("##optmode",
-                                          kDispModeDescs[mode + 1])) {
-                        for (int mo = -1; mo < 5; ++mo)
-                            if (ImGui::Selectable(kDispModeDescs[mo + 1],
-                                                  mo == mode)) {
-                                en.optionModes[o] = mo;
-                                en.options[o] = kDispModeNames[mo + 1];
-                                changed = true;
-                            }
-                        ImGui::EndCombo();
-                    }
-                    ImGui::SameLine();
-                    char optBuf[32];
-                    std::snprintf(optBuf, sizeof(optBuf), "%s",
-                                  en.options[o].c_str());
-                    ImGui::SetNextItemWidth(scaled(110.0f));
-                    if (ImGui::InputText("##opt", optBuf, sizeof(optBuf)))
-                        en.options[o] = optBuf;
-                    changed |= ImGui::IsItemDeactivatedAfterEdit();
-                    if (ImGui::IsItemHovered())
-                        ImGui::SetTooltip(
-                            "Label drawn on the row (free text) - the\n"
-                            "dropdown decides the actual mode.");
-                    ImGui::SameLine();
-                    ImGui::BeginDisabled((int)en.options.size() <= 1);
-                    if (ImGui::SmallButton("x##optdel")) {
-                        en.options.erase(en.options.begin() + o);
-                        en.optionModes.erase(en.optionModes.begin() + o);
-                        changed = true;
-                        ImGui::EndDisabled();
-                        ImGui::PopID();
-                        break;
-                    }
-                    ImGui::EndDisabled();
-                    ImGui::PopID();
-                }
-                if ((int)en.options.size() < menubake::kMaxOptions) {
-                    if (ImGui::SmallButton("+##optadd")) {
-                        int mode = 0;  // first mode this row doesn't offer yet
-                        for (int mo = -1; mo < 5; ++mo) {
-                            bool used = false;
-                            for (int v : en.optionModes) used |= (v == mo);
-                            if (!used) {
-                                mode = mo;
-                                break;
-                            }
-                        }
-                        en.options.push_back(kDispModeNames[mode + 1]);
-                        en.optionModes.push_back(mode);
-                        changed = true;
-                    }
-                }
-            } else if (en.action == MenuEntry::Toggle) {
-                if (en.options.size() < 2) en.options = {"Off", "On"};
-                char offBuf[32], onBuf[32];
-                std::snprintf(offBuf, sizeof(offBuf), "%s", en.options[0].c_str());
-                std::snprintf(onBuf, sizeof(onBuf), "%s", en.options[1].c_str());
-                ImGui::SetNextItemWidth(scaled(90.0f));
-                if (ImGui::InputText("Off label", offBuf, sizeof(offBuf)))
-                    en.options[0] = offBuf;
-                changed |= ImGui::IsItemDeactivatedAfterEdit();
-                ImGui::SameLine();
-                ImGui::SetNextItemWidth(scaled(90.0f));
-                if (ImGui::InputText("On label", onBuf, sizeof(onBuf)))
-                    en.options[1] = onBuf;
-                changed |= ImGui::IsItemDeactivatedAfterEdit();
-            } else {
-                for (int o = 0; o < (int)en.options.size(); ++o) {
-                    ImGui::PushID(o);
-                    char optBuf[32];
-                    std::snprintf(optBuf, sizeof(optBuf), "%s",
-                                  en.options[o].c_str());
-                    ImGui::SetNextItemWidth(scaled(110.0f));
-                    if (ImGui::InputText("##opt", optBuf, sizeof(optBuf)))
-                        en.options[o] = optBuf;
-                    changed |= ImGui::IsItemDeactivatedAfterEdit();
-                    ImGui::SameLine();
-                    ImGui::BeginDisabled((int)en.options.size() <= 1);
-                    if (ImGui::SmallButton("x##optdel")) {
-                        en.options.erase(en.options.begin() + o);
-                        changed = true;
-                        ImGui::EndDisabled();
-                        ImGui::PopID();
-                        break;
-                    }
-                    ImGui::EndDisabled();
-                    if (o + 1 < (int)en.options.size() ||
-                        (int)en.options.size() < menubake::kMaxOptions)
-                        ImGui::SameLine();
-                    ImGui::PopID();
-                }
-                if ((int)en.options.size() < menubake::kMaxOptions) {
-                    if (ImGui::SmallButton("+##optadd")) {
-                        en.options.push_back("Option");
-                        changed = true;
-                    }
-                }
-            }
-            // Setting binding: makes this stateful row drive a built-in engine
-            // setting at runtime (no flow graph). The option index maps evenly
-            // onto the setting - see the Insert-option-block presets.
-            ImGui::SetNextItemWidth(scaled(150.0f));
-            if (ImGui::Combo("Bind##optbind", &en.settingBind,
-                             "None\0Music volume\0Sound volume\0Deadzone\0"
-                             "Stick curve\0Display mode\0Widescreen\0"
-                             "Player count\0Input preset\0")) {
-                // Display rows carry an explicit option->mode table (edited
-                // above); every other bind maps by option position.
-                if (en.settingBind == MenuEntry::BindDisplayMode) {
-                    en.optionModes.resize(en.options.size());
-                    for (size_t o = 0; o < en.optionModes.size(); ++o)
-                        en.optionModes[o] = (int)(o < 4 ? o : 4);
-                } else {
-                    en.optionModes.clear();
-                }
-                // An input-preset row's options ARE the presets, in order -
-                // the option index is the preset index at runtime.
-                if (en.settingBind == MenuEntry::BindInputPreset) {
-                    en.options.clear();
-                    for (const InputPreset& pr : project_.input.presets)
-                        en.options.push_back(pr.name);
-                }
-                changed = true;
-            }
-            ImGui::SameLine();
-            ImGui::TextDisabled("(?)");
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip(
-                    "Drives a built-in setting from this row's option index,\n"
-                    "spread evenly across the options: volume 0-100%%, deadzone\n"
-                    "0-0.4, aim curve 1-3, display DEFAULT (the project boot\n"
-                    "mode)/480i/480p/1080i/480i FIELD/576i (each option picks\n"
-                    "its mode from a dropdown;\n"
-                    "add an Apply video mode row so switching waits for APPLY),\n"
-                    "aspect 4:3/16:9, player count 1P/2P (needs a Multiplayer\n"
-                    "mode + a second Player object), input preset (the Tools >\n"
-                    "Input Map presets, in order). None = a plain save-value\n"
-                    "row (flow graphs react).");
-            ImGui::Unindent(scaled(46.0f));
-        }
-        ImGui::PopID();
-    }
-    if ((int)m.entries.size() < menubake::kMaxEntries) {
-        if (ImGui::SmallButton("+ Entry")) {
-            m.entries.push_back(MenuEntry{});
-            changed = true;
-        }
-        ImGui::SameLine();
-        if (ImGui::SmallButton("+ Option block")) ImGui::OpenPopup("##optblock");
+        ImGui::TextDisabled("(?)");
         if (ImGui::IsItemHovered())
-            ImGui::SetTooltip(
-                "Insert a ready-made setting row (backed by a save value):\n"
-                "volume, controller deadzone / aim curve, display mode,\n"
-                "aspect ratio, player count (1P/2P, two-player modes).\n"
-                "Restyle and relabel it like any other entry.");
-        if (ImGui::BeginPopup("##optblock")) {
-            static const char* kBlockMenu[] = {
-                "Music volume", "Sound volume", "Controller deadzone",
-                "Aim response curve", "Display mode", "Widescreen (aspect)",
-                "Player count (1P/2P)"};
-            for (int b = 0; b < kOptionBlockCount; ++b)
-                if (ImGui::Selectable(kBlockMenu[b])) {
-                    addOptionBlock(project_, m, b);
+            ImGui::SetTooltip("Opened by a cutscene set to Ask first.\n"
+                              "A \"Skip cutscene\" row confirms; anything that\n"
+                              "closes the menu declines.");
+        if (ImGui::Checkbox("Pauses the game", &m.pauseGame)) changed = true;
+        ImGui::SameLine();
+        ImGui::TextDisabled("(?)");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("On: gameplay freezes under a dim overlay while the\n"
+                              "menu is open. Off: the menu floats over the running\n"
+                              "game - note that pad presses then reach both the\n"
+                              "menu and the game (X also jumps etc.).");
+
+        // --- panel geometry: width, screen position, presets ------------------
+        ImGui::SeparatorText("Layout");
+        struct LayoutPreset {
+            const char* name;
+            int panelW;
+            float x, y;
+        };
+        static const LayoutPreset kPresets[] = {
+            {"Centered dialog", 256, 0.5f, 0.45f},
+            {"Title at the bottom", 256, 0.5f, 0.72f},
+            {"Corner card", 256, 0.78f, 0.74f},
+            {"Wide banner", 512, 0.5f, 0.5f},
+        };
+        ImGui::SetNextItemWidth(scaled(180.0f));
+        if (ImGui::BeginCombo("Preset", "apply a preset...")) {
+            for (const LayoutPreset& pr : kPresets) {
+                if (ImGui::Selectable(pr.name)) {
+                    m.panelW = pr.panelW;
+                    m.screenPos[0] = pr.x;
+                    m.screenPos[1] = pr.y;
                     changed = true;
                 }
-            ImGui::Separator();
-            if (ImGui::Selectable("Key bindings (all rebindable actions)")) {
-                // One Rebind key row per action + a preset picker: the whole
-                // controls page (docs/input-bindings.md).
-                addRebindRows(project_, m);
-                changed = true;
             }
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip(
-                    "Adds a \"Rebind key\" row for every Input Map action\n"
-                    "marked \"Player may rebind it in-game\", each backed by\n"
-                    "its own save value, plus a preset picker when the project\n"
-                    "has more than one preset.");
-            ImGui::Separator();
-            if (ImGui::Selectable("Apply video mode (row)")) {
-                m.entries.push_back(makeApplyVideoEntry());
-                changed = true;
-            }
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip(
-                    "Commits the Display mode row's selection. With this row\n"
-                    "anywhere in the project, cycling the display option only\n"
-                    "stages it - the screen switches when the player picks\n"
-                    "APPLY (keep-or-revert prompt included).");
-            ImGui::EndPopup();
+            ImGui::EndCombo();
         }
-    } else {
-        ImGui::TextDisabled("Max %d entries per menu.", menubake::kMaxEntries);
-    }
+        ImGui::SameLine();
+        ImGui::TextDisabled("(?)");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Presets only set the width and screen position -\n"
+                              "images and entries stay. Fine-tune below.");
+        {
+            int wIdx = m.panelW == 128 ? 0 : m.panelW == 512 ? 2 : 1;
+            ImGui::SetNextItemWidth(scaled(100.0f));
+            if (ImGui::Combo("Panel width", &wIdx, "128 px\000256 px\000512 px\000")) {
+                m.panelW = wIdx == 0 ? 128 : wIdx == 2 ? 512 : 256;
+                changed = true;
+            }
+        }
+        ImGui::SetNextItemWidth(scaled(180.0f));
+        ImGui::DragFloat2("Screen position", m.screenPos, 0.005f, 0.0f, 1.0f, "%.3f");
+        changed |= ImGui::IsItemDeactivatedAfterEdit();
+        if (ImGui::Checkbox("Show title", &m.showTitle)) changed = true;
 
-    // Live preview: the exact panel the build will bake, either 1:1 or
-    // composited onto a mock TV screen (the 512x448 buffer stretched to the
-    // PAL / NTSC display aspect, with the pause dim when it applies).
-    ImGui::SeparatorText("Preview");
-    ImGui::SetNextItemWidth(scaled(140.0f));
-    ImGui::Combo("##previewmode", &menuPreviewMode_,
-                 "Panel (1:1)\0TV PAL\0TV NTSC\0");
-    {
-        std::string key = m.name + "\x1f" + m.title + "\x1f" +
-                          std::to_string(m.panelW) + "\x1f" +
-                          std::to_string(m.showTitle) + "\x1f" + m.font +
-                          "\x1f" + std::to_string(m.titleSize) + "|" +
-                          std::to_string(m.entrySize) + "\x1f" +
-                          std::to_string(m.accent[0]) + "," +
-                          std::to_string(m.accent[1]) + "," +
-                          std::to_string(m.accent[2]);
-        for (const MenuImage& img : m.images)
-            key += "\x1f" + img.path + "|" + std::to_string(img.slot) + "|" +
-                   std::to_string(img.scale) + "|" + std::to_string(img.offset[0]) +
-                   "," + std::to_string(img.offset[1]);
-        for (const MenuEntry& en : m.entries) {
-            key += "\x1f" + en.label + "|" + std::to_string(en.action) + "|" +
-                   en.param;
-            for (const std::string& opt : en.options) key += "," + opt;
+        // Font: default chain / fonts imported into the project / a curated set
+        // of stock Windows fonts (existence-checked) / import a new TTF.
+        changed |= fontCombo(m.font);
+        {
+            ImGui::SetNextItemWidth(scaled(110.0f));
+            if (ImGui::DragInt("Title size", &m.titleSize, 0.2f, 10, 48, "%d px"))
+                changed = true;
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(scaled(110.0f));
+            if (ImGui::DragInt("Row size", &m.entrySize, 0.2f, 8, 32, "%d px"))
+                changed = true;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Entry text height, and with it the row pitch and the cursor.\n"
+                    "Any {{glyph}} in a label scales with it too.");
+            if (m.titleSize < 10) m.titleSize = 10;
+            if (m.titleSize > 48) m.titleSize = 48;
+            if (m.entrySize < 8) m.entrySize = 8;
+            if (m.entrySize > 32) m.entrySize = 32;
         }
-        // Toggle/Choice initial states (save value defaults) show in the
-        // preview - refresh when they change too.
-        for (const SaveValue& sv : project_.saveValues)
-            key += "\x1f" + sv.name + "=" + std::to_string((int)sv.value);
-        if (key != menuPreviewKey_) {
-            std::vector<unsigned char> rgba;
-            int w = 0, h = 0;
-            if (menubake::bakePanelRGBA(m, project_, rgba, w, h)) {
-                // Composite each Toggle/Choice row's initial option label
-                // where the game draws the value strip cell.
-                std::vector<int> current(m.entries.size(), 0);
-                for (size_t e = 0; e < m.entries.size(); ++e)
-                    for (const SaveValue& sv : project_.saveValues)
-                        if (sv.name == m.entries[e].param)
-                            current[e] = (int)sv.value;
-                menubake::overlayValuePreview(m, project_, current, rgba, w, h);
-                if (!menuPreviewTex_) glGenTextures(1, &menuPreviewTex_);
-                glBindTexture(GL_TEXTURE_2D, menuPreviewTex_);
-                glUploadTexRgba(w, h, rgba.data());
-                menuPreviewW_ = w;
-                menuPreviewH_ = h;
-                const menubake::PanelLayout lay =
-                    menubake::panelLayout(m, project_);
-                menuPreviewContentH_ = lay.contentH;
-                menuPreviewClipped_ = lay.clipped;
+
+        if (menuPreviewClipped_)
+            ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.4f, 1.0f),
+                               "Panel taller than 512 px - the bottom gets clipped."
+                               " Shrink or remove images.");
+
+        // --- images composited into the panel ---------------------------------
+        ImGui::SeparatorText("Images");
+        static const char* kSlotNames[] = {"Above title", "Above entries",
+                                           "Below entries", "Background", "Overlay"};
+        for (int i = 0; i < (int)m.images.size(); ++i) {
+            MenuImage& img = m.images[i];
+            ImGui::PushID(i);
+            const bool canUp = i > 0;
+            const bool canDown = i + 1 < (int)m.images.size();
+            ImGui::BeginDisabled(!canUp);
+            if (ImGui::ArrowButton("##imgup", ImGuiDir_Up)) {
+                std::swap(m.images[i], m.images[i - 1]);
+                changed = true;
             }
-            menuPreviewKey_ = key;
+            ImGui::EndDisabled();
+            ImGui::SameLine(0.0f, 2.0f);
+            ImGui::BeginDisabled(!canDown);
+            if (ImGui::ArrowButton("##imgdown", ImGuiDir_Down)) {
+                std::swap(m.images[i], m.images[i + 1]);
+                changed = true;
+            }
+            ImGui::EndDisabled();
+            ImGui::SameLine();
+            const std::string fileName =
+                std::filesystem::path(img.path).filename().string();
+            ImGui::TextUnformatted(fileName.c_str());
+            if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s", img.path.c_str());
+            ImGui::SameLine(scaled(190.0f));
+            ImGui::SetNextItemWidth(scaled(120.0f));
+            if (ImGui::Combo("##slot", &img.slot,
+                             "Above title\0Above entries\0Below entries\0"
+                             "Background\0Overlay\0"))
+                changed = true;
+            ImGui::SameLine();
+            if (ImGui::SmallButton("x##imgdel")) {
+                m.images.erase(m.images.begin() + i);
+                changed = true;
+                ImGui::PopID();
+                break;
+            }
+            // second row: size + position nudge (Background stretches, no knobs)
+            if (img.slot != MenuImage::Background) {
+                ImGui::Indent(scaled(46.0f));
+                ImGui::SetNextItemWidth(scaled(90.0f));
+                ImGui::DragFloat("scale##img", &img.scale, 0.02f, 0.05f, 4.0f, "%.2fx");
+                changed |= ImGui::IsItemDeactivatedAfterEdit();
+                ImGui::SameLine();
+                ImGui::SetNextItemWidth(scaled(120.0f));
+                ImGui::DragFloat2("offset##img", img.offset, 1.0f, -512.0f, 512.0f,
+                                  "%.0f px");
+                changed |= ImGui::IsItemDeactivatedAfterEdit();
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip(img.slot == MenuImage::Overlay
+                                          ? "Top-left position inside the panel."
+                                          : "Nudge from the centered flow position.");
+                ImGui::Unindent(scaled(46.0f));
+            }
+            ImGui::PopID();
         }
-        if (menuPreviewTex_ && menuPreviewMode_ == 0) {
-            // Baked at native PS2 pixels; upscale the on-screen copy so it
-            // isn't a postage stamp next to the DPI-scaled controls.
-            ImGui::Image((ImTextureID)(intptr_t)menuPreviewTex_,
-                         ImVec2(scaled((float)menuPreviewW_),
-                                scaled((float)menuPreviewContentH_)),
-                         ImVec2(0, 0),
-                         ImVec2(1.0f, (float)menuPreviewContentH_ /
-                                          (float)menuPreviewH_));
-        } else if (menuPreviewTex_) {
-            // What a TV shows of the 512x448 buffer: PAL fills 4:3 exactly,
-            // NTSC has fewer active lines so the picture is a touch wider
-            // (same approximations as the viewport TV frames).
-            const float aspect = menuPreviewMode_ == 1
-                                     ? 4.0f / 3.0f
-                                     : 480.0f / 448.0f * 4.0f / 3.0f;
-            float sw = ImGui::GetContentRegionAvail().x - scaled(8.0f);
-            if (sw > scaled(460.0f)) sw = scaled(460.0f);
-            if (sw < scaled(200.0f)) sw = scaled(200.0f);
-            const float sh = sw / aspect;
-            ImDrawList* dl = ImGui::GetWindowDrawList();
-            const ImVec2 p0 = ImGui::GetCursorScreenPos();
-            const ImVec2 p1(p0.x + sw, p0.y + sh);
-            // mock scene behind the menu: project sky over terrain green
-            const float* sc = project_.settings.skyColor;
-            dl->AddRectFilledMultiColor(
-                p0, ImVec2(p1.x, p0.y + sh * 0.55f),
-                IM_COL32((int)(project_.settings.skyTopColor[0] * 255),
-                         (int)(project_.settings.skyTopColor[1] * 255),
-                         (int)(project_.settings.skyTopColor[2] * 255), 255),
-                IM_COL32((int)(project_.settings.skyTopColor[0] * 255),
-                         (int)(project_.settings.skyTopColor[1] * 255),
-                         (int)(project_.settings.skyTopColor[2] * 255), 255),
-                IM_COL32((int)(sc[0] * 255), (int)(sc[1] * 255),
-                         (int)(sc[2] * 255), 255),
-                IM_COL32((int)(sc[0] * 255), (int)(sc[1] * 255),
-                         (int)(sc[2] * 255), 255));
-            dl->AddRectFilled(ImVec2(p0.x, p0.y + sh * 0.55f), p1,
-                              IM_COL32(96, 150, 72, 255));
-            if (m.pauseGame)  // the in-game dim overlay under pausing menus
-                dl->AddRectFilled(p0, p1, IM_COL32(0, 0, 0, 115));
-            // panel mapped from buffer coordinates (same math as buildScene)
-            const float sx = sw / 512.0f, sy = sh / 448.0f;
-            const float panelX = m.screenPos[0] * 512.0f - menuPreviewW_ * 0.5f;
-            const float panelY =
-                m.screenPos[1] * 448.0f - menuPreviewContentH_ * 0.5f;
-            const ImVec2 m0(p0.x + panelX * sx, p0.y + panelY * sy);
-            const ImVec2 m1(m0.x + menuPreviewW_ * sx,
-                            m0.y + menuPreviewContentH_ * sy);
-            dl->AddImage((ImTextureID)(intptr_t)menuPreviewTex_, m0, m1,
-                         ImVec2(0, 0),
-                         ImVec2(1.0f, (float)menuPreviewContentH_ /
-                                          (float)menuPreviewH_));
-            dl->AddRect(p0, p1, IM_COL32(255, 255, 255, 120));
-            dl->AddText(ImVec2(p0.x + 4, p1.y - 18), IM_COL32(255, 255, 255, 160),
-                        menuPreviewMode_ == 1 ? "PAL 4:3" : "NTSC");
-            ImGui::Dummy(ImVec2(sw, sh + 4.0f));
+        if (ImGui::SmallButton("+ Image (PNG)...")) {
+            const std::string src = pickPngFile();
+            if (!src.empty()) {
+                const std::filesystem::path srcPath(src);
+                const std::string fileName = sanitizeAssetName(srcPath.filename().string());
+                const std::filesystem::path destDir =
+                    std::filesystem::path(project_.dir) / "res" / "hud";
+                std::error_code ec;
+                std::filesystem::create_directories(destDir, ec);
+                std::filesystem::copy_file(srcPath, destDir / fileName,
+                                           std::filesystem::copy_options::overwrite_existing,
+                                           ec);
+                if (!ec) {
+                    MenuImage img;
+                    img.path = "res/hud/" + fileName;
+                    m.images.push_back(std::move(img));
+                    changed = true;
+                }
+            }
         }
+        ImGui::SameLine();
+        ImGui::TextDisabled("(?)");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Baked into the panel sprite - free at runtime.\n"
+                              "Flow slots stack in list order and push the text\n"
+                              "down; Background stretches under everything;\n"
+                              "Overlay draws over the text at its offset.");
+
+        ImGui::SeparatorText("Entries (dpad rows)");
+        static const char* kActionNames[] = {
+            "Close menu",     "Switch scene",      "Open save menu", "Open menu",
+            "Set save value", "Add to save value", "Flow event",     "Toggle",
+            "Choice",         "Apply video mode",  "Rebind key",     "Play credits",
+            "Label (not selectable)", "Skip cutscene"};
+        for (int e = 0; e < (int)m.entries.size(); ++e) {
+            MenuEntry& en = m.entries[e];
+            ImGui::PushID(e);
+
+            // reorder arrows (rows = dpad order in the game)
+            const bool canUp = e > 0;
+            const bool canDown = e + 1 < (int)m.entries.size();
+            ImGui::BeginDisabled(!canUp);
+            if (ImGui::ArrowButton("##up", ImGuiDir_Up)) {
+                std::swap(m.entries[e], m.entries[e - 1]);
+                changed = true;
+            }
+            ImGui::EndDisabled();
+            ImGui::SameLine(0.0f, 2.0f);
+            ImGui::BeginDisabled(!canDown);
+            if (ImGui::ArrowButton("##down", ImGuiDir_Down)) {
+                std::swap(m.entries[e], m.entries[e + 1]);
+                changed = true;
+            }
+            ImGui::EndDisabled();
+            ImGui::SameLine();
+
+            char labelBuf[64];
+            std::snprintf(labelBuf, sizeof(labelBuf), "%s", en.label.c_str());
+            ImGui::SetNextItemWidth(scaled(140.0f));
+            if (ImGui::InputText("##label", labelBuf, sizeof(labelBuf))) en.label = labelBuf;
+            changed |= ImGui::IsItemDeactivatedAfterEdit();
+            ImGui::SameLine();
+            changed |= textTokenPicker("labeltok", en.label);
+            ImGui::SameLine();
+            ImGui::SetNextItemWidth(scaled(150.0f));
+            if (ImGui::Combo("##action", &en.action, kActionNames,
+                             IM_ARRAYSIZE(kActionNames))) {
+                en.param.clear();
+                en.optionModes.clear();
+                // Stateful rows start with a sensible option set; everything
+                // else drops the list so it does not linger in the file.
+                if (en.action == MenuEntry::Toggle)
+                    en.options = {"Off", "On"};
+                else if (en.action == MenuEntry::Choice)
+                    en.options = {"Low", "Medium", "High"};
+                else
+                    en.options.clear();
+                changed = true;
+            }
+            ImGui::SameLine();
+
+            // Action target inline (scene / menu / value / event)
+            auto paramCombo = [&](const char* comboId, const char* hint, auto&& items,
+                                  auto&& nameOf) {
+                ImGui::SetNextItemWidth(scaled(120.0f));
+                if (ImGui::BeginCombo(comboId,
+                                      en.param.empty() ? hint : en.param.c_str())) {
+                    for (const auto& item : items) {
+                        const std::string& n = nameOf(item);
+                        if (ImGui::Selectable(n.c_str(), n == en.param)) {
+                            en.param = n;
+                            changed = true;
+                        }
+                    }
+                    ImGui::EndCombo();
+                }
+                ImGui::SameLine();
+            };
+            if (en.action == MenuEntry::SwitchScene) {
+                paramCombo("##scene", "<scene>", project_.scenes,
+                           [](const SceneData& s) -> const std::string& { return s.name; });
+            } else if (en.action == MenuEntry::OpenMenu) {
+                paramCombo("##menu", "<menu>", project_.menus,
+                           [](const GameMenu& gm) -> const std::string& { return gm.name; });
+            } else if (en.action == MenuEntry::SetValue ||
+                       en.action == MenuEntry::AddValue) {
+                paramCombo("##value", "<value>", project_.saveValues,
+                           [](const SaveValue& v) -> const std::string& { return v.name; });
+                ImGui::SetNextItemWidth(scaled(70.0f));
+                ImGui::DragFloat("##amount", &en.amount, 0.1f, 0.0f, 0.0f, "%.2f");
+                changed |= ImGui::IsItemDeactivatedAfterEdit();
+                ImGui::SameLine();
+            } else if (en.action == MenuEntry::FlowEvent) {
+                char eventBuf[64];
+                std::snprintf(eventBuf, sizeof(eventBuf), "%s", en.param.c_str());
+                ImGui::SetNextItemWidth(scaled(120.0f));
+                if (ImGui::InputText("##event", eventBuf, sizeof(eventBuf)))
+                    en.param = eventBuf;
+                changed |= ImGui::IsItemDeactivatedAfterEdit();
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Event name for the On Menu Event flow trigger.");
+                ImGui::SameLine();
+            } else if (en.action == MenuEntry::Toggle ||
+                       en.action == MenuEntry::Choice) {
+                paramCombo("##togglevalue", "<value>", project_.saveValues,
+                           [](const SaveValue& v) -> const std::string& { return v.name; });
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip(
+                        "Save value holding the state (the option index).\n"
+                        "Its default is the initial state; flow graphs react\n"
+                        "via Value At Least -> On Condition.");
+            } else if (en.action == MenuEntry::PlayCredits) {
+                paramCombo("##credits", "<roll>", project_.credits,
+                           [](const CreditsRoll& r) -> const std::string& { return r.name; });
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip(
+                        "Credits roll to play (Tools > Credits Editor). The menu\n"
+                        "closes first; where the player ends up afterwards is the\n"
+                        "roll's own finish action.");
+            } else if (en.action == MenuEntry::RebindKey) {
+                // Two references: WHICH action to rebind, and the save value the
+                // player's override is persisted in (docs/input-bindings.md).
+                ImGui::SetNextItemWidth(scaled(110.0f));
+                if (ImGui::BeginCombo("##rebindaction", en.bindAction.empty()
+                                                            ? "<action>"
+                                                            : en.bindAction.c_str())) {
+                    for (const InputAction& a : project_.input.actions) {
+                        if (!a.rebindable) continue;  // not offered to the player
+                        if (ImGui::Selectable(a.name.c_str(), a.name == en.bindAction)) {
+                            en.bindAction = a.name;
+                            if (en.label == "New entry" || en.label.empty())
+                                en.label = a.label;
+                            // Give the row its backing save value straight away -
+                            // without one the override cannot persist.
+                            if (en.param.empty())
+                                en.param =
+                                    ensureSaveValue(project_, "bind-" + a.name, 0.0f);
+                            changed = true;
+                        }
+                    }
+                    ImGui::EndCombo();
+                }
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip(
+                        "Input Map action this row rebinds. Only actions marked\n"
+                        "\"Player may rebind it in-game\" are listed.\n"
+                        "The row covers the PAD button only - keyboard/mouse keys\n"
+                        "stay as the Input Map authored them (that support is\n"
+                        "experimental and gets its own menu later).");
+                ImGui::SameLine();
+                paramCombo("##rebindvalue", "<value>", project_.saveValues,
+                           [](const SaveValue& v) -> const std::string& { return v.name; });
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip(
+                        "Save value the override is stored in (an inputCodes\n"
+                        "index; 0 = the project's preset binding). Persists in\n"
+                        "memory card saves like every other menu state.");
+            } else if (en.action == MenuEntry::ApplyVideo) {
+                ImGui::TextDisabled("(?)");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip(
+                        "Commits the display-mode row's staged selection (any\n"
+                        "menu's). While a menu has this row, the display-mode\n"
+                        "row only cycles its value - the screen switches when\n"
+                        "the player picks APPLY (with the keep-or-revert\n"
+                        "prompt). Without one, the display row switches on\n"
+                        "every change, closing the menu each time.");
+                ImGui::SameLine();
+            } else if (en.action == MenuEntry::SkipCutscene) {
+                ImGui::TextDisabled(m.skipMenu ? "(?)" : "(!)");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip(
+                        m.skipMenu
+                            ? "Ends the running cutscene and closes the menu."
+                            : "Unreachable: this is not the project's skip\n"
+                              "screen. Tick \"Cutscene skip screen\" above.");
+                ImGui::SameLine();
+            }
+
+            if (ImGui::SmallButton("x##delete")) {
+                m.entries.erase(m.entries.begin() + e);
+                changed = true;
+                ImGui::PopID();
+                break;
+            }
+
+            // Option labels on their own row (Toggle: off/on pair; Choice: a
+            // reorderable-by-editing list). Cross / dpad cycle these in-game.
+            if (en.action == MenuEntry::Toggle || en.action == MenuEntry::Choice) {
+                ImGui::Indent(scaled(46.0f));
+                if (en.settingBind == MenuEntry::BindDisplayMode) {
+                    // Display-mode rows: each option picks an engine scan mode
+                    // from a dropdown, with a free-text label next to it (rename
+                    // "480i" to "576i" for a PAL release). The mode drives the
+                    // generated game (MenuEntryData::optModes); the label is
+                    // only what the row draws. Index 0 is the -1 sentinel: the
+                    // project-default mode, resolved at boot on the player's
+                    // console (region + the PAL-picture preference).
+                    static const char* kDispModeNames[] = {"DEFAULT", "480i",
+                                                           "480p",    "1080i",
+                                                           "480i FIELD", "576i"};
+                    static const char* kDispModeDescs[] = {
+                        "Default (project) - the mode the game boots in",
+                        "480i - interlaced (stock, letterboxed 576i on PAL)",
+                        "480p - progressive (component, 60 Hz)",
+                        "1080i - HD (component, 60 Hz)",
+                        "480i FIELD - field rendering (half VRAM)",
+                        "576i - full-height PAL (always 50 Hz)"};
+                    if (en.options.empty()) {
+                        en.options = {"DEFAULT", "480p"};
+                        en.optionModes = {-1, 1};
+                    }
+                    if (en.optionModes.size() != en.options.size()) {
+                        en.optionModes.resize(en.options.size());
+                        for (size_t o = 0; o < en.optionModes.size(); ++o)
+                            en.optionModes[o] = (int)(o < 4 ? o : 4);
+                    }
+                    for (int o = 0; o < (int)en.options.size(); ++o) {
+                        ImGui::PushID(o);
+                        int mode = en.optionModes[o];  // dropdown index = mode + 1
+                        if (mode < -1) mode = -1;
+                        if (mode > 4) mode = 4;
+                        ImGui::SetNextItemWidth(scaled(230.0f));
+                        if (ImGui::BeginCombo("##optmode",
+                                              kDispModeDescs[mode + 1])) {
+                            for (int mo = -1; mo < 5; ++mo)
+                                if (ImGui::Selectable(kDispModeDescs[mo + 1],
+                                                      mo == mode)) {
+                                    en.optionModes[o] = mo;
+                                    en.options[o] = kDispModeNames[mo + 1];
+                                    changed = true;
+                                }
+                            ImGui::EndCombo();
+                        }
+                        ImGui::SameLine();
+                        char optBuf[32];
+                        std::snprintf(optBuf, sizeof(optBuf), "%s",
+                                      en.options[o].c_str());
+                        ImGui::SetNextItemWidth(scaled(110.0f));
+                        if (ImGui::InputText("##opt", optBuf, sizeof(optBuf)))
+                            en.options[o] = optBuf;
+                        changed |= ImGui::IsItemDeactivatedAfterEdit();
+                        if (ImGui::IsItemHovered())
+                            ImGui::SetTooltip(
+                                "Label drawn on the row (free text) - the\n"
+                                "dropdown decides the actual mode.");
+                        ImGui::SameLine();
+                        ImGui::BeginDisabled((int)en.options.size() <= 1);
+                        if (ImGui::SmallButton("x##optdel")) {
+                            en.options.erase(en.options.begin() + o);
+                            en.optionModes.erase(en.optionModes.begin() + o);
+                            changed = true;
+                            ImGui::EndDisabled();
+                            ImGui::PopID();
+                            break;
+                        }
+                        ImGui::EndDisabled();
+                        ImGui::PopID();
+                    }
+                    if ((int)en.options.size() < menubake::kMaxOptions) {
+                        if (ImGui::SmallButton("+##optadd")) {
+                            int mode = 0;  // first mode this row doesn't offer yet
+                            for (int mo = -1; mo < 5; ++mo) {
+                                bool used = false;
+                                for (int v : en.optionModes) used |= (v == mo);
+                                if (!used) {
+                                    mode = mo;
+                                    break;
+                                }
+                            }
+                            en.options.push_back(kDispModeNames[mode + 1]);
+                            en.optionModes.push_back(mode);
+                            changed = true;
+                        }
+                    }
+                } else if (en.action == MenuEntry::Toggle) {
+                    if (en.options.size() < 2) en.options = {"Off", "On"};
+                    char offBuf[32], onBuf[32];
+                    std::snprintf(offBuf, sizeof(offBuf), "%s", en.options[0].c_str());
+                    std::snprintf(onBuf, sizeof(onBuf), "%s", en.options[1].c_str());
+                    ImGui::SetNextItemWidth(scaled(90.0f));
+                    if (ImGui::InputText("Off label", offBuf, sizeof(offBuf)))
+                        en.options[0] = offBuf;
+                    changed |= ImGui::IsItemDeactivatedAfterEdit();
+                    ImGui::SameLine();
+                    ImGui::SetNextItemWidth(scaled(90.0f));
+                    if (ImGui::InputText("On label", onBuf, sizeof(onBuf)))
+                        en.options[1] = onBuf;
+                    changed |= ImGui::IsItemDeactivatedAfterEdit();
+                } else {
+                    for (int o = 0; o < (int)en.options.size(); ++o) {
+                        ImGui::PushID(o);
+                        char optBuf[32];
+                        std::snprintf(optBuf, sizeof(optBuf), "%s",
+                                      en.options[o].c_str());
+                        ImGui::SetNextItemWidth(scaled(110.0f));
+                        if (ImGui::InputText("##opt", optBuf, sizeof(optBuf)))
+                            en.options[o] = optBuf;
+                        changed |= ImGui::IsItemDeactivatedAfterEdit();
+                        ImGui::SameLine();
+                        ImGui::BeginDisabled((int)en.options.size() <= 1);
+                        if (ImGui::SmallButton("x##optdel")) {
+                            en.options.erase(en.options.begin() + o);
+                            changed = true;
+                            ImGui::EndDisabled();
+                            ImGui::PopID();
+                            break;
+                        }
+                        ImGui::EndDisabled();
+                        if (o + 1 < (int)en.options.size() ||
+                            (int)en.options.size() < menubake::kMaxOptions)
+                            ImGui::SameLine();
+                        ImGui::PopID();
+                    }
+                    if ((int)en.options.size() < menubake::kMaxOptions) {
+                        if (ImGui::SmallButton("+##optadd")) {
+                            en.options.push_back("Option");
+                            changed = true;
+                        }
+                    }
+                }
+                // Setting binding: makes this stateful row drive a built-in engine
+                // setting at runtime (no flow graph). The option index maps evenly
+                // onto the setting - see the Insert-option-block presets.
+                ImGui::SetNextItemWidth(scaled(150.0f));
+                if (ImGui::Combo("Bind##optbind", &en.settingBind,
+                                 "None\0Music volume\0Sound volume\0Deadzone\0"
+                                 "Stick curve\0Display mode\0Widescreen\0"
+                                 "Player count\0Input preset\0")) {
+                    // Display rows carry an explicit option->mode table (edited
+                    // above); every other bind maps by option position.
+                    if (en.settingBind == MenuEntry::BindDisplayMode) {
+                        en.optionModes.resize(en.options.size());
+                        for (size_t o = 0; o < en.optionModes.size(); ++o)
+                            en.optionModes[o] = (int)(o < 4 ? o : 4);
+                    } else {
+                        en.optionModes.clear();
+                    }
+                    // An input-preset row's options ARE the presets, in order -
+                    // the option index is the preset index at runtime.
+                    if (en.settingBind == MenuEntry::BindInputPreset) {
+                        en.options.clear();
+                        for (const InputPreset& pr : project_.input.presets)
+                            en.options.push_back(pr.name);
+                    }
+                    changed = true;
+                }
+                ImGui::SameLine();
+                ImGui::TextDisabled("(?)");
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip(
+                        "Drives a built-in setting from this row's option index,\n"
+                        "spread evenly across the options: volume 0-100%%, deadzone\n"
+                        "0-0.4, aim curve 1-3, display DEFAULT (the project boot\n"
+                        "mode)/480i/480p/1080i/480i FIELD/576i (each option picks\n"
+                        "its mode from a dropdown;\n"
+                        "add an Apply video mode row so switching waits for APPLY),\n"
+                        "aspect 4:3/16:9, player count 1P/2P (needs a Multiplayer\n"
+                        "mode + a second Player object), input preset (the Tools >\n"
+                        "Input Map presets, in order). None = a plain save-value\n"
+                        "row (flow graphs react).");
+                ImGui::Unindent(scaled(46.0f));
+            }
+
+            // --- styling + gating (docs/menu-styles.md) ---------------------
+            // Folded away: four fields most rows never need, and the row above
+            // has to stay readable.
+            ImGui::Indent(scaled(46.0f));
+            if (ImGui::TreeNode("Style / description")) {
+                char clsBuf[64];
+                std::snprintf(clsBuf, sizeof(clsBuf), "%s", en.styleClass.c_str());
+                ImGui::SetNextItemWidth(scaled(150.0f));
+                if (ImGui::InputText("Class", clsBuf, sizeof(clsBuf)))
+                    en.styleClass = clsBuf;
+                changed |= ImGui::IsItemDeactivatedAfterEdit();
+                prefHelp("Styles this row through `row.<class>` in the menu's\n"
+                         "stylesheet (Style tab). A header row, a danger row, a\n"
+                         "locked row - anything you want to look different.");
+
+                char iconBuf[64];
+                std::snprintf(iconBuf, sizeof(iconBuf), "%s", en.icon.c_str());
+                ImGui::SetNextItemWidth(scaled(150.0f));
+                if (ImGui::InputText("Icon", iconBuf, sizeof(iconBuf)))
+                    en.icon = iconBuf;
+                changed |= ImGui::IsItemDeactivatedAfterEdit();
+                prefHelp("A Tools > UI Editor button-icon name, drawn in the row's\n"
+                         "icon column (give `row` an `icon-size` first). A\n"
+                         "{{token}} inside the label works too and needs nothing\n"
+                         "here - this one is for a column that lines up.");
+
+                char descBuf[256];
+                std::snprintf(descBuf, sizeof(descBuf), "%s", en.description.c_str());
+                ImGui::SetNextItemWidth(scaled(300.0f));
+                if (ImGui::InputText("Description", descBuf, sizeof(descBuf)))
+                    en.description = descBuf;
+                changed |= ImGui::IsItemDeactivatedAfterEdit();
+                prefHelp("Shown while this row is selected, in the panel's\n"
+                         "description pane. The pane only exists once the\n"
+                         "stylesheet gives `description` a height.");
+
+                // Same shape as paramCombo above, but writing enabledWhen. Every
+                // entry carries an explicit ##id: a Selectable's LABEL is its
+                // ImGui id, and a save value sharing a name with anything else in
+                // the list would collide (the droneui.cpp rule).
+                ImGui::SetNextItemWidth(scaled(150.0f));
+                if (ImGui::BeginCombo("Enabled when", en.enabledWhen.empty()
+                                                          ? "<always>"
+                                                          : en.enabledWhen.c_str())) {
+                    if (ImGui::Selectable("<always>##ew_none", en.enabledWhen.empty())) {
+                        en.enabledWhen.clear();
+                        changed = true;
+                    }
+                    for (size_t vi = 0; vi < project_.saveValues.size(); ++vi) {
+                        const std::string& n = project_.saveValues[vi].name;
+                        char id[96];
+                        std::snprintf(id, sizeof(id), "%s##ew%zu", n.c_str(), vi);
+                        if (ImGui::Selectable(id, n == en.enabledWhen)) {
+                            en.enabledWhen = n;
+                            changed = true;
+                        }
+                    }
+                    ImGui::EndCombo();
+                }
+                prefHelp("A save value that gates the row: 0 = the row draws in its\n"
+                         "`:disabled` style and the cursor skips it. Empty = always\n"
+                         "usable. This is how a LOAD GAME row greys out until\n"
+                         "there is something to load.");
+                ImGui::TreePop();
+            }
+            ImGui::Unindent(scaled(46.0f));
+            ImGui::PopID();
+        }
+        if ((int)m.entries.size() < menubake::kMaxEntries) {
+            if (ImGui::SmallButton("+ Entry")) {
+                m.entries.push_back(MenuEntry{});
+                changed = true;
+            }
+            ImGui::SameLine();
+            if (ImGui::SmallButton("+ Option block")) ImGui::OpenPopup("##optblock");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Insert a ready-made setting row (backed by a save value):\n"
+                    "volume, controller deadzone / aim curve, display mode,\n"
+                    "aspect ratio, player count (1P/2P, two-player modes).\n"
+                    "Restyle and relabel it like any other entry.");
+            if (ImGui::BeginPopup("##optblock")) {
+                static const char* kBlockMenu[] = {
+                    "Music volume", "Sound volume", "Controller deadzone",
+                    "Aim response curve", "Display mode", "Widescreen (aspect)",
+                    "Player count (1P/2P)"};
+                for (int b = 0; b < kOptionBlockCount; ++b)
+                    if (ImGui::Selectable(kBlockMenu[b])) {
+                        addOptionBlock(project_, m, b);
+                        changed = true;
+                    }
+                ImGui::Separator();
+                if (ImGui::Selectable("Key bindings (all rebindable actions)")) {
+                    // One Rebind key row per action + a preset picker: the whole
+                    // controls page (docs/input-bindings.md).
+                    addRebindRows(project_, m);
+                    changed = true;
+                }
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip(
+                        "Adds a \"Rebind key\" row for every Input Map action\n"
+                        "marked \"Player may rebind it in-game\", each backed by\n"
+                        "its own save value, plus a preset picker when the project\n"
+                        "has more than one preset.");
+                ImGui::Separator();
+                if (ImGui::Selectable("Apply video mode (row)")) {
+                    m.entries.push_back(makeApplyVideoEntry());
+                    changed = true;
+                }
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip(
+                        "Commits the Display mode row's selection. With this row\n"
+                        "anywhere in the project, cycling the display option only\n"
+                        "stages it - the screen switches when the player picks\n"
+                        "APPLY (keep-or-revert prompt included).");
+                ImGui::EndPopup();
+            }
+        } else {
+            ImGui::TextDisabled("Max %d entries per menu.", menubake::kMaxEntries);
+        }
+
+            ImGui::EndTabItem();
+        }
+        if (ImGui::BeginTabItem("Style")) {
+            drawMenuStyleTab(m, changed);
+            ImGui::EndTabItem();
+        }
+        if (ImGui::BeginTabItem("Stylesheet")) {
+            drawMenuStyleText(m, changed);
+            ImGui::EndTabItem();
+        }
+        ImGui::EndTabBar();
     }
 
     ImGui::EndChild();
     ImGui::End();
 
     // commitChange: renames/deletes touch flow graphs (part of undo snapshots)
-    if (changed) commitChange();
+    if (changed ||
+        project::sectionJson(project_, project::Section::Menus) != menusBefore)
+        commitChange();
 }
 
 void App::drawScriptsSection() {
@@ -9557,8 +13509,45 @@ void App::drawScriptsSection() {
         }
     }
 
+    // The project's VU programs (src/vu/*.cpp, docs/vu-authoring.md). Listed
+    // HERE rather than in the VU panel because that is what they are - scripts
+    // the project wrote - and because a file nobody can find is a feature
+    // nobody uses. They are a separate group, not part of the tree above: they
+    // do not run on the EE at all, they run on the host at build time and leave
+    // a microprogram behind, so filing them next to object scripts without
+    // saying so would be a lie about what they do.
+    const std::filesystem::path vuDir =
+        std::filesystem::path(project_.dir) / "src" / "vu";
+    std::vector<std::string> vuFiles;
+    if (std::filesystem::exists(vuDir, ec)) {
+        for (std::filesystem::directory_iterator it(vuDir, ec), end;
+             it != end && !ec; it.increment(ec))
+            if (it->is_regular_file(ec) && it->path().extension() == ".cpp")
+                vuFiles.push_back(it->path().filename().string());
+        std::sort(vuFiles.begin(), vuFiles.end());
+    }
+    if (!vuFiles.empty()) {
+        if (ImGui::TreeNodeEx("VU programs", ImGuiTreeNodeFlags_DefaultOpen |
+                                                 ImGuiTreeNodeFlags_SpanAvailWidth)) {
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "src\\vu\\*.cpp - C++ compiled and RUN on the host at build\n"
+                    "time, leaving a VU1 microprogram in the ELF. They replace\n"
+                    "the engine's resident program for the material classes\n"
+                    "they claim (docs/vu-authoring.md).");
+            for (const std::string& f : vuFiles) {
+                ImGui::Bullet();
+                ImGui::SameLine();
+                if (ImGui::Selectable(f.c_str())) openInVSCode("src/vu/" + f);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Open in VS Code");
+            }
+            ImGui::TreePop();
+        }
+    }
+
     if (!any) {
-        ImGui::TextDisabled("No scripts yet.");
+        if (vuFiles.empty()) ImGui::TextDisabled("No scripts yet.");
         return;
     }
 
@@ -9603,8 +13592,39 @@ void App::drawNewScriptModal() {
         return;
 
     ImGui::InputText("File name", newScriptName_, sizeof(newScriptName_));
-    ImGui::TextDisabled("Creates src/scripts/%s.cpp (subfolders allowed: ai/guard)",
-                        newScriptName_);
+
+    // The three kinds are not variants of one thing and the wording says so:
+    // one runs on the EE every frame, the other two run on the HOST at build
+    // time and leave a microprogram behind - one that draws, one that computes.
+    // Attaching either of those to an object is meaningless (a VU1 program
+    // replaces a material class, a VU0 kernel is a function your game calls) so
+    // the choice is disabled when the modal was opened from
+    // Properties > Scripts.
+    ImGui::BeginDisabled(newScriptAttachTo_ >= 0);
+    if (ImGui::RadioButton("Game script (runs on the EE)", newScriptKind_ == 0))
+        newScriptKind_ = 0;
+    ImGui::SameLine();
+    if (ImGui::RadioButton("VU program (runs on VU1)", newScriptKind_ == 1))
+        newScriptKind_ = 1;
+    ImGui::SameLine();
+    if (ImGui::RadioButton("VU0 kernel (computes)", newScriptKind_ == 2))
+        newScriptKind_ = 2;
+    ImGui::EndDisabled();
+
+    if (newScriptKind_ == 1)
+        ImGui::TextDisabled(
+            "Creates src/vu/%s.cpp - C++ compiled and run on the host at build\n"
+            "time, replacing the engine's VU1 program for the classes it claims.",
+            newScriptName_);
+    else if (newScriptKind_ == 2)
+        ImGui::TextDisabled(
+            "Creates src/vu0/%s.cpp - the same C++, on the other vector unit:\n"
+            "quadwords in, quadwords out, and a driver class your game calls.\n"
+            "Costs nothing out of the VU1 drawing budget.",
+            newScriptName_);
+    else
+        ImGui::TextDisabled("Creates src/scripts/%s.cpp (subfolders allowed: ai/guard)",
+                            newScriptName_);
     if (newScriptAttachTo_ >= 0 && newScriptAttachTo_ < (int)project_.objects().size())
         ImGui::TextDisabled("Attaches it to \"%s\".",
                             project_.objects()[newScriptAttachTo_].name.c_str());
@@ -9640,8 +13660,10 @@ void App::drawNewScriptModal() {
             if (isdigit((unsigned char)className[0])) className = "Script" + className;
             className[0] = (char)toupper((unsigned char)className[0]);
 
+            const char* const kDirs[3] = {"src/scripts", "src/vu", "src/vu0"};
             const std::filesystem::path path =
-                std::filesystem::path(project_.dir) / "src" / "scripts" / (name + ".cpp");
+                std::filesystem::path(project_.dir) / kDirs[newScriptKind_] /
+                (name + ".cpp");
             std::error_code ec;
             if (std::filesystem::exists(path, ec)) {
                 newScriptError_ = "Script already exists: " + name + ".cpp";
@@ -9649,8 +13671,16 @@ void App::drawNewScriptModal() {
                 std::filesystem::create_directories(path.parent_path(), ec);
                 std::ofstream f(path, std::ios::binary);
                 if (f) {
-                    f << templates::scriptStub(project_, className, name + ".cpp");
+                    f << (newScriptKind_ == 1 ? templates::vuScriptStub(className)
+                          : newScriptKind_ == 2
+                              ? templates::vuKernelStub(className)
+                              : templates::scriptStub(project_, className,
+                                                      name + ".cpp"));
                     f.close();
+                    // The framework has to be next to it before the file is
+                    // opened, or the include the stub carries is red in the
+                    // editor the user just switched to.
+                    if (newScriptKind_ != 0) project::refreshGenerated(project_);
                     // Invoked from Properties > Scripts: attach the new class
                     // to the object right away.
                     if (newScriptAttachTo_ >= 0 &&
@@ -9697,9 +13727,9 @@ void App::drawDeleteSceneModal() {
                         "go with it. Undo (Ctrl+Z) can bring the scene back,\n"
                         "but not its heightmap.",
                         (int)sc.objects.size());
-    if (deleteScenePending_ == 0)
+    if (deleteScenePending_ == project_.startScene)
         ImGui::TextColored(ImVec4(1.0f, 0.75f, 0.3f, 1.0f),
-                           "This is the start scene - the next one takes its place.");
+                           "This is the start scene - the first one takes its place.");
 
     ImGui::Separator();
     if (ImGui::Button("Delete", ImVec2(scaled(120), 0))) {
@@ -9707,6 +13737,14 @@ void App::drawDeleteSceneModal() {
         if (project_.activeScene >= (int)project_.scenes.size() ||
             project_.activeScene == deleteScenePending_)
             project_.activeScene = 0;
+        // Deleting shifts every later index down by one, so the start scene
+        // follows its scene rather than staying on a number. Deleting the start
+        // scene itself falls back to the first one.
+        if (project_.startScene == deleteScenePending_)
+            project_.startScene = 0;
+        else if (project_.startScene > deleteScenePending_)
+            --project_.startScene;
+        project::clampStartScene(project_);
         clearSelection();
         flowGraphObject_ = -1;
         flowPositionsApplied_ = false;
@@ -9943,10 +13981,14 @@ void App::performAssetDelete(const PendingAssetDelete& d) {
                 // above the erased one shift down by one.
                 auto fixLayer = [&](int& L) {
                     if (L > d.hudIndex) --L;
-                    if (L >= (int)project_.hud.size()) L = -1;
+                    // `>` and not `>=`, matching project::load's clamp: an
+                    // index equal to the sprite count is already topmost, and
+                    // motion blur sits at 0 even when the stack empties.
+                    if (L > (int)project_.hud.size()) L = -1;
                 };
                 fixLayer(project_.hudBloomLayer);
                 fixLayer(project_.hudGrainLayer);
+                fixLayer(project_.hudMotionBlurLayer);
                 for (ScreenFxPlacement& f : project_.screenFx) fixLayer(f.layer);
             }
             selectedHud_ = -1;
@@ -9958,7 +14000,10 @@ void App::performAssetDelete(const PendingAssetDelete& d) {
                 hudTexCache_.erase(d.relPath);
             }
             statusMessage_ = "Deleted " + d.label;
-            saveAll("Saved");  // HUD edits are not on the undo stack
+            // Like every other branch of this function: mark, don't write. The
+            // HUD lives outside the undo snapshot, so commitChange() pushes
+            // nothing here - it marks dirty and advances the session serial.
+            commitChange();
             break;
         }
     }
@@ -10022,41 +14067,212 @@ void App::drawNewSceneModal() {
     ImGui::EndPopup();
 }
 
-void App::drawOutputWindow() {
-    ImGui::Begin("Output");
-    const std::string log = runner_.log();
+// ---------------------------------------------------------------------------
+// The log panels (docs/log-panels.md). Output (the Runner's build/run stream)
+// and Debug (the game's own log.txt / PCSX2's emulog.txt) are the same problem:
+// a growing pile of lines whose interesting part is a handful of warnings and
+// errors buried in tool chatter. logview.cpp classifies every line into
+// error / warning / info / verbose; the two functions below draw that
+// classification - a filter chip per level with its count, then the lines
+// coloured by level - and both panels share the body so they cannot drift.
+// ---------------------------------------------------------------------------
 
-    if (ImGui::SmallButton("Clear")) runner_.clearLog();
+// A level's colour. Meanings, not literals (docs/editor-theme.md): an error is
+// the theme's danger colour, ordinary tool output its dim text.
+static ImVec4 logLevelColor(logview::Level l) {
+    const theme::Semantics& s = theme::semantics();
+    switch (l) {
+        case logview::Level::Error: return s.danger;
+        case logview::Level::Warning: return s.warn;
+        case logview::Level::Info: return s.text;
+        default: return s.textDim;
+    }
+}
+
+// One filter chip - "3 errors", in its level's colour, quiet while the level is
+// hidden. Returns true when clicked; the caller flips the mask bit.
+static bool logLevelChip(logview::Level l, int count, bool on) {
+    ImVec4 col = logLevelColor(l);
+    if (!on) col.w *= 0.40f;  // hidden, but still readable enough to click back
+    char label[64];
+    // The count is part of the label, so the id has to be pinned separately -
+    // otherwise every appended line gives the chip a new id and drops its hover.
+    snprintf(label, sizeof(label), "%d %s##logchip%d", count,
+             logview::label(l, count != 1), (int)l);
+    ImGui::PushStyleColor(ImGuiCol_Text, col);
+    ImGui::PushStyleColor(ImGuiCol_Button,
+                          ImGui::GetStyleColorVec4(on ? ImGuiCol_FrameBgActive
+                                                      : ImGuiCol_FrameBg));
+    const bool clicked = ImGui::SmallButton(label);
+    ImGui::PopStyleColor(2);
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(on ? "Showing these lines - click to hide them"
+                             : "These lines are hidden - click to show them");
+    return clicked;
+}
+
+// Hands a panel its current text and classifies what is new in it.
+void App::logSetText(LogView& v, std::string&& text) {
+    // Append-only is the common case - a build streaming lines in - so keep the
+    // classified prefix and look only at what arrived: re-classifying a
+    // megabyte on every appended line costs far more than a frame. Anything
+    // else (Clear, a new run recreating bin/log.txt, the Debug window's source
+    // combo, a 1 MB tail whose start has moved) starts over.
+    const bool appended =
+        text.size() >= v.text.size() && text.compare(0, v.text.size(), v.text) == 0;
+    if (appended && text.size() == v.text.size()) return;  // nothing new
+    if (!appended) {
+        v.lines.clear();
+        v.parsed = 0;
+        v.complete = 0;
+        v.state = logview::State{};
+    }
+    v.text = std::move(text);
+    v.lines.resize(v.complete);  // drop last frame's provisional tail line
+    v.parsed = logview::parse(v.text, v.parsed, v.state, v.lines);
+    v.complete = v.lines.size();
+    logview::appendPartial(v.text, v.parsed, v.state, v.lines);
+    v.dirty = true;
+}
+
+// Rebuilds what the draw needs from (lines, mask). Call once per frame per
+// panel, before the panel's own buttons - they read the counts and the filtered
+// text. Cheap while nothing changed.
+void App::logRefresh(LogView& v) {
+    const float font = ImGui::GetFontSize();
+    if (!v.dirty && v.widthFont == font) return;
+
+    v.visible.clear();
+    for (int i = 0; i < logview::kLevelCount; ++i) v.counts[i] = 0;
+    size_t widest = 0, widestLen = 0;
+    for (size_t i = 0; i < v.lines.size(); ++i) {
+        const logview::Line& ln = v.lines[i];
+        // The chips count ENTRIES, not lines: a compiler error plus its source
+        // snippet is one problem, and "4 errors" for it would be a lie.
+        if (!ln.cont) v.counts[(int)ln.level]++;
+        if (!(v.mask & logview::bit(ln.level))) continue;
+        v.visible.push_back((int)i);
+        if (ln.end - ln.begin > widestLen) {
+            widestLen = ln.end - ln.begin;
+            widest = i;
+        }
+    }
+    // The horizontal scroll range. A clipper only submits the lines on screen,
+    // so the child cannot measure its own content width - and measuring every
+    // line of a megabyte log is not affordable per rebuild. The longest line in
+    // BYTES stands in for the widest in pixels (a log's lines are all the same
+    // typeface), and one CalcTextSize on it is free.
+    v.width = 0.0f;
+    if (widestLen) {
+        const logview::Line& ln = v.lines[widest];
+        v.width = ImGui::CalcTextSize(v.text.c_str() + ln.begin, v.text.c_str() + ln.end).x;
+    }
+    v.widthFont = font;
+    // Only the selectable-text mode needs the lines as one string; Copy builds
+    // its own on demand, so an ordinary streaming build pays no joins.
+    if (v.selectText)
+        v.joined = logview::join(v.text, v.lines, v.mask);
+    else
+        v.joined.clear();
+    v.dirty = false;
+}
+
+void App::drawLogPanel(const char* id, LogView& v) {
+    // Here rather than in the callers: a Clear / source switch above this point
+    // has just replaced v.text and cleared v.lines, and `visible` still indexes
+    // the text that is gone. A no-op when nothing changed.
+    logRefresh(v);
+
+    // Most severe first - that is the order a reader scans a log console in.
+    for (int i = logview::kLevelCount - 1; i >= 0; --i) {
+        const logview::Level l = (logview::Level)i;
+        if (i != logview::kLevelCount - 1) ImGui::SameLine();
+        if (logLevelChip(l, v.counts[i], (v.mask & logview::bit(l)) != 0)) {
+            v.mask ^= logview::bit(l);
+            v.dirty = true;
+            saveGlobalConfig();
+        }
+    }
     ImGui::SameLine();
-    if (ImGui::SmallButton("Copy all")) ImGui::SetClipboardText(log.c_str());
+    if (ImGui::Checkbox("Select text", &v.selectText)) {
+        v.dirty = true;
+        v.scrollBottom = true;  // the two modes measure their content differently
+        saveGlobalConfig();
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "Draw the filtered log in a read-only text box so it can be\n"
+            "selected with the mouse. ImGui's editable text is one colour,\n"
+            "so this trades the per-level colouring for selection - the\n"
+            "filter above keeps working either way.");
     ImGui::Separator();
 
-    // Own scrolling child so we can drive the scroll directly. The nested
-    // InputTextMultiline keeps the text mouse-selectable; sizing it to its own
-    // content means this child (not the input) owns the scrollbars, so
-    // GetScrollY/SetScrollHereY below actually refer to what we see.
-    ImGui::BeginChild("##logscroll", ImVec2(0.0f, 0.0f), ImGuiChildFlags_None,
+    // Own scrolling child so the scroll can be driven directly (see the
+    // autoscroll note below).
+    if (!v.selectText)
+        ImGui::SetNextWindowContentSize(
+            ImVec2(v.width + ImGui::GetStyle().FramePadding.x * 2.0f, 0.0f));
+    ImGui::BeginChild(id, ImVec2(0.0f, 0.0f), ImGuiChildFlags_None,
                       ImGuiWindowFlags_HorizontalScrollbar);
 
-    const ImVec2 pad = ImGui::GetStyle().FramePadding;
-    const ImVec2 textSize = ImGui::CalcTextSize(log.c_str(), nullptr, false);
-    const ImVec2 avail = ImGui::GetContentRegionAvail();
-    const ImVec2 inputSize(ImMax(textSize.x + pad.x * 2.0f, avail.x),
-                           ImMax(textSize.y + pad.y * 2.0f, avail.y));
-    ImGui::InputTextMultiline("##log", const_cast<char*>(log.c_str()), log.size() + 1,
-                              inputSize, ImGuiInputTextFlags_ReadOnly);
+    if (v.selectText) {
+        // Sizing the input to its own content means this child (not the input)
+        // owns the scrollbars, so GetScrollY/SetScrollHereY refer to what we see.
+        const ImVec2 pad = ImGui::GetStyle().FramePadding;
+        const ImVec2 textSize = ImGui::CalcTextSize(v.joined.c_str(), nullptr, false);
+        const ImVec2 avail = ImGui::GetContentRegionAvail();
+        const ImVec2 inputSize(ImMax(textSize.x + pad.x * 2.0f, avail.x),
+                               ImMax(textSize.y + pad.y * 2.0f, avail.y));
+        ImGui::InputTextMultiline("##logtext", const_cast<char*>(v.joined.c_str()),
+                                  v.joined.size() + 1, inputSize,
+                                  ImGuiInputTextFlags_ReadOnly);
+    } else if (v.visible.empty()) {
+        // Say WHY it is empty: an all-levels-off filter otherwise reads exactly
+        // like a log that has nothing in it.
+        if (v.lines.empty())
+            ImGui::TextDisabled("(nothing logged yet)");
+        else
+            ImGui::TextDisabled("%d line%s hidden by the filter above.",
+                                (int)v.lines.size(), v.lines.size() == 1 ? "" : "s");
+    } else {
+        ImGuiListClipper clipper;
+        clipper.Begin((int)v.visible.size());
+        while (clipper.Step()) {
+            for (int i = clipper.DisplayStart; i < clipper.DisplayEnd; ++i) {
+                const logview::Line& ln = v.lines[v.visible[i]];
+                ImGui::PushStyleColor(ImGuiCol_Text, logLevelColor(ln.level));
+                ImGui::TextUnformatted(v.text.c_str() + ln.begin, v.text.c_str() + ln.end);
+                ImGui::PopStyleColor();
+            }
+        }
+    }
 
     // Stick to the bottom while new lines arrive, but only when the user is
     // already at the bottom (scrolling up to read or select holds position).
     // GetScrollMaxY() lags one frame behind the content just appended, so when
     // we were pinned last frame Scroll.y still equals it here and the test
     // passes; once the user scrolls up it no longer does and we let go.
-    static size_t lastLogSize = 0;
-    if (log.size() != lastLogSize && ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 1.0f)
+    if (v.scrollBottom ||
+        (v.visible.size() != v.shown && ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 1.0f))
         ImGui::SetScrollHereY(1.0f);
-    lastLogSize = log.size();
+    v.scrollBottom = false;
+    v.shown = v.visible.size();
 
     ImGui::EndChild();
+}
+
+void App::drawOutputWindow() {
+    ImGui::Begin("Output");
+    logSetText(logOut_, runner_.log());
+
+    if (ImGui::SmallButton("Clear")) runner_.clearLog();
+    ImGui::SameLine();
+    if (ImGui::SmallButton("Copy"))
+        ImGui::SetClipboardText(logview::join(logOut_.text, logOut_.lines, logOut_.mask).c_str());
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Copies the lines currently shown - the filter applies.");
+    ImGui::SameLine();
+    drawLogPanel("##logscroll", logOut_);
     ImGui::End();
 }
 
@@ -10068,18 +14284,35 @@ void App::drawOutputWindow() {
 // emulog.txt - boot progress, BIOS/ELF-load errors). The game log is the
 // primary channel; EE printf does not reliably reach emulog (see tyra-testing).
 // ---------------------------------------------------------------------------
+
+// "Run on PS2" games do NOT write bin/log.txt: the generated main.cpp turns
+// Tyra::Info::writeLogsToFile off under ps2link, because a host: write per log
+// line is a network round trip, and ps2link forwards the EE console instead.
+// That stream reaches the editor as "[ps2] ..." lines in the runner log, so the
+// Debug window's "Game log" falls back to it - same window, same severity
+// classification, whichever transport the game was launched on.
+static std::string ps2ConsoleLog(const std::string& runnerLog) {
+    static const std::string kTag = "[ps2] ";
+    std::string out;
+    for (size_t i = 0; i < runnerLog.size();) {
+        size_t e = runnerLog.find('\n', i);
+        if (e == std::string::npos) e = runnerLog.size();
+        const size_t tag = runnerLog.find(kTag, i);
+        if (tag != std::string::npos && tag < e) {
+            out.append(runnerLog, tag + kTag.size(), e - (tag + kTag.size()));
+            out += '\n';
+        }
+        i = e + 1;
+    }
+    return out;
+}
+
 void App::drawDebugWindow() {
     ImGui::Begin("Debug");
 
-    // Game log = the game's own TYRA_LOG output (bin/log.txt, written on the
-    // host fs by the running ELF); Emulator log = PCSX2's console (emulog.txt).
-    const char* sources[] = {"Game log", "Emulator log"};
-    ImGui::SetNextItemWidth(140.0f);
-    if (ImGui::Combo("Source", &debugLogSource_, sources, 2)) {
-        debugLog_.clear();       // don't show the other source's stale content
-        debugNextReload_ = 0.0;  // reload immediately from the new source
-    }
-
+    // The source file is resolved and READ first, because the buttons below
+    // report on the classified lines (the level counts, Copy) - so the Reload
+    // button arms the next frame's read rather than this one's.
     std::string path;
     if (hasProject_) {
         if (debugLogSource_ == 0)
@@ -10087,18 +14320,41 @@ void App::drawDebugWindow() {
         else
             path = runner_.emulatorLogPath(project_);
     }
+    // Refresh from disk on demand, and while Auto is on, at most twice a second
+    // (per-frame file reads would be wasteful for a possibly large log).
+    const double now = ImGui::GetTime();
+    if (!path.empty() && (debugReloadNow_ || (debugAutoReload_ && now >= debugNextReload_))) {
+        std::string text = readTextFileTail(path, 1u << 20);  // last 1 MB
+        // No log file? On a PS2 deploy there never is one - take the console
+        // stream the runner captured instead (see ps2ConsoleLog above).
+        if (debugLogSource_ == 0 && text.empty()) text = ps2ConsoleLog(runner_.log());
+        logSetText(logDbg_, std::move(text));
+        debugNextReload_ = now + 0.5;
+    }
+    debugReloadNow_ = false;
+
+    // Game log = the game's own TYRA_LOG output (bin/log.txt, written on the
+    // host fs by the running ELF); Emulator log = PCSX2's console (emulog.txt).
+    const char* sources[] = {"Game log", "Emulator log"};
+    ImGui::SetNextItemWidth(scaled(140));
+    if (ImGui::Combo("Source", &debugLogSource_, sources, 2)) {
+        logSetText(logDbg_, std::string());  // don't show the other source's content
+        debugNextReload_ = 0.0;              // reload immediately from the new source
+    }
 
     ImGui::SameLine();
-    bool reloadNow = false;
-    if (ImGui::SmallButton("Reload")) reloadNow = true;
+    if (ImGui::SmallButton("Reload")) debugReloadNow_ = true;
     ImGui::SameLine();
     ImGui::Checkbox("Auto", &debugAutoReload_);
     ImGui::SameLine();
-    if (ImGui::SmallButton("Copy all")) ImGui::SetClipboardText(debugLog_.c_str());
+    if (ImGui::SmallButton("Copy"))
+        ImGui::SetClipboardText(logview::join(logDbg_.text, logDbg_.lines, logDbg_.mask).c_str());
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Copies the lines currently shown - the filter applies.");
     ImGui::SameLine();
     if (ImGui::SmallButton("Clear log") && !path.empty()) {
         std::ofstream(path, std::ios::trunc);  // best effort; may be held open
-        debugLog_.clear();
+        logSetText(logDbg_, std::string());
         debugNextReload_ = 0.0;
     }
     ImGui::SameLine();
@@ -10119,33 +14375,8 @@ void App::drawDebugWindow() {
                 : "Emulator not found. Set the path in Edit > Preferences.");
     else
         ImGui::TextDisabled("%s", path.c_str());
-    ImGui::Separator();
 
-    // Refresh from disk on demand, and while Auto is on, at most twice a second
-    // (per-frame file reads would be wasteful for a possibly large log).
-    const double now = ImGui::GetTime();
-    if (!path.empty() && (reloadNow || (debugAutoReload_ && now >= debugNextReload_))) {
-        debugLog_ = readTextFileTail(path, 1u << 20);  // last 1 MB
-        debugNextReload_ = now + 0.5;
-    }
-
-    ImGui::BeginChild("##debugscroll", ImVec2(0.0f, 0.0f), ImGuiChildFlags_None,
-                      ImGuiWindowFlags_HorizontalScrollbar);
-    const ImVec2 pad = ImGui::GetStyle().FramePadding;
-    const ImVec2 textSize = ImGui::CalcTextSize(debugLog_.c_str(), nullptr, false);
-    const ImVec2 avail = ImGui::GetContentRegionAvail();
-    const ImVec2 inputSize(ImMax(textSize.x + pad.x * 2.0f, avail.x),
-                           ImMax(textSize.y + pad.y * 2.0f, avail.y));
-    ImGui::InputTextMultiline("##debuglog", const_cast<char*>(debugLog_.c_str()),
-                              debugLog_.size() + 1, inputSize, ImGuiInputTextFlags_ReadOnly);
-
-    // Follow the tail while new output arrives, unless the user scrolled up.
-    static size_t lastSize = 0;
-    if (debugLog_.size() != lastSize && ImGui::GetScrollY() >= ImGui::GetScrollMaxY() - 1.0f)
-        ImGui::SetScrollHereY(1.0f);
-    lastSize = debugLog_.size();
-
-    ImGui::EndChild();
+    drawLogPanel("##debugscroll", logDbg_);
     ImGui::End();
 }
 
@@ -10642,11 +14873,15 @@ void App::drawNewProjectModal() {
         ImGui::SeparatorText("AI support");
         ImGui::Checkbox("Claude Code", &newAiClaude_);
         ImGui::SameLine();
+        ImGui::Checkbox("Codex", &newAiCodex_);
+        ImGui::SameLine();
         ImGui::Checkbox("GitHub Copilot", &newAiCopilot_);
         prefHelp(
             "Copies assistant guides into the project (.claude/skills/ +\n"
-            "CLAUDE.md, .github/copilot-instructions.md): how the project is\n"
-            "structured, flow graphs, custom scripts and the editor's CLI -\n"
+            "CLAUDE.md for Claude Code, .agents/skills/ + AGENTS.md for Codex,\n"
+            ".github/copilot-instructions.md for Copilot): how the project is\n"
+            "structured, flow graphs, custom scripts, the menu stylesheets and\n"
+            "the editor's CLI -\n"
             "so an AI assistant opened in the project knows what it is doing.\n"
             "Can also be added later in Project > Preferences.");
 
@@ -10691,9 +14926,9 @@ void App::drawNewProjectModal() {
             std::string err =
                 project::create(p, newName_, newLocation_, t, preset, newUnitsPerMeter_);
             if (err.empty()) {
-                if (newAiClaude_ || newAiCopilot_)
-                    statusMessage_ =
-                        aisupport::install(p.dir, newAiClaude_, newAiCopilot_);
+                if (newAiClaude_ || newAiCopilot_ || newAiCodex_)
+                    statusMessage_ = aisupport::install(
+                        p.dir, newAiClaude_, newAiCopilot_, newAiCodex_);
                 project_ = p;
                 hasProject_ = true;
                 applyProjectToViewport();
@@ -10739,6 +14974,9 @@ void App::applyProjectToViewport() {
     // layers = the plain single-material terrain above).
     rebakeSplatPreview();
     viewport_.setSky(rs.skyColor, rs.skyTopColor, rs.skyDome, rs.zenithSize);
+    viewport_.setSkyTexture(
+        rs.skyTexture.empty() ? std::string() : project_.filePath(rs.skyTexture),
+        rs.skyTextureYaw);
     viewport_.setUsableHighlight(rs.highlightUsable, rs.highlightColor);
     viewport_.setLighting(rs.lightDir, rs.ambient, rs.diffuse, rs.lightColor, rs.brightness);
     viewport_.setAmbientOcclusion(rs.aoEnabled, rs.aoStrength, rs.aoRadius);
@@ -10749,15 +14987,20 @@ void App::applyProjectToViewport() {
     // per-frame cost.
     if (giViewScene_ != project_.activeScene ||
         giViewSerial_ != modelEditSerial_ ||
-        giViewVersion_ != giBaker_.version()) {
+        giViewVersion_ != giBaker_.version() ||
+        giViewEnabled_ != (rs.giEnabled ? 1 : 0)) {
         giViewScene_ = project_.activeScene;
         giViewSerial_ = modelEditSerial_;
         giViewVersion_ = giBaker_.version();
+        giViewEnabled_ = rs.giEnabled ? 1 : 0;
         const gibake::Bake b = gibake::load(project_, project_.activeScene);
         viewport_.setGiProbes(b.valid ? b.probes : gibake::ProbeGrid());
         // The ground takes the baked terrain lightmap instead of the probes -
         // the same split the console makes (see Viewport::setGiTerrain).
         viewport_.setGiTerrain(b.valid ? b.terrain : aobake::AoImage());
+        // ...and the primitives take theirs from the atlas, per pixel, the
+        // way the console's atlas passes draw it (see Viewport::setGiAtlas).
+        viewport_.setGiAtlas(b.valid ? b.atlas : aobake::SceneLightAtlas());
     }
     viewport_.setFog(rs.fogEnabled && showFog_, rs.fogColor, rs.fogStart, rs.fogEnd);
     // The flashlight is a Player object property; preview the first player's
@@ -10775,6 +15018,7 @@ void App::applyProjectToViewport() {
                                 player->flashlightAngle);
     else
         viewport_.setFlashlight(false, offColor, 30.0f, 20.0f);
+    viewport_.setSpotShadowVolumes(project_.settings.spotShadowVolumes);
 }
 
 void App::drawTerrainWindow() {
@@ -10986,6 +15230,16 @@ void App::drawTerrainWindow() {
                     : "Pick a material with a texture first -\nstochastic tiling "
                       "scrambles the texture, so a\nflat color has nothing to work "
                       "on.");
+        ImGui::SameLine(0.0f, scaled(12));
+        ImGui::SetNextItemWidth(scaled(90));
+        ImGui::DragFloat("Grip", &L.grip, 0.01f, 0.1f, 1.5f, "%.2fx");
+        if (ImGui::IsItemDeactivatedAfterEdit()) layersChanged = true;
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Tyre grip where this layer is painted, multiplying each\n"
+                "vehicle's Off-road grip (blended by the painted weight).\n"
+                "1 = the bare terrain, ~0.5 mud, ~0.8 sand. Roads use their\n"
+                "own Surface grip.");
         ImGui::Unindent(scaled(22));
 
         ImGui::PopID();
@@ -11132,41 +15386,156 @@ void App::rebakeSplatPreview() {
     viewport_.setTerrainLayers(draws, sc.splat);
 }
 
-void App::drawPreferencesModal() {
-    if (openPreferencesPopup_) {
-        ImGui::OpenPopup("Project Preferences");
-        openPreferencesPopup_ = false;
+// Raise the window (and seed the two scratch values it does not read live).
+void App::openProjectPreferences() {
+    if (!hasProject_) return;
+    prefTerrain_ = project_.active().terrain;
+    prefGridDetail_ = project_.settings.terrainDetail;
+    showProjectPrefs_ = true;
+    focusProjectPrefs_ = true;
+}
+
+// PROJECT PREFERENCES IS A WINDOW, NOT A MODAL, AND IT APPLIES LIVE.
+//
+// It was a modal with OK/Cancel over a staged copy, and the modality was the
+// defect: ImGui blocks every click on anything behind a modal, so the three
+// buttons in here that RAISE another window (Advanced..., Open Ambience Editor,
+// Open Loading Screens editor) could not leave anything usable behind them.
+// The previous pass made them apply-and-close, which was the right answer for a
+// modal and is a workaround for the modality itself. Reported as "clicking
+// Advanced closes Project Preferences completely - could they be a window
+// instead of a modal?", which dissolves the problem rather than trading it.
+//
+// STAGING COULD NOT SURVIVE THE CHANGE, so it is gone, and that is deliberate:
+//
+//  - A non-modal window means the project can be edited underneath while staged
+//    edits wait. Undo, a collaboration peer, the AI Assistant and the windows
+//    these very buttons open all write project_.settings, and an OK pressed
+//    afterwards would silently overwrite all of it with values read minutes ago.
+//  - prefTerrain_ stages the ACTIVE SCENE's terrain. With the window open the
+//    active scene can change, and OK would then write scene A's terrain size
+//    onto scene B. That one is unfixable by any amount of care.
+//  - Live IS the editor's convention (tyra-editor-dev rule 1): every other
+//    panel mutates project_ and calls commitChange(). Preferences was the
+//    exception, which is also why the Advanced... problem existed at all - the
+//    windows it opens edit project_.settings live and the modal did not.
+//
+// What Cancel bought is not lost so much as unified with the rest of the
+// editor: nothing reaches disk until an explicit Save, project-wide settings
+// were never in the undo stack anyway (History::push carries the scenes only,
+// so Cancel was the ONLY way back and it is now "close without saving"), and
+// the footer says so. The one control that is genuinely dangerous to apply
+// keystroke-by-keystroke is the terrain grid, and it is treated specially
+// rather than holding the whole dialog modal - see prefGridDetail_ in app.hpp.
+void App::drawPreferencesWindow() {
+    if (!showProjectPrefs_ || !hasProject_) {
+        // A viewport refresh owed from the last frame the window was open must
+        // still land: it is deferred to the end of an interaction (below), and
+        // a layout switch can close the window in between.
+        if (prefsViewportDirty_) {
+            if (hasProject_) applyProjectToViewport();
+            prefsViewportDirty_ = false;
+        }
+        if (!hasProject_) showProjectPrefs_ = false;
+        return;
     }
 
     ImVec2 center = ImGui::GetMainViewport()->GetCenter();
-    ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-    ImGui::SetNextWindowSize(ImVec2(scaled(560), 0), ImGuiCond_Appearing);
-
-    if (!ImGui::BeginPopupModal("Project Preferences", nullptr,
-                                ImGuiWindowFlags_AlwaysAutoResize))
-        return;
-
-    ImGui::SeparatorText("Game");
-    // Read-only on purpose: the preset is picked once, in New Project. It
-    // decides which game-template sources are generated, and those are
-    // user-ownable - switching here would either overwrite work or leave an
-    // owned source no longer matching what the project builds.
-    ImGui::BeginDisabled();
-    {
-        int shown = presetIndexOf(project_.gameTemplate);
-        const char* names[kNewPresetCount];
-        for (int i = 0; i < kNewPresetCount; ++i) names[i] = kNewPresets[i].label;
-        ImGui::Combo("Preset", &shown, names, kNewPresetCount);
+    ImGui::SetNextWindowPos(center, ImGuiCond_FirstUseEver, ImVec2(0.5f, 0.5f));
+    // TWO STRUCTURAL CHOICES, and the first is the one that matters.
+    //
+    // (1) AN EXPLICIT SIZE, NOT AlwaysAutoResize. This dialog was one vertical
+    //     stack - Frame delivery, AI navigation, Ambience, Scenes, Shadows,
+    //     Usable objects, the camera, Build and more - with the footer at the
+    //     BOTTOM OF THE CONTENT, so reaching it meant scrolling past everything
+    //     first, and every setting anyone added made that worse. The footer is
+    //     outside the scrolling region now: it is always one click away no
+    //     matter how long the content grows, which is the fix the tabs below do
+    //     NOT provide (a single tab can still outgrow the screen). Same shape as
+    //     Scene Preferences, which hit this first and solved it the same way.
+    // (2) 720 rather than 560 wide. The explanatory text under Frame delivery
+    //     wraps, and at 560 it wrapped into paragraphs several lines deep. This
+    //     is the cheap half of that complaint; the pre-wrapped `\n` prose is
+    //     unaffected either way, which is why it is not wider still.
+    ImGui::SetNextWindowSize(
+        ImVec2(scaled(720),
+               std::min(scaled(860), ImGui::GetMainViewport()->WorkSize.y * 0.9f)),
+        ImGuiCond_FirstUseEver);
+    if (focusProjectPrefs_) {
+        ImGui::SetNextWindowFocus();
+        focusProjectPrefs_ = false;
     }
-    ImGui::EndDisabled();
-    prefHelp(
-        "Fixed when the project was created and not changeable here: it picks\n"
-        "the generated game sources (files with the editor marker), which you\n"
-        "may have taken ownership of. Start a new project to use another\n"
-        "preset. The player's own camera settings stay editable - select the\n"
-        "Player object and see Properties.");
 
-    ImGui::SeparatorText("Build");
+    if (!ImGui::Begin("Project Preferences", &showProjectPrefs_)) {
+        ImGui::End();
+        return;
+    }
+
+    // THE ONE-FRAME COPY. `prefSettings_` is re-seeded from the model here and
+    // written back at the bottom, so an edit lands immediately AND anything
+    // that changed the project underneath is picked up next frame instead of
+    // being clobbered. terrainDetail is excluded because it has its own scratch
+    // (see the grid note in app.hpp).
+    prefSettings_ = project_.settings;
+    bool gridChanged = false;
+
+    // Opening another window is now just that - `show = true` and both stay
+    // open, which is the whole point of this no longer being a modal. The three
+    // buttons below used to go through an applyAndOpen() helper that closed
+    // this dialog first; there is nothing left for it to do.
+    //
+    // It used to be SAID, in a dimmed line under each of those three buttons.
+    // Three copies of one sentence about window management, in a dialog whose
+    // problem was that everything explained itself in prose - and each of the
+    // three buttons already has a tooltip that could hold it. Now they do.
+    const char* kOpensWindow =
+        "\n\nOpens the window alongside this one - both stay usable.";
+
+    // The footer's own height, reserved out of every tab body below: the
+    // separator, three lines of note and the button row.
+    const float footerH = ImGui::GetFrameHeightWithSpacing() +
+                          ImGui::GetTextLineHeightWithSpacing() * 3.0f +
+                          ImGui::GetStyle().ItemSpacing.y * 3.0f;
+    // TABS, and the grouping is derived from the sections that were already
+    // here rather than invented: the old "Build" section was doing two jobs at
+    // once - how the picture reaches the TV, and what goes into the ELF - and
+    // splitting it is most of this. Display holds the signal, the presentation
+    // and the two reconstruction features, so "how does a frame reach the
+    // screen" is one tab and the upscaler is in it. Rendering is what the frame
+    // is made of. World is the space the game happens in. Player is who the
+    // player is and how they control. Build is what the built ELF contains.
+    //
+    // A WIDGET INSIDE AN UNSELECTED TAB DOES NOT EXIST - it is not submitted, so
+    // it is not in `dump` and `--ui-script` cannot reach it. Every script that
+    // drives this dialog has to select its tab first; see docs/ui-scripting.md,
+    // "A widget inside an unselected tab does not exist".
+    if (!ImGui::BeginTabBar("##prefstabs")) {
+        ImGui::End();
+        return;
+    }
+    // A caller can ask for a TAB, not just for the window: the Texture Atlas
+    // window's "Open Project Preferences" means "take me to the switch I am
+    // talking about", and landing on Display with five tabs to read is the
+    // same dead end as opening the window at all. One-shot - the request is
+    // cleared as it is honoured, so the tab the author picks afterwards sticks.
+    auto beginTab = [&](const char* name) {
+        ImGuiTabItemFlags tabFlags = ImGuiTabItemFlags_None;
+        if (!prefsFocusTab_.empty() && prefsFocusTab_ == name) {
+            tabFlags = ImGuiTabItemFlags_SetSelected;
+            prefsFocusTab_.clear();
+        }
+        if (!ImGui::BeginTabItem(name, nullptr, tabFlags)) return false;
+        // BeginTabItem pushes the tab's id, so one child name serves them all.
+        ImGui::BeginChild("##body", ImVec2(0, -footerH));
+        return true;
+    };
+    auto endTab = [&]() {
+        ImGui::EndChild();
+        ImGui::EndTabItem();
+    };
+
+    if (beginTab("Display")) {
+    ImGui::SeparatorText("Video signal");
     int videoSys = prefSettings_.videoSystem == "pal"    ? 2
                    : prefSettings_.videoSystem == "ntsc" ? 1
                                                          : 0;
@@ -11226,141 +15595,260 @@ void App::drawPreferencesModal() {
             "whatever this resolves to on the player's console. (Field\n"
             "rendering has no full-height variant yet.)");
     }
+    // Which modes the game SUPPORTS, as opposed to the one it boots in. It is a
+    // declaration the editor reads (menu previews, the display-row scaffold,
+    // the per-resolution menu fit check) - see docs/menu-styles.md
+    // "Resolutions". Menus scale to whatever mode the player ends up in either
+    // way; this is how the editor knows which ones to check.
+    if (ImGui::TreeNode("Supported resolutions")) {
+        ImGui::TextDisabled(
+            "Which scan modes a player can end up in. Used by the Menu Editor's\n"
+            "per-resolution preview and fit check, and by the scaffolded DISPLAY\n"
+            "menu row. None ticked = only the mode above.");
+        for (const DisplayModeInfo& d : project::displayModes()) {
+            bool on = false;
+            for (const std::string& k : prefSettings_.supportedModes)
+                on |= (k == d.key);
+            const bool isBoot = project::bootDisplayMode(prefSettings_) == d.key;
+            char lbl[96];
+            std::snprintf(lbl, sizeof(lbl), "%s  (%dx%d)%s", d.label, d.bufW,
+                          d.halfHeight ? d.logicalH / 2 : d.logicalH,
+                          isBoot ? "  - boots in this" : "");
+            if (ImGui::Checkbox(lbl, &on)) {
+                auto& v = prefSettings_.supportedModes;
+                v.erase(std::remove(v.begin(), v.end(), std::string(d.key)),
+                        v.end());
+                if (on) v.push_back(d.key);
+            }
+        }
+        ImGui::TreePop();
+    }
     ImGui::Checkbox("Widescreen (16:9)", &prefSettings_.widescreen);
     prefHelp(
         "Widens the projection so proportions are correct on a 16:9 TV\n"
         "(anamorphic - on a 4:3 set the picture looks squeezed). In 1080i\n"
         "the picture also fills more of the screen. HUD sprites stretch\n"
         "with the screen. Runtime switch: the Set Widescreen flow node.");
-    int profile = prefSettings_.buildProfile == "debug" ? 1 : 0;
-    const char* profileNames[] = {"Release", "Debug"};
-    if (ImGui::Combo("Profile", &profile, profileNames, 2))
-        prefSettings_.buildProfile = profile == 1 ? "debug" : "release";
-    ImGui::Checkbox("Keyboard && mouse controls", &prefSettings_.keyboardMouse);
-    prefHelp(
-        "The game loads the USB keyboard/mouse drivers: WASD walks, the\n"
-        "mouse looks, E uses, Space jumps, Esc pauses, arrows + Enter drive\n"
-        "menus (bindings live in inc/controls.hpp). Works in PCSX2 (the\n"
-        "editor sets its emulated USB devices automatically) and with real\n"
-        "USB devices on a console. Skipped on ps2link deploys.");
-    ImGui::BeginDisabled(!prefSettings_.keyboardMouse);
-    ImGui::Indent(scaled(16));
-    ImGui::Checkbox("Also over ps2link", &prefSettings_.keyboardMousePs2Link);
-    prefHelp(
-        "Keeps keyboard/mouse working on a Run on PS2 (ps2link) deploy. The\n"
-        "console runs the TyraX ps2link (tools/ps2link - its boot screen says\n"
-        "so), which bakes usbd + ps2kbd + ps2mouse into its own boot, and the\n"
-        "engine reuses that resident stack instead of loading its own. The\n"
-        "driver logs show up live in Output / ps2client. Untick only if you\n"
-        "deliberately boot a stock ps2link, which has no USB stack to reuse:\n"
-        "the drivers then just report \"not ready\". See docs/ps2link-setup.md\n"
-        "and docs/keyboard-mouse.md.");
-    ImGui::Unindent(scaled(16));
+    // Colour depth. The GS is 4 MB and the frame buffers are most of it, so
+    // this is the biggest single lever on how much VRAM textures get - and
+    // on whether the third display buffer below fits at all.
+    {
+        int depth = prefSettings_.colorDepth == "16bit"    ? 1
+                    : prefSettings_.colorDepth == "hybrid" ? 2
+                                                           : 0;
+        const char* depthNames[] = {"32-bit colour", "16-bit colour",
+                                    "Hybrid (draw 32-bit, show 16-bit)"};
+        if (ImGui::Combo("Colour depth", &depth, depthNames, 3))
+            prefSettings_.colorDepth =
+                depth == 1 ? "16bit" : depth == 2 ? "hybrid" : "32bit";
+        prefHelp(
+            "Pixel format of the frame buffers. 32-bit is the stock 8-8-8-8\n"
+            "buffer. 16-bit (5-5-5-1) HALVES what the frame buffers cost in\n"
+            "GS memory and hands all of it to textures, which roughly\n"
+            "DOUBLES the texture budget - the single biggest saving available\n"
+            "on a 4 MB GS, what makes the taller HD scan modes practical, and\n"
+            "what most often decides whether triple buffering fits.\n"
+            "The cost is 32 levels per channel instead of 256, so smooth\n"
+            "gradients - skies, fog, bloom - band unless Dithering is on.\n"
+            "The z buffer follows it (a 16-bit z over a 16-bit frame - the\n"
+            "GS needs the pair to share page geometry), so depth precision\n"
+            "drops with it: keep the near plane up.\n"
+            "Hybrid draws the whole frame in ONE 32-bit buffer over a 32-bit\n"
+            "z (full-precision blending and depth), then one dithered copy per\n"
+            "frame puts it in a 16-bit buffer the TV shows: half a frame\n"
+            "buffer back for textures without 16-bit banding in the blends.\n"
+            "In Hybrid there is no previous frame to sample, so motion blur,\n"
+            "the upscaler's temporal pass and frame extrapolation are off.\n"
+            "Triple buffering adds a second 16-bit display buffer while\n"
+            "the 32-bit draw buffer stays fixed. See docs/gs-vram.md.");
+        ImGui::BeginDisabled(prefSettings_.colorDepth == "32bit");
+        ImGui::Indent(scaled(16));
+        ImGui::Checkbox("Dithering", &prefSettings_.dither);
+        prefHelp(
+            "The GS's ordered 4x4 dither, which trades the banding of a\n"
+            "16-bit buffer for fine noise that a TV blurs away. The hardware\n"
+            "only dithers 16-bit destinations, so this does nothing at 32-bit\n"
+            "colour. Leave it on unless you want the flat bands on purpose.");
+        ImGui::Unindent(scaled(16));
+        ImGui::EndDisabled();
+    }
+
+    // WHEN a finished frame reaches the TV, as opposed to what is in it. Both
+    // of these used to sit under "Build", which is where nobody deciding how
+    // the picture is presented would look for them.
+    ImGui::SeparatorText("Presentation");
+    // TRIPLE BUFFERING IS ASKED OF EVERY MODE THE PROJECT CAN RUN IN, not only
+    // of the one it boots in - which is what the user's second complaint was
+    // about ("we set it here and then someone changes the resolution in the
+    // game and it goes out of step"). ProjectSettings::supportedModes declares
+    // the scan modes a player can switch into; RendererCore::setDisplayOutput
+    // re-lays the entire VRAM region on such a switch, so allocateVramBuffers
+    // asks the headroom question again with the new framebuffer size and the
+    // answer really can differ from mode to mode. It fits in 512x224 and
+    // 448x448 and does not fit in 512x448, 448x540 or 512x512 (the upscaler's
+    // z shrink can change that - it is in the arithmetic).
+    //
+    // So the setting is a REQUEST, granted per mode at runtime, and the window
+    // says which modes grant it rather than answering for the boot mode alone.
+    const project::TripleBufferModes tbModes =
+        project::tripleBufferingModes(project_, prefSettings_);
+    // Only the TICK is ever blocked, never the untick - the rule the BLSS x
+    // frame-extrapolation exclusion established. A project can arrive with the
+    // flag on from a hand-edited .tyra or an older editor, and every switch
+    // that is on must stay switchable off.
+    const bool tbBlocked = tbModes.fitting.empty();
+    ImGui::BeginDisabled(tbBlocked && !prefSettings_.tripleBuffering);
+    ImGui::Checkbox("Triple buffering", &prefSettings_.tripleBuffering);
     ImGui::EndDisabled();
+    prefHelp(
+        "How a frame that misses its vsync deadline is paid for. Off, the\n"
+        "EE waits for the next vsync before presenting, so a frame taking\n"
+        "20.4 ms on a 20 ms PAL field waits out a whole second field and\n"
+        "the rate halves - 49 fps of work is shown as 25. On, a finished\n"
+        "frame is queued and a vblank interrupt presents it, so it is one\n"
+        "field late instead, and the EE spends the wait rendering: the\n"
+        "same work runs at ~49 fps.\n\n"
+        "Costs a THIRD display buffer of GS VRAM (16-bit in Hybrid) -\n"
+        "at 32-bit, 0.875 MB of the\n"
+        "~1.08 MB texture budget at 512x448, about half that in\n"
+        "interlaced-field - so it does not fit in every display mode, and\n"
+        "the list below says which of the modes this project supports it\n"
+        "fits in. It is a REQUEST: the engine re-decides on every runtime\n"
+        "scan-mode switch and stays double buffered where there is no room,\n"
+        "so it can never break a build - but a player who changes resolution\n"
+        "can change the frame pacing with it.");
+    // The engine refuses a third buffer that would starve the rest of the
+    // renderer, and until this block the only way to find that out was the
+    // running game's log. project::tripleBufferingFit is the host twin of that
+    // check - same numbers, same answer, now asked once per mode.
+    {
+        auto modeList = [](const std::vector<project::TripleBufferFit>& v,
+                           bool byLabel = false) {
+            std::string s;
+            for (size_t i = 0; i < v.size(); ++i) {
+                if (i) s += i + 1 == v.size() ? " or " : ", ";
+                const DisplayModeInfo& d = project::displayModeInfo(v[i].mode);
+                if (byLabel) {
+                    s += d.label;
+                    continue;
+                }
+                char buf[64];
+                std::snprintf(buf, sizeof(buf), "%dx%d", d.bufW,
+                              d.halfHeight ? d.logicalH / 2 : d.logicalH);
+                s += buf;
+            }
+            return s;
+        };
+        const ImVec4 amber(1.0f, 0.72f, 0.25f, 1.0f);
+        if (tbBlocked) {
+            // IN LINE, not in the tooltip: a greyed control whose explanation
+            // only appears on hover reads as a bug, because the first question
+            // is "why can I not click this" and nothing on screen answers it.
+            //
+            // The way OUT is computed, never asserted. Which modes have room
+            // depends on the upscaler's z shrink, so "try field rendering" is a
+            // fact about this project rather than about the engine - and at
+            // 512x512 the upscaler does NOT free enough, which is exactly the
+            // sentence a hardcoded hint would have got wrong.
+            const project::TripleBufferFit& f = tbModes.notFitting.front();
+            std::string escape;
+            if (!tbModes.roomElsewhere.empty())
+                escape = " There is room in " +
+                         modeList(tbModes.roomElsewhere, true) + ".";
+            if (!prefSettings_.blssEnabled) {
+                ProjectSettings probe = prefSettings_;
+                probe.blssEnabled = true;
+                if (!project::tripleBufferingModes(project_, probe)
+                         .fitting.empty())
+                    escape +=
+                        " Turning the neural upscaler on also frees enough - "
+                        "the z buffer follows its smaller raster.";
+            }
+            ImGui::PushStyleColor(ImGuiCol_Text, amber);
+            ImGui::TextWrapped(
+                "    No room in any supported mode (%s): a third buffer costs "
+                "%.2f MB, leaving %.2f MB of the %.2f MB the renderer and the "
+                "texture heap need.%s",
+                modeList(tbModes.notFitting).c_str(),
+                f.bufferWords / 262144.0f, f.leftWords / 262144.0f,
+                f.needWords / 262144.0f, escape.c_str());
+            ImGui::PopStyleColor();
+        } else if (!tbModes.notFitting.empty()) {
+            // THE DESYNC, named. This is the honest answer and the one the
+            // report asked for: the modes disagree, and the game will too.
+            ImGui::PushStyleColor(ImGuiCol_Text, amber);
+            ImGui::TextWrapped(
+                "    Fits in %s, not in %s (boot mode %s: %s). The engine "
+                "re-decides on every runtime scan-mode switch, so a player who "
+                "changes resolution changes the frame pacing.",
+                modeList(tbModes.fitting).c_str(),
+                modeList(tbModes.notFitting).c_str(),
+                project::displayModeInfo(tbModes.boot).label,
+                tbModes.bootFits ? "fits" : "does not");
+            ImGui::PopStyleColor();
+        } else if (prefSettings_.tripleBuffering) {
+            ImGui::TextDisabled("    Fits in every mode this project supports (%s).",
+                                modeList(tbModes.fitting).c_str());
+        }
+    }
     ImGui::Checkbox("Disable VSync (experimental)", &prefSettings_.disableVsync);
     prefHelp(
         "Skips the vsync wait before the buffer flip. The frame rate becomes\n"
         "continuous instead of snapping between 50 and 25 (PAL), at the cost\n"
         "of screen tearing. Gameplay speed is unaffected either way.");
-    ImGui::BeginDisabled(profile == 0);
-    ImGui::Checkbox("Show FPS", &prefSettings_.showFps);
-    ImGui::Checkbox("Show memory usage", &prefSettings_.showMemory);
-    ImGui::Checkbox("Show frame profiler", &prefSettings_.showProfiler);
-    ImGui::EndDisabled();
-    prefHelp(
-        "Debug-profile overlays drawn in the top-left corner of the game:\n"
-        "frames per second, free EE RAM, and a per-phase EE-time breakdown\n"
-        "(whole frame / scene / usable-highlight / particles, avg ms over\n"
-        "~1s). Stripped from release builds.");
-    ImGui::BeginDisabled(profile == 0);
-    ImGui::Checkbox("Show areas", &prefSettings_.showAreas);
-    ImGui::EndDisabled();
-    prefHelp(
-        "Draws every Area object (docs/areas.md) in the GAME as a wireframe\n"
-        "box, the way the editor viewport shows it. Areas have no geometry on\n"
-        "the console by design, which is exactly why \"why did that layer not\n"
-        "unload\" or \"why is that crate not reflecting\" is hard to see - this\n"
-        "puts the volume back on screen. Stripped from release builds.");
-    ImGui::BeginDisabled(profile == 0);
-    ImGui::Checkbox("Live Link", &prefSettings_.liveLink);
-    ImGui::EndDisabled();
-    ImGui::BeginDisabled(profile == 0);
-    ImGui::Checkbox("Live Debugger", &prefSettings_.liveDebug);
-    ImGui::EndDisabled();
-    prefHelp(
-        "Debug builds report what their flow graphs run - every trigger and\n"
-        "action, the flow variables, the save values - so the editor can show\n"
-        "the graph executing live, set breakpoints, stop and step the game,\n"
-        "and fire a trigger on demand (docs/live-debugger.md). Costs a\n"
-        "counter bump per fired node plus one small file write every few\n"
-        "frames; release builds carry none of it. Tools > Debugger (F9).");
-    ImGui::BeginDisabled(profile == 0);
-    ImGui::Checkbox("Live Logic", &prefSettings_.liveLogic);
-    ImGui::EndDisabled();
-    ImGui::BeginDisabled(profile == 0);
-    ImGui::Checkbox("Time machine", &prefSettings_.timeMachine);
-    ImGui::EndDisabled();
-    prefHelp(
-        "The game captures everything it mutates - object transforms,\n"
-        "physics, animation, flow variables, save values, where the player\n"
-        "stands - a few times a second, and the editor keeps a history of\n"
-        "those captures in memory. The Debugger's Rewind tab puts the RUNNING\n"
-        "game back into any of them, with no rebuild and no reboot; with Live\n"
-        "Logic on you can fix a graph first and watch the new logic play out\n"
-        "on the situation that just broke. Costs one small file written next\n"
-        "to the ELF every few frames, and nothing at all in a release build.\n"
-        "See docs/time-machine.md.");
-    ImGui::BeginDisabled(profile == 0);
-    ImGui::Checkbox("Remote Pad", &prefSettings_.remotePad);
-    ImGui::EndDisabled();
-    prefHelp(
-        "Lets the EDITOR hold the controller: Tools > Remote Pad draws a pad\n"
-        "you can click (or drive with the editor's own keyboard), and the game\n"
-        "reads it out of one small file next to the ELF. Nothing needs the\n"
-        "keyboard focus, so PCSX2 can sit in the background - and the same\n"
-        "channel is scriptable from the command line\n"
-        "(tyrax-editor --pad <project> \"hold up; wait 2\"), which is what makes\n"
-        "an unattended input test possible. Works on real hardware over\n"
-        "ps2link too (polled less often - it is a network round-trip there).\n"
-        "Release builds carry none of it. See docs/remote-pad.md.");
-    ImGui::BeginDisabled(profile == 0);
-    ImGui::Checkbox("EE crash handler", &prefSettings_.eeCrashHandler);
-    ImGui::EndDisabled();
-    prefHelp(
-        "A real CPU exception (bad pointer, address error, reserved\n"
-        ""
-        "instruction) is not a TYRAX assertion: nothing prints it and the game\n"
-        ""
-        "just stops. With this on, a debug build installs the engine's crash\n"
-        ""
-        "handler, which writes bin/crash.txt - decoded cause, registers,\n"
-        ""
-        "backtrace - and the editor resolves those addresses to functions and\n"
-        ""
-        "source lines. The crash also takes the screen, so a dead game says so\n"
-        ""
-        "instead of looking like a hang. Debug builds only - release carries\n"
-        ""
-        "none of it. Off by default; note PCSX2 cannot produce EE exceptions\n"
-        ""
-        "at all, so a report only ever appears on a real console.\n"
-        ""
-        "See docs/devkit.md.");
-    prefHelp(
-        "Debug builds carry a small flow-graph interpreter, so editing a graph\n"
-        "changes the RUNNING game with no rebuild: the editor compiles the\n"
-        "graph itself and streams the instructions next to the ELF\n"
-        "(docs/live-logic.md). Graphs using nodes the interpreter does not\n"
-        "implement (audio, AI, animation, spawning, runtime text) still need a\n"
-        "build - the Debugger's Logic tab names them. Release builds compile\n"
-        "every graph to native C++ and carry no interpreter.");
-    prefHelp(
-        "Debug builds poll livelink.bin next to the ELF so the editor can\n"
-        "stream scene edits into the running game (docs/live-link.md). Turn\n"
-        "off if you don't want your game patched from outside; release\n"
-        "builds never carry the poller. Also toggled by the LIVE chip in\n"
-        "the toolbar and Build > Live Link.");
 
+    // The neural upscaler (docs/neural-upscaler.md), ESSENTIALS ONLY - the
+    // decisions a person switching the feature on has to make, and nothing
+    // else. What a user meets here is a checkbox, a mode, a raster and one line
+    // saying which side of the measured break-even this project falls on; the
+    // training, evaluation, cross-validation and instrumentation are behind the
+    // Advanced button and stay exactly as they were.
+    //
+    // The reduction is a consequence of plain mode rather than a tidy-up. Until
+    // that landed BLSS MEANT "fit a network to your scene", so the window had to
+    // be the whole feature - but plain mode's break-even is 2.6 coverages
+    // against the neural path's 13.1, a trained net ships embedded in the
+    // editor, and on every project measured that net chooses nothing anyway. So
+    // training is genuinely advanced, and the ordinary interaction is three
+    // controls and a sentence.
+    //
+    // The widgets, the tooltips AND the build-interlock warning still live in
+    // blss_window.cpp, because Tools > Neural Upscaler (BLSS) draws the same
+    // block one level deeper. They were inlined here once, which made this
+    // dialog the one mirror of templates.cpp's blssClashes(); a second copy
+    // would have made it two mirrors, and two mirrors of an interlock drift the
+    // day either is touched. The staged settings go in, so both the warning and
+    // the verdict answer for what the modal will apply and not for what is on
+    // disk.
+    //
+    // "Frame delivery" rather than "Neural upscaler": the block holds BOTH ways
+    // this engine reconstructs rather than renders - the upscaler (per scene)
+    // and frame extrapolation (per project) - and they refuse each other, so
+    // they have to be read together. It is on the DISPLAY tab for the same
+    // reason: somebody asking "how does a frame reach the screen" arrives at the
+    // signal, the presentation and the reconstruction in one place.
+    ImGui::SeparatorText("Frame delivery (upscaler, extrapolation)");
+    drawBlssSettings(prefSettings_, BlssDetail::Essentials);
+    if (ImGui::Button("Advanced...", ImVec2(scaled(140), 0)))
+        showBlss_ = true;
+    prefHelp(
+        "Tools > Neural Upscaler (BLSS): train a network on your own scenes,\n"
+        "cross-validate it, look at the pictures it makes and at what its input\n"
+        "channels look like, and place a console-measured feature vector inside\n"
+        "the corpus' own distribution - everything --blss-train, --blss-eval and\n"
+        "--blss-emit do, without a terminal, on a worker that leaves the editor\n"
+        "usable.\n"
+        "\n"
+        "None of it is needed to USE the feature. A trained network ships with\n"
+        "the editor, and in the plain mode above there is no network at all.\n"
+        "\n"
+        "Opens alongside this window - it draws these same controls one level\n"
+        "deeper, over the same live project settings, so the two cannot\n"
+        "disagree.");
+    endTab();
+    }
+
+    if (beginTab("World")) {
     ImGui::SeparatorText("World");
     ImGui::DragFloat("Units per meter", &prefSettings_.unitsPerMeter, 0.05f, 0.001f,
                      1000.0f, "%.3f", ImGuiSliderFlags_Logarithmic);
@@ -11394,19 +15882,49 @@ void App::drawPreferencesModal() {
     }
 
     ImGui::SeparatorText("Terrain");
+    // THE THREE CONTROLS THAT DO NOT APPLY PER FRAME (see prefGridDetail_ in
+    // app.hpp). Each of them changes the heightmap's dimensions, and
+    // project::ensureHeightmap answers that with a NEAREST-NEIGHBOUR RESAMPLE -
+    // lossy and not undone by typing the old number back. Applied live, typing
+    // "128" over "64" would resample through 1 and 12 and flatten a sculpted
+    // map, and dragging the detail slider to its left stop would destroy it
+    // outright. `commit` writes back only on IsItemDeactivatedAfterEdit; while
+    // the widget is neither active nor just-committed the scratch is re-seeded
+    // from the model, so undo and a scene switch still show through.
+    auto gridScratch = [&](int& scratch, int model, bool& changed, auto&& apply) {
+        const bool done = ImGui::IsItemDeactivatedAfterEdit();
+        if (done) {
+            apply(scratch);
+            changed = true;
+        } else if (!ImGui::IsItemActive()) {
+            scratch = model;
+        }
+    };
+    auto clampGrid = [](int v) { return v < 1 ? 1 : v > 4096 ? 4096 : v; };
+    SceneData& gridScene = project_.active();
     ImGui::InputInt("Width (units)", &prefTerrain_.width);
+    gridScratch(prefTerrain_.width, gridScene.terrain.width, gridChanged,
+                [&](int v) { gridScene.terrain.width = clampGrid(v); });
     ImGui::InputInt("Depth (units)", &prefTerrain_.depth);
-    prefTerrain_.width = prefTerrain_.width < 1 ? 1 : prefTerrain_.width > 4096 ? 4096
-                                                                                : prefTerrain_.width;
-    prefTerrain_.depth = prefTerrain_.depth < 1 ? 1 : prefTerrain_.depth > 4096 ? 4096
-                                                                                : prefTerrain_.depth;
+    gridScratch(prefTerrain_.depth, gridScene.terrain.depth, gridChanged,
+                [&](int v) { gridScene.terrain.depth = clampGrid(v); });
     if (prefSettings_.unitsPerMeter != 1.0f)
         ImGui::TextDisabled("= %.1f x %.1f m",
                             (float)prefTerrain_.width / prefSettings_.unitsPerMeter,
                             (float)prefTerrain_.depth / prefSettings_.unitsPerMeter);
-    ImGui::SliderInt("Detail (max grid cells)", &prefSettings_.terrainDetail, 4, 512);
+    ImGui::SliderInt("Detail (max grid cells)", &prefGridDetail_, 4, 512);
+    gridScratch(prefGridDetail_, project_.settings.terrainDetail, gridChanged,
+                [&](int v) {
+                    // Through BOTH copies: prefSettings_ is what the write-back
+                    // at the bottom of the body compares against.
+                    project_.settings.terrainDetail = prefSettings_.terrainDetail =
+                        v < 4 ? 4 : v > 512 ? 512 : v;
+                });
     prefHelp("More cells = smaller triangles = fewer clipping artifacts,\n"
-             "but more geometry for the PS2 to push.");
+             "but more geometry for the PS2 to push. Changing it RESAMPLES the\n"
+             "heightmap (nearest neighbour), so sculpted detail finer than the\n"
+             "new grid is lost - it applies when you release the slider, and\n"
+             "Ctrl+Z takes it back.");
 
     ImGui::DragFloat("View distance", &prefSettings_.terrainViewDistance, 1.0f, 0.0f,
                      2000.0f,
@@ -11420,6 +15938,36 @@ void App::drawPreferencesModal() {
         "with fog (view distance ~ fog end) to hide the pop-in. 0 keeps the\n"
         "whole map resident. Meant for FPP - orbit showcases see the whole\n"
         "map at once and should leave it 0.");
+
+    ImGui::DragFloat("Detail distance", &prefSettings_.terrainLodDistance, 1.0f,
+                     0.0f, 2000.0f,
+                     prefSettings_.terrainLodDistance > 0.0f
+                         ? "%.0f units"
+                         : "off (full detail everywhere)");
+    if (prefSettings_.terrainLodDistance < 0.0f)
+        prefSettings_.terrainLodDistance = 0.0f;
+    prefHelp(
+        "Beyond this range the ground is built from every 2nd heightmap\n"
+        "sample, and beyond 2.2x it from every 4th - a quarter and a\n"
+        "sixteenth of the triangles. Edges are stitched to the neighbouring\n"
+        "tile, so no crack shows, and collision is unaffected. This is what\n"
+        "makes a large map affordable to DRAW; the view distance above is\n"
+        "what makes it fit in memory. 0 = full detail everywhere.");
+    if (prefSettings_.terrainLodDistance > 0.0f) {
+        const SceneData& sc = project_.active();
+        const int cellsX = sc.terrain.width < prefSettings_.terrainDetail
+                               ? sc.terrain.width
+                               : prefSettings_.terrainDetail;
+        // What one full-detail tile costs, so the bands mean something in
+        // triangles rather than in units.
+        const float span = 16.0f * (float)sc.terrain.width /
+                           (float)(cellsX > 0 ? cellsX : 1);
+        ImGui::TextDisabled(
+            "Full detail to %.0f units, 1/4 of the triangles beyond it, 1/16 "
+            "beyond %.0f (tile = %.0f units).",
+            prefSettings_.terrainLodDistance,
+            prefSettings_.terrainLodDistance * 2.2f, span);
+    }
 
     // Worst-case resident mesh memory so oversized configs are caught here,
     // not by an out-of-memory PS2. Mirrors the generated game: 6 verts/cell,
@@ -11453,13 +16001,54 @@ void App::drawPreferencesModal() {
             ImGui::TextDisabled("Resident terrain mesh: ~%.1f MB (active scene).", mb);
     }
 
+    // Both of these describe the SPACE rather than the picture: where an NPC may
+    // walk, and what is shown while the next space is loaded.
+    ImGui::SeparatorText("AI navigation");
+    ImGui::DragFloat("Nav cell size", &prefSettings_.navCellSize, 0.05f, 0.25f,
+                     16.0f, "%.2f units");
+    if (prefSettings_.navCellSize < 0.25f) prefSettings_.navCellSize = 0.25f;
+    ImGui::DragFloat("Max walkable slope", &prefSettings_.navMaxSlope, 0.5f,
+                     1.0f, 89.0f, "%.0f deg");
+    prefSettings_.navMaxSlope = prefSettings_.navMaxSlope < 1.0f ? 1.0f
+                                : prefSettings_.navMaxSlope > 89.0f
+                                    ? 89.0f
+                                    : prefSettings_.navMaxSlope;
+    ImGui::DragFloat("Agent radius", &prefSettings_.navAgentRadius, 0.05f, 0.0f,
+                     4.0f, "%.2f units");
+    if (prefSettings_.navAgentRadius < 0.0f) prefSettings_.navAgentRadius = 0.0f;
+    prefHelp(
+        "The NPC nav grid, baked at build time from the terrain slope and\n"
+        "blocking objects (grid capped at 128x128 cells - big maps get\n"
+        "bigger cells). Agent radius widens every obstacle so NPCs keep\n"
+        "their distance from walls. Used by the AI flow nodes (Patrol /\n"
+        "Chase / Flee); preview with View > Nav Mesh Overlay. Scenes whose\n"
+        "graphs use no AI nodes carry no nav data at all.");
+
+    ImGui::SeparatorText("Scenes");
+    ImGui::Checkbox("Loading screen between scenes", &prefSettings_.loadingScreen);
+    prefHelp(
+        "Master switch: shows a loading screen while a scene loads (also at\n"
+        "boot). Design them in Tools > Loading Screens - each scene picks one\n"
+        "(Scene > Preferences), or a project default is used; with none, a\n"
+        "built-in loading.png on black is shown.");
+    if (ImGui::Button("Open Loading Screens editor"))
+        showLoadingEditor_ = true;
+    prefHelp(
+        (std::string("Design the loading screens this project shows between "
+                     "scenes.") +
+         kOpensWindow)
+            .c_str());
+    endTab();
+    }
+
+    if (beginTab("Rendering")) {
     ImGui::SeparatorText("Rendering");
     int clipMode = prefSettings_.clipping == "fast"      ? 2
                    : prefSettings_.clipping == "precise" ? 1
                                                          : 0;
     const char* clipNames[] = {
         "Precise clipping on VU1 (no holes, no EE cost - default)",
-        "Precise clipping on EE (legacy; costs EE time)",
+        "Precise clipping on EE (the older clipper; costs EE time)",
         "Fast culling (fastest; big near triangles may vanish)"};
     if (ImGui::Combo("Triangles", &clipMode, clipNames, 3))
         prefSettings_.clipping =
@@ -11533,13 +16122,105 @@ void App::drawPreferencesModal() {
         "actually mirrors. Best on large curved chrome at mid distance;\n"
         "the single shared probe still approximates every other surface.");
 
+    ImGui::DragFloat("Reflection reuse budget",
+                     &prefSettings_.reflectionReuseBudget, 0.1f, 0.0f, 32.0f,
+                     prefSettings_.reflectionReuseBudget > 0.0f
+                         ? "%.1f px"
+                         : "off (capture every beat)");
+    if (prefSettings_.reflectionReuseBudget < 0.0f)
+        prefSettings_.reflectionReuseBudget = 0.0f;
+    prefHelp(
+        "How far the shared 128x128 reflection target may be out of date\n"
+        "before the probe re-renders, IN PIXELS OF ITSELF. The probe costs\n"
+        "about 2 ms of a busy frame on real hardware and already runs only\n"
+        "every second frame; this skips the capture entirely while nothing\n"
+        "that feeds it has moved. Aim, camera travel, the sun and the moon\n"
+        "all convert into that one number; the sky colours and every\n"
+        "reflected object's transform and visibility are compared exactly\n"
+        "and are never traded against it.\n"
+        "The reflection was already up to one refresh out of date; this is\n"
+        "how many EXTRA pixels of lag you accept on top of that - and none\n"
+        "at all while nothing moves, where the skipped capture would have\n"
+        "produced the same image. 1.0 is one pixel of 128. 0 = off.");
+
+    ImGui::DragFloat("Reflection ground radius",
+                     &prefSettings_.reflectionGroundRadius, 1.0f, 0.0f, 1000.0f,
+                     prefSettings_.reflectionGroundRadius > 0.0f
+                         ? "%.0f units"
+                         : "all resident ground");
+    if (prefSettings_.reflectionGroundRadius < 0.0f)
+        prefSettings_.reflectionGroundRadius = 0.0f;
+    prefHelp(
+        "How far from the camera the shared reflection probe redraws the\n"
+        "terrain and the roads. The probe paints the ground into its\n"
+        "128x128 target on every capture, and a turning camera captures\n"
+        "every second frame - on a physical PS2 the whole resident ground\n"
+        "cost 10-15 ms of each capturing frame. Far chunks are a few pixels\n"
+        "at the probe's horizon, so a radius of a few dozen units keeps the\n"
+        "ground under the car in the paint and drops the rest.\n"
+        "0 = every resident chunk (the old behaviour).");
+
+    ImGui::Checkbox("Reflect static scenery as boxes",
+                    &prefSettings_.reflectionScenery);
+    prefHelp(
+        "Every static object is drawn into the shared reflection probe as\n"
+        "one box in its material's average colour, merged into a few bags.\n"
+        "Objects with Show in reflections keep their own look.");
+
+    ImGui::Checkbox("Reflect the ground as flat colour",
+                    &prefSettings_.reflectionGroundProxy);
+    prefHelp(
+        "The probe draws a coarse grid in the terrain's painted colours and\n"
+        "the roads' mean colour instead of the real ground chunks, out to\n"
+        "the ground radius or 64 units, whichever is larger.");
+
     ImGui::Checkbox("Static object batching", &prefSettings_.staticBatching);
     prefHelp(
-        "Merges non-moving primitives sharing a material into combined\n"
-        "draw bags at scene load - each separate object costs ~1 ms of\n"
-        "fixed submit overhead per frame on real hardware, batches pay it\n"
-        "once. Objects with physics, scripts, flow-graph references,\n"
-        "save-state or a streaming layer always stay individual.");
+        "Merges non-moving primitives and compact imported-model parts\n"
+        "sharing a texture into spatial draw bags at scene load. Each\n"
+        "separate object costs ~1 ms of fixed submit overhead per frame\n"
+        "on real hardware; a batch pays it once. Large models and objects\n"
+        "with physics, LODs, scripts, runtime references, save-state or a\n"
+        "streaming layer stay individual.");
+
+    {
+        static const char* kInterleaveNames[] = {"Auto", "Always", "Off"};
+        static const char* kInterleaveKeys[] = {"auto", "always", "off"};
+        int il = 0;
+        for (int k = 0; k < 3; ++k)
+            if (prefSettings_.interleavePasses == kInterleaveKeys[k]) il = k;
+        if (ImGui::Combo("Interleave batches and roads with objects", &il,
+                         kInterleaveNames, 3))
+            prefSettings_.interleavePasses = kInterleaveKeys[il];
+    }
+    prefHelp(
+        "Feeds the static batch and road draws into the object loop instead\n"
+        "of drawing them first. Batches and roads are cheap for the EE and\n"
+        "heavy for VU1/GS, objects the opposite, so drawn one after the other\n"
+        "the EE waits in the first and VU1 idles in the second. Measured on a\n"
+        "PS2: -0.4 ms a frame in a dense garage, a small loss in open ground\n"
+        "with few objects. Auto: the game times both orders every few seconds\n"
+        "and keeps the faster. The first object that may blend (alpha,\n"
+        "cutouts, blend modes) always finds the batches and roads drawn.");
+
+    ImGui::SliderInt("Shiny vehicles at once", &prefSettings_.vehicleShineBudget,
+                     0, 8, prefSettings_.vehicleShineBudget == 0 ? "all" : "%d");
+    prefHelp(
+        "How many vehicles draw their body shine (the paint reflection and\n"
+        "highlight) in one view: the car being driven first, then the\n"
+        "nearest. The rest stay matte. Measured on a PS2: a second car's\n"
+        "shine costs 0.7 ms a frame parked and 1.2 ms while the camera\n"
+        "turns, a third to a half of the whole car. 0 = every vehicle\n"
+        "within 35 units, the look before this setting.");
+
+    ImGui::Checkbox("Conservative occlusion culling",
+                    &prefSettings_.occlusionCulling);
+    prefHelp(
+        "Builds inward proxies for static opaque objects, rasterizes them\n"
+        "into a tiny CPU depth buffer, then skips fully hidden objects and\n"
+        "chunks before they enter the renderer. Open, non-manifold and\n"
+        "alpha-textured models are refused as occluders. Existing projects\n"
+        "default off: verify the trade with the profiler on target hardware.");
 
     // Texture quantization - the PS2-native "compression" (palettized
     // PSMT8/PSMT4 textures). Applied at build time into .res-baked; per
@@ -11562,57 +16243,30 @@ void App::drawPreferencesModal() {
     ImGui::Checkbox("Texture atlasing", &prefSettings_.textureAtlas);
     prefHelp(
         "Packs small (<=128) clamp-safe material textures into shared 256x256\n"
-        "pages at build: one GS VRAM allocation (+~8 KB overhead) per page\n"
-        "instead of per texture, fewer texture switches. Conservative - tiled\n"
-        "terrain textures, emitters, decals, sphere maps and textures whose\n"
-        "model UVs leave 0..1 keep their own files. Palettized projects share\n"
-        "one 256-color palette per page (the era-authentic trade). The boot\n"
-        "log prints what was packed.");
+        "pages at build: one GS VRAM allocation per page instead of one per\n"
+        "texture, and fewer texture switches. Conservative - tiled terrain\n"
+        "textures, emitters, decals, sphere maps and textures whose model UVs\n"
+        "leave 0..1 keep their own files.\n"
+        "It does NOT always save bytes: a page is quantized as one image, so\n"
+        "in a palettized project its members go up to 8 bits per pixel while\n"
+        "the page is a full allocation whatever it holds. Tools > Texture\n"
+        "Atlas prints both numbers, says why each texture was refused, and is\n"
+        "where a texture is kept out or put in a group of your own.");
 
     drawTerrainMaterialCombo("Terrain material", prefSettings_.terrainMaterial);
     prefHelp("The material's color tints the terrain; its texture (map_Kd),\n"
              "if any, tiles across it - set the tiling on the material's\n"
              "texture in the Material Editor. Import .mtl in Project > Assets.");
 
-    ImGui::SeparatorText("AI navigation");
-    ImGui::DragFloat("Nav cell size", &prefSettings_.navCellSize, 0.05f, 0.25f,
-                     16.0f, "%.2f units");
-    if (prefSettings_.navCellSize < 0.25f) prefSettings_.navCellSize = 0.25f;
-    ImGui::DragFloat("Max walkable slope", &prefSettings_.navMaxSlope, 0.5f,
-                     1.0f, 89.0f, "%.0f deg");
-    prefSettings_.navMaxSlope = prefSettings_.navMaxSlope < 1.0f ? 1.0f
-                                : prefSettings_.navMaxSlope > 89.0f
-                                    ? 89.0f
-                                    : prefSettings_.navMaxSlope;
-    ImGui::DragFloat("Agent radius", &prefSettings_.navAgentRadius, 0.05f, 0.0f,
-                     4.0f, "%.2f units");
-    if (prefSettings_.navAgentRadius < 0.0f) prefSettings_.navAgentRadius = 0.0f;
-    prefHelp(
-        "The NPC nav grid, baked at build time from the terrain slope and\n"
-        "blocking objects (grid capped at 128x128 cells - big maps get\n"
-        "bigger cells). Agent radius widens every obstacle so NPCs keep\n"
-        "their distance from walls. Used by the AI flow nodes (Patrol /\n"
-        "Chase / Flee); preview with View > Nav Mesh Overlay. Scenes whose\n"
-        "graphs use no AI nodes carry no nav data at all.");
-
     ImGui::SeparatorText("Ambience (sky, lighting, fog)");
     if (ImGui::Button("Open Ambience Editor")) showAmbienceEditor_ = true;
     prefHelp(
-        "Sky gradient, baked lighting and distance fog now live in presets.\n"
-        "Author them in Tools > Ambience Editor; each scene picks a preset in\n"
-        "Scene > Preferences (or uses the default).");
-
-    ImGui::SeparatorText("Scenes");
-    ImGui::Checkbox("Loading screen between scenes", &prefSettings_.loadingScreen);
-    prefHelp(
-        "Master switch: shows a loading screen while a scene loads (also at\n"
-        "boot). Design them in Tools > Loading Screens - each scene picks one\n"
-        "(Scene > Preferences), or a project default is used; with none, a\n"
-        "built-in loading.png on black is shown.");
-    if (ImGui::Button("Open Loading Screens editor")) {
-        showLoadingEditor_ = true;
-        ImGui::CloseCurrentPopup();
-    }
+        (std::string(
+             "Sky gradient, baked lighting and distance fog now live in presets.\n"
+             "Author them in Tools > Ambience Editor; each scene picks a preset in\n"
+             "Scene > Preferences (or uses the default).") +
+         kOpensWindow)
+            .c_str());
 
     ImGui::SeparatorText("Shadows");
     ImGui::Checkbox("Blob shadows under moving objects", &prefSettings_.blobShadows);
@@ -11620,7 +16274,81 @@ void App::drawPreferencesModal() {
         ImGui::SetTooltip(
             "A soft dark quad on the terrain under the third-person avatar,\n"
             "animated models and physics objects, fading as they rise -\n"
-            "grounds them visually for one quad each. Project-wide.");
+            "grounds them visually for one quad each.\n"
+            "This is the DEFAULT now, not the whole story: any object can ask\n"
+            "for a blob, a silhouette or nothing in Properties > Dynamic\n"
+            "shadow - including a static prop, and with this switch off\n"
+            "(docs/shadows.md).");
+    ImGui::DragFloat("Projected shadow distance", &prefSettings_.projShadowDistance,
+                     0.5f, 10.0f, 500.0f, "%.0f u");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "How far from the camera a projected silhouette shadow is still\n"
+            "drawn. A caster beyond it takes none of the four slots; the\n"
+            "shadow dissolves over the last 30%% of the way there. 50 is the\n"
+            "old built-in; raise it for wide scenes where the slots are not\n"
+            "contested (docs/shadows.md).");
+    ImGui::Checkbox("Flashlight shadow volumes",
+                    &prefSettings_.flashShadowVolumes);
+    // The help marker belongs to the checkbox it FOLLOWS - it used to sit
+    // below the VRAM warning, so on a tight project it chained onto the amber
+    // line instead and the checkbox had none.
+    prefHelp(
+        "How the PLAYER'S TORCH throws shadows (docs/flashlight.md).\n"
+        "Point lights are not affected either way; SPOT lights have their own\n"
+        "switch below (docs/shadows.md).\n"
+        "OFF - the torch shares the projected-shadow slots: mesh-accurate\n"
+        "silhouettes, but only for objects with 'Cast shadow (projected)', at\n"
+        "most four casters for every light together, and light leaks through\n"
+        "everything else.\n"
+        "ON - shadow volumes, the survival-horror era's own arrangement:\n"
+        "every solid in the beam occludes, exactly per pixel against the real\n"
+        "depth buffer - model casters from their REAL triangles (silhouette-\n"
+        "extruded, counted in a dedicated GS buffer), primitives from their\n"
+        "boxes - and the four slots are left to the scene's lights. Costs the\n"
+        "volume fill each frame plus a count band in GS VRAM: 512 KB at\n"
+        "32-bit colour, 256 KB at 16-bit (the band follows the frame's own\n"
+        "pixel format).");
+    ImGui::Checkbox("Spot light shadow volumes",
+                    &prefSettings_.spotShadowVolumes);
+    prefHelp(
+        "The same technique for the scene's SPOT LIGHTS (docs/shadows.md) -\n"
+        "a placed light with 'Spot (cone)' on. Without it a street lamp lights\n"
+        "the wall it is bolted to and the alley behind it alike; with it the\n"
+        "cone is occluded per pixel like the torch's, for every solid in it.\n"
+        "This is the project-wide DEFAULT - a light can say otherwise on\n"
+        "itself in Properties > Point light > Shadow volumes.\n"
+        "ONE spot light casts volumes per frame - the one nearest the camera.\n"
+        "The count bracket is per light per frame, so a room full of lamps\n"
+        "costs what a single one does; which lamp it is, is what the\n"
+        "per-light override is for.\n"
+        "COSTS NO EXTRA VRAM NEXT TO THE TORCH: both count into the SAME\n"
+        "band, so a project with either one on has already paid for it.");
+    // WHAT IT COSTS, in the currency that actually runs out. The count band is
+    // 512 KB at 32-bit colour and a 512x512 project has about that much
+    // texture heap in the first place, so switching this on can take the last
+    // of it - and the symptom is not a missing shadow, it is every texture in
+    // the scene evicting and re-uploading once a frame. Measured on the scene
+    // that reported it: 0.375 MB free with the volumes off, 0.000 MB and
+    // ~1.6 re-uploads per frame with them on.
+    //
+    // Shown for EITHER user of the band, and only once: the two share one
+    // buffer, so the warning is about the pair rather than about the torch.
+    if (prefSettings_.flashShadowVolumes || prefSettings_.spotShadowVolumes) {
+        // The DIFFERENCE is exact (it is one buffer, sized by the same
+        // arithmetic the engine uses); the absolute headroom is not - the
+        // model reads ~256 KB high against what a running game reports,
+        // because the reserve it subtracts is the engine's third-buffer
+        // constant rather than the real post-init allocations. So the warning
+        // states the cost and points at the number that IS authoritative.
+        const project::TextureHeapEstimate heap =
+            project::textureHeapEstimate(project_, prefSettings_);
+        if (heap.freeKb < 512)
+            ImGui::TextColored(
+                ImVec4(0.95f, 0.7f, 0.3f, 1),
+                "  Takes a %d KB count band - little texture VRAM left here",
+                heap.countBandKb);
+    }
 
     ImGui::SeparatorText("Usable objects");
     ImGui::Checkbox("Highlight usable objects", &prefSettings_.highlightUsable);
@@ -11644,6 +16372,33 @@ void App::drawPreferencesModal() {
             "Draw over object = a colored glow ON the surface fading outward,\n"
             "instead of only a rim behind the silhouette.");
     }
+    endTab();
+    }
+
+    if (beginTab("Player")) {
+    // The starting preset leads this tab because it is what DECIDES the player:
+    // it picks which game-template sources are generated, and the camera block
+    // below changes shape with it (eye height in FPP, body height in third
+    // person, orbit speed with no player at all).
+    ImGui::SeparatorText("Game");
+    // Read-only on purpose: the preset is picked once, in New Project. It
+    // decides which game-template sources are generated, and those are
+    // user-ownable - switching here would either overwrite work or leave an
+    // owned source no longer matching what the project builds.
+    ImGui::BeginDisabled();
+    {
+        int shown = presetIndexOf(project_.gameTemplate);
+        const char* names[kNewPresetCount];
+        for (int i = 0; i < kNewPresetCount; ++i) names[i] = kNewPresets[i].label;
+        ImGui::Combo("Preset", &shown, names, kNewPresetCount);
+    }
+    ImGui::EndDisabled();
+    prefHelp(
+        "Fixed when the project was created and not changeable here: it picks\n"
+        "the generated game sources (files with the editor marker), which you\n"
+        "may have taken ownership of. Start a new project to use another\n"
+        "preset. The player's own camera settings stay editable - select the\n"
+        "Player object and see Properties.");
 
     // Player defaults - shared by both player presets (the height is the eye in
     // FPP, the body in third person, the same way a Player object labels it).
@@ -11654,6 +16409,19 @@ void App::drawPreferencesModal() {
                          0.05f, 0.2f, 50.0f, "%.2f");
         walkSpeedDrag("Walk speed", prefSettings_.walkSpeed,
                       prefSettings_.unitsPerMeter);
+        // The same walk -> run stick ramp a Player object has
+        // (docs/player-speeds.md), for the fallback walker a scene with no
+        // Player object gets. Sprint stays the multiplier below, because
+        // there is no object here to state an absolute speed on.
+        speedTierDrag("Run speed", prefSettings_.runSpeed,
+                      project::settingsRunSpeed(prefSettings_),
+                      prefSettings_.unitsPerMeter, "same as walk", nullptr);
+        prefHelp(
+            "Speed at FULL stick; the deflection ramps Walk -> Run, so easing\n"
+            "the stick walks. Left unset the walk speed is the only speed,\n"
+            "which is how this walker always behaved.\n\n"
+            "This is the project-wide fallback: a scene with a Player object\n"
+            "takes all three tiers from that object instead.");
         ImGui::DragFloat("Look speed", &prefSettings_.lookSpeed, 0.05f, 0.1f, 5.0f, "%.2f");
     } else {
         ImGui::SeparatorText("Camera");
@@ -11748,47 +16516,276 @@ void App::drawPreferencesModal() {
         ImGui::DragFloat("Jump speed (units/s)", &prefSettings_.jumpSpeed, 0.1f, 0.0f, 50.0f,
                          "%.1f");
     prefHelp("Objects with the 'Physics' flag fall; the player jumps with X.");
+    endTab();
+    }
+
+    if (beginTab("Build")) {
+    // WHAT GOES INTO THE ELF, which is a different question from what the game
+    // looks like - the video signal and the presentation used to live in this
+    // section and are now on the Display tab, where somebody asking how the
+    // picture reaches the TV will look for them.
+    ImGui::SeparatorText("Build");
+    int profile = prefSettings_.buildProfile == "debug" ? 1 : 0;
+    const char* profileNames[] = {"Release", "Debug"};
+    if (ImGui::Combo("Profile", &profile, profileNames, 2))
+        prefSettings_.buildProfile = profile == 1 ? "debug" : "release";
+    prefHelp(
+        "Debug carries the devkit channels below, the overlays, -g and the\n"
+        "unstripped ELF copy the crash reporter needs. Release carries none\n"
+        "of it - every one of those toggles is greyed out here because a\n"
+        "release build is verified to contain nothing (--audit-release).");
+    // "&&" was a Win32 habit - ImGui does no accelerator parsing, so it drew
+    // two ampersands and disagreed with every doc page naming this setting.
+    ImGui::Checkbox("Keyboard & mouse controls", &prefSettings_.keyboardMouse);
+    prefHelp(
+        "The game loads the USB keyboard/mouse drivers: WASD walks, the\n"
+        "mouse looks, E uses, Space jumps, Esc pauses, arrows + Enter drive\n"
+        "menus (bindings live in inc/controls.hpp). Works in PCSX2 (the\n"
+        "editor sets its emulated USB devices automatically) and with real\n"
+        "USB devices on a console. Skipped on ps2link deploys.");
+    ImGui::BeginDisabled(!prefSettings_.keyboardMouse);
+    ImGui::Indent(scaled(16));
+    ImGui::Checkbox("Also over ps2link", &prefSettings_.keyboardMousePs2Link);
+    prefHelp(
+        "Keeps keyboard/mouse working on a Run on PS2 (ps2link) deploy. The\n"
+        "console runs the TyraX ps2link (tools/ps2link - its boot screen says\n"
+        "so), which bakes usbd + ps2kbd + ps2mouse into its own boot, and the\n"
+        "engine reuses that resident stack instead of loading its own. The\n"
+        "driver logs show up live in Output / ps2client. Untick only if you\n"
+        "deliberately boot a stock ps2link, which has no USB stack to reuse:\n"
+        "the drivers then just report \"not ready\". See docs/ps2link-setup.md\n"
+        "and docs/keyboard-mouse.md.");
+    ImGui::Unindent(scaled(16));
+    ImGui::EndDisabled();
+
+    ImGui::SeparatorText("Bakes before a build");
+    ImGui::BeginDisabled(!prefSettings_.giEnabled);
+    ImGui::Checkbox("Re-bake stale global illumination", &prefSettings_.giAutoBake);
+    ImGui::EndDisabled();
+    prefHelp(
+        "Before every build, re-bake every scene whose GI cache no longer\n"
+        "matches it. Only STALE scenes - a build with everything fresh costs\n"
+        "nothing; a changed big scene can cost minutes. Off = bake by hand from\n"
+        "the Global illumination tab or --bake-gi, and a stale scene ships the\n"
+        "pre-GI lighting. Needs GI enabled.");
+    ImGui::Checkbox("Re-bake stale pre-lit objects", &prefSettings_.prelitAutoBake);
+    prefHelp(
+        "Before every build, re-bake the objects marked \"Ship pre-lit\" whose\n"
+        "texture no longer matches the scene (moved, or the light changed).\n"
+        "Only STALE ones - a build with everything fresh costs nothing. Off =\n"
+        "bake by hand from Tools > Baked Lighting or --bake-prelit.\n"
+        "Procedural volumes and model AO are always baked.");
+
+    ImGui::SeparatorText("Debug overlays");
+    ImGui::BeginDisabled(profile == 0);
+    ImGui::Checkbox("Show FPS", &prefSettings_.showFps);
+    ImGui::Checkbox("Show memory usage", &prefSettings_.showMemory);
+    ImGui::Checkbox("Show frame profiler", &prefSettings_.showProfiler);
+    ImGui::EndDisabled();
+    prefHelp(
+        "Debug-profile overlays drawn in the top-left corner of the game:\n"
+        "frames per second, free EE RAM, and a per-phase EE-time breakdown\n"
+        "(whole frame / scene / usable-highlight / particles, avg ms over\n"
+        "~1s). Stripped from release builds.");
+    ImGui::BeginDisabled(profile == 0);
+    ImGui::Checkbox("Show areas", &prefSettings_.showAreas);
+    ImGui::EndDisabled();
+    prefHelp(
+        "Draws every Area object (docs/areas.md) in the GAME as a wireframe\n"
+        "box, the way the editor viewport shows it. Areas have no geometry on\n"
+        "the console by design, which is exactly why \"why did that layer not\n"
+        "unload\" or \"why is that crate not reflecting\" is hard to see - this\n"
+        "puts the volume back on screen. Stripped from release builds.");
+    ImGui::BeginDisabled(profile == 0);
+    ImGui::Checkbox("Show collision boxes", &prefSettings_.showCollision);
+    ImGui::EndDisabled();
+    prefHelp(
+        "Draws the COLLISION BOX of every collider in the GAME as a red\n"
+        "wireframe - the same volume View > Collision boxes shows in the\n"
+        "editor, from the same builder. What stops the player and the\n"
+        "third-person camera is that box and not the mesh (a model collides\n"
+        "as its bounding box), so this is what explains a prop that blocks\n"
+        "short of its surface or a camera that pulls in early. The nearest 24\n"
+        "colliders within 60 units of the camera are drawn - it is a look, not\n"
+        "a census. See docs/collision-boxes.md. Stripped from release builds.");
+
+    // THE DEVKIT CHANNELS. Each of these used to be a checkbox with its help
+    // marker somewhere else entirely: Live Link and Live Logic had theirs
+    // stranded at the BOTTOM of the section, chained onto the EE crash
+    // handler's by prefHelp's SameLine, so the crash handler carried three (?)
+    // markers in a row and two of the toggles carried none. A help marker
+    // belongs to the widget it follows - that is the whole idiom.
+    ImGui::SeparatorText("Devkit channels (debug builds only)");
+    ImGui::BeginDisabled(profile == 0);
+    ImGui::Checkbox("Live Link", &prefSettings_.liveLink);
+    ImGui::EndDisabled();
+    prefHelp(
+        "Debug builds poll livelink.bin next to the ELF so the editor can\n"
+        "stream scene edits into the running game (docs/live-link.md). Turn\n"
+        "off if you don't want your game patched from outside; release\n"
+        "builds never carry the poller. Also toggled by the LIVE chip in\n"
+        "the toolbar and Build > Live Link.");
+    ImGui::BeginDisabled(profile == 0);
+    ImGui::Checkbox("Live Debugger", &prefSettings_.liveDebug);
+    ImGui::EndDisabled();
+    prefHelp(
+        "Debug builds report what their flow graphs run - every trigger and\n"
+        "action, the flow variables, the save values - so the editor can show\n"
+        "the graph executing live, set breakpoints, stop and step the game,\n"
+        "and fire a trigger on demand (docs/live-debugger.md). Costs a\n"
+        "counter bump per fired node plus one small file write every few\n"
+        "frames; release builds carry none of it. Tools > Debugger (F9).");
+    ImGui::BeginDisabled(profile == 0);
+    ImGui::Checkbox("Live Logic", &prefSettings_.liveLogic);
+    ImGui::EndDisabled();
+    prefHelp(
+        "Debug builds carry a small flow-graph interpreter, so editing a graph\n"
+        "changes the RUNNING game with no rebuild: the editor compiles the\n"
+        "graph itself and streams the instructions next to the ELF\n"
+        "(docs/live-logic.md). Graphs using nodes the interpreter does not\n"
+        "implement (audio, AI, animation, spawning, runtime text) still need a\n"
+        "build - the Debugger's Logic tab names them. Release builds compile\n"
+        "every graph to native C++ and carry no interpreter.");
+    ImGui::BeginDisabled(profile == 0);
+    ImGui::Checkbox("Time machine", &prefSettings_.timeMachine);
+    ImGui::EndDisabled();
+    prefHelp(
+        "The game captures everything it mutates - object transforms,\n"
+        "physics, animation, flow variables, save values, where the player\n"
+        "stands - a few times a second, and the editor keeps a history of\n"
+        "those captures in memory. The Debugger's Rewind tab puts the RUNNING\n"
+        "game back into any of them, with no rebuild and no reboot; with Live\n"
+        "Logic on you can fix a graph first and watch the new logic play out\n"
+        "on the situation that just broke. Costs one small file written next\n"
+        "to the ELF every few frames, and nothing at all in a release build.\n"
+        "See docs/time-machine.md.");
+    ImGui::BeginDisabled(profile == 0);
+    ImGui::Checkbox("Remote Pad", &prefSettings_.remotePad);
+    ImGui::EndDisabled();
+    prefHelp(
+        "Lets the EDITOR hold the controller: Tools > Remote Pad draws a pad\n"
+        "you can click (or drive with the editor's own keyboard), and the game\n"
+        "reads it out of one small file next to the ELF. Nothing needs the\n"
+        "keyboard focus, so PCSX2 can sit in the background - and the same\n"
+        "channel is scriptable from the command line\n"
+        "(tyrax-editor --pad <project> \"hold up; wait 2\"), which is what makes\n"
+        "an unattended input test possible. Works on real hardware over\n"
+        "ps2link too (polled less often - it is a network round-trip there).\n"
+        "Release builds carry none of it. See docs/remote-pad.md.");
+    ImGui::BeginDisabled(profile == 0);
+    ImGui::Checkbox("Input recorder", &prefSettings_.inputRecorder);
+    ImGui::EndDisabled();
+    prefHelp(
+        "Records every frame's input - both pads, the USB keyboard and mouse,\n"
+        "and the frame's own dt - into a file next to the ELF, and plays one\n"
+        "back over the top of whatever a real controller is doing. So a bug\n"
+        "somebody hit once can be reproduced on demand, with the Live Debugger\n"
+        "and the time machine open beside it. Only the INPUT travels, which is\n"
+        "what keeps ten minutes at about a megabyte; a saved recording lives in\n"
+        "the project's recordings/ folder and is meant to be committed next to\n"
+        "the bug it reproduces. Off by default - a recording is a file that\n"
+        "grows while the game runs. Debugger > Replay, or the command line\n"
+        "(tyrax-editor --record / --replay). See docs/input-replay.md.");
+    ImGui::BeginDisabled(profile == 0);
+    ImGui::SeparatorText("Devkit frequency (rebuild required)");
+    ImGui::TextWrapped("Intervals in game updates. 0 = automatic; 1 = every update. "
+                       "Disable unused channels above to remove their work entirely.");
+    auto cadence = [](const char* label, int& frames, bool enabled) {
+        ImGui::BeginDisabled(!enabled);
+        ImGui::SetNextItemWidth(130.0f);
+        if (ImGui::InputInt(label, &frames)) frames = std::clamp(frames, 0, 120);
+        ImGui::EndDisabled();
+    };
+    cadence("Live Link / textures interval", prefSettings_.liveLinkPollFrames, prefSettings_.liveLink);
+    cadence("Live Logic interval", prefSettings_.liveLogicPollFrames, prefSettings_.liveLogic);
+    cadence("Debugger commands interval", prefSettings_.liveDebugPollFrames, prefSettings_.liveDebug);
+    cadence("Debugger reports interval", prefSettings_.liveDebugSnapshotFrames, prefSettings_.liveDebug);
+    cadence("Time machine interval", prefSettings_.timeMachineFrames, prefSettings_.timeMachine);
+    ImGui::TextWrapped("At 50 FPS, 50 updates take one second; at 16 FPS they take "
+                       "about three seconds. Longer intervals delay edits and reports. "
+                       "Paused debugger commands stay responsive. Remote Pad and replay "
+                       "input keep their existing cadence.");
+    ImGui::Separator();
+    ImGui::Checkbox("EE crash handler", &prefSettings_.eeCrashHandler);
+    ImGui::EndDisabled();
+    prefHelp(
+        "A real CPU exception (bad pointer, address error, reserved\n"
+        "instruction) is not a TYRAX assertion: nothing prints it and the game\n"
+        "just stops. With this on, a debug build installs the engine's crash\n"
+        "handler, which writes bin/crash.txt - decoded cause, registers,\n"
+        "backtrace - and the editor resolves those addresses to functions and\n"
+        "source lines. The crash also takes the screen, so a dead game says so\n"
+        "instead of looking like a hang. Debug builds only - release carries\n"
+        "none of it. Off by default; note PCSX2 cannot produce EE exceptions\n"
+        "at all, so a report only ever appears on a real console.\n"
+        "See docs/devkit.md.");
 
     ImGui::SeparatorText("AI support");
     {
         const bool haveClaude = aisupport::installed(project_.dir, "claude");
+        const bool haveCodex = aisupport::installed(project_.dir, "codex");
         const bool haveCopilot = aisupport::installed(project_.dir, "copilot");
         if (ImGui::Button(haveClaude ? "Refresh Claude Code files"
                                      : "Add Claude Code support"))
             statusMessage_ = aisupport::install(project_.dir, true, false);
         ImGui::SameLine();
+        if (ImGui::Button(haveCodex ? "Refresh Codex files" : "Add Codex support"))
+            statusMessage_ = aisupport::install(project_.dir, false, false, true);
+        ImGui::SameLine();
         if (ImGui::Button(haveCopilot ? "Refresh Copilot files"
                                       : "Add Copilot support"))
             statusMessage_ = aisupport::install(project_.dir, false, true);
         prefHelp(
-            "Copies assistant guides into the project (.claude/skills/ + CLAUDE.md\n"
-            "for Claude Code, .github/copilot-instructions.md for Copilot): the\n"
-            "project structure, flow-graph format, custom scripting and the\n"
-            "editor's headless CLI. Installing again refreshes the files unless\n"
-            "you took ownership (deleted their marker line). Applied immediately\n"
-            "- these are files on disk, not project settings.");
-        if (haveClaude || haveCopilot)
-            ImGui::TextDisabled("Installed:%s%s", haveClaude ? " Claude Code" : "",
+            "Copies assistant guides into the project: .claude/skills/ + CLAUDE.md\n"
+            "for Claude Code, .agents/skills/ + AGENTS.md for Codex (the same\n"
+            "guides, where Codex looks for them), .github/copilot-instructions.md\n"
+            "for Copilot. They cover the project structure, the flow-graph format,\n"
+            "custom scripting, the MENU STYLESHEETS and the editor's headless CLI.\n"
+            "Installing again refreshes the files unless you took ownership\n"
+            "(deleted their marker line). Applied immediately - these are files on\n"
+            "disk, not project settings.");
+        if (haveClaude || haveCodex || haveCopilot)
+            ImGui::TextDisabled("Installed:%s%s%s", haveClaude ? " Claude Code" : "",
+                                haveCodex ? " Codex" : "",
                                 haveCopilot ? " Copilot" : "");
     }
-
-    ImGui::Separator();
-    ImGui::TextDisabled(
-        "These are project-wide defaults. Scenes inherit them unless a\n"
-        "category is overridden in Scene > Scene Preferences. The emulator\n"
-        "path and dev-PS2 IP are machine-global - set them in Edit > Preferences.");
-    if (ImGui::Button("OK", ImVec2(scaled(120), 0))) {
-        // gameTemplate is deliberately NOT written back - the preset is fixed
-        // at creation and this dialog only shows it.
-        project_.settings = prefSettings_;
-        project_.active().terrain = prefTerrain_;
-        applyProjectToViewport();  // scenes that inherit follow the new defaults
-        commitChange();
-        ImGui::CloseCurrentPopup();
+    endTab();
     }
-    ImGui::SameLine();
-    if (ImGui::Button("Cancel", ImVec2(scaled(120), 0))) ImGui::CloseCurrentPopup();
-    ImGui::EndPopup();
+
+    ImGui::EndTabBar();
+
+    // THE WRITE-BACK. One comparison over the whole settings struct, so a
+    // widget added to any tab is covered by construction - the sectionJson
+    // guard's reasoning, applied to a struct that has an operator==.
+    // gameTemplate is deliberately not written back: the preset is fixed at
+    // creation and this window only shows it.
+    bool prefsChanged = gridChanged;
+    if (!(project_.settings == prefSettings_)) {
+        project_.settings = prefSettings_;
+        prefsChanged = true;
+    }
+    if (prefsChanged) prefsViewportDirty_ = true;
+    // Deferred to the end of the interaction: applyProjectToViewport() rebuilds
+    // the terrain mesh and re-reads the GI cache, which must not happen sixty
+    // times a second while a slider is held. The model is already up to date -
+    // this is only the preview catching up. It runs BEFORE the commit because
+    // it is also what resamples the heightmap after a grid change, and the undo
+    // snapshot should carry the resampled result rather than a half-applied one.
+    if (prefsViewportDirty_ && !ImGui::IsAnyItemActive()) {
+        applyProjectToViewport();  // scenes that inherit follow the new defaults
+        prefsViewportDirty_ = false;
+    }
+    if (prefsChanged) commitChange();
+
+    // THE FOOTER, OUTSIDE THE SCROLLING REGION. This is the structural half of
+    // the shape and it matters more than the tabs: every tab body above
+    // reserved `footerH` for it, so it sits at a fixed place in the window
+    // whatever any tab grows into. The tabs make the content shorter TODAY; the
+    // pinned footer is what stops the next setting anybody adds from putting
+    // the dialog back where it was.
+    ImGui::Separator();
+    if (ImGui::Button("Close", ImVec2(scaled(120), 0))) showProjectPrefs_ = false;
+    ImGui::End();
 }
 
 // Machine-global editor settings (Edit > Preferences), stored in editor.ini and
@@ -11803,11 +16800,24 @@ void App::drawEditorPreferencesModal() {
 
     ImVec2 center = ImGui::GetMainViewport()->GetCenter();
     ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-    ImGui::SetNextWindowSize(ImVec2(scaled(560), 0), ImGuiCond_Appearing);
+    // AN EXPLICIT SIZE, NOT AlwaysAutoResize - the Project Preferences shape,
+    // for the reason that dialog documents. This one had grown past the screen
+    // too: with the AI assistant section in it, Save and Cancel sat ~700 px
+    // BELOW the bottom of a 1080p display and could only be reached by
+    // scrolling the whole dialog first (measured with `--ui-script dump`: the
+    // buttons at y=2707 in a 1973-high window). The footer is outside the
+    // scrolling body now, so it stays one click away however much anybody adds
+    // above it.
+    ImGui::SetNextWindowSize(
+        ImVec2(scaled(560),
+               std::min(scaled(760), ImGui::GetMainViewport()->WorkSize.y * 0.9f)),
+        ImGuiCond_Appearing);
 
-    if (!ImGui::BeginPopupModal("Editor Preferences", nullptr,
-                                ImGuiWindowFlags_AlwaysAutoResize))
-        return;
+    if (!ImGui::BeginPopupModal("Editor Preferences", nullptr, 0)) return;
+
+    const float footerH =
+        ImGui::GetFrameHeightWithSpacing() + ImGui::GetStyle().ItemSpacing.y * 2.0f;
+    ImGui::BeginChild("##body", ImVec2(0, -footerH));
 
     ImGui::TextDisabled(
         "Settings for this editor installation - shared by every project and\n"
@@ -11827,13 +16837,20 @@ void App::drawEditorPreferencesModal() {
         }
         ImGui::EndCombo();
     }
+    {
+        // prefHelp takes a plain string, and this one reports live state.
+        char tip[256];
+        snprintf(tip, sizeof(tip),
+                 "Interface font: %s (the first UI face found on this machine).\n"
+                 "Scale lives in View > Interface scale - currently %d%%%s.",
+                 uiFontLabel_.empty() ? "built-in bitmap font" : uiFontLabel_.c_str(),
+                 (int)std::lround(uiScaleApplied_ * 100.0f),
+                 uiScaleUser_ == 0.0f ? " (auto)" : "");
+        prefHelp(tip);
+    }
+    // The theme's own one-liner stays inline: it changes with the selection, so
+    // it is a readout rather than documentation.
     ImGui::TextDisabled("%s", theme::info(theme_).desc);
-    ImGui::TextDisabled(
-        "Interface font: %s (the first UI face found on this machine).\n"
-        "Scale lives in View > Interface scale - currently %d%%%s.",
-        uiFontLabel_.empty() ? "built-in bitmap font" : uiFontLabel_.c_str(),
-        (int)std::lround(uiScaleApplied_ * 100.0f),
-        uiScaleUser_ == 0.0f ? " (auto)" : "");
 
     ImGui::SeparatorText("New projects");
     ImGui::InputText("Default folder", prefDefaultProjectsDir_,
@@ -11849,7 +16866,7 @@ void App::drawEditorPreferencesModal() {
         ImGui::SameLine();
         if (ImGui::SmallButton("Clear##projdir")) prefDefaultProjectsDir_[0] = '\0';
     }
-    ImGui::TextDisabled(
+    prefHelp(
         "Parent folder proposed as the location when you create a new project\n"
         "(File > New Project). Leave empty to default to ~/TyraProjects.");
 
@@ -11865,20 +16882,90 @@ void App::drawEditorPreferencesModal() {
         ImGui::SameLine();
         if (ImGui::SmallButton("Clear##pcsx2")) prefEmulatorPath_[0] = '\0';
     }
-    ImGui::TextDisabled(
+    prefHelp(
         "Path to pcsx2-qt.exe used by Build && Run. Leave empty to auto-detect\n"
         "under Program Files. The emulator's log appears in the Debug window.");
 
     ImGui::SeparatorText("Real PS2 (network deploy)");
     ImGui::InputText("PS2 (ps2link) IP", prefPs2Ip_, sizeof(prefPs2Ip_));
-    ImGui::TextDisabled(
+    prefHelp(
         "IP of a PS2 on the LAN running PS2LINK.ELF. Enables Build > Build &&\n"
         "Run on PS2 (F6): the game boots on the console over ethernet with its\n"
         "assets served from this PC - no ISO, no SMB. Leave empty to disable.");
+    ImGui::InputInt("Console log lines", &prefConsoleLogLines_, 1000, 10000);
+    if (prefConsoleLogLines_ < 0) prefConsoleLogLines_ = 0;
+    prefHelp(
+        "Every Run on PS2 session also writes the console's log to\n"
+        "<project>/logs/ps2-<date>-<time>.log, flushed line by line, so a crash\n"
+        "or an unwatched run still leaves a record. A file keeps the last this\n"
+        "many lines (it holds up to twice that before trimming). 0 = no file.");
+    ImGui::InputInt("Console logs kept", &prefConsoleLogFiles_, 1, 5);
+    if (prefConsoleLogFiles_ < 1) prefConsoleLogFiles_ = 1;
+    prefHelp(
+        "How many session files stay in a project's logs/ folder. Starting a\n"
+        "session deletes the oldest ones beyond this.");
+
+    ImGui::SeparatorText("Build toolchain");
+    const char* backendLabels[] = {"Native (PS2DEV + OpenVCL)", "Docker fallback"};
+    ImGui::Combo("Build backend", &prefBuildBackend_, backendLabels, 2);
+    prefHelp(
+        "Native is the default and needs no Docker daemon. On Linux it runs the\n"
+        "bundled PS2DEV/OpenVCL toolchain directly; on Windows it runs the same\n"
+        "pinned Linux toolchain through WSL. The first build provisions it in\n"
+        "the editor cache. Docker remains available as a compatibility fallback.");
+
+    ImGui::BeginDisabled(prefBuildBackend_ != 1);
+    // The buffer is the single truth and the combo is a shortcut into it: the
+    // selected row is DERIVED from the text every frame, so typing an image by
+    // hand cannot leave the two disagreeing. Empty is a real choice, not an
+    // unset value - it means "say nothing", which is what keeps a project's own
+    // .env working.
+    struct ToolchainChoice {
+        const char* label;
+        const char* image;
+    };
+    // The GHCR row names the FROM-SOURCE package, because that is the only one
+    // CI publishes. The inherited image stays in the repo as the A/B reference
+    // against Sony's vcl and is built locally (docker/build.*), which is what
+    // the "locally built" row picks up - it is the tag those scripts default to.
+    static const ToolchainChoice kToolchains[] = {
+        {"Project default (.env, else h4570/tyra)", ""},
+        {"Original Tyra (h4570/tyra)", "h4570/tyra"},
+        {"TyraX toolchain (GHCR)",
+         "ghcr.io/doctorspider42/tyrax-toolchain-src:latest"},
+        {"TyraX toolchain (locally built)", "tyrax-toolchain:local"},
+    };
+    int toolchainSel = -1;  // -1 = none of the presets, i.e. a custom image
+    for (int i = 0; i < (int)(sizeof(kToolchains) / sizeof(kToolchains[0])); ++i)
+        if (std::strcmp(prefToolchainImage_, kToolchains[i].image) == 0) toolchainSel = i;
+    const char* toolchainLabel =
+        toolchainSel >= 0 ? kToolchains[toolchainSel].label : "Custom";
+    if (ImGui::BeginCombo("Compiler image", toolchainLabel)) {
+        for (int i = 0; i < (int)(sizeof(kToolchains) / sizeof(kToolchains[0])); ++i) {
+            if (ImGui::Selectable(kToolchains[i].label, toolchainSel == i))
+                snprintf(prefToolchainImage_, sizeof(prefToolchainImage_), "%s",
+                         kToolchains[i].image);
+        }
+        ImGui::EndCombo();
+    }
+    ImGui::InputText("Image name", prefToolchainImage_, sizeof(prefToolchainImage_));
+    prefHelp(
+        "Docker image the GAME is compiled in - not the editor. The TyraX image\n"
+        "is built from the official ps2dev base with a from-source VU assembler,\n"
+        "the audsrv fork and our patched ps2link (docs/toolchain-image.md); pick\n"
+        "Original Tyra to fall back on the 2022 image every game here was built\n"
+        "with - it is also the only one carrying Sony's vcl.\n"
+        "The GHCR image needs a docker login while this repo is private.\n"
+        "Leave empty to decide nothing here, so a project's own .env still wins.\n"
+        "Changing this rebuilds the engine and the VU microcode on the next build.\n"
+        "\n"
+        "Headless builds (tyrax-editor --build) do not read this - they follow the\n"
+        "project's .env, the same way they auto-detect the emulator.");
+    ImGui::EndDisabled();
 
     ImGui::SeparatorText("Collaboration sessions");
     ImGui::InputText("Display name", prefDisplayName_, sizeof(prefDisplayName_));
-    ImGui::TextDisabled(
+    prefHelp(
         "The name other participants see in a live session. Leave empty to\n"
         "use your Windows user name.");
     ImGui::InputText("Joined-project cache", prefSessionCacheDir_,
@@ -11890,7 +16977,7 @@ void App::drawEditorPreferencesModal() {
             snprintf(prefSessionCacheDir_, sizeof(prefSessionCacheDir_), "%s",
                      dir.c_str());
     }
-    ImGui::TextDisabled(
+    prefHelp(
         "Where projects you JOIN materialize (re-joins reuse it, so unchanged\n"
         "files never transfer twice). Leave empty for\n"
         "the editor config folder (remote-cache).");
@@ -11938,7 +17025,7 @@ void App::drawEditorPreferencesModal() {
             ImGui::InputTextWithHint("Model id", "as the backend expects it",
                                      prefAiModel_, sizeof(prefAiModel_));
         ImGui::Checkbox("Thinking", &prefAiThinking_);
-        ImGui::TextDisabled(
+        prefHelp(
             "Backend used by Flow Graph > Generate with AI (and the --ai-graph\n"
             "CLI). Claude CLI needs 'claude' on PATH, Copilot CLI 'copilot';\n"
             "the OpenAI API needs the OPENAI_API_KEY environment variable and\n"
@@ -11946,10 +17033,39 @@ void App::drawEditorPreferencesModal() {
             "supports it (slower, better on tricky logic).");
     }
 
+    // Applies IMMEDIATELY and saves itself, like the theme above and unlike the
+    // staged text fields: it is one switch, and staging it would make Cancel
+    // read as "do not check for updates" (docs/updates.md).
+    ImGui::SeparatorText("Updates");
+    if (ImGui::Checkbox("Check for updates at startup", &globalUpdateCheck_))
+        saveGlobalConfig();
+    prefHelp(
+        "Asks GitHub once, at startup, whether there is a newer TyraX, and\n"
+        "says so only if there is. Off means nothing leaves this machine on\n"
+        "its own - Help > Check for updates still works whenever you ask.");
+    ImGui::SameLine();
+    ImGui::BeginDisabled(updateChecking_ || updateDownloading_);
+    if (ImGui::SmallButton("Check now")) startUpdateCheck(true);
+    ImGui::EndDisabled();
+    if (!globalUpdateSkip_.empty()) {
+        ImGui::TextDisabled("Skipping %s.", globalUpdateSkip_.c_str());
+        ImGui::SameLine();
+        if (ImGui::SmallButton("Stop skipping")) {
+            globalUpdateSkip_.clear();
+            saveGlobalConfig();
+        }
+    }
+
+    ImGui::EndChild();  // the scrolling body; the footer below is pinned
+
     ImGui::Separator();
     if (ImGui::Button("Save", ImVec2(scaled(120), 0))) {
         globalEmulatorPath_ = prefEmulatorPath_;
         globalPs2Ip_ = prefPs2Ip_;
+        globalConsoleLogLines_ = prefConsoleLogLines_;
+        globalConsoleLogFiles_ = prefConsoleLogFiles_;
+        globalToolchainImage_ = prefToolchainImage_;
+        globalBuildBackend_ = prefBuildBackend_ == 1 ? "docker" : "native";
         globalDefaultProjectsDir_ = prefDefaultProjectsDir_;
         globalDisplayName_ = prefDisplayName_;
         globalSessionCacheDir_ = prefSessionCacheDir_;
@@ -11961,6 +17077,13 @@ void App::drawEditorPreferencesModal() {
         if (hasProject_) {
             project_.emulatorPath = globalEmulatorPath_;
             project_.ps2LinkIp = globalPs2Ip_;
+            project_.consoleLogLines = globalConsoleLogLines_;
+            project_.consoleLogFiles = globalConsoleLogFiles_;
+            // The Runner reads the image off the project too, so an already-open
+            // one has to be told now - otherwise the change only takes effect the
+            // next time the project is opened.
+            project_.toolchainImage = globalToolchainImage_;
+            project_.buildBackend = globalBuildBackend_;
         }
         ImGui::CloseCurrentPopup();
     }
@@ -12144,6 +17267,15 @@ void App::drawNavigationModal() {
     changed |= ImGui::SliderFloat("Orbit", &nav_.orbitSensitivity, 0.2f, 3.0f, "%.2fx");
     changed |= ImGui::SliderFloat("Pan", &nav_.panSensitivity, 0.2f, 3.0f, "%.2fx");
     changed |= ImGui::SliderFloat("Zoom", &nav_.zoomSensitivity, 0.2f, 3.0f, "%.2fx");
+    // Wider than the others on purpose: this one crosses whole scenes, and 3x
+    // was not enough on a large terrain.
+    changed |= ImGui::SliderFloat("Forward pan", &nav_.dollySensitivity, 0.1f, 8.0f,
+                                  "%.2fx");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "Speed of the right+middle drag, which pans forward and back along\n"
+            "the view direction (drag down = forward). It scales with zoom like\n"
+            "the other moves, so this is a multiplier on top of that.");
     changed |= ImGui::Checkbox("Invert horizontal", &nav_.invertX);
     ImGui::SameLine();
     changed |= ImGui::Checkbox("Invert vertical", &nav_.invertY);
@@ -12182,6 +17314,7 @@ void App::openScenePreferences() {
     scenePrefOverrides_ = project_.active().overrides;
     scenePrefAmbience_ = project_.active().ambiencePreset;
     scenePrefLoading_ = project_.active().loadingScreen;
+    scenePrefStart_ = project_.startScene == project_.activeScene;
     openScenePrefsPopup_ = true;
 }
 
@@ -12193,10 +17326,17 @@ void App::drawScenePreferencesModal() {
 
     ImVec2 center = ImGui::GetMainViewport()->GetCenter();
     ImGui::SetNextWindowPos(center, ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-    ImGui::SetNextWindowSize(ImVec2(scaled(560), 0), ImGuiCond_Appearing);
+    // Every category is drawn whether it is overridden or not, so the content is
+    // ~1000 px tall: with AlwaysAutoResize the modal grew past the bottom of a
+    // 900 px screen and OK/Cancel could not be reached at all. An explicit
+    // height capped to the viewport keeps the footer on screen and lets the
+    // categories scroll (the window is still user-resizable from its corner).
+    ImGui::SetNextWindowSize(
+        ImVec2(scaled(560),
+               std::min(scaled(1040), ImGui::GetMainViewport()->WorkSize.y * 0.9f)),
+        ImGuiCond_Appearing);
 
-    if (!ImGui::BeginPopupModal("Scene Preferences", nullptr,
-                                ImGuiWindowFlags_AlwaysAutoResize))
+    if (!ImGui::BeginPopupModal("Scene Preferences", nullptr, 0))
         return;
     if (scenePrefScene_ < 0 || scenePrefScene_ >= (int)project_.scenes.size()) {
         ImGui::CloseCurrentPopup();
@@ -12210,18 +17350,57 @@ void App::drawScenePreferencesModal() {
     prefHelp(
         "Each category inherits Project > Preferences until you tick\n"
         "\"Override project settings\" for it.");
+    // -reserve for the footer (separator + button row) below.
+    ImGui::BeginChild("##sceneprefs_scroll",
+                      ImVec2(0, -(ImGui::GetFrameHeightWithSpacing() +
+                                  ImGui::GetStyle().ItemSpacing.y * 2.0f)));
 
     // One category: a header, an override toggle, then its widgets disabled
     // (grayed, previewing the inherited value) until the toggle is on.
-    auto category = [&](const char* title, bool& flag, auto widgets) {
+    // `toggle` is the override checkbox's VISIBLE label, and it is a parameter
+    // rather than a constant because a label is what `--ui-script` targets: five
+    // categories all saying "Override project settings" cannot be told apart by
+    // a scripted run (`find` takes the first match, and `visibleLabel()` cuts a
+    // `##` suffix off on purpose, so an invisible discriminator does not help
+    // either). Anything added here that has to be TESTED needs its own wording.
+    auto category = [&](const char* title, bool& flag, auto widgets,
+                        const char* toggle = "Override project settings") {
         ImGui::SeparatorText(title);
         ImGui::PushID(title);
-        ImGui::Checkbox("Override project settings", &flag);
+        ImGui::Checkbox(toggle, &flag);
         ImGui::BeginDisabled(!flag);
         widgets();
         ImGui::EndDisabled();
         ImGui::PopID();
     };
+
+    // Which scene the game boots into. Project-wide (Project::startScene), but
+    // it reads as a property OF a scene, so it is authored from here rather
+    // than from Project > Preferences.
+    ImGui::SeparatorText("Startup");
+    {
+        const bool isStart = project_.startScene == scenePrefScene_;
+        const char* startName =
+            project_.startScene >= 0 &&
+                    project_.startScene < (int)project_.scenes.size()
+                ? project_.scenes[project_.startScene].name.c_str()
+                : "?";
+        // Something must always be the start scene, so the tick can only be
+        // MOVED here, never cleared - untickable once it is this scene.
+        ImGui::BeginDisabled(isStart);
+        ImGui::Checkbox("Boot into this scene", &scenePrefStart_);
+        ImGui::EndDisabled();
+        const std::string tip =
+            isStart ? std::string(
+                          "The game boots into this scene. Some scene always "
+                          "has to, so the tick can only be MOVED: open another "
+                          "scene's preferences and tick it there.")
+                    : std::string("The game currently boots into \"") +
+                          startName +
+                          "\". Ticking this moves the start here on OK - the "
+                          "Project panel marks it (start).";
+        prefHelp(tip.c_str());
+    }
 
     // Ambience (sky + lighting + fog) comes from a preset, not per-scene
     // overrides. Empty = the project default preset.
@@ -12285,7 +17464,7 @@ void App::drawScenePreferencesModal() {
                                                  : 0;
         const char* clipNames[] = {
             "Precise clipping on VU1 (no holes, no EE cost - default)",
-            "Precise clipping on EE (legacy; costs EE time)",
+            "Precise clipping on EE (the older clipper; costs EE time)",
             "Fast culling (fastest; big near triangles may vanish)"};
         if (ImGui::Combo("Triangles", &clipMode, clipNames, 3))
             s.clipping =
@@ -12303,6 +17482,12 @@ void App::drawScenePreferencesModal() {
                                                     : "%.2f");
         ImGui::SliderFloat("Bloom spread", &s.bloomSpread, 0.0f, 1.0f, "%.2f");
         ImGui::SliderFloat("Film grain", &s.grain, 0.0f, 1.0f, "%.2f");
+        // Percent, like every other surface this value appears on (it is a
+        // fraction of the effect's range, not a distance).
+        float blurPct = s.motionBlur * 100.0f;
+        if (ImGui::SliderFloat("Motion blur", &blurPct, 0.0f, 100.0f, "%.0f%%",
+                               ImGuiSliderFlags_AlwaysClamp))
+            s.motionBlur = blurPct * 0.01f;
         ImGui::SliderFloat("DoF amount", &s.dofAmount, 0.0f, 1.0f, "%.2f");
         ImGui::DragFloat("DoF focus", &s.dofFocus, 0.5f, 0.5f, 500.0f, "%.1f");
         ImGui::DragFloat("DoF range", &s.dofRange, 0.5f, 0.1f, 500.0f, "%.1f");
@@ -12320,6 +17505,83 @@ void App::drawScenePreferencesModal() {
         ImGui::Checkbox("Draw over object (experimental)", &s.highlightOverlay);
     });
 
+    // The neural upscaler, per scene (docs/neural-upscaler.md, "Per scene").
+    // Deliberately the two questions that HAVE a per-scene answer and nothing
+    // else - the scale, the jitter and the reconstruction tuning stay in
+    // Project > Preferences because one project ships one net and its
+    // provenance records the scale and the sampler that net was fitted for.
+    category("Neural upscaler (BLSS)", ov.upscaler, [&] {
+        // THE SAME TWO CONTROLS, WORDED THE SAME WAY, as the Essentials layer of
+        // Project > Preferences (drawBlssSettings). A per-scene override is a
+        // mechanism users already know from the five categories above it, and
+        // the one thing that would make it feel like a new one is asking the
+        // same question in different words - this said "Reconstruct from a
+        // reduced-resolution render" while Preferences said "Use the upscaler".
+        // Identical labels in two different windows are not an ImGui ID clash
+        // (a window is the scope), and `--ui-script` reaches either by naming
+        // its window.
+        // THE INTERLOCK, AT THE OTHER POINT OF CHOICE, and here it PREVENTS
+        // rather than warns. Frame extrapolation is a project setting and the
+        // upscaler is per scene, so this is the one place a person can create
+        // the refused pair without ever opening Project > Preferences. Same
+        // rule as drawBlssSettings: only the TICK is blocked, so a scene that
+        // already has it on (an older project, a hand-edited .tyra) can always
+        // be turned off, and the warning below covers that state.
+        const bool blockUpscaler =
+            project_.settings.frameExtrapolation && !s.blssEnabled;
+        ImGui::BeginDisabled(blockUpscaler);
+        ImGui::Checkbox("Use the upscaler", &s.blssEnabled);
+        ImGui::EndDisabled();
+        if (blockUpscaler)
+            ImGui::TextDisabled(
+                "Not while frame extrapolation is on for the project. The two\n"
+                "cannot be combined - both rebuild a frame by reprojecting the\n"
+                "previous one, and in motion the pair tears the picture. Untick\n"
+                "it in Project > Preferences > Display > Frame delivery.");
+        ImGui::BeginDisabled(!s.blssEnabled);
+        {
+            int mode = s.blssNetwork ? 1 : 0;
+            const char* modeNames[] = {
+                "Plain - one bilinear pass, no network (far cheaper)",
+                "Neural - a network picks a reconstruction per 32x32 tile"};
+            ImGui::SetNextItemWidth(scaled(360));
+            if (ImGui::Combo("Mode", &mode, modeNames, 2)) s.blssNetwork = mode == 1;
+        }
+        ImGui::EndDisabled();
+        ImGui::TextDisabled(
+            "Everything else about the upscaler - the render scale, the jitter,\n"
+            "the sharpen and temporal knobs - stays in Project > Preferences:\n"
+            "one project ships one blss.net and it was fitted for one of each.");
+        // The whole point of the per-scene setting, said where the decision is
+        // made: a scene that clashes can drop the upscaler on its own. What
+        // mixing COSTS is stated in Project > Preferences, which is the one
+        // place that can see every scene at once and therefore the only place
+        // that can tell whether this project mixes at all.
+        if (project_.scenes.size() > 1 && ov.upscaler &&
+            s.blssEnabled != project_.settings.blssEnabled)
+            ImGui::TextDisabled(
+                "The project default is %s, so this scene disagrees with it.\n"
+                "A project whose scenes disagree gives up the memory saving -\n"
+                "Project > Preferences says what that costs, measured.",
+                project_.settings.blssEnabled ? "ON" : "OFF");
+        // ...and the state prevention cannot reach: both already on, because
+        // this project predates the interlock or its .tyra was edited by hand.
+        // Same sentence as drawBlssClashWarning's, one scene narrower.
+        if (s.blssEnabled && project_.settings.frameExtrapolation)
+            ImGui::TextColored(
+                ImVec4(1.0f, 0.6f, 0.2f, 1.0f),
+                "The BUILD WILL REFUSE this scene: Project > Preferences >\n"
+                "Frame delivery has frame extrapolation on, and the two cannot\n"
+                "be combined. Both rebuild a frame by reprojecting the previous\n"
+                "one, and extrapolation halves the world rate - so the camera\n"
+                "moves twice as far between two rendered frames, which is the\n"
+                "interval the upscaler reprojects across. Measured in motion the\n"
+                "pair tears the picture into cells that disagree; either alone\n"
+                "is clean. Turn the upscaler off for this scene, or turn frame\n"
+                "extrapolation off for the project.");
+    }, "Override the upscaler for this scene");
+
+    ImGui::EndChild();
     ImGui::Separator();
     if (ImGui::Button("OK", ImVec2(scaled(120), 0))) {
         SceneData& sc = project_.scenes[scenePrefScene_];
@@ -12327,6 +17589,7 @@ void App::drawScenePreferencesModal() {
         sc.overrides = scenePrefOverrides_;
         sc.ambiencePreset = scenePrefAmbience_;
         sc.loadingScreen = scenePrefLoading_;
+        if (scenePrefStart_) project_.startScene = scenePrefScene_;
         applyProjectToViewport();
         commitChange();
         ImGui::CloseCurrentPopup();
@@ -12341,13 +17604,7 @@ void App::openProjectDialog() {
     std::string solutionFile = pickSolutionFile();
     if (solutionFile.empty()) return;
     const std::string dir = std::filesystem::path(solutionFile).parent_path().string();
-    const std::string err = openProjectAt(dir);
-    if (!err.empty()) {
-        runner_.clearLog();
-        // Surface the error in the Output window via the runner log is hacky;
-        // show a popup instead on next frame. Simple approach: message box.
-        platform::errorBox("Open Project", err);
-    }
+    openProjectAt(dir);
 }
 
 // --- Character Generator + Mocap ------------------------------------------

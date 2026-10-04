@@ -1,0 +1,1 @@
+{ "id": "ulab-wall-5", "name": "wall-5", "type": "box", "position": [20, 1.5, -25], "rotation": [0, 0, 0], "scale": [7.6, 3, 1], "color": [0.72, 0.7, 0.66], "physics": false, "castShadow": false, "material": "res/materials/stone.mtl" }

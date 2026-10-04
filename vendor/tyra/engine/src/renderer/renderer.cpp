@@ -15,9 +15,8 @@ namespace Tyra {
 Renderer::Renderer() {}
 Renderer::~Renderer() {}
 
-void Renderer::init(VideoMode videoMode, DisplayMode displayMode,
-                    bool widescreen) {
-  core.init(videoMode, displayMode, widescreen);
+void Renderer::init(const RendererOptions& options) {
+  core.init(options);
   renderer2D.init(&core);
   renderer3D.init(&core);
 }

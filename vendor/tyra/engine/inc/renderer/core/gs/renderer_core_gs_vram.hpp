@@ -68,8 +68,8 @@ class RendererCoreGSVRam {
 
   // --- Modified by TyraX: residency queries used by the texture manager ---
 
-  /** Words a texture's pixel data needs, including the per-allocation
-   * overhead and block alignment. */
+  /** Words a texture's pixel data needs: its real swizzled GS footprint
+   * (see getSize) rounded up to block alignment. */
   int getSizeWords(const TextureData& texData);
 
   /** True when the heap can serve one block of `words`. */

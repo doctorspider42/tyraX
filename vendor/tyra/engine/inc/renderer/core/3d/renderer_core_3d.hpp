@@ -6,6 +6,7 @@
 # Copyright 2022, tyra - https://github.com/h4570/tyra
 # Licensed under Apache License 2.0
 # Sandro Sobczyński <sandro.sobczynski@gmail.com>
+# Modified by TyraX: env/portal views save and restore the frustum planes.
 */
 
 #pragma once
@@ -101,10 +102,33 @@ class RendererCore3D {
    */
   void pushPortalView(const Vec4& position, const Vec4& lookAt);
 
+  /**
+   * Modified by TyraX: restores the view, projection AND frustum planes the
+   * matching push saved. The planes used to be recomputed from `cameraInfo`
+   * instead, and a caller whose camera differed from the one the saved view
+   * was built from - the projected-shadow pass passed no `up`, while a
+   * vehicle's chase camera rolls with the car - left the rest of the frame
+   * classifying against planes of a camera it was not drawing with (found
+   * while chasing docs/roads.md, "Holes in the road", which had another
+   * cause). `cameraInfo` is kept for source compatibility and no longer
+   * read.
+   */
   void popEnvView(const CameraInfo3D& cameraInfo);
+
+  /**
+   * Modified by TyraX: true between pushEnvView/pushPortalView and
+   * popEnvView, i.e. while the submitted geometry is being seen through a
+   * camera that is NOT the frame's. RendererCoreBlss reads it to keep those
+   * submissions out of its per-tile feature grid - the grid is indexed by
+   * SCREEN tiles, and a reflection probe's bags projected with the probe's own
+   * view land in tiles they have nothing to do with.
+   */
+  bool isForeignViewActive() const { return foreignView; }
 
  private:
   M4x4 savedView, savedProjection, savedViewProj;  // pushEnvView state
+  Renderer3DFrustumPlanes savedFrustumPlanes;  // Modified by TyraX, see pop
+  bool foreignView = false;  // Modified by TyraX (see isForeignViewActive)
   M4x4 view, projection, viewProj;
   float fov;
   bool is3DSupportEnabled;

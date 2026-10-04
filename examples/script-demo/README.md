@@ -32,7 +32,7 @@ scripting drive the scene.
 
 Two small pieces, one of each scripting flavor:
 
-- **A flow graph** on the spawn point: **On Start ─▶ Set Sky Color** paints the
+- **A flow graph** on the spawn point: **On Start ─▶ Set Sky Color** paints a pale-blue
   starting sky when the scene loads (author it in the *Flow Graph* tab).
 - **A global script**, [`src/scripts/example_interaction.cpp`](src/scripts/example_interaction.cpp)
   — a class deriving from `Script`, registered with `TYRA_SCRIPT(...)`. Its
@@ -57,3 +57,13 @@ new projects use ships an object-script version of this same interaction.
   and sculpt the terrain (*Sculpt (T)* in the viewport).
 - Attach an object script (*Properties > Scripts > New script...*) to see the
   Unity-style flavor side by side with the global script here.
+
+Generated object values live in `src/gen/scene_objects.gen.cpp`;
+`inc/scene_data.hpp` keeps stable declarations. Counts and object IDs live in
+the same data file, so ordinary moves, color edits, additions and removals can
+rebuild it alone. Changes to features or derived tables can still rebuild consumers.
+
+Generated game methods are split between `src/terrain_game.cpp` and the
+`src/gen/game_*.gen.cpp` subsystems, with shared inline helpers/state in
+`inc/game_runtime.gen.hpp`. Header changes can compile these units in parallel.
+The main file remains user-ownable; generated subsystem files refresh on build.

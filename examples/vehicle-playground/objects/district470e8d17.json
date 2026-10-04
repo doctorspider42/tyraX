@@ -1,0 +1,1 @@
+{ "id": "district470e8d17", "name": "Loose pallet 49 -38", "type": "model", "position": [49, 0, -38], "rotation": [0, 0, 0], "scale": [1.7, 1.7, 1.7], "color": [1, 1, 1], "physics": true, "physMass": 0.4, "physBounce": 0.35, "physFriction": 0.5, "physTumble": true, "physSleep": 3, "drawDistance": 145, "castShadow": false, "model": "res/models/urban/pallet.obj" }

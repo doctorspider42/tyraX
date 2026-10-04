@@ -41,14 +41,14 @@
 
 namespace Cutscene_demo {
 
-const char* const INPUT_ACTION_NAMES[INPUT_ACTION_COUNT] = {"move-forward", "move-back", "move-left", "move-right", "jump", "sprint", "use", "throw", "fly-up", "fly-down", "confirm", "back", "menu", "alt", "menu-up", "menu-down", "menu-left", "menu-right"};
-const char* const INPUT_ACTION_LABELS[INPUT_ACTION_COUNT] = {"Move forward", "Move back", "Move left", "Move right", "Jump", "Sprint", "Use", "Throw", "Fly up", "Fly down", "Confirm", "Back", "Pause menu", "Alternate", "Menu up", "Menu down", "Menu left", "Menu right"};
-const unsigned char INPUT_REBINDABLE[INPUT_ACTION_COUNT] = {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0};
+const char* const INPUT_ACTION_NAMES[INPUT_ACTION_COUNT] = {"move-forward", "move-back", "move-left", "move-right", "jump", "sprint", "use", "throw", "fly-up", "fly-down", "confirm", "back", "menu", "alt", "menu-up", "menu-down", "menu-left", "menu-right", "veh-throttle", "veh-brake", "veh-handbrake", "veh-nitrous", "veh-camera", "veh-rearview"};
+const char* const INPUT_ACTION_LABELS[INPUT_ACTION_COUNT] = {"Move forward", "Move back", "Move left", "Move right", "Jump", "Sprint", "Use", "Throw", "Fly up", "Fly down", "Confirm", "Back", "Pause menu", "Alternate", "Menu up", "Menu down", "Menu left", "Menu right", "Vehicle throttle", "Vehicle brake", "Vehicle handbrake", "Vehicle nitrous", "Vehicle camera", "Vehicle rear view"};
+const unsigned char INPUT_REBINDABLE[INPUT_ACTION_COUNT] = {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1};
 
 const char* const INPUT_PRESET_NAMES[INPUT_PRESET_COUNT] = {"Default"};
 
 const InputBind INPUT_PRESETS[INPUT_PRESET_COUNT][INPUT_ACTION_COUNT] = {
-    {{-1, 26, 0}, {-1, 22, 0}, {-1, 4, 0}, {-1, 7, 0}, {0, 44, 2}, {12, 225, 0}, {1, 8, 1}, {3, 0, 3}, {0, 44, 0}, {1, 8, 0}, {0, 40, 0}, {2, 42, 0}, {14, 41, 0}, {3, 21, 3}, {4, 82, 0}, {5, 81, 0}, {6, 80, 0}, {7, 79, 0}},  // Default
+    {{-1, 26, 0}, {-1, 22, 0}, {-1, 4, 0}, {-1, 7, 0}, {0, 44, 2}, {12, 225, 0}, {1, 8, 1}, {3, 0, 3}, {0, 44, 0}, {1, 8, 0}, {0, 40, 0}, {2, 42, 0}, {14, 41, 0}, {3, 21, 3}, {4, 82, 0}, {5, 81, 0}, {6, 80, 0}, {7, 79, 0}, {12, 26, 0}, {9, 22, 0}, {3, 44, 0}, {0, 225, 0}, {2, 6, 0}, {13, 21, 0}},  // Default
 };
 
 const InputBind INPUT_CODES[INPUT_CODE_COUNT] = {
@@ -153,7 +153,7 @@ const char* const INPUT_CODE_LABELS[INPUT_CODE_COUNT] = {
     "F7", "F8", "F9", "F10", "F11", "F12",
     "Right", "Left", "Down", "Up", "Left Ctrl", "Left Shift",
     "Left Alt", "Right Ctrl", "Right Shift", "Right Alt", "Mouse Left", "Mouse Right",
-    "Mouse Middle", 
+    "Mouse Middle",
 };
 
 InputBind g_inputBind[INPUT_ACTION_COUNT] = {};
@@ -339,6 +339,42 @@ bool inputPressed(Tyra::Pad& pad, int action) {
       return true;
   }
   return false;
+}
+
+float inputAnalog(Tyra::Pad& pad, int action) {
+  if (action < 0 || action >= INPUT_ACTION_COUNT) return 0.0F;
+  if (!g_inputInit) inputRebuild();
+  const InputBind& b = g_inputBind[action];
+  if (b.pad >= 0 && padBit(pad.getPressed(), b.pad)) {
+    // Pressure by kPadButtonNames index. Gated on the digital press: an
+    // unpressed button's pressure byte is stale, not zero, on some pads.
+    const padButtonStatus& r = pad.rawButtons();
+    int pr = -1;
+    switch (b.pad) {
+      case 0: pr = r.cross_p; break;
+      case 1: pr = r.square_p; break;
+      case 2: pr = r.triangle_p; break;
+      case 3: pr = r.circle_p; break;
+      case 4: pr = r.up_p; break;
+      case 5: pr = r.down_p; break;
+      case 6: pr = r.left_p; break;
+      case 7: pr = r.right_p; break;
+      case 8: pr = r.l1_p; break;
+      case 9: pr = r.l2_p; break;
+      case 11: pr = r.r1_p; break;
+      case 12: pr = r.r2_p; break;
+      default: break;  // L3/R3/Start/Select carry no pressure
+    }
+    // Pressure 0 while pressed = a digital source (an emulator with no
+    // pressure mapping, injectVirtual's keyboard overlay) - full deflection.
+    return pr > 0 ? (float)pr / 255.0F : 1.0F;
+  }
+  if (Tyra::KbdMouse* km = kbd()) {
+    if (b.key != 0 && km->isKeyDown(b.key)) return 1.0F;
+    if (b.mouse != 0 && (km->getMouse().buttons & (1 << (b.mouse - 1))) != 0)
+      return 1.0F;
+  }
+  return 0.0F;
 }
 
 bool inputClicked(Tyra::Pad& pad, int action) {

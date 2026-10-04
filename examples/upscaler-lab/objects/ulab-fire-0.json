@@ -1,0 +1,1 @@
+{ "id": "ulab-fire-0", "name": "fire-0", "type": "emitter", "position": [-9, 0.25, 9], "rotation": [0, 0, 0], "scale": [1.1, 1, 1.1], "color": [1, 0.55, 0.15], "physics": false, "collision": "none", "emitter": { "kind": "fire", "count": 48, "size": 0.6, "enabled": true, "followPlayer": false } }

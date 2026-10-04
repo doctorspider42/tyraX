@@ -1,11 +1,68 @@
 #include "wavconvert.hpp"
 
 #include <cstdint>
+#include <cmath>
 #include <cstring>
 #include <fstream>
 #include <vector>
 
 namespace wavconvert {
+
+std::string soundIssue(const std::filesystem::path& path) {
+    int format = 0, channels = 0, rate = 0, bits = 0;
+    if (!readFormat(path.string(), format, channels, rate, bits))
+        return "unreadable WAV";
+    if (format != 1 || channels != 1 || rate != 22050 || bits != 16)
+        return "needs mono 16-bit PCM / 22050 Hz";
+    // adpenc's RIFF reader assumes fmt is the first chunk and does not
+    // resolve extensible PCM or pad odd-length metadata chunks correctly.
+    std::ifstream f(path, std::ios::binary);
+    unsigned char h[44]{};
+    if (!f.read((char*)h, sizeof(h)) || std::memcmp(h + 12, "fmt ", 4) ||
+        h[16] != 16 || h[17] || h[18] || h[19] || h[20] != 1 || h[21] ||
+        std::memcmp(h + 36, "data", 4))
+        return "needs a standard PCM WAV header";
+    return {};
+}
+
+std::string bakeSounds(const std::filesystem::path& projectDir,
+                      const std::function<void(const std::string&)>& log) {
+    namespace fs = std::filesystem;
+    const fs::path source = projectDir / "res" / "sfx";
+    const fs::path baked = projectDir / ".res-baked" / "sfx";
+    std::error_code ec;
+    if (!fs::exists(source, ec)) return ec ? ec.message() : std::string();
+    fs::recursive_directory_iterator it(source, ec), end;
+    for (; !ec && it != end; it.increment(ec)) {
+        if (!it->is_regular_file(ec)) continue;
+        // Keep the same extension/depth contract as the two encoders.
+        if (it->path().extension() != ".wav") continue;
+        const fs::path rel = fs::relative(it->path(), source, ec);
+        if (ec) break;
+        const fs::path dst = baked / rel;
+        fs::create_directories(dst.parent_path(), ec);
+        if (ec) break;
+        bool copy = !fs::exists(dst, ec);
+        if (!ec && !copy) {
+            const auto srcTime = fs::last_write_time(it->path(), ec);
+            if (ec) break;
+            const auto dstTime = fs::last_write_time(dst, ec);
+            if (ec) break;
+            copy = srcTime > dstTime;
+        }
+        if (ec) break;
+        if (copy) fs::copy_file(it->path(), dst, fs::copy_options::overwrite_existing, ec);
+        if (ec) break;
+        if (!soundIssue(dst).empty()) {
+            std::string error;
+            if (!convertTo16(dst, 22050, error, true))
+                return "res/sfx/" + rel.generic_string() + ": " + error;
+            log("[editor] sound: res/sfx/" + rel.generic_string() +
+                " -> mono 16-bit PCM 22050 Hz (build copy only)");
+        }
+    }
+    return ec ? ec.message() : std::string();
+}
 
 bool readFormat(const std::string& path, int& audioFormat, int& channels,
                 int& sampleRate, int& bitsPerSample) {
@@ -63,6 +120,10 @@ bool convertTo16(const std::filesystem::path& path, int targetRate,
     size_t dataOff = 0, dataLen = 0;
     for (size_t off = 12; off + 8 <= bytes.size();) {
         const uint32_t size = u32at(off + 4);
+        if (size > bytes.size() - off - 8) {
+            error = "truncated WAV chunk";
+            return false;
+        }
         if (std::memcmp(bytes.data() + off, "fmt ", 4) == 0 && size >= 16) {
             audioFormat = (int)u16at(off + 8);
             channels = (int)u16at(off + 10);
@@ -163,6 +224,7 @@ bool convertTo16(const std::filesystem::path& path, int targetRate,
                 const float t = (float)(s0 - a);
                 v = srcSample(a, ch) * (1.0f - t) + srcSample(b, ch) * t;
             }
+            if (!std::isfinite(v)) v = 0.0f;
             if (v > 1.0f) v = 1.0f;
             if (v < -1.0f) v = -1.0f;
             out[i * outChannels + ch] = (int16_t)(v * 32767.0f);

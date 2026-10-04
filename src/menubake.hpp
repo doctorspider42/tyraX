@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 
+#include "menulayout.hpp"
 #include "project.hpp"
 
 // Bakes a GameMenu's whole panel (title, entry labels, button hints, border,
@@ -18,7 +19,13 @@
 // generated game runtime (cursor row positions).
 namespace menubake {
 
-constexpr int kMaxEntries = 8;
+// Rows a menu can have. The cap lives in menulayout now (a scrolling list
+// lifted it from 8 to 32); this alias is what the existing call sites read.
+constexpr int kMaxEntries = menulayout::kMaxRows;
+// The save menu's rows-per-page are laid out by this same bake, so the
+// project's cap cannot exceed it.
+static_assert(kMaxSaveSlotsPerPage <= kMaxEntries,
+              "save menu rows per page must fit the panel bake's row limit");
 constexpr int kMaxOptions = 8;  // options per Toggle/Choice entry
 
 // Geometry of a menu's panel. Flow images push the title and rows down, the
@@ -80,7 +87,9 @@ struct ValueStripLayout {
     std::vector<int> firstCell;
 };
 
-ValueStripLayout valueStripLayout(const GameMenu& menu);
+// Takes the Project because the cell height IS the panel's row pitch, and that
+// comes out of the menu's stylesheet (menulayout::Layout::rowH).
+ValueStripLayout valueStripLayout(const GameMenu& menu, const Project& p);
 
 // Rasterizes the value strip (layout.cellW x layout.canvasH RGBA). Returns
 // false when the menu has no value entries or no usable font is found.
@@ -94,13 +103,56 @@ bool bakeValueStripPNG(const GameMenu& menu, const Project& p,
 // Menu name -> value strip file name ("<sanitized>-values.png").
 std::string valueStripFileName(const std::string& menuName);
 
-// Editor preview helper: draws the given option label of every value entry
-// onto an already-baked panel RGBA (right-aligned on its row), mirroring
-// where the game composites the strip cells. current is index-aligned with
-// menu.entries; out-of-range indices clamp.
-void overlayValuePreview(const GameMenu& menu, const Project& p,
-                         const std::vector<int>& current,
-                         std::vector<unsigned char>& rgba, int w, int h);
+// The editor's preview: ONE function that composites exactly what the console
+// composites - the panel, a scrolling list's visible window, the option labels
+// or bars, the disabled rows' cells, the selected row's cell and its
+// description. There is deliberately no second entry point: the Menu Editor
+// showing a menu a different way from the game is the failure this whole
+// arrangement exists to avoid (docs/menu-styles.md).
+//
+// selectedRow / scroll simulate the cursor; `disabled` is index-aligned with
+// menu.entries (non-zero = the row's enabledWhen value is off); optionValues
+// carries each Toggle/Choice row's current option index.
+bool bakeMenuPreviewRGBA(const GameMenu& menu, const Project& p, int selectedRow,
+                         const std::vector<char>& disabled, int scroll,
+                         const std::vector<int>& optionValues,
+                         std::vector<unsigned char>& out, int& w, int& h);
+
+// --- state / list / description textures -------------------------------------
+// The three textures a styled menu can add next to its panel. Each returns
+// false when the menu does not need it, which is also the signal to delete a
+// stale file: a menu that stops scrolling stops shipping its list strip.
+
+// One cell per (row, state) the sheet paints - drawn over the baked normal row.
+bool bakeStateAtlasRGBA(const GameMenu& menu, const Project& p,
+                        std::vector<unsigned char>& out, int& w, int& h);
+bool bakeStateAtlasPNG(const GameMenu& menu, const Project& p,
+                       std::vector<unsigned char>& png);
+
+// The animated background layer: a tiled scroll or a frame strip, baked to the
+// panel's own size (docs/menu-styles.md "Motion").
+bool bakeBgAnimRGBA(const GameMenu& menu, const Project& p,
+                    std::vector<unsigned char>& out, int& w, int& h);
+bool bakeBgAnimPNG(const GameMenu& menu, const Project& p,
+                   std::vector<unsigned char>& png);
+
+// The sheen band swept across a panel - procedural, shared by every menu that
+// asks for one, drawn additively (shape in RGB, like the flare corona).
+constexpr int kSheenSize = 64;
+void bakeSheenRGBA(std::vector<unsigned char>& rgba);
+bool bakeSheenPNG(std::vector<unsigned char>& png);
+
+// Every row stacked, for a list the game shows a window of (scrolling menus).
+bool bakeListRGBA(const GameMenu& menu, const Project& p,
+                  std::vector<unsigned char>& out, int& w, int& h);
+bool bakeListPNG(const GameMenu& menu, const Project& p,
+                 std::vector<unsigned char>& png);
+
+// One cell per row that carries a description.
+bool bakeDescAtlasRGBA(const GameMenu& menu, const Project& p,
+                       std::vector<unsigned char>& out, int& w, int& h);
+bool bakeDescAtlasPNG(const GameMenu& menu, const Project& p,
+                      std::vector<unsigned char>& png);
 
 // --- HUD texts ---------------------------------------------------------------
 // On-screen texts (Tools > UI Editor > Texts) baked to res/hud PNG sprites -
@@ -130,8 +182,78 @@ std::string textFileName(const std::string& textName);
 // in RGB - additive 3D bags blend Cs*FIX + Cd and ignore texture alpha).
 // Written to res/hud/flare-{glow,ring,corona}.png by refreshGenerated when
 // the project uses the flare / beams.
+// The RGBA form is the single bake; the PNG one wraps it. The editor viewport
+// uploads these pixels straight to GL (the night sky's soft dot is kind 2), so
+// there is no second, preview-quality sprite.
+//
+// Kind 2 - the 3D beam corona, which the star field also draws through -
+// bakes at 128, not 64: it is a world-space billboard that can fill a third
+// of the screen right next to its own lamp, and at 64 the radial gradient's
+// texels are ~4 px there, so the rim CONTOURS in visible steps (the second
+// half of the night-walk lamp staircase report; the first half was the
+// z-fight the corona pull in updateAndRenderLightBeams fixes). The 2D
+// lens-flare sprites stay at 64 - they draw small, alpha-shaped.
+constexpr int kFlareSpriteSize = 64;
+constexpr int kCoronaSpriteSize = 128;
+inline int flareSpriteSize(int kind) {
+    return kind == 2 ? kCoronaSpriteSize : kFlareSpriteSize;
+}
+void bakeFlareRGBA(int kind, std::vector<unsigned char>& rgba);
 bool bakeFlarePNG(int kind, std::vector<unsigned char>& png);
 std::string flareFileName(int kind);
+
+// --- Flashlight gobo (docs/flashlight.md) ------------------------------------
+// The camera flashlight's ground pool is a PROJECTED texture: the patch under
+// the beam takes its STs from the light's own frustum, so this image IS the
+// shape of the light and the terrain's vertex grid stops deciding it. Shape in
+// RGB - the pool is an additive bag (Cs*FIX + Cd), which never reads texture
+// alpha, same rule as the corona (kind 2 above).
+//
+// 128x128 rather than the flares' 64: this one is stretched over several world
+// units directly under the player's eye, and it is the thing being looked AT.
+// Costs ~6% of the ~1.08 MB texture heap (docs/gs-vram.md), so refreshGenerated
+// bakes it - and scene_data.hpp's FLASHLIGHT_USED gates the load - only for
+// projects that can show a flashlight or projected vehicle headlights
+// (templates::projectUsesFlashlight/projectUsesVehicleHeadlights).
+//
+// The profile fades to black well before the border (kGoboEdge below), because
+// the projected STs are clamped on the EE and a lit edge texel would smear
+// outward into a hard rectangle.
+constexpr int kFlashGoboSize = 128;
+void bakeFlashGoboRGBA(std::vector<unsigned char>& rgba);
+bool bakeFlashGoboPNG(std::vector<unsigned char>& png);
+
+// --- Sun and moon discs (docs/day-night-cycle.md) ----------------------------
+// The two sky bodies a day/night cycle draws, baked to res/hud/ by
+// refreshGenerated exactly like the flare sprites above and gated the same way
+// (DAYCYCLE_USED in scene_data.hpp).
+//
+// The RGBA bakes are the single source: refreshGenerated PNG-encodes them for
+// the console, and the editor viewport uploads the SAME pixels straight to GL
+// while the phase slider moves. A second, "preview-quality" moon would be a
+// second answer to what the moon looks like.
+constexpr int kSunDiscSize = 64;
+constexpr int kMoonDiscSize = 128;
+
+// The sun is 64x64 with its shape in RGB: it is drawn through an additive bag,
+// which blends Cs*FIX + Cd and never reads texture alpha (same rule as the
+// corona, kind 2 above).
+void bakeSunRGBA(std::vector<unsigned char>& rgba);
+bool bakeSunPNG(std::vector<unsigned char>& png);
+
+// The moon is 128x128 RGBA - an ordinary alpha-blended quad, so the disc mask
+// lives in alpha. The near side is projected orthographically out of an
+// equirectangular albedo map; `phase` (0 new .. 0.5 full .. 1 new) is applied
+// as a terminator, with the lit limb toward +X so the renderer only has to
+// rotate the quad (ambience::Resolved::moonUpAngle).
+//
+// `sourcePath` empty = NASA's embedded LRO colour map. Otherwise a project
+// asset: 2:1 images are treated as equirectangular and projected, anything else
+// is used as the disc face directly.
+bool bakeMoonRGBA(float phase, const std::string& sourcePath,
+                  std::vector<unsigned char>& rgba);
+bool bakeMoonPNG(float phase, const std::string& sourcePath,
+                 std::vector<unsigned char>& png);
 // --- Interaction prompts -----------------------------------------------------
 // The USE / PICK UP prompts are baked like a HUD text, with one difference: the
 // action tokens in them are NOT composited in. A prompt has to keep telling the
@@ -237,6 +359,12 @@ std::string atlasFileName(const std::string& fontName);
 // lowercased pad-button names (see textIconNameForPad), which is what lets
 // `{{action:jump}}` resolve to a button's icon.
 const std::vector<std::string>& builtinIconNames();
+
+// Built-in drawings that are NOT seeded into every project: the two analog
+// sticks ("lstick", "rstick"), which are not buttons and so no binding can
+// name them. Added on demand (project::ensureStickIcons) - the vehicle
+// controls card asks for them - and generated like the rest once listed.
+const std::vector<std::string>& optionalBuiltinIconNames();
 
 // Draws the built-in icon `name` at px x px into RGBA `out`. False when the
 // name is not a built-in one (a user icon has a PNG instead) or px is unusable.

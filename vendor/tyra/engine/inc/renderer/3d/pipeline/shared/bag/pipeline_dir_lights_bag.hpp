@@ -20,6 +20,11 @@ enum PipelineDirLightsBagMode { Auto, Manual };
 
 class PipelineDirLightsBag {
  public:
+  /** Signed RGB SH L1: directions are the identity, colors[0..2] hold
+   * (2/3)*L1 RGB coefficients and colors[3] holds L0, all in GS units.
+   * Keep the normal matrix rotation-only. Default preserves N.L lighting. */
+  bool signedSH = false;
+
   explicit PipelineDirLightsBag(const bool& manual = false);
   ~PipelineDirLightsBag();
 

@@ -1,0 +1,1 @@
+{ "id": "ulab-post-1", "name": "post-1", "type": "box", "position": [-22, 1.1, -5], "rotation": [0, 0, 0], "scale": [0.45, 2.2, 0.45], "color": [0.72, 0.7, 0.66], "physics": false, "castShadow": false, "material": "res/materials/stone.mtl" }

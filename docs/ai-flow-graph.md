@@ -1,5 +1,7 @@
 # AI flow-graph generation
 
+![An AI-generated patrol and chase graph](img/nav-ai-flow.png)
+
 Describe the logic you want in plain language and the editor builds the flow
 graph — or, when the object already has one, **edits it**: the current graph
 goes into the prompt and the model decides from your request whether to
@@ -11,6 +13,10 @@ AI...** (or headlessly, `tyrax-editor --ai-graph` — see
 
 1. Pick the backend once in `Edit > Preferences > AI assistant`:
    - **Claude CLI** — needs the `claude` command on PATH (Claude Code).
+   - **OpenAI Codex CLI** — needs the `codex` command on PATH; signed in with
+     `codex login` (a ChatGPT subscription), not an API key. Run as
+     `codex exec --ephemeral --skip-git-repo-check -s read-only`, so it neither
+     keeps session files nor writes anything.
    - **GitHub Copilot CLI** — needs the `copilot` command on PATH.
    - **OpenAI API** — needs the `OPENAI_API_KEY` environment variable (calls
      the Chat Completions endpoint through `curl.exe`, which ships with
@@ -77,7 +83,11 @@ text; a non-null `editing` graph appends the CURRENT GRAPH section in the
 reply schema), `Generator` (worker thread; the prompt travels via a temp file + stdin
 redirect — never the command line; the child runs in a kill-on-close Job
 Object so Cancel takes down the whole tree; stderr goes to a temp file so it
-cannot interleave with the reply), `parseGraph()` (fence/prose-tolerant JSON
+cannot interleave with the reply; the CLI is asked for a single completion with
+its tools disabled — `claude -p --tools ""` — and is started in a neutral
+directory so it does not adopt the open project's own `CLAUDE.md` / Copilot
+instructions as context, which would be a second, contradictory set of
+instructions), `parseGraph()` (fence/prose-tolerant JSON
 extraction, registry validation, the editor's link rules, auto-layout),
 `appendGraph()` (id/position-shifting merge). The GUI modal lives in
 `App::drawAiGenerateModal` (app.cpp); the headless path in main.cpp

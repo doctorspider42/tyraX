@@ -1,5 +1,7 @@
 # Emissive materials (glow)
 
+![Editing a material in the Material Editor](img/material-editor.png)
+
 A material that lights **itself** — and, if you want, everything around it.
 Lava cracks, neon signs, monitor screens, sci-fi panels, magic runes: anything
 that must stay visible, in its own color, when the scene around it is pitch
@@ -194,6 +196,13 @@ per-texel image the ambient occlusion already used:
   surfaces; the floor costs 1/128 of darkening, under one framebuffer level.
   Any future pass that shares a texture with a cutout-style one inherits this
   trap.
+- **both passes are pinned to the base pass's VU1 package size** — they draw
+  the same vertex array, and passes that split it differently can classify a
+  triangle differently against the frustum and then disagree about depth. The
+  mechanism and the measured cost are in
+  [docs/reflective-materials.md](reflective-materials.md); the same pin covers
+  the reflection pass, since a reflective *and* lightmapped object draws all
+  three over one array.
 
 Each texel is the **mean over its own footprint** (a 4×4 sub-sample grid), not
 a point sample at its centre. Shadow edges here are very nearly hard — a neon
@@ -257,6 +266,31 @@ atlas route, so the light is never applied twice.
 For anything on the vertex path, raising the object's **Detail** (Properties >
 subdivisions) is the fallback: a Detail-5 box is 300 triangles instead of 12
 and the gradient smooths out.
+
+**It only works when the extra vertices land in the direction the light
+varies**, which is why a box behaves and the curved shapes need care. A box
+subdivides each face into a `d x d` grid, so both directions improve.
+
+A **cylinder** takes `d` radial segments and, with *Properties >* **Vertical
+rings** ticked, one ring up its side per four of them (`primCylinderStacks`).
+Without the rings the side is **one quad tall at any Detail**, so a lamp
+overhead can only be a linear ramp between the top and bottom rims and every
+segment paints that ramp's diagonal seam as a full-height stripe — raising
+Detail 4 → 32 then multiplies the stripes (measured on the console: 0 → 15
+brightness reversals across the silhouette) without shrinking their amplitude
+at all. With the rings on, the same Detail-32 pillar drops to a 20-level
+spread from a 49-level one, i.e. a soft gradient instead of a picket fence.
+
+It is a **per-object switch and not the default** because the rings are only
+worth their triangles when something lights the cylinder vertically; under a
+plain sun they are geometry nothing shades. Detail 16 costs 160 triangles with
+them and 64 without, Detail 32 costs 576 against 128. New cylinders are created
+with the switch on and the triangle readout beside it; cylinders loaded from a
+project that predates the field keep it off, so no existing scene changes.
+
+A **cone** has no equivalent — its side is one triangle per segment, apex to
+base, so a vertical gradient on a cone is a flat ramp however high the Detail
+goes.
 
 #### The ground
 

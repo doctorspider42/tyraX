@@ -1,11 +1,12 @@
 # Live Logic — edit a flow graph, no rebuild
 
+![Live Logic enabled with the devkit channels](img/project-preferences-build.png)
+
 Live Link streams object state into the running game. The Live Debugger streams
 back what ran. **Live Logic streams the program itself**: change a flow graph in
 the editor and the game's behavior changes on the PlayStation 2 within a fraction
-of a second — no Docker, no `make`, no reboot.
-
-This is the last thing in the pipeline that always needed a rebuild.
+of a second — no Docker, no `make`, no reboot. This was the last thing in the
+pipeline that always needed a rebuild.
 
 ## Using it
 
@@ -44,11 +45,34 @@ using a **runtime object reference** (a spawned clone, a raycast hit), the
 constants resolved when the editor compiles, so a *wired* value has nowhere to
 live in the IR. A graph with a number link is reported rather than run with the
 node's typed-in param, which would be the one failure worse than needing a
-build. The editor tells you which graph and why, per graph, in the
-Debugger's **Logic** tab, and the chip turns amber **LOGIC (rebuild)**.
+build. The editor tells you which graph and why, per graph, in the Debugger's
+**Logic** tab, and the chip turns amber **LOGIC (rebuild)**.
 
 A graph that did not exist at build time is also a rebuild case: Live Link can
 spawn a new *object*, but it cannot give one logic.
+
+**Branching nodes are a rebuild case too** — Flip Flop, Branch, Sequence, Gate,
+Switch Number, For Loop. A patched block is a straight list of instructions, so
+a node with two exec outputs has no shape in the IR; `capability()` rejects the
+graph and names it.
+
+## "But LIVE is green"
+
+LIVE and LOGIC are different features and answer different questions, which is
+the single most common confusion here:
+
+| chip | what it streams |
+|---|---|
+| **LIVE** (Live Link) | object edits — move, rotate, scale, recolour, show/hide, add/delete |
+| **LOGIC** (Live Logic) | the flow graphs themselves |
+
+So a flow-graph edit with Live Link on and Live Logic **off** reaches nothing,
+while LIVE stays green — correctly, because it is still streaming object edits.
+That used to be silent. The toolbar now shows an amber **LOGIC (off)** whenever
+a graph differs from the one the running build compiled and Live Logic is off:
+*Build & Run (F5), or turn Live Logic on in Project Preferences > Build.* The
+check costs one hash per graph and no compile, which is why it can run with the
+feature switched off.
 
 ## How it works
 
@@ -77,9 +101,9 @@ The editor compiles, the game interprets.
 5. **Delete the patch and native logic resumes** (the editor removes it as soon
    as the graphs match the build again; the game logs both events).
 
-Because the opcode numbering, the block kinds and the condition ops all come
-from `src/livelogic.hpp`, the interpreter's enums and dispatch switch are
-**generated from that header** — and a missing interpreter case is a `#error` in
+The opcode numbering, the block kinds and the condition ops all come from
+`src/livelogic.hpp`, so the interpreter's enums and dispatch switch are
+**generated from that header** — a missing interpreter case is a `#error` in
 the generated file, not a silently dead opcode.
 
 ### It shares everything with the compiled code
@@ -90,7 +114,7 @@ state — so a patched graph and a native one can drive each other, and Live
 Link's object patching keeps working. A patched graph also still reports to the
 **Live Debugger** (its instructions carry the same node keys), so node
 highlighting, hit counters, breakpoints and the timeline work on hot-patched
-logic exactly as they do on compiled logic.
+logic exactly as on compiled logic.
 
 ### Cost
 
@@ -103,10 +127,10 @@ each compiled script folds away.
 
 ## Limits
 
-- **The node subset above.** This is deliberate: an interpreter case is a second
-  implementation of a node's semantics, and every one of them is a twin that can
-  drift from `flowGraphScript`. The families that matter for iteration are in;
-  the rest report honestly instead of silently doing nothing.
+- **The node subset above.** Deliberate: an interpreter case is a second
+  implementation of a node's semantics, a twin that can drift from
+  `flowGraphScript`. The families that matter for iteration are in; the rest
+  report honestly instead of silently doing nothing.
 - **Structure, not identity.** Patching addresses graphs by their owner object's
   stable id, so renames and reorders are non-events — but an object added since
   the build has no logic in the game at all.
@@ -122,7 +146,7 @@ each compiled script folds away.
 
 - [live-link.md](live-link.md) — object state into the running game.
 - [live-debugger.md](live-debugger.md) — what the graphs are doing, breakpoints,
-  step, the rewindable timeline. It is also the instrument that proves a patch
-  took effect (hit counters change rate the moment the patch lands).
+  step, the rewindable timeline. Also the instrument that proves a patch took
+  effect (hit counters change rate the moment it lands).
 - [custom-flow-nodes.md](custom-flow-nodes.md) — project-defined nodes; these are
   C++ bodies, so they are outside the interpreter's reach by construction.

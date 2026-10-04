@@ -1,0 +1,190 @@
+// Driving the two VU0 kernels (../../../../docs/vu-authoring.md).
+//
+//   "points"  - Tools > VU Programs > VU0 kernel: the stage library (Wobble +
+//               Squash) applied to quadwords instead of vertices. No C++. Run
+//               once at startup, because its point is a number you can check by
+//               hand (the project README does the arithmetic).
+//   "Ranges"  - src/vu0/ranges.cpp, a `vu::Kernel` in ordinary C++: distance
+//               and an LOD band for every object in the scene, one call, every
+//               frame - and its answer is on screen.
+//
+// One thing worth knowing before copying this: run() BLOCKS the EE. VU0's
+// register file is the one COP2 macro mode uses - the engine's own Vec4/M4x4
+// math - so nothing may have vector arithmetic in flight. A few dozen elements
+// is microseconds; a big batch is not free.
+#include "scripts/script.hpp"
+#include "scripts/vu0_kernels.gen.hpp"
+#include "vu0_points.gen.hpp"
+
+namespace Vu_lab {
+
+class Vu0Compute : public Script {
+ public:
+  void init(ScriptContext& ctx) override {
+    // A ring of points around the origin. The content does not matter - what
+    // matters is that VU0 transforms them and the EE gets the result back.
+    for (int i = 0; i < kCount; ++i) {
+      const float t = (float)i * (6.2831853F / (float)kCount);
+      in[i].set(cosf(t) * 4.0F, 0.0F, sinf(t) * 4.0F, 1.0F);
+    }
+    kernel.setParams(0.0F, 0.0F, 0.0F, 0.0F);
+    kernel.setTime(0.0F);
+    kernel.run(in, out, kCount);
+    TYRA_LOG("VU0 kernel: point 0 in (", in[0].x, ", ", in[0].y, ") out (",
+             out[0].x, ", ", out[0].y, ")");
+    checkRanges(ctx);
+  }
+
+  void update(ScriptContext& ctx) override {
+    runRanges(ctx);
+  }
+
+ private:
+  // "How far away is everything?", for the whole scene in one call - the job a
+  // game actually keeps a vector unit for. Subtract, dot, root, over an array
+  // the game already has; the answers pick levels of detail, decide what is
+  // worth drawing, and name what the player is standing next to.
+  //
+  // Note what is NOT in the kernel: any adding-up. VU0 has no cross-element
+  // reduction, so the nearest object is found by the loop below, on the EE.
+  // VU0 computes the terms, the CPU folds them.
+  int runRanges(ScriptContext& ctx) {
+    int n = ctx.objectCount;
+    if (n > kRangeMax) n = kRangeMax;   // run() takes its own count
+    if (n <= 0) return -1;
+    for (int i = 0; i < n; ++i)
+      // W rides through untouched, so the index comes back with the distance
+      // and there is no second array to keep in step.
+      rangeIn[i].set(ctx.objects[i].data.position[0],
+                     ctx.objects[i].data.position[1],
+                     ctx.objects[i].data.position[2], (float)i);
+    // xyz = where to measure from, w = 1 / the width of an LOD band: 1/12 puts
+    // band 0 out to twelve units, then 24, then 36 and beyond.
+    ranges.setParams(ctx.playerPosition.x, ctx.playerPosition.y,
+                     ctx.playerPosition.z, 1.0F / 12.0F);
+    ranges.run(rangeIn, rangeOut, n);
+
+    int nearest = -1;
+    float best = 1e9F;
+    for (int i = 0; i < n; ++i)
+      if (rangeOut[i].x < best) {
+        best = rangeOut[i].x;
+        nearest = i;
+      }
+    // Logged only when it CHANGES - this runs every frame. That is also how a
+    // game uses it: the "press USE" prompt appears when the nearest thing
+    // becomes a different thing.
+    if (nearest != lastNearest) {
+      lastNearest = nearest;
+      TYRA_LOG("VU0 Ranges: nearest object is #", (int)rangeOut[nearest].w,
+               " at ", best, " units, LOD band ", (int)rangeOut[nearest].y);
+    }
+
+    // AND ON SCREEN, because a kernel whose only output is a log line is a
+    // claim rather than a demonstration. This is the whole round trip in one
+    // readable line: VU0 computed the distances, the EE folded them to a
+    // winner, and VU1 draws the answer.
+    //
+    // The slot comes from a Display Text node that nothing in the graph ever
+    // fires - the node exists to ALLOCATE the slot and to say where and how
+    // big; the string and the on/off are the script's. dynTextRequest is a
+    // one-shot (the game sets it back to -1 after reading), so asking once is
+    // enough and the buffer is what has to be refreshed.
+    if (ctx.dynTextCount > 0) {
+      if (!textShown) {
+        textShown = true;
+        ctx.dynTextRequest[0] = 1;
+        ctx.dynTextDuration[0] = 0.0F;  // stays until something hides it
+      }
+      // Only while it is actually visible - dynTextOn is the game telling the
+      // script whether the refresh is worth doing at all.
+      if (ctx.dynTextOn[0])
+        writeNearestText(ctx, nearest >= 0 ? rangeOut[nearest] : Tyra::Vec4());
+    }
+    return n;
+  }
+
+  /** "VU0: nearest #3  4.2u  LOD 0" into the runtime-text slot.
+   *
+   * Written by hand rather than with snprintf: the buffer is 64 bytes
+   * (DYN_TEXT_LEN) and this runs every frame, so a formatter that walks a
+   * format string and can be talked into overrunning is the wrong tool for
+   * four numbers. Every write below is bounded by construction. */
+  void writeNearestText(ScriptContext& ctx, const Tyra::Vec4& r) {
+    char* s = ctx.dynTextBuf;  // slot 0
+    const int cap = ctx.dynTextLen - 1;
+    int at = 0;
+    auto put = [&](const char* t) {
+      while (*t && at < cap) s[at++] = *t++;
+    };
+    auto putInt = [&](int v) {
+      if (v < 0) { put("-"); v = -v; }
+      char tmp[12];
+      int n = 0;
+      do { tmp[n++] = (char)('0' + v % 10); v /= 10; } while (v && n < 11);
+      while (n && at < cap) s[at++] = tmp[--n];
+    };
+    if (lastNearest < 0) {
+      put("VU0: nothing in range");
+      s[at] = '\0';
+      return;
+    }
+    put("VU0: nearest #");
+    putInt((int)r.w);
+    put("  ");
+    // One decimal, from the integer part and a tenth - no float formatting on
+    // the path, and it reads as a distance rather than as a float dump.
+    const float d = r.x < 0.0F ? 0.0F : r.x;
+    putInt((int)d);
+    put(".");
+    putInt((int)((d - (float)(int)d) * 10.0F));
+    put("u  LOD ");
+    putInt((int)r.y);
+    s[at] = '\0';
+  }
+
+  // The same numbers on the EE, ONCE. "The kernel ran" and "the kernel is
+  // right" are different claims and only the second is worth anything; sqrtf
+  // against VU0's rsqrt is a fair comparison, both being single-precision, so a
+  // disagreement here is an arithmetic bug and not a tolerance argument.
+  void checkRanges(ScriptContext& ctx) {
+    const int n = runRanges(ctx);
+    if (n <= 0) return;
+    float worst = 0.0F;
+    for (int i = 0; i < n; ++i) {
+      const float dx = ctx.objects[i].data.position[0] - ctx.playerPosition.x;
+      const float dy = ctx.objects[i].data.position[1] - ctx.playerPosition.y;
+      const float dz = ctx.objects[i].data.position[2] - ctx.playerPosition.z;
+      float d = sqrtf(dx * dx + dy * dy + dz * dz) - rangeOut[i].x;
+      if (d < 0.0F) d = -d;
+      if (d > worst) worst = d;
+    }
+    TYRA_LOG("VU0 Ranges: ", n, " objects, worst disagreement with the EE ",
+             worst, " units");
+  }
+
+  // The stage-composed kernel, from the panel. Run ONCE, at startup: its
+  // number is checkable by hand (see the project README) and that is the whole
+  // job it has here. It used to run every frame and drive the pillar's
+  // Desaturate parameter, which showed nothing at all unless a look reading
+  // mesh Y happened to be on - and this scene ships its looks off. A demo that
+  // only demonstrates under a setting nobody turned on is worse than no demo.
+  static constexpr int kCount = 32;
+  Tyra::Vec4 in[kCount];
+  Tyra::Vec4 out[kCount];
+  Tyra::TyraXVu0Kernel kernel;
+
+  // The C++ one, from src/vu0/ranges.cpp. The driver class is named after the
+  // kernel; scripts/vu0_kernels.gen.hpp is written by the build container,
+  // which is the only place src/vu0/*.cpp can be compiled and run.
+  static constexpr int kRangeMax = 64;  // its maxElements()
+  Tyra::Vec4 rangeIn[kRangeMax];
+  Tyra::Vec4 rangeOut[kRangeMax];
+  Tyra::RangesKernel ranges;
+  int lastNearest = -2;
+  bool textShown = false;
+};
+
+}  // namespace Vu_lab
+
+TYRA_SCRIPT(Vu_lab::Vu0Compute);

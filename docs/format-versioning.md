@@ -1,0 +1,330 @@
+# Project format versioning & migrations
+
+TyraX tracks two independent versions (both defined in `src/version.hpp`):
+
+| | What | Where | Who reads it |
+|---|---|---|---|
+| **Editor version** | semver `MAJOR.MINOR.PATCH` | title bar, `"editorVersion"` in the `.tyra` manifest | humans (diagnostics: *which editor wrote this file*) |
+| **Format version** | monotonic int `version::kFormatVersion` | `"formatVersion"` in the `.tyra` manifest | the editor (open gate + migrations) |
+
+They are deliberately separate: the editor version moves with every release
+(feature → MINOR, fix → PATCH, breaking change → MAJOR), while the format
+version moves only when the **on-disk project format** changes. Tying prompts
+to the editor version would nag users after every patch; tying them to the
+format version means the migration prompt appears exactly when something
+irreversible is about to happen.
+
+A project saved before versioning existed has no `formatVersion` field and
+reads as **v0**, which this editor no longer opens — see the floor below.
+
+The editor reads **`version::kMinFormatVersion` … `kFormatVersion`**. Both live
+in `src/version.hpp`; the range is deliberately not restated here, for the same
+reason the per-version history is not (below) — a number copied into prose is a
+number that goes stale. The refusal messages quote the live values.
+
+## What happens when you open a project
+
+- **Same version** — opens normally.
+- **Newer than the editor** (`formatVersion` > `kFormatVersion`) — refused,
+  with a message naming both versions ("update TyraX"). Opening it anyway
+  would silently drop the fields this editor does not know and destroy them
+  on the next save. The check lives in `project::load`, so every path (GUI,
+  `--build`, `--resave`) shares it.
+- **Older than the floor** (`formatVersion` < `kMinFormatVersion`) — refused
+  too, naming the range this editor reads. The reader carries no translations
+  below the floor, so it would recognise nothing in the file and open an
+  *empty* project without saying why; a refusal is the honest answer.
+- **Older, no registered migration steps** — opens silently. The reader
+  defaults every missing field, so an additive bump costs an older project
+  nothing; the file is re-stamped with the current version on the next save.
+- **Older, with pending migration steps** — the editor prompts: old/new
+  version, the list of steps that will run, and a warning that the operation
+  is irreversible. On confirm it first **backs up** the format-bearing files
+  (`<name>.tyra`, `objects/`, `terrain-*.heights`, `terrain-*.splat`,
+  `flow-nodes/`, `screen-effects/` — `res/` assets are never touched) into
+  `_backup/format-v<old>-<timestamp>/` inside the project, then migrates
+  **in memory** and saves. If any step fails, the project does not open and
+  **nothing on disk was modified**.
+
+The prompt belongs to **local** opens only (`App::openProjectAt` — the CLI
+argument, the Open dialog and the recent-projects list all funnel through it).
+
+**Joining a collaboration session is the one open path that never migrates.** A
+client materializes the host's project and opens it through
+`App::openRemoteProject`; if the host's format needs registered steps, the
+**join is refused** and the message says the host has to migrate first. Two
+reasons: the project belongs to the host and migrating is irreversible, and a
+client can only migrate its own replica — after which host and client would
+disagree about the format while `diffModel` keeps syncing edits over fields one
+of them does not have. (A host on a *newer* format is already refused by
+`project::load`, like any other path.)
+
+`_backup/` is a local safety copy, not source: the generated project
+`.gitignore` excludes it, and a collaboration session never sends it to peers.
+
+Headless (`--build`, `--resave`, `--refresh-gen`, `--apply-graph`, `--ai-graph`)
+refuses projects with pending migration steps instead of silently rewriting them
+— migrating is an explicit act. (`--refresh-gen` and `--build` are on the list
+because baking a stale Scatter volume saves the project.)
+
+```bash
+tyrax-editor --migrate <projectDir>   # backup + migrate + resave
+```
+
+`--migrate` prints the backup location and each applied step; on an
+up-to-date project it degrades to a plain resave. It writes the same file set
+as `--resave` (manifest + heights + splat) — a migration that persisted less
+than a resave would drop whatever it skipped.
+
+## Rules for contributors
+
+1. **Every feature bumps the editor version** in `src/version.hpp`:
+   new feature → MINOR, fix → PATCH, breaking change → MAJOR.
+2. **Every change to what `project::save()` writes bumps
+   `version::kFormatVersion`** — new fields included. The bump is what lets
+   an *older* editor refuse the file instead of eating it.
+3. **Register a migration step** (`migrations.cpp`) for the same bump **only
+   when old files need active transformation** — a rename, a semantic/unit
+   change, moved or restructured data. Purely additive fields with safe
+   defaults need no step (the tolerant reader handles them) and old projects
+   keep opening silently.
+   **A step can only transform data the file HAS.** The tempting case is a
+   bump that fixes a *dropped* field — v11 is the worked example: `save()`
+   never wrote a fog emitter's `opacity`, so authored values were destroyed at
+   save time and the file holds nothing to migrate. The reader's default (0.6)
+   is not a guess at the author's intent, it is precisely what that file has
+   always meant to codegen and to the viewport, so a step could only invent a
+   number and would make every affected project *change* on open. Additive,
+   no step. What the bump buys is the other half: an older editor now refuses
+   the file instead of dropping the new key on its own next save.
+4. Keep the loader tolerant about **absent** keys — a missing field defaults
+   and an additive bump then costs an older project nothing. Tolerance is not
+   the same as carrying a *translation* for a key that was renamed or moved:
+   those are what `kMinFormatVersion` exists to retire, and the retiring is a
+   deliberate act (raise the floor, say so above `kFormatVersion`), never a
+   silent drop. A migration step transforms the **loaded model** where the old
+   data's *meaning* changed; a step that needs data the reader no longer
+   parses can re-read files itself via `Project::dir`.
+5. **A branch renumbers its bump on the way in — it never argues for the
+   number it authored.** Two features may not share a format number: the
+   number is the whole basis on which an older editor refuses a file, so if
+   `6` means "collision-box overlay" to main and "the upscaler's shot plan"
+   to a branch, an editor that knows only the first will happily open the
+   second and drop the fields it cannot see on its next save. Whoever merges
+   moves their entries to the top of the list, keeping one number per landing
+   (a branch that bumped three times keeps three), and says in the comment
+   what the old numbers were — the version-history comment in
+   `src/version.hpp` is the record, and the reverb, sound-priority, World
+   Facts and BLSS entries all carry that note. **Grep the docs for the old
+   numbers in the same commit**: the meaning is quoted in prose
+   (`docs/neural-upscaler.md`, `docs/blss-reconstruction.md`,
+   `docs/backlog.md`, the skills) as often as it is in the header, and a
+   renumber that stops at `version.hpp` leaves every one of them lying.
+   No migration step is needed for a renumber itself when both sides were
+   additive: nothing on disk changes shape, only the label the file claims.
+
+### Adding a migration step
+
+```cpp
+// migrations.cpp, inside all():
+static const std::vector<Migration> steps = {
+    {1, "walk speed: units/frame -> units/second",
+     [](Project& p, std::string& err) {
+         for (SceneData& sc : p.scenes)
+             for (SceneObject& o : sc.objects)
+                 if (o.type == PrimitiveType::Player) o.playerWalkSpeed *= 60.0f;
+         return true;
+     }},
+};
+```
+
+A step upgrades `from` → `from + 1`; the chain runs in order, so a project
+several versions behind migrates through every step in one go. `summary` is
+shown verbatim in the migration prompt and the `--migrate` output — write it
+for the user.
+
+**List steps by ascending `from`, once each, and bump `kFormatVersion` in the
+same commit.** `migrations::run` applies steps in registration order, so an
+out-of-order entry would transform data a later step still expects untouched.
+`migrations::validate()` checks that, plus every `from` inside
+`[0, kFormatVersion)`, an `apply`, and a non-empty `summary`.
+
+It runs in **two** places, and the first one is the one that matters:
+
+- `migrations::all()` shouts on stderr at the registry's first use — which is
+  every project open and every headless command. This catches the mistake you
+  are actually going to make: **a step registered without bumping
+  `kFormatVersion`**. That makes `stepsFor()` return nothing, so the gate never
+  fires and `run` is never reached — the step would silently never run, and the
+  symptom is the maddening "my migration does nothing".
+- `run` checks too, where a bad registry aborts the migration with disk
+  untouched instead of transforming data in the wrong order.
+
+It is deliberately *not* a "no gaps" check — a purely additive bump registers no
+step at all, so missing versions in the chain are the normal case.
+
+**A step must not change `Project::name`.** `save()` writes `<name>.tyra` and
+does not delete a manifest under the old name, so a renaming step leaves two
+`.tyra` files in the project directory and `load()` takes whichever the
+directory iterator yields first — possibly the pre-migration one. Rename
+*fields*, not the project.
+
+With no step registered, the prompt and the backup are unreachable by
+construction. To exercise them, register a throwaway step and bump
+`kFormatVersion` locally (that is how they were tested); `--migrate` is the
+path that needs no GUI dialog.
+
+## Format history
+
+Format 93 (editor 1.167.0) adds a vehicle definition's bake-measured
+`"exhausts"` list (each pipe's opening and direction, written only when the
+model marks any) and the drive-spec key `exhaustSmoke`
+([vehicles.md](vehicles.md#exhaust-pipes)). Missing means no markers - the
+guessed rear pipes - and smoke 1, so an older car smokes too; it is
+presentation. Additive; no migration step.
+
+Format 85 combines two branches that independently used v82 and v83. The
+vehicles branch added global tuning defaults and per-field overrides; the
+procedural branch added placement rules and, at v84, frozen procedural graphs.
+The merged editor reads both sets of optional fields and writes their unified
+schema as v85. A vehicle without an explicit `inheritDefaults` flag in a
+pre-v85 file stays local, while an explicit flag from the vehicles branch is
+honored. No value-changing migration is needed.
+
+Format 83 (editor 1.155.0) adds `FilterPlacement.nums.roads=2` for Only on roads
+and optional `strs.roadtarget`. Existing roads=0/1 retain Ignore/Avoid behavior;
+no migration is needed. The format gate keeps old editors from interpreting
+Only as the former Skip roads boolean. See [procedural generation](procedural-generation.md).
+
+Format 82 (editor 1.154.0) adds the `FilterPlacement` procedural node with
+road, model-overlap and full-footprint terrain-material checks. Parameters
+use the existing generic node maps; no migration is needed. The version gate
+prevents older editors from opening graphs whose placement semantics they
+cannot evaluate.
+
+**The per-version record is the comment block above `kFormatVersion` in
+`src/version.hpp`** — one entry per landing, saying what the version added and
+why it did or did not need a step. Read it there; rule 5 above is why it is the
+record, and a second copy here would be the thing that goes stale. The table
+below is only the two versions that predate those entries.
+
+| Version | Editor | Change |
+|---|---|---|
+| 0 | pre-1.0.0 | everything before versioning existed — objects inline in the manifest, a single `"layout"` dump, a project-level terrain block and flow graph, raw TTF paths where a font name now goes. **No longer read**: the translations were retired with `kMinFormatVersion = 1`, since TyraX has never shipped publicly and no such file exists outside this repo's history. |
+| 1 | 1.0.0 | the `formatVersion` / `editorVersion` stamp itself (no migration step — nothing to transform); the oldest format this editor opens |
+
+Format 44 combines Aster's invisible box collision mode and optional editorGroup
+with main's format 43 comments/HUD fields. These additive fields need no data
+conversion; formats from both development branches remain readable.
+
+The vehicles branch integration used format 51 for vehicle/road fields from
+branch formats 44–50 together with main's optional editorGroup and invisible-box
+fields. Format 52 additionally retains main's baked shadow decal mode/settings
+(main format 46). These fields are additive and need no value conversion.
+
+Format 60 adds the optional per-road `roadSampleStep` field. It is purely
+additive: missing means the original 1 m longitudinal spacing, so no migration
+step is required.
+
+Format 80 adds six drive-spec keys for the driven car's speed feel
+(`feelFrom`, `feelShake`, `feelBlur`, `feelFov`, `feelNosFov`, `feelFlame`;
+docs/vehicles.md, "Speed feel"). A missing key reads as its default, so a
+car saved before it gets the shake, blur and nitrous flame too. They are
+presentation only, and 0 switches each part off. Additive; no migration step.
+The speed-feel branch shipped it as **v77**, a number `vehicles` had already
+spent (road rank and spill), so the merge renumbered it to 80.
+
+Format 79 adds a scene's `roadJunctions` list (docs/roads.md, "Junction
+overrides"): per-crossing road overrides, each a road-id pair, the crossing's
+position and the winner / patch material / grip, with every field at its Auto
+value omitted. Written only when the list is non-empty; missing means no
+overrides, so every crossing follows the rank rule as before. Additive; no
+migration step.
+
+Format 78 adds a road's `roadEdgeFade` (docs/roads.md, "Soft edges"), written
+only away from 0. Missing means the hard edge, as before. Additive; no
+migration step.
+
+Format 77 adds a road's `roadRank` and `roadSpill` (docs/roads.md,
+"Crossings"), each written only away from its default (Local, 1.5). Missing
+means Local, which is every road before ranks, so crossings build exactly as
+before. Additive; no migration step.
+
+Format 76 adds a terrain layer's `grip` (docs/terrain-painting.md, "Layers"),
+written only away from its default of 1. Missing means the bare terrain, as
+before. Additive; no migration step.
+
+Format 75 adds a vehicle's `drive.lampGlow` and a definition's bake-measured
+`"lampGlows"` (docs/vehicles.md, "Lamp glow"), the latter written only when
+non-empty. Missing means no halo, as before. The lamp-glow branch shipped it
+as **74**, taken by the damage merge, so it moved to 75. Additive; no
+migration step.
+
+Formats 72-74 are vehicle damage (docs/vehicles.md, "Damage" and "Loose
+panels and glass"): 72 adds six drive-spec keys (`damage`, `damageThreshold`,
+`damageMaxDent`, `damageRadius`, `damagePerfLoss`, `damageSmoke`), 73 adds
+`drive.damageLoose` and a definition's bake-measured `"pieces"`, 74 adds a
+definition's bake-measured `"envLimits"`. The damage branch shipped them as
+**71-73**; 71 was already the per-road grip on vehicles, so the merge moved
+them up by one (rule 5 above). Every key is additive and read whatever the
+stamp says, so a file that branch saved as 71-73 opens with its damage
+tunables intact and stamps 74 on its next save. No migration step.
+
+Format 71 adds a road's `roadGrip` (docs/roads.md, "Surface grip"), written only
+away from its default of 1. Missing means asphalt, as before. Additive; no
+migration step.
+
+Format 70 adds a vehicle's `offroadGrip`, `offroadAccel` and `offroadDrag`
+inside its `"drive"` block (docs/vehicles.md, "Off-road grip"). Missing means
+1 / 1 / 0, a car that ignores the surface, as before. Additive; no migration
+step.
+
+Format 69 adds a vehicle definition's optional `farModel`, `trafficDistance`
+and the bake-measured `farPart` / `farHideMask` (docs/vehicles.md, "An authored
+far model"), each written only away from its default. Missing means the
+decimated tiers at `farDistance` for every car, as before. Additive; no
+migration step.
+
+Format 68 is the particle library ([particles.md](particles.md), "Format"):
+the `"particleEffects"` section, an emitter's `"effect"`/`"additive"`/
+`"frames"`/`"fps"` and a vehicle's `"smokeEffect"`. The particle branch
+shipped it as **v62**, a number the vehicles branch had already spent (v62..v67:
+reflection ground radius, hybrid colour depth, interleaved passes, skid/smoke
+materials, glass, shine budget), so the merge renumbered it to 68 rather than
+reuse a number that means two different things. No step is needed either way,
+because every key involved is additive and read regardless of the stamp: a file
+the particle branch saved as 62 opens here with its effects intact (and stamps
+68 on its next save), and a vehicles-branch file at 62..67 simply has no
+particle keys (rule 5 above: a
+format number is claimed at merge time, not at branch time).
+
+Format 67 adds `settings.vehicleShineBudget` (docs/vehicles.md, "The shine
+budget"), written only when it is not 2. Missing reads as 2, so an older
+project with three or more cars near the camera now draws two of them shiny;
+0 restores every car. Additive; no migration step.
+
+Format 65 adds a vehicle definition's optional `skidMaterial` and
+`smokeMaterial` (docs/vehicles.md, "Skid marks and smoke"), written only when
+set; missing means the built-in textures. Additive; no migration step.
+
+Format 64 adds `settings.interleavePasses` ("auto", "always", "off";
+[interleaved-passes.md](interleaved-passes.md)). It is written only when it
+is not "auto", so a project that never sets it resaves byte for byte, and a
+missing key reads as "auto". Additive; no migration step.
+
+Format 61 adds the project-wide `occlusionCulling` opt-in and the per-object
+`occluderExclude` / `occlusionCull` controls. Missing keeps occlusion disabled,
+allows the object to receive culling if the project is later enabled and lets
+proved-safe static geometry act as an occluder. The fields are additive, so no
+migration step is required.
+
+Format 82 adds `vehicleDefaults` to the Vehicles section and optional
+`inheritDefaults` / `tuningOverrides` to definitions. Missing inheritance is
+false, preserving old tuning; new definitions opt in. The singleton uses the
+existing vehicle serializer. Geometry remains local. Additive; no migration.
+
+Format 83 makes vehicle inheritance automatic and tracks each field separately.
+`inheritDefaults` is explicit on save. A missing pre-83 flag retains legacy
+local semantics while reading; resolution marks non-default values as overrides
+and expands old group overrides. This preserves resolved tuning, so no
+value-changing migration step is required. Section resets clear only their keys.

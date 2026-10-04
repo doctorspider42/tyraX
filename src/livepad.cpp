@@ -8,6 +8,7 @@
 #include <sstream>
 
 #include "input.hpp"
+#include "platform.hpp"
 
 namespace livepad {
 namespace {
@@ -15,6 +16,15 @@ namespace {
 constexpr uint32_t kMagic = 0x44505854U;  // "TXPD"
 constexpr uint32_t kVersion = 1U;
 constexpr uint32_t kFooterXor = 0x5A5A5A5AU;
+
+// How hard to try when the replace below loses the race against the game
+// reading the same file. Five spare tries, 4 ms apart, plus the denied syscalls
+// themselves: measured to absorb an exclusive 60 ms hold on the file, while
+// leaving the driver's own 40 ms refresh cadence undisturbed (a full 9 s script
+// still finishes in 9.1 s). Anything longer is not a race any more, and is
+// reported instead - see the refresh/step split in main.cpp.
+constexpr int kReplaceRetries = 5;
+constexpr int kReplaceRetryMs = 4;
 
 void put32(unsigned char* p, uint32_t v) { std::memcpy(p, &v, 4); }
 uint32_t get32(const unsigned char* p) {
@@ -155,13 +165,32 @@ std::string write(const std::string& path, const State& s, uint32_t seq,
         if (!f) return "write failed: " + tmp.string();
     }
     // Rename over the old file so the game never reads a half-written state.
-    fs::rename(tmp, target, ec);
-    if (ec) {
+    //
+    // On Windows that replace RACES THE READER. The running game re-opens this
+    // file roughly every frame through PCSX2's Host Filesystem, and Windows
+    // refuses to rename over (or delete) a file another process has open, so a
+    // replace lands on "Access is denied" about once in 200 tries at the
+    // driver's 40 ms refresh - which used to kill about one 9 s hold in five,
+    // and every one of them under heavier contention. Measured 2026-08-03 with
+    // PCSX2 running a fixture: zero denials with the emulator stopped.
+    // The reader never holds the file for long, so retrying inside
+    // the same 40 ms window is all it takes; POSIX rename has no such problem
+    // and simply succeeds on the first attempt.
+    for (int attempt = 0;; ++attempt) {
+        fs::rename(tmp, target, ec);
+        if (!ec) return "";
         fs::remove(target, ec);
         fs::rename(tmp, target, ec);
-        if (ec) return "cannot replace " + target.string() + ": " + ec.message();
+        if (!ec) return "";
+        if (attempt >= kReplaceRetries) {
+            const std::string why = ec.message();
+            std::error_code cleanup;  // NOT ec: it carries the failure to report
+            fs::remove(tmp, cleanup);
+            return "cannot replace " + target.string() + " after " +
+                   std::to_string(kReplaceRetries + 1) + " tries: " + why;
+        }
+        platform::sleepMs(kReplaceRetryMs);
     }
-    return "";
 }
 
 // ----------------------------------------------------------------- script ---

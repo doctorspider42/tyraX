@@ -48,6 +48,9 @@ typedef ptrdiff_t GLintptr;
 #define GL_DYNAMIC_DRAW 0x88E8
 #define GL_FRAGMENT_SHADER 0x8B30
 #define GL_VERTEX_SHADER 0x8B31
+// PS2-shading viewport mode: the per-vertex lighting pass runs in a geometry
+// shader (docs/ps2-viewport.md) - core since GL 3.2, no extension needed.
+#define GL_GEOMETRY_SHADER 0x8DD9
 #define GL_COMPILE_STATUS 0x8B81
 #define GL_LINK_STATUS 0x8B82
 #define GL_INFO_LOG_LENGTH 0x8B84
@@ -61,6 +64,8 @@ typedef ptrdiff_t GLintptr;
 #define GL_BLEND 0x0BE2
 #define GL_SRC_ALPHA 0x0302
 #define GL_ONE_MINUS_SRC_ALPHA 0x0303
+// Additive blending, the GS's Cs*FIX + Cd - the day/night sun disc.
+#define GL_ONE 1
 #define GL_MULTISAMPLE 0x809D
 #define GL_POLYGON_OFFSET_FILL 0x8037
 #define GL_FRONT_AND_BACK 0x0408
@@ -74,6 +79,7 @@ typedef ptrdiff_t GLintptr;
 #define GL_TEXTURE1 0x84C1
 #define GL_TEXTURE2 0x84C2
 #define GL_TEXTURE3 0x84C3
+#define GL_TEXTURE4 0x84C4
 #define GL_TEXTURE_3D 0x806F
 #define GL_TEXTURE_WRAP_R 0x8072
 #define GL_RED 0x1903
@@ -92,6 +98,7 @@ typedef ptrdiff_t GLintptr;
     X(void, Viewport, GLint, GLint, GLsizei, GLsizei) \
     X(void, DepthFunc, GLenum) \
     X(void, DepthMask, GLboolean) \
+    X(void, ColorMask, GLboolean, GLboolean, GLboolean, GLboolean) \
     X(void, LineWidth, GLfloat) \
     X(void, BlendFunc, GLenum, GLenum) \
     X(void, PolygonOffset, GLfloat, GLfloat) \
