@@ -1638,6 +1638,12 @@ class TerrainGame : public Tyra::Game {
   void creatorCamera();         // frames the character while it is open
   void renderCharCreator();
   int creatorRows(int index, int* rows) const;  // the rows it offers
+  int creatorTarget() const;  // who creator menu rows dress (the player if none)
+  void creatorStep(int index, int slot, int dir);  // one Left/Right on a row
+  void creatorValueText(int index, int slot, char* out, int size) const;
+  int creatorMenu = -1;       // the menu that is the creator's screen, -1 = built in
+  int creatorMenuWait = 0;    // frames until that menu must have opened
+  bool creatorMenuSeen = false;
   int creatorObj = -1;          // the object being dressed, -1 = closed
   int creatorRow = 0;
   int creatorRestore[4] = {-1, -2, -2, -2};  // its look when it opened (Circle)
@@ -3555,6 +3561,12 @@ class TerrainGame : public Tyra::Game {
   void creatorCamera();         // frames the character while it is open
   void renderCharCreator();
   int creatorRows(int index, int* rows) const;  // the rows it offers
+  int creatorTarget() const;  // who creator menu rows dress (the player if none)
+  void creatorStep(int index, int slot, int dir);  // one Left/Right on a row
+  void creatorValueText(int index, int slot, char* out, int size) const;
+  int creatorMenu = -1;       // the menu that is the creator's screen, -1 = built in
+  int creatorMenuWait = 0;    // frames until that menu must have opened
+  bool creatorMenuSeen = false;
   int creatorObj = -1;          // the object being dressed, -1 = closed
   int creatorRow = 0;
   int creatorRestore[4] = {-1, -2, -2, -2};  // its look when it opened (Circle)
@@ -5856,6 +5868,7 @@ struct ScriptContext {
   // to open it on that character (the game applies and clears it);
   // creatorOpen reads true while it is up.
   int openCreator = -1;
+  int openCreatorMenu = -1;  // with openCreator: the menu that is its screen
   bool creatorOpen = false;
   // A flow event queued from OUTSIDE a menu row - today a credits roll whose
   // finish action is "fire a flow event". updateGameMenu promotes it into
@@ -5984,9 +5997,11 @@ inline void setLook(ScriptContext& ctx, int objectIndex, int slot, int value) {
 
 /** Opens the in-game Character Creator on a generated character (one built
  * with creator options or colour variants; the player when the object is
- * neither). */
-inline void openCharacterCreator(ScriptContext& ctx, int objectIndex) {
+ * neither). `menu` (a menu_data index) makes that menu its screen - rows of
+ * the Character creator option kind - instead of the built-in one. */
+inline void openCharacterCreator(ScriptContext& ctx, int objectIndex, int menu = -1) {
   ctx.openCreator = objectIndex < 0 ? 0x7fffffff : objectIndex;
+  ctx.openCreatorMenu = menu;  // a menu (menu_data order) as its screen, -1 = built in
 }
 
 /** Freezes an animated model object on its current pose. */
@@ -23932,8 +23947,11 @@ static bool flowInArea(const ScriptContext& ctx, int idx, int who) {
                   << floatLit(n.num[1]) << ");\n";
             } else if (n.type == "CharacterCreator") {
                 // the target is the character; an object that is not one
-                // (self on a trigger) falls back to the player at runtime
-                c << pad << "openCharacterCreator(ctx, " << objIdx << ");\n";
+                // (self on a trigger) falls back to the player at runtime.
+                // str = a menu to use as its screen ("" = the built-in one)
+                const int mi = n.str.empty() ? -1 : menuIndexOf(n.str);
+                c << pad << "openCharacterCreator(ctx, " << objIdx << ", " << mi << ");"
+                  << (n.str.empty() ? "" : "  // menu \"" + n.str + "\"") << "\n";
             } else if (n.type == "Talk") {
                 c << pad << "talk(ctx, " << objIdx << ", "
                   << (pin == 1 ? std::string("0.0F") : floatLit(n.num[0])) << ");\n";
@@ -32906,6 +32924,14 @@ static std::string menuDataHeader(const Project& p) {
                     // override code (docs/input-bindings.md).
                     case MenuEntry::RebindKey: param = valueIndexOf(en.param); break;
                     case MenuEntry::PlayCredits: param = creditsIndexOf(en.param); break;
+                    // Creator rows: param = the look slot (0 colours, 1 hair,
+                    // 2 hat, 3 glasses), what RuntimeObject::look indexes.
+                    case MenuEntry::CreatorOption:
+                        param = en.param == "hair"      ? 1
+                                : en.param == "hat"     ? 2
+                                : en.param == "glasses" ? 3
+                                                        : 0;
+                        break;
                     default: break;
                 }
                 // Which input action a rebind row drives (-1 = none/unknown).

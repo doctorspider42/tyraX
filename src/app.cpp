@@ -12483,6 +12483,39 @@ void addRebindRows(Project& p, GameMenu& m) {
     }
 }
 
+// A Character Creator screen as a menu (docs/character-generator.md, "The
+// creator as a menu"): one row per part of the look, DONE (a plain Close -
+// leaving keeps the look) and UNDO. Not pausing: the character idles and
+// looks at the camera while being dressed. Returns the new menu's index.
+int addCreatorMenu(Project& p) {
+    std::string name = "character";
+    for (int n = 2;; ++n) {
+        bool taken = false;
+        for (const GameMenu& m : p.menus) taken |= m.name == name;
+        if (!taken) break;
+        name = "character-" + std::to_string(n);
+    }
+    GameMenu m;
+    m.name = name;
+    m.title = "CHARACTER";
+    m.pauseGame = false;
+    m.screenPos[0] = 0.72f;  // the creator's camera keeps the character on the left
+    m.screenPos[1] = 0.5f;
+    static const char* kRows[][2] = {
+        {"COLOURS", "look"}, {"HAIR", "hair"}, {"HAT", "hat"}, {"GLASSES", "glasses"}};
+    for (const auto& r : kRows) {
+        MenuEntry en;
+        en.label = r[0];
+        en.action = MenuEntry::CreatorOption;
+        en.param = r[1];
+        m.entries.push_back(std::move(en));
+    }
+    m.entries.push_back(MenuEntry{"DONE", MenuEntry::Close, "", 0.0f});
+    m.entries.push_back(MenuEntry{"UNDO", MenuEntry::CreatorUndo, "", 0.0f});
+    p.menus.push_back(std::move(m));
+    return (int)p.menus.size() - 1;
+}
+
 // The plain "APPLY" action row that commits a display-mode row's staged
 // selection (MenuEntry::ApplyVideo) - inserted next to the DISPLAY block.
 MenuEntry makeApplyVideoEntry() {
@@ -12621,6 +12654,16 @@ void App::drawMenusWindow() {
         selectedMenu_ = addOptionsMenuPages(project_);
         changed = true;
     }
+    if (ImGui::Button("+ Character creator menu", ImVec2(-1, 0))) {
+        selectedMenu_ = addCreatorMenu(project_);
+        changed = true;
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "A screen for the in-game Character Creator: Colours / Hair /\n"
+            "Hat / Glasses rows, DONE and UNDO. It does not pause, so the\n"
+            "character keeps moving while being dressed. Pick it in a\n"
+            "Character Creator node's Menu, then style it like any menu.");
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip(
             "Scaffold a paged options menu: an OPTIONS root that opens\n"
@@ -12959,7 +13002,8 @@ void App::drawMenusWindow() {
             "Close menu",     "Switch scene",      "Open save menu", "Open menu",
             "Set save value", "Add to save value", "Flow event",     "Toggle",
             "Choice",         "Apply video mode",  "Rebind key",     "Play credits",
-            "Label (not selectable)", "Skip cutscene"};
+            "Label (not selectable)", "Skip cutscene", "Character creator option",
+            "Character creator undo"};
         for (int e = 0; e < (int)m.entries.size(); ++e) {
             MenuEntry& en = m.entries[e];
             ImGui::PushID(e);
@@ -13057,6 +13101,25 @@ void App::drawMenusWindow() {
                         "Save value holding the state (the option index).\n"
                         "Its default is the initial state; flow graphs react\n"
                         "via Value At Least -> On Condition.");
+            } else if (en.action == MenuEntry::CreatorOption) {
+                static const char* kSlots[] = {"look", "hair", "hat", "glasses"};
+                int slot = 0;
+                for (int k = 0; k < 4; ++k)
+                    if (en.param == kSlots[k]) slot = k;
+                ImGui::SetNextItemWidth(scaled(90.0f));
+                static const char* kSlotNames[] = {"Colours", "Hair", "Hat", "Glasses"};
+                if (ImGui::Combo("##creatorslot", &slot, kSlotNames, 4)) {
+                    en.param = kSlots[slot];
+                    changed = true;
+                }
+                if (en.param.empty()) en.param = "look";
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip(
+                        "Which part of the look Left/Right change (docs/character-\n"
+                        "generator.md). The row draws the current choice in the\n"
+                        "menu's font; it dresses the character the Character\n"
+                        "Creator node opened this menu on, else the player.");
+                ImGui::SameLine();
             } else if (en.action == MenuEntry::PlayCredits) {
                 paramCombo("##credits", "<roll>", project_.credits,
                            [](const CreditsRoll& r) -> const std::string& { return r.name; });

@@ -5515,7 +5515,13 @@
 // host-baked albedo map (REFL_GROUND_*): -2 ms a turning frame on the Motor
 // District's open road on a PS2.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 177
+#define TYRAX_VERSION_MINOR 178
+// 1.178.0: the Character Creator as a menu (docs/character-generator.md, "The
+// creator as a menu"). Menu rows "Character creator option" (colours, hair,
+// hat, glasses - the choice drawn as runtime text in the menu's font) and
+// "Character creator undo"; the Character Creator node's Menu makes such a
+// menu its screen; Menus > "+ Character creator menu" scaffolds one.
+// Format v98.
 // 1.177.0: hat hair (docs/character-generator.md, "Hat hair"). Hats press the
 // hair under them instead of letting it poke through: a worn hat fits the
 // hairstyle outright, hat options give every hairstyle a pressed
@@ -6176,7 +6182,10 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // v97 (docs/navigation-ai.md, "Wandering"): a Model object's anim.wander
 // { radius, speed }, written only when the radius is > 0. Missing = it stays
 // put, as before. Additive; no migration step.
-inline constexpr int kFormatVersion = 97;
+// v98 (docs/character-generator.md, "The creator as a menu"): menu entry
+// actions "creator" (param look/hair/hat/glasses) and "creator-undo". An
+// older editor would read them as Close. Additive; no migration step.
+inline constexpr int kFormatVersion = 98;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

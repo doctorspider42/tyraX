@@ -1030,6 +1030,10 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
                  "jaw moves in syllables over whatever clip plays. For a real "
                  "voice, set the sound emitter's Speaker instead."},
         {.key = "CharacterCreator", .title = "Character Creator", .category = "Animation",
+         .strKind = FlowParamKind::MenuName,
+         .strTip = "Optional: a menu (Project panel > Menus) to be its screen - "
+                   "rows of the \"Character creator option\" kind dress the "
+                   "character, styled like any menu. Empty = the built-in screen.",
          .idIn = true, .idOut = true,
          .desc = "Opens the in-game Character Creator on a character from the "
                  "Character Generator built with creator options or colour "

@@ -545,6 +545,32 @@ fedora switching the messy cut to its pressed twin and back.
 Not verified: a save/load round trip and a scene change carrying the look; the
 real console.
 
+### The creator as a menu
+
+The built-in screen is fixed. To restyle it, make the creator a **menu**:
+*Tools > Menu Editor > **+ Character creator menu*** scaffolds one -
+COLOURS / HAIR / HAT / GLASSES rows, DONE and UNDO, not pausing, panel on the
+right - and the **Character Creator** node's *Menu* picks it. From then on it
+is an ordinary menu: stylesheet, font, title, row labels and order, icons,
+descriptions, images, position, open and close motion
+([menu-styles.md](menu-styles.md)).
+
+- A **Character creator option** row (`"action": "creator"`, param `look`,
+  `hair`, `hat` or `glasses`) changes that part of the look with Left/Right
+  (Cross steps forward) and draws the current choice right-aligned in the
+  menu's font as runtime text - the path a *Rebind key* row uses, so the
+  menu's font gets an atlas for it. A row the model has nothing for shows
+  `-`.
+- **Character creator undo** puts back the look the creator opened with and
+  closes the menu. Any other way out - a Close row, Back - keeps the new look.
+- The creator ends when its menu goes away; the camera still frames the
+  character and L1/R1 still turn it. Leave *Pause* off, or the character
+  freezes while being dressed.
+- Rows work in any menu: opened some other way (an Open Menu node, a pause
+  menu) they dress the player.
+
+![The Character Creator as a menu in PCSX2](img/chargen-creator-menu.png)
+
 ## Hat hair
 
 A hat is a mesh item riding the skull on its own, and big hair used to poke

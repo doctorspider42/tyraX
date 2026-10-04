@@ -101,8 +101,8 @@ std::vector<int> Project::atlasFontIndices() const {
     // docs/input-bindings.md), so that menu's font needs an atlas too.
     for (const GameMenu& m : menus)
         for (const MenuEntry& e : m.entries)
-            if (e.action == MenuEntry::RebindKey) {
-                want(m.font);
+            if (e.action == MenuEntry::RebindKey || e.action == MenuEntry::CreatorOption) {
+                want(m.font);  // a creator row draws its choice as runtime text too
                 break;
             }
     // The save menu ALWAYS draws runtime text - its rows are "SLOT n" and the
@@ -2738,7 +2738,8 @@ static void writeMenusSection(std::ostream& json, const Project& p) {
                                          "menu",      "set-value", "add-value",
                                          "event",     "toggle",    "choice",
                                          "apply-video", "rebind", "credits",
-                                         "label",     "skip-cutscene"};
+                                         "label",     "skip-cutscene",
+                                         "creator",   "creator-undo"};
     for (size_t i = 0; i < p.menus.size(); ++i) {
         const GameMenu& m = p.menus[i];
         json << (i ? ",\n    " : "\n    ") << "{ \"name\": \"" << m.name
@@ -2783,7 +2784,7 @@ static void writeMenusSection(std::ostream& json, const Project& p) {
         for (size_t e = 0; e < m.entries.size(); ++e) {
             const MenuEntry& en = m.entries[e];
             const int a =
-                (en.action >= 0 && en.action <= MenuEntry::SkipCutscene)
+                (en.action >= 0 && en.action <= MenuEntry::CreatorUndo)
                     ? en.action
                     : 0;
             json << (e ? ",\n        " : "\n        ") << "{ \"label\": \""
@@ -7785,6 +7786,8 @@ static void readMenusSection(const json::Value& root, Project& out) {
                                     : a == "label"     ? MenuEntry::Label
                                     : a == "skip-cutscene"
                                         ? MenuEntry::SkipCutscene
+                                    : a == "creator" ? MenuEntry::CreatorOption
+                                    : a == "creator-undo" ? MenuEntry::CreatorUndo
                                                        : MenuEntry::Close;
                     }
                     if (const auto* v = je.find("param")) en.param = v->stringOr("");

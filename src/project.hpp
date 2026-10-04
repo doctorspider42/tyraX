@@ -3518,6 +3518,16 @@ struct MenuEntry {
         // GameMenu::skipMenu); elsewhere it is a Stop Sequence with no
         // graph - harmless, and a no-op when nothing is playing.
         SkipCutscene = 13,
+        // In-game Character Creator rows (docs/character-generator.md, "The
+        // creator as a menu"). param = "look", "hair", "hat" or "glasses":
+        // Left/Right (and Cross) change that part of the look of the
+        // character being dressed - the player when the menu was opened some
+        // other way - and the row draws the current choice as runtime text
+        // from the menu's font, like a Rebind key row.
+        CreatorOption = 14,
+        // Puts back the look the character had when the creator opened, then
+        // closes the menu. Any other way out of the menu keeps the new look.
+        CreatorUndo = 15,
     };
     int action = Close;
     std::string param;
