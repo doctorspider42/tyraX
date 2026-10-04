@@ -376,6 +376,21 @@ class TerrainGame : public Tyra::Game {
     Tyra::M4x4 animMat;
     Tyra::M4x4 animLightMat;  // rotation/reflection only; scale is not light gain
     u32 animLastTick = 0;  // animLodTick of the last in-view frame; 0 = never
+    // A generated character's living face (updateFace): rig nodes found by
+    // name at setup (-1 = this rig has no such bone - any .glb works, a rig
+    // without them simply keeps a still face), plus the smoothed state.
+    s16 faceHead = -1, faceJaw = -1;
+    s16 faceEye[2] = {-1, -1}, faceLid[2] = {-1, -1};
+    bool faceLive = false;  // overrides set on animInst right now
+    u32 faceSeed = 1;       // per-object LCG: blinks never synchronise
+    float blinkIn = 2.0F;   // seconds to the next blink
+    float blinkT = -1.0F;   // seconds into the current blink, < 0 = open
+    float lookYaw = 0.0F, lookPitch = 0.0F;  // where the head+eyes point (rad)
+    float jawOpen = 0.0F;   // 0 = closed, 1 = fully open (smoothed)
+    float talkPhase = 0.0F; // the syllable clock while talking
+    const unsigned char* lipEnv = nullptr;  // a speaking sound's envelope
+    int lipLen = 0;         // its length, LIP_SYNC_RATE samples a second
+    float lipT = 0.0F;      // seconds since that sound started
     // Usable-object highlight: terrain-hugging glow ring around the base,
     // built when first highlighted, cleared whenever the object rebuilds
     // (see buildHighlightApron)
@@ -477,6 +492,7 @@ class TerrainGame : public Tyra::Game {
   void loadAnimModelAsset(int index);
   void freeAnimModelAsset(int index);
   void setupAnimObject(int index);  // per-object instance + playback state
+  void updateFace(int index, float dist2);  // blinks, look-at, talking jaw
   void updateAndRenderAnimObjects();
   // Dynamic lighting (docs/global-illumination.md): refills the light bag
   // of every opt-in object from the probe grid, once per frame.

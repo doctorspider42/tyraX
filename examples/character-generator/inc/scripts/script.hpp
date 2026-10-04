@@ -75,6 +75,10 @@ struct RuntimeObject {
   float animFade = 0.0F;     // crossfade seconds for that restart (0 = pop)
   bool animFinished = false; // one frame: the clip reached its last frame
                              // (one-shots: once; looping: every wrap)
+  // Seconds of talking left: a generated character's jaw moves in syllables
+  // while > 0 (the talk() helper below). A playing clip whose name contains
+  // "Talk" talks by itself; a sound emitter with a Speaker lip-syncs it.
+  float talkTime = 0.0F;
 };
 
 inline bool physAsleep(const RuntimeObject& o) {
@@ -440,6 +444,14 @@ inline void playAnimation(ScriptContext& ctx, int objectIndex,
   o.animFade = fade > 0.0F ? fade : 0.0F;
   o.animPlaying = true;
   o.animRestart = true;
+}
+
+/** Makes a generated character talk for `seconds`: its jaw moves in
+ * syllables over whatever clip plays (docs/character-generator.md). Models
+ * without a Jaw bone ignore it. 0 stops. */
+inline void talk(ScriptContext& ctx, int objectIndex, float seconds) {
+  if (objectIndex < 0 || objectIndex >= ctx.objectCount) return;
+  ctx.objects[objectIndex].talkTime = seconds > 0.0F ? seconds : 0.0F;
 }
 
 /** Freezes an animated model object on its current pose. */

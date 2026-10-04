@@ -250,6 +250,15 @@ inline constexpr SceneObjectData EMITTER_LAYER_OBJECTS[1] = {
     {0, {0.0F, 0.5F, 0.0F}, {0.0F, 0.0F, 0.0F}, {1.0F, 1.0F, 1.0F}, {0.6F, 0.6F, 0.6F}, 0, 1.0F, 0.35F, 0.5F, 1, 3.0F, -1, -1, 0, 0, 0, 0, 24, 0.5F, 1, 0, 3.0F, 20.0F, 9.8F, 1.0F, 1.5F, 1.0F, 0.6F, 0, -1, 1, 15.0F, 0.0F, 0, 1, 0, 1.0F, 8.0F, 0, 0.0F, 0, 25.0F, 0, 0, 0, 0, 0.0F, 0, 0, 0, 0, 0, 0, -1, "", 1, 1, 1.0F, -1.0F, -1.0F, 0.0F, 16, 0, -1, 0, {0.0F, 0.0F, 0.0F, 0.0F}, -1, 0.0F, false, 8, 0, 1, 12.0F},
 };
 
+struct LipSyncData { int scene; int emitter; int speaker; int first; int count; };
+inline constexpr int LIP_SYNC_RATE = 30;  // envelope samples per second
+inline constexpr int LIP_SYNC_COUNT = 0;
+inline constexpr LipSyncData LIP_SYNCS[1] = {
+    {-1, -1, -1, 0, 0}
+};
+inline constexpr unsigned char LIP_ENVELOPES[1] = {0
+};
+
 extern const unsigned long long SCENE_0_OBJECT_ID_HASHES[];
 inline const unsigned long long* SCENE_OBJECT_ID_TABLES[SCENE_COUNT] = {SCENE_0_OBJECT_ID_HASHES};
 

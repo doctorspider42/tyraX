@@ -117,6 +117,191 @@ void TerrainGame::setupAnimObject(int index) {
   o.animRestart = true;  // clip applied on the first anim update
   o.animFinished = false;
   o.animFade = 0.0F;
+
+  // A living face, if the rig has one (the Character Generator's does):
+  // nodes by name, so any .glb with these bones gets it.
+  const SkelModel* sm = gam.src.get();
+  g.faceHead = (s16)sm->findNode("mixamorig:Head");
+  g.faceJaw = (s16)sm->findNode("mixamorig:Jaw");
+  g.faceEye[0] = (s16)sm->findNode("mixamorig:LeftEye");
+  g.faceEye[1] = (s16)sm->findNode("mixamorig:RightEye");
+  g.faceLid[0] = (s16)sm->findNode("mixamorig:LeftEyelid");
+  g.faceLid[1] = (s16)sm->findNode("mixamorig:RightEyelid");
+  g.faceLive = false;
+  g.faceSeed = 2654435761u * (u32)(index + 1);
+  g.blinkIn = 0.5F + (float)(g.faceSeed >> 28) * 0.3F;  // never in unison
+  g.blinkT = -1.0F;
+  g.lookYaw = g.lookPitch = g.jawOpen = g.talkPhase = 0.0F;
+  g.lipEnv = nullptr;
+  g.lipLen = 0;
+}
+
+
+
+// A generated character's face: it blinks, its eyes and head turn to the
+// player, its jaw talks. Rotation overrides on top of whatever clip plays
+// (SkelInstance::setRotationOverride), on the nodes setupAnimObject found
+// by name. Beyond FACE_DISTANCE a face is a few pixels at PS2 resolution:
+// the overrides are dropped and the instance shares its pose again.
+void TerrainGame::updateFace(int index, float dist2) {
+  RuntimeObject& o = runtimeObjects[index];
+  ObjectGeometry& g = objectGeometry[index];
+  SkelInstance* inst = g.animInst.get();
+  if (!inst || (g.faceHead < 0 && g.faceJaw < 0 && g.faceLid[0] < 0)) return;
+  const float FACE_DISTANCE = 10.0F;
+  if (dist2 > FACE_DISTANCE * FACE_DISTANCE || g.animLastTick == 0) {
+    // (animLastTick 0: never skinned - node globals hold nothing yet)
+    if (g.lipEnv && !splitSecondPass && !g_gameplayPaused) g.lipT += g_frameDt;
+    if (g.faceLive) {
+      inst->clearRotationOverrides();
+      g.faceLive = false;
+    }
+    return;
+  }
+  // One clock per frame: the split screen's second pass re-renders the
+  // same instant (and sets the very same overrides).
+  const float dt = (splitSecondPass || g_gameplayPaused) ? 0.0F : g_frameDt;
+  auto rnd = [&g]() {
+    g.faceSeed = g.faceSeed * 1664525u + 1013904223u;
+    return (float)((g.faceSeed >> 8) & 0xFFFF) / 65535.0F;
+  };
+
+  // Blink every 2-6 s (one in six comes as a double): 60 ms closing, 30 ms
+  // shut, 80 ms opening - the shape of a real one.
+  float lid = 0.0F;
+  g.blinkIn -= dt;
+  if (g.blinkT < 0.0F && g.blinkIn <= 0.0F) {
+    g.blinkT = 0.0F;
+    g.blinkIn = rnd() < 0.17F ? 0.3F : 2.0F + 4.0F * rnd();
+  }
+  if (g.blinkT >= 0.0F) {
+    g.blinkT += dt;
+    const float t = g.blinkT;
+    lid = t < 0.06F   ? t / 0.06F
+          : t < 0.09F ? 1.0F
+          : t < 0.17F ? 1.0F - (t - 0.09F) / 0.08F
+                      : 0.0F;
+    if (t >= 0.17F) g.blinkT = -1.0F;
+  }
+
+  // Look at the player (the camera: in third person the character meets
+  // your eye, which is the point). Within 4.5 m and in front of the face;
+  // the player's own avatar looks where it goes.
+  float wantYaw = 0.0F, wantPitch = 0.0F;
+  if (o.data.type != 6 && g.faceHead >= 0) {
+    const M4x4& m = g.animMat;
+    const float d[3] = {cameraPosition.x - m.data[12],
+                        cameraPosition.y - m.data[13],
+                        cameraPosition.z - m.data[14]};
+    float local[3];  // the camera in model space (columns are orthogonal)
+    for (int a = 0; a < 3; ++a) {
+      const float* c = &m.data[a * 4];
+      const float l2 = c[0] * c[0] + c[1] * c[1] + c[2] * c[2];
+      local[a] = l2 > 1e-12F ? (d[0] * c[0] + d[1] * c[1] + d[2] * c[2]) / l2
+                             : 0.0F;
+    }
+    // from between the eyes (or the head joint, on a rig without eyes)
+    float from[3];
+    if (g.faceEye[0] >= 0 && g.faceEye[1] >= 0) {
+      const M4x4& a = inst->nodeGlobal((u32)g.faceEye[0]);
+      const M4x4& b = inst->nodeGlobal((u32)g.faceEye[1]);
+      for (int k = 0; k < 3; ++k) from[k] = 0.5F * (a.data[12 + k] + b.data[12 + k]);
+    } else {
+      const M4x4& h = inst->nodeGlobal((u32)g.faceHead);
+      for (int k = 0; k < 3; ++k) from[k] = h.data[12 + k];
+    }
+    const float v[3] = {local[0] - from[0], local[1] - from[1],
+                        local[2] - from[2]};
+    const float flat = sqrtf(v[0] * v[0] + v[2] * v[2]);
+    const float yaw = atan2f(v[0], v[2]);  // model forward is +Z
+    if (dist2 < 4.5F * 4.5F && fabsf(yaw) < 1.75F && flat > 0.05F) {
+      wantYaw = yaw;
+      wantPitch = atan2f(v[1], flat);
+    }
+  }
+  const float lookRate = dt * 4.0F < 1.0F ? dt * 4.0F : 1.0F;
+  g.lookYaw += (wantYaw - g.lookYaw) * lookRate;
+  g.lookPitch += (wantPitch - g.lookPitch) * lookRate;
+  auto clampf = [](float x, float lo, float hi) {
+    return x < lo ? lo : (x > hi ? hi : x);
+  };
+  // The head takes most of a turn, the eyes the rest (and lead it: they are
+  // clamped tighter but never smoothed twice).
+  const float headYaw = clampf(g.lookYaw * 0.65F, -0.8F, 0.8F);
+  const float headPitch = clampf(g.lookPitch * 0.5F, -0.35F, 0.35F);
+  const float eyeYaw = clampf(g.lookYaw - headYaw, -0.4F, 0.4F);
+  const float eyePitch = clampf(g.lookPitch - headPitch, -0.25F, 0.25F);
+
+  // Talking: a scripted talk(), or a clip named like "Idle_Talking_Loop".
+  bool talking = o.talkTime > 0.0F;
+  if (o.talkTime > 0.0F) o.talkTime -= dt;
+  if (!talking && o.animClip >= 0 &&
+      o.animClip < (int)inst->model->clips.size() &&
+      strstr(inst->model->clips[o.animClip].name.c_str(), "Talk"))
+    talking = true;
+  float wantJaw = 0.0F;
+  if (g.lipEnv) {
+    // lip-sync: the speaking sound's loudness, sampled where it is now
+    const int at = (int)(g.lipT * (float)LIP_SYNC_RATE);
+    if (at < g.lipLen) {
+      wantJaw = (float)g.lipEnv[at] / 255.0F;
+      talking = false;  // the real voice wins over the syllable machine
+    } else {
+      g.lipEnv = nullptr;
+    }
+    g.lipT += dt;
+  }
+  if (talking) {
+    // syllables (~4 a second, uneven) with breaths between phrases
+    g.talkPhase += dt;
+    const float t = g.talkPhase;
+    const float syllable = fabsf(sinf(t * 8.5F + 1.6F * sinf(t * 2.1F)));
+    const float phrase = sinf(t * 1.1F) + sinf(t * 0.63F + 2.0F);
+    wantJaw = syllable * (phrase > -0.9F ? 1.0F : 0.1F);
+  } else {
+    g.talkPhase = 0.0F;
+  }
+  const float jawRate = dt * 22.0F < 1.0F ? dt * 22.0F : 1.0F;
+  g.jawOpen += (wantJaw - g.jawOpen) * jawRate;
+
+  // Overrides, in each bone's own frame (the rig binds with identity
+  // rotations: +X is the character's left-right axis, +Y up, +Z forward).
+  float q[4];
+  auto axisQuat = [&q](int axis, float angle) {
+    q[0] = q[1] = q[2] = 0.0F;
+    q[axis] = sinf(angle * 0.5F);
+    q[3] = cosf(angle * 0.5F);
+  };
+  auto yawPitchQuat = [&q](float yaw, float pitch) {
+    // yaw about +Y, then pitch about +X (a positive X turn tips the face
+    // down, so looking up is a negative one)
+    const float sy = sinf(yaw * 0.5F), cy = cosf(yaw * 0.5F);
+    const float sx = sinf(-pitch * 0.5F), cx = cosf(-pitch * 0.5F);
+    q[0] = cy * sx;
+    q[1] = sy * cx;
+    q[2] = -sy * sx;
+    q[3] = cy * cx;
+  };
+  if (g.faceHead >= 0) {
+    yawPitchQuat(headYaw, headPitch);
+    inst->setRotationOverride((u32)g.faceHead, q);
+  }
+  for (int s = 0; s < 2; ++s) {
+    if (g.faceEye[s] >= 0) {
+      yawPitchQuat(eyeYaw, eyePitch);
+      inst->setRotationOverride((u32)g.faceEye[s], q);
+    }
+    if (g.faceLid[s] >= 0) {
+      // 54 degrees shuts it; the lid also rides the eye up and down a little
+      axisQuat(0, clampf(lid * 0.95F - eyePitch * 0.6F, -0.2F, 0.95F));
+      inst->setRotationOverride((u32)g.faceLid[s], q);
+    }
+  }
+  if (g.faceJaw >= 0) {
+    axisQuat(0, g.jawOpen * 0.21F);  // 12 degrees: speech, not a yawn
+    inst->setRotationOverride((u32)g.faceJaw, q);
+  }
+  g.faceLive = true;
 }
 
 
@@ -395,6 +580,8 @@ void TerrainGame::updateAndRenderAnimObjects() {
     RuntimeObject& o = runtimeObjects[i];
     ObjectGeometry& g = objectGeometry[i];
     SkelInstance* inst = g.animInst.get();
+    // before the pose-sharing test: a live face is a pose of its own
+    updateFace(i, va.dist2);
 
     // mesh LOD tier: which baked variant this instance renders (the .tskl
     // clamps per part - a file without chains always renders the full mesh).
@@ -1438,7 +1625,17 @@ void TerrainGame::updateSoundEmitters() {
     // the generated graphs, and a second cache would let the two clobber each
     // other's bits.
     engine->audio.reverb.setChannelSend(ch, o.data.sndReverb != 0);
-    engine->audio.adpcm.tryPlay(sndSamples[o.data.snd], ch);
+    if (engine->audio.adpcm.tryPlay(sndSamples[o.data.snd], ch) == ADPCM_OK)
+      // It really started: a Speaker (lip-sync) starts reading its envelope.
+      for (int k = 0; k < LIP_SYNC_COUNT; ++k) {
+        const LipSyncData& ls = LIP_SYNCS[k];
+        if (ls.scene != g_activeScene || ls.emitter != owner) continue;
+        if (ls.speaker < 0 || ls.speaker >= (int)objectGeometry.size()) continue;
+        ObjectGeometry& sg = objectGeometry[ls.speaker];
+        sg.lipEnv = &LIP_ENVELOPES[ls.first];
+        sg.lipLen = ls.count;
+        sg.lipT = 0.0F;
+      }
     sndTimers[owner] = everyFrames(o.data.sndInterval);
   }
 }
