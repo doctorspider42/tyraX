@@ -3195,6 +3195,19 @@ vertices remain, with a four-byte index per corner. The temporary hash table
 exists only during loading. Set `TYRA_SKEL_PROFILE` in skel_instance.hpp to 1
 for per-instance COP0 pose/skin timings every 100 skins; keep it 0 when shipping.
 
+### Node names and rotation overrides (1.170.0)
+
+`.tskl` v3 appends a node-name table (u32 count + 32-byte names, after the
+parts); v1/v2 files still load and leave `SkelModel::nodeNames` empty, so
+`findNode()` returns -1 and a feature keyed on a bone simply does not engage.
+`SkelInstance::setRotationOverride(node, q)` post-multiplies a node's local
+rotation (`local = clip * q`, x/y/z/w) in `evalPose` after the crossfade blend;
+setting the same q again does not dirty the pose. An instance with ANY override
+fails `poseEquals`, so it never shares a skinned mesh - drop them with
+`clearRotationOverrides()` when the effect stops mattering (the living face
+does at 10 m). `nodeGlobal(i)` is the last EVALUATED pose: one frame old when
+read before `ensurePose`, garbage (zero) before the first skin.
+
 
 ### The slot pool is double-buffered (1.81.1) — the console-only sliver
 

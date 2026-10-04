@@ -7449,7 +7449,7 @@ void App::beginPastePlacement() {
     for (size_t i = 0; i < pasteStaged_.size(); ++i) names[clipboard_[i].name] = pasteStaged_[i].name;
     auto remap = [&](std::string& name) { auto it = names.find(name); if (it != names.end()) name = it->second; };
     for (auto& o : pasteStaged_) {
-        remap(o.portalTarget); remap(o.catchArea);
+        remap(o.portalTarget); remap(o.catchArea); remap(o.soundSpeaker);
         for (auto& n : o.portalObjects) remap(n);
         for (auto& n : o.mirrorObjects) remap(n);
         for (auto& n : o.camFeedObjects) remap(n);
@@ -7889,6 +7889,8 @@ void App::renameObjectRefs(SceneData& sc, const SceneObject& renamed,
     }
     if (lookThroughCam_ == from) lookThroughCam_ = to;
     for (SceneObject& m : sc.objects) {
+        // A sound emitter's lip-sync speaker.
+        if (m.soundSpeaker == from) m.soundSpeaker = to;
         // Mirror target lists.
         if (m.type == PrimitiveType::Mirror)
             for (std::string& t : m.mirrorObjects)

@@ -2275,6 +2275,33 @@ void App::drawPropertiesWindow() {
                 "per-emitter wet amount - only the zone's own.");
         ImGui::DragInt("Priority", &o.soundPriority, 0.1f, -10, 10);
         committed |= ImGui::IsItemDeactivatedAfterEdit();
+        {
+            // Lip-sync: any model object can be picked; only a rig with a Jaw
+            // bone (a generated character) actually talks.
+            const std::string preview =
+                o.soundSpeaker.empty() ? "<nobody>" : o.soundSpeaker;
+            if (ImGui::BeginCombo("Speaker", preview.c_str())) {
+                if (ImGui::Selectable("<nobody>", o.soundSpeaker.empty())) {
+                    o.soundSpeaker.clear();
+                    committed = true;
+                }
+                for (const SceneObject& t : project_.objects()) {
+                    if (t.type != PrimitiveType::Model && t.type != PrimitiveType::Player)
+                        continue;
+                    if (ImGui::Selectable(t.name.c_str(), t.name == o.soundSpeaker)) {
+                        o.soundSpeaker = t.name;
+                        committed = true;
+                    }
+                }
+                ImGui::EndCombo();
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Lip-sync: this character's jaw moves with the sound's\n"
+                    "loudness while it plays (measured from the WAV when the\n"
+                    "game is built). Characters from the Character Generator\n"
+                    "have the jaw for it; other models ignore it.");
+        }
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip(
                 "Which emitters win when more of them are audible than the\n"

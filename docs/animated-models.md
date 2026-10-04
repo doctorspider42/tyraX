@@ -142,6 +142,13 @@ if (animationFinished(ctx, objectIndex)) {
 
 These calls are no-ops for objects without animation.
 
+A rig with face bones (the Character Generator's, or any `.glb` naming its
+bones `mixamorig:Jaw`, `mixamorig:LeftEye`/`RightEye`,
+`mixamorig:LeftEyelid`/`RightEyelid`) also blinks, looks at the player and
+talks on its own, on top of the clip; `talk(ctx, objectIndex, seconds)` makes
+it talk from a script. See
+[character-generator.md](character-generator.md#a-living-face).
+
 ## Build output
 
 Builds write:

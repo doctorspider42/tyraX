@@ -92,6 +92,17 @@ struct SkelModel {
   // padded, for whole-instance frustum culling.
   float min[3] = {0.0F, 0.0F, 0.0F};
   float max[3] = {0.0F, 0.0F, 0.0F};
+  // Modified by TyraX: node names (v3 files; empty for v1/v2). Lets game code
+  // find a rig's face or spring bones by name - "mixamorig:Jaw" - instead of
+  // by an index that differs per model.
+  std::vector<std::string> nodeNames;
+
+  /** Node index by exact name, -1 when absent (or the file carries none). */
+  s32 findNode(const char* name) const {
+    for (size_t i = 0; i < nodeNames.size(); i++)
+      if (nodeNames[i] == name) return (s32)i;
+    return -1;
+  }
 };
 
 /**

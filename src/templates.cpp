@@ -1,4 +1,5 @@
 #include "templates.hpp"
+#include "audiopreview.hpp"
 
 #include <algorithm>
 #include <array>
@@ -1476,6 +1477,21 @@ class TerrainGame : public Tyra::Game {
     Tyra::M4x4 animMat;
     Tyra::M4x4 animLightMat;  // rotation/reflection only; scale is not light gain
     u32 animLastTick = 0;  // animLodTick of the last in-view frame; 0 = never
+    // A generated character's living face (updateFace): rig nodes found by
+    // name at setup (-1 = this rig has no such bone - any .glb works, a rig
+    // without them simply keeps a still face), plus the smoothed state.
+    s16 faceHead = -1, faceJaw = -1;
+    s16 faceEye[2] = {-1, -1}, faceLid[2] = {-1, -1};
+    bool faceLive = false;  // overrides set on animInst right now
+    u32 faceSeed = 1;       // per-object LCG: blinks never synchronise
+    float blinkIn = 2.0F;   // seconds to the next blink
+    float blinkT = -1.0F;   // seconds into the current blink, < 0 = open
+    float lookYaw = 0.0F, lookPitch = 0.0F;  // where the head+eyes point (rad)
+    float jawOpen = 0.0F;   // 0 = closed, 1 = fully open (smoothed)
+    float talkPhase = 0.0F; // the syllable clock while talking
+    const unsigned char* lipEnv = nullptr;  // a speaking sound's envelope
+    int lipLen = 0;         // its length, LIP_SYNC_RATE samples a second
+    float lipT = 0.0F;      // seconds since that sound started
     // Usable-object highlight: terrain-hugging glow ring around the base,
     // built when first highlighted, cleared whenever the object rebuilds
     // (see buildHighlightApron)
@@ -1577,6 +1593,7 @@ class TerrainGame : public Tyra::Game {
   void loadAnimModelAsset(int index);
   void freeAnimModelAsset(int index);
   void setupAnimObject(int index);  // per-object instance + playback state
+  void updateFace(int index, float dist2);  // blinks, look-at, talking jaw
   void updateAndRenderAnimObjects();
   // Dynamic lighting (docs/global-illumination.md): refills the light bag
   // of every opt-in object from the probe grid, once per frame.
@@ -3327,6 +3344,21 @@ class TerrainGame : public Tyra::Game {
     Tyra::M4x4 animMat;
     Tyra::M4x4 animLightMat;  // rotation/reflection only; scale is not light gain
     u32 animLastTick = 0;  // animLodTick of the last in-view frame; 0 = never
+    // A generated character's living face (updateFace): rig nodes found by
+    // name at setup (-1 = this rig has no such bone - any .glb works, a rig
+    // without them simply keeps a still face), plus the smoothed state.
+    s16 faceHead = -1, faceJaw = -1;
+    s16 faceEye[2] = {-1, -1}, faceLid[2] = {-1, -1};
+    bool faceLive = false;  // overrides set on animInst right now
+    u32 faceSeed = 1;       // per-object LCG: blinks never synchronise
+    float blinkIn = 2.0F;   // seconds to the next blink
+    float blinkT = -1.0F;   // seconds into the current blink, < 0 = open
+    float lookYaw = 0.0F, lookPitch = 0.0F;  // where the head+eyes point (rad)
+    float jawOpen = 0.0F;   // 0 = closed, 1 = fully open (smoothed)
+    float talkPhase = 0.0F; // the syllable clock while talking
+    const unsigned char* lipEnv = nullptr;  // a speaking sound's envelope
+    int lipLen = 0;         // its length, LIP_SYNC_RATE samples a second
+    float lipT = 0.0F;      // seconds since that sound started
     // Usable-object highlight: terrain-hugging glow ring around the base,
     // built when first highlighted, cleared whenever the object rebuilds
     // (see buildHighlightApron)
@@ -3428,6 +3460,7 @@ class TerrainGame : public Tyra::Game {
   void loadAnimModelAsset(int index);
   void freeAnimModelAsset(int index);
   void setupAnimObject(int index);  // per-object instance + playback state
+  void updateFace(int index, float dist2);  // blinks, look-at, talking jaw
   void updateAndRenderAnimObjects();
   // Dynamic lighting (docs/global-illumination.md): refills the light bag
   // of every opt-in object from the probe grid, once per frame.
@@ -5436,6 +5469,10 @@ struct RuntimeObject {
   float animFade = 0.0F;     // crossfade seconds for that restart (0 = pop)
   bool animFinished = false; // one frame: the clip reached its last frame
                              // (one-shots: once; looping: every wrap)
+  // Seconds of talking left: a generated character's jaw moves in syllables
+  // while > 0 (the talk() helper below). A playing clip whose name contains
+  // "Talk" talks by itself; a sound emitter with a Speaker lip-syncs it.
+  float talkTime = 0.0F;
 };
 
 inline bool physAsleep(const RuntimeObject& o) {
@@ -5801,6 +5838,14 @@ inline void playAnimation(ScriptContext& ctx, int objectIndex,
   o.animFade = fade > 0.0F ? fade : 0.0F;
   o.animPlaying = true;
   o.animRestart = true;
+}
+
+/** Makes a generated character talk for `seconds`: its jaw moves in
+ * syllables over whatever clip plays (docs/character-generator.md). Models
+ * without a Jaw bone ignore it. 0 stops. */
+inline void talk(ScriptContext& ctx, int objectIndex, float seconds) {
+  if (objectIndex < 0 || objectIndex >= ctx.objectCount) return;
+  ctx.objects[objectIndex].talkTime = seconds > 0.0F ? seconds : 0.0F;
 }
 
 /** Freezes an animated model object on its current pose. */
@@ -8559,6 +8604,51 @@ static std::string sceneDataContent(const Project& p, const std::string& ns,
         if (n) out << rows.str();
         else writeObjectDataRow(out, p, SceneObject{}, -1, -1, 0);
         out << "};\n\n";
+    }
+
+    // Lip-sync (docs/character-generator.md): a sound emitter with a Speaker
+    // moves that character's jaw with the sound's loudness. The envelope is
+    // measured HERE from the WAV (30 per second, 0..255); the game starts
+    // reading it the frame the emitter's sample really starts (tryPlay OK).
+    // Keyed by authored (scene, object) index, like EMITTER_LAYERS.
+    {
+        std::ostringstream rows, env;
+        std::map<std::string, std::pair<int, int>> cache;  // sound -> first, count
+        int n = 0, total = 0;
+        for (int si = 0; si < sceneCount; ++si) {
+            const auto& objs = p.scenes[(size_t)si].objects;
+            for (size_t oi = 0; oi < objs.size(); ++oi) {
+                const SceneObject& o = objs[oi];
+                if (o.type != PrimitiveType::SoundEmitter || o.soundSpeaker.empty() ||
+                    o.soundPath.empty())
+                    continue;
+                int speaker = -1;
+                for (size_t k = 0; k < objs.size(); ++k)
+                    if (objs[k].name == o.soundSpeaker) { speaker = (int)k; break; }
+                if (speaker < 0) continue;  // a dangling name talks to nobody
+                auto it = cache.find(o.soundPath);
+                if (it == cache.end()) {
+                    std::vector<unsigned char> e;
+                    audiopreview::speechEnvelope(
+                        (std::filesystem::path(p.dir) / o.soundPath).string(), 30, e);
+                    for (size_t k = 0; k < e.size(); ++k)
+                        env << ((total + k) ? "," : "") << ((total + k) % 32 ? "" : "\n    ")
+                            << (int)e[k];
+                    it = cache.emplace(o.soundPath, std::make_pair(total, (int)e.size())).first;
+                    total += (int)e.size();
+                }
+                rows << (n ? ",\n" : "") << "    {" << si << ", " << oi << ", " << speaker
+                     << ", " << it->second.first << ", " << it->second.second << "}";
+                ++n;
+            }
+        }
+        out << "struct LipSyncData { int scene; int emitter; int speaker; int first; int count; };\n"
+            << "constexpr int LIP_SYNC_RATE = 30;  // envelope samples per second\n"
+            << "constexpr int LIP_SYNC_COUNT = " << n << ";\n"
+            << "constexpr LipSyncData LIP_SYNCS[" << (n ? n : 1) << "] = {\n"
+            << (n ? rows.str() : std::string("    {-1, -1, -1, 0, 0}")) << "\n};\n"
+            << "constexpr unsigned char LIP_ENVELOPES[" << (total ? total : 1) << "] = {"
+            << (total ? env.str() : std::string("0")) << "\n};\n\n";
     }
 
     // Stable per-object identity for Live Link (docs/live-link.md): FNV-1a 64

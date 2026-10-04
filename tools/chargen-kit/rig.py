@@ -1,4 +1,5 @@
-"""The generated characters' rig: 35 Mixamo-named bones over MakeHuman's 163.
+"""The generated characters' rig: 35 Mixamo-named bones over MakeHuman's 163,
+plus 5 face bones (jaw, eyes, upper lids) that the game animates.
 
 Each bone takes its HEAD from a MakeHuman joint (a cube of base-mesh vertices,
 so the skeleton follows every morph for free) and absorbs the skin weights of
@@ -20,7 +21,7 @@ BONES = [
     ('Spine1', 'Spine', 'spine03____head', ['spine03']),
     ('Spine2', 'Spine1', 'spine02____head', ['spine02', 'spine01', 'breast.L', 'breast.R']),
     ('Neck', 'Spine2', 'neck01____head', ['neck01', 'neck02', 'neck03']),
-    ('Head', 'Neck', 'head____head', ['head', 'jaw']),
+    ('Head', 'Neck', 'head____head', ['head']),
     ('HeadTop_End', 'Head', 'head____tail', []),
 ]
 for side, s in (('Left', L), ('Right', R)):
@@ -48,6 +49,21 @@ for side, s in (('Left', L), ('Right', R)):
         (side + 'ToeBase', side + 'Foot', 'foot' + s + '____tail',
          ['toe%d-%d%s' % (t, k, s) for t in range(1, 6) for k in range(1, 4)]),
     ]
+
+# The face, APPENDED so every bone above keeps its index (anims.json and every
+# stored clip are indexed by bone; build_kit.py pads clips made before these
+# existed with the bind pose). No clip animates them: the game drives them -
+# blinks, eyes that follow the player, a jaw that talks (docs/character-
+# generator.md, "A living face"). The lids pivot on the EYE's centre, so a
+# closing lid slides over the eyeball instead of swinging through it.
+BONES += [
+    ('Jaw', 'Head', 'jaw____head', ['jaw']),  # the lower lip and tongue hang below
+    ('LeftEye', 'Head', 'eye.L____head', ['eye.L']),
+    ('RightEye', 'Head', 'eye.R____head', ['eye.R']),
+    ('LeftEyelid', 'Head', 'eye.L____head', ['orbicularis03.L']),
+    ('RightEyelid', 'Head', 'eye.R____head', ['orbicularis03.R']),
+]
+FACE = ['Jaw', 'LeftEye', 'RightEye', 'LeftEyelid', 'RightEyelid']
 
 NAMES = [b[0] for b in BONES]
 INDEX = {n: i for i, n in enumerate(NAMES)}

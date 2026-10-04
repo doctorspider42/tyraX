@@ -87,3 +87,8 @@ program. Check a new source's licence file by file before adding it to
   `build_kit.py`, the fullest chromaticity x luma bin - not the mean, which a
   white shirt pulls halfway to grey). A uniform dye painted a trouser suit's
   blouse and scarf navy along with the suit.
+- Face bones (`rig.FACE`) are appended to the rig, never inserted: clips are
+  indexed by bone. Mesh items fold the face bones' weights into the head -
+  glasses bound by the eyes blinked with the lids.
+- The proxy's mouth tube is open at its inner end; with the jaw down the game
+  looked through the head. `build_kit.cap_mouth` closes it without new vertices.

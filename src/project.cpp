@@ -940,6 +940,9 @@ std::string objectJson(const SceneObject& o) {
                 (o.soundPriority != 0
                      ? ", \"priority\": " + std::to_string(o.soundPriority)
                      : std::string()) +
+                (!o.soundSpeaker.empty()
+                     ? ", \"speaker\": \"" + jsonEscape(o.soundSpeaker) + "\""
+                     : std::string()) +
                 " }";
     }
     if (o.type == PrimitiveType::PointLight) {
@@ -6003,6 +6006,7 @@ static void readObjectsArray(const json::Value& arr, std::vector<SceneObject>& o
                 o.soundReverb = !(v->type == json::Value::Type::Bool && !v->boolean);
             if (const auto* v = sn->find("priority"))
                 o.soundPriority = (int)v->numberOr(0.0);
+            if (const auto* v = sn->find("speaker")) o.soundSpeaker = v->stringOr("");
         }
         // Reverb zone (Area). The key only exists on a zone, so its presence
         // IS the flag - an area saved before this feature simply isn't one.
@@ -8461,6 +8465,7 @@ uint64_t liveLinkRecipeHash(const SceneObject& o) {
                   (o.soundReverb ? 4 : 0));
     fnvMixF(h, o.soundRange), fnvMixF(h, o.soundInterval);
     fnvMix(h, (unsigned)o.soundPriority);
+    fnvMixS(h, o.soundSpeaker);
     fnvMixF(h, o.cameraFov);
     // Texture feeds bake into side tables (CAM_FEEDS / OBJECT_FEEDS).
     fnvMix(h, (o.camFeed ? 1 : 0) | (o.camFeedTerrain ? 2 : 0));

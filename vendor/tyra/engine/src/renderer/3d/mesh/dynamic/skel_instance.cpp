@@ -288,11 +288,34 @@ SkelInstance::SkelInstance(const SkelModel* t_model) : model(t_model) {
   animatedPrev.resize(model->nodes.size());
   globals.resize(model->nodes.size());
   palette.resize(model->palette.size());
+  overrideRot.assign(model->nodes.size() * 4, 0.0F);
+  overrideOn.assign(model->nodes.size(), 0);
 
   play(0, true, 0.0F);
 }
 
 SkelInstance::~SkelInstance() {}
+
+void SkelInstance::setRotationOverride(u32 node, const float q[4]) {
+  if (node >= overrideOn.size()) return;
+  float* o = &overrideRot[(size_t)node * 4];
+  if (overrideOn[node] && o[0] == q[0] && o[1] == q[1] && o[2] == q[2] &&
+      o[3] == q[3])
+    return;  // unchanged: the held pose stays valid
+  if (!overrideOn[node]) {
+    overrideOn[node] = 1;
+    ++overrideCount;
+  }
+  memcpy(o, q, 4 * sizeof(float));
+  poseDirty = true;
+}
+
+void SkelInstance::clearRotationOverrides() {
+  if (overrideCount == 0) return;
+  for (u8& on : overrideOn) on = 0;
+  overrideCount = 0;
+  poseDirty = true;
+}
 
 void SkelInstance::play(u32 clip, bool loop, float fadeSeconds) {
   if (clip >= model->clips.size()) clip = 0;
@@ -453,6 +476,22 @@ void SkelInstance::evalPose() {
       else
         a[6] = 1.0F;  // w component
       animatedCur[i] |= animatedPrev[i];
+    }
+  }
+
+  // the procedural layer (setRotationOverride): local = clip * override
+  if (overrideCount > 0) {
+    const size_t nodeCount = model->nodes.size();
+    for (size_t i = 0; i < nodeCount; i++) {
+      if (!overrideOn[i]) continue;
+      float* a = &localsCur[i * 10 + 3];
+      const float* b = &overrideRot[i * 4];
+      const float x = a[3] * b[0] + a[0] * b[3] + a[1] * b[2] - a[2] * b[1];
+      const float y = a[3] * b[1] - a[0] * b[2] + a[1] * b[3] + a[2] * b[0];
+      const float z = a[3] * b[2] + a[0] * b[1] - a[1] * b[0] + a[2] * b[3];
+      const float w = a[3] * b[3] - a[0] * b[0] - a[1] * b[1] - a[2] * b[2];
+      a[0] = x, a[1] = y, a[2] = z, a[3] = w;
+      animatedCur[i] = 1;
     }
   }
 

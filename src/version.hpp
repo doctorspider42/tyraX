@@ -5515,7 +5515,16 @@
 // host-baked albedo map (REFL_GROUND_*): -2 ms a turning frame on the Motor
 // District's open road on a PS2.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 169
+#define TYRAX_VERSION_MINOR 170
+// 1.170.0: living faces (docs/character-generator.md, "A living face").
+// Generated characters get a jaw, eyes and upper lids (rig 35 -> 40 bones, the
+// mouth tube capped); the game blinks them, turns head and eyes to the player
+// within 4.5 m and moves the jaw while a "Talk" clip plays, after the talk()
+// script helper, or with a sound emitter's loudness - the new Speaker field
+// (format v95), the envelope measured from the WAV at build time (LIP_SYNCS).
+// Engine: .tskl v3 carries node names (SkelModel::findNode) and SkelInstance
+// takes per-node rotation overrides; a live face never shares its pose and is
+// dropped beyond 10 m.
 // 1.169.0: the vehicle controls card - getting into a car for the first time
 // shows what to press, built at runtime from the LIVE bindings and from what
 // that car has (nitrous, lamps), with button glyphs; rows dim as they are
@@ -6114,7 +6123,10 @@ inline constexpr const char* kEditorVersion = TYRAX_EDITOR_VERSION;
 // v94 (docs/vehicles.md, "Controls card"): a definition's "tutorial" seconds,
 // written only when non-zero. Missing = no card, as before. Additive; no
 // migration step.
-inline constexpr int kFormatVersion = 94;
+// v95 (docs/character-generator.md, "A living face"): a sound emitter's
+// "speaker" (the name of the character it lip-syncs), written only when set.
+// Missing = nobody, as before. Additive; no migration step.
+inline constexpr int kFormatVersion = 95;
 
 // The OLDEST format this editor reads. v0 is "saved before versioning existed"
 // - a handful of shapes that were renamed or moved on their way to v1 (objects

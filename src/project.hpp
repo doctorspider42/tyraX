@@ -685,6 +685,11 @@ struct SceneObject {
     // for the one sound a scene cannot afford to drop (an alarm, a boss's
     // loop, a hint the player is waiting on).
     int soundPriority = 0;
+    // Lip-sync (docs/character-generator.md, "A living face"): the NAME of the
+    // character whose jaw moves with this sound's loudness while it plays -
+    // the envelope is measured from the WAV at build time. Renames remap.
+    // "" = nobody; a speaker without a Jaw bone simply does not move.
+    std::string soundSpeaker;
 
     // Point light parameters (used when type == PointLight). The light color
     // is the shared `color` field above.
@@ -1636,7 +1641,7 @@ inline bool operator==(const SceneObject& a, const SceneObject& b) {
            a.soundPath == b.soundPath && a.soundAuto == b.soundAuto &&
            a.soundRange == b.soundRange && a.soundInterval == b.soundInterval &&
            a.soundOnPlayer == b.soundOnPlayer && a.soundReverb == b.soundReverb &&
-           a.soundPriority == b.soundPriority &&
+           a.soundPriority == b.soundPriority && a.soundSpeaker == b.soundSpeaker &&
            a.lightBright == b.lightBright && a.lightRadius == b.lightRadius &&
            a.lightSpot == b.lightSpot && a.lightSpotAngle == b.lightSpotAngle &&
            a.lightShadowVolumes == b.lightShadowVolumes &&

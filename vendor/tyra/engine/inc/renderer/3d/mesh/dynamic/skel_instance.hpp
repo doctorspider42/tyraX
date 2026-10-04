@@ -136,8 +136,27 @@ class SkelInstance {
    * a scripted play()/speed change simply splits the group. */
   bool poseEquals(const SkelInstance& other) const {
     return model == other.model && cur.clip == other.cur.clip &&
-           cur.time == other.cur.time && fadeT >= 1.0F && other.fadeT >= 1.0F;
+           cur.time == other.cur.time && fadeT >= 1.0F && other.fadeT >= 1.0F &&
+           overrideCount == 0 && other.overrideCount == 0;
   }
+
+  /**
+   * Modified by TyraX: a procedural layer over the clip - a node's local
+   * rotation becomes clip rotation * q (q in the node's own animated frame;
+   * x, y, z, w). What a face is made of: blinking lids, eyes and a head
+   * that follow the player, a jaw that talks, spring bones. Marks the pose
+   * dirty; an instance carrying overrides never shares its pose.
+   */
+  void setRotationOverride(u32 node, const float q[4]);
+
+  /** Drops every override (a far instance goes back to sharing its pose). */
+  void clearRotationOverrides();
+
+  u32 rotationOverrideCount() const { return overrideCount; }
+
+  /** The node's global (model-space) matrix as of the last evaluated pose -
+   * one frame old when read before ensurePose(). Column-major. */
+  const M4x4& nodeGlobal(u32 node) const { return globals[node]; }
 
  private:
   struct Layer {
@@ -156,6 +175,9 @@ class SkelInstance {
   bool poseDirty = true;          // initial pose not yet skinned
   bool oneShotDone = false;
   u8 lastSkinnedLod = 0;          // which level the out arrays hold
+  u32 overrideCount = 0;          // nodes with a live rotation override
+  std::vector<float> overrideRot;   // nodes * 4 (x, y, z, w)
+  std::vector<u8> overrideOn;       // per node
   u8 maxLodLevels = 1;            // longest per-part chain incl. the base
 
   // scratch buffers, sized once in the constructor

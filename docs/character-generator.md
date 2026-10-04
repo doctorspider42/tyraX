@@ -256,8 +256,8 @@ man in a dress.
 
 ## The rig
 
-35 bones with Mixamo names (`mixamorig:Hips`...), because that is what free
-animation libraries and retarget tools match on:
+40 bones: 35 with Mixamo names (`mixamorig:Hips`...), because that is what
+free animation libraries and retarget tools match on, plus five for the face:
 
 ```
 Hips ─ Spine ─ Spine1 ─ Spine2 ─┬─ Neck ─ Head ─ HeadTop_End
@@ -267,7 +267,18 @@ Hips ─ Spine ─ Spine1 ─ Spine2 ─┬─ Neck ─ Head ─ HeadTop_End
   │                             └─ (the same on the right)
   ├─ LeftUpLeg ─ LeftLeg ─ LeftFoot ─ LeftToeBase
   └─ RightUpLeg ─ RightLeg ─ RightFoot ─ RightToeBase
+
+Head ─┬─ Jaw                       (the lower lip and the tongue hang below it)
+      ├─ LeftEye,     RightEye     (the eyeballs)
+      └─ LeftEyelid,  RightEyelid  (the upper lids, pivoting on the eye's centre)
 ```
+
+The face bones are APPENDED after the 35 so no older bone changes index
+(`anims.json` and every clip are indexed by bone; `build_kit.py` pads a clip
+made before them with the bind pose). No clip animates them - the game does,
+see [A living face](#a-living-face). A mesh item never takes their weights:
+glasses resting by the eyes blinked with the lids until `build_kit.py` folded
+the face bones' share into the head for everything that is not the body.
 
 MakeHuman's reference rig has 163 bones; each one's weights fold into the
 bone that stands for it, or its nearest kept ancestor (`tools/chargen-kit/rig.py`).
@@ -309,10 +320,59 @@ the EE evaluates them, and all-identity channels are dropped.
 The old analytic idle/walk/run/jump generator is gone; a motion library made by
 an animator beats any sine wave.
 
+## A living face
+
+A generated character in the game **blinks, looks at you and talks**. None of
+it is a clip: the game turns five bones on top of whatever clip plays
+(`TerrainGame::updateFace`, on `SkelInstance::setRotationOverride`), so it
+works over an idle, a walk or a dance alike.
+
+- **Blinks** every 2-6 s, one in six a double; 60 ms closing, 30 ms shut, 80 ms
+  opening. Each object has its own random clock - a crowd never blinks in
+  unison. The lids also ride the eyes up and down a little.
+- **Looks at the player** (the camera: in third person the character meets
+  your eye, which is the point) within 4.5 m, when you are in front of it. The
+  head takes 65% of the turn, clamped to 46 degrees; the eyes take the rest,
+  clamped to 23. It eases in and out - nobody snaps their head round. The
+  player's own avatar is left alone.
+- **Talks**: the jaw opens up to 12 degrees in syllables (about four a second,
+  uneven, with breaths between phrases) while a clip whose name contains
+  `Talk` plays (`Idle_Talking_Loop`), or for as long as a script asks:
+
+  ```cpp
+  talk(ctx, objectIndex, 3.0F);  // 3 seconds; 0 stops
+  ```
+
+- **Lip-syncs a sound**: set a Sound emitter's **Speaker** (Properties) to the
+  character, and its jaw follows that sound's loudness while it plays. The
+  editor decodes the WAV when the game is built and stores its loudness 30
+  times a second (`LIP_SYNCS` / `LIP_ENVELOPES` in `scene_data.hpp`): RMS per
+  window, normalised to the clip's loud end, gated under the room tone so a
+  pause shuts the mouth. The game starts reading it the frame the sample
+  REALLY starts (`tryPlay` returned OK), so a retrigger restarts the mouth with
+  the voice. A real voice wins over the syllable machine.
+
+The game finds the bones **by name** (`mixamorig:Jaw`, `mixamorig:LeftEye`...;
+`.tskl` v3 carries node names, `SkelModel::findNode`), so any `.glb` with those
+bones gets the same face, and a rig without them simply keeps a still one.
+
+**What it costs.** A face is a pose of its own: an instance with overrides
+never shares its skinned mesh with another in the same clip (the crowd trick
+in [animated-models.md](animated-models.md)). Beyond 10 m a face is a few
+pixels at PS2 resolution, so it is dropped there and the instance shares
+again. The EE work itself is a few `sinf`s and five quaternions per character.
+
+**The mouth.** The proxy's mouth is a 7.5 cm tube from the lips into the head,
+and its inner end was open: with the jaw down you looked straight through the
+head. `build_kit.py` caps it (`cap_mouth`, a fan over the end loop, no new
+vertices - targets and weights are per vertex), wound to face the lips. Tyra
+draws no back-face culling, so what the corners of an open mouth show is the
+inside of the cheek, never the sky.
+
 ## Cost on the console
 
 A dressed character is 4100-4500 triangles in 2 parts (body, accessories)
-and 35 bones - a hero budget. Crowds should use the `.tskl` distance
+and 40 bones - a hero budget. Crowds should use the `.tskl` distance
 LODs (*Mesh LOD* in Project Preferences) and a 128 atlas: four bystanders and a
 hero at 256 fit the example scene's VRAM with room to spare. Texture cost is
 the one to watch: GS VRAM is ~1.33 MB with no eviction
@@ -754,8 +814,9 @@ argument for having the live window at all:
 
 ## What is not here yet
 
-- **Facial animation.** The rig has no jaw or eyelids; MakeHuman's expression
-  targets are CC0 and would fit the same delta scheme.
+- **Expressions.** The face blinks, looks and talks, but does not smile or
+  frown: MakeHuman's expression targets are CC0 and would fit the same delta
+  scheme, as morph targets the EE blends - a cost the bones avoid.
 - **Cloth that moves.** Skirts are rigid with the pelvis and hair with the
   head and shoulders; a secondary-motion bone or two per item is the next
   step, at an EE cost per bone.

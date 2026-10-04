@@ -210,6 +210,81 @@ def key_colour(rgb):
     return rgb[key == np.bincount(key, minlength=2400).argmax()].mean(0)
 
 
+def boundary_loops(faces, part):
+    """Open boundary loops of the body (part 0) as vertex lists."""
+    count = {}
+    for fi, f in enumerate(faces):
+        if part[fi] != 0:
+            continue
+        f = list(f)
+        for k in range(len(f)):
+            e = tuple(sorted((f[k], f[(k + 1) % len(f)])))
+            count[e] = count.get(e, 0) + 1
+    adj = {}
+    for (a, b), c in count.items():
+        if c == 1:
+            adj.setdefault(a, []).append(b)
+            adj.setdefault(b, []).append(a)
+    seen, loops = set(), []
+    for s in adj:
+        if s in seen:
+            continue
+        loop, cur = [s], s
+        seen.add(s)
+        while True:
+            nxt = [n for n in adj[cur] if n not in seen]
+            if not nxt:
+                break
+            cur = nxt[0]
+            seen.add(cur)
+            loop.append(cur)
+        loops.append(loop)
+    return loops
+
+
+def cap_mouth(faces, uvn, part, rest, tri, tuv, tpart):
+    """Closes the inner end of the mouth tube (see emit_body). Both proxies
+    have exactly two open loops on the centre line - the lips and the tube's
+    end, 7.5 cm deeper (MakeHuman's +z is forward); the deeper one is capped.
+    The fan is wound like the source faces: its normal must agree with the
+    tube's own faces about which side is 'out' (towards the mouth)."""
+    loops = [L for L in boundary_loops(faces, part) if abs(rest[L][:, 0].mean()) < 0.05]
+    if len(loops) != 2:
+        print('WARNING: mouth tube not found (%d centre-line loops) - not capped' % len(loops))
+        return tri, tuv, tpart
+    end = min(loops, key=lambda L: rest[L][:, 2].mean())
+    # A corner uv per loop vertex, from a tube face that uses it.
+    uv_of = {}
+    for fi, f in enumerate(faces):
+        for k, v in enumerate(f):
+            if v in end and v not in uv_of:
+                uv_of[v] = np.asarray(uvn[fi][k])
+    # Which way the source winding points: a tube face next to the end loop,
+    # whose 'out' is towards the inside of the tube (the mouth's centre line).
+    centre = rest[end].mean(0)
+    sign = 0.0
+    for fi, f in enumerate(faces):
+        if part[fi] == 0 and any(v in end for v in f):
+            f = list(f)
+            n = np.cross(rest[f[1]] - rest[f[0]], rest[f[2]] - rest[f[0]])
+            c = rest[f].mean(0)
+            to_axis = centre - c
+            to_axis[2] = 0
+            sign += float(np.dot(n, to_axis))
+    out = 1.0 if sign > 0 else -1.0  # source faces point INTO the tube
+    tri, tuv, tpart = list(tri), list(tuv), list(tpart)
+    for k in range(1, len(end) - 1):
+        a, b, c = end[0], end[k], end[k + 1]
+        n = np.cross(rest[b] - rest[a], rest[c] - rest[a])
+        if np.dot(n, [0, 0, 1]) * out < 0:  # must face the lips (+z)
+            b, c = c, b
+        tri.append([a, b, c])
+        tuv.append([uv_of[a], uv_of[b], uv_of[c]])
+        tpart.append(0)
+    print('  mouth capped:', len(end) - 2, 'triangles')
+    return tri, tuv, tpart
+
+
 def emit_body(W, stage, P, data, tdir, shared):
     """One game body under chunk prefix P ('' or 'm/'): its mesh, weights,
     targets, texture layers and its share of the wardrobe (shell layers and
@@ -243,6 +318,12 @@ def emit_body(W, stage, P, data, tdir, shared):
         tri.append([a, b, c])
         tuv.append([u[ka], u[kb], u[kc]])
         tpart.append(part[fi])
+    # The mouth is a short tube from the lips into the head, and its inner end
+    # is open: with the jaw down the game looked straight through the head.
+    # Cap that end - a fan over its boundary loop, no new vertices (targets
+    # and weights are per vertex) - wound to face the lips, with the tube's
+    # own (dark) uvs.
+    tri, tuv, tpart = cap_mouth(faces, uvn, part, rest, tri, tuv, tpart)
     tri = np.array(tri, dtype=np.int32)
     tuv = np.array(tuv, dtype=np.float32)
     tpart = np.array(tpart)
@@ -413,6 +494,11 @@ def emit_body(W, stage, P, data, tdir, shared):
             # Skinned like the body point it rides: the corners' weights
             # mixed by the same barycentrics.
             gw = (vw[tri[btri]] * bary[:, :, None]).sum(1)
+            # ...except the face bones: glasses resting by the eyes would blink
+            # with the lids, a hat brim would chew with the jaw. They ride the head.
+            for fb in rig.FACE:
+                gw[:, rig.INDEX['Head']] += gw[:, rig.INDEX[fb]]
+                gw[:, rig.INDEX[fb]] = 0
             gj = np.argsort(-gw, axis=1)[:, :4]
             gwt = np.take_along_axis(gw, gj, 1)
             gwt[gwt < 0.02] = 0
@@ -495,10 +581,17 @@ def main():
 
     if anims:
         a = json.load(open(anims))
-        assert a['bones'] == rig.NAMES, 'anims.json bone order differs from rig.py'
+        nb = len(a['bones'])
+        assert a['bones'] == rig.NAMES[:nb], 'anims.json bone order differs from rig.py'
+        # Clips retargeted before the face bones existed: pad with the bind
+        # pose (identity) - nothing in a body clip moves a jaw or an eyelid.
         meta = []
         for c in a['clips']:
             rot = np.array(c['rot'], dtype=np.float32)  # N x B x 4
+            if nb < len(rig.NAMES):
+                pad = np.zeros((len(rot), len(rig.NAMES) - nb, 4), np.float32)
+                pad[:, :, 3] = 1.0
+                rot = np.concatenate([rot, pad], 1)
             hips = np.array(c['hips'], dtype=np.float32)  # N x 3
             key = 'a/' + c['name']
             W.add(key + '/rot', np.round(rot * 32767).astype(np.int16))

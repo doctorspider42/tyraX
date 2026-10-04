@@ -79,7 +79,7 @@ std::unique_ptr<SkelModel> TsklLoader::load(const std::string& relativePath) {
       clipCount = 0;
   auto model = std::make_unique<SkelModel>();
   if (!in.bytes(magic, 4) || memcmp(magic, "TSKL", 4) != 0 ||
-      !in.u32le(&version) || version < 1 || version > 2 ||
+      !in.u32le(&version) || version < 1 || version > 3 ||
       !in.u32le(&nodeCount) || !in.u32le(&paletteCount) ||
       !in.u32le(&partCount) || !in.u32le(&clipCount)) {
     TYRA_WARN("TsklLoader: bad header in ", relativePath.c_str());
@@ -237,6 +237,19 @@ std::unique_ptr<SkelModel> TsklLoader::load(const std::string& relativePath) {
         part.texturePath.find('/') == std::string::npos)
       part.texturePath = dir + part.texturePath;
     model->parts.push_back(std::move(part));
+  }
+
+  // v3: one 32-byte name per node, at the very end (read before the part
+  // merge below, which does not touch nodes).
+  if (version >= 3) {
+    u32 nameCount = 0;
+    if (!in.u32le(&nameCount) || nameCount != nodeCount) {
+      TYRA_WARN("TsklLoader: bad node-name table in ", relativePath.c_str());
+      return nullptr;
+    }
+    model->nodeNames.resize(nodeCount);
+    for (u32 i = 0; i < nodeCount; i++)
+      if (!in.fixedString(&model->nodeNames[i], 32)) return nullptr;
   }
 
   // Merge parts that share texture and color: every part becomes a draw bag
