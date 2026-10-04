@@ -6364,6 +6364,10 @@ static const char* TPL_RES_GITIGNORE =
 # EMBEDS its textures - the loose PNGs beside it are unpacked from the .glb by
 # the bake (docs/character-generator.md).
 /models/characters/*.png
+# ...except a crowd's colour variants: SOURCES the generator wrote, which
+# texbake fits into palettes (docs/character-generator.md, "Crowds").
+!/models/characters/*.v[0-9].png
+!/models/characters/*.v[0-9][0-9].png
 )";
 
 // The attribution a shipped game owes to the code inside it, written into every

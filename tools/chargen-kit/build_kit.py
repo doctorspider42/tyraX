@@ -235,7 +235,10 @@ def spring_weights(gw, pos, kind, heads):
         new[:, rig.INDEX['HairTail2']] += s1 * s2
         return new
     c = heads[rig.INDEX['Hips']]
-    depth = np.clip((c[1] - pos[:, 1] - 0.03) / 0.25, 0.0, 1.0)
+    # At most 65%: the rest keeps the cloth's own skin, legs included - with
+    # the springs at rest (the editor preview, any viewer without the game's
+    # simulation) a pure-pelvis skirt let a forward knee through the front.
+    depth = np.clip((c[1] - pos[:, 1] - 0.03) / 0.25, 0.0, 1.0) * 0.65
     ang = np.arctan2(pos[:, 0] - c[0], pos[:, 2] - c[2])  # 0 = front, +x = her left
     lobes = np.stack([np.cos(ang), -np.cos(ang), np.sin(ang), -np.sin(ang)], 1)
     lobes = np.maximum(lobes, 0.0) ** 2

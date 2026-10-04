@@ -399,7 +399,10 @@ solver.
   `'spring': 'hair'` on long hair, ponytails and braids; every skirt and
   dress): hair behind the skull base, along the chain - a fringe stays on the
   face - and cloth a hand's breadth below the pelvis, by depth, split between
-  the four panels by which way it faces (`build_kit.spring_weights`).
+  the four panels by which way it faces (`build_kit.spring_weights`). A
+  skirt keeps 35% of its own skin (legs included): wherever the springs are
+  at rest - the editor's preview, any glTF viewer - a skirt that was all
+  pelvis let a forward knee through its front.
 - **The game** (`updateSprings`) simulates each bone's TIP in world space: a
   spring to where the bone's rest would put it, damping, a little gravity,
   held at the bone's length - so walking, turning and the clip's own sway all
