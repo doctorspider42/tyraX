@@ -37,6 +37,14 @@ import mhkit  # noqa: E402
 import bmh  # noqa: E402
 
 argv = sys.argv[sys.argv.index('--') + 1:]
+REUSE = None
+if '--reuse-mesh' in argv:
+    # A second body (male1591) binds the SAME low-poly items the first one
+    # made: the kit carries each item's mesh and texture once, and one binding
+    # per body.
+    k = argv.index('--reuse-mesh')
+    REUSE = argv[k + 1]
+    argv = argv[:k] + argv[k + 2:]
 SYS, PACKS, DATA, STAGE = argv[:4]
 ONLY = set(argv[4:])
 OUT = os.path.join(STAGE, 'wear')
@@ -168,6 +176,16 @@ def texture_stats(path):
 rest_body = np.concatenate([mhkit.fit_proxy(body_px, base), mhkit.fit_proxy(eye_px, base)])
 KTRI, _ = mhkit.triangulate(faces, rest_body)
 body_tri_bvh = BVHTree.FromPolygons([Vector(v) for v in bvp], [tuple(int(i) for i in t) for t in KTRI])
+# Skirts and dresses bind only to the body ABOVE the crotch. Bound to the
+# nearest point, a hem 20 cm off the thigh rides the thigh's rotation like a
+# lever and spikes out when the leg swings; bound to the pelvis it moves
+# rigidly with the hips, which is what PS2 games did (legs pass through a long
+# skirt in a stride, a skirt never tears).
+_skel = mhkit.load_skel(os.path.join(DATA, 'default.mhskel'))
+CROTCH_Z = bmh.to_blender(_skel.joint('upperleg02.L____head', avg)[None])[0][2]
+_upper = [i for i, t in enumerate(KTRI) if bvp[list(t)][:, 2].min() > CROTCH_Z + 0.02]
+upper_tri_bvh = BVHTree.FromPolygons([Vector(v) for v in bvp],
+                                     [tuple(int(i) for i in KTRI[j]) for j in _upper])
 TEX = 256
 
 
@@ -327,32 +345,52 @@ def make_mesh(gid, d, slot, extra):
     style = extra.get('style', slot)
     budget, thin, voxel = MESH_STYLE[style]
     budget = extra.get('budget', budget)
-    lo = lowpoly(g, budget, thin, voxel)
-    unwrap(lo)
+    if REUSE:
+        prev = np.load(os.path.join(REUSE, 'wear', gid + '.npz'), allow_pickle=True)
+        lo = bmh.mesh_object('lo_' + gid, prev['pos'] * 10.0, prev['tri'].tolist(), None, None, None)
+        me0 = lo.data
+        uvl0 = me0.uv_layers.new(name='new')
+        uvl0.data.foreach_set('uv', prev['uv'].astype(np.float32).ravel())
+    else:
+        lo = lowpoly(g, budget, thin, voxel)
+        unwrap(lo)
     # Push the stand-in a hair outward so the bake's rays start outside the
     # original even where the remesh cut inside it.
-    col = bake_from(g, lo, gid + '_c', False, 0.02, 0.05)
-    a = bake_from(g, lo, gid + '_a', True, 0.02, 0.05)
-    ca = np.array(col.pixels[:], dtype=np.float32).reshape(TEX, TEX, 4)
-    aa = np.array(a.pixels[:], dtype=np.float32).reshape(TEX, TEX, 4)[:, :, 0]
-    rgba = ca.copy()
-    # The alpha bake doubles as the hit mask: a ray that found the source
-    # brought back its alpha, a miss left the image's black.
-    rgba[:, :, :3] = fill_misses(ca[:, :, :3], aa > 0.5)
-    rgba[:, :, 3] = (aa > 0.5).astype(np.float32) if cutout else 1.0
-    out = bpy.data.images.new(gid + '_tex', TEX, TEX, alpha=True)
-    out.pixels[:] = rgba.ravel()
-    save(out, os.path.join(OUT, gid + '_tex.png'))
+    if REUSE:
+        col = a = None  # the texture is the first body's
+    else:
+        col = bake_from(g, lo, gid + '_c', False, 0.02, 0.05)
+        a = bake_from(g, lo, gid + '_a', True, 0.02, 0.05)
+    if col is not None:
+        ca = np.array(col.pixels[:], dtype=np.float32).reshape(TEX, TEX, 4)
+        aa = np.array(a.pixels[:], dtype=np.float32).reshape(TEX, TEX, 4)[:, :, 0]
+        rgba = ca.copy()
+        # The alpha bake doubles as the hit mask: a ray that found the source
+        # brought back its alpha, a miss left the image's black.
+        rgba[:, :, :3] = fill_misses(ca[:, :, :3], aa > 0.5)
+        rgba[:, :, 3] = (aa > 0.5).astype(np.float32) if cutout else 1.0
+        out = bpy.data.images.new(gid + '_tex', TEX, TEX, alpha=True)
+        out.pixels[:] = rgba.ravel()
+        save(out, os.path.join(OUT, gid + '_tex.png'))
 
     # Bind every vertex to the body surface.
     me = lo.data
     me.calc_loop_triangles()  # stale after the modifiers were applied
     lv = np.array([v.co for v in me.vertices])
+    if REUSE:
+        # Straight from the first body's file, not from the rebuilt object:
+        # Blender's validate() drops degenerate triangles, and a binding that
+        # does not line up with the shared mesh is worse than useless.
+        lv = bmh.to_blender(prev['pos'] * 10.0)
     bind_tri = np.zeros(len(lv), np.int32)
     bind_bary = np.zeros((len(lv), 3), np.float32)
     bind_off = np.zeros(len(lv), np.float32)
     for i, p in enumerate(lv):
-        loc, nrm, ti, dist = body_tri_bvh.find_nearest(Vector(p))
+        if style in ('skirt', 'dress'):
+            loc, nrm, ti, dist = upper_tri_bvh.find_nearest(Vector(p))
+            ti = _upper[ti]
+        else:
+            loc, nrm, ti, dist = body_tri_bvh.find_nearest(Vector(p))
         t = KTRI[ti]
         A, B, C = (Vector(bvp[k]) for k in t)
         # barycentric of loc in ABC
@@ -377,11 +415,32 @@ def make_mesh(gid, d, slot, extra):
     for k, t in enumerate(me.loop_triangles):
         for c in range(3):
             luv[k, c] = uvd[t.loops[c]].uv
+    if REUSE:
+        ltri = prev['tri'].astype(np.int32)
+        luv = prev['uv'].astype(np.float32).reshape(-1, 3, 2)
     # What it hides: body triangles whose every corner rides base vertices
     # the garment declares hidden (shoes take the feet, a dress the thighs).
     hide = np.array([all(int(r) in px.delete for r in body_px.ref[i]) for i in range(NB)]
                     + [False] * (len(bvp) - NB))
-    cover = np.array([ti for ti, t in enumerate(KTRI) if all(hide[k] for k in t)], np.int32)
+    # ...and that really lie INSIDE the low-poly stand-in: MakeHuman's list was
+    # written for its own garment, and a remeshed dress that sits a little
+    # higher left a hole in the thigh where the list still hid the skin.
+    lo_bvh = BVHTree.FromPolygons([Vector(v) for v in lv], [tuple(int(i) for i in t) for t in ltri])
+
+    def inside(pt):
+        hits, o = 0, Vector(pt)
+        d = Vector((0.0123, 0.0071, 1.0)).normalized()  # off-axis: no grazing edges
+        for _ in range(64):
+            h = lo_bvh.ray_cast(o, d)
+            if h[0] is None:
+                break
+            hits += 1
+            o = h[0] + d * 1e-5
+        return hits % 2 == 1
+
+    closed = style not in ('face',)
+    cover = np.array([ti for ti, t in enumerate(KTRI) if all(hide[k] for k in t)
+                      and (not closed or inside(bvp[list(t)].mean(0)))], np.int32)
 
     # Hair also paints the scalp: through the gaps between strands a bald
     # head would show, so the hair's own colour goes onto the body's atlas
@@ -434,6 +493,12 @@ def body_frame(macro):
 
 FRAMES = {'f': body_frame({'gender': 0.0}), 'm': body_frame({'gender': 1.0})}
 
+# Each body vertex's mirror twin across x = 0 (nearest vertex to its mirrored
+# position on the average body).
+_mirrored = bvp[:NB].copy()
+_mirrored[:, 0] *= -1
+MIRROR = np.array([int(np.argmin(((bvp[:NB] - m) ** 2).sum(1))) for m in _mirrored])
+
 # Edge-adjacent faces of the body, for closing small holes in a coverage.
 _edge_faces = {}
 for fi, f in enumerate(faces):
@@ -450,21 +515,32 @@ for fl in _edge_faces.values():
 
 def measure(px, o, frame):
     """Distance from each body vertex, outward along its normal, to the
-    garment fitted to the same morph; NaN where it is not reached."""
+    garment fitted to the same morph; NaN where it is not reached. Also flags
+    the vertices within 4.5 cm of the cloth (see make_shell's face rule)."""
     b, pos, nrm = frame
     gpos = mhkit.fit_proxy(px, b)
     tmp = bmh.mesh_object('measure', gpos, o.faces, None, None, None)
     bvh = BVHTree.FromObject(tmp, bpy.context.evaluated_depsgraph_get())
     bpy.data.objects.remove(tmp)
     dist = np.full(len(pos), np.nan)
-    # A ray starts 2 cm INSIDE the body and looks outward for the garment's
-    # first sheet, which must face the same way (its outside).
+    close = np.zeros(len(pos), bool)
+    # A ray starts 3 cm INSIDE the body and looks outward for the garment's
+    # first sheet. Where that misses, the nearest point decides: on the slope
+    # of the upper chest the normal tilts up, and a ray along it leaves through
+    # the neck opening - a crew-neck T-shirt came out with a deep square
+    # neckline. Anything within 2.5 cm of the skin is the garment over it.
     for i in range(NB):
         n = Vector(nrm[i])
-        hit = bvh.ray_cast(Vector(pos[i]) - n * 0.02, n, 0.10)
-        if hit[0] is not None and hit[1].dot(n) > -0.2:
-            dist[i] = hit[3] - 0.02
-    return dist
+        p0 = Vector(pos[i])
+        close[i] = bvh.find_nearest(p0, 0.045)[0] is not None
+        hit = bvh.ray_cast(p0 - n * 0.03, n, 0.11)
+        if hit[0] is not None and abs(hit[1].dot(n)) > 0.2:
+            dist[i] = hit[3] - 0.03
+            continue
+        near = bvh.find_nearest(p0, 0.025)
+        if near[0] is not None:
+            dist[i] = max((near[0] - p0).dot(n), 0.0)
+    return dist, close
 
 
 def make_shell(gid, d, extra):
@@ -475,7 +551,8 @@ def make_shell(gid, d, extra):
     g = bmh.mesh_object('g_' + gid, pos, o.faces, o.vt, o.ftex,
                         emission_material('gm_' + gid, tex)[0])
     nv = len(bvp)
-    dists = {k: measure(px, o, fr) for k, fr in FRAMES.items()}
+    meas = {k: measure(px, o, fr) for k, fr in FRAMES.items()}
+    dists = {k: m[0] for k, m in meas.items()}
     # The garment's own declaration of what it hides, plus anything the
     # outward rays reach on either body (a loose trouser leg sits 3-6 cm off
     # the shin).
@@ -483,9 +560,28 @@ def make_shell(gid, d, extra):
                     + [False] * (nv - NB))
     covered = hide.copy()
     for dd in dists.values():
-        covered |= (~np.isnan(dd)) & (dd > -0.01) & (dd < 0.07)
+        # A tight collar sits a little UNDER the low-poly skin: allow 2 cm.
+        covered |= (~np.isnan(dd)) & (dd > -0.02) & (dd < 0.07)
     covered[NB:] = False
-    fcov = np.array([part[fi] == 0 and all(covered[v] for v in f) for fi, f in enumerate(faces)])
+    # Rays are not symmetric (a quad's diagonal, a vertex a millimetre off the
+    # other side's), and a T-shirt came out with one shoulder bare. Shells are
+    # symmetric garments: a vertex is covered if it or its mirror image is.
+    covered[:NB] |= covered[MIRROR]
+    close = np.zeros(nv, bool)
+    for m in meas.values():
+        close[:NB] |= m[1][:NB]
+    close[:NB] |= close[MIRROR]
+    # A quad needs three covered corners, not four: the low-poly rows are
+    # 5-6 cm tall, and demanding the whole quad dropped a crew neckline by a
+    # full row (the top corners sit on the collarbone, just outside the cloth).
+    # And a quad whose cloth edge crosses mid-row (two corners covered, the
+    # other two within 4.5 cm of the cloth) is taken in too: the male tee's
+    # neckline sits halfway up the sternum row, and dropping that one row cut
+    # a square bib of skin out of a crew neck.
+    def face_in(f):
+        n = sum(covered[v] for v in f)
+        return n >= len(f) - (len(f) == 4) or (n >= 2 and all(covered[v] or close[v] for v in f))
+    fcov = np.array([part[fi] == 0 and face_in(f) for fi, f in enumerate(faces)])
     # Close pinholes (a crotch, an armpit: normals there point at the other
     # leg or the arm, and the rays miss) and drop lone speckles. A face with
     # ANY covered corner and covered faces on at least half its sides is taken
@@ -555,6 +651,21 @@ def make_shell(gid, d, extra):
     bpy.context.view_layer.objects.active = shell
     bpy.ops.object.bake(type='EMIT', use_selected_to_active=True, cage_extrusion=0.015,
                         max_ray_distance=0.04)
+    # Where the rays missed the garment (a collar edge, a gap at the cuff) the
+    # bake left black, and a black wedge at a T-shirt's neckline is what that
+    # looks like. The garment's alpha, baked the same way, is the hit mask;
+    # grow the hit colours into the misses.
+    gnt = g.data.materials[0].node_tree
+    gtex = [n for n in gnt.nodes if n.type == 'TEX_IMAGE' and n.name != '__bake'][0]
+    gem = [n for n in gnt.nodes if n.type == 'EMISSION'][0]
+    col_px = np.array(im.pixels[:], np.float32).reshape(ATLAS, ATLAS, 4)
+    gnt.links.new(gtex.outputs['Alpha'], gem.inputs['Color'])
+    im_hit = bake_target(shell, gid + '_hit')
+    bpy.ops.object.bake(type='EMIT', use_selected_to_active=True, cage_extrusion=0.015,
+                        max_ray_distance=0.04)
+    hit = np.array(im_hit.pixels[:], np.float32).reshape(ATLAS, ATLAS, 4)[:, :, 0] > 0.5
+    col_px[:, :, :3] = fill_misses(col_px[:, :, :3], hit, 12)
+    im.pixels[:] = col_px.ravel()
     save(im, os.path.join(OUT, gid + '_col.png'))
     # Coverage: which atlas texels belong to the shell's faces.
     ca = shell.data.color_attributes.new('cov', 'BYTE_COLOR', 'CORNER')

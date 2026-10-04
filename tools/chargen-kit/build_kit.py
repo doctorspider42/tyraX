@@ -2,9 +2,10 @@
 runtime, in ONE binary file (resources/chargen-kit.bin, embedded into the
 editor at build time - see CMakeLists.txt).
 
-    python build_kit.py <stage_dir> <mh_data> <targets_dir> <out.bin> [anims.json] [garments_dir]
+    python build_kit.py <stage_dir>[,<stage_dir_m>] <mh_data> <targets_dir> <out.bin> [anims.json]
 
-  stage_dir    kit_body.py's output (body.npz + baked layers)
+  stage_dir    kit_body.py + kit_wear.py output for one body (female1605); a
+               second, comma-separated, is the male1591 body
   mh_data      base.obj, default.mhskel, default_weights.mhw (+ targets/)
   targets_dir  a checkout of makehuman/data/targets (macrodetails/, nose/, ...)
   anims.json   anim_retarget.py's output (optional)
@@ -29,7 +30,7 @@ import struct
 import sys
 
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageFilter
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import mhkit  # noqa: E402
@@ -193,20 +194,19 @@ def jpg_bytes(img, q=90):
     return b.getvalue()
 
 
-def main():
-    stage, data, tdir, out = sys.argv[1:5]
-    anims = sys.argv[5] if len(sys.argv) > 5 and sys.argv[5] != '-' else None
+def emit_body(W, stage, P, data, tdir, shared):
+    """One game body under chunk prefix P ('' or 'm/'): its mesh, weights,
+    targets, texture layers and its share of the wardrobe (shell layers and
+    pushes, mesh-item bindings). `shared` collects what every body has in
+    common and is written once by main()."""
     LAYER = 512  # authored at 2x the default output so a 256 bake is a clean downsample
-
     st = np.load(os.path.join(stage, 'body.npz'), allow_pickle=True)
-    base_obj = mhkit.load_obj(os.path.join(data, 'base.obj'))
-    base = base_obj.v
+    base = shared['base']
 
     def px(prefix):
         p = mhkit.Proxy()
         p.ref, p.w, p.off = st[prefix + '_ref'], st[prefix + '_w'], st[prefix + '_off']
-        p.scale = [tuple(x) for x in st[prefix + '_scale']]
-        p.scale = [(int(a), int(b), float(c)) for a, b, c in p.scale]
+        p.scale = [(int(a), int(b), float(c)) for a, b, c in st[prefix + '_scale']]
         return p
 
     body_px, eye_px = px('body'), px('eye')
@@ -217,7 +217,6 @@ def main():
     rest = fit(base)
     V = len(rest)
     assert np.allclose(rest, st['verts'], atol=1e-6)
-    W = Writer()
 
     # --- mesh: triangles with per-corner atlas uvs ------------------------------
     faces, uvn, part = st['faces'], st['uv_new'], st['part']
@@ -230,32 +229,23 @@ def main():
         tpart.append(part[fi])
     tri = np.array(tri, dtype=np.int32)
     tuv = np.array(tuv, dtype=np.float32)
+    tpart = np.array(tpart)
     # Winding: outward normals point away from the body's centre line.
     nrm = np.cross(rest[tri[:, 1]] - rest[tri[:, 0]], rest[tri[:, 2]] - rest[tri[:, 0]])
-    cen = rest[tri].mean(1)
-    axis = cen.copy()
+    axis = rest[tri].mean(1)
     axis[:, 1] = 0  # roughly radial
     flipped = (nrm[tpart == 0] * axis[tpart == 0]).sum() < 0
     if flipped:
         tri = tri[:, [0, 2, 1]]
         tuv = tuv[:, [0, 2, 1]]
-    W.add('mesh/pos', (rest * DM).astype(np.float32))
-    W.add('mesh/tri', tri)
-    W.add('mesh/uv', tuv)  # Blender convention: v up
-    W.add('mesh/part', np.array(tpart, dtype=np.uint8))
-    print('mesh', V, 'verts', len(tri), 'tris')
+    W.add(P + 'mesh/pos', (rest * DM).astype(np.float32))
+    W.add(P + 'mesh/tri', tri)
+    W.add(P + 'mesh/uv', tuv)  # Blender convention: v up
+    W.add(P + 'mesh/part', tpart.astype(np.uint8))
+    print(P or '(female)', 'mesh', V, 'verts', len(tri), 'tris')
 
     # --- skin weights --------------------------------------------------------
-    skel = mhkit.load_skel(os.path.join(data, 'default.mhskel'))
-    cmap = rig.collapse_map(skel.bones)
-    mhw = mhkit.load_weights(os.path.join(data, 'default_weights.mhw'), len(base))
-    B = len(rig.BONES)
-    bw = np.zeros((len(base), B))
-    for bone, (idx, wt) in mhw.items():
-        bw[idx, cmap.get(bone, 0)] += wt
-    s = bw.sum(1, keepdims=True)
-    s[s == 0] = 1
-    bw /= s
+    bw = shared['bw']
 
     def proxy_weights(p):
         ws = (p.w / np.maximum(p.w.sum(1, keepdims=True), 1e-9))
@@ -268,16 +258,12 @@ def main():
     wts /= np.maximum(wts.sum(1, keepdims=True), 1e-9)
     q = np.round(wts * 255).astype(np.int32)
     q[:, 0] += 255 - q.sum(1)  # bytes that still sum to exactly 255
-    W.add('mesh/joints', joints.astype(np.uint8))
-    W.add('mesh/weights', q.astype(np.uint8))
-
-    # --- rig -------------------------------------------------------------------
-    heads = rig.heads(skel, base)
-    W.add('rig/names', [rig.PREFIX + n for n in rig.NAMES], 'json')
-    W.add('rig/parent', np.array(rig.PARENT, dtype=np.int32))
-    W.add('rig/head', (heads * DM).astype(np.float32))
+    W.add(P + 'mesh/joints', joints.astype(np.uint8))
+    W.add(P + 'mesh/weights', q.astype(np.uint8))
 
     # --- targets ----------------------------------------------------------------
+    skel, heads = shared['skel'], shared['heads']
+
     def add_target(key, path):
         tg = mhkit.load_target(path)
         b2 = base.copy()
@@ -287,36 +273,33 @@ def main():
         idx = np.nonzero(np.abs(d).max(1) > 2e-5)[0].astype(np.int32)
         dd = d[idx]
         scale = max(float(np.abs(dd).max()) if len(dd) else 0.0, 1e-9) / 32767.0
-        W.add('t/%s/idx' % key, idx)
-        W.add('t/%s/d' % key, np.round(dd / scale).astype(np.int16))
-        W.add('t/%s/s' % key, np.array([scale], dtype=np.float32))
-        W.add('t/%s/j' % key, jd.astype(np.float32))
+        W.add(P + 't/%s/idx' % key, idx)
+        W.add(P + 't/%s/d' % key, np.round(dd / scale).astype(np.int16))
+        W.add(P + 't/%s/s' % key, np.array([scale], dtype=np.float32))
+        W.add(P + 't/%s/j' % key, jd.astype(np.float32))
         return len(idx)
 
     total = 0
     for stem in mhkit.macro_stems():
         total += add_target(stem, os.path.join(data, 'targets', stem + '.target'))
     used = set()
-    sliders = []
     for sid, label, group, neg, pos in SLIDERS:
-        n, p = expand(neg), expand(pos)
-        for t in n + p:
+        for t in expand(neg) + expand(pos):
             if t not in used:
                 total += add_target(t, os.path.join(tdir, t + '.target'))
                 used.add(t)
-        sliders.append({'id': sid, 'label': label, 'group': group, 'neg': n, 'pos': p})
-    W.add('sliders', sliders, 'json')
-    print('targets', len(used) + 96, 'entries', total)
+    print('  targets', len(used) + 96, 'entries', total)
 
     # --- texture layers -----------------------------------------------------------
     def load(name, mode='RGB'):
         return Image.open(os.path.join(stage, name + '.png')).convert(mode).resize(
             (LAYER, LAYER), Image.LANCZOS)
 
+    I = 'img/' + P
     for age in ('young', 'middleage', 'old'):
         for eth in ('african', 'asian', 'caucasian'):
             for g in ('female', 'male'):
-                W.add('img/skin/%s-%s-%s' % (eth, g, age),
+                W.add(I + 'skin/%s-%s-%s' % (eth, g, age),
                       jpg_bytes(load('skin_%s_%s_%s' % (age, eth, g))), 'bytes')
     cls = np.asarray(load('mask_class'))
     eye_mask = (cls[:, :, 1] > 128) & (cls[:, :, 0] < 128) & (cls[:, :, 2] < 128)
@@ -332,97 +315,156 @@ def main():
     rgb = np.where(iris[:, :, None], gray / max(float(luma[iris].mean()), 1e-3) * 0.5, eye)
     eye_rgba[:, :, :3] = np.clip(rgb * 255, 0, 255).astype(np.uint8)
     eye_rgba[:, :, 3] = eye_mask * 255
-    W.add('img/eye', png_bytes(Image.fromarray(eye_rgba, 'RGBA')), 'bytes')
-    W.add('img/iris', png_bytes(Image.fromarray(((iris & ~pupil) * 255).astype(np.uint8), 'L')), 'bytes')
-    W.add('img/class', png_bytes(Image.fromarray(cls.astype(np.uint8), 'RGB')), 'bytes')
-    W.add('img/ao', png_bytes(load('ao', 'L')), 'bytes')
+    W.add(I + 'eye', png_bytes(Image.fromarray(eye_rgba, 'RGBA')), 'bytes')
+    W.add(I + 'iris', png_bytes(Image.fromarray(((iris & ~pupil) * 255).astype(np.uint8), 'L')), 'bytes')
+    W.add(I + 'class', png_bytes(Image.fromarray(cls.astype(np.uint8), 'RGB')), 'bytes')
+    W.add(I + 'ao', png_bytes(load('ao', 'L')), 'bytes')
     # Face paint masks (kit_body.py derives them from MakeHuman's targets).
     for m in ('lips', 'eyeshadow', 'cheeks'):
         if os.path.exists(os.path.join(stage, 'mask_%s.png' % m)):
-            W.add('img/mask/' + m, png_bytes(load('mask_' + m, 'L')), 'bytes')
+            W.add(I + 'mask/' + m, png_bytes(load('mask_' + m, 'L')), 'bytes')
     if os.path.exists(os.path.join(stage, 'mask_stubble.png')):
         # Stubble is hairs, not paint: break the region up with fixed noise so
         # it reads as stubble at 512 and as a soft shadow at 128.
         rng = np.random.default_rng(7)
         noise = rng.random((LAYER, LAYER))
         m = np.asarray(load('mask_stubble', 'L')).astype(np.float32) / 255
-        st = np.clip(m * 1.3, 0, 1) * np.clip((noise - 0.25) * 1.8, 0, 1)
-        W.add('img/mask/stubble', png_bytes(Image.fromarray((st * 255).astype(np.uint8), 'L')), 'bytes')
+        stb = np.clip(m * 1.3, 0, 1) * np.clip((noise - 0.25) * 1.8, 0, 1)
+        W.add(I + 'mask/stubble', png_bytes(Image.fromarray((stb * 255).astype(np.uint8), 'L')), 'bytes')
     brows = sorted(f[:-4] for f in os.listdir(stage) if f.startswith('brow_'))
     lashes = sorted(f[:-4] for f in os.listdir(stage) if f.startswith('lash_'))
-    for b in brows:
-        W.add('img/' + b.replace('_', '/', 1), png_bytes(load(b, 'L')), 'bytes')
-    for b in lashes:
-        W.add('img/' + b.replace('_', '/', 1), png_bytes(load(b, 'L')), 'bytes')
-    W.add('lists', {'brows': [b[5:] for b in brows], 'lashes': [b[5:] for b in lashes]}, 'json')
+    for b in brows + lashes:
+        W.add(I + b.replace('_', '/', 1), png_bytes(load(b, 'L')), 'bytes')
+    lists = {'brows': [b[5:] for b in brows], 'lashes': [b[5:] for b in lashes]}
+    if 'lists' in shared:
+        assert shared['lists'] == lists, 'every body must bake the same brows and lashes'
+    shared['lists'] = lists
 
     # --- wardrobe ------------------------------------------------------------------
     wear_dir = os.path.join(stage, 'wear')
-    wardrobe = []
-    if os.path.isdir(wear_dir):
-        for fn in sorted(os.listdir(wear_dir)):
-            if not fn.endswith('.json'):
-                continue
-            meta = json.load(open(os.path.join(wear_dir, fn)))
-            gid = meta['id']
-            z = np.load(os.path.join(wear_dir, gid + '.npz'), allow_pickle=True)
-            cat = CATALOG_BY_ID.get(gid)
-            if cat is None:
-                continue  # dropped from the catalog since it was built
-            entry = {'id': gid, 'label': cat[1], 'slot': cat[2], 'sex': cat[5].get('sex', ''),
-                     'kind': meta['kind'], 'cutout': meta.get('cutout', False),
-                     'layer': meta.get('layer', 0), 'dyeable': True,
-                     'luma': float(z['mean_luma']),
-                     'color': [round(float(c), 3) for c in z['mean_rgb']]}
-            pre = 'g/%s/' % gid
-            if meta['kind'] == 'shell':
-                W.add(pre + 'inflIdx', z['infl_idx'].astype(np.int32))
-                W.add(pre + 'inflDist', (z['infl'] * 1.0).astype(np.float32))
-                W.add(pre + 'inflDistM', (z['infl_m'] * 1.0).astype(np.float32))
-                col = load(os.path.join('wear', gid + '_col'))
-                cov = load(os.path.join('wear', gid + '_cov'), 'L')
-                W.add('img/g/' + gid, jpg_bytes(col, 88), 'bytes')
-                W.add('img/g/%s/a' % gid, png_bytes(cov), 'bytes')
+    head = (cls[:, :, 0] > 128) & (cls[:, :, 2] < 128)
+    island = (np.asarray(load('mask_island', 'L')) > 250) if os.path.exists(
+        os.path.join(stage, 'mask_island.png')) else None
+    for fn in sorted(os.listdir(wear_dir)) if os.path.isdir(wear_dir) else []:
+        if not fn.endswith('.json'):
+            continue
+        meta = json.load(open(os.path.join(wear_dir, fn)))
+        gid = meta['id']
+        cat = CATALOG_BY_ID.get(gid)
+        if cat is None:
+            continue  # dropped from the catalog since it was built
+        z = np.load(os.path.join(wear_dir, gid + '.npz'), allow_pickle=True)
+        pre = P + 'g/%s/' % gid
+        if meta['kind'] == 'shell':
+            W.add(pre + 'inflIdx', z['infl_idx'].astype(np.int32))
+            W.add(pre + 'inflDist', (z['infl'] * 1.0).astype(np.float32))
+            W.add(pre + 'inflDistM', (z['infl_m'] * 1.0).astype(np.float32))
+            col = load(os.path.join('wear', gid + '_col'))
+            cov = load(os.path.join('wear', gid + '_cov'), 'L')
+            if island is not None:
+                # Coverage at an island's edge is fractional after the
+                # downsample, and the skin under it shows as a seam (a man's
+                # torso is two islands: a line down the middle of his shirt).
+                # Grow it - into texels outside every island only.
+                grown = np.asarray(cov.filter(ImageFilter.MaxFilter(5)))
+                c0 = np.asarray(cov)
+                cov = Image.fromarray(np.where(island, c0, grown).astype(np.uint8), 'L')
+            W.add(I + 'g/' + gid, jpg_bytes(col, 88), 'bytes')
+            W.add(I + 'g/%s/a' % gid, png_bytes(cov), 'bytes')
+        else:
+            if gid not in shared['mesh']:
+                # The item's own mesh and texture are written once, by the
+                # first body; later bodies only bind to it.
+                shared['mesh'][gid] = (z['tri'].astype(np.int32), z['uv'].astype(np.float32).ravel(),
+                                       os.path.join(wear_dir, gid + '_tex.png'))
             else:
-                bary = z['bindBary'].astype(np.float64)
-                if flipped:  # the body triangles' corners were swapped above
-                    bary = bary[:, [0, 2, 1]]
-                btri = z['bindTri'].astype(np.int64)
-                for k in ('cover', 'tri'):
-                    W.add(pre + k, z[k].astype(np.int32))
-                W.add(pre + 'bindTri', btri.astype(np.int32))
-                W.add(pre + 'bindBary', bary.astype(np.float32).ravel())
-                W.add(pre + 'bindOff', z['bindOff'].astype(np.float32))
-                W.add(pre + 'uv', z['uv'].astype(np.float32).ravel())
-                # Skinned like the body point it rides: the corners' weights
-                # mixed by the same barycentrics.
-                gw = (vw[tri[btri]] * bary[:, :, None]).sum(1)
-                gj = np.argsort(-gw, axis=1)[:, :4]
-                gwt = np.take_along_axis(gw, gj, 1)
-                gwt[gwt < 0.02] = 0
-                gwt /= np.maximum(gwt.sum(1, keepdims=True), 1e-9)
-                gq = np.round(gwt * 255).astype(np.int32)
-                gq[:, 0] += 255 - gq.sum(1)
-                W.add(pre + 'joints', gj.astype(np.uint8).ravel())
-                W.add(pre + 'weights', gq.astype(np.uint8).ravel())
-                tex = Image.open(os.path.join(wear_dir, gid + '_tex.png')).convert('RGBA')
-                W.add('img/g/' + gid, png_bytes(tex), 'bytes')
-                scalp = os.path.join(wear_dir, gid + '_scalp.png')
-                if os.path.exists(scalp):
-                    sc = Image.open(scalp).convert('RGBA').resize((LAYER, LAYER), Image.LANCZOS)
-                    # Only on the head: the bake's margin bleeds the paint into
-                    # whatever island lies next to the head in the atlas (the
-                    # shins, as it happens - orange streaks on blondes' legs).
-                    head = (np.asarray(cls)[:, :, 0] > 128) & (np.asarray(cls)[:, :, 2] < 128)
-                    a_ = np.asarray(sc.getchannel('A')).astype(np.float32) * head
-                    sc.putalpha(Image.fromarray(a_.astype(np.uint8), 'L'))
-                    W.add('img/g/%s/body' % gid, jpg_bytes(sc.convert('RGB'), 88), 'bytes')
-                    W.add('img/g/%s/body/a' % gid, png_bytes(sc.getchannel('A')), 'bytes')
-            wardrobe.append(entry)
-    W.add('wardrobe', wardrobe, 'json')
-    print('wardrobe', len(wardrobe))
+                assert len(shared['mesh'][gid][0]) == len(z['tri']), \
+                    gid + ': a second body bound a different mesh (kit_wear.py --reuse-mesh)'
+            bary = z['bindBary'].astype(np.float64)
+            if flipped:  # the body triangles' corners were swapped above
+                bary = bary[:, [0, 2, 1]]
+            btri = z['bindTri'].astype(np.int64)
+            W.add(pre + 'cover', z['cover'].astype(np.int32))
+            W.add(pre + 'bindTri', btri.astype(np.int32))
+            W.add(pre + 'bindBary', bary.astype(np.float32).ravel())
+            W.add(pre + 'bindOff', z['bindOff'].astype(np.float32))
+            # Skinned like the body point it rides: the corners' weights
+            # mixed by the same barycentrics.
+            gw = (vw[tri[btri]] * bary[:, :, None]).sum(1)
+            gj = np.argsort(-gw, axis=1)[:, :4]
+            gwt = np.take_along_axis(gw, gj, 1)
+            gwt[gwt < 0.02] = 0
+            gwt /= np.maximum(gwt.sum(1, keepdims=True), 1e-9)
+            gq = np.round(gwt * 255).astype(np.int32)
+            gq[:, 0] += 255 - gq.sum(1)
+            W.add(pre + 'joints', gj.astype(np.uint8).ravel())
+            W.add(pre + 'weights', gq.astype(np.uint8).ravel())
+            scalp = os.path.join(wear_dir, gid + '_scalp.png')
+            if os.path.exists(scalp):
+                sc = Image.open(scalp).convert('RGBA').resize((LAYER, LAYER), Image.LANCZOS)
+                # Only on the head: the bake's margin bleeds the paint into
+                # whatever island lies next to the head in the atlas (the
+                # shins, as it happens - orange streaks on blondes' legs).
+                a_ = np.asarray(sc.getchannel('A')).astype(np.float32) * head
+                sc.putalpha(Image.fromarray(a_.astype(np.uint8), 'L'))
+                W.add(I + 'g/%s/body' % gid, jpg_bytes(sc.convert('RGB'), 88), 'bytes')
+                W.add(I + 'g/%s/body/a' % gid, png_bytes(sc.getchannel('A')), 'bytes')
+        entry = {'id': gid, 'label': cat[1], 'slot': cat[2], 'sex': cat[5].get('sex', ''),
+                 'kind': meta['kind'], 'cutout': meta.get('cutout', False),
+                 'layer': meta.get('layer', 0), 'dyeable': True,
+                 'luma': float(z['mean_luma']),
+                 'color': [round(float(c), 3) for c in z['mean_rgb']]}
+        shared['wardrobe'].setdefault(gid, entry)
+        shared['wear_count'][gid] = shared['wear_count'].get(gid, 0) + 1
 
-    # --- animation ---------------------------------------------------------------
+
+def main():
+    stages = sys.argv[1].split(',')
+    data, tdir, out = sys.argv[2:5]
+    anims = sys.argv[5] if len(sys.argv) > 5 and sys.argv[5] != '-' else None
+    W = Writer()
+
+    base = mhkit.load_obj(os.path.join(data, 'base.obj')).v
+    skel = mhkit.load_skel(os.path.join(data, 'default.mhskel'))
+    cmap = rig.collapse_map(skel.bones)
+    mhw = mhkit.load_weights(os.path.join(data, 'default_weights.mhw'), len(base))
+    bw = np.zeros((len(base), len(rig.BONES)))
+    for bone, (idx, wt) in mhw.items():
+        bw[idx, cmap.get(bone, 0)] += wt
+    s = bw.sum(1, keepdims=True)
+    s[s == 0] = 1
+    bw /= s
+    heads = rig.heads(skel, base)
+    shared = {'base': base, 'skel': skel, 'bw': bw, 'heads': heads, 'mesh': {},
+              'wardrobe': {}, 'wear_count': {}}
+
+    # Body 0 (female1605) keeps the unprefixed names; body 1 (male1591) is 'm/'.
+    prefixes = ['', 'm/']
+    bodies = []
+    for k, stage in enumerate(stages):
+        info = json.load(open(os.path.join(stage, 'body.json'))) if os.path.exists(
+            os.path.join(stage, 'body.json')) else {'proxy': 'female1605'}
+        emit_body(W, stage, prefixes[k], data, tdir, shared)
+        bodies.append({'prefix': prefixes[k], 'proxy': info.get('proxy', '')})
+    W.add('bodies', bodies, 'json')
+
+    # --- shared: rig, sliders, lists, wardrobe, mesh items, clips ----------------
+    W.add('rig/names', [rig.PREFIX + n for n in rig.NAMES], 'json')
+    W.add('rig/parent', np.array(rig.PARENT, dtype=np.int32))
+    W.add('rig/head', (heads * DM).astype(np.float32))
+    W.add('sliders', [{'id': sid, 'label': label, 'group': group, 'neg': expand(neg),
+                       'pos': expand(pos)} for sid, label, group, neg, pos in SLIDERS], 'json')
+    W.add('lists', shared['lists'], 'json')
+    for gid, (gtri, guv, tex) in shared['mesh'].items():
+        W.add('g/%s/tri' % gid, gtri)
+        W.add('g/%s/uv' % gid, guv)
+        W.add('img/g/' + gid, png_bytes(Image.open(tex).convert('RGBA')), 'bytes')
+    # Only items every body can wear.
+    wardrobe = [e for gid, e in sorted(shared['wardrobe'].items())
+                if shared['wear_count'][gid] == len(stages)]
+    W.add('wardrobe', wardrobe, 'json')
+    print('wardrobe', len(wardrobe), 'bodies', len(stages))
+
     if anims:
         a = json.load(open(anims))
         assert a['bones'] == rig.NAMES, 'anims.json bone order differs from rig.py'

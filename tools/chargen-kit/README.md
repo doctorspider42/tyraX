@@ -17,8 +17,8 @@ Needs Python 3 with numpy and Pillow, and Blender 4.x/5.x (found on PATH, in
 | Script | Runs in | Does |
 |---|---|---|
 | `fetch_sources.py` | Python | downloads the CC0 sources: MakeHuman `makehuman/data` (reference mesh, rig, weights, targets), the MakeHuman *system assets* pack and the `*_cc0` community packs named in `catalog.py`, Quaternius' Universal Animation Library 1 + 2 |
-| `kit_body.py` | Blender | the `female1605` body + low-poly eyes, the re-packed PS2 atlas, and every layer baked into it: 18 skins, eyes, 12 brows, 4 lashes, AO and the face-paint masks |
-| `kit_wear.py` | Blender | each `catalog.py` entry into a SHELL (body vertices pushed out + texture in the atlas) or a MESH (remeshed, unwrapped, baked, bound to the body surface) |
+| `kit_body.py` | Blender | one game body (`female1605`, then `male1591`) + low-poly eyes, its re-packed PS2 atlas, and every layer baked into it: 18 skins, eyes, 12 brows, 4 lashes, AO, the face-paint masks and the island mask |
+| `kit_wear.py` | Blender | each `catalog.py` entry into a SHELL (body vertices pushed out + texture in the atlas) or a MESH (remeshed, unwrapped, baked, bound to the body surface); for the second body `--reuse-mesh <first stage>` binds the first body's meshes instead of remeshing |
 | `anim_retarget.py` | Blender | the 87 library clips onto the rig, as local rotations + a hips track |
 | `build_kit.py` | Python | targets projected onto the body's vertices, skin weights, rig, sliders, layers, wardrobe and clips into the binary |
 
@@ -65,3 +65,14 @@ program. Check a new source's licence file by file before adding it to
 - A macro target can be EMPTY (the average body is the base itself).
 - The triangulation is shared: garments bind to body triangles BY INDEX, so
   `build_kit.py` and `kit_wear.py` both use `mhkit.triangulate`.
+- Re-running `kit_body.py` must not move the atlas (shells are baked into it):
+  the UV packer is deterministic - check `uv_new` before/after if in doubt.
+- `--reuse-mesh` takes the first body's mesh from its FILE: a mesh rebuilt in
+  Blender loses degenerate triangles to `validate()` and no longer matches.
+- Bound to the nearest point, a skirt's hem levers off the thigh: skirts and
+  dresses bind only above the crotch. And a `.mhclo`'s hidden-vertex list is for
+  ITS garment: a body triangle is hidden only if it lies inside our stand-in.
+- A shell is decided per body QUAD, and the low-poly rows are 5-6 cm tall: a
+  cloth edge crossing mid-row either drops the row or keeps it. Demanding all
+  four corners cut a square bib out of the man's crew neck; `make_shell` takes
+  a quad with three covered corners, or two plus two within 4.5 cm of the cloth.

@@ -35,7 +35,10 @@ SIZE = int(argv[3]) if len(argv) > 3 else 1024
 QUICK = bool(os.environ.get('KIT_QUICK'))
 os.makedirs(STAGE, exist_ok=True)
 
-BODY_PROXY = 'female1605'
+# Which MakeHuman proxy is the game body: female1605 for women, male1591 for
+# men (the female one's breast loops give a man a bust - measured, not
+# assumed). Each body gets its own stage directory and atlas.
+BODY_PROXY = argv[5] if len(argv) > 5 else 'female1605'
 # Relative texel density per island class (1 = MakeHuman's own).
 ISLAND_SCALE = {'head': 1.55, 'torso': 1.0, 'arm': 1.25, 'leg': 1.0, 'hand': 0.9,
                 'foot': 0.8, 'mouth': 0.3, 'eye': 0.22}
@@ -183,6 +186,9 @@ bpy.ops.uv.pack_islands(rotate=True, rotate_method='ANY', scale=True, margin=0.0
 bpy.ops.object.mode_set(mode='OBJECT')
 
 # --- export the geometry -------------------------------------------------------
+import json  # noqa: E402
+with open(os.path.join(STAGE, 'body.json'), 'w') as fh:
+    json.dump({'proxy': BODY_PROXY}, fh)
 loop_new = np.zeros(len(me.loops) * 2, dtype=np.float32)
 me.uv_layers['new'].data.foreach_get('uv', loop_new)
 loop_new = loop_new.reshape(-1, 2)
@@ -290,6 +296,16 @@ scene.render.bake.margin = 2
 im = new_target('mask_class')
 bpy.ops.object.bake(type='EMIT')
 save(im, 'mask_class')
+# Which texels belong to ANY island (white), with no margin: build_kit.py
+# grows a shell's coverage only into texels outside every island, which closes
+# the filtering seam at an island's edge without painting a neighbour.
+for p_ in me.polygons:
+    for li in p_.loop_indices:
+        col.data[li].color = (1, 1, 1, 1)
+scene.render.bake.margin = 0
+im = new_target('mask_island')
+bpy.ops.object.bake(type='EMIT')
+save(im, 'mask_island')
 scene.render.bake.margin = 16
 
 # --- selected-to-active: brows, lashes, AO from the high-res body --------------

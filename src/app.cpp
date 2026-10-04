@@ -17779,7 +17779,10 @@ void App::drawCharacterGeneratorWindow() {
         // -- Body --------------------------------------------------------------
         if (ImGui::BeginTabItem("Body")) {
             dirty |= ImGui::SliderFloat("Gender", &p.gender, 0.0f, 1.0f, "%.2f");
-            if (ImGui::IsItemHovered()) ImGui::SetTooltip("0 = female, 1 = male");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("0 = female, 1 = male.\n"
+                                  "From 0.5 up the man's game mesh is used - same shape,\n"
+                                  "edge loops cut for a male chest.");
             dirty |= ImGui::SliderFloat("Age", &p.age, 0.0f, 1.0f, "%.2f");
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip("0 = baby (1 year), 0.19 = child (10),\n"

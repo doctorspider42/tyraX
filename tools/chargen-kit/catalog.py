@@ -97,12 +97,11 @@ CATALOG = [
     ('invbob', 'Inverted bob, bangs', 'hair', 'mesh', 'packs:hair01/hair/toigo_inverted_bob_with_bangs', {'cutout': True, 'sex': 'f'}),
     ('bun', 'Bun', 'hair', 'mesh', 'packs:hair01/hair/rehmanpolanski_hair_bun_brown', {'cutout': True, 'sex': 'f'}),
     ('wavy', 'Wavy', 'hair', 'mesh', 'packs:hair01/hair/faydaen_hair_1', {'cutout': True, 'sex': 'f'}),
-    ('long2', 'Long straight', 'hair', 'mesh', 'packs:hair01/hair/o4saken_long01', {'cutout': True, 'sex': 'f'}),
     ('frenchbraid', 'French braid', 'hair', 'mesh', 'packs:hair01/hair/elvs_french_braid_variation', {'cutout': True, 'sex': 'f'}),
     ('headband', 'Headband', 'hair', 'mesh', 'packs:hair01/hair/sonntag78_blond_with_headband', {'cutout': True, 'sex': 'f'}),
-    ('shag', 'Shaggy', 'hair', 'mesh', 'packs:hair01/hair/cortu_shaggy_green_hair', {'cutout': True, 'sex': ''}),
     # ---- gloves ----
     ('gloves', 'Short gloves', 'hands', 'shell', 'packs:gloves01/clothes/toigo_gloves_short', {'sex': ''}),
     ('gloves_long', 'Long gloves', 'hands', 'shell', 'packs:gloves01/clothes/toigo_gloves_long', {'sex': 'f'}),
     ('mma', 'Fighting gloves', 'hands', 'shell', 'packs:gloves01/clothes/learning_mma_fighting_gloves', {'sex': ''}),
 ]
+

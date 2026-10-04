@@ -47,23 +47,44 @@ struct TargetData {
     std::vector<float> joints;  // bones * 3
 };
 
-struct GarmentData {
-    Item item;
-    std::string kind;              // "shell" (moves body vertices) or "mesh"
+// What a garment is on ONE body: the vertices a shell pushes out, or how a
+// mesh item rides that body's triangles, and what it hides.
+struct GarmentBody {
     std::vector<int32_t> cover;    // body triangles this item hides
     std::vector<int32_t> inflIdx;  // shell: body vertices pushed out ...
     std::vector<float> inflDist;   // ... by this much along their normal (metres),
     std::vector<float> inflDistM;  // measured on the average woman / man (blended by gender)
-    // mesh: own triangles bound to the body surface
-    std::vector<int32_t> bindTri;  // body triangle per vertex
+    std::vector<int32_t> bindTri;  // mesh: body triangle per vertex
     std::vector<float> bindBary;   // 3 per vertex
     std::vector<float> bindOff;    // offset along the interpolated body normal
-    std::vector<int32_t> tri;      // 3 per triangle
-    std::vector<float> uv;         // 6 per triangle (Blender convention, v up)
     std::vector<uint8_t> joints, weights;  // 4 per vertex
+};
+
+struct GarmentData {
+    Item item;
+    std::string kind;              // "shell" (moves body vertices) or "mesh"
+    std::vector<int32_t> tri;      // mesh: 3 per triangle (the same mesh on every body)
+    std::vector<float> uv;         // 6 per triangle (Blender convention, v up)
     bool cutout = false;           // alpha-tested texture (hair)
-    int layer = 0;                 // stacking order of shells: higher is outer
+    int layer = 0;                 // stacking order: higher is outer
     float luma = 0.5f;             // mean luminance of its texture (the recolour pivot)
+    std::vector<GarmentBody> body; // one per Kit::bodies entry
+};
+
+// One game body. Body 0 is MakeHuman's female1605 proxy, body 1 (if present)
+// male1591: one topology cannot serve both - the female one's breast loops
+// give a man a bust. Every chunk of body N is named with its prefix ("" or
+// "m/"), images included ("img/m/skin/...").
+struct Body {
+    std::string prefix;
+    int verts = 0, tris = 0;
+    const float* pos = nullptr;      // verts * 3 (metres, MakeHuman orientation)
+    const int32_t* tri = nullptr;    // tris * 3
+    const float* uv = nullptr;       // tris * 6
+    const uint8_t* part = nullptr;   // tris (0 body, 1 eyes)
+    const uint8_t* joints = nullptr; // verts * 4
+    const uint8_t* weights = nullptr;
+    std::unordered_map<std::string, TargetData> targets;
 };
 
 struct Kit {
@@ -71,18 +92,12 @@ struct Kit {
     std::string error;
     std::unordered_map<std::string, Chunk> chunks;
 
-    int verts = 0, tris = 0, bones = 0;
-    const float* pos = nullptr;      // verts * 3 (metres, MakeHuman orientation)
-    const int32_t* tri = nullptr;    // tris * 3
-    const float* uv = nullptr;       // tris * 6
-    const uint8_t* part = nullptr;   // tris (0 body, 1 eyes)
-    const uint8_t* joints = nullptr; // verts * 4
-    const uint8_t* weights = nullptr;
+    std::vector<Body> bodies;
+    int bones = 0;
     std::vector<std::string> boneNames;
     const int32_t* parent = nullptr;
     const float* head = nullptr;     // bones * 3
 
-    std::unordered_map<std::string, TargetData> targets;
     struct SliderDef {
         Slider s;
         std::vector<std::string> neg, pos;
@@ -121,6 +136,52 @@ struct Kit {
     }
 };
 
+bool parseBody(Kit& k, Body& b) {
+    const std::string& P = b.prefix;
+    const Chunk* pc = k.find(P + "mesh/pos");
+    const Chunk* tc = k.find(P + "mesh/tri");
+    if (!pc || !tc) return k.error = "character kit has no body mesh '" + P + "'", false;
+    b.verts = (int)pc->count / 3;
+    b.tris = (int)tc->count / 3;
+    b.pos = (const float*)pc->data;
+    b.tri = (const int32_t*)tc->data;
+    b.uv = k.arr<float>(P + "mesh/uv", (size_t)b.tris * 6);
+    b.part = k.arr<uint8_t>(P + "mesh/part", (size_t)b.tris);
+    b.joints = k.arr<uint8_t>(P + "mesh/joints", (size_t)b.verts * 4);
+    b.weights = k.arr<uint8_t>(P + "mesh/weights", (size_t)b.verts * 4);
+    if (!b.uv || !b.part || !b.joints || !b.weights)
+        return k.error = "character kit mesh is incomplete", false;
+    for (int i = 0; i < b.tris * 3; ++i)
+        if (b.tri[i] < 0 || b.tri[i] >= b.verts)
+            return k.error = "character kit: triangle index out of range", false;
+    for (int i = 0; i < b.verts * 4; ++i)
+        if (b.joints[i] >= k.bones) return k.error = "character kit: bad joint index", false;
+
+    // Targets: every "<prefix>t/<name>/idx" chunk.
+    const std::string tp = P + "t/";
+    for (const auto& [name, c] : k.chunks) {
+        if (name.size() < tp.size() + 5 || name.compare(0, tp.size(), tp) != 0 ||
+            name.compare(name.size() - 4, 4, "/idx") != 0)
+            continue;
+        const std::string key = name.substr(tp.size(), name.size() - tp.size() - 4);
+        TargetData t;
+        const int32_t* idx = (const int32_t*)c.data;
+        t.idx.assign(idx, idx + c.count);
+        const int16_t* d = k.arr<int16_t>(tp + key + "/d", (size_t)c.count * 3);
+        const float* s = k.arr<float>(tp + key + "/s", 1);
+        const float* j = k.arr<float>(tp + key + "/j", (size_t)k.bones * 3);
+        if (!d || !s || !j) continue;
+        bool valid = true;
+        for (int32_t v : t.idx) valid &= v >= 0 && v < b.verts;
+        if (!valid) continue;
+        t.d.assign(d, d + c.count * 3);
+        t.scale = *s;
+        t.joints.assign(j, j + k.bones * 3);
+        b.targets.emplace(key, std::move(t));
+    }
+    return true;
+}
+
 bool parseKit(Kit& k) {
     const uint8_t* p = chargenkit::data();
     const size_t size = chargenkit::size();
@@ -158,23 +219,6 @@ bool parseKit(Kit& k) {
         k.chunks[name] = c;
     }
 
-    const Chunk* pc = k.find("mesh/pos");
-    const Chunk* tc = k.find("mesh/tri");
-    if (!pc || !tc) return k.error = "character kit has no body mesh", false;
-    k.verts = (int)pc->count / 3;
-    k.tris = (int)tc->count / 3;
-    k.pos = (const float*)pc->data;
-    k.tri = (const int32_t*)tc->data;
-    k.uv = k.arr<float>("mesh/uv", (size_t)k.tris * 6);
-    k.part = k.arr<uint8_t>("mesh/part", (size_t)k.tris);
-    k.joints = k.arr<uint8_t>("mesh/joints", (size_t)k.verts * 4);
-    k.weights = k.arr<uint8_t>("mesh/weights", (size_t)k.verts * 4);
-    if (!k.uv || !k.part || !k.joints || !k.weights)
-        return k.error = "character kit mesh is incomplete", false;
-    for (int i = 0; i < k.tris * 3; ++i)
-        if (k.tri[i] < 0 || k.tri[i] >= k.verts)
-            return k.error = "character kit: triangle index out of range", false;
-
     json::Value names;
     if (!k.parseJson("rig/names", names) || names.type != json::Value::Type::Array)
         return k.error = "character kit has no rig", false;
@@ -183,30 +227,15 @@ bool parseKit(Kit& k) {
     k.parent = k.arr<int32_t>("rig/parent", (size_t)k.bones);
     k.head = k.arr<float>("rig/head", (size_t)k.bones * 3);
     if (!k.parent || !k.head) return k.error = "character kit rig is incomplete", false;
-    for (int i = 0; i < k.verts * 4; ++i)
-        if (k.joints[i] >= k.bones) return k.error = "character kit: bad joint index", false;
 
-    // Targets: every "t/<name>/idx" chunk.
-    for (const auto& [name, c] : k.chunks) {
-        if (name.size() < 7 || name.compare(0, 2, "t/") != 0 ||
-            name.compare(name.size() - 4, 4, "/idx") != 0)
-            continue;
-        const std::string key = name.substr(2, name.size() - 6);
-        TargetData t;
-        const int32_t* idx = (const int32_t*)c.data;
-        t.idx.assign(idx, idx + c.count);
-        const int16_t* d = k.arr<int16_t>("t/" + key + "/d", (size_t)c.count * 3);
-        const float* s = k.arr<float>("t/" + key + "/s", 1);
-        const float* j = k.arr<float>("t/" + key + "/j", (size_t)k.bones * 3);
-        if (!d || !s || !j) continue;
-        bool valid = true;
-        for (int32_t v : t.idx) valid &= v >= 0 && v < k.verts;
-        if (!valid) continue;
-        t.d.assign(d, d + c.count * 3);
-        t.scale = *s;
-        t.joints.assign(j, j + k.bones * 3);
-        k.targets.emplace(key, std::move(t));
-    }
+    json::Value bl;
+    if (k.parseJson("bodies", bl) && !bl.arr.empty())
+        for (const json::Value& v : bl.arr)
+            k.bodies.push_back(Body{v.find("prefix") ? v.find("prefix")->stringOr("") : ""});
+    else
+        k.bodies.push_back(Body{""});  // a single-body kit
+    for (Body& b : k.bodies)
+        if (!parseBody(k, b)) return false;
 
     json::Value sl;
     if (k.parseJson("sliders", sl))
@@ -247,47 +276,53 @@ bool parseKit(Kit& k) {
             if (const json::Value* c = v.find("color"); c && c->arr.size() >= 3)
                 g.item.color = Rgb{(float)c->arr[0].numberOr(0.5), (float)c->arr[1].numberOr(0.5),
                                    (float)c->arr[2].numberOr(0.5)};
-            const std::string pre = "g/" + g.item.id + "/";
-            auto ints = [&](const char* n, std::vector<int32_t>& out) {
-                if (const Chunk* c = k.find(pre + n)) {
+            auto ints = [&](const std::string& n, std::vector<int32_t>& out) {
+                if (const Chunk* c = k.find(n); c && c->type == 1) {
                     const int32_t* a = (const int32_t*)c->data;
                     out.assign(a, a + c->count);
                 }
             };
-            auto floats = [&](const char* n, std::vector<float>& out) {
-                if (const Chunk* c = k.find(pre + n)) {
+            auto floats = [&](const std::string& n, std::vector<float>& out) {
+                if (const Chunk* c = k.find(n); c && c->type == 0) {
                     const float* a = (const float*)c->data;
                     out.assign(a, a + c->count);
                 }
             };
-            auto bytes = [&](const char* n, std::vector<uint8_t>& out) {
-                if (const Chunk* c = k.find(pre + n)) out.assign(c->data, c->data + c->count);
+            auto bytes = [&](const std::string& n, std::vector<uint8_t>& out) {
+                if (const Chunk* c = k.find(n); c && c->type == 2)
+                    out.assign(c->data, c->data + c->count);
             };
-            ints("cover", g.cover);
-            ints("inflIdx", g.inflIdx);
-            floats("inflDist", g.inflDist);
-            floats("inflDistM", g.inflDistM);
-            if (g.inflDistM.size() != g.inflDist.size()) g.inflDistM = g.inflDist;
-            ints("bindTri", g.bindTri);
-            floats("bindBary", g.bindBary);
-            floats("bindOff", g.bindOff);
-            ints("tri", g.tri);
-            floats("uv", g.uv);
-            bytes("joints", g.joints);
-            bytes("weights", g.weights);
-            // Validate everything that indexes something else - a malformed
-            // kit must not become a heap read.
-            bool valid = g.inflIdx.size() == g.inflDist.size();
-            for (int32_t t : g.cover) valid &= t >= 0 && t < k.tris;
-            for (int32_t v : g.inflIdx) valid &= v >= 0 && v < k.verts;
-            const size_t gv = g.bindTri.size();
-            valid &= g.bindBary.size() == gv * 3 && g.bindOff.size() == gv;
-            for (int32_t t : g.bindTri) valid &= t >= 0 && t < k.tris;
-            for (int32_t i : g.tri) valid &= i >= 0 && (size_t)i < gv;
-            valid &= g.uv.size() == g.tri.size() * 2;
-            valid &= gv == 0 || (g.joints.size() == gv * 4 && g.weights.size() == gv * 4);
-            for (uint8_t j : g.joints) valid &= j < k.bones;
-            if (!valid || g.item.id.empty()) continue;
+            ints("g/" + g.item.id + "/tri", g.tri);
+            floats("g/" + g.item.id + "/uv", g.uv);
+            bool valid = !g.item.id.empty() && g.uv.size() == g.tri.size() * 2;
+            for (const Body& b : k.bodies) {
+                const std::string pre = b.prefix + "g/" + g.item.id + "/";
+                GarmentBody gb;
+                ints(pre + "cover", gb.cover);
+                ints(pre + "inflIdx", gb.inflIdx);
+                floats(pre + "inflDist", gb.inflDist);
+                floats(pre + "inflDistM", gb.inflDistM);
+                if (gb.inflDistM.size() != gb.inflDist.size()) gb.inflDistM = gb.inflDist;
+                ints(pre + "bindTri", gb.bindTri);
+                floats(pre + "bindBary", gb.bindBary);
+                floats(pre + "bindOff", gb.bindOff);
+                bytes(pre + "joints", gb.joints);
+                bytes(pre + "weights", gb.weights);
+                // Validate everything that indexes something else - a
+                // malformed kit must not become a heap read.
+                valid &= gb.inflIdx.size() == gb.inflDist.size();
+                for (int32_t t : gb.cover) valid &= t >= 0 && t < b.tris;
+                for (int32_t vv : gb.inflIdx) valid &= vv >= 0 && vv < b.verts;
+                const size_t gv = gb.bindTri.size();
+                valid &= gb.bindBary.size() == gv * 3 && gb.bindOff.size() == gv;
+                for (int32_t t : gb.bindTri) valid &= t >= 0 && t < b.tris;
+                for (int32_t i : g.tri) valid &= i >= 0 && (size_t)i < gv;
+                valid &= gv == 0 || (gb.joints.size() == gv * 4 && gb.weights.size() == gv * 4);
+                for (uint8_t j : gb.joints) valid &= j < k.bones;
+                if (g.kind == "mesh") valid &= gv > 0;
+                g.body.push_back(std::move(gb));
+            }
+            if (!valid) continue;
             (g.item.slot == "hair" ? k.hair : k.wardrobe).push_back(g.item);
             k.garments.push_back(std::move(g));
         }
@@ -592,9 +627,13 @@ const GarmentData* garment(const std::string& id) {
 // Recolours one texel: its luminance against the garment's average becomes
 // the shading, the dye the hue - so folds, seams and print survive a recolour
 // while the colour changes completely. `mask` (0..1) limits it.
-void dye(float* c, float mask, float luma, const Rgb& to) {
+// `contrast` < 1 flattens the shading toward the dye: hair textures are
+// strands over near-black gaps, and at full contrast a recoloured braid comes
+// out in tiger stripes.
+void dye(float* c, float mask, float luma, const Rgb& to, float contrast = 1.0f) {
     if (to.r < 0.0f || mask <= 0.0f) return;
-    const float l = (0.299f * c[0] + 0.587f * c[1] + 0.114f * c[2]) / luma;
+    float l = (0.299f * c[0] + 0.587f * c[1] + 0.114f * c[2]) / luma;
+    l = std::min(1.0f + (l - 1.0f) * contrast, 1.8f);
     const float t[3] = {to.r, to.g, to.b};
     for (int k = 0; k < 3; ++k) c[k] += (std::min(1.0f, l * t[k]) - c[k]) * mask;
 }
@@ -688,13 +727,21 @@ bool build(const Params& p, glbparser::Skel& out, std::vector<std::string>& warn
         error = k.error;
         return false;
     }
+    // Body 0 is the female topology, body 1 the male one: past the middle of
+    // the gender slider the male mesh takes over (the targets move both the
+    // same way, so the shape is continuous; only the edge loops change).
+    const int bi = (k.bodies.size() > 1 && p.gender >= 0.5f) ? 1 : 0;
+    const Body& b = k.bodies[bi];
+    auto L = [&](const std::string& name, std::shared_ptr<std::vector<uint8_t>>& keep) {
+        return layer(b.prefix + name, keep);
+    };
 
     // --- morph -----------------------------------------------------------------
-    std::vector<float> pos(k.pos, k.pos + (size_t)k.verts * 3);
+    std::vector<float> pos(b.pos, b.pos + (size_t)b.verts * 3);
     std::vector<float> heads(k.head, k.head + (size_t)k.bones * 3);
     for (const auto& [name, w] : targetWeights(p)) {
-        auto it = k.targets.find(name);
-        if (it == k.targets.end()) {
+        auto it = b.targets.find(name);
+        if (it == b.targets.end()) {
             warnings.push_back("kit has no target " + name);
             continue;
         }
@@ -706,11 +753,11 @@ bool build(const Params& p, glbparser::Skel& out, std::vector<std::string>& warn
             v[1] += t.d[i * 3 + 1] * s;
             v[2] += t.d[i * 3 + 2] * s;
         }
-        for (int b = 0; b < k.bones * 3; ++b) heads[b] += t.joints[b] * w;
+        for (int j = 0; j < k.bones * 3; ++j) heads[j] += t.joints[j] * w;
     }
 
     std::vector<float> nrm;
-    vertexNormals(pos, k.tri, k.tris, nrm);
+    vertexNormals(pos, b.tri, b.tris, nrm);
 
     // --- outfit: shells push body vertices out, items hide what they cover ---------
     // (garment, how it is worn) pairs, inner layers first so an outer shell's
@@ -727,8 +774,8 @@ bool build(const Params& p, glbparser::Skel& out, std::vector<std::string>& warn
             }
             wearing.push_back({g, w});
         }
-        std::stable_sort(wearing.begin(), wearing.end(), [](const auto& a, const auto& b) {
-            return a.first->layer < b.first->layer;
+        std::stable_sort(wearing.begin(), wearing.end(), [](const auto& x, const auto& y) {
+            return x.first->layer < y.first->layer;
         });
     }
     std::vector<const GarmentData*> worn;
@@ -737,28 +784,29 @@ bool build(const Params& p, glbparser::Skel& out, std::vector<std::string>& warn
         worn.push_back(g);
         all.push_back(w);
     }
-    std::vector<char> hidden((size_t)k.tris, 0);
-    std::vector<float> push((size_t)k.verts, 0.0f);
+    std::vector<char> hidden((size_t)b.tris, 0);
+    std::vector<float> push((size_t)b.verts, 0.0f);
     for (const GarmentData* g : worn) {
-        for (int32_t t : g->cover) hidden[t] = 1;
+        const GarmentBody& gb = g->body[bi];
+        for (int32_t t : gb.cover) hidden[t] = 1;
         const float male = std::clamp(p.gender, 0.0f, 1.0f);
-        for (size_t i = 0; i < g->inflIdx.size(); ++i) {
-            const float d = g->inflDist[i] + (g->inflDistM[i] - g->inflDist[i]) * male;
-            push[g->inflIdx[i]] = std::max(push[g->inflIdx[i]], d);
+        for (size_t i = 0; i < gb.inflIdx.size(); ++i) {
+            const float d = gb.inflDist[i] + (gb.inflDistM[i] - gb.inflDist[i]) * male;
+            push[gb.inflIdx[i]] = std::max(push[gb.inflIdx[i]], d);
         }
     }
     // A shell hides nothing - it IS the body, moved. Only mesh items hide.
-    for (int v = 0; v < k.verts; ++v)
+    for (int v = 0; v < b.verts; ++v)
         if (push[v] != 0.0f)
             for (int c = 0; c < 3; ++c) pos[(size_t)v * 3 + c] += nrm[(size_t)v * 3 + c] * push[v];
-    if (!worn.empty()) vertexNormals(pos, k.tri, k.tris, nrm);
+    if (!worn.empty()) vertexNormals(pos, b.tri, b.tris, nrm);
 
     // --- world transform: metres, feet on y = 0, scaled to the asked height -------
     float lo[3] = {1e30f, 1e30f, 1e30f}, hi[3] = {-1e30f, -1e30f, -1e30f};
-    for (int t = 0; t < k.tris; ++t) {
-        if (k.part[t] != 0) continue;
+    for (int t = 0; t < b.tris; ++t) {
+        if (b.part[t] != 0) continue;
         for (int c = 0; c < 3; ++c) {
-            const float* v = &pos[(size_t)k.tri[t * 3 + c] * 3];
+            const float* v = &pos[(size_t)b.tri[t * 3 + c] * 3];
             for (int a = 0; a < 3; ++a) {
                 lo[a] = std::min(lo[a], v[a]);
                 hi[a] = std::max(hi[a], v[a]);
@@ -771,38 +819,38 @@ bool build(const Params& p, glbparser::Skel& out, std::vector<std::string>& warn
     auto toWorld = [&](float* v) {
         for (int a = 0; a < 3; ++a) v[a] = (v[a] + offset[a]) * scale;
     };
-    for (int v = 0; v < k.verts; ++v) toWorld(&pos[(size_t)v * 3]);
-    for (int b = 0; b < k.bones; ++b) toWorld(&heads[(size_t)b * 3]);
+    for (int v = 0; v < b.verts; ++v) toWorld(&pos[(size_t)v * 3]);
+    for (int j = 0; j < k.bones; ++j) toWorld(&heads[(size_t)j * 3]);
 
     // --- rig: identity bind rotations, so the inverse bind is a translation --------
     out.nodes.resize(k.bones);
     out.palette.resize(k.bones);
-    for (int b = 0; b < k.bones; ++b) {
-        glbparser::SkelNode& n = out.nodes[b];
-        n.name = k.boneNames[b];
-        n.parent = k.parent[b];
+    for (int j = 0; j < k.bones; ++j) {
+        glbparser::SkelNode& n = out.nodes[j];
+        n.name = k.boneNames[j];
+        n.parent = k.parent[j];
         for (int a = 0; a < 3; ++a)
-            n.t[a] = heads[(size_t)b * 3 + a] - (n.parent >= 0 ? heads[(size_t)n.parent * 3 + a] : 0.0f);
-        glbparser::SkelJoint& j = out.palette[b];
-        j.node = b;
-        for (int a = 0; a < 4; ++a) j.ibm[a * 5] = 1.0f;
-        for (int a = 0; a < 3; ++a) j.ibm[12 + a] = -heads[(size_t)b * 3 + a];
+            n.t[a] = heads[(size_t)j * 3 + a] - (n.parent >= 0 ? heads[(size_t)n.parent * 3 + a] : 0.0f);
+        glbparser::SkelJoint& jt = out.palette[j];
+        jt.node = j;
+        for (int a = 0; a < 4; ++a) jt.ibm[a * 5] = 1.0f;
+        for (int a = 0; a < 3; ++a) jt.ibm[12 + a] = -heads[(size_t)j * 3 + a];
     }
 
     // --- the body part ---------------------------------------------------------------
     const int texSize = potSize(p.textureSize);
     glbparser::SkelPart body;
     body.material = "skin";
-    for (int t = 0; t < k.tris; ++t) {
+    for (int t = 0; t < b.tris; ++t) {
         if (hidden[t]) continue;
         for (int c = 0; c < 3; ++c) {
-            const int v = k.tri[t * 3 + c];
+            const int v = b.tri[t * 3 + c];
             for (int a = 0; a < 3; ++a) body.positions.push_back(pos[(size_t)v * 3 + a]);
             for (int a = 0; a < 3; ++a) body.normals.push_back(nrm[(size_t)v * 3 + a]);
-            body.uvs.push_back(k.uv[(size_t)t * 6 + c * 2]);
-            body.uvs.push_back(1.0f - k.uv[(size_t)t * 6 + c * 2 + 1]);
-            for (int i = 0; i < kMaxInfluences; ++i) body.joints.push_back(k.joints[(size_t)v * 4 + i]);
-            for (int i = 0; i < kMaxInfluences; ++i) body.weights.push_back(k.weights[(size_t)v * 4 + i]);
+            body.uvs.push_back(b.uv[(size_t)t * 6 + c * 2]);
+            body.uvs.push_back(1.0f - b.uv[(size_t)t * 6 + c * 2 + 1]);
+            for (int i = 0; i < kMaxInfluences; ++i) body.joints.push_back(b.joints[(size_t)v * 4 + i]);
+            for (int i = 0; i < kMaxInfluences; ++i) body.weights.push_back(b.weights[(size_t)v * 4 + i]);
             ++body.vertexCount;
         }
     }
@@ -828,9 +876,9 @@ bool build(const Params& p, glbparser::Skel& out, std::vector<std::string>& warn
                     const float w = eth[e] * g.weight * ag.weight;
                     if (w <= 0.0f) continue;
                     std::shared_ptr<std::vector<uint8_t>> keep;
-                    const uint8_t* img = layer(std::string("skin/") + ethNames[e] + "-" + g.name +
-                                                   "-" + ag.name,
-                                               keep);
+                    const uint8_t* img = L(std::string("skin/") + ethNames[e] + "-" + g.name +
+                                               "-" + ag.name,
+                                           keep);
                     if (!img) continue;
                     used += w;
                     for (size_t i = 0; i < n; ++i)
@@ -858,7 +906,7 @@ bool build(const Params& p, glbparser::Skel& out, std::vector<std::string>& warn
             for (int c = 0; c < 3; ++c)
                 m[c] *= wm > 0 ? 1.0f + (warm[c] - 1.0f) * wm : 1.0f + (rosy[c] - 1.0f) * -wm;
             std::shared_ptr<std::vector<uint8_t>> keepCls;
-            const uint8_t* cls = layer("class", keepCls);
+            const uint8_t* cls = L("class", keepCls);
             for (size_t i = 0; i < n; ++i) {
                 // Eyeballs keep their colour whatever the skin does.
                 if (cls && cls[i * 4 + 1] > 128 && cls[i * 4] < 128 && cls[i * 4 + 2] < 128) continue;
@@ -869,26 +917,26 @@ bool build(const Params& p, glbparser::Skel& out, std::vector<std::string>& warn
 
         std::shared_ptr<std::vector<uint8_t>> keep;
         // Face paint, under the brows and lashes.
-        tintOver(cv, layer("mask/lips", keep), 0, p.lipstick * 0.85f, p.lipColor);
-        tintOver(cv, layer("mask/eyeshadow", keep), 0, p.eyeShadow * 0.8f, p.eyeShadowColor);
-        tintOver(cv, layer("mask/cheeks", keep), 0, p.blush * 0.45f, Rgb{0.85f, 0.35f, 0.35f});
+        tintOver(cv, L("mask/lips", keep), 0, p.lipstick * 0.85f, p.lipColor);
+        tintOver(cv, L("mask/eyeshadow", keep), 0, p.eyeShadow * 0.8f, p.eyeShadowColor);
+        tintOver(cv, L("mask/cheeks", keep), 0, p.blush * 0.45f, Rgb{0.85f, 0.35f, 0.35f});
         {
             // Strong and dark: at 256 and below stubble is a few texels, and a
             // faint one simply is not there on the console.
             const Rgb dark{p.hairColor.r * 0.4f, p.hairColor.g * 0.4f, p.hairColor.b * 0.4f};
-            blendOver(cv, layer("mask/stubble", keep), 0, p.stubble * 0.95f, dark);
+            blendOver(cv, L("mask/stubble", keep), 0, p.stubble * 0.95f, dark);
         }
         if (p.brows >= 0 && p.brows < (int)k.brows.size()) {
             const Rgb c{p.hairColor.r * 0.75f, p.hairColor.g * 0.75f, p.hairColor.b * 0.75f};
-            blendOver(cv, layer("brow/" + k.brows[p.brows], keep), 0,
+            blendOver(cv, L("brow/" + k.brows[p.brows], keep), 0,
                       std::clamp(p.browDensity, 0.0f, 1.5f) * 0.92f, c);
         }
         if (p.lashes >= 0 && p.lashes < (int)k.lashes.size())
-            blendOver(cv, layer("lash/" + k.lashes[p.lashes], keep), 0, 0.85f,
+            blendOver(cv, L("lash/" + k.lashes[p.lashes], keep), 0, 0.85f,
                       Rgb{0.04f, 0.03f, 0.03f});
 
         // Ambient occlusion from the 13k-quad reference body.
-        if (const uint8_t* ao = layer("ao", keep))
+        if (const uint8_t* ao = L("ao", keep))
             for (size_t i = 0; i < n; ++i) {
                 const float o = 0.35f + 0.65f * px01(ao, i, 0);
                 for (int c = 0; c < 3; ++c) cv.rgb[i * 3 + c] *= o;
@@ -898,12 +946,12 @@ bool build(const Params& p, glbparser::Skel& out, std::vector<std::string>& warn
         // the iris (desaturated in the kit) takes the chosen colour.
         {
             std::shared_ptr<std::vector<uint8_t>> keepEye, keepIris;
-            const uint8_t* eye = layer("eye", keepEye);
-            const uint8_t* iris = layer("iris", keepIris);
+            const uint8_t* eye = L("eye", keepEye);
+            const uint8_t* iris = L("iris", keepIris);
             if (eye)
                 for (size_t i = 0; i < n; ++i) {
-                    const float a = px01(eye, i, 3);
-                    if (a <= 0.0f) continue;
+                    const float ea = px01(eye, i, 3);
+                    if (ea <= 0.0f) continue;
                     float c[3] = {px01(eye, i, 0), px01(eye, i, 1), px01(eye, i, 2)};
                     if (iris) {
                         const float m = px01(iris, i, 0);
@@ -912,7 +960,7 @@ bool build(const Params& p, glbparser::Skel& out, std::vector<std::string>& warn
                             c[q] += (std::min(1.0f, c[q] * col[q] * 2.4f) - c[q]) * m;
                     }
                     for (int q = 0; q < 3; ++q)
-                        cv.rgb[i * 3 + q] += (c[q] - cv.rgb[i * 3 + q]) * a;
+                        cv.rgb[i * 3 + q] += (c[q] - cv.rgb[i * 3 + q]) * ea;
                 }
         }
 
@@ -921,14 +969,14 @@ bool build(const Params& p, glbparser::Skel& out, std::vector<std::string>& warn
         for (size_t gi = 0; gi < worn.size(); ++gi) {
             const GarmentData* g = worn[gi];
             std::shared_ptr<std::vector<uint8_t>> kb;
-            const uint8_t* paint = layer("g/" + g->item.id + "/body", kb);
+            const uint8_t* paint = L("g/" + g->item.id + "/body", kb);
             if (!paint) continue;
             for (size_t i = 0; i < n; ++i) {
-                const float a = px01(paint, i, 3);
-                if (a <= 0.0f) continue;
+                const float pa = px01(paint, i, 3);
+                if (pa <= 0.0f) continue;
                 float c[3] = {px01(paint, i, 0), px01(paint, i, 1), px01(paint, i, 2)};
-                if (g->item.dyeable) dye(c, 1.0f, g->luma, all[gi].color);
-                for (int q = 0; q < 3; ++q) cv.rgb[i * 3 + q] += (c[q] - cv.rgb[i * 3 + q]) * a;
+                if (g->item.dyeable) dye(c, 1.0f, g->luma, all[gi].color, g->cutout ? 0.55f : 1.0f);
+                for (int q = 0; q < 3; ++q) cv.rgb[i * 3 + q] += (c[q] - cv.rgb[i * 3 + q]) * pa;
             }
         }
 
@@ -938,14 +986,14 @@ bool build(const Params& p, glbparser::Skel& out, std::vector<std::string>& warn
             const GarmentData* g = worn[gi];
             if (g->kind != "shell") continue;
             std::shared_ptr<std::vector<uint8_t>> kc;
-            const uint8_t* col = layer("g/" + g->item.id, kc);
+            const uint8_t* col = L("g/" + g->item.id, kc);
             if (!col) continue;
             const Wear& w = all[gi];
             for (int y = 0; y < kLayer; ++y)
                 for (int x = 0; x < kLayer; ++x) {
                     const size_t i = (size_t)y * kLayer + x;
-                    const float a = px01(col, i, 3);
-                    if (a <= 0.0f) continue;
+                    const float ca = px01(col, i, 3);
+                    if (ca <= 0.0f) continue;
                     float c[3] = {px01(col, i, 0), px01(col, i, 1), px01(col, i, 2)};
                     Rgb to = w.color;
                     if (w.pattern > 0) {
@@ -956,7 +1004,7 @@ bool build(const Params& p, glbparser::Skel& out, std::vector<std::string>& warn
                                  to.b + (w.color2.b - to.b) * f};
                     }
                     if (g->item.dyeable) dye(c, 1.0f, g->luma, to);
-                    for (int q = 0; q < 3; ++q) cv.rgb[i * 3 + q] += (c[q] - cv.rgb[i * 3 + q]) * a;
+                    for (int q = 0; q < 3; ++q) cv.rgb[i * 3 + q] += (c[q] - cv.rgb[i * 3 + q]) * ca;
                 }
         }
 
@@ -968,77 +1016,104 @@ bool build(const Params& p, glbparser::Skel& out, std::vector<std::string>& warn
     }
     out.parts.push_back(std::move(body));
 
-    // --- mesh items: their own geometry, riding the body's surface ----------------
-    for (size_t gi = 0; gi < worn.size(); ++gi) {
-        const GarmentData* g = worn[gi];
-        if (g->kind != "mesh" || g->tri.empty()) continue;
-        const size_t gv = g->bindTri.size();
-        std::vector<float> gp(gv * 3), gn;
-        for (size_t v = 0; v < gv; ++v) {
-            const int t = g->bindTri[v];
-            float s[3] = {0, 0, 0}, nn[3] = {0, 0, 0};
-            for (int c = 0; c < 3; ++c) {
-                const int bv = k.tri[t * 3 + c];
-                const float w = g->bindBary[v * 3 + c];
-                for (int a = 0; a < 3; ++a) {
-                    s[a] += pos[(size_t)bv * 3 + a] * w;
-                    nn[a] += nrm[(size_t)bv * 3 + a] * w;
-                }
-            }
-            const float l = std::sqrt(nn[0] * nn[0] + nn[1] * nn[1] + nn[2] * nn[2]);
-            for (int a = 0; a < 3; ++a)
-                gp[v * 3 + a] = s[a] + (l > 1e-9f ? nn[a] / l : 0.0f) * g->bindOff[v] * scale;
-        }
-        vertexNormals(gp, g->tri.data(), (int)g->tri.size() / 3, gn);
+    // --- mesh items: ONE part, ONE texture ----------------------------------------
+    // Every worn mesh item (hair, shoes, a hat, glasses, a skirt) rides the
+    // body's surface, and all of them share a single accessory atlas laid out
+    // as a grid of cells - a dressed character is two GS allocations and two
+    // submits, not five. The atlas is the body's size; a cell is a fraction.
+    std::vector<size_t> meshItems;
+    for (size_t gi = 0; gi < worn.size(); ++gi)
+        if (worn[gi]->kind == "mesh" && !worn[gi]->tri.empty()) meshItems.push_back(gi);
+    if (!meshItems.empty()) {
+        const int count = (int)meshItems.size();
+        const int cols = (int)std::ceil(std::sqrt((float)count));
+        const int rows = (count + cols - 1) / cols;
+        const int A = texSize;
+        const int cw = A / cols, ch = A / rows;
+        std::vector<uint8_t> atlas((size_t)A * A * 4, 0);
         glbparser::SkelPart part;
-        part.material = (g->cutout ? "hair:" : "cloth:") + g->item.id;
-        const size_t gt = g->tri.size() / 3;
-        for (size_t t = 0; t < gt; ++t)
-            for (int c = 0; c < 3; ++c) {
-                const int v = g->tri[t * 3 + c];
-                for (int a = 0; a < 3; ++a) part.positions.push_back(gp[(size_t)v * 3 + a]);
-                for (int a = 0; a < 3; ++a) part.normals.push_back(gn[(size_t)v * 3 + a]);
-                part.uvs.push_back(g->uv[t * 6 + c * 2]);
-                part.uvs.push_back(1.0f - g->uv[t * 6 + c * 2 + 1]);
-                for (int i = 0; i < kMaxInfluences; ++i) part.joints.push_back(g->joints[(size_t)v * 4 + i]);
-                for (int i = 0; i < kMaxInfluences; ++i) part.weights.push_back(g->weights[(size_t)v * 4 + i]);
-                ++part.vertexCount;
+        bool anyCutout = false;
+        for (int m = 0; m < count; ++m) {
+            const size_t gi = meshItems[m];
+            const GarmentData* g = worn[gi];
+            const GarmentBody& gb = g->body[bi];
+            anyCutout |= g->cutout;
+            const int cx = (m % cols) * cw, cy = (m / cols) * ch;
+
+            // Geometry, riding the body.
+            const size_t gv = gb.bindTri.size();
+            std::vector<float> gp(gv * 3), gn;
+            for (size_t v = 0; v < gv; ++v) {
+                const int t = gb.bindTri[v];
+                float s[3] = {0, 0, 0}, nn[3] = {0, 0, 0};
+                for (int c = 0; c < 3; ++c) {
+                    const int bv = b.tri[t * 3 + c];
+                    const float w = gb.bindBary[v * 3 + c];
+                    for (int a = 0; a < 3; ++a) {
+                        s[a] += pos[(size_t)bv * 3 + a] * w;
+                        nn[a] += nrm[(size_t)bv * 3 + a] * w;
+                    }
+                }
+                const float l = std::sqrt(nn[0] * nn[0] + nn[1] * nn[1] + nn[2] * nn[2]);
+                for (int a = 0; a < 3; ++a)
+                    gp[v * 3 + a] = s[a] + (l > 1e-9f ? nn[a] / l : 0.0f) * gb.bindOff[v] * scale;
             }
-        // Its texture: own image, dyed; alpha kept (binary) only for cutouts.
-        int w = 0, h = 0;
-        std::shared_ptr<std::vector<uint8_t>> col = image("g/" + g->item.id, &w, &h);
-        if (col && w > 0 && h > 0) {
+            vertexNormals(gp, g->tri.data(), (int)g->tri.size() / 3, gn);
+            const size_t gt = g->tri.size() / 3;
+            for (size_t t = 0; t < gt; ++t)
+                for (int c = 0; c < 3; ++c) {
+                    const int v = g->tri[t * 3 + c];
+                    for (int a = 0; a < 3; ++a) part.positions.push_back(gp[(size_t)v * 3 + a]);
+                    for (int a = 0; a < 3; ++a) part.normals.push_back(gn[(size_t)v * 3 + a]);
+                    // Into this item's cell, half a texel in from each edge so
+                    // bilinear filtering never reads the neighbouring cell.
+                    const float u = g->uv[t * 6 + c * 2], vv = 1.0f - g->uv[t * 6 + c * 2 + 1];
+                    part.uvs.push_back((cx + 0.5f + u * (cw - 1.0f)) / (float)A);
+                    part.uvs.push_back((cy + 0.5f + vv * (ch - 1.0f)) / (float)A);
+                    for (int i = 0; i < kMaxInfluences; ++i) part.joints.push_back(gb.joints[(size_t)v * 4 + i]);
+                    for (int i = 0; i < kMaxInfluences; ++i) part.weights.push_back(gb.weights[(size_t)v * 4 + i]);
+                    ++part.vertexCount;
+                }
+
+            // Its texture into the cell: dyed, alpha binary for cutouts and
+            // opaque for everything else (StaPip alpha-tests "pass when alpha
+            // != 0", and the CLUT path loses soft gradients).
+            int w = 0, h = 0;
+            std::shared_ptr<std::vector<uint8_t>> col = image("g/" + g->item.id, &w, &h);
+            if (!col || w <= 0 || h <= 0) continue;
             const Wear& choice = all[gi];
-            const int outW = std::max(16, std::min(w, texSize)), outH = std::max(16, std::min(h, texSize));
-            const int fx = w / outW, fy = h / outH;
-            std::vector<uint8_t> rgba((size_t)outW * outH * 4);
-            for (int y = 0; y < outH; ++y)
-                for (int x = 0; x < outW; ++x) {
+            for (int y = 0; y < ch; ++y)
+                for (int x = 0; x < cw; ++x) {
+                    // Box-filter the source footprint of this cell texel.
+                    const int x0 = x * w / cw, x1 = std::max(x0 + 1, (x + 1) * w / cw);
+                    const int y0 = y * h / ch, y1 = std::max(y0 + 1, (y + 1) * h / ch);
                     float s[4] = {0, 0, 0, 0};
-                    for (int dy = 0; dy < fy; ++dy)
-                        for (int dx = 0; dx < fx; ++dx) {
-                            const size_t i = (size_t)(y * fy + dy) * w + (x * fx + dx);
+                    for (int sy = y0; sy < y1; ++sy)
+                        for (int sx = x0; sx < x1; ++sx) {
+                            const size_t i = (size_t)sy * w + sx;
                             float c[3] = {px01(col->data(), i, 0), px01(col->data(), i, 1),
                                           px01(col->data(), i, 2)};
-                            if (g->item.dyeable) dye(c, 1.0f, g->luma, choice.color);
+                            if (g->item.dyeable)
+                                dye(c, 1.0f, g->luma, choice.color, g->cutout ? 0.55f : 1.0f);
                             for (int q = 0; q < 3; ++q) s[q] += c[q];
                             s[3] += px01(col->data(), i, 3);
                         }
-                    const float inv = 1.0f / (float)(fx * fy);
-                    uint8_t* o = &rgba[((size_t)y * outW + x) * 4];
+                    const float inv = 1.0f / (float)((x1 - x0) * (y1 - y0));
+                    uint8_t* o = &atlas[((size_t)(cy + y) * A + (cx + x)) * 4];
                     for (int q = 0; q < 3; ++q)
                         o[q] = (uint8_t)std::clamp((int)std::lround(s[q] * inv * 255.0f), 0, 255);
-                    // StaPip alpha-tests "pass when alpha != 0": a solid item
-                    // must be fully opaque or it punches holes; a cutout is
-                    // made BINARY (the CLUT path loses soft gradients).
                     o[3] = g->cutout ? (s[3] * inv >= 0.5f ? 255 : 0) : 255;
                 }
-            glbparser::Image img;
-            img.name = g->item.id;
-            img.png = encodePng(rgba, outW, outH);
-            part.image = (int)out.images.size();
-            out.images.push_back(std::move(img));
         }
+        // The material name carries the kind: "hair:" means alpha-tested (the
+        // editor preview draws it last), which is harmless for the opaque
+        // cells - their alpha is 255.
+        part.material = anyCutout ? "hair:accessories" : "cloth:accessories";
+        glbparser::Image img;
+        img.name = "accessories";
+        img.png = encodePng(atlas, A, A);
+        part.image = (int)out.images.size();
+        out.images.push_back(std::move(img));
         out.parts.push_back(std::move(part));
     }
 

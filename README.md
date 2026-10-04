@@ -339,7 +339,7 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
 - **[Character Generator](docs/character-generator.md)** — rigged, dressed,
   animated people at a PS2 hero budget: a game-topology body with real eyes and
   76 face/body sliders on top of MakeHuman's macros, one atlas with the face
-  given the texels (skin mix, makeup, stubble, brows), 85 garments and
+  given the texels (skin mix, makeup, stubble, brows), 83 garments and
   hairstyles that are either part of the body (shells - zero triangles, no skin
   poke-through) or bound to its surface, recolourable with patterns, and 87
   motion-captured clips. Randomize, a recipe beside every model, and

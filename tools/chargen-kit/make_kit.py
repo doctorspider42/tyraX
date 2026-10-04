@@ -3,8 +3,8 @@
     python make_kit.py <work_dir> [--blender <blender.exe>] [--skip-fetch]
 
   1. fetch_sources.py  -> <work_dir>/sources      (~1.3 GB of CC0 downloads)
-  2. kit_body.py       -> <work_dir>/stage        (Blender: atlas + layers)
-  3. kit_wear.py       -> <work_dir>/stage/wear   (Blender: 85 items)
+  2. kit_body.py  x2   -> <work_dir>/stage, stage_m   (Blender: each body's atlas + layers)
+  3. kit_wear.py  x2   -> <stage>/wear              (Blender: 83 items; the man's reuse the meshes)
   4. anim_retarget.py  -> <work_dir>/anims.json   (Blender: 87 clips)
   5. build_kit.py      -> resources/chargen-kit.bin
 
@@ -55,10 +55,16 @@ def main():
         run([sys.executable, os.path.join(HERE, 'fetch_sources.py'), src])
     bl = [blender, '-b', '--factory-startup', '--python']
     mh = os.path.join(src, 'mh-data')
-    run(bl + [os.path.join(HERE, 'kit_body.py'), '--', os.path.join(src, 'sys'), mh, stage, '1024',
-              os.path.join(src, 'targets')])
+    stage_m = os.path.join(work, 'stage_m')
+    # Two bodies: female1605 and male1591, each with its own atlas. The man's
+    # items reuse the woman's meshes and textures (--reuse-mesh) and only bind.
+    for st_, proxy in ((stage, 'female1605'), (stage_m, 'male1591')):
+        run(bl + [os.path.join(HERE, 'kit_body.py'), '--', os.path.join(src, 'sys'), mh, st_, '1024',
+                  os.path.join(src, 'targets'), proxy])
     run(bl + [os.path.join(HERE, 'kit_wear.py'), '--', os.path.join(src, 'sys'),
               os.path.join(src, 'packs'), mh, stage])
+    run(bl + [os.path.join(HERE, 'kit_wear.py'), '--', os.path.join(src, 'sys'),
+              os.path.join(src, 'packs'), mh, stage_m, '--reuse-mesh', stage])
     ual = os.path.join(src, 'ual')
     anims = os.path.join(work, 'anims.json')
     run(bl + [os.path.join(HERE, 'anim_retarget.py'), '--', anims,
@@ -68,7 +74,8 @@ def main():
                                      'Universal Animation Library 2 [Standard]', 'Unreal-Godot',
                                      'UAL2_Standard.glb'),
               '--mh', mh])
-    run([sys.executable, os.path.join(HERE, 'build_kit.py'), stage, mh, os.path.join(src, 'targets'),
+    run([sys.executable, os.path.join(HERE, 'build_kit.py'), stage + ',' + stage_m, mh,
+         os.path.join(src, 'targets'),
          os.path.join(REPO, 'resources', 'chargen-kit.bin'), anims])
 
 
