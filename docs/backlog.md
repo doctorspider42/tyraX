@@ -438,6 +438,9 @@ recovered 0.50-0.72 ms of hardware `work`. What it did not do, ranked:
   counters match V4; its own observer adds1.526–1.533ms, common costs unpriced.
   Unknown producer coverage remains; no seal/retirement or borrowing is granted.
   The [minimal physical scopes](tyrax2-minimal-scopes.md) now qualify both orders: terrain2.858–2.866ms, wheels0.304–0.306ms and first terrain core1.103–1.113ms inclusive. Wheel preparation is a smaller priority. Eight further boots qualify [Scene/completion/flush and the same-frame Core aggregate](tyrax2-frame-core-scopes-2026-10-04.json): about14ms lies inside Core, with3.28–3.54ms inclusive Scene residual. Next narrow the inner Core route; Renderer begin/end remain unmeasured by these pairs. Common observer work remains unpriced and phase contrasts change sign; no uniform subtraction or60FPS gain is accepted.
+
+  The [inner-work scopes](tyrax2-minimal-scopes.md#selected-inner-work-stripped-packages) and [dated record](tyrax2-inner-work-scopes-2026-10-04.json) qualify V5 stripped-package Work (1.126–1.149 ms) and V6 list-package Work (0.827–0.831 ms), plus the V7 dispatch tail. V7 dispatch-tail Work averages 7.167–7.329 ms; same-frame Scene minus that tail is 10.643–10.698 ms inclusive. Narrow the remaining routes using their own source/caller and dynamic clock controls before selecting an optimization. These are different intervals and apparatus versions: no cross-version gain, pure EE/GPU bill, uniform observer fee or ordinary 60 FPS acceptance.
+
   Storage classification alone grants no immutable borrowing rights.
   The [resumed candidate audit](tyrax2-ee-vu0.md#next-60-hz-candidates-host-controls-2026-10-03)
   rejects the broad beam cache as a demonstrated driving gain, identifies

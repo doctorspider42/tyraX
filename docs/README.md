@@ -429,6 +429,9 @@ not exact parity; no optimization is promoted.
 The [debugger execution map](tyrax2-pcsx2-debugger.md) records automated WSL/Xvfb
 control, exact raw-state register/call topology and terrain/road/wheel suspects.
 SaveState drains prevent hardware timing or FPS claims. The [selected physical scopes](tyrax2-minimal-scopes.md) qualify six ordinary PS2 boots: terrain2.858–2.866ms, wheels0.304–0.306ms and first terrain core1.103–1.113ms. The [frame/Core follow-up](tyrax2-frame-core-scopes-2026-10-04.json) adds eight physical boots: same-frame Core totals13.905–14.153ms inside Scene17.321–17.445ms, with3.284–3.540ms inclusive residual. Completion ownership qualifies only a tiny inclusive remainder after existing pacing. Common observer work and changing adaptive contexts remain unpriced; no60FPS gain is accepted.
+
+The [inner-work scopes](tyrax2-minimal-scopes.md#selected-inner-work-stripped-packages) and [dated record](tyrax2-inner-work-scopes-2026-10-04.json) qualify V5 stripped-package Work (1.126–1.149 ms) and V6 list-package Work (0.827–0.831 ms), plus the V7 dispatch tail. V7 dispatch-tail Work averages 7.167–7.329 ms; same-frame Scene minus that tail is 10.643–10.698 ms inclusive. Narrow the remaining routes using their own source/caller and dynamic clock controls before selecting an optimization. These are different intervals and apparatus versions: no cross-version gain, pure EE/GPU bill, uniform observer fee or ordinary 60 FPS acceptance.
+
 The [producer partition](tyrax2-producer-origin-census-2026-10-04.json) qualifies
 both PS2/emulator orders with unchanged original copied counters, an explicit
 UnknownBag bucket and separately priced incremental observer; labels do not

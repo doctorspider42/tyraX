@@ -58,3 +58,55 @@ Each contrast averages its320-loop tax window. Sign changes and adaptive respons
 ## Next work
 
 Narrow the Core-side route under stable selected geometry and actual adaptive flags, distinguishing existing wait seams from CPU preparation. Any optimization needs fresh source/native identity, functional and raster controls, and both-order physical timing with comparable instrumentation. Whole Renderer begin/end remain unmeasured by these pairs; retain their presentation/pacing ownership limits when selecting a further interval.
+
+## Selected inner work: stripped packages
+
+A fresh V5 fixture measures the actual `StaPipCore::renderStrippedPkgs` invocation inside its owning Core and Scene. Both physical orders completed 5400 loops against the same V5 ELF. All 768 records qualify 135 Core calls and 49794 summed bag vertices per sampled frame, with two actual Work calls per frame. The [inner-work machine record](tyrax2-inner-work-scopes-2026-10-04.json) binds raw logs, reversible UTF-8 copies, launch/evidence archives, source/native/ABI authority and independent reviews. Earlier V2/V3/V4 records remain unchanged.
+
+| Own On window | Scene mean, ms | Work sum mean, ms | Same-frame Scene minus Work, ms |
+| --- | --- | --- | --- |
+| Off/On/Off, middle |17.572401|1.149322|16.423079|
+| On/Off/On, first |17.580723|1.125855|16.454868|
+| On/Off/On, last |17.648479|1.149048|16.499431|
+
+These are inclusive physical COP0 Count intervals. Work covers the whole stripped-package function, including its dispatch, any strip-to-list expansion and inherited waits/preemption. It excludes preceding package creation and the Core tail after this call. The two Work intervals are disjoint and source guards check the same frame, Core ordinal and active Scene on entry and exit. Scene minus Work includes other Core routes, remaining Scene work and observer seams; it is not pure EE time or GPU utilisation. The geometry sum is a shape check, not upload/copy volume.
+
+Raw high 15 record bits carry actual Work-call counts. Read accounting remains dynamic: each timed sample uses 4+2 WorkCalls diagnostic reads; each On phase uses 518+2 sumWorkCalls; Off uses 6. The observed two calls mean 8 reads per timed sample and 1030 per On phase. MINPHASE/MINWORK reports emit at 1155, after the tax/sample windows. The common 8100-byte arrays,116 bytes of aggregate/Work global symbols, resets, depth/context checks and layout costs remain unpriced; symbol sizes do not describe padding or the whole runtime footprint.
+
+Four On-minus-Off non-pacing contrasts are +0.017620 / -0.073908 / +0.017884 / +0.038031 ms per 320-loop tax-window average. Outer spreads are 0.091528 /0.020147 ms. Interleave choices at 750/1155 are 1→1,0→1,1→0 in the first boot and 1→0,0→0,0→1 in reverse. Settled sparse flags cannot establish constant interior routes or equal full object state. Sign-changing contrasts do not justify a uniform observer fee. Same-ELF control applies within this pair; differences against V3/V4 or a later source version are not optimization gains or apparatus-free 60 FPS acceptance.
+
+## Selected inner work: list packages
+
+V6 relocates the single Work bracket to `StaPipCore::renderPkgs`. A new source manifest, native ELF and matching assets bind both completed 5400-loop physical orders; the scope headers and dynamic guard/clock mechanics are byte-identical to V5. The private helper is reached by the non-stripped partial-bag route. Its Work interval includes list-package iteration, nested subpackage creation/copy/clip, dispatch and inherited waits; it excludes preceding `packager.create` and the Core tail after the helper returns.
+
+| Own On window | Scene mean, ms | List Work sum mean, ms | Same-frame Scene minus Work, ms |
+| --- | --- | --- | --- |
+| Off/On/Off, middle |17.483474|0.830526|16.652948|
+| On/Off/On, first |17.571061|0.827182|16.743878|
+| On/Off/On, last |17.512576|0.826811|16.685765|
+
+All 768 records qualify the 135 Core/49794 vertex shape and five actual list Work calls per sampled frame. Dynamic accounting gives 14 reads per timed sample,1536 scope+262 cadence=1798 per On phase, versus 6 Off. These values come from actual raw counts, not a fixed-call assumption. Headers preserve the unpriced common arrays/state and observer mechanics described above.
+
+V6 On-minus-Off contrasts are -0.066420 / -0.110912 / +0.011904 / -0.016563 ms per tax-loop average; outer spreads 0.044492 /0.028467 ms. Both boots show interleave choices 0→0,0→1,0→0 at 750/1155. Same conditional-state limits apply: remaining Scene includes other routes and observer seams/waits, and neither Work nor the residual is pure EE or GPU utilisation.
+
+V5 and V6 bracket different functions in separate boots. Their Work or residual differences are not optimization gains, and their sums do not reconstruct a frame decomposition. Same-ELF controls apply only within each pair. V6's two emulator orders were separately qualified with normal saved night vehicle-entry images; V5 has one completed emulator order in this record; this is functional/shape evidence, not a physical observer price or fresh PS2 raster parity.
+
+## Selected inner work: the Core dispatch tail
+
+V7 moves the sole Work local into `StaPipCore::render`, immediately before `attribReplayStart`. It covers baked/retained lookup and replay, direct and partial dispatch, package creation and nested package helpers, final buffer flush/cache finalization, and the inherited telemetry tail. Head/bounds/preparation before that point are excluded. Two early returns precede construction; no return follows it. The later Work local is destroyed before the Core owner. Queued execution after return is outside this source bracket.
+
+| Own On window | Scene mean, ms | Dispatch tail sum mean, ms | Same-frame Scene minus tail, ms |
+| --- | --- | --- | --- |
+| Off/On/Off, middle | 17.971999 | 7.328954 | 10.643045 |
+| On/Off/On, first | 17.861910 | 7.166582 | 10.695328 |
+| On/Off/On, last | 17.873337 | 7.175225 | 10.698112 |
+
+Both new-ELF physical orders complete 5400 loops. All 768 records retain 135 Core calls / 49794 vertices, but actual Work coverage is 134 tail entries per sampled frame. It must not be silently relabeled as all 135 Core entries. The earlier-returned Core is not attributed to a specific bag by this record. Dynamic accounting yields 272 diagnostic reads per timed sample, 34560 scope plus 262 cadence reads = 34822 per On phase, versus 6 Off. The unchanged common arrays, state, guards and source/layout costs remain unpriced.
+
+V7's four net On-minus-Off contrasts are -0.094927 / -0.041797 / -0.106695 / -0.138852 ms per tax-loop average; outer spreads are 0.053130 / 0.032157 ms. All four are negative. The original pair proof retains a copied V6 sentence about sign changes; the consolidated V7 review explicitly supersedes that wording while preserving the evidence. Negative net contrasts and drift identify neither a fixed removable observer tax nor a renderer gain. Sparse interleave choices are 0→0, 0→0, 0→0 in the first boot and 0→0, 0→0, 1→0 in reverse. Full interior-route/state equality is not established.
+
+The measured 10.643–10.698 ms Scene-minus-tail interval contains earlier head/preparation, other Scene work, observer seams, waits and preemption. It is not an isolated CPU budget or pure EE/GPU time. V5 strip Work, V6 list Work and V7 dispatch tail use separate boots and source identities: do not add/subtract them into a decomposition or call their differences optimization gains. Same-ELF control applies only within each pair. No apparatus-free 60 FPS acceptance follows.
+
+## Next work after the inner scopes
+
+Bracket the remaining preparation/head paths and wait seams under stable selected geometry and actual adaptive flags. Preserve explicit caller/ownership and dynamic read coverage, with fresh frozen source/native/runtime authority for every changed apparatus. Before selecting an offload kernel or optimization, qualify functional/raster behavior and compare both physical orders with equivalent instrumentation. Keep the inclusive residual separate from a claimed removable cost.
