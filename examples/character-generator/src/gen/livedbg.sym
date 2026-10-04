@@ -2,7 +2,10 @@
 # Maps the node keys the running game reports (livedbg.bin) onto
 # scene objects (stable editor id) and flow-graph node ids.
 1
-hash 38dc49f33ed06566
+hash 9d4929a252788a82
 # The build this was generated with carries no debugger runtime.
-nodes 0
+nodes 3
+n 0 0 a71227f233380a3b 1 OnStart
+n 1 0 a71227f233380a3b 2 CharacterCreator
+n 2 0 a71227f233380a3b 3 OnButton
 vars 0

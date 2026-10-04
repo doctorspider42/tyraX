@@ -1,7 +1,7 @@
 {
   "name": "character-generator",
-  "formatVersion": 94,
-  "editorVersion": "1.169.0",
+  "formatVersion": 97,
+  "editorVersion": "1.176.0",
   "template": "fpp",
   "projectId": "8507910aa48421be",
   "settings": {

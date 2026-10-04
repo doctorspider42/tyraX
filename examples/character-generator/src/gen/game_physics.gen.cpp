@@ -2450,7 +2450,7 @@ void TerrainGame::renderMirroredObject(int index) {
     mirrorAnimMat = mirrorMat * g.animMat;
     g.animInfoBag->model = &mirrorAnimMat;
     for (ObjectGeometry::AnimPart& ap : g.animParts)
-      if (ap.bag && ap.bag->count > 0) stapip.core.render(ap.bag.get());
+      if (ap.bag && !ap.hidden && ap.bag->count > 0) stapip.core.render(ap.bag.get());
     g.animInfoBag->model = &g.animMat;
   }
 }
@@ -2834,7 +2834,7 @@ void TerrainGame::renderFeedObject(int index) {
     if (part.bag && !part.lodHidden) stapip.core.render(part.bag.get());
   if (og.animInfoBag && !og.animParts.empty())
     for (ObjectGeometry::AnimPart& ap : og.animParts)
-      if (ap.bag && ap.bag->count > 0) stapip.core.render(ap.bag.get());
+      if (ap.bag && !ap.hidden && ap.bag->count > 0) stapip.core.render(ap.bag.get());
 }
 
 
@@ -3510,7 +3510,7 @@ bool TerrainGame::renderOnePortalView(int pi) {
     }
     if (g.animInfoBag)
       for (ObjectGeometry::AnimPart& ap : g.animParts)
-        if (ap.bag && ap.bag->count > 0) stapip.core.render(ap.bag.get());
+        if (ap.bag && !ap.hidden && ap.bag->count > 0) stapip.core.render(ap.bag.get());
   };
   // Two-sided carry: if the object in the hands is passing through THIS
   // portal, its through-view draws it mapped to the FAR side - the half that

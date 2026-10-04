@@ -22,7 +22,9 @@ constexpr unsigned int SAVE_MAGIC = 0x56535954u;  // "TYSV"
 // renaming, reordering or deleting a fact leaves an existing
 // card readable - the rows that still match are restored and the
 // rest are ignored (docs/world-facts.md "Saving").
-constexpr int SAVE_VERSION = 4;
+// v5: playerLook - the look the in-game Character Creator gave
+// the player (docs/character-generator.md).
+constexpr int SAVE_VERSION = 5;
 
 // Runtime state of one save-flagged object (SceneObjectData.saveState).
 struct SaveObjectState {
@@ -40,6 +42,7 @@ struct alignas(64) SaveGameData {
   int scene;
   float playerPos[3];  // feet position
   float playerYaw;     // degrees
+  int playerLook[5];   // TerrainGame::playerLook
   int valueCount;
   float values[SAVE_VALUE_COUNT > 0 ? SAVE_VALUE_COUNT : 1];
   int textCount;

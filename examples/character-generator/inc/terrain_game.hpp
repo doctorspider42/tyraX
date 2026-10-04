@@ -370,8 +370,15 @@ class TerrainGame : public Tyra::Game {
       std::unique_ptr<Tyra::PipelineDirLightsBag> animLights;
       Tyra::Vec4 litColors[4];
       Tyra::Vec4 litDirs[3];
+      // A creator option this object is not wearing (applyLook): skinned
+      // with the rest, never drawn.
+      bool hidden = false;
     };
     std::vector<AnimPart> animParts;
+    // What applyLook last applied: the palette variant the texture bags point
+    // at, and RuntimeObject::look as of then (-9 = apply on the next frame).
+    int animVariant = 0;
+    int lookShown[4] = {-9, -9, -9, -9};
     std::unique_ptr<Tyra::StaPipInfoBag> animInfoBag;
     Tyra::M4x4 animMat;
     Tyra::M4x4 animLightMat;  // rotation/reflection only; scale is not light gain
@@ -381,6 +388,8 @@ class TerrainGame : public Tyra::Game {
     // without them simply keeps a still face), plus the smoothed state.
     s16 faceHead = -1, faceJaw = -1;
     s16 faceEye[2] = {-1, -1}, faceLid[2] = {-1, -1};
+    s16 faceBrow[2] = {-1, -1}, faceCorner[2] = {-1, -1};  // expressions
+    float emoteW[5] = {1.0F, 0.0F, 0.0F, 0.0F, 0.0F};       // eased weights
     bool faceLive = false;  // overrides set on animInst right now
     u32 faceSeed = 1;       // per-object LCG: blinks never synchronise
     float blinkIn = 2.0F;   // seconds to the next blink
@@ -503,6 +512,15 @@ class TerrainGame : public Tyra::Game {
     // the k-th .pal (nullptr = that part has none). Owned here.
     std::vector<std::vector<Tyra::Texture*>> variants;
     Tyra::CoreBBox cullBox;  // local AABB over all clips + margin (see load)
+    // In-game creator options (the generator's "opt-<slot>-<id>" textures;
+    // docs/character-generator.md, "In-game character creator"): per part
+    // its slot (0 = always drawn, 1 hair, 2 hat, 3 glasses) and its index in
+    // that slot; per slot the option count, the one worn as built (-1 =
+    // none) and each option's kit id.
+    std::vector<s8> optSlot, optIndex;
+    int optCount[4] = {0, 0, 0, 0};
+    int optDefault[4] = {-1, -1, -1, -1};
+    std::vector<std::string> optIds[4];
   };
   std::vector<GameAnimModel> gameAnimModels;
   void loadAnimModelAsset(int index);
@@ -510,6 +528,19 @@ class TerrainGame : public Tyra::Game {
   void setupAnimObject(int index);  // per-object instance + playback state
   void updateFace(int index, float dist2);  // blinks, look-at, talking jaw
   void updateSprings(int index, float dist2);  // ponytails and skirts swing
+  // In-game Character Creator (the Character Creator flow node).
+  void applyLook(int index);    // RuntimeObject::look -> hidden parts + palette
+  bool updateCharCreator();     // true while the creator screen owns the pad
+  void creatorCamera();         // frames the character while it is open
+  void renderCharCreator();
+  int creatorRows(int index, int* rows) const;  // the rows it offers
+  int creatorObj = -1;          // the object being dressed, -1 = closed
+  int creatorRow = 0;
+  int creatorRestore[4] = {-1, -2, -2, -2};  // its look when it opened (Circle)
+  float creatorYaw = 0.0F;      // the camera's turn around them, radians
+  // The PLAYER's look, kept across scene loads and saved with the game:
+  // [0] = the animated model it belongs to (-1 = none chosen), [1..4] = look.
+  int playerLook[5] = {-1, -1, -2, -2, -2};
   void updateAndRenderAnimObjects();
   // Dynamic lighting (docs/global-illumination.md): refills the light bag
   // of every opt-in object from the probe grid, once per frame.

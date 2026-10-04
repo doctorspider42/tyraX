@@ -79,6 +79,16 @@ struct RuntimeObject {
   // while > 0 (the talk() helper below). A playing clip whose name contains
   // "Talk" talks by itself; a sound emitter with a Speaker lip-syncs it.
   float talkTime = 0.0F;
+  // An expression on a generated character's face (the Emote node, the
+  // emote() helper): 0 neutral, 1 smile, 2 angry, 3 surprised, 4 sad - held
+  // for emoteTime seconds (< 0 = until changed), then back to neutral.
+  int emote = 0;
+  float emoteTime = 0.0F;
+  // A generated character's look (the in-game Character Creator, setLook()):
+  // look[0] = palette variant (-1 = as authored), look[1..3] = the hair /
+  // hat / glasses option worn (-2 = as built, -1 = none, k = the slot's k-th
+  // option). docs/character-generator.md, "In-game character creator".
+  int look[4] = {-1, -2, -2, -2};
 };
 
 inline bool physAsleep(const RuntimeObject& o) {
@@ -347,6 +357,11 @@ struct ScriptContext {
   // drives the "On Menu Event" trigger.
   int openMenu = -1;
   int menuEvent = -1;
+  // The in-game Character Creator: write an object index into openCreator
+  // to open it on that character (the game applies and clears it);
+  // creatorOpen reads true while it is up.
+  int openCreator = -1;
+  bool creatorOpen = false;
   // A flow event queued from OUTSIDE a menu row - today a credits roll whose
   // finish action is "fire a flow event". updateGameMenu promotes it into
   // menuEvent (the one place that clears it), so the trigger side needs to
@@ -452,6 +467,31 @@ inline void playAnimation(ScriptContext& ctx, int objectIndex,
 inline void talk(ScriptContext& ctx, int objectIndex, float seconds) {
   if (objectIndex < 0 || objectIndex >= ctx.objectCount) return;
   ctx.objects[objectIndex].talkTime = seconds > 0.0F ? seconds : 0.0F;
+}
+
+/** Puts an expression on a generated character's face: 0 neutral, 1 smile,
+ * 2 angry, 3 surprised, 4 sad, for `seconds` (<= 0 = until the next one).
+ * It eases in and out. Models without face bones ignore it. */
+inline void emote(ScriptContext& ctx, int objectIndex, int expression, float seconds) {
+  if (objectIndex < 0 || objectIndex >= ctx.objectCount) return;
+  RuntimeObject& o = ctx.objects[objectIndex];
+  o.emote = expression < 0 || expression > 4 ? 0 : expression;
+  o.emoteTime = seconds > 0.0F ? seconds : -1.0F;
+}
+
+/** A generated character's look: slot 0 = palette variant (-1 = as
+ * authored), 1 hair, 2 hat, 3 glasses (-2 = as built, -1 = none, k = the
+ * slot's k-th creator option). docs/character-generator.md. */
+inline void setLook(ScriptContext& ctx, int objectIndex, int slot, int value) {
+  if (objectIndex < 0 || objectIndex >= ctx.objectCount || slot < 0 || slot > 3) return;
+  ctx.objects[objectIndex].look[slot] = value;
+}
+
+/** Opens the in-game Character Creator on a generated character (one built
+ * with creator options or colour variants; the player when the object is
+ * neither). */
+inline void openCharacterCreator(ScriptContext& ctx, int objectIndex) {
+  ctx.openCreator = objectIndex < 0 ? 0x7fffffff : objectIndex;
 }
 
 /** Freezes an animated model object on its current pose. */

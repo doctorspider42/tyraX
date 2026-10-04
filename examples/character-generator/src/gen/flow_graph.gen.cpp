@@ -7,6 +7,7 @@
 #include "scripts/flow_nodes.hpp"  // custom-node C++ bodies
 #include "input_map.gen.hpp"  // On Action / Set Input Preset
 #include "facts.gen.hpp"  // World Facts store + save walks
+#include "scripts/navigation.gen.hpp"  // AI nodes (Patrol/Chase/Flee/On Player Seen)
 
 #include <math.h>
 #include <stdio.h>
@@ -83,6 +84,33 @@ bool factProfileDirty() {
   return false;
 }
 
-// No object has a flow graph yet.
+// Scene "main": graph of "player" (object 0)
+class FlowGraphScript_0_0 : public Script {
+ public:
+  void update(ScriptContext& ctx) override {
+    if (ctx.scene != 0) return;
+    if (ctx.sceneGeneration != generation) {
+      // scene was (re)loaded - back to the initial state
+      generation = ctx.sceneGeneration;
+      frame = 0;
+      started = false;
+    }
+    frame++;
+    if (!started) {
+      started = true;
+      openCharacterCreator(ctx, 0);
+    }
+    if (ctx.engine->pad.getClicked().Select) {
+      openCharacterCreator(ctx, 0);
+    }
+  }
+
+ private:
+  unsigned int generation = 0;
+  int frame = 0;
+  bool started = false;
+};
 
 }  // namespace Character_generator
+
+TYRA_SCRIPT(Character_generator::FlowGraphScript_0_0);

@@ -326,6 +326,10 @@ void TerrainGame::loop() {
   const bool saveMenuActive = updateSaveMenu();
   const bool gameMenuWasOpen = gameMenuIndex >= 0;  // before updateGameMenu()
   const bool gameMenuPausing = updateGameMenu();  // false for overlay menus
+  // The in-game Character Creator owns the pad but not the clock: the world
+  // (and the character being dressed) keeps moving behind it.
+  const bool creatorWasOpen = creatorObj >= 0;
+  const bool creatorOwnsPad = updateCharCreator() || creatorWasOpen;
   // Live Debugger (docs/live-debugger.md): the pump runs before anything reads
   // the halt, and a halt then freezes the world exactly the way a pausing menu
   // does - scripts, walker, particles and animation stop while frames keep
@@ -342,7 +346,8 @@ void TerrainGame::loop() {
   // menus, and the frame X closes a pausing menu): gameplay must not read that
   // same press too, or the X that drives the menu also makes the player jump.
   const bool menuOwnsPad =
-      saveMenuActive || gameMenuWasOpen || gameMenuIndex >= 0 || dbgHalted;
+      saveMenuActive || gameMenuWasOpen || gameMenuIndex >= 0 || dbgHalted ||
+      creatorOwnsPad;
   g_gameplayPaused = menuActive;  // freezes particles + animation playback
   // Option-block menu rows drive their bound engine settings every frame
   // (volume, deadzone, curve, display) - runs regardless of pause so a saved
@@ -634,6 +639,7 @@ void TerrainGame::loop() {
   } else {
     cameraUp = Tyra::Vec4(0.0F, 1.0F, 0.0F);  // a cutscene ending un-tilts
   }
+  creatorCamera();  // the Character Creator frames who it dresses
   // Camera Shake (flow node): arm, then decay. Both the eye AND the look-at
   // move by the same offset, so the shot wobbles without swinging the aim -
   // shaking only the eye would read as a lurching pan.
@@ -924,6 +930,7 @@ void TerrainGame::loop() {
     // scene and HUD (texts included), under the pause menus (no-op unless a
     // cutscene draws).
     sequences::renderOverlay(engine, scriptCtx);
+    renderCharCreator();
     renderGameMenu();
     renderSaveMenu();
     drawDebugHud(engine, cameraPosition, cameraLookAt);
@@ -1899,6 +1906,30 @@ void TerrainGame::loadAnimModelAsset(int i) {
   if (!model) return;  // stays empty - objects using it render nothing
   GameAnimModel& gam = gameAnimModels[i];
   gam.textures.assign(model->parts.size(), nullptr);
+  // Creator options: the generator names an option's texture
+  // "<stem>_opt-<slot>-<id>" ("_optd-" = worn as built).
+  gam.optSlot.assign(model->parts.size(), 0);
+  gam.optIndex.assign(model->parts.size(), -1);
+  for (size_t m = 0; m < model->parts.size(); ++m) {
+    const std::string& tp = model->parts[m].texturePath;
+    const size_t slash = tp.find_last_of("/\\");
+    size_t at = tp.find("_opt", slash == std::string::npos ? 0 : slash);
+    if (at == std::string::npos) continue;
+    at += 4;
+    const bool worn = at < tp.size() && tp[at] == 'd';
+    if (worn) ++at;
+    if (at >= tp.size() || tp[at] != '-') continue;
+    const size_t dash = tp.find('-', at + 1), dot = tp.find('.', at + 1);
+    if (dash == std::string::npos || dot == std::string::npos || dot <= dash) continue;
+    const std::string slot = tp.substr(at + 1, dash - at - 1);
+    const int s = slot == "hair" ? 1 : slot == "head" ? 2 : slot == "face" ? 3 : 0;
+    if (s == 0) continue;
+    gam.optSlot[m] = (s8)s;
+    gam.optIndex[m] = (s8)gam.optCount[s];
+    if (worn) gam.optDefault[s] = gam.optCount[s];
+    gam.optIds[s].push_back(tp.substr(dash + 1, dot - dash - 1));
+    ++gam.optCount[s];
+  }
   for (size_t m = 0; m < model->parts.size(); ++m) {
     const std::string& path = model->parts[m].texturePath;
     if (path.empty()) continue;

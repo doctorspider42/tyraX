@@ -31,7 +31,26 @@ inline const char* ANIM_MODEL_PATHS[ANIM_MODEL_COUNT > 0 ? ANIM_MODEL_COUNT : 1]
     "models/characters/elder.tskl",
     "models/characters/commuter.tskl",
 };
-inline const int ANIM_MODEL_VARIANTS[ANIM_MODEL_COUNT > 0 ? ANIM_MODEL_COUNT : 1] = {0, 0, 0, 0, 0, 0, 5};
+inline const int ANIM_MODEL_VARIANTS[ANIM_MODEL_COUNT > 0 ? ANIM_MODEL_COUNT : 1] = {3, 0, 0, 0, 0, 0, 5};
+
+struct CreatorLabel {
+  const char* id;
+  const char* label;
+};
+inline constexpr int CREATOR_LABEL_COUNT = 12;
+inline const CreatorLabel CREATOR_LABELS[CREATOR_LABEL_COUNT > 0 ? CREATOR_LABEL_COUNT : 1] = {
+    {"afro", "Afro"},
+    {"fedora", "Fedora"},
+    {"glasses1", "Glasses"},
+    {"long", "Long"},
+    {"messy", "Messy"},
+    {"newsboy", "Newsboy cap"},
+    {"roundglasses", "Round glasses"},
+    {"santa", "Santa hat"},
+    {"shades", "3D glasses"},
+    {"short1", "Short"},
+    {"short2", "Short side part"},
+    {"short4", "Buzz"}};
 
 // .mtl libraries assigned to primitives (first material = surface)
 inline constexpr int MATERIAL_COUNT = 0;

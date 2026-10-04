@@ -3723,7 +3723,8 @@ void TerrainGame::renderProjShadows() {
 #endif
     };
     if (anim) {
-      for (auto& ap : g.animParts) renderAtFloor(ap.bag.get());
+      for (auto& ap : g.animParts)
+        if (!ap.hidden) renderAtFloor(ap.bag.get());
     } else {
       for (GeoPart& part : g.parts)
         if (!part.lodHidden) renderAtFloor(casterBag(part));
