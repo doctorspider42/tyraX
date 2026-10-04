@@ -424,6 +424,9 @@ The [ordinary overlap record](tyrax2-direct-producer-overlap-2026-10-03.json)
 also retains both physical orders: common sampler 0, about 0.68–0.78 ms added
 nonpacing work, about 29.97 Hz rendered completion. Live state is provenance,
 not exact parity; no optimization is promoted.
+The [debugger execution map](tyrax2-pcsx2-debugger.md) records automated WSL/Xvfb
+control, exact raw-state register/call topology and terrain/road/wheel suspects.
+SaveState drains prevent hardware timing or FPS claims; paired PS2 scopes follow.
 The [producer partition](tyrax2-producer-origin-census-2026-10-04.json) qualifies
 both PS2/emulator orders with unchanged original copied counters, an explicit
 UnknownBag bucket and separately priced incremental observer; labels do not

@@ -1,5 +1,9 @@
 # TyraX2 EE preparation and VU0 audit
 
+## Debugger execution map, 2026-10-04
+
+Automated PCSX2 control now works through a separate WSL/Xvfb session. Independent raw-state audits close all135 core calls in one detailed frame by actual SP/RA. Core intervals occupy1722875of2129751 observed Scene cycles; wheels retain113259cycles outside core, whereas terrain and roads retain6541/22375. These are inclusive, heavily observed emulator intervals. SaveState drains VU/GS and changes later waits; no physical conversion or subtraction across the broader/detailed protocols is valid. The [acquisition and scope report](tyrax2-pcsx2-debugger.md) explains controls, tail calls and the minimal paired physical follow-up.
+
 ## Copied Bag producer partition, 2026-10-04
 
 The private V5 census completes both PS2 observer orders and both emulator orders: 384 records, 768 frozen Scene loops and three exact RGB/converted-alpha rasters per boot. Its twelve origin buckets partition the existing 129,360 copied Bag bytes per frame: UnknownBag86,448, LightReceiverBatch34,272, TerrainRoadBatch2,304, BeamCone1,728, Corona2,304 and ParticleFX2,304; the other six buckets are zero. UnknownBag means producer coverage remains incomplete. It is distinct from the storage category UnknownOther, which remains2,640 bytes. Pool remains39,840 bytes, and the original copied total remains171,840 bytes across421 REFs.

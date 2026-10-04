@@ -1,0 +1,233 @@
+{
+  "schema": 1,
+  "status": "PASS_emulator_diagnostic_scope_topology_only",
+  "productionChanged": false,
+  "hardwareTimingAccepted": false,
+  "emulator": "PCSX2 v2.9.93 Linux AppImage under owned Xvfb93",
+  "sourceCommit": "94d86c891b1621c0b252e4fc2e155bf90274dcc0",
+  "appImageSha256": "ae2360fd4250a3cb9fd78b2c834f02d998746a20c928a5e55ba7abfbae1fcbba",
+  "elfSha256": "6edb69f2d6bfa01b9ee5cf1a02b5d296ef7bdad54c5bcf4579aff03c52b4e68c",
+  "guestTextSha256": "01e38cf80955d2a431862fca5b40b095675e21f3111efe35f678275fb79a6c5d",
+  "registerLayout": {
+    "cpuSize": 1160,
+    "pc": 680,
+    "cycle": 1088,
+    "sp": 464,
+    "ra": 496,
+    "cp0Count": 580,
+    "delaySlot": 676
+  },
+  "qualifiedProtocols": {
+    "coarseV1": {
+      "frames": 3,
+      "states": 29
+    },
+    "broadV2": {
+      "frames": 3,
+      "states": 65
+    },
+    "perBagV4": {
+      "frames": 1,
+      "states": 357,
+      "coreCalls": 135,
+      "excludedOrphanReturnStops": 65
+    }
+  },
+  "perBagV4EmulatedCycles": {
+    "wholeLoop": 5156716,
+    "scene": 2129751,
+    "disjointCore": 1722875,
+    "sceneOutsideCore": 406876,
+    "scopeResiduals": [
+      {
+        "scope": "PHYSICS",
+        "inclusiveCycles": 1017,
+        "immediateChildrenCycles": 0,
+        "residualCycles": 1017
+      },
+      {
+        "scope": "VEHICLES",
+        "inclusiveCycles": 51396,
+        "immediateChildrenCycles": 0,
+        "residualCycles": 51396
+      },
+      {
+        "scope": "TERRAIN",
+        "inclusiveCycles": 369132,
+        "immediateChildrenCycles": 362591,
+        "residualCycles": 6541
+      },
+      {
+        "scope": "STATIC_BATCHES",
+        "inclusiveCycles": 133959,
+        "immediateChildrenCycles": 122295,
+        "residualCycles": 11664
+      },
+      {
+        "scope": "ROADS",
+        "inclusiveCycles": 319126,
+        "immediateChildrenCycles": 296751,
+        "residualCycles": 22375
+      },
+      {
+        "scope": "WHEELS",
+        "inclusiveCycles": 243268,
+        "immediateChildrenCycles": 130009,
+        "residualCycles": 113259
+      },
+      {
+        "scope": "POOLS",
+        "inclusiveCycles": 111598,
+        "immediateChildrenCycles": 97259,
+        "residualCycles": 14339
+      },
+      {
+        "scope": "PROJ_SHADOWS",
+        "inclusiveCycles": 69,
+        "immediateChildrenCycles": 0,
+        "residualCycles": 69
+      },
+      {
+        "scope": "BEAMS",
+        "inclusiveCycles": 121867,
+        "immediateChildrenCycles": 66653,
+        "residualCycles": 55214
+      },
+      {
+        "scope": "SCENE",
+        "inclusiveCycles": 2129751,
+        "immediateChildrenCycles": 1946336,
+        "residualCycles": 183415
+      }
+    ],
+    "coreByActualReturnPC": {
+      "0x153838": {
+        "hits": 1,
+        "inclusiveCycles": 80597
+      },
+      "0x1683b0": {
+        "hits": 3,
+        "inclusiveCycles": 17096
+      },
+      "0x169864": {
+        "hits": 1,
+        "inclusiveCycles": 2785
+      },
+      "0x13ab54": {
+        "hits": 9,
+        "inclusiveCycles": 239087
+      },
+      "0x13ac80": {
+        "hits": 9,
+        "inclusiveCycles": 123504
+      },
+      "0x11e964": {
+        "hits": 12,
+        "inclusiveCycles": 122295
+      },
+      "0x1799b4": {
+        "hits": 32,
+        "inclusiveCycles": 296751
+      },
+      "0x154600": {
+        "hits": 49,
+        "inclusiveCycles": 314416
+      },
+      "0x154728": {
+        "hits": 2,
+        "inclusiveCycles": 15095
+      },
+      "0x18f50c": {
+        "hits": 3,
+        "inclusiveCycles": 130009
+      },
+      "0x122190": {
+        "hits": 2,
+        "inclusiveCycles": 139320
+      },
+      "0x12585c": {
+        "hits": 1,
+        "inclusiveCycles": 97259
+      },
+      "0x122d50": {
+        "hits": 3,
+        "inclusiveCycles": 20455
+      },
+      "0x1265f4": {
+        "hits": 1,
+        "inclusiveCycles": 25684
+      },
+      "0x154968": {
+        "hits": 1,
+        "inclusiveCycles": 40969
+      },
+      "0x176258": {
+        "hits": 3,
+        "inclusiveCycles": 23915
+      },
+      "0x171da0": {
+        "hits": 1,
+        "inclusiveCycles": 17052
+      },
+      "0x185ca0": {
+        "hits": 1,
+        "inclusiveCycles": 7879
+      },
+      "0x1835a8": {
+        "hits": 1,
+        "inclusiveCycles": 8707
+      }
+    }
+  },
+  "sharedReturnStops": [
+    {
+      "sequence": 340,
+      "pc": 1395048,
+      "scopes": [
+        "RENDER_BAG",
+        "BEAMS"
+      ]
+    }
+  ],
+  "verifiedWrapperTailJumps": {
+    "0x179690": "0x1796c0",
+    "0x142750": "0x142d9c",
+    "0x125cf8": "0x126884"
+  },
+  "sourceCorrection": {
+    "callPC": "0x110a68",
+    "returnPC": "0x110a70",
+    "containingFunction": "renderProcChunks",
+    "actualCode": true,
+    "selectionAuthority": "Static legitimate conditional JAL; no observed current-frame CoreEntryRA authority."
+  },
+  "independentProofs": [
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\pcsx2-ee-execution-map-independent-review\\proof.json",
+      "sha256": "a053e254e58f2cbc4b846663f6942bb3a3dc743bcccfe35be4fe54f93e317ffa",
+      "status": "PASS_INDEPENDENT_THREE_FRAME_COARSE_EMULATED_CYCLE_TOPOLOGY"
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\pcsx2-ee-execution-map-independent-review\\proof-v2.json",
+      "sha256": "a6719a2a181f3853e1b53272f1b435fc0309605c8254b3cbe1c4f243ef80fd97",
+      "status": "PASS_INDEPENDENT_V2_THREE_FRAME_NESTED_EMULATED_CYCLE_TOPOLOGY"
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\pcsx2-ee-execution-map-independent-review\\proof-v4-final.json",
+      "sha256": "f76d8dcb112f90b8dffd1d70ab6a04b2db123d3a8f47fe4bc66683a2030ca41f",
+      "status": "PASS_INDEPENDENT_V4_ONE_FRAME_ACTUAL_SP_RA_CORE_SCOPE_TOPOLOGY"
+    }
+  ],
+  "capturePath": "F:\\Projects\\tyrax2-lab-20261001\\pcsx2-ee-execution-map-v1\\linux-scope-map-v4",
+  "limits": [
+    "SaveState CPU serialization precedes VU/GS subsystem drains; repeated paused CPU exact match proves these sampled CPU registers remained equal only.",
+    "SaveState drains pending VU/GS and screenshots may change subsequent waits. Inclusive emulated schedule cycles are observer-dependent.",
+    "No physical milliseconds, hardware function cost, host JIT profile, producer arithmetic-only cost, pixels or ordinary FPS qualification.",
+    "One fully bracketed V4 frame; earlier V1/V2 each contain three distinct warmed frames. No statistical performance generalization and no subtraction across capture protocols."
+  ],
+  "nextPhysicalTargets": [
+    "TerrainSubmit exact function entry/return",
+    "WheelsPrepareAndSubmit exact function entry/return"
+  ],
+  "optimizationAccepted": false
+}

@@ -4568,3 +4568,10 @@ serialized observer costs1.526–1.533ms; common tags/reset/layout remain unpric
 Use docs/tyrax2-producer-origin-census-2026-10-04.json. Next rank execution
 intervals and price a minimal selected physical scope; another broader byte
 census is not automatically the next step.
+
+Debugger execution map (2026-10-04): Linux PCSX2 under owned WSL/Xvfb93 is
+controllable via X11, unlike the failed Windows capture/input session. Exact
+version/layout/text/ZIP controls and actual SP/RA close135 core calls; count
+all tail calls and reject orphan returns. SaveState drains VU/GS, so decoded
+cycle intervals only rank suspects, never hardware milliseconds or FPS.
+See docs/tyrax2-pcsx2-debugger.md and its dated machine record before reuse.
