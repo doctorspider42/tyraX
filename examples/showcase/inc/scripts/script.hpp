@@ -158,6 +158,14 @@ struct ScriptContext {
   int redLightRuns = 0;
   int redLightNode = -1;
   float redLightSpeed = 0.0F;
+  // Breakable street furniture (docs/roads.md "Breakable furniture"): the
+  // props the PLAYER's car knocked over - the count, the last one's kind (0
+  // lamp, 1 tree, 2 bollard, 3 sign, 4 signal) and the car's speed then
+  // (units/s). The On Prop Broken flow node watches the count. A project
+  // without breakable furniture never writes them.
+  int propBreaks = 0;
+  int propBreakKind = -1;
+  float propBreakSpeed = 0.0F;
 
   // Index of the usable object the player pressed BTN_USE on this frame
   // (-1 = none). Drives the flow graph "On Used" trigger.

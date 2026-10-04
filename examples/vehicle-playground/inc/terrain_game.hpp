@@ -820,6 +820,8 @@ class TerrainGame : public Tyra::Game {
     // furniture chunk drawn by renderRoadLamps at night, never by
     // renderProcChunks.
     int lampLight = 0;
+    // Breakable furniture (docs/roads.md): this chunk's ROAD_FURN row.
+    int furnRow = -1;
   };
   std::vector<ProcChunk> procChunks;
   // --- street lamps and weather (docs/weather.md) ---
@@ -878,8 +880,34 @@ class TerrainGame : public Tyra::Game {
     // convention); mn/mx stay its world AABB for the cheap rejects. 0 = the
     // plain axis-aligned box mn/mx describe.
     float lhx = 0.0F, lhz = 0.0F, yc = 1.0F, ys = 0.0F;
+    // Breakable furniture (docs/roads.md): this box's ROAD_FURN_PIECES row.
+    int furn = -1;
   };
   std::vector<StaticBox> procColliders;
+  // --- breakable street furniture (docs/roads.md "Breakable furniture") ---
+  // One flag per ROAD_FURN_PIECES row (= per furniture box), cleared on a
+  // scene load: a prop that was knocked over stays down while its cell
+  // streams out and back in, and stands again on the next load.
+  std::vector<unsigned char> furnBroken_;
+  std::vector<unsigned char> furnLampDark_;  // per ROAD_LAMPS row (lit lamps)
+  int furnBrokenCount_ = 0;
+  int furnBreaks_ = 0;
+  void furnBreakReset();
+  bool furnBreakable(int piece, float spd) const;
+  bool furnBrokenAt(int piece) const;
+  // A broken piece's box keeps its slot (the sub-step gather cache and the
+  // streaming tags hold indices into procColliders) and moves out of reach.
+  static void furnBoxInert(StaticBox& b) {
+    b.mn[0] = b.mx[0] = 1.0e9F;
+    b.mn[2] = b.mx[2] = 1.0e9F;
+    b.mn[1] = b.mx[1] = -1.0e9F;
+    b.lhx = b.lhz = 0.0F;
+  }
+  ProcChunk* furnChunkOf(int row);
+  void furnCollapse(ProcChunk& c, int first, int count);
+  void furnBreakApplyChunk(ProcChunk& c);
+  void furnBreakContacts(int vi, const int* pieces, int n, float prevX, float prevZ);
+  void furnBreak(int piece, int vi, float spd);
   // Live prefab instances, so Despawn Prefab can find what it made.
   struct PrefabInstance {
     int prefab = -1;              // PREFAB_NAMES index, -1 = free slot

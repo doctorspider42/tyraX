@@ -704,6 +704,7 @@ void TerrainGame::buildRoads(int scene) {
       procChunks.push_back(ProcChunk());
       ProcChunk& c = procChunks.back();
       c.owner = -7;
+      c.furnRow = fi;
       c.drawDist = ROAD_FURN_DRAW_DISTANCE;
       c.stripRun = 0;
       c.lampLight = fr.light;
@@ -741,6 +742,8 @@ void TerrainGame::buildRoads(int scene) {
         sb.mx[a] = b[4 + a];
       }
       sb.owner = -7;
+      sb.furn = bi;
+      if (furnBrokenAt(bi)) furnBoxInert(sb);  // knocked over earlier
       sb.instance = -1;
       procColliders.push_back(sb);
       ++furnBoxes;
@@ -4141,6 +4144,10 @@ void TerrainGame::updateVehicles(float dt) {
     // "drive through the boxes" - the way it already does with another car.
     int pushIdx[8];
     int pushN = 0;
+    // Breakable furniture (docs/roads.md): boxes this car is fast enough
+    // to knock over - not walls; furnBreakContacts below.
+    int furnBrk[4];
+    int furnBrkN = 0;
     const float feet0 = v.pos[1] - s.rideHeight * SC;
     {
       const float spd = v.speed < 0.0F ? -v.speed : v.speed;
@@ -4206,6 +4213,10 @@ void TerrainGame::updateVehicles(float dt) {
         const float bhz = (oriented ? b.lhz : 0.5F * (b.mx[2] - b.mn[2])) + 0.35F;
         const float rr = reach + bhx + bhz;
         if (ddx * ddx + ddz * ddz >= rr * rr || wallBoxN >= 12) return;
+        if (b.furn >= 0 && furnBrkN < 4 && furnBreakable(b.furn, spd)) {
+          furnBrk[furnBrkN++] = b.furn;  // breakable furniture: not a wall
+          return;
+        }
         wallBox[wallBoxN++] = {wx, wz, bhx, bhz, b.yc, b.ys};
       };
       // SUB-STEP REUSE (TYRA_VEH_SUBSTEP_REUSE, docs/vehicles.md "Per-car EE
@@ -4973,6 +4984,7 @@ void TerrainGame::updateVehicles(float dt) {
       }
     }
     VEH_LAP(3);
+    if (furnBrkN > 0) furnBreakContacts(vi, furnBrk, furnBrkN, prevX, prevZ);
     // PHYSICS BODIES: momentum, not a wall (docs/vehicles.md). Every body
     // the gather set aside whose footprint (a disc of its wider half-extent)
     // reaches the car's body rectangle takes a velocity kick along the
@@ -7092,6 +7104,7 @@ void TerrainGame::renderRoadLamps() {
   };
   for (int li = roadLampFirst_; lampSprites && li < roadLampEnd_; ++li) {
     const float* L = &ROAD_LAMPS[(size_t)li * 10];
+    if (furnLampDark_[(size_t)li]) continue;  // knocked over (breakable furniture)
     const float dx = L[1] - ex, dy = L[2] - ey, dz = L[3] - ez;
     const float d2 = dx * dx + dy * dy + dz * dz;
     if (d2 > kRoadLampCoronaFar * kRoadLampCoronaFar) continue;
@@ -7165,6 +7178,259 @@ void TerrainGame::renderRoadLamps() {
 }
 
 
+
+// --- Breakable street furniture (docs/roads.md "Breakable furniture") -----
+// A car at or above a piece's threshold does not take its box as a wall
+// (considerProc sets it aside); after the wall pass, a set-aside box the car
+// body touches BREAKS: the box goes inert, the piece's vertices in its merged
+// chunk collapse to one point (one write of its own range - nothing is
+// rebuilt), a copy of them flies off as a vehicle debris piece, the car keeps
+// ROAD_FURN_PIECES[].keep of its speed, dust and sparks puff out of the car's
+// smoke pool and the hit sound plays. A lamp's pool and halo and a signal's
+// lit lens go out with it.
+static const int kFurnDebrisReserve = 192;   // vertices per debris slot (a lamp is 162)
+static const int kFurnDebrisMaxVerts = 1800; // bigger props vanish in dust only
+
+void TerrainGame::furnBreakReset() {
+  furnBroken_.assign(ROAD_FURN_PIECE_COUNT > 0 ? (size_t)ROAD_FURN_PIECE_COUNT : (size_t)1, 0);
+  furnLampDark_.assign(ROAD_LAMP_COUNT > 0 ? (size_t)ROAD_LAMP_COUNT : (size_t)1, 0);
+  furnBrokenCount_ = 0;
+  // The debris slots keep this capacity: a hit copies into them and does not
+  // allocate (a car's lost panel re-creates its slot, so it may grow again).
+  for (VehDebris& d : vehDebris_) {
+    d.local.reserve((size_t)kFurnDebrisReserve);
+    d.cols.reserve((size_t)kFurnDebrisReserve);
+    d.sts.reserve((size_t)kFurnDebrisReserve);
+  }
+  bool untextured = false;
+  for (auto& b : vehDebrisBatches_) untextured = untextured || b->tex == nullptr;
+  if (!untextured) vehDebrisBatches_.push_back(std::make_unique<VehDebrisBatch>());
+}
+
+bool TerrainGame::furnBreakable(int piece, float spd) const {
+  if (piece < 0 || piece >= ROAD_FURN_PIECE_COUNT || (size_t)piece >= furnBroken_.size())
+    return false;
+  const float t = ROAD_FURN_PIECES[piece].speed;
+  return t > 0.0F && spd >= t && !furnBroken_[(size_t)piece];
+}
+
+bool TerrainGame::furnBrokenAt(int piece) const {
+  return piece >= 0 && (size_t)piece < furnBroken_.size() && furnBroken_[(size_t)piece];
+}
+
+TerrainGame::ProcChunk* TerrainGame::furnChunkOf(int row) {
+  if (row < 0) return nullptr;
+  for (ProcChunk& c : procChunks)
+    if (c.owner == -7 && c.furnRow == row) return &c;
+  return nullptr;  // streamed out: its build collapses it (furnBreakApplyChunk)
+}
+
+// One piece's run of a merged chunk, every vertex moved onto its first: the
+// triangles have no area, the GS draws nothing, the chunk is not rebuilt.
+void TerrainGame::furnCollapse(ProcChunk& c, int first, int count) {
+  if (first < 0 || count <= 1 || (size_t)(first + count) > c.vertices.size()) return;
+  auto P = c.vertices.span((size_t)first, (size_t)count);
+  const Tyra::Vec4 a = P[0];
+  for (int k = 1; k < count; ++k) P[(size_t)k] = a;
+  if (c.bag) c.bag->bboxVersion = ++g_bboxStamp;
+}
+
+// A furniture chunk (or a lamp pool chunk) the road stream just built: the
+// pieces broken before it streamed out stay broken.
+void TerrainGame::furnBreakApplyChunk(ProcChunk& c) {
+  if (furnBrokenCount_ <= 0 || c.furnRow < 0) return;
+  int n = 0;
+  for (int i = 0; i < ROAD_FURN_PIECE_COUNT && (size_t)i < furnBroken_.size(); ++i) {
+    if (!furnBroken_[(size_t)i]) continue;
+    const RoadFurnPieceRt& p = ROAD_FURN_PIECES[i];
+    if (p.row == c.furnRow) furnCollapse(c, p.first, p.count), ++n;
+    if (p.poolRow == c.furnRow) furnCollapse(c, p.poolFirst, p.poolCount), ++n;
+  }
+  if (n > 0) TYRA_LOG("FURN restreamed row ", c.furnRow, " kept ", n, " broken piece(s) down");
+}
+
+// After the wall pass: the set-aside boxes the car body touches now, where
+// it was, or half way (the host twin is roadfurnbreak::touches).
+void TerrainGame::furnBreakContacts(int vi, const int* pieces, int n, float prevX,
+                                    float prevZ) {
+  VehicleRt& v = vehicles_[vi];
+  const VehicleDefData& s = VEHICLE_DEFS[v.def];
+  const float SC = v.scale;
+  const float hx = 0.5F * s.track * SC;
+  const float hz = 0.5F * s.wheelBase * SC + (s.bodyOverhang > 0.0F ? s.bodyOverhang * SC : 0.0F);
+  const float kDeg = 3.14159265F / 180.0F;
+  const float c = cosf(v.yaw * kDeg), sn = sinf(v.yaw * kDeg);
+  // The speed the car arrived with (before this frame's collisions).
+  const float spd = sqrtf(v.dmgPreV[0] * v.dmgPreV[0] + v.dmgPreV[1] * v.dmgPreV[1]);
+  for (int k = 0; k < n; ++k) {
+    const int piece = pieces[k];
+    if (furnBrokenAt(piece) || piece < 0 || piece >= ROAD_FURN_BOX_COUNT) continue;
+    const float* b = &ROAD_FURN_BOXES[(size_t)piece * 7];
+    const float bx = 0.5F * (b[1] + b[4]), bz = 0.5F * (b[3] + b[6]);
+    const float ex = 0.5F * (b[4] - b[1]), ez = 0.5F * (b[6] - b[3]);
+    const float r = ex > ez ? ex : ez;
+    bool hit = false;
+    for (int q = 0; q < 3 && !hit; ++q) {
+      const float f = q == 0 ? 1.0F : (q == 1 ? 0.5F : 0.0F);
+      const float px = prevX + (v.pos[0] - prevX) * f, pz = prevZ + (v.pos[2] - prevZ) * f;
+      const float dx = bx - px, dz = bz - pz;
+      const float lx = dx * c - dz * sn;
+      const float lz = dx * sn + dz * c;
+      hit = (lx < 0.0F ? -lx : lx) < hx + r && (lz < 0.0F ? -lz : lz) < hz + r;
+    }
+    if (hit) furnBreak(piece, vi, spd);
+  }
+}
+
+void TerrainGame::furnBreak(int piece, int vi, float spd) {
+  if (piece < 0 || piece >= ROAD_FURN_PIECE_COUNT || furnBrokenAt(piece)) return;
+  const u32 t0 = profTicks();
+  furnBroken_[(size_t)piece] = 1;
+  ++furnBrokenCount_;
+  ++furnBreaks_;
+  const RoadFurnPieceRt& p = ROAD_FURN_PIECES[piece];
+  VehicleRt& v = vehicles_[vi];
+  // 1. Its box: inert, in place (indices into procColliders stay valid).
+  for (StaticBox& sb : procColliders)
+    if (sb.owner == -7 && sb.furn == piece) furnBoxInert(sb);
+  const float* bx = &ROAD_FURN_BOXES[(size_t)piece * 7];
+  const float cx = 0.5F * (bx[1] + bx[4]), cz = 0.5F * (bx[3] + bx[6]);
+  // The way the car was going (the box's way when it was standing still).
+  float dx = v.dmgPreV[0], dz = v.dmgPreV[1];
+  float dl = sqrtf(dx * dx + dz * dz);
+  if (dl < 1e-3F) dx = cx - v.pos[0], dz = cz - v.pos[2], dl = sqrtf(dx * dx + dz * dz);
+  if (dl < 1e-4F) dx = 0.0F, dz = 1.0F, dl = 1.0F;
+  dx /= dl, dz /= dl;
+  // 2. Its vertices: a debris copy, then the merged chunk's range collapsed.
+  int debris = 0;
+  if (ProcChunk* ch = furnChunkOf(p.row)) {
+    if (p.count >= 3 && p.count <= kFurnDebrisMaxVerts &&
+        (size_t)(p.first + p.count) <= ch->vertices.size()) {
+      VehDebris& d = vehDebris_[vehDebrisNext_];
+      vehDebrisNext_ = (vehDebrisNext_ + 1) % kVehDebrisMax;
+      if (d.active)  // the oldest piece gives its slot up
+        for (auto& bp : vehDebrisBatches_)
+          if (bp->tex == d.tex) bp->dirty = 1;
+      d.active = 1;
+      d.rest = 0;
+      d.tex = nullptr;
+      d.local.clear();
+      d.cols.clear();
+      d.sts.clear();
+      const BagArray<Tyra::Vec4>& cv = ch->vertices;
+      const BagArray<Tyra::Color>& cc = ch->colors;
+      float mn[3] = {1e30F, 1e30F, 1e30F}, mx[3] = {-1e30F, -1e30F, -1e30F};
+      for (int k = 0; k < p.count; ++k) {
+        const Tyra::Vec4& q = cv[(size_t)(p.first + k)];
+        const float qq[3] = {q.x, q.y, q.z};
+        for (int a = 0; a < 3; ++a) {
+          if (qq[a] < mn[a]) mn[a] = qq[a];
+          if (qq[a] > mx[a]) mx[a] = qq[a];
+        }
+      }
+      float wc[3];
+      for (int a = 0; a < 3; ++a) wc[a] = 0.5F * (mn[a] + mx[a]);
+      for (int k = 0; k < p.count; ++k) {
+        const size_t at = (size_t)(p.first + k);
+        const Tyra::Vec4& q = cv[at];
+        d.local.push_back(Tyra::Vec4(q.x - wc[0], q.y - wc[1], q.z - wc[2], 1.0F));
+        d.cols.push_back(at < cc.size() ? cc[at] : Tyra::Color(128.0F, 128.0F, 128.0F, 128.0F));
+        d.sts.push_back(Tyra::Vec4(0.0F, 0.0F, 1.0F, 0.0F));
+      }
+      for (int a = 0; a < 3; ++a) {
+        d.pos[a] = wc[a];
+        d.vel[a] = 0.0F;
+        d.spin[a] = 0.0F;
+      }
+      for (int a = 0; a < 9; ++a) d.rot[a] = (a % 4 == 0) ? 1.0F : 0.0F;
+      d.low = wc[1] - mn[1];
+      d.thin = 0;
+      for (int a = 1; a < 3; ++a)
+        if (mx[a] - mn[a] < mx[d.thin] - mn[d.thin]) d.thin = a;
+      // Thrown along the car's way, up a little, tipping over forward (the
+      // axis up x forward) - the debris pass kicks it on out of the car and
+      // lays it down flat.
+      d.vel[0] = dx * (0.55F * spd + 1.0F);
+      d.vel[1] = 2.5F + 0.12F * spd;
+      d.vel[2] = dz * (0.55F * spd + 1.0F);
+      const float tip = 2.5F + 0.18F * spd;
+      d.spin[0] = dz * tip;
+      d.spin[1] = (piece & 1) ? 0.7F : -0.7F;
+      d.spin[2] = -dx * tip;
+      for (auto& bp : vehDebrisBatches_)
+        if (bp->tex == nullptr) bp->dirty = 1;
+      debris = p.count;
+    }
+    furnCollapse(*ch, p.first, p.count);
+  }
+  // The lamp's light: its halo and streak (renderRoadLamps skips it) and
+  // its pool, collapsed in its own chunk like the post.
+  if (p.lamp >= 0 && (size_t)p.lamp < furnLampDark_.size()) furnLampDark_[(size_t)p.lamp] = 1;
+  if (p.poolCount > 0)
+    if (ProcChunk* pc = furnChunkOf(p.poolRow)) furnCollapse(*pc, p.poolFirst, p.poolCount);
+  if (p.kind == 4) {
+    for (TfLamp& l : tfLamps_)
+      if (fabsf(l.x - cx) < 0.05F && fabsf(l.z - cz) < 0.05F) l.x = l.z = 1.0e9F;
+    tfLampSig_ = 0;
+  }
+  // 3. The car keeps going, a little slower.
+  v.speed *= p.keep;
+  v.lateral *= p.keep;
+  // 4. Dust at the foot of the pole, sparks off metal (not a tree), from the
+  //    car's own smoke pool - every vehicle project has one.
+  if (VehFx* fx = vehFxFor(v.def)) {
+    const float edx = cx - cameraPosition.x, edz = cz - cameraPosition.z;
+    if (edx * edx + edz * edz < 70.0F * 70.0F) {
+      const float y0 = bx[2] + 0.3F;
+      for (int b = 0; b < 8; ++b) {
+        const int sl = fx->takeSmoke();
+        const float a = (float)b * 2.39996F;
+        fx->smokePos[sl].set(cx, y0, cz, 1.0F);
+        fx->smokeVel[sl].set(cosf(a) * 1.4F + dx * 0.15F * spd, 0.7F + 0.1F * (float)(b % 3),
+                             sinf(a) * 1.4F + dz * 0.15F * spd, 0.0F);
+        fx->smokeMaxLife[sl] = 0.8F + 0.05F * (float)(b % 4);
+        fx->smokeLife[sl] = fx->smokeMaxLife[sl];
+        fx->smokeShade[sl] = 1.05F;
+        fx->smokeScale[sl] = 1.3F;
+      }
+      if (p.kind != 1)
+        for (int b = 0; b < 10; ++b) {
+          const int sl = fx->takeSmoke();
+          const float a = (float)b * 2.39996F;
+          fx->smokePos[sl].set(cx, y0 + 0.5F, cz, 1.0F);
+          fx->smokeVel[sl].set(cosf(a) * 3.0F + dx * 0.3F * spd, 2.0F + 0.4F * (float)(b % 3),
+                               sinf(a) * 3.0F + dz * 0.3F * spd, 0.0F);
+          fx->smokeMaxLife[sl] = 0.22F + 0.03F * (float)(b % 4);
+          fx->smokeLife[sl] = fx->smokeMaxLife[sl];
+          fx->smokeShade[sl] = 1.9F;
+          fx->smokeScale[sl] = 0.3F;
+        }
+    }
+  }
+  // 5. The hit, on the drive's reserved one-shot voice (base+20, the gear
+  //    shift's - a crash outranks a shift blip), quieter with distance.
+  if (p.snd >= 0 && p.snd < (int)sndSamples.size() && sndSamples[p.snd]) {
+    const float ddx = cx - cameraPosition.x, ddz = cz - cameraPosition.z;
+    const float far = sqrtf(ddx * ddx + ddz * ddz);
+    const float att = far < 60.0F ? 1.0F - far / 60.0F : 0.0F;
+    if (att > 0.02F) {
+      const s8 ch = (s8)(scriptCtx.reverbBusBase + 20);
+      engine->audio.adpcm.setVolume((u8)(90.0F * att * (float)scriptCtx.sfxVolume / 100.0F), ch);
+      engine->audio.adpcm.forcePlay(sndSamples[p.snd], ch);
+    }
+  }
+  // 6. The player's car scores it (the On Prop Broken flow node).
+  if (vi == vehicleDriver_) {
+    ++scriptCtx.propBreaks;
+    scriptCtx.propBreakKind = p.kind;
+    scriptCtx.propBreakSpeed = spd;
+  }
+  static const char* const kKind[5] = {"lamp", "tree", "bollard", "sign", "signal"};
+  TYRA_LOG("FURN break kind ", kKind[p.kind >= 0 && p.kind < 5 ? p.kind : 0], " speed ",
+           (int)(spd * 10.0F) / 10.0F, " piece ", piece, " car ", vi, " keep ",
+           (int)(p.keep * 100.0F + 0.5F), "% debris ", debris, " lamp ", p.lamp, " pool ",
+           p.poolCount, " broken ", furnBrokenCount_, " us ", (int)((profTicks() - t0) / 295U));
+}
 
 void TerrainGame::renderRoadChunks() {
 #if TYRA_FRAME_PROFILE

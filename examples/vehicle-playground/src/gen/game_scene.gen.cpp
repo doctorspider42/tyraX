@@ -1164,6 +1164,7 @@ void TerrainGame::loadScene(int sceneIndex) {
   // generated survives a scene switch), and the first placement of this call
   // sat ten lines above it - five road chunks built and wiped before the
   // first frame, a road only the boot log ever saw.
+  furnBreakReset();  // breakable furniture
   buildRoads(sceneIndex);
 
 

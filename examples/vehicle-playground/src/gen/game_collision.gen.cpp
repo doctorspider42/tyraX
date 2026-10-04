@@ -6396,6 +6396,10 @@ void TerrainGame::updateVehicles(float dt) {
     // "drive through the boxes" - the way it already does with another car.
     int pushIdx[8];
     int pushN = 0;
+    // Breakable furniture (docs/roads.md): boxes this car is fast enough
+    // to knock over - not walls; furnBreakContacts below.
+    int furnBrk[4];
+    int furnBrkN = 0;
     const float feet0 = v.pos[1] - s.rideHeight * SC;
     {
       const float spd = v.speed < 0.0F ? -v.speed : v.speed;
@@ -6461,6 +6465,10 @@ void TerrainGame::updateVehicles(float dt) {
         const float bhz = (oriented ? b.lhz : 0.5F * (b.mx[2] - b.mn[2])) + 0.35F;
         const float rr = reach + bhx + bhz;
         if (ddx * ddx + ddz * ddz >= rr * rr || wallBoxN >= 12) return;
+        if (b.furn >= 0 && furnBrkN < 4 && furnBreakable(b.furn, spd)) {
+          furnBrk[furnBrkN++] = b.furn;  // breakable furniture: not a wall
+          return;
+        }
         wallBox[wallBoxN++] = {wx, wz, bhx, bhz, b.yc, b.ys};
       };
       // SUB-STEP REUSE (TYRA_VEH_SUBSTEP_REUSE, docs/vehicles.md "Per-car EE
@@ -7228,6 +7236,7 @@ void TerrainGame::updateVehicles(float dt) {
       }
     }
     VEH_LAP(3);
+    if (furnBrkN > 0) furnBreakContacts(vi, furnBrk, furnBrkN, prevX, prevZ);
     // PHYSICS BODIES: momentum, not a wall (docs/vehicles.md). Every body
     // the gather set aside whose footprint (a disc of its wider half-extent)
     // reaches the car's body rectangle takes a velocity kick along the
@@ -9831,6 +9840,7 @@ void TerrainGame::buildRoads(int scene) {
       procChunks.push_back(ProcChunk());
       ProcChunk& c = procChunks.back();
       c.owner = -7;
+      c.furnRow = fi;
       c.drawDist = ROAD_FURN_DRAW_DISTANCE;
       c.stripRun = 0;
       c.lampLight = fr.light;
@@ -9868,6 +9878,8 @@ void TerrainGame::buildRoads(int scene) {
         sb.mx[a] = b[4 + a];
       }
       sb.owner = -7;
+      sb.furn = bi;
+      if (furnBrokenAt(bi)) furnBoxInert(sb);  // knocked over earlier
       sb.instance = -1;
       procColliders.push_back(sb);
       ++furnBoxes;
