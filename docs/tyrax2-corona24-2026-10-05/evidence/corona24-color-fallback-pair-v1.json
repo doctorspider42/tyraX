@@ -1,0 +1,46 @@
+{
+  "status": "PASS_ACTUAL_CORONA_SAVED_VU_OUTPUT_PAIR",
+  "case": 3,
+  "repeats": 1,
+  "packages": [
+    {
+      "count": 72,
+      "sourceOffset": 0,
+      "sprite": false,
+      "decodedSprites": 0,
+      "baselineOutputSha256": "98287e0832fa65c343e7ff97e04274ee7231dba643bf92e2bd3b01905426509c",
+      "candidateOutputSha256": "98287e0832fa65c343e7ff97e04274ee7231dba643bf92e2bd3b01905426509c",
+      "fogUnique": [
+        191
+      ],
+      "rgbaUnique": [
+        [
+          32,
+          65,
+          98,
+          128
+        ],
+        [
+          40,
+          65,
+          98,
+          128
+        ]
+      ]
+    }
+  ],
+  "sourceFinalEpochValidated": true,
+  "inputTopologyValidated": true,
+  "actualFogLightUniformsValidated": true,
+  "actualPositiveSpriteValidated": false,
+  "actualNegativeOutputWitnessValidated": true,
+  "splitPackageFallbackValidated": false,
+  "GSConsumptionRasterOrPerformanceAccepted": false,
+  "microcodeSha256": "3130f45b1f3ab4e87c3391a710aff58fa8d766bd6daf2ca716557bb6bd19e0a3",
+  "inputFiles": {
+    "/mnt/f/Projects/tyrax2-lab-20261001/corona-probe-v3-case3-arm0-repeat1-20261005-v3-launch/state.p2s": "9698f3ed49dc8e051b6e9ac5a6af6b929a1fac2b5ba9bc161a5fd22edf832814",
+    "/mnt/f/Projects/tyrax2-lab-20261001/corona-probe-v3-case3-arm1-repeat1-20261005-v3-launch/state.p2s": "aa9ecab1e00aefeb00f0cefc0ccd583216aae25daf7a2526a18316fba1f4b0bf",
+    "/mnt/f/Projects/tyrax2-lab-20261001/corona24-probe-runtime-v1/decode-vu1-output.py": "821eb8741810fa5861d37fbabcf56f733e552233f2c0440d23d77ba739811553"
+  },
+  "rootOwnedSourceNativeConfigProtocolRequired": true
+}

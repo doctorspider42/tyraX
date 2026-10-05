@@ -1,9 +1,11 @@
 # Private GS SPRITE corona experiment
 
-This implementation is not promoted. It cannot admit the unchanged ordinary
-night workload, and its separate 16-bit capability probe did not produce a
-SPRITE even when every completed quad satisfied the intended predicate.
-No physical timing benefit or positive SPRITE raster result is accepted.
+This implementation is not promoted. The original trial below failed ordinary
+Hybrid admission and separate Bits16 output. A subsequent
+[24-bit follow-up](#24-bit-follow-up-isolated-output-and-drawing-pixels-pass)
+now passes isolated SPRITE endpoints, triangle fallback controls and identical
+textured GS drawing pixels. Ordinary activation, Hybrid scanout and physical
+timing benefit remain unqualified.
 
 ## Candidate and native qualification
 
@@ -67,14 +69,65 @@ exact taken rejection branch was not traced. Naively adding three wait words at
 six sites needs 18 instructions and exceeds the current two-word resident margin.
 Any repair needs new scheduling, native residency and actual output/raster audits.
 
+## 24-bit follow-up: isolated output and drawing pixels pass
+
+The subsequent private experiment keeps the original Hybrid output and its
+24-bit vertex-depth scale. It does not switch the scene to Bits16. The original
+negative trial above and its archive remain unchanged.
+
+The depth predicate is justified for **reachable FTOI4 output**, not arbitrary
+28-bit integers. Exhausting 234,881,024 positive binary32 inputs in
+`[1/16, 2^24)` verifies that converting their truncated, sixteen-times-scaled
+integer back with ITOF0 is exact. Smaller nonnegative inputs produce zero.
+An arbitrary integer collision (`0x1000000` versus `0x1000001`) is a negative
+control: widening the guard alone would not establish correctness.
+
+The private TC build changes three discarded SUB destinations to existing
+scratch storage and pairs each of six FMAND readers with an upper ABS read of
+that SUB result. ABS preserves the arithmetic MAC flags; the VF dependency
+provides the required interlock. A strict TC-only postprocessor refuses changed
+allocation/scheduling. This adds no instruction words: TC remains 506, full
+VU1Clip residency including billboards remains 2,040 of 2,042 available words,
+and all fifteen other images match the baseline. Disabling SCE latency handling
+globally was tried separately and rejected at 2,064 resident words.
+
+Native V26/V27 bind two 502-input diagnostic fixtures, unchanged ABI, 298 assets
+and actual linked microprograms. Eight source-bound emulator captures cover:
+
+- A planar positive case: 72 original vertices become 24 endpoint vertices,
+  representing twelve SPRITEs. Completed ST/Q, RGBA and XYZ/F endpoints match
+  the original triangles exactly after active fog and spotlight processing.
+- Genuinely nonuniform final fog and final color: both retain the complete
+  original triangle output byte for byte.
+- Split 75/21-vertex packages: both fall back byte for byte.
+
+Two further captures add an **off-clock three-vblank observer** after the final
+render. The window remains black; that observation is retained and does not
+qualify Hybrid scanout. Instead, saved GS version-9 state provides the actual
+PSMCT32 drawing buffer. Saved FRAME0/SCISSOR0 bind its base, format, stride and
+448×448 extent; source-pinned GS swizzle tables decode the pixels. Both arms
+have identical complete RGBA drawing buffers, including 323 nonblack textured
+pixels in the 17×19 corona footprint. The enlarged image is a nearest-neighbor
+view of that actual decoded footprint, not a new render.
+
+**Result: the 24-bit isolated SPRITE route and positive drawing raster work.**
+This is not ordinary-scene activation, physical raster acceptance or an FPS
+measurement. No console deployment, pricing, production promotion or project
+format change was made in this follow-up. Correctness observer waits are not
+part of a pricing implementation.
+
+The [follow-up archive](tyrax2-corona24-2026-10-05/README.md) preserves exact
+source deltas, reconstructable inventories, rejected compiler attempts, actual
+packet comparisons, raw protocol records, native reviews and drawing images.
+
 ## Remaining work and preservation
 
-A future version needs a proved 24-bit depth-domain predicate, correct flag
-scheduling within the full resident budget, positive completed SPRITE output,
-visible texture/pixel controls, ordinary workload activation and both-order
-physical pricing. Removing guards or switching the pricing scene to Bits16
-would not satisfy these requirements. This trial says nothing about a universal
-PS2 limit or every possible GS SPRITE implementation.
+A production candidate still needs ordinary-workload acceptance coverage,
+Hybrid presentation checks and both-order physical pricing. The isolated
+follow-up addresses reachable depth, scheduling, completed output and positive
+drawing pixels; it does not cover every camera, depth, clipping or replay path.
+Removing guards or switching the pricing scene to Bits16 would not satisfy
+these requirements. These trials establish no universal PS2 performance limit.
 
 The [source and evidence archive](tyrax2-gs-sprite-coronas-2026-10-05/README.md)
 preserves exact source revisions, native budget failure/success, parser repair,

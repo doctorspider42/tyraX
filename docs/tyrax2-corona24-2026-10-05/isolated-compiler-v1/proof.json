@@ -1,0 +1,13 @@
+{
+  "command": [
+    "/home/spider/.cache/tyrax/native/toolchains/eff2c8918589264d49aa9a0f/bin/vcl",
+    "--schedule-flag-readers",
+    "--fmac-interlock",
+    "--emit-delay-fillers",
+    "--branch-interlock",
+    "/mnt/f/Projects/tyrax2-lab-20261001/wild-gs-sprite-corona-tc-native-v23-v6/artifacts/stapip_cull_tc_vu1.o.vcl"
+  ],
+  "exit": 0,
+  "inputSha256": "dd36848a5b104789ebd22e2c9745d0eaf0644e13c5897fd6382686e55f64b814",
+  "toolSha256": "c327d01abf7ab172bd6023c01e848342497e3a91ff12b4a2fe2f4c57c603addd"
+}

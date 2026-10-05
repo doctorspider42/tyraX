@@ -1,0 +1,59 @@
+{
+  "status": "PASS_ACTUAL_CORONA_SAVED_VU_OUTPUT_PAIR",
+  "case": 4,
+  "repeats": 3,
+  "packages": [
+    {
+      "count": 21,
+      "sourceOffset": 75,
+      "sprite": false,
+      "decodedSprites": 0,
+      "baselineOutputSha256": "2129921b81553d49e30e5d3c16c7d39db73d898b2a885a59df262b5d358b7190",
+      "candidateOutputSha256": "2129921b81553d49e30e5d3c16c7d39db73d898b2a885a59df262b5d358b7190",
+      "fogUnique": [
+        191
+      ],
+      "rgbaUnique": [
+        [
+          34,
+          65,
+          98,
+          128
+        ]
+      ]
+    },
+    {
+      "count": 75,
+      "sourceOffset": 0,
+      "sprite": false,
+      "decodedSprites": 0,
+      "baselineOutputSha256": "be0d2d5beb4b41f7e85b18a83a0df525d33ed9aaa00a0e9bd6e3c3a6f7990e9c",
+      "candidateOutputSha256": "be0d2d5beb4b41f7e85b18a83a0df525d33ed9aaa00a0e9bd6e3c3a6f7990e9c",
+      "fogUnique": [
+        191
+      ],
+      "rgbaUnique": [
+        [
+          34,
+          65,
+          98,
+          128
+        ]
+      ]
+    }
+  ],
+  "sourceFinalEpochValidated": true,
+  "inputTopologyValidated": true,
+  "actualFogLightUniformsValidated": true,
+  "actualPositiveSpriteValidated": false,
+  "actualNegativeOutputWitnessValidated": false,
+  "splitPackageFallbackValidated": true,
+  "GSConsumptionRasterOrPerformanceAccepted": false,
+  "microcodeSha256": "3130f45b1f3ab4e87c3391a710aff58fa8d766bd6daf2ca716557bb6bd19e0a3",
+  "inputFiles": {
+    "/mnt/f/Projects/tyrax2-lab-20261001/corona-probe-v3-case4-arm0-repeat3-20261005-v3-launch/state.p2s": "5bba147aa5c67ac863aaa0aa0d3834d1490c7fbcf8619be31699e4b18ae5e906",
+    "/mnt/f/Projects/tyrax2-lab-20261001/corona-probe-v3-case4-arm1-repeat3-20261005-v3-launch/state.p2s": "fa235e2aaeac558db35488ada04ff35e08fbaa44140dce073d27be7d26c8037e",
+    "/mnt/f/Projects/tyrax2-lab-20261001/corona24-probe-runtime-v1/decode-vu1-output.py": "821eb8741810fa5861d37fbabcf56f733e552233f2c0440d23d77ba739811553"
+  },
+  "rootOwnedSourceNativeConfigProtocolRequired": true
+}

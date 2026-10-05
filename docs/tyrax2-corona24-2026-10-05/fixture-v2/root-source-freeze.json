@@ -1,0 +1,8 @@
+{
+  "sourceManifestSha256": "84fa575bb8e4aae445ef8f28b6afda3586a59f4ebd53ce19436e53baf6e74cd1",
+  "sourceFiles": 502,
+  "diagnosticOnly": true,
+  "baseManifestSha256": "47707c33fdd360ecdb2990f77fe8fc00fc2c98639f97140dc64dec45ac046b56",
+  "onlyDelta": "game/inc/pool2_static_probe.hpp",
+  "offClockObserverVblanks": 3
+}

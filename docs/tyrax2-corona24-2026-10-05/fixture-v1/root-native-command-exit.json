@@ -1,0 +1,14 @@
+{
+    "parameters":  {
+                       "Toolchain":  "C:/Users/pawel/AppData/Local/tyra-editor/toolchain/ps2dev",
+                       "Cache":  "F:/Projects/tyrax2-lab-20261001/native-cache",
+                       "Engine":  "F:/Projects/tyrax2-lab-20261001/corona24-probe-physical-v1/tyra",
+                       "Project":  "F:/Projects/tyrax2-lab-20261001/corona24-probe-physical-v1/game"
+                   },
+    "errorLog":  "F:/Projects/tyrax2-lab-20261001/night-ablation-native-v26.err",
+    "buildLog":  "F:/Projects/tyrax2-lab-20261001/night-ablation-native-v26.log",
+    "pid":  40200,
+    "sourceManifestSha256":  "47707c33fdd360ecdb2990f77fe8fc00fc2c98639f97140dc64dec45ac046b56",
+    "status":  "ROOT_OBSERVED_NATIVE_CHILD_EXIT",
+    "processExitCode":  0
+}

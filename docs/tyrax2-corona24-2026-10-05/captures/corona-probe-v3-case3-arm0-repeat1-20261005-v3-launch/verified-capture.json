@@ -1,0 +1,85 @@
+{
+  "status": "PASS_OFFLINE_SINGLE_PAUSED_STATIC_PROBE_CAPTURE_ONLY",
+  "arm": 0,
+  "case": 3,
+  "repeats": 1,
+  "sourceManifestSha256": "47707c33fdd360ecdb2990f77fe8fc00fc2c98639f97140dc64dec45ac046b56",
+  "nativeProofSha256": "191910792c34ff0caded11d63960217768fd25ef3c78755392128007b4431cc8",
+  "symbols": {
+    "pool2ProbeHalt": {
+      "address": 1716624,
+      "bytes": 8,
+      "type": 2
+    },
+    "pool2ProbeReady": {
+      "address": 5249900,
+      "bytes": 4,
+      "type": 1
+    }
+  },
+  "registers": {
+    "pc": 1716624,
+    "cycle": 1043240226,
+    "cp0Count": 1043005927,
+    "spLow64": 33487856,
+    "raLow64": 1717716,
+    "isDelaySlot": 0
+  },
+  "readyMarker": "504f4f32",
+  "actualVuCountAndArmLayoutValidated": true,
+  "inputTopologyValidated": true,
+  "sourceFinalEpochValidated": true,
+  "actualFogLightUniformsValidated": true,
+  "actualCompletedOutputRouteValidated": true,
+  "finalEpoch": 1,
+  "actualMicrocodeSha256": "3130f45b1f3ab4e87c3391a710aff58fa8d766bd6daf2ca716557bb6bd19e0a3",
+  "vuMemorySha256": "b3afc7bf1450a495817a3766ba7184a710e2756ae60f661fb80249d2146053d0",
+  "finalPackageCounts": [
+    72
+  ],
+  "actualOutputWitnesses": {
+    "72": {
+      "marker": false,
+      "sprite": false,
+      "fogUnique": [
+        191
+      ],
+      "rgbaUnique": [
+        [
+          32,
+          65,
+          98,
+          128
+        ],
+        [
+          40,
+          65,
+          98,
+          128
+        ]
+      ]
+    }
+  },
+  "wholeArchiveMembersCRCValidated": true,
+  "configAndMTVUOffProfilePinned": true,
+  "guestTextUnchanged": true,
+  "elfSymTextEqual": true,
+  "files": {
+    "/home/spider/corona-probe-v3-case3-arm0-repeat1-20261005-v3/profile/PCSX2/sstates/vehicle-playground (8F787F06).236.p2s": "9698f3ed49dc8e051b6e9ac5a6af6b929a1fac2b5ba9bc161a5fd22edf832814",
+    "/mnt/f/Projects/tyrax2-lab-20261001/corona24-probe-physical-v1/game/bin/vehicle-playground.elf": "53872fde4ad620c38f4c949e426bc3e2154eb179093d0c78a50e5df7495fb90f",
+    "/mnt/f/Projects/tyrax2-lab-20261001/corona24-probe-physical-v1/game/bin/vehicle-playground.elf.sym": "4ed92e070913ececad0efdec3cf33094663afa263a61da324bad007ff83d97b7",
+    "/mnt/f/Projects/tyrax2-lab-20261001/corona-probe-v3-case3-arm0-repeat1-20261005-v3-launch/capture-report.json": "4bde128430577fdb8fa32c06d3ce11356b752c179d742f4395288681b46c6d45",
+    "/mnt/f/Projects/tyrax2-lab-20261001/corona-probe-v3-case3-arm0-repeat1-20261005-v3-launch/pool2-probe.cfg": "645668a400c071b0f24b3d5b8aef42ba5c848f9ff37e6e1cd5fd14793915b5d3",
+    "/home/spider/corona-probe-v3-case3-arm0-repeat1-20261005-v3/profile/PCSX2/inis/PCSX2.ini": "b432da312b3a7cd92756e335e4c7125646939d86a895eb416e826003c26c5319",
+    "/mnt/f/Projects/tyrax2-lab-20261001/corona24-probe-physical-v1/target-source-manifest.json": "47707c33fdd360ecdb2990f77fe8fc00fc2c98639f97140dc64dec45ac046b56",
+    "/mnt/f/Projects/tyrax2-lab-20261001/corona24-probe-native-root-review-v1/proof.json": "191910792c34ff0caded11d63960217768fd25ef3c78755392128007b4431cc8",
+    "/mnt/f/Projects/tyrax2-lab-20261001/corona24-probe-runtime-v1/verify-capture.py": "ef3c94f05e90b9ae7ea157d7a39667aeac411a33dd030f9e557ff4d0f257a02e"
+  },
+  "limitations": [
+    "Latest source colors identify the final epoch bank; an old other bank is excluded for single-package cases.",
+    "Native proof is pinned external authority; native acceptance requires its independent review.",
+    "Caller must bind source/native/profile/config to the exact owned launch and protocol ready/frame records.",
+    "Final requested source epoch is validated from saved actual input colors alongside completed output routing; intermediate epochs require their own captures.",
+    "One capture is not paired packed-output equality, GS consumption, raster or performance acceptance."
+  ]
+}

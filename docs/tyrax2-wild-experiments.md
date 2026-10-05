@@ -78,7 +78,11 @@ ordinary admission checks but remains unpromoted. The unchanged Hybrid scene
 uses depth outside its Bits16 guard; a separate capability probe requested the
 route but still emitted identical triangles despite valid completed quads.
 The actual schedule exposes an early MAC flag read. No positive SPRITE raster
-or physical gain is accepted; fixing depth/scheduling needs a new qualification.
+or physical gain was accepted in that original trial. The separate 24-bit
+follow-up now passes isolated completed SPRITE endpoints, nonuniform-fog/color
+and split-package triangle fallback, and identical textured GS drawing pixels.
+TC remains 506 words and full residency 2,040/2,042. This is still private:
+ordinary activation, Hybrid scanout and physical pricing remain unqualified.
 
 ## Preservation
 

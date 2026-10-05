@@ -1,0 +1,10 @@
+{
+  "status": "PASS_CORONA24_UNREACHABLE_Z_AND_CHANGED_SCHEDULE_NEGATIVE_CONTROLS",
+  "inputPins": {
+    "/mnt/f/Projects/tyrax2-lab-20261001/corona24-extra-controls-root-v1.py": "a2f877fe54f49c2bcf4b9d281abed875dbae05243c81c546319fe3c6b930b048",
+    "/mnt/f/Projects/tyrax2-lab-20261001/corona24-probe-runtime-v1/decode-vu1-output.py": "821eb8741810fa5861d37fbabcf56f733e552233f2c0440d23d77ba739811553",
+    "/mnt/f/Projects/tyrax2-lab-20261001/corona24-probe-physical-v1/tyra/engine/src/renderer/3d/pipeline/static/core/programs/cull/corona_flag_interlock.py": "ee6817c019831b8d89931c530db12ed48ec2e0edef9029e019bab0928718a017",
+    "/mnt/f/Projects/tyrax2-lab-20261001/wild-gs-sprite-corona-tc-native-v23-v6/artifacts/stapip_cull_tc_vu1.o.vsm": "db89f04a3b8b8f245ca0fea9c6fb01c03cb7e80bf4f047ad1cddf3e4076d5cbe"
+  },
+  "runtimeAccepted": false
+}

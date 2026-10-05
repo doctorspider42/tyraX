@@ -1,0 +1,127 @@
+src/audio/audio_adpcm.cpp: In function 'void Tyra::logVoiceState(const s8&)':
+src/audio/audio_adpcm.cpp:158:13: warning: unused variable 'voice' [-Wunused-variable]
+  158 |   const u16 voice = (u16)SD_VOICE(core, v);
+      |             ^~~~~
+src/renderer/3d/pipeline/static/core/stapip_qbuffer.cpp: In member function 'void Tyra::StaPipQBuffer::fillByCopyMax(const Tyra::StaPipBagPackage&, const Tyra::StaPipBagPackage&, const Tyra::StaPipBagPackage&)':
+src/renderer/3d/pipeline/static/core/stapip_qbuffer.cpp:201:11: warning: 'void* memcpy(void*, const void*, size_t)' writing to an object of type 'class Tyra::Vec4' with no trivial copy-assignment; use copy-assignment or copy-initialization instead [-Wclass-memaccess]
+  201 |     memcpy(vertices + offset, pkg->vertices, bytes);
+      |     ~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+In file included from inc/renderer/3d/pipeline/static/core/./bag/packaging/../stapip_bag.hpp:15,
+                 from inc/renderer/3d/pipeline/static/core/./bag/packaging/stapip_bag_package.hpp:13,
+                 from inc/renderer/3d/pipeline/static/core/stapip_qbuffer.hpp:16,
+                 from src/renderer/3d/pipeline/static/core/stapip_qbuffer.cpp:12:
+inc/math/vec4.hpp:24:7: note: 'class Tyra::Vec4' declared here
+   24 | class Vec4 {
+      |       ^~~~
+src/renderer/3d/pipeline/static/core/stapip_qbuffer.cpp:202:34: warning: 'void* memcpy(void*, const void*, size_t)' writing to an object of type 'class Tyra::Vec4' with no trivial copy-assignment; use copy-assignment or copy-initialization instead [-Wclass-memaccess]
+  202 |     if (pkg1.bag->texture) memcpy(sts + offset, pkg->sts, bytes);
+      |                            ~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+inc/math/vec4.hpp:24:7: note: 'class Tyra::Vec4' declared here
+   24 | class Vec4 {
+      |       ^~~~
+src/renderer/3d/pipeline/static/core/stapip_qbuffer.cpp:206:13: warning: 'void* memcpy(void*, const void*, size_t)' writing to an object of type 'class Tyra::Vec4' with no trivial copy-assignment; use copy-assignment or copy-initialization instead [-Wclass-memaccess]
+  206 |       memcpy(colors + offset, pkg->colors, bytes);
+      |       ~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+inc/math/vec4.hpp:24:7: note: 'class Tyra::Vec4' declared here
+   24 | class Vec4 {
+      |       ^~~~
+src/renderer/3d/pipeline/static/core/stapip_qbuffer.cpp:208:35: warning: 'void* memcpy(void*, const void*, size_t)' writing to an object of type 'class Tyra::Vec4' with no trivial copy-assignment; use copy-assignment or copy-initialization instead [-Wclass-memaccess]
+  208 |     if (pkg1.bag->lighting) memcpy(normals + offset, pkg->normals, bytes);
+      |                             ~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+inc/math/vec4.hpp:24:7: note: 'class Tyra::Vec4' declared here
+   24 | class Vec4 {
+      |       ^~~~
+src/renderer/3d/pipeline/static/core/stapip_qbuffer.cpp: In member function 'void Tyra::StaPipQBuffer::fillByCopy1By2(const Tyra::StaPipBagPackage&, const Tyra::StaPipBagPackage&)':
+src/renderer/3d/pipeline/static/core/stapip_qbuffer.cpp:238:11: warning: 'void* memcpy(void*, const void*, size_t)' writing to an object of type 'class Tyra::Vec4' with no trivial copy-assignment; use copy-assignment or copy-initialization instead [-Wclass-memaccess]
+  238 |     memcpy(vertices + offset, pkg->vertices, bytes);
+      |     ~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+inc/math/vec4.hpp:24:7: note: 'class Tyra::Vec4' declared here
+   24 | class Vec4 {
+      |       ^~~~
+src/renderer/3d/pipeline/static/core/stapip_qbuffer.cpp:239:34: warning: 'void* memcpy(void*, const void*, size_t)' writing to an object of type 'class Tyra::Vec4' with no trivial copy-assignment; use copy-assignment or copy-initialization instead [-Wclass-memaccess]
+  239 |     if (pkg1.bag->texture) memcpy(sts + offset, pkg->sts, bytes);
+      |                            ~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+inc/math/vec4.hpp:24:7: note: 'class Tyra::Vec4' declared here
+   24 | class Vec4 {
+      |       ^~~~
+src/renderer/3d/pipeline/static/core/stapip_qbuffer.cpp:243:13: warning: 'void* memcpy(void*, const void*, size_t)' writing to an object of type 'class Tyra::Vec4' with no trivial copy-assignment; use copy-assignment or copy-initialization instead [-Wclass-memaccess]
+  243 |       memcpy(colors + offset, pkg->colors, bytes);
+      |       ~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+inc/math/vec4.hpp:24:7: note: 'class Tyra::Vec4' declared here
+   24 | class Vec4 {
+      |       ^~~~
+src/renderer/3d/pipeline/static/core/stapip_qbuffer.cpp:245:35: warning: 'void* memcpy(void*, const void*, size_t)' writing to an object of type 'class Tyra::Vec4' with no trivial copy-assignment; use copy-assignment or copy-initialization instead [-Wclass-memaccess]
+  245 |     if (pkg1.bag->lighting) memcpy(normals + offset, pkg->normals, bytes);
+      |                             ~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+inc/math/vec4.hpp:24:7: note: 'class Tyra::Vec4' declared here
+   24 | class Vec4 {
+      |       ^~~~
+src/renderer/3d/pipeline/static/core/stapip_qbuffer.cpp: In member function 'void Tyra::StaPipQBuffer::fillByCopy1By3(const Tyra::StaPipBagPackage&)':
+src/renderer/3d/pipeline/static/core/stapip_qbuffer.cpp:269:9: warning: 'void* memcpy(void*, const void*, size_t)' writing to an object of type 'class Tyra::Vec4' with no trivial copy-assignment; use copy-assignment or copy-initialization instead [-Wclass-memaccess]
+  269 |   memcpy(vertices, pkg.vertices, bytes);
+      |   ~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+inc/math/vec4.hpp:24:7: note: 'class Tyra::Vec4' declared here
+   24 | class Vec4 {
+      |       ^~~~
+src/renderer/3d/pipeline/static/core/stapip_qbuffer.cpp:270:31: warning: 'void* memcpy(void*, const void*, size_t)' writing to an object of type 'class Tyra::Vec4' with no trivial copy-assignment; use copy-assignment or copy-initialization instead [-Wclass-memaccess]
+  270 |   if (pkg.bag->texture) memcpy(sts, pkg.sts, bytes);
+      |                         ~~~~~~^~~~~~~~~~~~~~~~~~~~~
+inc/math/vec4.hpp:24:7: note: 'class Tyra::Vec4' declared here
+   24 | class Vec4 {
+      |       ^~~~
+src/renderer/3d/pipeline/static/core/stapip_qbuffer.cpp:274:11: warning: 'void* memcpy(void*, const void*, size_t)' writing to an object of type 'class Tyra::Vec4' with no trivial copy-assignment; use copy-assignment or copy-initialization instead [-Wclass-memaccess]
+  274 |     memcpy(colors, pkg.colors, bytes);
+      |     ~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~
+inc/math/vec4.hpp:24:7: note: 'class Tyra::Vec4' declared here
+   24 | class Vec4 {
+      |       ^~~~
+src/renderer/3d/pipeline/static/core/stapip_qbuffer.cpp:276:32: warning: 'void* memcpy(void*, const void*, size_t)' writing to an object of type 'class Tyra::Vec4' with no trivial copy-assignment; use copy-assignment or copy-initialization instead [-Wclass-memaccess]
+  276 |   if (pkg.bag->lighting) memcpy(normals, pkg.normals, bytes);
+      |                          ~~~~~~^~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+inc/math/vec4.hpp:24:7: note: 'class Tyra::Vec4' declared here
+   24 | class Vec4 {
+      |       ^~~~
+src/save_system.gen.cpp: In function 'void Vehicle_playground::saveEnsureIcons()':
+src/save_system.gen.cpp:149:14: warning: unused variable 'sys' [-Wunused-variable]
+  149 |   const bool sys = mcCopyToCard("save/icon.sys", "icon.sys");
+      |              ^~~
+src/save_system.gen.cpp:150:14: warning: unused variable 'icn' [-Wunused-variable]
+  150 |   const bool icn = mcCopyToCard("save/list.icn", "list.icn");
+      |              ^~~
+In file included from src/terrain_game.cpp:4:
+inc/pool2_static_probe.hpp: In function 'void Pool2StaticProbe::init(Tyra::Engine*, Tyra::StaticPipeline&)':
+inc/pool2_static_probe.hpp:23:2: warning: this 'if' clause does not guard... [-Wmisleading-indentation]
+   23 |  if(!f)reject("missing_config");int got=fscanf(f,"%d %d %d %c",&a,&c,&r,&trailing);fclose(f);
+      |  ^~
+inc/pool2_static_probe.hpp:23:33: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'if'
+   23 |  if(!f)reject("missing_config");int got=fscanf(f,"%d %d %d %c",&a,&c,&r,&trailing);fclose(f);
+      |                                 ^~~
+inc/pool2_static_probe.hpp: In function 'void Pool2StaticProbe::loop(Tyra::Engine*, Tyra::StaticPipeline&)':
+inc/pool2_static_probe.hpp:52:2: warning: this 'if' clause does not guard... [-Wmisleading-indentation]
+   52 |  if(!initialized||completed>=repeats)reject("invalid_loop");++generation;bag.bboxVersion=generation;
+      |  ^~
+inc/pool2_static_probe.hpp:52:61: note: ...this statement, but the latter is misleadingly indented as if it were guarded by the 'if'
+   52 |  if(!initialized||completed>=repeats)reject("invalid_loop");++generation;bag.bboxVersion=generation;
+      |                                                             ^~
+src/gen/game_vehicles.gen.cpp: In member function 'void Vehicle_playground::TerrainGame::buildRoads(int)':
+src/gen/game_vehicles.gen.cpp:543:9: warning: variable 'y0' set but not used [-Wunused-but-set-variable]
+  543 |   float y0 = 0.0F;
+      |         ^~
+src/gen/game_vehicles.gen.cpp: In member function 'void Vehicle_playground::TerrainGame::updateVehicleDamage(float)':
+src/gen/game_vehicles.gen.cpp:2375:19: warning: unused variable 'moved' [-Wunused-variable]
+ 2375 |         const int moved = have ? vehicleDentApply(vi, dent) : 0;
+      |                   ^~~~~
+src/gen/game_vehicles.gen.cpp:2415:19: warning: unused variable 'us' [-Wunused-variable]
+ 2415 |         const u32 us = (profTicks() - t0) / 295u;
+      |                   ^~
+src/gen/game_vehicles.gen.cpp: In lambda function:
+src/gen/game_vehicles.gen.cpp:2952:9: warning: variable 'pick' set but not used [-Wunused-but-set-variable]
+ 2952 |     int pick = 0;
+      |         ^~~~
+src/gen/game_vehicles.gen.cpp: In member function 'void Vehicle_playground::TerrainGame::renderVehicleWheels()':
+src/gen/game_vehicles.gen.cpp:6036:13: warning: variable 'gap' set but not used [-Wunused-but-set-variable]
+ 6036 |         int gap[4], lift[4];
+      |             ^~~
+src/gen/game_vehicles.gen.cpp:6036:21: warning: variable 'lift' set but not used [-Wunused-but-set-variable]
+ 6036 |         int gap[4], lift[4];
+      |                     ^~~~

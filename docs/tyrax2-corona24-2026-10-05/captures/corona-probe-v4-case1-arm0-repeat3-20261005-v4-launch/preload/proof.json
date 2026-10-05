@@ -1,0 +1,25 @@
+{
+  "status": "PREPARED_SOURCE_DERIVED_SINGLE_EE_EXECUTE_BREAKPOINT_NOT_INSTALLED_OR_RUNTIME_ACCEPTED",
+  "pcsx2Tag": "v2.9.93",
+  "pcsx2Commit": "94d86c891b1621c0b252e4fc2e155bf90274dcc0",
+  "files": {
+    "/mnt/f/Projects/tyrax2-lab-20261001/corona24-probe-physical-v2/game/bin/vehicle-playground.elf": "bc16837b9f17627433e9e1a9eb92558d532cd83d7ed99e74851e472d7d1fae4f",
+    "/mnt/f/Projects/tyrax2-lab-20261001/corona24-probe-physical-v2/game/bin/vehicle-playground.elf.sym": "126ab3a44007eb8ba11f8f523b42f0191922e3da74776a0ee8de6fc77d0255f9",
+    "/mnt/f/Projects/tyrax2-lab-20261001/corona-probe-v4-case1-arm0-repeat3-20261005-v4-launch/preload/vehicle-playground_8058B7D0.json": "4c1c9dcddc32c2b58c124415288c65873a8a59ffeac1a083fd0571b69e762c18",
+    "/mnt/f/Projects/tyrax2-lab-20261001/wild-pool2-breakpoint-preload-v1/prepare-preload.py": "d5b47738ea7a284942fae3e239a60c5131647c94fa8eeff0f877e940afd49d69",
+    "/mnt/f/Projects/tyrax2-lab-20261001/wild-pool2-static-probe-design-v2/verify-capture.py": "17dfd81575a9c051a808a8f7ec21a10f2de300138277fcaf14e5e1b5a02ed8e9",
+    "/mnt/f/Projects/tyrax2-lab-20261001/wild-pool2-static-probe-design-v2/savestate-reader-pinned.py": "b9be5985c91802b7319df87c43eb99e0a313447d3106eecfce367218e51e0d52"
+  },
+  "haltPC": "001a3190",
+  "readyAddress": "00501b6c",
+  "pcsx2CRC": "8058B7D0",
+  "serial": "vehicle-playground",
+  "destination": "/home/spider/corona-probe-v4-case1-arm0-repeat3-20261005-v4/profile/PCSX2/inis/debuggersettings/vehicle-playground_8058B7D0.json",
+  "payloadSha256": "4c1c9dcddc32c2b58c124415288c65873a8a59ffeac1a083fd0571b69e762c18",
+  "noDiscElfOverrideRequired": true,
+  "startWithDebugger": true,
+  "preloadedBeforeBootRequired": true,
+  "sourceDerivedSettingsFormat": "Version0.01, eight string fields, TYPE8->BreakPoint rather than memcheck, enabled1, empty condition, default continueOnHitfalse/instrumentationfalse/maxHits0",
+  "runtimeLoadedBreakpointAndExactHaltPinePausedStateStillRequired": true,
+  "deviceOrUIOrProfileMutationInvoked": false
+}

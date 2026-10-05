@@ -1,0 +1,15 @@
+{
+  "pid": 2312,
+  "args": [
+    "/home/spider/tyrax2-debugger-linux-v1/squashfs-root/AppRun",
+    "-datapath",
+    "/home/spider/corona-probe-v3-case3-arm1-repeat1-20261005-v3/profile",
+    "-logfile",
+    "/home/spider/corona-probe-v3-case3-arm1-repeat1-20261005-v3/emulator.log",
+    "-debugger",
+    "-elf",
+    "/mnt/f/Projects/tyrax2-lab-20261001/corona24-probe-physical-v1/game/bin/vehicle-playground.elf"
+  ],
+  "reason": "completed-fixed-case-capture",
+  "completedProofSha256": "80359198e8c2bbe93793b1e39fb3fd33d0f6fc28ef78c7def98406aa76dc5248"
+}

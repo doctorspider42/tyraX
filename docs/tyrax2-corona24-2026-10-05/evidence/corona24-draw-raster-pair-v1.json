@@ -1,0 +1,53 @@
+{
+  "status": "PASS_OBSERVED_PSMCT32_DRAW_FRAMEBUFFER_PIXELS_EQUAL",
+  "decodedGSVersion": 9,
+  "rawLayoutBytes": 425,
+  "tailBytes": 84,
+  "width": 448,
+  "height": 448,
+  "base": 0,
+  "bufferWidthPages": 7,
+  "arms": [
+    {
+      "arm": 0,
+      "nonblackPixels": 323,
+      "nonblackBounds": [
+        216,
+        215,
+        233,
+        234
+      ],
+      "pixelSha256": "661fd807a4afc5cbac2416bc15a59f59ec3caf4171aeb842a90cbe3386ae014f"
+    },
+    {
+      "arm": 1,
+      "nonblackPixels": 323,
+      "nonblackBounds": [
+        216,
+        215,
+        233,
+        234
+      ],
+      "pixelSha256": "661fd807a4afc5cbac2416bc15a59f59ec3caf4171aeb842a90cbe3386ae014f"
+    }
+  ],
+  "exactRGBAEqual": true,
+  "inputPins": {
+    "/mnt/f/Projects/tyrax2-lab-20261001/corona-probe-v4-case1-arm0-repeat3-20261005-v4-launch/state.p2s": "ab541b4ad3ac99e3339ef39164fbc06faf559361428f2119f0ddf6af463f15a8",
+    "/mnt/f/Projects/tyrax2-lab-20261001/corona-probe-v4-case1-arm0-repeat3-20261005-v4-launch/completed-probe-proof.json": "a80c6bafe07454f0d021c1af963a9cb88be27814a8fff659b4f61115e5886646",
+    "/mnt/f/Projects/tyrax2-lab-20261001/corona-probe-v4-case1-arm1-repeat3-20261005-v4-launch/state.p2s": "a77c2483a729f43e5f7cd768970217ce324343a914e4fd35d6355c3b26856732",
+    "/mnt/f/Projects/tyrax2-lab-20261001/corona-probe-v4-case1-arm1-repeat3-20261005-v4-launch/completed-probe-proof.json": "56be10487e89e0cf2c5c2c4ee915e00669acadcd5a4edd971badc6d283970ab7",
+    "/mnt/f/Projects/tyrax2-lab-20261001/corona24-probe-runtime-v2/savestate-reader-pinned.py": "29b9f7095b69be598c0fd63031bd210a60c93028baeb546e07efeef2bb5aa3ae",
+    "/mnt/f/Projects/tyrax2-lab-20261001/decode-corona24-raster-root-v1.py": "2a2ecc43de7148ff751294f404e5e6e9f8862b96ca3303b6c96d77af498b1d18",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pcsx2-control-routes/source-all/pcsx2/GS/GSTables.cpp": "a9a226297ede32b89177d7bdb04e9d8e21728e7d55799405f6112e97fe4969e8",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pcsx2-control-routes/source-all/pcsx2/GS/GSState.cpp": "a5b210e5bc6427416841a88337d7e81c4ecb075323e7bc2f373eb2c133b97193",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pcsx2-control-routes/source-all/pcsx2/GS/GSRegs.h": "b9d73e6f5a8caf8ab12ab470de1ba8fdc407b5eb58c5bafa80e178adb57d730c",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pcsx2-control-routes/source-all/pcsx2/GS/GSLocalMemory.h": "8cd6ed874f53aafde5f3d294048b2b0beed87765ab099a5f8aa93899cb988a19"
+  },
+  "displayWindowRemainsBlack": true,
+  "performanceAccepted": false,
+  "limits": [
+    "Actual saved FRAME0 and SCISSOR0 bind the PSMCT32 draw allocation; this is one planar positive case, not full ordinary-scene coverage.",
+    "This reads completed drawing VRAM, not the Hybrid scanout or physical PS2 framebuffer."
+  ]
+}

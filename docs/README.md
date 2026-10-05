@@ -439,11 +439,13 @@ Both PS2 orders were slower by 0.112–0.260 ms, still at 30 fps. Exact sources,
 reconstruction, rejected no-fog preparation and raw evidence are preserved;
 production rendering remains unchanged.
 
-[GS SPRITE corona trial](tyrax2-gs-sprite-coronas.md) remains unpromoted:
-ordinary Hybrid depth is outside its admission domain, and a separate genuine
-Bits16 probe still emitted triangles despite valid completed quads. Actual
-native budget, flag scheduling diagnosis, parser repair and source restoration
-are preserved. No positive SPRITE raster or physical gain is accepted.
+[GS SPRITE corona trial](tyrax2-gs-sprite-coronas.md) remains unpromoted.
+Its separate 24-bit follow-up now passes isolated completed SPRITE output,
+triangle fallback controls and identical textured GS drawing pixels, within
+the full resident budget. Ordinary activation, Hybrid scanout and physical
+gain remain unqualified; original negative evidence is retained.
+The [24-bit source/evidence checkpoint](tyrax2-corona24-2026-10-05/README.md)
+includes exact reconstruction, packet controls and drawing-buffer readback.
 
 [Batch / texture / program scopes](tyrax2-batch-texture-scopes-2026-10-04.md)
 qualify the V10 inclusive physical interval at 0.751–0.788 ms, with explicit

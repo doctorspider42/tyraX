@@ -3890,3 +3890,14 @@ Validate actual signed spotlight gate and uploaded uniforms, not a nonzero word.
 A black diagnostic screenshot cannot qualify visible raster. Parser controls
 must include real emulator timestamp prefixes; preserve rejected analysis and
 attach a separately pinned reanalysis without rewriting launch authority.
+
+The subsequent private 24-bit corona follow-up proves only its reachable
+FTOI4-to-ITOF0 domain, isolated completed SPRITE endpoints and identical textured
+PSMCT32 drawing pixels. It pairs each FMAND with an upper ABS read of the SUB
+scratch result, preserving MAC flags while creating a VF interlock without
+adding words (TC506; full residency2040/2042). A strict source-bound TC-only
+postprocessor rejects changed schedules. Do not widen an arbitrary integer
+domain or patch shared compiler output/cache by hand. The window/Hybrid scanout
+remained black in both isolated arms; readback qualified drawing VRAM only.
+Ordinary activation, presentation and physical pricing still require their own
+evidence. Preserve the original failed trial and both new observer revisions.
