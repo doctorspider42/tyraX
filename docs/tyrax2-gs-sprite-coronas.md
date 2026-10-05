@@ -120,10 +120,31 @@ The [follow-up archive](tyrax2-corona24-2026-10-05/README.md) preserves exact
 source deltas, reconstructable inventories, rejected compiler attempts, actual
 packet comparisons, raw protocol records, native reviews and drawing images.
 
+## Ordinary 24-bit console pricing
+
+The qualified isolated engine image was also built into the unchanged ordinary
+night game, without probe halts or diagnostic waits. Both physical orders
+completed 5400 loops, 384 samples and 15 chunks. Candidate minus own controls
+was **-0.064 ms** for off/on/off and **+0.073 ms** for on/off/on. The sign does
+not repeat; there is no demonstrated speedup. Non-pacing work remains around
+19 ms and rendered presentation around 33.37 ms, not 60 fps.
+
+The reverse emulator trial captured all three phase images; the forward
+observer missed phase 0 and is explicitly incomplete for raster qualification.
+The user confirmed the retained candidate image looked normal on PS2. Sparse
+EE requests numbered 2 and 4; ordinary accepted VU outputs and full-window
+activation remain unknown. End-to-end elapsed contrasts do not isolate a
+VU/GS stage. No production promotion is justified by this measurement.
+
+The [ordinary source/evidence archive](tyrax2-corona24-pricing-2026-10-05/README.md)
+preserves both orders, rejected observer coverage, source/native closure and
+raw records independently of the earlier isolated qualification.
+
 ## Remaining work and preservation
 
 A production candidate still needs ordinary-workload acceptance coverage,
-Hybrid presentation checks and both-order physical pricing. The isolated
+broader Hybrid presentation checks. Both-order ordinary pricing is complete
+and did not demonstrate a repeatable gain. The isolated
 follow-up addresses reachable depth, scheduling, completed output and positive
 drawing pixels; it does not cover every camera, depth, clipping or replay path.
 Removing guards or switching the pricing scene to Bits16 would not satisfy

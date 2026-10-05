@@ -67,3 +67,5 @@ tools/toolchain/** text=auto eol=lf
 # Preserve exact archived PS2 experiment source/evidence bytes.
 docs/tyrax2-gs-sprite-coronas-2026-10-05/** -text whitespace=-trailing-space,-space-before-tab,cr-at-eol
 docs/tyrax2-corona24-2026-10-05/** -text whitespace=-trailing-space,-space-before-tab,cr-at-eol
+
+docs/tyrax2-corona24-pricing-2026-10-05/** -text whitespace=-trailing-space,-space-before-tab,cr-at-eol

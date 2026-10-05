@@ -1,0 +1,1353 @@
+[    0.0169] Program Path: /home/spider/tyrax2-debugger-linux-v1/squashfs-root/usr/bin/pcsx2-qt
+[    0.0169] AppRoot Directory: /home/spider/tyrax2-debugger-linux-v1/squashfs-root/usr/bin
+[    0.0169] Resources Directory: /home/spider/tyrax2-debugger-linux-v1/squashfs-root/usr/bin/resources
+[    0.0170] DataRoot Directory: /home/spider/night-ablation-emulator-corona24-order1-20261005/profile/PCSX2
+[    0.0170] Loading config from /home/spider/night-ablation-emulator-corona24-order1-20261005/profile/PCSX2/inis/PCSX2.ini.
+[    0.0172] Loading secrets from /home/spider/night-ablation-emulator-corona24-order1-20261005/profile/PCSX2/inis/secrets.ini.
+[    0.0176] BIOS Directory: /mnt/c/Users/pawel/OneDrive/Documents/PCSX2/bios
+[    0.0176] Snapshots Directory: /home/spider/night-ablation-emulator-corona24-order1-20261005/profile/PCSX2/snaps
+[    0.0176] Savestates Directory: /home/spider/night-ablation-emulator-corona24-order1-20261005/profile/PCSX2/sstates
+[    0.0176] MemoryCards Directory: /home/spider/night-ablation-emulator-corona24-order1-20261005/profile/PCSX2/memcards
+[    0.0176] Logs Directory: /home/spider/night-ablation-emulator-corona24-order1-20261005/profile/PCSX2/logs
+[    0.0176] Cheats Directory: /home/spider/night-ablation-emulator-corona24-order1-20261005/profile/PCSX2/cheats
+[    0.0176] Patches Directory: /home/spider/night-ablation-emulator-corona24-order1-20261005/profile/PCSX2/patches
+[    0.0176] Covers Directory: /home/spider/night-ablation-emulator-corona24-order1-20261005/profile/PCSX2/covers
+[    0.0176] Game Settings Directory: /home/spider/night-ablation-emulator-corona24-order1-20261005/profile/PCSX2/gamesettings
+[    0.0176] Resources Directory: /home/spider/tyrax2-debugger-linux-v1/squashfs-root/usr/bin/resources
+[    0.0176] User Resources Directory: /home/spider/night-ablation-emulator-corona24-order1-20261005/profile/PCSX2/resources
+[    0.0176] Cache Directory: /home/spider/night-ablation-emulator-corona24-order1-20261005/profile/PCSX2/cache
+[    0.0176] Textures Directory: /home/spider/night-ablation-emulator-corona24-order1-20261005/profile/PCSX2/textures
+[    0.0176] Input Profile Directory: /home/spider/night-ablation-emulator-corona24-order1-20261005/profile/PCSX2/inputprofiles
+[    0.0176] Video Dumping Directory: /home/spider/night-ablation-emulator-corona24-order1-20261005/profile/PCSX2/videos
+[    0.0176] Debugger Layouts Directory: /home/spider/night-ablation-emulator-corona24-order1-20261005/profile/PCSX2/inis/debuggerlayouts
+[    0.0176] Debugger Settings Directory: /home/spider/night-ablation-emulator-corona24-order1-20261005/profile/PCSX2/inis/debuggersettings
+[    0.0337] Loaded translation file for language en-US
+[    0.0407] PCSX2 v2.9.93
+[    0.0407] Savestate version: 0x9a590000
+[    0.0407] 
+[    0.0407] 
+[    0.0407] Host Machine Init:
+[    0.0409]   Operating System = Ubuntu 22.04
+[    0.0409]   Available RAM    = 49088 MB (47.94 GB)
+[    0.0409]   Physical RAM     = 50191 MB (49.02 GB)
+[    0.0409] 
+[    0.0409]   Processor        = AMD Ryzen Threadripper 1920X
+[    0.0409]   Core Count       = 24 cores
+[    0.0409]   Thread Count     = 24 threads
+[    0.0409]   Cluster Count    = 1 clusters
+[    0.0409] CPU Extensions Detected:
+[    0.0409]   AVX AVX2
+[    0.0409] 
+[    0.0409] Allocating host memory for virtual systems...
+[    0.0412]   EE Main Memory                   @ 0x00007FABA3200000 -> 0x00007FABAC100000 [143mb]
+[    0.0412]   IOP Main Memory                  @ 0x00007FABAC100000 -> 0x00007FABB4200000 [129mb]
+[    0.0412]   VU0/1 On-Chip Memory             @ 0x00007FABB4200000 -> 0x00007FABB4300000 [1mb]
+[    0.0412]   VTLB Virtual Map                 @ 0x00007FABB4300000 -> 0x00007FABB4B00000 [8mb]
+[    0.0412]   VTLB Address Map                 @ 0x00007FABB4B00000 -> 0x00007FABB4F00000 [4mb]
+[    0.0412]   R5900 Recompiler Cache           @ 0x00007FABB4F00000 -> 0x00007FABB8F00000 [64mb]
+[    0.0412]   R3000A Recompiler Cache          @ 0x00007FABB8F00000 -> 0x00007FABBAF00000 [32mb]
+[    0.0412]   Micro VU0 Recompiler Cache       @ 0x00007FABBBF00000 -> 0x00007FABBFF00000 [64mb]
+[    0.0412]   Micro VU1 Recompiler Cache       @ 0x00007FABBFF00000 -> 0x00007FABC3F00000 [64mb]
+[    0.0412]   VIF0 Unpack Recompiler Cache     @ 0x00007FABBAF00000 -> 0x00007FABBB700000 [8mb]
+[    0.0412]   VIF1 Unpack Recompiler Cache     @ 0x00007FABBB700000 -> 0x00007FABBBF00000 [8mb]
+[    0.0413]   VIF Unpack Recompiler Cache      @ 0x00007FABC3F00000 -> 0x00007FABC4000000 [1mb]
+[    0.0413]   GS Software Renderer             @ 0x00007FABC4000000 -> 0x00007FABC8000000 [64mb]
+[    0.0444] Fastmem area: 0x7faaa3200000 - 0x7faba31fffff
+[    0.0464] Generating SSE-optimized unpacking functions for VIF interpreters...
+[    0.0467] Unpack function generation complete.  Generated function statistics:
+[    0.0467]   Reserved buffer    : 1048576 bytes @ 0x00007FABC3F00000
+[    0.0467]   x86 code generated : 7422 bytes
+[    0.0467] 
+[    0.0470] SDLInputSource: Using Controller DB from resources.
+[    0.0640] SDLInputSource: 765 gamepad mappings are loaded.
+[    0.0641] Invalid binding: 'XInput-0/DPadUp'
+[    0.0641] Invalid binding: 'XInput-0/DPadRight'
+[    0.0641] Invalid binding: 'XInput-0/DPadDown'
+[    0.0641] Invalid binding: 'XInput-0/DPadLeft'
+[    0.0641] Invalid binding: 'XInput-0/Y'
+[    0.0641] Invalid binding: 'XInput-0/B'
+[    0.0641] Invalid binding: 'XInput-0/A'
+[    0.0641] Invalid binding: 'XInput-0/X'
+[    0.0641] Invalid binding: 'XInput-0/Back'
+[    0.0641] Invalid binding: 'XInput-0/Start'
+[    0.0641] Invalid binding: 'XInput-0/LeftShoulder'
+[    0.0642] Invalid binding: 'XInput-0/+LeftTrigger'
+[    0.0642] Invalid binding: 'XInput-0/RightShoulder'
+[    0.0642] Invalid binding: 'XInput-0/+RightTrigger'
+[    0.0642] Invalid binding: 'XInput-0/LeftStick'
+[    0.0642] Invalid binding: 'XInput-0/RightStick'
+[    0.0642] Invalid binding: 'XInput-0/Guide'
+[    0.0642] Invalid binding: 'XInput-0/-LeftY'
+[    0.0642] Invalid binding: 'XInput-0/+LeftX'
+[    0.0642] Invalid binding: 'XInput-0/+LeftY'
+[    0.0642] Invalid binding: 'XInput-0/-LeftX'
+[    0.0642] Invalid binding: 'XInput-0/-RightY'
+[    0.0642] Invalid binding: 'XInput-0/+RightX'
+[    0.0642] Invalid binding: 'XInput-0/+RightY'
+[    0.0642] Invalid binding: 'XInput-0/-RightX'
+[    0.0648] Settings: Advanced Settings are enabled; only proceed if you know what you're doing! No support will be provided if you have the option enabled.
+[    0.1195] Scanning F:\PS2\Games (recursively)
+[    0.1236] Loading BIOS...
+[    0.1359] BIOS Found: Europe  v02.00(14/06/2004)  Console 20040614-100914
+[    0.1937] Mechacon version: 0x00020603
+[    0.1952] Opening CDVD...
+[    0.2298] Initializing Elf: 4488540 bytes
+[    0.2309] Disc changed to .
+[    0.2309]   Name: vehicle-playground [?]
+[    0.2309]   Serial: vehicle-playground
+[    0.2309]   Version: 
+[    0.2309]   CRC: 26F50E8E
+[    0.2310] No game settings found (tried '/home/spider/night-ablation-emulator-corona24-order1-20261005/profile/PCSX2/gamesettings/26F50E8E.ini')
+[    0.2310] Applying settings...
+[    0.2313] Invalid binding: 'XInput-0/DPadUp'
+[    0.2313] Invalid binding: 'XInput-0/DPadRight'
+[    0.2313] Invalid binding: 'XInput-0/DPadDown'
+[    0.2313] Invalid binding: 'XInput-0/DPadLeft'
+[    0.2313] Invalid binding: 'XInput-0/Y'
+[    0.2313] Invalid binding: 'XInput-0/B'
+[    0.2313] Invalid binding: 'XInput-0/A'
+[    0.2313] Invalid binding: 'XInput-0/X'
+[    0.2313] Invalid binding: 'XInput-0/Back'
+[    0.2313] Invalid binding: 'XInput-0/Start'
+[    0.2313] Invalid binding: 'XInput-0/LeftShoulder'
+[    0.2313] Invalid binding: 'XInput-0/+LeftTrigger'
+[    0.2313] Invalid binding: 'XInput-0/RightShoulder'
+[    0.2313] Invalid binding: 'XInput-0/+RightTrigger'
+[    0.2313] Invalid binding: 'XInput-0/LeftStick'
+[    0.2313] Invalid binding: 'XInput-0/RightStick'
+[    0.2313] Invalid binding: 'XInput-0/Guide'
+[    0.2313] Invalid binding: 'XInput-0/-LeftY'
+[    0.2313] Invalid binding: 'XInput-0/+LeftX'
+[    0.2313] Invalid binding: 'XInput-0/+LeftY'
+[    0.2313] Invalid binding: 'XInput-0/-LeftX'
+[    0.2313] Invalid binding: 'XInput-0/-RightY'
+[    0.2314] Invalid binding: 'XInput-0/+RightX'
+[    0.2314] Invalid binding: 'XInput-0/+RightY'
+[    0.2314] Invalid binding: 'XInput-0/-RightX'
+[    0.2317] GameDB: Has not been initialized yet, initializing...
+[    0.2816] GameDB: 12841 games on record (loaded in 49.89ms)
+[    0.2847] Reopening memory cards...
+[    0.2847] (FileMcd) Creating new 8MB memory card: /home/spider/night-ablation-emulator-corona24-order1-20261005/profile/PCSX2/memcards/Mcd001.ps2
+[    0.2946] McdSlot 0 [File]: Mcd001.ps2 [8 MB, UNFORMATTED]
+[    0.2946] McdSlot 1 [File]: [disabled/empty filename]
+[    0.3001] HLE Host: Set 'host:' root path to: /mnt/f/Projects/tyrax2-lab-20261001/corona24-pricing-physical-v1/game/bin
+[    0.3004] EE/iR5900 Recompiler Reset
+[    0.3490] iR3000A Recompiler reset.
+[    0.3633] mVU Reset
+[    0.3641] mVU Reset
+[    0.3687] Resetting host memory for virtual systems...
+[    0.6204] Time Zone Offset: GMT+01:00
+[    0.6204] Time Zone Location: Berlin
+[    0.6204] DST: Winter Time
+[    0.6204] Time Format: 24-Hour
+[    0.6204] Date Format: DD/MM/YYYY
+[    0.6204] System Time Basis: Operating System Time
+[    0.6205] Resulting System Time: 2026-10-05 16:59:29
+[    0.6205] Close virtual disk tray
+[    0.6205] Media already loaded (fast boot)
+[    0.6205] Opening GS...
+[    0.6614] VK: Enabling extension: VK_KHR_get_surface_capabilities2
+[    0.6727] Using Vulkan GPU 'llvmpipe (LLVM 15.0.7, 256 bits)' for automatic renderer check.
+[    0.6727] Not using Vulkan for software renderer.
+[    0.6729] acquireRenderWindow() recreate=true fullscreen=false render_to_main=false surfaceless=false
+[    0.6779] (GetRefreshRateFromXRandR) Modeline is invalid: 0/0/0
+[    0.6779] Surface refresh rate: 60 Hz
+[    0.6781] Loading EGL from libEGL.so...
+[    0.6792] GLAD EGL Version: 1.0
+[    0.6792] Using EGL platform EGL_EXT_platform_x11.
+[    0.6880] eglInitialize() version: 1.5
+[    0.6881] GLAD EGL Version: 1.5
+[    0.6881] Trying GL version 4.6
+[    0.6881] eglCreateContext() failed: 0x3009
+[    0.6881] Trying GL version 4.5
+[    0.6991] Got GL version 4.5
+[    0.6991] EGL_MIN_SWAP_INTERVAL = 1
+[    0.6991] EGL_MAX_SWAP_INTERVAL = 1
+[    0.6991] Negative swap interval/tear-control is NOT supported
+[    0.7019] GL_VENDOR: Mesa
+[    0.7019] GL_VERSION: 4.5 (Core Profile) Mesa 23.2.1-1ubuntu3.1~22.04.4
+[    0.7019] GL_RENDERER: llvmpipe (LLVM 15.0.7, 256 bits)
+[    0.7019] GL_SHADING_LANGUAGE_VERSION: 4.50
+[    0.7020] GL_MAX_VERTEX_SHADER_STORAGE_BLOCKS: 16
+[    0.7020] GL: Viewport Array:            Supported       => Using: GL_ARB_viewport_array
+[    0.7020] GL: Direct State Access:       Supported       => Using: OpenGL 4.5 Core
+[    0.7020] GL: Copy Image:                Supported       => Using: OpenGL 4.3 Core
+[    0.7020] GL: Clip Control:              Supported       => Using: OpenGL 4.5 Core
+[    0.7020] GL: Conservative Depth:        Supported       => Using: OpenGL 4.2 Core
+[    0.7020] GL: CAS Sharpening:            Supported       => Using: OpenGL 4.2 Core
+[    0.7020] GL: Texture Barriers:          Auto            => Using: Framebuffer Fetch
+[    0.7020] GL: RGBA16 HW Blending:        Supported       => Using: RGBA16 UNORM
+[    0.7020] GL: Point Expansion:           Supported       => Using: Hardware
+[    0.7020] GL: Line Expansion:            Fallback        => Using: Vertex Expansion
+[    0.7020] GL: Sprite Expansion:          Supported       => Using: Vertex Expansion
+[    0.7021] GL: DXTn Texture Compression:  Supported       => Using: GL_EXT_texture_compression_s3tc
+[    0.7021] GL: BC6/7 Texture Compression: Supported       => Using: OpenGL 4.2 Core
+[    0.7049] 1 program binary formats supported by driver
+[    0.7501] Program binary retrieved, 4105 bytes, format 34655
+[    0.7507] Program binary retrieved, 4121 bytes, format 34655
+[    0.7511] Program binary retrieved, 4249 bytes, format 34655
+[    0.7515] Program binary retrieved, 4013 bytes, format 34655
+[    0.7519] Program binary retrieved, 4013 bytes, format 34655
+[    0.7523] Program binary retrieved, 4017 bytes, format 34655
+[    0.7528] Program binary retrieved, 4017 bytes, format 34655
+[    0.7533] Program binary retrieved, 4185 bytes, format 34655
+[    0.7537] Program binary retrieved, 4217 bytes, format 34655
+[    0.7542] Program binary retrieved, 4137 bytes, format 34655
+[    0.7546] Program binary retrieved, 4125 bytes, format 34655
+[    0.7550] Program binary retrieved, 4121 bytes, format 34655
+[    0.7556] Program binary retrieved, 4253 bytes, format 34655
+[    0.7566] Program binary retrieved, 4237 bytes, format 34655
+[    0.7572] Program binary retrieved, 4245 bytes, format 34655
+[    0.7577] Program binary retrieved, 4261 bytes, format 34655
+[    0.7583] Program binary retrieved, 4965 bytes, format 34655
+[    0.7588] Program binary retrieved, 4981 bytes, format 34655
+[    0.7592] Program binary retrieved, 4261 bytes, format 34655
+[    0.7600] Program binary retrieved, 4277 bytes, format 34655
+[    0.7610] Program binary retrieved, 5005 bytes, format 34655
+[    0.7617] Program binary retrieved, 5021 bytes, format 34655
+[    0.7622] Program binary retrieved, 4257 bytes, format 34655
+[    0.7628] Program binary retrieved, 4273 bytes, format 34655
+[    0.7636] Program binary retrieved, 5001 bytes, format 34655
+[    0.7644] Program binary retrieved, 5017 bytes, format 34655
+[    0.7649] Program binary retrieved, 4277 bytes, format 34655
+[    0.7657] Program binary retrieved, 4293 bytes, format 34655
+[    0.7664] Program binary retrieved, 5057 bytes, format 34655
+[    0.7672] Program binary retrieved, 5073 bytes, format 34655
+[    0.7677] Program binary retrieved, 4153 bytes, format 34655
+[    0.7683] Program binary retrieved, 4169 bytes, format 34655
+[    0.7689] Program binary retrieved, 4233 bytes, format 34655
+[    0.7695] Program binary retrieved, 5781 bytes, format 34655
+[    0.7703] Program binary retrieved, 5373 bytes, format 34655
+[    0.7712] Program binary retrieved, 6389 bytes, format 34655
+[    0.7717] Program binary retrieved, 4917 bytes, format 34655
+[    0.7724] Program binary retrieved, 4845 bytes, format 34655
+[    0.7731] Program binary retrieved, 4997 bytes, format 34655
+[    0.7737] Program binary retrieved, 4101 bytes, format 34655
+[    0.7781] Program binary retrieved, 4137 bytes, format 34655
+[    0.7830] Program binary retrieved, 4109 bytes, format 34655
+[    0.7837] Program binary retrieved, 5389 bytes, format 34655
+[    0.7844] Program binary retrieved, 5829 bytes, format 34655
+[    0.7850] Program binary retrieved, 5857 bytes, format 34655
+[    0.7855] Program binary retrieved, 4289 bytes, format 34655
+[    0.7891] Program binary retrieved, 21205 bytes, format 34655
+[    0.7899] Program binary retrieved, 4765 bytes, format 34655
+[    0.7906] Program binary retrieved, 5685 bytes, format 34655
+[    0.7912] Program binary retrieved, 4141 bytes, format 34655
+[    0.7916] Program binary retrieved, 4537 bytes, format 34655
+[    0.7922] Program binary retrieved, 4889 bytes, format 34655
+[    0.7929] Program binary retrieved, 4117 bytes, format 34655
+[    0.7935] Program binary retrieved, 4741 bytes, format 34655
+[    0.7942] Program binary retrieved, 4965 bytes, format 34655
+[    0.7951] Program binary retrieved, 6613 bytes, format 34655
+[    0.7956] Program binary retrieved, 4797 bytes, format 34655
+[    0.7977] Program binary retrieved, 13085 bytes, format 34655
+[    0.8064] Program binary retrieved, 7285 bytes, format 34655
+[    0.8127] Program binary retrieved, 5497 bytes, format 34655
+[    0.8131] Program binary retrieved, 4141 bytes, format 34655
+[    0.8135] Program binary retrieved, 4141 bytes, format 34655
+[    0.8139] Program binary retrieved, 4145 bytes, format 34655
+[    0.8143] Program binary retrieved, 4145 bytes, format 34655
+[    0.8636] Program binary retrieved, 5369 bytes, format 34655
+[    0.8652] OpenGL Graphics Driver Info:
+[    0.8653] OpenGL Context:
+[    0.8653] 4.5 (Core Profile) Mesa 23.2.1-1ubuntu3.1~22.04.4
+[    0.8653] Mesa llvmpipe (LLVM 15.0.7, 256 bits)
+[    0.8653] GLSL: 4.50
+[    0.8684] Processor count: 24 cores, 24 processors, 1 clusters
+[    0.8684] Ordered processor list: 12, 23, 22, 21, 20, 19, 18, 17, 16, 15, 14, 13, 0, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1
+[    0.8684] Not pinning SW threads, we need 4 processors, but only have 0
+[    0.8698] Opening SPU2...
+[    0.8708] Creating Null audio stream, sample rate = 48000, expansion = Disabled, buffer = 50, latency = 32, stretching enabled, driver = wasapi, device = 
+[    0.8708] Allocated buffer of 2432 frames for buffer of 50 ms [expansion Disabled (block size 2048), stretch disabled, target size 2432].
+[    0.8708] Initializing Pad...
+[    0.8708] Initializing SIO2...
+[    0.8708] Initializing SIO0...
+[    0.8708] Opening DEV9...
+[    0.8708] DEV9: DEV9init
+[    0.8716] DEV9: DEV9init2
+[    0.8716] DEV9: DEV9init3
+[    0.8765] DEV9: DEV9init ok
+[    0.8766] DEV9: DEV9open
+[    0.8766] Opening USB...
+[    0.8767] Opening FW...
+[    0.8771] Frame rate: 59.94, target speed: 1, target frame rate: 59.94, ticks per frame: 16683350
+[    0.8787] MultiPause time: 142ns
+[    0.8788] MultiPause time: 242ns
+[    0.8789] MultiPause time: 142ns
+[    0.8798] MultiPause time: 142ns
+[    0.8835] VM subsystems initialized in 760.29 ms
+[    0.8957] Failed to inhibit screen saver.
+[    0.8958] Processor order assignment: EE=12, VU=23, GS=22
+[    0.8958]   EE thread is on processor 12 (0x1000)
+[    0.8958]   VU thread is on processor 23 (0x800000)
+[    0.8959]   GS thread is on processor 22 (0x400000)
+[    0.9057] Failed to inhibit screen saver.
+[    0.9338] # Initialize memory (rev:3.70, ctm:197Mhz, cpuclk:147Mhz detected)
+[    0.9421] R3000 Debugger: Branch to 0x890 (SYSMEM). Clearing modules.
+[    0.9438] RegisterLibraryEntries: excepman version 1.01
+[    0.9447] RegisterLibraryEntries:  intrman version 1.02
+[    0.9448] RegisterLibraryEntries:   ssbusc version 1.01
+[    0.9451] RegisterLibraryEntries:  dmacman version 1.02
+[    0.9457] RegisterLibraryEntries:  timrman version 1.01
+[    0.9460] RegisterLibraryEntries:  sysclib version 1.01
+[    0.9461] RegisterLibraryEntries:    stdio version 1.01
+[    0.9462] RegisterLibraryEntries:  heaplib version 1.01
+[    0.9467] FW: read mem 0x1f80847c: 0x10000001
+[    0.9467] FW: write mem 0x1f808414: 0x417f0000
+[    0.9468] FW: read mem 0x1f808400: 0xffc00001
+[    0.9468] FW: write mem 0x1f80844c: 0xffffffff
+[    0.9468] FW: write mem 0x1f808420: 0xffffffff
+[    0.9468] FW: write mem 0x1f808428: 0xffffffff
+[    0.9468] FW: write mem 0x1f808430: 0xffffffff
+[    0.9478] RegisterLibraryEntries:   thbase version 1.01
+[    0.9479] RegisterLibraryEntries:  thevent version 1.01
+[    0.9479] RegisterLibraryEntries:  thsemap version 1.01
+[    0.9480] RegisterLibraryEntries:  thmsgbx version 1.01
+[    0.9480] RegisterLibraryEntries:  thfpool version 1.01
+[    0.9481] RegisterLibraryEntries:  thvpool version 1.01
+[    0.9489] RegisterLibraryEntries:   vblank version 1.01
+[    0.9494] RegisterLibraryEntries:    ioman version 1.02
+[    0.9500] RegisterLibraryEntries:  modload version 1.01
+[    0.9504] RegisterLibraryEntries:   romdrv version 2.01
+[    0.9506] RegisterLibraryEntries:    stdio version 1.02
+[    0.9510] RegisterLibraryEntries:   sifman version 1.01
+[    0.9513] 
+[    0.9513] PlayStation 2 ======== Hard reset boot
+[    0.9515]  ROMGEN=2004-0614, IOP info (CPUID=1f, CACH_CONFIG=0, 2MB, IOP mode)
+[    0.9516]  <20040614-100914,ROMconf,PS20200EC20040614.bin:11696>
+[    0.9609] # Total accessable memory size: 32 MB (B:2:8:0) (370:2:7c30)
+[    0.9621] # TLB spad=0 kernel=1:12 default=13:30 extended=31:38
+[    1.0254] # Initialize Start.
+[    1.0259] # Initialize GS ...
+[    1.0259] # Initialize INTC ...
+[    1.0259] # Initialize TIMER ...
+[    1.0259] # Initialize DMAC ...
+[    1.0261] # Initialize VU1 ...
+[    1.0263] # Initialize VIF1 ...
+[    1.0264] # Initialize GIF ...
+[    1.0264] # Initialize VU0 ...
+[    1.0266] # Initialize VIF0 ...
+[    1.0266] # Initialize IPU ...
+[    1.0268] # Initialize FPU ...
+[    1.0269] # Initialize User Memory ...
+[    1.0872] # Initialize Scratch Pad ...
+[    1.0873] # Initialize Done.
+[    1.0881] 
+[    1.0881] EE DECI2 Manager version 0.06 Feb  6 2003 08:38:48
+[    1.0881]   CPUID=2e20, BoardID=0, ROMGEN=2004-0614, 32M
+[    1.0881] 
+[    1.0883] RegisterLibraryEntries:   sifcmd version 1.01
+[    1.1232] Initializing Elf: 4488540 bytes
+[    1.1258] ELF Loading: host:vehicle-playground.elf, Game CRC = 26F50E8E, EntryPoint = 0x00100E78
+[    1.1286] RegisterLibraryEntries:  cdvdman version 1.01
+[    1.1354] RegisterLibraryEntries:  cdvdfsv version 1.01
+[    1.1374] RegisterLibraryEntries:  secrman version 1.03
+[    1.1376] RegisterLibraryEntries:   eesync version 1.01
+[    1.1378] 
+[    1.1378] IOP Realtime Kernel Ver.0.9.1
+[    1.1379]     Copyright 1999 (C) Sony Computer Entertainment Inc. 
+[    1.1387] Reboot service module.(99/11/10)
+[    1.1408] cdvd driver module version 0.1.1 (C)SCEI
+[    1.1414] Load File service.(99/11/05)
+[    1.1414] Multi Threaded Fileio module.(99/11/15) 
+[    1.1415] iop heap service (99/11/03)
+[    1.1673] loadelf: fname host:vehicle-playground.elf secname all
+[    1.1674] loadelf version 3.30
+[    1.1697] Input ELF format filename = host:vehicle-playground.elf
+[    1.2216] 1 00100000 003fbcbc ................................................................
+[    1.2216] Loaded, host:vehicle-playground.elf
+[    1.2217] start address 0x100e78
+[    1.2217] gp address 00000000
+[    1.2228] # Restart Without Memory Clear.
+[    1.2327] # Initialize GS ...
+[    1.2327] # Initialize INTC ...
+[    1.2327] # Initialize TIMER ...
+[    1.2328] # Initialize DMAC ...
+[    1.2328] # Initialize VU1 ...
+[    1.2330] # Initialize VIF1 ...
+[    1.2330] # Initialize GIF ...
+[    1.2330] # Initialize VU0 ...
+[    1.2331] # Initialize VIF0 ...
+[    1.2331] # Initialize IPU ...
+[    1.2331] # Initialize FPU ...
+[    1.2331] # Initialize Scratch Pad ...
+[    1.2331] # Restart Without Memory Clear Done.
+[    1.2332] ELF host:vehicle-playground.elf with entry point at 0x00100E78 is executing.
+[    1.2333] ELF changed, active CRC 26F50E8E (host:vehicle-playground.elf)
+[    1.2336] Applying core settings...
+[    1.2340] Updating CPU configuration...
+[    1.2340] iR3000A Recompiler reset.
+[    1.2380] mVU Reset
+[    1.2384] mVU Reset
+[    1.2556] iR3000A Recompiler reset.
+[    1.2590] mVU Reset
+[    1.2591] mVU Reset
+[    1.2625] EE/iR5900 Recompiler Reset
+[    1.2826] BIOS: Successfully found the instruction pattern. Assuming the thread list is here: 8001a640
+[    1.2852] Warning: GetOsdConfigParam2 Reading extended language/version configs, may be incorrect!
+[    1.2959] read/write allocate memory 4000
+[    1.2960] open name host:/ps2link.run flag 1 data 41378
+[    1.2965] open fd = -5
+[    1.2996] Get Reboot Request From EE
+[    1.3009] R3000 Debugger: Branch to 0x890 (SYSMEM). Clearing modules.
+[    1.3030] RegisterLibraryEntries: excepman version 1.01
+[    1.3041] RegisterLibraryEntries:  intrman version 1.02
+[    1.3043] RegisterLibraryEntries:   ssbusc version 1.01
+[    1.3048] RegisterLibraryEntries:  dmacman version 1.02
+[    1.3053] RegisterLibraryEntries:  timrman version 1.01
+[    1.3058] RegisterLibraryEntries:  sysclib version 1.01
+[    1.3059] RegisterLibraryEntries:    stdio version 1.01
+[    1.3061] RegisterLibraryEntries:  heaplib version 1.01
+[    1.3085] RegisterLibraryEntries:   thbase version 1.01
+[    1.3086] RegisterLibraryEntries:  thevent version 1.01
+[    1.3086] RegisterLibraryEntries:  thsemap version 1.01
+[    1.3086] RegisterLibraryEntries:  thmsgbx version 1.01
+[    1.3087] RegisterLibraryEntries:  thfpool version 1.01
+[    1.3087] RegisterLibraryEntries:  thvpool version 1.01
+[    1.3096] RegisterLibraryEntries:   vblank version 1.01
+[    1.3101] RegisterLibraryEntries:    ioman version 1.02
+[    1.3111] RegisterLibraryEntries:  modload version 1.01
+[    1.3162] RegisterLibraryEntries:   romdrv version 2.01
+[    1.3166] RegisterLibraryEntries:    stdio version 1.02
+[    1.3171] RegisterLibraryEntries:   sifman version 1.01
+[    1.3177] 
+[    1.3177] PlayStation 2 ======== Soft reboot
+[    1.3184] RegisterLibraryEntries:   sifcmd version 1.01
+[    1.3222] RegisterLibraryEntries:  cdvdman version 1.01
+[    1.3237] RegisterLibraryEntries:  cdvdfsv version 1.01
+[    1.3342] RegisterLibraryEntries:  secrman version 1.03
+[    1.3344] RegisterLibraryEntries:   eesync version 1.01
+[    1.3345] 
+[    1.3345] IOP Realtime Kernel Ver.0.9.1
+[    1.3346]     Copyright 1999 (C) Sony Computer Entertainment Inc. 
+[    1.3350] Reboot service module.(99/11/10)
+[    1.3369] [EE] Skipping timeout loop at 0x002D9600 -> 0x002D9620
+[    1.3370] cdvd driver module version 0.1.1 (C)SCEI
+[    1.3374] Load File service.(99/11/05)
+[    1.3374] Multi Threaded Fileio module.(99/11/15) 
+[    1.3374] iop heap service (99/11/03)
+[    1.3684] RegisterLibraryEntries:   iomanx version 1.01
+[    1.3698] fileXio: fileXio: fileXio RPC Server v1.00
+[    1.3698] Copyright (c) 2003 adresd
+[    1.3701] RegisterLibraryEntries:  sio2man version 2.07
+[    1.3701] RegisterLibraryEntries:  sio2man version 1.02
+[    1.3707] RegisterLibraryEntries:   padman version 1.02
+[    1.3709] Pad Driver for OSD
+[    1.3713] FREESD v1.01
+[    1.3713] RegisterLibraryEntries:    libsd version 1.04
+[    1.3831] debug_level = 1 (ps2snd 0.1
+[    1.3839] greetings from version 0.93 !
+[    1.3840] RegisterLibraryEntries:   audsrv version 1.04
+[    1.3840] audsrv_adpcm_init()
+[    1.3853] UpdateVSyncRate: Mode Changed to SDTV 480p.
+[    1.3853] Frame rate: 59.94, target speed: 1, target frame rate: 59.94, ticks per frame: 16683350
+[    1.3853] Set GS CRTC configuration. SDTV   720x480 @ 59.94 Progressive (FRAME)
+[    3.4729] read/write allocate memory 4000
+[    3.4731] 
+[    3.4735] -----------------------------------------
+[    3.4736]         _____        ____   ___
+[    3.4736]           |     /   ____| |___|
+[    3.4737]           |     |   |     |   |
+[    3.4737] -----------------------------------------
+[    3.4738] Copyright 2022
+[    3.4738] Repository: https://github.com/h4570/tyra
+[    3.4738] Licensed under Apache License 2.0
+[    3.4743] Version: 2.2.0
+[    3.4743] -----------------------------------------
+[    3.4744] 
+[    3.6574] audsrv_adpcm_init()
+[    3.6586] [EE] Skipping timeout loop at 0x00102CB0 -> 0x00102CD0
+[    3.6891] Curent pad(0,0) status: EXECCMD
+[    3.9152] Pad: DS2 Config Finished - P1/S1 - AL: Off - AB: Usable - VS: Disabled - VL: Disabled - RB: D (0x00000000)
+[    3.9420] Curent pad(0,0) status: EXECCMD
+[    4.0075] Pad: DS2 Config Finished - P1/S1 - AL: On - AB: Locked - VS: Disabled - VL: Disabled - RB: D (0x00000000)
+[    4.2048] Pad: DS2 Config Finished - P1/S1 - AL: On - AB: Locked - VS: Disabled - VL: Disabled - RB: D (0x00000000)
+[    4.2408] Curent pad(0,0) status: EXECCMD
+[    4.5068] Pad: DS2 Config Finished - P1/S1 - AL: On - AB: Locked - VS: Disabled - VL: Disabled - RB: D+A+P (0x0003FFFF)
+[    4.7061] Pad: DS2 Config Finished - P1/S1 - AL: On - AB: Locked - VS: Disabled - VL: Disabled - RB: D+A+P (0x0003FFFF)
+[    4.7500] open name host:/night-ablation.cfg flag 1 data 41378
+[    4.7514] open fd = 256
+[    4.7609] open name host:/night-ablation.log flag 602 data 41378
+[    4.7630] open fd = 256
+[    4.7691] loadmodule: fname rom0:XMCMAN args 0 arg 
+[    4.7852] RegisterLibraryEntries:    mcman version 2.03
+[    4.7861] loadmodule: id 32, ret 0
+[    4.7862] loadmodule: fname rom0:XMCSERV args 0 arg 
+[    4.7866] RegisterLibraryEntries:   mcserv version 1.01
+[    4.7868] loadmodule: id 33, ret 0
+[    4.7870] [EE] Skipping timeout loop at 0x00104820 -> 0x00104840
+[    5.1730] (FileMcd) Warning: checksum sector overwritten. (0)
+[    5.1730] OSD [MemoryCardSave0]: Memory Card 'Mcd001.ps2' was saved to storage.
+[    5.6574] (FileMcd) Warning: checksum sector overwritten. (0)
+[    5.7673] open name host:/save/icon.sys flag 1 data 41378
+[    5.7691] open fd = 257
+[    5.8518] open name host:/save/list.icn flag 1 data 41378
+[    5.8542] open fd = 257
+[    6.0145] open name host:/menus/save.png flag 1 data 41378
+[    6.0166] open fd = 257
+[    6.0605] open name host:/hud/save-cursor.png flag 1 data 41378
+[    6.0633] open fd = 257
+[    6.0662] open name host:/hud/save-used.png flag 1 data 41378
+[    6.0683] open fd = 257
+[    6.0721] open name host:/hud/save-saved.png flag 1 data 41378
+[    6.0743] open fd = 257
+[    6.0853] open name host:/hud/save-loaded.png flag 1 data 41378
+[    6.0873] open fd = 257
+[    6.0905] open name host:/hud/save-error.png flag 1 data 41378
+[    6.0924] open fd = 257
+[    6.0965] open name host:/hud/save-busy.png flag 1 data 41378
+[    6.0987] open fd = 257
+[    6.1415] open name host:/hud/save-spinner.png flag 1 data 41378
+[    6.1439] open fd = 257
+[    6.1567] open name host:/menus/save.png flag 1 data 41378
+[    6.1592] open fd = 257
+[    6.1915] open name host:/menus/district-pause.png flag 1 data 41378
+[    6.1944] open fd = 257
+[    6.2270] open name host:/menus/district-pause-values.png flag 1 data 41378
+[    6.2302] open fd = 257
+[    6.2365] open name host:/hud/save-cursor.png flag 1 data 41378
+[    6.2391] open fd = 257
+[    6.2505] open name host:/hud/save-cursor.png flag 1 data 41378
+[    6.2530] open fd = 257
+[    6.2562] open name host:/hud/save-cursor.png flag 1 data 41378
+[    6.2590] open fd = 257
+[    6.2628] open name host:/hud/menu-dim.png flag 1 data 41378
+[    6.2650] open fd = 257
+[    6.2687] open name host:/hud/flare-corona.png flag 1 data 41378
+[    6.2709] open fd = 257
+[    6.2894] open name host:/hud/flashlight-gobo.png flag 1 data 41378
+[    6.2923] open fd = 257
+[    6.3105] open name host:/hud/flare-glow.png flag 1 data 41378
+[    6.3135] open fd = 257
+[    6.3274] open name host:/hud/sun-disc.png flag 1 data 41378
+[    6.3299] open fd = 257
+[    6.3350] open name host:/hud/moon-disc.png flag 1 data 41378
+[    6.3374] open fd = 257
+[    6.3741] open name host:/quiet-night.cfg flag 1 data 41378
+[    6.3756] open fd = 257
+[    6.3779] LOG: NIGHTPLAN schema=1 kind=9 order=1 joint=0 restored=0 phases=3
+[    6.3782] LOG: NIGHTCONFIG order=1 valid=1 profile=0 hardwareTrace=0 ringBytes=0 ordinaryClocks=1 fixedDt=0 sampleBytes=6144 chunkBytes=420 phases=3 phaseFrames=1800 taxFirst=800 taxLoops=320 chunkFrames=64 sampleFirst=900 sampleCount=128 video=1 display=1 depth=2 width=448 height=448 refreshMilliHz=60000 requested=1 night=1
+[    6.3783] LOG: NIGHTQUALITY rasterWidth=448 rasterHeight=448 scaleX=1 scaleY=1
+[    6.3785] open name host:/hud/use-text.png flag 1 data 41378
+[    6.3807] open fd = 257
+[    6.3845] open name host:/hud/pick-text.png flag 1 data 41378
+[    6.3863] open fd = 257
+[    6.3901] open name host:/sfx/engine_idle.adpcm flag 1 data 41378
+[    6.3925] open fd = 257
+[    6.4107] open name host:/sfx/engine_high.adpcm flag 1 data 41378
+[    6.4131] open fd = 257
+[    6.4318] open name host:/sfx/tires_screech.adpcm flag 1 data 41378
+[    6.4341] open fd = 257
+[    6.4385] open name host:/sfx/gear-shift.adpcm flag 1 data 41378
+[    6.4402] open fd = 257
+[    6.4438] LOG: NIGHTCORONAPHASE phase=0 first=0 selected=1 enabled=1
+[    6.4440] LOG: NIGHTPHASE phase=0 first=0 mask=0 appliedMask=0 sampler=1 countReads=262 samplePtr=0052d488
+[    6.4441] LOG: NIGHTEXTRAPHASE phase=0 first=0 extraMask=0 appliedExtraMask=0
+[    6.4442] LOG: NIGHTWILDPHASE phase=0 first=0 variant=0 enabled=0 appliedVariant=0 appliedEnabled=0
+[    6.4443] LOG: NIGHTTABLEPHASE phase=0 first=0 selected=1 enabled=1 appliedSelected=1 appliedEnabled=1
+[    6.4451] open name host:/launch.scene flag 1 data 41378
+[    6.4457] open fd = -5
+[    6.4461] open name host:/hud/loading.png flag 1 data 41378
+[    6.4478] open fd = 257
+[    6.4620] FRAMEARENA allocated=1 bytes=1048576
+[    6.5303] open name host:/vehicles/veh-ravager000001-shadow.png flag 1 data 41378
+[    6.5325] open fd = 257
+[    6.5338] open name host:/vehicles/veh-ravager000001-shadow.png flag 1 data 41378
+[    6.5355] open fd = 257
+[    6.5629] open name host:/vehicles/veh-pica00000001-shadow.png flag 1 data 41378
+[    6.5651] open fd = 257
+[    6.5661] open name host:/vehicles/veh-pica00000001-shadow.png flag 1 data 41378
+[    6.5685] open fd = 257
+[    6.5746] open name host:/vehicles/veh-strix0000001-shadow.png flag 1 data 41378
+[    6.5765] open fd = 257
+[    6.5858] open name host:/vehicles/veh-strix0000001-shadow.png flag 1 data 41378
+[    6.5879] open fd = 257
+[    6.5939] open name host:/shadowatlas/scene0-0.png flag 1 data 41378
+[    6.5964] open fd = 257
+[    6.5975] open name host:/shadowatlas/scene0-0.png flag 1 data 41378
+[    6.5995] open fd = 257
+[    6.6148] open name host:/shadowatlas/scene0-1.png flag 1 data 41378
+[    6.6168] open fd = 257
+[    6.6176] open name host:/shadowatlas/scene0-1.png flag 1 data 41378
+[    6.6197] open fd = 257
+[    6.6354] open name host:/textures/district-ground.png flag 1 data 41378
+[    6.6371] open fd = 257
+[    6.6380] open name host:/textures/district-ground.png flag 1 data 41378
+[    6.6396] open fd = 257
+[    6.6644] open name host:/materials/district-asphalt.mtl flag 1 data 41378
+[    6.6671] open fd = 257
+[    6.6781] open name host:/textures/district-asphalt.png flag 1 data 41378
+[    6.6805] open fd = 257
+[    6.6812] open name host:/textures/district-asphalt.png flag 1 data 41378
+[    6.6845] open fd = 257
+[    6.7048] open name host:/materials/district-sign.mtl flag 1 data 41378
+[    6.7072] open fd = 257
+[    6.7101] open name host:/textures/district-sign.png flag 1 data 41378
+[    6.7123] open fd = 257
+[    6.7134] open name host:/textures/district-sign.png flag 1 data 41378
+[    6.7154] open fd = 257
+[    6.7196] open name host:/materials/night-warm.mtl flag 1 data 41378
+[    6.7218] open fd = 257
+[    6.7256] open name host:/materials/night-cyan.mtl flag 1 data 41378
+[    6.7276] open fd = 257
+[    6.7301] open name host:/materials/night-pink.mtl flag 1 data 41378
+[    6.7323] open fd = 257
+[    6.7354] open name host:/models/urban/district-workshop.tmdl flag 1 data 41378
+[    6.7378] open fd = 257
+[    6.7421] open name host:/models/urban/Textures/district-facades.png flag 1 data 41378
+[    6.7454] open fd = 257
+[    6.7468] open name host:/models/urban/Textures/district-facades.png flag 1 data 41378
+[    6.7496] open fd = 257
+[    6.7774] open name host:/models/urban/district-tower.tmdl flag 1 data 41378
+[    6.7804] open fd = 257
+[    6.7837] open name host:/models/urban/district-loft.tmdl flag 1 data 41378
+[    6.7863] open fd = 257
+[    6.7897] open name host:/models/urban/detail-light-double.tmdl flag 1 data 41378
+[    6.7932] open fd = 257
+[    6.8074] open name host:/models/urban/Textures/metal.png flag 1 data 41378
+[    6.8119] open fd = 257
+[    6.8134] open name host:/models/urban/Textures/metal.png flag 1 data 41378
+[    6.8180] open fd = 257
+[    6.8310] open name host:/models/urban/detail-light-traffic.tmdl flag 1 data 41378
+[    6.8348] open fd = 257
+[    6.8499] open name host:/models/urban/Textures/roof.png flag 1 data 41378
+[    6.8541] open fd = 257
+[    6.8556] open name host:/models/urban/Textures/roof.png flag 1 data 41378
+[    6.8606] open fd = 257
+[    6.8652] open name host:/models/urban/tree-park-large.tmdl flag 1 data 41378
+[    6.8691] open fd = 257
+[    6.8817] open name host:/models/urban/Textures/treeA.png flag 1 data 41378
+[    6.8860] open fd = 257
+[    6.8875] open name host:/models/urban/Textures/treeA.png flag 1 data 41378
+[    6.8914] open fd = 257
+[    6.9052] open name host:/models/urban/Textures/tiles.png flag 1 data 41378
+[    6.9093] open fd = 257
+[    6.9111] open name host:/models/urban/Textures/tiles.png flag 1 data 41378
+[    6.9157] open fd = 257
+[    6.9210] open name host:/models/urban/Textures/dirt.png flag 1 data 41378
+[    6.9256] open fd = 257
+[    6.9272] open name host:/models/urban/Textures/dirt.png flag 1 data 41378
+[    6.9314] open fd = 257
+[    6.9367] open name host:/models/urban/tree-park-pine-large.tmdl flag 1 data 41378
+[    6.9400] open fd = 257
+[    6.9509] open name host:/models/urban/Textures/treeB.png flag 1 data 41378
+[    6.9551] open fd = 257
+[    6.9566] open name host:/models/urban/Textures/treeB.png flag 1 data 41378
+[    6.9606] open fd = 257
+[    6.9650] open name host:/models/urban/detail-barrier-type-a.tmdl flag 1 data 41378
+[    6.9696] open fd = 257
+[    6.9834] open name host:/models/urban/Textures/signs.png flag 1 data 41378
+[    6.9867] open fd = 257
+[    6.9887] open name host:/models/urban/Textures/signs.png flag 1 data 41378
+[    6.9962] open fd = 257
+[    7.0012] open name host:/models/urban/detail-dumpster-closed.tmdl flag 1 data 41378
+[    7.0046] open fd = 257
+[    7.0104] open name host:/models/urban/Textures/metal_wall.png flag 1 data 41378
+[    7.0155] open fd = 257
+[    7.0169] open name host:/models/urban/Textures/metal_wall.png flag 1 data 41378
+[    7.0210] open fd = 257
+[    7.0258] open name host:/models/urban/Textures/wall.png flag 1 data 41378
+[    7.0300] open fd = 257
+[    7.0314] open name host:/models/urban/Textures/wall.png flag 1 data 41378
+[    7.0355] open fd = 257
+[    7.0399] open name host:/models/urban/detail-bench.tmdl flag 1 data 41378
+[    7.0438] open fd = 257
+[    7.0635] open name host:/models/urban/Textures/planks.png flag 1 data 41378
+[    7.0682] open fd = 257
+[    7.0697] open name host:/models/urban/Textures/planks.png flag 1 data 41378
+[    7.0749] open fd = 257
+[    7.0806] open name host:/models/urban/pallet.tmdl flag 1 data 41378
+[    7.0843] open fd = 257
+[    7.0976] open name host:/vehicles/veh-ravager000001-body.tmdl flag 1 data 41378
+[    7.1006] open fd = 257
+[    7.2805] open name host:/vehicles/veh-ravager000001-palette.png flag 1 data 41378
+[    7.2828] open fd = 257
+[    7.2905] open name host:/vehicles/veh-ravager000001-palette.png flag 1 data 41378
+[    7.2936] open fd = 257
+[    7.3100] open name host:/vehicles/veh-ravager000001-palette-image-0.png flag 1 data 41378
+[    7.3120] open fd = 257
+[    7.3130] open name host:/vehicles/veh-ravager000001-palette-image-0.png flag 1 data 41378
+[    7.3152] open fd = 257
+[    7.3384] open name host:/vehicles/veh-pica00000001-body.tmdl flag 1 data 41378
+[    7.3404] open fd = 257
+[    7.4830] open name host:/vehicles/veh-pica00000001-palette.png flag 1 data 41378
+[    7.4856] open fd = 257
+[    7.4865] open name host:/vehicles/veh-pica00000001-palette.png flag 1 data 41378
+[    7.4885] open fd = 257
+[    7.4908] open name host:/vehicles/veh-pica00000001-palette-image-0.png flag 1 data 41378
+[    7.4934] open fd = 257
+[    7.4943] open name host:/vehicles/veh-pica00000001-palette-image-0.png flag 1 data 41378
+[    7.4963] open fd = 257
+[    7.5262] open name host:/vehicles/veh-strix0000001-body.tmdl flag 1 data 41378
+[    7.5284] open fd = 257
+[    7.6792] open name host:/vehicles/veh-strix0000001-palette.png flag 1 data 41378
+[    7.6816] open fd = 257
+[    7.6825] open name host:/vehicles/veh-strix0000001-palette.png flag 1 data 41378
+[    7.6848] open fd = 257
+[    7.6873] open name host:/vehicles/veh-strix0000001-palette-image-0.png flag 1 data 41378
+[    7.6896] open fd = 257
+[    7.6905] open name host:/vehicles/veh-strix0000001-palette-image-0.png flag 1 data 41378
+[    7.6928] open fd = 257
+[    7.7224] open name host:/sky/scene0.png flag 1 data 41378
+[    7.7250] open fd = 257
+[    7.7260] open name host:/sky/scene0.png flag 1 data 41378
+[    7.7283] open fd = 257
+[    8.0122] open name host:/vehicles/fx-skid.png flag 1 data 41378
+[    8.0148] open fd = 257
+[    8.0158] open name host:/vehicles/fx-skid.png flag 1 data 41378
+[    8.0178] open fd = 257
+[    8.0336] open name host:/vehicles/fx-smoke.png flag 1 data 41378
+[    8.0361] open fd = 257
+[    8.0368] open name host:/vehicles/fx-smoke.png flag 1 data 41378
+[    8.0390] open fd = 257
+[    8.0442] open name host:/vehicles/veh-ravager000001-wheel.tmdl flag 1 data 41378
+[    8.0463] open fd = 257
+[    8.0554] open name host:/vehicles/veh-ravager000001-wheelfast.tmdl flag 1 data 41378
+[    8.0577] open fd = 257
+[    8.0663] open name host:/fonts/atlas-default.png flag 1 data 41378
+[    8.0689] open fd = 257
+[    8.0844] open name host:/hud/icons.png flag 1 data 41378
+[    8.0871] open fd = 257
+[    8.1032] open name host:/hud/loading-white.png flag 1 data 41378
+[    8.1060] open fd = 257
+[    8.1088] open name host:/vehicles/veh-pica00000001-wheel.tmdl flag 1 data 41378
+[    8.1109] open fd = 257
+[    8.1211] open name host:/vehicles/veh-pica00000001-wheelfast.tmdl flag 1 data 41378
+[    8.1234] open fd = 257
+[    8.1316] open name host:/vehicles/veh-strix0000001-wheel.tmdl flag 1 data 41378
+[    8.1341] open fd = 257
+[    8.1506] open name host:/vehicles/veh-strix0000001-wheelfast.tmdl flag 1 data 41378
+[    8.1529] open fd = 257
+[    8.1671] open name host:/textures/district-road.png flag 1 data 41378
+[    8.1699] open fd = 257
+[    8.1708] open name host:/textures/district-road.png flag 1 data 41378
+[    8.1731] open fd = 257
+[    8.2803] open name host:/textures/district-asphalt.png flag 1 data 41378
+[    8.2830] open fd = 257
+[    8.2838] open name host:/textures/district-asphalt.png flag 1 data 41378
+[    8.2860] open fd = 257
+[    8.3010] open name host:/textures/district-plaza.png flag 1 data 41378
+[    8.3041] open fd = 257
+[    8.3049] open name host:/textures/district-plaza.png flag 1 data 41378
+[    8.3074] open fd = 257
+[    8.3432] open name host:/gshadow/s0_2_1.png flag 1 data 41378
+[    8.3454] open fd = 257
+[    8.3461] open name host:/gshadow/s0_2_1.png flag 1 data 41378
+[    8.3484] open fd = 257
+[    8.3627] open name host:/gshadow/s0_1_1.png flag 1 data 41378
+[    8.3651] open fd = 257
+[    8.3660] open name host:/gshadow/s0_1_1.png flag 1 data 41378
+[    8.3684] open fd = 257
+[    8.3732] open name host:/gshadow/s0_3_1.png flag 1 data 41378
+[    8.3756] open fd = 257
+[    8.3767] open name host:/gshadow/s0_3_1.png flag 1 data 41378
+[    8.3789] open fd = 257
+[    8.3900] open name host:/gshadow/s0_2_2.png flag 1 data 41378
+[    8.3926] open fd = 257
+[    8.3936] open name host:/gshadow/s0_2_2.png flag 1 data 41378
+[    8.3956] open fd = 257
+[    8.3994] open name host:/gshadow/s0_1_2.png flag 1 data 41378
+[    8.4017] open fd = 257
+[    8.4029] open name host:/gshadow/s0_1_2.png flag 1 data 41378
+[    8.4054] open fd = 257
+[    8.4099] open name host:/gshadow/s0_3_2.png flag 1 data 41378
+[    8.4122] open fd = 257
+[    8.4133] open name host:/gshadow/s0_3_2.png flag 1 data 41378
+[    8.4153] open fd = 257
+[    8.4380] open name host:/gshadow/s0_0_1.png flag 1 data 41378
+[    8.4401] open fd = 257
+[    8.4409] open name host:/gshadow/s0_0_1.png flag 1 data 41378
+[    8.4429] open fd = 257
+[    8.4466] open name host:/gshadow/s0_4_1.png flag 1 data 41378
+[    8.4492] open fd = 257
+[    8.4499] open name host:/gshadow/s0_4_1.png flag 1 data 41378
+[    8.4519] open fd = 257
+[    8.4556] open name host:/gshadow/s0_4_0.png flag 1 data 41378
+[    8.4577] open fd = 257
+[    8.4586] open name host:/gshadow/s0_4_0.png flag 1 data 41378
+[    8.4607] open fd = 257
+[    8.4736] open name host:/gshadow/s0_2_3.png flag 1 data 41378
+[    8.4755] open fd = 257
+[    8.4763] open name host:/gshadow/s0_2_3.png flag 1 data 41378
+[    8.4780] open fd = 257
+[    8.4817] open name host:/gshadow/s0_0_2.png flag 1 data 41378
+[    8.4839] open fd = 257
+[    8.4847] open name host:/gshadow/s0_0_2.png flag 1 data 41378
+[    8.4865] open fd = 257
+[    8.4970] open name host:/gshadow/s0_4_2.png flag 1 data 41378
+[    8.4989] open fd = 257
+[    8.4998] open name host:/gshadow/s0_4_2.png flag 1 data 41378
+[    8.5021] open fd = 257
+[    8.5060] open name host:/gshadow/s0_1_3.png flag 1 data 41378
+[    8.5085] open fd = 257
+[    8.5094] open name host:/gshadow/s0_1_3.png flag 1 data 41378
+[    8.5119] open fd = 257
+[    8.5247] open name host:/gshadow/s0_3_3.png flag 1 data 41378
+[    8.5267] open fd = 257
+[    8.5277] open name host:/gshadow/s0_3_3.png flag 1 data 41378
+[    8.5301] open fd = 257
+[    8.5346] open name host:/gshadow/s0_0_3.png flag 1 data 41378
+[    8.5373] open fd = 257
+[    8.5382] open name host:/gshadow/s0_0_3.png flag 1 data 41378
+[    8.5408] open fd = 257
+[    8.5462] open name host:/gshadow/s0_4_3.png flag 1 data 41378
+[    8.5498] open fd = 257
+[    8.5508] open name host:/gshadow/s0_4_3.png flag 1 data 41378
+[    8.5535] open fd = 257
+[    9.3357] microVU1: Cached Prog = [000] [PC=2590] [List=01] (Cache=0.000%) [0.0mb]
+[    9.3362] microVU1: 3 cycle stall on branch instruction [3368]
+[    9.3363] microVU1: 3 cycle stall on branch instruction [3368]
+[    9.3363] microVU1: 3 cycle stall on branch instruction [3380]
+[    9.3363] microVU1: 3 cycle stall on branch instruction [3380]
+[    9.3363] microVU1: 3 cycle stall on branch instruction [33b8]
+[    9.3363] microVU1: 3 cycle stall on branch instruction [33b8]
+[    9.3363] microVU1: 3 cycle stall on branch instruction [33d8]
+[    9.3363] microVU1: 3 cycle stall on branch instruction [33d8]
+[    9.3365] microVU1: 3 cycle stall on branch instruction [3368]
+[    9.3365] microVU1: 3 cycle stall on branch instruction [3368]
+[    9.3366] microVU1: 3 cycle stall on branch instruction [3380]
+[    9.3366] microVU1: 3 cycle stall on branch instruction [3380]
+[    9.3366] microVU1: 3 cycle stall on branch instruction [33b8]
+[    9.3366] microVU1: 3 cycle stall on branch instruction [33b8]
+[    9.3366] microVU1: 3 cycle stall on branch instruction [33d8]
+[    9.3366] microVU1: 3 cycle stall on branch instruction [33d8]
+[    9.3368] microVU1: 3 cycle stall on branch instruction [3368]
+[    9.3368] microVU1: 3 cycle stall on branch instruction [3368]
+[    9.3368] microVU1: 3 cycle stall on branch instruction [3380]
+[    9.3369] microVU1: 3 cycle stall on branch instruction [3380]
+[    9.3369] microVU1: 3 cycle stall on branch instruction [33b8]
+[    9.3369] microVU1: 3 cycle stall on branch instruction [33b8]
+[    9.3369] microVU1: 3 cycle stall on branch instruction [33d8]
+[    9.3369] microVU1: 3 cycle stall on branch instruction [33d8]
+[    9.3370] microVU1: 3 cycle stall on branch instruction [3368]
+[    9.3370] microVU1: 3 cycle stall on branch instruction [3368]
+[    9.3370] microVU1: 3 cycle stall on branch instruction [3380]
+[    9.3370] microVU1: 3 cycle stall on branch instruction [3380]
+[    9.3370] microVU1: 3 cycle stall on branch instruction [33b8]
+[    9.3370] microVU1: 3 cycle stall on branch instruction [33b8]
+[    9.3370] microVU1: 3 cycle stall on branch instruction [33d8]
+[    9.3371] microVU1: 3 cycle stall on branch instruction [33d8]
+[    9.3376] microVU1: 3 cycle stall on branch instruction [3368]
+[    9.3376] microVU1: 3 cycle stall on branch instruction [3368]
+[    9.3376] microVU1: 3 cycle stall on branch instruction [3380]
+[    9.3376] microVU1: 3 cycle stall on branch instruction [3380]
+[    9.3376] microVU1: 3 cycle stall on branch instruction [33b8]
+[    9.3376] microVU1: 3 cycle stall on branch instruction [33b8]
+[    9.3376] microVU1: 3 cycle stall on branch instruction [33d8]
+[    9.3376] microVU1: 3 cycle stall on branch instruction [33d8]
+[    9.3377] microVU1: 3 cycle stall on branch instruction [3368]
+[    9.3377] microVU1: 3 cycle stall on branch instruction [3368]
+[    9.3378] microVU1: 3 cycle stall on branch instruction [3380]
+[    9.3378] microVU1: 3 cycle stall on branch instruction [3380]
+[    9.3378] microVU1: 3 cycle stall on branch instruction [33b8]
+[    9.3378] microVU1: 3 cycle stall on branch instruction [33b8]
+[    9.3378] microVU1: 3 cycle stall on branch instruction [33d8]
+[    9.3378] microVU1: 3 cycle stall on branch instruction [33d8]
+[    9.3379] microVU1: 3 cycle stall on branch instruction [3368]
+[    9.3379] microVU1: 3 cycle stall on branch instruction [3368]
+[    9.3380] microVU1: 3 cycle stall on branch instruction [3380]
+[    9.3380] microVU1: 3 cycle stall on branch instruction [3380]
+[    9.3380] microVU1: 3 cycle stall on branch instruction [33b8]
+[    9.3380] microVU1: 3 cycle stall on branch instruction [33b8]
+[    9.3380] microVU1: 3 cycle stall on branch instruction [33d8]
+[    9.3380] microVU1: 3 cycle stall on branch instruction [33d8]
+[    9.3381] microVU1: 3 cycle stall on branch instruction [3368]
+[    9.3381] microVU1: 3 cycle stall on branch instruction [3368]
+[    9.3381] microVU1: 3 cycle stall on branch instruction [3380]
+[    9.3381] microVU1: 3 cycle stall on branch instruction [3380]
+[    9.3381] microVU1: 3 cycle stall on branch instruction [33b8]
+[    9.3381] microVU1: 3 cycle stall on branch instruction [33b8]
+[    9.3381] microVU1: 3 cycle stall on branch instruction [33d8]
+[    9.3381] microVU1: 3 cycle stall on branch instruction [33d8]
+[    9.3386] microVU1: 3 cycle stall on branch instruction [3368]
+[    9.3386] microVU1: 3 cycle stall on branch instruction [3368]
+[    9.3386] microVU1: 3 cycle stall on branch instruction [3380]
+[    9.3386] microVU1: 3 cycle stall on branch instruction [3380]
+[    9.3387] microVU1: 3 cycle stall on branch instruction [33b8]
+[    9.3387] microVU1: 3 cycle stall on branch instruction [33b8]
+[    9.3387] microVU1: 3 cycle stall on branch instruction [33d8]
+[    9.3387] microVU1: 3 cycle stall on branch instruction [33d8]
+[    9.3388] microVU1: 3 cycle stall on branch instruction [3368]
+[    9.3388] microVU1: 3 cycle stall on branch instruction [3368]
+[    9.3388] microVU1: 3 cycle stall on branch instruction [3380]
+[    9.3388] microVU1: 3 cycle stall on branch instruction [3380]
+[    9.3388] microVU1: 3 cycle stall on branch instruction [33b8]
+[    9.3388] microVU1: 3 cycle stall on branch instruction [33b8]
+[    9.3389] microVU1: 3 cycle stall on branch instruction [33d8]
+[    9.3389] microVU1: 3 cycle stall on branch instruction [33d8]
+[    9.3390] microVU1: 3 cycle stall on branch instruction [3368]
+[    9.3390] microVU1: 3 cycle stall on branch instruction [3368]
+[    9.3390] microVU1: 3 cycle stall on branch instruction [3380]
+[    9.3390] microVU1: 3 cycle stall on branch instruction [3380]
+[    9.3390] microVU1: 3 cycle stall on branch instruction [33b8]
+[    9.3390] microVU1: 3 cycle stall on branch instruction [33b8]
+[    9.3390] microVU1: 3 cycle stall on branch instruction [33d8]
+[    9.3390] microVU1: 3 cycle stall on branch instruction [33d8]
+[    9.3392] microVU1: 3 cycle stall on branch instruction [3368]
+[    9.3392] microVU1: 3 cycle stall on branch instruction [3368]
+[    9.3392] microVU1: 3 cycle stall on branch instruction [3380]
+[    9.3392] microVU1: 3 cycle stall on branch instruction [3380]
+[    9.3392] microVU1: 3 cycle stall on branch instruction [33b8]
+[    9.3392] microVU1: 3 cycle stall on branch instruction [33b8]
+[    9.3392] microVU1: 3 cycle stall on branch instruction [33d8]
+[    9.3392] microVU1: 3 cycle stall on branch instruction [33d8]
+[    9.3399] microVU1: 3 cycle stall on branch instruction [3368]
+[    9.3399] microVU1: 3 cycle stall on branch instruction [3368]
+[    9.3399] microVU1: 3 cycle stall on branch instruction [3380]
+[    9.3399] microVU1: 3 cycle stall on branch instruction [3380]
+[    9.3399] microVU1: 3 cycle stall on branch instruction [33b8]
+[    9.3400] microVU1: 3 cycle stall on branch instruction [33b8]
+[    9.3400] microVU1: 3 cycle stall on branch instruction [33d8]
+[    9.3400] microVU1: 3 cycle stall on branch instruction [33d8]
+[    9.3402] microVU1: 3 cycle stall on branch instruction [3368]
+[    9.3402] microVU1: 3 cycle stall on branch instruction [3368]
+[    9.3402] microVU1: 3 cycle stall on branch instruction [3380]
+[    9.3402] microVU1: 3 cycle stall on branch instruction [3380]
+[    9.3402] microVU1: 3 cycle stall on branch instruction [33b8]
+[    9.3402] microVU1: 3 cycle stall on branch instruction [33b8]
+[    9.3402] microVU1: 3 cycle stall on branch instruction [33d8]
+[    9.3402] microVU1: 3 cycle stall on branch instruction [33d8]
+[    9.3404] microVU1: 3 cycle stall on branch instruction [3368]
+[    9.3404] microVU1: 3 cycle stall on branch instruction [3368]
+[    9.3404] microVU1: 3 cycle stall on branch instruction [3380]
+[    9.3404] microVU1: 3 cycle stall on branch instruction [3380]
+[    9.3404] microVU1: 3 cycle stall on branch instruction [33b8]
+[    9.3404] microVU1: 3 cycle stall on branch instruction [33b8]
+[    9.3404] microVU1: 3 cycle stall on branch instruction [33d8]
+[    9.3404] microVU1: 3 cycle stall on branch instruction [33d8]
+[    9.3406] microVU1: 3 cycle stall on branch instruction [3368]
+[    9.3406] microVU1: 3 cycle stall on branch instruction [3368]
+[    9.3406] microVU1: 3 cycle stall on branch instruction [3380]
+[    9.3406] microVU1: 3 cycle stall on branch instruction [3380]
+[    9.3407] microVU1: 3 cycle stall on branch instruction [33b8]
+[    9.3407] microVU1: 3 cycle stall on branch instruction [33b8]
+[    9.3407] microVU1: 3 cycle stall on branch instruction [33d8]
+[    9.3407] microVU1: 3 cycle stall on branch instruction [33d8]
+[    9.3415] microVU1: 3 cycle stall on branch instruction [2c58]
+[    9.3432] microVU1: Cached Prog = [001] [PC=1a30] [List=01] (Cache=0.677%) [0.4mb]
+[    9.3433] microVU1: 1 cycle stall on branch instruction [1ae8]
+[    9.3433] microVU1: 3 cycle stall on branch instruction [1ba0]
+[    9.3438] microVU1: 3 cycle stall on branch instruction [2520]
+[    9.3439] microVU1: 3 cycle stall on branch instruction [1ba0]
+[    9.3443] microVU1: 3 cycle stall on branch instruction [2520]
+[    9.3443] microVU1: 3 cycle stall on branch instruction [1ba0]
+[    9.3444] microVU1: 3 cycle stall on branch instruction [2520]
+[    9.3445] microVU1: 3 cycle stall on branch instruction [1ba0]
+[    9.3449] microVU1: 3 cycle stall on branch instruction [2520]
+[    9.3449] microVU1: 3 cycle stall on branch instruction [1ba0]
+[    9.3453] microVU1: 3 cycle stall on branch instruction [2520]
+[    9.3453] microVU1: 3 cycle stall on branch instruction [1ba0]
+[    9.3454] microVU1: 3 cycle stall on branch instruction [2520]
+[    9.3455] microVU1: 3 cycle stall on branch instruction [1ba0]
+[    9.3457] microVU1: 3 cycle stall on branch instruction [2520]
+[    9.3458] microVU1: 3 cycle stall on branch instruction [1ba0]
+[    9.3458] microVU1: 3 cycle stall on branch instruction [1fc0]
+[    9.3460] microVU1: 3 cycle stall on branch instruction [2520]
+[    9.3460] microVU1: 3 cycle stall on branch instruction [1ba0]
+[    9.3461] microVU1: 3 cycle stall on branch instruction [2520]
+[    9.3462] microVU1: 3 cycle stall on branch instruction [1ba0]
+[    9.3467] microVU1: 3 cycle stall on branch instruction [2520]
+[    9.3468] microVU1: 3 cycle stall on branch instruction [1ba0]
+[    9.3469] microVU1: 3 cycle stall on branch instruction [2520]
+[    9.3470] microVU1: 3 cycle stall on branch instruction [1ba0]
+[    9.3475] microVU1: 3 cycle stall on branch instruction [2520]
+[    9.3475] microVU1: 3 cycle stall on branch instruction [1ba0]
+[    9.3477] microVU1: 3 cycle stall on branch instruction [2520]
+[    9.3477] microVU1: 3 cycle stall on branch instruction [1ba0]
+[    9.3482] microVU1: 3 cycle stall on branch instruction [2520]
+[    9.3482] microVU1: 3 cycle stall on branch instruction [1ba0]
+[    9.3488] microVU1: 3 cycle stall on branch instruction [1fc0]
+[    9.3489] microVU1: 3 cycle stall on branch instruction [2520]
+[    9.3490] microVU1: 3 cycle stall on branch instruction [1ba0]
+[    9.3491] microVU1: 3 cycle stall on branch instruction [1fc0]
+[    9.3492] microVU1: 3 cycle stall on branch instruction [1fc0]
+[    9.3493] microVU1: 3 cycle stall on branch instruction [2520]
+[    9.3493] microVU1: 3 cycle stall on branch instruction [1ba0]
+[    9.3494] microVU1: 3 cycle stall on branch instruction [1fc0]
+[    9.3496] microVU1: 3 cycle stall on branch instruction [1fc0]
+[    9.3498] microVU1: 3 cycle stall on branch instruction [1fc0]
+[    9.3499] microVU1: 3 cycle stall on branch instruction [1fc0]
+[    9.3500] microVU1: 3 cycle stall on branch instruction [1fc0]
+[    9.3502] microVU1: 3 cycle stall on branch instruction [1fc0]
+[    9.3503] microVU1: 3 cycle stall on branch instruction [1fc0]
+[    9.3504] microVU1: 3 cycle stall on branch instruction [1fc0]
+[    9.3505] microVU1: 3 cycle stall on branch instruction [1fc0]
+[    9.3507] microVU1: 3 cycle stall on branch instruction [1fc0]
+[    9.3510] microVU1: 3 cycle stall on branch instruction [1fc0]
+[    9.3513] microVU1: 3 cycle stall on branch instruction [1fc0]
+[    9.3515] microVU1: 3 cycle stall on branch instruction [1ba0]
+[    9.3517] microVU1: Cached Prog = [002] [PC=2578] [List=01] (Cache=1.397%) [0.9mb]
+[    9.3517] microVU1: 1 cycle stall on branch instruction [1ae8]
+[    9.3517] microVU1: 3 cycle stall on branch instruction [1ba0]
+[    9.3522] microVU1: 3 cycle stall on branch instruction [2520]
+[    9.3523] microVU1: 3 cycle stall on branch instruction [1ba0]
+[    9.3528] microVU1: 3 cycle stall on branch instruction [2520]
+[    9.3528] microVU1: 3 cycle stall on branch instruction [1ba0]
+[    9.3530] microVU1: 3 cycle stall on branch instruction [2520]
+[    9.3530] microVU1: 3 cycle stall on branch instruction [1ba0]
+[    9.3536] microVU1: 3 cycle stall on branch instruction [2520]
+[    9.3536] microVU1: 3 cycle stall on branch instruction [1ba0]
+[    9.3540] microVU1: 3 cycle stall on branch instruction [2520]
+[    9.3541] microVU1: 3 cycle stall on branch instruction [1ba0]
+[    9.3543] microVU1: 3 cycle stall on branch instruction [2520]
+[    9.3543] microVU1: 3 cycle stall on branch instruction [1ba0]
+[    9.3546] microVU1: 3 cycle stall on branch instruction [2520]
+[    9.3546] microVU1: 3 cycle stall on branch instruction [1ba0]
+[    9.3546] microVU1: 3 cycle stall on branch instruction [1fc0]
+[    9.3549] microVU1: 3 cycle stall on branch instruction [2520]
+[    9.3549] microVU1: 3 cycle stall on branch instruction [1ba0]
+[    9.3551] microVU1: 3 cycle stall on branch instruction [2520]
+[    9.3560] microVU1: 3 cycle stall on branch instruction [1ba0]
+[    9.3567] microVU1: 3 cycle stall on branch instruction [2520]
+[    9.3568] microVU1: 3 cycle stall on branch instruction [1ba0]
+[    9.3570] microVU1: 3 cycle stall on branch instruction [2520]
+[    9.3570] microVU1: 3 cycle stall on branch instruction [1ba0]
+[    9.3578] microVU1: 3 cycle stall on branch instruction [2520]
+[    9.3578] microVU1: 3 cycle stall on branch instruction [1ba0]
+[    9.3582] microVU1: 3 cycle stall on branch instruction [2520]
+[    9.3582] microVU1: 3 cycle stall on branch instruction [1ba0]
+[    9.3588] microVU1: 3 cycle stall on branch instruction [2520]
+[    9.3588] microVU1: 3 cycle stall on branch instruction [1ba0]
+[    9.3597] microVU1: 3 cycle stall on branch instruction [1fc0]
+[    9.3598] microVU1: 3 cycle stall on branch instruction [2520]
+[    9.3598] microVU1: 3 cycle stall on branch instruction [1ba0]
+[    9.3600] microVU1: 3 cycle stall on branch instruction [1fc0]
+[    9.3602] microVU1: 3 cycle stall on branch instruction [1fc0]
+[    9.3603] microVU1: 3 cycle stall on branch instruction [2520]
+[    9.3604] microVU1: 3 cycle stall on branch instruction [1ba0]
+[    9.3605] microVU1: 3 cycle stall on branch instruction [1fc0]
+[    9.3607] microVU1: 3 cycle stall on branch instruction [1fc0]
+[    9.3609] microVU1: 3 cycle stall on branch instruction [1fc0]
+[    9.3610] microVU1: 3 cycle stall on branch instruction [1fc0]
+[    9.3612] microVU1: 3 cycle stall on branch instruction [1fc0]
+[    9.3613] microVU1: 3 cycle stall on branch instruction [1fc0]
+[    9.3614] microVU1: 3 cycle stall on branch instruction [1fc0]
+[    9.3616] microVU1: 3 cycle stall on branch instruction [1fc0]
+[    9.3617] microVU1: 3 cycle stall on branch instruction [1fc0]
+[    9.3618] microVU1: 3 cycle stall on branch instruction [1fc0]
+[    9.3619] microVU1: 3 cycle stall on branch instruction [1fc0]
+[    9.3620] microVU1: 3 cycle stall on branch instruction [1fc0]
+[    9.3621] microVU1: 3 cycle stall on branch instruction [1ba0]
+[    9.3624] microVU1: Cached Prog = [003] [PC=3550] [List=01] (Cache=2.117%) [1.3mb]
+[    9.3627] microVU1: 3 cycle stall on branch instruction [3368]
+[    9.3627] microVU1: 3 cycle stall on branch instruction [3368]
+[    9.3628] microVU1: 3 cycle stall on branch instruction [3380]
+[    9.3628] microVU1: 3 cycle stall on branch instruction [3380]
+[    9.3628] microVU1: 3 cycle stall on branch instruction [33b8]
+[    9.3628] microVU1: 3 cycle stall on branch instruction [33b8]
+[    9.3628] microVU1: 3 cycle stall on branch instruction [33d8]
+[    9.3628] microVU1: 3 cycle stall on branch instruction [33d8]
+[    9.3629] microVU1: 3 cycle stall on branch instruction [3368]
+[    9.3629] microVU1: 3 cycle stall on branch instruction [3368]
+[    9.3629] microVU1: 3 cycle stall on branch instruction [3380]
+[    9.3629] microVU1: 3 cycle stall on branch instruction [3380]
+[    9.3630] microVU1: 3 cycle stall on branch instruction [33b8]
+[    9.3630] microVU1: 3 cycle stall on branch instruction [33b8]
+[    9.3630] microVU1: 3 cycle stall on branch instruction [33d8]
+[    9.3630] microVU1: 3 cycle stall on branch instruction [33d8]
+[    9.3631] microVU1: 3 cycle stall on branch instruction [3368]
+[    9.3631] microVU1: 3 cycle stall on branch instruction [3368]
+[    9.3631] microVU1: 3 cycle stall on branch instruction [3380]
+[    9.3631] microVU1: 3 cycle stall on branch instruction [3380]
+[    9.3631] microVU1: 3 cycle stall on branch instruction [33b8]
+[    9.3631] microVU1: 3 cycle stall on branch instruction [33b8]
+[    9.3632] microVU1: 3 cycle stall on branch instruction [33d8]
+[    9.3632] microVU1: 3 cycle stall on branch instruction [33d8]
+[    9.3633] microVU1: 3 cycle stall on branch instruction [3368]
+[    9.3633] microVU1: 3 cycle stall on branch instruction [3368]
+[    9.3633] microVU1: 3 cycle stall on branch instruction [3380]
+[    9.3633] microVU1: 3 cycle stall on branch instruction [3380]
+[    9.3633] microVU1: 3 cycle stall on branch instruction [33b8]
+[    9.3633] microVU1: 3 cycle stall on branch instruction [33b8]
+[    9.3633] microVU1: 3 cycle stall on branch instruction [33d8]
+[    9.3633] microVU1: 3 cycle stall on branch instruction [33d8]
+[    9.3638] microVU1: 3 cycle stall on branch instruction [3368]
+[    9.3638] microVU1: 3 cycle stall on branch instruction [3368]
+[    9.3638] microVU1: 3 cycle stall on branch instruction [3380]
+[    9.3638] microVU1: 3 cycle stall on branch instruction [3380]
+[    9.3638] microVU1: 3 cycle stall on branch instruction [33b8]
+[    9.3638] microVU1: 3 cycle stall on branch instruction [33b8]
+[    9.3638] microVU1: 3 cycle stall on branch instruction [33d8]
+[    9.3638] microVU1: 3 cycle stall on branch instruction [33d8]
+[    9.3639] microVU1: 3 cycle stall on branch instruction [3368]
+[    9.3639] microVU1: 3 cycle stall on branch instruction [3368]
+[    9.3639] microVU1: 3 cycle stall on branch instruction [3380]
+[    9.3639] microVU1: 3 cycle stall on branch instruction [3380]
+[    9.3640] microVU1: 3 cycle stall on branch instruction [33b8]
+[    9.3640] microVU1: 3 cycle stall on branch instruction [33b8]
+[    9.3640] microVU1: 3 cycle stall on branch instruction [33d8]
+[    9.3640] microVU1: 3 cycle stall on branch instruction [33d8]
+[    9.3641] microVU1: 3 cycle stall on branch instruction [3368]
+[    9.3641] microVU1: 3 cycle stall on branch instruction [3368]
+[    9.3641] microVU1: 3 cycle stall on branch instruction [3380]
+[    9.3641] microVU1: 3 cycle stall on branch instruction [3380]
+[    9.3641] microVU1: 3 cycle stall on branch instruction [33b8]
+[    9.3641] microVU1: 3 cycle stall on branch instruction [33b8]
+[    9.3641] microVU1: 3 cycle stall on branch instruction [33d8]
+[    9.3641] microVU1: 3 cycle stall on branch instruction [33d8]
+[    9.3642] microVU1: 3 cycle stall on branch instruction [3368]
+[    9.3642] microVU1: 3 cycle stall on branch instruction [3368]
+[    9.3642] microVU1: 3 cycle stall on branch instruction [3380]
+[    9.3642] microVU1: 3 cycle stall on branch instruction [3380]
+[    9.3643] microVU1: 3 cycle stall on branch instruction [33b8]
+[    9.3643] microVU1: 3 cycle stall on branch instruction [33b8]
+[    9.3643] microVU1: 3 cycle stall on branch instruction [33d8]
+[    9.3643] microVU1: 3 cycle stall on branch instruction [33d8]
+[    9.3647] microVU1: 3 cycle stall on branch instruction [3368]
+[    9.3647] microVU1: 3 cycle stall on branch instruction [3368]
+[    9.3647] microVU1: 3 cycle stall on branch instruction [3380]
+[    9.3647] microVU1: 3 cycle stall on branch instruction [3380]
+[    9.3647] microVU1: 3 cycle stall on branch instruction [33b8]
+[    9.3647] microVU1: 3 cycle stall on branch instruction [33b8]
+[    9.3647] microVU1: 3 cycle stall on branch instruction [33d8]
+[    9.3647] microVU1: 3 cycle stall on branch instruction [33d8]
+[    9.3649] microVU1: 3 cycle stall on branch instruction [3368]
+[    9.3649] microVU1: 3 cycle stall on branch instruction [3368]
+[    9.3649] microVU1: 3 cycle stall on branch instruction [3380]
+[    9.3649] microVU1: 3 cycle stall on branch instruction [3380]
+[    9.3649] microVU1: 3 cycle stall on branch instruction [33b8]
+[    9.3649] microVU1: 3 cycle stall on branch instruction [33b8]
+[    9.3649] microVU1: 3 cycle stall on branch instruction [33d8]
+[    9.3649] microVU1: 3 cycle stall on branch instruction [33d8]
+[    9.3651] microVU1: 3 cycle stall on branch instruction [3368]
+[    9.3651] microVU1: 3 cycle stall on branch instruction [3368]
+[    9.3651] microVU1: 3 cycle stall on branch instruction [3380]
+[    9.3651] microVU1: 3 cycle stall on branch instruction [3380]
+[    9.3651] microVU1: 3 cycle stall on branch instruction [33b8]
+[    9.3651] microVU1: 3 cycle stall on branch instruction [33b8]
+[    9.3651] microVU1: 3 cycle stall on branch instruction [33d8]
+[    9.3651] microVU1: 3 cycle stall on branch instruction [33d8]
+[    9.3652] microVU1: 3 cycle stall on branch instruction [3368]
+[    9.3652] microVU1: 3 cycle stall on branch instruction [3368]
+[    9.3653] microVU1: 3 cycle stall on branch instruction [3380]
+[    9.3653] microVU1: 3 cycle stall on branch instruction [3380]
+[    9.3653] microVU1: 3 cycle stall on branch instruction [33b8]
+[    9.3653] microVU1: 3 cycle stall on branch instruction [33b8]
+[    9.3653] microVU1: 3 cycle stall on branch instruction [33d8]
+[    9.3653] microVU1: 3 cycle stall on branch instruction [33d8]
+[    9.3657] microVU1: 3 cycle stall on branch instruction [3368]
+[    9.3657] microVU1: 3 cycle stall on branch instruction [3368]
+[    9.3657] microVU1: 3 cycle stall on branch instruction [3380]
+[    9.3657] microVU1: 3 cycle stall on branch instruction [3380]
+[    9.3657] microVU1: 3 cycle stall on branch instruction [33b8]
+[    9.3657] microVU1: 3 cycle stall on branch instruction [33b8]
+[    9.3658] microVU1: 3 cycle stall on branch instruction [33d8]
+[    9.3658] microVU1: 3 cycle stall on branch instruction [33d8]
+[    9.3659] microVU1: 3 cycle stall on branch instruction [3368]
+[    9.3659] microVU1: 3 cycle stall on branch instruction [3368]
+[    9.3659] microVU1: 3 cycle stall on branch instruction [3380]
+[    9.3659] microVU1: 3 cycle stall on branch instruction [3380]
+[    9.3659] microVU1: 3 cycle stall on branch instruction [33b8]
+[    9.3659] microVU1: 3 cycle stall on branch instruction [33b8]
+[    9.3659] microVU1: 3 cycle stall on branch instruction [33d8]
+[    9.3659] microVU1: 3 cycle stall on branch instruction [33d8]
+[    9.3661] microVU1: 3 cycle stall on branch instruction [3368]
+[    9.3661] microVU1: 3 cycle stall on branch instruction [3368]
+[    9.3661] microVU1: 3 cycle stall on branch instruction [3380]
+[    9.3661] microVU1: 3 cycle stall on branch instruction [3380]
+[    9.3661] microVU1: 3 cycle stall on branch instruction [33b8]
+[    9.3661] microVU1: 3 cycle stall on branch instruction [33b8]
+[    9.3661] microVU1: 3 cycle stall on branch instruction [33d8]
+[    9.3661] microVU1: 3 cycle stall on branch instruction [33d8]
+[    9.3663] microVU1: 3 cycle stall on branch instruction [3368]
+[    9.3663] microVU1: 3 cycle stall on branch instruction [3368]
+[    9.3663] microVU1: 3 cycle stall on branch instruction [3380]
+[    9.3663] microVU1: 3 cycle stall on branch instruction [3380]
+[    9.3663] microVU1: 3 cycle stall on branch instruction [33b8]
+[    9.3663] microVU1: 3 cycle stall on branch instruction [33b8]
+[    9.3663] microVU1: 3 cycle stall on branch instruction [33d8]
+[    9.3663] microVU1: 3 cycle stall on branch instruction [33d8]
+[    9.3670] microVU1: 3 cycle stall on branch instruction [2c58]
+[    9.3689] microVU1: Cached Prog = [004] [PC=0000] [List=01] (Cache=2.794%) [1.7mb]
+[    9.3703] microVU1: Cached Prog = [005] [PC=0710] [List=01] (Cache=2.887%) [1.8mb]
+[    9.3703] microVU1: 2 cycle stall on branch instruction [07c8]
+[    9.3706] microVU1: 3 cycle stall on branch instruction [1108]
+[    9.3706] microVU1: 3 cycle stall on branch instruction [1130]
+[    9.3709] microVU1: 3 cycle stall on branch instruction [1108]
+[    9.3710] microVU1: 3 cycle stall on branch instruction [1130]
+[    9.3711] microVU1: 3 cycle stall on branch instruction [1108]
+[    9.3711] microVU1: 3 cycle stall on branch instruction [1130]
+[    9.3715] microVU1: 3 cycle stall on branch instruction [1108]
+[    9.3716] microVU1: 3 cycle stall on branch instruction [1130]
+[    9.3719] microVU1: 3 cycle stall on branch instruction [1108]
+[    9.3719] microVU1: 3 cycle stall on branch instruction [1130]
+[    9.3721] microVU1: 3 cycle stall on branch instruction [1108]
+[    9.3721] microVU1: 3 cycle stall on branch instruction [1130]
+[    9.3723] microVU1: 3 cycle stall on branch instruction [1108]
+[    9.3723] microVU1: 3 cycle stall on branch instruction [1130]
+[    9.3723] microVU1: 3 cycle stall on branch instruction [09e8]
+[    9.3724] microVU1: 3 cycle stall on branch instruction [0a70]
+[    9.3725] microVU1: 3 cycle stall on branch instruction [1108]
+[    9.3725] microVU1: 3 cycle stall on branch instruction [1130]
+[    9.3729] microVU1: 3 cycle stall on branch instruction [1108]
+[    9.3729] microVU1: 3 cycle stall on branch instruction [1130]
+[    9.3731] microVU1: 3 cycle stall on branch instruction [1108]
+[    9.3731] microVU1: 3 cycle stall on branch instruction [1130]
+[    9.3736] microVU1: 3 cycle stall on branch instruction [1108]
+[    9.3736] microVU1: 3 cycle stall on branch instruction [1130]
+[    9.3739] microVU1: 3 cycle stall on branch instruction [1108]
+[    9.3739] microVU1: 3 cycle stall on branch instruction [1130]
+[    9.3740] microVU1: 3 cycle stall on branch instruction [1108]
+[    9.3741] microVU1: 3 cycle stall on branch instruction [1130]
+[    9.3748] microVU1: 3 cycle stall on branch instruction [1108]
+[    9.3748] microVU1: 3 cycle stall on branch instruction [1130]
+[    9.3749] microVU1: 3 cycle stall on branch instruction [09e8]
+[    9.3749] microVU1: 3 cycle stall on branch instruction [0a70]
+[    9.3752] microVU1: 3 cycle stall on branch instruction [09e8]
+[    9.3752] microVU1: 3 cycle stall on branch instruction [0a70]
+[    9.3754] microVU1: 3 cycle stall on branch instruction [09e8]
+[    9.3754] microVU1: 3 cycle stall on branch instruction [0a70]
+[    9.3757] microVU1: 3 cycle stall on branch instruction [1108]
+[    9.3757] microVU1: 3 cycle stall on branch instruction [1130]
+[    9.3758] microVU1: 3 cycle stall on branch instruction [09e8]
+[    9.3758] microVU1: 3 cycle stall on branch instruction [0a70]
+[    9.3760] microVU1: 3 cycle stall on branch instruction [09e8]
+[    9.3760] microVU1: 3 cycle stall on branch instruction [0a70]
+[    9.3762] microVU1: 3 cycle stall on branch instruction [1108]
+[    9.3763] microVU1: 3 cycle stall on branch instruction [1130]
+[    9.3764] microVU1: 3 cycle stall on branch instruction [09e8]
+[    9.3764] microVU1: 3 cycle stall on branch instruction [0a70]
+[    9.3766] microVU1: 3 cycle stall on branch instruction [09e8]
+[    9.3766] microVU1: 3 cycle stall on branch instruction [0a70]
+[    9.3768] microVU1: 3 cycle stall on branch instruction [09e8]
+[    9.3768] microVU1: 3 cycle stall on branch instruction [0a70]
+[    9.3771] microVU1: 3 cycle stall on branch instruction [09e8]
+[    9.3771] microVU1: 3 cycle stall on branch instruction [0a70]
+[    9.3773] microVU1: 3 cycle stall on branch instruction [09e8]
+[    9.3773] microVU1: 3 cycle stall on branch instruction [0a70]
+[    9.3775] microVU1: 3 cycle stall on branch instruction [09e8]
+[    9.3775] microVU1: 3 cycle stall on branch instruction [0a70]
+[    9.3777] microVU1: 3 cycle stall on branch instruction [09e8]
+[    9.3777] microVU1: 3 cycle stall on branch instruction [0a70]
+[    9.3780] microVU1: 3 cycle stall on branch instruction [09e8]
+[    9.3780] microVU1: 3 cycle stall on branch instruction [0a70]
+[    9.3782] microVU1: 3 cycle stall on branch instruction [09e8]
+[    9.3783] microVU1: 3 cycle stall on branch instruction [0a70]
+[    9.3784] microVU1: 3 cycle stall on branch instruction [09e8]
+[    9.3784] microVU1: 3 cycle stall on branch instruction [0a70]
+[    9.3786] microVU1: 3 cycle stall on branch instruction [07f0]
+[    9.3787] microVU1: Cached Prog = [006] [PC=1188] [List=01] (Cache=3.688%) [2.2mb]
+[    9.3788] microVU1: 2 cycle stall on branch instruction [07c8]
+[    9.3791] microVU1: 3 cycle stall on branch instruction [1108]
+[    9.3791] microVU1: 3 cycle stall on branch instruction [1130]
+[    9.3794] microVU1: 3 cycle stall on branch instruction [1108]
+[    9.3794] microVU1: 3 cycle stall on branch instruction [1130]
+[    9.3796] microVU1: 3 cycle stall on branch instruction [1108]
+[    9.3796] microVU1: 3 cycle stall on branch instruction [1130]
+[    9.3799] microVU1: 3 cycle stall on branch instruction [1108]
+[    9.3800] microVU1: 3 cycle stall on branch instruction [1130]
+[    9.3803] microVU1: 3 cycle stall on branch instruction [1108]
+[    9.3803] microVU1: 3 cycle stall on branch instruction [1130]
+[    9.3804] microVU1: 3 cycle stall on branch instruction [1108]
+[    9.3804] microVU1: 3 cycle stall on branch instruction [1130]
+[    9.3807] microVU1: 3 cycle stall on branch instruction [1108]
+[    9.3807] microVU1: 3 cycle stall on branch instruction [1130]
+[    9.3807] microVU1: 3 cycle stall on branch instruction [09e8]
+[    9.3808] microVU1: 3 cycle stall on branch instruction [0a70]
+[    9.3808] microVU1: 3 cycle stall on branch instruction [1108]
+[    9.3809] microVU1: 3 cycle stall on branch instruction [1130]
+[    9.3812] microVU1: 3 cycle stall on branch instruction [1108]
+[    9.3812] microVU1: 3 cycle stall on branch instruction [1130]
+[    9.3814] microVU1: 3 cycle stall on branch instruction [1108]
+[    9.3814] microVU1: 3 cycle stall on branch instruction [1130]
+[    9.3821] microVU1: 3 cycle stall on branch instruction [1108]
+[    9.3822] microVU1: 3 cycle stall on branch instruction [1130]
+[    9.3826] microVU1: 3 cycle stall on branch instruction [1108]
+[    9.3826] microVU1: 3 cycle stall on branch instruction [1130]
+[    9.3828] microVU1: 3 cycle stall on branch instruction [1108]
+[    9.3828] microVU1: 3 cycle stall on branch instruction [1130]
+[    9.3836] microVU1: 3 cycle stall on branch instruction [1108]
+[    9.3837] microVU1: 3 cycle stall on branch instruction [1130]
+[    9.3838] microVU1: 3 cycle stall on branch instruction [09e8]
+[    9.3838] microVU1: 3 cycle stall on branch instruction [0a70]
+[    9.3842] microVU1: 3 cycle stall on branch instruction [09e8]
+[    9.3842] microVU1: 3 cycle stall on branch instruction [0a70]
+[    9.3844] microVU1: 3 cycle stall on branch instruction [09e8]
+[    9.3844] microVU1: 3 cycle stall on branch instruction [0a70]
+[    9.3846] microVU1: 3 cycle stall on branch instruction [1108]
+[    9.3847] microVU1: 3 cycle stall on branch instruction [1130]
+[    9.3848] microVU1: 3 cycle stall on branch instruction [09e8]
+[    9.3848] microVU1: 3 cycle stall on branch instruction [0a70]
+[    9.3850] microVU1: 3 cycle stall on branch instruction [09e8]
+[    9.3850] microVU1: 3 cycle stall on branch instruction [0a70]
+[    9.3853] microVU1: 3 cycle stall on branch instruction [1108]
+[    9.3853] microVU1: 3 cycle stall on branch instruction [1130]
+[    9.3854] microVU1: 3 cycle stall on branch instruction [09e8]
+[    9.3854] microVU1: 3 cycle stall on branch instruction [0a70]
+[    9.3856] microVU1: 3 cycle stall on branch instruction [09e8]
+[    9.3857] microVU1: 3 cycle stall on branch instruction [0a70]
+[    9.3858] microVU1: 3 cycle stall on branch instruction [09e8]
+[    9.3858] microVU1: 3 cycle stall on branch instruction [0a70]
+[    9.3860] microVU1: 3 cycle stall on branch instruction [09e8]
+[    9.3861] microVU1: 3 cycle stall on branch instruction [0a70]
+[    9.3863] microVU1: 3 cycle stall on branch instruction [09e8]
+[    9.3864] microVU1: 3 cycle stall on branch instruction [0a70]
+[    9.3865] microVU1: 3 cycle stall on branch instruction [09e8]
+[    9.3865] microVU1: 3 cycle stall on branch instruction [0a70]
+[    9.3867] microVU1: 3 cycle stall on branch instruction [09e8]
+[    9.3868] microVU1: 3 cycle stall on branch instruction [0a70]
+[    9.3869] microVU1: 3 cycle stall on branch instruction [09e8]
+[    9.3870] microVU1: 3 cycle stall on branch instruction [0a70]
+[    9.3871] microVU1: 3 cycle stall on branch instruction [09e8]
+[    9.3872] microVU1: 3 cycle stall on branch instruction [0a70]
+[    9.3874] microVU1: 3 cycle stall on branch instruction [09e8]
+[    9.3874] microVU1: 3 cycle stall on branch instruction [0a70]
+[    9.3875] microVU1: 3 cycle stall on branch instruction [07f0]
+[    9.4814] microVU1: Cached Prog = [007] [PC=0700] [List=01] (Cache=4.490%) [2.7mb]
+[    9.4825] microVU1: Cached Prog = [008] [PC=3560] [List=01] (Cache=4.583%) [2.8mb]
+[    9.4830] microVU1: Cached Prog = [009] [PC=3940] [List=01] (Cache=4.635%) [2.8mb]
+[    9.8150] microVU1: Cached Prog = [010] [PC=3c50] [List=01] (Cache=4.687%) [2.9mb]
+[    9.8152] microVU1: Cached Prog = [011] [PC=3fb0] [List=01] (Cache=4.703%) [2.9mb]
+[   24.6065] LOG: NIGHTCAMERA phase=0 offset=750 positionX=00000000 positionY=4028b437 positionZ=c2a19b64 lookX=00000000 lookY=3f9a5e32 lookZ=c2949b64 sceneGeneration=1 mask=0
+[   24.6072] LOG: NIGHTCONTEXT phase=0 offset=750 scene=0 night=1 video=1 display=1 depth=2 width=448 height=448 refreshMilliHz=60000 requested=1 dtBits=3c888889 clockBits=00000000 rasterWidth=448 rasterHeight=448 scaleX=1 scaleY=1 ilChoice=0 ilProbing=0 ilBlock=0 ilFrame=58 ilAccepted=0 ilPipelined=1 frameYield=0
+[   24.6279] LOG: NIGHTCORONAGATES phase=0 offset=750 selected=1 enabled=1 coldPackets=1 eligible=1 requested=1 fallback=0 sourceVertices=12 requestedVertices=12 fogOn=1 shaderLit=1 invalid=0 acceptedOutputKnown=0
+[   24.6287] LOG: NIGHTGATES phase=0 offset=750 first=750 frames=1 mask=0 attempted1=8 executed1=8 skipped1=0 submitted1=8 attempted2=4 executed2=4 skipped2=0 submitted2=5 attempted4=3 executed4=3 skipped4=0 submitted4=5 attempted8=4 executed8=4 skipped8=0 submitted8=1 attempted16=2 executed16=2 skipped16=0 submitted16=1 attempted32=0 executed32=0 skipped32=0 submitted32=0 attempted64=0 executed64=0 skipped64=0 submitted64=0
+[   24.6290] LOG: NIGHTEXTRAGATES phase=0 offset=750 first=750 frames=1 extraMask=0 attempted1=1 executed1=1 skipped1=0 submitted1=1 attempted2=1 executed2=1 skipped2=0 submitted2=2 attempted4=2 executed4=2 skipped4=0 submitted4=2
+[   24.6294] LOG: NIGHTWILDGATES phase=0 offset=750 first=750 frames=1 variant=0 enabled=0 planeInvocations=0 planeEligible=0 planeApplied=0 planeFallback=0 planeBoundary=0 planeNonfinite=0 planeColdCompared=0 planeColdMismatches=0 planeInputUnits=0 planeOutputUnits=0 planeInvalid=0 coneInvocations=0 coneEligible=0 coneApplied=0 coneFallback=0 coneBoundary=0 coneNonfinite=0 coneColdCompared=0 coneColdMismatches=0 coneInputUnits=0 coneOutputUnits=0 coneInvalid=0
+[   24.6296] LOG: NIGHTTABLEGATES phase=0 offset=750 first=750 frames=1 selected=1 enabled=1 invocations=19 eligible=9 applied=9 fallback=10 sourceVertices=753 admittedVertices=618 baselineColorQwords=753 tableColorQwords=18 coldCompared=9 coldMismatches=0 invalid=0
+[   33.4025] LOG: NIGHTCAMERA phase=0 offset=1155 positionX=00000000 positionY=4028b437 positionZ=c2a19b64 lookX=00000000 lookY=3f9a5e32 lookZ=c2949b64 sceneGeneration=1 mask=0
+[   33.4031] LOG: NIGHTCONTEXT phase=0 offset=1155 scene=0 night=1 video=1 display=1 depth=2 width=448 height=448 refreshMilliHz=60000 requested=1 dtBits=3c888889 clockBits=00000000 rasterWidth=448 rasterHeight=448 scaleX=1 scaleY=1 ilChoice=0 ilProbing=0 ilBlock=0 ilFrame=13 ilAccepted=0 ilPipelined=1 frameYield=0
+[   33.4237] LOG: NIGHTCORONAGATES phase=0 offset=1155 selected=1 enabled=1 coldPackets=1 eligible=1 requested=1 fallback=0 sourceVertices=12 requestedVertices=12 fogOn=1 shaderLit=1 invalid=0 acceptedOutputKnown=0
+[   33.4244] LOG: NIGHTGATES phase=0 offset=1155 first=1155 frames=1 mask=0 attempted1=8 executed1=8 skipped1=0 submitted1=8 attempted2=4 executed2=4 skipped2=0 submitted2=5 attempted4=3 executed4=3 skipped4=0 submitted4=5 attempted8=4 executed8=4 skipped8=0 submitted8=1 attempted16=2 executed16=2 skipped16=0 submitted16=1 attempted32=0 executed32=0 skipped32=0 submitted32=0 attempted64=0 executed64=0 skipped64=0 submitted64=0
+[   33.4247] LOG: NIGHTEXTRAGATES phase=0 offset=1155 first=1155 frames=1 extraMask=0 attempted1=1 executed1=1 skipped1=0 submitted1=1 attempted2=1 executed2=1 skipped2=0 submitted2=2 attempted4=2 executed4=2 skipped4=0 submitted4=2
+[   33.4250] LOG: NIGHTWILDGATES phase=0 offset=1155 first=1155 frames=1 variant=0 enabled=0 planeInvocations=0 planeEligible=0 planeApplied=0 planeFallback=0 planeBoundary=0 planeNonfinite=0 planeColdCompared=0 planeColdMismatches=0 planeInputUnits=0 planeOutputUnits=0 planeInvalid=0 coneInvocations=0 coneEligible=0 coneApplied=0 coneFallback=0 coneBoundary=0 coneNonfinite=0 coneColdCompared=0 coneColdMismatches=0 coneInputUnits=0 coneOutputUnits=0 coneInvalid=0
+[   33.4252] LOG: NIGHTTABLEGATES phase=0 offset=1155 first=1155 frames=1 selected=1 enabled=1 invocations=19 eligible=9 applied=9 fallback=10 sourceVertices=753 admittedVertices=618 baselineColorQwords=753 tableColorQwords=18 coldCompared=9 coldMismatches=0 invalid=0
+[   46.1419] LOG: NIGHTCORONAPHASE phase=1 first=1800 selected=1 enabled=0
+[   46.1423] LOG: NIGHTPHASE phase=1 first=1800 mask=0 appliedMask=0 sampler=1 countReads=262 samplePtr=0052d488
+[   46.1428] LOG: NIGHTEXTRAPHASE phase=1 first=1800 extraMask=0 appliedExtraMask=0
+[   46.1432] LOG: NIGHTWILDPHASE phase=1 first=1800 variant=0 enabled=0 appliedVariant=0 appliedEnabled=0
+[   46.1435] LOG: NIGHTTABLEPHASE phase=1 first=1800 selected=1 enabled=1 appliedSelected=1 appliedEnabled=1
+[   60.7218] LOG: NIGHTCAMERA phase=1 offset=750 positionX=00000000 positionY=4028b437 positionZ=c2a19b64 lookX=00000000 lookY=3f9a5e32 lookZ=c2949b64 sceneGeneration=1 mask=0
+[   60.7222] LOG: NIGHTCONTEXT phase=1 offset=750 scene=0 night=1 video=1 display=1 depth=2 width=448 height=448 refreshMilliHz=60000 requested=1 dtBits=3c888889 clockBits=00000000 rasterWidth=448 rasterHeight=448 scaleX=1 scaleY=1 ilChoice=0 ilProbing=0 ilBlock=0 ilFrame=58 ilAccepted=0 ilPipelined=1 frameYield=0
+[   60.7423] LOG: NIGHTCORONAGATES phase=1 offset=750 selected=1 enabled=0 coldPackets=1 eligible=1 requested=0 fallback=0 sourceVertices=12 requestedVertices=0 fogOn=1 shaderLit=1 invalid=0 acceptedOutputKnown=0
+[   60.7430] LOG: NIGHTGATES phase=1 offset=750 first=750 frames=1 mask=0 attempted1=8 executed1=8 skipped1=0 submitted1=8 attempted2=4 executed2=4 skipped2=0 submitted2=5 attempted4=3 executed4=3 skipped4=0 submitted4=5 attempted8=4 executed8=4 skipped8=0 submitted8=1 attempted16=2 executed16=2 skipped16=0 submitted16=1 attempted32=0 executed32=0 skipped32=0 submitted32=0 attempted64=0 executed64=0 skipped64=0 submitted64=0
+[   60.7433] LOG: NIGHTEXTRAGATES phase=1 offset=750 first=750 frames=1 extraMask=0 attempted1=1 executed1=1 skipped1=0 submitted1=1 attempted2=1 executed2=1 skipped2=0 submitted2=2 attempted4=2 executed4=2 skipped4=0 submitted4=2
+[   60.7439] LOG: NIGHTWILDGATES phase=1 offset=750 first=750 frames=1 variant=0 enabled=0 planeInvocations=0 planeEligible=0 planeApplied=0 planeFallback=0 planeBoundary=0 planeNonfinite=0 planeColdCompared=0 planeColdMismatches=0 planeInputUnits=0 planeOutputUnits=0 planeInvalid=0 coneInvocations=0 coneEligible=0 coneApplied=0 coneFallback=0 coneBoundary=0 coneNonfinite=0 coneColdCompared=0 coneColdMismatches=0 coneInputUnits=0 coneOutputUnits=0 coneInvalid=0
+[   60.7444] LOG: NIGHTTABLEGATES phase=1 offset=750 first=750 frames=1 selected=1 enabled=1 invocations=19 eligible=9 applied=9 fallback=10 sourceVertices=753 admittedVertices=618 baselineColorQwords=753 tableColorQwords=18 coldCompared=9 coldMismatches=0 invalid=0
+[   68.6358] LOG: NIGHTCAMERA phase=1 offset=1155 positionX=00000000 positionY=4028b437 positionZ=c2a19b64 lookX=00000000 lookY=3f9a5e32 lookZ=c2949b64 sceneGeneration=1 mask=0
+[   68.6362] LOG: NIGHTCONTEXT phase=1 offset=1155 scene=0 night=1 video=1 display=1 depth=2 width=448 height=448 refreshMilliHz=60000 requested=1 dtBits=3c888889 clockBits=00000000 rasterWidth=448 rasterHeight=448 scaleX=1 scaleY=1 ilChoice=0 ilProbing=0 ilBlock=0 ilFrame=13 ilAccepted=0 ilPipelined=1 frameYield=0
+[   68.6539] LOG: NIGHTCORONAGATES phase=1 offset=1155 selected=1 enabled=0 coldPackets=1 eligible=1 requested=0 fallback=0 sourceVertices=12 requestedVertices=0 fogOn=1 shaderLit=1 invalid=0 acceptedOutputKnown=0
+[   68.6543] LOG: NIGHTGATES phase=1 offset=1155 first=1155 frames=1 mask=0 attempted1=8 executed1=8 skipped1=0 submitted1=8 attempted2=4 executed2=4 skipped2=0 submitted2=5 attempted4=3 executed4=3 skipped4=0 submitted4=5 attempted8=4 executed8=4 skipped8=0 submitted8=1 attempted16=2 executed16=2 skipped16=0 submitted16=1 attempted32=0 executed32=0 skipped32=0 submitted32=0 attempted64=0 executed64=0 skipped64=0 submitted64=0
+[   68.6547] LOG: NIGHTEXTRAGATES phase=1 offset=1155 first=1155 frames=1 extraMask=0 attempted1=1 executed1=1 skipped1=0 submitted1=1 attempted2=1 executed2=1 skipped2=0 submitted2=2 attempted4=2 executed4=2 skipped4=0 submitted4=2
+[   68.6550] LOG: NIGHTWILDGATES phase=1 offset=1155 first=1155 frames=1 variant=0 enabled=0 planeInvocations=0 planeEligible=0 planeApplied=0 planeFallback=0 planeBoundary=0 planeNonfinite=0 planeColdCompared=0 planeColdMismatches=0 planeInputUnits=0 planeOutputUnits=0 planeInvalid=0 coneInvocations=0 coneEligible=0 coneApplied=0 coneFallback=0 coneBoundary=0 coneNonfinite=0 coneColdCompared=0 coneColdMismatches=0 coneInputUnits=0 coneOutputUnits=0 coneInvalid=0
+[   68.6550] LOG: NIGHTTABLEGATES phase=1 offset=1155 first=1155 frames=1 selected=1 enabled=1 invocations=19 eligible=9 applied=9 fallback=10 sourceVertices=753 admittedVertices=618 baselineColorQwords=753 tableColorQwords=18 coldCompared=9 coldMismatches=0 invalid=0
+[   81.4335] LOG: NIGHTCORONAPHASE phase=2 first=3600 selected=1 enabled=1
+[   81.4338] LOG: NIGHTPHASE phase=2 first=3600 mask=0 appliedMask=0 sampler=1 countReads=262 samplePtr=0052d488
+[   81.4340] LOG: NIGHTEXTRAPHASE phase=2 first=3600 extraMask=0 appliedExtraMask=0
+[   81.4342] LOG: NIGHTWILDPHASE phase=2 first=3600 variant=0 enabled=0 appliedVariant=0 appliedEnabled=0
+[   81.4343] LOG: NIGHTTABLEPHASE phase=2 first=3600 selected=1 enabled=1 appliedSelected=1 appliedEnabled=1
+[   96.3112] LOG: NIGHTCAMERA phase=2 offset=750 positionX=00000000 positionY=4028b437 positionZ=c2a19b64 lookX=00000000 lookY=3f9a5e32 lookZ=c2949b64 sceneGeneration=1 mask=0
+[   96.3115] LOG: NIGHTCONTEXT phase=2 offset=750 scene=0 night=1 video=1 display=1 depth=2 width=448 height=448 refreshMilliHz=60000 requested=1 dtBits=3c888889 clockBits=00000000 rasterWidth=448 rasterHeight=448 scaleX=1 scaleY=1 ilChoice=0 ilProbing=0 ilBlock=0 ilFrame=58 ilAccepted=0 ilPipelined=1 frameYield=0
+[   96.3308] LOG: NIGHTCORONAGATES phase=2 offset=750 selected=1 enabled=1 coldPackets=1 eligible=1 requested=1 fallback=0 sourceVertices=12 requestedVertices=12 fogOn=1 shaderLit=1 invalid=0 acceptedOutputKnown=0
+[   96.3313] LOG: NIGHTGATES phase=2 offset=750 first=750 frames=1 mask=0 attempted1=8 executed1=8 skipped1=0 submitted1=8 attempted2=4 executed2=4 skipped2=0 submitted2=5 attempted4=3 executed4=3 skipped4=0 submitted4=5 attempted8=4 executed8=4 skipped8=0 submitted8=1 attempted16=2 executed16=2 skipped16=0 submitted16=1 attempted32=0 executed32=0 skipped32=0 submitted32=0 attempted64=0 executed64=0 skipped64=0 submitted64=0
+[   96.3316] LOG: NIGHTEXTRAGATES phase=2 offset=750 first=750 frames=1 extraMask=0 attempted1=1 executed1=1 skipped1=0 submitted1=1 attempted2=1 executed2=1 skipped2=0 submitted2=2 attempted4=2 executed4=2 skipped4=0 submitted4=2
+[   96.3319] LOG: NIGHTWILDGATES phase=2 offset=750 first=750 frames=1 variant=0 enabled=0 planeInvocations=0 planeEligible=0 planeApplied=0 planeFallback=0 planeBoundary=0 planeNonfinite=0 planeColdCompared=0 planeColdMismatches=0 planeInputUnits=0 planeOutputUnits=0 planeInvalid=0 coneInvocations=0 coneEligible=0 coneApplied=0 coneFallback=0 coneBoundary=0 coneNonfinite=0 coneColdCompared=0 coneColdMismatches=0 coneInputUnits=0 coneOutputUnits=0 coneInvalid=0
+[   96.3321] LOG: NIGHTTABLEGATES phase=2 offset=750 first=750 frames=1 selected=1 enabled=1 invocations=19 eligible=9 applied=9 fallback=10 sourceVertices=753 admittedVertices=618 baselineColorQwords=753 tableColorQwords=18 coldCompared=9 coldMismatches=0 invalid=0
+[  104.2918] LOG: NIGHTCAMERA phase=2 offset=1155 positionX=00000000 positionY=4028b437 positionZ=c2a19b64 lookX=00000000 lookY=3f9a5e32 lookZ=c2949b64 sceneGeneration=1 mask=0
+[  104.2924] LOG: NIGHTCONTEXT phase=2 offset=1155 scene=0 night=1 video=1 display=1 depth=2 width=448 height=448 refreshMilliHz=60000 requested=1 dtBits=3c888889 clockBits=00000000 rasterWidth=448 rasterHeight=448 scaleX=1 scaleY=1 ilChoice=0 ilProbing=0 ilBlock=0 ilFrame=13 ilAccepted=0 ilPipelined=1 frameYield=0
+[  104.3101] LOG: NIGHTCORONAGATES phase=2 offset=1155 selected=1 enabled=1 coldPackets=1 eligible=1 requested=1 fallback=0 sourceVertices=12 requestedVertices=12 fogOn=1 shaderLit=1 invalid=0 acceptedOutputKnown=0
+[  104.3106] LOG: NIGHTGATES phase=2 offset=1155 first=1155 frames=1 mask=0 attempted1=8 executed1=8 skipped1=0 submitted1=8 attempted2=4 executed2=4 skipped2=0 submitted2=5 attempted4=3 executed4=3 skipped4=0 submitted4=5 attempted8=4 executed8=4 skipped8=0 submitted8=1 attempted16=2 executed16=2 skipped16=0 submitted16=1 attempted32=0 executed32=0 skipped32=0 submitted32=0 attempted64=0 executed64=0 skipped64=0 submitted64=0
+[  104.3108] LOG: NIGHTEXTRAGATES phase=2 offset=1155 first=1155 frames=1 extraMask=0 attempted1=1 executed1=1 skipped1=0 submitted1=1 attempted2=1 executed2=1 skipped2=0 submitted2=2 attempted4=2 executed4=2 skipped4=0 submitted4=2
+[  104.3111] LOG: NIGHTWILDGATES phase=2 offset=1155 first=1155 frames=1 variant=0 enabled=0 planeInvocations=0 planeEligible=0 planeApplied=0 planeFallback=0 planeBoundary=0 planeNonfinite=0 planeColdCompared=0 planeColdMismatches=0 planeInputUnits=0 planeOutputUnits=0 planeInvalid=0 coneInvocations=0 coneEligible=0 coneApplied=0 coneFallback=0 coneBoundary=0 coneNonfinite=0 coneColdCompared=0 coneColdMismatches=0 coneInputUnits=0 coneOutputUnits=0 coneInvalid=0
+[  104.3113] LOG: NIGHTTABLEGATES phase=2 offset=1155 first=1155 frames=1 selected=1 enabled=1 invocations=19 eligible=9 applied=9 fallback=10 sourceVertices=753 admittedVertices=618 baselineColorQwords=753 tableColorQwords=18 coldCompared=9 coldMismatches=0 invalid=0
+[  116.9664] LOG: NIGHTDONE order=1 valid=1 loops=5400

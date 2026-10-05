@@ -1,0 +1,15 @@
+{
+  "status": "ROOT_RELEASE_CORONA24_ORDINARY_SAME_ELF_COMPARISON",
+  "physicalPricingAccepted": false,
+  "actualOrdinaryAcceptedSpritesKnown": false,
+  "scope": "Normal full night, unchanged game and normal timing; qualified isolated candidate image. Ordinary requests and complete rendered frames precede end-to-end console pricing, which is not VU/GS stage isolation.",
+  "review": "F:\\Projects\\tyrax2-lab-20261001\\corona24-pricing-root-helpers-v1\\source-review.md",
+  "reviewSha256": "d18be76dc4839278ec6012664736b7a37dd631bbd313162e20dcd5380231c1a8",
+  "host": "F:\\Projects\\tyrax2-lab-20261001\\corona24-pricing-root-helpers-v1\\host-authority.json",
+  "hostSha256": "9717907ff55340363519421034aef31305f019c5aa2bd45c808769963bd55c63",
+  "native": "F:\\Projects\\tyrax2-lab-20261001\\corona24-pricing-native-root-review-v1\\proof.json",
+  "nativeSha256": "e101a87e5d39ec82b3a7de165e9033d7b5d216320fb738514bea285ee1cbe905",
+  "rootSourceFreezeSha256": "99b02903e5f132c8a7f0a7d8d9b2231e9197bdfdec82b48afd396bbbe4645dba",
+  "isolatedOutputProofSha256": "4145cb8453e801ffc0eccd9af9abbdcb9005241375001ef38192c6069d3cc85c",
+  "isolatedDrawRasterProofSha256": "2cb1a330c6efea38f771a3ce634fe3bcc6e141c6eebaff27b6ba83bcafa92abb"
+}

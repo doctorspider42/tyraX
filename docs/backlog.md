@@ -481,9 +481,11 @@ recovered 0.50-0.72 ms of hardware `work`. What it did not do, ranked:
   [GS SPRITE corona trial](tyrax2-gs-sprite-coronas.md) is unpromoted:
   the separate 24-bit follow-up passes reachable-depth controls, MAC scheduling
   within the full resident budget, completed SPRITE endpoints, negative fallback
-  cases and identical positive GS drawing pixels. Ordinary activation, Hybrid
-  scanout and both-order physical pricing remain required; the original
-  Bits16/Hybrid failures are preserved as historical evidence.
+  cases and identical positive GS drawing pixels. Both ordinary physical orders
+  now complete with normal console visual feedback, but the elapsed sign
+  reverses (-0.064 / +0.073 ms): no repeatable gain. Ordinary accepted output
+  and broader Hybrid coverage remain open; original Bits16/Hybrid failures
+  are preserved as historical evidence.
 
   Storage classification alone grants no immutable borrowing rights.
   The [resumed candidate audit](tyrax2-ee-vu0.md#next-60-hz-candidates-host-controls-2026-10-03)

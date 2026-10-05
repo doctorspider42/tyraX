@@ -1,0 +1,1469 @@
+{
+  "status": "PASS_STRICT_NIGHT_MASKED_LOOP_CAPTURE",
+  "environment": "emulator",
+  "order": 1,
+  "engine_loops": 5400,
+  "sample_rows": 384,
+  "chunk_rows": 15,
+  "common_sample_buffer": "0052d488",
+  "by_phase": {
+    "0": {
+      "sampler": 1,
+      "tax_loop_count": 320,
+      "elapsed_ticks_u64": 1574438402,
+      "pacing_ticks_u64": 809670735,
+      "non_pacing_ticks_u64": 764767667,
+      "mean_non_pacing_ms": 8.103769800398085,
+      "rendered_completions": 320,
+      "synthetic_completions": 0,
+      "sample_stats": {
+        "entryPeriod": {
+          "samples": 128,
+          "mean_ticks": 4920138.1015625,
+          "median_ticks": 4920120.0,
+          "p95_ticks": 4924221,
+          "max_ticks": 4924707,
+          "mean_ms": 16.683410988913643,
+          "referenceRefreshMilliHz": 60000,
+          "referenceFrameBudget_ms": 16.666666666666668,
+          "aboveReferenceRefreshBudget": 128,
+          "aboveTwoReferenceRefreshBudgets": 0
+        },
+        "wholeLoop": {
+          "samples": 128,
+          "mean_ticks": 4919725.28125,
+          "median_ticks": 4919760.0,
+          "p95_ticks": 4923817,
+          "max_ticks": 4924347,
+          "mean_ms": 16.68201118045383,
+          "referenceRefreshMilliHz": 60000,
+          "referenceFrameBudget_ms": 16.666666666666668,
+          "aboveReferenceRefreshBudget": 126,
+          "aboveTwoReferenceRefreshBudgets": 0
+        },
+        "pacing": {
+          "samples": 128,
+          "mean_ticks": 2530204.265625,
+          "median_ticks": 2531217.0,
+          "p95_ticks": 2539365,
+          "max_ticks": 2544840,
+          "mean_ms": 8.579522927602133,
+          "referenceRefreshMilliHz": 60000,
+          "referenceFrameBudget_ms": 16.666666666666668,
+          "aboveReferenceRefreshBudget": 0,
+          "aboveTwoReferenceRefreshBudgets": 0
+        },
+        "nonPacing": {
+          "samples": 128,
+          "mean_ticks": 2389521.015625,
+          "median_ticks": 2388272.5,
+          "p95_ticks": 2402145,
+          "max_ticks": 2406270,
+          "mean_ms": 8.102488252851698,
+          "referenceRefreshMilliHz": 60000,
+          "referenceFrameBudget_ms": 16.666666666666668,
+          "aboveReferenceRefreshBudget": 0,
+          "aboveTwoReferenceRefreshBudgets": 0
+        },
+        "presentPeriod": {
+          "samples": 128,
+          "mean_ticks": 4920120.015625,
+          "median_ticks": 4920120.0,
+          "p95_ticks": 4920124,
+          "max_ticks": 4924448,
+          "mean_ms": 16.683349662356907,
+          "referenceRefreshMilliHz": 60000,
+          "referenceFrameBudget_ms": 16.666666666666668,
+          "aboveReferenceRefreshBudget": 128,
+          "aboveTwoReferenceRefreshBudgets": 0
+        },
+        "renderedPeriod": {
+          "samples": 128,
+          "mean_ticks": 4920120.015625,
+          "median_ticks": 4920120.0,
+          "p95_ticks": 4920124,
+          "max_ticks": 4924448,
+          "mean_ms": 16.683349662356907,
+          "referenceRefreshMilliHz": 60000,
+          "referenceFrameBudget_ms": 16.666666666666668,
+          "aboveReferenceRefreshBudget": 128,
+          "aboveTwoReferenceRefreshBudgets": 0
+        }
+      },
+      "presentation_ineligible": {
+        "present": 0,
+        "rendered": 0,
+        "zero": 0,
+        "multiple": 0,
+        "synthetic": 0
+      },
+      "singlePresentPeriodEligibilityPercent": 100.0,
+      "singleRenderedPeriodEligibilityPercent": 100.0,
+      "syntheticZeroMultipleRemainSeparated": true
+    },
+    "1": {
+      "sampler": 1,
+      "tax_loop_count": 320,
+      "elapsed_ticks_u64": 1574438402,
+      "pacing_ticks_u64": 809021760,
+      "non_pacing_ticks_u64": 765416642,
+      "mean_non_pacing_ms": 8.110646586947972,
+      "rendered_completions": 320,
+      "synthetic_completions": 0,
+      "sample_stats": {
+        "entryPeriod": {
+          "samples": 128,
+          "mean_ticks": 4920121.3125,
+          "median_ticks": 4920120.0,
+          "p95_ticks": 4924465,
+          "max_ticks": 4925111,
+          "mean_ms": 16.683354059855144,
+          "referenceRefreshMilliHz": 60000,
+          "referenceFrameBudget_ms": 16.666666666666668,
+          "aboveReferenceRefreshBudget": 127,
+          "aboveTwoReferenceRefreshBudgets": 0
+        },
+        "wholeLoop": {
+          "samples": 128,
+          "mean_ticks": 4919695.5078125,
+          "median_ticks": 4919760.0,
+          "p95_ticks": 4924065,
+          "max_ticks": 4924751,
+          "mean_ms": 16.681910223431057,
+          "referenceRefreshMilliHz": 60000,
+          "referenceFrameBudget_ms": 16.666666666666668,
+          "aboveReferenceRefreshBudget": 124,
+          "aboveTwoReferenceRefreshBudgets": 0
+        },
+        "pacing": {
+          "samples": 128,
+          "mean_ticks": 2527271.53125,
+          "median_ticks": 2528057.0,
+          "p95_ticks": 2535361,
+          "max_ticks": 2539210,
+          "mean_ms": 8.569578488667807,
+          "referenceRefreshMilliHz": 60000,
+          "referenceFrameBudget_ms": 16.666666666666668,
+          "aboveReferenceRefreshBudget": 0,
+          "aboveTwoReferenceRefreshBudgets": 0
+        },
+        "nonPacing": {
+          "samples": 128,
+          "mean_ticks": 2392423.9765625,
+          "median_ticks": 2391703.0,
+          "p95_ticks": 2403129,
+          "max_ticks": 2406660,
+          "mean_ms": 8.112331734763252,
+          "referenceRefreshMilliHz": 60000,
+          "referenceFrameBudget_ms": 16.666666666666668,
+          "aboveReferenceRefreshBudget": 0,
+          "aboveTwoReferenceRefreshBudgets": 0
+        },
+        "presentPeriod": {
+          "samples": 128,
+          "mean_ticks": 4920120.0078125,
+          "median_ticks": 4920120.0,
+          "p95_ticks": 4920973,
+          "max_ticks": 4924792,
+          "mean_ms": 16.68334963586595,
+          "referenceRefreshMilliHz": 60000,
+          "referenceFrameBudget_ms": 16.666666666666668,
+          "aboveReferenceRefreshBudget": 128,
+          "aboveTwoReferenceRefreshBudgets": 0
+        },
+        "renderedPeriod": {
+          "samples": 128,
+          "mean_ticks": 4920120.0078125,
+          "median_ticks": 4920120.0,
+          "p95_ticks": 4920973,
+          "max_ticks": 4924792,
+          "mean_ms": 16.68334963586595,
+          "referenceRefreshMilliHz": 60000,
+          "referenceFrameBudget_ms": 16.666666666666668,
+          "aboveReferenceRefreshBudget": 128,
+          "aboveTwoReferenceRefreshBudgets": 0
+        }
+      },
+      "presentation_ineligible": {
+        "present": 0,
+        "rendered": 0,
+        "zero": 0,
+        "multiple": 0,
+        "synthetic": 0
+      },
+      "singlePresentPeriodEligibilityPercent": 100.0,
+      "singleRenderedPeriodEligibilityPercent": 100.0,
+      "syntheticZeroMultipleRemainSeparated": true
+    },
+    "2": {
+      "sampler": 1,
+      "tax_loop_count": 320,
+      "elapsed_ticks_u64": 1574440380,
+      "pacing_ticks_u64": 808879037,
+      "non_pacing_ticks_u64": 765561343,
+      "mean_non_pacing_ms": 8.112179893917506,
+      "rendered_completions": 320,
+      "synthetic_completions": 0,
+      "sample_stats": {
+        "entryPeriod": {
+          "samples": 128,
+          "mean_ticks": 4920121.296875,
+          "median_ticks": 4920120.0,
+          "p95_ticks": 4920726,
+          "max_ticks": 4924394,
+          "mean_ms": 16.683354006873238,
+          "referenceRefreshMilliHz": 60000,
+          "referenceFrameBudget_ms": 16.666666666666668,
+          "aboveReferenceRefreshBudget": 128,
+          "aboveTwoReferenceRefreshBudgets": 0
+        },
+        "wholeLoop": {
+          "samples": 128,
+          "mean_ticks": 4919760.953125,
+          "median_ticks": 4919760.0,
+          "p95_ticks": 4920366,
+          "max_ticks": 4924034,
+          "mean_ms": 16.682132138146294,
+          "referenceRefreshMilliHz": 60000,
+          "referenceFrameBudget_ms": 16.666666666666668,
+          "aboveReferenceRefreshBudget": 128,
+          "aboveTwoReferenceRefreshBudgets": 0
+        },
+        "pacing": {
+          "samples": 128,
+          "mean_ticks": 2526930.1953125,
+          "median_ticks": 2527252.0,
+          "p95_ticks": 2535476,
+          "max_ticks": 2539998,
+          "mean_ms": 8.56842107243008,
+          "referenceRefreshMilliHz": 60000,
+          "referenceFrameBudget_ms": 16.666666666666668,
+          "aboveReferenceRefreshBudget": 0,
+          "aboveTwoReferenceRefreshBudgets": 0
+        },
+        "nonPacing": {
+          "samples": 128,
+          "mean_ticks": 2392830.7578125,
+          "median_ticks": 2392510.5,
+          "p95_ticks": 2404570,
+          "max_ticks": 2411170,
+          "mean_ms": 8.113711065716213,
+          "referenceRefreshMilliHz": 60000,
+          "referenceFrameBudget_ms": 16.666666666666668,
+          "aboveReferenceRefreshBudget": 0,
+          "aboveTwoReferenceRefreshBudgets": 0
+        },
+        "presentPeriod": {
+          "samples": 128,
+          "mean_ticks": 4920120.0234375,
+          "median_ticks": 4920120.0,
+          "p95_ticks": 4920124,
+          "max_ticks": 4920289,
+          "mean_ms": 16.68334968884786,
+          "referenceRefreshMilliHz": 60000,
+          "referenceFrameBudget_ms": 16.666666666666668,
+          "aboveReferenceRefreshBudget": 128,
+          "aboveTwoReferenceRefreshBudgets": 0
+        },
+        "renderedPeriod": {
+          "samples": 128,
+          "mean_ticks": 4920120.0234375,
+          "median_ticks": 4920120.0,
+          "p95_ticks": 4920124,
+          "max_ticks": 4920289,
+          "mean_ms": 16.68334968884786,
+          "referenceRefreshMilliHz": 60000,
+          "referenceFrameBudget_ms": 16.666666666666668,
+          "aboveReferenceRefreshBudget": 128,
+          "aboveTwoReferenceRefreshBudgets": 0
+        }
+      },
+      "presentation_ineligible": {
+        "present": 0,
+        "rendered": 0,
+        "zero": 0,
+        "multiple": 0,
+        "synthetic": 0
+      },
+      "singlePresentPeriodEligibilityPercent": 100.0,
+      "singleRenderedPeriodEligibilityPercent": 100.0,
+      "syntheticZeroMultipleRemainSeparated": true
+    }
+  },
+  "middleArmMinusOwnOuterControlMean_ms": [
+    -0.00687678654988666,
+    0.0015333069695344648
+  ],
+  "middleArmMinusOwnOuterControlTotal_ms": [
+    -2.200571695963731,
+    0.4906582302510287
+  ],
+  "outer_control_spread_ms": 0.008410093519421125,
+  "config": {
+    "order": "1",
+    "valid": "1",
+    "profile": "0",
+    "hardwareTrace": "0",
+    "ringBytes": "0",
+    "ordinaryClocks": "1",
+    "fixedDt": "0",
+    "sampleBytes": "6144",
+    "chunkBytes": "420",
+    "phases": "3",
+    "phaseFrames": "1800",
+    "taxFirst": "800",
+    "taxLoops": "320",
+    "chunkFrames": "64",
+    "sampleFirst": "900",
+    "sampleCount": "128",
+    "video": "1",
+    "display": "1",
+    "depth": "2",
+    "width": "448",
+    "height": "448",
+    "refreshMilliHz": "60000",
+    "requested": "1",
+    "night": "1"
+  },
+  "quality": {
+    "rasterWidth": "448",
+    "rasterHeight": "448",
+    "scaleX": "1",
+    "scaleY": "1"
+  },
+  "contexts": {
+    "0:750": {
+      "phase": "0",
+      "offset": "750",
+      "scene": "0",
+      "night": "1",
+      "video": "1",
+      "display": "1",
+      "depth": "2",
+      "width": "448",
+      "height": "448",
+      "refreshMilliHz": "60000",
+      "requested": "1",
+      "dtBits": "3c888889",
+      "clockBits": "00000000",
+      "rasterWidth": "448",
+      "rasterHeight": "448",
+      "scaleX": "1",
+      "scaleY": "1",
+      "ilChoice": "0",
+      "ilProbing": "0",
+      "ilBlock": "0",
+      "ilFrame": "58",
+      "ilAccepted": "0",
+      "ilPipelined": "1",
+      "frameYield": "0"
+    },
+    "0:1155": {
+      "phase": "0",
+      "offset": "1155",
+      "scene": "0",
+      "night": "1",
+      "video": "1",
+      "display": "1",
+      "depth": "2",
+      "width": "448",
+      "height": "448",
+      "refreshMilliHz": "60000",
+      "requested": "1",
+      "dtBits": "3c888889",
+      "clockBits": "00000000",
+      "rasterWidth": "448",
+      "rasterHeight": "448",
+      "scaleX": "1",
+      "scaleY": "1",
+      "ilChoice": "0",
+      "ilProbing": "0",
+      "ilBlock": "0",
+      "ilFrame": "13",
+      "ilAccepted": "0",
+      "ilPipelined": "1",
+      "frameYield": "0"
+    },
+    "1:750": {
+      "phase": "1",
+      "offset": "750",
+      "scene": "0",
+      "night": "1",
+      "video": "1",
+      "display": "1",
+      "depth": "2",
+      "width": "448",
+      "height": "448",
+      "refreshMilliHz": "60000",
+      "requested": "1",
+      "dtBits": "3c888889",
+      "clockBits": "00000000",
+      "rasterWidth": "448",
+      "rasterHeight": "448",
+      "scaleX": "1",
+      "scaleY": "1",
+      "ilChoice": "0",
+      "ilProbing": "0",
+      "ilBlock": "0",
+      "ilFrame": "58",
+      "ilAccepted": "0",
+      "ilPipelined": "1",
+      "frameYield": "0"
+    },
+    "1:1155": {
+      "phase": "1",
+      "offset": "1155",
+      "scene": "0",
+      "night": "1",
+      "video": "1",
+      "display": "1",
+      "depth": "2",
+      "width": "448",
+      "height": "448",
+      "refreshMilliHz": "60000",
+      "requested": "1",
+      "dtBits": "3c888889",
+      "clockBits": "00000000",
+      "rasterWidth": "448",
+      "rasterHeight": "448",
+      "scaleX": "1",
+      "scaleY": "1",
+      "ilChoice": "0",
+      "ilProbing": "0",
+      "ilBlock": "0",
+      "ilFrame": "13",
+      "ilAccepted": "0",
+      "ilPipelined": "1",
+      "frameYield": "0"
+    },
+    "2:750": {
+      "phase": "2",
+      "offset": "750",
+      "scene": "0",
+      "night": "1",
+      "video": "1",
+      "display": "1",
+      "depth": "2",
+      "width": "448",
+      "height": "448",
+      "refreshMilliHz": "60000",
+      "requested": "1",
+      "dtBits": "3c888889",
+      "clockBits": "00000000",
+      "rasterWidth": "448",
+      "rasterHeight": "448",
+      "scaleX": "1",
+      "scaleY": "1",
+      "ilChoice": "0",
+      "ilProbing": "0",
+      "ilBlock": "0",
+      "ilFrame": "58",
+      "ilAccepted": "0",
+      "ilPipelined": "1",
+      "frameYield": "0"
+    },
+    "2:1155": {
+      "phase": "2",
+      "offset": "1155",
+      "scene": "0",
+      "night": "1",
+      "video": "1",
+      "display": "1",
+      "depth": "2",
+      "width": "448",
+      "height": "448",
+      "refreshMilliHz": "60000",
+      "requested": "1",
+      "dtBits": "3c888889",
+      "clockBits": "00000000",
+      "rasterWidth": "448",
+      "rasterHeight": "448",
+      "scaleX": "1",
+      "scaleY": "1",
+      "ilChoice": "0",
+      "ilProbing": "0",
+      "ilBlock": "0",
+      "ilFrame": "13",
+      "ilAccepted": "0",
+      "ilPipelined": "1",
+      "frameYield": "0"
+    }
+  },
+  "native_sixty_fps_accepted": false,
+  "tv_photon_cadence_accepted": false,
+  "pure_cpu_bill": false,
+  "uniform_observer_subtraction_accepted": false,
+  "limitations": [
+    "Only own source/ELF/plan contrasts; no cross-version or uniform subtraction.",
+    "Common plan/counter/presentation bookkeeping remains enabled even samplerOff and unpriced.",
+    "Attempt counters prove reached family branches, not qualified work; submitted counters are submission-attempt witnesses, not emitted/native DMA proof. No-emission groups must remain labelled inactive/unproven.",
+    "Changed adaptive interleave/env refresh work can mediate timings; exact cold context and epochs needed.",
+    "Retained state/epochs require actual warm restoration and visual control; no state rewind assumed."
+  ],
+  "extraDisabledMasks": [
+    0,
+    0,
+    0
+  ],
+  "extraGateWindows": {
+    "0:750": {
+      "1": {
+        "attempted": 1,
+        "executed": 1,
+        "skipped": 0,
+        "submitted": 1,
+        "submissionAttemptWitness": true
+      },
+      "2": {
+        "attempted": 1,
+        "executed": 1,
+        "skipped": 0,
+        "submitted": 2,
+        "submissionAttemptWitness": true
+      },
+      "4": {
+        "attempted": 2,
+        "executed": 2,
+        "skipped": 0,
+        "submitted": 2,
+        "submissionAttemptWitness": true
+      }
+    },
+    "0:1155": {
+      "1": {
+        "attempted": 1,
+        "executed": 1,
+        "skipped": 0,
+        "submitted": 1,
+        "submissionAttemptWitness": true
+      },
+      "2": {
+        "attempted": 1,
+        "executed": 1,
+        "skipped": 0,
+        "submitted": 2,
+        "submissionAttemptWitness": true
+      },
+      "4": {
+        "attempted": 2,
+        "executed": 2,
+        "skipped": 0,
+        "submitted": 2,
+        "submissionAttemptWitness": true
+      }
+    },
+    "1:750": {
+      "1": {
+        "attempted": 1,
+        "executed": 1,
+        "skipped": 0,
+        "submitted": 1,
+        "submissionAttemptWitness": true
+      },
+      "2": {
+        "attempted": 1,
+        "executed": 1,
+        "skipped": 0,
+        "submitted": 2,
+        "submissionAttemptWitness": true
+      },
+      "4": {
+        "attempted": 2,
+        "executed": 2,
+        "skipped": 0,
+        "submitted": 2,
+        "submissionAttemptWitness": true
+      }
+    },
+    "1:1155": {
+      "1": {
+        "attempted": 1,
+        "executed": 1,
+        "skipped": 0,
+        "submitted": 1,
+        "submissionAttemptWitness": true
+      },
+      "2": {
+        "attempted": 1,
+        "executed": 1,
+        "skipped": 0,
+        "submitted": 2,
+        "submissionAttemptWitness": true
+      },
+      "4": {
+        "attempted": 2,
+        "executed": 2,
+        "skipped": 0,
+        "submitted": 2,
+        "submissionAttemptWitness": true
+      }
+    },
+    "2:750": {
+      "1": {
+        "attempted": 1,
+        "executed": 1,
+        "skipped": 0,
+        "submitted": 1,
+        "submissionAttemptWitness": true
+      },
+      "2": {
+        "attempted": 1,
+        "executed": 1,
+        "skipped": 0,
+        "submitted": 2,
+        "submissionAttemptWitness": true
+      },
+      "4": {
+        "attempted": 2,
+        "executed": 2,
+        "skipped": 0,
+        "submitted": 2,
+        "submissionAttemptWitness": true
+      }
+    },
+    "2:1155": {
+      "1": {
+        "attempted": 1,
+        "executed": 1,
+        "skipped": 0,
+        "submitted": 1,
+        "submissionAttemptWitness": true
+      },
+      "2": {
+        "attempted": 1,
+        "executed": 1,
+        "skipped": 0,
+        "submitted": 2,
+        "submissionAttemptWitness": true
+      },
+      "4": {
+        "attempted": 2,
+        "executed": 2,
+        "skipped": 0,
+        "submitted": 2,
+        "submissionAttemptWitness": true
+      }
+    }
+  },
+  "extraCounterFrames": [
+    750,
+    1155
+  ],
+  "wildVariant": 0,
+  "wildFlags": [
+    0,
+    0,
+    0
+  ],
+  "wildWindows": {
+    "0:750": {
+      "plane": {
+        "invocations": 0,
+        "eligible": 0,
+        "applied": 0,
+        "fallback": 0,
+        "boundary": 0,
+        "nonfinite": 0,
+        "coldCompared": 0,
+        "coldMismatches": 0,
+        "inputUnits": 0,
+        "outputUnits": 0,
+        "invalid": 0
+      },
+      "cone": {
+        "invocations": 0,
+        "eligible": 0,
+        "applied": 0,
+        "fallback": 0,
+        "boundary": 0,
+        "nonfinite": 0,
+        "coldCompared": 0,
+        "coldMismatches": 0,
+        "inputUnits": 0,
+        "outputUnits": 0,
+        "invalid": 0
+      }
+    },
+    "0:1155": {
+      "plane": {
+        "invocations": 0,
+        "eligible": 0,
+        "applied": 0,
+        "fallback": 0,
+        "boundary": 0,
+        "nonfinite": 0,
+        "coldCompared": 0,
+        "coldMismatches": 0,
+        "inputUnits": 0,
+        "outputUnits": 0,
+        "invalid": 0
+      },
+      "cone": {
+        "invocations": 0,
+        "eligible": 0,
+        "applied": 0,
+        "fallback": 0,
+        "boundary": 0,
+        "nonfinite": 0,
+        "coldCompared": 0,
+        "coldMismatches": 0,
+        "inputUnits": 0,
+        "outputUnits": 0,
+        "invalid": 0
+      }
+    },
+    "1:750": {
+      "plane": {
+        "invocations": 0,
+        "eligible": 0,
+        "applied": 0,
+        "fallback": 0,
+        "boundary": 0,
+        "nonfinite": 0,
+        "coldCompared": 0,
+        "coldMismatches": 0,
+        "inputUnits": 0,
+        "outputUnits": 0,
+        "invalid": 0
+      },
+      "cone": {
+        "invocations": 0,
+        "eligible": 0,
+        "applied": 0,
+        "fallback": 0,
+        "boundary": 0,
+        "nonfinite": 0,
+        "coldCompared": 0,
+        "coldMismatches": 0,
+        "inputUnits": 0,
+        "outputUnits": 0,
+        "invalid": 0
+      }
+    },
+    "1:1155": {
+      "plane": {
+        "invocations": 0,
+        "eligible": 0,
+        "applied": 0,
+        "fallback": 0,
+        "boundary": 0,
+        "nonfinite": 0,
+        "coldCompared": 0,
+        "coldMismatches": 0,
+        "inputUnits": 0,
+        "outputUnits": 0,
+        "invalid": 0
+      },
+      "cone": {
+        "invocations": 0,
+        "eligible": 0,
+        "applied": 0,
+        "fallback": 0,
+        "boundary": 0,
+        "nonfinite": 0,
+        "coldCompared": 0,
+        "coldMismatches": 0,
+        "inputUnits": 0,
+        "outputUnits": 0,
+        "invalid": 0
+      }
+    },
+    "2:750": {
+      "plane": {
+        "invocations": 0,
+        "eligible": 0,
+        "applied": 0,
+        "fallback": 0,
+        "boundary": 0,
+        "nonfinite": 0,
+        "coldCompared": 0,
+        "coldMismatches": 0,
+        "inputUnits": 0,
+        "outputUnits": 0,
+        "invalid": 0
+      },
+      "cone": {
+        "invocations": 0,
+        "eligible": 0,
+        "applied": 0,
+        "fallback": 0,
+        "boundary": 0,
+        "nonfinite": 0,
+        "coldCompared": 0,
+        "coldMismatches": 0,
+        "inputUnits": 0,
+        "outputUnits": 0,
+        "invalid": 0
+      }
+    },
+    "2:1155": {
+      "plane": {
+        "invocations": 0,
+        "eligible": 0,
+        "applied": 0,
+        "fallback": 0,
+        "boundary": 0,
+        "nonfinite": 0,
+        "coldCompared": 0,
+        "coldMismatches": 0,
+        "inputUnits": 0,
+        "outputUnits": 0,
+        "invalid": 0
+      },
+      "cone": {
+        "invocations": 0,
+        "eligible": 0,
+        "applied": 0,
+        "fallback": 0,
+        "boundary": 0,
+        "nonfinite": 0,
+        "coldCompared": 0,
+        "coldMismatches": 0,
+        "inputUnits": 0,
+        "outputUnits": 0,
+        "invalid": 0
+      }
+    }
+  },
+  "wildCountersUntimedFrames": [
+    750,
+    1155
+  ],
+  "fullTimedWindowWildActivationObserved": false,
+  "poolTableSelected": true,
+  "poolTableFlags": [
+    1,
+    1,
+    1
+  ],
+  "poolTableWindows": {
+    "0:750": {
+      "invocations": 19,
+      "eligible": 9,
+      "applied": 9,
+      "fallback": 10,
+      "sourceVertices": 753,
+      "admittedVertices": 618,
+      "baselineColorQwords": 753,
+      "tableColorQwords": 18,
+      "coldCompared": 9,
+      "coldMismatches": 0,
+      "invalid": 0
+    },
+    "0:1155": {
+      "invocations": 19,
+      "eligible": 9,
+      "applied": 9,
+      "fallback": 10,
+      "sourceVertices": 753,
+      "admittedVertices": 618,
+      "baselineColorQwords": 753,
+      "tableColorQwords": 18,
+      "coldCompared": 9,
+      "coldMismatches": 0,
+      "invalid": 0
+    },
+    "1:750": {
+      "invocations": 19,
+      "eligible": 9,
+      "applied": 9,
+      "fallback": 10,
+      "sourceVertices": 753,
+      "admittedVertices": 618,
+      "baselineColorQwords": 753,
+      "tableColorQwords": 18,
+      "coldCompared": 9,
+      "coldMismatches": 0,
+      "invalid": 0
+    },
+    "1:1155": {
+      "invocations": 19,
+      "eligible": 9,
+      "applied": 9,
+      "fallback": 10,
+      "sourceVertices": 753,
+      "admittedVertices": 618,
+      "baselineColorQwords": 753,
+      "tableColorQwords": 18,
+      "coldCompared": 9,
+      "coldMismatches": 0,
+      "invalid": 0
+    },
+    "2:750": {
+      "invocations": 19,
+      "eligible": 9,
+      "applied": 9,
+      "fallback": 10,
+      "sourceVertices": 753,
+      "admittedVertices": 618,
+      "baselineColorQwords": 753,
+      "tableColorQwords": 18,
+      "coldCompared": 9,
+      "coldMismatches": 0,
+      "invalid": 0
+    },
+    "2:1155": {
+      "invocations": 19,
+      "eligible": 9,
+      "applied": 9,
+      "fallback": 10,
+      "sourceVertices": 753,
+      "admittedVertices": 618,
+      "baselineColorQwords": 753,
+      "tableColorQwords": 18,
+      "coldCompared": 9,
+      "coldMismatches": 0,
+      "invalid": 0
+    }
+  },
+  "poolTableCountersUntimedFrames": [
+    750,
+    1155
+  ],
+  "fullTimedWindowTableActivationObserved": false,
+  "tableColdComparisonIsSourceExpansionOnly": true,
+  "coronaSpriteSelected": true,
+  "coronaSpriteFlags": [
+    1,
+    0,
+    1
+  ],
+  "coronaColdRequests": 4,
+  "coronaColdCounterPartitionValidated": true,
+  "coronaAcceptedOutputKnown": false,
+  "coronaFullTimedActivationKnown": false,
+  "coronaOutputStatus": "REQUESTED_OUTPUT_UNKNOWN",
+  "coronaColdWindows": {
+    "0:750": {
+      "phase": "0",
+      "offset": "750",
+      "selected": "1",
+      "enabled": "1",
+      "coldPackets": "1",
+      "eligible": "1",
+      "requested": "1",
+      "fallback": "0",
+      "sourceVertices": "12",
+      "requestedVertices": "12",
+      "fogOn": "1",
+      "shaderLit": "1",
+      "invalid": "0",
+      "acceptedOutputKnown": "0"
+    },
+    "0:1155": {
+      "phase": "0",
+      "offset": "1155",
+      "selected": "1",
+      "enabled": "1",
+      "coldPackets": "1",
+      "eligible": "1",
+      "requested": "1",
+      "fallback": "0",
+      "sourceVertices": "12",
+      "requestedVertices": "12",
+      "fogOn": "1",
+      "shaderLit": "1",
+      "invalid": "0",
+      "acceptedOutputKnown": "0"
+    },
+    "1:750": {
+      "phase": "1",
+      "offset": "750",
+      "selected": "1",
+      "enabled": "0",
+      "coldPackets": "1",
+      "eligible": "1",
+      "requested": "0",
+      "fallback": "0",
+      "sourceVertices": "12",
+      "requestedVertices": "0",
+      "fogOn": "1",
+      "shaderLit": "1",
+      "invalid": "0",
+      "acceptedOutputKnown": "0"
+    },
+    "1:1155": {
+      "phase": "1",
+      "offset": "1155",
+      "selected": "1",
+      "enabled": "0",
+      "coldPackets": "1",
+      "eligible": "1",
+      "requested": "0",
+      "fallback": "0",
+      "sourceVertices": "12",
+      "requestedVertices": "0",
+      "fogOn": "1",
+      "shaderLit": "1",
+      "invalid": "0",
+      "acceptedOutputKnown": "0"
+    },
+    "2:750": {
+      "phase": "2",
+      "offset": "750",
+      "selected": "1",
+      "enabled": "1",
+      "coldPackets": "1",
+      "eligible": "1",
+      "requested": "1",
+      "fallback": "0",
+      "sourceVertices": "12",
+      "requestedVertices": "12",
+      "fogOn": "1",
+      "shaderLit": "1",
+      "invalid": "0",
+      "acceptedOutputKnown": "0"
+    },
+    "2:1155": {
+      "phase": "2",
+      "offset": "1155",
+      "selected": "1",
+      "enabled": "1",
+      "coldPackets": "1",
+      "eligible": "1",
+      "requested": "1",
+      "fallback": "0",
+      "sourceVertices": "12",
+      "requestedVertices": "12",
+      "fogOn": "1",
+      "shaderLit": "1",
+      "invalid": "0",
+      "acceptedOutputKnown": "0"
+    }
+  },
+  "poolLatticeSelected": false,
+  "poolLatticeFlags": [
+    0,
+    0,
+    0
+  ],
+  "poolLatticeWindows": {},
+  "poolLatticeCountersUntimedFrames": [
+    750,
+    1155
+  ],
+  "fullTimedWindowLatticeActivationObserved": false,
+  "latticeCounterSourceIncludesAllCullFallbacks": true,
+  "kind8CandidatePreparationOnOnly": true,
+  "kind8Idea2CompactProducerBothArms": true,
+  "sparseCameraWitnesses": {
+    "0:750": {
+      "phase": "0",
+      "offset": "750",
+      "positionX": "00000000",
+      "positionY": "4028b437",
+      "positionZ": "c2a19b64",
+      "lookX": "00000000",
+      "lookY": "3f9a5e32",
+      "lookZ": "c2949b64",
+      "sceneGeneration": "1",
+      "mask": "0"
+    },
+    "0:1155": {
+      "phase": "0",
+      "offset": "1155",
+      "positionX": "00000000",
+      "positionY": "4028b437",
+      "positionZ": "c2a19b64",
+      "lookX": "00000000",
+      "lookY": "3f9a5e32",
+      "lookZ": "c2949b64",
+      "sceneGeneration": "1",
+      "mask": "0"
+    },
+    "1:750": {
+      "phase": "1",
+      "offset": "750",
+      "positionX": "00000000",
+      "positionY": "4028b437",
+      "positionZ": "c2a19b64",
+      "lookX": "00000000",
+      "lookY": "3f9a5e32",
+      "lookZ": "c2949b64",
+      "sceneGeneration": "1",
+      "mask": "0"
+    },
+    "1:1155": {
+      "phase": "1",
+      "offset": "1155",
+      "positionX": "00000000",
+      "positionY": "4028b437",
+      "positionZ": "c2a19b64",
+      "lookX": "00000000",
+      "lookY": "3f9a5e32",
+      "lookZ": "c2949b64",
+      "sceneGeneration": "1",
+      "mask": "0"
+    },
+    "2:750": {
+      "phase": "2",
+      "offset": "750",
+      "positionX": "00000000",
+      "positionY": "4028b437",
+      "positionZ": "c2a19b64",
+      "lookX": "00000000",
+      "lookY": "3f9a5e32",
+      "lookZ": "c2949b64",
+      "sceneGeneration": "1",
+      "mask": "0"
+    },
+    "2:1155": {
+      "phase": "2",
+      "offset": "1155",
+      "positionX": "00000000",
+      "positionY": "4028b437",
+      "positionZ": "c2a19b64",
+      "lookX": "00000000",
+      "lookY": "3f9a5e32",
+      "lookZ": "c2949b64",
+      "sceneGeneration": "1",
+      "mask": "0"
+    }
+  },
+  "cameraBitsEqualAcrossSparseWitnesses": true,
+  "sparseCounterFrames": [
+    750,
+    1155
+  ],
+  "fullTimedWindowActivationCountsObserved": false,
+  "eventCounterWritesInsideTaxWindow": false,
+  "planKind": 9,
+  "disabledMasks": [
+    0,
+    0,
+    0
+  ],
+  "samplers": [
+    1,
+    1,
+    1
+  ],
+  "gateWindows": {
+    "0:750": {
+      "1": {
+        "attempted": 8,
+        "executed": 8,
+        "skipped": 0,
+        "submitted": 8,
+        "submissionAttemptWitness": true
+      },
+      "2": {
+        "attempted": 4,
+        "executed": 4,
+        "skipped": 0,
+        "submitted": 5,
+        "submissionAttemptWitness": true
+      },
+      "4": {
+        "attempted": 3,
+        "executed": 3,
+        "skipped": 0,
+        "submitted": 5,
+        "submissionAttemptWitness": true
+      },
+      "8": {
+        "attempted": 4,
+        "executed": 4,
+        "skipped": 0,
+        "submitted": 1,
+        "submissionAttemptWitness": true
+      },
+      "16": {
+        "attempted": 2,
+        "executed": 2,
+        "skipped": 0,
+        "submitted": 1,
+        "submissionAttemptWitness": true
+      },
+      "32": {
+        "attempted": 0,
+        "executed": 0,
+        "skipped": 0,
+        "submitted": 0,
+        "submissionAttemptWitness": false
+      },
+      "64": {
+        "attempted": 0,
+        "executed": 0,
+        "skipped": 0,
+        "submitted": 0,
+        "submissionAttemptWitness": false
+      }
+    },
+    "0:1155": {
+      "1": {
+        "attempted": 8,
+        "executed": 8,
+        "skipped": 0,
+        "submitted": 8,
+        "submissionAttemptWitness": true
+      },
+      "2": {
+        "attempted": 4,
+        "executed": 4,
+        "skipped": 0,
+        "submitted": 5,
+        "submissionAttemptWitness": true
+      },
+      "4": {
+        "attempted": 3,
+        "executed": 3,
+        "skipped": 0,
+        "submitted": 5,
+        "submissionAttemptWitness": true
+      },
+      "8": {
+        "attempted": 4,
+        "executed": 4,
+        "skipped": 0,
+        "submitted": 1,
+        "submissionAttemptWitness": true
+      },
+      "16": {
+        "attempted": 2,
+        "executed": 2,
+        "skipped": 0,
+        "submitted": 1,
+        "submissionAttemptWitness": true
+      },
+      "32": {
+        "attempted": 0,
+        "executed": 0,
+        "skipped": 0,
+        "submitted": 0,
+        "submissionAttemptWitness": false
+      },
+      "64": {
+        "attempted": 0,
+        "executed": 0,
+        "skipped": 0,
+        "submitted": 0,
+        "submissionAttemptWitness": false
+      }
+    },
+    "1:750": {
+      "1": {
+        "attempted": 8,
+        "executed": 8,
+        "skipped": 0,
+        "submitted": 8,
+        "submissionAttemptWitness": true
+      },
+      "2": {
+        "attempted": 4,
+        "executed": 4,
+        "skipped": 0,
+        "submitted": 5,
+        "submissionAttemptWitness": true
+      },
+      "4": {
+        "attempted": 3,
+        "executed": 3,
+        "skipped": 0,
+        "submitted": 5,
+        "submissionAttemptWitness": true
+      },
+      "8": {
+        "attempted": 4,
+        "executed": 4,
+        "skipped": 0,
+        "submitted": 1,
+        "submissionAttemptWitness": true
+      },
+      "16": {
+        "attempted": 2,
+        "executed": 2,
+        "skipped": 0,
+        "submitted": 1,
+        "submissionAttemptWitness": true
+      },
+      "32": {
+        "attempted": 0,
+        "executed": 0,
+        "skipped": 0,
+        "submitted": 0,
+        "submissionAttemptWitness": false
+      },
+      "64": {
+        "attempted": 0,
+        "executed": 0,
+        "skipped": 0,
+        "submitted": 0,
+        "submissionAttemptWitness": false
+      }
+    },
+    "1:1155": {
+      "1": {
+        "attempted": 8,
+        "executed": 8,
+        "skipped": 0,
+        "submitted": 8,
+        "submissionAttemptWitness": true
+      },
+      "2": {
+        "attempted": 4,
+        "executed": 4,
+        "skipped": 0,
+        "submitted": 5,
+        "submissionAttemptWitness": true
+      },
+      "4": {
+        "attempted": 3,
+        "executed": 3,
+        "skipped": 0,
+        "submitted": 5,
+        "submissionAttemptWitness": true
+      },
+      "8": {
+        "attempted": 4,
+        "executed": 4,
+        "skipped": 0,
+        "submitted": 1,
+        "submissionAttemptWitness": true
+      },
+      "16": {
+        "attempted": 2,
+        "executed": 2,
+        "skipped": 0,
+        "submitted": 1,
+        "submissionAttemptWitness": true
+      },
+      "32": {
+        "attempted": 0,
+        "executed": 0,
+        "skipped": 0,
+        "submitted": 0,
+        "submissionAttemptWitness": false
+      },
+      "64": {
+        "attempted": 0,
+        "executed": 0,
+        "skipped": 0,
+        "submitted": 0,
+        "submissionAttemptWitness": false
+      }
+    },
+    "2:750": {
+      "1": {
+        "attempted": 8,
+        "executed": 8,
+        "skipped": 0,
+        "submitted": 8,
+        "submissionAttemptWitness": true
+      },
+      "2": {
+        "attempted": 4,
+        "executed": 4,
+        "skipped": 0,
+        "submitted": 5,
+        "submissionAttemptWitness": true
+      },
+      "4": {
+        "attempted": 3,
+        "executed": 3,
+        "skipped": 0,
+        "submitted": 5,
+        "submissionAttemptWitness": true
+      },
+      "8": {
+        "attempted": 4,
+        "executed": 4,
+        "skipped": 0,
+        "submitted": 1,
+        "submissionAttemptWitness": true
+      },
+      "16": {
+        "attempted": 2,
+        "executed": 2,
+        "skipped": 0,
+        "submitted": 1,
+        "submissionAttemptWitness": true
+      },
+      "32": {
+        "attempted": 0,
+        "executed": 0,
+        "skipped": 0,
+        "submitted": 0,
+        "submissionAttemptWitness": false
+      },
+      "64": {
+        "attempted": 0,
+        "executed": 0,
+        "skipped": 0,
+        "submitted": 0,
+        "submissionAttemptWitness": false
+      }
+    },
+    "2:1155": {
+      "1": {
+        "attempted": 8,
+        "executed": 8,
+        "skipped": 0,
+        "submitted": 8,
+        "submissionAttemptWitness": true
+      },
+      "2": {
+        "attempted": 4,
+        "executed": 4,
+        "skipped": 0,
+        "submitted": 5,
+        "submissionAttemptWitness": true
+      },
+      "4": {
+        "attempted": 3,
+        "executed": 3,
+        "skipped": 0,
+        "submitted": 5,
+        "submissionAttemptWitness": true
+      },
+      "8": {
+        "attempted": 4,
+        "executed": 4,
+        "skipped": 0,
+        "submitted": 1,
+        "submissionAttemptWitness": true
+      },
+      "16": {
+        "attempted": 2,
+        "executed": 2,
+        "skipped": 0,
+        "submitted": 1,
+        "submissionAttemptWitness": true
+      },
+      "32": {
+        "attempted": 0,
+        "executed": 0,
+        "skipped": 0,
+        "submitted": 0,
+        "submissionAttemptWitness": false
+      },
+      "64": {
+        "attempted": 0,
+        "executed": 0,
+        "skipped": 0,
+        "submitted": 0,
+        "submissionAttemptWitness": false
+      }
+    }
+  },
+  "observerAbsoluteCommonCostPriced": false,
+  "observerEnabledContrastsOnly": false,
+  "physicalGainAccepted": false,
+  "interpretation": "GS SPRITE request arm elapsed contrast; actual VU output unknown",
+  "inputPins": {
+    "/home/spider/night-ablation-emulator-corona24-order1-20261005/emulator.log": "403f883a05995e6465dcf88c251429a70a871887a3cdb852e7f24c592ecc4aed",
+    "/mnt/f/Projects/tyrax2-lab-20261001/corona24-pricing-physical-v1/game/bin/night-ablation.log": "1405f45b9882e57d90ba9171694c178688397fd899e1d2683c75651f0aa23b31",
+    "/mnt/f/Projects/tyrax2-lab-20261001/wild-gs-sprite-corona-controls-v2/analyze-night-cli.py": "f3ff6a6c125759bff1090dc6e404ab4382c66056baee8b4d942be50a3ce7be21",
+    "/mnt/f/Projects/tyrax2-lab-20261001/wild-gs-sprite-corona-controls-v2/analyze-night.py": "4f21d7a1c3a764cc08ce3968cd8ecdefa7ddd755303ad2c26e73651ff754b8d8",
+    "/mnt/f/Projects/tyrax2-lab-20261001/wild-gs-sprite-corona-controls-v2/analyze-loop.py": "5f1e9756449a5d35e9ce9567ab87be9e4388ed98b777f3ff72622b0e71f7fa27",
+    "/mnt/f/Projects/tyrax2-lab-20261001/wild-gs-sprite-corona-controls-v2/corona_controls.py": "1decafffab8d86f2b34e2d20054a5e729d69d2c9259f9938bd8370666435a43a",
+    "/mnt/f/Projects/tyrax2-lab-20261001/wild-gs-sprite-corona-controls-v2/source-controls/night_plan.hpp": "b0b398247d277e56c66cc8a35083745f37fed5cdc95c30839927c20ce5ebeac0",
+    "/mnt/f/Projects/tyrax2-lab-20261001/wild-gs-sprite-corona-controls-v2/source-controls/stapip_vu1_shared_defines.h": "cf73e7be8c173e3ee9b04c54a9c57adbc18b7da29c9e4ed6d69c51dddf961d5b"
+  },
+  "requestedPlan": {
+    "kind": 9,
+    "order": 1,
+    "joint": 0,
+    "restored": 0
+  }
+}
