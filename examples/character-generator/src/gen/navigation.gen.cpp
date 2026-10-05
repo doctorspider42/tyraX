@@ -9,8 +9,8 @@
 namespace Character_generator {
 
 struct WandererData { int scene; int object; float radius; float speed; };
-constexpr int WANDERER_COUNT = 8;
-constexpr WandererData WANDERERS[8] = {
+constexpr int WANDERER_COUNT = 32;
+constexpr WandererData WANDERERS[32] = {
     {0, 6, 3.6F, 1.3F},
     {0, 7, 3.6F, 1.3F},
     {0, 8, 3.6F, 1.3F},
@@ -18,7 +18,31 @@ constexpr WandererData WANDERERS[8] = {
     {0, 10, 3.6F, 1.3F},
     {0, 11, 3.6F, 1.3F},
     {0, 12, 3.6F, 1.3F},
-    {0, 13, 3.6F, 1.3F}
+    {0, 13, 3.6F, 1.3F},
+    {1, 1, 9.0F, 1.3F},
+    {1, 2, 9.0F, 1.3F},
+    {1, 3, 9.0F, 1.3F},
+    {1, 4, 9.0F, 1.3F},
+    {1, 5, 9.0F, 1.3F},
+    {1, 6, 9.0F, 1.3F},
+    {1, 7, 9.0F, 1.3F},
+    {1, 8, 9.0F, 1.3F},
+    {1, 9, 9.0F, 1.3F},
+    {1, 10, 9.0F, 1.3F},
+    {1, 11, 9.0F, 1.3F},
+    {1, 12, 9.0F, 1.3F},
+    {1, 13, 9.0F, 1.3F},
+    {1, 14, 9.0F, 1.3F},
+    {1, 15, 9.0F, 1.3F},
+    {1, 16, 9.0F, 1.3F},
+    {1, 17, 9.0F, 1.1F},
+    {1, 18, 9.0F, 1.1F},
+    {1, 19, 9.0F, 1.1F},
+    {1, 20, 9.0F, 1.1F},
+    {1, 21, 9.0F, 1.1F},
+    {1, 22, 9.0F, 1.1F},
+    {1, 23, 9.0F, 1.1F},
+    {1, 24, 9.0F, 1.1F}
 };
 
 namespace {
@@ -352,6 +376,12 @@ void navWander(ScriptContext& ctx, int obj, float radius, float speed) {
   // a first pause of 0-3 s, so a crowd does not set off in step
   a->pauseLeft = (float)((a->seed >> 20) & 1023) * (3.0F / 1023.0F);
   a->walking = 1;  // forces the idle clip on the first tick
+  // Phase lock: every walker of a model walks (and idles) in step, so they
+  // share one skinned pose per clip and mesh-LOD tier (animSync). Measured
+  // with 30 pedestrians: three phase groups split them into too many
+  // (model x clip x phase x tier) to share at all - 66.8 ms; one phase,
+  // 50.9 ms. Random pauses and headings keep it from reading as a march.
+  ctx.objects[obj].animSync = 0.0F;
 }
 
 void navStop(ScriptContext& ctx, int obj) {

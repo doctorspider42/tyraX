@@ -1,0 +1,1 @@
+{ "id": "c00000000000010a", "name": "shopper1", "type": "model", "position": [-5.62, 0, 6.63], "rotation": [0, 295.1, 0], "scale": [1, 1, 1], "color": [1, 1, 1], "physics": false, "collision": "none", "model": "res/models/characters/shopper.glb", "anim": { "clip": "idle", "autoplay": true, "loop": true, "speed": 1, "wander": { "radius": 9, "speed": 1.3 } }, "meshLod": 4 }

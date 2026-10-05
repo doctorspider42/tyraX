@@ -3,4 +3,5 @@
 # hot-patches a graph only when the live one differs (see
 # docs/live-logic.md). Generated - do not edit.
 1
-g 0 a71227f233380a3b fe93526ead97dd31
+g 0 a71227f233380a3b 8cb77bf41d2502f1
+g 1 c0000000000000ff ae5199f6e8637169

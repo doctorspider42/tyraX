@@ -619,7 +619,9 @@ void TerrainGame::updateSprings(int index, float dist2) {
     }
     const float ql = sqrtf(q[0] * q[0] + q[1] * q[1] + q[2] * q[2] + q[3] * q[3]);
     for (int a = 0; a < 4; ++a) q[a] /= ql;
-    inst->setRotationOverride((u32)sp.node, q);
+    // replace: a generated clip carries the panel's leg-driven swing for
+    // far instances and the editor; up close the spring computes it here
+    inst->setRotationOverride((u32)sp.node, q, true);
     if (s == 0) {
       // HairTail1's global for its child: parent * T(t) * R(q)
       const float x = q[0], y = q[1], z = q[2], w = q[3];
@@ -1018,6 +1020,7 @@ void TerrainGame::updateAndRenderAnimObjects() {
   static std::vector<VisibleAnim> inView;
   inView.clear();
 
+  if (!splitSecondPass && !g_gameplayPaused) animClock += g_frameDt;
   for (int i = 0; i < (int)runtimeObjects.size(); ++i) {
     RuntimeObject& o = runtimeObjects[i];
     ObjectGeometry& g = objectGeometry[i];
@@ -1043,6 +1046,12 @@ void TerrainGame::updateAndRenderAnimObjects() {
       const float step =
           (o.animPlaying && !g_gameplayPaused) ? g_frameDt * o.animSpeed : 0.0F;
       o.animFinished = inst->advance(step);
+      // a phase-locked pedestrian: the same formula for every member of its
+      // group gives bit-identical times, so they share one skinned mesh
+      if (o.animSync >= 0.0F && o.animPlaying) {
+        const float dur = gam.src->clips[(size_t)o.animClip].duration;
+        if (dur > 0.0F) inst->setTime(animClock * o.animSpeed + o.animSync * dur);
+      }
     }
 
     // draw-distance cut-off (same rule as the static path in renderScene);
@@ -1123,14 +1132,24 @@ void TerrainGame::updateAndRenderAnimObjects() {
   static std::vector<RenderedAnim> rendered;
   rendered.clear();
 
+  // A live face and springs make a pose of its own - a skin of its own. Only
+  // the few NEAREST characters get them (and keep them until two more are
+  // nearer, so the one at the edge does not flicker): a crowd standing within
+  // 10 m otherwise skinned every person every frame - half a 50 ms frame,
+  // measured with 30 pedestrians.
+  const int kLiveNear = 5;
+  int liveRank = 0;
   for (const VisibleAnim& va : inView) {
     const int i = va.obj;
     RuntimeObject& o = runtimeObjects[i];
     ObjectGeometry& g = objectGeometry[i];
     SkelInstance* inst = g.animInst.get();
     // before the pose-sharing test: a live face is a pose of its own
-    updateFace(i, va.dist2);
-    updateSprings(i, va.dist2);
+    const bool near = liveRank < kLiveNear || (g.faceLive && liveRank < kLiveNear + 2);
+    const float liveDist2 = near ? va.dist2 : 1e30F;
+    if (g.faceHead >= 0 || g.faceJaw >= 0) ++liveRank;
+    updateFace(i, liveDist2);
+    updateSprings(i, liveDist2);
 
     // mesh LOD tier: which baked variant this instance renders (the .tskl
     // clamps per part - a file without chains always renders the full mesh).
@@ -1155,6 +1174,15 @@ void TerrainGame::updateAndRenderAnimObjects() {
       meshOwner = r.meshOwner;
       break;
     }
+    // a follower for a second gives its own skin outputs back: a crowd
+    // member that skinned itself once (a crossfade, up close) would hold
+    // them for good - 30 pedestrians ran the EE out of memory that way
+    const bool trimmed = g.followFrames >= 60;  // its outputs were given back
+    if (meshOwner != i) {
+      if (g.followFrames < 0xFFFF && ++g.followFrames == 60) inst->trimOutputs();
+    } else {
+      g.followFrames = 0;
+    }
 
     // animation LOD: a far mesh owner refreshes its pose every 2nd frame
     // (every 4th beyond twice the distance), staggered by object index. An
@@ -1166,7 +1194,7 @@ void TerrainGame::updateAndRenderAnimObjects() {
     bool allowSkin = !splitSecondPass;
     const float animLodDist =
         o.data.animLod < 0.0F ? ANIM_LOD_DISTANCE : o.data.animLod;
-    if (allowSkin && animLodDist > 0.0F && meshOwner == i &&
+    if (allowSkin && animLodDist > 0.0F && meshOwner == i && !trimmed &&
         g.animLastTick != 0 && animLodTick - g.animLastTick <= 4) {
       const float lod2 = animLodDist * animLodDist;
       if (va.dist2 > lod2 * 4.0F)

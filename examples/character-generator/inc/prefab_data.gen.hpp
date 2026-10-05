@@ -21,7 +21,7 @@ inline constexpr SceneObjectData PREFAB_MEMBERS[PREFAB_MEMBER_COUNT > 0 ? PREFAB
 inline constexpr unsigned char PREFAB_MERGE[PREFAB_MEMBER_COUNT > 0 ? PREFAB_MEMBER_COUNT : 1] = {0};
 
 inline constexpr int PREFAB_SCENE_LIST[1] = {-1};
-inline constexpr int PREFAB_SCENE_FIRST[1] = {0};
-inline constexpr int PREFAB_SCENE_COUNT[1] = {0};
+inline constexpr int PREFAB_SCENE_FIRST[2] = {0, 0};
+inline constexpr int PREFAB_SCENE_COUNT[2] = {0, 0};
 
 }  // namespace Character_generator

@@ -116,12 +116,12 @@ constexpr bool FRAME_EXTRAPOLATION_GROUND = true;
 // Animation LOD (Preferences > Rendering): animated instances farther than
 // this refresh pose/skinning every 2nd frame, every 4th beyond twice the
 // distance (staggered per object). 0 = off. Playback time is unaffected.
-constexpr float ANIM_LOD_DISTANCE = 0.0F;
+constexpr float ANIM_LOD_DISTANCE = 10.0F;
 
 // Mesh LOD (Preferences > Rendering): instances farther than this render
 // the ~50%-vertex variant baked into the .tskl, beyond twice the distance
 // the ~25% one. 0 = off (the build then bakes no LOD chains at all).
-constexpr float MESH_LOD_DISTANCE = 0.0F;
+constexpr float MESH_LOD_DISTANCE = 6.0F;
 
 // Shared reflection probe reuse (Preferences > Rendering,
 // docs/reflective-materials.md "The reuse budget"): how far the retained

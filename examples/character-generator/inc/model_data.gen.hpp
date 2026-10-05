@@ -21,7 +21,7 @@ inline const char* MODEL_SOURCES[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {
 };
 inline constexpr bool MODEL_NEEDS_COLLIDER[MODEL_COUNT > 0 ? MODEL_COUNT : 1] = {false};
 
-inline constexpr int ANIM_MODEL_COUNT = 7;
+inline constexpr int ANIM_MODEL_COUNT = 9;
 inline const char* ANIM_MODEL_PATHS[ANIM_MODEL_COUNT > 0 ? ANIM_MODEL_COUNT : 1] = {
     "models/characters/hero.tskl",
     "models/characters/clerk.tskl",
@@ -30,8 +30,10 @@ inline const char* ANIM_MODEL_PATHS[ANIM_MODEL_COUNT > 0 ? ANIM_MODEL_COUNT : 1]
     "models/characters/punk.tskl",
     "models/characters/elder.tskl",
     "models/characters/commuter.tskl",
+    "models/characters/shopper.tskl",
+    "models/characters/pensioner.tskl",
 };
-inline const int ANIM_MODEL_VARIANTS[ANIM_MODEL_COUNT > 0 ? ANIM_MODEL_COUNT : 1] = {3, 0, 0, 0, 0, 0, 5};
+inline const int ANIM_MODEL_VARIANTS[ANIM_MODEL_COUNT > 0 ? ANIM_MODEL_COUNT : 1] = {3, 0, 0, 0, 0, 0, 5, 5, 5};
 
 struct CreatorLabel {
   const char* id;

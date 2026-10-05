@@ -9,8 +9,8 @@
 namespace decal_data_gen_hpp_detail {
 struct BakedDecal { const float* verts; int vertCount; };
 
-inline const BakedDecal* const SCENE_DECAL_TABLES[] = {nullptr};
-inline const int SCENE_DECAL_COUNTS[] = {0};
+inline const BakedDecal* const SCENE_DECAL_TABLES[] = {nullptr, nullptr};
+inline const int SCENE_DECAL_COUNTS[] = {0, 0};
 }
 
 using namespace decal_data_gen_hpp_detail;

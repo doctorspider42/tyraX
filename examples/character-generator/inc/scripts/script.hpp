@@ -73,6 +73,10 @@ struct RuntimeObject {
   float animSpeed = 1.0F;    // multiplier on the authored playback speed
   bool animRestart = false;  // (re)start animClip on the next frame
   float animFade = 0.0F;     // crossfade seconds for that restart (0 = pop)
+  // Phase lock (pedestrians): >= 0 puts the playing clip at the shared
+  // animation clock * speed + this fraction of the clip, every frame - so
+  // walkers of one model in one phase group share a single skinned pose.
+  float animSync = -1.0F;
   bool animFinished = false; // one frame: the clip reached its last frame
                              // (one-shots: once; looping: every wrap)
   // Seconds of talking left: a generated character's jaw moves in syllables

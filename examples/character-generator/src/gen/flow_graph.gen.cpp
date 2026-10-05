@@ -103,6 +103,32 @@ class FlowGraphScript_0_0 : public Script {
     if (ctx.engine->pad.getClicked().Select) {
       openCharacterCreator(ctx, 0, 1);  // menu "character"
     }
+    if (ctx.engine->pad.getClicked().R2) {
+      ctx.requestScene = 1;  // "crowd"
+    }
+  }
+
+ private:
+  unsigned int generation = 0;
+  int frame = 0;
+  bool started = false;
+};
+
+// Scene "crowd": graph of "player" (object 0)
+class FlowGraphScript_1_0 : public Script {
+ public:
+  void update(ScriptContext& ctx) override {
+    if (ctx.scene != 1) return;
+    if (ctx.sceneGeneration != generation) {
+      // scene was (re)loaded - back to the initial state
+      generation = ctx.sceneGeneration;
+      frame = 0;
+      started = false;
+    }
+    frame++;
+    if (ctx.engine->pad.getClicked().R2) {
+      ctx.requestScene = 0;  // "main"
+    }
   }
 
  private:
@@ -114,3 +140,4 @@ class FlowGraphScript_0_0 : public Script {
 }  // namespace Character_generator
 
 TYRA_SCRIPT(Character_generator::FlowGraphScript_0_0);
+TYRA_SCRIPT(Character_generator::FlowGraphScript_1_0);

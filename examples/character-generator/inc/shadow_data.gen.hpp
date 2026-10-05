@@ -16,8 +16,8 @@ struct BakedShadowDraw {
   int layer;
 };
 
-inline const BakedShadowDraw* const SCENE_SHADOW_TABLES[] = {nullptr};
-inline const int SCENE_SHADOW_COUNTS[] = {0};
+inline const BakedShadowDraw* const SCENE_SHADOW_TABLES[] = {nullptr, nullptr};
+inline const int SCENE_SHADOW_COUNTS[] = {0, 0};
 inline constexpr bool SHADOW_DECALS_USED = false;
 }  // namespace
 

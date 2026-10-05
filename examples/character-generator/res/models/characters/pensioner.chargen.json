@@ -1,0 +1,17 @@
+{
+  "version": 2,
+  "name": "pensioner",
+  "gender": 0.97, "age": 0.92, "muscle": 0.35, "weight": 0.6,
+  "african": 0.1, "asian": 0.3, "caucasian": 0.6, "height": 1.72, "dimorphism": 0.6,
+  "shape": {},
+  "skinTone": -0.1, "skinWarmth": -0.0420717, "aging": 0,
+  "brows": 11, "browDensity": 0.715191, "lashes": 0,
+  "hairColor": [0.72,0.7,0.66], "eyeColor": [0.5,0.38,0.18], "stubble": 0.4,
+  "lipstick": 0, "lipColor": [0.65,0.12,0.16], "eyeShadow": 0, "eyeShadowColor": [0.25,0.18,0.3], "blush": 0,
+  "textureSize": 128,
+  "hair": "short4",
+  "outfit": [{"id": "sweater", "color": [0.45,0.4,0.3], "color2": [1,1,1], "pattern": 0}, {"id": "cargo", "color": [0.3,0.3,0.28], "color2": [1,1,1], "pattern": 0}, {"id": "shoes2", "color": [-1,-1,-1], "color2": [1,1,1], "pattern": 0}, {"id": "newsboy", "color": [-1,-1,-1], "color2": [1,1,1], "pattern": 0}],
+  "defaultClips": true, "clips": [],
+  "animFps": 15,
+  "animSource": ""
+}

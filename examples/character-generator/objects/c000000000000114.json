@@ -1,0 +1,1 @@
+{ "id": "c000000000000114", "name": "pensioner1", "type": "model", "position": [-7.22, 0, -2.02], "rotation": [0, 230.2, 0], "scale": [1, 1, 1], "color": [1, 1, 1], "physics": false, "collision": "none", "model": "res/models/characters/pensioner.glb", "anim": { "clip": "idle", "autoplay": true, "loop": true, "speed": 1, "wander": { "radius": 9, "speed": 1.1 } }, "meshLod": 4 }

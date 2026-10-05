@@ -11,7 +11,7 @@ extern const int OCCLUSION_OBJECT_COUNT;
 extern const int OCCLUSION_SCENE_OFFSETS[];
 extern const unsigned char OCCLUSION_CAN_CULL[];
 extern const unsigned char OCCLUSION_IS_OCCLUDER[];
-constexpr int OCCLUSION_SCENE_OFFSET_COUNT = 2;
+constexpr int OCCLUSION_SCENE_OFFSET_COUNT = 3;
 inline int occlusionObjectIndex(int scene,int object){
   if(scene<0 || scene+1>=OCCLUSION_SCENE_OFFSET_COUNT) return -1;
   const int i=OCCLUSION_SCENE_OFFSETS[scene]+object;
