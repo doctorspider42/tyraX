@@ -470,9 +470,13 @@ recovered 0.50-0.72 ms of hardware `work`. What it did not do, ranked:
   experiment](tyrax2-pool2-colors.md) completed both physical orders and twelve
   fixed-case emulator captures; six decoded VU payload pairs match. Its small
   forward improvement did not repeat in reverse order, so it stays private.
-  Original EE color expansion remains. Promotion still needs repeatable gain
-  and broader precision/clipping/replay coverage; unique-grid representation
-  remains unimplemented and needs its own qualification.
+  The later [EE producer continuation](tyrax2-pool2-ee-producer.md) removes
+  actual expansion and repeated geometry/ST copies. Both physical orders
+  favor it by 0.113–0.171 ms, still at 30 fps; twelve epoch-aware inside VU
+  captures and six packet pairs passed. It remains private. Promotion needs
+  broader precision/clipping/stable-replay coverage. The next ordered private
+  trials are unique-grid transformation, then GS SPRITE coronas; each needs
+  its own native, activation, output/raster and physical qualification.
 
   Storage classification alone grants no immutable borrowing rights.
   The [resumed candidate audit](tyrax2-ee-vu0.md#next-60-hz-candidates-host-controls-2026-10-03)

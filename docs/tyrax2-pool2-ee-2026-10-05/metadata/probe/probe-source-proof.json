@@ -1,0 +1,9 @@
+{
+  "all500ReconstructedExact": true,
+  "newGameSha256": "789ce16faa0853bc1d44046e80da8cd53ab3552d249bf5815d4373d91118a8ce",
+  "newSourceSha256": "6d825e3e7c129adc4bd6085a6d91a25cd4778654397126ba41d8d45cf0acb81c",
+  "oldGameSha256": "62396e22f9a54af27d1c4ac0acfd1444747a8a033f11564cd9d85fa85aa738ab",
+  "baseManifestSha256": "769f1403389da4d3683a17806fce1b75b381a4cf4f8229ee4d3306a44ca806de",
+  "rootPreparationSha256": "23ace3a0f34978ca8a9d273df475973ba926011ef9fd3deb0d8829c477cd980e",
+  "scope": "Root exact source-only diagnostic delta check; not native or output acceptance"
+}

@@ -1,0 +1,42 @@
+{
+  "status": "PASS_OWNED_EMULATOR_THREE_PHASE_CAPTURE_IDENTITY",
+  "helperSha256": "bebef94ea93eb667588247b26da65252e876dfcf66c6fb21374996c41fe300b2",
+  "launchRecordSha256": "e1043d787617c931b7be9e6df543444baab8d8d1f73e6987c58dad2092025e3f",
+  "images": {
+    "0": {
+      "filename": "phase-0.png",
+      "sha256": "ba2d1c56c4b60c5222c1f30f7d16b9322fa5d2fd380eb3ecf405c09f89db9369",
+      "phase": 0,
+      "extraMask": 0,
+      "window": "0x20000a",
+      "ownedPid": 16934,
+      "beforeLogSha256": "a0e0856c6d6b3dedb29b42d770513bf8385459e3b9b764011020689878968984",
+      "afterLogSha256": "a0e0856c6d6b3dedb29b42d770513bf8385459e3b9b764011020689878968984",
+      "utc": "2026-10-05T11:23:04.944857+00:00"
+    },
+    "1": {
+      "filename": "phase-1.png",
+      "sha256": "44376cd69b6dd4b28ce8b0f93de3bd73a69f4bf01f01ca68cd8e50ff70ab785e",
+      "phase": 1,
+      "extraMask": 0,
+      "window": "0x20000a",
+      "ownedPid": 16934,
+      "beforeLogSha256": "4df420d77e489d27e298cf8621ee14bc8807d4b16427c0f816d5831ba076b169",
+      "afterLogSha256": "4df420d77e489d27e298cf8621ee14bc8807d4b16427c0f816d5831ba076b169",
+      "utc": "2026-10-05T11:23:37.359459+00:00"
+    },
+    "2": {
+      "filename": "phase-2.png",
+      "sha256": "3354804e27c559579a850aca8e8250051bb9f18d675a0c27466fafad997d98d0",
+      "phase": 2,
+      "extraMask": 0,
+      "window": "0x20000a",
+      "ownedPid": 16934,
+      "beforeLogSha256": "38d89b630746f7026a98bc3581eea15b459d307ef2298c4a605df8b7842e0333",
+      "afterLogSha256": "38d89b630746f7026a98bc3581eea15b459d307ef2298c4a605df8b7842e0333",
+      "utc": "2026-10-05T11:24:10.183418+00:00"
+    }
+  },
+  "qualitativeVisualReviewPending": true,
+  "physicalPerformanceAccepted": false
+}

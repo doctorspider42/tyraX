@@ -1,0 +1,17 @@
+{
+  "status": "REJECT_PHASE_RASTER_OCCLUDED_BY_OWNED_HOST_ERROR_MODAL",
+  "ownedPid": 16934,
+  "observedErrorWindow": "0x200014",
+  "observedGameWindow": "0x20000a",
+  "errorGeometry": "500x128+686+480",
+  "gameGeometry": "640x480+537+310",
+  "phaseImages": {
+    "phase-0.png": "ba2d1c56c4b60c5222c1f30f7d16b9322fa5d2fd380eb3ecf405c09f89db9369",
+    "phase-1.png": "44376cd69b6dd4b28ce8b0f93de3bd73a69f4bf01f01ca68cd8e50ff70ab785e",
+    "phase-2.png": "3354804e27c559579a850aca8e8250051bb9f18d675a0c27466fafad997d98d0"
+  },
+  "gameCompleted5400": true,
+  "rawEvidenceStillRequiresReparse": true,
+  "helperFailure": "Inherited freeze-completed.py rejected new fixture name before creating evidence dir",
+  "nextAttempt": "same ELF, fresh host Null profile; original captures preserved"
+}

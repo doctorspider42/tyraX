@@ -1,0 +1,25 @@
+{
+  "status": "PREPARED_SOURCE_DERIVED_SINGLE_EE_EXECUTE_BREAKPOINT_NOT_INSTALLED_OR_RUNTIME_ACCEPTED",
+  "pcsx2Tag": "v2.9.93",
+  "pcsx2Commit": "94d86c891b1621c0b252e4fc2e155bf90274dcc0",
+  "files": {
+    "/mnt/f/Projects/tyrax2-lab-20261001/wild-pool2-ee-probe-physical-v1/game/bin/vehicle-playground.elf": "1560336987d6ced5e540e9da30714d8fd2f3097cbb00935a437d019b88d5ee73",
+    "/mnt/f/Projects/tyrax2-lab-20261001/wild-pool2-ee-probe-physical-v1/game/bin/vehicle-playground.elf.sym": "9d837212a8f1f48e320ef277597ac8041b7e46cb6763fb8e098716924b49a091",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pool2-ee-probe-b192-arm1-repeat3-20261005-v1-launch/preload/vehicle-playground_1C2826FE.json": "8f5d84369dff3de0c6fa087cecf820c62d201a8ee0e10dc6ce2a790ee610586e",
+    "/mnt/f/Projects/tyrax2-lab-20261001/wild-pool2-breakpoint-preload-v1/prepare-preload.py": "d5b47738ea7a284942fae3e239a60c5131647c94fa8eeff0f877e940afd49d69",
+    "/mnt/f/Projects/tyrax2-lab-20261001/wild-pool2-static-probe-design-v2/verify-capture.py": "17dfd81575a9c051a808a8f7ec21a10f2de300138277fcaf14e5e1b5a02ed8e9",
+    "/mnt/f/Projects/tyrax2-lab-20261001/wild-pool2-static-probe-design-v2/savestate-reader-pinned.py": "b9be5985c91802b7319df87c43eb99e0a313447d3106eecfce367218e51e0d52"
+  },
+  "haltPC": "001a3160",
+  "readyAddress": "0050106c",
+  "pcsx2CRC": "1C2826FE",
+  "serial": "vehicle-playground",
+  "destination": "/home/spider/pool2-ee-probe-b192-arm1-repeat3-20261005-v1/profile/PCSX2/inis/debuggersettings/vehicle-playground_1C2826FE.json",
+  "payloadSha256": "8f5d84369dff3de0c6fa087cecf820c62d201a8ee0e10dc6ce2a790ee610586e",
+  "noDiscElfOverrideRequired": true,
+  "startWithDebugger": true,
+  "preloadedBeforeBootRequired": true,
+  "sourceDerivedSettingsFormat": "Version0.01, eight string fields, TYPE8->BreakPoint rather than memcheck, enabled1, empty condition, default continueOnHitfalse/instrumentationfalse/maxHits0",
+  "runtimeLoadedBreakpointAndExactHaltPinePausedStateStillRequired": true,
+  "deviceOrUIOrProfileMutationInvoked": false
+}

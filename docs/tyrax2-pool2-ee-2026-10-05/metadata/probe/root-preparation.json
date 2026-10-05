@@ -1,0 +1,19 @@
+{
+  "status": "ROOT_DIAGNOSTIC_SOURCE_PREPARATION_ONLY_NOT_FROZEN",
+  "basePricingManifestSha256": "769f1403389da4d3683a17806fce1b75b381a4cf4f8229ee4d3306a44ca806de",
+  "diagnosticCppFromPriorQualifiedLifecycle": "789ce16faa0853bc1d44046e80da8cd53ab3552d249bf5815d4373d91118a8ce",
+  "diagnosticHeaderSha256": "6d825e3e7c129adc4bd6085a6d91a25cd4778654397126ba41d8d45cf0acb81c",
+  "workshopProofSha256": "6e38753561781982416ee9666b494c492e3cc5cfadfdbed1c06ef808da3f667b",
+  "onlySourceDifferences": [
+    "game/src/terrain_game.cpp",
+    "game/inc/pool2_static_probe.hpp"
+  ],
+  "coldExpansionOracleDisabled": true,
+  "finalColorEpochPerRepeat": true,
+  "sourceCountExpected": 500,
+  "gatesPending": [
+    "independent source review",
+    "native",
+    "actual paused VU epoch/output capture"
+  ]
+}

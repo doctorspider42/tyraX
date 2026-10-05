@@ -4607,3 +4607,32 @@ A missing host audio library can open a modal that blocks Run; a host Null audio
 backend is acceptable for separate packet correctness, not an unpriced change
 to a physical trial. Preserve repairs and exact-owned stop evidence rather than
 claiming a clean automated run. Never stop an unrelated emulator instance.
+
+
+## Lazy Pool2 producers and asset/raster gates (2026-10-05)
+
+The private EE producer continuation in `docs/tyrax2-pool2-ee-producer.md`
+uses owner-local lazy color generations. A shared global stamp can collide
+with another owner's saved readiness after wrap; test local wrap explicitly.
+Materialization must run outside assertion expressions: release builds may
+remove assertions and their side effects. Source diagnostics that read lazy
+arrays require explicit materialization or a documented restricted scope.
+
+A source-only restored game needs authored `res` metadata as well as
+`.res-baked` before native building, otherwise WAV-to-ADPCM discovery may be
+skipped. Check expected runtime filenames/conversions against a qualified
+asset set, not merely a self-consistent manifest of whatever was published.
+
+Counter-based cold packet comparators can materialize eligible lazy colors
+and defeat the observer's purpose. A separate diagnostic disables that oracle,
+poisons backing and verifies source readiness plus actual final VU output.
+Change colors each iteration and decode the requested epoch; identical final
+banks alone do not establish fresh execution. Epoch changes force replay
+misses and therefore do not qualify stable warm hits. Clip output needs its
+own route/layout decoder, not an inside TC decoder with relaxed assertions.
+
+An owned SDL host audio error modal can occlude the render window while the
+guest protocol completes. Preserve the negative raster attempt and prove the
+window owner/geometry before diagnosing shader corruption. A fresh Null host
+audio profile is a correctness control, with unchanged guest ELF/resources;
+it provides no hardware audio or timing acceptance.

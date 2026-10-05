@@ -1,0 +1,22 @@
+{
+  "status": "PRIVATE_SOURCE_PREPARATION_ONLY_NOT_FROZEN",
+  "baseManifestSha256": "c0da3cd8dadd3072fce0381808a8a312d926726820b6e14f1e7ae96f84048581",
+  "changedFiles": {
+    "game/inc/terrain_game.hpp": "e66e86bf0e4bf2538546095f0aca05c4a637c88a6e675259dd12c9c13e7f15b5",
+    "game/src/gen/game_lighting.gen.cpp": "3f0496fe8de77aca182eab72c906c70096fd76ce2dad701324c963d79fdac162",
+    "tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_pool_color_table.hpp": "260b62887ed750ff959028ea3d232e37c666e016282528017183e94d5a0765c9",
+    "tyra/engine/src/renderer/3d/pipeline/static/core/stapip_qbuffer.cpp": "03c2d15d11baee52562a27b59fc72292565b552e084bd7bf34f1d6b9364dc93b",
+    "tyra/engine/src/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.cpp": "84891eec358b2f167cabf426ae1b0a9b483230ea431cd5a678bdf26022d00670"
+  },
+  "remainingGates": [
+    "host extraction and routing audit",
+    "native",
+    "actual output and moving/clipped fallback",
+    "physical both orders"
+  ],
+  "orderedNextCandidates": [
+    2,
+    5,
+    4
+  ]
+}

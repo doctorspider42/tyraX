@@ -1,0 +1,59 @@
+{
+  "status": "PASS_OFFLINE_SINGLE_PAUSED_STATIC_PROBE_CAPTURE_ONLY",
+  "arm": 0,
+  "vertices": 192,
+  "repeats": 2,
+  "sourceManifestSha256": "c8e7f094b2f3c35e71d112421a8a7cc29971b5f8c6adea22a768a6d15e012313",
+  "nativeProofSha256": "f500c3572ae8549d5cb24ba31b5014f439ef65a52b904d98d7c84aff4dce1381",
+  "symbols": {
+    "pool2ProbeHalt": {
+      "address": 1716576,
+      "bytes": 8,
+      "type": 2
+    },
+    "pool2ProbeReady": {
+      "address": 5247084,
+      "bytes": 4,
+      "type": 1
+    }
+  },
+  "registers": {
+    "pc": 1716576,
+    "cycle": 1048216227,
+    "cp0Count": 1047981928,
+    "spLow64": 33487872,
+    "raLow64": 3118228,
+    "isDelaySlot": 0
+  },
+  "readyMarker": "504f4f32",
+  "actualVuCountAndArmLayoutValidated": true,
+  "finalEpochRGBAValidated": true,
+  "finalEpoch": 2,
+  "actualMicrocodeSha256": "f2af466905735caf0f7e59e6c63f3835739fd5bb18501a36ef3cd467e526ead6",
+  "vuMemorySha256": "19fd3c7f6d00d1cd09f05abbf1801cf9c9f4707ae8e914f01a918e609aaffaf5",
+  "finalPackageCounts": [
+    42,
+    75
+  ],
+  "wholeArchiveMembersCRCValidated": true,
+  "configAndMTVUOffProfilePinned": true,
+  "guestTextUnchanged": true,
+  "elfSymTextEqual": true,
+  "files": {
+    "/home/spider/pool2-ee-probe-b192-arm0-repeat2-20261005-v1/profile/PCSX2/sstates/vehicle-playground (1C2826FE).180.p2s": "b3ee7a2910ce32181cee9ef6f173eb30b28df006350e7e67645bc118c73420eb",
+    "/mnt/f/Projects/tyrax2-lab-20261001/wild-pool2-ee-probe-physical-v1/game/bin/vehicle-playground.elf": "1560336987d6ced5e540e9da30714d8fd2f3097cbb00935a437d019b88d5ee73",
+    "/mnt/f/Projects/tyrax2-lab-20261001/wild-pool2-ee-probe-physical-v1/game/bin/vehicle-playground.elf.sym": "9d837212a8f1f48e320ef277597ac8041b7e46cb6763fb8e098716924b49a091",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pool2-ee-probe-b192-arm0-repeat2-20261005-v1-launch/capture-report.json": "871f301390c4881f1f968dbe972be4a4087050c2db4da5b8c54e6a9f5fb29bb9",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pool2-ee-probe-b192-arm0-repeat2-20261005-v1-launch/pool2-probe.cfg": "ba3e8428a0218265e0325610c9600cbef1b361e400ec37eec2e9a66e207af27f",
+    "/home/spider/pool2-ee-probe-b192-arm0-repeat2-20261005-v1/profile/PCSX2/inis/PCSX2.ini": "b432da312b3a7cd92756e335e4c7125646939d86a895eb416e826003c26c5319",
+    "/mnt/f/Projects/tyrax2-lab-20261001/wild-pool2-ee-probe-physical-v1/target-source-manifest.json": "c8e7f094b2f3c35e71d112421a8a7cc29971b5f8c6adea22a768a6d15e012313",
+    "/mnt/f/Projects/tyrax2-lab-20261001/wild-pool2-ee-probe-native-root-review-v1/proof.json": "f500c3572ae8549d5cb24ba31b5014f439ef65a52b904d98d7c84aff4dce1381",
+    "/mnt/f/Projects/tyrax2-lab-20261001/wild-pool2-ee-probe-runtime-v1/verify-capture.py": "5343959230a71ec1b8a0bb332bb6449c0850e9507998f82e5d5065fb004942af"
+  },
+  "limitations": [
+    "Native proof is pinned external authority; native acceptance requires its independent review.",
+    "Caller must bind source/native/profile/config to the exact owned launch and protocol ready/frame records.",
+    "Final requested color epoch is independently validated in every saved VU output RGBA; intermediate epochs require their own captures.",
+    "One capture is not paired packed-output equality, GS consumption, raster or performance acceptance."
+  ]
+}

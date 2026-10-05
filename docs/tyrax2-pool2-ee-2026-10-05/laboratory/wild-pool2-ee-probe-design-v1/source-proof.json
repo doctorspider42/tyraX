@@ -1,0 +1,98 @@
+{
+  "status": "SOURCE_ONLY_NOT_COMPILED_OR_EXECUTED",
+  "inputs": {
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-static-probe-physical-v1\\game\\inc\\pool2_static_probe.hpp": {
+      "sha256": "06fa7127703aff8924f35cb5a14ccc10bd3461454671922236c4d3a8a08eab9c",
+      "bytes": 5966
+    },
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-ee-physical-v2\\tyra\\engine\\inc\\renderer\\3d\\pipeline\\static\\core\\stapip_pool_color_table.hpp": {
+      "sha256": "260b62887ed750ff959028ea3d232e37c666e016282528017183e94d5a0765c9",
+      "bytes": 3552
+    },
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-ee-physical-v2\\tyra\\engine\\inc\\debug\\night_ablation.hpp": {
+      "sha256": "7002e5fe126c658542bc6bc8a587c488700e249e93895c091b0c02366987b560",
+      "bytes": 5106
+    },
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-ee-physical-v2\\tyra\\engine\\src\\renderer\\3d\\pipeline\\static\\core\\stapip_qbuffer.cpp": {
+      "sha256": "89d2d0c2bd81d09568e66df21afe9c4b66f482c0a3d6156a01ecea31b25bf31f",
+      "bytes": 18496
+    },
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-ee-physical-v2\\tyra\\engine\\src\\renderer\\3d\\pipeline\\static\\core\\stapip_qbuffer_renderer.cpp": {
+      "sha256": "f3fb9dcc4a38953e00beb9b05b4f25b9187929b0d24232046fb35af171997ad1",
+      "bytes": 140223
+    }
+  },
+  "outputs": {
+    "prepare.py": {
+      "sha256": "d3133c03ea1741a25ee5a0ba383c619763d6027897be60c82cf92bbf14515c22",
+      "bytes": 6842
+    },
+    "README.md": {
+      "sha256": "cb4f17936c781c5a9aa00bf1d2902b320e2a88397504da2f5dd303c224fa1f88",
+      "bytes": 5475
+    },
+    "configs\\arm0-vertices192-repeat1.cfg": {
+      "sha256": "2a762a71c91028ceac65765f2bdc3dcddfec6ceac9153ad1d2f768b66cc6d3b5",
+      "bytes": 9
+    },
+    "configs\\arm0-vertices192-repeat2.cfg": {
+      "sha256": "cb05b1308b95697a96b3d5d558d1b81778af7f29113250b65c46a3729d7a8b60",
+      "bytes": 9
+    },
+    "configs\\arm0-vertices192-repeat3.cfg": {
+      "sha256": "6850c19a4ca4ed08dd29b84a280f04fe418da62ebd0538cc892221a0eeddb51f",
+      "bytes": 9
+    },
+    "configs\\arm0-vertices96-repeat1.cfg": {
+      "sha256": "cd4cf9b2eeae7c6c74eeaa3c310bed6f62ac1a2c50fbaa241bbe0c7b81cac19d",
+      "bytes": 8
+    },
+    "configs\\arm0-vertices96-repeat2.cfg": {
+      "sha256": "0185cacd3992fc380069a6dc59eb62d3366674b9563c51ee66a684e395ca63c4",
+      "bytes": 8
+    },
+    "configs\\arm0-vertices96-repeat3.cfg": {
+      "sha256": "c7acd9b749de7b563afb73730be6a38307b248cdab9251fb7b009a6f4c0d0b26",
+      "bytes": 8
+    },
+    "configs\\arm1-vertices192-repeat1.cfg": {
+      "sha256": "50f0d110155d3a63008b395b10af10e3e04ee3083649842ad8e6f68853bf47c7",
+      "bytes": 9
+    },
+    "configs\\arm1-vertices192-repeat2.cfg": {
+      "sha256": "f6fc4e423417579b949de3cf20a72abb253910cf9e97dc2b03e5bc06bcd8db0e",
+      "bytes": 9
+    },
+    "configs\\arm1-vertices192-repeat3.cfg": {
+      "sha256": "56f0a06a70f4ffc9f166f877c99bcab702d74a1811968ea336167e21d9418e3b",
+      "bytes": 9
+    },
+    "configs\\arm1-vertices96-repeat1.cfg": {
+      "sha256": "1e5b688558ae9f329a18e68a9f085874a4e015d8e271c1c8a6fcbe904a35fc2d",
+      "bytes": 8
+    },
+    "configs\\arm1-vertices96-repeat2.cfg": {
+      "sha256": "1fa6a9c912a8db649239f2cfb1b969bf7e3e0ee0a032e4c7c35548cf1754f9df",
+      "bytes": 8
+    },
+    "configs\\arm1-vertices96-repeat3.cfg": {
+      "sha256": "d6972d4e3ef64cd8e0ebf55f3379fa38144e0df94dc97bcb4787e33bf62dae75",
+      "bytes": 8
+    },
+    "source\\pool2_static_probe.hpp": {
+      "sha256": "6d825e3e7c129adc4bd6085a6d91a25cd4778654397126ba41d8d45cf0acb81c",
+      "bytes": 8349
+    },
+    "source\\pool2_static_probe_clip.hpp": {
+      "sha256": "7a76adae922a091fb400cc9b9b81bb72d26326559a00021f72b937f029f6af84",
+      "bytes": 80
+    },
+    "source\\stapip_pool_color_table.hpp.reference": {
+      "sha256": "260b62887ed750ff959028ea3d232e37c666e016282528017183e94d5a0765c9",
+      "bytes": 3552
+    }
+  },
+  "input_hashes_revalidated": true,
+  "configuration": "Original strict three integers: arm 0/1, vertices96/192, repeat1..3. Compile-time clip=1 is a separate fixture, default0 preserves original geometry.",
+  "limitations": "No target build, actual route/output or device proof. Clip geometry intended to straddle side planes; route must be verified when run. No new waits: original synchronization retained."
+}

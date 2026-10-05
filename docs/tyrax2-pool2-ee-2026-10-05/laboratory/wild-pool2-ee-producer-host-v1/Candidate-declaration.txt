@@ -1,0 +1,19 @@
+struct PoolBatch {
+    BagArray<Tyra::Vec4> verts, sts;
+    BagArray<Tyra::Color> colors;
+    Tyra::M4x4 mat;
+    std::unique_ptr<Tyra::StaPipInfoBag> info;
+    std::unique_ptr<Tyra::StaPipColorBag> colorBag;
+    std::unique_ptr<Tyra::StaPipTextureBag> texBag;
+    std::unique_ptr<Tyra::StaPipBag> bag;
+    std::vector<const LightPool*> members;
+    std::vector<float> memberFix;
+    std::vector<unsigned int> key, lastKey;
+    std::vector<Tyra::ExperimentalPoolTable::ColorBits> tableColors;
+    Tyra::ExperimentalPoolTable::View tableView;
+    // Private EE producer experiment: persistent backing only for fallback reads.
+    std::vector<Tyra::Color> lazyColors;
+    std::vector<uint32_t> lazyReady;
+    std::vector<unsigned int> geometryKey, lastGeometryKey;
+    unsigned int lazyGeneration=0;
+  }

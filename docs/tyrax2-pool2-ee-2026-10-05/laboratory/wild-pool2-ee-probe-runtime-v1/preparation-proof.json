@@ -1,0 +1,60 @@
+{
+  "status": "PREPARED_SYNTAX_CHECKED_NO_RUNTIME_DEVICE_ACTIVITY",
+  "inputs": {
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-static-probe-design-v2\\savestate-reader-pinned.py": {
+      "sha256": "b9be5985c91802b7319df87c43eb99e0a313447d3106eecfce367218e51e0d52",
+      "bytes": 9626
+    },
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-static-probe-design-v2\\decode-vu1-output.py": {
+      "sha256": "599a5a1b5210c225e756256982691fb918817899914f9543453716651bcf9caf",
+      "bytes": 5226
+    },
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-static-probe-design-v2\\verify-capture.py": {
+      "sha256": "17dfd81575a9c051a808a8f7ec21a10f2de300138277fcaf14e5e1b5a02ed8e9",
+      "bytes": 4878
+    },
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-static-probe-root-v1\\launch-probe-v3.py": {
+      "sha256": "1ef3cd03a4713c6c702af66078e90304796a8bf8493d309aab5292d29d580635",
+      "bytes": 4421
+    },
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-static-probe-root-v1\\finish-probe-v2.py": {
+      "sha256": "0b496912e4e2d8242e48baef9c4be824e714a538c49494eb93bd5981bef46f7a",
+      "bytes": 5890
+    },
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-static-probe-root-v1\\capture-ready.py": {
+      "sha256": "9b732e0ad76d6f68af0340e5f881e80f6bd05231b3ca3e444875571c97b1c303",
+      "bytes": 1850
+    },
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-static-probe-root-v1\\run-case-v2.py": {
+      "sha256": "2ccd6ec1a78b5693123a8390d88f85ac4e2e8eb0a06567e34ed12f37c3574ecf",
+      "bytes": 5149
+    },
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-ee-probe-physical-v1\\game\\inc\\pool2_static_probe.hpp": {
+      "sha256": "6d825e3e7c129adc4bd6085a6d91a25cd4778654397126ba41d8d45cf0acb81c",
+      "bytes": 8349
+    },
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-ee-probe-physical-v1\\tyra\\engine\\src\\renderer\\3d\\pipeline\\shared\\vcl_sml.i": {
+      "sha256": "38c3f8112045b9bbd578915e5e7c117593cab3e5199d41f7eb4145a84a1e168b",
+      "bytes": 70127
+    }
+  },
+  "outputs": {
+    "capture-ready.py": "056ca90f161ee1b4b59d70f6cefc223fde9fa3d5ceb72a483398f7dc1bd5a148",
+    "check-offline.py": "ff8b14e8454f6b2855ab259e9ed24bc259a08ddbfc22c9ae04e11cca30148898",
+    "decode-vu1-output.py": "af13b0c7ededb4937598db953a4e079a9135c21e5b3d8a9bb682edf56ced708f",
+    "finish-probe.py": "8a98be9259c35497f875401b07be7b9b64ad16f28835b32f89f07bb6f228f840",
+    "launch-probe.py": "b2543c31cfdab05e671c0a1357c4fba80bd79450422f65ee10a284d995f71969",
+    "offline-controls.json": "c82ac643ffe42dfb0ffa232659e6c11911e3ce8ed75a4cfc13fee44aeda0ca99",
+    "prepare.py": "da3d3f69fceec9fe8965923320992e9f22864982df345825ff6aed9c3f8c3fd1",
+    "protocol.py": "dd0f67036ab622ff6b7be5efbccdc2f4120e568eb1a32d2031da5d2f2358d862",
+    "README.md": "496fa67a19c0d3ea7617c1da7f8ef6ad29b3e5796e87b0b3989b06ceaf69bdc9",
+    "run-case.py": "636375adfd0e334e815344fcd96a9b8ebf0762ca4aaf3718485414271acff5bf",
+    "savestate-reader-pinned.py": "b9be5985c91802b7319df87c43eb99e0a313447d3106eecfce367218e51e0d52",
+    "verify-capture.py": "5343959230a71ec1b8a0bb332bb6449c0850e9507998f82e5d5065fb004942af"
+  },
+  "limitations": [
+    "No native build or device execution.",
+    "Clip capture decoder not supplied: inside TC decoder rejects alternate clip topology/marker.",
+    "Independent native review must expose old accepted field schema."
+  ]
+}

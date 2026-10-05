@@ -1,0 +1,45 @@
+{
+  "status": "PASS_TESTED_ACTUAL_PACKED_VU_PAYLOAD_BYTE_EQUAL_ONLY",
+  "case": "A96",
+  "packages": [
+    {
+      "count": 21,
+      "legacyBase": 483,
+      "tableBase": 483,
+      "legacyKick": 548,
+      "tableKick": 530,
+      "stateQwords": 1,
+      "headerSha256": "7842adf20f58f2fcb4f5ca80b41bd76d078f4a5bf561a480de209eef921b47be",
+      "outputSha256": "af438fe792bfa8dae1e47d17e54704d02f35cd1d7a4dd26517e56d3facdfb875",
+      "outputQwords": 63
+    },
+    {
+      "count": 75,
+      "legacyBase": 22,
+      "tableBase": 22,
+      "legacyKick": 249,
+      "tableKick": 177,
+      "stateQwords": 9,
+      "headerSha256": "57eb2fcef6ade6ccc2db12b0e95030efa559644cec7a6df0aabee575d9b9ee43",
+      "outputSha256": "642c47620f108c879d6ccee491cb6f269868dc290d11b4cfa37aab8c89b680d2",
+      "outputQwords": 225
+    }
+  ],
+  "baselineVu1Sha256": "7689fcf6de8129a68a09f58109f4f6672e2dfed109475c3df370b69b7f17b2c8",
+  "tableVu1Sha256": "93b9358cb785ab51fd354f2b659f67f096fb7bfb8774eb16eee900a0538f1741",
+  "wholeBankCompared": false,
+  "first75Overwritten": false,
+  "GSConsumptionRasterUniversalEqualityOrPerformanceAccepted": false,
+  "finalEpochRGBAValidated": true,
+  "repeats": 1,
+  "microcodeSha256": [
+    "f2af466905735caf0f7e59e6c63f3835739fd5bb18501a36ef3cd467e526ead6",
+    "f2af466905735caf0f7e59e6c63f3835739fd5bb18501a36ef3cd467e526ead6"
+  ],
+  "inputFiles": {
+    "/mnt/f/Projects/tyrax2-lab-20261001/pool2-ee-probe-a96-arm0-repeat1-20261005-v1-launch/state.p2s": "aed6551778fcbe8b1662020686c92366b8361a644de349c783a32093d2ad9d11",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pool2-ee-probe-a96-arm1-repeat1-20261005-v1-launch/state.p2s": "783f3fd0fa0d6be475b5eb333c7d69747214b6511d638efd3e245da7bf4bc2e7",
+    "/mnt/f/Projects/tyrax2-lab-20261001/wild-pool2-ee-probe-runtime-v1/decode-vu1-output.py": "af13b0c7ededb4937598db953a4e079a9135c21e5b3d8a9bb682edf56ced708f"
+  },
+  "rootPausedCompletionTextConfigAuthorityRequired": true
+}

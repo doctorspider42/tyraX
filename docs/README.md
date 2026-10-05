@@ -425,6 +425,13 @@ fixed-case emulator captures, with six matching decoded VU payload pairs.
 Its timing gain did not repeat; it stays private. Source reconstruction,
 native audits, raw physical logs and host-control repairs are preserved.
 
+[Pool2 EE producer continuation](tyrax2-pool2-ee-producer.md) removes actual
+expanded-color work and repeated geometry/ST copies. Both same-ELF physical
+orders favor the candidate by 0.113–0.171 ms, with presentation still at 30 fps.
+Twelve epoch-aware VU captures and six packet pairs qualify the tested inside
+cases. The candidate remains private; clipping and stable warm replay are not
+accepted by that output diagnostic.
+
 [Batch / texture / program scopes](tyrax2-batch-texture-scopes-2026-10-04.md)
 qualify the V10 inclusive physical interval at 0.751–0.788 ms, with explicit
 observer contrasts and rejected attempts. This interval includes dispatch and

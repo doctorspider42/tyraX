@@ -3836,3 +3836,32 @@ host source expansion equality alone does not prove packed VU output equality.
 Package-local descriptors must survive Core pointer filling and DMA consumption.
 Do not enlarge a retained capacity to hide an oversized candidate block: preserve
 the safe miss and include its cost in the experiment.
+
+
+## Lazy Pool2 producers and asset/raster gates (2026-10-05)
+
+The private EE producer continuation in `docs/tyrax2-pool2-ee-producer.md`
+uses owner-local lazy color generations. A shared global stamp can collide
+with another owner's saved readiness after wrap; test local wrap explicitly.
+Materialization must run outside assertion expressions: release builds may
+remove assertions and their side effects. Source diagnostics that read lazy
+arrays require explicit materialization or a documented restricted scope.
+
+A source-only restored game needs authored `res` metadata as well as
+`.res-baked` before native building, otherwise WAV-to-ADPCM discovery may be
+skipped. Check expected runtime filenames/conversions against a qualified
+asset set, not merely a self-consistent manifest of whatever was published.
+
+Counter-based cold packet comparators can materialize eligible lazy colors
+and defeat the observer's purpose. A separate diagnostic disables that oracle,
+poisons backing and verifies source readiness plus actual final VU output.
+Change colors each iteration and decode the requested epoch; identical final
+banks alone do not establish fresh execution. Epoch changes force replay
+misses and therefore do not qualify stable warm hits. Clip output needs its
+own route/layout decoder, not an inside TC decoder with relaxed assertions.
+
+An owned SDL host audio error modal can occlude the render window while the
+guest protocol completes. Preserve the negative raster attempt and prove the
+window owner/geometry before diagnosing shader corruption. A fresh Null host
+audio profile is a correctness control, with unchanged guest ELF/resources;
+it provides no hardware audio or timing acceptance.

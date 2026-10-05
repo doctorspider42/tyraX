@@ -1,0 +1,14 @@
+{
+  "status": "ROOT_QUALITATIVE_EMULATOR_APPEARANCE_REVIEW",
+  "run": "night-ablation-emulator-pool2-ee-order0-attempt2-20261005",
+  "machineEvidenceSha256": "83bab7909a7489a2a77add0fde436eb9eccbd5f222e5c8dbc82249e05224daed",
+  "images": {
+    "phase-0.png": "9b823e7b34a7d21f3c40a06c057b7d19bca325fe21ccac75ce8cd883b18c9d49",
+    "phase-1.png": "69ebecf8e3f6b8ac1e74296d96423e2c053640490bc1f2e55a9c4ecf00f841de",
+    "phase-2.png": "5c04ac6587dd7219bf1688b008fcd3d601c5b6d46e5e7df7d187294323f6eeb3"
+  },
+  "review": "Root viewed all three phase images: car, map, lights, shadows and HUD visually normal; no SDL error modal.",
+  "limits": [
+    "Qualitative animation-phase-dependent raster review, not pixel equality or physical speed evidence."
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "status": "ROOT_SOURCE_FREEZE_ONLY",
+  "sourceManifestSha256": "769f1403389da4d3683a17806fce1b75b381a4cf4f8229ee4d3306a44ca806de",
+  "sourceFiles": 499,
+  "review": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-ee-review-v1\\source-review-owner-local-supplement.json",
+  "reviewSha256": "6e4b1f76238a06680e361096fee3eb6edf30cb6cd5b429884729b9572a31dc27",
+  "host": "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v2\\host\\proof.json",
+  "hostSha256": "63924ed2b161dd95b59ac6cc1cc954b419789d2b321befad9d71d39bd4146149",
+  "helperSha256": "4137e050a84a1f72be92b3f7c3fb6200ca45904286fb66d9f8f6109520548f42",
+  "nativeAccepted": false,
+  "runtimeAccepted": false
+}

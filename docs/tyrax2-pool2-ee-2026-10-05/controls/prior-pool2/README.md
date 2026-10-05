@@ -1,0 +1,7 @@
+# Shared wild controlsV2: independent kind7 pool color table
+
+Current5/6 meanings and all old0..3 masks/flags remain unchanged; kind4 stays invalid. New config7 order0 0 uses ordinary/extra masks0 and sampler111, table Off/On/Off or On/Off/On. Table selection and enable are independent of existing wild variant5/6. NightSampler/compatibilityaliases/raw loop parser bytes equal controlsV1.
+
+Three NIGHTTABLEPHASE and six NIGHTTABLEGATES rows bind selection/application at cold750/1155. One invocation is one classified package. Eligible+fallback=invocations;applied=enabled&&eligible;baselineColorQwords=sum sourceVertices;tableColorQwords=2 perapplied package;admittedVertices onlyapplied with1..75 vertices/package. Descriptor words are logical color table denominators, not physical transfer reductions. Sourceeligible must include actualfinal routing conditions. A failed later actual submission does not become native success merely from selection counters.
+
+ColdCompared means exact source color/run expansion comparison, not GS conversion, native program execution or raster proof. Invalid/mismatch/overflow rejects capture. Source mustobserve only selected&&collectCounters;oldkinds havezero tablecounters. No timedcounter writes/extraCount/fences/logs;common gate/code/layout cost unpriced. Actual positive rendering activation/routing/residency/replay keys and emitted-output/raster controls remain separate acceptance gates. Headerhostcontrols are not a native optimization or physicalprice.

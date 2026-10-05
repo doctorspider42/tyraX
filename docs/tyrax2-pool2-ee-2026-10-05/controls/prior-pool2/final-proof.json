@@ -1,0 +1,59 @@
+{
+  "status": "PASS_PREPARED_TABLE_KIND7_AND_PRESERVED_WILD_PROTOCOL_HOST_ONLY",
+  "hostProofPath": "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v2\\host\\proof.json",
+  "hostProofSha256": "63924ed2b161dd95b59ac6cc1cc954b419789d2b321befad9d71d39bd4146149",
+  "sourcePins": {
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v2\\night_sampler.hpp": "b51b72a79d1ede2553d46fb9bf2fbe112fa5ad0796a8f88fb02dbec86464c7d6",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v2\\night_plan.hpp": "c08f89dd4da630c516eddc6e779c1b22e6092c8cce6b360a3de360cfb8c83c9b",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v2\\night_runtime.hpp": "b3f0c8c2e0b58d351544ea5dcc2f05898ca80a1bb5889896d6beb7af2adbc162",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v2\\quiet_runtime.hpp": "c2b93076926ced36b425bbf2cb5eea738650087192427a1088acbae0058ad07b",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v2\\quiet_cadence.hpp": "c6c87c3d9cc6deb6e90fa01d91c86df5ee6be8979b4a8b734a35804d991be6f3",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v2\\analyze-loop.py": "5f1e9756449a5d35e9ce9567ab87be9e4388ed98b777f3ff72622b0e71f7fa27",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v2\\analyze-night.py": "6c35d47463a0567f25036dd8ef38a84c9f343d94f9eda79591a98dc02f10414b",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v2\\analyze-night-cli.py": "0f01c240a088909fb6a7ce930cfced813bba86c0f63643d272fb4c8b9e437820",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v2\\host-controls.cpp": "06cf853509d4de569a5ef01f1b1b1f8611ad2f2954bad1fc88e46793a5b37e20",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v2\\run-host-controls.py": "e86c4de5f6278649c5130535805b3d23f386998e1ebfa69dd0e3dfc2052fcee9",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v2\\README.md": "43938078489d41c3b5f2998d16eda4f55d99ca0c2a997012852faec015604ea2",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v2\\gate\\debug\\night_ablation.hpp": "7002e5fe126c658542bc6bc8a587c488700e249e93895c091b0c02366987b560"
+  },
+  "positiveCompleteTranscripts": 28,
+  "negativeParserGuards": 80,
+  "malformedConfigsPerTranscript": 26,
+  "actualCliKindsBothOrders": [
+    5,
+    6,
+    7
+  ],
+  "byteIdenticalV1Files": [
+    "night_sampler.hpp",
+    "quiet_runtime.hpp",
+    "quiet_cadence.hpp",
+    "analyze-loop.py"
+  ],
+  "preservedOldKindMasksAndWildBytecodes": [
+    0,
+    1,
+    2,
+    3,
+    5,
+    6
+  ],
+  "rejectedKind4StillRejected": true,
+  "newKind7Config": "7 order 0 0",
+  "tableGateApi": [
+    "poolTableSelected",
+    "poolTableEnabled",
+    "setPoolTableEnabled",
+    "observePoolTable"
+  ],
+  "newColdTableCounterUint32Fields": 11,
+  "tableCounterFrames": [
+    750,
+    1155
+  ],
+  "samplerOnReads262OffReads6": true,
+  "counterMalformedMismatchOverflowGuardsExecutedBothOptimizations": true,
+  "tableComparisonIsSourceExpansionOnly": true,
+  "nativeOrRuntimeAccepted": false,
+  "productionGainAccepted": false
+}

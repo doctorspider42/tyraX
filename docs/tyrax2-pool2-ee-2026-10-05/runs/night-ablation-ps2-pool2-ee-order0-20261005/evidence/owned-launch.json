@@ -1,0 +1,23 @@
+{
+  "stem": "night-ablation-ps2-pool2-ee-order0-20261005",
+  "fixture": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-ee-physical-v2",
+  "kind": 7,
+  "order": 0,
+  "joint": 0,
+  "restored": 0,
+  "elfSha256": "0a57efc5f486bae45c0a9ed9b312ef495d06944f899cc0c6285712d4d9ca29e4",
+  "launchArchive": "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-pool2-ee-order0-20261005-launch",
+  "helperSha256": "dae0dbf37b03b7b7dc8db477f75484db9ed7bb92a8514ef065497ec9bf58b473",
+  "launchFiles": {
+    "night-ablation.cfg": "3e3fc2dee1d0498f2693b3c40bb4308a020587b91d0250544972407109f8537c",
+    "ps2link.run": "290eb100acb0b408fab11ae3445233dd7409222008a8c4dc3d0cf49a2bc1208a",
+    "quiet-night.cfg": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+    "root-native-provenance.json": "7551e9621d040f633419f58f0c56f58c402f250adbd3df412c45ba43f419f85d",
+    "root-source-freeze.json": "cd03cfc5d13daa83a716f31169a67da864582d95ff07fe2dddf24425baf78d7a",
+    "runtime-assets-manifest.json": "e11fa8b76a6c7f6ee6d8da67670e12f4b7184d8b9e1558070c92efa4e4d10e05",
+    "target-source-manifest.json": "769f1403389da4d3683a17806fce1b75b381a4cf4f8229ee4d3306a44ca806de",
+    "vehicle-playground.elf": "0a57efc5f486bae45c0a9ed9b312ef495d06944f899cc0c6285712d4d9ca29e4",
+    "vehicle-playground.elf.sym": "5d55eb197e1a439f7bfa9fb9db05cd9f2877c46b4a7345b805e712f789649f52"
+  },
+  "physicalStartAccepted": false
+}

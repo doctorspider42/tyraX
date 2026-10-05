@@ -59,7 +59,12 @@ A pool's 96 source list vertices repeat its color. The later private
 uses bank-local descriptors and qualifies both physical orders plus twelve
 fixed-case emulator captures. Six decoded VU payload pairs match exactly, but
 the small forward timing improvement does not repeat in reverse order.
-Original EE expanded-color work remains; the candidate stays private.
+That historical candidate left EE expanded-color work in place. The later
+[EE producer continuation](tyrax2-pool2-ee-producer.md) removes it and skips
+geometry/ST copies when only colors change. Both physical orders favor this
+combined candidate by 0.113–0.171 ms; presentation remains 30 fps. Twelve
+epoch-aware inside VU captures and six packed-output pairs passed. It stays
+private, with clipped output and stable warm replay outside that diagnostic.
 
 The unique-grid proposal also has real remaining work: ordinary light pools use
 96 list vertices, while height queries already use 25 cached grid points. With
