@@ -261,8 +261,8 @@ inline constexpr unsigned char LIP_ENVELOPES[1] = {0
 };
 
 struct ObjectPaletteData { int scene; int object; int variant; };
-inline constexpr int OBJECT_PALETTE_COUNT = 24;
-inline constexpr ObjectPaletteData OBJECT_PALETTES[24] = {
+inline constexpr int OBJECT_PALETTE_COUNT = 21;
+inline constexpr ObjectPaletteData OBJECT_PALETTES[21] = {
     {0, 7, 1},
     {0, 8, 2},
     {0, 9, 3},
@@ -275,18 +275,15 @@ inline constexpr ObjectPaletteData OBJECT_PALETTES[24] = {
     {1, 5, 4},
     {1, 6, 5},
     {1, 8, 1},
-    {1, 10, 1},
-    {1, 11, 2},
-    {1, 12, 3},
-    {1, 13, 4},
-    {1, 14, 5},
-    {1, 16, 1},
-    {1, 18, 1},
-    {1, 19, 2},
-    {1, 20, 3},
-    {1, 21, 4},
-    {1, 22, 5},
-    {1, 24, 1}
+    {1, 9, 2},
+    {1, 10, 3},
+    {1, 11, 4},
+    {1, 12, 5},
+    {1, 14, 1},
+    {1, 15, 2},
+    {1, 16, 3},
+    {1, 17, 4},
+    {1, 18, 5}
 };
 
 extern const unsigned long long SCENE_0_OBJECT_ID_HASHES[];

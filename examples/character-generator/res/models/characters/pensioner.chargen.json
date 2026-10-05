@@ -3,6 +3,7 @@
   "name": "pensioner",
   "gender": 0.97, "age": 0.92, "muscle": 0.35, "weight": 0.6,
   "african": 0.1, "asian": 0.3, "caucasian": 0.6, "height": 1.72, "dimorphism": 0.6,
+  "detail": 0,
   "shape": {},
   "skinTone": -0.1, "skinWarmth": -0.0420717, "aging": 0,
   "brows": 11, "browDensity": 0.715191, "lashes": 0,

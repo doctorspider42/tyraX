@@ -39,20 +39,16 @@ struct CreatorLabel {
   const char* id;
   const char* label;
 };
-inline constexpr int CREATOR_LABEL_COUNT = 12;
+inline constexpr int CREATOR_LABEL_COUNT = 8;
 inline const CreatorLabel CREATOR_LABELS[CREATOR_LABEL_COUNT > 0 ? CREATOR_LABEL_COUNT : 1] = {
-    {"afro", "Afro"},
     {"fedora", "Fedora"},
     {"glasses1", "Glasses"},
     {"long", "Long"},
     {"messy", "Messy"},
     {"newsboy", "Newsboy cap"},
-    {"roundglasses", "Round glasses"},
-    {"santa", "Santa hat"},
     {"shades", "3D glasses"},
     {"short1", "Short"},
-    {"short2", "Short side part"},
-    {"short4", "Buzz"}};
+    {"short2", "Short side part"}};
 
 // .mtl libraries assigned to primitives (first material = surface)
 inline constexpr int MATERIAL_COUNT = 0;

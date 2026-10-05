@@ -1,1 +1,0 @@
-{ "id": "c000000000000106", "name": "commuter7", "type": "model", "position": [9.85, 0, 1.35], "rotation": [0, 105, 0], "scale": [1, 1, 1], "color": [1, 1, 1], "physics": false, "collision": "none", "model": "res/models/characters/commuter.glb", "anim": { "clip": "idle", "autoplay": true, "loop": true, "speed": 1, "wander": { "radius": 9, "speed": 1.3 } }, "meshLod": 4 }

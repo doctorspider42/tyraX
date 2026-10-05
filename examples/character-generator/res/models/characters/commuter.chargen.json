@@ -3,6 +3,7 @@
   "name": "commuter",
   "gender": 0.95, "age": 0.42, "muscle": 0.55, "weight": 0.5,
   "african": 0.2, "asian": 0.2, "caucasian": 0.6, "height": 1.78, "dimorphism": 0.6,
+  "detail": 0,
   "shape": {},
   "skinTone": 0.151005, "skinWarmth": -0.0420717, "aging": 0,
   "brows": 11, "browDensity": 0.715191, "lashes": 0,

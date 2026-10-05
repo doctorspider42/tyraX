@@ -9,8 +9,8 @@
 namespace Character_generator {
 
 struct WandererData { int scene; int object; float radius; float speed; };
-constexpr int WANDERER_COUNT = 32;
-constexpr WandererData WANDERERS[32] = {
+constexpr int WANDERER_COUNT = 26;
+constexpr WandererData WANDERERS[26] = {
     {0, 6, 3.6F, 1.3F},
     {0, 7, 3.6F, 1.3F},
     {0, 8, 3.6F, 1.3F},
@@ -31,18 +31,12 @@ constexpr WandererData WANDERERS[32] = {
     {1, 10, 9.0F, 1.3F},
     {1, 11, 9.0F, 1.3F},
     {1, 12, 9.0F, 1.3F},
-    {1, 13, 9.0F, 1.3F},
-    {1, 14, 9.0F, 1.3F},
-    {1, 15, 9.0F, 1.3F},
-    {1, 16, 9.0F, 1.3F},
+    {1, 13, 9.0F, 1.1F},
+    {1, 14, 9.0F, 1.1F},
+    {1, 15, 9.0F, 1.1F},
+    {1, 16, 9.0F, 1.1F},
     {1, 17, 9.0F, 1.1F},
-    {1, 18, 9.0F, 1.1F},
-    {1, 19, 9.0F, 1.1F},
-    {1, 20, 9.0F, 1.1F},
-    {1, 21, 9.0F, 1.1F},
-    {1, 22, 9.0F, 1.1F},
-    {1, 23, 9.0F, 1.1F},
-    {1, 24, 9.0F, 1.1F}
+    {1, 18, 9.0F, 1.1F}
 };
 
 namespace {

@@ -378,7 +378,7 @@ class TerrainGame : public Tyra::Game {
     // What applyLook last applied: the palette variant the texture bags point
     // at, and RuntimeObject::look as of then (-9 = apply on the next frame).
     int animVariant = 0;
-    u16 followFrames = 0;  // frames drawing another's shared pose (trimOutputs at 60)
+    u16 followFrames = 0;  // frames drawing another's shared pose (trimOutputs at 300)
     int lookShown[4] = {-9, -9, -9, -9};
     std::unique_ptr<Tyra::StaPipInfoBag> animInfoBag;
     Tyra::M4x4 animMat;

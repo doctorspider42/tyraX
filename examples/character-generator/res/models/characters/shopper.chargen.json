@@ -3,6 +3,7 @@
   "name": "shopper",
   "gender": 0.05, "age": 0.45, "muscle": 0.45, "weight": 0.55,
   "african": 0.35, "asian": 0.15, "caucasian": 0.5, "height": 1.66, "dimorphism": 0.6,
+  "detail": 0,
   "breastSize": 0.6, "breastFirmness": 0.5,
   "shape": {},
   "skinTone": 0.1, "skinWarmth": -0.0420717, "aging": 0,

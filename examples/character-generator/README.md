@@ -51,8 +51,8 @@ stop a while and pass each other on the right
 
 ## The crowd scene
 
-Press **R2** for the second scene, `crowd`: a plaza of 24 pedestrians - the
-commuter, a shopper and a pensioner, eight of each in six colour schemes -
+Press **R2** for the second scene, `crowd`: a plaza of 18 pedestrians - the
+commuter, a shopper and a pensioner, six of each in six colour schemes -
 walking between random spots, stopping, passing each other on the right.
 Three models, three atlases and a 1 KB palette per person; R2 goes back.
 
@@ -62,8 +62,15 @@ It is also the example's performance case (docs/character-generator.md,
 "Cost on the console"): every walker of a model walks in step so they share
 one skin per clip, only the five nearest characters keep a live face, each
 person has a 4 m mesh LOD, and the project turns on mesh LOD (6 m) and
-animation LOD (10 m). Measured in PCSX2: 32.7 ms a frame in the middle of the
-crowd.
+animation LOD (10 m). All three are built on the generator's **crowd body**
+(`"detail": 0` in their recipes - ~1600 triangles naked against the cast's
+~3300). Measured in PCSX2 (debug build): ~20 ms a frame walking through the
+crowd, 44 FPS, and four minutes of walking leave the EE at 22 of 32 MB.
+
+The hero stays on the **standard** body here. The hero body (`"detail": 2`,
+~9500 triangles) works as the player - but in this scene, with 18 skinned
+pedestrians, a few minutes of walking ran the EE's 32 MB out (see
+docs/character-generator.md, "Detail"), so the example does not ship it.
 
 ## The cast
 
@@ -77,19 +84,19 @@ tyrax-editor --chargen res/models/characters/hero.chargen.json res/models/charac
 
 | | Body | Wears | Atlas | Triangles |
 |---|---|---|---|---|
-| `hero` | man, 1.82 m, muscular | polo (recoloured navy), cargo pants, boots, short hair - plus 11 creator options and 3 colour looks | 256 | ~4600 as worn (17 701 in the file: every option, its hat twin and scalp cap) |
+| `hero` | man, 1.82 m, muscular | polo (recoloured navy), cargo pants, boots, short hair - plus 7 creator options and 3 colour looks | 256 | ~4600 as worn (11 331 in the file: every option, its hat twin and scalp cap) |
 | `clerk` | woman, 1.65 m, mostly East Asian | trouser suit (recoloured navy; the blouse and scarf keep theirs), T-bar shoes, square frames, a bun, lipstick | 128 | 4508 |
 | `dockhand` | man, 1.76 m, older, heavy | work overalls, ankle boots, newsboy cap, buzz cut, stubble | 128 | 4551 |
 | `kid` | child, 1.30 m | striped T-shirt (pattern), jean shorts, canvas shoes, ponytail | 128 | 4365 |
 | `punk` | man, 1.78 m | casual outfit, black hero boots, 3D glasses, green messy hair | 128 | 4382 |
-| `elder` | woman, 1.58 m, 90 | sweater, long skirt, flats, round glasses, grey bun | 128 | 4848 |
-| `commuter` x 8 (+ 8 in `crowd`) | man, 1.78 m | T-shirt, trousers, sneakers, short hair - five palette variants plus the original | 128 | 4211 |
-| `shopper` x 8 (`crowd`) | woman, 1.66 m | fitted T-shirt, long skirt, ballet flats, short bob, lipstick | 128 | 4555 |
-| `pensioner` x 8 (`crowd`) | man, 1.72 m, 82 | sweater, cargo pants, loafers, newsboy cap, grey buzz cut | 128 | 4517 |
+| `elder` | woman, 1.58 m, 90 | sweater, long skirt, flats, round glasses, grey bun | 128 | 4683 |
+| `commuter` x 8 (+ 6 in `crowd`) | man, 1.78 m, crowd body | T-shirt, trousers, sneakers, short hair - five palette variants plus the original | 128 | 2554 |
+| `shopper` x 6 (`crowd`) | woman, 1.66 m, crowd body | fitted T-shirt, long skirt, ballet flats, short bob, lipstick | 128 | 2902 |
+| `pensioner` x 6 (`crowd`) | man, 1.72 m, 82, crowd body | sweater, cargo pants, loafers, newsboy cap, grey buzz cut | 128 | 2830 |
 
 Shirts, trousers and suits are **shells** - the body itself, pushed out and
 painted - so they add no triangles; the counts above are a 3348-triangle woman's body
-or a 3320-triangle man's, plus hair, shoes, hats, glasses and skirts. Those
+or a 3320-triangle man's (the crowd body's ~1600 for the last three), plus hair, shoes, hats, glasses and skirts. Those
 mesh items share ONE accessory texture, so each character is two draw parts:
 the body with its atlas, and everything else. The hero's creator options are
 the exception - each is its own part and texture, so the game can show one per

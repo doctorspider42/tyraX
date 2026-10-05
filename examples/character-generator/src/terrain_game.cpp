@@ -2132,6 +2132,7 @@ void TerrainGame::applyLayerResidency() {
     if (!materialNeed[i] && materialLoaded[i]) freeMaterialAsset(i);
   for (int i = 0; i < (int)animNeed.size(); ++i)
     if (!animNeed[i] && animModelLoaded[i]) freeAnimModelAsset(i);
+  SkelInstance::clearOutputPool();  // the old crowd's skin buffers
   for (int i = 0; i < (int)texNeed.size(); ++i)
     if (!texNeed[i] && sceneTexLoaded[i]) freeSceneTexture(i);
 

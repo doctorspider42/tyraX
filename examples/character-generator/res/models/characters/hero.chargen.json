@@ -11,7 +11,7 @@
   "textureSize": 256,
   "hair": "short2",
   "outfit": [{"id": "polo", "color": [0.16,0.22,0.38], "color2": [1,1,1], "pattern": 0}, {"id": "cargo", "color": [-1,-1,-1], "color2": [1,1,1], "pattern": 0}, {"id": "shoes3", "color": [-1,-1,-1], "color2": [1,1,1], "pattern": 0}],
-  "options": ["short1", "short4", "messy", "afro", "long", "newsboy", "fedora", "santa", "glasses1", "roundglasses", "shades"],
+  "options": ["short1", "messy", "long", "newsboy", "fedora", "glasses1", "shades"],
   "defaultClips": true, "clips": [],
   "animFps": 15,
   "animSource": ""

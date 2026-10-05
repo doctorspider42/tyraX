@@ -1174,12 +1174,12 @@ void TerrainGame::updateAndRenderAnimObjects() {
       meshOwner = r.meshOwner;
       break;
     }
-    // a follower for a second gives its own skin outputs back: a crowd
+    // a follower for five seconds gives its own skin outputs back: a crowd
     // member that skinned itself once (a crossfade, up close) would hold
     // them for good - 30 pedestrians ran the EE out of memory that way
-    const bool trimmed = g.followFrames >= 60;  // its outputs were given back
+    const bool trimmed = g.followFrames >= 300;  // its outputs were given back
     if (meshOwner != i) {
-      if (g.followFrames < 0xFFFF && ++g.followFrames == 60) inst->trimOutputs();
+      if (g.followFrames < 0xFFFF && ++g.followFrames == 300) inst->trimOutputs();
     } else {
       g.followFrames = 0;
     }
