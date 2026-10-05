@@ -1,0 +1,13 @@
+{
+  "status": "PASS_LOSSLESS_LATIN1_ASCII_NIGHT_PROTOCOL_NORMALIZATION",
+  "rawPath": "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-light-far-order0-20261005.log",
+  "normalizedPath": "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-light-far-order0-20261005-utf8.log",
+  "rawSha256": "9f35d722e63c2fcb2c980bf578c058d8a897f9b066e27640dc763533a31f0352",
+  "normalizedSha256": "3f48ab2950a12e0b42a84ead4adfeffb8ce53bd4300e306a8891ff10cb010c58",
+  "rawBytes": 27983,
+  "normalizedBytes": 27985,
+  "authoritativeASCIIProtocolRows": 70,
+  "authoritativeASCIIProtocolSha256": "76266a14015cf8b50ad83e575074dc82ea9cbbc6575cc498e83fef5a8c7ed2e6",
+  "losslessLatin1Roundtrip": true,
+  "originalRawChanged": false
+}

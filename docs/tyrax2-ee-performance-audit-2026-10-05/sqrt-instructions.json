@@ -1,0 +1,86 @@
+[
+  {
+    "function": "Vehicle_playground::TerrainGame::updateAndRenderLightBeams(Tyra::Vec4 const*, Tyra::Vec4 const*, int)",
+    "instruction": "126b9c:\t46000004 \tsqrt.s\t$f0,$f0"
+  },
+  {
+    "function": "Vehicle_playground::TerrainGame::updateAndRenderLightBeams(Tyra::Vec4 const*, Tyra::Vec4 const*, int)",
+    "instruction": "126bcc:\t46010004 \tsqrt.s\t$f0,$f1"
+  },
+  {
+    "function": "Vehicle_playground::TerrainGame::updateAndRenderLightBeams(Tyra::Vec4 const*, Tyra::Vec4 const*, int)",
+    "instruction": "126e50:\t46000004 \tsqrt.s\t$f0,$f0"
+  },
+  {
+    "function": "Vehicle_playground::TerrainGame::updateAndRenderLightPools()",
+    "instruction": "1304a4:\t46000004 \tsqrt.s\t$f0,$f0"
+  },
+  {
+    "function": "Vehicle_playground::TerrainGame::updateAndRenderLightPools()",
+    "instruction": "130540:\t46000004 \tsqrt.s\t$f0,$f0"
+  },
+  {
+    "function": "Vehicle_playground::TerrainGame::updateAndRenderLightPools()",
+    "instruction": "1308ac:\t46060184 \tsqrt.s\t$f6,$f6"
+  },
+  {
+    "function": "Vehicle_playground::TerrainGame::updateAndRenderLightPools()",
+    "instruction": "1308f0:\t46010044 \tsqrt.s\t$f1,$f1"
+  },
+  {
+    "function": "Vehicle_playground::TerrainGame::updateAndRenderLightPools()",
+    "instruction": "130e14:\t461a0684 \tsqrt.s\t$f26,$f26"
+  },
+  {
+    "function": "Vehicle_playground::TerrainGame::updateAndRenderLightPools()",
+    "instruction": "13146c:\t46010044 \tsqrt.s\t$f1,$f1"
+  },
+  {
+    "function": "Vehicle_playground::TerrainGame::updateAndRenderLightPools()",
+    "instruction": "131ea8:\t46180604 \tsqrt.s\t$f24,$f24"
+  },
+  {
+    "function": "Vehicle_playground::TerrainGame::updateAndRenderLightPools()",
+    "instruction": "132238:\t46180604 \tsqrt.s\t$f24,$f24"
+  },
+  {
+    "function": "Vehicle_playground::TerrainGame::updateAndRenderLightPools()",
+    "instruction": "132418:\t46160584 \tsqrt.s\t$f22,$f22"
+  },
+  {
+    "function": "Vehicle_playground::TerrainGame::updateAndRenderLightPools()",
+    "instruction": "1335b4:\t46010044 \tsqrt.s\t$f1,$f1"
+  },
+  {
+    "function": "Vehicle_playground::TerrainGame::updateAndRenderLightPools()",
+    "instruction": "134074:\t46020084 \tsqrt.s\t$f2,$f2"
+  },
+  {
+    "function": "Tyra::RendererCore::pickDynLight(Tyra::Vec4 const&, float const&, int) const",
+    "instruction": "230b54:\t46000004 \tsqrt.s\t$f0,$f0"
+  },
+  {
+    "function": "Tyra::RendererCore::pickDynLight(Tyra::Vec4 const&, float const&, int) const",
+    "instruction": "230df4:\t46000004 \tsqrt.s\t$f0,$f0"
+  },
+  {
+    "function": "Tyra::RendererCore::pickDynLight(Tyra::Vec4 const&, float const&, int) const",
+    "instruction": "231130:\t46000004 \tsqrt.s\t$f0,$f0"
+  },
+  {
+    "function": "Tyra::RendererCore::pickDynLight(Tyra::Vec4 const&, float const&, int) const",
+    "instruction": "231324:\t46000004 \tsqrt.s\t$f0,$f0"
+  },
+  {
+    "function": "sqrtf",
+    "instruction": "002979f0 <sqrtf>:"
+  },
+  {
+    "function": "sqrtf",
+    "instruction": "2979fc:\t0c0a65f6 \tjal\t2997d8 <__ieee754_sqrtf>"
+  },
+  {
+    "function": "__ieee754_sqrtf",
+    "instruction": "002997d8 <__ieee754_sqrtf>:"
+  }
+]

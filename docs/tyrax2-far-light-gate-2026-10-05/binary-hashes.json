@@ -1,0 +1,46 @@
+{
+  "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-light-far-order0-20261005-launch\\vehicle-playground.elf": {
+    "sha256": "9b8a7b5acc9562a43b4463119d10eeb9ecc3df70e37998fdd08611b882a7e148",
+    "bytes": 4491100
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-light-far-order0-20261005-launch\\vehicle-playground.elf.sym": {
+    "sha256": "49ed2329d9444ebc9233cbaed13a2bfb607fab54cbfa70ec8d0f7e5d1bbbab9d",
+    "bytes": 24668128
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-light-far-order0-20261005-evidence\\vehicle-playground.elf": {
+    "sha256": "9b8a7b5acc9562a43b4463119d10eeb9ecc3df70e37998fdd08611b882a7e148",
+    "bytes": 4491100
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-light-far-order0-20261005-evidence\\vehicle-playground.elf.sym": {
+    "sha256": "49ed2329d9444ebc9233cbaed13a2bfb607fab54cbfa70ec8d0f7e5d1bbbab9d",
+    "bytes": 24668128
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-light-far-order1-20261005-launch\\vehicle-playground.elf": {
+    "sha256": "9b8a7b5acc9562a43b4463119d10eeb9ecc3df70e37998fdd08611b882a7e148",
+    "bytes": 4491100
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-light-far-order1-20261005-launch\\vehicle-playground.elf.sym": {
+    "sha256": "49ed2329d9444ebc9233cbaed13a2bfb607fab54cbfa70ec8d0f7e5d1bbbab9d",
+    "bytes": 24668128
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-light-far-order1-20261005-evidence\\vehicle-playground.elf": {
+    "sha256": "9b8a7b5acc9562a43b4463119d10eeb9ecc3df70e37998fdd08611b882a7e148",
+    "bytes": 4491100
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-light-far-order1-20261005-evidence\\vehicle-playground.elf.sym": {
+    "sha256": "49ed2329d9444ebc9233cbaed13a2bfb607fab54cbfa70ec8d0f7e5d1bbbab9d",
+    "bytes": 24668128
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\light-pick-far-target-abi-v1\\layout.bin": {
+    "sha256": "7ca3dbe3b6f5af462e15ce538235863f4e483f201ff7019d700c2bf36d3e2694",
+    "bytes": 40
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\light-pick-far-target-abi-v1\\layout.o": {
+    "sha256": "a97d7cbf40d949ee932ece04f34d58415b305c891c2b9a910b5fe0abfafe67ef",
+    "bytes": 1184
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\light-pick-far-host-v2\\probe": {
+    "sha256": "9cf644927fffd74702361c5b422892f37f7999ac74b8a6f4dcb0c85ae9e4df4f",
+    "bytes": 20784
+  }
+}

@@ -1,0 +1,1 @@
+Private kind12 full-night broad phase, all visual families retained. Same-ELF on/off selection with untimed actual EE pointer oracle. Wide exponent margin; no score/tie/order changes, no cache. Host parity does not replace actual target parity; common code/branch footprint unpriced.

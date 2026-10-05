@@ -1,0 +1,14 @@
+{
+  "status": "ROOT_RELEASE_PRIVATE_FAR_LIGHT_COMPARISON",
+  "scope": "All night effects retained; exponent broad phase with wide margin, original scoring preserved. Untimed cold actual pointer oracle; actual target activation and raster required before pricing.",
+  "review": "F:\\Projects\\tyrax2-lab-20261001\\light-pick-far-root-helpers-v1\\source-review.md",
+  "reviewSha256": "f60edfbff26df212147b81f269291b4f9af5567e525d2b7a0877adca4b13e19a",
+  "host": "F:\\Projects\\tyrax2-lab-20261001\\light-pick-far-root-helpers-v1\\host-authority.json",
+  "hostSha256": "1e5a556733de8de87942dc2e1de0450c2274a02b7eadd68d54fd64180f5a170e",
+  "native": "F:\\Projects\\tyrax2-lab-20261001\\light-pick-far-native-root-review-v1\\proof.json",
+  "nativeSha256": "dced39b8b26ad4ac221b21036259ed784bb30f2121dca01f6486f03fbbcc6ece",
+  "rootSourceFreezeSha256": "0ea54c07ba49b53aa0640523b5c256fe6b80094bca0edc2eed0df2d9ec14c1a7",
+  "hostControlSha256": "bec9b3020f1b89a83f097973f78f49dcc64ae61fa7e90a463aef1c283b6c25a1",
+  "physicalPricingAccepted": false,
+  "commonCandidateCodeCostPriced": false
+}

@@ -1,0 +1,15 @@
+{
+  "head": "d085f938e76f5bbb860137219a73dda35d25e568",
+  "files": {
+    "src/game_templates.inc": "982a99a336f90ace25f83e3905cedcc5e8ce80a6df8a7e88e650e4fe095ed71c",
+    "vendor/tyra/engine/inc/math/math.hpp": "87fefd0df58d2c0d9cdb9b3e16a32a4da2678ab45e89e6eee0e813258ef950da",
+    "vendor/tyra/engine/src/renderer/core/renderer_core.cpp": "e4c97f885a2d022c9191fd95034a675337577a1c1507281d13548ac37a3b09b9",
+    "vendor/tyra/engine/src/renderer/3d/pipeline/static/core/stapip_core.cpp": "b15cc0d29c10d7b7aa5f3c5f2131873c9c79d64b0ba85cab3195215fb147a08f",
+    "vendor/tyra/engine/src/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.cpp": "9fe550f3a3cc5ddc30b06a3cc69162f919f11614e59651a803d90b732a8ffb5d",
+    "vendor/tyra/engine/src/renderer/3d/pipeline/static/static_pipeline.cpp": "4eca7c5a539746fe452d2d1fc1de4ebf28867d1193962b85b9311bdd067b8e2f",
+    "vendor/tyra/engine/src/renderer/3d/pipeline/dynamic/dynamic_pipeline.cpp": "e808932789c13799e7aeeb48cc8accc72edf5a3f09f99487158d78483ce30755",
+    "vendor/tyra/engine/src/renderer/core/paths/path1/vif1_queue.cpp": "949fe358e54a6af5f28103ceb855f943b7498034625b6a55a4fc2222cc8dc4b7",
+    "vendor/tyra/engine/inc/renderer/core/paths/path1/frame_chain_arena.hpp": "d2cf31629c1f3c8127cec7d9590632ed3a7e82af7049c04b2e533d015615970b",
+    "vendor/tyra/engine/src/renderer/3d/pipeline/static/core/stapip_bag_bboxes_cacher.cpp": "15259dc346241e01cb9e0fdab65c69663b4629de0943f0ea62709a71e0d592bd"
+  }
+}

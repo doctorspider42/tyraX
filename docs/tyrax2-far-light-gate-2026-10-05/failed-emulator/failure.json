@@ -1,0 +1,6 @@
+{
+  "status": "FAILED_NO_EMULATOR_BOOT",
+  "reason": "X display93 missing; Qt xcb could not connect",
+  "runtimeAccepted": false,
+  "physicalPerformanceAccepted": false
+}

@@ -3914,3 +3914,17 @@ deferred body passes also need the owning model's identity. Scene light pools
 are a separate effect family; price their removal separately from receiver
 restriction and label the appearance tradeoff. The private fixed-fixture
 trial and promotion limits are in `docs/tyrax2-player-light-receivers.md`.
+
+### EE audit and far-light gate checkpoint
+
+The private conservative far-light predicate rejected only 61 of 912 cold
+selection candidates and regressed +0.239/+0.230 ms in both physical orders;
+do not promote it or claim an eliminated picker bill from its invocation count.
+See `docs/tyrax2-far-light-gate.md`. Source `sqrtf` spelling does not establish
+software math: the qualified V31 linked beam/pool functions already use
+`sqrt.s`. Inspect actual target instructions before replacing libm calls.
+The detailed EE audit is `docs/tyrax2-ee-performance-audit-2026-10-05.md`.
+VU0 already serves macro-mode vector/bounds/skinning work and a micro ray tracer;
+asynchronous jobs require ownership and COP2-free intervals. Projected-light
+STQ/color production is a VU1 proposal, with activation and resident-budget
+qualification still required; the audit is not a measured optimization.

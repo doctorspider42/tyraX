@@ -1,0 +1,6 @@
+from pathlib import Path
+import json,hashlib,subprocess
+b=Path('F:/Projects/tyrax2-lab-20261001');old=b/'light-pick-far-host-v1';out=b/'light-pick-far-host-v2';assert not out.exists();out.mkdir();p=out/'probe.cpp';p.write_bytes((old/'probe.cpp').read_bytes().replace(b'#include <cstdint>',b'#include <cstdint>\nusing u32=uint32_t;'));base='/mnt/f/Projects/tyrax2-lab-20261001';commands=[['wsl','-d','Ubuntu','--','g++','-std=c++17','-O2','-ffp-contract=off','-I'+base+'/light-pick-far-physical-v1/tyra/engine/inc',base+'/light-pick-far-host-v2/probe.cpp','-o',base+'/light-pick-far-host-v2/probe'],['wsl','-d','Ubuntu','--',base+'/light-pick-far-host-v2/probe']]
+for i,c in enumerate(commands):
+ r=subprocess.run(c,capture_output=True);(out/f'command-{i}.log').write_bytes(r.stdout+r.stderr);assert r.returncode==0,r.stderr.decode(errors='replace');print(r.stdout.decode())
+sha=lambda p:hashlib.sha256(p.read_bytes()).hexdigest();(out/'proof.json').write_bytes((json.dumps(dict(status='PASS_HOST_ACTUAL_SELECTION_AND_RAW_BIT_GATE',commands=commands,pins={p.name:sha(p)for p in out.iterdir()if p.is_file()},previousAttempt='v1 failed missing host-only u32 typedef; no native source change',targetParityStillRequired=True),indent=2)+'\n').encode())

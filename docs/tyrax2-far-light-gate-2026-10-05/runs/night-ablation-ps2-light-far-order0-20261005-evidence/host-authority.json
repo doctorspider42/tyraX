@@ -1,0 +1,11 @@
+{
+  "sourcePins": {
+    "F:\\Projects\\tyrax2-lab-20261001\\light-pick-far-controls-v1\\analyze-loop.py": "5f1e9756449a5d35e9ce9567ab87be9e4388ed98b777f3ff72622b0e71f7fa27",
+    "F:\\Projects\\tyrax2-lab-20261001\\light-pick-far-controls-v1\\analyze-night.py": "6f80ba964787f8d4a6aab2b697e57233d34d76fffbf1b34623a1f15dbc6ce568",
+    "F:\\Projects\\tyrax2-lab-20261001\\light-pick-far-controls-v1\\analyze-night-cli.py": "9e4c4ff7e15811349d45cb31d7774f37f7d300661004a8c21326561783dadadf",
+    "F:\\Projects\\tyrax2-lab-20261001\\light-pick-far-controls-v1\\corona_controls.py": "1decafffab8d86f2b34e2d20054a5e729d69d2c9259f9938bd8370666435a43a",
+    "F:\\Projects\\tyrax2-lab-20261001\\light-pick-far-controls-v1\\source-controls\\night_plan.hpp": "b50573328126f210cb06f445e76a2cb58a6c7b87568d82fbb36d72f41bf36121",
+    "F:\\Projects\\tyrax2-lab-20261001\\light-pick-far-controls-v1\\source-controls\\stapip_vu1_shared_defines.h": "cf73e7be8c173e3ee9b04c54a9c57adbc18b7da29c9e4ed6d69c51dddf961d5b"
+  },
+  "pricingSourceManifestSha256": "ba7683fbc6067ddb4d9ef2acc773edcf5f1aef79b29a940c73706057c9e6b420"
+}

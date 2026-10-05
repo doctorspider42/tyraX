@@ -1,0 +1,62 @@
+{
+  "status": "PASS_ROLE_BASED_TWO_ORDER_FAR_PICK_SUMMARY",
+  "rows": [
+    {
+      "order": 0,
+      "flags": [
+        0,
+        1,
+        0
+      ],
+      "phaseMeans_ms": [
+        19.198226176367868,
+        19.4092112965054,
+        19.14314081403944
+      ],
+      "candidate_ms": 19.4092112965054,
+      "control_ms": 19.170683495203654,
+      "candidateMinusControl_ms": 0.23852780130174622,
+      "adjacentCandidateMinusControls_ms": [
+        0.2109851201375328,
+        0.26607048246595966
+      ],
+      "outerArmSpread_ms": 0.05508536232842687,
+      "renderedPeriod_ms": [
+        33.366665840148926,
+        33.36666390630934,
+        33.36682727601793
+      ],
+      "reportSha256": "ae7abbbc10ff99888c2a67f2f891d14a0c45c154fcc7d5300d33885561dd98f0"
+    },
+    {
+      "order": 1,
+      "flags": [
+        1,
+        0,
+        1
+      ],
+      "phaseMeans_ms": [
+        19.330649291144475,
+        19.15139865875244,
+        19.432217089335122
+      ],
+      "candidate_ms": 19.381433190239797,
+      "control_ms": 19.15139865875244,
+      "candidateMinusControl_ms": 0.2300345314873553,
+      "adjacentCandidateMinusControls_ms": [
+        0.17925063239203354,
+        0.28081843058268063
+      ],
+      "outerArmSpread_ms": 0.1015677981906471,
+      "renderedPeriod_ms": [
+        33.36666393280029,
+        33.366665230857,
+        33.36666933695475
+      ],
+      "reportSha256": "b3dc3ff5ffcd622d7c6a3927d8b930e73c82a3cc9b210d815c4a0d3209d9aa0b"
+    }
+  ],
+  "negativeControlsRejected": 10,
+  "pureEEBill": false,
+  "commonCompiledOverheadPriced": false
+}

@@ -1,0 +1,192 @@
+{
+  "witness": "private V31, unchanged generated game templates, root-qualified text/ABI/source/asset provenance",
+  "elfSha256": "9b8a7b5acc9562a43b4463119d10eeb9ecc3df70e37998fdd08611b882a7e148",
+  "symbolSha256": "49ed2329d9444ebc9233cbaed13a2bfb607fab54cbfa70ec8d0f7e5d1bbbab9d",
+  "outputs": {
+    "qualified-v31-disassembly.txt": {
+      "sha256": "490f2c409c922904848b6674861d895b27ad336ac5e20df5ab4be60f00b7e6ec",
+      "bytes": 24772677
+    },
+    "qualified-v31-symbol-disassembly.txt": {
+      "sha256": "6c802ef3e61d610d991a63c129fdb9baae0f5fedb7e764a35ffe216c76238ce7",
+      "bytes": 37229881
+    },
+    "sqrt-instructions.json": {
+      "sha256": "3fbcbeb171c622e4f5c6ddad67b974ecb13d2e6628018ea37b8a802b5494d551",
+      "bytes": 3096
+    }
+  },
+  "excerpts": [
+    {
+      "function": "Vehicle_playground::TerrainGame::updateAndRenderLightBeams(Tyra::Vec4 const*, Tyra::Vec4 const*, int)",
+      "lines": [
+        "  126b94:\t46050000 \tadd.s\t$f0,$f0,$f5",
+        "  126b98:\t46040000 \tadd.s\t$f0,$f0,$f4",
+        "  126b9c:\t46000004 \tsqrt.s\t$f0,$f0",
+        "  126ba0:\t46030034 \tc.lt.s\t$f0,$f3",
+        "  126ba4:\t46000586 \tmov.s\t$f22,$f0"
+      ]
+    },
+    {
+      "function": "Vehicle_playground::TerrainGame::updateAndRenderLightBeams(Tyra::Vec4 const*, Tyra::Vec4 const*, int)",
+      "lines": [
+        "  126bc4:\t46001606 \tmov.s\t$f24,$f2",
+        "  126bc8:\t46000840 \tadd.s\t$f1,$f1,$f0",
+        "  126bcc:\t46010004 \tsqrt.s\t$f0,$f1",
+        "  126bd0:\t46030034 \tc.lt.s\t$f0,$f3",
+        "  126bd4:\t46000706 \tmov.s\t$f28,$f0"
+      ]
+    },
+    {
+      "function": "Vehicle_playground::TerrainGame::updateAndRenderLightBeams(Tyra::Vec4 const*, Tyra::Vec4 const*, int)",
+      "lines": [
+        "  126e48:\t460a4282 \tmul.s\t$f10,$f8,$f10",
+        "  126e4c:\t460d0000 \tadd.s\t$f0,$f0,$f13",
+        "  126e50:\t46000004 \tsqrt.s\t$f0,$f0",
+        "  126e54:\t46003834 \tc.lt.s\t$f7,$f0",
+        "  126e58:\t00000000 \tnop"
+      ]
+    },
+    {
+      "function": "Vehicle_playground::TerrainGame::updateAndRenderLightPools()",
+      "lines": [
+        "  13049c:\t46060000 \tadd.s\t$f0,$f0,$f6",
+        "  1304a0:\tc7a603e4 \tlwc1\t$f6,996(sp)",
+        "  1304a4:\t46000004 \tsqrt.s\t$f0,$f0",
+        "  1304a8:\t46060034 \tc.lt.s\t$f0,$f6",
+        "  1304ac:\t00000000 \tnop"
+      ]
+    },
+    {
+      "function": "Vehicle_playground::TerrainGame::updateAndRenderLightPools()",
+      "lines": [
+        "  130538:\t46000002 \tmul.s\t$f0,$f0,$f0",
+        "  13053c:\t4600b000 \tadd.s\t$f0,$f22,$f0",
+        "  130540:\t46000004 \tsqrt.s\t$f0,$f0",
+        "  130544:\t46010034 \tc.lt.s\t$f0,$f1",
+        "  130548:\t00000000 \tnop"
+      ]
+    },
+    {
+      "function": "Vehicle_playground::TerrainGame::updateAndRenderLightPools()",
+      "lines": [
+        "  1308a4:\t46073180 \tadd.s\t$f6,$f6,$f7",
+        "  1308a8:\t46015840 \tadd.s\t$f1,$f11,$f1",
+        "  1308ac:\t46060184 \tsqrt.s\t$f6,$f6",
+        "  1308b0:\t46060834 \tc.lt.s\t$f1,$f6",
+        "  1308b4:\t00000000 \tnop"
+      ]
+    },
+    {
+      "function": "Vehicle_playground::TerrainGame::updateAndRenderLightPools()",
+      "lines": [
+        "  1308e8:\t46185040 \tadd.s\t$f1,$f10,$f24",
+        "  1308ec:\t46050840 \tadd.s\t$f1,$f1,$f5",
+        "  1308f0:\t46010044 \tsqrt.s\t$f1,$f1",
+        "  1308f4:\t4601d034 \tc.lt.s\t$f26,$f1",
+        "  1308f8:\t00000000 \tnop"
+      ]
+    },
+    {
+      "function": "Vehicle_playground::TerrainGame::updateAndRenderLightPools()",
+      "lines": [
+        "  130e0c:\t461a0680 \tadd.s\t$f26,$f0,$f26",
+        "  130e10:\t4601d680 \tadd.s\t$f26,$f26,$f1",
+        "  130e14:\t461a0684 \tsqrt.s\t$f26,$f26",
+        "  130e18:\t4602d034 \tc.lt.s\t$f26,$f2",
+        "  130e1c:\t00000000 \tnop"
+      ]
+    },
+    {
+      "function": "Vehicle_playground::TerrainGame::updateAndRenderLightPools()",
+      "lines": [
+        "  131464:\t3c030045 \tlui\tv1,0x45",
+        "  131468:\tc4626e44 \tlwc1\t$f2,28228(v1)",
+        "  13146c:\t46010044 \tsqrt.s\t$f1,$f1",
+        "  131470:\t46011034 \tc.lt.s\t$f2,$f1",
+        "  131474:\t00000000 \tnop"
+      ]
+    },
+    {
+      "function": "Vehicle_playground::TerrainGame::updateAndRenderLightPools()",
+      "lines": [
+        "  131ea0:\t46000602 \tmul.s\t$f24,$f0,$f0",
+        "  131ea4:\t4616c600 \tadd.s\t$f24,$f24,$f22",
+        "  131ea8:\t46180604 \tsqrt.s\t$f24,$f24",
+        "  131eac:\t1040069a \tbeqz\tv0,133918 <Vehicle_playground::TerrainGame::updateAndRenderLightPools()+0x3738>",
+        "  131eb0:\t00000000 \tnop"
+      ]
+    },
+    {
+      "function": "Vehicle_playground::TerrainGame::updateAndRenderLightPools()",
+      "lines": [
+        "  132230:\t46000602 \tmul.s\t$f24,$f0,$f0",
+        "  132234:\t4616c600 \tadd.s\t$f24,$f24,$f22",
+        "  132238:\t46180604 \tsqrt.s\t$f24,$f24",
+        "  13223c:\t144005be \tbnez\tv0,133938 <Vehicle_playground::TerrainGame::updateAndRenderLightPools()+0x3758>",
+        "  132240:\t00000000 \tnop"
+      ]
+    },
+    {
+      "function": "Vehicle_playground::TerrainGame::updateAndRenderLightPools()",
+      "lines": [
+        "  132410:\tc4636ce8 \tlwc1\t$f3,27880(v1)",
+        "  132414:\t46020002 \tmul.s\t$f0,$f0,$f2",
+        "  132418:\t46160584 \tsqrt.s\t$f22,$f22",
+        "  13241c:\t46030000 \tadd.s\t$f0,$f0,$f3",
+        "  132420:\tc4826d50 \tlwc1\t$f2,27984(a0)"
+      ]
+    },
+    {
+      "function": "Vehicle_playground::TerrainGame::updateAndRenderLightPools()",
+      "lines": [
+        "  1335ac:\tc4426d00 \tlwc1\t$f2,27904(v0)",
+        "  1335b0:\t46030840 \tadd.s\t$f1,$f1,$f3",
+        "  1335b4:\t46010044 \tsqrt.s\t$f1,$f1",
+        "  1335b8:\t46020834 \tc.lt.s\t$f1,$f2",
+        "  1335bc:\t00000000 \tnop"
+      ]
+    },
+    {
+      "function": "Vehicle_playground::TerrainGame::updateAndRenderLightPools()",
+      "lines": [
+        "  13406c:\tc4446cf4 \tlwc1\t$f4,27892(v0)",
+        "  134070:\t46071080 \tadd.s\t$f2,$f2,$f7",
+        "  134074:\t46020084 \tsqrt.s\t$f2,$f2",
+        "  134078:\t46141082 \tmul.s\t$f2,$f2,$f20",
+        "  13407c:\t1000f973 \tb\t13264c <Vehicle_playground::TerrainGame::updateAndRenderLightPools()+0x246c>"
+      ]
+    },
+    {
+      "function": "Vehicle_playground::TerrainGame::updatePlayer()",
+      "lines": [
+        "  1a5460:\tc4546d30 \tlwc1\t$f20,27952(v0)",
+        "  1a5464:\t46006686 \tmov.s\t$f26,$f12",
+        "  1a5468:\t0c0a5e7c \tjal\t2979f0 <sqrtf>",
+        "  1a546c:\t00000000 \tnop",
+        "  1a5470:\t34048500 \tli\ta0,0x8500"
+      ]
+    },
+    {
+      "function": "__ieee754_sqrtf",
+      "lines": [
+        "  299844:\t00035043 \tsra\ta6,v1,0x1",
+        "  299848:\t00021040 \tsll\tv0,v0,0x1",
+        "  29984c:\t24040019 \tli\ta0,25",
+        "  299850:\t00004825 \tmove\ta5,zero",
+        "  299854:\t00004025 \tmove\ta4,zero"
+      ]
+    },
+    {
+      "function": "__ieee754_sqrtf",
+      "lines": [
+        "  299884:\t00061040 \tsll\tv0,a2,0x1",
+        "  299888:\t00031842 \tsrl\tv1,v1,0x1",
+        "  29988c:\t1480fff4 \tbnez\ta0,299860 <__ieee754_sqrtf+0x88>",
+        "  299890:\t00000000 \tnop",
+        "  299894:\t10c00014 \tbeqz\ta2,2998e8 <__ieee754_sqrtf+0x110>"
+      ]
+    }
+  ],
+  "negativeFinding": "No sqrtf direct calls in linked LightPools or LightBeams functions; hardware sqrt.s sites 11 and 3 respectively. Runtime invocation counts unmeasured."
+}

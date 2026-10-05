@@ -496,6 +496,16 @@ recovered 0.50-0.72 ms of hardware `work`. What it did not do, ranked:
   and model/serialization/codegen/UI integration. The host-crash partial attempt
   is preserved and excluded; its fresh retry completes.
 
+  The [conservative far-light gate](tyrax2-far-light-gate.md) is rejected:
+  both physical orders regress +0.239/+0.230 ms, with only 61/912 candidates
+  rejected in cold witnesses. No production promotion. The detailed
+  [EE audit](tyrax2-ee-performance-audit-2026-10-05.md) prioritizes activation
+  and calibrated scope pricing for projected-light STQ/color production,
+  flashlight terrain hull sampling and beam scratch generation. VU1 producer
+  elimination remains a proposal; VU0 micro jobs need explicit ownership around
+  existing macro consumers. Broad source-level sqrtf replacement is ruled out
+  for the qualified beam/pool functions by actual linked sqrt.s instructions.
+
   Storage classification alone grants no immutable borrowing rights.
   The [resumed candidate audit](tyrax2-ee-vu0.md#next-60-hz-candidates-host-controls-2026-10-03)
   rejects the broad beam cache as a demonstrated driving gain, identifies
