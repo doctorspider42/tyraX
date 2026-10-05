@@ -1,0 +1,136 @@
+{
+  "status": "PASS_BOTH_PHYSICAL_ORDERS_BOTH_RECEIVER_CONTRASTS",
+  "rows": [
+    {
+      "kind": 10,
+      "order": 0,
+      "stem": "night-ablation-ps2-player-receivers-kind10-order0-20261005",
+      "receiverModes": [
+        0,
+        1,
+        0
+      ],
+      "extraDisabledMasks": [
+        0,
+        0,
+        0
+      ],
+      "phaseMeans_ms": [
+        19.55615013970269,
+        18.091849867502848,
+        19.621812502543133
+      ],
+      "renderedPeriodMeans_ms": [
+        33.36666742960612,
+        33.36666886011759,
+        33.366560512118866
+      ],
+      "candidateMean_ms": 18.091849867502848,
+      "controlMean_ms": 19.588981321122912,
+      "candidateMinusControl_ms": -1.4971314536200637,
+      "outerArmSpread_ms": 0.0656623628404418,
+      "inputSha256": "861b66a0ad3a5ba0c8316e65284f6b23ca34a16491be3ea39f558b9bfac2601d",
+      "sourceManifestSha256": "af51db0234d76e4f7f6a62a9ad1dba4552f767f9d104f8dcccb743e378743497",
+      "elfSha256": "a336d49fbba47783d58427166ca61b93e7ae9a50330e7225f82bede52c604b23"
+    },
+    {
+      "kind": 10,
+      "order": 1,
+      "stem": "night-ablation-ps2-player-receivers-kind10-order1-20261005",
+      "receiverModes": [
+        1,
+        0,
+        1
+      ],
+      "extraDisabledMasks": [
+        0,
+        0,
+        0
+      ],
+      "phaseMeans_ms": [
+        18.139764404296876,
+        19.592185656229656,
+        18.229665766821967
+      ],
+      "renderedPeriodMeans_ms": [
+        33.366700172424316,
+        33.366665045420326,
+        33.36666774749756
+      ],
+      "candidateMean_ms": 18.18471508555942,
+      "controlMean_ms": 19.592185656229656,
+      "candidateMinusControl_ms": -1.4074705706702346,
+      "outerArmSpread_ms": 0.08990136252509018,
+      "inputSha256": "4e4cd18d260db0c0ea5e06f086e5a9727b79eb9798d50b24cb06e63ab63bbe67",
+      "sourceManifestSha256": "af51db0234d76e4f7f6a62a9ad1dba4552f767f9d104f8dcccb743e378743497",
+      "elfSha256": "a336d49fbba47783d58427166ca61b93e7ae9a50330e7225f82bede52c604b23"
+    },
+    {
+      "kind": 11,
+      "order": 0,
+      "stem": "night-ablation-ps2-player-receivers-kind11-order0-20261005-retry1",
+      "receiverModes": [
+        0,
+        2,
+        0
+      ],
+      "extraDisabledMasks": [
+        0,
+        1,
+        0
+      ],
+      "phaseMeans_ms": [
+        19.554040802849663,
+        17.273355462816028,
+        19.48716442320082
+      ],
+      "renderedPeriodMeans_ms": [
+        33.366665522257485,
+        30.499218410915798,
+        33.36666668785943
+      ],
+      "candidateMean_ms": 17.273355462816028,
+      "controlMean_ms": 19.52060261302524,
+      "candidateMinusControl_ms": -2.247247150209212,
+      "outerArmSpread_ms": 0.06687637964884274,
+      "inputSha256": "e0ca5d963f83924943346f82d2fb70aa22341ed95e0c8abdae73772b8a155279",
+      "sourceManifestSha256": "af51db0234d76e4f7f6a62a9ad1dba4552f767f9d104f8dcccb743e378743497",
+      "elfSha256": "a336d49fbba47783d58427166ca61b93e7ae9a50330e7225f82bede52c604b23"
+    },
+    {
+      "kind": 11,
+      "order": 1,
+      "stem": "night-ablation-ps2-player-receivers-kind11-order1-20261005",
+      "receiverModes": [
+        2,
+        0,
+        2
+      ],
+      "extraDisabledMasks": [
+        1,
+        0,
+        1
+      ],
+      "phaseMeans_ms": [
+        17.208823415968155,
+        19.61032026078966,
+        17.262562624613444
+      ],
+      "renderedPeriodMeans_ms": [
+        30.8903292549981,
+        33.36666488647461,
+        30.62959162394206
+      ],
+      "candidateMean_ms": 17.2356930202908,
+      "controlMean_ms": 19.61032026078966,
+      "candidateMinusControl_ms": -2.37462724049886,
+      "outerArmSpread_ms": 0.05373920864528969,
+      "inputSha256": "d7a75748c308fc68657ed0d5063c851c5cbb2cb4daaca0937af894440d85b939",
+      "sourceManifestSha256": "af51db0234d76e4f7f6a62a9ad1dba4552f767f9d104f8dcccb743e378743497",
+      "elfSha256": "a336d49fbba47783d58427166ca61b93e7ae9a50330e7225f82bede52c604b23"
+    }
+  ],
+  "commonReceiverCostPriced": false,
+  "qualityTradeoff": true,
+  "scope": "Fixed ordinary night fixture, same ELF non-pacing elapsed contrasts; not pure CPU or VU stage billing."
+}

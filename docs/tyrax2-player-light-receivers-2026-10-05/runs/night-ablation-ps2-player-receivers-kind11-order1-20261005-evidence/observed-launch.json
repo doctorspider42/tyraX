@@ -1,0 +1,18 @@
+{
+  "command": [
+    "F:\\Projects\\tyra-editor\\tools\\ps2client\\bin\\ps2client.exe",
+    "-h",
+    "192.168.100.150",
+    "execee",
+    "host:vehicle-playground.elf"
+  ],
+  "pid": 61476,
+  "start": {
+    "monotonicNs": 458965859000000,
+    "utc": "2026-10-05T16:35:23.865569+00:00"
+  },
+  "exeSha256": "f1dc497a1496925fc58723d81280602ba0ce3bf81c950aa7857811bd057414c9",
+  "helperSha256": "01613696a241717d639d8248ee825e7a60709ca182d6f910fee54b6d8f300933",
+  "hostOnly": true,
+  "newPS2Commands": false
+}

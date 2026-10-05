@@ -1,0 +1,1 @@
+Private receiver experiment draft. Two same-ELF comparisons: full vs player/driven vehicle; full vs same receivers plus scene pool cut. Existing loop sampler unchanged. No sprite arm. Native and path review required before runtime release.

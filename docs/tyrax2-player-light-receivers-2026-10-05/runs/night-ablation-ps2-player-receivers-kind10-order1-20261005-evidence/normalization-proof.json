@@ -1,0 +1,13 @@
+{
+  "status": "PASS_LOSSLESS_LATIN1_ASCII_NIGHT_PROTOCOL_NORMALIZATION",
+  "rawPath": "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-player-receivers-kind10-order1-20261005.log",
+  "normalizedPath": "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-player-receivers-kind10-order1-20261005-utf8.log",
+  "rawSha256": "ee305287bed890445ceb779aa4ad6f56c3932f81f87eb45a22fbc81bac296046",
+  "normalizedSha256": "77c4023b9ee41a73d2e82bf3024986dd7069c147f3c51d66e20303dc8a446424",
+  "rawBytes": 27897,
+  "normalizedBytes": 27899,
+  "authoritativeASCIIProtocolRows": 70,
+  "authoritativeASCIIProtocolSha256": "993a0381d67125945ee061b027b75f5aee571e42fd212d4cad0fffc90afe2d81",
+  "losslessLatin1Roundtrip": true,
+  "originalRawChanged": false
+}

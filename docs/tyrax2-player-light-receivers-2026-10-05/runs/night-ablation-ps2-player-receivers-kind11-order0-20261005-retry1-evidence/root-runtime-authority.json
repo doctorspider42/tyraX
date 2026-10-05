@@ -1,0 +1,13 @@
+{
+  "status": "ROOT_RELEASE_PRIVATE_RECEIVER_COMPARISON",
+  "scope": "Night fixture receiver quality tradeoff. Model body, animated pickup, driven wheels, vehicle glass, highlight deferred body. Other world passes default world. No claim of all-project identity propagation yet.",
+  "review": "F:\\Projects\\tyrax2-lab-20261001\\player-light-receivers-root-helpers-v2\\source-review.md",
+  "reviewSha256": "6ea9d27d1a2de030a50d5a67ff71ae886fdbbfc8c0f8b103b8ef53436f5f933e",
+  "host": "F:\\Projects\\tyrax2-lab-20261001\\player-light-receivers-root-helpers-v2\\host-authority.json",
+  "hostSha256": "a60fbd4f4f8e84ee1e89584b496fbe621bcbe87b1c605ea633b9b148272d8325",
+  "native": "F:\\Projects\\tyrax2-lab-20261001\\player-light-receivers-native-root-review-v2-retry1\\proof.json",
+  "nativeSha256": "c9bfa8d0687833964e6cb9fc331b8ba986e089130f99859b2551722489f406f3",
+  "rootSourceFreezeSha256": "c8ed2a2d136fcfc9e4fe459dd9b01e79e018e4429930d5e89f8150e7b457f42b",
+  "physicalPricingAccepted": false,
+  "commonReceiverBranchCostPriced": false
+}

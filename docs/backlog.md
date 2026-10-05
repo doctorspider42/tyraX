@@ -487,6 +487,15 @@ recovered 0.50-0.72 ms of hardware `work`. What it did not do, ranked:
   and broader Hybrid coverage remain open; original Bits16/Hybrid failures
   are preserved as historical evidence.
 
+  The [private receiver restriction trial](tyrax2-player-light-receivers.md)
+  completes both physical orders with normal final console appearance:
+  player/driven-vehicle receivers save 1.407-1.497 ms, or 2.247-2.375 ms with
+  scene pools removed as well. This is an appearance tradeoff, not a public
+  option or stable 60 fps. A public policy still needs typed receiver ownership
+  through all generated/batched/deferred/secondary-view paths, animated coverage
+  and model/serialization/codegen/UI integration. The host-crash partial attempt
+  is preserved and excluded; its fresh retry completes.
+
   Storage classification alone grants no immutable borrowing rights.
   The [resumed candidate audit](tyrax2-ee-vu0.md#next-60-hz-candidates-host-controls-2026-10-03)
   rejects the broad beam cache as a demonstrated driving gain, identifies

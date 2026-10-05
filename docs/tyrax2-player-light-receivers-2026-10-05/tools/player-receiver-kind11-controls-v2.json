@@ -1,0 +1,36 @@
+{
+  "status": "PASS_ACTUAL_POOL_CUT_RECEIVERS_AND_RETAINED_EFFECTS",
+  "source": "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-emulator-player-receivers-kind11-order0-20261005-evidence",
+  "negativeControls": [
+    {
+      "name": "lost_cut",
+      "rejected": true,
+      "reason": "extra phase extraMask"
+    },
+    {
+      "name": "wrong_mode",
+      "rejected": true,
+      "reason": "receiver phase mode"
+    },
+    {
+      "name": "disabled_beams",
+      "rejected": true,
+      "reason": "extra phase extraMask"
+    }
+  ],
+  "scenePoolColdSubmits": [
+    1,
+    0,
+    1
+  ],
+  "beamCoronaColdSubmits": [
+    2,
+    2,
+    2
+  ],
+  "vehicleGlowColdSubmits": [
+    2,
+    2,
+    2
+  ]
+}

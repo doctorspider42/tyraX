@@ -1,0 +1,28 @@
+{
+  "status": "PASS_ACTUAL_NATIVE_RENDER_METHOD_OBJECT_PATHS",
+  "objects": {
+    "game_physics": {
+      "object": "/home/spider/.cache/tyrax/native/projects/673cfc4ceb0254c33ff8c5e1/obj/gen/game_physics.gen.o",
+      "sha256": "d2ec5dd45c72d19813818eb1857d09948e354eb5b9aea8ded31e8510461ee540",
+      "definedMethods": [
+        "0001ef18 T Vehicle_playground::TerrainGame::renderScene()"
+      ]
+    },
+    "game_scene": {
+      "object": "/home/spider/.cache/tyrax/native/projects/673cfc4ceb0254c33ff8c5e1/obj/gen/game_scene.gen.o",
+      "sha256": "611ceff492916f400e75e5c94ac473591a2c120c2cea03b5f64d75ac2860be6c",
+      "definedMethods": [
+        "000007f8 T Vehicle_playground::TerrainGame::fillDynLitColors(int)"
+      ]
+    },
+    "game_vehicles": {
+      "object": "/home/spider/.cache/tyrax/native/projects/673cfc4ceb0254c33ff8c5e1/obj/gen/game_vehicles.gen.o",
+      "sha256": "813b4fd9528096b90011ba60c8597e73aaa00cf24aacdbf6232fd4e3fa8437b5",
+      "definedMethods": [
+        "00005e50 T Vehicle_playground::TerrainGame::renderVehicleGlass()",
+        "0001e1e8 T Vehicle_playground::TerrainGame::renderVehicleWheels()"
+      ]
+    }
+  },
+  "nmSha256": "482661d0780d5c1c42e48d952440ff92771708f0b061c47cfa67ca08d8dd8f78"
+}

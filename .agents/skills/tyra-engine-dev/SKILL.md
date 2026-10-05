@@ -3901,3 +3901,16 @@ domain or patch shared compiler output/cache by hand. The window/Hybrid scanout
 remained black in both isolated arms; readback qualified drawing VRAM only.
 Ordinary activation, presentation and physical pricing still require their own
 evidence. Preserve the original failed trial and both new observer revisions.
+
+### Private receiver-restriction experiments
+
+Live light receivers have two routes: StaPip's per-bag light selection/VU slot,
+and generated `dynLightAt` ambient pickup for normal-lit/animated models.
+Gate both without deleting the light registry or baked/probe/sun terms. A null
+bag light selects the global flashlight; supply an explicitly disabled light
+when rejecting a receiver. Shared wheel bags can contain several vehicles,
+so receiver identity requires separate geometry groups. Vehicle glass and
+deferred body passes also need the owning model's identity. Scene light pools
+are a separate effect family; price their removal separately from receiver
+restriction and label the appearance tradeoff. The private fixed-fixture
+trial and promotion limits are in `docs/tyrax2-player-light-receivers.md`.

@@ -4672,3 +4672,15 @@ domain or patch shared compiler output/cache by hand. The window/Hybrid scanout
 remained black in both isolated arms; readback qualified drawing VRAM only.
 Ordinary activation, presentation and physical pricing still require their own
 evidence. Preserve the original failed trial and both new observer revisions.
+
+### Candidate roles in reverse pricing orders
+
+Derive candidate/control means from the recorded applied variant flags, not
+from phase position or an inherited report field name. In on/off/on, the
+outer phases are candidates and the middle is control. Preserve adjacent
+contrasts and repeated-arm spread; never turn middle-minus-outer into a
+candidate sign without mapping roles. The 24-bit corona checkpoint's original
+raw analyses were correct; its first prose summary reversed the reverse-order
+role and is explicitly corrected by a role-based result artifact. A crashed
+host client yields an incomplete attempt, not a completed console result or
+proof of a console hang. Preserve raw/partial output before a fresh reset.
