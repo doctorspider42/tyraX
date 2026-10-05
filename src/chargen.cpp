@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <functional>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -22,6 +23,7 @@
 #include "gltfwrite.hpp"
 #include "json.hpp"
 #include "mocap.hpp"
+#include "objparser.hpp"  // custom hair from a .obj
 
 namespace chargen {
 
@@ -69,6 +71,7 @@ struct GarmentData {
     int layer = 0;                 // stacking order: higher is outer
     float luma = 0.5f;             // luminance of its key colour (item.color): the recolour pivot
     std::vector<GarmentBody> body; // one per Kit::bodies entry
+    bool offMeters = false;        // bindOff in metres, not body units (an imported custom item)
 };
 
 // One game body. Body 0 is MakeHuman's female1605 proxy, body 1 (if present)
@@ -479,6 +482,31 @@ std::map<std::string, float> targetWeights(const Params& p) {
                         w[std::string("universal-") + g.name + "-" + a.name + "-" + m.name + "-" +
                           wt.name] += x;
                 }
+    // The breast macro: women only (the targets are), per age / muscle /
+    // weight corner like the universal ones, relative to average cup and
+    // firmness - which is the base and has no target.
+    {
+        const auto cup = levels(p.breastSize, {"mincup", "averagecup", "maxcup"}, {0.0f, 0.5f, 1.0f});
+        const auto firm = levels(p.breastFirmness, {"minfirmness", "averagefirmness", "maxfirmness"},
+                                 {0.0f, 0.5f, 1.0f});
+        const auto bage = levels(p.age, {"child", "child", "young", "old"}, {0.0f, 0.1875f, 0.5f, 1.0f});
+        float female = 0.0f;
+        for (const Level& g : gender)
+            if (std::string(g.name) == "female") female += g.weight;
+        for (const Level& a : bage)
+            for (const Level& m : muscle)
+                for (const Level& wt : weight)
+                    for (const Level& c : cup)
+                        for (const Level& f : firm) {
+                            if (std::string(c.name) == "averagecup" &&
+                                std::string(f.name) == "averagefirmness")
+                                continue;
+                            const float x = female * a.weight * m.weight * wt.weight * c.weight * f.weight;
+                            if (x > 0.0f)
+                                w[std::string("breast/female-") + a.name + "-" + m.name + "-" +
+                                  wt.name + "-" + c.name + "-" + f.name] += x;
+                        }
+    }
     // Dimorphism: a profile of detail sliders that moves WITH gender, so the
     // man gets a man's jaw and the woman a woman's mouth without anybody
     // touching the face tab. Signed: below gender 0.5 the profile inverts.
@@ -624,6 +652,315 @@ const GarmentData* garment(const std::string& id) {
     return nullptr;
 }
 
+// ---- custom hair (Params::customHair) ----------------------------------------
+// A hairstyle the user modelled: a .glb/.obj authored on the generator's
+// reference body (exportReferenceBodies) and turned here into a mesh item like
+// the kit's own - every vertex bound to the nearest body triangle (point,
+// barycentrics, an offset in that triangle's normal/tangent frame), skinned
+// from those corners - so it rides every body slider. Built once per file
+// version and topology; its texture joins the kit's image cache.
+std::string g_assetRoot;
+
+std::string resolveAsset(const std::string& p) {
+    namespace fs = std::filesystem;
+    if (p.empty()) return p;
+    fs::path q(p);
+    if (q.is_relative() && !g_assetRoot.empty()) q = fs::path(g_assetRoot) / q;
+    return q.string();
+}
+
+std::mutex g_customMutex;
+std::map<std::string, std::shared_ptr<GarmentData>> g_custom;
+int g_customCount = 0;
+
+Params referenceParams(int bi) {
+    Params ref;
+    ref.gender = bi ? 1.0f : 0.0f;
+    ref.defaultClips = false;
+    ref.clips.clear();
+    ref.textureSize = 128;
+    ref.name = bi ? "reference-male" : "reference-female";
+    return ref;
+}
+
+std::shared_ptr<GarmentData> customHair(const std::string& meshPath, const std::string& texPath,
+                                        int bi, std::vector<std::string>& warnings) {
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    const std::string mp = resolveAsset(meshPath), tp = resolveAsset(texPath);
+    auto stamp = [&](const std::string& f) -> long long {
+        if (f.empty()) return 0;
+        const auto t = fs::last_write_time(f, ec);
+        return ec ? -1 : (long long)t.time_since_epoch().count();
+    };
+    const std::string key = mp + "|" + tp + "|" + std::to_string(stamp(mp)) + "|" +
+                            std::to_string(stamp(tp)) + "|" + std::to_string(bi);
+    {
+        std::lock_guard<std::mutex> lock(g_customMutex);
+        auto it = g_custom.find(key);
+        if (it != g_custom.end()) return it->second;
+    }
+    // --- the mesh: a flat corner list, uvs in image space ---
+    std::vector<float> P, UV;
+    std::vector<uint8_t> rgba;
+    int tw = 0, th = 0;
+    auto decode = [&](const unsigned char* data, int size) {
+        int w = 0, h = 0, comp = 0;
+        unsigned char* d = stbi_load_from_memory(data, size, &w, &h, &comp, 4);
+        if (!d) return;
+        rgba.assign(d, d + (size_t)w * h * 4);
+        tw = w, th = h;
+        stbi_image_free(d);
+    };
+    std::string ext = fs::path(mp).extension().string();
+    for (char& c : ext) c = (char)std::tolower((unsigned char)c);
+    std::string err;
+    if (ext == ".glb" || ext == ".gltf") {
+        glbparser::Baked bk;
+        if (!glbparser::bake(mp, 12.0f, bk, err)) {
+            warnings.push_back("custom hair: " + err);
+            return nullptr;
+        }
+        for (const glbparser::Part& part : bk.parts) {
+            for (int v = 0; v < part.vertexCount; ++v) {
+                for (int a = 0; a < 3; ++a) P.push_back(part.positions[(size_t)v * 3 + a]);
+                for (int a = 0; a < 2; ++a)
+                    UV.push_back(part.uvs.size() > (size_t)v * 2 + a ? part.uvs[(size_t)v * 2 + a] : 0.0f);
+            }
+            if (rgba.empty() && part.image >= 0 && part.image < (int)bk.images.size())
+                decode(bk.images[(size_t)part.image].png.data(),
+                       (int)bk.images[(size_t)part.image].png.size());
+        }
+    } else if (ext == ".obj") {
+        objparser::Model m;
+        if (!objparser::load(mp, m)) {
+            warnings.push_back("custom hair: cannot read " + mp);
+            return nullptr;
+        }
+        std::string objTex;
+        for (const objparser::Submesh& sm : m.submeshes) {
+            for (size_t i = 0; i + 7 < sm.verts.size(); i += 8) {
+                for (int a = 0; a < 3; ++a) P.push_back(sm.verts[i + a]);
+                UV.push_back(sm.verts[i + 6]);
+                UV.push_back(sm.verts[i + 7]);
+            }
+            if (objTex.empty() && !sm.texture.empty())
+                objTex = (fs::path(mp).parent_path() / sm.texture).string();
+        }
+        if (tp.empty() && !objTex.empty()) {
+            std::ifstream f(objTex, std::ios::binary);
+            const std::string bytes((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+            decode((const unsigned char*)bytes.data(), (int)bytes.size());
+        }
+    } else {
+        warnings.push_back("custom hair: a .glb or .obj, please (" + mp + ")");
+        return nullptr;
+    }
+    if (!tp.empty()) {
+        std::ifstream f(tp, std::ios::binary);
+        const std::string bytes((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+        if (bytes.empty()) warnings.push_back("custom hair: cannot read the texture " + tp);
+        else decode((const unsigned char*)bytes.data(), (int)bytes.size());
+    }
+    const size_t corners = P.size() / 3;
+    if (corners < 3) {
+        warnings.push_back("custom hair: no triangles in " + mp);
+        return nullptr;
+    }
+    if (rgba.empty()) {  // untextured: a plain mid brown the hair colour can dye
+        tw = th = 4;
+        rgba.assign(4 * 4 * 4, 0);
+        for (size_t i = 0; i < 16; ++i) rgba[i * 4] = 110, rgba[i * 4 + 1] = 80, rgba[i * 4 + 2] = 55, rgba[i * 4 + 3] = 255;
+    }
+
+    // --- the reference body it was modelled on (same topology) ---
+    Kit& k = kit();
+    if (bi < 0 || bi >= (int)k.bodies.size()) return nullptr;
+    const Body& b = k.bodies[(size_t)bi];
+    glbparser::Skel rs;
+    std::vector<std::string> rw;
+    std::string re;
+    if (!build(referenceParams(bi), rs, rw, re) || rs.parts.empty() ||
+        rs.parts[0].vertexCount != b.tris * 3) {
+        warnings.push_back("custom hair: no reference body (" + re + ")");
+        return nullptr;
+    }
+    const std::vector<float>& RP = rs.parts[0].positions;  // b.tris * 3 corners, kit order
+    const std::vector<float>& RN = rs.parts[0].normals;
+    std::vector<float> cen((size_t)b.tris * 3), rad((size_t)b.tris);
+    for (int t = 0; t < b.tris; ++t) {
+        for (int a = 0; a < 3; ++a)
+            cen[(size_t)t * 3 + a] = (RP[(size_t)t * 9 + a] + RP[(size_t)t * 9 + 3 + a] + RP[(size_t)t * 9 + 6 + a]) / 3.0f;
+        float r = 0.0f;
+        for (int c = 0; c < 3; ++c) {
+            float d = 0.0f;
+            for (int a = 0; a < 3; ++a) {
+                const float x = RP[(size_t)t * 9 + c * 3 + a] - cen[(size_t)t * 3 + a];
+                d += x * x;
+            }
+            r = std::max(r, std::sqrt(d));
+        }
+        rad[(size_t)t] = r;
+    }
+
+    auto g = std::make_shared<GarmentData>();
+    g->item.id = "custom" + std::to_string(++g_customCount);
+    g->item.label = "Custom hair";
+    g->item.slot = "hair";
+    g->item.dyeable = false;  // its own colours: the user painted them
+    g->kind = "mesh";
+    g->offMeters = true;
+    g->layer = 50;
+    double avg[3] = {0, 0, 0};
+    int opaque = 0;
+    for (size_t i = 0; i < (size_t)tw * th; ++i) {
+        if (rgba[i * 4 + 3] < 128) {
+            g->cutout = true;
+            continue;
+        }
+        for (int a = 0; a < 3; ++a) avg[a] += rgba[i * 4 + a] / 255.0;
+        ++opaque;
+    }
+    if (opaque) g->item.color = Rgb{(float)(avg[0] / opaque), (float)(avg[1] / opaque), (float)(avg[2] / opaque)};
+    g->luma = g->item.color.r * 0.3f + g->item.color.g * 0.59f + g->item.color.b * 0.11f;
+    for (size_t v = 0; v < corners; ++v) g->tri.push_back((int32_t)v);
+    for (size_t v = 0; v < corners; ++v) {  // Blender convention: v up
+        g->uv.push_back(UV[v * 2]);
+        g->uv.push_back(1.0f - UV[v * 2 + 1]);
+    }
+    g->body.resize(k.bodies.size());
+    GarmentBody& gb = g->body[(size_t)bi];
+    for (size_t v = 0; v < corners; ++v) {
+        const float* p = &P[v * 3];
+        float best = 1e30f, bw[3] = {1, 0, 0};
+        int bt = 0;
+        for (int t = 0; t < b.tris; ++t) {
+            if (b.part[t] != 0) continue;
+            float dc = 0.0f;
+            for (int a = 0; a < 3; ++a) {
+                const float x = p[a] - cen[(size_t)t * 3 + a];
+                dc += x * x;
+            }
+            const float lim = std::sqrt(best) + rad[(size_t)t];
+            if (best < 1e29f && dc > lim * lim) continue;
+            // closest point on triangle ABC (Ericson, Real-Time Collision Detection 5.1.5)
+            const float* A = &RP[(size_t)t * 9];
+            const float* B = A + 3;
+            const float* Cc = A + 6;
+            float ab[3], ac[3], ap[3];
+            for (int a = 0; a < 3; ++a) ab[a] = B[a] - A[a], ac[a] = Cc[a] - A[a], ap[a] = p[a] - A[a];
+            auto dot3 = [](const float* x, const float* y) { return x[0] * y[0] + x[1] * y[1] + x[2] * y[2]; };
+            const float d1 = dot3(ab, ap), d2 = dot3(ac, ap);
+            float w[3];
+            if (d1 <= 0 && d2 <= 0) {
+                w[0] = 1, w[1] = 0, w[2] = 0;
+            } else {
+                float bp[3], cp[3];
+                for (int a = 0; a < 3; ++a) bp[a] = p[a] - B[a], cp[a] = p[a] - Cc[a];
+                const float d3 = dot3(ab, bp), d4 = dot3(ac, bp), d5 = dot3(ab, cp), d6 = dot3(ac, cp);
+                const float vc = d1 * d4 - d3 * d2, vb = d5 * d2 - d1 * d6, va = d3 * d6 - d5 * d4;
+                if (d3 >= 0 && d4 <= d3) {
+                    w[0] = 0, w[1] = 1, w[2] = 0;
+                } else if (vc <= 0 && d1 >= 0 && d3 <= 0) {
+                    const float s = d1 / (d1 - d3);
+                    w[0] = 1 - s, w[1] = s, w[2] = 0;
+                } else if (d6 >= 0 && d5 <= d6) {
+                    w[0] = 0, w[1] = 0, w[2] = 1;
+                } else if (vb <= 0 && d2 >= 0 && d6 <= 0) {
+                    const float s = d2 / (d2 - d6);
+                    w[0] = 1 - s, w[1] = 0, w[2] = s;
+                } else if (va <= 0 && (d4 - d3) >= 0 && (d5 - d6) >= 0) {
+                    const float s = (d4 - d3) / ((d4 - d3) + (d5 - d6));
+                    w[0] = 0, w[1] = 1 - s, w[2] = s;
+                } else {
+                    const float den = 1.0f / (va + vb + vc);
+                    w[1] = vb * den, w[2] = vc * den, w[0] = 1 - w[1] - w[2];
+                }
+            }
+            float d = 0.0f;
+            for (int a = 0; a < 3; ++a) {
+                const float x = p[a] - (A[a] * w[0] + B[a] * w[1] + Cc[a] * w[2]);
+                d += x * x;
+            }
+            if (d < best) {
+                best = d, bt = t;
+                for (int c = 0; c < 3; ++c) bw[c] = w[c];
+            }
+        }
+        gb.bindTri.push_back(bt);
+        for (int c = 0; c < 3; ++c) gb.bindBary.push_back(bw[c]);
+        // the offset in the triangle's frame: normal (interpolated), then
+        // u/w - the bisector and difference of the unit edges (itemPositions)
+        const float* A = &RP[(size_t)bt * 9];
+        float foot[3], nn[3] = {0, 0, 0};
+        for (int a = 0; a < 3; ++a) {
+            foot[a] = A[a] * bw[0] + A[3 + a] * bw[1] + A[6 + a] * bw[2];
+            for (int c = 0; c < 3; ++c) nn[a] += RN[(size_t)bt * 9 + c * 3 + a] * bw[c];
+        }
+        float l = std::sqrt(nn[0] * nn[0] + nn[1] * nn[1] + nn[2] * nn[2]);
+        for (float& x : nn) x = l > 1e-9f ? x / l : 0.0f;
+        float e[2][3];
+        for (int kk = 0; kk < 2; ++kk) {
+            float el = 0.0f;
+            for (int a = 0; a < 3; ++a) {
+                e[kk][a] = A[3 + kk * 3 + a] - A[a];
+                el += e[kk][a] * e[kk][a];
+            }
+            el = std::sqrt(el);
+            for (int a = 0; a < 3; ++a) e[kk][a] = el > 1e-9f ? e[kk][a] / el : 0.0f;
+        }
+        float u[3], w[3];
+        for (int a = 0; a < 3; ++a) u[a] = e[0][a] + e[1][a], w[a] = e[0][a] - e[1][a];
+        for (float* x : {u, w}) {
+            const float dn = x[0] * nn[0] + x[1] * nn[1] + x[2] * nn[2];
+            float xl = 0.0f;
+            for (int a = 0; a < 3; ++a) {
+                x[a] -= nn[a] * dn;
+                xl += x[a] * x[a];
+            }
+            xl = std::sqrt(xl);
+            for (int a = 0; a < 3; ++a) x[a] = xl > 1e-6f ? x[a] / xl : 0.0f;
+        }
+        float off[3];
+        for (int a = 0; a < 3; ++a) off[a] = p[a] - foot[a];
+        gb.bindOff.push_back(off[0] * nn[0] + off[1] * nn[1] + off[2] * nn[2]);
+        gb.bindOff.push_back(off[0] * u[0] + off[1] * u[1] + off[2] * u[2]);
+        gb.bindOff.push_back(off[0] * w[0] + off[1] * w[1] + off[2] * w[2]);
+        // skinned like the skin under it
+        std::map<int, float> acc;
+        for (int c = 0; c < 3; ++c) {
+            const int bv = b.tri[bt * 3 + c];
+            for (int i = 0; i < 4; ++i) acc[b.joints[(size_t)bv * 4 + i]] += b.weights[(size_t)bv * 4 + i] * bw[c];
+        }
+        std::vector<std::pair<float, int>> ws;
+        for (const auto& [j, x] : acc) if (x > 0.0f) ws.push_back({x, j});
+        std::sort(ws.rbegin(), ws.rend());
+        ws.resize(std::min<size_t>(ws.size(), 4));
+        float sum = 0.0f;
+        for (const auto& x : ws) sum += x.first;
+        int q[4] = {0, 0, 0, 0}, total = 0;
+        for (size_t i = 0; i < ws.size(); ++i) total += q[i] = (int)std::lround(ws[i].first / std::max(sum, 1e-9f) * 255.0f);
+        if (!ws.empty()) q[0] += 255 - total;
+        for (int i = 0; i < 4; ++i) {
+            gb.joints.push_back(i < (int)ws.size() ? (uint8_t)ws[(size_t)i].second : 0);
+            gb.weights.push_back((uint8_t)std::clamp(q[i], 0, 255));
+        }
+    }
+    // its texture, where emitItem looks for a kit item's: "g/<id>"
+    {
+        auto px = std::make_shared<std::vector<uint8_t>>(rgba);
+        px->push_back((uint8_t)(tw & 0xff));
+        px->push_back((uint8_t)(tw >> 8));
+        px->push_back((uint8_t)(th & 0xff));
+        px->push_back((uint8_t)(th >> 8));
+        std::lock_guard<std::mutex> lock(k.imageMutex);
+        k.images["g/" + g->item.id] = px;
+    }
+    std::lock_guard<std::mutex> lock(g_customMutex);
+    g_custom[key] = g;
+    return g;
+}
+
 // Recolours one texel: its luminance against the garment's average becomes
 // the shading, the dye the hue - so folds, seams and print survive a recolour
 // while the colour changes completely. `mask` (0..1) limits it.
@@ -678,6 +1015,7 @@ bool Params::operator==(const Params& o) const {
     return gender == o.gender && age == o.age && muscle == o.muscle && weight == o.weight &&
            african == o.african && asian == o.asian && caucasian == o.caucasian &&
            heightMeters == o.heightMeters && dimorphism == o.dimorphism && shape == o.shape &&
+           breastSize == o.breastSize && breastFirmness == o.breastFirmness &&
            skinTone == o.skinTone &&
            skinWarmth == o.skinWarmth && aging == o.aging && brows == o.brows &&
            browDensity == o.browDensity && lashes == o.lashes && hairColor == o.hairColor &&
@@ -685,7 +1023,8 @@ bool Params::operator==(const Params& o) const {
            lipColor == o.lipColor && eyeShadow == o.eyeShadow &&
            eyeShadowColor == o.eyeShadowColor && blush == o.blush &&
            textureSize == o.textureSize && outfit == o.outfit && hair == o.hair &&
-           options == o.options &&
+           options == o.options && customHair == o.customHair &&
+           customHairTexture == o.customHairTexture &&
            clips == o.clips && defaultClips == o.defaultClips && animFps == o.animFps &&
            animSource == o.animSource && retarget.fps == o.retarget.fps &&
            retarget.inPlace == o.retarget.inPlace &&
@@ -781,9 +1120,14 @@ bool build(const Params& p, glbparser::Skel& out, std::vector<std::string>& warn
     // (garment, how it is worn) pairs, inner layers first so an outer shell's
     // push wins and an outer texture paints over an inner one.
     std::vector<std::pair<const GarmentData*, Wear>> wearing;
+    std::shared_ptr<GarmentData> customKeep;  // a custom hairstyle, alive for this build
     {
         std::vector<Wear> asked = p.outfit;
-        if (!p.hair.empty()) asked.push_back(Wear{p.hair, p.hairColor, p.hairColor, 0});
+        // A custom hairstyle takes the hair slot from the kit's.
+        std::shared_ptr<GarmentData> custom;
+        if (!p.customHair.empty()) custom = customHair(p.customHair, p.customHairTexture, bi, warnings);
+        if (custom) customKeep = custom;
+        if (!p.hair.empty() && !custom) asked.push_back(Wear{p.hair, p.hairColor, p.hairColor, 0});
         for (const Wear& w : asked) {
             const GarmentData* g = garment(w.id);
             if (!g) {
@@ -792,6 +1136,7 @@ bool build(const Params& p, glbparser::Skel& out, std::vector<std::string>& warn
             }
             wearing.push_back({g, w});
         }
+        if (customKeep) wearing.push_back({customKeep.get(), Wear{customKeep->item.id, p.hairColor, p.hairColor, 0}});
         std::stable_sort(wearing.begin(), wearing.end(), [](const auto& x, const auto& y) {
             return x.first->layer < y.first->layer;
         });
@@ -814,7 +1159,11 @@ bool build(const Params& p, glbparser::Skel& out, std::vector<std::string>& warn
         std::vector<std::string> slots;
         for (const std::string& id : p.options) {
             const GarmentData* g = garment(id);
-            if (!g || !optionSlot(g->item.slot) || g->kind != "mesh") {
+            if (!g) {
+                warnings.push_back("unknown creator option '" + id + "' - skipped");
+                continue;
+            }
+            if (!optionSlot(g->item.slot) || g->kind != "mesh") {
                 warnings.push_back("'" + id + "' cannot be a creator option (hair, hats and glasses can)");
                 continue;
             }
@@ -890,6 +1239,178 @@ bool build(const Params& p, glbparser::Skel& out, std::vector<std::string>& warn
         for (int a = 0; a < 3; ++a) jt.ibm[12 + a] = -heads[(size_t)j * 3 + a];
     }
 
+    // An item's vertices in the world, riding the morphed body: the bound
+    // triangle's point and normal plus the kit's offset (normal, u, w) - and,
+    // for hair under a hat, the offset pressed by `cap` (hatCap).
+    constexpr float kNoCap = 1e30f;
+    auto itemPositions = [&](const GarmentData* g, const std::vector<float>* cap) {
+        const GarmentBody& gb = g->body[bi];
+        const float offScale = g->offMeters ? 1.0f : scale;  // a custom item's offsets are metres
+        // Geometry, riding the body.
+        const size_t gv = gb.bindTri.size();
+        std::vector<float> gp(gv * 3);
+        for (size_t v = 0; v < gv; ++v) {
+            const int t = gb.bindTri[v];
+            float s[3] = {0, 0, 0}, nn[3] = {0, 0, 0};
+            for (int c = 0; c < 3; ++c) {
+                const int bv = b.tri[t * 3 + c];
+                const float w = gb.bindBary[v * 3 + c];
+                for (int a = 0; a < 3; ++a) {
+                    s[a] += pos[(size_t)bv * 3 + a] * w;
+                    nn[a] += nrm[(size_t)bv * 3 + a] * w;
+                }
+            }
+            const float l = std::sqrt(nn[0] * nn[0] + nn[1] * nn[1] + nn[2] * nn[2]);
+            for (int a = 0; a < 3; ++a) nn[a] = l > 1e-9f ? nn[a] / l : 0.0f;
+            // The offset is (normal, u, w) of the bound triangle - u and w
+            // are kit_wear.py's tangent_frame: the bisector and difference
+            // of the unit edges 0->1 and 0->2, projected off the normal. A
+            // skirt's hem hangs far below the hip triangle it rides; every
+            // other item has u = w = 0.
+            const float* off = &gb.bindOff[v * 3];
+            float u[3] = {0, 0, 0}, w[3] = {0, 0, 0};
+            if (off[1] != 0.0f || off[2] != 0.0f) {
+                float e[2][3];
+                for (int k = 0; k < 2; ++k) {
+                    const float* p0 = &pos[(size_t)b.tri[t * 3] * 3];
+                    const float* pk = &pos[(size_t)b.tri[t * 3 + 1 + k] * 3];
+                    float el = 0;
+                    for (int a = 0; a < 3; ++a) {
+                        e[k][a] = pk[a] - p0[a];
+                        el += e[k][a] * e[k][a];
+                    }
+                    el = std::sqrt(el);
+                    for (int a = 0; a < 3; ++a) e[k][a] = el > 1e-9f ? e[k][a] / el : 0.0f;
+                }
+                for (int a = 0; a < 3; ++a) {
+                    u[a] = e[0][a] + e[1][a];
+                    w[a] = e[0][a] - e[1][a];
+                }
+                for (float* x : {u, w}) {
+                    const float dn = x[0] * nn[0] + x[1] * nn[1] + x[2] * nn[2];
+                    float xl = 0;
+                    for (int a = 0; a < 3; ++a) {
+                        x[a] -= nn[a] * dn;
+                        xl += x[a] * x[a];
+                    }
+                    xl = std::sqrt(xl);
+                    for (int a = 0; a < 3; ++a) x[a] = xl > 1e-6f ? x[a] / xl : 0.0f;
+                }
+            }
+            float lift = off[0];
+            if (cap) {
+                // the hats' lowest surface over this vertex, from the corners
+                // they cover; partial cover feathers the press out at the edge
+                float lim = 0.0f, covered = 0.0f;
+                for (int c = 0; c < 3; ++c) {
+                    const float m = (*cap)[(size_t)b.tri[t * 3 + c]];
+                    if (m >= kNoCap) continue;
+                    const float bw = gb.bindBary[v * 3 + c];
+                    lim += m * bw;
+                    covered += bw;
+                }
+                if (covered > 0.0f) {
+                    // the hats' limit is in body units; a custom item's lift in metres
+                    const float pressed = std::min(lift, 0.7f * lim / covered * (g->offMeters ? scale : 1.0f));
+                    lift += (pressed - lift) * std::min(1.0f, covered * 1.5f);
+                }
+            }
+            for (int a = 0; a < 3; ++a)
+                gp[v * 3 + a] = s[a] + (nn[a] * lift + u[a] * off[1] + w[a] * off[2]) * offScale;
+        }
+        return gp;
+    };
+
+    // Legs under a skirt or a dress: the kit hides only the body triangles
+    // inside the garment's stand-in, so a thigh that grazes the cloth in the
+    // rest pose comes straight through it once the leg moves - the "slits" in
+    // every skirt. Hide every pelvis/leg-skinned triangle that is INSIDE the
+    // cloth: per 5 cm band and 22.5-degree sector around the garment's axis,
+    // the cloth's radius there; a vertex 1 cm or more inside it is covered.
+    // Where a sector has no cloth (a real slit, a cut-out) the leg stays.
+    {
+        std::vector<char> legBone((size_t)k.bones, 0);
+        for (int j = 0; j < k.bones; ++j) {
+            const std::string& nm = k.boneNames[(size_t)j];
+            legBone[(size_t)j] = nm == "mixamorig:Hips" || nm.find("UpLeg") != std::string::npos ||
+                                 (nm.find("Leg") != std::string::npos && nm.find("UpLeg") == std::string::npos);
+        }
+        auto legWeight = [&](int v) {
+            float w = 0.0f, sum = 0.0f;
+            for (int i = 0; i < 4; ++i) {
+                const float x = b.weights[(size_t)v * 4 + i];
+                sum += x;
+                const int j = b.joints[(size_t)v * 4 + i];
+                if (j >= 0 && j < k.bones && legBone[(size_t)j]) w += x;
+            }
+            return sum > 0.0f ? w / sum : 0.0f;
+        };
+        constexpr float kBand = 0.05f;
+        constexpr int kSectors = 16;
+        for (size_t gi = 0; gi < worn.size(); ++gi) {
+            const GarmentData* g = worn[gi];
+            if (isOpt[gi] || g->kind != "mesh" || g->tri.empty() ||
+                (g->item.slot != "full" && g->item.slot != "bottom"))
+                continue;
+            const std::vector<float> gp = itemPositions(g, nullptr);
+            const size_t gv = gp.size() / 3;
+            if (gv < 16) continue;
+            float ylo = 1e30f, yhi = -1e30f;
+            for (size_t v = 0; v < gv; ++v) {
+                ylo = std::min(ylo, gp[v * 3 + 1]);
+                yhi = std::max(yhi, gp[v * 3 + 1]);
+            }
+            const int bands = std::max(1, (int)std::ceil((yhi - ylo) / kBand));
+            std::vector<float> cx((size_t)bands, 0.0f), cz((size_t)bands, 0.0f), cn((size_t)bands, 0.0f);
+            auto bandOf = [&](float y) { return std::clamp((int)((y - ylo) / kBand), 0, bands - 1); };
+            for (size_t v = 0; v < gv; ++v) {
+                const int bd = bandOf(gp[v * 3 + 1]);
+                cx[bd] += gp[v * 3];
+                cz[bd] += gp[v * 3 + 2];
+                cn[bd] += 1.0f;
+            }
+            for (int bd = 0; bd < bands; ++bd)
+                if (cn[bd] > 0.0f) cx[bd] /= cn[bd], cz[bd] /= cn[bd];
+            std::vector<float> rmax((size_t)bands * kSectors, 0.0f);
+            auto sectorOf = [&](float dx, float dz) {
+                const float a = std::atan2(dz, dx) + 3.14159265f;
+                return std::clamp((int)(a / (2.0f * 3.14159265f) * kSectors), 0, kSectors - 1);
+            };
+            for (size_t v = 0; v < gv; ++v) {
+                const int bd = bandOf(gp[v * 3 + 1]);
+                const float dx = gp[v * 3] - cx[bd], dz = gp[v * 3 + 2] - cz[bd];
+                float& r = rmax[(size_t)bd * kSectors + sectorOf(dx, dz)];
+                r = std::max(r, std::sqrt(dx * dx + dz * dz));
+            }
+            auto inside = [&](int v) {
+                const float* p = &pos[(size_t)v * 3];
+                if (p[1] < ylo + kBand || p[1] > yhi) return false;  // the hem's band shows legs
+                if (legWeight(v) < 0.6f) return false;
+                const int bd = bandOf(p[1]);
+                if (cn[bd] <= 0.0f) return false;
+                const float dx = p[0] - cx[bd], dz = p[2] - cz[bd];
+                const int sc = sectorOf(dx, dz);
+                // the cloth's reach here: this sector or a neighbour (the
+                // mesh is sparse); three empty sectors in a row are a slit
+                float rr = 0.0f;
+                for (int d = -1; d <= 1; ++d)
+                    rr = std::max(rr, rmax[(size_t)bd * kSectors + ((sc + d + kSectors) % kSectors)]);
+                return rr > 0.0f && std::sqrt(dx * dx + dz * dz) < rr - 0.01f;
+            };
+            std::vector<signed char> in((size_t)b.verts, -1);
+            for (int t = 0; t < b.tris; ++t) {
+                if (hidden[t] || b.part[t] != 0) continue;
+                bool all = true;
+                for (int c = 0; c < 3 && all; ++c) {
+                    const int v = b.tri[t * 3 + c];
+                    if (in[(size_t)v] < 0) in[(size_t)v] = inside(v) ? 1 : 0;
+                    all = in[(size_t)v] == 1;
+                }
+                if (all) hidden[t] = 1;
+            }
+        }
+    }
+
     // --- the body part ---------------------------------------------------------------
     const int texSize = potSize(p.textureSize);
     glbparser::SkelPart body;
@@ -907,6 +1428,137 @@ bool build(const Params& p, glbparser::Skel& out, std::vector<std::string>& warn
             ++body.vertexCount;
         }
     }
+
+    // Closed scalp coverage of a hair item, on the body's layer grid (0..1):
+    // every texel its scalp layer touches, closed (dilate 5, erode 3) and
+    // softened. Shared by the scalp paint and an option hair's cap.
+    std::map<size_t, std::vector<float>> scalpCache;
+    // The head's texels: body triangles skinned (>= half) to the Head bone or
+    // anything under it, rasterized in UV space. The closing below is strong
+    // enough to bridge the gaps of a messy cut, and this keeps it from
+    // spilling into whatever island lies next to the head in the atlas.
+    // A body triangle's texels on the layer grid (value 1).
+    auto rasterTri = [&](int t, std::vector<uint8_t>& mask) {
+        const int S = kLayer;
+        float px[3], py[3];
+        for (int c = 0; c < 3; ++c) {
+            px[c] = b.uv[(size_t)t * 6 + c * 2] * S;
+            py[c] = (1.0f - b.uv[(size_t)t * 6 + c * 2 + 1]) * S;
+        }
+        const int x0 = std::max(0, (int)std::floor(std::min({px[0], px[1], px[2]})) - 1);
+        const int x1 = std::min(S - 1, (int)std::ceil(std::max({px[0], px[1], px[2]})) + 1);
+        const int y0 = std::max(0, (int)std::floor(std::min({py[0], py[1], py[2]})) - 1);
+        const int y1 = std::min(S - 1, (int)std::ceil(std::max({py[0], py[1], py[2]})) + 1);
+        const float den = (py[1] - py[2]) * (px[0] - px[2]) + (px[2] - px[1]) * (py[0] - py[2]);
+        if (std::fabs(den) < 1e-9f) return;
+        for (int y = y0; y <= y1; ++y)
+            for (int x = x0; x <= x1; ++x) {
+                const float qx = x + 0.5f, qy = y + 0.5f;
+                const float l0 = ((py[1] - py[2]) * (qx - px[2]) + (px[2] - px[1]) * (qy - py[2])) / den;
+                const float l1 = ((py[2] - py[0]) * (qx - px[2]) + (px[0] - px[2]) * (qy - py[2])) / den;
+                const float l2 = 1.0f - l0 - l1;
+                const float e = -0.05f;  // a sliver of slack: no seams between triangles
+                if (l0 >= e && l1 >= e && l2 >= e) mask[(size_t)y * S + x] = 1;
+            }
+    };
+    std::vector<uint8_t> headMask;
+    auto headTexels = [&]() -> const std::vector<uint8_t>& {
+        if (!headMask.empty()) return headMask;
+        const int S = kLayer;
+        headMask.assign((size_t)S * S, 0);
+        std::vector<char> under((size_t)k.bones, 0);
+        for (int j = 0; j < k.bones; ++j)
+            for (int a = j; a >= 0; a = k.parent[a])
+                if (k.boneNames[(size_t)a] == "mixamorig:Head") under[(size_t)j] = 1;
+        auto headWeight = [&](int v) {
+            float w = 0.0f, sum = 0.0f;
+            for (int i = 0; i < 4; ++i) {
+                const float x = b.weights[(size_t)v * 4 + i];
+                sum += x;
+                const int j = b.joints[(size_t)v * 4 + i];
+                if (j >= 0 && j < k.bones && under[(size_t)j]) w += x;
+            }
+            return sum > 0.0f ? w / sum : 0.0f;
+        };
+        for (int t = 0; t < b.tris; ++t) {
+            if (b.part[t] != 0) continue;
+            float hw = 0.0f;
+            for (int c = 0; c < 3; ++c) hw += headWeight(b.tri[t * 3 + c]) / 3.0f;
+            if (hw >= 0.5f) rasterTri(t, headMask);
+        }
+        return headMask;
+    };
+    auto scalpCover = [&](size_t gi, const uint8_t* paint) -> const std::vector<float>& {
+        auto it = scalpCache.find(gi);
+        if (it != scalpCache.end()) return it->second;
+        const int S = kLayer;
+        std::vector<float> m((size_t)S * S), t((size_t)S * S);
+        for (size_t i = 0; i < m.size(); ++i) m[i] = px01(paint, i, 3) > 0.04f ? 1.0f : 0.0f;
+        {
+            // ...and the skin the hair is actually bound to: a body triangle
+            // with two corners under hair vertices. The kit's baked layer
+            // misses patches of a messy cut's crown; the binding does not.
+            const GarmentBody& gb = worn[gi]->body[bi];
+            std::vector<char> under((size_t)b.verts, 0);
+            for (size_t v = 0; v < gb.bindTri.size(); ++v)
+                for (int c = 0; c < 3; ++c)
+                    if (gb.bindBary[v * 3 + c] >= 0.15f) under[(size_t)b.tri[gb.bindTri[v] * 3 + c]] = 1;
+            std::vector<uint8_t> bound((size_t)S * S, 0);
+            for (int t = 0; t < b.tris; ++t) {
+                if (b.part[t] != 0) continue;
+                int n = 0;
+                float fwd = 0.0f;  // +Z is the face's way
+                for (int c = 0; c < 3; ++c) {
+                    n += under[(size_t)b.tri[t * 3 + c]];
+                    fwd += nrm[(size_t)b.tri[t * 3 + c] * 3 + 2] / 3.0f;
+                }
+                // not the face: a fringe is bound to the forehead, and the
+                // forehead must stay skin (the kit layer draws the hairline)
+                if (n >= 2 && fwd < 0.35f) rasterTri(t, bound);
+            }
+            for (size_t i = 0; i < m.size(); ++i)
+                if (bound[i]) m[i] = 1.0f;
+        }
+        auto pass = [&](int r, bool grow) {  // separable max (grow) or min
+            for (int y = 0; y < S; ++y)
+                for (int x = 0; x < S; ++x) {
+                    float v = grow ? 0.0f : 1.0f;
+                    for (int d = -r; d <= r; ++d) {
+                        const float s = m[(size_t)y * S + std::clamp(x + d, 0, S - 1)];
+                        v = grow ? std::max(v, s) : std::min(v, s);
+                    }
+                    t[(size_t)y * S + x] = v;
+                }
+            for (int y = 0; y < S; ++y)
+                for (int x = 0; x < S; ++x) {
+                    float v = grow ? 0.0f : 1.0f;
+                    for (int d = -r; d <= r; ++d) {
+                        const float s = t[(size_t)std::clamp(y + d, 0, S - 1) * S + x];
+                        v = grow ? std::max(v, s) : std::min(v, s);
+                    }
+                    m[(size_t)y * S + x] = v;
+                }
+        };
+        // close: bridge gaps up to ~20 texels without growing the outline,
+        // then keep it on the head
+        pass(10, true);
+        pass(10, false);
+        const std::vector<uint8_t>& head = headTexels();
+        for (size_t i = 0; i < m.size(); ++i) m[i] *= head[i];
+        for (int k = 0; k < 2; ++k) {  // soften the edge: a 3x3 box, twice
+            for (int y = 0; y < S; ++y)
+                for (int x = 0; x < S; ++x) {
+                    float s = 0.0f;
+                    for (int dy = -1; dy <= 1; ++dy)
+                        for (int dx = -1; dx <= 1; ++dx)
+                            s += m[(size_t)std::clamp(y + dy, 0, S - 1) * S + std::clamp(x + dx, 0, S - 1)];
+                    t[(size_t)y * S + x] = s / 9.0f;
+                }
+            m.swap(t);
+        }
+        for (size_t i = 0; i < m.size(); ++i) m[i] *= head[i];
+        return scalpCache.emplace(gi, std::move(m)).first->second;
+    };
 
     // --- the atlas -------------------------------------------------------------------
     {
@@ -1019,18 +1671,30 @@ bool build(const Params& p, glbparser::Skel& out, std::vector<std::string>& warn
 
         // Paint a mesh item leaves on the body: hair colours the scalp under
         // itself, so the gaps between its strands show hair, not a bald head.
+        // The kit's layer is the hair baked onto the scalp WITH its alpha, so
+        // every gap between strands came through as a gap on the scalp too -
+        // skin under holey hair. scalpCover closes it: anything the hair
+        // touches, dilated and eroded back, then softened; the gaps take the
+        // hair's own colour, darkened like roots.
         for (size_t gi = 0; gi < worn.size(); ++gi) {
             if (isOpt[gi]) continue;
             const GarmentData* g = worn[gi];
             std::shared_ptr<std::vector<uint8_t>> kb;
             const uint8_t* paint = L("g/" + g->item.id + "/body", kb);
             if (!paint) continue;
+            const std::vector<float>& cover = scalpCover(gi, paint);
+            float root[3] = {g->item.color.r * 0.6f, g->item.color.g * 0.6f, g->item.color.b * 0.6f};
+            if (g->item.dyeable) dye(root, 1.0f, g->luma, all[gi].color, g->cutout ? 0.55f : 1.0f);
             for (size_t i = 0; i < n; ++i) {
-                const float pa = px01(paint, i, 3);
-                if (pa <= 0.0f) continue;
+                const float ca = cover[i];
+                if (ca <= 0.0f) continue;
+                const float pa = std::min(1.0f, px01(paint, i, 3));
                 float c[3] = {px01(paint, i, 0), px01(paint, i, 1), px01(paint, i, 2)};
                 if (g->item.dyeable) dye(c, 1.0f, g->luma, all[gi].color, g->cutout ? 0.55f : 1.0f);
-                for (int q = 0; q < 3; ++q) cv.rgb[i * 3 + q] += (c[q] - cv.rgb[i * 3 + q]) * pa;
+                for (int q = 0; q < 3; ++q) {
+                    const float want = root[q] + (c[q] - root[q]) * pa;
+                    cv.rgb[i * 3 + q] += (want - cv.rgb[i * 3 + q]) * ca;
+                }
             }
         }
 
@@ -1089,7 +1753,6 @@ bool build(const Params& p, glbparser::Skel& out, std::vector<std::string>& warn
     // fringe, a ponytail - keeps its shape. A worn hat fits the hair outright;
     // with hat OPTIONS every hairstyle gets a second, pressed part
     // ("opth-hair-<id>", sharing its texture) the game shows under a hat.
-    constexpr float kNoCap = 1e30f;
     auto hatCap = [&](bool options) {
         std::vector<float> cap((size_t)b.verts, kNoCap);
         bool any = false;
@@ -1121,77 +1784,7 @@ bool build(const Params& p, glbparser::Skel& out, std::vector<std::string>& warn
         const GarmentData* g = worn[gi];
         const GarmentBody& gb = g->body[bi];
         if (g->item.slot != "hair" || (cap && cap->empty())) cap = nullptr;
-        // Geometry, riding the body.
-        const size_t gv = gb.bindTri.size();
-        std::vector<float> gp(gv * 3), gn;
-        for (size_t v = 0; v < gv; ++v) {
-            const int t = gb.bindTri[v];
-            float s[3] = {0, 0, 0}, nn[3] = {0, 0, 0};
-            for (int c = 0; c < 3; ++c) {
-                const int bv = b.tri[t * 3 + c];
-                const float w = gb.bindBary[v * 3 + c];
-                for (int a = 0; a < 3; ++a) {
-                    s[a] += pos[(size_t)bv * 3 + a] * w;
-                    nn[a] += nrm[(size_t)bv * 3 + a] * w;
-                }
-            }
-            const float l = std::sqrt(nn[0] * nn[0] + nn[1] * nn[1] + nn[2] * nn[2]);
-            for (int a = 0; a < 3; ++a) nn[a] = l > 1e-9f ? nn[a] / l : 0.0f;
-            // The offset is (normal, u, w) of the bound triangle - u and w
-            // are kit_wear.py's tangent_frame: the bisector and difference
-            // of the unit edges 0->1 and 0->2, projected off the normal. A
-            // skirt's hem hangs far below the hip triangle it rides; every
-            // other item has u = w = 0.
-            const float* off = &gb.bindOff[v * 3];
-            float u[3] = {0, 0, 0}, w[3] = {0, 0, 0};
-            if (off[1] != 0.0f || off[2] != 0.0f) {
-                float e[2][3];
-                for (int k = 0; k < 2; ++k) {
-                    const float* p0 = &pos[(size_t)b.tri[t * 3] * 3];
-                    const float* pk = &pos[(size_t)b.tri[t * 3 + 1 + k] * 3];
-                    float el = 0;
-                    for (int a = 0; a < 3; ++a) {
-                        e[k][a] = pk[a] - p0[a];
-                        el += e[k][a] * e[k][a];
-                    }
-                    el = std::sqrt(el);
-                    for (int a = 0; a < 3; ++a) e[k][a] = el > 1e-9f ? e[k][a] / el : 0.0f;
-                }
-                for (int a = 0; a < 3; ++a) {
-                    u[a] = e[0][a] + e[1][a];
-                    w[a] = e[0][a] - e[1][a];
-                }
-                for (float* x : {u, w}) {
-                    const float dn = x[0] * nn[0] + x[1] * nn[1] + x[2] * nn[2];
-                    float xl = 0;
-                    for (int a = 0; a < 3; ++a) {
-                        x[a] -= nn[a] * dn;
-                        xl += x[a] * x[a];
-                    }
-                    xl = std::sqrt(xl);
-                    for (int a = 0; a < 3; ++a) x[a] = xl > 1e-6f ? x[a] / xl : 0.0f;
-                }
-            }
-            float lift = off[0];
-            if (cap) {
-                // the hats' lowest surface over this vertex, from the corners
-                // they cover; partial cover feathers the press out at the edge
-                float lim = 0.0f, covered = 0.0f;
-                for (int c = 0; c < 3; ++c) {
-                    const float m = (*cap)[(size_t)b.tri[t * 3 + c]];
-                    if (m >= kNoCap) continue;
-                    const float bw = gb.bindBary[v * 3 + c];
-                    lim += m * bw;
-                    covered += bw;
-                }
-                if (covered > 0.0f) {
-                    const float pressed = std::min(lift, 0.7f * lim / covered);
-                    lift += (pressed - lift) * std::min(1.0f, covered * 1.5f);
-                }
-            }
-            for (int a = 0; a < 3; ++a)
-                gp[v * 3 + a] = s[a] + (nn[a] * lift + u[a] * off[1] + w[a] * off[2]) * scale;
-        }
+        std::vector<float> gp = itemPositions(g, cap), gn;
         vertexNormals(gp, g->tri.data(), (int)g->tri.size() / 3, gn);
         const size_t gt = g->tri.size() / 3;
         for (size_t t = 0; t < gt; ++t)
@@ -1268,6 +1861,65 @@ bool build(const Params& p, glbparser::Skel& out, std::vector<std::string>& warn
         out.images.push_back(std::move(img));
         out.parts.push_back(std::move(part));
     }
+    // An option hairstyle cannot paint the scalp (the player may take it
+    // off), so it brings its own: the scalp triangles it covers (scalpCover),
+    // 4 mm out, every corner on its texture's darkest solid texel - the shade
+    // at the roots. Drawn and hidden with the hair.
+    std::vector<std::array<float, 2>> capUV(worn.size(), {-1.0f, -1.0f});
+    auto addScalpCap = [&](size_t gi, glbparser::SkelPart& part) {
+        if (worn[gi]->item.slot != "hair" || capUV[gi][0] < 0.0f) return;
+        std::shared_ptr<std::vector<uint8_t>> kb;
+        const uint8_t* paint = L("g/" + worn[gi]->item.id + "/body", kb);
+        if (!paint) return;
+        const std::vector<float>& cover = scalpCover(gi, paint);
+        const int S = kLayer;
+        for (int t = 0; t < b.tris; ++t) {
+            if (b.part[t] != 0) continue;  // the eyes are not scalp
+            float cu = 0.0f, cvv = 0.0f;
+            for (int c = 0; c < 3; ++c) {
+                cu += b.uv[(size_t)t * 6 + c * 2] / 3.0f;
+                cvv += b.uv[(size_t)t * 6 + c * 2 + 1] / 3.0f;
+            }
+            const int x = std::clamp((int)(cu * S), 0, S - 1);
+            const int y = std::clamp((int)((1.0f - cvv) * S), 0, S - 1);
+            if (cover[(size_t)y * S + x] < 0.5f) continue;
+            for (int c = 0; c < 3; ++c) {
+                const int v = b.tri[t * 3 + c];
+                for (int a = 0; a < 3; ++a)
+                    part.positions.push_back(pos[(size_t)v * 3 + a] + nrm[(size_t)v * 3 + a] * 0.004f);
+                for (int a = 0; a < 3; ++a) part.normals.push_back(nrm[(size_t)v * 3 + a]);
+                part.uvs.push_back(capUV[gi][0]);
+                part.uvs.push_back(capUV[gi][1]);
+                for (int i = 0; i < kMaxInfluences; ++i) part.joints.push_back(b.joints[(size_t)v * 4 + i]);
+                for (int i = 0; i < kMaxInfluences; ++i) part.weights.push_back(b.weights[(size_t)v * 4 + i]);
+                ++part.vertexCount;
+            }
+        }
+    };
+    // the darkest texel whose 3x3 neighbourhood is all solid
+    auto darkestSolid = [](const std::vector<uint8_t>& tex, int A) -> std::array<float, 2> {
+        std::array<float, 2> best = {-1.0f, -1.0f};
+        float lo = 1e9f;
+        for (int y = 1; y + 1 < A; ++y)
+            for (int x = 1; x + 1 < A; ++x) {
+                bool solid = true;
+                float l = 0.0f;
+                for (int dy = -1; dy <= 1 && solid; ++dy)
+                    for (int dx = -1; dx <= 1; ++dx) {
+                        const uint8_t* p = &tex[((size_t)(y + dy) * A + (x + dx)) * 4];
+                        if (p[3] < 255) {
+                            solid = false;
+                            break;
+                        }
+                        l += p[0] * 0.3f + p[1] * 0.59f + p[2] * 0.11f;
+                    }
+                if (solid && l < lo) {
+                    lo = l;
+                    best = {(x + 0.5f) / (float)A, (y + 0.5f) / (float)A};
+                }
+            }
+        return best;
+    };
     std::vector<int> optImage(worn.size(), -1);
     for (size_t gi = 0; gi < worn.size(); ++gi) {
         if (!isOpt[gi] || worn[gi]->tri.empty()) continue;
@@ -1276,6 +1928,8 @@ bool build(const Params& p, glbparser::Skel& out, std::vector<std::string>& warn
         std::vector<uint8_t> tex((size_t)A * A * 4, 0);
         glbparser::SkelPart part;
         emitItem(gi, part, tex, A, 0, 0, A, A, &capWorn);
+        capUV[gi] = darkestSolid(tex, A);
+        addScalpCap(gi, part);
         const std::string tag = std::string(isOpt[gi] == 2 ? "optd-" : "opt-") +
                                 worn[gi]->item.slot + "-" + worn[gi]->item.id;
         part.material = std::string(worn[gi]->cutout ? "hair:" : "cloth:") + tag;
@@ -1295,6 +1949,7 @@ bool build(const Params& p, glbparser::Skel& out, std::vector<std::string>& warn
             std::vector<uint8_t> scratch((size_t)A * A * 4, 0);
             glbparser::SkelPart part;
             emitItem(gi, part, scratch, A, 0, 0, A, A, &capUnder);
+            addScalpCap(gi, part);
             part.material = std::string(worn[gi]->cutout ? "hair:" : "cloth:") + "opth-hair-" +
                             worn[gi]->item.id;
             part.image = optImage[gi];
@@ -1337,6 +1992,119 @@ bool build(const Params& p, glbparser::Skel& out, std::vector<std::string>& warn
                 if (src == c) as = dst;
             want.push_back({c, as});
         }
+    // Skirt panels swung by the legs, baked into every clip - the same drive
+    // the game's updateSprings computes (front: the thigh furthest forward,
+    // back: furthest back, each side: its own; 0.85 / 0.7 of the swing). The
+    // editor's preview, an exported .glb and a far instance in the game get
+    // a skirt that follows the knees; up close the game's spring replaces the
+    // panel's rotation with its own (SkelInstance's replace override). Only
+    // when something worn is weighted to the panels: the EE pays per channel.
+    int skirtBones[4] = {-1, -1, -1, -1};
+    {
+        static const char* kNames[4] = {"mixamorig:SkirtFront", "mixamorig:SkirtBack",
+                                        "mixamorig:SkirtLeft", "mixamorig:SkirtRight"};
+        for (int s = 0; s < 4; ++s)
+            for (int j = 0; j < k.bones; ++j)
+                if (k.boneNames[(size_t)j] == kNames[s]) skirtBones[s] = j;
+        bool weighted = false;
+        for (size_t gi = 0; gi < worn.size() && skirtBones[0] >= 0; ++gi) {
+            if (isOpt[gi]) continue;
+            const GarmentBody& gb = worn[gi]->body[bi];
+            for (size_t i = 0; i < gb.joints.size() && !weighted; ++i)
+                for (int s = 0; s < 4; ++s)
+                    if (gb.joints[i] == skirtBones[s] && gb.weights[i] > 0) weighted = true;
+        }
+        if (!weighted) skirtBones[0] = -1;
+    }
+    auto findBone = [&](const char* name) {
+        for (int j = 0; j < k.bones; ++j)
+            if (k.boneNames[(size_t)j] == name) return j;
+        return -1;
+    };
+    const int hipsBone = findBone("mixamorig:Hips");
+    const int legBones[4] = {findBone("mixamorig:LeftUpLeg"), findBone("mixamorig:LeftLeg"),
+                             findBone("mixamorig:RightUpLeg"), findBone("mixamorig:RightLeg")};
+    auto bakeSkirt = [&](glbparser::SkelClip& sc) {
+        if (hipsBone < 0 || legBones[0] < 0 || legBones[1] < 0 || legBones[2] < 0 || legBones[3] < 0)
+            return;
+        const size_t keys = sc.channels.empty() ? 0 : sc.channels[0].times.size();
+        if (keys == 0) return;
+        // the clip's rotation of each node per key (identity where it has no channel)
+        std::vector<const glbparser::SkelChannel*> rotOf((size_t)k.bones, nullptr);
+        for (const glbparser::SkelChannel& ch : sc.channels)
+            if (ch.path == 1 && ch.node >= 0 && ch.node < k.bones) rotOf[(size_t)ch.node] = &ch;
+        auto qmul = [](const float* a, const float* b, float* o) {
+            o[0] = a[3] * b[0] + a[0] * b[3] + a[1] * b[2] - a[2] * b[1];
+            o[1] = a[3] * b[1] - a[0] * b[2] + a[1] * b[3] + a[2] * b[0];
+            o[2] = a[3] * b[2] + a[0] * b[1] - a[1] * b[0] + a[2] * b[3];
+            o[3] = a[3] * b[3] - a[0] * b[0] - a[1] * b[1] - a[2] * b[2];
+        };
+        auto qrot = [&](const float* q, const float* v, float* o) {  // q v q*
+            const float p[4] = {v[0], v[1], v[2], 0.0f}, qc[4] = {-q[0], -q[1], -q[2], q[3]};
+            float t[4], r[4];
+            qmul(q, p, t);
+            qmul(t, qc, r);
+            o[0] = r[0], o[1] = r[1], o[2] = r[2];
+        };
+        std::vector<float> drive[4];
+        for (size_t i = 0; i < keys; ++i) {
+            // global rotation + position of the chain root..node (translations
+            // are the rest offsets; the hips' own translation does not matter
+            // for a direction measured in the hips' frame)
+            std::vector<float> gq((size_t)k.bones * 4), gp((size_t)k.bones * 3);
+            std::vector<char> done((size_t)k.bones, 0);
+            std::function<void(int)> solve = [&](int j) {
+                if (done[(size_t)j]) return;
+                float lq[4] = {0, 0, 0, 1};
+                if (const glbparser::SkelChannel* ch = rotOf[(size_t)j])
+                    for (int c = 0; c < 4; ++c) lq[c] = ch->values[i * 4 + c];
+                const int p = out.nodes[(size_t)j].parent;
+                if (p < 0) {
+                    for (int c = 0; c < 4; ++c) gq[(size_t)j * 4 + c] = lq[c];
+                    for (int c = 0; c < 3; ++c) gp[(size_t)j * 3 + c] = out.nodes[(size_t)j].t[c];
+                } else {
+                    solve(p);
+                    qmul(&gq[(size_t)p * 4], lq, &gq[(size_t)j * 4]);
+                    float off[3];
+                    qrot(&gq[(size_t)p * 4], out.nodes[(size_t)j].t, off);
+                    for (int c = 0; c < 3; ++c) gp[(size_t)j * 3 + c] = gp[(size_t)p * 3 + c] + off[c];
+                }
+                done[(size_t)j] = 1;
+            };
+            float swing[2];
+            for (int leg = 0; leg < 2; ++leg) {
+                solve(legBones[leg * 2]);
+                solve(legBones[leg * 2 + 1]);
+                solve(hipsBone);
+                float dm[3], dl[3];
+                for (int c = 0; c < 3; ++c)
+                    dm[c] = gp[(size_t)legBones[leg * 2 + 1] * 3 + c] - gp[(size_t)legBones[leg * 2] * 3 + c];
+                const float* hq = &gq[(size_t)hipsBone * 4];
+                const float inv[4] = {-hq[0], -hq[1], -hq[2], hq[3]};
+                qrot(inv, dm, dl);
+                swing[leg] = std::atan2(dl[2], -dl[1]);
+            }
+            drive[0].push_back(std::max(std::max(swing[0], swing[1]), 0.0f) * 0.85f);
+            drive[1].push_back(std::min(std::min(swing[0], swing[1]), 0.0f) * 0.85f);
+            drive[2].push_back(swing[0] * 0.7f);
+            drive[3].push_back(swing[1] * 0.7f);
+        }
+        for (int s = 0; s < 4; ++s) {
+            if (skirtBones[s] < 0) continue;
+            glbparser::SkelChannel ch;
+            ch.node = skirtBones[s];
+            ch.path = 1;
+            ch.times = sc.channels[0].times;
+            for (size_t i = 0; i < keys; ++i) {
+                // the panel's tip swung forward by `drive` about the hips' X:
+                // a rotation of -drive (updateSprings' `driven` vector)
+                const float h = -drive[s][i] * 0.5f;
+                const float q[4] = {std::sin(h), 0.0f, 0.0f, std::cos(h)};
+                ch.values.insert(ch.values.end(), q, q + 4);
+            }
+            sc.channels.push_back(std::move(ch));
+        }
+    };
     const float hipsScale = k.hipsHeight > 1e-4f ? heads[1] / k.hipsHeight : 1.0f;
     const float fps = std::clamp(p.animFps, 4.0f, 60.0f);
     for (const auto& [srcName, dstName] : want) {
@@ -1376,6 +2144,50 @@ bool build(const Params& p, glbparser::Skel& out, std::vector<std::string>& warn
             l = std::sqrt(l);
             for (int c = 0; c < 4; ++c) q[c] = l > 1e-9f ? q[c] / l : (c == 3);
         };
+        // Quaternius' jog and sprint shrug the shoulders up to the ears for
+        // the whole cycle - fine on his mannequin, odd on a person. Their
+        // clavicles are pulled most of the way to where the idle holds them;
+        // the arms keep their swing.
+        const bool running = srcName.find("Jog") != std::string::npos ||
+                             srcName.find("Sprint") != std::string::npos ||
+                             srcName.find("Run") != std::string::npos;
+        const Kit::Clip* idle = nullptr;
+        if (running)
+            for (const Kit::Clip& c : k.clips)
+                if (c.info.name == "Idle_Loop") idle = &c;
+        auto relaxShoulder = [&](int bone, float q[4]) {
+            if (!idle || idle->frames <= 0) return;
+            const std::string& nm = k.boneNames[(size_t)bone];
+            // ...and the elbows, held out at 42 degrees from the body (19
+            // in the idle), come in by 18: a turn about the forward axis in
+            // the clavicle's frame, before the clip's own rotation.
+            if (nm == "mixamorig:LeftArm" || nm == "mixamorig:RightArm") {
+                const float a = (nm == "mixamorig:LeftArm" ? -18.0f : 18.0f) * 3.14159265f / 180.0f;
+                const float r[4] = {0.0f, 0.0f, std::sin(a * 0.5f), std::cos(a * 0.5f)};
+                const float o[4] = {q[0], q[1], q[2], q[3]};
+                q[0] = r[3] * o[0] + r[0] * o[3] + r[1] * o[2] - r[2] * o[1];
+                q[1] = r[3] * o[1] - r[0] * o[2] + r[1] * o[3] + r[2] * o[0];
+                q[2] = r[3] * o[2] + r[0] * o[1] - r[1] * o[0] + r[2] * o[3];
+                q[3] = r[3] * o[3] - r[0] * o[0] - r[1] * o[1] - r[2] * o[2];
+                return;
+            }
+            if (nm != "mixamorig:LeftShoulder" && nm != "mixamorig:RightShoulder") return;
+            const int16_t* r = idle->rot + (size_t)bone * 4;  // the idle's first frame
+            float qi[4], dot = 0.0f;
+            for (int c = 0; c < 4; ++c) {
+                qi[c] = r[c] / 32767.0f;
+                dot += qi[c] * q[c];
+            }
+            if (dot < 0)
+                for (float& c : qi) c = -c;
+            float l = 0.0f;
+            for (int c = 0; c < 4; ++c) {
+                q[c] += (qi[c] - q[c]) * 1.0f;
+                l += q[c] * q[c];
+            }
+            l = std::sqrt(l);
+            for (int c = 0; c < 4; ++c) q[c] = l > 1e-9f ? q[c] / l : (c == 3);
+        };
         for (int b = 0; b < k.bones; ++b) {
             glbparser::SkelChannel ch;
             ch.node = b;
@@ -1383,9 +2195,49 @@ bool build(const Params& p, glbparser::Skel& out, std::vector<std::string>& warn
             ch.times = times;
             bool moves = false;
             float prev[4] = {0, 0, 0, 1};
+            // The rig curls the index finger on its own chain and the other
+            // three on one (Middle). Curled differently, the skin where the
+            // two chains' weights meet shears into ragged fingers; so both
+            // take the average of the two (the hand closes as one, like a
+            // PS2 hand would), and every finger - thumb too - curls 60% less:
+            // the 1600-vertex hand cannot take a full fist.
+            int partner = -1;
+            const bool finger = k.boneNames[(size_t)b].find("Hand") != std::string::npos &&
+                                k.boneNames[(size_t)b].find("Hand") + 4 < k.boneNames[(size_t)b].size();
+            {
+                const std::string& nm = k.boneNames[(size_t)b];
+                const size_t at = nm.find("HandIndex");
+                const size_t am = nm.find("HandMiddle");
+                std::string other;
+                if (at != std::string::npos) other = nm.substr(0, at) + "HandMiddle" + nm.substr(at + 9);
+                if (am != std::string::npos) other = nm.substr(0, am) + "HandIndex" + nm.substr(am + 10);
+                if (!other.empty())
+                    for (int j = 0; j < k.bones; ++j)
+                        if (k.boneNames[(size_t)j] == other) partner = j;
+            }
             for (int i = 0; i < keys; ++i) {
                 float q[4];
                 sampleRot(b, times[i], q);
+                relaxShoulder(b, q);
+                if (finger) {
+                    float l = 0.0f;
+                    if (partner >= 0) {
+                        float qp[4], dot = 0.0f;
+                        sampleRot(partner, times[i], qp);
+                        for (int c = 0; c < 4; ++c) dot += q[c] * qp[c];
+                        if (dot < 0)
+                            for (float& c : qp) c = -c;
+                        for (int c = 0; c < 4; ++c) q[c] = (q[c] + qp[c]) * 0.5f;
+                    }
+                    if (q[3] < 0)  // the rest pose's hemisphere, for the damping below
+                        for (float& c : q) c = -c;
+                    for (int c = 0; c < 4; ++c) {
+                        q[c] += ((c == 3 ? 1.0f : 0.0f) - q[c]) * 0.6f;  // toward the rest pose
+                        l += q[c] * q[c];
+                    }
+                    l = std::sqrt(l);
+                    for (int c = 0; c < 4; ++c) q[c] = l > 1e-9f ? q[c] / l : (c == 3);
+                }
                 // consecutive keys on the same hemisphere: q and -q are the same
                 // orientation, and interpolating between them goes the long way
                 const float d = q[0] * prev[0] + q[1] * prev[1] + q[2] * prev[2] + q[3] * prev[3];
@@ -1414,6 +2266,7 @@ bool build(const Params& p, glbparser::Skel& out, std::vector<std::string>& warn
             }
             sc.channels.push_back(std::move(ch));
         }
+        if (skirtBones[0] >= 0) bakeSkirt(sc);
         out.clips.push_back(std::move(sc));
     }
     return true;
@@ -1447,6 +2300,23 @@ std::vector<bool> partsShownAsBuilt(const std::vector<std::string>& materials) {
     return shown;
 }
 
+void setAssetRoot(const std::string& dir) { g_assetRoot = dir; }
+
+bool exportReferenceBodies(const std::string& dir, std::string& error) {
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    fs::create_directories(dir, ec);
+    for (int bi = 0; bi < 2 && bi < (int)kit().bodies.size(); ++bi) {
+        glbparser::Skel s;
+        std::vector<std::string> w;
+        if (!build(referenceParams(bi), s, w, error)) return false;
+        const fs::path out = fs::path(dir) / (bi ? "reference-male.glb" : "reference-female.glb");
+        if (!gltfwrite::writeGlbFile(out.string(), s, "TyraX Character Generator reference body", error))
+            return false;
+    }
+    return true;
+}
+
 // ---------------------------------------------------------------------------
 // JSON
 
@@ -1474,6 +2344,10 @@ std::string toJson(const Params& p) {
     o << "  \"african\": " << num(p.african) << ", \"asian\": " << num(p.asian)
       << ", \"caucasian\": " << num(p.caucasian) << ", \"height\": " << num(p.heightMeters)
       << ", \"dimorphism\": " << num(p.dimorphism) << ",\n";
+    // written only when moved: older recipes stay byte-identical
+    if (p.breastSize != 0.5f || p.breastFirmness != 0.5f)
+        o << "  \"breastSize\": " << num(p.breastSize) << ", \"breastFirmness\": "
+          << num(p.breastFirmness) << ",\n";
     o << "  \"shape\": {";
     bool first = true;
     for (const auto& [id, v] : p.shape) {
@@ -1500,6 +2374,9 @@ std::string toJson(const Params& p) {
           << "}";
     }
     o << "],\n";
+    if (!p.customHair.empty())
+        o << "  \"customHair\": \"" << json::escape(p.customHair) << "\", \"customHairTexture\": \""
+          << json::escape(p.customHairTexture) << "\",\n";
     if (!p.options.empty()) {  // written only when used: older sidecars stay byte-identical
         o << "  \"options\": [";
         for (size_t i = 0; i < p.options.size(); ++i)
@@ -1537,6 +2414,8 @@ bool fromJson(const std::string& text, Params& p, std::string& error) {
     f("caucasian", d.caucasian);
     f("height", d.heightMeters);
     f("dimorphism", d.dimorphism);
+    f("breastSize", d.breastSize);
+    f("breastFirmness", d.breastFirmness);
     if (const json::Value* s = v.find("shape"))
         for (const auto& [id, val] : s->obj) d.shape[id] = (float)val.numberOr(0.0);
     f("skinTone", d.skinTone);
@@ -1564,6 +2443,8 @@ bool fromJson(const std::string& text, Params& p, std::string& error) {
             if (const json::Value* x = w.find("pattern")) we.pattern = (int)x->numberOr(0);
             if (!we.id.empty()) d.outfit.push_back(we);
         }
+    if (const json::Value* x = v.find("customHair")) d.customHair = x->stringOr("");
+    if (const json::Value* x = v.find("customHairTexture")) d.customHairTexture = x->stringOr("");
     if (const json::Value* o = v.find("options"))
         for (const json::Value& x : o->arr)
             if (!x.stringOr("").empty()) d.options.push_back(x.stringOr(""));
@@ -1740,6 +2621,8 @@ Params randomize(unsigned seed, const Params& keep) {
     p.age = around(0.55f, 0.35f);
     p.muscle = around(0.5f, 0.4f);
     p.weight = around(0.5f, 0.45f);
+    p.breastSize = around(0.5f, 0.35f);
+    p.breastFirmness = around(0.55f, 0.3f);
     p.african = rnd();
     p.asian = rnd();
     p.caucasian = rnd();

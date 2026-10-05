@@ -274,6 +274,22 @@ def macro_stems():
     return out
 
 
+def breast_stems():
+    """MakeHuman's breast macro: cup size x firmness per (age, muscle, weight),
+    women only, relative to average cup / average firmness (which has no
+    target - it IS the base). Paths relative to makehuman/data/targets."""
+    out = []
+    for a in ('child', 'young', 'old'):
+        for m in ('minmuscle', 'averagemuscle', 'maxmuscle'):
+            for w in ('minweight', 'averageweight', 'maxweight'):
+                for c in ('mincup', 'averagecup', 'maxcup'):
+                    for f in ('minfirmness', 'averagefirmness', 'maxfirmness'):
+                        if c == 'averagecup' and f == 'averagefirmness':
+                            continue
+                        out.append('breast/female-%s-%s-%s-%s-%s' % (a, m, w, c, f))
+    return out
+
+
 def morph(base, targets, weights):
     out = base.copy()
     for stem, w in weights.items():

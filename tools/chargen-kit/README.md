@@ -48,7 +48,17 @@ program. Check a new source's licence file by file before adding it to
 - **A clip**: `anim_retarget.py` takes every action in the two libraries;
   `chargen::defaultClipSet()` decides which are in the standard set.
 
+`kit_wear.py ... --reuse-mesh <stage> --rebake <ids>` keeps the reused mesh and
+UVs but bakes the texture again - how a texture-only fix (the glasses' lenses)
+reaches the kit without remeshing and rebinding. `catalog.py`'s `alpha_cut`
+sets a cutout item's alpha threshold (3D glasses keep their 0.5-alpha lenses).
+
 ## Traps (each cost a broken bake)
+
+- The alpha bake doubles as the texture's HIT mask. Counting a hit as alpha >
+  0.5 made every half-transparent texel a miss - glasses lenses (alpha 0.2-0.5)
+  were filled with the frame's red. A hit is now any alpha (> 0.02); cutout
+  items then keep what is above `alpha_cut`.
 
 - Baking anything onto the HIGH-res reference body with the low-poly body in
   the scene: the low-poly lies within millimetres of it, partly outside, and

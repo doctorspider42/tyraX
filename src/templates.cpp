@@ -1480,6 +1480,7 @@ class TerrainGame : public Tyra::Game {
     // What applyLook last applied: the palette variant the texture bags point
     // at, and RuntimeObject::look as of then (-9 = apply on the next frame).
     int animVariant = 0;
+    u16 followFrames = 0;  // frames drawing another's shared pose (trimOutputs at 60)
     int lookShown[4] = {-9, -9, -9, -9};
     std::unique_ptr<Tyra::StaPipInfoBag> animInfoBag;
     Tyra::M4x4 animMat;
@@ -1662,6 +1663,7 @@ class TerrainGame : public Tyra::Game {
   Tyra::Vec4 animLightDirs[3];
   Tyra::PipelineDirLightsBag animDirLights{true};
   u32 animLodTick = 0;  // frame counter for the ANIM_LOD_DISTANCE stagger
+  float animClock = 0.0F;  // seconds of unpaused animation (RuntimeObject::animSync)
 
  public:
   // Clip-name lookup for scripts/flow graph (ScriptContext::resolveClip).
@@ -3403,6 +3405,7 @@ class TerrainGame : public Tyra::Game {
     // What applyLook last applied: the palette variant the texture bags point
     // at, and RuntimeObject::look as of then (-9 = apply on the next frame).
     int animVariant = 0;
+    u16 followFrames = 0;  // frames drawing another's shared pose (trimOutputs at 60)
     int lookShown[4] = {-9, -9, -9, -9};
     std::unique_ptr<Tyra::StaPipInfoBag> animInfoBag;
     Tyra::M4x4 animMat;
@@ -3585,6 +3588,7 @@ class TerrainGame : public Tyra::Game {
   Tyra::Vec4 animLightDirs[3];
   Tyra::PipelineDirLightsBag animDirLights{true};
   u32 animLodTick = 0;  // frame counter for the ANIM_LOD_DISTANCE stagger
+  float animClock = 0.0F;  // seconds of unpaused animation (RuntimeObject::animSync)
 
  public:
   // Clip-name lookup for scripts/flow graph (ScriptContext::resolveClip).
@@ -5580,6 +5584,10 @@ struct RuntimeObject {
   float animSpeed = 1.0F;    // multiplier on the authored playback speed
   bool animRestart = false;  // (re)start animClip on the next frame
   float animFade = 0.0F;     // crossfade seconds for that restart (0 = pop)
+  // Phase lock (pedestrians): >= 0 puts the playing clip at the shared
+  // animation clock * speed + this fraction of the clip, every frame - so
+  // walkers of one model in one phase group share a single skinned pose.
+  float animSync = -1.0F;
   bool animFinished = false; // one frame: the clip reached its last frame
                              // (one-shots: once; looping: every wrap)
   // Seconds of talking left: a generated character's jaw moves in syllables
@@ -30901,6 +30909,12 @@ void navWander(ScriptContext& ctx, int obj, float radius, float speed) {
   // a first pause of 0-3 s, so a crowd does not set off in step
   a->pauseLeft = (float)((a->seed >> 20) & 1023) * (3.0F / 1023.0F);
   a->walking = 1;  // forces the idle clip on the first tick
+  // Phase lock: every walker of a model walks (and idles) in step, so they
+  // share one skinned pose per clip and mesh-LOD tier (animSync). Measured
+  // with 30 pedestrians: three phase groups split them into too many
+  // (model x clip x phase x tier) to share at all - 66.8 ms; one phase,
+  // 50.9 ms. Random pauses and headings keep it from reading as a march.
+  ctx.objects[obj].animSync = 0.0F;
 }
 
 void navStop(ScriptContext& ctx, int obj) {

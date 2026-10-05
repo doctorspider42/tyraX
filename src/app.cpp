@@ -17877,6 +17877,7 @@ void App::pumpCharIcons() {
 // animated model with nothing downstream aware it was generated.
 void App::drawCharacterGeneratorWindow() {
     if (!showCharGenerator_ || !hasProject_) return;
+    chargen::setAssetRoot(project_.dir);  // a recipe's custom hair is project-relative
     ImGui::SetNextWindowSize(ImVec2(scaled(1060.0f), scaled(720.0f)), ImGuiCond_FirstUseEver);
     if (!ImGui::Begin("Character Generator", &showCharGenerator_)) {
         ImGui::End();
@@ -18006,6 +18007,7 @@ void App::drawCharacterGeneratorWindow() {
             p.gender = was.gender, p.age = was.age, p.muscle = was.muscle, p.weight = was.weight;
             p.african = was.african, p.asian = was.asian, p.caucasian = was.caucasian;
             p.heightMeters = was.heightMeters, p.dimorphism = was.dimorphism;
+            p.breastSize = was.breastSize, p.breastFirmness = was.breastFirmness;
         }
         for (const chargen::Slider& s : chargen::sliders())
             if ((charKeepBody_ && isBodySlider(s)) || (charKeepFace_ && !isBodySlider(s))) {
@@ -18111,6 +18113,14 @@ void App::drawCharacterGeneratorWindow() {
                 ImGui::SetTooltip("How strongly gender reads in the face and build. MakeHuman's\n"
                                   "average man and woman are alike in the face; this moves jaw,\n"
                                   "brow ridge, chin, neck, lips and eyes along with Gender.");
+            ImGui::BeginDisabled(p.gender >= 0.95f);
+            dirty |= ImGui::SliderFloat("Breast size", &p.breastSize, 0.0f, 1.0f, "%.2f");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("MakeHuman's cup-size macro: 0 smallest, 0.5 average,\n"
+                                  "1 largest. It follows Gender - none at all on a man\n"
+                                  "(his chest is the Bust slider).");
+            dirty |= ImGui::SliderFloat("Breast firmness", &p.breastFirmness, 0.0f, 1.0f, "%.2f");
+            ImGui::EndDisabled();
             ImGui::SeparatorText("Ancestry");
             dirty |= ImGui::SliderFloat("African", &p.african, 0.0f, 1.0f, "%.2f");
             dirty |= ImGui::SliderFloat("Asian", &p.asian, 0.0f, 1.0f, "%.2f");
@@ -18379,6 +18389,78 @@ void App::drawCharacterGeneratorWindow() {
             ImGui::SameLine();
             swatches("hair", p.hairColor, kHair);
             ImGui::TextDisabled("The brows and stubble follow the hair colour.");
+
+            // Your own hair (docs/character-generator.md, "Your own hair")
+            ImGui::SeparatorText("Your own hair");
+            namespace fs = std::filesystem;
+            // A file from outside the project is copied in, so the recipe
+            // (and anyone who clones the project) still finds it.
+            auto adopt = [&](const std::string& file) -> std::string {
+                std::error_code ec;
+                const fs::path root(project_.dir);
+                const fs::path rel = fs::relative(file, root, ec);
+                if (!ec && !rel.empty() && rel.native()[0] != '.') return rel.generic_string();
+                const fs::path dst = root / "res" / "models" / "characters" / "custom" /
+                                     fs::path(file).filename();
+                fs::create_directories(dst.parent_path(), ec);
+                fs::copy_file(file, dst, fs::copy_options::overwrite_existing, ec);
+                if (ec) {
+                    statusMessage_ = "Could not copy " + file + ": " + ec.message();
+                    return file;
+                }
+                return fs::relative(dst, root, ec).generic_string();
+            };
+            ImGui::TextDisabled("%s", p.customHair.empty() ? "(none - the kit's hairstyle above)"
+                                                           : p.customHair.c_str());
+            if (ImGui::Button("Model...")) {
+                const std::string file = platform::pickFile(
+                    "Your hair model", {{"Models (*.glb, *.obj)", {"*.glb", "*.gltf", "*.obj"}},
+                                        {"All files (*)", {"*"}}});
+                if (!file.empty()) {
+                    p.customHair = adopt(file);
+                    dirty = true;
+                }
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("A .glb or .obj modelled on a reference body (the button\n"
+                                  "on the right). It rides every body slider like the kit's\n"
+                                  "hair: each vertex follows the skin nearest to it.");
+            ImGui::SameLine();
+            ImGui::BeginDisabled(p.customHair.empty());
+            if (ImGui::Button("Texture...")) {
+                const std::string file = platform::pickFile(
+                    "Its texture", {{"Images (*.png, *.jpg)", {"*.png", "*.jpg", "*.jpeg"}},
+                                    {"All files (*)", {"*"}}});
+                if (!file.empty()) {
+                    p.customHairTexture = adopt(file);
+                    dirty = true;
+                }
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Optional - else the model's own. Alpha below 50%%\n"
+                                  "is cut out (strands), like the kit's hair cards.");
+            ImGui::SameLine();
+            if (ImGui::Button("Clear##customhair")) {
+                p.customHair.clear();
+                p.customHairTexture.clear();
+                dirty = true;
+            }
+            ImGui::EndDisabled();
+            ImGui::SameLine();
+            if (ImGui::Button("Export reference bodies...")) {
+                const fs::path dir = fs::path(project_.dir) / "res" / "models" / "characters" / "custom";
+                std::string err;
+                statusMessage_ = chargen::exportReferenceBodies(dir.string(), err)
+                                     ? "Wrote reference-female.glb and reference-male.glb to " +
+                                           dir.generic_string()
+                                     : "Reference export failed: " + err;
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("The average woman and man at 1.75 m, into\n"
+                                  "res/models/characters/custom. Model your hair on the one\n"
+                                  "whose body you will use (Gender below / from 0.5).");
+            if (!p.customHairTexture.empty())
+                ImGui::TextDisabled("texture: %s", p.customHairTexture.c_str());
             ImGui::EndTabItem();
         }
         // -- Animation -----------------------------------------------------------------
@@ -18508,7 +18590,8 @@ void App::drawCharacterGeneratorWindow() {
         dp.cutout = i < charSkel_.parts.size() &&
                     charSkel_.parts[i].material.rfind("hair:", 0) == 0;
     }
-    for (int i = 0; i < 3; ++i) desc.center[i] = (charSkel_.min[i] + charSkel_.max[i]) * 0.5f;
+    for (int i = 0; i < 3; ++i)
+        desc.center[i] = (charSkel_.min[i] + charSkel_.max[i]) * 0.5f + charGenPan_[i];
     desc.minY = charSkel_.min[1];
     const float dx = charSkel_.max[0] - charSkel_.min[0];
     const float dy = charSkel_.max[1] - charSkel_.min[1];
@@ -18526,10 +18609,21 @@ void App::drawCharacterGeneratorWindow() {
                      ImVec2(1, 0));
         ImGui::SetCursorScreenPos(imgPos);
         ImGui::InvisibleButton("##char_prev_in", ImVec2((float)pw, (float)ph),
-                               ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight);
+                               ImGuiButtonFlags_MouseButtonLeft | ImGuiButtonFlags_MouseButtonRight |
+                                   ImGuiButtonFlags_MouseButtonMiddle);
         if (ImGui::IsItemHovered() && io.MouseWheel != 0.0f)
             charGenZoom_ = std::clamp(charGenZoom_ * std::pow(1.15f, io.MouseWheel), 0.2f, 12.0f);
-        if (ImGui::IsItemActive() && (ImGui::IsMouseDown(0) || ImGui::IsMouseDown(1))) {
+        if (ImGui::IsItemActive() && ImGui::IsMouseDown(2)) {
+            // pan: the pivot slides in the view plane, a pixel per pixel at
+            // the pivot's distance (drawToolPreview: dist = 2.4 r / zoom)
+            const float a = charGenAngle_ * 3.14159265f / 180.0f;
+            const float dist = desc.radius * 2.4f / std::max(charGenZoom_, 0.05f);
+            const float k = dist * 0.83f / (float)std::max(ph, 1);  // tan(22.5) * 2 / height
+            charGenPan_[0] += (io.MouseDelta.x * std::sin(a)) * k;
+            charGenPan_[2] += (-io.MouseDelta.x * std::cos(a)) * k;
+            charGenPan_[1] += io.MouseDelta.y * k;
+            charGenSpin_ = false;
+        } else if (ImGui::IsItemActive() && (ImGui::IsMouseDown(0) || ImGui::IsMouseDown(1))) {
             charGenAngle_ += io.MouseDelta.x * 0.5f;
             charGenPitch_ = std::clamp(charGenPitch_ + io.MouseDelta.y * 0.4f, -30.0f, 85.0f);
             charGenSpin_ = false;  // grabbing the camera stops the turntable
@@ -18565,17 +18659,45 @@ void App::drawCharacterGeneratorWindow() {
     bool wire = charGenDisplayMode_ == 1;
     if (ImGui::Checkbox("Wireframe", &wire)) charGenDisplayMode_ = wire ? 1 : 0;
     ImGui::SameLine();
-    if (ImGui::SmallButton("Face")) {
-        charGenAngle_ = 0.0f;
+    if (ImGui::SmallButton("Face close-up")) {
+        // From the front (the rig faces +Z; the preview's angle 90 looks
+        // down -Z at it), pivot between the eyes - found on the rig, so a
+        // child or a 2 m man frame the same.
+        charGenAngle_ = 90.0f;
         charGenPitch_ = 0.0f;
-        charGenZoom_ = 4.5f;
+        charGenSpin_ = false;
+        float eye[3] = {0.0f, 0.0f, 0.0f};
+        int found = 0;
+        for (size_t n = 0; n < charSkel_.nodes.size(); ++n) {
+            const std::string& nm = charSkel_.nodes[n].name;
+            if (nm != "mixamorig:LeftEye" && nm != "mixamorig:RightEye") continue;
+            // identity bind rotations: a node's rest position is the sum of
+            // its parents' translations
+            for (int j = (int)n; j >= 0; j = charSkel_.nodes[(size_t)j].parent)
+                for (int a = 0; a < 3; ++a) eye[a] += charSkel_.nodes[(size_t)j].t[a];
+            ++found;
+        }
+        for (int a = 0; a < 3; ++a) {
+            const float mid = (charSkel_.min[a] + charSkel_.max[a]) * 0.5f;
+            charGenPan_[a] = found ? eye[a] / (float)found - mid : 0.0f;
+        }
+        if (found) charGenPan_[1] -= 0.03f;  // the eyes sit a little above the face's middle
+        // a head fills the frame: about 0.6 m from the pivot
+        const float dx = charSkel_.max[0] - charSkel_.min[0];
+        const float dy = charSkel_.max[1] - charSkel_.min[1];
+        const float dz = charSkel_.max[2] - charSkel_.min[2];
+        const float radius = std::max(0.01f, 0.5f * std::sqrt(dx * dx + dy * dy + dz * dz));
+        charGenZoom_ = std::clamp(radius * 2.4f / 0.6f, 0.2f, 12.0f);
     }
     ImGui::SameLine();
     if (ImGui::SmallButton("Reset view")) {
         charGenAngle_ = 20.0f;
         charGenPitch_ = 6.0f;
         charGenZoom_ = 1.0f;
+        charGenPan_[0] = charGenPan_[1] = charGenPan_[2] = 0.0f;
     }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Drag to turn, wheel to zoom, middle-drag to pan.");
 
     ImGui::SetNextItemWidth(scaled(180.0f));
     ImGui::InputText("Name", charName_, sizeof(charName_));

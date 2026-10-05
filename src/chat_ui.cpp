@@ -607,6 +607,7 @@ std::string App::runChatTool(aichat::ToolCall& c) {
             return fail("\"recipe\" must be an object (call character_kit for its fields).");
         chargen::Params params;
         std::string err;
+        chargen::setAssetRoot(project_.dir);
         if (!chargen::fromJson(json::write(*rv), params, err))
             return fail("The recipe was not accepted: " + err);
         std::string name = aichat::argStr(c, "name");

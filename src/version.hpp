@@ -5515,7 +5515,18 @@
 // host-baked albedo map (REFL_GROUND_*): -2 ms a turning frame on the Motor
 // District's open road on a PS2.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 178
+#define TYRAX_VERSION_MINOR 179
+// 1.179.0: the Character Generator, polished from a play-through
+// (docs/character-generator.md): legs hidden inside skirts and the panels'
+// leg-driven swing baked into the clips (+ SkelInstance's replace override),
+// the scalp closed under holey hair (and a scalp cap on option hairstyles),
+// relaxed fingers and running shoulders, glasses with clear lenses, the
+// breast macro, your own hair (.glb/.obj on a reference body,
+// --chargen-reference), preview pan + Face close-up; the tall hat is gone.
+// Recipes gain breastSize/breastFirmness/customHair (written only when set).
+// Crowds: wanderers phase-locked (animSync, SkelInstance::setTime), live
+// faces for the five nearest, trimOutputs for followers - 30 pedestrians no
+// longer run the EE out of memory. Project format unchanged.
 // 1.178.0: the Character Creator as a menu (docs/character-generator.md, "The
 // creator as a menu"). Menu rows "Character creator option" (colours, hair,
 // hat, glasses - the choice drawn as runtime text in the menu's font) and

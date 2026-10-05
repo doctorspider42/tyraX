@@ -97,7 +97,7 @@ def main():
         for stem in mhkit.macro_stems():
             jobs.append(pool.submit(get, '%s/targets/macrodetails/%s.target' % (MH_RAW, stem),
                                     os.path.join(mh, 'targets', stem + '.target')))
-        detail = set(MASK_TARGETS)
+        detail = set(MASK_TARGETS) | set(mhkit.breast_stems())
         for s in SLIDERS:
             detail.update(expand(s[3]) + expand(s[4]))
         for t in sorted(detail):

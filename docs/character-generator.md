@@ -17,13 +17,13 @@ real eyes, and motion-captured movement.
 | Rig | 35 Mixamo-named bones: spine, neck, head, arms, legs, two-bone thumb, index and fingers |
 | Texture | one atlas, 128 / 256 / 512 square, 8-bit on the console; face ≈ 80 px wide at 256 |
 | Shape | 96 macro targets (gender, age, muscle, weight, ancestry) + 76 detail sliders |
-| Wardrobe | 83 items: 31 body-shell garments, 11 skirts and dresses, 12 shoes, 5 hats, 5 glasses, 19 hairstyles |
+| Wardrobe | 82 items: 31 body-shell garments, 11 skirts and dresses, 12 shoes, 4 hats, 5 glasses, 19 hairstyles |
 | Motion | 87 clips from Quaternius' Universal Animation Library, retargeted onto the rig |
 | A dressed character | 4100-4500 triangles, **2 parts and 2 textures** (body + accessories), built in ~70 ms |
 
 ```
 the character kit (resources/chargen-kit.bin, embedded in the editor)
-   │  base mesh + ~290 targets as deltas on its own vertices
+   │  base mesh + ~500 targets as deltas on its own vertices
    ▼
 blend targets → body + joints      outfit: shells push the body out,
    │                               meshes ride its surface
@@ -59,6 +59,10 @@ generator itself and rendered by the preview's renderer
 is exactly what the item looks like, and a new kit item gets its card with no
 art step. A garment's colour row is *As made*, the street-colour swatches and a
 picker; patterns are one click each.
+
+The preview turns with a left or right drag, zooms with the wheel and pans
+with a middle drag; *Face close-up* looks at the face from the front with the
+pivot between the eyes, *Reset view* puts it all back.
 
 | Tab | What is in it |
 |---|---|
@@ -160,6 +164,11 @@ profile of detail sliders WITH gender - jaw, brow ridge, chin, neck, shoulders
 up and lips, eye size, cheek volume down for a man, the reverse for a woman -
 scaled down for children. It is a layer on top of the sliders, so the Face tab
 still means what it says, and 0 gives MakeHuman's own bodies back.
+
+**Breast size and firmness** are MakeHuman's own breast macro (cup size x
+firmness, per age / muscle / weight corner, women only, 216 targets relative to
+average cup and firmness - the base body), on the Body tab under Dimorphism.
+They follow Gender: none at all on a man, whose chest is the *Bust* slider.
 
 ## The texture
 
@@ -272,6 +281,72 @@ pattern (stripes, checks, plaid, diagonal) in two colours. Items cut for one
 body carry a `sex` tag that *Randomize* respects; nothing stops you putting a
 man in a dress.
 
+### Clothes that move
+
+A skirt or a dress is a mesh item riding the hips, and the legs under it move.
+Two things keep them inside:
+
+- **Legs under the cloth are not drawn.** The kit hides only the body
+  triangles inside the garment's rest-pose stand-in, so a thigh that grazed
+  the cloth came through it as soon as the leg moved - a "slit" in every skirt.
+  The generator now also hides every pelvis/leg-skinned triangle that lies
+  inside the cloth: per 5 cm band and 22.5-degree sector around the garment's
+  axis it knows how far the cloth reaches, and a vertex 1 cm or more inside
+  that is covered. A sector with no cloth (a real slit, a cut-out) keeps its
+  leg. 130-290 triangles fewer per dressed character, too.
+- **The panels swing with the thighs in every clip.** The front panel follows
+  whichever thigh reaches furthest forward, the back one the furthest back,
+  each side its own (0.85 / 0.7 of the swing) - the drive the game's
+  `updateSprings` computes, baked into the clips as the four skirt bones'
+  rotations. So the editor's preview, an exported `.glb` and a character
+  beyond the game's 10 m spring range all show a skirt that rides up over the
+  knee. Up close the game's spring replaces the panel's rotation with its own
+  (`SkelInstance::setRotationOverride(..., replace = true)`) - the drive plus
+  the lag and the bounce, no double swing. Only characters wearing something
+  weighted to the panels get the channels: the EE pays per channel.
+
+A backless dress (the halter and midi dresses) shows the back's skin by design.
+
+### Hair over the scalp
+
+Hair is a mesh item with gaps between its strands, and the scalp under it
+showed through them - bald patches in a messy cut. The kit's scalp layer is
+the hair baked onto the skin WITH its alpha, so every gap came through as a
+gap. The generator closes it (`scalpCover`): everything that layer touches,
+plus the skin the hair's vertices are actually bound to (not the face - a
+fringe binds to the forehead, which stays skin), closed by 10 texels so gaps
+up to 20 close without the outline growing, kept to the head's texels (the
+body triangles skinned to the Head bone, rasterized in UV - it no longer
+spills into the island next to the head in the atlas), softened. The gaps take
+the hair's colour darkened like roots. An option hairstyle in the
+[creator](#in-game-character-creator) cannot paint the skin (the player may
+take it off), so it brings a **scalp cap**: the covered scalp triangles, 4 mm
+out, on the darkest solid texel of its own texture, shown and hidden with it.
+
+### Your own hair
+
+*Hair > Your own hair* takes a hairstyle you modelled - a `.glb` or `.obj`,
+with its texture or a separate one (alpha below 50% is cut out, like the kit's
+hair cards) - and puts it on the character in place of the kit's:
+
+1. *Export reference bodies...* writes `reference-female.glb` and
+   `reference-male.glb` (the average woman and man at 1.75 m) into
+   `res/models/characters/custom`; from the command line,
+   `tyrax-editor --chargen-reference <dir>`.
+2. Model the hair on the one whose body you will use (Gender below 0.5 / from
+   0.5) and export it as a static `.glb` or `.obj`.
+3. *Model...* (and optionally *Texture...*) picks it. A file outside the
+   project is copied into `res/models/characters/custom` and the recipe keeps
+   the project-relative path (`"customHair"`, `"customHairTexture"`).
+
+It is bound like the kit's own items: every vertex to the nearest triangle of
+the reference body (point, barycentrics, an offset in that triangle's
+normal/tangent frame, in metres) and skinned like the skin there - so it rides
+every body slider, takes hat hair under a hat, and costs what its triangles
+cost. Built once per file version and topology. Its own colours are kept (the
+hair colour does not dye it). Keep it light: the kit's hairstyles are 700
+triangles.
+
 ## The rig
 
 50 bones: 35 with Mixamo names (`mixamorig:Hips`...), because that is what
@@ -342,6 +417,20 @@ the EE evaluates them, and all-identity channels are dropped.
 
 The old analytic idle/walk/run/jump generator is gone; a motion library made by
 an animator beats any sine wave.
+
+Three things the generator changes on the way out of the kit, each from a
+rendered failure:
+
+- **Fingers.** The rig curls the index finger on its own chain and the other
+  three on one (`Middle`); curled differently, the skin where the two chains'
+  weights meet sheared into ragged, clawed fingers. Both chains take the
+  average of the two rotations, and every finger - thumb too - curls 60% less:
+  a relaxed, half-open hand, which is what a 1600-vertex hand can show.
+- **Running shoulders.** Quaternius' jog and sprint hold the elbows 42 degrees
+  out from the body (19 in the idle) and the clavicles shrugged up. In clips
+  named Jog/Sprint/Run the clavicles take the idle's rotation and the upper
+  arms come in by 18 degrees about the forward axis: measured 25 degrees out.
+- **Skirt panels follow the legs** - see [Clothes that move](#clothes-that-move).
 
 ## A living face
 
@@ -532,7 +621,8 @@ kept in `TerrainGame::playerLook`, so it survives scene changes (it applies
 whenever the Player wears the same model), and is saved with the game
 (`SaveGameData::playerLook`, save format 5).
 
-**Cost.** Eight options took the example hero from 4245 to 7341 triangles in
+**Cost.** Every option hairstyle and its hat twin also carry a ~400-triangle
+scalp cap (only the one shown is drawn). Eight options took the example hero from 4245 to 7341 triangles in
 the file - but a hidden part is neither drawn nor skinned
 (`SkelInstance::setPartSkipped`), so what the console pays per frame is the
 character as worn. VRAM pays for every option's texture (a 128x128 palette
@@ -594,11 +684,48 @@ generator now presses hair under hats, the way a real hat does:
   and `chargen::partsShownAsBuilt` makes the editor's viewport do the same.
 
 The press is under the union of the optional hats, so under a small cap the
-hair is flat where only a tall hat would reach - read as hat hair, it looks
+hair is flat where only a taller hat would reach - read as hat hair, it looks
 right. The cost is one more hidden part per hairstyle: file size, not frame
 time.
 
 ## Cost on the console
+
+**Turn the mesh LOD on.** Measured on the example in PCSX2 (frame counter,
+vsync off), looking at the cast and the eight-commuter crowd: 42.9 ms a frame
+with *Mesh LOD* and *Animation LOD* off, 25.8 ms with mesh LOD at 6 m and
+animation LOD at 10 m - every character beyond 6 m drawn and skinned at half
+its triangles, beyond 12 m at a quarter, and far poses refreshed every other
+frame. Fourteen characters at full resolution are ~60 000 skinned triangles a
+frame, and the EE pays per triangle. The hero alone renders at 8.6 ms.
+
+**A walking crowd** costs in skinning what a standing one does not: standing
+people of one model idle in one shared pose (one skin, drawn for all of them),
+walking ones each had their own. Measured on the example's crowd scene in
+PCSX2, 30 pedestrians: 24.3 ms standing, 49.9-66.8 ms walking. Four things
+bring a walking crowd back:
+
+- **Phase lock.** A wanderer's clip time is set every frame from one shared
+  animation clock (`RuntimeObject::animSync`, `SkelInstance::setTime`), so
+  every walker of a model walks - and idles - in step and shares one skin per
+  clip and mesh-LOD tier. Phase groups were tried first: three of them split
+  30 people into so many (model x clip x phase x tier) groups that almost
+  nobody shared - 66.8 ms; one phase, 50.9 ms. Random pauses and headings keep
+  it from reading as a march.
+- **A live face for the nearest five.** Blinks, the glance and the springs
+  make a pose of its own; only the five nearest characters get them (kept
+  until seven are nearer, so the one at the edge does not flicker), however
+  many stand within 10 m.
+- **Mesh LOD per crowd member** - 4 m in the crowd scene.
+- **Memory.** A character that skinned itself once - a crossfade, up close -
+  kept its output buffers (~0.4 MB at full detail) for good, and 30 of them
+  ran the EE out of memory ("# Restart" in PCSX2's emulog, nothing in the
+  game's log). After a second of drawing someone else's shared pose an
+  instance gives them back (`SkelInstance::trimOutputs`), and hidden creator
+  parts never allocate any.
+
+24 walking pedestrians plus the player: 32.7 ms. Hundreds would need a
+lighter body - MakeHuman's 741-vertex proxy as a crowd topology - which the
+kit does not carry yet.
 
 A dressed character is 4100-4500 triangles in 2 parts (body, accessories)
 and 46 bones - a hero budget. Crowds should use the `.tskl` distance
@@ -1042,6 +1169,10 @@ argument for having the live window at all:
   because their arms are never straight down.
 
 ## What is not here yet
+
+- **A tall hat.** MakeHuman's CC0 "Uncle Joshi's hat" is an openwork lattice
+  held together by alpha, and the remesh left a ring of crumbs; it was taken
+  out of the kit. No CC0 pack has a top hat.
 
 - **Fine expressions.** Four expressions on four bones - no cheek puff, no
   sneer, no asymmetric smirk; MakeHuman's expression targets are CC0 and would

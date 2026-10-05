@@ -329,16 +329,15 @@ SkelInstance::SkelInstance(const SkelModel* t_model) : model(t_model) {
 
 SkelInstance::~SkelInstance() {}
 
-void SkelInstance::setRotationOverride(u32 node, const float q[4]) {
+void SkelInstance::setRotationOverride(u32 node, const float q[4], bool replace) {
   if (node >= overrideOn.size()) return;
   float* o = &overrideRot[(size_t)node * 4];
-  if (overrideOn[node] && o[0] == q[0] && o[1] == q[1] && o[2] == q[2] &&
-      o[3] == q[3])
+  const u8 mode = replace ? 2 : 1;
+  if (overrideOn[node] == mode && o[0] == q[0] && o[1] == q[1] &&
+      o[2] == q[2] && o[3] == q[3])
     return;  // unchanged: the held pose stays valid
-  if (!overrideOn[node]) {
-    overrideOn[node] = 1;
-    ++overrideCount;
-  }
+  if (!overrideOn[node]) ++overrideCount;
+  overrideOn[node] = mode;
   memcpy(o, q, 4 * sizeof(float));
   poseDirty = true;
 }
@@ -395,6 +394,30 @@ void SkelInstance::advanceLayer(Layer& layer, float dt) {
       layer.time = clip.duration;
     }
   }
+}
+
+void SkelInstance::setTime(float seconds) {
+  if (cur.clip < 0) return;
+  const SkelClip& clip = model->clips[cur.clip];
+  if (clip.duration > 0.0F) {
+    seconds = fmodf(seconds, clip.duration);
+    if (seconds < 0.0F) seconds += clip.duration;
+  }
+  if (seconds == cur.time) return;
+  if (seconds < cur.time)
+    for (u32& c : cur.cursors) c = 0;  // the key search runs forward only
+  cur.time = seconds;
+  poseDirty = true;
+}
+
+void SkelInstance::trimOutputs() {
+  for (auto& chain : partLods)
+    for (PartLod& pl : chain) {
+      std::vector<Vec4>().swap(pl.ownVertices);
+      std::vector<Vec4>().swap(pl.ownNormals);
+      pl.outV = pl.outN = nullptr;
+    }
+  poseDirty = true;  // nothing held any more
 }
 
 bool SkelInstance::advance(float dt) {
@@ -543,13 +566,19 @@ void SkelInstance::evalPose() {
     }
   }
 
-  // the procedural layer (setRotationOverride): local = clip * override
+  // the procedural layer (setRotationOverride): local = clip * override,
+  // or the override alone in replace mode
   if (overrideCount > 0) {
     const size_t nodeCount = model->nodes.size();
     for (size_t i = 0; i < nodeCount; i++) {
       if (!overrideOn[i]) continue;
       float* a = &localsCur[i * 10 + 3];
       const float* b = &overrideRot[i * 4];
+      if (overrideOn[i] == 2) {  // replace: the clip's own rotation is dropped
+        memcpy(a, b, 4 * sizeof(float));
+        animatedCur[i] = 1;
+        continue;
+      }
       const float x = a[3] * b[0] + a[0] * b[3] + a[1] * b[2] - a[2] * b[1];
       const float y = a[3] * b[1] - a[0] * b[2] + a[1] * b[3] + a[2] * b[0];
       const float z = a[3] * b[2] + a[0] * b[1] - a[1] * b[0] + a[2] * b[3];
@@ -601,7 +630,11 @@ void SkelInstance::skinParts(u8 lod) {
   // First skin at this level: its output buffers. HERE, before the AABB
   // lives in $vf20/$vf21 - an allocation inside the loop below is a call
   // the register state cannot survive (see above).
-  for (auto& chain : partLods) {
+  for (size_t pi = 0; pi < partLods.size(); pi++) {
+    // a skipped part (setPartSkipped) is not skinned, so it needs no output
+    // either - a creator character carries a dozen hidden options
+    if (pi < partSkipped.size() && partSkipped[pi]) continue;
+    auto& chain = partLods[pi];
     PartLod& pl = chain[lod < chain.size() ? lod : (u8)(chain.size() - 1)];
     if (pl.outV != nullptr && pl.ownVertices.size() == pl.count) continue;
     pl.ownVertices.resize(pl.count);

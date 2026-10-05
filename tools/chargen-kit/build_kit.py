@@ -424,6 +424,11 @@ def emit_body(W, stage, P, data, tdir, shared):
             if t not in used:
                 total += add_target(t, os.path.join(tdir, t + '.target'))
                 used.add(t)
+    # the breast macro (Params::breastSize / breastFirmness)
+    for t in mhkit.breast_stems():
+        if t not in used:
+            total += add_target(t, os.path.join(tdir, t + '.target'))
+            used.add(t)
     print('  targets', len(used) + 96, 'entries', total)
 
     # --- texture layers -----------------------------------------------------------

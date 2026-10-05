@@ -2648,6 +2648,7 @@ private:
     char mocapName_[64] = "take";
 
     float charGenAngle_ = 20.0f, charGenPitch_ = 6.0f, charGenZoom_ = 1.0f;
+    float charGenPan_[3] = {0.0f, 0.0f, 0.0f};  // pivot offset from the body's centre (middle drag, Face)
     bool charGenSpin_ = false;
     int charGenDisplayMode_ = 0;
     int selectedHud_ = -1;

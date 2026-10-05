@@ -4758,7 +4758,25 @@ int main(int argc, char** argv) {
     // Character Generator, headless (docs/character-generator.md): a recipe
     // (.chargen.json - what "Add to scene" writes beside every character, or
     // "-" for the defaults, or "preset:<n>" / "random:<seed>") to a .glb.
+    // The bodies custom hair is modelled on (docs/character-generator.md,
+    // "Your own hair").
+    if (argc > 1 && std::strcmp(argv[1], "--chargen-reference") == 0) {
+        if (argc < 3) {
+            std::fprintf(stderr, "usage: --chargen-reference <dir>\n");
+            return 2;
+        }
+        std::string err;
+        if (!chargen::exportReferenceBodies(argv[2], err)) {
+            std::fprintf(stderr, "error: %s\n", err.c_str());
+            return 1;
+        }
+        std::printf("%s: reference-female.glb, reference-male.glb\n", argv[2]);
+        return 0;
+    }
     if (argc > 1 && std::strcmp(argv[1], "--chargen") == 0) {
+        // a recipe's relative paths (custom hair) are relative to the recipe
+        if (argc > 2 && std::strchr("-", argv[2][0]) == nullptr)
+            chargen::setAssetRoot(std::filesystem::path(argv[2]).parent_path().string());
         if (argc < 4) {
             std::fprintf(stderr, "usage: --chargen <recipe.json|-|preset:N|random:SEED> <out.glb> "
                                  "[--recipe-out <file.json>] [--variants N]\n");

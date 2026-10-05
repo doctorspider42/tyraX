@@ -45,6 +45,11 @@ if '--reuse-mesh' in argv:
     k = argv.index('--reuse-mesh')
     REUSE = argv[k + 1]
     argv = argv[:k] + argv[k + 2:]
+# --rebake (with --reuse-mesh): keep the reused mesh and its UVs, but bake the
+# texture again from the source - how a texture fix (the glasses' clear
+# lenses) reaches the kit without remeshing and rebinding the item.
+REBAKE = '--rebake' in argv
+argv = [a for a in argv if a != '--rebake']
 SYS, PACKS, DATA, STAGE = argv[:4]
 ONLY = set(argv[4:])
 OUT = os.path.join(STAGE, 'wear')
@@ -376,7 +381,7 @@ def make_mesh(gid, d, slot, extra):
         unwrap(lo)
     # Push the stand-in a hair outward so the bake's rays start outside the
     # original even where the remesh cut inside it.
-    if REUSE:
+    if REUSE and not REBAKE:
         col = a = None  # the texture is the first body's
     else:
         col = bake_from(g, lo, gid + '_c', False, 0.02, 0.05)
@@ -386,9 +391,13 @@ def make_mesh(gid, d, slot, extra):
         aa = np.array(a.pixels[:], dtype=np.float32).reshape(TEX, TEX, 4)[:, :, 0]
         rgba = ca.copy()
         # The alpha bake doubles as the hit mask: a ray that found the source
-        # brought back its alpha, a miss left the image's black.
-        rgba[:, :, :3] = fill_misses(ca[:, :, :3], aa > 0.5)
-        rgba[:, :, 3] = (aa > 0.5).astype(np.float32) if cutout else 1.0
+        # brought back its alpha, a miss left the image's black. A hit is any
+        # alpha at all - a glasses lens is 0.2-0.5 alpha, and counting it a
+        # miss filled it with the frame's colour (opaque red lenses). Cutout
+        # items then keep what is above `alpha_cut`.
+        rgba[:, :, :3] = fill_misses(ca[:, :, :3], aa > 0.02)
+        cut = float(extra.get('alpha_cut', 0.5))
+        rgba[:, :, 3] = (aa > cut).astype(np.float32) if cutout else 1.0
         out = bpy.data.images.new(gid + '_tex', TEX, TEX, alpha=True)
         out.pixels[:] = rgba.ravel()
         save(out, os.path.join(OUT, gid + '_tex.png'))

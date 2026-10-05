@@ -60,6 +60,19 @@ class SkelInstance {
    * wrapping on the next update, like DynamicMeshAnimation did). */
   void setLoop(bool loop) { cur.loop = loop; }
 
+  /** Modified by TyraX: puts the current clip at `seconds` (wrapped into a
+   * looping clip). Instances given bit-identical times share one skinned
+   * mesh (poseEquals) - how a crowd of pedestrians walks in a few phase
+   * groups instead of skinning everyone. */
+  void setTime(float seconds);
+
+  /** Modified by TyraX: frees this instance's own skin outputs (every part,
+   * every level). For an instance that has been drawing another's shared
+   * pose for a while: a crowd member that skinned itself once (a crossfade,
+   * up close) would otherwise hold its buffers - ~0.4 MB at full detail -
+   * for good. The next ensurePose allocates and skins again. */
+  void trimOutputs();
+
   /**
    * Advances playback by dt seconds (scale dt for playback speed), then
    * evaluates the pose and skins into the mesh when anything changed.
@@ -167,8 +180,11 @@ class SkelInstance {
    * x, y, z, w). What a face is made of: blinking lids, eyes and a head
    * that follow the player, a jaw that talks, spring bones. Marks the pose
    * dirty; an instance carrying overrides never shares its pose.
+   * `replace`: the local rotation is q alone - the clip's rotation of that
+   * node is dropped (spring bones: a generated clip carries the panel's
+   * leg-driven swing, which the spring recomputes up close).
    */
-  void setRotationOverride(u32 node, const float q[4]);
+  void setRotationOverride(u32 node, const float q[4], bool replace = false);
 
   /** Drops every override (a far instance goes back to sharing its pose). */
   void clearRotationOverrides();
@@ -198,7 +214,7 @@ class SkelInstance {
   u8 lastSkinnedLod = 0;          // which level the out arrays hold
   u32 overrideCount = 0;          // nodes with a live rotation override
   std::vector<float> overrideRot;   // nodes * 4 (x, y, z, w)
-  std::vector<u8> overrideOn;       // per node
+  std::vector<u8> overrideOn;       // per node: 1 = clip * q, 2 = q alone (replace)
   std::vector<u8> partSkipped;      // per part (empty = none skipped)
   u8 maxLodLevels = 1;            // longest per-part chain incl. the base
 

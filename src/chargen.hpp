@@ -18,7 +18,7 @@
 // The kit holds:
 //   - a 1701-vertex game body (MakeHuman's CC0 female1605 topology plus
 //     low-poly eyeballs) on a PS2 texture atlas where the face gets the texels
-//   - ~290 morph targets (MakeHuman's macro corners, face and body details)
+//   - ~500 morph targets (MakeHuman's macro corners, face and body details)
 //     already projected onto those vertices, with their effect on the rig
 //   - skin weights for the 35-bone Mixamo-named rig
 //   - texture layers in the atlas: 18 skins, AO, eyes, 12 eyebrows, lashes
@@ -66,6 +66,10 @@ struct Params {
     // man gains jaw, brow ridge, chin and neck and a woman fuller lips, a
     // softer jaw and larger eyes. Scaled down for children.
     float dimorphism = 0.6f;
+    // MakeHuman's breast macro (women; men keep the Bust slider): cup size
+    // and firmness, 0..1 with 0.5 = average - the base body.
+    float breastSize = 0.5f;
+    float breastFirmness = 0.5f;
 
     // ---- detail sliders: slider id (see sliders()) -> -1..1 ----
     std::map<std::string, float> shape;
@@ -90,6 +94,12 @@ struct Params {
     // ---- outfit ----
     std::vector<Wear> outfit;
     std::string hair;         // kit hair id, "" = bald
+    // A hairstyle you modelled (.glb / .obj, on the reference body that
+    // exportReferenceBodies writes) and, optionally, its texture (else the
+    // model's own). Replaces `hair`. Relative paths resolve against
+    // setAssetRoot (the project). docs/character-generator.md, "Your own hair".
+    std::string customHair;
+    std::string customHairTexture;
     // In-game creator options: extra hair / head / face item ids built as
     // SEPARATE parts the game can switch (docs/character-generator.md,
     // "In-game character creator"). A worn item in a slot that has options
@@ -177,6 +187,15 @@ bool writeAsset(const std::string& projectDir, const std::string& name,
 // The editor's twin of the game's applyLook with an untouched look; by
 // material name, so it works on any baked .glb.
 std::vector<bool> partsShownAsBuilt(const std::vector<std::string>& materials);
+
+// Where relative Params paths (customHair, its texture) resolve from: the
+// project directory, set by the editor when a project opens.
+void setAssetRoot(const std::string& dir);
+
+// Writes the bodies custom hair is modelled on - the average woman and man
+// at 1.75 m, as .glb - into `dir`, as reference-female.glb / -male.glb.
+// Model on the one whose topology you will use (gender < 0.5 / >= 0.5).
+bool exportReferenceBodies(const std::string& dir, std::string& error);
 
 // Params <-> JSON (the .chargen.json sidecar, the --chargen command line).
 std::string toJson(const Params& p);

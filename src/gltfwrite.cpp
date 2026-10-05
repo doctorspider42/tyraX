@@ -152,7 +152,13 @@ std::string writeGlb(const glbparser::Skel& skel, const std::string& generator) 
                          vec(part.baseColor, 4) + ",\"metallicFactor\":0,\"roughnessFactor\":1";
         if (part.image >= 0 && part.image < (int)skel.images.size())
             materialsJson += ",\"baseColorTexture\":{\"index\":" + std::to_string(part.image) + "}";
-        materialsJson += "}}";
+        materialsJson += "}";
+        // The Character Generator's "hair:" parts are alpha-tested (hair
+        // cards, glasses lenses); say so, so Blender and other tools clip them
+        // the way the game and the editor do. Nothing in the editor reads it.
+        if (part.material.rfind("hair:", 0) == 0)
+            materialsJson += ",\"alphaMode\":\"MASK\",\"alphaCutoff\":0.5";
+        materialsJson += "}";
     }
 
     // --- mesh primitives ----------------------------------------------------

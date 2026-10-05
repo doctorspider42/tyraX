@@ -3240,6 +3240,20 @@ span. The part's arrays keep their last skin, so turning it back on sets
 draws its owner's arrays. An empty mask means "nothing skipped" - it is only
 allocated on the first skip.
 
+`setRotationOverride(node, q, replace = true)` (1.179.0) makes the node's local
+rotation q alone - the clip's rotation of it is dropped. The skirt springs use
+it: a generated clip carries the panels' leg-driven swing for far instances and
+the editor, which the spring recomputes up close.
+
+`setTime(seconds)` puts the current clip at a time (cursors reset when it moves
+back) - bit-identical times are what let instances share a skin, so a crowd is
+phase-locked by SETTING the time from one clock every frame, not by starting
+in step (float accumulation drifts apart). `trimOutputs()` frees an instance's
+skin outputs (they are otherwise kept forever once allocated - 30 walkers that
+each skinned once ran the EE out of memory); the game calls it after 60 frames
+as a pose follower and forces a skin when it owns a pose again. A skipped part
+(`setPartSkipped`) allocates no outputs.
+
 TsklLoader merges parts that share texture and colour - except a part with
 `:opt` in its name (1.177.0): creator options are shown one by one, and a
 hairstyle and its under-a-hat twin deliberately share one texture.

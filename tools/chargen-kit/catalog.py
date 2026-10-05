@@ -8,6 +8,7 @@ and the generator's Randomize reads `sex` to dress a man as a man.
   source 'sys:<dir>' = the MakeHuman system assets pack, 'packs:<pack>/<dir>'
         = one of the CC0 asset packs (fetch_sources.py downloads both)
   extra  style (mesh budget class), cutout (alpha-tested), sex ('f', 'm', '')
+         alpha_cut (cutout threshold, default 0.5 - 3D glasses keep their 0.5 lenses)
 """
 
 CATALOG = [
@@ -72,13 +73,12 @@ CATALOG = [
     ('newsboy', 'Newsboy cap', 'head', 'mesh', 'packs:hats01/clothes/jujube_newsboy_cap', {'sex': ''}),
     ('cloche', 'Cloche hat', 'head', 'mesh', 'packs:hats01/clothes/aethelraed_unraed_cloche_hat', {'sex': 'f'}),
     ('santa', 'Santa hat', 'head', 'mesh', 'packs:hats01/clothes/joepal_xmas_cap', {'sex': ''}),
-    ('tallhat', 'Tall hat', 'head', 'mesh', 'packs:hats01/clothes/grinsegold_uncle_joshis_hat', {'sex': ''}),
     # ---- glasses ----
-    ('glasses1', 'Glasses', 'face', 'mesh', 'packs:glasses01/clothes/spamrakuen_sagerfrogs_glasses_01', {'sex': ''}),
-    ('glasses2', 'Square frames', 'face', 'mesh', 'packs:glasses01/clothes/spamrakuen_tbm_glasses_frames_01', {'sex': ''}),
-    ('glasses3', 'Library glasses', 'face', 'mesh', 'packs:glasses01/clothes/frankyaye_glasses_library_male', {'sex': ''}),
-    ('shades', '3D glasses', 'face', 'mesh', 'packs:glasses01/clothes/ews_3d_glasses', {'sex': ''}),
-    ('roundglasses', 'Round glasses', 'face', 'mesh', 'packs:glasses01/clothes/toigo_round_glasses_leopard', {'sex': ''}),
+    ('glasses1', 'Glasses', 'face', 'mesh', 'packs:glasses01/clothes/spamrakuen_sagerfrogs_glasses_01', {'sex': '', 'cutout': True}),
+    ('glasses2', 'Square frames', 'face', 'mesh', 'packs:glasses01/clothes/spamrakuen_tbm_glasses_frames_01', {'sex': '', 'cutout': True}),
+    ('glasses3', 'Library glasses', 'face', 'mesh', 'packs:glasses01/clothes/frankyaye_glasses_library_male', {'sex': '', 'cutout': True}),
+    ('shades', '3D glasses', 'face', 'mesh', 'packs:glasses01/clothes/ews_3d_glasses', {'sex': '', 'cutout': True, 'alpha_cut': 0.3}),
+    ('roundglasses', 'Round glasses', 'face', 'mesh', 'packs:glasses01/clothes/toigo_round_glasses_leopard', {'sex': '', 'cutout': True}),
     # ---- hair ----
     ('short1', 'Short', 'hair', 'mesh', 'sys:hair/short01', {'cutout': True, 'sex': 'm'}),
     ('short2', 'Short side part', 'hair', 'mesh', 'sys:hair/short02', {'cutout': True, 'sex': 'm'}),

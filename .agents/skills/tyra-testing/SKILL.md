@@ -172,6 +172,11 @@ recipe, `--chargen ... --variants 3`, open the screen from a scratch script
 (`openCharacterCreator(ctx, -1)` at frame 60; log `ctx.objects[i].look` on
 change) and drive it with `--pad "press right; wait 0.3; press down; ..."` -
 the D-pad works there, unlike in the walkers.
+Custom hair: `tyrax-editor --chargen-reference <dir>` writes the reference
+bodies; a recipe's `"customHair"` is relative to the recipe file under
+`--chargen`. To LOOK at a generated character, Blender renders work well
+(import the .glb, set the action, frame the bones); remember a .glb carries no
+spring simulation - what Blender shows is the clip, i.e. the far-instance look.
 Rebuilding the kit itself is tools/chargen-kit/README.md.
 
 So when a build dies with **`Cannot find source file: vendor/<something>`**
