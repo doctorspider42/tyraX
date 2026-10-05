@@ -1,0 +1,206 @@
+{
+  "status": "PASS_PHYSICAL_POSITIVE_FINITE_ULP_TRIGGER_SENTINEL_FALSIFIED",
+  "stdoutSha256": "ba6c5248644806d212505192f50662c962df8d81cc0e3ec5ef74e9d25fba3f18",
+  "rows": [
+    {
+      "phase": 0,
+      "offset": 750,
+      "mask": 59,
+      "positiveFinite": true,
+      "ulpDifferences": [
+        1,
+        1,
+        0,
+        1,
+        2,
+        1
+      ],
+      "frameDtBits": "3d08c424",
+      "frameDtSeconds": 0.03339017927646637,
+      "raw": {
+        "scene": "0",
+        "active": "1",
+        "mask": "59",
+        "hr": "418ed212",
+        "hg": "41b79f5c",
+        "hb": "422d692d",
+        "br": "418ed211",
+        "bg": "41b79f5b",
+        "bb": "422d692d",
+        "tr": "4043dfde",
+        "tg": "40c3e16b",
+        "tb": "4192e4ff",
+        "zr": "4043dfdd",
+        "zg": "40c3e169",
+        "zb": "4192e4fe"
+      }
+    },
+    {
+      "phase": 0,
+      "offset": 1155,
+      "mask": 63,
+      "positiveFinite": true,
+      "ulpDifferences": [
+        2,
+        1,
+        1,
+        2,
+        2,
+        1
+      ],
+      "frameDtBits": "3d08ce98",
+      "frameDtSeconds": 0.033400148153305054,
+      "raw": {
+        "scene": "0",
+        "active": "1",
+        "mask": "63",
+        "hr": "418ed213",
+        "hg": "41b79f5c",
+        "hb": "422d692e",
+        "br": "418ed211",
+        "bg": "41b79f5b",
+        "bb": "422d692d",
+        "tr": "4043dfdf",
+        "tg": "40c3e16b",
+        "tb": "4192e4ff",
+        "zr": "4043dfdd",
+        "zg": "40c3e169",
+        "zb": "4192e4fe"
+      }
+    },
+    {
+      "phase": 1,
+      "offset": 750,
+      "mask": 63,
+      "positiveFinite": true,
+      "ulpDifferences": [
+        2,
+        1,
+        1,
+        2,
+        2,
+        1
+      ],
+      "frameDtBits": "3d08d00a",
+      "frameDtSeconds": 0.033401526510715485,
+      "raw": {
+        "scene": "0",
+        "active": "1",
+        "mask": "63",
+        "hr": "418ed213",
+        "hg": "41b79f5c",
+        "hb": "422d692e",
+        "br": "418ed211",
+        "bg": "41b79f5b",
+        "bb": "422d692d",
+        "tr": "4043dfdf",
+        "tg": "40c3e16b",
+        "tb": "4192e4ff",
+        "zr": "4043dfdd",
+        "zg": "40c3e169",
+        "zb": "4192e4fe"
+      }
+    },
+    {
+      "phase": 1,
+      "offset": 1155,
+      "mask": 63,
+      "positiveFinite": true,
+      "ulpDifferences": [
+        2,
+        2,
+        1,
+        3,
+        3,
+        1
+      ],
+      "frameDtBits": "3d08ad7e",
+      "frameDtSeconds": 0.03336858004331589,
+      "raw": {
+        "scene": "0",
+        "active": "1",
+        "mask": "63",
+        "hr": "418ed212",
+        "hg": "41b79f5b",
+        "hb": "422d692d",
+        "br": "418ed210",
+        "bg": "41b79f59",
+        "bb": "422d692c",
+        "tr": "4043dfdd",
+        "tg": "40c3e169",
+        "tb": "4192e4fe",
+        "zr": "4043dfda",
+        "zg": "40c3e166",
+        "zb": "4192e4fd"
+      }
+    },
+    {
+      "phase": 2,
+      "offset": 750,
+      "mask": 63,
+      "positiveFinite": true,
+      "ulpDifferences": [
+        2,
+        1,
+        1,
+        2,
+        2,
+        1
+      ],
+      "frameDtBits": "3d08d032",
+      "frameDtSeconds": 0.03340167552232742,
+      "raw": {
+        "scene": "0",
+        "active": "1",
+        "mask": "63",
+        "hr": "418ed213",
+        "hg": "41b79f5c",
+        "hb": "422d692e",
+        "br": "418ed211",
+        "bg": "41b79f5b",
+        "bb": "422d692d",
+        "tr": "4043dfdf",
+        "tg": "40c3e16b",
+        "tb": "4192e4ff",
+        "zr": "4043dfdd",
+        "zg": "40c3e169",
+        "zb": "4192e4fe"
+      }
+    },
+    {
+      "phase": 2,
+      "offset": 1155,
+      "mask": 63,
+      "positiveFinite": true,
+      "ulpDifferences": [
+        -3,
+        -2,
+        -1,
+        -5,
+        -5,
+        -2
+      ],
+      "frameDtBits": "3d088bb9",
+      "frameDtSeconds": 0.033336374908685684,
+      "raw": {
+        "scene": "0",
+        "active": "1",
+        "mask": "63",
+        "hr": "418ed210",
+        "hg": "41b79f5a",
+        "hb": "422d692c",
+        "br": "418ed213",
+        "bg": "41b79f5c",
+        "bb": "422d692d",
+        "tr": "4043dfda",
+        "tg": "40c3e166",
+        "tb": "4192e4fd",
+        "zr": "4043dfdf",
+        "zg": "40c3e16b",
+        "zb": "4192e4ff"
+      }
+    }
+  ],
+  "actualCycleHourNotObserved": true,
+  "dtToColorsCausalityNotMeasured": true
+}

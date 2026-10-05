@@ -1,0 +1,6 @@
+from pathlib import Path
+import subprocess,json,hashlib
+b=Path('/mnt/f/Projects/tyrax2-lab-20261001');g=b/'sky-retint-fpp-codegen-v1/sky-retint-fpp';e=Path('/mnt/f/Projects/tyra-editor/vendor/tyra/engine');t=Path('/home/spider/.cache/tyrax/native/toolchains/eff2c8918589264d49aa9a0f');compiler=t/'ee/bin/mips64r5900el-ps2-elf-g++';out=b/'sky-retint-fpp-syntax-v1';assert not out.exists();out.mkdir();sha=lambda p:hashlib.sha256(p.read_bytes()).hexdigest();results=[]
+for name in ('game_collision.gen.cpp','game_physics.gen.cpp'):
+ p=g/'src/gen'/name;cmd=[str(compiler),'-D_EE','-G0','-std=c++17','-O2','-fsyntax-only','-I'+str(g/'inc'),'-I'+str(e/'inc'),'-I'+str(t/'ps2sdk/ee/include'),'-I'+str(t/'ps2sdk/common/include'),'-I'+str(t/'ps2sdk/ports/include'),str(p)];r=subprocess.run(cmd,stdout=subprocess.PIPE,stderr=subprocess.STDOUT);(out/(name+'.log')).write_bytes(r.stdout);results.append(dict(source=str(p),sha256=sha(p),command=cmd,exitCode=r.returncode));assert r.returncode==0,r.stdout[-3000:]
+record=dict(status='PASS_ACTUAL_PS2_COMPILER_FPP_GENERATED_SKY_SYNTAX_ONLY',results=results,compilerSha256=sha(compiler),runtimeAccepted=False);(out/'proof.json').write_text(json.dumps(record,indent=2)+'\n');print(record['status'])

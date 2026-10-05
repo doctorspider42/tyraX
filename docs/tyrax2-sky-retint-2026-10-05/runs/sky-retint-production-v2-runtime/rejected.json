@@ -1,0 +1,4 @@
+{
+  "reason": "RGB forcing before dayNightTick was overwritten; only one generation warm-captured, full coverage rejected",
+  "logSha256": "fb28c36fda3665d95f1379e6c93cdc4c02efd2921fc2e3f02db5fa33ee306732"
+}

@@ -1,0 +1,16 @@
+{
+  "reason": "All six cold retint counters zero; runtime gate enabled does not prove candidate activation; not visual qualification or price",
+  "pid": 3975,
+  "args": [
+    "/home/spider/tyrax2-debugger-linux-v1/squashfs-root/AppRun",
+    "-datapath",
+    "/home/spider/night-ablation-emulator-sky-retint-order0-20261005/profile",
+    "-logfile",
+    "/home/spider/night-ablation-emulator-sky-retint-order0-20261005/emulator.log",
+    "-batch",
+    "-nogui",
+    "-elf",
+    "/mnt/f/Projects/tyrax2-lab-20261001/sky-retint-physical-v1/game/bin/vehicle-playground.elf"
+  ],
+  "liveSha256": "e70414e5d6bd3340478f261036818c3475dc766d3c0b990a94ccab375c154e75"
+}

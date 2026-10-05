@@ -1,0 +1,22 @@
+{
+  "status": "REJECTED_NIGHT_CAPTURE",
+  "issues": [
+    "sky retint calls"
+  ],
+  "inputPins": {
+    "/home/spider/night-ablation-emulator-sky-retint-order0-20261005/emulator.log": "cbaf2bb1bcf135875fa5d3516c9b559affa879e3761f7ae536eaf7acba58bffa",
+    "/mnt/f/Projects/tyrax2-lab-20261001/sky-retint-physical-v1/game/bin/night-ablation.log": "e70414e5d6bd3340478f261036818c3475dc766d3c0b990a94ccab375c154e75",
+    "/mnt/f/Projects/tyrax2-lab-20261001/sky-retint-controls-v1/analyze-night-cli.py": "7f59df29e3f0612f53a00a4cfac04677737cf4741ffa9dc303a2452fee0661e2",
+    "/mnt/f/Projects/tyrax2-lab-20261001/sky-retint-controls-v1/analyze-night.py": "2b71ab46a06b5ed90971458927c0a3e6bcf9f68499553974df500804bc76c224",
+    "/mnt/f/Projects/tyrax2-lab-20261001/sky-retint-controls-v1/analyze-loop.py": "58e19cee054b237f13f797de6237d283811757c05c84742cfd62483aff7bc2a8",
+    "/mnt/f/Projects/tyrax2-lab-20261001/sky-retint-controls-v1/corona_controls.py": "1decafffab8d86f2b34e2d20054a5e729d69d2c9259f9938bd8370666435a43a",
+    "/mnt/f/Projects/tyrax2-lab-20261001/sky-retint-controls-v1/source-controls/night_plan.hpp": "73be32c06bedcfad931876b7b6faa0286384a74fe7ca27d8447b4830862093f1",
+    "/mnt/f/Projects/tyrax2-lab-20261001/sky-retint-controls-v1/source-controls/stapip_vu1_shared_defines.h": "cf73e7be8c173e3ee9b04c54a9c57adbc18b7da29c9e4ed6d69c51dddf961d5b"
+  },
+  "requestedPlan": {
+    "kind": 19,
+    "order": 0,
+    "joint": 0,
+    "restored": 0
+  }
+}

@@ -1988,6 +1988,7 @@ class TerrainGame : public Tyra::Game {
   void renderSkyBodies(const Tyra::Vec4& eye, const Tyra::Vec4& look);
 
   void buildSkyDome();
+  bool retintSkyDomeColors();
   // Pins every pass that draws one vertex array to a single VU1 package size -
   // see the implementation for why coplanar passes must classify identically.
   // `stripRun` non-zero: the bags draw a TRIANGLE STRIP whose packages must
@@ -3861,6 +3862,7 @@ class TerrainGame : public Tyra::Game {
   void renderSkyBodies(const Tyra::Vec4& eye, const Tyra::Vec4& look);
 
   void buildSkyDome();
+  bool retintSkyDomeColors();
   // Pins every pass that draws one vertex array to a single VU1 package size -
   // see the implementation for why coplanar passes must classify identically.
   // `stripRun` non-zero: the bags draw a TRIANGLE STRIP whose packages must

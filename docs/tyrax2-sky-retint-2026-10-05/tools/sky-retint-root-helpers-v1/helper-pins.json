@@ -1,0 +1,18 @@
+{
+  "finish-physical-no-reset.ps1": "e5465380624cddc97811b1fb104b51d669cf7598835ee341d1199a4f1056c8a2",
+  "finish-physical.ps1": "e811924e4367f66b2002ab56e20c256f2ec474efbc1d4f64b3f63b4704cdf473",
+  "freeze-completed.py": "8ef99ac6310801dab319a201910de98c06cd06d48f7fbc9ec0f1671b8dd0af42",
+  "host-authority.json": "d01ec68be2ebf8da459fc83c20585420f3db4627ecf1486591e5813eef8dfdba",
+  "host-controls-proof.json": "ed3bc11aed51a7edf96cfbedd8ed6c1ad495b2c5b21178b6a1a0a9ed367a8012",
+  "host-kind9-order0.json": "f772ce8dc8fb490f4b189753605f55eb32aa43b3e61b2ed20e321021a8eed932",
+  "host-kind9-order1.json": "d722a3c1f3fcc8c65c7af1a70f966d743d671ecf32f6923b5aa5686c5a5fcee6",
+  "launch-emulator.py": "04a154ac2d59b11532fb5cdf933f3df99fb86d29321f3cce6eecc9a1f4e37e22",
+  "launch-physical-observed.py": "45816012a7f5aef99ed9db570c2ec0773e490c5d4ffd0414b6d0d2d9cc8ba54b",
+  "preparation.json": "622e9908b220590948b982347c5105bdeccb7621262283610a4f157809feb334",
+  "prepare-physical.py": "65ff59593e2bd83fb797a4e64ec93e80ecc0b0a99ffaa11ae9a1daef99fc51b2",
+  "qualify-emulator.py": "0921c52cf7755f9affa51a5d2ce4736cec890a2f029f60211918385c83cd6d62",
+  "README.md": "51db78ef15ba96d6c8a9a131fa57dcc249576ec2696ff952fbae74fbb6ab7129",
+  "runtime_guard.py": "977ec22cfe508491cb43e217b13810b30e3a76b0f776b3539c51351c016f5cd5",
+  "source-review.md": "913cccaff559039d67da621c0e37d633b5c64b3f907220882abe84c0dded371d",
+  "stop-emulator.py": "c50fcd43b02e253014de9c3e3cdb3d09b3e16d59a49a3503e0e61961e4745597"
+}

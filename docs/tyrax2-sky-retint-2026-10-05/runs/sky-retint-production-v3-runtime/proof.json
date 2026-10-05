@@ -1,0 +1,59 @@
+{
+  "status": "PASS_PRIVATE_PRODUCTION_ACTIVE_RGB_FOUR_GENERATIONS_EXACT_ORACLE",
+  "images": {
+    "1": {
+      "scene": 0,
+      "generation": 1,
+      "count": 1152,
+      "check": 180,
+      "image": "gen-1-scene-0.png",
+      "sha256": "839c8e2209264b516c06b9290ac0aa390feddfd6e24a347992ab15c195d7f80b",
+      "beforeLogSha256": "2bb523734c04a4384695ee8bfe5aa9629ca2f617b9af626834e8f2255d88aa82",
+      "afterLogSha256": "10976580400d57dc0c8f2c6e8e16be4eddf18f650042b16baf0550d11427c279",
+      "warmAfterReference": true
+    },
+    "2": {
+      "scene": 1,
+      "generation": 2,
+      "count": 1152,
+      "check": 1260,
+      "image": "gen-2-scene-1.png",
+      "sha256": "7453d6289131b9a287fe506e811d287cbfa531077c824d3845c178e1bd42c7b7",
+      "beforeLogSha256": "a60881ce36bcbbda39be260c42fd664308b0842f921b7dc9ef12479de5b269f5",
+      "afterLogSha256": "56c68810c26cc7b90eccfba4e62b64f9638785ae6ef9b21ef5fa00d641c942b2",
+      "warmAfterReference": true
+    },
+    "3": {
+      "scene": 2,
+      "generation": 3,
+      "count": 504,
+      "check": 2340,
+      "image": "gen-3-scene-2.png",
+      "sha256": "97930d7ece0c834fcbc34446a8486a1f2ef52b75d8cf1ee9ea83bc40b1b5388b",
+      "beforeLogSha256": "3768ee5a94cbca0a232189279e716f2e6ad96871dffda4d3d6e3d292e753a710",
+      "afterLogSha256": "60b5b1c15dff652fe7dff9580eceaff11284b6ca4b7affd866887740ab4b4a56",
+      "warmAfterReference": true
+    },
+    "4": {
+      "scene": 0,
+      "generation": 4,
+      "count": 1152,
+      "check": 3540,
+      "image": "gen-4-scene-0.png",
+      "sha256": "4fa97c957ae4eb2eb18036ae82244627091cc298fc02bb3eb8c749f73efd3c33",
+      "beforeLogSha256": "84bf922186375e6b090fb0cb923c51c42fc5168816c6866a0e3a22e9154a5eff",
+      "afterLogSha256": "6c04f0edd843e35cd440a9a6e84fda342f2870ed6f27726d747e05231c9cdc6f",
+      "warmAfterReference": true
+    }
+  },
+  "oracleCalls": 38,
+  "comparedVertices": 37296,
+  "counts": [
+    504,
+    1152
+  ],
+  "visualReviewPending": true,
+  "physicalPricingAccepted": false,
+  "logSha256": "5b94d5063db59992c8df68987f4f37525fff695b70d6b46c621b7ed6cf4d9645",
+  "ownedLaunchSha256": "01807a3bfb1543f66936620625ac94d5c5b34110a00ed0e42a95b0440cfedd04"
+}

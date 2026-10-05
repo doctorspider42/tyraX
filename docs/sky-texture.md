@@ -42,6 +42,15 @@ royalty-free for commercial use.
   sky appears in chrome and car paint without any extra setting and at no extra
   cost beyond the texture.
 
+## Runtime color updates
+
+Day/night and Set Sky Color updates change only the dome vertex colors. The
+color version invalidates cached color packets; positions, UVs and bounds stay
+valid. Scene loading and texture/shape changes still rebuild the full dome.
+This applies to both painted and gradient skies and both renderer backends.
+The color calculation and triangle order are unchanged. A missing or inconsistent
+binding falls back to the full builder.
+
 ## What it will not do
 
 - **Light the scene.** Baked GI, the probes and the ambient term still read the

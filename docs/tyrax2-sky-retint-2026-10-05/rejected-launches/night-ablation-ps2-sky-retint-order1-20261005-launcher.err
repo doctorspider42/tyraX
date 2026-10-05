@@ -1,0 +1,5 @@
+Traceback (most recent call last):
+  File "F:\Projects\tyrax2-lab-20261001\sky-retint-root-helpers-v1\launch-physical-observed.py", line 9, in <module>
+    assert d['kind']==18 and d['joint']==d['restored']==0
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError

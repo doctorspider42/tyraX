@@ -18679,6 +18679,60 @@ void TerrainGame::drivePlayerAnim(PlayerCtl& P, RuntimeObject& body,
 
 
 
+// RGB-only update: scene/texture/shape changes must still call buildSkyDome.
+// One color span invalidates packets without invalidating geometry or bounds.
+bool TerrainGame::retintSkyDomeColors() {
+ if(!SKY_DOME)return false;
+#ifdef SKY_TEXTURES_ON
+  const bool textured = skyTex != nullptr;
+#else
+  const bool textured = false;
+#endif
+  const int stacks = textured ? 8 : 6, slices = textured ? 24 : 14;
+  // The zenith comes from skyTop*, seeded to the baked SKY_TOP_* and moved by
+  // the runtime cycle - so one dome build serves both.
+  if (skyTopR < 0.0F) skyTopR = SKY_TOP_R, skyTopG = SKY_TOP_G, skyTopB = SKY_TOP_B;
+  auto skyAt = [&](float t) {  // t: 0 = horizon, 1 = zenith
+    return Color(skyHorizonR + (skyTopR - skyHorizonR) * t,
+                 skyHorizonG + (skyTopG - skyHorizonG) * t,
+                 skyHorizonB + (skyTopB - skyHorizonB) * t, 128.0F);
+  };
+  // On a painted sky the gradient only TINTS: the ratio of the live colour to
+  // the one the scene was authored with (128 = the panorama as painted), so
+  // the authored hour shows the image untouched while the day/night cycle and
+  // Set Sky Color still darken or warm it.
+  auto tintAt = [&](float t) {
+    const Color live = skyAt(t);
+    auto ratio = [](float cur, float ref) {
+      const float r = ref > 1.0F ? cur / ref : 1.0F;
+      const float c = r * 128.0F;
+      return c > 255.0F ? 255.0F : (c < 0.0F ? 0.0F : c);
+    };
+    return Color(ratio(live.r, SKY_R + (SKY_TOP_R - SKY_R) * t),
+                 ratio(live.g, SKY_G + (SKY_TOP_G - SKY_G) * t),
+                 ratio(live.b, SKY_B + (SKY_TOP_B - SKY_B) * t), 128.0F);
+  };
+
+ const u32 count=static_cast<u32>(stacks*slices*6);
+ if(!skyDome.bag||!skyDome.infoBag||!skyDome.colorBag||
+    skyDome.bag->info!=skyDome.infoBag.get()||skyDome.bag->color!=skyDome.colorBag.get()||
+    skyDome.bag->count!=count||skyDome.vertices.size()!=count||skyDome.colors.size()!=count||
+    skyDome.bag->vertices!=skyDome.vertices.data()||skyDome.colorBag->many!=skyDome.colors.data())return false;
+#ifdef SKY_TEXTURES_ON
+ if(textured){if(!skyDome.texBag||skyDome.bag->texture!=skyDome.texBag.get()||skyDome.texBag->texture!=skyTex||skyDome.sts.size()!=count||skyDome.texBag->coordinates!=skyDome.sts.data())return false;}
+ else if(skyDome.bag->texture!=nullptr)return false;
+#else
+ if(skyDome.bag->texture!=nullptr)return false;
+#endif
+ auto colors=skyDome.colors.span(0,count);u32 v=0;
+ for(int st=0;st<stacks;++st){
+  const float t0=powf((float)st/stacks,SKY_ZENITH_EXP),t1=powf((float)(st+1)/stacks,SKY_ZENITH_EXP);
+  const Color c0=textured?tintAt(t0):skyAt(t0),c1=textured?tintAt(t1):skyAt(t1);
+  for(int sl=0;sl<slices;++sl){colors[v++]=c0;colors[v++]=c1;colors[v++]=c1;colors[v++]=c0;colors[v++]=c1;colors[v++]=c0;}
+ }
+ return true;
+}
+
 void TerrainGame::buildSkyDome() {
   if (!SKY_DOME) return;
 
@@ -23002,7 +23056,7 @@ void TerrainGame::renderScene() {
     skyHorizonG = scriptCtx.skyColor.g;
     skyHorizonB = scriptCtx.skyColor.b;
     skyTopR = dayNightTopR, skyTopG = dayNightTopG, skyTopB = dayNightTopB;
-    buildSkyDome();
+    if (!retintSkyDomeColors()) buildSkyDome();
   }
   // Reflective materials: camera basis for the sphere-map STs. Matcap UVs
   // from the camera-space normal - u along the camera's right, v (image

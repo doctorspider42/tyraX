@@ -1,0 +1,21 @@
+{
+  "pid": 8184,
+  "args": [
+    "/home/spider/tyrax2-debugger-linux-v1/squashfs-root/AppRun",
+    "-datapath",
+    "/home/spider/sky-retint-production-v3/profile",
+    "-logfile",
+    "/home/spider/sky-retint-production-v3/emulator.log",
+    "-batch",
+    "-nogui",
+    "-elf",
+    "/mnt/f/Projects/tyrax2-lab-20261001/sky-retint-production-vehicle-v1/game/bin/vehicle-playground.elf"
+  ],
+  "exe": "/home/spider/tyrax2-debugger-linux-v1/squashfs-root/usr/bin/pcsx2-qt",
+  "exeSha256": "c4629baf9c5daca45a9df6ad1ee84a188aeb025627b822a3ea62bdc48b23da18",
+  "elfSha256": "d5eb55e9e78a93ecd729741be9eab37e48d50d44ec1acdfb9ba5b3c49e4317cc",
+  "symbolSha256": "843faae2220d40abb92d01b03b469bcb7ffe66acb6d2321873427bb9984daef6",
+  "sourceManifestSha256": "33d7b91059f9fd39113e18511583203d3a3c81d691003ad4b1e5ac39a709bfa6",
+  "buildRecordSha256": "c0a56e39e16316465750e4d356309a6f59e083744a488d5f5b22e96bd8992db4",
+  "helperSha256": "274ebd4dd94024df01e9c6c770b8a4f1bec8d44c1be8289cfb15b4bb5ef131ed"
+}

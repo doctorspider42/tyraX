@@ -81,3 +81,5 @@ docs/tyrax2-core-prefix-partition-2026-10-05/** -text whitespace=-trailing-space
 docs/tyrax2-core-bounds-2026-10-05/** -text whitespace=-trailing-space,-space-before-tab,cr-at-eol
 
 docs/tyrax2-core-preparation-experiments-2026-10-05/** -text whitespace=-trailing-space,-space-before-tab,cr-at-eol
+
+docs/tyrax2-sky-retint-2026-10-05/** -text whitespace=-trailing-space,-space-before-tab,cr-at-eol

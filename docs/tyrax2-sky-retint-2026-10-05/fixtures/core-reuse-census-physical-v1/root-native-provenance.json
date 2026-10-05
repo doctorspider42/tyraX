@@ -1,0 +1,18 @@
+{
+  "status": "quiet_native_build_and_assets_verified",
+  "build_backend": "native",
+  "build_exit_code": 0,
+  "exit_code_source": "root process result; exact build log preserved",
+  "selected_elf_sha256": "9e467fedb01e69e0d910874c781dfa4dbe98f5ebf52be683d137602b73f8c905",
+  "selected_symbol_sha256": "5736a1e29fc5d8096c0b74ebe7dc24b629d4bef07e795058d1c3c492d03d0e01",
+  "target_source_manifest_sha256": "f28aac3f7fbe033e2d148366aa264167d95cfd8d7f58b3320378dfc6ad538af6",
+  "build_log": "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-native-v40.log",
+  "build_log_sha256": "195ecb09c23c0406aaac30c818e63fdff01d8c37c01094a906f20c00eb129a67",
+  "verified_source_files": 501,
+  "runtime_assets": 298,
+  "current_authored_baked_byte_equal_assets": 294,
+  "converted_audio_assets": 4,
+  "asset_report_sha256": "3c4d2e3c8d27fed9308135669be790b7936c450957e480c16a1852445facdf4d",
+  "quiet_profile0_hardware_trace0": true,
+  "ordinary_clocks": true
+}

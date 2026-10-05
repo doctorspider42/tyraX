@@ -1,0 +1,50 @@
+{
+  "status": "PASS_ACTUAL_R5900_COMPILE_ONLY_NIGHT_LAYOUT",
+  "sizes": {
+    "Sample": 48,
+    "samples": 6144,
+    "Chunk": 28,
+    "chunks": 420,
+    "Counter": 16,
+    "commonCounter": 112,
+    "extraCounter": 48,
+    "WildCounter": 44,
+    "PoolTableCounter": 44,
+    "CoronaCounter": 36
+  },
+  "commands": [
+    [
+      "/home/spider/.cache/tyrax/native/toolchains/eff2c8918589264d49aa9a0f/ee/bin/mips64r5900el-ps2-elf-g++",
+      "-std=c++17",
+      "-O2",
+      "-G0",
+      "-I",
+      "/mnt/f/Projects/tyrax2-lab-20261001/core-reuse-census-physical-v5/tyra/engine/inc",
+      "-c",
+      "/mnt/f/Projects/tyrax2-lab-20261001/core-reuse-target-abi-v5/layout.cpp",
+      "-o",
+      "/mnt/f/Projects/tyrax2-lab-20261001/core-reuse-target-abi-v5/layout.o"
+    ],
+    [
+      "/home/spider/.cache/tyrax/native/toolchains/eff2c8918589264d49aa9a0f/ee/bin/mips64r5900el-ps2-elf-objcopy",
+      "-O",
+      "binary",
+      "-j",
+      ".rodata",
+      "/mnt/f/Projects/tyrax2-lab-20261001/core-reuse-target-abi-v5/layout.o",
+      "/mnt/f/Projects/tyrax2-lab-20261001/core-reuse-target-abi-v5/layout.bin"
+    ]
+  ],
+  "inputHashes": {
+    "/mnt/f/Projects/tyrax2-lab-20261001/core-reuse-census-physical-v5/tyra/engine/inc/debug/night_sampler.hpp": "b51b72a79d1ede2553d46fb9bf2fbe112fa5ad0796a8f88fb02dbec86464c7d6",
+    "/mnt/f/Projects/tyrax2-lab-20261001/core-reuse-census-physical-v5/tyra/engine/inc/debug/night_ablation.hpp": "e6dd5a07d0270ad31a9e6d0e28947cb0a327f0461601aeff99329b2274fa0014",
+    "/mnt/f/Projects/tyrax2-lab-20261001/core-reuse-census-physical-v5/tyra/engine/inc/debug/night_plan.hpp": "aa9d02d612abfe9c2420d0722c0c36fbf1c77723fd548b9eaa2313355c5b9f56",
+    "/mnt/f/Projects/tyrax2-lab-20261001/core-reuse-target-abi-v5/layout.cpp": "7f8f5cc400c366692ede8e4ab13008c892d0c373ab34f3ea3e17d5d9b4f8f1d7",
+    "/mnt/f/Projects/tyrax2-lab-20261001/core-reuse-target-abi-v5/layout.o": "a97d7cbf40d949ee932ece04f34d58415b305c891c2b9a910b5fe0abfafe67ef",
+    "/mnt/f/Projects/tyrax2-lab-20261001/core-reuse-target-abi-v5/layout.bin": "7ca3dbe3b6f5af462e15ce538235863f4e483f201ff7019d700c2bf36d3e2694",
+    "/home/spider/.cache/tyrax/native/toolchains/eff2c8918589264d49aa9a0f/ee/bin/mips64r5900el-ps2-elf-g++": "04212da9b41c83d31f478060b3af9619fcadb8d0381187006ee0df388e118f6d",
+    "/home/spider/.cache/tyrax/native/toolchains/eff2c8918589264d49aa9a0f/ee/bin/mips64r5900el-ps2-elf-objcopy": "f7851bf0575b53aae768fdb522e4f9a09d37371bdab3aa19533327b91c7e2553"
+  },
+  "runtimeOrFullApplicationFootprintAccepted": false,
+  "helperSha256": "69584bf4f333eeeacfddcb1a45ddd676b0306892763b6d86dba54339ee763328"
+}

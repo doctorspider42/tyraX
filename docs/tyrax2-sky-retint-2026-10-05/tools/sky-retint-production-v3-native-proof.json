@@ -1,0 +1,12 @@
+{
+  "status": "PASS_ACTUAL_NATIVE_PRODUCTION_V3_SOURCE_CACHE_PUBLICATION",
+  "sourceFiles": 75,
+  "engineFiles": 389,
+  "engineManifestSha256": "547d2d35663f497bcb08e5ccf67b43d935cd01d4524d98828ad62ccf5a521dbc",
+  "sourceManifestSha256": "33d7b91059f9fd39113e18511583203d3a3c81d691003ad4b1e5ac39a709bfa6",
+  "buildLogSha256": "eee47fe5ef6caeef682ee91cfe54d082d5fdc94c90cfa48c438abb6feb154619",
+  "elfSha256": "d5eb55e9e78a93ecd729741be9eab37e48d50d44ec1acdfb9ba5b3c49e4317cc",
+  "symbolSha256": "843faae2220d40abb92d01b03b469bcb7ffe66acb6d2321873427bb9984daef6",
+  "actualCacheRoot": "/home/spider/.cache/tyrax/native/projects/80b84b4e123cbb9773191d46",
+  "functionRuntimeQualifiedSeparately": true
+}

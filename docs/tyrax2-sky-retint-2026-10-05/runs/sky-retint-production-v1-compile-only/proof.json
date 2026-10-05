@@ -1,0 +1,13 @@
+{
+  "status": "COMPILE_ONLY_NATIVE_EXIT0_PUBLICATION_MARKER_NO_RUNTIME",
+  "logSha256": "bfe37a0792144cf951988d6975706614acdd8ef66f7566e6f8bb7f4b416aaec6",
+  "elfSha256": "9a800346fb933ffebeb318d446e3d8a2510976b36beb8b9bdba675a186e8d007",
+  "symbolSha256": "1e91a571abfce98e289e4d9b4cb5c04f1247a0210b67ff9fa85ac85a3091ef19",
+  "inputs": {
+    "src/terrain_game.cpp": "4ccebd809aa0fd86fa7687bc388ef6ffe16b3b08a89983d55e16defee3104409",
+    "src/gen/game_physics.gen.cpp": "b2eb259e979bbd83ab875c29cd27f6cca6b24c4326937a6a1596f1f54f4adb8b",
+    "src/gen/game_collision.gen.cpp": "b96a4384bc00b1878ca60f881332364d12a13ca7c41e829e6b61dd5782d874c0",
+    "inc/scene_data.hpp": "7aaa1c84c353ea421ca6b995cf374d57087528bb7091601998d93ed811ef5c12",
+    "inc/terrain_game.hpp": "f0409a4a15ab4884003a15ee035650c3a06c78d41960bfae9fdff8b2f2b99b65"
+  }
+}

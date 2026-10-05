@@ -1,0 +1,158 @@
+{
+  "F:\\Projects\\tyrax2-lab-20261001\\core-reuse-census-physical-v1\\game\\src\\gen\\livedbg.sym": {
+    "sha256": "5bf4bc3a7767a57daf0011cd5d1051cccbc5578e3faad87ad4f43ea7e9b5565a",
+    "bytes": 530
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\core-reuse-census-physical-v2\\game\\src\\gen\\livedbg.sym": {
+    "sha256": "5bf4bc3a7767a57daf0011cd5d1051cccbc5578e3faad87ad4f43ea7e9b5565a",
+    "bytes": 530
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\core-reuse-census-physical-v5\\game\\src\\gen\\livedbg.sym": {
+    "sha256": "5bf4bc3a7767a57daf0011cd5d1051cccbc5578e3faad87ad4f43ea7e9b5565a",
+    "bytes": 530
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\sky-retint-physical-v1\\game\\src\\gen\\livedbg.sym": {
+    "sha256": "5bf4bc3a7767a57daf0011cd5d1051cccbc5578e3faad87ad4f43ea7e9b5565a",
+    "bytes": 530
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\sky-retint-physical-v2\\game\\src\\gen\\livedbg.sym": {
+    "sha256": "5bf4bc3a7767a57daf0011cd5d1051cccbc5578e3faad87ad4f43ea7e9b5565a",
+    "bytes": 530
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-core-reuse-order0-20261005-launch\\vehicle-playground.elf": {
+    "sha256": "9e467fedb01e69e0d910874c781dfa4dbe98f5ebf52be683d137602b73f8c905",
+    "bytes": 4489948
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-core-reuse-order0-20261005-launch\\vehicle-playground.elf.sym": {
+    "sha256": "5736a1e29fc5d8096c0b74ebe7dc24b629d4bef07e795058d1c3c492d03d0e01",
+    "bytes": 24669708
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-core-reuse-order0-20261005-evidence\\vehicle-playground.elf": {
+    "sha256": "9e467fedb01e69e0d910874c781dfa4dbe98f5ebf52be683d137602b73f8c905",
+    "bytes": 4489948
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-core-reuse-order0-20261005-evidence\\vehicle-playground.elf.sym": {
+    "sha256": "5736a1e29fc5d8096c0b74ebe7dc24b629d4bef07e795058d1c3c492d03d0e01",
+    "bytes": 24669708
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-emulator-core-reuse-v2-order0-20261005-launch\\vehicle-playground.elf": {
+    "sha256": "e8e31824baee44dc86fe143baff9cc2da2da6796368e809eeac900fd1d4f6f6f",
+    "bytes": 4492156
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-emulator-core-reuse-v2-order0-20261005-launch\\vehicle-playground.elf.sym": {
+    "sha256": "9264a49e42597dba87a106bcc63eb215faac1089ac29e02881875b755d3fa2a3",
+    "bytes": 24680592
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-emulator-core-reuse-v2-order0-20261005-evidence\\vehicle-playground.elf": {
+    "sha256": "e8e31824baee44dc86fe143baff9cc2da2da6796368e809eeac900fd1d4f6f6f",
+    "bytes": 4492156
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-emulator-core-reuse-v2-order0-20261005-evidence\\vehicle-playground.elf.sym": {
+    "sha256": "9264a49e42597dba87a106bcc63eb215faac1089ac29e02881875b755d3fa2a3",
+    "bytes": 24680592
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-core-reuse-v5-order1-20261005-launch\\vehicle-playground.elf": {
+    "sha256": "b5ddbff19e18b2a03b89617f3f0c6674b364e89a02c401706bb0ca3b07fba30d",
+    "bytes": 4494076
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-core-reuse-v5-order1-20261005-launch\\vehicle-playground.elf.sym": {
+    "sha256": "cbab21262aae0c2c5aa1a05d55afc0516e35033b08f741bc2ccd399efdea8afc",
+    "bytes": 24692300
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-core-reuse-v5-order1-20261005-evidence\\vehicle-playground.elf": {
+    "sha256": "b5ddbff19e18b2a03b89617f3f0c6674b364e89a02c401706bb0ca3b07fba30d",
+    "bytes": 4494076
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-core-reuse-v5-order1-20261005-evidence\\vehicle-playground.elf.sym": {
+    "sha256": "cbab21262aae0c2c5aa1a05d55afc0516e35033b08f741bc2ccd399efdea8afc",
+    "bytes": 24692300
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-sky-retint-order1-20261005-retry2-launch\\vehicle-playground.elf": {
+    "sha256": "a5dd71bc8f1720b39f2769e7b520bd10cc18882e46a7a0bef25a4c83c17a1ab6",
+    "bytes": 4493948
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-sky-retint-order1-20261005-retry2-launch\\vehicle-playground.elf.sym": {
+    "sha256": "691fb9c3accc27193636c9206c8e312bb4f3551b21cca35e269c5aad9f8c9b93",
+    "bytes": 24719300
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-sky-retint-order1-20261005-retry2-evidence\\vehicle-playground.elf": {
+    "sha256": "a5dd71bc8f1720b39f2769e7b520bd10cc18882e46a7a0bef25a4c83c17a1ab6",
+    "bytes": 4493948
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-sky-retint-order1-20261005-retry2-evidence\\vehicle-playground.elf.sym": {
+    "sha256": "691fb9c3accc27193636c9206c8e312bb4f3551b21cca35e269c5aad9f8c9b93",
+    "bytes": 24719300
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-sky-retint-order0-20261005-launch\\vehicle-playground.elf": {
+    "sha256": "a5dd71bc8f1720b39f2769e7b520bd10cc18882e46a7a0bef25a4c83c17a1ab6",
+    "bytes": 4493948
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-sky-retint-order0-20261005-launch\\vehicle-playground.elf.sym": {
+    "sha256": "691fb9c3accc27193636c9206c8e312bb4f3551b21cca35e269c5aad9f8c9b93",
+    "bytes": 24719300
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-sky-retint-order0-20261005-evidence\\vehicle-playground.elf": {
+    "sha256": "a5dd71bc8f1720b39f2769e7b520bd10cc18882e46a7a0bef25a4c83c17a1ab6",
+    "bytes": 4493948
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-sky-retint-order0-20261005-evidence\\vehicle-playground.elf.sym": {
+    "sha256": "691fb9c3accc27193636c9206c8e312bb4f3551b21cca35e269c5aad9f8c9b93",
+    "bytes": 24719300
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-emulator-sky-retint-order0-20261005-launch\\vehicle-playground.elf": {
+    "sha256": "a5dd71bc8f1720b39f2769e7b520bd10cc18882e46a7a0bef25a4c83c17a1ab6",
+    "bytes": 4493948
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-emulator-sky-retint-order0-20261005-launch\\vehicle-playground.elf.sym": {
+    "sha256": "691fb9c3accc27193636c9206c8e312bb4f3551b21cca35e269c5aad9f8c9b93",
+    "bytes": 24719300
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-sky-retint-order1-20261005-launch\\vehicle-playground.elf": {
+    "sha256": "a5dd71bc8f1720b39f2769e7b520bd10cc18882e46a7a0bef25a4c83c17a1ab6",
+    "bytes": 4493948
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-sky-retint-order1-20261005-launch\\vehicle-playground.elf.sym": {
+    "sha256": "691fb9c3accc27193636c9206c8e312bb4f3551b21cca35e269c5aad9f8c9b93",
+    "bytes": 24719300
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-sky-retint-order1-20261005-retry1-launch\\vehicle-playground.elf": {
+    "sha256": "a5dd71bc8f1720b39f2769e7b520bd10cc18882e46a7a0bef25a4c83c17a1ab6",
+    "bytes": 4493948
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-sky-retint-order1-20261005-retry1-launch\\vehicle-playground.elf.sym": {
+    "sha256": "691fb9c3accc27193636c9206c8e312bb4f3551b21cca35e269c5aad9f8c9b93",
+    "bytes": 24719300
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-sky-trigger-order1-20261005-retry1-launch\\vehicle-playground.elf": {
+    "sha256": "bdb071d80b96e96a65494de09037a95dfe02bb912ca9c87c0b4e2308ceac8707",
+    "bytes": 4494588
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-sky-trigger-order1-20261005-retry1-launch\\vehicle-playground.elf.sym": {
+    "sha256": "8a6c7a5bff2a0c098dbf45ebec4a560d84b05dae91543c2c2b29e61b898d3727",
+    "bytes": 24727344
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-sky-trigger-order1-20261005-retry1-evidence\\vehicle-playground.elf": {
+    "sha256": "bdb071d80b96e96a65494de09037a95dfe02bb912ca9c87c0b4e2308ceac8707",
+    "bytes": 4494588
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-sky-trigger-order1-20261005-retry1-evidence\\vehicle-playground.elf.sym": {
+    "sha256": "8a6c7a5bff2a0c098dbf45ebec4a560d84b05dae91543c2c2b29e61b898d3727",
+    "bytes": 24727344
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-sky-trigger-order1-20261005-launch\\vehicle-playground.elf": {
+    "sha256": "bdb071d80b96e96a65494de09037a95dfe02bb912ca9c87c0b4e2308ceac8707",
+    "bytes": 4494588
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-sky-trigger-order1-20261005-launch\\vehicle-playground.elf.sym": {
+    "sha256": "8a6c7a5bff2a0c098dbf45ebec4a560d84b05dae91543c2c2b29e61b898d3727",
+    "bytes": 24727344
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\sky-retint-production-vehicle-v1\\game\\src\\gen\\livedbg.sym": {
+    "sha256": "e5977d13f4bf4b6f6a5afb5b5d9c0054da7c68f6daaaa8229f79ae6a9754e272",
+    "bytes": 465
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\sky-retint-production-v2-compile-inputs\\src\\gen\\livedbg.sym": {
+    "sha256": "e5977d13f4bf4b6f6a5afb5b5d9c0054da7c68f6daaaa8229f79ae6a9754e272",
+    "bytes": 465
+  }
+}
