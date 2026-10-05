@@ -540,3 +540,5 @@ The [night producer observer trial](tyrax2-night-producers.md) qualifies both ha
 The [Core prefix partition](tyrax2-core-prefix-partition.md) separates bounds/package preparation, texture/program/light facts and object-data routing in one native ELF. Both physical clock orders retain disjoint elapsed costs, observation limits and complete source-bound evidence.
 
 The [Core prefix follow-up](tyrax2-core-prefix-partition.md#five-part-bounds-follow-up-kind15) prices five disjoint head/bounds/package regions in both physical clock orders. No one subregion dominates; exact matrix-key and clip-plane specialization candidates require separate physical pricing.
+
+The [Core preparation experiments](tyrax2-core-preparation-experiments.md) reject an unresolved EE quad matrix-key gain and document a clip-plane host/emulator pass that fails actual PS2 bits. Forced coefficient mul.s restores sparse agreement but regresses; row-sharing requires a separate price.

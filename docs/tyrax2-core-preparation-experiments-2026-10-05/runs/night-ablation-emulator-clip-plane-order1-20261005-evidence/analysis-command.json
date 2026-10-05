@@ -1,0 +1,25 @@
+{
+  "command": [
+    "/usr/bin/python3",
+    "/mnt/f/Projects/tyrax2-lab-20261001/clip-plane-controls-v2/analyze-night-cli.py",
+    "--stdout",
+    "/home/spider/night-ablation-emulator-clip-plane-order1-20261005/emulator.log",
+    "--artifact",
+    "/mnt/f/Projects/tyrax2-lab-20261001/clip-plane-specialize-physical-v2/game/bin/night-ablation.log",
+    "--environment",
+    "emulator",
+    "--kind",
+    "17",
+    "--order",
+    "1",
+    "--joint",
+    "0",
+    "--restored",
+    "0",
+    "--report",
+    "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-emulator-clip-plane-order1-20261005-evidence/strict-analysis.json"
+  ],
+  "exitCode": 0,
+  "stdout": "PASS_STRICT_NIGHT_MASKED_LOOP_CAPTURE\n",
+  "stderr": ""
+}

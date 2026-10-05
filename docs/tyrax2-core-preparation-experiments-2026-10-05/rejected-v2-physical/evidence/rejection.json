@@ -1,0 +1,8 @@
+{
+  "status": "REJECTED_PHYSICAL_NUMERICAL_ORACLE",
+  "doneValid": 0,
+  "loops": 5400,
+  "pricedResultAccepted": false,
+  "targetColdMismatchCount": 451,
+  "reason": "Candidate plane outputs differ from existing EE computation. Emulator/host pass does not supersede actual target mismatch."
+}

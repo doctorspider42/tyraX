@@ -1,0 +1,50 @@
+[
+  {
+    "name": "matrix-key",
+    "stem": "night-ablation-ps2-matrix-key-order0-20261005",
+    "means_ms": [
+      18.972416994306776,
+      18.95135660171509,
+      18.926445632510717
+    ],
+    "candidateOnMinusOff_ms": 0.0019252883063458626,
+    "outerSpread_ms": 0.04597136179605954,
+    "strictSha256": "c49b2a3b71bf8d6a53ed62a2b533db71b91dc27a2c0d2e9e88957dd8bea85691"
+  },
+  {
+    "name": "matrix-key",
+    "stem": "night-ablation-ps2-matrix-key-order1-20261005",
+    "means_ms": [
+      18.904703108469644,
+      18.94336930380927,
+      18.928744178348115
+    ],
+    "candidateOnMinusOff_ms": -0.026645660400390625,
+    "outerSpread_ms": 0.024041069878471433,
+    "strictSha256": "1d32c8538e7b60786503c5fddf0583510c2cb97675e5b5cef890c38b27881176"
+  },
+  {
+    "name": "clip-v3",
+    "stem": "night-ablation-ps2-clip-plane-v3-order0-20261005",
+    "means_ms": [
+      19.768688360850017,
+      19.92263518439399,
+      19.81226577758789
+    ],
+    "candidateOnMinusOff_ms": 0.13215811517503795,
+    "outerSpread_ms": 0.043577416737871744,
+    "strictSha256": "99f05c6d88b800af32776d4a50ab9c69d25f98a17a16d316e20615a5d64e0403"
+  },
+  {
+    "name": "clip-v3",
+    "stem": "night-ablation-ps2-clip-plane-v3-order1-20261005",
+    "means_ms": [
+      19.998266463809543,
+      19.849954414367673,
+      20.04626955456204
+    ],
+    "candidateOnMinusOff_ms": 0.17231359481812092,
+    "outerSpread_ms": 0.04800309075249842,
+    "strictSha256": "55af2818060d4b96b7ced36a4ed96145b3cf0769300625defdb1c63c3c834d37"
+  }
+]

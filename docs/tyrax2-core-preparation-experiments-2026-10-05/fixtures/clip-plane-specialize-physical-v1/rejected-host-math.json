@@ -1,0 +1,7 @@
+{
+  "status": "REJECTED_BEFORE_RUNTIME",
+  "reason": "Exact far plane w coefficient erroneously -1 instead of original +1; host finite-matrix oracle caught 981498 mismatched planes/8000000. No runtime boot or production promotion.",
+  "hostCases": 1000000,
+  "planeComparisons": 8000000,
+  "mismatches": 981498
+}

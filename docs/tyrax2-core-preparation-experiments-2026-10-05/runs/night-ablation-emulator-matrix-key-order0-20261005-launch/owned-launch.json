@@ -1,0 +1,37 @@
+{
+  "pid": 62,
+  "args": [
+    "/home/spider/tyrax2-debugger-linux-v1/squashfs-root/AppRun",
+    "-datapath",
+    "/home/spider/night-ablation-emulator-matrix-key-order0-20261005/profile",
+    "-logfile",
+    "/home/spider/night-ablation-emulator-matrix-key-order0-20261005/emulator.log",
+    "-batch",
+    "-nogui",
+    "-elf",
+    "/mnt/f/Projects/tyrax2-lab-20261001/matrix-key-quad-physical-v1/game/bin/vehicle-playground.elf"
+  ],
+  "exe": "/home/spider/tyrax2-debugger-linux-v1/squashfs-root/usr/bin/pcsx2-qt",
+  "exeSha256": "c4629baf9c5daca45a9df6ad1ee84a188aeb025627b822a3ea62bdc48b23da18",
+  "fixture": "/mnt/f/Projects/tyrax2-lab-20261001/matrix-key-quad-physical-v1",
+  "stem": "night-ablation-emulator-matrix-key-order0-20261005",
+  "kind": 16,
+  "order": 0,
+  "joint": 0,
+  "restored": 0,
+  "elfSha256": "7dae2f35d554a15ecc94be975f949deb5afcc2acf0e144f191a05a520fa7afe9",
+  "profile": "/home/spider/night-ablation-emulator-matrix-key-order0-20261005/profile",
+  "launchArchive": "/mnt/f/Projects/tyrax2-lab-20261001/night-ablation-emulator-matrix-key-order0-20261005-launch",
+  "helperSha256": "5930768cb0d1d3592c8e81758d885d4b78f15a491803dc5baffd458430191dfd",
+  "launchFiles": {
+    "night-ablation.cfg": "ad2fd1858681e9993c6a2e22f675a9e2d81095e7300111f6b55d816abafe8f30",
+    "quiet-night.cfg": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+    "root-native-provenance.json": "ddac0bbd7d5044fe0505d16c9dd261e8e8fe19c9215a93d990faa7d421f63451",
+    "root-runtime-authority.json": "efad81c0b502650b8764b218444dfa744ee6f4b98f5499bbbcc32103ce3e180a",
+    "root-source-freeze.json": "3419b66277ce1048191eef265eaf423cbf051f07390756c8e27497135e75e259",
+    "runtime-assets-manifest.json": "172da3da52b28c099fb6a867c202412748565c22ace74188d5c4da6488b21603",
+    "target-source-manifest.json": "d2badd8b28f1a5fe78dedc809450b99b5a2d60dd0f20166f1c369d28055385a5",
+    "vehicle-playground.elf": "7dae2f35d554a15ecc94be975f949deb5afcc2acf0e144f191a05a520fa7afe9",
+    "vehicle-playground.elf.sym": "286d31246fa15f146571932fa6572137818a8691aa9aafe81249639d51f869d2"
+  }
+}

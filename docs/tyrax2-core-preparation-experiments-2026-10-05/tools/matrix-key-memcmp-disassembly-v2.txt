@@ -1,0 +1,45 @@
+
+/mnt/f/Projects/tyrax2-lab-20261001/matrix-key-quad-physical-v1/game/bin/vehicle-playground.elf.sym:     file format elf32-nlittlemips
+
+
+Disassembly of section .text:
+
+002b0168 <memcmp>:
+  2b0168:	2cc20004 	sltiu	v0,a2,4
+  2b016c:	1440001e 	bnez	v0,2b01e8 <memcmp+0x80>
+  2b0170:	00000000 	nop
+  2b0174:	00a41025 	or	v0,a1,a0
+  2b0178:	30420003 	andi	v0,v0,0x3
+  2b017c:	10400010 	beqz	v0,2b01c0 <memcmp+0x58>
+  2b0180:	00000000 	nop
+  2b0184:	24c6ffff 	addiu	a2,a2,-1
+  2b0188:	24c60001 	addiu	a2,a2,1
+  2b018c:	00863021 	addu	a2,a0,a2
+  2b0190:	10000003 	b	2b01a0 <memcmp+0x38>
+  2b0194:	00000000 	nop
+  2b0198:	10c40015 	beq	a2,a0,2b01f0 <memcmp+0x88>
+  2b019c:	00000000 	nop
+  2b01a0:	90820000 	lbu	v0,0(a0)
+  2b01a4:	24a50001 	addiu	a1,a1,1
+  2b01a8:	90a3ffff 	lbu	v1,-1(a1)
+  2b01ac:	24840001 	addiu	a0,a0,1
+  2b01b0:	1043fff9 	beq	v0,v1,2b0198 <memcmp+0x30>
+  2b01b4:	00000000 	nop
+  2b01b8:	03e00008 	jr	ra
+  2b01bc:	00431023 	subu	v0,v0,v1
+  2b01c0:	8c830000 	lw	v1,0(a0)
+  2b01c4:	8ca20000 	lw	v0,0(a1)
+  2b01c8:	1462ffee 	bne	v1,v0,2b0184 <memcmp+0x1c>
+  2b01cc:	00000000 	nop
+  2b01d0:	24c6fffc 	addiu	a2,a2,-4
+  2b01d4:	24840004 	addiu	a0,a0,4
+  2b01d8:	2cc20004 	sltiu	v0,a2,4
+  2b01dc:	24a50004 	addiu	a1,a1,4
+  2b01e0:	1040fff7 	beqz	v0,2b01c0 <memcmp+0x58>
+  2b01e4:	00000000 	nop
+  2b01e8:	14c0ffe6 	bnez	a2,2b0184 <memcmp+0x1c>
+  2b01ec:	00000000 	nop
+  2b01f0:	03e00008 	jr	ra
+  2b01f4:	00001025 	move	v0,zero
+
+Disassembly of section .vutext:

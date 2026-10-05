@@ -1,0 +1,19 @@
+{
+  "status": "PASS_SYNTHETIC_CLIP_PLANE_DIALECT_CONTROLS",
+  "rows": [
+    {
+      "order": 0,
+      "positiveAccepted": true,
+      "negativeRejected": 7,
+      "synthetic": true
+    },
+    {
+      "order": 1,
+      "positiveAccepted": true,
+      "negativeRejected": 7,
+      "synthetic": true
+    }
+  ],
+  "runtimeAcceptance": false,
+  "parserSha256": "75ebb4696e09b5e42eeedebf03a3f7bf926734c790b85c66facb430c0dedd614"
+}

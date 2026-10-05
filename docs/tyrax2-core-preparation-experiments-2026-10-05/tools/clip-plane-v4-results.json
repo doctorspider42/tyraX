@@ -1,0 +1,24 @@
+[
+  {
+    "stem": "night-ablation-ps2-clip-plane-v4-order0-20261005",
+    "means_ms": [
+      19.37729802661472,
+      19.42166460884942,
+      19.449544207255045
+    ],
+    "candidateOnMinusOff_ms": 0.008243491914534218,
+    "outerSpread_ms": 0.07224618064032384,
+    "strictSha256": "b936e0b4fdad7d25892272aa80fc2167da8916e434e25bf9a0704489579f3eda"
+  },
+  {
+    "stem": "night-ablation-ps2-clip-plane-v4-order1-20261005-retry1",
+    "means_ms": [
+      19.365716965993247,
+      19.55845455593533,
+      19.391334099239774
+    ],
+    "candidateOnMinusOff_ms": -0.1799290233188202,
+    "outerSpread_ms": 0.025617133246527146,
+    "strictSha256": "4ae19be95d898407ed676cc95af8fea9db9e73ec36ed2f020bdf06dd198c9c34"
+  }
+]

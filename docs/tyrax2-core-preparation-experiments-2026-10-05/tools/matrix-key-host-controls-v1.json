@@ -1,0 +1,19 @@
+{
+  "status": "PASS_SYNTHETIC_MATRIX_KEY_DIALECT_CONTROLS",
+  "rows": [
+    {
+      "order": 0,
+      "positiveAccepted": true,
+      "negativeRejected": 7,
+      "synthetic": true
+    },
+    {
+      "order": 1,
+      "positiveAccepted": true,
+      "negativeRejected": 7,
+      "synthetic": true
+    }
+  ],
+  "runtimeAcceptance": false,
+  "parserSha256": "da2e851bd9296e153b51a8ffd71f18736de3e972019cfa237cb01ec229d39170"
+}

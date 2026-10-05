@@ -1,0 +1,44 @@
+{
+  "status": "ADDITIONAL_READ_ONLY_KIND9_PREFIX_REANALYSIS_AUTHORITY_OLD_OBSERVED_ATTEMPT_UNCHANGED",
+  "sixParserPins": {
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-gs-sprite-corona-controls-v2\\analyze-loop.py": "5f1e9756449a5d35e9ce9567ab87be9e4388ed98b777f3ff72622b0e71f7fa27",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-gs-sprite-corona-controls-v2\\analyze-night.py": "4f21d7a1c3a764cc08ce3968cd8ecdefa7ddd755303ad2c26e73651ff754b8d8",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-gs-sprite-corona-controls-v2\\analyze-night-cli.py": "f3ff6a6c125759bff1090dc6e404ab4382c66056baee8b4d942be50a3ce7be21",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-gs-sprite-corona-controls-v2\\corona_controls.py": "1decafffab8d86f2b34e2d20054a5e729d69d2c9259f9938bd8370666435a43a",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-gs-sprite-corona-controls-v2\\source-controls\\night_plan.hpp": "b0b398247d277e56c66cc8a35083745f37fed5cdc95c30839927c20ce5ebeac0",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-gs-sprite-corona-controls-v2\\source-controls\\stapip_vu1_shared_defines.h": "cf73e7be8c173e3ee9b04c54a9c57adbc18b7da29c9e4ed6d69c51dddf961d5b"
+  },
+  "actualCLIReport": "F:\\Projects\\tyrax2-lab-20261001\\wild-gs-sprite-corona-controls-v2\\actual-order0-reanalysis.json",
+  "actualCLIReportSha256": "7280d54a09c9f239e95f4c75100ebec6eeba3be7132dc48d6cdadf48b9dafc8b",
+  "actualInputPins": {
+    "/home/spider/night-ablation-emulator-corona-admission-order0-20261005/emulator.log": "2f17c554c3b6d4636d841b702bcb00ec63293feacf53daa6be20b6eda0be064a",
+    "/mnt/f/Projects/tyrax2-lab-20261001/wild-gs-sprite-corona-physical-v2/game/bin/night-ablation.log": "3862e390590dfc3fdc4df265cc4e1821a5418e2ce9f93f716ce2e084b5ed92ef",
+    "/mnt/f/Projects/tyrax2-lab-20261001/wild-gs-sprite-corona-controls-v2/analyze-night-cli.py": "f3ff6a6c125759bff1090dc6e404ab4382c66056baee8b4d942be50a3ce7be21",
+    "/mnt/f/Projects/tyrax2-lab-20261001/wild-gs-sprite-corona-controls-v2/analyze-night.py": "4f21d7a1c3a764cc08ce3968cd8ecdefa7ddd755303ad2c26e73651ff754b8d8",
+    "/mnt/f/Projects/tyrax2-lab-20261001/wild-gs-sprite-corona-controls-v2/analyze-loop.py": "5f1e9756449a5d35e9ce9567ab87be9e4388ed98b777f3ff72622b0e71f7fa27",
+    "/mnt/f/Projects/tyrax2-lab-20261001/wild-gs-sprite-corona-controls-v2/corona_controls.py": "1decafffab8d86f2b34e2d20054a5e729d69d2c9259f9938bd8370666435a43a",
+    "/mnt/f/Projects/tyrax2-lab-20261001/wild-gs-sprite-corona-controls-v2/source-controls/night_plan.hpp": "b0b398247d277e56c66cc8a35083745f37fed5cdc95c30839927c20ce5ebeac0",
+    "/mnt/f/Projects/tyrax2-lab-20261001/wild-gs-sprite-corona-controls-v2/source-controls/stapip_vu1_shared_defines.h": "cf73e7be8c173e3ee9b04c54a9c57adbc18b7da29c9e4ed6d69c51dddf961d5b"
+  },
+  "oldRejectedCapturePins": {
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-emulator-corona-admission-order0-20261005-evidence\\analysis-command.json": "feef1a781a30188fd9f8b7cc36bf5d0543dc7d8f0639f1df2ee74df872eb8edf",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-emulator-corona-admission-order0-20261005-evidence\\strict-analysis.json": "d4a5969ce518522cef939bc12d5aa12866f088ea8e5b1d3d6af83284e75f9064"
+  },
+  "oldLaunchPins": {
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-emulator-corona-admission-order0-20261005-launch\\owned-launch.json": "d5d2f800d4a5b5e7ad0ec104725402571e3f572d252ea3e09ceb0f42b1201816",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-emulator-corona-admission-order0-20261005-launch\\root-runtime-authority.json": "e18aafdc38c6b796c28120656d3f0808494c3047c2220083097a2fda84300e1e",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-emulator-corona-admission-order0-20261005-launch\\target-source-manifest.json": "b9582677a88857c64d7c807e8c7acfb170d4aa84b5ef826bdd62734f1e26ebe3",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-emulator-corona-admission-order0-20261005-launch\\root-native-provenance.json": "1a36abeed334126eba9c368980a6cc6dc71d03a763292b8979140a5ba0b5e174"
+  },
+  "kind": 9,
+  "order": 0,
+  "engineLoops": 5400,
+  "rawRows": 384,
+  "chunks": 15,
+  "coronaColdRequests": 0,
+  "coronaOutputStatus": "ZERO_COLD_REQUESTS_CACHE_REPLAY_OR_INACTIVE_UNKNOWN",
+  "actualSpriteOutputAccepted": false,
+  "sourceNativeProfileAssetsOwnershipClosureRequiredFromOldLaunch": true,
+  "newDeviceExecution": false,
+  "oldAuthorityMutated": false
+}
