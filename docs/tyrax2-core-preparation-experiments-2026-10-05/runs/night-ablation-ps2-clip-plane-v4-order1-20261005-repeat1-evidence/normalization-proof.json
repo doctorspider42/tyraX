@@ -1,0 +1,13 @@
+{
+  "status": "PASS_LOSSLESS_LATIN1_ASCII_NIGHT_PROTOCOL_NORMALIZATION",
+  "rawPath": "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-clip-plane-v4-order1-20261005-repeat1.log",
+  "normalizedPath": "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-clip-plane-v4-order1-20261005-repeat1-utf8.log",
+  "rawSha256": "4b8561d8be2a1cce80c28cfcf10c18fa1eb701803b34d4ff2bc388afbba39587",
+  "normalizedSha256": "50a941b3d87ea584777a0e027178a32a8ac84c650ecfc41a53a5d7c2d6187e31",
+  "rawBytes": 31022,
+  "normalizedBytes": 31024,
+  "authoritativeASCIIProtocolRows": 94,
+  "authoritativeASCIIProtocolSha256": "567017575c8e8b11db42cc1d7b5bfd4d38e97e6aeda9c544011d7bc93e2e2648",
+  "losslessLatin1Roundtrip": true,
+  "originalRawChanged": false
+}

@@ -1,0 +1,25 @@
+{
+  "command": [
+    "F:\\Python\\Conda\\python.exe",
+    "F:\\Projects\\tyrax2-lab-20261001\\clip-plane-controls-v4\\analyze-night-cli.py",
+    "--stdout",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-clip-plane-v4-order0-20261005-repeat1-utf8.log",
+    "--artifact",
+    "F:\\Projects\\tyrax2-lab-20261001\\clip-plane-specialize-physical-v4\\game\\bin\\night-ablation.log",
+    "--environment",
+    "ps2",
+    "--kind",
+    "17",
+    "--order",
+    "0",
+    "--joint",
+    "0",
+    "--restored",
+    "0",
+    "--report",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-clip-plane-v4-order0-20261005-repeat1-evidence\\strict-analysis.json"
+  ],
+  "exitCode": 0,
+  "stdout": "PASS_STRICT_NIGHT_MASKED_LOOP_CAPTURE\n",
+  "stderr": ""
+}

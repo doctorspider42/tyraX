@@ -1,7 +1,7 @@
 {
   "binary-hashes.json": {
-    "sha256": "5598f8c9bfc8d49ad4e6ff51909d787b619f066ea00d3dad7ea0d42a294062d4",
-    "bytes": 12566
+    "sha256": "6b98d464e0bdd5f8659589a443201946f5dae088d775cf475c098f9fe07a1bdd",
+    "bytes": 14498
   },
   "builds/night-ablation-native-v35.err": {
     "sha256": "cb8496de518e4c0c979421e4a0aaaf0cf0056a23bf7ff117359543727cd9318e",
@@ -1399,6 +1399,182 @@
     "sha256": "08270c76656e2a266a9b40711287c30b715019b2f38b3368224fbee7d4a38cb3",
     "bytes": 66097
   },
+  "runs/night-ablation-ps2-clip-plane-v4-order0-20261005-repeat1-evidence/analysis-command.json": {
+    "sha256": "e2bbfe8b87e2577df0fdee00bb4a83e18b03be2409d58b3f8f14742856ddbcb1",
+    "bytes": 785
+  },
+  "runs/night-ablation-ps2-clip-plane-v4-order0-20261005-repeat1-evidence/analyze-loop.py": {
+    "sha256": "5f1e9756449a5d35e9ce9567ab87be9e4388ed98b777f3ff72622b0e71f7fa27",
+    "bytes": 10107
+  },
+  "runs/night-ablation-ps2-clip-plane-v4-order0-20261005-repeat1-evidence/analyze-night-cli.py": {
+    "sha256": "3dd898f4dc0a17c99970d541cecf09c662118015693a8e490fa44295f3860b2f",
+    "bytes": 1653
+  },
+  "runs/night-ablation-ps2-clip-plane-v4-order0-20261005-repeat1-evidence/analyze-night.py": {
+    "sha256": "75ebb4696e09b5e42eeedebf03a3f7bf926734c790b85c66facb430c0dedd614",
+    "bytes": 19500
+  },
+  "runs/night-ablation-ps2-clip-plane-v4-order0-20261005-repeat1-evidence/client-process.json": {
+    "sha256": "197bb9900aa5b91d9d085b72adf9b05a6bd9c1f8c5510df3d02002f3454d06eb",
+    "bytes": 255
+  },
+  "runs/night-ablation-ps2-clip-plane-v4-order0-20261005-repeat1-evidence/corona_controls.py": {
+    "sha256": "1decafffab8d86f2b34e2d20054a5e729d69d2c9259f9938bd8370666435a43a",
+    "bytes": 9823
+  },
+  "runs/night-ablation-ps2-clip-plane-v4-order0-20261005-repeat1-evidence/host-arrivals.jsonl": {
+    "sha256": "84791cde544838ebc4b35059d593775a8d2af0e7ff48fcab5b32c05e893caeb4",
+    "bytes": 3195
+  },
+  "runs/night-ablation-ps2-clip-plane-v4-order0-20261005-repeat1-evidence/host-authority.json": {
+    "sha256": "87581f2b85d0edbf555db573dc074e76464e7d0afa1ed6a0b8f112669806177c",
+    "bytes": 1080
+  },
+  "runs/night-ablation-ps2-clip-plane-v4-order0-20261005-repeat1-evidence/machine-evidence.json": {
+    "sha256": "9c3ff35b136c862596f515117f70600a1bf576f472023d6110b906e99bbab4b9",
+    "bytes": 4537
+  },
+  "runs/night-ablation-ps2-clip-plane-v4-order0-20261005-repeat1-evidence/native-build.log": {
+    "sha256": "06678cfcffee44b1224669a1b1c41ff208f9ecde676428f4026bd4c4e38aa4e7",
+    "bytes": 40902
+  },
+  "runs/night-ablation-ps2-clip-plane-v4-order0-20261005-repeat1-evidence/night-ablation.cfg": {
+    "sha256": "72d5d78177f93f41d1e66f001882351a73e6a8d119173ad2dcb7cb82a0a9152d",
+    "bytes": 9
+  },
+  "runs/night-ablation-ps2-clip-plane-v4-order0-20261005-repeat1-evidence/night-ablation.log": {
+    "sha256": "1cbe9bb8754a7f9b0d4eb2125f2c5ae54c87df45d68227a07b0578ba16de34ad",
+    "bytes": 86129
+  },
+  "runs/night-ablation-ps2-clip-plane-v4-order0-20261005-repeat1-evidence/normalization-proof.json": {
+    "sha256": "6c238111ccc9108b528081c68b0a4be698403b5023b20e318473e7280c32a7a5",
+    "bytes": 757
+  },
+  "runs/night-ablation-ps2-clip-plane-v4-order0-20261005-repeat1-evidence/observed-launch.json": {
+    "sha256": "c27b01a382405f0c6d739fa563b6c6472d4ea8b48c12fb6c3d2b85f386a672f5",
+    "bytes": 525
+  },
+  "runs/night-ablation-ps2-clip-plane-v4-order0-20261005-repeat1-evidence/owned-launch.json": {
+    "sha256": "26dbc989aa8a3f5109700c69d6df232cfc7f375d755d9debcbf6b4413bf21982",
+    "bytes": 1572
+  },
+  "runs/night-ablation-ps2-clip-plane-v4-order0-20261005-repeat1-evidence/owned-stop.json": {
+    "sha256": "197bb9900aa5b91d9d085b72adf9b05a6bd9c1f8c5510df3d02002f3454d06eb",
+    "bytes": 255
+  },
+  "runs/night-ablation-ps2-clip-plane-v4-order0-20261005-repeat1-evidence/ps2client-raw.log": {
+    "sha256": "552ebbb9879a41494d3a60b43a0ac7d5db11f35c6c795d2fcc62c4cd05897ca5",
+    "bytes": 31018
+  },
+  "runs/night-ablation-ps2-clip-plane-v4-order0-20261005-repeat1-evidence/ps2link.run": {
+    "sha256": "290eb100acb0b408fab11ae3445233dd7409222008a8c4dc3d0cf49a2bc1208a",
+    "bytes": 7
+  },
+  "runs/night-ablation-ps2-clip-plane-v4-order0-20261005-repeat1-evidence/quiet-night.cfg": {
+    "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+    "bytes": 2
+  },
+  "runs/night-ablation-ps2-clip-plane-v4-order0-20261005-repeat1-evidence/review-authority.json": {
+    "sha256": "66d948dc01c17201dd98fe4277fcbbee779a44ec45b8a928f9bfe225cd99ac5b",
+    "bytes": 449
+  },
+  "runs/night-ablation-ps2-clip-plane-v4-order0-20261005-repeat1-evidence/root-launcher-process.json": {
+    "sha256": "c2175bdc553be856cd675812c2bd4f5133d38ec488565892bca0e441bf95ea15",
+    "bytes": 96
+  },
+  "runs/night-ablation-ps2-clip-plane-v4-order0-20261005-repeat1-evidence/root-native-provenance.json": {
+    "sha256": "7b861ca6874ed5e63223ddb920f869b4e70095b4810214bab7e3f869ada60d21",
+    "bytes": 949
+  },
+  "runs/night-ablation-ps2-clip-plane-v4-order0-20261005-repeat1-evidence/root-runtime-authority.json": {
+    "sha256": "52546343fb3aee1f81ecbc1c5874cf177decaee67f248f403dc4a8aeaedc3377",
+    "bytes": 1150
+  },
+  "runs/night-ablation-ps2-clip-plane-v4-order0-20261005-repeat1-evidence/root-source-freeze.json": {
+    "sha256": "d385a2cda44f6980a4797471949079297e11d1f931176d7e193a3f406f41355c",
+    "bytes": 725
+  },
+  "runs/night-ablation-ps2-clip-plane-v4-order0-20261005-repeat1-evidence/runtime-assets-manifest.json": {
+    "sha256": "172da3da52b28c099fb6a867c202412748565c22ace74188d5c4da6488b21603",
+    "bytes": 34180
+  },
+  "runs/night-ablation-ps2-clip-plane-v4-order0-20261005-repeat1-evidence/source-controls/night_plan.hpp": {
+    "sha256": "10ab6a93740d2c0f64b5d74a0d7ae537590b342ed01a53f01225c10ab0938410",
+    "bytes": 2223
+  },
+  "runs/night-ablation-ps2-clip-plane-v4-order0-20261005-repeat1-evidence/source-controls/stapip_vu1_shared_defines.h": {
+    "sha256": "cf73e7be8c173e3ee9b04c54a9c57adbc18b7da29c9e4ed6d69c51dddf961d5b",
+    "bytes": 6147
+  },
+  "runs/night-ablation-ps2-clip-plane-v4-order0-20261005-repeat1-evidence/stdout.log": {
+    "sha256": "7ec211b98beb1ea842079fd97ed93dc79135eac3b0a55f380d1e1f827339b1c5",
+    "bytes": 31021
+  },
+  "runs/night-ablation-ps2-clip-plane-v4-order0-20261005-repeat1-evidence/strict-analysis.json": {
+    "sha256": "f09b87426a4a566c527d230d1b98db5f1d8c56c931fac73453af03cf55a5ad3a",
+    "bytes": 45581
+  },
+  "runs/night-ablation-ps2-clip-plane-v4-order0-20261005-repeat1-evidence/target-source-manifest.json": {
+    "sha256": "08270c76656e2a266a9b40711287c30b715019b2f38b3368224fbee7d4a38cb3",
+    "bytes": 66097
+  },
+  "runs/night-ablation-ps2-clip-plane-v4-order0-20261005-repeat1-launch/client-process.json": {
+    "sha256": "197bb9900aa5b91d9d085b72adf9b05a6bd9c1f8c5510df3d02002f3454d06eb",
+    "bytes": 255
+  },
+  "runs/night-ablation-ps2-clip-plane-v4-order0-20261005-repeat1-launch/host-arrivals.jsonl": {
+    "sha256": "84791cde544838ebc4b35059d593775a8d2af0e7ff48fcab5b32c05e893caeb4",
+    "bytes": 3195
+  },
+  "runs/night-ablation-ps2-clip-plane-v4-order0-20261005-repeat1-launch/night-ablation.cfg": {
+    "sha256": "72d5d78177f93f41d1e66f001882351a73e6a8d119173ad2dcb7cb82a0a9152d",
+    "bytes": 9
+  },
+  "runs/night-ablation-ps2-clip-plane-v4-order0-20261005-repeat1-launch/observed-launch.json": {
+    "sha256": "c27b01a382405f0c6d739fa563b6c6472d4ea8b48c12fb6c3d2b85f386a672f5",
+    "bytes": 525
+  },
+  "runs/night-ablation-ps2-clip-plane-v4-order0-20261005-repeat1-launch/owned-launch.json": {
+    "sha256": "26dbc989aa8a3f5109700c69d6df232cfc7f375d755d9debcbf6b4413bf21982",
+    "bytes": 1572
+  },
+  "runs/night-ablation-ps2-clip-plane-v4-order0-20261005-repeat1-launch/owned-stop.json": {
+    "sha256": "197bb9900aa5b91d9d085b72adf9b05a6bd9c1f8c5510df3d02002f3454d06eb",
+    "bytes": 255
+  },
+  "runs/night-ablation-ps2-clip-plane-v4-order0-20261005-repeat1-launch/ps2link.run": {
+    "sha256": "290eb100acb0b408fab11ae3445233dd7409222008a8c4dc3d0cf49a2bc1208a",
+    "bytes": 7
+  },
+  "runs/night-ablation-ps2-clip-plane-v4-order0-20261005-repeat1-launch/quiet-night.cfg": {
+    "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+    "bytes": 2
+  },
+  "runs/night-ablation-ps2-clip-plane-v4-order0-20261005-repeat1-launch/root-launcher-process.json": {
+    "sha256": "c2175bdc553be856cd675812c2bd4f5133d38ec488565892bca0e441bf95ea15",
+    "bytes": 96
+  },
+  "runs/night-ablation-ps2-clip-plane-v4-order0-20261005-repeat1-launch/root-native-provenance.json": {
+    "sha256": "7b861ca6874ed5e63223ddb920f869b4e70095b4810214bab7e3f869ada60d21",
+    "bytes": 949
+  },
+  "runs/night-ablation-ps2-clip-plane-v4-order0-20261005-repeat1-launch/root-runtime-authority.json": {
+    "sha256": "52546343fb3aee1f81ecbc1c5874cf177decaee67f248f403dc4a8aeaedc3377",
+    "bytes": 1150
+  },
+  "runs/night-ablation-ps2-clip-plane-v4-order0-20261005-repeat1-launch/root-source-freeze.json": {
+    "sha256": "d385a2cda44f6980a4797471949079297e11d1f931176d7e193a3f406f41355c",
+    "bytes": 725
+  },
+  "runs/night-ablation-ps2-clip-plane-v4-order0-20261005-repeat1-launch/runtime-assets-manifest.json": {
+    "sha256": "172da3da52b28c099fb6a867c202412748565c22ace74188d5c4da6488b21603",
+    "bytes": 34180
+  },
+  "runs/night-ablation-ps2-clip-plane-v4-order0-20261005-repeat1-launch/target-source-manifest.json": {
+    "sha256": "08270c76656e2a266a9b40711287c30b715019b2f38b3368224fbee7d4a38cb3",
+    "bytes": 66097
+  },
   "runs/night-ablation-ps2-clip-plane-v4-order1-20261005-launch/client-process.json": {
     "sha256": "cff5d73da710ce20a51bab168098e6b0969b27606672d915f3ef3d8707a7de3a",
     "bytes": 255
@@ -1448,6 +1624,182 @@
     "bytes": 34180
   },
   "runs/night-ablation-ps2-clip-plane-v4-order1-20261005-launch/target-source-manifest.json": {
+    "sha256": "08270c76656e2a266a9b40711287c30b715019b2f38b3368224fbee7d4a38cb3",
+    "bytes": 66097
+  },
+  "runs/night-ablation-ps2-clip-plane-v4-order1-20261005-repeat1-evidence/analysis-command.json": {
+    "sha256": "2ed5fdcffb9604d864f32d8dd778c78ebd7c96811356a7ca166240c0745b3e03",
+    "bytes": 785
+  },
+  "runs/night-ablation-ps2-clip-plane-v4-order1-20261005-repeat1-evidence/analyze-loop.py": {
+    "sha256": "5f1e9756449a5d35e9ce9567ab87be9e4388ed98b777f3ff72622b0e71f7fa27",
+    "bytes": 10107
+  },
+  "runs/night-ablation-ps2-clip-plane-v4-order1-20261005-repeat1-evidence/analyze-night-cli.py": {
+    "sha256": "3dd898f4dc0a17c99970d541cecf09c662118015693a8e490fa44295f3860b2f",
+    "bytes": 1653
+  },
+  "runs/night-ablation-ps2-clip-plane-v4-order1-20261005-repeat1-evidence/analyze-night.py": {
+    "sha256": "75ebb4696e09b5e42eeedebf03a3f7bf926734c790b85c66facb430c0dedd614",
+    "bytes": 19500
+  },
+  "runs/night-ablation-ps2-clip-plane-v4-order1-20261005-repeat1-evidence/client-process.json": {
+    "sha256": "b6c4cfc7f4bf6c3d30433c4aa5f74666e52e6e726db5b18f808bc6327c23bdbe",
+    "bytes": 255
+  },
+  "runs/night-ablation-ps2-clip-plane-v4-order1-20261005-repeat1-evidence/corona_controls.py": {
+    "sha256": "1decafffab8d86f2b34e2d20054a5e729d69d2c9259f9938bd8370666435a43a",
+    "bytes": 9823
+  },
+  "runs/night-ablation-ps2-clip-plane-v4-order1-20261005-repeat1-evidence/host-arrivals.jsonl": {
+    "sha256": "ee928b803c2e56c211153de078523cd89caff27f2501be08c8235fff1d44e0af",
+    "bytes": 3195
+  },
+  "runs/night-ablation-ps2-clip-plane-v4-order1-20261005-repeat1-evidence/host-authority.json": {
+    "sha256": "87581f2b85d0edbf555db573dc074e76464e7d0afa1ed6a0b8f112669806177c",
+    "bytes": 1080
+  },
+  "runs/night-ablation-ps2-clip-plane-v4-order1-20261005-repeat1-evidence/machine-evidence.json": {
+    "sha256": "7836d618318011c048ba1b8de9cc3f75ee4836511f16e225751d15984a4319c9",
+    "bytes": 4537
+  },
+  "runs/night-ablation-ps2-clip-plane-v4-order1-20261005-repeat1-evidence/native-build.log": {
+    "sha256": "06678cfcffee44b1224669a1b1c41ff208f9ecde676428f4026bd4c4e38aa4e7",
+    "bytes": 40902
+  },
+  "runs/night-ablation-ps2-clip-plane-v4-order1-20261005-repeat1-evidence/night-ablation.cfg": {
+    "sha256": "9ea89200bd3e036e8f3e8ac6f089aebe8932f544a14a40ae432ee62167f119e0",
+    "bytes": 9
+  },
+  "runs/night-ablation-ps2-clip-plane-v4-order1-20261005-repeat1-evidence/night-ablation.log": {
+    "sha256": "15f4eac865404b90e2029098bede6abe64203119fa426d2a4e503430c099d40d",
+    "bytes": 86149
+  },
+  "runs/night-ablation-ps2-clip-plane-v4-order1-20261005-repeat1-evidence/normalization-proof.json": {
+    "sha256": "0cc3f1352292b29a4acf8ae9e7f662006b6c604d8a8369aa449ac9781df4b75e",
+    "bytes": 757
+  },
+  "runs/night-ablation-ps2-clip-plane-v4-order1-20261005-repeat1-evidence/observed-launch.json": {
+    "sha256": "19c999761ee7a647f3dd8bad1e16421fe6ea1827619f9ed8a20af9655f1b4871",
+    "bytes": 525
+  },
+  "runs/night-ablation-ps2-clip-plane-v4-order1-20261005-repeat1-evidence/owned-launch.json": {
+    "sha256": "89c8bf153b4d5a444d027a50d87aac3301f0ad3cfe752cfa24dca4a014ace68a",
+    "bytes": 1572
+  },
+  "runs/night-ablation-ps2-clip-plane-v4-order1-20261005-repeat1-evidence/owned-stop.json": {
+    "sha256": "b6c4cfc7f4bf6c3d30433c4aa5f74666e52e6e726db5b18f808bc6327c23bdbe",
+    "bytes": 255
+  },
+  "runs/night-ablation-ps2-clip-plane-v4-order1-20261005-repeat1-evidence/ps2client-raw.log": {
+    "sha256": "4b8561d8be2a1cce80c28cfcf10c18fa1eb701803b34d4ff2bc388afbba39587",
+    "bytes": 31022
+  },
+  "runs/night-ablation-ps2-clip-plane-v4-order1-20261005-repeat1-evidence/ps2link.run": {
+    "sha256": "290eb100acb0b408fab11ae3445233dd7409222008a8c4dc3d0cf49a2bc1208a",
+    "bytes": 7
+  },
+  "runs/night-ablation-ps2-clip-plane-v4-order1-20261005-repeat1-evidence/quiet-night.cfg": {
+    "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+    "bytes": 2
+  },
+  "runs/night-ablation-ps2-clip-plane-v4-order1-20261005-repeat1-evidence/review-authority.json": {
+    "sha256": "66d948dc01c17201dd98fe4277fcbbee779a44ec45b8a928f9bfe225cd99ac5b",
+    "bytes": 449
+  },
+  "runs/night-ablation-ps2-clip-plane-v4-order1-20261005-repeat1-evidence/root-launcher-process.json": {
+    "sha256": "c1182ebaf027b213440a51c1cc0790c81f05867ad5fa7a3c820f877d544ec666",
+    "bytes": 96
+  },
+  "runs/night-ablation-ps2-clip-plane-v4-order1-20261005-repeat1-evidence/root-native-provenance.json": {
+    "sha256": "7b861ca6874ed5e63223ddb920f869b4e70095b4810214bab7e3f869ada60d21",
+    "bytes": 949
+  },
+  "runs/night-ablation-ps2-clip-plane-v4-order1-20261005-repeat1-evidence/root-runtime-authority.json": {
+    "sha256": "52546343fb3aee1f81ecbc1c5874cf177decaee67f248f403dc4a8aeaedc3377",
+    "bytes": 1150
+  },
+  "runs/night-ablation-ps2-clip-plane-v4-order1-20261005-repeat1-evidence/root-source-freeze.json": {
+    "sha256": "d385a2cda44f6980a4797471949079297e11d1f931176d7e193a3f406f41355c",
+    "bytes": 725
+  },
+  "runs/night-ablation-ps2-clip-plane-v4-order1-20261005-repeat1-evidence/runtime-assets-manifest.json": {
+    "sha256": "172da3da52b28c099fb6a867c202412748565c22ace74188d5c4da6488b21603",
+    "bytes": 34180
+  },
+  "runs/night-ablation-ps2-clip-plane-v4-order1-20261005-repeat1-evidence/source-controls/night_plan.hpp": {
+    "sha256": "10ab6a93740d2c0f64b5d74a0d7ae537590b342ed01a53f01225c10ab0938410",
+    "bytes": 2223
+  },
+  "runs/night-ablation-ps2-clip-plane-v4-order1-20261005-repeat1-evidence/source-controls/stapip_vu1_shared_defines.h": {
+    "sha256": "cf73e7be8c173e3ee9b04c54a9c57adbc18b7da29c9e4ed6d69c51dddf961d5b",
+    "bytes": 6147
+  },
+  "runs/night-ablation-ps2-clip-plane-v4-order1-20261005-repeat1-evidence/stdout.log": {
+    "sha256": "50a941b3d87ea584777a0e027178a32a8ac84c650ecfc41a53a5d7c2d6187e31",
+    "bytes": 31024
+  },
+  "runs/night-ablation-ps2-clip-plane-v4-order1-20261005-repeat1-evidence/strict-analysis.json": {
+    "sha256": "9e593ea5f96cfe2e462510cbc543df58cc58d6134e6f096bd69c929112835d3c",
+    "bytes": 45579
+  },
+  "runs/night-ablation-ps2-clip-plane-v4-order1-20261005-repeat1-evidence/target-source-manifest.json": {
+    "sha256": "08270c76656e2a266a9b40711287c30b715019b2f38b3368224fbee7d4a38cb3",
+    "bytes": 66097
+  },
+  "runs/night-ablation-ps2-clip-plane-v4-order1-20261005-repeat1-launch/client-process.json": {
+    "sha256": "b6c4cfc7f4bf6c3d30433c4aa5f74666e52e6e726db5b18f808bc6327c23bdbe",
+    "bytes": 255
+  },
+  "runs/night-ablation-ps2-clip-plane-v4-order1-20261005-repeat1-launch/host-arrivals.jsonl": {
+    "sha256": "ee928b803c2e56c211153de078523cd89caff27f2501be08c8235fff1d44e0af",
+    "bytes": 3195
+  },
+  "runs/night-ablation-ps2-clip-plane-v4-order1-20261005-repeat1-launch/night-ablation.cfg": {
+    "sha256": "9ea89200bd3e036e8f3e8ac6f089aebe8932f544a14a40ae432ee62167f119e0",
+    "bytes": 9
+  },
+  "runs/night-ablation-ps2-clip-plane-v4-order1-20261005-repeat1-launch/observed-launch.json": {
+    "sha256": "19c999761ee7a647f3dd8bad1e16421fe6ea1827619f9ed8a20af9655f1b4871",
+    "bytes": 525
+  },
+  "runs/night-ablation-ps2-clip-plane-v4-order1-20261005-repeat1-launch/owned-launch.json": {
+    "sha256": "89c8bf153b4d5a444d027a50d87aac3301f0ad3cfe752cfa24dca4a014ace68a",
+    "bytes": 1572
+  },
+  "runs/night-ablation-ps2-clip-plane-v4-order1-20261005-repeat1-launch/owned-stop.json": {
+    "sha256": "b6c4cfc7f4bf6c3d30433c4aa5f74666e52e6e726db5b18f808bc6327c23bdbe",
+    "bytes": 255
+  },
+  "runs/night-ablation-ps2-clip-plane-v4-order1-20261005-repeat1-launch/ps2link.run": {
+    "sha256": "290eb100acb0b408fab11ae3445233dd7409222008a8c4dc3d0cf49a2bc1208a",
+    "bytes": 7
+  },
+  "runs/night-ablation-ps2-clip-plane-v4-order1-20261005-repeat1-launch/quiet-night.cfg": {
+    "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+    "bytes": 2
+  },
+  "runs/night-ablation-ps2-clip-plane-v4-order1-20261005-repeat1-launch/root-launcher-process.json": {
+    "sha256": "c1182ebaf027b213440a51c1cc0790c81f05867ad5fa7a3c820f877d544ec666",
+    "bytes": 96
+  },
+  "runs/night-ablation-ps2-clip-plane-v4-order1-20261005-repeat1-launch/root-native-provenance.json": {
+    "sha256": "7b861ca6874ed5e63223ddb920f869b4e70095b4810214bab7e3f869ada60d21",
+    "bytes": 949
+  },
+  "runs/night-ablation-ps2-clip-plane-v4-order1-20261005-repeat1-launch/root-runtime-authority.json": {
+    "sha256": "52546343fb3aee1f81ecbc1c5874cf177decaee67f248f403dc4a8aeaedc3377",
+    "bytes": 1150
+  },
+  "runs/night-ablation-ps2-clip-plane-v4-order1-20261005-repeat1-launch/root-source-freeze.json": {
+    "sha256": "d385a2cda44f6980a4797471949079297e11d1f931176d7e193a3f406f41355c",
+    "bytes": 725
+  },
+  "runs/night-ablation-ps2-clip-plane-v4-order1-20261005-repeat1-launch/runtime-assets-manifest.json": {
+    "sha256": "172da3da52b28c099fb6a867c202412748565c22ace74188d5c4da6488b21603",
+    "bytes": 34180
+  },
+  "runs/night-ablation-ps2-clip-plane-v4-order1-20261005-repeat1-launch/target-source-manifest.json": {
     "sha256": "08270c76656e2a266a9b40711287c30b715019b2f38b3368224fbee7d4a38cb3",
     "bytes": 66097
   },
@@ -3178,6 +3530,10 @@
   "tools/clip-plane-v4-failed-launch-evidence/rejection.json": {
     "sha256": "dd78870758535830bfe1379e22a2279ec4e5d28ca9b17bd05342c2132915ae2a",
     "bytes": 152
+  },
+  "tools/clip-plane-v4-repeat-results.json": {
+    "sha256": "d15f59e3ad320403512b37e6e7147aa1a46607a6eb403d184bce955cdf6aa778",
+    "bytes": 732
   },
   "tools/clip-plane-v4-results.json": {
     "sha256": "1d3cee8c6bbe520cab7111b3d23e46ed90287ac283fc83ca5f1f1cd00c720c85",

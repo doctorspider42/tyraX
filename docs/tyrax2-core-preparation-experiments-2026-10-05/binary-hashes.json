@@ -222,5 +222,37 @@
   "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-clip-plane-v4-order1-20261005-retry1-evidence\\vehicle-playground.elf.sym": {
     "sha256": "ae687daa19fb6c16a02846cc35c34763823a6623725dfe2f388ea9e3df4dfe61",
     "bytes": 24675816
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-clip-plane-v4-order0-20261005-repeat1-launch\\vehicle-playground.elf": {
+    "sha256": "38de54a898d04ec33bfc6fd7cd164e582ce4c665409c34eacb180010ea68fe23",
+    "bytes": 4492508
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-clip-plane-v4-order0-20261005-repeat1-launch\\vehicle-playground.elf.sym": {
+    "sha256": "ae687daa19fb6c16a02846cc35c34763823a6623725dfe2f388ea9e3df4dfe61",
+    "bytes": 24675816
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-clip-plane-v4-order0-20261005-repeat1-evidence\\vehicle-playground.elf": {
+    "sha256": "38de54a898d04ec33bfc6fd7cd164e582ce4c665409c34eacb180010ea68fe23",
+    "bytes": 4492508
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-clip-plane-v4-order0-20261005-repeat1-evidence\\vehicle-playground.elf.sym": {
+    "sha256": "ae687daa19fb6c16a02846cc35c34763823a6623725dfe2f388ea9e3df4dfe61",
+    "bytes": 24675816
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-clip-plane-v4-order1-20261005-repeat1-launch\\vehicle-playground.elf": {
+    "sha256": "38de54a898d04ec33bfc6fd7cd164e582ce4c665409c34eacb180010ea68fe23",
+    "bytes": 4492508
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-clip-plane-v4-order1-20261005-repeat1-launch\\vehicle-playground.elf.sym": {
+    "sha256": "ae687daa19fb6c16a02846cc35c34763823a6623725dfe2f388ea9e3df4dfe61",
+    "bytes": 24675816
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-clip-plane-v4-order1-20261005-repeat1-evidence\\vehicle-playground.elf": {
+    "sha256": "38de54a898d04ec33bfc6fd7cd164e582ce4c665409c34eacb180010ea68fe23",
+    "bytes": 4492508
+  },
+  "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-clip-plane-v4-order1-20261005-repeat1-evidence\\vehicle-playground.elf.sym": {
+    "sha256": "ae687daa19fb6c16a02846cc35c34763823a6623725dfe2f388ea9e3df4dfe61",
+    "bytes": 24675816
   }
 }
