@@ -1,0 +1,14 @@
+{
+  "status": "ROOT_RELEASE_PRIVATE_SPOT_RESULT",
+  "scope": "Instrument existing numerical producers only; no effect removal or new fences. Native source/ABI/assets/linked-microimage qualified. Physical records determine activation, scope elapsed and net observer tax; no visual-equivalence or optimized-renderer promotion claim.",
+  "review": "F:\\Projects\\tyrax2-lab-20261001\\spot-result-root-helpers-v1\\source-review.md",
+  "reviewSha256": "f96012980f16cc44e602a87dafc6861bcaf5110a8c35694db6606eedf374df57",
+  "host": "F:\\Projects\\tyrax2-lab-20261001\\spot-result-root-helpers-v1\\host-authority.json",
+  "hostSha256": "3bc77d60395470af6aeace4ecbf3c3a3a42586270547c6445afea68dbf811bbb",
+  "native": "F:\\Projects\\tyrax2-lab-20261001\\spot-result-native-root-review-v1\\proof.json",
+  "nativeSha256": "a87f321d24257ae776db2a4ed04a596683f3566c5cc8eb8d13f736718b47d4ea",
+  "rootSourceFreezeSha256": "bc56dbb9da0ffa14d5e5df42d09c2129c330a1c5fddf7b972a5945ae1e230a40",
+  "hostControlSha256": "d8ee73f6eb9028ef3bc14063614a8b2b75486423404fe023195dba0f208c6271",
+  "physicalPricingAccepted": false,
+  "commonObserverCodeCostPriced": false
+}

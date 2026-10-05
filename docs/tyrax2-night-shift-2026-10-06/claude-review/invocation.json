@@ -1,0 +1,24 @@
+{
+  "command": [
+    "C:\\Users\\pawel\\.local\\bin\\claude.exe",
+    "-p",
+    "--safe-mode",
+    "--no-session-persistence",
+    "--tools",
+    "Read,Glob,Grep",
+    "--allowedTools",
+    "Read,Glob,Grep",
+    "--permission-mode",
+    "plan",
+    "--output-format",
+    "stream-json",
+    "--verbose",
+    "--add-dir",
+    "F:\\Projects\\tyrax2-lab-20261001"
+  ],
+  "cwd": "F:/Projects/tyra-editor",
+  "promptSha256": "3a01d25a7f70127a166007e6b87f6778e4745718a65bcdb8807bb6d6161743d0",
+  "cliSha256": "121fc8151ed40bd9c144d68aa1cea23427803628ffab65e23da1cceda155697e",
+  "startedUtc": "2026-10-05T23:09:19.770559+00:00",
+  "authorization": "User explicitly requested an independent Claude CLI code review after the three leads. Read-only built-in tools; no hardware, edits, commands or agent tools provided."
+}

@@ -19,6 +19,13 @@ description: >
 
 # Building, running and verifying
 
+Object-data attribution: `docs/tyrax2-night-shift.md` records five disjoint
+active scopes and both physical orders. An absolute sum of packet cursor QWs
+is not incremental write traffic; reset may decrease the cursor. Cold zero
+clip-capture waits are not a timed-window census. Validate target comparisons
+only over initialized semantic outputs, retain rejected runs, and keep net
+observer tax separate from the individual scope costs.
+
 Private night producer observer: `docs/tyrax2-night-producers.md` records five
 disjoint preparation scopes, sparse workload counters outside 800..1119, and
 both physical On/Off orders. Keep additional scoped Count reads separate from

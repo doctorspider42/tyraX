@@ -1,0 +1,25 @@
+{
+  "status": "ROOT_QUALITATIVE_REVIEW_OF_THREE_OWNED_WARM_EMULATOR_CAPTURES",
+  "reviewedUtc": "2026-10-05T23:06:31.059275+00:00",
+  "captureProofSha256": "69f52a16e47f09d8634725c5a40377173d6b3c3acb659ac0fa1baef91cd9147a",
+  "images": {
+    "0": {
+      "file": "phase-0.png",
+      "sha256": "5869eb4858bfeadda76dcce298de386c56c7a9d146d40e8a923c9a2a18662096",
+      "review": "Full night car, map, lamps, shadows and HUD present; no visible stretched triangles or new gross raster corruption in this stationary capture."
+    },
+    "1": {
+      "file": "phase-1.png",
+      "sha256": "9ad5fbc9c63eff3852b419282d1b8694e287d4948d5b9f872aeb36b1af1f1784",
+      "review": "Full night car, map, lamps, shadows and HUD present; no visible stretched triangles or new gross raster corruption in this stationary capture."
+    },
+    "2": {
+      "file": "phase-2.png",
+      "sha256": "f5dbb710e4031ba2dffae11139a009231a21872fb0c0ba9e3e7555a36f8206e5",
+      "review": "Full night car, map, lamps, shadows and HUD present; no visible stretched triangles or new gross raster corruption in this stationary capture."
+    }
+  },
+  "physicalVisualFeedbackObtained": false,
+  "hardwarePerformanceAccepted": false,
+  "limitations": "Stationary emulator screenshots, no motion, target visual feedback, pixel identity or all-scene qualification."
+}

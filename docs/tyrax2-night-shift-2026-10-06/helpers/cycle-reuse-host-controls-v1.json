@@ -1,0 +1,20 @@
+{
+  "status": "PASS_KIND21_HOST_SYNTHETIC_AND_CLI_ONLY",
+  "results": [
+    "positive0",
+    "rejected0reused=1",
+    "rejected0compared=37",
+    "rejected0mismatches=0",
+    "rejected0paused=1",
+    "rejected0scene=0 reused=",
+    "cli0",
+    "positive1",
+    "rejected1reused=1",
+    "rejected1compared=37",
+    "rejected1mismatches=0",
+    "rejected1paused=1",
+    "rejected1scene=0 reused=",
+    "cli1"
+  ],
+  "physicalExecutionAccepted": false
+}

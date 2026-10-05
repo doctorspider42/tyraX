@@ -1249,6 +1249,16 @@ Rules the same evening paid for:
 
 ## Hard-won pitfalls (dead ends already explored — don't repeat them)
 
+**Inactive outputs are not a bitwise oracle.** `buildSpotForBag` returns after
+setting only `enabled` when the input light is disabled; Tyra's `Vec4` default
+constructor leaves its components uninitialized. Compare only the inactive
+flag, then all semantic fields when active. A host stub that initializes Vec4
+can falsely validate a target comparator. The first whole-result memo trial
+failed even in controls and was rejected; see `docs/tyrax2-night-shift.md`.
+Its corrected exact-key candidate saves only about 0.02 ms in both physical
+orders and is private. Cycle output reuse is also private: gradeOff preserves
+the prior mixColor, so generic restoration must respect assigned-field semantics.
+
 **Devkit and measurement**
 - **Producer bypasses can hide ownership, even with no foreign roots.** A
   private census notes qbuffer streams in the ordinary program writer; retained

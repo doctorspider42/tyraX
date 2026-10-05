@@ -1,0 +1,20 @@
+name: vehicle-playground-fecff4c8
+volumes:
+  tyra-game-volume:
+  tyra-engine:
+    external: true
+    name: tyra-engine-5de0959b
+services:
+  compiler:
+    environment:
+      TERM: xterm-256color
+    network_mode: host
+    image: ${TYRAX_IMAGE:-h4570/tyra}
+    working_dir: /src
+    command: ["sleep", "infinity"]
+    tty: true
+    volumes:
+      - tyra-game-volume:/src
+      - tyra-engine:/tyra
+      - ./:/host
+      - "F:/Projects/tyra-editor/vendor/tyra:/engine-src:ro"

@@ -1,0 +1,19 @@
+{
+  "sourceManifestSha256": "42503986336debd3f91dbc65a297c6d756414d076bc083af859b610b268bbaf5",
+  "sourceFiles": 501,
+  "changes": [
+    "game/inc/daynight.gen.hpp",
+    "game/inc/terrain_game.hpp",
+    "game/src/gen/game_collision.gen.cpp",
+    "game/src/gen/game_physics.gen.cpp",
+    "game/src/scripts/district_mood.cpp",
+    "tyra/engine/inc/debug/night_ablation.hpp",
+    "tyra/engine/inc/debug/night_plan.hpp",
+    "tyra/engine/inc/debug/night_runtime.hpp",
+    "tyra/engine/src/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.cpp"
+  ],
+  "baseManifestSha256": "19bf02fc02fd3eb544dce3344a98635c7b9d8a670aa7387b1749e8386f4dad85",
+  "candidate": "Complete local spot result memo: 29-word content key,32 fixed direct-mapped entries, enabled finite inputs only; collisions overwrite and never approximate. Compare bool plus14 float fields at cold750/1155. Original selection and influence rejection preserved. No extra clocks or waits. V2 comparator reads15 initialized active outputs or only enabled for inactive; counts active/nonfinite fallbacks separately. V1 inactive-vector oracle rejected.",
+  "commonCodeFootprintUnpriced": true,
+  "existingWaitsRetained": true
+}
