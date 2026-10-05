@@ -2989,3 +2989,5 @@ post-5 back at y = 1.
 The [Core prefix and Core-owned submit record](tyrax2-prefix-submit-scopes-2026-10-04.json) qualifies separate V8/V9 both-order physical pairs and emulator controls. Own On windows, actual dynamic reads, tax/chunks and sparse contexts remain bound to each source/ELF. No cross-version subtraction, optimization gain, pure EE/GPU bill, common cost or ordinary 60 FPS acceptance.
 
 Core preparation follow-up: the [same-ELF prefix partition](tyrax2-core-prefix-partition.md) completes both physical observation orders. Further split the head/bounds/package region and distinguish synchronous waits from arithmetic in object-data routing before proposing VU offload. No optimization or 60 Hz qualification follows from inclusive clocks alone.
+
+The kind15 [bounds partition](tyrax2-core-prefix-partition.md#five-part-bounds-follow-up-kind15) is complete on physical PS2 in both orders. Its five regions cost roughly 0.995/0.84/0.617/0.25/0.658 ms. Candidate experiments now separately price exact matrix-key equality and compile-time clip-plane coefficients; no candidate is promoted from observer clocks alone.

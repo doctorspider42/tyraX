@@ -1,0 +1,51 @@
+{
+  "status": "PASS_TWO_PHYSICAL_BOUNDS_ORDERS",
+  "rows": [
+    {
+      "order": 0,
+      "stem": "night-ablation-ps2-core-bounds-order0-20261005",
+      "means_ms": [
+        20.104152234395347,
+        20.255139795939126,
+        20.11766554514567
+      ],
+      "scopes_ms": [
+        0.9973306020100912,
+        0.842188549041748,
+        0.6171732902526856,
+        0.2512773619757758,
+        0.6585746235317654
+      ],
+      "observerOnMinusOff_ms": 0.14423090616861955,
+      "outerSpread_ms": 0.013513310750322916,
+      "strictSha256": "649e66c20ef5b39ce4f6001009ed64c926334ec357e3619c178a7c85dd61aa0b"
+    },
+    {
+      "order": 1,
+      "stem": "night-ablation-ps2-core-bounds-order1-20261005-retry1",
+      "means_ms": [
+        20.18010606765747,
+        20.001038561926947,
+        20.190313890245225
+      ],
+      "scopes_ms": [
+        0.9948443995581733,
+        0.8320238590240479,
+        0.6161871062384711,
+        0.25023187001546227,
+        0.6574389298756917
+      ],
+      "observerOnMinusOff_ms": 0.18417141702440176,
+      "outerSpread_ms": 0.010207822587755544,
+      "strictSha256": "ac790fa878dd83ff6f64a44361a67454a7e82ffbd88e98ed4355a492af4f0fde"
+    }
+  ],
+  "scopeNames": [
+    "headSizeTransformKey",
+    "bboxLookupSetSize",
+    "planesMainCull",
+    "mvpTransformCache",
+    "clipPlanesPackage"
+  ],
+  "pureEEArithmetic": false
+}

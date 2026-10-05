@@ -1,0 +1,4 @@
+{"event": "host-launch", "monotonicNs": 470328328000000, "utc": "2026-10-05T19:44:46.338550+00:00"}
+{"event": "raw-line-arrival", "rawEndOffset": 57, "line": "loadelf: fname host:vehicle-playground.elf secname all\r\r", "monotonicNs": 470329375000000, "utc": "2026-10-05T19:44:47.388219+00:00"}
+{"event": "raw-line-arrival", "rawEndOffset": 4048, "line": "LOG: NIGHTPHASE phase=0 first=0 mask=0 appliedMask=0 sampler=1 countReads=262 samplePtr=0052e088\r", "monotonicNs": 470335703000000, "utc": "2026-10-05T19:44:53.715831+00:00"}
+{"event": "client-eof", "completedMarkerObserved": false, "returnCode": 4294967295, "monotonicNs": 470506515000000, "utc": "2026-10-05T19:47:44.516266+00:00"}

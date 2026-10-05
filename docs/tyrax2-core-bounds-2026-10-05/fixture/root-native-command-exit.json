@@ -1,0 +1,14 @@
+{
+  "actualCommandParameters": {
+    "Project": "F:/Projects/tyrax2-lab-20261001/core-bounds-partition-physical-v1/game",
+    "Cache": "F:/Projects/tyrax2-lab-20261001/native-cache",
+    "Engine": "F:/Projects/tyrax2-lab-20261001/core-bounds-partition-physical-v1/tyra",
+    "Toolchain": "C:/Users/pawel/AppData/Local/tyra-editor/toolchain/ps2dev"
+  },
+  "errorLog": "F:/Projects/tyrax2-lab-20261001/night-ablation-native-v34.err",
+  "processExitCode": 0,
+  "buildLog": "F:/Projects/tyrax2-lab-20261001/night-ablation-native-v34.log",
+  "childProcessId": 60120,
+  "status": "ROOT_observed_native_child_process_completion",
+  "sourceManifestSha256": "ebcffe4bbb288570b2032cff73599a4cf93b3e8b8be9230dae1f51f6874d639c"
+}

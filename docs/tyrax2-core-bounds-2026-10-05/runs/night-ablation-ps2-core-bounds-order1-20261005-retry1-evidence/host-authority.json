@@ -1,0 +1,11 @@
+{
+  "sourcePins": {
+    "F:\\Projects\\tyrax2-lab-20261001\\core-bounds-controls-v1\\analyze-loop.py": "5f1e9756449a5d35e9ce9567ab87be9e4388ed98b777f3ff72622b0e71f7fa27",
+    "F:\\Projects\\tyrax2-lab-20261001\\core-bounds-controls-v1\\analyze-night.py": "bed07d523d65ed570b6d10d7641fbfea09f95e2634f0b47243043d1b156b43a1",
+    "F:\\Projects\\tyrax2-lab-20261001\\core-bounds-controls-v1\\analyze-night-cli.py": "036a172cd079e4870ba8d00fcb6bdb23112621ea60453fbd38d7a6b97219c829",
+    "F:\\Projects\\tyrax2-lab-20261001\\core-bounds-controls-v1\\corona_controls.py": "1decafffab8d86f2b34e2d20054a5e729d69d2c9259f9938bd8370666435a43a",
+    "F:\\Projects\\tyrax2-lab-20261001\\core-bounds-controls-v1\\source-controls\\night_plan.hpp": "864c540b57a93e83c80b84681bc201b440c35b290e20dbeef144006081cae016",
+    "F:\\Projects\\tyrax2-lab-20261001\\core-bounds-controls-v1\\source-controls\\stapip_vu1_shared_defines.h": "cf73e7be8c173e3ee9b04c54a9c57adbc18b7da29c9e4ed6d69c51dddf961d5b"
+  },
+  "pricingSourceManifestSha256": "ebcffe4bbb288570b2032cff73599a4cf93b3e8b8be9230dae1f51f6874d639c"
+}

@@ -1,0 +1,32 @@
+{
+  "status": "PRIVATE_KIND9_HELPERS_V2_PREFIX_BINDING_FUTURE_ROOT_RELEASE_REQUIRED",
+  "sourceFixture": "F:\\Projects\\tyrax2-lab-20261001\\wild-gs-sprite-corona-physical-v2",
+  "sourceManifestSha256": "b9582677a88857c64d7c807e8c7acfb170d4aa84b5ef826bdd62734f1e26ebe3",
+  "sourceFiles": 500,
+  "sixControlsDependencies": {
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-gs-sprite-corona-controls-v2\\analyze-loop.py": "5f1e9756449a5d35e9ce9567ab87be9e4388ed98b777f3ff72622b0e71f7fa27",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-gs-sprite-corona-controls-v2\\analyze-night.py": "4f21d7a1c3a764cc08ce3968cd8ecdefa7ddd755303ad2c26e73651ff754b8d8",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-gs-sprite-corona-controls-v2\\analyze-night-cli.py": "f3ff6a6c125759bff1090dc6e404ab4382c66056baee8b4d942be50a3ce7be21",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-gs-sprite-corona-controls-v2\\corona_controls.py": "1decafffab8d86f2b34e2d20054a5e729d69d2c9259f9938bd8370666435a43a",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-gs-sprite-corona-controls-v2\\source-controls\\night_plan.hpp": "b0b398247d277e56c66cc8a35083745f37fed5cdc95c30839927c20ce5ebeac0",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-gs-sprite-corona-controls-v2\\source-controls\\stapip_vu1_shared_defines.h": "cf73e7be8c173e3ee9b04c54a9c57adbc18b7da29c9e4ed6d69c51dddf961d5b"
+  },
+  "hostProofSha256": "44b46e523f84a7d64757b7dfecf3e1b10d30bed4f5bfe5190f5ba37ec4aa7755",
+  "derivedHelperPins": {
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-lattice-root-v2\\launch-emulator.py": "e844559a1a59c0cbfd0b2d25c0dd0056ad9c85aee73e1dacd78afec2931da3e6",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-lattice-root-v2\\prepare-physical.py": "2a076f7c859a7aef20f40853be4e261624ea72ed51c35d910b2cb25bcf30e954",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-lattice-root-v2\\launch-physical-observed.py": "ce00cde47e44dcaa1d4ab79f04d4458594a4e901dd23500fffee50807e6a7838",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-lattice-root-v2\\qualify-emulator.py": "cef0721f5cfa1dedb06da8f222f759f2ddb26443d5f2803987ab87aaf78a72ae",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-lattice-root-v2\\stop-emulator.py": "c50fcd43b02e253014de9c3e3cdb3d09b3e16d59a49a3503e0e61961e4745597",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-lattice-root-v2\\freeze-completed.py": "2f26c78ac6c59c465be4347ec42414d1835906060317c5beecebfbe9a7beccbf",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-lattice-root-v2\\finish-physical.ps1": "52492b4c9b5188538a90c05dc0b82404a2c930d65c383ebd887b757119100320",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-lattice-root-v2\\finish-physical-no-reset.ps1": "ee72c8db49e19a33d14fb66b4a013575b6b1efec4486f5b27b88631449343cb2"
+  },
+  "kind": 9,
+  "joint": 0,
+  "restored": 0,
+  "nativeExecutionAccepted": false,
+  "deviceUsed": false,
+  "priorHelperPinsSha256": "827ca526d19c986359cf490f75028a668b5c459455765480f0f4db50e947dcd5",
+  "originalRejectedLaunchRetained": true
+}

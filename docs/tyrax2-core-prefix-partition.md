@@ -83,3 +83,34 @@ No emulator result or new human visual confirmation is claimed by this trial.
 It preserves rendering paths, but scope observation alone does not qualify
 raster correctness or a production optimization. The earlier prefix/submit ELF
 numbers must not be subtracted from, or added to, this disjoint partition.
+
+## Five-part bounds follow-up (kind15)
+
+A separate native ELF partitions the first region into five disjoint scopes.
+Both physical orders complete 5400 loops, with a physical restart required after
+an excluded freepad DMA Busy boot. Stage-0 empty returns and stage-2 outside
+returns preserve the original route. Additional clocks stop after loop5400.
+
+| Scope | Forward On ms/loop | Reverse two-On mean ms/loop |
+|---|---:|---:|
+| Head, size derivation and transform key | 0.997331 | 0.994844 |
+| Bbox lookup and size propagation | 0.842189 | 0.832024 |
+| Frustum planes and main-box cull | 0.617173 | 0.616187 |
+| MVP and transform cache writes | 0.251277 | 0.250232 |
+| Clip planes and package setup | 0.658575 | 0.657439 |
+
+Each On window has 43,200 timed calls in stages0/1/2 and 42,880 in stages3/4,
+with two additional Count reads per call. Sparse flags include 131 precisely
+culled bags, one outside return, 63 bags entering package classification and
+108/110 reusable transform keys in witnesses. These are cold snapshots.
+Net enabled observer tax is +0.144231/+0.184171 ms; outer spreads
+0.013513/0.010208 ms. Common disabled footprint is unpriced. Do not subtract
+this ELF's times from kind14: five brackets change layout and stack footprint.
+The result motivates separately qualified exact matrix-key and clip-plane
+specialization candidates, not blanket removal of culling or assertions.
+
+[Bounds source and evidence](tyrax2-core-bounds-2026-10-05/) includes both
+completed orders, the excluded busy boot, native/source/ABI proof and 14
+synthetic parser rejections. No new human image or emulator qualification is
+claimed for the kind15 observer itself. ELF SHA-256:
+b60abfddb43244c49217c57db9703bd438d254c555be5fc6bb34e79c680980bd.

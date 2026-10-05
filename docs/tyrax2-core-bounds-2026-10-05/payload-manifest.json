@@ -1,0 +1,770 @@
+{
+  "binary-hashes.json": {
+    "sha256": "bfe22d8a90de93664963f683bd9b490488e8b5c963ac76e6d44e5aaa02e773d4",
+    "bytes": 2710
+  },
+  "excluded-freepad-busy/night-ablation-ps2-core-bounds-order1-20261005.err": {
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "bytes": 0
+  },
+  "excluded-freepad-busy/night-ablation-ps2-core-bounds-order1-20261005.log": {
+    "sha256": "e6926500b278d373fe3af60b4b569ff541a15a36807f2788388b469fe5695cda",
+    "bytes": 16107
+  },
+  "fixture/root-native-command-exit.json": {
+    "sha256": "19f4dd0fa293926e1b358ff4fa85db4ac52dcdaee1af59545d0402306664e6c7",
+    "bytes": 732
+  },
+  "fixture/root-native-provenance.json": {
+    "sha256": "9f712b4e4e9a9a9a686242a2b5434513a3fbd373ce622d90d4f89d43053ef3a3",
+    "bytes": 949
+  },
+  "fixture/root-runtime-authority.json": {
+    "sha256": "085790040ef233d78acd21af7e0ff31e61133cb040f096406ebbdaa567b193ad",
+    "bytes": 1153
+  },
+  "fixture/root-source-freeze.json": {
+    "sha256": "96f180150293a9d8a2fee5667a59817c91b13359c77e9e4f4536b23e83317a2f",
+    "bytes": 773
+  },
+  "fixture/runtime-assets-manifest.json": {
+    "sha256": "172da3da52b28c099fb6a867c202412748565c22ace74188d5c4da6488b21603",
+    "bytes": 34180
+  },
+  "fixture/target-source-manifest.json": {
+    "sha256": "ebcffe4bbb288570b2032cff73599a4cf93b3e8b8be9230dae1f51f6874d639c",
+    "bytes": 66097
+  },
+  "tools/audit-core-bounds-native-root-v1.py": {
+    "sha256": "e772a6f96aaaeef0e7f97f0295256abe33c0f5814ca61130594f08ffd5959ee8",
+    "bytes": 12841
+  },
+  "tools/compile-core-bounds-abi-root-v1.py": {
+    "sha256": "982cd3b4ad417835269f05a20340e0a8e6e1b69a235b52cf130bf1f47e20c4c0",
+    "bytes": 2325
+  },
+  "tools/core-bounds-build-native-v1.ps1": {
+    "sha256": "c1b9f943b19d927cefc1a993fbcc1f971f4c1493d24b249a394146c4b6581554",
+    "bytes": 2130
+  },
+  "tools/core-bounds-failed-reverse-owned-stop.json": {
+    "sha256": "4f9e0759ce747f186a6fe2da7fc183160f5a2e351d87a8dd7acba987e984c2b2",
+    "bytes": 255
+  },
+  "tools/core-bounds-finish-native-v1.ps1": {
+    "sha256": "ff66f04e220baf0eb74506f87c61ae8caa420adc6cc94bba6a2711f419b84b4a",
+    "bytes": 1020
+  },
+  "tools/core-bounds-host-controls-v1.json": {
+    "sha256": "fb77c9f5a81b2e3a0e97faea6e1af9fe098094abf8dd6688ce9abfbd95356c33",
+    "bytes": 426
+  },
+  "tools/core-bounds-results-v1.json": {
+    "sha256": "9096b02a3c185f04d429b1018fe17a3a642bf6d4bb53ca18711507ed946f1a52",
+    "bytes": 1373
+  },
+  "tools/prepare-core-bounds-partition-v1.py": {
+    "sha256": "9241d1616d284591a2b70b882351733575e80e8bb5bde8ba820be0821091b0bb",
+    "bytes": 2921
+  },
+  "tools/prepare-night-producer-probe-v1.py": {
+    "sha256": "45174177c21e6d3608e9b41eaf6acf94472ecdb05c3a6b2a2d4b28dec4033896",
+    "bytes": 6792
+  },
+  "tools/qualify-core-bounds-host-v1.py": {
+    "sha256": "2f5d2ca2265db857e3f9ed6a3ba6154ab81bb1bb8c0bf5bf51be9ed3ab8fb368",
+    "bytes": 2288
+  },
+  "tools/release-core-bounds-v1.py": {
+    "sha256": "0bd748ec4e3c2694e0c37c410bcd5905d8432c64196ded65f0d3b09f937b7cc8",
+    "bytes": 1350
+  },
+  "tools/start-core-bounds-physical-root-v1.ps1": {
+    "sha256": "a909a76d71dc1f697b53c1e6ca52f158b58a7973a6b847f6661696238af81fdf",
+    "bytes": 2074
+  },
+  "tools/wait-core-bounds-physical-root-v1.ps1": {
+    "sha256": "d0b35c37a5b3d8e7ea230c85c06d18033f1f731c611e6ca5ff97ed91c61facf2",
+    "bytes": 1065
+  },
+  "excluded-freepad-busy/night-ablation-ps2-core-bounds-order1-20261005-launch/client-process.json": {
+    "sha256": "4f9e0759ce747f186a6fe2da7fc183160f5a2e351d87a8dd7acba987e984c2b2",
+    "bytes": 255
+  },
+  "excluded-freepad-busy/night-ablation-ps2-core-bounds-order1-20261005-launch/failed-live-artifact.log": {
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "bytes": 0
+  },
+  "excluded-freepad-busy/night-ablation-ps2-core-bounds-order1-20261005-launch/host-arrivals.jsonl": {
+    "sha256": "208ce74b4c8199ee37528316558707e35e7f5a511cddc56c2b90e590b15dacf8",
+    "bytes": 695
+  },
+  "excluded-freepad-busy/night-ablation-ps2-core-bounds-order1-20261005-launch/night-ablation.cfg": {
+    "sha256": "b5e27c66cb2a37fdb45468659771ecd2b78c5555f3ff110a1650e397de802106",
+    "bytes": 9
+  },
+  "excluded-freepad-busy/night-ablation-ps2-core-bounds-order1-20261005-launch/observed-launch.json": {
+    "sha256": "9f608185c9ea3c84d69153df6c6fd72e7f529e651f7d1e695357d865be5d7c3d",
+    "bytes": 525
+  },
+  "excluded-freepad-busy/night-ablation-ps2-core-bounds-order1-20261005-launch/owned-launch.json": {
+    "sha256": "a7fe6da09568322bc915591d9941b3eddad8d7d3010170e0b9b10f1623d9f729",
+    "bytes": 1552
+  },
+  "excluded-freepad-busy/night-ablation-ps2-core-bounds-order1-20261005-launch/ps2link.run": {
+    "sha256": "290eb100acb0b408fab11ae3445233dd7409222008a8c4dc3d0cf49a2bc1208a",
+    "bytes": 7
+  },
+  "excluded-freepad-busy/night-ablation-ps2-core-bounds-order1-20261005-launch/quiet-night.cfg": {
+    "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+    "bytes": 2
+  },
+  "excluded-freepad-busy/night-ablation-ps2-core-bounds-order1-20261005-launch/root-launcher-process.json": {
+    "sha256": "2d67f394285b068168bce32df220d5a2b524f6ab05410249fed0bc0aecb0d913",
+    "bytes": 96
+  },
+  "excluded-freepad-busy/night-ablation-ps2-core-bounds-order1-20261005-launch/root-native-provenance.json": {
+    "sha256": "9f712b4e4e9a9a9a686242a2b5434513a3fbd373ce622d90d4f89d43053ef3a3",
+    "bytes": 949
+  },
+  "excluded-freepad-busy/night-ablation-ps2-core-bounds-order1-20261005-launch/root-runtime-authority.json": {
+    "sha256": "085790040ef233d78acd21af7e0ff31e61133cb040f096406ebbdaa567b193ad",
+    "bytes": 1153
+  },
+  "excluded-freepad-busy/night-ablation-ps2-core-bounds-order1-20261005-launch/root-source-freeze.json": {
+    "sha256": "96f180150293a9d8a2fee5667a59817c91b13359c77e9e4f4536b23e83317a2f",
+    "bytes": 773
+  },
+  "excluded-freepad-busy/night-ablation-ps2-core-bounds-order1-20261005-launch/runtime-assets-manifest.json": {
+    "sha256": "172da3da52b28c099fb6a867c202412748565c22ace74188d5c4da6488b21603",
+    "bytes": 34180
+  },
+  "excluded-freepad-busy/night-ablation-ps2-core-bounds-order1-20261005-launch/target-source-manifest.json": {
+    "sha256": "ebcffe4bbb288570b2032cff73599a4cf93b3e8b8be9230dae1f51f6874d639c",
+    "bytes": 66097
+  },
+  "runs/night-ablation-ps2-core-bounds-order0-20261005-evidence/analysis-command.json": {
+    "sha256": "6beac298190d9f8c2d4faf5106d329cd5fea3eea67b7c8f83c5ac247b855338d",
+    "bytes": 766
+  },
+  "runs/night-ablation-ps2-core-bounds-order0-20261005-evidence/analyze-loop.py": {
+    "sha256": "5f1e9756449a5d35e9ce9567ab87be9e4388ed98b777f3ff72622b0e71f7fa27",
+    "bytes": 10107
+  },
+  "runs/night-ablation-ps2-core-bounds-order0-20261005-evidence/analyze-night-cli.py": {
+    "sha256": "036a172cd079e4870ba8d00fcb6bdb23112621ea60453fbd38d7a6b97219c829",
+    "bytes": 1653
+  },
+  "runs/night-ablation-ps2-core-bounds-order0-20261005-evidence/analyze-night.py": {
+    "sha256": "bed07d523d65ed570b6d10d7641fbfea09f95e2634f0b47243043d1b156b43a1",
+    "bytes": 19675
+  },
+  "runs/night-ablation-ps2-core-bounds-order0-20261005-evidence/client-process.json": {
+    "sha256": "6c57e694366b7de8991ff459a948be7b4b290f6a66c36f116654a17e247faf96",
+    "bytes": 255
+  },
+  "runs/night-ablation-ps2-core-bounds-order0-20261005-evidence/corona_controls.py": {
+    "sha256": "1decafffab8d86f2b34e2d20054a5e729d69d2c9259f9938bd8370666435a43a",
+    "bytes": 9823
+  },
+  "runs/night-ablation-ps2-core-bounds-order0-20261005-evidence/host-arrivals.jsonl": {
+    "sha256": "8ed5d35f2335babd2531b1315fbf922e69c294381d8e85ae46048b347dcf8d00",
+    "bytes": 3195
+  },
+  "runs/night-ablation-ps2-core-bounds-order0-20261005-evidence/host-authority.json": {
+    "sha256": "1f2b28d49c09bc0aa9849c0d20e3103368e17e96ed6d17b29e8b95229146bf24",
+    "bytes": 1086
+  },
+  "runs/night-ablation-ps2-core-bounds-order0-20261005-evidence/machine-evidence.json": {
+    "sha256": "c8a20572bf80b0c230dc2e0d644c92b61f9870248a47297640ba383d52c56ac2",
+    "bytes": 4539
+  },
+  "runs/night-ablation-ps2-core-bounds-order0-20261005-evidence/native-build.log": {
+    "sha256": "716f3c63bb0efdcaac1785b9273d369e07c5987e28a71b90f77c85b61c8cf09f",
+    "bytes": 41779
+  },
+  "runs/night-ablation-ps2-core-bounds-order0-20261005-evidence/night-ablation.cfg": {
+    "sha256": "b3d7d008a4d7a195b9250ff4f95d864bfa0137638aff0d04f8cbf46d342f4377",
+    "bytes": 9
+  },
+  "runs/night-ablation-ps2-core-bounds-order0-20261005-evidence/night-ablation.log": {
+    "sha256": "52fdb9627157d75007f5281fbce3c461649299128ca128c307e041ed3aa8060a",
+    "bytes": 86129
+  },
+  "runs/night-ablation-ps2-core-bounds-order0-20261005-evidence/normalization-proof.json": {
+    "sha256": "cf4cef26e3469c8ed6fc4bd5270c7cd385ee7dc5be0de285c5f584b0e4fd01ee",
+    "bytes": 737
+  },
+  "runs/night-ablation-ps2-core-bounds-order0-20261005-evidence/observed-launch.json": {
+    "sha256": "89d8f57a3f91dccb51d0a3a4b551f65029e6714e3b90c57f7da68c5d31d2a200",
+    "bytes": 525
+  },
+  "runs/night-ablation-ps2-core-bounds-order0-20261005-evidence/owned-launch.json": {
+    "sha256": "6f6301de767d5bb2a056daf7d4e773663a1db44928ddab372e01fc9cf5b0dcce",
+    "bytes": 1552
+  },
+  "runs/night-ablation-ps2-core-bounds-order0-20261005-evidence/owned-stop.json": {
+    "sha256": "6c57e694366b7de8991ff459a948be7b4b290f6a66c36f116654a17e247faf96",
+    "bytes": 255
+  },
+  "runs/night-ablation-ps2-core-bounds-order0-20261005-evidence/ps2client-raw.log": {
+    "sha256": "05cddad6cd14d0d44fd954f0e3be9f07ffc921079f269ba28295d56d52f4b2a1",
+    "bytes": 31293
+  },
+  "runs/night-ablation-ps2-core-bounds-order0-20261005-evidence/ps2link.run": {
+    "sha256": "290eb100acb0b408fab11ae3445233dd7409222008a8c4dc3d0cf49a2bc1208a",
+    "bytes": 7
+  },
+  "runs/night-ablation-ps2-core-bounds-order0-20261005-evidence/quiet-night.cfg": {
+    "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+    "bytes": 2
+  },
+  "runs/night-ablation-ps2-core-bounds-order0-20261005-evidence/review-authority.json": {
+    "sha256": "d1e4401a9f4dd4483d5c2a199527ec92bacb6135eff8de8fdc8c9913f1b4ada4",
+    "bytes": 301
+  },
+  "runs/night-ablation-ps2-core-bounds-order0-20261005-evidence/root-launcher-process.json": {
+    "sha256": "cf693f8f7bfeb34b5a58ece8cf5883c346ffc362dea70c5f30a7c7f62d9438da",
+    "bytes": 96
+  },
+  "runs/night-ablation-ps2-core-bounds-order0-20261005-evidence/root-native-provenance.json": {
+    "sha256": "9f712b4e4e9a9a9a686242a2b5434513a3fbd373ce622d90d4f89d43053ef3a3",
+    "bytes": 949
+  },
+  "runs/night-ablation-ps2-core-bounds-order0-20261005-evidence/root-runtime-authority.json": {
+    "sha256": "085790040ef233d78acd21af7e0ff31e61133cb040f096406ebbdaa567b193ad",
+    "bytes": 1153
+  },
+  "runs/night-ablation-ps2-core-bounds-order0-20261005-evidence/root-source-freeze.json": {
+    "sha256": "96f180150293a9d8a2fee5667a59817c91b13359c77e9e4f4536b23e83317a2f",
+    "bytes": 773
+  },
+  "runs/night-ablation-ps2-core-bounds-order0-20261005-evidence/runtime-assets-manifest.json": {
+    "sha256": "172da3da52b28c099fb6a867c202412748565c22ace74188d5c4da6488b21603",
+    "bytes": 34180
+  },
+  "runs/night-ablation-ps2-core-bounds-order0-20261005-evidence/stdout.log": {
+    "sha256": "c1e151fc992f9e629b532e5cc6984c53402198f740784011a0ac47bb3b6ad323",
+    "bytes": 31296
+  },
+  "runs/night-ablation-ps2-core-bounds-order0-20261005-evidence/strict-analysis.json": {
+    "sha256": "649e66c20ef5b39ce4f6001009ed64c926334ec357e3619c178a7c85dd61aa0b",
+    "bytes": 45796
+  },
+  "runs/night-ablation-ps2-core-bounds-order0-20261005-evidence/target-source-manifest.json": {
+    "sha256": "ebcffe4bbb288570b2032cff73599a4cf93b3e8b8be9230dae1f51f6874d639c",
+    "bytes": 66097
+  },
+  "runs/night-ablation-ps2-core-bounds-order0-20261005-launch/client-process.json": {
+    "sha256": "6c57e694366b7de8991ff459a948be7b4b290f6a66c36f116654a17e247faf96",
+    "bytes": 255
+  },
+  "runs/night-ablation-ps2-core-bounds-order0-20261005-launch/host-arrivals.jsonl": {
+    "sha256": "8ed5d35f2335babd2531b1315fbf922e69c294381d8e85ae46048b347dcf8d00",
+    "bytes": 3195
+  },
+  "runs/night-ablation-ps2-core-bounds-order0-20261005-launch/night-ablation.cfg": {
+    "sha256": "b3d7d008a4d7a195b9250ff4f95d864bfa0137638aff0d04f8cbf46d342f4377",
+    "bytes": 9
+  },
+  "runs/night-ablation-ps2-core-bounds-order0-20261005-launch/observed-launch.json": {
+    "sha256": "89d8f57a3f91dccb51d0a3a4b551f65029e6714e3b90c57f7da68c5d31d2a200",
+    "bytes": 525
+  },
+  "runs/night-ablation-ps2-core-bounds-order0-20261005-launch/owned-launch.json": {
+    "sha256": "6f6301de767d5bb2a056daf7d4e773663a1db44928ddab372e01fc9cf5b0dcce",
+    "bytes": 1552
+  },
+  "runs/night-ablation-ps2-core-bounds-order0-20261005-launch/owned-stop.json": {
+    "sha256": "6c57e694366b7de8991ff459a948be7b4b290f6a66c36f116654a17e247faf96",
+    "bytes": 255
+  },
+  "runs/night-ablation-ps2-core-bounds-order0-20261005-launch/ps2link.run": {
+    "sha256": "290eb100acb0b408fab11ae3445233dd7409222008a8c4dc3d0cf49a2bc1208a",
+    "bytes": 7
+  },
+  "runs/night-ablation-ps2-core-bounds-order0-20261005-launch/quiet-night.cfg": {
+    "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+    "bytes": 2
+  },
+  "runs/night-ablation-ps2-core-bounds-order0-20261005-launch/root-launcher-process.json": {
+    "sha256": "cf693f8f7bfeb34b5a58ece8cf5883c346ffc362dea70c5f30a7c7f62d9438da",
+    "bytes": 96
+  },
+  "runs/night-ablation-ps2-core-bounds-order0-20261005-launch/root-native-provenance.json": {
+    "sha256": "9f712b4e4e9a9a9a686242a2b5434513a3fbd373ce622d90d4f89d43053ef3a3",
+    "bytes": 949
+  },
+  "runs/night-ablation-ps2-core-bounds-order0-20261005-launch/root-runtime-authority.json": {
+    "sha256": "085790040ef233d78acd21af7e0ff31e61133cb040f096406ebbdaa567b193ad",
+    "bytes": 1153
+  },
+  "runs/night-ablation-ps2-core-bounds-order0-20261005-launch/root-source-freeze.json": {
+    "sha256": "96f180150293a9d8a2fee5667a59817c91b13359c77e9e4f4536b23e83317a2f",
+    "bytes": 773
+  },
+  "runs/night-ablation-ps2-core-bounds-order0-20261005-launch/runtime-assets-manifest.json": {
+    "sha256": "172da3da52b28c099fb6a867c202412748565c22ace74188d5c4da6488b21603",
+    "bytes": 34180
+  },
+  "runs/night-ablation-ps2-core-bounds-order0-20261005-launch/target-source-manifest.json": {
+    "sha256": "ebcffe4bbb288570b2032cff73599a4cf93b3e8b8be9230dae1f51f6874d639c",
+    "bytes": 66097
+  },
+  "runs/night-ablation-ps2-core-bounds-order1-20261005-retry1-evidence/analysis-command.json": {
+    "sha256": "03f5f7639eb2d12db42b7e658e8fc2437079198525ca4a588cdf0bd587162b8f",
+    "bytes": 780
+  },
+  "runs/night-ablation-ps2-core-bounds-order1-20261005-retry1-evidence/analyze-loop.py": {
+    "sha256": "5f1e9756449a5d35e9ce9567ab87be9e4388ed98b777f3ff72622b0e71f7fa27",
+    "bytes": 10107
+  },
+  "runs/night-ablation-ps2-core-bounds-order1-20261005-retry1-evidence/analyze-night-cli.py": {
+    "sha256": "036a172cd079e4870ba8d00fcb6bdb23112621ea60453fbd38d7a6b97219c829",
+    "bytes": 1653
+  },
+  "runs/night-ablation-ps2-core-bounds-order1-20261005-retry1-evidence/analyze-night.py": {
+    "sha256": "bed07d523d65ed570b6d10d7641fbfea09f95e2634f0b47243043d1b156b43a1",
+    "bytes": 19675
+  },
+  "runs/night-ablation-ps2-core-bounds-order1-20261005-retry1-evidence/client-process.json": {
+    "sha256": "d0121945b0cf9423f7c403273e2a2c6cc04172edc948ed3ee34ad108e64e7bd4",
+    "bytes": 255
+  },
+  "runs/night-ablation-ps2-core-bounds-order1-20261005-retry1-evidence/corona_controls.py": {
+    "sha256": "1decafffab8d86f2b34e2d20054a5e729d69d2c9259f9938bd8370666435a43a",
+    "bytes": 9823
+  },
+  "runs/night-ablation-ps2-core-bounds-order1-20261005-retry1-evidence/host-arrivals.jsonl": {
+    "sha256": "d7e6ce1ed3575b2c2b260936694512bfa04648859ef1e12a81cfcce02dbe41cb",
+    "bytes": 3195
+  },
+  "runs/night-ablation-ps2-core-bounds-order1-20261005-retry1-evidence/host-authority.json": {
+    "sha256": "1f2b28d49c09bc0aa9849c0d20e3103368e17e96ed6d17b29e8b95229146bf24",
+    "bytes": 1086
+  },
+  "runs/night-ablation-ps2-core-bounds-order1-20261005-retry1-evidence/machine-evidence.json": {
+    "sha256": "83a665ba639be34d8126b673deb29e64669dffd375d5b830069b57aac07bc303",
+    "bytes": 4539
+  },
+  "runs/night-ablation-ps2-core-bounds-order1-20261005-retry1-evidence/native-build.log": {
+    "sha256": "716f3c63bb0efdcaac1785b9273d369e07c5987e28a71b90f77c85b61c8cf09f",
+    "bytes": 41779
+  },
+  "runs/night-ablation-ps2-core-bounds-order1-20261005-retry1-evidence/night-ablation.cfg": {
+    "sha256": "b5e27c66cb2a37fdb45468659771ecd2b78c5555f3ff110a1650e397de802106",
+    "bytes": 9
+  },
+  "runs/night-ablation-ps2-core-bounds-order1-20261005-retry1-evidence/night-ablation.log": {
+    "sha256": "584505f2800aca3778fe4eb3800591ee6995ecac54ef879f07662e8402fed343",
+    "bytes": 86129
+  },
+  "runs/night-ablation-ps2-core-bounds-order1-20261005-retry1-evidence/normalization-proof.json": {
+    "sha256": "d880306cf5b04fd7500c1e03b578fa9d7114f5245662996bcf47f710622766e2",
+    "bytes": 751
+  },
+  "runs/night-ablation-ps2-core-bounds-order1-20261005-retry1-evidence/observed-launch.json": {
+    "sha256": "5e1807608c88e591aee2ece36fdc80d3784dd90809c6786e782e0b9e2f132ed0",
+    "bytes": 525
+  },
+  "runs/night-ablation-ps2-core-bounds-order1-20261005-retry1-evidence/owned-launch.json": {
+    "sha256": "45e6bc080248a79f5b58a215b38c65c469b31e09e77340394190b68084495ec1",
+    "bytes": 1566
+  },
+  "runs/night-ablation-ps2-core-bounds-order1-20261005-retry1-evidence/owned-stop.json": {
+    "sha256": "d0121945b0cf9423f7c403273e2a2c6cc04172edc948ed3ee34ad108e64e7bd4",
+    "bytes": 255
+  },
+  "runs/night-ablation-ps2-core-bounds-order1-20261005-retry1-evidence/ps2client-raw.log": {
+    "sha256": "ef7a926de4a73bf3a2d3d06e5a91cc4798f462ddb2993f264a84fbda44ea3fbe",
+    "bytes": 31368
+  },
+  "runs/night-ablation-ps2-core-bounds-order1-20261005-retry1-evidence/ps2link.run": {
+    "sha256": "290eb100acb0b408fab11ae3445233dd7409222008a8c4dc3d0cf49a2bc1208a",
+    "bytes": 7
+  },
+  "runs/night-ablation-ps2-core-bounds-order1-20261005-retry1-evidence/quiet-night.cfg": {
+    "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+    "bytes": 2
+  },
+  "runs/night-ablation-ps2-core-bounds-order1-20261005-retry1-evidence/review-authority.json": {
+    "sha256": "d1e4401a9f4dd4483d5c2a199527ec92bacb6135eff8de8fdc8c9913f1b4ada4",
+    "bytes": 301
+  },
+  "runs/night-ablation-ps2-core-bounds-order1-20261005-retry1-evidence/root-launcher-process.json": {
+    "sha256": "e6f949e3113659beead02dd1c2ba11fe04e6eb71ef8db7e79031b325a7bb57f4",
+    "bytes": 96
+  },
+  "runs/night-ablation-ps2-core-bounds-order1-20261005-retry1-evidence/root-native-provenance.json": {
+    "sha256": "9f712b4e4e9a9a9a686242a2b5434513a3fbd373ce622d90d4f89d43053ef3a3",
+    "bytes": 949
+  },
+  "runs/night-ablation-ps2-core-bounds-order1-20261005-retry1-evidence/root-runtime-authority.json": {
+    "sha256": "085790040ef233d78acd21af7e0ff31e61133cb040f096406ebbdaa567b193ad",
+    "bytes": 1153
+  },
+  "runs/night-ablation-ps2-core-bounds-order1-20261005-retry1-evidence/root-source-freeze.json": {
+    "sha256": "96f180150293a9d8a2fee5667a59817c91b13359c77e9e4f4536b23e83317a2f",
+    "bytes": 773
+  },
+  "runs/night-ablation-ps2-core-bounds-order1-20261005-retry1-evidence/runtime-assets-manifest.json": {
+    "sha256": "172da3da52b28c099fb6a867c202412748565c22ace74188d5c4da6488b21603",
+    "bytes": 34180
+  },
+  "runs/night-ablation-ps2-core-bounds-order1-20261005-retry1-evidence/stdout.log": {
+    "sha256": "da078f8820da81abf8a77fb7f0a946572eaad19160cb8d8cf6432707c2b9648e",
+    "bytes": 31371
+  },
+  "runs/night-ablation-ps2-core-bounds-order1-20261005-retry1-evidence/strict-analysis.json": {
+    "sha256": "ac790fa878dd83ff6f64a44361a67454a7e82ffbd88e98ed4355a492af4f0fde",
+    "bytes": 45891
+  },
+  "runs/night-ablation-ps2-core-bounds-order1-20261005-retry1-evidence/target-source-manifest.json": {
+    "sha256": "ebcffe4bbb288570b2032cff73599a4cf93b3e8b8be9230dae1f51f6874d639c",
+    "bytes": 66097
+  },
+  "runs/night-ablation-ps2-core-bounds-order1-20261005-retry1-launch/client-process.json": {
+    "sha256": "d0121945b0cf9423f7c403273e2a2c6cc04172edc948ed3ee34ad108e64e7bd4",
+    "bytes": 255
+  },
+  "runs/night-ablation-ps2-core-bounds-order1-20261005-retry1-launch/host-arrivals.jsonl": {
+    "sha256": "d7e6ce1ed3575b2c2b260936694512bfa04648859ef1e12a81cfcce02dbe41cb",
+    "bytes": 3195
+  },
+  "runs/night-ablation-ps2-core-bounds-order1-20261005-retry1-launch/night-ablation.cfg": {
+    "sha256": "b5e27c66cb2a37fdb45468659771ecd2b78c5555f3ff110a1650e397de802106",
+    "bytes": 9
+  },
+  "runs/night-ablation-ps2-core-bounds-order1-20261005-retry1-launch/observed-launch.json": {
+    "sha256": "5e1807608c88e591aee2ece36fdc80d3784dd90809c6786e782e0b9e2f132ed0",
+    "bytes": 525
+  },
+  "runs/night-ablation-ps2-core-bounds-order1-20261005-retry1-launch/owned-launch.json": {
+    "sha256": "45e6bc080248a79f5b58a215b38c65c469b31e09e77340394190b68084495ec1",
+    "bytes": 1566
+  },
+  "runs/night-ablation-ps2-core-bounds-order1-20261005-retry1-launch/owned-stop.json": {
+    "sha256": "d0121945b0cf9423f7c403273e2a2c6cc04172edc948ed3ee34ad108e64e7bd4",
+    "bytes": 255
+  },
+  "runs/night-ablation-ps2-core-bounds-order1-20261005-retry1-launch/ps2link.run": {
+    "sha256": "290eb100acb0b408fab11ae3445233dd7409222008a8c4dc3d0cf49a2bc1208a",
+    "bytes": 7
+  },
+  "runs/night-ablation-ps2-core-bounds-order1-20261005-retry1-launch/quiet-night.cfg": {
+    "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+    "bytes": 2
+  },
+  "runs/night-ablation-ps2-core-bounds-order1-20261005-retry1-launch/root-launcher-process.json": {
+    "sha256": "e6f949e3113659beead02dd1c2ba11fe04e6eb71ef8db7e79031b325a7bb57f4",
+    "bytes": 96
+  },
+  "runs/night-ablation-ps2-core-bounds-order1-20261005-retry1-launch/root-native-provenance.json": {
+    "sha256": "9f712b4e4e9a9a9a686242a2b5434513a3fbd373ce622d90d4f89d43053ef3a3",
+    "bytes": 949
+  },
+  "runs/night-ablation-ps2-core-bounds-order1-20261005-retry1-launch/root-runtime-authority.json": {
+    "sha256": "085790040ef233d78acd21af7e0ff31e61133cb040f096406ebbdaa567b193ad",
+    "bytes": 1153
+  },
+  "runs/night-ablation-ps2-core-bounds-order1-20261005-retry1-launch/root-source-freeze.json": {
+    "sha256": "96f180150293a9d8a2fee5667a59817c91b13359c77e9e4f4536b23e83317a2f",
+    "bytes": 773
+  },
+  "runs/night-ablation-ps2-core-bounds-order1-20261005-retry1-launch/runtime-assets-manifest.json": {
+    "sha256": "172da3da52b28c099fb6a867c202412748565c22ace74188d5c4da6488b21603",
+    "bytes": 34180
+  },
+  "runs/night-ablation-ps2-core-bounds-order1-20261005-retry1-launch/target-source-manifest.json": {
+    "sha256": "ebcffe4bbb288570b2032cff73599a4cf93b3e8b8be9230dae1f51f6874d639c",
+    "bytes": 66097
+  },
+  "runs/night-ablation-ps2-core-bounds-order0-20261005-evidence/source-controls/night_plan.hpp": {
+    "sha256": "864c540b57a93e83c80b84681bc201b440c35b290e20dbeef144006081cae016",
+    "bytes": 2223
+  },
+  "runs/night-ablation-ps2-core-bounds-order0-20261005-evidence/source-controls/stapip_vu1_shared_defines.h": {
+    "sha256": "cf73e7be8c173e3ee9b04c54a9c57adbc18b7da29c9e4ed6d69c51dddf961d5b",
+    "bytes": 6147
+  },
+  "runs/night-ablation-ps2-core-bounds-order1-20261005-retry1-evidence/source-controls/night_plan.hpp": {
+    "sha256": "864c540b57a93e83c80b84681bc201b440c35b290e20dbeef144006081cae016",
+    "bytes": 2223
+  },
+  "runs/night-ablation-ps2-core-bounds-order1-20261005-retry1-evidence/source-controls/stapip_vu1_shared_defines.h": {
+    "sha256": "cf73e7be8c173e3ee9b04c54a9c57adbc18b7da29c9e4ed6d69c51dddf961d5b",
+    "bytes": 6147
+  },
+  "source/tyra/engine/inc/debug/night_ablation.hpp": {
+    "sha256": "6c39603963da86b08720494f7e9b40c07e3c929121822e210d6cb066e5b478ee",
+    "bytes": 7042
+  },
+  "source/tyra/engine/inc/debug/night_plan.hpp": {
+    "sha256": "864c540b57a93e83c80b84681bc201b440c35b290e20dbeef144006081cae016",
+    "bytes": 2223
+  },
+  "source/tyra/engine/inc/debug/night_runtime.hpp": {
+    "sha256": "76cd224a43edb4a2744f3fed23d7e6b24890c3de275bba35a395992118c51167",
+    "bytes": 12335
+  },
+  "source/tyra/engine/src/renderer/3d/pipeline/static/core/stapip_core.cpp": {
+    "sha256": "eed4f012debb8641a785017b834b5f5b32c31aef746a549ef8bfef884361c09e",
+    "bytes": 70935
+  },
+  "tools/core-bounds-controls-v1/actual-order0-reanalysis.json": {
+    "sha256": "7280d54a09c9f239e95f4c75100ebec6eeba3be7132dc48d6cdadf48b9dafc8b",
+    "bytes": 37703
+  },
+  "tools/core-bounds-controls-v1/additional-reanalysis-authority.json": {
+    "sha256": "abe4b8292e775783ff6cbe269c2010307baa265082cfed27908d6c3392d5d2f2",
+    "bytes": 4368
+  },
+  "tools/core-bounds-controls-v1/analyze-loop.py": {
+    "sha256": "5f1e9756449a5d35e9ce9567ab87be9e4388ed98b777f3ff72622b0e71f7fa27",
+    "bytes": 10107
+  },
+  "tools/core-bounds-controls-v1/analyze-night-cli.py": {
+    "sha256": "036a172cd079e4870ba8d00fcb6bdb23112621ea60453fbd38d7a6b97219c829",
+    "bytes": 1653
+  },
+  "tools/core-bounds-controls-v1/analyze-night.py": {
+    "sha256": "bed07d523d65ed570b6d10d7641fbfea09f95e2634f0b47243043d1b156b43a1",
+    "bytes": 19675
+  },
+  "tools/core-bounds-controls-v1/corona_controls.py": {
+    "sha256": "1decafffab8d86f2b34e2d20054a5e729d69d2c9259f9938bd8370666435a43a",
+    "bytes": 9823
+  },
+  "tools/core-bounds-controls-v1/final-handoff-proof.json": {
+    "sha256": "44b46e523f84a7d64757b7dfecf3e1b10d30bed4f5bfe5190f5ba37ec4aa7755",
+    "bytes": 1771
+  },
+  "tools/core-bounds-controls-v1/prefix-kind9-order0-artifact.log": {
+    "sha256": "51c735720f9780adccf0964993ab04d25f3b8f74047f11323d807d3eb7aca05d",
+    "bytes": 76681
+  },
+  "tools/core-bounds-controls-v1/prefix-kind9-order0-cli.json": {
+    "sha256": "d4ca962486010ee3b2733e3e6ac995b25e2d869eb4040bfeb7a75521a3127ab9",
+    "bytes": 38593
+  },
+  "tools/core-bounds-controls-v1/prefix-kind9-order0-stdout.log": {
+    "sha256": "0357920e6f4ae8622fd9813ef6217cac8d096176cde5b3d9ee34a66c839d3abd",
+    "bytes": 14279
+  },
+  "tools/core-bounds-controls-v1/prefix-kind9-order1-artifact.log": {
+    "sha256": "51c735720f9780adccf0964993ab04d25f3b8f74047f11323d807d3eb7aca05d",
+    "bytes": 76681
+  },
+  "tools/core-bounds-controls-v1/prefix-kind9-order1-cli.json": {
+    "sha256": "5bcb4e4e76fe39bfbc73c9992ab394584913c071edd1172782627a65ab73bd85",
+    "bytes": 38593
+  },
+  "tools/core-bounds-controls-v1/prefix-kind9-order1-stdout.log": {
+    "sha256": "10a2c40e748df0129d3c2b520cc6221d8970bb1082e2620bc8ea5bfa6f5271ee",
+    "bytes": 14279
+  },
+  "tools/core-bounds-controls-v1/prefix-proof.json": {
+    "sha256": "0f702a2e532fa3e551c5fe23bce70e1aeb753ab2156a4995cd06412c2c2ce028",
+    "bytes": 2163
+  },
+  "tools/core-bounds-controls-v1/preparation.json": {
+    "sha256": "7dc73a012718c3c2256b4768bde66f3d3bb96dedbe3786b863ba596c70655d41",
+    "bytes": 979
+  },
+  "tools/core-bounds-controls-v1/proof.json": {
+    "sha256": "3aac4c5a6c3328643bfa95b317accb880276a014e7e613c6a7a1360a33dc81f0",
+    "bytes": 13374
+  },
+  "tools/core-bounds-controls-v1/README.md": {
+    "sha256": "4c664b0d9ccfa6c88af4732c843e37027160378067e75c17135f56e43cdcb90a",
+    "bytes": 1835
+  },
+  "tools/core-bounds-controls-v1/run-controls.py": {
+    "sha256": "cf66d7d96967d5cf18f45f76571b16128c29111328f3dc95362af6617d92287e",
+    "bytes": 9151
+  },
+  "tools/core-bounds-controls-v1/SHA256.json": {
+    "sha256": "c2d857f0bf1644b58aeba15bad66c1dd535889e2f134d2cf477a29f88c2dc481",
+    "bytes": 4301
+  },
+  "tools/core-bounds-native-root-review-v1/proof.json": {
+    "sha256": "bf22051fe54672195b1d6dacbb01a5f38dbd014be3337b99c7611cc11f48a36a",
+    "bytes": 3996129
+  },
+  "tools/core-bounds-root-helpers-v1/finish-physical-no-reset.ps1": {
+    "sha256": "a1b13b9fd3f9dbc98ecad2e823c5752fcb1fdb99d69cb4ee17e627561444fcfa",
+    "bytes": 2506
+  },
+  "tools/core-bounds-root-helpers-v1/finish-physical.ps1": {
+    "sha256": "05657cac9c5cd088760c1142d00a182e15f84c0fd5ef4dbdb0a2202496cdd04c",
+    "bytes": 2918
+  },
+  "tools/core-bounds-root-helpers-v1/freeze-completed.py": {
+    "sha256": "24651d38a91d371c316d0f7acac128d5063631a9e86c76d06c5b361edcf0e4fc",
+    "bytes": 9570
+  },
+  "tools/core-bounds-root-helpers-v1/helper-pins.json": {
+    "sha256": "9fcaa754d4ca8110786a35dd1b2049fec2ffbde189ee363d94c4daa4e79d4057",
+    "bytes": 1406
+  },
+  "tools/core-bounds-root-helpers-v1/host-authority.json": {
+    "sha256": "1f2b28d49c09bc0aa9849c0d20e3103368e17e96ed6d17b29e8b95229146bf24",
+    "bytes": 1086
+  },
+  "tools/core-bounds-root-helpers-v1/host-controls-proof.json": {
+    "sha256": "57c8c27e2d30a16db1ec9ff03213c682408c58b2385552370be9a1034219d242",
+    "bytes": 2858
+  },
+  "tools/core-bounds-root-helpers-v1/host-kind9-order0.json": {
+    "sha256": "9034976421e428087062ea8109ee4dfce37b395f3aeb2ebfdc16ee09f28d273a",
+    "bytes": 38597
+  },
+  "tools/core-bounds-root-helpers-v1/host-kind9-order1.json": {
+    "sha256": "8dd8df206a5282ec2b52cd6950eec000bf01c44633c95afdcc93c35a5be25e05",
+    "bytes": 38597
+  },
+  "tools/core-bounds-root-helpers-v1/launch-emulator.py": {
+    "sha256": "72d4a411c9268b41af807292ac95f1c13a72b85ab5159fc1f1ab0689bbbe3497",
+    "bytes": 3867
+  },
+  "tools/core-bounds-root-helpers-v1/launch-physical-observed.py": {
+    "sha256": "61f36d3bbc1f77f610baac658b75d92d75da6a33597dd3203c5f15f614e79323",
+    "bytes": 2461
+  },
+  "tools/core-bounds-root-helpers-v1/preparation.json": {
+    "sha256": "622e9908b220590948b982347c5105bdeccb7621262283610a4f157809feb334",
+    "bytes": 2976
+  },
+  "tools/core-bounds-root-helpers-v1/prepare-physical.py": {
+    "sha256": "161d4f50d96bdbdd61d0649508b0f00466b9dc288e30699bce7b39b77e4e4fbf",
+    "bytes": 2431
+  },
+  "tools/core-bounds-root-helpers-v1/qualify-emulator.py": {
+    "sha256": "54a061409da0a9bab57425b2055d04114b83971b81e72ccfd4fec38917930e8c",
+    "bytes": 4208
+  },
+  "tools/core-bounds-root-helpers-v1/README.md": {
+    "sha256": "51db78ef15ba96d6c8a9a131fa57dcc249576ec2696ff952fbae74fbb6ab7129",
+    "bytes": 2886
+  },
+  "tools/core-bounds-root-helpers-v1/runtime_guard.py": {
+    "sha256": "e4534e8199995ec4a8a6670dadf4906ddfeeaff246ee6cb465e5f38a6164754a",
+    "bytes": 2081
+  },
+  "tools/core-bounds-root-helpers-v1/source-review.md": {
+    "sha256": "d1e4401a9f4dd4483d5c2a199527ec92bacb6135eff8de8fdc8c9913f1b4ada4",
+    "bytes": 301
+  },
+  "tools/core-bounds-root-helpers-v1/stop-emulator.py": {
+    "sha256": "c50fcd43b02e253014de9c3e3cdb3d09b3e16d59a49a3503e0e61961e4745597",
+    "bytes": 1293
+  },
+  "tools/core-bounds-target-abi-v1/command-0.log": {
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "bytes": 0
+  },
+  "tools/core-bounds-target-abi-v1/command-1.log": {
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "bytes": 0
+  },
+  "tools/core-bounds-target-abi-v1/layout.cpp": {
+    "sha256": "7f8f5cc400c366692ede8e4ab13008c892d0c373ab34f3ea3e17d5d9b4f8f1d7",
+    "bytes": 458
+  },
+  "tools/core-bounds-target-abi-v1/proof.json": {
+    "sha256": "3134128dfecc313cd19b3595d3be5bba64931d934f8a3989130115079a6cfcf7",
+    "bytes": 2643
+  },
+  "tools/core-bounds-controls-v1/host-v2/kind9-order0-artifact.log": {
+    "sha256": "966e59d599cd9546f6557b5042668c6e085fb00eb1896b2da1d837208206fdb6",
+    "bytes": 77083
+  },
+  "tools/core-bounds-controls-v1/host-v2/kind9-order0-cli.json": {
+    "sha256": "8708e00b6eeaf92e3388936dbdb096fa1cca76ab03db6a2868e6f6615624652b",
+    "bytes": 38597
+  },
+  "tools/core-bounds-controls-v1/host-v2/kind9-order0-stdout.log": {
+    "sha256": "880eb81c3a1465fee1918dc5ac087635a9d9d3ca60f1cc8c70660eecd0098bb7",
+    "bytes": 13852
+  },
+  "tools/core-bounds-controls-v1/host-v2/kind9-order1-artifact.log": {
+    "sha256": "966e59d599cd9546f6557b5042668c6e085fb00eb1896b2da1d837208206fdb6",
+    "bytes": 77083
+  },
+  "tools/core-bounds-controls-v1/host-v2/kind9-order1-cli.json": {
+    "sha256": "a2356b6e4b7f4abf0d479117fa1175c4bb9cb82e0c1a2aa0f29fe00f7be96a9e",
+    "bytes": 38597
+  },
+  "tools/core-bounds-controls-v1/host-v2/kind9-order1-stdout.log": {
+    "sha256": "5c5254efcb584b9113a28084d970a605f1e6c86ffdae7d942d467035b028c743",
+    "bytes": 13852
+  },
+  "tools/core-bounds-controls-v1/host-v2/negative-falseAcceptedKnown-artifact.log": {
+    "sha256": "966e59d599cd9546f6557b5042668c6e085fb00eb1896b2da1d837208206fdb6",
+    "bytes": 77083
+  },
+  "tools/core-bounds-controls-v1/host-v2/negative-falseAcceptedKnown-cli.json": {
+    "sha256": "0d6843da321e34a9ad7bde61550e014f6a7800b9464db1a02530e3ccd97336d1",
+    "bytes": 1626
+  },
+  "tools/core-bounds-controls-v1/host-v2/negative-falseAcceptedKnown-stdout.log": {
+    "sha256": "269f85b4d5c79172bd44863ee39e468ea64319b3b77df083e0592d944000cf51",
+    "bytes": 13852
+  },
+  "tools/core-bounds-controls-v1/host-v2/negative-kind9AsKind7-artifact.log": {
+    "sha256": "966e59d599cd9546f6557b5042668c6e085fb00eb1896b2da1d837208206fdb6",
+    "bytes": 77083
+  },
+  "tools/core-bounds-controls-v1/host-v2/negative-kind9AsKind7-cli.json": {
+    "sha256": "8d98fd86f65c336b4ee7dc30c35b864c0b23e257246e56d2b1c77c65e12b0112",
+    "bytes": 1606
+  },
+  "tools/core-bounds-controls-v1/host-v2/negative-kind9AsKind7-stdout.log": {
+    "sha256": "8aafe8559c2152ab01cdb922c4784923693e412d3e341f2d534b9cb29a0a537e",
+    "bytes": 13852
+  },
+  "tools/core-bounds-controls-v1/host-v2/negative-missingRaw-artifact.log": {
+    "sha256": "fd564a4a40635376e4cb91c933329a7d8b9c97c0f9ff35ce3cd1fbda34acb25f",
+    "bytes": 76884
+  },
+  "tools/core-bounds-controls-v1/host-v2/negative-missingRaw-cli.json": {
+    "sha256": "c0f5869647f856298894a36609528ad61ece1c4fbeafbd3170343aab6094ac72",
+    "bytes": 1611
+  },
+  "tools/core-bounds-controls-v1/host-v2/negative-missingRaw-stdout.log": {
+    "sha256": "880eb81c3a1465fee1918dc5ac087635a9d9d3ca60f1cc8c70660eecd0098bb7",
+    "bytes": 13852
+  },
+  "tools/core-bounds-controls-v1/host-v2/regression-O2-5-0-0-0-cli.json": {
+    "sha256": "34e8c2d6d072ccae280c8b5459c8b365a56a8d2c4d2e98f9c374bc0f57b3a4f9",
+    "bytes": 35936
+  },
+  "tools/core-bounds-controls-v1/host-v2/regression-O2-5-1-0-0-cli.json": {
+    "sha256": "024aa0235a142326ebcfad366e5e3fe9680af27a7c81d80921e12a961591f842",
+    "bytes": 35936
+  },
+  "tools/core-bounds-controls-v1/host-v2/regression-O2-6-0-0-0-cli.json": {
+    "sha256": "ef88e7b741a5f2599ad1d09f1b9f9cef0b80274b54d5374fe6baaa2b787c3d59",
+    "bytes": 35936
+  },
+  "tools/core-bounds-controls-v1/host-v2/regression-O2-6-1-0-0-cli.json": {
+    "sha256": "1d87e24f6298d1bd57c17faa6c29ee89b30fbe8d8689dbc483012e2463fd9452",
+    "bytes": 35936
+  },
+  "tools/core-bounds-controls-v1/host-v2/regression-O2-7-0-0-0-cli.json": {
+    "sha256": "cc27b5f2cb0dc0a15b3cb343c9a783b9ac814bc9816cc9ff0d5bb5bfd7d0f687",
+    "bytes": 35961
+  },
+  "tools/core-bounds-controls-v1/host-v2/regression-O2-7-1-0-0-cli.json": {
+    "sha256": "328acbda851e1a2c5b0fae868370fc57bcba57310799037d685ba50cb1c5c609",
+    "bytes": 35963
+  },
+  "tools/core-bounds-controls-v1/source-controls/night_plan.hpp": {
+    "sha256": "864c540b57a93e83c80b84681bc201b440c35b290e20dbeef144006081cae016",
+    "bytes": 2223
+  },
+  "tools/core-bounds-controls-v1/source-controls/stapip_vu1_shared_defines.h": {
+    "sha256": "cf73e7be8c173e3ee9b04c54a9c57adbc18b7da29c9e4ed6d69c51dddf961d5b",
+    "bytes": 6147
+  }
+}

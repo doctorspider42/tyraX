@@ -3938,3 +3938,5 @@ recovers its instrumented elapsed time. Vehicle/headlight and other projected
 routes are separate; walking/moving/showcase activation remains open.
 
 The kind14 Core prefix partition is documented in `docs/tyrax2-core-prefix-partition.md`. Three disjoint brackets end before texture preparation, object-data preparation and replay lookup respectively. Early empty/outside returns belong only to the first bracket; existing waits are included. Reserved protocol stages must remain zero. This is private observation, not production optimization or pure EE arithmetic pricing.
+
+Kind15 splits head/bounds/package preparation into five disjoint regions. Preserve early returns in stage0/2 and compare only within its ELF; its common disabled footprint differs from kind14. See the Core prefix page. Matrix equality must preserve all64bytes (including signed zero/NaN payloads); clip-plane specialization must keep the exact far plane z+w and original leading distance/add order.

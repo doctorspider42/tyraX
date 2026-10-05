@@ -77,3 +77,5 @@ docs/tyrax2-night-producers-2026-10-05/** -text whitespace=-trailing-space,-spac
 
 # Preserve exact Core prefix trial evidence bytes.
 docs/tyrax2-core-prefix-partition-2026-10-05/** -text whitespace=-trailing-space,-space-before-tab,cr-at-eol
+
+docs/tyrax2-core-bounds-2026-10-05/** -text whitespace=-trailing-space,-space-before-tab,cr-at-eol
