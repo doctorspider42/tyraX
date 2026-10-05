@@ -1,0 +1,721 @@
+{
+  "status": "PASS_PREPARED_WILD_KIND5_KIND6_ACTUAL_HEADER_HOST_CONTROLS_ONLY",
+  "positiveCompleteTranscripts": 24,
+  "negativeParserGuards": [
+    "oldKindExtraMustZero",
+    "extraUnknownPhaseField",
+    "extraUnknownGateField",
+    "extraMissingPhase",
+    "extraDuplicatePhase",
+    "extraMissingGate",
+    "extraDuplicateGate",
+    "extraWrongFirst",
+    "extraWrongApplied",
+    "extraWrongSubset",
+    "extraGateWrongMask",
+    "extraSelectedSubmit",
+    "extraPartition",
+    "extraEnabledSkip",
+    "extraWrongColdWindow",
+    "ordinaryMaskNonzeroKind3",
+    "samplerOffKind3",
+    "ordinaryReservedCounter",
+    "phaseWrongFirst",
+    "malformedPointer",
+    "driftPointer",
+    "missingRaw",
+    "unknownRawField",
+    "missingCamera",
+    "5-missingWildPhase",
+    "5-duplicateWildPhase",
+    "5-wrongWildApplied",
+    "5-wrongWildVariant",
+    "5-unknownWildPhaseKey",
+    "5-missingWildGate",
+    "5-duplicateWildGate",
+    "5-wrongWildColdIdentity",
+    "5-wildPartition",
+    "5-wildApplied",
+    "5-wildMismatch",
+    "5-wildOverflow",
+    "5-wildSubset",
+    "5-wildUnits",
+    "5-wildOtherFamily",
+    "5-wildUnknownGateKey",
+    "5-wildOrdinaryMask",
+    "5-wildPointer",
+    "6-missingWildPhase",
+    "6-duplicateWildPhase",
+    "6-wrongWildApplied",
+    "6-wrongWildVariant",
+    "6-unknownWildPhaseKey",
+    "6-missingWildGate",
+    "6-duplicateWildGate",
+    "6-wrongWildColdIdentity",
+    "6-wildPartition",
+    "6-wildApplied",
+    "6-wildMismatch",
+    "6-wildOverflow",
+    "6-wildSubset",
+    "6-wildUnits",
+    "6-wildOtherFamily",
+    "6-wildUnknownGateKey",
+    "6-wildOrdinaryMask",
+    "6-wildPointer"
+  ],
+  "runs": [
+    {
+      "plan": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "optimization": "O0",
+      "sampleRows": 128,
+      "extraMasks": [
+        0,
+        0,
+        0
+      ],
+      "checks": "HOSTCHECKS=21603",
+      "buildExit": 0,
+      "runExit": 0
+    },
+    {
+      "plan": [
+        0,
+        1,
+        0,
+        0
+      ],
+      "optimization": "O0",
+      "sampleRows": 256,
+      "extraMasks": [
+        0,
+        0,
+        0
+      ],
+      "checks": "HOSTCHECKS=21603",
+      "buildExit": 0,
+      "runExit": 0
+    },
+    {
+      "plan": [
+        1,
+        0,
+        31,
+        0
+      ],
+      "optimization": "O0",
+      "sampleRows": 384,
+      "extraMasks": [
+        0,
+        0,
+        0
+      ],
+      "checks": "HOSTCHECKS=21603",
+      "buildExit": 0,
+      "runExit": 0
+    },
+    {
+      "plan": [
+        1,
+        1,
+        31,
+        0
+      ],
+      "optimization": "O0",
+      "sampleRows": 384,
+      "extraMasks": [
+        0,
+        0,
+        0
+      ],
+      "checks": "HOSTCHECKS=21603",
+      "buildExit": 0,
+      "runExit": 0
+    },
+    {
+      "plan": [
+        2,
+        0,
+        31,
+        3
+      ],
+      "optimization": "O0",
+      "sampleRows": 384,
+      "extraMasks": [
+        0,
+        0,
+        0
+      ],
+      "checks": "HOSTCHECKS=21603",
+      "buildExit": 0,
+      "runExit": 0
+    },
+    {
+      "plan": [
+        2,
+        1,
+        31,
+        3
+      ],
+      "optimization": "O0",
+      "sampleRows": 384,
+      "extraMasks": [
+        0,
+        0,
+        0
+      ],
+      "checks": "HOSTCHECKS=21603",
+      "buildExit": 0,
+      "runExit": 0
+    },
+    {
+      "plan": [
+        3,
+        0,
+        0,
+        1
+      ],
+      "optimization": "O0",
+      "sampleRows": 384,
+      "extraMasks": [
+        0,
+        1,
+        0
+      ],
+      "checks": "HOSTCHECKS=21603",
+      "buildExit": 0,
+      "runExit": 0
+    },
+    {
+      "plan": [
+        3,
+        1,
+        0,
+        1
+      ],
+      "optimization": "O0",
+      "sampleRows": 384,
+      "extraMasks": [
+        1,
+        0,
+        1
+      ],
+      "checks": "HOSTCHECKS=21603",
+      "buildExit": 0,
+      "runExit": 0
+    },
+    {
+      "plan": [
+        5,
+        0,
+        0,
+        0
+      ],
+      "optimization": "O0",
+      "sampleRows": 384,
+      "extraMasks": [
+        0,
+        0,
+        0
+      ],
+      "checks": "HOSTCHECKS=21603",
+      "buildExit": 0,
+      "runExit": 0
+    },
+    {
+      "plan": [
+        5,
+        1,
+        0,
+        0
+      ],
+      "optimization": "O0",
+      "sampleRows": 384,
+      "extraMasks": [
+        0,
+        0,
+        0
+      ],
+      "checks": "HOSTCHECKS=21603",
+      "buildExit": 0,
+      "runExit": 0
+    },
+    {
+      "plan": [
+        6,
+        0,
+        0,
+        0
+      ],
+      "optimization": "O0",
+      "sampleRows": 384,
+      "extraMasks": [
+        0,
+        0,
+        0
+      ],
+      "checks": "HOSTCHECKS=21603",
+      "buildExit": 0,
+      "runExit": 0
+    },
+    {
+      "plan": [
+        6,
+        1,
+        0,
+        0
+      ],
+      "optimization": "O0",
+      "sampleRows": 384,
+      "extraMasks": [
+        0,
+        0,
+        0
+      ],
+      "checks": "HOSTCHECKS=21603",
+      "buildExit": 0,
+      "runExit": 0
+    },
+    {
+      "plan": [
+        0,
+        0,
+        0,
+        0
+      ],
+      "optimization": "O2",
+      "sampleRows": 128,
+      "extraMasks": [
+        0,
+        0,
+        0
+      ],
+      "checks": "HOSTCHECKS=21603",
+      "buildExit": 0,
+      "runExit": 0
+    },
+    {
+      "plan": [
+        0,
+        1,
+        0,
+        0
+      ],
+      "optimization": "O2",
+      "sampleRows": 256,
+      "extraMasks": [
+        0,
+        0,
+        0
+      ],
+      "checks": "HOSTCHECKS=21603",
+      "buildExit": 0,
+      "runExit": 0
+    },
+    {
+      "plan": [
+        1,
+        0,
+        31,
+        0
+      ],
+      "optimization": "O2",
+      "sampleRows": 384,
+      "extraMasks": [
+        0,
+        0,
+        0
+      ],
+      "checks": "HOSTCHECKS=21603",
+      "buildExit": 0,
+      "runExit": 0
+    },
+    {
+      "plan": [
+        1,
+        1,
+        31,
+        0
+      ],
+      "optimization": "O2",
+      "sampleRows": 384,
+      "extraMasks": [
+        0,
+        0,
+        0
+      ],
+      "checks": "HOSTCHECKS=21603",
+      "buildExit": 0,
+      "runExit": 0
+    },
+    {
+      "plan": [
+        2,
+        0,
+        31,
+        3
+      ],
+      "optimization": "O2",
+      "sampleRows": 384,
+      "extraMasks": [
+        0,
+        0,
+        0
+      ],
+      "checks": "HOSTCHECKS=21603",
+      "buildExit": 0,
+      "runExit": 0
+    },
+    {
+      "plan": [
+        2,
+        1,
+        31,
+        3
+      ],
+      "optimization": "O2",
+      "sampleRows": 384,
+      "extraMasks": [
+        0,
+        0,
+        0
+      ],
+      "checks": "HOSTCHECKS=21603",
+      "buildExit": 0,
+      "runExit": 0
+    },
+    {
+      "plan": [
+        3,
+        0,
+        0,
+        1
+      ],
+      "optimization": "O2",
+      "sampleRows": 384,
+      "extraMasks": [
+        0,
+        1,
+        0
+      ],
+      "checks": "HOSTCHECKS=21603",
+      "buildExit": 0,
+      "runExit": 0
+    },
+    {
+      "plan": [
+        3,
+        1,
+        0,
+        1
+      ],
+      "optimization": "O2",
+      "sampleRows": 384,
+      "extraMasks": [
+        1,
+        0,
+        1
+      ],
+      "checks": "HOSTCHECKS=21603",
+      "buildExit": 0,
+      "runExit": 0
+    },
+    {
+      "plan": [
+        5,
+        0,
+        0,
+        0
+      ],
+      "optimization": "O2",
+      "sampleRows": 384,
+      "extraMasks": [
+        0,
+        0,
+        0
+      ],
+      "checks": "HOSTCHECKS=21603",
+      "buildExit": 0,
+      "runExit": 0
+    },
+    {
+      "plan": [
+        5,
+        1,
+        0,
+        0
+      ],
+      "optimization": "O2",
+      "sampleRows": 384,
+      "extraMasks": [
+        0,
+        0,
+        0
+      ],
+      "checks": "HOSTCHECKS=21603",
+      "buildExit": 0,
+      "runExit": 0
+    },
+    {
+      "plan": [
+        6,
+        0,
+        0,
+        0
+      ],
+      "optimization": "O2",
+      "sampleRows": 384,
+      "extraMasks": [
+        0,
+        0,
+        0
+      ],
+      "checks": "HOSTCHECKS=21603",
+      "buildExit": 0,
+      "runExit": 0
+    },
+    {
+      "plan": [
+        6,
+        1,
+        0,
+        0
+      ],
+      "optimization": "O2",
+      "sampleRows": 384,
+      "extraMasks": [
+        0,
+        0,
+        0
+      ],
+      "checks": "HOSTCHECKS=21603",
+      "buildExit": 0,
+      "runExit": 0
+    }
+  ],
+  "commands": [
+    [
+      "C:/Users/pawel/scoop/apps/mingw/current/bin/g++.exe",
+      "-std=c++17",
+      "-O0",
+      "-Wall",
+      "-Wextra",
+      "-Werror",
+      "-static",
+      "-I",
+      "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1",
+      "-I",
+      "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\gate",
+      "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host-controls.cpp",
+      "-o",
+      "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host\\controls-O0.exe"
+    ],
+    [
+      "C:/Users/pawel/scoop/apps/mingw/current/bin/g++.exe",
+      "-std=c++17",
+      "-O2",
+      "-Wall",
+      "-Wextra",
+      "-Werror",
+      "-static",
+      "-I",
+      "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1",
+      "-I",
+      "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\gate",
+      "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host-controls.cpp",
+      "-o",
+      "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host\\controls-O2.exe"
+    ],
+    [
+      "python",
+      "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\analyze-night-cli.py",
+      "--stdout",
+      "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host\\O2-5-0-0-0-stdout.log",
+      "--artifact",
+      "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host\\O2-5-0-0-0-artifact.log",
+      "--environment",
+      "host",
+      "--kind",
+      "5",
+      "--order",
+      "0",
+      "--joint",
+      "0",
+      "--restored",
+      "0",
+      "--report",
+      "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host\\O2-5-0-0-0-cli.json"
+    ],
+    [
+      "python",
+      "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\analyze-night-cli.py",
+      "--stdout",
+      "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host\\O2-5-1-0-0-stdout.log",
+      "--artifact",
+      "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host\\O2-5-1-0-0-artifact.log",
+      "--environment",
+      "host",
+      "--kind",
+      "5",
+      "--order",
+      "1",
+      "--joint",
+      "0",
+      "--restored",
+      "0",
+      "--report",
+      "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host\\O2-5-1-0-0-cli.json"
+    ],
+    [
+      "python",
+      "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\analyze-night-cli.py",
+      "--stdout",
+      "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host\\O2-6-0-0-0-stdout.log",
+      "--artifact",
+      "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host\\O2-6-0-0-0-artifact.log",
+      "--environment",
+      "host",
+      "--kind",
+      "6",
+      "--order",
+      "0",
+      "--joint",
+      "0",
+      "--restored",
+      "0",
+      "--report",
+      "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host\\O2-6-0-0-0-cli.json"
+    ],
+    [
+      "python",
+      "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\analyze-night-cli.py",
+      "--stdout",
+      "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host\\O2-6-1-0-0-stdout.log",
+      "--artifact",
+      "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host\\O2-6-1-0-0-artifact.log",
+      "--environment",
+      "host",
+      "--kind",
+      "6",
+      "--order",
+      "1",
+      "--joint",
+      "0",
+      "--restored",
+      "0",
+      "--report",
+      "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host\\O2-6-1-0-0-cli.json"
+    ]
+  ],
+  "sourcePins": {
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\night_sampler.hpp": "b51b72a79d1ede2553d46fb9bf2fbe112fa5ad0796a8f88fb02dbec86464c7d6",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\night_plan.hpp": "37941cc0894d45efeff8dcfcbcc81b513fe2fc1c1e06808afd6734d325f6413e",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\night_runtime.hpp": "8af95f6d9add3d7dc871093c4bbe903653e9eee829e5caed941d79c67f009298",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\quiet_runtime.hpp": "c2b93076926ced36b425bbf2cb5eea738650087192427a1088acbae0058ad07b",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\quiet_cadence.hpp": "c6c87c3d9cc6deb6e90fa01d91c86df5ee6be8979b4a8b734a35804d991be6f3",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\analyze-loop.py": "5f1e9756449a5d35e9ce9567ab87be9e4388ed98b777f3ff72622b0e71f7fa27",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\analyze-night.py": "45b5485d5cf366f3d87a4a5fd2547380825846511d569d7e706cd1da8042605f",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\analyze-night-cli.py": "4b6f0da579e860dd7737d757d1bc7e027b8a7307a8f738febe3acba173bfda57",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host-controls.cpp": "97aff50529866383689398722699184c363ee5ab80611d8b5c86da2b6abc03ce",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\run-host-controls.py": "f9d668b01578bf282d5011ca24fc209492a4d17e2e6baf1c79c691ddd085a04f",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\README.md": "02a2d84f39090afc66270a6a3bdbf0bb590ce5d79c5b013ef7c2448c6ed6dbd2",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\gate\\debug\\night_ablation.hpp": "9e841b6b0a69589b49eab9da43d3be2659b69f3856edd469abd0239e98952559"
+  },
+  "artifactPins": {
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host\\build-O0.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host\\build-O2.txt": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host\\controls-O0.exe": "9d5ed891786414303d8af95d3132cba8a1e824c5ce6beb8d865560d9b756a912",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host\\controls-O2.exe": "c314cf7889398f593b286df9612efbf6e8d1074ccffcc93ac956428f02aeb228",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host\\O0-0-0-0-0-artifact.log": "70892abdbb70f7c3b4dcb0c5e03de4f59234bddc33e3ce56ba40ef9b052eeac0",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host\\O0-0-0-0-0-run.txt": "651d5eb26c9e0a44817517f842a2a6f250410f444e1b2384ed2c7e9671b9cc3e",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host\\O0-0-0-0-0-stdout.log": "0cc5886975f407c99d77e3125e62b8e32d04a493a04f5a3097ec4c94a0600b35",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host\\O0-0-1-0-0-artifact.log": "bed06a8a6c1d0b54e7d316ad1e36b4574ab8268ed965f4eea1f8b775f39c57d0",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host\\O0-0-1-0-0-run.txt": "651d5eb26c9e0a44817517f842a2a6f250410f444e1b2384ed2c7e9671b9cc3e",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host\\O0-0-1-0-0-stdout.log": "d8af1872877a6cf43357e8b0cd609ed6ad6c953fdc77d57b2675ec9e9b100a7c",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host\\O0-1-0-31-0-artifact.log": "966e59d599cd9546f6557b5042668c6e085fb00eb1896b2da1d837208206fdb6",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host\\O0-1-0-31-0-run.txt": "651d5eb26c9e0a44817517f842a2a6f250410f444e1b2384ed2c7e9671b9cc3e",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host\\O0-1-0-31-0-stdout.log": "0232667a67885a701ec318ff156964de00afc1798673e8e375e5356d0769d010",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host\\O0-1-1-31-0-artifact.log": "966e59d599cd9546f6557b5042668c6e085fb00eb1896b2da1d837208206fdb6",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host\\O0-1-1-31-0-run.txt": "651d5eb26c9e0a44817517f842a2a6f250410f444e1b2384ed2c7e9671b9cc3e",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host\\O0-1-1-31-0-stdout.log": "a242409a1927829b6ce2b52d7965d23c1c3d3f081d617cbe11fcae4171de65c8",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host\\O0-2-0-31-3-artifact.log": "966e59d599cd9546f6557b5042668c6e085fb00eb1896b2da1d837208206fdb6",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host\\O0-2-0-31-3-run.txt": "651d5eb26c9e0a44817517f842a2a6f250410f444e1b2384ed2c7e9671b9cc3e",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host\\O0-2-0-31-3-stdout.log": "2302f1602633a643eb9f54423c3fcf1ca3c2cfde54d7a0ed26ab0fa1576e04e7",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host\\O0-2-1-31-3-artifact.log": "966e59d599cd9546f6557b5042668c6e085fb00eb1896b2da1d837208206fdb6",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host\\O0-2-1-31-3-run.txt": "651d5eb26c9e0a44817517f842a2a6f250410f444e1b2384ed2c7e9671b9cc3e",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host\\O0-2-1-31-3-stdout.log": "3d905db5e10d77d8d33392bd03dcc90f48ae23bf6921fe604dc82628ca8e062b",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host\\O0-3-0-0-1-artifact.log": "966e59d599cd9546f6557b5042668c6e085fb00eb1896b2da1d837208206fdb6",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host\\O0-3-0-0-1-run.txt": "651d5eb26c9e0a44817517f842a2a6f250410f444e1b2384ed2c7e9671b9cc3e",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host\\O0-3-0-0-1-stdout.log": "26e86e11443454fe226ddb9c363e67035ce6fec57a742c986c401f3c731848ce",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host\\O0-3-1-0-1-artifact.log": "966e59d599cd9546f6557b5042668c6e085fb00eb1896b2da1d837208206fdb6",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host\\O0-3-1-0-1-run.txt": "651d5eb26c9e0a44817517f842a2a6f250410f444e1b2384ed2c7e9671b9cc3e",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host\\O0-3-1-0-1-stdout.log": "2825f24488adfe027612a16527e66ddabf19d35f3b1df75117d2a0873d1da9b6",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host\\O0-5-0-0-0-artifact.log": "966e59d599cd9546f6557b5042668c6e085fb00eb1896b2da1d837208206fdb6",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host\\O0-5-0-0-0-run.txt": "651d5eb26c9e0a44817517f842a2a6f250410f444e1b2384ed2c7e9671b9cc3e",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host\\O0-5-0-0-0-stdout.log": "b42709d0db7256963dce87dda6a95291412ef6b15e4b0fa66230e3121db3651e",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host\\O0-5-1-0-0-artifact.log": "966e59d599cd9546f6557b5042668c6e085fb00eb1896b2da1d837208206fdb6",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host\\O0-5-1-0-0-run.txt": "651d5eb26c9e0a44817517f842a2a6f250410f444e1b2384ed2c7e9671b9cc3e",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host\\O0-5-1-0-0-stdout.log": "c5f8122ff37e10dcbd9da05e0bc94d781c91e224dcbddbb269c810e9ed07b20d",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host\\O0-6-0-0-0-artifact.log": "966e59d599cd9546f6557b5042668c6e085fb00eb1896b2da1d837208206fdb6",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host\\O0-6-0-0-0-run.txt": "651d5eb26c9e0a44817517f842a2a6f250410f444e1b2384ed2c7e9671b9cc3e",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host\\O0-6-0-0-0-stdout.log": "1962b8e30cfcc70e9e89cb2129a2a4b56eced74fd8fbb50de4069db37fd0c88c",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host\\O0-6-1-0-0-artifact.log": "966e59d599cd9546f6557b5042668c6e085fb00eb1896b2da1d837208206fdb6",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host\\O0-6-1-0-0-run.txt": "651d5eb26c9e0a44817517f842a2a6f250410f444e1b2384ed2c7e9671b9cc3e",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host\\O0-6-1-0-0-stdout.log": "4b6f1d256a5f1a7409a6ceb35c1612c0645bdedd997c1d7f2606ad3be60ca9be",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host\\O2-0-0-0-0-artifact.log": "70892abdbb70f7c3b4dcb0c5e03de4f59234bddc33e3ce56ba40ef9b052eeac0",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host\\O2-0-0-0-0-run.txt": "651d5eb26c9e0a44817517f842a2a6f250410f444e1b2384ed2c7e9671b9cc3e",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host\\O2-0-0-0-0-stdout.log": "2f3aa8c87aa53bdafc4bdddc11c5ef6a360f1efd034d1dedc49cf68a45777175",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host\\O2-0-1-0-0-artifact.log": "bed06a8a6c1d0b54e7d316ad1e36b4574ab8268ed965f4eea1f8b775f39c57d0",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host\\O2-0-1-0-0-run.txt": "651d5eb26c9e0a44817517f842a2a6f250410f444e1b2384ed2c7e9671b9cc3e",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host\\O2-0-1-0-0-stdout.log": "0bcf75602aa5fb6af64611e5cc97034c732cf1888883c41f364f7fd828732005",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host\\O2-1-0-31-0-artifact.log": "966e59d599cd9546f6557b5042668c6e085fb00eb1896b2da1d837208206fdb6",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host\\O2-1-0-31-0-run.txt": "651d5eb26c9e0a44817517f842a2a6f250410f444e1b2384ed2c7e9671b9cc3e",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host\\O2-1-0-31-0-stdout.log": "3a6e40eaacfd9d482c4607184f1e10570113c164f4259435744eb137b734718d",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host\\O2-1-1-31-0-artifact.log": "966e59d599cd9546f6557b5042668c6e085fb00eb1896b2da1d837208206fdb6",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host\\O2-1-1-31-0-run.txt": "651d5eb26c9e0a44817517f842a2a6f250410f444e1b2384ed2c7e9671b9cc3e",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host\\O2-1-1-31-0-stdout.log": "be6b3bed1deb3b6b56d71c725ecb14ec1027fcdb6f2c797a8fac9ec826c32ad7",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host\\O2-2-0-31-3-artifact.log": "966e59d599cd9546f6557b5042668c6e085fb00eb1896b2da1d837208206fdb6",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host\\O2-2-0-31-3-run.txt": "651d5eb26c9e0a44817517f842a2a6f250410f444e1b2384ed2c7e9671b9cc3e",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host\\O2-2-0-31-3-stdout.log": "ec290c116dbc9185dc22d6092149e2734137d6d35fdf4542bb1596b0ac62d489",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host\\O2-2-1-31-3-artifact.log": "966e59d599cd9546f6557b5042668c6e085fb00eb1896b2da1d837208206fdb6",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host\\O2-2-1-31-3-run.txt": "651d5eb26c9e0a44817517f842a2a6f250410f444e1b2384ed2c7e9671b9cc3e",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host\\O2-2-1-31-3-stdout.log": "0da86ceb2614ad93f4caa9f579ad94d1db1d8b5ae6939d4e1bd123f25cc6796e",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host\\O2-3-0-0-1-artifact.log": "966e59d599cd9546f6557b5042668c6e085fb00eb1896b2da1d837208206fdb6",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host\\O2-3-0-0-1-run.txt": "651d5eb26c9e0a44817517f842a2a6f250410f444e1b2384ed2c7e9671b9cc3e",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host\\O2-3-0-0-1-stdout.log": "5cdb220b5fad4c40a7717db162da6d96974f3a07a3ba4f0ef9f8406e1f8efed3",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host\\O2-3-1-0-1-artifact.log": "966e59d599cd9546f6557b5042668c6e085fb00eb1896b2da1d837208206fdb6",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host\\O2-3-1-0-1-run.txt": "651d5eb26c9e0a44817517f842a2a6f250410f444e1b2384ed2c7e9671b9cc3e",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host\\O2-3-1-0-1-stdout.log": "a01b0e70c14ad456f58f21b5d8f6b682b617e570563a74b90292ef214684087d",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host\\O2-5-0-0-0-artifact.log": "966e59d599cd9546f6557b5042668c6e085fb00eb1896b2da1d837208206fdb6",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host\\O2-5-0-0-0-cli-command.log": "b596b75467acff0277efb3eb43d866745aaf23848397ab2a016f5e54dce92bd0",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host\\O2-5-0-0-0-cli.json": "987477ce41f2194265929e82e313fa22f4397ffef7214e49e143d9dcadadb13a",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host\\O2-5-0-0-0-run.txt": "651d5eb26c9e0a44817517f842a2a6f250410f444e1b2384ed2c7e9671b9cc3e",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host\\O2-5-0-0-0-stdout.log": "d88d9ccd04074256f75dac09200f74940bd2f01c73fbfa7014049a8aca8cbef3",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host\\O2-5-1-0-0-artifact.log": "966e59d599cd9546f6557b5042668c6e085fb00eb1896b2da1d837208206fdb6",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host\\O2-5-1-0-0-cli-command.log": "b596b75467acff0277efb3eb43d866745aaf23848397ab2a016f5e54dce92bd0",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host\\O2-5-1-0-0-cli.json": "42c9cadf4d5082e533a21889cdfd1e92054dbe02008814fae84d2c7b5acd6e6d",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host\\O2-5-1-0-0-run.txt": "651d5eb26c9e0a44817517f842a2a6f250410f444e1b2384ed2c7e9671b9cc3e",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host\\O2-5-1-0-0-stdout.log": "7f6316e021e2a443abfcab19baa8ba51d7c5e4993f38a6287ddbfd6348b64027",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host\\O2-6-0-0-0-artifact.log": "966e59d599cd9546f6557b5042668c6e085fb00eb1896b2da1d837208206fdb6",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host\\O2-6-0-0-0-cli-command.log": "b596b75467acff0277efb3eb43d866745aaf23848397ab2a016f5e54dce92bd0",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host\\O2-6-0-0-0-cli.json": "4a50f0609cb3d02768909570f3ee6db05afe4a7ed7b3d6c0ceb092902e02d3f9",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host\\O2-6-0-0-0-run.txt": "651d5eb26c9e0a44817517f842a2a6f250410f444e1b2384ed2c7e9671b9cc3e",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host\\O2-6-0-0-0-stdout.log": "4fc619bdc989bcb70dccea2d1a523b2bdf6ac9af2b367ac6dae490e388961c99",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host\\O2-6-1-0-0-artifact.log": "966e59d599cd9546f6557b5042668c6e085fb00eb1896b2da1d837208206fdb6",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host\\O2-6-1-0-0-cli-command.log": "b596b75467acff0277efb3eb43d866745aaf23848397ab2a016f5e54dce92bd0",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host\\O2-6-1-0-0-cli.json": "b8ed3395915c0375abc1c582780204b86ef8eb51c0226db4c74612a5f1c3cf5c",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host\\O2-6-1-0-0-run.txt": "651d5eb26c9e0a44817517f842a2a6f250410f444e1b2384ed2c7e9671b9cc3e",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host\\O2-6-1-0-0-stdout.log": "acf4c6378827a5980811d7e56410f8d129760f20808a11f2309cf5ac355b5051"
+  },
+  "sourceGateHeaderSha256": "9e841b6b0a69589b49eab9da43d3be2659b69f3856edd469abd0239e98952559",
+  "samplerOnReads262OffReads6": true,
+  "oldKindsWildVariantZero": true,
+  "allFourCounterStructuresUntimed7501155Only": true,
+  "nativeOrRuntimeAccepted": false,
+  "productionGainAccepted": false,
+  "notFullOldSuiteRerun": true
+}

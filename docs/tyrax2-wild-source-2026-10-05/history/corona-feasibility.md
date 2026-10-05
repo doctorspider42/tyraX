@@ -1,0 +1,42 @@
+# Guarded corona representation feasibility
+
+The existing VU1 billboard path can represent the same mathematical camera-facing corona, but it cannot replace every legacy corona without changing shader semantics. The first experiment is **conditionally feasible only with conservative whole-call admission and exact legacy fallback**. The dynamic-light mismatch is a material activation blocker. No implementation, host/native build, device action or performance acceptance is supplied by this report.
+
+Baseline is frozen `night-ablation-physical-v3`, manifest `3e895d8224297c66169bf2a01cabc0dfd1fd1e0c9fee8a77c3c77de88bb14dad`, not the pool-cache candidate. The independent semantic review is `wild-corona-review-v1/report.md`. Source hashes are in `feasibility-proof.json`.
+
+## Exact baseline and representation
+
+`game_lighting.gen.cpp:4091` builds one corona batch per render call/view. It retains object visibility/portal/draw-distance checks, dynamic `lastLevel`, `lightBright`, pulled center at capped0.75 camera distance, compensating half-size, subpixel rejection and the original sphere frustum test. It writes four corners, duplicates them into triangles0/1/2 and0/2/3, repeats fixed UVs and identical tinted color six times. WRITE-ON-CHANGE preserves unchanged backing arrays/content versions. The corona is submitted before the unchanged cone batch, with additive FIX128, texture, TestOnly depth and no z writes.
+
+Billboard input would be one `Vec4(pcx,pcy,pcz,1)`, one `Vec4(chalf,0,0,chalf)` parameter and one exact existing `Color cc` per accepted light. The basis must be the **already computed** `(rx,ry,rz,0)` and `(ux,uy,uz,0)` for this exact view. VU1 emits six GS vertices with matching fixed corner UVs/triangles. Count means input particles; NLOOP is6×inputCount, and the textured package capacity uses `(doubleBuffer-9)/21`. It is not a one-sixth total work or performance guarantee.
+
+The actual core assert requires `frustumCulling=None`, `fullClipChecks=false`, texture/params and multi-colors, no lighting bag. The header's older Simple-culling comment is stale. None is safe only for this existing per-quad billboard program, whose any-corner `clipw` failure applies ADC to the entire quad. That guard is the broad raster/depth guard, not exact frustum clipping. It cannot replace legacy near/screen-boundary clipping.
+
+## Semantic blocker: dynamic spot shader
+
+Legacy `BeamBatch::coronaInfo` inherits `dynLightPick=true` and `spotLit=true`. `StaPipCore::render` selects one light from the original complete-batch AABB world sphere, optionally uses the global spot fallback, and applies the selected-light conservative no-influence rejection over the existing bbox. Ordinary cull/clip TC programs evaluate `CalculateTyraSpotLight` per vertex, and EE clipping has the matching spot contribution. BillboardT has **no spot calculation**. With no bbox, it would also change the sphere/selection path. Setting both arms unlit would alter the baseline, so it is prohibited.
+
+Admission must therefore source-prove that the **original complete batch's effective selected light contributes exactly zero over all corners**, preserving original selection and its no-influence predicate, or use a stronger conservative proof that global spot and every eligible dynamic light are inactive/ineffective over the entire original batch. Unknown or positive influence means whole-call legacy fallback. Merely changing candidate `spotLit`, ignoring the pick or checking brightness is insufficient. Registered active night lights can make this contract reject every batch; no useful activation is assumed. Replicating the selector/bounds and exact mesh-light construction in the game adds common work and risks drift; a new public engine contract or a spot-aware VU program would expand this proposal beyond the requested existing path.
+
+## Conservative admission and fallback
+
+Use one all-or-nothing decision for the entire call; do not partition/regroup lights or reorder corona/cone submissions. Keep portal calls on legacy initially. Retain all CPU intensity/pull/cull scalar operations exactly. Any failed/unknown guard selects the untouched six-vertex builder and existing submission/cache path for **all** coronas in that call.
+
+Required gates before admission:
+
+- Correct active view, identity model, finite centers/basis/half-size and positive finite homogeneous w for every emitted corner. Unknown projection/view/custom program mode falls back.
+- Strict original world-frustum interior for all four corners, with a conservative numerical shell; the original sphere test stays in place. Boundary/intersecting quads fall back, including a single offending quad in a mixed batch.
+- Independently check the active original clip conventions: positive w; `abs(x),abs(y),abs(z)<w` for billboard `clipw`; legacy EE lateral `abs(x),abs(y)<0.5*w`; near `z<=settingsNear-(-PlanesClipAlgorithm::clipMargin)` and far `z>=-settingsFar`; VU clip uniforms use the same near/far and0.9*w lateral band. Require strict interiors with slack, not comparisons at equality or OpenGL-normalized depth assumptions. A guard that tests only world sphere or only `abs(xy)<w` is insufficient.
+- Original selected spot contribution proven zero as above; custom overrides absent. BLSS feature/proxy consumers must be inactive or independently equivalent; changed billboard bbox/proxy semantics must not silently lower quality.
+- Renderer fog semantics equivalent for the admitted view/depth or fog inactive. Baseline fog is per transformed vertex; billboard fog is computed from the center. World camera-facing corners share depth mathematically, but not necessarily identical EE/VU float bits.
+- Separate per-call retained backing storage for center/params/color/basis/bag descriptors. Reserve up to all lights before submit, use BagArray publication/content versions and preserve the current frame/portal slot lifetime. Do not reuse global scratch descriptors or mutate basis after a REF submission. Root's original completion discipline remains unchanged; no new fence.
+
+CPU world-corner formation followed by MVP differs in floating-point association from MVP-center plus MVP-basis expansion. A host algebraic identity cannot prove target GS XYZ/STQ/depth/fog/coverage equality. Initial guards may deliberately keep the CPU corners in scratch to establish admission and preserve exact legacy fallback; that measures representation/dispatch changes rather than claiming all CPU corner work removed. Saving the builder requires a later separately proven extent guard. If this makes admission/cost unhelpful, the idea should be parked rather than weakening clipping/light contracts.
+
+## Same-ELF observation proposal
+
+Use a new dedicated phase flag, ordinary/extra masks0 and samplerOn throughout; baseline/candidate/baseline and reverse. Candidatefalse executes the original builder/cache unchanged. Flag changes occur beforebeginLoop and never reset caches. Sparse counters only750/1155: reached calls, surviving coronas, admitted/fallback whole batches, boundary/depth/nonfinite/light/unsupported reason witnesses, inputParticles and emittedGsVertices6×inputParticles. No per-object clocks or timed telemetry. Counters distinguish zero admission from a successful candidate; fallback reasons may overlap and must not be falsely partitioned.
+
+Keep `ensureProgramSet` and texture/normal/cone submissions in their existing positions. Source `setProgramsCache` includes billboard programs when they fit and `ensureProgramSet` is then a no-op; only a nonresident configuration swaps/drains/uploads. Residency or actual transition cost must come from the pinned native startup/configuration, not an assumed transition on every bag. Billboard paths bypass retained/baked replay admission; still-camera legacy hits can be cheaper than a new input representation. Existing waits and any true program transitions remain in the measured interval.
+
+Before a measurement input is accepted: exact extracted CPU scalar/fallback and state/lifetime controls; outside-frustum/near/far/equality/nonfinite/mixed-batch/portal/lighting cases; fresh target ABI/native; actual target VU/GS output or raster comparisons including near and edge views; cold positive candidate activation; complete same-ELF both-order cadence qualification. This report does not claim these future checks passed. Root chooses whether the restricted light guard is worth implementing before source changes are written.

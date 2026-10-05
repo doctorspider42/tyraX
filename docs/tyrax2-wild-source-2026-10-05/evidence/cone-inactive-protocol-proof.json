@@ -1,0 +1,117 @@
+{
+  "status": "PASS_INDEPENDENT_KIND6_EMULATOR_COMPLETED_PROTOCOL_SOURCE_BOUND_INACTIVE_CONE_SCOPE",
+  "blockers": [],
+  "machineEvidenceSha256": "d8b04bcec0d946bd6193f128a262341945049d23ab169c5e799d3fdb0d4df459",
+  "sourceManifestSha256": "d4b88498e3ccd8f07a7b7b19245ece76f552ca54c1f9191f191ba2a0ff86fa24",
+  "selectedElfSha256": "7781c000654732288cde4ea5967c222055bc89c2d10bc2a7bf5979381f937482",
+  "sourceFilesVerified": 497,
+  "assetsVerified": 298,
+  "strictReparseMatchesExactly": "All analyzer protocol/math fields exact; separately validated CLI-only requestedPlan and inputPins metadata.",
+  "plan": {
+    "kind": 6,
+    "order": 0,
+    "masks": [
+      0,
+      0,
+      0
+    ],
+    "samplers": [
+      1,
+      1,
+      1
+    ],
+    "flags": [
+      0,
+      1,
+      0
+    ]
+  },
+  "completedLoops": 5400,
+  "rawSamples": 384,
+  "boundedChunks": 15,
+  "allSixSparseConeCountersZero": true,
+  "sourceUnreachableQualification": {
+    "FLASH_SHADOW_VOLUMES": 0,
+    "FLASHLIGHT_USED": 0,
+    "SPOT_SHADOW_VOLUMES_USED": false,
+    "actualConeCallSites": "Both guarded by disabled authored shadow-volume constants in this frozen project. No whole-engine/global candidate rejection follows."
+  },
+  "actualTargetColdSelfcheckExecuted": false,
+  "usefulRealCandidateActivationAccepted": false,
+  "R5900SqrtPrecisionAccepted": false,
+  "performanceBenefitAccepted": false,
+  "reverseOrPhysicalPricingQualified": false,
+  "rasterQualitativeReview": {
+    "imagesViewed": [
+      0,
+      1,
+      2
+    ],
+    "phasePrefixAndActualFlagBindings": [
+      {
+        "phase": 0,
+        "imageSha256": "55690e3817b0057a1a250ff6d9af831d3eca5a8ded3881a8f94809c9a98df6de",
+        "actualFlagLine": "[    6.8080] LOG: NIGHTWILDPHASE phase=0 first=0 variant=6 enabled=0 appliedVariant=6 appliedEnabled=0"
+      },
+      {
+        "phase": 1,
+        "imageSha256": "dd382c5044fb59e3606775f38cd1e91940a063fc3a7c376b3ffa13f46bd3b32b",
+        "actualFlagLine": "[   41.8224] LOG: NIGHTWILDPHASE phase=1 first=1800 variant=6 enabled=1 appliedVariant=6 appliedEnabled=1"
+      },
+      {
+        "phase": 2,
+        "imageSha256": "9540a62f50b74d81173164c164df6fce327bef05ef93094954cd0c5042e52f69",
+        "actualFlagLine": "[   74.6868] LOG: NIGHTWILDPHASE phase=2 first=3600 variant=6 enabled=0 appliedVariant=6 appliedEnabled=0"
+      }
+    ],
+    "result": "Consistent stationary full night/car/road/buildings/HUD/light cones; no obvious smear/missing geometry visible. Candidate hook inactive, so this is baseline appearance only.",
+    "exactPixelEqualityAccepted": false,
+    "hardwareVisualAccepted": false
+  },
+  "stopRecord": {
+    "path": "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-emulator-wild-cone-order0-20261005-evidence\\owned-stop.json",
+    "sha256": "2f2c3f74160e289ea043ba0bf56ad5d8824cdf003057a24dcdec0f0a7526d362",
+    "pid": 10894,
+    "ownershipMatchesLaunch": true,
+    "machineAtFreezeProcessStoppedFalsePreserved": true
+  },
+  "artifactSHA256": {
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-emulator-wild-cone-order0-20261005-evidence\\analysis-command.json": "f7b462ed32b0fed2dabba2a88fd4c0c54d1bf81d56b9ad9def63ed962a48a09f",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-emulator-wild-cone-order0-20261005-evidence\\analyze-loop.py": "5f1e9756449a5d35e9ce9567ab87be9e4388ed98b777f3ff72622b0e71f7fa27",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-emulator-wild-cone-order0-20261005-evidence\\analyze-night-cli.py": "4b6f0da579e860dd7737d757d1bc7e027b8a7307a8f738febe3acba173bfda57",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-emulator-wild-cone-order0-20261005-evidence\\analyze-night.py": "45b5485d5cf366f3d87a4a5fd2547380825846511d569d7e706cd1da8042605f",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-emulator-wild-cone-order0-20261005-evidence\\host-authority.json": "8afaf06a04d1761d960ea643944ddedd89b885d8fe7b32456c7e39e660ff5016",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-emulator-wild-cone-order0-20261005-evidence\\native-build.log": "e50832c5333b48600af8923a74ec4593057ebb4c9278342f29cdcc617481394b",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-emulator-wild-cone-order0-20261005-evidence\\night-ablation.cfg": "6e3e5f387607e15b655627d9074ee3722b09aeac3b90ba72a54dd6fbcbdf68a6",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-emulator-wild-cone-order0-20261005-evidence\\night-ablation.log": "f08928df1feec2e2cc883dfce00f93b9623d808e78daf825496e784e205d77c5",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-emulator-wild-cone-order0-20261005-evidence\\owned-launch.json": "f9f979f4f3805c9548690217e3136385bd7dd1c866400ac5d3c0d9900cab8895",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-emulator-wild-cone-order0-20261005-evidence\\phase-0.png": "55690e3817b0057a1a250ff6d9af831d3eca5a8ded3881a8f94809c9a98df6de",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-emulator-wild-cone-order0-20261005-evidence\\phase-1.png": "dd382c5044fb59e3606775f38cd1e91940a063fc3a7c376b3ffa13f46bd3b32b",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-emulator-wild-cone-order0-20261005-evidence\\phase-2.png": "9540a62f50b74d81173164c164df6fce327bef05ef93094954cd0c5042e52f69",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-emulator-wild-cone-order0-20261005-evidence\\quiet-night.cfg": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-emulator-wild-cone-order0-20261005-evidence\\raster-capture-proof.json": "f2a59be19c31611245f1bce4f0906e1f2035e7a25dbd8627f92a2047ab4d06bb",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-emulator-wild-cone-order0-20261005-evidence\\review-authority.json": "9a75adeb5928fb723bb578bfc41dbb83ab3f744f9939926d835ff08dda7f2732",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-emulator-wild-cone-order0-20261005-evidence\\root-native-provenance.json": "7c4275962e57e401533ab824e522e727e10411f3a74466b9b019d368bc698b57",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-emulator-wild-cone-order0-20261005-evidence\\root-source-freeze.json": "21f0686990c338fb6d7418d0df183a11515538a64d882f4581d8184ed8af7a04",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-emulator-wild-cone-order0-20261005-evidence\\runtime-assets-manifest.json": "e11fa8b76a6c7f6ee6d8da67670e12f4b7184d8b9e1558070c92efa4e4d10e05",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-emulator-wild-cone-order0-20261005-evidence\\stdout.log": "8e5b2112628a24c56b1a915582ec65535714dbe63dc7fee9840234bdd7efe0ef",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-emulator-wild-cone-order0-20261005-evidence\\strict-analysis.json": "7b46ae418750865c3db4500f29c2644ae8ab7a543e90f3ce7aac185f5e276738",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-emulator-wild-cone-order0-20261005-evidence\\target-source-manifest.json": "d4b88498e3ccd8f07a7b7b19245ece76f552ca54c1f9191f191ba2a0ff86fa24",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-emulator-wild-cone-order0-20261005-evidence\\vehicle-playground.elf": "7781c000654732288cde4ea5967c222055bc89c2d10bc2a7bf5979381f937482",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-emulator-wild-cone-order0-20261005-evidence\\vehicle-playground.elf.sym": "ba318c245edb6396a2727ac4242cdf370514213ef2c4e858e707cafdf09c13f8",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-cone-independent-review-v1\\final-input-proof-v2.json": "9a75adeb5928fb723bb578bfc41dbb83ab3f744f9939926d835ff08dda7f2732",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\final-proof.json": "8afaf06a04d1761d960ea643944ddedd89b885d8fe7b32456c7e39e660ff5016",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-native-v5.log": "e50832c5333b48600af8923a74ec4593057ebb4c9278342f29cdcc617481394b",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-emulator-wild-cone-order0-20261005-evidence\\owned-stop.json": "2f2c3f74160e289ea043ba0bf56ad5d8824cdf003057a24dcdec0f0a7526d362"
+  },
+  "limitations": [
+    "Zero six cold invocations alone does not census every timed frame; source authored constants close hook reachability for this fixture.",
+    "Emulator timings are not hardware bills; no arithmetic selfcheck/fast-path acceptance from this run.",
+    "Machine evidence was frozen before owned stop, so original processStopped=false is retained; later separate stop record binds exact ownership."
+  ],
+  "supersedesReaderSchemaFailure": {
+    "path": "F:\\Projects\\tyrax2-lab-20261001\\wild-cone-runtime-independent-review-v1\\emulator-order0-inactive-proof.json",
+    "sha256": "1f8cefda832948f99e55f55c1b0bfd34e626464495a24f6da42de206afe969ac",
+    "reason": "Direct analyzer return omits two CLI-added metadata fields; all analyzer fields equal and both metadata records independently validated."
+  }
+}

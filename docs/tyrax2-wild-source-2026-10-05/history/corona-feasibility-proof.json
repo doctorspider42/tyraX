@@ -1,0 +1,31 @@
+{
+  "status": "SOURCE_ONLY_CONDITIONAL_FEASIBILITY_EXISTING_BILLBOARD_SHADER_LIGHTING_BLOCKER",
+  "sourceManifestSha256": "3e895d8224297c66169bf2a01cabc0dfd1fd1e0c9fee8a77c3c77de88bb14dad",
+  "sourcePins": {
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-physical-v3\\game\\src\\gen\\game_lighting.gen.cpp": "3eb0c90c1b2efe879b247baab4b1acda1868abd7064ab16b30021db5355c6cf4",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-physical-v3\\game\\inc\\terrain_game.hpp": "3550b0e0cfc2ae3c3e780d605ba226b74a2a49aaf3951ebbcf268e62b722fbbd",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-physical-v3\\game\\src\\terrain_game.cpp": "62396e22f9a54af27d1c4ac0acfd1444747a8a033f11564cd9d85fa85aa738ab",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-physical-v3\\tyra\\engine\\inc\\renderer\\3d\\pipeline\\static\\core\\bag\\stapip_billboard_bag.hpp": "0e8049bcd122d336a77752e033b8e29c7d32c763cc2b525e6c8ccb289cd59bf1",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-physical-v3\\tyra\\engine\\inc\\renderer\\3d\\pipeline\\shared\\bag\\pipeline_info_bag.hpp": "37e5454dc7ed6f8999b10c206b7d50485a69a247148e7fe1193899e14acee328",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-physical-v3\\tyra\\engine\\src\\renderer\\3d\\pipeline\\static\\core\\stapip_core.cpp": "b15cc0d29c10d7b7aa5f3c5f2131873c9c79d64b0ba85cab3195215fb147a08f",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-physical-v3\\tyra\\engine\\src\\renderer\\3d\\pipeline\\static\\core\\stapip_qbuffer_renderer.cpp": "9fe550f3a3cc5ddc30b06a3cc69162f919f11614e59651a803d90b732a8ffb5d",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-physical-v3\\tyra\\engine\\src\\renderer\\3d\\pipeline\\static\\core\\programs\\billboard\\stapip_billboard_t_vu1.vclpp": "13652e6837ac17d831eb22aa4363efc87291254811c8e7358869bb84221af8a6",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-physical-v3\\tyra\\engine\\src\\renderer\\3d\\pipeline\\static\\core\\programs\\cull\\stapip_cull_tc_vu1.vclpp": "b7231de7546ddd540316ffa63f2ee978c7d60feebb81676f0ae20c45c7a6b75a",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-physical-v3\\tyra\\engine\\src\\renderer\\3d\\pipeline\\shared\\vcl_sml.i": "38c3f8112045b9bbd578915e5e7c117593cab3e5199d41f7eb4145a84a1e168b",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-physical-v3\\tyra\\engine\\src\\renderer\\3d\\pipeline\\shared\\tyra_macros.i": "2d112f5498f008619f6b8d9d4ef75662c5570ac697528a1f83b1984f241d7e86",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-physical-v3\\tyra\\engine\\src\\renderer\\core\\3d\\clipper\\planes_clip_algorithm.cpp": "6e2435971f4ef71fa623831eb22475754367cb4b14a2f462d2d0304b23631031",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-physical-v3\\tyra\\engine\\src\\renderer\\core\\3d\\renderer_3d_frustum_planes.cpp": "a57e042f43bfc1bd8fe6af7922f872fedf366990b01224a843be22e87c024d89",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-physical-v3\\tyra\\engine\\src\\math\\m4x4.cpp": "226a30c8f7cff7bad6df9f5043bcf49d6ba2fcd744e33fb94c0a8d962f09a5c3",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-physical-v3\\tyra\\engine\\inc\\renderer\\core\\renderer_core.hpp": "4e295cd961be4d8f8d32a18d831b90c0bab534b200986fc692d1130a3a1f9a65",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-physical-v3\\tyra\\engine\\inc\\renderer\\3d\\pipeline\\static\\core\\stapip_spot_bounds.hpp": "12f608e80f16ca73209c01160b92afda971f6a93203e4e08b40399fe84493344",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-physical-v3\\tyra\\engine\\inc\\renderer\\3d\\pipeline\\static\\core\\programs\\stapip_vu1_shared_defines.h": "85f7f7164fbafbb96dde9b6590748a3f94bbf8fa91e23de929aea48aa3f10d71"
+  },
+  "reportSha256": "d0bb9f4a89115d3a4c53dfbfbf18d575c04eaab79dd2427b2c330721cf148bca",
+  "independentReviewReportPath": "F:\\Projects\\tyrax2-lab-20261001\\wild-corona-review-v1\\report.md",
+  "independentReviewReportSha256": "64aa773428af50efdc7f0a89fbfed7b2685d1c00ae2d3fd4e9e4f29faa907585",
+  "sourceImplementationWritten": false,
+  "buildsDevicesOrRepositoryMutation": false,
+  "actualPositiveCandidateActivationObserved": false,
+  "targetGsOrRasterParityAccepted": false,
+  "performanceClaimed": false
+}

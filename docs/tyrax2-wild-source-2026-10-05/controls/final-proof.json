@@ -1,0 +1,33 @@
+{
+  "status": "PASS_PREPARED_WILD_KIND5_KIND6_ACTUAL_HEADER_HOST_CONTROLS_ONLY",
+  "hostProofPath": "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host\\proof.json",
+  "hostProofSha256": "21b0b827160f3832de99196e9b8f8eac35aed5ef8727e2a559c2d493216c89ab",
+  "sourcePins": {
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\night_sampler.hpp": "b51b72a79d1ede2553d46fb9bf2fbe112fa5ad0796a8f88fb02dbec86464c7d6",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\night_plan.hpp": "37941cc0894d45efeff8dcfcbcc81b513fe2fc1c1e06808afd6734d325f6413e",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\night_runtime.hpp": "8af95f6d9add3d7dc871093c4bbe903653e9eee829e5caed941d79c67f009298",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\quiet_runtime.hpp": "c2b93076926ced36b425bbf2cb5eea738650087192427a1088acbae0058ad07b",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\quiet_cadence.hpp": "c6c87c3d9cc6deb6e90fa01d91c86df5ee6be8979b4a8b734a35804d991be6f3",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\analyze-loop.py": "5f1e9756449a5d35e9ce9567ab87be9e4388ed98b777f3ff72622b0e71f7fa27",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\analyze-night.py": "45b5485d5cf366f3d87a4a5fd2547380825846511d569d7e706cd1da8042605f",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\analyze-night-cli.py": "4b6f0da579e860dd7737d757d1bc7e027b8a7307a8f738febe3acba173bfda57",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\host-controls.cpp": "97aff50529866383689398722699184c363ee5ab80611d8b5c86da2b6abc03ce",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\run-host-controls.py": "f9d668b01578bf282d5011ca24fc209492a4d17e2e6baf1c79c691ddd085a04f",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\README.md": "02a2d84f39090afc66270a6a3bdbf0bb590ce5d79c5b013ef7c2448c6ed6dbd2",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\gate\\debug\\night_ablation.hpp": "9e841b6b0a69589b49eab9da43d3be2659b69f3856edd469abd0239e98952559"
+  },
+  "positiveCompleteTranscripts": 24,
+  "negativeParserGuards": 60,
+  "actualCliKindsBothOrders": [
+    5,
+    6
+  ],
+  "byteIdenticalV3Headers": [
+    "night_sampler.hpp",
+    "quiet_runtime.hpp",
+    "quiet_cadence.hpp"
+  ],
+  "samplerOnReads262OffReads6": true,
+  "nativeOrRuntimeAccepted": false,
+  "productionGainAccepted": false
+}

@@ -462,6 +462,14 @@ recovered 0.50-0.72 ms of hardware `work`. What it did not do, ranked:
   Production full-night quality/performance and physical
   visual restoration remain unqualified; no observer fee is subtracted.
 
+  The [private unconventional experiments](tyrax2-wild-experiments.md) add
+  an independent fifteen-idea review. Four frustum planes through VU0 passed
+  both emulator and physical orders with positive sparse action but no gain;
+  keep it private. The squared cone predicate is unreachable in the selected
+  scene, so it received no physical pricing. Package-local pool color tables
+  and unique-grid representations need their own ownership, exact conversion,
+  replay, clipping and positive-runtime qualification before timing/promotion.
+
   Storage classification alone grants no immutable borrowing rights.
   The [resumed candidate audit](tyrax2-ee-vu0.md#next-60-hz-candidates-host-controls-2026-10-03)
   rejects the broad beam cache as a demonstrated driving gain, identifies

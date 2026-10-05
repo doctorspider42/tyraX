@@ -1,0 +1,200 @@
+{
+  "status": "PASS_INDEPENDENT_KIND5_PS2_ORDER1_COMPLETED_RAW_SOURCE_DYNAMIC_COLD_SCOPE_OWN_CONTRASTS",
+  "blockers": [],
+  "machineEvidenceSha256": "889e42114f94cb392a4ae7a8ecff068f83a23e8f3ed0f7bd120bb5841ac7b61a",
+  "sourceManifestSha256": "aa1b27d92b8f560836fd70fc6fb25ee1852f2b48e16f41dcc512bc2395289c19",
+  "selectedElfSha256": "fef3f5721524a333e392be4a753fefa6216bc0de4321a9e88a5c6e096adcf2f6",
+  "sourceFilesVerified": 497,
+  "assetsVerified": 298,
+  "strictRecomputedAllProtocolMathExact": true,
+  "rawLatin1UTF8BijectiveAndProtocolASCII": true,
+  "completedLoops": 5400,
+  "rawSamples": 384,
+  "boundedChunks": 15,
+  "kind": 5,
+  "order": 1,
+  "masks": [
+    0,
+    0,
+    0
+  ],
+  "samplers": [
+    1,
+    1,
+    1
+  ],
+  "flags": [
+    1,
+    0,
+    1
+  ],
+  "actualPlaneColdWindows": {
+    "0:750": {
+      "invocations": 8,
+      "eligible": 8,
+      "applied": 8,
+      "fallback": 0,
+      "boundary": 0,
+      "nonfinite": 0,
+      "coldCompared": 8,
+      "coldMismatches": 0,
+      "inputUnits": 8,
+      "outputUnits": 8,
+      "invalid": 0
+    },
+    "0:1155": {
+      "invocations": 8,
+      "eligible": 8,
+      "applied": 8,
+      "fallback": 0,
+      "boundary": 0,
+      "nonfinite": 0,
+      "coldCompared": 8,
+      "coldMismatches": 0,
+      "inputUnits": 8,
+      "outputUnits": 8,
+      "invalid": 0
+    },
+    "1:750": {
+      "invocations": 8,
+      "eligible": 8,
+      "applied": 0,
+      "fallback": 0,
+      "boundary": 0,
+      "nonfinite": 0,
+      "coldCompared": 8,
+      "coldMismatches": 0,
+      "inputUnits": 8,
+      "outputUnits": 8,
+      "invalid": 0
+    },
+    "1:1155": {
+      "invocations": 8,
+      "eligible": 8,
+      "applied": 0,
+      "fallback": 0,
+      "boundary": 0,
+      "nonfinite": 0,
+      "coldCompared": 8,
+      "coldMismatches": 0,
+      "inputUnits": 8,
+      "outputUnits": 8,
+      "invalid": 0
+    },
+    "2:750": {
+      "invocations": 8,
+      "eligible": 8,
+      "applied": 8,
+      "fallback": 0,
+      "boundary": 0,
+      "nonfinite": 0,
+      "coldCompared": 8,
+      "coldMismatches": 0,
+      "inputUnits": 8,
+      "outputUnits": 8,
+      "invalid": 0
+    },
+    "2:1155": {
+      "invocations": 8,
+      "eligible": 8,
+      "applied": 8,
+      "fallback": 0,
+      "boundary": 0,
+      "nonfinite": 0,
+      "coldCompared": 8,
+      "coldMismatches": 0,
+      "inputUnits": 8,
+      "outputUnits": 8,
+      "invalid": 0
+    }
+  },
+  "coneFamilyAllZero": true,
+  "phaseMeansInclusiveElapsedMinusExistingPacingMs": [
+    19.089425775739883,
+    19.082041856977675,
+    19.089383347829184
+  ],
+  "candidateMinusOwnBaselineMs": [
+    0.007383918762208452,
+    0.007341490851509036
+  ],
+  "outerControlSpreadMs": 4.2427910699416316e-05,
+  "phasePresentation": {
+    "0": {
+      "rendered": 320,
+      "synthetic": 0
+    },
+    "1": {
+      "rendered": 320,
+      "synthetic": 0
+    },
+    "2": {
+      "rendered": 320,
+      "synthetic": 0
+    }
+  },
+  "hostArrivals": {
+    "everyLoggedRawEndOffsetChecked": true,
+    "monotonic": true,
+    "camera750to1155Spans": [
+      {
+        "phase": 0,
+        "loops": 405,
+        "arrivalSpanSeconds": 13.516
+      },
+      {
+        "phase": 1,
+        "loops": 405,
+        "arrivalSpanSeconds": 13.5
+      },
+      {
+        "phase": 2,
+        "loops": 405,
+        "arrivalSpanSeconds": 13.515
+      }
+    ],
+    "qualification": "Raw host arrival includes network/fflush/scheduler latency; sanity only, not independent absolute hardware-clock proof."
+  },
+  "ownedStopPid": 49120,
+  "artifactSHA256": {
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-wild-plane-order1-20261005-evidence\\analysis-command.json": "8274f6ec33b4c914dad2bd4885a46508b7b2675e1c5b76e1fef91b8470905a4f",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-wild-plane-order1-20261005-evidence\\analyze-loop.py": "5f1e9756449a5d35e9ce9567ab87be9e4388ed98b777f3ff72622b0e71f7fa27",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-wild-plane-order1-20261005-evidence\\analyze-night-cli.py": "4b6f0da579e860dd7737d757d1bc7e027b8a7307a8f738febe3acba173bfda57",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-wild-plane-order1-20261005-evidence\\analyze-night.py": "45b5485d5cf366f3d87a4a5fd2547380825846511d569d7e706cd1da8042605f",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-wild-plane-order1-20261005-evidence\\client-process.json": "7501bba024f9d862e8c9b88ff1cdd9bc49c5047bad33e51b444184a64421ee68",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-wild-plane-order1-20261005-evidence\\host-arrivals.jsonl": "810bef54cf5d89591887284ddf65dd360edd4e6ca39347df4a00e4e458983ab8",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-wild-plane-order1-20261005-evidence\\host-authority.json": "8afaf06a04d1761d960ea643944ddedd89b885d8fe7b32456c7e39e660ff5016",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-wild-plane-order1-20261005-evidence\\native-build.log": "df45aef95fcbf36ec5130e43259103ea8da7873c6fdfac0b33d1f67bb0507679",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-wild-plane-order1-20261005-evidence\\night-ablation.cfg": "7e6261d7d3f78e846505033ac7cb1cb41bcefb0d07f26b5c9683bb11b03df555",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-wild-plane-order1-20261005-evidence\\night-ablation.log": "960b3ca4ab5d4e6f2a74338ce8759c75c2fd9bfe54c1cd9ac335c94aab7f894f",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-wild-plane-order1-20261005-evidence\\normalization-proof.json": "60e76bd0f53d4a98744428034022255014123955c53d0119ef02d51acca16b59",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-wild-plane-order1-20261005-evidence\\observed-launch.json": "b6d5150a676b0334464939667c2ef4e9fc5eea0da5e03c6859337fbed447bae9",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-wild-plane-order1-20261005-evidence\\owned-launch.json": "5c4e9878faae1d7da5aa797517bf13109994fc801daca2b0b42609b778e09125",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-wild-plane-order1-20261005-evidence\\owned-stop.json": "7501bba024f9d862e8c9b88ff1cdd9bc49c5047bad33e51b444184a64421ee68",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-wild-plane-order1-20261005-evidence\\ps2client-raw.log": "6a87fe5c3d6f21fe5b00fd859807eb584984f07a68b0fd0797bfa7264f915696",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-wild-plane-order1-20261005-evidence\\ps2link.run": "290eb100acb0b408fab11ae3445233dd7409222008a8c4dc3d0cf49a2bc1208a",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-wild-plane-order1-20261005-evidence\\quiet-night.cfg": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-wild-plane-order1-20261005-evidence\\review-authority.json": "576a08771afddb24441d425da69e8cae7660923b77a505dfe9af9e682ef22e59",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-wild-plane-order1-20261005-evidence\\root-native-provenance.json": "e00fd1cef972d0c4e917f6ce4a61ca3dcf397d1602184cca1725c4c3f7edf0df",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-wild-plane-order1-20261005-evidence\\root-source-freeze.json": "bb876bdfc8bff45311ac9418cc64bae63223f4e08637fccca506307b3148b90f",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-wild-plane-order1-20261005-evidence\\runtime-assets-manifest.json": "e11fa8b76a6c7f6ee6d8da67670e12f4b7184d8b9e1558070c92efa4e4d10e05",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-wild-plane-order1-20261005-evidence\\stdout.log": "214673e139bdff75c8a8053bce7805c25fa6e9c41008e676086e0fcce4f67787",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-wild-plane-order1-20261005-evidence\\strict-analysis.json": "381dde7ed9e593ce4b884e23c57468e07a9aff75174d9d17576f061e50b99788",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-wild-plane-order1-20261005-evidence\\target-source-manifest.json": "aa1b27d92b8f560836fd70fc6fb25ee1852f2b48e16f41dcc512bc2395289c19",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-wild-plane-order1-20261005-evidence\\vehicle-playground.elf": "fef3f5721524a333e392be4a753fefa6216bc0de4321a9e88a5c6e096adcf2f6",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-wild-plane-order1-20261005-evidence\\vehicle-playground.elf.sym": "caf2aaa931bd88e8b92f550dba36d6f9f65f76020034478a79b3555ec673ba04",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-plane-independent-review-v1\\final-input-proof.json": "576a08771afddb24441d425da69e8cae7660923b77a505dfe9af9e682ef22e59",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\final-proof.json": "8afaf06a04d1761d960ea643944ddedd89b885d8fe7b32456c7e39e660ff5016",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-native-v6.log": "df45aef95fcbf36ec5130e43259103ea8da7873c6fdfac0b33d1f67bb0507679"
+  },
+  "coldSelfguard": "Actual30targetcases plus8scenecomparisons each cold call; no reported failures. Synthetic not realactivation; observed only, not universal precision.",
+  "physicalVisualAccepted": false,
+  "exactPixelEqualityAccepted": false,
+  "performanceGainAccepted": false,
+  "limitations": [
+    "Sparse cold activation does not provide timed-window branch rates.",
+    "Inclusive response includes existing routing/waits/adaptive context; no pureEE/VU/GS attribution.",
+    "Common classifier/guard/layout/observer footprint unpriced; no uniform observer fee or crossapparatus subtraction.",
+    "Operator physical appearance confirmation absent; separate qualitative emulator evidence only."
+  ]
+}

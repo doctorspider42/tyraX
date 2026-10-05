@@ -1,0 +1,33 @@
+{
+  "status": "PASS_INDEPENDENT_KIND5_EMULATOR_BOTH_ORDER_PROTOCOL_ACTIVATION_WITH_FORWARD_RASTER_GAP",
+  "blockers": [],
+  "sameSourceAndElfWithinPair": true,
+  "orderProofs": {
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-plane-runtime-independent-review-v1\\emulator-order0-proof.json": "3423681ad6ca4e13fca34496ed62bed9208efc8773285d274263ecf32ce46c9c",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-plane-runtime-independent-review-v1\\emulator-order1-proof.json": "1af5797afca660e46fa59ab24059fd8ee589f6b73641af9a734f7dae3cf689bc"
+  },
+  "completedLoops": 10800,
+  "rawSamples": 768,
+  "boundedChunks": 30,
+  "actualColdSphereComparisons": 96,
+  "reportedColdMismatches": 0,
+  "positiveRealOnActionBothOrders": true,
+  "coldSelfguardQualifiedOnlyObservedCases": true,
+  "rasterCoverage": {
+    "order0": [
+      1,
+      2
+    ],
+    "order1": [
+      0,
+      1,
+      2
+    ],
+    "completeBothOrderAllPhaseCoverage": false,
+    "reverseOwnedActualFlagThreeImages": true
+  },
+  "hardwarePricingReadiness": "Completed protocol, positive real scene action and reverse qualitative three-phase raster gate accepted. Forward missingphase0 remains explicit; no exactpixel or physical quality/performance accepted. Root decides next device trial.",
+  "universalTargetPrecisionAccepted": false,
+  "performanceGainAccepted": false,
+  "noNewDevicesBuildsOrSourceMutations": true
+}

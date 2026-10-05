@@ -1,0 +1,62 @@
+{
+  "plane": {
+    "status": "PASS_INDEPENDENT_KIND5_PLANE_ACTUAL_NATIVE_SOURCE_MIRRORS_ABI_ASSETS_FORMAT_CLEAR",
+    "sourceManifestSha256": "aa1b27d92b8f560836fd70fc6fb25ee1852f2b48e16f41dcc512bc2395289c19",
+    "actualELFSha256": "fef3f5721524a333e392be4a753fefa6216bc0de4321a9e88a5c6e096adcf2f6",
+    "actualSymbolSha256": "caf2aaa931bd88e8b92f550dba36d6f9f65f76020034478a79b3555ec673ba04",
+    "matchingTextSha256": "f8c0a5a586e03b557f60e31fff2f2ae1ec061b0f9ce337359ffacd9e3463cdca",
+    "matchingTextBytes": 2970800,
+    "actualMirroredNativeInputs": 488,
+    "sourceManifestInputs": 497,
+    "formatWarningCount": 0,
+    "assets": {
+      "runtime": 298,
+      "byteEqualBaked": 294,
+      "convertedAudio": 4
+    },
+    "actualAbiAccepted": true,
+    "completeProofPath": "F:\\Projects\\tyrax2-lab-20261001\\wild-plane-native-independent-review-v1\\proof.json",
+    "completeProofSha256": "d05c5a81ec225a78c62b92a4744edb3e794d2c21cf8efdd67a7543c76d2e5a94",
+    "objectCount": 216,
+    "abiSizes": {
+      "Sample": 48,
+      "samples": 6144,
+      "Chunk": 28,
+      "chunks": 420,
+      "Counter": 16,
+      "commonCounter": 112,
+      "extraCounter": 48,
+      "WildCounter": 44
+    }
+  },
+  "cone": {
+    "status": "PASS_INDEPENDENT_KIND6_CONE_ACTUAL_NATIVE_SOURCE_MIRRORS_ABI_ASSETS_FORMAT_CLEAR",
+    "sourceManifestSha256": "d4b88498e3ccd8f07a7b7b19245ece76f552ca54c1f9191f191ba2a0ff86fa24",
+    "actualELFSha256": "7781c000654732288cde4ea5967c222055bc89c2d10bc2a7bf5979381f937482",
+    "actualSymbolSha256": "ba318c245edb6396a2727ac4242cdf370514213ef2c4e858e707cafdf09c13f8",
+    "matchingTextSha256": "415fc7ba9f3c84b1e1bda1035cb3d3a077969cda0a6e0201d2803c456b15e72a",
+    "matchingTextBytes": 2964304,
+    "actualMirroredNativeInputs": 488,
+    "sourceManifestInputs": 497,
+    "formatWarningCount": 0,
+    "assets": {
+      "runtime": 298,
+      "byteEqualBaked": 294,
+      "convertedAudio": 4
+    },
+    "actualAbiAccepted": true,
+    "completeProofPath": "F:\\Projects\\tyrax2-lab-20261001\\wild-cone-native-independent-review-v1\\proof.json",
+    "completeProofSha256": "2653c2ef4b11fc78cf59b564fd8aa293b7d3fda07fad837bb5f31be04302f4e7",
+    "objectCount": 216,
+    "abiSizes": {
+      "Sample": 48,
+      "samples": 6144,
+      "Chunk": 28,
+      "chunks": 420,
+      "Counter": 16,
+      "commonCounter": 112,
+      "extraCounter": 48,
+      "WildCounter": 44
+    }
+  }
+}

@@ -415,6 +415,13 @@ and both physical calibration/joint orders passed. The simplified joint cut
   responses do not qualify a stable gain. Reverse V2 add-backs and production
   full-night performance remain open.
 
+[Private unconventional experiments](tyrax2-wild-experiments.md) preserve an
+independent fifteen-idea review and two implemented math trials. The four-plane
+VU0 candidate completed both emulator and PS2 orders with positive cold action
+but no gain; the cone predicate is unreachable in the selected scene. Source
+and raw evidence are retained, while package-local pool representations remain
+private work awaiting their own qualification.
+
 [Batch / texture / program scopes](tyrax2-batch-texture-scopes-2026-10-04.md)
 qualify the V10 inclusive physical interval at 0.751–0.788 ms, with explicit
 observer contrasts and rejected attempts. This interval includes dispatch and

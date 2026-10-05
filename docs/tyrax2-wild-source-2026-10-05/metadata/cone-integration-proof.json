@@ -1,0 +1,30 @@
+{
+  "status": "ROOT_CREATED_PRIVATE_WILD_CONE_KIND6_INPUT_NOT_NATIVE_ACCEPTED",
+  "sourceFiles": 497,
+  "sourceProofSha256": "05b43bc986fc797bff354596e9fd142539a23e4afc5cbe8581d49b9ec8872a50",
+  "integrationScriptSha256": "f910f870a4797a3fba7b55122ea397d9486104a4b8b8fb5caee44c3468d289bd",
+  "baselineManifestSha256": "3e895d8224297c66169bf2a01cabc0dfd1fd1e0c9fee8a77c3c77de88bb14dad",
+  "outputPins": {
+    "game/src/gen/game_lighting.gen.cpp": "3b894748fc9347caa665092a5c466a7b05c4407659c98d9170ff7a4322c8a3b9",
+    "tyra/engine/inc/debug/night_ablation.hpp": "9e841b6b0a69589b49eab9da43d3be2659b69f3856edd469abd0239e98952559",
+    "tyra/engine/inc/debug/night_plan.hpp": "37941cc0894d45efeff8dcfcbcc81b513fe2fc1c1e06808afd6734d325f6413e",
+    "tyra/engine/inc/debug/night_runtime.hpp": "8af95f6d9add3d7dc871093c4bbe903653e9eee829e5caed941d79c67f009298",
+    "tyra/engine/inc/debug/night_sampler.hpp": "b51b72a79d1ede2553d46fb9bf2fbe112fa5ad0796a8f88fb02dbec86464c7d6",
+    "tyra/engine/inc/debug/quiet_cadence.hpp": "c6c87c3d9cc6deb6e90fa01d91c86df5ee6be8979b4a8b734a35804d991be6f3",
+    "tyra/engine/inc/debug/quiet_runtime.hpp": "c2b93076926ced36b425bbf2cb5eea738650087192427a1088acbae0058ad07b"
+  },
+  "requiredProofs": [
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\final-proof.json",
+      "sha256": "8afaf06a04d1761d960ea643944ddedd89b885d8fe7b32456c7e39e660ff5016",
+      "status": "PASS_PREPARED_WILD_KIND5_KIND6_ACTUAL_HEADER_HOST_CONTROLS_ONLY"
+    },
+    {
+      "path": "F:\\Projects\\tyrax2-lab-20261001\\wild-cone-proposal-v1\\host-proof.json",
+      "sha256": "ee8c06ed4466643de2ccc598e22a24009f03b45c330d226eb20e28b9fde94896",
+      "status": "PASS_HOST_ACTUAL_CONE_LAMBDAS_IDS_ORDER_TBITS_STATE_COLD_SEAM_ONLY"
+    }
+  ],
+  "nativeAccepted": false,
+  "runtimeAccepted": false
+}

@@ -1,0 +1,14 @@
+{
+  "parameters": {
+    "Project": "F:\\Projects\\tyrax2-lab-20261001\\wild-plane-physical-v1/game",
+    "Engine": "F:\\Projects\\tyrax2-lab-20261001\\wild-plane-physical-v1/tyra",
+    "Cache": "F:/Projects/tyrax2-lab-20261001/native-cache",
+    "Toolchain": "C:/Users/pawel/AppData/Local/tyra-editor/toolchain/ps2dev"
+  },
+  "sourceManifestSha256": "aa1b27d92b8f560836fd70fc6fb25ee1852f2b48e16f41dcc512bc2395289c19",
+  "processExitCode": 0,
+  "errorLog": "F:/Projects/tyrax2-lab-20261001/night-ablation-native-v6.err",
+  "pid": 24248,
+  "status": "ROOT_OBSERVED_NATIVE_CHILD_EXIT",
+  "buildLog": "F:/Projects/tyrax2-lab-20261001/night-ablation-native-v6.log"
+}

@@ -1,0 +1,12 @@
+{
+  "status": "ROOT_SOURCE_FREEZE_ONLY",
+  "sourceManifestSha256": "d4b88498e3ccd8f07a7b7b19245ece76f552ca54c1f9191f191ba2a0ff86fa24",
+  "sourceFiles": 497,
+  "review": "F:\\Projects\\tyrax2-lab-20261001\\wild-cone-independent-review-v1\\final-input-proof-v2.json",
+  "reviewSha256": "9a75adeb5928fb723bb578bfc41dbb83ab3f744f9939926d835ff08dda7f2732",
+  "host": "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v1\\final-proof.json",
+  "hostSha256": "8afaf06a04d1761d960ea643944ddedd89b885d8fe7b32456c7e39e660ff5016",
+  "helperSha256": "77782bdac4362671e6a14a8078665eb541e7e19ffb73d1592388020d7fb97550",
+  "nativeAccepted": false,
+  "runtimeAccepted": false
+}

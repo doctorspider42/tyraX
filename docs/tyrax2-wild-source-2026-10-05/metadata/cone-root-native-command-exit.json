@@ -1,0 +1,14 @@
+{
+  "parameters": {
+    "Cache": "F:/Projects/tyrax2-lab-20261001/native-cache",
+    "Engine": "F:\\Projects\\tyrax2-lab-20261001\\wild-cone-physical-v1/tyra",
+    "Toolchain": "C:/Users/pawel/AppData/Local/tyra-editor/toolchain/ps2dev",
+    "Project": "F:\\Projects\\tyrax2-lab-20261001\\wild-cone-physical-v1/game"
+  },
+  "processExitCode": 0,
+  "pid": 25428,
+  "sourceManifestSha256": "d4b88498e3ccd8f07a7b7b19245ece76f552ca54c1f9191f191ba2a0ff86fa24",
+  "errorLog": "F:/Projects/tyrax2-lab-20261001/night-ablation-native-v5.err",
+  "buildLog": "F:/Projects/tyrax2-lab-20261001/night-ablation-native-v5.log",
+  "status": "ROOT_OBSERVED_NATIVE_CHILD_EXIT"
+}
