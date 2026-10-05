@@ -140,3 +140,5 @@ Both scopes include observer seams, waits and preemption. The common 12-byte rec
 ## V10 batch / texture / program interval
 
 The [October 4 V10 follow-up](tyrax2-batch-texture-scopes-2026-10-04.md) moves the selected interval to immediately before texture attribution through immediately before light attribution. Both physical orders measure 0.751–0.788 ms inclusive, with 134 actual entries per sampled frame. Dispatch and existing wait seams remain inside the interval. Its own sampler contrasts and rejected attempts are preserved separately; do not add it to overlapping V8/V9 scopes or subtract across ELFs to attribute a gain.
+
+The subsequent [Core prefix partition](tyrax2-core-prefix-partition.md) measures three disjoint pieces in the same ELF. Use its physical orders to select a narrower scope; do not subtract or add earlier ELF prefix/submit measurements.

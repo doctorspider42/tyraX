@@ -1,0 +1,19 @@
+{
+  "status": "PASS_SYNTHETIC_CORE_PREFIX_DIALECT_CONTROLS",
+  "rows": [
+    {
+      "order": 0,
+      "positiveAccepted": true,
+      "negativeRejected": 7,
+      "synthetic": true
+    },
+    {
+      "order": 1,
+      "positiveAccepted": true,
+      "negativeRejected": 7,
+      "synthetic": true
+    }
+  ],
+  "runtimeAcceptance": false,
+  "parserSha256": "c5a6b8f11af1f702354e503e438a274ed53b03b68ab42692c2a19874b970b034"
+}

@@ -3936,3 +3936,5 @@ enabled observer tax unresolved against drift. Do not rank inactive source
 loops as this fixed night bottleneck or promise that deleting a scoped producer
 recovers its instrumented elapsed time. Vehicle/headlight and other projected
 routes are separate; walking/moving/showcase activation remains open.
+
+The kind14 Core prefix partition is documented in `docs/tyrax2-core-prefix-partition.md`. Three disjoint brackets end before texture preparation, object-data preparation and replay lookup respectively. Early empty/outside returns belong only to the first bracket; existing waits are included. Reserved protocol stages must remain zero. This is private observation, not production optimization or pure EE arithmetic pricing.

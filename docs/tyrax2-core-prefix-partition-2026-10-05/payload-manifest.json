@@ -1,0 +1,606 @@
+{
+  "binary-hashes.json": {
+    "sha256": "7be3443ba54bc699a5d350dc4a1b5a1d8b1c9b4a44b775fbbaae225bdcebdced",
+    "bytes": 2249
+  },
+  "excluded-no-start/core-prefix-no-output-reset-v1.err": {
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "bytes": 0
+  },
+  "excluded-no-start/core-prefix-no-output-reset-v1.log": {
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "bytes": 0
+  },
+  "excluded-no-start/night-ablation-ps2-core-prefix-order0-20261005.err": {
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "bytes": 0
+  },
+  "excluded-no-start/night-ablation-ps2-core-prefix-order0-20261005.log": {
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "bytes": 0
+  },
+  "fixture/root-native-provenance.json": {
+    "sha256": "c7d80d0e0c6c7485f20348afaa91835c91b654eaf2537f53a45b9927c8026d3c",
+    "bytes": 966
+  },
+  "fixture/root-runtime-authority.json": {
+    "sha256": "aeea6b82b8c8181b39c56c9b96ff33930c4a01beb50c5c187d3de60add60d84c",
+    "bytes": 1153
+  },
+  "fixture/root-source-freeze.json": {
+    "sha256": "6cdb12aca9cd5fb73e9b666f9ba4dff733e986a8a358829ce5d9657254222d73",
+    "bytes": 762
+  },
+  "fixture/runtime-assets-manifest.json": {
+    "sha256": "e11fa8b76a6c7f6ee6d8da67670e12f4b7184d8b9e1558070c92efa4e4d10e05",
+    "bytes": 34482
+  },
+  "fixture/target-source-manifest.json": {
+    "sha256": "cc5d182958f5f466ebd1969ece2c82828a92fb9bae32464794913b95b9b937e1",
+    "bytes": 66097
+  },
+  "tools/adapt-core-prefix-partition-v1.py": {
+    "sha256": "c2145a1d7b4a815da9a4204ba4c576638dcf36aa3fe845b49e12a2f7bbed411f",
+    "bytes": 4220
+  },
+  "tools/audit-core-prefix-native-root-v1.py": {
+    "sha256": "4a2b55c5c600f0c0ffca9f9d0f879e93a0a969b204313abe3623ab64b9b0ddb5",
+    "bytes": 12839
+  },
+  "tools/compile-core-prefix-abi-root-v1.py": {
+    "sha256": "25b1319db9480136d1fe9b1c30eae37afe9ad9ebc20c69b6cc4875857e3a0d3a",
+    "bytes": 2325
+  },
+  "tools/core-prefix-host-controls-v1.json": {
+    "sha256": "445f759f42f86841042b15fe0654ed46a94ce0959640cd2551598f70c390d952",
+    "bytes": 426
+  },
+  "tools/core-prefix-results-v1.json": {
+    "sha256": "7cac769a5d8bc3ad993a6e5d8db4047b78dc3046d53c2c072db6926ba0d8301a",
+    "bytes": 25420
+  },
+  "tools/prepare-core-prefix-partition-v1.py": {
+    "sha256": "32332dcba69e4bc709cdfc3bf8cda6abe43cbe77d9b4d76b4bf0534d9ddbd932",
+    "bytes": 2750
+  },
+  "tools/prepare-night-producer-probe-v1.py": {
+    "sha256": "45174177c21e6d3608e9b41eaf6acf94472ecdb05c3a6b2a2d4b28dec4033896",
+    "bytes": 6792
+  },
+  "tools/qualify-core-prefix-host-v1.py": {
+    "sha256": "49f80219b4fec21cb407bb20baf9a7e5bc1cb66e46f4b5a13db5c733d166efe4",
+    "bytes": 2271
+  },
+  "tools/release-core-prefix-v1.py": {
+    "sha256": "7a052257eb2ad86e8c9fa371c6f4dd122e0b17838a4fa79a7f0cc3e7f4cefc54",
+    "bytes": 1350
+  },
+  "tools/start-core-prefix-physical-root-v1.ps1": {
+    "sha256": "f49edd69593f68014fb76a4445f454c1eea82f64d632603c2af0415aa905692c",
+    "bytes": 2074
+  },
+  "tools/summarize-core-prefix-v1.py": {
+    "sha256": "12604faed0bec2071632003c670d03ec554941eb2a24205837decae831e8875a",
+    "bytes": 2888
+  },
+  "tools/wait-core-prefix-physical-root-v1.ps1": {
+    "sha256": "f5a530b713cf5041ddbd298f2219d4050346a53a1b8e8e616b696f2a133139eb",
+    "bytes": 1050
+  },
+  "excluded-no-start/night-ablation-ps2-core-prefix-order0-20261005-launch/client-process.json": {
+    "sha256": "9a8593ec83bec0d7fc0fdd9aba58b02c22fdfc396ade29bbe51b4fbb217a56ac",
+    "bytes": 255
+  },
+  "excluded-no-start/night-ablation-ps2-core-prefix-order0-20261005-launch/host-arrivals.jsonl": {
+    "sha256": "adb7169f14651d8cfe28a1374a33dc7dd1b07e4493b9882060c28d5abaf9cf16",
+    "bytes": 261
+  },
+  "excluded-no-start/night-ablation-ps2-core-prefix-order0-20261005-launch/night-ablation.cfg": {
+    "sha256": "ea90521308db09c1048f19c84d0b871b52ed21c48a3c6b7e3a3da2d7ad9097a9",
+    "bytes": 9
+  },
+  "excluded-no-start/night-ablation-ps2-core-prefix-order0-20261005-launch/observed-launch.json": {
+    "sha256": "ee90618b2ee579ef2693a41f8c63aa702a8e685a7b9ab6f090599b99b28d3aa8",
+    "bytes": 525
+  },
+  "excluded-no-start/night-ablation-ps2-core-prefix-order0-20261005-launch/owned-launch.json": {
+    "sha256": "e965e44461488af3e35f500cffd961ebf4c5f4dea6606996dbe7a642d4243846",
+    "bytes": 1552
+  },
+  "excluded-no-start/night-ablation-ps2-core-prefix-order0-20261005-launch/owned-no-output-stop.json": {
+    "sha256": "9a8593ec83bec0d7fc0fdd9aba58b02c22fdfc396ade29bbe51b4fbb217a56ac",
+    "bytes": 255
+  },
+  "excluded-no-start/night-ablation-ps2-core-prefix-order0-20261005-launch/ps2link.run": {
+    "sha256": "290eb100acb0b408fab11ae3445233dd7409222008a8c4dc3d0cf49a2bc1208a",
+    "bytes": 7
+  },
+  "excluded-no-start/night-ablation-ps2-core-prefix-order0-20261005-launch/quiet-night.cfg": {
+    "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+    "bytes": 2
+  },
+  "excluded-no-start/night-ablation-ps2-core-prefix-order0-20261005-launch/root-launcher-process.json": {
+    "sha256": "ec5c334afa034916cd1ca76ce041d196ff2b23a75fb32642ffd8dfe020f327d4",
+    "bytes": 96
+  },
+  "excluded-no-start/night-ablation-ps2-core-prefix-order0-20261005-launch/root-native-provenance.json": {
+    "sha256": "c7d80d0e0c6c7485f20348afaa91835c91b654eaf2537f53a45b9927c8026d3c",
+    "bytes": 966
+  },
+  "excluded-no-start/night-ablation-ps2-core-prefix-order0-20261005-launch/root-runtime-authority.json": {
+    "sha256": "aeea6b82b8c8181b39c56c9b96ff33930c4a01beb50c5c187d3de60add60d84c",
+    "bytes": 1153
+  },
+  "excluded-no-start/night-ablation-ps2-core-prefix-order0-20261005-launch/root-source-freeze.json": {
+    "sha256": "6cdb12aca9cd5fb73e9b666f9ba4dff733e986a8a358829ce5d9657254222d73",
+    "bytes": 762
+  },
+  "excluded-no-start/night-ablation-ps2-core-prefix-order0-20261005-launch/runtime-assets-manifest.json": {
+    "sha256": "e11fa8b76a6c7f6ee6d8da67670e12f4b7184d8b9e1558070c92efa4e4d10e05",
+    "bytes": 34482
+  },
+  "excluded-no-start/night-ablation-ps2-core-prefix-order0-20261005-launch/target-source-manifest.json": {
+    "sha256": "cc5d182958f5f466ebd1969ece2c82828a92fb9bae32464794913b95b9b937e1",
+    "bytes": 66097
+  },
+  "runs/night-ablation-ps2-core-prefix-order0-20261005-retry1-evidence/analysis-command.json": {
+    "sha256": "486a7ad3d5c3cede42265ab31245950b22397ad7d695ca5371d55dd5b39aafe7",
+    "bytes": 780
+  },
+  "runs/night-ablation-ps2-core-prefix-order0-20261005-retry1-evidence/analyze-loop.py": {
+    "sha256": "5f1e9756449a5d35e9ce9567ab87be9e4388ed98b777f3ff72622b0e71f7fa27",
+    "bytes": 10107
+  },
+  "runs/night-ablation-ps2-core-prefix-order0-20261005-retry1-evidence/analyze-night-cli.py": {
+    "sha256": "d2dd80fbb27b57133008db6fe05965ab24125cfca66a36360c039be8318790ba",
+    "bytes": 1653
+  },
+  "runs/night-ablation-ps2-core-prefix-order0-20261005-retry1-evidence/analyze-night.py": {
+    "sha256": "c5a6b8f11af1f702354e503e438a274ed53b03b68ab42692c2a19874b970b034",
+    "bytes": 19701
+  },
+  "runs/night-ablation-ps2-core-prefix-order0-20261005-retry1-evidence/client-process.json": {
+    "sha256": "84aff3d0752b9ea0af7c0980bfccf16ac53683b6cf74553dd8eadad9a9de04c2",
+    "bytes": 255
+  },
+  "runs/night-ablation-ps2-core-prefix-order0-20261005-retry1-evidence/corona_controls.py": {
+    "sha256": "1decafffab8d86f2b34e2d20054a5e729d69d2c9259f9938bd8370666435a43a",
+    "bytes": 9823
+  },
+  "runs/night-ablation-ps2-core-prefix-order0-20261005-retry1-evidence/host-arrivals.jsonl": {
+    "sha256": "b8cfe3d154e20f1707d7d4c6fd2c518f56c4d3148fb02ff3bb702cf8fd27e191",
+    "bytes": 3195
+  },
+  "runs/night-ablation-ps2-core-prefix-order0-20261005-retry1-evidence/host-authority.json": {
+    "sha256": "a2bdc480da0d0b1a863ff1dc76b34d5f9b251afb1d3c6aeb6a5bdb70ae2736c9",
+    "bytes": 1086
+  },
+  "runs/night-ablation-ps2-core-prefix-order0-20261005-retry1-evidence/machine-evidence.json": {
+    "sha256": "ea91eb825f25253b179e8aed49c5606d16a555b0f891ad04189cbd241602a38d",
+    "bytes": 4539
+  },
+  "runs/night-ablation-ps2-core-prefix-order0-20261005-retry1-evidence/native-build.log": {
+    "sha256": "968d62c415b13301a9d8ed3542ac6b9e61d32990a9373d798e9cef63129e3e9e",
+    "bytes": 43746
+  },
+  "runs/night-ablation-ps2-core-prefix-order0-20261005-retry1-evidence/night-ablation.cfg": {
+    "sha256": "ea90521308db09c1048f19c84d0b871b52ed21c48a3c6b7e3a3da2d7ad9097a9",
+    "bytes": 9
+  },
+  "runs/night-ablation-ps2-core-prefix-order0-20261005-retry1-evidence/night-ablation.log": {
+    "sha256": "bc562a30306b20bd70cbdcf8bbdb6fa2c46bd663de0488bd1c13f58017ef9f30",
+    "bytes": 86167
+  },
+  "runs/night-ablation-ps2-core-prefix-order0-20261005-retry1-evidence/normalization-proof.json": {
+    "sha256": "f3cb16c8b46588ca75c9d0aa2ccf631bebd6b380f2f19d25df34bd7412479064",
+    "bytes": 751
+  },
+  "runs/night-ablation-ps2-core-prefix-order0-20261005-retry1-evidence/observed-launch.json": {
+    "sha256": "d33653fb9f92cb6cb1f37c2edf8e9452984cf8344d29818090e48a02e1750a42",
+    "bytes": 525
+  },
+  "runs/night-ablation-ps2-core-prefix-order0-20261005-retry1-evidence/owned-launch.json": {
+    "sha256": "3427c0e24dd0dc879bc27d9a6c2a445939bd35c1b2ad37043b2b48edbc9e934f",
+    "bytes": 1566
+  },
+  "runs/night-ablation-ps2-core-prefix-order0-20261005-retry1-evidence/owned-stop.json": {
+    "sha256": "84aff3d0752b9ea0af7c0980bfccf16ac53683b6cf74553dd8eadad9a9de04c2",
+    "bytes": 255
+  },
+  "runs/night-ablation-ps2-core-prefix-order0-20261005-retry1-evidence/ps2client-raw.log": {
+    "sha256": "99c847d11ff43923fd2f3cbe097f9a38c67c14a2418d83ed7ff66e8c631f7060",
+    "bytes": 31176
+  },
+  "runs/night-ablation-ps2-core-prefix-order0-20261005-retry1-evidence/ps2link.run": {
+    "sha256": "290eb100acb0b408fab11ae3445233dd7409222008a8c4dc3d0cf49a2bc1208a",
+    "bytes": 7
+  },
+  "runs/night-ablation-ps2-core-prefix-order0-20261005-retry1-evidence/quiet-night.cfg": {
+    "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+    "bytes": 2
+  },
+  "runs/night-ablation-ps2-core-prefix-order0-20261005-retry1-evidence/review-authority.json": {
+    "sha256": "fbcc83729c0fe9fab1c7ac96d987db8c85cad34250ccd54dfb7a1d4ec14090be",
+    "bytes": 520
+  },
+  "runs/night-ablation-ps2-core-prefix-order0-20261005-retry1-evidence/root-launcher-process.json": {
+    "sha256": "1054e64ad64d3efce43166b4f8b219212ce915375d703adabea25ba894f57cf0",
+    "bytes": 96
+  },
+  "runs/night-ablation-ps2-core-prefix-order0-20261005-retry1-evidence/root-native-provenance.json": {
+    "sha256": "c7d80d0e0c6c7485f20348afaa91835c91b654eaf2537f53a45b9927c8026d3c",
+    "bytes": 966
+  },
+  "runs/night-ablation-ps2-core-prefix-order0-20261005-retry1-evidence/root-runtime-authority.json": {
+    "sha256": "aeea6b82b8c8181b39c56c9b96ff33930c4a01beb50c5c187d3de60add60d84c",
+    "bytes": 1153
+  },
+  "runs/night-ablation-ps2-core-prefix-order0-20261005-retry1-evidence/root-source-freeze.json": {
+    "sha256": "6cdb12aca9cd5fb73e9b666f9ba4dff733e986a8a358829ce5d9657254222d73",
+    "bytes": 762
+  },
+  "runs/night-ablation-ps2-core-prefix-order0-20261005-retry1-evidence/runtime-assets-manifest.json": {
+    "sha256": "e11fa8b76a6c7f6ee6d8da67670e12f4b7184d8b9e1558070c92efa4e4d10e05",
+    "bytes": 34482
+  },
+  "runs/night-ablation-ps2-core-prefix-order0-20261005-retry1-evidence/stdout.log": {
+    "sha256": "a4afccf293afa3fbbad44307c7cbc7939009632a22f521258ab32135e6aa9bb3",
+    "bytes": 31178
+  },
+  "runs/night-ablation-ps2-core-prefix-order0-20261005-retry1-evidence/strict-analysis.json": {
+    "sha256": "ea3b15c7d23d70161b9d90a3fefb13f1401fa890f7df1dac9ae9af5d94c423d4",
+    "bytes": 45703
+  },
+  "runs/night-ablation-ps2-core-prefix-order0-20261005-retry1-evidence/target-source-manifest.json": {
+    "sha256": "cc5d182958f5f466ebd1969ece2c82828a92fb9bae32464794913b95b9b937e1",
+    "bytes": 66097
+  },
+  "runs/night-ablation-ps2-core-prefix-order0-20261005-retry1-launch/client-process.json": {
+    "sha256": "84aff3d0752b9ea0af7c0980bfccf16ac53683b6cf74553dd8eadad9a9de04c2",
+    "bytes": 255
+  },
+  "runs/night-ablation-ps2-core-prefix-order0-20261005-retry1-launch/host-arrivals.jsonl": {
+    "sha256": "b8cfe3d154e20f1707d7d4c6fd2c518f56c4d3148fb02ff3bb702cf8fd27e191",
+    "bytes": 3195
+  },
+  "runs/night-ablation-ps2-core-prefix-order0-20261005-retry1-launch/night-ablation.cfg": {
+    "sha256": "ea90521308db09c1048f19c84d0b871b52ed21c48a3c6b7e3a3da2d7ad9097a9",
+    "bytes": 9
+  },
+  "runs/night-ablation-ps2-core-prefix-order0-20261005-retry1-launch/observed-launch.json": {
+    "sha256": "d33653fb9f92cb6cb1f37c2edf8e9452984cf8344d29818090e48a02e1750a42",
+    "bytes": 525
+  },
+  "runs/night-ablation-ps2-core-prefix-order0-20261005-retry1-launch/owned-launch.json": {
+    "sha256": "3427c0e24dd0dc879bc27d9a6c2a445939bd35c1b2ad37043b2b48edbc9e934f",
+    "bytes": 1566
+  },
+  "runs/night-ablation-ps2-core-prefix-order0-20261005-retry1-launch/owned-stop.json": {
+    "sha256": "84aff3d0752b9ea0af7c0980bfccf16ac53683b6cf74553dd8eadad9a9de04c2",
+    "bytes": 255
+  },
+  "runs/night-ablation-ps2-core-prefix-order0-20261005-retry1-launch/ps2link.run": {
+    "sha256": "290eb100acb0b408fab11ae3445233dd7409222008a8c4dc3d0cf49a2bc1208a",
+    "bytes": 7
+  },
+  "runs/night-ablation-ps2-core-prefix-order0-20261005-retry1-launch/quiet-night.cfg": {
+    "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+    "bytes": 2
+  },
+  "runs/night-ablation-ps2-core-prefix-order0-20261005-retry1-launch/root-launcher-process.json": {
+    "sha256": "1054e64ad64d3efce43166b4f8b219212ce915375d703adabea25ba894f57cf0",
+    "bytes": 96
+  },
+  "runs/night-ablation-ps2-core-prefix-order0-20261005-retry1-launch/root-native-provenance.json": {
+    "sha256": "c7d80d0e0c6c7485f20348afaa91835c91b654eaf2537f53a45b9927c8026d3c",
+    "bytes": 966
+  },
+  "runs/night-ablation-ps2-core-prefix-order0-20261005-retry1-launch/root-runtime-authority.json": {
+    "sha256": "aeea6b82b8c8181b39c56c9b96ff33930c4a01beb50c5c187d3de60add60d84c",
+    "bytes": 1153
+  },
+  "runs/night-ablation-ps2-core-prefix-order0-20261005-retry1-launch/root-source-freeze.json": {
+    "sha256": "6cdb12aca9cd5fb73e9b666f9ba4dff733e986a8a358829ce5d9657254222d73",
+    "bytes": 762
+  },
+  "runs/night-ablation-ps2-core-prefix-order0-20261005-retry1-launch/runtime-assets-manifest.json": {
+    "sha256": "e11fa8b76a6c7f6ee6d8da67670e12f4b7184d8b9e1558070c92efa4e4d10e05",
+    "bytes": 34482
+  },
+  "runs/night-ablation-ps2-core-prefix-order0-20261005-retry1-launch/target-source-manifest.json": {
+    "sha256": "cc5d182958f5f466ebd1969ece2c82828a92fb9bae32464794913b95b9b937e1",
+    "bytes": 66097
+  },
+  "runs/night-ablation-ps2-core-prefix-order1-20261005-evidence/analysis-command.json": {
+    "sha256": "194eaf9a88197490d1ee7d53526efad300c0ad216175b6092e9118aba8769696",
+    "bytes": 766
+  },
+  "runs/night-ablation-ps2-core-prefix-order1-20261005-evidence/analyze-loop.py": {
+    "sha256": "5f1e9756449a5d35e9ce9567ab87be9e4388ed98b777f3ff72622b0e71f7fa27",
+    "bytes": 10107
+  },
+  "runs/night-ablation-ps2-core-prefix-order1-20261005-evidence/analyze-night-cli.py": {
+    "sha256": "d2dd80fbb27b57133008db6fe05965ab24125cfca66a36360c039be8318790ba",
+    "bytes": 1653
+  },
+  "runs/night-ablation-ps2-core-prefix-order1-20261005-evidence/analyze-night.py": {
+    "sha256": "c5a6b8f11af1f702354e503e438a274ed53b03b68ab42692c2a19874b970b034",
+    "bytes": 19701
+  },
+  "runs/night-ablation-ps2-core-prefix-order1-20261005-evidence/client-process.json": {
+    "sha256": "18a1d40bae8a39223ec5347c45ecdd3282aac1b81870324858dc774083509c4d",
+    "bytes": 255
+  },
+  "runs/night-ablation-ps2-core-prefix-order1-20261005-evidence/corona_controls.py": {
+    "sha256": "1decafffab8d86f2b34e2d20054a5e729d69d2c9259f9938bd8370666435a43a",
+    "bytes": 9823
+  },
+  "runs/night-ablation-ps2-core-prefix-order1-20261005-evidence/host-arrivals.jsonl": {
+    "sha256": "8e6fd162b9737424139b779431d8e63292a4f2d873d19c4e496dda9f34280e53",
+    "bytes": 3195
+  },
+  "runs/night-ablation-ps2-core-prefix-order1-20261005-evidence/host-authority.json": {
+    "sha256": "a2bdc480da0d0b1a863ff1dc76b34d5f9b251afb1d3c6aeb6a5bdb70ae2736c9",
+    "bytes": 1086
+  },
+  "runs/night-ablation-ps2-core-prefix-order1-20261005-evidence/machine-evidence.json": {
+    "sha256": "3b0ab16c787eafe3bc4ef8b807a5529a43f2c04a2b801c45fc97a59ee79ded27",
+    "bytes": 4539
+  },
+  "runs/night-ablation-ps2-core-prefix-order1-20261005-evidence/native-build.log": {
+    "sha256": "968d62c415b13301a9d8ed3542ac6b9e61d32990a9373d798e9cef63129e3e9e",
+    "bytes": 43746
+  },
+  "runs/night-ablation-ps2-core-prefix-order1-20261005-evidence/night-ablation.cfg": {
+    "sha256": "fe26525cdf596a79b865eb4b42f621192fa9d3f674469379972ef1d70051b5e5",
+    "bytes": 9
+  },
+  "runs/night-ablation-ps2-core-prefix-order1-20261005-evidence/night-ablation.log": {
+    "sha256": "bf6e73d5892eb2426409c7a1b077aeb3492b95b71c30e4b2a88e31fbd6ac14e6",
+    "bytes": 86149
+  },
+  "runs/night-ablation-ps2-core-prefix-order1-20261005-evidence/normalization-proof.json": {
+    "sha256": "4d99cdf62e3fe438bfc1e5d2b84cfbb9facff7bc8378b8521dbd150f8237f545",
+    "bytes": 737
+  },
+  "runs/night-ablation-ps2-core-prefix-order1-20261005-evidence/observed-launch.json": {
+    "sha256": "66782134f7c915e6813c135cc0b2153b93454fc085b614424501304971a9c83f",
+    "bytes": 525
+  },
+  "runs/night-ablation-ps2-core-prefix-order1-20261005-evidence/owned-launch.json": {
+    "sha256": "8b4a3b9371a86401ea244ecccf7df4fa6a191945c3268b2128758b6fef34f42e",
+    "bytes": 1552
+  },
+  "runs/night-ablation-ps2-core-prefix-order1-20261005-evidence/owned-stop.json": {
+    "sha256": "18a1d40bae8a39223ec5347c45ecdd3282aac1b81870324858dc774083509c4d",
+    "bytes": 255
+  },
+  "runs/night-ablation-ps2-core-prefix-order1-20261005-evidence/ps2client-raw.log": {
+    "sha256": "5b90a1d026af47da655480b6fc0863d55cb6deb2d73a1fec0e2f6007a9329545",
+    "bytes": 31224
+  },
+  "runs/night-ablation-ps2-core-prefix-order1-20261005-evidence/ps2link.run": {
+    "sha256": "290eb100acb0b408fab11ae3445233dd7409222008a8c4dc3d0cf49a2bc1208a",
+    "bytes": 7
+  },
+  "runs/night-ablation-ps2-core-prefix-order1-20261005-evidence/quiet-night.cfg": {
+    "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+    "bytes": 2
+  },
+  "runs/night-ablation-ps2-core-prefix-order1-20261005-evidence/review-authority.json": {
+    "sha256": "fbcc83729c0fe9fab1c7ac96d987db8c85cad34250ccd54dfb7a1d4ec14090be",
+    "bytes": 520
+  },
+  "runs/night-ablation-ps2-core-prefix-order1-20261005-evidence/root-launcher-process.json": {
+    "sha256": "29d1c7550817351d792ef3f6e2745ce55bd0effb343a6752d443affa6e674810",
+    "bytes": 96
+  },
+  "runs/night-ablation-ps2-core-prefix-order1-20261005-evidence/root-native-provenance.json": {
+    "sha256": "c7d80d0e0c6c7485f20348afaa91835c91b654eaf2537f53a45b9927c8026d3c",
+    "bytes": 966
+  },
+  "runs/night-ablation-ps2-core-prefix-order1-20261005-evidence/root-runtime-authority.json": {
+    "sha256": "aeea6b82b8c8181b39c56c9b96ff33930c4a01beb50c5c187d3de60add60d84c",
+    "bytes": 1153
+  },
+  "runs/night-ablation-ps2-core-prefix-order1-20261005-evidence/root-source-freeze.json": {
+    "sha256": "6cdb12aca9cd5fb73e9b666f9ba4dff733e986a8a358829ce5d9657254222d73",
+    "bytes": 762
+  },
+  "runs/night-ablation-ps2-core-prefix-order1-20261005-evidence/runtime-assets-manifest.json": {
+    "sha256": "e11fa8b76a6c7f6ee6d8da67670e12f4b7184d8b9e1558070c92efa4e4d10e05",
+    "bytes": 34482
+  },
+  "runs/night-ablation-ps2-core-prefix-order1-20261005-evidence/stdout.log": {
+    "sha256": "d2b23ddfd8a3f95630acb138bcc5a6a6005c2f5b0b917ee3d35a60874afcb4a1",
+    "bytes": 31227
+  },
+  "runs/night-ablation-ps2-core-prefix-order1-20261005-evidence/strict-analysis.json": {
+    "sha256": "f3447d7a1b021320ffd9395589cf41da299e40f55153f212e419803fb47b6171",
+    "bytes": 45723
+  },
+  "runs/night-ablation-ps2-core-prefix-order1-20261005-evidence/target-source-manifest.json": {
+    "sha256": "cc5d182958f5f466ebd1969ece2c82828a92fb9bae32464794913b95b9b937e1",
+    "bytes": 66097
+  },
+  "runs/night-ablation-ps2-core-prefix-order1-20261005-launch/client-process.json": {
+    "sha256": "18a1d40bae8a39223ec5347c45ecdd3282aac1b81870324858dc774083509c4d",
+    "bytes": 255
+  },
+  "runs/night-ablation-ps2-core-prefix-order1-20261005-launch/host-arrivals.jsonl": {
+    "sha256": "8e6fd162b9737424139b779431d8e63292a4f2d873d19c4e496dda9f34280e53",
+    "bytes": 3195
+  },
+  "runs/night-ablation-ps2-core-prefix-order1-20261005-launch/night-ablation.cfg": {
+    "sha256": "fe26525cdf596a79b865eb4b42f621192fa9d3f674469379972ef1d70051b5e5",
+    "bytes": 9
+  },
+  "runs/night-ablation-ps2-core-prefix-order1-20261005-launch/observed-launch.json": {
+    "sha256": "66782134f7c915e6813c135cc0b2153b93454fc085b614424501304971a9c83f",
+    "bytes": 525
+  },
+  "runs/night-ablation-ps2-core-prefix-order1-20261005-launch/owned-launch.json": {
+    "sha256": "8b4a3b9371a86401ea244ecccf7df4fa6a191945c3268b2128758b6fef34f42e",
+    "bytes": 1552
+  },
+  "runs/night-ablation-ps2-core-prefix-order1-20261005-launch/owned-stop.json": {
+    "sha256": "18a1d40bae8a39223ec5347c45ecdd3282aac1b81870324858dc774083509c4d",
+    "bytes": 255
+  },
+  "runs/night-ablation-ps2-core-prefix-order1-20261005-launch/ps2link.run": {
+    "sha256": "290eb100acb0b408fab11ae3445233dd7409222008a8c4dc3d0cf49a2bc1208a",
+    "bytes": 7
+  },
+  "runs/night-ablation-ps2-core-prefix-order1-20261005-launch/quiet-night.cfg": {
+    "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+    "bytes": 2
+  },
+  "runs/night-ablation-ps2-core-prefix-order1-20261005-launch/root-launcher-process.json": {
+    "sha256": "29d1c7550817351d792ef3f6e2745ce55bd0effb343a6752d443affa6e674810",
+    "bytes": 96
+  },
+  "runs/night-ablation-ps2-core-prefix-order1-20261005-launch/root-native-provenance.json": {
+    "sha256": "c7d80d0e0c6c7485f20348afaa91835c91b654eaf2537f53a45b9927c8026d3c",
+    "bytes": 966
+  },
+  "runs/night-ablation-ps2-core-prefix-order1-20261005-launch/root-runtime-authority.json": {
+    "sha256": "aeea6b82b8c8181b39c56c9b96ff33930c4a01beb50c5c187d3de60add60d84c",
+    "bytes": 1153
+  },
+  "runs/night-ablation-ps2-core-prefix-order1-20261005-launch/root-source-freeze.json": {
+    "sha256": "6cdb12aca9cd5fb73e9b666f9ba4dff733e986a8a358829ce5d9657254222d73",
+    "bytes": 762
+  },
+  "runs/night-ablation-ps2-core-prefix-order1-20261005-launch/runtime-assets-manifest.json": {
+    "sha256": "e11fa8b76a6c7f6ee6d8da67670e12f4b7184d8b9e1558070c92efa4e4d10e05",
+    "bytes": 34482
+  },
+  "runs/night-ablation-ps2-core-prefix-order1-20261005-launch/target-source-manifest.json": {
+    "sha256": "cc5d182958f5f466ebd1969ece2c82828a92fb9bae32464794913b95b9b937e1",
+    "bytes": 66097
+  },
+  "runs/night-ablation-ps2-core-prefix-order0-20261005-retry1-evidence/source-controls/night_plan.hpp": {
+    "sha256": "59c17e6278f9d2adc5f1d11afec2391484f36389fd4764beaf9476fe4055a8db",
+    "bytes": 2223
+  },
+  "runs/night-ablation-ps2-core-prefix-order0-20261005-retry1-evidence/source-controls/stapip_vu1_shared_defines.h": {
+    "sha256": "cf73e7be8c173e3ee9b04c54a9c57adbc18b7da29c9e4ed6d69c51dddf961d5b",
+    "bytes": 6147
+  },
+  "runs/night-ablation-ps2-core-prefix-order1-20261005-evidence/source-controls/night_plan.hpp": {
+    "sha256": "59c17e6278f9d2adc5f1d11afec2391484f36389fd4764beaf9476fe4055a8db",
+    "bytes": 2223
+  },
+  "runs/night-ablation-ps2-core-prefix-order1-20261005-evidence/source-controls/stapip_vu1_shared_defines.h": {
+    "sha256": "cf73e7be8c173e3ee9b04c54a9c57adbc18b7da29c9e4ed6d69c51dddf961d5b",
+    "bytes": 6147
+  },
+  "source/tyra/engine/inc/debug/night_ablation.hpp": {
+    "sha256": "6c39603963da86b08720494f7e9b40c07e3c929121822e210d6cb066e5b478ee",
+    "bytes": 7042
+  },
+  "source/tyra/engine/inc/debug/night_plan.hpp": {
+    "sha256": "59c17e6278f9d2adc5f1d11afec2391484f36389fd4764beaf9476fe4055a8db",
+    "bytes": 2223
+  },
+  "source/tyra/engine/inc/debug/night_runtime.hpp": {
+    "sha256": "39b9211a3a04336da328b8be281e8f44ceca3ba2b2bf7200338523e2d44252bf",
+    "bytes": 12335
+  },
+  "source/tyra/engine/src/renderer/3d/pipeline/static/core/stapip_core.cpp": {
+    "sha256": "6f35c9ff128b6777ea2d7da94ce6c1bc6938c8fb985dd9c7e16b6bdbd0b23ce6",
+    "bytes": 70790
+  },
+  "tools/core-prefix-controls-v1/analyze-loop.py": {
+    "sha256": "5f1e9756449a5d35e9ce9567ab87be9e4388ed98b777f3ff72622b0e71f7fa27",
+    "bytes": 10107
+  },
+  "tools/core-prefix-controls-v1/analyze-night-cli.py": {
+    "sha256": "d2dd80fbb27b57133008db6fe05965ab24125cfca66a36360c039be8318790ba",
+    "bytes": 1653
+  },
+  "tools/core-prefix-controls-v1/analyze-night.py": {
+    "sha256": "c5a6b8f11af1f702354e503e438a274ed53b03b68ab42692c2a19874b970b034",
+    "bytes": 19701
+  },
+  "tools/core-prefix-controls-v1/corona_controls.py": {
+    "sha256": "1decafffab8d86f2b34e2d20054a5e729d69d2c9259f9938bd8370666435a43a",
+    "bytes": 9823
+  },
+  "tools/core-prefix-controls-v1/run-controls.py": {
+    "sha256": "cf66d7d96967d5cf18f45f76571b16128c29111328f3dc95362af6617d92287e",
+    "bytes": 9151
+  },
+  "tools/core-prefix-native-root-review-v1/proof.json": {
+    "sha256": "cd603557aba4878917ee649bb1d17ed00ede12d1280187811b83d909ad3fa005",
+    "bytes": 3996127
+  },
+  "tools/core-prefix-root-helpers-v1/finish-physical-no-reset.ps1": {
+    "sha256": "0e2702098154fa8d0b86034e3196205bdf19c2b69a63be59d6b0288ebd2f068f",
+    "bytes": 2506
+  },
+  "tools/core-prefix-root-helpers-v1/finish-physical.ps1": {
+    "sha256": "6a09a96f8b29e2419215d0dc1cef1dcb1d34c1b9ab641d75011429f70fcc51e6",
+    "bytes": 2918
+  },
+  "tools/core-prefix-root-helpers-v1/freeze-completed.py": {
+    "sha256": "5e3fbbad6b404a387a1fd7b6c4ceb30af5868aa306363d30804b60547efbd8ff",
+    "bytes": 9570
+  },
+  "tools/core-prefix-root-helpers-v1/host-authority.json": {
+    "sha256": "a2bdc480da0d0b1a863ff1dc76b34d5f9b251afb1d3c6aeb6a5bdb70ae2736c9",
+    "bytes": 1086
+  },
+  "tools/core-prefix-root-helpers-v1/launch-emulator.py": {
+    "sha256": "d4bb699ad4d5f59899956f464a9452deb81dec4d170f7fe72ed91286d166dd86",
+    "bytes": 3867
+  },
+  "tools/core-prefix-root-helpers-v1/launch-physical-observed.py": {
+    "sha256": "c7e257d2aefa2872e2411fe65342426b0e4b5342c98ed993f3356758bfbca75e",
+    "bytes": 2461
+  },
+  "tools/core-prefix-root-helpers-v1/prepare-physical.py": {
+    "sha256": "058de056997a4751700ce7dcea235a1b30ee93a94db95e9b04b5a7f47ca09fa2",
+    "bytes": 2431
+  },
+  "tools/core-prefix-root-helpers-v1/qualify-emulator.py": {
+    "sha256": "cb1c482cd1211b174364a571a009bcf1ca1b9eb43c6b6ae4183ea0d3c6306c23",
+    "bytes": 4208
+  },
+  "tools/core-prefix-root-helpers-v1/runtime_guard.py": {
+    "sha256": "61fe5862edeb5e4f78b4eec9af43d79187f7bfecea6ff86e11883109fb93dc81",
+    "bytes": 2081
+  },
+  "tools/core-prefix-root-helpers-v1/source-review.md": {
+    "sha256": "fbcc83729c0fe9fab1c7ac96d987db8c85cad34250ccd54dfb7a1d4ec14090be",
+    "bytes": 520
+  },
+  "tools/core-prefix-root-helpers-v1/stop-emulator.py": {
+    "sha256": "c50fcd43b02e253014de9c3e3cdb3d09b3e16d59a49a3503e0e61961e4745597",
+    "bytes": 1293
+  },
+  "tools/core-prefix-target-abi-v1/command-0.log": {
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "bytes": 0
+  },
+  "tools/core-prefix-target-abi-v1/command-1.log": {
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "bytes": 0
+  },
+  "tools/core-prefix-target-abi-v1/layout.cpp": {
+    "sha256": "7f8f5cc400c366692ede8e4ab13008c892d0c373ab34f3ea3e17d5d9b4f8f1d7",
+    "bytes": 458
+  },
+  "tools/core-prefix-target-abi-v1/proof.json": {
+    "sha256": "dbb6006a9241808395505cf88d08107ec9eb9139177fa0bf51b62da9281912a4",
+    "bytes": 2643
+  },
+  "tools/core-prefix-controls-v1/source-controls/night_plan.hpp": {
+    "sha256": "59c17e6278f9d2adc5f1d11afec2391484f36389fd4764beaf9476fe4055a8db",
+    "bytes": 2223
+  },
+  "tools/core-prefix-controls-v1/source-controls/stapip_vu1_shared_defines.h": {
+    "sha256": "cf73e7be8c173e3ee9b04c54a9c57adbc18b7da29c9e4ed6d69c51dddf961d5b",
+    "bytes": 6147
+  }
+}

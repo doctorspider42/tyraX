@@ -4692,3 +4692,5 @@ raw analyses were correct; its first prose summary reversed the reverse-order
 role and is explicitly corrected by a role-based result artifact. A crashed
 host client yields an incomplete attempt, not a completed console result or
 proof of a console hang. Preserve raw/partial output before a fresh reset.
+
+Core prefix kind14: validate both Off/On/Off and On/Off/On physical orders, exactly two Count reads per timed entered scope, first-stage early returns, equal second/third call counts and zero reserved stages. Keep sparse 750/1155 units separate from 320-loop totals and disable scope clocks after loop5400. See `docs/tyrax2-core-prefix-partition.md`; initial no-output launches remain excluded evidence, even if ping succeeds.

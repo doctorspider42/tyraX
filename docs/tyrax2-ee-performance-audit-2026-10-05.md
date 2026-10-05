@@ -235,3 +235,5 @@ do not account for the missing multi-millisecond night budget here. Observer
 net tax is unresolved against drift; no subtraction or optimization is claimed.
 
 [Source pins](tyrax2-ee-performance-audit-2026-10-05/source-pins.json), [linked square-root sites](tyrax2-ee-performance-audit-2026-10-05/sqrt-instructions.json) and [disassembly hashes/excerpts](tyrax2-ee-performance-audit-2026-10-05/disassembly-proof.json) accompany this audit. Full disassemblies remain in the external LAB; hashes and compact excerpts are archived here. The completed physical far-gate result is independently documented in [the experiment report](tyrax2-far-light-gate.md).
+
+The [Core prefix partition](tyrax2-core-prefix-partition.md) now qualifies three disjoint preparation regions in both physical clock orders. Prioritize the head/bounds/package region and object-data routing for narrower call-site pricing; texture/program/light facts remain a separate inclusive region. These elapsed measurements include existing waits and observation effects, and do not prove a scalar EE bottleneck.

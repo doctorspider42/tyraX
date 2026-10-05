@@ -74,3 +74,6 @@ docs/tyrax2-player-light-receivers-2026-10-05/** -text whitespace=-trailing-spac
 docs/tyrax2-far-light-gate-2026-10-05/** -text whitespace=-trailing-space,-space-before-tab,cr-at-eol
 docs/tyrax2-ee-performance-audit-2026-10-05/** -text whitespace=-trailing-space,-space-before-tab,cr-at-eol
 docs/tyrax2-night-producers-2026-10-05/** -text whitespace=-trailing-space,-space-before-tab,cr-at-eol
+
+# Preserve exact Core prefix trial evidence bytes.
+docs/tyrax2-core-prefix-partition-2026-10-05/** -text whitespace=-trailing-space,-space-before-tab,cr-at-eol
