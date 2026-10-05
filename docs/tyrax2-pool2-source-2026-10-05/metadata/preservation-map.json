@@ -1,0 +1,1855 @@
+{
+  "status": "BYTE_EXACT_TEXT_SOURCE_CONTROLS_AND_COMPLETED_EVIDENCE_PRESERVED_NO_BINARY_PAYLOAD",
+  "copies": [
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\source\\game\\inc\\terrain_game.hpp",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\postimages\\pricing\\game\\inc\\terrain_game.hpp",
+      "sha256": "0740eef0342efa61616248e21f534e47e3d4cee468eb6f10d8b34e981a28f15b"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\source\\game\\src\\gen\\game_lighting.gen.cpp",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\postimages\\pricing\\game\\src\\gen\\game_lighting.gen.cpp",
+      "sha256": "6b3e17cfdb7000dce317d1d7115ae8f0155c548e4b2a0de05bfb03e2fbf5a2a8"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\source\\tyra\\engine\\inc\\debug\\night_ablation.hpp",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\postimages\\pricing\\tyra\\engine\\inc\\debug\\night_ablation.hpp",
+      "sha256": "7002e5fe126c658542bc6bc8a587c488700e249e93895c091b0c02366987b560"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\source\\tyra\\engine\\inc\\debug\\night_plan.hpp",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\postimages\\pricing\\tyra\\engine\\inc\\debug\\night_plan.hpp",
+      "sha256": "c08f89dd4da630c516eddc6e779c1b22e6092c8cce6b360a3de360cfb8c83c9b"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\source\\tyra\\engine\\inc\\debug\\night_runtime.hpp",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\postimages\\pricing\\tyra\\engine\\inc\\debug\\night_runtime.hpp",
+      "sha256": "b3f0c8c2e0b58d351544ea5dcc2f05898ca80a1bb5889896d6beb7af2adbc162"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\source\\tyra\\engine\\inc\\debug\\night_sampler.hpp",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\postimages\\pricing\\tyra\\engine\\inc\\debug\\night_sampler.hpp",
+      "sha256": "b51b72a79d1ede2553d46fb9bf2fbe112fa5ad0796a8f88fb02dbec86464c7d6"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\source\\tyra\\engine\\inc\\debug\\quiet_cadence.hpp",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\postimages\\pricing\\tyra\\engine\\inc\\debug\\quiet_cadence.hpp",
+      "sha256": "c6c87c3d9cc6deb6e90fa01d91c86df5ee6be8979b4a8b734a35804d991be6f3"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\source\\tyra\\engine\\inc\\debug\\quiet_runtime.hpp",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\postimages\\pricing\\tyra\\engine\\inc\\debug\\quiet_runtime.hpp",
+      "sha256": "c2b93076926ced36b425bbf2cb5eea738650087192427a1088acbae0058ad07b"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\source\\tyra\\engine\\inc\\renderer\\3d\\pipeline\\static\\core\\bag\\stapip_bag.hpp",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\postimages\\pricing\\tyra\\engine\\inc\\renderer\\3d\\pipeline\\static\\core\\bag\\stapip_bag.hpp",
+      "sha256": "0090c8b940c640b333beaa920d036643ef550c8d0c7a30dcb7bfa99c250bcfbf"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\source\\tyra\\engine\\inc\\renderer\\3d\\pipeline\\static\\core\\programs\\stapip_vu1_shared_defines.h",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\postimages\\pricing\\tyra\\engine\\inc\\renderer\\3d\\pipeline\\static\\core\\programs\\stapip_vu1_shared_defines.h",
+      "sha256": "275daf8412e0c18e6164214419153248a784a2c3e1a0220aa950b8890bbf6c09"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\source\\tyra\\engine\\inc\\renderer\\3d\\pipeline\\static\\core\\stapip_pool_color_packet.hpp",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\postimages\\pricing\\tyra\\engine\\inc\\renderer\\3d\\pipeline\\static\\core\\stapip_pool_color_packet.hpp",
+      "sha256": "1452774bfae877b9017bf9d8fbba3a5d7c7ad7b248475b912e3a679d2ac1a7b5"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\source\\tyra\\engine\\inc\\renderer\\3d\\pipeline\\static\\core\\stapip_pool_color_table.hpp",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\postimages\\pricing\\tyra\\engine\\inc\\renderer\\3d\\pipeline\\static\\core\\stapip_pool_color_table.hpp",
+      "sha256": "1ef2540488e15f722637910510e51cb1defc74b0ee92ab5d090aaa1ebfb2670e"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\source\\tyra\\engine\\inc\\renderer\\3d\\pipeline\\static\\core\\stapip_qbuffer.hpp",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\postimages\\pricing\\tyra\\engine\\inc\\renderer\\3d\\pipeline\\static\\core\\stapip_qbuffer.hpp",
+      "sha256": "397313a8bda017deeb0ed2eef497a192c39552e081911056c4e538a61dd016f7"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\source\\tyra\\engine\\inc\\renderer\\3d\\pipeline\\static\\core\\stapip_qbuffer_renderer.hpp",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\postimages\\pricing\\tyra\\engine\\inc\\renderer\\3d\\pipeline\\static\\core\\stapip_qbuffer_renderer.hpp",
+      "sha256": "d1266c96bdef0bc5b77a4f1e7cced007c53b607bcd4e4c32dfe0355597256126"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\source\\tyra\\engine\\src\\renderer\\3d\\pipeline\\static\\core\\programs\\cull\\stapip_cull_tc_vu1.vclpp",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\postimages\\pricing\\tyra\\engine\\src\\renderer\\3d\\pipeline\\static\\core\\programs\\cull\\stapip_cull_tc_vu1.vclpp",
+      "sha256": "f5aee36f44afb37a550a7156b9f85fcf65648e296888101afce6e85710bc944b"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\source\\tyra\\engine\\src\\renderer\\3d\\pipeline\\static\\core\\programs\\cull\\stapip_cull_tc_vu1_program.cpp",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\postimages\\pricing\\tyra\\engine\\src\\renderer\\3d\\pipeline\\static\\core\\programs\\cull\\stapip_cull_tc_vu1_program.cpp",
+      "sha256": "f55a72115394dc1321263d92909e3d763b12163c402f6b77d11914f57dd9d189"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\source\\tyra\\engine\\src\\renderer\\3d\\pipeline\\static\\core\\stapip_qbuffer.cpp",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\postimages\\pricing\\tyra\\engine\\src\\renderer\\3d\\pipeline\\static\\core\\stapip_qbuffer.cpp",
+      "sha256": "8a3bb29a7960bc67a6d5579f316074c559f7ce783d9c17d9f1d930824276339a"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\source\\tyra\\engine\\src\\renderer\\3d\\pipeline\\static\\core\\stapip_qbuffer_renderer.cpp",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\postimages\\pricing\\tyra\\engine\\src\\renderer\\3d\\pipeline\\static\\core\\stapip_qbuffer_renderer.cpp",
+      "sha256": "be77677a29e372294e3a4386b667a4ec3546157d78e4acc2160e52a840a7d60f"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\source\\tyra\\engine\\src\\renderer\\3d\\pipeline\\static\\core\\stapip_vu1_program.cpp",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\postimages\\pricing\\tyra\\engine\\src\\renderer\\3d\\pipeline\\static\\core\\stapip_vu1_program.cpp",
+      "sha256": "32d5d26e478145811429d39d233a78ec35814ef536e1e21aa2b1bc6426acb8e2"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-static-probe-physical-v1\\game\\src\\terrain_game.cpp",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\postimages\\probe\\game\\src\\terrain_game.cpp",
+      "sha256": "789ce16faa0853bc1d44046e80da8cd53ab3552d249bf5815d4373d91118a8ce"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-static-probe-physical-v1\\game\\inc\\pool2_static_probe.hpp",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\postimages\\probe\\game\\inc\\pool2_static_probe.hpp",
+      "sha256": "06fa7127703aff8924f35cb5a14ccc10bd3461454671922236c4d3a8a08eab9c"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\source-proof.json",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\proposal\\source-proof.json",
+      "sha256": "e63230b7e051ab28cab541c003792ce783109ba9467d3221a80145845b109145"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\source-diff.json",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\proposal\\source-diff.json",
+      "sha256": "7600cd8df51f5fbf7ca49c6ce088766e9f53b483b2bbe4849a42f3186fb380ce"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\source-layout-check.json",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\proposal\\source-layout-check.json",
+      "sha256": "60d4b66b26c71c4c67d91e523644747d9a340d3912379132de4c027dba9d34d4"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\source-lifetime-proof.json",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\proposal\\source-lifetime-proof.json",
+      "sha256": "edc56828a6fe3f2dd28caf119a0eacef045d60f811d2474da3a426ae92ecbcd9"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\host-proof.json",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\proposal\\host-proof.json",
+      "sha256": "5b8f4f941dc023a7752c360f35bdaffdc86e24b0b43b2d8463cf92a4c7c0b253"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\pool2-input.patch",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\proposal\\pool2-input.patch",
+      "sha256": "0335fb338d7b8353b9102a7897c85267926c74644273dedde2dd1d615935e974"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\v1-to-v2.patch",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\proposal\\v1-to-v2.patch",
+      "sha256": "04ef3c29a3b77551b24ba5dd8a6642bcd30989c031e18aec1f86800cabdd9217"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\v2-to-v3.patch",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\proposal\\v2-to-v3.patch",
+      "sha256": "6decd4aa712cedacf435227a215b9978567c9cc9d78e92fd5e96a935b40524a1"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-physical-v3\\target-source-manifest.json",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\metadata\\base-497-source-manifest.json",
+      "sha256": "3e895d8224297c66169bf2a01cabc0dfd1fd1e0c9fee8a77c3c77de88bb14dad"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-physical-v3\\target-source-manifest.json",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\metadata\\pricing\\target-source-manifest.json",
+      "sha256": "c0da3cd8dadd3072fce0381808a8a312d926726820b6e14f1e7ae96f84048581"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-physical-v3\\root-source-freeze.json",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\metadata\\pricing\\root-source-freeze.json",
+      "sha256": "46318c9379b3aa8b79965f1ad0c920fecf11ab6fd667dd022ad3e241369226b4"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-physical-v3\\root-native-provenance.json",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\metadata\\pricing\\root-native-provenance.json",
+      "sha256": "09eb6ecb62e9d9872acccbe9923b554fd9ecef8f6f24dba23ec548c18b699575"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-physical-v3\\runtime-assets-manifest.json",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\metadata\\pricing\\runtime-assets-manifest.json",
+      "sha256": "e11fa8b76a6c7f6ee6d8da67670e12f4b7184d8b9e1558070c92efa4e4d10e05"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-physical-v3\\root-native-command-exit.json",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\metadata\\pricing\\root-native-command-exit.json",
+      "sha256": "4f286d8411eb8bdb2edbad7f0fc990b0a60933a5637d29684ca00a0c2b3bb46c"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-static-probe-physical-v1\\target-source-manifest.json",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\metadata\\probe\\target-source-manifest.json",
+      "sha256": "c15e21ad8e37f3a623dce586854156da2644fdf46811260a7384ff6621abe2bb"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-static-probe-physical-v1\\root-source-freeze.json",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\metadata\\probe\\root-source-freeze.json",
+      "sha256": "3dc67150f4a83b5fa479aca2e071f2276722fab108960d66f938f66b1718b817"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-static-probe-physical-v1\\root-native-provenance.json",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\metadata\\probe\\root-native-provenance.json",
+      "sha256": "f4a4ed6130023695d7541540d5d57e1fb4247d021be3cb8e26d93642b706c622"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-static-probe-physical-v1\\runtime-assets-manifest.json",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\metadata\\probe\\runtime-assets-manifest.json",
+      "sha256": "e11fa8b76a6c7f6ee6d8da67670e12f4b7184d8b9e1558070c92efa4e4d10e05"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-static-probe-physical-v1\\root-native-command-exit.json",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\metadata\\probe\\root-native-command-exit.json",
+      "sha256": "78ecd0654a5d35b618072e631a056d5bea36458172091a58b5a96d15c3dd626a"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-independent-review-v3\\final-input-proof.json",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\reviews\\source-v3\\final-input-proof.json",
+      "sha256": "9a81a0b464e8b59a796b85254367f19894505ff13b39d61f1b5c41b2c5055313"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-native-independent-review-v3\\proof.json",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\reviews\\pricing-native\\proof.json",
+      "sha256": "34c93ef8275ad52f6292610cae39947354ea50c917c9e78be7ed3689889d21d1"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-native-independent-review-v3-confirmation\\proof.json",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\reviews\\pricing-native-confirmation\\proof.json",
+      "sha256": "a49bb0c22c750bb6cb329c11fb827c3cea44f7a3461254be8a153d4fe2b50213"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-static-probe-native-review-v1\\proof.json",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\reviews\\probe-native\\proof.json",
+      "sha256": "b609ee458adb5fa11074949c0bb44206253717088d8463f6d4a0c5ab938e42b2"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-static-probe-native-review-v1-confirmation\\proof.json",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\reviews\\probe-native-confirmation\\proof.json",
+      "sha256": "1d33dff3bc5b867a50678cb395a1f38bcd61e6ba8f6886794cb5575fdee2ee44"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-static-probe-independent-review-v2\\proof.json",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\reviews\\probe-source\\proof.json",
+      "sha256": "8ebf831d4caf2638072f924ef9ef85c6372765a08d750d45330cd99e8c490758"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-independent-review-v2\\proof.json",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\reviews\\controls\\proof.json",
+      "sha256": "c215bdfa4bd77d7a4126e3eac252e723286bc3ef13d16e47b090931aece2aeb5"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v1\\source-proof.json",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\history\\v1-source-proof.json",
+      "sha256": "6749167febd7f2518e70948b6f25b13b7f567cb00f55df1ecbad16f7d87badca"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v1\\source\\tyra\\engine\\src\\renderer\\3d\\pipeline\\static\\core\\programs\\cull\\stapip_cull_tc_vu1.vclpp",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\history\\v1-tc.vclpp",
+      "sha256": "febb68439eb43ae6073a7eb8b79780069d018efc55174c745696b3adbcfc457f"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v2\\source-proof.json",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\history\\v2-source-proof.json",
+      "sha256": "abcc10fb67d802680c3ac810a9664a2dfba6b56a51cc4658fc7a95e18681fbb2"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v2\\source\\tyra\\engine\\src\\renderer\\3d\\pipeline\\static\\core\\programs\\cull\\stapip_cull_tc_vu1.vclpp",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\history\\v2-tc.vclpp",
+      "sha256": "702e9638fc06da3a9e0c3677fa39d05c3c79d6dc3d3e9b76eaf1df002f505eb2"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-native-v7-failure-v1\\failure-proof.json",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\history\\native-v7\\failure-proof.json",
+      "sha256": "0456d665b438ef0f8411cc7a29a5bf7063f9223eafbbb87f486743566982d9d3"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-native-v7-failure-v1\\night-ablation-native-v7.err",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\history\\native-v7\\night-ablation-native-v7.err",
+      "sha256": "815487dc145a3e796afa6f7b4e4fbfb1a20e2b3da92779f5deddac1ec691fa6c"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-native-v7-failure-v1\\night-ablation-native-v7.log",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\history\\native-v7\\night-ablation-native-v7.log",
+      "sha256": "75c6578e2bda05b584253ee70528262e168f094347958e44e315cf72eef09ff8"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-native-v7-failure-v1\\root-native-command-exit.json",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\history\\native-v7\\root-native-command-exit.json",
+      "sha256": "8632b6c700759fee8816c85f2e2a5b64d98fdd55a18df7f85fb32b27140aeb5a"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-native-v7-failure-v1\\stapip_cull_tc_vu1.o.vcl",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\history\\native-v7\\stapip_cull_tc_vu1.o.vcl",
+      "sha256": "01e29f3ab063c8a7b86f11e5275ba94e38658a82015a5f04ce6c5de441566432"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-native-v7-failure-v1\\stapip_cull_tc_vu1.vclpp",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\history\\native-v7\\stapip_cull_tc_vu1.vclpp",
+      "sha256": "febb68439eb43ae6073a7eb8b79780069d018efc55174c745696b3adbcfc457f"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-native-v7-failure-v1\\target-source-manifest.json",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\history\\native-v7\\target-source-manifest.json",
+      "sha256": "419fdd9e4b206fdab352449ca135bad04d91c7227d3ea9c4ca23c710c90de5d1"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-native-v8-failure-v2\\failure-proof.json",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\history\\native-v8\\failure-proof.json",
+      "sha256": "d1818ae0365857382cd6bb5c89fa5fd443c116c7c5a7b16925a23c12ac26d480"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-native-v8-failure-v2\\night-ablation-native-v8.err",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\history\\native-v8\\night-ablation-native-v8.err",
+      "sha256": "531b25cd9fd70ec3eefb98bafed5cd901e6bf6b24ca5e50437301f6f04a83127"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-native-v8-failure-v2\\night-ablation-native-v8.log",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\history\\native-v8\\night-ablation-native-v8.log",
+      "sha256": "71106eb5f55e9eddcdb7dc1aa91c7bc1c00954ed013fd8eb1a4b0518c5ac3c39"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-native-v8-failure-v2\\root-native-command-exit.json",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\history\\native-v8\\root-native-command-exit.json",
+      "sha256": "814a7a7e993eaa86185f82b00c645c1e13fbe1dee4275d6e49aa33b47e447af4"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-native-v8-failure-v2\\stapip_cull_tc_vu1.o.vcl",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\history\\native-v8\\stapip_cull_tc_vu1.o.vcl",
+      "sha256": "2ad0fe6f87703de03316e7b88e5879344ca1777b87cac17cd024ba5ab6b25aaf"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-native-v8-failure-v2\\stapip_cull_tc_vu1.vclpp",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\history\\native-v8\\stapip_cull_tc_vu1.vclpp",
+      "sha256": "702e9638fc06da3a9e0c3677fa39d05c3c79d6dc3d3e9b76eaf1df002f505eb2"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-native-v8-failure-v2\\target-source-manifest.json",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\history\\native-v8\\target-source-manifest.json",
+      "sha256": "c826db2875fe819993c30311802e5aa9b9d627b06c81287710172caa31c8b8c7"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-v3-isolated-assembly-v1\\proof.json",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\assembly\\proof.json",
+      "sha256": "c1d80fb78ebb5ae3b008b3cd34c942b80376d767050aa262bd539eaccacc867b"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-v3-isolated-assembly-v1\\dvp-proof-v2.json",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\assembly\\dvp-proof-v2.json",
+      "sha256": "e9d3211f8acf1e0067082a0d1bd7eadb6d14b1b782105ff370d22fcf8582ed9c"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-v3-isolated-assembly-v1\\windows-binding-proof.json",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\assembly\\windows-binding-proof.json",
+      "sha256": "9afbc893fe7dbbaaaf4f55458db3508c0fc80d8ea30fcbd4185ca145e0a0ffb7"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-v3-isolated-assembly-v1\\v3-source.o.vcl",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\assembly\\v3-source.o.vcl",
+      "sha256": "42e1ad336f20da8d06c36e9aafa161f2ba0cdd67fb84dee3ef5d2420a1f41b9d"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-v3-isolated-assembly-v1\\v3-source.vsm",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\assembly\\v3-source.vsm",
+      "sha256": "f63dba41d9f1e6611105df0b30b45b564a29cc93da47a134089a2351b81e00a5"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v2\\analyze-loop.py",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\controls\\analyze-loop.py",
+      "sha256": "5f1e9756449a5d35e9ce9567ab87be9e4388ed98b777f3ff72622b0e71f7fa27"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v2\\analyze-night-cli.py",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\controls\\analyze-night-cli.py",
+      "sha256": "0f01c240a088909fb6a7ce930cfced813bba86c0f63643d272fb4c8b9e437820"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v2\\analyze-night.py",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\controls\\analyze-night.py",
+      "sha256": "6c35d47463a0567f25036dd8ef38a84c9f343d94f9eda79591a98dc02f10414b"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v2\\final-proof.json",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\controls\\final-proof.json",
+      "sha256": "9907402956e646c43a83c14f5f4560efb1d9804aaca8cfae4beea24220cb823a"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v2\\host-controls.cpp",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\controls\\host-controls.cpp",
+      "sha256": "06cf853509d4de569a5ef01f1b1b1f8611ad2f2954bad1fc88e46793a5b37e20"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v2\\night_plan.hpp",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\controls\\night_plan.hpp",
+      "sha256": "c08f89dd4da630c516eddc6e779c1b22e6092c8cce6b360a3de360cfb8c83c9b"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v2\\night_runtime.hpp",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\controls\\night_runtime.hpp",
+      "sha256": "b3f0c8c2e0b58d351544ea5dcc2f05898ca80a1bb5889896d6beb7af2adbc162"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v2\\night_sampler.hpp",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\controls\\night_sampler.hpp",
+      "sha256": "b51b72a79d1ede2553d46fb9bf2fbe112fa5ad0796a8f88fb02dbec86464c7d6"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v2\\quiet_cadence.hpp",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\controls\\quiet_cadence.hpp",
+      "sha256": "c6c87c3d9cc6deb6e90fa01d91c86df5ee6be8979b4a8b734a35804d991be6f3"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v2\\quiet_runtime.hpp",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\controls\\quiet_runtime.hpp",
+      "sha256": "c2b93076926ced36b425bbf2cb5eea738650087192427a1088acbae0058ad07b"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v2\\README.md",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\controls\\README.md",
+      "sha256": "43938078489d41c3b5f2998d16eda4f55d99ca0c2a997012852faec015604ea2"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v2\\run-host-controls.py",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\controls\\run-host-controls.py",
+      "sha256": "e86c4de5f6278649c5130535805b3d23f386998e1ebfa69dd0e3dfc2052fcee9"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v2\\host\\O2-5-0-0-0-cli.json",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\controls\\host\\O2-5-0-0-0-cli.json",
+      "sha256": "85bbbde1b2b047e082fc6bbc76daa93309b5482e1cc3a7432315a7c47239d066"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v2\\host\\O2-5-1-0-0-cli.json",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\controls\\host\\O2-5-1-0-0-cli.json",
+      "sha256": "51a47ddb13ebeac90d7ff78ac0f89e14bc3ffbd293fd12dade3044d712ba81c3"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v2\\host\\O2-6-0-0-0-cli.json",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\controls\\host\\O2-6-0-0-0-cli.json",
+      "sha256": "0b12c4cd4fb205e7396f346e70645a0a53c08a5ca6fd22ffea5a7f74148a8d41"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v2\\host\\O2-6-1-0-0-cli.json",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\controls\\host\\O2-6-1-0-0-cli.json",
+      "sha256": "4f4350612bd711d0f5f78c4a478b7afab20ff4d1b2c5a8c3e0ef0f74d56ee785"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v2\\host\\O2-7-0-0-0-cli.json",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\controls\\host\\O2-7-0-0-0-cli.json",
+      "sha256": "e5fe8d036a020e16b5e61081d2e3f2b3d40c2b09014e87a13da81f972993ff96"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v2\\host\\O2-7-1-0-0-cli.json",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\controls\\host\\O2-7-1-0-0-cli.json",
+      "sha256": "3253164e48b30de164b084f06454a925d44ae871a8f959dd3010dc7a0262f71b"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v2\\host\\proof.json",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\controls\\host\\proof.json",
+      "sha256": "63924ed2b161dd95b59ac6cc1cc954b419789d2b321befad9d71d39bd4146149"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-controls-v2\\gate\\debug\\night_ablation.hpp",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\controls\\gate\\debug\\night_ablation.hpp",
+      "sha256": "7002e5fe126c658542bc6bc8a587c488700e249e93895c091b0c02366987b560"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-static-probe-design-v2\\decode-vu1-output.py",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\static-probe\\decode-vu1-output.py",
+      "sha256": "599a5a1b5210c225e756256982691fb918817899914f9543453716651bcf9caf"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-static-probe-design-v2\\integrate-root.py",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\static-probe\\integrate-root.py",
+      "sha256": "c9b2782e47682877f613f9d436c8316b62f04c5eb621c50ead6e9cd70001bc68"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-static-probe-design-v2\\OVERLAY-README.md",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\static-probe\\OVERLAY-README.md",
+      "sha256": "50d3b6d0197a2f41ff65644f9f9b8b72afc698942308fe0d26c71a2af6171fd1"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-static-probe-design-v2\\PLAN.md",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\static-probe\\PLAN.md",
+      "sha256": "0c5e4e2d521ecb811aaa45865eaefde2aeb4bb98ce0676c1287420224aa64dbb"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-static-probe-design-v2\\pool2_static_probe.hpp",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\static-probe\\pool2_static_probe.hpp",
+      "sha256": "06fa7127703aff8924f35cb5a14ccc10bd3461454671922236c4d3a8a08eab9c"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-static-probe-design-v2\\proof-attempt1-historical-plan-unqualified.json",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\static-probe\\proof-attempt1-historical-plan-unqualified.json",
+      "sha256": "5b9d95ff264e94d162e8962e414bda563a49cf4d65207ae6f11e3fde1d2354ce"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-static-probe-design-v2\\proof.json",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\static-probe\\proof.json",
+      "sha256": "4e9a07ff32bd45b30f3c282f9f52f21f6a87c17b7dbe41731332fe5d6f2a8bf8"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-static-probe-design-v2\\ROOT-WORKFLOW.md",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\static-probe\\ROOT-WORKFLOW.md",
+      "sha256": "522db3b7b2bc08947524f7f009f4463e74197d5783d89e738c236616e79ae5c0"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-static-probe-design-v2\\savestate-reader-pinned.py",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\static-probe\\savestate-reader-pinned.py",
+      "sha256": "b9be5985c91802b7319df87c43eb99e0a313447d3106eecfce367218e51e0d52"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-static-probe-design-v2\\seal-workshop.py",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\static-probe\\seal-workshop.py",
+      "sha256": "811bb5b07a9af15bdb8d455c9cd3a554d1434587880a0b76c2fc16ac277dc2c2"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-static-probe-design-v2\\test-workflow-host.py",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\static-probe\\test-workflow-host.py",
+      "sha256": "b2092fcde5599e92809ba75c0a4fd9480429a5cdfeeb5ca44ce0cbf41ba73166"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-static-probe-design-v2\\verify-capture.py",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\static-probe\\verify-capture.py",
+      "sha256": "17dfd81575a9c051a808a8f7ec21a10f2de300138277fcaf14e5e1b5a02ed8e9"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-static-probe-design-v2\\configs\\arm0-vertices192-repeat1.cfg",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\static-probe\\configs\\arm0-vertices192-repeat1.cfg",
+      "sha256": "2a762a71c91028ceac65765f2bdc3dcddfec6ceac9153ad1d2f768b66cc6d3b5"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-static-probe-design-v2\\configs\\arm0-vertices192-repeat2.cfg",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\static-probe\\configs\\arm0-vertices192-repeat2.cfg",
+      "sha256": "cb05b1308b95697a96b3d5d558d1b81778af7f29113250b65c46a3729d7a8b60"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-static-probe-design-v2\\configs\\arm0-vertices192-repeat3.cfg",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\static-probe\\configs\\arm0-vertices192-repeat3.cfg",
+      "sha256": "6850c19a4ca4ed08dd29b84a280f04fe418da62ebd0538cc892221a0eeddb51f"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-static-probe-design-v2\\configs\\arm0-vertices96-repeat1.cfg",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\static-probe\\configs\\arm0-vertices96-repeat1.cfg",
+      "sha256": "cd4cf9b2eeae7c6c74eeaa3c310bed6f62ac1a2c50fbaa241bbe0c7b81cac19d"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-static-probe-design-v2\\configs\\arm0-vertices96-repeat2.cfg",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\static-probe\\configs\\arm0-vertices96-repeat2.cfg",
+      "sha256": "0185cacd3992fc380069a6dc59eb62d3366674b9563c51ee66a684e395ca63c4"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-static-probe-design-v2\\configs\\arm0-vertices96-repeat3.cfg",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\static-probe\\configs\\arm0-vertices96-repeat3.cfg",
+      "sha256": "c7acd9b749de7b563afb73730be6a38307b248cdab9251fb7b009a6f4c0d0b26"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-static-probe-design-v2\\configs\\arm1-vertices192-repeat1.cfg",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\static-probe\\configs\\arm1-vertices192-repeat1.cfg",
+      "sha256": "50f0d110155d3a63008b395b10af10e3e04ee3083649842ad8e6f68853bf47c7"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-static-probe-design-v2\\configs\\arm1-vertices192-repeat2.cfg",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\static-probe\\configs\\arm1-vertices192-repeat2.cfg",
+      "sha256": "f6fc4e423417579b949de3cf20a72abb253910cf9e97dc2b03e5bc06bcd8db0e"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-static-probe-design-v2\\configs\\arm1-vertices192-repeat3.cfg",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\static-probe\\configs\\arm1-vertices192-repeat3.cfg",
+      "sha256": "56f0a06a70f4ffc9f166f877c99bcab702d74a1811968ea336167e21d9418e3b"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-static-probe-design-v2\\configs\\arm1-vertices96-repeat1.cfg",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\static-probe\\configs\\arm1-vertices96-repeat1.cfg",
+      "sha256": "1e5b688558ae9f329a18e68a9f085874a4e015d8e271c1c8a6fcbe904a35fc2d"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-static-probe-design-v2\\configs\\arm1-vertices96-repeat2.cfg",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\static-probe\\configs\\arm1-vertices96-repeat2.cfg",
+      "sha256": "1fa6a9c912a8db649239f2cfb1b969bf7e3e0ee0a032e4c7c35548cf1754f9df"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-static-probe-design-v2\\configs\\arm1-vertices96-repeat3.cfg",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\static-probe\\configs\\arm1-vertices96-repeat3.cfg",
+      "sha256": "d6972d4e3ef64cd8e0ebf55f3379fa38144e0df94dc97bcb4787e33bf62dae75"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-static-probe-design-v2\\host\\proof.json",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\static-probe\\host\\proof.json",
+      "sha256": "c959e1bff580fc0c3e30bd550a859b19b5298b94740b76ce2fb62a17fea54668"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-breakpoint-preload-v1\\prepare-preload.py",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\debugger-preload\\prepare-preload.py",
+      "sha256": "d5b47738ea7a284942fae3e239a60c5131647c94fa8eeff0f877e940afd49d69"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-breakpoint-preload-v1\\proof.json",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\debugger-preload\\proof.json",
+      "sha256": "7085208859b1b242aab0a05267892bf0393a9a959ae84947d0cf52e43586362a"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-breakpoint-preload-v1\\REPORT.md",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\debugger-preload\\REPORT.md",
+      "sha256": "4f5143677a0ace32df0b76f06eac6a6a630f92d00776e6bac75b0e45d2416f05"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-breakpoint-preload-v1\\resume-source-proof.json",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\debugger-preload\\resume-source-proof.json",
+      "sha256": "3d6f10f9ef99f3674f2c0046ce4bc982c0bd562280a63a28b96f2eb88a9d8250"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-breakpoint-preload-v1\\RESUME.md",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\debugger-preload\\RESUME.md",
+      "sha256": "15a7ebb7b353b6a990fe137b3aa3a9ef531c91b8786a0e1d7463941d6add5b89"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-breakpoint-preload-v1\\seal-resume.py",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\debugger-preload\\seal-resume.py",
+      "sha256": "602cc08fd40746b421334a8389850f7bd6612577c12421b2eac017be7599497b"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-breakpoint-preload-v1\\seal-source-host.py",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\debugger-preload\\seal-source-host.py",
+      "sha256": "9be7be15ab919d65a41cbd37db85bcbfa3f617ac44a98a97aef0109007fafea2"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-observed-run-v1\\focus-pitfall-supplement-proof.json",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\debugger-run\\focus-pitfall-supplement-proof.json",
+      "sha256": "92c29fbdcccab11085bb4659fc8a9b7f3c4154a7ed311fec31e42706bccfcdda"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-observed-run-v1\\FOCUS-PITFALL-SUPPLEMENT.md",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\debugger-run\\FOCUS-PITFALL-SUPPLEMENT.md",
+      "sha256": "b7e34f1c9d27c732e0e723558b393d94c016ef998ab40c5173e22c5e0492de8a"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-observed-run-v1\\owned-observed-run-v2.py",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\debugger-run\\owned-observed-run-v2.py",
+      "sha256": "d5e4e6411a8ff7a362def9f92fbc46e1448a4d03e5c030f974ebcf6722c3142b"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-observed-run-v1\\owned-observed-run.py",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\debugger-run\\owned-observed-run.py",
+      "sha256": "8bf5870287250681e73989a48cb251072bbe19e4d9fda100b934b49298a351c0"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-observed-run-v1\\proof-v2.json",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\debugger-run\\proof-v2.json",
+      "sha256": "54a844b83e482be2e623031510221d8e7ca26bf132b4bb3f6317b9473df15bb0"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-observed-run-v1\\proof.json",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\debugger-run\\proof.json",
+      "sha256": "b5b4fca970fe05d5e336b1d8ab2724c4e4611dd07c25155dc8719cbe87133c3f"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-observed-run-v1\\README-v2.md",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\debugger-run\\README-v2.md",
+      "sha256": "d95b3f055ca5165e6e330a385e45a51813786d1472363dd5ee272ff5f1155190"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-observed-run-v1\\README.md",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\debugger-run\\README.md",
+      "sha256": "0bf2cf52acf6f1199a690509816717c4db835678e90924d576cf4926515175c5"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\host\\keys.cpp",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\candidate-host\\keys.cpp",
+      "sha256": "fb7fffde69f5e62cd307ab266125d6f8d0fcc664dffc9ca7eae1ca97a7f0d3e8"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\host\\oracle.cpp",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\candidate-host\\oracle.cpp",
+      "sha256": "ada3499301e84728fa145cc51c4bceb3842d0096a275b3b5831f200d9ee35621"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\host\\routing.cpp",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\candidate-host\\routing.cpp",
+      "sha256": "8beef9ee1f7f58e478bb733f390a94c70db2cf5e0701a6c0169a1e787eb27842"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-root-v3\\build-native.ps1",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\root-helpers\\wild-pool-table-root-v3\\build-native.ps1",
+      "sha256": "f1ba782eff8a5db613b028b30f9d93b90452eec15890770de00c18679dcf2255"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-root-v3\\compile-abi.py",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\root-helpers\\wild-pool-table-root-v3\\compile-abi.py",
+      "sha256": "d628b77ded38941eb08fcd1cb473b93826a7c9bf38d7f2821dd7316fd4e9d7bb"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-root-v3\\complete-native-provenance.py",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\root-helpers\\wild-pool-table-root-v3\\complete-native-provenance.py",
+      "sha256": "a70636f6d3da4c37052b241e396cc2e072b54bc963b4f809d2fefc70da6fccda"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-root-v3\\finish-physical-no-reset.ps1",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\root-helpers\\wild-pool-table-root-v3\\finish-physical-no-reset.ps1",
+      "sha256": "3be7161c2d94905ee54732ab72a7d70ee9763166a8d886219902c9edc126388a"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-root-v3\\finish-physical.ps1",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\root-helpers\\wild-pool-table-root-v3\\finish-physical.ps1",
+      "sha256": "33cd47aed7c52444771af2ac26906ed412e92d0acf782e568b53fe629eb854e4"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-root-v3\\freeze-input.py",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\root-helpers\\wild-pool-table-root-v3\\freeze-input.py",
+      "sha256": "4137e050a84a1f72be92b3f7c3fb6200ca45904286fb66d9f8f6109520548f42"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-root-v3\\launch-emulator.py",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\root-helpers\\wild-pool-table-root-v3\\launch-emulator.py",
+      "sha256": "7022ea6f7002ae45667b7f43740477c643ca07a589107a4bf3cf363d20be667c"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-root-v3\\launch-physical-observed.py",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\root-helpers\\wild-pool-table-root-v3\\launch-physical-observed.py",
+      "sha256": "ce00cde47e44dcaa1d4ab79f04d4458594a4e901dd23500fffee50807e6a7838"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-root-v3\\prepare-physical.py",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\root-helpers\\wild-pool-table-root-v3\\prepare-physical.py",
+      "sha256": "0f9bd37a5d03c0164c255a1a1315dec9ab0fa4ee7fbeb61951970ddb0fcf4edd"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-root-v3\\qualify-emulator.py",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\root-helpers\\wild-pool-table-root-v3\\qualify-emulator.py",
+      "sha256": "bebef94ea93eb667588247b26da65252e876dfcf66c6fb21374996c41fe300b2"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-root-v3\\stop-emulator.py",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\root-helpers\\wild-pool-table-root-v3\\stop-emulator.py",
+      "sha256": "c50fcd43b02e253014de9c3e3cdb3d09b3e16d59a49a3503e0e61961e4745597"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-runtime-tools-v3\\freeze-completed.py",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\root-helpers\\wild-pool-table-runtime-tools-v3\\freeze-completed.py",
+      "sha256": "dba3069977c54ec6ee7762ba7c23dc3459ec9ff1831615b0d08dfb144f819526"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-runtime-tools-v3\\normalize-physical.py",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\root-helpers\\wild-pool-table-runtime-tools-v3\\normalize-physical.py",
+      "sha256": "8fabee7d7ee6c471b1f9e782eb727a6902a0a53a31dbbb4058b11c351e7cdad1"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-static-probe-root-v1\\build-native.ps1",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\root-helpers\\wild-pool2-static-probe-root-v1\\build-native.ps1",
+      "sha256": "f1ba782eff8a5db613b028b30f9d93b90452eec15890770de00c18679dcf2255"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-static-probe-root-v1\\capture-ready.py",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\root-helpers\\wild-pool2-static-probe-root-v1\\capture-ready.py",
+      "sha256": "9b732e0ad76d6f68af0340e5f881e80f6bd05231b3ca3e444875571c97b1c303"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-static-probe-root-v1\\compile-abi.py",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\root-helpers\\wild-pool2-static-probe-root-v1\\compile-abi.py",
+      "sha256": "d628b77ded38941eb08fcd1cb473b93826a7c9bf38d7f2821dd7316fd4e9d7bb"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-static-probe-root-v1\\complete-native-provenance.py",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\root-helpers\\wild-pool2-static-probe-root-v1\\complete-native-provenance.py",
+      "sha256": "a70636f6d3da4c37052b241e396cc2e072b54bc963b4f809d2fefc70da6fccda"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-static-probe-root-v1\\decode-pairs.py",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\root-helpers\\wild-pool2-static-probe-root-v1\\decode-pairs.py",
+      "sha256": "53cdeb8ea45a23c7a0c36997c1c2ab5804315f7c39f1abd4c7b80a70c2597da1"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-static-probe-root-v1\\finish-probe-v2.py",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\root-helpers\\wild-pool2-static-probe-root-v1\\finish-probe-v2.py",
+      "sha256": "0b496912e4e2d8242e48baef9c4be824e714a538c49494eb93bd5981bef46f7a"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-static-probe-root-v1\\finish-probe.py",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\root-helpers\\wild-pool2-static-probe-root-v1\\finish-probe.py",
+      "sha256": "51f69f181f24cd9e5a3847a70858c724718d81ae0f6a7db1e73592a583b06c11"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-static-probe-root-v1\\freeze-input.py",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\root-helpers\\wild-pool2-static-probe-root-v1\\freeze-input.py",
+      "sha256": "1e40eed4ea4f971c832d5172d6b72717366275e4caf5cd3c99ecbb78a7c412de"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-static-probe-root-v1\\host-audio-null-preparation.json",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\root-helpers\\wild-pool2-static-probe-root-v1\\host-audio-null-preparation.json",
+      "sha256": "353e018420360d127d21a14e6828d23c71c90a640de310897d7d1207ab8cc9a7"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-static-probe-root-v1\\launch-probe-v2-preparation.json",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\root-helpers\\wild-pool2-static-probe-root-v1\\launch-probe-v2-preparation.json",
+      "sha256": "b845426ffc02aa031dd24fd68288c241d24e63727d6f226e2bcfa8f1462f2e59"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-static-probe-root-v1\\launch-probe-v2.py",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\root-helpers\\wild-pool2-static-probe-root-v1\\launch-probe-v2.py",
+      "sha256": "a942d6e7093fd679d365eacfa23f7e7b7463fc89e6304382cadcc103cfc7694a"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-static-probe-root-v1\\launch-probe-v3.py",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\root-helpers\\wild-pool2-static-probe-root-v1\\launch-probe-v3.py",
+      "sha256": "1ef3cd03a4713c6c702af66078e90304796a8bf8493d309aab5292d29d580635"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-static-probe-root-v1\\launch-probe.py",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\root-helpers\\wild-pool2-static-probe-root-v1\\launch-probe.py",
+      "sha256": "9131b687b26afd230985d4fa05702845fcdbd259bddff4b6111f1ba1cd317759"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-static-probe-root-v1\\run-case-v2.py",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\root-helpers\\wild-pool2-static-probe-root-v1\\run-case-v2.py",
+      "sha256": "2ccd6ec1a78b5693123a8390d88f85ac4e2e8eb0a06567e34ed12f37c3574ecf"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-static-probe-root-v1\\run-case.py",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\root-helpers\\wild-pool2-static-probe-root-v1\\run-case.py",
+      "sha256": "bb91fd337aff3979e33894f2d5a1040ee677f984c39fccc22e3676c54f9157d5"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-static-probe-root-v1\\run-warm-matrix.py",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\root-helpers\\wild-pool2-static-probe-root-v1\\run-warm-matrix.py",
+      "sha256": "e960e7c41683e724b1b6927ae5d9e4bafd511e8803f3d5ec70ccd0e8034eb902"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\audit-pool2-native-v3.py",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\root-helpers\\audit-pool2-native-v3.py",
+      "sha256": "5459d04f556020c419380c854ee29a9bf5d718fd288e7c2a9e621b357aa38f93"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\audit-pool2-static-probe-native-v1.py",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\root-helpers\\audit-pool2-static-probe-native-v1.py",
+      "sha256": "1b24fae4292d93f30ac785a21c3972b80b44070b8e466ee31c5f2433396ba62a"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\summarize-pool2-physical-pair-root-v2.py",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\root-helpers\\summarize-pool2-physical-pair-root-v2.py",
+      "sha256": "29243d652915ff60bc7207790cabb42dc0a45fa3283416eed181cc0bf2852943"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\close-pool2-static-matrix.py",
+      "preserved": "docs\\tyrax2-pool2-source-2026-10-05\\root-helpers\\close-pool2-static-matrix.py",
+      "sha256": "a85c591cfbc6b21f146793b80982ec166fd00efd8754fa3fd0cf792613d53ea7"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-runtime-independent-review-v1\\emulator-pair-proof.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\reviews\\ordinary-emulator\\emulator-pair-proof.json",
+      "sha256": "db0041b3c77c1978fe61fb2dae2d663b70c60c6790079adc071c35e1fb7214f7"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-physical-pair-root-review-v2\\order-0-reparse.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\reviews\\physical-pair\\order-0-reparse.json",
+      "sha256": "b6eb3de05669e4ab0bc6127c445c377071636acea52c5ea8d589946f60e1eaad"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-physical-pair-root-review-v2\\order-1-reparse.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\reviews\\physical-pair\\order-1-reparse.json",
+      "sha256": "4c8f1dedc02394e47f5dd560ea28687153752feed594d097df929f6c144f47cc"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-physical-pair-root-review-v2\\proof.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\reviews\\physical-pair\\proof.json",
+      "sha256": "ac1b57e514760b6cf369e2fc3e3c6aa21509202f96854b7dc206eb09896abfa7"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-static-matrix-root-closure-v1\\proof.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\reviews\\static-matrix\\proof.json",
+      "sha256": "7a526960d19cab607ef97c7a73b0daffd69d5ddd6114d0f487566a40e0f939ed"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-pool-table-order0-20261005-evidence\\machine-evidence.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\physical\\order0\\machine-evidence.json",
+      "sha256": "b3b835d34756cc7575f7aa633a0e9010c397e66203bcdfd78b8b0ccb0153b2cd"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-pool-table-order0-20261005-evidence\\strict-analysis.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\physical\\order0\\strict-analysis.json",
+      "sha256": "769e4ec6152e64c1f2b47aa51154afe4a38ecce71356dad610a323b82f1e2023"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-pool-table-order0-20261005-evidence\\ps2client-raw.log",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\physical\\order0\\ps2client-raw.log",
+      "sha256": "b700ff7038ef1d34fe52500dd02c6672ced824bfae61827ac16d29f2df371798"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-pool-table-order0-20261005-evidence\\stdout.log",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\physical\\order0\\stdout.log",
+      "sha256": "05f9b4c7006f04a3133ca8135281fde76d00efc7fd9a44261e9d7b496753758b"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-pool-table-order0-20261005-evidence\\night-ablation.log",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\physical\\order0\\night-ablation.log",
+      "sha256": "35702f7eb4db2acb9307929f017fcc856d3f81a35401ab788040448df275371e"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-pool-table-order0-20261005-evidence\\normalization-proof.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\physical\\order0\\normalization-proof.json",
+      "sha256": "7d2bdbb01d1e9cfe154653cac31e2d370bac028a8a1aa8f39c8e459a9fb12c85"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-pool-table-order0-20261005-evidence\\host-arrivals.jsonl",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\physical\\order0\\host-arrivals.jsonl",
+      "sha256": "60f12284d606c7de9edbb42ffacd4247bac4f3b6a5887ec9cc2121c72f53ec5e"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-pool-table-order0-20261005-evidence\\owned-launch.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\physical\\order0\\owned-launch.json",
+      "sha256": "b44a1b513aa0729cfc3e6a19b52b26830029a48a4cac4b691fe3ca9bc02d223a"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-pool-table-order0-20261005-evidence\\owned-stop.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\physical\\order0\\owned-stop.json",
+      "sha256": "6da9bb84e7c3ff82bfcb552c9e3af50d58b1d2faed9b47a9f30bc97276bc003d"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-pool-table-order0-20261005-evidence\\client-process.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\physical\\order0\\client-process.json",
+      "sha256": "99fbbbbd1912d3d39ce2611d2d2fb6472fe3c380dc6da776796a6e047ac9255c"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-pool-table-order0-20261005-evidence\\host-authority.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\physical\\order0\\host-authority.json",
+      "sha256": "63924ed2b161dd95b59ac6cc1cc954b419789d2b321befad9d71d39bd4146149"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-pool-table-order0-20261005-evidence\\review-authority.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\physical\\order0\\review-authority.json",
+      "sha256": "9a81a0b464e8b59a796b85254367f19894505ff13b39d61f1b5c41b2c5055313"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-pool-table-order0-20261005-evidence\\night-ablation.cfg",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\physical\\order0\\night-ablation.cfg",
+      "sha256": "3e3fc2dee1d0498f2693b3c40bb4308a020587b91d0250544972407109f8537c"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-pool-table-order0-20261005-evidence\\quiet-night.cfg",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\physical\\order0\\quiet-night.cfg",
+      "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-pool-table-order0-20261005-evidence\\analysis-command.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\physical\\order0\\analysis-command.json",
+      "sha256": "24817024047d74e9bef933f76138892284d6ae3f4d7a072389bd6ae07b4cc418"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-emulator-pool-table-order0-20261005-evidence\\machine-evidence.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\emulator\\order0\\machine-evidence.json",
+      "sha256": "a3c0a0b5f42090c5800dd2413fa92e4d03f5b1e181b650e2883a5cec1485296c"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-emulator-pool-table-order0-20261005-evidence\\strict-analysis.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\emulator\\order0\\strict-analysis.json",
+      "sha256": "48d6e148706f1ff9edc1d2b8215e20a41e9cf5087e9819b26e70d6dc13715dc0"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-emulator-pool-table-order0-20261005-evidence\\owned-launch.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\emulator\\order0\\owned-launch.json",
+      "sha256": "c8ee689d0cb94baeb2f15577b5932795da310c021a90bc2e3f8b2be1442cc1b8"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-emulator-pool-table-order0-20261005-evidence\\owned-stop.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\emulator\\order0\\owned-stop.json",
+      "sha256": "ef0b6560ab44ddf4f313f6b9ab6e953ea3a6ac353113aaa7605726fe82be46d9"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-pool-table-order1-20261005-evidence\\machine-evidence.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\physical\\order1\\machine-evidence.json",
+      "sha256": "4ebcf346127d397ef6bb19c523e878c74e6946c6dde5bc4b674320e18ea7f4cf"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-pool-table-order1-20261005-evidence\\strict-analysis.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\physical\\order1\\strict-analysis.json",
+      "sha256": "07450455b2e0b79427bc0f9c8752240922fbad7790b0a05934bb22f47b4f7961"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-pool-table-order1-20261005-evidence\\ps2client-raw.log",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\physical\\order1\\ps2client-raw.log",
+      "sha256": "09674590e0e31a819daf34480bbab1793a3d4c2c887c27d6b2d7ab2e053a1818"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-pool-table-order1-20261005-evidence\\stdout.log",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\physical\\order1\\stdout.log",
+      "sha256": "870157fc555582d6b58116125e5090a501b24691810fc95c63a5b147b4a7604e"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-pool-table-order1-20261005-evidence\\night-ablation.log",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\physical\\order1\\night-ablation.log",
+      "sha256": "a2bf9625094774a1199cf1f6576463c55364c462b9e7e014b9063dbf27b106d2"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-pool-table-order1-20261005-evidence\\normalization-proof.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\physical\\order1\\normalization-proof.json",
+      "sha256": "0cd0ad9a8b85a787ce6f00bc86136c9b32ee28a55524d90298e79895e129a257"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-pool-table-order1-20261005-evidence\\host-arrivals.jsonl",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\physical\\order1\\host-arrivals.jsonl",
+      "sha256": "29084ac5b7deeb234cf678c7299587e6c43851c1732ce4fb00551bf4d7ea4627"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-pool-table-order1-20261005-evidence\\owned-launch.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\physical\\order1\\owned-launch.json",
+      "sha256": "1cd77bd69750fe09a5955fb7e1bb0ddcb10efb7640bff7798aa2d790ed44de56"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-pool-table-order1-20261005-evidence\\owned-stop.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\physical\\order1\\owned-stop.json",
+      "sha256": "cf4dc68381adecdab6af87ff4a9232597d31b96baf31641e814a6bf636c926d5"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-pool-table-order1-20261005-evidence\\client-process.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\physical\\order1\\client-process.json",
+      "sha256": "cf368ffa557b33b607106f2a77290f2cccdc0aa6ba7b7b473ccfc48e5075c9fe"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-pool-table-order1-20261005-evidence\\host-authority.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\physical\\order1\\host-authority.json",
+      "sha256": "63924ed2b161dd95b59ac6cc1cc954b419789d2b321befad9d71d39bd4146149"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-pool-table-order1-20261005-evidence\\review-authority.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\physical\\order1\\review-authority.json",
+      "sha256": "9a81a0b464e8b59a796b85254367f19894505ff13b39d61f1b5c41b2c5055313"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-pool-table-order1-20261005-evidence\\night-ablation.cfg",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\physical\\order1\\night-ablation.cfg",
+      "sha256": "291918bd96dab496dee4817dc303d9f6ec3f8dfb692ae27ebdb9e5d78ace152e"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-pool-table-order1-20261005-evidence\\quiet-night.cfg",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\physical\\order1\\quiet-night.cfg",
+      "sha256": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-pool-table-order1-20261005-evidence\\analysis-command.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\physical\\order1\\analysis-command.json",
+      "sha256": "8a5944e4b3f7309b54037b3b8fb3f6864b7ea686ecb7fa3e9251378e39252088"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-emulator-pool-table-order1-20261005-evidence\\machine-evidence.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\emulator\\order1\\machine-evidence.json",
+      "sha256": "26de7662cc592fd5d2c9bac356d06d6fa642e0e49e5923686a5944800c1a0f0f"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-emulator-pool-table-order1-20261005-evidence\\strict-analysis.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\emulator\\order1\\strict-analysis.json",
+      "sha256": "1a438b7d0983802367808fdbb69abb7e9ed89eef6d578380b90bfb6c92f5714f"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-emulator-pool-table-order1-20261005-evidence\\owned-launch.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\emulator\\order1\\owned-launch.json",
+      "sha256": "0cb216ffd339ccfe9abf676df654f7b1d4d0e87a813f7e4164d368fdf5385851"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-emulator-pool-table-order1-20261005-evidence\\owned-stop.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\emulator\\order1\\owned-stop.json",
+      "sha256": "949c76a4c311ac4200e4ddcdc299adb36aab1caddd4589319af2549e91a29f9c"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-repeat1-pair.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\pairs\\a96-repeat1.json",
+      "sha256": "c24170dbaa4166a12017917e57555babe36b59849b78df0799cf6cf04bc815d0"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm0-repeat1-20261005-launch\\completed-probe-proof.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\a96-arm0-repeat1\\completed-probe-proof.json",
+      "sha256": "75816b9be4e2d34bbeeab2ec7b1e636b67d31686a86e2d3a35c52c2a8dfcdea1"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm0-repeat1-20261005-launch\\verified-capture.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\a96-arm0-repeat1\\verified-capture.json",
+      "sha256": "bd63e351a95aa9619e12c263859d03590fe29e4ab512e059ff06904ce6613fcb"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm0-repeat1-20261005-launch\\capture-report.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\a96-arm0-repeat1\\capture-report.json",
+      "sha256": "b17fd359d151815eb1242301f724aae333680f7c0d9b1c752141506d66f3b4c4"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm0-repeat1-20261005-launch\\owned-launch.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\a96-arm0-repeat1\\owned-launch.json",
+      "sha256": "af5095bf67f117c22e660606b07adc114daccfe10a517240826579bdb11ff1a3"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm0-repeat1-20261005-launch\\owned-stop.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\a96-arm0-repeat1\\owned-stop.json",
+      "sha256": "54ee443ce802f7620fb285678384c3ced1055dd47fad2248a44e72f40ca3f5ed"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm0-repeat1-20261005-launch\\pool2-probe.cfg",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\a96-arm0-repeat1\\pool2-probe.cfg",
+      "sha256": "a95e68cba94dc54ff3ccb3a1e3db7dd3c37932a913d4d1827b44cb2e80589677"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm0-repeat1-20261005-launch\\PCSX2-before.ini",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\a96-arm0-repeat1\\PCSX2-before.ini",
+      "sha256": "275e02ee55032b361112f12261ad5542c13dbfa42a941b22bb2daeb537584e9c"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm0-repeat1-20261005-launch\\PCSX2-after.ini",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\a96-arm0-repeat1\\PCSX2-after.ini",
+      "sha256": "275e02ee55032b361112f12261ad5542c13dbfa42a941b22bb2daeb537584e9c"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm0-repeat1-20261005-launch\\emulator.log",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\a96-arm0-repeat1\\emulator.log",
+      "sha256": "2fb59b36ec6dfa913037ef2c979e7bec37a9a1be863c1388c2b2f6a7979a0b17"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm0-repeat1-20261005-launch\\root-ui-repair-record.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\a96-arm0-repeat1\\root-ui-repair-record.json",
+      "sha256": "dbb2ee3db3824f12287d8fdddae19fbb9e04a5652773ae72e60c4350804ac480"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm1-repeat1-20261005-launch\\completed-probe-proof.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\a96-arm1-repeat1\\completed-probe-proof.json",
+      "sha256": "ad99db8f94d4e26fe5748ff04354d976e63bce15dce9c8af00a7f1e96473e761"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm1-repeat1-20261005-launch\\verified-capture.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\a96-arm1-repeat1\\verified-capture.json",
+      "sha256": "d1677a4dc312084c7a13b54f465759a8ec07c585fa20491114be06db2055a30a"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm1-repeat1-20261005-launch\\capture-report.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\a96-arm1-repeat1\\capture-report.json",
+      "sha256": "e8bb9ea15486e5f7f8c2e38795a041278942d5d2d569a135e63fb68deb08f942"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm1-repeat1-20261005-launch\\owned-launch.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\a96-arm1-repeat1\\owned-launch.json",
+      "sha256": "86b3faeea2f46538eb99e1caf138bd6d74018a2027f0d3df8d1ea814900cb087"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm1-repeat1-20261005-launch\\owned-stop.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\a96-arm1-repeat1\\owned-stop.json",
+      "sha256": "b648e9f968cc67e135a716c4d7df47bf4346f93fc11f477a5e0257f9cad55b7a"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm1-repeat1-20261005-launch\\pool2-probe.cfg",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\a96-arm1-repeat1\\pool2-probe.cfg",
+      "sha256": "36e0e6d278de508015c9d1de8928f24f58c993126a240a60152fd48af8d17ebe"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm1-repeat1-20261005-launch\\PCSX2-before.ini",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\a96-arm1-repeat1\\PCSX2-before.ini",
+      "sha256": "ec86c7ffa05d03ded74a3c3179903a0357d464dc5ffb57517900f2369565a5e7"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm1-repeat1-20261005-launch\\PCSX2-after.ini",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\a96-arm1-repeat1\\PCSX2-after.ini",
+      "sha256": "ec86c7ffa05d03ded74a3c3179903a0357d464dc5ffb57517900f2369565a5e7"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm1-repeat1-20261005-launch\\emulator.log",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\a96-arm1-repeat1\\emulator.log",
+      "sha256": "6f96cd5dcdc091aafbc4a41a80509712de5d368569da21e7bc2699a1e5cb8e4c"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm1-repeat1-20261005-launch\\owned-stop-second-signal.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\a96-arm1-repeat1\\owned-stop-second-signal.json",
+      "sha256": "f64068b03bc4719fe1de3c42fa1b6c156752908e4b88b35aca95e973f4b79daf"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm1-repeat1-20261005-launch\\owned-stale-socket-cleanup.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\a96-arm1-repeat1\\owned-stale-socket-cleanup.json",
+      "sha256": "bb7205cc73c239412d7e7ec096846ec5b20752c91a85164010d5ed7803d7b7c4"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm1-repeat1-20261005-launch\\root-observed-entry-run.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\a96-arm1-repeat1\\root-observed-entry-run.json",
+      "sha256": "3d1cab1e0f9933c7ddb648b632f22632099b40ed641503b6d7af93c76af8b878"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm1-repeat1-20261005-launch\\root-run-action.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\a96-arm1-repeat1\\root-run-action.json",
+      "sha256": "22d367aa4a8f9fbbba8b84e48822ba8aebec1e76be07e92e5a31a388fd7e8ed3"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-repeat2-pair.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\pairs\\a96-repeat2.json",
+      "sha256": "a8df06eed4f49349829f3d035fe8d0a6af3305936db83cd63aa32affd05f36ee"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm0-repeat2-20261005-launch\\completed-probe-proof.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\a96-arm0-repeat2\\completed-probe-proof.json",
+      "sha256": "4fa3e9f6940c1b12ad7c36ab05a44060d40937094ade24c0fa19cc6ea41b6db0"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm0-repeat2-20261005-launch\\verified-capture.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\a96-arm0-repeat2\\verified-capture.json",
+      "sha256": "7bfe6624132ba2f218facd1a9c8dc1e98caff9611d46969b92c55a53e2447490"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm0-repeat2-20261005-launch\\capture-report.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\a96-arm0-repeat2\\capture-report.json",
+      "sha256": "680171ca96c955160dbf6c9bac91d2ee1e1df3a4ec3c675f3571ef6e3cb7ac2e"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm0-repeat2-20261005-launch\\owned-launch.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\a96-arm0-repeat2\\owned-launch.json",
+      "sha256": "374d6d010515502bdf026c7359427e02bf46bf8245ed72d2eecec89c25f2bfb5"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm0-repeat2-20261005-launch\\owned-stop.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\a96-arm0-repeat2\\owned-stop.json",
+      "sha256": "c632a3a8b318c45c9f72ac5267c2085a1f31e6c5e34fdf037571b1dbc4a3b9c7"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm0-repeat2-20261005-launch\\pool2-probe.cfg",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\a96-arm0-repeat2\\pool2-probe.cfg",
+      "sha256": "9baddd2e6b491ed6cca2c234bfe76df6c8ae7dce160c30042f69b7fcf2ae7242"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm0-repeat2-20261005-launch\\PCSX2-before.ini",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\a96-arm0-repeat2\\PCSX2-before.ini",
+      "sha256": "b432da312b3a7cd92756e335e4c7125646939d86a895eb416e826003c26c5319"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm0-repeat2-20261005-launch\\PCSX2-after.ini",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\a96-arm0-repeat2\\PCSX2-after.ini",
+      "sha256": "b432da312b3a7cd92756e335e4c7125646939d86a895eb416e826003c26c5319"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm0-repeat2-20261005-launch\\emulator.log",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\a96-arm0-repeat2\\emulator.log",
+      "sha256": "e94ae14c0cb5912f7d6b5bc685665c80737f92472f885f955f550c5f8bbd7585"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm0-repeat2-20261005-launch\\owned-stop-second-signal.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\a96-arm0-repeat2\\owned-stop-second-signal.json",
+      "sha256": "ca997148db952d7d43992b5857623db67155c5e18384fb97d44e2a853efcfe51"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm0-repeat2-20261005-launch\\entry-capture-report.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\a96-arm0-repeat2\\entry-capture-report.json",
+      "sha256": "4c6a1b38fad9cab298a1c4856fe115fc27c868c31ecb9e760666be8f46e9a6b4"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm0-repeat2-20261005-launch\\root-observed-entry-run.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\a96-arm0-repeat2\\root-observed-entry-run.json",
+      "sha256": "f113c485b6359b4f9f51ed484d97c742f335c31323c25eb868b9308729a270bf"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm0-repeat2-20261005-launch\\root-run-action.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\a96-arm0-repeat2\\root-run-action.json",
+      "sha256": "c996352b9ad088020700c5aa68370195cd759ad61b647ee30482e38728a0a33d"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm1-repeat2-20261005-launch\\completed-probe-proof.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\a96-arm1-repeat2\\completed-probe-proof.json",
+      "sha256": "1f29e40b0c2411a85ffe647519a3e9159ae8f456c74367905d0c455e441700ac"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm1-repeat2-20261005-launch\\verified-capture.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\a96-arm1-repeat2\\verified-capture.json",
+      "sha256": "dd98846eb2787aaea5d3024de4e1139ce83cb7358a290b6d95263e26c26fe0bd"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm1-repeat2-20261005-launch\\capture-report.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\a96-arm1-repeat2\\capture-report.json",
+      "sha256": "b45bc074d703c7846e94db914a43c1f5e907ab30e138d3c3864ce9b2286caabb"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm1-repeat2-20261005-launch\\owned-launch.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\a96-arm1-repeat2\\owned-launch.json",
+      "sha256": "ea73f40835615991acb16e1231817d38ee177fc1172dd00b48464dd39d32b92e"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm1-repeat2-20261005-launch\\owned-stop.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\a96-arm1-repeat2\\owned-stop.json",
+      "sha256": "3768625628c764461c788e321240edcccdbdcaa71cc16787f9e0033e903b4a47"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm1-repeat2-20261005-launch\\pool2-probe.cfg",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\a96-arm1-repeat2\\pool2-probe.cfg",
+      "sha256": "ec0df286ebb1374ae32314e58d6b412f02e4519dec11852507966ef4087f7183"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm1-repeat2-20261005-launch\\PCSX2-before.ini",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\a96-arm1-repeat2\\PCSX2-before.ini",
+      "sha256": "b432da312b3a7cd92756e335e4c7125646939d86a895eb416e826003c26c5319"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm1-repeat2-20261005-launch\\PCSX2-after.ini",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\a96-arm1-repeat2\\PCSX2-after.ini",
+      "sha256": "b432da312b3a7cd92756e335e4c7125646939d86a895eb416e826003c26c5319"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm1-repeat2-20261005-launch\\emulator.log",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\a96-arm1-repeat2\\emulator.log",
+      "sha256": "633b0b731ccc28847a85b3d30ef179678b5157afd2bbcfd069dbe7f174116e1f"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm1-repeat2-20261005-launch\\owned-stop-second-signal.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\a96-arm1-repeat2\\owned-stop-second-signal.json",
+      "sha256": "d6e5818b40a9a65f883234a83f47dcf1c8f138c80e81a8eb366c84b8e41e2b85"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm1-repeat2-20261005-launch\\entry-capture-report.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\a96-arm1-repeat2\\entry-capture-report.json",
+      "sha256": "2cb7c064130711ba48a6e7678bcc42f36e5358d8a2507e214b3a2b31942826f5"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm1-repeat2-20261005-launch\\root-observed-entry-run.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\a96-arm1-repeat2\\root-observed-entry-run.json",
+      "sha256": "3f05ed4248a4e0dd939a0ef06fb5650a2f5aff2c5bb683bbe7f4010125da6663"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm1-repeat2-20261005-launch\\root-run-action.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\a96-arm1-repeat2\\root-run-action.json",
+      "sha256": "9b5be289d15b1c137a65b95288e0529748a57e0237ba182de1eda4e16354953b"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-repeat3-pair.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\pairs\\a96-repeat3.json",
+      "sha256": "628213d18e6750beef7859b3eebdf7cf8c1d0c35c393ae4aff4b78eb56717681"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm0-repeat3-20261005-launch\\completed-probe-proof.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\a96-arm0-repeat3\\completed-probe-proof.json",
+      "sha256": "abed5670ab83a5e6aa894c62a300bc7027bd35e6fdbfa464b78e6fe4389c6051"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm0-repeat3-20261005-launch\\verified-capture.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\a96-arm0-repeat3\\verified-capture.json",
+      "sha256": "8618843adf154e0b9d377725ca1ddfe4883ad716b5f5bbaf3d7e9da505d6d954"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm0-repeat3-20261005-launch\\capture-report.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\a96-arm0-repeat3\\capture-report.json",
+      "sha256": "20354c67f8428cd576a6af7f9ef4e38a2e7cfa3eae160cefa1277068f72340ad"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm0-repeat3-20261005-launch\\owned-launch.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\a96-arm0-repeat3\\owned-launch.json",
+      "sha256": "e451ac031f50df9c625ce3dbd2fa453f512eaa05048bbc187b89fa14bb46f1eb"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm0-repeat3-20261005-launch\\owned-stop.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\a96-arm0-repeat3\\owned-stop.json",
+      "sha256": "c6c566834099f23234e6150d14da64e1f1fafff4d242935e9eb13086f73d8509"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm0-repeat3-20261005-launch\\pool2-probe.cfg",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\a96-arm0-repeat3\\pool2-probe.cfg",
+      "sha256": "bcfc9cf1e462f3b99cd9929d6dc18e2210c83758d8d2c2a3b1410405a3a29f69"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm0-repeat3-20261005-launch\\PCSX2-before.ini",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\a96-arm0-repeat3\\PCSX2-before.ini",
+      "sha256": "b432da312b3a7cd92756e335e4c7125646939d86a895eb416e826003c26c5319"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm0-repeat3-20261005-launch\\PCSX2-after.ini",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\a96-arm0-repeat3\\PCSX2-after.ini",
+      "sha256": "b432da312b3a7cd92756e335e4c7125646939d86a895eb416e826003c26c5319"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm0-repeat3-20261005-launch\\emulator.log",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\a96-arm0-repeat3\\emulator.log",
+      "sha256": "6677501e4a175d6ad70af083de6bc2585c85dd3bff203690a48e6c2afaed6d40"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm0-repeat3-20261005-launch\\owned-stop-second-signal.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\a96-arm0-repeat3\\owned-stop-second-signal.json",
+      "sha256": "22acf9d7d73e836963ab9a5f423112c333080941819133ca3ea011b2468e64cd"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm0-repeat3-20261005-launch\\entry-capture-report.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\a96-arm0-repeat3\\entry-capture-report.json",
+      "sha256": "11f907b5c18f5443bde6001a9f7a0ff217a1c7e745120cabda09317b5cbfb9c3"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm0-repeat3-20261005-launch\\root-observed-entry-run.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\a96-arm0-repeat3\\root-observed-entry-run.json",
+      "sha256": "d88dfa05483b98fe6f7db245b8f18353597fa17d4e084e790f4998ea32223b3e"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm0-repeat3-20261005-launch\\root-run-action.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\a96-arm0-repeat3\\root-run-action.json",
+      "sha256": "969e5a459e929c350be6365a0cbcac5f69befa9dc3533d82751507580bf6f22c"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm1-repeat3-20261005-launch\\completed-probe-proof.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\a96-arm1-repeat3\\completed-probe-proof.json",
+      "sha256": "eddaab2351091d3312af40b852ecbb92fbcb90c86057d723cd4d3b9b737e7da3"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm1-repeat3-20261005-launch\\verified-capture.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\a96-arm1-repeat3\\verified-capture.json",
+      "sha256": "7d7e0ef56cdcacee6b20e241d2535af86e33f951dac4813053f1fd7bf6b9b28d"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm1-repeat3-20261005-launch\\capture-report.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\a96-arm1-repeat3\\capture-report.json",
+      "sha256": "2b2bec89618d0ac3ce5d137906ddf0afae6e8b006ddf8d746504f566b8fb95be"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm1-repeat3-20261005-launch\\owned-launch.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\a96-arm1-repeat3\\owned-launch.json",
+      "sha256": "95e5ba7f6c1d8771c938205832a1108bded514a3e8ed7e621116f7dc10ded14d"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm1-repeat3-20261005-launch\\owned-stop.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\a96-arm1-repeat3\\owned-stop.json",
+      "sha256": "0d03b7a8a7f12cfc95f34279c767a9cdf1c2d916583a72cdb78f07c092ea81dc"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm1-repeat3-20261005-launch\\pool2-probe.cfg",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\a96-arm1-repeat3\\pool2-probe.cfg",
+      "sha256": "42e68e73941e0563ece557324eba79fce999bfd80f44d331522a33e8483ea588"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm1-repeat3-20261005-launch\\PCSX2-before.ini",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\a96-arm1-repeat3\\PCSX2-before.ini",
+      "sha256": "b432da312b3a7cd92756e335e4c7125646939d86a895eb416e826003c26c5319"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm1-repeat3-20261005-launch\\PCSX2-after.ini",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\a96-arm1-repeat3\\PCSX2-after.ini",
+      "sha256": "b432da312b3a7cd92756e335e4c7125646939d86a895eb416e826003c26c5319"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm1-repeat3-20261005-launch\\emulator.log",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\a96-arm1-repeat3\\emulator.log",
+      "sha256": "cf20fa4f85e6c91f3afd89ec8d0ad0df34e4f2016c79f645a5ed6bfab866d546"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm1-repeat3-20261005-launch\\owned-stop-second-signal.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\a96-arm1-repeat3\\owned-stop-second-signal.json",
+      "sha256": "c421ec8c8c7217eaec2a7970464af48a0cbc65db9cebfddfa1e3ccbdf6fdb041"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm1-repeat3-20261005-launch\\entry-capture-report.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\a96-arm1-repeat3\\entry-capture-report.json",
+      "sha256": "70f77c3460a0faba7589d8c1d5bdb591c0dbfd1dd66aabd1da65e62a041303ed"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm1-repeat3-20261005-launch\\root-observed-entry-run.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\a96-arm1-repeat3\\root-observed-entry-run.json",
+      "sha256": "6f6f2c320aab2acaa5c501e5324c18d186cc1ff28e180b5ab5fb279a4d497ead"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-a96-arm1-repeat3-20261005-launch\\root-run-action.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\a96-arm1-repeat3\\root-run-action.json",
+      "sha256": "50d2647197dea2eee61b6d3cd4f5f97418a260f549ad3bae3f095bafb19ee98f"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-repeat1-pair.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\pairs\\b192-repeat1.json",
+      "sha256": "5f9e83e9ba6a55d201b9cc0c1ee1ea849931737bb57bc6a4a8042064a728db13"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm0-repeat1-20261005-launch\\completed-probe-proof.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\b192-arm0-repeat1\\completed-probe-proof.json",
+      "sha256": "f147760ad73127d21dfdb4ab3a9b9dc2e2bdf360517ebf621d2c9667117bbc56"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm0-repeat1-20261005-launch\\verified-capture.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\b192-arm0-repeat1\\verified-capture.json",
+      "sha256": "24b039e661272cf5959d8de5e4fa197541d78b40f0d86fcf45767b498dbcd600"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm0-repeat1-20261005-launch\\capture-report.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\b192-arm0-repeat1\\capture-report.json",
+      "sha256": "e7da5ce57de2aeb1152bce9bb82c36ae6011c57aff14c9c67997905a02044a98"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm0-repeat1-20261005-launch\\owned-launch.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\b192-arm0-repeat1\\owned-launch.json",
+      "sha256": "de611fc5dae1163b60d09324f6bc2b4753331834de6ac25aaa8ec4dc08450a78"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm0-repeat1-20261005-launch\\owned-stop.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\b192-arm0-repeat1\\owned-stop.json",
+      "sha256": "e0abf83c8a099f74bc23626324838caf3ff628c719fa1496ea67b0f097770697"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm0-repeat1-20261005-launch\\pool2-probe.cfg",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\b192-arm0-repeat1\\pool2-probe.cfg",
+      "sha256": "4a3ea3a69754a27f80d18f43ac6f99c5f60edad06f132da08a8ccbea84249667"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm0-repeat1-20261005-launch\\PCSX2-before.ini",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\b192-arm0-repeat1\\PCSX2-before.ini",
+      "sha256": "ec86c7ffa05d03ded74a3c3179903a0357d464dc5ffb57517900f2369565a5e7"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm0-repeat1-20261005-launch\\PCSX2-after.ini",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\b192-arm0-repeat1\\PCSX2-after.ini",
+      "sha256": "ec86c7ffa05d03ded74a3c3179903a0357d464dc5ffb57517900f2369565a5e7"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm0-repeat1-20261005-launch\\emulator.log",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\b192-arm0-repeat1\\emulator.log",
+      "sha256": "1ee3b4b1897253acaf1901a89de8bfb0b43c00cb52a13c9cae0d0c0098d3c3da"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm0-repeat1-20261005-launch\\modal-recovery-record.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\b192-arm0-repeat1\\modal-recovery-record.json",
+      "sha256": "b3ff389e0a256f8aceac9d33881697961251e552407ef9aeec317378154ba060"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm0-repeat1-20261005-launch\\owned-stop-second-signal.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\b192-arm0-repeat1\\owned-stop-second-signal.json",
+      "sha256": "950be554c6867e937dc925d5f80d5dd6f520790c924ec77427eac86e5f2ec163"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm0-repeat1-20261005-launch\\entry-capture-report.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\b192-arm0-repeat1\\entry-capture-report.json",
+      "sha256": "2aae3e8ecbe3bc73e73e708d8a512ea35ac865d3c062730592de77561a6de837"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm0-repeat1-20261005-launch\\root-observed-entry-run.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\b192-arm0-repeat1\\root-observed-entry-run.json",
+      "sha256": "43ce77a2d12f9251ef53d3c9affa06720e00bbd2de48b7e0f2a3269ddc427702"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm0-repeat1-20261005-launch\\root-run-action.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\b192-arm0-repeat1\\root-run-action.json",
+      "sha256": "0c2dc876091ac4e85bf324e13d55aaeb5427d8389769a7731af1c75b6d2fe3f9"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm1-repeat1-20261005-launch\\completed-probe-proof.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\b192-arm1-repeat1\\completed-probe-proof.json",
+      "sha256": "8ccc3f978a758a6105f333e4fae14dac30baa9a87dcec4cb4629f791f69141de"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm1-repeat1-20261005-launch\\verified-capture.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\b192-arm1-repeat1\\verified-capture.json",
+      "sha256": "3f6c6c8213366f00827d254c34bf68582af220ca33203bb4a8dd5e3734e6a7f8"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm1-repeat1-20261005-launch\\capture-report.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\b192-arm1-repeat1\\capture-report.json",
+      "sha256": "183a1e8e6ff5f4ac8366fd5036a8faeed7a696bab9ada797e20f31309a3491a1"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm1-repeat1-20261005-launch\\owned-launch.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\b192-arm1-repeat1\\owned-launch.json",
+      "sha256": "68793739c631642b723035d877940246fafae384e36fbd7c71243007149ace25"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm1-repeat1-20261005-launch\\owned-stop.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\b192-arm1-repeat1\\owned-stop.json",
+      "sha256": "806ee47c75424af097f563ace2809df1f26d4c75338b2e13142a024a0c6145cc"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm1-repeat1-20261005-launch\\pool2-probe.cfg",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\b192-arm1-repeat1\\pool2-probe.cfg",
+      "sha256": "15e8e35c92c58cb6273c5b26897e0d8c4a70e2bdeba662f834e339045e573b6b"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm1-repeat1-20261005-launch\\PCSX2-before.ini",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\b192-arm1-repeat1\\PCSX2-before.ini",
+      "sha256": "b432da312b3a7cd92756e335e4c7125646939d86a895eb416e826003c26c5319"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm1-repeat1-20261005-launch\\PCSX2-after.ini",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\b192-arm1-repeat1\\PCSX2-after.ini",
+      "sha256": "b432da312b3a7cd92756e335e4c7125646939d86a895eb416e826003c26c5319"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm1-repeat1-20261005-launch\\emulator.log",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\b192-arm1-repeat1\\emulator.log",
+      "sha256": "529069b73006de35f8ebf2e76a659ad62e172e5927e4d849f51c75926cbfcd28"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm1-repeat1-20261005-launch\\owned-stop-second-signal.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\b192-arm1-repeat1\\owned-stop-second-signal.json",
+      "sha256": "53cbb8d8ed2708afc6416ab2e31ec4095c8ee480737dd05fb896fd675891d3bc"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm1-repeat1-20261005-launch\\entry-capture-report.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\b192-arm1-repeat1\\entry-capture-report.json",
+      "sha256": "378563dde87968ee7ed373b682ac311604e08848be3dbedcdbfc37dba5e2959b"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm1-repeat1-20261005-launch\\root-observed-entry-run.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\b192-arm1-repeat1\\root-observed-entry-run.json",
+      "sha256": "f9784a6719341321b5c02c0b83f98bc8e04b003cf1d3a37d7edc00774fcff725"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm1-repeat1-20261005-launch\\root-run-action.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\b192-arm1-repeat1\\root-run-action.json",
+      "sha256": "59f797fa53904f2b61a60fb9d7bb76f4e3ab878d0fdc46b78187e283af9de450"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-repeat2-pair.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\pairs\\b192-repeat2.json",
+      "sha256": "db5ca7d55a9013cfc3841b9ff88a08c591ba1ffd436413942c23110979577f24"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm0-repeat2-20261005-launch\\completed-probe-proof.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\b192-arm0-repeat2\\completed-probe-proof.json",
+      "sha256": "c2d6f5a7f3563627629668c720e6a16175d2a71074e20812dda400326d4bbf8c"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm0-repeat2-20261005-launch\\verified-capture.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\b192-arm0-repeat2\\verified-capture.json",
+      "sha256": "9d44793ae096a08477c3431ff779d49b2016dc906269ae327f20eb4dfab7a917"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm0-repeat2-20261005-launch\\capture-report.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\b192-arm0-repeat2\\capture-report.json",
+      "sha256": "29b3a0fcd8a63a57263a0effbbdbec855c6280bf5968abda9308e52bd316b6d1"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm0-repeat2-20261005-launch\\owned-launch.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\b192-arm0-repeat2\\owned-launch.json",
+      "sha256": "e6cf77f05b318834515c2ada5f4a9abc497e6bd33321e5f6742c6c846ea8cd11"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm0-repeat2-20261005-launch\\owned-stop.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\b192-arm0-repeat2\\owned-stop.json",
+      "sha256": "f4e0d4396a92e6903b734845986ccd1b20af9444113f2f130a9b1b46dc804fbe"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm0-repeat2-20261005-launch\\pool2-probe.cfg",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\b192-arm0-repeat2\\pool2-probe.cfg",
+      "sha256": "ba3e8428a0218265e0325610c9600cbef1b361e400ec37eec2e9a66e207af27f"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm0-repeat2-20261005-launch\\PCSX2-before.ini",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\b192-arm0-repeat2\\PCSX2-before.ini",
+      "sha256": "b432da312b3a7cd92756e335e4c7125646939d86a895eb416e826003c26c5319"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm0-repeat2-20261005-launch\\PCSX2-after.ini",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\b192-arm0-repeat2\\PCSX2-after.ini",
+      "sha256": "b432da312b3a7cd92756e335e4c7125646939d86a895eb416e826003c26c5319"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm0-repeat2-20261005-launch\\emulator.log",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\b192-arm0-repeat2\\emulator.log",
+      "sha256": "41bb751a59fc6cd84600fe275f1b53daf25c759e02ab1bb269697c6fc9400608"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm0-repeat2-20261005-launch\\owned-stop-second-signal.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\b192-arm0-repeat2\\owned-stop-second-signal.json",
+      "sha256": "35baaf5c3cce756a3ac92a020ce90ce2abf83ebf9e00380ce275def973a63c77"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm0-repeat2-20261005-launch\\entry-capture-report.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\b192-arm0-repeat2\\entry-capture-report.json",
+      "sha256": "c1aad9ada2edb084f3ffae332d281359dcc326d0043f4560f997cf8f4a8ce6cc"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm0-repeat2-20261005-launch\\root-observed-entry-run.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\b192-arm0-repeat2\\root-observed-entry-run.json",
+      "sha256": "2f7407accd17629260ae71314d659900565cdfd13481fd3222d359f84ca658d9"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm0-repeat2-20261005-launch\\root-run-action.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\b192-arm0-repeat2\\root-run-action.json",
+      "sha256": "4cc64c60a2978e98b2b9f4c22515026ec28ad7472c318db006d367e71dec60fd"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm1-repeat2-20261005-launch\\completed-probe-proof.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\b192-arm1-repeat2\\completed-probe-proof.json",
+      "sha256": "97c4eddeae59e4999078de5655300c7d56e491bdfde4976c8aab26cb0f6796a4"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm1-repeat2-20261005-launch\\verified-capture.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\b192-arm1-repeat2\\verified-capture.json",
+      "sha256": "233e95f088650910c0c60bfdab7c2b5b75aa0a6af2cc8dd650cfeda7fd21fe7d"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm1-repeat2-20261005-launch\\capture-report.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\b192-arm1-repeat2\\capture-report.json",
+      "sha256": "f034d956a0bc35252952ed508cf39b801ce20983773174126925be07675c0904"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm1-repeat2-20261005-launch\\owned-launch.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\b192-arm1-repeat2\\owned-launch.json",
+      "sha256": "d2e9c0a05098b1b178b7d51d51139ae55ce33f7b749138b76d4dfa45b2695b63"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm1-repeat2-20261005-launch\\owned-stop.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\b192-arm1-repeat2\\owned-stop.json",
+      "sha256": "425dba2c0b1710e1ff2c7f5292f651b572c6aca81746a15cda9f7acb474dcac6"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm1-repeat2-20261005-launch\\pool2-probe.cfg",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\b192-arm1-repeat2\\pool2-probe.cfg",
+      "sha256": "861a624a60598dd7df9cbe99c7599b76366aa02529bd9150546db88731be46a4"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm1-repeat2-20261005-launch\\PCSX2-before.ini",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\b192-arm1-repeat2\\PCSX2-before.ini",
+      "sha256": "b432da312b3a7cd92756e335e4c7125646939d86a895eb416e826003c26c5319"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm1-repeat2-20261005-launch\\PCSX2-after.ini",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\b192-arm1-repeat2\\PCSX2-after.ini",
+      "sha256": "b432da312b3a7cd92756e335e4c7125646939d86a895eb416e826003c26c5319"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm1-repeat2-20261005-launch\\emulator.log",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\b192-arm1-repeat2\\emulator.log",
+      "sha256": "0b2025961effdc54120d6e7b54e777670997c7f67725a7e03f24d7a024cff322"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm1-repeat2-20261005-launch\\owned-stop-second-signal.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\b192-arm1-repeat2\\owned-stop-second-signal.json",
+      "sha256": "4dee7f837d7b440cf0e8130075f89aee7a0ea10391c9ca4174578ac53cab21c7"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm1-repeat2-20261005-launch\\entry-capture-report.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\b192-arm1-repeat2\\entry-capture-report.json",
+      "sha256": "36b212d84b59c3a35de605fc05a7b919d068278efddfef30d99b6a2959aef65d"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm1-repeat2-20261005-launch\\root-observed-entry-run.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\b192-arm1-repeat2\\root-observed-entry-run.json",
+      "sha256": "599102cff169e8927719e2cc2fdc0718954cba22610b8fc5395c2d98709fb708"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm1-repeat2-20261005-launch\\root-run-action.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\b192-arm1-repeat2\\root-run-action.json",
+      "sha256": "6c34edccb2817a65889b6a822d9b1e7899468f333add5589d8687ac135d8e510"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-repeat3-pair.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\pairs\\b192-repeat3.json",
+      "sha256": "d1a48831f8a22375c1bc7c697b3c672ca8abfe4131e2899e74afd4d2e1eeb239"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm0-repeat3-20261005-launch\\completed-probe-proof.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\b192-arm0-repeat3\\completed-probe-proof.json",
+      "sha256": "7bbb4ad9d4d1bb2f0267c9d6d462032eb58f5937e98a8de7dd304183ec8751ae"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm0-repeat3-20261005-launch\\verified-capture.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\b192-arm0-repeat3\\verified-capture.json",
+      "sha256": "12c4f104f42eae8fbb974a1659e8ae8c4e691bd0f0ace4ec9224c3f871b3c2f6"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm0-repeat3-20261005-launch\\capture-report.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\b192-arm0-repeat3\\capture-report.json",
+      "sha256": "0af458398769dbad8fac9fc5e8a64b41c5b0a5d05eb6958a7dd17188a89aaf1d"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm0-repeat3-20261005-launch\\owned-launch.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\b192-arm0-repeat3\\owned-launch.json",
+      "sha256": "fb0537f4b8311fdf7a34a6671ada4cad66684749fe1baa43b28af9b9f4ff48dd"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm0-repeat3-20261005-launch\\owned-stop.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\b192-arm0-repeat3\\owned-stop.json",
+      "sha256": "f436718f8f2668d0c45a519116ebfeeb7e887ea993cf2f7d215f69ce6b44341e"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm0-repeat3-20261005-launch\\pool2-probe.cfg",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\b192-arm0-repeat3\\pool2-probe.cfg",
+      "sha256": "9a2457e4e3df579aec9ab353de74a2641c0b4b224dbfabf31dbce095d7afdd50"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm0-repeat3-20261005-launch\\PCSX2-before.ini",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\b192-arm0-repeat3\\PCSX2-before.ini",
+      "sha256": "b432da312b3a7cd92756e335e4c7125646939d86a895eb416e826003c26c5319"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm0-repeat3-20261005-launch\\PCSX2-after.ini",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\b192-arm0-repeat3\\PCSX2-after.ini",
+      "sha256": "b432da312b3a7cd92756e335e4c7125646939d86a895eb416e826003c26c5319"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm0-repeat3-20261005-launch\\emulator.log",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\b192-arm0-repeat3\\emulator.log",
+      "sha256": "27e88674dc23afc0f87ea2c7d391357bbb586cc37cf0e0e9580264653c895987"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm0-repeat3-20261005-launch\\owned-stop-second-signal.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\b192-arm0-repeat3\\owned-stop-second-signal.json",
+      "sha256": "1309f3b051b42cc31c0d9e376f6de8a3dcf81b123edff4255b069d3ed05a22fc"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm0-repeat3-20261005-launch\\entry-capture-report.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\b192-arm0-repeat3\\entry-capture-report.json",
+      "sha256": "064adaeafef464ef42c376ed4346711d565a1ebfe7e08c960050a90368ca5fe8"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm0-repeat3-20261005-launch\\root-observed-entry-run.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\b192-arm0-repeat3\\root-observed-entry-run.json",
+      "sha256": "90575b7c83df83843f7452b520bcc18d6d4312da1a65cb30d67a604716ef2ef1"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm0-repeat3-20261005-launch\\root-run-action.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\b192-arm0-repeat3\\root-run-action.json",
+      "sha256": "d03817c6e00a4dc7ff2ada0854c28e80df40e90a69e66b3f7ed81e9c1b47c826"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm1-repeat3-20261005-launch\\completed-probe-proof.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\b192-arm1-repeat3\\completed-probe-proof.json",
+      "sha256": "476d9b5e50b363304df49c153a096e8f99d2acf7f4184abd159a13e0e368b694"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm1-repeat3-20261005-launch\\verified-capture.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\b192-arm1-repeat3\\verified-capture.json",
+      "sha256": "c19c745cc696eee957994a739a164fd0b0bd9a1835fc1b756cb9fafc1091f685"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm1-repeat3-20261005-launch\\capture-report.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\b192-arm1-repeat3\\capture-report.json",
+      "sha256": "897512e21fed4371576e8104e7161d419ffb1b5e4e1be22c82a0b2f92d750cb4"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm1-repeat3-20261005-launch\\owned-launch.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\b192-arm1-repeat3\\owned-launch.json",
+      "sha256": "3e51e5b624928e6a41ee915664b107e408ae2cd37a85242245e0d14badf86a86"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm1-repeat3-20261005-launch\\owned-stop.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\b192-arm1-repeat3\\owned-stop.json",
+      "sha256": "dae5558ccd48153570722d7a09b3964cae007f705f9fc802e60a73f745f22dcb"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm1-repeat3-20261005-launch\\pool2-probe.cfg",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\b192-arm1-repeat3\\pool2-probe.cfg",
+      "sha256": "a17d61c9baec08bcc6fa4d2a6f6ff92c6214be67a0622a9c95e9e70f6207a540"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm1-repeat3-20261005-launch\\PCSX2-before.ini",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\b192-arm1-repeat3\\PCSX2-before.ini",
+      "sha256": "b432da312b3a7cd92756e335e4c7125646939d86a895eb416e826003c26c5319"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm1-repeat3-20261005-launch\\PCSX2-after.ini",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\b192-arm1-repeat3\\PCSX2-after.ini",
+      "sha256": "b432da312b3a7cd92756e335e4c7125646939d86a895eb416e826003c26c5319"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm1-repeat3-20261005-launch\\emulator.log",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\b192-arm1-repeat3\\emulator.log",
+      "sha256": "07d3ac7dc8919ebdf26993b532f7d493afa33e4547620e1fa8d2b2b278a0abdd"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm1-repeat3-20261005-launch\\owned-stop-second-signal.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\b192-arm1-repeat3\\owned-stop-second-signal.json",
+      "sha256": "5b0317f28d30699c4703e6bbdaccda50f7e2373d10c6d348c8687d98aeef2ac8"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm1-repeat3-20261005-launch\\entry-capture-report.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\b192-arm1-repeat3\\entry-capture-report.json",
+      "sha256": "fd1b29cd419b614251d05b6c68ee96459bd67e02147c6756a55ce0b8a574cfa7"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm1-repeat3-20261005-launch\\root-observed-entry-run.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\b192-arm1-repeat3\\root-observed-entry-run.json",
+      "sha256": "bd304b33a6ea07cc5c78c2940312f5601666371303bf5af89c9255eaae27c61a"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\pool2-static-b192-arm1-repeat3-20261005-launch\\root-run-action.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\static\\b192-arm1-repeat3\\root-run-action.json",
+      "sha256": "3a297ccba581c3bebfa7e6915bbf05c9228e457d0ba26115ef46830b91a97c64"
+    },
+    {
+      "original": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-postrun-listener-20261005\\operator-visual-confirmation.json",
+      "preserved": "docs\\tyrax2-pool2-evidence-2026-10-05\\physical\\operator-visual-confirmation.json",
+      "sha256": "3281553fc7770e93d44e7716d5c5c2195ddac8344fbc4a1cb6327dffaba0a463"
+    }
+  ]
+}

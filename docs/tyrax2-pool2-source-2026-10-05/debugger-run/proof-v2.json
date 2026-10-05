@@ -1,0 +1,11 @@
+{
+  "geometryCheck": "exact parsed WIDTH1322 HEIGHT974 not substring",
+  "actualUIOrPineOrDeviceInvoked": false,
+  "semanticsOtherwiseUnchanged": true,
+  "priorProofSha256": "b5b4fca970fe05d5e336b1d8ab2724c4e4611dd07c25155dc8719cbe87133c3f",
+  "status": "PREPARED_ROOT_ONLY_OBSERVED_RUN_HELPER_EXACT_GEOMETRY_SOURCE_SYNTAX_ONLY",
+  "helper": "F:/Projects/tyrax2-lab-20261001/wild-pool2-observed-run-v1/owned-observed-run-v2.py",
+  "helperSha256": "d5e4e6411a8ff7a362def9f92fbc46e1448a4d03e5c030f974ebcf6722c3142b",
+  "guestResumeOrFinalOutputAccepted": false,
+  "syntaxCheckExit": 0
+}

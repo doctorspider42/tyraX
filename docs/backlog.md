@@ -466,9 +466,13 @@ recovered 0.50-0.72 ms of hardware `work`. What it did not do, ranked:
   an independent fifteen-idea review. Four frustum planes through VU0 passed
   both emulator and physical orders with positive sparse action but no gain;
   keep it private. The squared cone predicate is unreachable in the selected
-  scene, so it received no physical pricing. Package-local pool color tables
-  and unique-grid representations need their own ownership, exact conversion,
-  replay, clipping and positive-runtime qualification before timing/promotion.
+  scene, so it received no physical pricing. The private [Pool2 color table
+  experiment](tyrax2-pool2-colors.md) completed both physical orders and twelve
+  fixed-case emulator captures; six decoded VU payload pairs match. Its small
+  forward improvement did not repeat in reverse order, so it stays private.
+  Original EE color expansion remains. Promotion still needs repeatable gain
+  and broader precision/clipping/replay coverage; unique-grid representation
+  remains unimplemented and needs its own qualification.
 
   Storage classification alone grants no immutable borrowing rights.
   The [resumed candidate audit](tyrax2-ee-vu0.md#next-60-hz-candidates-host-controls-2026-10-03)

@@ -36,6 +36,8 @@ docs/tyrax2-pool-color-candidate-2026-10-04/** -text whitespace=-trailing-space,
 docs/tyrax2-pool-cache-sources-2026-10-05/** -text whitespace=-trailing-space,-space-before-tab,cr-at-eol
 docs/tyrax2-wild-source-2026-10-05/** -text whitespace=-trailing-space,-space-before-tab,cr-at-eol
 docs/tyrax2-wild-physical-2026-10-05/** -text whitespace=-trailing-space,-space-before-tab,cr-at-eol
+docs/tyrax2-pool2-source-2026-10-05/** -text whitespace=-trailing-space,-space-before-tab,cr-at-eol
+docs/tyrax2-pool2-evidence-2026-10-05/** -text whitespace=-trailing-space,-space-before-tab,cr-at-eol
 
 # The neural upscaler's network and its provenance sidecar. The `.net` is 500
 # bytes of floats and must never be line-ending-normalised; the `.meta` is text

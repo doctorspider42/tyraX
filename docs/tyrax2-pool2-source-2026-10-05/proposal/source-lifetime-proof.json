@@ -1,0 +1,20 @@
+{
+  "status": "PASS_PRIVATE_POOL2_SOURCE_OWNERSHIP_ORDER_ONLY",
+  "sourcePins": {
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-physical-v3\\tyra\\engine\\src\\renderer\\3d\\pipeline\\static\\core\\stapip_core.cpp": "b15cc0d29c10d7b7aa5f3c5f2131873c9c79d64b0ba85cab3195215fb147a08f",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-physical-v3\\tyra\\engine\\src\\renderer\\core\\paths\\path1\\vif1_queue.cpp": "c4e790a46f181041adbd7bc66794f28cd3b1113efe930cfcc707bcbeea034593",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-physical-v3\\tyra\\engine\\inc\\renderer\\core\\paths\\path1\\frame_chain_arena.hpp": "d2cf31629c1f3c8127cec7d9590632ed3a7e82af7049c04b2e533d015615970b",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\source\\game\\src\\gen\\game_lighting.gen.cpp": "6b3e17cfdb7000dce317d1d7115ae8f0155c548e4b2a0de05bfb03e2fbf5a2a8",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\source\\tyra\\engine\\src\\renderer\\3d\\pipeline\\static\\core\\stapip_qbuffer.cpp": "8a3bb29a7960bc67a6d5579f316074c559f7ce783d9c17d9f1d930824276339a",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\source\\tyra\\engine\\inc\\renderer\\3d\\pipeline\\static\\core\\stapip_pool_color_packet.hpp": "1452774bfae877b9017bf9d8fbba3a5d7c7ad7b248475b912e3a679d2ac1a7b5",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\source\\tyra\\engine\\src\\renderer\\3d\\pipeline\\static\\core\\stapip_qbuffer_renderer.cpp": "be77677a29e372294e3a4386b667a4ec3546157d78e4acc2160e52a840a7d60f"
+  },
+  "claims": [
+    "Pointer-fill copies descriptor/colors into QBuffer by value before producer reuse",
+    "Core flushBuffers precedes endRetainedBag/endBakedBag and producer return",
+    "Writer emits descriptor/table inline CNT; no DMA reference to producer View/tableColors",
+    "Existing post-Core NativeRecording snapshots submitted chains/REF payloads; existing arena lease/retirement unchanged",
+    "Baked captures inline bytes and arm/layout/generation keys; retained7qw cap unchanged"
+  ],
+  "targetExecutionProven": false
+}

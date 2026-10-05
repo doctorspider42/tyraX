@@ -1,0 +1,12 @@
+{
+  "status": "ROOT_SOURCE_FREEZE_ONLY",
+  "sourceManifestSha256": "c15e21ad8e37f3a623dce586854156da2644fdf46811260a7384ff6621abe2bb",
+  "sourceFiles": 500,
+  "review": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-static-probe-independent-review-v2\\proof.json",
+  "reviewSha256": "8ebf831d4caf2638072f924ef9ef85c6372765a08d750d45330cd99e8c490758",
+  "host": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-static-probe-design-v2\\proof.json",
+  "hostSha256": "4e9a07ff32bd45b30f3c282f9f52f21f6a87c17b7dbe41731332fe5d6f2a8bf8",
+  "helperSha256": "1e40eed4ea4f971c832d5172d6b72717366275e4caf5cd3c99ecbb78a7c412de",
+  "nativeAccepted": false,
+  "runtimeAccepted": false
+}

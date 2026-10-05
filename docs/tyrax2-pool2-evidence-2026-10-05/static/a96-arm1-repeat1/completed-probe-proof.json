@@ -1,0 +1,43 @@
+{
+  "status": "PASS_SOURCE_NATIVE_OWNED_FIXED_CASE_PROTOCOL_AND_PAUSED_CAPTURE_BOUND",
+  "arm": 1,
+  "vertices": 96,
+  "repeats": 1,
+  "pid": 13811,
+  "sourceManifestSha256": "c15e21ad8e37f3a623dce586854156da2644fdf46811260a7384ff6621abe2bb",
+  "elfSha256": "8773444093a7e46481fa3cf905e3b2a4e8c331cf292c2ac5c0f727b6f67e0159",
+  "nativeProofSha256": "b609ee458adb5fa11074949c0bb44206253717088d8463f6d4a0c5ab938e42b2",
+  "cfgSha256": "36e0e6d278de508015c9d1de8928f24f58c993126a240a60152fd48af8d17ebe",
+  "validatedCaptureSha256": "d1677a4dc312084c7a13b54f465759a8ec07c585fa20491114be06db2055a30a",
+  "captureReportSha256": "e8bb9ea15486e5f7f8c2e38795a041278942d5d2d569a135e63fb68deb08f942",
+  "finalReadyMarker": "504f4f32",
+  "haltPC": 1714168,
+  "stateSha256": "4f70ab8d62882c89fe2e0f6810b09780bb16acbe0642ba5f0992d92e6bf6c7d4",
+  "actualMicrocodeSha256": "f2af466905735caf0f7e59e6c63f3835739fd5bb18501a36ef3cd467e526ead6",
+  "actualVuMemorySha256": "93b9358cb785ab51fd354f2b659f67f096fb7bfb8774eb16eee900a0538f1741",
+  "files": {
+    "capture-report.json": "e8bb9ea15486e5f7f8c2e38795a041278942d5d2d569a135e63fb68deb08f942",
+    "debugger-settings-after.json": "f9acd1cf924a0c258fab6e181ec118c9cddcac1c23360d1fdea66870f3b1fd3d",
+    "emulator-stdout.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "emulator.log": "6f96cd5dcdc091aafbc4a41a80509712de5d368569da21e7bc2699a1e5cb8e4c",
+    "entry-debugger.png": "522929800de7f00331e2034319e423fa2f8fcb49e3ac3a286cb9373f76f1e5e4",
+    "owned-launch.json": "86b3faeea2f46538eb99e1caf138bd6d74018a2027f0d3df8d1ea814900cb087",
+    "PCSX2-after.ini": "ec86c7ffa05d03ded74a3c3179903a0357d464dc5ffb57517900f2369565a5e7",
+    "PCSX2-before.ini": "ec86c7ffa05d03ded74a3c3179903a0357d464dc5ffb57517900f2369565a5e7",
+    "pool2-probe.cfg": "36e0e6d278de508015c9d1de8928f24f58c993126a240a60152fd48af8d17ebe",
+    "raster.png": "f325b9632191a36aa1144a051ef15aa66a2f30ded46672141bddc2ed2d85b586",
+    "root-observed-entry-run.json": "3d1cab1e0f9933c7ddb648b632f22632099b40ed641503b6d7af93c76af8b878",
+    "root-run-action.json": "22d367aa4a8f9fbbba8b84e48822ba8aebec1e76be07e92e5a31a388fd7e8ed3",
+    "state.p2s": "4f70ab8d62882c89fe2e0f6810b09780bb16acbe0642ba5f0992d92e6bf6c7d4",
+    "verified-capture.json": "d1677a4dc312084c7a13b54f465759a8ec07c585fa20491114be06db2055a30a"
+  },
+  "helperSha256": "51f69f181f24cd9e5a3847a70858c724718d81ae0f6a7db1e73592a583b06c11",
+  "warmFreshnessIndependentEpoch": false,
+  "pairedPackedEqualityAccepted": false,
+  "performanceAccepted": false,
+  "limits": [
+    "Fixed static final bank output lacks an iteration epoch; warm source calls/protocol are bound, not independently timestamped VU execution.",
+    "Printed warm counters retain cold values. Snapshot drains are correctness observer operations; no target timing result.",
+    "One capture does not establish paired output equality, GS consumption, hardware precision or raster equality."
+  ]
+}

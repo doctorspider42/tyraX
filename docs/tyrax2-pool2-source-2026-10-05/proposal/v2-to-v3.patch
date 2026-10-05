@@ -1,0 +1,65 @@
+--- a/tyra/engine/src/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_tc_vu1.vclpp
++++ b/tyra/engine/src/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_tc_vu1.vclpp
+@@ -73,6 +73,8 @@
+     iaddiu  colorRunRemaining,  vi00,            0
+     iaddiu  colorStride,        vi00,            0
+     iblez   poolColorEnabled,   poolLegacyLayout
++    ; Private V3: table sentinel reuses stride, avoiding a persistent marker VI.
++    iaddi   colorStride,        vi00,            -1
+     iadd    colorDescriptor,    stqData,        vertexCount
+     ilw.x   colorRunRemaining,  0(colorDescriptor)
+     iaddiu  colorData,          colorDescriptor, 1
+@@ -133,7 +135,7 @@
+ 
+         ;--- Load vertices colors (a single colour reads three copies,
+         ;--- stride 0 - see setDestAddr)
+-        iblez   poolColorEnabled, poolLegacyLoad0
++        ibgez   colorStride,       poolLegacyLoad0
+         lq      color1,   (colorData)
+         lq      color2,   (colorData)
+         lq      color3,   (colorData)
+@@ -205,7 +207,7 @@
+ 
+         iaddiu  vertexData,     vertexData,     3                         
+         iaddiu  stqData,        stqData,        3  
+-        iblez   poolColorEnabled, poolLegacyAdvance0
++        ibgez   colorStride,       poolLegacyAdvance0
+         iaddi   colorRunRemaining, colorRunRemaining, -3
+         ibne    colorRunRemaining, vi00, poolAdvanceDone0
+         iaddiu  colorData, colorData, 1
+@@ -235,7 +237,7 @@
+ 
+         ;--- Load vertices colors (a single colour reads three copies,
+         ;--- stride 0 - see setDestAddr)
+-        iblez   poolColorEnabled, poolLegacyLoad1
++        ibgez   colorStride,       poolLegacyLoad1
+         lq      color1,   (colorData)
+         lq      color2,   (colorData)
+         lq      color3,   (colorData)
+@@ -304,7 +306,7 @@
+ 
+         iaddiu  vertexData,     vertexData,     3                         
+         iaddiu  stqData,        stqData,        3  
+-        iblez   poolColorEnabled, poolLegacyAdvance1
++        ibgez   colorStride,       poolLegacyAdvance1
+         iaddi   colorRunRemaining, colorRunRemaining, -3
+         ibne    colorRunRemaining, vi00, poolAdvanceDone1
+         iaddiu  colorData, colorData, 1
+@@ -325,7 +327,7 @@
+ 
+         ;--- Load vertices colors (a single colour reads three copies,
+         ;--- stride 0 - see setDestAddr)
+-        iblez   poolColorEnabled, poolLegacyLoad2
++        ibgez   colorStride,       poolLegacyLoad2
+         lq      color1,   (colorData)
+         lq      color2,   (colorData)
+         lq      color3,   (colorData)
+@@ -391,7 +393,7 @@
+ 
+         iaddiu  vertexData,     vertexData,     3                         
+         iaddiu  stqData,        stqData,        3  
+-        iblez   poolColorEnabled, poolLegacyAdvance2
++        ibgez   colorStride,       poolLegacyAdvance2
+         iaddi   colorRunRemaining, colorRunRemaining, -3
+         ibne    colorRunRemaining, vi00, poolAdvanceDone2
+         iaddiu  colorData, colorData, 1

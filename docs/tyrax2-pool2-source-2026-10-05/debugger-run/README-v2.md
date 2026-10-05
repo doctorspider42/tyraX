@@ -1,0 +1,3 @@
+# Exact geometry helper revision
+
+Use owned-observed-run-v2.py with the same root-authored observation and invocation contract described in README.md. It parses xdotool geometry WIDTH/HEIGHT and requires exact1322/974; the earlier substring comparison is superseded. Old helper/proof remain preserved, with no executions or device actions claimed. proof-v2.json pins the revised helper. All ownership, screenshot, actual ELF-entry PC, paused-state, no-READY and one-click restrictions remain unchanged. This remains a root-only optional control wrapper, not accepted resume or packed-output evidence.

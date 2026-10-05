@@ -1,0 +1,43 @@
+{
+  "status": "PASS_EXACT_TAG_SOURCE_PRELOAD_FORMAT_AND_OFFLINE_CRC_SCHEMA_CONTROLS_NOT_RUNTIME",
+  "sourceManifestSha256": "42a7afd3019c1f8e2199fc6ae2566e152e2b373c2c0d744d0bcb10b26f79d851",
+  "sourceCommit": "94d86c891b1621c0b252e4fc2e155bf90274dcc0",
+  "sourcePins": {
+    "F:\\Projects\\tyrax2-lab-20261001\\pcsx2-control-routes\\source-all\\pcsx2-qt\\Debugger\\DebuggerSettingsManager.cpp": "a4db4ec2d410b6ddc8e3ac2d10fd932c49653f331ba8b85d9099b44c71233359",
+    "F:\\Projects\\tyrax2-lab-20261001\\pcsx2-control-routes\\source-all\\pcsx2-qt\\Debugger\\Breakpoints\\BreakpointModel.cpp": "98a8a8ebe3565a0f090dd51652e55b10e73184686e68d86aae451c398715ebf7",
+    "F:\\Projects\\tyrax2-lab-20261001\\pcsx2-control-routes\\source-all\\pcsx2-qt\\Debugger\\Breakpoints\\BreakpointModel.h": "efa809ebe30e20214c950558adb2df31056355faf1fb0c17fb5aa32c83cd3bcd",
+    "F:\\Projects\\tyrax2-lab-20261001\\pcsx2-control-routes\\source-all\\pcsx2\\DebugTools\\Breakpoints.h": "cc4b6a140469fb3f322183191fabcffcf70d60494f1d560ed93d7f2c5e6c284b",
+    "F:\\Projects\\tyrax2-lab-20261001\\pcsx2-control-routes\\source-all\\pcsx2\\VMManager.cpp": "57532cc8ee102995e3ce8138bb45cfa83854f67affe9a4b86f9f81cbc3043e95",
+    "F:\\Projects\\tyrax2-lab-20261001\\pcsx2-control-routes\\source-all\\pcsx2\\Elfheader.cpp": "b92190d7c3549253ed63215441f8e9c7b30a2862cab6b4aac0488603970181a0",
+    "F:\\Projects\\tyrax2-lab-20261001\\pcsx2-control-routes\\source-all\\pcsx2\\CDVD\\CDVD.cpp": "3d5133209f33ba36747d5ec9637775259d9bcd948fafb41ab62527c6befb11c4",
+    "F:\\Projects\\tyrax2-lab-20261001\\pcsx2-control-routes\\source-all\\pcsx2\\Pcsx2Config.cpp": "c65cf71e290e06efba00279a514e5e197e039ca3f3e5b783710dad243c78b0a1",
+    "F:\\Projects\\tyrax2-lab-20261001\\pcsx2-control-routes\\source-all\\pcsx2-qt\\QtHost.cpp": "bbc06006a5f0278ace3f9071a7d398866727b065674cc1d5b19e02d3aeb885b3"
+  },
+  "hostPositiveControls": [
+    "XOR_full_words_ignore_trailing_bytes",
+    "XOR_not_crc32",
+    "schema_0x110000",
+    "schema_0x1ad758",
+    "historical_actual_elf_crc_matches_owned_profile_filename"
+  ],
+  "hostNegativeControls": [
+    0,
+    3,
+    -4,
+    4294967296
+  ],
+  "historicalElfCRC": {
+    "path": "F:\\Projects\\tyrax2-lab-20261001\\pcsx2-ee-execution-map-v1\\bin\\vehicle-playground.elf",
+    "sha256": "6edb69f2d6bfa01b9ee5cf1a02b5d296ef7bdad54c5bcf4579aff03c52b4e68c",
+    "computed": "5A2013F2",
+    "newProbeRuntimeEvidence": false
+  },
+  "files": {
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-breakpoint-preload-v1\\prepare-preload.py": "d5b47738ea7a284942fae3e239a60c5131647c94fa8eeff0f877e940afd49d69",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-breakpoint-preload-v1\\REPORT.md": "4f5143677a0ace32df0b76f06eac6a6a630f92d00776e6bac75b0e45d2416f05",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool2-breakpoint-preload-v1\\seal-source-host.py": "9be7be15ab919d65a41cbd37db85bcbfa3f617ac44a98a97aef0109007fafea2"
+  },
+  "profileWritten": false,
+  "UIOrPineOrDeviceInvoked": false,
+  "actualDiagnosticPayloadOrBreakpointLoadOrPauseAccepted": false
+}

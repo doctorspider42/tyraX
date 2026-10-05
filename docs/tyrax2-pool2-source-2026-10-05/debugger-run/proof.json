@@ -1,0 +1,21 @@
+{
+  "observationMustBeFreshAndRootAuthored": true,
+  "rootReportedObservedClick": {
+    "x": 110,
+    "width": 1322,
+    "height": 974,
+    "historicalPID": 13513,
+    "y": 47
+  },
+  "actualUIOrPineOrDeviceInvoked": false,
+  "guestResumeOrFinalOutputAccepted": false,
+  "status": "PREPARED_ROOT_ONLY_OBSERVED_RUN_HELPER_SOURCE_SYNTAX_ONLY_NOT_UI_EXECUTED",
+  "pythonSyntaxCheckExit": 0,
+  "files": {
+    "F:/Projects/tyrax2-lab-20261001/wild-pool2-observed-run-v1/owned-observed-run.py": "8bf5870287250681e73989a48cb251072bbe19e4d9fda100b934b49298a351c0",
+    "F:/Projects/tyrax2-lab-20261001/wild-pool2-observed-run-v1/README.md": "0bf2cf52acf6f1199a690509816717c4db835678e90924d576cf4926515175c5"
+  },
+  "acceptsOnlyActualElfEntryPause": true,
+  "sourceActionProofSha256": "3d6f10f9ef99f3674f2c0046ce4bc982c0bd562280a63a28b96f2eb88a9d8250",
+  "inputEventRetries": false
+}

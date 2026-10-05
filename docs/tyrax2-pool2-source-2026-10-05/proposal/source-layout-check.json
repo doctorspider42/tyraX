@@ -1,0 +1,20 @@
+{
+  "status": "PASS_PRIVATE_POOL2_TEXT_LAYOUT_KEY_FIELD_FLAGS_ONLY_NOT_VU_ASSEMBLY",
+  "marker": 1024,
+  "lowCountMask": 1023,
+  "emitState": 32768,
+  "markerExcludedFromNLOOP": true,
+  "maxVerts": 75,
+  "runVertices": 96,
+  "maxTableRuns": 2,
+  "extentMaxQwords": 389,
+  "doubleBufferStride": 461,
+  "conservativeSize": 460,
+  "sourceCount": 499,
+  "newHeaders": 2,
+  "retainedMaxBlockQwUnchanged": 7,
+  "candidateRetainedBlockQw": 9,
+  "coldCounterWritesOnly": true,
+  "allLabelsUnique": true,
+  "actualNativeAssembly": false
+}

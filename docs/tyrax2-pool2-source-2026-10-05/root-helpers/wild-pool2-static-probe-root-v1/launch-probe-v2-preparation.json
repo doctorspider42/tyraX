@@ -1,0 +1,7 @@
+{
+  "status": "ROOT_FRESH_LAUNCH_HELPER_REMOVE_EXTRA_BIOS_PAUSE_ONLY",
+  "previous": "9131b687b26afd230985d4fa05702845fcdbd259bddff4b6111f1ba1cd317759",
+  "new": "a942d6e7093fd679d365eacfa23f7e7b7463fc89e6304382cadcc103cfc7694a",
+  "sourceDelta": "StartPaused=false; -debugger PauseOnEntry retained",
+  "runtimeAccepted": false
+}

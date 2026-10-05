@@ -419,8 +419,11 @@ and both physical calibration/joint orders passed. The simplified joint cut
 independent fifteen-idea review and two implemented math trials. The four-plane
 VU0 candidate completed both emulator and PS2 orders with positive cold action
 but no gain; the cone predicate is unreachable in the selected scene. Source
-and raw evidence are retained, while package-local pool representations remain
-private work awaiting their own qualification.
+and raw evidence are retained. The later [Pool2 color representation
+experiment](tyrax2-pool2-colors.md) completed both physical orders and twelve
+fixed-case emulator captures, with six matching decoded VU payload pairs.
+Its timing gain did not repeat; it stays private. Source reconstruction,
+native audits, raw physical logs and host-control repairs are preserved.
 
 [Batch / texture / program scopes](tyrax2-batch-texture-scopes-2026-10-04.md)
 qualify the V10 inclusive physical interval at 0.751–0.788 ms, with explicit

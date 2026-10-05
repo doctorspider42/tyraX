@@ -54,13 +54,12 @@ The ordinary corona path inherits lighting and precise clipping that the
 existing billboard program cannot reproduce unconditionally. A blanket
 descriptor conversion therefore remains at feasibility.
 
-A pool's 96 source list vertices repeat its color. A package-local coefficient
-table could replace those copies while retaining geometry and original package
-boundaries. The existing bag-wide uniform-color interface cannot safely change
-color mode between packages: its continuation retains the flag and its color
-storage is shared. A private table prototype needs a bank-local descriptor,
-exact conversion, ownership and retained/baked replay qualification before
-native/runtime or performance acceptance. It is not a shipping optimization.
+A pool's 96 source list vertices repeat its color. The later private
+[Pool2 table experiment](tyrax2-pool2-colors.md) preserves package boundaries,
+uses bank-local descriptors and qualifies both physical orders plus twelve
+fixed-case emulator captures. Six decoded VU payload pairs match exactly, but
+the small forward timing improvement does not repeat in reverse order.
+Original EE expanded-color work remains; the candidate stays private.
 
 The unique-grid proposal also has real remaining work: ordinary light pools use
 96 list vertices, while height queries already use 25 cached grid points. With

@@ -4588,3 +4588,22 @@ Both nodes remain unsupported in Live Logic and require a rebuild. Verify
 authored chained graphs through --apply-graph and actual generated output;
 registry execThrough alone does not emit downstream actions. See
 docs/frame-pipeline-flow-nodes.md.
+
+## Actual VU output and debugger control (Pool2, 2026-10-05)
+
+The private fixed-case workflow and retained repairs are documented in
+`docs/tyrax2-pool2-colors.md`. Stock PINE reads at VU1 address 0x1100c000 returned
+successful zero data; use actual 16 KiB SaveState VU1 members with decompression
+and full CRC checks. Bind source/native identity, ELF text, EE-ready value and
+paused halt PC after normal frame synchronization. Disable MTVU in this separate
+correctness profile; do not infer hardware timing from captured emulator state.
+Static repeated inputs without an epoch prove final-bank equality, not fresh
+VU execution on every warm iteration.
+
+For the tested PCSX2 build, preload execute breakpoints using ELF XOR-word CRC
+and type 8, then verify loaded entry and breakpoint state before an observed Run
+click. Space depends on focus and can toggle a breakpoint instead of running.
+A missing host audio library can open a modal that blocks Run; a host Null audio
+backend is acceptable for separate packet correctness, not an unpriced change
+to a physical trial. Preserve repairs and exact-owned stop evidence rather than
+claiming a clean automated run. Never stop an unrelated emulator instance.

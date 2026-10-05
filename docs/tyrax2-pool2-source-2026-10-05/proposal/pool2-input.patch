@@ -1,0 +1,614 @@
+--- a/game/inc/terrain_game.hpp
++++ b/game/inc/terrain_game.hpp
+@@ -2215,6 +2215,8 @@
+     std::vector<const LightPool*> members;
+     std::vector<float> memberFix;
+     std::vector<unsigned int> key, lastKey;
++    std::vector<Tyra::ExperimentalPoolTable::ColorBits> tableColors;
++    Tyra::ExperimentalPoolTable::View tableView;
+   } poolBatch_;
+   void poolBatchAdd(const LightPool& b, float fix);
+   void poolBatchFlush();
+--- a/game/src/gen/game_lighting.gen.cpp
++++ b/game/src/gen/game_lighting.gen.cpp
+@@ -500,14 +500,20 @@
+     pb.verts.clear();
+     pb.sts.clear();
+     pb.colors.clear();
++    pb.tableColors.clear();
++    bool tableShape=true;
+     for (size_t m = 0; m < pb.members.size(); ++m) {
+       const LightPool& b = *pb.members[m];
+       // The old pass drew Cs * FIX / 128 with Cs = tex * colour / 128; the
+       // batch draws at FIX 128, so FIX / 128 moves into the colour.
+       const float f = pb.memberFix[m] / 128.0F;
+       const Tyra::Color c(b.color.r * f, b.color.g * f, b.color.b * f, 128.0F);
++      Tyra::ExperimentalPoolTable::ColorBits coefficient;
++      memcpy(&coefficient,c.rgba,16);
++      pb.tableColors.push_back(coefficient);
+       const BagArray<Tyra::Vec4>& cv = b.verts;
+       const BagArray<Tyra::Vec4>& cs = b.sts;
++      if(cv.size()!=96 || cs.size()!=96) tableShape=false;
+       for (size_t k = 0; k < cv.size(); ++k) {
+         pb.verts.push_back(cv[k]);
+         pb.sts.push_back(cs[k]);
+@@ -521,6 +527,11 @@
+     pb.colorBag->single = nullptr;
+     pb.bag->bboxVersion = ++g_bboxStamp;
+     pb.lastKey = pb.key;
++    pb.tableView.colors=pb.tableColors.data();
++    pb.tableView.members=static_cast<uint32_t>(pb.tableColors.size());
++    pb.tableView.total=static_cast<uint32_t>(pb.verts.size());
++    pb.tableView.generation=pb.colors.stamp();
++    pb.bag->experimentalPoolTable=tableShape ? &pb.tableView : nullptr;
+   }
+   (NightAblation::submitted(NightAblation::LightEffects), NightAblation::extraSubmitted(NightAblation::Pools), stapip.core.render(pb.bag.get()));
+   pb.members.clear();
+--- a/tyra/engine/inc/debug/night_ablation.hpp
++++ b/tyra/engine/inc/debug/night_ablation.hpp
+@@ -41,4 +41,42 @@
+  if(disabled(bit)){++c.skipped;return true;}++c.executed;return false;
+ }
+ inline void submitted(unsigned bit){if(collectCounters)++commonCounter[slot(bit)].submitted;}
++// PRIVATE independent wild variants; no pool-cache candidate in this dialect.
++inline unsigned wildVariant=0;
++inline bool wildEnabled=false;
++inline bool setWildVariant(unsigned variant,bool enabled){
++ if((variant!=0&&variant!=5&&variant!=6)||(variant==0&&enabled)){valid=false;return false;}
++ wildVariant=variant;wildEnabled=enabled;return true;
+ }
++inline bool wildActive(unsigned variant){return wildVariant==variant&&wildEnabled;}
++struct WildCounter{uint32_t invocations=0,eligible=0,applied=0,fallback=0,boundary=0,nonfinite=0,coldCompared=0,coldMismatches=0,inputUnits=0,outputUnits=0,invalid=0;};
++inline WildCounter wildPlaneCounter{},wildConeCounter{};
++inline void wildAdd(WildCounter& c,uint32_t& field,uint32_t value){
++ if(value>~uint32_t(0)-field){if(c.invalid!=~uint32_t(0)){++c.invalid;}valid=false;return;}field+=value;
++}
++inline void observeWild(unsigned variant,bool eligible,bool applied,bool boundary,bool nonfinite,bool compared,bool mismatch,uint32_t inputUnits,uint32_t outputUnits){
++ if(!collectCounters)return;
++ if(variant!=5&&variant!=6){valid=false;return;}
++ auto& c=variant==5?wildPlaneCounter:wildConeCounter;
++ if((applied&&!eligible)||(applied!=bool(wildActive(variant)&&eligible))||((boundary||nonfinite)&&eligible)||(mismatch&&!compared)){
++  if(c.invalid!=~uint32_t(0)){++c.invalid;}valid=false;return;
++ }
++ wildAdd(c,c.invocations,1);wildAdd(c,c.eligible,eligible?1u:0u);wildAdd(c,c.applied,applied?1u:0u);wildAdd(c,c.fallback,eligible?0u:1u);wildAdd(c,c.boundary,boundary?1u:0u);wildAdd(c,c.nonfinite,nonfinite?1u:0u);wildAdd(c,c.coldCompared,compared?1u:0u);wildAdd(c,c.coldMismatches,mismatch?1u:0u);wildAdd(c,c.inputUnits,inputUnits);wildAdd(c,c.outputUnits,outputUnits);
++ if(mismatch){valid=false;}
++}
++
++// PRIVATE independent kind7 source color-table experiment.
++inline bool poolTableSelected=false,poolTableEnabled=false;
++inline bool setPoolTableEnabled(bool enabled){poolTableEnabled=enabled;return true;}
++struct PoolTableCounter{uint32_t invocations=0,eligible=0,applied=0,fallback=0,sourceVertices=0,admittedVertices=0,baselineColorQwords=0,tableColorQwords=0,coldCompared=0,coldMismatches=0,invalid=0;};
++inline PoolTableCounter poolTableCounter{};
++inline void tableAdd(uint32_t& field,uint32_t value){auto& c=poolTableCounter;if(value>~uint32_t(0)-field){if(c.invalid!=~uint32_t(0)){++c.invalid;}valid=false;return;}field+=value;}
++inline void observePoolTable(bool eligible,uint32_t sourceVertices,bool compared,bool mismatch){
++ if(!poolTableSelected||!collectCounters)return;
++ auto& c=poolTableCounter;
++ if((eligible&&(sourceVertices==0||sourceVertices>75))||(mismatch&&!compared)){if(c.invalid!=~uint32_t(0)){++c.invalid;}valid=false;return;}
++ const bool applied=poolTableEnabled&&eligible;
++ tableAdd(c.invocations,1);tableAdd(c.eligible,eligible?1u:0u);tableAdd(c.applied,applied?1u:0u);tableAdd(c.fallback,eligible?0u:1u);tableAdd(c.sourceVertices,sourceVertices);tableAdd(c.admittedVertices,applied?sourceVertices:0u);tableAdd(c.baselineColorQwords,sourceVertices);tableAdd(c.tableColorQwords,applied?2u:0u);tableAdd(c.coldCompared,compared?1u:0u);tableAdd(c.coldMismatches,mismatch?1u:0u);
++ if(mismatch){valid=false;}
++}
++}
+--- a/tyra/engine/inc/debug/night_plan.hpp
++++ b/tyra/engine/inc/debug/night_plan.hpp
+@@ -4,10 +4,13 @@
+ #include <ctype.h>
+ namespace NightPlan {
+ struct Config {unsigned kind,order,joint,restored;};
+-inline bool valid(const Config& c){return c.order<=1&&((c.kind==0&&c.joint==0&&c.restored==0)||(c.kind==1&&c.joint==31&&c.restored==0)||(c.kind==2&&c.joint==31&&c.restored>0&&(c.restored&~c.joint)==0)||(c.kind==3&&c.joint==0&&c.restored>0&&c.restored<=7));}
++inline bool valid(const Config& c){return c.order<=1&&((c.kind==0&&c.joint==0&&c.restored==0)||(c.kind==1&&c.joint==31&&c.restored==0)||(c.kind==2&&c.joint==31&&c.restored>0&&(c.restored&~c.joint)==0)||(c.kind==3&&c.joint==0&&c.restored>0&&c.restored<=7)||((c.kind==5||c.kind==6||c.kind==7)&&c.joint==0&&c.restored==0));}
+ inline bool readConfig(const char* path,Config& cfg){FILE* f=fopen(path,"r");if(!f)return false;unsigned values[4]{};bool good=true;int c=fgetc(f);
+  for(unsigned i=0;i<4;++i){while(c!=EOF&&isspace(static_cast<unsigned char>(c)))c=fgetc(f);if(c<'0'||c>'9'){good=false;break;}unsigned n=0;do{unsigned digit=unsigned(c-'0');if(n>(0xffffffffu-digit)/10u){good=false;break;}n=n*10u+digit;c=fgetc(f);}while(c>='0'&&c<='9');if(!good)break;values[i]=n;if(c!=EOF&&!isspace(static_cast<unsigned char>(c))){good=false;break;}}
+  while(good&&c!=EOF){if(!isspace(static_cast<unsigned char>(c)))good=false;c=fgetc(f);}if(ferror(f))good=false;fclose(f);cfg={values[0],values[1],values[2],values[3]};return good&&valid(cfg);}
+-inline bool build(const Config& c,NightSampler::PhaseConfig (&out)[3]){if(!valid(c))return false;for(unsigned p=0;p<3;++p){bool middle=(p==1)!=(c.order==1);out[p]=c.kind==0?NightSampler::PhaseConfig{0,middle?1u:0u}:c.kind==1?NightSampler::PhaseConfig{middle?c.joint:0u,1}:c.kind==3?NightSampler::PhaseConfig{0,1}:NightSampler::PhaseConfig{middle?(c.joint&~c.restored):c.joint,1};}return true;}
++inline bool build(const Config& c,NightSampler::PhaseConfig (&out)[3]){if(!valid(c))return false;for(unsigned p=0;p<3;++p){bool middle=(p==1)!=(c.order==1);out[p]=c.kind==0?NightSampler::PhaseConfig{0,middle?1u:0u}:c.kind==1?NightSampler::PhaseConfig{middle?c.joint:0u,1}:(c.kind==3||c.kind==5||c.kind==6||c.kind==7)?NightSampler::PhaseConfig{0,1}:NightSampler::PhaseConfig{middle?(c.joint&~c.restored):c.joint,1};}return true;}
+ inline unsigned extraMask(const Config& c,unsigned p){if(c.kind!=3)return 0;bool middle=(p==1)!=(c.order==1);return middle?c.restored:0;}
++inline unsigned wildVariant(const Config& c){return(c.kind==5||c.kind==6)?c.kind:0;}
++inline bool wildEnabled(const Config& c,unsigned p){return wildVariant(c)&&((p==1)!=(c.order==1));}
++inline bool poolTableEnabled(const Config& c,unsigned p){return c.kind==7&&((p==1)!=(c.order==1));}
+ }
+--- a/tyra/engine/inc/debug/night_runtime.hpp
++++ b/tyra/engine/inc/debug/night_runtime.hpp
+@@ -13,10 +13,10 @@
+  printf("LOG: NIGHTCONFIG order=%u valid=%u profile=0 hardwareTrace=0 ringBytes=0 ordinaryClocks=1 fixedDt=0 sampleBytes=%u chunkBytes=%u phases=3 phaseFrames=1800 taxFirst=800 taxLoops=320 chunkFrames=64 sampleFirst=900 sampleCount=128 video=%u display=%u depth=%u width=%u height=%u refreshMilliHz=%u requested=%u night=%u\n",unsigned(planConfig.order),unsigned(NightSampler::valid?1u:0u),unsigned(sizeof(NightSampler::samples)),unsigned(sizeof(NightSampler::chunks)),unsigned(video),unsigned(display),unsigned(depth),unsigned(width),unsigned(height),unsigned(refreshMilliHz),unsigned(requested),unsigned(night));
+  printf("LOG: NIGHTQUALITY rasterWidth=%u rasterHeight=%u scaleX=%u scaleY=%u\n",unsigned(rasterWidth),unsigned(rasterHeight),unsigned(scaleX),unsigned(scaleY));fflush(stdout);
+ }
+-inline void begin(unsigned pacing){if(!initialized)return;unsigned index=NightSampler::expectedIndex,p=index/1800,o=index%1800;if(p<3&&o==0){bool applied=NightAblation::setMask(NightSampler::phaseMask(index));bool extraApplied=NightAblation::setExtraMask(NightPlan::extraMask(planConfig,p));NightSampler::valid=NightSampler::valid&&applied&&extraApplied&&NightAblation::valid;printf("LOG: NIGHTPHASE phase=%u first=%u mask=%u appliedMask=%u sampler=%u countReads=%u samplePtr=%08x\n",unsigned(p),unsigned(index),unsigned(NightSampler::plan[p].mask),unsigned(NightAblation::mask),unsigned(NightSampler::mode(p)?1u:0u),unsigned(NightSampler::mode(p)?262u:6u),unsigned(reinterpret_cast<uintptr_t>(NightSampler::samples)));printf("LOG: NIGHTEXTRAPHASE phase=%u first=%u extraMask=%u appliedExtraMask=%u\n",unsigned(p),unsigned(index),unsigned(NightPlan::extraMask(planConfig,p)),unsigned(NightAblation::extraMask));fflush(stdout);}NightAblation::collectCounters=p<3&&(o==750||o==1155);if(NightAblation::collectCounters){for(unsigned i=0;i<7;++i)NightAblation::commonCounter[i]=Counter{};for(unsigned i=0;i<3;++i)NightAblation::extraCounter[i]=Counter{};}NightSampler::beginLoop(index,pacing);}
++inline void begin(unsigned pacing){if(!initialized)return;unsigned index=NightSampler::expectedIndex,p=index/1800,o=index%1800;if(p<3&&o==0){bool applied=NightAblation::setMask(NightSampler::phaseMask(index));bool extraApplied=NightAblation::setExtraMask(NightPlan::extraMask(planConfig,p));NightAblation::poolTableSelected=planConfig.kind==7;bool tableApplied=NightAblation::setPoolTableEnabled(NightPlan::poolTableEnabled(planConfig,p));bool wildApplied=NightAblation::setWildVariant(NightPlan::wildVariant(planConfig),NightPlan::wildEnabled(planConfig,p));NightSampler::valid=NightSampler::valid&&applied&&extraApplied&&wildApplied&&tableApplied&&NightAblation::valid;printf("LOG: NIGHTPHASE phase=%u first=%u mask=%u appliedMask=%u sampler=%u countReads=%u samplePtr=%08x\n",unsigned(p),unsigned(index),unsigned(NightSampler::plan[p].mask),unsigned(NightAblation::mask),unsigned(NightSampler::mode(p)?1u:0u),unsigned(NightSampler::mode(p)?262u:6u),unsigned(reinterpret_cast<uintptr_t>(NightSampler::samples)));printf("LOG: NIGHTEXTRAPHASE phase=%u first=%u extraMask=%u appliedExtraMask=%u\n",unsigned(p),unsigned(index),unsigned(NightPlan::extraMask(planConfig,p)),unsigned(NightAblation::extraMask));printf("LOG: NIGHTWILDPHASE phase=%u first=%u variant=%u enabled=%u appliedVariant=%u appliedEnabled=%u\n",unsigned(p),unsigned(index),unsigned(NightPlan::wildVariant(planConfig)),unsigned(NightPlan::wildEnabled(planConfig,p)?1u:0u),unsigned(NightAblation::wildVariant),unsigned(NightAblation::wildEnabled?1u:0u));printf("LOG: NIGHTTABLEPHASE phase=%u first=%u selected=%u enabled=%u appliedSelected=%u appliedEnabled=%u\n",unsigned(p),unsigned(index),unsigned(planConfig.kind==7?1u:0u),unsigned(NightPlan::poolTableEnabled(planConfig,p)?1u:0u),unsigned(NightAblation::poolTableSelected?1u:0u),unsigned(NightAblation::poolTableEnabled?1u:0u));fflush(stdout);}NightAblation::collectCounters=p<3&&(o==750||o==1155);if(NightAblation::collectCounters){for(unsigned i=0;i<7;++i)NightAblation::commonCounter[i]=Counter{};for(unsigned i=0;i<3;++i)NightAblation::extraCounter[i]=Counter{};NightAblation::wildPlaneCounter=NightAblation::WildCounter{};NightAblation::wildConeCounter=NightAblation::WildCounter{};NightAblation::poolTableCounter=NightAblation::PoolTableCounter{};}NightSampler::beginLoop(index,pacing);}
+ inline void afterLoop(unsigned pacing){if(!initialized)return;using namespace NightSampler;endLoop(pacing);unsigned p=frame/1800,o=frame%1800;valid=valid&&NightAblation::valid;if(p>=3)return;
+  NightAblation::collectCounters=false;
+- if(o==750||o==1155){printf("LOG: NIGHTGATES phase=%u offset=%u first=%u frames=1 mask=%u",unsigned(p),unsigned(o),unsigned(o),unsigned(plan[p].mask));for(unsigned i=0;i<7;++i){unsigned bit=1u<<i;const auto& c=NightAblation::commonCounter[i];printf(" attempted%u=%u executed%u=%u skipped%u=%u submitted%u=%u",unsigned(bit),unsigned(c.attempted),unsigned(bit),unsigned(c.executed),unsigned(bit),unsigned(c.skipped),unsigned(bit),unsigned(c.submitted));}printf("\n");printf("LOG: NIGHTEXTRAGATES phase=%u offset=%u first=%u frames=1 extraMask=%u",unsigned(p),unsigned(o),unsigned(o),unsigned(NightAblation::extraMask));for(unsigned i=0;i<3;++i){unsigned bit=1u<<i;const auto& c=NightAblation::extraCounter[i];printf(" attempted%u=%u executed%u=%u skipped%u=%u submitted%u=%u",unsigned(bit),unsigned(c.attempted),unsigned(bit),unsigned(c.executed),unsigned(bit),unsigned(c.skipped),unsigned(bit),unsigned(c.submitted));}printf("\n");fflush(stdout);}
++ if(o==750||o==1155){printf("LOG: NIGHTGATES phase=%u offset=%u first=%u frames=1 mask=%u",unsigned(p),unsigned(o),unsigned(o),unsigned(plan[p].mask));for(unsigned i=0;i<7;++i){unsigned bit=1u<<i;const auto& c=NightAblation::commonCounter[i];printf(" attempted%u=%u executed%u=%u skipped%u=%u submitted%u=%u",unsigned(bit),unsigned(c.attempted),unsigned(bit),unsigned(c.executed),unsigned(bit),unsigned(c.skipped),unsigned(bit),unsigned(c.submitted));}printf("\n");printf("LOG: NIGHTEXTRAGATES phase=%u offset=%u first=%u frames=1 extraMask=%u",unsigned(p),unsigned(o),unsigned(o),unsigned(NightAblation::extraMask));for(unsigned i=0;i<3;++i){unsigned bit=1u<<i;const auto& c=NightAblation::extraCounter[i];printf(" attempted%u=%u executed%u=%u skipped%u=%u submitted%u=%u",unsigned(bit),unsigned(c.attempted),unsigned(bit),unsigned(c.executed),unsigned(bit),unsigned(c.skipped),unsigned(bit),unsigned(c.submitted));}printf("\n");printf("LOG: NIGHTWILDGATES phase=%u offset=%u first=%u frames=1 variant=%u enabled=%u",unsigned(p),unsigned(o),unsigned(o),unsigned(NightAblation::wildVariant),unsigned(NightAblation::wildEnabled?1u:0u));printf(" planeInvocations=%u planeEligible=%u planeApplied=%u planeFallback=%u planeBoundary=%u planeNonfinite=%u planeColdCompared=%u planeColdMismatches=%u planeInputUnits=%u planeOutputUnits=%u planeInvalid=%u",unsigned(NightAblation::wildPlaneCounter.invocations),unsigned(NightAblation::wildPlaneCounter.eligible),unsigned(NightAblation::wildPlaneCounter.applied),unsigned(NightAblation::wildPlaneCounter.fallback),unsigned(NightAblation::wildPlaneCounter.boundary),unsigned(NightAblation::wildPlaneCounter.nonfinite),unsigned(NightAblation::wildPlaneCounter.coldCompared),unsigned(NightAblation::wildPlaneCounter.coldMismatches),unsigned(NightAblation::wildPlaneCounter.inputUnits),unsigned(NightAblation::wildPlaneCounter.outputUnits),unsigned(NightAblation::wildPlaneCounter.invalid));printf(" coneInvocations=%u coneEligible=%u coneApplied=%u coneFallback=%u coneBoundary=%u coneNonfinite=%u coneColdCompared=%u coneColdMismatches=%u coneInputUnits=%u coneOutputUnits=%u coneInvalid=%u",unsigned(NightAblation::wildConeCounter.invocations),unsigned(NightAblation::wildConeCounter.eligible),unsigned(NightAblation::wildConeCounter.applied),unsigned(NightAblation::wildConeCounter.fallback),unsigned(NightAblation::wildConeCounter.boundary),unsigned(NightAblation::wildConeCounter.nonfinite),unsigned(NightAblation::wildConeCounter.coldCompared),unsigned(NightAblation::wildConeCounter.coldMismatches),unsigned(NightAblation::wildConeCounter.inputUnits),unsigned(NightAblation::wildConeCounter.outputUnits),unsigned(NightAblation::wildConeCounter.invalid));printf("\n");printf("LOG: NIGHTTABLEGATES phase=%u offset=%u first=%u frames=1 selected=%u enabled=%u invocations=%u eligible=%u applied=%u fallback=%u sourceVertices=%u admittedVertices=%u baselineColorQwords=%u tableColorQwords=%u coldCompared=%u coldMismatches=%u invalid=%u\n",unsigned(p),unsigned(o),unsigned(o),unsigned(NightAblation::poolTableSelected?1u:0u),unsigned(NightAblation::poolTableEnabled?1u:0u),unsigned(NightAblation::poolTableCounter.invocations),unsigned(NightAblation::poolTableCounter.eligible),unsigned(NightAblation::poolTableCounter.applied),unsigned(NightAblation::poolTableCounter.fallback),unsigned(NightAblation::poolTableCounter.sourceVertices),unsigned(NightAblation::poolTableCounter.admittedVertices),unsigned(NightAblation::poolTableCounter.baselineColorQwords),unsigned(NightAblation::poolTableCounter.tableColorQwords),unsigned(NightAblation::poolTableCounter.coldCompared),unsigned(NightAblation::poolTableCounter.coldMismatches),unsigned(NightAblation::poolTableCounter.invalid));fflush(stdout);}
+  if(o>=1200&&o<1328){if(!file){valid=false;return;}unsigned i=o-1200;if(i<5){const auto& c=chunks[p][i];fprintf(file,"LOG: NIGHTCHUNK phase=%u i=%u first=%u loops=%u elapsed=%u pacing=%u totalFlips=%u renderedFlips=%u syntheticFlips=%u\n",unsigned(p),unsigned(i),unsigned(c.first),unsigned(c.loops),unsigned(c.elapsed),unsigned(c.pacing),unsigned(c.totalFlips),unsigned(c.renderedFlips),unsigned(c.syntheticFlips));}if(mode(p)){const auto& s=samples[i];fprintf(file,"LOG: NIGHTRAW phase=%u i=%u frame=%u entryPeriod=%u wholeLoop=%u pacing=%u totalFlips=%u renderedFlips=%u syntheticFlips=%u presentPeriod=%u renderedPeriod=%u lastKind=%u sequence=%u context=%u\n",unsigned(p),unsigned(i),unsigned(s.frame),unsigned(s.entryPeriod),unsigned(s.wholeLoop),unsigned(s.pacing),unsigned(s.totalFlips),unsigned(s.renderedFlips),unsigned(s.syntheticFlips),unsigned(s.presentPeriod),unsigned(s.renderedPeriod),unsigned(s.lastKind),unsigned(s.sequence),unsigned(s.context));}if(ferror(file))valid=false;if(i==127){markExported(p);fprintf(file,"LOG: NIGHTWINDOW phase=%u sampler=%u raw=%u chunks=%u valid=%u\n",unsigned(p),unsigned(mode(p)?1u:0u),unsigned(counts[p]),unsigned(chunkCounts[p]),unsigned(valid?1u:0u));if(fflush(file)!=0)valid=false;}}
+  if(frame==5399&&!done){done=true;if(file){if(fclose(file)!=0)valid=false;file=nullptr;}printf("LOG: NIGHTDONE order=%u valid=%u loops=5400\n",unsigned(planConfig.order),unsigned(complete()?1u:0u));fflush(stdout);}
+ }
+--- a/tyra/engine/inc/renderer/3d/pipeline/static/core/bag/stapip_bag.hpp
++++ b/tyra/engine/inc/renderer/3d/pipeline/static/core/bag/stapip_bag.hpp
+@@ -9,6 +9,7 @@
+ */
+ 
+ #pragma once
++#include "renderer/3d/pipeline/static/core/stapip_pool_color_table.hpp"
+ 
+ #include "math/vec4.hpp"
+ #include "./stapip_info_bag.hpp"
+@@ -151,6 +152,7 @@
+    * the EE, into the qbuffer copy pool, and clips that.
+    */
+   bool stripped;
++  const ExperimentalPoolTable::View* experimentalPoolTable = nullptr;
+ 
+   /**
+    * @param maxVertCount This parameter is available in renderer API.
+--- a/tyra/engine/inc/renderer/3d/pipeline/static/core/programs/stapip_vu1_shared_defines.h
++++ b/tyra/engine/inc/renderer/3d/pipeline/static/core/programs/stapip_vu1_shared_defines.h
+@@ -92,6 +92,8 @@
+ // The count itself remains in bits 0-9; clip programs keep all six high bits
+ // for their plane mask.
+ #define VU1_STAPIP_EMIT_STATE_FLAG 0x8000
++// Private TC-only local layout marker; clip mask bits never receive this flag.
++#define VU1_STAPIP_POOL2_FLAG 0x0400
+ 
+ // Modified by TyraX: VU1 clipping scratch at the top of VU1 data memory
+ // (1024 qwords total). The double buffer is capped at VU1_STAPIP_DBUFFER_END
+--- /dev/null
++++ b/tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_pool_color_packet.hpp
+@@ -0,0 +1,16 @@
++#pragma once
++#include <packet2_utils.h>
++#include "stapip_pool_color_table.hpp"
++namespace Tyra { namespace ExperimentalPoolTable {
++// Validated Slice, original contiguous source streams and N<=75 are mandatory.
++// Vertices/ST retain existing REF ownership; the 48-byte table is copied inline.
++inline void appendInput(packet2_t* packet,const void* vertices,const void* sts,
++                        uint32_t count,const Slice& slice) {
++ packet2_utils_vu_add_unpack_data(packet,2,const_cast<void*>(vertices),count,true);
++ packet2_utils_vu_add_unpack_data(packet,2+count,const_cast<void*>(sts),count,true);
++ packet2_utils_vu_open_unpack(packet,2+2*count,true);
++ for(unsigned i=0;i<4;++i) packet2_add_u32(packet,slice.descriptor[i]);
++ for(unsigned c=0;c<2;++c) for(unsigned i=0;i<4;++i) packet2_add_u32(packet,slice.colors[c].word[i]);
++ packet2_utils_vu_close_unpack(packet);
++}
++} }
+--- /dev/null
++++ b/tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_pool_color_table.hpp
+@@ -0,0 +1,33 @@
++#pragma once
++#include <cstdint>
++#include <cstring>
++namespace Tyra { namespace ExperimentalPoolTable {
++struct alignas(16) ColorBits { uint32_t word[4]; };
++struct alignas(16) Slice { uint32_t descriptor[4]; ColorBits colors[2]; };
++struct View { const ColorBits* colors=nullptr; uint32_t members=0,total=0,generation=0; };
++struct Admission { bool inside, list, unlitTC, contiguous, currentGeneration; };
++inline bool finiteNonnegative(uint32_t w) { return (w & 0x80000000u)==0 && (w & 0x7f800000u)!=0x7f800000u; }
++// Caller owns immutable/current run metadata. Failure leaves output unchanged.
++inline bool describe(const ColorBits* memberColors,uint32_t members,uint32_t total,
++                     uint32_t offset,uint32_t count,const Admission& a,Slice& out) {
++ if(!memberColors || !a.inside || !a.list || !a.unlitTC || !a.contiguous || !a.currentGeneration) return false;
++ if(members==0 || members>16 || total!=members*96u || count==0 || count>75 || count%3 || offset%3 || offset>total || count>total-offset) return false;
++ const uint32_t first=offset/96u,last=(offset+count-1)/96u;
++ if(last>=members || last-first>1) return false;
++ const ColorBits& c0=memberColors[first];const ColorBits& c1=memberColors[last];
++ for(unsigned j=0;j<3;++j) if(!finiteNonnegative(c0.word[j]) || !finiteNonnegative(c1.word[j])) return false;
++ if(c0.word[3]!=0x43000000u || c1.word[3]!=0x43000000u) return false; // exact alpha128
++ Slice ready{};ready.descriptor[0]=first==last ? count : 96u-offset%96u;
++ ready.descriptor[1]=count;ready.descriptor[2]=1;ready.colors[0]=c0;ready.colors[1]=c1;
++ std::memcpy(&out,&ready,sizeof ready);return true;
++}
++inline uint32_t inputExtent(uint32_t count) {return 2+2*count+3;}
++inline uint32_t totalExtent(uint32_t count) {return inputExtent(count)+9+3*count;}
++// Oracle only: never call this scanning comparator in measured windows.
++inline bool expansionMatches(const Slice& s,const void* baseline,uint32_t count) {
++ if(!baseline || count==0 || count>75 || count%3 || s.descriptor[1]!=count || s.descriptor[2]!=1 || s.descriptor[3]!=0 || s.descriptor[0]==0 || s.descriptor[0]>count || s.descriptor[0]%3) return false;
++ for(uint32_t i=0;i<count;++i) if(std::memcmp(static_cast<const unsigned char*>(baseline)+i*16u,&s.colors[i<s.descriptor[0]?0:1],16)!=0) return false;
++ return true;
++}
++static_assert(sizeof(ColorBits)==16 && sizeof(Slice)==48,"Pool2 VIF layout");
++} }
+--- a/tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_qbuffer.hpp
++++ b/tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_qbuffer.hpp
+@@ -98,6 +98,10 @@
+   bool any() const;
+ 
+   StaPipBag* bag;
++  ExperimentalPoolTable::Slice poolTableSlice{};
++  bool poolTableSliceValid = false;
++  bool poolTableApplied = false;
++  void capturePoolTable(StaPipBag* source, u32 offset, u32 count);
+ 
+   Vec4* vertices;
+   Vec4* sts;
+--- a/tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.hpp
++++ b/tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.hpp
+@@ -184,6 +184,8 @@
+   u32 primKey;
+   u32 depthScaleBits;
+   u8 singleColor;
++  u32 poolLayout;
++  u32 poolGeneration;
+   u8 stripped;
+ 
+   /** Packages = ceil(count / maxVertCount). */
+@@ -345,6 +347,8 @@
+   u32 depthScaleBits;
+   u32 programAddr;
+   u8 singleColor;
++  u32 poolLayout;
++  u32 poolGeneration;
+   u8 stripped;
+ 
+   /** Packages = ceil(count / maxVertCount). */
+--- a/tyra/engine/src/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_tc_vu1.vclpp
++++ b/tyra/engine/src/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_tc_vu1.vclpp
+@@ -62,10 +62,25 @@
+     ; their primitive tag. Keeping every tag one-loop avoids the physical-GS
+     ; hang seen with the superficially cheaper multi-loop A+D experiment.
+     ilw.w   stateFlag,          0(buffer)
++    ; Private Pool2 marker is TC-only and re-read for every MSCNT package.
++    iaddiu  poolMarkerMask,      vi00,            VU1_STAPIP_POOL2_FLAG
++    iand    poolColorEnabled,    stateFlag,       poolMarkerMask
+     iadd    vertexCount,        stateFlag,      vi00
+     iaddiu  countMask,          vi00,            VU1_STAPIP_COUNT_MASK
+     iand    vertexCount,        vertexCount,     countMask
+     iadd    stqData,            vertexData,     vertexCount
++    ; Private V2: initialise branch-guarded integer values on both layouts.
++    iaddiu  colorRunRemaining,  vi00,            0
++    iaddiu  colorStride,        vi00,            0
++    iblez   poolColorEnabled,   poolLegacyLayout
++    ; Private V3: table sentinel reuses stride, avoiding a persistent marker VI.
++    iaddi   colorStride,        vi00,            -1
++    iadd    colorDescriptor,    stqData,        vertexCount
++    ilw.x   colorRunRemaining,  0(colorDescriptor)
++    iaddiu  colorData,          colorDescriptor, 1
++    iaddiu  kickAddress,        colorData,      2
++    b       setDestAddr
++poolLegacyLayout:
+     iadd    colorData,          stqData,        vertexCount
+     iblez   singleColorEnabled, setDestAddrMultiColor
+     iadd    kickAddress,        stqData,        vertexCount
+@@ -120,9 +135,16 @@
+ 
+         ;--- Load vertices colors (a single colour reads three copies,
+         ;--- stride 0 - see setDestAddr)
++        ibgez   colorStride,       poolLegacyLoad0
++        lq      color1,   (colorData)
++        lq      color2,   (colorData)
++        lq      color3,   (colorData)
++        b       poolColorsReady0
++poolLegacyLoad0:
+         lq      color1,   (colorData)
+         lq      color2,   1(colorData)
+         lq      color3,   2(colorData)
++poolColorsReady0:
+ 
+         ;--- Load vertex1
+         lq      vertex1,  (vertexData)
+@@ -185,7 +207,14 @@
+ 
+         iaddiu  vertexData,     vertexData,     3                         
+         iaddiu  stqData,        stqData,        3  
++        ibgez   colorStride,       poolLegacyAdvance0
++        iaddi   colorRunRemaining, colorRunRemaining, -3
++        ibne    colorRunRemaining, vi00, poolAdvanceDone0
++        iaddiu  colorData, colorData, 1
++        b       poolAdvanceDone0
++poolLegacyAdvance0:
+         iadd    colorData,      colorData,      colorStride
++poolAdvanceDone0:
+         iaddiu  destAddress,    destAddress,    9
+ 
+         ;--- Fix loop
+@@ -208,9 +237,16 @@
+ 
+         ;--- Load vertices colors (a single colour reads three copies,
+         ;--- stride 0 - see setDestAddr)
++        ibgez   colorStride,       poolLegacyLoad1
++        lq      color1,   (colorData)
++        lq      color2,   (colorData)
++        lq      color3,   (colorData)
++        b       poolColorsReady1
++poolLegacyLoad1:
+         lq      color1,   (colorData)
+         lq      color2,   1(colorData)
+         lq      color3,   2(colorData)
++poolColorsReady1:
+ 
+         ;--- Load vertex1
+         lq      vertex1,  (vertexData)
+@@ -270,7 +306,14 @@
+ 
+         iaddiu  vertexData,     vertexData,     3                         
+         iaddiu  stqData,        stqData,        3  
++        ibgez   colorStride,       poolLegacyAdvance1
++        iaddi   colorRunRemaining, colorRunRemaining, -3
++        ibne    colorRunRemaining, vi00, poolAdvanceDone1
++        iaddiu  colorData, colorData, 1
++        b       poolAdvanceDone1
++poolLegacyAdvance1:
+         iadd    colorData,      colorData,      colorStride
++poolAdvanceDone1:
+         iaddiu  destAddress,    destAddress,    9
+ 
+         ;--- Fix loop
+@@ -284,9 +327,16 @@
+ 
+         ;--- Load vertices colors (a single colour reads three copies,
+         ;--- stride 0 - see setDestAddr)
++        ibgez   colorStride,       poolLegacyLoad2
++        lq      color1,   (colorData)
++        lq      color2,   (colorData)
++        lq      color3,   (colorData)
++        b       poolColorsReady2
++poolLegacyLoad2:
+         lq      color1,   (colorData)
+         lq      color2,   1(colorData)
+         lq      color3,   2(colorData)
++poolColorsReady2:
+ 
+         ;--- Load vertex1
+         lq      vertex1,  (vertexData)
+@@ -343,7 +393,14 @@
+ 
+         iaddiu  vertexData,     vertexData,     3                         
+         iaddiu  stqData,        stqData,        3  
++        ibgez   colorStride,       poolLegacyAdvance2
++        iaddi   colorRunRemaining, colorRunRemaining, -3
++        ibne    colorRunRemaining, vi00, poolAdvanceDone2
++        iaddiu  colorData, colorData, 1
++        b       poolAdvanceDone2
++poolLegacyAdvance2:
+         iadd    colorData,      colorData,      colorStride
++poolAdvanceDone2:
+         iaddiu  destAddress,    destAddress,    9
+ 
+         ;--- Fix loop
+--- a/tyra/engine/src/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_tc_vu1_program.cpp
++++ b/tyra/engine/src/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_tc_vu1_program.cpp
+@@ -9,6 +9,7 @@
+ */
+ 
+ #include "debug/debug.hpp"
++#include "renderer/3d/pipeline/static/core/stapip_pool_color_packet.hpp"
+ #include "renderer/3d/pipeline/static/core/programs/cull/stapip_cull_tc_vu1_program.hpp"
+ 
+ extern u32 StaPipVU1Cull_TC_CodeStart __attribute__((section(".vudata")));
+@@ -33,6 +34,11 @@
+ 
+ void StaPipCullTCVU1Program::addProgramQBufferDataToPacket(
+     packet2_t* packet, StaPipQBuffer* qbuffer) const {
++  if(qbuffer->poolTableApplied) {
++    ExperimentalPoolTable::appendInput(packet,qbuffer->vertices,qbuffer->sts,
++        qbuffer->size,qbuffer->poolTableSlice);
++    return;
++  }
+   u32 addr = VU1_STAPIP_VERT_DATA_ADDR;
+ 
+   // Add vertices
+--- a/tyra/engine/src/renderer/3d/pipeline/static/core/stapip_qbuffer.cpp
++++ b/tyra/engine/src/renderer/3d/pipeline/static/core/stapip_qbuffer.cpp
+@@ -144,6 +144,13 @@
+   // Modified by TyraX: a package handed over whole keeps the bag's topology.
+   stripped = pkg.bag->stripped;
+   bag = pkg.bag;
++  if (bag->experimentalPoolTable != nullptr && bag->vertices != nullptr) {
++    const uintptr_t first = reinterpret_cast<uintptr_t>(bag->vertices);
++    const uintptr_t here = reinterpret_cast<uintptr_t>(vertices);
++    if (here >= first && (here-first)%sizeof(Vec4)==0 &&
++        (here-first)/sizeof(Vec4) <= bag->count)
++      capturePoolTable(bag, static_cast<u32>((here-first)/sizeof(Vec4)), size);
++  }
+ }
+ 
+ void StaPipQBuffer::fillByPointer(StaPipBag* source, u32 offset, u32 count) {
+@@ -162,6 +169,7 @@
+   clipPlaneMask = 0;
+   stripped = source->stripped;
+   bag = source;
++  capturePoolTable(source, offset, count);
+ }
+ 
+ void StaPipQBuffer::fillByCopyMax(const StaPipBagPackage& pkg1,
+@@ -315,6 +323,8 @@
+ }
+ 
+ void StaPipQBuffer::deallocateDynamicData() {
++  poolTableSliceValid = false;
++  poolTableApplied = false;
+   if (!_isDynamicallyAllocated) return;
+ 
+   // Pooled arrays are kept for reuse - only true heap fallbacks are freed.
+@@ -461,3 +471,19 @@
+ }
+ 
+ }  // namespace Tyra
++
++namespace Tyra {
++void StaPipQBuffer::capturePoolTable(StaPipBag* source,u32 offset,u32 count) {
++  const auto* view=source->experimentalPoolTable;
++  if(view==nullptr || source->color==nullptr || source->texture==nullptr ||
++     source->color->many==nullptr || source->texture->coordinates==nullptr ||
++     offset>source->count || count>source->count-offset ||
++     vertices!=source->vertices+offset || sts!=source->texture->coordinates+offset ||
++     colors!=reinterpret_cast<const Vec4*>(source->color->many+offset)) return;
++  const bool current=source->color->contentVersion!=nullptr &&
++      view->generation==*source->color->contentVersion && view->total==source->count;
++  const ExperimentalPoolTable::Admission admission{true,!source->stripped,true,true,current};
++  poolTableSliceValid=ExperimentalPoolTable::describe(view->colors,view->members,
++      view->total,offset,count,admission,poolTableSlice);
++}
++}
+--- a/tyra/engine/src/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.cpp
++++ b/tyra/engine/src/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.cpp
+@@ -1,4 +1,5 @@
+ #include "renderer/core/paths/path1/frame_submission.hpp"
++#include "debug/night_ablation.hpp"
+ #include "renderer/3d/pipeline/static/core/stapip_spot_bounds.hpp"
+ /*
+ # _____        ____   ___
+@@ -367,6 +368,7 @@
+          a.count == b.count && a.maxVertCount == b.maxVertCount &&
+          a.bboxVersion == b.bboxVersion && a.primKey == b.primKey &&
+          a.depthScaleBits == b.depthScaleBits &&
++         a.poolLayout == b.poolLayout && a.poolGeneration == b.poolGeneration &&
+          a.singleColor == b.singleColor && a.stripped == b.stripped;
+ }
+ 
+@@ -481,6 +483,8 @@
+       item.primKey = k.primKey;
+       item.depthScaleBits = k.depthScaleBits;
+       item.singleColor = k.singleColor;
++      item.poolLayout = k.poolLayout;
++      item.poolGeneration = k.poolGeneration;
+       item.stripped = k.stripped;
+       item.blockQw = 0;
+       memset(item.ready.get(), 0, item.packages);
+@@ -505,6 +509,8 @@
+   entry.primKey = key.primKey;
+   entry.depthScaleBits = key.depthScaleBits;
+   entry.singleColor = key.singleColor;
++      entry.poolLayout = key.poolLayout;
++      entry.poolGeneration = key.poolGeneration;
+   entry.stripped = key.stripped;
+   entry.packages = key.packages;
+   entry.blockQw = 0;
+@@ -557,7 +563,8 @@
+          // and must not, because its meaning is the bounding box.
+          a.contentVersion == b.contentVersion && a.primKey == b.primKey &&
+          a.depthScaleBits == b.depthScaleBits &&
+-         a.programAddr == b.programAddr && a.singleColor == b.singleColor &&
++         a.programAddr == b.programAddr && a.poolLayout == b.poolLayout && a.poolGeneration == b.poolGeneration &&
++         a.singleColor == b.singleColor &&
+          a.stripped == b.stripped;
+ }
+ 
+@@ -742,6 +749,7 @@
+         item.maxVertCount == key.maxVertCount) {
+       ++variants;
+       const bool samePass = item.primKey == key.primKey &&
++                            item.poolLayout == key.poolLayout && item.poolGeneration == key.poolGeneration &&
+                             item.singleColor == key.singleColor &&
+                             item.stripped == key.stripped;
+       if (!samePass && variants < kVariantsPerArray) {
+@@ -821,6 +829,8 @@
+       item.depthScaleBits = key.depthScaleBits;
+       item.programAddr = key.programAddr;
+       item.singleColor = key.singleColor;
++      item.poolLayout = key.poolLayout;
++      item.poolGeneration = key.poolGeneration;
+       item.stripped = key.stripped;
+       item.built = 0;
+       item.complete = 0;
+@@ -851,6 +861,8 @@
+   entry->depthScaleBits = key.depthScaleBits;
+   entry->programAddr = key.programAddr;
+   entry->singleColor = key.singleColor;
++      entry->poolLayout = key.poolLayout;
++      entry->poolGeneration = key.poolGeneration;
+   entry->stripped = key.stripped;
+   entry->packages = key.packages;
+   entry->built = 0;
+@@ -2013,6 +2025,27 @@
+   }
+ 
+   dBufferPrograms[getQBufferIndex(buffer)] = getCullProgramByBag(buffer->bag);
++  // Cull-only marker: fullClipChecks+Precise means this pointer slice was inside.
++  const StaPipBag* poolBag = buffer->bag;
++  bool poolEligible = buffer->poolTableSliceValid && !buffer->stripped &&
++      poolBag->lighting == nullptr && poolBag->texture != nullptr &&
++      !poolBag->texture->coordinatesAreNormals && poolBag->billboard == nullptr &&
++      poolBag->color->single == nullptr && poolBag->info->fullClipChecks &&
++      poolBag->info->frustumCulling == PipelineInfoBagFrustumCulling_Precise &&
++      !poolBag->info->spotLit && !poolBag->info->dynLightPick &&
++      !repository.hasAnyOverride() &&
++      dBufferPrograms[getQBufferIndex(buffer)]->getName() == StaPipCullTextureColor;
++  bool poolCompared=false, poolMismatch=false;
++  if (NightAblation::poolTableSelected && NightAblation::collectCounters && poolEligible) {
++    poolCompared=true;
++    poolMismatch=!ExperimentalPoolTable::expansionMatches(buffer->poolTableSlice,
++        static_cast<const void*>(buffer->colors),buffer->size);
++  }
++  if(poolBag->experimentalPoolTable != nullptr)
++    NightAblation::observePoolTable(poolEligible,static_cast<uint32_t>(buffer->size),
++                                poolCompared,poolMismatch);
++  buffer->poolTableApplied=NightAblation::poolTableEnabled && poolEligible && !poolMismatch;
++
+ 
+   Verbose("Add cull[", getQBufferIndex(buffer), "]: ", buffer->size);
+ 
+@@ -2032,6 +2065,10 @@
+ }
+ 
+ void StaPipQBufferRenderer::clip(StaPipQBuffer* buffer) {
++  buffer->poolTableApplied=false;
++  if(buffer->size!=0 && buffer->bag->experimentalPoolTable != nullptr)
++    NightAblation::observePoolTable(false,static_cast<uint32_t>(buffer->size),false,false);
++
+   if (buffer->size == 0) {
+     return;
+   }
+@@ -2145,6 +2182,10 @@
+   // framebuffer's colour depth, which a display-mode switch moves.
+   const float depthScale = RendererCoreDepth::scale;
+   memcpy(&key.depthScaleBits, &depthScale, sizeof(u32));
++  key.poolLayout = bag->experimentalPoolTable != nullptr ?
++      (1u | (NightAblation::poolTableEnabled ? 2u : 0u)) : 0u;
++  key.poolGeneration = bag->experimentalPoolTable != nullptr ?
++      bag->experimentalPoolTable->generation : 0u;
+   key.singleColor = bag->color->single != nullptr ? 1 : 0;
+   key.stripped = bag->stripped ? 1 : 0;
+   key.packages =
+@@ -2235,6 +2276,10 @@
+   // destination is part of what it encodes - the retained key does not need
+   // this because the MSCAL stays outside its block.
+   key.programAddr = program->getDestinationAddress();
++  key.poolLayout = bag->experimentalPoolTable != nullptr ?
++      (1u | (NightAblation::poolTableEnabled ? 2u : 0u)) : 0u;
++  key.poolGeneration = bag->experimentalPoolTable != nullptr ?
++      bag->experimentalPoolTable->generation : 0u;
+   key.singleColor = bag->color->single != nullptr ? 1 : 0;
+   key.stripped = bag->stripped ? 1 : 0;
+   key.packages = static_cast<u16>((bag->count + packageSize - 1) / packageSize);
+@@ -2322,6 +2367,8 @@
+ }
+ 
+ bool StaPipQBufferRenderer::replayWholeBakedBag() {
++  if(bakedCurrent != nullptr && bakedCurrent->poolLayout != 0 &&
++      NightAblation::poolTableSelected && NightAblation::collectCounters) return false;
+   StaPipBakedEntry* entry = bakedCurrent;
+   if (entry == nullptr || !entry->complete || entry->arenaQw == 0) return false;
+ #if TYRA_STAPIP_BAKED_ANY_VERIFY
+@@ -2579,7 +2626,9 @@
+     {
+       StaPipBakedEntry* bakedEntry = bakedCurrent;
+       const int bakeIdx = buffers[i]->bakeIndex;
+-      if (!baked.verifying(bakedEntry) && bakedEntry != nullptr &&
++      if (!(bakedEntry != nullptr && bakedEntry->poolLayout != 0 &&
++              NightAblation::poolTableSelected && NightAblation::collectCounters) &&
++          !baked.verifying(bakedEntry) && bakedEntry != nullptr &&
+           bakedEntry->complete && bakeIdx >= 0 &&
+           bakeIdx < bakedEntry->packages) {
+         u32 runQw = bakedEntry->sizes[bakeIdx];
+@@ -2632,7 +2681,10 @@
+     const int retainIdx = buffers[i]->retainIndex;
+     const bool retainable =
+         entry != nullptr && retainIdx >= 0 && retainIdx < entry->packages;
+-    if (retainable && entry->ready[retainIdx]) {
++    const bool bufferPoolCold = buffers[i]->bag->experimentalPoolTable != nullptr &&
++        NightAblation::poolTableSelected && NightAblation::collectCounters;
++    if (!(bufferPoolCold) &&
++        retainable && entry->ready[retainIdx]) {
+       appendChainQwords(currentPacket,
+                         &entry->data[static_cast<u32>(retainIdx) *
+                                      StaPipRetainedCommands::kMaxBlockQw],
+--- a/tyra/engine/src/renderer/3d/pipeline/static/core/stapip_vu1_program.cpp
++++ b/tyra/engine/src/renderer/3d/pipeline/static/core/stapip_vu1_program.cpp
+@@ -98,6 +98,8 @@
+     // constant lives in exactly one place now.
+     packet2_add_float(packet, RendererCoreDepth::scale);  // scale
+     u32 packedCount = buffer->size;
++    if(name == StaPipCullTextureColor && buffer->poolTableApplied)
++      packedCount |= VU1_STAPIP_POOL2_FLAG;
+     if (supportsGsStateReuse(name) && emitState)
+       packedCount |= VU1_STAPIP_EMIT_STATE_FLAG;
+     if (isClipProgram(name)) {

@@ -1,0 +1,227 @@
+{
+  "status": "PASS_PRIVATE_INTEGRATED_POOL2_ACTUAL_HEADERS_CAPTURE_ROUTING_PACKET_CALL_HOST_ONLY",
+  "runs": [
+    {
+      "kind": "oracle",
+      "optimization": "O0",
+      "compileCommand": [
+        "C:\\Users\\pawel\\scoop\\apps\\mingw\\current\\bin\\g++.EXE",
+        "-std=c++17",
+        "-O0",
+        "-Wall",
+        "-Wextra",
+        "-Werror",
+        "-static",
+        "-I",
+        "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\host",
+        "-I",
+        "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\source\\tyra\\engine\\inc",
+        "-I",
+        "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\source\\tyra\\engine\\inc\\renderer\\3d\\pipeline\\static\\core",
+        "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\host\\oracle.cpp",
+        "-o",
+        "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\host\\oracle-O0.exe"
+      ],
+      "compileExit": 0,
+      "runCommand": [
+        "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\host\\oracle-O0.exe"
+      ],
+      "runExit": 0,
+      "stdout": "PASS cases=104018 checks=4929638 maxN=75 members=1..16 twoRuns=1 extent75=389 descriptorCopiedInline=1 sharedScratch=0 targetVUExecuted=0\n"
+    },
+    {
+      "kind": "routing",
+      "optimization": "O0",
+      "compileCommand": [
+        "C:\\Users\\pawel\\scoop\\apps\\mingw\\current\\bin\\g++.EXE",
+        "-std=c++17",
+        "-O0",
+        "-Wall",
+        "-Wextra",
+        "-Werror",
+        "-static",
+        "-I",
+        "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\host",
+        "-I",
+        "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\source\\tyra\\engine\\inc",
+        "-I",
+        "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\source\\tyra\\engine\\inc\\renderer\\3d\\pipeline\\static\\core",
+        "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\host\\routing.cpp",
+        "-o",
+        "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\host\\routing-O0.exe"
+      ],
+      "compileExit": 0,
+      "runCommand": [
+        "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\host\\routing-O0.exe"
+      ],
+      "runExit": 0,
+      "stdout": "PASS routing checks=52 actualCaptureAndRouteExtracted=1 coldCounterNoWrites=1 malformedSourceFallback=1 sharedSDKTypesShim=1 nativeExecuted=0\n"
+    },
+    {
+      "kind": "keys",
+      "optimization": "O0",
+      "compileCommand": [
+        "C:\\Users\\pawel\\scoop\\apps\\mingw\\current\\bin\\g++.EXE",
+        "-std=c++17",
+        "-O0",
+        "-Wall",
+        "-Wextra",
+        "-Werror",
+        "-static",
+        "-I",
+        "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\host",
+        "-I",
+        "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\source\\tyra\\engine\\inc",
+        "-I",
+        "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\source\\tyra\\engine\\inc\\renderer\\3d\\pipeline\\static\\core",
+        "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\host\\keys.cpp",
+        "-o",
+        "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\host\\keys-O0.exe"
+      ],
+      "compileExit": 0,
+      "runCommand": [
+        "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\host\\keys-O0.exe"
+      ],
+      "runExit": 0,
+      "stdout": "PASS exact extracted cache keys checks=50\n"
+    },
+    {
+      "kind": "oracle",
+      "optimization": "O2",
+      "compileCommand": [
+        "C:\\Users\\pawel\\scoop\\apps\\mingw\\current\\bin\\g++.EXE",
+        "-std=c++17",
+        "-O2",
+        "-Wall",
+        "-Wextra",
+        "-Werror",
+        "-static",
+        "-I",
+        "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\host",
+        "-I",
+        "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\source\\tyra\\engine\\inc",
+        "-I",
+        "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\source\\tyra\\engine\\inc\\renderer\\3d\\pipeline\\static\\core",
+        "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\host\\oracle.cpp",
+        "-o",
+        "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\host\\oracle-O2.exe"
+      ],
+      "compileExit": 0,
+      "runCommand": [
+        "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\host\\oracle-O2.exe"
+      ],
+      "runExit": 0,
+      "stdout": "PASS cases=104018 checks=4929638 maxN=75 members=1..16 twoRuns=1 extent75=389 descriptorCopiedInline=1 sharedScratch=0 targetVUExecuted=0\n"
+    },
+    {
+      "kind": "routing",
+      "optimization": "O2",
+      "compileCommand": [
+        "C:\\Users\\pawel\\scoop\\apps\\mingw\\current\\bin\\g++.EXE",
+        "-std=c++17",
+        "-O2",
+        "-Wall",
+        "-Wextra",
+        "-Werror",
+        "-static",
+        "-I",
+        "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\host",
+        "-I",
+        "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\source\\tyra\\engine\\inc",
+        "-I",
+        "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\source\\tyra\\engine\\inc\\renderer\\3d\\pipeline\\static\\core",
+        "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\host\\routing.cpp",
+        "-o",
+        "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\host\\routing-O2.exe"
+      ],
+      "compileExit": 0,
+      "runCommand": [
+        "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\host\\routing-O2.exe"
+      ],
+      "runExit": 0,
+      "stdout": "PASS routing checks=52 actualCaptureAndRouteExtracted=1 coldCounterNoWrites=1 malformedSourceFallback=1 sharedSDKTypesShim=1 nativeExecuted=0\n"
+    },
+    {
+      "kind": "keys",
+      "optimization": "O2",
+      "compileCommand": [
+        "C:\\Users\\pawel\\scoop\\apps\\mingw\\current\\bin\\g++.EXE",
+        "-std=c++17",
+        "-O2",
+        "-Wall",
+        "-Wextra",
+        "-Werror",
+        "-static",
+        "-I",
+        "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\host",
+        "-I",
+        "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\source\\tyra\\engine\\inc",
+        "-I",
+        "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\source\\tyra\\engine\\inc\\renderer\\3d\\pipeline\\static\\core",
+        "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\host\\keys.cpp",
+        "-o",
+        "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\host\\keys-O2.exe"
+      ],
+      "compileExit": 0,
+      "runCommand": [
+        "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\host\\keys-O2.exe"
+      ],
+      "runExit": 0,
+      "stdout": "PASS exact extracted cache keys checks=50\n"
+    }
+  ],
+  "sourcePins": {
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\run-host.py": "dda90651da0a3048a43ff0c7ea65ca5286e09f725ee3af6eb0098b10f19af2f9",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\host\\actual-capture.inc": "f2b1d3bf473bba71e4accf27c7fe7915081636daf8783709cf9fb338a74e1afe",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\host\\actual-keys.inc": "4bfc5f3e87bca4b093b4aff7c66187a3bb095427f882ef907b67c2df78d1758f",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\host\\actual-route.inc": "cfd630ba8c597dd3cf16d514f8d3cfb02dbef45c1dfe19d16ed90b4f6cac110a",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\host\\keys.cpp": "fb7fffde69f5e62cd307ab266125d6f8d0fcc664dffc9ca7eae1ca97a7f0d3e8",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\host\\oracle.cpp": "ada3499301e84728fa145cc51c4bceb3842d0096a275b3b5831f200d9ee35621",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\host\\packet2_utils.h": "2d1b934415ca195d07c082a07788c11763f68c18567c2bff9a7847d0f5bd3b81",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\host\\routing.cpp": "8beef9ee1f7f58e478bb733f390a94c70db2cf5e0701a6c0169a1e787eb27842",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\source\\game\\inc\\terrain_game.hpp": "0740eef0342efa61616248e21f534e47e3d4cee468eb6f10d8b34e981a28f15b",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\source\\game\\src\\gen\\game_lighting.gen.cpp": "6b3e17cfdb7000dce317d1d7115ae8f0155c548e4b2a0de05bfb03e2fbf5a2a8",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\source\\tyra\\engine\\inc\\debug\\night_ablation.hpp": "7002e5fe126c658542bc6bc8a587c488700e249e93895c091b0c02366987b560",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\source\\tyra\\engine\\inc\\debug\\night_plan.hpp": "c08f89dd4da630c516eddc6e779c1b22e6092c8cce6b360a3de360cfb8c83c9b",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\source\\tyra\\engine\\inc\\debug\\night_runtime.hpp": "b3f0c8c2e0b58d351544ea5dcc2f05898ca80a1bb5889896d6beb7af2adbc162",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\source\\tyra\\engine\\inc\\debug\\night_sampler.hpp": "b51b72a79d1ede2553d46fb9bf2fbe112fa5ad0796a8f88fb02dbec86464c7d6",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\source\\tyra\\engine\\inc\\debug\\quiet_cadence.hpp": "c6c87c3d9cc6deb6e90fa01d91c86df5ee6be8979b4a8b734a35804d991be6f3",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\source\\tyra\\engine\\inc\\debug\\quiet_runtime.hpp": "c2b93076926ced36b425bbf2cb5eea738650087192427a1088acbae0058ad07b",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\source\\tyra\\engine\\inc\\renderer\\3d\\pipeline\\static\\core\\stapip_pool_color_packet.hpp": "1452774bfae877b9017bf9d8fbba3a5d7c7ad7b248475b912e3a679d2ac1a7b5",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\source\\tyra\\engine\\inc\\renderer\\3d\\pipeline\\static\\core\\stapip_pool_color_table.hpp": "1ef2540488e15f722637910510e51cb1defc74b0ee92ab5d090aaa1ebfb2670e",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\source\\tyra\\engine\\inc\\renderer\\3d\\pipeline\\static\\core\\stapip_qbuffer.hpp": "397313a8bda017deeb0ed2eef497a192c39552e081911056c4e538a61dd016f7",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\source\\tyra\\engine\\inc\\renderer\\3d\\pipeline\\static\\core\\stapip_qbuffer_renderer.hpp": "d1266c96bdef0bc5b77a4f1e7cced007c53b607bcd4e4c32dfe0355597256126",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\source\\tyra\\engine\\inc\\renderer\\3d\\pipeline\\static\\core\\bag\\stapip_bag.hpp": "0090c8b940c640b333beaa920d036643ef550c8d0c7a30dcb7bfa99c250bcfbf",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\source\\tyra\\engine\\inc\\renderer\\3d\\pipeline\\static\\core\\programs\\stapip_vu1_shared_defines.h": "275daf8412e0c18e6164214419153248a784a2c3e1a0220aa950b8890bbf6c09",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\source\\tyra\\engine\\src\\renderer\\3d\\pipeline\\static\\core\\stapip_qbuffer.cpp": "8a3bb29a7960bc67a6d5579f316074c559f7ce783d9c17d9f1d930824276339a",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\source\\tyra\\engine\\src\\renderer\\3d\\pipeline\\static\\core\\stapip_qbuffer_renderer.cpp": "be77677a29e372294e3a4386b667a4ec3546157d78e4acc2160e52a840a7d60f",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\source\\tyra\\engine\\src\\renderer\\3d\\pipeline\\static\\core\\stapip_vu1_program.cpp": "32d5d26e478145811429d39d233a78ec35814ef536e1e21aa2b1bc6426acb8e2",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\source\\tyra\\engine\\src\\renderer\\3d\\pipeline\\static\\core\\programs\\cull\\stapip_cull_tc_vu1.vclpp": "f5aee36f44afb37a550a7156b9f85fcf65648e296888101afce6e85710bc944b",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\source\\tyra\\engine\\src\\renderer\\3d\\pipeline\\static\\core\\programs\\cull\\stapip_cull_tc_vu1_program.cpp": "f55a72115394dc1321263d92909e3d763b12163c402f6b77d11914f57dd9d189"
+  },
+  "artifactPins": {
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\host\\keys-O0-compile.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\host\\keys-O0-run.log": "ecf1e738a3f96ae6cef99a6923212edc3e1bd87e28a0292f324141a2dede4261",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\host\\keys-O0.exe": "eef0c786b8203492d5f43bfe7f807e19a780e8459f8d05845b1dc1e360938912",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\host\\keys-O2-compile.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\host\\keys-O2-run.log": "ecf1e738a3f96ae6cef99a6923212edc3e1bd87e28a0292f324141a2dede4261",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\host\\keys-O2.exe": "2e021a64e5468912d3b38840abeb45d0b447531f4d75c149ee2f7d9f0bc8cb70",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\host\\oracle-O0-compile.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\host\\oracle-O0-run.log": "7715033c7093cc6ba52db94a66be01dfefc03e462597b545fe1bbc836aba77e6",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\host\\oracle-O0.exe": "44bdbb2e1d56244e20a1bb6a1a67f1e149ac0559cd62c4d11cadc0493e44b645",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\host\\oracle-O2-compile.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\host\\oracle-O2-run.log": "7715033c7093cc6ba52db94a66be01dfefc03e462597b545fe1bbc836aba77e6",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\host\\oracle-O2.exe": "1b99840e883d27f4d4b74d154ee965880ae2edcf9a996e132a5cc8699b48b851",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\host\\routing-O0-compile.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\host\\routing-O0-run.log": "ffa4d448be3911cbc8008ee9a14be14c5b617a7f0a80ca995948ad59ce5d36a4",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\host\\routing-O0.exe": "a2bc50193275331d8595e47f89c3d856b7e99bf5dd751743b8a9017bb6e67b5f",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\host\\routing-O2-compile.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\host\\routing-O2-run.log": "ffa4d448be3911cbc8008ee9a14be14c5b617a7f0a80ca995948ad59ce5d36a4",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-table-proposal-v3\\host\\routing-O2.exe": "d6053ffb26404486f8647eaca6b4e9f154d6d2d4853d61efd769e3d97e835c27"
+  },
+  "SDKAndRendererTypesHostShims": true,
+  "actualVIFByteEncodingValidated": false,
+  "VUAssembled": false,
+  "nativeAccepted": false,
+  "performanceGainAccepted": false
+}

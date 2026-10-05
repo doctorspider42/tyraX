@@ -1,0 +1,14 @@
+{
+  "status": "FIRST_CAPTURE_UI_REPAIR_DISCLOSED",
+  "initial": "StartPaused caused BIOS pause; one render Space resumed to actual ELF entry00100e78",
+  "attempt": "Second render --window Space while debugger focused toggled sole halt breakpoint OFF; no resume. Screenshots preserved.",
+  "repair": "Clicked observed Run; after exactREADY completed, re-enabled halt checkbox; stopping Execute hit1 at001a27f8 in source-defined no-new-VU-job ready spin.",
+  "capture": "Pausedbracket,ready504f4f32,textidentity and actualfinalbanks verified; no pairedgainclaim",
+  "images": [
+    "entry-debugger.png",
+    "loaded-breakpoint.png",
+    "second-space-debugger.png",
+    "ready-running-debugger.png",
+    "halt-debugger.png"
+  ]
+}

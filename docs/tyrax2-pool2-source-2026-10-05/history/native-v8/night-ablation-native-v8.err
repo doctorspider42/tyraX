@@ -1,0 +1,3 @@
+openvcl: Register allocation ran out of registers
+make: *** [../Makefile.base:185: obj/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_tc_vu1.o] Error 1
+make: *** Waiting for unfinished jobs....

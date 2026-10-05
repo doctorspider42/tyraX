@@ -1,0 +1,13 @@
+{
+  "status": "HOST_AUDIO_MODAL_RECOVERY_DISCLOSED",
+  "initialAttempt": "Source-bound entry SaveState and Run dispatch succeeded, but an SDL host audio error modal blocked actual resume. Original run-case timed out and remained paused at entry.",
+  "observedError": "SDL_InitSubSystem failed missing libasound.so.2; PCSX2 fell back to null output. No guest reject or output difference inferred.",
+  "repair": "Dismissed observed owned Error dialog then clicked observed Run from unchanged actual ELF entry. Exact READY/halt/capture/verification/completed protocol subsequently passed.",
+  "future": "Fresh launcher-v3 sets exact source-supported host Backend=Null in dedicated correctness profile; physical pricing and guest ELF unchanged.",
+  "screenshots": [
+    "entry-debugger.png",
+    "run-dispatch-review.png",
+    "entry-error-dialog.png"
+  ],
+  "cleanAutomaticRunClaim": false
+}

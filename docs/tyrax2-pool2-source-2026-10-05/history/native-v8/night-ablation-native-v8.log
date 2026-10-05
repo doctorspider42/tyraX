@@ -1,0 +1,91 @@
+[toolchain] Linux host prerequisites are ready.
+[toolchain] ready: /mnt/c/Users/pawel/AppData/Local/tyra-editor/toolchain/ps2dev
+[editor] Using WSL filesystem build cache...
+[editor] Game toolchain changed - rebuilding game objects...
+[editor] Engine sources changed - rebuilding libtyra...
+[editor] VU1 sources changed - rebuilding the microprograms...
+make: Entering directory '/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine'
+vclpp src/renderer/3d/pipeline/dynamic/core/programs/dynpip_c_vu1.vclpp obj/renderer/3d/pipeline/dynamic/core/programs/dynpip_c_vu1.o.vcl
+vclpp src/renderer/3d/pipeline/dynamic/core/programs/dynpip_d_vu1.vclpp obj/renderer/3d/pipeline/dynamic/core/programs/dynpip_d_vu1.o.vcl
+vclpp src/renderer/3d/pipeline/dynamic/core/programs/dynpip_tc_vu1.vclpp obj/renderer/3d/pipeline/dynamic/core/programs/dynpip_tc_vu1.o.vcl
+vclpp src/renderer/3d/pipeline/dynamic/core/programs/dynpip_td_vu1.vclpp obj/renderer/3d/pipeline/dynamic/core/programs/dynpip_td_vu1.o.vcl
+vcl obj/renderer/3d/pipeline/dynamic/core/programs/dynpip_c_vu1.o.vcl > obj/renderer/3d/pipeline/dynamic/core/programs/dynpip_c_vu1.o.vsm
+vcl obj/renderer/3d/pipeline/dynamic/core/programs/dynpip_d_vu1.o.vcl > obj/renderer/3d/pipeline/dynamic/core/programs/dynpip_d_vu1.o.vsm
+vcl obj/renderer/3d/pipeline/dynamic/core/programs/dynpip_tc_vu1.o.vcl > obj/renderer/3d/pipeline/dynamic/core/programs/dynpip_tc_vu1.o.vsm
+vcl obj/renderer/3d/pipeline/dynamic/core/programs/dynpip_td_vu1.o.vcl > obj/renderer/3d/pipeline/dynamic/core/programs/dynpip_td_vu1.o.vsm
+vclpp src/renderer/3d/pipeline/minecraft/programs/as_is/mcpip_as_is_vu1.vclpp obj/renderer/3d/pipeline/minecraft/programs/as_is/mcpip_as_is_vu1.o.vcl
+vcl obj/renderer/3d/pipeline/minecraft/programs/as_is/mcpip_as_is_vu1.o.vcl > obj/renderer/3d/pipeline/minecraft/programs/as_is/mcpip_as_is_vu1.o.vsm
+vclpp src/renderer/3d/pipeline/minecraft/programs/cull/mcpip_cull_vu1.vclpp obj/renderer/3d/pipeline/minecraft/programs/cull/mcpip_cull_vu1.o.vcl
+vclpp src/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_c_vu1.vclpp obj/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_c_vu1.o.vcl
+vcl obj/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_c_vu1.o.vcl > obj/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_c_vu1.o.vsm
+vcl obj/renderer/3d/pipeline/minecraft/programs/cull/mcpip_cull_vu1.o.vcl > obj/renderer/3d/pipeline/minecraft/programs/cull/mcpip_cull_vu1.o.vsm
+vclpp src/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_d_fold_vu1.vclpp obj/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_d_fold_vu1.o.vcl
+vcl obj/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_d_fold_vu1.o.vcl > obj/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_d_fold_vu1.o.vsm
+vclpp src/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_d_vu1.vclpp obj/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_d_vu1.o.vcl
+vcl obj/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_d_vu1.o.vcl > obj/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_d_vu1.o.vsm
+vclpp src/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_tc_vu1.vclpp obj/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_tc_vu1.o.vcl
+vclpp src/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_tce_vu1.vclpp obj/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_tce_vu1.o.vcl
+vcl obj/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_tc_vu1.o.vcl > obj/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_tc_vu1.o.vsm
+vcl obj/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_tce_vu1.o.vcl > obj/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_tce_vu1.o.vsm
+vclpp src/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_td_fold_vu1.vclpp obj/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_td_fold_vu1.o.vcl
+vclpp src/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_td_vu1.vclpp obj/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_td_vu1.o.vcl
+vcl obj/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_td_fold_vu1.o.vcl > obj/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_td_fold_vu1.o.vsm
+vcl obj/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_td_vu1.o.vcl > obj/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_td_vu1.o.vsm
+vclpp src/renderer/3d/pipeline/static/core/programs/billboard/stapip_billboard_c_vu1.vclpp obj/renderer/3d/pipeline/static/core/programs/billboard/stapip_billboard_c_vu1.o.vcl
+vclpp src/renderer/3d/pipeline/static/core/programs/billboard/stapip_billboard_t_vu1.vclpp obj/renderer/3d/pipeline/static/core/programs/billboard/stapip_billboard_t_vu1.o.vcl
+vcl obj/renderer/3d/pipeline/static/core/programs/billboard/stapip_billboard_c_vu1.o.vcl > obj/renderer/3d/pipeline/static/core/programs/billboard/stapip_billboard_c_vu1.o.vsm
+vclpp src/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_c_fold_vu1.vclpp obj/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_c_fold_vu1.o.vcl
+vcl obj/renderer/3d/pipeline/static/core/programs/billboard/stapip_billboard_t_vu1.o.vcl > obj/renderer/3d/pipeline/static/core/programs/billboard/stapip_billboard_t_vu1.o.vsm
+vclpp src/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_c_vu1.vclpp obj/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_c_vu1.o.vcl
+vcl obj/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_c_fold_vu1.o.vcl > obj/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_c_fold_vu1.o.vsm
+vclpp src/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_d_vu1.vclpp obj/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_d_vu1.o.vcl
+vcl obj/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_c_vu1.o.vcl > obj/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_c_vu1.o.vsm
+vclpp src/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_tc_fold_vu1.vclpp obj/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_tc_fold_vu1.o.vcl
+vcl obj/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_d_vu1.o.vcl > obj/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_d_vu1.o.vsm
+vclpp src/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_tc_vu1.vclpp obj/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_tc_vu1.o.vcl
+vcl obj/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_tc_fold_vu1.o.vcl > obj/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_tc_fold_vu1.o.vsm
+vcl obj/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_tc_vu1.o.vcl > obj/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_tc_vu1.o.vsm
+vclpp src/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_tce_vu1.vclpp obj/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_tce_vu1.o.vcl
+vclpp src/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_td_vu1.vclpp obj/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_td_vu1.o.vcl
+vcl obj/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_tce_vu1.o.vcl > obj/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_tce_vu1.o.vsm
+vcl obj/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_td_vu1.o.vcl > obj/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_td_vu1.o.vsm
+vclpp src/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_c_vu1.vclpp obj/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_c_vu1.o.vcl
+vcl obj/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_c_vu1.o.vcl > obj/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_c_vu1.o.vsm
+vclpp src/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_d_fold_vu1.vclpp obj/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_d_fold_vu1.o.vcl
+vcl obj/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_d_fold_vu1.o.vcl > obj/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_d_fold_vu1.o.vsm
+dvp-as obj/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_c_vu1.o.vsm -o obj/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_c_vu1.o
+vclpp src/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_d_vu1.vclpp obj/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_d_vu1.o.vcl
+vcl obj/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_d_vu1.o.vcl > obj/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_d_vu1.o.vsm
+dvp-as obj/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_d_fold_vu1.o.vsm -o obj/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_d_fold_vu1.o
+vclpp src/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_tc_vu1.vclpp obj/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_tc_vu1.o.vcl
+vcl obj/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_tc_vu1.o.vcl > obj/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_tc_vu1.o.vsm
+dvp-as obj/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_d_vu1.o.vsm -o obj/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_d_vu1.o
+vclpp src/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_tce_envn_vu1.vclpp obj/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_tce_envn_vu1.o.vcl
+vcl obj/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_tce_envn_vu1.o.vcl > obj/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_tce_envn_vu1.o.vsm
+dvp-as obj/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_c_vu1.o.vsm -o obj/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_c_vu1.o
+vclpp src/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_tce_vu1.vclpp obj/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_tce_vu1.o.vcl
+vcl obj/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_tce_vu1.o.vcl > obj/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_tce_vu1.o.vsm
+dvp-as obj/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_tce_vu1.o.vsm -o obj/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_tce_vu1.o
+dvp-as obj/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_tc_vu1.o.vsm -o obj/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_tc_vu1.o
+dvp-as obj/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_td_vu1.o.vsm -o obj/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_td_vu1.o
+dvp-as obj/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_tce_vu1.o.vsm -o obj/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_tce_vu1.o
+dvp-as obj/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_d_vu1.o.vsm -o obj/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_d_vu1.o
+dvp-as obj/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_c_fold_vu1.o.vsm -o obj/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_c_fold_vu1.o
+dvp-as obj/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_tc_fold_vu1.o.vsm -o obj/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_tc_fold_vu1.o
+dvp-as obj/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_tc_vu1.o.vsm -o obj/renderer/3d/pipeline/static/core/programs/clip/stapip_clip_tc_vu1.o
+dvp-as obj/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_c_vu1.o.vsm -o obj/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_c_vu1.o
+dvp-as obj/renderer/3d/pipeline/dynamic/core/programs/dynpip_c_vu1.o.vsm -o obj/renderer/3d/pipeline/dynamic/core/programs/dynpip_c_vu1.o
+dvp-as obj/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_d_fold_vu1.o.vsm -o obj/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_d_fold_vu1.o
+dvp-as obj/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_d_vu1.o.vsm -o obj/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_d_vu1.o
+dvp-as obj/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_tce_envn_vu1.o.vsm -o obj/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_tce_envn_vu1.o
+dvp-as obj/renderer/3d/pipeline/dynamic/core/programs/dynpip_tc_vu1.o.vsm -o obj/renderer/3d/pipeline/dynamic/core/programs/dynpip_tc_vu1.o
+dvp-as obj/renderer/3d/pipeline/minecraft/programs/cull/mcpip_cull_vu1.o.vsm -o obj/renderer/3d/pipeline/minecraft/programs/cull/mcpip_cull_vu1.o
+dvp-as obj/renderer/3d/pipeline/dynamic/core/programs/dynpip_d_vu1.o.vsm -o obj/renderer/3d/pipeline/dynamic/core/programs/dynpip_d_vu1.o
+dvp-as obj/renderer/3d/pipeline/static/core/programs/billboard/stapip_billboard_c_vu1.o.vsm -o obj/renderer/3d/pipeline/static/core/programs/billboard/stapip_billboard_c_vu1.o
+dvp-as obj/renderer/3d/pipeline/dynamic/core/programs/dynpip_td_vu1.o.vsm -o obj/renderer/3d/pipeline/dynamic/core/programs/dynpip_td_vu1.o
+dvp-as obj/renderer/3d/pipeline/static/core/programs/billboard/stapip_billboard_t_vu1.o.vsm -o obj/renderer/3d/pipeline/static/core/programs/billboard/stapip_billboard_t_vu1.o
+dvp-as obj/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_tce_vu1.o.vsm -o obj/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_tce_vu1.o
+dvp-as obj/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_td_fold_vu1.o.vsm -o obj/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_td_fold_vu1.o
+dvp-as obj/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_td_vu1.o.vsm -o obj/renderer/3d/pipeline/static/core/programs/as_is/stapip_as_is_td_vu1.o
+dvp-as obj/renderer/3d/pipeline/minecraft/programs/as_is/mcpip_as_is_vu1.o.vsm -o obj/renderer/3d/pipeline/minecraft/programs/as_is/mcpip_as_is_vu1.o
+make: Leaving directory '/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine'

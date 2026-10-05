@@ -1,0 +1,40 @@
+{
+  "status": "FAILED_ACTUAL_OPENVCL_REGISTER_ALLOCATION_NO_NATIVE_ELF_ACCEPTANCE",
+  "cacheArtifacts": [
+    {
+      "path": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/src/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_tc_vu1.vclpp",
+      "exists": true,
+      "sha256": "702e9638fc06da3a9e0c3677fa39d05c3c79d6dc3d3e9b76eaf1df002f505eb2",
+      "archiveName": "stapip_cull_tc_vu1.vclpp"
+    },
+    {
+      "path": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_tc_vu1.o.vcl",
+      "exists": true,
+      "sha256": "2ad0fe6f87703de03316e7b88e5879344ca1777b87cac17cd024ba5ab6b25aaf",
+      "archiveName": "stapip_cull_tc_vu1.o.vcl"
+    },
+    {
+      "path": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_tc_vu1.o.vsm",
+      "exists": true,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "archiveName": "stapip_cull_tc_vu1.o.vsm"
+    },
+    {
+      "path": "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_tc_vu1.o",
+      "exists": false
+    }
+  ],
+  "files": {
+    "night-ablation-native-v8.err": "531b25cd9fd70ec3eefb98bafed5cd901e6bf6b24ca5e50437301f6f04a83127",
+    "night-ablation-native-v8.log": "71106eb5f55e9eddcdb7dc1aa91c7bc1c00954ed013fd8eb1a4b0518c5ac3c39",
+    "root-native-command-exit.json": "814a7a7e993eaa86185f82b00c645c1e13fbe1dee4275d6e49aa33b47e447af4",
+    "stapip_cull_tc_vu1.o.vcl": "2ad0fe6f87703de03316e7b88e5879344ca1777b87cac17cd024ba5ab6b25aaf",
+    "stapip_cull_tc_vu1.o.vsm": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "stapip_cull_tc_vu1.vclpp": "702e9638fc06da3a9e0c3677fa39d05c3c79d6dc3d3e9b76eaf1df002f505eb2",
+    "target-source-manifest.json": "c826db2875fe819993c30311802e5aa9b9d627b06c81287710172caa31c8b8c7"
+  },
+  "sourceFixture": "wild-pool-table-physical-v2",
+  "reportedChildExitCode": 2,
+  "sourceUnmodified": true,
+  "nativeAccepted": false
+}

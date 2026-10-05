@@ -1,0 +1,6 @@
+{
+  "pid": 13811,
+  "command": "/home/spider/tyrax2-debugger-linux-v1/squashfs-root/AppRun -datapath /home/spider/pool2-static-a96-arm1-repeat1-20261005/profile -logfile /home/spider/pool2-static-a96-arm1-repeat1-20261005/emulator.log -debugger -elf /mnt/f/Projects/tyrax2-lab-20261001/wild-pool2-static-probe-physical-v1/game/bin/vehicle-playground.elf ",
+  "reason": "first graceful shutdown stayed alive beyond ten seconds after completed capture; second exact-owned SIGTERM",
+  "capturedStateSha256": "4f70ab8d62882c89fe2e0f6810b09780bb16acbe0642ba5f0992d92e6bf6c7d4"
+}

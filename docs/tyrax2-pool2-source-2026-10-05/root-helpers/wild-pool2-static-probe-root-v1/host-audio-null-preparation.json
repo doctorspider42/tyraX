@@ -1,0 +1,10 @@
+{
+  "status": "ROOT_FRESH_CORRECTNESS_PROFILE_HOST_NULL_AUDIO_ONLY",
+  "newLauncher": "1ef3cd03a4713c6c702af66078e90304796a8bf8493d309aab5292d29d580635",
+  "newRunHelper": "2ccd6ec1a78b5693123a8390d88f85ac4e2e8eb0a06567e34ed12f37c3574ecf",
+  "sourcePins": {
+    "F:\\Projects\\tyrax2-lab-20261001\\pcsx2-control-routes\\source-all\\pcsx2\\Host\\AudioStream.cpp": "c13ed5024ec25d970483a61ca5d9c8242281e9bb32f1a7d6d95ddf773525b75a"
+  },
+  "reason": "Default SDL stream creation error already fell back to Null but modal blocked Run dispatch. Explicit Null avoids modal in dedicated correctness VM. Physical pricing and guest ELF unchanged.",
+  "runtimeAccepted": false
+}

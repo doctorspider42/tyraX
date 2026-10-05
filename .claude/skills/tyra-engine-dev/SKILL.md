@@ -3822,3 +3822,17 @@ version/layout/text/ZIP controls and actual SP/RA close135 core calls; count
 all tail calls and reject orphan returns. SaveState drains VU/GS, so decoded
 cycle intervals only rank suspects, never hardware milliseconds or FPS.
 See docs/tyrax2-pcsx2-debugger.md and its dated machine record before reuse.
+
+## Pool2 input representation qualification (2026-10-05)
+
+The private Pool2 experiment (`docs/tyrax2-pool2-colors.md`) passed actual native
+assembly/link checks and fixed-case VU packet comparisons but did not establish
+a repeatable physical benefit. Original EE expanded-color work still runs.
+Initialize VU integer registers on every branch and qualify register lifetimes
+with the actual OpenVCL allocator. Count resident VU microinstructions including
+billboards: accepted totals were 1908/1708 below draw-finish at 2042. Preserve
+legacy uniform alpha conversion (129) separately from direct table alpha (128);
+host source expansion equality alone does not prove packed VU output equality.
+Package-local descriptors must survive Core pointer filling and DMA consumption.
+Do not enlarge a retained capacity to hide an oversized candidate block: preserve
+the safe miss and include its cost in the experiment.
