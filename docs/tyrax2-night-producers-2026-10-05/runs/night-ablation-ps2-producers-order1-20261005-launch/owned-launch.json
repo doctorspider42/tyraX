@@ -1,0 +1,24 @@
+{
+  "stem": "night-ablation-ps2-producers-order1-20261005",
+  "fixture": "F:\\Projects\\tyrax2-lab-20261001\\night-producer-probe-physical-v2",
+  "kind": 13,
+  "order": 1,
+  "joint": 0,
+  "restored": 0,
+  "elfSha256": "1d7d1b6d8bba4d63f1986063b82133b678c383a1ef90f5f01aed4412f2bc05d9",
+  "launchArchive": "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-producers-order1-20261005-launch",
+  "helperSha256": "d8c0203df79572dd24dc4eeeb48cb4ffc9472ec638eb08964097c91ace9344eb",
+  "launchFiles": {
+    "night-ablation.cfg": "6a0c9386401f4448c89525036e816bdcadd3636b4c8103aacfa9330e5a366cb2",
+    "ps2link.run": "290eb100acb0b408fab11ae3445233dd7409222008a8c4dc3d0cf49a2bc1208a",
+    "quiet-night.cfg": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+    "root-native-provenance.json": "bb094fec1eca20a604e85bcdb3e88f972c4d76931c3c49e73974f3723cfcd0c3",
+    "root-runtime-authority.json": "073f4aa33ba0444ce84cf4a8ce24231659c562415de27acbfef88b63a9989353",
+    "root-source-freeze.json": "f0e73b693d795ebc845d7a60997d710dce2f69ce7a4de1ebf5ee444d069559e0",
+    "runtime-assets-manifest.json": "e11fa8b76a6c7f6ee6d8da67670e12f4b7184d8b9e1558070c92efa4e4d10e05",
+    "target-source-manifest.json": "af61d27c6f17cebd0f68d6b2132e740c48b2fff30bab471f92f78bc980dd00b8",
+    "vehicle-playground.elf": "1d7d1b6d8bba4d63f1986063b82133b678c383a1ef90f5f01aed4412f2bc05d9",
+    "vehicle-playground.elf.sym": "3f3259c74817fee0ad3d1b9fc8b57f5104efda3171623cc02ee09cc9a4e79cc4"
+  },
+  "physicalStartAccepted": false
+}

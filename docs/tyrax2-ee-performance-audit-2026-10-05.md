@@ -226,4 +226,12 @@ The audit identifies concrete work and discriminating experiments; it assigns no
 
 ## Archived evidence
 
+The subsequent [physical producer observer trial](tyrax2-night-producers.md)
+changes the priority for this fixed driving scene: projected flashlight receiver
+production and flashlight terrain hull have zero calls in 960 observed loops.
+Beam scratch and separate corona/cone commits total approximately 0.235 ms in
+three On windows. These leads remain applicable to other activated views, but
+do not account for the missing multi-millisecond night budget here. Observer
+net tax is unresolved against drift; no subtraction or optimization is claimed.
+
 [Source pins](tyrax2-ee-performance-audit-2026-10-05/source-pins.json), [linked square-root sites](tyrax2-ee-performance-audit-2026-10-05/sqrt-instructions.json) and [disassembly hashes/excerpts](tyrax2-ee-performance-audit-2026-10-05/disassembly-proof.json) accompany this audit. Full disassemblies remain in the external LAB; hashes and compact excerpts are archived here. The completed physical far-gate result is independently documented in [the experiment report](tyrax2-far-light-gate.md).

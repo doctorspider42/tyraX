@@ -1,0 +1,1062 @@
+{
+  "status": "PASS_COMPLETED_TWO_ORDER_PRODUCER_OBSERVER",
+  "rows": [
+    {
+      "order": 0,
+      "flags": [
+        0,
+        1,
+        0
+      ],
+      "phaseMeans_ms": [
+        19.238637977176243,
+        19.236128446790907,
+        19.392043156094022
+      ],
+      "observerOnMinusOff_ms": -0.07921211984422527,
+      "adjacentOnMinusOff_ms": [
+        -0.0025095303853355233,
+        -0.15591470930311502
+      ],
+      "outerSpread_ms": 0.1534051789177795,
+      "scopes": {
+        "0": {
+          "perLoopElapsed_ms": 0.0,
+          "perLoopCalls": 0.0,
+          "phaseElapsed_ms": [
+            0.0
+          ],
+          "phaseCalls": [
+            0
+          ],
+          "phaseReads": [
+            0
+          ]
+        },
+        "1": {
+          "perLoopElapsed_ms": 0.0,
+          "perLoopCalls": 0.0,
+          "phaseElapsed_ms": [
+            0.0
+          ],
+          "phaseCalls": [
+            0
+          ],
+          "phaseReads": [
+            0
+          ]
+        },
+        "2": {
+          "perLoopElapsed_ms": 0.13340415954589846,
+          "perLoopCalls": 1.0,
+          "phaseElapsed_ms": [
+            0.13340415954589846
+          ],
+          "phaseCalls": [
+            320
+          ],
+          "phaseReads": [
+            640
+          ]
+        },
+        "3": {
+          "perLoopElapsed_ms": 0.03044107225206163,
+          "perLoopCalls": 1.0,
+          "phaseElapsed_ms": [
+            0.03044107225206163
+          ],
+          "phaseCalls": [
+            320
+          ],
+          "phaseReads": [
+            640
+          ]
+        },
+        "4": {
+          "perLoopElapsed_ms": 0.07126812405056424,
+          "perLoopCalls": 1.0,
+          "phaseElapsed_ms": [
+            0.07126812405056424
+          ],
+          "phaseCalls": [
+            320
+          ],
+          "phaseReads": [
+            640
+          ]
+        }
+      },
+      "sumScopedElapsed_ms": 0.23511335584852433,
+      "coldWindows": {
+        "0:750:0": {
+          "phase": "0",
+          "offset": "750",
+          "stage": "0",
+          "enabled": "0",
+          "calls": "0",
+          "units1": "0",
+          "units2": "0",
+          "units3": "0",
+          "units4": "0",
+          "timedCalls": "0",
+          "reads": "0",
+          "ticks": "0"
+        },
+        "0:750:1": {
+          "phase": "0",
+          "offset": "750",
+          "stage": "1",
+          "enabled": "0",
+          "calls": "0",
+          "units1": "0",
+          "units2": "0",
+          "units3": "0",
+          "units4": "0",
+          "timedCalls": "0",
+          "reads": "0",
+          "ticks": "0"
+        },
+        "0:750:2": {
+          "phase": "0",
+          "offset": "750",
+          "stage": "2",
+          "enabled": "0",
+          "calls": "1",
+          "units1": "48",
+          "units2": "192",
+          "units3": "0",
+          "units4": "0",
+          "timedCalls": "0",
+          "reads": "0",
+          "ticks": "0"
+        },
+        "0:750:3": {
+          "phase": "0",
+          "offset": "750",
+          "stage": "3",
+          "enabled": "0",
+          "calls": "1",
+          "units1": "2304",
+          "units2": "0",
+          "units3": "0",
+          "units4": "0",
+          "timedCalls": "0",
+          "reads": "0",
+          "ticks": "0"
+        },
+        "0:750:4": {
+          "phase": "0",
+          "offset": "750",
+          "stage": "4",
+          "enabled": "0",
+          "calls": "1",
+          "units1": "6144",
+          "units2": "0",
+          "units3": "0",
+          "units4": "0",
+          "timedCalls": "0",
+          "reads": "0",
+          "ticks": "0"
+        },
+        "0:1155:0": {
+          "phase": "0",
+          "offset": "1155",
+          "stage": "0",
+          "enabled": "0",
+          "calls": "0",
+          "units1": "0",
+          "units2": "0",
+          "units3": "0",
+          "units4": "0",
+          "timedCalls": "0",
+          "reads": "0",
+          "ticks": "0"
+        },
+        "0:1155:1": {
+          "phase": "0",
+          "offset": "1155",
+          "stage": "1",
+          "enabled": "0",
+          "calls": "0",
+          "units1": "0",
+          "units2": "0",
+          "units3": "0",
+          "units4": "0",
+          "timedCalls": "0",
+          "reads": "0",
+          "ticks": "0"
+        },
+        "0:1155:2": {
+          "phase": "0",
+          "offset": "1155",
+          "stage": "2",
+          "enabled": "0",
+          "calls": "1",
+          "units1": "48",
+          "units2": "192",
+          "units3": "0",
+          "units4": "0",
+          "timedCalls": "0",
+          "reads": "0",
+          "ticks": "0"
+        },
+        "0:1155:3": {
+          "phase": "0",
+          "offset": "1155",
+          "stage": "3",
+          "enabled": "0",
+          "calls": "1",
+          "units1": "2304",
+          "units2": "0",
+          "units3": "0",
+          "units4": "0",
+          "timedCalls": "0",
+          "reads": "0",
+          "ticks": "0"
+        },
+        "0:1155:4": {
+          "phase": "0",
+          "offset": "1155",
+          "stage": "4",
+          "enabled": "0",
+          "calls": "1",
+          "units1": "6144",
+          "units2": "0",
+          "units3": "0",
+          "units4": "0",
+          "timedCalls": "0",
+          "reads": "0",
+          "ticks": "0"
+        },
+        "1:750:0": {
+          "phase": "1",
+          "offset": "750",
+          "stage": "0",
+          "enabled": "1",
+          "calls": "0",
+          "units1": "0",
+          "units2": "0",
+          "units3": "0",
+          "units4": "0",
+          "timedCalls": "0",
+          "reads": "0",
+          "ticks": "0"
+        },
+        "1:750:1": {
+          "phase": "1",
+          "offset": "750",
+          "stage": "1",
+          "enabled": "1",
+          "calls": "0",
+          "units1": "0",
+          "units2": "0",
+          "units3": "0",
+          "units4": "0",
+          "timedCalls": "0",
+          "reads": "0",
+          "ticks": "0"
+        },
+        "1:750:2": {
+          "phase": "1",
+          "offset": "750",
+          "stage": "2",
+          "enabled": "1",
+          "calls": "1",
+          "units1": "48",
+          "units2": "192",
+          "units3": "0",
+          "units4": "0",
+          "timedCalls": "0",
+          "reads": "0",
+          "ticks": "0"
+        },
+        "1:750:3": {
+          "phase": "1",
+          "offset": "750",
+          "stage": "3",
+          "enabled": "1",
+          "calls": "1",
+          "units1": "2304",
+          "units2": "0",
+          "units3": "0",
+          "units4": "0",
+          "timedCalls": "0",
+          "reads": "0",
+          "ticks": "0"
+        },
+        "1:750:4": {
+          "phase": "1",
+          "offset": "750",
+          "stage": "4",
+          "enabled": "1",
+          "calls": "1",
+          "units1": "6144",
+          "units2": "0",
+          "units3": "0",
+          "units4": "0",
+          "timedCalls": "0",
+          "reads": "0",
+          "ticks": "0"
+        },
+        "1:1155:0": {
+          "phase": "1",
+          "offset": "1155",
+          "stage": "0",
+          "enabled": "1",
+          "calls": "0",
+          "units1": "0",
+          "units2": "0",
+          "units3": "0",
+          "units4": "0",
+          "timedCalls": "0",
+          "reads": "0",
+          "ticks": "0"
+        },
+        "1:1155:1": {
+          "phase": "1",
+          "offset": "1155",
+          "stage": "1",
+          "enabled": "1",
+          "calls": "0",
+          "units1": "0",
+          "units2": "0",
+          "units3": "0",
+          "units4": "0",
+          "timedCalls": "0",
+          "reads": "0",
+          "ticks": "0"
+        },
+        "1:1155:2": {
+          "phase": "1",
+          "offset": "1155",
+          "stage": "2",
+          "enabled": "1",
+          "calls": "1",
+          "units1": "48",
+          "units2": "192",
+          "units3": "0",
+          "units4": "0",
+          "timedCalls": "320",
+          "reads": "640",
+          "ticks": "12589596"
+        },
+        "1:1155:3": {
+          "phase": "1",
+          "offset": "1155",
+          "stage": "3",
+          "enabled": "1",
+          "calls": "1",
+          "units1": "2304",
+          "units2": "0",
+          "units3": "0",
+          "units4": "0",
+          "timedCalls": "320",
+          "reads": "640",
+          "ticks": "2872780"
+        },
+        "1:1155:4": {
+          "phase": "1",
+          "offset": "1155",
+          "stage": "4",
+          "enabled": "1",
+          "calls": "1",
+          "units1": "6144",
+          "units2": "0",
+          "units3": "0",
+          "units4": "0",
+          "timedCalls": "320",
+          "reads": "640",
+          "ticks": "6725704"
+        },
+        "2:750:0": {
+          "phase": "2",
+          "offset": "750",
+          "stage": "0",
+          "enabled": "0",
+          "calls": "0",
+          "units1": "0",
+          "units2": "0",
+          "units3": "0",
+          "units4": "0",
+          "timedCalls": "0",
+          "reads": "0",
+          "ticks": "0"
+        },
+        "2:750:1": {
+          "phase": "2",
+          "offset": "750",
+          "stage": "1",
+          "enabled": "0",
+          "calls": "0",
+          "units1": "0",
+          "units2": "0",
+          "units3": "0",
+          "units4": "0",
+          "timedCalls": "0",
+          "reads": "0",
+          "ticks": "0"
+        },
+        "2:750:2": {
+          "phase": "2",
+          "offset": "750",
+          "stage": "2",
+          "enabled": "0",
+          "calls": "1",
+          "units1": "48",
+          "units2": "192",
+          "units3": "0",
+          "units4": "0",
+          "timedCalls": "0",
+          "reads": "0",
+          "ticks": "0"
+        },
+        "2:750:3": {
+          "phase": "2",
+          "offset": "750",
+          "stage": "3",
+          "enabled": "0",
+          "calls": "1",
+          "units1": "2304",
+          "units2": "0",
+          "units3": "0",
+          "units4": "0",
+          "timedCalls": "0",
+          "reads": "0",
+          "ticks": "0"
+        },
+        "2:750:4": {
+          "phase": "2",
+          "offset": "750",
+          "stage": "4",
+          "enabled": "0",
+          "calls": "1",
+          "units1": "6144",
+          "units2": "0",
+          "units3": "0",
+          "units4": "0",
+          "timedCalls": "0",
+          "reads": "0",
+          "ticks": "0"
+        },
+        "2:1155:0": {
+          "phase": "2",
+          "offset": "1155",
+          "stage": "0",
+          "enabled": "0",
+          "calls": "0",
+          "units1": "0",
+          "units2": "0",
+          "units3": "0",
+          "units4": "0",
+          "timedCalls": "0",
+          "reads": "0",
+          "ticks": "0"
+        },
+        "2:1155:1": {
+          "phase": "2",
+          "offset": "1155",
+          "stage": "1",
+          "enabled": "0",
+          "calls": "0",
+          "units1": "0",
+          "units2": "0",
+          "units3": "0",
+          "units4": "0",
+          "timedCalls": "0",
+          "reads": "0",
+          "ticks": "0"
+        },
+        "2:1155:2": {
+          "phase": "2",
+          "offset": "1155",
+          "stage": "2",
+          "enabled": "0",
+          "calls": "1",
+          "units1": "48",
+          "units2": "192",
+          "units3": "0",
+          "units4": "0",
+          "timedCalls": "0",
+          "reads": "0",
+          "ticks": "0"
+        },
+        "2:1155:3": {
+          "phase": "2",
+          "offset": "1155",
+          "stage": "3",
+          "enabled": "0",
+          "calls": "1",
+          "units1": "2304",
+          "units2": "0",
+          "units3": "0",
+          "units4": "0",
+          "timedCalls": "0",
+          "reads": "0",
+          "ticks": "0"
+        },
+        "2:1155:4": {
+          "phase": "2",
+          "offset": "1155",
+          "stage": "4",
+          "enabled": "0",
+          "calls": "1",
+          "units1": "6144",
+          "units2": "0",
+          "units3": "0",
+          "units4": "0",
+          "timedCalls": "0",
+          "reads": "0",
+          "ticks": "0"
+        }
+      },
+      "renderedPeriods_ms": [
+        33.36666758855184,
+        33.366694927215576,
+        33.36673847834269
+      ],
+      "strictReportSha256": "486f1443e209a164b9599c2c941ba4db322aaf4f1f0a0db4bb556c705cf1be52"
+    },
+    {
+      "order": 1,
+      "flags": [
+        1,
+        0,
+        1
+      ],
+      "phaseMeans_ms": [
+        19.35329507191976,
+        19.359467612372505,
+        19.368140093485515
+      ],
+      "observerOnMinusOff_ms": 0.0012499703301322995,
+      "adjacentOnMinusOff_ms": [
+        -0.006172540452745068,
+        0.008672481113009667
+      ],
+      "outerSpread_ms": 0.014845021565754735,
+      "scopes": {
+        "0": {
+          "perLoopElapsed_ms": 0.0,
+          "perLoopCalls": 0.0,
+          "phaseElapsed_ms": [
+            0.0,
+            0.0
+          ],
+          "phaseCalls": [
+            0,
+            0
+          ],
+          "phaseReads": [
+            0,
+            0
+          ]
+        },
+        "1": {
+          "perLoopElapsed_ms": 0.0,
+          "perLoopCalls": 0.0,
+          "phaseElapsed_ms": [
+            0.0,
+            0.0
+          ],
+          "phaseCalls": [
+            0,
+            0
+          ],
+          "phaseReads": [
+            0,
+            0
+          ]
+        },
+        "2": {
+          "perLoopElapsed_ms": 0.1344808472527398,
+          "perLoopCalls": 1.0,
+          "phaseElapsed_ms": [
+            0.134792603386773,
+            0.1341690911187066
+          ],
+          "phaseCalls": [
+            320,
+            320
+          ],
+          "phaseReads": [
+            640,
+            640
+          ]
+        },
+        "3": {
+          "perLoopElapsed_ms": 0.029951964484320748,
+          "perLoopCalls": 1.0,
+          "phaseElapsed_ms": [
+            0.030442322625054252,
+            0.029461606343587236
+          ],
+          "phaseCalls": [
+            320,
+            320
+          ],
+          "phaseReads": [
+            640,
+            640
+          ]
+        },
+        "4": {
+          "perLoopElapsed_ms": 0.0709466298421224,
+          "perLoopCalls": 1.0,
+          "phaseElapsed_ms": [
+            0.06994226243760851,
+            0.07195099724663628
+          ],
+          "phaseCalls": [
+            320,
+            320
+          ],
+          "phaseReads": [
+            640,
+            640
+          ]
+        }
+      },
+      "sumScopedElapsed_ms": 0.23537944157918295,
+      "coldWindows": {
+        "0:750:0": {
+          "phase": "0",
+          "offset": "750",
+          "stage": "0",
+          "enabled": "1",
+          "calls": "0",
+          "units1": "0",
+          "units2": "0",
+          "units3": "0",
+          "units4": "0",
+          "timedCalls": "0",
+          "reads": "0",
+          "ticks": "0"
+        },
+        "0:750:1": {
+          "phase": "0",
+          "offset": "750",
+          "stage": "1",
+          "enabled": "1",
+          "calls": "0",
+          "units1": "0",
+          "units2": "0",
+          "units3": "0",
+          "units4": "0",
+          "timedCalls": "0",
+          "reads": "0",
+          "ticks": "0"
+        },
+        "0:750:2": {
+          "phase": "0",
+          "offset": "750",
+          "stage": "2",
+          "enabled": "1",
+          "calls": "1",
+          "units1": "48",
+          "units2": "192",
+          "units3": "0",
+          "units4": "0",
+          "timedCalls": "0",
+          "reads": "0",
+          "ticks": "0"
+        },
+        "0:750:3": {
+          "phase": "0",
+          "offset": "750",
+          "stage": "3",
+          "enabled": "1",
+          "calls": "1",
+          "units1": "2304",
+          "units2": "0",
+          "units3": "0",
+          "units4": "0",
+          "timedCalls": "0",
+          "reads": "0",
+          "ticks": "0"
+        },
+        "0:750:4": {
+          "phase": "0",
+          "offset": "750",
+          "stage": "4",
+          "enabled": "1",
+          "calls": "1",
+          "units1": "6144",
+          "units2": "0",
+          "units3": "0",
+          "units4": "0",
+          "timedCalls": "0",
+          "reads": "0",
+          "ticks": "0"
+        },
+        "0:1155:0": {
+          "phase": "0",
+          "offset": "1155",
+          "stage": "0",
+          "enabled": "1",
+          "calls": "0",
+          "units1": "0",
+          "units2": "0",
+          "units3": "0",
+          "units4": "0",
+          "timedCalls": "0",
+          "reads": "0",
+          "ticks": "0"
+        },
+        "0:1155:1": {
+          "phase": "0",
+          "offset": "1155",
+          "stage": "1",
+          "enabled": "1",
+          "calls": "0",
+          "units1": "0",
+          "units2": "0",
+          "units3": "0",
+          "units4": "0",
+          "timedCalls": "0",
+          "reads": "0",
+          "ticks": "0"
+        },
+        "0:1155:2": {
+          "phase": "0",
+          "offset": "1155",
+          "stage": "2",
+          "enabled": "1",
+          "calls": "1",
+          "units1": "48",
+          "units2": "192",
+          "units3": "0",
+          "units4": "0",
+          "timedCalls": "320",
+          "reads": "640",
+          "ticks": "12720626"
+        },
+        "0:1155:3": {
+          "phase": "0",
+          "offset": "1155",
+          "stage": "3",
+          "enabled": "1",
+          "calls": "1",
+          "units1": "2304",
+          "units2": "0",
+          "units3": "0",
+          "units4": "0",
+          "timedCalls": "320",
+          "reads": "640",
+          "ticks": "2872898"
+        },
+        "0:1155:4": {
+          "phase": "0",
+          "offset": "1155",
+          "stage": "4",
+          "enabled": "1",
+          "calls": "1",
+          "units1": "6144",
+          "units2": "0",
+          "units3": "0",
+          "units4": "0",
+          "timedCalls": "320",
+          "reads": "640",
+          "ticks": "6600580"
+        },
+        "1:750:0": {
+          "phase": "1",
+          "offset": "750",
+          "stage": "0",
+          "enabled": "0",
+          "calls": "0",
+          "units1": "0",
+          "units2": "0",
+          "units3": "0",
+          "units4": "0",
+          "timedCalls": "0",
+          "reads": "0",
+          "ticks": "0"
+        },
+        "1:750:1": {
+          "phase": "1",
+          "offset": "750",
+          "stage": "1",
+          "enabled": "0",
+          "calls": "0",
+          "units1": "0",
+          "units2": "0",
+          "units3": "0",
+          "units4": "0",
+          "timedCalls": "0",
+          "reads": "0",
+          "ticks": "0"
+        },
+        "1:750:2": {
+          "phase": "1",
+          "offset": "750",
+          "stage": "2",
+          "enabled": "0",
+          "calls": "1",
+          "units1": "48",
+          "units2": "192",
+          "units3": "0",
+          "units4": "0",
+          "timedCalls": "0",
+          "reads": "0",
+          "ticks": "0"
+        },
+        "1:750:3": {
+          "phase": "1",
+          "offset": "750",
+          "stage": "3",
+          "enabled": "0",
+          "calls": "1",
+          "units1": "2304",
+          "units2": "0",
+          "units3": "0",
+          "units4": "0",
+          "timedCalls": "0",
+          "reads": "0",
+          "ticks": "0"
+        },
+        "1:750:4": {
+          "phase": "1",
+          "offset": "750",
+          "stage": "4",
+          "enabled": "0",
+          "calls": "1",
+          "units1": "6144",
+          "units2": "0",
+          "units3": "0",
+          "units4": "0",
+          "timedCalls": "0",
+          "reads": "0",
+          "ticks": "0"
+        },
+        "1:1155:0": {
+          "phase": "1",
+          "offset": "1155",
+          "stage": "0",
+          "enabled": "0",
+          "calls": "0",
+          "units1": "0",
+          "units2": "0",
+          "units3": "0",
+          "units4": "0",
+          "timedCalls": "0",
+          "reads": "0",
+          "ticks": "0"
+        },
+        "1:1155:1": {
+          "phase": "1",
+          "offset": "1155",
+          "stage": "1",
+          "enabled": "0",
+          "calls": "0",
+          "units1": "0",
+          "units2": "0",
+          "units3": "0",
+          "units4": "0",
+          "timedCalls": "0",
+          "reads": "0",
+          "ticks": "0"
+        },
+        "1:1155:2": {
+          "phase": "1",
+          "offset": "1155",
+          "stage": "2",
+          "enabled": "0",
+          "calls": "1",
+          "units1": "48",
+          "units2": "192",
+          "units3": "0",
+          "units4": "0",
+          "timedCalls": "0",
+          "reads": "0",
+          "ticks": "0"
+        },
+        "1:1155:3": {
+          "phase": "1",
+          "offset": "1155",
+          "stage": "3",
+          "enabled": "0",
+          "calls": "1",
+          "units1": "2304",
+          "units2": "0",
+          "units3": "0",
+          "units4": "0",
+          "timedCalls": "0",
+          "reads": "0",
+          "ticks": "0"
+        },
+        "1:1155:4": {
+          "phase": "1",
+          "offset": "1155",
+          "stage": "4",
+          "enabled": "0",
+          "calls": "1",
+          "units1": "6144",
+          "units2": "0",
+          "units3": "0",
+          "units4": "0",
+          "timedCalls": "0",
+          "reads": "0",
+          "ticks": "0"
+        },
+        "2:750:0": {
+          "phase": "2",
+          "offset": "750",
+          "stage": "0",
+          "enabled": "1",
+          "calls": "0",
+          "units1": "0",
+          "units2": "0",
+          "units3": "0",
+          "units4": "0",
+          "timedCalls": "0",
+          "reads": "0",
+          "ticks": "0"
+        },
+        "2:750:1": {
+          "phase": "2",
+          "offset": "750",
+          "stage": "1",
+          "enabled": "1",
+          "calls": "0",
+          "units1": "0",
+          "units2": "0",
+          "units3": "0",
+          "units4": "0",
+          "timedCalls": "0",
+          "reads": "0",
+          "ticks": "0"
+        },
+        "2:750:2": {
+          "phase": "2",
+          "offset": "750",
+          "stage": "2",
+          "enabled": "1",
+          "calls": "1",
+          "units1": "48",
+          "units2": "192",
+          "units3": "0",
+          "units4": "0",
+          "timedCalls": "0",
+          "reads": "0",
+          "ticks": "0"
+        },
+        "2:750:3": {
+          "phase": "2",
+          "offset": "750",
+          "stage": "3",
+          "enabled": "1",
+          "calls": "1",
+          "units1": "2304",
+          "units2": "0",
+          "units3": "0",
+          "units4": "0",
+          "timedCalls": "0",
+          "reads": "0",
+          "ticks": "0"
+        },
+        "2:750:4": {
+          "phase": "2",
+          "offset": "750",
+          "stage": "4",
+          "enabled": "1",
+          "calls": "1",
+          "units1": "6144",
+          "units2": "0",
+          "units3": "0",
+          "units4": "0",
+          "timedCalls": "0",
+          "reads": "0",
+          "ticks": "0"
+        },
+        "2:1155:0": {
+          "phase": "2",
+          "offset": "1155",
+          "stage": "0",
+          "enabled": "1",
+          "calls": "0",
+          "units1": "0",
+          "units2": "0",
+          "units3": "0",
+          "units4": "0",
+          "timedCalls": "0",
+          "reads": "0",
+          "ticks": "0"
+        },
+        "2:1155:1": {
+          "phase": "2",
+          "offset": "1155",
+          "stage": "1",
+          "enabled": "1",
+          "calls": "0",
+          "units1": "0",
+          "units2": "0",
+          "units3": "0",
+          "units4": "0",
+          "timedCalls": "0",
+          "reads": "0",
+          "ticks": "0"
+        },
+        "2:1155:2": {
+          "phase": "2",
+          "offset": "1155",
+          "stage": "2",
+          "enabled": "1",
+          "calls": "1",
+          "units1": "48",
+          "units2": "192",
+          "units3": "0",
+          "units4": "0",
+          "timedCalls": "320",
+          "reads": "640",
+          "ticks": "12661784"
+        },
+        "2:1155:3": {
+          "phase": "2",
+          "offset": "1155",
+          "stage": "3",
+          "enabled": "1",
+          "calls": "1",
+          "units1": "2304",
+          "units2": "0",
+          "units3": "0",
+          "units4": "0",
+          "timedCalls": "320",
+          "reads": "640",
+          "ticks": "2780346"
+        },
+        "2:1155:4": {
+          "phase": "2",
+          "offset": "1155",
+          "stage": "4",
+          "enabled": "1",
+          "calls": "1",
+          "units1": "6144",
+          "units2": "0",
+          "units3": "0",
+          "units4": "0",
+          "timedCalls": "320",
+          "reads": "640",
+          "ticks": "6790148"
+        }
+      },
+      "renderedPeriods_ms": [
+        33.36667044957479,
+        33.36666329701742,
+        33.36666361490885
+      ],
+      "strictReportSha256": "b7fa5e1b9b4a5bdb2d63e1f3c355f1900aea977e8abddad2541a640836451f39"
+    }
+  ],
+  "physicalNegativeControlsRejected": 10,
+  "scopeNames": [
+    "projectedReceiver",
+    "terrainHull",
+    "beamScratch",
+    "coronaCommit",
+    "coneCommit"
+  ],
+  "scopeTimesIncludeMeasurementAndPreemption": true,
+  "commonObserverCodeFootprintPriced": false,
+  "uniformTaxSubtractionAccepted": false,
+  "optimizedRendererPromoted": false
+}

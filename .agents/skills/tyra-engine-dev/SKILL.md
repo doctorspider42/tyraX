@@ -3928,3 +3928,11 @@ VU0 already serves macro-mode vector/bounds/skinning work and a micro ray tracer
 asynchronous jobs require ownership and COP2-free intervals. Projected-light
 STQ/color production is a VU1 proposal, with activation and resident-budget
 qualification still required; the audit is not a measured optimization.
+
+The subsequent `docs/tyrax2-night-producers.md` physical trial finds those
+projected flashlight/hull scopes inactive in all 960 observed driving loops.
+Disjoint beam scratch and corona/cone commits total about 0.235 ms, with
+enabled observer tax unresolved against drift. Do not rank inactive source
+loops as this fixed night bottleneck or promise that deleting a scoped producer
+recovers its instrumented elapsed time. Vehicle/headlight and other projected
+routes are separate; walking/moving/showcase activation remains open.

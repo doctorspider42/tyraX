@@ -19,6 +19,14 @@ description: >
 
 # Building, running and verifying
 
+Private night producer observer: `docs/tyrax2-night-producers.md` records five
+disjoint preparation scopes, sparse workload counters outside 800..1119, and
+both physical On/Off orders. Keep additional scoped Count reads separate from
+the inherited ordinary sampler countReads field. Timed calls qualify priced
+activation; sparse bytes/change flags do not qualify all-window writes.
+Enabled observer contrasts can be confounded by drift; do not uniformly
+subtract them from scopes or describe common disabled code as zero overhead.
+
 > **A note on `PROGRESS 123` citations.** They point at numbered entries of
 > `PROGRESS.md`, retired at ~15 800 lines. They remain exact pointers — the file
 > is in git history, and `docs/backlog.md` has the recipe. New work records

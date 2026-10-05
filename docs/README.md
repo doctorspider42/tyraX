@@ -534,3 +534,5 @@ The [private player-only light receiver experiment](tyrax2-player-light-receiver
 The [conservative far-light gate experiment](tyrax2-far-light-gate.md) is rejected after both physical orders regress by 0.239/0.230 ms despite matching cold light-selection pointers. Its source/evidence checkpoint preserves the failed emulator startup separately.
 
 The [EE performance audit](tyrax2-ee-performance-audit-2026-10-05.md) maps fourteen concrete preparation, ownership and inherited-API findings, distinguishes active work from conditional routes, checks linked square-root instructions and proposes bounded VU0/VU1 experiments without invented gains.
+
+The [night producer observer trial](tyrax2-night-producers.md) qualifies both hardware orders: two flashlight scopes are inactive in 960 observed loops, while beam scratch and corona/cone commits total about 0.235 ms. Enabled observer tax is confounded by drift; source and raw evidence are archived without an optimization or 60 fps claim.

@@ -506,6 +506,15 @@ recovered 0.50-0.72 ms of hardware `work`. What it did not do, ranked:
   existing macro consumers. Broad source-level sqrtf replacement is ruled out
   for the qualified beam/pool functions by actual linked sqrt.s instructions.
 
+  The [producer observer trial](tyrax2-night-producers.md) completes both
+  physical orders. Projected flashlight receivers and flashlight terrain hull
+  are inactive in all 960 priced On loops while driving. Beam scratch and
+  separate output commits total about 0.235 ms; observer net tax is unresolved
+  against drift. Deprioritize those leads for the fixed night multi-millisecond
+  gap. Next qualify actual model preparation/additional night passes using the
+  retained Core prefix/submit evidence; walking/moving/showcase coverage remains
+  needed for conditional audit paths. No producer optimization is promoted.
+
   Storage classification alone grants no immutable borrowing rights.
   The [resumed candidate audit](tyrax2-ee-vu0.md#next-60-hz-candidates-host-controls-2026-10-03)
   rejects the broad beam cache as a demonstrated driving gain, identifies
