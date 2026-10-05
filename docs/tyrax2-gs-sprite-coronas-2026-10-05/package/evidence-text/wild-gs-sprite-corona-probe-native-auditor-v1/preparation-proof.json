@@ -1,0 +1,9 @@
+{
+  "status": "PREPARED_ROOT_REVIEW_REQUIRED_NOT_NATIVE_AUDIT",
+  "baseAuditorSha256": "fc86429ee185ff66a50d3bff45cb854b44982c6987c287754dee348059954399",
+  "helperSha256": "72a03d526a0de19cd6b90f918550b6d7f4592359bc059d256b650b501f1d2bd3",
+  "documentationSha256": "29faaf0c9d2f91019fb8f483f58596f64196a48f810a35f8e8b7ad9f51e667a3",
+  "syntaxParsed": true,
+  "buildDeviceCacheMutation": false,
+  "nativeAuditorExecuted": false
+}

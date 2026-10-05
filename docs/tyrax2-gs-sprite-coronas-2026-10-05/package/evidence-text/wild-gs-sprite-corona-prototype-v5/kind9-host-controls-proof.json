@@ -1,0 +1,15 @@
+{
+  "status": "PASS_HOST_KIND9_STRICT_CONTROLS_AND_OFFLINE_DECODER",
+  "checks": 269,
+  "parserSemantics": "strict decimal lexer with validity/arm/table expressions extracted from current C++ source; target C++ I/O not executed",
+  "positiveOrders": [
+    0,
+    1
+  ],
+  "decoderPositiveCases": "FGE0/1, both Y orientations and unchanged fallback",
+  "negativeCases": "plan syntax/overflow/semantic errors; missing/duplicate/wrong arms; effect cuts; misleading accepted counter; varying F/every RGBA lane; wrong epoch/native pins/state/FGE/reglist/input marker/count/endpoints",
+  "actualRuntimeCaptured": false,
+  "actualVUSpritesOrPixelsOrGainAccepted": false,
+  "checkerSha256": "5a5ccd2cee83d2cd06f37748e2c98ce4a1d35fe9abb1abd51a354a4cbab8abf5",
+  "controlsSha256": "be22dbdc90230d1759dff9174e05fa37a3a99990afe2dd7988abdf010dc444de"
+}

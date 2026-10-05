@@ -63,3 +63,6 @@ docker/openvcl-tyrax.patch text eol=lf
 vendor/openvcl/** text=auto eol=lf
 vendor/vclpp/** text=auto eol=lf
 tools/toolchain/** text=auto eol=lf
+
+# Preserve exact archived PS2 experiment source/evidence bytes.
+docs/tyrax2-gs-sprite-coronas-2026-10-05/** -text whitespace=-trailing-space,-space-before-tab,cr-at-eol

@@ -1,0 +1,544 @@
+{
+  "0": {
+    "stateSha256": "6b5551c2870342ef2a50896fb8f31685a349994009f76c88500b0bb9f41b0b48",
+    "header": [
+      1157627904,
+      1157627904,
+      1191182080,
+      32840
+    ],
+    "microSha256": "e731e5a356012edc5d3587956160247c813040890521a485ceb81074fff679d2",
+    "optionWords": [
+      0,
+      4294967295,
+      3263102977,
+      1152862208
+    ],
+    "fogHex": "01007fc20048b744",
+    "spotHex": "0000000000000000000080bf0ad7233c00000000000000000000803ffd04f73c0000804000000041000040411bf0a23e",
+    "kick": 240,
+    "tag": "0x412303dc00000008048",
+    "firstSixOutput": [
+      {
+        "stq": [
+          0.0,
+          0.0,
+          0.05000000447034836,
+          0.0
+        ],
+        "rgba": [
+          32,
+          65,
+          98,
+          128
+        ],
+        "xyzf": [
+          32632,
+          32923,
+          5240,
+          3060
+        ]
+      },
+      {
+        "stq": [
+          0.05000000447034836,
+          0.0,
+          0.05000000447034836,
+          0.0
+        ],
+        "rgba": [
+          32,
+          65,
+          98,
+          128
+        ],
+        "xyzf": [
+          32903,
+          32923,
+          5240,
+          3060
+        ]
+      },
+      {
+        "stq": [
+          0.05000000447034836,
+          0.05000000447034836,
+          0.05000000447034836,
+          0.0
+        ],
+        "rgba": [
+          32,
+          65,
+          98,
+          128
+        ],
+        "xyzf": [
+          32903,
+          32612,
+          5240,
+          3060
+        ]
+      },
+      {
+        "stq": [
+          0.0,
+          0.0,
+          0.05000000447034836,
+          0.0
+        ],
+        "rgba": [
+          32,
+          65,
+          98,
+          128
+        ],
+        "xyzf": [
+          32632,
+          32923,
+          5240,
+          3060
+        ]
+      },
+      {
+        "stq": [
+          0.05000000447034836,
+          0.05000000447034836,
+          0.05000000447034836,
+          0.0
+        ],
+        "rgba": [
+          32,
+          65,
+          98,
+          128
+        ],
+        "xyzf": [
+          32903,
+          32612,
+          5240,
+          3060
+        ]
+      },
+      {
+        "stq": [
+          0.0,
+          0.05000000447034836,
+          0.05000000447034836,
+          0.0
+        ],
+        "rgba": [
+          32,
+          65,
+          98,
+          128
+        ],
+        "xyzf": [
+          32632,
+          32612,
+          5240,
+          3060
+        ]
+      }
+    ],
+    "allQuads": [
+      {
+        "first": 0,
+        "predicate": "PASS",
+        "error": null,
+        "endpoints": [
+          5,
+          1
+        ]
+      },
+      {
+        "first": 6,
+        "predicate": "PASS",
+        "error": null,
+        "endpoints": [
+          5,
+          1
+        ]
+      },
+      {
+        "first": 12,
+        "predicate": "PASS",
+        "error": null,
+        "endpoints": [
+          5,
+          1
+        ]
+      },
+      {
+        "first": 18,
+        "predicate": "PASS",
+        "error": null,
+        "endpoints": [
+          5,
+          1
+        ]
+      },
+      {
+        "first": 24,
+        "predicate": "PASS",
+        "error": null,
+        "endpoints": [
+          5,
+          1
+        ]
+      },
+      {
+        "first": 30,
+        "predicate": "PASS",
+        "error": null,
+        "endpoints": [
+          5,
+          1
+        ]
+      },
+      {
+        "first": 36,
+        "predicate": "PASS",
+        "error": null,
+        "endpoints": [
+          5,
+          1
+        ]
+      },
+      {
+        "first": 42,
+        "predicate": "PASS",
+        "error": null,
+        "endpoints": [
+          5,
+          1
+        ]
+      },
+      {
+        "first": 48,
+        "predicate": "PASS",
+        "error": null,
+        "endpoints": [
+          5,
+          1
+        ]
+      },
+      {
+        "first": 54,
+        "predicate": "PASS",
+        "error": null,
+        "endpoints": [
+          5,
+          1
+        ]
+      },
+      {
+        "first": 60,
+        "predicate": "PASS",
+        "error": null,
+        "endpoints": [
+          5,
+          1
+        ]
+      },
+      {
+        "first": 66,
+        "predicate": "PASS",
+        "error": null,
+        "endpoints": [
+          5,
+          1
+        ]
+      }
+    ],
+    "outputSha256": "a7d5bcc19449411972cb02329c5a98b77fc6155b64103f2366bca2c2588c6546",
+    "stateMembers": {
+      "PCSX2 Savestate Version.id": 36,
+      "PCSX2 Internal Structures.dat": 129968,
+      "eeMemory.bin": 33554432,
+      "iopMemory.bin": 2097152,
+      "eeHwRegs.bin": 65536,
+      "iopHwRegs.bin": 65536,
+      "Scratchpad.bin": 16384,
+      "vu0Memory.bin": 4096,
+      "vu1Memory.bin": 16384,
+      "vu0MicroMem.bin": 4096,
+      "vu1MicroMem.bin": 16384,
+      "SPU2.bin": 2178992,
+      "USB.bin": 8491,
+      "PAD.bin": 257,
+      "GS.bin": 4194813,
+      "Screenshot.png": 30257
+    }
+  },
+  "1": {
+    "stateSha256": "d58dfa2e2776f26fc5c5542d76e4f2824dec522debe5a694191bed5c43eda342",
+    "header": [
+      1157627904,
+      1157627904,
+      1191182080,
+      34888
+    ],
+    "microSha256": "e731e5a356012edc5d3587956160247c813040890521a485ceb81074fff679d2",
+    "optionWords": [
+      0,
+      4294967295,
+      3263102977,
+      1152862208
+    ],
+    "fogHex": "01007fc20048b744",
+    "spotHex": "0000000000000000000080bf0ad7233c00000000000000000000803ffd04f73c0000804000000041000040411bf0a23e",
+    "kick": 241,
+    "tag": "0x412303dc00000008048",
+    "firstSixOutput": [
+      {
+        "stq": [
+          0.0,
+          0.0,
+          0.05000000447034836,
+          0.0
+        ],
+        "rgba": [
+          32,
+          65,
+          98,
+          128
+        ],
+        "xyzf": [
+          32632,
+          32923,
+          5240,
+          3060
+        ]
+      },
+      {
+        "stq": [
+          0.05000000447034836,
+          0.0,
+          0.05000000447034836,
+          0.0
+        ],
+        "rgba": [
+          32,
+          65,
+          98,
+          128
+        ],
+        "xyzf": [
+          32903,
+          32923,
+          5240,
+          3060
+        ]
+      },
+      {
+        "stq": [
+          0.05000000447034836,
+          0.05000000447034836,
+          0.05000000447034836,
+          0.0
+        ],
+        "rgba": [
+          32,
+          65,
+          98,
+          128
+        ],
+        "xyzf": [
+          32903,
+          32612,
+          5240,
+          3060
+        ]
+      },
+      {
+        "stq": [
+          0.0,
+          0.0,
+          0.05000000447034836,
+          0.0
+        ],
+        "rgba": [
+          32,
+          65,
+          98,
+          128
+        ],
+        "xyzf": [
+          32632,
+          32923,
+          5240,
+          3060
+        ]
+      },
+      {
+        "stq": [
+          0.05000000447034836,
+          0.05000000447034836,
+          0.05000000447034836,
+          0.0
+        ],
+        "rgba": [
+          32,
+          65,
+          98,
+          128
+        ],
+        "xyzf": [
+          32903,
+          32612,
+          5240,
+          3060
+        ]
+      },
+      {
+        "stq": [
+          0.0,
+          0.05000000447034836,
+          0.05000000447034836,
+          0.0
+        ],
+        "rgba": [
+          32,
+          65,
+          98,
+          128
+        ],
+        "xyzf": [
+          32632,
+          32612,
+          5240,
+          3060
+        ]
+      }
+    ],
+    "allQuads": [
+      {
+        "first": 0,
+        "predicate": "PASS",
+        "error": null,
+        "endpoints": [
+          5,
+          1
+        ]
+      },
+      {
+        "first": 6,
+        "predicate": "PASS",
+        "error": null,
+        "endpoints": [
+          5,
+          1
+        ]
+      },
+      {
+        "first": 12,
+        "predicate": "PASS",
+        "error": null,
+        "endpoints": [
+          5,
+          1
+        ]
+      },
+      {
+        "first": 18,
+        "predicate": "PASS",
+        "error": null,
+        "endpoints": [
+          5,
+          1
+        ]
+      },
+      {
+        "first": 24,
+        "predicate": "PASS",
+        "error": null,
+        "endpoints": [
+          5,
+          1
+        ]
+      },
+      {
+        "first": 30,
+        "predicate": "PASS",
+        "error": null,
+        "endpoints": [
+          5,
+          1
+        ]
+      },
+      {
+        "first": 36,
+        "predicate": "PASS",
+        "error": null,
+        "endpoints": [
+          5,
+          1
+        ]
+      },
+      {
+        "first": 42,
+        "predicate": "PASS",
+        "error": null,
+        "endpoints": [
+          5,
+          1
+        ]
+      },
+      {
+        "first": 48,
+        "predicate": "PASS",
+        "error": null,
+        "endpoints": [
+          5,
+          1
+        ]
+      },
+      {
+        "first": 54,
+        "predicate": "PASS",
+        "error": null,
+        "endpoints": [
+          5,
+          1
+        ]
+      },
+      {
+        "first": 60,
+        "predicate": "PASS",
+        "error": null,
+        "endpoints": [
+          5,
+          1
+        ]
+      },
+      {
+        "first": 66,
+        "predicate": "PASS",
+        "error": null,
+        "endpoints": [
+          5,
+          1
+        ]
+      }
+    ],
+    "outputSha256": "a7d5bcc19449411972cb02329c5a98b77fc6155b64103f2366bca2c2588c6546",
+    "stateMembers": {
+      "PCSX2 Savestate Version.id": 36,
+      "PCSX2 Internal Structures.dat": 129968,
+      "eeMemory.bin": 33554432,
+      "iopMemory.bin": 2097152,
+      "eeHwRegs.bin": 65536,
+      "iopHwRegs.bin": 65536,
+      "Scratchpad.bin": 16384,
+      "vu0Memory.bin": 4096,
+      "vu1Memory.bin": 16384,
+      "vu0MicroMem.bin": 4096,
+      "vu1MicroMem.bin": 16384,
+      "SPU2.bin": 2178992,
+      "USB.bin": 8491,
+      "PAD.bin": 257,
+      "GS.bin": 4194813,
+      "Screenshot.png": 30257
+    }
+  }
+}

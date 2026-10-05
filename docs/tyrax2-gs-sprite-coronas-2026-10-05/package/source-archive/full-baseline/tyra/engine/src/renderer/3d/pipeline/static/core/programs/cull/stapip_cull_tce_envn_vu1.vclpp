@@ -1,0 +1,183 @@
+; Added by TyraX: EXPERIMENT IMAGE - (c) env normals normalized once on the EE
+; Linked only with its toggle on (stapip_vu1_experiments.hpp);
+; derived from stapip_cull_tce_vu1.vclpp - re-derive, do not edit.
+; _____        ____   ___
+;   |     \/   ____| |___|
+;   |     |   |   \  |   |
+;---------------------------------------------------------------
+; Copyright 2022, tyra - https://github.com/h4570/tyra
+; Licensed under Apache License 2.0
+; Added by TyraX: env (matcap) variant of the cull TC program.
+;
+;---------------------------------------------------------------
+; Triangle list
+; Cull = Standard PS2 way. clipw polys are culled.
+; Texture + colors; the ST slot carries the OBJECT-SPACE NORMAL and the
+; texture ST is computed here from the per-mesh camera basis - the
+; sphere-mapped (matcap) pass of reflective materials. No spot light:
+; the reflection pass must not receive the flashlight term.
+;---------------------------------------------------------------
+
+.syntax new
+.name StaPipVU1Cull_TCE_ENVN
+.vu
+.init_vf_all
+.init_vi_all
+
+#include "src/renderer/3d/pipeline/shared/vcl_sml.i"
+#include "src/renderer/3d/pipeline/shared/tyra_macros.i"
+#include "inc/renderer/3d/pipeline/static/core/programs/stapip_vu1_shared_defines.h"
+
+#define STQ_STORE_OFFSET    0
+#define RGBA_STORE_OFFSET   1
+#define XYZ2_STORE_OFFSET   2
+
+--enter
+--endenter
+
+#vuprog StaPipVU1CullTCEENVN
+
+    ResetClipFlags{ }
+    MatrixLoad{ mvp, VU1_MVP_MATRIX_ADDR, vi00 }
+    ; Modified by TyraX: only the flag here - the colour itself is loaded
+    ; per batch, where it is replicated (setDestAddr).
+    ilw.x   singleColorEnabled, VU1_OPTIONS_ADDR(vi00)
+    LoadTyraFogParams{ fogParams, VU1_OPTIONS_ADDR }
+    MakeTyraAdcMask{ adcMask }
+    LoadTyraEnvBasis{ envBasisX, envBasisY, envBasisZ }
+
+    ; Modified by TyraX: the GIF-tag registers are loaded INSIDE the batch loop
+    ; (below, next to the store that is their only reader) rather than here.
+    ; `begin:` is a loop, so a register loaded above it has to stay live across the
+    ; whole body - and the from-source assembler reuses these four for per-vertex
+    ; values instead, so every batch after the first one stored GARBAGE GIF TAGS and
+    ; its geometry never reached the GS. Free either way: the tag block is written
+    ; once per batch, so the loads simply moved to their reader, and peak register
+    ; pressure drops with them. Three sibling programs already carry this change;
+    ; see "A miscompile this uncovered" in docs/toolchain-image.md.
+
+begin:
+    xtop buffer
+    LoadTyraBufferTags{ scale, primTag, buffer }
+
+    iaddiu  vertexData,         buffer,         VU1_STAPIP_VERT_DATA_ADDR
+    ilw.w   vertexCount,        0(buffer)
+    iadd    stqData,            vertexData,     vertexCount
+    iadd    colorData,          stqData,        vertexCount
+    iblez   singleColorEnabled, setDestAddrMultiColor
+    iadd    kickAddress,        stqData,        vertexCount
+    ; Modified by TyraX: one colour, three copies at
+    ; VU1_SINGLE_COLOR_COPIES_ADDR and a stride-0 colour pointer, so the
+    ; vertex loops below load their colours the same way in both modes
+    ; instead of branching on the flag at the top of every body.
+    lq      singleColor,        VU1_SINGLE_COLOR_ADDR(vi00)
+    ; the loop used to build each corner as vf00 + singleColor, which
+    ; adds vf00.w = 1.0 to the alpha - kept, so the output is bit-identical
+    add     singleColor,        vf00,           singleColor
+    sq      singleColor,        VU1_SINGLE_COLOR_COPIES_ADDR(vi00)
+    sq      singleColor,        VU1_SINGLE_COLOR_COPIES_ADDR+1(vi00)
+    sq      singleColor,        VU1_SINGLE_COLOR_COPIES_ADDR+2(vi00)
+    iaddiu  colorData,          vi00,           VU1_SINGLE_COLOR_COPIES_ADDR
+    iaddiu  colorStride,        vi00,           0
+    b       setDestAddr
+setDestAddrMultiColor:
+    iadd    kickAddress,        colorData,      vertexCount
+    iaddiu  colorStride,        vi00,           3
+setDestAddr:
+    iaddiu  destAddress,        kickAddress,    0
+
+    ; Modified by TyraX: loaded here, not above `begin:` - see the note there.
+    LoadTyraStaticData{ gifSetTag }
+    LoadTyraTagsTexture{ lodGifTag, testsTag, texBufferClutGifTag, VU1_LOD_ADDR, VU1_Z_TESTS_ADDR, VU1_CLUT_ADDR }
+    LoadTyraAlphaTag{ alphaGifTag, VU1_ALPHA_ADDR }
+    StoreTyraGifTagsTextureAlpha{ gifSetTag, lodGifTag, texBufferClutGifTag, alphaGifTag, primTag, testsTag, destAddress }
+
+    ;--- Loop
+    iadd vertexCounter, buffer, vertexCount
+vertexLoop:
+
+        ;--- Load vertices colors (a single colour reads three copies,
+        ;--- stride 0 - see setDestAddr)
+        lq      color1,   (colorData)
+        lq      color2,   1(colorData)
+        lq      color3,   2(colorData)
+
+        ;--- Load vertex1 (stq slot = object-space normal)
+        lq      vertex1,  (vertexData)
+        lq      stq1,     (stqData)
+
+        ;--- Load vertex2
+        lq      vertex2,  1(vertexData)
+        lq      stq2,     1(stqData)
+
+        ;--- Load vertex3
+        lq      vertex3,  2(vertexData)
+        lq      stq3,     2(stqData)
+
+        ;--- Calculate vertex1
+        CalculateTyraEnvStqUnit{ stq1, envBasisX, envBasisY, envBasisZ }
+        MatrixMultiplyVertex{ vertex1, mvp, vertex1 }
+        CalculateTyraFog{ fogInt, vertex1, fogParams }
+        PerformTyraFogClipCheck{ vertex1, destAddress, XYZ2_STORE_OFFSET, fogInt, adcMask }
+        VertexPersCorr{ vertex1, vertex1 }
+        ScaleVertexToGSFormat{ scale, vertex1 }
+        PerformTexturePerspectiveCorrection{ outputStq1, stq1 }
+        FixColor{ color1 }
+
+        ;--- Calculate vertex2
+        CalculateTyraEnvStqUnit{ stq2, envBasisX, envBasisY, envBasisZ }
+        MatrixMultiplyVertex{ vertex2, mvp, vertex2 }
+        CalculateTyraFog{ fogInt, vertex2, fogParams }
+        PerformTyraFogClipCheck{ vertex2, destAddress, XYZ2_STORE_OFFSET+3, fogInt, adcMask }
+        VertexPersCorr{ vertex2, vertex2 }
+        ScaleVertexToGSFormat{ scale, vertex2 }
+        PerformTexturePerspectiveCorrection{ outputStq2, stq2 }
+        FixColor{ color2 }
+
+        ;--- Calculate vertex3
+        CalculateTyraEnvStqUnit{ stq3, envBasisX, envBasisY, envBasisZ }
+        MatrixMultiplyVertex{ vertex3, mvp, vertex3 }
+        CalculateTyraFog{ fogInt, vertex3, fogParams }
+        PerformTyraFogClipCheck{ vertex3, destAddress, XYZ2_STORE_OFFSET+6, fogInt, adcMask }
+        VertexPersCorr{ vertex3, vertex3 }
+        ScaleVertexToGSFormat{ scale, vertex3 }
+        PerformTexturePerspectiveCorrection{ outputStq3, stq3 }
+        FixColor{ color3 }
+
+        ;--- Store vertex1
+        sq      outputStq1,     STQ_STORE_OFFSET(destAddress)
+        sq      color1,         RGBA_STORE_OFFSET(destAddress)
+        sq.xyz  vertex1,        XYZ2_STORE_OFFSET(destAddress)
+
+        ;--- Store vertex2
+        sq      outputStq2,     STQ_STORE_OFFSET+3(destAddress)
+        sq      color2,         RGBA_STORE_OFFSET+3(destAddress)
+        sq.xyz  vertex2,        XYZ2_STORE_OFFSET+3(destAddress)
+
+        ;--- Store vertex3
+        sq      outputStq3,     STQ_STORE_OFFSET+6(destAddress)
+        sq      color3,         RGBA_STORE_OFFSET+6(destAddress)
+        sq.xyz  vertex3,        XYZ2_STORE_OFFSET+6(destAddress)
+
+        ;-------------------------------
+
+        iaddiu  vertexData,     vertexData,     3
+        iaddiu  stqData,        stqData,        3
+        iadd    colorData,      colorData,      colorStride
+        iaddiu  destAddress,    destAddress,    9
+
+        ;--- Fix loop
+        iaddi   vertexCounter,  vertexCounter,  -3  ; decrement the loop counter
+        ibne    vertexCounter,  buffer, vertexLoop  ; and repeat if needed
+
+    xgkick kickAddress ; dispatch to the GS rasterizer.
+
+--barrier ; Why the hell I must add barrier AFTER XGKICK? VCL does not adds E bit without it...
+--cont
+
+    b   begin
+
+#endvuprog
+
+--exit
+--endexit

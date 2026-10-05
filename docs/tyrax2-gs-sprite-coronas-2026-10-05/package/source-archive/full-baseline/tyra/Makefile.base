@@ -1,0 +1,196 @@
+# Modified by TyraX: parallel-safe target ordering, single-pass dependency
+# generation (-MMD -MP instead of a second -MM run of the compiler per file)
+# and an incremental resource copy. See the notes at each site.
+#Compiler and Linker
+EE_PREFIX	:= mips64r5900el-ps2-elf-
+AR			:= $(EE_PREFIX)ar
+AS			:= $(EE_PREFIX)as
+CC			:= $(EE_PREFIX)gcc
+CXX			:= $(EE_PREFIX)g++
+STRIP		:= $(EE_PREFIX)strip
+BIN2S		:= $(PS2SDK)/bin/bin2s
+VCL			:= vcl
+VCLPP		:= vclpp
+DVP			:= dvp-as
+
+IRXEMBEDDEDEXT	:= irx-em
+
+#Flags, Libraries and Includes
+# Modified by TyraX - not upstream Tyra.
+#
+# -G0: put NOTHING in the small-data area. Without it the engine and the
+# generated game are the only things using .sdata/.sbss, they are addressed
+# GP-relative through a 16-bit offset (+/-32 KB), and the engine has outgrown
+# it. The failure is not a size error - it is dozens of
+# "relocation truncated to fit: R_MIPS_GPREL16 against Tyra::Info::writeLogsToFile"
+# at link time, naming a one-byte bool rather than the section that overflowed.
+# It bites the DEBUG profile first (more inlined logging, more references), so
+# enabling showFps on a current project stopped linking at all - which took the
+# perf benchmark recipe in docs/ with it.
+#
+# ps2sdk compiles its own libraries this way (Defs.make: `-D_EE -G0`), so this
+# is Tyra matching the SDK it links against rather than a workaround.
+CFLAGS      += -D_EE -G0 -Wall -O3
+CFLAGS      += $(NATIVE_DEBUG_FLAGS)
+LINKFLAGS	+= -O3 -Wl,-zmax-page-size=128
+ASFLAGS		+= -O3
+# TyraX: -lps2snd is the EE-side RPC stub library for libsd (SPU2 registers) -
+# the SPU2 hardware reverb, AudioReverb. It rides the ps2snd.irx the engine
+# embeds; audsrv keeps talking to libsd on the IOP side as before.
+LIB         += -lstdc++ -ldma -lpacket2 -lgraph -ldraw -lmath3d -lpng -ldebug -lz -lpad -lkbd -lmouse -laudsrv -lps2snd -lpatches -lcdvd -lmc
+INC         += -I$(PS2DEV)/ps2sdk/ee/include -I$(PS2DEV)/ps2sdk/common/include -I$(PS2DEV)/ps2sdk/ports/include
+
+#---------------------------------------------------------------------------------
+#DO NOT EDIT BELOW THIS LINE
+#---------------------------------------------------------------------------------
+# Modified by TyraX: src/vu/ and src/vu0/ are HOST C++ - a project's own VU1
+# program and VU0 kernel descriptions (docs/vu-authoring.md). They are compiled
+# by the host compiler at build time and RUN, and what they write is the .vclpp
+# below; handing them to the PS2 compiler would fail on the very first include
+# (`vushader.hpp: No such file or directory` - the framework lives in vugen/,
+# outside src/, precisely so this glob cannot reach it).
+SOURCES     := $(sort $(shell find $(SRCDIR) -type f -name '*.$(SRCEXT)' -not -path '$(SRCDIR)/vu/*' -not -path '$(SRCDIR)/vu0/*'))
+OBJECTS     := $(patsubst $(SRCDIR)/%,$(BUILDDIR)/%,$(SOURCES:.$(SRCEXT)=.$(OBJEXT)))
+
+IRXEM_SOURCES  := $(sort $(shell find $(SRCDIR) -type f -name '*.$(IRXEMBEDDEDEXT)'))
+IRXEM_OBJECTS  := $(patsubst $(SRCDIR)/%,$(BUILDDIR)/%,$(IRXEM_SOURCES:.$(IRXEMBEDDEDEXT)=.$(OBJEXT)))
+
+VU_SOURCES_VCL  := $(sort $(shell find $(SRCDIR) -type f -name '*.$(VCLEXT)'))
+VU_OBJECTS_VCL  := $(patsubst $(SRCDIR)/%,$(BUILDDIR)/%,$(VU_SOURCES_VCL:.$(VCLEXT)=.$(OBJEXT)))
+
+VU_SOURCES_VSM  := $(sort $(shell find $(SRCDIR) -type f -name '*.$(VSMEXT)'))
+VU_OBJECTS_VSM  := $(patsubst $(SRCDIR)/%,$(BUILDDIR)/%,$(VU_SOURCES_VSM:.$(VSMEXT)=.$(OBJEXT)))
+
+VCL_SOURCES  := $(sort $(shell find $(SRCDIR) -type f -name '*.$(VCLPPEXT)'))
+VCL_OBJECTS  := $(patsubst $(SRCDIR)/%,$(BUILDDIR)/%,$(VCL_SOURCES:.$(VCLPPEXT)=.$(OBJEXT)))
+
+#Default Make
+OUTPUT      := $(TARGETDIR)/$(TARGET)
+all: resources $(OUTPUT)
+#all: resources irxcopy $(TARGET)
+
+release:
+	$(MAKE) CFLAGS="-DNDEBUG $(CFLAGS)"
+
+#Remake
+remake: cleaner all
+
+#Copy Resources from Resources Directory to Target Directory
+# TyraX: rsync -ru (copy only what is newer) instead of a full re-copy on every build.
+# The plain `cp -r` re-wrote every baked texture, model and WAV into bin/ each
+# time, which then had to be hashed and rsynced back to the host - O(assets)
+# per build for a tree that had not changed.
+#
+# TyraX: gi/ and shadow/ are skipped. They are HOST bake caches that happen to
+# live under .res-baked (the global-illumination solve and the baked shadow
+# decals - the PIXELS those produce ship as ordinary textures next to them, in
+# aomap/, aoatlas/ and shadowatlas/). Nothing on the console can read either
+# file, and bin/ is the game's own filesystem: copying them wasted disk on
+# every build and, worse, put them in front of the ISO export, which walks all
+# of bin/ and would burn a multi-megabyte GI cache onto the disc.
+RESDIR_SKIP := gi shadow
+resources: directories
+	@for d in $(RESDIR)/*; do \
+		case " $(RESDIR_SKIP) " in *" $${d##*/} "*) continue;; esac; \
+		[ -e "$$d" ] || continue; \
+		rsync -ru "$$d" $(TARGETDIR)/ || exit $$?; \
+	done
+
+#Make the Directories
+directories:
+	@mkdir -p $(TARGETDIR)
+	@mkdir -p $(BUILDDIR)
+
+#Clean only Objects
+clean:
+	@$(RM) -rf $(BUILDDIR)
+
+#Full Clean, Objects and Binaries
+cleaner: clean
+	@$(RM) -rf $(TARGETDIR)
+	@$(RM) -rf $(BUILDDIR)
+
+#irxcopy:
+#	@cp $(PS2SDK)/iop/irx/audsrv.irx $(TARGETDIR)/audsrv.irx
+
+#Pull in dependency info for *existing* .o files
+-include $(OBJECTS:.$(OBJEXT)=.$(DEPEXT))
+
+#Link
+# TyraX: `directories` is an ORDER-ONLY prerequisite. Builds run with -j, where
+# `all: resources $(OUTPUT)` starts both goals at once - and $(TARGETDIR) is
+# created by `directories` under `resources`, so without this the link can reach
+# an absent bin/. Order-only (after the |) because the directory's mtime changes
+# whenever anything is written into it and would otherwise force a relink.
+# Track the file actually written, not a nonexistent ELF/archive in the root.
+# The engine archive is a dependency too: another project's engine build must
+# invalidate this ELF even when none of this game's sources changed.
+LINK_DEPS   := $(if $(ENGINEDIR),$(ENGINEDIR)/bin/libtyra.a)
+$(OUTPUT): $(OBJECTS) $(VCL_OBJECTS) $(VU_OBJECTS_VCL) $(VU_OBJECTS_VSM) $(IRXEM_OBJECTS) $(LINK_DEPS) Makefile $(TYRA_MAKEFILE) | directories
+ifeq ($(suffix $(TARGET)),.a)
+	@rm -f $@
+	$(AR) rcs $@ $(filter %.$(OBJEXT),$^)
+else
+	$(CXX) -T$(PS2DEV)/ps2sdk/ee/startup/linkfile -o $@ $(filter %.$(OBJEXT),$^) -L$(PS2DEV)/ps2sdk/ee/lib -L$(PS2SDK)/ports/lib $(LINKFLAGS) $(LIBDIRS) $(LIB)
+# TyraX: keep an UNSTRIPPED copy before stripping the shipped ELF, so the
+# editor can turn a crash dump address into a function name and source line
+# (mips64r5900el-ps2-elf-addr2line). The generated Makefile sets KEEPSYM in
+# the debug profile only; the shipped ELF is stripped either way.
+ifeq ($(KEEPSYM),1)
+	cp $(TARGETDIR)/$(TARGET) $(TARGETDIR)/$(TARGET).sym
+endif
+	$(STRIP) --strip-all $(TARGETDIR)/$(TARGET)
+endif
+
+# Compiler flags and include paths live in these files. Native sync preserves
+# the base Makefile's mtime when its bytes are unchanged.
+$(OBJECTS) $(VCL_OBJECTS) $(VU_OBJECTS_VCL) $(VU_OBJECTS_VSM) $(IRXEM_OBJECTS): Makefile $(TYRA_MAKEFILE)
+
+$(BUILDDIR)/%.$(OBJEXT): $(SRCDIR)/%.$(IRXEMBEDDEDEXT)
+	@mkdir -p $(dir $@)
+	@rm -f $@.s
+	$(BIN2S) $(shell head -1 $<) $@.s $(shell sed -n '2p' $<)
+# PS2DEV v2's EE compiler emits CPIC/abicalls objects. bin2s emits data only;
+# mark it with the same ABI rather than defaulting to non-abicalls and warning
+# for every embedded IRX at every link. This does not change the embedded bytes.
+	$(AS) $(ASFLAGS) -call_nonpic $@.s -o $@
+
+# TyraX: one compiler run per file. This rule used to compile the source and
+# then run the compiler a SECOND time with -MM purely to produce the .d, plus a
+# cp/sed/fmt/sed/rm dance to add the phony header targets -MP emits for free.
+# The second preprocess is a full front-end pass over the same headers, and it
+# cost 22% of the whole game build (measured on examples/showcase: 96s -> 75s
+# serial, 54s -> 42s at -j6). -MMD writes the same user-header-only dependency
+# list as -MM did, and -MP the same "header: " stubs the sed pipeline built, so
+# deleting a header still does not break the next build.
+$(BUILDDIR)/%.$(OBJEXT): $(SRCDIR)/%.$(SRCEXT)
+	@mkdir -p $(dir $@)
+	$(CXX) $(CFLAGS) $(INC) -MMD -MP -MF $(BUILDDIR)/$*.$(DEPEXT) -c -o $@ $<
+
+$(BUILDDIR)/%.$(OBJEXT): $(SRCDIR)/%.$(VCLEXT)
+	@mkdir -p $(dir $@)
+	@rm -f $@.vsm
+	$(VCL) $< >> $@.vsm
+	$(DVP) $@.vsm -o $@
+
+$(BUILDDIR)/%.$(OBJEXT): $(SRCDIR)/%.$(VSMEXT)
+	@mkdir -p $(dir $@)
+	$(DVP) $< -o $@
+
+$(BUILDDIR)/%.$(OBJEXT): $(SRCDIR)/%.$(VCLPPEXT)
+	@mkdir -p $(dir $@)
+	@rm -f $@.vcl
+	@rm -f $@.vsm
+	$(VCLPP) $< $@.vcl
+	$(VCL) $@.vcl > $@.vsm
+	$(DVP) $@.vsm -o $@
+
+run-pcsx2:
+	taskkill.exe /f /t /im pcsx2x64.exe || true
+	$(WSL_LINUX_PCSX2)/pcsx2x64.exe --elf=$(WSL_MAKE_WINDOWS)$(CURDIR)/$(TARGETDIR)/$(TARGET)
+
+#Non-File Targets
+.PHONY: all remake clean cleaner resources directories $(TARGET)
+.DELETE_ON_ERROR:
+# Retain `make game.elf` / `make libtyra.a` compatibility for manual builds.
+$(TARGET): $(OUTPUT)

@@ -1,0 +1,565 @@
+; _____        ____   ___
+;   |     \/   ____| |___|
+;   |     |   |   \  |   |
+;---------------------------------------------------------------
+; Copyright 2022, tyra - https://github.com/h4570/tyra
+; Licensed under Apache License 2.0
+; Sandro SobczyĹ„ski <sandro.sobczynski@gmail.com>
+;
+;---------------------------------------------------------------
+; Triangle list
+; Cull = Standard PS2 way. clipw polys are culled.
+; Lighting, texture, colors
+;---------------------------------------------------------------
+
+.syntax new
+.name StaPipVU1Cull_TC
+.vu
+.init_vf_all
+.init_vi_all
+
+#include "src/renderer/3d/pipeline/shared/vcl_sml.i"
+#include "src/renderer/3d/pipeline/shared/tyra_macros.i"
+#include "inc/renderer/3d/pipeline/static/core/programs/stapip_vu1_shared_defines.h"
+
+#define STQ_STORE_OFFSET    0
+#define RGBA_STORE_OFFSET   1
+#define XYZ2_STORE_OFFSET   2
+
+--enter
+--endenter
+
+#vuprog StaPipVU1CullTC
+
+    ResetClipFlags{ }
+    MatrixLoad{ mvp, VU1_MVP_MATRIX_ADDR, vi00 }
+    ; Modified by TyraX: only the flag here - the colour itself is loaded
+    ; per batch, where it is replicated (setDestAddr).
+    ilw.x   singleColorEnabled, VU1_OPTIONS_ADDR(vi00)
+    ; Modified by TyraX: GS hardware fog (packed XYZF2)
+    LoadTyraFogParams{ fogParams, VU1_OPTIONS_ADDR }
+    MakeTyraAdcMask{ adcMask }
+    ; Modified by TyraX: spot light (flashlight)
+    LoadTyraSpotLight{ spotPos, spotDirV, spotColV, spotEnabled, VU1_LIGHTS_DIRS_ADDR, VU1_OPTIONS_ADDR }
+
+    ; Modified by TyraX: the GIF-tag registers are loaded INSIDE the batch loop
+    ; (below, next to the store that is their only reader) rather than here.
+    ; `begin:` is a loop, so a register loaded above it has to stay live across the
+    ; whole body - and the from-source assembler reuses these four for per-vertex
+    ; values instead, so every batch after the first one stored GARBAGE GIF TAGS and
+    ; its geometry never reached the GS. Free either way: the tag block is written
+    ; once per batch, so the loads simply moved to their reader, and peak register
+    ; pressure drops with them. Three sibling programs already carry this change;
+    ; see "A miscompile this uncovered" in docs/toolchain-image.md.
+
+begin:
+    xtop buffer
+    LoadTyraBufferTags{ scale, primTag, buffer }
+
+    iaddiu  vertexData,         buffer,         VU1_STAPIP_VERT_DATA_ADDR
+    ; Modified by TyraX: bit 15 asks this package to establish material state.
+    ; Consecutive packages in one bag reuse the GS registers and emit only
+    ; their primitive tag. Keeping every tag one-loop avoids the physical-GS
+    ; hang seen with the superficially cheaper multi-loop A+D experiment.
+    ilw.w   stateFlag,          0(buffer)
+    ; Private Pool2 marker is TC-only and re-read for every MSCNT package.
+    iaddiu  poolMarkerMask,      vi00,            VU1_STAPIP_POOL2_FLAG
+    iand    poolColorEnabled,    stateFlag,       poolMarkerMask
+    iadd    vertexCount,        stateFlag,      vi00
+    iaddiu  countMask,          vi00,            VU1_STAPIP_COUNT_MASK
+    iand    vertexCount,        vertexCount,     countMask
+    iadd    stqData,            vertexData,     vertexCount
+    ; Private V2: initialise branch-guarded integer values on both layouts.
+    iaddiu  colorRunRemaining,  vi00,            0
+    iaddiu  colorStride,        vi00,            0
+    iblez   poolColorEnabled,   poolLegacyLayout
+    ; Private V3: table sentinel reuses stride, avoiding a persistent marker VI.
+    iaddi   colorStride,        vi00,            -1
+    iadd    colorDescriptor,    stqData,        vertexCount
+    ilw.x   colorRunRemaining,  0(colorDescriptor)
+    iaddiu  colorData,          colorDescriptor, 1
+    iaddiu  kickAddress,        colorData,      2
+    b       setDestAddr
+poolLegacyLayout:
+    iadd    colorData,          stqData,        vertexCount
+    iblez   singleColorEnabled, setDestAddrMultiColor
+    iadd    kickAddress,        stqData,        vertexCount
+    ; Modified by TyraX: one colour, three copies at
+    ; VU1_SINGLE_COLOR_COPIES_ADDR and a stride-0 colour pointer, so the
+    ; vertex loops below load their colours the same way in both modes
+    ; instead of branching on the flag at the top of every body.
+    lq      singleColor,        VU1_SINGLE_COLOR_ADDR(vi00)
+    ; the loop used to build each corner as vf00 + singleColor, which
+    ; adds vf00.w = 1.0 to the alpha - kept, so the output is bit-identical
+    add     singleColor,        vf00,           singleColor
+    sq      singleColor,        VU1_SINGLE_COLOR_COPIES_ADDR(vi00)
+    sq      singleColor,        VU1_SINGLE_COLOR_COPIES_ADDR+1(vi00)
+    sq      singleColor,        VU1_SINGLE_COLOR_COPIES_ADDR+2(vi00)
+    iaddiu  colorData,          vi00,           VU1_SINGLE_COLOR_COPIES_ADDR
+    iaddiu  colorStride,        vi00,           0
+    b       setDestAddr
+setDestAddrMultiColor:
+    iadd    kickAddress,        colorData,      vertexCount
+    iaddiu  colorStride,        vi00,           3
+setDestAddr:
+    ; Private corona tag occupies one owned input qword before the output.
+    iaddiu  vertexCounter, vi00, VU1_STAPIP_CORONA_SPRITE_FLAG
+    iand    vertexCounter, stateFlag, vertexCounter
+    ibeq    vertexCounter, vi00, coronaInputReady
+    iaddiu  kickAddress, kickAddress, 1
+coronaInputReady:
+    iaddiu  destAddress,        kickAddress,    0
+
+    ibgez   stateFlag,          reuseMaterialState
+    ; Modified by TyraX: loaded here, not above `begin:` - see the note there.
+    LoadTyraStaticData{ gifSetTag }
+    LoadTyraTagsTexture{ lodGifTag, testsTag, texBufferClutGifTag, VU1_LOD_ADDR, VU1_Z_TESTS_ADDR, VU1_CLUT_ADDR }
+    ; Modified by TyraX: per-mesh GS blend equation, in-band
+    LoadTyraAlphaTag{ alphaGifTag, VU1_ALPHA_ADDR }
+    StoreTyraGifTagsTextureAlpha{ gifSetTag, lodGifTag, texBufferClutGifTag, alphaGifTag, primTag, testsTag, destAddress }
+    b       materialStateReady
+reuseMaterialState:
+    sq      primTag,            0(destAddress)
+    iaddiu  destAddress,        destAddress,     1
+materialStateReady:
+
+    ;--- Loop
+    iadd vertexCounter, buffer, vertexCount
+    ; Modified by TyraX: the spot-light gate, ONE branch per batch.
+    ; CalculateTyraSpotLight is 21 upper-pipe operations a vertex and most
+    ; meshes have no dynamic light at all - see LoadTyraSpotLight in
+    ; tyra_macros.i for what selects this. It is two whole loops rather than a
+    ; branch inside one because a branch is a scheduling barrier: gating inside
+    ; the loop stops the assembler interleaving the spot with the transform,
+    ; fog and store chains, which measured +11 cycles a triangle on a mesh that
+    ; IS lit - the heaviest poses in a night scene are exactly the ones where
+    ; every mesh picks a light. The loop below is the original body, untouched,
+    ; so the lit path cannot regress; the unlit twin after it is the same body
+    ; with the three spot calls removed.
+    ibgez   spotEnabled,    unlitSelect
+vertexLoop:
+
+        ;--- Load vertices colors (a single colour reads three copies,
+        ;--- stride 0 - see setDestAddr)
+        ibgez   colorStride,       poolLegacyLoad0
+        lq      color1,   (colorData)
+        lq      color2,   (colorData)
+        lq      color3,   (colorData)
+        b       poolColorsReady0
+poolLegacyLoad0:
+        lq      color1,   (colorData)
+        lq      color2,   1(colorData)
+        lq      color3,   2(colorData)
+poolColorsReady0:
+
+        ;--- Load vertex1
+        lq      vertex1,  (vertexData)
+        lq      stq1,     (stqData)
+
+        ;--- Load vertex2
+        lq      vertex2,  1(vertexData)
+        lq      stq2,     1(stqData)
+
+        ;--- Load vertex3
+        lq      vertex3,  2(vertexData)
+        lq      stq3,     2(stqData)
+
+        ;--- Calculate vertex1
+        CalculateTyraSpotLight{ color1, vertex1, spotPos, spotDirV, spotColV }
+        MatrixMultiplyVertex{ vertex1, mvp, vertex1 }
+        CalculateTyraFog{ fogInt, vertex1, fogParams }
+        PerformTyraFogClipCheck{ vertex1, destAddress, XYZ2_STORE_OFFSET, fogInt, adcMask }
+        VertexPersCorr{ vertex1, vertex1 }
+        ScaleVertexToGSFormat{ scale, vertex1 }
+        PerformTexturePerspectiveCorrection{ outputStq1, stq1 }
+        FixColor{ color1 }
+
+        ;--- Calculate vertex2
+        CalculateTyraSpotLight{ color2, vertex2, spotPos, spotDirV, spotColV }
+        MatrixMultiplyVertex{ vertex2, mvp, vertex2 }
+        CalculateTyraFog{ fogInt, vertex2, fogParams }
+        PerformTyraFogClipCheck{ vertex2, destAddress, XYZ2_STORE_OFFSET+3, fogInt, adcMask }
+        VertexPersCorr{ vertex2, vertex2 }
+        ScaleVertexToGSFormat{ scale, vertex2 }
+        PerformTexturePerspectiveCorrection{ outputStq2, stq2 }
+        FixColor{ color2 }
+
+        ;--- Calculate vertex3
+        CalculateTyraSpotLight{ color3, vertex3, spotPos, spotDirV, spotColV }
+        MatrixMultiplyVertex{ vertex3, mvp, vertex3 }
+        CalculateTyraFog{ fogInt, vertex3, fogParams }
+        PerformTyraFogClipCheck{ vertex3, destAddress, XYZ2_STORE_OFFSET+6, fogInt, adcMask }
+        VertexPersCorr{ vertex3, vertex3 }
+        ScaleVertexToGSFormat{ scale, vertex3 }
+        PerformTexturePerspectiveCorrection{ outputStq3, stq3 }
+        FixColor{ color3 }
+
+        ;--- Store vertex1 
+        sq      outputStq1,     STQ_STORE_OFFSET(destAddress)
+        sq      color1,         RGBA_STORE_OFFSET(destAddress)
+        sq.xyz  vertex1,        XYZ2_STORE_OFFSET(destAddress)
+
+        ;--- Store vertex2
+        sq      outputStq2,     STQ_STORE_OFFSET+3(destAddress)
+        sq      color2,         RGBA_STORE_OFFSET+3(destAddress)
+        sq.xyz  vertex2,        XYZ2_STORE_OFFSET+3(destAddress)
+
+        ;--- Store vertex3
+        sq      outputStq3,     STQ_STORE_OFFSET+6(destAddress)
+        sq      color3,         RGBA_STORE_OFFSET+6(destAddress)
+        sq.xyz  vertex3,        XYZ2_STORE_OFFSET+6(destAddress)
+
+        ;-------------------------------
+
+        iaddiu  vertexData,     vertexData,     3                         
+        iaddiu  stqData,        stqData,        3  
+        ibgez   colorStride,       poolLegacyAdvance0
+        iaddi   colorRunRemaining, colorRunRemaining, -3
+        ibne    colorRunRemaining, vi00, poolAdvanceDone0
+        iaddiu  colorData, colorData, 1
+        b       poolAdvanceDone0
+poolLegacyAdvance0:
+        iadd    colorData,      colorData,      colorStride
+poolAdvanceDone0:
+        iaddiu  destAddress,    destAddress,    9
+
+        ;--- Fix loop
+        iaddi   vertexCounter,  vertexCounter,  -3  ; decrement the loop counter 
+        ibne    vertexCounter,  buffer, vertexLoop  ; and repeat if needed
+    b       vertexLoopsDone
+
+unlitSelect:
+    ; Modified by TyraX: the fog gate, ONE branch per batch, the spot gate's
+    ; shape. A mesh whose fog coefficient is the constant 255 (fog off, or its
+    ; whole box nearer than the fog start - StaPipCore::render decides) gets
+    ; fog scale 0 in VU1_OPTIONS_ADDR.z, and the loop after the unlit one
+    ; stores that constant instead of computing it: CalculateTyraFog is 6
+    ; upper-pipe operations a vertex. The output is bit-identical - scale 0 and
+    ; offset 255 give F = ftoi4(255) = 0xFF0 in the unlit loop too. ilw reads
+    ; the float's LOW 16 bits; the EE keeps a real scale's low half non-zero.
+    ilw.z   fogScaleBits,   VU1_OPTIONS_ADDR(vi00)
+    ibeq    fogScaleBits,   vi00,   noFogSetup
+unlitVertexLoop:
+
+        ;--- Load vertices colors (a single colour reads three copies,
+        ;--- stride 0 - see setDestAddr)
+        ibgez   colorStride,       poolLegacyLoad1
+        lq      color1,   (colorData)
+        lq      color2,   (colorData)
+        lq      color3,   (colorData)
+        b       poolColorsReady1
+poolLegacyLoad1:
+        lq      color1,   (colorData)
+        lq      color2,   1(colorData)
+        lq      color3,   2(colorData)
+poolColorsReady1:
+
+        ;--- Load vertex1
+        lq      vertex1,  (vertexData)
+        lq      stq1,     (stqData)
+
+        ;--- Load vertex2
+        lq      vertex2,  1(vertexData)
+        lq      stq2,     1(stqData)
+
+        ;--- Load vertex3
+        lq      vertex3,  2(vertexData)
+        lq      stq3,     2(stqData)
+
+        ;--- Calculate vertex1
+        MatrixMultiplyVertex{ vertex1, mvp, vertex1 }
+        CalculateTyraFog{ fogInt, vertex1, fogParams }
+        PerformTyraFogClipCheck{ vertex1, destAddress, XYZ2_STORE_OFFSET, fogInt, adcMask }
+        VertexPersCorr{ vertex1, vertex1 }
+        ScaleVertexToGSFormat{ scale, vertex1 }
+        PerformTexturePerspectiveCorrection{ outputStq1, stq1 }
+        FixColor{ color1 }
+
+        ;--- Calculate vertex2
+        MatrixMultiplyVertex{ vertex2, mvp, vertex2 }
+        CalculateTyraFog{ fogInt, vertex2, fogParams }
+        PerformTyraFogClipCheck{ vertex2, destAddress, XYZ2_STORE_OFFSET+3, fogInt, adcMask }
+        VertexPersCorr{ vertex2, vertex2 }
+        ScaleVertexToGSFormat{ scale, vertex2 }
+        PerformTexturePerspectiveCorrection{ outputStq2, stq2 }
+        FixColor{ color2 }
+
+        ;--- Calculate vertex3
+        MatrixMultiplyVertex{ vertex3, mvp, vertex3 }
+        CalculateTyraFog{ fogInt, vertex3, fogParams }
+        PerformTyraFogClipCheck{ vertex3, destAddress, XYZ2_STORE_OFFSET+6, fogInt, adcMask }
+        VertexPersCorr{ vertex3, vertex3 }
+        ScaleVertexToGSFormat{ scale, vertex3 }
+        PerformTexturePerspectiveCorrection{ outputStq3, stq3 }
+        FixColor{ color3 }
+
+        ;--- Store vertex1 
+        sq      outputStq1,     STQ_STORE_OFFSET(destAddress)
+        sq      color1,         RGBA_STORE_OFFSET(destAddress)
+        sq.xyz  vertex1,        XYZ2_STORE_OFFSET(destAddress)
+
+        ;--- Store vertex2
+        sq      outputStq2,     STQ_STORE_OFFSET+3(destAddress)
+        sq      color2,         RGBA_STORE_OFFSET+3(destAddress)
+        sq.xyz  vertex2,        XYZ2_STORE_OFFSET+3(destAddress)
+
+        ;--- Store vertex3
+        sq      outputStq3,     STQ_STORE_OFFSET+6(destAddress)
+        sq      color3,         RGBA_STORE_OFFSET+6(destAddress)
+        sq.xyz  vertex3,        XYZ2_STORE_OFFSET+6(destAddress)
+
+        ;-------------------------------
+
+        iaddiu  vertexData,     vertexData,     3                         
+        iaddiu  stqData,        stqData,        3  
+        ibgez   colorStride,       poolLegacyAdvance1
+        iaddi   colorRunRemaining, colorRunRemaining, -3
+        ibne    colorRunRemaining, vi00, poolAdvanceDone1
+        iaddiu  colorData, colorData, 1
+        b       poolAdvanceDone1
+poolLegacyAdvance1:
+        iadd    colorData,      colorData,      colorStride
+poolAdvanceDone1:
+        iaddiu  destAddress,    destAddress,    9
+
+        ;--- Fix loop
+        iaddi   vertexCounter,  vertexCounter,  -3  ; decrement the loop counter 
+        ibne    vertexCounter,  buffer, unlitVertexLoop  ; and repeat if needed
+    b       vertexLoopsDone
+
+noFogSetup:
+    iaddiu  fogConstInt,    vi00,   0xFF0
+noFogVertexLoop:
+
+        ;--- Load vertices colors (a single colour reads three copies,
+        ;--- stride 0 - see setDestAddr)
+        ibgez   colorStride,       poolLegacyLoad2
+        lq      color1,   (colorData)
+        lq      color2,   (colorData)
+        lq      color3,   (colorData)
+        b       poolColorsReady2
+poolLegacyLoad2:
+        lq      color1,   (colorData)
+        lq      color2,   1(colorData)
+        lq      color3,   2(colorData)
+poolColorsReady2:
+
+        ;--- Load vertex1
+        lq      vertex1,  (vertexData)
+        lq      stq1,     (stqData)
+
+        ;--- Load vertex2
+        lq      vertex2,  1(vertexData)
+        lq      stq2,     1(stqData)
+
+        ;--- Load vertex3
+        lq      vertex3,  2(vertexData)
+        lq      stq3,     2(stqData)
+
+        ;--- Calculate vertex1
+        MatrixMultiplyVertex{ vertex1, mvp, vertex1 }
+        PerformTyraFogClipCheck{ vertex1, destAddress, XYZ2_STORE_OFFSET, fogConstInt, adcMask }
+        VertexPersCorr{ vertex1, vertex1 }
+        ScaleVertexToGSFormat{ scale, vertex1 }
+        PerformTexturePerspectiveCorrection{ outputStq1, stq1 }
+        FixColor{ color1 }
+
+        ;--- Calculate vertex2
+        MatrixMultiplyVertex{ vertex2, mvp, vertex2 }
+        PerformTyraFogClipCheck{ vertex2, destAddress, XYZ2_STORE_OFFSET+3, fogConstInt, adcMask }
+        VertexPersCorr{ vertex2, vertex2 }
+        ScaleVertexToGSFormat{ scale, vertex2 }
+        PerformTexturePerspectiveCorrection{ outputStq2, stq2 }
+        FixColor{ color2 }
+
+        ;--- Calculate vertex3
+        MatrixMultiplyVertex{ vertex3, mvp, vertex3 }
+        PerformTyraFogClipCheck{ vertex3, destAddress, XYZ2_STORE_OFFSET+6, fogConstInt, adcMask }
+        VertexPersCorr{ vertex3, vertex3 }
+        ScaleVertexToGSFormat{ scale, vertex3 }
+        PerformTexturePerspectiveCorrection{ outputStq3, stq3 }
+        FixColor{ color3 }
+
+        ;--- Store vertex1 
+        sq      outputStq1,     STQ_STORE_OFFSET(destAddress)
+        sq      color1,         RGBA_STORE_OFFSET(destAddress)
+        sq.xyz  vertex1,        XYZ2_STORE_OFFSET(destAddress)
+
+        ;--- Store vertex2
+        sq      outputStq2,     STQ_STORE_OFFSET+3(destAddress)
+        sq      color2,         RGBA_STORE_OFFSET+3(destAddress)
+        sq.xyz  vertex2,        XYZ2_STORE_OFFSET+3(destAddress)
+
+        ;--- Store vertex3
+        sq      outputStq3,     STQ_STORE_OFFSET+6(destAddress)
+        sq      color3,         RGBA_STORE_OFFSET+6(destAddress)
+        sq.xyz  vertex3,        XYZ2_STORE_OFFSET+6(destAddress)
+
+        ;-------------------------------
+
+        iaddiu  vertexData,     vertexData,     3                         
+        iaddiu  stqData,        stqData,        3  
+        ibgez   colorStride,       poolLegacyAdvance2
+        iaddi   colorRunRemaining, colorRunRemaining, -3
+        ibne    colorRunRemaining, vi00, poolAdvanceDone2
+        iaddiu  colorData, colorData, 1
+        b       poolAdvanceDone2
+poolLegacyAdvance2:
+        iadd    colorData,      colorData,      colorStride
+poolAdvanceDone2:
+        iaddiu  destAddress,    destAddress,    9
+
+        ;--- Fix loop
+        iaddi   vertexCounter,  vertexCounter,  -3  ; decrement the loop counter 
+        ibne    vertexCounter,  buffer, noFogVertexLoop  ; and repeat if needed
+vertexLoopsDone:
+
+    ; Modified by TyraX: private whole-package post-transform reduction.
+    ; All original outputs remain intact until every quad has passed.
+    ilw.w   stateFlag, 0(buffer)
+    iaddiu  vertexCounter, vi00, VU1_STAPIP_CORONA_SPRITE_FLAG
+    iand    stateFlag, stateFlag, vertexCounter
+    ibeq    stateFlag, vi00, coronaReturn
+    ilw.w   vertexCount, 0(buffer)
+    iaddiu  vertexCounter, vi00, VU1_STAPIP_COUNT_MASK
+    iand    vertexCount, vertexCount, vertexCounter
+    iadd    vertexCounter, vertexCount, vertexCount
+    iadd    vertexCounter, vertexCounter, vertexCount
+    isub    destAddress, destAddress, vertexCounter
+    iadd    vertexData, destAddress, vi00
+    iadd    stqData, vertexCount, vi00
+coronaQuadCheck:
+    lq      color1, 1(vertexData)
+    itof0   color1, color1
+    lq      vertex1, 2(vertexData)
+    itof0   vertex1, vertex1
+    lq      outputStq1, 0(vertexData)
+    ; Q domain excludes exceptional/underflow comparisons.
+    loi     0.0001
+    sub.z   vf00, outputStq1, i
+    iaddiu  singleColorEnabled, vi00, 0x20
+    fmand   singleColorEnabled, singleColorEnabled
+    ibne    singleColorEnabled, vi00, coronaDone
+    loi     10000
+    add.z   vertex3, vf00, i
+    sub.z   vf00, vertex3, outputStq1
+    iaddiu  singleColorEnabled, vi00, 0x20
+    fmand   singleColorEnabled, singleColorEnabled
+    ibne    singleColorEnabled, vi00, coronaDone
+    ; Any ADC bit forbids reduction, including uniformly rejected quads.
+    ilw.w   singleColorEnabled, 2(vertexData)
+    iaddiu  vertexCounter, vi00, 0x4000
+    iadd    vertexCounter, vertexCounter, vertexCounter
+    iand    singleColorEnabled, singleColorEnabled, vertexCounter
+    ibne    singleColorEnabled, vi00, coronaDone
+    iadd    colorData, vertexData, vi00
+    iaddiu  colorRunRemaining, vi00, 6
+coronaVertexCheck:
+    lq      color2, 1(colorData)
+    itof0   color2, color2
+    sub     color3, color2, color1
+    iaddiu  singleColorEnabled, vi00, 15
+    fmand   singleColorEnabled, singleColorEnabled
+    iaddiu  fogInt, vi00, 15
+    ibne    singleColorEnabled, fogInt, coronaDone
+    lq      vertex2, 2(colorData)
+    itof0   vertex2, vertex2
+    ; Bits16 packed XYZF2 Z<=0xffff0: positive20-bit integer is exact in FP.
+    sub.zw  color3, vertex2, vertex1
+    iaddiu  singleColorEnabled, vi00, 3
+    fmand   singleColorEnabled, singleColorEnabled
+    iaddiu  fogInt, vi00, 3
+    ibne    singleColorEnabled, fogInt, coronaDone
+    lq      outputStq2, 0(colorData)
+    sub.z   color3, outputStq2, outputStq1
+    iaddiu  singleColorEnabled, vi00, 2
+    fmand   singleColorEnabled, singleColorEnabled
+    iaddiu  fogInt, vi00, 2
+    ibne    singleColorEnabled, fogInt, coronaDone
+    iaddiu  colorData, colorData, 3
+    iaddi   colorRunRemaining, colorRunRemaining, -1
+    ibne    colorRunRemaining, vi00, coronaVertexCheck
+    ; Bound signed-VI differences before rectangle orientation/compaction.
+    ; This also safely rejects large guard-band quads without repackaging them.
+    lq      outputStq3, 8(vertexData)
+    itof0   outputStq3, outputStq3
+    sub.xy  vertex3, outputStq3, vertex1
+    abs.xy  vertex3, vertex3
+    loi     32767
+    add.xy  outputStq3, vf00, i
+    sub.xy  vf00, outputStq3, vertex3
+    iaddiu  singleColorEnabled, vi00, 0xC0
+    fmand   singleColorEnabled, singleColorEnabled
+    ibne    singleColorEnabled, vi00, coronaDone
+    ; Packed XY rectangle checks on original unique corners0,1,2,3(v5).
+    ilw.x   fogConstInt, 2(vertexData)
+    ilw.x   fogInt, 5(vertexData)
+    ilw.x   vertexCounter, 8(vertexData)
+    ibne    fogInt, vertexCounter, coronaDone
+    ilw.x   vertexCounter, 17(vertexData)
+    ibne    fogConstInt, vertexCounter, coronaDone
+    isub    vertexCounter, fogInt, fogConstInt
+    iblez   vertexCounter, coronaDone
+    ilw.y   fogConstInt, 2(vertexData)
+    ilw.y   vertexCounter, 5(vertexData)
+    ibne    fogConstInt, vertexCounter, coronaDone
+    ilw.y   fogInt, 8(vertexData)
+    ilw.y   vertexCounter, 17(vertexData)
+    ibne    fogInt, vertexCounter, coronaDone
+    ibeq    fogConstInt, fogInt, coronaDone
+    iaddiu  vertexData, vertexData, 18
+    iaddi   stqData, stqData, -6
+    ibne    stqData, vi00, coronaQuadCheck
+    ; Every quad passed. Compact forward; destinations precede unread source.
+    iadd    vertexData, destAddress, vi00
+    iadd    singleColorEnabled, destAddress, vi00
+    iadd    stqData, vertexCount, vi00
+coronaCompact:
+    ilw.y   fogConstInt, 2(vertexData)
+    ilw.y   fogInt, 8(vertexData)
+    isub    vertexCounter, fogInt, fogConstInt
+    ibltz   vertexCounter, coronaReverseY
+    iadd    colorData, vertexData, vi00
+    iaddiu  colorRunRemaining, vertexData, 6
+    b       coronaEndpointsReady
+coronaReverseY:
+    iaddiu  colorData, vertexData, 15
+    iaddiu  colorRunRemaining, vertexData, 3
+coronaEndpointsReady:
+    lq      outputStq2, 0(colorData)
+    lq      color2, 1(colorData)
+    lq      vertex2, 2(colorData)
+    sq      outputStq2, 0(singleColorEnabled)
+    sq      color2, 1(singleColorEnabled)
+    sq      vertex2, 2(singleColorEnabled)
+    lq      outputStq2, 0(colorRunRemaining)
+    lq      color2, 1(colorRunRemaining)
+    lq      vertex2, 2(colorRunRemaining)
+    sq      outputStq2, 3(singleColorEnabled)
+    sq      color2, 4(singleColorEnabled)
+    sq      vertex2, 5(singleColorEnabled)
+    iaddiu  vertexData, vertexData, 18
+    iaddiu  singleColorEnabled, singleColorEnabled, 6
+    iaddi   stqData, stqData, -6
+    ibne    stqData, vi00, coronaCompact
+    ; Replace only the primitive tag, preserving all preceding material tags.
+    iaddi   vertexCounter, kickAddress, -1
+    lq      primTag, 0(vertexCounter)
+    iaddi   vertexCounter, destAddress, -1
+    sq      primTag, 0(vertexCounter)
+coronaDone:
+    ; singleColorEnabled is mesh-persistent across MSCNT: restore its real value.
+    ilw.x   singleColorEnabled, VU1_OPTIONS_ADDR(vi00)
+coronaReturn:
+
+    xgkick kickAddress ; dispatch to the GS rasterizer.
+
+--barrier ; Why the hell I must add barrier AFTER XGKICK? VCL does not adds E bit without it...
+--cont
+
+    b   begin
+
+#endvuprog
+
+--exit
+--endexit

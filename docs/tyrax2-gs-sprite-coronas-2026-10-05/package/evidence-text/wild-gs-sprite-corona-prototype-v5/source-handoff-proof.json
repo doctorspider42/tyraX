@@ -1,0 +1,30 @@
+{
+  "status": "PRIVATE_SOURCE_V5_KIND9_COLD_ADMISSION_NATIVE_PENDING",
+  "baseV4ManifestSha256": "6ba28ad3996f913add549af23f86fd46894fca1bbd51659e8fc64c812d674b87",
+  "sourceManifestSha256": "407469286181e470644e584b196c6be2162805e66d1aa78eccba152767f16810",
+  "sourceFiles": 500,
+  "changedFromV4": {
+    "tyra/engine/inc/debug/night_ablation.hpp": "75f683b8c9b352445cf37ca8ae6fd718f3825717b8d62cfbadd8b06d408da191",
+    "tyra/engine/inc/debug/night_plan.hpp": "b0b398247d277e56c66cc8a35083745f37fed5cdc95c30839927c20ce5ebeac0",
+    "tyra/engine/inc/debug/night_runtime.hpp": "8dc12e4a11d5db9720b21686a1c922b51f0d6a7fd42b47d81d2851fafff88f8c",
+    "tyra/engine/src/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.cpp": "99643dabaf064821410e4d5aab57a69e8c5f3cd3d06f925f3406dd69652808d6"
+  },
+  "enabledByDefault": false,
+  "kind9Order0": [
+    0,
+    1,
+    0
+  ],
+  "kind9Order1": [
+    1,
+    0,
+    1
+  ],
+  "kind9AllEffectMasksZero": true,
+  "poolTableFixedOnInKind9": true,
+  "counterUint32Words": 9,
+  "counterMeaning": "cold EE admission/requests only; accepted VU sprites unknown",
+  "nativeRuntimeOrGainAccepted": false,
+  "noBuildCacheDeviceOrExistingFixtureMutation": true,
+  "invalidPlanCannotArmCorona": true
+}

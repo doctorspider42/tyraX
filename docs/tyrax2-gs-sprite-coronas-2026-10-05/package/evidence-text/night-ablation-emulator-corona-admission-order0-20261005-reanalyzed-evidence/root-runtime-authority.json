@@ -1,0 +1,17 @@
+{
+  "status": "ROOT_RELEASE_KIND9_EMULATOR_ADMISSION_OBSERVATION_ONLY",
+  "physicalPricingAccepted": false,
+  "actualPositiveOutputAccepted": false,
+  "scope": "Observe unchanged Hybrid-depth full-night EE admission only; diagnostic V1 proved actual24bit depth and candidate marker absence. No claim SPRITE worked or physical benefit.",
+  "review": "F:\\Projects\\tyrax2-lab-20261001\\wild-gs-sprite-corona-native-prep-v1\\source-review.md",
+  "reviewSha256": "3a6ade6237a3c3dbb7192679cd6bfcf3ee53570b90fc6ae6c59a2d8367383968",
+  "host": "F:\\Projects\\tyrax2-lab-20261001\\wild-gs-sprite-corona-root-helpers-v1\\host-authority.json",
+  "hostSha256": "d93cab9e9d675232e18c3db11884d2fdda76959a0a05bd8730abbba08961324f",
+  "native": "F:\\Projects\\tyrax2-lab-20261001\\wild-gs-sprite-corona-native-root-review-v3\\proof.json",
+  "nativeSha256": "d6d007297816534f92099d717f7c514a6a4eca7f204ead1e4ee66aebfeed6a62",
+  "independentNative": "F:\\Projects\\tyrax2-lab-20261001\\wild-gs-sprite-corona-tc-native-v23-v6\\proof.json",
+  "independentNativeSha256": "2108018c9620879b5515491e5bbbb3110479c835501d70c8576366f251acd336",
+  "rejectedDiagnostic": "F:\\Projects\\tyrax2-lab-20261001\\corona-probe-case1-arm1-repeat1-20261005-v1-launch\\root-rejected-capture.json",
+  "rejectedDiagnosticSha256": "a31bc1958b05a57b712387bf686523b7809625ff01cca6f3570adebeb82206b9",
+  "rootSourceFreezeSha256": "b82104e1b70740dae613174c3d0ce9decef2810abbccd8a6f173768bae63ff6a"
+}

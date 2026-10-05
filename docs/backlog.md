@@ -477,9 +477,12 @@ recovered 0.50-0.72 ms of hardware `work`. What it did not do, ranked:
   broader precision/clipping/stable-replay coverage. The private
   [unique-grid trial](tyrax2-pool-lattice.md) completed fog-aware output,
   ordinary activation/raster and both PS2 orders. All four contrasts were
-  slower by 0.112–0.260 ms, so it remains private. GS SPRITE coronas are the
-  next trial; they need their own native budget, actual output/raster and
-  physical qualification.
+  slower by 0.112–0.260 ms, so it remains private. The
+  [GS SPRITE corona trial](tyrax2-gs-sprite-coronas.md) is unpromoted:
+  unchanged Hybrid depth is outside its admission domain, and actual Bits16
+  capability still fell back despite valid quads. Future work needs a proved
+  24-bit depth predicate, correct MAC flag scheduling within resident budget,
+  positive output/raster, ordinary activation and physical qualification.
 
   Storage classification alone grants no immutable borrowing rights.
   The [resumed candidate audit](tyrax2-ee-vu0.md#next-60-hz-candidates-host-controls-2026-10-03)

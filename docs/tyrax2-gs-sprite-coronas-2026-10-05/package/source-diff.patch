@@ -1,0 +1,451 @@
+--- baseline/game/inc/terrain_game.hpp
++++ postimage/game/inc/terrain_game.hpp
+@@ -2115,6 +2115,7 @@
+   // safe to reuse - RendererCore::endFrame waits for the whole VIF1 queue.
+   // Held by pointer so the addresses the bags point at never move.
+   struct BeamBatch {
++    Tyra::ExperimentalCoronaSprite::TrianglePairs coronaSource;
+     Tyra::M4x4 mat;
+     BagArray<Tyra::Vec4> coronaVerts, coronaSts, coneVerts;
+     BagArray<Tyra::Color> coronaColors, coneColors;
+--- baseline/game/src/gen/game_lighting.gen.cpp
++++ postimage/game/src/gen/game_lighting.gen.cpp
+@@ -4353,6 +4353,8 @@
+       bb.coronaSts.bind(bb.coronaTexBag);
+       bb.coronaColors.bind(bb.coronaColorBag);
+       if (cw) bb.coronaBag->bboxVersion = ++g_bboxStamp;
++      bb.coronaSource={bb.coronaVerts.data(),bb.coronaSts.data(),bb.coronaColors.data(),static_cast<uint32_t>(bb.coronaVerts.size())};
++      bb.coronaBag->experimentalCoronaSource=&bb.coronaSource;
+       (NightAblation::submitted(NightAblation::LightEffects), NightAblation::extraSubmitted(NightAblation::BeamsCoronas), stapip.core.render(bb.coronaBag.get()));
+     }
+     bool nw = keepWrite(bb.coneVerts, kConeV);
+@@ -4373,6 +4375,8 @@
+     bb.coronaSts.bind(bb.coronaTexBag);
+     bb.coronaColors.bind(bb.coronaColorBag);
+     bb.coronaBag->bboxVersion = ++g_bboxStamp;
++    bb.coronaSource={bb.coronaVerts.data(),bb.coronaSts.data(),bb.coronaColors.data(),static_cast<uint32_t>(bb.coronaVerts.size())};
++    bb.coronaBag->experimentalCoronaSource=&bb.coronaSource;
+     (NightAblation::submitted(NightAblation::LightEffects), NightAblation::extraSubmitted(NightAblation::BeamsCoronas), stapip.core.render(bb.coronaBag.get()));
+   }
+   if (!bb.coneVerts.empty()) {
+--- baseline/tyra/engine/inc/debug/night_ablation.hpp
++++ postimage/tyra/engine/inc/debug/night_ablation.hpp
+@@ -79,4 +79,16 @@
+  tableAdd(c.invocations,1);tableAdd(c.eligible,eligible?1u:0u);tableAdd(c.applied,applied?1u:0u);tableAdd(c.fallback,eligible?0u:1u);tableAdd(c.sourceVertices,sourceVertices);tableAdd(c.admittedVertices,applied?sourceVertices:0u);tableAdd(c.baselineColorQwords,sourceVertices);tableAdd(c.tableColorQwords,applied?2u:0u);tableAdd(c.coldCompared,compared?1u:0u);tableAdd(c.coldMismatches,mismatch?1u:0u);
+  if(mismatch){valid=false;}
+ }
++
++// PRIVATE kind9: cold EE admission observations, never accepted VU sprites.
++inline bool coronaSpriteSelected=false;
++struct CoronaCounter {uint32_t coldPackets=0,eligible=0,requested=0,fallback=0,sourceVertices=0,requestedVertices=0,fogOn=0,shaderLit=0,invalid=0;};
++inline CoronaCounter coronaCounter{};
++inline void coronaAdd(uint32_t& field,uint32_t value){auto& c=coronaCounter;if(value>~uint32_t(0)-field){if(c.invalid!=~uint32_t(0))++c.invalid;valid=false;return;}field+=value;}
++inline void observeCorona(bool eligible,bool requested,bool enabled,uint32_t count,bool fogOn,bool shaderLit){
++ if(!coronaSpriteSelected||!collectCounters)return;
++ auto& c=coronaCounter;
++ if(requested!=(enabled&&eligible)||(eligible&&(count==0||count>72||count%6!=0))){if(c.invalid!=~uint32_t(0))++c.invalid;valid=false;return;}
++ coronaAdd(c.coldPackets,1);coronaAdd(c.eligible,eligible?1u:0u);coronaAdd(c.requested,requested?1u:0u);coronaAdd(c.fallback,eligible?0u:1u);coronaAdd(c.sourceVertices,count);coronaAdd(c.requestedVertices,requested?count:0u);coronaAdd(c.fogOn,fogOn?1u:0u);coronaAdd(c.shaderLit,shaderLit?1u:0u);
+ }
++}
+--- baseline/tyra/engine/inc/debug/night_plan.hpp
++++ postimage/tyra/engine/inc/debug/night_plan.hpp
+@@ -4,13 +4,14 @@
+ #include <ctype.h>
+ namespace NightPlan {
+ struct Config {unsigned kind,order,joint,restored;};
+-inline bool valid(const Config& c){return c.order<=1&&((c.kind==0&&c.joint==0&&c.restored==0)||(c.kind==1&&c.joint==31&&c.restored==0)||(c.kind==2&&c.joint==31&&c.restored>0&&(c.restored&~c.joint)==0)||(c.kind==3&&c.joint==0&&c.restored>0&&c.restored<=7)||((c.kind==5||c.kind==6||c.kind==7)&&c.joint==0&&c.restored==0));}
++inline bool valid(const Config& c){return c.order<=1&&((c.kind==0&&c.joint==0&&c.restored==0)||(c.kind==1&&c.joint==31&&c.restored==0)||(c.kind==2&&c.joint==31&&c.restored>0&&(c.restored&~c.joint)==0)||(c.kind==3&&c.joint==0&&c.restored>0&&c.restored<=7)||((c.kind==5||c.kind==6||c.kind==7||c.kind==9)&&c.joint==0&&c.restored==0));}
+ inline bool readConfig(const char* path,Config& cfg){FILE* f=fopen(path,"r");if(!f)return false;unsigned values[4]{};bool good=true;int c=fgetc(f);
+  for(unsigned i=0;i<4;++i){while(c!=EOF&&isspace(static_cast<unsigned char>(c)))c=fgetc(f);if(c<'0'||c>'9'){good=false;break;}unsigned n=0;do{unsigned digit=unsigned(c-'0');if(n>(0xffffffffu-digit)/10u){good=false;break;}n=n*10u+digit;c=fgetc(f);}while(c>='0'&&c<='9');if(!good)break;values[i]=n;if(c!=EOF&&!isspace(static_cast<unsigned char>(c))){good=false;break;}}
+  while(good&&c!=EOF){if(!isspace(static_cast<unsigned char>(c)))good=false;c=fgetc(f);}if(ferror(f))good=false;fclose(f);cfg={values[0],values[1],values[2],values[3]};return good&&valid(cfg);}
+-inline bool build(const Config& c,NightSampler::PhaseConfig (&out)[3]){if(!valid(c))return false;for(unsigned p=0;p<3;++p){bool middle=(p==1)!=(c.order==1);out[p]=c.kind==0?NightSampler::PhaseConfig{0,middle?1u:0u}:c.kind==1?NightSampler::PhaseConfig{middle?c.joint:0u,1}:(c.kind==3||c.kind==5||c.kind==6||c.kind==7)?NightSampler::PhaseConfig{0,1}:NightSampler::PhaseConfig{middle?(c.joint&~c.restored):c.joint,1};}return true;}
++inline bool build(const Config& c,NightSampler::PhaseConfig (&out)[3]){if(!valid(c))return false;for(unsigned p=0;p<3;++p){bool middle=(p==1)!=(c.order==1);out[p]=c.kind==0?NightSampler::PhaseConfig{0,middle?1u:0u}:c.kind==1?NightSampler::PhaseConfig{middle?c.joint:0u,1}:(c.kind==3||c.kind==5||c.kind==6||c.kind==7||c.kind==9)?NightSampler::PhaseConfig{0,1}:NightSampler::PhaseConfig{middle?(c.joint&~c.restored):c.joint,1};}return true;}
+ inline unsigned extraMask(const Config& c,unsigned p){if(c.kind!=3)return 0;bool middle=(p==1)!=(c.order==1);return middle?c.restored:0;}
+ inline unsigned wildVariant(const Config& c){return(c.kind==5||c.kind==6)?c.kind:0;}
+ inline bool wildEnabled(const Config& c,unsigned p){return wildVariant(c)&&((p==1)!=(c.order==1));}
+-inline bool poolTableEnabled(const Config& c,unsigned p){return c.kind==7&&((p==1)!=(c.order==1));}
++inline bool poolTableEnabled(const Config& c,unsigned p){return c.kind==9 || (c.kind==7&&((p==1)!=(c.order==1)));}
++inline bool coronaSpriteEnabled(const Config& c,unsigned p){return c.kind==9&&p<3&&((p==1)!=(c.order==1));}
+ }
+--- baseline/tyra/engine/inc/debug/night_runtime.hpp
++++ postimage/tyra/engine/inc/debug/night_runtime.hpp
+@@ -2,21 +2,22 @@
+ #include "night_plan.hpp"
+ #include "debug/night_ablation.hpp"
+ #include <type_traits>
++#include "renderer/3d/pipeline/static/core/stapip_corona_sprite.hpp"
+ namespace NightRuntime {
+ inline NightPlan::Config planConfig{};inline FILE* file=nullptr;inline bool initialized=false,done=false;
+ using Counter=typename std::remove_reference<decltype(NightAblation::commonCounter[0])>::type;
+ 
+ inline bool readFlag(const char* path,unsigned& value,bool optional=false,unsigned defaultValue=0){FILE* f=fopen(path,"r");if(!f){value=defaultValue;return optional;}int firstChar;do{firstChar=fgetc(f);}while(firstChar!=EOF&&isspace(static_cast<unsigned char>(firstChar)));bool good=firstChar=='0'||firstChar=='1';value=good?unsigned(firstChar-'0'):defaultValue;int c;while((c=fgetc(f))!=EOF)if(!isspace(static_cast<unsigned char>(c)))good=false;if(ferror(f))good=false;fclose(f);return good;}
+-inline bool init(const char* path,const char* artifact){NightSampler::PhaseConfig phases[3]{};bool ok=NightPlan::readConfig(path,planConfig)&&NightPlan::build(planConfig,phases);ok=NightSampler::initPlan(phases)&&ok;file=fopen(artifact,"w");initialized=true;done=false;NightSampler::valid=NightSampler::valid&&ok&&file;return NightSampler::valid;}
++inline bool init(const char* path,const char* artifact){Tyra::ExperimentalCoronaSprite::enabled=false;NightAblation::coronaSpriteSelected=false;NightSampler::PhaseConfig phases[3]{};bool ok=NightPlan::readConfig(path,planConfig)&&NightPlan::build(planConfig,phases);ok=NightSampler::initPlan(phases)&&ok;file=fopen(artifact,"w");initialized=true;done=false;NightSampler::valid=NightSampler::valid&&ok&&file;return NightSampler::valid;}
+ inline void config(unsigned video,unsigned display,unsigned depth,unsigned width,unsigned height,unsigned refreshMilliHz,unsigned requested,unsigned night,unsigned rasterWidth,unsigned rasterHeight,unsigned scaleX,unsigned scaleY){
+  printf("LOG: NIGHTPLAN schema=1 kind=%u order=%u joint=%u restored=%u phases=3\n",unsigned(planConfig.kind),unsigned(planConfig.order),unsigned(planConfig.joint),unsigned(planConfig.restored));
+  printf("LOG: NIGHTCONFIG order=%u valid=%u profile=0 hardwareTrace=0 ringBytes=0 ordinaryClocks=1 fixedDt=0 sampleBytes=%u chunkBytes=%u phases=3 phaseFrames=1800 taxFirst=800 taxLoops=320 chunkFrames=64 sampleFirst=900 sampleCount=128 video=%u display=%u depth=%u width=%u height=%u refreshMilliHz=%u requested=%u night=%u\n",unsigned(planConfig.order),unsigned(NightSampler::valid?1u:0u),unsigned(sizeof(NightSampler::samples)),unsigned(sizeof(NightSampler::chunks)),unsigned(video),unsigned(display),unsigned(depth),unsigned(width),unsigned(height),unsigned(refreshMilliHz),unsigned(requested),unsigned(night));
+  printf("LOG: NIGHTQUALITY rasterWidth=%u rasterHeight=%u scaleX=%u scaleY=%u\n",unsigned(rasterWidth),unsigned(rasterHeight),unsigned(scaleX),unsigned(scaleY));fflush(stdout);
+ }
+-inline void begin(unsigned pacing){if(!initialized)return;unsigned index=NightSampler::expectedIndex,p=index/1800,o=index%1800;if(p<3&&o==0){bool applied=NightAblation::setMask(NightSampler::phaseMask(index));bool extraApplied=NightAblation::setExtraMask(NightPlan::extraMask(planConfig,p));NightAblation::poolTableSelected=planConfig.kind==7;bool tableApplied=NightAblation::setPoolTableEnabled(NightPlan::poolTableEnabled(planConfig,p));bool wildApplied=NightAblation::setWildVariant(NightPlan::wildVariant(planConfig),NightPlan::wildEnabled(planConfig,p));NightSampler::valid=NightSampler::valid&&applied&&extraApplied&&wildApplied&&tableApplied&&NightAblation::valid;printf("LOG: NIGHTPHASE phase=%u first=%u mask=%u appliedMask=%u sampler=%u countReads=%u samplePtr=%08x\n",unsigned(p),unsigned(index),unsigned(NightSampler::plan[p].mask),unsigned(NightAblation::mask),unsigned(NightSampler::mode(p)?1u:0u),unsigned(NightSampler::mode(p)?262u:6u),unsigned(reinterpret_cast<uintptr_t>(NightSampler::samples)));printf("LOG: NIGHTEXTRAPHASE phase=%u first=%u extraMask=%u appliedExtraMask=%u\n",unsigned(p),unsigned(index),unsigned(NightPlan::extraMask(planConfig,p)),unsigned(NightAblation::extraMask));printf("LOG: NIGHTWILDPHASE phase=%u first=%u variant=%u enabled=%u appliedVariant=%u appliedEnabled=%u\n",unsigned(p),unsigned(index),unsigned(NightPlan::wildVariant(planConfig)),unsigned(NightPlan::wildEnabled(planConfig,p)?1u:0u),unsigned(NightAblation::wildVariant),unsigned(NightAblation::wildEnabled?1u:0u));printf("LOG: NIGHTTABLEPHASE phase=%u first=%u selected=%u enabled=%u appliedSelected=%u appliedEnabled=%u\n",unsigned(p),unsigned(index),unsigned(planConfig.kind==7?1u:0u),unsigned(NightPlan::poolTableEnabled(planConfig,p)?1u:0u),unsigned(NightAblation::poolTableSelected?1u:0u),unsigned(NightAblation::poolTableEnabled?1u:0u));fflush(stdout);}NightAblation::collectCounters=p<3&&(o==750||o==1155);if(NightAblation::collectCounters){for(unsigned i=0;i<7;++i)NightAblation::commonCounter[i]=Counter{};for(unsigned i=0;i<3;++i)NightAblation::extraCounter[i]=Counter{};NightAblation::wildPlaneCounter=NightAblation::WildCounter{};NightAblation::wildConeCounter=NightAblation::WildCounter{};NightAblation::poolTableCounter=NightAblation::PoolTableCounter{};}NightSampler::beginLoop(index,pacing);}
++inline void begin(unsigned pacing){if(!initialized)return;unsigned index=NightSampler::expectedIndex,p=index/1800,o=index%1800;if(p<3&&o==0){bool applied=NightAblation::setMask(NightSampler::phaseMask(index));bool extraApplied=NightAblation::setExtraMask(NightPlan::extraMask(planConfig,p));NightAblation::poolTableSelected=planConfig.kind==7||planConfig.kind==9;NightAblation::coronaSpriteSelected=planConfig.kind==9&&NightSampler::valid;Tyra::ExperimentalCoronaSprite::enabled=NightAblation::coronaSpriteSelected&&NightPlan::coronaSpriteEnabled(planConfig,p);printf("LOG: NIGHTCORONAPHASE phase=%u first=%u selected=%u enabled=%u\n",unsigned(p),unsigned(index),unsigned(NightAblation::coronaSpriteSelected),unsigned(Tyra::ExperimentalCoronaSprite::enabled));bool tableApplied=NightAblation::setPoolTableEnabled(NightPlan::poolTableEnabled(planConfig,p));bool wildApplied=NightAblation::setWildVariant(NightPlan::wildVariant(planConfig),NightPlan::wildEnabled(planConfig,p));NightSampler::valid=NightSampler::valid&&applied&&extraApplied&&wildApplied&&tableApplied&&NightAblation::valid;printf("LOG: NIGHTPHASE phase=%u first=%u mask=%u appliedMask=%u sampler=%u countReads=%u samplePtr=%08x\n",unsigned(p),unsigned(index),unsigned(NightSampler::plan[p].mask),unsigned(NightAblation::mask),unsigned(NightSampler::mode(p)?1u:0u),unsigned(NightSampler::mode(p)?262u:6u),unsigned(reinterpret_cast<uintptr_t>(NightSampler::samples)));printf("LOG: NIGHTEXTRAPHASE phase=%u first=%u extraMask=%u appliedExtraMask=%u\n",unsigned(p),unsigned(index),unsigned(NightPlan::extraMask(planConfig,p)),unsigned(NightAblation::extraMask));printf("LOG: NIGHTWILDPHASE phase=%u first=%u variant=%u enabled=%u appliedVariant=%u appliedEnabled=%u\n",unsigned(p),unsigned(index),unsigned(NightPlan::wildVariant(planConfig)),unsigned(NightPlan::wildEnabled(planConfig,p)?1u:0u),unsigned(NightAblation::wildVariant),unsigned(NightAblation::wildEnabled?1u:0u));printf("LOG: NIGHTTABLEPHASE phase=%u first=%u selected=%u enabled=%u appliedSelected=%u appliedEnabled=%u\n",unsigned(p),unsigned(index),unsigned((planConfig.kind==7||planConfig.kind==9)?1u:0u),unsigned(NightPlan::poolTableEnabled(planConfig,p)?1u:0u),unsigned(NightAblation::poolTableSelected?1u:0u),unsigned(NightAblation::poolTableEnabled?1u:0u));fflush(stdout);}NightAblation::collectCounters=p<3&&(o==750||o==1155);if(NightAblation::collectCounters){for(unsigned i=0;i<7;++i)NightAblation::commonCounter[i]=Counter{};for(unsigned i=0;i<3;++i)NightAblation::extraCounter[i]=Counter{};NightAblation::wildPlaneCounter=NightAblation::WildCounter{};NightAblation::wildConeCounter=NightAblation::WildCounter{};NightAblation::poolTableCounter=NightAblation::PoolTableCounter{};NightAblation::coronaCounter=NightAblation::CoronaCounter{};}NightSampler::beginLoop(index,pacing);}
+ inline void afterLoop(unsigned pacing){if(!initialized)return;using namespace NightSampler;endLoop(pacing);unsigned p=frame/1800,o=frame%1800;valid=valid&&NightAblation::valid;if(p>=3)return;
+  NightAblation::collectCounters=false;
+- if(o==750||o==1155){printf("LOG: NIGHTGATES phase=%u offset=%u first=%u frames=1 mask=%u",unsigned(p),unsigned(o),unsigned(o),unsigned(plan[p].mask));for(unsigned i=0;i<7;++i){unsigned bit=1u<<i;const auto& c=NightAblation::commonCounter[i];printf(" attempted%u=%u executed%u=%u skipped%u=%u submitted%u=%u",unsigned(bit),unsigned(c.attempted),unsigned(bit),unsigned(c.executed),unsigned(bit),unsigned(c.skipped),unsigned(bit),unsigned(c.submitted));}printf("\n");printf("LOG: NIGHTEXTRAGATES phase=%u offset=%u first=%u frames=1 extraMask=%u",unsigned(p),unsigned(o),unsigned(o),unsigned(NightAblation::extraMask));for(unsigned i=0;i<3;++i){unsigned bit=1u<<i;const auto& c=NightAblation::extraCounter[i];printf(" attempted%u=%u executed%u=%u skipped%u=%u submitted%u=%u",unsigned(bit),unsigned(c.attempted),unsigned(bit),unsigned(c.executed),unsigned(bit),unsigned(c.skipped),unsigned(bit),unsigned(c.submitted));}printf("\n");printf("LOG: NIGHTWILDGATES phase=%u offset=%u first=%u frames=1 variant=%u enabled=%u",unsigned(p),unsigned(o),unsigned(o),unsigned(NightAblation::wildVariant),unsigned(NightAblation::wildEnabled?1u:0u));printf(" planeInvocations=%u planeEligible=%u planeApplied=%u planeFallback=%u planeBoundary=%u planeNonfinite=%u planeColdCompared=%u planeColdMismatches=%u planeInputUnits=%u planeOutputUnits=%u planeInvalid=%u",unsigned(NightAblation::wildPlaneCounter.invocations),unsigned(NightAblation::wildPlaneCounter.eligible),unsigned(NightAblation::wildPlaneCounter.applied),unsigned(NightAblation::wildPlaneCounter.fallback),unsigned(NightAblation::wildPlaneCounter.boundary),unsigned(NightAblation::wildPlaneCounter.nonfinite),unsigned(NightAblation::wildPlaneCounter.coldCompared),unsigned(NightAblation::wildPlaneCounter.coldMismatches),unsigned(NightAblation::wildPlaneCounter.inputUnits),unsigned(NightAblation::wildPlaneCounter.outputUnits),unsigned(NightAblation::wildPlaneCounter.invalid));printf(" coneInvocations=%u coneEligible=%u coneApplied=%u coneFallback=%u coneBoundary=%u coneNonfinite=%u coneColdCompared=%u coneColdMismatches=%u coneInputUnits=%u coneOutputUnits=%u coneInvalid=%u",unsigned(NightAblation::wildConeCounter.invocations),unsigned(NightAblation::wildConeCounter.eligible),unsigned(NightAblation::wildConeCounter.applied),unsigned(NightAblation::wildConeCounter.fallback),unsigned(NightAblation::wildConeCounter.boundary),unsigned(NightAblation::wildConeCounter.nonfinite),unsigned(NightAblation::wildConeCounter.coldCompared),unsigned(NightAblation::wildConeCounter.coldMismatches),unsigned(NightAblation::wildConeCounter.inputUnits),unsigned(NightAblation::wildConeCounter.outputUnits),unsigned(NightAblation::wildConeCounter.invalid));printf("\n");printf("LOG: NIGHTTABLEGATES phase=%u offset=%u first=%u frames=1 selected=%u enabled=%u invocations=%u eligible=%u applied=%u fallback=%u sourceVertices=%u admittedVertices=%u baselineColorQwords=%u tableColorQwords=%u coldCompared=%u coldMismatches=%u invalid=%u\n",unsigned(p),unsigned(o),unsigned(o),unsigned(NightAblation::poolTableSelected?1u:0u),unsigned(NightAblation::poolTableEnabled?1u:0u),unsigned(NightAblation::poolTableCounter.invocations),unsigned(NightAblation::poolTableCounter.eligible),unsigned(NightAblation::poolTableCounter.applied),unsigned(NightAblation::poolTableCounter.fallback),unsigned(NightAblation::poolTableCounter.sourceVertices),unsigned(NightAblation::poolTableCounter.admittedVertices),unsigned(NightAblation::poolTableCounter.baselineColorQwords),unsigned(NightAblation::poolTableCounter.tableColorQwords),unsigned(NightAblation::poolTableCounter.coldCompared),unsigned(NightAblation::poolTableCounter.coldMismatches),unsigned(NightAblation::poolTableCounter.invalid));fflush(stdout);}
++ if(o==750||o==1155){const auto& cc=NightAblation::coronaCounter;printf("LOG: NIGHTCORONAGATES phase=%u offset=%u selected=%u enabled=%u coldPackets=%u eligible=%u requested=%u fallback=%u sourceVertices=%u requestedVertices=%u fogOn=%u shaderLit=%u invalid=%u acceptedOutputKnown=0\n",unsigned(p),unsigned(o),unsigned(NightAblation::coronaSpriteSelected),unsigned(Tyra::ExperimentalCoronaSprite::enabled),unsigned(cc.coldPackets),unsigned(cc.eligible),unsigned(cc.requested),unsigned(cc.fallback),unsigned(cc.sourceVertices),unsigned(cc.requestedVertices),unsigned(cc.fogOn),unsigned(cc.shaderLit),unsigned(cc.invalid));printf("LOG: NIGHTGATES phase=%u offset=%u first=%u frames=1 mask=%u",unsigned(p),unsigned(o),unsigned(o),unsigned(plan[p].mask));for(unsigned i=0;i<7;++i){unsigned bit=1u<<i;const auto& c=NightAblation::commonCounter[i];printf(" attempted%u=%u executed%u=%u skipped%u=%u submitted%u=%u",unsigned(bit),unsigned(c.attempted),unsigned(bit),unsigned(c.executed),unsigned(bit),unsigned(c.skipped),unsigned(bit),unsigned(c.submitted));}printf("\n");printf("LOG: NIGHTEXTRAGATES phase=%u offset=%u first=%u frames=1 extraMask=%u",unsigned(p),unsigned(o),unsigned(o),unsigned(NightAblation::extraMask));for(unsigned i=0;i<3;++i){unsigned bit=1u<<i;const auto& c=NightAblation::extraCounter[i];printf(" attempted%u=%u executed%u=%u skipped%u=%u submitted%u=%u",unsigned(bit),unsigned(c.attempted),unsigned(bit),unsigned(c.executed),unsigned(bit),unsigned(c.skipped),unsigned(bit),unsigned(c.submitted));}printf("\n");printf("LOG: NIGHTWILDGATES phase=%u offset=%u first=%u frames=1 variant=%u enabled=%u",unsigned(p),unsigned(o),unsigned(o),unsigned(NightAblation::wildVariant),unsigned(NightAblation::wildEnabled?1u:0u));printf(" planeInvocations=%u planeEligible=%u planeApplied=%u planeFallback=%u planeBoundary=%u planeNonfinite=%u planeColdCompared=%u planeColdMismatches=%u planeInputUnits=%u planeOutputUnits=%u planeInvalid=%u",unsigned(NightAblation::wildPlaneCounter.invocations),unsigned(NightAblation::wildPlaneCounter.eligible),unsigned(NightAblation::wildPlaneCounter.applied),unsigned(NightAblation::wildPlaneCounter.fallback),unsigned(NightAblation::wildPlaneCounter.boundary),unsigned(NightAblation::wildPlaneCounter.nonfinite),unsigned(NightAblation::wildPlaneCounter.coldCompared),unsigned(NightAblation::wildPlaneCounter.coldMismatches),unsigned(NightAblation::wildPlaneCounter.inputUnits),unsigned(NightAblation::wildPlaneCounter.outputUnits),unsigned(NightAblation::wildPlaneCounter.invalid));printf(" coneInvocations=%u coneEligible=%u coneApplied=%u coneFallback=%u coneBoundary=%u coneNonfinite=%u coneColdCompared=%u coneColdMismatches=%u coneInputUnits=%u coneOutputUnits=%u coneInvalid=%u",unsigned(NightAblation::wildConeCounter.invocations),unsigned(NightAblation::wildConeCounter.eligible),unsigned(NightAblation::wildConeCounter.applied),unsigned(NightAblation::wildConeCounter.fallback),unsigned(NightAblation::wildConeCounter.boundary),unsigned(NightAblation::wildConeCounter.nonfinite),unsigned(NightAblation::wildConeCounter.coldCompared),unsigned(NightAblation::wildConeCounter.coldMismatches),unsigned(NightAblation::wildConeCounter.inputUnits),unsigned(NightAblation::wildConeCounter.outputUnits),unsigned(NightAblation::wildConeCounter.invalid));printf("\n");printf("LOG: NIGHTTABLEGATES phase=%u offset=%u first=%u frames=1 selected=%u enabled=%u invocations=%u eligible=%u applied=%u fallback=%u sourceVertices=%u admittedVertices=%u baselineColorQwords=%u tableColorQwords=%u coldCompared=%u coldMismatches=%u invalid=%u\n",unsigned(p),unsigned(o),unsigned(o),unsigned(NightAblation::poolTableSelected?1u:0u),unsigned(NightAblation::poolTableEnabled?1u:0u),unsigned(NightAblation::poolTableCounter.invocations),unsigned(NightAblation::poolTableCounter.eligible),unsigned(NightAblation::poolTableCounter.applied),unsigned(NightAblation::poolTableCounter.fallback),unsigned(NightAblation::poolTableCounter.sourceVertices),unsigned(NightAblation::poolTableCounter.admittedVertices),unsigned(NightAblation::poolTableCounter.baselineColorQwords),unsigned(NightAblation::poolTableCounter.tableColorQwords),unsigned(NightAblation::poolTableCounter.coldCompared),unsigned(NightAblation::poolTableCounter.coldMismatches),unsigned(NightAblation::poolTableCounter.invalid));fflush(stdout);}
+  if(o>=1200&&o<1328){if(!file){valid=false;return;}unsigned i=o-1200;if(i<5){const auto& c=chunks[p][i];fprintf(file,"LOG: NIGHTCHUNK phase=%u i=%u first=%u loops=%u elapsed=%u pacing=%u totalFlips=%u renderedFlips=%u syntheticFlips=%u\n",unsigned(p),unsigned(i),unsigned(c.first),unsigned(c.loops),unsigned(c.elapsed),unsigned(c.pacing),unsigned(c.totalFlips),unsigned(c.renderedFlips),unsigned(c.syntheticFlips));}if(mode(p)){const auto& s=samples[i];fprintf(file,"LOG: NIGHTRAW phase=%u i=%u frame=%u entryPeriod=%u wholeLoop=%u pacing=%u totalFlips=%u renderedFlips=%u syntheticFlips=%u presentPeriod=%u renderedPeriod=%u lastKind=%u sequence=%u context=%u\n",unsigned(p),unsigned(i),unsigned(s.frame),unsigned(s.entryPeriod),unsigned(s.wholeLoop),unsigned(s.pacing),unsigned(s.totalFlips),unsigned(s.renderedFlips),unsigned(s.syntheticFlips),unsigned(s.presentPeriod),unsigned(s.renderedPeriod),unsigned(s.lastKind),unsigned(s.sequence),unsigned(s.context));}if(ferror(file))valid=false;if(i==127){markExported(p);fprintf(file,"LOG: NIGHTWINDOW phase=%u sampler=%u raw=%u chunks=%u valid=%u\n",unsigned(p),unsigned(mode(p)?1u:0u),unsigned(counts[p]),unsigned(chunkCounts[p]),unsigned(valid?1u:0u));if(fflush(file)!=0)valid=false;}}
+  if(frame==5399&&!done){done=true;if(file){if(fclose(file)!=0)valid=false;file=nullptr;}printf("LOG: NIGHTDONE order=%u valid=%u loops=5400\n",unsigned(planConfig.order),unsigned(complete()?1u:0u));fflush(stdout);}
+ }
+--- baseline/tyra/engine/inc/renderer/3d/pipeline/static/core/bag/stapip_bag.hpp
++++ postimage/tyra/engine/inc/renderer/3d/pipeline/static/core/bag/stapip_bag.hpp
+@@ -10,6 +10,7 @@
+ 
+ #pragma once
+ #include "renderer/3d/pipeline/static/core/stapip_pool_color_table.hpp"
++#include "renderer/3d/pipeline/static/core/stapip_corona_sprite.hpp"
+ 
+ #include "math/vec4.hpp"
+ #include "./stapip_info_bag.hpp"
+@@ -29,6 +30,7 @@
+  */
+ class StaPipBag {
+  public:
++  const ExperimentalCoronaSprite::TrianglePairs* experimentalCoronaSource=nullptr;
+   StaPipBag();
+   ~StaPipBag();
+ 
+--- baseline/tyra/engine/inc/renderer/3d/pipeline/static/core/programs/stapip_vu1_shared_defines.h
++++ postimage/tyra/engine/inc/renderer/3d/pipeline/static/core/programs/stapip_vu1_shared_defines.h
+@@ -94,6 +94,8 @@
+ #define VU1_STAPIP_EMIT_STATE_FLAG 0x8000
+ // Private TC-only local layout marker; clip mask bits never receive this flag.
+ #define VU1_STAPIP_POOL2_FLAG 0x0400
++// Private cull-TC-only marker; never a clip-plane mask.
++#define VU1_STAPIP_CORONA_SPRITE_FLAG 0x0800
+ 
+ // Modified by TyraX: VU1 clipping scratch at the top of VU1 data memory
+ // (1024 qwords total). The double buffer is capped at VU1_STAPIP_DBUFFER_END
+--- baseline/tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_corona_sprite.hpp
++++ postimage/tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_corona_sprite.hpp
+@@ -0,0 +1,10 @@
++// Modified by TyraX: private typed corona owner contract; not an arbitrary mesh hint.
++#pragma once
++#include <cstdint>
++namespace Tyra { namespace ExperimentalCoronaSprite {
++inline bool enabled=false; // root serial native/correctness apparatus owns the arm
++struct TrianglePairs {
++ const void* vertices=nullptr; const void* sts=nullptr; const void* colors=nullptr;
++ uint32_t count=0;
++};
++} }
+--- baseline/tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_qbuffer.hpp
++++ postimage/tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_qbuffer.hpp
+@@ -21,6 +21,7 @@
+ 
+ class StaPipQBuffer {
+  public:
++  bool coronaSpriteApplied=false;
+   StaPipQBuffer();
+   ~StaPipQBuffer();
+ 
+--- baseline/tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.hpp
++++ postimage/tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.hpp
+@@ -894,6 +894,7 @@
+   texwrap_t packetWrap = {};           // written by the unsent packet
+   bool packetWrapSet = false;
+   bool submissionBatchScope = false;
++  bool coronaShaderUnlit = false; // exact selected shader fact, refreshed per bag
+   bool fogOffForBag = false;  // Modified by TyraX: see setFogFacts
+   const CoreBBox* fogBox = nullptr;
+   bool submissionBatchCandidate = false;
+--- baseline/tyra/engine/src/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_tc_vu1.vclpp
++++ postimage/tyra/engine/src/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_tc_vu1.vclpp
+@@ -4,7 +4,7 @@
+ ;---------------------------------------------------------------
+ ; Copyright 2022, tyra - https://github.com/h4570/tyra
+ ; Licensed under Apache License 2.0
+-; Sandro Sobczyński <sandro.sobczynski@gmail.com>
++; Sandro SobczyĹ„ski <sandro.sobczynski@gmail.com>
+ ;
+ ;---------------------------------------------------------------
+ ; Triangle list
+@@ -102,6 +102,12 @@
+     iadd    kickAddress,        colorData,      vertexCount
+     iaddiu  colorStride,        vi00,           3
+ setDestAddr:
++    ; Private corona tag occupies one owned input qword before the output.
++    iaddiu  vertexCounter, vi00, VU1_STAPIP_CORONA_SPRITE_FLAG
++    iand    vertexCounter, stateFlag, vertexCounter
++    ibeq    vertexCounter, vi00, coronaInputReady
++    iaddiu  kickAddress, kickAddress, 1
++coronaInputReady:
+     iaddiu  destAddress,        kickAddress,    0
+ 
+     ibgez   stateFlag,          reuseMaterialState
+@@ -408,6 +414,139 @@
+         ibne    vertexCounter,  buffer, noFogVertexLoop  ; and repeat if needed
+ vertexLoopsDone:
+ 
++    ; Modified by TyraX: private whole-package post-transform reduction.
++    ; All original outputs remain intact until every quad has passed.
++    ilw.w   vertexCount, 0(buffer)
++    iaddiu  vertexCounter, vi00, VU1_STAPIP_CORONA_SPRITE_FLAG
++    iand    stateFlag, vertexCount, vertexCounter
++    ibeq    stateFlag, vi00, coronaReturn
++    iaddiu  vertexCounter, vi00, VU1_STAPIP_COUNT_MASK
++    iand    vertexCount, vertexCount, vertexCounter
++    iadd    vertexCounter, vertexCount, vertexCount
++    iadd    vertexCounter, vertexCounter, vertexCount
++    isub    destAddress, destAddress, vertexCounter
++    iadd    vertexData, destAddress, vi00
++    iadd    stqData, vertexCount, vi00
++coronaQuadCheck:
++    lq      color1, 1(vertexData)
++    itof0   color1, color1
++    lq      vertex1, 2(vertexData)
++    itof0   vertex1, vertex1
++    lq      outputStq1, 0(vertexData)
++    ; Q domain excludes exceptional/underflow comparisons.
++    ; One existing dead VI holds the shared sign mask for both bounds.
++    iaddiu  fogInt, vi00, 0x20
++    loi     0.0001
++    sub.z   vf00, outputStq1, i
++    fmand   singleColorEnabled, fogInt
++    ibne    singleColorEnabled, vi00, coronaDone
++    loi     10000
++    add.z   vertex3, vf00, i
++    sub.z   vf00, vertex3, outputStq1
++    fmand   singleColorEnabled, fogInt
++    ibne    singleColorEnabled, vi00, coronaDone
++    ; Any ADC bit forbids reduction, including uniformly rejected quads.
++    ilw.w   singleColorEnabled, 2(vertexData)
++    ; adcMask is the stock persistent0x8000 initialized before begin.
++    iand    singleColorEnabled, singleColorEnabled, adcMask
++    ibne    singleColorEnabled, vi00, coronaDone
++    iadd    colorData, vertexData, vi00
++    iaddiu  colorRunRemaining, vi00, 6
++coronaVertexCheck:
++    lq      color2, 1(colorData)
++    itof0   color2, color2
++    sub     color3, color2, color1
++    iaddiu  fogInt, vi00, 15
++    fmand   singleColorEnabled, fogInt
++    ibne    singleColorEnabled, fogInt, coronaDone
++    lq      vertex2, 2(colorData)
++    itof0   vertex2, vertex2
++    ; Bits16 packed XYZF2 Z<=0xffff0: positive20-bit integer is exact in FP.
++    sub.zw  color3, vertex2, vertex1
++    iaddiu  fogInt, vi00, 3
++    fmand   singleColorEnabled, fogInt
++    ibne    singleColorEnabled, fogInt, coronaDone
++    lq      outputStq2, 0(colorData)
++    sub.z   color3, outputStq2, outputStq1
++    iaddiu  fogInt, vi00, 2
++    fmand   singleColorEnabled, fogInt
++    ibne    singleColorEnabled, fogInt, coronaDone
++    iaddiu  colorData, colorData, 3
++    iaddi   colorRunRemaining, colorRunRemaining, -1
++    ibne    colorRunRemaining, vi00, coronaVertexCheck
++    ; Bound signed-VI differences before rectangle orientation/compaction.
++    ; This also safely rejects large guard-band quads without repackaging them.
++    lq      outputStq3, 8(vertexData)
++    itof0   outputStq3, outputStq3
++    sub.xy  vertex3, outputStq3, vertex1
++    abs.xy  vertex3, vertex3
++    loi     32767
++    add.xy  outputStq3, vf00, i
++    sub.xy  vf00, outputStq3, vertex3
++    iaddiu  singleColorEnabled, vi00, 0xC0
++    fmand   singleColorEnabled, singleColorEnabled
++    ibne    singleColorEnabled, vi00, coronaDone
++    ; Packed XY rectangle checks on original unique corners0,1,2,3(v5).
++    ilw.x   fogConstInt, 2(vertexData)
++    ilw.x   fogInt, 5(vertexData)
++    ilw.x   vertexCounter, 8(vertexData)
++    ibne    fogInt, vertexCounter, coronaDone
++    ilw.x   vertexCounter, 17(vertexData)
++    ibne    fogConstInt, vertexCounter, coronaDone
++    isub    vertexCounter, fogInt, fogConstInt
++    iblez   vertexCounter, coronaDone
++    ilw.y   fogConstInt, 2(vertexData)
++    ilw.y   vertexCounter, 5(vertexData)
++    ibne    fogConstInt, vertexCounter, coronaDone
++    ilw.y   fogInt, 8(vertexData)
++    ilw.y   vertexCounter, 17(vertexData)
++    ibne    fogInt, vertexCounter, coronaDone
++    ibeq    fogConstInt, fogInt, coronaDone
++    iaddiu  vertexData, vertexData, 18
++    iaddi   stqData, stqData, -6
++    ibne    stqData, vi00, coronaQuadCheck
++    ; Every quad passed. Compact forward; destinations precede unread source.
++    iadd    vertexData, destAddress, vi00
++    iadd    singleColorEnabled, destAddress, vi00
++    iadd    stqData, vertexCount, vi00
++coronaCompact:
++    ilw.y   fogConstInt, 2(vertexData)
++    ilw.y   fogInt, 8(vertexData)
++    isub    vertexCounter, fogInt, fogConstInt
++    ibltz   vertexCounter, coronaReverseY
++    iadd    colorData, vertexData, vi00
++    iaddiu  colorRunRemaining, vertexData, 6
++    b       coronaEndpointsReady
++coronaReverseY:
++    iaddiu  colorData, vertexData, 15
++    iaddiu  colorRunRemaining, vertexData, 3
++coronaEndpointsReady:
++    lq      outputStq2, 0(colorData)
++    lq      color2, 1(colorData)
++    lq      vertex2, 2(colorData)
++    sq      outputStq2, 0(singleColorEnabled)
++    sq      color2, 1(singleColorEnabled)
++    sq      vertex2, 2(singleColorEnabled)
++    lq      outputStq2, 0(colorRunRemaining)
++    lq      color2, 1(colorRunRemaining)
++    lq      vertex2, 2(colorRunRemaining)
++    sq      outputStq2, 3(singleColorEnabled)
++    sq      color2, 4(singleColorEnabled)
++    sq      vertex2, 5(singleColorEnabled)
++    iaddiu  vertexData, vertexData, 18
++    iaddiu  singleColorEnabled, singleColorEnabled, 6
++    iaddi   stqData, stqData, -6
++    ibne    stqData, vi00, coronaCompact
++    ; Replace only the primitive tag, preserving all preceding material tags.
++    iaddi   vertexCounter, kickAddress, -1
++    lq      primTag, 0(vertexCounter)
++    iaddi   vertexCounter, destAddress, -1
++    sq      primTag, 0(vertexCounter)
++coronaDone:
++    ; singleColorEnabled is mesh-persistent across MSCNT: restore its real value.
++    ilw.x   singleColorEnabled, VU1_OPTIONS_ADDR(vi00)
++coronaReturn:
++
+     xgkick kickAddress ; dispatch to the GS rasterizer.
+ 
+ --barrier ; Why the hell I must add barrier AFTER XGKICK? VCL does not adds E bit without it...
+--- baseline/tyra/engine/src/renderer/3d/pipeline/static/core/stapip_qbuffer.cpp
++++ postimage/tyra/engine/src/renderer/3d/pipeline/static/core/stapip_qbuffer.cpp
+@@ -339,6 +339,7 @@
+ void StaPipQBuffer::deallocateDynamicData() {
+   poolTableSliceValid = false;
+   poolTableApplied = false;
++  coronaSpriteApplied = false;
+   if (!_isDynamicallyAllocated) return;
+ 
+   // Pooled arrays are kept for reuse - only true heap fallbacks are freed.
+--- baseline/tyra/engine/src/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.cpp
++++ postimage/tyra/engine/src/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.cpp
+@@ -1315,6 +1315,7 @@
+   // addSpotToColor already used, so the two halves of the formula are gated
+   // by one fact and a skipped mesh renders bit-identically. An inactive
+   // spot's uniform quads are also omitted unless a custom program may read them.
++  coronaShaderUnlit = false;
+   bool spotActive = false;
+   if (!bag->lighting) {
+     const auto& light = bagLight ? *bagLight : rendererCore->spot;
+@@ -1327,6 +1328,7 @@
+       meshSpot.enabled = false;
+     clipper.setSpot(meshSpot);
+     spotActive = meshSpot.enabled;
++    coronaShaderUnlit = !spotActive;
+ 
+     // Modified by TyraX: the VU1 colour programs never read an inactive
+     // spot's three quads. An override may, so preserve the upload for one.
+@@ -1954,6 +1956,7 @@
+   // so a slot recycled out of a retained bag cannot carry a stale package
+   // index into a copied or clipped one. StaPipCore sets it back after the fill
+   // for the routes that may be retained.
++  result->coronaSpriteApplied = false;
+   result->retainIndex = -1;
+   result->bakeIndex = -1;  // Modified by TyraX: same gate, same reason
+ #if TYRA_STAPIP_PROBE_UNCACHED_CHAIN
+@@ -2035,6 +2038,36 @@
+       !poolBag->info->spotLit && !poolBag->info->dynLightPick &&
+       !repository.hasAnyOverride() &&
+       dBufferPrograms[getQBufferIndex(buffer)]->getName() == StaPipCullTextureColor;
++  // Modified by TyraX: the producer contract survives batching, but only direct
++  // whole-quad pointer slices may request the private post-transform sprite gate.
++  buffer->coronaSpriteApplied=false;
++  const auto* corona=poolBag->experimentalCoronaSource;
++  bool coronaEligible=false; // arm-independent cold admission; not VU acceptance
++  if(corona && RendererCoreDepth::bits==16 &&
++      !buffer->stripped &&
++      !buffer->poolTableSliceValid && !poolBag->lighting && !poolBag->billboard &&
++      poolBag->color->many && !poolBag->color->single && poolBag->texture &&
++      !poolBag->texture->coordinatesAreNormals && !repository.hasAnyOverride() &&
++      poolBag->info->fullClipChecks &&
++      poolBag->info->frustumCulling==PipelineInfoBagFrustumCulling_Precise &&
++      dBufferPrograms[getQBufferIndex(buffer)]->getName()==StaPipCullTextureColor &&
++      corona->vertices==poolBag->vertices && corona->sts==poolBag->texture->coordinates &&
++      corona->colors==poolBag->color->many && corona->count==poolBag->count &&
++      buffer->size>0 && buffer->size<=72 && buffer->size%6==0) {
++    const uintptr_t base=reinterpret_cast<uintptr_t>(poolBag->vertices);
++    const uintptr_t here=reinterpret_cast<uintptr_t>(buffer->vertices);
++    if(here>=base && (here-base)%sizeof(Vec4)==0) {
++      const u32 offset=static_cast<u32>((here-base)/sizeof(Vec4));
++      coronaEligible=offset%6==0 && offset<=poolBag->count &&
++          buffer->size<=poolBag->count-offset &&
++          buffer->sts==poolBag->texture->coordinates+offset &&
++          buffer->colors==reinterpret_cast<const Vec4*>(poolBag->color->many+offset);
++    }
++  }
++  buffer->coronaSpriteApplied=ExperimentalCoronaSprite::enabled&&coronaEligible;
++  if(corona) NightAblation::observeCorona(coronaEligible,buffer->coronaSpriteApplied,
++      ExperimentalCoronaSprite::enabled,static_cast<uint32_t>(buffer->size),
++      !fogOffForBag,!coronaShaderUnlit);
+   bool poolCompared=false, poolMismatch=false;
+   if (NightAblation::poolTableSelected && NightAblation::collectCounters && poolEligible) {
+     if(!ExperimentalPoolTable::materializeRange(poolBag->experimentalPoolTable,
+@@ -2070,6 +2103,7 @@
+ 
+ void StaPipQBufferRenderer::clip(StaPipQBuffer* buffer) {
+   buffer->poolTableApplied=false;
++  buffer->coronaSpriteApplied=false;
+   if(buffer->size!=0) if(!ExperimentalPoolTable::materializeRange(
+       buffer->bag->experimentalPoolTable,buffer->colors,buffer->size)) { TYRA_TRAP("Invalid lazy pool clip"); return; }
+   if(buffer->size!=0 && buffer->bag->experimentalPoolTable != nullptr)
+@@ -2192,6 +2226,9 @@
+       (1u | (NightAblation::poolTableEnabled ? 2u : 0u)) : 0u;
+   key.poolGeneration = bag->experimentalPoolTable != nullptr ?
+       bag->experimentalPoolTable->generation : 0u;
++  if(bag->experimentalCoronaSource) key.primKey |= 0x10000u |
++      (ExperimentalCoronaSprite::enabled ? 0x20000u : 0u) |
++      (fogOffForBag ? 0x40000u : 0u) | (coronaShaderUnlit ? 0x80000u : 0u);
+   key.singleColor = bag->color->single != nullptr ? 1 : 0;
+   key.stripped = bag->stripped ? 1 : 0;
+   key.packages =
+@@ -2286,6 +2323,9 @@
+       (1u | (NightAblation::poolTableEnabled ? 2u : 0u)) : 0u;
+   key.poolGeneration = bag->experimentalPoolTable != nullptr ?
+       bag->experimentalPoolTable->generation : 0u;
++  if(bag->experimentalCoronaSource) key.primKey |= 0x10000u |
++      (ExperimentalCoronaSprite::enabled ? 0x20000u : 0u) |
++      (fogOffForBag ? 0x40000u : 0u) | (coronaShaderUnlit ? 0x80000u : 0u);
+   key.singleColor = bag->color->single != nullptr ? 1 : 0;
+   key.stripped = bag->stripped ? 1 : 0;
+   key.packages = static_cast<u16>((bag->count + packageSize - 1) / packageSize);
+--- baseline/tyra/engine/src/renderer/3d/pipeline/static/core/stapip_vu1_program.cpp
++++ postimage/tyra/engine/src/renderer/3d/pipeline/static/core/stapip_vu1_program.cpp
+@@ -100,6 +100,8 @@
+     u32 packedCount = buffer->size;
+     if(name == StaPipCullTextureColor && buffer->poolTableApplied)
+       packedCount |= VU1_STAPIP_POOL2_FLAG;
++    if(name == StaPipCullTextureColor && buffer->coronaSpriteApplied)
++      packedCount |= VU1_STAPIP_CORONA_SPRITE_FLAG;
+     if (supportsGsStateReuse(name) && emitState)
+       packedCount |= VU1_STAPIP_EMIT_STATE_FLAG;
+     if (isClipProgram(name)) {
+@@ -133,6 +135,15 @@
+                                      reglistCount, 0);
+   }
+   packet2_utils_vu_close_unpack(packet);
++  if(name==StaPipCullTextureColor && buffer->coronaSpriteApplied) {
++    // Inline owned packet bytes, not a REF to a temporary stack tag.
++    // Count<=72 leaves room for this one extra input qword in the existing bank.
++    prim_t spritePrim=*prim; spritePrim.type=PRIM_SPRITE;
++    packet2_utils_vu_open_unpack(packet,2+3*buffer->size,true);
++    packet2_utils_gs_add_prim_giftag(packet,&spritePrim,buffer->size/3,
++                                     reglist,reglistCount,0);
++    packet2_utils_vu_close_unpack(packet);
++  }
+ }
+ 
+ u16 StaPipVU1Program::getMaxVertCount(const bool& singleColorEnabled,

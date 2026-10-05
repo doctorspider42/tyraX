@@ -73,6 +73,13 @@ slower by 0.112–0.260 ms; reducing transforms did not offset candidate
 preparation and ownership costs. It remains private. This does not measure VU
 arithmetic in isolation or disprove every other unique-grid representation.
 
+The [GS SPRITE corona trial](tyrax2-gs-sprite-coronas.md) completed native and
+ordinary admission checks but remains unpromoted. The unchanged Hybrid scene
+uses depth outside its Bits16 guard; a separate capability probe requested the
+route but still emitted identical triangles despite valid completed quads.
+The actual schedule exposes an early MAC flag read. No positive SPRITE raster
+or physical gain is accepted; fixing depth/scheduling needs a new qualification.
+
 ## Preservation
 
 The [source/control snapshot](tyrax2-wild-source-2026-10-05/README.md) contains

@@ -439,6 +439,12 @@ Both PS2 orders were slower by 0.112–0.260 ms, still at 30 fps. Exact sources,
 reconstruction, rejected no-fog preparation and raw evidence are preserved;
 production rendering remains unchanged.
 
+[GS SPRITE corona trial](tyrax2-gs-sprite-coronas.md) remains unpromoted:
+ordinary Hybrid depth is outside its admission domain, and a separate genuine
+Bits16 probe still emitted triangles despite valid completed quads. Actual
+native budget, flag scheduling diagnosis, parser repair and source restoration
+are preserved. No positive SPRITE raster or physical gain is accepted.
+
 [Batch / texture / program scopes](tyrax2-batch-texture-scopes-2026-10-04.md)
 qualify the V10 inclusive physical interval at 0.751–0.788 ms, with explicit
 observer contrasts and rejected attempts. This interval includes dispatch and

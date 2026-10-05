@@ -1,0 +1,21 @@
+{
+  "status": "ROOT_REJECTED_CORONA_PROBE_REQUEST_MARKER",
+  "pid": 31056,
+  "commandLine": "/home/spider/tyrax2-debugger-linux-v1/squashfs-root/AppRun -datapath /home/spider/corona-probe-case1-arm1-repeat1-20261005-v1/profile -logfile /home/spider/corona-probe-case1-arm1-repeat1-20261005-v1/emulator.log -debugger -elf /mnt/f/Projects/tyrax2-lab-20261001/wild-gs-sprite-corona-probe-physical-v1/game/bin/vehicle-playground.elf ",
+  "nativeProofSha256": "5f4c8a84af330489881197980ad6f37ebda4165d3cc4a358efd70bfe93354c82",
+  "elfSha256": "698354201bbb2682dabf3061447ff401b28566a251b7aeccf20767e8aa322bf1",
+  "reason": "Actual candidate input marker absent; no output/raster/promotion acceptance. Final READY was observed but decoder rejected.",
+  "files": {
+    "capture-report.json": "d47168614538f293e1f469690b1f398aab23f911a9987eba28fc5a446751e9bb",
+    "entry-capture-report.json": "44d7bc6837fd4050071c69b0df7025349e3f8595c603d591219eb0f8d0146d4d",
+    "entry-debugger.png": "16ef612db6bf3ae51a3c155877d3790e8c94d2b4ece55855d223f116251e218e",
+    "owned-launch.json": "f6d0eccb89cb0e64e34a411669c7084034b5951d8fd2b32551bc422fe24cacb6",
+    "PCSX2-before.ini": "b432da312b3a7cd92756e335e4c7125646939d86a895eb416e826003c26c5319",
+    "pool2-probe.cfg": "a7c6882a45dbaefd37c17f1da98fee82c0ba4fa5d79908d624741725ff887328",
+    "rejected-emulator.log": "c5600487b9b632ee439560eb29bfebf26eddc38baa1a085b2522ef50b30bc3c1",
+    "rejected-state.p2s": "0ad72a29851a6ba13dffc147bee820cc8550fc7faa44088c7f09d639cfe5fd7c",
+    "rejected-stdout.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "root-observed-entry-run.json": "d47115500abb7a503d9c1d07a2cc7f1631959d6998d32e9879beb9dd7e7331bf",
+    "root-run-action.json": "95feefa7f8ca645e357754bd7d3098e3ac5f70d4194a3009268bf2f626992a3b"
+  }
+}

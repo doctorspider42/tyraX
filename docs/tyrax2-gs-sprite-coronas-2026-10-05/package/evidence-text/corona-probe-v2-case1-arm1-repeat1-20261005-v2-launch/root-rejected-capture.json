@@ -1,0 +1,21 @@
+{
+  "status": "ROOT_REJECTED_CORONA_CAPABILITY_COMPLETED_PRIMITIVE",
+  "pid": 32017,
+  "commandLine": "/home/spider/tyrax2-debugger-linux-v1/squashfs-root/AppRun -datapath /home/spider/corona-probe-v2-case1-arm1-repeat1-20261005-v2/profile -logfile /home/spider/corona-probe-v2-case1-arm1-repeat1-20261005-v2/emulator.log -debugger -elf /mnt/f/Projects/tyrax2-lab-20261001/wild-gs-sprite-corona-probe-physical-v2/game/bin/vehicle-playground.elf ",
+  "nativeProofSha256": "e2356b2fba787fe80b56515ef5d8e05e15b000d4f42d42f462d0fc1da365b2ef",
+  "elfSha256": "c24c3778a5b73d75ab5fa350dfe1844c8541080361c28d910b1fa1f1108a76c8",
+  "reason": "Actual candidate input marker present, but completed primitive stayed TRIANGLE; no positive output/raster/promotion acceptance. Final READY was observed but decoder rejected.",
+  "files": {
+    "capture-report.json": "76fad67b0c162d55e0af0d8999787e04c36e0e5d27ec3c79b3e747cffff04cc9",
+    "entry-capture-report.json": "fde6132f1105782bfec95f48dd7690d2aa871f27d4184339961ebc60093f6903",
+    "entry-debugger.png": "896f46cf67e1a236ea7ff2377d31990fcbccdde9cad4106e3eda07b7b1b71d2e",
+    "owned-launch.json": "b318269ab2d8614b1b2e24d9ac3830c5d11528e299d150699a31e08c35a14e62",
+    "PCSX2-before.ini": "b432da312b3a7cd92756e335e4c7125646939d86a895eb416e826003c26c5319",
+    "pool2-probe.cfg": "a7c6882a45dbaefd37c17f1da98fee82c0ba4fa5d79908d624741725ff887328",
+    "rejected-emulator.log": "0386819c50ff1e789f08530d6323a524e6adcd309224288edb3f65869ddb4448",
+    "rejected-state.p2s": "d58dfa2e2776f26fc5c5542d76e4f2824dec522debe5a694191bed5c43eda342",
+    "rejected-stdout.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "root-observed-entry-run.json": "47a0f586bc419a638c3a217bf745882f4bf915e8a24309cf9fb402bbca3da036",
+    "root-run-action.json": "d2c1049807e9c6ed98e5e0826614c2affca6edcef9ed0ee4f3dd50885dc3a57d"
+  }
+}

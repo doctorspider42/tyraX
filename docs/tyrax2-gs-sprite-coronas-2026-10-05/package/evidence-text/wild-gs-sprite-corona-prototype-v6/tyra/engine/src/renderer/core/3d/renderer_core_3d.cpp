@@ -1,0 +1,140 @@
+/*
+# _____        ____   ___
+#   |     \/   ____| |___|
+#   |     |   |   \  |   |
+#-----------------------------------------------------------------------
+# Copyright 2022, tyra - https://github.com/h4570/tyra
+# Licensed under Apache License 2.0
+# Sandro Sobczyński <sandro.sobczynski@gmail.com>
+# Modified by TyraX: env/portal views save and restore the frustum planes.
+*/
+
+#include "renderer/core/3d/renderer_core_3d.hpp"
+
+namespace Tyra {
+
+RendererCore3D::RendererCore3D() {
+  fov = 60.0F;
+  is3DSupportEnabled = false;
+}
+RendererCore3D::~RendererCore3D() {}
+
+void RendererCore3D::update() { is3DSupportEnabled = false; }
+
+// Modified by TyraX: honour CameraInfo3D::up in the view matrix, so a camera can
+// roll about its view axis (cutscene Dutch angles). The frustum below already
+// culled against `up`; only this was dropping it. `up` is never null - it
+// defaults to (0, 1, 0) - so every existing caller gets a bit-identical matrix.
+void RendererCore3D::update(const CameraInfo3D& cameraInfo) {
+  frustumPlanes.update(cameraInfo, fov);
+  M4x4::lookAt(&view, *cameraInfo.position, *cameraInfo.looksAt, *cameraInfo.up);
+  viewProj = projection * view;
+  is3DSupportEnabled = true;
+}
+
+void RendererCore3D::init(RendererSettings* t_settings, Path1* t_path1) {
+  settings = t_settings;
+  path1 = t_path1;
+  frustumPlanes.init(settings, fov);
+  setProjection();
+  TYRA_LOG("RendererCore3D initialized!");
+}
+
+const M4x4& RendererCore3D::getView() {
+  TYRA_ASSERT(is3DSupportEnabled,
+              "You can't compute 3D without camera information. Please correct "
+              "your beginFrame()");
+  return view;
+}
+
+const M4x4& RendererCore3D::getViewProj() {
+  TYRA_ASSERT(is3DSupportEnabled,
+              "You can't compute 3D without camera information. Please correct "
+              "your beginFrame()");
+  return viewProj;
+}
+
+void RendererCore3D::setFov(const float& t_fov) {
+  fov = t_fov;
+  setProjection();
+}
+
+void RendererCore3D::setProjection() {
+  // Modified by TyraX: the width/height passed here only set the RASTER scale
+  // of the projection (the world-space frustum comes from fov + aspectRatio),
+  // so field rendering (InterlacedField) squeezes the scene into the
+  // half-height buffer by building the projection at the render height - and
+  // the BLSS neural upscaler squeezes it further into its low-res target by
+  // dividing again with the raster scale (RendererSettings::setRasterScale;
+  // 1,1 when BLSS is off, so this is bit-identical to the old call then).
+  // Everything else - clears, 2D/HUD, post fx, the env-map/shadow-map
+  // restores - keeps the DISPLAY-sized accessors.
+  projection = M4x4::perspective(
+      fov, settings->getRasterWidthF(), settings->getRasterHeightF(),
+      settings->getProjectionScale(), settings->getAspectRatio(),
+      settings->getNear(), settings->getFar());
+}
+
+// Modified by TyraX: dynamic env map pass camera. The frustum planes are
+// recomputed with a widened FOV - Renderer3DFrustumPlanes derives its aspect
+// from the SCREEN settings while the env target is square, so exact planes
+// would misclassify; the margin only costs some extra clipping work, never
+// wrongly culls.
+void RendererCore3D::pushEnvView(const Vec4& position, const Vec4& lookAt,
+                                 const float& envFov, const float& size) {
+  savedView = view;
+  savedProjection = projection;
+  savedViewProj = viewProj;
+  savedFrustumPlanes = frustumPlanes;  // Modified by TyraX: see popEnvView
+  foreignView = true;  // Modified by TyraX (see isForeignViewActive)
+  projection = M4x4::perspective(envFov, size, size,
+                                 settings->getProjectionScale(), 1.0F,
+                                 settings->getNear(), settings->getFar());
+  Vec4 pos = position;
+  Vec4 look = lookAt;
+  M4x4::lookAt(&view, pos, look);
+  viewProj = projection * view;
+  const float planesFov = envFov * 1.4F > 170.0F ? 170.0F : envFov * 1.4F;
+  frustumPlanes.update(CameraInfo3D(&pos, &look), planesFov);
+}
+
+// Modified by TyraX: portal through-view camera. The projection is left
+// untouched (the destination renders in-place into the real framebuffer,
+// so the frustum SHAPE is the screen's own); only the view swaps and the
+// frustum planes follow the virtual camera - exact planes, no widening.
+void RendererCore3D::pushPortalView(const Vec4& position, const Vec4& lookAt) {
+  savedView = view;
+  savedProjection = projection;
+  savedViewProj = viewProj;
+  savedFrustumPlanes = frustumPlanes;  // Modified by TyraX: see popEnvView
+  foreignView = true;  // Modified by TyraX (see isForeignViewActive)
+  Vec4 pos = position;
+  Vec4 look = lookAt;
+  M4x4::lookAt(&view, pos, look);
+  viewProj = projection * view;
+  frustumPlanes.update(CameraInfo3D(&pos, &look), fov);
+}
+
+void RendererCore3D::popEnvView(const CameraInfo3D& cameraInfo) {
+  (void)cameraInfo;  // Modified by TyraX: see the header - no longer read
+  foreignView = false;  // Modified by TyraX (see isForeignViewActive)
+  view = savedView;
+  projection = savedProjection;
+  viewProj = savedViewProj;
+  // Modified by TyraX: the planes the saved view was classified with, not
+  // planes rebuilt from the caller's camera - the two must describe the same
+  // view, or the rest of the frame classifies against a camera it is not
+  // drawing with (the projected-shadow pass passed no `up`).
+  frustumPlanes = savedFrustumPlanes;
+}
+
+u32 RendererCore3D::uploadVU1Program(VU1Program* program, const u32& address) {
+  return path1->uploadProgram(program, address);
+}
+
+void RendererCore3D::setVU1DoubleBuffers(const u16& startingAddress,
+                                         const u16& bufferSize) {
+  path1->setDoubleBuffer(startingAddress, bufferSize);
+}
+
+}  // namespace Tyra

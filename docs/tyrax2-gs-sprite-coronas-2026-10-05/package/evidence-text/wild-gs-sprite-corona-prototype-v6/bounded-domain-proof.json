@@ -1,0 +1,18 @@
+{
+  "status": "PASS_HOST_BOUNDED_INTEGER_CONVERSION_DOMAIN_ONLY",
+  "integersChecked": 1048561,
+  "domain": [
+    0,
+    1048560
+  ],
+  "adjacentIntegerDifference": 1.0,
+  "qBounds": [
+    0.0001,
+    10000.0
+  ],
+  "minQAdjacentFloat32Spacing": 7.275957614183426e-12,
+  "float32NormalUnderflowThreshold": 1.1754943508222875e-38,
+  "primaryInstructionReference": "https://www.manuallib.com/download/VU-USER-MANUAL.PDF",
+  "primarySourcePages": "ITOF0 p79; MAC flag p37; FMAND p149 (manual printed page numbers)",
+  "actualVUExecutionOrNativeFlagsSchedulingProven": false
+}

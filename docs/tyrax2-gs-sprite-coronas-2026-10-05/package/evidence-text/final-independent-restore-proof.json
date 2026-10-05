@@ -1,0 +1,26 @@
+{
+  "status": "RESTORED_PRIVATE_TEXTUAL_SOURCE_ONLY_NOT_PRODUCT",
+  "sourceArchiveProofSha256": "48da343b7b05f2efa0104b1e1ccd52b751cb2f28c69ef9fbd4eee718e2c8fb43",
+  "restored": {
+    "baseline2-source499": {
+      "files": 499,
+      "allExactSourceBytes": true
+    },
+    "pricing-v6-source500": {
+      "files": 500,
+      "allExactSourceBytes": true
+    },
+    "diagnostic-v1-source501": {
+      "files": 501,
+      "allExactSourceBytes": true
+    },
+    "diagnostic-v2-capability-source501": {
+      "files": 501,
+      "allExactSourceBytes": true
+    }
+  },
+  "hashOnlyBinarySourceRoot": "F:\\Projects\\tyrax2-lab-20261001\\pool2-ee-published-pricing-restore-v1",
+  "diagnosticV2": "separately restored capability source, actual SPRITE output unproved",
+  "buildCacheDeviceRepositoryMutation": false,
+  "gainClaim": false
+}

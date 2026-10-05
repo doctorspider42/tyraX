@@ -1,0 +1,47 @@
+{
+  "pineStatusBefore": 1,
+  "status": "PASS_exact_tag_paused_state_decode_text_identity",
+  "sourceCommit": "94d86c891b1621c0b252e4fc2e155bf90274dcc0",
+  "savestateVersion": 2589523968,
+  "savestateTag": "v2.9.93",
+  "stateSha256": "0ad72a29851a6ba13dffc147bee820cc8550fc7faa44088c7f09d639cfe5fd7c",
+  "internalsSha256": "0cd8ab17d9707b73420ea6c6929216e192ae70772626adf157f2ee54bb808c47",
+  "cpuRawSha256": "1da261c72f48971aace0c3be48398319b9cbddb46a379a611d2e82065a503a31",
+  "cpuRegsPayloadOffset": 360,
+  "offsets": {
+    "cpuSize": 1160,
+    "cpuAlign": 8,
+    "pc": 680,
+    "cycle": 1088,
+    "count": 580,
+    "sp": 464,
+    "ra": 496,
+    "delaySlot": 676
+  },
+  "registers": {
+    "pc": 1716624,
+    "cycle": 1043240226,
+    "cp0Count": 1043005927,
+    "spLow64": 33487856,
+    "raLow64": 1717716,
+    "isDelaySlot": 0
+  },
+  "elf": {
+    "path": "/mnt/f/Projects/tyrax2-lab-20261001/wild-gs-sprite-corona-probe-physical-v1/game/bin/vehicle-playground.elf",
+    "sha256": "698354201bbb2682dabf3061447ff401b28566a251b7aeccf20767e8aa322bf1",
+    "textAddress": 1048576,
+    "textBytes": 2957952,
+    "textSha256": "ce5e14cc46a8b1ca445429926e95abe7c47a0df8d319a40ddd43826336eb9818"
+  },
+  "eeMemoryBytes": 33554432,
+  "unchangedGuestText": true,
+  "limits": [
+    "Registers decoded from raw emulator serialization; root must bind this exact layout source to Linux64 compiler result.",
+    "cycle is internal64-bit emulated schedule time, not physical EE cost.",
+    "Snapshot completion and EE breakpoint identity require separate paused PINE status bracket."
+  ],
+  "layoutReportSha256": "bf8a19fc75236e07a496b6018a9673ff46c6650c25b7b94b72a2020351c6541b",
+  "statePath": "/home/spider/corona-probe-case1-arm1-repeat1-20261005-v1/profile/PCSX2/sstates/vehicle-playground (9DB8C1BD).209.p2s",
+  "pineStatusAfter": 1,
+  "helperSha256": "29b9f7095b69be598c0fd63031bd210a60c93028baeb546e07efeef2bb5aa3ae"
+}

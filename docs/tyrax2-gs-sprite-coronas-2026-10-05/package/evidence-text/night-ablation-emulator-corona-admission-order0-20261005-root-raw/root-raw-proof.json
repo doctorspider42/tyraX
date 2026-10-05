@@ -1,0 +1,12 @@
+{
+  "status": "ROOT_COMPLETE_5400_RAW_ARCHIVED_PARSER_REJECTION_NOT_ACCEPTED",
+  "pid": 31296,
+  "commandLine": "/home/spider/tyrax2-debugger-linux-v1/squashfs-root/AppRun -datapath /home/spider/night-ablation-emulator-corona-admission-order0-20261005/profile -logfile /home/spider/night-ablation-emulator-corona-admission-order0-20261005/emulator.log -batch -nogui -elf /mnt/f/Projects/tyrax2-lab-20261001/wild-gs-sprite-corona-physical-v2/game/bin/vehicle-playground.elf ",
+  "launchSha256": "d5d2f800d4a5b5e7ad0ec104725402571e3f572d252ea3e09ceb0f42b1201816",
+  "reason": "Three phase images captured, DONE observed. Initial kind9 parser failed missing records due unhandled emulator timestamp prefixes; retain unchanged bytes for separate reanalysis.",
+  "files": {
+    "emulator-stdout.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "night-ablation.log": "3862e390590dfc3fdc4df265cc4e1821a5418e2ce9f93f716ce2e084b5ed92ef",
+    "stdout.log": "1ac9d796bae8b630005980b9f2a27a5320f4425d6ceadcf5e835020d71b846b4"
+  }
+}

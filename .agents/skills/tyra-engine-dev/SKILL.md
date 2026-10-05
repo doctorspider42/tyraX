@@ -3878,3 +3878,15 @@ residency including billboards and draw-finish, rather than the main set alone.
 Sparse cold counters prove their sampled frames, not every timed frame. The
 same-ELF physical candidate was slower despite fewer transforms; no promotion
 or pure VU timing follows from a reduced operation count.
+The private GS SPRITE corona trial (`docs/tyrax2-gs-sprite-coronas.md`) failed
+ordinary admission at Hybrid/24-bit depth and positive Bits16 output despite
+valid completed quads. Count requests separately from final GIF primitive tags.
+An assembled SUB followed immediately by FMAND is not a flag-dependency proof:
+the preserved PCSX2 model exposes MAC results at four cycles without FMAND VF
+interlocks. Preserve actual schedule/output; the exact rejection branch remains
+an inference without a trace. Audit flag scheduling and full resident capacity
+before any repair. Native V6 had only two spare instructions with billboards.
+Validate actual signed spotlight gate and uploaded uniforms, not a nonzero word.
+A black diagnostic screenshot cannot qualify visible raster. Parser controls
+must include real emulator timestamp prefixes; preserve rejected analysis and
+attach a separately pinned reanalysis without rewriting launch authority.

@@ -1,0 +1,50 @@
+{
+  "status": "IMMUTABLE_PRIVATE_SOURCE_V5_KIND9_HOST_CONTROLS_PASS_NATIVE_PENDING",
+  "sourceManifestSha256": "407469286181e470644e584b196c6be2162805e66d1aa78eccba152767f16810",
+  "baseV4ManifestSha256": "6ba28ad3996f913add549af23f86fd46894fca1bbd51659e8fc64c812d674b87",
+  "sourceFiles": 500,
+  "changedFromV4": {
+    "tyra/engine/inc/debug/night_ablation.hpp": "75f683b8c9b352445cf37ca8ae6fd718f3825717b8d62cfbadd8b06d408da191",
+    "tyra/engine/inc/debug/night_plan.hpp": "b0b398247d277e56c66cc8a35083745f37fed5cdc95c30839927c20ce5ebeac0",
+    "tyra/engine/inc/debug/night_runtime.hpp": "8dc12e4a11d5db9720b21686a1c922b51f0d6a7fd42b47d81d2851fafff88f8c",
+    "tyra/engine/src/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.cpp": "99643dabaf064821410e4d5aab57a69e8c5f3cd3d06f925f3406dd69652808d6"
+  },
+  "unchangedFromV4": 496,
+  "kernelAndWriterByteIdenticalV4": true,
+  "sourceCounterWords": 9,
+  "expectedCounterBytesTargetABIPending": 36,
+  "kind9Orders": [
+    [
+      0,
+      1,
+      0
+    ],
+    [
+      1,
+      0,
+      1
+    ]
+  ],
+  "kind9PoolTableFixedOn": true,
+  "kind9EffectsAndExtraMasksZero": true,
+  "coldRequestsNeverClaimActualVUAcceptance": true,
+  "hostConstantOutputChecks": 47293,
+  "hostKind9ParserDecoderChecks": 269,
+  "supportPins": {
+    "source-handoff-proof.json": "b4c361ea5b7c9e78b021b2c42d716fdca585811f7139a6e1bfcfc1944726bf48",
+    "README.md": "5485ddd06fd304ad7fc7553fbdcfaba28642e424ee84556184a59375456c6349",
+    "capture-contract.md": "d99fc4d54f039617730663f9761ec9734c17c457f85e509eff89b011bc2c8e43",
+    "kind9-order0.txt": "e06619d00623eea6e159d704bb41ef9fbe5a7efcfb134e7fd5897d43d172ccff",
+    "kind9-order1.txt": "4478361a50c6857b9936521120437397ae9820329be540b9df329da16d733676",
+    "corona_controls.py": "be22dbdc90230d1759dff9174e05fa37a3a99990afe2dd7988abdf010dc444de",
+    "verify-kind9-controls.py": "5a5ccd2cee83d2cd06f37748e2c98ce4a1d35fe9abb1abd51a354a4cbab8abf5",
+    "kind9-host-controls-proof.json": "86e7695715e6cc524e25bfe897bdf7c27e52f75c99e192b5146136bb01382c0c",
+    "verify-final-output-controls.py": "532007742d6f06cd40b2eeef95bfba844184f57818ec07625f8a02026b59185e",
+    "host-controls-proof.json": "234404a1feff518292784e0e443013f46f8c991bb11f40eb6963135707e9cc4f",
+    "bounded-domain-proof.json": "c979ac8b8f547e994b9a367446155bacbc26d7aecf320765898122c4462482f6"
+  },
+  "preparationSha256": "c0a3cc9b915764f6af06fba02ed5875b51834b9300ddca990ff1884826f18d14",
+  "defaultOff": true,
+  "noNativeBuildCacheDeviceOrExistingFixtureMutation": true,
+  "actualExecutionRasterOrGainAccepted": false
+}

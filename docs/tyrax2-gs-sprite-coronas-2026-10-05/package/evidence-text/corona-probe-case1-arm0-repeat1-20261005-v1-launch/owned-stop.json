@@ -1,0 +1,15 @@
+{
+  "pid": 30838,
+  "args": [
+    "/home/spider/tyrax2-debugger-linux-v1/squashfs-root/AppRun",
+    "-datapath",
+    "/home/spider/corona-probe-case1-arm0-repeat1-20261005-v1/profile",
+    "-logfile",
+    "/home/spider/corona-probe-case1-arm0-repeat1-20261005-v1/emulator.log",
+    "-debugger",
+    "-elf",
+    "/mnt/f/Projects/tyrax2-lab-20261001/wild-gs-sprite-corona-probe-physical-v1/game/bin/vehicle-playground.elf"
+  ],
+  "reason": "completed-fixed-case-capture",
+  "completedProofSha256": "fa5e63ca5bc75a28dcf649bf0a1bcd1c670abe28d807f89f4b56d36bf7b5f37d"
+}
