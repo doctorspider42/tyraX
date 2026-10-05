@@ -483,7 +483,7 @@ recovered 0.50-0.72 ms of hardware `work`. What it did not do, ranked:
   within the full resident budget, completed SPRITE endpoints, negative fallback
   cases and identical positive GS drawing pixels. Both ordinary physical orders
   now complete with normal console visual feedback, but the elapsed sign
-  reverses (-0.064 / +0.073 ms): no repeatable gain. Ordinary accepted output
+  favors the candidate (-0.064 / -0.073 ms), but is close to drift: no robust gain. Ordinary accepted output
   and broader Hybrid coverage remain open; original Bits16/Hybrid failures
   are preserved as historical evidence.
 

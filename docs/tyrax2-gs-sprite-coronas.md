@@ -125,8 +125,11 @@ packet comparisons, raw protocol records, native reviews and drawing images.
 The qualified isolated engine image was also built into the unchanged ordinary
 night game, without probe halts or diagnostic waits. Both physical orders
 completed 5400 loops, 384 samples and 15 chunks. Candidate minus own controls
-was **-0.064 ms** for off/on/off and **+0.073 ms** for on/off/on. The sign does
-not repeat; there is no demonstrated speedup. Non-pacing work remains around
+was **-0.064 ms** for off/on/off and **-0.073 ms** for on/off/on, derived
+from the actual candidate phase flags. Both point estimates favor the candidate,
+but the tiny effect is comparable to forward outer-arm drift (0.058 ms);
+one adjacent contrast is only 0.035 ms. This does not establish a robust
+general speedup. Non-pacing work remains around
 19 ms and rendered presentation around 33.37 ms, not 60 fps.
 
 The reverse emulator trial captured all three phase images; the forward
@@ -144,7 +147,7 @@ raw records independently of the earlier isolated qualification.
 
 A production candidate still needs ordinary-workload acceptance coverage,
 broader Hybrid presentation checks. Both-order ordinary pricing is complete
-and did not demonstrate a repeatable gain. The isolated
+and gives small favorable point estimates without establishing a robust gain. The isolated
 follow-up addresses reachable depth, scheduling, completed output and positive
 drawing pixels; it does not cover every camera, depth, clipping or replay path.
 Removing guards or switching the pricing scene to Bits16 would not satisfy
