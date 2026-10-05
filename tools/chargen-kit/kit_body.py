@@ -56,9 +56,122 @@ w = mhkit.macro_weights()
 targets = {s: mhkit.load_target(os.path.join(DATA, 'targets', s + '.target')) for s in w}
 avg = mhkit.morph(base, targets, w)   # the average adult: bakes use this pose
 
-pdir = os.path.join(SYS, 'proxymeshes', BODY_PROXY)
-body_px = mhkit.load_proxy(os.path.join(pdir, BODY_PROXY + '.proxy'))
-body_o = mhkit.load_obj(os.path.join(pdir, BODY_PROXY + '.obj'))
+# "<proxy>@sub": the HERO body - see the block below.
+PROXY_NAME, _, PROXY_MODE = BODY_PROXY.partition('@')
+pdir = os.path.join(SYS, 'proxymeshes', PROXY_NAME)
+body_px = mhkit.load_proxy(os.path.join(pdir, PROXY_NAME + '.proxy'))
+body_o = mhkit.load_obj(os.path.join(pdir, PROXY_NAME + '.obj'))
+if PROXY_MODE == 'sub':
+    # The HERO body: the standard proxy subdivided once where shape shows -
+    # head, torso, arms and legs (hands and feet already carry their fingers
+    # and toes) - and every NEW vertex bound to the nearest point of
+    # MakeHuman's 13k-quad reference surface, so it gets that surface's real
+    # detail under every target, not a smoothed low-poly chord. The UVs are
+    # the standard body's, interpolated: same islands, same atlas layout.
+    # (MakeHuman's generic 13.8k proxies, un-subdivided, were tried first:
+    # their UVs were laid out AFTER subdividing, seams run through the
+    # middle of cage faces, and the merged faces stretched across islands.)
+    from mathutils import Vector
+    from mathutils.bvhtree import BVHTree
+    rest = mhkit.fit_proxy(body_px, base)
+    _skel = mhkit.load_skel(os.path.join(DATA, 'default.mhskel'))
+    _neck = _skel.joint('neck02____head', base)[1]
+    _wrist = abs(_skel.joint('wrist.L____head', base)[0])
+    _ankle = _skel.joint('foot.L____head', base)[1]
+    ubm = bmesh.new()
+    orig = ubm.verts.layers.int.new('orig')  # original index + 1, 0 = new
+    bv = []
+    for i, co in enumerate(rest):
+        v = ubm.verts.new(co)
+        v[orig] = i + 1
+        bv.append(v)
+    ubm.verts.ensure_lookup_table()
+    uvl_ = ubm.loops.layers.uv.new('uv')
+    for f, t in zip(body_o.faces, body_o.ftex):
+        try:
+            face = ubm.faces.new([bv[i] for i in f])
+        except ValueError:
+            continue
+        for l, ti in zip(face.loops, t):
+            l[uvl_].uv = body_o.vt[ti]
+    ubm.faces.ensure_lookup_table()
+    edges = set()
+    for face in ubm.faces:
+        c = np.mean([np.array(v.co) for v in face.verts], axis=0)
+        if c[1] <= _neck and (abs(c[0]) > _wrist or c[1] < _ankle + 0.6):
+            continue  # a hand or a foot
+        for e in face.edges:
+            edges.add(e)
+    # the original vertices by identity: subdivide_edges COPIES the 'orig'
+    # layer into the vertices it makes (every new one looked original)
+    first = {v: v[orig] - 1 for v in ubm.verts}
+    bmesh.ops.subdivide_edges(ubm, edges=list(edges), cuts=1, use_grid_fill=True)
+    ngons = [f for f in ubm.faces if len(f.verts) > 4]
+    if ngons:  # where a subdivided face meets a kept one
+        bmesh.ops.triangulate(ubm, faces=ngons)
+    ubm.verts.ensure_lookup_table()
+    ubm.faces.ensure_lookup_table()
+    # the reference surface (body groups only), triangulated
+    btris = []
+    for f, g in zip(base_obj.faces, base_obj.fgroup):
+        if g.startswith('body'):
+            f = list(f)
+            for k in range(1, len(f) - 1):
+                btris.append((f[0], f[k], f[k + 1]))
+    btris = np.array(btris)
+    bvh = BVHTree.FromPolygons([Vector(p) for p in base], btris.tolist())
+    # fit_proxy scales offsets by the reference's own x/y/z measurements
+    sc_rest = np.ones(3)
+    for ax in range(3):
+        if body_px.scale[ax]:
+            i0, i1, dist = body_px.scale[ax]
+            sc_rest[ax] = abs(base[i0, ax] - base[i1, ax]) / dist
+    nv, ref, wts, off = [], [], [], []
+    index_of = {}
+    for k, v in enumerate(ubm.verts):
+        index_of[v.index] = k
+        if v in first:
+            i = first[v]
+            nv.append(list(body_o.v[i]))
+            ref.append(body_px.ref[i])
+            wts.append(body_px.w[i])
+            off.append(body_px.off[i])
+            continue
+        loc, _n, ti, _d = bvh.find_nearest(Vector(v.co))
+        a, b, c = (base[j] for j in btris[ti])
+        # barycentrics of the nearest point
+        v0, v1, v2 = b - a, c - a, np.array(loc) - a
+        d00, d01, d11 = v0 @ v0, v0 @ v1, v1 @ v1
+        d20, d21 = v2 @ v0, v2 @ v1
+        den = d00 * d11 - d01 * d01
+        wb = (d11 * d20 - d01 * d21) / den if den else 0.0
+        wc = (d00 * d21 - d01 * d20) / den if den else 0.0
+        nv.append(list(v.co))
+        ref.append(btris[ti])
+        wts.append([1.0 - wb - wc, wb, wc])
+        # ON the reference surface - unless it is more than 5 mm off it (the
+        # mouth bag, the lip line): snapped, those faces collapsed. They keep
+        # their place relative to the surface, in the proxy's offset units.
+        d = np.array(v.co) - np.array(loc)
+        off.append((d / sc_rest).tolist() if np.linalg.norm(d) > 0.05 else [0.0, 0.0, 0.0])
+    nfaces, nvt, nftex = [], [], []
+    for f in ubm.faces:
+        nfaces.append([index_of[v.index] for v in f.verts])
+        tt = []
+        for l in f.loops:
+            tt.append(len(nvt))
+            nvt.append([l[uvl_].uv.x, l[uvl_].uv.y])
+        nftex.append(tt)
+    ubm.free()
+    body_o.v = np.array(nv, dtype=np.float64)
+    body_o.faces = nfaces
+    body_o.vt = np.array(nvt, dtype=np.float64)
+    body_o.ftex = nftex
+    body_px.ref = np.array(ref, dtype=np.int64)
+    body_px.w = np.array(wts, dtype=np.float64)
+    body_px.off = np.array(off, dtype=np.float64)
+    ntri = sum(len(f) - 2 for f in nfaces)
+    print('SUB', PROXY_NAME, len(nv), 'verts', len(nfaces), 'faces', ntri, 'triangles')
 eye_dir = os.path.join(SYS, 'eyes', 'low-poly')
 eye_px = mhkit.load_proxy(os.path.join(eye_dir, 'low-poly.mhclo'))
 eye_o = mhkit.load_obj(os.path.join(eye_dir, 'low-poly.obj'))
@@ -138,6 +251,17 @@ def split_body(isl):
     pieces = {}
     for g in isl:
         c = np.array(bmh.to_mh(np.array([v.co for v in g.verts])).mean(0))
+        # The generic (hero) proxies unwrap the head, hands and feet into the
+        # same island too - cut them out, or the face gets no extra texels.
+        if c[1] > neck_y:
+            pieces.setdefault('head', []).append(g)
+            continue
+        if abs(c[0]) > wrist_x:
+            pieces.setdefault('hand' + ('.L' if c[0] > 0 else '.R'), []).append(g)
+            continue
+        if c[1] < ankle_y + 0.6:
+            pieces.setdefault('foot' + ('.L' if c[0] > 0 else '.R'), []).append(g)
+            continue
         if abs(c[0]) > shoulder_x and c[1] > crotch_y:
             k = 'arm'
         elif c[1] < crotch_y:

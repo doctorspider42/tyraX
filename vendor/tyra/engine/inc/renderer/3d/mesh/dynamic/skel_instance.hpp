@@ -73,6 +73,11 @@ class SkelInstance {
    * for good. The next ensurePose allocates and skins again. */
   void trimOutputs();
 
+  /** Modified by TyraX: frees the buffers trimOutputs pooled (it keeps them
+   * by size for the next instance, which stops a crowd fragmenting the
+   * heap). Call on a scene change, when the old models' sizes are useless. */
+  static void clearOutputPool();
+
   /**
    * Advances playback by dt seconds (scale dt for playback speed), then
    * evaluates the pose and skins into the mesh when anything changed.

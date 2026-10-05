@@ -619,6 +619,7 @@ std::string App::runChatTool(aichat::ToolCall& c) {
             people = std::clamp((int)v->numberOr(1.0), 1, 40);
         if (people > 1) {
             params.textureSize = std::min(params.textureSize, 128);  // a crowd's budget
+            if (!rv->find("detail")) params.detail = 0;  // the crowd body, unless asked
             name += "-crowd";
         }
         namespace fs = std::filesystem;

@@ -337,7 +337,8 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
   [GPU/CPU impostors with 4/8/16 views plus one-material hull proxies](docs/impostors.md) and
   the [Drone Generator](docs/drone-generator.md) for ambient music.
 - **[Character Generator](docs/character-generator.md)** — rigged, dressed,
-  animated people at a PS2 hero budget: a game-topology body with real eyes and
+  animated people at a PS2 hero budget: a game-topology body at three detail
+  levels (crowd ~1.6k, standard ~3.3k, hero ~9.5k triangles) with real eyes and
   76 face/body sliders on top of MakeHuman's macros, one atlas with the face
   given the texels (skin mix, makeup, stubble, brows), 82 garments and
   hairstyles that are either part of the body (shells - zero triangles, no skin

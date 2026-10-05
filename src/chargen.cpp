@@ -80,6 +80,9 @@ struct GarmentData {
 // "m/"), images included ("img/m/skin/...").
 struct Body {
     std::string prefix;
+    // What it is for (kit "bodies"): detail "crowd" / "standard" / "hero",
+    // sex "f" / "m" / "" (either). Params::detail and gender pick the body.
+    std::string detail = "standard", sex;
     int verts = 0, tris = 0;
     const float* pos = nullptr;      // verts * 3 (metres, MakeHuman orientation)
     const int32_t* tri = nullptr;    // tris * 3
@@ -233,8 +236,14 @@ bool parseKit(Kit& k) {
 
     json::Value bl;
     if (k.parseJson("bodies", bl) && !bl.arr.empty())
-        for (const json::Value& v : bl.arr)
-            k.bodies.push_back(Body{v.find("prefix") ? v.find("prefix")->stringOr("") : ""});
+        for (const json::Value& v : bl.arr) {
+            Body b;
+            b.prefix = v.find("prefix") ? v.find("prefix")->stringOr("") : "";
+            if (const json::Value* x = v.find("detail")) b.detail = x->stringOr("standard");
+            if (const json::Value* x = v.find("sex")) b.sex = x->stringOr("");
+            else b.sex = k.bodies.empty() ? "f" : "m";  // a two-body kit: female1605, male1591
+            k.bodies.push_back(b);
+        }
     else
         k.bodies.push_back(Body{""});  // a single-body kit
     for (Body& b : k.bodies)
@@ -673,13 +682,32 @@ std::mutex g_customMutex;
 std::map<std::string, std::shared_ptr<GarmentData>> g_custom;
 int g_customCount = 0;
 
+// The body a character is built on: the kit body tagged with its detail
+// level and its sex (gender from 0.5 is a man's), else the standard one.
+int bodyFor(const Params& p) {
+    const Kit& k = kit();
+    const char* want = p.detail <= 0 ? "crowd" : p.detail >= 2 ? "hero" : "standard";
+    const std::string sex = p.gender >= 0.5f ? "m" : "f";
+    for (int pass = 0; pass < 2; ++pass)
+        for (size_t i = 0; i < k.bodies.size(); ++i)
+            if (k.bodies[i].detail == (pass ? "standard" : want) &&
+                (k.bodies[i].sex.empty() || k.bodies[i].sex == sex))
+                return (int)i;
+    return 0;
+}
+
+// The reference body of kit body `bi` - the one custom hair is modelled on:
+// the average person of its sex at 1.75 m, at its detail level.
 Params referenceParams(int bi) {
+    const Kit& k = kit();
     Params ref;
-    ref.gender = bi ? 1.0f : 0.0f;
+    const Body& b = k.bodies[(size_t)std::clamp(bi, 0, (int)k.bodies.size() - 1)];
+    ref.gender = b.sex == "m" ? 1.0f : 0.0f;
+    ref.detail = b.detail == "crowd" ? 0 : b.detail == "hero" ? 2 : 1;
     ref.defaultClips = false;
     ref.clips.clear();
     ref.textureSize = 128;
-    ref.name = bi ? "reference-male" : "reference-female";
+    ref.name = "reference-" + b.detail + (b.sex.empty() ? "" : b.sex == "m" ? "-male" : "-female");
     return ref;
 }
 
@@ -1016,6 +1044,7 @@ bool Params::operator==(const Params& o) const {
            african == o.african && asian == o.asian && caucasian == o.caucasian &&
            heightMeters == o.heightMeters && dimorphism == o.dimorphism && shape == o.shape &&
            breastSize == o.breastSize && breastFirmness == o.breastFirmness &&
+           detail == o.detail &&
            skinTone == o.skinTone &&
            skinWarmth == o.skinWarmth && aging == o.aging && brows == o.brows &&
            browDensity == o.browDensity && lashes == o.lashes && hairColor == o.hairColor &&
@@ -1087,7 +1116,7 @@ bool build(const Params& p, glbparser::Skel& out, std::vector<std::string>& warn
     // Body 0 is the female topology, body 1 the male one: past the middle of
     // the gender slider the male mesh takes over (the targets move both the
     // same way, so the shape is continuous; only the edge loops change).
-    const int bi = (k.bodies.size() > 1 && p.gender >= 0.5f) ? 1 : 0;
+    const int bi = bodyFor(p);
     const Body& b = k.bodies[bi];
     auto L = [&](const std::string& name, std::shared_ptr<std::vector<uint8_t>>& keep) {
         return layer(b.prefix + name, keep);
@@ -1498,6 +1527,22 @@ bool build(const Params& p, glbparser::Skel& out, std::vector<std::string>& warn
             // ...and the skin the hair is actually bound to: a body triangle
             // with two corners under hair vertices. The kit's baked layer
             // misses patches of a messy cut's crown; the binding does not.
+            // Only near what the layer covers (4 texels): it fills holes in
+            // the scalp, it does not widen it - on the dense hero body a
+            // fringe binds to enough of the temple to paint the face.
+            std::vector<uint8_t> nearLayer((size_t)S * S, 0), rowMax((size_t)S * S, 0);
+            for (int y = 0; y < S; ++y)
+                for (int x = 0; x < S; ++x) {
+                    uint8_t v = 0;
+                    for (int d = -4; d <= 4 && !v; ++d) v = m[(size_t)y * S + std::clamp(x + d, 0, S - 1)] > 0.0f;
+                    rowMax[(size_t)y * S + x] = v;
+                }
+            for (int y = 0; y < S; ++y)
+                for (int x = 0; x < S; ++x) {
+                    uint8_t v = 0;
+                    for (int d = -4; d <= 4 && !v; ++d) v = rowMax[(size_t)std::clamp(y + d, 0, S - 1) * S + x];
+                    nearLayer[(size_t)y * S + x] = v;
+                }
             const GarmentBody& gb = worn[gi]->body[bi];
             std::vector<char> under((size_t)b.verts, 0);
             for (size_t v = 0; v < gb.bindTri.size(); ++v)
@@ -1517,7 +1562,7 @@ bool build(const Params& p, glbparser::Skel& out, std::vector<std::string>& warn
                 if (n >= 2 && fwd < 0.35f) rasterTri(t, bound);
             }
             for (size_t i = 0; i < m.size(); ++i)
-                if (bound[i]) m[i] = 1.0f;
+                if (bound[i] && nearLayer[i]) m[i] = 1.0f;
         }
         auto pass = [&](int r, bool grow) {  // separable max (grow) or min
             for (int y = 0; y < S; ++y)
@@ -1866,6 +1911,25 @@ bool build(const Params& p, glbparser::Skel& out, std::vector<std::string>& warn
     // 4 mm out, every corner on its texture's darkest solid texel - the shade
     // at the roots. Drawn and hidden with the hair.
     std::vector<std::array<float, 2>> capUV(worn.size(), {-1.0f, -1.0f});
+    // The cap's triangles. A hero body is the standard one subdivided, with
+    // the standard body's vertices FIRST - so its cap uses the standard
+    // body's (4x coarser) triangles on those vertices: on the hero's own the
+    // caps were bigger than the hairstyles (1900 triangles each) and the
+    // example's creator hero ran the EE out of memory. Nobody sees a cap.
+    const Body* capBody = &b;
+    if (b.detail == "hero")
+        for (const Body& o : k.bodies)
+            if (o.detail == "standard" && o.sex == b.sex && o.verts <= b.verts) {
+                bool same = true;  // its body vertices must coincide with ours
+                for (int t = 0; t < o.tris && same; t += 37) {
+                    if (o.part[t] != 0) continue;
+                    const int v = o.tri[t * 3];
+                    for (int ax = 0; ax < 3; ++ax)
+                        if (std::fabs(o.pos[(size_t)v * 3 + ax] - b.pos[(size_t)v * 3 + ax]) > 0.02f)
+                            same = false;
+                }
+                if (same) capBody = &o;
+            }
     auto addScalpCap = [&](size_t gi, glbparser::SkelPart& part) {
         if (worn[gi]->item.slot != "hair" || capUV[gi][0] < 0.0f) return;
         std::shared_ptr<std::vector<uint8_t>> kb;
@@ -1873,6 +1937,9 @@ bool build(const Params& p, glbparser::Skel& out, std::vector<std::string>& warn
         if (!paint) return;
         const std::vector<float>& cover = scalpCover(gi, paint);
         const int S = kLayer;
+        // covered vertices: any of the body's own triangles at the vertex
+        // has its centre under the closed scalp cover
+        std::vector<char> vcov((size_t)b.verts, 0);
         for (int t = 0; t < b.tris; ++t) {
             if (b.part[t] != 0) continue;  // the eyes are not scalp
             float cu = 0.0f, cvv = 0.0f;
@@ -1883,8 +1950,19 @@ bool build(const Params& p, glbparser::Skel& out, std::vector<std::string>& warn
             const int x = std::clamp((int)(cu * S), 0, S - 1);
             const int y = std::clamp((int)((1.0f - cvv) * S), 0, S - 1);
             if (cover[(size_t)y * S + x] < 0.5f) continue;
+            for (int c = 0; c < 3; ++c) vcov[(size_t)b.tri[t * 3 + c]] = 1;
+        }
+        const Body& cb = *capBody;
+        for (int t = 0; t < cb.tris; ++t) {
+            if (cb.part[t] != 0) continue;
+            bool all = true;
+            for (int c = 0; c < 3 && all; ++c) {
+                const int v = cb.tri[t * 3 + c];
+                all = v < b.verts && vcov[(size_t)v];
+            }
+            if (!all) continue;
             for (int c = 0; c < 3; ++c) {
-                const int v = b.tri[t * 3 + c];
+                const int v = cb.tri[t * 3 + c];
                 for (int a = 0; a < 3; ++a)
                     part.positions.push_back(pos[(size_t)v * 3 + a] + nrm[(size_t)v * 3 + a] * 0.004f);
                 for (int a = 0; a < 3; ++a) part.normals.push_back(nrm[(size_t)v * 3 + a]);
@@ -1949,7 +2027,8 @@ bool build(const Params& p, glbparser::Skel& out, std::vector<std::string>& warn
             std::vector<uint8_t> scratch((size_t)A * A * 4, 0);
             glbparser::SkelPart part;
             emitItem(gi, part, scratch, A, 0, 0, A, A, &capUnder);
-            addScalpCap(gi, part);
+            // no scalp cap: the hat over it covers the scalp, and on a hero
+            // body the caps were most of a creator character's memory
             part.material = std::string(worn[gi]->cutout ? "hair:" : "cloth:") + "opth-hair-" +
                             worn[gi]->item.id;
             part.image = optImage[gi];
@@ -2306,11 +2385,16 @@ bool exportReferenceBodies(const std::string& dir, std::string& error) {
     namespace fs = std::filesystem;
     std::error_code ec;
     fs::create_directories(dir, ec);
-    for (int bi = 0; bi < 2 && bi < (int)kit().bodies.size(); ++bi) {
+    for (int bi = 0; bi < (int)kit().bodies.size(); ++bi) {
         glbparser::Skel s;
         std::vector<std::string> w;
-        if (!build(referenceParams(bi), s, w, error)) return false;
-        const fs::path out = fs::path(dir) / (bi ? "reference-male.glb" : "reference-female.glb");
+        const Params ref = referenceParams(bi);
+        if (!build(ref, s, w, error)) return false;
+        // the standard bodies keep their short names
+        std::string name = ref.name;
+        if (name == "reference-standard-female") name = "reference-female";
+        if (name == "reference-standard-male") name = "reference-male";
+        const fs::path out = fs::path(dir) / (name + ".glb");
         if (!gltfwrite::writeGlbFile(out.string(), s, "TyraX Character Generator reference body", error))
             return false;
     }
@@ -2345,6 +2429,7 @@ std::string toJson(const Params& p) {
       << ", \"caucasian\": " << num(p.caucasian) << ", \"height\": " << num(p.heightMeters)
       << ", \"dimorphism\": " << num(p.dimorphism) << ",\n";
     // written only when moved: older recipes stay byte-identical
+    if (p.detail != 1) o << "  \"detail\": " << p.detail << ",\n";  // only when not standard
     if (p.breastSize != 0.5f || p.breastFirmness != 0.5f)
         o << "  \"breastSize\": " << num(p.breastSize) << ", \"breastFirmness\": "
           << num(p.breastFirmness) << ",\n";
@@ -2415,6 +2500,8 @@ bool fromJson(const std::string& text, Params& p, std::string& error) {
     f("height", d.heightMeters);
     f("dimorphism", d.dimorphism);
     f("breastSize", d.breastSize);
+    i("detail", d.detail);
+    d.detail = std::clamp(d.detail, 0, 2);
     f("breastFirmness", d.breastFirmness);
     if (const json::Value* s = v.find("shape"))
         for (const auto& [id, val] : s->obj) d.shape[id] = (float)val.numberOr(0.0);

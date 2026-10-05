@@ -66,6 +66,11 @@ struct Params {
     // man gains jaw, brow ridge, chin and neck and a woman fuller lips, a
     // softer jaw and larger eyes. Scaled down for children.
     float dimorphism = 0.6f;
+    // Which body the character is built on: 0 crowd (MakeHuman's proxy741,
+    // ~1.5k triangles, one for both sexes), 1 standard (female1605 /
+    // male1591, ~3.3k), 2 hero (those subdivided over head, torso and limbs,
+    // ~9.5k). Every slider, garment and clip works on all three.
+    int detail = 1;
     // MakeHuman's breast macro (women; men keep the Bust slider): cup size
     // and firmness, 0..1 with 0.5 = average - the base body.
     float breastSize = 0.5f;
@@ -193,8 +198,9 @@ std::vector<bool> partsShownAsBuilt(const std::vector<std::string>& materials);
 void setAssetRoot(const std::string& dir);
 
 // Writes the bodies custom hair is modelled on - the average woman and man
-// at 1.75 m, as .glb - into `dir`, as reference-female.glb / -male.glb.
-// Model on the one whose topology you will use (gender < 0.5 / >= 0.5).
+// at 1.75 m, as .glb - into `dir`: reference-female.glb / -male.glb (the
+// standard bodies), reference-hero-female/-male.glb and reference-crowd.glb.
+// Model on the one whose body you will use (Detail, and gender < / >= 0.5).
 bool exportReferenceBodies(const std::string& dir, std::string& error);
 
 // Params <-> JSON (the .chargen.json sidecar, the --chargen command line).

@@ -1480,7 +1480,7 @@ class TerrainGame : public Tyra::Game {
     // What applyLook last applied: the palette variant the texture bags point
     // at, and RuntimeObject::look as of then (-9 = apply on the next frame).
     int animVariant = 0;
-    u16 followFrames = 0;  // frames drawing another's shared pose (trimOutputs at 60)
+    u16 followFrames = 0;  // frames drawing another's shared pose (trimOutputs at 300)
     int lookShown[4] = {-9, -9, -9, -9};
     std::unique_ptr<Tyra::StaPipInfoBag> animInfoBag;
     Tyra::M4x4 animMat;
@@ -3405,7 +3405,7 @@ class TerrainGame : public Tyra::Game {
     // What applyLook last applied: the palette variant the texture bags point
     // at, and RuntimeObject::look as of then (-9 = apply on the next frame).
     int animVariant = 0;
-    u16 followFrames = 0;  // frames drawing another's shared pose (trimOutputs at 60)
+    u16 followFrames = 0;  // frames drawing another's shared pose (trimOutputs at 300)
     int lookShown[4] = {-9, -9, -9, -9};
     std::unique_ptr<Tyra::StaPipInfoBag> animInfoBag;
     Tyra::M4x4 animMat;
@@ -34398,13 +34398,21 @@ std::vector<File> bakeAnimAssets(const Project& p,
         // Distance LODs ride in the .tskl only when something uses them -
         // the engine keeps every loaded LOD (plus per-instance skinning
         // buffers) in the PS2's 32 MB, so an unused chain is pure waste.
-        // "Uses" = the project preference, or any object referencing this
-        // model with a per-object mesh-LOD override > 0.
-        bool lodWanted = p.settings.meshLodDistance > 0.0f;
+        // "Uses" = an object referencing this model with a per-object
+        // mesh-LOD override > 0, or with the project preference (override
+        // < 0) when that is on - but not a Player object: the camera rides
+        // a few metres behind it, so its chain would never be drawn, and a
+        // hero character's chain is megabytes (a creator hero on the dense
+        // body ran the EE out of memory with one).
+        bool lodWanted = false;
         for (const SceneData& sc : p.scenes)
-            for (const SceneObject& obj : sc.objects)
-                if (obj.meshLodOverride > 0.0f && obj.modelPath == relPath)
+            for (const SceneObject& obj : sc.objects) {
+                if (obj.modelPath != relPath) continue;
+                if (obj.meshLodOverride > 0.0f) lodWanted = true;
+                if (obj.meshLodOverride < 0.0f && p.settings.meshLodDistance > 0.0f &&
+                    obj.type != PrimitiveType::Player)
                     lodWanted = true;
+            }
         if (lodWanted) glbparser::generateSkelLods(skel);
 
         // Non-destructive clip edits (Tools > Animation Editor) + the

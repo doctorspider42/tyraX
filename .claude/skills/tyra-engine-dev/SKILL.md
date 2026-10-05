@@ -3250,9 +3250,14 @@ back) - bit-identical times are what let instances share a skin, so a crowd is
 phase-locked by SETTING the time from one clock every frame, not by starting
 in step (float accumulation drifts apart). `trimOutputs()` frees an instance's
 skin outputs (they are otherwise kept forever once allocated - 30 walkers that
-each skinned once ran the EE out of memory); the game calls it after 60 frames
+each skinned once ran the EE out of memory); the game calls it after 300 frames
 as a pose follower and forces a skin when it owns a pose again. A skipped part
-(`setPartSkipped`) allocates no outputs.
+(`setPartSkipped`) allocates no outputs. Since 1.180.0 trimmed outputs go into
+a static pool keyed by vertex count, not back to the heap (the free/re-allocate
+churn of a walking crowd fragmented the EE until an allocation failed with
+megabytes free); `SkelInstance::clearOutputPool()` hands them to the heap and
+the game calls it on a scene change. Skinning one LOD level gives the other
+levels' outputs back to the pool - a walker crossing the LOD distance held both.
 
 TsklLoader merges parts that share texture and colour - except a part with
 `:opt` in its name (1.177.0): creator options are shown one by one, and a

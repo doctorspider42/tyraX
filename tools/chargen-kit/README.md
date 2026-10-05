@@ -17,7 +17,7 @@ Needs Python 3 with numpy and Pillow, and Blender 4.x/5.x (found on PATH, in
 | Script | Runs in | Does |
 |---|---|---|
 | `fetch_sources.py` | Python | downloads the CC0 sources: MakeHuman `makehuman/data` (reference mesh, rig, weights, targets), the MakeHuman *system assets* pack and the `*_cc0` community packs named in `catalog.py`, Quaternius' Universal Animation Library 1 + 2 |
-| `kit_body.py` | Blender | one game body (`female1605`, then `male1591`) + low-poly eyes, its re-packed PS2 atlas, and every layer baked into it: 18 skins, eyes, 12 brows, 4 lashes, AO, the face-paint masks and the island mask |
+| `kit_body.py` | Blender | one game body (`female1605`, `male1591`, the hero `female1605@sub` / `male1591@sub`, the crowd `proxy741`) + low-poly eyes, its re-packed PS2 atlas, and every layer baked into it: 18 skins, eyes, 12 brows, 4 lashes, AO, the face-paint masks and the island mask |
 | `kit_wear.py` | Blender | each `catalog.py` entry into a SHELL (body vertices pushed out + texture in the atlas) or a MESH (remeshed, unwrapped, baked, bound to the body surface); for the second body `--reuse-mesh <first stage>` binds the first body's meshes instead of remeshing |
 | `anim_retarget.py` | Blender | the 87 library clips onto the rig, as local rotations + a hips track |
 | `build_kit.py` | Python | targets projected onto the body's vertices, skin weights, rig, sliders, layers, wardrobe and clips into the binary |
@@ -55,6 +55,13 @@ sets a cutout item's alpha threshold (3D glasses keep their 0.5-alpha lenses).
 
 ## Traps (each cost a broken bake)
 
+- The hero bodies are `<proxy>@sub`: the standard proxy subdivided over head,
+  torso, arms and legs, every new vertex bound to the nearest point of the
+  reference surface. MakeHuman's 13.8k-quad generic proxies, un-subdivided,
+  were tried first and fail: their UVs were laid out AFTER subdividing, seams
+  cross the middle of cage faces, and a merged face stretches across two
+  islands (grey smears round the eyes, hundreds of times the texel density).
+  Measure a new topology's UV area / 3D area per face before baking.
 - The alpha bake doubles as the texture's HIT mask. Counting a hit as alpha >
   0.5 made every half-transparent texel a miss - glasses lenses (alpha 0.2-0.5)
   were filled with the frame's red. A hit is now any alpha (> 0.02); cutout

@@ -2560,6 +2560,7 @@ private:
     int charCrowdVariants_ = 6;
     float charCrowdSpread_ = 6.0f;
     bool charCrowdWander_ = true;
+    bool charCrowdLight_ = true;  // build the crowd on the crowd body (Params::detail 0)
     int charCreatorLooks_ = 3;  // colour looks the in-game creator offers
     // Clip playback in the preview: which generated clip, where in it, and
     // whether it is running. Editor state only - it never reaches the asset.

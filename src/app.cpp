@@ -18107,6 +18107,17 @@ void App::drawCharacterGeneratorWindow() {
                                   "0.5 = young adult (25), 1 = old (90).");
             dirty |= ImGui::SliderFloat("Muscle", &p.muscle, 0.0f, 1.0f, "%.2f");
             dirty |= ImGui::SliderFloat("Weight", &p.weight, 0.0f, 1.0f, "%.2f");
+            {
+                static const char* kDetail[] = {"Crowd (~1.6k triangles)", "Standard (~3.3k)",
+                                                "Hero (~9.5k)"};
+                ImGui::SetNextItemWidth(scaled(220.0f));
+                if (ImGui::Combo("Detail", &p.detail, kDetail, 3)) dirty = true;
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Which body it is built on. Hero is for the one or two\n"
+                                      "characters the camera lives with; Crowd for the people\n"
+                                      "in the background (the Crowd button uses it). The\n"
+                                      "sliders, clothes and clips are the same on all three.");
+            }
             dirty |= ImGui::SliderFloat("Height", &p.heightMeters, 0.6f, 2.4f, "%.2f m");
             dirty |= ImGui::SliderFloat("Dimorphism", &p.dimorphism, 0.0f, 1.5f, "%.2f");
             if (ImGui::IsItemHovered())
@@ -18726,6 +18737,10 @@ void App::drawCharacterGeneratorWindow() {
                               "People beyond this number repeat a variant.");
         ImGui::SetNextItemWidth(scaled(160.0f));
         ImGui::SliderFloat("Spread", &charCrowdSpread_, 2.0f, 30.0f, "%.0f m");
+        ImGui::Checkbox("Light crowd body", &charCrowdLight_);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Build the crowd on the Crowd detail body: ~1.6k triangles\n"
+                              "a person instead of ~3.3k. Same sliders, clothes and clips.");
         ImGui::Checkbox("Walk around", &charCrowdWander_);
         if (ImGui::IsItemHovered())
             ImGui::SetTooltip("Pedestrians: each one walks to random spots within the\n"
@@ -18884,7 +18899,20 @@ void App::addCrowdToScene(int people, int variants, float spread, bool wander) {
     // the player), so its recipe must not claim any either.
     chargen::Params params = charParams_;
     params.options.clear();
-    if (!chargen::writeAsset(project_.dir, name, charSkel_, params, &rel, &err)) {
+    // On the crowd body, unless asked otherwise: a person in the background
+    // is a third of the triangles (docs/character-generator.md, "Detail").
+    glbparser::Skel light;
+    const glbparser::Skel* skel = &charSkel_;
+    if (charCrowdLight_ && params.detail != 0) {
+        params.detail = 0;
+        std::vector<std::string> warnings;
+        if (!chargen::build(params, light, warnings, err)) {
+            statusMessage_ = "Crowd export failed: " + err;
+            return;
+        }
+        skel = &light;
+    }
+    if (!chargen::writeAsset(project_.dir, name, *skel, params, &rel, &err)) {
         statusMessage_ = "Crowd export failed: " + err;
         return;
     }
@@ -18900,12 +18928,12 @@ void App::addCrowdToScene(int people, int variants, float spread, bool wander) {
 
     // the clips people idle in: every clip whose name says idle, else the first
     std::vector<std::string> idles;
-    for (const auto& c : charSkel_.clips) {
+    for (const auto& c : skel->clips) {
         std::string lower = c.name;
         for (char& ch : lower) ch = (char)std::tolower((unsigned char)ch);
         if (lower.find("idle") != std::string::npos) idles.push_back(c.name);
     }
-    if (idles.empty() && !charSkel_.clips.empty()) idles.push_back(charSkel_.clips[0].name);
+    if (idles.empty() && !skel->clips.empty()) idles.push_back(skel->clips[0].name);
     if (idles.size() > 3) idles.resize(3);  // a few groups: each skins once
 
     float eye[3], target[3];

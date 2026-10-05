@@ -13,7 +13,7 @@ real eyes, and motion-captured movement.
 
 | | |
 |---|---|
-| Body | two game topologies, a woman's and a man's (~3300 triangles with the eyeballs), quads with real edge loops round eyes and mouth |
+| Body | five game topologies at three detail levels - Crowd (one, ~1600 triangles), Standard (a woman's and a man's, ~3300), Hero (a woman's and a man's, ~9500) - quads with real edge loops round eyes and mouth |
 | Rig | 35 Mixamo-named bones: spine, neck, head, arms, legs, two-bone thumb, index and fingers |
 | Texture | one atlas, 128 / 256 / 512 square, 8-bit on the console; face ≈ 80 px wide at 256 |
 | Shape | 96 macro targets (gender, age, muscle, weight, ancestry) + 76 detail sliders |
@@ -144,6 +144,37 @@ sliders and the items' meshes and textures are shared.
 The previous generator used `proxy741` (730 quads, a face of a dozen polygons)
 and decimated the garments; this one is four times the face for twice the
 triangles.
+
+### Detail: crowd, standard, hero
+
+*Detail* on the Body tab picks one of three bodies of the same person - every
+slider, garment, colour and clip works on all of them, because each is a
+MakeHuman proxy of the same reference mesh and the kit carries every target,
+shell and item binding per body:
+
+| Detail | Body | Triangles (naked, with eyes) | For |
+|---|---|---|---|
+| Crowd | `proxy741`, one for both sexes | ~1 600 | people in the background; the *Crowd...* button's default |
+| Standard | `female1605` / `male1591` | ~3 300 | the cast |
+| Hero | `female1605` / `male1591`, subdivided once over head, torso and limbs | ~9 500 | the player, a main character the camera lives with |
+
+**The hero bodies** are the standard ones, subdivided once over the head,
+torso, arms and legs (`kit_body.py <proxy>@sub`; the hands and feet already
+carry their fingers and toes), with every new vertex bound to the nearest
+point of MakeHuman's 13k-quad reference surface - so under every target it
+takes the reference's real shape, not a smoothed chord of the low-poly one
+(more than 5 mm off the surface - the mouth bag, the lip line - it keeps its
+offset instead, or those faces collapse). The UVs are the standard body's,
+interpolated: the same islands and a 4x denser face. MakeHuman's own 13.8k
+generic proxies, un-subdivided, were tried first and failed: their UVs were
+laid out after subdividing, so seams cross the middle of the cage faces and a
+merged face stretched across two islands - grey smears round the eyes.
+
+**The crowd body** is the old `proxy741`: a face of a dozen polygons, which
+from 10 m away is all a face is.
+
+Detail is in the recipe (`"detail": 0/1/2`, written only when not standard)
+and the AI's `create_character` takes it (a crowd defaults to the crowd body).
 
 **The eyes are geometry** - MakeHuman's 86-quad low-poly eyeballs - with the
 iris painted into the atlas and recoloured by the *Eye colour* control. The old
@@ -723,9 +754,29 @@ bring a walking crowd back:
   instance gives them back (`SkelInstance::trimOutputs`), and hidden creator
   parts never allocate any.
 
-24 walking pedestrians plus the player: 32.7 ms. Hundreds would need a
-lighter body - MakeHuman's 741-vertex proxy as a crowd topology - which the
-kit does not carry yet.
+24 walking pedestrians plus the player: 32.7 ms on the standard body. On the
+crowd body (Detail: Crowd - a dressed pedestrian is 2550-2900 triangles
+instead of 4200-4550) the example's 18 walkers cost ~20 ms a frame in the
+middle of the crowd (44 FPS, PCSX2 debug build), and four minutes of walking
+leave the EE at 22 of 32 MB.
+
+Two more things keep a crowd's skin memory flat. Followers that stayed
+followers for 300 frames trim their outputs, and trimmed outputs go into a
+pool keyed by size (`SkelInstance` takes the next instance's buffers from it)
+instead of back to the heap: freed and re-allocated, those blocks fragmented
+the EE until an allocation failed with megabytes free. The game empties the
+pool on a scene change (`SkelInstance::clearOutputPool()`). And an instance
+that skins one LOD level gives the other levels' outputs back - a walker
+crossing the LOD distance used to hold both.
+
+**The hero body's cost.** Alone on screen it is 13.9 ms a frame against the
+standard hero's ~10; in the main scene it is noise. In the crowd scene it is
+the limit: the player's 9500-triangle skin (and, with creator options, every
+option part's) on top of 18 skinned walkers still ran the EE out of memory
+after one to four minutes of walking - standing still the memory is flat, it
+is walking (LOD changes, leaders handing over) that slowly grows it. Use the
+hero body where few skinned characters share the scene; the example keeps
+its player on the standard body for that reason.
 
 A dressed character is 4100-4500 triangles in 2 parts (body, accessories)
 and 46 bones - a hero budget. Crowds should use the `.tskl` distance

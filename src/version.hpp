@@ -5515,7 +5515,17 @@
 // host-baked albedo map (REFL_GROUND_*): -2 ms a turning frame on the Motor
 // District's open road on a PS2.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 179
+#define TYRAX_VERSION_MINOR 180
+// 1.180.0: Character Generator detail levels (docs/character-generator.md,
+// "Detail: crowd, standard, hero"). The kit carries five bodies: the crowd
+// body (proxy741, ~1600 triangles), the standard woman/man (~3300) and hero
+// woman/man (~9500, the standard ones subdivided and bound to MakeHuman's
+// reference surface). Body tab "Detail", the Crowd... dialog's "Light crowd
+// body" (default on), the AI crowd defaults to it; recipes gain "detail"
+// (written only when not standard). Hero scalp caps use the standard
+// topology; a LOD chain only when a non-player object uses the model.
+// SkelInstance pools trimmed skin outputs (clearOutputPool on a scene change)
+// and frees other LOD levels' outputs. Project format unchanged.
 // 1.179.0: the Character Generator, polished from a play-through
 // (docs/character-generator.md): legs hidden inside skirts and the panels'
 // leg-driven swing baked into the clips (+ SkelInstance's replace override),

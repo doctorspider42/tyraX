@@ -4,8 +4,9 @@ editor at build time - see CMakeLists.txt).
 
     python build_kit.py <stage_dir>[,<stage_dir_m>] <mh_data> <targets_dir> <out.bin> [anims.json]
 
-  stage_dir    kit_body.py + kit_wear.py output for one body (female1605); a
-               second, comma-separated, is the male1591 body
+  stage_dir    kit_body.py + kit_wear.py output for one body (female1605);
+               more, comma-separated, in this order: male1591, the hero
+               female1605@sub and male1591@sub, the crowd proxy741
   mh_data      base.obj, default.mhskel, default_weights.mhw (+ targets/)
   targets_dir  a checkout of makehuman/data/targets (macrodetails/, nose/, ...)
   anims.json   anim_retarget.py's output (optional)
@@ -603,14 +604,22 @@ def main():
     shared = {'base': base, 'skel': skel, 'bw': bw, 'heads': heads, 'mesh': {},
               'wardrobe': {}, 'wear_count': {}}
 
-    # Body 0 (female1605) keeps the unprefixed names; body 1 (male1591) is 'm/'.
-    prefixes = ['', 'm/']
+    # Body 0 (female1605) keeps the unprefixed names; body 1 (male1591) is 'm/';
+    # then the hero bodies (the generic proxies un-subdivided once) and the
+    # crowd body (proxy741). Each says what it is for: chargen picks a body by
+    # Params::detail and gender from these tags.
+    prefixes = ['', 'm/', 'hf/', 'hm/', 'c/']
+    kinds = {'female1605': ('standard', 'f'), 'male1591': ('standard', 'm'),
+             'female1605@sub': ('hero', 'f'), 'male1591@sub': ('hero', 'm'),
+             'proxy741': ('crowd', '')}
     bodies = []
     for k, stage in enumerate(stages):
         info = json.load(open(os.path.join(stage, 'body.json'))) if os.path.exists(
             os.path.join(stage, 'body.json')) else {'proxy': 'female1605'}
         emit_body(W, stage, prefixes[k], data, tdir, shared)
-        bodies.append({'prefix': prefixes[k], 'proxy': info.get('proxy', '')})
+        detail, sex = kinds.get(info.get('proxy', ''), ('standard', ''))
+        bodies.append({'prefix': prefixes[k], 'proxy': info.get('proxy', ''),
+                       'detail': detail, 'sex': sex})
     W.add('bodies', bodies, 'json')
 
     # --- shared: rig, sliders, lists, wardrobe, mesh items, clips ----------------

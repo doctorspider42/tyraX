@@ -410,11 +410,42 @@ void SkelInstance::setTime(float seconds) {
   poseDirty = true;
 }
 
+// Skin outputs given back by trimOutputs, by size. A crowd member's buffers
+// come and go as it leads and follows shared poses; freed to the heap, that
+// churn fragmented the EE's 32 MB until a walk through 24 pedestrians failed
+// an allocation with megabytes free. Pooled, the next instance of the same
+// model and level takes the same blocks back. clearOutputPool() on a scene
+// change hands them to the heap for good.
+namespace {
+std::unordered_map<u32, std::vector<std::vector<Vec4>>>& outputPool() {
+  static std::unordered_map<u32, std::vector<std::vector<Vec4>>> pool;
+  return pool;
+}
+void takeOutput(std::vector<Vec4>& v, u32 count) {
+  if (v.size() == count) return;
+  auto it = outputPool().find(count);
+  if (it != outputPool().end() && !it->second.empty()) {
+    v.swap(it->second.back());
+    it->second.pop_back();
+    return;
+  }
+  v.resize(count);
+}
+void giveOutput(std::vector<Vec4>& v) {
+  if (v.empty()) return;
+  const u32 n = (u32)v.size();
+  outputPool()[n].emplace_back();
+  outputPool()[n].back().swap(v);
+}
+}  // namespace
+
+void SkelInstance::clearOutputPool() { outputPool().clear(); }
+
 void SkelInstance::trimOutputs() {
   for (auto& chain : partLods)
     for (PartLod& pl : chain) {
-      std::vector<Vec4>().swap(pl.ownVertices);
-      std::vector<Vec4>().swap(pl.ownNormals);
+      giveOutput(pl.ownVertices);
+      giveOutput(pl.ownNormals);
       pl.outV = pl.outN = nullptr;
     }
   poseDirty = true;  // nothing held any more
@@ -490,8 +521,8 @@ SkelInstance::LodArrays SkelInstance::lodArrays(size_t part, u8 lod) {
     // asked for a level never skinned: hand out the bind pose rather than
     // nothing (a renderer must still call ensurePose first to see a pose)
     const PartBind& b = *pl.bind;
-    pl.ownVertices.resize(pl.count);
-    pl.ownNormals.resize(pl.count);
+    takeOutput(pl.ownVertices, pl.count);
+    takeOutput(pl.ownNormals, pl.count);
     u32 c = 0;  // unpack the unique-corner bind data (see repackBind)
     for (u32 v = 0; v < pl.count; v++) {
       const u32 s = b.skinSource[v];
@@ -631,14 +662,24 @@ void SkelInstance::skinParts(u8 lod) {
   // lives in $vf20/$vf21 - an allocation inside the loop below is a call
   // the register state cannot survive (see above).
   for (size_t pi = 0; pi < partLods.size(); pi++) {
+    auto& chain = partLods[pi];
+    const size_t level = lod < chain.size() ? lod : chain.size() - 1;
+    // The other levels' outputs go back to the pool: a walker crossing the
+    // LOD rings otherwise held all three for good (a crowd scene's memory
+    // climbed 3 MB in two minutes). A level switch re-skins anyway.
+    for (size_t l = 0; l < chain.size(); l++)
+      if (l != level && chain[l].outV != nullptr) {
+        giveOutput(chain[l].ownVertices);
+        giveOutput(chain[l].ownNormals);
+        chain[l].outV = chain[l].outN = nullptr;
+      }
     // a skipped part (setPartSkipped) is not skinned, so it needs no output
     // either - a creator character carries a dozen hidden options
     if (pi < partSkipped.size() && partSkipped[pi]) continue;
-    auto& chain = partLods[pi];
-    PartLod& pl = chain[lod < chain.size() ? lod : (u8)(chain.size() - 1)];
+    PartLod& pl = chain[level];
     if (pl.outV != nullptr && pl.ownVertices.size() == pl.count) continue;
-    pl.ownVertices.resize(pl.count);
-    pl.ownNormals.resize(pl.count);
+    takeOutput(pl.ownVertices, pl.count);
+    takeOutput(pl.ownNormals, pl.count);
     pl.outV = pl.ownVertices.data();
     pl.outN = pl.ownNormals.data();
   }
