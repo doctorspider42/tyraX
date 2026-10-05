@@ -1,0 +1,290 @@
+/*
+# _____        ____   ___
+#   |     \/   ____| |___|
+#   |     |   |   \  |   |
+#-----------------------------------------------------------------------
+# Copyright 2022, tyra - https://github.com/h4570/tyra
+# Licensed under Apache License 2.0
+# Wellington Carvalho <wellcoj@gmail.com>
+# Modified by TyraX: keepIopResident flag (run under ps2link);
+#                    USB keyboard/mouse driver loading (ps2kbd, ps2mouse)
+*/
+
+#include "irx/irx_loader.hpp"
+#include "debug/debug.hpp"
+#include <stdio.h>
+#include <sys/stat.h>
+#include <loadfile.h>
+#include <kernel.h>
+#include <sifrpc.h>
+#include <sbv_patches.h>
+#include <iopcontrol.h>
+#include "file/file_utils.hpp"
+
+// external IRX modules
+#define EXTERN_IRX(_irx) \
+  extern u8 _irx[]; \
+  extern int size_##_irx
+
+EXTERN_IRX(sio2man_irx);
+EXTERN_IRX(padman_irx);
+EXTERN_IRX(audsrv_irx);
+EXTERN_IRX(libsd_irx);
+EXTERN_IRX(ps2snd_irx);
+EXTERN_IRX(fileXio_irx);
+EXTERN_IRX(iomanX_irx);
+EXTERN_IRX(bdm_irx);
+EXTERN_IRX(bdmfs_fatfs_irx);
+EXTERN_IRX(usbd_irx);
+EXTERN_IRX(usbmass_bd_irx);
+EXTERN_IRX(ps2kbd_irx);
+EXTERN_IRX(ps2mouse_irx);
+
+namespace Tyra {
+
+bool IrxLoader::isLoaded = false;
+bool IrxLoader::keepIopResident = false;
+
+IrxLoader::IrxLoader() {
+  SifInitRpc(0);
+
+  // Under ps2link the IOP must not be reset: ps2link lives there and serves
+  // the host: filesystem the game is about to load everything from. Loading
+  // our modules on top of its IOP state is the standard ps2link dev flow.
+  if (!keepIopResident) {
+    while (!SifIopReset("", 0)) {
+    };
+    while (!SifIopSync()) {
+    };
+
+    SifInitRpc(0);
+  }
+
+  this->applyRpcPatches();
+}
+
+IrxLoader::~IrxLoader() {}
+
+void IrxLoader::loadAll(const bool& withUsb, const bool& withKbdMouse,
+                        const bool& isLoggingToFile) {
+  if (isLoaded) {
+    TYRA_LOG("IRX modules already loaded!");
+    return;
+  }
+
+  // ps2link's IOP already runs iomanX (with the host: device registered in
+  // ITS table) - loading a second iomanX re-hooks ioman onto an empty device
+  // table and host: vanishes: the ELF loads, then the first asset fopen
+  // fails. Verified on real hardware (rom0: kept working - legacy ioman -
+  // while every host: open silently died). fileXio rides along: ps2link
+  // provides it and no EE code calls it.
+  if (!keepIopResident) loadIO(!isLoggingToFile);
+  loadSio2man(!isLoggingToFile);
+  loadPadman(!isLoggingToFile);
+  loadLibsd(!isLoggingToFile);
+  loadPs2snd(!isLoggingToFile);
+
+  // usbd: load it whenever any USB path is active. Under ps2link this loads a
+  // usbd onto the live IOP, which is correct for a NETWORK-booted ps2link
+  // (SMAP/dev9 - no usbd resident; the experimental keyboard/mouse override
+  // rides this path) but conflicts with a USB-booted ps2link that already has
+  // one. That is why the override is opt-in and documented as network-deploy
+  // only. A usbd MUST be present here: without it ps2kbd/ps2mouse self-unload
+  // and PS2MouseInit then spins forever binding an RPC server that is gone
+  // (the "usbkbd unknown / open -19 then freeze" seen on a network ps2link
+  // when we tried to reuse a resident usbd that did not exist).
+  if (withUsb || withKbdMouse) loadUsbd(!isLoggingToFile);
+  if (withUsb) loadUsbMassModules(!isLoggingToFile);
+  if (withKbdMouse) loadKbdMouseModules(!isLoggingToFile);
+
+  loadAudsrv(true);
+
+  isLoaded = true;
+}
+
+/**
+ * @brief Apply the SBV LMB patch to allow modules to be loaded from a buffer in
+ * EE RAM.
+ *
+ */
+int IrxLoader::applyRpcPatches() {
+  int ret;
+
+  ret = sbv_patch_enable_lmb();
+  TYRA_ASSERT(ret >= 0,
+              "Failed to load Applying SBV Patches sbv_patch_enable_lmb");
+
+  ret = sbv_patch_disable_prefix_check();
+  TYRA_ASSERT(
+      ret >= 0,
+      "Failed to load Applying SBV Patches sbv_patch_disable_prefix_check");
+
+  // sbv_patch_fileio pokes jumps at fixed offsets valid for Sony's ROM
+  // FILEIO module. ps2link's environment runs PS2SDK's own FILEIO_service,
+  // which reports the same 1.1 version (the patch's only guard) but has a
+  // different code layout - the blind pokes corrupt its RPC dispatcher and
+  // every EE open() dies from then on. Seen on real hardware: libc's boot
+  // rom0:ROMVER open succeeded, every host: open after this patch vanished.
+  // The bugs it fixes (fioRemove/mkdir fallthrough, Getstat DMA race) are
+  // irrelevant for a dev run, so skip it when ps2link stays resident.
+  if (!keepIopResident) {
+    ret = sbv_patch_fileio();
+    TYRA_ASSERT(ret >= 0,
+                "Failed to load Applying SBV Patches sbv_patch_fileio");
+  }
+
+  return ret;
+}
+
+void IrxLoader::loadLibsd(const bool& verbose) {
+  if (verbose) TYRA_LOG("IRX: Loading libsd...");
+
+  int ret;
+  SifExecModuleBuffer(&libsd_irx, size_libsd_irx, 0, nullptr, &ret);
+  TYRA_ASSERT(ret >= 0, "Failed to load module: libsd_irx");
+
+  if (verbose) TYRA_LOG("IRX: Libsd loaded!");
+}
+
+// TyraX: ps2snd is the EE-side RPC server over libsd - the only way the EE can
+// reach the SPU2's registers, which is what the hardware reverb needs
+// (AudioReverb). audsrv talks to libsd directly on the IOP and is unaffected;
+// the two are ordinary co-clients of the same module. Must load AFTER libsd,
+// whose exports it imports.
+void IrxLoader::loadPs2snd(const bool& verbose) {
+  if (verbose) TYRA_LOG("IRX: Loading ps2snd...");
+
+  int ret;
+  SifExecModuleBuffer(&ps2snd_irx, size_ps2snd_irx, 0, nullptr, &ret);
+  TYRA_ASSERT(ret >= 0, "Failed to load module: ps2snd_irx");
+
+  if (verbose) TYRA_LOG("IRX: ps2snd loaded!");
+}
+
+void IrxLoader::loadIO(const bool& verbose) {
+  int ret;
+  if (verbose) TYRA_LOG("IRX: Loading iomanX...");
+
+  SifExecModuleBuffer(&iomanX_irx, size_iomanX_irx, 0, nullptr, &ret);
+  TYRA_ASSERT(ret >= 0, "Failed to load module: iomanX_irx");
+
+  if (verbose) TYRA_LOG("IRX: iomanX loaded!");
+
+  if (verbose) TYRA_LOG("IRX: Loading fileXio...");
+
+  SifExecModuleBuffer(&fileXio_irx, size_fileXio_irx, 0, nullptr, &ret);
+  TYRA_ASSERT(ret >= 0, "Failed to load module: fileXio_irx");
+
+  if (verbose) TYRA_LOG("IRX: fileXio_irx loaded!");
+
+}
+
+void IrxLoader::loadUsbd(const bool& verbose) {
+  if (verbose) TYRA_LOG("IRX: Loading usbd...");
+
+  int ret;
+  SifExecModuleBuffer(&usbd_irx, size_usbd_irx, 0, nullptr, &ret);
+  TYRA_ASSERT(ret >= 0, "Failed to load module: usbd_irx");
+
+  if (verbose) TYRA_LOG("IRX: usbd loaded!");
+}
+
+void IrxLoader::loadUsbMassModules(const bool& verbose) {
+  if (verbose) TYRA_LOG("IRX: Loading usb mass storage modules...");
+
+  int ret;
+
+  SifExecModuleBuffer(&bdm_irx, size_bdm_irx, 0, nullptr, &ret);
+  TYRA_ASSERT(ret >= 0, "Failed to load module: bdm_irx");
+
+  SifExecModuleBuffer(&bdmfs_fatfs_irx, size_bdmfs_fatfs_irx, 0, nullptr, &ret);
+  TYRA_ASSERT(ret >= 0, "Failed to load module: bdmfs_fatfs");
+
+  SifExecModuleBuffer(&usbmass_bd_irx, size_usbmass_bd_irx, 0, nullptr, &ret);
+  TYRA_ASSERT(ret >= 0, "Failed to load module: usbmass");
+
+  waitUntilUsbDeviceIsReady();
+
+  if (verbose) TYRA_LOG("IRX: Usb mass storage modules loaded!");
+}
+
+void IrxLoader::loadKbdMouseModules(const bool& verbose) {
+  if (verbose) TYRA_LOG("IRX: Loading usb keyboard/mouse modules...");
+
+  int ret;
+
+  SifExecModuleBuffer(&ps2kbd_irx, size_ps2kbd_irx, 0, nullptr, &ret);
+  TYRA_ASSERT(ret >= 0, "Failed to load module: ps2kbd_irx");
+
+  SifExecModuleBuffer(&ps2mouse_irx, size_ps2mouse_irx, 0, nullptr, &ret);
+  TYRA_ASSERT(ret >= 0, "Failed to load module: ps2mouse_irx");
+
+  // USB HID enumeration is asynchronous and takes real time on hardware: usbd
+  // has to reset the port, read descriptors and hand the device to ps2kbd /
+  // ps2mouse before the first PS2KbdInit/PS2MouseInit (in KbdMouse::init) can
+  // see it. PCSX2 presents the emulated devices instantly, so this only
+  // matters on a real console - without it the drivers come up with no device
+  // attached and every read returns empty. (Mass storage has its own poll
+  // loop in waitUntilUsbDeviceIsReady; HID exposes no mass:-style device node
+  // to stat, so settle on a fixed delay.)
+  delay(5);
+
+  if (verbose) TYRA_LOG("IRX: Usb keyboard/mouse modules loaded!");
+}
+
+void IrxLoader::loadAudsrv(const bool& verbose) {
+  if (verbose) TYRA_LOG("IRX: Loading audsrv...");
+
+  int ret;
+  SifExecModuleBuffer(&audsrv_irx, size_audsrv_irx, 0, nullptr, &ret);
+  TYRA_ASSERT(ret >= 0, "Failed to load module: audsrv_irx");
+
+  if (verbose) TYRA_LOG("IRX: Audsrv loaded!");
+}
+
+void IrxLoader::loadSio2man(const bool& verbose) {
+  if (verbose) TYRA_LOG("IRX: Loading sio2man...");
+
+  int ret;
+  SifExecModuleBuffer(&sio2man_irx, size_sio2man_irx, 0, nullptr, &ret);
+  TYRA_ASSERT(ret >= 0, "Failed to load module: sio2man_irx");
+
+  if (verbose) TYRA_LOG("IRX: Sio2man loaded!");
+}
+
+void IrxLoader::loadPadman(const bool& verbose) {
+  if (verbose) TYRA_LOG("IRX: Loading padman...");
+
+  int ret;
+  SifExecModuleBuffer(&padman_irx, size_padman_irx, 0, nullptr, &ret);
+  TYRA_ASSERT(ret >= 0, "Failed to load module: padman_irx");
+
+  if (verbose) TYRA_LOG("IRX: Padman loaded!");
+}
+
+void IrxLoader::delay(int count) {
+  int i;
+  int ret;
+  for (i = 0; i < count; i++) {
+    ret = 0x01000000;
+    while (ret--) asm("nop\nnop\nnop\nnop");
+  }
+}
+
+void IrxLoader::waitUntilUsbDeviceIsReady() {
+  struct stat buffer;
+  int ret = -1;
+  int retries = 50;
+
+  delay(5);  // some delay is required by usb mass storage driver
+
+  while (ret != 0 && retries > 0) {
+    ret = stat("mass:/", &buffer);
+    /* Wait until the device is ready */
+    nopdelay();
+
+    retries--;
+  }
+}
+
+}  // namespace Tyra

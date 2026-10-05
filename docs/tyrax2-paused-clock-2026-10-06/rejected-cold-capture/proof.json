@@ -1,0 +1,45 @@
+{
+  "status": "PASS_GENERATED_TARGET_CLOCK_LIFECYCLE_AND_THREE_SCENE_DAY_NIGHT",
+  "images": {
+    "0-0": {
+      "scene": 0,
+      "night": 0,
+      "image": "scene-0-0.png",
+      "sha256": "99cce977ee21804686ad8149e429984387bcbcd9f498aa9615bdb859edaeb278"
+    },
+    "0-1": {
+      "scene": 0,
+      "night": 1,
+      "image": "scene-0-1.png",
+      "sha256": "12ca6f3821655cbe85ed9fbbaeb1626d1b788301f2c1033deed013f42151f1a2"
+    },
+    "1-0": {
+      "scene": 1,
+      "night": 0,
+      "image": "scene-1-0.png",
+      "sha256": "fe19c714050ff02c68f2787a85281424776f9dcdc233eaf70a50396b3b99c403"
+    },
+    "1-1": {
+      "scene": 1,
+      "night": 1,
+      "image": "scene-1-1.png",
+      "sha256": "54028fee1e8280dec855e425f6bdf416a1e4269474ed5a00a0772989d5b32415"
+    },
+    "2-0": {
+      "scene": 2,
+      "night": 0,
+      "image": "scene-2-0.png",
+      "sha256": "d70a5d5cf6edf901553fe719a053c1b1ff9aaecbb9b404bf1fd484d1e526f35d"
+    },
+    "2-1": {
+      "scene": 2,
+      "night": 1,
+      "image": "scene-2-1.png",
+      "sha256": "a401261355cba518d97cd36f5c44393d48e58a5c6267dfb2948d274f37053b6b"
+    }
+  },
+  "checks": 23,
+  "visualReviewPending": true,
+  "physicalPricingAccepted": false,
+  "logSha256": "701cc10a2b6f43022190ed332a7f4cc14fe7f19bfe30a399e7d8da5db21e803c"
+}

@@ -1,0 +1,12 @@
+{
+  "status": "PASS_REVIEWED_OWNED_RASTERS",
+  "images": {
+    "scene-0-0.png": "a0c1c5d332759012be3a41eea277482cd674e6cce6e4a18352c458763e0c299e",
+    "scene-0-1.png": "d2a0e4ce22f0cf7418eae7f1d34f784f9318021a6091206f6daa0d055b71b462",
+    "scene-1-0.png": "0d46fffb7d3ac0507a25b9a5acc07e0a0bf09759f7184437299a71c266158019",
+    "scene-1-1.png": "08da10ad41d764193f4bc8252ba9fbf4edd53f9b9c8fef2b05a8f00a40f9d3f2",
+    "scene-2-0.png": "0d9d1dbb7555abd2db2269c46272027a47ef3c2d59034415e3ea4742349d2d90",
+    "scene-2-1.png": "44acbdc1215843b7ff46eda79b19532a358f31e082ba39d25ae7f6f426c71763"
+  },
+  "observations": "Day/night rasters show expected mood changes; car/HUD/lamps present where scene has a vehicle. Procedural scene frames ground/buildings; no visible stretched triangles. Emulator visual review, not physical confirmation or FPS pricing."
+}

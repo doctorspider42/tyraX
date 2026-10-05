@@ -1,0 +1,18 @@
+{
+  "sourceManifestSha256": "0c72544e0e2767015edec2684d36d04c4dfd2d1feb34af1d30320a85a27aae1e",
+  "sourceFiles": 501,
+  "changes": [
+    "game/inc/daynight.gen.hpp",
+    "game/inc/terrain_game.hpp",
+    "game/src/gen/game_collision.gen.cpp",
+    "game/src/gen/game_physics.gen.cpp",
+    "game/src/scripts/district_mood.cpp",
+    "tyra/engine/inc/debug/night_ablation.hpp",
+    "tyra/engine/inc/debug/night_plan.hpp",
+    "tyra/engine/inc/debug/night_runtime.hpp"
+  ],
+  "baseManifestSha256": "19bf02fc02fd3eb544dce3344a98635c7b9d8a670aa7387b1749e8386f4dad85",
+  "candidate": "Explicit paused clock advances only while unpaused; evaluates all effects normally. Promoted sky retint in all phases. No scope clocks.",
+  "commonCodeFootprintUnpriced": true,
+  "existingWaitsRetained": true
+}

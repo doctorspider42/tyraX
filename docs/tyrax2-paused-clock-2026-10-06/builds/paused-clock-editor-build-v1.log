@@ -1,0 +1,16 @@
+== Building ==
+[0/2] Re-checking globbed directories...
+-- GLOB mismatch!
+The following files were added:
+  +F:/Projects/tyra-editor/docs/tyrax2-sky-retint.md
+[1/2] Re-running CMake...
+-- Including Win32 support
+-- Configuring done (0.2s)
+-- Generating done (0.1s)
+-- Build files have been written to: F:/Projects/tyra-editor/build
+[0/4] Re-checking globbed directories...
+[1/7] Embedding docs/ pages
+[2/7] Building CXX object CMakeFiles/tyrax-editor.dir/src/aichat.cpp.obj
+[3/7] Building CXX object CMakeFiles/tyrax-editor.dir/src/templates.cpp.obj
+[4/7] Linking CXX executable tyrax-editor.exe
+OK: build\tyrax-editor.exe

@@ -3196,3 +3196,5 @@ registry execThrough alone does not emit downstream actions. See
 docs/frame-pipeline-flow-nodes.md.
 
 Runtime sky retint: generated FPP and orbit declarations expose `retintSkyDomeColors`. Only the RGB caller uses it; initialization and scene/texture/shape changes retain `buildSkyDome`. A color span stamps packets without changing vertices/ST/bbox. Do not generalize this helper to radius/yaw changes without a shape key. See `docs/tyrax2-sky-retint.md`.
+
+Generated day/night scripts expose `setHour` and `setPaused`. Pause skips only hour advancement; evaluation and real physics dt remain. Scene reset clears pause even if the scene cycle is inactive. DistrictMood applies its fixed hour/pause only on mood or scene-generation changes. See `docs/day-night-cycle.md`.

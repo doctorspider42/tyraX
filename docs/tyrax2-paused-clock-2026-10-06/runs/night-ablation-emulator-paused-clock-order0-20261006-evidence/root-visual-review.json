@@ -1,0 +1,9 @@
+{
+  "status": "PASS_REVIEWED_OWNED_RASTERS",
+  "images": {
+    "phase-0.png": "2ca7bffc1b0478f3678835b3568fe0d6225acfe2c61ce641c96e6babfbaf976a",
+    "phase-1.png": "4122857122f36d2499e526812b3b17f78eaba78f90815e69abafd476c9cec22a",
+    "phase-2.png": "eb77f7727481ad8ef51e87dff337b82d6ba74effc163b99d53633329b7112769"
+  },
+  "observations": "Day/night rasters show expected mood changes; car/HUD/lamps present where scene has a vehicle. Procedural scene frames ground/buildings; no visible stretched triangles. Emulator visual review, not physical confirmation or FPS pricing."
+}

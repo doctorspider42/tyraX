@@ -122,9 +122,16 @@ available cache; it does not run those desktop raytracers automatically.
 ## A fixed mood selected in a game menu
 
 [Motor District](../examples/vehicle-playground) uses a pause-menu toggle backed
-by a save value. Its project-owned `district_mood.cpp` pins the generated
-`daynight::g_hour` to noon or midnight before rendering and switches eight live
-spotlights plus emissive dressing on resume. This exercises the existing hybrid
-cycle without duplicating scene geometry; it is not a Set Ambience sky-only
-swap or a replacement for separate GI bakes. The script also reapplies the
-light/visibility state on scene-generation changes.
+by a save value. Its project-owned `district_mood.cpp` sets noon or midnight
+with `daynight::setHour()` and calls `daynight::setPaused(true)` once per mood
+or scene-generation change. This keeps the selected hour exact instead of
+resetting it each frame and then advancing it by real dt. Spotlights and
+emissive dressing follow the same change. The cycle still evaluates sky, moon,
+stars, fog, lighting and grading; physics and animations retain real dt.
+
+The generated script API exposes `setHour(float)` (wrapped to 24 hours) and
+`setPaused(bool)`. The clock starts unpaused. Every scene reset restores the
+unpaused state, even for a scene with its cycle disabled, and an active scene
+starts at its authored hour. A script can reapply its pause policy after loading.
+Calling `setPaused(false)` resumes advancement from the current hour. These
+controls do not freeze the whole game or replace separate GI bakes.
