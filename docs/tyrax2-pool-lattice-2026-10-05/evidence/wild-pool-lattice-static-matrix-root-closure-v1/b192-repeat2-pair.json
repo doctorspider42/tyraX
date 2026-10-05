@@ -1,0 +1,40 @@
+{
+  "status": "PASS_ACTUAL_FINAL_LATTICE_POOL2_PACKED_OUTPUT_BYTE_EQUAL",
+  "case": "B192",
+  "repeats": 2,
+  "packages": [
+    {
+      "count": 42,
+      "sourceOffset": 150,
+      "baselineLayout": "pool2",
+      "candidateLayout": "lattice",
+      "headerSha256": "0b06dd8bbdf5c9588e7d2c40d5bc2992e9e18aa12bba14bdc164810337c6ed84",
+      "outputSha256": "ae2840e8e61ca252538c4c7e6291369779d01416cb612f070c7ce34d80ce8a6d",
+      "outputQwords": 126
+    },
+    {
+      "count": 75,
+      "sourceOffset": 75,
+      "baselineLayout": "pool2",
+      "candidateLayout": "pool2",
+      "headerSha256": "8abb67a5c436a09d88a713490cec87603530424c2e91c49255a2cb36a9df073e",
+      "outputSha256": "6182a96570dd47786ec1aff1246335e2e727ae95b56641943c45452baa80c33c",
+      "outputQwords": 225
+    }
+  ],
+  "finalEpochRGBAValidated": true,
+  "inputTopologyValidated": true,
+  "first75Overwritten": true,
+  "wholeBankCompared": false,
+  "GSConsumptionRasterOrPerformanceAccepted": false,
+  "microcodeSha256": [
+    "a68542268a08dd657eaae1b5d5fcaa321669cdda576b5fc5c55b36d9ef3244c7",
+    "a68542268a08dd657eaae1b5d5fcaa321669cdda576b5fc5c55b36d9ef3244c7"
+  ],
+  "inputFiles": {
+    "/mnt/f/Projects/tyrax2-lab-20261001/pool-lattice-probe-b192-arm0-repeat2-20261005-v1-launch/state.p2s": "62b953514fb56c17a8be279c14698b05d27c012edd4189f07d8d5b3a784d71ad",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pool-lattice-probe-b192-arm1-repeat2-20261005-v1-launch/state.p2s": "fd30770a48c0126c0bb4f360b496aa2612c1c1bd67909e9dbc236de7ac3690a2",
+    "/mnt/f/Projects/tyrax2-lab-20261001/wild-pool-lattice-probe-runtime-v1/decode-vu1-output.py": "e78a3108634089e1b351a4b10638cba5d2783f68299976105cbf315a346cfb82"
+  },
+  "rootOwnedSourceNativeConfigProtocolRequired": true
+}

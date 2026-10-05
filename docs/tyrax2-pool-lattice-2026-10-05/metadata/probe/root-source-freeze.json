@@ -1,0 +1,18 @@
+{
+  "status": "ROOT_EARLY_FOG_DIAGNOSTIC_SOURCE_FREEZE",
+  "sourceManifestSha256": "a62f969f3efb385d48b7b0423125d978f1b2c11b37f8dfbd5f7e2eaaabc06307",
+  "sourceFiles": 502,
+  "diagnosticOnly": true,
+  "diagnosticDelta": [
+    {
+      "path": "game/inc/pool2_static_probe.hpp",
+      "baseSha256": null,
+      "sha256": "4425cf821c2be9f5c08ff18c017422d15be6c23012f7400136b9d1aaeed716e0"
+    },
+    {
+      "path": "game/src/terrain_game.cpp",
+      "baseSha256": "62396e22f9a54af27d1c4ac0acfd1444747a8a033f11564cd9d85fa85aa738ab",
+      "sha256": "789ce16faa0853bc1d44046e80da8cd53ab3552d249bf5815d4373d91118a8ce"
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "pid": 29164,
+  "args": [
+    "/home/spider/tyrax2-debugger-linux-v1/squashfs-root/AppRun",
+    "-datapath",
+    "/home/spider/night-ablation-emulator-pool-lattice-fog-order1-20261005/profile",
+    "-logfile",
+    "/home/spider/night-ablation-emulator-pool-lattice-fog-order1-20261005/emulator.log",
+    "-batch",
+    "-nogui",
+    "-elf",
+    "/mnt/f/Projects/tyrax2-lab-20261001/wild-pool-lattice-physical-v7/game/bin/vehicle-playground.elf"
+  ],
+  "reason": "completed5400strictboundarchive",
+  "helperSha256": "c50fcd43b02e253014de9c3e3cdb3d09b3e16d59a49a3503e0e61961e4745597"
+}

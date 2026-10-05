@@ -1,0 +1,60 @@
+{
+  "status": "PASS_INDEPENDENT_V11_ACTUAL_NATIVE_TC_IMAGE_BUDGET_SOURCE_AND_RETAINED_ARTIFACTS",
+  "sourceManifestSha256": "ca170260791f3875c35e33bdacb0992e3cf6ddd58fbc991cf0432cdb7bad5a54",
+  "sourceFiles": 501,
+  "elfSha256": "6759ae52b8528cfce95f4a49d590a5da4cc532463511ac94de23c719c7192743",
+  "symbolSha256": "9a3cbba0f0415d0b64544eb1649d09654bd74447150c688a67acc5280fc92a99",
+  "tc": {
+    "bytes": 3776,
+    "sha256": "20a27ea1d98c8dd2614c104a140673ea1c556184994e47be48c37c291d25b59e",
+    "instructions": 472,
+    "address": 4046544,
+    "end": 4050320
+  },
+  "residentWithBillboards": {
+    "VU1Clip": 2006,
+    "EEClip": 1806
+  },
+  "spareTo2042": {
+    "VU1Clip": 36,
+    "EEClip": 236
+  },
+  "otherImagesIdenticalQualifiedPool2": [
+    "StaPipVU1As_Is_D_FOLD_CodeStart",
+    "StaPipVU1Clip_C_FOLD_CodeStart",
+    "StaPipVU1As_Is_TC_CodeStart",
+    "Vu0RtKernel_CodeStart",
+    "StaPipVU1Cull_C_CodeStart",
+    "StaPipVU1As_Is_C_CodeStart",
+    "StaPipVU1Cull_TD_FOLD_CodeStart",
+    "VU1DrawFinish_CodeStart",
+    "StaPipVU1Billboard_T_CodeStart",
+    "StaPipVU1Cull_D_FOLD_CodeStart",
+    "StaPipVU1Billboard_C_CodeStart",
+    "StaPipVU1Cull_TCE_ENVN_CodeStart",
+    "StaPipVU1AsIs_TCE_CodeStart",
+    "StaPipVU1As_Is_TD_FOLD_CodeStart",
+    "StaPipVU1Clip_TC_FOLD_CodeStart"
+  ],
+  "actualArtifacts": {
+    "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_tc_vu1.o": {
+      "sha256": "1d93d4db8c69d8e147bcbe7b62a6570796ebdea8adc6257b6f0bcc922be8499e",
+      "retained": "/mnt/f/Projects/tyrax2-lab-20261001/wild-pool-lattice-tc-native-v20-v11/stapip_cull_tc_vu1.o",
+      "bytes": 6060
+    },
+    "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_tc_vu1.o.vcl": {
+      "sha256": "abb73a338e33d1936b8921c3314194517598b4f930e0b34861bac961be5f8a08",
+      "retained": "/mnt/f/Projects/tyrax2-lab-20261001/wild-pool-lattice-tc-native-v20-v11/stapip_cull_tc_vu1.o.vcl",
+      "bytes": 26279
+    },
+    "/home/spider/.cache/tyrax/native/engines/f8c6050d7adf6fc3145900aa/tyra/engine/obj/renderer/3d/pipeline/static/core/programs/cull/stapip_cull_tc_vu1.o.vsm": {
+      "sha256": "318dc9140b694b2b4529ee72f46f8723cbdde6a95a68891b89de5008e1eb80fb",
+      "retained": "/mnt/f/Projects/tyrax2-lab-20261001/wild-pool-lattice-tc-native-v20-v11/stapip_cull_tc_vu1.o.vsm",
+      "bytes": 32421
+    }
+  },
+  "fogExpandedThreeCalls": true,
+  "compiledObjectEqualsLinkedTC": true,
+  "noNativeBuildOrDeviceOrMutableCacheWrites": true,
+  "limits": "Source/artifact/image identity and size only; actual fog-on decoded output and ordinary activation remain unverified."
+}

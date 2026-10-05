@@ -1,0 +1,19 @@
+{
+  "status": "REJECTED_NIGHT_CAPTURE",
+  "issues": [
+    "positive cold lattice activation required"
+  ],
+  "inputPins": {
+    "/home/spider/night-ablation-emulator-pool-lattice-order0-20261005/emulator.log": "69d86be245dc6c11b1672527b6c130f820e740d854c7d538466f5b984aa15927",
+    "/mnt/f/Projects/tyrax2-lab-20261001/wild-pool-lattice-physical-v5/game/bin/night-ablation.log": "919681ed5783954eb72c701cef73c40fd5e490d3e18e6f59c14ebc629dcc322c",
+    "/mnt/f/Projects/tyrax2-lab-20261001/wild-pool-lattice-controls-v1/analyze-night-cli.py": "25e52fa4f91b0c438df53f561e9847c0be5c5e2de2dab2db319da0e226b075e0",
+    "/mnt/f/Projects/tyrax2-lab-20261001/wild-pool-lattice-controls-v1/analyze-night.py": "7244aafc4dc1b42e9e58e58da42529b64cccbd58ca58dbe0745cdf2cc56475d9",
+    "/mnt/f/Projects/tyrax2-lab-20261001/wild-pool-lattice-controls-v1/analyze-loop.py": "5f1e9756449a5d35e9ce9567ab87be9e4388ed98b777f3ff72622b0e71f7fa27"
+  },
+  "requestedPlan": {
+    "kind": 8,
+    "order": 0,
+    "joint": 0,
+    "restored": 0
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "status": "PASS_LOSSLESS_LATIN1_ASCII_NIGHT_PROTOCOL_NORMALIZATION",
+  "rawPath": "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-pool-lattice-fog-order0-20261005.log",
+  "normalizedPath": "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-pool-lattice-fog-order0-20261005-utf8.log",
+  "rawSha256": "bdd1333cf0ccc7549c0dcf618986c8c2385c0db0f04d92d4675bcf923e42bc80",
+  "normalizedSha256": "81efaca2e381a78143d649033ece6aeb8514ff7a0cc2cd6c16b337bf724d8d44",
+  "rawBytes": 26744,
+  "normalizedBytes": 26746,
+  "authoritativeASCIIProtocolRows": 61,
+  "authoritativeASCIIProtocolSha256": "587e853932107ce7a9ccfee8bf7b61d67232fd72f36bc5d08b91add2246295ba",
+  "losslessLatin1Roundtrip": true,
+  "originalRawChanged": false
+}

@@ -1,0 +1,20 @@
+{
+  "status": "SOURCE_REVIEW_PASS_TARGET_UNVERIFIED",
+  "source": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-lattice-source-v11",
+  "checks": {
+    "allPinsAndLF": true,
+    "only2CodeInputsChanged": true,
+    "threePerOccurrenceFogCalculationsBeforeOriginalClipMacros": true,
+    "actualClipVectorRetainedInCache": true,
+    "noCacheLayoutOrIndexChanges": true,
+    "generatedPointPoolTopologyMatches4x4FirstAppearanceMap": true
+  },
+  "diagnosis": {
+    "v10CandidateExtraGate": "latticeNoFog requires exact uploaded fogScale=0 and fogOffset=255",
+    "whyGuardWasRequired": "V10 scatter used hardcoded0xFF0. PerformTyraFogClipCheck only ORs supplied fog bits; it does not evaluate fog.",
+    "ordinaryPointPools": "Generated setupLightPools info leaves fogDisabled at default. poolBatchFlush copies b0.info. Ordinary map fog can remain nonconstant, rejecting all candidates before topology preparation.",
+    "scope": "Observed counters establish zero activation. They do not directly distinguish the extra no-fog guard from prepare() failure without per-reason instrumentation; generated topology and source uniforms support fog explanation."
+  },
+  "precision": "Original CalculateTyraFog seven instructions use cached exact transformed clip vertex.w and same fogParams. Storing/reloading128-bit VU vectors does not quantize them. Original occurrence clipw/ADC order and all stores remain. New native scheduling/register allocation and actual fog-on outputs are mandatory.",
+  "expectedInstructionDelta": 20
+}

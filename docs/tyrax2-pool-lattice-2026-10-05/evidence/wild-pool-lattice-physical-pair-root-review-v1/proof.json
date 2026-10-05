@@ -1,0 +1,118 @@
+{
+  "status": "ROOT_REPARSED_COMPLETED_PHYSICAL_LATTICE_PAIR_RAW_IDENTITIES_AND_OWN_ARITHMETIC",
+  "kind": 8,
+  "sourceManifestSha256": "ca170260791f3875c35e33bdacb0992e3cf6ddd58fbc991cf0432cdb7bad5a54",
+  "elfSha256": "6759ae52b8528cfce95f4a49d590a5da4cc532463511ac94de23c719c7192743",
+  "sourceFiles": 501,
+  "runtimeAssets": 298,
+  "sameElfBothOrders": true,
+  "loops": 10800,
+  "rawSamples": 768,
+  "chunks": 30,
+  "losslessLatin1ProtocolAndStrictReparseBound": true,
+  "runs": [
+    {
+      "order": 0,
+      "flags": [
+        0,
+        1,
+        0
+      ],
+      "machineEvidenceSha256": "f5f21d9d86d3ddb8ce404f167a4ed391e09937bf93213bb991b60c073cb55161",
+      "phaseMeansInclusiveElapsedMinusExistingPacingMs": [
+        18.965638732910158,
+        19.113556480407716,
+        19.001524861653646
+      ],
+      "candidateMinusOwnBaselineMs": [
+        0.1479177474975586,
+        0.1120316187540702
+      ],
+      "outerArmSpreadMs": 0.0358861287434884,
+      "presentPeriodMeanMs": [
+        33.36680873235067,
+        33.366669442918564,
+        33.366667906443276
+      ],
+      "counts": {
+        "loops": 5400,
+        "rawSamples": 384,
+        "chunks": 15,
+        "sparseColdFrames": 6
+      },
+      "reparseSha256": "18bc408e904d1b812ba5a59b1e83e150c93ad30a1d88022ef1379e3e0c7a6378"
+    },
+    {
+      "order": 1,
+      "flags": [
+        1,
+        0,
+        1
+      ],
+      "machineEvidenceSha256": "8c5d155001d8282c4fd7f7153287fa33a8975e977a4d8ce29edce36be89371ac",
+      "phaseMeansInclusiveElapsedMinusExistingPacingMs": [
+        19.248372565375433,
+        18.988381089104546,
+        19.206303596496582
+      ],
+      "candidateMinusOwnBaselineMs": [
+        0.25999147627088703,
+        0.21792250739203567
+      ],
+      "outerArmSpreadMs": 0.042068968878851365,
+      "presentPeriodMeanMs": [
+        33.36666668785943,
+        33.366545836130776,
+        33.36666822433472
+      ],
+      "counts": {
+        "loops": 5400,
+        "rawSamples": 384,
+        "chunks": 15,
+        "sparseColdFrames": 6
+      },
+      "reparseSha256": "2112167062763f6726c6c22a237f5140e8e84962ff6666f9215e052467cd46b8"
+    }
+  ],
+  "inputPins": {
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-pool-lattice-fog-order0-20261005-evidence\\machine-evidence.json": "f5f21d9d86d3ddb8ce404f167a4ed391e09937bf93213bb991b60c073cb55161",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-pool-lattice-fog-order0-20261005-evidence\\target-source-manifest.json": "ca170260791f3875c35e33bdacb0992e3cf6ddd58fbc991cf0432cdb7bad5a54",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-pool-lattice-fog-order0-20261005-evidence\\runtime-assets-manifest.json": "e11fa8b76a6c7f6ee6d8da67670e12f4b7184d8b9e1558070c92efa4e4d10e05",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-pool-lattice-fog-order0-20261005-evidence\\vehicle-playground.elf": "6759ae52b8528cfce95f4a49d590a5da4cc532463511ac94de23c719c7192743",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-pool-lattice-fog-order0-20261005-evidence\\ps2client-raw.log": "bdd1333cf0ccc7549c0dcf618986c8c2385c0db0f04d92d4675bcf923e42bc80",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-pool-lattice-fog-order0-20261005-evidence\\stdout.log": "81efaca2e381a78143d649033ece6aeb8514ff7a0cc2cd6c16b337bf724d8d44",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-pool-lattice-fog-order0-20261005-evidence\\night-ablation.log": "06001e1ad5cd648f0cf6505e03d87dbfe45869ddce3d10780a18a545e26e6d85",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-pool-lattice-fog-order0-20261005-evidence\\normalization-proof.json": "3921e84b3cd5f09f1db5d2d0b0b58d647fb465d295180d33d522dc4b6710ed74",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-pool-lattice-fog-order0-20261005-evidence\\owned-launch.json": "fb959af1c49d4a769e4e66f4e1019ac829e631dd477fcbb00b4e7d6c6d4b4427",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-pool-lattice-fog-order0-20261005-evidence\\owned-stop.json": "1db787394f71ad5fec5619320b13d20b1524e1c9735fd3fcfedf56941748df85",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-pool-lattice-fog-order0-20261005-evidence\\client-process.json": "1db787394f71ad5fec5619320b13d20b1524e1c9735fd3fcfedf56941748df85",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-pool-lattice-fog-order0-20261005-evidence\\host-arrivals.jsonl": "7b95fc5f1e410ae7e41854c4d674004d1db30ede8db98349450fff8e642e14ad",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-pool-lattice-fog-order0-20261005-evidence\\analyze-night-cli.py": "25e52fa4f91b0c438df53f561e9847c0be5c5e2de2dab2db319da0e226b075e0",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-pool-lattice-fog-order0-20261005-evidence\\strict-analysis.json": "6079eb5652e67bbabcbef2506d1a0e8029493bffff09393483dadb50e1319f87",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-pool-lattice-fog-order1-20261005-evidence\\machine-evidence.json": "8c5d155001d8282c4fd7f7153287fa33a8975e977a4d8ce29edce36be89371ac",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-pool-lattice-fog-order1-20261005-evidence\\target-source-manifest.json": "ca170260791f3875c35e33bdacb0992e3cf6ddd58fbc991cf0432cdb7bad5a54",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-pool-lattice-fog-order1-20261005-evidence\\runtime-assets-manifest.json": "e11fa8b76a6c7f6ee6d8da67670e12f4b7184d8b9e1558070c92efa4e4d10e05",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-pool-lattice-fog-order1-20261005-evidence\\vehicle-playground.elf": "6759ae52b8528cfce95f4a49d590a5da4cc532463511ac94de23c719c7192743",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-pool-lattice-fog-order1-20261005-evidence\\ps2client-raw.log": "bf5b867772265244bf00a98ae41713b54a6817702b8a4f94dbfd5aec57258970",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-pool-lattice-fog-order1-20261005-evidence\\stdout.log": "0879d71e0cfe0302e07aeebd94611d8647fafa12c3845c4d08c743112f1bd3b2",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-pool-lattice-fog-order1-20261005-evidence\\night-ablation.log": "cedd77f432f46cf570e25320dc08dade485788050cc98a0145e74de066619b5e",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-pool-lattice-fog-order1-20261005-evidence\\normalization-proof.json": "7c9391e03bd3a7988b7682d933d70203728b59e5fb5579b0d6324e94a0bace6c",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-pool-lattice-fog-order1-20261005-evidence\\owned-launch.json": "c682e0fa5e3d82f719ec8fc7a1399df9a9b48195cfb63163c04f6ab757aef7dc",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-pool-lattice-fog-order1-20261005-evidence\\owned-stop.json": "f21629ae7d05ae3eb4ca329b68d93f095e75f7c87b98eb57b4e3ba5147d8c124",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-pool-lattice-fog-order1-20261005-evidence\\client-process.json": "f21629ae7d05ae3eb4ca329b68d93f095e75f7c87b98eb57b4e3ba5147d8c124",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-pool-lattice-fog-order1-20261005-evidence\\host-arrivals.jsonl": "992e02bb6b5faf7089b4168f08cd80ae5ee4bfb54711e6e0d398af153302b2db",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-pool-lattice-fog-order1-20261005-evidence\\analyze-night-cli.py": "25e52fa4f91b0c438df53f561e9847c0be5c5e2de2dab2db319da0e226b075e0",
+    "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-pool-lattice-fog-order1-20261005-evidence\\strict-analysis.json": "09e3b0a1c7216e4df41af995664a6b2b7eae01f0682fca772c5cadeeb21524c8",
+    "F:\\Projects\\tyrax2-lab-20261001\\summarize-pool-lattice-physical-pair-root-v1.py": "fa5b1339465aa25406c71056b89379bf81b8a54169646fa1160af4a4f03206aa"
+  },
+  "verdict": "Raw same-ELF contrasts recorded; both orders must be interpreted below. No 60FPS or promotion established.",
+  "nativeSixtyFPSAccepted": false,
+  "productionPromotionAccepted": false,
+  "operatorAppearanceConfirmed": false,
+  "limits": [
+    "Inclusive elapsed-minus-existing-pacing is not pure EE, VU or GS cost.",
+    "Sparse source expansion witnesses do not count complete timed activation or prove warm replay or packed GS output.",
+    "New common layout, branch and apparatus cost remains unpriced. Do not subtract results from older ELF/source.",
+    "Physical appearance confirmation is qualitative, not pixel equality. Fixed-case actual output probes remain a separate qualification."
+  ]
+}

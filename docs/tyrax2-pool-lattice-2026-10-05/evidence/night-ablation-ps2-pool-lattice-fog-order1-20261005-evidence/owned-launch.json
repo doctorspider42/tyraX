@@ -1,0 +1,24 @@
+{
+  "stem": "night-ablation-ps2-pool-lattice-fog-order1-20261005",
+  "fixture": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-lattice-physical-v7",
+  "kind": 8,
+  "order": 1,
+  "joint": 0,
+  "restored": 0,
+  "elfSha256": "6759ae52b8528cfce95f4a49d590a5da4cc532463511ac94de23c719c7192743",
+  "launchArchive": "F:\\Projects\\tyrax2-lab-20261001\\night-ablation-ps2-pool-lattice-fog-order1-20261005-launch",
+  "helperSha256": "2a076f7c859a7aef20f40853be4e261624ea72ed51c35d910b2cb25bcf30e954",
+  "launchFiles": {
+    "night-ablation.cfg": "6e7437de7ecce961a2383d7c2a58d6a943dee801b91526dd9831c8d242e72f4b",
+    "ps2link.run": "290eb100acb0b408fab11ae3445233dd7409222008a8c4dc3d0cf49a2bc1208a",
+    "quiet-night.cfg": "4355a46b19d348dc2f57c046f8ef63d4538ebb936000f3c9ee954a27460dd865",
+    "root-native-provenance.json": "f93236d03cc0d58b7c32f8cf35a48e2ba343c7c28982232b59418a726b730281",
+    "root-runtime-authority.json": "46917ef74e4b963c25fc45ff80d874f4352d9907946511d903c3187d784afdb9",
+    "root-source-freeze.json": "cdfc8d17ba8eb0c06714cfbfd4aaa7625c62715f334169b933a97e74af6adfd0",
+    "runtime-assets-manifest.json": "e11fa8b76a6c7f6ee6d8da67670e12f4b7184d8b9e1558070c92efa4e4d10e05",
+    "target-source-manifest.json": "ca170260791f3875c35e33bdacb0992e3cf6ddd58fbc991cf0432cdb7bad5a54",
+    "vehicle-playground.elf": "6759ae52b8528cfce95f4a49d590a5da4cc532463511ac94de23c719c7192743",
+    "vehicle-playground.elf.sym": "9a3cbba0f0415d0b64544eb1649d09654bd74447150c688a67acc5280fc92a99"
+  },
+  "physicalStartAccepted": false
+}

@@ -474,9 +474,12 @@ recovered 0.50-0.72 ms of hardware `work`. What it did not do, ranked:
   actual expansion and repeated geometry/ST copies. Both physical orders
   favor it by 0.113–0.171 ms, still at 30 fps; twelve epoch-aware inside VU
   captures and six packet pairs passed. It remains private. Promotion needs
-  broader precision/clipping/stable-replay coverage. The next ordered private
-  trials are unique-grid transformation, then GS SPRITE coronas; each needs
-  its own native, activation, output/raster and physical qualification.
+  broader precision/clipping/stable-replay coverage. The private
+  [unique-grid trial](tyrax2-pool-lattice.md) completed fog-aware output,
+  ordinary activation/raster and both PS2 orders. All four contrasts were
+  slower by 0.112–0.260 ms, so it remains private. GS SPRITE coronas are the
+  next trial; they need their own native budget, actual output/raster and
+  physical qualification.
 
   Storage classification alone grants no immutable borrowing rights.
   The [resumed candidate audit](tyrax2-ee-vu0.md#next-60-hz-candidates-host-controls-2026-10-03)

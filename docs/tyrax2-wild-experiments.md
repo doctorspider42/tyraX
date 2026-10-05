@@ -66,11 +66,12 @@ combined candidate by 0.113–0.171 ms; presentation remains 30 fps. Twelve
 epoch-aware inside VU captures and six packed-output pairs passed. It stays
 private, with clipped output and stable warm replay outside that diagnostic.
 
-The unique-grid proposal also has real remaining work: ordinary light pools use
-96 list vertices, while height queries already use 25 cached grid points. With
-the existing 75-vertex package limit, one pool splits into 75 + 21 vertices;
-package-local unique records total 21 + 10, rather than one global 25-record
-upload. Any experiment must preserve original output order and precise clipping.
+The [unique-grid trial](tyrax2-pool-lattice.md) now preserves original 75-vertex
+packages, output order and per-corner fog. Twelve fog-aware captures, six exact
+output pairs and both ordinary emulator orders passed. Both PS2 orders were
+slower by 0.112–0.260 ms; reducing transforms did not offset candidate
+preparation and ownership costs. It remains private. This does not measure VU
+arithmetic in isolation or disprove every other unique-grid representation.
 
 ## Preservation
 

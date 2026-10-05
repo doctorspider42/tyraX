@@ -432,6 +432,13 @@ Twelve epoch-aware VU captures and six packet pairs qualify the tested inside
 cases. The candidate remains private; clipping and stable warm replay are not
 accepted by that output diagnostic.
 
+[Pool-lattice experiment](tyrax2-pool-lattice.md) transforms eligible shared
+points once while preserving original triangle output and fog. Twelve fog
+captures, six matching output pairs and both ordinary emulator orders passed.
+Both PS2 orders were slower by 0.112–0.260 ms, still at 30 fps. Exact sources,
+reconstruction, rejected no-fog preparation and raw evidence are preserved;
+production rendering remains unchanged.
+
 [Batch / texture / program scopes](tyrax2-batch-texture-scopes-2026-10-04.md)
 qualify the V10 inclusive physical interval at 0.751–0.788 ms, with explicit
 observer contrasts and rejected attempts. This interval includes dispatch and

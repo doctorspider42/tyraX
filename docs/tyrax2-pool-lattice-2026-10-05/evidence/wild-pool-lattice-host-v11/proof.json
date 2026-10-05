@@ -1,0 +1,73 @@
+{
+  "status": "V11_ACTUAL_HEADERS_O0_O2_HOST_PASS_SOURCE_FOG_OPCODE_REVIEW",
+  "source": "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-lattice-source-v11",
+  "runs": [
+    {
+      "command": [
+        "C:/Users/pawel/scoop/apps/mingw/current/bin/g++.exe",
+        "-std=c++17",
+        "-O0",
+        "-Wall",
+        "-Wextra",
+        "-Werror",
+        "-static",
+        "-I",
+        "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-lattice-host-v1",
+        "-I",
+        "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-lattice-source-v11\\tyra\\engine\\inc",
+        "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-lattice-host-v1\\controls.cpp",
+        "-o",
+        "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-lattice-host-v11\\controls-O0.exe"
+      ],
+      "stdout": "HOST_ACTUAL_HEADERS_PASS checks=7025655 topologyCases=104000 rejectedMutations=78255 sdkBytes=unverified vuOutput=unverified",
+      "exeSha256": "429ae773f3b8f8297153bcd94cc115baff38424c697c2d9a6f887f321ca15ba5"
+    },
+    {
+      "command": [
+        "C:/Users/pawel/scoop/apps/mingw/current/bin/g++.exe",
+        "-std=c++17",
+        "-O2",
+        "-Wall",
+        "-Wextra",
+        "-Werror",
+        "-static",
+        "-I",
+        "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-lattice-host-v1",
+        "-I",
+        "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-lattice-source-v11\\tyra\\engine\\inc",
+        "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-lattice-host-v1\\controls.cpp",
+        "-o",
+        "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-lattice-host-v11\\controls-O2.exe"
+      ],
+      "stdout": "HOST_ACTUAL_HEADERS_PASS checks=7025655 topologyCases=104000 rejectedMutations=78255 sdkBytes=unverified vuOutput=unverified",
+      "exeSha256": "af4a169d9186cb021fb4408a5a1c71aa7ae0e44b1cff32e3b13257e6a3a843a3"
+    }
+  ],
+  "macroSha256": "2d112f5498f008619f6b8d9d4ef75662c5570ac697528a1f83b1984f241d7e86",
+  "fogOpcodes": [
+    "mul.x",
+    "add.x",
+    "loi",
+    "mini.x",
+    "max.x",
+    "ftoi4.x",
+    "mtir"
+  ],
+  "fogRegisterSemantics": {
+    "VFwrites": "fogAccum.x only; source cachedvertex2/w remains unchanged",
+    "VIwrites": "fogConstInt only via mtir; no aliases of adcMask/colorData/vertexData/stqData/vertexCounter/destAddress/kickAddress",
+    "Iwrites": "loi255; same originalCalculateTyraFog sequence; subsequentscatter uses no I-dependent operation before nextfogcall",
+    "MACflags": "Arithmetic writes MACflags, but no candidatebranch reads MACflags. Originalclipw writes clipflags and fcand reads them independently. Counterbranch is integer ibne.",
+    "ACC": "None of the seven operations useaccumulator destination or madd; sharedMVPtransform finished before scatter",
+    "fogParams": "Persistent loaded uniform unchanged; existing legacy variable now has candidateuse too, nativeallocator mustprove thislongerliveness."
+  },
+  "limitations": [
+    "HostAPIrecording shim is not SDKserializedbyteproof",
+    "No VUfloat emulation or targetfogoutput proof",
+    "No nativeallocation or codebudgetclaim"
+  ],
+  "hostInputs": {
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-lattice-host-v1\\controls.cpp": "97ba4ef07a6343665d2d0f944585f8498bcdd34d85ab4d808ee2694dc2ae1f6c",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-lattice-host-v1\\packet2_utils.h": "5e6d47607290c0a5e88ff9a654ced0b8afd2e2f56ace4c9af903a11f3d6c2fab"
+  }
+}

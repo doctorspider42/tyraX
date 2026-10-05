@@ -3865,3 +3865,16 @@ guest protocol completes. Preserve the negative raster attempt and prove the
 window owner/geometry before diagnosing shader corruption. A fresh Null host
 audio profile is a correctness control, with unchanged guest ELF/resources;
 it provides no hardware audio or timing acceptance.
+
+The private Pool-lattice trial (`docs/tyrax2-pool-lattice.md`) demonstrates why
+source admission and native budget are separate runtime gates. Its no-fog
+prototype passed fixed probes but admitted nothing in the ordinary fog-enabled
+night. Restoring original per-corner fog required actual varying-fog output
+pairs before pricing. Protected qbuffer arrays do not alone protect a pending
+multi-bag DMA chain: owner reuse needs a lease or a submission fence before
+uniforms. Price that fence and input preparation with the candidate. Preserve
+failed compiler artifacts before a shared native mirror changes; compute full
+residency including billboards and draw-finish, rather than the main set alone.
+Sparse cold counters prove their sampled frames, not every timed frame. The
+same-ELF physical candidate was slower despite fewer transforms; no promotion
+or pure VU timing follows from a reduced operation count.

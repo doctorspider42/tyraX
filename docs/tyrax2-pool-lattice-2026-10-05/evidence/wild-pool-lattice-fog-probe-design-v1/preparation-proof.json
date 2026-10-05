@@ -1,0 +1,61 @@
+{
+  "status": "SOURCE_ONLY_V11_FOG_DIAGNOSTIC_AND_HELPERS_NOT_BUILT",
+  "inputs": {
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-lattice-probe-design-v1\\source\\game\\inc\\pool2_static_probe.hpp": "ed8298db5ab393d11362810e5f867c5ce0367dfc33182c82c391a613b329007e",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-lattice-probe-design-v1\\source\\game\\src\\terrain_game.cpp": "789ce16faa0853bc1d44046e80da8cd53ab3552d249bf5815d4373d91118a8ce",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-lattice-source-v11\\preparation-v11.json": "cd6d8a09c32530c8bb258de3a7f2980048b38f098415ebc8df8830a8a14b47af",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-lattice-probe-runtime-v1\\savestate-reader-pinned.py": "29b9f7095b69be598c0fd63031bd210a60c93028baeb546e07efeef2bb5aa3ae",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-lattice-probe-runtime-v1\\launch-probe.py": "01bb64a5d6420675cf11cdd786f25ea58d2e2cc54ee6148d0cb1959ac5e3ef4a",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-lattice-probe-runtime-v1\\run-case.py": "b7bfc34d449140e7c8f4669e72bd93ed8960e78d19000d69c776a34f94948caa",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-lattice-probe-runtime-v1\\capture-ready.py": "d78ef0ca5fe5393f4531e05f1e39ff0003d7cc9d3bf8bebe9efc642ff5db93f7",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-lattice-probe-runtime-v1\\verify-capture.py": "6d4683897d70eb69cc8e1f0bcca5b644a0bfad79e797ee3febb427ebddee675b",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-lattice-probe-runtime-v1\\finish-probe.py": "0b216ef14cee1c807e029b0685497810d4d4213d2592cdecc434548eb1feb5fe",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-lattice-probe-runtime-v1\\protocol.py": "d575dbde1adeb5f4de807d08a152fbfa3adfd92cd413648a99058c97aa68c103",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-lattice-probe-runtime-v1\\decode-vu1-output.py": "e78a3108634089e1b351a4b10638cba5d2783f68299976105cbf315a346cfb82",
+    "F:\\Projects\\tyrax2-lab-20261001\\wild-pool-lattice-probe-runtime-v1\\check-offline.py": "eccbc0438bf573a4f952ed9088c37a69dd48a290c31c572f38ce231164149d24"
+  },
+  "expectedPricingFiles": 501,
+  "expectedDiagnosticFiles": 502,
+  "sourceFixture": "wild-pool-lattice-fog-probe-physical-v1",
+  "slots": "196..207",
+  "fog": {
+    "start": 19,
+    "end": 23,
+    "bagDisabled": false,
+    "finiteGridViewDepth": "20..21.375"
+  },
+  "outputs": {
+    "wild-pool-lattice-fog-probe-design-v1\\prepare.py": "2eacb15a3fcb985f18d592430302e1ea701c5bf785c36fc88e8a9b27f7e5b848",
+    "wild-pool-lattice-fog-probe-design-v1\\README.md": "a16c5885b76f8b23cdd44fff60a84060834b95103e27b8afc2ca5f23f26a0b0f",
+    "wild-pool-lattice-fog-probe-design-v1\\configs\\arm0-vertices192-repeat1.cfg": "4a3ea3a69754a27f80d18f43ac6f99c5f60edad06f132da08a8ccbea84249667",
+    "wild-pool-lattice-fog-probe-design-v1\\configs\\arm0-vertices192-repeat2.cfg": "ba3e8428a0218265e0325610c9600cbef1b361e400ec37eec2e9a66e207af27f",
+    "wild-pool-lattice-fog-probe-design-v1\\configs\\arm0-vertices192-repeat3.cfg": "9a2457e4e3df579aec9ab353de74a2641c0b4b224dbfabf31dbce095d7afdd50",
+    "wild-pool-lattice-fog-probe-design-v1\\configs\\arm0-vertices96-repeat1.cfg": "a95e68cba94dc54ff3ccb3a1e3db7dd3c37932a913d4d1827b44cb2e80589677",
+    "wild-pool-lattice-fog-probe-design-v1\\configs\\arm0-vertices96-repeat2.cfg": "9baddd2e6b491ed6cca2c234bfe76df6c8ae7dce160c30042f69b7fcf2ae7242",
+    "wild-pool-lattice-fog-probe-design-v1\\configs\\arm0-vertices96-repeat3.cfg": "bcfc9cf1e462f3b99cd9929d6dc18e2210c83758d8d2c2a3b1410405a3a29f69",
+    "wild-pool-lattice-fog-probe-design-v1\\configs\\arm1-vertices192-repeat1.cfg": "15e8e35c92c58cb6273c5b26897e0d8c4a70e2bdeba662f834e339045e573b6b",
+    "wild-pool-lattice-fog-probe-design-v1\\configs\\arm1-vertices192-repeat2.cfg": "861a624a60598dd7df9cbe99c7599b76366aa02529bd9150546db88731be46a4",
+    "wild-pool-lattice-fog-probe-design-v1\\configs\\arm1-vertices192-repeat3.cfg": "a17d61c9baec08bcc6fa4d2a6f6ff92c6214be67a0622a9c95e9e70f6207a540",
+    "wild-pool-lattice-fog-probe-design-v1\\configs\\arm1-vertices96-repeat1.cfg": "36e0e6d278de508015c9d1de8928f24f58c993126a240a60152fd48af8d17ebe",
+    "wild-pool-lattice-fog-probe-design-v1\\configs\\arm1-vertices96-repeat2.cfg": "ec0df286ebb1374ae32314e58d6b412f02e4519dec11852507966ef4087f7183",
+    "wild-pool-lattice-fog-probe-design-v1\\configs\\arm1-vertices96-repeat3.cfg": "42e68e73941e0563ece557324eba79fce999bfd80f44d331522a33e8483ea588",
+    "wild-pool-lattice-fog-probe-design-v1\\source\\game\\inc\\pool2_static_probe.hpp": "4425cf821c2be9f5c08ff18c017422d15be6c23012f7400136b9d1aaeed716e0",
+    "wild-pool-lattice-fog-probe-design-v1\\source\\game\\src\\terrain_game.cpp": "789ce16faa0853bc1d44046e80da8cd53ab3552d249bf5815d4373d91118a8ce",
+    "wild-pool-lattice-fog-probe-runtime-v1\\capture-ready.py": "d78ef0ca5fe5393f4531e05f1e39ff0003d7cc9d3bf8bebe9efc642ff5db93f7",
+    "wild-pool-lattice-fog-probe-runtime-v1\\check-offline.py": "0368f655493ffd8b0d0aac669802814159bd009c90cc4678fd9ae0cd655556e3",
+    "wild-pool-lattice-fog-probe-runtime-v1\\decode-vu1-output.py": "73dec556609c2a675184e2c74da10bf89cf4c4c1ebcb1f9db986d8226b0ff015",
+    "wild-pool-lattice-fog-probe-runtime-v1\\finish-probe.py": "edc1c745b963d3393d3e7e099e6a28f35030df3836daf2696e988c15a6f797fc",
+    "wild-pool-lattice-fog-probe-runtime-v1\\launch-probe.py": "03626c58733b4ce87cd619c020da0df787fd670fa4e54778730e4ba3152b203f",
+    "wild-pool-lattice-fog-probe-runtime-v1\\offline-controls.json": "9b62e91e1d31550c03551eaabd4d5d67fc41be7b176bce311fe131daed84860e",
+    "wild-pool-lattice-fog-probe-runtime-v1\\protocol.py": "41f82fc48bdec91b3a1dc8e69239d7b6be7ec394365967070396dcc5b51d00bb",
+    "wild-pool-lattice-fog-probe-runtime-v1\\README.md": "e2550ab58b1f4d6530923bd684be47b693dc3e28204575ba09dfba072f39e0df",
+    "wild-pool-lattice-fog-probe-runtime-v1\\run-case.py": "5bc4ad1417d75b338bef30088d3a2f52c611d712c72f7621e498477b7019ea3b",
+    "wild-pool-lattice-fog-probe-runtime-v1\\savestate-reader-pinned.py": "29b9f7095b69be598c0fd63031bd210a60c93028baeb546e07efeef2bb5aa3ae",
+    "wild-pool-lattice-fog-probe-runtime-v1\\verify-capture.py": "b078d8307fde24b8b399dd9ac9acb82680387ca60500320132a7d79cf52a831a"
+  },
+  "limits": [
+    "Root must copy two source files into a fresh V11 pricing-derived fixture and independently freeze/build/audit 502 sources.",
+    "Actual fog witness and paired output acceptance pending target captures.",
+    "No CLIP/raster/performance acceptance."
+  ]
+}
