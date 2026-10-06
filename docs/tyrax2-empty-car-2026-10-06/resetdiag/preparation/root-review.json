@@ -1,0 +1,14 @@
+{
+  "status": "ROOT_REVIEWED_PRIVATE_RESETDIAG_NATIVE_ONLY",
+  "sourceManifestSha256": "86cac3f74bae0dbd853bd153d12d3f01ef512553086656bd923e86fdf0b3f956",
+  "nativeProofSha256": "3b7c97aa15efd312f186b474a36f11bff31668966a1d37a14c8107debfd55219",
+  "sourceFilesVerified": 44,
+  "actualObjectsMapsLogsArtifactsAndToolchainVerified": true,
+  "actualGS64BitStoreVerified": true,
+  "originalResetOrderingReviewed": true,
+  "noEEStdioBeforeSafeScreenReviewed": true,
+  "userReportedResidentVersion": "r7",
+  "hardwareExecuted": false,
+  "resetFixed": false,
+  "rootReviewedScope": "Private diagnostics only. Early BGCOLOR can remain hidden; ledger may be unreachable during EE hang. Initial low-packed boot and reset-to-fresh-game qualification still required. No hot resident replacement authorized by this review."
+}

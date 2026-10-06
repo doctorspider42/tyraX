@@ -1,0 +1,9 @@
+
+   0:	3c020000 	lui	v0,0x0
+			0: R_MIPS_HI16	resetDiagStage
+   4:	ac440000 	sw	a0,0(v0)
+			4: R_MIPS_LO16	resetDiagStage
+   8:	3c021200 	lui	v0,0x1200
+   c:	03e00008 	jr	ra
+  10:	fc4500e0 	sd	a1,224(v0)
+
