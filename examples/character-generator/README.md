@@ -85,18 +85,18 @@ tyrax-editor --chargen res/models/characters/hero.chargen.json res/models/charac
 
 | | Body | Wears | Atlas | Triangles |
 |---|---|---|---|---|
-| `hero` | man, 1.82 m, muscular | polo (recoloured navy), cargo pants, boots, short hair - plus 7 creator options and 3 colour looks | 256 | ~4600 as worn (10 711 in the file: every option, its hat twin and scalp cap) |
-| `clerk` | woman, 1.65 m, mostly East Asian | trouser suit (recoloured navy; the blouse and scarf keep theirs), T-bar shoes, square frames, a bun, lipstick | 128 | 4508 |
-| `dockhand` | man, 1.76 m, older, heavy | work overalls, ankle boots, newsboy cap, buzz cut, stubble | 128 | 4551 |
-| `kid` | child, 1.30 m | striped T-shirt (pattern), jean shorts, canvas shoes, ponytail | 128 | 4365 |
-| `punk` | man, 1.78 m | casual outfit, black hero boots, 3D glasses, green messy hair | 128 | 4382 |
-| `elder` | woman, 1.58 m, 90 | sweater, long skirt, flats, round glasses, grey bun | 128 | 4683 |
-| `commuter` x 8 (+ 6 in `crowd`) | man, 1.78 m, crowd body | T-shirt, trousers, sneakers, short hair - five palette variants plus the original | 128 | 2554 |
-| `shopper` x 6 (`crowd`) | woman, 1.66 m, crowd body | fitted T-shirt, long skirt, ballet flats, short bob, lipstick | 128 | 2902 |
-| `pensioner` x 6 (`crowd`) | man, 1.72 m, 82, crowd body | sweater, cargo pants, loafers, newsboy cap, grey buzz cut | 128 | 2830 |
+| `hero` | man, 1.82 m, muscular | polo (recoloured navy), cargo pants, boots, short hair - plus 7 creator options and 3 colour looks | 256 | ~4600 as worn (10 593 in the file: every option, its hat twin and scalp cap) |
+| `clerk` | woman, 1.65 m, mostly East Asian | trouser suit (recoloured navy; the blouse and scarf keep theirs), T-bar shoes, square frames, a bun, lipstick | 128 | 4407 |
+| `dockhand` | man, 1.76 m, older, heavy | work overalls, ankle boots, newsboy cap, buzz cut, stubble | 128 | 4375 |
+| `kid` | child, 1.30 m | striped T-shirt (pattern), jean shorts, canvas shoes, ponytail | 128 | 4221 |
+| `punk` | man, 1.78 m | casual outfit, black hero boots, 3D glasses, green messy hair | 128 | 4228 |
+| `elder` | woman, 1.58 m, 90 | sweater, long skirt, flats, round glasses, grey bun | 128 | 4511 |
+| `commuter` x 8 (+ 6 in `crowd`) | man, 1.78 m, crowd body | T-shirt, trousers, sneakers, short hair - five palette variants plus the original | 128 | 2504 |
+| `shopper` x 6 (`crowd`) | woman, 1.66 m, crowd body | fitted T-shirt, long skirt, ballet flats, short bob, lipstick | 128 | 2781 |
+| `pensioner` x 6 (`crowd`) | man, 1.72 m, 82, crowd body | sweater, cargo pants, loafers, newsboy cap, grey buzz cut | 128 | 2729 |
 
 Shirts, trousers and suits are **shells** - the body itself, pushed out and
-painted - so they add no triangles; the counts above are a 3348-triangle woman's body
+painted - so they add no triangles (and skin under a mesh garment is not drawn); the counts above are a 3348-triangle woman's body
 or a 3320-triangle man's (the crowd body's ~1600 for the last three), plus hair, shoes, hats, glasses and skirts. Those
 mesh items share ONE accessory texture, so each character is two draw parts:
 the body with its atlas, and everything else. The hero's creator options are
