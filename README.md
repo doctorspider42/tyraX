@@ -346,7 +346,7 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
   motion-captured clips with a feminine-to-masculine movement style - and a face that blinks, looks at you and lip-syncs
   its sound, hair and skirts that swing. Crowds in other colours cost one mesh and one atlas plus 1 KB a
   person, and an in-game creator lets the player pick colours, hair, a hat
-  and glasses. Bring your own hairstyle as a .glb or .obj. Randomize, a recipe beside every model, and
+  and glasses. Bring your own hairstyle and clothes as a .glb or .obj. Randomize, a recipe beside every model, and
   `--chargen` for the command line. All CC0, embedded in the editor.
 - **[World scale](docs/world-scale.md)** — one number that keeps imported reality
   the size your own content is.

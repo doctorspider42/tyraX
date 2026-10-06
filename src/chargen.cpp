@@ -711,8 +711,11 @@ Params referenceParams(int bi) {
     return ref;
 }
 
-std::shared_ptr<GarmentData> customHair(const std::string& meshPath, const std::string& texPath,
-                                        int bi, std::vector<std::string>& warnings) {
+// ...and clothes the same way (Params::customWear): `slot` says what it is.
+std::shared_ptr<GarmentData> customItem(const std::string& meshPath, const std::string& texPath,
+                                        const std::string& slot, int bi,
+                                        std::vector<std::string>& warnings) {
+    const std::string what = slot == "hair" ? "custom hair" : "custom " + slot;
     namespace fs = std::filesystem;
     std::error_code ec;
     const std::string mp = resolveAsset(meshPath), tp = resolveAsset(texPath);
@@ -722,7 +725,7 @@ std::shared_ptr<GarmentData> customHair(const std::string& meshPath, const std::
         return ec ? -1 : (long long)t.time_since_epoch().count();
     };
     const std::string key = mp + "|" + tp + "|" + std::to_string(stamp(mp)) + "|" +
-                            std::to_string(stamp(tp)) + "|" + std::to_string(bi);
+                            std::to_string(stamp(tp)) + "|" + std::to_string(bi) + "|" + slot;
     {
         std::lock_guard<std::mutex> lock(g_customMutex);
         auto it = g_custom.find(key);
@@ -746,7 +749,7 @@ std::shared_ptr<GarmentData> customHair(const std::string& meshPath, const std::
     if (ext == ".glb" || ext == ".gltf") {
         glbparser::Baked bk;
         if (!glbparser::bake(mp, 12.0f, bk, err)) {
-            warnings.push_back("custom hair: " + err);
+            warnings.push_back(what + ": " + err);
             return nullptr;
         }
         for (const glbparser::Part& part : bk.parts) {
@@ -762,7 +765,7 @@ std::shared_ptr<GarmentData> customHair(const std::string& meshPath, const std::
     } else if (ext == ".obj") {
         objparser::Model m;
         if (!objparser::load(mp, m)) {
-            warnings.push_back("custom hair: cannot read " + mp);
+            warnings.push_back(what + ": cannot read " + mp);
             return nullptr;
         }
         std::string objTex;
@@ -781,24 +784,27 @@ std::shared_ptr<GarmentData> customHair(const std::string& meshPath, const std::
             decode((const unsigned char*)bytes.data(), (int)bytes.size());
         }
     } else {
-        warnings.push_back("custom hair: a .glb or .obj, please (" + mp + ")");
+        warnings.push_back(what + ": a .glb or .obj, please (" + mp + ")");
         return nullptr;
     }
     if (!tp.empty()) {
         std::ifstream f(tp, std::ios::binary);
         const std::string bytes((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
-        if (bytes.empty()) warnings.push_back("custom hair: cannot read the texture " + tp);
+        if (bytes.empty()) warnings.push_back(what + ": cannot read the texture " + tp);
         else decode((const unsigned char*)bytes.data(), (int)bytes.size());
     }
     const size_t corners = P.size() / 3;
     if (corners < 3) {
-        warnings.push_back("custom hair: no triangles in " + mp);
+        warnings.push_back(what + ": no triangles in " + mp);
         return nullptr;
     }
-    if (rgba.empty()) {  // untextured: a plain mid brown the hair colour can dye
+    if (rgba.empty()) {  // untextured: a plain mid brown (hair) or mid grey (cloth) to dye
         tw = th = 4;
         rgba.assign(4 * 4 * 4, 0);
-        for (size_t i = 0; i < 16; ++i) rgba[i * 4] = 110, rgba[i * 4 + 1] = 80, rgba[i * 4 + 2] = 55, rgba[i * 4 + 3] = 255;
+        const bool hair = slot == "hair";
+        for (size_t i = 0; i < 16; ++i)
+            rgba[i * 4] = hair ? 110 : 150, rgba[i * 4 + 1] = hair ? 80 : 150,
+            rgba[i * 4 + 2] = hair ? 55 : 150, rgba[i * 4 + 3] = 255;
     }
 
     // --- the reference body it was modelled on (same topology) ---
@@ -810,7 +816,7 @@ std::shared_ptr<GarmentData> customHair(const std::string& meshPath, const std::
     std::string re;
     if (!build(referenceParams(bi), rs, rw, re) || rs.parts.empty() ||
         rs.parts[0].vertexCount != b.tris * 3) {
-        warnings.push_back("custom hair: no reference body (" + re + ")");
+        warnings.push_back(what + ": no reference body (" + re + ")");
         return nullptr;
     }
     const std::vector<float>& RP = rs.parts[0].positions;  // b.tris * 3 corners, kit order
@@ -833,12 +839,16 @@ std::shared_ptr<GarmentData> customHair(const std::string& meshPath, const std::
 
     auto g = std::make_shared<GarmentData>();
     g->item.id = "custom" + std::to_string(++g_customCount);
-    g->item.label = "Custom hair";
-    g->item.slot = "hair";
-    g->item.dyeable = false;  // its own colours: the user painted them
+    g->item.label = slot == "hair" ? "Custom hair" : "Custom " + slot;
+    g->item.slot = slot;
+    // hair keeps the colours the user painted; clothes can take a recolour
+    // (Wear::color < 0 = as made), like the kit's
+    g->item.dyeable = slot != "hair";
     g->kind = "mesh";
     g->offMeters = true;
-    g->layer = 50;
+    // stacking: shoes and trousers under tops, hats and glasses outermost
+    g->layer = slot == "hair" ? 50 : slot == "feet" ? 10 : slot == "bottom" ? 20 : slot == "hands" ? 25
+             : slot == "top" || slot == "full" ? 30 : slot == "face" ? 55 : 60;
     double avg[3] = {0, 0, 0};
     int opaque = 0;
     for (size_t i = 0; i < (size_t)tw * th; ++i) {
@@ -850,6 +860,26 @@ std::shared_ptr<GarmentData> customHair(const std::string& meshPath, const std::
         ++opaque;
     }
     if (opaque) g->item.color = Rgb{(float)(avg[0] / opaque), (float)(avg[1] / opaque), (float)(avg[2] / opaque)};
+    if (opaque && g->item.dyeable) {
+        // The recolour's key colour is the texture's MAIN colour - the most
+        // common one (4 bits a channel), averaged within its bin. The plain
+        // average of a red-and-white stripe is a pink that is nowhere in it,
+        // and the dye mask (near the key colour) then caught nothing.
+        std::map<int, std::array<double, 4>> bins;
+        for (size_t i = 0; i < (size_t)tw * th; ++i) {
+            if (rgba[i * 4 + 3] < 128) continue;
+            const int key = (rgba[i * 4] >> 4) << 8 | (rgba[i * 4 + 1] >> 4) << 4 | (rgba[i * 4 + 2] >> 4);
+            auto& bn = bins[key];
+            for (int a = 0; a < 3; ++a) bn[(size_t)a] += rgba[i * 4 + a] / 255.0;
+            bn[3] += 1.0;
+        }
+        const std::array<double, 4>* top = nullptr;
+        for (const auto& kv : bins)
+            if (!top || kv.second[3] > (*top)[3]) top = &kv.second;
+        if (top && (*top)[3] > 0.0)
+            g->item.color = Rgb{(float)((*top)[0] / (*top)[3]), (float)((*top)[1] / (*top)[3]),
+                                (float)((*top)[2] / (*top)[3])};
+    }
     g->luma = g->item.color.r * 0.3f + g->item.color.g * 0.59f + g->item.color.b * 0.11f;
     for (size_t v = 0; v < corners; ++v) g->tri.push_back((int32_t)v);
     for (size_t v = 0; v < corners; ++v) {  // Blender convention: v up
@@ -1053,7 +1083,7 @@ bool Params::operator==(const Params& o) const {
            eyeShadowColor == o.eyeShadowColor && blush == o.blush &&
            textureSize == o.textureSize && outfit == o.outfit && hair == o.hair &&
            options == o.options && customHair == o.customHair &&
-           customHairTexture == o.customHairTexture &&
+           customHairTexture == o.customHairTexture && customWear == o.customWear &&
            clips == o.clips && defaultClips == o.defaultClips && animFps == o.animFps &&
            motionStyleAuto == o.motionStyleAuto && motionStyle == o.motionStyle &&
            animSource == o.animSource && retarget.fps == o.retarget.fps &&
@@ -1157,13 +1187,31 @@ bool build(const Params& p, glbparser::Skel& out, std::vector<std::string>& warn
     // push wins and an outer texture paints over an inner one.
     std::vector<std::pair<const GarmentData*, Wear>> wearing;
     std::shared_ptr<GarmentData> customKeep;  // a custom hairstyle, alive for this build
+    std::vector<std::pair<std::shared_ptr<GarmentData>, Rgb>> customClothes;  // and your own clothes
     {
         std::vector<Wear> asked = p.outfit;
         // A custom hairstyle takes the hair slot from the kit's.
         std::shared_ptr<GarmentData> custom;
-        if (!p.customHair.empty()) custom = customHair(p.customHair, p.customHairTexture, bi, warnings);
+        if (!p.customHair.empty()) custom = customItem(p.customHair, p.customHairTexture, "hair", bi, warnings);
         if (custom) customKeep = custom;
         if (!p.hair.empty() && !custom) asked.push_back(Wear{p.hair, p.hairColor, p.hairColor, 0});
+        // Your own clothes take their slot from the kit's (a full one top
+        // and bottom too, a top or a bottom a full one).
+        for (const Params::CustomWear& cw : p.customWear) {
+            if (cw.mesh.empty()) continue;
+            std::shared_ptr<GarmentData> g = customItem(cw.mesh, cw.texture, cw.slot, bi, warnings);
+            if (!g) continue;
+            const std::string& s = cw.slot;
+            asked.erase(std::remove_if(asked.begin(), asked.end(), [&](const Wear& w) {
+                            const GarmentData* kg = garment(w.id);
+                            if (!kg) return false;
+                            const std::string& o = kg->item.slot;
+                            return o == s || (s == "full" && (o == "top" || o == "bottom")) ||
+                                   ((s == "top" || s == "bottom") && o == "full");
+                        }),
+                        asked.end());
+            customClothes.push_back({g, cw.color});
+        }
         for (const Wear& w : asked) {
             const GarmentData* g = garment(w.id);
             if (!g) {
@@ -1173,6 +1221,8 @@ bool build(const Params& p, glbparser::Skel& out, std::vector<std::string>& warn
             wearing.push_back({g, w});
         }
         if (customKeep) wearing.push_back({customKeep.get(), Wear{customKeep->item.id, p.hairColor, p.hairColor, 0}});
+        for (const auto& [g, color] : customClothes)
+            wearing.push_back({g.get(), Wear{g->item.id, color, Rgb{1, 1, 1}, 0}});
         std::stable_sort(wearing.begin(), wearing.end(), [](const auto& x, const auto& y) {
             return x.first->layer < y.first->layer;
         });
@@ -1310,7 +1360,7 @@ bool build(const Params& p, glbparser::Skel& out, std::vector<std::string>& warn
         const std::string& slot = g->item.slot;
         if (slot == "hair" || slot == "face") return;
         buildSkinGrid();
-        const float gap = slot == "shoes" ? 0.003f : 0.005f;
+        const float gap = (slot == "feet" || slot == "hands") ? 0.003f : 0.005f;
         const size_t gv = gp.size() / 3;
         std::vector<float> req(gv * 3, 0.0f), dir(gv * 3, 0.0f);
         bool any = false;
@@ -1557,7 +1607,7 @@ bool build(const Params& p, glbparser::Skel& out, std::vector<std::string>& warn
             const GarmentData* g = worn[gi];
             const std::string& slot = g->item.slot;
             if (isOpt[gi] || g->kind != "mesh" || g->tri.empty() ||
-                (slot != "top" && slot != "bottom" && slot != "full" && slot != "shoes"))
+                (slot != "top" && slot != "bottom" && slot != "full" && slot != "feet" && slot != "hands"))
                 continue;
             const std::vector<float> gp = itemPositions(g, nullptr);
             const size_t gt = g->tri.size() / 3;
@@ -3088,6 +3138,16 @@ std::string toJson(const Params& p) {
     if (!p.customHair.empty())
         o << "  \"customHair\": \"" << json::escape(p.customHair) << "\", \"customHairTexture\": \""
           << json::escape(p.customHairTexture) << "\",\n";
+    if (!p.customWear.empty()) {  // only when there are any
+        o << "  \"customWear\": [";
+        for (size_t i = 0; i < p.customWear.size(); ++i) {
+            const Params::CustomWear& cw = p.customWear[i];
+            o << (i ? ", " : "") << "{\"mesh\": \"" << json::escape(cw.mesh) << "\", \"texture\": \""
+              << json::escape(cw.texture) << "\", \"slot\": \"" << json::escape(cw.slot)
+              << "\", \"color\": " << rgb(cw.color) << "}";
+        }
+        o << "],\n";
+    }
     if (!p.options.empty()) {  // written only when used: older sidecars stay byte-identical
         o << "  \"options\": [";
         for (size_t i = 0; i < p.options.size(); ++i)
@@ -3160,6 +3220,15 @@ bool fromJson(const std::string& text, Params& p, std::string& error) {
         }
     if (const json::Value* x = v.find("customHair")) d.customHair = x->stringOr("");
     if (const json::Value* x = v.find("customHairTexture")) d.customHairTexture = x->stringOr("");
+    if (const json::Value* cws = v.find("customWear"))
+        for (const json::Value& e : cws->arr) {
+            Params::CustomWear cw;
+            if (const json::Value* x = e.find("mesh")) cw.mesh = x->stringOr("");
+            if (const json::Value* x = e.find("texture")) cw.texture = x->stringOr("");
+            if (const json::Value* x = e.find("slot")) cw.slot = x->stringOr("top");
+            cw.color = rgbOf(e.find("color"), cw.color);
+            if (!cw.mesh.empty()) d.customWear.push_back(cw);
+        }
     if (const json::Value* o = v.find("options"))
         for (const json::Value& x : o->arr)
             if (!x.stringOr("").empty()) d.options.push_back(x.stringOr(""));

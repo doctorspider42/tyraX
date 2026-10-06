@@ -18079,6 +18079,24 @@ void App::drawCharacterGeneratorWindow() {
         ImGui::SetTooltip("Load a .chargen.json - every generated character has one\n"
                           "beside its .glb - to edit that character again.");
 
+    namespace fs = std::filesystem;
+    // A file from outside the project is copied in, so the recipe
+    // (and anyone who clones the project) still finds it.
+    auto adopt = [&](const std::string& file) -> std::string {
+        std::error_code ec;
+        const fs::path root(project_.dir);
+        const fs::path rel = fs::relative(file, root, ec);
+        if (!ec && !rel.empty() && rel.native()[0] != '.') return rel.generic_string();
+        const fs::path dst = root / "res" / "models" / "characters" / "custom" /
+                             fs::path(file).filename();
+        fs::create_directories(dst.parent_path(), ec);
+        fs::copy_file(file, dst, fs::copy_options::overwrite_existing, ec);
+        if (ec) {
+            statusMessage_ = "Could not copy " + file + ": " + ec.message();
+            return file;
+        }
+        return fs::relative(dst, root, ec).generic_string();
+    };
     if (ImGui::BeginTabBar("chartabs")) {
         // -- Body --------------------------------------------------------------
         if (ImGui::BeginTabItem("Body")) {
@@ -18376,6 +18394,80 @@ void App::drawCharacterGeneratorWindow() {
                 ImGui::PopID();
             }
             if (chargen::wardrobe().empty()) ImGui::TextDisabled("This kit has no wardrobe.");
+
+            // Your own clothes (docs/character-generator.md, "Your own clothes")
+            ImGui::SeparatorText("Your own clothes");
+            int drop = -1;
+            for (int i = 0; i < (int)p.customWear.size(); ++i) {
+                chargen::Params::CustomWear& cw = p.customWear[(size_t)i];
+                ImGui::PushID(i);
+                int si = 0;
+                for (int k = 0; k < (int)(sizeof(kSlots) / sizeof(kSlots[0])); ++k)
+                    if (cw.slot == kSlots[k][0]) si = k;
+                ImGui::SetNextItemWidth(scaled(110.0f));
+                if (ImGui::BeginCombo("##slot", kSlots[si][1])) {
+                    for (int k = 0; k < (int)(sizeof(kSlots) / sizeof(kSlots[0])); ++k)
+                        if (ImGui::Selectable(kSlots[k][1], k == si)) {
+                            cw.slot = kSlots[k][0];
+                            dirty = true;
+                        }
+                    ImGui::EndCombo();
+                }
+                ImGui::SameLine();
+                ImGui::TextUnformatted(cw.mesh.c_str());
+                if (ImGui::Button("Texture...")) {
+                    const std::string file = platform::pickFile(
+                        "Its texture", {{"Images (*.png, *.jpg)", {"*.png", "*.jpg", "*.jpeg"}},
+                                        {"All files (*)", {"*"}}});
+                    if (!file.empty()) {
+                        cw.texture = adopt(file);
+                        dirty = true;
+                    }
+                }
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Optional - else the model's own. Alpha below 50%%\n"
+                                      "is cut out (lace, holes).");
+                ImGui::SameLine();
+                const bool recolour = cw.color.r >= 0.0f;
+                if (ImGui::RadioButton("As made", !recolour) && recolour) {
+                    cw.color = chargen::Rgb{-1, -1, -1};
+                    dirty = true;
+                }
+                ImGui::SameLine();
+                {
+                    chargen::Rgb pick = recolour ? cw.color : chargen::Rgb{0.5f, 0.5f, 0.5f};
+                    float v[3] = {pick.r, pick.g, pick.b};
+                    if (ImGui::ColorEdit3("##cwcol", v, ImGuiColorEditFlags_NoInputs)) {
+                        cw.color = chargen::Rgb{v[0], v[1], v[2]};
+                        dirty = true;
+                    }
+                }
+                ImGui::SameLine();
+                if (ImGui::Button("Remove")) drop = i;
+                if (!cw.texture.empty()) ImGui::TextDisabled("texture: %s", cw.texture.c_str());
+                ImGui::PopID();
+            }
+            if (drop >= 0) {
+                p.customWear.erase(p.customWear.begin() + drop);
+                dirty = true;
+            }
+            if (ImGui::Button("Add your own...")) {
+                const std::string file = platform::pickFile(
+                    "Your garment", {{"Models (*.glb, *.obj)", {"*.glb", "*.gltf", "*.obj"}},
+                                     {"All files (*)", {"*"}}});
+                if (!file.empty()) {
+                    chargen::Params::CustomWear cw;
+                    cw.mesh = adopt(file);
+                    p.customWear.push_back(cw);
+                    dirty = true;
+                }
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("A .glb or .obj modelled on a reference body (Hair tab >\n"
+                                  "Export reference bodies). It rides every body slider like\n"
+                                  "the kit's clothes: each vertex follows the skin nearest to\n"
+                                  "it, is kept out of the body, and hides the skin under it.\n"
+                                  "Pick its slot: it replaces the kit's item there.");
             ImGui::EndTabItem();
         }
         // -- Hair ---------------------------------------------------------------------
@@ -18403,24 +18495,6 @@ void App::drawCharacterGeneratorWindow() {
 
             // Your own hair (docs/character-generator.md, "Your own hair")
             ImGui::SeparatorText("Your own hair");
-            namespace fs = std::filesystem;
-            // A file from outside the project is copied in, so the recipe
-            // (and anyone who clones the project) still finds it.
-            auto adopt = [&](const std::string& file) -> std::string {
-                std::error_code ec;
-                const fs::path root(project_.dir);
-                const fs::path rel = fs::relative(file, root, ec);
-                if (!ec && !rel.empty() && rel.native()[0] != '.') return rel.generic_string();
-                const fs::path dst = root / "res" / "models" / "characters" / "custom" /
-                                     fs::path(file).filename();
-                fs::create_directories(dst.parent_path(), ec);
-                fs::copy_file(file, dst, fs::copy_options::overwrite_existing, ec);
-                if (ec) {
-                    statusMessage_ = "Could not copy " + file + ": " + ec.message();
-                    return file;
-                }
-                return fs::relative(dst, root, ec).generic_string();
-            };
             ImGui::TextDisabled("%s", p.customHair.empty() ? "(none - the kit's hairstyle above)"
                                                            : p.customHair.c_str());
             if (ImGui::Button("Model...")) {

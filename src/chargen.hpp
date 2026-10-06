@@ -105,6 +105,19 @@ struct Params {
     // setAssetRoot (the project). docs/character-generator.md, "Your own hair".
     std::string customHair;
     std::string customHairTexture;
+    // Clothes you modelled the same way (docs/character-generator.md, "Your
+    // own clothes"): each takes its slot from the kit's outfit (a "full" one
+    // replaces top and bottom, and the other way round).
+    struct CustomWear {
+        std::string mesh, texture;
+        std::string slot = "top";  // full / top / bottom / feet / head / face / hands
+        Rgb color{-1.0f, -1.0f, -1.0f};  // r < 0 = as made, else a recolour
+        bool operator==(const CustomWear& o) const {
+            return mesh == o.mesh && texture == o.texture && slot == o.slot && color.r == o.color.r &&
+                   color.g == o.color.g && color.b == o.color.b;
+        }
+    };
+    std::vector<CustomWear> customWear;
     // In-game creator options: extra hair / head / face item ids built as
     // SEPARATE parts the game can switch (docs/character-generator.md,
     // "In-game character creator"). A worn item in a slot that has options

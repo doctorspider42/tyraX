@@ -5515,7 +5515,12 @@
 // host-baked albedo map (REFL_GROUND_*): -2 ms a turning frame on the Motor
 // District's open road on a PS2.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 181
+#define TYRAX_VERSION_MINOR 182
+// 1.182.0: Character Generator - your own clothes (docs/character-generator.md,
+// "Your own clothes"): a .glb/.obj modelled on a reference body, in a slot of
+// its own choosing, bound/skinned/recoloured like the kit's (key colour = the
+// texture's most common). Recipes gain "customWear" (only when used); project
+// format unchanged.
 // 1.181.0: Character Generator movement style (docs/character-generator.md,
 // "Movement style"): -1 masculine .. +1 feminine on the kit's clips - hip
 // sway, step width, arm swing, chest turn, elbows - Auto from Gender (the
@@ -5719,7 +5724,7 @@
 // 1.181.2: Character Generator - clothes kept out of the body (garment
 // vertices pushed out of the morphed skin, smoothed), skin under opaque cloth
 // not drawn, and skirt panels lead the striding thigh (1.1x; game twin too).
-#define TYRAX_VERSION_PATCH 2
+#define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

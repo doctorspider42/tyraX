@@ -347,11 +347,11 @@ And two for every mesh garment - tops, dresses, trousers, shoes, hats:
   bust, wider hips, a belly - the cloth between its bound points stayed put
   and the skin came through. Every garment vertex is checked against the
   MORPHED body (the nearest skin vertex's tangent plane, through a 4 cm grid)
-  and pushed out to a 5 mm gap (3 mm for shoes); the pushes are smoothed
+  and pushed out to a 5 mm gap (3 mm for shoes and gloves); the pushes are smoothed
   twice over the garment's own edges, never below what a vertex needs, so the
   cloth bulges instead of kinking. Hair and glasses keep their authored fit.
 - **Skin under cloth is not drawn.** A body vertex is covered when a ray out
-  along its normal meets a top, a dress, trousers or shoes within 4 cm on an
+  along its normal meets a top, a dress, trousers, shoes or gloves within 4 cm on an
   opaque texel (lace and cut-outs keep their skin); a triangle with all three
   corners covered is dropped - nothing left to poke through in any pose, and
   120-280 triangles fewer under a dress.
@@ -402,6 +402,26 @@ every body slider, takes hat hair under a hat, and costs what its triangles
 cost. Built once per file version and topology. Its own colours are kept (the
 hair colour does not dye it). Keep it light: the kit's hairstyles are 700
 triangles.
+
+### Your own clothes
+
+*Outfit > Your own clothes > Add your own...* does the same for a garment:
+model it on a reference body (step 1 above), export a static `.glb` or
+`.obj`, pick it, and choose its **slot** - Outfit (full), Top, Bottom, Shoes,
+Hat, Glasses or Gloves. It replaces the kit's item in that slot (a full one
+replaces top and bottom, a top or a bottom a full one); several can be worn,
+one per slot. *Texture...* swaps its texture (alpha below 50% is cut out:
+lace, holes), and *As made* / a colour recolours it like the kit's clothes -
+the key colour is the texture's MOST COMMON one (the plain average of a
+red-and-white stripe is a pink that is nowhere in it, and the dye caught
+nothing). In the recipe: `"customWear": [{"mesh", "texture", "slot",
+"color"}]`, paths project-relative like the hair's.
+
+It is bound, skinned and stacked like the kit's mesh items (shoes and
+trousers under tops, hats and glasses outermost), so it follows every body
+slider - and the two garment passes above apply: it is kept out of the
+morphed body and the skin under it is not drawn. Model it a few millimetres
+off the reference skin; the conform pass handles a bigger bust or hips.
 
 ## The rig
 
