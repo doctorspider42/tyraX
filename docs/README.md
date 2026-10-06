@@ -10,8 +10,8 @@ for people building games with it. Internals live in code comments, the git log
 **World & objects**
 
 - [TyraX2 closeout qualification](tyrax2-closeout.md) — bounded public receiver,
-  sampler, night dressing and motion/portal checks, with ordinary timing traps
-  and remaining physical-console obligations stated separately.
+  sampler, night dressing and motion/portal checks through eight physical
+  protocols, with ordinary timing traps and remaining stable-60 limits.
 
 - [Animated models (.glb / .fbx)](animated-models.md) — authoring in Blender, import,
   clip playback, flow nodes and the script API, the PS2 memory budget.
@@ -558,3 +558,5 @@ The [fixed-hour clock](tyrax2-paused-clock.md) separates paused time from effect
 The [night-shift follow-ups](tyrax2-night-shift.md) complete exact cycle reuse, five-way object-data attribution and whole local-light result reuse in both physical orders. The memo gains are small, observer tax is measured, the inactive-output oracle failure is rejected, and no additional production candidate or 60 FPS claim is accepted.
 
 The [Claude proposal trials](tyrax2-claude-trials.md) price original validation at 0.171/0.189 ms and owned TEX1 preparation at 0.117/0.162 ms in both physical orders, find no active adjacent companion reuse in the stationary hardware census, and record hardware-counter overflow/ownership/operation-mode gates. A separate immutable hardware follow-up preserves resumed runs and a reflection-safe batching design. No new production optimization or full-night 60 FPS claim is accepted.
+
+- [Fresh empty one-car isolation](tyrax2-empty-car-2026-10-06/README.md): fresh stripped-map evidence; PS2 parked/driving/post-drive windows hold approximately59.94Hz at1.19/1.83/1.19ms non-pacing work; human TV review pending.

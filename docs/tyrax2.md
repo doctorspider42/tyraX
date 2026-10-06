@@ -745,10 +745,14 @@ for the immutable physical evidence and limitations.
 ### Portable ordinary-clock quiet fixtures
 
 The [bounded closeout qualification](tyrax2-closeout.md) records current public
-receiver controls, private quieting and motion/showcase obligations. FrameProfile
+receiver controls, private quieting and eight completed physical protocols.
+The public receiver relative saving is 0.950/1.024 ms in both orders; fixed-pose
+Players entry cadence is approximately 16.6833 ms, but the motion and portal
+routes do not sustain 60 fps. No eleven-box quality cut is promoted. FrameProfile
 level 2 still inserts the fairness drain; devkit-off alone does not suppress all
 authored or arena telemetry. Completed emulator protocols are correctness
-evidence, not new hardware pricing or stable full-night 60 fps acceptance.
+evidence; the separate physical archive supplies current bounded prices without
+establishing common implementation cost or stable full-night 60 fps acceptance.
 
 Use `tools/tyrax2-quiet-fixture.py --project PROJECT --engine TYRA_ROOT --editor
 EDITOR_EXECUTABLE --out NEW_DESTINATION --order 0` with absolute paths. It copies

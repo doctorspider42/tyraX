@@ -1,0 +1,114 @@
+[
+  {
+    "path": "preparation/README.md",
+    "sha256": "82ddda7c567e4deac983b79083cf04da050410fca01582874103a9406d511f36"
+  },
+  {
+    "path": "preparation/authored-proof.json",
+    "sha256": "9977a60d3a6dd9867c8f5e01deba4bc6c47bc7699f51b6ab363bef375e62ab81"
+  },
+  {
+    "path": "preparation/source-review.json",
+    "sha256": "eea01b1ee94dd31bff87aa86897a9561c9f9d5ef9d4b58461e3d10bf54a8f160"
+  },
+  {
+    "path": "preparation/native-proof.json",
+    "sha256": "e19e38d334b7cc712b498dd43e38203463bea711c7464b616a83a2893a687c00"
+  },
+  {
+    "path": "preparation/preparation-proof.json",
+    "sha256": "2f3bf702540df7106a70feee6d23f3dd48d0a87314cf85de4760c3210dd820ab"
+  },
+  {
+    "path": "preparation/source-content-census.json",
+    "sha256": "20ee2227736a3835407236494876dbede6e98b78efd51596064bf3f6a2b46b67"
+  },
+  {
+    "path": "preparation/root-emulator-review.json",
+    "sha256": "efbb0e1b8c2c9dcabfbf94fc73f475fefb621317f67c0434a596ec29a1528089"
+  },
+  {
+    "path": "preparation/analyze-empty.py",
+    "sha256": "dac457c354159fa1b42a830a29e6cc6cb1a015dfd645b8b7f24e5023035cd5a0"
+  },
+  {
+    "path": "preparation/parser-controls-v1/proof.json",
+    "sha256": "73de40921aca2d665d552db5489acd29087f444faaa99386b2165247d53cf58f"
+  },
+  {
+    "path": "emulator/owned-launch.json",
+    "sha256": "6ee568cd33157b87e1582e154b71d8e47ccfc5f7a6de9fbe5d4c0c71700ce331"
+  },
+  {
+    "path": "emulator/protocol-analysis.json",
+    "sha256": "9c59d00e2a44af9fcb0a7e5a6231bf728d58bbdd38f24216713aa76a82036e95"
+  },
+  {
+    "path": "emulator/capture-final/runtime-emulator.log",
+    "sha256": "c0db177ced91097165ff385c2b2eea7d98873119d4441914b3e6198ef05c2bd2"
+  },
+  {
+    "path": "emulator/capture-final/bin-closeout-samples.txt",
+    "sha256": "685a1bb9756332537e353477e26dd41970ef21d7a90abad1bb497ce92c5898ab"
+  },
+  {
+    "path": "emulator/capture-final/observe-proof.json",
+    "sha256": "76583449cd6065a64fef060df21d52b8278f9fac5c1fc069f2b8f6d8ea4c20bc"
+  },
+  {
+    "path": "emulator/capture-start/frame.png",
+    "sha256": "df90e1eb8b17bc2ba8e948bab2853b089d65a8265e73d1b14d0c63c739f5d429"
+  },
+  {
+    "path": "emulator/capture-drive/frame.png",
+    "sha256": "2263576fdcd4db2edfdcfa0d39302841d92aa1492ad86858c8267ef9af8d9a3b"
+  },
+  {
+    "path": "emulator/capture-final/frame.png",
+    "sha256": "cc04323d7d38f511b4c9deed11d26deb3854a9407a0f4dc29a0914c2a53ceb5f"
+  },
+  {
+    "path": "root-runtime-review.json",
+    "sha256": "ee50a91045782e3d32ace2813eba3e84785de02d6e8408eb6c6fbeb5614477c8"
+  },
+  {
+    "path": "physical/completed-stdout.raw",
+    "sha256": "d926c2e778644e04bd34d1d3d8002ad8667574f4db39184c413e64218f0dd82e"
+  },
+  {
+    "path": "physical/stdout.utf8.log",
+    "sha256": "d926c2e778644e04bd34d1d3d8002ad8667574f4db39184c413e64218f0dd82e"
+  },
+  {
+    "path": "physical/bin/closeout-samples.txt",
+    "sha256": "35d20ea2192f5bcd8ea9dfab6e64b014f85daaabdb15360ae8e59e29b959822f"
+  },
+  {
+    "path": "physical/launch-inputs.json",
+    "sha256": "e667fb7eeef886ece09c6487666def658e9c27fa3e0836351b478acbd4070826"
+  },
+  {
+    "path": "physical/owned-launch.json",
+    "sha256": "a0b83b438130d2492fc274f63155f989960703c0bc59449d80a361907d5e609e"
+  },
+  {
+    "path": "physical/protocol-analysis.json",
+    "sha256": "c0f4c234e55845402561fef665d6a8d6585cbcef4e89de8876ec59b91905ef92"
+  },
+  {
+    "path": "physical/physical-review.json",
+    "sha256": "a678b791f53fdd22233a6dd15e72fdb3ff498d5a6b5229699360da4efab43717"
+  },
+  {
+    "path": "physical/root-cadence-review.json",
+    "sha256": "c1de081a886be46b115103a530e43d7fe89315c707c221d7c8912f40735d8928"
+  },
+  {
+    "path": "physical/finish-empty-physical.py",
+    "sha256": "32793b94b48d2e28c2be02498c2527bb4207e9c88927c26984e53a60a88adaff"
+  },
+  {
+    "path": "rejected-first-start.json",
+    "sha256": "40fc92a41d42e880526b64311682503437bedded02483ee01dbe5cb2977d2b19"
+  }
+]

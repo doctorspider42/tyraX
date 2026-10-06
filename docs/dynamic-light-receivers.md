@@ -74,11 +74,14 @@ or exact per-pixel equivalence. Audio was not qualified.
 
 On R5900, `PipelineInfoBag` grows from 40 to 44 bytes. Engine and game code
 must be rebuilt together; the normal build does that. Restricted wheel groups
-and secondary-view animated-color refresh also have costs. Neither the common
-default path nor the public restricted mode has a new hardware price yet.
+and secondary-view animated-color refresh also have costs. The common default
+path and selector/layout footprint remain unpriced.
 The receiver option changes no production VU source.
 
-The [closeout qualification](tyrax2-closeout.md) prepares a quiet same-ELF
-All/Players comparison and separate sampler calibration. Completed emulator
-protocols do not replace the pending physical forward/reverse pair; common
-selector/layout and private observer footprint remain unpriced.
+The [closeout qualification](tyrax2-closeout.md) completes a quiet same-ELF
+physical All/Players comparison and separate sampler controls in both orders.
+Players saves 0.950/1.024 ms on the fixed night pose while retaining scene pools.
+Its priced windows have approximately 16.6833 ms mean loop-entry cadence; the
+separate motion and portal routes do not sustain 60 fps. This relative price
+includes the private common quieting/observer footprint and does not price
+the pristine default implementation or establish a historical 30-to-60 gain.

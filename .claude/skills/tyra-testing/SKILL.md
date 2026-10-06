@@ -3363,8 +3363,10 @@ spikes against 0 in a paired emulator run.
    the render (`work` starts at `beginFrame()`). `FTUPD`, printed beside it,
    splits the update half of `pre` into ten sections - `in` large means the
    devkit's host polling, not the game.
-5. **Transparency check:** capture the same pose once uninstrumented; its HUD
-   SCENE must match the instrumented run's. 13.21 vs 13.04 is a pass.
+5. **Apparatus check:** a same-pose HUD SCENE match is only a coarse diagnostic
+   check. It does not prove equal overlap, cadence or observer cost. Ordinary
+   pricing requires actual native FrameProfile=0/HardwareTrace=0 bindings,
+   quiet-window checks and same-ELF sampler controls in both orders.
 6. `FTRAW` gives every frame's `work`. A periodic spike is a TIMER - check the
    gaps: exactly equal gaps are frame-counted, gaps alternating 50/51 or 99/101
    are seconds converted through `g_frameDt` (`everyFrames(s)`), which is how

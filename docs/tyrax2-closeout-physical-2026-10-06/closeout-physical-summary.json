@@ -1,0 +1,606 @@
+{
+  "status": "COMPLETED_PHYSICAL_RUNS_SCOPE_ONLY",
+  "runs": [
+    {
+      "name": "tyrax2-closeout-ps2-quiet-motion-v4-v1",
+      "kind": 3,
+      "order": 0,
+      "route": "vehicle",
+      "phases": [
+        {
+          "phase": 0,
+          "players": 1,
+          "geometryHidden": 0,
+          "sampler": 1,
+          "chunkMeanNonPacingMs": 17.058969751993814,
+          "chunkMeanEntryMs": 24.660908783806697,
+          "maxObservedChunkMeanEntryMs": 31.02080700132582,
+          "renderedCompletions": 320,
+          "syntheticCompletions": 0,
+          "rawLoops": 128,
+          "rawEntryPeriodsAbove25Ms": 81,
+          "maxRawEntryPeriodMs": 50.071451822916664
+        },
+        {
+          "phase": 1,
+          "players": 1,
+          "geometryHidden": 0,
+          "sampler": 1,
+          "chunkMeanNonPacingMs": 13.894370884365506,
+          "chunkMeanEntryMs": 18.299561225043405,
+          "maxObservedChunkMeanEntryMs": 20.593594286176895,
+          "renderedCompletions": 320,
+          "syntheticCompletions": 0,
+          "rawLoops": 128,
+          "rawEntryPeriodsAbove25Ms": 8,
+          "maxRawEntryPeriodMs": 33.389919704861114
+        },
+        {
+          "phase": 2,
+          "players": 1,
+          "geometryHidden": 0,
+          "sampler": 1,
+          "chunkMeanNonPacingMs": 14.352938026852078,
+          "chunkMeanEntryMs": 18.6123661465115,
+          "maxObservedChunkMeanEntryMs": 21.636269834306503,
+          "renderedCompletions": 320,
+          "syntheticCompletions": 0,
+          "rawLoops": 128,
+          "rawEntryPeriodsAbove25Ms": 19,
+          "maxRawEntryPeriodMs": 33.3966064453125
+        }
+      ],
+      "middleMinusOuterMeanNonPacingMs": null,
+      "outerControlSpreadMs": null,
+      "portalColdCounts": null,
+      "physicalReviewSha256": "b85301eae2bfd064bd14bf991cfd4700b0710f8df08a53e1e913797da9e0a8a6",
+      "quietColdEnvelopes": [
+        {
+          "firstLine": 536,
+          "lastLine": 537,
+          "retainedWarnings": []
+        },
+        {
+          "firstLine": 539,
+          "lastLine": 540,
+          "retainedWarnings": []
+        },
+        {
+          "firstLine": 542,
+          "lastLine": 543,
+          "retainedWarnings": []
+        }
+      ]
+    },
+    {
+      "name": "tyrax2-closeout-ps2-quiet-showcase-v4-v1",
+      "kind": 3,
+      "order": 0,
+      "route": "gate",
+      "phases": [
+        {
+          "phase": 0,
+          "players": 1,
+          "geometryHidden": 0,
+          "sampler": 1,
+          "chunkMeanNonPacingMs": 35.67802248001098,
+          "chunkMeanEntryMs": 35.694324811299644,
+          "maxObservedChunkMeanEntryMs": 42.77106497022841,
+          "renderedCompletions": 320,
+          "syntheticCompletions": 0,
+          "rawLoops": 128,
+          "rawEntryPeriodsAbove25Ms": 80,
+          "maxRawEntryPeriodMs": 54.25994194878472
+        },
+        {
+          "phase": 1,
+          "players": 1,
+          "geometryHidden": 0,
+          "sampler": 1,
+          "chunkMeanNonPacingMs": 38.591696421305336,
+          "chunkMeanEntryMs": 38.60715743170844,
+          "maxObservedChunkMeanEntryMs": 42.82351038191054,
+          "renderedCompletions": 320,
+          "syntheticCompletions": 0,
+          "rawLoops": 128,
+          "rawEntryPeriodsAbove25Ms": 111,
+          "maxRawEntryPeriodMs": 53.937764485677086
+        },
+        {
+          "phase": 2,
+          "players": 1,
+          "geometryHidden": 0,
+          "sampler": 1,
+          "chunkMeanNonPacingMs": 39.565406979454885,
+          "chunkMeanEntryMs": 39.58076277838813,
+          "maxObservedChunkMeanEntryMs": 42.90951697031657,
+          "renderedCompletions": 320,
+          "syntheticCompletions": 0,
+          "rawLoops": 128,
+          "rawEntryPeriodsAbove25Ms": 118,
+          "maxRawEntryPeriodMs": 53.01524522569444
+        }
+      ],
+      "middleMinusOuterMeanNonPacingMs": null,
+      "outerControlSpreadMs": null,
+      "portalColdCounts": {
+        "portal0": [
+          0,
+          1,
+          1,
+          2,
+          2,
+          3
+        ],
+        "portal1": [
+          0,
+          1,
+          1,
+          2,
+          2,
+          3
+        ]
+      },
+      "physicalReviewSha256": "ba7709a386c77946485fb0afd11f3d4d12fdfc08a26fd1a17e7c1470cdfe5ff1",
+      "quietColdEnvelopes": [
+        {
+          "firstLine": 376,
+          "lastLine": 377,
+          "retainedWarnings": []
+        },
+        {
+          "firstLine": 379,
+          "lastLine": 381,
+          "retainedWarnings": [
+            "==WARN: Music ring ran low 3 time(s) in 5 s - the song is starving. Over ps2link that is the network: see docs/sound.md, \"Music stutters over ps2link\"."
+          ]
+        },
+        {
+          "firstLine": 386,
+          "lastLine": 388,
+          "retainedWarnings": [
+            "==WARN: Music ring ran low 2 time(s) in 5 s - the song is starving. Over ps2link that is the network: see docs/sound.md, \"Music stutters over ps2link\"."
+          ]
+        }
+      ]
+    },
+    {
+      "name": "tyrax2-closeout-ps2-v4-kind0-order0-v3",
+      "kind": 0,
+      "order": 0,
+      "route": null,
+      "phases": [
+        {
+          "phase": 0,
+          "players": 0,
+          "geometryHidden": 0,
+          "sampler": 1,
+          "chunkMeanNonPacingMs": 16.06841605504354,
+          "chunkMeanEntryMs": 16.6833352194892,
+          "maxObservedChunkMeanEntryMs": 16.683679898579914,
+          "renderedCompletions": 320,
+          "syntheticCompletions": 0,
+          "rawLoops": 128,
+          "rawEntryPeriodsAbove25Ms": 0,
+          "maxRawEntryPeriodMs": 16.738321940104168
+        },
+        {
+          "phase": 1,
+          "players": 1,
+          "geometryHidden": 0,
+          "sampler": 1,
+          "chunkMeanNonPacingMs": 15.13695870505439,
+          "chunkMeanEntryMs": 16.683334075080026,
+          "maxObservedChunkMeanEntryMs": 16.68387688530816,
+          "renderedCompletions": 320,
+          "syntheticCompletions": 0,
+          "rawLoops": 128,
+          "rawEntryPeriodsAbove25Ms": 0,
+          "maxRawEntryPeriodMs": 16.717912462022568
+        },
+        {
+          "phase": 2,
+          "players": 0,
+          "geometryHidden": 0,
+          "sampler": 1,
+          "chunkMeanNonPacingMs": 16.106302335527207,
+          "chunkMeanEntryMs": 16.683231247795952,
+          "maxObservedChunkMeanEntryMs": 16.683944861094158,
+          "renderedCompletions": 320,
+          "syntheticCompletions": 0,
+          "rawLoops": 128,
+          "rawEntryPeriodsAbove25Ms": 0,
+          "maxRawEntryPeriodMs": 16.735209147135418
+        }
+      ],
+      "middleMinusOuterMeanNonPacingMs": -0.950400490230983,
+      "outerControlSpreadMs": 0.0378862804836686,
+      "portalColdCounts": null,
+      "physicalReviewSha256": "c3574a83066f42fb67e394cb7d11f953c6f5f867d6c68788667ab95861399e90",
+      "quietColdEnvelopes": [
+        {
+          "firstLine": 535,
+          "lastLine": 536,
+          "retainedWarnings": []
+        },
+        {
+          "firstLine": 538,
+          "lastLine": 539,
+          "retainedWarnings": []
+        },
+        {
+          "firstLine": 541,
+          "lastLine": 542,
+          "retainedWarnings": []
+        }
+      ]
+    },
+    {
+      "name": "tyrax2-closeout-ps2-v4-kind0-order1-v1",
+      "kind": 0,
+      "order": 1,
+      "route": null,
+      "phases": [
+        {
+          "phase": 0,
+          "players": 1,
+          "geometryHidden": 0,
+          "sampler": 1,
+          "chunkMeanNonPacingMs": 15.13788130018446,
+          "chunkMeanEntryMs": 16.683333439297147,
+          "maxObservedChunkMeanEntryMs": 16.683686415354412,
+          "renderedCompletions": 320,
+          "syntheticCompletions": 0,
+          "rawLoops": 128,
+          "rawEntryPeriodsAbove25Ms": 0,
+          "maxRawEntryPeriodMs": 16.7330322265625
+        },
+        {
+          "phase": 1,
+          "players": 0,
+          "geometryHidden": 0,
+          "sampler": 1,
+          "chunkMeanNonPacingMs": 16.162533410390218,
+          "chunkMeanEntryMs": 16.891894382900663,
+          "maxObservedChunkMeanEntryMs": 17.204783757527668,
+          "renderedCompletions": 320,
+          "syntheticCompletions": 0,
+          "rawLoops": 128,
+          "rawEntryPeriodsAbove25Ms": 1,
+          "maxRawEntryPeriodMs": 33.39691162109375
+        },
+        {
+          "phase": 2,
+          "players": 1,
+          "geometryHidden": 0,
+          "sampler": 1,
+          "chunkMeanNonPacingMs": 15.138309362199571,
+          "chunkMeanEntryMs": 16.683332930670844,
+          "maxObservedChunkMeanEntryMs": 16.683358669281006,
+          "renderedCompletions": 320,
+          "syntheticCompletions": 0,
+          "rawLoops": 128,
+          "rawEntryPeriodsAbove25Ms": 0,
+          "maxRawEntryPeriodMs": 16.727945963541668
+        }
+      ],
+      "middleMinusOuterMeanNonPacingMs": 1.0244380791982017,
+      "outerControlSpreadMs": 0.0004280620151106973,
+      "portalColdCounts": null,
+      "physicalReviewSha256": "689195b969533036027bcae2bbe6b5796bd466d948e08f6eaa8681a483cc2ffd",
+      "quietColdEnvelopes": [
+        {
+          "firstLine": 535,
+          "lastLine": 536,
+          "retainedWarnings": []
+        },
+        {
+          "firstLine": 538,
+          "lastLine": 539,
+          "retainedWarnings": []
+        },
+        {
+          "firstLine": 541,
+          "lastLine": 542,
+          "retainedWarnings": []
+        }
+      ]
+    },
+    {
+      "name": "tyrax2-closeout-ps2-v4-kind1-order0-v1",
+      "kind": 1,
+      "order": 0,
+      "route": null,
+      "phases": [
+        {
+          "phase": 0,
+          "players": 0,
+          "geometryHidden": 0,
+          "sampler": 0,
+          "chunkMeanNonPacingMs": 16.1094508488973,
+          "chunkMeanEntryMs": 16.683398946126303,
+          "maxObservedChunkMeanEntryMs": 16.68366527557373,
+          "renderedCompletions": 320,
+          "syntheticCompletions": 0,
+          "rawLoops": 0,
+          "rawEntryPeriodsAbove25Ms": 0,
+          "maxRawEntryPeriodMs": null
+        },
+        {
+          "phase": 1,
+          "players": 0,
+          "geometryHidden": 0,
+          "sampler": 1,
+          "chunkMeanNonPacingMs": 16.11265376408895,
+          "chunkMeanEntryMs": 16.683335791693793,
+          "maxObservedChunkMeanEntryMs": 16.683839321136475,
+          "renderedCompletions": 320,
+          "syntheticCompletions": 0,
+          "rawLoops": 128,
+          "rawEntryPeriodsAbove25Ms": 0,
+          "maxRawEntryPeriodMs": 16.7359619140625
+        },
+        {
+          "phase": 2,
+          "players": 0,
+          "geometryHidden": 0,
+          "sampler": 0,
+          "chunkMeanNonPacingMs": 16.122033585442438,
+          "chunkMeanEntryMs": 16.787701225280763,
+          "maxObservedChunkMeanEntryMs": 17.20468266805013,
+          "renderedCompletions": 320,
+          "syntheticCompletions": 0,
+          "rawLoops": 0,
+          "rawEntryPeriodsAbove25Ms": 0,
+          "maxRawEntryPeriodMs": null
+        }
+      ],
+      "middleMinusOuterMeanNonPacingMs": -0.0030884530809167643,
+      "outerControlSpreadMs": 0.012582736545137863,
+      "portalColdCounts": null,
+      "physicalReviewSha256": "e8651b532c95c95f50057496dd6def1af1514e137da2edc17da4ad36d011c8e1",
+      "quietColdEnvelopes": [
+        {
+          "firstLine": 535,
+          "lastLine": 536,
+          "retainedWarnings": []
+        },
+        {
+          "firstLine": 538,
+          "lastLine": 539,
+          "retainedWarnings": []
+        },
+        {
+          "firstLine": 541,
+          "lastLine": 542,
+          "retainedWarnings": []
+        }
+      ]
+    },
+    {
+      "name": "tyrax2-closeout-ps2-v4-kind1-order1-v1",
+      "kind": 1,
+      "order": 1,
+      "route": null,
+      "phases": [
+        {
+          "phase": 0,
+          "players": 0,
+          "geometryHidden": 0,
+          "sampler": 1,
+          "chunkMeanNonPacingMs": 16.115675671895346,
+          "chunkMeanEntryMs": 16.68333331214057,
+          "maxObservedChunkMeanEntryMs": 16.683565775553387,
+          "renderedCompletions": 320,
+          "syntheticCompletions": 0,
+          "rawLoops": 128,
+          "rawEntryPeriodsAbove25Ms": 0,
+          "maxRawEntryPeriodMs": 16.747456868489582
+        },
+        {
+          "phase": 1,
+          "players": 0,
+          "geometryHidden": 0,
+          "sampler": 0,
+          "chunkMeanNonPacingMs": 16.117170111338297,
+          "chunkMeanEntryMs": 16.73537464141846,
+          "maxObservedChunkMeanEntryMs": 16.943506558736164,
+          "renderedCompletions": 320,
+          "syntheticCompletions": 0,
+          "rawLoops": 0,
+          "rawEntryPeriodsAbove25Ms": 0,
+          "maxRawEntryPeriodMs": null
+        },
+        {
+          "phase": 2,
+          "players": 0,
+          "geometryHidden": 0,
+          "sampler": 1,
+          "chunkMeanNonPacingMs": 16.118667528364394,
+          "chunkMeanEntryMs": 16.683331531948514,
+          "maxObservedChunkMeanEntryMs": 16.683844407399494,
+          "renderedCompletions": 320,
+          "syntheticCompletions": 0,
+          "rawLoops": 128,
+          "rawEntryPeriodsAbove25Ms": 0,
+          "maxRawEntryPeriodMs": 16.744873046875
+        }
+      ],
+      "middleMinusOuterMeanNonPacingMs": -1.4887915753547531e-06,
+      "outerControlSpreadMs": 0.002991856469048315,
+      "portalColdCounts": null,
+      "physicalReviewSha256": "1997e1fd49005ca3f3ebb7898c14c90793f645ebc0687e4897b11faaa8d122ce",
+      "quietColdEnvelopes": [
+        {
+          "firstLine": 535,
+          "lastLine": 536,
+          "retainedWarnings": []
+        },
+        {
+          "firstLine": 538,
+          "lastLine": 539,
+          "retainedWarnings": []
+        },
+        {
+          "firstLine": 541,
+          "lastLine": 542,
+          "retainedWarnings": []
+        }
+      ]
+    },
+    {
+      "name": "tyrax2-closeout-ps2-v4-kind2-order0-v1",
+      "kind": 2,
+      "order": 0,
+      "route": null,
+      "phases": [
+        {
+          "phase": 0,
+          "players": 1,
+          "geometryHidden": 0,
+          "sampler": 1,
+          "chunkMeanNonPacingMs": 15.14406083424886,
+          "chunkMeanEntryMs": 16.68333191341824,
+          "maxObservedChunkMeanEntryMs": 16.68365165922377,
+          "renderedCompletions": 320,
+          "syntheticCompletions": 0,
+          "rawLoops": 128,
+          "rawEntryPeriodsAbove25Ms": 0,
+          "maxRawEntryPeriodMs": 16.73532443576389
+        },
+        {
+          "phase": 1,
+          "players": 1,
+          "geometryHidden": 1,
+          "sampler": 1,
+          "chunkMeanNonPacingMs": 14.466023148430716,
+          "chunkMeanEntryMs": 16.683332104153106,
+          "maxObservedChunkMeanEntryMs": 16.68344471189711,
+          "renderedCompletions": 320,
+          "syntheticCompletions": 0,
+          "rawLoops": 128,
+          "rawEntryPeriodsAbove25Ms": 0,
+          "maxRawEntryPeriodMs": 16.734151204427082
+        },
+        {
+          "phase": 2,
+          "players": 1,
+          "geometryHidden": 0,
+          "sampler": 1,
+          "chunkMeanNonPacingMs": 15.138457976447212,
+          "chunkMeanEntryMs": 16.68333477444119,
+          "maxObservedChunkMeanEntryMs": 16.683363437652588,
+          "renderedCompletions": 320,
+          "syntheticCompletions": 0,
+          "rawLoops": 128,
+          "rawEntryPeriodsAbove25Ms": 0,
+          "maxRawEntryPeriodMs": 16.738606770833332
+        }
+      ],
+      "middleMinusOuterMeanNonPacingMs": -0.6752362569173194,
+      "outerControlSpreadMs": 0.005602857801648042,
+      "portalColdCounts": null,
+      "physicalReviewSha256": "23b87f1f0727bbc965e2e72509fec0f497eaff816f4f91cba9ae68ac40d5dab9",
+      "quietColdEnvelopes": [
+        {
+          "firstLine": 535,
+          "lastLine": 536,
+          "retainedWarnings": []
+        },
+        {
+          "firstLine": 538,
+          "lastLine": 539,
+          "retainedWarnings": []
+        },
+        {
+          "firstLine": 541,
+          "lastLine": 542,
+          "retainedWarnings": []
+        }
+      ]
+    },
+    {
+      "name": "tyrax2-closeout-ps2-v4-kind2-order1-v1",
+      "kind": 2,
+      "order": 1,
+      "route": null,
+      "phases": [
+        {
+          "phase": 0,
+          "players": 1,
+          "geometryHidden": 1,
+          "sampler": 1,
+          "chunkMeanNonPacingMs": 14.408357832166883,
+          "chunkMeanEntryMs": 16.683428658379448,
+          "maxObservedChunkMeanEntryMs": 16.68380006154378,
+          "renderedCompletions": 320,
+          "syntheticCompletions": 0,
+          "rawLoops": 128,
+          "rawEntryPeriodsAbove25Ms": 0,
+          "maxRawEntryPeriodMs": 16.714640299479168
+        },
+        {
+          "phase": 1,
+          "players": 1,
+          "geometryHidden": 0,
+          "sampler": 1,
+          "chunkMeanNonPacingMs": 15.096183978186714,
+          "chunkMeanEntryMs": 16.683334075080026,
+          "maxObservedChunkMeanEntryMs": 16.683722972869873,
+          "renderedCompletions": 320,
+          "syntheticCompletions": 0,
+          "rawLoops": 128,
+          "rawEntryPeriodsAbove25Ms": 0,
+          "maxRawEntryPeriodMs": 16.7327880859375
+        },
+        {
+          "phase": 2,
+          "players": 1,
+          "geometryHidden": 1,
+          "sampler": 1,
+          "chunkMeanNonPacingMs": 14.411570686764188,
+          "chunkMeanEntryMs": 16.68333165910509,
+          "maxObservedChunkMeanEntryMs": 16.683644983503555,
+          "renderedCompletions": 320,
+          "syntheticCompletions": 0,
+          "rawLoops": 128,
+          "rawEntryPeriodsAbove25Ms": 0,
+          "maxRawEntryPeriodMs": 16.737202962239582
+        }
+      ],
+      "middleMinusOuterMeanNonPacingMs": 0.686219718721178,
+      "outerControlSpreadMs": 0.003212854597304471,
+      "portalColdCounts": null,
+      "physicalReviewSha256": "341e8e1da3ba518e3f16f3c37700db44a4b133b44e80ca58066b8ed778ca0de1",
+      "quietColdEnvelopes": [
+        {
+          "firstLine": 535,
+          "lastLine": 536,
+          "retainedWarnings": []
+        },
+        {
+          "firstLine": 538,
+          "lastLine": 539,
+          "retainedWarnings": []
+        },
+        {
+          "firstLine": 541,
+          "lastLine": 542,
+          "retainedWarnings": []
+        }
+      ]
+    }
+  ],
+  "ordinarySamplerBoundaries": true,
+  "addedWaits": false,
+  "publicCommonCodeCostUnpriced": true,
+  "quietScaffoldingCostUnpriced": true,
+  "tvScanoutLatencyUnmeasured": true,
+  "universalNightSixtyFpsAccepted": false,
+  "limitations": [
+    "Only priced320-loop windows and128 raw loops per enabled phase; not exhaustive5400-loop tails.",
+    "25ms is an explicit event separator, not16.68ms rounded dropped-field threshold.",
+    "Private healthy telemetry suppression is common and unpriced; cannot assign older30fps-to-current gain to receiver policy.",
+    "Geometry removes authored content, not equivalent-output optimization."
+  ]
+}

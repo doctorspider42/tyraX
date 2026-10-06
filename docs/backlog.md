@@ -495,12 +495,20 @@ recovered 0.50-0.72 ms of hardware `work`. What it did not do, ranked:
   implementation retaining pools, with project/scene policy and live ownership.
   Its editor/model/native checks, animated All/Players witnesses, same-definition
   driver rebinding, targeted showcase portal and fresh PS2 screenshots qualify
-  correctness. Price its common All path and restricted path separately on
-  hardware; these archived private prices do not qualify either public cost.
-  The [bounded closeout](tyrax2-closeout.md) now has quiet native fixtures and
-  completed emulator receiver, sampler, eleven-box ablation and vehicle-motion
-  protocols. Physical forward/reverse pricing and motion/showcase cadence remain
-  open: the new hardware attempt never started the game (`freepad: DMA Busy`).
+  correctness. The [bounded closeout](tyrax2-closeout.md) completes eight physical
+  5400-loop protocols: both-order public receiver savings 0.950/1.024 ms,
+  sampler controls within drift, and eleven-box quality-cut savings
+  0.675/0.686 ms with Players fixed. No dressing removal is promoted. Fixed-pose
+  Players windows have approximately 16.6833 ms entry cadence, while vehicle
+  motion and portal showcase do not sustain 60 fps. The implementation/default/
+  flow integration and bounded final checks are complete; stable night motion
+  and portal cadence are separate performance work. Price common All-path and
+  private quiet/controller footprint before attributing production gains.
+  The old DMA Busy and later missing-asset staging attempts remain excluded;
+  all eight qualified starts include complete asset inventories and protocols.
+  A [fresh one-car map](tyrax2-empty-car-2026-10-06/README.md) subsequently holds
+  approximately59.94Hz in parked/driving/post-drive PS2 windows at1.19/1.83/1.19ms
+  non-pacing work, narrowing remaining performance work to populated-scene costs.
   The host-crash partial attempt is preserved and excluded; its fresh retry completes.
 
   The [eleven-box main-only batching trial](tyrax2-main11-batch.md) completes

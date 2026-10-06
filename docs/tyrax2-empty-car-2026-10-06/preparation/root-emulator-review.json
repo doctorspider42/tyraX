@@ -1,0 +1,36 @@
+{
+  "status": "ROOT_REVIEWED_CLOSEOUT_INPUTS",
+  "rootReviewed": true,
+  "noAddedWaitsReviewed": true,
+  "ordinarySamplerOnlyReviewed": true,
+  "sourceFrozenByRoot": true,
+  "fixture": "/mnt/f/Projects/tyrax2-lab-20261001/tyrax2-closeout-empty-car-v1/empty-car",
+  "inputs": [
+    {
+      "role": "source-review",
+      "path": "/mnt/f/Projects/tyrax2-lab-20261001/tyrax2-closeout-empty-car-v1/source-review.json",
+      "sha256": "eea01b1ee94dd31bff87aa86897a9561c9f9d5ef9d4b58461e3d10bf54a8f160"
+    },
+    {
+      "role": "native-proof",
+      "path": "/mnt/f/Projects/tyrax2-lab-20261001/tyrax2-closeout-empty-car-v1/native-proof.json",
+      "sha256": "e19e38d334b7cc712b498dd43e38203463bea711c7464b616a83a2893a687c00"
+    },
+    {
+      "role": "elf",
+      "path": "/mnt/f/Projects/tyrax2-lab-20261001/tyrax2-closeout-empty-car-v1/empty-car/bin/empty-car.elf",
+      "sha256": "c2469d9616d8f1d62d784e62384d24fb4c790ecd8b618696a590638d96ea8909"
+    },
+    {
+      "role": "symbol",
+      "path": "/mnt/f/Projects/tyrax2-lab-20261001/tyrax2-closeout-empty-car-v1/empty-car/bin/empty-car.elf.sym",
+      "sha256": "ec5ca0793dcdab9a7818474e153f93c3bb1ce5beff24d25d4e871405d8ae8c45"
+    },
+    {
+      "role": "sample-config",
+      "path": "/mnt/f/Projects/tyrax2-lab-20261001/tyrax2-closeout-empty-car-v1/empty-car/bin/closeout.cfg",
+      "sha256": "968c76efed47eb02a2a77c542c9128dfd4e9c7066629920b2d8c3231081e7623"
+    }
+  ],
+  "reviewScope": "Fresh one-car scene source census and native binding; analytic invisible floor only, eight explicit cosmetic FX cuts, normal main car geometry/physics, cold accepted-input witness after main cull; image and physical cadence still required; common observer unpriced"
+}
