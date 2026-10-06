@@ -1159,20 +1159,17 @@ inline void generateVolumeThunk(int volumeIndex, int seed, bool clear) {
 // ke: material emission (MTL Ke), null/zero = matte - see the floor below.
 // textured: this batch draws with a texture (a model part's map_Kd or a
 // primitive material's) - switches the color to modulation scale (128 = 1.0).
-inline void pushVert(BagArray<Vec4>& verts, BagArray<Color>& cols,
-              BagArray<Vec4>& sts, const SceneObjectData& o, V3 p, V3 n,
-              float u, float v, const float* kdArg = nullptr,
-              bool texturedArg = false, unsigned char selfAo = 255,
-              const float* keArg = nullptr) {
-  const float* kd = kdArg ? kdArg : g_primKd;
-  const float* ke = keArg ? keArg : g_primKe;
-  const bool textured = texturedArg || g_primTextured;
-  p.x *= o.scale[0], p.y *= o.scale[1], p.z *= o.scale[2];
-  const V3 lp = p;  // local (scaled) position - what g_bakeLocal pushes
-  const V3 ln = n;  // ...and the matching un-rotated normal
-  p = rotated(p, o.rotation);
-  n = rotated(n, o.rotation);
-  const V3 wp = {p.x + o.position[0], p.y + o.position[1], p.z + o.position[2]};
+// The baked colour of ONE vertex: wp/n are its WORLD position and normal (the
+// object's scale, rotation and position already applied - see pushVert). Split
+// out of pushVert so the shared-instance bake (bakeSharedObject) lights a
+// model-space vertex with exactly the same arithmetic without storing it:
+// every byte of the colour comes from here either way. The g_litNormals
+// capture stays in pushVert (it is a vertex attribute, not a colour); the
+// g_aoSts push stays here because it rides the AO branch.
+inline Color shadeVertexColor(const SceneObjectData& o, const V3& wp,
+                              const V3& n, float u, float v, const float* kd,
+                              const float* ke, bool textured,
+                              unsigned char selfAo) {
   // Global illumination takes the whole shade over when it owns the surface
   // (docs/global-illumination.md): black here for a lightmapped one - the
   // additive atlas pass puts every photon back per pixel - and the probe
@@ -1186,8 +1183,6 @@ inline void pushVert(BagArray<Vec4>& verts, BagArray<Color>& cols,
     // VU1 lights this one. Its color must carry the ALBEDO only - the light
     // arrives per frame through the bag, and doubling it here is the same
     // mistake the lightmap/probe routes are arranged to avoid.
-    g_litNormals->push_back(g_bakeLocal ? Vec4(ln.x, ln.y, ln.z, 0.0F)
-                                        : Vec4(n.x, n.y, n.z, 0.0F));
     shade = {1.0F, 1.0F, 1.0F};
     giHere = true;
   } else if (g_prelitTex) {
@@ -1255,16 +1250,37 @@ inline void pushVert(BagArray<Vec4>& verts, BagArray<Color>& cols,
     if (shade.y < ke[1]) shade.y = ke[1];
     if (shade.z < ke[2]) shade.z = ke[2];
   }
-  verts.push_back(g_bakeLocal ? Vec4(lp.x, lp.y, lp.z, 1.0F)
-                              : Vec4(wp.x, wp.y, wp.z, 1.0F));
   // In textured mode the color modulates the texture (128 = 1.0). Kd may
   // exceed 1 (material brightness) - cap at the GS's 255 so untextured
   // colors cannot wrap.
   const float scale = textured ? 128.0F : 255.0F;
-  auto c255 = [](float v) { return v > 255.0F ? 255.0F : v; };
-  cols.push_back(Color(c255(o.color[0] * scale * shade.x),
-                       c255(o.color[1] * scale * shade.y),
-                       c255(o.color[2] * scale * shade.z), 128.0F));
+  auto c255 = [](float c) { return c > 255.0F ? 255.0F : c; };
+  return Color(c255(o.color[0] * scale * shade.x),
+               c255(o.color[1] * scale * shade.y),
+               c255(o.color[2] * scale * shade.z), 128.0F);
+}
+
+inline void pushVert(BagArray<Vec4>& verts, BagArray<Color>& cols,
+              BagArray<Vec4>& sts, const SceneObjectData& o, V3 p, V3 n,
+              float u, float v, const float* kdArg = nullptr,
+              bool texturedArg = false, unsigned char selfAo = 255,
+              const float* keArg = nullptr) {
+  const float* kd = kdArg ? kdArg : g_primKd;
+  const float* ke = keArg ? keArg : g_primKe;
+  const bool textured = texturedArg || g_primTextured;
+  p.x *= o.scale[0], p.y *= o.scale[1], p.z *= o.scale[2];
+  const V3 lp = p;  // local (scaled) position - what g_bakeLocal pushes
+  const V3 ln = n;  // ...and the matching un-rotated normal
+  p = rotated(p, o.rotation);
+  n = rotated(n, o.rotation);
+  const V3 wp = {p.x + o.position[0], p.y + o.position[1], p.z + o.position[2]};
+  if (g_litNormals)
+    g_litNormals->push_back(g_bakeLocal ? Vec4(ln.x, ln.y, ln.z, 0.0F)
+                                        : Vec4(n.x, n.y, n.z, 0.0F));
+  const Color c = shadeVertexColor(o, wp, n, u, v, kd, ke, textured, selfAo);
+  verts.push_back(g_bakeLocal ? Vec4(lp.x, lp.y, lp.z, 1.0F)
+                              : Vec4(wp.x, wp.y, wp.z, 1.0F));
+  cols.push_back(c);
   // staged-material path only (kdArg = a model part whose UVs the loader
   // already remapped)
   if (!kdArg && g_primUvRect)
@@ -6062,7 +6078,10 @@ void TerrainGame::loadModelAsset(int i) {
 
 // Frees a model's geometry, collider and texture references. Only called
 // when no object of a resident layer uses the model - every GeoPart drawing
-// it was dropped by deactivateObject() beforehand.
+// it was dropped by deactivateObject() beforehand. The shared instance bakes
+// (gm.sharedParts) do not rely on that ordering: each instance part holds its
+// own reference, so an array outlives every bag aimed at it whichever side
+// lets go first (docs/instance-sharing.md).
 void TerrainGame::freeModelAsset(int i) {
   if (i < 0 || i >= MODEL_COUNT || !modelLoaded[i]) return;
   GameModel& gm = gameModels[i];
@@ -6547,6 +6566,9 @@ void TerrainGame::updateLayerStreaming() {
     for (int l = 0; l < lc; ++l)
       if (layerTarget[l] == 0) layerState[l] = 0;
     applyLayerResidency();
+    // The streamed-out instances let go of their pooled colours; free the
+    // arrays only the pool still holds now rather than at its next sweep.
+    if (anyOut) pruneColorPool();
     if (anyOut) buildParticles();  // drop the streamed-out emitters' pools
   }
 
@@ -8420,7 +8442,10 @@ void TerrainGame::loadModelAsset(int i) {
 
 // Frees a model's geometry, collider and texture references. Only called
 // when no object of a resident layer uses the model - every GeoPart drawing
-// it was dropped by deactivateObject() beforehand.
+// it was dropped by deactivateObject() beforehand. The shared instance bakes
+// (gm.sharedParts) do not rely on that ordering: each instance part holds its
+// own reference, so an array outlives every bag aimed at it whichever side
+// lets go first (docs/instance-sharing.md).
 void TerrainGame::freeModelAsset(int i) {
   if (i < 0 || i >= MODEL_COUNT || !modelLoaded[i]) return;
   GameModel& gm = gameModels[i];
@@ -8905,6 +8930,9 @@ void TerrainGame::updateLayerStreaming() {
     for (int l = 0; l < lc; ++l)
       if (layerTarget[l] == 0) layerState[l] = 0;
     applyLayerResidency();
+    // The streamed-out instances let go of their pooled colours; free the
+    // arrays only the pool still holds now rather than at its next sweep.
+    if (anyOut) pruneColorPool();
     if (anyOut) buildParticles();  // drop the streamed-out emitters' pools
   }
 
@@ -9009,7 +9037,7 @@ void TerrainGame::updatePlayer() {
   // Collision with scene objects (collidePlayer: box/mesh/none per object)
   // + standing on top of them. Player can step ~0.5 units up.
   // The floor is the sculpted terrain.
-  float ground = terrainHeightAt(nextX, nextZ);
+  float ground = walkGroundAt(nextX, nextZ, playerY);
   // a linked floor portal underfoot swallows the walker (see
   // portalSwallowsPlayer) - the terrain stops being the floor there
   if (PORTAL_COUNT > 0 && portalSwallowsPlayer(nextX, playerY, nextZ))
@@ -9822,6 +9850,25 @@ void TerrainGame::collidePlayer(float prevX, float prevZ, float* nextX,
       continue;
     const float headY = feetY + eyeHeight;
     const float stepY = feetY + 0.6F;
+    if (b.lhx > 0.0F) {
+      // An oriented wall (a bridge parapet or pier): the object boxes' rule
+      // in its own yaw frame - a low top is a step, overhead is ignored,
+      // anything else cancels the local axes that entered it.
+      if (b.mx[1] <= stepY || b.mn[1] >= headY) continue;
+      const float ocx = 0.5F * (b.mn[0] + b.mx[0]), ocz = 0.5F * (b.mn[2] + b.mx[2]);
+      const float ohx = b.lhx + playerRadius, ohz = b.lhz + playerRadius;
+      const float ndx = *nextX - ocx, ndz = *nextZ - ocz;
+      const float lnx = ndx * b.yc - ndz * b.ys, lnz = ndx * b.ys + ndz * b.yc;
+      if (!(lnx > -ohx && lnx < ohx && lnz > -ohz && lnz < ohz)) continue;
+      const float pdx = prevX - ocx, pdz = prevZ - ocz;
+      const float lpx = pdx * b.yc - pdz * b.ys, lpz = pdx * b.ys + pdz * b.yc;
+      const bool inX = lpx > -ohx && lpx < ohx, inZ = lpz > -ohz && lpz < ohz;
+      const float lx = inX && inZ ? lpx : (inX ? lnx : lpx);
+      const float lz = inX && inZ ? lpz : (inZ ? lnz : lpz);
+      *nextX = ocx + lx * b.yc + lz * b.ys;
+      *nextZ = ocz - lx * b.ys + lz * b.yc;
+      continue;
+    }
     if (b.mx[1] <= feetY + 0.01F || b.mn[1] >= headY) {
       // Entirely below the feet or above the head: it can still be the floor.
       if (b.mx[1] <= stepY && b.mx[1] > *ground && *nextX + playerRadius > b.mn[0] &&
@@ -10133,6 +10180,10 @@ void TerrainGame::loadScene(int sceneIndex) {
                         RuntimeObject());
   objectGeometry.clear();
   objectGeometry.resize(SCENE_OBJECT_COUNT + MAX_SPAWNED_OBJECTS);
+  // The old scene's instances let go of their pooled colours above; the
+  // pool's own references are the last ones.
+  colorPool.clear();
+  memStatCountdown = DEBUG_SHOW_MEM ? 0 : -1;  // MEMSTAT frame counter
   // The flashlight's receivers are indices into the table that just went away.
   flashSpotOffList.clear();
   // Pool slots start empty - data arrives from a template at spawn time.
@@ -14562,6 +14613,10 @@ void TerrainGame::updateAndRenderLightPools() {
           } else if (runtimeObjects[oi].dirty) {
             rebuildObjectGeometry(oi);
           }
+          // This pass copies WORLD-space triangles and must land on the base
+          // pass's exact depth, which a shared instance (model space, VU1's
+          // own transform) cannot promise - it goes back to a solo bake.
+          unshareObject(oi);
           ObjectGeometry& g = objectGeometry[oi];
           // Nothing to re-render: animated models (skinned buffers) and
           // physics bodies (LOCAL verts under a live matrix - an EE transform
@@ -15550,6 +15605,7 @@ void TerrainGame::updateAndRenderLightPools() {
           } else if (runtimeObjects[oi].dirty) {
             rebuildObjectGeometry(oi);
           }
+          unshareObject(oi);  // world-space triangles, equal depth (above)
           ObjectGeometry& g = objectGeometry[oi];
           if (g.parts.empty() || g.matrixMode) continue;
           const float* oc = runtimeObjects[oi].data.position;
@@ -15958,8 +16014,10 @@ void TerrainGame::updateAndRenderBlobShadows() {
     // Object base: the player entity sits at its feet, everything else is
     // centered (base = center - halfY).
     if (b.objIndex == PLAYER_INDEX) halfY = 0.0F;
-    const float ground = groundSurfaceAt(cx, cz);
-    const float h = (d.position[1] - halfY) - ground;
+    // The surface under the caster, not a bridge deck above it.
+    const float casterBase = d.position[1] - halfY;
+    const float ground = groundSurfaceAt(cx, cz, casterBase + 0.5F);
+    const float h = casterBase - ground;
     float fade = 1.0F - h * (1.0F / 3.0F);
     // NOT the day/night handover fade (daynight::g_shadowFade), which the
     // projected silhouettes do take: this quad sits UNDER the caster and has no
@@ -15992,7 +16050,7 @@ void TerrainGame::updateAndRenderBlobShadows() {
     auto receiver = [&](float lx, float lz) {
       const float x = cx + lx * cy + lz * sy;
       const float z = cz - lx * sy + lz * cy;
-      return Vec4(x, groundSurfaceAt(x, z) + lift, z, 1.0F);
+      return Vec4(x, groundSurfaceAt(x, z, casterBase + 0.5F) + lift, z, 1.0F);
     };
     // A 3x3 cell patch has only 4x4 unique corners. groundSurfaceAt also
     // searches road/junction chunks and their triangles, so rebuilding the
@@ -17064,13 +17122,25 @@ void TerrainGame::renderProjShadows() {
     static BagArray<Vec4> projClamp;
     auto renderAtFloor = [&](StaPipBag* bag) {
       if (!bag || !bag->vertices || bag->count == 0) return;
+      // A shared instance's bag holds MODEL-space vertices under objMat
+      // (scale included): its floor test reads the world height through the
+      // matrix, and a clamped copy is made in world space and drawn under
+      // the identity for this one submit. The silhouette rasterizes alone
+      // into its own slot target, so nothing needs its depth to match.
+      const bool sharedCaster = g.shared;
+      const float* om = g.objMat.data;
       bool below = false;
       if (groundOk && !g.matrixMode)
-        for (u32 vi = 0; vi < bag->count; ++vi)
-          if (bag->vertices[vi].y < gy0 - 0.05F) {
+        for (u32 vi = 0; vi < bag->count; ++vi) {
+          const Vec4& v = bag->vertices[vi];
+          const float wy = sharedCaster
+                               ? om[1] * v.x + om[5] * v.y + om[9] * v.z + om[13]
+                               : v.y;
+          if (wy < gy0 - 0.05F) {
             below = true;
             break;
           }
+        }
       if (!below) {
         stapip.core.render(bag);
         return;
@@ -17084,8 +17154,14 @@ void TerrainGame::renderProjShadows() {
       // return while chains are still queued (vif1_queue.hpp).
       Tyra::Vif1Queue::drain();
       projClamp.assign(bag->vertices, bag->vertices + bag->count);
+      if (sharedCaster)
+        for (Vec4& v : projClamp) v = g.objMat * v;
       for (Vec4& v : projClamp)
         if (v.y < gy0) v.y = gy0;
+      // (the info bag is the base pass's, shared with the silhouette bag -
+      // swapped to the identity for this submit and handed straight back)
+      M4x4* const keepModel = bag->info->model;
+      if (sharedCaster) bag->info->model = &model;
       Vec4* const keepVerts = bag->vertices;
       const u32 keepStamp = bag->bboxVersion;
       // The bag is aimed at the shared clamp buffer for ONE render and put
@@ -17103,6 +17179,7 @@ void TerrainGame::renderProjShadows() {
       bag->vertices = keepVerts;
       bag->contentVersion = keepContent;
       bag->bboxVersion = keepStamp;
+      bag->info->model = keepModel;
     };
     // Which bag a static part casts from (TYRA_CHEAP_PROJ_CASTER, above).
     // The base bag is textured with per-vertex colours - 75 vertices a VU1
@@ -17347,6 +17424,9 @@ void TerrainGame::renderProjShadows() {
     } else if (runtimeObjects[wo].dirty) {
       rebuildObjectGeometry(wo);
     }
+    // The wall patch is coplanar with the wall: world-space triangles at the
+    // base pass's exact depth, so a shared wall goes back to a solo bake.
+    unshareObject(wo);
     ObjectGeometry& wg = objectGeometry[wo];
     if (wg.parts.empty() || wg.matrixMode) break;
     b.wallVerts.clear();
@@ -18312,7 +18392,7 @@ void TerrainGame::updatePlayerWalker(PlayerCtl& P, int pi, Tyra::Pad& pad) {
     if (nextZ > limZ) nextZ = limZ;
     if (nextZ < -limZ) nextZ = -limZ;
 
-    float ground = terrainHeightAt(nextX, nextZ);
+    float ground = walkGroundAt(nextX, nextZ, P.y);
     // a linked floor portal underfoot swallows the avatar too
     if (PORTAL_COUNT > 0 && portalSwallowsPlayer(nextX, P.y, nextZ))
       ground = -1e30F;
@@ -18478,7 +18558,7 @@ void TerrainGame::updatePlayerWalker(PlayerCtl& P, int pi, Tyra::Pad& pad) {
   if (nextZ > limZ) nextZ = limZ;
   if (nextZ < -limZ) nextZ = -limZ;
 
-  float ground = terrainHeightAt(nextX, nextZ);
+  float ground = walkGroundAt(nextX, nextZ, P.y);
   // a linked floor portal underfoot swallows the walker (see
   // portalSwallowsPlayer) - the terrain stops being the floor there
   if (PORTAL_COUNT > 0 && portalSwallowsPlayer(nextX, P.y, nextZ))
@@ -18879,6 +18959,359 @@ u32 TerrainGame::minPackageSize() {
 
 
 
+// ---------------------------------------------------------------------------
+// Instance sharing (INSTANCE_SHARING, docs/instance-sharing.md).
+//
+// A static model instance used to bake its own WORLD-space copy of every
+// vertex - position, lit colour and ST, 48 bytes each, per instance. A shared
+// instance draws ONE model-space bake of the part (built here, owned by the
+// model and every instance through ShRef) under its own objMat, which
+// carries position, rotation AND scale, so VU1 applies the transform. What
+// stays per instance is the colour, still lit in world space by the same
+// shadeVertexColor the solo bake uses - and even that is pooled by content.
+
+// The model-space bake of one part: the topology rebuildObjectGeometry would
+// pick for a solo bake (the strip twin when it fits a package), positions with
+// w = 1 and the part's own UVs - nothing scaled, rotated or lit.
+TerrainGame::ShRef<TerrainGame::SharedGeo> TerrainGame::acquireSharedGeo(
+    int model, int pi) {
+  if (model < 0 || model >= (int)gameModels.size()) return ShRef<SharedGeo>();
+  GameModel& gm = gameModels[model];
+  if (pi < 0 || pi >= (int)gm.parts.size()) return ShRef<SharedGeo>();
+  if (gm.sharedParts.size() != gm.parts.size())
+    gm.sharedParts.resize(gm.parts.size());
+  ShRef<SharedGeo>& slot = gm.sharedParts[pi];
+  if (slot) return slot;
+  const GameModelPart& src = gm.parts[pi];
+  const bool useStrip = src.stripRun != 0 && !src.stripVerts.empty() &&
+                        src.stripRun <= minPackageSize();
+  const std::vector<float>& geo = useStrip ? src.stripVerts : src.verts;
+  ShRef<SharedGeo> sg(new SharedGeo());
+  // Exact capacity: these arrays live as long as the model, and a doubling
+  // vector would carry up to half again as much slack for nothing.
+  sg->vertices.reserve(geo.size() / 8);
+  sg->sts.reserve(geo.size() / 8);
+  for (size_t i = 0; i + 7 < geo.size(); i += 8) {
+    const float* v = &geo[i];
+    sg->vertices.push_back(Vec4(v[0], v[1], v[2], 1.0F));
+    sg->sts.push_back(Vec4(v[6], v[7], 1.0F, 0.0F));
+    for (int a = 0; a < 3; ++a) {
+      if (i == 0 || v[a] < sg->mn[a]) sg->mn[a] = v[a];
+      if (i == 0 || v[a] > sg->mx[a]) sg->mx[a] = v[a];
+    }
+  }
+  sg->stripRun = useStrip ? src.stripRun : 0u;
+  sg->stamp = ++g_bboxStamp;
+  slot = sg;
+  return sg;
+}
+
+
+
+// Equal colour arrays are ONE array. Lit in world space, a facade's colours
+// depend only on its world normals unless a position-dependent term (a GI
+// probe, a baked point light, an emissive pool, contact AO) reaches it - so in
+// a city of a few rotations most instances of a model come out byte-identical,
+// and the comparison below finds that out instead of having to predict it.
+// `cols` is consumed when it is adopted.
+TerrainGame::ShRef<TerrainGame::SharedColors> TerrainGame::poolColors(
+    BagArray<Color>& cols) {
+  const size_t words = cols.size() * (sizeof(Color) / sizeof(u32));
+  const u32* w = reinterpret_cast<const u32*>(cols.data());
+  u32 h = 2166136261u ^ (u32)cols.size();
+  for (size_t i = 0; i < words; ++i) {
+    h ^= w[i];
+    h *= 16777619u;
+  }
+  std::vector<ShRef<SharedColors>>& bucket = colorPool[h];
+  for (size_t k = 0; k < bucket.size();) {
+    const ShRef<SharedColors>& sc = bucket[k];
+    // The pool's own reference is the last one: nobody draws it any more.
+    if (sc.useCount() <= 1) {
+      bucket.erase(bucket.begin() + (long)k);
+      continue;
+    }
+    if (sc->colors.size() == cols.size() &&
+        memcmp(sc->colors.data(), cols.data(), cols.size() * sizeof(Color)) == 0)
+      return sc;
+    ++k;
+  }
+  ShRef<SharedColors> sc(new SharedColors());
+  sc->colors.swap(cols);
+  sc->hash = h;
+  bucket.push_back(sc);
+  // An array nobody draws any more (its instances were rebuilt, recoloured or
+  // streamed out) is held by the pool alone until its bucket is next visited;
+  // sweep the whole pool now and then so a long Live Link session or layer
+  // streaming cannot pile those up. `bucket` holds `sc`, so the sweep keeps
+  // it.
+  if ((++colorPoolAdds & 255U) == 0) pruneColorPool();
+  return sc;
+}
+
+
+
+void TerrainGame::pruneColorPool() {
+  for (auto it = colorPool.begin(); it != colorPool.end();) {
+    std::vector<ShRef<SharedColors>>& b = it->second;
+    for (size_t k = 0; k < b.size();)
+      if (b[k].useCount() <= 1)
+        b.erase(b.begin() + (long)k);
+      else
+        ++k;
+    if (b.empty())
+      it = colorPool.erase(it);
+    else
+      ++it;
+  }
+}
+
+
+
+// Which objects may draw from the shared bake. Everything else keeps the solo
+// world-space bake, and every exclusion is a consumer that cannot work from
+// model-space vertices under a matrix (docs/instance-sharing.md, "Who stays
+// solo"):
+//  - anything that moves or rebuilds per frame (physics, pickables, the matrix
+//    path's own users, impostor swaps, VU programs that move geometry);
+//  - the USE highlight (hull/apron walk the vertices in world space);
+//  - dynamic lighting (its own lit bag and normals), reflective parts (the env
+//    pass's per-vertex normals), texture feeds (colours rewritten per object);
+//  - a project VU1 program: it sees the vertices before the transform;
+//  - NON-UNIFORM scale where a dynamic light can reach: the engine lights a
+//    bag in object space with one range per mesh (buildSpotForBag), which is
+//    exact under a uniform scale and an ellipse under a stretched one.
+bool TerrainGame::instanceShareEligible(int index) const {
+  if (!INSTANCE_SHARING) return false;
+  if (index < 0 || index >= (int)runtimeObjects.size()) return false;
+  const RuntimeObject& o = runtimeObjects[index];
+  const ObjectGeometry& g = objectGeometry[index];
+  const SceneObjectData& d = o.data;
+  if (g.noShare || d.type != 5 || d.animModel >= 0) return false;
+  if (d.model < 0 || d.model >= (int)gameModels.size()) return false;
+  const GameModel& gm = gameModels[d.model];
+  if (gm.parts.empty()) return false;
+  if (d.physics || d.usable || d.pickable || o.wantsMatrixPath) return false;
+  if (d.dynLit != 0 && SCENE_PROBES != nullptr) return false;
+  if (d.impostorDistance > 0.0F && d.impostorModel >= 0) return false;
+  if (vuprog::ENABLED || vuscript::movesGeometry()) return false;
+  for (const GameModelPart& p : gm.parts)
+    if (p.reflTexture) return false;
+  for (int fi = 0; fi < OBJECT_FEED_COUNT; ++fi)
+    if (OBJECT_FEEDS[fi].scene == currentScene && OBJECT_FEEDS[fi].object == index)
+      return false;
+  float smin = d.scale[0], smax = d.scale[0];
+  for (int a = 1; a < 3; ++a) {
+    if (d.scale[a] < smin) smin = d.scale[a];
+    if (d.scale[a] > smax) smax = d.scale[a];
+  }
+  // A zero or mirrored scale is left to the solo bake: nothing to gain, and a
+  // negative determinant is one more thing a matrix would have to get right.
+  if (smin <= 0.0F) return false;
+  if (smax - smin > 1e-4F * smax) {
+    if (FLASHLIGHT_ENABLED) return false;
+    const float ex = fmaxf(fabsf(gm.mn[0]), fabsf(gm.mx[0])) * d.scale[0];
+    const float ey = fmaxf(fabsf(gm.mn[1]), fabsf(gm.mx[1])) * d.scale[1];
+    const float ez = fmaxf(fabsf(gm.mn[2]), fabsf(gm.mx[2])) * d.scale[2];
+    const float rad = sqrtf(ex * ex + ey * ey + ez * ez);
+    for (const DynLightRt& dl : g_dynLights) {
+      const SceneObjectData& L = SCENE_OBJECTS[dl.objIndex];
+      const float dx = L.position[0] - d.position[0];
+      const float dy = L.position[1] - d.position[1];
+      const float dz = L.position[2] - d.position[2];
+      const float reach = (L.lightRadius > 0.0F ? L.lightRadius : 0.0F) + rad;
+      if (dx * dx + dy * dy + dz * dz <= reach * reach) return false;
+    }
+  }
+  return true;
+}
+
+
+
+// The colour half of a shared instance: every vertex of the shared bake lit
+// in WORLD space - transformed on the fly exactly as pushVert transforms it,
+// never stored - with the shading globals rebuildObjectGeometry staged.
+// Byte-identical to the solo bake's colours, because it is the same function
+// over the same numbers.
+void TerrainGame::bakeSharedObject(int index, const GameModel& gm) {
+  ObjectGeometry& g = objectGeometry[index];
+  const SceneObjectData& d = runtimeObjects[index].data;
+  static BagArray<Color> scratch;
+  for (int pi = 0; pi < (int)g.parts.size() && pi < (int)gm.parts.size(); ++pi) {
+    GeoPart& part = g.parts[pi];
+    const GameModelPart& src = gm.parts[pi];
+    ShRef<SharedGeo> sg = acquireSharedGeo(d.model, pi);
+    if (!sg) continue;
+    const bool useStrip = sg->stripRun != 0;
+    const std::vector<float>& geo = useStrip ? src.stripVerts : src.verts;
+    const std::vector<unsigned char>& geoAo =
+        useStrip ? src.stripVertexAo : src.vertexAo;
+    const bool hasAo = geoAo.size() * 8 == geo.size();
+    const bool textured = src.texture != nullptr;
+    scratch.clear();
+    scratch.reserve(geo.size() / 8);
+    for (size_t i = 0; i + 7 < geo.size(); i += 8) {
+      const float* v = &geo[i];
+      V3 p = {v[0], v[1], v[2]};
+      p.x *= d.scale[0], p.y *= d.scale[1], p.z *= d.scale[2];
+      p = rotated(p, d.rotation);
+      const V3 n = rotated(V3{v[3], v[4], v[5]}, d.rotation);
+      const V3 wp = {p.x + d.position[0], p.y + d.position[1],
+                     p.z + d.position[2]};
+      scratch.push_back(shadeVertexColor(
+          d, wp, n, v[6], v[7], src.kd, src.ke, textured,
+          hasAo ? geoAo[i / 8] : (unsigned char)255));
+    }
+    part.shared = sg;
+    part.sharedCols = poolColors(scratch);
+    part.stripRun = sg->stripRun;
+  }
+}
+
+
+
+void TerrainGame::unshareObject(int index) {
+  if (index < 0 || index >= (int)objectGeometry.size()) return;
+  ObjectGeometry& g = objectGeometry[index];
+  if (!g.shared) return;
+  g.noShare = true;
+  // The rebuild consumes `dirty`, which renderStaticBatches keys a batched
+  // member's demotion on - hand it back untouched.
+  RuntimeObject& o = runtimeObjects[index];
+  const bool dirty = o.dirty;
+  rebuildObjectGeometry(index);
+  o.dirty = dirty;
+}
+
+
+
+// MEMSTAT (debug builds with the HUD's MEM line on): where object geometry's
+// EE RAM goes, a few seconds after a scene load - by then every resident
+// object and batch has baked. Capacities, not sizes: slack is RAM too. Read it
+// beside the HUD's MEM: `used` is the same number at 1 KB resolution.
+void TerrainGame::logGeometryMemory() {
+  auto kb = [](size_t b) { return (int)((b + 512) / 1024); };
+  size_t tables = runtimeObjects.capacity() * sizeof(RuntimeObject) +
+                  objectGeometry.capacity() * sizeof(ObjectGeometry);
+  const size_t bagBytes = sizeof(StaPipBag) + sizeof(StaPipInfoBag) +
+                          sizeof(StaPipColorBag) + sizeof(StaPipTextureBag);
+  size_t soloBytes = 0, soloVerts = 0, partBytes = 0;
+  int soloParts = 0, sharedParts = 0, sharedObjects = 0, soloObjects = 0;
+  for (const ObjectGeometry& g : objectGeometry) {
+    if (g.parts.empty()) continue;
+    if (g.shared) ++sharedObjects; else ++soloObjects;
+    partBytes += g.parts.capacity() * sizeof(GeoPart);
+    for (const GeoPart& p : g.parts) {
+      if (p.bag) partBytes += bagBytes;
+      if (p.shared) { ++sharedParts; continue; }
+      ++soloParts;
+      soloVerts += p.vertices.size();
+      soloBytes += p.vertices.capacity() * sizeof(Vec4) +
+                   p.sts.capacity() * sizeof(Vec4) +
+                   p.colors.capacity() * sizeof(Color) +
+                   p.envNormals.capacity() * sizeof(Vec4) +
+                   p.envColors.capacity() * sizeof(Color) +
+                   p.litNormals.capacity() * sizeof(Vec4) +
+                   p.aoSts.capacity() * sizeof(Vec4) +
+                   p.aoCols.capacity() * sizeof(Color) +
+                   p.emisCols.capacity() * sizeof(Color);
+      for (const GeoPart::Lod& l : p.lods)
+        soloBytes += l.vertices.capacity() * sizeof(Vec4) +
+                     l.sts.capacity() * sizeof(Vec4) +
+                     l.colors.capacity() * sizeof(Color) +
+                     l.envNormals.capacity() * sizeof(Vec4) +
+                     l.envColors.capacity() * sizeof(Color);
+    }
+  }
+  size_t colorBytes = 0;
+  int colorArrays = 0;
+  for (const auto& bucket : colorPool)
+    for (const ShRef<SharedColors>& sc : bucket.second)
+      if (sc.useCount() > 1) {
+        colorBytes += sc->colors.capacity() * sizeof(Color);
+        ++colorArrays;
+      }
+  size_t sharedGeoBytes = 0, sourceBytes = 0;
+  for (const GameModel& gm : gameModels) {
+    for (const ShRef<SharedGeo>& sg : gm.sharedParts) {
+      if (!sg) continue;
+      sharedGeoBytes += (sg->vertices.capacity() + sg->sts.capacity()) * sizeof(Vec4);
+      for (const SharedGeo::Tier& t : sg->tiers)
+        sharedGeoBytes += (t.vertices.capacity() + t.sts.capacity()) * sizeof(Vec4);
+    }
+    for (const GameModelPart& p : gm.parts) {
+      sourceBytes += (p.verts.capacity() + p.stripVerts.capacity()) * sizeof(float);
+      for (const std::vector<float>& l : p.lodVerts) sourceBytes += l.capacity() * sizeof(float);
+    }
+  }
+  size_t batchBytes = 0, batchVerts = 0;
+  for (const StaticBatch& b : staticBatches) {
+    batchVerts += b.vertices.size();
+    batchBytes += (b.vertices.capacity() + b.sts.capacity()) * sizeof(Vec4) +
+                  b.colors.capacity() * sizeof(Color);
+  }
+  const int usedKB = (int)((32.0F - engine->info.getAvailableRAM()) * 1024.0F);
+  TYRA_LOG("MEMSTAT used ", usedKB, " KB | object tables ", kb(tables),
+           " KB | parts+bags ", kb(partBytes), " KB | solo ", soloObjects,
+           " objects ", soloParts, " parts ", (int)soloVerts, " verts ",
+           kb(soloBytes), " KB | shared ", sharedObjects, " objects ",
+           sharedParts, " parts, geometry ", kb(sharedGeoBytes),
+           " KB, colours ", colorArrays, " arrays ", kb(colorBytes),
+           " KB | batches ", (int)staticBatches.size(), " ", (int)batchVerts,
+           " verts ", kb(batchBytes), " KB | model sources ", kb(sourceBytes),
+           " KB | engine baked ", kb(stapip.core.getBakedStreamBytes()),
+           " KB retained ", kb(stapip.core.getRetainedCommandBytes()), " KB");
+}
+
+
+
+// rebuildObjectGeometry's staging for an imported model, for the LOD tier
+// bakes in applyGeoLod. Those used to inherit whatever the LAST rebuild left
+// in the globals - the analytic-light lists of another object, its pre-lit
+// flag - so a tier could light differently from its own tier 0.
+void TerrainGame::stageModelShading(int index) {
+  const SceneObjectData& d = runtimeObjects[index].data;
+  float rad = 0.87F * sqrtf(d.scale[0] * d.scale[0] + d.scale[1] * d.scale[1] +
+                            d.scale[2] * d.scale[2]);
+  if (d.model >= 0 && d.model < (int)gameModels.size()) {
+    const GameModel& gm = gameModels[d.model];
+    const float ex =
+        (fabsf(gm.mn[0]) > fabsf(gm.mx[0]) ? fabsf(gm.mn[0]) : fabsf(gm.mx[0])) * fabsf(d.scale[0]);
+    const float ey =
+        (fabsf(gm.mn[1]) > fabsf(gm.mx[1]) ? fabsf(gm.mn[1]) : fabsf(gm.mx[1])) * fabsf(d.scale[1]);
+    const float ez =
+        (fabsf(gm.mn[2]) > fabsf(gm.mx[2]) ? fabsf(gm.mn[2]) : fabsf(gm.mx[2])) * fabsf(d.scale[2]);
+    rad = sqrtf(ex * ex + ey * ey + ez * ez);
+  }
+  const int self = index < SCENE_OBJECT_COUNT ? index : -1;
+  aoCollectLocal(d.position[0], d.position[1], d.position[2], rad, self);
+  emisCollectLocal(d.position[0], d.position[1], d.position[2], rad, self);
+  g_aoAtlas = false;
+  g_emisAtlas = false;
+  g_aoSts = nullptr;
+  g_aoOff = true;  // imported models get no receive/self AO
+  g_giLightmap = false;
+  g_prelitTex = d.prelit != 0;
+  g_giProbeShade = !g_prelitTex && SCENE_PROBES != nullptr &&
+                   !(d.dynLit != 0);
+  g_primKd = nullptr;
+  g_primKe = nullptr;
+  g_primTextured = false;
+  g_primUvRect = nullptr;
+  g_litNormals = nullptr;
+  g_envNormals = nullptr;
+}
+
+void TerrainGame::resetModelShading() {
+  g_aoOff = false;
+  g_prelitTex = false;
+  g_giProbeShade = false;
+  g_envNormals = nullptr;
+  g_bakeLocal = false;
+}
+
+
+
 void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
   RuntimeObject& o = runtimeObjects[index];
   ObjectGeometry& g = objectGeometry[index];
@@ -18886,6 +19319,7 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
   g.coarseBoxValid = false;
   g.reflectionProxy.reset();
   g.matrixMode = localSpace;
+  g.shared = false;  // re-decided below, once the model is known
   o.onMatrixPath = localSpace;  // the Script-visible mirror; see RuntimeObject
   g_bakeLocal = localSpace;
   if (localSpace) updateObjMat(index);
@@ -18926,10 +19360,18 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
   const SceneObjectData visualData = billboard ? billboardTransform(o.data, cameraPosition) : o.data;
   const int partCount = billboard ? 1 : (o.data.type == 5 ? (gm ? (int)gm->parts.size() : 0) : 1);
   if ((int)g.parts.size() != partCount) g.parts.resize(partCount);
+  // Instance sharing (bakeSharedObject): re-decided on every rebuild, because
+  // an edit can make an object eligible or not. Never the physics fast path
+  // or an impostor - those own their vertices.
+  g.shared = !localSpace && !billboard && !g.impostor && gm &&
+             instanceShareEligible(index);
+  if (g.shared) updateObjMat(index);  // scale included - see updateObjMat
 
   for (int pi = 0; pi < partCount; ++pi) {
     GeoPart& part = g.parts[pi];
     part.stripRun = 0;  // re-decided per rebuild, with the geometry
+    part.shared.reset();
+    part.sharedCols.reset();
     part.vertices.clear();
     part.colors.clear();
     part.sts.clear();
@@ -19032,7 +19474,9 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
     for (GeoPart& part : g.parts) part.litNormals.clear();
   }
 
-  if (o.data.type == 5) {
+  if (o.data.type == 5 && g.shared) {
+    bakeSharedObject(index, *gm);
+  } else if (o.data.type == 5) {
     for (int pi = 0; pi < partCount; ++pi) {
       const GameModelPart& src = gm->parts[billboard ? g.impostorView : pi];
       GeoPart& part = g.parts[pi];
@@ -19055,6 +19499,13 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
       const bool hasAo = geoAo.size() * 8 == geo.size();
       g_litNormals = dynLit ? &part.litNormals : nullptr;
       g_envNormals = src.reflTexture ? &part.envNormals : nullptr;
+      // Exact capacity up front: a push_back-grown vector carries up to as
+      // much slack again as it holds, and a solo bake keeps it for life.
+      part.vertices.reserve(geo.size() / 8);
+      part.colors.reserve(geo.size() / 8);
+      part.sts.reserve(geo.size() / 8);
+      if (g_litNormals) g_litNormals->reserve(geo.size() / 8);
+      if (g_envNormals) g_envNormals->reserve(geo.size() / 8);
       for (size_t i = 0; i + 7 < geo.size(); i += 8) {
         const float* v = &geo[i];
         pushVert(part.vertices, part.colors, part.sts, visualData,
@@ -19177,7 +19628,8 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
 
   for (int pi = 0; pi < partCount; ++pi) {
     GeoPart& part = g.parts[pi];
-    if (part.vertices.empty()) {
+    const bool sharedPart = part.shared && part.sharedCols;
+    if (sharedPart ? part.shared->vertices.empty() : part.vertices.empty()) {
       part.bag.reset();
       continue;
     }
@@ -19210,15 +19662,27 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
     // rather than at bag creation because the mode is a run-time switch.
     part.infoBag->fullClipChecks =
         !vuscript::movesGeometry() || vuprog::vu1Clipping();
-    part.colors.bind(part.colorBag);
-    part.vertices.bind(part.bag);
-    part.bag->count = static_cast<u32>(part.vertices.size());
-    part.baseStamp = ++g_bboxStamp;         // geometry changed - fresh boxes
+    if (sharedPart) {
+      // The model's one bake, and its ONE stamp: the frustum-bbox cache is
+      // keyed by (vertex pointer, bboxVersion), so every instance of the part
+      // shares a single set of model-space package boxes, classified per
+      // instance against planes moved into its object space.
+      part.sharedCols->colors.bind(part.colorBag);
+      part.shared->vertices.bind(part.bag);
+      part.bag->count = static_cast<u32>(part.shared->vertices.size());
+      part.baseStamp = part.shared->stamp;
+    } else {
+      part.colors.bind(part.colorBag);
+      part.vertices.bind(part.bag);
+      part.bag->count = static_cast<u32>(part.vertices.size());
+      part.baseStamp = ++g_bboxStamp;         // geometry changed - fresh boxes
+    }
     part.bag->bboxVersion = part.baseStamp;
-    // Fast-path bodies render local vertices under objMat; everything else
-    // sits in world space under the shared identity. Reset on every rebuild
-    // (the bag may have been created under the other mode).
-    part.infoBag->model = g.matrixMode ? &g.objMat : &model;
+    // Fast-path bodies and shared instances render local vertices under
+    // objMat; everything else sits in world space under the shared identity.
+    // Reset on every rebuild (the bag may have been created under the other
+    // mode).
+    part.infoBag->model = (g.matrixMode || g.shared) ? &g.objMat : &model;
 
     // models: the part's own map_Kd; primitives: the assigned material's
     Texture* tex =
@@ -19265,7 +19729,10 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
     if (tex) {
       if (!part.texBag) part.texBag = std::make_unique<StaPipTextureBag>();
       part.texBag->texture = tex;
-      part.sts.bind(part.texBag);
+      if (sharedPart)
+        part.shared->sts.bind(part.texBag);
+      else
+        part.sts.bind(part.texBag);
       part.bag->texture = part.texBag.get();
     } else {
       part.bag->texture = nullptr;
@@ -19504,6 +19971,29 @@ void TerrainGame::rebuildObjectGeometry(int index, bool localSpace) {
   if (!g.parts.empty()) {
     Vec4 coarseMin(1e30F, 1e30F, 1e30F, 1.0F);
     Vec4 coarseMax(-1e30F, -1e30F, -1e30F, 1.0F);
+    // A shared instance's box: the eight corners of each part's model-space
+    // box through objMat, boxed again in WORLD space. Static, so it is built
+    // once here and coarseObjectOutside tests it against the world planes
+    // like a solo bake's - moving the six planes into every shared object's
+    // own space instead cost ~0.6 ms a frame over a streamed city's ~360
+    // in-range objects (PCSX2). It bounds the rotated box, so it is never
+    // smaller than the geometry; for the usual 0/90/180/270 yaw it is exact.
+    for (const GeoPart& part : g.parts)
+      if (part.shared && part.bag && !part.shared->vertices.empty()) {
+        for (int k = 0; k < 8; ++k) {
+          const Vec4 c((k & 1) ? part.shared->mx[0] : part.shared->mn[0],
+                       (k & 2) ? part.shared->mx[1] : part.shared->mn[1],
+                       (k & 4) ? part.shared->mx[2] : part.shared->mn[2], 1.0F);
+          const Vec4 w = g.objMat * c;
+          if (w.x < coarseMin.x) coarseMin.x = w.x;
+          if (w.y < coarseMin.y) coarseMin.y = w.y;
+          if (w.z < coarseMin.z) coarseMin.z = w.z;
+          if (w.x > coarseMax.x) coarseMax.x = w.x;
+          if (w.y > coarseMax.y) coarseMax.y = w.y;
+          if (w.z > coarseMax.z) coarseMax.z = w.z;
+        }
+        g.coarseBoxValid = true;
+      }
     for (const GeoPart& part : g.parts)
       for (const Vec4& v : part.vertices) {
         if (v.x < coarseMin.x) coarseMin.x = v.x;
@@ -19534,13 +20024,19 @@ void TerrainGame::renderReflectionProxy(int index) {
     Vec4 mn(1e30F, 1e30F, 1e30F, 1.0F), mx(-1e30F, -1e30F, -1e30F, 1.0F);
     bool any = false;
     float cr=0, cg=0, cb=0, cn=0;
+    // A shared instance keeps its arrays in the model's bake and the colour
+    // pool (model space - the space the matrix below expects); everything
+    // else in its own tier-0 arrays.
     for (const GeoPart& src : g.parts) {
-      for (const Vec4& v : src.vertices) {
+      const BagArray<Vec4>& sv = src.shared ? src.shared->vertices : src.vertices;
+      const BagArray<Color>& sc =
+          src.sharedCols ? src.sharedCols->colors : src.colors;
+      for (const Vec4& v : sv) {
         mn.x=fminf(mn.x,v.x); mn.y=fminf(mn.y,v.y); mn.z=fminf(mn.z,v.z);
         mx.x=fmaxf(mx.x,v.x); mx.y=fmaxf(mx.y,v.y); mx.z=fmaxf(mx.z,v.z);
         any = true;
       }
-      for (const Color& c : src.colors) { cr+=c.r; cg+=c.g; cb+=c.b; cn+=1.0F; }
+      for (const Color& c : sc) { cr+=c.r; cg+=c.g; cb+=c.b; cn+=1.0F; }
     }
     if (!any) return;
     auto p = std::make_unique<GeoPart>();
@@ -19553,7 +20049,7 @@ void TerrainGame::renderReflectionProxy(int index) {
                     cn ? cb/cn : 160.0F, 128.0F);
     for (u8 i : tri) { p->vertices.push_back(v[i]); p->colors.push_back(col); }
     p->infoBag = std::make_unique<StaPipInfoBag>();
-    p->infoBag->model = g.matrixMode ? &g.objMat : &model;
+    p->infoBag->model = (g.matrixMode || g.shared) ? &g.objMat : &model;
     p->infoBag->shadingType = TyraShadingGouraud;
     p->infoBag->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
     p->infoBag->fullClipChecks = true;
@@ -19581,7 +20077,7 @@ bool TerrainGame::coarseObjectOutside(int index) const {
   Plane localPlanes[6];
   const Plane* planes =
       engine->renderer.core.renderer3D.frustumPlanes.getAll();
-  if (g.matrixMode) {
+  if (g.matrixMode) {  // a shared instance's box is already world space
     CoreBBox::computeObjectSpacePlanes(localPlanes, planes, g.objMat);
     planes = localPlanes;
   }
@@ -19630,6 +20126,78 @@ void TerrainGame::applyGeoLod(int index, int pi, int lod) {
   if (lod > (int)src.lodVerts.size()) lod = (int)src.lodVerts.size();
   if (lod == part.shownLod) return;
 
+  // A shared instance: the tier's positions/STs are the model's (built once
+  // for every instance), only its colours are this object's - lit by the same
+  // shadeVertexColor as tier 0, pooled the same way.
+  if (part.shared && part.sharedCols) {
+    SharedGeo& sg = *part.shared;
+    if (lod == 0) {
+      part.sharedCols->colors.bind(part.colorBag);
+      sg.vertices.bind(part.bag);
+      part.bag->count = static_cast<u32>(sg.vertices.size());
+      part.bag->bboxVersion = sg.stamp;
+      part.bag->stripped = part.stripRun != 0;
+      if (part.texBag) sg.sts.bind(part.texBag);
+    } else {
+      // sized once, here, and never again: other instances' bags hold the
+      // tiers' content-stamp addresses, which a resize would move
+      if (sg.tiers.empty()) sg.tiers.resize(src.lodVerts.size());
+      if (lod - 1 >= (int)sg.tiers.size()) return;
+      SharedGeo::Tier& st = sg.tiers[lod - 1];
+      const bool tierStrip = lod - 1 < (int)src.lodStripVerts.size() &&
+                             !src.lodStripVerts[lod - 1].empty() &&
+                             part.stripRun != 0;
+      const std::vector<float>& sv =
+          tierStrip ? src.lodStripVerts[lod - 1] : src.lodVerts[lod - 1];
+      if (!st.built) {
+        st.built = true;
+        st.vertices.reserve(sv.size() / 8);
+        st.sts.reserve(sv.size() / 8);
+        for (size_t k = 0; k + 7 < sv.size(); k += 8) {
+          const float* v = &sv[k];
+          st.vertices.push_back(Vec4(v[0], v[1], v[2], 1.0F));
+          st.sts.push_back(Vec4(v[6], v[7], 1.0F, 0.0F));
+        }
+        st.strip = tierStrip;
+        st.stamp = ++g_bboxStamp;
+      }
+      if (st.vertices.empty()) return;  // nothing to show - keep tier 0
+      if ((int)part.lods.size() < lod) part.lods.resize(lod);
+      GeoPart::Lod& tier = part.lods[lod - 1];
+      if (!tier.sharedCols) {
+        static BagArray<Color> tierCols;
+        tierCols.clear();
+        tierCols.reserve(sv.size() / 8);
+        stageModelShading(index);
+        const SceneObjectData& d = o.data;
+        const bool textured = src.texture != nullptr;
+        for (size_t k = 0; k + 7 < sv.size(); k += 8) {
+          const float* v = &sv[k];
+          V3 p = {v[0], v[1], v[2]};
+          p.x *= d.scale[0], p.y *= d.scale[1], p.z *= d.scale[2];
+          p = rotated(p, d.rotation);
+          const V3 n = rotated(V3{v[3], v[4], v[5]}, d.rotation);
+          const V3 wp = {p.x + d.position[0], p.y + d.position[1],
+                         p.z + d.position[2]};
+          tierCols.push_back(shadeVertexColor(d, wp, n, v[6], v[7], src.kd,
+                                              src.ke, textured, 255));
+        }
+        resetModelShading();
+        tier.sharedCols = poolColors(tierCols);
+      }
+      tier.sharedCols->colors.bind(part.colorBag);
+      st.vertices.bind(part.bag);
+      part.bag->count = static_cast<u32>(st.vertices.size());
+      part.bag->bboxVersion = st.stamp;
+      part.bag->stripped = st.strip;
+      if (part.texBag) st.sts.bind(part.texBag);
+    }
+    part.shownLod = lod;
+    g.apronVerts.clear();
+    g.hullProxyVerts.clear();
+    return;
+  }
+
   if (lod == 0) {
     part.colors.bind(part.colorBag);
     part.vertices.bind(part.bag);
@@ -19663,16 +20231,12 @@ void TerrainGame::applyGeoLod(int index, int pi, int lod) {
       // way rebuildObjectGeometry shaded tier 0 (same pushVert, same staging).
       const std::vector<float>& sv =
           tierStrip ? src.lodStripVerts[lod - 1] : src.lodVerts[lod - 1];
-      g_aoAtlas = false;
-      g_aoSts = nullptr;
-      g_aoOff = true;  // imported models get no receive/self AO
-      // ...but they DO get global illumination, from the probe grid - which
-      // is the whole reason models were left parked on the vertex path.
-      g_giLightmap = false;
-      g_giProbeShade = SCENE_PROBES != nullptr;
-      g_primKd = nullptr;
-      g_primTextured = false;
-      g_primUvRect = nullptr;
+      // The staging tier 0 was baked under: imported models get no
+      // receive/self AO, DO get global illumination from the probe grid (the
+      // whole reason models were left parked on the vertex path), and their
+      // own analytic-light lists and pre-lit flag - not the last rebuilt
+      // object's, which is what this tier used to inherit.
+      stageModelShading(index);
       // A matrix-path object bakes LOCAL tiers, exactly as its tier 0 was
       // baked at promotion; objMat applies the motion to every tier alike.
       g_bakeLocal = g.matrixMode;
@@ -19682,10 +20246,11 @@ void TerrainGame::applyGeoLod(int index, int pi, int lod) {
         const float* v = &sv[k];
         pushVert(tier.vertices, tier.colors, tier.sts, o.data,
                  {v[0], v[1], v[2]}, {v[3], v[4], v[5]}, v[6], v[7], src.kd,
-                 textured);
+                 textured, 255, src.ke);
       }
-      g_envNormals = nullptr;
-      g_aoOff = false;
+      // ...and hand every global back: g_bakeLocal used to stay set after a
+      // matrix-path tier, for whatever baked next (a static batch).
+      resetModelShading();
       if (tier.vertices.empty()) return;  // nothing to show - keep tier 0
       if (part.envBag) {
         tier.envColors.assign(tier.vertices.size(),
@@ -19802,6 +20367,16 @@ void TerrainGame::updateObjMat(int index) {
   m.data[12] = o.data.position[0];
   m.data[13] = o.data.position[1];
   m.data[14] = o.data.position[2];
+  // A shared instance draws the model's UNSCALED bake, so the scale lives in
+  // the matrix: columns times scale = T * R * S, the order pushVert applies
+  // them in (scale, rotate, translate).
+  if (objectGeometry[index].shared) {
+    for (int k = 0; k < 3; ++k) {
+      m.data[k] *= o.data.scale[0];
+      m.data[4 + k] *= o.data.scale[1];
+      m.data[8 + k] *= o.data.scale[2];
+    }
+  }
 }
 
 
@@ -20233,6 +20808,11 @@ void TerrainGame::rebuildStaticBatch(StaticBatch& b) {
     b.bag.reset();
     return;
   }
+  // The arrays grew by push_back - up to twice what they hold - and a batch
+  // keeps them for the whole scene. Trimmed before anything binds them.
+  b.vertices.shrink_to_fit();
+  b.colors.shrink_to_fit();
+  b.sts.shrink_to_fit();
   if (!b.bag) {
     b.colorBag = std::make_unique<StaPipColorBag>();
     b.bag = std::make_unique<StaPipBag>();
@@ -21098,7 +21678,7 @@ float TerrainGame::roadSurfaceScan(float x, float z) const {
     if (y > best) best = y;
   };
   for (const ProcChunk& c : procChunks) {
-    if (c.owner != -3 || c.vertices.size() < 3) continue;
+    if ((c.owner != -3 && c.owner != -4) || c.vertices.size() < 3) continue;
     if (x < c.aabbMin[0] || x > c.aabbMax[0] ||
         z < c.aabbMin[2] || z > c.aabbMax[2])
       continue;
@@ -21128,7 +21708,7 @@ void TerrainGame::buildRoadHeightIndex() const {
   float mnx = 1.0e30F, mxx = -1.0e30F, mnz = 1.0e30F, mxz = -1.0e30F;
   bool any = false;
   for (const ProcChunk& c : procChunks) {
-    if (c.owner != -3 || c.vertices.size() < 3) continue;
+    if ((c.owner != -3 && c.owner != -4) || c.vertices.size() < 3) continue;
     any = true;
     if (c.aabbMin[0] < mnx) mnx = c.aabbMin[0];
     if (c.aabbMax[0] > mxx) mxx = c.aabbMax[0];
@@ -21150,14 +21730,24 @@ void TerrainGame::buildRoadHeightIndex() const {
   // the triangles exactly the way roadSurfaceAt used to, so every triangle
   // that was reachable before is reachable now.
   std::vector<unsigned int> cursor;
+  // An entry packs 13 bits of chunk index and 19 of vertex index. It was 10/22
+  // until examples/big-city: a city has more than 1024 proc chunks (roads,
+  // kerbs, rails, details), and every road chunk past the 1024th was silently
+  // missing from the index - wheels and walkers fell through to the terrain.
+  // No chunk comes near 2^19 vertices (road, kerb and patch chunks are capped
+  // at ~1800). Anything still out of range is COUNTED and logged, not lost
+  // silently.
+  int skipped = 0;
   for (int pass = 0; pass < 2; ++pass) {
     unsigned int ci = 0;
     for (const ProcChunk& c : procChunks) {
       const unsigned int chunk = ci++;
-      if (c.owner != -3 || c.vertices.size() < 3) continue;
-      if (chunk >= 1024U) continue;  // the entry packs 10 bits of chunk index
+      if ((c.owner != -3 && c.owner != -4) || c.vertices.size() < 3) continue;
       const size_t count = c.vertices.size();
-      if (count >= (size_t)(1U << 22)) continue;  // ...and 22 of vertex index
+      if (chunk >= (1U << 13) || count >= (size_t)(1U << 19)) {
+        if (pass == 0) ++skipped;
+        continue;
+      }
       const size_t run = c.stripRun > 0 ? (size_t)c.stripRun : count;
       const size_t step = c.stripRun > 0 ? (size_t)1 : (size_t)3;
       for (size_t first = 0; first < count; first += run) {
@@ -21183,7 +21773,7 @@ void TerrainGame::buildRoadHeightIndex() const {
           if (ix1 > n - 1) ix1 = n - 1;
           if (iz1 > n - 1) iz1 = n - 1;
           if (ix1 < ix0 || iz1 < iz0) continue;
-          const unsigned int entry = (chunk << 22) | (unsigned int)i;
+          const unsigned int entry = (chunk << 19) | (unsigned int)i;
           for (int iz = iz0; iz <= iz1; ++iz)
             for (int ix = ix0; ix <= ix1; ++ix) {
               const size_t k = (size_t)iz * (size_t)n + (size_t)ix;
@@ -21204,12 +21794,15 @@ void TerrainGame::buildRoadHeightIndex() const {
   }
   TYRA_LOG("ROADINDEX cells ", roadIdxN, "x", roadIdxN, " entries ",
            (int)roadIdxItems.size());
+  if (skipped > 0)
+    TYRA_LOG("ROADINDEX skipped ", skipped,
+             " chunk(s) past the 8192-chunk / 2^19-vertex packing");
 }
 
 
 
 float TerrainGame::roadSurfaceAt(float x, float z, float* grip,
-                                 float* cover) const {
+                                 float* cover, float maxY) const {
   float best = -1.0e30F;
   if (grip) *grip = 1.0F;
   if (cover) *cover = 1.0F;
@@ -21242,7 +21835,7 @@ float TerrainGame::roadSurfaceAt(float x, float z, float* grip,
     // crack to a six-vertex light/shadow patch on their shared edge.
     if (wa < -0.0001F || wb < -0.0001F || wc < -0.0001F) return;
     const float y = wa * a.y + wb * b.y + wc * c.y;
-    if (y > best) {
+    if (y > best && y <= maxY) {
       best = y;
       if (grip) *grip = wa * ga + wb * gb + wc * gc;
       if (cover) *cover = wa * ca + wb * cb + wc * cc;
@@ -21258,8 +21851,8 @@ float TerrainGame::roadSurfaceAt(float x, float z, float* grip,
   const size_t k = (size_t)iz * (size_t)roadIdxN + (size_t)ix;
   for (unsigned int e = roadIdxStart[k]; e < roadIdxStart[k + 1]; ++e) {
     const unsigned int item = roadIdxItems[e];
-    const ProcChunk& c = procChunks[(size_t)(item >> 22)];
-    const size_t i = (size_t)(item & 0x3FFFFFU);
+    const ProcChunk& c = procChunks[(size_t)(item >> 19)];
+    const size_t i = (size_t)(item & 0x7FFFFU);
     float ga = c.roadGrip, gb = ga, gc = ga;
     if (c.roadBlend) {
       // The spill's fade blends its grip over the road under it.
@@ -21278,7 +21871,7 @@ float TerrainGame::roadSurfaceAt(float x, float z, float* grip,
                  ca, cb, cc);
   }
 #if TYRA_ROAD_INDEX_VERIFY
-  {
+  if (maxY > 1.0e29F) {  // the scan oracle answers the uncapped question
     static unsigned int checked = 0, bad = 0;
     static float worst = 0.0F;
     const float ref = roadSurfaceScan(x, z);
@@ -21338,10 +21931,27 @@ float TerrainGame::terrainGripAt(float x, float z) const {
 
 
 
-float TerrainGame::groundSurfaceAt(float x, float z) const {
+// `maxY` (docs/roads.md "Bridges"): only a road surface at or below it - the
+// one a caster, a wheel or a mark is actually on, never a deck overhead.
+float TerrainGame::groundSurfaceAt(float x, float z, float maxY) const {
   const float terrain = terrainHeightAt(x, z);
-  const float road = roadSurfaceAt(x, z);
+  const float road = roadSurfaceAt(x, z, nullptr, nullptr, maxY);
   return road > terrain ? road : terrain;
+}
+
+
+
+// The walker's floor (docs/roads.md "Kerbs"): the terrain, or a road, kerb or
+// pavement top under the feet - but only one within a step up of them, so a
+// road on a ramp or a bridge overhead never teleports a walker onto it. The
+// same 0.5-unit step collidePlayer allows onto objects.
+float TerrainGame::walkGroundAt(float x, float z, float feetY) const {
+  const float terrain = terrainHeightAt(x, z);
+  // The highest road surface within the step - so a walker under a bridge
+  // keeps the road it is on, not the terrain beneath both.
+  const float road = roadSurfaceAt(x, z, nullptr, nullptr, feetY + 0.5F);
+  if (road > terrain) return road;
+  return terrain;
 }
 
 
@@ -23282,6 +23892,16 @@ void TerrainGame::renderScene() {
   heavyCollect = heavyActive;
   heavyBlendAt = -1;
   { const u32 ct=costStart(); renderStaticBatches(); costEnd("Static_batches",-1,ct); }
+  // MEMSTAT 60, 300, 900 and 1500 frames after the load: the early ones once
+  // everything resident has baked, the later two once load-time scratch has
+  // gone - the number to compare with the HUD's MEM.
+  if (DEBUG_SHOW_MEM && !splitSecondPass && memStatCountdown >= 0) {
+    ++memStatCountdown;
+    if (memStatCountdown == 60 || memStatCountdown == 300 ||
+        memStatCountdown == 900 || memStatCountdown == 1500)
+      logGeometryMemory();
+    if (memStatCountdown > 1500) memStatCountdown = -1;
+  }
   // Roads are generated once at scene load, but their ready bags still incur
   // per-frame culling and submission. Price that work separately: otherwise a
   // road-only scene misleadingly reports the whole cost as "Procedural".
@@ -24158,12 +24778,14 @@ void TerrainGame::renderMirroredObject(int index) {
   ObjectGeometry& g = objectGeometry[index];
   // Fast-path bodies hold local vertices under objMat - the copy composes
   // reflection * objMat, exactly like the animated path right below.
-  if (g.matrixMode) mirrorObjMat = mirrorMat * g.objMat;
+  // Shared instances (model-space bake under objMat) compose the same way.
+  const bool local = g.matrixMode || g.shared;
+  if (local) mirrorObjMat = mirrorMat * g.objMat;
   for (GeoPart& part : g.parts) {
     if (!part.bag) continue;
-    part.infoBag->model = g.matrixMode ? &mirrorObjMat : &mirrorMat;
+    part.infoBag->model = local ? &mirrorObjMat : &mirrorMat;
     stapip.core.render(part.bag.get());
-    part.infoBag->model = g.matrixMode ? &g.objMat : &model;
+    part.infoBag->model = local ? &g.objMat : &model;
   }
   if (g.animInfoBag && !g.animParts.empty()) {
     // The anim bags point at whatever updateAndRenderAnimObjects last
@@ -26257,12 +26879,22 @@ void TerrainGame::buildHighlightProxy(int index) {
 
   if (o.data.type == 5) {
     size_t total = 0;
-    for (const GeoPart& part : g.parts) total += part.vertices.size();
-    g.hullProxyVerts.reserve(total);
     for (const GeoPart& part : g.parts)
-      if (part.bag)
+      total += part.shared ? part.shared->vertices.size() : part.vertices.size();
+    g.hullProxyVerts.reserve(total);
+    for (const GeoPart& part : g.parts) {
+      if (!part.bag) continue;
+      if (part.shared) {
+        // The shells are drawn in WORLD space (renderOutlineShells scales
+        // them about the eye), so a shared instance's model-space bake goes
+        // through its objMat on the way in. Built once per rebuild.
+        for (const Vec4& v : part.shared->vertices)
+          g.hullProxyVerts.push_back(g.objMat * v);
+      } else {
         g.hullProxyVerts.insert(g.hullProxyVerts.end(), part.vertices.begin(),
                                 part.vertices.end());
+      }
+    }
   } else {
     SceneObjectData low = o.data;
     low.primDetail = 1;

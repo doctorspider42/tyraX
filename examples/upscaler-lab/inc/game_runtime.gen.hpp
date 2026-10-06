@@ -1156,20 +1156,17 @@ inline void generateVolumeThunk(int volumeIndex, int seed, bool clear) {
 // ke: material emission (MTL Ke), null/zero = matte - see the floor below.
 // textured: this batch draws with a texture (a model part's map_Kd or a
 // primitive material's) - switches the color to modulation scale (128 = 1.0).
-inline void pushVert(BagArray<Vec4>& verts, BagArray<Color>& cols,
-              BagArray<Vec4>& sts, const SceneObjectData& o, V3 p, V3 n,
-              float u, float v, const float* kdArg = nullptr,
-              bool texturedArg = false, unsigned char selfAo = 255,
-              const float* keArg = nullptr) {
-  const float* kd = kdArg ? kdArg : g_primKd;
-  const float* ke = keArg ? keArg : g_primKe;
-  const bool textured = texturedArg || g_primTextured;
-  p.x *= o.scale[0], p.y *= o.scale[1], p.z *= o.scale[2];
-  const V3 lp = p;  // local (scaled) position - what g_bakeLocal pushes
-  const V3 ln = n;  // ...and the matching un-rotated normal
-  p = rotated(p, o.rotation);
-  n = rotated(n, o.rotation);
-  const V3 wp = {p.x + o.position[0], p.y + o.position[1], p.z + o.position[2]};
+// The baked colour of ONE vertex: wp/n are its WORLD position and normal (the
+// object's scale, rotation and position already applied - see pushVert). Split
+// out of pushVert so the shared-instance bake (bakeSharedObject) lights a
+// model-space vertex with exactly the same arithmetic without storing it:
+// every byte of the colour comes from here either way. The g_litNormals
+// capture stays in pushVert (it is a vertex attribute, not a colour); the
+// g_aoSts push stays here because it rides the AO branch.
+inline Color shadeVertexColor(const SceneObjectData& o, const V3& wp,
+                              const V3& n, float u, float v, const float* kd,
+                              const float* ke, bool textured,
+                              unsigned char selfAo) {
   // Global illumination takes the whole shade over when it owns the surface
   // (docs/global-illumination.md): black here for a lightmapped one - the
   // additive atlas pass puts every photon back per pixel - and the probe
@@ -1183,8 +1180,6 @@ inline void pushVert(BagArray<Vec4>& verts, BagArray<Color>& cols,
     // VU1 lights this one. Its color must carry the ALBEDO only - the light
     // arrives per frame through the bag, and doubling it here is the same
     // mistake the lightmap/probe routes are arranged to avoid.
-    g_litNormals->push_back(g_bakeLocal ? Vec4(ln.x, ln.y, ln.z, 0.0F)
-                                        : Vec4(n.x, n.y, n.z, 0.0F));
     shade = {1.0F, 1.0F, 1.0F};
     giHere = true;
   } else if (g_prelitTex) {
@@ -1252,16 +1247,37 @@ inline void pushVert(BagArray<Vec4>& verts, BagArray<Color>& cols,
     if (shade.y < ke[1]) shade.y = ke[1];
     if (shade.z < ke[2]) shade.z = ke[2];
   }
-  verts.push_back(g_bakeLocal ? Vec4(lp.x, lp.y, lp.z, 1.0F)
-                              : Vec4(wp.x, wp.y, wp.z, 1.0F));
   // In textured mode the color modulates the texture (128 = 1.0). Kd may
   // exceed 1 (material brightness) - cap at the GS's 255 so untextured
   // colors cannot wrap.
   const float scale = textured ? 128.0F : 255.0F;
-  auto c255 = [](float v) { return v > 255.0F ? 255.0F : v; };
-  cols.push_back(Color(c255(o.color[0] * scale * shade.x),
-                       c255(o.color[1] * scale * shade.y),
-                       c255(o.color[2] * scale * shade.z), 128.0F));
+  auto c255 = [](float c) { return c > 255.0F ? 255.0F : c; };
+  return Color(c255(o.color[0] * scale * shade.x),
+               c255(o.color[1] * scale * shade.y),
+               c255(o.color[2] * scale * shade.z), 128.0F);
+}
+
+inline void pushVert(BagArray<Vec4>& verts, BagArray<Color>& cols,
+              BagArray<Vec4>& sts, const SceneObjectData& o, V3 p, V3 n,
+              float u, float v, const float* kdArg = nullptr,
+              bool texturedArg = false, unsigned char selfAo = 255,
+              const float* keArg = nullptr) {
+  const float* kd = kdArg ? kdArg : g_primKd;
+  const float* ke = keArg ? keArg : g_primKe;
+  const bool textured = texturedArg || g_primTextured;
+  p.x *= o.scale[0], p.y *= o.scale[1], p.z *= o.scale[2];
+  const V3 lp = p;  // local (scaled) position - what g_bakeLocal pushes
+  const V3 ln = n;  // ...and the matching un-rotated normal
+  p = rotated(p, o.rotation);
+  n = rotated(n, o.rotation);
+  const V3 wp = {p.x + o.position[0], p.y + o.position[1], p.z + o.position[2]};
+  if (g_litNormals)
+    g_litNormals->push_back(g_bakeLocal ? Vec4(ln.x, ln.y, ln.z, 0.0F)
+                                        : Vec4(n.x, n.y, n.z, 0.0F));
+  const Color c = shadeVertexColor(o, wp, n, u, v, kd, ke, textured, selfAo);
+  verts.push_back(g_bakeLocal ? Vec4(lp.x, lp.y, lp.z, 1.0F)
+                              : Vec4(wp.x, wp.y, wp.z, 1.0F));
+  cols.push_back(c);
   // staged-material path only (kdArg = a model part whose UVs the loader
   // already remapped)
   if (!kdArg && g_primUvRect)
@@ -1681,9 +1697,10 @@ inline Sprite* fontGlyphSprite(Engine* engine, int fontIdx) {
 /** Draws a string centred on (cx, cy). `sx` squeezes the horizontal axis the
  * same way fontTextWidth measures it - 1 everywhere except inside a menu panel
  * compensated for anamorphic widescreen, where the glyphs have to be squeezed
- * with the panel or they come out fatter than the baked rows around them. */
+ * with the panel or they come out fatter than the baked rows around them.
+ * `alpha` (128 = opaque) fades glyphs, shadow and icons together. */
 inline void drawFontText(Engine* engine, int fontIdx, const char* s, float cx,
-                  float cy, float size, float sx = 1.0F) {
+                  float cy, float size, float sx = 1.0F, float alpha = 128.0F) {
   Sprite* glyph = fontGlyphSprite(engine, fontIdx);
   if (!glyph) return;
   const FontData& f = FONTS[fontIdx];
@@ -1705,9 +1722,9 @@ inline void drawFontText(Engine* engine, int fontIdx, const char* s, float cx,
   for (int pass = f.shadow ? 0 : 1; pass < 2; ++pass) {
     const float ox = pass == 0 ? 1.0F : 0.0F;
     if (pass == 0)
-      sp.color = Color(10.0F, 12.0F, 16.0F, 100.0F);
+      sp.color = Color(10.0F, 12.0F, 16.0F, 100.0F * alpha / 128.0F);
     else
-      sp.color = Color((float)f.r, (float)f.g, (float)f.b, 128.0F);
+      sp.color = Color((float)f.r, (float)f.g, (float)f.b, alpha);
     // Icons carry their own colors (the DualShock palette for the face
     // buttons), so they draw untinted - and only on the glyph pass: a dark
     // offset copy under a colored icon just leaks a fringe around it.
@@ -1726,7 +1743,7 @@ inline void drawFontText(Engine* engine, int fontIdx, const char* s, float cx,
         if (ir.h > 0 && pass == 1 && !iconSp)
           iconSp = iconSheetSprite(engine);
         if (ir.h > 0 && pass == 1 && iconSp) {
-          iconSp->color = Color(128.0F, 128.0F, 128.0F, 128.0F);
+          iconSp->color = Color(128.0F, 128.0F, 128.0F, alpha);
           iconSp->size = Vec2((float)ir.w, (float)ir.h);
           iconSp->offset = Vec2((float)ir.u, (float)ir.v);
           iconSp->scale = box / (float)ir.h;

@@ -20,6 +20,8 @@
 #include "audiopreview.hpp"
 #include "camtake.hpp"
 #include "dronegen.hpp"
+#include "roadtex.hpp"  // Road Texture Generator recipe member
+#include "roadlanes.hpp"  // View > Lanes: the lane graph the overlay draws
 #include "history.hpp"
 #include "phonecam.hpp"
 #include "gibake.hpp"
@@ -43,6 +45,7 @@
 #include "livelogic.hpp"
 #include "placement.hpp"
 #include "roadgen.hpp"  // roadgen::Surface - the test drive stands on roads
+#include "roaddraw.hpp"  // the Draw road tool's snapping state
 #include "prefab.hpp"
 #include "vehbake.hpp"  // the import bake cached per vehicle definition
 #include "project.hpp"
@@ -188,6 +191,11 @@ private:
     // a widget a literal pixel size should route it through this or the text
     // clips at high scale (a 180 px combo can't hold 2.5x-tall glyphs).
     float scaled(float px) const { return px * uiScaleApplied_; }
+    // A Properties field's width that always leaves its label (and a "(?)"
+    // marker) on screen: `preferred` (unscaled px) when the panel is wide,
+    // narrower when it is not, never below a usable minimum. A fixed
+    // scaled(220) pushed every road field's label off a default-width panel.
+    float propFieldWidth(float preferred = 220.0f) const;
     void drawViewportWindow();
     // Switch the viewport camera projection (View menu, the viewport's "Proj:"
     // button, the axis gizmo, the numpad shortcuts). Editor state: it rides
@@ -434,6 +442,46 @@ private:
     // point, click a point = drag it, click the line = insert there.
     bool roadEdit_ = false;
     int roadDragPoint_ = -1;
+    // The Draw road tool (docs/roads.md "Drawing roads", src/roaddraw_ui.cpp):
+    // click the ground to place points, double-click / Enter finishes ONE road
+    // (one undo step), Esc cancels, Backspace drops the last point. Snapping is
+    // roaddraw::Snapper; nothing reaches the project until the road is done.
+    struct RoadDrawTool {
+        bool active = false;
+        std::vector<roaddraw::Snap> placed;
+        roaddraw::Options opt;
+        std::string preset = "city-street";  // roadpresets key
+        // The Snapper is built from the scene's roads when the tool starts and
+        // after each finished road, not per frame.
+        std::unique_ptr<roaddraw::Snapper> snapper;
+        std::vector<int> roadObject;  // snapper road -> object index
+        int scene = -1;
+        uint64_t serial = 0;  // modelEditSerial_ it was built at: an undo rebuilds it
+        roaddraw::Snap hover;         // where the cursor snaps this frame
+        bool hoverValid = false;
+        ImVec4 panelRect{0, 0, 0, 0};  // the options panel, which owns its clicks
+    };
+    RoadDrawTool roadDraw_;
+    void startRoadDraw();
+    void stopRoadDraw();
+    void rebuildRoadSnapper();
+    void finishRoadDraw();
+    // The tool's per-frame work inside the viewport: input, snapping, preview,
+    // options panel. Returns true when it owns the mouse this frame (the
+    // picker and the rubber band must not see the click).
+    bool roadDrawViewport(ImVec2 imgPos, ImVec2 avail, bool imageHovered, bool overAxisGizmo);
+    // Bridge height handles on the selected bridge road (docs/roads.md
+    // "Bridges"): a vertical stem from the ground to the deck at every control
+    // point and a square handle at the deck that drags roadHeights[k], one undo
+    // step per drag. Returns true while a handle is hovered or dragged.
+    bool bridgeHandles(ImVec2 imgPos, ImVec2 avail, bool imageHovered);
+    int bridgeDragPoint_ = -1;
+    float bridgeDragGrab_ = 0.0f;  // cursor-to-handle height offset at the grab
+    // Road presets in Properties (docs/roads.md "Road presets"): the combo,
+    // Apply to every selected road and Save preset. True = changed.
+    bool drawRoadPresetControls(SceneObject& o);
+    std::string roadPresetPick_;            // Properties' chosen preset key
+    char roadPresetName_[64] = "My street";  // Save preset
     // Junction overrides (docs/roads.md, "Junction overrides"). A junction is
     // not an object: it is selected by its identity - the road-id pair and
     // where it was - and re-found in the plan every frame, so a road edit
@@ -664,6 +712,9 @@ private:
     bool drawRoadSurfaceCombo(const char* label, const char* id,
                               std::string& surfacePath,
                               const char* noneLabel = nullptr);
+    // The Road's "Street furniture" section (src/roadfurniture_ui.cpp,
+    // docs/roads.md "Street furniture"); true when a field changed.
+    bool drawRoadFurniture(SceneObject& o);
     // Cached objparser summary of a model (for the properties panel)
     struct ModelInfo {
         bool ok = false;
@@ -1146,6 +1197,12 @@ private:
     // music tool. All of these live in droneui.cpp (the assetbrowser.cpp
     // precedent: a self-contained subsystem gets its own TU).
     void drawDroneGeneratorWindow();
+    // Tools > Road Texture Generator (docs/road-textures.md): bakes road
+    // surface materials into res/materials/roads with roadtex.cpp. Lives in
+    // roadtex_ui.cpp. open...() loads the recipe of a generated .mtl (the
+    // .roadtex sidecar next to it) when there is one.
+    void drawRoadTextureWindow();
+    void openRoadTextureGenerator(const std::string& mtlRel);
     // Starts/stops live audition. Opening the device also creates the
     // LiveSynth; a machine with no sound card just gets droneAudioError_.
     void droneAudition(bool on);
@@ -2185,6 +2242,15 @@ private:
     // .tmdl in the scene.
     bool showStaticBatches_ = false;
     bool showBatchOverlay_ = false;  // View > Static batches
+    // View > Lanes (docs/traffic.md, src/traffic_ui.cpp): the lane graph
+    // traffic drives, from roadlanes::buildScene - the codegen's own call -
+    // rebuilt when the model or the scene changes and no drag is in flight.
+    bool showLanes_ = false;
+    roadlanes::Graph lanesGraph_;
+    int lanesScene_ = -1;
+    uint64_t lanesSerial_ = ~0ULL;
+    void drawLanesOverlay(ImVec2 imgPos, ImVec2 avail);
+    void drawTrafficSettings(TrafficSettings& t);
     bool showBatchCells_ = false;    // the selected batch's grouping cell
     bool batchDirty_ = true;
     int batchSelected_ = -1;  // focuses the overlay on one batch, -1 = all
@@ -2427,6 +2493,13 @@ private:
     // and hands its result over through droneRenderDone_ (Runner idiom: the UI
     // thread only ever reads the result after that flag is set).
     bool showDroneGenerator_ = false;
+    bool showRoadTexGen_ = false;
+    roadtex::RoadTexParams roadTexParams_;
+    std::string roadTexName_ = "road-custom";
+    std::string roadTexStatus_;
+    unsigned int roadTexGl_ = 0;            // preview texture
+    roadtex::RoadTexParams roadTexGlFor_;   // the recipe it was generated from
+    bool roadTexGlValid_ = false;
     dronegen::Params droneParams_;
     int dronePreset_ = 0;
     int droneTab_ = 0;
@@ -3816,6 +3889,13 @@ private:
     std::string scenePrefAmbience_;  // staged SceneData::ambiencePreset
     std::string scenePrefLoading_;   // staged SceneData::loadingScreen
     bool scenePrefStart_ = false;    // staged "this is Project::startScene"
+    // Staged weather and street lamps (docs/weather.md).
+    int scenePrefWeather_ = 0;
+    float scenePrefWeatherIntensity_ = 1.0f;
+    int scenePrefStreetLamps_ = 0;
+    // The viewport's road weather preview (docs/weather.md): pushed every
+    // frame from the active scene and the previewed hour.
+    void updateRoadWeatherPreview(int presetIndex);
 
     std::string statusMessage_;
 

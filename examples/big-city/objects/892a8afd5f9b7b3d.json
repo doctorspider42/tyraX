@@ -1,0 +1,1 @@
+{ "id": "892a8afd5f9b7b3d", "name": "Building 10", "type": "model", "position": [-522.277, 0, -518.702], "rotation": [0, 0, 0], "scale": [1.4381, 1.9148, 2.0932], "color": [1, 1, 1], "physics": false, "layer": "district-1-1", "drawDistance": 230, "castShadow": false, "model": "res/models/urban/district-workshop.obj" }

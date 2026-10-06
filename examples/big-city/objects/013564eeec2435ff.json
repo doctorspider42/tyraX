@@ -1,0 +1,1 @@
+{ "id": "013564eeec2435ff", "name": "Plinth 2-5 18", "type": "box", "position": [-473.267, 0.135, -182.861], "rotation": [0, 0, 0], "scale": [35.5716, 0.27, 74.8979], "color": [0.47, 0.47, 0.45], "physics": false, "collision": "none", "layer": "district-1-3", "drawDistance": 140, "castShadow": false }

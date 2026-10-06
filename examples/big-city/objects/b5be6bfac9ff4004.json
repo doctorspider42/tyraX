@@ -1,0 +1,1 @@
+{ "id": "b5be6bfac9ff4004", "name": "Building 964", "type": "model", "position": [210.312, 0, 21.9387], "rotation": [0, 0, 0], "scale": [1.8893, 1.6587, 3.123], "color": [1, 1, 1], "physics": false, "layer": "district-5-4", "drawDistance": 300, "castShadow": false, "model": "res/models/urban/city-highrise-2.obj" }

@@ -1,0 +1,1 @@
+{ "id": "f992615fdace0665", "name": "Building 153", "type": "model", "position": [-479.334, 0, -295.612], "rotation": [0, 0, 0], "scale": [2.604, 1.6152, 2.4976], "color": [1, 1, 1], "physics": false, "layer": "district-1-2", "drawDistance": 230, "castShadow": false, "model": "res/models/urban/district-loft.obj" }

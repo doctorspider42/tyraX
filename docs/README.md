@@ -24,6 +24,11 @@ for people building games with it. Internals live in code comments, the git log
   that stayed solo; what a batch costs in VU1 packages against its members
   drawn separately, why the merged box is the number to look at, and the
   per-object opt-out for when one outlying member keeps a whole group drawn.
+- [Sharing model geometry between instances](instance-sharing.md) — every
+  copy of an imported model draws one model-space mesh under its own matrix
+  and keeps only its lit colours, pooled by content; what it saves against
+  static batching (measured on the big city), who stays solo and why, the
+  `MEMSTAT` log line, and the `std::shared_ptr` semaphore trap.
 - [World scale: units, meters and imports](world-scale.md) — what a unit is
   worth, why imports land several times too small, and the tools that tell you.
 - [The terrain, and building without one](terrain.md) — the per-scene ground
@@ -32,10 +37,22 @@ for people building games with it. Internals live in code comments, the git log
   with a brush, two-pass GS splatting, stochastic tiling.
 - [Terrain distance detail (LOD)](terrain-lod.md) — far tiles built from fewer
   heightmap samples, stitched so no crack shows; what makes a big map drawable.
+- [Road traffic](traffic.md) — ambient AI cars that drive the road network by
+  themselves: a lane graph baked from the roads, stop lines and give-way
+  priority from the same rule that paints them, working traffic lights on the
+  street furniture's signal heads (three phases at a T, a per-junction
+  Control), lane changes on multi-lane roads, headlights at night, the On Red
+  Light Run flow node, spawning around the player and a cheap
+  far-car path. View > Lanes, `--road-lanes`, the costs and the checks.
 - [Roads](roads.md) — spline streets glued to the terrain: a handful of authored
   points and one texture become a tessellated, terrain-projected ribbon, built
   at scene load by a twin of the editor's own tessellator, shipped as triangle
   strips, and reduced laterally against a published surface and UV budget.
+- [Road textures](road-textures.md) — the Road Texture Generator: asphalt,
+  setts, gravel, dirt, paving slabs or brick pavers, with lane markings laid out
+  across the road (or none, for junction patches and pavements), baked into
+  `res/materials/roads`; a new project starts with six ready materials, and
+  `--road-texture` is the headless twin.
 - [Areas (invisible volumes)](areas.md) — the box that replaces hand-typed
   distances: streaming zones, catch lists for mirrors/portals/feeds, the In
   Area trigger, reverb rooms.
@@ -112,6 +129,13 @@ for people building games with it. Internals live in code comments, the git log
   console pays nothing.
 - [Day / night cycle](day-night-cycle.md) — the time-of-day slider the whole
   bake follows, sun and moon arcs, the runtime clock.
+- [Weather and lit street lamps](weather.md) — rain around the camera, dark
+  wet asphalt from one colour a frame, and street lamps that light the road at
+  night: host-baked pools streamed with the furniture, halos, and wet
+  reflection streaks; puddles that fill as the road soaks, and every lit car's
+  lamps mirrored in the wet road. The Set Weather node (hot-patchable by Live
+  Logic), the state machine the editor and
+  the game share, and what it all costs on a 1.4 km city.
 - [Painted sky](sky-texture.md) — a 360-degree panorama on the sky dome, tinted
   by the day/night cycle and reflected in car paint.
 - [Motion blur](motion-blur.md) — the previous frame smeared over this one, for

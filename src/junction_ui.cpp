@@ -8,6 +8,7 @@
 // the planner matches by road-id pair + nearest position.
 #include "app.hpp"
 #include "app_internal.hpp"
+#include "roadfurniture.hpp"
 #include "roadgen.hpp"
 #include "theme.hpp"
 
@@ -32,10 +33,11 @@ std::string fileStem(const std::string& path) {
 }  // namespace
 
 const roadgen::CrossingPlan& App::sceneCrossings() {
-    if (roadDragPoint_ >= 0 && crossingPlanSig_ != 0) return crossingPlan_;
+    if ((roadDragPoint_ >= 0 || bridgeDragPoint_ >= 0) && crossingPlanSig_ != 0) return crossingPlan_;
     const std::vector<SceneObject>& objs = project_.objects();
     std::vector<int> idx;
-    std::vector<roadgen::CrossingRoad> roads = project::crossingRoads(objs, &idx);
+    std::vector<roadgen::CrossingRoad> roads = project::crossingRoads(
+        objs, &idx, "", [this](float x, float z) { return viewport_.terrainHeight(x, z); });
     uint64_t h = 1469598103934665603ULL;
     const int scene = project_.activeScene;
     h = fnv(h, &scene, sizeof(scene));
@@ -48,6 +50,11 @@ const roadgen::CrossingPlan& App::sceneCrossings() {
         h = fnv(h, &r.rank, sizeof(r.rank));
         h = fnv(h, r.intersection.data(), r.intersection.size() + 1);
         h = fnv(h, &idx[k], sizeof(int));
+        // A bridge's deck decides which crossings are overpasses.
+        const SceneObject& ro = objs[(size_t)idx[k]];
+        h = fnv(h, &ro.roadBridge, sizeof(ro.roadBridge));
+        if (!ro.roadHeights.empty())
+            h = fnv(h, ro.roadHeights.data(), ro.roadHeights.size() * sizeof(float));
     }
     for (const roadgen::JunctionOverride& j : project_.active().roadJunctions) {
         h = fnv(h, j.roadA.data(), j.roadA.size() + 1);
@@ -57,6 +64,7 @@ const roadgen::CrossingPlan& App::sceneCrossings() {
         h = fnv(h, &j.winner, sizeof(j.winner));
         h = fnv(h, j.material.data(), j.material.size() + 1);
         h = fnv(h, &j.grip, sizeof(j.grip));
+        h = fnv(h, &j.control, sizeof(j.control));
     }
     if (h != crossingPlanSig_) {
         crossingPlanSig_ = h;
@@ -138,7 +146,7 @@ int App::junctionMarkers(ImVec2 imgPos, ImVec2 avail, bool draw, ImVec2 mouse) {
                               objs[(size_t)selectedObject_].type == PrimitiveType::Road;
     if (junctionSel_.active && junctionSel_.scene != project_.activeScene)
         junctionSel_.active = false;
-    if (!roadSelected && !junctionSel_.active) return -1;
+    if (!roadSelected && !junctionSel_.active && !roadDraw_.active) return -1;
     const roadgen::CrossingPlan& plan = sceneCrossings();
     const int sel = selectedCrossing();
     const theme::Semantics& sem = theme::semantics();
@@ -174,8 +182,9 @@ int App::junctionMarkers(ImVec2 imgPos, ImVec2 avail, bool draw, ImVec2 mouse) {
     };
     for (size_t ci = 0; ci < plan.crossings.size(); ++ci) {
         const roadgen::Crossing& c = plan.crossings[ci];
-        const float lift = std::max(roadgen::rankLift(crossingRoadList_[(size_t)c.a].rank),
-                                    roadgen::rankLift(crossingRoadList_[(size_t)c.b].rank));
+        float lift = -1e30f;
+        for (int r : c.roads)
+            lift = std::max(lift, roadgen::rankLift(crossingRoadList_[(size_t)r].rank));
         marker(c.shape.x, c.shape.z, lift, (int)ci, c.override >= 0, false,
                sel == (int)ci);
     }
@@ -244,8 +253,10 @@ void App::drawJunctionProperties() {
     const std::string& idA = crossingRoadList_[(size_t)c.a].id;
     const std::string& idB = crossingRoadList_[(size_t)c.b].id;
     const std::string nameA = nameOf(idA), nameB = nameOf(idB);
-    ImGui::Text("%s  x  %s", nameA.c_str(), nameB.c_str());
-    ImGui::TextDisabled("at %.1f, %.1f", c.shape.x, c.shape.z);
+    std::string who;
+    for (int r : c.roads) who += (who.empty() ? "" : "  x  ") + nameOf(crossingRoadList_[(size_t)r].id);
+    ImGui::TextUnformatted(who.c_str());
+    ImGui::TextDisabled("at %.1f, %.1f - %d arms", c.shape.x, c.shape.z, c.arms);
 
     // What the build makes here, from the plan itself.
     std::string result;
@@ -254,7 +265,7 @@ void App::drawJunctionProperties() {
                                                : " (" + fileStem(c.material) + ")") +
                  (c.patchDuplicate ? ", merged with a patch nearby" : "");
     else if (c.kind == roadgen::kCrossThrough)
-        result = (c.winner == c.a ? nameA : nameB) + " runs through";
+        result = nameOf(crossingRoadList_[(size_t)c.winner].id) + " runs through";
     else
         result = "overlap - no patch";
     char gripBuf[32];
@@ -323,10 +334,43 @@ void App::drawJunctionProperties() {
             changed = true;
         commit |= ImGui::IsItemDeactivatedAfterEdit();
     }
+    // Lights and signs (format v108, docs/traffic.md "Signals"): what the
+    // node does about who goes first, from the plan + the roads' furniture.
+    {
+        std::vector<roadfurn::Settings> fs;
+        for (int oi : crossingRoadObj_) fs.push_back(objs[(size_t)oi].roadFurniture);
+        const bool sig = roadfurn::nodeSignalled(c, crossingRoadList_, fs);
+        std::string now;
+        if (sig)
+            now = "traffic lights, " + std::to_string(roadfurn::signalPhases((int)c.armList.size())) +
+                  " phases";
+        else if (c.control == roadgen::kControlStop)
+            now = "stop signs where it gives way";
+        else if (c.control == roadgen::kControlNone)
+            now = "no lights, no signs";
+        else
+            now = "priority (the roads' signs)";
+        const char* controls[] = {"Auto", "None", "Traffic lights", "Stop signs"};
+        int ctl = std::clamp(cur.control, 0, 3);
+        ImGui::SetNextItemWidth(scaled(260));
+        if (ImGui::Combo("Control", &ctl, controls, IM_ARRAYSIZE(controls)) && ctl != cur.control) {
+            cur.control = ctl;
+            changed = commit = true;
+        }
+        prefHelp(
+            "Auto: traffic lights at a three- or four-way node when one of its\n"
+            "roads ticks Street furniture > Traffic lights. None: no lights and\n"
+            "no signs. Traffic lights: lights here whatever the roads ask (in a\n"
+            "scene whose roads carry street furniture). Stop signs: a STOP at\n"
+            "every arm that gives way. Who gives way is always the stop lines'\n"
+            "rule - this only adds or removes the lights and the signs.");
+        ImGui::TextDisabled("Now: %s", now.c_str());
+    }
     if (had && ImGui::Button("Reset to auto")) {
         cur.winner = roadgen::kWinnerAuto;
         cur.material.clear();
         cur.grip = 0.0f;
+        cur.control = roadgen::kControlAuto;
         changed = commit = true;
     }
     if (changed) {
@@ -335,7 +379,7 @@ void App::drawJunctionProperties() {
         cur.x = c.shape.x;
         cur.z = c.shape.z;
         const bool isAuto = cur.winner == roadgen::kWinnerAuto && cur.material.empty() &&
-                            cur.grip <= 0.0f;
+                            cur.grip <= 0.0f && cur.control == roadgen::kControlAuto;
         if (had && isAuto)
             ovs.erase(ovs.begin() + c.override);
         else if (had)

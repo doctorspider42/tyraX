@@ -1,0 +1,1 @@
+{ "id": "94eba836aaacb0ab", "name": "Building 743", "type": "model", "position": [32.5333, 0, 100.599], "rotation": [0, 0, 0], "scale": [2.1367, 1.5928, 1.9349], "color": [1, 1, 1], "physics": false, "layer": "district-4-4", "drawDistance": 300, "castShadow": false, "model": "res/models/urban/city-highrise-3.obj" }

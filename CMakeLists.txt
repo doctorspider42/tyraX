@@ -198,9 +198,58 @@ add_custom_command(
 # target and give them order-only deps on everything it LINKS - so the
 # generators (0.1 s of work) waited for libimgui.a, and with them every editor
 # .obj. That serialised ~17 s of imgui.cpp in front of the whole editor build.
+# --- Embedded road streaming core (src/roadstream_core.inl) ---
+# One source, two homes (docs/roads.md "Road streaming"): the editor compiles
+# it for --vehicle-check, and the codegen pastes the same bytes into a
+# generated game that streams its roads (roadstream::coreSource).
+set(ROADSTREAM_CORE_GEN ${CMAKE_BINARY_DIR}/generated/roadstream_core_gen.hpp)
+add_custom_command(
+    OUTPUT ${ROADSTREAM_CORE_GEN}
+    COMMAND ${CMAKE_COMMAND}
+            -DSRC_FILE=${CMAKE_SOURCE_DIR}/src/roadstream_core.inl
+            -DOUT_FILE=${ROADSTREAM_CORE_GEN}
+            -DNAMESPACE=roadstreamsrc -DSYMBOL=kCore
+            -P ${CMAKE_SOURCE_DIR}/cmake/embed_binary.cmake
+    DEPENDS ${CMAKE_SOURCE_DIR}/src/roadstream_core.inl
+            ${CMAKE_SOURCE_DIR}/cmake/embed_binary.cmake
+    COMMENT "Embedding src/roadstream_core.inl")
+
+# --- Embedded traffic core (src/traffic_core.inl) ---
+# The road streaming core's arrangement (docs/traffic.md): the editor compiles
+# it for --vehicle-check's host simulation, and the codegen pastes the same
+# bytes into a generated game that runs traffic (roadlanes::coreSource).
+set(TRAFFIC_CORE_GEN ${CMAKE_BINARY_DIR}/generated/traffic_core_gen.hpp)
+add_custom_command(
+    OUTPUT ${TRAFFIC_CORE_GEN}
+    COMMAND ${CMAKE_COMMAND}
+            -DSRC_FILE=${CMAKE_SOURCE_DIR}/src/traffic_core.inl
+            -DOUT_FILE=${TRAFFIC_CORE_GEN}
+            -DNAMESPACE=trafficsrc -DSYMBOL=kCore
+            -P ${CMAKE_SOURCE_DIR}/cmake/embed_binary.cmake
+    DEPENDS ${CMAKE_SOURCE_DIR}/src/traffic_core.inl
+            ${CMAKE_SOURCE_DIR}/cmake/embed_binary.cmake
+    COMMENT "Embedding src/traffic_core.inl")
+
+# --- Embedded weather core (src/weather_core.inl) ---
+# The same arrangement (docs/weather.md): the editor compiles it for the
+# viewport preview and --vehicle-check, and the codegen pastes the same bytes
+# into a generated game's daynight.gen.hpp (roadlight::weatherHeaderSource).
+set(WEATHER_CORE_GEN ${CMAKE_BINARY_DIR}/generated/weather_core_gen.hpp)
+add_custom_command(
+    OUTPUT ${WEATHER_CORE_GEN}
+    COMMAND ${CMAKE_COMMAND}
+            -DSRC_FILE=${CMAKE_SOURCE_DIR}/src/weather_core.inl
+            -DOUT_FILE=${WEATHER_CORE_GEN}
+            -DNAMESPACE=weathersrc -DSYMBOL=kCore
+            -P ${CMAKE_SOURCE_DIR}/cmake/embed_binary.cmake
+    DEPENDS ${CMAKE_SOURCE_DIR}/src/weather_core.inl
+            ${CMAKE_SOURCE_DIR}/cmake/embed_binary.cmake
+    COMMENT "Embedding src/weather_core.inl")
+
 add_custom_target(tyrax-generated
     DEPENDS ${AI_SUPPORT_GEN} ${DOCS_GEN} ${APP_ICON_GEN} ${MOON_MAP_GEN}
-            ${BLSS_NET_GEN} ${BLSS_META_GEN})
+            ${BLSS_NET_GEN} ${BLSS_META_GEN} ${ROADSTREAM_CORE_GEN} ${TRAFFIC_CORE_GEN}
+            ${WEATHER_CORE_GEN})
 
 # --- Editor ---
 add_executable(tyrax-editor
@@ -325,7 +374,25 @@ add_executable(tyrax-editor
     src/uvunwrap.cpp
     src/vehbake.cpp
     src/vehicle_ui.cpp
+    src/roadbridge.cpp
     src/roadgen.cpp
+    src/roadrail.cpp
+    src/roaddetail.cpp
+    src/roaddraw.cpp
+    src/roaddraw_ui.cpp
+    src/roadfurniture.cpp
+    src/roadfurnbreak.cpp
+    src/roadfurniture_ui.cpp
+    src/roadlight.cpp
+    src/roadpresets.cpp
+    src/roadstream.cpp
+    src/roadlanes.cpp
+    src/roadlanes_check.cpp
+    src/roadlanes_gen.cpp
+    src/traffic_ui.cpp
+    src/roadfile.cpp
+    src/roadtex.cpp
+    src/roadtex_ui.cpp
     src/vehcheck.cpp
     src/vehiclesim.cpp
     src/save_assets.cpp

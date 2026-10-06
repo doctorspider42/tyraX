@@ -1,0 +1,14 @@
+newmtl prop_bark
+Kd 0.36 0.25 0.16
+
+newmtl prop_leaf
+Kd 0.24 0.45 0.2
+
+newmtl prop_pine
+Kd 0.16 0.34 0.2
+
+newmtl prop_metal
+Kd 0.32 0.33 0.35
+
+newmtl prop_lamp
+Kd 1 0.93 0.7

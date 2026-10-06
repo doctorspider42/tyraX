@@ -1,0 +1,1 @@
+{ "id": "d3d9128ed02973cc", "name": "Building 802", "type": "model", "position": [88.442, 0, -437.959], "rotation": [0, 0, 0], "scale": [1.0967, 2.161, 2.3787], "color": [1, 1, 1], "physics": false, "layer": "district-4-2", "drawDistance": 230, "castShadow": false, "model": "res/models/urban/district-workshop.obj" }

@@ -167,6 +167,10 @@ The Layout menu / switching / capture logic lives in app.cpp (`switchLayout`/`ap
 | `fbxparser.cpp/.hpp` | ~650 | FBX importer for animated models, built on the vendored ufbx reader (`vendor/ufbx`, cloned by setup.ps1). Fills the SAME `glbparser::Baked`/`Skel` structures, so the whole downstream (.tskl, viewport preview, codegen) is format-agnostic; the `animimport::` namespace in its header is the extension dispatch every import site calls. FBX curves are resampled at 24 Hz + RDP-reduced; axes/units normalized to glTF conventions; external textures copied in at import. |
 | `version.hpp` + `migrations.cpp/.hpp` | ~150 | **Editor/format versioning.** `version.hpp`: the editor semver (title bar + informational `"editorVersion"` in the manifest) and `kFormatVersion`, the on-disk contract (`"formatVersion"`; pre-versioning files = v0). `load()` refuses newer-format files; older ones open silently unless `migrations::stepsFor` returns registered steps — then the GUI (`App::openProjectAt`, the single funnel for every LOCAL open) prompts, backs up the format-bearing files into `_backup/` and migrates in memory (save only on success), and headless `--build`/`--resave`/`--refresh-gen`/`--apply-graph`/`--ai-graph` refuse (use `--migrate`). **Two invariants worth not breaking:** `migrations::backup` must copy everything the post-migration save writes (`save` + `saveHeights` + `saveSplat`) or the skipped file is unrecoverable, and `App::openRemoteProject` (a collaboration client) **refuses** rather than migrates — the project is the host's, and a migrated replica would diff against the host over fields it does not have. `migrations::validate()` guards the registry itself (ascending, unique, in range), called by `run` before the first step. Rules + step-authoring example: `docs/format-versioning.md`. |
 | `particletex.cpp/.hpp` + `particle_ui.cpp` | ~230 + ~370 | **The particle library** (docs/particles.md). `particletex` is host-only and deterministic: `generate(ParticleTexGen)` makes smoke / flame / glow RGBA (PREMULTIPLIED - an additive bag ignores texture alpha, so the shape must live in RGB), `writeAssets` writes `res/materials/particles/<stem>.png` + a one-material `.mtl`, each only when its bytes change. `particle_ui.cpp` is *Tools > Particle Editor* (window key `particles`). The load-bearing decision is in project.cpp: a linked emitter (`SceneObject::particleEffect`, by NAME) gets the effect's values COPIED into its own emitter fields by `project::applyParticleEffects`, called from `commitChange()` and at the end of `load()` - so codegen, the viewport, Live Link and the time machine never learn the library exists. A new emitter field that an effect should drive is therefore FOUR places: `ParticleEffect` (+ its `operator==`), the section writer/reader, `applyParticleEffect`, and the editor widget. The window commits only when no item is active (`IsAnyItemActive`), because the copy rewrites the SCENES and a drag would otherwise be sixty undo steps. Vehicle smoke is the second consumer: `VehicleDef::smokeEffect` (wins over `smokeMaterial`) -> one `VEHICLE_SMOKE_LOOKS` row per definition (look numbers + up to 8 flipbook frame `.mtl`s), mapped by `vehbake::smokeLookOf` - the ONE effect-to-smoke mapping; the vehicles runtime keeps a pool (`VehFx`) per definition, so each car's effect keeps its own texture and blend, taken through `acquireTexture` - the smoke texture does NOT join `MATERIAL_PATHS`. The built-in `vehicles/fx-smoke.png` is `particletex::generate(vehbake::builtinSmokeRecipe())`: there is ONE procedural smoke generator, so do not write a second one in vehbake. `--bake-particles` is the headless twin. **Flipbooks** are frames `framePath(mtl, k)` listed CONTIGUOUSLY after frame 0 in `MATERIAL_PATHS` (the runtime addresses frame k as `material + k`; `emitterFlipbookFrames` falls back to 1 when that does not hold) - the residency pass keeps all of them loaded. **Two traps this cost:** the billboard camera basis is screen-LEFT/screen-DOWN, so every particle quad was rotated 180 degrees for years and only an asymmetric texture (a flame) showed it - the fix negates the weights `m00..m11` (not the basis, which the portal and split passes rebuild on their own), and any new billboard producer owes the same negation (and must take its basis at RENDER time from the camera of the pass - the simulation runs before the cutscene override and the shake, which is why particles once faced the player's camera during a cutscene and turned with the right stick); and the viewport must never write ALPHA while drawing particles (`glColorMask` alpha off) - ImGui composites the viewport image with its alpha, so translucent smoke previewed nearly black. |
+| `roadtex.cpp/.hpp` + `roadtex_ui.cpp` | ~720 + ~250 | **Road Texture Generator** (docs/road-textures.md). `roadtex` is host-only (no GL, no ImGui, no `project.hpp`) and deterministic: `generate(RoadTexParams)` makes asphalt / setts / gravel / dirt / paving slabs / brick pavers RGBA (the `Surface` enum is stored by number in recipes: append only) with per-line-type markings (centre, dividers, edges: style, colour, width, dash/gap) laid out ACROSS U, periodic noise and dashes that divide the 4-unit V repeat (`quantizeDash`); the intersection variant is isotropic and tiles in U too (32-unit world mapping), and `pavement=1` is the same on a 2 x 2-unit tile (slab grid snapped by `slabGrid`). `writeAssets` writes `res/materials/roads/<stem>.png` + `.mtl` + the editor-only `.roadtex` recipe (key=value, `toText`/`applyKey` - the CLI parses the same keys; texbake skips `.roadtex`, `assetSidecars` carries it). `seedProject` is called by `project::create` (six presets, incl. `pavement-slabs`), and Insert > Road defaults to `road-2lane` / `road-junction` when they exist. `roadtex_ui.cpp` is *Tools > Road Texture Generator* (window key `roadtex`); its Apply buttons set the selected Road's `roadTexture` / `roadIntersectionTexture` through `commitChange()`. Headless twin: `--road-texture`. |
+| `roadlight.cpp/.hpp` + `weather_core.inl` | ~1600 + ~230 | **Lit street lamps and weather** (docs/weather.md). Host-only bake (no GL, no ImGui; `project.hpp` only for its --vehicle-check codegen block): `lampsOf` finds each furniture lamp's head (the built-in lens by its unshaded colour), `bakePools` lays the surface-following additive pool quads (asymmetric sink/float budget, depth 2, raise-at-cap over kerbs) chunked by 96-unit cells. The codegen appends them to `roadfurn::Tables` as `light` rows (UV packed in the colour word) so they stream and page as furniture items, and emits `ROAD_LAMPS`. `patchTemplate` is the zero-cost-gated set of text hooks (ProcChunk::lampLight, procFinishChunks' additive pool bag and the asphalt wet tint, renderRoadLamps/renderRain/updateWeather, loadScene's weather::reset) - applied LAST in fillTemplate so the streaming copy of procFinishChunks takes it too. `weather_core.inl` is the roadstream_core arrangement: the editor compiles it, CMake embeds it, `weatherHeaderSource` pastes it into `inc/daynight.gen.hpp` (no block comments, no includes). The Set Weather node writes `weather::request` directly (not ScriptContext); SceneData::weather/weatherIntensity/streetLamps (format 107) are staged in Scene Preferences. The core also holds the puddles' `weatherPuddleLevel`/`weatherPuddleColor` and the cars' `weatherCarStreaks` (the console's renderRoadLamps and --vehicle-check call the same function); the car block (`kCarStreaks`) is spliced into renderRoadLamps only with vehicles AND weather (`Gates::vehicles`). |
+| `roadfurnbreak.cpp/.hpp` | ~900 | **Breakable street furniture** (docs/roads.md "Breakable furniture", format 109). The settings live in `roadfurn::Settings` (`breakable`, `brk[kind]`, `breakSound`), the table in `roadfurn::Tables::pieces` (`ROAD_FURN_PIECES`, one row per box: ROAD_FURN row + vertex range, lamp, pool range, sound, threshold, keep). This file is the generated runtime as a text patch (`patchTemplate`, applied in fillTemplate AFTER `roadlight::patchTemplate`, gated by `projectHasBreakableFurniture` = vehicles + a breakable road), the host twins `breaks`/`touches`, and `--vehicle-check` "breakable furniture" (a host vehiclesim drive into a lamp, the piece table, the collapse, the codegen hooks counted through `kHookMarks`). |
+| `roaddraw.cpp/.hpp` + `roaddraw_ui.cpp` + `roadpresets.cpp/.hpp` | ~640 + ~560 + ~430 | **Road authoring: the Draw road tool, road presets, bridge height handles** (docs/roads.md "Drawing roads", "Road presets", "Height handles"). The rule is the roadtex one: EVERY decision is host-only and pure - `roaddraw::Snapper` (snap to a road end, a centre line, a 15-degree step from the previous segment or from the snapped road, the grid; centre lines sampled exactly as `findNodes` samples them, so a T end lands ON the polyline the planner tests), `finish` (a new road, or a road END carried on in line with the same look), `commit` (the object, the preset, on-demand materials, bridge heights shifted on an extension), `verticalHandleY` (the handle drag) and `roadpresets::apply` / `fromRoad` / `ensureMaterials` - and four callers share them: the viewport tool (`App::roadDrawViewport`, which only maps the mouse and draws), `--draw-road`, the AI tool `draw_road` (chat_ui.cpp) and `--vehicle-check` "road drawing". Presets are DATA (the built-in table in roadpresets.cpp, plus `ProjectSettings::roadPresets`, format 105 - project.hpp includes roadpresets.hpp for it, so roadpresets.hpp must never include project.hpp). A preset never overwrites a material file that exists. **Two traps**: the Preferences window keeps a COPY of the settings and writes it back whenever it differs, so "Save preset" updates `prefSettings_` too or an open Preferences window silently drops the preset next frame; and the tool must veto the picker and the rubber band (`roadDrawOwns` / `bridgeHot` in app.cpp), or the click that places a point also deselects the road. Kind = Railway in Properties calls `roadpresets::applyRailway` (moved there from props_ui). |
 | `primmesh.cpp/.hpp` | ~180 | Shared, GL-agnostic **unit-primitive tessellation** (box/sphere/cylinder/cone/plane → raw `pos+normal+uv`). The single host source: the viewport bakes shade on top of it, and `decalproj` uses it as receiver geometry, so a projected decal conforms to exactly the geometry the viewport draws. (templates.cpp keeps its own generated-string builders for the PS2 runtime — the pre-existing twin.) |
 | `procgraph.hpp/.cpp` | ~600 | **Procedural scatter graph: data model + node registry** (docs/procedural-generation.md). `ProcNode` (keyed float/string params + a generic `rows` table used for asset pools and curve control points), `ProcLink` (typed pins), `ProcGraph` (nodes/links/seed/overrides/bakedHash), `ProcOverride` (a manual per-instance edit bound to a point's stable key) and `procNodeTypes()` - the 23-entry registry whose `.desc` is the node's documentation (add-menu tooltip + hover), plus `validate`/`linkError` (type mismatch, cycles, missing inputs). Also `procObjectProps()`: the list of properties the **Object Settings** node can put on every object a bake generates (mesh LOD distance, baked lighting, reflections) - a row stores its property by KEY, so that list is append-only, and its twin is `applySettings` in procbake.cpp (offer a property there and not here and the switch does nothing). Deliberately NOT in it are the four fields Output owns (draw distance, cast shadow, collision, layer). The graph lives on a `Scatter` scene object (`SceneObject::procGraph`) - **the UI calls that object a "Procedural volume"**; the enum and the serialized key stay `scatter` because they are file format, and naming the region after one of its source nodes is what made users read it as a choice of method. Per object, so undoable and collaboration-ready for free. Data only - no evaluation, no GL, no ImGui. |
 | `procgen.cpp/.hpp` | ~1100 | **The evaluator** - host-only, the decalproj/aobake/navmesh pattern: one deterministic function of (project, scene, volume, graph). Built around three properties, and every change must preserve them: DETERMINISM (`rand01(seed, nodeId, pointKey, channel)`, never a running counter - so an unconnected node elsewhere cannot reshuffle the result), PREFIX STABILITY (generators emit a fixed Halton sequence and density picks a PREFIX, which is what makes progressive preview honest AND keeps manual overrides attached to their instances), CACHING (`Cache` = per-node memo keyed on params + input hashes + `Options::contextSerial`). `bakeHash` is the staleness key; **it quantizes floats to the SIX SIGNIFICANT DIGITS the `.tyra` stores** (`%.6g`) - hashing raw bits made every bake read as stale after a save/load round trip. Also `Mask`/`Curve`/`Instance` and `assetMesh` (cached .obj triangle soup). The **Repeat** nodes (Array / Radial Array) are the analytic half: they multiply their input, so each copy's identity is `copyKey(node, sourceKey, i)` (an override must stay attached to "copy 7 of that point"), they do NOT thin by `Options::fraction` - a preview that dropped copies would lie about an exact count - and they stop at `kMaxRepeatOut` with a warning rather than eating the frame. |
@@ -668,6 +672,24 @@ itself on the frame it asks, and a world-space rebuild would clear the flag and
 leave it asking forever), and the only thing that still needs a `dirty` re-bake
 is a SCALE change, because scale is baked into the local vertices. Worth 16 →
 50 FPS on examples/endless-runner.
+
+**Static imported models draw a SHARED model-space bake** (1.173,
+`INSTANCE_SHARING`, docs/instance-sharing.md). `rebuildObjectGeometry` decides
+`ObjectGeometry::shared` per rebuild (`instanceShareEligible`); a shared part's
+own `vertices`/`sts`/`colors` stay EMPTY and its bags point at the model's
+`GameModel::sharedParts[pi]` (positions + STs, unscaled) and a pooled
+`SharedColors` array, under `objMat` - which, unlike the physics path's,
+carries the object's SCALE (`updateObjMat` folds it in when `g.shared`).
+`shared` is deliberately NOT `matrixMode`: everything that tests matrixMode
+means "a moving body". So **any new code that walks a part's vertices must
+read them through the bag (`bag->vertices`/`bag->count`, model space when
+`g.shared`) or call `unshareObject(i)` first** if it needs world space (the
+torch receiver passes and the shadow wall patch do: they draw coplanar copies
+at the base pass's exact depth). A new exclusion goes in
+`instanceShareEligible` and in the doc's "Who stays solo" table together.
+The shared arrays are counted by `ShRef`, never `std::shared_ptr` (one EE
+kernel semaphore per control block on this toolchain - see tyra-engine-dev).
+A debug build's `MEMSTAT` log line (`logGeometryMemory`) is the instrument.
 
 **Physics bodies are rigid bodies** (docs/physics.md): `updateObjectPhysics`
 predicts the pose, collects corner contacts (terrain, `objectCollisionBox` boxes
@@ -2249,6 +2271,19 @@ all, so the phantom block is what makes the subtraction land on the truth. Only
 the CULL program's numbers are ever consulted (`getMaxVertCountByBag` asks
 `getCullProgramByBag`).
 
+## Two editor-UI traps (found in a --ui-script review, 1.174)
+
+- **An ImGui image with UVs past 1 does NOT repeat.** The vendored ImGui
+  OpenGL backend (2026-04 change) binds its own clamping sampler over the
+  texture's `GL_REPEAT`, so `AddImage(..., uv1 = (1, reps))` smears the last
+  row instead of tiling. Draw repeats as separate tiles with UVs in 0..1 (the
+  Road Texture Generator preview does).
+- **A Properties field at a fixed `scaled(220)` hides its own label** on a
+  default-width panel at a high UI scale. Use `App::propFieldWidth()`, which
+  leaves room for the label and its "(?)" marker, and put a long button under
+  its field rather than beside it. A viewport overlay clips to the PICTURE
+  (`Viewport::pictureScale`, the PS2-output letterbox), not the whole panel.
+
 ## Building the editor
 
 ```powershell
@@ -2966,13 +3001,29 @@ Automatic road intersections are host decisions too. The Properties picker
 stores a material path in the legacy-named `roadTexture` /
 `roadIntersectionTexture` fields; `project::resolveRoadTexture` resolves the
 first `map_Kd`, while direct PNG values remain a backwards-compatible path.
-Two crossing roads' authored intersection references must match;
-`roadgen::findJunctions` samples the same Catmull-Rom centre line, codegen
-uses the centre plus four strip-overlap corners as the footprint. Since
-1.151.2, `roadgen::tessellateJunctionSurface` fits an adaptive, conforming mesh
+Every road at a node must name the same intersection reference. Since
+1.170.0 the footprint is a NODE (`roadgen::findNodes`, docs/roads.md "Road
+nodes"): crossings at any angle, open ends resting on another road (T, fork)
+and shared ends (corners) are clustered into one node per place, with a
+filleted outline whose arm edges follow the road curves; `Crossing::roads`
+lists every road there and `c.a`/`c.b` are only its first two, so a new
+consumer asks `c.has(road)` instead of comparing a pair. `findJunctions` and
+`cornerXZ` remain only for the oracle's legacy cases. Since 1.151.2,
+`roadgen::tessellateJunctionSurface` fits an adaptive, conforming mesh
 against actual road triangles and proves 0.02-unit clearance at triangle
-intersection corners. Codegen bakes XYZUV in `ROAD_JUNCTION_VERTS`; `buildRoads`
-only uploads it. Flat patches retain four triangles. Use the rendered terrain
+intersection corners; since 1.170.0 it also proves clearance over the
+terrain's own triangles and, where a fan cannot follow the ground, cuts the
+outline along the terrain grid - so pass the scene's `roadgen::TerrainGrid`
+(`terrainGridOf`, `Viewport::terrainGrid`) or it falls back to 2-unit cells.
+Codegen bakes XYZUV in `ROAD_JUNCTION_VERTS`; `buildRoads` only uploads it.
+Since 1.171.0 the node MARKINGS (`roadgen::bakeMarkings`: edge lines round
+the fillets, stop lines, zebras; per-road `roadMarkings`) ride the same table
+as one untextured row per scene - `RoadJunctionRt::rgb` non-zero = paint, its
+colour, no texture - so a new painted thing needs no new runtime path; and a
+width change between two roads joined in line is a TRANSITION node
+(`Crossing::transition`, taper outline). Per-arm frames for anything drawn on
+a node are `Crossing::armList`; `Junction::outlineCap` says which outline
+segments are arm caps. Use the rendered terrain
 triangle sampler (`roadgen::terrainHeight`) when generating the source roads,
 not `project::heightAtWorld`'s bilinear interpolation. Keep the viewport,
 test drive and generated data on that shared host result; never move road
@@ -2993,6 +3044,190 @@ any chunk, so the overlay's height reaches the spill through the row's
 `lift`, not through `roadSurfaceAt`). The junction UI (markers, selection,
 the Junction section) is `src/junction_ui.cpp`; a junction is selected by
 identity (`App::junctionSel_`), not by object index.
+
+**Kerbs (format 95, docs/roads.md "Kerbs") follow the patch pattern, not the
+tessellator's.** The field chain is `SceneObject::roadKerb/roadKerbHeight/
+roadKerbWidth` (+ `operator==`), `objectJson`/`readObjectsArray` (written only
+off-default), the road section of `props_ui.cpp`, `liveLinkRecipeHash` (mixed
+only when on), `project::crossingRoads` -> `CrossingRoad::kerb*`, and the
+crossing signature in `Viewport::syncRoadDraws` (kerbs are cut at the crossings,
+so they rebuild with them, not with the per-road draw). `roadgen::planKerbs`
+decides every kerb line from the crossing plan, and the codegen bakes them
+with `kerbStrips` into `ROAD_KERBS`/`ROAD_KERB_VERTS`. Those tables and the
+upload block (`roadKerbsUpload`, spliced into `buildRoads` before
+`procFinishChunks`) exist only when `projectHasKerbs`, so a kerbless road
+project regenerates byte-identically. The chunks are owner **-4**, so
+`renderProcChunks` draws them with its draw distance (`renderRoadChunks` has
+none), and the road height index reads owner -3 AND -4 (kerb collision): a
+kerb top is ground for wheels, walkers (`walkGroundAt`, a 0.5 step cap), blob
+shadows and light pools. The shadow bake's road hash (`decalproj.cpp`) leaves
+the kerb fields out on purpose: kerbs are not receivers, and adding them
+would mark every baked-shadow cache stale.
+
+**Pavements (format 97, docs/roads.md "Pavements") ride on the kerbs and
+need no table of their own.** `SceneObject::roadPavement/roadPavementMaterial`
+take the kerb chain (the material is an asset path: `assetbrowser.cpp`'s usage
+notes and both rename swaps list it), `CrossingRoad::pavement` is set only for
+a kerbed road, and `roadgen::planPavements` turns the SAME `planKerbs` pieces
+into textured XYZUV triangles. The codegen ships them as ordinary
+`ROAD_JUNCTIONS` rows, one per material and 32-unit cell (`rgb` =
+`kPavementRgb` when untextured), so they are owner -3 road chunks: culled,
+drawn and collided with like a patch, with no EE work and no new runtime
+code. The viewport and the test drive (`addKerbsToSurface`) call the same
+function on the same pieces.
+
+**Rails and tram tracks (format 98, docs/roads.md "Rails and tram tracks")
+ride the kerb pipeline and add no runtime table.** The field chain is
+`SceneObject::roadKind/roadRailGauge/roadTracks` (+ `operator==`), the same
+writers/readers (written only off-default), the Kind/Tracks/Gauge block of the
+road section in `props_ui.cpp` (`applyRailwayPreset`: Railway sets the ballast
+materials, writing them from `roadtex::presets()` when missing, plus rank
+Track, no spill/kerb/markings), `liveLinkRecipeHash` (mixed only when kind is
+not 0), `project::crossingRoads` -> `CrossingRoad::kind/railGauge/tracks` (it
+also FORCES a railway's kerb, markings and edge line off) and the crossing
+signature in `Viewport::syncRoadDraws`. The geometry is all in
+`src/roadrail.cpp` (kept out of roadgen.cpp on purpose: `planRails`, its own
+strip emitter with the kerbs' run contract, `addRailsToSurface`); roadgen.cpp
+only learned to skip markings at a node a railway is in. The codegen appends
+the rail strips as more `ROAD_KERBS` chunks, `projectHasKerbs` is true for a
+rail or tram road too, and a vertex shade of 2+ names an entry of
+`ROAD_KERB_PALETTE` (printed from `roadrail::kPalette`; the upload's `put`
+lambda and `roadrail::shadeRgb` are the two readers - change both).
+
+**Bridges are host-baked and the EE twin does NOT carry them** (format 100,
+docs/roads.md "Bridges", `src/roadbridge.cpp`). A road with `roadBridge` is left
+out of `ROAD_DEFS`; its deck becomes `ROAD_JUNCTIONS` rows (owner -3, so the
+height index reads it) and its parapets/underside/piers/abutments
+`ROAD_BRIDGES` rows (owner -5: drawn by `renderProcChunks`, NOT in the height
+index). Three rules for anything new that reads roads. (1) The DRAWN surface of
+a road object is `roadbridge::drawnRoad`, not `roadgen::tessellate` - a consumer
+that tessellates a bridge glued draws it on the ground. (2) Node patches, kerbs
+and markings are fitted to the GLUED roads (a bridge's ground self), or a node
+under a deck is pulled up onto it. (3) A ground query that must not snap onto a
+deck overhead passes `maxY` (`roadSurfaceAt`/`groundSurfaceAt` on the console,
+`roadgen::Surface::at` on the host): wheels use the car's y + 1.5, walkers feet
++ 0.5, blob shadows the caster's base + 0.5. `CrossingRoad::elevation` is how
+the planner learns a bridge's height (`project::crossingRoads` takes the
+scene's bare-terrain HeightFn for it); `findNodes` and the kerb planner skip
+anything more than `roadgen::kOverpassClearance` apart vertically. A bridge's
+`roadHeights` follow its points through `roadbridge::onPointInserted/Removed/
+Reshaped` - every point-edit site calls them instead of clearing the vector.
+
+**Road details (format 99, docs/roads.md "Road details") are the same pattern
+in their own files.** `SceneObject::roadDetails/roadDetailSeed` -> the same
+chain as the kerbs (`CrossingRoad::details/detailSeed`, the crossing signature,
+`liveLinkRecipeHash` mixed only when on). Everything else is
+`src/roaddetail.hpp/.cpp` - placement, the surface-following decal bake and the
+atlas generator - kept OUT of roadgen.cpp/roadtex.cpp so parallel road work
+merges; the codegen, the viewport, `--road-crossings` and `--vehicle-check` all
+call `roaddetail::build` with the scene's roads, plan, patch triangles and node
+paint. Tables (`ROAD_DETAILS`/`ROAD_DETAIL_VERTS`/`ROAD_DETAIL_TEX`) and the
+upload block (`roadDetailsUpload`, spliced after the kerbs') exist only when
+`projectHasRoadDetails`. Owner **-6** (-5 is the bridge structure): out of the road height index (a decal is
+paint, not surface) and drawn blended by `renderRoadChunks` after the -3
+chunks: a blended chunk drawn from `renderProcChunks` lands BEFORE the
+interleaved road bags and the asphalt covers it (the two owner tests are
+string-patched in `fill()` only when details exist). `refreshGenerated` writes the atlas (`roaddetail::ensureAtlas`) only
+when it is missing, so a repaint survives builds.
+
+**Street furniture (format 101, docs/roads.md "Street furniture") is the same
+pattern again, with its settings in ONE struct.** `SceneObject::roadFurniture`
+is a `roadfurn::Settings` (`src/roadfurniture.hpp`: three `Line`s - lamps,
+trees, bollards - plus seed, signs, signals and their models), so the chain is
+one line per consumer: `roadfurn::toJson`/`fromJson` (an object of only the
+non-default keys), `operator==` (defaulted), `roadfurn::signature` in the
+crossing signature and `liveLinkRecipeHash`, `roadfurn::modelPaths` in the
+asset browser's usage notes and rename swaps. Placement takes the roads with a
+PARALLEL settings vector (no CrossingRoad fields), the plan, patches, paint
+and `planPavements` output; the codegen, the viewport, `--road-crossings`
+(`roadfurn::prepare` rebuilds those inputs) and `--vehicle-check`
+(`roadfurn::check`) all call `roadfurn::build`. Its sign rule is a TWIN of
+`bakeMarkings`' giving-way rule - the check proves every sign stands at
+painted stop line. Tables (`ROAD_FURN*`) and the upload block
+(`roadfurn::uploadSource`, spliced before `procFinishChunks`) exist only when
+`projectHasRoadFurniture`. Owner **-7**: merged untextured vertex-colour chunks
+drawn by `renderProcChunks`, poles and trunks as owner -7 `procColliders`; the
+road height index never reads -7. An `.obj` model's texture is SAMPLED into the
+vertex colours at bake (no VRAM, no texture-atlas trap). The Properties
+section is `App::drawRoadFurniture` in `src/roadfurniture_ui.cpp`.
+
+**Road streaming (format 102, docs/roads.md "Road streaming") is CUT, not
+retyped.** `ProjectSettings::roadStreamRadius` > 0 swaps `buildRoads` for
+`roadStreamSetup` + a per-frame `roadStreamUpdate`, and `roadstream::emit`
+(`src/roadstream.cpp`) builds that runtime out of the non-streaming text:
+buildRoads' per-road loop (patched to plan or replay one chunk), the
+junction/spill/edge uploads, the kerb/bridge/detail/furniture upload blocks and
+procFinishChunks' per-chunk body, each cut at fixed anchors. **So editing any
+of those texts can break an anchor** - `--vehicle-check` "road streaming"
+generates a project with every road feature and fails on a miss, and the
+generated source gets an `#error` naming it. Three shared hooks are
+string-patched in `fillTemplate` only when streaming is on
+(`roadstream::patchTemplate`: roadSurfaceAt's lookup, the update after the
+terrain ring, the far-car freeze), so radius 0 regenerates byte-identically.
+The pure part - item boxes, the coarse grid, the per-chunk height index, the
+ring - is `src/roadstream_core.inl`, ONE file compiled into the editor
+(namespace roadstream) and pasted verbatim into the generated class (embedded
+by CMake via `embed_binary.cmake`): structs and member functions only, no
+includes, no `/* */` comments (`ROADS_IMPL` also lands inside one in the
+collision TU). Streamed chunks live in procChunks slots tagged `instance = -2
+- item`, free slots are owner -8, and anything that erases procChunks is
+caught by the tags (`roadStreamRemap`). Two neighbours were fixed with it,
+both patched only where they apply: auto-stream layer zones focus on the
+DRIVEN car in vehicle projects (they read the parked walker before), and
+auto-stream projects log `LAYER n load|unload`.
+
+**Road traffic (format 106, docs/traffic.md) is the streaming arrangement a
+third time.** `ProjectSettings::traffic` (`TrafficSettings`, saved as an object
+of non-default keys, in `operator==` and `liveLinkContextHash`) turns it on.
+`roadlanes::build` (`src/roadlanes.cpp`) is the ONE lane graph - the codegen's
+road pass (it already holds each scene's roads, plan and furniture result),
+View > Lanes (`src/traffic_ui.cpp`), `--road-lanes` and the check all call it;
+its priorities come from `roadgen::giveWayArms` and its signals from
+`roadfurn::nodeSignalled`, the very functions the paint and the furniture use,
+so never re-derive either. The cars are Vehicle objects APPENDED in
+`templates::generate` (`roadlanes::withTrafficCars`, id prefix `~traffic-`,
+`VEHICLES.wpFirst == -2`, live-link id hash 0 - the scroller-clone idea); the
+runtime is `src/traffic_core.inl` (pasted verbatim, class-body rules) plus
+`roadlanes::implSource`, appended to `roadsImpl` OUTSIDE the tables-on-disk
+early path (that early return is how a streamed city first linked without
+it), and six hooks string-patched into the vehicle runtime by
+`roadlanes::patchTemplate` (setup, the per-frame ring, the driver branch, the
+far-car path, the sleep exclusion, and the traffic headlights without a pool). A new anchor there needs a mark in
+`kHookMarks` - the check fails on a hook that did not land. Off = byte-identical
+sources. Signal PHASES come from `roadfurn::signalPhase(arms, arm)` (four-way:
+arm % 2; anything else: one phase per arm) - the lane graph's connection
+groups, the `TRAFFIC_LAMPS` heads and the node's phase count in
+`TRAFFIC_NODE_SIGNAL` all read it, so a new phase plan is ONE function plus the
+core's `light()`. A junction's `JunctionOverride::control` (format 108) reaches
+`nodeSignalled` through `Crossing::control` (copied by `planCrossings`); it
+must never touch `giveWayArms`. Lane changes live entirely in the core
+(`route`/`adopt`/`considerChange`/`gapClear`/`laneStep`/`pose`) on top of the
+lanes' `inner`/`outer` links (`TrafficSegData` is 13 ints). The player's red
+runs reach the flow graph through `ScriptContext::redLightRuns`/`Node`/`Speed`
+(the On Red Light Run node watches the count - the OnCreditsEnd shape).
+
+**Road tables on disk (format 104, docs/roads.md "Tables on disk").** A
+streamed project (unless `ProjectSettings::roadStreamEmbedTables`) does not
+emit the per-vertex `ROAD_*_VERTS` / `ROAD_FURN_RGB` tables: the scene-data
+codegen feeds each streaming item's rows - every value parsed back from the
+literal the embedded table would have printed, so the bytes are bit-exact -
+into `roadfile::Builder` (`src/roadfile.cpp`), which writes
+`.res-baked/roadfile/roads.bin` (a generated `templates::File`, copied to
+`bin/roadfile/` by the Makefile's resources step - NOT straight into `bin/`,
+which `--rebuild` drops after the refresh) and the `ROAD_FILE_ITEMS`
+directory in scene_data.hpp. `roadstream::emit` with `Params::tablesOnDisk`
+splices a reader thread, a slot queue, an LRU read-ahead cache and the
+directory-driven plan into the streaming runtime at anchors of its OWN text
+(`kDisk*` in roadstream.cpp); the cut upload blocks read their rows through a
+local pointer named like the old table, so the cut text is unchanged.
+buildRoads is not compiled in that mode. The header layout and checksum are
+`RsFile` in roadstream_core.inl (host and console share them). texbake's
+sweep skips `roadfile/`; refreshGenerated deletes a leftover file;
+`--vehicle-check` "road tables on disk" proves item k's bytes equal the
+embedded slice. The EE side uses ONE semaphore and ONE thread for the whole
+game - semaphores are a scarce kernel resource (the instance-sharing branch
+lost all host: I/O to a few hundred `std::shared_ptr`s), so never add one per
+item.
 
 ## Vehicle HUD font preparation (1.150.1)
 
@@ -3117,3 +3352,71 @@ Graph edits are staged until unfreezing; explicit bake/clear, instance editing
 and runtime mode changes are disabled while frozen. clearVolume still supports
 volume deletion. Never implement freeze only in the UI: headless builds and
 reopening must preserve the same saved geometry.
+
+## Weather and lit street lamps (format 107)
+
+docs/weather.md. Three things to know before touching it. First, the lamp
+pools are FURNITURE rows (`roadfurn::Tables::lit`, a `light` column): never give
+them their own table or streaming item kind - riding in RS_FURN is what makes
+them stream and page into roads.bin with no roadstream change. A lit project
+prints `struct RoadFurnRt { ...; int light; }` and roadfile's check reads the
+width from that line. Second, `Tables::source` has a local lambda called `lit`:
+the member must be spelled `this->lit` there (the lambda converts to true and
+gave every furniture project the light column once). Third, every hook is a
+text patch in `roadlight::patchTemplate`, applied at the very end of
+fillTemplate: the roadstream cutter reads the RAW procFinishChunks, and the
+replaceAll at the end is what patches both its copies. A project with neither
+lamps nor weather must regenerate byte-identically.
+
+Puddles (docs/weather.md "Puddles") are road DETAILS, not a table of their own:
+`roaddetail::build` places them in a second pass AFTER every other decal (so
+gaining weather never moves a manhole - keep it that way), into
+`Result::puddles`/`puddleTris`/`puddleChunkSizes`, and the codegen appends
+their chunks as `ROAD_DETAILS` rows with a `wet` column that exists only when
+`projectHasPuddles` (weather + details). The two upload lines that read it
+(`c.puddle = dr.wet`, the `ROAD_PUDDLE_TEX` lookup) must stay INSIDE the
+roadstream cuts ("detail texture", "detail upload") - that is what makes a
+streamed puddle chunk exist. roadfile's check reads the detail row width from
+the struct line, like the furniture's. The puddle colour is one
+`roadPuddleColor_` per frame (alpha = wetness); never write puddle vertices.
+Car-light streaks are generic on purpose: every VehicleRt whose lamps are on,
+whoever switched them on (traffic lighting at night belongs to the traffic code).
+
+## Breakable street furniture (format 109)
+
+docs/roads.md "Breakable furniture". Five things to know before touching it.
+
+1. **The patch runs after the lamp patch**, at the very end of fillTemplate
+   (`roadfurnbreak::patchTemplate`), because it reaches into renderRoadLamps
+   (a dark lamp's halo) and into both copies of the furniture upload - the
+   buildRoads one and the streaming cut. The cut copies take the same
+   replacements because the replacements target lines INSIDE the cut
+   (`c.owner = -7;`, `sb.owner = -7;`); the streaming case only gains the
+   local names those lines use (`const int fi = it.a;`, `const int bi =
+   it.a;`). fillTemplate runs once per generated FILE, so a missed anchor is
+   not an error there: `--vehicle-check` counts `kHookMarks` over the whole
+   generated project. A project without a vehicle or without a breakable road
+   generates byte for byte what it did before (the two struct fields,
+   `ProcChunk::furnRow` and `StaticBox::furn`, are patched in too).
+2. **Never erase a broken box from procColliders.** The sub-step gather cache
+   (`VehGatherCache::proc`) and the streaming tags hold INDICES into it;
+   `furnBoxInert` moves the box out of reach in place. An erase would make a
+   car's next sub-step read the wrong boxes.
+3. **The piece table is keyed by the BOX index** (= the instance index, the
+   order `roadfurn::build` sorts its instances into). A piece's vertex range
+   is RELATIVE to its ROAD_FURN row, and `Tables::add` / `addLight` compute it
+   with `rowOf` - so anything that re-chunks the furniture or reorders its
+   rows keeps it right by construction, and anything that changes the order of
+   `boxes` vs `instances` breaks it (the check compares every range).
+4. **The broken flags belong to the scene, not to a chunk**: `furnBroken_` is
+   reset in the scene setup (`roadsSetupCall` prefixes `furnBreakReset()`,
+   after setupVehicles so the debris reservations survive its `d =
+   VehDebris()`), and every chunk or box the road stream builds re-applies
+   them. Collapsing writes the chunk's vertices through `BagArray::span` (a
+   content stamp) and bumps `bboxVersion`; never rebuild the chunk for it.
+5. **Debris is the vehicles' debris pool**, untextured (`tex == nullptr`, its
+   own batch created at reset). It is shared with lost car panels: a change
+   to `VehDebris`, `updateVehicleDebris` or `renderVehicleDebris` changes
+   both. The speed loss is written between `dmgPreV` and
+   `updateVehicleDamage`, so it reads as an impact (vehicle damage rule 1) - a
+   big loss can dent the car, which is intended.

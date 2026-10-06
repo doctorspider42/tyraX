@@ -207,6 +207,7 @@ TYRAX --list-nodes <projectDir>      # what the graph generator is told
 TYRAX --dump-graph <projectDir> <object> [scene]
 TYRAX --apply-graph <projectDir> <object> <g.json> [scene] [--append]
 TYRAX --vehicle-check                # drive-model property tests, exit 0 = pass
+TYRAX --draw-road <projectDir> <scene> "x,z x,z ..." [preset]  # the Draw road tool, headless
 TYRAX --pad <projectDir> "<script>"  # drive the RUNNING game's pad, no focus
 TYRAX --ui-script [projectDir] "<script>"  # drive the EDITOR's own UI, no focus
 TYRAX <projectDir|project.tyra>      # open GUI on a project
@@ -1497,7 +1498,16 @@ Notes:
   `bin/log.txt` (texture binds/hits/uploads/re-uploads/evictions, resident
   count, free MB, largest free block) — the honest way to tell "the scene is
   thrashing textures" from "the scene is just heavy"; see
-  [docs/gs-vram.md](../../../docs/gs-vram.md). Parallel worktree sessions each
+  [docs/gs-vram.md](../../../docs/gs-vram.md). For **EE RAM**, the same build
+  (with the HUD's MEM line on) prints `MEMSTAT` 60/300/900/1500 frames after a
+  scene load: RAM in use plus what object tables, instance parts, solo bakes,
+  shared meshes, pooled colours, static batches and the engine's baked/retained
+  caches hold - the line to diff between two arms of a memory change
+  ([docs/instance-sharing.md](../../../docs/instance-sharing.md)). A game that
+  "hangs" with `bin/log.txt` and the Live Debugger silent but PCSX2 still
+  drawing may have lost `host:` I/O, not the EE: take
+  `pcsx2-capture.py run --states 3` and `addr2line` the EE PCs before
+  assuming a hang. Parallel worktree sessions each
   run their own emulator, so when several are up
   `screenshot-window.ps1 -ProcessName pcsx2-qt` grabs whichever it finds first
   (it warns, but the frames are already wrong) — pass **`-ProcessId <pid>`**
@@ -2810,6 +2820,28 @@ background before judging it - a premultiplied flame looks right on one and a
 smoke puff's edge only shows on the other. On the console, `examples/particle-lab`
 is the fixture: `--build --run` then `--capture-frame`.
 
+## Verifying road textures (docs/road-textures.md)
+
+`--road-texture <projectDir> <name> [key=value ...]` writes
+`res/materials/roads/<name>.png/.mtl/.roadtex` (starting from an existing
+recipe, so keys edit it; exit 2 on a bad key). A `--new` project must already
+hold the six presets (`road-2lane`, `road-4lane`, `road-dirt`,
+`road-cobble`, `road-junction`, `pavement-slabs`). The pixels are a harness
+away:
+`roadtex.cpp` links alone with `-I src -I <vendor/stb>` plus a TU defining
+`STB_IMAGE_WRITE_IMPLEMENTATION` (`-static` from Git Bash). Write each recipe
+twice and `md5sum` (must be identical - the -O1 editor and an -O2 harness
+agreed byte for byte), stack each PNG on itself vertically to see the V seam (2 x 2 for a
+junction patch or a `pavement=1` tile, which must tile both ways),
+and quantize to 16 colours (PIL) before judging it - the build bakes 4-bit by
+default (link `src/pngquant.cpp` and use `quantizePreviewRGBA(..., 16,
+FloydSteinberg)` to see exactly what ships). `--vehicle-check` "road textures"
+pins the zero-weathering output to golden hashes - if it fails after a
+weathering change, a term is not multiplied by its knob. In PCSX2: two
+crossing roads naming the same `road-junction`
+(`--road-crossings` must print the patch), a frozen high camera,
+`--capture-frame`.
+
 ## Choosing the right depth
 
 | Change | Minimum honest verification |
@@ -3893,9 +3925,107 @@ collision fields remain identical.
 
 For automatic road junctions, cross two roads with the same intersection
 texture, one road with no value and one pair with different values. The first
-pair alone must produce a `ROAD_JUNCTIONS` row, with 12 vertices / four triangles
-on flat ground. Since 1.151.2, uneven junctions refine conformingly on the host
-(up to 256 triangles), then ship baked XYZUV in `ROAD_JUNCTION_VERTS`.
+pair alone must produce a `ROAD_JUNCTIONS` row (since 1.170.0 a flat four-way
+node is ~90 vertices: its fillets). Uneven junctions refine conformingly on the
+host or are cut along the terrain grid (capped at 3 600 vertices, uploaded in
+1 800-vertex chunks), then ship baked XYZUV in `ROAD_JUNCTION_VERTS`.
+**Road nodes** (T, fork, many-armed, corner) have three cheap gates before any
+boot: `--vehicle-check` "road nodes"; `--road-crossings <dir>`, which now prints
+every road at a node, its arm count and its outline point count (an outline of
+4-6 points on a node with fillets is the convex-hull fallback - a folded ring);
+and a host harness over `roadgen.cpp` alone (link it `-static` from Git Bash)
+that rasterises `Crossing::shape.outline` over the road triangles to a PNG -
+the picture is what found the wrapped arcs (holes), the straight arms on bends
+and the negative-fillet slip road, none of which any count showed. **When
+something laid on a node is invisible in PCSX2 while its row is in the data,
+read the chunk's world box first** (a `TYRA_LOG` of `aabbMin/aabbMax` in the
+scratch copy's generated `game_vehicles.gen.cpp`, compiled with
+`tools/toolchain/native-build.ps1` directly so `--build` does not regenerate
+it away): a Y of INT_MAX was a 1e30 vertex from a sliver patch triangle, and
+it took the markings out of the frustum with it. In PCSX2,
+park a frozen camera high over a scratch project with every node kind, on flat
+ground AND on rolling hills (write `terrain-<scene>.heights` yourself: `n n`
+then n*n heights, n = terrainDetail + 1), and `--capture-frame`.
+**Road kerbs** (docs/roads.md "Kerbs") have three gates. `--vehicle-check`
+"road kerbs" covers a kerbed T: the stop at the patch, the fillets, no kerb
+on a road, merging, ends that meet, and the strip runs against the list.
+`--road-crossings <dir>` prints one `[kerb]` line per road and a total, from
+the same bake the codegen does; the total must equal the game's
+`ROADKERB scene N chunks C vertices V packages P triangles T`. In PCSX2, the
+`ROADS`/`ROADSTRIP`/`ROADINDEX` lines must not move when kerbs are switched
+on: kerbs are owner -4 and stay out of all three. A kerb is a few pixels
+wide, so take a LOW frozen camera (eye 0.6-1 units) a few units from a
+fillet, and crop the shot before looking. `--bake-status` must stay `fresh`,
+because kerbs are not shadow receivers.
+**Rails and tram tracks** (docs/roads.md "Rails and tram tracks") ride the
+same tables, so the same gates apply. `--vehicle-check` "road rails" builds a
+railway across a kerbed, zebra-painted street: gauge, unbroken rails, flush
+exactly over the street, one panel, no kerb or paint on the railway, strips
+against the list, a two-track tram street, and the ballast texture's
+determinism, tiling and seven sleepers per repeat. `--road-crossings <dir>`
+prints one `[rail]` line per rail/tram road (raised / flush / panel lines and
+their lengths) and a `[rail] total` of strip vertices and chunks; the game's
+`ROADKERB` line counts kerb and rail chunks together. In PCSX2 the Motor
+District's level crossing is at (-110, 0): a frozen camera at (-102, -9), eye
+2.4, looking at (-111, 2) frames both tracks crossing Market cross street;
+(4, -50), eye 1.8, looking at (0, -30) runs up the tram tracks.
+**Road details** (docs/roads.md "Road details"): `--vehicle-check` "road
+details" (determinism, nothing off the road / on a patch / under paint, the
+0.03 lift within 1 cm on rolling ground, gullies only with kerbs, density and
+seed, the atlas lossless at 16 colours). `--road-crossings <dir>` prints one
+`[detail]` line per road and a total with the rejection reasons; the total must
+equal the game's `ROADDETAIL scene N chunks C vertices V triangles T`, and
+`ROADS`/`ROADSTRIP`/`ROADINDEX` must not move (owner -5). To find a vantage,
+read the decal centres out of the scratch copy's generated `ROAD_DETAIL_VERTS`
+(6 vertices per flat decal) and park the frozen camera a few units short of a
+cluster at eye height, pitched ~15 degrees down.
+**Street furniture** (docs/roads.md "Street furniture"): `--vehicle-check`
+"road furniture" (determinism, nothing on a road / patch / paint, exact count
+and spacing on a free street, lamps facing the road on the pavement top, signs
+at painted stop lines facing the approach, four signals at a lit X, tables
+adding up, seed turns trees in place, an `.obj` model, the JSON round-trip).
+`--road-crossings <dir>` prints one `[furniture]` line per furnished road and a
+total; the total must equal the game's `ROADFURN scene N chunks C vertices V
+boxes B`, and `ROADS`/`ROADKERB` must not move (owner -7). The Motor District
+vantages used for the docs: a frozen walker at (-42, 52.6) looking at (0, 61)
+pitch 3 (Skyline avenue's south pavement) and (-3, -35) looking at (0, 10)
+pitch 6 (Garage boulevard toward the lit plaza). To see where chunks are,
+read the scratch copy's `ROAD_FURN` rows and `ROAD_FURN_VERTS`.
+**Road traffic** (docs/traffic.md): `--vehicle-check` "road traffic" (lanes on
+their side, continuity through a T and a crossing, curves inside the patch,
+priority = the painted stop lines, no conflicting greens, and a 300 s host
+simulation of 10 cars on `vehiclesim::step` through a signalised crossing - no
+overlap, no entry on red, no deadlock; the same through a signalised T (three
+phases: never two moving, every movement green within one cycle); a 2+2-lane
+crossing with a car broken down in a kerb lane - followers pass it, turners
+move into their turn's lane, still no overlap/red entry/deadlock;
+`TF_DEBUG=1` prints the first overlap, every car stuck 40 s and every new worst
+lane offset), plus the codegen gate (six hooks, a streamed project too, the
+On Red Light Run node's count watch, nothing with traffic off). A host-sim
+tweak is not proven by ONE seed: the first lane-change version passed 12 cars /
+stop 50 before the node and deadlocked at 25 and 75 and with 16 cars - sweep
+the car count and the breakdown's position (and a 21-wide, three-lane road)
+before trusting a change to the core. `--road-lanes <dir> [scene]` prints the
+graph; exit 1 = a lane with no legal exit. In PCSX2 the Motor District's
+fixture is a frozen walker at (14, -78), eye 16, rotation [28, -29, 0] over the
+Garage boulevard x Foundry link signals (remove `flowGraph` from
+`objects/ravagerpark00001.json` in the copy so the player is not seated), then
+`--capture-frame` a few seconds apart; read `TRAFFIC cars ...` every 5 s in
+`bin/log.txt` - it carries the far-path count and the EE microseconds of the
+core and of the whole vehicle step. The render-cost CSV has no update rows;
+the traffic EE time is only in that line (it also counts `lane changes`,
+`overtakes` and whether the `lights` are on). Three more fixtures: the
+signalised T where Garage boulevard meets the ring road - walker at (-2, -80),
+eye 4, looking at (-9, -100), its head flips green/red a few shots apart; a
+RED-LIGHT RUN - keep `ravagerpark00001`'s graph (the player is seated, facing
+north at (0, -74)) and drive with `--pad "hold r2; wait 2; release all; wait
+1.5; ..."` through nodes 11, 10, 12 and the T at (0, 112), polling
+`bin/log.txt` for `TRAFFIC player crossed the line at node N on <colour>` and
+capturing the moment `red light run` appears (the HUD line lasts 3 s); and
+multi-lane traffic in Big City with the walker over Grand Avenue at (-586, -20).
+Traffic A/Bs have project switches now - `"headlights": false`,
+`"laneChanges": false` in `settings.traffic` - so an arm is a settings edit and
+a rebuild, never a hand-patched generated file.
 The viewport and PCSX2 patch must match. `verify-road-twins.py` also exercises
 terrain folds and both Market endpoints, proves the old fan regression is
 triggered, sweeps clearance and checks nonempty runtime junction uploads. Move one spline
@@ -3944,6 +4074,176 @@ a nominal parked control if another car moves; the first acceptance fixture
 caught exactly that error. Continuous driving windows are selected by actual
 position, not a presumed frame count. Quality-reduction probes may change FPS
 and thus physics substep cost; compare render/finish as well as total work.
+
+## Bridges (format 100)
+
+`--vehicle-check` "road bridges" is the host layer (profile, valley span, no node
+at an overpass, uncut kerbs, the capped wheel query, piers to the ground, vertex
+budget). `--road-crossings <dir> 0` prints a `[bridge]` line per bridge (deck and
+structure vertices, piers, abutments, peak) - the codegen's own numbers - and the
+game logs `ROADBRIDGE scene N chunks M vertices V`. The EE twin is unchanged, so
+`verify-road-twins.py` must still pass as before. Visual check: the Motor
+District's *Service lane flyover* from a frozen Player at (-82, 0, -70),
+rotation [-8, 38, 0], HUD off, with `picapark00000001` moved to (-62.5, 0.5,
+-50) - under the deck, on the West service lane (docs/img/road-bridge-pcsx2.png).
+The car must sit on the lane, not on the deck six units up.
+
+## Drawing roads and presets (format 105)
+
+`--vehicle-check` "road drawing" is the host layer for the Draw road tool, the
+presets and the bridge height handles (docs/roads.md "Drawing roads"): every
+snap kind, the angle and grid steps, a drawn T and a drawn crossing through
+`planCrossings` (3 and 4 arms), extension against a corner, the loop, every
+preset's fields AND its materials on disk in a temp project, the project-preset
+JSON round-trip, and the handle's ray arithmetic. The GUI tool is a thin layer
+over the same `roaddraw::` calls, and so is the headless twin:
+
+```
+TYRAX --draw-road <projectDir> <scene> "x,z[,h] x,z ..." [preset] [--angle] [--grid N]
+```
+
+It prints `[draw-road] point N: ... (road centre <name>)` per point, the plan
+summary and a `[draw-road] node at x,z: a x b, N arms, patch` line per node the
+road takes part in, then saves. Scratch towns for screenshots are a handful of
+these calls (docs/roads.md has one), then `--road-crossings` to read every node,
+then `--build --run` and `--capture-frame` from a Player with a big `eyeHeight`
+(22 for docs/img/road-drawing-town.png: position (-70, 0, -75), rotation
+[16, 45, 0], walk/look speed 0). The UI is reachable by name for a visible run:
+`Viewport/Draw road (8)`, the tool panel's `Viewport/Preset` combo, the canvas
+`Viewport canvas` with offsets for the clicks (`doubleclick` finishes, `key
+enter` / `key escape`), Properties' `Apply preset` / `Save preset`,
+and the bridge squares `Bridge height N` (`drag 'Bridge height 2' 0 -40`).
+
+## Road streaming (format 102)
+
+`--vehicle-check` "road streaming" is the host layer: the cut, the per-chunk
+height index against a scan through a load/unload walk, the ring, and the
+codegen (every anchor of `roadstream::emit` still matching, streaming off
+generating nothing). Then, in PCSX2:
+
+- **Off is byte-identical**: `--refresh-gen` the Motor District with the
+  setting at 0 and `git status` must show nothing.
+- **The plan matches the full build**: a streamed game's `ROADS`/`ROADSTRIP`
+  lines (`... (streamed)`) must equal the unstreamed build's numbers. A
+  `ROADSTREAM replay mismatch` line is a replay that diverged from its plan.
+- **The height index**: flip `TYRA_ROAD_INDEX_VERIFY` (rebuild with
+  `native-build` directly, docs/roads.md "Road height queries") and drive.
+  Its scan oracle only checks UNCAPPED queries, and a driven car's wheels are
+  all capped (`maxY`) - a parked drive logged nothing for eight minutes. For a
+  test run, widen the gate in the generated `game_vehicles.gen.cpp` to
+  `maxY > 1.0e29F || roadSurfaceScan(x, z) <= maxY` (the capped answer must
+  equal the scan wherever the scan's highest surface is under the cap): the
+  Motor District at radius 80 gave 80 000 checks, 0 bad.
+- **Under the wheels**: `VEHCONTACT ... roadlift1000` is the road's height
+  over the terrain at each wheel - ~119-154 on asphalt, 0 = the road under the
+  car is missing (or the car left it). Drive with `--pad "hold r2; wait 24;
+  release all"` and read it along the way.
+- **Memory and hitches**: the HUD `MEM` in `--capture-frame` shots, and the
+  `ROADSTREAM resident ... worst us` line (every 150 busy frames).
+- **Layers**: a project with auto-stream layers logs `LAYER n load|unload`;
+  none while driving across districts = the focus is wrong.
+- **Out of memory** is a black screen after `VEH controls card` with nothing
+  in the log, and `--capture-frame` times out ("no complete bin/frame.tga").
+  The cause is in the EE console only (`std::bad_alloc`): run your OWN PCSX2,
+  `pcsx2-qt.exe -batch -nogui -datapath <dir> -logfile <dir>\emulog.txt -elf
+  <abs elf>` with a copied `PCSX2\inis\PCSX2.ini` (HostFs, EnableEEConsole)
+  and BIOS under `<dir>`, and kill it by its PID only.
+- **Tables on disk (format 104)**: `--vehicle-check` "road tables on disk" is
+  the host layer (item k's bytes = the embedded slice, boxes, checksums, the
+  stale hash, the LRU cache). In PCSX2 read `ROADFILE open ...` (the file was
+  found and matches), `ROADFILE load reads ... KB/s` (synchronous throughput at
+  load) and `ROADFILE reads ... late N errors 0` beside each `ROADSTREAM
+  resident` line; the `ROADS`/`ROADSTRIP`/`ROADSTREAM plan` numbers must equal
+  the embedded build's (set `roadStreamEmbedTables` in a copy for that arm).
+  The failure path is a test too: rename `bin/roadfile/roads.bin` (or copy
+  another build's over it) and the game must boot with `ROADFILE ERROR` in
+  the log and `ROAD DATA MISSING|STALE` on screen. The file is written into
+  `.res-baked/roadfile/` by every refresh and copied by `make`, so a
+  `--refresh-gen` alone does not update `bin/`. `--export-iso <dir>` packs a
+  built `bin/` into `<name>.iso` headlessly (Project > Export PS2 ISO), for
+  the cdrom0: path; boot it with `-- <iso>` instead of `-elf`.
+- `Select-Object -First N` on a PowerShell script's output STOPS the script
+  after N lines - a capture loop piped into it takes one shot and quits.
+
+## Weather and lit street lamps (format 107)
+
+`--vehicle-check` "wet roads and lamps" is the host layer (lamp heads, pool
+placement on the drawn surface, chunking, determinism, the packed UV, the
+weather state machine, the lamp level, puddle placement and visibility, the
+car-streak counts of `weatherCarStreaks`, the Live Logic `weather` line, and the
+codegen: lamps, puddles, streaming items, tables on disk, rain, Set Weather,
+nothing-generated-when-unused). Set
+`TYRAX_ROADLIGHT_DUMP=<dir>` to get its generated sources as gen<N>.txt. Then,
+in PCSX2 (docs/weather.md "What it costs" is the recipe):
+
+- **Fixture**: a short-path copy of the Motor District, player
+  `b632d92adecbb4e9` at (-3, -35) with rotation [pitch, heading, 0] (POSITIVE
+  pitch looks DOWN), walkSpeed/lookSpeed 0, `ravagerpark00001`'s flowGraph
+  removed, `"interleavePasses": "off"`, and the `district-night` save value's
+  default set to 1 (the mood script pins midnight on its first unpaused frame).
+  The scene's `"weather": 1` and `"streetLamps": 2` (Off, the clean A arm) go in
+  the .tyra scene entry.
+- **Launch PCSX2 yourself** (`pcsx2-qt.exe -elf <abs elf>`, keep the PID): the
+  Runner's `--run` kills every PCSX2 on the machine.
+- **Read**: the `Road_lamps` and `Rain` profiler rows, the HUD MEM in a
+  `--capture-frame`, and `// scene N: L lit lamps, pools V vertices` in the
+  generated scene_data.hpp. A streamed project's pools show in
+  `ROADSTREAM load resident ... vertices` and `ROADFILE open ... KB`.
+- **Big City at night**: its lamps are scene objects, so add furniture lamps to
+  its roads in the copy and give its ambience a non-running cycle at hour 0.
+- **Puddles and car streaks** (2026-10-03): the cleanest A/B is EDITOR vs
+  EDITOR - copy `build-dev/tyrax-editor.exe` aside before the change, then
+  build the same fixture with each (`--build <dir> --run`, which since 1.174
+  closes only that project's PCSX2). Puddles are thin at street level: find
+  them from the `ROAD_DETAILS` rows whose last column is 1 and stand 5-10
+  units off one; a debug run with a garish water colour in
+  `weatherPuddleColor` plus an image diff locates them. The parked Ravager at
+  (0, -74.3) faces +z: a walker at (1.5, -62), heading 180, sees its
+  headlights and the traffic's mirrored in the road. The puddle texture is
+  written only when missing, so a stale `res/materials/roads/road-puddles.png` in a copy is
+  kept - delete it to see a texture change.
+- **Flaky under parallel sessions**: "every material a preset names exists
+  after it is applied" (roaddraw's check) shares a temp directory with any
+  other `--vehicle-check` running at the same time and can fail spuriously;
+  rerun alone before believing it.
+
+## Breakable street furniture (format 109)
+
+`--vehicle-check` "breakable furniture" is the host layer: a host `vehiclesim`
+drive into a lamp at speed (it breaks, the box goes, the car keeps exactly
+its share and drives on), a 4 u/s cruise into the same pole (no break, the car
+stops), a tree (stops a fast car), the piece table against every instance's
+vertex run, a collapse that moves nothing else, determinism, the JSON, and the
+codegen hooks (`roadfurnbreak::kHookMarks`; embedded, lit, streamed, traffic).
+`TYRAX_FURNBREAK_DUMP=<dir>` writes its generated sources as gen<N>.txt. Then,
+in PCSX2:
+
+- **Fixture**: a short-path copy of `examples/vehicle-playground`
+  (`%TEMP%\tyra-editor-test\<short>`), with `ravagerpark00001.json`'s
+  `position` set to `[6.7, 0.6, -60]` (or 6.9): the Ravager is seated by its
+  own flow graph, faces +z, and lamp piece 89 at (7.1, -42) is straight
+  ahead on Garage boulevard's pavement. 6.7 keeps the car clear of the tree
+  at (8.4, -36), which otherwise stops it right after the hit. To find other
+  props, read `ROAD_FURN_BOXES` and `ROAD_FURN_PIECES` from the generated
+  `inc/scene_data.hpp` (box i is piece i; the centre of the box is the prop).
+- **Drive**: `--pad <dir> "hold r2; wait 2.3; release all; wait 3"` breaks it
+  at about 13.9 u/s: `FURN break kind lamp speed 13.9 piece 89 ... lamp 30
+  pool 60 ...` in `bin/log.txt`. Do not `hold l2` to stop afterwards: at a
+  standstill L2 reverses, and the car drives back to the start.
+- **Pictures**: `--capture-frame` takes 0.5 to 20 s per call in PCSX2 (the
+  game stalls while it writes, more with another emulator running), so a
+  capture started 1.7 s after the pad call usually lands on the hit, the
+  next one is late. Take several runs and pick.
+- **Streaming**: `"roadStreamRadius": 40` in the copy's `.tyra` settings,
+  start at x 6.7, `--pad <dir> "hold r2; wait 9; release all; wait 2; hold
+  l2; wait 20; release all"`: the car breaks the lamp, drives to z 125
+  (everything behind drops), reverses back, and the log says `FURN restreamed
+  row 30 kept 1 broken piece(s) down` (the pool chunk) and `row 16` (the
+  furniture chunk).
+- **Cost**: `TRAFFIC ... vehicles us/frame` at the same clocks of two fresh
+  boots (breakable on / off in the copy's four district roads) - the render
+  rows do not move without a hit, and their noise with traffic moving is
+  about 1-2 ms of `Total`.
 
 ## Exact first-entry HUD acceptance (1.150.1)
 

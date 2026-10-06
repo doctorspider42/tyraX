@@ -530,6 +530,7 @@ void TerrainGame::loop() {
   if (!menuOwnsPad) updateCarriedObject();
   UPD_LAP(6);
   updateParticles();
+  updateWeather();  // docs/weather.md
   UPD_LAP(7);
   updateSoundEmitters();
   updateReverb();
@@ -900,6 +901,7 @@ void TerrainGame::loop() {
     // covers the frame the flag goes UP, because that scan ran before the
     // sequence player did (docs/cutscenes.md).
     renderVehicleHud();
+    renderVehicleTutorial();
     if ((useTargetIndex >= 0 || vehiclePrompt_ != 0) &&
         !scriptCtx.hudSuppressed) {
       const bool pick =
@@ -1595,7 +1597,7 @@ void TerrainGame::buildScene() {
     // Light-beam corona texture (Point Light > Beam; shape in RGB). The night
     // sky's stars are drawn through the SAME sprite - one 64x64 for both, and a
     // star without it is a hard square - so a starfield loads it too.
-    if (BEAMS_USED || STAR_COUNT > 0)
+    if (BEAMS_USED || STAR_COUNT > 0 || ROAD_LAMP_COUNT > 0)  // + lit street lamps
       beamCoronaTex = engine->renderer.getTextureRepository().add(
           FileUtils::fromCwd("hud/flare-corona.png"));
     // The camera flashlight/vehicle headlight gobo (docs/flashlight.md): the pool patch takes
@@ -1827,7 +1829,10 @@ void TerrainGame::loadModelAsset(int i) {
 
 // Frees a model's geometry, collider and texture references. Only called
 // when no object of a resident layer uses the model - every GeoPart drawing
-// it was dropped by deactivateObject() beforehand.
+// it was dropped by deactivateObject() beforehand. The shared instance bakes
+// (gm.sharedParts) do not rely on that ordering: each instance part holds its
+// own reference, so an array outlives every bag aimed at it whichever side
+// lets go first (docs/instance-sharing.md).
 void TerrainGame::freeModelAsset(int i) {
   if (i < 0 || i >= MODEL_COUNT || !modelLoaded[i]) return;
   GameModel& gm = gameModels[i];
@@ -2312,6 +2317,9 @@ void TerrainGame::updateLayerStreaming() {
     for (int l = 0; l < lc; ++l)
       if (layerTarget[l] == 0) layerState[l] = 0;
     applyLayerResidency();
+    // The streamed-out instances let go of their pooled colours; free the
+    // arrays only the pool still holds now rather than at its next sweep.
+    if (anyOut) pruneColorPool();
     if (anyOut) buildParticles();  // drop the streamed-out emitters' pools
   }
 
@@ -2416,7 +2424,7 @@ void TerrainGame::updatePlayer() {
   // Collision with scene objects (collidePlayer: box/mesh/none per object)
   // + standing on top of them. Player can step ~0.5 units up.
   // The floor is the sculpted terrain.
-  float ground = terrainHeightAt(nextX, nextZ);
+  float ground = walkGroundAt(nextX, nextZ, playerY);
   // a linked floor portal underfoot swallows the walker (see
   // portalSwallowsPlayer) - the terrain stops being the floor there
   if (PORTAL_COUNT > 0 && portalSwallowsPlayer(nextX, playerY, nextZ))

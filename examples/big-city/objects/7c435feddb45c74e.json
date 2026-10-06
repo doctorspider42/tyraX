@@ -1,0 +1,1 @@
+{ "id": "7c435feddb45c74e", "name": "Building 438", "type": "model", "position": [-254.192, 0, 581.957], "rotation": [0, 0, 0], "scale": [2.4356, 1.4842, 2.3793], "color": [1, 1, 1], "physics": false, "layer": "district-3-7", "drawDistance": 230, "castShadow": false, "model": "res/models/urban/district-loft.obj" }

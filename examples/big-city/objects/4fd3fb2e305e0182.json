@@ -1,0 +1,1 @@
+{ "id": "4fd3fb2e305e0182", "name": "Building 623", "type": "model", "position": [-65.8777, 0, -109.276], "rotation": [0, 0, 0], "scale": [2.6804, 1.81, 2.7657], "color": [1, 1, 1], "physics": false, "layer": "district-4-3", "drawDistance": 300, "castShadow": false, "model": "res/models/urban/city-highrise-4.obj" }

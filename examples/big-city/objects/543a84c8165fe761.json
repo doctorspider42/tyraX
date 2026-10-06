@@ -1,0 +1,1 @@
+{ "id": "543a84c8165fe761", "name": "Building 933", "type": "model", "position": [211.018, 0, -275.632], "rotation": [0, 0, 0], "scale": [1.9369, 1.6536, 2.5961], "color": [1, 1, 1], "physics": false, "layer": "district-5-2", "drawDistance": 300, "castShadow": false, "model": "res/models/urban/city-highrise-2.obj" }

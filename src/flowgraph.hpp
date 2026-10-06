@@ -1107,6 +1107,42 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
          .desc = "Puts a damaged vehicle right: dents out, smoke gone, full "
                  "power back (docs/vehicles.md, \"Damage\"). A garage is an "
                  "Area with On Enter -> Repair Vehicle."},
+        // Road traffic (docs/traffic.md): the game counts the player's red
+        // runs into ScriptContext::redLightRuns; the node watches the count.
+        {.key = "OnRedLightRun", .title = "On Red Light Run",
+         .category = "Player", .trigger = true, .numCount = 2,
+         .numLabels = {"Node", "Min speed"},
+         .numTips = {"Only this road node (its number in --road-lanes and "
+                     "View > Lanes). -1 = any signalled node.",
+                     "Only when the car crosses the line at least this fast, "
+                     "units per second. 0 = any run, however slow."},
+         .numOut = true,
+         .desc = "Fires when the PLAYER's car crosses a stop line at traffic "
+                 "lights while its light is red - the moment the front of the "
+                 "car passes the line, once per crossing. Its number output is "
+                 "the car's speed then (units/s). Needs road traffic on "
+                 "(Preferences > World > Traffic) and a signalled node; "
+                 "ambient cars never trigger it. A fine, a wanted level or a "
+                 "HUD warning hangs off it: On Red Light Run -> Show Text."},
+        // Breakable street furniture (docs/roads.md "Breakable furniture"):
+        // the game counts the props the player's car knocks over into
+        // ScriptContext::propBreaks; the node watches the count.
+        {.key = "OnPropBroken", .title = "On Prop Broken",
+         .category = "Player", .trigger = true, .numCount = 2,
+         .numLabels = {"Kind", "Min speed"},
+         .numTips = {"Only this kind: 0 lamp, 1 tree, 2 bollard, 3 sign, "
+                     "4 traffic light. -1 = any.",
+                     "Only when the car hit it at least this fast, units per "
+                     "second. 0 = any break."},
+         .numOut = true,
+         .desc = "Fires when the PLAYER's car knocks over a piece of street "
+                 "furniture - a lamp post, a sign, a bollard, a traffic light "
+                 "(or a tree, if its road lets trees break) - once per prop. "
+                 "Its number output is the car's speed then (units/s). Needs "
+                 "a road with Street furniture > Breakable on; ambient cars "
+                 "break props too but never trigger it. Scoring, a combo "
+                 "counter or a 'Property damage' HUD line hangs off it: On "
+                 "Prop Broken -> Add To Save Value."},
         // The hit object is a runtime reference (-1 = none) - actions fed it
         // are guarded like Spawn Object clones.
         {.key = "Raycast", .title = "Raycast", .category = "Player",
@@ -1280,6 +1316,24 @@ inline const std::vector<FlowNodeType>& flowNodeTypes() {
          .desc = "Controls the sun lens flare. It follows the scene's "
                  "lighting direction and hides behind geometry, so there is "
                  "nothing to position."},
+        {.key = "SetWeather", .title = "Set Weather", .category = "Scene",
+         .numCount = 3, .numLabels = {"Weather", "Intensity", "Seconds"},
+         .numTips = {"Dry stops the rain; Rain starts it. The roads follow on "
+                     "their own: they get wet over about 6 s of rain and dry "
+                     "over about 40 s after it stops.",
+                     "How hard it rains, 0..100%: the number of drops and how "
+                     "wet the roads get. Ignored for Dry.",
+                     "How long the rain takes to reach the new intensity, in "
+                     "seconds. 0 switches at once, wet roads included - the way "
+                     "to set a scene up from On Start."},
+         .numChoices = {"Dry|Rain"},
+         .numPercent = {false, true, false},
+         .desc = "Changes the weather (docs/weather.md): rain around the "
+                 "camera, darker wet asphalt, and - at night - the street "
+                 "lamps' reflections streaking across the wet road. The "
+                 "scene's own weather (Scene Preferences) is what a scene "
+                 "load starts with. Not hot-patchable by Live Logic: a graph "
+                 "that gains this node needs a rebuild."},
         {.key = "SetGodRays", .title = "Set God Rays", .category = "Scene",
          .numCount = 1, .numLabels = {"Amount"},
          .numTips = {"Shaft strength, 0 off to 1. A wired number replaces it."},

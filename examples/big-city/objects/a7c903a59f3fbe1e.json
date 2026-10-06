@@ -1,0 +1,1 @@
+{ "id": "a7c903a59f3fbe1e", "name": "Building 85", "type": "model", "position": [-522.825, 0, 93.3618], "rotation": [0, 0, 0], "scale": [2.2117, 1.3744, 2.4763], "color": [1, 1, 1], "physics": false, "layer": "district-1-4", "drawDistance": 230, "castShadow": false, "model": "res/models/urban/district-loft.obj" }

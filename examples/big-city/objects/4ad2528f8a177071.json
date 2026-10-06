@@ -1,0 +1,1 @@
+{ "id": "4ad2528f8a177071", "name": "Building 936", "type": "model", "position": [157.461, 0, -155.144], "rotation": [0, 0, 0], "scale": [2.0689, 1.7641, 2.0379], "color": [1, 1, 1], "physics": false, "layer": "district-5-3", "drawDistance": 300, "castShadow": false, "model": "res/models/urban/city-highrise-3.obj" }

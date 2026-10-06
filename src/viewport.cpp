@@ -20,7 +20,11 @@
 #include "objparser.hpp"
 #include "placement.hpp"
 #include "primmesh.hpp"
+#include "roadbridge.hpp"
+#include "roaddetail.hpp"
 #include "roadgen.hpp"
+#include "roadtex.hpp"
+#include "roadrail.hpp"
 #include "scrollsim.hpp"
 #include "skytex.hpp"
 #include <stb_image.h>
@@ -1799,6 +1803,7 @@ void Viewport::shutdown() {
     if (particleProgram_) glDeleteProgram(particleProgram_);
     if (particleVbo_) glDeleteBuffers(1, &particleVbo_);
     if (coronaTex_) glDeleteTextures(1, &coronaTex_);
+    if (puddleTex_) glDeleteTextures(1, &puddleTex_);
     if (giTerrTex_) glDeleteTextures(1, &giTerrTex_);
     if (giAtlasTex_) glDeleteTextures(1, &giAtlasTex_);
     giTerrTex_ = giAtlasTex_ = 0;
@@ -1937,6 +1942,11 @@ float Viewport::terrainHeight(float x, float z) const {
     return h(ix + 1, iz + 1) +
            (1.0f - fz) * (h(ix + 1, iz) - h(ix + 1, iz + 1)) +
            (1.0f - fx) * (h(ix, iz + 1) - h(ix + 1, iz + 1));
+}
+
+roadgen::TerrainGrid Viewport::terrainGrid() const {
+    if (hmW_ < 2 || hmD_ < 2 || !terrain_.enabled) return {};
+    return roadgen::terrainGridOf(hmW_, hmD_, (float)terrain_.width, (float)terrain_.depth);
 }
 
 float Viewport::terrainLayerGrip(float x, float z,
@@ -3220,10 +3230,15 @@ void Viewport::pickAll(float u, float v, const std::vector<SceneObject>& objects
         // selection target and the obsolete centre cube cannot steal clicks.
         if (o.type == PrimitiveType::Road) {
             std::vector<roadgen::Vertex> strip;
-            roadgen::tessellate(
-                o.roadPoints, o.roadWidth,
-                [&](float x, float z) { return terrainHeight(x, z); }, strip,
-                {}, o.roadSampleStep);
+            // A bridge is clicked on its deck (docs/roads.md "Bridges").
+            if (o.roadBridge)
+                roadbridge::drawnRoad(
+                    o, [&](float x, float z) { return terrainHeight(x, z); }, strip);
+            else
+                roadgen::tessellate(
+                    o.roadPoints, o.roadWidth,
+                    [&](float x, float z) { return terrainHeight(x, z); }, strip,
+                    {}, o.roadSampleStep);
             float best = 1e30f;
             for (size_t vi = 0; vi + 2 < strip.size(); vi += 3) {
                 const Vec3 a{strip[vi].x, strip[vi].y, strip[vi].z};
@@ -4143,6 +4158,9 @@ void Viewport::syncRoadDraws(const std::vector<SceneObject>& objects) {
         mix(sig, o.color, sizeof(o.color));
         mix(sig, &o.roadEdgeFade, sizeof(o.roadEdgeFade));
         mix(sig, &o.roadRank, sizeof(o.roadRank));
+        mix(sig, &o.roadBridge, sizeof(o.roadBridge));
+        if (!o.roadHeights.empty())
+            mix(sig, o.roadHeights.data(), o.roadHeights.size() * sizeof(float));
         auto it = roadDraws_.find(key);
         if (it != roadDraws_.end() && it->second.signature == sig) continue;
 
@@ -4150,12 +4168,27 @@ void Viewport::syncRoadDraws(const std::vector<SceneObject>& objects) {
         // RoadDefRt::lift.
         const float lift = roadgen::rankLift(o.roadRank);
         // Soft edges (1.144.0): the opaque core, plus the faded bands below.
-        const roadgen::EdgeFade ef = roadgen::edgeFadeFor(o.roadWidth, o.roadEdgeFade);
+        // A bridge (docs/roads.md "Bridges") draws its deck - the codegen's
+        // own - with no soft edge; its glued self is kept for the node
+        // patches, which are fitted to the roads on the ground.
+        const roadgen::EdgeFade ef = o.roadBridge
+                                         ? roadgen::EdgeFade{o.roadWidth, 0.0f, 0}
+                                         : roadgen::edgeFadeFor(o.roadWidth, o.roadEdgeFade);
         std::vector<roadgen::Vertex> strip;
-        roadgen::tessellate(
-            o.roadPoints, ef.coreWidth,
-            [&](float x, float z) { return terrainHeight(x, z) + lift; }, strip, {},
-            o.roadSampleStep, ef.uInset);
+        std::vector<roadgen::Vertex> glued;
+        if (o.roadBridge) {
+            roadbridge::drawnRoad(o, [&](float x, float z) { return terrainHeight(x, z); },
+                                  strip);
+            roadgen::tessellate(
+                o.roadPoints, o.roadWidth,
+                [&](float x, float z) { return terrainHeight(x, z) + lift; }, glued, {},
+                o.roadSampleStep);
+        } else {
+            roadgen::tessellate(
+                o.roadPoints, ef.coreWidth,
+                [&](float x, float z) { return terrainHeight(x, z) + lift; }, strip, {},
+                o.roadSampleStep, ef.uInset);
+        }
         std::vector<float> interleaved;
         interleaved.reserve(strip.size() * 8);
         for (const roadgen::Vertex& v : strip)
@@ -4181,6 +4214,8 @@ void Viewport::syncRoadDraws(const std::vector<SceneObject>& objects) {
                 next.outline, {}, o.roadSampleStep);
         else
             next.outline = std::move(strip);
+        next.bridge = o.roadBridge;
+        next.glued = std::move(glued);
         next.mesh = uploadMesh(interleaved);
         if (!edgeInterleaved.empty()) next.edgeMesh = uploadMesh9(edgeInterleaved);
         next.material = o.roadTexture;
@@ -4210,7 +4245,8 @@ void Viewport::syncRoadDraws(const std::vector<SceneObject>& objects) {
     // codegen's own roadgen::planCrossings over the same roads and the same
     // overrides, rebuilt when any road, the overrides or the terrain move.
     std::vector<int> objIdx;
-    const std::vector<roadgen::CrossingRoad> cr = project::crossingRoads(objects, &objIdx);
+    const std::vector<roadgen::CrossingRoad> cr = project::crossingRoads(
+        objects, &objIdx, projectDir_, [&](float x, float z) { return terrainHeight(x, z); });
     uint64_t csig = 1469598103934665603ULL;
     mix(csig, &roadTerrainRevision_, sizeof(roadTerrainRevision_));
     for (size_t k = 0; k < cr.size(); ++k) {
@@ -4223,10 +4259,37 @@ void Viewport::syncRoadDraws(const std::vector<SceneObject>& objects) {
         mix(csig, &r.grip, sizeof(r.grip));
         mix(csig, &r.spill, sizeof(r.spill));
         mix(csig, &r.edgeFade, sizeof(r.edgeFade));
+        mix(csig, &r.markings, sizeof(r.markings));
+        mix(csig, &r.edgeLine, sizeof(r.edgeLine));
+        mix(csig, &r.edgeU0, sizeof(r.edgeU0));
+        mix(csig, &r.edgeU1, sizeof(r.edgeU1));
         mix(csig, &r.rank, sizeof(r.rank));
         mix(csig, r.intersection.data(), r.intersection.size() + 1);
         mix(csig, o.roadTexture.data(), o.roadTexture.size() + 1);
         mix(csig, o.color, sizeof(o.color));
+        // Kerbs (docs/roads.md "Kerbs") are cut at the crossings, so they
+        // rebuild with them.
+        mix(csig, &r.kerb, sizeof(r.kerb));
+        mix(csig, &r.kerbHeight, sizeof(r.kerbHeight));
+        mix(csig, &r.kerbWidth, sizeof(r.kerbWidth));
+        mix(csig, &r.pavement, sizeof(r.pavement));
+        mix(csig, o.roadPavementMaterial.data(), o.roadPavementMaterial.size() + 1);
+        // Rails (docs/roads.md "Rails and tram tracks") follow the crossings
+        // too: they turn flush across another road.
+        mix(csig, &r.kind, sizeof(r.kind));
+        mix(csig, &r.railGauge, sizeof(r.railGauge));
+        mix(csig, &r.tracks, sizeof(r.tracks));
+        // Bridges (docs/roads.md "Bridges"): their structure keeps its piers
+        // off the other roads, so it rebuilds with them.
+        mix(csig, &o.roadBridge, sizeof(o.roadBridge));
+        if (!o.roadHeights.empty())
+            mix(csig, o.roadHeights.data(), o.roadHeights.size() * sizeof(float));
+        // Road details are laid out against the plan and the paint.
+        mix(csig, &r.details, sizeof(r.details));
+        mix(csig, &r.detailSeed, sizeof(r.detailSeed));
+        // Street furniture keeps clear of the plan, the paint and the roads.
+        const uint64_t furn = roadfurn::signature(o.roadFurniture);
+        mix(csig, &furn, sizeof(furn));
     }
     for (const roadgen::JunctionOverride& j : roadJunctions_) {
         mix(csig, j.roadA.data(), j.roadA.size() + 1);
@@ -4236,27 +4299,45 @@ void Viewport::syncRoadDraws(const std::vector<SceneObject>& objects) {
         mix(csig, &j.winner, sizeof(j.winner));
         mix(csig, j.material.data(), j.material.size() + 1);
         mix(csig, &j.grip, sizeof(j.grip));
+        mix(csig, &j.control, sizeof(j.control));  // lights and signs (furniture)
     }
     if (csig == roadCrossSig_) return;
     roadCrossSig_ = csig;
     for (RoadCrossDraw& c : roadCross_) destroyMesh(c.mesh);
     roadCross_.clear();
-    if (cr.size() < 2) return;
-    const roadgen::CrossingPlan plan = roadgen::planCrossings(cr, roadJunctions_);
+    roadLamps_.clear();
+    roadLampPools_.clear();
+    roadPuddleVerts_.clear();
+    if (cr.empty()) return;
+    // One road has no crossings, but it may still have kerbs.
+    const roadgen::CrossingPlan plan = cr.size() >= 2
+                                           ? roadgen::planCrossings(cr, roadJunctions_)
+                                           : roadgen::CrossingPlan{};
+    bool anyKerb = false;
+    for (const roadgen::CrossingRoad& r : cr) anyKerb |= r.kerb;
+    // Rails stand on the same drawn surface the kerbs do.
+    const bool anyRail = roadrail::anyRails(cr);
+    roadgen::Surface kerbSurface;
     auto keyOf = [&](int road) {
         const SceneObject& o = objects[(size_t)objIdx[(size_t)road]];
         return o.id.empty() ? ("road-" + std::to_string(objIdx[(size_t)road])) : o.id;
     };
     std::vector<roadgen::Vertex> roadTriangles;
-    for (const auto& entry : roadDraws_)
-        roadTriangles.insert(roadTriangles.end(), entry.second.outline.begin(),
-                             entry.second.outline.end());
+    for (const auto& entry : roadDraws_) {
+        const std::vector<roadgen::Vertex>& src =
+            entry.second.bridge ? entry.second.glued : entry.second.outline;
+        roadTriangles.insert(roadTriangles.end(), src.begin(), src.end());
+    }
+    std::vector<roadgen::Vertex> paintOnTris;
+    if (anyKerb || anyRail) kerbSurface.add(roadTriangles);
     for (const roadgen::Crossing& c : plan.crossings) {
         if (c.kind != roadgen::kCrossPatch || c.patchDuplicate) continue;
         const SceneObject& a = objects[(size_t)objIdx[(size_t)c.a]];
         std::vector<roadgen::Vertex> triangles;
         roadgen::tessellateJunctionSurface(c.shape, roadTriangles,
-            [&](float x, float z) { return terrainHeight(x, z); }, c.lift, triangles);
+            [&](float x, float z) { return terrainHeight(x, z); }, c.lift, triangles,
+            terrainGrid());
+        if (anyKerb || anyRail) kerbSurface.add(triangles, c.grip);
         std::vector<float> iv;
         for (const roadgen::Vertex& v : triangles)
             iv.insert(iv.end(), {v.x, v.y, v.z, 1.0f, 1.0f, 1.0f, v.u, v.v});
@@ -4267,6 +4348,54 @@ void Viewport::syncRoadDraws(const std::vector<SceneObject>& objects) {
         d.owner = keyOf(c.a);
         d.color[0] = a.color[0], d.color[1] = a.color[1], d.color[2] = a.color[2];
         roadCross_.push_back(std::move(d));
+        paintOnTris.insert(paintOnTris.end(), triangles.begin(), triangles.end());
+    }
+    // Node markings (docs/roads.md "Markings"): the codegen's bakeMarkings over
+    // the same roads and patches, untextured paint drawn with the first patch's
+    // road.
+    std::vector<roadgen::Vertex> detailPaint;  // road details keep clear of it
+    std::vector<roadgen::PavementMesh> furnPave;  // street furniture stands on them
+    {
+        roadgen::Surface paintOn;
+        paintOn.add(roadTriangles);
+        paintOn.add(paintOnTris);
+        paintOn.build();
+        std::vector<roadgen::Vertex> paint;
+        roadgen::bakeMarkings(plan, cr, paintOn, paint);
+        detailPaint = paint;
+        if (!paint.empty()) {
+            // Worn paint, as the console draws it: the road-paint texture at
+            // world-projected UVs, blended by its alpha.
+            const std::string paintMtl =
+                projectDir_.empty() ? std::string() : roadtex::ensurePaintTexture(projectDir_);
+            const std::string paintTex =
+                paintMtl.empty() ? std::string()
+                                 : project::resolveRoadTexture(projectDir_, paintMtl);
+            const float k = 1.0f / 255.0f;
+            const float r = ((roadgen::kMarkingRgb >> 16) & 255) * k,
+                        g = ((roadgen::kMarkingRgb >> 8) & 255) * k,
+                        b = (roadgen::kMarkingRgb & 255) * k;
+            RoadCrossDraw d;
+            d.owner = keyOf(plan.crossings.front().a);
+            if (!paintTex.empty()) {
+                std::vector<float> iv;
+                for (const roadgen::Vertex& v : paint)
+                    iv.insert(iv.end(), {v.x, v.y, v.z, r, g, b, 1.0f,
+                                         v.x / roadtex::kPaintExtent,
+                                         v.z / roadtex::kPaintExtent});
+                d.mesh = uploadMesh9(iv);
+                d.texture = paintTex;
+                d.material = paintMtl;
+                d.blended = true;
+            } else {
+                std::vector<float> iv;
+                for (const roadgen::Vertex& v : paint)
+                    iv.insert(iv.end(), {v.x, v.y, v.z, 1.0f, 1.0f, 1.0f, 0.0f, 0.0f});
+                d.mesh = uploadMesh(iv);
+                d.color[0] = r, d.color[1] = g, d.color[2] = b;
+            }
+            roadCross_.push_back(std::move(d));
+        }
     }
     for (const roadgen::CrossingDecal& dc : plan.decals) {
         if (dc.verts.empty()) continue;
@@ -4283,6 +4412,187 @@ void Viewport::syncRoadDraws(const std::vector<SceneObject>& objects) {
         d.owner = keyOf(dc.road);
         d.blended = true;
         roadCross_.push_back(std::move(d));
+    }
+    // Kerbs: the codegen's own roadgen::planKerbs over the same plan, drawn as
+    // triangle lists with their baked shade (the console uploads the same
+    // lines as strips). One opaque mesh per owning road, untextured.
+    if (anyKerb || anyRail) {
+        kerbSurface.build();
+        const auto surfaceAt = [&](float x, float z) { return kerbSurface.at(x, z); };
+        const auto groundAt = [&](float x, float z) { return terrainHeight(x, z); };
+        std::map<int, std::vector<float>> byRoad;
+        std::vector<roadgen::KerbVertex> tris;
+        auto put = [&](int road) {
+            std::vector<float>& iv = byRoad[road];
+            for (const roadgen::KerbVertex& v : tris) {
+                float rgb[3];
+                roadrail::shadeRgb(v.shade, rgb);
+                iv.insert(iv.end(), {v.x, v.y, v.z, rgb[0], rgb[1], rgb[2], 0.0f, 0.0f});
+            }
+        };
+        const std::vector<roadgen::KerbPiece> pieces =
+            anyKerb ? roadgen::planKerbs(cr, plan, surfaceAt, groundAt)
+                    : std::vector<roadgen::KerbPiece>{};
+        if (anyKerb)
+            for (const roadgen::KerbPiece& kp : pieces) {
+                tris.clear();
+                roadgen::kerbTriangles(kp, tris);
+                put(kp.road);
+            }
+        // Rails and tram tracks: roadrail::planRails, the codegen's own.
+        if (anyRail)
+            for (const roadrail::RailPiece& rp :
+                 roadrail::planRails(cr, plan, surfaceAt, groundAt)) {
+                tris.clear();
+                roadrail::railTriangles(rp, tris);
+                put(rp.road);
+            }
+        for (auto& [road, iv] : byRoad) {
+            RoadCrossDraw d;
+            d.mesh = uploadMesh(iv);
+            d.owner = keyOf(road);
+            roadCross_.push_back(std::move(d));
+        }
+        // Pavements (docs/roads.md "Pavements"): the codegen's planPavements
+        // over the same kerb lines, one textured mesh per owning road.
+        const std::vector<roadgen::PavementMesh> pave = roadgen::planPavements(
+            cr, plan, pieces, [&](float x, float z) { return terrainHeight(x, z); });
+        furnPave = pave;  // street furniture stands on them
+        std::map<int, std::vector<float>> paveByRoad;
+        for (const roadgen::PavementMesh& pm : pave) {
+            std::vector<float>& iv = paveByRoad[pm.road];
+            for (const roadgen::Vertex& v : pm.tris)
+                iv.insert(iv.end(), {v.x, v.y, v.z, 1.0f, 1.0f, 1.0f, v.u, v.v});
+        }
+        for (auto& [road, iv] : paveByRoad) {
+            const SceneObject& o = objects[(size_t)objIdx[(size_t)road]];
+            RoadCrossDraw d;
+            d.mesh = uploadMesh(iv);
+            d.owner = keyOf(road);
+            d.material = o.roadPavementMaterial;
+            d.texture = project::resolveRoadTexture(projectDir_, o.roadPavementMaterial);
+            if (d.texture.empty()) {
+                const float k = 1.0f / 255.0f;
+                d.color[0] = ((roadgen::kPavementRgb >> 16) & 255) * k;
+                d.color[1] = ((roadgen::kPavementRgb >> 8) & 255) * k;
+                d.color[2] = (roadgen::kPavementRgb & 255) * k;
+            }
+            roadCross_.push_back(std::move(d));
+        }
+    }
+    // Bridges (docs/roads.md "Bridges"): parapets, deck edges, underside,
+    // piers and abutments - the codegen's roadbridge::buildStructure over the
+    // same roads, drawn untextured with their baked shade.
+    for (size_t k = 0; k < cr.size(); ++k) {
+        const SceneObject& o = objects[(size_t)objIdx[k]];
+        if (!o.roadBridge) continue;
+        const roadbridge::Deck deck =
+            roadbridge::buildDeck(o, [&](float x, float z) { return terrainHeight(x, z); });
+        roadbridge::Structure st;
+        roadbridge::buildStructure(deck, cr, (int)k, st);
+        if (st.tris.empty()) continue;
+        std::vector<float> iv;
+        iv.reserve(st.tris.size() * 8);
+        for (const roadgen::KerbVertex& v : st.tris)
+            iv.insert(iv.end(), {v.x, v.y, v.z, v.shade, v.shade * 0.99f, v.shade * 0.96f,
+                                 0.0f, 0.0f});
+        RoadCrossDraw d;
+        d.mesh = uploadMesh(iv);
+        d.owner = keyOf((int)k);
+        roadCross_.push_back(std::move(d));
+    }
+    // Road details (docs/roads.md "Road details"): the codegen's own
+    // roaddetail::build over the same roads, patches and paint - the decals the
+    // console uploads - drawn blended with the details atlas, one mesh per
+    // owning road.
+    if (roaddetail::any(cr)) {
+        roaddetail::SceneInput di;
+        di.roads = &cr;
+        di.plan = &plan;
+        di.ground = [&](float x, float z) { return terrainHeight(x, z); };
+        di.patches = paintOnTris;
+        di.paint = detailPaint;
+        // Puddles (docs/weather.md "Puddles") are placed after every other
+        // decal, so baking them always changes nothing else; they are drawn
+        // only while the previewed scene is wet (drawRoadSpills).
+        di.puddles = true;
+        const roaddetail::Result dr = roaddetail::build(di);
+        roadPuddleVerts_.clear();
+        for (const roadgen::Vertex& v : dr.puddleTris)
+            roadPuddleVerts_.insert(roadPuddleVerts_.end(), {v.x, v.y, v.z, v.u, v.v});
+        // One mesh for every decal in the scene, owned by the first road
+        // with details (what the owner key is used for is the picking
+        // highlight, and a decal is too small to pick).
+        int owner = -1;
+        for (size_t k = 0; k < cr.size() && owner < 0; ++k)
+            if (cr[k].details > 0.0f) owner = (int)k;
+        std::vector<float> iv;
+        iv.reserve(dr.tris.size() * 9);
+        for (const roadgen::Vertex& v : dr.tris)
+            iv.insert(iv.end(), {v.x, v.y, v.z, 1.0f, 1.0f, 1.0f, 1.0f, v.u, v.v});
+        if (!iv.empty() && owner >= 0) {
+            RoadCrossDraw d;
+            d.mesh = uploadMesh9(iv);
+            d.texture = roaddetail::kAtlasPng;
+            d.owner = keyOf(owner);
+            d.blended = true;
+            roadCross_.push_back(std::move(d));
+        }
+    }
+    // Street furniture (docs/roads.md "Street furniture"): the codegen's own
+    // roadfurn::build over the same roads, plan, patches, paint and pavements
+    // - the merged vertex-colour triangles the console uploads - one opaque
+    // mesh per owning road.
+    {
+        std::vector<roadfurn::Settings> fs;
+        for (int oi : objIdx) fs.push_back(objects[(size_t)oi].roadFurniture);
+        if (roadfurn::any(fs)) {
+            roadfurn::SceneInput fi;
+            fi.roads = &cr;
+            fi.settings = &fs;
+            fi.plan = &plan;
+            fi.ground = [&](float x, float z) { return terrainHeight(x, z); };
+            fi.patches = paintOnTris;
+            fi.paint = detailPaint;
+            fi.pavements = furnPave;
+            fi.projectDir = projectDir_;
+            const roadfurn::Result fr = roadfurn::build(fi);
+            // Lit street lamps (docs/weather.md): the codegen's own lamps and
+            // pools, on the same drawn surface; drawRoadLamps shows them when
+            // the previewed hour is night (or the scene's lamps are on).
+            {
+                roadgen::Surface lampSurf;
+                lampSurf.add(roadTriangles);
+                lampSurf.add(paintOnTris);
+                roadgen::addPavementsToSurface(lampSurf, furnPave);
+                lampSurf.build();
+                const roadgen::HeightFn top = [&](float x, float z) {
+                    const float s = lampSurf.at(x, z), g = terrainHeight(x, z);
+                    return s != roadgen::Surface::kNone && s > g ? s : g;
+                };
+                roadLamps_ = roadlight::lampsOf(fr);
+                const roadlight::Pools pools = roadlight::bakePools(roadLamps_, top);
+                roadLampPools_.clear();
+                roadLampPools_.reserve(pools.tris.size() * 5);
+                for (const roadgen::Vertex& v : pools.tris)
+                    roadLampPools_.insert(roadLampPools_.end(), {v.x, v.y, v.z, v.u, v.v});
+            }
+            std::map<int, std::vector<float>> byRoad;
+            for (const roadfurn::Instance& inst : fr.instances) {
+                std::vector<float>& iv = byRoad[inst.road];
+                for (int k = 0; k < inst.vertexCount; ++k) {
+                    const roadfurn::Vertex& v = fr.tris[(size_t)(inst.firstVertex + k)];
+                    iv.insert(iv.end(), {v.x, v.y, v.z, v.r, v.g, v.b, 0.0f, 0.0f});
+                }
+            }
+            for (auto& [road, verts] : byRoad) {
+                if (verts.empty() || road < 0) continue;
+                RoadCrossDraw d;
+                d.mesh = uploadMesh(verts);
+                d.owner = keyOf(road);
+                roadCross_.push_back(std::move(d));
+            }
+        }
     }
 }
 
@@ -4317,6 +4627,42 @@ void Viewport::drawRoadSpills(const float* viewProj) {
         if (tex) glBindTexture(GL_TEXTURE_2D, tex);
         glBindVertexArray(c.mesh.vao);
         glDrawArrays(GL_TRIANGLES, 0, c.mesh.vertexCount);
+    }
+    // Puddles (docs/weather.md "Puddles"): the console's one colour from the
+    // same core function, over a sky that runs from a day blue to night with
+    // the lamps' level. Texture RGB 128 = 1x, as on the GS.
+    if (roadPuddleVerts_.size() >= 15) {
+        const float lv = std::clamp(roadLampLevel_, 0.0f, 1.0f);
+        float pc[4];
+        roadlight::puddleColor(roadWet_, 128.0f + (10.0f - 128.0f) * lv,
+                               150.0f + (12.0f - 150.0f) * lv, 180.0f + (20.0f - 180.0f) * lv, lv, pc);
+        if (pc[3] >= 1.0f) {
+            if (!puddleTex_) {
+                const std::vector<unsigned char> rgba = roaddetail::generatePuddles();
+                glGenTextures(1, &puddleTex_);
+                glBindTexture(GL_TEXTURE_2D, puddleTex_);
+                glUploadTexRgba(roaddetail::kPuddleSize, roaddetail::kPuddleSize, rgba.data());
+            }
+            std::vector<float> buf;
+            buf.reserve(roadPuddleVerts_.size() / 5 * 9);
+            for (size_t k = 0; k + 4 < roadPuddleVerts_.size(); k += 5) {
+                const float vert[9] = {roadPuddleVerts_[k], roadPuddleVerts_[k + 1],
+                                       roadPuddleVerts_[k + 2], pc[0] / 128.0f,
+                                       pc[1] / 128.0f, pc[2] / 128.0f,
+                                       pc[3] / 128.0f, roadPuddleVerts_[k + 3],
+                                       roadPuddleVerts_[k + 4]};
+                buf.insert(buf.end(), vert, vert + 9);
+            }
+            glUniform1i(uPartUseTex_, 1);
+            glBindTexture(GL_TEXTURE_2D, puddleTex_);
+            glBindVertexArray(particleVao_);
+            glBindBuffer(GL_ARRAY_BUFFER, particleVbo_);
+            glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(buf.size() * sizeof(float)), buf.data(),
+                         GL_DYNAMIC_DRAW);
+            glDrawArrays(GL_TRIANGLES, 0, (GLsizei)(buf.size() / 9));
+            glBindVertexArray(0);
+            glBindTexture(GL_TEXTURE_2D, 0);
+        }
     }
     glDepthMask(GL_TRUE);
     glDisable(GL_BLEND);
@@ -6256,8 +6602,13 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
                     // scenePass already switches polygon mode for the wire
                     // pass; keep the triangle primitive so all three edges
                     // survive instead of pairing arbitrary triangle corners.
-                    draw(ri->second.mesh, GL_TRIANGLES, viewProj, o.color[0],
-                         o.color[1], o.color[2], tex);
+                    // Wet asphalt (docs/weather.md): the console's one tint,
+                    // 128 - wet * (58, 55, 46), over 128.
+                    const float wr = 1.0f - roadWet_ * 58.0f / 128.0f;
+                    const float wg = 1.0f - roadWet_ * 55.0f / 128.0f;
+                    const float wb = 1.0f - roadWet_ * 46.0f / 128.0f;
+                    draw(ri->second.mesh, GL_TRIANGLES, viewProj, o.color[0] * wr,
+                         o.color[1] * wg, o.color[2] * wb, tex);
                     // This road's junction patches (it is the crossing's
                     // road A), each with its own material.
                     for (const RoadCrossDraw& c : roadCross_) {
@@ -6265,8 +6616,13 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
                             continue;
                         const uint32_t junctionTex =
                             asLines || c.texture.empty() ? 0 : glTexture(c.texture);
-                        draw(c.mesh, GL_TRIANGLES, viewProj, c.color[0], c.color[1],
-                             c.color[2], junctionTex);
+                        // Only textured surfaces take the wet tint (the
+                        // console's grey asphalt chunks; never the kerbs'
+                        // or the furniture's vertex colours).
+                        const bool wetTint = !c.texture.empty();
+                        draw(c.mesh, GL_TRIANGLES, viewProj, c.color[0] * (wetTint ? wr : 1.0f),
+                             c.color[1] * (wetTint ? wg : 1.0f), c.color[2] * (wetTint ? wb : 1.0f),
+                             junctionTex);
                     }
                     ps2NoDyn = 0;  // do not leak the road's static-light mode
                 }
@@ -6615,6 +6971,9 @@ uint32_t Viewport::render(int width, int height, const std::vector<SceneObject>&
     // drawing both would double it). Same order as the generated game: after
     // the scene, additive, z-tested and never z-written.
     if (sceneProgActive_ != program_) drawLightPools(objects, viewProj.m);
+    // Lit street lamps (docs/weather.md): the console's pools, halos and wet
+    // streaks, in every shading mode - they are scene content, like beams.
+    if (viewMode_ != ViewMode::Wireframe) drawRoadLamps(viewProj.m, &eye.x);
 
     // Mirror objects: draw the reflected copies first (real geometry behind
     // the plane, z-tested against the finished scene), then blend the glass
@@ -8174,6 +8533,101 @@ void Viewport::drawLightPools(const std::vector<SceneObject>& objects,
     glBindBuffer(GL_ARRAY_BUFFER, particleVbo_);
     glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(buf.size() * sizeof(float)),
                  buf.data(), GL_DYNAMIC_DRAW);
+    glDrawArrays(GL_TRIANGLES, 0, (GLsizei)(buf.size() / 9));
+    glDepthMask(GL_TRUE);
+    glDisable(GL_BLEND);
+    glBindVertexArray(0);
+    glBindTexture(GL_TEXTURE_2D, 0);
+    glUseProgram(sceneProgActive_);
+}
+
+// Lit street lamps (docs/weather.md) - the editor twin of the generated game's
+// renderRoadLamps: the host-baked pools (the same roadlight::bakePools output
+// the console uploads), a camera-facing corona per lamp head, and on a wet
+// road each lamp's reflection streak toward the viewer. The colours are the
+// console's (128 = 1x) over 128, the corona sprite is the console's, and the
+// blend is the GS additive one. What it does not reproduce is the night
+// grade's compensation, which the editor has no grade to cancel.
+void Viewport::drawRoadLamps(const float* viewProj, const float* eye) {
+    if (roadLampLevel_ < 0.004f || roadLamps_.empty()) return;
+    const float lv = roadLampLevel_;
+    std::vector<float> buf;
+    buf.reserve(roadLampPools_.size() / 5 * 9 + roadLamps_.size() * 6 * 9 * 2);
+    auto put = [&](float x, float y, float z, float r, float g, float b, float u, float v) {
+        const float vert[9] = {x, y, z, r, g, b, 1.0f, u, v};
+        buf.insert(buf.end(), vert, vert + 9);
+    };
+    const float pr = 112.0f / 128.0f * lv, pg = 84.0f / 128.0f * lv, pb = 48.0f / 128.0f * lv;
+    for (size_t k = 0; k + 4 < roadLampPools_.size(); k += 5)
+        put(roadLampPools_[k], roadLampPools_[k + 1], roadLampPools_[k + 2], pr, pg, pb,
+            roadLampPools_[k + 3], roadLampPools_[k + 4]);
+    // The camera basis (the console's: right from the forward's XZ, up = r x f).
+    const float* m = camTarget_;
+    float fx = m[0] - eye[0], fy = m[1] - eye[1], fz = m[2] - eye[2];
+    const float fl = std::sqrt(fx * fx + fy * fy + fz * fz);
+    if (fl > 1e-4f) {
+        fx /= fl, fy /= fl, fz /= fl;
+        float rx = fz, rz = -fx;
+        const float rl = std::sqrt(rx * rx + rz * rz);
+        if (rl > 1e-4f) rx /= rl, rz /= rl;
+        else rx = 1.0f, rz = 0.0f;
+        const float ux = -rz * fy, uy = rz * fx - rx * fz, uz = rx * fy;
+        for (const roadlight::Lamp& L : roadLamps_) {
+            const float dx = L.hx - eye[0], dy = L.hy - eye[1], dz = L.hz - eye[2];
+            const float d = std::sqrt(dx * dx + dy * dy + dz * dz);
+            if (d > 160.0f || dx * fx + dy * fy + dz * fz < -2.0f) continue;
+            const float fade = d > 110.0f ? (160.0f - d) / 50.0f : 1.0f;
+            const float s = 0.55f + 0.011f * d;
+            const float pull = d > 1.0f ? std::min(d * 0.5f, 0.7f) / d : 0.0f;
+            const float cx = L.hx - dx * pull, cy = L.hy - dy * pull, cz = L.hz - dz * pull;
+            const float k = lv * fade / 128.0f;
+            const float r = 118.0f * k, g = 100.0f * k, b = 74.0f * k;
+            const float px = rx * s, pz = rz * s, qx = ux * s, qy = uy * s, qz = uz * s;
+            put(cx - px - qx, cy - qy, cz - pz - qz, r, g, b, 0, 0);
+            put(cx + px - qx, cy - qy, cz + pz - qz, r, g, b, 1, 0);
+            put(cx + px + qx, cy + qy, cz + pz + qz, r, g, b, 1, 1);
+            put(cx - px - qx, cy - qy, cz - pz - qz, r, g, b, 0, 0);
+            put(cx + px + qx, cy + qy, cz + pz + qz, r, g, b, 1, 1);
+            put(cx - px + qx, cy + qy, cz - pz + qz, r, g, b, 0, 1);
+            if (roadWet_ <= 0.02f || d >= 55.0f) continue;
+            float tx = eye[0] - L.gx, tz = eye[2] - L.gz;
+            const float hd = std::sqrt(tx * tx + tz * tz);
+            if (hd < 0.5f) continue;
+            tx /= hd, tz /= hd;
+            const float hgt = std::max(L.hy - L.gy, 0.5f), eyeH = std::max(eye[1] - L.gy, 0.3f);
+            const float mm = hd * hgt / (hgt + eyeH);
+            const float half = std::min(0.5f * mm + 1.2f, L.radius * 1.6f);
+            const float mx = L.gx + tx * mm, mz = L.gz + tz * mm;
+            const float wd = 0.30f + 0.006f * d;
+            const float nx = -tz * wd, nz = tx * wd;
+            const float sf = d > 38.5f ? (55.0f - d) / 16.5f : 1.0f;
+            const float kk = lv * roadWet_ * sf / 128.0f;
+            const float sr = 96.0f * kk, sg = 80.0f * kk, sb = 58.0f * kk;
+            auto yAt = [&](float x, float z) {
+                return L.gy + L.sx * (x - L.gx) + L.sz * (z - L.gz) + 0.07f;
+            };
+            const float x0 = mx - tx * half, z0 = mz - tz * half;
+            const float x1 = mx + tx * half, z1 = mz + tz * half;
+            put(x0 - nx, yAt(x0 - nx, z0 - nz), z0 - nz, sr, sg, sb, 0, 0);
+            put(x0 + nx, yAt(x0 + nx, z0 + nz), z0 + nz, sr, sg, sb, 1, 0);
+            put(x1 + nx, yAt(x1 + nx, z1 + nz), z1 + nz, sr, sg, sb, 1, 1);
+            put(x0 - nx, yAt(x0 - nx, z0 - nz), z0 - nz, sr, sg, sb, 0, 0);
+            put(x1 + nx, yAt(x1 + nx, z1 + nz), z1 + nz, sr, sg, sb, 1, 1);
+            put(x1 - nx, yAt(x1 - nx, z1 - nz), z1 - nz, sr, sg, sb, 0, 1);
+        }
+    }
+    if (buf.empty()) return;
+    glUseProgram(particleProgram_);
+    glUniformMatrix4fv(uPartMvp_, 1, GL_FALSE, viewProj);
+    glUniform1i(uPartUseTex_, 1);
+    glBindTexture(GL_TEXTURE_2D, coronaTex());
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_ONE, GL_ONE);  // the GS additive bag
+    glDepthMask(GL_FALSE);        // z-tested, never written
+    glBindVertexArray(particleVao_);
+    glBindBuffer(GL_ARRAY_BUFFER, particleVbo_);
+    glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(buf.size() * sizeof(float)), buf.data(),
+                 GL_DYNAMIC_DRAW);
     glDrawArrays(GL_TRIANGLES, 0, (GLsizei)(buf.size() / 9));
     glDepthMask(GL_TRUE);
     glDisable(GL_BLEND);

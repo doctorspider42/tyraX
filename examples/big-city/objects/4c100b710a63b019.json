@@ -1,0 +1,1 @@
+{ "id": "4c100b710a63b019", "name": "Building 399", "type": "model", "position": [-268.074, 0, 24.9155], "rotation": [0, 0, 0], "scale": [1.8232, 1.7777, 2.6291], "color": [1, 1, 1], "physics": false, "layer": "district-3-4", "drawDistance": 230, "castShadow": false, "model": "res/models/urban/district-tower.obj" }

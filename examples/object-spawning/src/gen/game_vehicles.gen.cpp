@@ -233,7 +233,7 @@ float TerrainGame::roadSurfaceScan(float x, float z) const {
     if (y > best) best = y;
   };
   for (const ProcChunk& c : procChunks) {
-    if (c.owner != -3 || c.vertices.size() < 3) continue;
+    if ((c.owner != -3 && c.owner != -4) || c.vertices.size() < 3) continue;
     if (x < c.aabbMin[0] || x > c.aabbMax[0] ||
         z < c.aabbMin[2] || z > c.aabbMax[2])
       continue;
@@ -263,7 +263,7 @@ void TerrainGame::buildRoadHeightIndex() const {
   float mnx = 1.0e30F, mxx = -1.0e30F, mnz = 1.0e30F, mxz = -1.0e30F;
   bool any = false;
   for (const ProcChunk& c : procChunks) {
-    if (c.owner != -3 || c.vertices.size() < 3) continue;
+    if ((c.owner != -3 && c.owner != -4) || c.vertices.size() < 3) continue;
     any = true;
     if (c.aabbMin[0] < mnx) mnx = c.aabbMin[0];
     if (c.aabbMax[0] > mxx) mxx = c.aabbMax[0];
@@ -285,14 +285,24 @@ void TerrainGame::buildRoadHeightIndex() const {
   // the triangles exactly the way roadSurfaceAt used to, so every triangle
   // that was reachable before is reachable now.
   std::vector<unsigned int> cursor;
+  // An entry packs 13 bits of chunk index and 19 of vertex index. It was 10/22
+  // until examples/big-city: a city has more than 1024 proc chunks (roads,
+  // kerbs, rails, details), and every road chunk past the 1024th was silently
+  // missing from the index - wheels and walkers fell through to the terrain.
+  // No chunk comes near 2^19 vertices (road, kerb and patch chunks are capped
+  // at ~1800). Anything still out of range is COUNTED and logged, not lost
+  // silently.
+  int skipped = 0;
   for (int pass = 0; pass < 2; ++pass) {
     unsigned int ci = 0;
     for (const ProcChunk& c : procChunks) {
       const unsigned int chunk = ci++;
-      if (c.owner != -3 || c.vertices.size() < 3) continue;
-      if (chunk >= 1024U) continue;  // the entry packs 10 bits of chunk index
+      if ((c.owner != -3 && c.owner != -4) || c.vertices.size() < 3) continue;
       const size_t count = c.vertices.size();
-      if (count >= (size_t)(1U << 22)) continue;  // ...and 22 of vertex index
+      if (chunk >= (1U << 13) || count >= (size_t)(1U << 19)) {
+        if (pass == 0) ++skipped;
+        continue;
+      }
       const size_t run = c.stripRun > 0 ? (size_t)c.stripRun : count;
       const size_t step = c.stripRun > 0 ? (size_t)1 : (size_t)3;
       for (size_t first = 0; first < count; first += run) {
@@ -318,7 +328,7 @@ void TerrainGame::buildRoadHeightIndex() const {
           if (ix1 > n - 1) ix1 = n - 1;
           if (iz1 > n - 1) iz1 = n - 1;
           if (ix1 < ix0 || iz1 < iz0) continue;
-          const unsigned int entry = (chunk << 22) | (unsigned int)i;
+          const unsigned int entry = (chunk << 19) | (unsigned int)i;
           for (int iz = iz0; iz <= iz1; ++iz)
             for (int ix = ix0; ix <= ix1; ++ix) {
               const size_t k = (size_t)iz * (size_t)n + (size_t)ix;
@@ -339,12 +349,15 @@ void TerrainGame::buildRoadHeightIndex() const {
   }
   TYRA_LOG("ROADINDEX cells ", roadIdxN, "x", roadIdxN, " entries ",
            (int)roadIdxItems.size());
+  if (skipped > 0)
+    TYRA_LOG("ROADINDEX skipped ", skipped,
+             " chunk(s) past the 8192-chunk / 2^19-vertex packing");
 }
 
 
 
 float TerrainGame::roadSurfaceAt(float x, float z, float* grip,
-                                 float* cover) const {
+                                 float* cover, float maxY) const {
   float best = -1.0e30F;
   if (grip) *grip = 1.0F;
   if (cover) *cover = 1.0F;
@@ -377,7 +390,7 @@ float TerrainGame::roadSurfaceAt(float x, float z, float* grip,
     // crack to a six-vertex light/shadow patch on their shared edge.
     if (wa < -0.0001F || wb < -0.0001F || wc < -0.0001F) return;
     const float y = wa * a.y + wb * b.y + wc * c.y;
-    if (y > best) {
+    if (y > best && y <= maxY) {
       best = y;
       if (grip) *grip = wa * ga + wb * gb + wc * gc;
       if (cover) *cover = wa * ca + wb * cb + wc * cc;
@@ -393,8 +406,8 @@ float TerrainGame::roadSurfaceAt(float x, float z, float* grip,
   const size_t k = (size_t)iz * (size_t)roadIdxN + (size_t)ix;
   for (unsigned int e = roadIdxStart[k]; e < roadIdxStart[k + 1]; ++e) {
     const unsigned int item = roadIdxItems[e];
-    const ProcChunk& c = procChunks[(size_t)(item >> 22)];
-    const size_t i = (size_t)(item & 0x3FFFFFU);
+    const ProcChunk& c = procChunks[(size_t)(item >> 19)];
+    const size_t i = (size_t)(item & 0x7FFFFU);
     float ga = c.roadGrip, gb = ga, gc = ga;
     if (c.roadBlend) {
       // The spill's fade blends its grip over the road under it.
@@ -413,7 +426,7 @@ float TerrainGame::roadSurfaceAt(float x, float z, float* grip,
                  ca, cb, cc);
   }
 #if TYRA_ROAD_INDEX_VERIFY
-  {
+  if (maxY > 1.0e29F) {  // the scan oracle answers the uncapped question
     static unsigned int checked = 0, bad = 0;
     static float worst = 0.0F;
     const float ref = roadSurfaceScan(x, z);
@@ -473,10 +486,27 @@ float TerrainGame::terrainGripAt(float x, float z) const {
 
 
 
-float TerrainGame::groundSurfaceAt(float x, float z) const {
+// `maxY` (docs/roads.md "Bridges"): only a road surface at or below it - the
+// one a caster, a wheel or a mark is actually on, never a deck overhead.
+float TerrainGame::groundSurfaceAt(float x, float z, float maxY) const {
   const float terrain = terrainHeightAt(x, z);
-  const float road = roadSurfaceAt(x, z);
+  const float road = roadSurfaceAt(x, z, nullptr, nullptr, maxY);
   return road > terrain ? road : terrain;
+}
+
+
+
+// The walker's floor (docs/roads.md "Kerbs"): the terrain, or a road, kerb or
+// pavement top under the feet - but only one within a step up of them, so a
+// road on a ramp or a bridge overhead never teleports a walker onto it. The
+// same 0.5-unit step collidePlayer allows onto objects.
+float TerrainGame::walkGroundAt(float x, float z, float feetY) const {
+  const float terrain = terrainHeightAt(x, z);
+  // The highest road surface within the step - so a walker under a bridge
+  // keeps the road it is on, not the terrain beneath both.
+  const float road = roadSurfaceAt(x, z, nullptr, nullptr, feetY + 0.5F);
+  if (road > terrain) return road;
+  return terrain;
 }
 
 

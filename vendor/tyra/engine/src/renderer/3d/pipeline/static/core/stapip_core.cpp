@@ -855,10 +855,19 @@ void StaPipCore::render(StaPipBag* bag) {
     const Vec4 mid((lo.x + hi.x) * 0.5F, (lo.y + hi.y) * 0.5F,
                    (lo.z + hi.z) * 0.5F, 1.0F);
     worldCenter = m * mid;
-    // Near-uniform scale assumed (same as the light's object-space
-    // transform in sendObjectData) - column 0 length is the scale.
-    const float scale = Math::sqrtNonNegative(m.data[0] * m.data[0] + m.data[1] * m.data[1] +
-                              m.data[2] * m.data[2]);
+    // The LONGEST basis column is the scale. Column 0 alone was enough while
+    // every matrix here was a rotation or a uniform scale; TyraX's shared
+    // instances (docs/instance-sharing.md) carry the object's own,
+    // possibly non-uniform, scale, and a radius from a short X column would
+    // let a lamp's pick miss the long side of a stretched building.
+    const float c0 = m.data[0] * m.data[0] + m.data[1] * m.data[1] +
+                     m.data[2] * m.data[2];
+    const float c1 = m.data[4] * m.data[4] + m.data[5] * m.data[5] +
+                     m.data[6] * m.data[6];
+    const float c2 = m.data[8] * m.data[8] + m.data[9] * m.data[9] +
+                     m.data[10] * m.data[10];
+    const float cmax = c0 > c1 ? (c0 > c2 ? c0 : c2) : (c1 > c2 ? c1 : c2);
+    const float scale = Math::sqrtNonNegative(cmax);
     const float ex = hi.x - lo.x, ey = hi.y - lo.y, ez = hi.z - lo.z;
     worldRadius = 0.5F * Math::sqrtNonNegative(ex * ex + ey * ey + ez * ez) * scale;
   }

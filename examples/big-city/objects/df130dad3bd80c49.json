@@ -1,0 +1,1 @@
+{ "id": "df130dad3bd80c49", "name": "Building 1001", "type": "model", "position": [211.077, 0, 483.553], "rotation": [0, 0, 0], "scale": [1.9927, 1.6798, 2.7429], "color": [1, 1, 1], "physics": false, "layer": "district-5-6", "drawDistance": 230, "castShadow": false, "model": "res/models/urban/district-loft.obj" }

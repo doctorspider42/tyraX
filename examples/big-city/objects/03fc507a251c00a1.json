@@ -1,0 +1,1 @@
+{ "id": "03fc507a251c00a1", "name": "Building 454", "type": "model", "position": [-155.422, 0, -481.392], "rotation": [0, 0, 0], "scale": [1.3655, 1.5047, 2.4064], "color": [1, 1, 1], "physics": false, "layer": "district-3-1", "drawDistance": 230, "castShadow": false, "model": "res/models/urban/district-workshop.obj" }

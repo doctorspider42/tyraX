@@ -1,0 +1,1 @@
+{ "id": "d5e74ce2a1767c90", "name": "Plinth 7-2 86", "type": "box", "position": [4.8258, 0.135, -474.338], "rotation": [0, 0, 0], "scale": [77.2463, 0.27, 31.169], "color": [0.47, 0.47, 0.45], "physics": false, "collision": "none", "layer": "district-4-1", "drawDistance": 140, "castShadow": false }

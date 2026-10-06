@@ -20,8 +20,78 @@ builds measured 6.7-7.6 s. This excludes editor generation/baking and cold setup
 
 ## What's in the project
 
-- **main** is the driving district: seven roads, a garage, a cobbled crossing,
-  dirt service lane, buildings, lights, pushable props and three cars.
+- **main** is the driving district: thirteen roads and a railway, a garage, a cobbled crossing,
+  dirt service lane, buildings, lights, pushable props and three cars. Every
+  place roads meet is a [road node](../../docs/roads.md) with rounded corners,
+  and six of the roads exist to show the kinds: **Orchard lane** leaves Market
+  cross street as a T and splits into a Y (**Orchard north** ends on Skyline
+  avenue, **Orchard east** on the ring road), **Service ramp** peels off the
+  east side of the ring at a shallow angle and drops onto Foundry link, and
+  **Quarry road** leaves the north side of the ring and turns a corner into
+  **Quarry spur**. Every node is painted (edge lines carried round its corners, stop
+  lines where a road gives way), and **Skyline avenue** asks for zebra
+  crossings too. The
+  twelve asphalt streets have
+  [kerbs](../../docs/roads.md#kerbs-format-95), which run around every
+  junction's rounded corners. The dirt West service lane has none. Their
+  tops are solid: a car that clips one bumps up over it. The four downtown
+  streets (Skyline avenue, Garage boulevard, Market cross street, Foundry
+  link) have 2.5-unit [pavements](../../docs/roads.md#pavements-format-97)
+  of paving slabs behind the kerbs (`res/materials/roads/district-pavement`,
+  a generated texture with its `.roadtex` recipe).
+  **Freight line** is a double-track
+  [railway](../../docs/roads.md#rails-and-tram-tracks-format-98) at x = -110
+  that crosses Market cross street at a level crossing, and **Garage
+  boulevard** carries two flush tram tracks down its middle, through every
+  node it passes, the plaza included.
+  **Service lane flyover** is a [bridge](../../docs/roads.md#bridges-format-100):
+  it leaves the west side of the ring road as a T, climbs to 6 units, passes
+  OVER the West service lane on wall piers (no junction there - an overpass)
+  and comes down onto Foundry link as another T. Its points carry heights
+  `0, 3, 6, 6, 3, 0` (Properties > Points with *Bridge* ticked). The twelve
+  kerbed
+  streets carry [road details](../../docs/roads.md#road-details-format-99) at
+  density 0.8 - manhole covers, gullies at the kerb, repair patches, cracks
+  and oil stains, from the generated `res/materials/roads/road-details.png`
+  atlas; nodes and their zebras stay clean.
+  The same four downtown streets carry [street furniture](../../docs/roads.md#street-furniture-format-101):
+  lamps every 12 units on alternating sides, trees every 16 on both walks,
+  a give-way sign at each of their stop lines and traffic lights on Garage
+  boulevard's nodes - its three four-way crossings and, since format 108, the
+  two T's where it ends at the ring road - 132 instances generated at build
+  (none of them scene objects), merged into 26 chunks; the poles and trunks
+  are solid.
+  The lamps, signs and traffic lights are [breakable](../../docs/roads.md#breakable-furniture-format-109)
+  (Street furniture > Breakable on all four streets): hit one in a car at 9
+  units/s (32 km/h) or faster - 6 for a sign - and it snaps off and tumbles
+  away, its light goes out, and the car keeps 82-92% of its speed and drives
+  on. Slower, it stops you as before. The trees stay solid. The hit plays
+  `res/sfx/prop-break.wav` (a synthesised clank, found by its name), and
+  `bin/log.txt` says `FURN break kind lamp speed 13.9 ...`. The props stand
+  again when the scene loads.
+  At night (pause menu > TIME OF DAY) the 50 lamps [light the street](../../docs/weather.md):
+  a baked pool of light under each, a halo round each head. Set a scene's
+  weather to Rain in Scene Preferences (or fire a Set Weather node) for wet
+  asphalt, the lamps' reflections streaking across it, puddles filling by
+  the kerbs and beside the gullies (from the streets' details), and every
+  lit car - the Ravager, traffic - mirroring its head- and tail lamps in the
+  road ([docs/weather.md](../../docs/weather.md)).
+
+  **Road traffic** ([docs/traffic.md](../../docs/traffic.md)) drives the
+  streets: six AI cars (Ravager, Pica, Strix in turn) spawned out of view
+  around the player, stopping at the stop lines, giving way, and obeying the
+  five signalised nodes on Garage boulevard, whose heads show their phase (the
+  two T's run three phases, one arm at a time). At night (pause menu > TIME OF
+  DAY) their lamps come on. Run a red light in the Ravager and Garage
+  boulevard's flow graph - On Red Light Run -> Number To Text (formatted) ->
+  Display Text - prints "RED LIGHT! You ran it at N" for 3 seconds.
+  View > Lanes draws the lane graph; `--road-lanes examples/vehicle-playground`
+  prints it. Measured in PCSX2: +2.2 MB of EE RAM for the six cars, the vehicle
+  step 0.5-0.6 ms a frame with the far cars on their cheap path, 60 FPS.
+
+  ![PCSX2, mirrored in X: traffic at the Garage boulevard x Foundry link signals](../../docs/img/road-traffic-pcsx2.png)
+
+  ![PCSX2, mirrored in X: the Orchard fork between the ring road and Skyline avenue, the Service ramp leaving the ring, and the Quarry corner](../../docs/img/road-nodes-district.png)
 - **dense** adds buildings for a busier drive.
 - **procedural** demonstrates painted building and tree placement. Open its
   Procedural layout to inspect the saved graph.

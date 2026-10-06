@@ -26,6 +26,7 @@
 #include "elfsym.hpp"
 #include "gibake.hpp"
 #include "gigpu.hpp"
+#include "isoexport.hpp"  // --export-iso
 #include "impostorgpu.hpp"
 #include "litbake.hpp"
 #include "modelao.hpp"
@@ -48,7 +49,14 @@
 #include "platform.hpp"
 #include "procbake.hpp"
 #include "project.hpp"
+#include "roadbridge.hpp"
+#include "roaddetail.hpp"
+#include "roaddraw.hpp"
+#include "roadpresets.hpp"
 #include "roadgen.hpp"
+#include "roadlanes.hpp"
+#include "roadrail.hpp"
+#include "roadtex.hpp"
 #include "shadowbake.hpp"
 #include "staticbatch.hpp"
 #include "texatlas.hpp"
@@ -705,12 +713,246 @@ static int atlasReportFromCli(int argc, char** argv) {
     return 0;
 }
 
+// tyrax-editor.exe --road-texture <projectDir> <name> [key=value ...]
+// The headless twin of Tools > Road Texture Generator (docs/road-textures.md):
+// writes res/materials/roads/<name>.png + .mtl + .roadtex. Starts from the
+// existing <name>.roadtex recipe when there is one (so key=value EDITS it),
+// else from the defaults; keys are the recipe file's own.
+static int roadTextureFromCli(int argc, char** argv) {
+    if (argc < 4) {
+        std::fprintf(stderr,
+                     "usage: tyrax-editor --road-texture <projectDir> <name> [key=value ...]\n"
+                     "  keys: surface=asphalt|cobble|gravel|dirt|slabs|pavers lanes=0..6\n"
+                     "        wear=0..1 grime=0..1 cracks=0..1\n"
+                     "        tint=r,g,b seed=N size=64|128|256 width=units(0=auto)\n"
+                     "        ragged=0|1 intersection=0|1 pavement=0|1 shoulder=units\n"
+                     "        surface=slabs|pavers: slab=units joint=units\n"
+                     "  per line, L = centre | divider | edge:\n"
+                     "        L=none|dashed|solid|double|solid-dashed|dashed-solid\n"
+                     "        L.colour=white|yellow|r,g,b L.width=units\n"
+                     "        L.dash=units L.gap=units (snapped to divide 4 units)\n");
+        return 2;
+    }
+    const std::string dir = argv[2];
+    std::error_code ec;
+    if (!std::filesystem::is_directory(dir, ec)) {
+        std::fprintf(stderr, "error: not a directory: %s\n", dir.c_str());
+        return 1;
+    }
+    roadtex::RoadTexParams p;
+    const bool had = roadtex::readRecipe(dir, argv[3], &p);
+    for (int i = 4; i < argc; ++i) {
+        const std::string a = argv[i];
+        const size_t eq = a.find('=');
+        std::string err = "expected key=value, got '" + a + "'";
+        if (eq == std::string::npos ||
+            !roadtex::applyKey(p, a.substr(0, eq), a.substr(eq + 1), &err)) {
+            std::fprintf(stderr, "error: %s\n", err.c_str());
+            return 2;
+        }
+    }
+    std::string err;
+    const std::string mtl = roadtex::writeAssets(dir, argv[3], p, &err);
+    if (mtl.empty()) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
+    std::printf("road-texture: %s (%dx%d, %s recipe) -> %s\n", roadtex::fileStem(argv[3]).c_str(),
+                p.size, p.size, had ? "edited" : "new", mtl.c_str());
+    return 0;
+}
+
+// tyrax-editor.exe --road-lanes <projectDir> [sceneIndex]
+// The lane graph traffic drives (docs/traffic.md): per scene the lanes per
+// road, per node every connection (from which arm, the turn, who gives way,
+// the signal phase, how many movements it crosses), then the warnings - dead
+// ends and lanes with no legal exit. roadlanes::buildScene, the codegen's own
+// graph. Exits 1 when a lane reaches a node with no legal exit.
+static int roadLanesFromCli(int argc, char** argv) {
+    if (argc < 3) {
+        std::fprintf(stderr, "usage: tyrax-editor --road-lanes <projectDir> [sceneIndex]\n");
+        return 2;
+    }
+    Project p;
+    if (std::string err = project::load(p, argv[2]); !err.empty()) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
+    const int only = argc > 3 ? std::atoi(argv[3]) : -1;
+    int stuck = 0;
+    for (size_t si = 0; si < p.scenes.size(); ++si) {
+        if (only >= 0 && (int)si != only) continue;
+        const SceneData& sc = p.scenes[si];
+        std::vector<int> idx;
+        const std::vector<roadgen::CrossingRoad> roads =
+            project::crossingRoads(sc.objects, &idx, p.dir, {});
+        if (roads.empty()) continue;
+        const roadlanes::Graph g = roadlanes::buildScene(p, (int)si);
+        std::printf("=== scene %zu: %s - %zu roads ===\n", si, sc.name.c_str(), roads.size());
+        std::printf("%s", roadlanes::describe(g, roads).c_str());
+        for (const std::string& w : g.warnings) stuck += w.find("no legal exit") != std::string::npos;
+    }
+    std::printf("traffic: %s (%d cars per scene)\n",
+                roadlanes::projectHasTraffic(p) ? "on" : "off", p.settings.traffic.cars);
+    return stuck ? 1 : 0;
+}
+
+// tyrax-editor.exe --draw-road <projectDir> <scene> "<x,z[,h] x,z[,h] ...>" [preset]
+//                  [--angle] [--grid N] [--no-snap] [--no-extend] [--tolerance U]
+// The Draw road tool, headless (docs/roads.md "Drawing roads"): every point
+// goes through the tool's own snapping (roaddraw::Snapper - a road's end, its
+// centre line), the finish rule (a new road, or an existing one carried on)
+// and the preset (materials generated on demand), then the project is saved.
+// A third number on a point is a bridge deck height there. Prints what each
+// point snapped to and the nodes the road takes part in.
+static int drawRoadFromCli(int argc, char** argv) {
+    if (argc < 5) {
+        std::fprintf(stderr,
+                     "usage: tyrax-editor --draw-road <projectDir> <scene> \"x,z[,h] x,z[,h] ...\" "
+                     "[preset] [--angle] [--grid N] [--no-snap] [--no-extend] [--tolerance U]\n"
+                     "  scene: index or name; preset: a key or name (default city-street)\n"
+                     "  presets:");
+        for (const roadpresets::Preset& p : roadpresets::builtins())
+            std::fprintf(stderr, " %s", p.key.c_str());
+        std::fprintf(stderr, "\n");
+        return 2;
+    }
+    Project p;
+    if (std::string err = project::load(p, argv[2]); !err.empty()) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
+    int si = -1;
+    {
+        const std::string want = argv[3];
+        char* end = nullptr;
+        const long n = std::strtol(want.c_str(), &end, 10);
+        if (end && *end == '\0' && n >= 0 && n < (long)p.scenes.size()) si = (int)n;
+        for (size_t i = 0; si < 0 && i < p.scenes.size(); ++i)
+            if (p.scenes[i].name == want) si = (int)i;
+    }
+    if (si < 0) {
+        std::fprintf(stderr, "error: no scene '%s'\n", argv[3]);
+        return 1;
+    }
+    roaddraw::Options opt;
+    opt.angleSnap = false;  // a script means its coordinates; --angle opts in
+    std::string presetName = "city-street";
+    for (int i = 5; i < argc; ++i) {
+        const std::string a = argv[i];
+        if (a == "--angle") opt.angleSnap = true;
+        else if (a == "--no-snap") opt.roadSnap = false;
+        else if (a == "--no-extend") opt.extendEnds = false;
+        else if (a == "--grid" && i + 1 < argc) opt.gridSnap = true, opt.grid = (float)std::atof(argv[++i]);
+        else if (a == "--tolerance" && i + 1 < argc) opt.tolerance = (float)std::atof(argv[++i]);
+        else presetName = a;
+    }
+    const roadpresets::Preset* pr = roadpresets::find(p.settings.roadPresets, presetName);
+    if (!pr) {
+        std::fprintf(stderr, "error: no road preset '%s'\n", presetName.c_str());
+        return 2;
+    }
+    SceneData& sc = p.scenes[(size_t)si];
+    const roadgen::HeightFn bare = [&](float x, float z) {
+        return sc.terrain.enabled ? roadgen::terrainHeight(sc.heights, sc.hmW, sc.hmD,
+                                                           (float)sc.terrain.width,
+                                                           (float)sc.terrain.depth, x, z)
+                                  : 0.0f;
+    };
+    std::vector<int> idx;
+    const roaddraw::Snapper snapper(project::crossingRoads(sc.objects, &idx, p.dir, bare));
+    // Points: whitespace-separated "x,z" or "x,z,h".
+    std::vector<roaddraw::Snap> placed;
+    {
+        std::string tok;
+        const std::string all = std::string(argv[4]) + " ";
+        for (char ch : all) {
+            if (ch != ' ' && ch != '\t' && ch != ';') {
+                tok += ch;
+                continue;
+            }
+            if (tok.empty()) continue;
+            float v[3] = {0, 0, 0};
+            const int got = std::sscanf(tok.c_str(), "%f,%f,%f", &v[0], &v[1], &v[2]);
+            if (got < 2) {
+                std::fprintf(stderr, "error: bad point '%s' (want x,z or x,z,h)\n", tok.c_str());
+                return 2;
+            }
+            roaddraw::Snap s = snapper.resolve(placed, v[0], v[1], opt);
+            s.height = got >= 3 ? std::max(0.0f, v[2]) : 0.0f;
+            std::printf("[draw-road] point %zu: %.2f,%.2f -> %.2f,%.2f (%s%s%s)\n", placed.size() + 1,
+                        v[0], v[1], s.x, s.z, roaddraw::kindName(s.kind),
+                        s.road >= 0 ? " " : "",
+                        s.road >= 0 ? sc.objects[(size_t)idx[(size_t)s.road]].name.c_str() : "");
+            placed.push_back(s);
+            tok.clear();
+        }
+    }
+    const float upm = p.settings.unitsPerMeter;
+    auto sameLook = [&](int r) {
+        const SceneObject& o = sc.objects[(size_t)idx[(size_t)r]];
+        SceneObject t = o;
+        roadpresets::apply(*pr, t, upm);
+        return t.roadWidth == o.roadWidth && t.roadTexture == o.roadTexture && t.roadKind == o.roadKind;
+    };
+    const roaddraw::Plan plan = roaddraw::finish(snapper, placed, opt, sameLook);
+    if (!plan.ok) {
+        std::fprintf(stderr, "error: %s\n", plan.error.c_str());
+        return 1;
+    }
+    const int oi = roaddraw::commit(sc.objects, idx, plan, *pr, p.dir, upm);
+    if (oi < 0) {
+        std::fprintf(stderr, "error: the drawing could not be applied\n");
+        return 1;
+    }
+    const SceneObject& road = sc.objects[(size_t)oi];
+    // Name the snapped roads in the summary by object name, not id.
+    std::string summary = plan.summary;
+    for (size_t k = 0; k < idx.size(); ++k) {
+        const std::string& id = snapper.road((int)k).id;
+        for (size_t at = summary.find(id); !id.empty() && at != std::string::npos;
+             at = summary.find(id, at + 1))
+            summary.replace(at, id.size(), sc.objects[(size_t)idx[k]].name);
+    }
+    std::printf("[draw-road] %s: %s (preset %s, %d point(s)%s)\n", road.name.c_str(), summary.c_str(),
+                pr->key.c_str(), roadgen::controlCount(road.roadPoints),
+                road.roadBridge ? ", bridge" : "");
+    // The nodes it takes part in - the build's own planner.
+    {
+        std::vector<int> idx2;
+        const std::vector<roadgen::CrossingRoad> roads =
+            project::crossingRoads(sc.objects, &idx2, p.dir, bare);
+        const roadgen::CrossingPlan cp = roadgen::planCrossings(roads, sc.roadJunctions, false);
+        for (const roadgen::Crossing& c : cp.crossings) {
+            bool mine = false;
+            std::string who;
+            for (int r : c.roads) {
+                mine |= idx2[(size_t)r] == oi;
+                who += (who.empty() ? "" : " x ") + sc.objects[(size_t)idx2[(size_t)r]].name;
+            }
+            if (!mine) continue;
+            std::printf("[draw-road] node at %.2f,%.2f: %s, %d arms, %s\n", c.shape.x, c.shape.z,
+                        who.c_str(), c.arms,
+                        c.kind == roadgen::kCrossPatch     ? "patch"
+                        : c.kind == roadgen::kCrossThrough ? "runs through"
+                                                           : "overlap");
+        }
+    }
+    if (std::string err = project::save(p); !err.empty()) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
+    return 0;
+}
+
 // tyrax-editor.exe --road-crossings <projectDir> [sceneIndex]
 // Every road crossing the build will make and what it does there
 // (docs/roads.md, "Junction overrides") - roadgen::planCrossings, the same
 // call the codegen makes, printed per scene: the pair, the position, the
-// result, the override that matched it, the decals, and every ORPHANED
-// override. Exits 1 when any override is orphaned, so a script can gate on it.
+// result, the override that matched it, the decals, the kerbs per road (the
+// codegen's own bake, docs/roads.md "Kerbs"), the road details per road
+// (docs/roads.md "Road details") and every ORPHANED override.
+// Exits 1 when any override is orphaned, so a script can gate on it.
 static int roadCrossingsFromCli(int argc, char** argv) {
     if (argc < 3) {
         std::fprintf(stderr,
@@ -727,9 +969,16 @@ static int roadCrossingsFromCli(int argc, char** argv) {
     for (size_t si = 0; si < p.scenes.size(); ++si) {
         if (only >= 0 && (int)si != only) continue;
         const SceneData& sc = p.scenes[si];
+        const roadgen::HeightFn bare = [&](float x, float z) {
+            return sc.terrain.enabled
+                       ? roadgen::terrainHeight(sc.heights, sc.hmW, sc.hmD,
+                                                (float)sc.terrain.width,
+                                                (float)sc.terrain.depth, x, z)
+                       : -1000000.0f;
+        };
         std::vector<int> idx;
         const std::vector<roadgen::CrossingRoad> roads =
-            project::crossingRoads(sc.objects, &idx);
+            project::crossingRoads(sc.objects, &idx, "", bare);
         const roadgen::CrossingPlan plan = roadgen::planCrossings(roads, sc.roadJunctions);
         std::printf("=== scene %zu: %s - %zu roads, %zu crossings, %zu overrides ===\n",
                     si, sc.name.c_str(), roads.size(), plan.crossings.size(),
@@ -753,9 +1002,12 @@ static int roadCrossingsFromCli(int argc, char** argv) {
             } else {
                 what = "overlap";
             }
-            std::printf("[road] crossing %zu: %s x %s at %.2f,%.2f: %s%s\n", ci,
-                        name(c.a).c_str(), name(c.b).c_str(), c.shape.x, c.shape.z,
-                        what.c_str(), c.override >= 0 ? "  [override]" : "");
+            std::string who;
+            for (int r : c.roads) who += (who.empty() ? "" : " x ") + name(r);
+            std::printf("[road] crossing %zu: %s at %.2f,%.2f, %d arms, %zu outline points: "
+                        "%s%s\n", ci, who.c_str(), c.shape.x, c.shape.z, c.arms,
+                        c.shape.outline.size() / 2, what.c_str(),
+                        c.override >= 0 ? "  [override]" : "");
         }
         int nOverlay = 0, nSpill = 0, verts = 0;
         for (const roadgen::CrossingDecal& d : plan.decals) {
@@ -764,6 +1016,240 @@ static int roadCrossingsFromCli(int argc, char** argv) {
         }
         std::printf("[road] decals: %d overlay(s), %d spill(s), %d vertices\n", nOverlay,
                     nSpill, verts);
+        // Bridges (docs/roads.md "Bridges"): the codegen's own deck and
+        // structure, so these are the ROAD_BRIDGE tables' totals.
+        for (size_t k = 0; k < roads.size(); ++k) {
+            const SceneObject& bo = sc.objects[(size_t)idx[k]];
+            if (!bo.roadBridge) continue;
+            const roadbridge::Deck deck = roadbridge::buildDeck(bo, bare);
+            std::vector<roadgen::Vertex> tris;
+            roadbridge::tessellateDeck(deck, tris);
+            roadbridge::Structure st;
+            roadbridge::buildStructure(deck, roads, (int)k, st);
+            float peak = -1e30f, clearMax = 0.0f;
+            for (const roadbridge::Station& s : deck.st) {
+                peak = std::max(peak, s.y);
+                clearMax = std::max(clearMax, deck.elevationAt(s.x, s.z));
+            }
+            std::printf("[bridge] %s: deck %zu vertices (%zu stations), top %.2f, %.2f above "
+                        "the ground at most; %d span(s), %d pier(s), %d abutment(s), %zu "
+                        "structure vertices\n",
+                        bo.name.c_str(), tris.size(), deck.st.size(), peak, clearMax, st.spans,
+                        st.piers, st.abutments, st.tris.size());
+        }
+        // Kerbs (docs/roads.md "Kerbs"): the codegen's own bake - the same
+        // surface (rank-lifted roads + patches) and the same planKerbs - so
+        // the totals here are the ROAD_KERB tables' and the game's ROADKERB.
+        bool anyKerb = false;
+        for (const roadgen::CrossingRoad& r : roads) anyKerb |= r.kerb;
+        // Rails and tram tracks (docs/roads.md "Rails and tram tracks") are
+        // planned on the same surface and ride in the same tables.
+        const bool anyRail = roadrail::anyRails(roads);
+        if (anyKerb || anyRail) {
+            auto ground = [&](float x, float z) {
+                return sc.terrain.enabled
+                           ? roadgen::terrainHeight(sc.heights, sc.hmW, sc.hmD,
+                                                    (float)sc.terrain.width,
+                                                    (float)sc.terrain.depth, x, z)
+                           : -1000000.0f;
+            };
+            std::vector<roadgen::Vertex> roadTris;
+            for (const roadgen::CrossingRoad& r : roads) {
+                std::vector<roadgen::Vertex> mesh;
+                roadgen::tessellate(r.points, r.width,
+                    [&](float x, float z) { return ground(x, z) + roadgen::rankLift(r.rank); },
+                    mesh, {}, r.sampleStep);
+                roadTris.insert(roadTris.end(), mesh.begin(), mesh.end());
+            }
+            roadgen::Surface surf;
+            surf.add(roadTris);
+            for (const roadgen::Crossing& c : plan.crossings) {
+                if (c.kind != roadgen::kCrossPatch || c.patchDuplicate) continue;
+                std::vector<roadgen::Vertex> mesh;
+                roadgen::tessellateJunctionSurface(
+                    c.shape, roadTris, ground, c.lift, mesh,
+                    sc.terrain.enabled
+                        ? roadgen::terrainGridOf(sc.hmW, sc.hmD, (float)sc.terrain.width,
+                                                 (float)sc.terrain.depth)
+                        : roadgen::TerrainGrid{});
+                surf.add(mesh, c.grip);
+            }
+            surf.build();
+            if (anyRail) {
+                const std::vector<roadrail::RailPiece> rails = roadrail::planRails(
+                    roads, plan, [&](float x, float z) { return surf.at(x, z); }, ground);
+                std::vector<roadgen::KerbVertex> rstrip;
+                std::vector<int> rsizes;
+                roadrail::railStrips(rails, rstrip, rsizes);
+                for (size_t r = 0; r < roads.size(); ++r) {
+                    int n[3] = {0, 0, 0};
+                    float len[3] = {0.0f, 0.0f, 0.0f};
+                    for (const roadrail::RailPiece& rp : rails) {
+                        if (rp.road != (int)r) continue;
+                        ++n[rp.profile];
+                        for (int i = 1; i < rp.points(); ++i)
+                            len[rp.profile] += std::hypot(
+                                rp.pts[(size_t)i * 5] - rp.pts[(size_t)(i - 1) * 5],
+                                rp.pts[(size_t)i * 5 + 2] - rp.pts[(size_t)(i - 1) * 5 + 2]);
+                    }
+                    if (n[0] + n[1] + n[2] > 0)
+                        std::printf("[rail] %s: %s, %d raised (%.1f units), %d flush (%.1f "
+                                    "units), %d crossing panel(s) (%.1f units)\n",
+                                    name((int)r).c_str(),
+                                    roads[r].kind == roadrail::kRail ? "railway" : "tram",
+                                    n[0], len[0], n[1], len[1], n[2], len[2]);
+                }
+                std::printf("[rail] total: %zu line(s), %zu strip vertices in %zu chunks\n",
+                            rails.size(), rstrip.size(), rsizes.size());
+            }
+            if (anyKerb) {
+                const std::vector<roadgen::KerbPiece> pieces = roadgen::planKerbs(
+                    roads, plan, [&](float x, float z) { return surf.at(x, z); }, ground);
+                std::vector<roadgen::KerbVertex> strip;
+                std::vector<int> sizes;
+                roadgen::kerbStrips(pieces, strip, sizes);
+                float total = 0.0f;
+                for (size_t r = 0; r < roads.size(); ++r) {
+                    int lines = 0, points = 0, chains = 0;
+                    float len = 0.0f;
+                    for (const roadgen::KerbPiece& kp : pieces) {
+                        if (kp.road != (int)r) continue;
+                        ++lines;
+                        chains += kp.node >= 0 ? 1 : 0;
+                        points += kp.points();
+                        for (int i = 1; i < kp.points(); ++i)
+                            len += std::hypot(kp.pts[(size_t)i * 5] - kp.pts[(size_t)(i - 1) * 5],
+                                              kp.pts[(size_t)i * 5 + 2] -
+                                                  kp.pts[(size_t)(i - 1) * 5 + 2]);
+                    }
+                    total += len;
+                    if (lines > 0)
+                        std::printf("[kerb] %s: %d line(s) (%d around nodes), %.1f units, %d "
+                                    "points -> %d strip vertices before joins\n",
+                                    name((int)r).c_str(), lines, chains, len, points, points * 4);
+                }
+                int tris = 0;
+                for (const roadgen::KerbPiece& kp : pieces) tris += 4 * (kp.points() - 1);
+                std::printf("[kerb] total: %zu line(s), %.1f units, %d triangles, %zu strip "
+                            "vertices in %zu chunks\n",
+                            pieces.size(), total, tris, strip.size(), sizes.size());
+            }
+        }
+        // Road details (docs/roads.md "Road details"): the codegen's own bake
+        // - its roads (read with the project dir, as it reads them, so the node
+        // paint they keep clear of is the same), patches and paint - so the
+        // totals are the ROAD_DETAIL tables' and the game's ROADDETAIL line.
+        {
+            const std::vector<roadgen::CrossingRoad> dr = project::crossingRoads(sc.objects, nullptr, p.dir);
+            if (roaddetail::any(dr)) {
+                const roadgen::CrossingPlan dplan = roadgen::planCrossings(dr, sc.roadJunctions);
+                auto ground = [&](float x, float z) {
+                    return sc.terrain.enabled
+                               ? roadgen::terrainHeight(sc.heights, sc.hmW, sc.hmD,
+                                                        (float)sc.terrain.width,
+                                                        (float)sc.terrain.depth, x, z)
+                               : -1000000.0f;
+                };
+                std::vector<roadgen::Vertex> roadTris, patchTris, paint;
+                for (const roadgen::CrossingRoad& r : dr) {
+                    std::vector<roadgen::Vertex> mesh;
+                    roadgen::tessellate(r.points, r.width,
+                        [&](float x, float z) { return ground(x, z) + roadgen::rankLift(r.rank); },
+                        mesh, {}, r.sampleStep);
+                    roadTris.insert(roadTris.end(), mesh.begin(), mesh.end());
+                }
+                for (const roadgen::Crossing& c : dplan.crossings) {
+                    if (c.kind != roadgen::kCrossPatch || c.patchDuplicate) continue;
+                    std::vector<roadgen::Vertex> mesh;
+                    roadgen::tessellateJunctionSurface(
+                        c.shape, roadTris, ground, c.lift, mesh,
+                        sc.terrain.enabled
+                            ? roadgen::terrainGridOf(sc.hmW, sc.hmD, (float)sc.terrain.width,
+                                                     (float)sc.terrain.depth)
+                            : roadgen::TerrainGrid{});
+                    patchTris.insert(patchTris.end(), mesh.begin(), mesh.end());
+                }
+                roadgen::Surface paintOn;
+                paintOn.add(roadTris);
+                paintOn.add(patchTris);
+                paintOn.build();
+                roadgen::bakeMarkings(dplan, dr, paintOn, paint);
+                roaddetail::SceneInput in;
+                in.roads = &dr;
+                in.plan = &dplan;
+                in.ground = ground;
+                in.patches = patchTris;
+                in.paint = paint;
+                const roaddetail::Result res = roaddetail::build(in);
+                std::vector<int> perRoad(dr.size(), 0);
+                int perKind[roaddetail::kKindCount] = {};
+                for (const roaddetail::Decal& d : res.decals) {
+                    ++perRoad[(size_t)d.road];
+                    ++perKind[d.kind];
+                }
+                for (size_t r = 0; r < dr.size(); ++r)
+                    if (dr[r].details > 0.0f)
+                        std::printf("[detail] %s: density %.2f seed %d -> %d decal(s)\n",
+                                    sc.objects[(size_t)idx[r]].name.c_str(), dr[r].details,
+                                    dr[r].detailSeed, perRoad[r]);
+                std::printf("[detail] total: %zu decal(s) (", res.decals.size());
+                for (int k = 0; k < roaddetail::kKindCount; ++k)
+                    std::printf("%s%d %s", k ? ", " : "", perKind[k], roaddetail::kindName(k));
+                std::printf("), %zu vertices in %zu chunks; %d of %d candidates rejected "
+                            "(%d overlap, %d off the road, %d too close to a node, paint or "
+                            "another road)\n",
+                            res.tris.size(), res.chunkSizes.size(), res.rejected, res.candidates,
+                            res.rejectedOverlap, res.rejectedOffRoad, res.rejectedClearance);
+            }
+        }
+        // Street furniture (docs/roads.md "Street furniture"): the codegen's
+        // own bake, so the total is the ROAD_FURN tables' and the game's
+        // ROADFURN line.
+        {
+            auto ground = [&](float x, float z) {
+                return sc.terrain.enabled
+                           ? roadgen::terrainHeight(sc.heights, sc.hmW, sc.hmD,
+                                                    (float)sc.terrain.width,
+                                                    (float)sc.terrain.depth, x, z)
+                           : -1000000.0f;
+            };
+            std::vector<int> fidx;
+            const std::vector<roadgen::CrossingRoad> fr =
+                project::crossingRoads(sc.objects, &fidx, p.dir, ground);
+            std::vector<roadfurn::Settings> fs;
+            for (int oi : fidx) fs.push_back(sc.objects[(size_t)oi].roadFurniture);
+            if (roadfurn::any(fs)) {
+                const roadgen::CrossingPlan fplan = roadgen::planCrossings(fr, sc.roadJunctions);
+                const roadfurn::SceneInput in = roadfurn::prepare(
+                    fr, fs, fplan, ground,
+                    sc.terrain.enabled
+                        ? roadgen::terrainGridOf(sc.hmW, sc.hmD, (float)sc.terrain.width,
+                                                 (float)sc.terrain.depth)
+                        : roadgen::TerrainGrid{},
+                    p.dir);
+                const roadfurn::Result res = roadfurn::build(in);
+                for (size_t r = 0; r < fr.size(); ++r) {
+                    if (!roadfurn::any({fs[r]})) continue;
+                    int per[roadfurn::kKindCount] = {};
+                    for (const roadfurn::Instance& inst : res.instances)
+                        if (inst.road == (int)r) ++per[inst.kind];
+                    std::printf("[furniture] %s:", sc.objects[(size_t)fidx[r]].name.c_str());
+                    for (int k = 0; k < roadfurn::kKindCount; ++k)
+                        std::printf("%s %d %s", k ? "," : "", per[k], roadfurn::kindName(k));
+                    std::printf("\n");
+                }
+                std::printf("[furniture] total: %zu instance(s) (", res.instances.size());
+                for (int k = 0; k < roadfurn::kKindCount; ++k)
+                    std::printf("%s%d %s", k ? ", " : "", res.perKind[k], roadfurn::kindName(k));
+                std::printf("), %zu vertices in %zu chunks, %zu collision boxes; %d candidates, "
+                            "dropped %d on a road, %d at a node, %d overlapping\n",
+                            res.tris.size(), res.chunkSizes.size(), res.boxes.size(),
+                            res.candidates, res.rejectedRoad, res.rejectedNode,
+                            res.rejectedOverlap);
+                for (const std::string& w : res.warnings)
+                    std::printf("[furniture] warning: %s\n", w.c_str());
+            }
+        }
         for (size_t oi = 0; oi < sc.roadJunctions.size(); ++oi) {
             if (plan.overrideCrossing[oi] >= 0) continue;
             const roadgen::JunctionOverride& j = sc.roadJunctions[oi];
@@ -1052,6 +1538,30 @@ static int refreshGenFromCli(int argc, char** argv) {
         return 1;
     }
     std::printf("refreshed generated files: %s\n", p.dir.c_str());
+    return 0;
+}
+
+// tyrax-editor.exe --export-iso <projectDir>
+// Project > Export PS2 ISO, headless: packs the already-built bin/ into
+// <projectDir>/<name>.iso (src/isoexport.cpp). Added so the cdrom0: path of a
+// file the game reads at run time (docs/roads.md "Tables on disk") can be
+// booted in PCSX2 without the GUI.
+static int exportIsoFromCli(int argc, char** argv) {
+    if (argc < 3) {
+        std::fprintf(stderr, "usage: tyrax-editor --export-iso <projectDir>\n");
+        return 2;
+    }
+    Project p;
+    if (std::string err = project::load(p, argv[2]); !err.empty()) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
+    if (std::string err = isoexport::build(
+            p, [](const std::string& l) { std::printf("%s\n", l.c_str()); });
+        !err.empty()) {
+        std::fprintf(stderr, "error: %s\n", err.c_str());
+        return 1;
+    }
     return 0;
 }
 
@@ -4798,14 +5308,22 @@ int main(int argc, char** argv) {
         return atlasReportFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--batch-report") == 0)
         return batchReportFromCli(argc, argv);
+    if (argc > 1 && std::strcmp(argv[1], "--road-texture") == 0)
+        return roadTextureFromCli(argc, argv);
+    if (argc > 1 && std::strcmp(argv[1], "--draw-road") == 0)
+        return drawRoadFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--road-crossings") == 0)
         return roadCrossingsFromCli(argc, argv);
+    if (argc > 1 && std::strcmp(argv[1], "--road-lanes") == 0)
+        return roadLanesFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--dump-graph") == 0)
         return dumpGraphFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--apply-graph") == 0)
         return applyGraphFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--refresh-gen") == 0)
         return refreshGenFromCli(argc, argv);
+    if (argc > 1 && std::strcmp(argv[1], "--export-iso") == 0)
+        return exportIsoFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--bake-object-light") == 0)
         return bakeObjectLightFromCli(argc, argv);
     if (argc > 1 && std::strcmp(argv[1], "--bake-prelit") == 0)
@@ -4886,6 +5404,8 @@ int main(int argc, char** argv) {
             "  --migrate <projectDir>                  backup + apply pending "
             "format migrations (docs/format-versioning.md)\n"
             "  --refresh-gen <projectDir>\n"
+            "  --export-iso <projectDir>               pack the built bin/ into "
+            "<name>.iso (Project > Export PS2 ISO)\n"
             "  --bake-gi <projectDir>                  bake global "
             "illumination + light probes\n"
             "  --bake-status <projectDir>              is every bake cache "
@@ -4949,11 +5469,27 @@ int main(int argc, char** argv) {
             "ask the GS for, against the\n"
             "                                          measured break-even: the "
             "speed half of 'turn it on?'\n"
+            "  --road-texture <projectDir> <name> [key=value ...]\n"
+            "                                          generate a road material into "
+            "res/materials/roads\n"
+            "                                          (docs/road-textures.md)\n"
+            "  --draw-road <projectDir> <scene> \"x,z[,h] ...\" [preset] [--angle] [--grid N]\n"
+            "                                          the Draw road tool, headless: snap, "
+            "finish, apply a\n"
+            "                                          preset, save (docs/roads.md "
+            "\"Drawing roads\")\n"
             "  --road-crossings <projectDir> [sceneIndex]\n"
             "                                          every road crossing and what "
-            "it does; exit 1 on an\n"
-            "                                          orphaned junction override "
-            "(docs/roads.md)\n"
+            "it does, and the kerbs\n"
+            "                                          and road details per road; "
+            "exit 1 on an orphaned junction\n"
+            "                                          override (docs/roads.md)\n"
+            "  --road-lanes <projectDir> [sceneIndex]\n"
+            "                                          the lane graph traffic drives: "
+            "lanes, every node's\n"
+            "                                          movements, dead ends; exit 1 on "
+            "a lane with no exit\n"
+            "                                          (docs/traffic.md)\n"
             "  --batch-report <projectDir> [sceneIndex]\n"
             "                                          how the static objects "
             "batch, and why each one that\n"

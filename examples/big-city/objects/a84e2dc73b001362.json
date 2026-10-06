@@ -1,0 +1,1 @@
+{ "id": "a84e2dc73b001362", "name": "Building 720", "type": "model", "position": [-21.3744, 0, -153.83], "rotation": [0, 0, 0], "scale": [2.6566, 1.4925, 2.0039], "color": [1, 1, 1], "physics": false, "layer": "district-4-3", "drawDistance": 300, "castShadow": false, "model": "res/models/urban/city-highrise-3.obj" }

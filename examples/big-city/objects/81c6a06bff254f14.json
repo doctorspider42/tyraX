@@ -1,0 +1,1 @@
+{ "id": "81c6a06bff254f14", "name": "Plinth 6-10 81", "type": "box", "position": [-88.2375, 0.135, 276.242], "rotation": [0, 0, 0], "scale": [68.6802, 0.27, 75.152], "color": [0.47, 0.47, 0.45], "physics": false, "collision": "none", "layer": "district-3-5", "drawDistance": 140, "castShadow": false }

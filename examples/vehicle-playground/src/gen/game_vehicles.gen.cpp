@@ -412,12 +412,26 @@ void TerrainGame::buildRoads(int scene) {
       c.roadTex = tex;
       c.roadGrip = j.grip;
       c.stripRun = 0;
+      // A painted row (node markings, 1.171.0) carries its own colour; a
+      // patch takes the road grey its texture modulates. Paint WITH a texture
+      // (the worn road-paint) is alpha-blended by that texture's alpha onto
+      // the asphalt, its colour halved (128 = 1 when it modulates a texel).
+      const bool paintTex = j.rgb != 0 && tex != nullptr;
+      const float pk = paintTex ? 0.5F : 1.0F;
+      const Tyra::Color paint((float)((j.rgb >> 16) & 255) * pk,
+                              (float)((j.rgb >> 8) & 255) * pk,
+                              (float)(j.rgb & 255) * pk, 128.0F);
+      const Tyra::Color& shade = j.rgb != 0 ? paint : grey;
+      if (paintTex) {
+        c.roadBlend = true;
+        c.roadGripBase = j.grip;  // no grip of its own: the road's, unblended
+      }
       const int count = std::min(1800, j.count - first);
       for (int k = 0; k < count; ++k) {
         const float* v = &ROAD_JUNCTION_VERTS[(size_t)(j.first + first + k) * 5];
         c.vertices.push_back(Tyra::Vec4(v[0], v[1], v[2], 1.0F));
         c.sts.push_back(Tyra::Vec4(v[3], v[4], 1.0F, 0.0F));
-        c.colors.push_back(grey);
+        c.colors.push_back(shade);
       }
     }
   }
@@ -504,6 +518,240 @@ void TerrainGame::buildRoads(int scene) {
       }
     }
   }
+  // KERBS (docs/roads.md "Kerbs"): host-baked triangle-strip runs, one
+  // ROAD_KERBS row per cell-sized chunk, uploaded unchanged - the EE does no
+  // kerb geometry at all. Owner -4, not -3: renderProcChunks draws them (the
+  // frustum reject, the chunk draw distance, occlusion). The road height
+  // index takes them too (roadSurfaceAt reads owner -3 AND -4), so wheels,
+  // walkers, blob shadows and light pools stand on a kerb top; the vertical
+  // faces have no area in XZ and drop out by themselves. Untextured: the
+  // baked shade is the vertex colour (128 = full in an untextured bag).
+  for (size_t i = procChunks.size(); i > 0; --i)
+    if (procChunks[i - 1].owner == -4)
+      procChunks.erase(procChunks.begin() + (i - 1));
+  {
+    int kerbChunks = 0, kerbVertices = 0, kerbPackages = 0, kerbTriangles = 0;
+    auto same = [](const float* a, const float* b) {
+      return a[0] == b[0] && a[1] == b[1] && a[2] == b[2];
+    };
+    for (int ki = 0; ki < ROAD_KERB_COUNT; ++ki) {
+      const RoadKerbRt& kr = ROAD_KERBS[ki];
+      if (kr.scene != scene || kr.count < 3) continue;
+      any = true;
+      procChunks.push_back(ProcChunk());
+      ProcChunk& c = procChunks.back();
+      c.owner = -4;
+      c.drawDist = ROAD_KERB_DRAW_DISTANCE;
+      c.stripRun = useStrips ? (int)stripRun : 0;
+      auto put = [&](const float* v) {
+        c.vertices.push_back(Tyra::Vec4(v[0], v[1], v[2], 1.0F));
+        if (v[3] >= 1.5F) {
+          // Rails (docs/roads.md "Rails and tram tracks"): a shade of 2+
+          // names a ROAD_KERB_PALETTE colour (roadrail::shadeRgb's rule).
+          int k = (int)v[3] - 2;
+          if (k < 0) k = 0;
+          if (k > 3) k = 3;
+          const float* pc = ROAD_KERB_PALETTE[k];
+          c.colors.push_back(
+              Tyra::Color(pc[0] * 128.0F, pc[1] * 128.0F, pc[2] * 128.0F, 128.0F));
+          return;
+        }
+        const float g = v[3] * 128.0F;  // light concrete, a hair warm
+        c.colors.push_back(Tyra::Color(g, g * 0.98F, g * 0.94F, 128.0F));
+      };
+      const float* base = &ROAD_KERB_VERTS[(size_t)kr.first * 4];
+      for (int at = 0; at < kr.count; at += 75) {
+        const int len = kr.count - at < 75 ? kr.count - at : 75;
+        for (int k = 0; k + 2 < len; ++k) {
+          const float* a = base + (size_t)(at + k) * 4;
+          if (same(a, a + 4) || same(a + 4, a + 8) || same(a, a + 8)) continue;
+          ++kerbTriangles;
+          // The list control arm (TYRA_STRIP_ROADS 0): the same triangles.
+          if (!useStrips) { put(a); put(a + 4); put(a + 8); }
+        }
+      }
+      if (useStrips)
+        for (int k = 0; k < kr.count; ++k) put(base + (size_t)k * 4);
+      ++kerbChunks;
+      kerbVertices += (int)c.vertices.size();
+      kerbPackages += (int)((c.vertices.size() + 74) / 75);
+    }
+    // The chunk list changed under the height index: the count alone cannot
+    // tell (the same number of kerb chunks is erased and pushed back).
+    roadIdxDirty = true;
+    if (kerbChunks > 0)
+      TYRA_LOG("ROADKERB scene ", scene, " chunks ", kerbChunks, " vertices ",
+               kerbVertices, " packages ", kerbPackages, " triangles ", kerbTriangles);
+  }
+  // BRIDGES (docs/roads.md "Bridges"): parapets, deck edges and underside,
+  // piers and abutments - host-baked triangle lists, one ROAD_BRIDGES row per
+  // cell chunk, uploaded unchanged. The deck itself is a ROAD_JUNCTIONS row
+  // (owner -3: the road height index and every wheel read it). Owner -5, not
+  // -4: renderProcChunks draws these (frustum reject, occlusion) but the road
+  // height index does not read them, so nothing stands on an underside or a
+  // parapet top. Untextured: the baked shade is the vertex colour.
+  for (size_t i = procChunks.size(); i > 0; --i)
+    if (procChunks[i - 1].owner == -5)
+      procChunks.erase(procChunks.begin() + (i - 1));
+  {
+    int bridgeChunks = 0, bridgeVertices = 0;
+    for (int bi = 0; bi < ROAD_BRIDGE_COUNT; ++bi) {
+      const RoadBridgeRt& br = ROAD_BRIDGES[bi];
+      if (br.scene != scene || br.count < 3) continue;
+      any = true;
+      procChunks.push_back(ProcChunk());
+      ProcChunk& c = procChunks.back();
+      c.owner = -5;
+      c.stripRun = 0;
+      const float* base = &ROAD_BRIDGE_VERTS[(size_t)br.first * 4];
+      for (int k = 0; k < br.count; ++k) {
+        const float* v = base + (size_t)k * 4;
+        c.vertices.push_back(Tyra::Vec4(v[0], v[1], v[2], 1.0F));
+        const float g = v[3] * 128.0F;  // concrete, a hair warm
+        c.colors.push_back(Tyra::Color(g, g * 0.99F, g * 0.96F, 128.0F));
+      }
+      ++bridgeChunks;
+      bridgeVertices += br.count;
+    }
+    if (bridgeChunks > 0)
+      TYRA_LOG("ROADBRIDGE scene ", scene, " chunks ", bridgeChunks, " vertices ",
+               bridgeVertices);
+    // The parapets and piers as walls (procColliders: the walker and every
+    // car collide with them). Owner -5, like the drawn structure.
+    for (int i = (int)procColliders.size() - 1; i >= 0; --i)
+      if (procColliders[(size_t)i].owner == -5)
+        procColliders.erase(procColliders.begin() + i);
+    int bridgeBoxes = 0;
+    for (int bi = 0; bi < ROAD_BRIDGE_BOX_COUNT; ++bi) {
+      const float* b = &ROAD_BRIDGE_BOXES[(size_t)bi * 11];
+      if ((int)b[0] != scene) continue;
+      StaticBox sb;
+      for (int a = 0; a < 3; ++a) {
+        sb.mn[a] = b[1 + a];
+        sb.mx[a] = b[4 + a];
+      }
+      sb.lhx = b[7];
+      sb.lhz = b[8];
+      sb.yc = b[9];
+      sb.ys = b[10];
+      sb.owner = -5;
+      sb.instance = -1;
+      procColliders.push_back(sb);
+      ++bridgeBoxes;
+    }
+    if (bridgeBoxes > 0) TYRA_LOG("ROADBRIDGE scene ", scene, " walls ", bridgeBoxes);
+  }
+  // ROAD DETAILS (docs/roads.md "Road details"): manholes, gullies,
+  // patches, cracks and oil stains, host-baked as textured triangle lists laid
+  // kDetailLift over the drawn road, one ROAD_DETAILS row per cell-sized chunk.
+  // Owner -6: renderRoadChunks draws them in the road pass, after every -3
+  // chunk (frustum reject, the chunk draw distance), blended by the atlas
+  // alpha; the road height index never sees them - a decal is paint, not
+  // surface.
+  for (size_t i = procChunks.size(); i > 0; --i)
+    if (procChunks[i - 1].owner == -6)
+      procChunks.erase(procChunks.begin() + (i - 1));
+  {
+    Tyra::Texture* detailTex = nullptr;
+    if (ROAD_DETAIL_TEX >= 0 && ROAD_DETAIL_TEX < ROAD_TEXTURE_COUNT) {
+      if (!roadTextures_[ROAD_DETAIL_TEX])
+        roadTextures_[ROAD_DETAIL_TEX] = acquireTexture(ROAD_TEXTURE_PATHS[ROAD_DETAIL_TEX]);
+      detailTex = roadTextures_[ROAD_DETAIL_TEX];
+    }
+    int detailChunks = 0, detailVertices = 0;
+    for (int di = 0; di < ROAD_DETAIL_COUNT; ++di) {
+      const RoadDetailRt& dr = ROAD_DETAILS[di];
+      if (dr.scene != scene || dr.count < 3 || !detailTex) continue;
+      any = true;
+      procChunks.push_back(ProcChunk());
+      ProcChunk& c = procChunks.back();
+      c.owner = -6;
+      c.roadTex = detailTex;
+      c.roadBlend = true;
+      c.drawDist = ROAD_DETAIL_DRAW_DISTANCE;
+      c.stripRun = 0;
+      const float* base = &ROAD_DETAIL_VERTS[(size_t)dr.first * 5];
+      for (int k = 0; k < dr.count; ++k) {
+        const float* v = base + (size_t)k * 5;
+        c.vertices.push_back(Tyra::Vec4(v[0], v[1], v[2], 1.0F));
+        c.sts.push_back(Tyra::Vec4(v[3], v[4], 1.0F, 0.0F));
+        c.colors.push_back(grey);
+      }
+      ++detailChunks;
+      detailVertices += dr.count;
+    }
+    if (detailChunks > 0)
+      TYRA_LOG("ROADDETAIL scene ", scene, " chunks ", detailChunks, " vertices ",
+               detailVertices, " triangles ", detailVertices / 3);
+  }
+  // STREET FURNITURE (docs/roads.md "Street furniture"): lamps, trees,
+  // bollards, signs and traffic lights - host-baked triangle lists in vertex
+  // colour, one ROAD_FURN row per cell chunk, uploaded unchanged. Owner -7:
+  // renderProcChunks draws them (frustum reject, the chunk draw distance,
+  // occlusion), the road height index does not read them, and their poles and
+  // trunks are procColliders (the walker and every car stop at them).
+  // Untextured: no VRAM; 128 is the full colour in an untextured bag.
+  for (size_t i = procChunks.size(); i > 0; --i)
+    if (procChunks[i - 1].owner == -7)
+      procChunks.erase(procChunks.begin() + (i - 1));
+  {
+    int furnChunks = 0, furnVertices = 0;
+    const float k = 128.0F / 255.0F;
+    for (int fi = 0; fi < ROAD_FURN_COUNT; ++fi) {
+      const RoadFurnRt& fr = ROAD_FURN[fi];
+      if (fr.scene != scene || fr.count < 3) continue;
+      any = true;
+      procChunks.push_back(ProcChunk());
+      ProcChunk& c = procChunks.back();
+      c.owner = -7;
+      c.furnRow = fi;
+      c.drawDist = ROAD_FURN_DRAW_DISTANCE;
+      c.stripRun = 0;
+      c.lampLight = fr.light;
+      if (fr.light) {
+        c.drawDist = ROAD_LAMP_DRAW_DISTANCE;
+        c.roadTex = beamCoronaTex;
+        c.colors.shrink_to_fit();  // no per-vertex colour: one per frame
+      }
+      for (int v = 0; v < fr.count; ++v) {
+        const float* p = &ROAD_FURN_VERTS[(size_t)(fr.first + v) * 3];
+        const unsigned int rgb = ROAD_FURN_RGB[fr.first + v];
+        c.vertices.push_back(Tyra::Vec4(p[0], p[1], p[2], 1.0F));
+        if (fr.light) {
+          c.sts.push_back(Tyra::Vec4((float)((rgb >> 12) & 4095U) * (1.0F / 4095.0F),
+                                     (float)(rgb & 4095U) * (1.0F / 4095.0F), 1.0F, 0.0F));
+          continue;
+        }
+        c.colors.push_back(Tyra::Color((float)((rgb >> 16) & 255U) * k,
+                                       (float)((rgb >> 8) & 255U) * k,
+                                       (float)(rgb & 255U) * k, 128.0F));
+      }
+      ++furnChunks;
+      furnVertices += fr.count;
+    }
+    for (int i = (int)procColliders.size() - 1; i >= 0; --i)
+      if (procColliders[(size_t)i].owner == -7)
+        procColliders.erase(procColliders.begin() + i);
+    int furnBoxes = 0;
+    for (int bi = 0; bi < ROAD_FURN_BOX_COUNT; ++bi) {
+      const float* b = &ROAD_FURN_BOXES[(size_t)bi * 7];
+      if ((int)b[0] != scene) continue;
+      StaticBox sb;
+      for (int a = 0; a < 3; ++a) {
+        sb.mn[a] = b[1 + a];
+        sb.mx[a] = b[4 + a];
+      }
+      sb.owner = -7;
+      sb.furn = bi;
+      if (furnBrokenAt(bi)) furnBoxInert(sb);  // knocked over earlier
+      sb.instance = -1;
+      procColliders.push_back(sb);
+      ++furnBoxes;
+    }
+    if (furnChunks > 0 || furnBoxes > 0)
+      TYRA_LOG("ROADFURN scene ", scene, " chunks ", furnChunks, " vertices ", furnVertices,
+               " boxes ", furnBoxes);
+  }
   if (any) procFinishChunks();
   int roadChunks = 0, roadVertices = 0, roadPackages = 0;
   // Surface triangles, counted where they are KNOWN. A stripped package
@@ -546,6 +794,473 @@ void TerrainGame::buildRoads(int scene) {
            (int)(y0 * 10.0F));
   TYRA_LOG("ROADSTRIP scene ", scene, " strips ", useStrips ? 1 : 0,
            " packages ", roadPackages, " triangles ", roadTriangles);
+}
+
+// --- road traffic (docs/traffic.md) -----------------------------------------
+
+// Defined further down the vehicle runtime (the vehiclesim::bodyRotation twin).
+static void vehBodyRotation(float pitch, float yaw, float roll, float out[3]);
+
+// Where the roads are not built (road streaming), a car is never spawned.
+bool TerrainGame::trafficGroundReady(float x, float z) const {
+  (void)x;
+  (void)z;
+  return true;
+}
+
+// Night for the traffic's headlights: the scene's day/night cycle with the
+// sun under 2 degrees, else the hour a non-running cycle is baked at
+// (TRAFFIC_NIGHT, host-computed with the same rule).
+int TerrainGame::trafficNight() const {
+  if (!TRAFFIC_HEADLIGHTS) return 0;  // Preferences > Traffic > Headlights at night off
+  const int sc = currentScene >= 0 && currentScene < SCENE_COUNT ? currentScene : 0;
+  if (daynight::active(sc)) return daynight::g_sun[1] < 0.0349F ? 1 : 0;
+  return TRAFFIC_NIGHT[sc];
+}
+
+void TerrainGame::trafficSetup(int scene) {
+  tf_ = TfSim();
+  tfVehicle_.clear();
+  tfLamps_.clear();
+  tfLines_.clear();
+  tfCarOf_.assign(VEHICLE_COUNT > 0 ? VEHICLE_COUNT : 1, -1);
+  tfScene_ = scene;
+  tfLenT_ = tfLogT_ = tfLaneNear_ = 0.0F;
+  tfSpawned_ = tfRecycled_ = 0;
+  tfRunLine_ = -1;
+  tfLights_ = -1;
+  tfLampSig_ = 0U;
+  tfLampCount_ = 0;
+  tfLampVerts_.resize(kTfLampMax * 12);
+  tfLampCols_.resize(kTfLampMax * 12);
+  const int* sc = TRAFFIC_SCENES[scene];
+  TfGraph& g = tf_.g;
+  g.green = TRAFFIC_GREEN;
+  g.amber = TRAFFIC_AMBER;
+  g.allRed = TRAFFIC_ALL_RED;
+  g.speed = TRAFFIC_SPEED;
+  // The scene's points are one contiguous run of TRAFFIC_PTS: point at it.
+  const int base = sc[1] > 0 ? TRAFFIC_SEGS[sc[0]].first : 0;
+  g.pts = &TRAFFIC_PTS[(size_t)base * 3];
+  g.pointCount = 0;
+  for (int k = 0; k < sc[1]; ++k) {
+    const TrafficSegData& d = TRAFFIC_SEGS[sc[0] + k];
+    TfSeg s;
+    s.first = d.first - base;
+    s.count = d.count;
+    g.pointCount = s.first + s.count > g.pointCount ? s.first + s.count : g.pointCount;
+    s.kind = d.kind;
+    s.node = d.node;
+    s.group = d.group;
+    s.rank = d.rank;
+    s.turn = d.turn;
+    s.nextFirst = (int)g.next.size();
+    s.nextCount = d.nextCount;
+    for (int i = 0; i < d.nextCount; ++i) g.next.push_back(TRAFFIC_NEXT[d.nextFirst + i]);
+    s.confFirst = (int)g.conf.size();
+    s.confCount = d.confCount;
+    for (int i = 0; i < d.confCount; ++i) g.conf.push_back(TRAFFIC_CONF[d.confFirst + i]);
+    s.inner = d.inner;
+    s.outer = d.outer;
+    g.segs.push_back(s);
+  }
+  // TRAFFIC_NODE_SIGNAL is each node's phase count (0 = no lights); each
+  // node's cycle is one slot per phase (the host toSim's twin).
+  for (int k = 0; k < sc[3]; ++k) {
+    TfNode n;
+    const int ph = TRAFFIC_NODE_SIGNAL[sc[2] + k];
+    n.signal = ph > 0 ? 1 : 0;
+    n.phases = ph > 1 ? ph : 2;
+    const float cyc = (float)n.phases * (TRAFFIC_GREEN + TRAFFIC_AMBER + TRAFFIC_ALL_RED);
+    n.offset = fmodf((float)k * 7.31F, cyc);
+    g.nodes.push_back(n);
+  }
+  g.finish(3.0F);
+  for (int k = 0; k < sc[5]; ++k) {
+    const TrafficLampData& d = TRAFFIC_LAMPS[sc[4] + k];
+    tfLamps_.push_back({d.node, d.group, d.x, d.y, d.z, d.fx, d.fz, d.scale});
+  }
+  for (int si = 0; si < (int)g.segs.size(); ++si) {
+    const TfSeg& G = g.segs[(size_t)si];
+    if (G.kind != 0 || G.nextCount <= 0) continue;
+    const TfSeg& C = g.segs[(size_t)g.next[(size_t)G.nextFirst]];
+    if (C.kind == 1 && C.group >= 0 && C.node >= 0 && g.nodes[(size_t)C.node].signal)
+      tfLines_.push_back({si, C.node, C.group});
+  }
+  // The appended cars (VEHICLES rows with wpFirst -2): parked out of the
+  // world until the ring places them.
+  for (int vi = 0; vi < vehicleCount_; ++vi) {
+    VehicleRt& v = vehicles_[vi];
+    if (v.wpFirst != -2) continue;
+    tfCarOf_[(size_t)vi] = (int)tfVehicle_.size();
+    tfVehicle_.push_back(vi);
+    v.active = 0;
+    if (v.object >= 0 && v.object < (int)runtimeObjects.size())
+      runtimeObjects[v.object].visible = false;
+  }
+  tf_.reset((int)tfVehicle_.size());
+  tf_.changing = TRAFFIC_LANE_CHANGES;
+  int conns = 0, sig = 0;
+  for (const TfSeg& G : g.segs) conns += G.kind == 1;
+  for (const TfNode& n : g.nodes) sig += n.signal;
+  TYRA_LOG("TRAFFIC scene ", scene, " lanes ", (int)g.lanes.size(), " connections ", conns,
+           " points ", g.pointCount, " signals ", sig, " lamps ",
+           (int)tfLamps_.size(), " cars ", (int)tfVehicle_.size());
+}
+
+void TerrainGame::trafficPlace(int car, int seg, float s) {
+  const int vi = tfVehicle_[(size_t)car];
+  VehicleRt& v = vehicles_[vi];
+  if (v.damage > 0.0F || v.dentCount > 0 || v.piecesGone != 0U) repairVehicle(vi);
+  const int obj = v.object, def = v.def, drv = v.driveable;
+  const float scale = v.scale;
+  v = VehicleRt();
+  v.object = obj;
+  v.def = def;
+  v.driveable = drv;
+  v.scale = scale;
+  v.wpFirst = -2;
+  v.active = 1;
+  v.lightsOn = tfLights_ > 0 ? 2 : 0;  // lamps without the pool (see trafficFrame)
+  float p[5];
+  tf_.g.at(seg, s, p);
+  v.pos[0] = p[0];
+  v.pos[1] = p[1] + VEHICLE_DEFS[def].rideHeight * scale;
+  v.pos[2] = p[2];
+  v.yaw = atan2f(p[3], p[4]) * 57.29578F;
+  v.speed = TRAFFIC_SPEED * 0.6F;
+  v.aiPrevX = p[0];
+  v.aiPrevZ = p[2];
+  tf_.place(car, seg, s);
+  TfCar& c = tf_.cars[(size_t)car];
+  c.x = p[0];
+  c.z = p[2];
+  c.yaw = v.yaw;
+  c.speed = v.speed;
+  c.passed = 0;
+  if (obj >= 0 && obj < (int)runtimeObjects.size()) runtimeObjects[obj].visible = true;
+  ++tfSpawned_;
+}
+
+void TerrainGame::trafficRemove(int car) {
+  const int vi = tfVehicle_[(size_t)car];
+  VehicleRt& v = vehicles_[vi];
+  tf_.remove(car);
+  v.active = 0;
+  if (v.object >= 0 && v.object < (int)runtimeObjects.size())
+    runtimeObjects[v.object].visible = false;
+  ++tfRecycled_;
+}
+
+// Once a frame, before the vehicle sub-steps: the signal clock, who is in the
+// way, recycling the cars that fell behind and placing new ones out of view.
+void TerrainGame::trafficFrame(float dt) {
+  if (tfScene_ < 0 || tf_.g.segs.empty() || tfVehicle_.empty()) return;
+  const u32 tfT0 = profTicks();
+  ++tfFrames_;
+  tf_.clock += dt;
+  float fx = cameraLookAt.x, fz = cameraLookAt.z;
+  if (vehicleDriver_ >= 0 && vehicleDriver_ < vehicleCount_) {
+    fx = vehicles_[vehicleDriver_].pos[0];
+    fz = vehicles_[vehicleDriver_].pos[2];
+  } else if (PLAYER_INDEX >= 0) {
+    fx = players[0].x;
+    fz = players[0].z;
+  }
+  float cfx = cameraLookAt.x - cameraPosition.x, cfz = cameraLookAt.z - cameraPosition.z;
+  {
+    const float l = sqrtf(cfx * cfx + cfz * cfz);
+    if (l > 1e-3F) {
+      cfx /= l;
+      cfz /= l;
+    } else {
+      cfx = 0.0F;
+      cfz = 1.0F;
+    }
+  }
+  // Everything that is not traffic is in the way: other cars, and the player
+  // on foot.
+  tf_.obst.clear();
+  for (int vi = 0; vi < vehicleCount_; ++vi) {
+    const VehicleRt& v = vehicles_[vi];
+    if (!v.active || v.def < 0 || tfCarOf_[(size_t)vi] >= 0) continue;
+    const VehicleDefData& s = VEHICLE_DEFS[v.def];
+    tf_.obst.push_back({v.pos[0], v.pos[2], v.yaw, (0.5F * s.wheelBase + s.bodyOverhang) * v.scale,
+                        v.speed});
+  }
+  if (vehicleDriver_ < 0 && PLAYER_INDEX >= 0)
+    tf_.obst.push_back({players[0].x, players[0].z, players[0].yaw * 57.29578F, 0.4F, 0.0F});
+  // Headlights: every traffic car switches them with the night (a cheap
+  // test once a frame, the cars rewritten only when it flips).
+  {
+    const int night = trafficNight();
+    if (night != tfLights_) {
+      tfLights_ = night;
+      // 2 = lamps and coronas without the projected pool (the hook in
+      // renderVehicleGlow): a pool per moving car is what lights cost.
+      for (int ci = 0; ci < (int)tfVehicle_.size(); ++ci)
+        vehicles_[tfVehicle_[(size_t)ci]].lightsOn = night ? 2 : 0;
+    }
+  }
+  const float R = TRAFFIC_RADIUS;
+  int on = 0, atLine = 0;
+  for (int ci = 0; ci < (int)tf_.cars.size(); ++ci) {
+    TfCar& c = tf_.cars[(size_t)ci];
+    if (!c.on) continue;
+    const VehicleRt& v = vehicles_[tfVehicle_[(size_t)ci]];
+    c.x = v.pos[0];
+    c.z = v.pos[2];
+    c.yaw = v.yaw;
+    c.speed = v.speed;
+    c.stopT = (v.speed > 0.3F || v.speed < -0.3F) ? 0.0F : c.stopT + dt;
+    atLine += c.atLine;
+    const float dx = v.pos[0] - fx, dz = v.pos[2] - fz;
+    const float d = sqrtf(dx * dx + dz * dz);
+    const float vx = v.pos[0] - cameraPosition.x, vz = v.pos[2] - cameraPosition.z;
+    const float vd = sqrtf(vx * vx + vz * vz);
+    const bool seen = vd < 160.0F && (vd < 6.0F || (vx * cfx + vz * cfz) > 0.4F * vd);
+    const bool wrecked = VEHICLE_DEFS[v.def].damageMechanical > 0.5F && v.damage >= 0.999F;
+    if (d > R * 1.25F || (!seen && (c.stopT > 45.0F || wrecked))) {
+      trafficRemove(ci);
+      continue;
+    }
+    ++on;
+  }
+  tfLenT_ -= dt;
+  if (tfLenT_ <= 0.0F) {
+    tfLenT_ = 1.0F;
+    tfLaneNear_ = tf_.laneLengthNear(fx, fz, R);
+  }
+  int target = (int)(TRAFFIC_DENSITY * tfLaneNear_ / 100.0F + 0.5F);
+  if (target > (int)tf_.cars.size()) target = (int)tf_.cars.size();
+  tfTarget_ = target;
+  if (on < target) {
+    float s = 0.0F;
+    const int seg = tf_.spawnPick(tfRng_, fx, fz, cfx, cfz, 0.45F, R * 0.4F, R, 14.0F, &s);
+    if (seg >= 0) {
+      float p[5];
+      tf_.g.at(seg, s, p);
+      if (trafficGroundReady(p[0], p[2]))
+        for (int ci = 0; ci < (int)tf_.cars.size(); ++ci)
+          if (!tf_.cars[(size_t)ci].on) {
+            trafficPlace(ci, seg, s);
+            ++on;
+            break;
+          }
+    }
+  }
+  trafficRedLight();
+  tfCoreTicks_ += profTicks() - tfT0;
+  tfLogT_ += dt;
+  if (tfLogT_ >= 5.0F) {
+    tfLogT_ = 0.0F;
+    const int n = tfFrames_ > 0 ? tfFrames_ : 1;
+    TYRA_LOG("TRAFFIC cars ", on, "/", target, " lane ", (int)tfLaneNear_, " spawned ", tfSpawned_,
+             " recycled ", tfRecycled_, " at a line ", atLine, " red runs ", tfRedRuns_,
+             " lane changes ", tf_.laneChanges, " overtakes ", tf_.overtakes,
+             " lights ", tfLights_ > 0 ? 1 : 0,
+             " clock ", (int)tf_.clock, " far ", tfKinematic_ / n,
+             " core us/frame ", (int)(tfCoreTicks_ / 295U / (u32)n),
+             " vehicles us/frame ", (int)(tfStepTicks_ / 295U / (u32)n));
+    tfSpawned_ = tfRecycled_ = 0;
+    tf_.laneChanges = tf_.overtakes = 0;
+    tfCoreTicks_ = tfStepTicks_ = 0U;
+    tfFrames_ = 0;
+    tfKinematic_ = 0;
+  }
+}
+
+// The player's car crossing a stop line on red: a log line, and the count,
+// node and speed in ScriptContext that the On Red Light Run flow node fires
+// on (a graph cannot call the game; it watches the count move).
+void TerrainGame::trafficRedLight() {
+  if (vehicleDriver_ < 0 || vehicleDriver_ >= vehicleCount_ || tfLines_.empty()) {
+    tfRunLine_ = -1;
+    return;
+  }
+  const VehicleRt& v = vehicles_[vehicleDriver_];
+  const float hx = sinf(v.yaw * 0.017453293F), hz = cosf(v.yaw * 0.017453293F);
+  // The nearest line across (a car straddling the centre line, or between two
+  // lanes of its direction, still crosses the line of the lane nearest it).
+  int best = -1;
+  float bestAlong = 0.0F, bestLat = 1e9F;
+  for (int k = 0; k < (int)tfLines_.size(); ++k) {
+    const TfSeg& G = tf_.g.segs[(size_t)tfLines_[(size_t)k].lane];
+    const float* e = &tf_.g.pts[(size_t)(G.first + G.count - 1) * 3];
+    const float* q = &tf_.g.pts[(size_t)(G.first + G.count - 2) * 3];
+    float tx = e[0] - q[0], tz = e[2] - q[2];
+    const float tl = sqrtf(tx * tx + tz * tz);
+    if (tl < 1e-4F) continue;
+    tx /= tl;
+    tz /= tl;
+    const float rx = v.pos[0] - e[0], rz = v.pos[2] - e[2];
+    const float along = rx * tx + rz * tz, lat = rx * tz - rz * tx;
+    const float al = lat < 0.0F ? -lat : lat;
+    if (along > -8.0F && along < 4.0F && al < 4.5F && al < bestLat && hx * tx + hz * tz > 0.6F) {
+      best = k;
+      bestAlong = along;
+      bestLat = al;
+    }
+  }
+  if (best >= 0 && best == tfRunLine_ && tfRunAlong_ < 0.0F && bestAlong >= 0.0F) {
+    const TfLine& l = tfLines_[(size_t)best];
+    const int lt = tf_.g.light(l.node, l.group, tf_.clock);
+    TYRA_LOG("TRAFFIC player crossed the line at node ", l.node, " on ",
+             lt == 0 ? "green" : (lt == 1 ? "amber" : "red"));
+    if (lt == 2) {
+      ++tfRedRuns_;
+      ++scriptCtx.redLightRuns;
+      scriptCtx.redLightNode = l.node;
+      scriptCtx.redLightSpeed = v.speed > 0.0F ? v.speed : -v.speed;
+      TYRA_LOG("TRAFFIC red light run ", tfRedRuns_, " at node ", l.node, " speed ",
+               (int)(scriptCtx.redLightSpeed * 10.0F) / 10.0F);
+    }
+  }
+  tfRunLine_ = best;
+  tfRunAlong_ = bestAlong;
+}
+
+// A traffic car's pedals and wheel, from the core - in place of the pad's or
+// the waypoint AI's, so the sim, the walls and the damage are untouched.
+void TerrainGame::trafficDrive(int vi, float& throttle, float& brake, float& steer) {
+  const int ci = tfCarOf_[(size_t)vi];
+  TfCar& c = tf_.cars[(size_t)ci];
+  const VehicleRt& v = vehicles_[vi];
+  const VehicleDefData& s = VEHICLE_DEFS[v.def];
+  c.x = v.pos[0];
+  c.z = v.pos[2];
+  c.yaw = v.yaw;
+  c.speed = v.speed;
+  c.half = (0.5F * s.wheelBase + s.bodyOverhang) * v.scale;
+  c.halfW = (0.5F * s.track + 0.35F) * v.scale;
+  c.brake = s.brakeDecel;
+  if (s.damageMechanical > 0.5F && v.damage >= 0.999F) {
+    throttle = 0.0F;
+    brake = 1.0F;
+    steer = 0.0F;
+    return;
+  }
+  const u32 t0 = profTicks();
+  tf_.drive(ci, &throttle, &brake, &steer);
+  tfCoreTicks_ += profTicks() - t0;
+}
+
+// FAR CARS (docs/traffic.md "What it costs"): a traffic car this far from
+// the camera is drawn by its far tier, a few pixels tall - so it skips the
+// vehicle sim (tyres, suspension, walls) and slides along its lane at the
+// speed the core's pedals ask for, glued to the lane's own height. The full
+// sim takes over again as it comes near; the lane keeps the two consistent.
+bool TerrainGame::trafficKinematic(int vi, float dt, float throttle, float brake) {
+  VehicleRt& v = vehicles_[vi];
+  const VehicleDefData& s = VEHICLE_DEFS[v.def];
+  const float dx = v.pos[0] - cameraPosition.x, dz = v.pos[2] - cameraPosition.z;
+  const float nearD = s.trafficDistance + 30.0F > 45.0F ? s.trafficDistance + 30.0F : 45.0F;
+  if (dx * dx + dz * dz < nearD * nearD) return false;
+  TfCar& c = tf_.cars[(size_t)tfCarOf_[(size_t)vi]];
+  float spd = v.speed > 0.0F ? v.speed : 0.0F;
+  if (brake > 0.01F) spd -= s.brakeDecel * 0.6F * brake * dt;
+  else if (throttle > 0.01F) spd += s.accel * throttle * dt;
+  if (spd < 0.0F) spd = 0.0F;
+  float p[5];
+  tf_.pose(c, spd * dt, p);  // across a lane change in flight, blended
+  const float SC = v.scale;
+  v.pos[0] = p[0];
+  v.pos[1] = p[1] + s.rideHeight * SC;
+  v.pos[2] = p[2];
+  if (spd > 0.05F) v.yaw = atan2f(p[3], p[4]) * 57.29578F;
+  v.speed = spd;
+  v.lateral = 0.0F;
+  v.velY = 0.0F;
+  v.pitch = v.roll = v.leanPitch = v.leanRoll = 0.0F;
+  v.pitchVel = v.rollVel = 0.0F;
+  v.grounded = 1;
+  for (int k = 0; k < 4; ++k) v.wheelY[k] = p[1];
+  ++tfKinematic_;
+  if (v.object >= 0 && v.object < (int)runtimeObjects.size()) {
+    RuntimeObject& o = runtimeObjects[v.object];
+    o.data.position[0] = v.pos[0];
+    o.data.position[1] = v.pos[1];
+    o.data.position[2] = v.pos[2];
+    vehBodyRotation(0.0F, v.yaw, 0.0F, o.data.rotation);
+    if (vehSubStepMore_) {
+      v.objMatPending = true;
+    } else if (o.onMatrixPath) {
+      updateObjMat(v.object);
+      v.objMatPending = false;
+    } else {
+      o.dirty = true;
+      v.objMatPending = false;
+    }
+  }
+  return true;
+}
+
+// The lit lens of every signal head in reach: one quad (both windings) per
+// head over its baked, unlit lens. Rewritten only when a light changes or a
+// head comes into reach - otherwise the bag replays its stream.
+void TerrainGame::renderTrafficLamps() {
+  if (tfLamps_.empty()) return;
+  unsigned int sig = 2166136261U;
+  int count = 0;
+  int pick[kTfLampMax];
+  int lens[kTfLampMax];
+  for (int k = 0; k < (int)tfLamps_.size() && count < kTfLampMax; ++k) {
+    const TfLamp& l = tfLamps_[(size_t)k];
+    const float dx = l.x - cameraPosition.x, dz = l.z - cameraPosition.z;
+    if (dx * dx + dz * dz > 95.0F * 95.0F) continue;
+    const int st = tf_.g.light(l.node, l.group, tf_.clock);
+    pick[count] = k;
+    lens[count] = st == 2 ? 0 : (st == 1 ? 1 : 2);
+    sig = (sig ^ (unsigned int)(k * 4 + lens[count])) * 16777619U;
+    ++count;
+  }
+  if (count <= 0) return;
+  if (sig != tfLampSig_ || count != tfLampCount_) {
+    tfLampSig_ = sig;
+    tfLampCount_ = count;
+    for (int i = 0; i < count; ++i) {
+      const TfLamp& l = tfLamps_[(size_t)pick[i]];
+      const int k = lens[i];
+      const float sc = l.scale;
+      const float h = (TRAFFIC_LENS_HALF + 0.01F) * sc;
+      const float cz = (TRAFFIC_LENS_Z + 0.012F) * sc;
+      const float cx = l.x + l.fx * cz, cy = l.y + TRAFFIC_LENS_Y[k] * sc, czz = l.z + l.fz * cz;
+      const float rx = l.fz * h, rz = -l.fx * h;
+      auto g = tfLampVerts_.span((size_t)i * 12, 12);
+      auto c = tfLampCols_.span((size_t)i * 12, 12);
+      g[0].set(cx - rx, cy - h, czz - rz, 1.0F);
+      g[1].set(cx + rx, cy - h, czz + rz, 1.0F);
+      g[2].set(cx + rx, cy + h, czz + rz, 1.0F);
+      g[3] = g[0];
+      g[4] = g[2];
+      g[5].set(cx - rx, cy + h, czz - rz, 1.0F);
+      for (int j = 0; j < 6; ++j) g[6 + j] = g[5 - j];
+      const Tyra::Color col = k == 0 ? Tyra::Color(255.0F, 40.0F, 28.0F, 128.0F)
+                            : (k == 1 ? Tyra::Color(255.0F, 175.0F, 30.0F, 128.0F)
+                                      : Tyra::Color(70.0F, 255.0F, 120.0F, 128.0F));
+      for (int j = 0; j < 12; ++j) c[j] = col;
+    }
+    if (tfLampBag_) tfLampBag_->bboxVersion = ++g_bboxStamp;
+  }
+  if (!tfLampBag_) {
+    tfLampInfo_ = std::make_unique<StaPipInfoBag>();
+    tfLampInfo_->model = &model;
+    tfLampInfo_->shadingType = TyraShadingGouraud;
+    tfLampInfo_->fullClipChecks = true;
+    tfLampInfo_->frustumCulling = PipelineInfoBagFrustumCulling_Precise;
+    tfLampInfo_->zTestType = PipelineZTest_Standard;
+    tfLampColorBag_ = std::make_unique<StaPipColorBag>();
+    tfLampCols_.bind(tfLampColorBag_);
+    tfLampBag_ = std::make_unique<StaPipBag>();
+    tfLampBag_->info = tfLampInfo_.get();
+    tfLampBag_->color = tfLampColorBag_.get();
+    tfLampBag_->lighting = nullptr;
+    tfLampBag_->texture = nullptr;
+    tfLampVerts_.bind(tfLampBag_);
+    tfLampBag_->bboxVersion = ++g_bboxStamp;
+  }
+  tfLampBag_->count = (u32)(tfLampCount_ * 12);
+  stapip.core.render(tfLampBag_.get());
 }
 
 
@@ -830,8 +1545,9 @@ void TerrainGame::updateVehicleSkids(float dt) {
       // hugs a camber instead of floating off one side of it (the old marks
       // at wheelY sat under every road: the wheels sample the terrain).
       float e[6] = {ax - rx, 0.0F, az - rz, ax + rx, 0.0F, az + rz};
-      e[1] = groundSurfaceAt(e[0], e[2]) + 0.03F;
-      e[4] = groundSurfaceAt(e[3], e[5]) + 0.03F;
+      // Capped at the car (docs/roads.md "Bridges"): never the deck overhead.
+      e[1] = groundSurfaceAt(e[0], e[2], v.pos[1] + 1.5F) + 0.03F;
+      e[4] = groundSurfaceAt(e[3], e[5], v.pos[1] + 1.5F) + 0.03F;
       if (!v.skidOn[w]) {
         // A tyre that just let go: remember where, draw from the next step.
         for (int k = 0; k < 6; ++k) v.skidEdge[w][k] = e[k];
@@ -980,7 +1696,7 @@ void TerrainGame::renderVehicleGlow() {
         }
       }
     }
-    if (v.lightsOn > 0 && !(v.lampBroken & 1) && flashGoboTex &&
+    if (v.lightsOn == 1 && !(v.lampBroken & 1) && flashGoboTex &&  // 2 = traffic: no pool
         headlightCount_ + kVehHeadlightCells <= kVehHeadlightMax) {
       // KEPT PER CAR (TYRA_VEH_LIGHTS_KEEP): the pool below is a function of
       // this key alone, so a car that did not move reuses last frame's 54
@@ -1035,7 +1751,7 @@ void TerrainGame::renderVehicleGlow() {
         const float rz = rzn + (rzf - rzn) * t;
         const float x = bx + rx * side;
         const float z = bz + rz * side;
-        return Vec4(x, groundSurfaceAt(x, z) + e, z, 1.0F);
+        return Vec4(x, groundSurfaceAt(x, z, v.pos[1] + 1.5F) + e, z, 1.0F);
       };
       auto beamColor = [&](float t) {
         const float fade = 1.0F - t;
@@ -1827,7 +2543,7 @@ void TerrainGame::updateVehicleDebris(float dt) {
         if (gr > d.pos[1] - d.low && gr < d.pos[1] + 0.5F) d.pos[1] = gr + d.low;
       }
     }
-    const float ground = groundSurfaceAt(d.pos[0], d.pos[2]);
+    const float ground = groundSurfaceAt(d.pos[0], d.pos[2], d.pos[1] - d.low + 0.5F);
     if (d.pos[1] - d.low < ground + 0.02F) {
       d.pos[1] = ground + d.low;
       if (d.vel[1] < 0.0F) d.vel[1] = -d.vel[1] * 0.3F;
@@ -2547,14 +3263,30 @@ void TerrainGame::setupVehicles(int scene) {
     // AI-only and HUD-disabled vehicles keep fonts lazy; revisits reuse the
     // existing sprite/texture and refresh only normal evictable residency.
     if (v.driveable && v.def >= 0) {
-      Sprite* glyph = fontGlyphSprite(engine, VEHICLE_DEFS[v.def].hudFont);
-      if (glyph) {
+      const VehicleDefData& vd = VEHICLE_DEFS[v.def];
+      auto warm = [&](Sprite* sp) {
+        if (!sp) return;
         auto* texture = engine->renderer.getTextureRepository().getBySpriteId(
-            glyph->id);
+            sp->id);
         if (texture) engine->renderer.core.texture.useTexture(texture);
+      };
+      warm(fontGlyphSprite(engine, vd.hudFont >= 0 ? vd.hudFont : vd.tutorialFont));
+      // The controls card opens on the entry frame with button glyphs and a
+      // backing card: both textures are read here, not on that frame.
+      if (vd.tutorialFont >= 0) {
+        warm(iconSheetSprite(engine));
+        if (!vehTutPanelReady_) {
+          vehTutPanel_.mode = SpriteMode::MODE_STRETCH;
+          engine->renderer.getTextureRepository()
+              .add(FileUtils::fromCwd("hud/loading-white.png"))
+              ->addLink(vehTutPanel_.id);
+          vehTutPanelReady_ = true;
+        }
+        warm(&vehTutPanel_);
       }
     }
   }
+  trafficSetup(scene);  // road traffic (docs/traffic.md)
 }
 
 // Per-frame twin of vehiclesim::step (src/vehiclesim.cpp). CHANGE ONE AND
@@ -2674,6 +3406,8 @@ void TerrainGame::stepVehicles(float dt) {
   if (n > 4) n = 4;
   const float h = dt / (float)n;
   vehFrameDt_ = dt;
+  tfStepT0_ = profTicks();
+  trafficFrame(dt);  // road traffic (docs/traffic.md)
   // A cache from an earlier frame must never serve this one: a car that
   // slept through the first sub-step (and so recorded nothing) could be
   // woken by a hit before the second.
@@ -2685,6 +3419,8 @@ void TerrainGame::stepVehicles(float dt) {
   }
   vehSubStepRepeat_ = false;
   vehSubStepMore_ = false;
+  updateVehicleTutorial(dt);
+  tfStepTicks_ += profTicks() - tfStepT0_;
 }
 
 // Speed feel (docs/vehicles.md, "Speed feel"): turns the driven car's speed
@@ -2778,6 +3514,115 @@ void TerrainGame::collideVehicleCamera() {
                      pz + cosf(v.yaw * 0.0174532925F), 1.0F);
 }
 
+// The car USE enters: in reach of the walker AND under the camera's aim.
+// The aim is the camera ray across the ground (camera to look-at), so it is
+// "what the screen centre points at" in first and third person alike. A car
+// whose footprint the ray crosses wins, nearest crossing first; failing that,
+// the car closest to the aim within a 45-degree cone. Nothing in the cone =
+// no target: standing between two cars and looking away from both enters
+// neither, which is the point - proximity alone picked the wrong one.
+int TerrainGame::vehicleUseTarget() const {
+  if (vehicleDriver_ >= 0 || PLAYER_INDEX < 0) return -1;
+  const float kDeg = 3.14159265F / 180.0F;
+  float ax = cameraLookAt.x - cameraPosition.x, az = cameraLookAt.z - cameraPosition.z;
+  float al = sqrtf(ax * ax + az * az);
+  if (al < 0.0001F) {  // looking straight down/up: fall back to the walker's yaw
+    ax = sinf(players[0].yaw);
+    az = cosf(players[0].yaw);
+    al = 1.0F;
+  }
+  ax /= al;
+  az /= al;
+  const float ox = cameraPosition.x, oz = cameraPosition.z;
+  int best = -1, bestCone = -1;
+  float bestT = 1e30F, bestCos = 0.7071F;  // cos 45 deg
+  for (int vi = 0; vi < vehicleCount_; ++vi) {
+    const VehicleRt& v = vehicles_[vi];
+    if (!v.active || v.def < 0 || !v.driveable) continue;
+    const VehicleDefData& s = VEHICLE_DEFS[v.def];
+    const float SC = v.scale;
+    // ONE radius decides both the prompt and the click.
+    const float useRadius = s.wheelBase * SC * 1.2F + 2.0F;
+    const float pdx = v.pos[0] - players[0].x, pdz = v.pos[2] - players[0].z;
+    if (pdx * pdx + pdz * pdz >= useRadius * useRadius) continue;
+    // The aim ray against the car's footprint, in the car's own frame.
+    const float c = cosf(v.yaw * kDeg), sn = sinf(v.yaw * kDeg);
+    const float rx = ox - v.pos[0], rz = oz - v.pos[2];
+    const float lx = rx * c - rz * sn, lz = rx * sn + rz * c;
+    const float dx = ax * c - az * sn, dz = ax * sn + az * c;
+    const float hw = (s.track * 0.5F + s.wheelRadius * 0.6F) * SC + 0.2F;
+    const float hl = (s.wheelBase * 0.5F + s.wheelRadius * 1.4F) * SC + 0.2F;
+    float t0 = 0.0F, t1 = 1e30F;
+    bool hit = true;
+    const float o2[2] = {lx, lz}, d2[2] = {dx, dz}, h2[2] = {hw, hl};
+    for (int k = 0; k < 2 && hit; ++k) {
+      if (fabsf(d2[k]) < 1e-6F) {
+        if (o2[k] < -h2[k] || o2[k] > h2[k]) hit = false;
+      } else {
+        float ta = (-h2[k] - o2[k]) / d2[k], tb = (h2[k] - o2[k]) / d2[k];
+        if (ta > tb) { const float tt = ta; ta = tb; tb = tt; }
+        if (ta > t0) t0 = ta;
+        if (tb < t1) t1 = tb;
+        if (t0 > t1) hit = false;
+      }
+    }
+    if (hit && t0 < bestT) {
+      bestT = t0;
+      best = vi;
+    }
+    // The cone fallback measures from the camera too, so a third-person
+    // camera behind the avatar judges the angle the player sees on screen.
+    const float cx = v.pos[0] - ox, cz = v.pos[2] - oz;
+    const float cl = sqrtf(cx * cx + cz * cz);
+    const float cosA = cl > 0.0001F ? (cx * ax + cz * az) / cl : 1.0F;
+    if (cosA > bestCos) {
+      bestCos = cosA;
+      bestCone = vi;
+    }
+  }
+  return best >= 0 ? best : bestCone;
+}
+
+// Box colliders only: that is the branch of collidePlayer that freezes a
+// walker found inside (a mesh collider pushes the walker out instead), plus
+// the merged procedural boxes, which share that rule.
+bool TerrainGame::vehExitSpotFree(float x, float z, float feetY) const {
+  const float playerRadius = 0.35F;
+  const float eye = PLAYER_EYE_HEIGHT;
+  for (int oi = 0; oi < (int)runtimeObjects.size(); ++oi) {
+    const RuntimeObject& o = runtimeObjects[oi];
+    if (!o.active || !o.visible || !objectCollides(o.data)) continue;
+    if (o.data.collision == 1 && o.data.type == 5 && o.data.model >= 0 &&
+        o.data.model < (int)gameModels.size() &&
+        !gameModels[o.data.model].collider.empty())
+      continue;
+    const CollisionBox cb = objectCollisionBox(o);
+    const V3 cw = boxRotate({cb.center[0], cb.center[1], cb.center[2]}, o.data);
+    const float cx = o.data.position[0] + cw.x;
+    const float cy = o.data.position[1] + cw.y;
+    const float cz = o.data.position[2] + cw.z;
+    const float top = cy + cb.half[1], bottom = cy - cb.half[1];
+    // Low enough to step onto, or entirely overhead: not a wall.
+    if (feetY + 0.5F >= top || bottom >= feetY + eye) continue;
+    const float yaw = (o.data.rotation[1] + cb.yaw) * 3.14159265F / 180.0F;
+    const float yc = cosf(yaw), ys = sinf(yaw);
+    const float dx = x - cx, dz = z - cz;
+    const float lx = dx * yc - dz * ys, lz = dx * ys + dz * yc;
+    // A little margin over the walker's own radius, so the first step is
+    // not already grazing the wall.
+    const float hx = cb.half[0] + playerRadius + 0.1F;
+    const float hz = cb.half[2] + playerRadius + 0.1F;
+    if (lx > -hx && lx < hx && lz > -hz && lz < hz) return false;
+  }
+  for (const StaticBox& b : procColliders) {
+    if (b.mx[1] <= feetY + 0.6F || b.mn[1] >= feetY + eye) continue;
+    if (x > b.mn[0] - playerRadius && x < b.mx[0] + playerRadius &&
+        z > b.mn[2] - playerRadius && z < b.mx[2] + playerRadius)
+      return false;
+  }
+  return true;
+}
+
 void TerrainGame::updateVehicles(float dt) {
   if (dt <= 0.0F) return;
   if (dt > 0.05F) dt = 0.05F;
@@ -2802,12 +3647,38 @@ void TerrainGame::updateVehicles(float dt) {
     const float side = s.exitOffset[0] < 0.0F ? -1.0F : 1.0F;
     const float minSide = (s.track * 0.5F + s.wheelRadius) * SC + 0.65F;
     const float authoredSide = fabsf(s.exitOffset[0] * SC);
-    const float localSide = side * fmaxf(authoredSide, minSide);
+    const float doorSide = fmaxf(authoredSide, minSide);
     const float localForward = s.exitOffset[2] * SC;
-    players[0].x = v.pos[0] + localSide * ec + localForward * es;
-    players[0].z = v.pos[2] - localSide * es + localForward * ec;
-    players[0].y = fmaxf(v.pos[1] + s.exitOffset[1] * SC,
-                          terrainHeightAt(players[0].x, players[0].z));
+    const float endOut = (s.wheelBase * 0.5F + s.wheelRadius * 1.4F) * SC + 0.9F;
+    // The door first, then further out, then the other side, then behind and
+    // in front. collidePlayer stops a walker DEAD inside a collision box, so
+    // a door that opens into a neighbouring car or a wall must not be where
+    // the player lands - they could not move again until a jump lifted their
+    // feet over the box. The first spot that is clear wins; if none is, the
+    // door spot stands (the old behaviour).
+    const float cand[8][2] = {
+        {side * doorSide, localForward},          {side * (doorSide + 0.7F), localForward},
+        {-side * doorSide, localForward},         {-side * (doorSide + 0.7F), localForward},
+        {0.0F, -endOut},                          {0.0F, endOut},
+        {side * (doorSide + 1.5F), localForward}, {-side * (doorSide + 1.5F), localForward}};
+    int pick = 0;
+    float px = 0.0F, pz = 0.0F, py = 0.0F;
+    for (int k = 0; k < 8; ++k) {
+      const float cx = v.pos[0] + cand[k][0] * ec + cand[k][1] * es;
+      const float cz = v.pos[2] - cand[k][0] * es + cand[k][1] * ec;
+      const float cy = fmaxf(v.pos[1] + s.exitOffset[1] * SC, terrainHeightAt(cx, cz));
+      if (k == 0) { px = cx; pz = cz; py = cy; }
+      if (vehExitSpotFree(cx, cz, cy)) {
+        pick = k;
+        px = cx; pz = cz; py = cy;
+        break;
+      }
+      pick = -1;
+    }
+    players[0].x = px;
+    players[0].z = pz;
+    players[0].y = py;
+    TYRA_LOG("VEH exit spot ", pick);
     const float travelX = v.speed * es + v.lateral * ec;
     const float travelZ = v.speed * ec - v.lateral * es;
     players[0].yaw = travelX * travelX + travelZ * travelZ > 0.25F
@@ -2862,6 +3733,8 @@ void TerrainGame::updateVehicles(float dt) {
   // same frame keeps the first one's list instead of re-walking every object.
   if (!(TYRA_VEH_SUBSTEP_REUSE && vehSubStepRepeat_)) buildVehicleColliders();
   if ((int)vehGather_.size() < vehicleCount_) vehGather_.resize((size_t)vehicleCount_);
+  // Taken once, before any car can change vehicleDriver_ this frame.
+  const int useTarget = vehicleUseTarget();
   for (int vi = 0; vi < vehicleCount_; ++vi) {
     VehicleRt& v = vehicles_[vi];
     if (!v.active || v.def < 0) continue;
@@ -2886,40 +3759,23 @@ void TerrainGame::updateVehicles(float dt) {
       v.dmgPreV[1] = v.speed * cy0 - v.lateral * sy0;
       if (v.dmgCool > 0.0F) v.dmgCool -= dt;
     }
-    // ONE radius decides both the prompt and the click - two formulas here
-    // would show a prompt for a car you cannot enter, or the reverse.
-    const float useRadius = s.wheelBase * SC * 1.2F + 2.0F;
-    if (vehicleDriver_ < 0 && v.driveable && PLAYER_INDEX >= 0) {
-      const float pdx = players[0].x - v.pos[0];
-      const float pdz = players[0].z - v.pos[2];
-      if (pdx * pdx + pdz * pdz < useRadius * useRadius) vehiclePrompt_ = 1;
-    }
+    // ONE target decides both the prompt and the click (vehicleUseTarget):
+    // in reach AND looked at - two formulas here would show a prompt for a
+    // car you cannot enter, or enter the neighbour of the one you meant.
+    if (vi == useTarget) vehiclePrompt_ = 1;
 
-    // Enter and exit, by PROXIMITY - not through the usable machinery, which
-    // costs the matrix fast path (see the scene-row emitter). The price is
-    // that no "press USE" prompt appears yet.
+    // Enter and exit - not through the usable machinery, which costs the
+    // matrix fast path (see the scene-row emitter).
     if (!useHandled && !vehSubStepRepeat_ && PLAYER_INDEX >= 0 &&
         inputClicked(engine->pad, IA_ROLE_USE)) {
-      {
-        const float ddx0 = players[0].x - v.pos[0];
-        const float ddz0 = players[0].z - v.pos[2];
-        const float er0 = s.wheelBase * SC * 1.2F + 1.5F;
-        TYRA_LOG("VEH use-click d2x10 ", (int)((ddx0 * ddx0 + ddz0 * ddz0) * 10.0F),
-                 " er2x10 ", (int)(er0 * er0 * 10.0F), " drv ", vehicleDriver_,
-                 " drb ", v.driveable, " sc10 ", (int)(SC * 10.0F));
-      }
       if (vi == vehicleDriver_) {
         exitAtDoor(vi);
         useHandled = 1;
-      } else if (vehicleDriver_ < 0 && v.driveable) {
-        const float ddx = players[0].x - v.pos[0];
-        const float ddz = players[0].z - v.pos[2];
-        if (ddx * ddx + ddz * ddz < useRadius * useRadius) {
-          vehicleDriver_ = vi;
-          vehCamYaw_ = v.yaw;
-          useHandled = 1;
-          TYRA_LOG("VEH enter ", vi);
-        }
+      } else if (vi == useTarget) {
+        vehicleDriver_ = vi;
+        vehCamYaw_ = v.yaw;
+        useHandled = 1;
+        TYRA_LOG("VEH enter ", vi);
       }
     }
 
@@ -3000,6 +3856,10 @@ void TerrainGame::updateVehicles(float dt) {
         r = r * 0.65F + r * r * r * 0.35F;
         inSteer = inSteer < 0.0F ? -r : r;
       }
+    } else if (v.wpFirst == -2 && vi < (int)tfCarOf_.size() && tfCarOf_[(size_t)vi] >= 0) {
+      // ROAD TRAFFIC (docs/traffic.md): the lane graph's driver fills the
+      // same four numbers.
+      trafficDrive(vi, inThrottle, inBrake, inSteer);
     } else if (v.wpCount > 0 && (s.damageMechanical <= 0.5F || v.damage < 0.999F)) {
       // AI DRIVER (docs/vehicles.md): fills the IDENTICAL four numbers the
       // pad fills - the whole reason DriveInput is a struct and not a pad
@@ -3210,7 +4070,7 @@ void TerrainGame::updateVehicles(float dt) {
     // exiting car run once more while an audio channel is live so its loops
     // are silenced before it sleeps.
     const bool canSleep =
-        vi != vehicleDriver_ && v.wpCount <= 0 && v.grounded &&
+        vi != vehicleDriver_ && v.wpCount <= 0 && v.wpFirst != -2 && v.grounded &&
         v.speed > -0.001F && v.speed < 0.001F &&
         v.lateral > -0.001F && v.lateral < 0.001F &&
         v.engineCh < 0 && v.engineChHigh < 0 && v.screechCh < 0;
@@ -3229,6 +4089,9 @@ void TerrainGame::updateVehicles(float dt) {
       }
       continue;
     }
+    if (v.wpFirst == -2 && tfCarOf_[(size_t)vi] >= 0 &&
+        trafficKinematic(vi, dt, inThrottle, inBrake))
+      continue;  // road traffic, far from the camera (docs/traffic.md)
 
     // Steering, with the lock shrinking toward top speed: without the taper
     // a full-lock flick at speed spins the car on the spot, and a d-pad is
@@ -3281,6 +4144,10 @@ void TerrainGame::updateVehicles(float dt) {
     // "drive through the boxes" - the way it already does with another car.
     int pushIdx[8];
     int pushN = 0;
+    // Breakable furniture (docs/roads.md): boxes this car is fast enough
+    // to knock over - not walls; furnBreakContacts below.
+    int furnBrk[4];
+    int furnBrkN = 0;
     const float feet0 = v.pos[1] - s.rideHeight * SC;
     {
       const float spd = v.speed < 0.0F ? -v.speed : v.speed;
@@ -3341,11 +4208,16 @@ void TerrainGame::updateVehicles(float dt) {
           return;
         }
         if (b.mx[1] <= feet0 + 0.5F || b.mn[1] >= feet0 + 0.9F) return;
-        const float bhx = 0.5F * (b.mx[0] - b.mn[0]) + 0.35F;
-        const float bhz = 0.5F * (b.mx[2] - b.mn[2]) + 0.35F;
+        const bool oriented = b.lhx > 0.0F;
+        const float bhx = (oriented ? b.lhx : 0.5F * (b.mx[0] - b.mn[0])) + 0.35F;
+        const float bhz = (oriented ? b.lhz : 0.5F * (b.mx[2] - b.mn[2])) + 0.35F;
         const float rr = reach + bhx + bhz;
         if (ddx * ddx + ddz * ddz >= rr * rr || wallBoxN >= 12) return;
-        wallBox[wallBoxN++] = {wx, wz, bhx, bhz, 1.0F, 0.0F};
+        if (b.furn >= 0 && furnBrkN < 4 && furnBreakable(b.furn, spd)) {
+          furnBrk[furnBrkN++] = b.furn;  // breakable furniture: not a wall
+          return;
+        }
+        wallBox[wallBoxN++] = {wx, wz, bhx, bhz, b.yc, b.ys};
       };
       // SUB-STEP REUSE (TYRA_VEH_SUBSTEP_REUSE, docs/vehicles.md "Per-car EE
       // cuts"). The first sub-step of a multi-step frame records every entry
@@ -3466,7 +4338,10 @@ void TerrainGame::updateVehicles(float dt) {
       // tyre is on the paved surface.
       const float terrW = terrainHeightAt(wx, wz);
       float roadGW = 1.0F, roadCover = 1.0F;
-      const float roadW = roadSurfaceAt(wx, wz, &roadGW, &roadCover);
+      // The highest surface not above the car (docs/roads.md "Bridges"): a
+      // car UNDER a bridge stays on its road instead of snapping up onto the
+      // deck. 1.5 = roadbridge::kVehicleStepUp, the host twin's cap.
+      const float roadW = roadSurfaceAt(wx, wz, &roadGW, &roadCover, v.pos[1] + 1.5F);
       gy[w] = roadW > terrW ? roadW : terrW;
       bool pavedW = roadW > -1.0e29F;
       // How much of the road this tyre is on (1.144.0): 1, 0 off it, or a
@@ -3546,7 +4421,7 @@ void TerrainGame::updateVehicles(float dt) {
         const V3 off = contactRotate(
             {px[k], -0.65F * s.rideHeight * SC, pz[k]});
         const float floor = groundSurfaceAt(v.pos[0] + off.x,
-                                            v.pos[2] + off.z);
+                                            v.pos[2] + off.z, v.pos[1] + 1.5F);
         if (floor <= TERRAIN_VOID_Y * 0.5F) continue;
         const float need = floor - off.y + 0.03F;
         if (need > bodyFloorY) bodyFloorY = need;
@@ -4109,6 +4984,7 @@ void TerrainGame::updateVehicles(float dt) {
       }
     }
     VEH_LAP(3);
+    if (furnBrkN > 0) furnBreakContacts(vi, furnBrk, furnBrkN, prevX, prevZ);
     // PHYSICS BODIES: momentum, not a wall (docs/vehicles.md). Every body
     // the gather set aside whose footprint (a disc of its wider half-extent)
     // reaches the car's body rectangle takes a velocity kick along the
@@ -5218,6 +6094,221 @@ void TerrainGame::renderVehicleHud() {
   }
 }
 
+// The controls card (docs/vehicles.md, "Controls card"): what to press, shown
+// the first time each car DEFINITION is entered after boot. Nothing in it is
+// baked - every frame it asks the input map what each drive action is bound
+// to RIGHT NOW (a preset switch or an in-game rebind moves the glyph with it),
+// drops a row the car has no use for (no nitrous bottle, no lamps) or the
+// binding has no button for (a keyboard-only action has no glyph to show),
+// and dims a row once the driver has tried it. All rows tried = the card
+// takes its leave early; getting out closes it at once.
+//
+// A row's bit in vehTutUsed_ is its index here; the fallback button is the
+// one updateVehicles reads when the project's map has no such action.
+namespace {
+struct VehTutRow {
+  int role;           // input action index (IA_ROLE_*), -1 = none
+  int pad;            // kPadButtonNames index used when role is -1, -1 = none
+  const char* stick;  // icon NAME of a stick row (no action, no button)
+  const char* label;
+};
+constexpr int kVehTutRows = 10;
+const VehTutRow kVehTut[kVehTutRows] = {
+    {-1, -1, "lstick", "Steer"},
+    {IA_ROLE_VEH_THROTTLE, 12, nullptr, "Accelerate"},
+    {IA_ROLE_VEH_BRAKE, 9, nullptr, "Brake / reverse"},
+    {IA_ROLE_VEH_HANDBRAKE, 3, nullptr, "Handbrake"},
+    {IA_ROLE_VEH_NITROUS, 0, nullptr, "Nitrous"},
+    {-1, 4, nullptr, "Lights"},
+    {IA_ROLE_VEH_CAMERA, 2, nullptr, "Camera"},
+    {-1, -1, "rstick", "Look around"},
+    {IA_ROLE_VEH_REARVIEW, 13, nullptr, "Look back"},
+    {IA_ROLE_USE, -1, nullptr, "Get out"},
+};
+// What a row reads as when the project has no icon for it.
+const char* const kVehTutPadText[16] = {
+    "X", "SQUARE", "TRIANGLE", "CIRCLE", "UP", "DOWN", "LEFT", "RIGHT",
+    "L1", "L2", "L3", "R1", "R2", "R3", "START", "SELECT"};
+
+bool vehTutHeld(const Tyra::PadButtons& b, int i) {
+  switch (i) {
+    case 0: return b.Cross != 0;
+    case 2: return b.Triangle != 0;
+    case 3: return b.Circle != 0;
+    case 4: return b.DpadUp != 0;
+    case 9: return b.L2 != 0;
+    case 12: return b.R2 != 0;
+    case 13: return b.R3 != 0;
+    default: return false;
+  }
+}
+
+int vehTutIcon(const char* name) {
+  for (int i = 0; i < ICON_COUNT; ++i)
+    if (strcmp(ICONS[i].name, name) == 0) return ICONS[i].h > 0 ? i : -1;
+  return -1;
+}
+
+// Does this car have a use for row r at all?
+bool vehTutRowApplies(int r, const VehicleDefData& s) {
+  if (r == 4) return s.nosCapacity > 0.001F;
+  if (r == 5) return s.headlights != 0 || s.lampPart >= 0;
+  return true;
+}
+
+// The button a row is on right now (kPadButtonNames), -1 = no button; a
+// stick row answers -2.
+int vehTutPad(const VehTutRow& row) {
+  if (row.stick) return -2;
+  if (row.role >= 0) {
+    if (row.role >= INPUT_ACTION_COUNT) return -1;
+    const int pad = g_inputBind[row.role].pad;
+    return pad >= 0 && pad < 16 ? pad : -1;
+  }
+  return row.pad;
+}
+}  // namespace
+
+void TerrainGame::updateVehicleTutorial(float dt) {
+  const int drv = vehicleDriver_;
+  const int entered = drv >= 0 && drv != vehTutLastDriver_;
+  vehTutLastDriver_ = drv;
+  if (drv < 0 || drv != vehTutCar_) vehTutLeft_ = 0.0F;
+  if (entered) {
+    const int def = vehicles_[drv].def;
+    if ((int)vehTutSeen_.size() < VEHICLE_DEF_COUNT)
+      vehTutSeen_.resize((size_t)VEHICLE_DEF_COUNT, 0);
+    if (def >= 0 && VEHICLE_DEFS[def].tutorialFont >= 0 &&
+        VEHICLE_DEFS[def].tutorialSecs > 0.0F && !vehTutSeen_[(size_t)def]) {
+      vehTutSeen_[(size_t)def] = 1;
+      vehTutCar_ = drv;
+      vehTutLeft_ = VEHICLE_DEFS[def].tutorialSecs;
+      vehTutAge_ = 0.0F;
+      vehTutUsed_ = 0;
+      TYRA_LOG("VEH controls card for ", drv);
+    }
+  }
+  if (vehTutLeft_ <= 0.0F) return;
+  // SELECT dismisses it at once - nothing in the drive reads that button.
+  if (engine->pad.getClicked().Select) {
+    vehTutLeft_ = 0.0F;
+    return;
+  }
+  vehTutAge_ += dt;
+  vehTutLeft_ -= dt;
+  // The entry press itself (USE) must not tick a row off, so tries count
+  // only once the card is up.
+  if (vehTutAge_ < 0.2F) return;
+
+  Tyra::Pad& pad = engine->pad;
+  const auto& l = pad.getLeftJoyPad();
+  const auto& rs = pad.getRightJoyPad();
+  const auto off = [](int a) { return a < 128 - 48 || a > 128 + 48; };
+  const VehicleDefData& s = VEHICLE_DEFS[vehicles_[drv].def];
+  unsigned int want = 0;
+  for (int r = 0; r < kVehTutRows; ++r) {
+    if (!vehTutRowApplies(r, s) || vehTutPad(kVehTut[r]) == -1) continue;
+    if (r != 9) want |= 1u << r;  // Get out is never "tried" from inside
+    bool used = false;
+    if (r == 0) {
+      used = off(l.h);
+    } else if (r == 7) {
+      used = off(rs.h) || off(rs.v);
+    } else if (kVehTut[r].role >= 0) {
+      used = inputPressed(pad, kVehTut[r].role);
+    } else if (kVehTut[r].pad >= 0) {
+      used = vehTutHeld(pad.getPressed(), kVehTut[r].pad);
+    }
+    if (used && r != 9) vehTutUsed_ |= 1u << r;
+  }
+  // Everything tried: a second to see the last tick, then go.
+  if (want && (vehTutUsed_ & want) == want && vehTutLeft_ > 1.0F) vehTutLeft_ = 1.0F;
+}
+
+// Drawn beside the speed readout in the 2D pass, as runtime text: a row is
+// "{{icon}} Label", so drawFontText puts the button glyph inline. Positions are
+// fractions of the framebuffer with the widescreen squeeze on every horizontal
+// one, inside the title-safe area (see renderVehicleHud).
+void TerrainGame::renderVehicleTutorial() {
+  if (vehTutLeft_ <= 0.0F || !scriptCtx.hudVisible || scriptCtx.hudSuppressed) return;
+  if (vehTutCar_ < 0 || vehTutCar_ != vehicleDriver_) return;
+  const VehicleRt& v = vehicles_[vehTutCar_];
+  if (v.def < 0) return;
+  const VehicleDefData& s = VEHICLE_DEFS[v.def];
+  const int font = s.tutorialFont;
+  if (font < 0 || font >= FONT_COUNT) return;
+
+  const auto& scr = engine->renderer.core.getSettings();
+  const float W = (float)scr.getWidth(), H = (float)scr.getHeight();
+  const float sx = (4.0F / 3.0F) / scr.getWindowAspect();
+  // Fade in over a quarter second, out over the last half.
+  float a = vehTutAge_ / 0.25F;
+  if (vehTutLeft_ / 0.5F < a) a = vehTutLeft_ / 0.5F;
+  if (a > 1.0F) a = 1.0F;
+  if (a <= 0.0F) return;
+
+  char lines[kVehTutRows][64];
+  int rowOf[kVehTutRows];
+  int n = 0;
+  for (int r = 0; r < kVehTutRows; ++r) {
+    if (!vehTutRowApplies(r, s)) continue;
+    const VehTutRow& row = kVehTut[r];
+    const int pad = vehTutPad(row);
+    if (pad == -1) continue;  // bound to no button: nothing to show
+    const int icon = pad == -2 ? vehTutIcon(row.stick)
+                               : (ICON_COUNT > 0 ? ICON_FOR_PAD[pad] : -1);
+    if (icon >= 0)
+      snprintf(lines[n], sizeof(lines[n]), "{{%s}} %s", ICONS[icon].name, row.label);
+    else
+      snprintf(lines[n], sizeof(lines[n]), "%s  %s",
+               pad == -2 ? (r == 0 ? "L-STICK" : "R-STICK") : kVehTutPadText[pad],
+               row.label);
+    rowOf[n++] = r;
+  }
+  if (n == 0) return;
+  // The way out, under the rows, smaller and dimmer than them.
+  char hint[48];
+  const int selIcon = ICON_COUNT > 0 ? ICON_FOR_PAD[15] : -1;
+  if (selIcon >= 0)
+    snprintf(hint, sizeof(hint), "{{%s}} Hide", ICONS[selIcon].name);
+  else
+    snprintf(hint, sizeof(hint), "%s", "SELECT  Hide");
+
+  const float size = H * 0.034F, rowH = H * 0.046F;
+  const float titleSize = H * 0.040F, hintSize = H * 0.032F;
+  float wMax = fontTextWidth(font, "CONTROLS", titleSize, sx);
+  for (int i = 0; i < n; ++i) {
+    const float w = fontTextWidth(font, lines[i], size, sx);
+    if (w > wMax) wMax = w;
+  }
+  const float hintW = fontTextWidth(font, hint, hintSize, sx);
+  if (hintW > wMax) wMax = hintW;
+  const float margin = H * 0.022F;
+  const float x0 = W * 0.06F;  // title-safe left edge
+  // Below the debug build's stats overlay, which owns the top-left corner.
+  const float y0 = H * 0.26F;
+  const float boxW = wMax + margin * 2.0F * sx, boxH = titleSize + rowH * ((float)n + 0.9F) + margin * 2.2F;
+  if (vehTutPanelReady_) {
+    vehTutPanel_.size = Vec2(boxW, boxH);
+    vehTutPanel_.position = Vec2(x0, y0);
+    vehTutPanel_.color = Color(0.0F, 0.0F, 0.0F, 96.0F * a);
+    engine->renderer.renderer2D.render(vehTutPanel_);
+  }
+  const float tx = x0 + margin * sx;
+  drawFontText(engine, font, "CONTROLS", tx + fontTextWidth(font, "CONTROLS", titleSize, sx) * 0.5F,
+               y0 + margin + titleSize * 0.5F, titleSize, sx, 128.0F * a);
+  for (int i = 0; i < n; ++i) {
+    const bool tried = (vehTutUsed_ >> rowOf[i]) & 1u;
+    const float w = fontTextWidth(font, lines[i], size, sx);
+    drawFontText(engine, font, lines[i], tx + w * 0.5F,
+                 y0 + margin * 1.4F + titleSize + rowH * ((float)i + 0.5F), size, sx,
+                 (tried ? 44.0F : 128.0F) * a);
+  }
+  drawFontText(engine, font, hint, tx + hintW * 0.5F,
+               y0 + margin * 1.4F + titleSize + rowH * ((float)n + 0.45F), hintSize, sx,
+               96.0F * a);
+}
+
 // One wheel submit per vehicle definition: transform into world space and
 // concatenate cars sharing the same wheel material. Four wheels is a few hundred
 // vertices of VU0 work against the ~1 ms a second submit would cost.
@@ -5684,7 +6775,7 @@ void TerrainGame::renderVehicleWheels() {
             sz += wv[i].z;
           }
           const float cx = sx / (float)real, cz = sz / (float)real;
-          const float surf = groundSurfaceAt(cx, cz);
+          const float surf = groundSurfaceAt(cx, cz, v.pos[1] + 1.5F);
           gap[w] = (int)((lo - surf) * 1000.0F);
           lift[w] = (int)((surf - terrainHeightAt(cx, cz)) * 1000.0F);
         }
@@ -5798,6 +6889,549 @@ void TerrainGame::renderVehicleWheels() {
 
 
 
+// ---------------------------------------------------------------------------
+// Street lamps and weather (docs/weather.md). The lamps' pools are host-baked
+// furniture rows (ProcChunk::lampLight); the coronas and the wet streaks are
+// rebuilt here from ROAD_LAMPS for the lamps near the camera; the rain is a
+// billboard bag wrapped round the camera. All of it is gated on two numbers
+// updateWeather computes once a frame: the lamps' level and the wetness.
+// ---------------------------------------------------------------------------
+constexpr int kRoadLampCoronas = 64;      // per frame, nearest-first is not needed: few are near
+constexpr int kRoadLampStreaks = 32;
+constexpr float kRoadLampCoronaFar = 160.0F;
+constexpr float kRoadLampCoronaFade = 110.0F;
+constexpr float kRoadLampStreakFar = 55.0F;
+constexpr int kRoadCarStreaks = 0;        // car-light streaks a frame (0: not vehicles + weather)
+constexpr int kRainDrops = 240;
+constexpr float kRainBox = 11.0F;         // half width of the box round the camera
+constexpr float kRainBelow = 4.0F, kRainHeight = 14.0F;
+
+void TerrainGame::updateWeather() {
+  const float dt = g_gameplayPaused ? 0.0F : g_frameDt;
+  weather::g_state.tick(dt);
+  if (roadLampScene_ != currentScene) {
+    // This scene's run of ROAD_LAMPS (the table is in scene order).
+    roadLampScene_ = currentScene;
+    roadLampFirst_ = roadLampEnd_ = 0;
+    for (int i = 0; i < ROAD_LAMP_COUNT; ++i) {
+      const int s = (int)ROAD_LAMPS[(size_t)i * 10];
+      if (s == currentScene) {
+        if (roadLampEnd_ == roadLampFirst_) roadLampFirst_ = i;
+        roadLampEnd_ = i + 1;
+      }
+    }
+  }
+  // The lamps' level: the scene's mode, the live sun, or the baked hour.
+  float lamp = 0.0F;
+  const int sc = currentScene >= 0 && currentScene < SCENE_COUNT ? currentScene : 0;
+  const int mode = weather::SCENE_LAMP_MODES[sc];
+  if (mode == 1)
+    lamp = 1.0F;
+  else if (mode == 0)
+    lamp = daynight::active(sc) ? weather::weatherLampLevel(daynight::g_sun[1])
+                                : weather::SCENE_LAMP_STATIC[sc];
+  roadLampLevel_ = lamp;
+  // Emissive light must not be darkened by the night's full-screen grade a
+  // second time: the sky bodies' compensation (daynight::g_comp) applies.
+  for (int a = 0; a < 3; ++a)
+    roadLampComp_[a] = daynight::gradeOn(sc) ? daynight::g_comp[a] : 1.0F;
+  auto c255 = [](float v) { return v > 255.0F ? 255.0F : v; };
+  roadLampPoolColor_ = Tyra::Color(c255(112.0F * lamp * roadLampComp_[0]),
+                                   c255(84.0F * lamp * roadLampComp_[1]),
+                                   c255(48.0F * lamp * roadLampComp_[2]), 128.0F);
+  // Wet asphalt: darker and a little cooler. 128 = dry = the texture as is.
+  const float w = weather::g_state.wet;
+  roadWetTint_ = Tyra::Color(128.0F - w * 58.0F, 128.0F - w * 55.0F, 128.0F - w * 46.0F, 128.0F);
+  // Puddles: dark water mirroring the sky, filling as the road soaks. The sky
+  // colour is the one the frame clears with, which the night grade's
+  // compensation has already brightened - take that back out, the puddle is
+  // graded like the road it lies on.
+  {
+    float pc[4];
+    weather::weatherPuddleColor(w, scriptCtx.skyColor.r / roadLampComp_[0],
+                                scriptCtx.skyColor.g / roadLampComp_[1],
+                                scriptCtx.skyColor.b / roadLampComp_[2], roadLampLevel_, pc);
+    roadPuddleColor_ = Tyra::Color(pc[0], pc[1], pc[2], pc[3]);
+  }
+  updateRain(dt);
+}
+
+void TerrainGame::updateRain(float dt) {
+  const float rain = weather::g_state.rain;
+  if (rain < 0.01F && rainPos_.empty()) return;
+  if (!rainBag_) {
+    rainPos_.assign(kRainDrops, Tyra::Vec4(0.0F, 0.0F, 0.0F, 1.0F));
+    rainParams_.assign(kRainDrops, Tyra::Vec4(0.0F, 0.0F, 0.0F, 0.0F));
+    rainCols_.assign(kRainDrops, Tyra::Color(170.0F, 178.0F, 196.0F, 84.0F));
+    for (int i = 0; i < kRainDrops; ++i) {
+      rainPos_[(size_t)i] = Tyra::Vec4(
+          cameraPosition.x + (prand(rainRng_) - 0.5F) * 2.0F * kRainBox,
+          cameraPosition.y - kRainBelow + prand(rainRng_) * kRainHeight,
+          cameraPosition.z + (prand(rainRng_) - 0.5F) * 2.0F * kRainBox, 1.0F);
+      // A streak: 3.2 cm wide, 0.75-1.2 long, hanging from world-up (the rain
+      // emitter's basis - its weights are not negated, it has no up side).
+      const float len = 0.38F + 0.22F * prand(rainRng_);
+      rainParams_[(size_t)i] = Tyra::Vec4(0.016F, 0.0F, 0.0F, len);
+    }
+    rainInfo_ = std::make_unique<Tyra::StaPipInfoBag>();
+    rainInfo_->model = &model;
+    rainInfo_->shadingType = Tyra::TyraShadingGouraud;
+    rainInfo_->frustumCulling = Tyra::PipelineInfoBagFrustumCulling_None;  // billboard: VU1 culls
+    rainInfo_->fullClipChecks = false;
+    rainInfo_->zTestType = Tyra::PipelineZTest_TestOnly;
+    rainColorBag_ = std::make_unique<Tyra::StaPipColorBag>();
+    rainTexBag_ = std::make_unique<Tyra::StaPipTextureBag>();
+    rainTexBag_->texture = nullptr;
+    rainBillboard_ = std::make_unique<Tyra::StaPipBillboardBag>();
+    rainBag_ = std::make_unique<Tyra::StaPipBag>();
+    rainBag_->info = rainInfo_.get();
+    rainBag_->color = rainColorBag_.get();
+    rainBag_->texture = rainTexBag_.get();
+    rainBag_->lighting = nullptr;
+    rainBag_->billboard = rainBillboard_.get();
+    rainCols_.bind(rainColorBag_);
+    rainParams_.bind(rainTexBag_);
+  }
+  // Fall, drift, and wrap round the camera: the box moves with the view, so a
+  // car at 26 units/s drives through rain rather than out of it.
+  const float fall = 17.0F * dt, drift = 1.2F * dt;
+  const float cx = cameraPosition.x, cy = cameraPosition.y, cz = cameraPosition.z;
+  for (int i = 0; i < kRainDrops; ++i) {
+    Tyra::Vec4& p = rainPos_[(size_t)i];
+    p.y -= fall;
+    p.x += drift;
+    if (p.x - cx > kRainBox) p.x -= 2.0F * kRainBox;
+    else if (p.x - cx < -kRainBox) p.x += 2.0F * kRainBox;
+    if (p.z - cz > kRainBox) p.z -= 2.0F * kRainBox;
+    else if (p.z - cz < -kRainBox) p.z += 2.0F * kRainBox;
+    if (p.y - cy < -kRainBelow) p.y += kRainHeight;
+    else if (p.y - cy > kRainHeight - kRainBelow) p.y -= kRainHeight;
+  }
+  rainPos_.bind(rainBag_);
+  rainBag_->count = (u32)((float)kRainDrops * (rain > 1.0F ? 1.0F : rain));
+}
+
+void TerrainGame::renderRain() {
+  if (!rainBag_ || rainBag_->count == 0) return;
+  Vec4 fwd = cameraLookAt - cameraPosition;
+  float rx = fwd.z, rz = -fwd.x;
+  const float rl = sqrtf(rx * rx + rz * rz);
+  if (rl > 0.0001F) rx /= rl, rz /= rl;
+  else rx = 1.0F, rz = 0.0F;
+  rainBillboard_->right = Vec4(rx, 0.0F, rz, 0.0F);
+  rainBillboard_->up = Vec4(0.0F, 1.0F, 0.0F, 0.0F);
+  stapip.core.render(rainBag_.get());
+}
+
+void TerrainGame::renderRoadLamps() {
+  const float lv = roadLampLevel_;
+  if (!beamCoronaTex) return;
+  const float wet = weather::g_state.wet;
+  const bool lit = lv >= 0.004F;
+  // Car lights on a wet road (docs/weather.md): any car whose lamps are on,
+  // night or day - so the lamps' level does not gate this half.
+  const bool carLights = kRoadCarStreaks > 0 && wet > 0.02F;
+  if (!lit && !carLights) return;
+  // 1. The pools: host-baked additive decals, coloured by roadLampPoolColor_.
+  //    Drawn here, after the whole scene, so the asphalt under them is
+  //    already in the frame whatever order the interleaved passes chose.
+  for (ProcChunk& c : procChunks) {
+    if (!lit) break;
+    if (!c.lampLight || !c.bag || c.bag->count == 0) continue;
+    const Tyra::Vec4 mn(c.aabbMin[0], c.aabbMin[1], c.aabbMin[2], 1.0F);
+    const Tyra::Vec4 mx(c.aabbMax[0], c.aabbMax[1], c.aabbMax[2], 1.0F);
+    if (Tyra::CoreBBox::frustumCheckAABB(
+            engine->renderer.core.renderer3D.frustumPlanes.getAll(), mn, mx) ==
+        Tyra::CoreBBoxFrustum::OUTSIDE_FRUSTUM)
+      continue;
+    if (c.drawDist > 0.0F) {
+      const float dx = c.centre[0] - cameraPosition.x;
+      const float dy = c.centre[1] - cameraPosition.y;
+      const float dz = c.centre[2] - cameraPosition.z;
+      if (dx * dx + dy * dy + dz * dz > c.drawDist * c.drawDist) continue;
+    }
+    if (splitBandActive && outsideSplitBand(c.aabbMin, c.aabbMax)) continue;
+    stapip.core.render(c.bag.get());
+  }
+  // 2. Coronas round the lamp heads and, on a wet road, each lamp's
+  //    reflection: a streak lying on the road from under the lamp toward the
+  //    viewer, centred where a mirror would show it. One additive bag.
+  //    And 3. below, every car's lamps mirrored in the wet road, in the same
+  //    bag.
+  const bool lampSprites = lit && roadLampEnd_ > roadLampFirst_;
+  if (!lampSprites && !carLights) return;
+  if (!roadLampSprBag_) {
+    roadLampSprVerts_.reserve((kRoadLampCoronas + kRoadLampStreaks + kRoadCarStreaks) * 6);
+    roadLampSprSts_.reserve((kRoadLampCoronas + kRoadLampStreaks + kRoadCarStreaks) * 6);
+    roadLampSprCols_.reserve((kRoadLampCoronas + kRoadLampStreaks + kRoadCarStreaks) * 6);
+    roadLampSprInfo_ = std::make_unique<Tyra::StaPipInfoBag>();
+    roadLampSprInfo_->model = &model;
+    roadLampSprInfo_->shadingType = Tyra::TyraShadingGouraud;
+    roadLampSprInfo_->frustumCulling = Tyra::PipelineInfoBagFrustumCulling_Precise;
+    roadLampSprInfo_->zTestType = Tyra::PipelineZTest_TestOnly;  // occluded, never writes z
+    roadLampSprInfo_->fullClipChecks = true;
+    roadLampSprInfo_->additiveBlendFix = 128;
+    roadLampSprInfo_->fogDisabled = true;  // additive: fog would ADD its colour
+    roadLampSprInfo_->dynLightPick = false;
+    roadLampSprInfo_->spotLit = false;
+    roadLampSprColorBag_ = std::make_unique<Tyra::StaPipColorBag>();
+    roadLampSprTexBag_ = std::make_unique<Tyra::StaPipTextureBag>();
+    roadLampSprTexBag_->texture = beamCoronaTex;
+    roadLampSprBag_ = std::make_unique<Tyra::StaPipBag>();
+    roadLampSprBag_->info = roadLampSprInfo_.get();
+    roadLampSprBag_->color = roadLampSprColorBag_.get();
+    roadLampSprBag_->texture = roadLampSprTexBag_.get();
+    roadLampSprBag_->lighting = nullptr;
+  }
+  roadLampSprVerts_.clear();
+  roadLampSprSts_.clear();
+  roadLampSprCols_.clear();
+  const float ex = cameraPosition.x, ey = cameraPosition.y, ez = cameraPosition.z;
+  float fx = cameraLookAt.x - ex, fy = cameraLookAt.y - ey, fz = cameraLookAt.z - ez;
+  const float fl = sqrtf(fx * fx + fy * fy + fz * fz);
+  if (fl < 1e-4F) return;
+  fx /= fl, fy /= fl, fz /= fl;
+  float rx = fz, rz = -fx;
+  const float rl = sqrtf(rx * rx + rz * rz);
+  if (rl > 1e-4F) rx /= rl, rz /= rl;
+  else rx = 1.0F, rz = 0.0F;
+  const float ux = -rz * fy, uy = rz * fx - rx * fz, uz = rx * fy;
+  int coronas = 0, streaks = 0;
+  auto put = [&](float x, float y, float z, float u, float v, const Tyra::Color& col) {
+    roadLampSprVerts_.push_back(Tyra::Vec4(x, y, z, 1.0F));
+    roadLampSprSts_.push_back(Tyra::Vec4(u, v, 1.0F, 0.0F));
+    roadLampSprCols_.push_back(col);
+  };
+  for (int li = roadLampFirst_; lampSprites && li < roadLampEnd_; ++li) {
+    const float* L = &ROAD_LAMPS[(size_t)li * 10];
+    if (furnLampDark_[(size_t)li]) continue;  // knocked over (breakable furniture)
+    const float dx = L[1] - ex, dy = L[2] - ey, dz = L[3] - ez;
+    const float d2 = dx * dx + dy * dy + dz * dz;
+    if (d2 > kRoadLampCoronaFar * kRoadLampCoronaFar) continue;
+    if (dx * fx + dy * fy + dz * fz < -2.0F) continue;  // behind the camera
+    const float d = sqrtf(d2);
+    if (coronas < kRoadLampCoronas) {
+      const float fade = d > kRoadLampCoronaFade
+                             ? (kRoadLampCoronaFar - d) / (kRoadLampCoronaFar - kRoadLampCoronaFade)
+                             : 1.0F;
+      // Half size grows a little with distance, so a far lamp is still a
+      // point of light rather than a sub-pixel speck; pulled toward the
+      // camera so it is not cut by its own lamp head.
+      const float s = 0.55F + 0.011F * d;
+      const float pull = d > 1.0F ? (d * 0.5F < 0.7F ? d * 0.5F : 0.7F) / d : 0.0F;
+      const float cx = L[1] - dx * pull, cy = L[2] - dy * pull, cz = L[3] - dz * pull;
+      const float k = lv * fade;
+      const Tyra::Color col(118.0F * k * roadLampComp_[0], 100.0F * k * roadLampComp_[1],
+                            74.0F * k * roadLampComp_[2], 128.0F);
+      // Corners c -/+ right*s -/+ up*s.
+      const float px = rx * s, pz = rz * s;
+      const float qx = ux * s, qy = uy * s, qz = uz * s;
+      put(cx - px - qx, cy - qy, cz - pz - qz, 0.0F, 0.0F, col);
+      put(cx + px - qx, cy - qy, cz + pz - qz, 1.0F, 0.0F, col);
+      put(cx + px + qx, cy + qy, cz + pz + qz, 1.0F, 1.0F, col);
+      put(cx - px - qx, cy - qy, cz - pz - qz, 0.0F, 0.0F, col);
+      put(cx + px + qx, cy + qy, cz + pz + qz, 1.0F, 1.0F, col);
+      put(cx - px + qx, cy + qy, cz - pz + qz, 0.0F, 1.0F, col);
+      ++coronas;
+    }
+    if (wet > 0.02F && d < kRoadLampStreakFar && streaks < kRoadLampStreaks) {
+      float tx = ex - L[4], tz = ez - L[6];
+      const float hd = sqrtf(tx * tx + tz * tz);
+      if (hd < 0.5F) continue;
+      tx /= hd, tz /= hd;
+      const float hgt = L[2] - L[5] > 0.5F ? L[2] - L[5] : 0.5F;
+      const float eyeH = ey - L[5] > 0.3F ? ey - L[5] : 0.3F;
+      const float m = hd * hgt / (hgt + eyeH);  // the mirror point, from the foot
+      float half = 0.5F * m + 1.2F;
+      if (half > L[9] * 1.6F) half = L[9] * 1.6F;
+      const float mx = L[4] + tx * m, mz = L[6] + tz * m;
+      const float wd = 0.30F + 0.006F * d;
+      const float nx = -tz * wd, nz = tx * wd;
+      const float fade = d > kRoadLampStreakFar * 0.7F
+                             ? (kRoadLampStreakFar - d) / (kRoadLampStreakFar * 0.3F)
+                             : 1.0F;
+      const float k = lv * wet * fade;
+      const Tyra::Color col(96.0F * k * roadLampComp_[0], 80.0F * k * roadLampComp_[1],
+                            58.0F * k * roadLampComp_[2], 128.0F);
+      auto yAt = [&](float x, float z) {
+        return L[5] + L[7] * (x - L[4]) + L[8] * (z - L[6]) + 0.07F;
+      };
+      const float x0 = mx - tx * half, z0 = mz - tz * half;  // the lamp's end
+      const float x1 = mx + tx * half, z1 = mz + tz * half;  // the viewer's end
+      put(x0 - nx, yAt(x0 - nx, z0 - nz), z0 - nz, 0.0F, 0.0F, col);
+      put(x0 + nx, yAt(x0 + nx, z0 + nz), z0 + nz, 1.0F, 0.0F, col);
+      put(x1 + nx, yAt(x1 + nx, z1 + nz), z1 + nz, 1.0F, 1.0F, col);
+      put(x0 - nx, yAt(x0 - nx, z0 - nz), z0 - nz, 0.0F, 0.0F, col);
+      put(x1 + nx, yAt(x1 + nx, z1 + nz), z1 + nz, 1.0F, 1.0F, col);
+      put(x1 - nx, yAt(x1 - nx, z1 - nz), z1 - nz, 0.0F, 1.0F, col);
+      ++streaks;
+    }
+  }
+  (void)streaks;
+  if (roadLampSprVerts_.empty()) return;
+  roadLampSprVerts_.bind(roadLampSprBag_);
+  roadLampSprSts_.bind(roadLampSprTexBag_);
+  roadLampSprCols_.bind(roadLampSprColorBag_);
+  roadLampSprColorBag_->single = nullptr;
+  roadLampSprBag_->bboxVersion = ++g_bboxStamp;
+  stapip.core.render(roadLampSprBag_.get());
+}
+
+
+
+// --- Breakable street furniture (docs/roads.md "Breakable furniture") -----
+// A car at or above a piece's threshold does not take its box as a wall
+// (considerProc sets it aside); after the wall pass, a set-aside box the car
+// body touches BREAKS: the box goes inert, the piece's vertices in its merged
+// chunk collapse to one point (one write of its own range - nothing is
+// rebuilt), a copy of them flies off as a vehicle debris piece, the car keeps
+// ROAD_FURN_PIECES[].keep of its speed, dust and sparks puff out of the car's
+// smoke pool and the hit sound plays. A lamp's pool and halo and a signal's
+// lit lens go out with it.
+static const int kFurnDebrisReserve = 192;   // vertices per debris slot (a lamp is 162)
+static const int kFurnDebrisMaxVerts = 1800; // bigger props vanish in dust only
+
+void TerrainGame::furnBreakReset() {
+  furnBroken_.assign(ROAD_FURN_PIECE_COUNT > 0 ? (size_t)ROAD_FURN_PIECE_COUNT : (size_t)1, 0);
+  furnLampDark_.assign(ROAD_LAMP_COUNT > 0 ? (size_t)ROAD_LAMP_COUNT : (size_t)1, 0);
+  furnBrokenCount_ = 0;
+  // The debris slots keep this capacity: a hit copies into them and does not
+  // allocate (a car's lost panel re-creates its slot, so it may grow again).
+  for (VehDebris& d : vehDebris_) {
+    d.local.reserve((size_t)kFurnDebrisReserve);
+    d.cols.reserve((size_t)kFurnDebrisReserve);
+    d.sts.reserve((size_t)kFurnDebrisReserve);
+  }
+  bool untextured = false;
+  for (auto& b : vehDebrisBatches_) untextured = untextured || b->tex == nullptr;
+  if (!untextured) vehDebrisBatches_.push_back(std::make_unique<VehDebrisBatch>());
+}
+
+bool TerrainGame::furnBreakable(int piece, float spd) const {
+  if (piece < 0 || piece >= ROAD_FURN_PIECE_COUNT || (size_t)piece >= furnBroken_.size())
+    return false;
+  const float t = ROAD_FURN_PIECES[piece].speed;
+  return t > 0.0F && spd >= t && !furnBroken_[(size_t)piece];
+}
+
+bool TerrainGame::furnBrokenAt(int piece) const {
+  return piece >= 0 && (size_t)piece < furnBroken_.size() && furnBroken_[(size_t)piece];
+}
+
+TerrainGame::ProcChunk* TerrainGame::furnChunkOf(int row) {
+  if (row < 0) return nullptr;
+  for (ProcChunk& c : procChunks)
+    if (c.owner == -7 && c.furnRow == row) return &c;
+  return nullptr;  // streamed out: its build collapses it (furnBreakApplyChunk)
+}
+
+// One piece's run of a merged chunk, every vertex moved onto its first: the
+// triangles have no area, the GS draws nothing, the chunk is not rebuilt.
+void TerrainGame::furnCollapse(ProcChunk& c, int first, int count) {
+  if (first < 0 || count <= 1 || (size_t)(first + count) > c.vertices.size()) return;
+  auto P = c.vertices.span((size_t)first, (size_t)count);
+  const Tyra::Vec4 a = P[0];
+  for (int k = 1; k < count; ++k) P[(size_t)k] = a;
+  if (c.bag) c.bag->bboxVersion = ++g_bboxStamp;
+}
+
+// A furniture chunk (or a lamp pool chunk) the road stream just built: the
+// pieces broken before it streamed out stay broken.
+void TerrainGame::furnBreakApplyChunk(ProcChunk& c) {
+  if (furnBrokenCount_ <= 0 || c.furnRow < 0) return;
+  int n = 0;
+  for (int i = 0; i < ROAD_FURN_PIECE_COUNT && (size_t)i < furnBroken_.size(); ++i) {
+    if (!furnBroken_[(size_t)i]) continue;
+    const RoadFurnPieceRt& p = ROAD_FURN_PIECES[i];
+    if (p.row == c.furnRow) furnCollapse(c, p.first, p.count), ++n;
+    if (p.poolRow == c.furnRow) furnCollapse(c, p.poolFirst, p.poolCount), ++n;
+  }
+  if (n > 0) TYRA_LOG("FURN restreamed row ", c.furnRow, " kept ", n, " broken piece(s) down");
+}
+
+// After the wall pass: the set-aside boxes the car body touches now, where
+// it was, or half way (the host twin is roadfurnbreak::touches).
+void TerrainGame::furnBreakContacts(int vi, const int* pieces, int n, float prevX,
+                                    float prevZ) {
+  VehicleRt& v = vehicles_[vi];
+  const VehicleDefData& s = VEHICLE_DEFS[v.def];
+  const float SC = v.scale;
+  const float hx = 0.5F * s.track * SC;
+  const float hz = 0.5F * s.wheelBase * SC + (s.bodyOverhang > 0.0F ? s.bodyOverhang * SC : 0.0F);
+  const float kDeg = 3.14159265F / 180.0F;
+  const float c = cosf(v.yaw * kDeg), sn = sinf(v.yaw * kDeg);
+  // The speed the car arrived with (before this frame's collisions).
+  const float spd = sqrtf(v.dmgPreV[0] * v.dmgPreV[0] + v.dmgPreV[1] * v.dmgPreV[1]);
+  for (int k = 0; k < n; ++k) {
+    const int piece = pieces[k];
+    if (furnBrokenAt(piece) || piece < 0 || piece >= ROAD_FURN_BOX_COUNT) continue;
+    const float* b = &ROAD_FURN_BOXES[(size_t)piece * 7];
+    const float bx = 0.5F * (b[1] + b[4]), bz = 0.5F * (b[3] + b[6]);
+    const float ex = 0.5F * (b[4] - b[1]), ez = 0.5F * (b[6] - b[3]);
+    const float r = ex > ez ? ex : ez;
+    bool hit = false;
+    for (int q = 0; q < 3 && !hit; ++q) {
+      const float f = q == 0 ? 1.0F : (q == 1 ? 0.5F : 0.0F);
+      const float px = prevX + (v.pos[0] - prevX) * f, pz = prevZ + (v.pos[2] - prevZ) * f;
+      const float dx = bx - px, dz = bz - pz;
+      const float lx = dx * c - dz * sn;
+      const float lz = dx * sn + dz * c;
+      hit = (lx < 0.0F ? -lx : lx) < hx + r && (lz < 0.0F ? -lz : lz) < hz + r;
+    }
+    if (hit) furnBreak(piece, vi, spd);
+  }
+}
+
+void TerrainGame::furnBreak(int piece, int vi, float spd) {
+  if (piece < 0 || piece >= ROAD_FURN_PIECE_COUNT || furnBrokenAt(piece)) return;
+  const u32 t0 = profTicks();
+  furnBroken_[(size_t)piece] = 1;
+  ++furnBrokenCount_;
+  ++furnBreaks_;
+  const RoadFurnPieceRt& p = ROAD_FURN_PIECES[piece];
+  VehicleRt& v = vehicles_[vi];
+  // 1. Its box: inert, in place (indices into procColliders stay valid).
+  for (StaticBox& sb : procColliders)
+    if (sb.owner == -7 && sb.furn == piece) furnBoxInert(sb);
+  const float* bx = &ROAD_FURN_BOXES[(size_t)piece * 7];
+  const float cx = 0.5F * (bx[1] + bx[4]), cz = 0.5F * (bx[3] + bx[6]);
+  // The way the car was going (the box's way when it was standing still).
+  float dx = v.dmgPreV[0], dz = v.dmgPreV[1];
+  float dl = sqrtf(dx * dx + dz * dz);
+  if (dl < 1e-3F) dx = cx - v.pos[0], dz = cz - v.pos[2], dl = sqrtf(dx * dx + dz * dz);
+  if (dl < 1e-4F) dx = 0.0F, dz = 1.0F, dl = 1.0F;
+  dx /= dl, dz /= dl;
+  // 2. Its vertices: a debris copy, then the merged chunk's range collapsed.
+  int debris = 0;
+  if (ProcChunk* ch = furnChunkOf(p.row)) {
+    if (p.count >= 3 && p.count <= kFurnDebrisMaxVerts &&
+        (size_t)(p.first + p.count) <= ch->vertices.size()) {
+      VehDebris& d = vehDebris_[vehDebrisNext_];
+      vehDebrisNext_ = (vehDebrisNext_ + 1) % kVehDebrisMax;
+      if (d.active)  // the oldest piece gives its slot up
+        for (auto& bp : vehDebrisBatches_)
+          if (bp->tex == d.tex) bp->dirty = 1;
+      d.active = 1;
+      d.rest = 0;
+      d.tex = nullptr;
+      d.local.clear();
+      d.cols.clear();
+      d.sts.clear();
+      const BagArray<Tyra::Vec4>& cv = ch->vertices;
+      const BagArray<Tyra::Color>& cc = ch->colors;
+      float mn[3] = {1e30F, 1e30F, 1e30F}, mx[3] = {-1e30F, -1e30F, -1e30F};
+      for (int k = 0; k < p.count; ++k) {
+        const Tyra::Vec4& q = cv[(size_t)(p.first + k)];
+        const float qq[3] = {q.x, q.y, q.z};
+        for (int a = 0; a < 3; ++a) {
+          if (qq[a] < mn[a]) mn[a] = qq[a];
+          if (qq[a] > mx[a]) mx[a] = qq[a];
+        }
+      }
+      float wc[3];
+      for (int a = 0; a < 3; ++a) wc[a] = 0.5F * (mn[a] + mx[a]);
+      for (int k = 0; k < p.count; ++k) {
+        const size_t at = (size_t)(p.first + k);
+        const Tyra::Vec4& q = cv[at];
+        d.local.push_back(Tyra::Vec4(q.x - wc[0], q.y - wc[1], q.z - wc[2], 1.0F));
+        d.cols.push_back(at < cc.size() ? cc[at] : Tyra::Color(128.0F, 128.0F, 128.0F, 128.0F));
+        d.sts.push_back(Tyra::Vec4(0.0F, 0.0F, 1.0F, 0.0F));
+      }
+      for (int a = 0; a < 3; ++a) {
+        d.pos[a] = wc[a];
+        d.vel[a] = 0.0F;
+        d.spin[a] = 0.0F;
+      }
+      for (int a = 0; a < 9; ++a) d.rot[a] = (a % 4 == 0) ? 1.0F : 0.0F;
+      d.low = wc[1] - mn[1];
+      d.thin = 0;
+      for (int a = 1; a < 3; ++a)
+        if (mx[a] - mn[a] < mx[d.thin] - mn[d.thin]) d.thin = a;
+      // Thrown along the car's way, up a little, tipping over forward (the
+      // axis up x forward) - the debris pass kicks it on out of the car and
+      // lays it down flat.
+      d.vel[0] = dx * (0.55F * spd + 1.0F);
+      d.vel[1] = 2.5F + 0.12F * spd;
+      d.vel[2] = dz * (0.55F * spd + 1.0F);
+      const float tip = 2.5F + 0.18F * spd;
+      d.spin[0] = dz * tip;
+      d.spin[1] = (piece & 1) ? 0.7F : -0.7F;
+      d.spin[2] = -dx * tip;
+      for (auto& bp : vehDebrisBatches_)
+        if (bp->tex == nullptr) bp->dirty = 1;
+      debris = p.count;
+    }
+    furnCollapse(*ch, p.first, p.count);
+  }
+  // The lamp's light: its halo and streak (renderRoadLamps skips it) and
+  // its pool, collapsed in its own chunk like the post.
+  if (p.lamp >= 0 && (size_t)p.lamp < furnLampDark_.size()) furnLampDark_[(size_t)p.lamp] = 1;
+  if (p.poolCount > 0)
+    if (ProcChunk* pc = furnChunkOf(p.poolRow)) furnCollapse(*pc, p.poolFirst, p.poolCount);
+  if (p.kind == 4) {
+    for (TfLamp& l : tfLamps_)
+      if (fabsf(l.x - cx) < 0.05F && fabsf(l.z - cz) < 0.05F) l.x = l.z = 1.0e9F;
+    tfLampSig_ = 0;
+  }
+  // 3. The car keeps going, a little slower.
+  v.speed *= p.keep;
+  v.lateral *= p.keep;
+  // 4. Dust at the foot of the pole, sparks off metal (not a tree), from the
+  //    car's own smoke pool - every vehicle project has one.
+  if (VehFx* fx = vehFxFor(v.def)) {
+    const float edx = cx - cameraPosition.x, edz = cz - cameraPosition.z;
+    if (edx * edx + edz * edz < 70.0F * 70.0F) {
+      const float y0 = bx[2] + 0.3F;
+      for (int b = 0; b < 8; ++b) {
+        const int sl = fx->takeSmoke();
+        const float a = (float)b * 2.39996F;
+        fx->smokePos[sl].set(cx, y0, cz, 1.0F);
+        fx->smokeVel[sl].set(cosf(a) * 1.4F + dx * 0.15F * spd, 0.7F + 0.1F * (float)(b % 3),
+                             sinf(a) * 1.4F + dz * 0.15F * spd, 0.0F);
+        fx->smokeMaxLife[sl] = 0.8F + 0.05F * (float)(b % 4);
+        fx->smokeLife[sl] = fx->smokeMaxLife[sl];
+        fx->smokeShade[sl] = 1.05F;
+        fx->smokeScale[sl] = 1.3F;
+      }
+      if (p.kind != 1)
+        for (int b = 0; b < 10; ++b) {
+          const int sl = fx->takeSmoke();
+          const float a = (float)b * 2.39996F;
+          fx->smokePos[sl].set(cx, y0 + 0.5F, cz, 1.0F);
+          fx->smokeVel[sl].set(cosf(a) * 3.0F + dx * 0.3F * spd, 2.0F + 0.4F * (float)(b % 3),
+                               sinf(a) * 3.0F + dz * 0.3F * spd, 0.0F);
+          fx->smokeMaxLife[sl] = 0.22F + 0.03F * (float)(b % 4);
+          fx->smokeLife[sl] = fx->smokeMaxLife[sl];
+          fx->smokeShade[sl] = 1.9F;
+          fx->smokeScale[sl] = 0.3F;
+        }
+    }
+  }
+  // 5. The hit, on the drive's reserved one-shot voice (base+20, the gear
+  //    shift's - a crash outranks a shift blip), quieter with distance.
+  if (p.snd >= 0 && p.snd < (int)sndSamples.size() && sndSamples[p.snd]) {
+    const float ddx = cx - cameraPosition.x, ddz = cz - cameraPosition.z;
+    const float far = sqrtf(ddx * ddx + ddz * ddz);
+    const float att = far < 60.0F ? 1.0F - far / 60.0F : 0.0F;
+    if (att > 0.02F) {
+      const s8 ch = (s8)(scriptCtx.reverbBusBase + 20);
+      engine->audio.adpcm.setVolume((u8)(90.0F * att * (float)scriptCtx.sfxVolume / 100.0F), ch);
+      engine->audio.adpcm.forcePlay(sndSamples[p.snd], ch);
+    }
+  }
+  // 6. The player's car scores it (the On Prop Broken flow node).
+  if (vi == vehicleDriver_) {
+    ++scriptCtx.propBreaks;
+    scriptCtx.propBreakKind = p.kind;
+    scriptCtx.propBreakSpeed = spd;
+  }
+  static const char* const kKind[5] = {"lamp", "tree", "bollard", "sign", "signal"};
+  TYRA_LOG("FURN break kind ", kKind[p.kind >= 0 && p.kind < 5 ? p.kind : 0], " speed ",
+           (int)(spd * 10.0F) / 10.0F, " piece ", piece, " car ", vi, " keep ",
+           (int)(p.keep * 100.0F + 0.5F), "% debris ", debris, " lamp ", p.lamp, " pool ",
+           p.poolCount, " broken ", furnBrokenCount_, " us ", (int)((profTicks() - t0) / 295U));
+}
+
 void TerrainGame::renderRoadChunks() {
 #if TYRA_FRAME_PROFILE
   stapip.core.setTelemetryProducer(Tyra::StaPipProducerRoads);
@@ -5806,7 +7440,8 @@ void TerrainGame::renderRoadChunks() {
   // procedural volume and prefab in the scene. Roads own the reserved -3
   // producer id, which also gives the profiler an honest standalone phase.
   for (ProcChunk& c : procChunks) {
-    if (c.owner != -3 || !c.bag || c.bag->count == 0) continue;
+    if ((c.owner != -3 && c.owner != -6) || !c.bag || c.bag->count == 0)
+      continue;  // -6: road details, blended after the asphalt
     if (c.drawDist > 0.0F) {
       const float dx = c.centre[0] - cameraPosition.x;
       const float dy = c.centre[1] - cameraPosition.y;
@@ -6023,7 +7658,7 @@ float TerrainGame::roadSurfaceScan(float x, float z) const {
     if (y > best) best = y;
   };
   for (const ProcChunk& c : procChunks) {
-    if (c.owner != -3 || c.vertices.size() < 3) continue;
+    if ((c.owner != -3 && c.owner != -4) || c.vertices.size() < 3) continue;
     if (x < c.aabbMin[0] || x > c.aabbMax[0] ||
         z < c.aabbMin[2] || z > c.aabbMax[2])
       continue;
@@ -6053,7 +7688,7 @@ void TerrainGame::buildRoadHeightIndex() const {
   float mnx = 1.0e30F, mxx = -1.0e30F, mnz = 1.0e30F, mxz = -1.0e30F;
   bool any = false;
   for (const ProcChunk& c : procChunks) {
-    if (c.owner != -3 || c.vertices.size() < 3) continue;
+    if ((c.owner != -3 && c.owner != -4) || c.vertices.size() < 3) continue;
     any = true;
     if (c.aabbMin[0] < mnx) mnx = c.aabbMin[0];
     if (c.aabbMax[0] > mxx) mxx = c.aabbMax[0];
@@ -6075,14 +7710,24 @@ void TerrainGame::buildRoadHeightIndex() const {
   // the triangles exactly the way roadSurfaceAt used to, so every triangle
   // that was reachable before is reachable now.
   std::vector<unsigned int> cursor;
+  // An entry packs 13 bits of chunk index and 19 of vertex index. It was 10/22
+  // until examples/big-city: a city has more than 1024 proc chunks (roads,
+  // kerbs, rails, details), and every road chunk past the 1024th was silently
+  // missing from the index - wheels and walkers fell through to the terrain.
+  // No chunk comes near 2^19 vertices (road, kerb and patch chunks are capped
+  // at ~1800). Anything still out of range is COUNTED and logged, not lost
+  // silently.
+  int skipped = 0;
   for (int pass = 0; pass < 2; ++pass) {
     unsigned int ci = 0;
     for (const ProcChunk& c : procChunks) {
       const unsigned int chunk = ci++;
-      if (c.owner != -3 || c.vertices.size() < 3) continue;
-      if (chunk >= 1024U) continue;  // the entry packs 10 bits of chunk index
+      if ((c.owner != -3 && c.owner != -4) || c.vertices.size() < 3) continue;
       const size_t count = c.vertices.size();
-      if (count >= (size_t)(1U << 22)) continue;  // ...and 22 of vertex index
+      if (chunk >= (1U << 13) || count >= (size_t)(1U << 19)) {
+        if (pass == 0) ++skipped;
+        continue;
+      }
       const size_t run = c.stripRun > 0 ? (size_t)c.stripRun : count;
       const size_t step = c.stripRun > 0 ? (size_t)1 : (size_t)3;
       for (size_t first = 0; first < count; first += run) {
@@ -6108,7 +7753,7 @@ void TerrainGame::buildRoadHeightIndex() const {
           if (ix1 > n - 1) ix1 = n - 1;
           if (iz1 > n - 1) iz1 = n - 1;
           if (ix1 < ix0 || iz1 < iz0) continue;
-          const unsigned int entry = (chunk << 22) | (unsigned int)i;
+          const unsigned int entry = (chunk << 19) | (unsigned int)i;
           for (int iz = iz0; iz <= iz1; ++iz)
             for (int ix = ix0; ix <= ix1; ++ix) {
               const size_t k = (size_t)iz * (size_t)n + (size_t)ix;
@@ -6129,12 +7774,15 @@ void TerrainGame::buildRoadHeightIndex() const {
   }
   TYRA_LOG("ROADINDEX cells ", roadIdxN, "x", roadIdxN, " entries ",
            (int)roadIdxItems.size());
+  if (skipped > 0)
+    TYRA_LOG("ROADINDEX skipped ", skipped,
+             " chunk(s) past the 8192-chunk / 2^19-vertex packing");
 }
 
 
 
 float TerrainGame::roadSurfaceAt(float x, float z, float* grip,
-                                 float* cover) const {
+                                 float* cover, float maxY) const {
   float best = -1.0e30F;
   if (grip) *grip = 1.0F;
   if (cover) *cover = 1.0F;
@@ -6167,7 +7815,7 @@ float TerrainGame::roadSurfaceAt(float x, float z, float* grip,
     // crack to a six-vertex light/shadow patch on their shared edge.
     if (wa < -0.0001F || wb < -0.0001F || wc < -0.0001F) return;
     const float y = wa * a.y + wb * b.y + wc * c.y;
-    if (y > best) {
+    if (y > best && y <= maxY) {
       best = y;
       if (grip) *grip = wa * ga + wb * gb + wc * gc;
       if (cover) *cover = wa * ca + wb * cb + wc * cc;
@@ -6183,8 +7831,8 @@ float TerrainGame::roadSurfaceAt(float x, float z, float* grip,
   const size_t k = (size_t)iz * (size_t)roadIdxN + (size_t)ix;
   for (unsigned int e = roadIdxStart[k]; e < roadIdxStart[k + 1]; ++e) {
     const unsigned int item = roadIdxItems[e];
-    const ProcChunk& c = procChunks[(size_t)(item >> 22)];
-    const size_t i = (size_t)(item & 0x3FFFFFU);
+    const ProcChunk& c = procChunks[(size_t)(item >> 19)];
+    const size_t i = (size_t)(item & 0x7FFFFU);
     float ga = c.roadGrip, gb = ga, gc = ga;
     if (c.roadBlend) {
       // The spill's fade blends its grip over the road under it.
@@ -6203,7 +7851,7 @@ float TerrainGame::roadSurfaceAt(float x, float z, float* grip,
                  ca, cb, cc);
   }
 #if TYRA_ROAD_INDEX_VERIFY
-  {
+  if (maxY > 1.0e29F) {  // the scan oracle answers the uncapped question
     static unsigned int checked = 0, bad = 0;
     static float worst = 0.0F;
     const float ref = roadSurfaceScan(x, z);
@@ -6263,10 +7911,27 @@ float TerrainGame::terrainGripAt(float x, float z) const {
 
 
 
-float TerrainGame::groundSurfaceAt(float x, float z) const {
+// `maxY` (docs/roads.md "Bridges"): only a road surface at or below it - the
+// one a caster, a wheel or a mark is actually on, never a deck overhead.
+float TerrainGame::groundSurfaceAt(float x, float z, float maxY) const {
   const float terrain = terrainHeightAt(x, z);
-  const float road = roadSurfaceAt(x, z);
+  const float road = roadSurfaceAt(x, z, nullptr, nullptr, maxY);
   return road > terrain ? road : terrain;
+}
+
+
+
+// The walker's floor (docs/roads.md "Kerbs"): the terrain, or a road, kerb or
+// pavement top under the feet - but only one within a step up of them, so a
+// road on a ramp or a bridge overhead never teleports a walker onto it. The
+// same 0.5-unit step collidePlayer allows onto objects.
+float TerrainGame::walkGroundAt(float x, float z, float feetY) const {
+  const float terrain = terrainHeightAt(x, z);
+  // The highest road surface within the step - so a walker under a bridge
+  // keeps the road it is on, not the terrain beneath both.
+  const float road = roadSurfaceAt(x, z, nullptr, nullptr, feetY + 0.5F);
+  if (road > terrain) return road;
+  return terrain;
 }
 
 

@@ -1,0 +1,8 @@
+newmtl car_paint
+Kd 1 1 1
+
+newmtl car_glass
+Kd 0.16 0.2 0.24
+
+newmtl car_tyre
+Kd 0.06 0.06 0.06

@@ -1,0 +1,1 @@
+{ "id": "61403d7ccced8eef", "name": "Building 428", "type": "model", "position": [-251.458, 0, 376.698], "rotation": [0, 0, 0], "scale": [1.2037, 2.2318, 1.7822], "color": [1, 1, 1], "physics": false, "layer": "district-3-6", "drawDistance": 230, "castShadow": false, "model": "res/models/urban/district-workshop.obj" }

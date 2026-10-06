@@ -1,0 +1,1 @@
+{ "id": "dc05dbd94a957a15", "name": "Park tree 39", "type": "model", "position": [-107.322, 0, 577.142], "rotation": [0, 289.872, 0], "scale": [1.0164, 1.0164, 1.0164], "color": [1, 1, 1], "physics": false, "layer": "district-3-7", "drawDistance": 110, "castShadow": false, "model": "res/models/urban/city-tree.obj" }

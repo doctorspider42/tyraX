@@ -135,6 +135,10 @@ class StaPipCore {
   u32 getRetainedCommandBytes() const {
     return qbufferRenderer.getRetainedBytes();
   }
+  // Modified by TyraX: the baked VIF stream cache's EE RAM (its arenas carry a
+  // copy of every baked bag's vertex payload) - read by the generated game's
+  // MEMSTAT line beside the object geometry it is a copy of.
+  u32 getBakedStreamBytes() const { return qbufferRenderer.getBakedBytes(); }
 
   void allocateOnUse() { qbufferRenderer.allocateOnUse(); }
   void deallocateOnUse() { qbufferRenderer.deallocateOnUse(); }

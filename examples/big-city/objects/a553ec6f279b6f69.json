@@ -1,0 +1,1 @@
+{ "id": "a553ec6f279b6f69", "name": "Building 293", "type": "model", "position": [-339.127, 0, -86.8442], "rotation": [0, 0, 0], "scale": [1.8583, 1.805, 2.807], "color": [1, 1, 1], "physics": false, "layer": "district-2-3", "drawDistance": 230, "castShadow": false, "model": "res/models/urban/district-tower.obj" }

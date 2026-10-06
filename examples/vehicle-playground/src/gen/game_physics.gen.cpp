@@ -1560,6 +1560,16 @@ void TerrainGame::renderScene() {
   heavyCollect = heavyActive;
   heavyBlendAt = -1;
   { const u32 ct=costStart(); renderStaticBatches(); costEnd("Static_batches",-1,ct); }
+  // MEMSTAT 60, 300, 900 and 1500 frames after the load: the early ones once
+  // everything resident has baked, the later two once load-time scratch has
+  // gone - the number to compare with the HUD's MEM.
+  if (DEBUG_SHOW_MEM && !splitSecondPass && memStatCountdown >= 0) {
+    ++memStatCountdown;
+    if (memStatCountdown == 60 || memStatCountdown == 300 ||
+        memStatCountdown == 900 || memStatCountdown == 1500)
+      logGeometryMemory();
+    if (memStatCountdown > 1500) memStatCountdown = -1;
+  }
   // Roads are generated once at scene load, but their ready bags still incur
   // per-frame culling and submission. Price that work separately: otherwise a
   // road-only scene misleadingly reports the whole cost as "Procedural".
@@ -2124,6 +2134,7 @@ void TerrainGame::renderScene() {
   }
   { const u32 ct=costStart(); renderVehicleWheels(); costEnd("Wheels",-1,ct); }
   renderVehicleDebris();
+  { const u32 ct=costStart(); renderTrafficLamps(); costEnd("Traffic_lights",-1,ct); }
 
 #if TYRA_FRAME_PROFILE
   stapip.core.setTelemetryProducer(Tyra::StaPipProducerEffects);
@@ -2155,6 +2166,7 @@ void TerrainGame::renderScene() {
   // Visible light beams last: additive coronas/cones depth-test against the
   // finished scene (no z writes), so walls occlude them correctly.
   { const u32 ct=costStart(); updateAndRenderLightBeams(); costEnd("Light_beams",-1,ct); }
+  { const u32 ct=costStart(); renderRoadLamps(); costEnd("Road_lamps",-1,ct); }
   if (DEBUG_SHOW_PROFILER) g_profScene += profTicks() - profScene0;
   const u32 costHighlightStart=costStart();
   // Highlight shells after the whole scene so they depth-test against the
@@ -2235,6 +2247,7 @@ void TerrainGame::renderScene() {
 
   if (DEBUG_SHOW_PROFILER) g_profParticles += profTicks() - profPart0;
   costEnd("Particles",-1,costParticleStart);
+  { const u32 ct=costStart(); renderRain(); costEnd("Rain",-1,ct); }
   if (costSeq) {
     engine->renderer.core.sync.align3D();
     const float totalMs=(profTicks()-costTotalStart)/294912.0F;
@@ -2443,12 +2456,14 @@ void TerrainGame::renderMirroredObject(int index) {
   ObjectGeometry& g = objectGeometry[index];
   // Fast-path bodies hold local vertices under objMat - the copy composes
   // reflection * objMat, exactly like the animated path right below.
-  if (g.matrixMode) mirrorObjMat = mirrorMat * g.objMat;
+  // Shared instances (model-space bake under objMat) compose the same way.
+  const bool local = g.matrixMode || g.shared;
+  if (local) mirrorObjMat = mirrorMat * g.objMat;
   for (GeoPart& part : g.parts) {
     if (!part.bag) continue;
-    part.infoBag->model = g.matrixMode ? &mirrorObjMat : &mirrorMat;
+    part.infoBag->model = local ? &mirrorObjMat : &mirrorMat;
     stapip.core.render(part.bag.get());
-    part.infoBag->model = g.matrixMode ? &g.objMat : &model;
+    part.infoBag->model = local ? &g.objMat : &model;
   }
   if (g.animInfoBag && !g.animParts.empty()) {
     // The anim bags point at whatever updateAndRenderAnimObjects last
@@ -4542,12 +4557,22 @@ void TerrainGame::buildHighlightProxy(int index) {
 
   if (o.data.type == 5) {
     size_t total = 0;
-    for (const GeoPart& part : g.parts) total += part.vertices.size();
-    g.hullProxyVerts.reserve(total);
     for (const GeoPart& part : g.parts)
-      if (part.bag)
+      total += part.shared ? part.shared->vertices.size() : part.vertices.size();
+    g.hullProxyVerts.reserve(total);
+    for (const GeoPart& part : g.parts) {
+      if (!part.bag) continue;
+      if (part.shared) {
+        // The shells are drawn in WORLD space (renderOutlineShells scales
+        // them about the eye), so a shared instance's model-space bake goes
+        // through its objMat on the way in. Built once per rebuild.
+        for (const Vec4& v : part.shared->vertices)
+          g.hullProxyVerts.push_back(g.objMat * v);
+      } else {
         g.hullProxyVerts.insert(g.hullProxyVerts.end(), part.vertices.begin(),
                                 part.vertices.end());
+      }
+    }
   } else {
     SceneObjectData low = o.data;
     low.primDetail = 1;

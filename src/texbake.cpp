@@ -321,6 +321,9 @@ std::string bake(const Project& p,
         // "<track>.drone" patches (Drone Generator) describe how a WAV was
         // generated; the game only ever streams the WAV.
         if (lowerExt(rel) == ".drone") return true;
+        // "<road>.roadtex" recipes (Road Texture Generator) describe how a
+        // road PNG was generated; the game only ever loads the PNG.
+        if (lowerExt(rel) == ".roadtex") return true;
         const std::string top = rel.begin()->generic_string();
         // res/sky/ holds the painted skies' SOURCE panoramas; the game loads
         // only the crop baked into .res-baked/sky/ (docs/sky-texture.md).
@@ -577,11 +580,13 @@ std::string bake(const Project& p,
         // shadow/ is the baked-shadow cache - an explicit bake like gi/, so a
         // build must not sweep it - and shadowatlas/ its pages, regenerated
         // wholesale from that cache below.
+        // roadfile/ is the road tables on disk (docs/roads.md "Tables on
+        // disk"), written by the codegen refresh just before this bake.
         const std::string top0 = rel.begin()->generic_string();
         if (top0 == "stoch" || top0 == "aomap" || top0 == "aoatlas" ||
             top0 == "gi" || top0 == "modelao" || top0 == "vehicles" ||
             top0 == "shadow" || top0 == "shadowatlas" || top0 == "sky" ||
-            top0 == "gshadow")
+            top0 == "gshadow" || top0 == "roadfile")
             continue;
         // atlas pages have no res/ source; the atlas block below removes the
         // ones the current plan no longer produces

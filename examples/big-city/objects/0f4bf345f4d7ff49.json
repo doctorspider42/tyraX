@@ -1,0 +1,1 @@
+{ "id": "0f4bf345f4d7ff49", "name": "Building 1083", "type": "model", "position": [251.246, 0, 210.915], "rotation": [0, 0, 0], "scale": [2.039, 1.5798, 1.9847], "color": [1, 1, 1], "physics": false, "layer": "district-5-5", "drawDistance": 230, "castShadow": false, "model": "res/models/urban/district-tower.obj" }

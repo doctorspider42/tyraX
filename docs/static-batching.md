@@ -150,6 +150,19 @@ unchanged). On a physical PS2 (one ELF, toggled at boot) `bounds` fell
 0.10 ms in all four Motor District poses, and `work` 0.07-0.09 ms in the
 garage and 0.03 ms outside.
 
+## What a batch costs in EE RAM
+
+A batch is a second, merged, world-space copy of its members' geometry: 48
+bytes a vertex (position, lit colour, ST), and a member never draws a bake of
+its own, so for a batched object the batch IS its geometry. Since 1.173 a
+batch trims the growth slack its arrays used to keep (they grew by
+`push_back` and held up to twice their size for the whole scene) - 1.6 MB on
+the 1 km version of the big city. Objects that do not batch (streamed layers
+among them) draw from a shared model-space bake instead
+([instance-sharing.md](instance-sharing.md)), which on that city makes
+batching OFF the smaller arm in memory (25.3 against 27.3 MB) and the slower
+one in frame time. Batching stays the default; the trade is measured there.
+
 ## Excluding one object
 
 *Properties > Exclude from static batch*, or the checkbox in either of the

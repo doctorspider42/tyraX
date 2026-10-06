@@ -1088,6 +1088,10 @@ void TerrainGame::updateAndRenderLightPools() {
           } else if (runtimeObjects[oi].dirty) {
             rebuildObjectGeometry(oi);
           }
+          // This pass copies WORLD-space triangles and must land on the base
+          // pass's exact depth, which a shared instance (model space, VU1's
+          // own transform) cannot promise - it goes back to a solo bake.
+          unshareObject(oi);
           ObjectGeometry& g = objectGeometry[oi];
           // Nothing to re-render: animated models (skinned buffers) and
           // physics bodies (LOCAL verts under a live matrix - an EE transform
@@ -2076,6 +2080,7 @@ void TerrainGame::updateAndRenderLightPools() {
           } else if (runtimeObjects[oi].dirty) {
             rebuildObjectGeometry(oi);
           }
+          unshareObject(oi);  // world-space triangles, equal depth (above)
           ObjectGeometry& g = objectGeometry[oi];
           if (g.parts.empty() || g.matrixMode) continue;
           const float* oc = runtimeObjects[oi].data.position;
@@ -2488,8 +2493,10 @@ void TerrainGame::updateAndRenderBlobShadows() {
     // Object base: the player entity sits at its feet, everything else is
     // centered (base = center - halfY).
     if (b.objIndex == PLAYER_INDEX) halfY = 0.0F;
-    const float ground = groundSurfaceAt(cx, cz);
-    const float h = (d.position[1] - halfY) - ground;
+    // The surface under the caster, not a bridge deck above it.
+    const float casterBase = d.position[1] - halfY;
+    const float ground = groundSurfaceAt(cx, cz, casterBase + 0.5F);
+    const float h = casterBase - ground;
     float fade = 1.0F - h * (1.0F / 3.0F);
     // NOT the day/night handover fade (daynight::g_shadowFade), which the
     // projected silhouettes do take: this quad sits UNDER the caster and has no
@@ -2522,7 +2529,7 @@ void TerrainGame::updateAndRenderBlobShadows() {
     auto receiver = [&](float lx, float lz) {
       const float x = cx + lx * cy + lz * sy;
       const float z = cz - lx * sy + lz * cy;
-      return Vec4(x, groundSurfaceAt(x, z) + lift, z, 1.0F);
+      return Vec4(x, groundSurfaceAt(x, z, casterBase + 0.5F) + lift, z, 1.0F);
     };
     // A 3x3 cell patch has only 4x4 unique corners. groundSurfaceAt also
     // searches road/junction chunks and their triangles, so rebuilding the
@@ -3594,13 +3601,25 @@ void TerrainGame::renderProjShadows() {
     static BagArray<Vec4> projClamp;
     auto renderAtFloor = [&](StaPipBag* bag) {
       if (!bag || !bag->vertices || bag->count == 0) return;
+      // A shared instance's bag holds MODEL-space vertices under objMat
+      // (scale included): its floor test reads the world height through the
+      // matrix, and a clamped copy is made in world space and drawn under
+      // the identity for this one submit. The silhouette rasterizes alone
+      // into its own slot target, so nothing needs its depth to match.
+      const bool sharedCaster = g.shared;
+      const float* om = g.objMat.data;
       bool below = false;
       if (groundOk && !g.matrixMode)
-        for (u32 vi = 0; vi < bag->count; ++vi)
-          if (bag->vertices[vi].y < gy0 - 0.05F) {
+        for (u32 vi = 0; vi < bag->count; ++vi) {
+          const Vec4& v = bag->vertices[vi];
+          const float wy = sharedCaster
+                               ? om[1] * v.x + om[5] * v.y + om[9] * v.z + om[13]
+                               : v.y;
+          if (wy < gy0 - 0.05F) {
             below = true;
             break;
           }
+        }
       if (!below) {
         stapip.core.render(bag);
         return;
@@ -3614,8 +3633,14 @@ void TerrainGame::renderProjShadows() {
       // return while chains are still queued (vif1_queue.hpp).
       Tyra::Vif1Queue::drain();
       projClamp.assign(bag->vertices, bag->vertices + bag->count);
+      if (sharedCaster)
+        for (Vec4& v : projClamp) v = g.objMat * v;
       for (Vec4& v : projClamp)
         if (v.y < gy0) v.y = gy0;
+      // (the info bag is the base pass's, shared with the silhouette bag -
+      // swapped to the identity for this submit and handed straight back)
+      M4x4* const keepModel = bag->info->model;
+      if (sharedCaster) bag->info->model = &model;
       Vec4* const keepVerts = bag->vertices;
       const u32 keepStamp = bag->bboxVersion;
       // The bag is aimed at the shared clamp buffer for ONE render and put
@@ -3633,6 +3658,7 @@ void TerrainGame::renderProjShadows() {
       bag->vertices = keepVerts;
       bag->contentVersion = keepContent;
       bag->bboxVersion = keepStamp;
+      bag->info->model = keepModel;
     };
     // Which bag a static part casts from (TYRA_CHEAP_PROJ_CASTER, above).
     // The base bag is textured with per-vertex colours - 75 vertices a VU1
@@ -3877,6 +3903,9 @@ void TerrainGame::renderProjShadows() {
     } else if (runtimeObjects[wo].dirty) {
       rebuildObjectGeometry(wo);
     }
+    // The wall patch is coplanar with the wall: world-space triangles at the
+    // base pass's exact depth, so a shared wall goes back to a solo bake.
+    unshareObject(wo);
     ObjectGeometry& wg = objectGeometry[wo];
     if (wg.parts.empty() || wg.matrixMode) break;
     b.wallVerts.clear();

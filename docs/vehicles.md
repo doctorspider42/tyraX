@@ -141,6 +141,12 @@ Assign a vehicle a waypoint route to make it drive itself. AI uses the same
 handling, surface grip and collision model as the player, with steering and
 speed planning for bends and other cars.
 
+For cars that drive the ROAD NETWORK by themselves - lanes, stop lines, give
+way, traffic lights, spawned around the player and recycled - turn on
+[road traffic](traffic.md) instead: one project setting, no route to place.
+Its cars are vehicle instances of these same definitions, and its driver fills
+the same throttle, brake and steer.
+
 The Player flow nodes **Enter Vehicle**, **Exit Vehicle** and **Repair Vehicle**
 seat, release or repair the player without a pad press. Enter Vehicle can seat
 the player from anywhere, including at scene start. Repair Vehicle restores
@@ -179,6 +185,14 @@ With performance damage enabled, a fully wrecked car cannot drive until
 repaired. The HUD shows damage when relevant.
 
 ![Vehicle damage controls](img/vehicle-damage-dents.png)
+
+**Street furniture can break too.** On a road whose Street furniture is
+Breakable, a car at its kind's break speed knocks a lamp post, a sign, a
+bollard or a traffic light over instead of stopping at it. It keeps most of its
+speed, and the prop flies off as one of the debris pieces lost panels use (the
+same 8-slot pool, physics and batch). The speed the hit takes counts as an
+impact like any other, so a hard one can dent. See
+[roads.md, "Breakable furniture"](roads.md#breakable-furniture-format-109).
 
 ## Effects and display
 

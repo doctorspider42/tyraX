@@ -6,9 +6,9 @@ namespace Vehicle_playground {
 // Inline text icons: `{{name}}` in any text draws one of these
 // (docs/text-icons.md). One sheet for all of them - it reaches GS
 // VRAM only when a runtime text actually blits an icon.
-inline constexpr int ICON_COUNT = 16;
+inline constexpr int ICON_COUNT = 18;
 inline constexpr const char* ICON_SHEET = "hud/icons.png";
-inline constexpr int ICON_SHEET_W = 128;
+inline constexpr int ICON_SHEET_W = 256;
 inline constexpr int ICON_SHEET_H = 128;
 
 struct IconRect {
@@ -22,18 +22,20 @@ inline const IconRect ICONS[ICON_COUNT > 0 ? ICON_COUNT : 1] = {
     {"square", 32, 0, 32, 32, 1.0F},
     {"triangle", 64, 0, 32, 32, 1.0F},
     {"circle", 96, 0, 32, 32, 1.0F},
-    {"dpadup", 0, 32, 32, 32, 1.0F},
-    {"dpaddown", 32, 32, 32, 32, 1.0F},
-    {"dpadleft", 64, 32, 32, 32, 1.0F},
-    {"dpadright", 96, 32, 32, 32, 1.0F},
-    {"l1", 0, 64, 32, 32, 1.0F},
-    {"l2", 32, 64, 32, 32, 1.0F},
-    {"l3", 64, 64, 32, 32, 1.0F},
-    {"r1", 96, 64, 32, 32, 1.0F},
-    {"r2", 0, 96, 32, 32, 1.0F},
-    {"r3", 32, 96, 32, 32, 1.0F},
-    {"start", 64, 96, 32, 32, 1.0F},
-    {"select", 96, 96, 32, 32, 1.0F},
+    {"dpadup", 128, 0, 32, 32, 1.0F},
+    {"dpaddown", 160, 0, 32, 32, 1.0F},
+    {"dpadleft", 192, 0, 32, 32, 1.0F},
+    {"dpadright", 224, 0, 32, 32, 1.0F},
+    {"l1", 0, 32, 32, 32, 1.0F},
+    {"l2", 32, 32, 32, 32, 1.0F},
+    {"l3", 64, 32, 32, 32, 1.0F},
+    {"r1", 96, 32, 32, 32, 1.0F},
+    {"r2", 128, 32, 32, 32, 1.0F},
+    {"r3", 160, 32, 32, 32, 1.0F},
+    {"start", 192, 32, 32, 32, 1.0F},
+    {"select", 224, 32, 32, 32, 1.0F},
+    {"lstick", 0, 64, 32, 32, 1.0F},
+    {"rstick", 32, 64, 32, 32, 1.0F},
 };
 
 // Icon index per pad button (kPadButtonNames order), -1 = the

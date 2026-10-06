@@ -1,0 +1,1 @@
+{ "id": "daa4414749620225", "name": "Building 949", "type": "model", "position": [175.058, 0, -115.375], "rotation": [0, 0, 0], "scale": [1.9713, 1.8363, 2.1285], "color": [1, 1, 1], "physics": false, "layer": "district-5-3", "drawDistance": 300, "castShadow": false, "model": "res/models/urban/city-highrise-3.obj" }
