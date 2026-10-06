@@ -238,5 +238,165 @@
   {
     "path": "road/physical/launch-closeout-physical.ps1",
     "sha256": "269e4df8fb17c513d60498a8d06ac39924375f42cf23997650a64c9fefbd30ab"
+  },
+  {
+    "path": "two-cars/preparation/README.md",
+    "sha256": "78733a542a3974d1a9b481cd2b23ffa0e34110face7516a3b4ea46fc923c71f1"
+  },
+  {
+    "path": "two-cars/preparation/source-review.json",
+    "sha256": "863c6e464eac1a676a2bd85dc0446879439a3cfd5cbb2e1131d501fc4d80b691"
+  },
+  {
+    "path": "two-cars/preparation/source-content-census.json",
+    "sha256": "55e0777842a80bfba6b675e5284ca5d667f201fd77d618618ed60b7589bc8aca"
+  },
+  {
+    "path": "two-cars/preparation/native-proof.json",
+    "sha256": "646c58f9f45599c3ada02dd87ee716bfb4582120f9223772df39b550c74b7a45"
+  },
+  {
+    "path": "two-cars/preparation/bin-assets-source-pins.json",
+    "sha256": "30b207265f2e5ed849e7f09e78efbbe9613b22b53ef96a996629575c093aa37f"
+  },
+  {
+    "path": "two-cars/preparation/preparation-proof.json",
+    "sha256": "944139e1a1cddd7496595fb36d78cf686be8e7730ddadc45f88f872017d74d01"
+  },
+  {
+    "path": "two-cars/preparation/analyze-two.py",
+    "sha256": "cc7a8b5e36bc250d57ae451f2617a8fe11b5b512560364dd76144b47c2efe234"
+  },
+  {
+    "path": "two-cars/preparation/parser-controls-v1/proof.json",
+    "sha256": "f341d3850887a9fef8b44e1de37f5f22a3a846212c15197c4e66a82e400c5f05"
+  },
+  {
+    "path": "two-cars/preparation/root-emulator-review.json",
+    "sha256": "84b9b2c7b286e777192aba5d1b3ce19a0498ef1f724d7f943cf4229aec6a5a2e"
+  },
+  {
+    "path": "two-cars/emulator/owned-launch.json",
+    "sha256": "ef531933b7dd94a041d79ad8324f82b4b8cb056281f29bbef5516d0e147ee3c8"
+  },
+  {
+    "path": "two-cars/emulator/protocol-analysis.json",
+    "sha256": "261bace7c40a9280cc971452395d839f41df1e9c8d4f202abf388c260c582653"
+  },
+  {
+    "path": "two-cars/emulator/capture-final/runtime-emulator.log",
+    "sha256": "4f0002797c64aa734b497eda9edf3054c519ffe080a9e6910b2ac6d18479929b"
+  },
+  {
+    "path": "two-cars/emulator/capture-final/bin-closeout-samples.txt",
+    "sha256": "2ff920ac8e77831a2091f4fd6302d8672946de59295470ba510c0b9aa9ec986d"
+  },
+  {
+    "path": "two-cars/emulator/capture-final/observe-proof.json",
+    "sha256": "ba86191ff6ec9e8ca618decdedc1484e823257092eaaf5dbfdc482e77396081c"
+  },
+  {
+    "path": "two-cars/emulator/capture-start/frame.png",
+    "sha256": "7267c3b0f3592d857c7caae903ddef7cb65ffa87cabd2fc2f9c7e33df2785e0a"
+  },
+  {
+    "path": "two-cars/emulator/capture-drive/frame.png",
+    "sha256": "d1cdcc2147cbd2a38b293bf3cd40e87405fc616f2d32e12ac017337414f22259"
+  },
+  {
+    "path": "two-cars/emulator/capture-final/frame.png",
+    "sha256": "dde47f70bf08f68f0c5fc7941b66df73844af904f47b077ca7c7f87e46f8bbe8"
+  },
+  {
+    "path": "two-cars/rejected-physical-start.json",
+    "sha256": "c3855db6c3b9c51eacde88005038531a2398566ceb8130943e56b6c99c19a652"
+  },
+  {
+    "path": "two-cars/authored-second-car.json",
+    "sha256": "66c72ea24a729a5fdd37045a9402c4c813e67204c0edadba98839bacdd823cf6"
+  },
+  {
+    "path": "two-cars/empty_route.hpp",
+    "sha256": "2301a91b2009219bc0274e31651e016cf92f9c5c8c97c7e8a0ee26095fde4739"
+  },
+  {
+    "path": "two-cars/empty_witness.hpp",
+    "sha256": "608e3b61210ed7035e8de8c52342dea796a059b4f19c9d85532c9f2463d72ebb"
+  },
+  {
+    "path": "two-cars/root-runtime-review.json",
+    "sha256": "e5d872c48d198ccc5f55ed498be9c078df70cd87d6a8d7c1a7c7a385beac7b59"
+  },
+  {
+    "path": "two-cars/physical/completed-stdout.raw",
+    "sha256": "f3744e80a27bda0cf216608635bc716c0ab9cd24f21d91718ea6d17c4fbee0e3"
+  },
+  {
+    "path": "two-cars/physical/stdout.utf8.log",
+    "sha256": "f3744e80a27bda0cf216608635bc716c0ab9cd24f21d91718ea6d17c4fbee0e3"
+  },
+  {
+    "path": "two-cars/physical/bin/closeout-samples.txt",
+    "sha256": "680b2a8558fe95c0d84ae93aa3a0ee51aa0ba77012dd18a876c77f4a571a96b9"
+  },
+  {
+    "path": "two-cars/physical/launch-inputs.json",
+    "sha256": "1de196d029184d728d66f4fb5a3c485e65187612c6c8e0e5f8af87e4bd9a933a"
+  },
+  {
+    "path": "two-cars/physical/owned-launch.json",
+    "sha256": "5585950e4222e99fee67f4fa19c636ddeb8ea2f7f80c82474d7bfd612b7beedb"
+  },
+  {
+    "path": "two-cars/physical/protocol-analysis.json",
+    "sha256": "de071a1e7140766f007638b6044589c5a92db72a361c85809683799eb393d0c7"
+  },
+  {
+    "path": "two-cars/physical/physical-review.json",
+    "sha256": "28e7eb480b94ea8638efe27ebf531cde1b6b962ebf81979210d0cae4b0926601"
+  },
+  {
+    "path": "two-cars/physical/root-cadence-review.json",
+    "sha256": "81afd24a87730f448d604bdec66220cd510572735d5adf18f5450eca667b1843"
+  },
+  {
+    "path": "two-cars/physical/finish-two-cars-physical.py",
+    "sha256": "1c426d78d50c0fd75f2a645026774abf9b4ed440fe696bbef2fa1dd2f1e8f87d"
+  },
+  {
+    "path": "two-cars/reset-audit/report.md",
+    "sha256": "c4fbd40b42a5589c3d75dba5107bdda44ce42ae8c1cf8a57b9a03c26a6fd8d69"
+  },
+  {
+    "path": "two-cars/reset-audit/identities.json",
+    "sha256": "21493882761ee4b037fb4d721b6de15a8e8f9bea725e4b0f36198ebbcd6f2c3c"
+  },
+  {
+    "path": "two-cars/reset-audit/main.disassembly.txt",
+    "sha256": "66f9e9e54b2d4f7b18471e9db0ef75dfe0ed500e91f8143b1271304c4ee9e1e5"
+  },
+  {
+    "path": "two-cars/reset-audit/network_connect.disassembly.txt",
+    "sha256": "0f248c86e892111a0aec9c3af48e4b329582f80fed3fbd849e5e29c3d7059a3a"
+  },
+  {
+    "path": "two-cars/reset-audit/network_send.disassembly.txt",
+    "sha256": "a22c2b68b24be25943cf9be80f8d12e10f69ba842adc9ca356d395e7a40e50f4"
+  },
+  {
+    "path": "two-cars/reset-audit/ps2link_command_reset.disassembly.txt",
+    "sha256": "709cb58b0834e833b0f694b9786e5782745d7d8d070d526499e30455da7d8bab"
+  },
+  {
+    "path": "two-cars/reset-audit/ps2link_connect.disassembly.txt",
+    "sha256": "c6a68de0f1c157b03a747e7e6774ce259551fb46ba5b87eca2b3e5b9e81f0564"
+  },
+  {
+    "path": "two-cars/reset-audit/ps2link_disconnect.disassembly.txt",
+    "sha256": "243219f3db7b27f7d3398cb42dcb847d1f171a56c5c249f3d78af9331a59a38e"
+  },
+  {
+    "path": "two-cars/reset-audit/ps2link_mainloop.disassembly.txt",
+    "sha256": "340115d8f05ed669d7ee761621509e01ce7c56d6eaf4e3b520f2f30db427b132"
   }
 ]

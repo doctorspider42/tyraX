@@ -1,0 +1,6 @@
+{
+  "stdoutBytes": 0,
+  "hardwarePerformanceQualified": false,
+  "status": "REJECTED_NO_LOADELF_AFTER_NETWORK_RESET_TIMEOUT",
+  "ownedClientStopped": true
+}

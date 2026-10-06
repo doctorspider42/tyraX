@@ -1,0 +1,45 @@
+
+/mnt/f/Projects/tyra-editor/tools/ps2client/bin/ps2client.exe:     file format pei-x86-64
+
+
+Disassembly of section .text:
+
+0000000140001600 <ps2link_mainloop>:
+   140001600:	56                   	push   %rsi
+   140001601:	53                   	push   %rbx
+   140001602:	48 83 ec 28          	sub    $0x28,%rsp
+   140001606:	89 ce                	mov    %ecx,%esi
+   140001608:	8b 0d 12 4b 00 00    	mov    0x4b12(%rip),%ecx        # 140006120 <command_socket>
+   14000160e:	e8 bd 22 00 00       	call   1400038d0 <network_disconnect>
+   140001613:	85 c0                	test   %eax,%eax
+   140001615:	78 62                	js     140001679 <ps2link_mainloop+0x79>
+   140001617:	85 f6                	test   %esi,%esi
+   140001619:	74 3f                	je     14000165a <ps2link_mainloop+0x5a>
+   14000161b:	78 46                	js     140001663 <ps2link_mainloop+0x63>
+   14000161d:	8b 05 bd 8a 00 00    	mov    0x8abd(%rip),%eax        # 14000a0e0 <ps2link_counter>
+   140001623:	48 8b 1d 4e 9e 00 00 	mov    0x9e4e(%rip),%rbx        # 14000b478 <__imp_Sleep>
+   14000162a:	8d 50 01             	lea    0x1(%rax),%edx
+   14000162d:	39 c6                	cmp    %eax,%esi
+   14000162f:	89 15 ab 8a 00 00    	mov    %edx,0x8aab(%rip)        # 14000a0e0 <ps2link_counter>
+   140001635:	7e 23                	jle    14000165a <ps2link_mainloop+0x5a>
+   140001637:	66 0f 1f 84 00 00 00 	nopw   0x0(%rax,%rax,1)
+   14000163e:	00 00 
+   140001640:	b9 e8 03 00 00       	mov    $0x3e8,%ecx
+   140001645:	ff d3                	call   *%rbx
+   140001647:	8b 05 93 8a 00 00    	mov    0x8a93(%rip),%eax        # 14000a0e0 <ps2link_counter>
+   14000164d:	8d 50 01             	lea    0x1(%rax),%edx
+   140001650:	39 f0                	cmp    %esi,%eax
+   140001652:	89 15 88 8a 00 00    	mov    %edx,0x8a88(%rip)        # 14000a0e0 <ps2link_counter>
+   140001658:	7c e6                	jl     140001640 <ps2link_mainloop+0x40>
+   14000165a:	31 c0                	xor    %eax,%eax
+   14000165c:	48 83 c4 28          	add    $0x28,%rsp
+   140001660:	5b                   	pop    %rbx
+   140001661:	5e                   	pop    %rsi
+   140001662:	c3                   	ret    
+   140001663:	48 8b 1d 0e 9e 00 00 	mov    0x9e0e(%rip),%rbx        # 14000b478 <__imp_Sleep>
+   14000166a:	66 0f 1f 44 00 00    	nopw   0x0(%rax,%rax,1)
+   140001670:	b9 c0 27 09 00       	mov    $0x927c0,%ecx
+   140001675:	ff d3                	call   *%rbx
+   140001677:	eb f7                	jmp    140001670 <ps2link_mainloop+0x70>
+   140001679:	b8 ff ff ff ff       	mov    $0xffffffff,%eax
+   14000167e:	eb dc                	jmp    14000165c <ps2link_mainloop+0x5c>

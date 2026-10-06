@@ -1,0 +1,301 @@
+
+/mnt/f/Projects/tyra-editor/tools/ps2client/bin/ps2client.exe:     file format pei-x86-64
+
+
+Disassembly of section .text:
+
+0000000140005860 <main>:
+   140005860:	55                   	push   %rbp
+   140005861:	57                   	push   %rdi
+   140005862:	56                   	push   %rsi
+   140005863:	53                   	push   %rbx
+   140005864:	48 83 ec 28          	sub    $0x28,%rsp
+   140005868:	4c 89 c6             	mov    %r8,%rsi
+   14000586b:	48 89 d7             	mov    %rdx,%rdi
+   14000586e:	89 cd                	mov    %ecx,%ebp
+   140005870:	e8 8b e4 ff ff       	call   140003d00 <__main>
+   140005875:	b9 01 00 00 00       	mov    $0x1,%ecx
+   14000587a:	ff 15 68 5d 00 00    	call   *0x5d68(%rip)        # 14000b5e8 <__imp___acrt_iob_func>
+   140005880:	31 d2                	xor    %edx,%edx
+   140005882:	48 89 c1             	mov    %rax,%rcx
+   140005885:	e8 1e fe ff ff       	call   1400056a8 <setbuf>
+   14000588a:	48 8b 1e             	mov    (%rsi),%rbx
+   14000588d:	48 85 db             	test   %rbx,%rbx
+   140005890:	74 56                	je     1400058e8 <main+0x88>
+   140005892:	48 83 c6 08          	add    $0x8,%rsi
+   140005896:	eb 14                	jmp    1400058ac <main+0x4c>
+   140005898:	0f 1f 84 00 00 00 00 	nopl   0x0(%rax,%rax,1)
+   14000589f:	00 
+   1400058a0:	48 8b 1e             	mov    (%rsi),%rbx
+   1400058a3:	48 83 c6 08          	add    $0x8,%rsi
+   1400058a7:	48 85 db             	test   %rbx,%rbx
+   1400058aa:	74 3c                	je     1400058e8 <main+0x88>
+   1400058ac:	48 8d 15 4d 17 00 00 	lea    0x174d(%rip),%rdx        # 140007000 <.rdata>
+   1400058b3:	41 b8 0b 00 00 00    	mov    $0xb,%r8d
+   1400058b9:	48 89 d9             	mov    %rbx,%rcx
+   1400058bc:	e8 67 fd ff ff       	call   140005628 <strncmp>
+   1400058c1:	85 c0                	test   %eax,%eax
+   1400058c3:	75 db                	jne    1400058a0 <main+0x40>
+   1400058c5:	48 8d 53 0c          	lea    0xc(%rbx),%rdx
+   1400058c9:	48 83 c6 08          	add    $0x8,%rsi
+   1400058cd:	41 b8 00 01 00 00    	mov    $0x100,%r8d
+   1400058d3:	48 8d 0d 46 07 00 00 	lea    0x746(%rip),%rcx        # 140006020 <hostname>
+   1400058da:	e8 51 fd ff ff       	call   140005630 <strncpy>
+   1400058df:	48 8b 5e f8          	mov    -0x8(%rsi),%rbx
+   1400058e3:	48 85 db             	test   %rbx,%rbx
+   1400058e6:	75 c4                	jne    1400058ac <main+0x4c>
+   1400058e8:	83 fd 01             	cmp    $0x1,%ebp
+   1400058eb:	0f 8e 0a 02 00 00    	jle    140005afb <main+0x29b>
+   1400058f1:	48 8b 47 08          	mov    0x8(%rdi),%rax
+   1400058f5:	48 8d 5f 10          	lea    0x10(%rdi),%rbx
+   1400058f9:	be 01 00 00 00       	mov    $0x1,%esi
+   1400058fe:	48 85 c0             	test   %rax,%rax
+   140005901:	0f 84 91 02 00 00    	je     140005b98 <main+0x338>
+   140005907:	66 0f 1f 84 00 00 00 	nopw   0x0(%rax,%rax,1)
+   14000590e:	00 00 
+   140005910:	0f b6 10             	movzbl (%rax),%edx
+   140005913:	83 fa 2d             	cmp    $0x2d,%edx
+   140005916:	0f 84 94 01 00 00    	je     140005ab0 <main+0x250>
+   14000591c:	83 c6 01             	add    $0x1,%esi
+   14000591f:	29 f5                	sub    %esi,%ebp
+   140005921:	0f 88 e7 01 00 00    	js     140005b0e <main+0x2ae>
+   140005927:	48 8d 1c f7          	lea    (%rdi,%rsi,8),%rbx
+   14000592b:	e8 b0 dc ff ff       	call   1400035e0 <network_startup>
+   140005930:	85 c0                	test   %eax,%eax
+   140005932:	0f 88 0c 02 00 00    	js     140005b44 <main+0x2e4>
+   140005938:	48 8d 0d e1 06 00 00 	lea    0x6e1(%rip),%rcx        # 140006020 <hostname>
+   14000593f:	e8 dc bb ff ff       	call   140001520 <ps2link_connect>
+   140005944:	85 c0                	test   %eax,%eax
+   140005946:	0f 88 28 02 00 00    	js     140005b74 <main+0x314>
+   14000594c:	48 8b 73 f8          	mov    -0x8(%rbx),%rsi
+   140005950:	48 8d 15 9f 17 00 00 	lea    0x179f(%rip),%rdx        # 1400070f6 <.rdata+0xf6>
+   140005957:	48 89 f1             	mov    %rsi,%rcx
+   14000595a:	e8 b1 fc ff ff       	call   140005610 <strcmp>
+   14000595f:	85 c0                	test   %eax,%eax
+   140005961:	0f 84 ba 01 00 00    	je     140005b21 <main+0x2c1>
+   140005967:	48 8d 15 8e 17 00 00 	lea    0x178e(%rip),%rdx        # 1400070fc <.rdata+0xfc>
+   14000596e:	48 89 f1             	mov    %rsi,%rcx
+   140005971:	e8 9a fc ff ff       	call   140005610 <strcmp>
+   140005976:	85 c0                	test   %eax,%eax
+   140005978:	0f 84 d9 01 00 00    	je     140005b57 <main+0x2f7>
+   14000597e:	48 8d 15 7f 17 00 00 	lea    0x177f(%rip),%rdx        # 140007104 <.rdata+0x104>
+   140005985:	48 89 f1             	mov    %rsi,%rcx
+   140005988:	e8 83 fc ff ff       	call   140005610 <strcmp>
+   14000598d:	85 c0                	test   %eax,%eax
+   14000598f:	0f 84 f7 01 00 00    	je     140005b8c <main+0x32c>
+   140005995:	48 8d 15 6f 17 00 00 	lea    0x176f(%rip),%rdx        # 14000710b <.rdata+0x10b>
+   14000599c:	48 89 f1             	mov    %rsi,%rcx
+   14000599f:	e8 6c fc ff ff       	call   140005610 <strcmp>
+   1400059a4:	85 c0                	test   %eax,%eax
+   1400059a6:	0f 84 b7 01 00 00    	je     140005b63 <main+0x303>
+   1400059ac:	48 8d 15 61 17 00 00 	lea    0x1761(%rip),%rdx        # 140007114 <.rdata+0x114>
+   1400059b3:	48 89 f1             	mov    %rsi,%rcx
+   1400059b6:	e8 55 fc ff ff       	call   140005610 <strcmp>
+   1400059bb:	85 c0                	test   %eax,%eax
+   1400059bd:	0f 84 dd 01 00 00    	je     140005ba0 <main+0x340>
+   1400059c3:	48 8d 15 52 17 00 00 	lea    0x1752(%rip),%rdx        # 14000711c <.rdata+0x11c>
+   1400059ca:	48 89 f1             	mov    %rsi,%rcx
+   1400059cd:	e8 3e fc ff ff       	call   140005610 <strcmp>
+   1400059d2:	85 c0                	test   %eax,%eax
+   1400059d4:	0f 84 da 01 00 00    	je     140005bb4 <main+0x354>
+   1400059da:	48 8d 15 43 17 00 00 	lea    0x1743(%rip),%rdx        # 140007124 <.rdata+0x124>
+   1400059e1:	48 89 f1             	mov    %rsi,%rcx
+   1400059e4:	e8 27 fc ff ff       	call   140005610 <strcmp>
+   1400059e9:	85 c0                	test   %eax,%eax
+   1400059eb:	0f 84 d7 01 00 00    	je     140005bc8 <main+0x368>
+   1400059f1:	48 8d 15 34 17 00 00 	lea    0x1734(%rip),%rdx        # 14000712c <.rdata+0x12c>
+   1400059f8:	48 89 f1             	mov    %rsi,%rcx
+   1400059fb:	e8 10 fc ff ff       	call   140005610 <strcmp>
+   140005a00:	85 c0                	test   %eax,%eax
+   140005a02:	0f 84 e8 01 00 00    	je     140005bf0 <main+0x390>
+   140005a08:	48 8d 15 25 17 00 00 	lea    0x1725(%rip),%rdx        # 140007134 <.rdata+0x134>
+   140005a0f:	48 89 f1             	mov    %rsi,%rcx
+   140005a12:	e8 f9 fb ff ff       	call   140005610 <strcmp>
+   140005a17:	85 c0                	test   %eax,%eax
+   140005a19:	0f 84 ed 01 00 00    	je     140005c0c <main+0x3ac>
+   140005a1f:	48 8d 15 15 17 00 00 	lea    0x1715(%rip),%rdx        # 14000713b <.rdata+0x13b>
+   140005a26:	48 89 f1             	mov    %rsi,%rcx
+   140005a29:	e8 e2 fb ff ff       	call   140005610 <strcmp>
+   140005a2e:	85 c0                	test   %eax,%eax
+   140005a30:	0f 84 f2 01 00 00    	je     140005c28 <main+0x3c8>
+   140005a36:	48 8d 15 06 17 00 00 	lea    0x1706(%rip),%rdx        # 140007143 <.rdata+0x143>
+   140005a3d:	48 89 f1             	mov    %rsi,%rcx
+   140005a40:	e8 cb fb ff ff       	call   140005610 <strcmp>
+   140005a45:	85 c0                	test   %eax,%eax
+   140005a47:	0f 84 30 02 00 00    	je     140005c7d <main+0x41d>
+   140005a4d:	48 8d 15 f6 16 00 00 	lea    0x16f6(%rip),%rdx        # 14000714a <.rdata+0x14a>
+   140005a54:	48 89 f1             	mov    %rsi,%rcx
+   140005a57:	e8 b4 fb ff ff       	call   140005610 <strcmp>
+   140005a5c:	85 c0                	test   %eax,%eax
+   140005a5e:	0f 84 f1 01 00 00    	je     140005c55 <main+0x3f5>
+   140005a64:	48 8d 15 e8 16 00 00 	lea    0x16e8(%rip),%rdx        # 140007153 <.rdata+0x153>
+   140005a6b:	48 89 f1             	mov    %rsi,%rcx
+   140005a6e:	e8 9d fb ff ff       	call   140005610 <strcmp>
+   140005a73:	85 c0                	test   %eax,%eax
+   140005a75:	0f 84 c8 01 00 00    	je     140005c43 <main+0x3e3>
+   140005a7b:	48 8d 15 da 16 00 00 	lea    0x16da(%rip),%rdx        # 14000715c <.rdata+0x15c>
+   140005a82:	48 89 f1             	mov    %rsi,%rcx
+   140005a85:	e8 86 fb ff ff       	call   140005610 <strcmp>
+   140005a8a:	85 c0                	test   %eax,%eax
+   140005a8c:	0f 84 9e 00 00 00    	je     140005b30 <main+0x2d0>
+   140005a92:	48 8d 0d cf 16 00 00 	lea    0x16cf(%rip),%rcx        # 140007168 <.rdata+0x168>
+   140005a99:	48 89 f2             	mov    %rsi,%rdx
+   140005a9c:	e8 df f9 ff ff       	call   140005480 <printf>
+   140005aa1:	e8 ba df ff ff       	call   140003a60 <print_usage>
+   140005aa6:	eb 58                	jmp    140005b00 <main+0x2a0>
+   140005aa8:	0f 1f 84 00 00 00 00 	nopl   0x0(%rax,%rax,1)
+   140005aaf:	00 
+   140005ab0:	80 78 01 68          	cmpb   $0x68,0x1(%rax)
+   140005ab4:	0f 85 df 01 00 00    	jne    140005c99 <main+0x439>
+   140005aba:	8d 46 01             	lea    0x1(%rsi),%eax
+   140005abd:	39 c5                	cmp    %eax,%ebp
+   140005abf:	74 2e                	je     140005aef <main+0x28f>
+   140005ac1:	48 8b 13             	mov    (%rbx),%rdx
+   140005ac4:	48 8d 0d 55 05 00 00 	lea    0x555(%rip),%rcx        # 140006020 <hostname>
+   140005acb:	41 b8 00 01 00 00    	mov    $0x100,%r8d
+   140005ad1:	e8 5a fb ff ff       	call   140005630 <strncpy>
+   140005ad6:	48 8b 43 08          	mov    0x8(%rbx),%rax
+   140005ada:	48 83 c3 10          	add    $0x10,%rbx
+   140005ade:	83 c6 02             	add    $0x2,%esi
+   140005ae1:	48 85 c0             	test   %rax,%rax
+   140005ae4:	0f 85 26 fe ff ff    	jne    140005910 <main+0xb0>
+   140005aea:	e9 2d fe ff ff       	jmp    14000591c <main+0xbc>
+   140005aef:	48 8d 0d 1a 15 00 00 	lea    0x151a(%rip),%rcx        # 140007010 <.rdata+0x10>
+   140005af6:	e8 a5 fb ff ff       	call   1400056a0 <puts>
+   140005afb:	e8 60 df ff ff       	call   140003a60 <print_usage>
+   140005b00:	b8 ff ff ff ff       	mov    $0xffffffff,%eax
+   140005b05:	48 83 c4 28          	add    $0x28,%rsp
+   140005b09:	5b                   	pop    %rbx
+   140005b0a:	5e                   	pop    %rsi
+   140005b0b:	5f                   	pop    %rdi
+   140005b0c:	5d                   	pop    %rbp
+   140005b0d:	c3                   	ret    
+   140005b0e:	48 8d 0d 63 15 00 00 	lea    0x1563(%rip),%rcx        # 140007078 <.rdata+0x78>
+   140005b15:	e8 86 fb ff ff       	call   1400056a0 <puts>
+   140005b1a:	e8 41 df ff ff       	call   140003a60 <print_usage>
+   140005b1f:	eb df                	jmp    140005b00 <main+0x2a0>
+   140005b21:	e8 ba bb ff ff       	call   1400016e0 <ps2link_command_reset>
+   140005b26:	45 31 db             	xor    %r11d,%r11d
+   140005b29:	44 89 1d d0 04 00 00 	mov    %r11d,0x4d0(%rip)        # 140006000 <__data_start__>
+   140005b30:	8b 0d ca 04 00 00    	mov    0x4ca(%rip),%ecx        # 140006000 <__data_start__>
+   140005b36:	e8 c5 ba ff ff       	call   140001600 <ps2link_mainloop>
+   140005b3b:	e8 40 bb ff ff       	call   140001680 <ps2link_disconnect>
+   140005b40:	31 c0                	xor    %eax,%eax
+   140005b42:	eb c1                	jmp    140005b05 <main+0x2a5>
+   140005b44:	48 8d 0d 4d 15 00 00 	lea    0x154d(%rip),%rcx        # 140007098 <.rdata+0x98>
+   140005b4b:	e8 50 fb ff ff       	call   1400056a0 <puts>
+   140005b50:	b8 01 00 00 00       	mov    $0x1,%eax
+   140005b55:	eb ae                	jmp    140005b05 <main+0x2a5>
+   140005b57:	48 89 da             	mov    %rbx,%rdx
+   140005b5a:	89 e9                	mov    %ebp,%ecx
+   140005b5c:	e8 bf bb ff ff       	call   140001720 <ps2link_command_execiop>
+   140005b61:	eb cd                	jmp    140005b30 <main+0x2d0>
+   140005b63:	e8 98 bc ff ff       	call   140001800 <ps2link_command_poweroff>
+   140005b68:	45 31 d2             	xor    %r10d,%r10d
+   140005b6b:	44 89 15 8e 04 00 00 	mov    %r10d,0x48e(%rip)        # 140006000 <__data_start__>
+   140005b72:	eb bc                	jmp    140005b30 <main+0x2d0>
+   140005b74:	48 8d 15 a5 04 00 00 	lea    0x4a5(%rip),%rdx        # 140006020 <hostname>
+   140005b7b:	48 8d 0d 3e 15 00 00 	lea    0x153e(%rip),%rcx        # 1400070c0 <.rdata+0xc0>
+   140005b82:	e8 f9 f8 ff ff       	call   140005480 <printf>
+   140005b87:	e9 74 ff ff ff       	jmp    140005b00 <main+0x2a0>
+   140005b8c:	48 89 da             	mov    %rbx,%rdx
+   140005b8f:	89 e9                	mov    %ebp,%ecx
+   140005b91:	e8 fa bb ff ff       	call   140001790 <ps2link_command_execee>
+   140005b96:	eb 98                	jmp    140005b30 <main+0x2d0>
+   140005b98:	83 ed 02             	sub    $0x2,%ebp
+   140005b9b:	e9 8b fd ff ff       	jmp    14000592b <main+0xcb>
+   140005ba0:	e8 9b bc ff ff       	call   140001840 <ps2link_command_scrdump>
+   140005ba5:	45 31 c9             	xor    %r9d,%r9d
+   140005ba8:	44 89 0d 51 04 00 00 	mov    %r9d,0x451(%rip)        # 140006000 <__data_start__>
+   140005baf:	e9 7c ff ff ff       	jmp    140005b30 <main+0x2d0>
+   140005bb4:	e8 c7 bc ff ff       	call   140001880 <ps2link_command_netdump>
+   140005bb9:	45 31 c0             	xor    %r8d,%r8d
+   140005bbc:	44 89 05 3d 04 00 00 	mov    %r8d,0x43d(%rip)        # 140006000 <__data_start__>
+   140005bc3:	e9 68 ff ff ff       	jmp    140005b30 <main+0x2d0>
+   140005bc8:	48 8b 4b 08          	mov    0x8(%rbx),%rcx
+   140005bcc:	48 8b 7b 10          	mov    0x10(%rbx),%rdi
+   140005bd0:	e8 fb fb ff ff       	call   1400057d0 <atoi>
+   140005bd5:	48 8b 0b             	mov    (%rbx),%rcx
+   140005bd8:	89 c6                	mov    %eax,%esi
+   140005bda:	e8 f1 fb ff ff       	call   1400057d0 <atoi>
+   140005bdf:	49 89 f8             	mov    %rdi,%r8
+   140005be2:	89 f2                	mov    %esi,%edx
+   140005be4:	89 c1                	mov    %eax,%ecx
+   140005be6:	e8 d5 bc ff ff       	call   1400018c0 <ps2link_command_dumpmem>
+   140005beb:	e9 40 ff ff ff       	jmp    140005b30 <main+0x2d0>
+   140005bf0:	48 8b 0b             	mov    (%rbx),%rcx
+   140005bf3:	e8 d8 fb ff ff       	call   1400057d0 <atoi>
+   140005bf8:	89 c1                	mov    %eax,%ecx
+   140005bfa:	e8 41 bd ff ff       	call   140001940 <ps2link_command_startvu>
+   140005bff:	31 c9                	xor    %ecx,%ecx
+   140005c01:	89 0d f9 03 00 00    	mov    %ecx,0x3f9(%rip)        # 140006000 <__data_start__>
+   140005c07:	e9 24 ff ff ff       	jmp    140005b30 <main+0x2d0>
+   140005c0c:	48 8b 0b             	mov    (%rbx),%rcx
+   140005c0f:	e8 bc fb ff ff       	call   1400057d0 <atoi>
+   140005c14:	89 c1                	mov    %eax,%ecx
+   140005c16:	e8 75 bd ff ff       	call   140001990 <ps2link_command_stopvu>
+   140005c1b:	31 d2                	xor    %edx,%edx
+   140005c1d:	89 15 dd 03 00 00    	mov    %edx,0x3dd(%rip)        # 140006000 <__data_start__>
+   140005c23:	e9 08 ff ff ff       	jmp    140005b30 <main+0x2d0>
+   140005c28:	48 8b 0b             	mov    (%rbx),%rcx
+   140005c2b:	48 8b 73 08          	mov    0x8(%rbx),%rsi
+   140005c2f:	e8 9c fb ff ff       	call   1400057d0 <atoi>
+   140005c34:	89 c1                	mov    %eax,%ecx
+   140005c36:	48 89 f2             	mov    %rsi,%rdx
+   140005c39:	e8 a2 bd ff ff       	call   1400019e0 <ps2link_command_dumpreg>
+   140005c3e:	e9 ed fe ff ff       	jmp    140005b30 <main+0x2d0>
+   140005c43:	e8 18 bf ff ff       	call   140001b60 <ps2link_command_iopexcep>
+   140005c48:	31 c0                	xor    %eax,%eax
+   140005c4a:	89 05 b0 03 00 00    	mov    %eax,0x3b0(%rip)        # 140006000 <__data_start__>
+   140005c50:	e9 db fe ff ff       	jmp    140005b30 <main+0x2d0>
+   140005c55:	48 8b 4b 08          	mov    0x8(%rbx),%rcx
+   140005c59:	48 8b 7b 10          	mov    0x10(%rbx),%rdi
+   140005c5d:	e8 6e fb ff ff       	call   1400057d0 <atoi>
+   140005c62:	48 8b 0b             	mov    (%rbx),%rcx
+   140005c65:	89 c6                	mov    %eax,%esi
+   140005c67:	e8 64 fb ff ff       	call   1400057d0 <atoi>
+   140005c6c:	49 89 f8             	mov    %rdi,%r8
+   140005c6f:	89 f2                	mov    %esi,%edx
+   140005c71:	89 c1                	mov    %eax,%ecx
+   140005c73:	e8 68 be ff ff       	call   140001ae0 <ps2link_command_writemem>
+   140005c78:	e9 b3 fe ff ff       	jmp    140005b30 <main+0x2d0>
+   140005c7d:	48 8b 0b             	mov    (%rbx),%rcx
+   140005c80:	48 8b 73 08          	mov    0x8(%rbx),%rsi
+   140005c84:	e8 47 fb ff ff       	call   1400057d0 <atoi>
+   140005c89:	0f b7 c8             	movzwl %ax,%ecx
+   140005c8c:	48 89 f2             	mov    %rsi,%rdx
+   140005c8f:	e8 cc bd ff ff       	call   140001a60 <ps2link_command_gsexec>
+   140005c94:	e9 97 fe ff ff       	jmp    140005b30 <main+0x2d0>
+   140005c99:	83 fa 2d             	cmp    $0x2d,%edx
+   140005c9c:	0f 85 7a fc ff ff    	jne    14000591c <main+0xbc>
+   140005ca2:	80 78 01 74          	cmpb   $0x74,0x1(%rax)
+   140005ca6:	0f 85 70 fc ff ff    	jne    14000591c <main+0xbc>
+   140005cac:	8d 46 01             	lea    0x1(%rsi),%eax
+   140005caf:	39 c5                	cmp    %eax,%ebp
+   140005cb1:	74 13                	je     140005cc6 <main+0x466>
+   140005cb3:	48 8b 0b             	mov    (%rbx),%rcx
+   140005cb6:	e8 15 fb ff ff       	call   1400057d0 <atoi>
+   140005cbb:	89 05 3f 03 00 00    	mov    %eax,0x33f(%rip)        # 140006000 <__data_start__>
+   140005cc1:	e9 10 fe ff ff       	jmp    140005ad6 <main+0x276>
+   140005cc6:	48 8d 0d 7b 13 00 00 	lea    0x137b(%rip),%rcx        # 140007048 <.rdata+0x48>
+   140005ccd:	e8 ce f9 ff ff       	call   1400056a0 <puts>
+   140005cd2:	e8 89 dd ff ff       	call   140003a60 <print_usage>
+   140005cd7:	e9 24 fe ff ff       	jmp    140005b00 <main+0x2a0>
+   140005cdc:	90                   	nop
+   140005cdd:	90                   	nop
+   140005cde:	90                   	nop
+   140005cdf:	90                   	nop
+
+0000000140005ce0 <register_frame_ctor>:
+   140005ce0:	e9 8b b7 ff ff       	jmp    140001470 <__gcc_register_frame>
+   140005ce5:	90                   	nop
+   140005ce6:	90                   	nop
+   140005ce7:	90                   	nop
+   140005ce8:	90                   	nop
+   140005ce9:	90                   	nop
+   140005cea:	90                   	nop
+   140005ceb:	90                   	nop
+   140005cec:	90                   	nop
+   140005ced:	90                   	nop
+   140005cee:	90                   	nop
+   140005cef:	90                   	nop

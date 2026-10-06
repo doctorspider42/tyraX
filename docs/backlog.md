@@ -512,6 +512,9 @@ recovered 0.50-0.72 ms of hardware `work`. What it did not do, ranked:
   Adding one untextured S road also holds approximately59.94Hz at1.38/2.40/1.33ms,
   including normal road contact queries and bounded feedback steering; large
   networks, terrain and scene effects remain outside this isolation result.
+  A nearby Pica Turbo plus Ravager also holds approximately59.94Hz at1.90/2.80/1.89ms,
+  with positive per-model body/wheel witnesses and TV confirmation; the route
+  is shortened to retain both in view, so no causal incremental price follows.
   The host-crash partial attempt is preserved and excluded; its fresh retry completes.
 
   The [eleven-box main-only batching trial](tyrax2-main11-batch.md) completes
