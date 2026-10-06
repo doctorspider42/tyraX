@@ -1,0 +1,17 @@
+{
+  "status": "FROZEN_COMPLETED_PREFIX_NEWLINE_REASSEMBLY_ONLY",
+  "rawPrefixSha256": "cdb2d742f6d1056c083e18bea43adf263238883aa5a656c0ad436f38b19c1f9a",
+  "normalizedSha256": "d5d3debc08b542326d053160907be34ba4734f147747f03ab668adbcc5858cfa",
+  "samplesSha256": "51dd9317faf909f29d273317c47ace24c0e50e89d6b7c0b7fc0c829657245681",
+  "recordCounts": {
+    "CLOSEOUTCONFIG": 1,
+    "CLOSEOUTPHASE": 3,
+    "CLOSEOUTCONTEXT": 6,
+    "DAYPOSE": 5,
+    "DAYSELECT": 1,
+    "DAYPARK": 1,
+    "CLOSEOUTDONE": 1
+  },
+  "method": "Remove transport CR/LF only; extract bounded known record families through their explicit terminal field; no field/value repair. Strict parser independently validates counts and cross-record identities.",
+  "terminalClientExitClaim": false
+}

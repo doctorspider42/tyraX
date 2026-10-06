@@ -167,3 +167,14 @@ The [stationary batching contrast](tyrax2-empty-car-2026-10-06/batch/README.md) 
 The [first physical batching contrast](tyrax2-empty-car-2026-10-06/batch/physical-order0/README.md) completes5400 loops: ON/OFF/ON15.4751/20.0728/15.4748 ms,approximately59.94/29.97/59.94 Hz. Identical80187 accepted inputs and37/313 carriers yield4.5978 ms OFF-minus-ON with0.000348 ms outer spread. This prices net representation on this fixture,not pure EE or fixed bag cost; reverse hardware and physical TV checks remain pending. It supports fragmentation as a practical optimization lead without diagnosing the whole production night.
 
 The [reverse physical batching order and authored-map audit](tyrax2-empty-car-2026-10-06/batch/physical-order1/README.md) complete:20.2152/15.4757/20.2528 ms OFF/ON/OFF,matching80187 accepted inputs and37/313 carriers. Reverse corroborates direction,but its initial OFF precedes lazy combined-array bake; the earlier preparation claim of identical fully baked residency across every reverse phase is corrected. First order ON warms both representations before all measured phases and its4.5978 ms is the cleaner estimate. Vehicle Playground already enables batching; its authored report has77 eligible objects,37 grouped into28 groups; this is not a new4.60 ms production optimization. Historical night-box merging had zero activation under correct light/reflection guards. Both hardware orders are complete; TV confirmation remains pending.
+
+The [full-city daylight drive diagnosis](tyrax2-city-day-drive-2026-10-06/README.md)
+reproduces transient drops: the slowest64-loop moving window has15.5815 ms
+non-pacing work and21.1150 ms entry period (~47.36 Hz). Two later windows with
+the camera held at that chunk's representative midpoint have13.5018/13.5003 ms
+work and~59.94 Hz. Driving raw work p95/max is19.3025/22.0631 ms; parked raw
+windows have no over-budget work or >25 ms entry intervals. Full physics/logic
+continue, with slight parked-car drift and exact cold camera matching. This
+supports investigating transient motion/view work without dismissing the whole
+city as uniformly too expensive. It does not isolate physics from changing
+visibility, price observer overhead or resolve full-night stable60.

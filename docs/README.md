@@ -12,6 +12,9 @@ for people building games with it. Internals live in code comments, the git log
 - [TyraX2 closeout qualification](tyrax2-closeout.md) — bounded public receiver,
   sampler, night dressing and motion/portal checks through eight physical
   protocols, with ordinary timing traps and remaining stable-60 limits.
+- [Full-city daylight drive diagnosis](tyrax2-city-day-drive-2026-10-06/README.md) —
+  physical driving spikes versus two near-stationary representative-view windows,
+  with preserved sampler, pose witnesses and limits on causal attribution.
 
 - [Animated models (.glb / .fbx)](animated-models.md) — authoring in Blender, import,
   clip playback, flow nodes and the script API, the PS2 memory budget.

@@ -1,0 +1,285 @@
+{
+  "status": "PASS_COMPLETED_DAY_DRIVE_REPRESENTATIVE_PARK_PROTOCOL",
+  "route": "vehicle",
+  "portalColdCounts": null,
+  "byPhase": {
+    "0": {
+      "players": 0,
+      "geometryHidden": 0,
+      "sampler": 1,
+      "chunkMeanNonPacingMs": 6.271827581193712,
+      "chunkMeanEntryMs": 16.68349685668945,
+      "perChunkMeanEntryMs": [
+        16.683364179399277,
+        16.68361186981201,
+        16.683142873975967,
+        16.683352364434135,
+        16.684012995825874
+      ],
+      "maxObservedChunkMeanEntryMs": 16.684012995825874,
+      "renderedCompletions": 320,
+      "syntheticCompletions": 0,
+      "rawStats": {
+        "entryPeriod": {
+          "count": 128,
+          "meanMs": 16.6833365228441,
+          "p50Ms": 16.683349609375,
+          "p95Ms": 16.698059421115452,
+          "maxMs": 16.704881456163193,
+          "over16_68": 105,
+          "over16_68Percent": 82.03125,
+          "percentileMethod": "linear interpolation over sorted raw values"
+        },
+        "wholeLoop": {
+          "count": 128,
+          "meanMs": 16.68237386809455,
+          "p50Ms": 16.68235100640191,
+          "p95Ms": 16.697059122721353,
+          "maxMs": 16.703881157769096,
+          "over16_68": 106,
+          "over16_68Percent": 82.8125,
+          "percentileMethod": "linear interpolation over sorted raw values"
+        },
+        "nonPacingLoop": {
+          "count": 128,
+          "meanMs": 6.743851449754503,
+          "p50Ms": 6.4679819742838545,
+          "p95Ms": 9.01831512451172,
+          "maxMs": 11.530958387586805,
+          "over16_68": 0,
+          "over16_68Percent": 0.0,
+          "percentileMethod": "linear interpolation over sorted raw values"
+        },
+        "singleRenderedPeriod": {
+          "count": 128,
+          "meanMs": 16.68334968884786,
+          "p50Ms": 16.683349609375,
+          "p95Ms": 16.686254882812502,
+          "maxMs": 16.702823215060764,
+          "over16_68": 121,
+          "over16_68Percent": 94.53125,
+          "percentileMethod": "linear interpolation over sorted raw values"
+        }
+      }
+    },
+    "1": {
+      "players": 0,
+      "geometryHidden": 0,
+      "sampler": 1,
+      "chunkMeanNonPacingMs": 5.349280367957221,
+      "chunkMeanEntryMs": 16.683349651760526,
+      "perChunkMeanEntryMs": [
+        16.683349715338814,
+        16.683357344733345,
+        16.683349397447373,
+        16.68342489666409,
+        16.683266904619003
+      ],
+      "maxObservedChunkMeanEntryMs": 16.68342489666409,
+      "renderedCompletions": 320,
+      "syntheticCompletions": 0,
+      "rawStats": {
+        "entryPeriod": {
+          "count": 128,
+          "meanMs": 16.68335337109036,
+          "p50Ms": 16.683349609375,
+          "p95Ms": 16.695574781629773,
+          "maxMs": 16.699178059895832,
+          "over16_68": 118,
+          "over16_68Percent": 92.1875,
+          "percentileMethod": "linear interpolation over sorted raw values"
+        },
+        "wholeLoop": {
+          "count": 128,
+          "meanMs": 16.68235198656718,
+          "p50Ms": 16.682349310980904,
+          "p95Ms": 16.694574483235677,
+          "maxMs": 16.698177761501736,
+          "over16_68": 118,
+          "over16_68Percent": 92.1875,
+          "percentileMethod": "linear interpolation over sorted raw values"
+        },
+        "nonPacingLoop": {
+          "count": 128,
+          "meanMs": 5.347942643695408,
+          "p50Ms": 5.346716986762153,
+          "p95Ms": 5.3822511461046005,
+          "maxMs": 5.387169731987847,
+          "over16_68": 0,
+          "over16_68Percent": 0.0,
+          "percentileMethod": "linear interpolation over sorted raw values"
+        },
+        "singleRenderedPeriod": {
+          "count": 128,
+          "meanMs": 16.68334968884786,
+          "p50Ms": 16.683349609375,
+          "p95Ms": 16.68451419406467,
+          "maxMs": 16.699178059895832,
+          "over16_68": 122,
+          "over16_68Percent": 95.3125,
+          "percentileMethod": "linear interpolation over sorted raw values"
+        }
+      }
+    },
+    "2": {
+      "players": 0,
+      "geometryHidden": 0,
+      "sampler": 1,
+      "chunkMeanNonPacingMs": 5.350171237521701,
+      "chunkMeanEntryMs": 16.683349651760526,
+      "perChunkMeanEntryMs": [
+        16.68334976832072,
+        16.68335707982381,
+        16.683349556393093,
+        16.683635976579453,
+        16.683055877685547
+      ],
+      "maxObservedChunkMeanEntryMs": 16.683635976579453,
+      "renderedCompletions": 320,
+      "syntheticCompletions": 0,
+      "rawStats": {
+        "entryPeriod": {
+          "count": 128,
+          "meanMs": 16.6833532916175,
+          "p50Ms": 16.683349609375,
+          "p95Ms": 16.693744913736978,
+          "maxMs": 16.70110405815972,
+          "over16_68": 120,
+          "over16_68Percent": 93.75,
+          "percentileMethod": "linear interpolation over sorted raw values"
+        },
+        "wholeLoop": {
+          "count": 128,
+          "meanMs": 16.682351933585274,
+          "p50Ms": 16.682349310980904,
+          "p95Ms": 16.692744615342882,
+          "maxMs": 16.700103759765625,
+          "over16_68": 119,
+          "over16_68Percent": 92.96875,
+          "percentileMethod": "linear interpolation over sorted raw values"
+        },
+        "nonPacingLoop": {
+          "count": 128,
+          "meanMs": 5.350023614035712,
+          "p50Ms": 5.348753187391493,
+          "p95Ms": 5.381492614746094,
+          "maxMs": 5.421291775173611,
+          "over16_68": 0,
+          "over16_68Percent": 0.0,
+          "percentileMethod": "linear interpolation over sorted raw values"
+        },
+        "singleRenderedPeriod": {
+          "count": 128,
+          "meanMs": 16.68334963586595,
+          "p50Ms": 16.683349609375,
+          "p95Ms": 16.68392300075955,
+          "maxMs": 16.700297037760418,
+          "over16_68": 124,
+          "over16_68Percent": 96.875,
+          "percentileMethod": "linear interpolation over sorted raw values"
+        }
+      }
+    }
+  },
+  "movedAtColdEndpoints": {
+    "0": true,
+    "1": false,
+    "2": false
+  },
+  "oneArm": true,
+  "matchedAB": false,
+  "hardwarePerformanceQualified": false,
+  "nativeSixtyFpsAccepted": false,
+  "commonControllerObserverCostUnpriced": true,
+  "limitations": [
+    "Cold positions are endpoints, not trajectory proof.",
+    "Phase world state carries forward; no savings comparison.",
+    "Worst window is maximum observed64-loop mean, not worst frame or p99.",
+    "128 raw loops per phase do not cover all measured chunks.",
+    "Emulator qualifies controller/scene correctness only; hardware cadence remains separate.",
+    "Private quieting, controller and observer footprint remain unpriced; hardware performance needs root qualification.",
+    "Moving window changes its view; parked view is the selected midpoint, not a pixel-identical moving-frame A/B.",
+    "One-time relocation and speed clearing occur outside measured windows. Normal physics/logic continue.",
+    "New pose storage and fixed-camera selector overhead are unpriced.",
+    "hourZero is an inherited field name: in this fixture it verifies noon (12), not midnight."
+  ],
+  "selectedChunk": 1,
+  "representativeDrivePose": {
+    "chunk": "1",
+    "sampleFrame": "896",
+    "workTicks": "134817065",
+    "carX": "bee68331",
+    "carY": "3edf3b5f",
+    "carZ": "c2793926",
+    "yaw": "c0fae780",
+    "pitch": "33502978",
+    "roll": "b1f00126",
+    "camX": "3e13df8a",
+    "camY": "4028b437",
+    "camZ": "c2898e9e",
+    "lookX": "bee68331",
+    "lookY": "3f9a5e32",
+    "lookZ": "c2793926"
+  },
+  "parkedPositions": [
+    {
+      "phase": 1,
+      "offset": 750,
+      "x": -0.45021966099739075,
+      "y": 0.4359998404979706,
+      "z": -62.305809020996094,
+      "speed": 1.090860290986484e-09,
+      "driftXZ": 0.0
+    },
+    {
+      "phase": 1,
+      "offset": 1155,
+      "x": -0.45021966099739075,
+      "y": 0.4359998404979706,
+      "z": -62.305809020996094,
+      "speed": 1.090860290986484e-09,
+      "driftXZ": 0.0
+    },
+    {
+      "phase": 2,
+      "offset": 750,
+      "x": -0.45021966099739075,
+      "y": 0.4359998404979706,
+      "z": -62.305809020996094,
+      "speed": 1.090860290986484e-09,
+      "driftXZ": 0.0
+    },
+    {
+      "phase": 2,
+      "offset": 1155,
+      "x": -0.45021966099739075,
+      "y": 0.4359998404979706,
+      "z": -62.305809020996094,
+      "speed": 1.090860290986484e-09,
+      "driftXZ": 0.0
+    }
+  ],
+  "perChunkNonPacingMs": {
+    "0": [
+      5.949609756469727,
+      7.142865127987331,
+      6.988155629899767,
+      6.009896066453722,
+      5.268611325158013
+    ],
+    "1": [
+      5.3486743503146705,
+      5.351250701480442,
+      5.347792784372966,
+      5.351667828030056,
+      5.347016175587972
+    ],
+    "2": [
+      5.3473214573330345,
+      5.352990097469753,
+      5.349316067165798,
+      5.352989461686876,
+      5.348239103953044
+    ]
+  }
+}

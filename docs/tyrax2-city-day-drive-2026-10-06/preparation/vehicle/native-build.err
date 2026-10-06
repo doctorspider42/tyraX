@@ -1,0 +1,167 @@
+In file included from src/engine.cpp:15:
+inc/debug/closeout.hpp: In function 'void Closeout::begin(unsigned int)':
+inc/debug/closeout.hpp:27:35: error: a function-definition is not allowed here before '{' token
+   27 | inline void after(unsigned pacing){
+      |                                   ^
+inc/debug/closeout.hpp:23:56: warning: unused variable 'o' [-Wunused-variable]
+   23 |  const unsigned f=NightSampler::expectedIndex,p=f/1800,o=f%1800;
+      |                                                        ^
+src/engine.cpp: At global scope:
+src/engine.cpp:22:1: error: 'Engine' does not name a type; did you mean 'inline'?
+   22 | Engine::Engine() { initAll(EngineOptions()); }
+      | ^~~~~~
+      | inline
+src/engine.cpp:24:1: error: 'Engine' does not name a type; did you mean 'inline'?
+   24 | Engine::Engine(const EngineOptions& options) {
+      | ^~~~~~
+      | inline
+src/engine.cpp:29:1: error: 'Engine' does not name a type; did you mean 'inline'?
+   29 | Engine::~Engine() {}
+      | ^~~~~~
+      | inline
+src/engine.cpp:31:6: error: 'Engine' has not been declared; did you mean 'inline'?
+   31 | void Engine::run(Game* t_game) {
+      |      ^~~~~~
+      |      inline
+src/engine.cpp:31:6: error: variable or field 'run' declared void
+src/engine.cpp:31:18: error: 'Game' was not declared in this scope; did you mean 'Tyra::Game'?
+   31 | void Engine::run(Game* t_game) {
+      |                  ^~~~
+      |                  Tyra::Game
+In file included from inc/engine.hpp:20,
+                 from src/engine.cpp:14:
+inc/./game.hpp:15:7: note: 'Tyra::Game' declared here
+   15 | class Game {
+      |       ^~~~
+src/engine.cpp:31:24: error: 't_game' was not declared in this scope; did you mean 'tzname'?
+   31 | void Engine::run(Game* t_game) {
+      |                        ^~~~~~
+      |                        tzname
+src/engine.cpp:41:6: error: 'Engine' has not been declared; did you mean 'inline'?
+   41 | void Engine::realLoop() {
+      |      ^~~~~~
+      |      inline
+src/engine.cpp: In function 'void Closeout::Tyra::realLoop()':
+src/engine.cpp:42:19: error: 'renderer' was not declared in this scope
+   42 |   Closeout::begin(renderer.core.getStallTotal());
+      |                   ^~~~~~~~
+src/engine.cpp:43:3: error: 'HardwareTrace' has not been declared
+   43 |   HardwareTrace::beginFrame();
+      |   ^~~~~~~~~~~~~
+src/engine.cpp:44:5: error: 'HardwareTrace' has not been declared
+   44 |   { HardwareTrace::Scope trace("Pad", HardwareTrace::Kind::Span, false); pad.update(); }
+      |     ^~~~~~~~~~~~~
+src/engine.cpp:44:74: error: 'pad' was not declared in this scope
+   44 |   { HardwareTrace::Scope trace("Pad", HardwareTrace::Kind::Span, false); pad.update(); }
+      |                                                                          ^~~
+src/engine.cpp:45:7: error: 'kbdMouse' was not declared in this scope
+   45 |   if (kbdMouse.isEnabled()) kbdMouse.update();
+      |       ^~~~~~~~
+src/engine.cpp:46:5: error: 'HardwareTrace' has not been declared
+   46 |   { HardwareTrace::Scope trace("Game", HardwareTrace::Kind::Span, false); game->loop(); }
+      |     ^~~~~~~~~~~~~
+src/engine.cpp:46:75: error: 'game' was not declared in this scope
+   46 |   { HardwareTrace::Scope trace("Game", HardwareTrace::Kind::Span, false); game->loop(); }
+      |                                                                           ^~~~
+src/engine.cpp:47:5: error: 'HardwareTrace' has not been declared
+   47 |   { HardwareTrace::Scope trace("Info", HardwareTrace::Kind::Span, false); info.update(); }
+      |     ^~~~~~~~~~~~~
+src/engine.cpp:47:75: error: 'info' was not declared in this scope
+   47 |   { HardwareTrace::Scope trace("Info", HardwareTrace::Kind::Span, false); info.update(); }
+      |                                                                           ^~~~
+src/engine.cpp:50:3: error: 'HardwareTrace' has not been declared
+   50 |   HardwareTrace::endFrame();
+      |   ^~~~~~~~~~~~~
+src/engine.cpp:51:13: error: 'after' is not a member of 'Closeout'
+   51 |   Closeout::after(renderer.core.getStallTotal());
+      |             ^~~~~
+src/engine.cpp: At global scope:
+src/engine.cpp:54:6: error: 'Engine' has not been declared; did you mean 'inline'?
+   54 | void Engine::initAll(const EngineOptions& options) {
+      |      ^~~~~~
+      |      inline
+src/engine.cpp:54:28: error: 'EngineOptions' does not name a type
+   54 | void Engine::initAll(const EngineOptions& options) {
+      |                            ^~~~~~~~~~~~~
+src/engine.cpp: In function 'void Closeout::Tyra::initAll(const int&)':
+src/engine.cpp:86:29: error: 'IrxLoader' has not been declared
+   86 |   const bool underPs2Link = IrxLoader::keepIopResident;
+      |                             ^~~~~~~~~
+src/engine.cpp:88:15: error: request for member 'loadUsbKbdMouse' in 'options', which is of non-class type 'const int'
+   88 |       options.loadUsbKbdMouse &&
+      |               ^~~~~~~~~~~~~~~
+src/engine.cpp:89:33: error: request for member 'loadUsbKbdMouseUnderPs2Link' in 'options', which is of non-class type 'const int'
+   89 |       (!underPs2Link || options.loadUsbKbdMouseUnderPs2Link);
+      |                                 ^~~~~~~~~~~~~~~~~~~~~~~~~~~
+src/engine.cpp:91:3: error: 'irx' was not declared in this scope
+   91 |   irx.loadAll(options.loadUsbDriver, loadOwnHid, info.writeLogsToFile);
+      |   ^~~
+src/engine.cpp:91:23: error: request for member 'loadUsbDriver' in 'options', which is of non-class type 'const int'
+   91 |   irx.loadAll(options.loadUsbDriver, loadOwnHid, info.writeLogsToFile);
+      |                       ^~~~~~~~~~~~~
+src/engine.cpp:91:50: error: 'info' was not declared in this scope
+   91 |   irx.loadAll(options.loadUsbDriver, loadOwnHid, info.writeLogsToFile);
+      |                                                  ^~~~
+src/engine.cpp:93:3: error: 'RendererOptions' was not declared in this scope; did you mean 'Tyra::RendererOptions'?
+   93 |   RendererOptions rendererOptions;
+      |   ^~~~~~~~~~~~~~~
+      |   Tyra::RendererOptions
+In file included from inc/./renderer/./core/./2d/renderer_core_2d.hpp:19,
+                 from inc/./renderer/./core/renderer_core.hpp:21,
+                 from inc/./renderer/renderer.hpp:14,
+                 from inc/engine.hpp:13:
+inc/renderer/renderer_settings.hpp:71:8: note: 'Tyra::RendererOptions' declared here
+   71 | struct RendererOptions {
+      |        ^~~~~~~~~~~~~~~
+src/engine.cpp:94:3: error: 'rendererOptions' was not declared in this scope
+   94 |   rendererOptions.videoMode = options.videoMode;
+      |   ^~~~~~~~~~~~~~~
+src/engine.cpp:94:39: error: request for member 'videoMode' in 'options', which is of non-class type 'const int'
+   94 |   rendererOptions.videoMode = options.videoMode;
+      |                                       ^~~~~~~~~
+src/engine.cpp:95:41: error: request for member 'displayMode' in 'options', which is of non-class type 'const int'
+   95 |   rendererOptions.displayMode = options.displayMode;
+      |                                         ^~~~~~~~~~~
+src/engine.cpp:96:40: error: request for member 'widescreen' in 'options', which is of non-class type 'const int'
+   96 |   rendererOptions.widescreen = options.widescreen;
+      |                                        ^~~~~~~~~~
+src/engine.cpp:97:40: error: request for member 'colorDepth' in 'options', which is of non-class type 'const int'
+   97 |   rendererOptions.colorDepth = options.colorDepth;
+      |                                        ^~~~~~~~~~
+src/engine.cpp:98:36: error: request for member 'dither' in 'options', which is of non-class type 'const int'
+   98 |   rendererOptions.dither = options.dither;
+      |                                    ^~~~~~
+src/engine.cpp:99:36: error: request for member 'envMapTarget' in 'options', which is of non-class type 'const int'
+   99 |   rendererOptions.envMap = options.envMapTarget;
+      |                                    ^~~~~~~~~~~~
+src/engine.cpp:100:37: error: request for member 'camFeedTarget' in 'options', which is of non-class type 'const int'
+  100 |   rendererOptions.camFeed = options.camFeedTarget;
+      |                                     ^~~~~~~~~~~~~
+src/engine.cpp:101:45: error: request for member 'tripleBuffering' in 'options', which is of non-class type 'const int'
+  101 |   rendererOptions.tripleBuffering = options.tripleBuffering;
+      |                                             ^~~~~~~~~~~~~~~
+src/engine.cpp:102:3: error: 'renderer' was not declared in this scope
+  102 |   renderer.init(rendererOptions);
+      |   ^~~~~~~~
+src/engine.cpp:103:3: error: 'banner' was not declared in this scope
+  103 |   banner.show(&renderer);
+      |   ^~~~~~
+src/engine.cpp:104:3: error: 'audio' was not declared in this scope
+  104 |   audio.init();
+      |   ^~~~~
+src/engine.cpp:105:3: error: 'pad' was not declared in this scope
+  105 |   pad.init();
+      |   ^~~
+src/engine.cpp:106:21: error: 'kbdMouse' was not declared in this scope; did you mean 'withKbdMouse'?
+  106 |   if (withKbdMouse) kbdMouse.init(underPs2Link);
+      |                     ^~~~~~~~
+      |                     withKbdMouse
+src/engine.cpp: At global scope:
+src/engine.cpp:109:2: error: expected '}' at end of input
+  109 | }  // namespace Tyra
+      |  ^
+inc/debug/closeout.hpp:8:20: note: to match this '{'
+    8 | namespace Closeout {
+      |                    ^
+make: *** [../Makefile.base:168: obj/engine.o] Error 1
+make: *** Waiting for unfinished jobs....
