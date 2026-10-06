@@ -1,0 +1,43 @@
+{
+  "status": "ROOT_REVIEWED_CLOSEOUT_INPUTS",
+  "rootReviewed": true,
+  "noAddedWaitsReviewed": true,
+  "ordinarySamplerOnlyReviewed": true,
+  "sourceFrozenByRoot": true,
+  "fixture": "/mnt/f/Projects/tyrax2-lab-20261001/tyrax2-closeout-road-two-cars-light-buildings-80k-shadow-v1/empty-car",
+  "inputs": [
+    {
+      "role": "source-review",
+      "path": "/mnt/f/Projects/tyrax2-lab-20261001/tyrax2-closeout-road-two-cars-light-buildings-80k-shadow-v1/source-review.json",
+      "sha256": "96a57c1bb8699b1c476a0ecba1d4c399b5f7314e20f4149c6c6dd30c5fd2df96"
+    },
+    {
+      "role": "native-proof",
+      "path": "/mnt/f/Projects/tyrax2-lab-20261001/tyrax2-closeout-road-two-cars-light-buildings-80k-shadow-v1/native-proof.json",
+      "sha256": "a6327a88f9cb6f9cc5cd46d3f1d7983976615202a7580061ac56e5934754f193"
+    },
+    {
+      "role": "elf",
+      "path": "/mnt/f/Projects/tyrax2-lab-20261001/tyrax2-closeout-road-two-cars-light-buildings-80k-shadow-v1/empty-car/bin/empty-car.elf",
+      "sha256": "43bf00dee91cf3aeef58f17d90c5f420c060dedd6d5fedcd7dbf121cb29c6710"
+    },
+    {
+      "role": "symbol",
+      "path": "/mnt/f/Projects/tyrax2-lab-20261001/tyrax2-closeout-road-two-cars-light-buildings-80k-shadow-v1/empty-car/bin/empty-car.elf.sym",
+      "sha256": "05ab6f65aa38c37a3606c1b18ae499b1d5702e25354a8da8ce8b6bf5b798f782"
+    },
+    {
+      "role": "sample-config",
+      "path": "/mnt/f/Projects/tyrax2-lab-20261001/tyrax2-closeout-road-two-cars-light-buildings-80k-shadow-v1/empty-car/bin/closeout.cfg",
+      "sha256": "968c76efed47eb02a2a77c542c9128dfd4e9c7066629920b2d8c3231081e7623"
+    }
+  ],
+  "changedSources": [
+    "game/inc/scene_data.hpp",
+    "game/src/gen/game_lighting.gen.cpp",
+    "game/src/gen/scene_objects.gen.cpp",
+    "game/src/terrain_game.cpp",
+    "tyra/engine/inc/debug/empty_witness.hpp"
+  ],
+  "reviewScope": "Normal Ravager-only shadowMode2 enables existing 54-vertex textured blob; no projected shadow, baked AO, other FX or algorithm changes. Root reviewed both cached and rebuilt renderWorldBag cold scopes using carrier56 and separate accepted-blob partition. Fifty buildings and ordinary sampler/controller retained; no added Count reads/waits. Source/native/assets frozen. Hot common observer footprint unpriced; accepted carrier input is not raster or postclip proof."
+}

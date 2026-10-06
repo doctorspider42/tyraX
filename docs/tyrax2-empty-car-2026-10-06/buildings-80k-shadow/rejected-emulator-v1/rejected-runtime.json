@@ -1,0 +1,12 @@
+{
+  "status": "REJECTED_MISSING_DEFAULT_BLOB_RESOURCE",
+  "missingResource": "hud/flare-glow.png",
+  "sourceLog": "runtime/emulator.log",
+  "sourceLogSha256": "c06c9ece9f2f53776f9e1791503bd4089fdf7cbaaf5da9b631739e1476a2bed7",
+  "completed5400Observed": true,
+  "hardwareTimingQualified": false,
+  "runtimeQualified": false,
+  "rendererRegressionClaim": false,
+  "activeVehicleMaskLoadedNotSufficientForAssetClosure": true,
+  "correction": "Repeat unchanged source and ELF with a separate pinned runtime asset closure including public default flare-glow.png."
+}

@@ -2438,5 +2438,273 @@
   {
     "path": "buildings-80k/preparation/referenced-runtime-assets.json",
     "sha256": "ee75575c05c4f63a7bca0908a43a664c8f0738d664e5c8aa125f49a240f09895"
+  },
+  {
+    "path": "buildings-80k-shadow/preparation/README.md",
+    "sha256": "cad0cdaad3484264c59f757517953ac5c6257382888ffc794ab54207831d0ac0"
+  },
+  {
+    "path": "buildings-80k-shadow/preparation/source-review.json",
+    "sha256": "96a57c1bb8699b1c476a0ecba1d4c399b5f7314e20f4149c6c6dd30c5fd2df96"
+  },
+  {
+    "path": "buildings-80k-shadow/preparation/native-proof.json",
+    "sha256": "a6327a88f9cb6f9cc5cd46d3f1d7983976615202a7580061ac56e5934754f193"
+  },
+  {
+    "path": "buildings-80k-shadow/preparation/native-proof.py",
+    "sha256": "fed91ad588cbb3cb28729c5e65c6f824db03a9073c84fec4eb83233dbdc15ddc"
+  },
+  {
+    "path": "buildings-80k-shadow/preparation/bin-assets-source-pins.json",
+    "sha256": "6ff79a9c78c4579eafa2f0066159c6b6bdd0539b76f570bc144425ddca0008d9"
+  },
+  {
+    "path": "buildings-80k-shadow/preparation/analyze-shadow.py",
+    "sha256": "45907dd9e3279845a88a2a5bd6b5f2a41e5c159d3e7612ae3432ebfe217dc828"
+  },
+  {
+    "path": "buildings-80k-shadow/preparation/parser-controls-v2/proof.json",
+    "sha256": "31b1eada0b8bb1dcff90fffbf8acf51273111b55f48f6cfacb6a4fee3f55942a"
+  },
+  {
+    "path": "buildings-80k-shadow/preparation/native-build.log",
+    "sha256": "e89ea95b790546cab67b9c8066315d2391664b24a3267f7453afca707846bee6"
+  },
+  {
+    "path": "buildings-80k-shadow/preparation/native-build-v2.log",
+    "sha256": "d52e4fc83fa0819a472f25b740b93ccbd49303f8a2f127097b89f64a72dd1bd1"
+  },
+  {
+    "path": "buildings-80k-shadow/preparation/root-emulator-review.json",
+    "sha256": "3aea1828053aad0378d29b2e12b795e73a51307e4d18d196cdd871b1e3cebe10"
+  },
+  {
+    "path": "buildings-80k-shadow/preparation/root-runtime-review.json",
+    "sha256": "3a38c95080f41f9b4cb4ef42a63feaf7583a1530f7a273b6174c43f4eee19a53"
+  },
+  {
+    "path": "buildings-80k-shadow/preparation/parent-resave.stdout",
+    "sha256": "399a5b427a8dece679996f05bdb796a03b1b77e66cced3b9eda131319dba3ce4"
+  },
+  {
+    "path": "buildings-80k-shadow/preparation/parent-resave.stderr",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "buildings-80k-shadow/preparation/parent-refresh-gen.stdout",
+    "sha256": "fbe46ce716702b30c7da59daf939bdcec299d686df90d7e71be8a85df7d314f5"
+  },
+  {
+    "path": "buildings-80k-shadow/preparation/parent-refresh-gen.stderr",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "buildings-80k-shadow/preparation/shadow-resave.stdout",
+    "sha256": "3a335aaa483799004d9a996e3da7a47106c2822377b3ac503579cb61318318b7"
+  },
+  {
+    "path": "buildings-80k-shadow/preparation/shadow-resave.stderr",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "buildings-80k-shadow/preparation/shadow-refresh-gen.stdout",
+    "sha256": "f6e097a5f9f7a97244dab3307ed57f8cc7ac385317d2e961ab2a03e6a0b5da43"
+  },
+  {
+    "path": "buildings-80k-shadow/preparation/shadow-refresh-gen.stderr",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "buildings-80k-shadow/changed-source/empty-car/inc/scene_data.hpp",
+    "sha256": "197074011d6cd388059918944c42975d88f5a7dce5e6297bde807d3f52a34da5"
+  },
+  {
+    "path": "buildings-80k-shadow/changed-source/empty-car/src/terrain_game.cpp",
+    "sha256": "77c0a3d1603a4cac8f6b39ae8faed5870dc754e611eb32e4b414df13bb92d6c8"
+  },
+  {
+    "path": "buildings-80k-shadow/changed-source/empty-car/src/gen/game_lighting.gen.cpp",
+    "sha256": "cf715b8bf6de37b7bfb7509a572ddb16a78dee5a11c64273af9b86bb5460d3a8"
+  },
+  {
+    "path": "buildings-80k-shadow/changed-source/empty-car/src/gen/scene_objects.gen.cpp",
+    "sha256": "5978a3861aa3e866892caafe4f62092a674eab41345d2cb6a3fe906df11425b7"
+  },
+  {
+    "path": "buildings-80k-shadow/changed-source/tyra/engine/inc/debug/empty_witness.hpp",
+    "sha256": "c33b8ca62e55e1b824b1fd49a2422922da9e0fa78abb50f4fec66a5354441671"
+  },
+  {
+    "path": "buildings-80k-shadow/authored-source/emptyravager0001.json",
+    "sha256": "a0061162b28f60158910e152cf3bab04d128efb7111e764c81ed3ac8ba4959b2"
+  },
+  {
+    "path": "buildings-80k-shadow/preparation/prepare-shadow.py",
+    "sha256": "978e25043e952d2c5419e053bbc3d87b6fb608453a651b13efed7a91fb081a91"
+  },
+  {
+    "path": "buildings-80k-shadow/preparation/resume-shadow.py",
+    "sha256": "11912f0dd59bbaae11129b6b85318c376268e9da57a150d9e91461720b922fd5"
+  },
+  {
+    "path": "buildings-80k-shadow/preparation/repair-shadow-include.py",
+    "sha256": "f04be761af464e2bd174f7ed6946104b46a4b2b09507c13223b68c0fd79f6b33"
+  },
+  {
+    "path": "buildings-80k-shadow/preparation/finish-shadow-prep.py",
+    "sha256": "542de4395e26ceaaf623c233c5bf478ed34ecb148f3071a7bbf2600c6e5e2684"
+  },
+  {
+    "path": "buildings-80k-shadow/preparation/finalize-shadow-proof.py",
+    "sha256": "fb67a4fb37c30d15536f67c60e5a56aa5884958bc8106d9ecce3b60f64921e38"
+  },
+  {
+    "path": "buildings-80k-shadow/preparation/test-shadow-controls-v2.py",
+    "sha256": "cdef26be4093f1cb99abe206b5774aeb762f5540bcbe223a9c43eacce3d3a7ab"
+  },
+  {
+    "path": "buildings-80k-shadow/preparation/archive-shadow.py",
+    "sha256": "d7ddda289e2a18ad1e3de3d3934ed114cd3f7909a7553371c5c40a647c82374e"
+  },
+  {
+    "path": "buildings-80k-shadow/runtime-assets-v2/prepare-shadow-assets-v2.py",
+    "sha256": "afb492c1d8b399f285a747ea7e45141ade85e70093ad0d65894d8431a6bfc17e"
+  },
+  {
+    "path": "buildings-80k-shadow/runtime-assets-v2/review-shadow-assets-v2-root.py",
+    "sha256": "7246f653806938a5a6ca228959f29e374c66d4ba76f022b3e023604f1a199ee0"
+  },
+  {
+    "path": "buildings-80k-shadow/runtime-assets-v2/reject-shadow-missing-resource.py",
+    "sha256": "5efc2be03355f5cb53440659f8006755f13a7810e3c7f1e9676c214a3ee81c96"
+  },
+  {
+    "path": "buildings-80k-shadow/runtime-assets-v2/qualify-shadow-emulator-root.py",
+    "sha256": "5644119dab9df20f7ab74889bf5e64f9e73041fd88f82e9803c641fab890ecf7"
+  },
+  {
+    "path": "buildings-80k-shadow/runtime-assets-v2/review-shadow-root.py",
+    "sha256": "22c76510a23595c341b15ad20b039f48d50b663cd7606cd649211d1400b83a5c"
+  },
+  {
+    "path": "buildings-80k-shadow/runtime-assets-v2/finish-shadow-physical.py",
+    "sha256": "c55b5bdee0089399bcc9df5b62ae8b5f192309f72c29b81f913cd9973c502e58"
+  },
+  {
+    "path": "buildings-80k-shadow/runtime-assets-v2/README.md",
+    "sha256": "dc9e01db3aa85e3d6fdbd4b1ef14597a10c9b169303c5745bda776ae19543b50"
+  },
+  {
+    "path": "buildings-80k-shadow/runtime-assets-v2/bin-assets-source-pins.json",
+    "sha256": "a61f9c7c63d80df313a287f3a4d3615fc14ca5d01b5144a78b77dd5ab93a7415"
+  },
+  {
+    "path": "buildings-80k-shadow/runtime-assets-v2/root-assets-review.json",
+    "sha256": "a314144a1b59c5c7a6db2b8668cedc698721bee0ad9f7ca92ca6df0ce3ec1ad4"
+  },
+  {
+    "path": "buildings-80k-shadow/runtime-assets-v2/root-emulator-review.json",
+    "sha256": "26fb9232f184dfe1cf7884ae8d9641e3f098a2b7ff1d6fbb3a3e4a4a8dc2190a"
+  },
+  {
+    "path": "buildings-80k-shadow/runtime-assets-v2/hud/flare-glow.png",
+    "sha256": "2b6563ad8e6721fce94f4489681aeef8156230e6b8ca0e20b944ea2d1f71b522"
+  },
+  {
+    "path": "buildings-80k-shadow/rejected-emulator-v1/owned-launch.json",
+    "sha256": "b491b4490bb1ef0d5eb78eb079ae29afa60415c05bcba0ccb562abcd5629bb0b"
+  },
+  {
+    "path": "buildings-80k-shadow/rejected-emulator-v1/owned-stop.json",
+    "sha256": "e83cfd7d9c24d3b6cc100f49d9856c624660d8902d5d43084da578878a6f097d"
+  },
+  {
+    "path": "buildings-80k-shadow/rejected-emulator-v1/rejected-runtime.json",
+    "sha256": "2001ca717f9c45a8b68a3b8afc4179e8a2961bcadb21cf797db25ed3be34d43c"
+  },
+  {
+    "path": "buildings-80k-shadow/rejected-emulator-v1/runtime/emulator.log",
+    "sha256": "c06c9ece9f2f53776f9e1791503bd4089fdf7cbaaf5da9b631739e1476a2bed7"
+  },
+  {
+    "path": "buildings-80k-shadow/rejected-emulator-v1/capture-start/frame.png",
+    "sha256": "d17b05cb2759339cbe503282f3c95cd071e2c8788a7688fd84c2b3c0fec168ab"
+  },
+  {
+    "path": "buildings-80k-shadow/rejected-emulator-v1/capture-drive/frame.png",
+    "sha256": "c0ecef0f261a651aff8b1d6dc0fa0629947c73cc87543b54805891391368251a"
+  },
+  {
+    "path": "buildings-80k-shadow/rejected-emulator-v1/capture-final/frame.png",
+    "sha256": "aa193044679ef3309b7784301d7d4c32c846f3e0435d8baf055d4acbcdc480d8"
+  },
+  {
+    "path": "buildings-80k-shadow/rejected-physical-v1/launch-inputs.json",
+    "sha256": "1fa1c800b49b8370637fd9cd6acdb998c9b17bd690f80d9e4a15fd142f6e896d"
+  },
+  {
+    "path": "buildings-80k-shadow/rejected-physical-v1/owned-launch.json",
+    "sha256": "6b015b17de0795e24b9bbb9da300a2ff835f5ed2dd19e2d93e8d31b801cdd2ff"
+  },
+  {
+    "path": "buildings-80k-shadow/rejected-physical-v1/rejected-runtime.json",
+    "sha256": "44f1652114a56b6f74e725c658dfcc2de561d908c82601d42dd707492ceb4bda"
+  },
+  {
+    "path": "buildings-80k-shadow/rejected-physical-v1/completed-stdout.raw",
+    "sha256": "5ae4f4660501be38cffdd55d012d28aa15c0c3046b60a52335478cbc199bdae5"
+  },
+  {
+    "path": "buildings-80k-shadow/rejected-physical-v1/stdout.utf8.log",
+    "sha256": "5ae4f4660501be38cffdd55d012d28aa15c0c3046b60a52335478cbc199bdae5"
+  },
+  {
+    "path": "buildings-80k-shadow/emulator/owned-launch.json",
+    "sha256": "3c75dc71de0859f178752f3e3b8391d8dde1f87ea010debe3c84e7f9f9b1dbea"
+  },
+  {
+    "path": "buildings-80k-shadow/emulator/owned-stop.json",
+    "sha256": "e781d93e47079aa45c17e255d24de87defcd4077ddf09d89cea5037f2fb1d945"
+  },
+  {
+    "path": "buildings-80k-shadow/emulator/protocol-analysis.json",
+    "sha256": "3b25b54f17e97cb5646bbc04c85c21e5d1623efb6bbd5fcd35e82ff187deb443"
+  },
+  {
+    "path": "buildings-80k-shadow/emulator/runtime/emulator.log",
+    "sha256": "c369837982d3d8e932ce82b8b632c73ac893c18254c4465fcdd0d14f36752904"
+  },
+  {
+    "path": "buildings-80k-shadow/emulator/capture-start/frame.png",
+    "sha256": "f908b7418998f053ceb249098a4a4fc015afc9e9de133802c928f40162e93653"
+  },
+  {
+    "path": "buildings-80k-shadow/emulator/capture-start/observe-proof.json",
+    "sha256": "767f5eae351556428b08bffbac30f46be9f2b7121ae59341f6a93847e73be288"
+  },
+  {
+    "path": "buildings-80k-shadow/emulator/capture-drive/frame.png",
+    "sha256": "9d8e1a50124956534ffc04552475fe4be69ddd6e657d79f10e584fb02c9ebd65"
+  },
+  {
+    "path": "buildings-80k-shadow/emulator/capture-drive/observe-proof.json",
+    "sha256": "a29ebf1ddc924223bea4a60dbf0167f4da708cbbe756d58c070bd414ee14dbef"
+  },
+  {
+    "path": "buildings-80k-shadow/emulator/capture-final/frame.png",
+    "sha256": "af015841b0c79b03cdab3d6fdc7814f1e8409ad2649dcaa001e560bf8ba83140"
+  },
+  {
+    "path": "buildings-80k-shadow/emulator/capture-final/observe-proof.json",
+    "sha256": "81c56d47e1578f0d301cb945d1ae0f8dc46d20f8b155085e3d76c669d756aab0"
+  },
+  {
+    "path": "buildings-80k-shadow/emulator/capture-final/bin-closeout-samples.txt",
+    "sha256": "1f80570e4b888897c4a0fe155db56d83ca8f64007a018ba0aa290ff85388f3dd"
+  },
+  {
+    "path": "buildings-80k-shadow/preparation/referenced-runtime-assets.json",
+    "sha256": "f2351d34df3772d0ce8c9b392b8703414001d862b1b02d2f5a22171a6f84f2eb"
   }
 ]

@@ -143,3 +143,18 @@ The [eight-building continuation](tyrax2-empty-car-2026-10-06/README.md#eight-bu
 The eight-building ELF subsequently completes 5400 loops on PS2 at 5.2653/5.2789/5.2748 ms non-pacing work, retaining approximately 59.94 Hz in all observed windows and zero synthetic completions. All eight building owners are represented in 12 accepted carriers / 11,328 input vertices. Visual confirmation remains pending; USB was removed before the cold start, which does not establish the reset failure cause.
 
 The [actual80133-input continuation](tyrax2-empty-car-2026-10-06/README.md#fifty-buildings-and-actual80133-accepted-inputs) qualifies50 building owners with checked64-bit masks,70800 accepted building vertices and80133 total at six cold frames. Fresh physical v2 completed5400 loops: nonpacing 15.4556/15.4649/15.4654ms, entry periods 16.6833/16.6833/16.6834ms, about59.94Hz in these bounded windows. All six cold frames accept80133 input vertices and all50 owner refs. User confirmed the current80k TV image looks good; this does not retroactively qualify the earlier8-building TV. The serving client remains active; archived stdout is the immutable completed prefix, not a terminal-run claim. Common sampler/observer footprint remains unpriced and nonpacing is not pureEE time.
+
+The [normal Ravager blob continuation](tyrax2-empty-car-2026-10-06/README.md#normal-ravager-blob-shadow-at-actual80187-inputs) retains the parent80133 accepted inputs plus54 separately classified normal blob inputs. Physical measurement pending; emulator is not hardware pricing.
+## Interpretation of the incremental workload ladder
+
+| Validated physical workload | Accepted input vertices at cold observations | Accepted carriers | Parked non-pacing work |
+|---|---:|---:|---:|
+| Two cars, moving point and pine | 9,333 | 12 | 2.70 ms |
+| Plus eight facades | 20,661 | 24 | 5.27 ms |
+| Fifty facades | 80,133 | 36 | 15.46 ms |
+
+All three workloads retain approximately 59.94 Hz in the observed physical windows. These separate ELF results are descriptive workload capacities, not a calibrated incremental vertex price. They show that this renderer can sustain a substantial accepted geometry workload with compact static batching, while the fifty-facade case has little room before the 16.68 ms presentation budget. They do not explain every full-night cost or establish every-frame scanout.
+
+The earlier full-night census accepted 134 carriers, versus 36 in the 80k fixture. Different geometry, materials, receiver paths and effects confound that contrast. The next useful controlled experiment is identical geometry with batching enabled/disabled, preserving lighting and pass semantics. A confirmed carrier-count cost would motivate merging eligible small submissions while preserving dynamic receivers and reflection carriers. Distant geometry LOD is another practical load reduction, but imported per-object LOD can demote static batching; it must be measured rather than assumed to improve cadence. No such optimization is implemented by this ladder.
+
+The requested blob continuation currently has native and clean emulator qualification only. Its first physical run is rejected for a missing default glow resource; do not use its timing to price the shadow. The unchanged ELF has a corrected, pinned runtime closure and awaits a fresh physical start.

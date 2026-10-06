@@ -1,0 +1,12 @@
+{
+  "status": "REJECTED_MISSING_DEFAULT_BLOB_RESOURCE",
+  "missingResource": "hud/flare-glow.png",
+  "sourceLog": "ps2client.stdout",
+  "sourceLogSha256": "5ae4f4660501be38cffdd55d012d28aa15c0c3046b60a52335478cbc199bdae5",
+  "completed5400Observed": true,
+  "hardwareTimingQualified": false,
+  "runtimeQualified": false,
+  "rendererRegressionClaim": false,
+  "activeVehicleMaskLoadedNotSufficientForAssetClosure": true,
+  "correction": "Repeat unchanged source and ELF with a separate pinned runtime asset closure including public default flare-glow.png."
+}
