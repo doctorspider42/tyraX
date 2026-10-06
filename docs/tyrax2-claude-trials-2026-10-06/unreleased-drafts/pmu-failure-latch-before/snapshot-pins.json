@@ -1,0 +1,14 @@
+{
+  "pmu-scene-header-v2.txt": "3b2e62825a633ed96298e3c00b32e82b318f61098e8cc8838c5f3102a9c775fb",
+  "prepare-pmu-scene-source-controls-v2.py": "1c15b76cc2ecb2e98d3739dd3980b8ba8c73a1627745a75807432f9d4758ad98",
+  "pmu-scene-physical-v2/root-source-freeze.json": "52a3be34a1d6bde226d79708963e721bfeb2a354bd356d63cc2386c03bbf907a",
+  "pmu-scene-physical-v2/source-review.md": "0e494fc8792670f88c1491cb1a90e3f9c9f1b9dd7e95c80698885e3abd2f62dc",
+  "pmu-scene-physical-v2/target-source-manifest.json": "57bf6300bc93375623ae3ce32504e417d867dd833c642f8aba891ea4d48eef77",
+  "pmu-scene-source-controls-v2/pmu.cpp": "52637071562a404012a97649cd31495560524f68a6171a3973dcd4934b980322",
+  "pmu-scene-source-controls-v2/preparation.json": "7958bed83ed94287efc6eb719d839e140a6e53f86532333ed8c126fd50b912b9",
+  "pmu-scene-source-controls-v2/root-host-proof.json": "d7cfdb49bedcf547140ac7bab499087b8379c875ab2142dc33bc64df1e92a277",
+  "pmu-scene-source-controls-v2/root-host-source-v1.cpp": "52637071562a404012a97649cd31495560524f68a6171a3973dcd4934b980322",
+  "pmu-scene-source-controls-v2/source-hop-static.json": "41590e222a46f562c2c0da390386b8aacf784ae5a53131e8f6bcc382f1528cb4",
+  "pmu-scene-physical-v2/tyra/engine/inc/debug/night_ablation.hpp": "53a36862d656e9480418c9f09df0efa8a0a55aa6ebe9ffd94fe8ed5e8f3a9ceb",
+  "pmu-scene-physical-v2/tyra/engine/inc/debug/night_runtime.hpp": "01c7fddfb99d7de168f0e89b6ab441ba215a4d3983debeb20f2be4452e813696"
+}

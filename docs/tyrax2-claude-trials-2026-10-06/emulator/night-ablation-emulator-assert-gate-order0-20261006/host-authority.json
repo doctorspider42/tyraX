@@ -1,0 +1,11 @@
+{
+  "sourcePins": {
+    "F:\\Projects\\tyrax2-lab-20261001\\assert-gate-controls-v1\\analyze-loop.py": "58e19cee054b237f13f797de6237d283811757c05c84742cfd62483aff7bc2a8",
+    "F:\\Projects\\tyrax2-lab-20261001\\assert-gate-controls-v1\\analyze-night.py": "f6396a0020d1490405e3e806ff7c54340b3bb365cde874572f1782853fbedabc",
+    "F:\\Projects\\tyrax2-lab-20261001\\assert-gate-controls-v1\\analyze-night-cli.py": "3325b0833ba2a3bc01ab5630969736998a8bb6b0c25a61d7c72fe069cbdd1ec4",
+    "F:\\Projects\\tyrax2-lab-20261001\\assert-gate-controls-v1\\corona_controls.py": "1decafffab8d86f2b34e2d20054a5e729d69d2c9259f9938bd8370666435a43a",
+    "F:\\Projects\\tyrax2-lab-20261001\\assert-gate-controls-v1\\source-controls\\night_plan.hpp": "96d38d862a8db3f8340d382e8f22958d7a3994dd693dd617e7efce43cf42af0e",
+    "F:\\Projects\\tyrax2-lab-20261001\\assert-gate-controls-v1\\source-controls\\stapip_vu1_shared_defines.h": "cf73e7be8c173e3ee9b04c54a9c57adbc18b7da29c9e4ed6d69c51dddf961d5b"
+  },
+  "pricingSourceManifestSha256": "59f5a2505cbaca54c8a079be74b2ebb45400867659b4e91f7037f68bfb4a704f"
+}

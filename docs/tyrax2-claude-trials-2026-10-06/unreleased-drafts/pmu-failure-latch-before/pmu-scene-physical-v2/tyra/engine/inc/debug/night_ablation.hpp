@@ -1,0 +1,193 @@
+#pragma once
+// PRIVATE experiment only: common counters do not read clocks or submit work.
+#include <stdint.h>
+namespace NightAblation {
+enum Group : unsigned { Live=1, LightEffects=2, Shadows=4, Particles=8,
+                       PostFx=16, Env=32, Sky=64 };
+struct Counter { uint32_t attempted=0, executed=0, skipped=0, submitted=0; };
+inline Counter commonCounter[7]{};
+enum Extra : unsigned { Pools=1, BeamsCoronas=2, VehicleLampGlow=4 };
+inline Counter extraCounter[3]{};
+inline unsigned extraMask=0;
+inline unsigned mask=0;
+inline bool collectCounters=false;
+inline bool valid=true;
+// PRIVATE producer observer. Common branch/code footprint remains unpriced.
+inline bool producerSelected=false,producerEnabled=false,producerTiming=false;
+struct ProducerStat {uint64_t ticks=0;uint32_t calls=0,reads=0;};
+inline ProducerStat producerStats[5]{};
+inline uint32_t producerCold[5][5]{};
+inline uint32_t producerTick(){uint32_t v;asm volatile("mfc0 %0, $9":"=r"(v)::"memory");return v;}
+inline void producerCount(unsigned s,unsigned k,uint32_t n=1){if(producerSelected&&collectCounters)producerCold[s][k]+=n;}
+struct ProducerScope {
+ unsigned stage;uint32_t start=0;bool active=false;
+ explicit ProducerScope(unsigned s):stage(s){producerCount(s,0);active=producerTiming;if(active)start=producerTick();}
+ void stop(){if(active){uint32_t end=producerTick();auto& s=producerStats[stage];s.ticks+=uint32_t(end-start);++s.calls;s.reads+=2;active=false;}}
+ ~ProducerScope(){stop();}
+};
+
+inline unsigned slot(unsigned bit) {
+ for(unsigned i=0;i<7;++i) if(bit==(1U<<i)) return i;
+ valid=false;return 0;
+}
+inline bool setMask(unsigned value) {
+ // Optional Env/Sky cuts are reserved, not implemented by this first proposal.
+ if(value>31){valid=false;return false;}mask=value;return true;
+}
+inline unsigned extraSlot(unsigned bit) {
+ for(unsigned i=0;i<3;++i) if(bit==(1U<<i)) return i;
+ valid=false;return 0;
+}
+inline bool setExtraMask(unsigned value) {
+ if(value>7){valid=false;return false;}extraMask=value;return true;
+}
+inline bool extraDisabled(unsigned bit){return (extraMask&bit)!=0;}
+inline bool extraSkip(unsigned bit){
+ if(!collectCounters)return extraDisabled(bit);
+ auto& c=extraCounter[extraSlot(bit)];++c.attempted;
+ if(extraDisabled(bit)){++c.skipped;return true;}++c.executed;return false;
+}
+inline void extraSubmitted(unsigned bit){if(collectCounters)++extraCounter[extraSlot(bit)].submitted;}
+inline bool disabled(unsigned bit){return (mask&bit)!=0;}
+inline bool skip(unsigned bit){
+ if(!collectCounters)return disabled(bit);
+ auto& c=commonCounter[slot(bit)];++c.attempted;
+ if(disabled(bit)){++c.skipped;return true;}++c.executed;return false;
+}
+inline void submitted(unsigned bit){if(collectCounters)++commonCounter[slot(bit)].submitted;}
+// PRIVATE independent wild variants; no pool-cache candidate in this dialect.
+inline unsigned wildVariant=0;
+inline bool wildEnabled=false;
+inline bool setWildVariant(unsigned variant,bool enabled){
+ if((variant!=0&&variant!=5&&variant!=6)||(variant==0&&enabled)){valid=false;return false;}
+ wildVariant=variant;wildEnabled=enabled;return true;
+}
+inline bool wildActive(unsigned variant){return wildVariant==variant&&wildEnabled;}
+struct WildCounter{uint32_t invocations=0,eligible=0,applied=0,fallback=0,boundary=0,nonfinite=0,coldCompared=0,coldMismatches=0,inputUnits=0,outputUnits=0,invalid=0;};
+inline WildCounter wildPlaneCounter{},wildConeCounter{};
+inline void wildAdd(WildCounter& c,uint32_t& field,uint32_t value){
+ if(value>~uint32_t(0)-field){if(c.invalid!=~uint32_t(0)){++c.invalid;}valid=false;return;}field+=value;
+}
+inline void observeWild(unsigned variant,bool eligible,bool applied,bool boundary,bool nonfinite,bool compared,bool mismatch,uint32_t inputUnits,uint32_t outputUnits){
+ if(!collectCounters)return;
+ if(variant!=5&&variant!=6){valid=false;return;}
+ auto& c=variant==5?wildPlaneCounter:wildConeCounter;
+ if((applied&&!eligible)||(applied!=bool(wildActive(variant)&&eligible))||((boundary||nonfinite)&&eligible)||(mismatch&&!compared)){
+  if(c.invalid!=~uint32_t(0)){++c.invalid;}valid=false;return;
+ }
+ wildAdd(c,c.invocations,1);wildAdd(c,c.eligible,eligible?1u:0u);wildAdd(c,c.applied,applied?1u:0u);wildAdd(c,c.fallback,eligible?0u:1u);wildAdd(c,c.boundary,boundary?1u:0u);wildAdd(c,c.nonfinite,nonfinite?1u:0u);wildAdd(c,c.coldCompared,compared?1u:0u);wildAdd(c,c.coldMismatches,mismatch?1u:0u);wildAdd(c,c.inputUnits,inputUnits);wildAdd(c,c.outputUnits,outputUnits);
+ if(mismatch){valid=false;}
+}
+
+// PRIVATE independent kind7 source color-table experiment.
+inline bool poolTableSelected=false,poolTableEnabled=false;
+inline bool setPoolTableEnabled(bool enabled){poolTableEnabled=enabled;return true;}
+struct PoolTableCounter{uint32_t invocations=0,eligible=0,applied=0,fallback=0,sourceVertices=0,admittedVertices=0,baselineColorQwords=0,tableColorQwords=0,coldCompared=0,coldMismatches=0,invalid=0;};
+inline PoolTableCounter poolTableCounter{};
+inline void tableAdd(uint32_t& field,uint32_t value){auto& c=poolTableCounter;if(value>~uint32_t(0)-field){if(c.invalid!=~uint32_t(0)){++c.invalid;}valid=false;return;}field+=value;}
+inline void observePoolTable(bool eligible,uint32_t sourceVertices,bool compared,bool mismatch){
+ if(!poolTableSelected||!collectCounters)return;
+ auto& c=poolTableCounter;
+ if((eligible&&(sourceVertices==0||sourceVertices>75))||(mismatch&&!compared)){if(c.invalid!=~uint32_t(0)){++c.invalid;}valid=false;return;}
+ const bool applied=poolTableEnabled&&eligible;
+ tableAdd(c.invocations,1);tableAdd(c.eligible,eligible?1u:0u);tableAdd(c.applied,applied?1u:0u);tableAdd(c.fallback,eligible?0u:1u);tableAdd(c.sourceVertices,sourceVertices);tableAdd(c.admittedVertices,applied?sourceVertices:0u);tableAdd(c.baselineColorQwords,sourceVertices);tableAdd(c.tableColorQwords,applied?2u:0u);tableAdd(c.coldCompared,compared?1u:0u);tableAdd(c.coldMismatches,mismatch?1u:0u);
+ if(mismatch){valid=false;}
+}
+
+// PRIVATE kind9: cold EE admission observations, never accepted VU sprites.
+inline bool coronaSpriteSelected=false;
+struct CoronaCounter {uint32_t coldPackets=0,eligible=0,requested=0,fallback=0,sourceVertices=0,requestedVertices=0,fogOn=0,shaderLit=0,invalid=0;};
+inline CoronaCounter coronaCounter{};
+inline void coronaAdd(uint32_t& field,uint32_t value){auto& c=coronaCounter;if(value>~uint32_t(0)-field){if(c.invalid!=~uint32_t(0))++c.invalid;valid=false;return;}field+=value;}
+inline void observeCorona(bool eligible,bool requested,bool enabled,uint32_t count,bool fogOn,bool shaderLit){
+ if(!coronaSpriteSelected||!collectCounters)return;
+ auto& c=coronaCounter;
+ if(requested!=(enabled&&eligible)||(eligible&&(count==0||count>72||count%6!=0))){if(c.invalid!=~uint32_t(0))++c.invalid;valid=false;return;}
+ coronaAdd(c.coldPackets,1);coronaAdd(c.eligible,eligible?1u:0u);coronaAdd(c.requested,requested?1u:0u);coronaAdd(c.fallback,eligible?0u:1u);coronaAdd(c.sourceVertices,count);coronaAdd(c.requestedVertices,requested?count:0u);coronaAdd(c.fogOn,fogOn?1u:0u);coronaAdd(c.shaderLit,shaderLit?1u:0u);
+}
+}
+
+// UNRELEASED private PMU source draft. I-side selector6 and D-side selector6
+// bus-read/cache-miss events (includes uncached loads) are raw activation data.
+// 31-bit/unmaskable overflow hazard: enabled-lifetime qualification unresolved.
+#include "debug/night_sampler.hpp"
+namespace NightPMU {
+using U=uint32_t;
+constexpr U stoppedPcr=0x000340d0U,activePcr=0x800340d0U;
+struct Row {U frame,scene,i0,d0,i1,d1,reads;};
+inline Row rows[128]{};
+inline U phase=0,frameCalls=0,phaseCalls=0,phaseReads=0,rowCount=0;
+inline U commonControlReads=0,resets=0,enables=0,stops=0;
+inline U beforePcr=0,preSetupPcr=0,setupPcr=0,endPcr=0,setupCount=0;
+inline U activeFrame=0,activeScene=0,cleanupPcr=0;
+inline bool selected=false,enabled=false,inWindow=false,active=false,knownStopped=false,cleanupVerified=false;
+#ifdef PRIVATE_PMU_HOST
+U hostReadPcr();U hostReadI();U hostReadD();void hostConfigureStopped();void hostResetEnable();void hostStopOwned();
+inline U readPcr(){return hostReadPcr();}
+inline U readI(){return hostReadI();}
+inline U readD(){return hostReadD();}
+inline void configureStopped(){hostConfigureStopped();}
+inline void resetEnable(){hostResetEnable();}
+inline void stopOwned(){hostStopOwned();}
+#else
+// Pinned Sony EE manual + ps2dev/binutils-gdb provide syntax/encoding.
+// Actual linked placement and safe enabled lifetime are separate root gates.
+inline U readPcr(){U v;asm volatile(".set push\n.set noreorder\nmfps %0,0\nsync.p\n.set pop":"=r"(v)::"memory");return v;}
+inline U readI(){U v;asm volatile(".set push\n.set noreorder\nmfpc %0,0\nsync.p\n.set pop":"=r"(v)::"memory");return v;}
+inline U readD(){U v;asm volatile(".set push\n.set noreorder\nmfpc %0,1\nsync.p\n.set pop":"=r"(v)::"memory");return v;}
+inline void configureStopped(){const U v=stoppedPcr;asm volatile(".set push\n.set noreorder\nmtps %0,0\nsync.p\n.set pop"::"r"(v):"memory");}
+// Caller has just observed locally owned STOPPED state. Never reset enabled
+// counters; no COP0 Count write, no interrupt masking and no consumer fence.
+inline void resetEnable(){const U v=activePcr;asm volatile(".set push\n.set noreorder\nmtpc $0,0\nmtpc $0,1\nsync.p\nmtps %0,0\nsync.p\n.set pop"::"r"(v):"memory");}
+inline void stopOwned(){const U v=stoppedPcr;asm volatile(".set push\n.set noreorder\nmtps %0,0\nsync.p\n.set pop"::"r"(v):"memory");}
+#endif
+inline void fail(){NightAblation::valid=false;}
+inline void begin(U index,bool on){
+ const U p=index/1800,o=index%1800;inWindow=false;frameCalls=0;
+ if(!selected||p>=3)return;
+ if(o==0){if(active)fail();phase=p;enabled=on;phaseCalls=phaseReads=rowCount=setupCount=commonControlReads=resets=enables=stops=0;beforePcr=preSetupPcr=setupPcr=endPcr=0;for(auto& r:rows)r=Row{};}
+ if(o==750)beforePcr=readPcr();
+ if(o==799){preSetupPcr=readPcr();
+  if(active||(preSetupPcr&0x80000000U)){fail();knownStopped=false;}
+  else{configureStopped();++setupCount;setupPcr=readPcr();knownStopped=setupPcr==stoppedPcr;if(!knownStopped)fail();}
+ }
+ if(o==1156){endPcr=readPcr();if(active||!knownStopped||endPcr!=stoppedPcr||setupCount!=1){fail();knownStopped=false;}}
+ inWindow=o>=900&&o<1028;
+}
+inline void endFrame(){if(selected&&inWindow&&(frameCalls!=1||active||!knownStopped))fail();inWindow=false;}
+inline void cleanup(){cleanupPcr=readPcr();cleanupVerified=!active&&knownStopped&&cleanupPcr==stoppedPcr;if(!cleanupVerified)fail();}
+struct SceneScope {
+ bool entered=false,sampled=false;U frame=0,scene=0,i0=0,d0=0;const int* ownerPtr=nullptr;
+ explicit SceneScope(const int& owner){
+  if(!selected||!inWindow)return;
+  if(active||frameCalls!=0||owner<0){fail();return;}
+  ++frameCalls;++phaseCalls;
+  const U actualPcr=readPcr();++commonControlReads;
+  if(!knownStopped||actualPcr!=stoppedPcr){fail();knownStopped=false;return;}
+  frame=NightSampler::frame;scene=static_cast<U>(owner);ownerPtr=&owner;
+  activeFrame=frame;activeScene=scene;active=true;knownStopped=false;
+  resetEnable();++resets;++enables;entered=true;sampled=enabled;
+  if(sampled){i0=readI();d0=readD();phaseReads+=2;}
+ }
+ void stop(){
+  if(!entered)return;
+  U i1=0,d1=0;if(sampled){i1=readI();d1=readD();phaseReads+=2;}
+  const bool contextStable=NightSampler::frame==frame&&*ownerPtr==static_cast<int>(scene);
+  if(!contextStable)fail();
+  const U actualPcr=readPcr();++commonControlReads;
+  // PMU owner identity is independent of the mutable game context. A changed
+  // game context is rejected, while this still-owned PMU is stopped safely.
+  const bool pmuOwned=active&&activeFrame==frame&&activeScene==scene;
+  if(!pmuOwned||actualPcr!=activePcr){fail();active=false;knownStopped=false;entered=false;return;}
+  stopOwned();++stops;const U stopped=readPcr();++commonControlReads;
+  active=false;knownStopped=stopped==stoppedPcr;if(!knownStopped)fail();
+  if(sampled){
+   if(!contextStable||!knownStopped||rowCount>=128||i1<i0||d1<d0||((i0|d0|i1|d1)&0x80000000U))fail();
+   else rows[rowCount++]={frame,scene,i0,d0,i1,d1,4};
+  }
+  entered=false;
+ }
+ SceneScope(const SceneScope&)=delete;SceneScope& operator=(const SceneScope&)=delete;
+ ~SceneScope(){stop();}
+};
+}

@@ -1,0 +1,42 @@
+{
+  "status": "ROOT_ACTUAL_R5900_COMPILE_ONLY_PMU_WRAPPER_OPCODES",
+  "sourceManifestSha256": "89152b56a5df577bf1bf5ca75b85250ee662b82e5a2cc74d6e734e889c6d4926",
+  "commands": [
+    [
+      "/home/spider/.cache/tyrax/native/toolchains/eff2c8918589264d49aa9a0f/ee/bin/mips64r5900el-ps2-elf-g++",
+      "-std=c++17",
+      "-O2",
+      "-G0",
+      "-I",
+      "/mnt/f/Projects/tyrax2-lab-20261001/pmu-scene-physical-v2/tyra/engine/inc",
+      "-c",
+      "/mnt/f/Projects/tyrax2-lab-20261001/pmu-wrapper-compile-root-v1/wrappers.cpp",
+      "-o",
+      "/mnt/f/Projects/tyrax2-lab-20261001/pmu-wrapper-compile-root-v1/wrappers.o"
+    ],
+    [
+      "/home/spider/.cache/tyrax/native/toolchains/eff2c8918589264d49aa9a0f/ee/bin/mips64r5900el-ps2-elf-objdump",
+      "-d",
+      "/mnt/f/Projects/tyrax2-lab-20261001/pmu-wrapper-compile-root-v1/wrappers.o"
+    ]
+  ],
+  "counts": {
+    "mfps": 1,
+    "mfpc": 2,
+    "mtpc": 2,
+    "mtps": 3,
+    "sync.p": 7,
+    "mtc0": 0
+  },
+  "pins": {
+    "/mnt/f/Projects/tyrax2-lab-20261001/pmu-scene-physical-v2/tyra/engine/inc/debug/night_ablation.hpp": "84006a069a9f2bb9a807e698e1a3381289a6cd67c3a26be7f08f60dc07b076bd",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pmu-wrapper-compile-root-v1/wrappers.cpp": "915258fe0c9eae0dd18913d2f480029c397b61273bf0653571cdb99d4bd1c0b0",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pmu-wrapper-compile-root-v1/wrappers.o": "f3029916240a73612678c663170e5d77e975bb4ec53a462b25618d4bf2e19f45",
+    "/home/spider/.cache/tyrax/native/toolchains/eff2c8918589264d49aa9a0f/ee/bin/mips64r5900el-ps2-elf-g++": "04212da9b41c83d31f478060b3af9619fcadb8d0381187006ee0df388e118f6d",
+    "/home/spider/.cache/tyrax/native/toolchains/eff2c8918589264d49aa9a0f/ee/bin/mips64r5900el-ps2-elf-objdump": "a60983aeb1404965bdf380055a7d26dda3a6d355d27b2fd486b0b3b76098bc0e",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pmu-wrapper-compile-root-v1/command-0.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "/mnt/f/Projects/tyrax2-lab-20261001/pmu-wrapper-compile-root-v1/command-1.log": "4f2a13ab2cb46af28310874cf2f82eae2af0cf8b5d983db730b033d7e9c308c5"
+  },
+  "runtimeReleaseAccepted": false,
+  "limitations": "Actual standalone object opcodes, not linked application placement. No runtime, event-rate/lifetime qualification or miss/cost claim; fixture remains unfrozen and blocked."
+}

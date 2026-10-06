@@ -1,0 +1,40 @@
+{
+  "frozen": true,
+  "sourceManifestSha256": "59f5a2505cbaca54c8a079be74b2ebb45400867659b4e91f7037f68bfb4a704f",
+  "sourceFiles": 501,
+  "baseManifestSha256": "19bf02fc02fd3eb544dce3344a98635c7b9d8a670aa7387b1749e8386f4dad85",
+  "changes": [
+    "game/inc/daynight.gen.hpp",
+    "game/inc/terrain_game.hpp",
+    "game/src/gen/game_collision.gen.cpp",
+    "game/src/gen/game_physics.gen.cpp",
+    "game/src/scripts/district_mood.cpp",
+    "tyra/engine/inc/debug/night_ablation.hpp",
+    "tyra/engine/inc/debug/night_plan.hpp",
+    "tyra/engine/inc/debug/night_runtime.hpp",
+    "tyra/engine/src/renderer/3d/pipeline/static/core/stapip_core.cpp",
+    "tyra/engine/src/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.cpp"
+  ],
+  "productionRestorePins": {
+    "tyra/engine/src/renderer/3d/pipeline/static/core/stapip_core.cpp": "b15cc0d29c10d7b7aa5f3c5f2131873c9c79d64b0ba85cab3195215fb147a08f",
+    "tyra/engine/src/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.cpp": "9fe550f3a3cc5ddc30b06a3cc69162f919f11614e59651a803d90b732a8ffb5d"
+  },
+  "assertStatements": 12,
+  "firstBlockStatements": 10,
+  "secondBlockStatements": 2,
+  "envNormalizedPreservedBetweenBlocks": true,
+  "leadingEmptyGuardPreserved": true,
+  "noAddedScopedClocks": true,
+  "commonExtraBranchesUnpriced": true,
+  "sparseColdAlwaysRunsOriginalChecks": true,
+  "fullWindowActivationObserved": false,
+  "publicApiSafeToBypass": false,
+  "candidate": "On skips the 12 original validation expressions only in hot frames; Off evaluates original expressions. Both arms run original checks on cold frames750/1155. No global NDEBUG or production change.",
+  "draftBaseManifestSha256": "2abb237cdd009fe5ceb638550e5e61be639e9656cd0390c1988686b25003a81b",
+  "draftManifestSha256": "1e47eab0d920624eec6b13add0f704c74e2483dba1e7850881d28ba722a77000",
+  "rootCodeHead": "35a7aa7f3f35a8286249daa94d1c7eb5715d8bf6",
+  "existingWaitsAndConsumerOwnershipRetained": true,
+  "noProductionPromotion": true,
+  "hostOriginalExpressionControlsSha256": "96ecabdf99586bd9edbb62e4cf9baec4d698ef26e7f8cc5fe2271f0e75d19f87",
+  "originalAssertionCount": 12
+}

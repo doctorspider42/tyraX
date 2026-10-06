@@ -1,0 +1,14 @@
+{
+  "status": "ROOT_RELEASE_PRIVATE_TEX1_OWNED",
+  "scope": "Private owned TEX1 fullnight candidate, generic seven-field packing and previous-setInfo semantics retained. Cold complete64-bit oracle; no new clocks or waits. Actual target ABI class growth and linked image proof mandatory. Physical elapsed remains pending; common prepared-state footprint unpriced.",
+  "review": "F:\\Projects\\tyrax2-lab-20261001\\tex1-owned-root-helpers-v1\\source-review.md",
+  "reviewSha256": "48f0851521d42f7d307b65f43b9de75b3710512b1531369309c0d00b954f4bae",
+  "host": "F:\\Projects\\tyrax2-lab-20261001\\tex1-owned-root-helpers-v1\\host-authority.json",
+  "hostSha256": "bf707dfe637ac2cc214e6fac44b1670605aaa3da145fb813b0480212e90fabc5",
+  "native": "F:\\Projects\\tyrax2-lab-20261001\\tex1-owned-native-root-review-v1\\proof.json",
+  "nativeSha256": "06e2db114e93d2b46dffdf72a19c9af797a3809b558877dfd9d79cb960dfd828",
+  "rootSourceFreezeSha256": "844efd7ec11912ca5c8fc42eca305cc3afea443c234f7206aed9e43637af5948",
+  "hostControlSha256": "69266046a6875a2cbebe7eccb0cf20402acd6a058dcbf32496026d3ab0d944ea",
+  "physicalPricingAccepted": false,
+  "commonObserverCodeCostPriced": false
+}

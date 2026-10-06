@@ -1,0 +1,85 @@
+
+// UNRELEASED private PMU source draft. I-side selector6 and D-side selector6
+// bus-read/cache-miss events (includes uncached loads) are raw activation data.
+// 31-bit/unmaskable overflow hazard: enabled-lifetime qualification unresolved.
+#include "debug/night_sampler.hpp"
+namespace NightPMU {
+using U=uint32_t;
+constexpr U stoppedPcr=0x000340d0U,activePcr=0x800340d0U;
+struct Row {U frame,scene,i0,d0,i1,d1,reads;};
+inline Row rows[128]{};
+inline U phase=0,frameCalls=0,phaseCalls=0,phaseReads=0,rowCount=0;
+inline U commonControlReads=0,resets=0,enables=0,stops=0;
+inline U beforePcr=0,preSetupPcr=0,setupPcr=0,endPcr=0,setupCount=0;
+inline U activeFrame=0,activeScene=0,cleanupPcr=0;
+inline bool selected=false,enabled=false,inWindow=false,active=false,knownStopped=false,cleanupVerified=false;
+#ifdef PRIVATE_PMU_HOST
+U hostReadPcr();U hostReadI();U hostReadD();void hostConfigureStopped();void hostResetEnable();void hostStopOwned();
+inline U readPcr(){return hostReadPcr();}
+inline U readI(){return hostReadI();}
+inline U readD(){return hostReadD();}
+inline void configureStopped(){hostConfigureStopped();}
+inline void resetEnable(){hostResetEnable();}
+inline void stopOwned(){hostStopOwned();}
+#else
+// Pinned Sony EE manual + ps2dev/binutils-gdb provide syntax/encoding.
+// Actual linked placement and safe enabled lifetime are separate root gates.
+inline U readPcr(){U v;asm volatile(".set push\n.set noreorder\nmfps %0,0\nsync.p\n.set pop":"=r"(v)::"memory");return v;}
+inline U readI(){U v;asm volatile(".set push\n.set noreorder\nmfpc %0,0\nsync.p\n.set pop":"=r"(v)::"memory");return v;}
+inline U readD(){U v;asm volatile(".set push\n.set noreorder\nmfpc %0,1\nsync.p\n.set pop":"=r"(v)::"memory");return v;}
+inline void configureStopped(){const U v=stoppedPcr;asm volatile(".set push\n.set noreorder\nmtps %0,0\nsync.p\n.set pop"::"r"(v):"memory");}
+// Caller has just observed locally owned STOPPED state. Never reset enabled
+// counters; no COP0 Count write, no interrupt masking and no consumer fence.
+inline void resetEnable(){const U v=activePcr;asm volatile(".set push\n.set noreorder\nmtpc $0,0\nmtpc $0,1\nsync.p\nmtps %0,0\nsync.p\n.set pop"::"r"(v):"memory");}
+inline void stopOwned(){const U v=stoppedPcr;asm volatile(".set push\n.set noreorder\nmtps %0,0\nsync.p\n.set pop"::"r"(v):"memory");}
+#endif
+inline void fail(){NightAblation::valid=false;}
+inline void begin(U index,bool on){
+ const U p=index/1800,o=index%1800;inWindow=false;frameCalls=0;
+ if(!selected||p>=3)return;
+ if(o==0){if(active)fail();phase=p;enabled=on;phaseCalls=phaseReads=rowCount=setupCount=commonControlReads=resets=enables=stops=0;beforePcr=preSetupPcr=setupPcr=endPcr=0;for(auto& r:rows)r=Row{};}
+ if(o==750)beforePcr=readPcr();
+ if(o==799){preSetupPcr=readPcr();
+  if(active||(preSetupPcr&0x80000000U)){fail();knownStopped=false;}
+  else{configureStopped();++setupCount;setupPcr=readPcr();knownStopped=setupPcr==stoppedPcr;if(!knownStopped)fail();}
+ }
+ if(o==1156){endPcr=readPcr();if(active||!knownStopped||endPcr!=stoppedPcr||setupCount!=1){fail();knownStopped=false;}}
+ inWindow=o>=900&&o<1028;
+}
+inline void endFrame(){if(selected&&inWindow&&(frameCalls!=1||active||!knownStopped))fail();inWindow=false;}
+inline void cleanup(){cleanupPcr=readPcr();cleanupVerified=!active&&knownStopped&&cleanupPcr==stoppedPcr;if(!cleanupVerified)fail();}
+struct SceneScope {
+ bool entered=false,sampled=false;U frame=0,scene=0,i0=0,d0=0;const int* ownerPtr=nullptr;
+ explicit SceneScope(const int& owner){
+  if(!selected||!inWindow)return;
+  if(active||frameCalls!=0||owner<0){fail();return;}
+  ++frameCalls;++phaseCalls;
+  const U actualPcr=readPcr();++commonControlReads;
+  if(!knownStopped||actualPcr!=stoppedPcr){fail();knownStopped=false;return;}
+  frame=NightSampler::frame;scene=static_cast<U>(owner);ownerPtr=&owner;
+  activeFrame=frame;activeScene=scene;active=true;knownStopped=false;
+  resetEnable();++resets;++enables;entered=true;sampled=enabled;
+  if(sampled){i0=readI();d0=readD();phaseReads+=2;}
+ }
+ void stop(){
+  if(!entered)return;
+  U i1=0,d1=0;if(sampled){i1=readI();d1=readD();phaseReads+=2;}
+  const bool contextStable=NightSampler::frame==frame&&*ownerPtr==static_cast<int>(scene);
+  if(!contextStable)fail();
+  const U actualPcr=readPcr();++commonControlReads;
+  // PMU owner identity is independent of the mutable game context. A changed
+  // game context is rejected, while this still-owned PMU is stopped safely.
+  const bool pmuOwned=active&&activeFrame==frame&&activeScene==scene;
+  if(!pmuOwned||actualPcr!=activePcr){fail();active=false;knownStopped=false;entered=false;return;}
+  stopOwned();++stops;const U stopped=readPcr();++commonControlReads;
+  active=false;knownStopped=stopped==stoppedPcr;if(!knownStopped)fail();
+  if(sampled){
+   if(!contextStable||!knownStopped||rowCount>=128||i1<i0||d1<d0||((i0|d0|i1|d1)&0x80000000U))fail();
+   else rows[rowCount++]={frame,scene,i0,d0,i1,d1,4};
+  }
+  entered=false;
+ }
+ SceneScope(const SceneScope&)=delete;SceneScope& operator=(const SceneScope&)=delete;
+ ~SceneScope(){stop();}
+};
+}

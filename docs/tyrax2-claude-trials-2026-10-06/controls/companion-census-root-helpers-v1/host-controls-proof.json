@@ -1,0 +1,43 @@
+{
+  "status": "PASS_KIND24_HOST_SYNTHETIC_AND_CLI_ONLY",
+  "results": [
+    "positive0",
+    "reject0f0=100",
+    "reject0role=0",
+    "reject0f9=0",
+    "reject0f20=0",
+    "reject0timedCalls=0",
+    "reject0night=0 role=0",
+    "cli0",
+    "positive1",
+    "reject1f0=100",
+    "reject1role=0",
+    "reject1f9=0",
+    "reject1f20=0",
+    "reject1timedCalls=0",
+    "reject1night=1 role=0",
+    "cli1"
+  ],
+  "physicalExecutionAccepted": false,
+  "nativeBindingMutationProofSha256": "d5e497f5bc08f6bd1492f12594ef0c681d6047d0cf231ab2d5a1398b1c754cb6",
+  "nativeBindingMutationChecks": [
+    "positiveSynthetic",
+    "rejected:0:sourceManifestSha256",
+    "rejected:0:actualELFSha256",
+    "rejected:0:actualSymbolSha256",
+    "rejected:0:status",
+    "rejected:0:blockers",
+    "rejected:0:sourceFiles",
+    "rejected:1:target_source_manifest_sha256",
+    "rejected:1:selected_elf_sha256",
+    "rejected:1:selected_symbol_sha256",
+    "rejected:1:build_exit_code",
+    "rejected:1:build_backend",
+    "rejected:1:verified_source_files",
+    "rejected:actualBinding2",
+    "rejected:actualBinding3",
+    "rejected:actualBinding4",
+    "rejected:actualBinding5",
+    "rejected:actualBinding6"
+  ]
+}

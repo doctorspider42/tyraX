@@ -1,0 +1,21 @@
+{
+  "status": "PASS_PURE_HOST_NATIVE_IDENTITY_CLOSURE_MUTATIONS",
+  "results": [
+    "positive_symbolic_identity_closure",
+    "rejected_release_nativeSha256",
+    "rejected_proof_sourceManifestSha256",
+    "rejected_proof_actualELFSha256",
+    "rejected_proof_actualSymbolSha256",
+    "rejected_provenance_target_source_manifest_sha256",
+    "rejected_provenance_selected_elf_sha256",
+    "rejected_provenance_selected_symbol_sha256",
+    "rejected_current_manifest",
+    "rejected_actual_ELF",
+    "rejected_actual_symbol",
+    "rejected_actual_proof_hash"
+  ],
+  "actualNativeBuildAccepted": false,
+  "physicalRuntimeAccepted": false,
+  "symbolicFixturesOnly": true,
+  "verifierSha256": "de31842f9ff2659dba7ed315bca2dc27d544b8b3bb40140e03632e663bb194a3"
+}

@@ -1,0 +1,8 @@
+{
+  "status": "DRAFT_PRIVATE_PMU_SCENE_UNRELEASED",
+  "frozen": false,
+  "sourceReviewRequired": true,
+  "nativeExecutionAccepted": false,
+  "runtimeReleaseBlocked": true,
+  "pmuBoundedEnabledLifetimeQualified": false
+}

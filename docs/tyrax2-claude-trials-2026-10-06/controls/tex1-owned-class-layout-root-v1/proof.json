@@ -1,0 +1,91 @@
+{
+  "status": "ROOT_ACTUAL_R5900_CLASS_LAYOUT_GROWTH_RECORDED",
+  "layouts": {
+    "baseline": {
+      "bytes": 4608,
+      "alignment": 64,
+      "commands": [
+        [
+          "/home/spider/.cache/tyrax/native/toolchains/eff2c8918589264d49aa9a0f/ee/bin/mips64r5900el-ps2-elf-g++",
+          "-std=c++17",
+          "-D_EE",
+          "-O2",
+          "-G0",
+          "-I",
+          "/mnt/f/Projects/tyra-editor/vendor/tyra/engine/inc",
+          "-I",
+          "/home/spider/.cache/tyrax/native/toolchains/eff2c8918589264d49aa9a0f/ps2sdk/ee/include",
+          "-I",
+          "/home/spider/.cache/tyrax/native/toolchains/eff2c8918589264d49aa9a0f/ps2sdk/common/include",
+          "-I",
+          "/home/spider/.cache/tyrax/native/toolchains/eff2c8918589264d49aa9a0f/ps2sdk/ports/include",
+          "-c",
+          "/mnt/f/Projects/tyrax2-lab-20261001/tex1-owned-class-layout-root-v1/baseline.cpp",
+          "-o",
+          "/mnt/f/Projects/tyrax2-lab-20261001/tex1-owned-class-layout-root-v1/baseline.o"
+        ],
+        [
+          "/home/spider/.cache/tyrax/native/toolchains/eff2c8918589264d49aa9a0f/ee/bin/mips64r5900el-ps2-elf-objcopy",
+          "-O",
+          "binary",
+          "-j",
+          ".rodata",
+          "/mnt/f/Projects/tyrax2-lab-20261001/tex1-owned-class-layout-root-v1/baseline.o",
+          "/mnt/f/Projects/tyrax2-lab-20261001/tex1-owned-class-layout-root-v1/baseline.bin"
+        ]
+      ],
+      "pins": {
+        "/mnt/f/Projects/tyra-editor/vendor/tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.hpp": "d89fa588b2c73a86143c3e5b5ceea52c25850c0392b8b0eaba5a5ad95375f145",
+        "/mnt/f/Projects/tyrax2-lab-20261001/tex1-owned-class-layout-root-v1/baseline.cpp": "3c9aeb14bb0521c131ae4fde434ed6061d973b8f839be91aa20c0e0a11fa5579",
+        "/mnt/f/Projects/tyrax2-lab-20261001/tex1-owned-class-layout-root-v1/baseline.o": "9e1b60ec091e7b2a8103dfb2f210ca4e6d37c4915b84825875dd5e68ef79eb6d",
+        "/mnt/f/Projects/tyrax2-lab-20261001/tex1-owned-class-layout-root-v1/baseline.bin": "bf06dd1d971206cdb2c7134942a0e59bf6b328024886ef20be89e315a7338e0e",
+        "/home/spider/.cache/tyrax/native/toolchains/eff2c8918589264d49aa9a0f/ee/bin/mips64r5900el-ps2-elf-g++": "04212da9b41c83d31f478060b3af9619fcadb8d0381187006ee0df388e118f6d",
+        "/home/spider/.cache/tyrax/native/toolchains/eff2c8918589264d49aa9a0f/ee/bin/mips64r5900el-ps2-elf-objcopy": "f7851bf0575b53aae768fdb522e4f9a09d37371bdab3aa19533327b91c7e2553"
+      }
+    },
+    "candidate": {
+      "bytes": 4672,
+      "alignment": 64,
+      "commands": [
+        [
+          "/home/spider/.cache/tyrax/native/toolchains/eff2c8918589264d49aa9a0f/ee/bin/mips64r5900el-ps2-elf-g++",
+          "-std=c++17",
+          "-D_EE",
+          "-O2",
+          "-G0",
+          "-I",
+          "/mnt/f/Projects/tyrax2-lab-20261001/tex1-owned-physical-v1/tyra/engine/inc",
+          "-I",
+          "/home/spider/.cache/tyrax/native/toolchains/eff2c8918589264d49aa9a0f/ps2sdk/ee/include",
+          "-I",
+          "/home/spider/.cache/tyrax/native/toolchains/eff2c8918589264d49aa9a0f/ps2sdk/common/include",
+          "-I",
+          "/home/spider/.cache/tyrax/native/toolchains/eff2c8918589264d49aa9a0f/ps2sdk/ports/include",
+          "-c",
+          "/mnt/f/Projects/tyrax2-lab-20261001/tex1-owned-class-layout-root-v1/candidate.cpp",
+          "-o",
+          "/mnt/f/Projects/tyrax2-lab-20261001/tex1-owned-class-layout-root-v1/candidate.o"
+        ],
+        [
+          "/home/spider/.cache/tyrax/native/toolchains/eff2c8918589264d49aa9a0f/ee/bin/mips64r5900el-ps2-elf-objcopy",
+          "-O",
+          "binary",
+          "-j",
+          ".rodata",
+          "/mnt/f/Projects/tyrax2-lab-20261001/tex1-owned-class-layout-root-v1/candidate.o",
+          "/mnt/f/Projects/tyrax2-lab-20261001/tex1-owned-class-layout-root-v1/candidate.bin"
+        ]
+      ],
+      "pins": {
+        "/mnt/f/Projects/tyrax2-lab-20261001/tex1-owned-physical-v1/tyra/engine/inc/renderer/3d/pipeline/static/core/stapip_qbuffer_renderer.hpp": "e143ff1a84130d69af66d615efb8020bb453c37631aee18eea6ccac6fcdba06a",
+        "/mnt/f/Projects/tyrax2-lab-20261001/tex1-owned-class-layout-root-v1/candidate.cpp": "3c9aeb14bb0521c131ae4fde434ed6061d973b8f839be91aa20c0e0a11fa5579",
+        "/mnt/f/Projects/tyrax2-lab-20261001/tex1-owned-class-layout-root-v1/candidate.o": "7e11976491c474e3bb58903fbf6a34bca25d750c38672e2177c7114219d06b1c",
+        "/mnt/f/Projects/tyrax2-lab-20261001/tex1-owned-class-layout-root-v1/candidate.bin": "a231083f8286b72bdab403608703403d0d5d1255d3b7beac5b5ea187da67cf0f",
+        "/home/spider/.cache/tyrax/native/toolchains/eff2c8918589264d49aa9a0f/ee/bin/mips64r5900el-ps2-elf-g++": "04212da9b41c83d31f478060b3af9619fcadb8d0381187006ee0df388e118f6d",
+        "/home/spider/.cache/tyrax/native/toolchains/eff2c8918589264d49aa9a0f/ee/bin/mips64r5900el-ps2-elf-objcopy": "f7851bf0575b53aae768fdb522e4f9a09d37371bdab3aa19533327b91c7e2553"
+      }
+    }
+  },
+  "growthBytes": 64,
+  "limitations": "C++ class growth only; target whole build must use matching headers. Not packet/VU ABI or runtime cost. No object binary redistributed."
+}

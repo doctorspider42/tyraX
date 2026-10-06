@@ -1,0 +1,12 @@
+{
+  "sourcePins": {
+    "F:\\Projects\\tyrax2-lab-20261001\\tex1-owned-controls-v1\\analyze-loop.py": "58e19cee054b237f13f797de6237d283811757c05c84742cfd62483aff7bc2a8",
+    "F:\\Projects\\tyrax2-lab-20261001\\tex1-owned-controls-v1\\analyze-night.py": "6a0ecba4874cb82625dad57afd69c5b471af9992a8162b209b674e7abaebefcb",
+    "F:\\Projects\\tyrax2-lab-20261001\\tex1-owned-controls-v1\\analyze-night-cli.py": "5571b8f0346bbea4d3acf5c0adf3651004a4a547686769227e6ce82f8ed894ac",
+    "F:\\Projects\\tyrax2-lab-20261001\\tex1-owned-controls-v1\\corona_controls.py": "1decafffab8d86f2b34e2d20054a5e729d69d2c9259f9938bd8370666435a43a",
+    "F:\\Projects\\tyrax2-lab-20261001\\tex1-owned-controls-v1\\source-controls\\night_plan.hpp": "f82d365c76fb652ca641dd6c08a18dd0e6445c9b2d1ff8477c5ba866d2eceb3d",
+    "F:\\Projects\\tyrax2-lab-20261001\\tex1-owned-controls-v1\\source-controls\\stapip_vu1_shared_defines.h": "cf73e7be8c173e3ee9b04c54a9c57adbc18b7da29c9e4ed6d69c51dddf961d5b"
+  },
+  "pricingSourceManifestSha256": "62c515257845475242d708975a4449d7c60f47974aeb1e53f96b599f4d0cc8ab",
+  "draftUnreleased": false
+}

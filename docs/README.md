@@ -548,3 +548,5 @@ The [sky retint change](tyrax2-sky-retint.md) retains geometry during RGB-only u
 The [fixed-hour clock](tyrax2-paused-clock.md) separates paused time from effect evaluation and real physics dt; the physical pause contrast saves 0.114/0.161 ms, while Motor District selects its mood once per scene/mood change.
 
 The [night-shift follow-ups](tyrax2-night-shift.md) complete exact cycle reuse, five-way object-data attribution and whole local-light result reuse in both physical orders. The memo gains are small, observer tax is measured, the inactive-output oracle failure is rejected, and no additional production candidate or 60 FPS claim is accepted.
+
+The [Claude proposal trials](tyrax2-claude-trials.md) price original validation at 0.171/0.189 ms in both physical orders, find no active adjacent companion reuse in the stationary emulator census, qualify owned TEX1 register preparation in native/emulator tests, and record hardware-counter overflow/ownership gates. No new production optimization or full-night 60 FPS claim is accepted.

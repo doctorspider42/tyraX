@@ -1,0 +1,14 @@
+{
+  "status": "PREPARED_NOT_COMPILED_OR_EXECUTED",
+  "sourceSha256": "40998079dd7795fedb5d78e66033f9c66d09556d182cfc1a7740a8ef946ee96e",
+  "harnessSha256": "90840cd6edb0063bfa0e843e4ee8dae4850b505ce645324ee9216ca905c28217",
+  "assertions": 12,
+  "knownInvalidCases": 12,
+  "validCases": 3,
+  "limitations": [
+    "Exact original expression/message bytes, host representative pointer fields only; no target ABI claim.",
+    "Standalone validation expressions do not include earlier fog dereferences or ENV_NORMALIZED operation.",
+    "NDEBUG macro not used; trapping replaced by first-failure exception to test original short-circuit order.",
+    "Source-only draft; root may compile/run separately."
+  ]
+}

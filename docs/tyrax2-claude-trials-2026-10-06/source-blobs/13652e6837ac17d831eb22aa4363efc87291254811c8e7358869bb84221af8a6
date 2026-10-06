@@ -1,0 +1,198 @@
+; _____        ____   ___
+;   |     \/   ____| |___|
+;   |     |   |   \  |   |
+;---------------------------------------------------------------
+; Copyright 2022, tyra - https://github.com/h4570/tyra
+; Licensed under Apache License 2.0
+; Added by TyraX: particle billboard expansion on VU1 (textured).
+;
+;---------------------------------------------------------------
+; Triangle list, 6 GS vertices emitted PER INPUT VERTEX.
+; Input vertices are particle CENTERS (xyz, w = 1); the "ST" slot
+; carries the per-particle 2x2 basis weights (m00 m01 m10 m11) and
+; the color slot one RGBA per particle. The camera right/up basis
+; (world space, per mesh at VU1_BILLBOARD_BASIS_ADDR) is transformed
+; by the MVP once per mesh; each center then expands to a quad
+;   corner = C +/- (R*m00 + U*m01) +/- (R*m10 + U*m11)
+; entirely in clip space - perspective-exact, no EE per-vertex work.
+; Corner STs are the fixed quad corners (0,1)(1,1)(1,0)(0,0).
+; Culling is per QUAD: one clipw judgement per corner (the GS 4096px
+; raster window / depth range - same criterion as the cull family);
+; any corner outside -> ADC on all 6 emitted vertices. Quads crossing
+; the screen edge stay inside the raster window and are finished by
+; the GS scissor, exactly like cull-family geometry.
+; The prim giftag NLOOP is built as 6x the input count on the EE side
+; (StaPipBillboardTVU1Program::gsVertexCount) - count the qwords after
+; every tag edit, an undercounting NLOOP stalls the GIF forever.
+;---------------------------------------------------------------
+
+.syntax new
+.name StaPipVU1Billboard_T
+.vu
+.init_vf_all
+.init_vi_all
+
+#include "src/renderer/3d/pipeline/shared/vcl_sml.i"
+#include "src/renderer/3d/pipeline/shared/tyra_macros.i"
+#include "inc/renderer/3d/pipeline/static/core/programs/stapip_vu1_shared_defines.h"
+
+#define STQ_STORE_OFFSET    0
+#define RGBA_STORE_OFFSET   1
+#define XYZ2_STORE_OFFSET   2
+
+--enter
+--endenter
+
+#vuprog StaPipVU1BillboardT
+
+    ResetClipFlags{ }
+    MatrixLoad{ mvp, VU1_MVP_MATRIX_ADDR, vi00 }
+    LoadTyraFogParams{ fogParams, VU1_OPTIONS_ADDR }
+    MakeTyraAdcMask{ adcMask }
+
+    ; world-space camera basis (right, up) -> clip space, once per mesh.
+    ; Directions (w = 0): rotation columns only, but the result keeps the
+    ; projection-row w - corner w varies correctly for world-up rain streaks.
+    lq      bbRight,    VU1_BILLBOARD_BASIS_ADDR(vi00)
+    lq      bbUp,       VU1_BILLBOARD_BASIS_ADDR+1(vi00)
+    MatrixMultiplyVector{ clipR, mvp, bbRight }
+    MatrixMultiplyVector{ clipU, mvp, bbUp }
+
+    ; fixed corner STs, z = 1 so the per-corner mulq yields (s*q, t*q, q)
+    move    st0,        vf00
+    add.yz  st0,        vf00,       vf00[w]
+    move    st1,        vf00
+    add.xyz st1,        vf00,       vf00[w]
+    move    st2,        vf00
+    add.xz  st2,        vf00,       vf00[w]
+    move    st3,        vf00
+    add.z   st3,        vf00,       vf00[w]
+
+begin:
+    xtop buffer
+    LoadTyraBufferTags{ scale, primTag, buffer }
+
+    ; tags re-loaded per buffer (keeps them out of the loop's live set)
+    LoadTyraStaticData{ gifSetTag }
+    LoadTyraTagsTexture{ lodGifTag, testsTag, texBufferClutGifTag, VU1_LOD_ADDR, VU1_Z_TESTS_ADDR, VU1_CLUT_ADDR }
+    LoadTyraAlphaTag{ alphaGifTag, VU1_ALPHA_ADDR }
+
+    iaddiu  vertexData,     buffer,         VU1_STAPIP_VERT_DATA_ADDR
+    ilw.w   vertexCount,    0(buffer)
+    iadd    paramsData,     vertexData,     vertexCount
+    iadd    colorData,      paramsData,     vertexCount
+    iadd    kickAddress,    colorData,      vertexCount
+    iaddiu  destAddress,    kickAddress,    0
+
+    StoreTyraGifTagsTextureAlpha{ gifSetTag, lodGifTag, texBufferClutGifTag, alphaGifTag, primTag, testsTag, destAddress }
+
+    iadd    vertexCounter,  vi00,           vertexCount
+centerLoop:
+
+        lq      posV,       (vertexData)
+        lq      prm,        (paramsData)
+        lq      colorV,     (colorData)
+
+        ;--- clip-space center + rotated/scaled clip-space half-axes
+        MatrixMultiplyVertex{ centerC, mvp, posV }
+        mul     acc,        clipR,      prm[x]
+        madd    axisR,      clipU,      prm[y]
+        mul     acc,        clipR,      prm[z]
+        madd    axisU,      clipU,      prm[w]
+
+        ;--- the 4 quad corners in clip space
+        sub     cnA,        centerC,    axisR
+        add     cnB,        centerC,    axisR
+        sub     c0,         cnA,        axisU
+        sub     c1,         cnB,        axisU
+        add     c2,         cnB,        axisU
+        add     c3,         cnA,        axisU
+
+        ;--- per-quad cull: any corner outside the raster window / z range
+        iadd    failAcc,    vi00,       vi00
+        clipw.xyz   c0,     c0
+        fcand   VI01,       0x3F
+        ior     failAcc,    failAcc,    VI01
+        clipw.xyz   c1,     c1
+        fcand   VI01,       0x3F
+        ior     failAcc,    failAcc,    VI01
+        clipw.xyz   c2,     c2
+        fcand   VI01,       0x3F
+        ior     failAcc,    failAcc,    VI01
+        clipw.xyz   c3,     c3
+        fcand   VI01,       0x3F
+        ior     failAcc,    failAcc,    VI01
+
+        ;--- shared fog + ADC word (camera-facing quads share one depth)
+        CalculateTyraFog{ fogInt, centerC, fogParams }
+        iaddiu  adcBit,     failAcc,    0x7FFF
+        iand    adcBit,     adcBit,     adcMask
+        ior     adcBit,     adcBit,     fogInt
+
+        FixColor{ colorV }
+
+        ;--- corner 0 -> output verts 0 and 3 (v0,v1,v2 / v0,v2,v3)
+        VertexPersCorr{ c0, c0 }
+        ScaleVertexToGSFormat{ scale, c0 }
+        PerformTexturePerspectiveCorrection{ stqOut0, st0 }
+        sq      stqOut0,    STQ_STORE_OFFSET+0(destAddress)
+        sq      colorV,     RGBA_STORE_OFFSET+0(destAddress)
+        sq.xyz  c0,         XYZ2_STORE_OFFSET+0(destAddress)
+        isw.w   adcBit,     XYZ2_STORE_OFFSET+0(destAddress)
+        sq      stqOut0,    STQ_STORE_OFFSET+9(destAddress)
+        sq      colorV,     RGBA_STORE_OFFSET+9(destAddress)
+        sq.xyz  c0,         XYZ2_STORE_OFFSET+9(destAddress)
+        isw.w   adcBit,     XYZ2_STORE_OFFSET+9(destAddress)
+
+        ;--- corner 1 -> output vert 1
+        VertexPersCorr{ c1, c1 }
+        ScaleVertexToGSFormat{ scale, c1 }
+        PerformTexturePerspectiveCorrection{ stqOut1, st1 }
+        sq      stqOut1,    STQ_STORE_OFFSET+3(destAddress)
+        sq      colorV,     RGBA_STORE_OFFSET+3(destAddress)
+        sq.xyz  c1,         XYZ2_STORE_OFFSET+3(destAddress)
+        isw.w   adcBit,     XYZ2_STORE_OFFSET+3(destAddress)
+
+        ;--- corner 2 -> output verts 2 and 4
+        VertexPersCorr{ c2, c2 }
+        ScaleVertexToGSFormat{ scale, c2 }
+        PerformTexturePerspectiveCorrection{ stqOut2, st2 }
+        sq      stqOut2,    STQ_STORE_OFFSET+6(destAddress)
+        sq      colorV,     RGBA_STORE_OFFSET+6(destAddress)
+        sq.xyz  c2,         XYZ2_STORE_OFFSET+6(destAddress)
+        isw.w   adcBit,     XYZ2_STORE_OFFSET+6(destAddress)
+        sq      stqOut2,    STQ_STORE_OFFSET+12(destAddress)
+        sq      colorV,     RGBA_STORE_OFFSET+12(destAddress)
+        sq.xyz  c2,         XYZ2_STORE_OFFSET+12(destAddress)
+        isw.w   adcBit,     XYZ2_STORE_OFFSET+12(destAddress)
+
+        ;--- corner 3 -> output vert 5
+        VertexPersCorr{ c3, c3 }
+        ScaleVertexToGSFormat{ scale, c3 }
+        PerformTexturePerspectiveCorrection{ stqOut3, st3 }
+        sq      stqOut3,    STQ_STORE_OFFSET+15(destAddress)
+        sq      colorV,     RGBA_STORE_OFFSET+15(destAddress)
+        sq.xyz  c3,         XYZ2_STORE_OFFSET+15(destAddress)
+        isw.w   adcBit,     XYZ2_STORE_OFFSET+15(destAddress)
+
+        ;-------------------------------
+
+        iaddiu  vertexData,     vertexData,     1
+        iaddiu  paramsData,     paramsData,     1
+        iaddiu  colorData,      colorData,      1
+        iaddiu  destAddress,    destAddress,    18
+
+        iaddi   vertexCounter,  vertexCounter,  -1
+        ibgtz   vertexCounter,  centerLoop
+
+    xgkick kickAddress ; dispatch to the GS rasterizer.
+
+--barrier ; Why the hell I must add barrier AFTER XGKICK? VCL does not adds E bit without it...
+--cont
+
+    b   begin
+
+#endvuprog
+
+--exit
+--endexit

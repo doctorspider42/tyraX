@@ -1,0 +1,9 @@
+{
+  "status": "PREPARED_NOT_COMPILED_OR_EXECUTED",
+  "sourceSha256": "53a36862d656e9480418c9f09df0efa8a0a55aa6ebe9ffd94fe8ed5e8f3a9ceb",
+  "harnessSha256": "52637071562a404012a97649cd31495560524f68a6171a3973dcd4934b980322",
+  "hostWrappersOnly": true,
+  "nativeOpcodeOrRuntimeQualified": false,
+  "enabledLifetimeQualified": false,
+  "primaryOverflowReportSha256": "333feade6c802da52cac384a3ff8cf5047231a5e6cca77e040f1187064888d2c"
+}

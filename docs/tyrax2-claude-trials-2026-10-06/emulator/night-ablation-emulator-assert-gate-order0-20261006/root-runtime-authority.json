@@ -1,0 +1,16 @@
+{
+  "status": "ROOT_RELEASE_PRIVATE_ASSERT_GATE",
+  "scope": "Private known-good fixture only: On bypasses twelve original validation statements in hot frames. Both arms execute all original checks in sparse cold frames. Original ENV_NORMALIZED, fog, geometry and packet operations retained. No NDEBUG or public API change. Hot bypass counts are not observed; cold activation/source branch only. Common gate branches are unpriced. No production safety or optimized-renderer promotion claim.",
+  "review": "F:\\Projects\\tyrax2-lab-20261001\\assert-gate-root-helpers-v1\\source-review.md",
+  "reviewSha256": "b70407860760c346991d48edbfa534c397d76792bd249b3b69b8833510296d97",
+  "host": "F:\\Projects\\tyrax2-lab-20261001\\assert-gate-root-helpers-v1\\host-authority.json",
+  "hostSha256": "626a2301c27e367a54b1d198051f490d145e3e76d7f3c00b1adcca3e6627e9c9",
+  "native": "F:\\Projects\\tyrax2-lab-20261001\\assert-gate-native-root-review-v1\\proof.json",
+  "nativeSha256": "8ef98b6acc8bc1f585ffbe9fcc7062252bded182e47d45e544b9d5b801323f8b",
+  "rootSourceFreezeSha256": "b2ea5fd34f87458b29ef5bbdbcce3feb06644d83d7283a44430b495d04693469",
+  "hostControlSha256": "b8bee2c9c560e1c042ab27cdd41663d35a3f16f5d951283705742a92e25bbf96",
+  "physicalPricingAccepted": false,
+  "commonObserverCodeCostPriced": false,
+  "nativeBindingVerifierSha256": "de31842f9ff2659dba7ed315bca2dc27d544b8b3bb40140e03632e663bb194a3",
+  "nativeBindingHostControlsSha256": "45443041444688301ae8f4b2c7dc96b62168907759882cdbf9a9185e610a41ee"
+}

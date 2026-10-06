@@ -1,0 +1,3 @@
+# Private assertion gate draft
+
+Not released or frozen. Stock head has twelve assertions despite its inherited comment saying thirteen. The ten-expression block and two-expression block retain original expression/message bytes, order and short-circuit semantics. The ENV_NORMALIZED operation remains between those blocks and outside both gates. Cold sparse rows count twelve actually executed checks in both arms, zero actually bypassed checks, and requested On-arm state separately. Hot activation is inferred from source and arm state, not counted. All source clocks are unchanged. No global NDEBUG, no production API claim.

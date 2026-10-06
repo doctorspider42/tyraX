@@ -1,0 +1,15 @@
+{
+  "sourcePins": {
+    "F:\\Projects\\tyrax2-lab-20261001\\pmu-scene-controls-v2\\analyze-loop.py": "58e19cee054b237f13f797de6237d283811757c05c84742cfd62483aff7bc2a8",
+    "F:\\Projects\\tyrax2-lab-20261001\\pmu-scene-controls-v2\\analyze-night.py": "5945a47fd7c7889598455af61d6706f9c0478936bc70c563b5f5d4f5c4d451d8",
+    "F:\\Projects\\tyrax2-lab-20261001\\pmu-scene-controls-v2\\analyze-night-cli.py": "16f446300363fe5b2140bf3bc1e7a10b121f68454d90320f9e41dfc85fbddda2",
+    "F:\\Projects\\tyrax2-lab-20261001\\pmu-scene-controls-v2\\corona_controls.py": "1decafffab8d86f2b34e2d20054a5e729d69d2c9259f9938bd8370666435a43a",
+    "F:\\Projects\\tyrax2-lab-20261001\\pmu-scene-controls-v2\\source-controls\\night_plan.hpp": "5688460bff6be8d421bdaa143052cd4cd08c7c6d93f27a31742a85d2ceaa1274",
+    "F:\\Projects\\tyrax2-lab-20261001\\pmu-scene-controls-v2\\source-controls\\stapip_vu1_shared_defines.h": "cf73e7be8c173e3ee9b04c54a9c57adbc18b7da29c9e4ed6d69c51dddf961d5b"
+  },
+  "pricingSourceManifestSha256": "89152b56a5df577bf1bf5ca75b85250ee662b82e5a2cc74d6e734e889c6d4926",
+  "primaryOverflowReportPin": {
+    "path": "F:\\Projects\\tyrax2-lab-20261001\\pmu-overflow-review-v1\\report.md",
+    "sha256": "333feade6c802da52cac384a3ff8cf5047231a5e6cca77e040f1187064888d2c"
+  }
+}

@@ -1,0 +1,37 @@
+{
+  "status": "ROOT_HOST_PMU_V2_PERMANENT_FAILURE_LATCH_CONTROL_ORDER_PASS_NO_RUNTIME_SAFETY_CLAIM",
+  "sourceSha256": "fc586d62fe04429a6b257aaace5a2ecbba3afb837a067bd6cc088a2684966281",
+  "sourceManifestSha256": "89152b56a5df577bf1bf5ca75b85250ee662b82e5a2cc74d6e734e889c6d4926",
+  "commands": [
+    {
+      "argv": [
+        "wsl",
+        "-d",
+        "Ubuntu",
+        "--",
+        "g++",
+        "-std=c++17",
+        "-O2",
+        "/mnt/f/Projects/tyrax2-lab-20261001/pmu-scene-source-controls-v2/pmu.cpp",
+        "-o",
+        "/mnt/f/Projects/tyrax2-lab-20261001/pmu-scene-source-controls-v2/root-pmu-host-v2"
+      ],
+      "exitCode": 0,
+      "log": "F:\\Projects\\tyrax2-lab-20261001\\pmu-scene-source-controls-v2\\root-host-v2-command-0.log",
+      "logSha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "argv": [
+        "wsl",
+        "-d",
+        "Ubuntu",
+        "--",
+        "/mnt/f/Projects/tyrax2-lab-20261001/pmu-scene-source-controls-v2/root-pmu-host-v2"
+      ],
+      "exitCode": 0,
+      "log": "F:\\Projects\\tyrax2-lab-20261001\\pmu-scene-source-controls-v2\\root-host-v2-command-1.log",
+      "logSha256": "bc174c26e35e0780627102c43d0c387e04682c03931a528c471aac7657703af5"
+    }
+  ],
+  "limitations": "Host fake counter/control behavior only; no actual opcodes/eventrate/overflowprevention or hardware activation."
+}

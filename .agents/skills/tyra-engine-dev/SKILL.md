@@ -14,6 +14,22 @@ description: >
 
 # Working on the in-tree Tyra engine fork
 
+Claude-trial boundaries: `docs/tyrax2-claude-trials.md` records twelve original
+Core assertions (the inherited comment says thirteen), private bypass prices
+with no production safety claim, and sparse nonempty-entered companion census.
+Capture `clipPackageSize()` only after the original max-vertex setter; compare
+semantic plane fields, not Vec4 padding. Native proof/source/ELF/symbol identities
+must agree with current provenance. PMU overflow is an unmaskable exception;
+endpoint rejection alone is insufficient. Refuse unknown active owners, qualify
+enabled lifetime before runtime, and label D-side events as including uncached
+loads. A no-log/no-loadelf console start is not a renderer runtime failure.
+Owned TEX1 prototypes must preserve sendObjectData-before-setInfo filter
+semantics and generic mutable LOD fallback; Core ownership does not make a
+public opt-in compiler-enforced. Target class growth and common selector cost
+need separate qualification. Eleven authored night-only boxes remain a geometry
+difference even when lighting effects are cut.
+
+
 > **A note on `PROGRESS 123` citations.** They point at numbered entries of
 > `PROGRESS.md`, retired at ~15 800 lines. They remain exact pointers — the file
 > is in git history, and `docs/backlog.md` has the recipe. New work records

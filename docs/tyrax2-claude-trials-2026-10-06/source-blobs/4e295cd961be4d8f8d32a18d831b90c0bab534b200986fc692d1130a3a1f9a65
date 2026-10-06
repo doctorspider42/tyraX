@@ -1,0 +1,440 @@
+/*
+# _____        ____   ___
+#   |     \/   ____| |___|
+#   |     |   |   \  |   |
+#-----------------------------------------------------------------------
+# Copyright 2022, tyra - https://github.com/h4570/tyra
+# Licensed under Apache License 2.0
+# Sandro Sobczyński <sandro.sobczynski@gmail.com>
+# Modified by TyraX: drained3DFor2D flag (PATH1 drain before 2D sprites),
+# GS hardware distance fog state (setFog/disableFog), camera spot light
+# (setSpotLight/disableSpotLight - the camera flashlight), applyPostFx()
+# (mid-frame post fx, per-pass, so HUD sprites can draw crisp on top of
+# bloom while film grain still sits over everything), applyCustomPostFx()
+# (user-authored full-screen effects composited at a stack slot)
+*/
+
+#pragma once
+#include "debug/hardware_trace.hpp"
+
+#include <tamtypes.h>
+#include "./2d/renderer_core_2d.hpp"
+#include "./3d/renderer_core_3d.hpp"
+#include "./gs/renderer_core_gs.hpp"
+#include "./texture/renderer_core_texture.hpp"
+#include "./postfx/renderer_core_postfx.hpp"
+#include "./envmap/renderer_core_envmap.hpp"
+#include "./shadowmap/renderer_core_shadow_map.hpp"
+#include "./alphamask/renderer_core_alpha_mask.hpp"
+#include "./splitview/renderer_core_splitview.hpp"
+#include "./warp/renderer_core_warp.hpp"
+#include "./blss/renderer_core_blss.hpp"
+#include "./paths/path3/path3.hpp"
+#include "./paths/path1/path1.hpp"
+#include "./renderer_core_sync.hpp"
+
+namespace Tyra {
+
+/**
+ * GS hardware distance fog state (TyraX fork). The 3D pipelines read
+ * this every frame: `enabled` drives the PRIM FGE bit, scale/offset are
+ * uploaded to VU1 which computes the per-vertex fog coefficient
+ * F = clamp(w * scale + offset, 0, 255) from the view distance w
+ * (F = 255 means no fog - the GS blends towards FOGCOL as F drops).
+ */
+struct RendererCoreFog {
+  bool enabled = false;
+  Color color = Color(128.0F, 128.0F, 128.0F, 128.0F);
+  float start = 0.0F;
+  float end = 0.0F;
+  float scale = 0.0F;
+  float offset = 255.0F;
+};
+
+/**
+ * Dynamic spot light state (TyraX fork) - the "flashlight". Applied
+ * per-vertex on VU1 in the StaPip color pipelines (the ones the editor's
+ * generated games use): additive cone + distance falloff on top of the baked
+ * vertex colors, no N.L term (there are no normals in the color paths -
+ * the same trick early hardware-lit games used). The per-mesh object-space
+ * transform happens on the EE (see StaPipQBufferRenderer::sendObjectData);
+ * EE-clipped triangles get the light injected into their colors before
+ * interpolation (see StaPipClipper).
+ */
+struct RendererCoreSpotLight {
+  bool enabled = false;
+  // Omni (point) light: the cone term is saturated via the spot constants
+  // (zero direction + negative cutoff), so the SAME VU1/EE code path renders
+  // both shapes - no extra micro memory. Direction/cosCutoff are ignored.
+  bool point = false;
+  Vec4 position = Vec4(0.0F, 0.0F, 0.0F, 1.0F);   // world space
+  Vec4 direction = Vec4(0.0F, 0.0F, -1.0F, 0.0F); // world space, normalized
+  Color color = Color(96.0F, 96.0F, 80.0F, 128.0F); // additive, 128 = +1.0
+  float range = 30.0F;      // world units
+  float cosCutoff = 0.9F;   // cos of the cone half-angle
+  float softness = 3.0F;    // >=1; higher = sharper cone edge
+};
+
+class RendererCore : public RendererCore2dBounds {
+ public:
+  RendererCore();
+  ~RendererCore();
+
+  /** Responsible for initializing GS. */
+  RendererCoreGS gs;
+
+  /** All logic responsible for 3D drawing. */
+  RendererCore3D renderer3D;
+
+  /** All logic responsible for 2D drawing. */
+  RendererCore2D renderer2D;
+
+  /** Texture transferring. */
+  RendererCoreTexture texture;
+
+  /** Full screen post effects: bloom, film grain (TyraX fork). */
+  RendererCorePostFx postFx;
+
+  /** Dynamic environment map for reflective materials (TyraX fork). */
+  RendererCoreEnvMap envMap;
+
+  /** Projected silhouette shadows (TyraX fork; VRAM allocated lazily via
+   * shadowMap.allocate() - only shadow-using games pay for it). */
+  RendererCoreShadowMap shadowMap;
+
+  /**
+   * Camera-feed render target (TyraX fork, "texture feeds"): a second
+   * env-map-style 128x128 VRAM target the game renders an arbitrary
+   * camera view into (begin/pushEnvView/draw/popEnvView/end), then binds
+   * via getTexture() on any material slot - live CCTV monitors.
+   */
+  RendererCoreEnvMap camFeed;
+
+  /** Split-screen viewports for two-player games (TyraX fork). */
+  RendererCoreSplitView splitView;
+
+  /** Frame extrapolation (TyraX fork, docs/frame-extrapolation.md). Costs no
+   * VRAM and does nothing until the game calls presentWarpFrame. */
+  RendererCoreWarp warp;
+
+  /**
+   * BLSS, the neural upscaler (TyraX fork, docs/neural-upscaler.md): renders
+   * the 3D scene at reduced resolution and reconstructs it with a baked MLP
+   * driving Gouraud-shaded blend fields. Off until the generated game's init()
+   * calls configure(); VRAM is allocated lazily there, so a project without
+   * BLSS pays nothing.
+   */
+  RendererCoreBlss blss;
+
+  /** EE <-> VU1 synchronization */
+  RendererCoreSync sync;
+
+  /** GS hardware distance fog (TyraX fork). */
+  RendererCoreFog fog;
+
+  /** Dynamic spot light - the flashlight (TyraX fork). */
+  RendererCoreSpotLight spot;
+
+  /** Destination-alpha shadow mask - the flashlight's shadow volumes
+   * (TyraX fork, docs/flashlight.md "The shadow"). */
+  RendererCoreAlphaMask alphaMask;
+
+  /**
+   * Scene dynamic lights (TyraX fork). The color VU1 programs evaluate ONE
+   * light per mesh, so the StaPip picks the strongest contributor per bag
+   * among the flashlight + these (see pickDynLight). Registered fresh every
+   * frame by the game (clearDynLights + addDynPointLight before rendering).
+   */
+  static constexpr u32 DYN_LIGHTS_MAX = 8;
+  RendererCoreSpotLight dynLights[DYN_LIGHTS_MAX];
+  u32 dynLightCount = 0;
+
+  // Set once Renderer2D has drained PATH1 this frame (sprites race the tail
+  // of the async 3D stream otherwise - see Renderer2D::render). Reset by
+  // beginFrame.
+  bool drained3DFor2D = false;
+
+  /** Called by renderer (TyraX fork: everything init-time in one struct -
+   * scan mode, colour depth, dithering, triple buffering and which render
+   * targets to reserve; see RendererOptions). */
+  void init(const RendererOptions& options = RendererOptions());
+
+  /**
+   * Runtime video output switch (TyraX fork): scan mode
+   * (480i/480p/1080i) and/or 16:9 widescreen. Call between frames (i.e.
+   * before beginFrame, after the previous endFrame). Changing the scan mode
+   * re-allocates the frame/z/post-fx buffers (full VRAM reset) and evicts
+   * every texture from VRAM - they re-upload on their next use, so expect
+   * one heavier frame. A widescreen-only change just reprograms the display
+   * window and the projection.
+   */
+  void setDisplayOutput(const DisplayMode& mode, const bool& widescreen);
+
+  /** World background color */
+  void setClearScreenColor(const Color& color);
+
+  /**
+   * Enable GS hardware distance fog (TyraX fork). Geometry fades to
+   * `color` between view distances `start` and `end`. For an atmospheric
+   * fade-out, match `color` with the clear screen color and keep
+   * `end` at (or before) the far plane.
+   */
+  void setFog(const Color& color, const float& start, const float& end);
+
+  /** Disable GS hardware distance fog. */
+  void disableFog();
+
+  /**
+   * Enable the dynamic spot light (TyraX fork). Position/direction are
+   * world space (direction gets normalized); cutoffDegrees is the cone
+   * half-angle; color is additive on top of the baked vertex colors with
+   * 128 = +1.0. Update position/direction every frame to attach it to the
+   * camera (flashlight).
+   */
+  void setSpotLight(const Color& color, const Vec4& position,
+                    const Vec4& direction, const float& range,
+                    const float& cutoffDegrees, const float& softness = 3.0F);
+
+  /** Disable the dynamic spot light. */
+  void disableSpotLight() { spot.enabled = false; }
+
+  /** Drop all registered scene dynamic lights (TyraX fork). Call once per
+   * frame before re-adding - the registry is a per-frame snapshot. */
+  void clearDynLights() { dynLightCount = 0; }
+
+  /**
+   * Register a scene dynamic point (omni) light for this frame (TyraX
+   * fork). Additive on top of baked vertex colors, quadratic-ish distance
+   * falloff over `range`, color 128 = +1.0. Silently ignored past
+   * DYN_LIGHTS_MAX. Returns the slot index (or -1 when full).
+   */
+  int addDynPointLight(const Color& color, const Vec4& position,
+                       const float& range);
+
+  /**
+   * Register a scene dynamic SPOT light for this frame (TyraX fork): the
+   * same registry slot as a point light, with the cone constants filled the
+   * way setSpotLight fills the camera torch. Direction need not be
+   * normalized. Silently ignored past DYN_LIGHTS_MAX.
+   */
+  int addDynSpotLight(const Color& color, const Vec4& position,
+                      const Vec4& direction, const float& range,
+                      const float& cutoffDegrees,
+                      const float& softness = 3.0F);
+
+  /**
+   * Pick the strongest dynamic light (flashlight or scene light) for a
+   * world-space bounding sphere (TyraX fork). Never null - with nothing
+   * registered it returns the flashlight state, disabled or not, which
+   * uploads zero colors and keeps the VU1 additive term a no-op.
+   */
+  /** skipSlot: a dynLights index this pick must ignore (-1 = none) - see
+   * PipelineInfoBag::dynLightSkipSlot. */
+  const RendererCoreSpotLight* pickDynLight(const Vec4& worldCenter,
+                                            const float& worldRadius,
+                                            int skipSlot = -1) const;
+
+  /** Clear screen and update view frustum for frustum culling. NO 3D support */
+  void beginFrame();
+
+  /** Clear screen and update view frustum for frustum culling. 3D support */
+  void beginFrame(const CameraInfo3D& cameraInfo);
+
+  /**
+   * Apply a subset of the full-screen post effects NOW instead of at endFrame
+   * (TyraX fork). `passes` is a RendererCorePostFx::Pass bitmask - the
+   * UI Editor screen stack applies bloom(+grading), grain and motion blur at
+   * independent points, e.g. motion blur under the HUD (so a moving HUD
+   * element does not smear), bloom under it too, grain over everything. Call it
+   * mid-frame - after the scene, before the HUD sprites you want on top.
+   * Each pass runs at most once per frame; endFrame() composites whatever is
+   * still unapplied. The PATH1 drain barrier (endFrame's) runs once, on the
+   * first pass that actually draws.
+   */
+  void applyPostFx(int passes = RendererCorePostFx::PassAll);
+
+  /**
+   * Run one user-authored full-screen post effect NOW (TyraX fork,
+   * "custom screen effects"). Like applyPostFx() it runs the PATH1 drain
+   * barrier once so the pass composites over finished 3D, then hands off to
+   * RendererCorePostFx::applyCustom(): the `build` callback appends raw GS
+   * blits and returns the advanced packet cursor. Called mid-frame at the
+   * effect's slot in the UI Editor screen stack, so HUD sprites drawn after it
+   * stay crisp on top. Unlike the built-in passes there is no once-per-frame
+   * mask - a custom pass always draws when reached.
+   */
+  void applyCustomPostFx(RendererCorePostFx::CustomFxBuild build, void* user);
+
+  /**
+   * TyraX portals: bracket the in-place through-view render (see
+   * RendererCorePostFx::portalMaskBegin/End). Both drain PATH1
+   * unconditionally - this runs MID-frame (more 3D follows), so the
+   * once-per-frame post-fx drain latch must not be set.
+   */
+  void portalViewBegin(int x0, int y0, int x1, int y1);
+  void portalViewEnd(const float* xy, const u32* z, int count, u8 clearR,
+                     u8 clearG, u8 clearB);
+
+  /** VSync and swap frame double buffer. */
+  void endFrame();
+
+  /**
+   * Modified by TyraX (docs/frame-extrapolation.md): synthesise and present an
+   * EXTRA frame between two rendered ones, by warping the last finished frame
+   * under a newer camera.
+   *
+   * The intended loop is "render the world at half rate, warp on the fields in
+   * between": after endFrame(), sample the pad again, work out where the
+   * camera is NOW, and call this. It draws a full-screen warped copy into the
+   * buffer the renderer is already pointing at and flips - no clear (the warp
+   * covers every pixel), no post fx (they are already in the source image, and
+   * running them again would compound bloom and grain frame after frame).
+   *
+   * Anything the game wants CORRECT rather than warped - the HUD, a first
+   * person weapon, a nearby animated character - it draws itself after this
+   * returns and before the flip... which this function does not offer, so for
+   * now those redraws belong in a normal frame. See the doc's "Limits".
+   *
+   * Returns false and presents nothing when there is no finished frame to warp
+   * yet (the first frame after boot or a display-mode switch), so a caller can
+   * simply ignore the result.
+   */
+  bool presentWarpFrame(const WarpCamera& from, const WarpCamera& to);
+
+  /**
+   * Modified by TyraX (docs/frame-extrapolation.md): EE cycles this renderer
+   * spent STALLED since the last call - waiting for vsync or for a free display
+   * buffer - and resets the counter.
+   *
+   * The caller subtracts it from its own loop period to get the loop's WORK,
+   * which is what the extrapolation gate decides on: synthesising is free only
+   * while the work already overruns a field, since the loop is then waiting out
+   * a second field anyway and the warp fits in the idle part. Below that the
+   * extra present forces a second field and HALVES the world rate - measured,
+   * 44.7 Hz down to 25 (see the doc).
+   *
+   * Measuring the STALL rather than the work is what makes it whole-loop: the
+   * game's own logic runs outside beginFrame/endFrame, so a renderer-side work
+   * clock would miss a game that is slow in its scripts - which is exactly how
+   * the first version of this gate failed to notice a 25 ms script.
+   */
+  u32 takeStallTicks() {
+    const u32 v = stallAccum;
+    stallAccum = 0;
+    return v;
+  }
+
+  /**
+   * Modified by TyraX: the same stall time as a running total that nobody
+   * resets (it wraps with the COP0 count), for a second reader. The
+   * interleaved-passes tuner (docs/interleaved-passes.md) takes differences
+   * of it, so it can price a whole loop without stealing takeStallTicks()
+   * from the frame extrapolation gate or the profiling rig.
+   */
+  u32 getStallTotal() const { return stallTotal; }
+
+  /**
+   * Modified by TyraX: whether beginFrame()/endFrame() sleep 0.5 ms each
+   * (Threading::switchThread). Off by default: the game thread runs at 0x40,
+   * below the audio threads and ps2link's command thread, which preempt it
+   * on their own, so the two sleeps were 1.03-1.07 ms of every frame of
+   * nothing (measured on a PS2). The generated game turns it on while the
+   * editor's Live Debugger is attached: with its snapshot writes to host:
+   * and music streaming over ps2link, a frame loop with no sleep hung the
+   * console (SIF stuck) about a minute in, 2 of 2 runs, while the sleeping
+   * one ran clean - mechanism not found (docs/backlog.md).
+   */
+  void setFrameYield(bool on) { frameYield = on; }
+  bool getFrameYield() const { return frameYield; }
+
+  /**
+   * Modified by TyraX: the screen rectangle everything drawn through the 2D
+   * path touched last frame, in display pixels; empty (x1 < x0) when nothing
+   * did. The frame warp keeps this region UNWARPED, because the HUD is pixels
+   * in the source image and carrying it along with the world is what makes it
+   * double and jitter. Derived rather than declared - the renderer already
+   * knows what 2D it drew, so no project has to describe its own HUD.
+   */
+  void get2dBounds(int* x0, int* y0, int* x1, int* y1) const override {
+    *x0 = hud2dX0; *y0 = hud2dY0; *x1 = hud2dX1; *y1 = hud2dY1;
+  }
+  /** Called by the 2D path per sprite (TyraX). */
+  void note2dRect(int x0, int y0, int x1, int y1) {
+    if (x0 < hud2dX0) hud2dX0 = x0;
+    if (y0 < hud2dY0) hud2dY0 = y0;
+    if (x1 > hud2dX1) hud2dX1 = x1;
+    if (y1 > hud2dY1) hud2dY1 = y1;
+  }
+
+  void setFrameLimit(const bool& onoff) { isFrameLimitOn = onoff; }
+  bool getFrameLimit() const { return isFrameLimitOn; }
+  // Modified by TyraX: ordinary/loading and successful warp render starts.
+  // Independent of profiling; this is an observation epoch, not a job ID.
+  // Unsigned adjacent difference one remains valid through counter wrap.
+  u32 getRecordingGeneration() const { return recordingGeneration; }
+  // Opt-in TyraX2; change between frames. Unsupported modes remain synchronous.
+  void setFramePipeline(bool on);
+  bool getFramePipeline() const { return framePipelineRequested; }
+  // Between-frame GPU readbacks must complete the pending job first.
+  void synchronizeFrame() { completePipelineFrame(); }
+
+  /** Get screen settings */
+  const RendererSettings& getSettings() const { return settings; }
+
+  Path1* getPath1() { return &path1; }
+
+  Path3* getPath3() { return &path3; }
+
+ private:
+  /**
+   * Modified by TyraX (BLSS): lay the permanent GS VRAM region out again, in
+   * the same relative order as init(), because the z buffer's SIZE changed.
+   *
+   * The body is setDisplayOutput's mode-change branch minus the mode: the
+   * frame buffers come back at the same addresses (they are allocated first),
+   * the z buffer at the raster size, and every permanent buffer above them has
+   * to be re-placed or it would still point at the old layout. Called by
+   * RendererCoreBlss::configure() through the hook below, which is why the
+   * blss re-place is NOT here - it allocates its own target right after.
+   */
+  void rebuildPermanentBuffers();
+  static void rebuildPermanentBuffersThunk(void* user);
+  void beginFrameStamp();  // Modified by TyraX
+  void beginFrameRecording();
+  void completePipelineFrame();
+  static void completePipelineFrameThunk(void* user);
+  bool frameMeasurementActive = false;
+  u32 recordingGeneration = 0;
+  bool pipelineFrameActive = false;
+  bool framePipelineRequested = false;
+  bool pipelineFramePending = false;
+  u32 pipelineSequence = 0;
+  // Modified by TyraX: zero means the source job predates this capture.
+#if TYRA_HARDWARE_TRACE
+  u32 traceRecordingJob = 0, tracePendingJob = 0, tracePendingEpoch = 0;
+#endif
+  u8 pipelineContext = 0, recordingContext = 0;
+
+  bool isFrameLimitOn;
+  // Modified by TyraX: has a real frame been presented yet? The warp samples
+  // the previously finished display buffer, which before the first flip holds
+  // whatever was in GS VRAM at boot.
+  bool hasPresentedFrame = false;
+  // Modified by TyraX: see getLastFrameWorkTicks / get2dBounds.
+  u32 stallAccum = 0;
+  u32 stallTotal = 0;
+  bool frameYield = false;
+  int hud2dX0 = 1 << 20, hud2dY0 = 1 << 20, hud2dX1 = -1, hud2dY1 = -1;
+  // Which post fx passes already ran this frame (RendererCorePostFx::Pass
+  // bits) - endFrame composites the rest. postFxDrained: the PATH1 barrier
+  // has run once this frame (only needed before the first pass that draws).
+  // Both reset by beginFrame.
+  int postFxAppliedMask = 0;
+  bool postFxDrained = false;
+  Color bgColor;
+  RendererSettings settings;
+  Path3 path3;
+  Path1 path1;
+};
+
+}  // namespace Tyra

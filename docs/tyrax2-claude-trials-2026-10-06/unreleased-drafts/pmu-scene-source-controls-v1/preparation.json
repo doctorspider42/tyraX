@@ -1,0 +1,8 @@
+{
+  "status": "PREPARED_NOT_COMPILED_OR_EXECUTED",
+  "sourceSha256": "649b3c9f4d09a0c6153f087dd8fdfa77cbdfc347bf92f3c84345b409e7be7409",
+  "harnessSha256": "779b3dc240247e3eedfbe019b77dbeb44733214f83f50258a0792b04231c5062",
+  "hostWrappersOnly": true,
+  "nativeOpcodeOrRuntimeQualified": false,
+  "pmuOverflowQualified": false
+}

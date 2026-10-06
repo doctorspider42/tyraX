@@ -87,3 +87,5 @@ docs/tyrax2-sky-retint-2026-10-05/** -text whitespace=-trailing-space,-space-bef
 docs/tyrax2-paused-clock-2026-10-06/** -text whitespace=-trailing-space,-space-before-tab,cr-at-eol
 
 docs/tyrax2-night-shift-2026-10-06/** -text whitespace=-trailing-space,-space-before-tab,cr-at-eol
+
+docs/tyrax2-claude-trials-2026-10-06/** -text whitespace=-trailing-space,-space-before-tab,cr-at-eol

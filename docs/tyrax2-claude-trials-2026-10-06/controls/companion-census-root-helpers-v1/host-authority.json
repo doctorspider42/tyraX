@@ -1,0 +1,12 @@
+{
+  "sourcePins": {
+    "F:\\Projects\\tyrax2-lab-20261001\\companion-census-controls-v1\\analyze-loop.py": "73957872b375558f1f4a52f0268bdee0b34e2ec65298c8a556131a7c3d9e3a03",
+    "F:\\Projects\\tyrax2-lab-20261001\\companion-census-controls-v1\\analyze-night.py": "ac69da7698cf776f215083700ce6c4263072e09f3096eb5adb06aec18f6afac6",
+    "F:\\Projects\\tyrax2-lab-20261001\\companion-census-controls-v1\\analyze-night-cli.py": "a68fcac18d686e7a65f0b228dd1e345d9adbd9c88825eddb1a2f42e3180c0327",
+    "F:\\Projects\\tyrax2-lab-20261001\\companion-census-controls-v1\\corona_controls.py": "1decafffab8d86f2b34e2d20054a5e729d69d2c9259f9938bd8370666435a43a",
+    "F:\\Projects\\tyrax2-lab-20261001\\companion-census-controls-v1\\source-controls\\night_plan.hpp": "e215b3d37f70210e1712ce9c9873ca59f3b7126cc1825d417e13a8a6b616a50f",
+    "F:\\Projects\\tyrax2-lab-20261001\\companion-census-controls-v1\\source-controls\\stapip_vu1_shared_defines.h": "cf73e7be8c173e3ee9b04c54a9c57adbc18b7da29c9e4ed6d69c51dddf961d5b"
+  },
+  "pricingSourceManifestSha256": "5157606e596d8d466583db330371b72e5707883678549d50ff1dd901aa5996c6",
+  "draftUnreleased": false
+}
