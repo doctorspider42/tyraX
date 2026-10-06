@@ -1,0 +1,9 @@
+{
+  "status": "HISTORICAL_V2_V3_LOG_BYTES_IDENTICAL_PATH_NOT_RECORDED_IN_OLD_PROOF",
+  "v2LogSha256": "8c5ea8b0b8991045a69c17e5eb744a9da951cebb9955abc9cac7f96dc6601545",
+  "v3LogSha256": "8c5ea8b0b8991045a69c17e5eb744a9da951cebb9955abc9cac7f96dc6601545",
+  "byteEqual": true,
+  "proofGeneratorSupportsExplicitLogArgument": true,
+  "v3Invocation": "native-proof.py --log native-build-v3.log",
+  "scope": "Hashes cannot distinguish identical log content. This is not evidence of a wrong hardcoded log path. Native-v4 records the explicit path; old proof remains untouched. Both historical runtime attempts were rejected independently."
+}

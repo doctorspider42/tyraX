@@ -1,0 +1,208 @@
+{
+  "status": "PASS_FORTY_STATIC_BATCH_PARSER_CONTROLS",
+  "syntheticNotRuntime": true,
+  "parserSha256": "c705845d04140d9049cda49828074eac48739ad65ba7dff8c6bad4e3181b5bc2",
+  "sourceParentLogSha256": "363457e0353ba2325e9353f17b3d6b345bb20029f223219250893790dc5ab392",
+  "cases": [
+    {
+      "name": "positive-order0",
+      "expectedAccepted": true,
+      "actualAccepted": true
+    },
+    {
+      "name": "unmatched-point0",
+      "expectedAccepted": false,
+      "actualAccepted": false
+    },
+    {
+      "name": "unmatched-camera0",
+      "expectedAccepted": false,
+      "actualAccepted": false
+    },
+    {
+      "name": "prebuild-snapshot0",
+      "expectedAccepted": false,
+      "actualAccepted": false
+    },
+    {
+      "name": "prebuild-owner-map0",
+      "expectedAccepted": false,
+      "actualAccepted": false
+    },
+    {
+      "name": "missing-solo-prep0",
+      "expectedAccepted": false,
+      "actualAccepted": false
+    },
+    {
+      "name": "empty-solo-parts0",
+      "expectedAccepted": false,
+      "actualAccepted": false
+    },
+    {
+      "name": "wrong-solo-input0",
+      "expectedAccepted": false,
+      "actualAccepted": false
+    },
+    {
+      "name": "duplicate-solo-prep0",
+      "expectedAccepted": false,
+      "actualAccepted": false
+    },
+    {
+      "name": "undersized-runtime-pool0",
+      "expectedAccepted": false,
+      "actualAccepted": false
+    },
+    {
+      "name": "undersized-geometry-pool0",
+      "expectedAccepted": false,
+      "actualAccepted": false
+    },
+    {
+      "name": "wrong-authored-map0",
+      "expectedAccepted": false,
+      "actualAccepted": false
+    },
+    {
+      "name": "prep-error-bit0",
+      "expectedAccepted": false,
+      "actualAccepted": false
+    },
+    {
+      "name": "missing-batch0",
+      "expectedAccepted": false,
+      "actualAccepted": false
+    },
+    {
+      "name": "mapping-broken0",
+      "expectedAccepted": false,
+      "actualAccepted": false
+    },
+    {
+      "name": "input-lost0",
+      "expectedAccepted": false,
+      "actualAccepted": false
+    },
+    {
+      "name": "lost-high-owner0",
+      "expectedAccepted": false,
+      "actualAccepted": false
+    },
+    {
+      "name": "misrouted-off0",
+      "expectedAccepted": false,
+      "actualAccepted": false
+    },
+    {
+      "name": "missing-blob0",
+      "expectedAccepted": false,
+      "actualAccepted": false
+    },
+    {
+      "name": "synthetic-flips-reported0",
+      "expectedAccepted": true,
+      "actualAccepted": true
+    },
+    {
+      "name": "positive-order1",
+      "expectedAccepted": true,
+      "actualAccepted": true
+    },
+    {
+      "name": "unmatched-point1",
+      "expectedAccepted": false,
+      "actualAccepted": false
+    },
+    {
+      "name": "unmatched-camera1",
+      "expectedAccepted": false,
+      "actualAccepted": false
+    },
+    {
+      "name": "prebuild-snapshot1",
+      "expectedAccepted": false,
+      "actualAccepted": false
+    },
+    {
+      "name": "prebuild-owner-map1",
+      "expectedAccepted": false,
+      "actualAccepted": false
+    },
+    {
+      "name": "missing-solo-prep1",
+      "expectedAccepted": false,
+      "actualAccepted": false
+    },
+    {
+      "name": "empty-solo-parts1",
+      "expectedAccepted": false,
+      "actualAccepted": false
+    },
+    {
+      "name": "wrong-solo-input1",
+      "expectedAccepted": false,
+      "actualAccepted": false
+    },
+    {
+      "name": "duplicate-solo-prep1",
+      "expectedAccepted": false,
+      "actualAccepted": false
+    },
+    {
+      "name": "undersized-runtime-pool1",
+      "expectedAccepted": false,
+      "actualAccepted": false
+    },
+    {
+      "name": "undersized-geometry-pool1",
+      "expectedAccepted": false,
+      "actualAccepted": false
+    },
+    {
+      "name": "wrong-authored-map1",
+      "expectedAccepted": false,
+      "actualAccepted": false
+    },
+    {
+      "name": "prep-error-bit1",
+      "expectedAccepted": false,
+      "actualAccepted": false
+    },
+    {
+      "name": "missing-batch1",
+      "expectedAccepted": false,
+      "actualAccepted": false
+    },
+    {
+      "name": "mapping-broken1",
+      "expectedAccepted": false,
+      "actualAccepted": false
+    },
+    {
+      "name": "input-lost1",
+      "expectedAccepted": false,
+      "actualAccepted": false
+    },
+    {
+      "name": "lost-high-owner1",
+      "expectedAccepted": false,
+      "actualAccepted": false
+    },
+    {
+      "name": "misrouted-off1",
+      "expectedAccepted": false,
+      "actualAccepted": false
+    },
+    {
+      "name": "missing-blob1",
+      "expectedAccepted": false,
+      "actualAccepted": false
+    },
+    {
+      "name": "synthetic-flips-reported1",
+      "expectedAccepted": true,
+      "actualAccepted": true
+    }
+  ]
+}

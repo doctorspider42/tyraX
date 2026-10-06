@@ -1,0 +1,21 @@
+{
+  "status": "OWNED_CLOSEOUT_STOP_REQUESTED",
+  "pid": 9466,
+  "procStartTicks": "8399286",
+  "args": [
+    "/home/spider/tyrax2-debugger-linux-v1/squashfs-root/AppRun",
+    "-datapath",
+    "/mnt/f/Projects/tyrax2-lab-20261001/tyrax2-closeout-emulator-two-cars-light-buildings-80k-shadow-batch-v3/runtime/profile",
+    "-logfile",
+    "/mnt/f/Projects/tyrax2-lab-20261001/tyrax2-closeout-emulator-two-cars-light-buildings-80k-shadow-batch-v3/runtime/emulator.log",
+    "-batch",
+    "-nogui",
+    "-elf",
+    "/mnt/f/Projects/tyrax2-lab-20261001/tyrax2-closeout-road-two-cars-light-buildings-80k-shadow-batch-v1/empty-car/bin/empty-car.elf"
+  ],
+  "launchSha256": "37c82b04ceed0a51dff562789f71d534a5868eab496e0421f60e8e86841b64bc",
+  "requestedUnix": 1791313755.0682333,
+  "terminalExitConfirmed": false,
+  "xvfbStopped": false,
+  "artifactsDeleted": false
+}

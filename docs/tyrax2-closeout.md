@@ -161,3 +161,5 @@ The corrected blob continuation completes 5400 clean PS2 loops at 15.4753/15.487
 
 
 The [clean physical blob result](tyrax2-empty-car-2026-10-06/README.md#clean-physical-blob-result) supersedes the earlier pending hardware checkpoint, preserving all rejected resource-failure evidence.
+
+The [stationary batching contrast](tyrax2-empty-car-2026-10-06/batch/README.md) now passes native binding and both5400-loop software-emulator orders. Same sparse geometry/car/camera/light witnesses qualify37 ON versus313 OFF carriers at80187 input vertices. Normal solo and combined buffers remain resident in both arms; startup/extra memory/common observer costs are unpriced. Physical ON/OFF pricing remains pending a reset-ready console; no batching performance conclusion or public optimization is accepted yet.

@@ -143,3 +143,7 @@ The first shadow emulator and physical runs completed protocol loops but were re
 Following another user-confirmed physical restart, the corrected asset closure with unchanged ELF completes 5400 PS2 loops without resource errors. Parked / short drive / post-drive non-pacing work is 15.4753 / 15.4872 / 15.4859 ms, retaining approximately 59.94 Hz in all observed windows. Each window has 320 rendered and zero synthetic completions; none of 384 raw entry periods exceeds 25 ms. Six cold observations accept one 54-vertex blob carrier, with the full 80,133-input parent partition retained: 80,187 total input vertices / 37 carriers.
 
 This supersedes the emulator-only pending checkpoint above. It does not qualify the original missing-resource attempts or supply a causal shadow-only delta against a different ELF. The normal shadow preparation and ground queries are included in the workload. Physical TV confirmation remains pending; three clean emulator images show a soft shadow under Ravager. Every-frame raster/scanout and common observer footprint remain separate.
+
+### Stationary batching contrast
+
+The [same-ELF batching fixture](batch/README.md) passes both5400-loop emulator orders with identical80187 accepted inputs and37 ON versus313 OFF carriers. Both representations are prepared once and retained; extra memory and common observer cost remain unpriced. Physical timing awaits reset-ready PS2. Four rejected private preparations are retained without performance claims.

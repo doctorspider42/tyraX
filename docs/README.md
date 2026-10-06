@@ -570,3 +570,5 @@ The 50-facade continuation accepts 80,133 total input vertices in 36 carriers at
 The normal Ravager-only blob continuation is native and emulator qualified after adding its required default glow resource. Its first emulator and PS2 attempts are rejected for a missing texture. The same ELF with complete assets passes 5400 emulator loops at 80,187 accepted input vertices; the clean PS2 repetition awaits reset-ready confirmation.
 
 Clean blob hardware repetition completes 5400 PS2 loops with the corrected unchanged ELF: 15.4753/15.4872/15.4859 ms non-pacing work, approximately 59.94 Hz, one separate accepted 54-vertex blob and 80,187 total inputs. Initial missing-resource runs remain rejected and TV confirmation remains pending. The requested same-ELF stationary batching contrast is being prepared.
+
+The [stationary batching contrast](tyrax2-empty-car-2026-10-06/batch/README.md) qualifies both emulator orders with80187 accepted inputs,37 ON/313 OFF carriers and retained normal geometry. Physical timing is pending; emulator FPS is not hardware pricing.

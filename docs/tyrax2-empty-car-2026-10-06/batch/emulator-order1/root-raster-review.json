@@ -1,0 +1,34 @@
+{
+  "status": "ROOT_REVERSE_OFF_RASTER_AND_SHARED_ELF_ON_CROSS_ORDER_AUTHORITY",
+  "order": 1,
+  "terminalAbsenceConfirmed": true,
+  "pid": 10071,
+  "onAndOffRepresentationsInspected": true,
+  "captures": [
+    {
+      "fileLabel": "on",
+      "actualPhase": 2,
+      "actualEnabled": 0,
+      "imageSha256": "559a07584bb1107d98c529c2edda935f7826587bee9c25db7cac6cb286aae96e",
+      "observeProofSha256": "fd946b0146b142f91bea715dc367b885ae85ebcd929b18960c8fae191da973c6"
+    },
+    {
+      "fileLabel": "off",
+      "actualPhase": 0,
+      "actualEnabled": 0,
+      "imageSha256": "27691a2f895e15156709b2e9c40d266090c401eb1be31a1d507db31399b656fd",
+      "observeProofSha256": "11b29401f6b9b100199ac6a337c0d0f844f50e343a8fa45b51a138f8e8b96d5f"
+    },
+    {
+      "fileLabel": "final",
+      "actualPhase": 2,
+      "actualEnabled": 0,
+      "imageSha256": "1d554dad775851cd64e99c8142917f22fe0a8cd478dee2a207d449dcb61e8ecc",
+      "observeProofSha256": "22ebebe1c8e0efc51a0884ae8ecf78827a913aad2eaa2d7a6da1af262dbd60ea"
+    }
+  ],
+  "onVisualAuthorityReference": "F:/Projects/tyrax2-lab-20261001/tyrax2-closeout-emulator-two-cars-light-buildings-80k-shadow-batch-v5/root-raster-review.json",
+  "onVisualAuthoritySha256": "10f2b9d182f64124bc5def8a907f46f25abba0f48762fca8518f54535f54ff59",
+  "scope": "Root inspected all reverse-run captures; capture-on filename was late and actually shows phase2 OFF. Own OFF rasters show full scene; ON image authority is the exact same ELF in order0. Reverse ON accepted geometry is protocol-proved, not independently raster-captured. Sparse shared-ELF images do not prove exact pixel equality, all owners or PS2 output.",
+  "hardwarePerformanceQualified": false
+}

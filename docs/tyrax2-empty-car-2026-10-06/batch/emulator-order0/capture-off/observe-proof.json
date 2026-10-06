@@ -1,0 +1,51 @@
+{
+  "status": "OWNED_CLOSEOUT_LOG_PREFIX_AND_RASTER_IDENTITY_ONLY",
+  "snapshotUTC": "2026-10-06T19:18:54.604972+00:00",
+  "launchSha256": "e903fbb08508dbe74abb1b12892a02a5eb61626ed58f073a10a0b84e2acfb29a",
+  "markers": {
+    "CONFIG": [
+      "[    5.2617] LOG: CLOSEOUTCONFIG order=0 kind=4 valid=1 phases=3 phaseFrames=1800 taxFirst=800 taxLoops=320 sampleFirst=900 sampleCount=128 ordinaryClocks=1 addedWaits=0 frameProfile=0 hardwareTrace=0 devkit=0 sampleBytes=6144 chunkBytes=420"
+    ],
+    "PHASE": [
+      "[    9.8658] LOG: CLOSEOUTPHASE phase=0 first=0 players=0 geometryHidden=0 sampler=1 countReads=262",
+      "[   41.2563] LOG: CLOSEOUTPHASE phase=1 first=1800 players=0 geometryHidden=0 sampler=1 countReads=262"
+    ],
+    "CONTEXT": [
+      "[   23.7419] LOG: CLOSEOUTCONTEXT phase=0 offset=750 players=0 oneArm=1 route=11 scene=0 vehicleDriver=0 sceneGeneration=1 video=1 display=1 depth=2 width=448 height=448 refreshMilliHz=60000 requested=1 positionX=00000000 positionY=4028b437 positionZ=c0d00000 lookX=00000000 lookY=3f9a5e32 lookZ=00000000 vehicleX=00000000 vehicleY=3edf3b5f vehicleZ=00000000 vehicleSpeed=00000000 playerX=00000000 playerY=4028b437 playerZ=c0d00000 valid=1",
+      "[   30.4977] LOG: CLOSEOUTCONTEXT phase=0 offset=1155 players=0 oneArm=1 route=11 scene=0 vehicleDriver=0 sceneGeneration=1 video=1 display=1 depth=2 width=448 height=448 refreshMilliHz=60000 requested=1 positionX=00000000 positionY=4028b437 positionZ=c0d00000 lookX=00000000 lookY=3f9a5e32 lookZ=00000000 vehicleX=00000000 vehicleY=3edf3b5f vehicleZ=00000000 vehicleSpeed=00000000 playerX=00000000 playerY=4028b437 playerZ=c0d00000 valid=1",
+      "[   53.8718] LOG: CLOSEOUTCONTEXT phase=1 offset=750 players=0 oneArm=1 route=11 scene=0 vehicleDriver=0 sceneGeneration=1 video=1 display=1 depth=2 width=448 height=448 refreshMilliHz=60000 requested=1 positionX=00000000 positionY=4028b437 positionZ=c0d00000 lookX=00000000 lookY=3f9a5e32 lookZ=00000000 vehicleX=00000000 vehicleY=3edf3b5f vehicleZ=00000000 vehicleSpeed=00000000 playerX=00000000 playerY=4028b437 playerZ=c0d00000 valid=1"
+    ],
+    "DONE": [],
+    "WINDOW": [
+      "LOG: CLOSEOUTWINDOW phase=0 sampler=1 raw=128 chunks=5 valid=1"
+    ]
+  },
+  "samplesRows": 128,
+  "chunkRows": 5,
+  "snapshots": [
+    {
+      "source": "/mnt/f/Projects/tyrax2-lab-20261001/tyrax2-closeout-emulator-two-cars-light-buildings-80k-shadow-batch-v5/runtime/emulator.log",
+      "snapshot": "/mnt/f/Projects/tyrax2-lab-20261001/tyrax2-closeout-emulator-two-cars-light-buildings-80k-shadow-batch-v5/capture-off/runtime-emulator.log",
+      "bytes": 51765,
+      "sha256": "369ae28f5b4b53d6297ccb9290a74aed243214fee5a834b1b0cfb02137b0ed74"
+    },
+    {
+      "source": "/mnt/f/Projects/tyrax2-lab-20261001/tyrax2-closeout-emulator-two-cars-light-buildings-80k-shadow-batch-v5/runtime/stdout.log",
+      "snapshot": "/mnt/f/Projects/tyrax2-lab-20261001/tyrax2-closeout-emulator-two-cars-light-buildings-80k-shadow-batch-v5/capture-off/runtime-stdout.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "source": "/mnt/f/Projects/tyrax2-lab-20261001/tyrax2-closeout-road-two-cars-light-buildings-80k-shadow-batch-v1/empty-car/bin/closeout-samples.txt",
+      "snapshot": "/mnt/f/Projects/tyrax2-lab-20261001/tyrax2-closeout-emulator-two-cars-light-buildings-80k-shadow-batch-v5/capture-off/bin-closeout-samples.txt",
+      "bytes": 28935,
+      "sha256": "75210919e33591c4855961985cf1ce6007fa1090d99620ce97a54c6cd9cf9d24"
+    }
+  ],
+  "window": "0x200007",
+  "title": "empty-car [?]",
+  "imageSha256": "2dc8ba920f14f9eafe6a700c267c15334d7fc85e5b2b97544d906cac5889115d",
+  "visualReviewPending": true,
+  "strictSamplerAnalysisPending": true,
+  "devicePerformanceQualified": false
+}

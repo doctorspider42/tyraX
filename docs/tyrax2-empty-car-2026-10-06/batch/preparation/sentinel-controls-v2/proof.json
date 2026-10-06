@@ -1,0 +1,9 @@
+{
+  "status": "PASS_ACTUAL_HEADER_MULTIBATCH_SENTINEL_AND_ROUTE_CONTROLS",
+  "actualHeaderSha256": "e2076586fcfc3917e1c8a1509d04b59d69fb9af524309c6eb9d18b3de16e81ea",
+  "controlsSourceSha256": "fb1bb453022b4b314d128eb66be98703fc611526bec7e26cac264fac92558f73",
+  "stubSha256": "69b384bb597878894a6e805c83624271e5fa22e46899dc5b8c1ccbfb8f17b5fa",
+  "binarySha256": "9fea3d2f8860db879a4c9fa437eb91cd358b14372da0a12a3385b027a7f4f6d3",
+  "runtimeQualification": false,
+  "scope": "Actual private header membership(-2/index)/rejected negative sentinels, exact short snapshot type,50-owner OFF/restore preservation, both phase orders and postdone last phase. Stub only Closeout order; no game/PS2/device."
+}

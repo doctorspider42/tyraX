@@ -1,0 +1,8 @@
+{
+  "status": "REJECTED_PREBOOT_BATCH_MEMBERSHIP_SNAPSHOT",
+  "pid": 8966,
+  "terminalAbsenceConfirmed": true,
+  "hardwareTimingQualified": false,
+  "reason": "Phase0 snapshot precedes normal boot/build: retainedBatches0 initially, cold mappedOwners0 not50 and valid0. No comparison accepted.",
+  "inputsArchived": true
+}

@@ -2750,5 +2750,529 @@
   {
     "path": "buildings-80k-shadow/physical/archive-physical-shadow-root.py",
     "sha256": "3f42d38727c9122d57ec19743cc990b15028bd857654f56bbfac6ac1268cba16"
+  },
+  {
+    "path": "batch/preparation/README.md",
+    "sha256": "c536ab08e66bad49c6a11a03a7ff88701a70f8dd73e27b8b7fc982897a08d451"
+  },
+  {
+    "path": "batch/preparation/source-review.json",
+    "sha256": "e7356ede713f8a71557e89595be67a0eb6ff980317f8d771f598bd6af4726a69"
+  },
+  {
+    "path": "batch/preparation/native-proof.json",
+    "sha256": "bd6b68dc29dbb73e1c0cd1f9457ef415b2e8510a2dc2face29278d815b786385"
+  },
+  {
+    "path": "batch/preparation/native-proof.py",
+    "sha256": "9080b38f3aa3787ad1ebd51280869a72014c84a35fc1a8b7d99324f0ce6f5828"
+  },
+  {
+    "path": "batch/preparation/bin-assets-source-pins.json",
+    "sha256": "6bd47cce715e717afed11191f931216603348a61bbb0d737f69cb5f6a62129b2"
+  },
+  {
+    "path": "batch/preparation/native-build.log",
+    "sha256": "3fb35e45346c033d247ebfebd4e5615d022d883fe0c673d9bd0e7483811eca9c"
+  },
+  {
+    "path": "batch/preparation/native-build-v2.log",
+    "sha256": "8c5ea8b0b8991045a69c17e5eb744a9da951cebb9955abc9cac7f96dc6601545"
+  },
+  {
+    "path": "batch/preparation/native-build-v3.log",
+    "sha256": "8c5ea8b0b8991045a69c17e5eb744a9da951cebb9955abc9cac7f96dc6601545"
+  },
+  {
+    "path": "batch/preparation/native-build-v4.log",
+    "sha256": "8c5ea8b0b8991045a69c17e5eb744a9da951cebb9955abc9cac7f96dc6601545"
+  },
+  {
+    "path": "batch/preparation/native-build-v5.log",
+    "sha256": "8c5ea8b0b8991045a69c17e5eb744a9da951cebb9955abc9cac7f96dc6601545"
+  },
+  {
+    "path": "batch/preparation/native-build-v6.log",
+    "sha256": "3f9bee428cabbceb39721297ecb168ed5fef301642a23026385438054e85bd27"
+  },
+  {
+    "path": "batch/preparation/analyze-batch.py",
+    "sha256": "c705845d04140d9049cda49828074eac48739ad65ba7dff8c6bad4e3181b5bc2"
+  },
+  {
+    "path": "batch/preparation/parser-controls-v5/proof.json",
+    "sha256": "ee825e84612be5a37d1e3f760e38d62335c535a71e1a7f2c337aa583c5cc5e92"
+  },
+  {
+    "path": "batch/preparation/postboot-source-controls.json",
+    "sha256": "4b11b0b8631879c78e522456e8d69374dc2d7de5fa013429aa0d4cdefe806f88"
+  },
+  {
+    "path": "batch/preparation/sentinel-controls-v2/proof.json",
+    "sha256": "3d349bb0d00d941dd6d0e25fbe1f9eabde67c8c301742d66042600ec26ef5a09"
+  },
+  {
+    "path": "batch/preparation/sentinel-controls-v2/controls.cpp",
+    "sha256": "fb1bb453022b4b314d128eb66be98703fc611526bec7e26cac264fac92558f73"
+  },
+  {
+    "path": "batch/preparation/sentinel-controls-v2/stub/debug/closeout.hpp",
+    "sha256": "69b384bb597878894a6e805c83624271e5fa22e46899dc5b8c1ccbfb8f17b5fa"
+  },
+  {
+    "path": "batch/preparation/root-emulator-review.json",
+    "sha256": "7d80ee564a50e831f5994ef06ac5cac48af666a38f49046975725ada7e35216d"
+  },
+  {
+    "path": "batch/preparation/order0.cfg",
+    "sha256": "968c76efed47eb02a2a77c542c9128dfd4e9c7066629920b2d8c3231081e7623"
+  },
+  {
+    "path": "batch/preparation/order1.cfg",
+    "sha256": "aca8cbbe96ba89bf0fd068d4b4069213909923c48085dca9e63b124bc1544bcb"
+  },
+  {
+    "path": "batch/changed-source/empty-car/inc/batch_trial.hpp",
+    "sha256": "e2076586fcfc3917e1c8a1509d04b59d69fb9af524309c6eb9d18b3de16e81ea"
+  },
+  {
+    "path": "batch/changed-source/empty-car/src/terrain_game.cpp",
+    "sha256": "26e571bf5bc23aeae4a4f674cd0d3f84ee6ce43b265f4f9746b01b43d5eeb9e3"
+  },
+  {
+    "path": "batch/changed-source/empty-car/src/gen/game_collision.gen.cpp",
+    "sha256": "5841a023d1455288dd97e3b3dbff110f26c550654822bff9281bdf78766454ad"
+  },
+  {
+    "path": "batch/preparation/prepare-batch-shadow.py",
+    "sha256": "231da7ddade0f269026191499a26883a9fec86405aca8ea902fef9abd560168c"
+  },
+  {
+    "path": "batch/preparation/repair-batch-membership.py",
+    "sha256": "c8a135aa607ba7bdc020cf321b3ba2746bb06709b7864740437a9b5f6f173cbd"
+  },
+  {
+    "path": "batch/preparation/repair-batch-afterboot.py",
+    "sha256": "c43e5eac87cfeef9d2f4b05915fd02e669969abd1fd4f06b8514f19e735f0cdb"
+  },
+  {
+    "path": "batch/preparation/repair-batch-sentinel.py",
+    "sha256": "869ae98ebfc48af38c7ccdfd9770be9f096ed0ec55da2b1e0529c240245951dd"
+  },
+  {
+    "path": "batch/preparation/repair-batch-solo-residence.py",
+    "sha256": "2c1076fbde58ad244e0086b9b22356d58b0f372c2cd2ae83023da25e6660df4e"
+  },
+  {
+    "path": "batch/preparation/repair-batch-runtime-pools.py",
+    "sha256": "f254c1bfbf412d52a209c4df841dcbbb1aa93732f7c7749d54f40f0439fc88ef"
+  },
+  {
+    "path": "batch/preparation/finalize-batch-native-v4.py",
+    "sha256": "a3bdad1f4eb44656bc99b67cc2343bf85a68a5ad13a978d7549ca0b74616708d"
+  },
+  {
+    "path": "batch/preparation/test-batch-sentinel-v2.py",
+    "sha256": "696a79f0b1944dd21387baf1849b2d34f30c9715a89d78ad4e06c2dec78a10e6"
+  },
+  {
+    "path": "batch/preparation/prepare-batch-parser.py",
+    "sha256": "8b9e0861d1f8de681b75f2e1246166f163c5cb873a4a6fa727281b20d7cacc86"
+  },
+  {
+    "path": "batch/preparation/finalize-batch-parser.py",
+    "sha256": "9c8cecd6478a2cc20b8ae334c03c464219bac879730a2ea54ea836a0bc1de6cd"
+  },
+  {
+    "path": "batch/preparation/finish-batch-postboot-controls.py",
+    "sha256": "d367996d45f02a3fe1e972bda3feedc6f0f6594f836d7ee88571cbb9b827f414"
+  },
+  {
+    "path": "batch/preparation/finalize-batch-solo-parser.py",
+    "sha256": "81579b028ee6bc53b577acb93caa2fa7cb32eb25d979f722c8564cfc16a61d0c"
+  },
+  {
+    "path": "batch/preparation/finalize-batch-pool-parser.py",
+    "sha256": "571db244517814168f73b969da9f8308d282fab7ff29e208f42dd1277eb7e814"
+  },
+  {
+    "path": "batch/preparation/test-batch-controls-v5.py",
+    "sha256": "c36482d6cfeab1a9fd316d7c22405be542aea8fb33541005361eff05c5370c57"
+  },
+  {
+    "path": "batch/preparation/finalize-batch-assets.py",
+    "sha256": "881e5fca46725ddb8be1861a4b81dbdcdb0fc4f05dc96c9c4da260c59b8f6735"
+  },
+  {
+    "path": "batch/preparation/finish-batch-physical.py",
+    "sha256": "cb65582e97d77651d473eba87cc3b6b62cad146ba953ddfe8f60e29575abe7e2"
+  },
+  {
+    "path": "batch/preparation/analyze-batch-physical-root.py",
+    "sha256": "ee565193e76fa106e6414bf834e3cedfdf96d520b9c25c8ed98b2405dd252d9a"
+  },
+  {
+    "path": "batch/preparation/prepare-batch-archive.py",
+    "sha256": "74278119413d546e9a67172cc7c05b342d70b9a1c419099dcf5c9714b1ba5c6f"
+  },
+  {
+    "path": "batch/rejected-native-v2/native-proof.json",
+    "sha256": "7a2446e8741c50f190277df38944e21712fc8260f565f68892c9498d5bd4d989"
+  },
+  {
+    "path": "batch/rejected-native-v2/source-review.json",
+    "sha256": "2b49bfd20390e66968a63431aed808011649121a4bbd4ddf2ef8c5e974113a9b"
+  },
+  {
+    "path": "batch/rejected-native-v2/bin-assets-source-pins.json",
+    "sha256": "24a02d3e6acd57f970d2e3f848f6d6919a55f77ea6bb412ba44458b78059f7d6"
+  },
+  {
+    "path": "batch/rejected-native-v2/empty-car/src/terrain_game.cpp",
+    "sha256": "5917fe1c7eb7fd97451de08a946ad2636a4bf64f68368d1afd3058b0527bdb2e"
+  },
+  {
+    "path": "batch/rejected-native-v2/empty-car/inc/batch_trial.hpp",
+    "sha256": "f2361d248f5f5b34181fc12f7ace1c7ad71963f84688dc1bedae191926f4883e"
+  },
+  {
+    "path": "batch/rejected-native-v3/native-proof.json",
+    "sha256": "aad2cbd64e662948d5de3a44dc5db8006fb7469ebf3903d2dcef26da8f420f0c"
+  },
+  {
+    "path": "batch/rejected-native-v3/source-review.json",
+    "sha256": "bbd756fed4ae05b0d6e2d276eb3643fe7943f4f74e86ab7fcc81e1f801df699b"
+  },
+  {
+    "path": "batch/rejected-native-v3/bin-assets-source-pins.json",
+    "sha256": "c3acd681e8a5d26feb14097cafdf7ebf786575c83dce0dd8bdc36d746d34e71a"
+  },
+  {
+    "path": "batch/rejected-native-v3/empty-car/src/terrain_game.cpp",
+    "sha256": "f4e7877cf79a181709d85d647ad67e0b0faa1a4a01af2334bd43225cf4079371"
+  },
+  {
+    "path": "batch/rejected-native-v3/empty-car/inc/batch_trial.hpp",
+    "sha256": "ef0f94ef5dab4d70b0df6f6257a9e17a0b24cdf9d0af8a5645dccfcac1b398a9"
+  },
+  {
+    "path": "batch/rejected-native-v4/native-proof.json",
+    "sha256": "5fa5f0747801555460b3642e62684816360865018fe369915c02dce9c0deee8e"
+  },
+  {
+    "path": "batch/rejected-native-v4/source-review.json",
+    "sha256": "f7f95c9ec38b71565cb9f5e0db3101fe45efd999a747e078c7385f620a78a24d"
+  },
+  {
+    "path": "batch/rejected-native-v4/bin-assets-source-pins.json",
+    "sha256": "1a555a5859381e1065e9c891623dfa128e5b257789f56230378e1926723fa3e3"
+  },
+  {
+    "path": "batch/rejected-native-v4/empty-car/src/terrain_game.cpp",
+    "sha256": "26e571bf5bc23aeae4a4f674cd0d3f84ee6ce43b265f4f9746b01b43d5eeb9e3"
+  },
+  {
+    "path": "batch/rejected-native-v4/empty-car/inc/batch_trial.hpp",
+    "sha256": "40fc6e7bb414f2d69548a85176af20cd71c6fb597dea5e5ed15eac918a73824c"
+  },
+  {
+    "path": "batch/rejected-native-v3/log-binding-clarification.json",
+    "sha256": "7bb3b357de8fbe759f3c421a6398ea55e667dd75b99abc2e22dd44ff2606b0dc"
+  },
+  {
+    "path": "batch/rejected-native-v4/empty-car/src/gen/game_collision.gen.cpp",
+    "sha256": "2562b5620dd4c8ab776bf69d73f68d6aa862b215eaca249d40cd9eee6adb56a9"
+  },
+  {
+    "path": "batch/rejected-native-v5/native-proof.json",
+    "sha256": "0a4512cb6a62b6404911bf4bd4d40d87ff1fe781b2e53c51215c25e87c15306d"
+  },
+  {
+    "path": "batch/rejected-native-v5/source-review.json",
+    "sha256": "aaa4ecf49ded127a8ca8d91591825d221aaa99b0b12befe6965d009758ebb773"
+  },
+  {
+    "path": "batch/rejected-native-v5/bin-assets-source-pins.json",
+    "sha256": "afa23f0ca8e4fb6d1a676110f70448c78bff7d380de21ae6d19390bcaa33270c"
+  },
+  {
+    "path": "batch/rejected-native-v5/empty-car/src/gen/game_collision.gen.cpp",
+    "sha256": "03fa79f111e953a3414cffc547620104f67794e6562142eadbf97a0908932f2a"
+  },
+  {
+    "path": "batch/rejected-emulator-v1/owned-launch.json",
+    "sha256": "bc3483f596b2fcbab7e3ab3052f7be94b36139a9da8589423d83e3edf631618c"
+  },
+  {
+    "path": "batch/rejected-emulator-v1/owned-stop.json",
+    "sha256": "fccf120ee8ab31ea38039333f63f70ce8b8c55357f221539427c9d32cac35410"
+  },
+  {
+    "path": "batch/rejected-emulator-v1/rejected-runtime.json",
+    "sha256": "9461c4faafddac4e152ac6c6f6c4f39f01ce88778e1d2a108e45e5500ebf995a"
+  },
+  {
+    "path": "batch/rejected-emulator-v1/runtime/emulator.log",
+    "sha256": "5ae58b21253a3adb0656385404b2877efabc252b09d7b69710ef2a24496856a5"
+  },
+  {
+    "path": "batch/rejected-emulator-v2/owned-launch.json",
+    "sha256": "cd3b27c3f1e2057e76576dc57b2fc23c40db0f645d837f86765ce2c4343443a9"
+  },
+  {
+    "path": "batch/rejected-emulator-v2/owned-stop.json",
+    "sha256": "62dc63793c60816d40ca4fc6488fda7cf568cbe3b641884541d847fd20dc0ee9"
+  },
+  {
+    "path": "batch/rejected-emulator-v2/rejected-runtime.json",
+    "sha256": "7d2aec56e27d5f5a4a130c0abecfe33d40f830b00350a988dc568e3de6449450"
+  },
+  {
+    "path": "batch/rejected-emulator-v2/runtime/emulator.log",
+    "sha256": "393464ebb3a69a51f0811061feb52a7dac47675abf2f5b4dfd18a170b9b05cbb"
+  },
+  {
+    "path": "batch/rejected-emulator-v3/owned-launch.json",
+    "sha256": "37c82b04ceed0a51dff562789f71d534a5868eab496e0421f60e8e86841b64bc"
+  },
+  {
+    "path": "batch/rejected-emulator-v3/owned-stop.json",
+    "sha256": "73d443c5eda42c0e4ba53c0320349d96dc68cabe0e57a8097e40bd5708324aed"
+  },
+  {
+    "path": "batch/rejected-emulator-v3/rejected-runtime.json",
+    "sha256": "21c6d3e06c390ee8a7233616aa1eb966fece263ed77dc790ceb29b7919af8901"
+  },
+  {
+    "path": "batch/rejected-emulator-v3/runtime/emulator.log",
+    "sha256": "e2b49dccf60a6863c5f6aabf4efacb4870c93511e6d9822167e98145d119290b"
+  },
+  {
+    "path": "batch/rejected-emulator-v4/owned-launch.json",
+    "sha256": "abd4bd9e904cf0e84c00b1b4a018772a50219a3f3057a54d31e1e3cb1d40d5d0"
+  },
+  {
+    "path": "batch/rejected-emulator-v4/owned-stop.json",
+    "sha256": "f2010ee1c97f6fc76cde37ed6a85f355d9148b60be2797229c97a2e0cfaee0b4"
+  },
+  {
+    "path": "batch/rejected-emulator-v4/rejected-runtime.json",
+    "sha256": "cb72f74112fff140ea905235a2512defb856b179016674c404567e0c872c2a28"
+  },
+  {
+    "path": "batch/rejected-emulator-v4/runtime/emulator.log",
+    "sha256": "bb708b4c5db677cdb8a5cd915fb71378bd4ea861190af92da6220c842537fa50"
+  },
+  {
+    "path": "batch/emulator-order0/launch-attempt.json",
+    "sha256": "359989e113d83a47a10255c110f798c0d2253d8871daa0d0b2ea7489c867e513"
+  },
+  {
+    "path": "batch/emulator-order0/owned-launch.json",
+    "sha256": "e903fbb08508dbe74abb1b12892a02a5eb61626ed58f073a10a0b84e2acfb29a"
+  },
+  {
+    "path": "batch/emulator-order0/owned-stop.json",
+    "sha256": "24221449b9d3ce6e0dcb9fa09362e0681039fbdb682420fb0d0329b359c0b2c4"
+  },
+  {
+    "path": "batch/emulator-order0/completed-emulator.log",
+    "sha256": "8cb54844bc11d08dd61706a6507b4f3b28108a22d761e96a7de2cb7de0e2db55"
+  },
+  {
+    "path": "batch/emulator-order0/bin-closeout-samples.txt",
+    "sha256": "d975a7f66e3541b28dc52d4e6e226e8b780fee5bc6543c3350635dd110653f15"
+  },
+  {
+    "path": "batch/emulator-order0/protocol-analysis.json",
+    "sha256": "24771ad024ffc4280d996101cd5ddf486da582b3c62d7c59a42f586c7bca5a18"
+  },
+  {
+    "path": "batch/emulator-order0/root-runtime-review.json",
+    "sha256": "522ca037055ed91f26274edcab98a87bcbceb00d9fc2bef6e40155ae78270e7c"
+  },
+  {
+    "path": "batch/emulator-order0/root-raster-review.json",
+    "sha256": "10f2b9d182f64124bc5def8a907f46f25abba0f48762fca8518f54535f54ff59"
+  },
+  {
+    "path": "batch/emulator-order0/runtime/profile/PCSX2/inis/PCSX2.ini",
+    "sha256": "63a7f46acc19a73a1bfa119306891f0e46c8aa863c3af90e8e411a69c7b23323"
+  },
+  {
+    "path": "batch/emulator-order0/capture-final/bin-closeout-samples.txt",
+    "sha256": "d975a7f66e3541b28dc52d4e6e226e8b780fee5bc6543c3350635dd110653f15"
+  },
+  {
+    "path": "batch/emulator-order0/capture-final/frame.png",
+    "sha256": "421a493c8815f8bf9e4368e3b523c8586cf08723337299ade6b709712a511ada"
+  },
+  {
+    "path": "batch/emulator-order0/capture-final/observe-proof.json",
+    "sha256": "eb08cb4f6b285be3e751857387e34aaddc725ca41c89516025077c79c836b19e"
+  },
+  {
+    "path": "batch/emulator-order0/capture-final/runtime-emulator.log",
+    "sha256": "8cb54844bc11d08dd61706a6507b4f3b28108a22d761e96a7de2cb7de0e2db55"
+  },
+  {
+    "path": "batch/emulator-order0/capture-final/runtime-stdout.log",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "batch/emulator-order0/capture-off/bin-closeout-samples.txt",
+    "sha256": "75210919e33591c4855961985cf1ce6007fa1090d99620ce97a54c6cd9cf9d24"
+  },
+  {
+    "path": "batch/emulator-order0/capture-off/frame.png",
+    "sha256": "2dc8ba920f14f9eafe6a700c267c15334d7fc85e5b2b97544d906cac5889115d"
+  },
+  {
+    "path": "batch/emulator-order0/capture-off/observe-proof.json",
+    "sha256": "7bcafa6d8e462d13b50d01f9f9c85943d7f2f4c3439de18461aa3ad630dd6797"
+  },
+  {
+    "path": "batch/emulator-order0/capture-off/runtime-emulator.log",
+    "sha256": "369ae28f5b4b53d6297ccb9290a74aed243214fee5a834b1b0cfb02137b0ed74"
+  },
+  {
+    "path": "batch/emulator-order0/capture-off/runtime-stdout.log",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "batch/emulator-order0/capture-on/bin-closeout-samples.txt",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "batch/emulator-order0/capture-on/frame.png",
+    "sha256": "ba6536b9e317b7c145b011fc2a8df2ee5c320c8da1291c3cc2504787369d7e26"
+  },
+  {
+    "path": "batch/emulator-order0/capture-on/observe-proof.json",
+    "sha256": "8c329069b1486937e701800d5088106f8994ac717a3efe1fc416ffde93d61058"
+  },
+  {
+    "path": "batch/emulator-order0/capture-on/runtime-emulator.log",
+    "sha256": "e1691ce299930a4fa46226e685415cd72372120634dc32d55edd974c01182a1d"
+  },
+  {
+    "path": "batch/emulator-order0/capture-on/runtime-stdout.log",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "batch/emulator-order1/launch-attempt.json",
+    "sha256": "d5d277cbdd8b9be0e17c2361ca23605d62c3aa5f0d8ede46c4f125c3f145f136"
+  },
+  {
+    "path": "batch/emulator-order1/owned-launch.json",
+    "sha256": "68e1b24806c5fc340e03bf4483956e4505112ed62961850e671b0305e730a4c4"
+  },
+  {
+    "path": "batch/emulator-order1/owned-stop.json",
+    "sha256": "68cf1fb1a15eee6a0aa628621849577b1e246b4ea6010ea11f1bf177593acaf2"
+  },
+  {
+    "path": "batch/emulator-order1/completed-emulator.log",
+    "sha256": "4266f8d52ebb475f24973a69bf26d7433d8f5ebc275e7a85f4d2346638395c5d"
+  },
+  {
+    "path": "batch/emulator-order1/bin-closeout-samples.txt",
+    "sha256": "73d65bc327e175151aace0dc197f909b2dd585bccdc1e5f401b973e931836f16"
+  },
+  {
+    "path": "batch/emulator-order1/protocol-analysis.json",
+    "sha256": "91cb418f5f4bd00a5953d9f2434a0bc753a8afd0d70eae38ff975ec347f5d700"
+  },
+  {
+    "path": "batch/emulator-order1/root-runtime-review.json",
+    "sha256": "7086cdc5cfe9fd4645015c907ebb4a0bfc9f47d845bd848c27b62cf7794b2810"
+  },
+  {
+    "path": "batch/emulator-order1/root-raster-review.json",
+    "sha256": "1a52a762d8bf989d34b4b90e312882e9d81dad427bd158984b9d22e9977fcabd"
+  },
+  {
+    "path": "batch/emulator-order1/runtime/profile/PCSX2/inis/PCSX2.ini",
+    "sha256": "416c5ac68c36454cd1b2b87d4f69ed0b10b319ff954a03f9a2013d8961e14d99"
+  },
+  {
+    "path": "batch/emulator-order1/capture-final/bin-closeout-samples.txt",
+    "sha256": "73d65bc327e175151aace0dc197f909b2dd585bccdc1e5f401b973e931836f16"
+  },
+  {
+    "path": "batch/emulator-order1/capture-final/frame.png",
+    "sha256": "1d554dad775851cd64e99c8142917f22fe0a8cd478dee2a207d449dcb61e8ecc"
+  },
+  {
+    "path": "batch/emulator-order1/capture-final/observe-proof.json",
+    "sha256": "22ebebe1c8e0efc51a0884ae8ecf78827a913aad2eaa2d7a6da1af262dbd60ea"
+  },
+  {
+    "path": "batch/emulator-order1/capture-final/runtime-emulator.log",
+    "sha256": "4266f8d52ebb475f24973a69bf26d7433d8f5ebc275e7a85f4d2346638395c5d"
+  },
+  {
+    "path": "batch/emulator-order1/capture-final/runtime-stdout.log",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "batch/emulator-order1/capture-off/bin-closeout-samples.txt",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "batch/emulator-order1/capture-off/frame.png",
+    "sha256": "27691a2f895e15156709b2e9c40d266090c401eb1be31a1d507db31399b656fd"
+  },
+  {
+    "path": "batch/emulator-order1/capture-off/observe-proof.json",
+    "sha256": "11b29401f6b9b100199ac6a337c0d0f844f50e343a8fa45b51a138f8e8b96d5f"
+  },
+  {
+    "path": "batch/emulator-order1/capture-off/runtime-emulator.log",
+    "sha256": "78f5cde43a5fc7d02587ef6cd277d561b99b8ce4d2a4f95c5a2f3680d70c0173"
+  },
+  {
+    "path": "batch/emulator-order1/capture-off/runtime-stdout.log",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "batch/emulator-order1/capture-on/bin-closeout-samples.txt",
+    "sha256": "58cc48c72feeaf2141ff566f395f860e9ee712544142831e320d9e5f8f637293"
+  },
+  {
+    "path": "batch/emulator-order1/capture-on/frame.png",
+    "sha256": "559a07584bb1107d98c529c2edda935f7826587bee9c25db7cac6cb286aae96e"
+  },
+  {
+    "path": "batch/emulator-order1/capture-on/observe-proof.json",
+    "sha256": "fd946b0146b142f91bea715dc367b885ae85ebcd929b18960c8fae191da973c6"
+  },
+  {
+    "path": "batch/emulator-order1/capture-on/runtime-emulator.log",
+    "sha256": "7c29c25c470eeaa0e8628a5dd8ed61448127e145aa3837ed0da9d97d897d51e0"
+  },
+  {
+    "path": "batch/emulator-order1/capture-on/runtime-stdout.log",
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  },
+  {
+    "path": "batch/preparation/review-batch-root.py",
+    "sha256": "3037b910f11d83579d5798efa9690860e3fedcf3fac78a33d2b4f308c3a86744"
+  },
+  {
+    "path": "batch/preparation/qualify-batch-emulator-root.py",
+    "sha256": "9fb5bd12e2787d04567c0b1c8fd694dd05c79c81b40d471936cac9230b98aa2a"
+  },
+  {
+    "path": "batch/preparation/archive-batch-root.py",
+    "sha256": "29b1314cbddc11d8a13a8f6f1a194b416dd79acddfd2bae053f9171c1d62db4e"
+  },
+  {
+    "path": "batch/preparation/root-order1-emulator-review.json",
+    "sha256": "3db85321bf1e104bb40155953d8ff979be885e825e23ed74a3c0acfb1983fc5f"
+  },
+  {
+    "path": "batch/README.md",
+    "sha256": "afecd7a701d5e95b6b7f42b5e4d3b1d368dca04b74f05905e7ecb60e218b3e98"
   }
 ]
