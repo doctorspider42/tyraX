@@ -5515,7 +5515,12 @@
 // host-baked albedo map (REFL_GROUND_*): -2 ms a turning frame on the Motor
 // District's open road on a PS2.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 180
+#define TYRAX_VERSION_MINOR 181
+// 1.181.0: Character Generator movement style (docs/character-generator.md,
+// "Movement style"): -1 masculine .. +1 feminine on the kit's clips - hip
+// sway, step width, arm swing, chest turn, elbows - Auto from Gender (the
+// default). Recipes gain "motionStyle" (only when set); project format
+// unchanged.
 // 1.180.0: Character Generator detail levels (docs/character-generator.md,
 // "Detail: crowd, standard, hero"). The kit carries five bodies: the crowd
 // body (proxy741, ~1600 triangles), the standard woman/man (~3300) and hero
@@ -5708,7 +5713,7 @@
 // 1.180.2: Character Generator posture - every clip brings the clavicles 15
 // degrees forward and the hanging upper arms forward by what the clip hangs
 // them back (vs the torso, up to 25): arms no longer hang behind the body.
-#define TYRAX_VERSION_PATCH 2
+#define TYRAX_VERSION_PATCH 0
 
 #define TYRAX_STR2(x) #x
 #define TYRAX_STR(x) TYRAX_STR2(x)

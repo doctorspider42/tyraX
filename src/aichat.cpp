@@ -2089,6 +2089,8 @@ std::string runReadTool(const Project& p, const ToolCall& c, bool& failed) {
              "colour). One item per slot; a 'full' item replaces top and bottom. "
              "\"detail\": 0 crowd body (~1.6k triangles), 1 standard (default, ~3.3k), 2 hero "
              "(~9.5k - the player or a main character); a crowd defaults to 0. "
+             "\"motionStyle\": -1 masculine .. 0 as captured .. 1 feminine movement "
+             "(hip sway, narrow step, elbows in); leave it out to follow gender. "
              "\"options\": [ids] (hair, head and face items) makes them choices for "
              "the in-game Character Creator - meant for the player.\n"
           << "\nWARDROBE (id: label, slot, sex m/f/any):\n";

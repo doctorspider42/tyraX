@@ -481,6 +481,32 @@ rendered failure:
   shoulders in the idle and the walk, hands 4-9 cm in front of the hips.
 - **Skirt panels follow the legs** - see [Clothes that move](#clothes-that-move).
 
+### Movement style
+
+There is one motion library, and no CC0 one recorded by women; *Movement
+style* (Animation tab, recipe `"motionStyle"`) makes the same clips read as a
+woman's or a man's movement by what animators exaggerate. -1 is masculine, 0
+the clips as captured, +1 feminine; **Auto** (the default, nothing in the
+recipe) follows Gender - a woman +0.8, a man -0.8, a child toward 0.
+
+| | feminine (+1) | masculine (-1) |
+|---|---|---|
+| hips, locomotion | sway and roll 1.8x, sideways shift 1.5x | 0.8x |
+| chest counter-turn, locomotion | 0.65x | 1.35x |
+| arm swing, locomotion | 0.7x | 1.15x |
+| thighs, every clip | 2.5 degrees in (5 standing: a narrower stance) | 1.5 out |
+| upper arms, every clip | 5 degrees in (elbows to the body) | 4 out |
+
+Two kinds of change. On the locomotion clips (walk, jog, sprint, run,
+crouch-walk) each key's rotation away from the clip's MEAN pose is scaled -
+a loop has a mean to swing about; a punch does not, so nothing else is.
+On every clip, the limb offsets are scaled by how much the limb hangs, so
+sitting, aiming and punching keep their poses. Measured on the walk at +1
+against 0: pelvis roll 4.9 -> 8.9 degrees, feet 21 -> 16 cm apart, hand
+swing 27 -> 19 cm, hips' sideways travel 7 -> 11 cm; the idle stance 40 ->
+26 cm. The style is applied to the kit's clips; imported ones (*Import
+clips...*) play as recorded.
+
 ## A living face
 
 A generated character in the game **blinks, looks at you and talks**. None of

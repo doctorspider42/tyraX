@@ -343,7 +343,7 @@ Each line links to its guide; the full index is [docs/README.md](docs/README.md)
   given the texels (skin mix, makeup, stubble, brows), 82 garments and
   hairstyles that are either part of the body (shells - zero triangles, no skin
   poke-through) or bound to its surface, recolourable with patterns, and 87
-  motion-captured clips - and a face that blinks, looks at you and lip-syncs
+  motion-captured clips with a feminine-to-masculine movement style - and a face that blinks, looks at you and lip-syncs
   its sound, hair and skirts that swing. Crowds in other colours cost one mesh and one atlas plus 1 KB a
   person, and an in-game creator lets the player pick colours, hair, a hat
   and glasses. Bring your own hairstyle as a .glb or .obj. Randomize, a recipe beside every model, and

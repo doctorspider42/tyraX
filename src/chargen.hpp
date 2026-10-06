@@ -118,6 +118,12 @@ struct Params {
     std::vector<std::string> clips;
     bool defaultClips = true;  // when true `clips` is ignored and the default set is used
     float animFps = 15.0f;     // keys per second the clips are resampled to
+    // How the kit's clips move: -1 masculine .. 0 the clips as captured ..
+    // +1 feminine - hip sway, a narrower step, elbows in, a smaller arm
+    // swing (docs/character-generator.md, "Movement style"). Auto follows
+    // Gender (motionStyleFor); a set value is written to the recipe.
+    bool motionStyleAuto = true;
+    float motionStyle = 0.0f;
     // A .glb/.fbx (Mixamo-named rig) or .tmocap whose clips are retargeted onto
     // the rig INSTEAD of the kit's. "" = kit clips.
     std::string animSource;
@@ -163,6 +169,9 @@ struct ClipInfo {
 const std::vector<ClipInfo>& kitClips();
 // The default set and the names they are written under.
 const std::vector<std::pair<std::string, std::string>>& defaultClipSet();
+// The movement style a recipe builds with: its own, or (auto) from Gender -
+// a woman +0.8, a man -0.8 - and toward 0 for children.
+float motionStyleFor(const Params& p);
 
 // The rig's bone names in palette order (Mixamo naming, "mixamorig:Hips", ...).
 const std::vector<std::string>& boneNames();

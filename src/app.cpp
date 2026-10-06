@@ -18488,6 +18488,33 @@ void App::drawCharacterGeneratorWindow() {
             if (ImGui::IsItemHovered())
                 ImGui::SetTooltip("Keys per second written into the clips. The EE evaluates\n"
                                   "them, so lower is cheaper; 15 is plenty at PS2 range.");
+            {
+                // Movement style: auto follows Gender; unticking it pins a value
+                if (ImGui::Checkbox("Auto style", &p.motionStyleAuto)) {
+                    if (!p.motionStyleAuto) p.motionStyle = chargen::motionStyleFor(p);
+                    dirty = true;
+                }
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Movement style from Gender: a woman moves feminine,\n"
+                                      "a man masculine, a child in between.");
+                ImGui::SameLine();
+                float shown = chargen::motionStyleFor(p);
+                ImGui::BeginDisabled(p.motionStyleAuto);
+                ImGui::SetNextItemWidth(scaled(160.0f));
+                if (ImGui::SliderFloat("Movement style", &shown, -1.0f, 1.0f,
+                                       shown > 0.05f ? "feminine %.2f"
+                                       : shown < -0.05f ? "masculine %.2f" : "as captured")) {
+                    p.motionStyle = shown;
+                    dirty = true;
+                }
+                ImGui::EndDisabled();
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                    ImGui::SetTooltip("One motion library, read as a woman's or a man's\n"
+                                      "movement. Feminine: the hips sway more, a narrower\n"
+                                      "step, elbows in, a smaller arm swing and less chest\n"
+                                      "turn. Masculine: the other way, half as far. 0 = the\n"
+                                      "clips as captured.");
+            }
             if (!p.defaultClips) {
                 ImGui::SetNextItemWidth(scaled(200.0f));
                 ImGui::InputTextWithHint("##clipfilter", "filter", charClipFilter_,

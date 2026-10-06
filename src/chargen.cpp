@@ -1055,6 +1055,7 @@ bool Params::operator==(const Params& o) const {
            options == o.options && customHair == o.customHair &&
            customHairTexture == o.customHairTexture &&
            clips == o.clips && defaultClips == o.defaultClips && animFps == o.animFps &&
+           motionStyleAuto == o.motionStyleAuto && motionStyle == o.motionStyle &&
            animSource == o.animSource && retarget.fps == o.retarget.fps &&
            retarget.inPlace == o.retarget.inPlace &&
            retarget.ground.enabled == o.retarget.ground.enabled && name == o.name;
@@ -1088,6 +1089,12 @@ const std::vector<ClipInfo>& kitClips() {
         return out;
     }();
     return list;
+}
+
+float motionStyleFor(const Params& p) {
+    if (!p.motionStyleAuto) return std::clamp(p.motionStyle, -1.0f, 1.0f);
+    const float adult = std::clamp((p.age - 0.19f) / (0.5f - 0.19f), 0.0f, 1.0f);
+    return std::clamp((0.5f - p.gender) * 2.0f, -1.0f, 1.0f) * 0.8f * adult;
 }
 
 const std::vector<std::pair<std::string, std::string>>& defaultClipSet() {
@@ -2468,6 +2475,103 @@ bool build(const Params& p, glbparser::Skel& out, std::vector<std::string>& warn
             const float r[4] = {std::sin(a * 0.5f), 0.0f, 0.0f, std::cos(a * 0.5f)};
             qmul(r, q);
         };
+
+        // Movement style (docs/character-generator.md, "Movement style"):
+        // one motion library, read as a woman's or a man's walk by what
+        // animators exaggerate. Two kinds of change:
+        // - amplitude, on locomotion clips only (a loop has a mean pose to
+        //   swing about; a punch does not): each key's rotation away from
+        //   the clip's mean is scaled - the hips sway and roll more, the
+        //   chest counter-turns less, the arms swing less (a man the other
+        //   way), and the hips' sideways shift follows the sway;
+        // - a pose offset on every clip, scaled by how much the limb hangs
+        //   (so sitting, aiming and punching keep theirs): the thighs turn
+        //   in (a narrower step, feet toward the line), the elbows come in.
+        const float style = motionStyleFor(p);
+        const float fem = std::max(style, 0.0f), mas = std::max(-style, 0.0f);
+        const bool locomotion = srcName.find("Walk") != std::string::npos ||
+                                srcName.find("Jog") != std::string::npos ||
+                                srcName.find("Sprint") != std::string::npos ||
+                                srcName.find("Run") != std::string::npos ||
+                                srcName.find("Crouch_Fwd") != std::string::npos;
+        auto ampOf = [&](const std::string& nm) -> float {
+            if (!locomotion || style == 0.0f) return 1.0f;
+            if (nm == "mixamorig:Hips") return 1.0f + 0.8f * fem - 0.2f * mas;
+            if (nm == "mixamorig:Spine2" || nm == "mixamorig:Spine1")
+                return 1.0f - 0.35f * fem + 0.35f * mas;
+            if (nm == "mixamorig:LeftArm" || nm == "mixamorig:RightArm" ||
+                nm == "mixamorig:LeftForeArm" || nm == "mixamorig:RightForeArm")
+                return 1.0f - 0.3f * fem + 0.15f * mas;
+            return 1.0f;
+        };
+        auto mul = [](const float a[4], const float b[4], float o[4]) {  // o = a * b
+            o[0] = a[3] * b[0] + a[0] * b[3] + a[1] * b[2] - a[2] * b[1];
+            o[1] = a[3] * b[1] - a[0] * b[2] + a[1] * b[3] + a[2] * b[0];
+            o[2] = a[3] * b[2] + a[0] * b[1] - a[1] * b[0] + a[2] * b[3];
+            o[3] = a[3] * b[3] - a[0] * b[0] - a[1] * b[1] - a[2] * b[2];
+        };
+        // each scaled bone's mean rotation over the clip (as relaxShoulder
+        // leaves it; the keys are dense, a normalized sum is the mean)
+        std::map<int, std::array<float, 4>> meanRot;
+        for (int b = 0; b < k.bones; ++b) {
+            if (ampOf(k.boneNames[(size_t)b]) == 1.0f) continue;
+            float s[4] = {0, 0, 0, 0}, first[4] = {0, 0, 0, 1};
+            for (int i = 0; i < keys; ++i) {
+                float q[4];
+                sampleRot(b, times[i], q);
+                relaxShoulder(b, q);
+                if (i == 0) std::memcpy(first, q, sizeof(first));
+                const float dot = q[0] * first[0] + q[1] * first[1] + q[2] * first[2] + q[3] * first[3];
+                for (int c = 0; c < 4; ++c) s[c] += dot < 0 ? -q[c] : q[c];
+            }
+            const float l = std::sqrt(s[0] * s[0] + s[1] * s[1] + s[2] * s[2] + s[3] * s[3]);
+            if (l < 1e-6f) continue;
+            meanRot[b] = {s[0] / l, s[1] / l, s[2] / l, s[3] / l};
+        }
+        auto styleAmp = [&](int bone, float q[4]) {
+            auto it = meanRot.find(bone);
+            if (it == meanRot.end()) return;
+            const float* m = it->second.data();
+            const float mc[4] = {-m[0], -m[1], -m[2], m[3]};
+            float d[4];
+            mul(q, mc, d);  // q = d * mean
+            if (d[3] < 0)
+                for (float& c : d) c = -c;
+            const float half = std::acos(std::clamp(d[3], -1.0f, 1.0f));
+            const float sn = std::sin(half);
+            if (sn < 1e-6f) return;
+            const float h2 = half * ampOf(k.boneNames[(size_t)bone]);
+            const float f = std::sin(h2) / sn;
+            const float ds[4] = {d[0] * f, d[1] * f, d[2] * f, std::cos(h2)};
+            mul(ds, m, q);
+        };
+        auto stylePose = [&](int bone, float q[4]) {
+            if (style == 0.0f) return;
+            const std::string& nm = k.boneNames[(size_t)bone];
+            const bool left = nm.rfind("mixamorig:Left", 0) == 0;
+            float a = 0.0f;  // about +Z (forward): + moves a hanging limb toward +X
+            if (nm == "mixamorig:LeftUpLeg" || nm == "mixamorig:RightUpLeg")
+                // in: toward the midline - a standing stance narrows more
+                // than a step can (the walk's feet would cross)
+                a = ((locomotion ? 2.5f : 5.0f) * fem - 1.5f * mas) * deg;
+            else if (nm == "mixamorig:LeftArm" || nm == "mixamorig:RightArm")
+                a = (5.0f * fem - 4.0f * mas) * deg;  // in: elbows to the body
+            else
+                return;
+            if (left) a = -a;  // the left limb hangs at +X: inward is -X
+            float d[3];
+            if (!armDir(bone, q, d)) return;
+            a *= hangOf(d);
+            const float r[4] = {0.0f, 0.0f, std::sin(a * 0.5f), std::cos(a * 0.5f)};
+            qmul(r, q);
+        };
+        // the hips' sideways shift, about its mean, follows the sway
+        float hipsMeanX = 0.0f;
+        const float hipsSway = locomotion ? 1.0f + 0.5f * fem - 0.2f * mas : 1.0f;
+        if (hipsSway != 1.0f) {
+            for (int i = 0; i < clip->frames; ++i) hipsMeanX += clip->hips[i * 3];
+            hipsMeanX /= (float)std::max(1, clip->frames);
+        }
         for (int b = 0; b < k.bones; ++b) {
             glbparser::SkelChannel ch;
             ch.node = b;
@@ -2499,7 +2603,9 @@ bool build(const Params& p, glbparser::Skel& out, std::vector<std::string>& warn
                 float q[4];
                 sampleRot(b, times[i], q);
                 relaxShoulder(b, q);
+                styleAmp(b, q);
                 posture(b, q);
+                stylePose(b, q);
                 if (finger) {
                     float l = 0.0f;
                     if (partner >= 0) {
@@ -2541,7 +2647,8 @@ bool build(const Params& p, glbparser::Skel& out, std::vector<std::string>& warn
                 const int i0 = (int)std::floor(f), i1 = std::min(i0 + 1, clip->frames - 1);
                 const float u = f - (float)i0;
                 for (int a = 0; a < 3; ++a) {
-                    const float o = clip->hips[i0 * 3 + a] + (clip->hips[i1 * 3 + a] - clip->hips[i0 * 3 + a]) * u;
+                    float o = clip->hips[i0 * 3 + a] + (clip->hips[i1 * 3 + a] - clip->hips[i0 * 3 + a]) * u;
+                    if (a == 0) o = hipsMeanX + (o - hipsMeanX) * hipsSway;
                     ch.values.push_back(out.nodes[0].t[a] + o * hipsScale);
                 }
             }
@@ -2673,7 +2780,9 @@ std::string toJson(const Params& p) {
     o << "  \"defaultClips\": " << (p.defaultClips ? "true" : "false") << ", \"clips\": [";
     for (size_t i = 0; i < p.clips.size(); ++i)
         o << (i ? ", " : "") << "\"" << json::escape(p.clips[i]) << "\"";
-    o << "],\n  \"animFps\": " << num(p.animFps) << ",\n  \"animSource\": \""
+    o << "],\n  \"animFps\": " << num(p.animFps) << ",\n";
+    if (!p.motionStyleAuto) o << "  \"motionStyle\": " << num(p.motionStyle) << ",\n";  // only when set
+    o << "  \"animSource\": \""
       << json::escape(p.animSource) << "\"\n}\n";
     return o.str();
 }
@@ -2741,6 +2850,10 @@ bool fromJson(const std::string& text, Params& p, std::string& error) {
     if (const json::Value* c = v.find("clips"))
         for (const json::Value& s : c->arr) d.clips.push_back(s.stringOr(""));
     f("animFps", d.animFps);
+    if (const json::Value* x = v.find("motionStyle")) {
+        d.motionStyleAuto = false;
+        d.motionStyle = std::clamp((float)x->numberOr(0.0), -1.0f, 1.0f);
+    }
     if (const json::Value* x = v.find("animSource")) d.animSource = x->stringOr("");
     p = d;
     return true;
