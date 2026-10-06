@@ -515,17 +515,24 @@ that there is a second, finer instrument in the engine —
 #define TYRA_FRAME_PROFILE_CALIB 1  // ... and the destructive GS fill sweep
 ```
 
-**Level 2 is the one that times the frame a player gets.** Level 1 switches on
+**Level 2 still changes renderer synchronization.** Any nonzero
+`TYRA_FRAME_PROFILE`, including 2, enables the fairness fence in
+`RendererCore::endFrame`: `sync.align3D()` drains configured PATH1 before
+presentation. It is a serialized diagnostic interval, not ordinary asynchronous
+TyraX2 timing. Level 1 additionally switches on
 the static pipeline's telemetry (`FTCLIP`) and the packet-structure walker
 (`FTPKT`), and the walker parses every DMA tag and VIF code of every packet
 sent, every frame. That is not transparent: on a physical PS2 at a parked Motor
 District vantage the HUD's SCENE row read **13.21 ms uninstrumented, 17.70 ms at
 level 1 and 13.04 ms at level 2**, and in PCSX2 `work` read 20.54 ms at level 1
 against 8.12 ms at level 2 - most of what level 1 "measured" was itself. So
-level 1 answers what a frame is MADE of and deltas between two level-1 arms stay
-valid; an absolute `work` must come off level 2. The check that a level-2 run
-really is transparent is free and belongs in every report: its HUD SCENE must
-match an uninstrumented boot of the same pose.
+level 1 answers what a frame is MADE of, and deltas between two level-1 arms
+describe that diagnostic apparatus; level 2 omits the walker but retains the
+drain. Matching HUD SCENE to an uninstrumented pose cannot prove identical
+overlap, presentation cadence or observer cost. For ordinary-clock measurements,
+compile FrameProfile and HardwareTrace out, sample existing loop/presentation
+boundaries without adding a fence, and qualify sampler Off/On/Off and reverse
+controls on the same ELF. See [closeout qualification](tyrax2-closeout.md).
 
 Both default to **0**, and at 0 neither `libtyra.a` nor the generated game
 carries a single instruction of any of it — the whole file is inside the
@@ -2164,7 +2171,7 @@ between the two ELFs:
 | `Obj_cull` / `Obj_guard` / `Obj_vertices` | 42 / 11 / 1932 | 42 / 11 / 1932 |
 | Objects bounds, capture | 0.673 | 0.245 |
 | game-side coarse lap | 0.056 | 0.182 |
-| **FRAMETIME `work`, level 2, ordinary frame** | **14.20** | **13.80** |
+| **FRAMETIME `work`, level 2, fairness-drained diagnostic frame** | **14.20** | **13.80** |
 
 Everything drawn is identical to the vertex and the frame lost 0.40 ms (2.9%).
 Both arms were stable to +-0.03 ms over six 50-frame windows; a rerun of the
@@ -2192,7 +2199,8 @@ With `TYRA_FRAME_PROFILE` on, the FPP game loop laps its update and prints an
 update and use target), `scripts`, `stream` (layer streaming), `phys` (object
 physics and spinners), `veh` (every vehicle, AI drivers included), `portal`
 (portals and the carried object), `part`, `sound` (emitters and reverb) and
-`rest`. Bare COUNT reads, so level 2 stays transparent; `pre` is these plus the
+`rest`. These scopes use bare COUNT reads; the enclosing level-2 build still
+adds the fairness drain. `pre` is these plus the
 gap after the previous present.
 
 Its first reading answered "where is the missing millisecond" at the Motor

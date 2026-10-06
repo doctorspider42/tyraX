@@ -1,0 +1,13 @@
+{
+  "status": "PRIVATE_INPUT_ROUTE_PATCH_ONLY_NO_BUILD_OR_RUNTIME",
+  "HEAD": "5b6cd898b05fbbdcc11466bfc8a1911a9c285d4b",
+  "fixture": "F:\\Projects\\tyrax2-lab-20261001\\tyrax2-closeout-motion-v1\\quiet-v4\\vehicle\\game",
+  "source": "F:\\Projects\\tyrax2-lab-20261001\\tyrax2-closeout-motion-v1\\quiet-v4\\vehicle\\game\\src\\terrain_game.cpp",
+  "preSha256": "ae4e5ec4f50087af86ca9c5266c7788194be92a93039491a53909b4f21166cde",
+  "postSha256": "38e99a862703c9bb5b18c5a28ab90757db7728ef011e632d948cc90f360f95f8",
+  "headerSha256": "1fe7375ee87c41574679707b1f9404d1813f796b2012815be81a58672d9bee5f",
+  "route": "vehicle",
+  "samplerFrameContract": "beginLoop assigns absolute frame before pad update; verify namespace before build",
+  "regenerationWarning": "editor --build refresh replaces this private patch; native build private postimage directly after sampler hooks",
+  "trajectoryEqualityClaim": false
+}

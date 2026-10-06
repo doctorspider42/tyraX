@@ -464,7 +464,8 @@ build it through `tools/toolchain/native-build.ps1`/`.sh` using the copied `tyra
 and a dedicated cache. Use the usual [resident-IOP marker and deployment rules](ps2link-setup.md).
 
 `--mode plain` is the uninstrumented transparency control; `timing` selects
-`TYRA_FRAME_PROFILE=2`; `check` selects the chain guard; `hold` enables the
+`TYRA_FRAME_PROFILE=2`, including the fairness `align3D()` drain, so it is a
+serialized diagnostic interval; `check` selects the chain guard; `hold` enables the
 existing GPU-hold probe at queue depth 80. Hold deliberately serializes segments,
 can alter memory pressure and omits some intermediate GS tails; its frame work
 must never be quoted as shipped performance. A held-frame overflow invalidates
@@ -742,6 +743,12 @@ for the immutable physical evidence and limitations.
 
 
 ### Portable ordinary-clock quiet fixtures
+
+The [bounded closeout qualification](tyrax2-closeout.md) records current public
+receiver controls, private quieting and motion/showcase obligations. FrameProfile
+level 2 still inserts the fairness drain; devkit-off alone does not suppress all
+authored or arena telemetry. Completed emulator protocols are correctness
+evidence, not new hardware pricing or stable full-night 60 fps acceptance.
 
 Use `tools/tyrax2-quiet-fixture.py --project PROJECT --engine TYRA_ROOT --editor
 EDITOR_EXECUTABLE --out NEW_DESTINATION --order 0` with absolute paths. It copies

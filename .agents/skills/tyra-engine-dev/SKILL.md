@@ -14,6 +14,17 @@ description: >
 
 # Working on the in-tree Tyra engine fork
 
+Ordinary timing trap: any nonzero `TYRA_FRAME_PROFILE`, including 2, enables
+the fairness `sync.align3D()` drain in RendererCore::endFrame. Level 2 drops
+the packet walker but still serializes completion; matching HUD SCENE does not
+prove production overlap/cadence. Ordinary-clock trials compile FrameProfile
+and HardwareTrace out and calibrate the sampler in same-ELF Off/On/Off and
+reverse controls. Devkit-off does not suppress authored VEH/VEHCONTACT scans
+or the Vif1Queue arena report/RAM probe. Review actual native object/source
+binding and timed-window log families. Quiet suppression belongs in private
+fixtures and retains WARN/ERROR/TRAP/assertions; emulator elapsed numbers never
+price physical PS2. See `docs/tyrax2-closeout.md`.
+
 Claude-trial boundaries: `docs/tyrax2-claude-trials.md` records twelve original
 Core assertions (the inherited comment says thirteen), private bypass prices
 with no production safety claim, and sparse nonempty-entered companion census.

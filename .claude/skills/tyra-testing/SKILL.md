@@ -1584,11 +1584,14 @@ Notes:
   debug build polls `livepad.bin` through HostFs every frame); and **run the
   page's GS fill calibration before quoting any PCSX2 number about GS cost** —
   measured, PCSX2 under-reports fill by **76x**.
-  **For an ABSOLUTE frame time use `TYRA_FRAME_PROFILE 2`, not 1** (1.123.8).
+  **Level 2 is a fairness-drained diagnostic build, not ordinary frame timing.**
   Level 1 carries the packet-structure walker and the pipeline telemetry and is
   not transparent - HUD SCENE 13.21 ms uninstrumented, 17.70 at level 1, 13.04
-  at level 2 on the same console pose. Prove transparency in every report by
-  matching SCENE against an uninstrumented boot. And read `pre`/`stall`/
+  at level 2 on the same console pose. Every nonzero FrameProfile value enables
+  `sync.align3D()` in RendererCore::endFrame. Matching SCENE cannot prove
+  identical overlap or cadence. Use FrameProfile=0/HardwareTrace=0 with existing
+  ordinary-clock boundaries and same-ELF Off/On/Off plus reverse controls for
+  ordinary TyraX2 pricing. And read `pre`/`stall`/
   `period`/`miss` as well as `work`: `work` starts at `beginFrame()`, so a
   frame can miss its field with `over20=0`. **Over ps2link, a debug build's
   `miss` is mostly the devkit**: Remote Pad polls `host:` every 4th frame there
@@ -3345,9 +3348,14 @@ spikes against 0 in a paired emulator run.
    `liveLogic`, `timeMachine` and `inputRecorder` false (and `showMemory` too
    on an engine older than 1.123.10).
    (No Remote Pad also means no scripted day/night toggle - plan the poses.)
-2. `TYRA_FRAME_PROFILE 2` in `vendor/tyra/engine/inc/debug/frame_profile.hpp`
-   - FRAMETIME alone, transparent. Level 1 is for WHAT a frame is made of, and
-   only its deltas are quotable.
+2. For diagnostic FRAMETIME, `TYRA_FRAME_PROFILE 2` omits the packet walker
+   but retains the fairness `align3D()` drain. Label those intervals serialized.
+   For ordinary asynchronous timing use FrameProfile=0/HardwareTrace=0 and a
+   separately calibrated ordinary-clock sampler; do not add a completion wait.
+   Devkit-off alone is insufficient: authored VEH/VEHCONTACT logging and
+   Vif1Queue arena reports/RAM probes can remain active. Inspect actual compiled
+   code and runtime log families, and privately suppress healthy telemetry
+   before calling a fixture quiet. Keep WARN/ERROR/TRAP/assertion paths.
 3. `--refresh-gen`, then `tools/toolchain/native-build.ps1` directly.
 4. Deploy with a bare `execee` straight after a power cycle (next section),
    and read `FRAMETIME` off the ps2client stdout. `pre + work + stall` must

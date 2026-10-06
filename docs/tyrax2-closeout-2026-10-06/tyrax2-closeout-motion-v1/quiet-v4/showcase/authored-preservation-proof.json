@@ -1,0 +1,10 @@
+{
+  "status": "PASS_ORIGINAL_TARGETED_GATE_AUTHORED_OBJECTS_AND_SCENE_GRAPH_PRESERVED",
+  "sourceManifest": "F:\\Projects\\tyrax2-lab-20261001\\player-light-public-runtime-v1\\fixtures\\showcase-gate-players\\showcase.tyra",
+  "sourceSha256": "3298c1aef10f179b4565afaed1d11b59f578a4638374eac9fdc5fed2d4529c76",
+  "currentManifest": "F:\\Projects\\tyrax2-lab-20261001\\tyrax2-closeout-motion-v1\\quiet-v4\\showcase\\game\\showcase.tyra",
+  "currentSha256": "813306dc9e7edb13e664ffacea89dd1d8e2f54093f8b577705e30bf1019f292c",
+  "sceneCount": 1,
+  "devkitSettingsChanged": true,
+  "runtimeActivationNotClaimed": true
+}

@@ -497,6 +497,10 @@ recovered 0.50-0.72 ms of hardware `work`. What it did not do, ranked:
   driver rebinding, targeted showcase portal and fresh PS2 screenshots qualify
   correctness. Price its common All path and restricted path separately on
   hardware; these archived private prices do not qualify either public cost.
+  The [bounded closeout](tyrax2-closeout.md) now has quiet native fixtures and
+  completed emulator receiver, sampler, eleven-box ablation and vehicle-motion
+  protocols. Physical forward/reverse pricing and motion/showcase cadence remain
+  open: the new hardware attempt never started the game (`freepad: DMA Busy`).
   The host-crash partial attempt is preserved and excluded; its fresh retry completes.
 
   The [eleven-box main-only batching trial](tyrax2-main11-batch.md) completes

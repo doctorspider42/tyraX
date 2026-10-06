@@ -1,0 +1,46 @@
+
+    3d78:	3c020000 	lui	v0,0x0
+			3d78: R_MIPS_HI16	.bss+0x207d
+    3d7c:	90420000 	lbu	v0,0(v0)
+			3d7c: R_MIPS_LO16	.bss+0x207d
+    3d80:	10400017 	beqz	v0,3de0 <Tyra::Vif1Queue::arenaFrameEnd()+0x68>
+    3d84:	00000000 	nop
+    3d88:	3c050000 	lui	a1,0x0
+			3d88: R_MIPS_HI16	.bss+0x206c
+    3d8c:	3c030000 	lui	v1,0x0
+			3d8c: R_MIPS_HI16	.bss+0x2068
+    3d90:	8ca40000 	lw	a0,0(a1)
+			3d90: R_MIPS_LO16	.bss+0x206c
+    3d94:	8c620000 	lw	v0,0(v1)
+			3d94: R_MIPS_LO16	.bss+0x2068
+    3d98:	0044102b 	sltu	v0,v0,a0
+    3d9c:	10400002 	beqz	v0,3da8 <Tyra::Vif1Queue::arenaFrameEnd()+0x30>
+    3da0:	00000000 	nop
+    3da4:	ac640000 	sw	a0,0(v1)
+			3da4: R_MIPS_LO16	.bss+0x2068
+    3da8:	3c040000 	lui	a0,0x0
+			3da8: R_MIPS_HI16	.bss+0x2064
+    3dac:	3c030000 	lui	v1,0x0
+			3dac: R_MIPS_HI16	.bss+0x2060
+    3db0:	8c860000 	lw	a2,0(a0)
+			3db0: R_MIPS_LO16	.bss+0x2064
+    3db4:	8c620000 	lw	v0,0(v1)
+			3db4: R_MIPS_LO16	.bss+0x2060
+    3db8:	0046102b 	sltu	v0,v0,a2
+    3dbc:	10400002 	beqz	v0,3dc8 <Tyra::Vif1Queue::arenaFrameEnd()+0x50>
+    3dc0:	00000000 	nop
+    3dc4:	ac660000 	sw	a2,0(v1)
+			3dc4: R_MIPS_LO16	.bss+0x2060
+    3dc8:	3c030000 	lui	v1,0x0
+			3dc8: R_MIPS_HI16	.bss
+    3dcc:	aca00000 	sw	zero,0(a1)
+			3dcc: R_MIPS_LO16	.bss+0x206c
+    3dd0:	8c620000 	lw	v0,0(v1)
+			3dd0: R_MIPS_LO16	.bss
+    3dd4:	24420001 	addiu	v0,v0,1
+    3dd8:	ac800000 	sw	zero,0(a0)
+			3dd8: R_MIPS_LO16	.bss+0x2064
+    3ddc:	ac620000 	sw	v0,0(v1)
+			3ddc: R_MIPS_LO16	.bss
+    3de0:	03e00008 	jr	ra
+    3de4:	00000000 	nop

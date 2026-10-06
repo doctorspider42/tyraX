@@ -1,0 +1,59 @@
+{
+  "status": "OWNED_CLOSEOUT_LOG_PREFIX_AND_RASTER_IDENTITY_ONLY",
+  "snapshotUTC": "2026-10-06T09:07:50.757620+00:00",
+  "launchSha256": "20e1fc0524094aea8a297de663ba6d83065c78e599de4b1d837a08a00f06901c",
+  "markers": {
+    "CONFIG": [
+      "[    5.2601] LOG: CLOSEOUTCONFIG order=0 kind=1 valid=1 phases=3 phaseFrames=1800 taxFirst=800 taxLoops=320 sampleFirst=900 sampleCount=128 ordinaryClocks=1 addedWaits=0 frameProfile=0 hardwareTrace=0 devkit=0 sampleBytes=6144 chunkBytes=420"
+    ],
+    "PHASE": [
+      "[    9.7825] LOG: CLOSEOUTPHASE phase=0 first=0 players=0 geometryHidden=0 sampler=0 countReads=6",
+      "[   56.5759] LOG: CLOSEOUTPHASE phase=1 first=1800 players=0 geometryHidden=0 sampler=1 countReads=262",
+      "[   90.8385] LOG: CLOSEOUTPHASE phase=2 first=3600 players=0 geometryHidden=0 sampler=0 countReads=6"
+    ],
+    "CONTEXT": [
+      "[   24.9005] LOG: CLOSEOUTCONTEXT phase=0 offset=750 players=0 scene=0 night=1 paused=1 hourZero=1 vehicleDriver=0 sceneGeneration=1 video=1 display=1 depth=2 width=448 height=448 refreshMilliHz=60000 requested=1 dtBits=3c888889 clockBits=00000000 positionX=00000000 positionY=4028b436 positionZ=c2a19b64 lookX=00000000 lookY=3f9a5e32 lookZ=c2949b64 geometryMatched=0 geometryReady=0 geometryRejected=0 visibleMask=0 activeMask=0 savedMask=0 valid=1",
+      "[   32.0924] LOG: CLOSEOUTCONTEXT phase=0 offset=1155 players=0 scene=0 night=1 paused=1 hourZero=1 vehicleDriver=0 sceneGeneration=1 video=1 display=1 depth=2 width=448 height=448 refreshMilliHz=60000 requested=1 dtBits=3c888889 clockBits=00000000 positionX=00000000 positionY=4028b436 positionZ=c2a19b64 lookX=00000000 lookY=3f9a5e32 lookZ=c2949b64 geometryMatched=0 geometryReady=0 geometryRejected=0 visibleMask=0 activeMask=0 savedMask=0 valid=1",
+      "[   71.2840] LOG: CLOSEOUTCONTEXT phase=1 offset=750 players=0 scene=0 night=1 paused=1 hourZero=1 vehicleDriver=0 sceneGeneration=1 video=1 display=1 depth=2 width=448 height=448 refreshMilliHz=60000 requested=1 dtBits=3c888889 clockBits=00000000 positionX=00000000 positionY=4028b436 positionZ=c2a19b64 lookX=00000000 lookY=3f9a5e32 lookZ=c2949b64 geometryMatched=0 geometryReady=0 geometryRejected=0 visibleMask=0 activeMask=0 savedMask=0 valid=1",
+      "[   78.8846] LOG: CLOSEOUTCONTEXT phase=1 offset=1155 players=0 scene=0 night=1 paused=1 hourZero=1 vehicleDriver=0 sceneGeneration=1 video=1 display=1 depth=2 width=448 height=448 refreshMilliHz=60000 requested=1 dtBits=3c888889 clockBits=00000000 positionX=00000000 positionY=4028b436 positionZ=c2a19b64 lookX=00000000 lookY=3f9a5e32 lookZ=c2949b64 geometryMatched=0 geometryReady=0 geometryRejected=0 visibleMask=0 activeMask=0 savedMask=0 valid=1",
+      "[  104.5012] LOG: CLOSEOUTCONTEXT phase=2 offset=750 players=0 scene=0 night=1 paused=1 hourZero=1 vehicleDriver=0 sceneGeneration=1 video=1 display=1 depth=2 width=448 height=448 refreshMilliHz=60000 requested=1 dtBits=3c888889 clockBits=00000000 positionX=00000000 positionY=4028b436 positionZ=c2a19b64 lookX=00000000 lookY=3f9a5e32 lookZ=c2949b64 geometryMatched=0 geometryReady=0 geometryRejected=0 visibleMask=0 activeMask=0 savedMask=0 valid=1",
+      "[  113.0448] LOG: CLOSEOUTCONTEXT phase=2 offset=1155 players=0 scene=0 night=1 paused=1 hourZero=1 vehicleDriver=0 sceneGeneration=1 video=1 display=1 depth=2 width=448 height=448 refreshMilliHz=60000 requested=1 dtBits=3c888889 clockBits=00000000 positionX=00000000 positionY=4028b436 positionZ=c2a19b64 lookX=00000000 lookY=3f9a5e32 lookZ=c2949b64 geometryMatched=0 geometryReady=0 geometryRejected=0 visibleMask=0 activeMask=0 savedMask=0 valid=1"
+    ],
+    "DONE": [
+      "[  125.1367] LOG: CLOSEOUTDONE order=0 kind=1 valid=1 loops=5400"
+    ],
+    "WINDOW": [
+      "LOG: CLOSEOUTWINDOW phase=0 sampler=0 raw=0 chunks=5 valid=1",
+      "LOG: CLOSEOUTWINDOW phase=1 sampler=1 raw=128 chunks=5 valid=1",
+      "LOG: CLOSEOUTWINDOW phase=2 sampler=0 raw=0 chunks=5 valid=1"
+    ]
+  },
+  "samplesRows": 128,
+  "chunkRows": 15,
+  "snapshots": [
+    {
+      "source": "/mnt/f/Projects/tyrax2-lab-20261001/tyrax2-closeout-emulator-v4-kind1-order0/runtime/emulator.log",
+      "snapshot": "/mnt/f/Projects/tyrax2-lab-20261001/tyrax2-closeout-emulator-v4-kind1-order0/capture-final/runtime-emulator.log",
+      "bytes": 60501,
+      "sha256": "aeeca0f2f93df082573464431bd98e2b3addf87ac7897bb32114cf038a6dcb00"
+    },
+    {
+      "source": "/mnt/f/Projects/tyrax2-lab-20261001/tyrax2-closeout-emulator-v4-kind1-order0/runtime/stdout.log",
+      "snapshot": "/mnt/f/Projects/tyrax2-lab-20261001/tyrax2-closeout-emulator-v4-kind1-order0/capture-final/runtime-stdout.log",
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "source": "/mnt/f/Projects/tyrax2-lab-20261001/tyrax2-closeout-receivers-v1/game/bin/closeout-samples.txt",
+      "snapshot": "/mnt/f/Projects/tyrax2-lab-20261001/tyrax2-closeout-emulator-v4-kind1-order0/capture-final/bin-closeout-samples.txt",
+      "bytes": 30625,
+      "sha256": "9ec7371a70d7bab36e5dc9194f97df35d750db9897f9c824b4520f1658daa887"
+    }
+  ],
+  "window": "0x200007",
+  "title": "vehicle-playground [?]",
+  "imageSha256": "a57d3a5a5ad0a5239a28c4c94e3ff62706b96acdad6b1ee3dd21920b0135ef93",
+  "visualReviewPending": true,
+  "strictSamplerAnalysisPending": true,
+  "devicePerformanceQualified": false
+}

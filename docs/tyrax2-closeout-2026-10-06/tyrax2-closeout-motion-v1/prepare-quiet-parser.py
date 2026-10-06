@@ -1,0 +1,13 @@
+from pathlib import Path
+root=Path(__file__).parent;out=root/'analyze-quiet-motion.py';assert not out.exists();s=(root/'analyze-motion.py').read_text()
+s=s.replace("p.add_argument('--out',type=Path,required=True);a=p.parse_args()","p.add_argument('--out',type=Path,required=True);p.add_argument('--route',choices=['vehicle','gate'],required=True);a=p.parse_args()")
+s=s.replace('assert order==0 and kind==0','assert order==0 and kind==3')
+s=s.replace("dict(players=players,scene=0,night=1,paused=1,hourZero=1,requested=1,valid=1)","dict(players=players,scene=0,requested=1,valid=1)")
+s=s.replace("  assert n(r,'vehicleDriver')>=0 and n(r,'sceneGeneration')>0","  assert n(r,'sceneGeneration')>0\n  if a.route=='vehicle':\n   assert n(r,'vehicleDriver')>=0 and all(n(r,k)==1 for k in ('night','paused','hourZero'))\n  else:\n   assert n(r,'vehicleDriver')==-1 and n(r,'portalOther')==0")
+s=s.replace("assert n(r,'oneArm')==1 and n(r,'route')==1","assert n(r,'oneArm')==1 and n(r,'route')==(1 if a.route=='vehicle' else 2)")
+s=s.replace("('positionX','positionY','positionZ','lookX','lookY','lookZ','vehicleX','vehicleY','vehicleZ','vehicleSpeed','playerX','playerY','playerZ')", "(('positionX','positionY','positionZ','lookX','lookY','lookZ','playerX','playerY','playerZ')+ (('vehicleX','vehicleY','vehicleZ','vehicleSpeed')if a.route=='vehicle'else()))")
+s=s.replace("moved={p:any(contextmap[p][750][k]!=contextmap[p][1155][k] for k in ('vehicleX','vehicleY','vehicleZ'))for p in range(3)}", "positionKeys=('vehicleX','vehicleY','vehicleZ')if a.route=='vehicle'else('playerX','playerY','playerZ')\nmoved={p:any(contextmap[p][750][k]!=contextmap[p][1155][k] for k in positionKeys)for p in range(3)}")
+s=s.replace("'No cold endpoint vehicle movement established; route activation missing'", "'No actual cold endpoint movement established; route activation missing'")
+s=s.replace("result=dict(status='PASS_COMPLETED_ONE_ARM_MOTION_PROTOCOL'", "portalCounts=None\nif a.route=='gate':\n ordered=[contextmap[p][o] for p in range(3)for o in (750,1155)]\n portalCounts={k:[n(r,k)for r in ordered]for k in ('portal0','portal1')}\n for counts in portalCounts.values():assert counts==sorted(counts) and counts[-1]>0,'actual portal roundtrip branch activation missing'\nresult=dict(status='PASS_COMPLETED_QUIET_ONE_ARM_MOTION_PROTOCOL',route=a.route,portalColdCounts=portalCounts")
+s=s.replace("'V3 authored hot telemetry remains unqualified for pricing; quiet reviewed rebase required.'", "'Private quieting, controller and observer footprint remain unpriced; hardware performance needs root qualification.'")
+out.write_bytes(s.encode())

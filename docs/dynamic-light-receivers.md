@@ -77,3 +77,8 @@ must be rebuilt together; the normal build does that. Restricted wheel groups
 and secondary-view animated-color refresh also have costs. Neither the common
 default path nor the public restricted mode has a new hardware price yet.
 The receiver option changes no production VU source.
+
+The [closeout qualification](tyrax2-closeout.md) prepares a quiet same-ELF
+All/Players comparison and separate sampler calibration. Completed emulator
+protocols do not replace the pending physical forward/reverse pair; common
+selector/layout and private observer footprint remain unpriced.

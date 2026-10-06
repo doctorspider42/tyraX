@@ -9,6 +9,10 @@ for people building games with it. Internals live in code comments, the git log
 
 **World & objects**
 
+- [TyraX2 closeout qualification](tyrax2-closeout.md) — bounded public receiver,
+  sampler, night dressing and motion/portal checks, with ordinary timing traps
+  and remaining physical-console obligations stated separately.
+
 - [Animated models (.glb / .fbx)](animated-models.md) — authoring in Blender, import,
   clip playback, flow nodes and the script API, the PS2 memory budget.
 - [Importing animation from another file](animation-import.md) — borrow clips
