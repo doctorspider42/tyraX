@@ -18288,7 +18288,8 @@ void App::drawCharacterGeneratorWindow() {
             static const char* kSlots[][2] = {{"full", "Outfit (full)"}, {"top", "Top"},
                                               {"bottom", "Bottom"},      {"feet", "Shoes"},
                                               {"head", "Hat"},           {"face", "Glasses"},
-                                              {"hands", "Gloves"}};
+                                              {"hands", "Gloves"},
+                                              {"over", "Over the top (vest, jacket)"}};
             for (const auto& slot : kSlots) {
                 // What is worn in this slot, if anything.
                 int worn = -1;

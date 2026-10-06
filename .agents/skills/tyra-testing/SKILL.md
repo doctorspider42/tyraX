@@ -173,8 +173,9 @@ recipe, `--chargen ... --variants 3`, open the screen from a scratch script
 change) and drive it with `--pad "press right; wait 0.3; press down; ..."` -
 the D-pad works there, unlike in the walkers.
 Custom hair: `tyrax-editor --chargen-reference <dir>` writes the reference
-bodies; a recipe's `"customHair"` is relative to the recipe file under
-`--chargen`. To LOOK at a generated character, Blender renders work well
+bodies; a recipe's `"customHair"` / `"customWear"` paths are PROJECT-relative
+under `--chargen` too (the nearest folder up holding a `.tyra`; the recipe's
+own folder outside a project). To LOOK at a generated character, Blender renders work well
 (import the .glb, set the action, frame the bones); remember a .glb carries no
 spring simulation - what Blender shows is the clip, i.e. the far-instance look.
 Rebuilding the kit itself is tools/chargen-kit/README.md.

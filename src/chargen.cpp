@@ -846,9 +846,10 @@ std::shared_ptr<GarmentData> customItem(const std::string& meshPath, const std::
     g->item.dyeable = slot != "hair";
     g->kind = "mesh";
     g->offMeters = true;
-    // stacking: shoes and trousers under tops, hats and glasses outermost
+    // stacking: shoes and trousers under tops, "over" (a vest, a jacket) on a
+    // top, hats and glasses outermost
     g->layer = slot == "hair" ? 50 : slot == "feet" ? 10 : slot == "bottom" ? 20 : slot == "hands" ? 25
-             : slot == "top" || slot == "full" ? 30 : slot == "face" ? 55 : 60;
+             : slot == "top" || slot == "full" ? 30 : slot == "over" ? 40 : slot == "face" ? 55 : 60;
     double avg[3] = {0, 0, 0};
     int opaque = 0;
     for (size_t i = 0; i < (size_t)tw * th; ++i) {
@@ -881,15 +882,34 @@ std::shared_ptr<GarmentData> customItem(const std::string& meshPath, const std::
                                 (float)((*top)[2] / (*top)[3])};
     }
     g->luma = g->item.color.r * 0.3f + g->item.color.g * 0.59f + g->item.color.b * 0.11f;
-    for (size_t v = 0; v < corners; ++v) g->tri.push_back((int32_t)v);
+    // One vertex per position: the file's corners are welded (to 0.01 mm), so
+    // the corners of neighbouring triangles share ONE binding. Unwelded, each
+    // corner bound to its own nearest body triangle, and on any body but the
+    // reference one (or in a pose) coincident corners drifted apart - a
+    // collar standing off the neck tore into strips. UVs stay per corner.
+    std::vector<float> VP;
+    {
+        std::map<std::array<long long, 3>, int32_t> at;
+        for (size_t c = 0; c < corners; ++c) {
+            const std::array<long long, 3> key = {std::llround(P[c * 3] * 1e5), std::llround(P[c * 3 + 1] * 1e5),
+                                                  std::llround(P[c * 3 + 2] * 1e5)};
+            auto it = at.find(key);
+            if (it == at.end()) {
+                it = at.emplace(key, (int32_t)(VP.size() / 3)).first;
+                VP.insert(VP.end(), &P[c * 3], &P[c * 3] + 3);
+            }
+            g->tri.push_back(it->second);
+        }
+    }
+    const size_t verts = VP.size() / 3;
     for (size_t v = 0; v < corners; ++v) {  // Blender convention: v up
         g->uv.push_back(UV[v * 2]);
         g->uv.push_back(1.0f - UV[v * 2 + 1]);
     }
     g->body.resize(k.bodies.size());
     GarmentBody& gb = g->body[(size_t)bi];
-    for (size_t v = 0; v < corners; ++v) {
-        const float* p = &P[v * 3];
+    for (size_t v = 0; v < verts; ++v) {
+        const float* p = &VP[v * 3];
         float best = 1e30f, bw[3] = {1, 0, 0};
         int bt = 0;
         for (int t = 0; t < b.tris; ++t) {
@@ -1607,7 +1627,7 @@ bool build(const Params& p, glbparser::Skel& out, std::vector<std::string>& warn
             const GarmentData* g = worn[gi];
             const std::string& slot = g->item.slot;
             if (isOpt[gi] || g->kind != "mesh" || g->tri.empty() ||
-                (slot != "top" && slot != "bottom" && slot != "full" && slot != "feet" && slot != "hands"))
+                (slot != "top" && slot != "bottom" && slot != "full" && slot != "feet" && slot != "hands" && slot != "over"))
                 continue;
             const std::vector<float> gp = itemPositions(g, nullptr);
             const size_t gt = g->tri.size() / 3;

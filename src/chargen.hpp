@@ -110,7 +110,9 @@ struct Params {
     // replaces top and bottom, and the other way round).
     struct CustomWear {
         std::string mesh, texture;
-        std::string slot = "top";  // full / top / bottom / feet / head / face / hands
+        // full / top / bottom / feet / head / face / hands - or "over": worn
+        // over the top (a vest, a jacket), replacing nothing
+        std::string slot = "top";
         Rgb color{-1.0f, -1.0f, -1.0f};  // r < 0 = as made, else a recolour
         bool operator==(const CustomWear& o) const {
             return mesh == o.mesh && texture == o.texture && slot == o.slot && color.r == o.color.r &&

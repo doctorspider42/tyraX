@@ -5515,7 +5515,12 @@
 // host-baked albedo map (REFL_GROUND_*): -2 ms a turning frame on the Motor
 // District's open road on a PS2.
 #define TYRAX_VERSION_MAJOR 1
-#define TYRAX_VERSION_MINOR 182
+#define TYRAX_VERSION_MINOR 183
+// 1.183.0: Character Generator - your own clothes gain the "over" slot (a
+// vest or a jacket over the kit's top, replacing nothing); imported meshes
+// are welded on import (coincident corners share one binding - a collar no
+// longer tears); --chargen resolves recipe paths project-relative like the
+// editor. Project format unchanged.
 // 1.182.0: Character Generator - your own clothes (docs/character-generator.md,
 // "Your own clothes"): a .glb/.obj modelled on a reference body, in a slot of
 // its own choosing, bound/skinned/recoloured like the kit's (key colour = the

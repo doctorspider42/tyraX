@@ -408,9 +408,10 @@ triangles.
 *Outfit > Your own clothes > Add your own...* does the same for a garment:
 model it on a reference body (step 1 above), export a static `.glb` or
 `.obj`, pick it, and choose its **slot** - Outfit (full), Top, Bottom, Shoes,
-Hat, Glasses or Gloves. It replaces the kit's item in that slot (a full one
-replaces top and bottom, a top or a bottom a full one); several can be worn,
-one per slot. *Texture...* swaps its texture (alpha below 50% is cut out:
+Hat, Glasses or Gloves, and it replaces the kit's item in that slot (a full
+one replaces top and bottom, a top or a bottom a full one) - or **Over the
+top**, for a vest or a jacket worn OVER the kit's shirt, replacing nothing.
+Several can be worn, one per slot. *Texture...* swaps its texture (alpha below 50% is cut out:
 lace, holes), and *As made* / a colour recolours it like the kit's clothes -
 the key colour is the texture's MOST COMMON one (the plain average of a
 red-and-white stripe is a pink that is nowhere in it, and the dye caught
@@ -422,6 +423,20 @@ trousers under tops, hats and glasses outermost), so it follows every body
 slider - and the two garment passes above apply: it is kept out of the
 morphed body and the skin under it is not drawn. Model it a few millimetres
 off the reference skin; the conform pass handles a bigger bust or hips.
+
+The file's corners are **welded** on import (to 0.01 mm): an `.obj` or a
+`.glb` arrives as separate triangles, and unwelded each corner bound to its
+own nearest body triangle - on any body but the reference one, or in a pose,
+coincident corners drifted apart, and a collar standing off the neck tore
+into strips. Relative paths in a recipe are project-relative, in the editor
+and under `--chargen` alike (the nearest folder up holding a `.tyra`).
+
+The example's hero wears one: a quilted puffer vest made by a script,
+`examples/character-generator/tools/make_puffer_vest.py` (Blender: the
+reference man's torso without the arms, subdivided once, pushed out 14-23 mm
+in 7.5 cm quilted bands, a level stand-up collar and a hem extruded from the
+open rings, a cylindrical UV and a painted 256 texture with the seams, a zip
+and a ribbed hem) - 1544 triangles, worn "over" the kit's polo.
 
 ## The rig
 

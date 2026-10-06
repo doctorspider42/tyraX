@@ -4774,9 +4774,26 @@ int main(int argc, char** argv) {
         return 0;
     }
     if (argc > 1 && std::strcmp(argv[1], "--chargen") == 0) {
-        // a recipe's relative paths (custom hair) are relative to the recipe
-        if (argc > 2 && std::strchr("-", argv[2][0]) == nullptr)
-            chargen::setAssetRoot(std::filesystem::path(argv[2]).parent_path().string());
+        // A recipe's relative paths (custom hair and clothes) are
+        // project-relative, as the editor writes them: the project is the
+        // nearest folder up from the recipe holding a .tyra file. A recipe
+        // outside any project resolves against its own folder.
+        if (argc > 2 && std::strchr("-", argv[2][0]) == nullptr) {
+            namespace fs = std::filesystem;
+            fs::path dir = fs::absolute(fs::path(argv[2])).parent_path(), root = dir;
+            std::error_code ec;
+            for (fs::path d = dir; !d.empty(); d = d.parent_path()) {
+                bool project = false;
+                for (const auto& e : fs::directory_iterator(d, ec))
+                    if (e.path().extension() == ".tyra") project = true;
+                if (project) {
+                    root = d;
+                    break;
+                }
+                if (d == d.parent_path()) break;
+            }
+            chargen::setAssetRoot(root.string());
+        }
         if (argc < 4) {
             std::fprintf(stderr, "usage: --chargen <recipe.json|-|preset:N|random:SEED> <out.glb> "
                                  "[--recipe-out <file.json>] [--variants N]\n");
