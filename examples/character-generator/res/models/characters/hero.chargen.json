@@ -11,6 +11,7 @@
   "textureSize": 256,
   "hair": "short2",
   "outfit": [{"id": "polo", "color": [0.16,0.22,0.38], "color2": [1,1,1], "pattern": 0}, {"id": "cargo", "color": [-1,-1,-1], "color2": [1,1,1], "pattern": 0}, {"id": "shoes3", "color": [-1,-1,-1], "color2": [1,1,1], "pattern": 0}],
+  "customWear": [{"mesh": "res/models/characters/custom/puffer_vest.obj", "texture": "res/models/characters/custom/puffer_vest.png", "slot": "over", "color": [-1,-1,-1]}],
   "options": ["short1", "messy", "long", "newsboy", "fedora", "glasses1", "shades"],
   "defaultClips": true, "clips": [],
   "animFps": 15,

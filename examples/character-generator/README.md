@@ -73,6 +73,31 @@ The hero stays on the **standard** body here. The hero body (`"detail": 2`,
 pedestrians, a few minutes of walking ran the EE's 32 MB out (see
 docs/character-generator.md, "Detail"), so the example does not ship it.
 
+## Your own clothes: the hero's puffer vest
+
+The hero's orange vest is not from the kit: it is a garment made outside the
+editor and imported with *Outfit > Your own clothes* (docs/character-generator.md,
+"Your own clothes"). `tools/make_puffer_vest.py` builds it in Blender on the
+generator's reference man (`tyrax-editor --chargen-reference <dir>`): his
+torso without the arms, pushed out in quilted bands, a stand-up collar, a zip
+- 1544 triangles and a 256 texture, written to
+`res/models/characters/custom/puffer_vest.obj` / `.png`. The hero's recipe
+wears it in the **over** slot, on top of the kit's polo:
+
+```json
+"customWear": [{"mesh": "res/models/characters/custom/puffer_vest.obj",
+                "texture": "res/models/characters/custom/puffer_vest.png",
+                "slot": "over", "color": [-1,-1,-1]}]
+```
+
+It follows the hero's muscular build (the conform pass keeps it out of the
+body), sits through every clip and colour look, and costs its triangles in
+the accessory part. To remake it:
+
+```
+blender -b --factory-startup --python tools/make_puffer_vest.py -- reference-male.glb res/models/characters/custom puffer_vest
+```
+
 ## The cast
 
 Every character has its **recipe** beside it: `res/models/characters/<name>.chargen.json`.
@@ -85,7 +110,7 @@ tyrax-editor --chargen res/models/characters/hero.chargen.json res/models/charac
 
 | | Body | Wears | Atlas | Triangles |
 |---|---|---|---|---|
-| `hero` | man, 1.82 m, muscular | polo (recoloured navy), cargo pants, boots, short hair - plus 7 creator options and 3 colour looks | 256 | ~4600 as worn (10 593 in the file: every option, its hat twin and scalp cap) |
+| `hero` | man, 1.82 m, muscular | an orange **puffer vest of his own** over a polo (recoloured navy), cargo pants, boots, short hair - plus 7 creator options and 3 colour looks | 256 | ~6100 as worn (11 767 in the file: the vest, every option, its hat twin and scalp cap) |
 | `clerk` | woman, 1.65 m, mostly East Asian | trouser suit (recoloured navy; the blouse and scarf keep theirs), T-bar shoes, square frames, a bun, lipstick | 128 | 4407 |
 | `dockhand` | man, 1.76 m, older, heavy | work overalls, ankle boots, newsboy cap, buzz cut, stubble | 128 | 4375 |
 | `kid` | child, 1.30 m | striped T-shirt (pattern), jean shorts, canvas shoes, ponytail | 128 | 4221 |
