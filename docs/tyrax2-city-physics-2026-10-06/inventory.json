@@ -42,6 +42,19 @@
     "preparation/parser-controls-f32.py": "726f1406df726621756e6e5965ab5a8324e2c212714cbe9100dcf93c4458a36d",
     "preparation/parser-controls-f32.json": "55f3961525982e6966a4bb8e505e524f73aad83e289b3215253a333f9400bcb0",
     "README.md": "a05142e1d35972eaaa551be225753ee175d961ed0ce7d42b2f8342256433431a",
-    "root-qualification.json": "2aca76c584a126f650d5ea6dc362cc92c3d03826e22b5b549ade4ea21c15058c"
+    "root-qualification.json": "2aca76c584a126f650d5ea6dc362cc92c3d03826e22b5b549ade4ea21c15058c",
+    "physical/owned-launch.json": "62ffdee5c47e195811fcebf62cce77ceadae7e848866409b88067f10e0cf4c79",
+    "physical/launch-inputs.json": "bc6d5a6b8bcf291319c04a1564624ea6cb220368a8347524178190b3a25e1d43",
+    "physical/strict-result.json": "3de2622fa552fde38385c3a55f08a87fa57860669bf968814c642c198634b473",
+    "physical/completed-prefix/closeout-samples.txt": "1d98a030d161968efbb77ca03cba83a7487205ba6b9bab680aa7818f1a112dc0",
+    "physical/completed-prefix/freeze-proof.json": "f1627b2e07037ea2d1d6c5f8ac8f77f3b1692143f374b4271cfcab5f36476270",
+    "physical/completed-prefix/normalized.log": "003ea9114da69feb962a5b33ad60e4713c7898bec7212b5385bcf261b975f80e",
+    "physical/completed-prefix/ps2client.stderr": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "physical/completed-prefix/ps2client.stdout": "afcc74105d5ad945020f12c16ed9702f23c7215b5ff1acd6c4eb53e646920e5a",
+    "physical/closeout.cfg": "350195e792e3f97da28b8c02fe2f90f2c128d5713ea1414caa32c5c3c98c64cf",
+    "physical/freeze-physical.py": "24ff36ef4d7272c6cd259458461a6b932e753f87fc1267d462dc2d20118c7a36",
+    "physical/archive-physical.py": "2abb0fc665489088e7f0f4bbc2a069b1b38d19c42119b8ed57fefda3a669b903",
+    "physical/root-qualification.json": "a2014981f89e513d39742799b0c7e469cd979cc98f1078e412caded75b28a2c2",
+    "physical/README.md": "d98dbbe990255bccfe761cb0274c119c5b8a665338da3170764969ae7aa01e21"
   }
 }

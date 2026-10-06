@@ -15,9 +15,9 @@ for people building games with it. Internals live in code comments, the git log
 - [Full-city daylight drive diagnosis](tyrax2-city-day-drive-2026-10-06/README.md) —
   physical driving spikes versus two near-stationary representative-view windows,
   with preserved sampler, pose witnesses and limits on causal attribution.
-- [Daylight vehicle substep attribution](tyrax2-city-physics-2026-10-06/README.md) —
-  native/emulator-qualified actual substep counters and bounded vehicle scopes,
-  with parked observer calibration prepared; physical measurement pending.
+- [Daylight vehicle substep attribution](tyrax2-city-physics-2026-10-06/physical/README.md) —
+  PS2 scopes show small vehicle-update cost and prior cadence loss before
+  two-step activation; most heavy-loop work remains outside that wrapper.
 
 - [Animated models (.glb / .fbx)](animated-models.md) — authoring in Blender, import,
   clip playback, flow nodes and the script API, the PS2 memory budget.

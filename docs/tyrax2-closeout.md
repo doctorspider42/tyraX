@@ -185,3 +185,14 @@ scope intervals accompany384 ordinary raw loops, with512 separately accounted
 extra Count reads and parked Off/On/Off plus reverse controls. No production
 timestep or renderer behavior changes. Physical activation/cost/transition
 ordering await a reset-ready PS2; emulator timing supplies no hardware verdict.
+
+The [physical substep follow-up](tyrax2-city-physics-2026-10-06/physical/README.md)
+now completes5400 loops: driving scopes average0.5989 ms for107 one-step rows
+and0.8187 ms for21 two-step rows. Over-budget driving loops average0.6251 ms
+inside the vehicle wrapper and18.5047 ms outside. Fourteen of15 one-to-two
+transitions follow an already over-budget measured one-step loop; all two-step
+rows follow >25 ms entry intervals. This does not make doubled physics the
+dominant spike source. Parked forward/reverse active observer contrasts are
++0.06753/-0.00523 ms with reverse outer spread0.13196 ms, so no clean scalar
+tax or uniform correction is accepted. Next partition remaining game update
+from render preparation/submission and existing waits. Physical TV remains pending.
